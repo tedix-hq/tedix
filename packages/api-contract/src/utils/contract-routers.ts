@@ -108,6 +108,7 @@ import { voiceContract } from "../contracts/voice";
 import { waitlistContract } from "../contracts/waitlist";
 import { workItemsContract } from "../contracts/work-items";
 import { webSearchContract } from "../contracts/web-search";
+import { tokenExchangeContract } from "../contracts/token-exchange";
 import { workApprovalsContract } from "../contracts/work-approvals";
 import { workAgentSessionsContract } from "../contracts/work-agent-sessions";
 import { workInteractionsContract } from "../contracts/work-interactions";
@@ -221,6 +222,7 @@ export const ROUTERS: Record<string, unknown> = {
 	support: supportContract,
 	workApprovals: workApprovalsContract,
 	webSearch: webSearchContract,
+	tokenExchange: tokenExchangeContract,
 	workAgentSessions: workAgentSessionsContract,
 	attention: attentionContract,
 	workInteractions: workInteractionsContract,

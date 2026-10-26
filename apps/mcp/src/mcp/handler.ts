@@ -1,4 +1,5 @@
 import { isPlainRecord } from "./handler-log-redaction";
+import { attachExchangedToken } from "./token-exchange-pilot";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	ExternalRequestInputError,
@@ -1077,6 +1078,22 @@ export class ToolHandler {
 		applyWorkflowExecutionHeaders(headers, ctx.callerIdentity, {
 			includeTedixProvenance: true,
 		});
+		// Token exchange pilot (off unless TOKEN_EXCHANGE_PILOT is "on"): a
+		// tedi's RPC call carries a one-call token narrowed to this tool.
+		if (transport === "rpc")
+			await attachExchangedToken({
+				env: ctx.env,
+				endpoint,
+				toolId: ctx.toolId,
+				config: config as unknown as Record<string, unknown>,
+				mcpConfig: ctx.appMetadata?.mcpConfig as
+					| Record<string, unknown>
+					| undefined,
+				readOnlyHint: ctx.readOnlyHint,
+				callerOrganizationId: ctx.callerIdentity?.organizationId,
+				headers,
+				serviceBinding: useServiceBinding,
+			});
 
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeout);

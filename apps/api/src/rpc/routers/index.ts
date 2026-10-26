@@ -194,6 +194,9 @@ export const apiRouter = {
 	webSearch: lazyRouter(() =>
 		import("./web-search").then((m) => m.webSearchContractRouter),
 	),
+	tokenExchange: lazyRouter(() =>
+		import("./token-exchange").then((m) => m.tokenExchangeContractRouter),
+	),
 	workAgentSessions: lazyRouter(() =>
 		import("./work-agent-sessions").then(
 			(m) => m.workAgentSessionsContractRouter,

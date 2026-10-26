@@ -877,6 +877,43 @@ export const withAuth = base.middleware(async (options, input) => {
 			context.headers,
 			context,
 		);
+		// Token exchange pilot: a forwarded exchanged token must verify for this
+		// exact procedure and then narrows the call to its scopes. With the
+		// pilot off the header is ignored and nothing changes.
+		const exchangedToken = context.headers.get("X-Tedix-Exchanged-Token");
+		// A nested in-process call reuses the context; its token is already
+		// consumed and keeps narrowing the inner call.
+		if (
+			exchangedToken &&
+			!context.exchangedToken &&
+			(context.env as CloudflareEnv & { TOKEN_EXCHANGE_PILOT?: string })
+				.TOKEN_EXCHANGE_PILOT === "on"
+		) {
+			const { verifyForwardedExchangedToken } =
+				await import("../services/token-exchange-broker");
+			let claims: Awaited<ReturnType<typeof verifyForwardedExchangedToken>>;
+			try {
+				claims = await verifyForwardedExchangedToken(
+					context,
+					exchangedToken,
+					options.path.join("/"),
+				);
+			} catch (error) {
+				if (error instanceof Error && error.name === "TokenExchangeRefused")
+					throw createError(ErrorCodes.UNAUTHORIZED, error.message);
+				throw createError(
+					ErrorCodes.SERVICE_UNAVAILABLE,
+					"Exchanged token verification is temporarily unavailable",
+				);
+			}
+			context.exchangedToken = {
+				jti: claims.jti,
+				subject: claims.sub,
+				actorChain: claims.actorChain,
+				scopes: claims.scopes,
+			};
+			context.tediScopes = claims.scopes;
+		}
 		return next({ context });
 	}
 
@@ -996,10 +1033,14 @@ export function hasRequiredScope(
 		| "serviceBindingAuthorization"
 		| "tediScopes"
 		| "oidcScopes"
+		| "exchangedToken"
 	>,
 	requiredScope: string,
 ): boolean {
 	if (context.authType === "service-binding") {
+		// A verified exchanged token replaces the MCP tool pre-authorization.
+		if (context.exchangedToken)
+			return hasScope(context.exchangedToken.scopes, requiredScope);
 		// A Cloudflare service binding authenticates the transport, not the
 		// procedure. The trusted upstream must explicitly delegate the machine
 		// capability in X-Tedix-Tedi-Scopes; external ingress cannot forge that
