@@ -3,8 +3,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	APP_RUNTIME_CALL_METHOD,
+	APP_RUNTIME_LANGUAGE_METHOD,
+	APP_RUNTIME_TRANSLATION_METHOD,
 	type AppRuntimeHostResult,
 } from "@/lib/app-runtime-host";
+import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { widgetSandboxUrl } from "@/components/widget-frame";
 
 /**
@@ -20,6 +23,8 @@ export interface AppRuntimeFrameProps {
 	onCall: (method: unknown, args: unknown) => Promise<AppRuntimeHostResult>;
 	/** Fill the pane; otherwise follow the app's reported content height. */
 	layout?: "content" | "fill";
+	/** The host's Translate, wired to the app document once it is ready. */
+	translation?: AppRuntimeTranslationChannel;
 }
 
 const PROXY_READY = "ui/notifications/sandbox-proxy-ready";
@@ -44,10 +49,11 @@ export function AppRuntimeFrame({
 	title,
 	onCall,
 	layout = "content",
+	translation,
 }: AppRuntimeFrameProps) {
 	const container = useRef<HTMLDivElement>(null);
-	const latest = useRef({ html, onCall });
-	latest.current = { html, onCall };
+	const latest = useRef({ html, onCall, translation });
+	latest.current = { html, onCall, translation };
 	const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
 
 	useEffect(() => {
@@ -91,8 +97,16 @@ export function AppRuntimeFrame({
 					method: RESOURCE_READY,
 					params: { html: latest.current.html, csp: APP_CSP },
 				});
+				latest.current.translation?.attach(post);
 				clearTimeout(timer);
 				if (alive) setState("ready");
+				return;
+			}
+			if (
+				data.method === APP_RUNTIME_TRANSLATION_METHOD ||
+				data.method === APP_RUNTIME_LANGUAGE_METHOD
+			) {
+				latest.current.translation?.receive(data.method, data.params);
 				return;
 			}
 			if (data.method === "tedix/resize" && layout !== "fill") {
@@ -148,6 +162,7 @@ export function AppRuntimeFrame({
 		}).href;
 		return () => {
 			alive = false;
+			latest.current.translation?.attach(null);
 			clearTimeout(timer);
 			window.removeEventListener("message", onMessage);
 			iframe.remove();
@@ -167,6 +182,10 @@ export function AppRuntimeFrame({
 				params: { html, csp: APP_CSP },
 			},
 			window.location.origin,
+		);
+		// The new document starts in its original language.
+		latest.current.translation?.attach((data) =>
+			iframe.contentWindow?.postMessage(data, window.location.origin),
 		);
 	}, [html, state]);
 

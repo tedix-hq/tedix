@@ -10,6 +10,7 @@ import {
 } from "@tedix/widget-i18n/catalogs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
+import { AppTranslateButton } from "@/components/app-translate-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Text } from "@/components/kumo/text";
@@ -19,6 +20,7 @@ import {
 	handleAppRuntimeCall,
 } from "@/lib/app-runtime-host";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
+import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
 import { OrganizationMark } from "@/shared/organization-mark";
 
 /**
@@ -223,6 +225,7 @@ function GuestApp({
 	t: Translate;
 }) {
 	const { app, sessionToken, share } = state;
+	const translation = useAppRuntimeTranslation(app.app.settings);
 	const context = useMemo<AppRuntimeContext>(
 		() => ({
 			workspaceId: app.app.workspaceId,
@@ -325,6 +328,7 @@ function GuestApp({
 					<Badge variant="success" title={t("share_no_sign_in")}>
 						<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
 					</Badge>
+					<AppTranslateButton translation={translation} compact />
 				</div>
 			</header>
 			{share.share.note && (
@@ -344,6 +348,7 @@ function GuestApp({
 				title={app.app.name}
 				onCall={onCall}
 				layout="fill"
+				translation={translation.channel}
 			/>
 		</main>
 	);

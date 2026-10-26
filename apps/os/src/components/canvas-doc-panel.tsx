@@ -44,6 +44,9 @@ import {
 import { ShareControls } from "@/components/share-controls";
 import { WidgetFrame } from "@/components/widget-frame";
 import { AppRuntimePreview } from "@/components/app-runtime-panel";
+import { AppTranslateButton } from "@/components/app-translate-button";
+import { appRuntimeSettings } from "@/lib/app-runtime-host";
+import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
 import {
 	AppRuntimeDrafts,
 	useAppDrafts,
@@ -452,6 +455,11 @@ export function CanvasDocPanel({
 		view: GADGET_VIEW_LABELS[effectiveGadgetView],
 		enabled: isRuntimeApp,
 	});
+	const runtimeSettings = useMemo(
+		() => appRuntimeSettings(isRuntimeApp ? builtinManifestEarly : undefined),
+		[builtinManifestEarly, isRuntimeApp],
+	);
+	const translation = useAppRuntimeTranslation(runtimeSettings);
 	// A runtime app fills the stage beside the chat; on a phone the panel
 	// scrolls, so the app takes its own content height instead.
 	const runtimeAppFills = useMediaQuery("(min-width: 960px)") && isRuntimeApp;
@@ -822,6 +830,9 @@ export function CanvasDocPanel({
 							? `Save as v${canonicalDoc.revision + 1}`
 							: "Save version"}
 					</Button>
+				)}
+				{isRuntimeApp && effectiveGadgetView === "preview" && (
+					<AppTranslateButton translation={translation} compact />
 				)}
 				{isGadget && gadgetDetail.data && (
 					<ShareControls
@@ -1227,6 +1238,7 @@ export function CanvasDocPanel({
 									gadget={gadgetDetail.data.gadget}
 									revision={gadgetDetail.data.currentRevision}
 									layout={runtimeAppFills ? "fill" : "content"}
+									translation={translation.channel}
 								/>
 							</CardContent>
 						</Card>

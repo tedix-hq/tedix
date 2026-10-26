@@ -135,18 +135,24 @@ export async function handleAppRuntimeCall(
 	}
 }
 
+/** `config.settings` from an app manifest, or none. */
+export function appRuntimeSettings(
+	manifest: OsGadgetManifest | undefined,
+): Record<string, JsonValue> {
+	const config = isRecord(manifest?.config) ? manifest.config : {};
+	return isRecord(config.settings)
+		? (config.settings as Record<string, JsonValue>)
+		: {};
+}
+
 /** The grants and settings an app context carries, read from its manifest. */
 export function appRuntimeContextFromManifest(
 	manifest: OsGadgetManifest,
 	base: Omit<AppRuntimeContext, "settings" | "grants">,
 ): AppRuntimeContext {
-	const config = isRecord(manifest.config) ? manifest.config : {};
-	const settings = isRecord(config.settings)
-		? (config.settings as Record<string, JsonValue>)
-		: {};
 	return {
 		...base,
-		settings,
+		settings: appRuntimeSettings(manifest),
 		grants: (manifest.resourceGrants ?? []).map((grant) => ({
 			slot: grant.slot,
 			operations: grant.operations,

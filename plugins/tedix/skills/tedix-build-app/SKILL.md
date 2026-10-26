@@ -120,6 +120,10 @@ Before handing off:
 - Write plain copy in the language the organization or workspace uses (never
   assume one) and keep it in `config.settings`; use semantic buttons, visible
   focus and labelled controls.
+- Do not build a language switch: Tedix offers Translate in its own bar when the
+  viewer's language differs. Name the app's language in `settings.locale`, put
+  fixed wording for short labels in `settings.glossary.<language>` (original
+  text to wording), and mark names, scores and quoted text `translate="no"`.
 - Confirm resets inside the app; sandboxed native `confirm()` dialogs are blocked.
 - Make touch targets at least 44 × 44 CSS pixels. Check phone width (375px),
   desktop, long text, loading, empty and denied/error states.
