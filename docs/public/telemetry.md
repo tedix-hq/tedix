@@ -10,6 +10,7 @@ read_when:
   - Evaluating what a Tedix installation sends outside your account
   - Disabling widget or OS analytics
   - Self-hosting Tedix without contacting Tedix Cloud
+  - Checking how the maintainers measure adoption without telemetry
 visibility: public
 ---
 
@@ -71,6 +72,28 @@ below means that file.
   Analytics described above is separate.
 - The CLI has no background update check. It contacts the release server only
   when you run `tedix update`, `tedix update --check`, or `tedix setup`.
+
+## How we measure adoption without telemetry
+
+Because the product sends no usage reports, the maintainers judge whether
+Tedix is useful only from what people and agents choose to share, plus counts
+that public hosts already show:
+
+- **Feedback you send.** Reviews submitted through
+  [AGENT-REVIEW.md](https://github.com/tedix-hq/tedix/blob/main/AGENT-REVIEW.md)
+  carry a 0–5 fit score, blockers, suggestions and bugs. We track the fit
+  scores and the most common blockers over time.
+- **Public conversation.** Questions, ideas and reports in
+  [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions) and
+  GitHub issues, including what worked and what did not.
+- **Public counters.** GitHub stars and forks, and the clone and visit totals
+  GitHub shows repository maintainers.
+- **Tedix Cloud accounts.** Invited organizations and their own Work in the
+  hosted service, which Tedix runs and already sees as the operator.
+
+None of these signals comes from the CLI, a local run or a self-hosted
+installation. If you want your use counted, send a review or start a
+discussion.
 
 ## Default endpoints that point at Tedix Cloud
 

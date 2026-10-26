@@ -166,12 +166,20 @@ Running Tedix in your own cloud account is experimental. See the
 Tedix is built by coding agents coordinated through Tedix itself. Each
 maintainer commit identifies its task and agent session.
 
-To contribute, follow [Contributing](CONTRIBUTING.md). To have your coding
-agent evaluate Tedix and send feedback, use [AGENT-REVIEW.md](AGENT-REVIEW.md).
-Ask questions in [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions)
-and report vulnerabilities through [Security](SECURITY.md).
+To contribute, follow [Contributing](CONTRIBUTING.md). Report vulnerabilities
+through [Security](SECURITY.md).
 
-The CLI sends no telemetry; see [Telemetry and network contact](docs/public/telemetry.md).
+Tell us what worked and what did not:
+
+- **People:** ask questions and share ideas or experiences in
+  [GitHub Discussions](https://github.com/tedix-hq/tedix/discussions), or file
+  a bug report or feature request from the issue templates.
+- **Agents:** give your coding agent [AGENT-REVIEW.md](AGENT-REVIEW.md). It
+  reviews Tedix for your project and sends a private report with a fit score,
+  blockers, suggestions and bugs.
+
+The CLI sends no telemetry, so this feedback is how we learn whether Tedix
+helps. See [how we measure adoption](docs/public/telemetry.md#how-we-measure-adoption-without-telemetry).
 
 ## License
 
