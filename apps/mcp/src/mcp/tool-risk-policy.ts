@@ -77,6 +77,18 @@ export function toolRiskAuditMetadata(
 		: { riskTier: "unclassified", blastRadius: "unclassified" };
 }
 
+/** Mirrors `MCP_WRITE_RATE_LIMITER` and `MCP_HIGH_RISK_RATE_LIMITER` in cloudflare.config.ts. */
+const WRITE_BUDGET = { limit: 30, windowSeconds: 60 };
+const HIGH_RISK_BUDGET = { limit: 5, windowSeconds: 60 };
+const RISK_TIER_BUDGETS: Record<
+	Exclude<ToolOperationalRiskTier, "read">,
+	{ limit: number; windowSeconds: number }
+> = {
+	bounded_write: WRITE_BUDGET,
+	high_impact_write: HIGH_RISK_BUDGET,
+	external_side_effect: HIGH_RISK_BUDGET,
+};
+
 type RiskRateLimiter = {
 	limit(options: { key: string }): Promise<{ success: boolean }>;
 };
@@ -135,11 +147,12 @@ export async function enforceToolRiskRateLimit(
 		return null;
 	}
 
+	const budget = RISK_TIER_BUDGETS[policy.riskTier];
 	return {
 		content: [
 			{
 				type: "text",
-				text: `Tool rate limit exceeded for ${policy.riskTier}. Retry later. No side effect was executed.`,
+				text: `Tool rate limit exceeded for ${policy.riskTier}: each ${policy.riskTier} tool allows ${budget.limit} calls per ${budget.windowSeconds} seconds for one caller in this organization (per-tool risk limiter, keyed by organization, caller, app and tool). No side effect was executed for this call. Wait ${budget.windowSeconds} seconds (retryAfter: ${budget.windowSeconds}) before calling ${tool.toolId} again and retry only the calls that did not succeed; other tools have their own budgets.`,
 			},
 		],
 		isError: true,
@@ -148,6 +161,15 @@ export async function enforceToolRiskRateLimit(
 				...gateDecisionMetadata("risk_rate_limit", "deny", "tool_rate_limited"),
 				denialReason: "tool_rate_limited",
 				...policy,
+				rateLimit: {
+					limiter: "tool_risk",
+					scope: "organization_caller_app_tool",
+					limit: budget.limit,
+					windowSeconds: budget.windowSeconds,
+					// The limiter binding reports no reset time; one full window is
+					// the conservative wait.
+					retryAfterSeconds: budget.windowSeconds,
+				},
 			},
 		},
 	};

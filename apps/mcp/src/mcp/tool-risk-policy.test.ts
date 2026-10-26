@@ -63,8 +63,33 @@ describe("tool risk policy", () => {
 					denialReason: "tool_rate_limited",
 					riskTier: "bounded_write",
 					blastRadius: "single_resource",
+					rateLimit: {
+						limiter: "tool_risk",
+						scope: "organization_caller_app_tool",
+						limit: 30,
+						windowSeconds: 60,
+						retryAfterSeconds: 60,
+					},
 				},
 			},
+		});
+		const text = result?.content[0]?.text ?? "";
+		expect(text).toContain("30 calls per 60 seconds");
+		expect(text).toContain("No side effect was executed");
+		expect(text).toContain(
+			"Wait 60 seconds (retryAfter: 60) before calling update_customer",
+		);
+		expect(text).toContain("retry only the calls that did not succeed");
+	});
+
+	it("states the tighter budget for high-impact writes", async () => {
+		const limit = vi.fn().mockResolvedValue({ success: false });
+		const result = await enforceToolRiskRateLimit(
+			context(limit),
+			tool("high_impact_write", "tenant"),
+		);
+		expect(result?._meta["com.tedix/security"]).toMatchObject({
+			rateLimit: { limit: 5, windowSeconds: 60, retryAfterSeconds: 60 },
 		});
 	});
 
