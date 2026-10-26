@@ -14,6 +14,7 @@
  * source for MCP tool calls. The mcp_tool_calls D1 table is being drained.
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import {
 	analyticsContract,
@@ -341,7 +342,9 @@ export const getMetricsProcedure = authedAnalyticsOs.getMetrics
 		try {
 			return await getAppMetricsFromAE(env, appId, from, to);
 		} catch (error) {
-			console.error("[Analytics] AE query failed, returning zeros:", error);
+			console.error("[Analytics] AE query failed, returning zeros", {
+				exception: safeExceptionTopology(error),
+			});
 			return fallback;
 		}
 	});
@@ -371,7 +374,9 @@ export const getAppToolBreakdownProcedure =
 				);
 				return { tools };
 			} catch (error) {
-				console.error("[Analytics] AE tool breakdown query failed:", error);
+				console.error("[Analytics] AE tool breakdown query failed", {
+					exception: safeExceptionTopology(error),
+				});
 				return { tools: [] };
 			}
 		});
@@ -404,7 +409,9 @@ export const getAppSummaryProcedure = authedAnalyticsOs.getAppSummary
 		try {
 			return await getAppSummaryFromAE(env, appId, from, to);
 		} catch (error) {
-			console.error("[Analytics] AE app summary query failed:", error);
+			console.error("[Analytics] AE app summary query failed", {
+				exception: safeExceptionTopology(error),
+			});
 			return fallback;
 		}
 	});
@@ -434,7 +441,9 @@ export const getAppTimeSeriesProcedure = authedAnalyticsOs.getAppTimeSeries
 			);
 			return { buckets };
 		} catch (error) {
-			console.error("[Analytics] AE time-series query failed:", error);
+			console.error("[Analytics] AE time-series query failed", {
+				exception: safeExceptionTopology(error),
+			});
 			return { buckets: [] };
 		}
 	});
@@ -465,7 +474,9 @@ export const getRecentExecutionsProcedure =
 				);
 				return { executions };
 			} catch (error) {
-				console.error("[Analytics] AE recent executions query failed:", error);
+				console.error("[Analytics] AE recent executions query failed", {
+					exception: safeExceptionTopology(error),
+				});
 				return { executions: [] };
 			}
 		});
@@ -593,7 +604,9 @@ export const getExecutionDrilldownProcedure =
 					return drilldown;
 				}
 			} catch (error) {
-				console.error("[Analytics] audit drilldown query failed:", error);
+				console.error("[Analytics] audit drilldown query failed", {
+					exception: safeExceptionTopology(error),
+				});
 			}
 
 			// FALLBACK lane: AE — for executions older than the audit trail, or if
@@ -667,7 +680,9 @@ export const getToolCallPayloadsProcedure =
 				});
 				return { payloads, configured };
 			} catch (error) {
-				console.error("[Analytics] R2 SQL payload query failed:", error);
+				console.error("[Analytics] R2 SQL payload query failed", {
+					exception: safeExceptionTopology(error),
+				});
 				return { payloads: [], configured };
 			}
 		});
@@ -719,7 +734,9 @@ export const getTraceActivityProcedure = authedAnalyticsOs.getTraceActivity
 					limit: 50,
 				});
 			} catch (error) {
-				console.error("[Analytics] trace payload join failed:", error);
+				console.error("[Analytics] trace payload join failed", {
+					exception: safeExceptionTopology(error),
+				});
 			}
 		}
 		return { events, payloads, payloadsConfigured };
@@ -936,7 +953,9 @@ export const getCodemodeAnalyticsSummaryProcedure =
 					limit,
 				});
 			} catch (error) {
-				console.error("[Analytics] Codemode AE query failed:", error);
+				console.error("[Analytics] Codemode AE query failed", {
+					exception: safeExceptionTopology(error),
+				});
 				return fallback;
 			}
 		});
@@ -978,7 +997,9 @@ export const trackWidgetEventsProcedure = analyticsOs.trackWidgetEvents
 			await trackWidgetEvents(db, resolvedEvents);
 			return { success: true, tracked: input.events.length };
 		} catch (error) {
-			console.error("[Analytics] Failed to track widget events:", error);
+			console.error("[Analytics] Failed to track widget events", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.INTERNAL_SERVER_ERROR,
 				"Failed to track widget events",

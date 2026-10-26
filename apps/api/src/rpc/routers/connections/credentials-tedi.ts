@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { resolveRequestPersonalCredential } from "../../../services/personal-request-authority";
 import { createConnectionProviderOwnership } from "@tedix/db/queries/connection-providers";
 import { getDescopeManagement } from "../../../lib/descope-management";
@@ -434,7 +435,9 @@ export const getTediConnections = mcpOrAuthOs.getTediConnections
 					data: connections,
 				};
 			} catch (error) {
-				console.error("[Connections] Failed to list tedi connections:", error);
+				console.error("[Connections] Failed to list tedi connections", {
+					exception: safeExceptionTopology(error),
+				});
 				return {
 					data: [],
 				};

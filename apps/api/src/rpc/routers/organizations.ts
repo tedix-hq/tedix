@@ -1,4 +1,5 @@
 /** oRPC organizations router: CRUD, provisioning, features and the router assembly. */
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { installDefaultWorkApps } from "../../services/default-work-apps";
 import {
@@ -344,7 +345,9 @@ async function createOrganizationResources(
 				await adoptIfExists();
 			}
 		} catch (error) {
-			console.warn("[Organizations] Failed to create Descope tenant:", error);
+			console.warn("[Organizations] Failed to create Descope tenant", {
+				exception: safeExceptionTopology(error),
+			});
 			await adoptIfExists();
 		}
 	}
@@ -478,7 +481,9 @@ async function createOrganizationResources(
 	try {
 		await autoProvisionFirstTedi(db, context.env, org.id, memberName, userId);
 	} catch (error) {
-		console.error("[Organizations] Default tedi provisioning failed:", error);
+		console.error("[Organizations] Default tedi provisioning failed", {
+			exception: safeExceptionTopology(error),
+		});
 		throw createError(
 			ErrorCodes.SERVICE_UNAVAILABLE,
 			"Organization tedi provisioning is incomplete. Please retry creation.",

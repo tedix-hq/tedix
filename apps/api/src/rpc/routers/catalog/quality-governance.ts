@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { AUTHZ, ErrorCodes, createError, withAuthorization } from "../../orpc";
 import { CatalogProxyAppToolMutationError } from "@tedix/db/queries/catalog/tool-source-policy";
 import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connections";
@@ -718,7 +719,9 @@ export const triggerToolTestCatalog = fleetCatalogOs.triggerToolTest
 				message: `Tool test workflow started for ${toolsToTest.length} tools (type: ${testType})`,
 			};
 		} catch (error) {
-			console.error("[Catalog] Failed to start tool test workflow:", error);
+			console.error("[Catalog] Failed to start tool test workflow", {
+				exception: safeExceptionTopology(error),
+			});
 			return {
 				success: false,
 				toolsQueued: 0,

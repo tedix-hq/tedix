@@ -1,4 +1,5 @@
 /** Caller-scoped organization reads: listMine, listAllMine, listOsMine, getMyOrganization and OS onboarding. */
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { installDefaultWorkApps } from "../../services/default-work-apps";
 import { getDescopeManagement } from "../../lib/descope-management";
@@ -449,7 +450,9 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 				),
 			);
 		} catch (error) {
-			console.error("[Organizations] Default tedi provisioning failed:", error);
+			console.error("[Organizations] Default tedi provisioning failed", {
+				exception: safeExceptionTopology(error),
+			});
 			throw createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,
 				"Workspace tedi provisioning is incomplete. Please retry sign-in.",

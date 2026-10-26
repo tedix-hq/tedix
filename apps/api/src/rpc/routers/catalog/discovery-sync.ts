@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { failRunningAppCatalogSyncLog } from "@tedix/db/queries/catalog/sync-logs";
 import { catalogSyncTerminalFailure } from "../../../lib/catalog-sync-recovery";
 import { catalogListCache } from "../../../lib/catalog-list-cache";
@@ -791,7 +792,9 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 				filesQueued: r2Path ? [r2Path] : undefined,
 			};
 		} catch (error) {
-			console.error("[Catalog] Failed to start sync workflow:", error);
+			console.error("[Catalog] Failed to start sync workflow", {
+				exception: safeExceptionTopology(error),
+			});
 
 			// Update sync log to failed status
 			await updateAppCatalogSyncLog(db, syncLog.id, {

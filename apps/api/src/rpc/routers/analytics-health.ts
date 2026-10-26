@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import { analyticsContract } from "@tedix/api-contract/contracts/analytics";
 import { getWidgetLifecycleHealthFromAE } from "../../lib/analytics-engine-apps";
@@ -59,7 +60,9 @@ export const getWidgetLifecycleHealthProcedure =
 					input.installationId,
 				);
 			} catch (error) {
-				console.error("[Analytics] Widget lifecycle query failed:", error);
+				console.error("[Analytics] Widget lifecycle query failed", {
+					exception: safeExceptionTopology(error),
+				});
 				return emptyWidgetLifecycleHealth(
 					input.from,
 					input.to,
