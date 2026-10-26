@@ -12,6 +12,7 @@
  * fails closed before any turn effect.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import {
 	insertKernelRuntimeEventIfAbsent,
@@ -258,11 +259,10 @@ export async function recordKernelSubmissionStarted(
 		}
 		await insertKernelRuntimeEventIfAbsent(db, submissionAdmittedEvent(args));
 	} catch (error) {
-		console.warn(
-			"[kernel] submission admit failed",
-			args.runId,
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[kernel] submission admit failed", {
+			runId: args.runId,
+			exception: safeExceptionTopology(error),
+		});
 	}
 }
 
@@ -312,11 +312,10 @@ export async function settleKernelSubmission(
 			createdAt: new Date().toISOString(),
 		});
 	} catch (error) {
-		console.warn(
-			"[kernel] submission settle failed",
-			args.runId,
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[kernel] submission settle failed", {
+			runId: args.runId,
+			exception: safeExceptionTopology(error),
+		});
 	}
 }
 
@@ -738,11 +737,10 @@ export async function recordTediSubmissionStarted(
 			});
 		}
 	} catch (error) {
-		console.warn(
-			"[tedi] submission admit failed",
-			args.runId,
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[tedi] submission admit failed", {
+			runId: args.runId,
+			exception: safeExceptionTopology(error),
+		});
 	}
 }
 
@@ -770,11 +768,10 @@ export async function settleTediSubmission(
 			expectedWorkflowExecutionEpoch: args.expectedWorkflowExecutionEpoch,
 		});
 	} catch (error) {
-		console.warn(
-			"[tedi] submission settle failed",
-			args.runId,
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[tedi] submission settle failed", {
+			runId: args.runId,
+			exception: safeExceptionTopology(error),
+		});
 	}
 }
 
@@ -882,11 +879,10 @@ export async function requestRunAbort(
 		});
 		return { requested: result.requested };
 	} catch (error) {
-		console.warn(
-			"[kernel] submission abort stamp failed",
-			args.runId,
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[kernel] submission abort stamp failed", {
+			runId: args.runId,
+			exception: safeExceptionTopology(error),
+		});
 		return { requested: false };
 	}
 }
@@ -1096,11 +1092,10 @@ export async function requeueTediSubmissionInPlace(
 		// Success: the row stays running under the fresh recovered attempt.
 		return { requeued: true, reason: "requeued" };
 	} catch (error) {
-		console.warn(
-			"[tedi] submission requeue failed",
+		console.warn("[tedi] submission requeue failed", {
 			runId,
-			error instanceof Error ? error.message : String(error),
-		);
+			exception: safeExceptionTopology(error),
+		});
 		return { requeued: false, reason: "inject_failed" };
 	}
 }

@@ -25,6 +25,7 @@
  * that assembly stamps into `metadata.contextManifest.cache`.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { KernelDO } from "./kernel-do";
 
 export const CONTEXT_CACHE_TTL_MS = 10 * 60_000;
@@ -193,7 +194,7 @@ export function invalidateKernelContextCache(
 			component: "kernel.context",
 			event: "cache_invalidation_failed",
 			reason,
-			exception: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return;
 	}
@@ -202,7 +203,7 @@ export function invalidateKernelContextCache(
 			component: "kernel.context",
 			event: "cache_invalidation_failed",
 			reason,
-			exception: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 	});
 	if (context.waitUntil) context.waitUntil(settled);

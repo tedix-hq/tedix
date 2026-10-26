@@ -6,6 +6,7 @@
  * D1 record → Descope identity → encrypted secrets → AIH client → FGA assignments.
  */
 
+import { safeExceptionTopology } from "./safe-log-metadata";
 import { computeManagedAssignmentsForTedi } from "@tedix/auth/app-assignment-policy";
 import { getManagementClient } from "@tedix/auth/client";
 import { grantAppObserver, grantAppOperator } from "@tedix/auth/fga";
@@ -218,10 +219,9 @@ export async function autoProvisionFirstTedi(
 				);
 			}
 		} catch (error) {
-			console.warn(
-				`[AutoProvision] Descope identity failed for ${tediName}:`,
-				error,
-			);
+			console.warn(`[AutoProvision] Descope identity failed for ${tediName}`, {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 
@@ -244,8 +244,8 @@ export async function autoProvisionFirstTedi(
 			);
 		} catch (error) {
 			console.warn(
-				`[AutoProvision] Secrets generation failed for ${tediName}:`,
-				error,
+				`[AutoProvision] Secrets generation failed for ${tediName}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 	}

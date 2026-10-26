@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DecisionContext } from "@tedix/api-contract/schemas/decision-graph";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { listAgentDecisionsWithOutcome } from "@tedix/db/queries/agent-decisions";
@@ -398,7 +399,7 @@ export async function sweepOrganizationDeck(
 					console.warn("deck sweep retirement skipped", {
 						orgId,
 						cardId: action.cardId,
-						error: error instanceof Error ? error.message : String(error),
+						exception: safeExceptionTopology(error),
 					});
 				}
 			}
@@ -609,7 +610,7 @@ export async function sweepDeckPipeline(
 			totals.errors += 1;
 			console.error("deck sweep failed", {
 				orgId,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 		}
 	}

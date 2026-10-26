@@ -35,6 +35,7 @@
  * idle and wake on demand. It is a serviceable share key and a bad absolute.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import { recordBillingProviderUsage } from "@tedix/db/queries/billing/provider-usage";
 import { listWorkstationLeaseComputeWindows } from "@tedix/db/queries/workstations";
@@ -190,10 +191,9 @@ export async function runWorkstationComputeMeteringTick(
 			failures: result.failures.length,
 		};
 	} catch (error) {
-		console.warn(
-			"[workstation-compute-metering] tick failed (non-fatal):",
-			error instanceof Error ? error.message : String(error),
-		);
+		console.warn("[workstation-compute-metering] tick failed (non-fatal)", {
+			exception: safeExceptionTopology(error),
+		});
 		throw error;
 	}
 }

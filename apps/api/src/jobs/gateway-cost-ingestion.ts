@@ -20,6 +20,7 @@
  *    under quarantine does not establish that the provider consumed no resources.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { decodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 import {
 	AutoRouterExecutionPolicySchema,
@@ -451,8 +452,8 @@ async function settleReceiptCosts(
 	} catch (error) {
 		// The receipt keeps its unpriced evidence; a later replay may settle it.
 		console.warn(
-			`[gateway-cost-ingestion] ${gatewayId} receipt cost settlement failed:`,
-			error,
+			`[gateway-cost-ingestion] ${gatewayId} receipt cost settlement failed`,
+			{ exception: safeExceptionTopology(error) },
 		);
 	}
 }
@@ -597,8 +598,8 @@ async function ingestGateway(
 			// persistent auth/network failure cannot masquerade as "nothing new".
 			failure = error instanceof Error ? error.message : String(error);
 			console.error(
-				`[gateway-cost-ingestion] ${gatewayId} page ${page} fetch FAILED — no rows will be ingested this tick:`,
-				error,
+				`[gateway-cost-ingestion] ${gatewayId} page ${page} fetch FAILED — no rows will be ingested this tick`,
+				{ exception: safeExceptionTopology(error) },
 			);
 			break;
 		}
@@ -715,8 +716,8 @@ async function ingestGateway(
 				// offenders are isolated and dropped while everything else lands and
 				// the cursor still advances. The ledger must degrade, never wedge.
 				console.warn(
-					`[gateway-cost-ingestion] ${gatewayId} page ${page} batch insert failed; retrying row-by-row:`,
-					error,
+					`[gateway-cost-ingestion] ${gatewayId} page ${page} batch insert failed; retrying row-by-row`,
+					{ exception: safeExceptionTopology(error) },
 				);
 				for (const row of safeRows) {
 					try {

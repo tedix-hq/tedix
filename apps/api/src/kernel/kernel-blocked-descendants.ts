@@ -1,4 +1,5 @@
 /** Durable approval mirrors and blocked-descendant escalation alarms. */
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { BaseContext } from "../rpc/context";
 import type { KernelState } from "./kernel-state";
 
@@ -110,7 +111,7 @@ export async function processBlockedDescendantAlarm(
 			}
 		} catch (error) {
 			console.error("[KernelDO] approval mirror escalation projection failed", {
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 				escalatedIds,
 			});
 		}
@@ -150,7 +151,7 @@ export async function mirrorChildApprovalBlocked(
 		});
 	} catch (error) {
 		console.error("[KernelDO] approval mirror insert projection failed", {
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 			id,
 		});
 	}
@@ -192,7 +193,7 @@ export async function clearChildApprovalBlocked(
 			});
 		} catch (error) {
 			console.error("[KernelDO] approval mirror clear projection failed", {
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 				parentConversationId: input.parentConversationId,
 				childRunId: input.childRunId,
 			});

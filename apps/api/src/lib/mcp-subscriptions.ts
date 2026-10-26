@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "./safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import { listMcpSubscriptionTargetsForCatalogApp } from "@tedix/db/queries/mcp-subscription-targets";
 
@@ -144,7 +145,7 @@ export async function publishMcpSubscriptionEvent(
 			method: input.method,
 			appId: input.appId,
 			appIds: input.appIds,
-			message: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 	}
 }
@@ -220,7 +221,7 @@ async function invalidateMcpInventory(
 	} catch (error) {
 		console.warn("[MCP inventory cache] purge failed", {
 			appId: target.appId,
-			message: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return false;
 	}
@@ -266,7 +267,7 @@ export async function purgeMcpAggregateCache(
 	} catch (error) {
 		console.warn("[MCP aggregate cache] purge failed", {
 			reason,
-			message: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 	}
 }

@@ -481,7 +481,7 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 	} catch (error) {
 		console.error(
 			`[Scheduled] Cron execution failed: cron=${cron}, scheduledTime=${new Date(event.scheduledTime).toISOString()}`,
-			error,
+			{ exception: safeExceptionTopology(error) },
 		);
 		throw error; // Re-throw to mark the scheduled event as failed
 	}

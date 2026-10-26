@@ -1,5 +1,6 @@
 /// <reference path="../../worker-configuration.d.ts" />
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { rotateTediAccessKey } from "@tedix/auth/tedi-identity";
 import { createDbClient } from "@tedix/db/client";
 import { emitAuditEvent } from "../rpc/audit-helpers";
@@ -176,7 +177,7 @@ export async function runTediAccessKeyRotationTick(
 			counts.failed += 1;
 			console.error(
 				`[tedi-access-key-rotation] failed for tedi ${candidate.tediId}`,
-				error,
+				{ exception: safeExceptionTopology(error) },
 			);
 		} finally {
 			await releaseTediRuntimeLease(db, {

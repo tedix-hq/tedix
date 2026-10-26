@@ -30,6 +30,7 @@
  *    customer charge, or touches the Stripe outbox.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbClient } from "@tedix/db/client";
 import { recordBillingProviderReconciliation } from "@tedix/db/queries/billing/health";
 import { sumWorkstationComputeMicros } from "@tedix/db/queries/billing/provider-usage";
@@ -481,10 +482,9 @@ export async function runCloudflareBillableUsageTick(
 			reconciliationsWritten: result.reconciled,
 		};
 	} catch (err) {
-		console.warn(
-			"[cloudflare-billable-usage] tick failed (non-fatal):",
-			err instanceof Error ? err.message : String(err),
-		);
+		console.warn("[cloudflare-billable-usage] tick failed (non-fatal)", {
+			exception: safeExceptionTopology(err),
+		});
 		throw err;
 	}
 }
