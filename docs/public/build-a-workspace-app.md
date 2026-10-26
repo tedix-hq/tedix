@@ -670,6 +670,33 @@ with the revision and is editable in Code view; it counts toward limits and
 the code digest but is excluded from Worker Loader modules. Without an authored
 README, Code view shows the existing manifest-generated guide.
 
+Before saving, Tedix
+parses every `.js` file and dry-loads the exported `App` class in an isolate
+without app storage or network access. A syntax error refuses the write with
+`file:line:column`; a missing import or invalid `App` export also refuses it.
+The constructor and app methods are not run during this check.
+
+For a reviewed edit over MCP, discover these tools in your organization's
+namespace:
+
+1. Read the current app and its files, then call `propose_os_app_edit` with
+   `workspaceId`, `gadgetId`, `expectedRevisionId` and exact `edits`
+   (`path`, `before`, `after`). Each replacement must match once. An agent
+   needs an attested session or workflow run and app write access; browser
+   builders also supply their workspace Home `conversationId`.
+2. Open the returned `previewUrl` to review the proposal in **Drafts**, or
+   call `preview_os_app_draft` with its `proposalId` to get an isolated app
+   session. The proposal's files stay separate from the published revision.
+3. Call `accept_os_app_edit` with the app scope, `proposalId`, its reviewed
+   `expectedSequence` and a `rationale`. This accepts and merges the draft;
+   a changed sequence or app revision requires another review.
+4. Use `list_os_app_revisions` to choose an earlier version, then
+   `restore_os_app_revision` with its `revisionId` and the current
+   `expectedRevisionId`. Restore validates the old files and appends a new
+   revision, preserving history.
+
+The manifest keeps what the app may touch, never the code:
+
 ```json
 {
 	"entry": "tedix:runtime/v1",

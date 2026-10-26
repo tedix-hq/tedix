@@ -123,11 +123,20 @@ async function fixture() {
 		createdById: "user-1",
 	});
 	const fetch = vi.fn(async (_request: Request) => Response.json({ count: 1 }));
+	const validateFetch = vi.fn(async (_request: Request) =>
+		Response.json({ valid: true }),
+	);
 	const env = {
 		ENVIRONMENT: "test",
+		OS_URL: "https://os.example.test",
 		DB: facade,
 		SECRETS_MASTER_KEY: key,
-		TEDI_SERVICE: { fetch },
+		TEDI_SERVICE: {
+			fetch: (request: Request) =>
+				new URL(request.url).pathname.endsWith("/validate")
+					? validateFetch(request)
+					: fetch(request),
+		},
 	} as unknown as CloudflareEnv;
 	const files = { "server.js": "export class App {}", "client.js": "" };
 	await db.insert(osGadgetCode).values({
@@ -144,7 +153,7 @@ async function fixture() {
 		sub: "user-1",
 	});
 	const client = createRouterClient(router, { context });
-	return { db, env, router, context, client, fetch };
+	return { db, env, router, context, client, fetch, validateFetch };
 }
 
 describe("workspace app runtime API admission", () => {
@@ -1255,7 +1264,10 @@ describe("Code drafts and rebasing", () => {
 			revisionId: previewId,
 			organizationId: "org-1",
 			gadgetId,
-			files: JSON.stringify({ "server.js": "main edit", "client.js": "" }),
+			files: JSON.stringify({
+				"server.js": "export class App { count() { return 3; } }",
+				"client.js": "",
+			}),
 			codeLength: 9,
 		});
 		await f.db
@@ -1269,7 +1281,7 @@ describe("Code drafts and rebasing", () => {
 		});
 		expect(merged.conflicts).toEqual([]);
 		expect(merged.files).toEqual({
-			"server.js": "main edit",
+			"server.js": "export class App { count() { return 3; } }",
 			"client.js": "draft",
 		});
 		await f.db
@@ -1465,5 +1477,162 @@ describe("Code drafts and rebasing", () => {
 				content: f.content,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+});
+
+describe("MCP app editing", () => {
+	async function agentFixture(scopes = ["apps:read", "apps:write"]) {
+		const f = await fixture();
+		const context = {
+			...apiKeyContext({ env: f.env, scopes }),
+			externalAgentPrincipalId: "agent-1",
+			externalAgentSessionId: "session-1",
+		};
+		return { ...f, agent: createRouterClient(f.router, { context }) };
+	}
+	const edit = {
+		...scope,
+		expectedRevisionId: revisionId,
+		edits: [
+			{
+				path: "server.js",
+				before: "export class App {}",
+				after: "export class App { count() { return 2; } }",
+			},
+		],
+	};
+	it("drafts with an attested agent, previews, accepts and restores without rewriting history", async () => {
+		const f = await agentFixture();
+		const { proposal, previewUrl } = await f.agent.proposeEdit(edit);
+		expect(proposal).toMatchObject({
+			sourceKind: "agent_session",
+			sourceId: "session-1",
+			createdByKind: "external_agent",
+			createdById: "agent-1",
+			status: "open",
+		});
+		expect(new URL(previewUrl).searchParams.get("view")).toBe("drafts");
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+		const { session } = await f.agent.draft({
+			...scope,
+			proposalId: proposal.id,
+		});
+		expect(await verifyWorkspaceAppSession(key, session)).toMatchObject({
+			proposalId: proposal.id,
+			role: "build",
+		});
+		await f.agent.call({ ...scope, session, method: "count", args: [] });
+		expect(await (f.fetch.mock.calls[0][0] as Request).json()).toMatchObject({
+			files: { "server.js": edit.edits[0].after },
+		});
+		const published = await f.agent.acceptEdit({
+			...scope,
+			proposalId: proposal.id,
+			expectedSequence: 0,
+			rationale: "Preview checked",
+		});
+		expect(published.revision.revision).toBe(2);
+		expect(
+			(
+				await f.agent.acceptEdit({
+					...scope,
+					proposalId: proposal.id,
+					expectedSequence: 0,
+					rationale: "Retry after uncertain delivery",
+				})
+			).revision.id,
+		).toBe(published.revision.id);
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(2);
+		const restored = await f.agent.restoreRevision({
+			...scope,
+			revisionId,
+			expectedRevisionId: published.revision.id,
+		});
+		expect(restored.revision.revision).toBe(3);
+		const stored = await f.db
+			.select()
+			.from(osGadgetCode)
+			.where(eq(osGadgetCode.revisionId, restored.revision.id));
+		expect(JSON.parse(stored[0].files)["server.js"]).toBe(
+			"export class App {}",
+		);
+		expect(
+			(await f.agent.revisions(scope)).revisions.map((r) => r.revision),
+		).toEqual([3, 2, 1]);
+	});
+	it("refuses a broken proposal without creating it or advancing main", async () => {
+		const f = await agentFixture();
+		await expect(
+			f.agent.proposeEdit({
+				...edit,
+				edits: [{ ...edit.edits[0], after: "export class App {\n broken( }" }],
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("server.js:2:"),
+		});
+		expect(await f.db.select().from(osCollaborationProposals)).toHaveLength(0);
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+	});
+	it("keeps read-only machine sessions from authoring or gaining build capabilities", async () => {
+		const f = await agentFixture(["apps:read"]);
+		expect((await f.agent.open(scope)).role).toBe("use");
+		await expect(f.agent.proposeEdit(edit)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(
+			f.agent.restoreRevision({
+				...scope,
+				revisionId,
+				expectedRevisionId: revisionId,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("rechecks write scope when a machine reuses an opened draft", async () => {
+		const f = await agentFixture();
+		const { proposal } = await f.agent.proposeEdit(edit);
+		const { session } = await f.agent.draft({
+			...scope,
+			proposalId: proposal.id,
+		});
+		const reduced = createRouterClient(f.router, {
+			context: {
+				...apiKeyContext({ env: f.env, scopes: ["apps:read"] }),
+				externalAgentPrincipalId: "agent-1",
+				externalAgentSessionId: "session-1",
+			},
+		});
+		await expect(
+			reduced.call({ ...scope, session, method: "count", args: [] }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(f.fetch).not.toHaveBeenCalled();
+	});
+
+	it("refuses stale review sequences and foreign restore ids", async () => {
+		const f = await agentFixture();
+		const { proposal } = await f.agent.proposeEdit(edit);
+		await expect(
+			f.agent.acceptEdit({
+				...scope,
+				proposalId: proposal.id,
+				expectedSequence: 1,
+				rationale: "stale",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		await expect(
+			f.agent.restoreRevision({
+				...scope,
+				revisionId: previewId,
+				expectedRevisionId: revisionId,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			f.agent.restoreRevision({
+				...scope,
+				revisionId,
+				expectedRevisionId: previewId,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
 	});
 });

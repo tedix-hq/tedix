@@ -505,6 +505,9 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	// apps:write guard; the handler rechecks the collaborator build role.
 	"osAppRuntime/draft": "mcp:apps.write",
 	"osAppRuntime/proposeEdit": "mcp:apps.write",
+	"osAppRuntime/acceptEdit": "mcp:apps.write",
+	"osAppRuntime/restoreRevision": "mcp:apps.write",
+	"osAppRuntime/revisions": "mcp:apps.read",
 	"osAppRuntime/saveDraft": "mcp:apps.write",
 	"osAppRuntime/mergeDraft": "mcp:apps.write",
 	// Service-binding only: the tedi runtime calls these for a running app.

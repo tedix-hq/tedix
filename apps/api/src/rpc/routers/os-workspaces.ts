@@ -1,3 +1,4 @@
+import { validateAppSource } from "../../services/os-app-validation";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { saveWorkspaceBlueprint } from "./os-blueprint-save";
 import { osBlueprintApplyProcedures } from "./os-blueprint-apply";
@@ -263,6 +264,12 @@ const gadgetsRevise = authorOs.gadgets.revise.handler(
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				"Only a tedix:runtime/v1 app carries source files",
+			);
+		if (runtimeApp && input.files)
+			await validateAppSource(
+				context.env,
+				input.files,
+				input.manifest.config?.compatibilityDate,
 			);
 		const result = await createOsGadgetRevision(db, {
 			id: revisionId,

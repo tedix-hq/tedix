@@ -164,6 +164,31 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "propose_os_app_edit",
+		endpoint: "osAppRuntime/proposeEdit",
+		kind: "write",
+	},
+	{
+		toolId: "accept_os_app_edit",
+		endpoint: "osAppRuntime/acceptEdit",
+		kind: "write",
+	},
+	{
+		toolId: "list_os_app_revisions",
+		endpoint: "osAppRuntime/revisions",
+		kind: "read",
+	},
+	{
+		toolId: "restore_os_app_revision",
+		endpoint: "osAppRuntime/restoreRevision",
+		kind: "write",
+	},
+	{
+		toolId: "preview_os_app_draft",
+		endpoint: "osAppRuntime/draft",
+		kind: "write",
+	},
+	{
 		toolId: "archive_os_gadget",
 		endpoint: "osWorkspaces/gadgets/archive",
 		kind: "write",

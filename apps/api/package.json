@@ -59,6 +59,7 @@
 		"@tedix/worker-kit": "workspace:*",
 		"@tedix/workers-ai": "workspace:*",
 		"@types/node": "catalog:",
+		"acorn": "8.18.0",
 		"agents": "catalog:",
 		"ai": "catalog:",
 		"hono": "catalog:",
