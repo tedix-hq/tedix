@@ -1,16 +1,24 @@
 import { ArrowRight, ShieldCheck } from "@phosphor-icons/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { APP_RUNTIME_ENTRY } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppRuntimeFrame } from "@/components/app-runtime-frame";
+import { Skeleton } from "@/components/kumo/skeleton";
+import {
+	buildAppRuntimeDocument,
+	handleAppRuntimeCall,
+} from "@/lib/app-runtime-host";
+import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { WidgetFrame } from "@/components/widget-frame";
 import { ROLE_LABEL } from "@/components/workspace-share-dialog";
-import { osApi } from "@/lib/api";
+import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
-import { osQueryKeys } from "@/lib/os-query-options";
+import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 
 type Opened = Awaited<ReturnType<typeof osApi.osCollaborators.open>>;
 
@@ -32,7 +40,102 @@ export function takeShareKey(): string | undefined {
 	return key ?? undefined;
 }
 
-function SharedApp({ app }: { app: Opened["apps"][number] }) {
+function SharedRuntimeApp({
+	workspaceId,
+	app,
+}: {
+	workspaceId: string;
+	app: Opened["apps"][number];
+}) {
+	const scope = useMemo(
+		() => ({ workspaceId, gadgetId: app.id }),
+		[workspaceId, app.id],
+	);
+	const client = useQuery(
+		osQuery.osAppRuntime.client.queryOptions({
+			input: scope,
+			staleTime: 0,
+			refetchInterval: 240_000,
+		}),
+	);
+	const data = client.data;
+	const callServer = useMemo(
+		() =>
+			data
+				? createAppRuntimeServerCall(
+						{ open: osApi.osAppRuntime.open, call: osAppRuntimeCall },
+						{ ...scope, revisionId: data.revisionId },
+					)
+				: undefined,
+		[scope, data?.revisionId],
+	);
+	const onCall = useCallback(
+		(method: unknown, args: unknown) => {
+			if (!data || client.isError)
+				return Promise.resolve({
+					ok: false as const,
+					error: "not_permitted" as const,
+				});
+			return handleAppRuntimeCall(
+				{
+					context: {
+						workspaceId,
+						gadget: { id: app.id, name: app.name, revision: data.revision },
+						role: data.role,
+						settings: data.settings,
+						grants: data.grants,
+					},
+					resources: [],
+					readOutput: async () => {
+						throw new Error("Use a granted app slot");
+					},
+					readSlot: (slot) =>
+						osApi.osAppRuntime.readOutput({
+							...scope,
+							session: data.session,
+							slot,
+						}),
+					callServer,
+				},
+				method,
+				args,
+			);
+		},
+		[data, client.isError, workspaceId, app.id, app.name, scope, callServer],
+	);
+	const html = useMemo(
+		() => (data ? buildAppRuntimeDocument({ "client.js": data.client }) : ""),
+		[data?.client],
+	);
+	if (client.isPending)
+		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
+	if (client.isError || !data)
+		return (
+			<Alert variant="destructive">
+				<AlertTitle>This app is unavailable</AlertTitle>
+				<AlertDescription>
+					Ask the person who shared it to check your access.
+				</AlertDescription>
+			</Alert>
+		);
+	return (
+		<AppRuntimeFrame
+			key={data.revisionId}
+			html={html}
+			title={app.name}
+			onCall={onCall}
+			layout="content"
+		/>
+	);
+}
+
+function SharedApp({
+	app,
+	workspaceId,
+}: {
+	app: Opened["apps"][number];
+	workspaceId: string;
+}) {
 	const target = gadgetWidgetTargetFromManifest(
 		app.entry
 			? ({ entry: app.entry, capabilities: [] } as OsGadgetManifest)
@@ -50,7 +153,9 @@ function SharedApp({ app }: { app: Opened["apps"][number] }) {
 					</Text>
 				) : null}
 			</div>
-			{target ? (
+			{app.entry === APP_RUNTIME_ENTRY ? (
+				<SharedRuntimeApp workspaceId={workspaceId} app={app} />
+			) : target ? (
 				<WidgetFrame
 					appSlug={target.appSlug}
 					resourceUri={target.resourceUri}
@@ -168,7 +273,9 @@ export function SharedWorkspacePage({ workspaceId }: { workspaceId: string }) {
 					No apps in this workspace yet.
 				</Text>
 			) : (
-				opened.apps.map((app) => <SharedApp key={app.id} app={app} />)
+				opened.apps.map((app) => (
+					<SharedApp key={app.id} app={app} workspaceId={workspaceId} />
+				))
 			)}
 		</main>
 	);

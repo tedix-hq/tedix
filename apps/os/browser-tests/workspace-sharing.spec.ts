@@ -39,7 +39,14 @@ const zoe = {
 
 type Calls = Record<string, unknown[]>;
 
-async function mockApi(page: Page, options: { denied?: boolean } = {}) {
+async function mockApi(
+	page: Page,
+	options: {
+		denied?: boolean;
+		runtime?: "use" | "build";
+		clientDenied?: boolean;
+	} = {},
+) {
 	const calls: Calls = {};
 	const publicLinks: unknown[] = [];
 	await page.route("**/api/**", async (route) => {
@@ -55,6 +62,53 @@ async function mockApi(page: Page, options: { denied?: boolean } = {}) {
 		const input = raw?.json ?? raw;
 		(calls[endpoint] ??= []).push(input);
 		let json: unknown;
+		if (pathname.includes("/osAppRuntime/")) {
+			assert(!JSON.stringify(input).includes("shareKey"));
+			const session = {
+				session: "host-only-capability",
+				expiresAt: Math.floor(Date.now() / 1000) + 300,
+				role: options.runtime,
+				revisionId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+			};
+			if (endpoint === "client") {
+				if (options.clientDenied)
+					return route.fulfill({
+						status: 403,
+						json: { json: { code: "FORBIDDEN", message: "App unavailable" } },
+					});
+				json = {
+					...session,
+					revision: 1,
+					settings: { label: "Shared content" },
+					grants: [{ slot: "sheet", operations: ["outputs.read"] }],
+					client: `
+const context = await tedix.call('context');
+const content = await tedix.call('outputs.read', {slot:'sheet'});
+document.getElementById('app').innerHTML = '<p id="role"></p><p id="content"></p><button>Run app</button><p role="status"></p>';
+document.getElementById('role').textContent = context.role;
+document.getElementById('content').textContent = context.settings.label + ': ' + content.blocks[0].text;
+document.querySelector('button').onclick = async () => { const result = await tedix.call('app.call', {method:'count',args:[]}); document.querySelector('[role=status]').textContent = 'Count: ' + result.count; };
+`,
+				};
+			} else if (endpoint === "readOutput") {
+				assert.equal(input.session, session.session);
+				assert.equal(input.slot, "sheet");
+				json = {
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "Granted document" }],
+				};
+			} else if (endpoint === "open") json = session;
+			else if (endpoint === "call") {
+				assert.equal(input.session, session.session);
+				assert.equal(input.method, "count");
+				json = { result: { count: 1 } };
+			} else throw new Error(`Unexpected runtime endpoint ${endpoint}`);
+			return route.fulfill({ json: { json } });
+		}
+		assert(
+			!pathname.includes("/osWorkspaces/"),
+			`Org-scoped read: ${pathname}`,
+		);
 		if (endpoint === "public:list") json = { items: publicLinks };
 		else if (endpoint === "public:create") {
 			const share = {
@@ -145,7 +199,7 @@ async function mockApi(page: Page, options: { denied?: boolean } = {}) {
 					title: "Reddit research",
 					ownerName: "Robin Fictional",
 				},
-				role: "use",
+				role: options.runtime ?? "use",
 				isOwner: false,
 				capability: {
 					workspaceId: WORKSPACE_ID,
@@ -165,7 +219,7 @@ async function mockApi(page: Page, options: { denied?: boolean } = {}) {
 						id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 						name: "Thread finder",
 						description: "Finds threads worth answering",
-						entry: null,
+						entry: options.runtime ? "tedix:runtime/v1" : null,
 					},
 				],
 			};
@@ -307,6 +361,44 @@ try {
 					path: `${directory}/page-${width}-${theme}.png`,
 					fullPage: true,
 				});
+				await page.close();
+				cases++;
+			}
+			for (const role of ["use", "build"] as const) {
+				const page = await browser.newPage({ viewport, colorScheme: theme });
+				const calls = await mockApi(page, { runtime: role });
+				await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
+				const app = page
+					.frameLocator('iframe[title="Thread finder"]')
+					.frameLocator("iframe");
+				await app.getByText(role, { exact: true }).waitFor();
+				await app
+					.getByText("Shared content: Granted document", { exact: true })
+					.waitFor();
+				await app.getByRole("button", { name: "Run app" }).click();
+				await app.getByRole("status").filter({ hasText: "Count: 1" }).waitFor();
+				assert.equal(calls.client?.length, 1);
+				assert.equal(calls.readOutput?.length, 1);
+				assert.equal(calls.call?.length, 1);
+				assert.equal(
+					await page.getByRole("button", { name: "Open workspace" }).count(),
+					role === "build" ? 1 : 0,
+				);
+				await assertFits(page, width, `runtime ${role} ${width} ${theme}`);
+				await page.screenshot({
+					path: `${directory}/runtime-${role}-${width}-${theme}.png`,
+					fullPage: true,
+				});
+				await page.close();
+				cases++;
+			}
+			{
+				const page = await browser.newPage({ viewport, colorScheme: theme });
+				await mockApi(page, { runtime: "use", clientDenied: true });
+				await page.goto(`${server.origin}${path}?theme=${theme}&view=page`);
+				await page.getByText("This app is unavailable").waitFor();
+				assert.equal(await page.locator("[data-app-runtime-frame]").count(), 0);
+				await assertFits(page, width, `runtime denied ${width} ${theme}`);
 				await page.close();
 				cases++;
 			}

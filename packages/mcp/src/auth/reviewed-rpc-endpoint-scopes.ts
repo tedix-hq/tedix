@@ -492,6 +492,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"organizations/update": "platform:admin",
 	"organizations/verifyMultiOrgMcpGrant": "platform:admin",
 	"osAppRuntime/open": "mcp:apps.read",
+	"osAppRuntime/client": "mcp:apps.read",
+	"osAppRuntime/readOutput": "mcp:apps.read",
 	// apps:read guard, but the app's server code it runs can write through its granted slots.
 	"osAppRuntime/call": "mcp:apps.write",
 	"osAppRuntime/preview": "mcp:apps.write",

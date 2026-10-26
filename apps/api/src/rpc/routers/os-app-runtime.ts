@@ -188,7 +188,10 @@ export function createOsAppRuntimeRouter() {
 			revisionId: input.revisionId,
 		};
 	});
-	const call = read.call.handler(async ({ context, input }) => {
+	async function openedSession(
+		context: BaseContext,
+		input: { workspaceId: string; gadgetId: string; session: string },
+	) {
 		const scope = await resolve(context, input);
 		let session;
 		try {
@@ -216,6 +219,102 @@ export function createOsAppRuntimeRouter() {
 		const code = await load(context, scope, session.revisionId);
 		if (code.digest !== session.codeDigest)
 			throw createError(ErrorCodes.CONFLICT, "App code changed");
+		return { scope, session, code };
+	}
+	const client = read.client.handler(async ({ context, input }) => {
+		const opened = await callProcedure(open, input, { context });
+		const { code } = await openedSession(context, {
+			...input,
+			session: opened.session,
+		});
+		return {
+			...opened,
+			client: code.files["client.js"]!,
+			revision: code.revision,
+			settings: code.config.settings ?? {},
+			grants: code.grants,
+		};
+	});
+	const readOutput = read.readOutput.handler(async ({ context, input }) => {
+		const { scope, session, code } = await openedSession(context, input);
+		if (
+			session.previewId ||
+			!appRuntimePermission({
+				role: scope.role,
+				grants: code.grants,
+				operation: "outputs.read",
+				slot: input.slot,
+			}).allowed ||
+			!appRuntimePermission({
+				role: session.role,
+				grants: session.grants,
+				operation: "outputs.read",
+				slot: input.slot,
+			}).allowed
+		)
+			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+		const db = queryDb(context);
+		const resources = await listOsWorkspaceResources(db, {
+			organizationId: scope.organizationId,
+			workspaceId: scope.workspaceId,
+			status: "active",
+			limit: 200,
+		});
+		const resource = resources.find((row) => row.slot === input.slot);
+		if (
+			!resource ||
+			resource.providerId !== "tedix" ||
+			resource.resourceType !== "output"
+		)
+			throw createError(ErrorCodes.FORBIDDEN, "Slot is not an Output");
+		const output = await getOsOutput(db, {
+			organizationId: scope.organizationId,
+			outputId: resource.providerResourceId,
+		});
+		if (
+			!output ||
+			output.workspaceId !== scope.workspaceId ||
+			output.status !== "active" ||
+			!output.currentRevisionId
+		)
+			throw createError(ErrorCodes.NOT_FOUND, "Granted Output unavailable");
+		const revision = await getOsOutputRevision(db, {
+			organizationId: scope.organizationId,
+			revisionId: output.currentRevisionId,
+		});
+		const envelope = parseDerivedAccessEnvelope(
+			revision?.accessEnvelope ?? null,
+		);
+		const member =
+			context.authType === "user" && scope.actorUserId
+				? await getMemberByUserId(
+						context.db,
+						scope.organizationId,
+						scope.actorUserId,
+					)
+				: null;
+		const crossOrg =
+			context.organizationId !== scope.organizationId ||
+			(context.authType === "user" && member?.status !== "active");
+		if (
+			!revision ||
+			revision.outputId !== output.id ||
+			!envelope ||
+			(crossOrg
+				? envelope.sources.length !== 0
+				: !(await authorizeDerivedOutputSources(context, {
+						organizationId: scope.organizationId,
+						accessEnvelope: envelope,
+					})))
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Output source access unavailable",
+			);
+		return OsOutputContentSchema.parse(JSON.parse(revision.content));
+	});
+	const call = read.call.handler(async ({ context, input }) => {
+		const { scope, session, code } = await openedSession(context, input);
 		const result = await runAppRuntimeCall(context.env, queryDb(context), {
 			organizationId: scope.organizationId,
 			workspaceId: scope.workspaceId,
@@ -372,7 +471,9 @@ export function createOsAppRuntimeRouter() {
 			);
 			if (
 				!revision ||
+				revision.outputId !== output.id ||
 				!envelope ||
+				(member?.status !== "active" && envelope.sources.length !== 0) ||
 				!(await authorizeDerivedOutputSources(acting, {
 					organizationId: scope.organizationId,
 					accessEnvelope: envelope,
@@ -483,7 +584,15 @@ export function createOsAppRuntimeRouter() {
 		});
 		return { recorded: true };
 	});
-	return os.router({ open, call, preview, capability, recordTail });
+	return os.router({
+		open,
+		client,
+		readOutput,
+		call,
+		preview,
+		capability,
+		recordTail,
+	});
 }
 
 export const osAppRuntimeContractRouter = createOsAppRuntimeRouter();

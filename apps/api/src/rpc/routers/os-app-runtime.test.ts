@@ -29,6 +29,7 @@ import {
 import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { userContext, apiKeyContext } from "../test-context";
 import { createOsAppRuntimeRouter } from "./os-app-runtime";
+import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const gadgetId = "22222222-2222-4222-8222-222222222222";
@@ -479,6 +480,206 @@ describe("workspace app runtime API under attack", () => {
 		blocks: [{ type: "paragraph", text: "Granted content" }],
 	};
 	type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+	async function collaborator(f: Fixture, role: "use" | "build" = "use") {
+		await f.db.insert(osWorkspaceCollaborators).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			userId: "outside",
+		});
+		await f.db.insert(osWorkspaceAccessEdges).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			targetUserId: "outside",
+			kind: "user",
+			edgeKey: "user:user-1",
+			sharerUserId: "user-1",
+			role,
+		});
+		return createRouterClient(f.router, {
+			context: userContext({
+				env: f.env,
+				sub: "outside",
+				organizationId: "org-other",
+			}),
+		});
+	}
+
+	it.each(["use", "build"] as const)(
+		"serves only client code and granted sourceless Outputs to a cross-org %s collaborator",
+		async (role) => {
+			const f = await fixture();
+			await seedOutput(f.db);
+			const outside = await collaborator(f, role);
+			const opened = await outside.client(scope);
+			expect(opened).toMatchObject({
+				role,
+				revisionId,
+				revision: 1,
+				client: "",
+				settings: { tags: ["Relevant"] },
+				grants: [{ slot: "sheet", operations: ["outputs.read"] }],
+			});
+			expect(Object.keys(opened).sort()).toEqual(
+				[
+					"client",
+					"expiresAt",
+					"grants",
+					"revision",
+					"revisionId",
+					"role",
+					"session",
+					"settings",
+				].sort(),
+			);
+			expect(JSON.stringify(opened)).not.toContain("server.js");
+			expect(
+				await outside.readOutput({
+					...scope,
+					session: opened.session,
+					slot: "sheet",
+				}),
+			).toEqual(document);
+			expect(
+				await outside.call({
+					...scope,
+					session: opened.session,
+					method: "count",
+					args: [],
+				}),
+			).toEqual({ result: { count: 1 } });
+			await expect(
+				outside.readOutput({
+					...scope,
+					session: opened.session,
+					slot: "ungranted",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				f.client.readOutput({
+					...scope,
+					session: opened.session,
+					slot: "sheet",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				outside.readOutput({
+					...scope,
+					session: `${opened.session}x`,
+					slot: "sheet",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await f.db.delete(osWorkspaceAccessEdges);
+			await expect(outside.client(scope)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			await expect(
+				outside.readOutput({
+					...scope,
+					session: opened.session,
+					slot: "sheet",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+
+	it.each([
+		null,
+		"invalid",
+		JSON.stringify({
+			version: 1,
+			sources: [
+				{
+					workspaceId,
+					workspaceResourceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+					providerId: "notion",
+					connectionScope: "tenant",
+					resourceType: "page",
+					providerResourceId: "page-1",
+					requiredScopes: [],
+					operations: ["read"],
+				},
+			],
+		}),
+	])(
+		"denies cross-org Output reads with absent, malformed or sourced envelopes: %s",
+		async (accessEnvelope) => {
+			if (accessEnvelope && accessEnvelope !== "invalid")
+				OsDerivedAccessEnvelopeSchema.parse(JSON.parse(accessEnvelope));
+			const f = await fixture();
+			await seedOutput(f.db);
+			const outside = await collaborator(f);
+			const { session } = await outside.client(scope);
+			await f.db
+				.update(osOutputRevisions)
+				.set({ accessEnvelope })
+				.where(eq(osOutputRevisions.id, outputRevisionId));
+			await expect(
+				outside.readOutput({ ...scope, session, slot: "sheet" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				internalClient(f).capability(read(session)),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+
+	it("rechecks grants, role, revision, expiry and workspace binding on browser Output reads", async () => {
+		const f = await fixture();
+		await seedOutput(f.db, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+		const outside = await collaborator(f, "build");
+		const { session } = await outside.client(scope);
+		await expect(
+			outside.readOutput({ ...scope, session, slot: "sheet" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await f.db
+			.update(osOutputs)
+			.set({ workspaceId })
+			.where(eq(osOutputs.id, outputId));
+		await f.db.update(osWorkspaceAccessEdges).set({ role: "use" });
+		await expect(
+			outside.readOutput({ ...scope, session, slot: "sheet" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const current = await outside.client(scope);
+		await f.db
+			.update(osGadgetRevisions)
+			.set({
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					resourceGrants: [],
+				}),
+			})
+			.where(eq(osGadgetRevisions.id, revisionId));
+		await expect(
+			outside.readOutput({ ...scope, session: current.session, slot: "sheet" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await f.db
+			.update(osGadgets)
+			.set({ currentRevisionId: otherGadgetId })
+			.where(eq(osGadgets.id, gadgetId));
+		await expect(
+			outside.readOutput({ ...scope, session: current.session, slot: "sheet" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await f.db
+			.update(osGadgets)
+			.set({ currentRevisionId: revisionId })
+			.where(eq(osGadgets.id, gadgetId));
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(Date.now() + 301_000);
+			await expect(
+				outside.readOutput({
+					...scope,
+					session: current.session,
+					slot: "sheet",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 
 	async function grantAll(db: Fixture["db"]) {
 		await db
