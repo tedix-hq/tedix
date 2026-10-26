@@ -29,6 +29,7 @@
 		"./fga": "./src/fga.ts",
 		"./gateway-browser-token": "./src/gateway-browser-token.ts",
 		"./delegated-mcp-token": "./src/delegated-mcp-token.ts",
+		"./token-exchange": "./src/token-exchange.ts",
 		"./workload-identity": "./src/workload-identity.ts",
 		"./session-broker": "./src/session-broker.ts",
 		"./product-session-broker": "./src/product-session-broker.ts",
