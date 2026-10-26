@@ -47,7 +47,7 @@ function harness(role: "use" | "owner") {
 		output: { id: "out-1", kind: "sheet" },
 		revision: { revision: 4, content: structuredClone(sheet) },
 	}));
-	const outputsWrite = vi.fn(async () => ({ ok: true, revision: 5 }));
+	const outputsPatch = vi.fn(async () => ({ ok: true, revision: 5 }));
 	const env = {
 		CONFIG: {
 			version: 1,
@@ -57,16 +57,16 @@ function harness(role: "use" | "owner") {
 				columns: { number: "#", useful: "Useful?" },
 			},
 		},
-		// The host hands a use-role caller a capability without outputsWrite.
-		TEDIX: role === "owner" ? { outputsRead, outputsWrite } : { outputsRead },
+		// The host hands a use-role caller a capability without outputsPatch.
+		TEDIX: role === "owner" ? { outputsRead, outputsPatch } : { outputsRead },
 	};
-	return { ctx, env, outputsRead, outputsWrite };
+	return { ctx, env, outputsRead, outputsPatch };
 }
 
 describe("Opportunity cards server", () => {
 	it("writes a verdict into the granted sheet's row through the slot", async () => {
 		const App = await loadServer();
-		const { ctx, env, outputsRead, outputsWrite } = harness("owner");
+		const { ctx, env, outputsRead, outputsPatch } = harness("owner");
 		const server = new App(ctx, env);
 		expect(await server.recordVerdict(2, "yes")).toEqual({
 			number: "2",
@@ -74,17 +74,14 @@ describe("Opportunity cards server", () => {
 			storedIn: "sheet",
 		});
 		expect(outputsRead).toHaveBeenCalledWith("opportunities", null);
-		expect(outputsWrite).toHaveBeenCalledTimes(1);
-		const [slot, args] = outputsWrite.mock.calls[0] as unknown as [
-			string,
-			{ content: typeof sheet; expectedRevision: number },
-		];
-		expect(slot).toBe("opportunities");
-		expect(args.expectedRevision).toBe(4);
-		expect(args.content.rows).toEqual([
-			sheet.rows[0],
-			[2, "https://reddit.example/b", "Scout", "why b", "draft b", "yes"],
-		]);
+		expect(outputsPatch).toHaveBeenCalledTimes(1);
+		expect(outputsPatch).toHaveBeenCalledWith("opportunities", {
+			kind: "sheet",
+			startRow: 1,
+			startColumn: 5,
+			cells: [["yes"]],
+			expectedRevision: 4,
+		});
 		expect(await server.verdicts()).toMatchObject({ "2": { value: "yes" } });
 	});
 
@@ -101,7 +98,7 @@ describe("Opportunity cards server", () => {
 
 	it("maps columns from the manifest settings and refuses unknown verdicts", async () => {
 		const App = await loadServer();
-		const { ctx, env, outputsWrite } = harness("owner");
+		const { ctx, env, outputsPatch } = harness("owner");
 		(env.CONFIG.settings.columns as Record<string, string>).useful =
 			"Entscheidung";
 		const server = new App(ctx, env);
@@ -109,7 +106,7 @@ describe("Opportunity cards server", () => {
 		expect(await server.recordVerdict(1, "yes")).toMatchObject({
 			storedIn: "app",
 		});
-		expect(outputsWrite).not.toHaveBeenCalled();
+		expect(outputsPatch).not.toHaveBeenCalled();
 		await expect(server.recordVerdict(1, "maybe")).rejects.toThrow(
 			"Unknown verdict",
 		);

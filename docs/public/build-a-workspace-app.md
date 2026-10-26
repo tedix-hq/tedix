@@ -762,19 +762,40 @@ export class App {
 
 Unlike the browser read, `env.TEDIX.outputsRead(slot, {})` returns
 `{output, revision}` with content under `revision.content`. Build callers also
-have `outputsWrite(slot, {content, expectedRevision})`, `connectionsCall` and
-`skillsRun` where authorized. Discover their current argument schemas before
-adding effects. Connection calls support reviewed resource-bound reads;
+have `outputsPatch`, `outputsWrite(slot, {content, expectedRevision})`,
+`connectionsCall` and `skillsRun` where authorized. Discover their current
+argument schemas before adding effects.
+
+To change part of an Output, grant `outputs.patch` rather than
+`outputs.write`. A patch edits in place, so anything the app does not show
+(other blocks, slides, rows or columns) stays as it was:
+
+```js
+await this.env.TEDIX.outputsPatch(slot, {
+	kind: "sheet", // or "document" / "presentation" with `ops`
+	startRow: 3,
+	startColumn: 5,
+	cells: [["yes"]],
+	expectedRevision: revision.revision,
+});
+```
+
+Document and presentation patches take the same `ops` as
+`patch_os_document` and `patch_os_slides`; a sheet patch takes the same
+rectangle as `set_os_sheet_range`. `expectedRevision` is required: an edit
+based on an older read fails with `CONFLICT`, so read again and retry. Keep
+`outputs.write`, which replaces the whole body, for apps that own all of the
+Output's content. Connection calls support reviewed resource-bound reads;
 provider permission and approval rules still apply. No network or ambient
 Cloudflare bindings are inherited. Do not retain a capability after its call.
 
 ### Roles, errors and limits
 
-| Role             | Allowed runtime operations                                                    |
-| ---------------- | ----------------------------------------------------------------------------- |
-| `owner`, `build` | `app.call`, `outputs.read`, `outputs.write`, `connections.call`, `skills.run` |
-| `use`            | `app.call`, `outputs.read`                                                    |
-| `viewer`         | None                                                                          |
+| Role             | Allowed runtime operations                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------------- |
+| `owner`, `build` | `app.call`, `outputs.read`, `outputs.patch`, `outputs.write`, `connections.call`, `skills.run` |
+| `use`            | `app.call`, `outputs.read`                                                                     |
+| `viewer`         | None                                                                                           |
 
 `context` exposes presentation context. Every resource operation also requires
 a matching slot and operation in `resourceGrants`, plus current source access.

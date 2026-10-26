@@ -74,10 +74,17 @@ export type AppRuntimeConfig = z.infer<typeof AppRuntimeConfigSchema>;
 export const AppRuntimeRoleSchema = z.enum(["owner", "build", "use", "viewer"]);
 export type AppRuntimeRole = z.infer<typeof AppRuntimeRoleSchema>;
 
-/** Every operation an app may ask the host for. Anything else does not exist. */
+/**
+ * Every operation an app may ask the host for. Anything else does not exist.
+ * `outputs.patch` edits a granted Output in place (document blocks, slides or
+ * a sheet range) against an expected revision, so an app that does not render
+ * some part of the Output can never delete it; `outputs.write` replaces the
+ * whole body and is for apps that own the Output's entire content.
+ */
 export const APP_RUNTIME_OPERATIONS = [
 	"app.call",
 	"outputs.read",
+	"outputs.patch",
 	"outputs.write",
 	"connections.call",
 	"skills.run",

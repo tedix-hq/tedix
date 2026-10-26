@@ -1309,6 +1309,31 @@ export const OsDocumentPatchOpSchema = z.discriminatedUnion("op", [
 	}),
 ]);
 
+/**
+ * An in-place edit a workspace app asks for through `outputs.patch`. The kind
+ * must match the granted Output; `expectedRevision` is required, so an edit
+ * made against a stale read fails as a conflict instead of landing.
+ */
+export const OsOutputPatchSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("document"),
+		ops: z.array(OsDocumentPatchOpSchema).min(1).max(100),
+		expectedRevision: z.number().int().positive(),
+	}),
+	z.strictObject({
+		kind: z.literal("presentation"),
+		ops: z.array(OsPresentationPatchOpSchema).min(1).max(100),
+		expectedRevision: z.number().int().positive(),
+	}),
+	z.strictObject({
+		kind: z.literal("sheet"),
+		startRow: z.number().int().nonnegative(),
+		startColumn: z.number().int().nonnegative(),
+		cells: z.array(z.array(OsSheetCellSchema).min(1).max(64)).min(1).max(200),
+		expectedRevision: z.number().int().positive(),
+	}),
+]);
+
 /** One slide of a OS presentation output. */
 export const OsPresentationSlideSchema = z.object({
 	title: z.string().max(300),

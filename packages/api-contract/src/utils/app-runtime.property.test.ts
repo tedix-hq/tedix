@@ -26,6 +26,7 @@ const ROLES = AppRuntimeRoleSchema.options;
 const OPERATIONS = APP_RUNTIME_OPERATIONS;
 const GRANT_GATED = new Set<AppRuntimeOperation>([
 	"outputs.read",
+	"outputs.patch",
 	"outputs.write",
 	"connections.call",
 	"skills.run",
