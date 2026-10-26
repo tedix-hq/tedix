@@ -47,3 +47,16 @@ export function decodeTediMcpCaller(request: Request): TediMcpCaller | null {
 		return null;
 	}
 }
+
+/**
+ * Skill workflows carry their run identity in gateway-authenticated headers.
+ * The runtime edge overwrites the private caller envelope, so a public caller
+ * cannot attest a workflow run merely by supplying this header.
+ */
+export function skillWorkflowRunId(request: Request): string | undefined {
+	if (decodeTediMcpCaller(request)?.method !== "service") return undefined;
+	return (
+		request.headers.get("X-Tedix-Skill-Run-Id")?.trim().slice(0, 512) ||
+		undefined
+	);
+}

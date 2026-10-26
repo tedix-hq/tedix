@@ -1,6 +1,6 @@
 import type { ComputerWorkspaceScope } from "./computer-workspace-scope";
 import type { WorkstationTurnContext } from "./workstation-turn-context";
-import { decodeTediMcpCaller } from "./mcp-authorization";
+import { skillWorkflowRunId } from "./mcp-authorization";
 
 /** The authenticated MCP proxy carries correlation in metadata, never in tool arguments. */
 export async function computerMcpContext(
@@ -25,15 +25,9 @@ export async function computerMcpContext(
 		typeof meta?.[key] === "string" && meta[key].trim()
 			? meta[key].slice(0, 512)
 			: undefined;
-	// Skill workflows carry their run identity in gateway-authenticated headers,
-	// while Home turns carry kernel correlation in metadata. The runtime edge
-	// overwrites the private caller envelope; public callers cannot attest a
-	// workflow run merely by supplying this header.
-	const skillRunId =
-		decodeTediMcpCaller(request)?.method === "service"
-			? request.headers.get("X-Tedix-Skill-Run-Id")?.trim().slice(0, 512)
-			: undefined;
-	const runId = field("io.tedix/kernelRunId") || skillRunId;
+	// Home turns carry kernel correlation in metadata; skill workflows carry
+	// their run identity in gateway-authenticated headers.
+	const runId = field("io.tedix/kernelRunId") || skillWorkflowRunId(request);
 	const workItemId = field("io.tedix/workItemId");
 	if (workItemId && !runId)
 		throw new Error("Computer Work metadata requires its run ID");

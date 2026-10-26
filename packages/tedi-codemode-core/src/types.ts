@@ -104,6 +104,11 @@ export interface RegisterCodeModeToolsOptions {
 	 */
 	resultMaxTokens?: number;
 	/**
+	 * A skill workflow caller parses the result in code, so it receives the
+	 * full value instead of the model-facing truncation envelope.
+	 */
+	machineCaller?: boolean;
+	/**
 	 * Optional app-specific tool registrations (e.g. runtime execute).
 	 */
 	extras?: CodeModeExtras;

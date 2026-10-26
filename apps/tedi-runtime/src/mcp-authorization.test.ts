@@ -7,6 +7,7 @@ import {
 	canCallTediMcpTool,
 	decodeTediMcpCaller,
 	encodeTediMcpCaller,
+	skillWorkflowRunId,
 	TEDI_MCP_AUTH_CONTEXT_HEADER,
 } from "./mcp-authorization";
 import {
@@ -196,5 +197,33 @@ assert.equal(
 		}),
 	),
 	null,
+);
+// A skill workflow run is attested only on the edge-derived service envelope.
+const serviceCaller = {
+	method: "service" as const,
+	principalId: "tedi-1",
+	principalType: "service" as const,
+	scopes: ["connections.execute"],
+};
+const runRequest = (
+	caller: typeof reader | typeof serviceCaller,
+	run = "run-1",
+) =>
+	new Request("https://cto.tedi.tedix.dev/mcp", {
+		headers: {
+			[TEDI_MCP_AUTH_CONTEXT_HEADER]: encodeTediMcpCaller(caller),
+			"X-Tedix-Skill-Run-Id": run,
+		},
+	});
+assert.equal(skillWorkflowRunId(runRequest(serviceCaller)), "run-1");
+assert.equal(skillWorkflowRunId(runRequest(reader)), undefined);
+assert.equal(skillWorkflowRunId(runRequest(serviceCaller, "  ")), undefined);
+assert.equal(
+	skillWorkflowRunId(
+		new Request("https://cto.tedi.tedix.dev/mcp", {
+			headers: { "X-Tedix-Skill-Run-Id": "run-1" },
+		}),
+	),
+	undefined,
 );
 console.log("All mcp-authorization tests passed.");

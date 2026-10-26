@@ -53,6 +53,9 @@ import type {
 const DISCOVERY_TIMEOUT_MS = 10_000;
 const IDENTICAL_FAILURE_LIMIT = 2;
 
+/** `null` means a machine caller (a skill workflow) that receives the full result. */
+type CodeResultBudget = CodeModeTruncationOptions | undefined | null;
+
 /**
  * Bound the model-facing result WITHOUT silent type degradation: an oversized
  * structured result becomes a `__tedix_truncated` envelope (see
@@ -60,18 +63,21 @@ const IDENTICAL_FAILURE_LIMIT = 2;
  * complete result. Within budget the value passes through
  * byte-identical.
  */
-function shapeModelResult(
+export function shapeModelResult(
 	value: unknown,
-	options: CodeModeTruncationOptions | undefined,
+	budget: CodeResultBudget,
 ): unknown {
-	return shapeBoundedCodeModeResult(value, options);
+	return budget === null ? value : shapeBoundedCodeModeResult(value, budget);
 }
 
-function stringifyModelResult(
+export function stringifyModelResult(
 	value: unknown,
-	options: CodeModeTruncationOptions | undefined,
+	budget: CodeResultBudget,
 ): string {
-	return stringifyBoundedCodeModeResult(value, options);
+	if (budget !== null) return stringifyBoundedCodeModeResult(value, budget);
+	return typeof value === "string"
+		? value
+		: (JSON.stringify(value, null, 2) ?? "undefined");
 }
 
 function logContext(
@@ -157,9 +163,13 @@ export async function registerCodeModeTools(
 		extraInstructions,
 		traceContext,
 		resultMaxTokens,
+		machineCaller,
 	} = options;
-	const truncationOptions: CodeModeTruncationOptions | undefined =
-		resultMaxTokens !== undefined ? { maxTokens: resultMaxTokens } : undefined;
+	const truncationOptions: CodeResultBudget = machineCaller
+		? null
+		: resultMaxTokens !== undefined
+			? { maxTokens: resultMaxTokens }
+			: undefined;
 
 	if (!loader) {
 		console.warn(
@@ -464,7 +474,10 @@ export async function registerCodeModeTools(
 					result: modelResult ?? null,
 				};
 				if (result.logs?.length) {
-					output.logs = boundCodeModeLogs(result.logs, truncationOptions);
+					output.logs = boundCodeModeLogs(
+						result.logs,
+						truncationOptions ?? undefined,
+					);
 				}
 
 				return {
