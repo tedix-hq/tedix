@@ -69,6 +69,27 @@ describe("validate_skill schedule parity with the scheduler", () => {
 	});
 
 	it.each([
+		["0 7 * * *", false],
+		["*/15 * * * *", false],
+		["0 7,19 * * *", false],
+		["0 7 * * 1", true],
+		["0 9 * * 1-5", true],
+		["0 6 1 * *", true],
+		["0 6 */2 * *", true],
+	])("warns when %s fires less than daily: %s", async (cron, warned) => {
+		const result = await validateSkillInput({} as never, {
+			...base,
+			content: skillDoc(cron as string),
+		});
+		expect(result.errors).toEqual([]);
+		const warning = result.warnings.find(
+			(w) => w.code === "SKILL_SCHEDULE_LESS_THAN_DAILY",
+		);
+		expect(Boolean(warning)).toBe(warned);
+		if (warning) expect(warning.message).toContain("at least daily");
+	});
+
+	it.each([
 		"export default { async run(event, step, env) { return 1; } };",
 		"export default { async run(event, step, env) { /* async eligibility() {} */ return 1; } };",
 		"export default { async run(event, step, env) { const hint = 'eligibility(event, step, env)'; return 1; } };",

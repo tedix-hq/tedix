@@ -100,6 +100,23 @@ function matchesCronDay(date: Date, parsed: ParsedCron): boolean {
 	return dayMatches && parsed.month.has(date.getUTCMonth() + 1);
 }
 
+/**
+ * Whether a cron fires on every UTC day of two sample weeks, which covers
+ * day-of-week and day-of-month restrictions. `firstDay` is a UTC midnight.
+ */
+export function skillScheduleFiresDaily(
+	cron: string,
+	firstDay: number = Date.UTC(2026, 0, 5),
+): boolean {
+	const DAY_MS = 24 * 60 * 60 * 1000;
+	for (let day = 0; day < 14; day++) {
+		const dayStart = firstDay + day * DAY_MS;
+		const next = Date.parse(nextSkillScheduleFireAt(cron, dayStart - 1));
+		if (next >= dayStart + DAY_MS) return false;
+	}
+	return true;
+}
+
 export function nextSkillScheduleFireAt(
 	cron: string,
 	after: Date | string | number,
