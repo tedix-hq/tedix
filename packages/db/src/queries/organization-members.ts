@@ -88,7 +88,8 @@ export async function getActiveMemberByEmail(
  * One statement for a user's memberships in a bounded set of Descope tenants:
  * non-retired organizations joined to that user's member rows. Callers decide
  * which statuses grant access. Replaces a per-tenant org-then-member lookup on
- * the live MCP grant path.
+ * the live MCP grant path. `inboundClientPolicyJson` is the organization's
+ * stored inbound OAuth client policy as JSON text, unparsed and unvalidated.
  */
 export async function getMembershipsByDescopeTenants(
 	db: DbClient,
@@ -99,6 +100,7 @@ export async function getMembershipsByDescopeTenants(
 		organizationId: string;
 		descopeTenantId: string;
 		status: OrganizationMember["status"];
+		inboundClientPolicyJson: string | null;
 	}>
 > {
 	const tenantIds = [...new Set(descopeTenantIds)];
@@ -107,6 +109,7 @@ export async function getMembershipsByDescopeTenants(
 		organizationId: string;
 		descopeTenantId: string | null;
 		status: OrganizationMember["status"];
+		inboundClientPolicyJson: string | null;
 	}> = [];
 	// D1 caps bound parameters at 100 per statement.
 	for (const chunk of chunkForBoundParams(tenantIds, 50)) {
@@ -116,6 +119,9 @@ export async function getMembershipsByDescopeTenants(
 					organizationId: organizations.id,
 					descopeTenantId: organizations.descopeTenantId,
 					status: organizationMembers.status,
+					inboundClientPolicyJson: sql<
+						string | null
+					>`json_extract(${organizations.metadata}, '$.mcpInboundClientPolicy')`,
 				})
 				.from(organizations)
 				.innerJoin(

@@ -22,14 +22,14 @@ async function setup() {
 		createdAt: NOW,
 		updatedAt: NOW,
 	});
-	await db
-		.insert(organizations)
-		.values([
-			org("org-a", "T_a"),
-			org("org-b", "T_b"),
-			org("org-retired", "T_retired", { retiredAt: NOW }),
-			org("org-other", "T_other"),
-		]);
+	await db.insert(organizations).values([
+		org("org-a", "T_a", {
+			mcpInboundClientPolicy: { mode: "audit", entries: [] },
+		}),
+		org("org-b", "T_b"),
+		org("org-retired", "T_retired", { retiredAt: NOW }),
+		org("org-other", "T_other"),
+	]);
 	const member = (
 		id: string,
 		organizationId: string,
@@ -70,11 +70,17 @@ describe("getMembershipsByDescopeTenants", () => {
 				left.descopeTenantId.localeCompare(right.descopeTenantId),
 			),
 		).toEqual([
-			{ organizationId: "org-a", descopeTenantId: "T_a", status: "active" },
+			{
+				organizationId: "org-a",
+				descopeTenantId: "T_a",
+				status: "active",
+				inboundClientPolicyJson: '{"mode":"audit","entries":[]}',
+			},
 			{
 				organizationId: "org-b",
 				descopeTenantId: "T_b",
 				status: "deactivated",
+				inboundClientPolicyJson: null,
 			},
 		]);
 	});

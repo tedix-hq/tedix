@@ -57,6 +57,7 @@ vi.mock("@tedix/db/queries/organization-members", async (importOriginal) => ({
 			organizationId: "00000000-0000-4000-8000-000000000001",
 			descopeTenantId: "tenant-example",
 			status: "active",
+			inboundClientPolicyJson: null,
 		},
 	],
 	getOrganizationAggregatorGateways: async () =>

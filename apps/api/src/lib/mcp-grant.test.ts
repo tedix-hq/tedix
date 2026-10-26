@@ -85,6 +85,10 @@ vi.mock("@tedix/db/queries/organization-members", () => ({
 					organizationId: organization.id,
 					descopeTenantId,
 					status: member.status,
+					inboundClientPolicyJson:
+						organization.metadata?.mcpInboundClientPolicy === undefined
+							? null
+							: JSON.stringify(organization.metadata.mcpInboundClientPolicy),
 				});
 		}
 		return rows;
@@ -961,6 +965,111 @@ describe("verifyHumanMcpGrant", () => {
 			userId: input.descopeUserId,
 			consentId: input.consentId,
 		});
+	});
+
+	it("applies each selected organization's inbound client policy at consent and on every grant check", async () => {
+		const { stageHumanMcpConsent, verifyHumanMcpGrant } =
+			await import("./mcp-grant");
+		const stage = {
+			resourceUrl: input.resourceUrl,
+			clientId: input.clientId,
+			approvedScopes: input.tokenScopes,
+			selectedTenantIds: tenantIds,
+		};
+		const withPolicy = (policy: unknown) =>
+			mocks.getOrganizationByDescopeId.mockImplementation(
+				async (_db: unknown, tenantId: string) => ({
+					id: orgIds[tenantIds.indexOf(tenantId)],
+					descopeTenantId: tenantId,
+					metadata:
+						tenantId === tenantIds[1] ? { mcpInboundClientPolicy: policy } : {},
+				}),
+			);
+		const future = new Date(Date.now() + 86_400_000).toISOString();
+		const past = new Date(Date.now() - 1000).toISOString();
+		const cases: Array<[string, unknown, boolean]> = [
+			["audit with no entries", { mode: "audit", entries: [] }, true],
+			[
+				"enforce listing this exact client",
+				{
+					mode: "enforce",
+					entries: [
+						{
+							mcpServerId: input.mcpServerId,
+							clientId: input.clientId,
+							expiresAt: future,
+						},
+					],
+				},
+				true,
+			],
+			["enforce with no entries", { mode: "enforce", entries: [] }, false],
+			[
+				"enforce with an expired exception",
+				{
+					mode: "enforce",
+					entries: [
+						{
+							mcpServerId: input.mcpServerId,
+							clientId: input.clientId,
+							expiresAt: past,
+						},
+					],
+				},
+				false,
+			],
+			[
+				"enforce listing the client for another server",
+				{
+					mode: "enforce",
+					entries: [
+						{
+							mcpServerId: "other-server",
+							clientId: input.clientId,
+							expiresAt: future,
+						},
+					],
+				},
+				false,
+			],
+			[
+				"enforce listing a client that differs only by case",
+				{
+					mode: "enforce",
+					entries: [
+						{
+							mcpServerId: input.mcpServerId,
+							clientId: input.clientId.toUpperCase(),
+							expiresAt: future,
+						},
+					],
+				},
+				false,
+			],
+			// A malformed stored policy admits nothing until an admin rewrites it.
+			["a malformed policy", { mode: "enforce" }, false],
+			["an unknown mode", { mode: "off", entries: [] }, false],
+		];
+		for (const [label, policy, allowed] of cases) {
+			withPolicy(policy);
+			mocks.stageMcpConsentPending.mockClear();
+			const revision = await stageHumanMcpConsent(
+				{} as never,
+				env,
+				input.descopeUserId,
+				stage,
+			);
+			expect(revision === null, label).toBe(!allowed);
+			expect(mocks.stageMcpConsentPending.mock.calls.length, label).toBe(
+				allowed ? 1 : 0,
+			);
+			const decision = await verifyHumanMcpGrant({} as never, env, input);
+			expect(decision, label).toEqual(
+				allowed
+					? expect.objectContaining({ allowed: true, reason: "active" })
+					: { allowed: false, reason: "client_not_allowed", organizations: [] },
+			);
+		}
 	});
 
 	it("rejects a client not registered to this MCP resource", async () => {
