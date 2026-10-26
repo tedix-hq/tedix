@@ -59,10 +59,13 @@ export function AppRuntimeFrame({
 		// that sandboxes the guest (opaque origin, scripts and forms only). Keeping
 		// the proxy same-origin is what makes both origin checks exact.
 		iframe.setAttribute("referrerpolicy", "no-referrer");
-		// Copy buttons need the clipboard and a language switch needs the browser's
-		// on-device translator; both still require a click, and the proxy passes the
-		// grants to the guest.
-		iframe.setAttribute("allow", "clipboard-write; translator");
+		// Copy buttons need the clipboard and the host's Translate needs the
+		// browser's on-device translator and language detector; the proxy passes
+		// the grants to the guest.
+		iframe.setAttribute(
+			"allow",
+			"clipboard-write; translator; language-detector",
+		);
 		iframe.style.cssText = "width:100%;border:0;background:transparent";
 		// A filled pane keeps a usable floor on a phone, where the panel scrolls
 		// instead of bounding its height.
@@ -138,7 +141,11 @@ export function AppRuntimeFrame({
 		};
 		window.addEventListener("message", onMessage);
 		host.appendChild(iframe);
-		iframe.src = widgetSandboxUrl({ clipboardWrite: {}, translator: {} }).href;
+		iframe.src = widgetSandboxUrl({
+			clipboardWrite: {},
+			translator: {},
+			languageDetector: {},
+		}).href;
 		return () => {
 			alive = false;
 			clearTimeout(timer);

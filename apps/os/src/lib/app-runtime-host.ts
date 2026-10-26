@@ -157,6 +157,165 @@ export function appRuntimeContextFromManifest(
 const escapeScript = (source: string) =>
 	source.replace(/<\/script/gi, "<\\/script");
 
+/** Host to app: translate the visible text (`target`) or show the original (`target: null`). */
+export const APP_RUNTIME_TRANSLATE_METHOD = "tedix/translate";
+/** Host to app: name the language of the text the app shows. */
+export const APP_RUNTIME_DETECT_LANGUAGE_METHOD = "tedix/detect-language";
+/** App to host: progress and result of a translate request. */
+export const APP_RUNTIME_TRANSLATION_METHOD = "tedix/translation";
+/** App to host: the detected language, or null. */
+export const APP_RUNTIME_LANGUAGE_METHOD = "tedix/language";
+
+export interface AppRuntimeTranslateParams {
+	/** BCP 47 code of the app's own text. */
+	source: string;
+	/** Target language, or null to restore the original text. */
+	target: string | null;
+	/** Fixed wording for whole texts, keyed by the trimmed original. */
+	glossary?: Record<string, string>;
+}
+
+export type AppRuntimeTranslationStatus =
+	| { state: "downloading"; progress: number }
+	| { state: "translating" | "translated"; language: string }
+	| { state: "original" }
+	| { state: "unavailable"; detail?: string };
+
+/** The fixed wording `settings.glossary[target]` names, strings only. */
+export function appRuntimeGlossary(
+	settings: Record<string, JsonValue>,
+	target: string,
+): Record<string, string> {
+	const glossary = settings.glossary;
+	const entries = isRecord(glossary) ? glossary[target] : undefined;
+	if (!isRecord(entries)) return {};
+	return Object.fromEntries(
+		Object.entries(entries).filter(
+			(entry): entry is [string, string] => typeof entry[1] === "string",
+		),
+	);
+}
+
+/**
+ * Translation inside the app document, driven only by the host. It swaps the
+ * visible text and placeholders in place with the browser's on-device
+ * translator, keeps the app's own nodes (so its handlers and state survive),
+ * follows re-renders, and restores the original on request. Elements marked
+ * `translate="no"` and texts without letters stay as they are; the app's code
+ * and data are never changed, so copies and server calls keep the original.
+ */
+export const APP_RUNTIME_TRANSLATION_SCRIPT = `(function(){
+	var post=function(method,params){window.parent.postMessage({jsonrpc:"2.0",method:method,params:params},"*");};
+	var status=function(params){post(${JSON.stringify(APP_RUNTIME_TRANSLATION_METHOD)},params);};
+	var letters=/\\p{L}/u;
+	var t={run:0,target:null,translator:null,glossary:{},pair:null,done:new Map(),pending:new Map(),pairs:new Map(),tracked:new Map()};
+	function items(){
+		var out=[];
+		var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT,{acceptNode:function(node){
+			var parent=node.parentElement;
+			return !parent||parent.closest("script,style,noscript,[translate=no]")||!letters.test(node.nodeValue)?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT;
+		}});
+		for(var node=walker.nextNode();node;node=walker.nextNode())out.push([node,"nodeValue"]);
+		document.body.querySelectorAll("input[placeholder],textarea[placeholder]").forEach(function(field){
+			if(!field.closest("[translate=no]")&&letters.test(field.placeholder))out.push([field,"placeholder"]);
+		});
+		return out;
+	}
+	function write(node,key,original,value){
+		t.tracked.set(node,{key:key,original:original,written:value});
+		node[key]=value;
+	}
+	function translate(text){
+		var job=t.pending.get(text);
+		if(!job){
+			job=t.translator.translate(text).then(function(result){t.done.set(text,result);return result;});
+			job.catch(function(){t.pending.delete(text);});
+			t.pending.set(text,job);
+		}
+		return job;
+	}
+	// Swap known texts in at once, then fetch the rest. A text the app changed
+	// meanwhile is left for the next pass.
+	function pass(){
+		var run=t.run;
+		if(!t.target)return Promise.resolve();
+		t.tracked.forEach(function(seen,node){if(!node.isConnected)t.tracked.delete(node);});
+		var jobs=[];
+		items().forEach(function(item){
+			var node=item[0],key=item[1],value=node[key],seen=t.tracked.get(node);
+			if(seen&&seen.written===value)return;
+			var parts=/^(\\s*)([\\s\\S]*?)(\\s*)$/.exec(value);
+			var known=Object.prototype.hasOwnProperty.call(t.glossary,parts[2])?t.glossary[parts[2]]:t.done.get(parts[2]);
+			if(known!==undefined){write(node,key,value,parts[1]+known+parts[3]);return;}
+			jobs.push(translate(parts[2]).then(function(result){
+				if(run===t.run&&node.isConnected&&node[key]===value)write(node,key,value,parts[1]+result+parts[3]);
+			},function(){}));
+		});
+		return Promise.all(jobs);
+	}
+	var observer=new MutationObserver(function(){pass();});
+	function restore(){
+		observer.disconnect();
+		t.tracked.forEach(function(seen,node){if(node[seen.key]===seen.written)node[seen.key]=seen.original;});
+		t.tracked.clear();
+		t.target=null;
+	}
+	function translator(source,target){
+		var pair=source+">"+target,job=t.pairs.get(pair);
+		if(!job){
+			job=Translator.create({sourceLanguage:source,targetLanguage:target,monitor:function(monitor){
+				monitor.addEventListener("downloadprogress",function(event){status({state:"downloading",progress:event.loaded});});
+			}});
+			job.catch(function(){t.pairs.delete(pair);});
+			t.pairs.set(pair,job);
+		}
+		return job.then(function(created){
+			if(t.pair!==pair){t.pair=pair;t.done=new Map();t.pending=new Map();}
+			return created;
+		});
+	}
+	function setLanguage(params){
+		var run=++t.run;
+		restore();
+		if(!params.target){status({state:"original"});return;}
+		if(typeof Translator==="undefined"){status({state:"unavailable",detail:"no_translator"});return;}
+		status({state:"translating",language:params.target});
+		translator(String(params.source),String(params.target)).then(function(created){
+			if(run!==t.run)return;
+			var glossary={};
+			if(params.glossary&&typeof params.glossary==="object")Object.keys(params.glossary).forEach(function(key){
+				if(typeof params.glossary[key]==="string")glossary[key]=params.glossary[key];
+			});
+			t.target=params.target;t.translator=created;t.glossary=glossary;
+			observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:["placeholder"]});
+			return pass().then(function(){if(run===t.run)status({state:"translated",language:params.target});});
+		},function(error){
+			if(run===t.run)status({state:"unavailable",detail:error&&error.name||"failed"});
+		});
+	}
+	// An app that is still loading gets a few seconds to show its first text.
+	function detect(waited){
+		var text=document.body.innerText.trim();
+		if(!letters.test(text)&&!waited&&typeof LanguageDetector!=="undefined"){
+			var wait=new MutationObserver(function(){if(letters.test(document.body.innerText)){wait.disconnect();clearTimeout(timer);detect(true);}});
+			var timer=setTimeout(function(){wait.disconnect();detect(true);},5000);
+			wait.observe(document.body,{subtree:true,childList:true,characterData:true});
+			return;
+		}
+		if(typeof LanguageDetector==="undefined"||!letters.test(text)){post(${JSON.stringify(APP_RUNTIME_LANGUAGE_METHOD)},{language:null});return;}
+		LanguageDetector.create().then(function(detector){return detector.detect(text.slice(0,2000));}).then(function(results){
+			var best=results&&results[0];
+			post(${JSON.stringify(APP_RUNTIME_LANGUAGE_METHOD)},{language:best&&best.detectedLanguage!=="und"&&best.confidence>=0.5?best.detectedLanguage:null});
+		},function(){post(${JSON.stringify(APP_RUNTIME_LANGUAGE_METHOD)},{language:null});});
+	}
+	window.addEventListener("message",function(event){
+		var data=event.data;
+		if(event.source!==window.parent||!data||typeof data!=="object"||data.jsonrpc!=="2.0")return;
+		if(data.method===${JSON.stringify(APP_RUNTIME_TRANSLATE_METHOD)}&&data.params&&typeof data.params==="object")setLanguage(data.params);
+		else if(data.method===${JSON.stringify(APP_RUNTIME_DETECT_LANGUAGE_METHOD)})detect(false);
+	});
+})();`;
+
 /**
  * The document the sandbox runs: a small `tedix` object that turns
  * `tedix.call(method, args)` into a JSON-RPC message for the host, then the
@@ -202,6 +361,7 @@ button{font:inherit}
 	};
 	new ResizeObserver(function(){window.tedix.resize(document.documentElement.scrollHeight);}).observe(document.body);
 })();
+${APP_RUNTIME_TRANSLATION_SCRIPT}
 </script>
 <script type="module">
 ${escapeScript(client)}

@@ -29,10 +29,12 @@ describe("runtime app frame", () => {
 			);
 		});
 		const frame = node.querySelector("iframe");
-		expect(frame?.getAttribute("allow")).toBe("clipboard-write; translator");
+		expect(frame?.getAttribute("allow")).toBe(
+			"clipboard-write; translator; language-detector",
+		);
 		expect(
 			JSON.parse(new URL(src).searchParams.get("permissions") ?? "{}"),
-		).toEqual({ clipboardWrite: {}, translator: {} });
+		).toEqual({ clipboardWrite: {}, translator: {}, languageDetector: {} });
 		await act(async () => root.unmount());
 		node.remove();
 	});
