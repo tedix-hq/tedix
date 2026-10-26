@@ -20,8 +20,11 @@ import { harnessSubjectTraceBundles } from "../schema/harness-versions";
 import { runtimeSubmissions } from "../schema/runtime-submissions";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
+import { platformCronCheckpoints } from "../schema/platform-cron-executions";
 import {
+	advanceKernelConversationRetitleCursor,
 	listKernelConversationPage,
+	listKernelConversationRetitleCandidates,
 	purgeKernelConversation,
 	recordKernelConversationMessage,
 } from "./kernel-conversations";
@@ -390,5 +393,67 @@ describe("listKernelConversationPage hiddenPrefixes", () => {
 			limit: 50,
 		});
 		expect(page).toHaveLength(12);
+	});
+});
+
+describe("listKernelConversationRetitleCandidates", () => {
+	function retitleDb(): DbClient {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(`${DDL}\n${schemaDdl(platformCronCheckpoints)}`);
+		sqlite.exec(`INSERT INTO organizations (id) VALUES ('${ORG}');`);
+		return createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
+	}
+
+	async function seed(
+		db: DbClient,
+		conversationId: string,
+		title: string,
+		extra: Partial<typeof kernelConversations.$inferInsert> = {},
+	) {
+		await db.insert(kernelConversations).values({
+			id: `${ORG}:${conversationId}`,
+			organizationId: ORG,
+			conversationId,
+			title,
+			titleSource: "autoTitle",
+			lastMessageAt: "2026-10-26T09:00:00.000Z",
+			...extra,
+		});
+	}
+
+	it("pages open, non-renamed code-like titles and walks a CAS cursor", async () => {
+		const db = retitleDb();
+		await seed(db, "home:os:1", "A304");
+		await seed(db, "home:os:2", "3f2a9c1e-6b7d", {
+			titleSource: "provisional",
+		});
+		await seed(db, "home:os:3", "Draft reply for A304");
+		await seed(db, "home:os:4", "Reddit threads");
+		await seed(db, "home:os:5", "B12", { titleSource: "rename" });
+		await seed(db, "home:os:6", "C77", { archivedAt: "2026-10-26T10:00:00Z" });
+		await seed(db, "home:os:7", "D88", { deletedAt: "2026-10-26T10:00:00Z" });
+		await seed(db, "home:os:8", "E99", { titleSource: null });
+
+		const first = await listKernelConversationRetitleCandidates(db, {
+			limit: 2,
+		});
+		expect(first.previous).toBeNull();
+		expect(first.rows.map((row) => row.conversationId)).toEqual([
+			"home:os:1",
+			"home:os:2",
+		]);
+		await advanceKernelConversationRetitleCursor(
+			db,
+			first.previous,
+			first.rows.at(-1)!.id,
+		);
+		// A stale tick cannot rewind the cursor.
+		await advanceKernelConversationRetitleCursor(db, null, "");
+
+		const second = await listKernelConversationRetitleCandidates(db, {
+			limit: 2,
+		});
+		expect(second.previous).toBe(`${ORG}:home:os:2`);
+		expect(second.rows.map((row) => row.conversationId)).toEqual(["home:os:8"]);
 	});
 });

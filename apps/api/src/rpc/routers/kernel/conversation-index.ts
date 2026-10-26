@@ -90,6 +90,32 @@ const PLACEHOLDER_TITLE_RE =
 const REFUSAL_TITLE_RE =
 	/^(i['’]?\s?m sorry\b|sorry\b|i apologi|i can['’]?t\b|i cannot\b|i['’]?m unable\b|unable to\b|i won['’]?t\b|as an ai\b)/i;
 
+/** Upper bound on title words: a sidebar label, not a sentence. */
+export const CONVERSATION_TITLE_MAX_WORDS = 6;
+
+/** Hex ids and their fragments (`3f2a9c1e`, `3f2a9c1e-6b7d`). */
+const HEX_ID_TITLE_RE = /^[0-9a-f]+(?:-[0-9a-f]+)*$/i;
+
+/**
+ * A code or id instead of words (`A304`, `Q3-17`, a uuid fragment): it has a
+ * digit and either no run of three letters or only hex and dashes. Such a
+ * label tells the reader nothing, so no title source persists one and the
+ * backfill renames existing ones. `listKernelConversationRetitleCandidates`
+ * mirrors this test in SQL as a superset prefilter.
+ */
+export function isCodeLikeConversationTitle(
+	title: string | null | undefined,
+): boolean {
+	const value = title?.trim() ?? "";
+	if (!/\d/.test(value)) return false;
+	if (value.length >= 8 && HEX_ID_TITLE_RE.test(value)) return true;
+	return !/\p{L}{3}/u.test(value);
+}
+
+/** Leading politeness that spends title words ("Please", "Can you", "Bitte"). */
+const REQUEST_PREAMBLE_RE =
+	/^(?:please|pls|hey|hi|hello|hallo|bitte|can you|could you|would you|kannst du|könntest du)\b[\s,:]*/i;
+
 /** Context envelopes are references, not the conversation's topic. */
 export function stripConversationTitleContext(value: string): string {
 	return value
@@ -101,8 +127,9 @@ export function stripConversationTitleContext(value: string): string {
 /**
  * Pure model-output sanitizer: first non-empty line, markdown/quote wrappers
  * stripped, whitespace collapsed, trailing sentence punctuation removed,
- * capped at 8 words / 80 chars. Returns `null` for empty or placeholder
- * output so the caller persists nothing rather than junk. (Declared here for
+ * capped at {@link CONVERSATION_TITLE_MAX_WORDS} words / 80 chars. Returns
+ * `null` for empty, placeholder, refusal or code-like output so the caller
+ * persists nothing rather than junk. (Declared here for
  * the provisional-title write-through; re-exported by conversation-title.ts.)
  */
 export function sanitizeConversationTitle(
@@ -129,18 +156,36 @@ export function sanitizeConversationTitle(
 	title = title.replace(/[.!?,;:]+$/, "").trim();
 	if (!title) return null;
 	const words = title.split(" ");
-	if (words.length > 8) title = words.slice(0, 8).join(" ");
+	if (words.length > CONVERSATION_TITLE_MAX_WORDS)
+		title = words.slice(0, CONVERSATION_TITLE_MAX_WORDS).join(" ");
 	if (title.length > 80) title = title.slice(0, 80).trim();
+	title = title.replace(/[.!?,;:]+$/, "").trim();
 	if (PLACEHOLDER_TITLE_RE.test(title)) return null;
 	if (REFUSAL_TITLE_RE.test(title)) return null;
+	if (isCodeLikeConversationTitle(title)) return null;
 	return title;
 }
 
-/** Deterministic first-message title (provisional write-through + auto-title fallback). */
+/**
+ * Deterministic first-message title (provisional write-through + auto-title
+ * fallback): the first sentence that yields a usable title, minus leading
+ * politeness, so "A304. Please draft the reply" titles as "Draft the reply".
+ */
 export function fallbackConversationTitle(userContent: string): string | null {
 	const content = stripConversationTitleContext(userContent);
-	const firstSentence = content.split(/[.!?\n]/, 1)[0] ?? content;
-	return sanitizeConversationTitle(firstSentence);
+	for (const sentence of content.split(/[.!?\n]/)) {
+		let request = sentence.trim();
+		const original = request;
+		for (let previous = ""; previous !== request;) {
+			previous = request;
+			request = request.replace(REQUEST_PREAMBLE_RE, "");
+		}
+		if (request !== original)
+			request = request.charAt(0).toUpperCase() + request.slice(1);
+		const title = sanitizeConversationTitle(request);
+		if (title) return title;
+	}
+	return null;
 }
 
 /** Composite keyset cursor separator — never appears in an ISO timestamp. */

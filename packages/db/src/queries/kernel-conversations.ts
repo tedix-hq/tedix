@@ -1,6 +1,18 @@
-import { and, desc, eq, isNull, lt, notLike, or, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	gt,
+	isNull,
+	lt,
+	ne,
+	notLike,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
 import { harnessSubjectTraceBundles } from "../schema/harness-versions";
+import { platformCronCheckpoints } from "../schema/platform-cron-executions";
 import {
 	chatDispatchIdempotency,
 	type KernelConversation,
@@ -427,6 +439,68 @@ export async function recordKernelConversationTitle(
 				titleSource: sql`CASE WHEN ${kernelConversations.titleSource} = 'rename' THEN ${kernelConversations.titleSource} ELSE 'autoTitle' END`,
 				updatedAt,
 			},
+		});
+}
+
+const RETITLE_CHECKPOINT = "kernel-conversation-retitle:v1";
+
+/**
+ * One page of open conversations whose title may be a code or id (`A304`, a
+ * uuid fragment), keyed after the stored cursor. User renames are never
+ * candidates. The GLOBs are a superset prefilter of the API's
+ * `isCodeLikeConversationTitle` (a digit, and no run of three ASCII letters
+ * or only hex and dashes); the caller applies the exact test.
+ */
+export async function listKernelConversationRetitleCandidates(
+	db: DbClient,
+	input: { limit: number },
+): Promise<{ rows: KernelConversation[]; previous: string | null }> {
+	const [checkpoint] = await db
+		.select({ through: platformCronCheckpoints.through })
+		.from(platformCronCheckpoints)
+		.where(eq(platformCronCheckpoints.scheduleId, RETITLE_CHECKPOINT))
+		.limit(1);
+	const previous = checkpoint?.through ?? null;
+	const rows = await db
+		.select()
+		.from(kernelConversations)
+		.where(
+			and(
+				gt(kernelConversations.id, previous ?? ""),
+				isNull(kernelConversations.deletedAt),
+				isNull(kernelConversations.archivedAt),
+				or(
+					isNull(kernelConversations.titleSource),
+					ne(kernelConversations.titleSource, "rename"),
+				),
+				sql`${kernelConversations.title} GLOB '*[0-9]*'`,
+				sql`(${kernelConversations.title} NOT GLOB '*[A-Za-z][A-Za-z][A-Za-z]*' OR ${kernelConversations.title} NOT GLOB '*[^0-9A-Fa-f-]*')`,
+			),
+		)
+		.orderBy(kernelConversations.id)
+		.limit(input.limit);
+	return { rows, previous };
+}
+
+/**
+ * Compare-and-set the retitle cursor so overlapping ticks never rewind it; an
+ * empty page (`next === ""`) restarts the pass.
+ */
+export async function advanceKernelConversationRetitleCursor(
+	db: DbClient,
+	previous: string | null,
+	next: string,
+): Promise<void> {
+	await db
+		.insert(platformCronCheckpoints)
+		.values({ scheduleId: RETITLE_CHECKPOINT, through: next })
+		.onConflictDoUpdate({
+			target: platformCronCheckpoints.scheduleId,
+			set: { through: next },
+			setWhere:
+				previous === null
+					? sql`0`
+					: eq(platformCronCheckpoints.through, previous),
 		});
 }
 

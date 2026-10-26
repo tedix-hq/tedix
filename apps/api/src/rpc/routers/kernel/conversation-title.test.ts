@@ -33,12 +33,14 @@ vi.mock("./llm", async (importOriginal) => {
 
 import type { BaseContext } from "../../orpc";
 import {
+	backfillCodeLikeConversationTitles,
 	buildConversationTitlePrompt,
 	evaluateAutoTitleGuard,
 	generateAndPersistHomeConversationTitle,
 } from "./conversation-title";
 import {
 	fallbackConversationTitle,
+	isCodeLikeConversationTitle,
 	KERNEL_AUTO_TITLE_SOURCE,
 	sanitizeConversationTitle,
 } from "./conversation-index";
@@ -106,7 +108,49 @@ describe("fallbackConversationTitle", () => {
 			fallbackConversationTitle(
 				"List exactly three active tedis in this workspace. Only names.",
 			),
-		).toBe("List exactly three active tedis in this workspace");
+		).toBe("List exactly three active tedis in");
+	});
+	it("skips a code-only sentence and leading politeness", () => {
+		expect(
+			fallbackConversationTitle("A304. Please draft the reply to that thread."),
+		).toBe("Draft the reply to that thread");
+		expect(
+			fallbackConversationTitle(
+				"Bitte fasse die neuen Reddit-Threads von heute zusammen",
+			),
+		).toBe("Fasse die neuen Reddit-Threads von heute");
+	});
+	it("returns null when the request is only a code", () => {
+		expect(fallbackConversationTitle("A304")).toBeNull();
+		expect(fallbackConversationTitle("3f2a9c1e-6b7d")).toBeNull();
+	});
+});
+
+describe("isCodeLikeConversationTitle", () => {
+	it("flags codes and id fragments", () => {
+		for (const title of [
+			"A304",
+			"a-304",
+			"#1234",
+			"Q3 17",
+			"3f2a9c1e",
+			"3f2a9c1e-6b7d-4e58",
+			"deadbeef12",
+			"2026-10-26",
+		])
+			expect(isCodeLikeConversationTitle(title), title).toBe(true);
+	});
+	it("keeps titles that contain words", () => {
+		for (const title of [
+			"Draft reply for A304",
+			"17 multiplied by 6",
+			"Update cell B2 to 15",
+			"Größe 42 prüfen",
+			"Reddit threads",
+			"Hi",
+			"",
+		])
+			expect(isCodeLikeConversationTitle(title), title).toBe(false);
 	});
 });
 
@@ -144,12 +188,22 @@ describe("sanitizeConversationTitle", () => {
 		).toBe("Weekly Report Plan");
 	});
 
-	it("caps runaway output at 8 words", () => {
+	it("caps runaway output at 6 words", () => {
 		expect(
 			sanitizeConversationTitle(
 				"one two three four five six seven eight nine ten",
 			),
-		).toBe("one two three four five six seven eight");
+		).toBe("one two three four five six");
+		expect(
+			sanitizeConversationTitle(
+				"Create exactly one new Work item, status open",
+			),
+		).toBe("Create exactly one new Work item");
+	});
+
+	it("rejects code-like output", () => {
+		expect(sanitizeConversationTitle("A304")).toBeNull();
+		expect(sanitizeConversationTitle('"3f2a9c1e"')).toBeNull();
 	});
 
 	it("rejects refusal/apology-shaped output (observed live)", () => {
@@ -460,7 +514,8 @@ describe("generateAndPersistHomeConversationTitle", () => {
 
 		expect(mockGenerateText).toHaveBeenCalledTimes(1);
 		const call = mockGenerateText.mock.calls[0]?.[0] as Record<string, unknown>;
-		expect(call.instructions).toContain("3-6 word title");
+		expect(call.instructions).toContain("at most 6 words");
+		expect(call.instructions).toContain("same language");
 		expect(inserted).toHaveLength(1);
 		const row = inserted[0] as {
 			id: string;
@@ -627,5 +682,117 @@ describe("generateAndPersistHomeConversationTitle", () => {
 
 		expect(mockGenerateText).not.toHaveBeenCalled();
 		expect(inserted).toHaveLength(0);
+	});
+});
+
+describe("backfillCodeLikeConversationTitles", () => {
+	function candidate(conversationId: string, title: string) {
+		return {
+			id: `org-1:${conversationId}`,
+			organizationId: "org-1",
+			conversationId,
+			title,
+			titleSource: "autoTitle",
+		};
+	}
+	const firstExchange = [
+		{
+			kind: "message.received",
+			runId: null,
+			createdAt: "2026-10-26T09:00:00.000Z",
+			payload: { role: "user", content: "A304" },
+		},
+		{
+			kind: "message.completed",
+			runId: "run-first",
+			createdAt: "2026-10-26T09:00:05.000Z",
+			payload: { role: "assistant", content: "Here is the reply draft." },
+		},
+	];
+
+	it("renames a code-titled chat from its first exchange, once, and advances the cursor", async () => {
+		mockGenerateText.mockReset();
+		mockGenerateText.mockResolvedValue({ text: "Reddit-Antwort entwerfen" });
+		kernelModelCalls.length = 0;
+		const inserted: unknown[] = [];
+		const db = scriptedDb(
+			[
+				[], // cursor checkpoint: first pass
+				[
+					candidate("home:os:a", "A304"),
+					// The SQL prefilter is a superset; the exact test skips this one.
+					candidate("home:os:b", "Größe 42"),
+				],
+				firstExchange,
+				[insertedEventRow()],
+			],
+			inserted,
+		);
+
+		const result = await backfillCodeLikeConversationTitles(
+			contextWith(db, modelEnv()),
+		);
+
+		expect(result).toEqual({
+			titleBackfillScanned: 2,
+			titleBackfillRenamed: 1,
+		});
+		expect(mockGenerateText).toHaveBeenCalledTimes(1);
+		expect(kernelModelCalls[0]?.[2]).toMatchObject({ runId: "run-first" });
+		const event = inserted.find(
+			(value) => (value as { kind?: string }).kind === "conversation.updated",
+		) as { id: string; conversationId: string; payload: unknown };
+		expect(event.conversationId).toBe("home:os:a");
+		// A fixed key: a replayed tick conflicts on the id instead of writing again.
+		expect(event.id).toBe(
+			"home:org-1:event:conversation.updated:home:os:a:auto:retitle",
+		);
+		expect(event.payload).toEqual({
+			conversation: { title: "Reddit-Antwort entwerfen" },
+			title: "Reddit-Antwort entwerfen",
+			source: KERNEL_AUTO_TITLE_SOURCE,
+		});
+		expect(inserted.at(-1)).toEqual({
+			scheduleId: "kernel-conversation-retitle:v1",
+			through: "org-1:home:os:b",
+		});
+	});
+
+	it("writes nothing when neither the model nor the request yields a title", async () => {
+		mockGenerateText.mockReset();
+		mockGenerateText.mockResolvedValue({ text: "A304" });
+		const inserted: unknown[] = [];
+		const db = scriptedDb(
+			[[], [candidate("home:os:a", "A304")], firstExchange, []],
+			inserted,
+		);
+
+		const result = await backfillCodeLikeConversationTitles(
+			contextWith(db, modelEnv()),
+		);
+
+		expect(result.titleBackfillRenamed).toBe(0);
+		expect(
+			inserted.some(
+				(value) => (value as { kind?: string }).kind === "conversation.updated",
+			),
+		).toBe(false);
+	});
+
+	it("restarts the pass after an empty page", async () => {
+		const inserted: unknown[] = [];
+		const db = scriptedDb([[{ through: "org-1:home:os:z" }], []], inserted);
+
+		const result = await backfillCodeLikeConversationTitles(
+			contextWith(db, modelEnv()),
+		);
+
+		expect(result).toEqual({
+			titleBackfillScanned: 0,
+			titleBackfillRenamed: 0,
+		});
+		expect(inserted).toEqual([
+			{ scheduleId: "kernel-conversation-retitle:v1", through: "" },
+		]);
 	});
 });
