@@ -7838,6 +7838,63 @@ const handlers: Record<string, (input: never) => unknown> = {
 		gadget.updatedAt = revision.createdAt;
 		return { gadget, revision };
 	},
+	"osAppRuntime/client": (input: { workspaceId: string; gadgetId: string }) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		const revision = state.gadgetRevisions.find(
+			(row) =>
+				row.id === gadget.currentRevisionId && row.gadgetId === gadget.id,
+		);
+		const files = revision ? state.gadgetCode[revision.id] : undefined;
+		if (!revision || !files || revision.manifest.entry !== APP_RUNTIME_ENTRY)
+			throw new RpcError("NOT_FOUND", "OS runtime app revision not found");
+		return {
+			session: `fixture-only:${gadget.id}:${revision.id}`,
+			expiresAt: Math.floor(Date.now() / 1000) + 300,
+			role: "build",
+			revisionId: revision.id,
+			client: files["client.js"] ?? "",
+			revision: revision.revision,
+			settings: revision.manifest.config?.settings ?? {},
+			grants: revision.manifest.resourceGrants ?? [],
+		};
+	},
+	"osAppRuntime/readOutput": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		session: string;
+		slot: string;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		const revision = state.gadgetRevisions.find(
+			(row) =>
+				row.id === gadget.currentRevisionId && row.gadgetId === gadget.id,
+		);
+		if (
+			!revision ||
+			revision.manifest.entry !== APP_RUNTIME_ENTRY ||
+			input.session !== `fixture-only:${gadget.id}:${revision.id}` ||
+			!revision.manifest.resourceGrants?.some(
+				(grant) =>
+					grant.slot === input.slot &&
+					grant.operations.includes("outputs.read"),
+			)
+		)
+			throw new RpcError("FORBIDDEN", "App Output slot not granted");
+		const resource = state.workspaceResources.find(
+			(row) =>
+				row.workspaceId === gadget.workspaceId &&
+				row.slot === input.slot &&
+				row.resourceType === "output" &&
+				row.status === "active",
+		);
+		if (!resource) throw new RpcError("NOT_FOUND", "App Output slot not found");
+		const output = findOutput(resource.providerResourceId);
+		const current = latestRevision(
+			state.outputRevisions.filter((row) => row.outputId === output.id),
+		);
+		if (!current) throw new RpcError("NOT_FOUND", "Output revision not found");
+		return current.content;
+	},
 	"osAppRuntime/open": (input: { workspaceId: string; gadgetId: string }) => {
 		const gadget = findGadget(input.workspaceId, input.gadgetId);
 		if (!gadget.currentRevisionId)

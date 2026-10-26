@@ -458,6 +458,7 @@ export const OS_PAGES: readonly OsPage[] = [
 		},
 	},
 	{ id: "shared", path: "/shared", label: "Shared" },
+	{ id: "guest", path: "/guest", label: "Shared app" },
 	{
 		id: "shared-workspace",
 		path: "/shared/workspace/$workspaceId",
