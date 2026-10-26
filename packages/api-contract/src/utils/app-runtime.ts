@@ -43,14 +43,32 @@ export const APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE = "2026-10-01";
 const INVOCATION_MODULE_NAME = "__tedix_invocation.js";
 const INVOCATION_MODULE = `
 import { DurableObject } from 'cloudflare:workers';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { App } from './server.js';
+const consoleContext = new AsyncLocalStorage();
+for (const level of ['debug', 'log', 'info', 'warn', 'error']) {
+  const original = console[level].bind(console);
+  console[level] = (...values) => {
+    original(...values);
+    const active = consoleContext.getStore();
+    if (!active || active.sequence >= 200) return;
+    let message;
+    try { message = JSON.stringify(values); } catch { message = values.map(String).join(' '); }
+    // Console delivery cannot fail the app; the native tail remains the final record.
+    try { active.ctx.waitUntil(active.sink.write(level, message.slice(0, 2000), Date.now(), ++active.sequence).catch(() => {})); } catch {}
+  };
+}
 export class AppInvocation extends DurableObject {
-  async invoke(method, args, capability) {
+  async invoke(method, args, capability, traceToken, sink) {
+    if (traceToken) console.info('__tedix_app_trace__', traceToken);
     const descriptor = Object.getOwnPropertyDescriptor(App.prototype, method);
     if (!descriptor || typeof descriptor.value !== 'function' || method === 'constructor')
       throw new Error('Unknown app method');
-    const app = new App(this.ctx, { CONFIG: this.env.CONFIG, TEDIX: capability });
-    return await descriptor.value.apply(app, args);
+    const run = async () => {
+      const app = new App(this.ctx, { CONFIG: this.env.CONFIG, TEDIX: capability });
+      return await descriptor.value.apply(app, args);
+    };
+    return sink ? await consoleContext.run({ sink, ctx: this.ctx, sequence: 0 }, run) : await run();
   }
 }`;
 
@@ -72,7 +90,7 @@ export function appRuntimeLoaderManifest<TTail = never>(
 		compatibilityDate:
 			options.compatibilityDate ?? APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE,
 		// Agent-written code must never reach bindings ambiently.
-		compatibilityFlags: ["disallow_importable_env"],
+		compatibilityFlags: ["disallow_importable_env", "nodejs_als"],
 		mainModule: options.invocation
 			? INVOCATION_MODULE_NAME
 			: APP_RUNTIME_SERVER_MODULE,
@@ -104,7 +122,7 @@ export function loadAppRuntimeWorker<TWorker, TTail>(
 ): TWorker {
 	return LOADER.get(id, async () => ({
 		...appRuntimeLoaderManifest(files, options),
-		compatibilityFlags: ["disallow_importable_env"],
+		compatibilityFlags: ["disallow_importable_env", "nodejs_als"],
 		globalOutbound: null,
 	}));
 }

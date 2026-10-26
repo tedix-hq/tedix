@@ -189,6 +189,7 @@ describe("workspace app runtime API admission", () => {
 		);
 		expect(request.headers.get("X-Service-Binding")).toBe("true");
 		expect(await request.json()).toMatchObject({
+			callId: receipts[0]!.id,
 			files: { "server.js": "export class App {}" },
 			method: "count",
 		});
@@ -456,6 +457,54 @@ describe("workspace app runtime API admission", () => {
 			client.call({ ...scope, session, method: "count", args: [] }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("links app traces to the exact call and rejects foreign or non-call receipts", async () => {
+		const { db, router, env, client } = await fixture();
+		const { session } = await client.open(scope);
+		await client.call({ ...scope, session, method: "count", args: [] });
+		const [call] = await db.select().from(osGadgetExecutions);
+		const internal = createRouterClient(router, {
+			context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+		});
+		const trace = {
+			...scope,
+			organizationId: "org-1",
+			revisionId,
+			tailId: crypto.randomUUID(),
+			callId: call!.id,
+			events: [{ outcome: "ok", logs: [{ level: "info", message: "hello" }] }],
+		};
+		expect(await internal.recordTail(trace)).toEqual({ recorded: true });
+		expect(await internal.recordTail(trace)).toEqual({ recorded: true });
+		const rows = await db.select().from(osGadgetExecutions);
+		expect(
+			JSON.parse(rows.find((row) => row.id === trace.tailId)!.output!),
+		).toEqual({ callId: call!.id, events: trace.events });
+		await expect(
+			internal.recordTail({
+				...trace,
+				tailId: crypto.randomUUID(),
+				callId: trace.tailId,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		for (const overrides of [
+			{ organizationId: "org-2" },
+			{ workspaceId: previewId },
+			{ gadgetId: previewId },
+			{ revisionId: previewId },
+		]) {
+			await db
+				.update(osGadgetExecutions)
+				.set(overrides)
+				.where(eq(osGadgetExecutions.id, call!.id));
+			await expect(
+				internal.recordTail({ ...trace, tailId: crypto.randomUUID() }),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			await db
+				.update(osGadgetExecutions)
+				.set({ organizationId: "org-1", workspaceId, gadgetId, revisionId })
+				.where(eq(osGadgetExecutions.id, call!.id));
+		}
 	});
 	it("records app trace failures in the existing gadget ledger", async () => {
 		const { db, router, env } = await fixture();

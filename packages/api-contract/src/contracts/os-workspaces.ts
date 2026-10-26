@@ -1453,6 +1453,11 @@ export const osWorkspacesContract = oc
 						status: OsGadgetExecutionStatusSchema.optional().describe(
 							"Filter by receipt status; omitted returns all statuses",
 						),
+						callId: z
+							.uuid()
+							.optional()
+							.describe("Return runtime traces for this app call"),
+						includeTraces: z.boolean().optional(),
 						limit: listLimitSchema,
 					}),
 				)

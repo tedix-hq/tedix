@@ -15,7 +15,10 @@ export default defineConfig({
 					API_SERVICE: async (request) => {
 						const body = (await request.json()) as {
 							json?: {
-								events?: Array<{ outcome?: string }>;
+								events?: Array<{
+									outcome?: string;
+									logs?: Array<{ message: string }>;
+								}>;
 								operation?: string;
 								args?: { decision?: string };
 							};
@@ -33,7 +36,11 @@ export default defineConfig({
 						}
 						if (
 							body.json?.events?.some(
-								(event) => event.outcome === "fixture_unavailable",
+								(event) =>
+									event.outcome === "fixture_unavailable" ||
+									event.logs?.some((log) =>
+										log.message.includes("fixture_hold_trace"),
+									),
 							)
 						)
 							return new Response("Unavailable", { status: 503 });
