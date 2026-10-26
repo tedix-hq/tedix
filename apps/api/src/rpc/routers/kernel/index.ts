@@ -96,7 +96,7 @@ import {
 	approvalHeldDelegationIntent,
 	resolveEarnedDelegationEnforcement,
 } from "./dispatch-policy";
-import { readFactoryChatHealth } from "./factory-chat-tools";
+import { factoryChatReader } from "./factory-chat-tools";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import type { WriteProposalEnv } from "./write-proposal";
 import { factoryChatDecision } from "./factory-intent";
@@ -816,8 +816,10 @@ export async function runKernel(args: {
 	let pass = await assemblePass({ maxPromptTokens });
 	let context = pass.context;
 	let contextManifest = buildManifest(context, maxPromptTokens);
-	const factoryDecision = await factoryChatDecision(inputContent, context, () =>
-		readFactoryChatHealth(
+	const factoryDecision = await factoryChatDecision(
+		inputContent,
+		context,
+		factoryChatReader(
 			env as WriteProposalEnv,
 			organizationId,
 			outputWriteApp(context.apps)!,

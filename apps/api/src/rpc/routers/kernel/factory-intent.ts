@@ -1,4 +1,8 @@
-import type { FactoryChatHealth } from "./factory-chat-tools";
+import type {
+	FactoryChatHealth,
+	FactoryChatLane,
+	FactoryChatReader,
+} from "./factory-chat-tools";
 import type { KernelContext } from "./context-assembly";
 import type { KernelRouteDecision } from "./route-schema";
 import { outputWriteApp } from "./output-create-intent";
@@ -43,7 +47,7 @@ export function factoryIntent(
 export async function factoryChatDecision(
 	content: string,
 	context: Pick<KernelContext, "apps" | "history">,
-	load: () => Promise<FactoryChatHealth[]>,
+	reader: FactoryChatReader,
 ): Promise<KernelRouteDecision | null> {
 	const intent = factoryIntent(content);
 	if (!intent) return null;
@@ -71,10 +75,7 @@ export async function factoryChatDecision(
 			"The approved factory operation's receipt and current schedule state.",
 	};
 	if (intent === "create") return base;
-	let lanes: FactoryChatHealth[];
-	try {
-		lanes = await load();
-	} catch (error) {
+	const unreadable = (error: unknown): KernelRouteDecision => {
 		// Live, chat answered "could not read" with nothing to diagnose it by.
 		console.warn({
 			component: "kernel.factory",
@@ -89,6 +90,13 @@ export async function factoryChatDecision(
 			answer:
 				"I could not read current factory health. No factory operation was proposed; retry shortly.",
 		};
+	};
+	let lanes: FactoryChatLane[];
+	let total: number;
+	try {
+		({ lanes, total } = await reader.lanes());
+	} catch (error) {
+		return unreadable(error);
 	}
 
 	const matches = (text: string) =>
@@ -119,10 +127,15 @@ export async function factoryChatDecision(
 			toolIntent: null,
 			clarifyingQuestion: "Which factory do you mean? Give its name or slug.",
 			answer: lanes.length
-				? `Available factories: ${lanes.map((lane) => lane.slug).join(", ")}.`
+				? `Available factories: ${lanes.map((lane) => lane.slug).join(", ")}${total > lanes.length ? ` and ${total - lanes.length} more` : ""}.`
 				: "No active factory lanes were found.",
 		};
-	const lane = selected[0]!;
+	let lane: FactoryChatHealth;
+	try {
+		lane = await reader.health(selected[0]!.slug);
+	} catch (error) {
+		return unreadable(error);
+	}
 	if (intent === "health")
 		return {
 			...base,
