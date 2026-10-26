@@ -2977,6 +2977,105 @@ describe("factory creation preview", () => {
 			} else expect(proposal).toBeNull();
 		},
 	);
+
+	it("creates the factory in the chat's Workspace and names a refused dry run's reason", async () => {
+		const service = mcpService((body) => {
+			if (body.method === "tools/list")
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: { tools: [{ name: "code" }] },
+					},
+				};
+			const code = (body.params.arguments as { code: string }).code;
+			if (code.includes("discover.describe"))
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: {
+							structuredContent: {
+								executionId: "sample-exec",
+								result: JSON.stringify([
+									{
+										callable: "projects.create_factory",
+										description: "Preview then create a factory",
+										annotations: { readOnlyHint: false },
+										parameters: {
+											type: "object",
+											properties: {
+												goal: { type: "string" },
+												output: { type: "string" },
+												workspaceId: { type: "string" },
+												dryRun: { type: "boolean" },
+											},
+											required: ["goal"],
+										},
+									},
+								]),
+							},
+						},
+					},
+				};
+			return {
+				json: {
+					jsonrpc: "2.0",
+					id: 1,
+					result: {
+						isError: true,
+						content: [
+							{
+								type: "text",
+								text: 'MCP tool error: Error: BAD_REQUEST: Output "Sample digest" is archived. Pass another output. — {"traceId":"sample-trace"}',
+							},
+						],
+					},
+				},
+			};
+		});
+		mocks.getAppBySlugForOrg.mockResolvedValue({ slug: "sample-tools" });
+		const onDecline = vi.fn();
+		const proposal = await planKernelWriteProposal({
+			db: DB,
+			organizationId: "org-1",
+			env: baseEnv(service),
+			route: writeRoute({
+				toolIntent: {
+					appSlug: "sample-tools",
+					capability: "factories.create",
+					connectionStatus: "connected",
+				},
+			}),
+			content: "Create a daily factory that writes into Sample digest",
+			workspaceContext: {
+				workspaceId: "abcdef00-ab12-4011-8111-00000000000a",
+				workspaceName: "Sample workspace",
+			},
+			onDecline,
+			model: objectModel({
+				toolName: "projects.create_factory",
+				args: { goal: "Summarise comments daily", output: "Sample digest" },
+				reasoning: "Create daily report",
+			}),
+		});
+		expect(proposal).toBeNull();
+		const preview = service.calls.find(
+			(c) =>
+				c.method === "tools/call" &&
+				(c.params.arguments as { code: string }).code.includes('"dryRun":true'),
+		);
+		expect((preview!.params.arguments as { code: string }).code).toContain(
+			'"workspaceId":"abcdef00-ab12-4011-8111-00000000000a"',
+		);
+		const declined = onDecline.mock.calls[0]?.[0];
+		expect(declined.reason).toBe(
+			'Output "Sample digest" is archived. Pass another output.',
+		);
+		expect(renderWriteDeclined(declined, writeRoute())).toBe(
+			'I couldn\'t set up that factory: Output "Sample digest" is archived. Pass another output. Nothing was created.',
+		);
+	});
 });
 
 describe("Tedix single-cell A1 coordinates", () => {

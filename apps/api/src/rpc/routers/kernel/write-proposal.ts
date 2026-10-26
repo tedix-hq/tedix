@@ -430,6 +430,8 @@ export interface KernelWriteProposalDeclined {
 		| "live_draft_save"
 		| "error";
 	detail?: string;
+	/** The tool's own refusal, safe to show the operator (bounded, no trace). */
+	reason?: string;
 	preview?: string;
 	invalidFields?: string[];
 	draftSaveTarget?: OutputDraftSaveTarget;
@@ -438,6 +440,29 @@ export interface KernelWriteProposalDeclined {
 		tool: "work.create_work_items";
 		outcome: CanonicalLookupOutcome;
 	};
+}
+
+/**
+ * The factory tool's refusal from a failed dry run, as one bounded sentence.
+ * It is our own validation text (for example a missing Workspace), so the
+ * operator can fix the request; the trace suffix and error code are dropped.
+ */
+export function factoryDryRunReason(result: unknown): string | undefined {
+	const content = (result as { content?: unknown } | null)?.content;
+	const text = Array.isArray(content)
+		? content.find(
+				(part): part is { type: "text"; text: string } =>
+					(part as { type?: unknown })?.type === "text" &&
+					typeof (part as { text?: unknown }).text === "string",
+			)?.text
+		: undefined;
+	const message = text
+		?.match(
+			/(?:BAD_REQUEST|CONFLICT|NOT_FOUND|FORBIDDEN): ([^\n]*?)(?: — \{|$)/,
+		)?.[1]
+		?.trim();
+	if (!message) return undefined;
+	return message.length > 300 ? `${message.slice(0, 297)}...` : message;
 }
 
 /**
@@ -484,6 +509,9 @@ export function renderWriteDeclined(
 			}
 			return `I couldn't prepare that change in ${app}; nothing was created or sent. Tell me what should be added or changed, and where.`;
 		case "validation_failed":
+			if (declined.reason)
+				return `I couldn't set up that factory: ${declined.reason} Nothing was created.`;
+			return `I need a few more specifics to update ${app}; nothing was created or sent. Tell me which item to change and the values to use.`;
 		case "missing_inputs":
 			return `I need a few more specifics to update ${app}; nothing was created or sent. Tell me which item to change and the values to use.`;
 		default:
@@ -1014,8 +1042,13 @@ export async function planKernelWriteProposal(args: {
 			canonical === "projects.create_factory" &&
 			(planned.args.dryRun === true ||
 				/\bdryRun["']?\s*[:=]\s*true\b/.test(content));
-		if (canonical === "projects.create_factory")
+		if (canonical === "projects.create_factory") {
 			planned.args.dryRun = factoryPreview;
+			// A factory asked for in a Workspace's chat works in that Workspace,
+			// which also lets an output named by title be found or created there.
+			if (args.workspaceContext?.workspaceId && !planned.args.workspaceId)
+				planned.args.workspaceId = args.workspaceContext.workspaceId;
+		}
 		if (capability === "factories.run") {
 			const cycleKey = `manual-${crypto.randomUUID()}`;
 			delete planned.args.runId;
@@ -1098,11 +1131,14 @@ export async function planKernelWriteProposal(args: {
 						},
 				actingUserId,
 			);
-			if (!preview || (preview as { isError?: boolean }).isError)
+			if (!preview || (preview as { isError?: boolean }).isError) {
+				const reason = factoryDryRunReason(preview);
 				return decline({
 					stage: "validation_failed",
 					detail: "Factory dry run failed; no creation was proposed.",
+					...(reason ? { reason } : {}),
 				});
+			}
 			const parsed = CreateFactoryResultSchema.pick({
 				dryRun: true,
 				ownerTediName: true,

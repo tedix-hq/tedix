@@ -2,6 +2,7 @@ import type { FactoryChatHealth } from "./factory-chat-tools";
 import type { KernelContext } from "./context-assembly";
 import type { KernelRouteDecision } from "./route-schema";
 import { outputWriteApp } from "./output-create-intent";
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
 export function factoryIntent(
 	content: string,
@@ -73,7 +74,13 @@ export async function factoryChatDecision(
 	let lanes: FactoryChatHealth[];
 	try {
 		lanes = await load();
-	} catch {
+	} catch (error) {
+		// Live, chat answered "could not read" with nothing to diagnose it by.
+		console.warn({
+			component: "kernel.factory",
+			event: "health_read_failed",
+			exception: safeExceptionTopology(error),
+		});
 		return {
 			...base,
 			routeKind: "answer_in_home",
