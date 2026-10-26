@@ -380,6 +380,7 @@ export const ConnectionProviderAuditAppSchema = z.object({
 			tokenUrl: z.string().nullable(),
 			revocationUrl: z.string().nullable(),
 			dcrUrl: z.string().nullable(),
+			clientIdMetadataDocumentSupported: z.boolean(),
 			scopesSupported: z.array(z.string()),
 			authorizationServerScopesSupported: z.array(z.string()),
 			codeChallengeMethodsSupported: z.array(z.string()),

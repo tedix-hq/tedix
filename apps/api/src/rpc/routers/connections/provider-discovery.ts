@@ -39,6 +39,7 @@ export type ProviderAuditDiscovery = {
 	tokenUrl: string | null;
 	revocationUrl: string | null;
 	dcrUrl: string | null;
+	clientIdMetadataDocumentSupported: boolean;
 	scopesSupported: string[];
 	authorizationServerScopesSupported: string[];
 	codeChallengeMethodsSupported: string[];
@@ -236,6 +237,19 @@ export function auditOutboundAppRecord(input: AuditOutboundAppInput) {
 					},
 				);
 			}
+			// MCP 2026-07-28 deprecates DCR: a provider that offers CIMD should
+			// be migrated off its registered or static client.
+			if (
+				discovery.clientIdMetadataDocumentSupported &&
+				settings.registrationMode !== "cimd"
+			) {
+				addIssue(
+					"warning",
+					"cimd_available_legacy_client",
+					"Upstream authorization server supports client ID metadata documents, but this connection still uses a registered or static OAuth client.",
+					{ registrationMode: settings.registrationMode },
+				);
+			}
 			if (!discovery.dcrUrl && settings.useDcr === true) {
 				addIssue(
 					"critical",
@@ -426,6 +440,9 @@ export async function discoverOutboundAppMetadataForAudit(
 				authorizationMetadata.json.revocation_endpoint,
 			),
 			dcrUrl: optionalUrl(authorizationMetadata.json.registration_endpoint),
+			clientIdMetadataDocumentSupported:
+				authorizationMetadata.json.client_id_metadata_document_supported ===
+				true,
 			scopesSupported: stringArray(protectedResource.json.scopes_supported),
 			authorizationServerScopesSupported: stringArray(
 				authorizationMetadata.json.scopes_supported,
@@ -448,6 +465,7 @@ export async function discoverOutboundAppMetadataForAudit(
 			tokenUrl: null,
 			revocationUrl: null,
 			dcrUrl: null,
+			clientIdMetadataDocumentSupported: false,
 			scopesSupported: [],
 			authorizationServerScopesSupported: [],
 			codeChallengeMethodsSupported: [],
