@@ -1,0 +1,90 @@
+{
+	"tools": [
+		{
+			"name": "search_site",
+			"title": "Search published pages",
+			"description": "Search this site's published content and return titles, URLs, and text excerpts.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"query": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 160,
+						"description": "Words to look for in the site's published pages."
+					},
+					"collections": {
+						"type": "array",
+						"maxItems": 20,
+						"items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,63}$" },
+						"description": "Only search these content collections, e.g. posts or pages. Omit to search all."
+					},
+					"locale": {
+						"type": "string",
+						"pattern": "^[a-zA-Z0-9-]{1,35}$",
+						"description": "Only return pages in this language, e.g. en or de."
+					},
+					"limit": {
+						"type": "integer",
+						"minimum": 1,
+						"maximum": 100,
+						"default": 10,
+						"description": "Most results to return (1 to 100, default 10)."
+					}
+				},
+				"required": ["query"],
+				"additionalProperties": false
+			},
+			"outputSchema": {
+				"type": "object",
+				"properties": {
+					"results": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"properties": {
+								"url": { "type": "string" },
+								"title": { "type": "string" },
+								"excerpt": { "type": "string" }
+							},
+							"required": ["url", "title"],
+							"additionalProperties": false
+						}
+					}
+				},
+				"required": ["results"],
+				"additionalProperties": false
+			},
+			"annotations": { "readOnlyHint": true, "untrustedContentHint": true }
+		},
+		{
+			"name": "read_page",
+			"title": "Read a published page",
+			"description": "Fetch a page on this site and return its title and bounded readable text content.",
+			"inputSchema": {
+				"type": "object",
+				"properties": {
+					"path": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 1024,
+						"description": "Path or full URL of a page on this site, e.g. /blog/launch or a url from search_site."
+					}
+				},
+				"required": ["path"],
+				"additionalProperties": false
+			},
+			"outputSchema": {
+				"type": "object",
+				"properties": {
+					"url": { "type": "string" },
+					"title": { "type": "string" },
+					"text": { "type": "string", "maxLength": 4000 }
+				},
+				"required": ["url", "title", "text"],
+				"additionalProperties": false
+			},
+			"annotations": { "readOnlyHint": true, "untrustedContentHint": true }
+		}
+	]
+}

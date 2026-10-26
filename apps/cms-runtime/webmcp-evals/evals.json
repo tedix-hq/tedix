@@ -1,0 +1,34 @@
+[
+	{
+		"name": "Search published CMS pages",
+		"messages": [
+			{
+				"role": "user",
+				"type": "message",
+				"content": "Find published pages about agents."
+			}
+		],
+		"expectedCall": [
+			{
+				"functionName": "search_site",
+				"arguments": { "query": "agents", "limit": 3 }
+			}
+		]
+	},
+	{
+		"name": "Read a published CMS page",
+		"messages": [
+			{
+				"role": "user",
+				"type": "message",
+				"content": "Read the published agents page."
+			}
+		],
+		"expectedCall": [
+			{
+				"functionName": "read_page",
+				"arguments": { "path": "/blog/agents" }
+			}
+		]
+	}
+]
