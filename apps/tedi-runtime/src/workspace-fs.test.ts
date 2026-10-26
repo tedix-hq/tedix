@@ -289,6 +289,23 @@ assert.equal(await ws.readlink("moves/renamed-link"), "target.txt");
 assert.equal(await ws.readFile("moves/target.txt"), "target bytes");
 assert.equal(await ws.readFile("moves/renamed-link"), "target bytes");
 
+// Relative targets resolve from the link's parent and are stored as written.
+await ws.symlink("../target.txt", "moves/nested/up-link");
+assert.equal(await ws.readlink("moves/nested/up-link"), "../target.txt");
+assert.equal(await ws.readFile("moves/nested/up-link"), "target bytes");
+await ws.symlink("target.txt", "moves/sibling-link");
+assert.equal(await ws.readlink("moves/sibling-link"), "target.txt");
+assert.equal(await ws.readFile("moves/sibling-link"), "target bytes");
+await ws.symlink("/moves/target.txt", "moves/rooted-link");
+assert.equal(await ws.readlink("moves/rooted-link"), "moves/target.txt");
+assert.equal(await ws.readFile("moves/rooted-link"), "target bytes");
+for (const escape of ["../../outside.txt", "../../../outside/x", "/../x"])
+	await assert.rejects(
+		() => ws.symlink(escape, "moves/escape-link"),
+		WorkspacePathError,
+	);
+assert.equal(await ws.lstat("moves/escape-link"), null);
+
 await ws.writeFile("moves/replacement.txt", "replacement");
 await ws.mv("moves/replacement.txt", "moves/target.txt");
 assert.equal(await ws.readFile("moves/replacement.txt"), null);
