@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.9 — 2026-10-26
+
+### Patch Changes
+
+- When a chat starts, the agent opens its own session on its first Tedix call, so audit records name the exact agent and model.
+- `tedix work --help` shows `--project <id>` for listing one project's Work.
+- `tedix work neighbours` and `tedix work who` point you to `tedix who --paths <files>` instead of failing.
+
 ## 0.17.8 — 2026-10-26
 
 ### Patch Changes
