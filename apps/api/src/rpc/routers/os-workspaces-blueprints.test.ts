@@ -2265,7 +2265,10 @@ describe("save workspace as blueprint", () => {
 			workspaceId: workspace.id,
 			gadgetId: gadget.id,
 			manifest,
-			files: { ...files, "client.js": "changed after snapshot" },
+			files: {
+				...files,
+				"client.js": "document.body.textContent = 'changed after snapshot';",
+			},
 		});
 		await c.org1.blueprints.publish({ blueprintId: saved.blueprint.id });
 		await expect(
@@ -2323,7 +2326,10 @@ describe("save workspace as blueprint", () => {
 			workspaceId: first.workspace.id,
 			gadgetId: first.gadgets[0].gadget.id,
 			manifest,
-			files: { ...files, "client.js": "first copy only" },
+			files: {
+				...files,
+				"client.js": "document.body.textContent = 'first copy only';",
+			},
 		});
 		expect(
 			(
