@@ -591,7 +591,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "propose_skill_workflow_improvement",
 		remoteName: "propose_skill_workflow_improvement",
 		description:
-			"Create a validated draft workflow revision grounded in an observed terminal run. The tedi may test it but cannot activate it.",
+			"Create a validated draft revision of a skill's automation (its scripts/workflow.ts file), grounded in an observed finished run. The tedi may test it but cannot activate it.",
 		inputSchema: PROPOSE_SKILL_WORKFLOW_IMPROVEMENT_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "skills/proposeWorkflowImprovement",
@@ -603,7 +603,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "inspect_skill_workflow_improvement",
 		remoteName: "inspect_skill_workflow_improvement",
 		description:
-			"Inspect workflow improvement provenance, validation, baseline drift, and activation requirements.",
+			"Inspect a proposed automation improvement: where it came from, its validation, baseline drift, and what activation requires.",
 		inputSchema: INSPECT_SKILL_WORKFLOW_IMPROVEMENT_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/inspectWorkflowImprovement",
@@ -612,7 +612,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "activate_skill_workflow_improvement",
 		remoteName: "activate_skill_workflow_improvement",
 		description:
-			"Activate a workflow revision after a completed candidate run of this proposal reports passing correctness certification and the baseline is unchanged.",
+			"Activate an automation revision after a completed candidate run of this proposal reports passing correctness certification and the baseline is unchanged.",
 		inputSchema: ACTIVATE_SKILL_WORKFLOW_IMPROVEMENT_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "skills/activateWorkflowImprovement",
@@ -762,7 +762,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "run_skill_workflow",
 		remoteName: "run_skill_workflow",
 		description:
-			"Start an executable workflow attached to one of this tedi's skills.",
+			"Start the automation (scripts/workflow.ts) attached to one of this tedi's skills.",
 		inputSchema: RUN_SKILL_WORKFLOW_SCHEMA,
 		annotations: DESTRUCTIVE,
 		rpcEndpoint: "skills/runWorkflow",
@@ -783,20 +783,20 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "list_skill_workflow_history",
 		remoteName: "list_skill_workflow_history",
 		description:
-			"List recent executable skill workflow runs for this tedi as compact timeline summaries.",
+			"List recent skill automation runs for this tedi as compact timeline summaries.",
 		inputSchema: SKILL_WORKFLOW_HISTORY_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/runWorkflowHistory",
 		layoutId: "skill-workflow-history",
 		layoutSpec: SKILL_WORKFLOW_HISTORY_LAYOUT_SPEC,
 		widgetDescription:
-			"Recent skill workflow runs for this tedi, showing which skill ran, how each run went, and when it started and finished.",
+			"Recent skill automation runs for this tedi, showing which skill ran, how each run went, and when it started and finished.",
 	},
 	{
 		name: "list_skill_workflow_retry_candidates",
 		remoteName: "list_skill_workflow_retry_candidates",
 		description:
-			"List failed workflow runs whose canonical engine state was reconciled and is eligible for an epoch-bound restart. Use this inbox instead of inferring retries from generic history.",
+			"List failed automation runs whose canonical engine state was reconciled and is eligible for an epoch-bound restart. Use this inbox instead of inferring retries from generic history.",
 		inputSchema: SKILL_WORKFLOW_RETRY_CANDIDATES_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/listWorkflowRetryCandidates",
@@ -805,7 +805,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "list_org_skills",
 		remoteName: "list_org_skills",
 		description:
-			"List ALL of this organization's skills — including org-scoped rows (tediId null) that list_skills cannot see. Built for workflow-sandbox analytics: the flow-ephemeral adoption cohort is org-scoped, so it is countable only through this org-wide lens. Pass summary:true for compact rows (content becomes a marked preview, files null) and filter tags client-side.",
+			"List ALL of this organization's skills — including org-scoped rows (tediId null) that list_skills cannot see. Built for automation-sandbox analytics: the flow-ephemeral adoption cohort is org-scoped, so it is countable only through this org-wide lens. Pass summary:true for compact rows (content becomes a marked preview, files null) and filter tags client-side.",
 		inputSchema: SKILL_LIST_ORG_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/listByOrg",
@@ -814,7 +814,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "inspect_skill_workflow_run",
 		remoteName: "inspect_skill_workflow_run",
 		description:
-			"Inspect one workflow run with pinned revision hashes, artifact inventory, durable step attempts, and MCP tool-call receipts.",
+			"Inspect one automation run with pinned revision hashes, artifact inventory, durable step attempts, and MCP tool-call receipts.",
 		inputSchema: SKILL_WORKFLOW_INSPECT_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/inspectWorkflowRun",
@@ -823,7 +823,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "list_skill_workflow_steps",
 		remoteName: "list_skill_workflow_steps",
 		description:
-			"List durable workflow step attempts, retries, rollbacks, sleeps, and event waits for one run.",
+			"List durable automation step attempts, retries, rollbacks, sleeps, and event waits for one run.",
 		inputSchema: SKILL_WORKFLOW_STEPS_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/listWorkflowSteps",
@@ -832,7 +832,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "list_skill_workflow_tool_calls",
 		remoteName: "list_skill_workflow_tool_calls",
 		description:
-			"List MCP tool-call receipts, stable step identity, attempts, and idempotency keys for one workflow run.",
+			"List MCP tool-call receipts, stable step identity, attempts, and idempotency keys for one automation run.",
 		inputSchema: SKILL_WORKFLOW_TOOL_CALLS_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/listWorkflowToolCalls",
@@ -841,7 +841,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "list_skill_workflow_revisions",
 		remoteName: "list_skill_workflow_revisions",
 		description:
-			"List distinct workflow revisions observed on executed runs, including pinned workflow and SKILL.md SHA-256 digests.",
+			"List distinct automation revisions observed on executed runs, including pinned scripts/workflow.ts and SKILL.md SHA-256 digests.",
 		inputSchema: SKILL_WORKFLOW_REVISIONS_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/listWorkflowRevisions",
@@ -850,7 +850,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "get_skill_workflow_revision",
 		remoteName: "get_skill_workflow_revision",
 		description:
-			"Read the pinned workflow source and SKILL.md revision from one executed run.",
+			"Read the pinned automation source (scripts/workflow.ts) and SKILL.md revision from one executed run.",
 		inputSchema: SKILL_WORKFLOW_REVISION_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/getWorkflowRevision",
@@ -859,7 +859,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "compare_skill_workflow_revisions",
 		remoteName: "compare_skill_workflow_revisions",
 		description:
-			"Compare pinned workflow and SKILL.md revisions from two executed runs.",
+			"Compare pinned automation (scripts/workflow.ts) and SKILL.md revisions from two executed runs.",
 		inputSchema: SKILL_WORKFLOW_COMPARE_REVISIONS_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/compareWorkflowRevisions",
@@ -935,7 +935,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		name: "send_skill_workflow_event",
 		remoteName: "send_skill_workflow_event",
 		description:
-			"Deliver a typed event to an executable skill workflow awaiting step.waitForEvent.",
+			"Deliver a typed event to a skill automation run awaiting step.waitForEvent.",
 		inputSchema: SKILL_WORKFLOW_EVENT_SCHEMA,
 		annotations: DESTRUCTIVE,
 		rpcEndpoint: "skills/runWorkflowSendEvent",
@@ -943,7 +943,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 	{
 		name: "list_skill_run_artifacts",
 		remoteName: "list_skill_run_artifacts",
-		description: "List artifacts produced by an executable skill workflow run.",
+		description: "List artifacts produced by a skill automation run.",
 		inputSchema: SKILL_RUN_ARTIFACT_LIST_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/listRunArtifacts",
@@ -951,8 +951,7 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 	{
 		name: "get_skill_run_artifact",
 		remoteName: "get_skill_run_artifact",
-		description:
-			"Read one artifact produced by an executable skill workflow run.",
+		description: "Read one artifact produced by a skill automation run.",
 		inputSchema: SKILL_RUN_ARTIFACT_GET_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/getRunArtifact",

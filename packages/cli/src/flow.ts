@@ -164,7 +164,7 @@ export function parsePlan(text: string): Plan {
 	const match = text.match(MANIFEST_BLOCK_RE);
 	if (!match) {
 		throw new Error(
-			"plan file has no leading `/* tedix ... */` manifest block — a workflow " +
+			"plan file has no leading `/* tedix ... */` manifest block — an automation " +
 				"needs a capability manifest (see `tedix flow --help`)",
 		);
 	}
@@ -482,11 +482,11 @@ async function runFlow(ctx: FlowContext): Promise<number> {
 		plan?.manifest.description ??
 		(existingSkillId
 			? "Existing executable skill started through the Tedix CLI."
-			: "Ephemeral workflow authored by an external coding agent.");
+			: "Ephemeral automation authored by an external coding agent.");
 	const params = collectParams(ctx.flow);
 	const reason =
 		ctx.flow.reason?.trim() ||
-		`tedix flow run: ${existingSkillId ? "existing skill" : "ephemeral draft workflow"} "${title}"`;
+		`tedix flow run: ${existingSkillId ? "existing skill" : "ephemeral draft automation"} "${title}"`;
 
 	// The gateway provider owns draft policy, skill recording, tedi selection,
 	// and workflow admission. The CLI contributes the local one-file manifest.
@@ -508,7 +508,7 @@ async function runFlow(ctx: FlowContext): Promise<number> {
 		reason,
 	);
 	if (started.error) {
-		printError(ctx, "starting the workflow failed", started.error);
+		printError(ctx, "starting the automation failed", started.error);
 		return FLOW_EXIT_FAIL;
 	}
 	const run = unwrap(started.value);
@@ -719,7 +719,7 @@ async function listFlows(ctx: FlowContext): Promise<number> {
 async function listFlowTools(ctx: FlowContext): Promise<number> {
 	const result = await flowCall(ctx, "flow.tools", {});
 	if (result.error) {
-		printError(ctx, "listing workflow tools failed", result.error);
+		printError(ctx, "listing automation tools failed", result.error);
 		return FLOW_EXIT_FAIL;
 	}
 	const value = (result.value ?? {}) as Record<string, unknown>;
@@ -729,7 +729,7 @@ async function listFlowTools(ctx: FlowContext): Promise<number> {
 	}
 	const methods = Array.isArray(value.methods) ? value.methods : [];
 	console.log(
-		`${green(String(value.tediSlug ?? "tedi"), ctx.color)} workflow methods (${methods.length})`,
+		`${green(String(value.tediSlug ?? "tedi"), ctx.color)} automation methods (${methods.length})`,
 	);
 	for (const method of methods) console.log(`  ${String(method)}`);
 	console.log(
@@ -757,7 +757,7 @@ function printError(
 
 export function flowUsage(): string {
 	return [
-		"tedix flow — run ephemeral skill workflows off your context window",
+		"tedix flow — run a one-off automation (a scripts/workflow.ts file) off your context window",
 		"",
 		"Verbs:",
 		"  tedix flow run (--file <plan.ts> | --skill <uuid>) [--watch[=secs]] [--param k=v] [--params '<json>']",
@@ -796,7 +796,7 @@ export function flowUsage(): string {
 		"when present, otherwise JSON-parsed text, plain text, or non-text content.",
 		"Do not read .content/.structuredContent or add your own envelope unwrapping.",
 		"Before declaring capabilities.mcp.tedi, run `tedix flow tools`. The",
-		"workflow bridge exposes a curated tedi inventory that can be narrower",
+		"automation bridge exposes a curated tedi inventory that can be narrower",
 		"than the full Code Mode catalog. Use discover.search for other namespaces.",
 		"",
 		"File-authored runs become draft skills: they execute explicitly, never fire",

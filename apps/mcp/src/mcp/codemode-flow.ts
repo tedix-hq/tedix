@@ -49,15 +49,15 @@ export const SKILL_WORKFLOW_SURFACE_BY_TEDI_TOOL = new Map<
 const FLOW_PROVIDER_TYPES = [
 	"declare namespace flow {",
 	'  type WorkspaceContextRef = { kind: "file" | "resource" | "output" | "link" | "structured"; uri: string; revision?: string; label?: string };',
-	"  /** Run a multi-step job OFF your context window: records `source` as an EPHEMERAL draft skill workflow (never scheduled, auto-archives unused) and starts it in one call. `source` is a Cloudflare Workflow module: export default { async run(event, step, env) { ... } } using step.do/sleep and env.MCP.<namespace>.<tool>(args) for every capability DECLARED in `capabilities.mcp`. The workflow runs durably server-side; only its RETURN VALUE ever reaches your context, so return counts/ids/verdicts and put bulk output in an artifact. Returns { skillId, runId } — poll flow.status later (the run outlives this execution; do NOT busy-wait here). */",
+	"  /** Run a multi-step job OFF your context window: records `source` as an EPHEMERAL draft skill automation, a scripts/workflow.ts file (never scheduled, auto-archives unused), and starts it in one call. `source` is a Cloudflare Workflow module: export default { async run(event, step, env) { ... } } using step.do/sleep and env.MCP.<namespace>.<tool>(args) for every capability DECLARED in `capabilities.mcp`. The automation runs durably server-side; only its RETURN VALUE ever reaches your context, so return counts/ids/verdicts and put bulk output in an artifact. Returns { skillId, runId } — poll flow.status later (the run outlives this execution; do NOT busy-wait here). */",
 	"  function run(input: { source?: string; skillId?: string; name?: string; description?: string; skillDoc?: string; capabilities?: { mcp?: Record<string, string[]>; network?: boolean; reason?: { maxCalls?: number } }; params?: Record<string, unknown>; workspaceContext?: WorkspaceContextRef[]; workItemId?: string; tediSlug?: string; reason?: string }): Promise<{ skillId: string; runId: string; status: string; tediSlug: string; workItemId: string | null; workspaceContext: WorkspaceContextRef[] }>;",
 	"  /** Compact lifecycle poll for a flow run: { status, output, error, durationMs }. Terminal statuses: completed | failed | canceled. */",
 	"  function status(input: { runId: string; tediSlug?: string }): Promise<{ status: string | null; output: unknown; error: unknown; durationMs: number | null }>;",
 	"  /** Full evidence view (steps, tool-call receipts, artifacts, warnings) — reach for it when a run FAILED, not per poll. */",
 	"  function inspect(input: { runId: string; tediSlug?: string }): Promise<unknown>;",
-	"  /** Recent flow-authored workflow runs for the selected tedi. Persistent and scheduled skill runs stay on the skill-workflow history surface. */",
+	"  /** Recent flow-authored automation runs for the selected tedi. Persistent and scheduled skill runs stay in list_skill_workflow_history. */",
 	"  function list(input?: { limit?: number; tediSlug?: string }): Promise<unknown>;",
-	"  /** List the exact env.MCP.tedi methods reachable by a workflow on this gateway. Call this before authoring a manifest instead of guessing from the broader Code Mode catalog. */",
+	"  /** List the exact env.MCP.tedi methods reachable by an automation on this gateway. Call this before authoring a manifest instead of guessing from the broader Code Mode catalog. */",
 	"  function tools(input?: { tediSlug?: string }): Promise<{ tediSlug: string; namespace: string; methods: string[]; manifest: { mcp: { tedi: string[] } } }>;",
 	"}",
 ].join("\n");
@@ -187,7 +187,7 @@ export function buildFlowProvider(
 		tools: {
 			tools: {
 				description:
-					"List the exact env.MCP.tedi methods reachable by a flow on this gateway. Use this before writing capabilities.mcp.tedi; the broader Code Mode catalog may contain tools that the workflow bridge does not project.",
+					"List the exact env.MCP.tedi methods reachable by a flow on this gateway. Use this before writing capabilities.mcp.tedi; the broader Code Mode catalog may contain tools that the automation bridge does not project.",
 				execute: async (rawInput: unknown) => {
 					const input = recordFrom(rawInput) ?? {};
 					const tediNs = resolveTediNamespace(
@@ -207,7 +207,7 @@ export function buildFlowProvider(
 			},
 			run: {
 				description:
-					"Record an ephemeral draft skill workflow from source and start it in ONE call — or rerun an existing one by passing skillId instead of source. The steps run in a durable Cloudflare Workflow off your context; only the bounded return value comes back. Returns { skillId, runId } immediately — poll flow.status later instead of waiting.",
+					"Record an ephemeral draft skill automation (a scripts/workflow.ts file) from source and start it in ONE call — or rerun an existing one by passing skillId instead of source. The steps run in a durable Cloudflare Workflow off your context; only the bounded return value comes back. Returns { skillId, runId } immediately — poll flow.status later instead of waiting.",
 				execute: async (rawInput: unknown) => {
 					const input = recordFrom(rawInput) ?? {};
 					const workspaceContext = workspaceContextFrom(input.workspaceContext);
@@ -218,7 +218,7 @@ export function buildFlowProvider(
 							: null;
 					if (!existingSkillId && !source.trim()) {
 						throw new Error(
-							"flow.run requires `source` (a workflow module string — export default { async run(event, step, env) { ... } }) or `skillId` to rerun an existing workflow",
+							"flow.run requires `source` (an automation module string — export default { async run(event, step, env) { ... } }) or `skillId` to rerun an existing automation",
 						);
 					}
 					const name =
@@ -228,7 +228,7 @@ export function buildFlowProvider(
 					const description =
 						typeof input.description === "string" && input.description.trim()
 							? input.description.trim()
-							: "Ephemeral workflow authored via flow.run.";
+							: "Ephemeral automation authored via flow.run.";
 					// The capability manifest rides SKILL.md frontmatter. JSON is
 					// valid YAML, so the declared object embeds verbatim — the
 					// platform validator stays the single authority on its shape.
@@ -252,7 +252,7 @@ export function buildFlowProvider(
 							"",
 							description,
 							"",
-							"Ephemeral flow.run workflow: executes explicitly, never fires on",
+							"Ephemeral flow.run automation: runs only when started, never on",
 							"a schedule, auto-archives after 14 days unused.",
 							"",
 						].join("\n");
@@ -307,7 +307,7 @@ export function buildFlowProvider(
 							reason:
 								typeof input.reason === "string" && input.reason.trim()
 									? input.reason.trim()
-									: `flow.run: ephemeral workflow "${name}"`,
+									: `flow.run: ephemeral automation "${name}"`,
 						});
 						if (checked.issues)
 							throw new Error(
@@ -342,7 +342,7 @@ export function buildFlowProvider(
 							)?.[1];
 							if (suggested) {
 								throw new Error(
-									`flow.run: an equivalent skill already exists (${suggested}). Rerun it as-is with flow.run({ skillId: "${suggested}", params }), or change the workflow body if this is genuinely new. Original: ${message}`,
+									`flow.run: an equivalent skill already exists (${suggested}). Rerun it as-is with flow.run({ skillId: "${suggested}", params }), or change the automation body if this is genuinely new. Original: ${message}`,
 								);
 							}
 							throw error;
@@ -381,7 +381,7 @@ export function buildFlowProvider(
 							reason:
 								typeof input.reason === "string" && input.reason.trim()
 									? input.reason.trim()
-									: `flow.run: ephemeral workflow "${name}"`,
+									: `flow.run: ephemeral automation "${name}"`,
 						},
 					);
 					const runId = isRecord(started)
@@ -389,7 +389,7 @@ export function buildFlowProvider(
 						: undefined;
 					if (!runId) {
 						throw new Error(
-							`flow.run: workflow did not return a runId (skillId ${skillId})`,
+							`flow.run: the automation did not return a runId (skillId ${skillId})`,
 						);
 					}
 					return {
@@ -458,7 +458,7 @@ export function buildFlowProvider(
 			},
 			list: {
 				description:
-					"Recent flow-authored workflow runs for the selected tedi. Persistent and scheduled skill runs are intentionally excluded.",
+					"Recent flow-authored automation runs for the selected tedi. Persistent and scheduled skill runs are intentionally excluded.",
 				execute: async (rawInput: unknown) => {
 					const input = recordFrom(rawInput) ?? {};
 					const tediNs = resolveTediNamespace(
@@ -484,7 +484,7 @@ export const FLOW_CATALOG_TOOLS = {
 	run: {
 		name: "Run Ephemeral Flow Workflow",
 		description:
-			"Record source as an EPHEMERAL draft skill workflow and start it in one call. Use for ~10+ step jobs (sweeps, watches, migrations, fan-out judging): the steps run in a durable Cloudflare Workflow OFF your context window; only the bounded return value comes back. Returns { skillId, runId } immediately — poll flow.status later, never busy-wait in the same execution.",
+			"Record source as an EPHEMERAL draft skill automation (a scripts/workflow.ts file) and start it in one call. Use for ~10+ step jobs (sweeps, watches, migrations, fan-out judging): the steps run in a durable Cloudflare Workflow OFF your context window; only the bounded return value comes back. Returns { skillId, runId } immediately — poll flow.status later, never busy-wait in the same execution.",
 		parameters: {
 			type: "object",
 			properties: {
@@ -553,7 +553,7 @@ export const FLOW_CATALOG_TOOLS = {
 	},
 	list: {
 		name: "List Flow Runs",
-		description: "List recent workflow runs for the selected tedi.",
+		description: "List recent automation runs for the selected tedi.",
 		parameters: {
 			type: "object",
 			properties: {
