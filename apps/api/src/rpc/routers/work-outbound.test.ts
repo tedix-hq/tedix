@@ -615,7 +615,7 @@ it("imports sent mail into only the requesting person's private profile", async 
 it("labels the owner's selected Gmail account with its verified address", async () => {
 	const { sqlite, client } = fixture();
 	sqlite.exec(
-		"CREATE TABLE connection_instances (id TEXT PRIMARY KEY, owner_user_id TEXT, organization_id TEXT, provider_id TEXT, label TEXT, token_ids TEXT, token_sub TEXT, created_at TEXT, updated_at TEXT)",
+		"CREATE TABLE connection_instances (id TEXT PRIMARY KEY, owner_user_id TEXT, organization_id TEXT, provider_id TEXT, label TEXT, token_ids TEXT, token_sub TEXT, allowed_resources TEXT, created_at TEXT, updated_at TEXT)",
 	);
 	for (const user of ["rosa", "lina"])
 		sqlite
