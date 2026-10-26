@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import type { BaseContext } from "../orpc";
 
 /**
@@ -45,9 +46,8 @@ export async function purgeMcpDiscoveryCache(
 			}),
 		);
 	} catch (err) {
-		console.error(
-			"[purgeMcpDiscoveryCache] purge failed (non-fatal):",
-			err instanceof Error ? err.message : String(err),
-		);
+		console.error("[purgeMcpDiscoveryCache] purge failed (non-fatal)", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 }

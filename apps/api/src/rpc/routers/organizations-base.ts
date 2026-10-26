@@ -1,4 +1,5 @@
 /** Shared oRPC implementers and cross-cutting helpers for the organizations router modules. */
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { getDescopeManagement } from "../../lib/descope-management";
 import { implement } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
@@ -80,8 +81,8 @@ export async function filterMembershipsByLiveDescopeTenants<
 			);
 		} catch (error) {
 			console.warn(
-				"[organizations.listMine] Failed to load live Descope tenants — trusting D1 membership instead:",
-				error,
+				"[organizations.listMine] Failed to load live Descope tenants — trusting D1 membership instead",
+				{ exception: safeExceptionTopology(error) },
 			);
 		}
 	}

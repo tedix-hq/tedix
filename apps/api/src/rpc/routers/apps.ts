@@ -6,6 +6,7 @@
  * Shared schemas are imported from @tedix/api-contract package.
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import { appsContract } from "@tedix/api-contract/contracts/apps";
 import type { AppMetadata as ContractAppMetadata } from "@tedix/api-contract/schemas/app";
@@ -1193,8 +1194,8 @@ export const deleteAppProcedure = authedAppsOs.delete
 				);
 			} catch (error) {
 				console.warn(
-					`[Delete] Failed to delete Descope AIH MCP server ${descopeResourceId} (non-blocking):`,
-					error,
+					`[Delete] Failed to delete Descope AIH MCP server ${descopeResourceId} (non-blocking)`,
+					{ exception: safeExceptionTopology(error) },
 				);
 			}
 		}

@@ -369,8 +369,8 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 					}
 				} catch (error) {
 					console.warn(
-						"[Organizations] Failed to load Descope tenant name (non-blocking):",
-						error,
+						"[Organizations] Failed to load Descope tenant name (non-blocking)",
+						{ exception: safeExceptionTopology(error) },
 					);
 				}
 			}
@@ -424,8 +424,8 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 					});
 				} catch (error) {
 					console.error(
-						"[Organizations] Personal Descope membership provisioning failed:",
-						error,
+						"[Organizations] Personal Descope membership provisioning failed",
+						{ exception: safeExceptionTopology(error) },
 					);
 					throw createError(
 						ErrorCodes.SERVICE_UNAVAILABLE,
@@ -476,10 +476,9 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 					gatewaySlug: existingGateway?.slug,
 				});
 			} catch (error) {
-				console.error(
-					"[Organizations] Default tedi gateway repair failed:",
-					error,
-				);
+				console.error("[Organizations] Default tedi gateway repair failed", {
+					exception: safeExceptionTopology(error),
+				});
 				throw createError(
 					ErrorCodes.SERVICE_UNAVAILABLE,
 					"Workspace gateway assignment is incomplete. Please retry sign-in.",
@@ -591,8 +590,8 @@ export const completeOsOnboardingContract =
 				);
 			} catch (error) {
 				console.error(
-					"[Organizations] OS onboarding default tedi provisioning failed:",
-					error,
+					"[Organizations] OS onboarding default tedi provisioning failed",
+					{ exception: safeExceptionTopology(error) },
 				);
 				throw createError(
 					ErrorCodes.SERVICE_UNAVAILABLE,
@@ -639,8 +638,8 @@ export const completeOsOnboardingContract =
 					throw createError(ErrorCodes.CONFLICT, error.message);
 				}
 				console.error(
-					"[Organizations] Unified MCP gateway provisioning failed:",
-					error,
+					"[Organizations] Unified MCP gateway provisioning failed",
+					{ exception: safeExceptionTopology(error) },
 				);
 				throw createError(
 					ErrorCodes.SERVICE_UNAVAILABLE,

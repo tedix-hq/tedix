@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import type * as z from "zod";
 import { WorkPrincipalTypeSchema } from "@tedix/api-contract/schemas/work-items";
 import { getWorkAdmissionSpecification } from "@tedix/db/queries/work-items/admissions";
@@ -163,7 +164,9 @@ const proposeProcedure = requestOs.propose.handler(
 						}),
 					)
 					.catch((error) =>
-						console.error("[work-approval] immediate tedi wake failed", error),
+						console.error("[work-approval] immediate tedi wake failed", {
+							exception: safeExceptionTopology(error),
+						}),
 					);
 				context.waitUntil?.(wake);
 			}
@@ -219,7 +222,7 @@ async function carryOutHomeDelegationDecision(
 	} catch (error) {
 		console.error(
 			"[work-approval] Home delegation decision could not be carried out",
-			error,
+			{ exception: safeExceptionTopology(error) },
 		);
 	}
 }

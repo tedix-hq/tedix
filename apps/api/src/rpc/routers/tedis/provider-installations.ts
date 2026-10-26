@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { providerWidgetTediSelection } from "@tedix/api-contract/schemas/embedded-widget-access";
 import { resolveEmbeddedTediSelection } from "../../../services/embedded-tedi-selection";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -213,7 +214,7 @@ async function replenishSponsoredCapacity(
 	} catch (error) {
 		console.error("Embedded sponsored-capacity transfer failed", {
 			installationId: installation.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		const refreshed = await getInferenceCapacityDailyOverview(context.db, {
 			organizationId: installation.customerOrganizationId,
@@ -379,7 +380,7 @@ export const createEmbeddedProviderSessionProcedure =
 		} catch (error) {
 			console.error("Embedded sponsored-capacity replenishment failed", {
 				installationId: installation.id,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 			throw new ORPCError(ErrorCodes.SERVICE_UNAVAILABLE, {
 				message: "Provider-sponsored inference capacity is unavailable",
@@ -427,7 +428,7 @@ export const createEmbeddedProviderSessionProcedure =
 		} catch (error) {
 			console.error("Embedded session activity tracking failed", {
 				installationId: installation.id,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 		}
 		return {

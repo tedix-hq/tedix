@@ -562,10 +562,9 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 				if (error instanceof OrganizationGatewaySlugConflictError) {
 					throw createError(ErrorCodes.CONFLICT, error.message);
 				}
-				console.error(
-					"[Organizations] Unified MCP gateway rename failed:",
-					error,
-				);
+				console.error("[Organizations] Unified MCP gateway rename failed", {
+					exception: safeExceptionTopology(error),
+				});
 				throw createError(
 					ErrorCodes.SERVICE_UNAVAILABLE,
 					"Workspace gateway rename is incomplete. Please retry.",

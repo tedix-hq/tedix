@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { getManagementClient } from "@tedix/auth/client";
 import { rotateTediAccessKey } from "@tedix/auth/tedi-identity";
 import { requireStepUp } from "../../step-up";
@@ -99,8 +100,8 @@ export const rotateAccessKeyProcedure = authedTedisOs.rotateAccessKey
 			runtimeRefreshed = await refreshTediRuntimeSecrets(context, tedi);
 		} catch (error) {
 			console.warn(
-				`[Tedis] Failed to refresh runtime after access key rotation for ${tedi.id}:`,
-				error,
+				`[Tedis] Failed to refresh runtime after access key rotation for ${tedi.id}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 			const provConfig = getProvisioningConfig(tedi, context.env);
 			if (provConfig) {
@@ -126,8 +127,8 @@ export const rotateAccessKeyProcedure = authedTedisOs.rotateAccessKey
 			},
 		}).catch((err) => {
 			console.error(
-				"[Tedis] Failed to emit audit event for tedi.auth.rotate_access_key:",
-				err,
+				"[Tedis] Failed to emit audit event for tedi.auth.rotate_access_key",
+				{ exception: safeExceptionTopology(err) },
 			);
 		});
 

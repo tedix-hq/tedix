@@ -5,6 +5,7 @@
  * Work Item comment latches the start, so a retried or concurrent accept
  * never starts anything twice.
  */
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { ProposalStart } from "@tedix/api-contract/schemas/work-interactions";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { call } from "@orpc/server";
@@ -374,7 +375,7 @@ export async function startAcceptedProposal(
 	}).catch((error: unknown) =>
 		console.warn("[work-proposal] start receipt not recorded", {
 			workItemId: input.workItemId,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		}),
 	);
 	return receipt;

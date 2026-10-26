@@ -4,6 +4,7 @@
  * Read-only x402/MCP payment ledger surface for dashboards and MCP tools.
  */
 
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { implement } from "@orpc/server";
 import { mcpPaymentsContract } from "@tedix/api-contract/contracts/mcp-payments";
 import { ensurePaymentBudgetOverrideRequest } from "@tedix/db/queries/approvals";
@@ -308,10 +309,9 @@ export async function requestBudgetOverrideForTedi(
 				},
 			});
 		} catch (error) {
-			console.error(
-				"Failed to start budget override approval workflow:",
-				error,
-			);
+			console.error("Failed to start budget override approval workflow", {
+				exception: safeExceptionTopology(error),
+			});
 		}
 	}
 	await insertAuditEvent(context.db, {

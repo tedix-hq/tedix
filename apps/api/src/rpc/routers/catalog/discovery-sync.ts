@@ -132,7 +132,7 @@ export const listCatalog = fleetCatalogOs.list
 					);
 				} catch (error) {
 					console.warn("[Catalog Search] AI Search unavailable; using D1", {
-						error: error instanceof Error ? error.message : String(error),
+						exception: safeExceptionTopology(error),
 					});
 				} finally {
 					semanticSearchMs = Date.now() - startedAt;
@@ -546,7 +546,7 @@ export const getHealthSummaryCatalog = fleetCatalogOs.getHealthSummary
 						to.toISOString(),
 					).catch((error) => {
 						console.error("[Catalog Health] Compatibility usage unavailable", {
-							error: error instanceof Error ? error.message : String(error),
+							exception: safeExceptionTopology(error),
 						});
 						return null;
 					})
@@ -704,7 +704,7 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 				} catch (error) {
 					console.error("[Catalog] Could not reconcile snapshot workflow", {
 						syncLogId: log.id,
-						error: String(error),
+						exception: safeExceptionTopology(error),
 					});
 				}
 			}

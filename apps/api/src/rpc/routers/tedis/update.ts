@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { canManageBrowserEgress } from "@tedix/api-contract/schemas/tedi";
 import { getRuntimeEntitlement } from "@tedix/db/queries/runtime-entitlements";
 import { upsertTediInferencePolicy } from "@tedix/db/queries/billing/inference-policies";
@@ -304,8 +305,8 @@ export const updateTediProcedure = authedTedisOs.update
 			metadata: { fields: Object.keys(data) },
 		}).catch((err) => {
 			console.error(
-				"[Tedis] Failed to emit audit event for tedi.config_change:",
-				err,
+				"[Tedis] Failed to emit audit event for tedi.config_change",
+				{ exception: safeExceptionTopology(err) },
 			);
 		});
 
@@ -341,8 +342,8 @@ export const updateTediProcedure = authedTedisOs.update
 					await materializeManagedAppAssignments(context, tedi);
 				} catch (err) {
 					console.error(
-						`[Tedis] Fail-closed AIH client re-sync after capability DOWNGRADE failed for ${tedi.slug}:`,
-						err instanceof Error ? err.message : err,
+						`[Tedis] Fail-closed AIH client re-sync after capability DOWNGRADE failed for ${tedi.slug}`,
+						{ exception: safeExceptionTopology(err) },
 					);
 					throw createError(
 						ErrorCodes.INTERNAL_SERVER_ERROR,
@@ -353,8 +354,8 @@ export const updateTediProcedure = authedTedisOs.update
 				const resync = materializeManagedAppAssignments(context, tedi).catch(
 					(err) =>
 						console.warn(
-							`[Tedis] AIH client re-sync after profile change failed for ${tedi.slug}:`,
-							err instanceof Error ? err.message : err,
+							`[Tedis] AIH client re-sync after profile change failed for ${tedi.slug}`,
+							{ exception: safeExceptionTopology(err) },
 						),
 				);
 				if (context.waitUntil) context.waitUntil(resync);
@@ -438,8 +439,8 @@ export const updateTediGovernanceProcedure = authedTedisOs.updateGovernance
 			},
 		}).catch((err) => {
 			console.error(
-				"[Tedis] Failed to emit audit event for tedi.governance.updated:",
-				err,
+				"[Tedis] Failed to emit audit event for tedi.governance.updated",
+				{ exception: safeExceptionTopology(err) },
 			);
 		});
 

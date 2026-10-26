@@ -70,10 +70,9 @@ export const getStatus = authedTedisOs.getStatus
 				billingState:
 					liveRuntime.normalizedRuntimeStatus === "running" ? "active" : "cold",
 			}).catch((error) => {
-				console.warn(
-					`[Tedis] Failed to persist heartbeat for ${tedi.slug}:`,
-					error,
-				);
+				console.warn(`[Tedis] Failed to persist heartbeat for ${tedi.slug}`, {
+					exception: safeExceptionTopology(error),
+				});
 			});
 
 			return {
@@ -137,8 +136,8 @@ export const wake = authedTedisOs.wake
 				result.ready || result.status === "running" ? "active" : "warm",
 		}).catch((error) => {
 			console.warn(
-				`[Tedis] Failed to persist wake heartbeat for ${tedi.slug}:`,
-				error,
+				`[Tedis] Failed to persist wake heartbeat for ${tedi.slug}`,
+				{ exception: safeExceptionTopology(error) },
 			);
 		});
 
@@ -222,8 +221,8 @@ export const resetSandboxProcedure = authedTedisOs.resetSandbox
 			metadata: { reason: input.reason ?? null, success: result.success },
 		}).catch((err) => {
 			console.error(
-				"[Tedis] Failed to emit audit event for tedi.sandbox_reset:",
-				err,
+				"[Tedis] Failed to emit audit event for tedi.sandbox_reset",
+				{ exception: safeExceptionTopology(err) },
 			);
 		});
 

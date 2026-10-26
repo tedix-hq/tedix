@@ -113,10 +113,9 @@ async function parseSitemapXml(sitemapUrl: string): Promise<SitemapUrl[]> {
 				const nestedUrls = await parseSitemapXml(nestedUrl);
 				urls.push(...nestedUrls);
 			} catch (error) {
-				console.warn(
-					`[Sitemap] Failed to fetch nested sitemap ${nestedUrl}:`,
-					error,
-				);
+				console.warn(`[Sitemap] Failed to fetch nested sitemap ${nestedUrl}`, {
+					exception: safeExceptionTopology(error),
+				});
 			}
 		}
 	} else {

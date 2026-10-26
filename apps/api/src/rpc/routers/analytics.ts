@@ -628,10 +628,9 @@ export const getExecutionDrilldownProcedure =
 				);
 				return { ...fallback, ...ae, source: "analytics_engine" as const };
 			} catch (error) {
-				console.error(
-					"[Analytics] AE execution drilldown query failed:",
-					error,
-				);
+				console.error("[Analytics] AE execution drilldown query failed", {
+					exception: safeExceptionTopology(error),
+				});
 				return fallback;
 			}
 		});

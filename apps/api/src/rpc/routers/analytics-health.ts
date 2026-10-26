@@ -114,8 +114,8 @@ export const getExternalAgentValidationSloProcedure =
 				);
 			} catch (error) {
 				console.error(
-					"[Analytics] External-agent validation SLO query failed:",
-					error,
+					"[Analytics] External-agent validation SLO query failed",
+					{ exception: safeExceptionTopology(error) },
 				);
 				return emptyExternalAgentValidationSlo(
 					input.from,

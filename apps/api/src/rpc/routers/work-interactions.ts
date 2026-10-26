@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { PersonalAgentContributionSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import {
 	ListWorkInteractionCliInboxResultSchema,
@@ -484,7 +485,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 					.catch((error: unknown) =>
 						console.warn("agent-turn attention failed", {
 							requestId: created.id,
-							error: error instanceof Error ? error.message : String(error),
+							exception: safeExceptionTopology(error),
 						}),
 					),
 			);
@@ -507,7 +508,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 				})().catch((error) =>
 					console.warn("decision card generation failed", {
 						requestId: created.id,
-						error: String(error),
+						exception: safeExceptionTopology(error),
 					}),
 				),
 			);
@@ -532,7 +533,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 				// A denied or unavailable policy leaves the original ask answerable.
 				console.warn("internal decision handling deferred", {
 					requestId: created.id,
-					error: String(error),
+					exception: safeExceptionTopology(error),
 				});
 			}
 		}
@@ -791,7 +792,7 @@ async function recordDecisionLearning(
 			).catch((error: unknown) => {
 				console.warn("[learning-feed] Work project enrichment unavailable", {
 					workItemId: request.workItemId,
-					error: error instanceof Error ? error.message : String(error),
+					exception: safeExceptionTopology(error),
 				});
 				return null;
 			});
@@ -821,7 +822,7 @@ async function recordDecisionLearning(
 	} catch (error) {
 		console.warn("[learning-feed] decision-capture signal skipped", {
 			interactionId: request.id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 	}
 }
