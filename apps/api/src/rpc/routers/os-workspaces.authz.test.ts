@@ -155,20 +155,21 @@ async function seedBlueprint(env: CloudflareEnv) {
 }
 
 describe("os-workspaces verb matrix", () => {
-	it("installs Work defaults only with publish authority, once, scoped to the caller organization", async () => {
+	it("lets a member install Work defaults once, scoped to their organization", async () => {
 		const env = createEnv();
 		await expect(
 			userClient(env, ["os:read"]).gadgets.installWorkDefaults({}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		const publisher = userClient(env, ["os:publish"]);
-		const first = await publisher.gadgets.installWorkDefaults({});
-		expect(await publisher.gadgets.installWorkDefaults({})).toEqual(first);
-		const reader = userClient(env, ["os:read"]);
-		expect((await reader.gadgets.workApps({ limit: 100 })).items).toHaveLength(
+		const member = userClient(env, ["os:read", "os:author", "os:run"], {
+			userRole: "member",
+		});
+		const first = await member.gadgets.installWorkDefaults({});
+		expect(await member.gadgets.installWorkDefaults({})).toEqual(first);
+		expect((await member.gadgets.workApps({ limit: 100 })).items).toHaveLength(
 			2,
 		);
 		await expect(
-			publisher.gadgets.installWorkDefaults({
+			member.gadgets.installWorkDefaults({
 				organizationId: "org-2",
 			} as never),
 		).rejects.toThrow();

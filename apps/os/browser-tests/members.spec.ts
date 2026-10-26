@@ -33,8 +33,8 @@ try {
 	browser = await chromium.launch({ headless: true });
 	for (const locale of ["en", "es"])
 		for (const [width, height] of [
-			[390, 844],
-			[1512, 794],
+			[375, 844],
+			[1280, 794],
 		] as const)
 			for (const theme of ["light", "dark"]) {
 				const page = await browser.newPage({
