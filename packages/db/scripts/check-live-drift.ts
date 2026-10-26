@@ -5,10 +5,13 @@
  * A DETECTED difference fails closed. A FAILURE TO OBTAIN A VERDICT does not,
  * and that distinction is the point of this file.
  *
- * This does not use `drizzle-kit push --explain`: drizzle-kit 1.0.0-rc.4 cannot
- * introspect an index built over an expression, aborts the whole pull, and
- * under `--output json` exits 1 with empty stdout and stderr. `tablesFilter`
- * does not help because it filters only the DB side.
+ * This does not use `drizzle-kit push --explain`. It started because
+ * drizzle-kit 1.0.0-rc.4 could not introspect an index built over an
+ * expression and aborted the whole pull. 1.0.0-rc.5 (the pinned version)
+ * pulls both an expression unique index (`coalesce(attempt_id, "")`) and a
+ * partial index (checked 26 Oct 2026), so that reason is gone; this path
+ * stays because it reuses the migration's own Wrangler transport and
+ * reports UNVERIFIED and ACKNOWLEDGED outcomes that a push diff cannot.
  *
  * Both sides are instead read the way SQLite describes a schema —
  * `sqlite_master` + `pragma_table_info`:
