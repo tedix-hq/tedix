@@ -30,6 +30,11 @@ import {
 	promoteMcpConsentPending,
 	replaceMcpConsentSelection,
 } from "@tedix/db/queries/mcp-consent";
+import {
+	evaluateInboundClientPolicy,
+	parseStoredInboundClientPolicy,
+	recordInboundClientVerdict,
+} from "./mcp-inbound-client-policy";
 import { ProviderFactsCache } from "./provider-facts-cache";
 
 export interface SelectedMcpOrganization {
@@ -51,6 +56,7 @@ export type HumanMcpGrantDecision =
 				| "selection_replaced"
 				| "scope_missing"
 				| "membership_missing"
+				| "client_not_allowed"
 				| "provider_unavailable";
 			organizations: [];
 	  };
@@ -226,6 +232,10 @@ export async function stageHumanMcpConsent(
 		(user.data.userTenants ?? []).map((tenant) => tenant.tenantId),
 	);
 	if (!input.selectedTenantIds.every((id) => liveTenants.has(id))) return null;
+	const client = {
+		mcpServerId: registered.mcpServerId,
+		clientId: registered.clientId,
+	};
 	const rows = await Promise.all(
 		input.selectedTenantIds.map(async (tenantId) => {
 			const organization = await getOrganizationByDescopeId(db, tenantId);
@@ -237,7 +247,13 @@ export async function stageHumanMcpConsent(
 				organization.id,
 				descopeUserId,
 			);
-			return member?.status === "active" ? organization.id : null;
+			if (member?.status !== "active") return null;
+			const verdict = evaluateInboundClientPolicy(
+				organization.metadata?.mcpInboundClientPolicy,
+				client,
+			);
+			recordInboundClientVerdict("consent", organization.id, client, verdict);
+			return verdict.allowed ? organization.id : null;
 		}),
 	);
 	if (rows.some((id) => !id)) return null;
@@ -719,6 +735,13 @@ async function judgeLedger(
 			(membership) => membership.descopeTenantId === descopeTenantId,
 		);
 		if (row?.status !== "active") return deny("membership_missing");
+		const client = { mcpServerId: input.mcpServerId, clientId: input.clientId };
+		const verdict = evaluateInboundClientPolicy(
+			parseStoredInboundClientPolicy(row.inboundClientPolicyJson),
+			client,
+		);
+		recordInboundClientVerdict("grant", row.organizationId, client, verdict);
+		if (!verdict.allowed) return deny("client_not_allowed");
 		organizations.push({
 			organizationId: row.organizationId,
 			descopeTenantId,

@@ -18,6 +18,7 @@ import { JsonValueSchema } from "./common";
 import { OrganizationPermissionSchema } from "./user-settings";
 import { PortableWebMcpProfileSchema } from "./portable-webmcp";
 import { WebSearchPolicySchema } from "./web-search";
+import { McpInboundClientPolicySchema } from "./mcp-grant";
 
 // =============================================================================
 // ENUMS
@@ -466,6 +467,9 @@ export const OrganizationMetadataSchema = z.object({
 		.describe(
 			"Org admin overrides of 'check each person's access' per organization account; accounts without an entry use the provider default.",
 		),
+	mcpInboundClientPolicy: McpInboundClientPolicySchema.optional().describe(
+		"Which OAuth clients members may connect to this organization's MCP servers. Absent admits every verified client; audit records allowlist misses; enforce admits listed clients only.",
+	),
 	jev: JevSettingsSchema.optional().describe(
 		"Bounded Jev ranking defaults enabled; explicit tenant and purpose denials remain authoritative.",
 	),

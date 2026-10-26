@@ -48,6 +48,56 @@ export type VerifyHumanMcpGrantInput = z.infer<
 	typeof VerifyHumanMcpGrantInputSchema
 >;
 
+/**
+ * A client ID metadata document URL: https, a path, no credentials, query or
+ * fragment. Anything else is an opaque (dynamically registered) client ID.
+ */
+export function isClientIdMetadataDocumentUrl(clientId: string): boolean {
+	if (!URL.canParse(clientId)) return false;
+	const url = new URL(clientId);
+	return (
+		url.protocol === "https:" &&
+		url.pathname !== "/" &&
+		!url.username &&
+		!url.password &&
+		!url.search &&
+		!url.hash &&
+		!clientId.includes("#") &&
+		url.href === clientId
+	);
+}
+
+/**
+ * Organization admission policy for inbound human OAuth clients. In audit mode
+ * every client is admitted and each consent and grant check records whether
+ * the allowlist would have admitted it; in enforce mode only listed clients
+ * are. Entries match the exact MCP server and the exact canonical client ID.
+ * A dynamically registered (opaque) client ID is only an expiring exception.
+ */
+export const McpInboundClientPolicySchema = z.strictObject({
+	mode: z.enum(["audit", "enforce"]),
+	entries: z
+		.array(
+			z
+				.strictObject({
+					mcpServerId: z.string().min(1).max(256),
+					clientId: z.string().min(1).max(2048),
+					expiresAt: z.iso.datetime().optional(),
+					note: z.string().max(500).optional(),
+				})
+				.refine(
+					(entry) =>
+						entry.expiresAt !== undefined ||
+						isClientIdMetadataDocumentUrl(entry.clientId),
+					"A client ID that is not a metadata document URL needs an expiry",
+				),
+		)
+		.max(200),
+});
+export type McpInboundClientPolicy = z.infer<
+	typeof McpInboundClientPolicySchema
+>;
+
 export const VerifyHumanMcpGrantResultSchema = z.strictObject({
 	allowed: z.boolean(),
 	reason: z.enum([
@@ -56,6 +106,7 @@ export const VerifyHumanMcpGrantResultSchema = z.strictObject({
 		"selection_replaced",
 		"scope_missing",
 		"membership_missing",
+		"client_not_allowed",
 		"provider_unavailable",
 	]),
 	organizations: z.array(
