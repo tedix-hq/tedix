@@ -184,6 +184,26 @@ try {
 					.waitFor();
 				await capture(page, `activity-history-empty-${width}-${theme}`);
 
+				await page.goto(
+					`${server.origin}${fixturePath}?theme=${theme}&empty&work-start`,
+				);
+				await page
+					.getByRole("button", {
+						name: "Action approvals: 1 waiting",
+						exact: true,
+					})
+					.click();
+				const workStart = page.getByRole("link", {
+					name: "Review requests to start Work (1)",
+				});
+				await workStart.waitFor();
+				assert.equal(await workStart.getAttribute("href"), "/work/approvals");
+				assert.equal(
+					await page.getByText("No approvals waiting", { exact: true }).count(),
+					0,
+				);
+				await fits(page, width);
+
 				// Needs review: raw tool slugs read as plain titles, and identical
 				// requests from one tedi are one row decided together.
 				await page.goto(

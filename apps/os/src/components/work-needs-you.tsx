@@ -1,10 +1,10 @@
+import { isDecidableWorkApproval } from "@/lib/work-counts";
 import type { FactoryScoreboardEntry } from "@tedix/api-contract/contracts/projects";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import type { WorkFleetControlTower } from "@tedix/api-contract/schemas/work-fleet";
 import {
 	isBlockedWorkYouOwn,
 	isBrokenFactory,
-	isDecidableWorkApproval,
 	isOpenRequestForYou,
 	isPendingRuntimeApproval,
 	isRequestWaitingOnYou,

@@ -5,12 +5,25 @@ import { afterEach, expect, it, vi } from "vite-plus/test";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
+import { WorkNeedsYouCount } from "@/components/work-needs-you-count";
 import { useDeckCount } from "./use-deck-count";
 import { osQuery, pendingApprovalsQueryOptions } from "./os-query-options";
 
+vi.mock("./use-work-apps", () => ({
+	useWorkApps: () => ({
+		apps: [
+			{
+				role: "deck",
+				manifest: { config },
+				gadget: { workspaceId: "workspace" },
+			},
+		],
+	}),
+}));
+
 vi.mock("./use-factory-card-count", () => ({
 	useFactoryCardCount: () => ({
-		count: 0,
+		count: 2,
 		cards: [],
 		pending: false,
 		failed: false,
@@ -99,7 +112,7 @@ function Count() {
 	const queue = useDeckCount(config, "workspace");
 	return <output>{queue.count}</output>;
 }
-it("Feed, sidebar and Deck count the same gated queue despite legacy batch state", async () => {
+it("sidebar and Decisions count the same routed queue, including factory cards", async () => {
 	sessionStorage.setItem(
 		"decision-deck:legacy-fixture",
 		JSON.stringify({
@@ -117,7 +130,18 @@ it("Feed, sidebar and Deck count the same gated queue despite legacy batch state
 		input: { limit: 50, states: ["open"] },
 	}).queryKey;
 	client.setQueryData(inboxKey, {
-		data: rows,
+		data: [
+			...rows,
+			{
+				...rows[0]!,
+				request: {
+					...rows[0]!.request,
+					id: "61111111-1111-4111-8111-111111111111",
+					kind: "coordination",
+					metadata: { decisionClass: "routine.status" },
+				},
+			},
+		],
 		hasMore: false,
 		nextCursor: null,
 		observedAt: now,
@@ -154,14 +178,15 @@ it("Feed, sidebar and Deck count the same gated queue despite legacy batch state
 		root.render(
 			<QueryClientProvider client={client}>
 				<Count />
-				<Count />
-				<Count />
+				<WorkNeedsYouCount />
 			</QueryClientProvider>,
 		),
 	);
 	const counts = () =>
-		[...host.querySelectorAll("output")].map((element) => element.textContent);
-	expect(counts()).toEqual(["4", "4", "4"]);
+		[...host.querySelectorAll('output, [aria-label^="Decisions waiting"]')].map(
+			(element) => element.textContent,
+		);
+	expect(counts()).toEqual(["6", "6"]);
 	expect(sessionStorage.length).toBeGreaterThan(0);
 	await act(async () =>
 		client.setQueryData(inboxKey, {
@@ -183,5 +208,5 @@ it("Feed, sidebar and Deck count the same gated queue despite legacy batch state
 			observedAt: now,
 		}),
 	);
-	await vi.waitFor(() => expect(counts()).toEqual(["3", "3", "3"]));
+	await vi.waitFor(() => expect(counts()).toEqual(["5", "5"]));
 });

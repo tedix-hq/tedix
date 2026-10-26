@@ -11,6 +11,7 @@ import {
 } from "@/components/deck-presentation-context";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDeckCount } from "@/lib/use-deck-count";
+import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
 import { cn } from "@/lib/utils";
 import { OS_COPY } from "@/shared/os-copy";
 import { useWorkApps } from "@/lib/use-work-apps";
@@ -117,8 +118,12 @@ export function WorkShell() {
 							{config.success &&
 								((deck && remaining !== null) ||
 									(!decisions.pending && !decisions.failed)) && (
-									<span className="type-tedix-label tabular-nums text-kumo-subtle">
+									<span
+										title={WORK_COUNT_DEFINITIONS.decisions}
+										className="type-tedix-label tabular-nums text-kumo-subtle"
+									>
 										{(deck ? remaining : null) ?? decisions.count}
+										{decisions.more ? "+" : ""}
 									</span>
 								)}
 						</Link>
