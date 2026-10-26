@@ -2172,7 +2172,7 @@ export default {
 		// `/__internal/inject` route, which drives one turn through the same
 		// durable ChatTurnWorkflow path (`runDurableChatTurn`). Returns a JSON
 		// run receipt for status polling, or the existing assistant on redelivery.
-		if (isInjectHook) {
+		if (isInjectHook || url.pathname === "/hooks/steer-run") {
 			if (request.method !== "POST") {
 				return new Response("Method Not Allowed", { status: 405 });
 			}
@@ -2187,7 +2187,9 @@ export default {
 			if (tedi.orgId) headersForDo.set("X-Tedi-Org-Id", tedi.orgId);
 			headersForDo.set("X-Tedi-Slug", tedi.slug);
 			const internalUrl = new URL(request.url);
-			internalUrl.pathname = "/__internal/inject";
+			internalUrl.pathname = isInjectHook
+				? "/__internal/inject"
+				: "/__internal/steer-run";
 			const forward = new Request(internalUrl.toString(), {
 				method: "POST",
 				headers: headersForDo,

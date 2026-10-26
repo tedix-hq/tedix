@@ -10,6 +10,10 @@
  */
 
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
+import type {
+	RuntimeRunSteeringInput,
+	RunSteeringMessage,
+} from "@tedix/api-contract/schemas/kernel-runtime";
 
 // =============================================================================
 // TYPES
@@ -412,6 +416,17 @@ export async function injectAgentMessage(
 		// Async accept returns fast (just enqueues); the synchronous path must wait
 		// for the whole turn, so it keeps the longer budget.
 		timeoutMs: options.async ? 12_000 : 30_000,
+	});
+}
+
+export async function controlRuntimeRunSteering(
+	config: ProvisioningConfig,
+	input: RuntimeRunSteeringInput,
+): Promise<{ messages: RunSteeringMessage[] }> {
+	return runtimeFetch(config, "/hooks/steer-run", {
+		method: "POST",
+		body: JSON.stringify(input),
+		timeoutMs: 15_000,
 	});
 }
 
