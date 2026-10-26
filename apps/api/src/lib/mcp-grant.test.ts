@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
 	promoteMcpConsentPending: vi.fn(),
 	replaceMcpConsentSelection: vi.fn(),
 	getMcpConsentResource: vi.fn(),
+	recordMcpInboundClientAttempt: vi.fn(async () => undefined),
 	managementClientOptions: vi.fn(),
 }));
 
@@ -50,6 +51,7 @@ vi.mock("@tedix/db/queries/mcp-consent", () => ({
 	promoteMcpConsentPending: mocks.promoteMcpConsentPending,
 	replaceMcpConsentSelection: mocks.replaceMcpConsentSelection,
 	getMcpConsentResource: mocks.getMcpConsentResource,
+	recordMcpInboundClientAttempt: mocks.recordMcpInboundClientAttempt,
 }));
 
 vi.mock("@tedix/auth/aih-client", () => ({
@@ -1070,6 +1072,91 @@ describe("verifyHumanMcpGrant", () => {
 					: { allowed: false, reason: "client_not_allowed", organizations: [] },
 			);
 		}
+	});
+
+	it("records the admin inventory at consent and for unlisted clients at grant checks, never changing the decision", async () => {
+		const { stageHumanMcpConsent, verifyHumanMcpGrant } =
+			await import("./mcp-grant");
+		const future = new Date(Date.now() + 86_400_000).toISOString();
+		const listed = {
+			mode: "enforce",
+			entries: [
+				{
+					mcpServerId: input.mcpServerId,
+					clientId: input.clientId,
+					expiresAt: future,
+				},
+			],
+		};
+		const withPolicy = (policy: unknown) =>
+			mocks.getOrganizationByDescopeId.mockImplementation(
+				async (_db: unknown, tenantId: string) => ({
+					id: orgIds[tenantIds.indexOf(tenantId)],
+					descopeTenantId: tenantId,
+					metadata:
+						policy === undefined ? {} : { mcpInboundClientPolicy: policy },
+				}),
+			);
+		const stage = {
+			resourceUrl: input.resourceUrl,
+			clientId: input.clientId,
+			approvedScopes: input.tokenScopes,
+			selectedTenantIds: tenantIds,
+		};
+
+		// No policy: consent records each organization; grant checks record nothing.
+		withPolicy(undefined);
+		mocks.recordMcpInboundClientAttempt.mockClear();
+		await stageHumanMcpConsent({} as never, env, input.descopeUserId, stage);
+		expect(mocks.recordMcpInboundClientAttempt).toHaveBeenCalledTimes(2);
+		expect(mocks.recordMcpInboundClientAttempt).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({
+				organizationId: orgIds[0],
+				mcpServerId: input.mcpServerId,
+				clientId: input.clientId,
+				stage: "consent",
+				mode: "none",
+				allowed: true,
+			}),
+		);
+		mocks.recordMcpInboundClientAttempt.mockClear();
+		await verifyHumanMcpGrant({} as never, env, input);
+		expect(mocks.recordMcpInboundClientAttempt).not.toHaveBeenCalled();
+
+		// A listed client is not written on grant checks.
+		withPolicy(listed);
+		await verifyHumanMcpGrant({} as never, env, input);
+		expect(mocks.recordMcpInboundClientAttempt).not.toHaveBeenCalled();
+
+		// An unlisted client in audit mode is written through the deferral hook.
+		withPolicy({ mode: "audit", entries: [] });
+		const deferred: Promise<unknown>[] = [];
+		const audited = await verifyHumanMcpGrant({} as never, env, input, {
+			defer: (promise) => deferred.push(promise),
+		});
+		expect(audited.allowed).toBe(true);
+		expect(deferred).toHaveLength(2);
+		expect(mocks.recordMcpInboundClientAttempt).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({ stage: "grant", mode: "audit", listed: false }),
+		);
+
+		// A failed inventory write never turns a denial into access or back.
+		mocks.recordMcpInboundClientAttempt.mockRejectedValue(new Error("D1 down"));
+		withPolicy({ mode: "enforce", entries: [] });
+		await expect(verifyHumanMcpGrant({} as never, env, input)).resolves.toEqual(
+			{
+				allowed: false,
+				reason: "client_not_allowed",
+				organizations: [],
+			},
+		);
+		withPolicy(listed);
+		expect(
+			await stageHumanMcpConsent({} as never, env, input.descopeUserId, stage),
+		).not.toBeNull();
+		mocks.recordMcpInboundClientAttempt.mockResolvedValue(undefined);
 	});
 
 	it("rejects a client not registered to this MCP resource", async () => {

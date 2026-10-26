@@ -43,6 +43,12 @@ const OrganizationProfileForm = lazy(() =>
 	})),
 );
 
+const OrganizationInboundClientsSection = lazy(() =>
+	import("@/components/organization-inbound-clients-section").then((mod) => ({
+		default: mod.OrganizationInboundClientsSection,
+	})),
+);
+
 const OrganizationAppearanceForm = lazy(() =>
 	import("@/components/organization-appearance-form").then((mod) => ({
 		default: mod.OrganizationAppearanceForm,
@@ -256,6 +262,10 @@ function AdminOrganizationBody({
 						/>
 					</Suspense>
 				)}
+
+				<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
+					<OrganizationInboundClientsSection organizationId={organization.id} />
+				</Suspense>
 			</div>
 
 			{isOwner && (

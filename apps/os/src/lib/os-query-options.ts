@@ -915,6 +915,14 @@ export const expiringApiKeysQueryOptions = (
 export const organizationDetailQueryOptions = (organizationId: string) =>
 	osQuery.organizations.get.queryOptions({ input: { organizationId } });
 
+/** Outside apps seen for the organization and its stored inbound client list. */
+export const organizationInboundClientsQueryOptions = (
+	organizationId: string,
+) =>
+	osQuery.organizations.listInboundClientInventory.queryOptions({
+		input: { organizationId },
+	});
+
 export const organizationFeaturesQueryOptions = (organizationId: string) =>
 	osQuery.organizations.getFeatures.queryOptions({
 		input: { organizationId },
@@ -1380,6 +1388,8 @@ export const osQueryKeys = {
 	organizationDetail: () => osQuery.organizations.get.key({ type: "query" }),
 	organizationFeatures: () =>
 		osQuery.organizations.getFeatures.key({ type: "query" }),
+	organizationInboundClients: () =>
+		osQuery.organizations.listInboundClientInventory.key({ type: "query" }),
 	organizationSsoStatus: () =>
 		osQuery.organizations.getSsoStatus.key({ type: "query" }),
 	organizationsOsMine: () =>

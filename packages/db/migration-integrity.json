@@ -1172,6 +1172,10 @@
 		{
 			"name": "20261026182441_os_blueprint_featured/migration.sql",
 			"sha256": "7531170f3f5247aa311ab40b589ff4416b6e9c2af6923ad0658b7a87304aa247"
+		},
+		{
+			"name": "20261026194540_mcp_inbound_client_attempts/migration.sql",
+			"sha256": "550b57e7ad0b130a78153123ca065a358f80429836cec181ed79b26e2c629d7b"
 		}
 	]
 }

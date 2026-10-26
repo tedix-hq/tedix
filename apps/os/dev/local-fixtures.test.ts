@@ -386,6 +386,7 @@ const CALLS = {
 	"externalAgentIdentity/listPrincipals": { organizationId: IDS.orgId },
 	"organizations/get": { organizationId: IDS.orgId },
 	"organizations/getFeatures": { organizationId: IDS.orgId },
+	"organizations/listInboundClientInventory": { organizationId: IDS.orgId },
 	"organizations/update": {
 		organizationId: IDS.orgId,
 		name: "Solstice Coffee Company",

@@ -66,6 +66,7 @@ import {
 	mapOrgToContract,
 } from "./organizations-base";
 import {
+	listInboundClientInventoryContract,
 	listMcpAuthorizationsContract,
 	disableMcpAuthorizationContract,
 	stageHumanMcpConsentContract,
@@ -757,6 +758,7 @@ export const organizationsContractRouter = organizationsOs.router({
 	listResidencyProviderCatalog,
 	publishResidencyProviderVersion,
 	listMcpAuthorizations: listMcpAuthorizationsContract,
+	listInboundClientInventory: listInboundClientInventoryContract,
 	disableMcpAuthorization: disableMcpAuthorizationContract,
 	stageMultiOrgMcpConsent: stageHumanMcpConsentContract,
 	revokeMultiOrgMcpConsent: revokeHumanMcpConsentContract,

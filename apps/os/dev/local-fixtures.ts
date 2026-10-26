@@ -6705,6 +6705,72 @@ const handlers: Record<string, (input: never) => unknown> = {
 			throw new RpcError("NOT_FOUND", "Organization not found");
 		return state.organization.features ?? {};
 	},
+	// Two fictional outside apps: a CIMD client people connected and an
+	// unlisted dynamically registered one the policy recorded.
+	"organizations/listInboundClientInventory": (input: {
+		organizationId: string;
+	}) => {
+		if (input.organizationId !== ORG_ID)
+			throw new RpcError("NOT_FOUND", "Organization not found");
+		const policy = state.organization.metadata?.mcpInboundClientPolicy ?? null;
+		const judge = (mcpServerId: string, clientId: string) => {
+			const listed = (policy?.entries ?? []).some(
+				(entry) =>
+					entry.mcpServerId === mcpServerId &&
+					entry.clientId === clientId &&
+					(!entry.expiresAt || Date.parse(entry.expiresAt) > Date.now()),
+			);
+			return {
+				listed,
+				allowedNow: !policy || policy.mode === "audit" || listed,
+			};
+		};
+		return {
+			policy,
+			policyInvalid: false,
+			items: [
+				{
+					mcpServerId: "fixture-mcp-server",
+					serverSlug: "solstice",
+					clientId: "https://agent-host.example/oauth/client.json",
+					clientName: "Agent Host",
+					clientKind: "cimd" as const,
+					connectedPeople: 3,
+					lastGrantedAt: T4,
+					lastAttempt: {
+						stage: "consent" as const,
+						mode: "none" as const,
+						allowed: true,
+						at: T4,
+						attempts: 4,
+						denied: 0,
+					},
+					...judge(
+						"fixture-mcp-server",
+						"https://agent-host.example/oauth/client.json",
+					),
+				},
+				{
+					mcpServerId: "fixture-mcp-server",
+					serverSlug: "solstice",
+					clientId: "dcr-fixture-client-7",
+					clientName: "Notes Helper",
+					clientKind: "opaque" as const,
+					connectedPeople: 0,
+					lastGrantedAt: null,
+					lastAttempt: {
+						stage: "grant" as const,
+						mode: "audit" as const,
+						allowed: true,
+						at: T3,
+						attempts: 2,
+						denied: 0,
+					},
+					...judge("fixture-mcp-server", "dcr-fixture-client-7"),
+				},
+			],
+		};
+	},
 	"organizations/update": (input: {
 		organizationId: string;
 		name?: string;

@@ -6,7 +6,9 @@ import {
 	mcpConsentGrants,
 	mcpConsentSelections,
 	mcpConsentPending,
+	mcpInboundClientAttempts,
 	type McpConsentGrantRow,
+	type McpInboundClientAttemptRow,
 	type NewMcpConsentPendingRow,
 	type McpConsentSelectionRow,
 } from "../schema/mcp-consent";
@@ -363,4 +365,107 @@ export async function promoteMcpConsentPending(
  `);
 	const [, rows] = await db.batch([preserve, promote, grant, prune]);
 	return rows.length === 1;
+}
+
+/** Rows an admin inventory returns at most, newest first. */
+export const MAX_MCP_INBOUND_CLIENT_INVENTORY = 200;
+
+export interface RecordMcpInboundClientAttemptParams {
+	organizationId: string;
+	mcpServerId: string;
+	clientId: string;
+	clientName: string | null;
+	stage: McpInboundClientAttemptRow["lastStage"];
+	mode: McpInboundClientAttemptRow["lastMode"];
+	listed: boolean;
+	allowed: boolean;
+	at: string;
+	/** A repeat inside this window only refreshes nothing: retries cost no row writes. */
+	minIntervalSeconds: number;
+}
+
+/**
+ * Upsert the latest decision for one organization, server and client. A repeat
+ * of the same decision inside the interval writes no row; a changed decision
+ * always does. A recorded client name survives a later grant check that has none.
+ */
+export async function recordMcpInboundClientAttempt(
+	db: DbQueryClient,
+	input: RecordMcpInboundClientAttemptParams,
+) {
+	const denied = input.allowed ? 0 : 1;
+	const since = new Date(
+		Date.parse(input.at) - input.minIntervalSeconds * 1000,
+	).toISOString();
+	await db
+		.insert(mcpInboundClientAttempts)
+		.values({
+			organizationId: input.organizationId,
+			mcpServerId: input.mcpServerId,
+			clientId: input.clientId,
+			clientName: input.clientName,
+			lastStage: input.stage,
+			lastMode: input.mode,
+			lastListed: input.listed,
+			lastAllowed: input.allowed,
+			attemptCount: 1,
+			deniedCount: denied,
+			firstSeenAt: input.at,
+			lastSeenAt: input.at,
+		})
+		.onConflictDoUpdate({
+			target: [
+				mcpInboundClientAttempts.organizationId,
+				mcpInboundClientAttempts.mcpServerId,
+				mcpInboundClientAttempts.clientId,
+			],
+			set: {
+				clientName: sql`COALESCE(excluded.client_name, ${mcpInboundClientAttempts.clientName})`,
+				lastStage: input.stage,
+				lastMode: input.mode,
+				lastListed: input.listed,
+				lastAllowed: input.allowed,
+				attemptCount: sql`${mcpInboundClientAttempts.attemptCount} + 1`,
+				deniedCount: sql`${mcpInboundClientAttempts.deniedCount} + ${denied}`,
+				lastSeenAt: input.at,
+			},
+			setWhere: sql`${mcpInboundClientAttempts.lastSeenAt} < ${since} OR ${mcpInboundClientAttempts.lastStage} <> ${input.stage} OR ${mcpInboundClientAttempts.lastMode} <> ${input.mode} OR ${mcpInboundClientAttempts.lastListed} <> ${input.listed ? 1 : 0} OR ${mcpInboundClientAttempts.lastAllowed} <> ${input.allowed ? 1 : 0}`,
+		});
+}
+
+/** One organization's recorded decisions, newest first. */
+export async function listMcpInboundClientAttempts(
+	db: DbQueryClient,
+	organizationId: string,
+): Promise<McpInboundClientAttemptRow[]> {
+	return db
+		.select()
+		.from(mcpInboundClientAttempts)
+		.where(eq(mcpInboundClientAttempts.organizationId, organizationId))
+		.orderBy(desc(mcpInboundClientAttempts.lastSeenAt))
+		.limit(MAX_MCP_INBOUND_CLIENT_INVENTORY);
+}
+
+/**
+ * Active Connect grants that select one organization's Descope tenant,
+ * grouped per server and client: how many people hold one and the newest.
+ */
+export async function listMcpConsentGrantClientsForTenant(
+	db: DbQueryClient,
+	descopeTenantId: string,
+) {
+	return db
+		.select({
+			mcpServerId: mcpConsentGrants.mcpServerId,
+			clientId: mcpConsentGrants.clientId,
+			people: sql<number>`COUNT(DISTINCT ${mcpConsentGrants.descopeUserId})`,
+			lastGrantedAt: sql<string>`MAX(${mcpConsentGrants.createdAt})`,
+		})
+		.from(mcpConsentGrants)
+		.where(
+			sql`EXISTS (SELECT 1 FROM json_each(${mcpConsentGrants.selectedTenantIds}) WHERE json_each.value = ${descopeTenantId})`,
+		)
+		.groupBy(mcpConsentGrants.mcpServerId, mcpConsentGrants.clientId)
+		.orderBy(desc(sql`MAX(${mcpConsentGrants.createdAt})`))
+		.limit(MAX_MCP_INBOUND_CLIENT_INVENTORY);
 }
