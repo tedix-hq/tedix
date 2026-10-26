@@ -180,6 +180,55 @@ export class McpNamespaceUnavailableError extends Error {
 }
 
 /**
+ * A tool that already answered earlier in this run failed with a direct
+ * "method not found", and the Code Mode recovery found no namespace either.
+ * The app is mounted, so the namespace-unavailable diagnosis would be wrong:
+ * report the direct failure, which is the real cause (rate limit, timeout or
+ * an expired tool list).
+ */
+export class McpToolLostMidRunError extends Error {
+	readonly code = "MCP_TOOL_LOST_MID_RUN";
+	constructor(call: string, directError: unknown) {
+		const cause =
+			directError instanceof Error ? directError.message : String(directError);
+		super(
+			`MCP_TOOL_LOST_MID_RUN: ${call} answered earlier in this run, so its app is mounted; this call failed with: ${cause}. The provider likely rate-limited or timed out the call, or the run's tool list expired. Retry the step, and keep one provider call per step.do so a retry repeats only that call.`,
+			{ cause: directError },
+		);
+	}
+}
+
+/**
+ * Tools that answered per run, so a later miss on the same tool is reported as
+ * a mid-run failure instead of an absent namespace. Isolate-local and bounded:
+ * a run that moves to another isolate falls back to the generic diagnosis.
+ */
+const REACHED_TOOL_RUNS_MAX = 256;
+const reachedToolsByRun = new Map<string, Set<string>>();
+
+function runKey(props: McpBridgeProps) {
+	return `${props.orgId}:${props.runId}`;
+}
+
+function rememberReachedTool(props: McpBridgeProps, tool: string) {
+	const key = runKey(props);
+	let tools = reachedToolsByRun.get(key);
+	if (!tools) {
+		if (reachedToolsByRun.size >= REACHED_TOOL_RUNS_MAX) {
+			const oldest = reachedToolsByRun.keys().next().value;
+			if (oldest !== undefined) reachedToolsByRun.delete(oldest);
+		}
+		tools = new Set();
+		reachedToolsByRun.set(key, tools);
+	}
+	tools.add(tool);
+}
+
+function reachedEarlierInRun(props: McpBridgeProps, tool: string) {
+	return reachedToolsByRun.get(runKey(props))?.has(tool) ?? false;
+}
+
+/**
  * The Code Mode sandbox has no `<namespace>` binding: the generated one-call
  * snippet (`await <namespace>.<method>(...)`) failed before calling anything.
  */
@@ -302,10 +351,9 @@ export async function callMcpTool(
 	request: McpCallRequest,
 ): Promise<unknown> {
 	try {
-		return {
-			__tedixMcpResult: true,
-			value: await executeMcpTool(env, props, request),
-		};
+		const value = await executeMcpTool(env, props, request);
+		rememberReachedTool(props, `${request.namespace}.${request.method}`);
+		return { __tedixMcpResult: true, value };
 	} catch (error) {
 		if (error instanceof McpConnectionRequiredError) {
 			// This tagged outcome crosses RPC as data; arbitrary Error properties
@@ -856,6 +904,7 @@ async function executeMcpTool(
 	// failure's cause when the aggregate has no binding for the namespace.
 	const recoverViaCodeMode = async (
 		directFailure: "method_not_found" | "connection_missing",
+		directError?: unknown,
 	) => {
 		const codeModeNamespace =
 			namespace === "tedi" ? (props.tediNamespace ?? namespace) : namespace;
@@ -881,6 +930,15 @@ async function executeMcpTool(
 			}
 			return await invokeViaCodeMode();
 		} catch (recoveryError) {
+			if (
+				directFailure === "method_not_found" &&
+				isCodeModeNamespaceMiss(recoveryError, codeModeNamespace) &&
+				reachedEarlierInRun(props, `${namespace}.${method}`)
+			)
+				throw new McpToolLostMidRunError(
+					`env.MCP.${namespace}.${method}`,
+					directError,
+				);
 			throw explainCodeModeNamespaceMiss(recoveryError, {
 				namespace,
 				codeModeNamespace,
@@ -942,7 +1000,7 @@ async function executeMcpTool(
 		// code-mode; route the call through Code Mode. Skip aggregate namespaces
 		// (home/kernel), where -32601 is a genuine error.
 		if (isMethodNotFoundError(error) && !AGGREGATE_NAMESPACES.has(namespace)) {
-			return await recoverViaCodeMode("method_not_found");
+			return await recoverViaCodeMode("method_not_found", error);
 		}
 
 		throw error;
