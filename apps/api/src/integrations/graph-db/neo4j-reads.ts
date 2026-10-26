@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { createQueryRunner, type HttpClient } from "./neo4j-http";
 import { toNumber } from "./neo4j-params";
 import * as decisionQueries from "./queries/decisions";
@@ -246,7 +247,9 @@ export function createNeo4jReads(http: HttpClient) {
 				);
 			} catch (e) {
 				// Persisted assignments are optional; callers degrade when absent.
-				console.warn("[GraphDB] persisted community read failed:", e);
+				console.warn("[GraphDB] persisted community read failed", {
+					exception: safeExceptionTopology(e),
+				});
 				return [];
 			}
 		},
@@ -289,7 +292,9 @@ export function createNeo4jReads(http: HttpClient) {
 						})),
 				);
 			} catch (e) {
-				console.warn("[GraphDB] persisted PageRank read failed:", e);
+				console.warn("[GraphDB] persisted PageRank read failed", {
+					exception: safeExceptionTopology(e),
+				});
 				return [];
 			}
 		},

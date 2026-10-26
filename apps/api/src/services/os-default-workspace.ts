@@ -7,6 +7,7 @@
  * new workspace per chat. A turn with no single member behind it uses the
  * organization's "General" workspace, also created once and reused.
  */
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	createOsWorkspace,
@@ -128,7 +129,7 @@ export async function placeChatOutputInDefaultWorkspace<
 		console.warn({
 			component: "os.default_workspace",
 			event: "default_workspace_unavailable",
-			error: error instanceof Error ? error.message.slice(0, 200) : "unknown",
+			exception: safeExceptionTopology(error),
 		});
 		return null;
 	});

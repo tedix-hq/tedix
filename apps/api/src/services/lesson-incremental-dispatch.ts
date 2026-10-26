@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 /**
  * Start one person's incremental lesson distillation
  * (`lesson-map-reduce.ts` `distillOwnerIncrementally`) as a Workflow
@@ -20,7 +21,9 @@ export async function startIncrementalLessons(
 		});
 		return true;
 	} catch (error) {
-		console.error("[learning-feed] incremental lesson start failed:", error);
+		console.error("[learning-feed] incremental lesson start failed", {
+			exception: safeExceptionTopology(error),
+		});
 		return false;
 	}
 }

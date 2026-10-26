@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { organizationModelEnv } from "./unrouted-model-egress";
 /**
  * Map-reduce distillation of a person's whole decision history into lessons.
@@ -1161,7 +1162,9 @@ export async function distillPersonalLessons(
 					)),
 				);
 			} catch (error) {
-				console.error(`[learning-feed] map chunk ${chunk} failed:`, error);
+				console.error(`[learning-feed] map chunk ${chunk} failed`, {
+					exception: safeExceptionTopology(error),
+				});
 				result.chunksFailed++;
 				complete = false;
 			}

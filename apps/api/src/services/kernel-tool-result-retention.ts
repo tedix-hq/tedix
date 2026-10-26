@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	deleteEvictedKernelToolResult,
 	getKernelToolResultById,
@@ -53,7 +54,7 @@ async function deleteEvicted(
 		} catch (error) {
 			console.warn("[kernel-tool-result] exact-key cleanup failed", {
 				id: row.id,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 		}
 	}
@@ -170,14 +171,14 @@ async function retainKernelToolResultCore(input: {
 			}
 			console.warn("[kernel-tool-result] persistence not confirmed", {
 				id,
-				error: error instanceof Error ? error.message : String(error),
+				exception: safeExceptionTopology(error),
 			});
 			return null;
 		}
 	} catch (error) {
 		console.warn("[kernel-tool-result] R2 upload failed", {
 			id,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return null;
 	}

@@ -17,6 +17,7 @@
  * @see apps/api/src/lib/mcp-client.ts for the direct MCP client
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -349,9 +350,9 @@ export async function fetchPublicMcpManifest(
 			const manifest = parsePublicMcpManifest(url, await response.json());
 			if (manifest) return manifest;
 		} catch (error) {
-			console.warn(
-				`[MCP Scan] Failed to read public MCP manifest at ${url}: ${error instanceof Error ? error.message : String(error)}`,
-			);
+			console.warn(`[MCP Scan] Failed to read public MCP manifest at ${url}`, {
+				exception: safeExceptionTopology(error),
+			});
 		} finally {
 			clearTimeout(timeout);
 		}
@@ -565,8 +566,8 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				)
 				.catch((error: unknown) => {
 					console.warn(
-						"[MCP Scan] Shadowed-variant refresh failed (non-fatal):",
-						error instanceof Error ? error.message : String(error),
+						"[MCP Scan] Shadowed-variant refresh failed (non-fatal)",
+						{ exception: safeExceptionTopology(error) },
 					);
 					return null;
 				});
@@ -825,9 +826,9 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 					}
 				} catch (vectorError) {
 					// Non-critical — vector sync is best-effort
-					console.warn(
-						`[MCP Scan] Vector upsert failed for ${app.name}: ${vectorError instanceof Error ? vectorError.message : String(vectorError)}`,
-					);
+					console.warn(`[MCP Scan] Vector upsert failed for ${app.name}`, {
+						exception: safeExceptionTopology(vectorError),
+					});
 				}
 
 				checked++;
@@ -922,7 +923,8 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 					}
 				} catch (e) {
 					console.warn(
-						`[MCP Scan] Vault token resolution failed for ${app.name}: ${e instanceof Error ? e.message : String(e)}`,
+						`[MCP Scan] Vault token resolution failed for ${app.name}`,
+						{ exception: safeExceptionTopology(e) },
 					);
 				}
 			}
@@ -940,7 +942,8 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 					authHeaders = JSON.parse(decrypted) as Record<string, string>;
 				} catch (e) {
 					console.warn(
-						`[MCP Scan] Failed to decrypt auth headers for ${app.name}: ${e instanceof Error ? e.message : String(e)}`,
+						`[MCP Scan] Failed to decrypt auth headers for ${app.name}`,
+						{ exception: safeExceptionTopology(e) },
 					);
 				}
 			}

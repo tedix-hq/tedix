@@ -7,6 +7,7 @@
  * the primary action already committed.
  */
 
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { holdLessonsForCorrection } from "./lesson-evidence";
 import { classifyDecisionEdit } from "./decision-edit-preference";
 import type {
@@ -159,7 +160,7 @@ export async function recordObservedLearningInteraction(
 		console.warn("[learning-feedback] product interaction stamp failed", {
 			clientEventId: input.clientEventId,
 			eventKind: input.eventKind,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return false;
 	}

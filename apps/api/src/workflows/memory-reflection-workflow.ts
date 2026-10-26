@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { consolidateMemory } from "@tedix/db/queries/memory-graph/observations";
 import { organizationModelEnv } from "../services/unrouted-model-egress";
 /**
@@ -373,8 +374,8 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 					return await this.distillTediCapabilities(db, organizationId);
 				} catch (e) {
 					console.error(
-						"[CapabilityFlywheel] distill-tedi-capabilities failed:",
-						e,
+						"[CapabilityFlywheel] distill-tedi-capabilities failed",
+						{ exception: safeExceptionTopology(e) },
 					);
 					return { written: 0, trace: `error: ${String(e).slice(0, 300)}` };
 				}
@@ -527,7 +528,9 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 					}
 					return result.factsWritten;
 				} catch (e) {
-					console.error("[HomeReflection] mine-home-decisions failed:", e);
+					console.error("[HomeReflection] mine-home-decisions failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return 0;
 				}
 			},
@@ -551,7 +554,9 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 						),
 					});
 				} catch (e) {
-					console.error("[LearningFeed] mine-learning-feed failed:", e);
+					console.error("[LearningFeed] mine-learning-feed failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return null;
 				}
 			},
@@ -570,7 +575,9 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 						orgId: organizationId,
 					});
 				} catch (e) {
-					console.error("[LearningFeed] retire-ineffective-lessons failed:", e);
+					console.error("[LearningFeed] retire-ineffective-lessons failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return null;
 				}
 			},
@@ -589,10 +596,9 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 					});
 					return true;
 				} catch (e) {
-					console.error(
-						"[LearningFeed] lesson distillation dispatch failed:",
-						e,
-					);
+					console.error("[LearningFeed] lesson distillation dispatch failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return false;
 				}
 			},
@@ -619,7 +625,9 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 					});
 					return result.runsGraded;
 				} catch (e) {
-					console.error("[KernelRouteEval] grade-kernel-routes failed:", e);
+					console.error("[KernelRouteEval] grade-kernel-routes failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return 0;
 				}
 			},
@@ -861,8 +869,8 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 				written++;
 			} catch (e) {
 				console.warn(
-					`[CapabilityFlywheel] distill failed for tedi ${evidence.tediId}:`,
-					e instanceof Error ? e.message : String(e),
+					`[CapabilityFlywheel] distill failed for tedi ${evidence.tediId}`,
+					{ exception: safeExceptionTopology(e) },
 				);
 				const message = e instanceof Error ? e.message : String(e);
 				perTediErrors.push(

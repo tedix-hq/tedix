@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { fetchNamedConnection } from "../rpc/routers/connections/policy-resolution";
 import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { getManagementClient } from "@tedix/auth/client";
@@ -185,7 +186,7 @@ export async function resolveWorkspaceResourceAvailability(
 			organizationId: resource.organizationId,
 			providerId: resource.providerId,
 			connectionScope: resource.connectionScope,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 		return unavailable(
 			"check_failed",

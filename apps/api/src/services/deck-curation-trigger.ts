@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { getDecisionLearningConfig } from "@tedix/db/queries/decision-learning";
 import type { BaseContext } from "../rpc/orpc";
 
@@ -62,7 +63,7 @@ export async function queueDeckCuration(
 		// The card is already committed; scheduled sweeps recover a missed wake.
 		console.warn("deck curation trigger unavailable", {
 			orgId: card.orgId,
-			error: error instanceof Error ? error.message : String(error),
+			exception: safeExceptionTopology(error),
 		});
 	}
 }

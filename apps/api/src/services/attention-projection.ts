@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { timelineItems } from "@tedix/api-contract/utils/feed-story";
 import { call } from "@orpc/server";
 import type * as z from "zod";
@@ -610,7 +611,9 @@ export async function loadForYouProjection(
 				.then((config) => loadDeckPipelineStatus(context, config, now))
 				.catch((error) => {
 					pipelineFailed = true;
-					console.error("[feed] deck pipeline status unavailable:", error);
+					console.error("[feed] deck pipeline status unavailable", {
+						exception: safeExceptionTopology(error),
+					});
 					return undefined;
 				}),
 		),
@@ -629,7 +632,9 @@ export async function loadForYouProjection(
 			)
 			.catch((error) => {
 				agentDecisionsFailed = true;
-				console.error("[feed] agent decisions unavailable:", error);
+				console.error("[feed] agent decisions unavailable", {
+					exception: safeExceptionTopology(error),
+				});
 				return [] as ActivityFeedItem[];
 			}),
 	]);

@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type {
 	TediAppAssignment,
 	TediAppAssignmentRole,
@@ -159,8 +160,8 @@ export async function syncTediAihClientForAssignment(params: {
 				);
 			} catch (err) {
 				console.error(
-					"[syncTediAihClientForAssignment] scope cache invalidation failed (non-fatal):",
-					err instanceof Error ? err.message : String(err),
+					"[syncTediAihClientForAssignment] scope cache invalidation failed (non-fatal)",
+					{ exception: safeExceptionTopology(err) },
 				);
 			}
 		}
