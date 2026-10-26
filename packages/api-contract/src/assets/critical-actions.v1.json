@@ -61,6 +61,11 @@
 		"glob"
 	],
 	"builtinToolPolicies": {
+		"update_work_item": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource",
+			"argumentPolicy": "work_item_purpose_repair"
+		},
 		"end_external_agent_session": {
 			"riskTier": "high_impact_write",
 			"blastRadius": "tenant",

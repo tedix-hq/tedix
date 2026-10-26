@@ -3,6 +3,7 @@ import {
 	humanReservedActionClasses,
 	builtinToolPolicyMetadata,
 	isSafeNotionPageUpdateCall,
+	isWorkItemPurposeRepairCall,
 	platformAutonomousOperation,
 	type KernelWriteRiskTier,
 } from "@tedix/api-contract/utils/approval-policy";
@@ -190,7 +191,13 @@ export function classifyWriteRisk(
 	// annotation does not make a Tedix-classified one high risk. An
 	// unclassified tool stays high whatever its name. Permanent deletes are not
 	// platform operations.
-	const declared = parseToolPolicyMetadata(tool._meta)?.riskTier;
+	const policy = parseToolPolicyMetadata(tool._meta);
+	// A Work update outside purpose repair carries no declared tier.
+	const declared =
+		policy?.argumentPolicy === "work_item_purpose_repair" &&
+		!isWorkItemPurposeRepairCall(args)
+			? undefined
+			: policy?.riskTier;
 	return risk === "high" &&
 		(declared === "bounded_write" || declared === "high_impact_write") &&
 		platformAutonomousOperation(tool.name)
@@ -206,6 +213,11 @@ function classifyToolWriteRisk(
 	const connected = tool._meta?.["com.tedix/connectedTool"] as
 		| { providerId?: unknown; toolName?: unknown }
 		| undefined;
+	if (policy?.argumentPolicy === "work_item_purpose_repair")
+		return policy.riskTier === "bounded_write" &&
+			isWorkItemPurposeRepairCall(args)
+			? "low"
+			: "high";
 	if (policy?.argumentPolicy === "notion_page_update")
 		return policy.riskTier === "bounded_write" &&
 			connected?.providerId === "notion" &&

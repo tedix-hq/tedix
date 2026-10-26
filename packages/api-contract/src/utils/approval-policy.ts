@@ -72,7 +72,12 @@ export function parseDelegationAutonomyPolicy(
 
 const builtinToolPolicies: Record<
 	string,
-	{ riskTier: string; blastRadius: string; ownSessionRisk?: string }
+	{
+		riskTier: string;
+		blastRadius: string;
+		ownSessionRisk?: string;
+		argumentPolicy?: string;
+	}
 > = criticalActions.builtinToolPolicies;
 
 export function builtinToolPolicyMetadata(name: string) {
@@ -122,6 +127,52 @@ const negatedMixedListPattern = new RegExp(
 // (payment, external message, publication) do not apply to the draft itself.
 const draftOnlyPattern = new RegExp(criticalActions.draftOnly.pattern, "i");
 const draftOnlyWaivedClasses = new Set(criticalActions.draftOnly.waivedClasses);
+
+const PURPOSE_REPAIR_CLASSES = new Set(["maintenance", "incident", "hygiene"]);
+const PURPOSE_REPAIR_KEYS = new Set([
+	"id",
+	"workClass",
+	"purposeExceptionExpiresAt",
+	"expectedWorkItemVersion",
+	"confirmDestructive",
+	"reason",
+]);
+
+/**
+ * A Work update that only repairs operational purpose: an operational class
+ * and/or a renewed exception window, nothing else. The API still requires an
+ * owner/admin, keeps an existing class and caps the window at 30 days; any
+ * other field leaves the update unclassified, so it still asks.
+ */
+export function isWorkItemPurposeRepairCall(args: unknown): boolean {
+	if (!args || typeof args !== "object" || Array.isArray(args)) return false;
+	const call = args as Record<string, unknown>;
+	if (typeof call.id !== "string" || !call.id.trim()) return false;
+	if (
+		call.workClass === undefined &&
+		call.purposeExceptionExpiresAt === undefined
+	)
+		return false;
+	if (
+		call.workClass !== undefined &&
+		!PURPOSE_REPAIR_CLASSES.has(call.workClass as string)
+	)
+		return false;
+	if (
+		call.purposeExceptionExpiresAt !== undefined &&
+		(typeof call.purposeExceptionExpiresAt !== "string" ||
+			Number.isNaN(Date.parse(call.purposeExceptionExpiresAt)))
+	)
+		return false;
+	if (call.reason !== undefined && typeof call.reason !== "string")
+		return false;
+	if (
+		call.confirmDestructive !== undefined &&
+		typeof call.confirmDestructive !== "boolean"
+	)
+		return false;
+	return Object.keys(call).every((key) => PURPOSE_REPAIR_KEYS.has(key));
+}
 
 export function isSafeNotionPageUpdateCall(args: unknown): boolean {
 	if (!args || typeof args !== "object" || Array.isArray(args)) return false;
