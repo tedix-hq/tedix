@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import type { MemoryFact } from "@tedix/db/schema/memory-graph";
 import {
 	agentMemoryProjectionProfileNames,
@@ -869,7 +870,9 @@ export const graphVisualization = authed.graph.visualization
 						meta,
 					};
 				} catch (e) {
-					console.warn("[GraphDB] graphVisualization knowledge_map failed:", e);
+					console.warn("[GraphDB] graphVisualization knowledge_map failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return {
 						nodes: [],
 						edges: [],
@@ -975,7 +978,9 @@ export const graphVisualization = authed.graph.visualization
 						meta,
 					};
 				} catch (e) {
-					console.warn("[GraphDB] graphVisualization cross_tedi failed:", e);
+					console.warn("[GraphDB] graphVisualization cross_tedi failed", {
+						exception: safeExceptionTopology(e),
+					});
 					return {
 						nodes: [],
 						edges: [],
@@ -1020,7 +1025,9 @@ export const graphSimilar = authed.graph.similar
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] findStructurallySimilar handler failed:", e);
+			console.warn("[GraphDB] findStructurallySimilar handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				results: [],
 				meta: degradedGraphMeta(meta),
@@ -1066,7 +1073,9 @@ export const graphPath = authed.graph.path
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] findPath handler failed:", e);
+			console.warn("[GraphDB] findPath handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				path: null,
 				meta: degradedGraphMeta(meta),

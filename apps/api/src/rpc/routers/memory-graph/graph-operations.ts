@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	AUTHZ,
 	ErrorCodes,
@@ -110,7 +111,9 @@ export const graphCommunities = authed.graph.communities
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] getCommunities handler failed:", e);
+			console.warn("[GraphDB] getCommunities handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				communities: [],
 				meta: degradedGraphMeta(meta),
@@ -146,7 +149,9 @@ export const graphInfluence = authed.graph.influence
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] getInfluenceScores handler failed:", e);
+			console.warn("[GraphDB] getInfluenceScores handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				scores: [],
 				meta: degradedGraphMeta(meta),
@@ -194,7 +199,9 @@ export const graphTraverse = authed.graph.traverse
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] traverse handler failed:", e);
+			console.warn("[GraphDB] traverse handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				facts: [],
 				edges: [],
@@ -232,7 +239,9 @@ export const graphEdges = authed.graph.edges
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] getEdges handler failed:", e);
+			console.warn("[GraphDB] getEdges handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				edges: [],
 				meta: degradedGraphMeta(meta),
@@ -282,7 +291,9 @@ export const graphCausalChain = authed.graph.causalChain
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] getCausalChain handler failed:", e);
+			console.warn("[GraphDB] getCausalChain handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				decisionId: input.decisionId,
 				nodes: [],
@@ -346,7 +357,9 @@ export const graphSimilarDecisions = authed.graph.similarDecisions
 				meta,
 			};
 		} catch (e) {
-			console.warn("[GraphDB] findSimilarDecisions handler failed:", e);
+			console.warn("[GraphDB] findSimilarDecisions handler failed", {
+				exception: safeExceptionTopology(e),
+			});
 			return {
 				decisions: [],
 				meta: degradedGraphMeta(meta),

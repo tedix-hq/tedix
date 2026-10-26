@@ -1,3 +1,4 @@
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { deleteMcpServerRegistration } from "../../../lib/provider-facts-cache";
 import { getManagementClient } from "@tedix/auth/client";
 import { getAssignedAppRoles, revokeAppAccess } from "@tedix/auth/fga";
@@ -293,7 +294,9 @@ export const deleteTediProcedure = authedTedisOs.delete
 				memoryRetained: true,
 			},
 		}).catch((err) => {
-			console.error("[Tedis] Failed to emit audit event for tedi.retire:", err);
+			console.error("[Tedis] Failed to emit audit event for tedi.retire", {
+				exception: safeExceptionTopology(err),
+			});
 		});
 
 		return {
