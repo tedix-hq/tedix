@@ -196,6 +196,7 @@
 		"./queries/connection-providers": "./src/queries/connection-providers.ts",
 		"./queries/connection-instances": "./src/queries/connection-instances.ts",
 		"./queries/connection-connect-tickets": "./src/queries/connection-connect-tickets.ts",
+		"./schema/connection-instances": "./src/schema/connection-instances.ts",
 		"./queries/conversation-capabilities": "./src/queries/conversation-capabilities.ts",
 		"./queries/conversation-artifact-pins": "./src/queries/conversation-artifact-pins.ts",
 		"./queries/tedis": "./src/queries/tedis.ts",

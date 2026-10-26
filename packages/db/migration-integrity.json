@@ -1188,6 +1188,10 @@
 		{
 			"name": "20261026215629_decision_card_snooze/migration.sql",
 			"sha256": "e189be21eeb5996fb31b038c257e19086cb1fdad3ceae97517a54b50f7e93d6b"
+		},
+		{
+			"name": "20261026222945_connection_allowed_resources/migration.sql",
+			"sha256": "c35bacaeb9d4b4817e2027717f033cfdf10c8b826c2eedd32ef14c76f2e5fb8c"
 		}
 	]
 }

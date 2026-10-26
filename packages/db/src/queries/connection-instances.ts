@@ -55,6 +55,7 @@ export async function createConnectionInstance(
 		organizationId?: string;
 		providerId: string;
 		label: string;
+		allowedResources?: typeof connectionInstances.$inferInsert.allowedResources;
 	},
 ) {
 	const now = new Date().toISOString();

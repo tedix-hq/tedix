@@ -224,6 +224,7 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 						descopeTenantId,
 						providerId: input.providerId,
 						connectionInstanceId: input.connectionInstanceId,
+						delegatedToolUse: input.delegatedToolUse,
 						scopes: input.scopes,
 						scope: "tenant",
 					});
@@ -280,6 +281,7 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 				descopeTenantId,
 				providerId: input.providerId,
 				connectionInstanceId: input.connectionInstanceId,
+				delegatedToolUse: input.delegatedToolUse,
 				scopes: input.scopes,
 				scope: input.scope,
 				preference: input.preference,

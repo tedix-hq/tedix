@@ -1,3 +1,4 @@
+import type { ConnectionAllowedResources } from "@tedix/api-contract/schemas/connections";
 import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 /** Non-secret account slots. Descope remains the credential store. */
@@ -11,6 +12,9 @@ export const connectionInstances = sqliteTable(
 		label: text("label").notNull(),
 		tokenIds: text("token_ids", { mode: "json" }).$type<string[]>().notNull(),
 		tokenSub: text("token_sub"),
+		allowedResources: text("allowed_resources", {
+			mode: "json",
+		}).$type<ConnectionAllowedResources>(),
 		createdAt: text("created_at").notNull(),
 		updatedAt: text("updated_at").notNull(),
 	},

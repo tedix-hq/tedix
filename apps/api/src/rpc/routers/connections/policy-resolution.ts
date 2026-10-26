@@ -8,6 +8,8 @@ import {
 	withAuth,
 	withTediAuth,
 } from "../../orpc";
+import { assertConnectionResourceArguments } from "../../../services/connection-resource-policy";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	IssuerPinDriftError,
 	assertPinnedIssuerMatches,
@@ -431,6 +433,7 @@ export async function fetchNamedConnection(
 	providerId: string,
 	instanceId: string,
 	scopes?: string[],
+	delegatedToolUse?: { appId: string; arguments: JsonValue } | "inventory",
 ) {
 	const instance = await getConnectionInstance(
 		context.db,
@@ -439,6 +442,14 @@ export async function fetchNamedConnection(
 		providerId,
 	);
 	if (!instance) return null;
+	// Inventory consumes credential metadata internally; RPC inputs cannot select this mode.
+	if (instance.allowedResources != null && delegatedToolUse !== "inventory") {
+		await assertConnectionResourceArguments(
+			context,
+			instance,
+			delegatedToolUse,
+		);
+	}
 	const selection = {
 		appId: providerId,
 		externalIdentifier: `tedix_${instance.id}`,
@@ -571,6 +582,7 @@ export async function resolveCredentialChain(
 		/** Connection label — prefers the label-scoped credential when set. */
 		label?: string;
 		connectionInstanceId?: string;
+		delegatedToolUse?: { appId: string; arguments: JsonValue };
 	},
 ): Promise<{
 	accessToken: string;
@@ -641,6 +653,7 @@ export async function resolveCredentialChain(
 				args.providerId,
 				args.connectionInstanceId,
 				args.scopes,
+				args.delegatedToolUse,
 			);
 			if (selected?.reconnectNeeded)
 				throw createError(

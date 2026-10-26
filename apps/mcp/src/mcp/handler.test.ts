@@ -131,3 +131,83 @@ describe("request-local catalog handler", () => {
 		expect(callback).not.toHaveBeenCalled();
 	});
 });
+
+describe("scoped connection credentials", () => {
+	it.each([
+		{ tedi: false, scope: "tenant", aggregate: false },
+		{ tedi: true, scope: "tenant", aggregate: false },
+		{ tedi: true, scope: "user", aggregate: false },
+		{ tedi: false, scope: "tenant", aggregate: true },
+		{ tedi: true, scope: "tenant", aggregate: true },
+		{ tedi: true, scope: "user", aggregate: true },
+	] as const)(
+		"forwards mapped arguments and stops before dispatch (tedi=$tedi, scope=$scope, aggregate=$aggregate)",
+		async ({ tedi, scope, aggregate }) => {
+			const outside = "22222222-2222-4222-8222-222222222222";
+			const providerFetch = vi.spyOn(globalThis, "fetch");
+			const apiFetch = vi.fn(
+				async (input: RequestInfo | URL, init?: RequestInit) => {
+					const request =
+						input instanceof Request ? input : new Request(input, init);
+					expect(request.url).toContain(
+						scope === "user" ? "fetchTediToken" : "fetchOrgToken",
+					);
+					expect(request.headers.get("X-Tedix-Mcp-Tool-Id")).toBe("fetch_page");
+					const body = (await request.json()) as {
+						json: Record<string, unknown>;
+					};
+					expect(body.json).toMatchObject({
+						connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+						delegatedToolUse: { appId: "app", arguments: { url: outside } },
+					});
+					return Response.json(
+						{ json: { message: "Outside the connection's allowed resources" } },
+						{ status: 403 },
+					);
+				},
+			);
+			const context = {
+				appId: aggregate ? "gateway" : "app",
+				app: { id: "app", organizationId: "org", slug: "notion" },
+				appCapabilities: {},
+				env: { API_SERVICE: { fetch: apiFetch }, ENVIRONMENT: "test" },
+				config: {
+					transport: "mcp",
+					...(aggregate ? { _sourceAppId: "app" } : {}),
+					mcpServerUrl: "https://provider.example/mcp",
+					mcpToolName: "notion-fetch",
+					paramMap: { page: "url" },
+					auth: {
+						type: "connection",
+						connectionId: "notion",
+						credentialScope: scope,
+						connectionInstanceId: "11111111-1111-4111-8111-111111111111",
+					},
+				},
+				toolId: aggregate ? "notion__fetch_page" : "fetch_page",
+				requestId: "request",
+				callerIdentity: {
+					authType: "oauth",
+					userId: "alice",
+					organizationId: "org",
+					...(tedi ? { tediId: "worker" } : {}),
+				},
+			} as unknown as ToolExecutionContext<ToolConfig>;
+			try {
+				const handler = new ToolHandler();
+				for (let call = 0; call < 2; call++) {
+					const result = await handler.execute(
+						{ page: outside, ignored: "outside-argument" },
+						context,
+					);
+					expect(result.status).toBe(403);
+					expect(result.connectionRecovery).toBeUndefined();
+				}
+				expect(apiFetch).toHaveBeenCalledTimes(2);
+				expect(providerFetch).not.toHaveBeenCalled();
+			} finally {
+				providerFetch.mockRestore();
+			}
+		},
+	);
+});

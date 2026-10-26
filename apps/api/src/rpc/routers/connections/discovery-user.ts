@@ -48,6 +48,7 @@ import {
 	updateOrganizationMetadata,
 } from "@tedix/db/queries/organizations";
 import { resolveConnectionAccessCheck } from "../../../services/connection-access-check";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { requireOrgId } from "../../org-scope";
 import {
 	getAppByIdForOrganization,
@@ -213,6 +214,11 @@ export const createConnectionInstance = authedOs.createConnectionInstance
 				ErrorCodes.BAD_REQUEST,
 				"Provider does not support named OAuth accounts",
 			);
+		if (input.allowedResources !== undefined && input.scope !== "tenant")
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Resource limits require an organization connection",
+			);
 		const existing = await listConnectionInstances(context.db, owner);
 		if (existing.length >= 100)
 			throw createError(ErrorCodes.BAD_REQUEST, "Account limit reached");
@@ -261,6 +267,7 @@ export const createConnectionInstance = authedOs.createConnectionInstance
 			id: crypto.randomUUID(),
 			ownerUserId: userId,
 			...(input.scope === "tenant" ? { organizationId: orgId } : {}),
+			allowedResources: input.allowedResources,
 			providerId: input.appId,
 			label: input.label,
 		});
@@ -1312,6 +1319,10 @@ export const fetchOrgToken = mcpOrAuthOs.fetchOrgToken
 		}: {
 			input: {
 				organizationId: string;
+				delegatedToolUse?: {
+					appId: string;
+					arguments: JsonValue;
+				};
 				connectionInstanceId?: string;
 				providerId: string;
 				scopes?: string[];
@@ -1364,6 +1375,7 @@ export const fetchOrgToken = mcpOrAuthOs.fetchOrgToken
 				providerId: input.providerId,
 				scopes: input.scopes,
 				connectionInstanceId: input.connectionInstanceId,
+				delegatedToolUse: input.delegatedToolUse,
 				scope: input.scope,
 				preference: input.preference,
 				callerUserId: input.userId,

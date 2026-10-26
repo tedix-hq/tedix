@@ -245,7 +245,7 @@ export async function executeExternalTransport(
 						scope: config.auth.credentialScope ?? config.auth.scope,
 						scopes: config.auth.scopes,
 					}),
-					status: 401,
+					status: credentialResult.status === 403 ? 403 : 401,
 					connectionRecovery: buildCredentialRecovery(credentialResult, {
 						providerId: config.auth.connectionId,
 						connectionInstanceId: selectedConnectionInstanceId(ctx),

@@ -1,0 +1,1 @@
+ALTER TABLE `connection_instances` ADD `allowed_resources` text;
