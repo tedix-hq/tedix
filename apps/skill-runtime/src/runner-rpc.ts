@@ -39,6 +39,23 @@ function workflowMcpProviderConfirmation(result) {
 }
 `;
 
+export const FACTORY_WORK_DEFAULTS_SOURCE = `
+function factoryWorkDefaults(namespace, method, args, factory) {
+  const input = args == null ? {} : args;
+  if (!factory || !input.factoryCycle || !(method === "create_work_items" || (namespace === "tedi" && method === "work_item_create"))) return input;
+  return {
+   ...input,
+   projectId: input.projectId ?? factory.projectId,
+   objectiveId: input.objectiveId ?? factory.objectiveId,
+   factoryCycle: {
+    ...input.factoryCycle,
+    workspaceId: input.factoryCycle.workspaceId ?? factory.workspaceId,
+    blueprintRevisionId: input.factoryCycle.blueprintRevisionId ?? factory.blueprintRevisionId,
+   },
+  };
+}
+`;
+
 export const RUNNER_RPC_SOURCE = `// Outer RPC-boundary guard for env.MCP calls. Generous because some tools are
 // legitimately slow: git-backed artifact_read/write_file, and run_tedi_turn
 // (which runs a full LLM turn — a report-generating judgment turn settles in
@@ -202,6 +219,7 @@ function redactedErrorSnapshot() {
   };
 }
 
+${FACTORY_WORK_DEFAULTS_SOURCE}
 ${MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE}
 ${MCP_PROVIDER_CONFIRMATION_INSPECTOR_SOURCE}
 
@@ -265,7 +283,8 @@ function buildMcpProxy(env, runContext) {
                 phase: active.phase,
                 ordinal,
               };
-              const requestJson = stringifyWorkflowJson(args == null ? {} : args);
+              const effectiveArgs = factoryWorkDefaults(namespace, method, args, runContext.factory);
+              const requestJson = stringifyWorkflowJson(effectiveArgs);
               const requestArgs = parseWorkflowJson(requestJson);
               const requestDigest = await digestWorkflowHex(requestJson);
               if (active.continuationBinding && (ordinal !== 1 || namespace !== active.continuationBinding.namespace ||

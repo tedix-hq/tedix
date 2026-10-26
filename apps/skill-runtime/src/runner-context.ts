@@ -1,3 +1,4 @@
+import type { FactoryRunContext } from "@tedix/db/queries/factories";
 import type { CapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import type { ArtifactBridge } from "./artifacts";
 import type { EvidenceBridge, EvidenceBridgeProps } from "./evidence";
@@ -7,6 +8,7 @@ import type { McpBridge, McpBridgeProps } from "./mcp-bridge";
 import type { RationaleBridge } from "./rationale";
 
 export interface LoadSkillRuntimeInput {
+	factory?: FactoryRunContext | null;
 	skillId: string;
 	/** Human-readable slug from skill_entries (used in rationale evidence
 	 *  and Tedix OS timeline labels). */
@@ -78,6 +80,7 @@ export interface LoadSkillRuntimeInput {
 export function buildTenantRunContext(
 	input: Pick<
 		LoadSkillRuntimeInput,
+		| "factory"
 		| "skillId"
 		| "skillSlug"
 		| "tediId"
@@ -92,6 +95,7 @@ export function buildTenantRunContext(
 	>,
 ) {
 	return {
+		factory: input.factory ?? null,
 		skillId: input.skillId,
 		skillSlug: input.skillSlug ?? null,
 		tediId: input.tediId,
