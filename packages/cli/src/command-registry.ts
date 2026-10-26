@@ -179,7 +179,7 @@ export const TOP_LEVEL_COMMANDS: readonly TopLevelCommandSpec[] = [
 		name: "tedi",
 		argHint: "<target> <verb>",
 		surface: "mixed",
-		summary: "Delegate to or inspect one durable digital worker",
+		summary: "Delegate to or inspect one tedi agent",
 		mutability: "mixed",
 		approval: "explicit",
 		output: HUMAN_JSON,
@@ -593,7 +593,7 @@ function rows(commands: CliHelpCommand[]): string[] {
 /** Compact root help: orientation first, with details progressively disclosed. */
 export function rootHelp(): string {
 	return [
-		"Tedix CLI — work with your digital workers",
+		"Tedix CLI — a platform for agents, apps, and work",
 		"A small program on your machine (public beta). Tedix Cloud is an invited beta.",
 		"",
 		"Get started:",
@@ -604,7 +604,7 @@ export function rootHelp(): string {
 		"",
 		"Work and automate:",
 		"  tedix work <verb>                    Coordinate Work Items",
-		"  tedix tedi <target> <verb>           Work with a specific digital worker",
+		"  tedix tedi <target> <verb>           Work with a specific tedi agent",
 		'  tedix code "<js>"                    Run a direct MCP Gateway operation',
 		"  tedix mcp call <method>              Send one raw MCP JSON-RPC request",
 		"  tedix flow run --file <plan.ts>      Run a one-off sequence of operations",

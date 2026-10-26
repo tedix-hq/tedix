@@ -56,6 +56,7 @@ describe("top-level command registry", () => {
 		}
 		expect(help).not.toContain("gateway-recipe");
 		expect(help).not.toContain("Mixed:");
+		expect(`${help}\n${commandMap()}`).not.toContain("digital worker");
 		expect(commandMap()).toContain("discover.search");
 		expect(commandMap()).toContain("includeParameters");
 	});
