@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { hasPlatformMcpScope, resolveRpcOrganizationId } from "./handler";
+import {
+	hasPlatformMcpScope,
+	resolveRpcOrganizationId,
+} from "./handler-caller-scope";
 
 describe("hasPlatformMcpScope", () => {
 	it("permits explicit cross-tenant targets only for a verified platform scope", () => {
