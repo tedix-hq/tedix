@@ -1748,7 +1748,7 @@ export class ToolHandler {
 					config.requestContentType ?? "application/json";
 				let body: BodyInit;
 				if (requestContentType === "multipart/form-data") {
-					body = buildMultipartBody(
+					body = await buildMultipartBody(
 						isPlainRecord(bodyParams) ? bodyParams : params,
 						fileParamsFromConfig(config),
 					);

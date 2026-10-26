@@ -4,6 +4,7 @@ import {
 	readToolConfigExtension,
 	readToolConfigStringArray,
 } from "./tool-config-extensions";
+import type { PDFDocument as PdfDocument } from "pdf-lib";
 
 export class ExternalRequestInputError extends Error {
 	override name = "ExternalRequestInputError";
@@ -114,10 +115,10 @@ export function parseDataUrl(
 	return { mimeType, base64: value.slice(commaIndex + 1) };
 }
 
-export function fileParamToBlob(
+function fileParamToBytes(
 	paramName: string,
 	value: unknown,
-): { blob: Blob; filename: string } {
+): { bytes: Uint8Array; filename: string; mimeType: string } {
 	let rawContent: unknown = value;
 	let filename = paramName;
 	let mimeType = "application/octet-stream";
@@ -146,10 +147,7 @@ export function fileParamToBlob(
 
 	try {
 		const bytes = base64ToBytes(base64);
-		return {
-			blob: new Blob([bytes], { type: mimeType }),
-			filename,
-		};
+		return { bytes, filename, mimeType };
 	} catch {
 		throw new ExternalRequestInputError(
 			`File parameter "${paramName}" is not valid base64 file content.`,
@@ -157,17 +155,60 @@ export function fileParamToBlob(
 	}
 }
 
-export function buildMultipartBody(
+export async function fileParamToBlob(
+	paramName: string,
+	value: unknown,
+): Promise<{ blob: Blob; filename: string }> {
+	if (isRecord(value) && Array.isArray(value.parts)) {
+		if (value.parts.length === 0 || value.parts.length > 20) {
+			throw new ExternalRequestInputError(
+				`File parameter "${paramName}" must include between 1 and 20 PDF parts.`,
+			);
+		}
+		const { PDFDocument } = await import("pdf-lib");
+		const merged = await PDFDocument.create();
+		for (const part of value.parts) {
+			const source = fileParamToBytes(paramName, part);
+			let pdf: PdfDocument;
+			try {
+				pdf = await PDFDocument.load(source.bytes);
+			} catch {
+				throw new ExternalRequestInputError(
+					`File parameter "${paramName}" contains a part that is not a valid PDF.`,
+				);
+			}
+			const pages = await merged.copyPages(pdf, pdf.getPageIndices());
+			for (const page of pages) merged.addPage(page);
+		}
+		const bytes = await merged.save();
+		const filename =
+			typeof value.filename === "string" && value.filename.trim()
+				? value.filename.trim()
+				: `${paramName}.pdf`;
+		return {
+			blob: new Blob([bytes], { type: "application/pdf" }),
+			filename,
+		};
+	}
+
+	const file = fileParamToBytes(paramName, value);
+	return {
+		blob: new Blob([file.bytes], { type: file.mimeType }),
+		filename: file.filename,
+	};
+}
+
+export async function buildMultipartBody(
 	params: Record<string, unknown>,
 	fileParams: string[],
-): FormData {
+): Promise<FormData> {
 	const form = new FormData();
 	const fileParamSet = new Set(fileParams);
 
 	for (const [key, value] of Object.entries(params)) {
 		if (value === undefined || value === null) continue;
 		if (fileParamSet.has(key)) {
-			const file = fileParamToBlob(key, value);
+			const file = await fileParamToBlob(key, value);
 			form.append(key, file.blob, file.filename);
 			continue;
 		}
@@ -311,7 +352,7 @@ export async function parseExternalResponse(
 	}
 
 	const buffer = await response.arrayBuffer();
-	return {
+	const result: Record<string, unknown> = {
 		filename: filenameFromContentDisposition(
 			response.headers.get("content-disposition"),
 		),
@@ -319,4 +360,13 @@ export async function parseExternalResponse(
 		base64encoded: true,
 		content: arrayBufferToBase64(buffer),
 	};
+	if (normalizedType === "application/pdf") {
+		try {
+			const { PDFDocument } = await import("pdf-lib");
+			result.pageCount = (await PDFDocument.load(buffer)).getPageCount();
+		} catch {
+			// Return the upstream bytes even if PDF metadata cannot be inspected.
+		}
+	}
+	return result;
 }

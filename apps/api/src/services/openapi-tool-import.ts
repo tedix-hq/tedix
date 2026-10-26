@@ -1006,8 +1006,8 @@ function responseSchema(spec: JsonObject, operation: JsonObject): unknown {
 function binaryFileInputSchema(description: unknown): JsonObject {
 	const baseDescription =
 		typeof description === "string" && description.trim()
-			? `${description.trim()} Supply a data URL, raw base64 string, or an object with {content|data|base64, filename, mimeType}.`
-			: "File bytes as a data URL, raw base64 string, or an object with {content|data|base64, filename, mimeType}.";
+			? `${description.trim()} Supply a data URL, raw base64 string, an object with {content|data|base64, filename, mimeType}, or {parts, filename} to merge PDF parts in order before upload.`
+			: "File bytes as a data URL, raw base64 string, an object with {content|data|base64, filename, mimeType}, or {parts, filename} to merge PDF parts in order before upload.";
 	return {
 		anyOf: [
 			{
@@ -1026,6 +1026,32 @@ function binaryFileInputSchema(description: unknown): JsonObject {
 					name: { type: "string" },
 					mimeType: { type: "string" },
 					type: { type: "string" },
+					parts: {
+						type: "array",
+						minItems: 1,
+						maxItems: 20,
+						description:
+							"PDF files to merge in order before upload. Each item accepts base64 or a file object.",
+						items: {
+							anyOf: [
+								{
+									type: "string",
+									description: "PDF bytes as base64 or a data URL.",
+								},
+								{
+									type: "object",
+									properties: {
+										content: { type: "string" },
+										data: { type: "string" },
+										base64: { type: "string" },
+										filename: { type: "string" },
+										mimeType: { type: "string" },
+									},
+									additionalProperties: true,
+								},
+							],
+						},
+					},
 				},
 				additionalProperties: true,
 			},
@@ -1082,6 +1108,7 @@ function binaryResponseOutputSchema(): ToolJsonSchema {
 			mimeType: { type: "string" },
 			base64encoded: { type: "boolean" },
 			content: { type: "string" },
+			pageCount: { type: "integer", minimum: 1 },
 		},
 		required: ["mimeType", "base64encoded", "content"],
 		additionalProperties: true,
@@ -1429,6 +1456,7 @@ export const openApiToolImportTestInternals = {
 	collectTopLevelFileParams,
 	requestBodyParamForSchema,
 	requestBodyInfo,
+	binaryResponseOutputSchema,
 	responseSchema,
 	responseInfo,
 	structuredOutputSchema,

@@ -506,7 +506,7 @@ describe("ToolHandler external transport", () => {
 		);
 
 		expect(result.status).toBe(200);
-		expect(result.data).toEqual({
+		expect(result.data).toMatchObject({
 			filename: "invoice.pdf",
 			mimeType: "application/pdf",
 			base64encoded: true,

@@ -41,6 +41,7 @@
 		"@x402/evm": "catalog:",
 		"drizzle-orm": "catalog:",
 		"hono": "catalog:",
+		"pdf-lib": "^1.17.1",
 		"zod": "catalog:"
 	},
 	"devDependencies": {
