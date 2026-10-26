@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 import {
 	ActivityFeedItemSchema,
 	type ActivityFeedItem,
 } from "@tedix/api-contract/schemas/os-activity-feed";
+import { setOsFormattingPreferences } from "@/lib/format";
 import {
 	activityDays,
 	activityHeadline,
@@ -10,6 +11,8 @@ import {
 	collapseActivity,
 	matchesActivityWho,
 } from "./feed-timeline";
+
+afterEach(() => setOsFormattingPreferences({ locale: null, timezone: null }));
 
 const item = (patch: Partial<ActivityFeedItem>): ActivityFeedItem =>
 	ActivityFeedItemSchema.parse({
@@ -138,5 +141,41 @@ describe("activity timeline", () => {
 				commits[2]!,
 			]).every((entry) => entry.kind === "item"),
 		).toBe(true);
+	});
+
+	it("labels days and outcome chips in Spanish for a Spanish reader", () => {
+		setOsFormattingPreferences({ locale: "es-ES", timezone: null });
+		const now = new Date("2026-10-26T15:00:00.000Z");
+		const days = activityDays(
+			[
+				item({ id: "today", at: "2026-10-26T08:00:00.000Z" }),
+				item({ id: "yesterday", at: "2026-10-25T08:00:00.000Z" }),
+				item({ id: "old", at: "2026-10-20T08:00:00.000Z" }),
+			],
+			"UTC",
+			now,
+			"es-ES",
+		);
+		expect(days.map((d) => d.label)).toEqual([
+			"Hoy",
+			"Ayer",
+			new Intl.DateTimeFormat("es-ES", {
+				weekday: "short",
+				month: "short",
+				day: "numeric",
+				timeZone: "UTC",
+			}).format(new Date("2026-10-20T12:00:00Z")),
+		]);
+		expect(activityStatus(item({ kind: "result" }))).toEqual({
+			tone: "success",
+			label: "Terminado",
+		});
+		expect(
+			activityStatus(item({ kind: "result", done: false, stalled: true })),
+		).toEqual({ tone: "error", label: "No terminó" });
+		expect(
+			activityStatus(item({ classId: "work:attempt.failed", done: false }))
+				?.label,
+		).toBe("Necesita revisión");
 	});
 });

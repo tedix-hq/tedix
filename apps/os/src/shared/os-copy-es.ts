@@ -297,6 +297,38 @@ export const SPANISH_FEED_DECK_COPY = {
 			stalled: "Bloqueado",
 			queue: "En marcha",
 		},
+		timeline: {
+			who: {
+				all: "Todo",
+				people: "Personas",
+				tedis: "Tedis",
+				apps: "Apps",
+				shipped: "Entregado",
+			},
+			whoGroup: "Mostrar actividad de",
+			whoRegion: (who: string) => `Actividad: ${who}`,
+			forYou: "Actividad para ti",
+			today: "Hoy",
+			yesterday: "Ayer",
+			groupSummary: (actor: string, count: number) =>
+				`${actor} publicó ${count} actualizaciones similares`,
+			groupLabel: (count: number, actor: string) =>
+				`${count} actualizaciones de ${actor}`,
+			showAll: (count: number) => `Mostrar las ${count}`,
+			showAllActivity: "Mostrar toda la actividad",
+			status: {
+				finished: "Terminado",
+				unfinished: "No terminó",
+				needsLook: "Necesita revisión",
+				needsYou: "Necesita tu atención",
+			},
+			more: "Más",
+			less: "Menos",
+			nothingNew: "Nada nuevo necesita tu atención.",
+			empty: "Todavía no hay actividad.",
+			noMatch: "Ninguna actividad coincide con estos filtros.",
+			hint: "j / k moverse · o abrir · p fijar · h ocultar · n sin importancia. Personas, Tedis, Apps y Entregado muestran la línea de tiempo completa.",
+		},
 		greeting: (hour: number, name: string) =>
 			`${hour < 12 ? "Buenos días" : hour < 18 ? "Buenas tardes" : "Buenas noches"}, ${name}`,
 		decisionsWaiting: (count: string) =>

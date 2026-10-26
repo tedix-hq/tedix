@@ -3,6 +3,7 @@ import { WorkActorAvatar } from "./work-actor-avatar";
 import { Button } from "./kumo/button";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { useOsFormattingPreferences } from "@/lib/format";
+import { OS_COPY } from "@/shared/os-copy";
 
 /** Repeated events by one actor read as one row; the list opens on request. */
 export function ActivityGroupRow({
@@ -31,13 +32,13 @@ export function ActivityGroupRow({
 			className="focus-row ft-group"
 		>
 			<article
-				aria-label={`${items.length} updates from ${actor}`}
+				aria-label={OS_COPY.feed.timeline.groupLabel(items.length, actor)}
 				className="fd-story min-w-0"
 			>
 				<WorkActorAvatar actor={identity} name={actor} className="ft-avatar" />
 				<div className="fd-story-body grid">
 					<span className="ft-sentence">
-						{actor} posted {items.length} similar updates
+						{OS_COPY.feed.timeline.groupSummary(actor, items.length)}
 					</span>
 					<div className="ft-byline">
 						<span className="ft-group-latest">{latest.sentence}</span>
@@ -51,7 +52,9 @@ export function ActivityGroupRow({
 							aria-expanded={open}
 							onClick={onToggle}
 						>
-							{open ? "Show less" : `Show all ${items.length}`}
+							{open
+								? OS_COPY.feed.showLess
+								: OS_COPY.feed.timeline.showAll(items.length)}
 						</Button>
 					</div>
 				</div>

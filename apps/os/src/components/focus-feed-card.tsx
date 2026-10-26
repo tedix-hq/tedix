@@ -118,7 +118,7 @@ export function FeedCard({
 				if (!receipt) void onReact(item, "why");
 			}}
 		>
-			{receipt ? "Less" : "More"}
+			{receipt ? OS_COPY.feed.timeline.less : OS_COPY.feed.timeline.more}
 		</Button>
 	);
 	return (
@@ -172,7 +172,9 @@ export function FeedCard({
 				<div className="ft-detail-row">
 					{item.needsAction && (
 						<Link href={decisionHref} variant="plain" className="ft-chip-link">
-							<Badge variant="warning">Needs you</Badge>
+							<Badge variant="warning">
+								{OS_COPY.feed.timeline.status.needsYou}
+							</Badge>
 						</Link>
 					)}
 					{status && (
