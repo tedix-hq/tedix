@@ -149,6 +149,8 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osApprovalRules/delete": "delete_os_approval_rule",
 	"osWorkspaces/blueprints/setVisibility": "set_os_blueprint_visibility",
 	"osWorkspaces/blueprints/gallery": "list_os_blueprint_gallery",
+	"osWorkspaces/blueprints/galleryPage": "get_os_gallery_blueprint",
+	"osWorkspaces/blueprints/setFeatured": "set_os_gallery_blueprint_featured",
 	"osWorkspaces/blueprints/instantiateFromGallery":
 		"instantiate_os_gallery_blueprint",
 	"runtimeEntitlements/get": "get_runtime_entitlement",
@@ -280,6 +282,8 @@ export const OS_KIND_OVERRIDES: Record<
 	"osApprovalRules/delete": "destructive",
 	"osWorkspaces/blueprints/setVisibility": "write",
 	"osWorkspaces/blueprints/gallery": "read",
+	"osWorkspaces/blueprints/galleryPage": "read",
+	"osWorkspaces/blueprints/setFeatured": "write",
 	"osWorkspaces/blueprints/instantiateFromGallery": "write",
 	"runtimeEntitlements/get": "read",
 	"modelCatalog/list": "read",

@@ -20,7 +20,9 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
-import { clients } from "./__tests__/os-workspaces-env";
+import { createRouterClient } from "@orpc/server";
+import { osWorkspacesContractRouter } from "./os-workspaces";
+import { apiKeyContext, clients } from "./__tests__/os-workspaces-env";
 
 // Governed-dispatch collaborators. The paths a receipt records (preflight,
 // budget, approvals, skill lookup, tedi ownership) are mocked per test; the
@@ -1014,6 +1016,64 @@ describe("blueprint gallery", () => {
 			publishedAt: expect.any(String),
 			featured: false,
 		});
+	});
+
+	it("reads one gallery blueprint's landing page across organizations, and hides private ones", async () => {
+		const blueprintId = await publishGalleryBlueprint();
+		const { blueprint } = await c.org1.blueprints.galleryPage({ blueprintId });
+		expect(blueprint).toEqual({
+			id: blueprintId,
+			name: "Sales Pod",
+			description: "Shared sales pod",
+			publishedAt: expect.any(String),
+			featured: false,
+			apps: [{ name: "CRM" }],
+			needs: { connections: [], resources: [], skills: [], outputs: [] },
+			organizationName: "Second Org",
+		});
+		expect(JSON.stringify(blueprint)).not.toContain("org-2");
+
+		await c.org2.blueprints.setVisibility({ blueprintId, visibility: "org" });
+		await expect(
+			c.org1.blueprints.galleryPage({ blueprintId }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("lets only a platform admin curate the Featured set", async () => {
+		const blueprintId = await publishGalleryBlueprint();
+		// The owning organization, another tenant and an ordinary key cannot.
+		for (const client of [c.org2, c.org1, c.machine]) {
+			await expect(
+				client.blueprints.setFeatured({ blueprintId, featured: true }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		}
+		const platform = createRouterClient(osWorkspacesContractRouter, {
+			context: apiKeyContext({
+				env: c.env,
+				organizationId: "org-1",
+				scopes: ["platform:admin"],
+			}),
+		});
+		const featured = await platform.blueprints.setFeatured({
+			blueprintId,
+			featured: true,
+		});
+		expect(featured.item).toMatchObject({ id: blueprintId, featured: true });
+		expect((await c.org1.blueprints.gallery({})).items[0]?.featured).toBe(true);
+		expect(
+			(await c.org1.blueprints.galleryPage({ blueprintId })).blueprint.featured,
+		).toBe(true);
+
+		await platform.blueprints.setFeatured({ blueprintId, featured: false });
+		expect((await c.org1.blueprints.gallery({})).items[0]?.featured).toBe(
+			false,
+		);
+
+		// A blueprint outside the catalog cannot be featured.
+		await c.org2.blueprints.setVisibility({ blueprintId, visibility: "org" });
+		await expect(
+			platform.blueprints.setFeatured({ blueprintId, featured: true }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 
 	it("instantiates a gallery blueprint as a published in-org copy with provenance", async () => {

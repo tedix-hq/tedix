@@ -165,6 +165,7 @@ describe("Tedix OS audit coverage", () => {
 			"blueprints.revise",
 			"blueprints.publish",
 			"blueprints.setVisibility",
+			"blueprints.setFeatured",
 			"blueprints.instantiate",
 			"blueprints.instantiateFromGallery",
 			"blueprints.import",

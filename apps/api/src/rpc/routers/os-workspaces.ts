@@ -32,6 +32,7 @@ import {
 	getOsBlueprintRevision,
 	importOsBlueprint,
 	listCatalogOsBlueprints,
+	setCatalogOsBlueprintFeatured,
 	listOsBlueprintRevisions,
 	listOsBlueprints,
 	publishOsBlueprintRevision,
@@ -140,6 +141,7 @@ import {
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
+import { readGalleryBlueprintPage } from "../../lib/blueprint-landing";
 
 export { resolveCreator } from "./os-workspaces-shared";
 
@@ -1638,6 +1640,51 @@ const blueprintsGallery = readOs.blueprints.gallery.handler(
 	},
 );
 
+const blueprintsGalleryPage = readOs.blueprints.galleryPage.handler(
+	async ({ input, context }) => {
+		// Cross-organization by design, like the gallery list: the catalog
+		// predicate inside the read is the boundary, and the page is an allowlist.
+		const blueprint = await readGalleryBlueprintPage(
+			queryDb(context),
+			input.blueprintId,
+		);
+		if (!blueprint) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS blueprint not found");
+		}
+		return { blueprint };
+	},
+);
+
+// Featured is platform curation across every organization's catalog
+// blueprints, so it takes the platform-admin guard rather than an os:* verb.
+const blueprintsSetFeatured = authed
+	.use(AUTHZ.platformAdmin)
+	.blueprints.setFeatured.handler(async ({ input, context }) => {
+		const db = queryDb(context);
+		const row = await setCatalogOsBlueprintFeatured(
+			db,
+			input.blueprintId,
+			input.featured,
+		);
+		const page = row
+			? await readGalleryBlueprintPage(db, input.blueprintId)
+			: undefined;
+		if (!page) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS blueprint not found");
+		}
+		return {
+			item: {
+				id: page.id,
+				name: page.name,
+				description: page.description,
+				gadgetCount: page.apps.length,
+				organizationName: page.organizationName,
+				publishedAt: page.publishedAt,
+				featured: page.featured,
+			},
+		};
+	});
+
 /** Name attempts for the copied blueprint when the source name is taken in the caller's organization. */
 const GALLERY_COPY_NAME_ATTEMPTS = 3;
 
@@ -2322,6 +2369,8 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 		import: blueprintsImport,
 		setVisibility: blueprintsSetVisibility,
 		gallery: blueprintsGallery,
+		galleryPage: blueprintsGalleryPage,
+		setFeatured: blueprintsSetFeatured,
 		instantiateFromGallery: blueprintsInstantiateFromGallery,
 	},
 });

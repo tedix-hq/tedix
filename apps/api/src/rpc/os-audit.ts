@@ -568,6 +568,12 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceId: ({ output }) => nestedId(output, "blueprint"),
 		metadata: ({ input }) => ({ visibility: input.visibility }),
 	},
+	"blueprints.setFeatured": {
+		action: "os.blueprint.featured_set",
+		resourceType: "os_blueprint",
+		resourceId: ({ input }) => text(input.blueprintId),
+		metadata: ({ input }) => ({ featured: input.featured }),
+	},
 	"blueprints.import": {
 		action: "os.blueprint.imported",
 		resourceType: "os_blueprint",

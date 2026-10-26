@@ -4283,6 +4283,46 @@ const findBlueprint = (blueprintId: string): OsBlueprint => {
 	return blueprint;
 };
 
+/** A catalog blueprint's landing page, built from the same allowlist as the API. */
+function localGalleryPage(blueprintId: string) {
+	const blueprint = state.blueprints.find(
+		(row) =>
+			row.id === blueprintId &&
+			row.status === "published" &&
+			row.visibility === "catalog",
+	);
+	if (!blueprint) throw new RpcError("NOT_FOUND", "OS blueprint not found");
+	const revision = latestRevision(
+		state.blueprintRevisions.filter((row) => row.blueprintId === blueprint.id),
+	);
+	const requirements = revision?.definition.requirements;
+	return {
+		id: blueprint.id,
+		name: blueprint.name,
+		description: blueprint.description,
+		publishedAt: revision?.publishedAt ?? null,
+		featured: state.featuredBlueprintIds.includes(blueprint.id),
+		apps: (revision?.definition.gadgets ?? []).map((gadget) => ({
+			name: gadget.name,
+		})),
+		needs: {
+			connections: (requirements?.connections ?? []).map((row) => ({
+				providerId: row.providerId,
+			})),
+			resources: (requirements?.resources ?? []).map((row) => ({
+				label: row.label,
+				providerId: row.providerId,
+			})),
+			skills: (requirements?.skills ?? []).map((row) => ({ slug: row.slug })),
+			outputs: (requirements?.outputs ?? []).map((row) => ({
+				title: row.title,
+				kind: row.kind,
+			})),
+		},
+		organizationName: "Tedix local",
+	};
+}
+
 const latestRevision = <T extends { revision: number }>(rows: T[]): T | null =>
 	rows.reduce<T | null>(
 		(latest, row) =>
@@ -9228,6 +9268,30 @@ const handlers: Record<string, (input: never) => unknown> = {
 				};
 			}),
 	}),
+	"osWorkspaces/blueprints/galleryPage": (input: { blueprintId: string }) => ({
+		blueprint: localGalleryPage(input.blueprintId),
+	}),
+	"osWorkspaces/blueprints/setFeatured": (input: {
+		blueprintId: string;
+		featured: boolean;
+	}) => {
+		const page = localGalleryPage(input.blueprintId);
+		state.featuredBlueprintIds = state.featuredBlueprintIds.filter(
+			(id) => id !== input.blueprintId,
+		);
+		if (input.featured) state.featuredBlueprintIds.push(input.blueprintId);
+		return {
+			item: {
+				id: page.id,
+				name: page.name,
+				description: page.description,
+				gadgetCount: page.apps.length,
+				organizationName: page.organizationName,
+				publishedAt: page.publishedAt,
+				featured: input.featured,
+			},
+		};
+	},
 	"osWorkspaces/blueprints/saveWorkspace": (input: {
 		workspaceId: string;
 		name: string;
