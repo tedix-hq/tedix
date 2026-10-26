@@ -15,7 +15,9 @@ try {
 		const calls: unknown[] = [];
 		let fail = true;
 		await page.route("**/api/**", async (route) => {
-			if (!route.request().url().includes("/blueprints/saveWorkspace"))
+			const pathname = new URL(route.request().url()).pathname;
+			if (pathname === "/api/rpc/webPush/getStatus") return route.fallback();
+			if (pathname !== "/api/rpc/osWorkspaces/blueprints/saveWorkspace")
 				throw new Error(`Unexpected API request: ${route.request().url()}`);
 			const raw = route.request().postDataJSON();
 			calls.push(raw.json ?? raw);
