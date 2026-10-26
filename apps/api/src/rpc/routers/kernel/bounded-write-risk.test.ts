@@ -27,6 +27,40 @@ describe("bounded Work and Notion write planning", () => {
 			expect(classifyWriteRisk({ name, _meta: bounded })).toBe("high");
 		},
 	);
+	it("lets only an operational purpose repair through as a bounded Work update", () => {
+		const tool = {
+			name: "home__update_work_item",
+			_meta: {
+				"com.tedix/policy": {
+					...bounded["com.tedix/policy"],
+					argumentPolicy: "work_item_purpose_repair",
+				},
+			},
+		};
+		const id = "11111111-1111-4111-8111-111111111111";
+		expect(
+			classifyWriteRisk(tool, {
+				id,
+				workClass: "maintenance",
+				purposeExceptionExpiresAt: "2026-11-20T00:00:00.000Z",
+			}),
+		).toBe("low");
+		expect(
+			classifyWriteRisk(tool, {
+				id,
+				purposeExceptionExpiresAt: "2026-11-20T00:00:00.000Z",
+			}),
+		).toBe("low");
+		for (const args of [
+			{ id, riskLevel: "low" },
+			{ id, workClass: "maintenance", riskLevel: "low" },
+			{ id, workClass: "maintenance", executor: "codex" },
+			{ id, workClass: "objective" },
+			{ id, title: "Renamed" },
+			undefined,
+		])
+			expect(classifyWriteRisk(tool, args)).toBe("high");
+	});
 	it("classifies the exact Notion command after argument validation", () => {
 		const tool = {
 			name: "notion_tedix.notion_update_page",

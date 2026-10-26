@@ -458,7 +458,9 @@ const Sha256DigestSchema = z
 export const ToolPolicyMetadataSchema = z
 	.object({
 		owner: z.string().min(1).max(160).optional(),
-		argumentPolicy: z.enum(["notion_page_update"]).optional(),
+		argumentPolicy: z
+			.enum(["notion_page_update", "work_item_purpose_repair"])
+			.optional(),
 		risk: z.enum(TOOL_POLICY_RISK_VALUES).optional(),
 		riskTier: z
 			.enum(TOOL_OPERATIONAL_RISK_TIER_VALUES)

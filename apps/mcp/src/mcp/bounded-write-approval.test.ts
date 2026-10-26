@@ -116,6 +116,43 @@ describe("authorized bounded writes", () => {
 			),
 		).toBeNull();
 	});
+	it("lets an agent repair operational purpose without a human, and gates every other update", async () => {
+		const update = buildHomeSurfaceTools().find(
+			(t) => t.toolId === "home__update_work_item",
+		)!;
+		const id = "11111111-1111-4111-8111-111111111111";
+		for (const args of [
+			{
+				id,
+				workClass: "maintenance",
+				purposeExceptionExpiresAt: "2026-11-20T00:00:00.000Z",
+			},
+			{ id, purposeExceptionExpiresAt: "2026-11-20T00:00:00.000Z" },
+		])
+			expect(
+				await requireDestructiveToolApproval(
+					context(),
+					update,
+					update.annotations,
+					{ args },
+				),
+			).toBeNull();
+		for (const args of [
+			{ id, workClass: "maintenance", riskLevel: "low" },
+			{ id, purposeExceptionExpiresAt: "soon" },
+			{ id, workClass: "objective" },
+			{ id, executor: "codex" },
+		]) {
+			const result = await requireDestructiveToolApproval(
+				context(),
+				update,
+				update.annotations,
+				{ args },
+			);
+			expect(result?.isError).toBe(true);
+			expect(callToolResultText(result!)).toContain("Human approval required");
+		}
+	});
 	it.each([
 		{
 			page_id: "example",

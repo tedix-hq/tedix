@@ -8,6 +8,7 @@ import {
 	decideAutonomousAction,
 	humanReservedActionClasses,
 	isSafeNotionPageUpdateCall,
+	isWorkItemPurposeRepairCall,
 	platformAutonomousOperation,
 	type DelegationAutonomyPolicy,
 } from "@tedix/api-contract/utils/approval-policy";
@@ -833,6 +834,15 @@ export async function requireDestructiveToolApproval(
 		connectedProviderId(tool) === "notion" &&
 		tool.config.mcpToolName === "notion-update-page" &&
 		isSafeNotionPageUpdateCall(options?.args);
+	// An owner/admin purpose repair is bounded; any other update stays unclassified.
+	const purposeRepairPolicy =
+		policy?.argumentPolicy === "work_item_purpose_repair";
+	const boundedPurposeRepair =
+		purposeRepairPolicy &&
+		policy.riskTier === "bounded_write" &&
+		tool.config?.transport === "rpc" &&
+		tool.config.endpoint === "workItems/updateSpecification" &&
+		isWorkItemPurposeRepairCall(options?.args);
 	const reviewedEffect =
 		tool.config?.transport === "mcp"
 			? reviewedConnectedEffect({
@@ -859,7 +869,11 @@ export async function requireDestructiveToolApproval(
 				  (policy?.argumentPolicy === "notion_page_update" &&
 						!boundedNotionUpdate)
 				? "high_impact_write"
-				: policy?.riskTier);
+				: purposeRepairPolicy
+					? boundedPurposeRepair
+						? "bounded_write"
+						: undefined
+					: policy?.riskTier);
 	if (
 		boundedNotionUpdate ||
 		ownSessionEnd ||
