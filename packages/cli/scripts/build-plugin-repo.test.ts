@@ -86,6 +86,21 @@ describe("public plugin repository", () => {
 		});
 	});
 
+	test("the source checkout's marketplace uses the plugin's description", () => {
+		const root = join(import.meta.dir, "../../..");
+		const { description } = JSON.parse(
+			readFileSync(
+				join(root, "plugins/tedix/.claude-plugin/plugin.json"),
+				"utf8",
+			),
+		);
+		const marketplace = JSON.parse(
+			readFileSync(join(root, ".claude-plugin/marketplace.json"), "utf8"),
+		);
+		expect(marketplace.description).toBe(description);
+		expect(marketplace.plugins[0].description).toBe(description);
+	});
+
 	test("a rebuild removes files that are no longer published", () => {
 		const dir = mkdtempSync(join(tmpdir(), "tedix-plugin-repo-"));
 		try {
