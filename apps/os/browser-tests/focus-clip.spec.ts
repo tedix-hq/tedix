@@ -426,6 +426,12 @@ try {
 						const started = performance.now();
 						const crawler = crawlers[index]!;
 						await crawler.goto(`${origin}${route}`, NAVIGATION);
+						// Discovery compiles cold route chunks before the timed audits.
+						await crawler.waitForFunction(
+							readiness,
+							{ phase: "content" },
+							{ timeout: NAVIGATION.timeout },
+						);
 						await settle(crawler);
 						const hrefs = await crawler.$$eval("a[href^='/']", (links) =>
 							links.map((link) => link.getAttribute("href")!),
