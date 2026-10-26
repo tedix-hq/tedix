@@ -697,7 +697,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "update_work_item",
 		description:
-			"Update descriptive Work Item specification fields. Disposition, readiness, attempts, and evidence use dedicated lifecycle operations.",
+			"Update descriptive Work Item specification fields. Set executor to codex or claude-code on accepted Work to start a fresh local session with the description as its brief. Disposition, readiness, attempts, and evidence use dedicated lifecycle operations.",
 		inputSchema: UPDATE_WORK_ITEM_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "workItems/updateSpecification",

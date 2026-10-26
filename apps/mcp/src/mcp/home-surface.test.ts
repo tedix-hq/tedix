@@ -355,6 +355,16 @@ describe("home surface tools", () => {
 			"id",
 		]);
 	});
+
+	it("lets a tedi start a fresh local session through update_work_item", () => {
+		const properties = byId.get("home__update_work_item")?.inputSchema
+			.properties as Record<string, { enum?: string[] }> | undefined;
+		expect(properties?.executor?.enum).toEqual(
+			expect.arrayContaining(["codex", "claude-code"]),
+		);
+		expect(properties?.laneDispatch).toBeDefined();
+		expect(properties?.description).toBeDefined();
+	});
 });
 
 describe("home write tools are fail-closed without the write scope", () => {

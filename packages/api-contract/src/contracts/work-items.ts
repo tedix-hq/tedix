@@ -689,12 +689,14 @@ export const workItemsContract = oc
 				path: "/{id}",
 				summary: "Update Work Item specification",
 				description:
-					"Update descriptive Work Item specification fields. Disposition, readiness, attempts, and evidence are changed only through their dedicated operations.",
+					"Update descriptive Work Item specification fields. Setting executor to codex or claude-code on accepted Work queues a fresh local session with the description as its brief. Disposition, readiness, attempts, and evidence are changed only through their dedicated operations.",
 			})
 			.input(
 				z.strictObject({
 					id: z.uuid(),
-					executor: WorkExecutorSchema.optional(),
+					executor: WorkExecutorSchema.optional().describe(
+						"codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",
+					),
 					laneDispatch: LaneDispatchPlanSchema.optional(),
 					expectedWorkItemVersion: z
 						.number()

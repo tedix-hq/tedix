@@ -239,7 +239,7 @@ export const KERNEL_RUNTIME_TOOLS: TediToolSpec[] = [
 		name: "update_work_item",
 		remoteName: "update_work_item",
 		description:
-			"Update descriptive Work Item specification fields. Disposition, readiness, attempts, and evidence use their dedicated lifecycle operations.",
+			"Update descriptive Work Item specification fields. Set executor to codex or claude-code on accepted Work to start a fresh local session with the description as its brief. Disposition, readiness, attempts, and evidence use their dedicated lifecycle operations.",
 		inputSchema: HOME_WORK_ITEM_UPDATE_SCHEMA,
 		allowExplicitTediId: false,
 		includeTediIdParam: false,
