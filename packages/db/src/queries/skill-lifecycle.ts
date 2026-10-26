@@ -290,6 +290,16 @@ export interface SkillUsageSignals {
 	recentOutcomes: SkillUsageOutcome[];
 }
 
+/**
+ * A run that failed because the platform refused a tool the skill declared
+ * (`WORKFLOW_TOOLS_REFUSED`, raised by the skill runtime's refusal check).
+ * Between 22 and 25 Oct a gateway bug refused declared tools; every refusal
+ * counted toward demotion, so 13 factories fell to draft and the scheduler
+ * turned their schedules off. The failure stays in the ledger, the counters
+ * and factory health; it only does not judge the skill's own reliability.
+ */
+const PLATFORM_REFUSAL_MARKER = "WORKFLOW_TOOLS_REFUSED";
+
 /** Read the promotion signals for a skill from the canonical usage ledger. */
 export async function loadSkillUsageSignals(
 	db: DbClient,
@@ -315,6 +325,7 @@ export async function loadSkillUsageSignals(
 			.select({
 				outcome: skillUsageEvents.outcome,
 				source: skillUsageEvents.source,
+				error: skillUsageEvents.error,
 			})
 			.from(skillUsageEvents)
 			.where(
@@ -333,10 +344,13 @@ export async function loadSkillUsageSignals(
 	return {
 		verifiedSuccessCount: Number(successRows[0]?.count ?? 0),
 		// Unverified successes cannot recover a failure or reset a demotion
-		// streak. Keep every failure, but only canonical workflow successes.
+		// streak. Keep every failure except a platform refusal, but only
+		// canonical workflow successes.
 		recentOutcomes: recentRows
-			.filter(
-				(row) => row.outcome === "failure" || row.source === "workflow_run",
+			.filter((row) =>
+				row.outcome === "failure"
+					? !row.error?.includes(PLATFORM_REFUSAL_MARKER)
+					: row.source === "workflow_run",
 			)
 			.map((row) => row.outcome),
 	};
