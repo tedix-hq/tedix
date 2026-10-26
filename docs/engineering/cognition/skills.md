@@ -104,9 +104,12 @@ ran. Demotion and archival always pass.
 
 `tediId = NULL` is a baseline org skill; a set `tediId` is that tedi's working
 set and is visible only to it whatever its `visibility` — setting `shared` is
-not a promotion. Ownership changes are attach-only; the only tedi → org move is
-promotion (`promote_skill`, `dryRun` by default), which updates the row in
-place and still passes the lifecycle gate unless a human forces it.
+not a promotion. `improve_skills` only attaches an owner to an ownerless skill.
+Moving a skill and its native schedule to another tedi is
+`move_skill_to_tedi` (`dryRun` by default; it lists every failing check and
+returns the call that moves it back). The only tedi → org move is promotion
+(`promote_skill`, `dryRun` by default), which updates the row in place and
+still passes the lifecycle gate unless a human forces it.
 
 Scheduled skills cannot be promoted: `capabilities.schedule` requires an owning
 tedi (`SKILL_SCHEDULE_INVALID`). Activate one with
