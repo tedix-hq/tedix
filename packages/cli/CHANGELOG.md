@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.8 — 2026-10-26
+
+### Patch Changes
+
+- Once you approve a new agent's first sign-in, `tedix agent start` now uses that approval instead of asking for a new one every time. This lets the local Claude Code, Devin and OpenCode dispatchers start work again.
+
 ## 0.17.7 — 2026-10-26
 
 ### Patch Changes
