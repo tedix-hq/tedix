@@ -26,8 +26,17 @@ const osSharesApi = vi.hoisted(() => ({
 	},
 }));
 
+const webPushApi = vi.hoisted(() => ({
+	getStatus: vi.fn(),
+	setPreferences: vi.fn(),
+}));
+
 vi.mock("@/lib/api", () => ({
-	osApi: { osWorkspaces: { workspaces }, osShares: osSharesApi },
+	osApi: {
+		osWorkspaces: { workspaces },
+		osShares: osSharesApi,
+		webPush: webPushApi,
+	},
 }));
 
 // Keep lifecycle tests focused on the control logic instead of Kumo's portal.
@@ -142,7 +151,13 @@ async function flush() {
 beforeEach(() => {
 	for (const mock of Object.values(workspaces)) mock.mockReset();
 	for (const mock of Object.values(osSharesApi.shares)) mock.mockReset();
+	for (const mock of Object.values(webPushApi)) mock.mockReset();
 	osSharesApi.shares.list.mockResolvedValue({ items: [], truncated: false });
+	webPushApi.getStatus.mockResolvedValue({
+		enabled: true,
+		publicKey: "B".repeat(87),
+		preferences: { mutedProjectIds: ["project-1"], mutedWorkspaceIds: [] },
+	});
 });
 
 afterEach(() => {
@@ -150,9 +165,15 @@ afterEach(() => {
 });
 
 describe("CanvasWorkspaceControls", () => {
-	it("uses accessible 32px icon actions in the workspace header", () => {
+	it("uses accessible 32px icon actions in the workspace header", async () => {
 		const rendered = renderControls(WORKSPACE, true);
-		for (const label of ["Share", "Edit workspace", "Archive workspace"]) {
+		await flush();
+		for (const label of [
+			"Share",
+			"Edit workspace",
+			"Mute workspace notifications",
+			"Archive workspace",
+		]) {
 			const action = rendered.container.querySelector(
 				`button[aria-label="${label}"]`,
 			);
@@ -217,6 +238,26 @@ describe("CanvasWorkspaceControls", () => {
 		expect(rendered.onSelected).toHaveBeenCalledWith(WORKSPACE.id);
 	});
 
+	it("toggles the workspace's push mute through saved preferences", async () => {
+		webPushApi.setPreferences.mockResolvedValue({
+			mutedProjectIds: ["project-1"],
+			mutedWorkspaceIds: [WORKSPACE.id],
+		});
+		const rendered = renderControls(WORKSPACE, true);
+		await flush();
+		const mute = rendered.container.querySelector(
+			'button[aria-label="Mute workspace notifications"]',
+		);
+		if (!(mute instanceof HTMLButtonElement)) throw new Error("mute missing");
+		expect(mute.disabled).toBe(false);
+		expect(mute.getAttribute("aria-pressed")).toBe("false");
+		act(() => mute.click());
+		await flush();
+		expect(webPushApi.setPreferences).toHaveBeenCalledWith({
+			mutedProjectIds: ["project-1"],
+			mutedWorkspaceIds: [WORKSPACE.id],
+		});
+	});
 	it("archives without deleting durable workspace evidence", async () => {
 		workspaces.archive.mockResolvedValue({
 			workspace: { ...WORKSPACE, status: "archived" },

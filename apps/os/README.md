@@ -211,10 +211,11 @@ Credential provisioning and managed release remain private ops work.
 
 Push uses fixed approval, input-needed and person-started completion text;
 conversation content never becomes notification text. Tapping opens the Deck
-on the subscribing origin. Muting a project suppresses run updates in its
-linked Workspaces while retaining approvals. Any linked muted project quiets
-a shared Workspace. Visible chats suppress push using a 60-second visibility
-lease and a final service-worker check. The worker caches no application data.
+on the subscribing origin. Muting a Workspace suppresses run updates from it,
+and muting a project suppresses run updates in its linked Workspaces; both
+retain approvals, and any linked muted project quiets a shared Workspace.
+Visible chats suppress push using a 60-second visibility lease and a final
+service-worker check. The worker caches no application data.
 
 Subscriptions, visibility and mute settings use the existing `user_configs`
 store, scoped to the person and organization. Delivery rechecks membership,

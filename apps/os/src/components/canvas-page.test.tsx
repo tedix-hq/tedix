@@ -69,6 +69,11 @@ const kernelRuntimeApi = vi.hoisted(() => ({
 	listConversations: vi.fn(),
 }));
 
+const webPushApi = vi.hoisted(() => ({
+	getStatus: vi.fn(),
+	setPreferences: vi.fn(),
+}));
+
 const routing = vi.hoisted(() => ({
 	navigate: vi.fn(),
 	search: {} as {
@@ -137,6 +142,7 @@ vi.mock("@/lib/api", () => ({
 		osCompute: osComputeApi,
 		osShares: osSharesApi,
 		kernelRuntime: kernelRuntimeApi,
+		webPush: webPushApi,
 	},
 }));
 
@@ -867,6 +873,12 @@ beforeEach(() => {
 	// option. Nothing here asserts on it, so it stays pending forever.
 	osComputeApi.posture.mockReset();
 	osComputeApi.posture.mockReturnValue(new Promise(() => {}));
+	for (const mock of Object.values(webPushApi)) mock.mockReset();
+	webPushApi.getStatus.mockResolvedValue({
+		enabled: false,
+		publicKey: null,
+		preferences: { mutedProjectIds: [], mutedWorkspaceIds: [] },
+	});
 	collab.useCollabDoc.mockReset();
 	replaceWithCanonical.mockReset().mockResolvedValue({ ok: true });
 	// THE DEFAULT ROOM HAS NOTHING UNACKNOWLEDGED, which is what makes Commit live: a client

@@ -9,20 +9,23 @@ try {
 	for (const width of [390, 1280]) {
 		const page = await browser.newPage({ viewport: { width, height: 844 } });
 		page.setDefaultTimeout(20_000);
-		let mutedProjectIds: string[] = [];
+		let preferences: {
+			mutedProjectIds: string[];
+			mutedWorkspaceIds?: string[];
+		} = { mutedProjectIds: [] };
 		await page.route("**/api/rpc/webPush/*", async (route) => {
 			const method = new URL(route.request().url()).pathname.split("/").at(-1);
 			if (method === "setPreferences")
-				mutedProjectIds = route.request().postDataJSON().json.mutedProjectIds;
+				preferences = route.request().postDataJSON().json;
 			const disabled = page.url().includes("disabled");
 			const result =
 				method === "getStatus"
 					? {
 							enabled: !disabled,
 							publicKey: disabled ? null : "B".repeat(87),
-							preferences: { mutedProjectIds },
+							preferences,
 						}
-					: { mutedProjectIds };
+					: preferences;
 			await route.fulfill({ json: { json: result } });
 		});
 		await page.addInitScript(() => {
@@ -47,9 +50,28 @@ try {
 					.querySelector('[role="switch"]')
 					?.getAttribute("aria-checked") === "true",
 		);
+		const workspaceMute = page.getByRole("switch", {
+			name: "Mute Example Workspace",
+		});
+		await workspaceMute.click();
+		await page.waitForFunction(
+			() =>
+				document.querySelectorAll('[role="switch"][aria-checked="true"]')
+					.length === 2,
+		);
+		assert.deepEqual(preferences.mutedWorkspaceIds, [
+			"00000000-0000-4000-8000-000000000002",
+		]);
 		assert(
 			(await page
 				.getByText("Mute run updates; approval requests stay enabled.")
+				.count()) === 1,
+		);
+		assert(
+			(await page
+				.getByText(
+					"Mute run updates for this workspace; approval requests stay enabled.",
+				)
 				.count()) === 1,
 		);
 		await page.getByRole("button", { name: "Enable notifications" }).click();
@@ -85,7 +107,7 @@ try {
 		);
 		await page.close();
 		console.log(
-			`PASS Web Push settings ${width}: permission click, project mute, missing keys, no overflow`,
+			`PASS Web Push settings ${width}: permission click, project and workspace mute, missing keys, no overflow`,
 		);
 	}
 } finally {

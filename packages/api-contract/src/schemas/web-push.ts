@@ -33,6 +33,9 @@ export const WebPushSubscriptionSchema = z
 	.strict();
 export const WebPushPreferencesSchema = z.object({
 	mutedProjectIds: z.array(z.string().uuid()).max(100),
+	// Optional so stored rows and stale clients without the field parse, and an
+	// omitted write keeps the muted workspaces already saved.
+	mutedWorkspaceIds: z.array(z.string().uuid()).max(100).optional(),
 });
 export type WebPushKind = "approval" | "needs_input" | "finished";
 

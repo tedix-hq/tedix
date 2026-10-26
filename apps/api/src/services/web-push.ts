@@ -66,13 +66,15 @@ export function shouldPush(input: {
 	visible: boolean;
 	projectIds: string[];
 	mutedProjectIds: string[];
+	workspaceId: string | null;
+	mutedWorkspaceIds: string[];
 }) {
 	if (input.visible) return false;
 	if (input.kind === "finished" && !input.personStarted) return false;
-	return (
-		input.kind === "approval" ||
-		!input.projectIds.some((id) => input.mutedProjectIds.includes(id))
-	);
+	if (input.kind === "approval") return true;
+	if (input.workspaceId && input.mutedWorkspaceIds.includes(input.workspaceId))
+		return false;
+	return !input.projectIds.some((id) => input.mutedProjectIds.includes(id));
 }
 
 export async function deliverWebPush(
@@ -178,6 +180,10 @@ async function deliverToMember(
 			projectIds: projects.map((project) => project.projectId),
 			mutedProjectIds: preferences.success
 				? preferences.data.mutedProjectIds
+				: [],
+			workspaceId: conversation.workspaceId ?? null,
+			mutedWorkspaceIds: preferences.success
+				? (preferences.data.mutedWorkspaceIds ?? [])
 				: [],
 		})
 	)
