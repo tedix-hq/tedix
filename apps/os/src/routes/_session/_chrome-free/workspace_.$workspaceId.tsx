@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { CanvasPage } from "@/components/canvas-page";
+import { WorkspaceAccessBoundary } from "@/components/workspace-access-boundary";
 import { WorkActorDirectory } from "@/components/work-actor-directory";
 import { validateWorkspaceSearch } from "@/lib/canvas-search";
 import { shouldRenderOrganizationLauncher } from "@/lib/os-layout-routing";
@@ -35,9 +36,11 @@ function WorkspaceRoute() {
 	const { workspaceId } = Route.useParams();
 	return (
 		<main className="canvas-route-shell">
-			<WorkActorDirectory>
-				<CanvasPage workspaceId={workspaceId} />
-			</WorkActorDirectory>
+			<WorkspaceAccessBoundary workspaceId={workspaceId}>
+				<WorkActorDirectory>
+					<CanvasPage workspaceId={workspaceId} />
+				</WorkActorDirectory>
+			</WorkspaceAccessBoundary>
 		</main>
 	);
 }

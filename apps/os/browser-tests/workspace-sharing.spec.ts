@@ -177,7 +177,14 @@ document.querySelector('button').onclick = async () => { const result = await te
 					canRevoke: true,
 				},
 			};
-		else if (endpoint === "open") {
+		else if (endpoint === "access") {
+			if (options.denied)
+				return route.fulfill({
+					status: 403,
+					json: { json: { code: "FORBIDDEN", message: "Access changed" } },
+				});
+			json = { role: options.runtime ?? "use" };
+		} else if (endpoint === "open") {
 			if (options.denied) {
 				await route.fulfill({
 					status: 403,
@@ -254,6 +261,42 @@ async function assertFits(page: Page, width: number, label: string) {
 const started = performance.now();
 let cases = 0;
 try {
+	{
+		const page = await browser.newPage({
+			viewport: { width: 1280, height: 900 },
+		});
+		const permissions: { runtime: "build" | "use"; denied: boolean } = {
+			runtime: "build",
+			denied: false,
+		};
+		const calls = await mockApi(page, permissions);
+		await page.goto(`${server.origin}${path}?view=workspace`);
+		await page.locator("[data-live-workspace]").waitFor();
+		permissions.runtime = "use";
+		const downgradeAt = performance.now();
+		await page
+			.getByText("Can use", { exact: true })
+			.waitFor({ timeout: 6_000 });
+		assert.equal(await page.locator("[data-live-workspace]").count(), 0);
+		await page.locator("[data-app-runtime-frame]").waitFor();
+		const downgradeMs = Math.round(performance.now() - downgradeAt);
+		permissions.denied = true;
+		const removalAt = performance.now();
+		await page.locator("[data-access-denied]").waitFor({ timeout: 6_000 });
+		assert.equal(await page.locator("[data-app-runtime-frame]").count(), 0);
+		assert(!(await page.textContent("body"))?.includes("Reddit research"));
+		assert.equal(calls.open?.length, 1);
+		const removalMs = Math.round(performance.now() - removalAt);
+		await page.screenshot({
+			path: `${directory}/live-access-revoked.png`,
+			fullPage: true,
+		});
+		console.log(
+			`PASS open workspace downgrade ${downgradeMs}ms, removal ${removalMs}ms; no reload`,
+		);
+		await page.close();
+		cases++;
+	}
 	for (const theme of ["light", "dark"] as const) {
 		for (const width of [375, 1280]) {
 			const viewport = { width, height: 900 };

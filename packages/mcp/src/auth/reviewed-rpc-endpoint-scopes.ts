@@ -515,6 +515,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osApprovalRules/delete": "mcp:apps.admin",
 	"osApprovalRules/list": "mcp:apps.read",
 	"osApprovalRules/setEnabled": "mcp:apps.write",
+	"osCollaborators/access": "mcp:apps.read",
 	"osCollaborators/add": "mcp:apps.write",
 	"osCollaborators/copyLink": "mcp:apps.write",
 	"osCollaborators/createLink": "mcp:apps.write",

@@ -683,6 +683,11 @@ export const readConversationEventsRoute = authed.readConversationEvents
 		const deadline = Date.now() + waitMs;
 		const start = input.offset ?? 0;
 		while (true) {
+			await ensureHomeConversationAccess(context, {
+				conversationId: input.conversationId,
+				organizationId,
+				required: "read",
+			});
 			let conversation: KernelConversationRow | undefined;
 			let rows: KernelRuntimeEvent[];
 			try {

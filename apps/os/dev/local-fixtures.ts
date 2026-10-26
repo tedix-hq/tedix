@@ -7370,6 +7370,10 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"osWorkspaces/workspaces/get": (input: { workspaceId: string }) => ({
 		workspace: findWorkspace(input.workspaceId),
 	}),
+	"osCollaborators/access": (input: { workspaceId: string }) => {
+		findWorkspace(input.workspaceId);
+		return { role: "build" };
+	},
 	"osCollaborators/list": (input: { workspaceId: string }) => {
 		findWorkspace(input.workspaceId);
 		return {

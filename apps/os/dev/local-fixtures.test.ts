@@ -470,6 +470,7 @@ const CALLS = {
 		name: "Orion planning",
 	},
 	"osWorkspaces/workspaces/get": { workspaceId: IDS.workspaceRevenue },
+	"osCollaborators/access": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/list": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/add": {
 		workspaceId: IDS.workspaceRevenue,

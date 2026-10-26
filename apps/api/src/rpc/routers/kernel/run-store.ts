@@ -29,6 +29,8 @@ import {
 	updateKernelRuntimeRunForOrg,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import type { RuntimeSubmission } from "@tedix/db/queries/runtime-submissions/read-models";
+import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
+import { requireWorkspaceCollaboratorAccess } from "../../../services/os-workspace-collaborators";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	type KernelConversationAccessLevel,
@@ -103,7 +105,19 @@ export async function ensureHomeConversationAccess(
 		organizationId: input.organizationId,
 		required: input.required,
 	});
-	if (decision.allowed) return;
+	if (decision.allowed) {
+		if (context.authType === "user") {
+			const conversation = await getKernelConversation(context.db, input);
+			if (conversation?.workspaceId) {
+				await requireWorkspaceCollaboratorAccess(
+					context,
+					conversation.workspaceId,
+					"app.chat",
+				);
+			}
+		}
+		return;
+	}
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		`Access denied to Home conversation ${input.conversationId}`,

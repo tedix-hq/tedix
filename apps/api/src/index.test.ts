@@ -25,7 +25,14 @@ vi.mock("cloudflare:workflows", () => ({
  * the short-circuit could vanish and the response would look identical, just
  * slow. Asserting the counter is what makes this a real guard.
  */
-const h = vi.hoisted(() => ({ evaluations: 0 }));
+const h = vi.hoisted(() => ({ evaluations: 0, accessChecks: 0 }));
+
+vi.mock("./services/os-workspace-session-access", () => ({
+	workspaceSessionAccess: async () => {
+		h.accessChecks++;
+		return Response.json({ roles: {} });
+	},
+}));
 
 vi.mock("./worker-app", async () => {
 	const { getServiceBindingPrincipal, correlatedServiceRequest } =
@@ -121,6 +128,24 @@ describe("apps/api entrypoint liveness short-circuit", () => {
 });
 
 describe("apps/api service-binding trust boundary", () => {
+	it("accepts verified workspace identities only through the internal entrypoint", async () => {
+		const request = () =>
+			new Request("https://api.test/__internal/workspace-session-access", {
+				method: "POST",
+				headers: { "X-Service-Binding": "true" },
+				body: JSON.stringify({
+					workspaceId: "workspace-1",
+					userIds: ["forged-user"],
+				}),
+			});
+		const before = h.accessChecks;
+		expect((await worker.fetch(request(), env, ctx)).status).toBe(418);
+		expect(h.accessChecks).toBe(before);
+		expect(
+			(await new InternalEntrypoint(ctx, env).fetch(request())).status,
+		).toBe(200);
+		expect(h.accessChecks).toBe(before + 1);
+	});
 	const spoofed = () =>
 		new Request("https://api.tedix.dev/rpc/apps/list", {
 			headers: {

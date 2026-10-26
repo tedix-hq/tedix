@@ -220,6 +220,19 @@ async function findWorkspace(
 	return workspace;
 }
 
+/** Revalidate a previously verified socket identity without storing its credentials. */
+export async function readWorkspaceSessionRole(
+	database: DbQueryClient,
+	workspaceId: string,
+	userId: string,
+): Promise<OsCollaboratorRole | null> {
+	const workspace = await getOsWorkspaceForCollaboration(database, {
+		workspaceId,
+	});
+	if (!workspace || workspace.status !== "active") return null;
+	return (await loadAccess(database, workspace, userId)).role;
+}
+
 /**
  * Load the caller's access and require an operation. A caller with no role
  * learns nothing about the workspace; a caller with a role but not this

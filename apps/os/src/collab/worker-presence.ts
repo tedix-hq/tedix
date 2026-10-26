@@ -127,6 +127,7 @@ export async function authenticateCollabPresence(
 	trustedSessionToken?: string,
 	resolveMemberName?: (subject: string) => Promise<string | null>,
 	allowCrossTenantHuman = false,
+	onVerifiedHuman?: (subject: string) => void,
 ): Promise<CollabVerifiedIdentity | null> {
 	const token =
 		trustedSessionToken ??
@@ -143,6 +144,8 @@ export async function authenticateCollabPresence(
 			hostTenantId,
 			allowCrossTenantHuman,
 		);
+		if (identity?.kind === "human" && payload.sub)
+			onVerifiedHuman?.(payload.sub);
 		if (identity?.kind === "human" && payload.sub && resolveMemberName) {
 			try {
 				const name = (await resolveMemberName(payload.sub))?.trim();

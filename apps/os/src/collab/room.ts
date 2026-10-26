@@ -9,10 +9,11 @@
  * appended to the revision stream, and a Durable Object is what makes that
  * single-writer, run-to-completion span exist at all.
  *
- * No AUTH logic lives here. The worker (`src/worker.ts`) authorizes the caller
+ * The worker (`src/worker.ts`) authorizes the caller
  * against `apps/api` before routing the upgrade to this DO; by the time `fetch`
  * runs, the request is already authorized for this room. The DO never sees a
- * credential, only the Worker's verified presence projection.
+ * credential, only the Worker's verified identity and workspace scope. The
+ * API rechecks that identity's workspace role on the room's access alarm.
  *
  * The room holds no second copy of D1 truth, but it does know which revision it
  * is grounded on. The server-agreed revision is the base: the stream starts
@@ -36,16 +37,15 @@
  * came from without being able to state anything false about it.
  *
  * Hibernation. Uses the WebSocket hibernation API (`state.acceptWebSocket` plus
- * the `webSocketMessage`/`webSocketClose`/`webSocketError` handlers) so idle
- * rooms cost nothing, and everything a wake needs is durable: the authority
+ * the `webSocketMessage`/`webSocketClose`/`webSocketError` handlers) so rooms
+ * can hibernate between access checks. Everything a wake needs is durable: the authority
  * rehydrates the stream from DO storage on first use, and each socket's peer id
- * and verified identity ride in its serialized attachment. Two properties
- * follow, and the first is why this room needs no alarm at all:
- *   - No in-memory timer and no alarm. There is nothing to debounce: the
+ * and verified identity ride in its serialized attachment. Access checks run
+ * on a durable alarm while human workspace sessions are connected.
+ *   - No snapshot timer. There is nothing to debounce: the
  *     authority enqueues each accepted row inside its synchronous span, and the
  *     DO's output gate holds the broadcast until that write commits, so
- *     durability is per-row and immediate. A snapshot debounce would need an
- *     alarm to survive hibernation; there is no snapshot.
+ *     durability is per-row and immediate.
  *   - The roster is memory-only and self-healing. Presence is rebuilt from the
  *     clients' periodic re-broadcasts after a wake.
  *
@@ -53,6 +53,10 @@
  * tsconfig ships DOM+ESNext libs, not workers-types), mirroring how
  * `worker.ts` stays testable without Workers-only globals.
  */
+import {
+	serviceBindingFetch,
+	type FetcherLike,
+} from "@tedix/api-client/internal";
 import { OtAuthority, type OtAuthorityStorage } from "./ot/authority";
 import type { CodeChangeRow } from "./ot/wire";
 import {
@@ -77,8 +81,11 @@ export interface CollabSocket {
 	deserializeAttachment(): unknown;
 }
 
-/** The DO storage surface the room needs: exactly what `OtAuthority` uses. */
-export type CollabStorage = OtAuthorityStorage;
+/** OT storage plus durable access-check alarms. */
+export type CollabStorage = OtAuthorityStorage & {
+	getAlarm?(): Promise<number | null>;
+	setAlarm?(at: number): Promise<void>;
+};
 
 export interface CollabRoomState {
 	readonly storage: CollabStorage;
@@ -102,6 +109,24 @@ type WebSocketPairCtor = new () => { 0: AcceptableSocket; 1: AcceptableSocket };
 interface SocketAttachment {
 	peerId: number;
 	identity: CollabVerifiedIdentity | null;
+	access?: { workspaceId: string; userId: string; role?: "use" | "build" };
+}
+
+export const COLLAB_ACCESS_CHECK_MS = 3_000;
+
+function parseAccess(value: unknown): SocketAttachment["access"] {
+	if (typeof value !== "object" || value === null) return undefined;
+	const scope = value as Record<string, unknown>;
+	return typeof scope.workspaceId === "string" &&
+		scope.workspaceId.length > 0 &&
+		typeof scope.userId === "string" &&
+		scope.userId.length > 0
+		? {
+				workspaceId: scope.workspaceId,
+				userId: scope.userId,
+				role: scope.role === "use" ? "use" : "build",
+			}
+		: undefined;
 }
 
 const MAX_SOCKETS = 32;
@@ -120,6 +145,7 @@ function readAttachment(ws: CollabSocket): SocketAttachment {
 						? (attachment.peerId as number)
 						: 0,
 				identity: parseCollabVerifiedIdentity(attachment.identity),
+				access: parseAccess(attachment.access),
 			};
 		}
 	} catch {
@@ -140,7 +166,10 @@ export class CollabRoom {
 	 */
 	readonly #presence = new Map<number, Record<string, unknown>>();
 
-	constructor(private readonly state: CollabRoomState) {
+	constructor(
+		private readonly state: CollabRoomState,
+		private readonly env: { API_SERVICE?: FetcherLike } = {},
+	) {
 		this.#authority = new OtAuthority({
 			storage: state.storage,
 			broadcast: (row) => this.#broadcastRow(row),
@@ -183,11 +212,21 @@ export class CollabRoom {
 		}
 
 		const peerId = this.#nextPeerId();
+		const access = parseAccess(
+			JSON.parse(request.headers.get("X-Tedix-Collab-Access") ?? "null"),
+		);
+		if (access && (!this.env.API_SERVICE || !this.state.storage.setAlarm)) {
+			return new Response("Access revalidation unavailable.\n", {
+				status: 503,
+			});
+		}
 		this.state.acceptWebSocket(server);
 		server.serializeAttachment({
 			peerId,
 			identity,
+			access,
 		} satisfies SocketAttachment);
+		if (access) await this.#scheduleAccessCheck();
 		this.#send(server, { t: "hello", peerId });
 		if (this.#presence.size > 0) {
 			this.#send(server, { t: "presence", peers: [...this.#presence] });
@@ -197,6 +236,63 @@ export class CollabRoom {
 			status: 101,
 			webSocket: client,
 		} as ResponseInit);
+	}
+
+	async #scheduleAccessCheck(): Promise<void> {
+		if ((await this.state.storage.getAlarm?.()) != null) return;
+		await this.state.storage.setAlarm?.(Date.now() + COLLAB_ACCESS_CHECK_MS);
+	}
+
+	/** Alarms and attachments survive hibernation; no credential is retained. */
+	async alarm(): Promise<void> {
+		const groups = new Map<string, { ws: CollabSocket; userId: string }[]>();
+		for (const ws of this.state.getWebSockets()) {
+			const { identity, access } = readAttachment(ws);
+			if (!identity || !access) continue;
+			const peers = groups.get(access.workspaceId) ?? [];
+			peers.push({ ws, userId: access.userId });
+			groups.set(access.workspaceId, peers);
+		}
+		await Promise.all(
+			[...groups].map(async ([workspaceId, peers]) => {
+				let roles: Record<string, unknown> = {};
+				try {
+					if (!this.env.API_SERVICE) throw new Error("API_SERVICE unavailable");
+					const response = await serviceBindingFetch(this.env.API_SERVICE)(
+						"https://api/__internal/workspace-session-access",
+						{
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								workspaceId,
+								userIds: [...new Set(peers.map(({ userId }) => userId))],
+							}),
+							signal: AbortSignal.timeout(5_000),
+						},
+					);
+					if (!response.ok)
+						throw new Error(`Access check answered ${response.status}`);
+					const body = (await response.json()) as {
+						roles?: Record<string, unknown>;
+					};
+					roles = body.roles ?? {};
+				} catch {
+					// A room cannot keep its authority when revalidation is unavailable.
+				}
+				for (const { ws, userId } of peers) {
+					if (roles[userId] === (readAttachment(ws).access?.role ?? "build"))
+						continue;
+					const { peerId } = readAttachment(ws);
+					ws.serializeAttachment({ peerId, identity: null });
+					this.#presence.delete(peerId);
+					ws.close(4003, "Workspace access changed; reconnect.");
+				}
+			}),
+		);
+		this.#broadcastPresence();
+		if (this.state.getWebSockets().some((ws) => readAttachment(ws).access)) {
+			await this.#scheduleAccessCheck();
+		}
 	}
 
 	/**
@@ -357,6 +453,7 @@ export class CollabRoom {
 		const payload = encodeFrame(frame);
 		for (const ws of this.state.getWebSockets()) {
 			if (ws === exclude) continue;
+			if (!readAttachment(ws).identity) continue;
 			try {
 				ws.send(payload);
 			} catch {
@@ -366,6 +463,7 @@ export class CollabRoom {
 	}
 
 	#send(ws: CollabSocket, frame: CollabServerFrame): void {
+		if (!readAttachment(ws).identity) return;
 		try {
 			ws.send(encodeFrame(frame));
 		} catch {
