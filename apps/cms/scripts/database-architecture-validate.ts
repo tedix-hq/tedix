@@ -332,6 +332,7 @@ const [
 	templateSnapshot,
 	starterWrangler,
 	runtimeWorker,
+	builderWorker,
 	runtimeSource,
 	cmsProxySource,
 	cmsDoc,
@@ -343,10 +344,25 @@ const [
 		"apps/cms-runtime/cloudflare.config.ts",
 		"production",
 	),
+	loadCloudflareConfigWorker("apps/cms/cloudflare.config.ts", "production"),
 	read("apps/cms-runtime/src/index.ts"),
 	read("apps/cms/src/agent/cms-proxy-inspection.ts"),
 	read("docs/engineering/emdash/cms.md"),
 ]);
+
+// Tenant content lives in Durable Object SQLite, and platform D1 is reached
+// only through the Worker's D1 binding. Cloudflare grants D1 token permissions
+// per account, not per database, so a D1 REST token here would also reach the
+// production platform database.
+const D1_REST_TOKEN_NAME = /D1.*TOKEN|ACCOUNT_API_TOKEN/;
+const cmsD1RestTokens = Object.entries({
+	"apps/cms-runtime": runtimeWorker,
+	"apps/cms": builderWorker,
+}).flatMap(([app, worker]) =>
+	Object.keys(worker.env ?? {})
+		.filter((name) => D1_REST_TOKEN_NAME.test(name))
+		.map((name) => `${app}: ${name}`),
+);
 
 const normalizedSnapshot = normalizeEmbeddedSource(templateSnapshot);
 const starterAdapter = detectAdapter(starterAstroConfig);
@@ -405,6 +421,14 @@ const checks: Check[] = [
 		ok: runtimeExposesDiagnostic,
 		detail:
 			"apps/cms-runtime/src/index.ts should expose the protected database-runtime diagnostic that reports the active bundle's database adapter.",
+	},
+	{
+		name: "no account-scoped D1 token in CMS Workers",
+		ok: cmsD1RestTokens.length === 0,
+		detail:
+			cmsD1RestTokens.length === 0
+				? "apps/cms-runtime and apps/cms reach D1 only through bindings."
+				: `Remove ${cmsD1RestTokens.join(", ")}; use the D1 binding. Cloudflare D1 token permissions cover every database in the account.`,
 	},
 	{
 		name: "operator overview exposes database runtime",
