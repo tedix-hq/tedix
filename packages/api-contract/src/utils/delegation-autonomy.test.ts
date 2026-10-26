@@ -74,6 +74,8 @@ describe("critical-only autonomy v1", () => {
 		"Please retry the delegation to the CFO for this invoice draft - the run yesterday failed and no draft was created. All details still apply: Example Customer GmbH, EUR 8,000 net, single invoice 100% now, order no. Buy-20116 on it, 7-day payment terms, VAT rate to verify against the accounting app. Draft only: do not finalize, send or book, nothing goes to the customer.",
 		"Create the customer invoice in the accounting app with 7-day payment terms and order no. PO-4471 on it. Draft only: do not finalize, send or book.",
 		"Prepare the reply to the customer as a draft; do not send, post or publish it.",
+		"Ask the CTO tedi to do this READ ONLY check: read Work item 64a9c98b-f6c8-4c2c-b733-4a4891bd9f77 and list the Workspace Outputs in the project workspace, then reply with the Work item title and up to five Output titles. Do not create, edit, comment on, send or change anything.",
+		"Summarize the open Work items. Never edit or send them.",
 		"Create an invoice for the pilot; keep it as a draft.",
 		'Please ask the CFO tedi this memory check and return its answer verbatim. The CFO should answer ONLY from what it already remembers, without calling sevdesk, Gmail or other lookup tools, and mark each answer "remembered" or "don\'t know":\n1. Tedix GbR\'s VAT status and what it means for invoices and expenses.\n5. When billing in advance, how to set the Lieferdatum, and where a customer\'s PO number goes.\n7. Do we have to send e-invoices (E-Rechnung)?',
 		"Ask the CFO: how do we send a credit note?",
@@ -184,6 +186,10 @@ describe("critical-only autonomy v1", () => {
 		"Draft only: do not finalize or send it; also delete the old customer records",
 		"Draft only: do not finalize; then grant admin role to bob",
 		"Do not finalize, send or book the invoice; transfer the funds to the vendor now",
+		"Don't edit, send the report to the customer",
+		"Do not create or edit the doc, send it to the client",
+		"Do not create, edit or change anything; send the summary to the customer",
+		"Do not create, edit or change anything, then pay the supplier",
 	])("requires a human even if a caller labels it low: %s", (content) => {
 		expect(humanReservedActionClasses(content).length).toBeGreaterThan(0);
 		expect(

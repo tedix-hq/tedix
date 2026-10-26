@@ -96,6 +96,17 @@
 		"book",
 		"post"
 	],
+	"negatedListVerbs": [
+		"create",
+		"edit",
+		"change",
+		"update",
+		"modify",
+		"write",
+		"comment(?:\\s+on)?",
+		"cancel",
+		"complete"
+	],
 	"draftOnly": {
 		"pattern": "\\bdrafts?[ -]only\\b|\\bonly\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b|\\bas\\s+(?:a\\s+)?drafts?\\b|\\bkeep\\s+(?:it|them|the\\s+\\w+)\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b",
 		"waivedClasses": ["money", "external_message", "public_publish"]
