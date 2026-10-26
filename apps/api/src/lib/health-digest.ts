@@ -32,6 +32,7 @@ import {
 	assertFleetAuthorityAvailable,
 	resolveFleetAuthorityDb,
 } from "./fleet-authority";
+import { safeExceptionTopology } from "./safe-log-metadata";
 
 export type HealthSeverity = "P1" | "P2";
 
@@ -465,7 +466,9 @@ export async function collectHealthConditions(
 			}
 		}
 	} catch (err) {
-		console.warn("[health-digest] cost-ledger freshness check failed:", err);
+		console.warn("[health-digest] cost-ledger freshness check failed", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// 1b. Workstation lease reclamation darkness (P2). Counts leases the reaper
@@ -499,10 +502,9 @@ export async function collectHealthConditions(
 			});
 		}
 	} catch (err) {
-		console.warn(
-			"[health-digest] workstation lease backlog check failed:",
-			err,
-		);
+		console.warn("[health-digest] workstation lease backlog check failed", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// 2. Billing settlement darkness (P1) and current attribution quarantine (P2).
@@ -515,7 +517,9 @@ export async function collectHealthConditions(
 		);
 		conditions.push(...billingSettlementHealthConditions(health, nowMs));
 	} catch (err) {
-		console.warn("[health-digest] billing settlement check failed:", err);
+		console.warn("[health-digest] billing settlement check failed", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// 3. Cron darkness (P2) — dark cognitive crons, minus budget-suppressed.
@@ -549,10 +553,10 @@ export async function collectHealthConditions(
 						if (active) suppressed.add(`${tediId}:${s.cronName}`);
 					}
 				} catch (stateErr) {
-					console.warn(
-						`[health-digest] budget-state check failed for tedi ${tediId}:`,
-						stateErr,
-					);
+					console.warn("[health-digest] budget-state check failed", {
+						tediId,
+						exception: safeExceptionTopology(stateErr),
+					});
 				}
 			}
 			for (const c of darkCrons) {
@@ -567,7 +571,9 @@ export async function collectHealthConditions(
 			}
 		}
 	} catch (err) {
-		console.warn("[health-digest] cron-darkness check failed:", err);
+		console.warn("[health-digest] cron-darkness check failed", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// 3. Cron RUN-FAILED (P2) — a cron that fires on schedule but settles failure
@@ -603,7 +609,9 @@ export async function collectHealthConditions(
 			});
 		}
 	} catch (err) {
-		console.warn("[health-digest] cron-failed check failed:", err);
+		console.warn("[health-digest] cron-failed check failed", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// 4. Runtime/cognition ledger darkness (P1) — tedi_runtime_events is the
@@ -629,7 +637,9 @@ export async function collectHealthConditions(
 			}
 		}
 	} catch (err) {
-		console.warn("[health-digest] runtime-ledger freshness check failed:", err);
+		console.warn("[health-digest] runtime-ledger freshness check failed", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// 5. MCP scan operations (P2). The hourly workflow has a durable ledger,
@@ -652,7 +662,9 @@ export async function collectHealthConditions(
 			...mcpScanOperationalConditions(backlog, latestRuns[0] ?? null, nowMs),
 		);
 	} catch (err) {
-		console.warn("[health-digest] MCP scan operations check failed:", err);
+		console.warn("[health-digest] MCP scan operations check failed", {
+			exception: safeExceptionTopology(err),
+		});
 	}
 
 	// Successful projection, not lease activity, is the progress signal.
@@ -669,10 +681,9 @@ export async function collectHealthConditions(
 				),
 			);
 		} catch (err) {
-			console.warn(
-				"[health-digest] graph projection consumer check failed:",
-				err,
-			);
+			console.warn("[health-digest] graph projection consumer check failed", {
+				exception: safeExceptionTopology(err),
+			});
 		}
 
 	return conditions;
@@ -780,10 +791,9 @@ export async function runPlatformHealthDigest(
 		conditions.push(...providerPricingHealthConditions(pricing));
 		pricingQuerySucceeded = true;
 	} catch (error) {
-		console.error(
-			"[health-digest] provider pricing evidence query failed:",
-			error,
-		);
+		console.error("[health-digest] provider pricing evidence query failed", {
+			exception: safeExceptionTopology(error),
+		});
 	}
 	let attributionQuerySucceeded = false;
 	try {
@@ -797,8 +807,10 @@ export async function runPlatformHealthDigest(
 		attributionQuerySucceeded = true;
 	} catch (error) {
 		console.error(
-			"[health-digest] provider attribution evidence query failed:",
-			error,
+			"[health-digest] provider attribution evidence query failed",
+			{
+				exception: safeExceptionTopology(error),
+			},
 		);
 	}
 	const attributionKey = (key: string) =>
@@ -854,17 +866,19 @@ export async function runPlatformHealthDigest(
 		try {
 			await recordAlertState(db, row);
 		} catch (err) {
-			console.warn(
-				`[health-digest] failed to persist alert state ${row.conditionKey}:`,
-				err,
-			);
+			console.warn("[health-digest] failed to persist alert state", {
+				conditionKey: row.conditionKey,
+				exception: safeExceptionTopology(err),
+			});
 		}
 	}
 	if (result.resolvedKeys.length > 0) {
 		try {
 			await markAlertsResolved(db, result.resolvedKeys, nowIso);
 		} catch (err) {
-			console.warn("[health-digest] failed to mark resolutions:", err);
+			console.warn("[health-digest] failed to mark resolutions", {
+				exception: safeExceptionTopology(err),
+			});
 		}
 	}
 
@@ -892,7 +906,9 @@ export async function runPlatformHealthDigest(
 			});
 			emailed = res.emailed;
 		} catch (err) {
-			console.warn("[health-digest] alert egress failed:", err);
+			console.warn("[health-digest] alert egress failed", {
+				exception: safeExceptionTopology(err),
+			});
 		}
 	}
 
