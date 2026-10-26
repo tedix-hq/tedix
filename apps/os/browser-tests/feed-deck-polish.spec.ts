@@ -457,7 +457,7 @@ try {
 			if (await handled.count()) {
 				await handled.click();
 				const readable = await page
-					.locator(".focus-handled-row .ft-sentence")
+					.locator(".focus-handled .ft-sentence")
 					.evaluateAll((nodes) =>
 						nodes.every(
 							(node) =>
@@ -481,13 +481,15 @@ try {
 			await page.keyboard.press("j");
 			await page.keyboard.press("k");
 			const story = page.locator("article").first();
-			await story
-				.getByRole("button", { name: "More actions", exact: true })
-				.click();
-			await page
-				.getByRole("menuitem", { name: "Receipt", exact: true })
-				.click();
-			await story.locator(".fd-preview").waitFor();
+			await story.getByRole("button", { name: "More", exact: true }).click();
+			await story.getByRole("region", { name: "Receipt" }).waitFor();
+			await story.locator(".fd-preview").first().waitFor();
+			const preview = await story
+				.locator(".fd-preview")
+				.first()
+				.evaluate((el) => el.getBoundingClientRect().height);
+			if (preview > 64)
+				throw new Error(`Activity preview is not compact: ${preview}px`);
 			const actions = story.locator("..").locator(".focus-actions");
 			const row = story.locator("..");
 			await row.hover();
@@ -506,7 +508,7 @@ try {
 			if (
 				geometry.padding !== "10px 14px" ||
 				geometry.inline !== width > 640 ||
-				geometry.count !== 8 ||
+				geometry.count !== 7 ||
 				geometry.target < (width === 390 ? 44 : 32)
 			)
 				throw new Error(
@@ -516,7 +518,6 @@ try {
 				.getByRole("button", { name: "More actions", exact: true })
 				.click();
 			for (const name of [
-				"Receipt",
 				"Comment",
 				"Why this update",
 				"Turn into Work",
@@ -529,7 +530,7 @@ try {
 			await page.keyboard.press("Escape");
 			if (width > 640) {
 				const receipt = actions.getByRole("button", {
-					name: "Receipt",
+					name: "Comment",
 					exact: true,
 				});
 				const before = await receipt.boundingBox();
@@ -543,34 +544,38 @@ try {
 				)
 					throw new Error("Feed action focus changed its hit area");
 			}
-			const rhythm = await page.locator(".focus-feed").evaluate((el) => {
-				const control = el.querySelector('[aria-label="Activity order"]')!;
-				const summary = el.querySelector(".focus-budget")!;
-				return {
-					gap: getComputedStyle(el).gap,
-					summary:
-						summary.getBoundingClientRect().top -
-						control.getBoundingClientRect().bottom,
-				};
-			});
-			if (rhythm.summary !== 8 || rhythm.gap !== "32px")
-				throw new Error(`Feed rhythm: ${JSON.stringify(rhythm)}`);
-			const feedFilters = page.getByRole("button", {
-				name: "Filters",
-				exact: true,
-			});
-			if (await feedFilters.isVisible()) await feedFilters.click();
-			await page.getByText("Everything", { exact: true }).click();
-			await page.keyboard.press("Escape");
-			await page.getByRole("feed", { name: "Everything" }).waitFor();
-			if ((await page.locator("[data-focus-row]").count()) !== 17)
-				throw new Error("Everything lost canonical fixture records");
+			const rhythm = await page.locator(".focus-feed").evaluate((el) => ({
+				gap: getComputedStyle(el).gap,
+				chips: [
+					...el.querySelectorAll('[aria-label="Show activity from"] button'),
+				].map((b) => b.textContent),
+				day: el.querySelector(".ft-day-label")?.textContent,
+			}));
+			if (
+				rhythm.gap !== "20px" ||
+				rhythm.chips.join(" ") !== "All People Tedis Apps Shipped" ||
+				rhythm.day !== "Today"
+			)
+				throw new Error(`Activity rhythm: ${JSON.stringify(rhythm)}`);
+			await page.getByRole("button", { name: "Shipped", exact: true }).click();
+			await page.getByRole("feed", { name: "Shipped activity" }).waitFor();
+			// Repeated updates fold into one row each; opening them restores every record.
+			await page
+				.getByRole("button", { name: "Show all 12", exact: true })
+				.waitFor();
+			const folds = page.getByRole("button", { name: /^Show all \d+$/ });
+			while (await folds.count()) await folds.first().click();
+			const records = await page
+				.locator("[data-focus-row]:not(.ft-group)")
+				.count();
+			if (records !== 17)
+				throw new Error(`Shipped lost canonical fixture records: ${records}`);
 			if (
 				await page.getByRole("button", { name: /Handled without you:/ }).count()
 			)
-				throw new Error("Everything folded records");
+				throw new Error("Shipped hid records behind the attention budget");
 			const everythingStory = page
-				.getByRole("feed", { name: "Everything" })
+				.getByRole("feed", { name: "Shipped activity" })
 				.locator(".fd-story")
 				.first();
 			await everythingStory
@@ -777,33 +782,29 @@ try {
 				`${origin}/browser-tests/feed-deck-polish.html?surface=feed&face=stale&today=saved&theme=${theme}`,
 			);
 			await page.locator(".focus-today").waitFor();
-			await page.locator(".focus-decision-row").first().waitFor();
+			const needs = page
+				.locator("[data-focus-row] a")
+				.filter({ hasText: "Needs you" })
+				.first();
+			await needs.waitFor();
 			const feed = await page.evaluate(() => {
-				const row = document.querySelector(".focus-decision-row")!;
-				const textLeft = (el: Element) => {
-					const range = document.createRange();
-					range.selectNodeContents(el);
-					return Math.round(range.getBoundingClientRect().left);
-				};
 				const chip = document.querySelector(".focus-today-chips > *");
 				return {
-					story: textLeft(row.querySelector(".focus-story")!),
-					details: textLeft(
-						row.querySelector('[data-kumo-component="CollapsibleTrigger"]')!,
-					),
-					today: textLeft(document.querySelector("#today-heading")!),
 					chipBorder: chip ? getComputedStyle(chip).borderTopWidth : "0px",
-					budget: document.querySelector(".focus-budget")?.textContent ?? "",
+					face: /Summary unavailable|Writing a short summary/.test(
+						document.querySelector(".focus-feed")!.textContent ?? "",
+					),
 				};
 			});
 			if (
-				feed.details !== feed.story ||
-				feed.today !== feed.story ||
+				!(await needs.getAttribute("href"))?.startsWith(
+					"/work?view=deck#card=",
+				) ||
 				feed.chipBorder !== "0px" ||
-				/handled without you/i.test(feed.budget)
+				feed.face
 			)
 				throw new Error(
-					`Feed edges ${width}/${theme}: ${JSON.stringify(feed)}`,
+					`Activity decision pointer ${width}/${theme}: ${JSON.stringify(feed)}`,
 				);
 			await page.goto(
 				`${origin}/browser-tests/feed-deck-polish.html?shell&surface=question&theme=${theme}`,

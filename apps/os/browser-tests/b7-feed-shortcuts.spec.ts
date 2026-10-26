@@ -69,7 +69,10 @@ try {
 							row: node
 								.closest("[data-focus-row]")!
 								.getAttribute("data-focus-row"),
-							action: node.getAttribute("aria-label") ?? "open",
+							action:
+								node.tagName === "A"
+									? "open"
+									: (node.getAttribute("aria-label") ?? "open"),
 						});
 						document.body.dataset.shortcutClicks = JSON.stringify(clicks);
 						event.preventDefault();

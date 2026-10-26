@@ -89,11 +89,11 @@ async function type(node: HTMLTextAreaElement, value: string) {
 	});
 }
 
-it("keeps stable, distinct row disclosure targets and receipt content without following a story", async () => {
+it("keeps stable, distinct row disclosure targets and receipt content behind More without following a story", async () => {
 	const onReact = await mount();
 	const rows = [...host.querySelectorAll("article")];
 	const triggers = rows.flatMap((row) => [
-		button(row, "Receipt"),
+		namedButton(row, "More"),
 		button(row, "Comment"),
 	]);
 	const ids = triggers.map((trigger) => trigger.getAttribute("aria-controls"));
@@ -161,4 +161,56 @@ it("closes explicitly without losing an unsaved note and restores trigger focus"
 	await click(comment);
 	expect(row.querySelector("textarea")!.value).toBe("Unsent note");
 	expect(onReact).not.toHaveBeenCalled();
+});
+
+async function mountOne(item: (typeof items)[number]) {
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	await act(async () =>
+		root.render(
+			<FeedCard
+				item={item}
+				actor="Cedar"
+				busy={false}
+				onReact={vi.fn()}
+				onWork={vi.fn()}
+			/>,
+		),
+	);
+}
+
+it("points a pending decision at its Decisions card without repeating the card", async () => {
+	await mountOne({
+		...items[0]!,
+		id: "decision:fictional-booth",
+		kind: "decision",
+		needsAction: true,
+		sentence: "Staff the booth on Friday? The plan needs two people.",
+		explanation: "A long request body that belongs on the card.",
+	});
+	const deck = "/work?view=deck#card=fictional-booth";
+	const chip = [...host.querySelectorAll("a")].find(
+		(a) => a.textContent === "Needs you",
+	);
+	expect(chip?.getAttribute("href")).toBe(deck);
+	expect(host.querySelector(".ft-post-link")?.getAttribute("href")).toBe(deck);
+	expect(host.textContent).not.toContain("belongs on the card");
+	expect(namedButton(host, "More")).toBeUndefined();
+});
+
+it("shows a finished result as a green chip with one body line", async () => {
+	await mountOne({
+		...items[0]!,
+		kind: "result",
+		done: true,
+		sentence: "The release notes are ready. Two sections changed.",
+	});
+	expect(host.querySelector(".ft-sentence")?.textContent).toBe(
+		"The release notes are ready.",
+	);
+	expect(
+		[...host.querySelectorAll(".ft-detail")].map((n) => n.textContent),
+	).toEqual(["Two sections changed."]);
+	expect(host.textContent).toContain("Finished");
 });

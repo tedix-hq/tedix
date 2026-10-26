@@ -510,19 +510,11 @@ try {
 				}),
 			});
 			assert(
-				!(await factoryRow
-					.getByText("Opportunities", { exact: true })
-					.isVisible()),
-				"factory Feed keeps project context behind Details",
-			);
-			await factoryRow
-				.getByRole("button", { name: "Details", exact: true })
-				.click();
-			assert(
 				await factoryRow
+					.locator(".ft-byline")
 					.getByText("Opportunities", { exact: true })
 					.isVisible(),
-				"factory Feed Details preserves project context",
+				"factory Activity names its project on the meta line",
 			);
 			assert(
 				await page.evaluate(
@@ -610,7 +602,7 @@ try {
 	assert.equal(
 		await page
 			.locator(
-				`[data-focus-row="factory:${sheets[1].output.id}:0"] .focus-decision-row`,
+				`[data-focus-row="factory:${sheets[1].output.id}:0"] .ft-chip-link`,
 			)
 			.count(),
 		0,

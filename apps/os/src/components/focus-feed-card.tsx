@@ -1,5 +1,6 @@
 import { useContext, useId, useRef, useState } from "react";
-import { ChatText, Info, ListPlus, Receipt } from "@phosphor-icons/react";
+import { ChatText, Info, ListPlus } from "@phosphor-icons/react";
+import { decisionCardFallbackTitle } from "@tedix/api-contract/utils/decision-card-copy";
 import { FocusRowActions, type FocusRowAction } from "./focus-row-actions";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import type { FocusItem } from "@tedix/api-contract/utils/focus-feed";
@@ -15,12 +16,21 @@ import {
 } from "./work-actor-avatar";
 import { resolveWorkContributor } from "@/lib/work-actor";
 import { WorkSourceProvenance } from "./work-source-provenance";
+import { Badge } from "./kumo/badge";
 import { Button } from "./kumo/button";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { Textarea } from "./kumo/textarea";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import { activityHeadline, activityStatus } from "@/lib/feed-timeline";
+import { OS_COPY } from "@/shared/os-copy";
+
+const RECEIPT_NOTES = [
+	OS_COPY.feed.workExplanation,
+	OS_COPY.feed.resultExplanation,
+	OS_COPY.feed.correctionExplanation,
+];
 
 export function FeedCard({
 	item,
@@ -75,6 +85,42 @@ export function FeedCard({
 		capturedAt: item.at,
 		evidenceUrl: item.source,
 	};
+	// A pending choice is a pointer to its Decisions card; the card owns the story.
+	const deckCard = ["decision", "approval"].includes(item.kind)
+		? item.id.replace(/^decision:/, "")
+		: undefined;
+	const decisionHref = deckCard
+		? `/work?view=deck#card=${encodeURIComponent(deckCard)}`
+		: item.source;
+	const story = item.needsAction
+		? {
+				headline:
+					item.presentation?.title ??
+					decisionCardFallbackTitle(item.sentence, 160),
+				detail: "",
+			}
+		: activityHeadline(item, RECEIPT_NOTES);
+	const status = activityStatus(item);
+	const quote =
+		!!story.detail &&
+		(item.kind === "correction" ||
+			item.kind === "signal" ||
+			identity?.type === "user");
+	const more = (
+		<Button
+			variant="ghost"
+			size="sm"
+			className="ft-more"
+			aria-expanded={receipt}
+			aria-controls={receiptId}
+			onClick={() => {
+				setReceipt((v) => !v);
+				if (!receipt) void onReact(item, "why");
+			}}
+		>
+			{receipt ? "Less" : "More"}
+		</Button>
+	);
 	return (
 		<article
 			ref={article}
@@ -87,9 +133,21 @@ export function FeedCard({
 				className="ft-avatar"
 				detail={`${actor}${project ? ` · ${project}` : ""}`}
 			/>
-			<div className="fd-story-body grid gap-3">
+			<div className="fd-story-body grid">
+				<Link
+					href={item.needsAction ? decisionHref : item.source}
+					variant="record"
+					className="ft-post-link"
+					aria-label={
+						item.needsAction
+							? undefined
+							: `Open ${item.attachment?.title ?? item.sentence}`
+					}
+				>
+					<span className="ft-sentence">{story.headline}</span>
+				</Link>
 				<div className="ft-byline flex-wrap">
-					<Text as="span" weight="semibold" className="min-w-0 break-words">
+					<Text as="span" className="min-w-0 break-words">
 						{resolved.label}
 					</Text>
 					{project && (
@@ -111,15 +169,34 @@ export function FeedCard({
 						· {relativeTime(item.at)}
 					</time>
 				</div>
-				<Link
-					href={item.source}
-					variant="record"
-					className="ft-post-link"
-					aria-label={`Open ${item.attachment?.title ?? item.sentence}`}
-				>
-					<Text className="ft-sentence font-medium">{item.sentence}</Text>
-				</Link>
-				{(identity?.type === "external_agent" || identity?.contributor) && (
+				<div className="ft-detail-row">
+					{item.needsAction && (
+						<Link href={decisionHref} variant="plain" className="ft-chip-link">
+							<Badge variant="warning">Needs you</Badge>
+						</Link>
+					)}
+					{status && (
+						<Badge variant={status.tone === "success" ? "success" : "error"}>
+							{status.label}
+						</Badge>
+					)}
+					{story.detail && (
+						<p
+							className={quote ? "ft-detail ft-quote" : "ft-detail"}
+							title={story.detail}
+						>
+							{story.detail}
+						</p>
+					)}
+					{!item.needsAction && more}
+				</div>
+				{!item.needsAction && item.attachment && (
+					<div className="ft-preview">
+						<FeedOutcomePreview item={item} compact />
+					</div>
+				)}
+				{/* Work done on someone's behalf names them up front; other sources sit behind More. */}
+				{identity?.contributor && (
 					<WorkSourceProvenance actor={identity} name={actor} source={source} />
 				)}
 				{item.autonomyFeedback && (
@@ -145,16 +222,8 @@ export function FeedCard({
 				)}
 				<FocusRowActions
 					actions={[
-						{
-							label: "Receipt",
-							Icon: Receipt,
-							expanded: receipt,
-							controls: receiptId,
-							onClick: () => {
-								setReceipt((v) => !v);
-								if (!receipt) void onReact(item, "why");
-							},
-						},
+						// The first two row reactions stay one click away beside Comment.
+						...rowActions.slice(0, 2),
 						{
 							label: "Comment",
 							Icon: ChatText,
@@ -166,6 +235,7 @@ export function FeedCard({
 								else setComment(true);
 							},
 						},
+						...rowActions.slice(2),
 						{
 							label: "Why this update",
 							Icon: Info,
@@ -181,7 +251,6 @@ export function FeedCard({
 									},
 								]
 							: []),
-						...rowActions,
 					]}
 				/>
 				<div
@@ -198,8 +267,10 @@ export function FeedCard({
 								source={source}
 								details
 							/>
-							<FeedOutcomePreview item={item} />
-							<Text tone="secondary">{item.explanation}</Text>
+							{!item.attachment && <FeedOutcomePreview item={item} />}
+							<Text tone="secondary" className="whitespace-pre-line">
+								{item.explanation}
+							</Text>
 							<Link variant="record" href={item.source}>
 								Open receipt
 							</Link>
@@ -215,6 +286,7 @@ export function FeedCard({
 							details
 						/>
 						<Text>{item.explanation}</Text>
+						{item.because && <Text>{item.because}</Text>}
 						<Text tone="secondary">
 							Ranked using urgency, importance, value, continuity, freshness and
 							the time it takes to read.

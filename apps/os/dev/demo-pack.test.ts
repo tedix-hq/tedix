@@ -127,10 +127,16 @@ describe("sample company in fixture mode", () => {
 		const activity = ListWorkActivityResultSchema.parse(
 			ok("workItems/listActivity"),
 		);
-		expect(activity.events).toHaveLength(6);
+		// Six pack updates plus a person's note, a failure, four agent commits and an older close.
+		expect(activity.events).toHaveLength(13);
 		expect(
-			activity.events.every((e) => e.workItemDisposition === "completed"),
+			activity.events
+				.filter((e) => e.eventType !== "attempt.failed")
+				.every((e) => e.workItemDisposition === "completed"),
 		).toBe(true);
+		expect(new Set(activity.events.map((e) => e.authorType))).toEqual(
+			new Set(["tedi", "user", "external_agent"]),
+		);
 		const apps = ok<{
 			items: {
 				gadget: { name: string };

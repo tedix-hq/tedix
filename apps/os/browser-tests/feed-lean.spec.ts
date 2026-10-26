@@ -37,12 +37,6 @@ try {
 			}));
 			if (metadata.size > 13 || metadata.clipped)
 				throw new Error(`Unreadable byline: ${JSON.stringify(metadata)}`);
-			const provenance = row.locator('[aria-label="Source provenance"]');
-			if (
-				(await provenance.getByText(/Submitted by/).count()) !== 1 ||
-				(await provenance.locator("a").getAttribute("href")) === null
-			)
-				throw new Error("Feed lost its source or actor attribution");
 			const source = row.locator(".ft-post-link");
 			const before = await row.boundingBox();
 			await source.focus();
@@ -63,6 +57,24 @@ try {
 				throw new Error(
 					`Feed focus changed geometry or lost its border: ${JSON.stringify(focus)}`,
 				);
+			// Source attribution stays one tap away, behind More.
+			await row.getByRole("button", { name: "More", exact: true }).click();
+			const provenance = row
+				.getByRole("region", { name: "Receipt" })
+				.locator('[aria-label="Source provenance"]');
+			if (
+				(await provenance.getByText(/Submitted by/).count()) !== 1 ||
+				(await provenance.locator("a").getAttribute("href")) === null
+			)
+				throw new Error("Feed lost its source or actor attribution");
+			await row.getByRole("button", { name: "Less", exact: true }).click();
+			const lines = await row
+				.locator(".ft-detail")
+				.evaluateAll((nodes) =>
+					nodes.map((node) => node.getBoundingClientRect().height),
+				);
+			if (lines.some((height) => height > 24))
+				throw new Error(`Activity body exceeds one line: ${lines}`);
 			const inlineActions = await row
 				.locator(".focus-actions button")
 				.evaluateAll(
@@ -73,7 +85,7 @@ try {
 								node.getBoundingClientRect().width > 0,
 						).length,
 				);
-			if (inlineActions !== (width > 640 ? 2 : 0))
+			if (inlineActions !== (width > 640 ? 3 : 0))
 				throw new Error("Feed exposed too many inline actions");
 			await row
 				.getByRole("button", { name: "More actions", exact: true })
@@ -83,7 +95,7 @@ try {
 				.waitFor();
 			await page.keyboard.press("Escape");
 			await page.getByRole("button", { name: /Handled without you:/ }).click();
-			const handled = page.locator(".focus-handled-row .ft-sentence").first();
+			const handled = page.locator(".focus-handled .ft-sentence").first();
 			await handled.evaluate((node) => {
 				node.textContent =
 					"A completed supplier update with a long explanation that must remain readable on a narrow phone instead of disappearing behind an ellipsis. ".repeat(
@@ -109,7 +121,7 @@ try {
 				await page.screenshot({
 					path: `${process.env.TEDIX_SCREENSHOT_DIR}/after-${width}-${theme}.png`,
 				});
-			// Exercise long attachment copy with the same markup as RichPreview.
+			// Long attachment copy stays in a small fixed-height preview.
 			await row.locator(".fd-story-body").evaluate((node) => {
 				const preview = document.createElement("a");
 				preview.className = "fd-preview";
@@ -128,24 +140,21 @@ try {
 				preview.append(copy);
 				node.append(preview);
 			});
-			const preview = row.locator(".fd-preview");
-			const readable = await preview.evaluate((node) => ({
-				clipped: Array.from(
+			const preview = row.locator(".fd-preview").last();
+			const compact = await preview.evaluate((node) => ({
+				height: node.getBoundingClientRect().height,
+				overflow: node.scrollWidth > node.clientWidth + 1,
+				truncated: Array.from(
 					node.querySelectorAll(".fd-preview-title, .fd-preview-summary"),
-				).some(
-					(child) =>
-						child.scrollHeight > child.clientHeight + 1 ||
-						child.scrollWidth > child.clientWidth + 1,
-				),
-				inset: getComputedStyle(node).paddingLeft,
+				).every((child) => getComputedStyle(child).textOverflow === "ellipsis"),
 			}));
-			if (readable.clipped || readable.inset !== "0px")
+			if (compact.height > 64 || compact.overflow || !compact.truncated)
 				throw new Error(
-					`Attachment copy clipped or misaligned: ${JSON.stringify(readable)}`,
+					`Attachment preview is not compact: ${JSON.stringify(compact)}`,
 				);
 			await page.close();
 			console.log(
-				`Feed WebKit ${width}x${height} ${theme}: metadata, focus, overflow, handled text and previews passed`,
+				`Activity WebKit ${width}x${height} ${theme}: metadata, one-line body, focus, overflow, handled text and compact previews passed`,
 			);
 		}
 	}

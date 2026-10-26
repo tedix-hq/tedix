@@ -255,7 +255,7 @@ try {
 				.getByRole("region", { name: "Review card 1?", exact: true })
 				.waitFor();
 			const progress = page.locator("[data-deck-progress]");
-			const tab = page.getByRole("link", { name: /^Deck/ });
+			const tab = page.getByRole("link", { name: /^Decisions/ });
 			const checkState = async (state: string) => {
 				await page.waitForTimeout(
 					screenshots && state === "finished" ? 5000 : 250,
