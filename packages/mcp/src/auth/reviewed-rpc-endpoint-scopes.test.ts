@@ -32,6 +32,13 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("requires writer scope for steering controls regardless of read-only hints", () => {
+		for (const readOnlyHint of [true, false])
+			expect(
+				resolve("kernelRuntime/controlRunSteering", { readOnlyHint }),
+			).toEqual(["mcp:tedis.write"]);
+	});
+
 	it("requires approval authority independently of worker operations", () => {
 		expect(
 			resolve("kernelRuntime/respondApproval", { readOnlyHint: false }),
