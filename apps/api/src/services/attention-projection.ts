@@ -423,7 +423,7 @@ async function loadConfiguredDeckProjection(
 				id: card.id,
 				workItemId: card.interaction?.request.workItemId,
 			})),
-			createDecisionGraphReader(context.env),
+			createDecisionGraphReader(context.env, context.db),
 		);
 		const sourceWork = new Map(
 			cards.map((card) => [

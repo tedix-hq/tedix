@@ -17,6 +17,7 @@ import {
 	findDuplicateCards,
 	findPriorDecision,
 	getDecisionContext,
+	terminalWorkItemIds,
 	upsertDecisionEdges,
 } from "./decision-graph";
 
@@ -392,6 +393,17 @@ describe("decision graph", () => {
 			).toBe(0);
 			expect(await countBlocked(f.db, ORG, "work-release-train")).toBe(0);
 			expect(await countBlocked(f.db, OTHER_ORG, "work-github-audit")).toBe(0);
+			expect(
+				await terminalWorkItemIds(f.db, ORG, [
+					"work-github-audit",
+					"work-release-train",
+					"work-ci-runners",
+					"work-unknown",
+				]),
+			).toEqual(new Set(["work-release-train", "work-ci-runners"]));
+			expect(
+				await terminalWorkItemIds(f.db, OTHER_ORG, ["work-ci-runners"]),
+			).toEqual(new Set());
 		} finally {
 			f.sqlite.close();
 		}

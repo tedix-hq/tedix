@@ -44,7 +44,7 @@ const getContext = decisionGraphOs.getContext
 		// The graph adds indirect blocks and duplicate communities when it is
 		// configured; D1 alone answers otherwise.
 		await enrichDecisionContexts(
-			createDecisionGraphReader(context.env),
+			createDecisionGraphReader(context.env, context.db),
 			orgId,
 			[{ id: input.cardId }],
 			new Map([[input.cardId, decisionContext]]),

@@ -13,8 +13,11 @@ import {
 	getGraphDbSecrets,
 	runCypherWithParams,
 } from "../integrations/graph-db/client";
+import { terminalWorkItemIds } from "@tedix/db/queries/decision-graph";
+import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	blocksReachQuery,
+	DECISION_GRAPH_MAX_REACH_PATHS,
 	decisionNodeKey,
 	duplicateCommunityQuery,
 } from "../integrations/graph-db/queries/decision-graph";
@@ -57,9 +60,45 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+/** Which of these Work ids D1 records as completed or cancelled. */
+export type TerminalWorkLookup = (
+	orgId: string,
+	ids: readonly string[],
+) => Promise<Set<string>>;
+
+const WORK_KEY_PREFIX = decisionNodeKey("work_item", "");
+
+/**
+ * Distinct walk endpoints, skipping every walk that passes through terminal
+ * Work. Null when the graph capped the paths, so the caller keeps `reach`.
+ */
+function openReach(
+	paths: unknown,
+	terminal: ReadonlySet<string>,
+): number | null {
+	if (!Array.isArray(paths) || paths.length >= DECISION_GRAPH_MAX_REACH_PATHS)
+		return null;
+	const endpoints = new Set<string>();
+	for (const path of paths) {
+		if (!Array.isArray(path) || path.length < 2) continue;
+		const keys = path.map(String);
+		if (
+			keys.some(
+				(key) =>
+					key.startsWith(WORK_KEY_PREFIX) &&
+					terminal.has(key.slice(WORK_KEY_PREFIX.length)),
+			)
+		)
+			continue;
+		endpoints.add(keys[keys.length - 1]!);
+	}
+	return endpoints.size;
+}
+
 export function createDecisionGraphReaderFrom(
 	run: RunCypher,
 	timeoutMs = DECISION_GRAPH_READ_TIMEOUT_MS,
+	terminalWork?: TerminalWorkLookup,
 ): DecisionGraphReader {
 	return {
 		async blocksReach(orgId, cards) {
@@ -81,8 +120,22 @@ export function createDecisionGraphReaderFrom(
 					}),
 					timeoutMs,
 				);
+				const workIds = rows.flatMap((row) =>
+					(Array.isArray(row.paths) ? row.paths.flat() : [])
+						.map(String)
+						.filter((key) => key.startsWith(WORK_KEY_PREFIX))
+						.map((key) => key.slice(WORK_KEY_PREFIX.length)),
+				);
+				const terminal =
+					terminalWork && workIds.length > 0
+						? await terminalWork(orgId, workIds)
+						: null;
 				for (const row of rows) {
-					reach.set(String(row.cardId), Math.max(0, Number(row.reach) || 0));
+					const open = terminal ? openReach(row.paths, terminal) : null;
+					reach.set(
+						String(row.cardId),
+						open ?? Math.max(0, Number(row.reach) || 0),
+					);
 				}
 			}
 			return reach;
@@ -109,13 +162,20 @@ export function createDecisionGraphReaderFrom(
 	};
 }
 
-/** The graph-backed reader, or null when no graph database is configured. */
+/**
+ * The graph-backed reader, or null when no graph database is configured.
+ * With `db`, walks through Work that D1 records as completed or cancelled
+ * do not count toward a card's reach.
+ */
 export function createDecisionGraphReader(
 	env: CloudflareEnv | undefined,
+	db?: DbQueryClient,
 ): DecisionGraphReader | null {
 	if (!env || !getGraphDbSecrets(env)) return null;
-	return createDecisionGraphReaderFrom((query, params) =>
-		runCypherWithParams(env, query, params),
+	return createDecisionGraphReaderFrom(
+		(query, params) => runCypherWithParams(env, query, params),
+		DECISION_GRAPH_READ_TIMEOUT_MS,
+		db ? (orgId, ids) => terminalWorkItemIds(db, orgId, ids) : undefined,
 	);
 }
 

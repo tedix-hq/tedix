@@ -367,6 +367,34 @@ async function countBlockedFrom(
 	return Number(row?.blocked ?? 0);
 }
 
+/**
+ * Which of these Work ids are completed or cancelled. The graph walk asks
+ * this of D1, the canonical record, instead of trusting graph-side Work state.
+ */
+export async function terminalWorkItemIds(
+	db: DbQueryClient,
+	orgId: string,
+	ids: readonly string[],
+): Promise<Set<string>> {
+	const unique = [...new Set(ids.filter(Boolean))];
+	const terminal = new Set<string>();
+	for (let offset = 0; offset < unique.length; offset += FRONTIER_LIMIT) {
+		const rows = await db
+			.select({ id: workItems.id })
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, orgId),
+					// bound-params: chunked to FRONTIER_LIMIT (50) ids per query
+					inArray(workItems.id, unique.slice(offset, offset + FRONTIER_LIMIT)),
+					inArray(workItems.disposition, ["completed", "cancelled"]),
+				),
+			);
+		for (const row of rows) terminal.add(row.id);
+	}
+	return terminal;
+}
+
 /** How many distinct Work items wait directly on this node. */
 export async function countBlocked(
 	db: DbQueryClient,

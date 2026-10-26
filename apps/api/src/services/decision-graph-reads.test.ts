@@ -110,6 +110,44 @@ describe("graph-backed Deck ranking", () => {
 		warn.mockRestore();
 	});
 
+	it("skips walks through Work that D1 records as cancelled", async () => {
+		// The graph still counts both items (its WorkItem nodes lack the
+		// cancellation); D1 says the first link of the chain was cancelled.
+		const run = vi.fn(async () => [
+			{
+				cardId: "card-a",
+				reach: 2,
+				paths: [
+					["deck_card:card-a", "work_item:cancelled-1"],
+					["deck_card:card-a", "work_item:cancelled-1", "work_item:open-2"],
+				],
+			},
+			{
+				cardId: "card-b",
+				reach: 1,
+				paths: [["work_item:work-b", "work_item:open-3"]],
+			},
+		]);
+		const terminal = vi.fn(async (_org: string, ids: readonly string[]) => {
+			expect([...ids].sort()).toEqual(
+				["cancelled-1", "cancelled-1", "open-2", "open-3", "work-b"].sort(),
+			);
+			return new Set(["cancelled-1"]);
+		});
+		const reader = createDecisionGraphReaderFrom(run, 1_000, terminal);
+		const reach = await reader.blocksReach("org-1", [
+			{ id: "card-a" },
+			{ id: "card-b", workItemId: "work-b" },
+		]);
+		expect(reach.get("card-a")).toBe(0);
+		expect(reach.get("card-b")).toBe(1);
+		expect(terminal).toHaveBeenCalledTimes(1);
+
+		const contexts = new Map([["card-a", context("card-a", 0)]]);
+		await enrichDecisionContexts(reader, "org-1", [{ id: "card-a" }], contexts);
+		expect(explainChain(contexts.get("card-a")!)).not.toContain("wait on this");
+	});
+
 	it("gives up on a slow graph read", async () => {
 		const slow = createDecisionGraphReaderFrom(() => new Promise(() => {}), 10);
 		await expect(slow.blocksReach("org-1", [{ id: "card-a" }])).rejects.toThrow(

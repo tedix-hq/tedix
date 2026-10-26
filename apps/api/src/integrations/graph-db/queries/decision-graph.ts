@@ -96,10 +96,17 @@ export const DELETE_ISOLATED_DECISION_NODES_QUERY = `
 	DELETE n
 `;
 
+/** Most walk paths a card returns; past this the reader keeps `reach`. */
+export const DECISION_GRAPH_MAX_REACH_PATHS = 500;
+
 /**
  * For each card: how many distinct nodes its blocks edges reach within
  * DECISION_GRAPH_WALK_HOPS, starting from the card, the Work it came from and
  * any extra subject keys (e.g. the card's canonical source Work).
+ *
+ * `paths` lists each walk's node keys so the reader can drop walks through
+ * Work that D1 records as completed or cancelled: graph WorkItem nodes are
+ * not guaranteed to exist or to carry a current disposition.
  */
 export function blocksReachQuery() {
 	return {
@@ -118,9 +125,10 @@ export function blocksReachQuery() {
 						MATCH (work:WorkItem {orgId: $orgId, id: node.id})
 						WHERE work.disposition IN ['completed', 'cancelled']
 					})
-				RETURN count(DISTINCT blocked) AS reach
+				RETURN count(DISTINCT blocked) AS reach,
+					collect(DISTINCT [node IN nodes(path) | node.key])[0..${DECISION_GRAPH_MAX_REACH_PATHS}] AS paths
 			}
-			RETURN card.id AS cardId, reach
+			RETURN card.id AS cardId, reach, paths
 		`,
 	};
 }
