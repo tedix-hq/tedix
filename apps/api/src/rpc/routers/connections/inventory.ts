@@ -358,7 +358,12 @@ export async function readConnectionsOverview(
 					.toLowerCase()
 					.includes(input.q.toLowerCase()) &&
 				(input.status === "all" ||
-					(input.status === "attention" && row.accountState !== "present") ||
+					(input.status === "attention" &&
+						(row.accountState === "missing" ||
+							row.accountState === "expired")) ||
+					(input.status === "unchecked" &&
+						(row.accountState === "restricted" ||
+							row.accountState === "unknown")) ||
 					(input.status === "in_use" && row.references.length > 0) ||
 					(input.status === "unused" &&
 						row.referencesComplete &&

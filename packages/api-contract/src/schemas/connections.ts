@@ -508,7 +508,12 @@ export const ConnectionInventoryInputSchema = z
 			.describe(
 				"Omit to list relevant accounts; provide an ID to inspect a catalog provider explicitly.",
 			),
-		status: z.enum(["all", "attention", "in_use", "unused"]).default("all"),
+		status: z
+			.enum(["all", "attention", "unchecked", "in_use", "unused"])
+			.default("all")
+			.describe(
+				"attention: confirmed missing or expired credentials; unchecked: restricted or unknown accounts whose status could not be checked.",
+			),
 		limit: z.number().int().min(1).max(100).default(50),
 		offset: z.number().int().min(0).default(0),
 	})
