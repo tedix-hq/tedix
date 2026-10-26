@@ -92,19 +92,27 @@ describe("Canvas URL search", () => {
 		expect(canvasDocFromSearch(`output:${OUTPUT_ID}:extra`)).toBeNull();
 	});
 
-	it("permits source view only for Gadgets", () => {
+	it("permits the Edit view only for Gadgets", () => {
 		expect(
-			canvasModeIsValidForDoc("source", {
+			canvasModeIsValidForDoc("edit", {
 				type: "gadget",
 				id: GADGET_ID,
 			}),
 		).toBe(true);
 		expect(
-			canvasModeIsValidForDoc("source", {
+			canvasModeIsValidForDoc("edit", {
 				type: "output",
 				id: OUTPUT_ID,
 			}),
 		).toBe(false);
+	});
+
+	it("sends links to the old Code, Drafts and Runs views to their new place", () => {
+		expect(validateWorkspaceSearch({ view: "source" }).view).toBe("edit");
+		expect(validateWorkspaceSearch({ view: "drafts" }).view).toBe("edit");
+		expect(validateWorkspaceSearch({ view: "runs" }).view).toBe("history");
+		expect(validateWorkspaceSearch({ view: "activity" }).view).toBe("activity");
+		expect(validateWorkspaceSearch({ view: "nonsense" }).view).toBeUndefined();
 	});
 });
 

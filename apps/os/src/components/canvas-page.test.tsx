@@ -80,13 +80,7 @@ const routing = vi.hoisted(() => ({
 	search: {} as {
 		conversation?: string;
 		workpiece?: string;
-		view?:
-			| "workpiece"
-			| "source"
-			| "drafts"
-			| "runs"
-			| "connections"
-			| "activity";
+		view?: "workpiece" | "edit" | "history" | "connections" | "activity";
 		pane?: "resources" | "work" | "chat" | "workpiece";
 		focus?: true;
 	},
@@ -850,6 +844,27 @@ function appOpenButton(container: Element, name: string): Element {
 	return match;
 }
 
+/** A row of the Files panel on the right, by its title. */
+function filesPanelRow(container: Element, title: string): Element {
+	const match = [
+		...container.querySelectorAll('ul[aria-label="Files"] button'),
+	].find(
+		(row) =>
+			row.querySelector(".workspace-outputs-title")?.textContent === title,
+	);
+	if (!match) throw new Error(`files row not found: ${title}`);
+	return match;
+}
+
+/** An entry of the open workspace menu, which renders in a portal. */
+function findMenuItem(label: string): Element {
+	const match = [...document.body.querySelectorAll('[role="menuitem"]')].find(
+		(item) => (item.textContent ?? "").includes(label),
+	);
+	if (!match) throw new Error(`menu item not found: ${label}`);
+	return match;
+}
+
 /**
  * Opens a workpiece from the Resources pane. A bare URL opens the
  * workspace's app on its own, so these start from Resources.
@@ -936,30 +951,40 @@ describe("Canvas workbench state", () => {
 		expect(primaryCanvasDoc([], [])).toBeNull();
 	});
 
-	it("offers Source only for Gadgets while sharing governed pane modes", () => {
+	it("offers Edit and History only for Gadgets, and a menu view only while it shows", () => {
 		expect(
 			canvasWorkpieceModeOptions({ type: "gadget", id: GADGET_ID }).map(
-				(option) => option.label,
+				(option) => option.value,
 			),
-		).toEqual(["App", "Code", "Runs", "Connections", "Review"]);
+		).toEqual(["workpiece", "edit", "history"]);
 		expect(
 			canvasWorkpieceModeOptions(
 				{ type: "output", id: OUTPUT_ID },
 				"document",
 			).map((option) => option.label),
-		).toEqual(["Document", "Connections", "Review"]);
+		).toEqual(["Document"]);
 		expect(
 			canvasWorkpieceModeOptions(
 				{ type: "output", id: OUTPUT_ID },
 				"sheet",
 			).map((option) => option.label),
-		).toEqual(["Sheet", "Connections", "Review"]);
+		).toEqual(["Sheet"]);
 		expect(
 			canvasWorkpieceModeOptions(
 				{ type: "output", id: OUTPUT_ID },
 				"presentation",
+				0,
+				"activity",
 			).map((option) => option.label),
-		).toEqual(["Slides", "Connections", "Review"]);
+		).toEqual(["Slides", "Review"]);
+		expect(
+			canvasWorkpieceModeOptions(
+				{ type: "gadget", id: GADGET_ID },
+				null,
+				0,
+				"connections",
+			).map((option) => option.label),
+		).toEqual(["App", "Edit", "History", "Connections"]);
 	});
 
 	it("clamps and restores the persisted chat width", () => {
@@ -1246,7 +1271,8 @@ describe("CanvasPage listing", () => {
 
 		click(findButton(container, "Weekly report"));
 		await flush();
-		click(appOpenButton(container, "Report gadget"));
+		// The library gave way to the open file; the Files panel still lists the app.
+		click(filesPanelRow(container, "Report gadget"));
 		await flush();
 
 		const tabs = [...container.querySelectorAll('[role="tab"]')];
@@ -1270,19 +1296,28 @@ describe("CanvasPage listing", () => {
 		).toBe("true");
 	});
 
-	it("opens Work without the library consuming its pane", async () => {
+	it("opens Work in the canvas beside the chat and the Files panel", async () => {
 		mockLists();
 		routing.search = { pane: "work" };
 		const container = renderPage();
 		await flush();
-		const workbench = container.querySelector<HTMLElement>(".canvas-workbench");
-		expect(workbench?.style.display).toBe("none");
 		expect(
-			container.querySelector("[data-workspace-work-panel]"),
+			container.querySelector(".canvas-stage [data-workspace-work-panel]"),
 		).not.toBeNull();
+		expect(
+			container.querySelector('[aria-label="Workspace chat"]'),
+		).not.toBeNull();
+		expect(
+			container
+				.querySelector("[data-workspace-outputs-work]")
+				?.getAttribute("aria-current"),
+		).toBe("true");
+		// No second navigation row: the only pane switcher is the phone's.
+		expect(container.querySelectorAll(".canvas-pane-switcher")).toHaveLength(1);
+		expect(container.querySelector(".canvas-desktop-pane-switcher")).toBeNull();
 	});
 
-	it("restores Resources after Work without remounting the selected draft", async () => {
+	it("shows the library and Work from the Files panel without remounting the open draft", async () => {
 		mockLists();
 		osWorkspacesApi.outputs.get.mockResolvedValue({
 			output: outputFixture(),
@@ -1292,28 +1327,31 @@ describe("CanvasPage listing", () => {
 		const container = await openDoc("Weekly report");
 		const editor = container.querySelector("[data-output-editor]");
 		expect(editor).not.toBeNull();
-		const switcher = container.querySelector(".canvas-desktop-pane-switcher")!;
-		expect(
-			[...switcher.querySelectorAll("button")].map((button) =>
-				button.textContent?.trim(),
-			),
-		).toEqual(["Editor", "Resources", "Work"]);
-		click(findButton(switcher, "Resources"));
-		click(findButton(switcher, "Work"));
+		const stage = container.querySelector<HTMLElement>(".canvas-stage-content");
+		expect(stage?.hidden).toBe(false);
+		click(container.querySelector("[data-workspace-outputs-library]")!);
 		await flush();
-		const workbench = container.querySelector<HTMLElement>(".canvas-workbench");
-		expect(workbench?.style.display).toBe("none");
-		expect(container.querySelector("[data-output-editor]")).toBe(editor);
-		click(findButton(switcher, "Resources"));
-		await flush();
-		expect(workbench?.style.display).toBe("");
 		expect(
 			container
 				.querySelector(".canvas-surface")
 				?.getAttribute("data-resource-rail-open"),
 		).toBe("true");
+		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
+		expect(stage?.hidden).toBe(true);
 		expect(container.querySelector("[data-output-editor]")).toBe(editor);
+		click(container.querySelector("[data-workspace-outputs-work]")!);
+		await flush();
+		expect(
+			container.querySelector("[data-workspace-work-panel]"),
+		).not.toBeNull();
+		expect(container.querySelector(".canvas-resource-library")).toBeNull();
+		expect(container.querySelector("[data-output-editor]")).toBe(editor);
+		// The open item's own tab brings it back.
+		click(container.querySelector('[role="tab"]')!);
+		await flush();
+		expect(stage?.hidden).toBe(false);
 		expect(container.querySelector("[data-workspace-work-panel]")).toBeNull();
+		expect(container.querySelector("[data-output-editor]")).toBe(editor);
 	});
 
 	it("switches between the responsive resource rail and distraction-free editor", async () => {
@@ -1382,6 +1420,7 @@ describe("CanvasPage listing", () => {
 			container.querySelector('[aria-label="Conversations"]'),
 		).not.toBeNull();
 		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
+		await flush();
 		expect(
 			container
 				.querySelector("[data-export-buttons]")
@@ -1391,27 +1430,32 @@ describe("CanvasPage listing", () => {
 			container.querySelector("[data-canvas-revision-status]")?.textContent,
 		).toContain("Revision 2");
 		expect(container.querySelector('[aria-label="Share"]')).not.toBeNull();
-		expect(container.querySelector(".canvas-chat-resources-button")).toBeNull();
+		// No "Resources" control anywhere: the library opens from the Files
+		// panel, and the one Files toggle lives in the top bar.
 		expect(
-			[...container.querySelectorAll(".canvas-chat-header button")].filter(
-				(button) => button.textContent?.trim() === "Resources",
+			[...container.querySelectorAll("button")].filter(
+				(button) =>
+					button.textContent?.trim() === "Resources" ||
+					button.getAttribute("aria-label") === "Resources",
 			),
 		).toHaveLength(0);
-		expect(findButton(container, "Resources")).not.toBeNull();
-		expect(container.querySelector('[aria-label="Focus"]')).not.toBeNull();
-		click(findButton(container, "Focus"));
+		expect(
+			container.querySelectorAll('[aria-controls="workspace-outputs-panel"]'),
+		).toHaveLength(1);
+		expect(container.querySelectorAll('[aria-label="Focus"]')).toHaveLength(1);
+		click(container.querySelector('[aria-label="Focus"]')!);
 		expect(surface?.getAttribute("data-canvas-focus")).toBe("true");
 		expect(surface?.getAttribute("data-full-height")).toBe("true");
 
 		click(findButton(container, "Exit focus"));
 		expect(surface?.hasAttribute("data-canvas-focus")).toBe(false);
-		click(findButton(container, "Resources"));
+		click(container.querySelector("[data-workspace-outputs-library]")!);
 		expect(surface?.getAttribute("data-resource-rail-open")).toBe("true");
 		expect(surface?.getAttribute("data-mobile-pane")).toBe("resources");
 		expect(
 			container.querySelector(".canvas-resource-library-header h2")
 				?.textContent,
-		).toBe("Resources");
+		).toBe("Everything in this workspace");
 		expect(
 			container.querySelector("[data-workspace-output-preview]"),
 		).not.toBeNull();
@@ -1510,6 +1554,7 @@ describe("CanvasPage listing", () => {
 
 	it("does not open a file whose source access is unavailable", async () => {
 		mockLists();
+		routing.search = { pane: "resources" };
 		osWorkspacesApi.outputs.library.mockResolvedValue({
 			items: [
 				{
@@ -1535,6 +1580,7 @@ describe("CanvasPage listing", () => {
 
 	it("distinguishes an approved video deliverable from newer candidates", async () => {
 		mockLists();
+		routing.search = { pane: "resources" };
 		const approvedId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 		const candidateId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 		osWorkspacesApi.outputs.library.mockResolvedValue({
@@ -1596,6 +1642,7 @@ describe("CanvasPage listing", () => {
 
 	it("hides archived iterations behind an honest state filter", async () => {
 		mockLists();
+		routing.search = { pane: "resources" };
 		const activeId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 		const archivedId = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 		const videoLibraryItem = (
@@ -1773,8 +1820,10 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain("Ops room");
 		expect(container.textContent).toContain("Report gadget");
 		expect(container.textContent).toContain("Weekly report");
-		expect(container.querySelector('[data-kind="document"]')).not.toBeNull();
-		expect(container.textContent).not.toContain("Pick a document");
+		expect(
+			container.querySelector('[data-output-kind="document"]'),
+		).not.toBeNull();
+		expect(container.querySelector(".canvas-resource-library")).toBeNull();
 		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
 		expect(container.querySelector('[role="tab"]')?.textContent).toContain(
 			"Report gadget",
@@ -1858,12 +1907,11 @@ describe("CanvasPage listing", () => {
 		const container = renderPage();
 		await flush();
 
-		expect(container.textContent).toContain("Pick a document");
+		// Nothing opens by itself; the canvas offers the library instead.
+		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
 		expect(
-			container
-				.querySelector('[data-slot="empty"]')
-				?.getAttribute("data-appearance"),
-		).toBe("quiet");
+			container.querySelector("[data-canvas-workpiece-missing]"),
+		).toBeNull();
 		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(0);
 		expect(routing.navigate).not.toHaveBeenCalled();
 	});
@@ -2012,7 +2060,7 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelector("[data-canvas-workpiece-missing]"),
 		).toBeNull();
-		expect(container.textContent).toContain("Pick a document");
+		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
 		expect(routing.navigate).not.toHaveBeenCalled();
 	});
 
@@ -2038,7 +2086,7 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelector("[data-canvas-workpiece-missing]"),
 		).toBeNull();
-		expect(container.textContent).toContain("Pick a document");
+		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
 	});
 
 	it("replays back-forward search snapshots without stale local selection", async () => {
@@ -2189,7 +2237,7 @@ describe("CanvasPage listing", () => {
 			"true",
 		);
 
-		click(findButton(container, "Code"));
+		click(findButton(container, "Edit"));
 		expect(container.querySelector("[data-widget-frame]")).toBeNull();
 		expect(container.querySelector("[data-collab-editor]")).not.toBeNull();
 		expect(
@@ -2208,7 +2256,7 @@ describe("CanvasPage listing", () => {
 		click(findButton(container, "manifest.json"));
 		expect(container.querySelector("[data-collab-editor]")).not.toBeNull();
 
-		click(findButton(container, "Runs"));
+		click(findButton(container, "History"));
 		expect(
 			container
 				.querySelector("[data-gadget-executions]")
@@ -2219,7 +2267,22 @@ describe("CanvasPage listing", () => {
 		expect(container.querySelector("[data-widget-frame]")).not.toBeNull();
 		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
 
-		click(findButton(container, "Connections"));
+		// Connections has no tab of its own; it opens from the workspace menu
+		// and joins the row only while it shows.
+		expect(
+			[
+				...container.querySelectorAll(
+					'[aria-label="Active workpiece view"] button',
+				),
+			].map((button) => button.textContent?.trim()),
+		).toEqual(["App", "Edit", "History"]);
+		click(container.querySelector('[aria-label="Workspace actions"]')!);
+		await flush();
+		click(findMenuItem("Connections"));
+		await flush();
+		expect(
+			findButton(container, "Connections").getAttribute("aria-pressed"),
+		).toBe("true");
 		// The connections panel is a lazy chunk; run alone, it is not loaded yet.
 		await vi.waitFor(() =>
 			expect(
@@ -2250,7 +2313,10 @@ describe("CanvasPage listing", () => {
 			),
 		).not.toBeNull();
 
-		click(findButton(container, "Review"));
+		click(container.querySelector('[aria-label="Workspace actions"]')!);
+		await flush();
+		click(findMenuItem("Review changes"));
+		await flush();
 		expect(container.textContent).toContain("Review changes");
 		expect(container.textContent).toContain(
 			"Your saved version stays unchanged until you apply a change",
@@ -2304,7 +2370,7 @@ describe("CanvasPage listing", () => {
 		routing.search = {
 			workpiece: `gadget:${GADGET_ID}`,
 			pane: "workpiece",
-			view: "runs",
+			view: "history",
 		};
 		const container = renderPage();
 		await flush();

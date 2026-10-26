@@ -130,10 +130,10 @@ try {
 				const defects = await footerDefects(page);
 				assert.deepEqual(defects, [], label);
 				if (surface.path === workspacePath) {
-					const upload = page.getByRole("button", {
-						name: "Upload file",
-						exact: true,
-					});
+					// Scoped to the chat: the library beside it has an Upload file too.
+					const upload = page
+						.locator(".chat-composer-actions")
+						.getByRole("button", { name: "Upload file", exact: true });
 					assert(
 						await upload.isVisible(),
 						`${label}: Upload file is reachable`,

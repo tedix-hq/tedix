@@ -2,13 +2,7 @@ import {
 	WorkspaceAppRenderer,
 	WorkspaceAppRunsInfo,
 } from "@/components/workspace-app-renderer";
-import {
-	ArrowsIn,
-	ArrowsOut,
-	FloppyDisk,
-	SidebarSimple,
-	X,
-} from "@phosphor-icons/react";
+import { ArrowsIn, FloppyDisk, X } from "@phosphor-icons/react";
 import type {
 	OsGadgetExecution,
 	OsGadgetManifest,
@@ -231,6 +225,8 @@ export function CanvasDocPanel({
 	doc,
 	gadgetViewOverride,
 	onAppDraftSaved,
+	onOpenDrafts,
+	onAppDraftMerged,
 	onOpenReview,
 	focusMode,
 	onFocusModeChange,
@@ -240,8 +236,16 @@ export function CanvasDocPanel({
 }: {
 	workspaceId: string;
 	doc: CanvasDocSelection;
+	/**
+	 * The host's view of an app. "source" is the host's Edit view, where the
+	 * app's waiting drafts render above its code.
+	 */
 	gadgetViewOverride?: "preview" | "source" | "drafts" | "runs";
 	onAppDraftSaved?: () => void;
+	/** Opens the host's Edit view from the App view's drafts banner. */
+	onOpenDrafts?: () => void;
+	/** A draft accepted in the host's Edit view: show the app it became. */
+	onAppDraftMerged?: () => void;
 	/** Opens this app's Review tab. */
 	onOpenReview?: () => void;
 	focusMode: boolean;
@@ -845,28 +849,20 @@ export function CanvasDocPanel({
 						/>
 					</>
 				)}
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					className="canvas-mobile-resources-button"
-					aria-label="Resources"
-					title="Resources"
-					onClick={onShowResources}
-				>
-					<SidebarSimple size={16} />
-					<span className="sr-only">Resources</span>
-				</Button>
-				<Button
-					variant="ghost"
-					size="icon-sm"
-					aria-pressed={focusMode}
-					aria-label={focusMode ? "Exit focus" : "Focus"}
-					title={focusMode ? "Exit focus" : "Focus"}
-					onClick={() => onFocusModeChange(!focusMode)}
-				>
-					{focusMode ? <ArrowsIn size={16} /> : <ArrowsOut size={16} />}
-					<span className="sr-only">{focusMode ? "Exit focus" : "Focus"}</span>
-				</Button>
+				{/* Entering focus is a workspace top-bar control; leaving it has
+				    to live here, where the top bar is hidden. */}
+				{focusMode && (
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label="Exit focus"
+						title="Exit focus"
+						onClick={() => onFocusModeChange(false)}
+					>
+						<ArrowsIn size={16} />
+						<span className="sr-only">Exit focus</span>
+					</Button>
+				)}
 			</OutputWorkshopActions>
 		</>
 	);
@@ -1187,6 +1183,26 @@ export function CanvasDocPanel({
 							/>
 						)}
 					{isRuntimeApp &&
+						effectiveGadgetView === "preview" &&
+						gadgetViewOverride !== undefined &&
+						onOpenDrafts &&
+						appDrafts.length > 0 && (
+							<div
+								className="canvas-drafts-banner"
+								data-canvas-drafts-banner
+								role="status"
+							>
+								<Text as="span" role="label">
+									{appDrafts.length === 1
+										? "1 change is waiting for your review."
+										: `${appDrafts.length} changes are waiting for your review.`}
+								</Text>
+								<Button size="sm" variant="secondary" onClick={onOpenDrafts}>
+									Review
+								</Button>
+							</div>
+						)}
+					{isRuntimeApp &&
 					effectiveGadgetView === "preview" &&
 					gadgetDetail.data?.currentRevision ? (
 						<Card
@@ -1276,124 +1292,146 @@ export function CanvasDocPanel({
 							onSelectedExecutionChange={setPreviewExecution}
 						/>
 					) : (
-						<Surface
-							className="canvas-code-workbench"
-							data-canvas-code-workbench
-						>
-							<aside className="canvas-code-files" aria-label="Code files">
-								<Text
-									as="h3"
-									role="label"
-									tone="secondary"
-									className="canvas-code-files-heading m-0"
-								>
-									Files
-								</Text>
-								{codeFiles.map((file) => (
-									<Button
-										key={file.path}
-										size="sm"
-										variant="ghost"
-										className="canvas-code-file-button"
-										aria-current={codeFile === file.path ? "page" : undefined}
-										aria-label={file.path}
-										title={file.hint}
-										onClick={() => setCodeFile(file.path)}
+						<>
+							{/* The host's Edit view: what is waiting for review sits
+							    above the code it changes. */}
+							{isRuntimeApp &&
+								gadgetViewOverride === "source" &&
+								appDrafts.length > 0 &&
+								gadgetDetail.data?.currentRevision && (
+									<AppRuntimeDrafts
+										workspaceId={workspaceId}
+										gadget={gadgetDetail.data.gadget}
+										revision={gadgetDetail.data.currentRevision}
+										drafts={appDrafts}
+										mergeBlockedReason={appDraftMergeBlockedReason}
+										onMerged={(revision) => {
+											onProposalMerged(revision);
+											onAppDraftMerged?.();
+										}}
+									/>
+								)}
+							<Surface
+								className="canvas-code-workbench"
+								data-canvas-code-workbench
+							>
+								<aside className="canvas-code-files" aria-label="Code files">
+									<Text
+										as="h3"
+										role="label"
+										tone="secondary"
+										className="canvas-code-files-heading m-0"
 									>
-										{file.path}
-									</Button>
-								))}
-							</aside>
-							{codeFile === "README.md" &&
-							!Object.hasOwn(
-								runtimeCode.data?.code?.files ?? {},
-								"README.md",
-							) ? (
-								<div className="canvas-code-file" data-canvas-app-readme>
-									<div className="canvas-code-file-header">
-										<code className="canvas-code-file-name">README.md</code>
-										<Text as="span" role="label" tone="secondary">
-											Generated from manifest.json
-										</Text>
-									</div>
-									<div className="overflow-y-auto px-4 py-3">
-										<ChatMarkdown content={appReadme} />
-									</div>
-								</div>
-							) : isRuntimeApp ? (
-								<div className="canvas-code-file" data-canvas-app-code-file>
-									{runtimeCode.data?.code &&
-									gadgetDetail.data?.currentRevision ? (
-										<AppCodeDraftEditor
-											key={doc.id}
-											workspaceId={workspaceId}
-											gadgetId={doc.id}
-											revisionId={runtimeCode.data.code.revisionId}
-											content={{
-												manifest: gadgetDetail.data.currentRevision.manifest,
-												files: runtimeCode.data.code.files,
-											}}
-											selectedFile={codeFile}
-											onSaved={() => {
-												setGadgetView("drafts");
-												onAppDraftSaved?.();
-											}}
-										/>
-									) : (
-										<Text as="p" role="label">
-											{runtimeCode.error
-												? "Could not load app code."
-												: "Loading app code…"}
-										</Text>
-									)}
-								</div>
-							) : codeFile !== "manifest.json" ? (
-								<div className="canvas-code-file" data-canvas-app-code-file>
-									<div className="canvas-code-file-header">
-										<code className="canvas-code-file-name">{codeFile}</code>
-										<Text as="span" role="label" tone="secondary">
-											Revision{" "}
-											{runtimeCode.data?.code?.revision ??
-												gadgetDetail.data?.currentRevision?.revision}
-										</Text>
-									</div>
-									<pre className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed">
-										{runtimeCode.data?.code?.files[codeFile] ?? ""}
-									</pre>
-								</div>
-							) : (
-								<div className="canvas-code-file">
-									<div className="canvas-code-file-header">
-										<code className="canvas-code-file-name">manifest.json</code>
-										<div
-											ref={saveFooter}
-											className="canvas-code-file-actions"
-											data-canvas-code-save
+										Files
+									</Text>
+									{codeFiles.map((file) => (
+										<Button
+											key={file.path}
+											size="sm"
+											variant="ghost"
+											className="canvas-code-file-button"
+											aria-current={codeFile === file.path ? "page" : undefined}
+											aria-label={file.path}
+											title={file.hint}
+											onClick={() => setCodeFile(file.path)}
 										>
-											{saveControls}
+											{file.path}
+										</Button>
+									))}
+								</aside>
+								{codeFile === "README.md" &&
+								!Object.hasOwn(
+									runtimeCode.data?.code?.files ?? {},
+									"README.md",
+								) ? (
+									<div className="canvas-code-file" data-canvas-app-readme>
+										<div className="canvas-code-file-header">
+											<code className="canvas-code-file-name">README.md</code>
+											<Text as="span" role="label" tone="secondary">
+												Generated from manifest.json
+											</Text>
+										</div>
+										<div className="overflow-y-auto px-4 py-3">
+											<ChatMarkdown content={appReadme} />
 										</div>
 									</div>
-									{session ? (
-										<CanvasCodeEditor
-											session={session}
-											path={COLLAB_DOC_PATH}
-											readOnly={!live}
-										/>
-									) : (
-										<pre
-											className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed"
-											data-canvas-app-manifest-readonly
-										>
-											{gadgetDetail.data?.currentRevision
-												? canonicalJsonText(
-														gadgetDetail.data.currentRevision.manifest,
-													)
-												: ""}
+								) : isRuntimeApp ? (
+									<div className="canvas-code-file" data-canvas-app-code-file>
+										{runtimeCode.data?.code &&
+										gadgetDetail.data?.currentRevision ? (
+											<AppCodeDraftEditor
+												key={doc.id}
+												workspaceId={workspaceId}
+												gadgetId={doc.id}
+												revisionId={runtimeCode.data.code.revisionId}
+												content={{
+													manifest: gadgetDetail.data.currentRevision.manifest,
+													files: runtimeCode.data.code.files,
+												}}
+												selectedFile={codeFile}
+												onSaved={() => {
+													setGadgetView("drafts");
+													onAppDraftSaved?.();
+												}}
+											/>
+										) : (
+											<Text as="p" role="label">
+												{runtimeCode.error
+													? "Could not load app code."
+													: "Loading app code…"}
+											</Text>
+										)}
+									</div>
+								) : codeFile !== "manifest.json" ? (
+									<div className="canvas-code-file" data-canvas-app-code-file>
+										<div className="canvas-code-file-header">
+											<code className="canvas-code-file-name">{codeFile}</code>
+											<Text as="span" role="label" tone="secondary">
+												Revision{" "}
+												{runtimeCode.data?.code?.revision ??
+													gadgetDetail.data?.currentRevision?.revision}
+											</Text>
+										</div>
+										<pre className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed">
+											{runtimeCode.data?.code?.files[codeFile] ?? ""}
 										</pre>
-									)}
-								</div>
-							)}
-						</Surface>
+									</div>
+								) : (
+									<div className="canvas-code-file">
+										<div className="canvas-code-file-header">
+											<code className="canvas-code-file-name">
+												manifest.json
+											</code>
+											<div
+												ref={saveFooter}
+												className="canvas-code-file-actions"
+												data-canvas-code-save
+											>
+												{saveControls}
+											</div>
+										</div>
+										{session ? (
+											<CanvasCodeEditor
+												session={session}
+												path={COLLAB_DOC_PATH}
+												readOnly={!live}
+											/>
+										) : (
+											<pre
+												className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed"
+												data-canvas-app-manifest-readonly
+											>
+												{gadgetDetail.data?.currentRevision
+													? canonicalJsonText(
+															gadgetDetail.data.currentRevision.manifest,
+														)
+													: ""}
+											</pre>
+										)}
+									</div>
+								)}
+							</Surface>
+						</>
 					)}
 				</div>
 			) : !isGadget && roomCanonical === null && outputDetail.data ? (

@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { FormTextarea } from "@/components/forms/form-textarea";
@@ -196,12 +196,15 @@ export function CanvasWorkspaceControls({
 	workspace,
 	showCreate = true,
 	compactActions = false,
+	menuItems,
 	onSelected,
 	onArchived,
 }: {
 	workspace?: OsWorkspace;
 	showCreate?: boolean;
 	compactActions?: boolean;
+	/** The host's own entries, listed first in the workspace menu. */
+	menuItems?: ReactNode;
 	onSelected: (workspaceId: string) => void;
 	onArchived: () => void;
 }) {
@@ -303,25 +306,20 @@ export function CanvasWorkspaceControls({
 								<UsersThree size={14} /> Share
 							</Button>
 						)}
-						<span
-							className={
-								compactActions
-									? "hidden items-center gap-1 sm:flex"
-									: "hidden items-center gap-2 sm:flex"
-							}
-						>
-							{/* The header keeps two icons: Share and the mute toggle, whose
-							    icon shows its state. Edit and Archive live in the menu. */}
-							{compactActions ? (
+						{/* The compact header keeps Share as its one icon; Edit, mute and
+						    Archive live in the menu. */}
+						{!compactActions && (
+							<span className="hidden items-center gap-2 sm:flex">
 								<Button
-									aria-label={
-										pushMuted
-											? "Unmute workspace notifications"
-											: "Mute workspace notifications"
-									}
-									aria-pressed={pushMuted}
+									size="sm"
+									variant="outline"
+									onClick={() => setEditOpen(true)}
+								>
+									<PencilSimple size={14} /> Edit
+								</Button>
+								<Button
 									disabled={pushMuteDisabled}
-									size="icon-sm"
+									size="sm"
 									title={
 										pushMuted
 											? "Notifications muted — approvals still arrive"
@@ -330,41 +328,18 @@ export function CanvasWorkspaceControls({
 									variant="ghost"
 									onClick={togglePushMute}
 								>
-									{pushMuted ? <BellSlash size={16} /> : <Bell size={16} />}
+									{pushMuted ? <BellSlash size={14} /> : <Bell size={14} />}
+									{pushMuted ? "Unmute" : "Mute"}
 								</Button>
-							) : (
-								<>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() => setEditOpen(true)}
-									>
-										<PencilSimple size={14} /> Edit
-									</Button>
-									<Button
-										disabled={pushMuteDisabled}
-										size="sm"
-										title={
-											pushMuted
-												? "Notifications muted — approvals still arrive"
-												: "Mute notifications"
-										}
-										variant="ghost"
-										onClick={togglePushMute}
-									>
-										{pushMuted ? <BellSlash size={14} /> : <Bell size={14} />}
-										{pushMuted ? "Unmute" : "Mute"}
-									</Button>
-									<Button
-										size="sm"
-										variant="ghost"
-										onClick={() => setArchiveOpen(true)}
-									>
-										<Archive size={14} /> Archive
-									</Button>
-								</>
-							)}
-						</span>
+								<Button
+									size="sm"
+									variant="ghost"
+									onClick={() => setArchiveOpen(true)}
+								>
+									<Archive size={14} /> Archive
+								</Button>
+							</span>
+						)}
 						<DropdownMenu>
 							<DropdownMenuTrigger
 								render={
@@ -378,6 +353,12 @@ export function CanvasWorkspaceControls({
 								<DotsThree size={16} weight="bold" />
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
+								{menuItems ? (
+									<>
+										{menuItems}
+										<DropdownMenuSeparator />
+									</>
+								) : null}
 								{blueprintUpdate ? (
 									<DropdownMenuItem onClick={() => setUpdateOpen(true)}>
 										<ArrowCircleUp size={14} /> Update available

@@ -25,20 +25,15 @@
 	width: var(--workspace-outputs-rail);
 }
 
+/* One left edge with the rows below: the title starts where their labels do. */
 .workspace-outputs-header {
 	display: flex;
 	height: 48px;
 	min-height: 48px;
 	box-sizing: border-box;
 	align-items: center;
-	gap: 2px;
-	padding-inline: 8px;
+	padding-inline: 16px;
 	border-bottom: 1px solid var(--border);
-}
-
-.workspace-outputs-toggle.workspace-outputs-toggle {
-	flex: none;
-	color: var(--text-color-kumo-subtle);
 }
 
 .workspace-outputs-heading {
@@ -209,20 +204,10 @@
 }
 
 /*
- * The panel belongs to the chat + stage workbench. The full Resources
- * library, focus mode and phones (which get the sheet) do without it.
+ * The panel belongs to the chat + canvas workbench. Focus mode and phones
+ * (whose bottom switcher opens the library pane) do without it.
  */
 .canvas-surface[data-canvas-focus] .workspace-outputs-panel {
-	display: none;
-}
-
-@media (min-width: 960px) {
-	.canvas-surface[data-resource-rail-open="true"] .workspace-outputs-panel {
-		display: none;
-	}
-}
-
-.canvas-outputs-sheet-trigger {
 	display: none;
 }
 
@@ -230,19 +215,6 @@
 	.workspace-outputs-panel {
 		display: none;
 	}
-
-	.canvas-outputs-sheet-trigger {
-		display: inline-flex;
-	}
-}
-
-/* Phone sheet: the same list, full-size rows, no rail. */
-.workspace-outputs-sheet .workspace-outputs-body {
-	padding: 0 12px 16px;
-}
-
-.workspace-outputs-sheet .workspace-outputs-row.workspace-outputs-row {
-	min-height: 48px;
 }
 
 /* An opened output settles into the stage instead of popping in. */
@@ -286,9 +258,8 @@
 }
 
 /*
- * On a phone the header also carries the Outputs button, so the title keeps
- * the workspace name and drops the breadcrumb trail; the back arrow already
- * leads to all workspaces.
+ * On a phone the title keeps the workspace name and drops the breadcrumb
+ * trail; the back arrow already leads to all workspaces.
  */
 @media (max-width: 639px) {
 	.canvas-workspace-title > :first-child:not(h1) {

@@ -3,7 +3,16 @@ import "./canvas-page.css";
 import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
-import { ArrowLeft, Files, FileX, SidebarSimple } from "@phosphor-icons/react";
+import {
+	ArrowLeft,
+	ArrowsOut,
+	Books,
+	FileX,
+	Kanban,
+	ListChecks,
+	Plugs,
+	SidebarSimple,
+} from "@phosphor-icons/react";
 import type {
 	OsGadget,
 	OsGadgetManifest,
@@ -11,7 +20,12 @@ import type {
 	OsOutputKind,
 	OsWorkspace,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	isCancelledError,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { getOsSurface } from "@/lib/os-navigation";
 import {
@@ -63,6 +77,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
+import { DropdownMenuItem } from "@/components/kumo/dropdown-menu";
 import {
 	Page,
 	PageActions,
@@ -74,19 +89,12 @@ import {
 	SectionTitle,
 } from "@/components/kumo/page";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
-import {
-	Sheet,
-	SheetContent,
-	SheetDescription,
-	SheetHeader,
-	SheetTitle,
-} from "@/components/kumo/sheet";
 import { Text } from "@/components/kumo/text";
 import { TransportStatus } from "@/components/transport-status";
 import {
 	persistWorkspaceOutputsPanelExpanded,
 	restoreWorkspaceOutputsPanelExpanded,
-	WorkspaceOutputsList,
+	WORKSPACE_OUTPUTS_PANEL_ID,
 	WorkspaceOutputsPanel,
 	workspaceOutputsPanelItems,
 } from "@/components/workspace-outputs-panel";
@@ -116,7 +124,6 @@ import {
 	workspaceResourcesQueryOptions,
 } from "@/lib/os-query-options";
 import { outputIdFromHref } from "@/lib/output-navigation";
-import { SURFACE_ICONS } from "@/lib/surface-icons";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
 import { useWorkspacePresence } from "@/lib/workspace-presence";
 import { OS_COPY } from "@/shared/os-copy";
@@ -259,6 +266,29 @@ export function primaryCanvasDoc(
 	return output ? { type: "output", id: output.id } : null;
 }
 
+/**
+ * An app's detail, read through the cache. The library's app cards observe the
+ * same query, and opening an app replaces the library with the app: when the
+ * cards leave mid-fetch, TanStack Query cancels that fetch for everyone who
+ * shared it. One retry starts a fetch of our own, so the app still opens on
+ * its linked output rather than its raw manifest.
+ */
+async function fetchGadgetDetail(
+	queryClient: ReturnType<typeof useQueryClient>,
+	workspaceId: string,
+	gadgetId: string,
+	/** False once the page left or chose something else; then no retry. */
+	stillWanted: () => boolean,
+) {
+	const options = canvasGadgetDetailQueryOptions(workspaceId, gadgetId);
+	try {
+		return await queryClient.fetchQuery(options);
+	} catch (error) {
+		if (!isCancelledError(error) || !stillWanted()) throw error;
+		return queryClient.fetchQuery(options);
+	}
+}
+
 /** First-party output entries open their semantic editor instead of raw manifest JSON. */
 export function linkedOutputIdFromManifest(
 	manifest: OsGadgetManifest | null | undefined,
@@ -356,13 +386,28 @@ export function missingWorkpieceCopy(doc: CanvasDocSelection): {
 	};
 }
 
-const CanvasIcon = SURFACE_ICONS.workspaces;
-
-const CANVAS_DESKTOP_PANES = [
-	{ value: "workpiece", label: "Editor" },
-	{ value: "resources", label: "Resources" },
-	{ value: "work", label: "Work" },
-] as const;
+/**
+ * What the canvas column shows. The open item leads; with nothing open, a
+ * populated workspace shows its library rather than an empty "pick one" state,
+ * and the library and Work are also reachable on purpose from the Files
+ * panel and the workspace menu.
+ */
+export function canvasColumnView(input: {
+	pane: CanvasMobilePane;
+	libraryOpen: boolean;
+	hasSelection: boolean;
+	hasAnyDocuments: boolean;
+	unresolvedWorkpiece: boolean;
+	/** The directory resolved and this workspace is not in it. */
+	workspaceMissing: boolean;
+}): "work" | "library" | "doc" | "missing" | null {
+	if (input.workspaceMissing) return "library";
+	if (input.pane === "work") return "work";
+	if (input.libraryOpen) return "library";
+	if (input.hasSelection) return "doc";
+	if (input.unresolvedWorkpiece) return "missing";
+	return input.hasAnyDocuments ? "library" : null;
+}
 
 export function canvasArtifactPaneLabel(
 	doc: CanvasDocSelection | null,
@@ -425,9 +470,8 @@ export function CanvasPage({
 			window.innerWidth,
 		),
 	);
-	const [outputsSheetOpen, setOutputsSheetOpen] = useState(false);
-	// The header's activity control is the one entry point to the workspace's
-	// activity view; the Outputs panel's Activity row opens that same control.
+	// The header's approvals control is the one entry point to the workspace's
+	// approvals; the Files panel's Approvals row opens that same control.
 	const activityEntryRef = useRef<HTMLSpanElement>(null);
 	const [newConversationKey, setNewConversationKey] = useState(0);
 	const [focusMode, setFocusMode] = useState(requestedFocus === true);
@@ -464,6 +508,13 @@ export function CanvasPage({
 	// it off so the drag tracks the cursor.
 	const [transitionEnabled, setTransitionEnabled] = useState(false);
 	const selectionRequestRef = useRef(0);
+	const mountedRef = useRef(true);
+	useEffect(
+		() => () => {
+			mountedRef.current = false;
+		},
+		[],
+	);
 	const visitedWorkspaceRef = useRef<string | null>(null);
 	const primaryWorkpieceWorkspaceRef = useRef<string | null>(null);
 	const openedDocsRef = useRef<CanvasDocSelection[]>([]);
@@ -674,13 +725,6 @@ export function CanvasPage({
 	const selectedDraftCount = selectedIsRuntimeApp
 		? selectedAppDrafts.length
 		: 0;
-	// Accepting or rejecting the last draft closes the Drafts view.
-	useEffect(() => {
-		if (workpieceMode === "drafts" && selectedDraftCount === 0) {
-			setWorkpieceMode("workpiece");
-			writeCanvasSearch({ ...canvasSearch, view: undefined }, true);
-		}
-	}, [canvasSearch, selectedDraftCount, workpieceMode, writeCanvasSearch]);
 	const selectedOutputKind =
 		selectedDoc?.type === "output"
 			? (outputs.data?.items.find((output) => output.id === selectedDoc.id)
@@ -710,9 +754,9 @@ export function CanvasPage({
 					: {}),
 			selectionLabel:
 				mobilePane === "workpiece"
-					? "Editor"
+					? "Canvas"
 					: mobilePane === "resources"
-						? "Resources"
+						? "Files"
 						: mobilePane === "work"
 							? "Work"
 							: "Chat",
@@ -881,10 +925,11 @@ export function CanvasPage({
 		// output's editor, exactly as clicking it in Resources does.
 		const request = selectionRequestRef.current;
 		const outputItems = outputs.data.items;
-		void queryClient
-			.fetchQuery(canvasGadgetDetailQueryOptions(workspaceId, primary.id))
+		const stillWanted = () =>
+			mountedRef.current && selectionRequestRef.current === request;
+		void fetchGadgetDetail(queryClient, workspaceId, primary.id, stillWanted)
 			.then((detail) => {
-				if (selectionRequestRef.current !== request) return;
+				if (!stillWanted()) return;
 				const linkedOutputId = linkedOutputIdFromManifest(
 					detail.currentRevision?.manifest,
 				);
@@ -950,14 +995,14 @@ export function CanvasPage({
 		if (workspaceId === null) return;
 		const request = ++selectionRequestRef.current;
 		openCanvasDoc({ type: "gadget", id: gadgetId });
+		const stillWanted = () =>
+			mountedRef.current && selectionRequestRef.current === request;
 		try {
 			const [detail, outputList] = await Promise.all([
-				queryClient.fetchQuery(
-					canvasGadgetDetailQueryOptions(workspaceId, gadgetId),
-				),
+				fetchGadgetDetail(queryClient, workspaceId, gadgetId, stillWanted),
 				queryClient.fetchQuery(canvasOutputsQueryOptions(workspaceId)),
 			]);
-			if (selectionRequestRef.current !== request) return;
+			if (!stillWanted()) return;
 			const linkedOutputId = linkedOutputIdFromManifest(
 				detail.currentRevision?.manifest,
 			);
@@ -1037,20 +1082,43 @@ export function CanvasPage({
 	};
 	const openOutputsPanelItem = (doc: CanvasDocSelection) => {
 		setTransitionEnabled(true);
-		setOutputsSheetOpen(false);
 		if (doc.type === "gadget") void selectGadget(doc.id);
 		else selectOutput(doc.id);
 	};
 	const openWorkspaceActivity = () => {
-		setOutputsSheetOpen(false);
-		// After the sheet has returned focus, so the popover keeps it.
-		window.requestAnimationFrame(() => {
-			activityEntryRef.current?.querySelector<HTMLElement>("button")?.click();
-		});
+		activityEntryRef.current?.querySelector<HTMLElement>("button")?.click();
 	};
 	const changeOutputsPanelExpanded = (expanded: boolean) => {
 		setOutputsPanelExpanded(expanded);
 		persistWorkspaceOutputsPanelExpanded(window.localStorage, expanded);
+	};
+	/** A pane choice from the phone switcher, the Files panel or the menu. */
+	const showPane = (pane: CanvasMobilePane) => {
+		setTransitionEnabled(true);
+		setMobilePane(pane);
+		setResourceRailOpen(pane === "resources");
+		if (pane !== "workpiece") setFocusMode(false);
+		writeCanvasSearch({
+			...canvasSearch,
+			pane,
+			focus: pane === "workpiece" ? canvasSearch.focus : undefined,
+		});
+	};
+	const selectWorkpieceMode = (mode: CanvasWorkpieceMode) => {
+		setWorkpieceMode(mode);
+		setResourceRailOpen(false);
+		setMobilePane("workpiece");
+		writeCanvasSearch({
+			...canvasSearch,
+			view: mode === "workpiece" ? undefined : mode,
+			pane: "workpiece",
+		});
+	};
+	const enterFocusMode = () => {
+		setFocusMode(true);
+		setResourceRailOpen(false);
+		setMobilePane("workpiece");
+		writeCanvasSearch({ ...canvasSearch, pane: "workpiece", focus: true });
 	};
 
 	const unresolvedWorkpiece =
@@ -1104,26 +1172,57 @@ export function CanvasPage({
 		}
 	};
 
+	const canvasView = canvasColumnView({
+		pane: mobilePane,
+		libraryOpen: resourceRailOpen,
+		hasSelection: selectedDoc !== null,
+		// A bare URL is about to open the workspace's first app (the effect
+		// above); the library must not flash in before it does.
+		hasAnyDocuments:
+			hasAnyDocuments &&
+			(requestedDoc !== null ||
+				requestedPane !== undefined ||
+				primaryWorkpieceWorkspaceRef.current === workspaceId),
+		unresolvedWorkpiece: unresolvedWorkpiece !== null,
+		workspaceMissing: workspaces.data !== undefined && workspaceId === null,
+	});
+
 	const workpieceViewControls = selectedDoc ? (
 		<SegmentedControl
 			ariaLabel="Active workpiece view"
-			className="canvas-workpiece-mode-switcher bg-transparent p-0 ring-0"
+			className="canvas-workpiece-mode-switcher"
 			compact
-			onValueChange={(mode) => {
-				setWorkpieceMode(mode);
-				writeCanvasSearch({
-					...canvasSearch,
-					view: mode === "workpiece" ? undefined : mode,
-				});
-			}}
+			onValueChange={selectWorkpieceMode}
 			options={canvasWorkpieceModeOptions(
 				selectedDoc,
 				selectedOutputKind,
 				selectedDraftCount,
+				workpieceMode,
 			)}
 			value={workpieceMode}
 		/>
 	) : null;
+
+	const workspaceMenuItems = (
+		<>
+			<DropdownMenuItem onClick={showCanvasResources}>
+				<Books size={14} /> Everything in this workspace
+			</DropdownMenuItem>
+			<DropdownMenuItem onClick={() => showPane("work")}>
+				<Kanban size={14} /> Work
+			</DropdownMenuItem>
+			{selectedDoc ? (
+				<>
+					<DropdownMenuItem onClick={() => selectWorkpieceMode("connections")}>
+						<Plugs size={14} /> Connections
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={() => selectWorkpieceMode("activity")}>
+						<ListChecks size={14} /> Review changes
+					</DropdownMenuItem>
+				</>
+			) : null}
+		</>
+	);
 
 	return (
 		<Page
@@ -1206,87 +1305,43 @@ export function CanvasPage({
 					>
 						<ApprovalNotifications conversationId={activeConversationId} />
 					</span>
+					<TransportStatus />
+					{/* The one control for the Files panel on a wide screen; phones
+					    reach the library from the bottom switcher instead. */}
 					<Button
-						aria-label="Outputs"
-						className="canvas-outputs-sheet-trigger"
-						icon={<Files size={16} />}
-						onClick={() => setOutputsSheetOpen(true)}
+						aria-controls={WORKSPACE_OUTPUTS_PANEL_ID}
+						aria-expanded={outputsPanelExpanded}
+						aria-label={
+							outputsPanelExpanded ? "Collapse files" : "Expand files"
+						}
+						className="canvas-files-toggle"
+						icon={<SidebarSimple className="-scale-x-100" size={16} />}
+						onClick={() => changeOutputsPanelExpanded(!outputsPanelExpanded)}
 						size="icon-sm"
-						title="Outputs"
+						title={outputsPanelExpanded ? "Collapse files" : "Expand files"}
 						variant="ghost"
 					/>
-					<TransportStatus />
+					{canvasView === "doc" ? (
+						<Button
+							aria-label="Focus"
+							icon={<ArrowsOut size={16} />}
+							onClick={enterFocusMode}
+							size="icon-sm"
+							title="Focus on the open item"
+							variant="ghost"
+						/>
+					) : null}
 					<CanvasWorkspaceControls
 						workspace={selectedWorkspace as OsWorkspace | undefined}
 						showCreate={false}
 						compactActions
+						menuItems={workspaceMenuItems}
 						onSelected={selectWorkspace}
 						onArchived={() => selectWorkspace()}
 					/>
 				</PageActions>
 			</PageHeader>
-			<SegmentedControl
-				ariaLabel="Canvas pane"
-				className="canvas-pane-switcher canvas-desktop-pane-switcher"
-				compact
-				onValueChange={(pane) => {
-					setTransitionEnabled(true);
-					setMobilePane(pane);
-					setResourceRailOpen(pane === "resources");
-					if (pane !== "workpiece") setFocusMode(false);
-					writeCanvasSearch({
-						...canvasSearch,
-						pane,
-						focus: pane === "workpiece" ? canvasSearch.focus : undefined,
-					});
-				}}
-				options={CANVAS_DESKTOP_PANES}
-				value={
-					mobilePane === "work"
-						? "work"
-						: resourceRailOpen
-							? "resources"
-							: "workpiece"
-				}
-			/>
-			<SegmentedControl
-				ariaLabel="Canvas pane"
-				className="canvas-pane-switcher canvas-mobile-pane-switcher"
-				compact
-				onValueChange={(pane) => {
-					setTransitionEnabled(true);
-					setMobilePane(pane);
-					setResourceRailOpen(pane === "resources");
-					if (pane !== "workpiece") setFocusMode(false);
-					writeCanvasSearch({
-						...canvasSearch,
-						pane,
-						focus: pane === "workpiece" ? canvasSearch.focus : undefined,
-					});
-				}}
-				options={[
-					{ value: "workpiece", label: "Editor" },
-					{ value: "resources", label: "Resources" },
-					{ value: "work", label: "Work" },
-					{ value: "chat", label: "Chat" },
-				]}
-				value={mobilePane}
-			/>
-			<div
-				className="canvas-workbench min-w-0"
-				style={{ display: mobilePane === "work" ? "none" : undefined }}
-			>
-				<CanvasResourceRail
-					workspaces={workspaces}
-					workspaceId={workspaceId}
-					gadgets={gadgets}
-					outputs={outputLibrary}
-					resources={resources}
-					selectedDoc={selectedDoc}
-					onSelectGadget={(gadgetId) => void selectGadget(gadgetId)}
-					onSelectOutput={selectOutput}
-					onAddSource={() => setAddSourceOpen(true)}
-				/>
+			<div className="canvas-workbench min-w-0">
 				{workspaceId !== null ? (
 					<Dialog open={addSourceOpen} onOpenChange={setAddSourceOpen}>
 						<DialogContent size="lg">
@@ -1478,6 +1533,30 @@ export function CanvasPage({
 							/>
 						</div>
 					) : null}
+					{canvasView === "library" ? (
+						<CanvasResourceRail
+							workspaces={workspaces}
+							workspaceId={workspaceId}
+							gadgets={gadgets}
+							outputs={outputLibrary}
+							resources={resources}
+							selectedDoc={selectedDoc}
+							onSelectGadget={(gadgetId) => void selectGadget(gadgetId)}
+							onSelectOutput={selectOutput}
+							onAddSource={() => setAddSourceOpen(true)}
+						/>
+					) : canvasView === "work" && workspaceId ? (
+						<section
+							aria-label="Workspace work"
+							className="canvas-work-view flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+						>
+							<Suspense fallback={<CanvasStagePending />}>
+								<WorkspaceWorkPanel workspaceId={workspaceId} />
+							</Suspense>
+						</section>
+					) : null}
+					{/* The open item stays mounted behind the library or Work, so an
+					    unsaved draft is where the person left it on the way back. */}
 					<div
 						aria-labelledby={
 							selectedDoc ? canvasWorkpieceTabId(selectedDoc) : undefined
@@ -1485,6 +1564,7 @@ export function CanvasPage({
 						className="canvas-stage-content"
 						data-has-workpiece={selectedDoc ? "" : undefined}
 						data-workpiece-mode={workpieceMode}
+						hidden={canvasView === "library" || canvasView === "work"}
 						id={CANVAS_WORKPIECE_PANEL_ID}
 						role="tabpanel"
 					>
@@ -1557,28 +1637,18 @@ export function CanvasPage({
 										doc={selectedDoc}
 										gadgetViewOverride={
 											selectedDoc.type === "gadget"
-												? workpieceMode === "source" ||
-													workpieceMode === "runs" ||
-													workpieceMode === "drafts"
-													? workpieceMode
-													: "preview"
+												? workpieceMode === "edit"
+													? "source"
+													: workpieceMode === "history"
+														? "runs"
+														: "preview"
 												: undefined
 										}
 										focusMode={focusMode}
-										onOpenReview={() => {
-											setWorkpieceMode("activity");
-											writeCanvasSearch({
-												...canvasSearch,
-												view: "activity",
-											});
-										}}
-										onAppDraftSaved={() => {
-											setWorkpieceMode("drafts");
-											writeCanvasSearch({
-												...canvasSearch,
-												view: "drafts",
-											});
-										}}
+										onOpenReview={() => selectWorkpieceMode("activity")}
+										onAppDraftSaved={() => selectWorkpieceMode("edit")}
+										onOpenDrafts={() => selectWorkpieceMode("edit")}
+										onAppDraftMerged={() => selectWorkpieceMode("workpiece")}
 										actionsSlot={workpieceActionsSlot}
 										onFocusModeChange={(focused) => {
 											setFocusMode(focused);
@@ -1627,59 +1697,45 @@ export function CanvasPage({
 									</div>
 								</EmptyContent>
 							</Empty>
-						) : hasAnyDocuments ? (
-							<Empty appearance="quiet">
-								<EmptyHeader>
-									<EmptyMedia variant="icon">
-										<CanvasIcon size={20} />
-									</EmptyMedia>
-									<EmptyTitle>Pick a document</EmptyTitle>
-									<EmptyDescription>
-										Open one from Resources to edit it here together.
-									</EmptyDescription>
-								</EmptyHeader>
-							</Empty>
-						) : /* A document-less workspace has nothing to pick: the stage
-						       stays blank (and, in simpleMode, collapsed). */ null}
+						) : /* A document-less workspace has nothing to show yet: the
+						       stage stays blank (and, in simpleMode, collapsed). */ null}
 					</div>
 				</section>
 				{workspaceId !== null ? (
 					<WorkspaceOutputsPanel
 						{...outputsPanelList}
 						expanded={outputsPanelExpanded}
-						onExpandedChange={changeOutputsPanelExpanded}
+						canvasView={
+							canvasView === "library" || canvasView === "work"
+								? canvasView
+								: null
+						}
+						onBrowseLibrary={showCanvasResources}
+						onOpenWork={() => showPane("work")}
 						onOpenActivity={openWorkspaceActivity}
 						onSelect={openOutputsPanelItem}
 					/>
 				) : null}
 			</div>
-			<Sheet open={outputsSheetOpen} onOpenChange={setOutputsSheetOpen}>
-				<SheetContent
-					className="workspace-outputs-sheet"
-					side="right"
-					size="sm"
-				>
-					<SheetHeader>
-						<SheetTitle>Outputs</SheetTitle>
-						<SheetDescription>Open one to view or edit it.</SheetDescription>
-					</SheetHeader>
-					<WorkspaceOutputsList
-						{...outputsPanelList}
-						onOpenActivity={openWorkspaceActivity}
-						onSelect={openOutputsPanelItem}
-					/>
-				</SheetContent>
-			</Sheet>
-			{mobilePane === "work" && workspaceId ? (
-				<section
-					aria-label="Workspace work"
-					className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-				>
-					<Suspense fallback={<CanvasStagePending />}>
-						<WorkspaceWorkPanel workspaceId={workspaceId} />
-					</Suspense>
-				</section>
-			) : null}
+			{/* A phone shows one pane at a time and switches at the bottom, where
+			    the thumb is. Work has no segment of its own: it opens from the
+			    menu and shows here only while it is the pane. */}
+			<SegmentedControl
+				ariaLabel="Canvas pane"
+				className="canvas-pane-switcher"
+				compact
+				fill
+				onValueChange={showPane}
+				options={[
+					{ value: "chat", label: "Chat" },
+					{ value: "workpiece", label: "Canvas" },
+					{ value: "resources", label: "Files" },
+					...(mobilePane === "work"
+						? [{ value: "work" as const, label: "Work" }]
+						: []),
+				]}
+				value={mobilePane}
+			/>
 		</Page>
 	);
 }

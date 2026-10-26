@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
-// The workspace Outputs panel: right-side list on desktop, a sheet on phones.
+// The workspace Files panel: a right-side list on desktop, folded by the top
+// bar's one toggle; phones reach the library from the bottom switcher.
 const workspacePath = "/workspace/00000030-0000-4000-8000-000000000002";
 const emptyCopy =
-	"No outputs yet. Outputs your tedis create in this workspace appear here.";
+	"Nothing here yet. Apps and files made in this workspace will show up here.";
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ??
 	join(tmpdir(), "tedix-workspace-outputs-panel");
@@ -70,11 +71,11 @@ try {
 			await routeFixture(page, theme);
 			await page.goto(`${server.origin}${workspacePath}`);
 			const panel = page.getByRole("complementary", {
-				name: "Workspace outputs",
+				name: "Workspace files",
 			});
 			await panel.waitFor();
 			const rows = panel
-				.getByRole("list", { name: "Outputs" })
+				.getByRole("list", { name: "Files" })
 				.getByRole("button");
 			await rows.first().waitFor();
 			await page.evaluate(() => document.fonts.ready);
@@ -108,7 +109,7 @@ try {
 				new URLSearchParams(location.search).get("workpiece"),
 			);
 			await page
-				.locator('ul[aria-label="Outputs"] [aria-current="true"]')
+				.locator('ul[aria-label="Files"] [aria-current="true"]')
 				.waitFor();
 			assert(
 				await page
@@ -117,10 +118,22 @@ try {
 				`${label}: chat stays beside the opened output`,
 			);
 
-			// Collapse, and the choice survives a reload.
-			const toggle = panel.getByRole("button", { name: "Collapse outputs" });
-			await toggle.click();
-			await page.getByRole("button", { name: "Expand outputs" }).waitFor();
+			// One toggle, in the top bar: collapse, and the choice survives a reload.
+			const toggles = page.getByRole("button", {
+				name: /^(Collapse|Expand) files$/,
+			});
+			assert.equal(
+				await toggles.count(),
+				1,
+				`${label}: exactly one Files toggle`,
+			);
+			assert.equal(
+				await panel.getByRole("button", { name: /files/i }).count(),
+				0,
+				`${label}: the panel carries no toggle of its own`,
+			);
+			await page.getByRole("button", { name: "Collapse files" }).click();
+			await page.getByRole("button", { name: "Expand files" }).waitFor();
 			assert(
 				Math.abs(((await panel.boundingBox())?.width ?? 0) - 48) <= 1,
 				`${label}: collapsed to the icon rail`,
@@ -129,7 +142,7 @@ try {
 				path: `${evidence}/${label.replace("/", "-")}-collapsed.png`,
 			});
 			await page.reload();
-			await page.getByRole("button", { name: "Expand outputs" }).waitFor();
+			await page.getByRole("button", { name: "Expand files" }).waitFor();
 			assert.equal(
 				await page.evaluate(() =>
 					localStorage.getItem("tedix-os:workspace-outputs-panel"),
@@ -137,8 +150,22 @@ try {
 				"collapsed",
 				`${label}: collapsed state is remembered`,
 			);
-			await page.getByRole("button", { name: "Expand outputs" }).click();
-			await page.getByRole("button", { name: "Collapse outputs" }).waitFor();
+			await page.getByRole("button", { name: "Expand files" }).click();
+			await page.getByRole("button", { name: "Collapse files" }).waitFor();
+
+			// The footer opens the library and Work in the canvas; the open file
+			// stays beside the chat on the way back.
+			await panel.getByRole("button", { name: "Everything here" }).click();
+			await page
+				.getByRole("heading", { name: "Everything in this workspace" })
+				.waitFor();
+			await panel.getByRole("button", { name: "Work", exact: true }).click();
+			await page
+				.getByRole("region", { name: "Workspace work", exact: true })
+				.waitFor();
+			await page.screenshot({
+				path: `${evidence}/${label.replace("/", "-")}-work.png`,
+			});
 
 			// The Approvals row opens the workspace's activity control.
 			await panel.getByRole("button", { name: "Approvals" }).click();
@@ -175,7 +202,8 @@ try {
 			console.log(`outputs panel ${label}: ok`);
 		}
 
-		// Phone: no side panel; the header opens the same list in a sheet.
+		// Phone: no side panel and no toggle; the bottom switcher shows one pane
+		// at a time and Files is the whole library.
 		{
 			const label = `375/${theme}`;
 			const context = await browser.newContext({
@@ -188,50 +216,54 @@ try {
 			const page = await context.newPage();
 			await routeFixture(page, theme);
 			await page.goto(`${server.origin}${workspacePath}`);
-			const trigger = page.getByRole("button", {
-				name: "Outputs",
-				exact: true,
-			});
-			await trigger.waitFor();
+			const switcher = page.getByRole("group", { name: "Canvas pane" });
+			await switcher.waitFor();
 			assert(
 				!(await page
-					.getByRole("complementary", { name: "Workspace outputs" })
+					.getByRole("complementary", { name: "Workspace files" })
 					.isVisible()),
 				`${label}: side panel is hidden on a phone`,
 			);
-			await trigger.click();
-			const sheet = page.getByRole("dialog", { name: "Outputs" });
-			await sheet.waitFor();
-			const rows = sheet
-				.getByRole("list", { name: "Outputs" })
-				.getByRole("button");
-			await rows.first().waitFor();
-			const rowBox = await rows.first().boundingBox();
-			assert(
-				rowBox && rowBox.height >= 44,
-				`${label}: sheet rows are finger-sized`,
+			assert.equal(
+				await page
+					.getByRole("button", { name: /^(Collapse|Expand) files$/ })
+					.count(),
+				0,
+				`${label}: no panel toggle on a phone`,
 			);
-			const close = sheet.getByRole("button", { name: "Close", exact: true });
+			const switcherBox = await switcher.boundingBox();
 			assert(
-				await close.evaluate((node) => {
-					const box = node.getBoundingClientRect();
-					const hit = document.elementFromPoint(
-						box.x + box.width / 2,
-						box.y + box.height / 2,
-					);
-					return hit !== null && node.contains(hit);
-				}),
-				`${label}: the sheet's close button is reachable`,
+				switcherBox && Math.abs(switcherBox.y + switcherBox.height - 740) <= 1,
+				`${label}: the switcher sits at the bottom`,
+			);
+			assert.deepEqual(
+				await switcher.getByRole("button").allInnerTexts(),
+				["Chat", "Canvas", "Files"],
+				`${label}: Chat · Canvas · Files`,
+			);
+			await switcher.getByRole("button", { name: "Files" }).click();
+			const library = page.getByRole("complementary", {
+				name: "Workspace library",
+			});
+			await library.waitFor();
+			assert(
+				!(await page
+					.getByRole("complementary", { name: "Workspace chat" })
+					.isVisible()),
+				`${label}: one pane at a time`,
 			);
 			await noOverflow(page, label);
 			await page.screenshot({
-				path: `${evidence}/${label.replace("/", "-")}-sheet.png`,
+				path: `${evidence}/${label.replace("/", "-")}-files.png`,
 			});
-			await rows.last().click();
-			await sheet.waitFor({ state: "hidden" });
+			await library
+				.getByRole("button", { name: /Lindenquay: reconciliation note/ })
+				.first()
+				.click();
 			await page.waitForFunction(() =>
 				new URLSearchParams(location.search).get("workpiece"),
 			);
+			await page.getByRole("tab").first().waitFor();
 			await noOverflow(page, label);
 			await page.screenshot({
 				path: `${evidence}/${label.replace("/", "-")}-opened.png`,

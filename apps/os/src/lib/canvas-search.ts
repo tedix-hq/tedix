@@ -7,11 +7,15 @@ export type CanvasDocSelection =
 
 export type CanvasMobilePane = "resources" | "work" | "chat" | "workpiece";
 
+/**
+ * The open item's views: the item itself, Edit (an app's code and the drafts
+ * waiting on it), History (an app's runs), and two views reached from the
+ * workspace menu rather than a tab. Older links name the views this replaced.
+ */
 export type CanvasWorkpieceMode =
 	| "workpiece"
-	| "source"
-	| "drafts"
-	| "runs"
+	| "edit"
+	| "history"
 	| "connections"
 	| "activity";
 
@@ -36,12 +40,28 @@ const CANVAS_MOBILE_PANES = new Set<CanvasMobilePane>([
 
 const CANVAS_WORKPIECE_MODES = new Set<CanvasWorkpieceMode>([
 	"workpiece",
-	"source",
-	"drafts",
-	"runs",
+	"edit",
+	"history",
 	"connections",
 	"activity",
 ]);
+
+/** Where the views that no longer have a tab of their own now live. */
+const LEGACY_CANVAS_WORKPIECE_MODES: Record<string, CanvasWorkpieceMode> = {
+	source: "edit",
+	drafts: "edit",
+	runs: "history",
+};
+
+export function canvasWorkpieceModeFromSearch(
+	value: unknown,
+): CanvasWorkpieceMode | undefined {
+	if (typeof value !== "string") return undefined;
+	return (
+		enumSearchParam(value, CANVAS_WORKPIECE_MODES) ??
+		LEGACY_CANVAS_WORKPIECE_MODES[value]
+	);
+}
 
 /** The collab room key and stable URL value: `gadget:<id>` / `output:<id>`. */
 export function canvasDocKey(doc: CanvasDocSelection): string {
@@ -171,7 +191,7 @@ export function validateWorkspaceSearch(
 		conversation: canvasConversationFromSearch(search.conversation),
 		workpiece: workpiece ? canvasDocKey(workpiece) : undefined,
 		workpieces: canvasDocsSearchValue(workpieces),
-		view: enumSearchParam(search.view, CANVAS_WORKPIECE_MODES),
+		view: canvasWorkpieceModeFromSearch(search.view),
 		pane: enumSearchParam(search.pane, CANVAS_MOBILE_PANES),
 		focus: focus ? true : undefined,
 		...(cardSourceSearch(search.source)
@@ -184,8 +204,5 @@ export function canvasModeIsValidForDoc(
 	mode: CanvasWorkpieceMode,
 	doc: CanvasDocSelection,
 ): boolean {
-	return (
-		(mode !== "source" && mode !== "runs" && mode !== "drafts") ||
-		doc.type === "gadget"
-	);
+	return (mode !== "edit" && mode !== "history") || doc.type === "gadget";
 }

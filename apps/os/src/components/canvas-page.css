@@ -105,12 +105,14 @@
 	padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* The library fills the canvas column, beside the chat and the Files panel. */
 .canvas-resource-rail {
 	width: 100%;
-	height: 100%;
 	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
 	overflow: auto;
-	padding: 24px;
+	padding: 32px 24px 40px;
 	background: var(--background-lighter);
 }
 
@@ -709,11 +711,10 @@
 	scrollbar-width: thin;
 }
 
-/* The view tabs sit in the tab row as plain tabs: no box of their own. */
+/* The view tabs: one bordered group, apart from the open-item tabs. */
 .canvas-workpiece-mode-switcher {
 	min-width: 0;
-	min-height: 32px;
-	flex: 0 1 auto;
+	flex: 0 0 auto;
 	width: auto;
 	margin: 0;
 }
@@ -833,47 +834,30 @@
 	line-height: 16px;
 }
 
+/* The phone's bottom switcher: one pane at a time, Chat · Canvas · Files. */
 .canvas-pane-switcher {
-	display: flex;
+	display: none;
 	width: 100%;
-	min-height: 40px;
+	height: 48px;
+	min-height: 48px;
+	box-sizing: border-box;
 	flex: none;
 	padding: 4px 8px;
-	border-bottom: 1px solid var(--border);
+	border-top: 1px solid var(--border);
 	border-radius: 0;
 	background: var(--background-lighter);
+	box-shadow: none;
 }
 
 .canvas-pane-switcher > * {
-	flex: 0 1 9rem;
+	flex: 1 1 0;
 	justify-content: center;
 }
 
-.canvas-mobile-pane-switcher {
-	display: none;
-}
-
-.canvas-mobile-resources-button {
-	display: none;
-}
-
-/* Resources is a full library pane, not a third column competing with Chat and
- * the active workpiece. Selecting an item returns to the chat + workpiece split;
- * the persistent pane switch restores the library without discarding the draft. */
-@media (min-width: 960px) {
-	.canvas-surface[data-resource-rail-open="false"] .canvas-resource-rail {
+/* The Files panel's toggle belongs to wide screens; phones use the switcher. */
+@media (max-width: 959px) {
+	.canvas-files-toggle {
 		display: none;
-	}
-
-	.canvas-surface[data-resource-rail-open="true"] .canvas-chat-pane,
-	.canvas-surface[data-resource-rail-open="true"] .canvas-chat-resizer,
-	.canvas-surface[data-resource-rail-open="true"] .canvas-stage {
-		display: none;
-	}
-
-	.canvas-surface[data-resource-rail-open="false"]
-		.canvas-mobile-resources-button {
-		display: inline-flex;
 	}
 }
 
@@ -1026,32 +1010,12 @@
 }
 
 @media (max-width: 959px) {
-	.canvas-mobile-pane-switcher {
+	.canvas-pane-switcher {
 		display: flex;
-		width: 100%;
-	}
-
-	.canvas-desktop-pane-switcher {
-		display: none;
-	}
-
-	.canvas-mobile-pane-switcher > * {
-		flex: 1 1 0;
-		justify-content: center;
-	}
-
-	.canvas-mobile-resources-button {
-		display: inline-flex;
 	}
 
 	.canvas-workbench {
 		display: block;
-	}
-
-	.canvas-resource-rail {
-		width: 100%;
-		height: 100%;
-		border-right: 0;
 	}
 
 	.canvas-chat-pane {
@@ -1079,11 +1043,11 @@
 		max-width: 100%;
 	}
 
+	/* One pane at a time: the chat, or the canvas column (which is showing
+	   the open item, the library, or Work). */
 	.canvas-surface[data-mobile-pane="resources"] .canvas-chat-pane,
-	.canvas-surface[data-mobile-pane="resources"] .canvas-stage,
-	.canvas-surface[data-mobile-pane="chat"] .canvas-resource-rail,
+	.canvas-surface[data-mobile-pane="work"] .canvas-chat-pane,
 	.canvas-surface[data-mobile-pane="chat"] .canvas-stage,
-	.canvas-surface[data-mobile-pane="workpiece"] .canvas-resource-rail,
 	.canvas-surface[data-mobile-pane="workpiece"] .canvas-chat-pane {
 		display: none;
 	}
@@ -1150,15 +1114,10 @@
 		flex: 0 1 auto;
 	}
 
+	/* The view tabs take their own line only when the row is too narrow. */
 	.canvas-workpiece-mode-switcher {
 		order: 3;
-		flex: none;
-		width: calc(100% + 24px);
-		max-width: none;
-		margin: 0 -12px;
-		padding: 4px 8px;
-		border-top: 1px solid var(--border);
-		border-radius: 0;
+		margin-bottom: 8px;
 	}
 
 	.chat-starter-prompts {

@@ -168,11 +168,7 @@ describe("CanvasWorkspaceControls", () => {
 	it("uses accessible 32px icon actions in the workspace header", async () => {
 		const rendered = renderControls(WORKSPACE, true);
 		await flush();
-		for (const label of [
-			"Share",
-			"Mute workspace notifications",
-			"Workspace actions",
-		]) {
+		for (const label of ["Share", "Workspace actions"]) {
 			const action = rendered.container.querySelector(
 				`button[aria-label="${label}"]`,
 			);
@@ -251,14 +247,17 @@ describe("CanvasWorkspaceControls", () => {
 			mutedProjectIds: ["project-1"],
 			mutedWorkspaceIds: [WORKSPACE.id],
 		});
-		const rendered = renderControls(WORKSPACE, true);
+		const rendered = renderControls(WORKSPACE);
 		await flush();
-		const mute = rendered.container.querySelector(
-			'button[aria-label="Mute workspace notifications"]',
-		);
-		if (!(mute instanceof HTMLButtonElement)) throw new Error("mute missing");
+		// The compact header keeps Share as its one icon; mute lives in the menu
+		// there and as a plain button in the full controls.
+		expect(
+			renderControls(WORKSPACE, true).container.querySelector(
+				'button[aria-label="Mute workspace notifications"]',
+			),
+		).toBeNull();
+		const mute = button(rendered.container, "Mute");
 		expect(mute.disabled).toBe(false);
-		expect(mute.getAttribute("aria-pressed")).toBe("false");
 		act(() => mute.click());
 		await flush();
 		expect(webPushApi.setPreferences).toHaveBeenCalledWith({
