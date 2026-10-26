@@ -22,6 +22,14 @@ function empty(label: string, emptyReason: string): MetricTileData {
 	return { state: "empty", label, emptyReason, setupHref: "/work?view=deck" };
 }
 
+/** Plain-English name for a decision class id such as "reddit_reply". */
+function cardClassLabel(classId: string): string {
+	const known = OS_COPY.decisionDeck.cardKinds[classId];
+	if (known) return known;
+	const words = classId.replace(/[-_:.]+/g, " ").trim();
+	return words ? words[0]!.toUpperCase() + words.slice(1) : classId;
+}
+
 function percent(value: number): string {
 	return `${Math.round(value * 100)}%`;
 }
@@ -98,6 +106,30 @@ export function DeckAttentionMetrics() {
 					<MetricTile key={tile.label} tile={tile} />
 				))}
 			</MetricGrid>
+			{metrics.withoutDetailsByClass.length > 0 && (
+				<section aria-label={copy.byClassTitle} className="grid gap-1">
+					<Text weight="semibold">{copy.byClassTitle}</Text>
+					<ul className="grid gap-1" data-without-details-by-class>
+						{metrics.withoutDetailsByClass.map((row) => {
+							const share = row.withoutDetails / row.decisions;
+							return (
+								<li key={row.classId} className="flex justify-between gap-3">
+									<Text as="span" truncate>
+										{cardClassLabel(row.classId)}
+									</Text>
+									<Text as="span" tone={share < 0.8 ? "warning" : "secondary"}>
+										{copy.byClassValue(
+											percent(share),
+											formatCount(row.decisions),
+										)}
+									</Text>
+								</li>
+							);
+						})}
+					</ul>
+					<Text tone="secondary">{copy.byClassHint}</Text>
+				</section>
+			)}
 		</section>
 	);
 }

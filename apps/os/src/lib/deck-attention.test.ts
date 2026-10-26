@@ -131,6 +131,9 @@ it("uses first-view timings for the median, leaves unknown Details history unkno
 			surface: "decision_deck",
 		},
 	]);
+	expect(result.withoutDetailsByClass).toEqual([
+		{ classId: "decision", decisions: 2, withoutDetails: 1 },
+	]);
 	expect(result).toMatchObject({
 		medianMs: 30000,
 		measuredDecisions: 2,
@@ -139,4 +142,46 @@ it("uses first-view timings for the median, leaves unknown Details history unkno
 		notThisCount: 1,
 		changeRequestCount: 1,
 	});
+});
+
+it("splits decided-without-details by card class, busiest class first", () => {
+	const make = (id: string, decisionClass: string, opened: boolean) =>
+		LearningInteractionEventSchema.parse({
+			id,
+			organizationId: "fictional-org",
+			actorType: "user",
+			actorId: "fictional-user",
+			tediId: null,
+			clientEventId: id,
+			signalClass: "quality",
+			eventKind: "accepted",
+			scopeKind: "personal",
+			scopeId: "fictional-user",
+			issueKey: null,
+			surface: "decision_deck_action",
+			targetType: "decision",
+			targetId: id,
+			threadId: null,
+			runId: null,
+			occurredAt: "2026-10-19T12:00:00Z",
+			createdAt: "2026-10-19T12:00:00Z",
+			metadata: {
+				decisionChoice: "approve",
+				decisionClass,
+				firstViewedAt: 1000,
+				elapsedMs: 4000,
+				railOpenedBeforeDecision: opened,
+			},
+		});
+	expect(
+		attentionMetrics([
+			make("a", "outbound", false),
+			make("b", "reddit_reply", true),
+			make("c", "reddit_reply", false),
+			make("d", "reddit_reply", true),
+		]).withoutDetailsByClass,
+	).toEqual([
+		{ classId: "reddit_reply", decisions: 3, withoutDetails: 1 },
+		{ classId: "outbound", decisions: 1, withoutDetails: 1 },
+	]);
 });
