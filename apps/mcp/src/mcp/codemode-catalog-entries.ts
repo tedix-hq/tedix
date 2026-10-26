@@ -89,6 +89,8 @@ export interface CatalogSearchMatch {
 }
 
 export interface CatalogPageEntry {
+	/** Ranking must not materialize full descriptors for rows outside the page. */
+	score?: number;
 	namespace: string;
 	tool: string;
 	meta: unknown;

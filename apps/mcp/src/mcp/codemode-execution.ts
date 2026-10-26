@@ -602,18 +602,21 @@ export function buildNamespaceGroups(
 				: runWithEvidence();
 		};
 
-		// JSON Schema descriptor for type generation.
-		group.schemas[safeName] = {
-			description: tool.description ?? toolId,
-			inputSchema: {
-				type: "object",
-				properties: (withDestructiveApprovalSchema(
-					tool,
-					resolveWireAnnotations(tool),
-				).properties ??
-					{}) as JsonSchemaToolDescriptors[string]["inputSchema"]["properties"],
-			},
-		};
+		// Large catalogs omit inline types, so avoid projecting unused schemas.
+		Object.defineProperty(group.schemas, safeName, {
+			enumerable: true,
+			get: () => ({
+				description: tool.description ?? toolId,
+				inputSchema: {
+					type: "object" as const,
+					properties: (withDestructiveApprovalSchema(
+						tool,
+						resolveWireAnnotations(tool),
+					).properties ??
+						{}) as JsonSchemaToolDescriptors[string]["inputSchema"]["properties"],
+				},
+			}),
+		});
 	}
 
 	return groups;

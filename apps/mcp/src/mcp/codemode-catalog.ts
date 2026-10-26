@@ -1,4 +1,5 @@
 import { type ServerContext } from "./server-context";
+import { cachedCatalogProjection } from "./catalog-projection";
 import {
 	writeCodeModeLog,
 	type CodeModeExecutionRefs,
@@ -20,11 +21,14 @@ import {
 	isTediNativeInterfaceTool,
 	mirroredSkillWorkflowSurface,
 	splitCallable,
-	type CatalogSearchMatch,
 } from "./codemode-catalog-entries";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { type CatalogueTransportCallback } from "@tedix/api-contract/schemas/tools";
-import { resolveProvider, type ToolProvider } from "@cloudflare/codemode";
+import {
+	resolveProvider,
+	type ToolProvider,
+	type ResolvedProvider,
+} from "@cloudflare/codemode";
 import { readCodeModeResultPage } from "@tedix/tedi-codemode-core/bounded-result";
 import {
 	codeModeResultHandleUnavailableMessage,
@@ -271,6 +275,35 @@ export const executeCatalogOperation: (
 	);
 };
 
+/** Execution-only requests do not need discovery's full catalog projection. */
+export function resolveLazyCatalogProvider(
+	serverCtx: ServerContext,
+	namespaceOverrides: Record<string, string> | undefined,
+	executionRefs: CodeModeExecutionRefs,
+	collisionKeys: ReadonlySet<string>,
+): ResolvedProvider {
+	let resolved: ResolvedProvider | undefined;
+	return {
+		name: "discover",
+		fns: Object.fromEntries(
+			["search", "describe", "list_namespaces", "read_result"].map((name) => [
+				name,
+				(...args: unknown[]) => {
+					resolved ??= resolveProvider(
+						buildCatalogProvider(
+							serverCtx,
+							namespaceOverrides,
+							executionRefs,
+							collisionKeys,
+						),
+					);
+					return resolved.fns[name]!(...args);
+				},
+			]),
+		),
+	};
+}
+
 export function buildCatalogProvider(
 	serverCtx: ServerContext,
 	namespaceOverrides: Record<string, string> | undefined,
@@ -322,18 +355,11 @@ export function buildCatalogProvider(
 		if (typeof toolOrganizationId === "string" && toolOrganizationId) {
 			namespaceOrganizations.set(ns, toolOrganizationId);
 		}
-		const paymentPolicy = getToolPaymentPolicy(tool);
-		// Declared write capability folded onto the catalog's annotations, so
-		// discover.search results classify the same way a raw tools/list entry
-		// does (the Kernel write planner consumes both shapes).
-		const wireAnnotations = resolveWireAnnotations(tool);
-		const paymentDescription = paymentPolicy
-			? `\n\nPaid tool: ${paymentPolicy.amount} ${paymentPolicy.currency ?? "USDC"} on ${paymentPolicy.network}. If this call returns payment requirements, return that object directly from code; retry the outer code tool with _meta["x402/payment"] or the code tool's top-level payment argument.`
-			: "";
 		// Caller-relative authorization on every row through the same seam the
 		// dispatch gates use — agents learn "discoverable but not executable"
 		// from discovery instead of from a failed call.
 		let authz:
+			| undefined
 			| { authorized: true }
 			| {
 					authorized: false;
@@ -341,43 +367,50 @@ export function buildCatalogProvider(
 					missingScopes: string[];
 					scopeMappingMissing?: true;
 			  };
-		try {
-			const authzDecision = evaluateMcpToolScopeAuthorization(
-				serverCtx,
-				tool,
-				ns,
-			);
-			authz = authzDecision.authorized
-				? { authorized: true }
-				: {
-						authorized: false,
-						requiredScopes: authzDecision.requiredScopes,
-						missingScopes: authzDecision.missingScopes,
-					};
-		} catch (error) {
-			if (
-				!(error instanceof Error) ||
-				!error.message.startsWith("Missing MCP capability mapping for tool:")
-			) {
-				throw error;
+		const authorization = () => {
+			if (authz) return authz;
+			try {
+				const authzDecision = evaluateMcpToolScopeAuthorization(
+					serverCtx,
+					tool,
+					ns,
+				);
+				authz = authzDecision.authorized
+					? { authorized: true }
+					: {
+							authorized: false,
+							requiredScopes: authzDecision.requiredScopes,
+							missingScopes: authzDecision.missingScopes,
+						};
+			} catch (error) {
+				if (
+					!(error instanceof Error) ||
+					!error.message.startsWith("Missing MCP capability mapping for tool:")
+				) {
+					throw error;
+				}
+				// A single unclassified tool is a configuration defect, not a reason to
+				// take down discovery and every unrelated Code Mode call. Keep it visible
+				// but fail closed until its capability policy is declared.
+				authz = {
+					authorized: false,
+					requiredScopes: [],
+					missingScopes: [],
+					scopeMappingMissing: true,
+				};
 			}
-			// A single unclassified tool is a configuration defect, not a reason to
-			// take down discovery and every unrelated Code Mode call. Keep it visible
-			// but fail closed until its capability policy is declared.
-			authz = {
-				authorized: false,
-				requiredScopes: [],
-				missingScopes: [],
-				scopeMappingMissing: true,
-			};
-		}
-		const native = describeNativeTool(tool);
-		const primaryEntry = {
-			...(typeof toolOrganizationId === "string" && toolOrganizationId
-				? { organization: toolOrganizationId }
-				: {}),
-			...(native ? { native } : {}),
-			...createCatalogToolEntry(ns, safeName, {
+			return authz;
+		};
+		const projection = cachedCatalogProjection(tool, ns, safeName, () => {
+			const paymentPolicy = getToolPaymentPolicy(tool);
+			// Declared write capability folded onto the catalog's annotations, so
+			// discover.search results classify the same way a raw tools/list entry
+			// does (the Kernel write planner consumes both shapes).
+			const wireAnnotations = resolveWireAnnotations(tool);
+			const paymentDescription = paymentPolicy
+				? `\n\nPaid tool: ${paymentPolicy.amount} ${paymentPolicy.currency ?? "USDC"} on ${paymentPolicy.network}. If this call returns payment requirements, return that object directly from code; retry the outer code tool with _meta["x402/payment"] or the code tool's top-level payment argument.`
+				: "";
+			return createCatalogToolEntry(ns, safeName, {
 				name: tool.title ?? toolId,
 				description: `${humanizeWeakDescription(tool.description, safeName)}${paymentDescription}`,
 				parameters: withDestructiveApprovalSchema(tool, wireAnnotations),
@@ -388,8 +421,37 @@ export function buildCatalogProvider(
 					| null
 					| undefined,
 				schemaFreshness: schemaFreshnessFromTool(tool),
-			}),
-			...authz,
+			});
+		});
+		let native: ReturnType<typeof describeNativeTool> | undefined;
+		const primaryEntry = {
+			...projection,
+			...(typeof toolOrganizationId === "string" && toolOrganizationId
+				? { organization: toolOrganizationId }
+				: {}),
+			// Compact discovery never needs a native descriptor for every row.
+			get native() {
+				return (native ??= describeNativeTool(tool)) ?? undefined;
+			},
+			get authorized() {
+				return authorization().authorized;
+			},
+			get requiredScopes() {
+				const decision = authorization();
+				return "requiredScopes" in decision
+					? decision.requiredScopes
+					: undefined;
+			},
+			get missingScopes() {
+				const decision = authorization();
+				return "missingScopes" in decision ? decision.missingScopes : undefined;
+			},
+			get scopeMappingMissing() {
+				const decision = authorization();
+				return "scopeMappingMissing" in decision
+					? decision.scopeMappingMissing
+					: undefined;
+			},
 		};
 		catalog[ns][safeName] = primaryEntry;
 	}
@@ -567,24 +629,25 @@ export function buildCatalogProvider(
 							const targetTool = canonicalMeta ? canonical.tool : name;
 							const callable = targetMeta.callable;
 							const prior = rankedByCallable.get(callable);
-							const priorMatch = recordFrom(prior?.meta)?._match as
-								| CatalogSearchMatch
-								| undefined;
-							if (priorMatch && priorMatch.score >= match.score) continue;
+							if (prior?.score !== undefined && prior.score >= match.score)
+								continue;
 							const groupOwners = isGroupedRoleVerb
 								? roleGroup!.filter((owner) => owner.namespace !== ns)
 								: undefined;
 							rankedByCallable.set(callable, {
 								namespace: targetNamespace,
 								tool: targetTool,
-								meta: {
-									...targetMeta,
-									...(tediOwners.get(callable)
-										? { equivalentTediOwners: tediOwners.get(callable) }
-										: groupOwners && groupOwners.length > 0
-											? { equivalentTediOwners: groupOwners }
-											: {}),
-									_match: match,
+								score: match.score,
+								get meta() {
+									return {
+										...targetMeta,
+										...(tediOwners.get(callable)
+											? { equivalentTediOwners: tediOwners.get(callable) }
+											: groupOwners && groupOwners.length > 0
+												? { equivalentTediOwners: groupOwners }
+												: {}),
+										_match: match,
+									};
 								},
 							});
 						}
@@ -620,6 +683,7 @@ export function buildCatalogProvider(
 							rankedEntries.push({
 								namespace: "skills",
 								tool: row.slug,
+								score: match.score + skillLifecycleBoost(row.lifecycleState),
 								meta: {
 									...row,
 									...(namespaceOrganizations.size > 0 && skillOrganizationId
@@ -639,13 +703,7 @@ export function buildCatalogProvider(
 					// the paid semantic judgment. Explicit namespace filters obey the
 					// same ranking rule as unfiltered discovery.
 					rankedEntries.sort((a, b) => {
-						const aMatch = recordFrom(a.meta)?._match as
-							| CatalogSearchMatch
-							| undefined;
-						const bMatch = recordFrom(b.meta)?._match as
-							| CatalogSearchMatch
-							| undefined;
-						const delta = (bMatch?.score ?? 0) - (aMatch?.score ?? 0);
+						const delta = (b.score ?? 0) - (a.score ?? 0);
 						if (delta !== 0) return delta;
 						return a.namespace === b.namespace
 							? a.tool.localeCompare(b.tool)
