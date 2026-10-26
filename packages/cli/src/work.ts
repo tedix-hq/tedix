@@ -420,6 +420,11 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 		return verb ? 0 : WORK_EXIT_FAIL;
 	}
 	const handler = VERBS[verb];
+	if (!handler && (verb === "neighbours" || verb === "who")) {
+		throw new Error(
+			`"tedix work ${verb}" is not a work verb. The coordination check is \`tedix who --paths <files>\`: it lists the agent sessions that recently touched those files (git only, no organization needed).`,
+		);
+	}
 	if (!handler) {
 		// Nearest-verb guidance instead of the full verb dump: an agent that
 		// typed `hearbeat` needs "did you mean heartbeat", not another --help

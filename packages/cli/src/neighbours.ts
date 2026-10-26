@@ -38,8 +38,9 @@
  * people to skip it, and overlap is frequently legitimate — two agents may
  * correctly touch one hot file. This reports; the reader decides.
  *
- * Zero dependencies. `tedix who` renders the same scan for someone with no
- * Tedix vocabulary; this file's own `main` is `bun run work:neighbours`.
+ * Zero dependencies. `tedix who --paths <files>` is the supported coordination
+ * check and renders the same scan; this file's own `main` is
+ * `bun run work:neighbours` inside this repository.
  *
  * Usage:
  *   bun run work:neighbours                 # your uncommitted paths

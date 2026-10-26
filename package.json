@@ -35,6 +35,7 @@
 		"dev:local:seed": "cd packages/db && bun ../../scripts/dev-local.ts -- wrangler d1 migrations apply DB",
 		"dev:local:test": "bun test scripts/dev-local.test.ts",
 		"worktree:gc": "bun scripts/dev/worktree-gc.ts",
+		"work:neighbours": "bun packages/cli/src/neighbours.ts",
 		"dev:os-stack": "./scripts/dev-with-logs.sh dev os",
 		"docs:public:check": "bun scripts/docs/check-public-docs.ts && bun scripts/docs/check-agents-refs.ts",
 		"eval:memory": "bun scripts/eval/memory-bench/run.ts",
