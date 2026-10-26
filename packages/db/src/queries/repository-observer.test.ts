@@ -347,6 +347,10 @@ it("ages reported and unreported pushes, excludes red follow-ups and other work,
 		id: "active",
 		metadata: pushMetadata,
 	});
+	// Reproduce rows created before advisory pushes were settled at insertion.
+	sqlite.exec(
+		"UPDATE work_items SET disposition = 'proposed', cancelled_at = NULL",
+	);
 	sqlite
 		.prepare(
 			"INSERT INTO work_attempts (id, org_id, work_item_id, attempt_number, runtime_state, started_at, heartbeat_at, executor_type, executor_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -464,6 +468,7 @@ it("bounds concurrent push wakes per project, atomically and across redeliveries
 		await createRepositoryObservation(db, {
 			...event,
 			id,
+			now: new Date().toISOString(),
 			deadline: null,
 			metadata: pushMetadata,
 		});
@@ -507,6 +512,7 @@ it("bounds concurrent push wakes per project, atomically and across redeliveries
 	await createRepositoryObservation(db, {
 		...event,
 		id: "push-d",
+		now: new Date().toISOString(),
 		deadline: null,
 		metadata: pushMetadata,
 	});
@@ -545,6 +551,9 @@ it.each(["completed", "cancelled"])(
 				event: { ...pushMetadata.event, kind: "ci_red" },
 			},
 		});
+		sqlite.exec(
+			"UPDATE work_items SET disposition = 'proposed', cancelled_at = NULL",
+		);
 		const now = "2026-10-19T12:00:00Z";
 		expect(await settleAgedRepositoryPushObservations(db, now)).toHaveLength(0);
 		sqlite
@@ -587,4 +596,88 @@ it("closes the observation beside a report on another Work item, preserving the 
 	expect(
 		sqlite.prepare("SELECT work_item_id FROM work_item_comments").all(),
 	).toEqual([{ work_item_id: "source-work" }]);
+});
+
+it("records and deduplicates pushes off the open board while preserving pending reviews", async () => {
+	const { db, sqlite } = fixture();
+	const now = new Date().toISOString();
+	const push = { ...event, now, deadline: null, metadata: pushMetadata };
+	await createRepositoryObservation(db, push);
+	await createRepositoryObservation(db, push);
+	await createRepositoryObservation(db, { ...event, id: "red" });
+	expect(
+		sqlite
+			.prepare(
+				"SELECT id FROM work_items WHERE disposition IN ('proposed','accepted')",
+			)
+			.all(),
+	).toEqual([{ id: "red" }]);
+	const row = await getRepositoryObservation(db, event.orgId, event.id);
+	expect(row?.cancelledAt).toBe(now);
+	expect(row?.metadata?.event).toEqual(pushMetadata.event);
+	expect(
+		(await pendingRepositoryObservations(db, event.orgId, event.projectId)).map(
+			(r) => r.id,
+		),
+	).toContain(event.id);
+	expect(
+		await pendingRepositoryObservations(db, "other-org", event.projectId),
+	).toEqual([]);
+	await reportRepositoryObservation(db, reportInput(event.id, {}));
+	expect(
+		(await pendingRepositoryObservations(db, event.orgId, event.projectId)).map(
+			(r) => r.id,
+		),
+	).not.toContain(event.id);
+});
+
+it.each(["applied", "not_applicable", "unknown", "not_applied"])(
+	"opens push Work only for an unapplied lesson: %s",
+	async (verdict) => {
+		const { db } = fixture();
+		await createRepositoryObservation(db, { ...event, metadata: pushMetadata });
+		const report = {
+			...reportInput(event.id, {}),
+			report: { stillRed: false, lessons: [{ lessonId: "lesson-a", verdict }] },
+		};
+		await reportRepositoryObservation(db, report);
+		await reportRepositoryObservation(db, report);
+		const row = await getRepositoryObservation(db, event.orgId, event.id);
+		expect(row?.disposition).toBe(
+			verdict === "not_applied" ? "proposed" : "cancelled",
+		);
+		if (verdict === "not_applied") {
+			expect(row?.cancelledAt).toBeNull();
+			expect(row?.version).toBe(2);
+			expect(
+				await settleAgedRepositoryPushObservations(db, "2026-10-20T12:00:00Z"),
+			).toEqual([]);
+		}
+	},
+);
+
+it("does not revive manually cancelled pushes or review expired advisory records", async () => {
+	const { db, sqlite } = fixture();
+	await createRepositoryObservation(db, { ...event, metadata: pushMetadata });
+	await deferRepositoryObserverWake(db, {
+		orgId: event.orgId,
+		id: event.id,
+		now: event.now,
+	});
+	expect(await deferredRepositoryPushObservations(db)).toEqual([]);
+	expect(
+		await pendingRepositoryObservations(db, event.orgId, event.projectId),
+	).toEqual([]);
+	sqlite
+		.prepare(
+			"UPDATE work_items SET metadata = json_set(metadata, '$.settleReason', 'owner cancelled') WHERE id = ?",
+		)
+		.run(event.id);
+	await reportRepositoryObservation(db, {
+		...reportInput(event.id, {}),
+		report: { lessons: [{ lessonId: "lesson-a", verdict: "not_applied" }] },
+	});
+	expect(
+		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
+	).toBe("cancelled");
 });
