@@ -7,7 +7,7 @@ import {
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import { describe, expect, it } from "vite-plus/test";
-import { hydrateAggregateRuntimeKinds } from "../index";
+import { hydrateAggregateRuntimeKinds } from "../mcp-request";
 import {
 	buildAggregateTediTools,
 	buildTediCodeInvocation,
