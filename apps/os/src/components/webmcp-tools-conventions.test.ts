@@ -3,6 +3,7 @@ import type { WebMcpToolDef } from "@tedix/webmcp-core/model-context";
 import { describe, expect, it } from "vite-plus/test";
 import { buildActivityFeedTools } from "./activity-feed-webmcp-tools";
 import { buildApiKeysWebMcpTools } from "./api-keys-webmcp-tools";
+import { buildAppEditTools } from "./app-edit-webmcp-tools";
 import { buildAttentionWebMcpTools } from "./attention-webmcp-tools";
 import { buildCardReviewWebMcpTools } from "./card-review-webmcp-tools";
 import { buildChatWebMcpTools } from "./chat-webmcp-tools";
@@ -26,6 +27,11 @@ const groups: Record<string, WebMcpToolDef[]> = {
 		prepareCreate: unexpectedExecution,
 		prepareAction: unexpectedExecution,
 	}),
+	"app-edit": buildAppEditTools(
+		"example-workspace",
+		"example-conversation",
+		unexpectedExecution,
+	),
 	attention: buildAttentionWebMcpTools(unexpectedExecution),
 	"card-review": buildCardReviewWebMcpTools(unexpectedExecution, ["mail"]),
 	chat: buildChatWebMcpTools(),
@@ -72,7 +78,7 @@ function parameterFailures(schema: unknown, path = "input"): string[] {
 function conventionFailures(tool: WebMcpToolDef): string[] {
 	const failures: string[] = [];
 	if (
-		!/^(?:read|react|list|get|create|comment|send|delegate|respond|run|explain|preview|check|prepare|update|revise|patch|set)_[a-z0-9]+(?:_[a-z0-9]+)*$/.test(
+		!/^(?:read|react|list|get|create|comment|send|delegate|respond|run|explain|preview|check|prepare|update|revise|patch|set|propose)_[a-z0-9]+(?:_[a-z0-9]+)*$/.test(
 			tool.name,
 		)
 	)
@@ -93,7 +99,7 @@ function conventionFailures(tool: WebMcpToolDef): string[] {
 			"annotations: authored read content missing untrustedContentHint",
 		);
 	const writes =
-		/^(?:react|prepare|update|respond|send|delegate|revise|patch|set|run|comment|create)_/.test(
+		/^(?:react|prepare|update|respond|send|delegate|revise|patch|set|run|comment|create|propose)_/.test(
 			tool.name,
 		);
 	if (writes && tool.annotations.readOnlyHint === true)

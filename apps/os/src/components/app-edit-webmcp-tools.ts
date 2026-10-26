@@ -62,11 +62,21 @@ export function buildAppEditTools(
 		{
 			name: "propose_app_edit",
 			description:
-				"Propose exact text replacements in the current app files. Read files first. Saves a draft for Preview and Accept; the live app keeps running.",
-			annotations: { readOnlyHint: false },
+				"Propose exact text replacements in the current app files after reading them. Saves a draft for Preview and Accept; the live app keeps running.",
+			annotations: { readOnlyHint: false, consequentialHint: true },
 			inputSchema: deriveToolSchema(
 				contractInputSchema(osAppRuntimeContract.proposeEdit),
-				{ pick: ["gadgetId", "expectedRevisionId", "edits"] },
+				{
+					pick: ["gadgetId", "expectedRevisionId", "edits"],
+					override: {
+						gadgetId: {
+							description: "The runtime app id in this workspace.",
+						},
+						expectedRevisionId: {
+							description: "The revisionId returned by read_app_files.",
+						},
+					},
+				},
 			),
 			execute: async (args) => {
 				try {
