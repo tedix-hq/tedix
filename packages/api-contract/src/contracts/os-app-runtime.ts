@@ -4,6 +4,10 @@ import { z } from "zod";
 import { baseErrors } from "../errors";
 import { JsonValueSchema } from "../schemas/common";
 import {
+	OsGadgetResourceGrantSchema,
+	OsOutputContentSchema,
+} from "../schemas/os-workspaces";
+import {
 	AppRuntimeScopeSchema,
 	AppRuntimeMethodSchema,
 	AppRuntimeArgumentsSchema,
@@ -15,6 +19,34 @@ export const osAppRuntimeContract = oc
 	.route({ tags: ["os-app-runtime"], prefix: "/os-app-runtime" })
 	.errors(baseErrors)
 	.router({
+		client: oc
+			.route({
+				method: "POST",
+				path: "/client",
+				summary: "Read the opened app's browser client",
+			})
+			.input(AppRuntimeScopeSchema.strict())
+			.output(
+				AppRuntimeSessionResultSchema.extend({
+					client: z.string(),
+					revision: z.number().int().positive(),
+					settings: z.record(z.string(), JsonValueSchema),
+					grants: z.array(OsGadgetResourceGrantSchema),
+				}),
+			),
+		readOutput: oc
+			.route({
+				method: "POST",
+				path: "/read-output",
+				summary: "Read an Output through an opened app slot",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					session: z.string().min(1).max(16000),
+					slot: z.string().min(1).max(160),
+				}).strict(),
+			)
+			.output(OsOutputContentSchema),
 		open: oc
 			.route({
 				method: "POST",
