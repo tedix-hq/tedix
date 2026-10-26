@@ -19,13 +19,33 @@ const callServer = createAppRuntimeServerCall(
 	},
 );
 const starter = new URLSearchParams(location.search).has("starter");
+// A fake on-device translator stands in for Chrome's, which headless browsers lack.
+const translateClient = `
+self.Translator = { create: async () => ({ translate: async (text) => '[en] ' + text }) };
+const root = document.getElementById('app');
+let page = 1;
+const render = () => {
+  const title = document.createElement('h1');
+  title.textContent = 'Karte ' + page;
+  const name = document.createElement('span');
+  name.setAttribute('translate', 'no');
+  name.textContent = 'r/Finanzen';
+  const next = document.createElement('button');
+  next.textContent = 'Weiter';
+  next.onclick = () => { page++; render(); };
+  root.replaceChildren(title, name, next);
+};
+render();
+`;
 const html = buildAppRuntimeDocument({
 	"server.js": "",
-	"client.js": new URLSearchParams(location.search).has("escape")
-		? `const destination = ${JSON.stringify(new URLSearchParams(location.search).get("destination"))};\n${escapeClient}`
-		: starter
-			? starterClient
-			: `
+	"client.js": new URLSearchParams(location.search).has("translate")
+		? translateClient
+		: new URLSearchParams(location.search).has("escape")
+			? `const destination = ${JSON.stringify(new URLSearchParams(location.search).get("destination"))};\n${escapeClient}`
+			: starter
+				? starterClient
+				: `
 const root = document.getElementById('app');
 const status = document.createElement('p');
 status.setAttribute('role', 'status');
