@@ -509,6 +509,10 @@ const restore = authorOs.workspaces.restore.handler(
 	},
 );
 
+/** Agent suggestions are the record of who changed what, so they outlive a delete. */
+const WORKSPACE_REVIEW_HISTORY_MESSAGE =
+	"Agents suggested changes to documents or apps in this workspace. Tedix keeps those suggestions as a record of who changed what, so this workspace can't be deleted. Keep it archived: it stays hidden from Workspaces.";
+
 const deleteWorkspace = adminOs.workspaces.delete.handler(
 	async ({ input, context }) => {
 		const workspace = await requireWorkspace(context, input.workspaceId, {
@@ -517,7 +521,7 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 		if (workspace.status !== "archived") {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"Archive the workspace before permanently deleting it",
+				"Archive this workspace before you delete it permanently.",
 			);
 		}
 		const proposals = await listOsCollaborationProposals(
@@ -528,7 +532,7 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 		if (proposals.length > 0) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"Workspace has retained collaboration evidence and cannot be permanently deleted",
+				WORKSPACE_REVIEW_HISTORY_MESSAGE,
 			);
 		}
 		const shares = await listOsShareLinks(queryDb(context), {
@@ -539,7 +543,7 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 		if (shares.some((share) => share.revokedAt === null)) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"Revoke every share link before permanently deleting the workspace",
+				"This workspace still has share links. Turn them off, then delete it.",
 			);
 		}
 		const removed = await deleteOsWorkspace(queryDb(context), {

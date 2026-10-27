@@ -12,7 +12,8 @@ import {
 } from "vite-plus/test";
 
 const api = vi.hoisted(() => ({
-	workspaces: { list: vi.fn(), restore: vi.fn() },
+	workspaces: { list: vi.fn(), restore: vi.fn(), delete: vi.fn() },
+	collaboration: { list: vi.fn() },
 	workspacePreferences: {
 		list: vi.fn(),
 		setFavorite: vi.fn(),
@@ -21,8 +22,10 @@ const api = vi.hoisted(() => ({
 }));
 const navigate = vi.hoisted(() => vi.fn());
 
+const shares = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }));
+
 vi.mock("@/lib/api", () => ({
-	osApi: { osWorkspaces: api },
+	osApi: { osWorkspaces: api, osShares: { shares } },
 }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
@@ -490,6 +493,127 @@ describe("WorkspaceLibraryPage", () => {
 		);
 		// The shared workspaces key refreshes the lists after a restore.
 		expect(api.workspaces.list.mock.calls.length).toBeGreaterThan(listCalls);
+		act(() => root.unmount());
+	});
+
+	async function openDelete(archivedWorkspace: OsWorkspace) {
+		api.workspaces.list.mockImplementation(
+			async (input: { status?: string }) =>
+				input.status === "archived"
+					? { items: [archivedWorkspace], truncated: false }
+					: { items: [workspace()], truncated: false },
+		);
+		const rendered = await renderPage();
+		const archivedTab = Array.from(
+			rendered.container.querySelectorAll("button"),
+		).find((button) => button.textContent?.trim() === "Archived");
+		if (!archivedTab) throw new Error("Archived view missing");
+		click(archivedTab);
+		await flush();
+		const remove = rendered.container.querySelector(
+			`button[aria-label="Delete ${archivedWorkspace.name} permanently"]`,
+		);
+		if (!remove) throw new Error("Delete button missing");
+		click(remove);
+		await flush();
+		const dialog = document.querySelector('[role="alertdialog"]');
+		if (!dialog) throw new Error("Delete dialog missing");
+		const action = (label: string) => {
+			const match = Array.from(dialog.querySelectorAll("button")).find(
+				(button) => button.textContent?.trim() === label,
+			);
+			if (!match) throw new Error(`button not found: ${label}`);
+			return match;
+		};
+		return { ...rendered, dialog, action };
+	}
+
+	it("deletes an archived workspace after its name is typed, turning links off first", async () => {
+		const archivedWorkspace = workspace({
+			id: SECOND_WORKSPACE_ID,
+			name: "Work",
+			status: "archived",
+		});
+		api.collaboration.list.mockResolvedValue({ items: [], truncated: false });
+		shares.list.mockResolvedValue({
+			items: [
+				{
+					id: "share-live",
+					revokedAt: null,
+					disabledAt: null,
+					expiresAt: null,
+				},
+				{
+					id: "share-gone",
+					revokedAt: "2026-10-01T00:00:00.000Z",
+					disabledAt: null,
+					expiresAt: null,
+				},
+			],
+		});
+		shares.revoke.mockResolvedValue({});
+		api.workspaces.delete.mockResolvedValue({ deleted: true });
+		const { container, dialog, action, root } =
+			await openDelete(archivedWorkspace);
+
+		const text = dialog.textContent ?? "";
+		expect(text).toContain("Deleted for good");
+		expect(text).toContain("Its apps, with every saved version");
+		expect(text).toContain("Kept");
+		expect(text).toContain(
+			"Documents, sheets and slides. They stay in Outputs.",
+		);
+		expect(text).toContain("1 share link is still on");
+		const confirm = action("Turn off links and delete");
+		expect(confirm.disabled).toBe(true);
+
+		const field = dialog.querySelector("input");
+		if (!(field instanceof HTMLInputElement)) throw new Error("name field");
+		setFieldValue(field, "Wor");
+		expect(confirm.disabled).toBe(true);
+		setFieldValue(field, "Work");
+		expect(confirm.disabled).toBe(false);
+		// A real click is cancelable, so the button does not also submit the form.
+		act(() => confirm.click());
+		await flush();
+
+		expect(shares.revoke).toHaveBeenCalledTimes(1);
+		expect(shares.revoke).toHaveBeenCalledWith({ shareId: "share-live" });
+		expect(api.workspaces.delete).toHaveBeenCalledWith({
+			workspaceId: SECOND_WORKSPACE_ID,
+		});
+		expect(shares.revoke.mock.invocationCallOrder[0]).toBeLessThan(
+			api.workspaces.delete.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(container.textContent).toContain("Work was deleted permanently.");
+		act(() => root.unmount());
+	});
+
+	it("explains why agent suggestions keep a workspace from being deleted", async () => {
+		const archivedWorkspace = workspace({
+			id: SECOND_WORKSPACE_ID,
+			name: "Reviewed",
+			status: "archived",
+			visibility: "private",
+		});
+		api.collaboration.list.mockResolvedValue({
+			items: [{ id: "proposal-1" }],
+			truncated: false,
+		});
+		const { dialog, root } = await openDelete(archivedWorkspace);
+
+		expect(dialog.textContent).toContain(
+			"Tedix keeps those suggestions as a record of who changed what",
+		);
+		expect(dialog.querySelector("input")).toBeNull();
+		expect(
+			Array.from(dialog.querySelectorAll("button")).map((b) =>
+				b.textContent?.trim(),
+			),
+		).toEqual(["Close"]);
+		// A private workspace cannot hold share links, so none are looked up.
+		expect(shares.list).not.toHaveBeenCalled();
+		expect(api.workspaces.delete).not.toHaveBeenCalled();
 		act(() => root.unmount());
 	});
 

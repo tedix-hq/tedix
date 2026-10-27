@@ -8,7 +8,7 @@ import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 
 type TypedConfirmDialogProps = Omit<
 	ComponentProps<typeof ConfirmDialog>,
-	"children" | "onConfirm" | "confirmDisabled" | "form"
+	"onConfirm" | "form"
 > & {
 	expectedName: string;
 	nameLabel: string;
@@ -26,6 +26,8 @@ function TypedConfirmation({
 	expectedName,
 	nameLabel,
 	onConfirm,
+	children,
+	confirmDisabled = false,
 	...props
 }: TypedConfirmDialogProps) {
 	const formId = useId();
@@ -33,7 +35,8 @@ function TypedConfirmation({
 		schema: exactConfirmationSchema(expectedName, nameLabel),
 		defaultValues: { confirmation: "" },
 		onSubmit: ({ value }) => {
-			if (!props.isPending && expectedName) onConfirm(value.confirmation);
+			if (!props.isPending && !confirmDisabled && expectedName)
+				onConfirm(value.confirmation);
 		},
 	});
 	const confirmation = useStore(
@@ -44,9 +47,12 @@ function TypedConfirmation({
 		<ConfirmDialog
 			{...props}
 			form={formId}
-			confirmDisabled={!expectedName || confirmation !== expectedName}
+			confirmDisabled={
+				confirmDisabled || !expectedName || confirmation !== expectedName
+			}
 			onConfirm={() => void form.handleSubmit()}
 		>
+			{children}
 			<form
 				id={formId}
 				onSubmit={(event) => {

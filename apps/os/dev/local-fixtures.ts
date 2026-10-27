@@ -8432,6 +8432,40 @@ const handlers: Record<string, (input: never) => unknown> = {
 		workspace.updatedAt = now();
 		return { workspace };
 	},
+	// Mirrors the API's refusals; outputs keep their workspace id, apps go.
+	"osWorkspaces/workspaces/delete": (input: { workspaceId: string }) => {
+		const workspace = findWorkspace(input.workspaceId);
+		if (workspace.status !== "archived")
+			throw new RpcError(
+				"BAD_REQUEST",
+				"Archive this workspace before you delete it permanently.",
+			);
+		if (
+			state.collaborationProposals.some(
+				(row) => row.workspaceId === workspace.id,
+			)
+		)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"Agents suggested changes to documents or apps in this workspace. Tedix keeps those suggestions as a record of who changed what, so this workspace can't be deleted. Keep it archived: it stays hidden from Workspaces.",
+			);
+		if (
+			(localShareLinks.get(`workspace:${workspace.id}`) ?? []).some(
+				(link) => link.revokedAt === null,
+			)
+		)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"This workspace still has share links. Turn them off, then delete it.",
+			);
+		state.workspaces = state.workspaces.filter(
+			(row) => row.id !== workspace.id,
+		);
+		state.gadgets = state.gadgets.filter(
+			(row) => row.workspaceId !== workspace.id,
+		);
+		return { deleted: true as const };
+	},
 	"osWorkspaces/workspacePreferences/list": () => ({
 		items: [...state.workspacePreferences],
 	}),

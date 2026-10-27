@@ -603,6 +603,7 @@ const CALLS = {
 	"osWorkspaces/workspaces/removeIcon": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspaces/archive": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspaces/restore": { workspaceId: IDS.workspaceRevenue },
+	"osWorkspaces/workspaces/delete": { workspaceId: IDS.workspaceSupport },
 	"osWorkspaces/workspacePreferences/list": {},
 	"osWorkspaces/workspacePreferences/setFavorite": {
 		workspaceId: IDS.workspaceRevenue,
@@ -1030,6 +1031,8 @@ describe("local fixtures parse through the contract output schemas", () => {
 									).link.id,
 								}
 							: input;
+			if (key === "osWorkspaces/workspaces/delete")
+				callLocalOk("osWorkspaces/workspaces/archive", input);
 			if (key === "osCollaborators/setRole")
 				callLocalOk("osCollaborators/add", CALLS["osCollaborators/add"]);
 			const output = callLocalOk(key, shareInput);

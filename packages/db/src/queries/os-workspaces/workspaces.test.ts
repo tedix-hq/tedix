@@ -12,8 +12,10 @@ import {
 	kernelRuntimeRuns,
 } from "../../schema/cognitive-runtime";
 import {
+	osGadgets,
 	osOutputRevisions,
 	osOutputs,
+	osWorkspaceResources,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
 import { userConfigs } from "../../schema/user-configs";
@@ -32,7 +34,7 @@ import {
 	updateOsWorkspace,
 } from "./workspaces";
 
-function fixture() {
+function fixture(...extraTables: Parameters<typeof schemaDdl>) {
 	const sqlite = new DatabaseSync(":memory:");
 	// The OS table is emitted from the same Drizzle object production uses, so a
 	// column added to `os_workspaces` cannot drift away from what this fixture
@@ -51,6 +53,7 @@ function fixture() {
 			osWorkspaceAccessEdges,
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
+			...extraTables,
 		),
 	);
 	return createDbQueryClient(createD1Facade(sqlite));
@@ -143,6 +146,50 @@ describe("os workspaces", () => {
 			}),
 		).toBe(true);
 		expect(await listOsWorkspaces(db, "org-1", ANYONE)).toHaveLength(0);
+	});
+
+	it("takes the workspace's apps and resource links with it but keeps its outputs", async () => {
+		const db = fixture(osGadgets, osWorkspaceResources, osOutputs);
+		await createOsWorkspace(db, workspace);
+		const createdBy = { createdByKind: "user" as const, createdById: "u-1" };
+		await db.insert(osGadgets).values({
+			id: "app-1",
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			name: "Scratch app",
+			...createdBy,
+		});
+		await db.insert(osWorkspaceResources).values({
+			id: "res-1",
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "file",
+			providerResourceId: "upload-1",
+			name: "notes.pdf",
+			...createdBy,
+		});
+		await db.insert(osOutputs).values({
+			id: "out-1",
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			kind: "document",
+			title: "Kept notes",
+			...createdBy,
+		});
+
+		expect(
+			await deleteOsWorkspace(db, {
+				organizationId: "org-1",
+				workspaceId: "ws-1",
+			}),
+		).toBe(true);
+		expect(await db.select().from(osGadgets)).toHaveLength(0);
+		expect(await db.select().from(osWorkspaceResources)).toHaveLength(0);
+		expect(await db.select().from(osOutputs)).toMatchObject([
+			{ id: "out-1", workspaceId: "ws-1" },
+		]);
 	});
 
 	it("deletes every user's presentation preference in the same D1 batch", async () => {
