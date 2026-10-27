@@ -2519,6 +2519,20 @@ describe("Canvas Cloudflare-reference composition", () => {
 			/\.canvas-chat-resizer::after\s*\{[\s\S]*?right:\s*-6px;[\s\S]*?left:\s*-6px;/,
 		);
 	});
+
+	it("keeps a 44px hit target on the workspace chrome through the tablet widths", () => {
+		const styles = readFileSync("src/components/canvas-page.css", "utf8");
+		const tablet = styles.match(
+			/@media \(max-width: 819px\) \{([\s\S]*?)\n\}/,
+		)?.[1];
+		expect(tablet).toBeDefined();
+		expect(tablet).toMatch(
+			/\.canvas-workspace-header button,[\s\S]*?\.canvas-workpiece-bar button\s*\{[\s\S]*?min-width:\s*44px;[\s\S]*?min-height:\s*44px;/,
+		);
+		expect(tablet).toMatch(
+			/\.canvas-workpiece-bar\s*\{[\s\S]*?height:\s*auto;[\s\S]*?min-height:\s*48px;/,
+		);
+	});
 });
 
 // ---------------------------------------------------------------------------
