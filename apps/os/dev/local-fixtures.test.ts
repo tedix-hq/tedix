@@ -386,6 +386,7 @@ const CALLS = {
 	"userSettings/getContext": {},
 	"userSettings/getBrowserMcpAuthorization": {},
 	"organizations/listAllMine": {},
+	"organizations/listOsMine": {},
 	"organizations/getMyOrganization": {},
 	"modelCatalog/list": {},
 	"externalAgentIdentity/listPrincipals": { organizationId: IDS.orgId },
