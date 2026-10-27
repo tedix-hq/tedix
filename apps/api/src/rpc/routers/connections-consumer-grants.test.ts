@@ -45,11 +45,11 @@ async function setup() {
 		},
 		{ id: "org-2", name: "Other", slug: "other" },
 	]);
-	const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-		new Response(JSON.stringify({ token: { accessToken: "opaque" } }), {
-			headers: { "Content-Type": "application/json" },
-		}),
-	);
+	const fetch = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(async () =>
+			Response.json({ token: { accessToken: "opaque" } }),
+		);
 	const context = {
 		authType: "service-binding",
 		db,

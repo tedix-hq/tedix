@@ -423,6 +423,13 @@ const CALLS = {
 	},
 	"connections/getUserConnections": {},
 	"connections/getConnectionsOverview": { scope: "organization" },
+	"connections/getAllowedResources": { providerId: "github" },
+	"connections/setAllowedResources": {
+		providerId: "github",
+		allowedResources: [
+			{ resourceType: "github_repository", resourceId: "example/repo-x" },
+		],
+	},
 	"connections/getConsumerGrants": { providerId: "github" },
 	"connections/setConsumerGrants": {
 		providerId: "github",

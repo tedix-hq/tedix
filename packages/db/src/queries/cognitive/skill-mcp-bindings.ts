@@ -25,7 +25,11 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { skillEntries } from "../../schema/cognitive";
-import { isAggregateSourceAllowed } from "../app-records";
+import {
+	filterAppConnectionResourceTools,
+	isAggregateSourceAllowed,
+} from "../app-records";
+import { getToolsByAppId } from "../tools";
 import { chunkForBoundParams } from "../../utils/batch";
 import { parseSkillFrontmatterCapabilities } from "./skill-tool-metadata";
 
@@ -60,6 +64,7 @@ interface BindableApp {
 	slug: string;
 	organizationId: string;
 	visibility: "public" | "private" | "disabled" | null;
+	metadata: typeof apps.$inferSelect.metadata;
 }
 
 const appColumns = {
@@ -67,6 +72,7 @@ const appColumns = {
 	slug: apps.slug,
 	organizationId: apps.organizationId,
 	visibility: apps.visibility,
+	metadata: apps.metadata,
 };
 
 function isBindable(app: BindableApp, organizationId: string): boolean {
@@ -234,7 +240,32 @@ export async function resolveSkillMcpAppBindings(
 			bySlug,
 			gatewayAppIds,
 		);
-		if (app && isBindable(app, params.organizationId)) out[namespace] = app.id;
+		if (app && isBindable(app, params.organizationId)) {
+			if (app.metadata?.mcpConfig?.connectionProviderId) {
+				const tools = (await getToolsByAppId(db, app.id)).filter(
+					(tool) => tool.enabled,
+				);
+				const allowed = new Set(
+					(await filterAppConnectionResourceTools(db, app, tools)).map(
+						(tool) => tool.id,
+					),
+				);
+				const methods =
+					parseSkillFrontmatterCapabilities(params.content).mcp[namespace] ??
+					[];
+				if (
+					tools.some(
+						(tool) =>
+							!allowed.has(tool.id) &&
+							(methods.includes("*") || methods.includes(tool.toolId)),
+					)
+				)
+					throw new Error(
+						`Connection resource limits refuse a declared method in ${namespace}`,
+					);
+			}
+			out[namespace] = app.id;
+		}
 	}
 	return Object.keys(out).length ? out : null;
 }

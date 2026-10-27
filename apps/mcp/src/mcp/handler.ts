@@ -345,6 +345,19 @@ export class ToolHandler {
 			if (denial) return { status: 403, data: { error: denial } };
 		}
 
+		if (
+			(config.auth?.type === "connection" ||
+				selectedConnectionInstanceId(ctx)) &&
+			!["mcp", "external"].includes(transport)
+		) {
+			return {
+				status: 403,
+				data: {
+					error: "Connection credentials are unsupported for this transport",
+				},
+			};
+		}
+
 		if (transport === "catalog") {
 			const configured = CatalogueTransportConfigSchema.safeParse(config);
 			if (!configured.success || !ctx.catalogTransport) {

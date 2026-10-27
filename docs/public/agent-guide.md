@@ -595,6 +595,26 @@ Approve a separate `resource.grant` proposal when agents should use that account
 Creating an agent does not grant an Earned Delegation entrustment or recertify
 one. Direct `tedis.create` remains available under its existing authorization.
 
+## Limit a GitHub connection
+
+An administrator can open **Accounts → Organization**, expand a GitHub account's
+**Details**, and enable **Only these repositories**. Enter one `owner/repository`
+per line, then save. An empty list blocks every repository. Limits on the default
+connection also apply to its named organization accounts; an account's own limit
+can narrow that list further. Consumer grants still decide which tedis and skill
+revisions may use the connection.
+
+Limited GitHub connections support issue updates (`issue_write` with
+`method: "update"`), file reads (`get_file_contents`), and file updates
+(`create_or_update_file`) through GitHub's official MCP endpoint. Other operations
+and transports are refused when limits are set. Personal connections keep their
+own access rules.
+
+A pending approval does not preserve access. Execution checks the current limits
+again, including a provider's approval continuation. Removing a repository while
+its update awaits approval prevents that replay from making the update. Agents
+must report a refusal and request the required access rather than switch accounts.
+
 ## Authority and evidence rules
 
 - Read-only discovery does not authorize a mutation.

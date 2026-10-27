@@ -10,11 +10,32 @@ import { TOOL_OPERATIONAL_RISK_TIER_VALUES } from "./tools";
 /** Null means whole account; an empty list denies all resources. */
 export const ConnectionAllowedResourcesSchema = z
 	.array(
-		z
-			.object({ resourceType: z.literal("notion_page"), resourceId: z.uuid() })
-			.strict(),
+		z.discriminatedUnion("resourceType", [
+			z
+				.object({
+					resourceType: z.literal("notion_page"),
+					resourceId: z.uuid(),
+				})
+				.strict(),
+			z
+				.object({
+					resourceType: z.literal("github_repository"),
+					resourceId: z
+						.string()
+						.regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,38})\/[a-zA-Z0-9_.-]{1,100}$/)
+						.refine((id) => ![".", ".."].includes(id.split("/")[1]!)),
+				})
+				.strict(),
+		]),
 	)
-	.max(100);
+	.max(100)
+	.refine(
+		(resources) =>
+			resources.every(
+				(resource) => resource.resourceType === resources[0]?.resourceType,
+			),
+		"Use one resource type per connection",
+	);
 export type ConnectionAllowedResources = z.infer<
 	typeof ConnectionAllowedResourcesSchema
 >;

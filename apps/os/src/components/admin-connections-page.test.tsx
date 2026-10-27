@@ -48,6 +48,9 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/capability-navigation", () => ({
 	CapabilityNavigation: () => null,
 }));
+vi.mock("@/components/connection-resource-limits", () => ({
+	ConnectionResourceLimitsEditor: () => <span>Resource limit controls</span>,
+}));
 vi.mock("@/components/connection-consumer-grants", () => ({
 	ConnectionConsumerGrantsEditor: () => <span>Consumer grant controls</span>,
 }));

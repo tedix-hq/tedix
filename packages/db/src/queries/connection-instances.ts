@@ -1,3 +1,8 @@
+import {
+	ConnectionAllowedResourcesSchema,
+	type ConnectionAllowedResources,
+} from "@tedix/api-contract/schemas/connections";
+import { organizations } from "../schema/organizations";
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { connectionInstances } from "../schema/connection-instances";
@@ -69,6 +74,27 @@ export async function createConnectionInstance(
 	return rows[0]!;
 }
 
+/** Organization-scoped resource changes take effect on the next credential lookup. */
+export async function setConnectionAllowedResources(
+	db: DbQueryClient,
+	organizationId: string,
+	id: string,
+	providerId: string,
+	allowedResources: typeof connectionInstances.$inferInsert.allowedResources,
+) {
+	return db
+		.update(connectionInstances)
+		.set({ allowedResources, updatedAt: new Date().toISOString() })
+		.where(
+			and(
+				eq(connectionInstances.id, id),
+				eq(connectionInstances.organizationId, organizationId),
+				eq(connectionInstances.providerId, providerId),
+			),
+		)
+		.returning();
+}
+
 export async function renameConnectionInstance(
 	db: DbQueryClient,
 	owner: ConnectionOwner,
@@ -133,4 +159,49 @@ export async function clearConnectionGrants(
 		.set({ tokenIds: [], updatedAt: new Date().toISOString() })
 		.where(and(eq(connectionInstances.id, id), ownerPredicate(owner)))
 		.returning();
+}
+
+/** Provider limits also cover default API-key connections and every named account. */
+export async function getOrganizationConnectionAllowedResources(
+	db: DbQueryClient,
+	organizationId: string,
+	providerId: string,
+): Promise<ConnectionAllowedResources | null> {
+	const path = `$.connectionResourceLimits."${encodeURIComponent(providerId)}"`;
+	const [row] = await db
+		.select({
+			policy: sql<
+				string | null
+			>`json_extract(${organizations.metadata}, ${path})`,
+		})
+		.from(organizations)
+		.where(eq(organizations.id, organizationId))
+		.limit(1);
+	if (!row)
+		throw new Error(
+			"Organization not found while resolving connection resources",
+		);
+	return row.policy === null
+		? null
+		: ConnectionAllowedResourcesSchema.parse(JSON.parse(row.policy));
+}
+
+export async function setOrganizationConnectionAllowedResources(
+	db: DbQueryClient,
+	organizationId: string,
+	providerId: string,
+	allowedResources: ConnectionAllowedResources | null,
+) {
+	const validated =
+		ConnectionAllowedResourcesSchema.nullable().parse(allowedResources);
+	const path = `$.connectionResourceLimits."${encodeURIComponent(providerId)}"`;
+	const [row] = await db
+		.update(organizations)
+		.set({
+			metadata: sql`json_set(coalesce(${organizations.metadata}, '{}'), ${path}, json(${JSON.stringify(validated)}))`,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(eq(organizations.id, organizationId))
+		.returning({ id: organizations.id });
+	return row;
 }

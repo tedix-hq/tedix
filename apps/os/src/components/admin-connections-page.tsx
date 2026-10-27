@@ -76,6 +76,7 @@ import {
 	groupAccounts,
 	type ServiceHealth,
 } from "@/components/account-list";
+import { ConnectionResourceLimitsEditor } from "@/components/connection-resource-limits";
 import { ConnectionConsumerGrantsEditor } from "@/components/connection-consumer-grants";
 import {
 	DisconnectConnectionDialog,
@@ -860,12 +861,18 @@ export function AdminConnectionsPage({
 							renderConsumerGrants={
 								scope === "organization"
 									? (row) => (
-											<ConnectionConsumerGrantsEditor
-												providerId={row.provider.appId}
-												connectionInstanceId={row.connectionInstanceId}
-												accountLabel={accountDisplayLabel(row)}
-												canManage={canManageConnections}
-											/>
+											<div className="grid gap-4">
+												<ConnectionConsumerGrantsEditor
+													providerId={row.provider.appId}
+													connectionInstanceId={row.connectionInstanceId}
+													accountLabel={accountDisplayLabel(row)}
+													canManage={canManageConnections}
+												/>
+												<ConnectionResourceLimitsEditor
+													row={row}
+													canManage={canManageConnections}
+												/>
+											</div>
 										)
 									: undefined
 							}

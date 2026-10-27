@@ -13,6 +13,7 @@
 		"./contracts/web-push": "./src/contracts/web-push.ts",
 		"./contracts/os-app-runtime": "./src/contracts/os-app-runtime.ts",
 		"./utils/app-draft-merge": "./src/utils/app-draft-merge.ts",
+		"./utils/connection-resource-policy": "./src/utils/connection-resource-policy.ts",
 		"./utils/connection-capabilities": "./src/utils/connection-capabilities.ts",
 		"./utils/connection-account-mode": "./src/utils/connection-account-mode.ts",
 		"./utils/decision-autonomy": "./src/utils/decision-autonomy.ts",

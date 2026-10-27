@@ -5,6 +5,12 @@
  * evaluate every unrelated DB query module in a fresh Worker isolate.
  */
 
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { resolveConnectionResourceAccess } from "@tedix/api-contract/utils/connection-resource-policy";
+import {
+	getConnectionInstance,
+	getOrganizationConnectionAllowedResources,
+} from "./connection-instances";
 import type { AppCapabilities } from "@tedix/api-contract/schemas/app";
 import type { WidgetConfig } from "@tedix/api-contract/schemas/widget";
 import {
@@ -33,6 +39,94 @@ import { providerInstallations } from "../schema/provider-installations";
 import { appTools } from "../schema/tools";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import { aggregateAppEntryMatchesSql } from "./aggregate-app-links";
+
+/** Apply the execution resolver to the tools offered by discovery and skill binding. */
+export async function filterAppConnectionResourceTools<
+	T extends { config: typeof appTools.$inferSelect.config },
+>(
+	db: DbClient,
+	app: Pick<typeof apps.$inferSelect, "organizationId" | "metadata">,
+	tools: T[],
+): Promise<T[]> {
+	const defaults = app.metadata?.mcpConfig;
+	const instances = new Map<string, ReturnType<typeof getConnectionInstance>>();
+	const providerLimits = new Map<
+		string,
+		ReturnType<typeof getOrganizationConnectionAllowedResources>
+	>();
+	const decisions = await Promise.all(
+		tools.map(async (tool) => {
+			const config = tool.config;
+			const auth = isRecord(config?.auth) ? config.auth : undefined;
+			const ownProvider =
+				typeof auth?.connectionId === "string" ? auth.connectionId : undefined;
+			const providerId =
+				defaults?.connectionProviderId ??
+				(auth?.type === "connection" ? ownProvider : undefined);
+			const inherited = Boolean(defaults?.connectionProviderId);
+			const instanceId =
+				typeof auth?.connectionInstanceId === "string"
+					? auth.connectionInstanceId
+					: inherited
+						? defaults?.connectionInstanceId
+						: undefined;
+			const scope =
+				defaults?.connectionScope ??
+				auth?.credentialScope ??
+				auth?.scope ??
+				"tenant";
+			if (!providerId || scope === "user") return true;
+			let limits = providerLimits.get(providerId);
+			if (!limits) {
+				limits = getOrganizationConnectionAllowedResources(
+					db,
+					app.organizationId,
+					providerId,
+				);
+				providerLimits.set(providerId, limits);
+			}
+			const allowedResources = await limits;
+			const effectiveConfig =
+				auth?.type && auth.type !== "connection"
+					? config
+					: {
+							...config,
+							auth: { ...auth, type: "connection", connectionId: providerId },
+						};
+			if (
+				!resolveConnectionResourceAccess({
+					allowedResources,
+					providerId,
+					config: effectiveConfig,
+				}).allowed
+			)
+				return false;
+			if (!instanceId) return true;
+			const key = `${providerId}:${instanceId}`;
+			let pending = instances.get(key);
+			if (!pending) {
+				pending = getConnectionInstance(
+					db,
+					{ organizationId: app.organizationId },
+					instanceId,
+					providerId,
+				);
+				instances.set(key, pending);
+			}
+			const instance = await pending;
+			return Boolean(
+				instance &&
+				resolveConnectionResourceAccess({
+					allowedResources,
+					additionalLimits: [instance.allowedResources],
+					providerId,
+					config: effectiveConfig,
+				}).allowed,
+			);
+		}),
+	);
+	return tools.filter((_, index) => decisions[index]);
+}
 
 type ToolSelectionOptions = {
 	endpointPrefixes?: string[];
@@ -353,7 +447,11 @@ export async function getAppByIdWithToolsForOrganization(
 
 	const catalogSurface = await getCatalogMcpSurfaceForApp(db, app.catalogAppId);
 
-	return { app, tools: toolsWithCsp, ...catalogSurface };
+	return {
+		app,
+		tools: await filterAppConnectionResourceTools(db, app, toolsWithCsp),
+		...catalogSurface,
+	};
 }
 
 /**
@@ -465,7 +563,11 @@ function loadAppBySlugWithTools(
 			app.catalogAppId,
 		);
 
-		return { app, tools: toolsWithCsp, ...catalogSurface };
+		return {
+			app,
+			tools: await filterAppConnectionResourceTools(db, app, toolsWithCsp),
+			...catalogSurface,
+		};
 	});
 }
 
@@ -829,32 +931,38 @@ export async function getAppsBySlugsWithTools(
 				toolCspByToolId.set(row.appToolId, list);
 			}
 
-			return requests.map((request, index) => {
-				const app = resolvedApps[index];
-				if (!app) return null;
-				const signature = appSurfaceKey("", {
-					toolIds: request.toolIds,
-					endpointPrefixes: request.endpointPrefixes,
-				});
-				const tools = toolsBySelection.get(signature)?.get(app.id) ?? [];
-				const toolsWithCsp = tools.map((tool) => ({
-					...tool,
-					toolCspDomains: (toolCspByToolId.get(tool.id) ?? []).map(
-						(domain) => ({
-							toolId: tool.toolId,
-							domainType: domain.domainType,
-							domainUrl: domain.domainUrl,
-							active: domain.active ?? true,
-						}),
-					),
-				}));
-				return {
-					app,
-					tools: toolsWithCsp,
-					...(catalogSurfaces.get(app.catalogAppId ?? "") ??
-						emptyCatalogMcpSurface()),
-				};
-			});
+			return Promise.all(
+				requests.map(async (request, index) => {
+					const app = resolvedApps[index];
+					if (!app) return null;
+					const signature = appSurfaceKey("", {
+						toolIds: request.toolIds,
+						endpointPrefixes: request.endpointPrefixes,
+					});
+					const tools = toolsBySelection.get(signature)?.get(app.id) ?? [];
+					const toolsWithCsp = tools.map((tool) => ({
+						...tool,
+						toolCspDomains: (toolCspByToolId.get(tool.id) ?? []).map(
+							(domain) => ({
+								toolId: tool.toolId,
+								domainType: domain.domainType,
+								domainUrl: domain.domainUrl,
+								active: domain.active ?? true,
+							}),
+						),
+					}));
+					return {
+						app,
+						tools: await filterAppConnectionResourceTools(
+							db,
+							app,
+							toolsWithCsp,
+						),
+						...(catalogSurfaces.get(app.catalogAppId ?? "") ??
+							emptyCatalogMcpSurface()),
+					};
+				}),
+			);
 		},
 	);
 }
@@ -1207,4 +1315,37 @@ export async function setAppGatewayMembership(
 		})
 		.where(and(eq(apps.id, gatewayId), eq(apps.organizationId, organizationId)))
 		.returning({ id: apps.id });
+}
+
+/** Source identity follows the same aggregate ownership rule as discovery and binding. */
+export async function getAggregateConnectionSourceTool(
+	db: DbClient,
+	input: { organizationId: string; appId: string; toolId: string },
+) {
+	const [source] = await db
+		.select({
+			organizationId: apps.organizationId,
+			visibility: apps.visibility,
+		})
+		.from(apps)
+		.where(eq(apps.id, input.appId))
+		.limit(1);
+	if (
+		!source ||
+		source.visibility === "disabled" ||
+		!(await isAggregateSourceAllowed(
+			db,
+			input.organizationId,
+			source.organizationId,
+		))
+	)
+		return undefined;
+	const [tool] = await db
+		.select()
+		.from(appTools)
+		.where(
+			and(eq(appTools.appId, input.appId), eq(appTools.toolId, input.toolId)),
+		)
+		.limit(1);
+	return tool;
 }

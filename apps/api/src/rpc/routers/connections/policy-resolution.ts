@@ -9,7 +9,10 @@ import {
 	withAuth,
 	withTediAuth,
 } from "../../orpc";
-import { assertConnectionResourceArguments } from "../../../services/connection-resource-policy";
+import {
+	assertConnectionResourceArguments,
+	assertOrganizationConnectionResourceArguments,
+} from "../../../services/connection-resource-policy";
 import { assertOwnAccessForToolCall } from "../../../services/connection-access-check";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
@@ -600,6 +603,21 @@ export async function resolveCredentialChain(
 	expiresAt?: number;
 	scopes?: string[];
 }> {
+	if (args.scope !== "user")
+		await assertOrganizationConnectionResourceArguments(
+			context,
+			args.organizationId,
+			args.providerId,
+			args.delegatedToolUse,
+		);
+	const authorizedProviders = new Set<string>();
+	const authorizeTenantProvider = async (providerId: string) => {
+		if (authorizedProviders.has(providerId)) return;
+		await enforceConnectionConsumerGrants(context, { ...args, providerId });
+		authorizedProviders.add(providerId);
+	};
+	if ((args.scope ?? "tenant") === "tenant")
+		await authorizeTenantProvider(args.providerId);
 	const registeredProvider = await getConnectionProviderByDescopeAppId(
 		context.db,
 		args.providerId,
@@ -659,7 +677,7 @@ export async function resolveCredentialChain(
 							tenantId: args.descopeTenantId,
 						};
 			if (target.kind === "tenant")
-				await enforceConnectionConsumerGrants(context, args);
+				await authorizeTenantProvider(args.providerId);
 			const selected = await fetchNamedConnection(
 				context,
 				owner,
@@ -697,14 +715,18 @@ export async function resolveCredentialChain(
 		providerId: string,
 	): Promise<Awaited<ReturnType<typeof fetchConnectionToken>> | null> => {
 		let token: Awaited<ReturnType<typeof fetchConnectionToken>> | null = null;
+		if (args.scope !== "user" && providerId !== args.providerId)
+			await assertOrganizationConnectionResourceArguments(
+				context,
+				args.organizationId,
+				providerId,
+				args.delegatedToolUse,
+			);
 		for (const target of targets) {
 			if (target.kind === "tenant") {
-				await enforceConnectionConsumerGrants(context, args);
+				await authorizeTenantProvider(args.providerId);
 				if (providerId !== args.providerId)
-					await enforceConnectionConsumerGrants(context, {
-						...args,
-						providerId,
-					});
+					await authorizeTenantProvider(providerId);
 			}
 			try {
 				if (target.kind === "user") {
