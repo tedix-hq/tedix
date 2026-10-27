@@ -27,6 +27,7 @@ import {
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
 import { ShareControls } from "@/components/share-controls";
+import { followDeviceTheme } from "@/lib/theme";
 import { absoluteTime } from "@/lib/time";
 import { adoptShareLinkAddress } from "@/lib/share-link-session";
 import { OrganizationMark } from "@/shared/organization-mark";
@@ -168,27 +169,13 @@ export function guestCopy(organization?: Redeemed["organization"]): {
 	};
 }
 
-/** The guest's document follows the device: there is no account to keep a choice on. */
-export function followSystemTheme(): () => void {
-	const media = window.matchMedia("(prefers-color-scheme: dark)");
-	const apply = () => {
-		const mode = media.matches ? "dark" : "light";
-		document.documentElement.dataset.theme = "tedix";
-		document.documentElement.dataset.mode = mode;
-		document.documentElement.classList.toggle("dark", mode === "dark");
-	};
-	apply();
-	media.addEventListener("change", apply);
-	return () => media.removeEventListener("change", apply);
-}
-
 export function GuestAppPage() {
 	const [state, setState] = useState<PageState>({ status: "loading" });
 	// One redemption survives StrictMode's effect replay: the link is one-time,
 	// and the replay finds the fragment already stripped.
 	const opening = useRef<Promise<PageState> | null>(null);
 
-	useEffect(() => followSystemTheme(), []);
+	useEffect(() => followDeviceTheme(), []);
 
 	useEffect(() => {
 		let alive = true;
