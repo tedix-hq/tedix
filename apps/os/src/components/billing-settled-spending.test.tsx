@@ -71,7 +71,7 @@ describe("BillingSettledSpending", () => {
 			})
 			.catch(() => {});
 		const html = render(queryClient);
-		expect(html).toContain("Settled credit charges could not be read");
+		expect(html).toContain("Credit charges could not be loaded");
 		expect(html).toContain("This does not mean zero");
 		expect(html).not.toContain("No settled monetary inference receipts");
 		queryClient.clear();

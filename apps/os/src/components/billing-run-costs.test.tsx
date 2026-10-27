@@ -119,7 +119,7 @@ describe("BillingRunCosts", () => {
 	it("shows read failure separately from an empty ledger", async () => {
 		await inspect(new Error("Unavailable"), (container) => {
 			expect(container.textContent).toContain(
-				"Recorded costs could not be read",
+				"Recorded costs could not be loaded",
 			);
 			expect(container.textContent).toContain(
 				"This does not mean zero spending",
