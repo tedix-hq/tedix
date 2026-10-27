@@ -1813,9 +1813,7 @@ export function SheetEditor({
 													event.clientX - rect.left < rect.width / 2;
 												const noop =
 													from === index ||
-													(before
-														? from === index - 1
-														: from === index + 1);
+													(before ? from === index - 1 : from === index + 1);
 												setTabDrop(noop ? null : { index, before });
 											}}
 											onDragLeave={(event) => {
@@ -1923,20 +1921,15 @@ export function SheetEditor({
 										<>
 											<ContextMenuItem
 												disabled={disabled || menuTabIndex <= 0}
-												onClick={() =>
-													moveTab(menuTabIndex, menuTabIndex - 1)
-												}
+												onClick={() => moveTab(menuTabIndex, menuTabIndex - 1)}
 											>
 												Move left
 											</ContextMenuItem>
 											<ContextMenuItem
 												disabled={
-													disabled ||
-													menuTabIndex >= workbook.sheets.length - 1
+													disabled || menuTabIndex >= workbook.sheets.length - 1
 												}
-												onClick={() =>
-													moveTab(menuTabIndex, menuTabIndex + 1)
-												}
+												onClick={() => moveTab(menuTabIndex, menuTabIndex + 1)}
 											>
 												Move right
 											</ContextMenuItem>

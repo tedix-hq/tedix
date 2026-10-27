@@ -27,9 +27,7 @@ function mount(presence?: SheetEditorPresence, initial?: SheetContent) {
 	const root = createRoot(container);
 	const changes: Changes = [];
 	function Harness() {
-		const [value, setValue] = useState<SheetContent>(
-			initial ?? baseValue(),
-		);
+		const [value, setValue] = useState<SheetContent>(initial ?? baseValue());
 		return (
 			<SheetEditor
 				value={value}
@@ -393,8 +391,7 @@ describe("SheetEditor interaction", () => {
 			return event;
 		};
 		for (const item of items())
-			item.getBoundingClientRect = () =>
-				({ left: 0, width: 100 }) as DOMRect;
+			item.getBoundingClientRect = () => ({ left: 0, width: 100 }) as DOMRect;
 		act(() => {
 			items()[2]!.dispatchEvent(drag("dragstart", 0));
 		});
