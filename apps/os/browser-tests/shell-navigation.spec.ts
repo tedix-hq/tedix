@@ -272,7 +272,15 @@ await runShellSpec(
 					name: "Settings sections",
 					exact: true,
 				});
-				await settings.waitFor();
+				// At 390 the settings sidebar is a sheet behind one menu row.
+				const openSettings = async () => {
+					const menu = page.locator(
+						'[data-settings-menu][aria-expanded="false"]',
+					);
+					if (width === 390 && (await menu.count())) await menu.click();
+					await settings.waitFor();
+				};
+				await openSettings();
 				for (const label of [
 					"Templates",
 					"Website chat",
@@ -296,6 +304,7 @@ await runShellSpec(
 					["Website chat", "/widget", "Website chat"],
 					["Activity log", "/audit", "Activity log"],
 				]) {
+					await openSettings();
 					await settings
 						.getByRole("link", { name: label, exact: true })
 						.click();
@@ -303,9 +312,11 @@ await runShellSpec(
 					await page
 						.getByRole("heading", { name: heading, exact: true, level: 1 })
 						.waitFor();
+					// A closed sheet is aria-hidden, so read the row by its address.
 					assert.equal(
-						await settings
-							.getByRole("link", { name: label, exact: true })
+						await page
+							.locator(`nav[aria-label="Settings sections"] a[href="${path}"]`)
+							.last()
 							.getAttribute("aria-current"),
 						"page",
 					);

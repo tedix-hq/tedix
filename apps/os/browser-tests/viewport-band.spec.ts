@@ -19,7 +19,9 @@ try {
 			'[aria-label="Settings sections"] a[href="/account/connections"]',
 		);
 		await accounts.waitFor({ state: "attached" });
-		assert.equal(await accounts.isVisible(), true);
+		// Below md the settings sidebar opens as a sheet from one menu row.
+		if (width < 768) await page.locator("[data-settings-menu]").click();
+		await accounts.waitFor();
 		const capabilityRail = page.locator("[data-capability-nav]");
 		await capabilityRail.waitFor({ state: "attached" });
 		assert.equal(await capabilityRail.isVisible(), width >= 768);
