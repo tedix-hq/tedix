@@ -18,6 +18,7 @@ import {
 	getDescopeAuthServerUrl,
 	getDescopeDiscoveryUrl,
 } from "@tedix/mcp-shared/well-known/oauth";
+import { MCP_SUPPORTED_PROTOCOL_VERSIONS } from "@tedix/mcp-shared/transport";
 import { extractAppFromHostname, type HostnameInfo } from "./hostname";
 import { getApiClient } from "./lib/api-client";
 import { createMcpLogger } from "./log";
@@ -178,6 +179,64 @@ export async function handleWellKnown(
 	}
 
 	return null;
+}
+
+const SERVER_CARD_SCHEMA =
+	"https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json";
+const REGISTRY_NAME = /^[a-zA-Z0-9.-]+\/[a-zA-Z0-9._-]+$/;
+
+/**
+ * Public MCP Server Card (io.modelcontextprotocol/server-card, SEP-2127) at
+ * `<mcp-url>/server-card`: static identity and connection details a
+ * directory can read without signing in. Served only for apps that set a
+ * reverse-DNS `registryName`; never carries user or session data.
+ */
+export async function handleServerCard(
+	hostname: string,
+	env: CloudflareEnv,
+): Promise<Response> {
+	const { app, mcpConfig, upstreamUnavailable } = await resolveAppMcpConfig(
+		hostname,
+		env,
+	);
+	if (upstreamUnavailable) return upstreamUnavailableResponse();
+	const name = mcpConfig?.registryName;
+	if (!app || typeof name !== "string" || !REGISTRY_NAME.test(name)) {
+		return new Response(JSON.stringify({ error: "not_found" }), {
+			status: 404,
+			headers: {
+				"Content-Type": "application/json",
+				"Cache-Control": "private, no-store",
+			},
+		});
+	}
+	const title = mcpConfig?.serverName ?? app.name;
+	const websiteUrl = mcpConfig?.resourceDocumentation;
+	const card = {
+		$schema: SERVER_CARD_SCHEMA,
+		name,
+		version: mcpConfig?.serverVersion ?? "1.0.0",
+		description: app.description ?? title,
+		title,
+		...(websiteUrl ? { websiteUrl } : {}),
+		...(app.logoUrl ? { icons: [{ src: app.logoUrl }] } : {}),
+		remotes: [
+			{
+				type: "streamable-http",
+				url: `https://${hostname}/mcp`,
+				supportedProtocolVersions: [...MCP_SUPPORTED_PROTOCOL_VERSIONS],
+			},
+		],
+	};
+	return new Response(JSON.stringify(card, null, 2), {
+		headers: {
+			"Content-Type": "application/mcp-server-card+json",
+			"Access-Control-Allow-Origin": "*",
+			"Access-Control-Allow-Methods": "GET",
+			// Same host-partitioning caveat as the OAuth metadata: no edge cache.
+			"Cache-Control": "private, no-store",
+		},
+	});
 }
 
 function toSkillDocumentEntry(skill: SkillEntry): SkillDocumentEntry {

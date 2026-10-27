@@ -117,7 +117,7 @@ import {
 	isRetryableUpstreamError,
 	upstreamUnavailableResponse,
 } from "./upstream";
-import { handleFavicon, handleWellKnown } from "./well-known";
+import { handleFavicon, handleServerCard, handleWellKnown } from "./well-known";
 import { unsupportedProtocolVersionResponse } from "./json-rpc-envelope";
 import {
 	handleInternalSubscriptionPublish,
@@ -528,6 +528,15 @@ const worker = {
 			(request.method === "GET" || request.method === "HEAD")
 		) {
 			return handleFavicon(hostname, env);
+		}
+
+		// authz: public — the MCP Server Card is a static, credential-free
+		// description of this endpoint (SEP-2127).
+		if (
+			url.pathname === "/mcp/server-card" &&
+			(request.method === "GET" || request.method === "HEAD")
+		) {
+			return handleServerCard(hostname, env);
 		}
 
 		// Step 1: Handle .well-known routes

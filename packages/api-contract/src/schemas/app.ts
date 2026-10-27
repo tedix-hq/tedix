@@ -345,6 +345,8 @@ export const McpConfigSchema = z
 		widgetDomain: z.string().optional(),
 		serverName: z.string().optional(),
 		serverVersion: z.string().optional(),
+		/** Reverse-DNS registry name (e.g. io.github.owner/server); enables the public Server Card. */
+		registryName: z.string().optional(),
 		corsOrigins: z.array(z.string()).optional(),
 		toolTimeout: z.number().optional(),
 		widgetCSP: z

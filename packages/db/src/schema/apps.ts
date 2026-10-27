@@ -534,6 +534,12 @@ export interface McpConfig {
 	serverVersion?: string;
 
 	/**
+	 * Reverse-DNS registry name (e.g. "io.github.owner/server"). When set, the
+	 * public MCP Server Card is served at `<mcp-url>/server-card`.
+	 */
+	registryName?: string;
+
+	/**
 	 * Additional CORS origins for this app
 	 * Merged with default Tedix origins
 	 */
