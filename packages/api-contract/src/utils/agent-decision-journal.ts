@@ -62,13 +62,13 @@ const HARNESS_NAMES: Record<string, string> = {
 };
 
 export function slug(value: string, max = 40): string {
-	return (
-		value
-			.toLowerCase()
-			.replace(/[^a-z0-9._-]+/g, "-")
-			.replace(/^-+|-+$/g, "")
-			.slice(0, max) || "agent"
-	);
+	const dashed = value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
+	// Trim edge dashes by index: /^-+|-+$/ is quadratic on long dash runs.
+	let start = 0;
+	let end = dashed.length;
+	while (start < end && dashed.charAt(start) === "-") start++;
+	while (end > start && dashed.charAt(end - 1) === "-") end--;
+	return dashed.slice(start, end).slice(0, max) || "agent";
 }
 
 export function agentSessionHarness(agentSession: string): string {

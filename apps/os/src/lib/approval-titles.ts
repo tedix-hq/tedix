@@ -9,7 +9,7 @@
  * returned unchanged.
  */
 
-import { RETRY_NOTE } from "@tedix/api-contract/utils/approval-decision";
+import { stripRetryNote } from "@tedix/api-contract/utils/approval-decision";
 
 const APP_SUFFIXES = /[-_](?:tedix|unified|mcp|app)$/i;
 
@@ -101,7 +101,7 @@ export function plainApprovalTitle(
 ): string {
 	// The gateway's retry note ("Nothing has run yet; …", "After deciding in
 	// Tedix OS, retry …") is a consequence, not part of the action's name.
-	const raw = title.replace(RETRY_NOTE, "").trim();
+	const raw = stripRetryNote(title).trim();
 	const args =
 		payload?.args && typeof payload.args === "object"
 			? (payload.args as Record<string, unknown>)
