@@ -13,6 +13,7 @@ import {
 	SelectValue,
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
+import { sentenceCase } from "@/lib/format";
 import { osQuery } from "@/lib/os-query-options";
 import { errorMessage } from "@/lib/orpc-error";
 
@@ -52,13 +53,15 @@ export function OutboundReviewApp({
 					onValueChange={(value) => setStatus(value ?? "all")}
 				>
 					<SelectTrigger aria-label="Draft status">
-						<SelectValue />
+						<SelectValue>
+							{status === "all" ? "All statuses" : sentenceCase(status)}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All statuses</SelectItem>
 						{OutboundStateSchema.shape.status.options.map((value) => (
 							<SelectItem key={value} value={value}>
-								{value.replaceAll("_", " ")}
+								{sentenceCase(value)}
 							</SelectItem>
 						))}
 					</SelectContent>

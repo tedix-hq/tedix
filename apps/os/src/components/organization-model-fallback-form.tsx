@@ -149,7 +149,10 @@ export function OrganizationModelFallbackForm({
 									<SelectTrigger
 										aria-label={`${primary.label} fallback ${index + 1}`}
 									>
-										<SelectValue />
+										<SelectValue>
+											{models.find((candidate) => candidate.ref === ref)
+												?.label ?? ref}
+										</SelectValue>
 									</SelectTrigger>
 									<SelectContent>
 										{models

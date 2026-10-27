@@ -57,7 +57,7 @@ import {
 	tediEmailInboxQueryOptions,
 	tediEmailThreadQueryOptions,
 } from "@/lib/os-query-options";
-import { useOsFormattingPreferences } from "@/lib/format";
+import { sentenceCase, useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
 type EmailAddress = Awaited<
@@ -297,12 +297,10 @@ function AddressCard({
 										{row.address}
 									</Text>
 									<Badge variant={ADDRESS_STATUS_VARIANTS[row.status]}>
-										{row.status}
+										{sentenceCase(row.status)}
 									</Badge>
 									{row.kind !== "primary" && (
-										<Badge variant="outline">
-											{row.kind.replace("_", " ")}
-										</Badge>
+										<Badge variant="outline">{sentenceCase(row.kind)}</Badge>
 									)}
 								</div>
 							}
@@ -542,6 +540,10 @@ export function SenderPolicyCard({
 							<Label htmlFor="mailbox-untrusted-senders">Unknown senders</Label>
 							<Select
 								value={untrusted}
+								items={{
+									deliver: "Deliver with reply-only tools",
+									quarantine: "Quarantine as spam",
+								}}
 								onValueChange={(value) =>
 									setUntrusted(
 										value === "quarantine" ? "quarantine" : "deliver",
@@ -780,7 +782,7 @@ export function InboxCard({ tediId }: { tediId: string }) {
 													<Badge
 														variant={THREAD_STATUS_VARIANTS[thread.status]}
 													>
-														{thread.status}
+														{sentenceCase(thread.status)}
 													</Badge>
 													{thread.senderTrust === "untrusted" && (
 														<Badge variant="destructive">

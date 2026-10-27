@@ -400,7 +400,11 @@ function InboundClientsEditor({
 										id={`${id}-server`}
 										aria-label="Connects through"
 									>
-										<SelectValue />
+										<SelectValue>
+											{servers.find(
+												([value]) => value === draft.mcpServerId,
+											)?.[1] ?? draft.mcpServerId}
+										</SelectValue>
 									</SelectTrigger>
 									<SelectContent>
 										{servers.map(([value, slug]) => (

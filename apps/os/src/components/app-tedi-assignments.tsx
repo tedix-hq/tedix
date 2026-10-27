@@ -363,6 +363,10 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 										<TableCell>
 											<Select
 												value={assignment.role}
+												items={{
+													operator: "Operator",
+													observer: "Observer",
+												}}
 												onValueChange={(role) =>
 													updateRole.mutate({
 														assignmentId: assignment.id,

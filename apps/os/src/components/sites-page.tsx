@@ -69,7 +69,11 @@ import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { osApi, osSiteDeprovisionApi } from "@/lib/api";
-import { useOsFormattingPreferences } from "@/lib/format";
+import {
+	humanize,
+	sentenceCase,
+	useOsFormattingPreferences,
+} from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
@@ -99,6 +103,16 @@ function siteMetadata(site: {
 	]
 		.filter((value): value is string => Boolean(value))
 		.join(" · ");
+}
+
+const SITE_STATUS_LABELS: Record<string, string> = {
+	active: "Active",
+	paused: "Archived",
+	provisioning: "Provisioning",
+};
+
+function siteStatusLabel(status: string): string {
+	return SITE_STATUS_LABELS[status] ?? sentenceCase(status);
 }
 
 const DISABLED_SITE_QUERY_ID = "00000000-0000-4000-8000-000000000000";
@@ -256,7 +270,7 @@ function DomainClaimPanel({
 					{claim.hostname}
 				</Text>
 				<Badge variant={claim.status === "active" ? "outline" : "warning"}>
-					{claim.status}
+					{sentenceCase(claim.status)}
 				</Badge>
 			</div>
 			{redirectTo ? (
@@ -313,8 +327,8 @@ function DomainClaimPanel({
 			) : null}
 			{redirectTo || claim.providerStatus || claim.sslStatus ? (
 				<Text as="p" role="caption" tone="secondary">
-					Provider: {claim.providerStatus ?? "unknown"} · SSL:{" "}
-					{claim.sslStatus ?? "unknown"}
+					Provider: {humanize(claim.providerStatus ?? "unknown")} · SSL:{" "}
+					{humanize(claim.sslStatus ?? "unknown")}
 				</Text>
 			) : null}
 			<div className="flex flex-wrap gap-2">
@@ -604,7 +618,7 @@ function CmsDomainManager({
 					title={`Remove ${removeTarget?.hostname ?? ""}?`}
 					description={
 						removeTarget?.hostname === claim?.hostname
-							? "When removal finishes, the site's Tedix hostname becomes canonical. Update your DNS afterward."
+							? "When removal finishes, the site's built-in address becomes canonical. Update your DNS afterward."
 							: "When removal finishes, www stops redirecting. Update your DNS afterward."
 					}
 					confirmLabel="Remove domain"
@@ -1088,6 +1102,14 @@ export function SitesPage() {
 							<Label htmlFor="new-cms-template">Starter template</Label>
 							<Select
 								value={newSiteTemplate}
+								items={{
+									starter: "Starter",
+									blog: "Blog",
+									portfolio: "Portfolio",
+									"native-marketing": "Marketing",
+									marketing: "Tedix marketing",
+									tedix: "Tedix",
+								}}
 								onValueChange={(value) =>
 									setNewSiteTemplate(value as CmsTemplateSlug)
 								}
@@ -1139,8 +1161,9 @@ export function SitesPage() {
 						</SectionHeading>
 						{cmsSiteQuota ? (
 							<Badge variant="outline">
-								{cmsSiteQuota.used} /{" "}
-								{cmsSiteQuota.limit === -1 ? "∞" : cmsSiteQuota.limit} CMS sites
+								{cmsSiteQuota.limit === -1
+									? `${cmsSiteQuota.used} sites`
+									: `${cmsSiteQuota.used} of ${cmsSiteQuota.limit} sites`}
 							</Badge>
 						) : null}
 					</SectionHeader>
@@ -1160,6 +1183,11 @@ export function SitesPage() {
 							/>
 							<Select
 								value={siteType}
+								items={{
+									all: "All types",
+									cms: "CMS websites",
+									docs: "Documentation",
+								}}
 								onValueChange={(value) =>
 									setSiteType(value as "all" | "cms" | "docs")
 								}
@@ -1171,7 +1199,7 @@ export function SitesPage() {
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="all">All sites</SelectItem>
+									<SelectItem value="all">All types</SelectItem>
 									<SelectItem value="cms">CMS websites</SelectItem>
 									<SelectItem value="docs">Documentation</SelectItem>
 								</SelectContent>
@@ -1246,7 +1274,7 @@ export function SitesPage() {
 															: "secondary"
 												}
 											>
-												{site.status}
+												{siteStatusLabel(site.status)}
 											</Badge>
 											<Text role="caption" tone="secondary">
 												{site.type === "docs" ? "Docs" : "CMS"}
@@ -1321,17 +1349,15 @@ export function SitesPage() {
 																	: "secondary"
 														}
 													>
-														{site.status}
+														{siteStatusLabel(site.status)}
 													</Badge>
 												</TableCell>
 												<TableCell className="max-w-48 truncate">
-													{site.customDomain ?? "Tedix hostname"}
+													{site.customDomain ?? "Built-in address"}
 												</TableCell>
 												<TableCell>
 													{site.activeRevisionId
-														? site.type === "cms"
-															? `Bundle v${site.activeRevisionId}`
-															: "Published"
+														? "Published"
 														: "Not published"}
 												</TableCell>
 												<TableCell>{siteActions(site)}</TableCell>
@@ -1364,7 +1390,7 @@ export function SitesPage() {
 										: "warning"
 							}
 						>
-							{receipt.status}
+							{sentenceCase(receipt.status)}
 						</Badge>
 						{receipt.status === "succeeded" || receipt.status === "failed" ? (
 							<Button
@@ -1439,7 +1465,7 @@ export function SitesPage() {
 										: "warning"
 								}
 							>
-								{selectedSiteDetails.status}
+								{siteStatusLabel(selectedSiteDetails.status)}
 							</Badge>
 						) : null}
 					</SectionHeader>
@@ -1451,7 +1477,7 @@ export function SitesPage() {
 									: "Documentation site"}
 							</span>
 							<span>
-								{selectedSiteDetails.customDomain ?? "Tedix hostname"}
+								{selectedSiteDetails.customDomain ?? "Built-in address"}
 							</span>
 							<span>
 								{siteMetadata(selectedSiteDetails) || "Not published"}
@@ -1500,7 +1526,7 @@ export function SitesPage() {
 														tone="secondary"
 														className="m-0"
 													>
-														{build.status} ·{" "}
+														{sentenceCase(build.status)} ·{" "}
 														<time dateTime={build.createdAt}>
 															{absoluteTime(build.createdAt)}
 														</time>
@@ -1592,7 +1618,7 @@ export function SitesPage() {
 												}
 												className="mt-0.5 shrink-0"
 											>
-												{dependency.status}
+												{sentenceCase(dependency.status)}
 											</Badge>
 										</li>
 									))}
@@ -1653,7 +1679,7 @@ export function SitesPage() {
 										resource.state === "missing" ? "destructive" : "outline"
 									}
 								>
-									{resource.state}
+									{sentenceCase(resource.state)}
 								</Badge>
 							</li>
 						))}
@@ -1742,7 +1768,7 @@ export function SitesPage() {
 											issue.severity === "error" ? "destructive" : "outline"
 										}
 									>
-										{issue.severity}
+										{sentenceCase(issue.severity)}
 									</Badge>
 								</li>
 							))}

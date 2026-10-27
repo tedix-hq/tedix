@@ -161,7 +161,9 @@ export function PortableWebMcpBuilder({
 							onValueChange={(value) => value && setSelectedId(value)}
 						>
 							<SelectTrigger aria-label="Tenant installation">
-								<SelectValue />
+								<SelectValue>
+									{`Tenant ${selected.externalTenantId} · revision ${selected.revision}`}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{query.data?.map((item) => (

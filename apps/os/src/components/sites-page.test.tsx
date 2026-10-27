@@ -345,7 +345,7 @@ describe("SitesPage owned-site actions", () => {
 		const host = renderPage();
 		const card = host.querySelector('ul[aria-label="Owned sites"] li');
 		expect(card?.textContent).toContain("Acme");
-		expect(card?.textContent).toContain("active");
+		expect(card?.textContent).toContain("Active");
 		expect(card?.textContent).toContain("blog.acme.example");
 		expect(card?.textContent).not.toContain("https://");
 		expect(
@@ -584,7 +584,7 @@ describe("SitesPage owned-site actions", () => {
 		expect(host.textContent).toContain("tedix-verify=www");
 		expect(host.textContent).toContain("_acme-challenge.www.acme.example");
 		expect(host.textContent).toContain(
-			"Provider: pending_validation · SSL: pending",
+			"Provider: pending validation · SSL: pending",
 		);
 		expect(host.textContent).toContain(
 			"The HTTPS 301 redirect starts after www and its TLS certificate are active.",
@@ -720,7 +720,7 @@ describe("SitesPage owned-site actions", () => {
 	it("shows quota usage and disables creation when all slots are used", () => {
 		cmsSiteQuota.current = { used: 1, limit: 1 };
 		const host = renderPage();
-		expect(host.textContent).toContain("1 / 1 CMS sites");
+		expect(host.textContent).toContain("1 of 1 sites");
 		expect(
 			Array.from(host.querySelectorAll("button")).find((button) =>
 				button.textContent?.includes("Create CMS site"),
@@ -740,7 +740,7 @@ describe("SitesPage owned-site actions", () => {
 
 	it("offers a starter selection and submits a new site for authoring", async () => {
 		const host = renderPage();
-		expect(host.textContent).toContain("1 / 5 CMS sites");
+		expect(host.textContent).toContain("1 of 5 sites");
 		expect(host.querySelector('input[name="name"]')).toBeNull();
 		const create = host.querySelector<HTMLButtonElement>(
 			'button[aria-controls="create-cms-site"]',
@@ -781,9 +781,9 @@ describe("SitesPage owned-site actions", () => {
 
 		expect(siteRow?.querySelector('[data-slot="icon-frame"]')).not.toBeNull();
 		expect(siteRow?.textContent).toContain("Acme");
-		expect(siteRow?.textContent).toContain("active");
+		expect(siteRow?.textContent).toContain("Active");
 		expect(siteRow?.textContent).toContain("blog.acme.example");
-		expect(siteRow?.textContent).toContain("Bundle v75");
+		expect(siteRow?.textContent).toContain("Published");
 	});
 
 	it("makes management visible and keeps lifecycle actions in the menu", () => {
