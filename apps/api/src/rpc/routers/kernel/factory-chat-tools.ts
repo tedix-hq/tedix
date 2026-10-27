@@ -47,7 +47,16 @@ export function factoryChatReader(
 	userId?: string,
 	workspaceId?: string,
 ): FactoryChatReader {
+	// Live, the first chat turn after a quiet period failed the read and the
+	// identical retry succeeded. Both reads are side-effect free, so retry once.
 	const run = async (code: string): Promise<unknown> => {
+		try {
+			return await runOnce(code);
+		} catch {
+			return await runOnce(code);
+		}
+	};
+	const runOnce = async (code: string): Promise<unknown> => {
 		if (!env.MCP_SERVICE || !env.MCP_URL)
 			throw new Error("Factory health service is unavailable");
 		const result = await requestFirstPartyMcp(
