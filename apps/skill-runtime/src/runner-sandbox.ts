@@ -17,8 +17,12 @@ export const WORKFLOW_FETCH_GATE_FACTORY_SOURCE = `function createWorkflowFetchG
     active.directNetworkStarted = true;
     return trackOperation(active, createOperation(async () => {
       const requestArgs = prepareRequestArgs(args);
-      const response = await platformFetch(...requestArgs);
-      return validateResponse(response);
+      const invoke = async (observeResponse) => {
+        const response = await platformFetch(...requestArgs);
+        if (observeResponse) observeResponse(response);
+        return validateResponse(response);
+      };
+      return active.recordNetwork ? active.recordNetwork(requestArgs[0], invoke) : invoke();
     }));
   };
 }`;
@@ -65,6 +69,7 @@ const NativeTypeError = TypeError;
 const NativeSymbol = Symbol;
 const NativeHeaders = Headers;
 const NativeRequest = Request;
+const NativeURL = URL;
 const NativeResponse = Response;
 const NativeReadableStream = ReadableStream;
 const NativeReadableStreamDefaultReader = ReadableStreamDefaultReader;
@@ -431,6 +436,10 @@ function workflowWebSocketError() {
   );
 }
 
+export function workflowRequestHost(request) {
+  return new NativeURL(request.url).host;
+}
+
 function prepareWorkflowRequestArgs(args) {
   const request = new NativeRequest(args[0], args[1]);
   const upgrade = apply(nativeHeadersGet, request.headers, ["upgrade"]);
@@ -590,6 +599,7 @@ function hardenWorkflowPrimordials() {
     NativeSymbol, NativeSymbol.prototype,
     NativeHeaders, NativeHeaders.prototype,
     NativeRequest, NativeRequest.prototype,
+    NativeURL, NativeURL.prototype,
     NativeResponse, NativeResponse.prototype,
 		NativeReadableStream, NativeReadableStream.prototype,
 		NativeReadableStreamDefaultReader,

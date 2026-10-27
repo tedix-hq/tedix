@@ -2,6 +2,7 @@ import { loadPinnedFactoryContext } from "../src/factory-context";
 import { Database } from "bun:sqlite";
 import "./runner-shims.test";
 import "./workflow-connection-recovery.test";
+import "./workflow-timeline.test";
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
 import trajectoryMining from "../examples/trajectory-mining/scripts/workflow";
@@ -697,10 +698,7 @@ assert.equal(
 	runtimePackage.dependencies?.["@cloudflare/dynamic-workflows"],
 	`^${DYNAMIC_WORKFLOWS_VERSION}`,
 );
-assert.equal(
-	WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
-	"v6-manifest-approval-refusal-outcomes",
-);
+assert.equal(WORKFLOW_BRIDGE_COMPATIBILITY_VERSION, "v7-compact-run-timeline");
 const bunLock = await Bun.file(
 	new URL("../../../bun.lock", import.meta.url),
 ).text();

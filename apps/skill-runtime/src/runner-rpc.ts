@@ -252,6 +252,52 @@ function normalizeBridgeError(error) {
   return new NonRetryableError(message, error && error.name ? workflowString(error.name) : "McpPermanentError");
 }
 
+async function recordWorkflowNetworkCall(env, runContext, active, request, invoke) {
+  const ordinal = (active.nextNetworkOrdinal || 0) + 1;
+  active.nextNetworkOrdinal = ordinal;
+  const path = "epochs/" + runContext.executionEpoch + "/steps/"
+    + active.stepPathSegment + "/" + (active.nativeStepCount || active.stepCount)
+    + "/attempts/" + active.attempt + "/network/" + active.phase + "/" + ordinal + ".json";
+  const startedAt = workflowIsoNow();
+  const t0 = workflowNowMs();
+  const started = {
+    schemaVersion: 1,
+    kind: "workflow_network_call",
+    executionEpoch: runContext.executionEpoch,
+    step: { name: active.stepName, count: active.stepCount },
+    attempt: active.attempt,
+    phase: active.phase,
+    ordinal,
+    method: request.method,
+    host: workflowRequestHost(request),
+    status: "started",
+    startedAt,
+    httpStatus: null,
+  };
+  await persistArtifact(env, { path, value: started, outcome: "pending", attempt: active.attempt });
+  let httpStatus = null;
+  let response;
+  try {
+    response = await invoke((value) => { httpStatus = value.status; });
+  } catch (error) {
+    await persistArtifact(env, {
+      path,
+      value: { ...started, status: "failed", httpStatus, completedAt: workflowIsoNow(), durationMs: workflowNowMs() - t0 },
+      outcome: "failure",
+      attempt: active.attempt,
+    });
+    throw error;
+  }
+  const success = httpStatus >= 200 && httpStatus < 400;
+  await persistArtifact(env, {
+    path,
+    value: { ...started, status: success ? "succeeded" : "failed", httpStatus, completedAt: workflowIsoNow(), durationMs: workflowNowMs() - t0 },
+    outcome: success ? "success" : "failure",
+    attempt: active.attempt,
+  });
+  return response;
+}
+
 function buildMcpProxy(env, runContext) {
   const bridge = env.__MCP_BRIDGE__;
   if (!bridge || typeof bridge.call !== "function") {
@@ -301,6 +347,7 @@ function buildMcpProxy(env, runContext) {
               const path = "epochs/" + runContext.executionEpoch + "/steps/"
                 + active.stepPathSegment + "/" + (active.nativeStepCount || active.stepCount)
                 + "/attempts/" + active.attempt + "/calls/" + active.phase + "/" + ordinal + ".json";
+              const t0 = workflowNowMs();
               const startedAt = workflowIsoNow();
               const started = {
                 schemaVersion: 2,
@@ -328,7 +375,6 @@ function buildMcpProxy(env, runContext) {
                   : boundedEvidenceValue(requestArgs),
               };
               await persistArtifact(env, { path, value: started, outcome: "pending", attempt: active.attempt });
-              const t0 = workflowNowMs();
               try {
                 const bridgeResult = await observeRpcCall(bridge.call({
                   namespace,

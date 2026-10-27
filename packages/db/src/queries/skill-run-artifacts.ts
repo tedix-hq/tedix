@@ -605,3 +605,25 @@ export async function deleteRunArtifacts(
 		.returning({ id: skillRunArtifacts.id });
 	return deleted.length;
 }
+
+/** Full inline timeline for an already organization/environment-scoped run. */
+export async function listRunTimelineArtifacts(
+	db: DbClient,
+	runId: string,
+	executionEpoch: number,
+): Promise<SkillRunArtifact[]> {
+	const pages = await readLogStores(db, (store) =>
+		listRunTimelineArtifacts(store, runId, executionEpoch),
+	);
+	if (pages) return mergeLogStoreRows(pages, { compare: compareArtifactOrder });
+	return db
+		.select()
+		.from(skillRunArtifacts)
+		.where(
+			and(
+				eq(skillRunArtifacts.runId, runId),
+				like(skillRunArtifacts.path, `timeline/epochs/${executionEpoch}/%`),
+			),
+		)
+		.orderBy(asc(skillRunArtifacts.createdAt), asc(skillRunArtifacts.path));
+}

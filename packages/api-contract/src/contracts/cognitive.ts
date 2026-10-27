@@ -31,6 +31,7 @@ import {
 	SkillRunStatusSchema,
 	SkillRunSummarySchema,
 	SkillWorkflowRetryCandidateSchema,
+	SkillWorkflowRunTimelineSchema,
 	SkillMoveToTediInputSchema,
 	SkillMoveToTediResultSchema,
 	SkillScheduleSchema,
@@ -1753,6 +1754,16 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 		.output(
 			z.object({ candidates: z.array(SkillWorkflowRetryCandidateSchema) }),
 		),
+
+	getWorkflowRunTimeline: oc
+		.route({
+			method: "GET",
+			path: "/skills/get-workflow-run-timeline",
+			tags: ["cognitive"],
+			summary: "Read the full current execution epoch timeline",
+		})
+		.input(z.object({ runId: z.string(), tediId: z.string().optional() }))
+		.output(SkillWorkflowRunTimelineSchema),
 
 	inspectWorkflowRun: oc
 		.route({

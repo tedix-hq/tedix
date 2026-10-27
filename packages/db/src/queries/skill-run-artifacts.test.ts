@@ -4,6 +4,7 @@ import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	getRunArtifact,
+	listRunTimelineArtifacts,
 	listRunWorkflowCallArtifacts,
 	listRunWorkflowRuntimeObservationsForRuns,
 	listRunWorkflowStepArtifacts,
@@ -263,4 +264,48 @@ it("keeps small bodies inline and uploads bodies over 4 KiB before committing a 
 		),
 	).rejects.toThrow("unavailable");
 	expect(await getRunArtifact(db, "run-1", "failed.json")).toBeNull();
+});
+
+describe("compact timeline artifact reads", () => {
+	it("reads over 128 inline rows in one query and filters the run and exact epoch", async () => {
+		const { db, insert } = fixture();
+		const createdAt = "2026-01-01T00:00:00Z";
+		for (let index = 0; index < 300; index++) {
+			insert.run(
+				`event-${index}`,
+				`timeline/epochs/3/steps/${index}.json`,
+				1,
+				createdAt,
+			);
+		}
+		insert.run("marker", "timeline/epochs/3/coverage.json", 1, createdAt);
+		insert.run("previous", "timeline/epochs/2/steps/old.json", 1, createdAt);
+		insert.run(
+			"next-prefix",
+			"timeline/epochs/30/steps/other.json",
+			1,
+			createdAt,
+		);
+		insert.run("original", "epochs/3/steps/original.json", 1, createdAt);
+		await recordRunArtifact(db, {
+			runId: "other-run",
+			path: "timeline/epochs/3/steps/other.json",
+			value: { other: true },
+		});
+		const rows = await listRunTimelineArtifacts(db, "run-1", 3);
+		expect(rows).toHaveLength(301);
+		expect(
+			rows.every(
+				(row) => row.contentInline === "{}" && row.contentR2Key === null,
+			),
+		).toBe(true);
+		expect(rows.some((row) => row.path.endsWith("coverage.json"))).toBe(true);
+		expect(
+			rows.every(
+				(row) =>
+					row.runId === "run-1" && row.path.startsWith("timeline/epochs/3/"),
+			),
+		).toBe(true);
+		expect(await listRunTimelineArtifacts(db, "run-1", 4)).toEqual([]);
+	});
 });
