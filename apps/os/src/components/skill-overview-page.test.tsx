@@ -69,7 +69,7 @@ describe("Skill overview summary", () => {
 			/>,
 		);
 		expect(html).toContain("Unavailable");
-		expect(html).toContain("Try again");
+		expect(html).toContain("Retry");
 		expect(html).not.toContain("Not Found");
 		expect(html).not.toContain("No runs yet");
 	});
@@ -111,7 +111,7 @@ describe("Skill overview summary", () => {
 		);
 		expect(html).toContain("90%");
 		expect(html).toContain("out of date");
-		expect(html).toContain("Try again");
+		expect(html).toContain("Retry");
 		expect(html).not.toContain("Unavailable");
 	});
 

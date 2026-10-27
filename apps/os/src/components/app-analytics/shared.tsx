@@ -11,7 +11,7 @@ import type {
 import { ArrowDown, ArrowUp, Pulse, Users } from "@phosphor-icons/react";
 import { useMemo } from "react";
 import type { z } from "zod";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -19,7 +19,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/kumo/card";
-import { AppTabReadRetry } from "@/components/app-detail-tab-shared";
+
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
@@ -40,7 +40,11 @@ import {
 	getCallerTypeDisplay,
 } from "./format";
 
-type ReadQuery = { isFetching: boolean; refetch: () => Promise<unknown> };
+type ReadQuery = {
+	error?: unknown;
+	isFetching: boolean;
+	refetch: () => Promise<unknown>;
+};
 type AppTimeSeries = z.infer<typeof AppTimeSeriesSchema>;
 type AppActivityFreshness = z.infer<typeof AppActivityFreshnessSchema>;
 
@@ -66,16 +70,17 @@ export function AnalyticsQueryState({
 						{`Loading ${label.toLowerCase()}...`}
 					</p>
 				) : state === "error" || state === "stale" ? (
-					<Alert variant={state === "error" ? "destructive" : "default"}>
-						<AlertDescription>
-							<span>
-								{state === "error"
-									? `${label} could not be loaded.`
-									: `${label} could not be refreshed. Showing earlier data.`}
-							</span>
-							{query && <AppTabReadRetry query={query} />}
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						error={query?.error}
+						title={`${label} could not be ${state === "stale" ? "refreshed" : "loaded"}.`}
+						help={
+							state === "stale"
+								? "Showing earlier data. Try again to refresh it."
+								: undefined
+						}
+						onRetry={query ? () => query.refetch() : undefined}
+						retrying={query?.isFetching}
+					/>
 				) : (
 					<Empty appearance="inline" role="status">
 						<EmptyDescription>{`No ${label.toLowerCase()} in this period.`}</EmptyDescription>

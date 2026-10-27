@@ -1,5 +1,10 @@
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { errorMessage, isNotFoundError } from "@/lib/orpc-error";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
+import { isNotFoundError } from "@/lib/orpc-error";
 
 /**
  * The failure state of a detail route whose identity read produced no resource.
@@ -25,10 +30,14 @@ import { errorMessage, isNotFoundError } from "@/lib/orpc-error";
 export function DetailUnavailable({
 	resource,
 	error,
+	onRetry,
+	retrying,
 }: {
 	/** Capitalized singular noun for the addressed resource, e.g. "Output". */
 	resource: string;
 	error: unknown;
+	onRetry?: () => unknown;
+	retrying?: boolean;
 }) {
 	if (error == null || isNotFoundError(error)) {
 		return (
@@ -42,9 +51,11 @@ export function DetailUnavailable({
 		);
 	}
 	return (
-		<Alert variant="destructive">
-			<AlertTitle>{resource} is unavailable</AlertTitle>
-			<AlertDescription>{errorMessage(error)}</AlertDescription>
-		</Alert>
+		<LoadError
+			title={`${resource} is unavailable`}
+			error={error}
+			onRetry={onRetry}
+			retrying={retrying}
+		/>
 	);
 }

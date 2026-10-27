@@ -4,7 +4,12 @@ import type {
 	OsBlueprintUpgradeReport,
 	OsWorkspace,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -178,12 +183,14 @@ export function BlueprintUpdateDialog({
 							Checking what changes…
 						</Text>
 					) : preview.isError ? (
-						<Alert variant="destructive">
-							<AlertTitle>Couldn't check this update</AlertTitle>
-							<AlertDescription>
-								{(preview.error as Error).message}
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Couldn't check this update"
+							error={preview.error}
+							onRetry={() => {
+								void preview.refetch();
+							}}
+							retrying={preview.isFetching}
+						/>
 					) : (
 						<>
 							<Text as="h3" role="label" tone="strong" className="m-0">

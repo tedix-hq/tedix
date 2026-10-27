@@ -12,7 +12,12 @@ import {
 } from "@tedix/api-contract/utils/run-error";
 import type { ReactNode } from "react";
 import { CostChip } from "@/components/cost-chip";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Collapsible,
@@ -210,7 +215,8 @@ export function RunErrorAlert({ error }: { error: string }) {
 type QueryState<T> = Pick<
 	UseQueryResult<T>,
 	"data" | "isPending" | "isError" | "error"
->;
+> &
+	Partial<Pick<UseQueryResult<T>, "refetch" | "isFetching">>;
 
 function RunEvidenceSection<T>({
 	title,
@@ -218,6 +224,8 @@ function RunEvidenceSection<T>({
 	items,
 	pending = false,
 	error,
+	onRetry,
+	retrying,
 	empty,
 	renderItem,
 }: {
@@ -226,6 +234,8 @@ function RunEvidenceSection<T>({
 	items?: T[];
 	pending?: boolean;
 	error?: Error | null;
+	onRetry?: () => unknown;
+	retrying?: boolean;
 	empty: ReactNode;
 	renderItem: (item: T) => ReactNode;
 }) {
@@ -243,9 +253,12 @@ function RunEvidenceSection<T>({
 				/>
 			)}
 			{error && (
-				<Alert variant="destructive">
-					<AlertDescription>{error.message}</AlertDescription>
-				</Alert>
+				<LoadError
+					title={`${title} could not be loaded`}
+					error={error}
+					onRetry={onRetry}
+					retrying={retrying}
+				/>
 			)}
 			{items &&
 				(items.length > 0 ? (
@@ -322,6 +335,8 @@ export function RunEvidenceSections({
 				items={artifacts.data?.artifacts}
 				pending={artifacts.isPending}
 				error={artifacts.isError ? artifacts.error : null}
+				onRetry={artifacts.refetch}
+				retrying={artifacts.isFetching}
 				empty="This run produced no artifacts"
 				renderItem={(artifact) => (
 					<RunArtifactRow
@@ -341,6 +356,8 @@ export function RunEvidenceSections({
 				}
 				pending={rationale.isPending}
 				error={rationale.isError ? rationale.error : null}
+				onRetry={rationale.refetch}
+				retrying={rationale.isFetching}
 				empty={
 					<RunRationaleEmpty
 						runId={run.id}

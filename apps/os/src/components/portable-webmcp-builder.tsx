@@ -2,7 +2,12 @@ import { Checkbox } from "@/components/kumo/checkbox";
 import type { PortableWebMcpProfile } from "@tedix/api-contract/schemas/portable-webmcp";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
@@ -136,12 +141,15 @@ export function PortableWebMcpBuilder({
 			</div>
 			{query.isPending && <Skeleton className="h-36 w-full" />}
 			{query.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Route configuration unavailable</AlertTitle>
-					<AlertDescription>
-						The provider installation catalog could not be loaded.
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Route configuration unavailable"
+					error={query.error}
+					onRetry={() => {
+						void query.refetch();
+					}}
+					retrying={query.isFetching}
+					help="The provider installation catalog could not be loaded."
+				/>
 			)}
 			{query.data?.length === 0 && (
 				<Alert>

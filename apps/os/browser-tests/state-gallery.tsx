@@ -12,12 +12,7 @@ import {
 	DeckCompletion,
 	DeckProgress,
 } from "../src/components/deck-progress";
-import {
-	Alert,
-	AlertDescription,
-	AlertTitle,
-} from "../src/components/kumo/alert";
-import { Button } from "../src/components/kumo/button";
+import { LoadError } from "../src/components/kumo/alert";
 import { Empty } from "../src/components/kumo/empty";
 import { Surface } from "../src/components/kumo/surface";
 import { Text } from "../src/components/kumo/text";
@@ -264,15 +259,14 @@ function StateBranch({
 				{surface.id === "feed" || surface.id === "deck" ? (
 					<WorkReadNotice failed partial={false} retry={retry} />
 				) : (
-					<Alert variant="destructive">
-						<AlertTitle>Could not load {surface.name.toLowerCase()}</AlertTitle>
-						<AlertDescription>
-							The sample service is unavailable. Your saved data is safe.
-						</AlertDescription>
-						<Button variant="outline" onClick={retry}>
-							Try again
-						</Button>
-					</Alert>
+					<LoadError
+						title={`Could not load ${surface.name.toLowerCase()}`}
+						error={{
+							code: "SERVICE_UNAVAILABLE",
+							message: "The sample service is unavailable.",
+						}}
+						onRetry={retry}
+					/>
 				)}
 				{attempts > 0 && <Text role="label">Retry requested ({attempts})</Text>}
 			</div>

@@ -33,7 +33,12 @@ import {
 import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import * as z from "zod";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -403,12 +408,14 @@ export function TeamMembersPanel({
 	if (context.isPending) return <MembersPanelPending />;
 	if (context.isError || !context.data) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Membership is unavailable</AlertTitle>
-				<AlertDescription>
-					{errorMessage(context.error, "The operational context read failed.")}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Membership is unavailable"
+				error={context.error}
+				onRetry={() => {
+					void context.refetch();
+				}}
+				retrying={context.isFetching}
+			/>
 		);
 	}
 
@@ -496,12 +503,14 @@ function TeamMembersPanelBody({
 	if (membersQuery.isPending) return <MembersPanelPending />;
 	if (membersQuery.isError) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>The member list is unavailable</AlertTitle>
-				<AlertDescription>
-					{errorMessage(membersQuery.error, "The membership read failed.")}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="The member list is unavailable"
+				error={membersQuery.error}
+				onRetry={() => {
+					void membersQuery.refetch();
+				}}
+				retrying={membersQuery.isFetching}
+			/>
 		);
 	}
 

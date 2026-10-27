@@ -26,7 +26,12 @@ import { OS_COPY } from "@/shared/os-copy";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle, Info } from "@phosphor-icons/react";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import {
 	Page,
 	PageDescription,
@@ -46,7 +51,7 @@ import type {
 	BillingCheckoutState,
 } from "@/lib/admin-billing-search";
 import { osQueryKeys } from "@/lib/os-query-options";
-import { errorMessage } from "@/lib/orpc-error";
+
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { isLocalSession } from "@/lib/local-inference";
 import { LocalCapabilityNotice } from "@/components/local-capability-notice";
@@ -127,15 +132,14 @@ export function AdminBillingPage({
 			) : context.isPending ? (
 				<BillingPagePending />
 			) : context.isError || !context.data ? (
-				<Alert variant="destructive">
-					<AlertTitle>Billing is unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(
-							context.error,
-							"The operational context read failed.",
-						)}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Billing is unavailable"
+					error={context.error}
+					onRetry={() => {
+						void context.refetch();
+					}}
+					retrying={context.isFetching}
+				/>
 			) : !context.data.authority.permissions.includes("billing:manage") ? (
 				<BillingRestricted />
 			) : (

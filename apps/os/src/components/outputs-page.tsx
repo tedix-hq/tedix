@@ -34,7 +34,12 @@ import * as z from "zod";
 import { OutputPreview } from "@/components/output-preview";
 import { NewResourceMenu } from "@/components/create-document-dialog";
 import { FormInput } from "@/components/forms/form-input";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import {
@@ -820,14 +825,7 @@ export function OutputsPage() {
 			</div>
 
 			{(kind === "all" || kind === "app") && apps.failed && (
-				<Alert variant="destructive">
-					<AlertTitle>Apps are unavailable</AlertTitle>
-					<AlertDescription>
-						<Button variant="outline" size="sm" onClick={apps.retry}>
-							Try again
-						</Button>
-					</AlertDescription>
-				</Alert>
+				<LoadError title="Apps are unavailable" onRetry={apps.retry} />
 			)}
 			{(kind === "all" || kind === "app") && apps.truncated && (
 				<Text role="label" tone="secondary">
@@ -837,21 +835,12 @@ export function OutputsPage() {
 			)}
 			{outputs.isPending ? <ListSkeleton /> : null}
 			{outputs.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Documents are unavailable</AlertTitle>
-					<AlertDescription>
-						<span>{(outputs.error as Error).message}</span>
-						<Button
-							variant="outline"
-							size="sm"
-							className="mt-2 w-fit"
-							disabled={outputs.isFetching}
-							onClick={() => void outputs.refetch()}
-						>
-							{outputs.isFetching ? "Trying again…" : "Try again"}
-						</Button>
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Documents are unavailable"
+					error={outputs.error}
+					onRetry={() => void outputs.refetch()}
+					retrying={outputs.isFetching}
+				/>
 			) : null}
 			{restore.isError ? (
 				<Alert variant="destructive">

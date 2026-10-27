@@ -1003,8 +1003,10 @@ function readState(overrides: Partial<ReadState>): ReadState {
 }
 
 function button(host: HTMLElement, label: string): HTMLButtonElement {
-	const found = host.querySelector<HTMLButtonElement>(
-		`button[aria-label="${label}"]`,
+	const found = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+		(button) =>
+			(button.getAttribute("aria-label") ?? button.textContent?.trim()) ===
+			label,
 	);
 	if (!found) throw new Error(`Button missing: ${label}`);
 	return found;
@@ -1033,7 +1035,7 @@ describe("SitesPage diagnostic read states", () => {
 		);
 		expect(host.textContent).toContain("Reconciliation read timed out");
 		expect(host.textContent).not.toContain("No reconciliation has run yet.");
-		act(() => button(host, "Retry loading the last check").click());
+		act(() => button(host, "Retry").click());
 		expect(refetch).toHaveBeenCalledTimes(1);
 		expectNoSiteMutations(host);
 	});
@@ -1078,7 +1080,7 @@ describe("SitesPage diagnostic read states", () => {
 		if (!manage) throw new Error("Manage action missing");
 		act(() => manage.click());
 		expect(host.textContent).toContain("The cleanup plan is unavailable");
-		act(() => button(host, "Retry loading the cleanup plan").click());
+		act(() => button(host, "Retry").click());
 		expect(refetch).toHaveBeenCalledTimes(1);
 		expectNoSiteMutations(host);
 	});
@@ -1100,7 +1102,7 @@ describe("SitesPage diagnostic read states", () => {
 		act(() => manage.click());
 		expect(host.textContent).toContain("Documentation builds are unavailable");
 		expect(host.textContent).not.toContain("No documentation builds yet.");
-		act(() => button(host, "Retry loading builds").click());
+		act(() => button(host, "Retry").click());
 		expect(refetch).toHaveBeenCalledTimes(1);
 		expectNoSiteMutations(host);
 	});

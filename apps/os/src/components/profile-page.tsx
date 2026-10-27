@@ -13,7 +13,12 @@ import { useOsIdentity } from "@/lib/use-os-identity";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { TedixBrandMark } from "@/shared/tedix-brand";
 import { buildBrokerStartPath } from "@/shared/session-status";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/kumo/avatar";
 import { Button } from "@/components/kumo/button";
 import {
@@ -177,18 +182,12 @@ export function ProfilePage() {
 			<main className="org-launcher">
 				<Surface tier="panel" className="grid w-full max-w-2xl gap-5 p-6">
 					<TedixBrandMark />
-					<Alert variant="destructive">
-						<AlertTitle>Could not load your profile</AlertTitle>
-						<AlertDescription>
-							<Button
-								size="sm"
-								variant="secondary"
-								onClick={() => profile.refetch()}
-							>
-								Try again
-							</Button>
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Could not load your profile"
+						error={profile.error}
+						onRetry={() => profile.refetch()}
+						retrying={profile.isFetching}
+					/>
 				</Surface>
 			</main>
 		);

@@ -20,7 +20,12 @@ import {
 	calendarAccountInput,
 	calendarAccountLabel,
 } from "./calendar-resource-picker";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -749,13 +754,15 @@ export function WorkspaceCalendarCoordinator({
 			</CardHeader>
 			<CardContent className="grid gap-4">
 				{configurations.isError && (
-					<Alert variant="warning">
-						<AlertTitle>Calendar setup unavailable</AlertTitle>
-						<AlertDescription>
-							The server could not load calendar blocking. Activation is
-							unavailable.
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title={<>Calendar setup unavailable</>}
+						error={configurations.error}
+						onRetry={() => {
+							void configurations.refetch();
+						}}
+						retrying={configurations.isFetching}
+						help="Calendar blocking could not be loaded. Activation is unavailable."
+					/>
 				)}
 				{configuration && (
 					<>

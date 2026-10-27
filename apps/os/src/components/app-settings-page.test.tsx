@@ -135,7 +135,7 @@ function save(host: HTMLElement) {
 }
 function retryButton(host: HTMLElement) {
 	const button = [...host.querySelectorAll("button")].find(
-		(button) => button.textContent === "Try again",
+		(button) => button.textContent === "Retry",
 	);
 	if (!button) throw new Error("Missing Try again button");
 	return button;

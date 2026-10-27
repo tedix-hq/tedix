@@ -991,18 +991,18 @@ try {
 			response.url().includes("/workInteractions/listInbox") &&
 			response.status() === 503,
 	);
-	await banner.getByRole("button", { name: "Try again" }).click();
+	await banner.getByRole("button", { name: "Retry" }).click();
 	await banner
-		.getByRole("button", { name: "Try again" })
+		.getByRole("button", { name: "Retry" })
 		.waitFor({ state: "hidden" });
 	await (await partialRetry).finished();
-	await banner.getByRole("button", { name: "Try again" }).waitFor();
+	await banner.getByRole("button", { name: "Retry" }).waitFor();
 	if (olderReads < 2 || approvalReads < 1 || !(await banner.isVisible()))
 		throw new Error(
 			"Retry skipped a source or cleared while another source still failed",
 		);
 	approvalFails = false;
-	await banner.getByRole("button", { name: "Try again" }).click();
+	await banner.getByRole("button", { name: "Retry" }).click();
 	await banner.waitFor({ state: "hidden" });
 	if (process.env.TEDIX_SCREENSHOT_DIR)
 		await retry.screenshot({

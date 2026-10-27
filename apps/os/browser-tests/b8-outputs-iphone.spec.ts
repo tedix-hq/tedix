@@ -457,7 +457,7 @@ try {
 					0,
 				);
 				await inspect(page, `${label}-error`, phone, [
-					page.getByRole("button", { name: "Try again", exact: true }),
+					page.getByRole("button", { name: "Retry", exact: true }),
 				]);
 				const previousReads = reads;
 				mode = "pending";
@@ -469,9 +469,7 @@ try {
 						new URL(request.url()).pathname ===
 						"/api/rpc/osWorkspaces/outputs/library",
 				);
-				await page
-					.getByRole("button", { name: "Try again", exact: true })
-					.click();
+				await page.getByRole("button", { name: "Retry", exact: true }).click();
 				await retryRequest;
 				// Query may reset its error while retrying; either pending treatment
 				// must remain honest, with no empty-library claim during the read.

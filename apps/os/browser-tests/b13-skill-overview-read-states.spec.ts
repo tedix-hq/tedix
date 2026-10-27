@@ -246,15 +246,13 @@ try {
 				0,
 			);
 			assert.equal(
-				await page
-					.getByRole("button", { name: "Try again", exact: true })
-					.count(),
+				await page.getByRole("button", { name: "Retry", exact: true }).count(),
 				2,
 			);
 			// Independent retry: reliability recovers while runs stay failed.
 			failReliability = false;
 			await page
-				.getByRole("button", { name: "Try again", exact: true })
+				.getByRole("button", { name: "Retry", exact: true })
 				.first()
 				.click();
 			await page.getByText("86%", { exact: true }).waitFor();
@@ -264,7 +262,7 @@ try {
 			// The other read recovers on its own retry.
 			failRuns = false;
 			await page
-				.getByRole("button", { name: "Try again", exact: true })
+				.getByRole("button", { name: "Retry", exact: true })
 				.first()
 				.click();
 			await page.locator('[data-slot="table"] tbody tr').first().waitFor();
@@ -296,14 +294,14 @@ try {
 			failReliability = false;
 			failRuns = false;
 			await page
-				.getByRole("button", { name: "Try again", exact: true })
+				.getByRole("button", { name: "Retry", exact: true })
 				.first()
 				.click();
 			await page
 				.getByText(/figures shown may be out of date/)
 				.waitFor({ state: "hidden" });
 			await page
-				.getByRole("button", { name: "Try again", exact: true })
+				.getByRole("button", { name: "Retry", exact: true })
 				.first()
 				.click();
 			await page

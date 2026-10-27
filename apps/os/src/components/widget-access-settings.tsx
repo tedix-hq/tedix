@@ -10,7 +10,7 @@ import {
 } from "@tedix/api-contract/schemas/embedded-widget-access";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -74,12 +74,15 @@ export function WidgetAccessSettings({
 		return <ListSkeleton rows={2} rowClassName="h-40" />;
 	if (query.isError || companies.isError)
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Access settings unavailable</AlertTitle>
-				<AlertDescription>
-					{query.error?.message ?? companies.error?.message}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Access settings unavailable"
+				error={query.error ?? companies.error}
+				onRetry={() => {
+					void query.refetch();
+					void companies.refetch();
+				}}
+				retrying={query.isFetching || companies.isFetching}
+			/>
 		);
 	if (!query.data.data.length)
 		return (
@@ -333,11 +336,15 @@ function InstallationAccess({
 				<section aria-label="Draft audience preview" className="grid gap-2">
 					<h3 className="font-medium">Preview before saving</h3>
 					{contacts.isError && (
-						<Alert variant="destructive">
-							<AlertDescription>
-								Contact preview unavailable. Saved selections are preserved.
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Contact preview is unavailable"
+							help="Saved selections are preserved. Try again in a moment."
+							error={contacts.error}
+							onRetry={() => {
+								void contacts.refetch();
+							}}
+							retrying={contacts.isFetching}
+						/>
 					)}
 					<p>
 						{

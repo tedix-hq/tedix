@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ToolCallPayload } from "@tedix/api-contract/schemas/analytics";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { CodeBlock } from "@/components/kumo/code";
 import {
@@ -33,7 +33,7 @@ export function ToolCallPayloadRow({
 }) {
 	const [isExpanded, setIsExpanded] = useState(false);
 
-	const { data, isPending, isError } = useQuery({
+	const { data, isPending, isError, error, refetch, isFetching } = useQuery({
 		...toolCallPayloadsQueryOptions(executionId, toolName),
 		staleTime: 300_000,
 		enabled: isExpanded,
@@ -87,13 +87,7 @@ export function ToolCallPayloadRow({
 			<CollapsibleContent>
 				<div className="space-y-2 pl-6">
 					{isPending && <Skeleton className="h-16" />}
-					{isError && (
-						<Alert variant="destructive">
-							<AlertDescription>
-								Payload details could not be loaded.
-							</AlertDescription>
-						</Alert>
-					)}
+					{isError && <LoadError title="Payload details could not be loaded" />}
 					{!isPending && data && data.configured === false && (
 						<Text as="p" role="label" tone="secondary" className="m-0">
 							Payload capture is not enabled for this environment.

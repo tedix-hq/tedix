@@ -192,5 +192,5 @@ it("requires a successful fresh read before saving and offers retry", async () =
 	const view = await mount({ seedPolicy: false });
 	expect(view.host.textContent).toContain("Access settings are unavailable");
 	expect(view.button("Save who can use this").disabled).toBe(true);
-	expect(view.button("Retry access settings")).toBeDefined();
+	expect(view.button("Retry")).toBeDefined();
 });

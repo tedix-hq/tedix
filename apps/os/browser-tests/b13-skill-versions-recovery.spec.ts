@@ -195,12 +195,8 @@ try {
 
 			failDetail = false;
 			failVersions = false;
-			await page
-				.getByRole("button", { name: "Retry skill details", exact: true })
-				.click();
-			await page
-				.getByRole("button", { name: "Retry versions", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await waitForText(page, "Verified executed revision reasoning");
 			await useKeyboard(page, "Technical evidence");
 			await waitForText(page, manifest);

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
@@ -65,24 +65,15 @@ export function SkillVersionsPage() {
 					Checking current version…
 				</Text>
 			) : !canVerifyCurrent ? (
-				<Alert variant="warning">
-					<AlertTitle>Current version verification unavailable</AlertTitle>
-					<AlertDescription>
-						Current badges and revision reasoning cannot be verified until skill
-						details load.
-						{detail.isError && detail.error instanceof Error
-							? ` ${detail.error.message}`
-							: null}
-					</AlertDescription>
-					<Button
-						variant="outline"
-						className="mt-2 min-h-11 w-fit"
-						disabled={detail.isFetching}
-						onClick={() => void detail.refetch()}
-					>
-						Retry skill details
-					</Button>
-				</Alert>
+				<LoadError
+					title={<>Current version verification unavailable</>}
+					error={detail.error}
+					onRetry={() => {
+						void detail.refetch();
+					}}
+					retrying={detail.isFetching}
+					help="Current badges cannot be checked until skill details load."
+				/>
 			) : null}
 			{revisions.data ? (
 				<Text role="label" tone="secondary" className="m-0">
@@ -96,29 +87,21 @@ export function SkillVersionsPage() {
 			<SkillWorkflowDrafts skillId={skillId} />
 			{revisions.isPending ? <ListSkeleton /> : null}
 			{revisions.isError ? (
-				<Alert variant={revisions.data ? "warning" : "destructive"}>
-					<AlertTitle>
-						{revisions.data
+				<LoadError
+					title={
+						revisions.data
 							? "Versions could not refresh"
-							: "Versions unavailable"}
-					</AlertTitle>
-					<AlertDescription>
-						{revisions.data
-							? "Showing previously loaded execution evidence. "
-							: null}
-						{revisions.error instanceof Error
-							? revisions.error.message
-							: "The versions could not be read."}
-					</AlertDescription>
-					<Button
-						variant="outline"
-						className="mt-2 min-h-11 w-fit"
-						disabled={revisions.isFetching}
-						onClick={() => void revisions.refetch()}
-					>
-						Retry versions
-					</Button>
-				</Alert>
+							: "Versions unavailable"
+					}
+					error={revisions.error}
+					help={
+						revisions.data
+							? "Showing previously loaded execution evidence."
+							: undefined
+					}
+					onRetry={() => void revisions.refetch()}
+					retrying={revisions.isFetching}
+				/>
 			) : null}
 			{revisions.data &&
 				(sorted.length === 0 ? (

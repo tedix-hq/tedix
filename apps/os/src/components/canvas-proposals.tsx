@@ -10,7 +10,12 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -339,12 +344,14 @@ export function CanvasProposals({
 
 	if (proposals.isError) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Could not load suggested changes</AlertTitle>
-				<AlertDescription>
-					{(proposals.error as Error).message}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Could not load suggested changes"
+				error={proposals.error}
+				onRetry={() => {
+					void proposals.refetch();
+				}}
+				retrying={proposals.isFetching}
+			/>
 		);
 	}
 	const items = exclude

@@ -577,7 +577,7 @@ describe("TediAuthority", () => {
 		await flush();
 		expect(container.textContent).not.toContain("No entrustments granted");
 		const retry = Array.from(container.querySelectorAll("button")).find(
-			(button) => button.textContent === "Retry earned-authority read",
+			(button) => button.textContent === "Retry",
 		);
 		expect(retry).toBeDefined();
 		act(() => retry?.click());
@@ -629,7 +629,7 @@ describe("TediAuthority", () => {
 					}),
 			);
 			const retry = container.querySelector("button");
-			expect(retry?.textContent).toBe("Retry earned-authority read");
+			expect(retry?.textContent).toBe("Retry");
 			act(() => retry?.click());
 			await flush();
 			expect(retry?.disabled).toBe(true);

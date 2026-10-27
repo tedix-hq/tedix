@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import {
 	AlertDialog,
 	AlertDialogCancel,
@@ -145,12 +150,16 @@ export function WorkspaceDeleteDialog({
 					</Alert>
 				) : null}
 				{shares.isError || suggestions.isError ? (
-					<Alert variant="warning">
-						<AlertDescription>
-							Tedix couldn't check this workspace's share links and agent
-							suggestions. If either blocks the delete, you'll see why here.
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						error={shares.error ?? suggestions.error}
+						onRetry={() => {
+							void shares.refetch();
+							void suggestions.refetch();
+						}}
+						retrying={shares.isFetching || suggestions.isFetching}
+						title="Workspace checks could not be loaded"
+						help="Share links and agent suggestions could not be checked. Deletion may still be blocked."
+					/>
 				) : null}
 				<WorkspaceEffectList
 					heading="Deleted for good"

@@ -3,7 +3,7 @@ import type {
 	ModelCatalogRouting,
 } from "@tedix/api-contract/schemas/model-catalog-projection";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
@@ -132,13 +132,15 @@ export function ModelCatalogSection({
 				</div>
 			)}
 			{catalog.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>The model catalog is unavailable</AlertTitle>
-					<AlertDescription>
-						{(catalog.error as Error).message} — no model availability is known
-						for this workspace.
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="The model catalog is unavailable"
+					error={catalog.error}
+					help="Model availability is unknown until this loads."
+					onRetry={() => {
+						void catalog.refetch();
+					}}
+					retrying={catalog.isFetching}
+				/>
 			)}
 			{catalog.data && (
 				<ModelCatalogCard

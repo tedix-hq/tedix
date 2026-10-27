@@ -768,7 +768,7 @@ describe("AppAnalyticsPage", () => {
 			buttonIn(
 				container,
 				"Tool breakdown could not be loaded.",
-				"Try again",
+				"Retry",
 			)!.click();
 		});
 		await vi.waitFor(() =>
@@ -792,14 +792,15 @@ describe("AppAnalyticsPage", () => {
 					.queryKey,
 			});
 		});
-		await vi.waitFor(() =>
+		await vi.waitFor(() => {
 			expect(container.textContent).toContain(
-				"Tool breakdown could not be refreshed. Showing earlier data.",
-			),
-		);
+				"Tool breakdown could not be refreshed.",
+			);
+			expect(container.textContent).toContain("Showing earlier data.");
+		});
 		expect(container.textContent).toContain("list_invoices");
 		expect(
-			buttonIn(container, "could not be refreshed", "Try again"),
+			buttonIn(container, "could not be refreshed", "Retry"),
 		).toBeDefined();
 	});
 });

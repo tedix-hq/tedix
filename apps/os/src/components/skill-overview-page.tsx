@@ -22,7 +22,6 @@ import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
 import { SkillBundleTree } from "@/components/skill-bundle-tree";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
-import { errorMessage } from "@/lib/orpc-error";
 import {
 	skillDetailQueryOptions,
 	skillReliabilityQueryOptions,
@@ -39,7 +38,14 @@ export function SkillOverviewPage() {
 	const skill = detail.data?.entry;
 	if (detail.isPending) return <ListSkeleton rows={6} />;
 	if (detail.isError || !skill)
-		return <DetailUnavailable resource="Skill" error={detail.error} />;
+		return (
+			<DetailUnavailable
+				resource="Skill"
+				error={detail.error}
+				onRetry={() => detail.refetch()}
+				retrying={detail.isFetching}
+			/>
+		);
 	const recentRuns = (runs.data?.runs ?? []).slice(0, 5);
 	return (
 		<PageSection>
@@ -77,7 +83,7 @@ export function SkillOverviewPage() {
 					errorTitle={runs.data ? "Could not refresh runs" : "Runs unavailable"}
 					errorDescription={
 						runs.data
-							? `Showing previously loaded runs; their status may be out of date. ${errorMessage(runs.error, "Runs could not be read.")}`
+							? "Showing previously loaded runs; their status may be out of date."
 							: undefined
 					}
 				/>
@@ -115,8 +121,8 @@ export type SkillReliabilityRead = {
 };
 
 /*
- * A read-only retry affordance for a failed evidence read — the same "Try
- * again" control ListQueryBoundary renders for list reads, kept small enough
+ * A read-only retry affordance for a failed evidence read — the same "Retry"
+ * control ListQueryBoundary renders for list reads, kept small enough
  * to sit inside a metric's description slot.
  */
 function EvidenceRetry({ query }: { query: SkillReliabilityRead }) {
@@ -128,7 +134,7 @@ function EvidenceRetry({ query }: { query: SkillReliabilityRead }) {
 			disabled={query.isFetching}
 			onClick={() => void query.refetch()}
 		>
-			{query.isFetching ? "Trying again…" : "Try again"}
+			{query.isFetching ? "Trying again…" : "Retry"}
 		</Button>
 	);
 }

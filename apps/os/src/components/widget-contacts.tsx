@@ -6,7 +6,7 @@ import type {
 } from "@tedix/api-contract/schemas/embedded-contact";
 import { evaluateEmbeddedWidgetAccess } from "@tedix/api-contract/schemas/embedded-widget-access";
 import { osQuery, appAnalyticsRange } from "@/lib/os-query-options";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -183,10 +183,15 @@ export function WidgetContacts({
 					{directory.isPending ? (
 						<ListSkeleton rows={5} rowClassName="h-12" />
 					) : directory.isError ? (
-						<Alert variant="destructive">
-							<AlertTitle>Customers unavailable</AlertTitle>
-							<AlertDescription>Try refreshing the directory.</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Customers unavailable"
+							error={directory.error}
+							onRetry={() => {
+								void directory.refetch();
+							}}
+							retrying={directory.isFetching}
+							help="Try refreshing the directory."
+						/>
 					) : (
 						<>
 							{kind === "people" ? (
@@ -363,11 +368,14 @@ export function WidgetContacts({
 					</DialogHeader>
 					{detail.isPending && <ListSkeleton rows={4} rowClassName="h-5" />}
 					{detail.isError && (
-						<Alert variant="destructive">
-							<AlertDescription>
-								This profile could not be loaded.
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="This profile could not be loaded."
+							error={detail.error}
+							onRetry={() => {
+								void detail.refetch();
+							}}
+							retrying={detail.isFetching}
+						/>
 					)}
 					{detail.data && company && (
 						<>

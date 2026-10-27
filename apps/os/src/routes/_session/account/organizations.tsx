@@ -15,7 +15,12 @@ import {
 } from "@/account/launcher-routing";
 import { OrganizationLauncherContent } from "@/account/organization-launcher-page";
 import { useOsOnboardingState } from "@/account/use-os-onboarding-state";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { myWorkspacesDirectoryQueryOptions } from "@/lib/os-query-options";
@@ -112,23 +117,15 @@ function AccountOrganizationsRoute() {
 			<main className="org-launcher">
 				<section className="org-launcher-card">
 					<TedixBrandMark />
-					<Alert variant="destructive">
-						<AlertTitle>Could not load your workspaces</AlertTitle>
-						<AlertDescription>
-							<p>This is usually temporary.</p>
-							<Button
-								type="button"
-								variant="secondary"
-								size="sm"
-								onClick={() => {
-									refetchOnboardingState();
-									void directory.refetch();
-								}}
-							>
-								Try again
-							</Button>
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Could not load your workspaces"
+						error={organizations.error ?? directory.error}
+						onRetry={() => {
+							refetchOnboardingState();
+							void directory.refetch();
+						}}
+						retrying={organizations.isFetching || directory.isFetching}
+					/>
 				</section>
 			</main>
 		);

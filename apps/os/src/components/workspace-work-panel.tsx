@@ -6,7 +6,7 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { type CSSProperties, useState } from "react";
-import { Alert } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { ConfirmDialog } from "./confirm-dialog";
 import { Empty } from "@/components/kumo/empty";
 import { WorkspaceListRow } from "./workspace-list-row";
@@ -527,9 +527,18 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 					</Text>
 				) : null}
 				{links.isError || itemQueries.some((query) => query.isError) ? (
-					<Alert
-						variant="destructive"
-						description="Some workspace work could not be loaded. Refresh to try again."
+					<LoadError
+						error={
+							links.error ?? itemQueries.find((query) => query.isError)?.error
+						}
+						onRetry={() => {
+							void links.refetch();
+							for (const query of itemQueries) void query.refetch();
+						}}
+						retrying={
+							links.isFetching || itemQueries.some((query) => query.isFetching)
+						}
+						title="Some workspace work could not be loaded"
 					/>
 				) : null}
 				{links.isError ? null : links.isPending ||

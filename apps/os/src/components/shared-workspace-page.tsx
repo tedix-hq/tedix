@@ -11,7 +11,12 @@ import {
 	handleAppRuntimeCall,
 } from "@/lib/app-runtime-host";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
@@ -113,12 +118,15 @@ function SharedRuntimeApp({
 		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
 	if (client.isError || !data)
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>This app is unavailable</AlertTitle>
-				<AlertDescription>
-					Ask the person who shared it to check your access.
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="This app is unavailable"
+				error={client.error}
+				onRetry={() => {
+					void client.refetch();
+				}}
+				retrying={client.isFetching}
+				help="Ask the person who shared it to check your access."
+			/>
 		);
 	return (
 		<AppRuntimeFrame

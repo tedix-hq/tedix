@@ -4,7 +4,7 @@ import { EnvelopeSimple, Plus, Trash } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { EmailRoutingPolicy } from "@tedix/api-contract/schemas/tedi-email";
 import { useEffect, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -622,19 +622,13 @@ function ThreadMessages({
 	return (
 		<div className="space-y-2">
 			{thread.isError && (
-				<Alert variant="destructive" className="[overflow-wrap:anywhere]">
-					<AlertTitle>Could not load this thread</AlertTitle>
-					<AlertDescription>{errorMessage(thread.error)}</AlertDescription>
-					<Button
-						type="button"
-						variant="secondary"
-						className="mt-2 w-fit"
-						disabled={thread.isFetching}
-						onClick={() => void thread.refetch()}
-					>
-						Retry thread
-					</Button>
-				</Alert>
+				<LoadError
+					title="Could not load this thread"
+					error={thread.error}
+					onRetry={() => void thread.refetch()}
+					retrying={thread.isFetching}
+					className="[overflow-wrap:anywhere]"
+				/>
 			)}
 			{thread.isSuccess && thread.data.messages.length === 0 && (
 				<Text tone="secondary">No messages in this thread.</Text>
@@ -706,19 +700,13 @@ export function InboxCard({ tediId }: { tediId: string }) {
 
 				{inbox.isPending && <ListSkeleton rows={3} rowClassName="h-14" />}
 				{inbox.isError && (
-					<Alert variant="destructive" className="[overflow-wrap:anywhere]">
-						<AlertTitle>The inbox is unavailable</AlertTitle>
-						<AlertDescription>{errorMessage(inbox.error)}</AlertDescription>
-						<Button
-							type="button"
-							variant="secondary"
-							className="mt-2 w-fit"
-							disabled={inbox.isFetching}
-							onClick={() => void inbox.refetch()}
-						>
-							Retry inbox
-						</Button>
-					</Alert>
+					<LoadError
+						title="The inbox is unavailable"
+						error={inbox.error}
+						onRetry={() => void inbox.refetch()}
+						retrying={inbox.isFetching}
+						className="[overflow-wrap:anywhere]"
+					/>
 				)}
 				{inbox.isSuccess && inbox.data.threads.length === 0 && (
 					<Empty>
@@ -877,35 +865,23 @@ export function TediMailbox({ tediId }: { tediId: string }) {
 	return (
 		<div className="space-y-4" data-testid="tedi-mailbox">
 			{tedi.isError && (
-				<Alert variant="destructive" className="[overflow-wrap:anywhere]">
-					<AlertTitle>Tedi details are unavailable</AlertTitle>
-					<AlertDescription>{errorMessage(tedi.error)}</AlertDescription>
-					<Button
-						type="button"
-						variant="secondary"
-						className="mt-2 w-fit"
-						disabled={tedi.isFetching}
-						onClick={() => void tedi.refetch()}
-					>
-						Retry tedi details
-					</Button>
-				</Alert>
+				<LoadError
+					title="Tedi details are unavailable"
+					error={tedi.error}
+					onRetry={() => void tedi.refetch()}
+					retrying={tedi.isFetching}
+					className="[overflow-wrap:anywhere]"
+				/>
 			)}
 			{addresses.isPending && <ListSkeleton rows={2} rowClassName="h-24" />}
 			{addresses.isError && (
-				<Alert variant="destructive" className="[overflow-wrap:anywhere]">
-					<AlertTitle>The mailbox is unavailable</AlertTitle>
-					<AlertDescription>{errorMessage(addresses.error)}</AlertDescription>
-					<Button
-						type="button"
-						variant="secondary"
-						className="mt-2 w-fit"
-						disabled={addresses.isFetching}
-						onClick={() => void addresses.refetch()}
-					>
-						Retry addresses
-					</Button>
-				</Alert>
+				<LoadError
+					title="The mailbox is unavailable"
+					error={addresses.error}
+					onRetry={() => void addresses.refetch()}
+					retrying={addresses.isFetching}
+					className="[overflow-wrap:anywhere]"
+				/>
 			)}
 			{addresses.isSuccess && rows.length === 0 && tedi.isPending && (
 				<ListSkeleton rows={1} rowClassName="h-24" />

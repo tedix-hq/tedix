@@ -285,7 +285,12 @@ export function RunDetailPage() {
 			{/* The not-found verdict for this route lives here, not in a loader:
 			    only a settled NOT_FOUND says the run is gone. */}
 			{inspect.isError && (
-				<DetailUnavailable resource="Run" error={inspect.error} />
+				<DetailUnavailable
+					resource="Run"
+					error={inspect.error}
+					onRetry={() => inspect.refetch()}
+					retrying={inspect.isFetching}
+				/>
 			)}
 
 			{inspect.data && run && (

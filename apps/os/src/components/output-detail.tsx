@@ -249,7 +249,12 @@ function OutputDetail({ outputId }: { outputId: string }) {
 			    `prefetchOutputRoute`), so the not-found verdict is owned here: only
 			    a settled NOT_FOUND says the output is gone. */}
 			{detail.isError && (
-				<DetailUnavailable resource="Output" error={detail.error} />
+				<DetailUnavailable
+					resource="Output"
+					error={detail.error}
+					onRetry={() => detail.refetch()}
+					retrying={detail.isFetching}
+				/>
 			)}
 			{detail.data && (
 				<>

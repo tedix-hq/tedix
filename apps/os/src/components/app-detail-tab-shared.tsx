@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Empty,
@@ -102,7 +102,11 @@ export function AppTabEmpty({
 	);
 }
 
-type ReadQuery = { isFetching: boolean; refetch: () => Promise<unknown> };
+type ReadQuery = {
+	error?: unknown;
+	isFetching: boolean;
+	refetch: () => Promise<unknown>;
+};
 
 export function AppTabReadRetry({ query }: { query: ReadQuery }) {
 	return (
@@ -128,13 +132,13 @@ export function AppTabError({
 	query: ReadQuery;
 }) {
 	return (
-		<Alert variant="destructive">
-			<AlertTitle>{title}</AlertTitle>
-			<AlertDescription>
-				<span>{children}</span>
-				<AppTabReadRetry query={query} />
-			</AlertDescription>
-		</Alert>
+		<LoadError
+			error={query.error}
+			title={title}
+			onRetry={() => query.refetch()}
+			retrying={query.isFetching}
+			details={children}
+		/>
 	);
 }
 

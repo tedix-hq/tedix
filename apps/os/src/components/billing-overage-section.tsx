@@ -10,7 +10,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { BillingOverageSettings } from "@tedix/api-contract/schemas/billing";
 import { Warning } from "@phosphor-icons/react";
 import { useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
@@ -50,12 +55,14 @@ export function BillingOverageSection() {
 	if (overviewQuery.isPending) return <Skeleton className="h-32 w-full" />;
 	if (overviewQuery.isError) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Overage settings are unavailable</AlertTitle>
-				<AlertDescription>
-					{errorMessage(overviewQuery.error, "The billing read failed.")}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Overage settings are unavailable"
+				error={overviewQuery.error}
+				onRetry={() => {
+					void overviewQuery.refetch();
+				}}
+				retrying={overviewQuery.isFetching}
+			/>
 		);
 	}
 	if (overviewQuery.data.credits?.billingMode === "monetary") {

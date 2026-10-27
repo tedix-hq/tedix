@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { AppTabHeader } from "@/components/app-detail-tab-shared";
 import { PageSection } from "@/components/kumo/page";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
-import { Button } from "@/components/kumo/button";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
+
 import { Switch } from "@/components/kumo/switch";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
@@ -46,14 +46,11 @@ export function AppGatewayMembership({
 				{membership.isPending ? (
 					<Skeleton className="h-10 w-full" />
 				) : membership.isError ? (
-					<Alert variant="destructive">
-						<AlertDescription>
-							Gateway availability could not be loaded.{" "}
-							<Button variant="secondary" onClick={() => membership.refetch()}>
-								Retry
-							</Button>
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						error={membership.error}
+						onRetry={() => membership.refetch()}
+						retrying={membership.isFetching}
+					/>
 				) : isGateway ? (
 					<Text as="p" role="body" tone="secondary">
 						Self-membership does not apply. Manage availability from each

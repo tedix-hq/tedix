@@ -629,6 +629,8 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 				<WorkReadFailure
 					title="Agent sessions unavailable"
 					error={query.error}
+					onRetry={() => query.refetch()}
+					retrying={query.isFetching}
 				/>
 			) : (
 				<div aria-busy="true" aria-label="Loading">

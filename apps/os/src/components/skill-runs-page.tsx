@@ -2,8 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import type { SkillRunSummary } from "@tedix/api-contract/contracts/cognitive";
 import { RunStatusChip } from "@/components/activity-runs";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Button } from "@/components/kumo/button";
+import { LoadError } from "@/components/kumo/alert";
+
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import {
@@ -30,7 +30,7 @@ import {
 } from "@/lib/skill-runs-search";
 import { skillRunsQueryOptions } from "@/lib/os-query-options";
 import { useOsFormattingPreferences } from "@/lib/format";
-import { errorMessage } from "@/lib/orpc-error";
+
 import { absoluteTime, formatDurationBetween, relativeTime } from "@/lib/time";
 
 const STATUS_OPTIONS = [
@@ -82,26 +82,15 @@ export function SkillRunsPage({
 				options={STATUS_OPTIONS}
 			/>
 			{runs.isError && runs.data ? (
-				<Alert variant="warning">
-					<AlertTitle>Runs could not refresh</AlertTitle>
-					<AlertDescription>
-						<span>
-							Showing runs loaded{" "}
-							{relativeTime(new Date(runs.dataUpdatedAt).toISOString())}; they
-							may be out of date.{" "}
-							{errorMessage(runs.error, "The list could not be read.")}
-						</span>
-						<Button
-							variant="outline"
-							size="sm"
-							className="mt-2 w-fit"
-							disabled={runs.isFetching}
-							onClick={() => void runs.refetch()}
-						>
-							{runs.isFetching ? "Trying again…" : "Try again"}
-						</Button>
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title={<>Runs could not refresh</>}
+					error={runs.error}
+					onRetry={() => {
+						void runs.refetch();
+					}}
+					retrying={runs.isFetching}
+					help={`Showing runs loaded ${relativeTime(new Date(runs.dataUpdatedAt).toISOString())}; they may be out of date.`}
+				/>
 			) : (
 				<ListQueryBoundary query={runs} errorTitle="Runs unavailable" />
 			)}

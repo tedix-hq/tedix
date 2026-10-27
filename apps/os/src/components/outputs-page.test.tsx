@@ -410,7 +410,7 @@ describe("OutputsPage", () => {
 		expect(container.textContent).toContain(
 			"API request timed out after 15000ms",
 		);
-		clickButton(container, "Try again");
+		clickButton(container, "Retry");
 		await flush();
 
 		expect(outputsApi.library).toHaveBeenCalledTimes(2);

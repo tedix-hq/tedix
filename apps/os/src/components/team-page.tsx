@@ -15,7 +15,12 @@ import { useQuery } from "@tanstack/react-query";
 import { getOsSurface } from "@/lib/os-navigation";
 import type { ComponentType, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Pagination } from "@/components/kumo/pagination";
 import { OsRouterLink } from "@/components/kumo/link-provider";
@@ -757,13 +762,20 @@ function RuntimeGateNotice() {
 	});
 	if (runtime.isError) {
 		return (
-			<Alert variant="warning">
-				<AlertTitle>Runtime status unavailable</AlertTitle>
-				<AlertDescription>
-					Inference access could not be checked.{" "}
-					<OsRouterLink to="/compute">View Compute</OsRouterLink>
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title={<>Runtime status unavailable</>}
+				error={runtime.error}
+				onRetry={() => {
+					void runtime.refetch();
+				}}
+				retrying={runtime.isFetching}
+				help={
+					<>
+						Inference access could not be checked.{" "}
+						<OsRouterLink to="/compute">View Compute</OsRouterLink>
+					</>
+				}
+			/>
 		);
 	}
 	const plan = runtime.data?.entitlement;

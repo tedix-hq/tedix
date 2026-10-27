@@ -36,7 +36,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/kumo/alert-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import {
 	AppTabTable,
 	AppTabHeader,
@@ -44,7 +44,6 @@ import {
 	AppTabLoading,
 	AppTabEmpty,
 	AppTabError,
-	AppTabReadRetry,
 	AppTabDate,
 } from "./app-detail-tab-shared";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
@@ -472,17 +471,19 @@ function StaleReadNotice({
 	after?: ReactNode;
 }) {
 	return (
-		<Alert variant="warning">
-			<AlertTitle>{title}</AlertTitle>
-			<AlertDescription>
-				<span>
-					{errorMessage(error, "The latest refresh failed.")} {before}{" "}
+		<LoadError
+			title={title}
+			error={error}
+			onRetry={() => query.refetch()}
+			retrying={query.isFetching}
+			help={
+				<>
+					{before}{" "}
 					<AppTabDate value={new Date(query.dataUpdatedAt).toISOString()} />
 					{after ? ` ${after}` : null}
-				</span>
-				<AppTabReadRetry query={query} />
-			</AlertDescription>
-		</Alert>
+				</>
+			}
+		/>
 	);
 }
 

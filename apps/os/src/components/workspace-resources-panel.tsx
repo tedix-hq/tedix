@@ -40,7 +40,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
-import { Alert } from "@/components/kumo/alert";
+import { LoadError, Alert } from "@/components/kumo/alert";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { Collection } from "@/components/kumo/page";
@@ -400,9 +400,13 @@ export function WorkspaceResourcesPanel({
 				</Text>
 			) : null}
 			{query.isError ? (
-				<Alert
-					variant="destructive"
-					description="Workspace resources could not be loaded."
+				<LoadError
+					error={query.error}
+					onRetry={() => {
+						void query.refetch();
+					}}
+					retrying={query.isFetching}
+					title="Workspace resources could not be loaded"
 				/>
 			) : null}
 			{query.data && resources.length === 0 ? (

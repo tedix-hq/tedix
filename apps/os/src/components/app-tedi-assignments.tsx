@@ -28,7 +28,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/kumo/alert-dialog";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
@@ -94,6 +94,8 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 		isLoading: assignmentsLoading,
 		isPlaceholderData: assignmentsStale,
 		error: assignmentsError,
+		refetch: refetchAssignments,
+		isFetching: assignmentsFetching,
 	} = useQuery({
 		...tediAppAssignmentsByAppQueryOptions(appId),
 		staleTime: 30_000,
@@ -105,6 +107,8 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 		data: tedisData,
 		isLoading: tedisLoading,
 		error: tedisError,
+		refetch: refetchTedis,
+		isFetching: tedisFetching,
 	} = useQuery({
 		...tediRosterQueryOptions(TEDI_ROSTER_LIMIT),
 		staleTime: 60_000,
@@ -310,22 +314,12 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 					</div>
 				) : assignmentsError ? (
 					<div className="space-y-3 py-4 text-center">
-						<Alert variant="destructive">
-							<AlertDescription>
-								Failed to load assignments: {assignmentsError.message}
-							</AlertDescription>
-						</Alert>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() =>
-								queryClient.invalidateQueries({
-									queryKey: osQueryKeys.appTediAssignments(),
-								})
-							}
-						>
-							Retry
-						</Button>
+						<LoadError
+							title="Assignments could not be loaded"
+							error={assignmentsError}
+							onRetry={() => refetchAssignments()}
+							retrying={assignmentsFetching}
+						/>
 					</div>
 				) : assignments.length === 0 ? (
 					<Empty appearance="quiet">
@@ -333,22 +327,24 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 							No tedis assigned to this app yet.
 						</EmptyDescription>
 						{tedisError ? (
-							<Alert variant="destructive">
-								<AlertDescription>
-									Available tedis could not be loaded.
-								</AlertDescription>
-							</Alert>
+							<LoadError
+								title="Available tedis could not be loaded"
+								error={tedisError}
+								onRetry={() => refetchTedis()}
+								retrying={tedisFetching}
+							/>
 						) : null}
 					</Empty>
 				) : (
 					<div className="space-y-3">
 						{tedisError ? (
-							<Alert variant="destructive">
-								<AlertDescription>
-									Tedi names could not be loaded. Assignment IDs are shown
-									instead.
-								</AlertDescription>
-							</Alert>
+							<LoadError
+								title="Tedi names could not be loaded"
+								error={tedisError}
+								onRetry={() => refetchTedis()}
+								retrying={tedisFetching}
+								help="Assignment IDs are shown instead. Try again in a moment."
+							/>
 						) : null}
 						<Table scrollLabel="Tedi assignments for this app">
 							<TableHeader>

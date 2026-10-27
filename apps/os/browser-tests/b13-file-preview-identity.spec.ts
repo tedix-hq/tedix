@@ -262,9 +262,7 @@ try {
 			assert.equal(await page.locator("a[download]").count(), 0);
 			await capture(page, `${label}-failure`);
 			failReads = false;
-			await page
-				.getByRole("button", { name: "Try again", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await waitVideo(page, CLIP_A, "metadata");
 
 			const layout = await page.evaluate(() => {

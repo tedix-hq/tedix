@@ -11,7 +11,7 @@ import * as z from "zod";
 import { AUDIT_EXPORT_TRUNCATED_FILENAME } from "@tedix/api-contract/schemas/audit";
 import { FormInput } from "@/components/forms/form-input";
 import { Text } from "@/components/kumo/text";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
@@ -845,22 +845,12 @@ export function AuditPage({
 					</div>
 				)}
 				{activeQuery.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>The audit trail is unavailable</AlertTitle>
-						<AlertDescription>
-							<div className="flex flex-wrap items-center justify-between gap-3">
-								<span>{(activeQuery.error as Error).message}</span>
-								<Button
-									disabled={activeQuery.isFetching}
-									onClick={() => void activeQuery.refetch()}
-									size="sm"
-									variant="secondary"
-								>
-									Retry
-								</Button>
-							</div>
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="The audit trail is unavailable"
+						error={activeQuery.error}
+						onRetry={() => void activeQuery.refetch()}
+						retrying={activeQuery.isFetching}
+					/>
 				)}
 				{activeQuery.data && activeQuery.data.data.length === 0 && (
 					<AuditEmpty filtered={filtered} />

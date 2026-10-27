@@ -8,13 +8,7 @@ import {
 	useState,
 	type ReactNode,
 } from "react";
-import { Alert } from "@/components/kumo/alert";
-import { Button } from "@/components/kumo/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
+import { LoadError } from "@/components/kumo/alert";
 
 type Failure = {
 	error: unknown;
@@ -122,51 +116,31 @@ export function WorkReadNotice({
 				.filter(Boolean),
 		),
 	];
-	const content = (
-		<>
-			<span>
-				{partial
-					? busy
-						? "Some items couldn't load — retrying…"
-						: "Some items couldn't load. Try again when you're ready."
-					: busy
-						? "Tedix is slow right now. Your decisions are safe — retrying…"
-						: "Tedix couldn't load this view. Your decisions are safe. Try again when you're ready."}
-			</span>
-			{!busy && (
-				<Button
-					variant="outline"
-					onClick={() => {
-						void retry();
-						for (const failure of children)
-							void failure.retry({ cancelRefetch: false });
-					}}
-				>
-					Try again
-				</Button>
-			)}
-			{references.length > 0 && (
-				<Collapsible aria-label="Read error details">
-					<CollapsibleTrigger>Details</CollapsibleTrigger>
-					<CollapsibleContent>
-						{references.map((reference) => (
+	return (
+		<LoadError
+			className="fd-source-error"
+			role={partial ? "status" : "alert"}
+			title={
+				partial ? "Some items couldn't load" : "Tedix couldn't load this view"
+			}
+			help={
+				partial
+					? "Showing the items that loaded. Try again in a moment."
+					: "Try again in a moment."
+			}
+			details={
+				references.length > 0
+					? references.map((reference) => (
 							<p key={reference}>Support reference: {reference}</p>
-						))}
-					</CollapsibleContent>
-				</Collapsible>
-			)}
-		</>
-	);
-	return partial ? (
-		<div
-			className="fd-source-error flex flex-wrap items-center gap-2"
-			role="status"
-		>
-			{content}
-		</div>
-	) : (
-		<Alert variant="warning" className="fd-source-error" role="alert">
-			{content}
-		</Alert>
+						))
+					: undefined
+			}
+			retrying={busy}
+			onRetry={() => {
+				void retry();
+				for (const failure of children)
+					void failure.retry({ cancelRefetch: false });
+			}}
+		/>
 	);
 }

@@ -20,7 +20,7 @@ import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { useQuery } from "@tanstack/react-query";
 import type { OrganizationFeatures } from "@tedix/api-contract/schemas/organization";
 import { lazy, Suspense } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import {
 	Page,
 	PageDescription,
@@ -34,7 +34,7 @@ import {
 	organizationDetailQueryOptions,
 	organizationFeaturesQueryOptions,
 } from "@/lib/os-query-options";
-import { errorMessage } from "@/lib/orpc-error";
+
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
 const OrganizationProfileForm = lazy(() =>
@@ -133,15 +133,14 @@ export function AdminOrganizationPage() {
 			{context.isPending ? (
 				<OrganizationPagePending />
 			) : context.isError || !context.data ? (
-				<Alert variant="destructive">
-					<AlertTitle>Organization settings are unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(
-							context.error,
-							"The operational context read failed.",
-						)}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Organization settings are unavailable"
+					error={context.error}
+					onRetry={() => {
+						void context.refetch();
+					}}
+					retrying={context.isFetching}
+				/>
 			) : (
 				<AdminOrganizationBody
 					organizationId={context.data.organization.id}
@@ -167,12 +166,14 @@ function AdminOrganizationBody({
 	if (detailQuery.isPending) return <OrganizationPagePending />;
 	if (detailQuery.isError || !detailQuery.data) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>The organization could not be read</AlertTitle>
-				<AlertDescription>
-					{errorMessage(detailQuery.error, "The organization read failed.")}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="The organization could not be read"
+				error={detailQuery.error}
+				onRetry={() => {
+					void detailQuery.refetch();
+				}}
+				retrying={detailQuery.isFetching}
+			/>
 		);
 	}
 
@@ -231,12 +232,14 @@ function AdminOrganizationBody({
 				</Suspense>
 
 				{featuresQuery.isError ? (
-					<Alert variant="destructive">
-						<AlertTitle>Plan features could not be read</AlertTitle>
-						<AlertDescription>
-							{errorMessage(featuresQuery.error, "The features read failed.")}
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Plan features could not be read"
+						error={featuresQuery.error}
+						onRetry={() => {
+							void featuresQuery.refetch();
+						}}
+						retrying={featuresQuery.isFetching}
+					/>
 				) : featuresQuery.data ? (
 					<Suspense fallback={<ListSkeleton rows={1} rowClassName="h-24" />}>
 						<FeaturesSection features={features} />

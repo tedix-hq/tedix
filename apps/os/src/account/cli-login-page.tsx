@@ -7,7 +7,12 @@ import {
 	defaultCliLoginScopes,
 } from "@/account/cli-login-permissions";
 import { Checkbox } from "@/components/kumo/checkbox";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Card } from "@/components/kumo/card";
 import { CodeInline } from "@/components/kumo/code";
@@ -373,13 +378,14 @@ export function CliLoginPage() {
 				</Alert>
 			) : null}
 			{organizations.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Could not load your organizations</AlertTitle>
-					<AlertDescription>
-						Refresh to try again, or re-run <CodeInline>tedix login</CodeInline>
-						.
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Could not load your organizations"
+					error={organizations.error}
+					onRetry={() => {
+						void organizations.refetch();
+					}}
+					retrying={organizations.isFetching}
+				/>
 			) : null}
 
 			{selectingMultiple && step === "permissions" ? (

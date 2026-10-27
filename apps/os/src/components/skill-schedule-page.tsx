@@ -13,7 +13,6 @@ import {
 } from "@/components/kumo/page";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { ListQueryBoundary } from "@/components/list-query-boundary";
-import { errorMessage } from "@/lib/orpc-error";
 import { Text } from "@/components/kumo/text";
 import { skillSpecificSchedulesQueryOptions } from "@/lib/os-query-options";
 import { osTimeZone, useOsFormattingPreferences } from "@/lib/format";
@@ -66,7 +65,7 @@ export function SkillSchedulePage() {
 				}
 				errorDescription={
 					schedules.data
-						? `Showing previously loaded schedules; their status may be out of date. ${errorMessage(schedules.error, "Schedules could not be read.")}`
+						? "Showing previously loaded schedules; their status may be out of date."
 						: undefined
 				}
 			/>

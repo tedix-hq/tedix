@@ -4,7 +4,7 @@ import type { GrowthSnapshot } from "@tedix/api-contract/contracts/growth-snapsh
 import type { ExpertiseLevel } from "@tedix/api-contract/schemas/memory-graph";
 import type { MetricTileMeasured } from "@tedix/api-contract/schemas/metric-tile";
 import { useMemo } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import {
 	Empty,
@@ -323,18 +323,18 @@ export function LearningEvidence({ tediId }: { tediId: string }) {
 
 			{expertise.isPending && <ListSkeleton rows={2} />}
 			{expertise.isError && (
-				<Alert variant={expertiseRefused ? "warning" : "destructive"}>
-					<AlertTitle>
-						{expertiseRefused
+				<LoadError
+					title={
+						expertiseRefused
 							? "Expertise is not readable with your access"
-							: "Expertise is unavailable"}
-					</AlertTitle>
-					<AlertDescription>
-						{expertiseRefused
-							? "The expertise read was refused for this principal. No competence is inferred from a refused read."
-							: errorMessage(expertise.error)}
-					</AlertDescription>
-				</Alert>
+							: "Expertise is unavailable"
+					}
+					error={expertise.error}
+					onRetry={() => {
+						void expertise.refetch();
+					}}
+					retrying={expertise.isFetching}
+				/>
 			)}
 			{expertise.data &&
 				(rows.length === 0 ? (

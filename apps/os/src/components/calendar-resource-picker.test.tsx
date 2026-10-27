@@ -227,18 +227,18 @@ describe("calendar discovery recovery", () => {
 				await client.resetQueries(accountsOptions());
 				await flush();
 			});
-			expect(button(node, "Retry accounts")).toBeTruthy();
+			expect(button(node, "Retry")).toBeTruthy();
 			expect(
 				node.querySelector<HTMLButtonElement>(
 					'[aria-label="Connected calendar account"]',
 				)!.disabled,
 			).toBe(true);
 			await act(async () => {
-				button(node, "Retry accounts").click();
+				button(node, "Retry").click();
 				await flush();
 			});
 			await act(flush);
-			expect(button(node, "Retry accounts")).toBeUndefined();
+			expect(button(node, "Retry")).toBeUndefined();
 			expect(onSelect).not.toHaveBeenCalled();
 			expect(mocks.listCalendars).not.toHaveBeenCalled();
 		}, false);
@@ -268,11 +268,11 @@ describe("calendar discovery recovery", () => {
 						}),
 				);
 				await act(async () => {
-					button(node, `Retry ${read}`).click();
+					button(node, "Retry").click();
 					await flush();
 				});
 				expect(button(node, "Choose calendar").disabled).toBe(true);
-				expect(button(node, `Retry ${read}`).disabled).toBe(true);
+				expect(button(node, "Trying again…").disabled).toBe(true);
 				await act(async () => {
 					resolve(
 						read === "accounts"
@@ -293,14 +293,14 @@ describe("calendar discovery recovery", () => {
 		await mounted(async ({ node, select, render, onSelect }) => {
 			mocks.listCalendars.mockRejectedValueOnce(new Error("calendar offline"));
 			await select();
-			expect(button(node, "Retry calendars")).toBeTruthy();
+			expect(button(node, "Retry")).toBeTruthy();
 			await render({ disabled: true });
 			expect(
 				Array.from(node.querySelectorAll("button")).every((b) => b.disabled),
 			).toBe(true);
 			await render();
 			await act(async () => {
-				button(node, "Retry calendars").click();
+				button(node, "Retry").click();
 				await flush();
 			});
 			await act(flush);

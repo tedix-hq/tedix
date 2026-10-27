@@ -1,6 +1,6 @@
 /** Tedix OS ownership of the governed digital-worker settings seam. */
 
-import { Alert } from "@/components/kumo/alert";
+import { LoadError, Alert } from "@/components/kumo/alert";
 import { Empty } from "@/components/kumo/empty";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { Collection } from "@/components/kumo/page";
@@ -320,7 +320,16 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 			</div>
 		);
 	if (tedi.isError) {
-		return <Alert variant="destructive">Tedi settings are unavailable.</Alert>;
+		return (
+			<LoadError
+				error={tedi.error}
+				onRetry={() => {
+					void tedi.refetch();
+				}}
+				retrying={tedi.isFetching}
+				title="Tedi settings are unavailable"
+			/>
+		);
 	}
 
 	const assignedAppIds = new Set(

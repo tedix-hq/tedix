@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { toast } from "@/components/kumo/toast";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -186,12 +191,13 @@ export function ArtifactReleaseReview({
 			<CardContent className="space-y-3">
 				{query.isLoading ? <p>Loading bounded inert preview…</p> : null}
 				{query.error ? (
-					<Alert variant="destructive">
-						<AlertTitle>Preview unavailable</AlertTitle>
-						<AlertDescription>
-							The private artifact could not be verified for review.
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Preview unavailable"
+						help="The private artifact could not be verified for review."
+						error={query.error}
+						onRetry={() => query.refetch()}
+						retrying={query.isFetching}
+					/>
 				) : null}
 				{open && !descopeTenantId ? (
 					<Alert variant="destructive">

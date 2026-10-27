@@ -28,8 +28,8 @@ import { Info, Plugs } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { isImeComposing } from "@/lib/keyboard";
 import {
+	LoadError,
 	Alert,
-	AlertAction,
 	AlertDescription,
 	AlertTitle,
 } from "@/components/kumo/alert";
@@ -650,24 +650,12 @@ export function AdminConnectionsPage({
 			)}
 
 			{providersQuery.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Connection providers are unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(
-							providersQuery.error,
-							"The provider read failed. Your connections were not changed.",
-						)}
-					</AlertDescription>
-					<AlertAction>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() => void providersQuery.refetch()}
-						>
-							Retry
-						</Button>
-					</AlertAction>
-				</Alert>
+				<LoadError
+					title="Connection providers are unavailable"
+					error={providersQuery.error}
+					onRetry={() => void providersQuery.refetch()}
+					retrying={providersQuery.isFetching}
+				/>
 			)}
 
 			<Dialog

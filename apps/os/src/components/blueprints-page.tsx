@@ -33,7 +33,12 @@ import { useEffect, useMemo, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { FormTextarea } from "@/components/forms/form-textarea";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
@@ -906,22 +911,12 @@ function InstantiateForm({
 						</Text>
 					)}
 					{preflight.isError && (
-						<Alert variant="destructive">
-							<AlertTitle>Setup check unavailable</AlertTitle>
-							<AlertDescription>
-								The server will check requirements again when you create the
-								workspace.
-								<Button
-									size="sm"
-									variant="outline"
-									className="mt-2 w-fit"
-									type="button"
-									onClick={() => void preflight.refetch()}
-								>
-									Try again
-								</Button>
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Setup check unavailable"
+							error={preflight.error}
+							onRetry={() => void preflight.refetch()}
+							retrying={preflight.isFetching}
+						/>
 					)}
 					{preflight.isSuccess &&
 						preflight.data?.preflight &&
@@ -1107,10 +1102,14 @@ function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
 	}
 	if (detail.isError) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>The template is unavailable</AlertTitle>
-				<AlertDescription>{(detail.error as Error).message}</AlertDescription>
-			</Alert>
+			<LoadError
+				title="The template is unavailable"
+				error={detail.error}
+				onRetry={() => {
+					void detail.refetch();
+				}}
+				retrying={detail.isFetching}
+			/>
 		);
 	}
 

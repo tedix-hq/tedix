@@ -1,6 +1,6 @@
 import { SettingsRow } from "@/components/settings-row";
 import { Label } from "@/components/kumo/label";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { osQuery, activeWorkspacesQueryOptions } from "@/lib/os-query-options";
@@ -73,20 +73,13 @@ function ConsoleAccessForm({ tediId }: { tediId: string }) {
 					</p>
 				) : null}
 				{grant.isError ? (
-					<Alert variant="destructive">
-						<AlertDescription>
-							Console access settings are unavailable. Read them again before
-							saving.
-						</AlertDescription>
-						<Button
-							variant="outline"
-							className="mt-3"
-							disabled={grant.isFetching}
-							onClick={() => void grant.refetch()}
-						>
-							Retry console access settings
-						</Button>
-					</Alert>
+					<LoadError
+						title="Console access settings are unavailable"
+						help="Try again before saving."
+						error={grant.error}
+						onRetry={() => void grant.refetch()}
+						retrying={grant.isFetching}
+					/>
 				) : null}
 				<SettingsRow
 					title={
@@ -111,19 +104,13 @@ function ConsoleAccessForm({ tediId }: { tediId: string }) {
 					</p>
 				) : null}
 				{workspaces.isError ? (
-					<Alert variant="destructive">
-						<AlertDescription>
-							Workspaces are unavailable. Read them again before saving.
-						</AlertDescription>
-						<Button
-							variant="outline"
-							className="mt-3"
-							disabled={workspaces.isFetching}
-							onClick={() => void workspaces.refetch()}
-						>
-							Retry Workspaces
-						</Button>
-					</Alert>
+					<LoadError
+						title="Workspaces are unavailable"
+						help="Try again before saving."
+						error={workspaces.error}
+						onRetry={() => void workspaces.refetch()}
+						retrying={workspaces.isFetching}
+					/>
 				) : null}
 				{workspaces.isSuccess && !workspaces.data.items.length ? (
 					<p className="text-kumo-subtle">

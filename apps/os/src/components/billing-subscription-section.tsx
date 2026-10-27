@@ -19,7 +19,12 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import type { BillingPlanCatalogItem } from "@tedix/api-contract/schemas/billing";
 import { ArrowUpRight, FileText, Info, Sparkle } from "@phosphor-icons/react";
 import { useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -109,15 +114,15 @@ export function SubscriptionSection() {
 			<SettingsSection>
 				<BillingSectionHeader title="Plan &amp; billing" />
 				<SettingsSectionContent>
-					<Alert variant="destructive">
-						<AlertTitle>Billing is unavailable</AlertTitle>
-						<AlertDescription>
-							{errorMessage(
-								plansQuery.error ?? overviewQuery.error,
-								"The billing read failed.",
-							)}
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Billing is unavailable"
+						error={plansQuery.error ?? overviewQuery.error}
+						onRetry={() => {
+							void plansQuery.refetch();
+							void overviewQuery.refetch();
+						}}
+						retrying={plansQuery.isFetching || overviewQuery.isFetching}
+					/>
 				</SettingsSectionContent>
 			</SettingsSection>
 		);
@@ -289,15 +294,14 @@ export function BillingDocumentsSection() {
 	}
 	if (overviewQuery.isError || !overviewQuery.data) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Billing documents are unavailable</AlertTitle>
-				<AlertDescription>
-					{errorMessage(
-						overviewQuery.error,
-						"The billing overview read failed.",
-					)}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Billing documents are unavailable"
+				error={overviewQuery.error}
+				onRetry={() => {
+					void overviewQuery.refetch();
+				}}
+				retrying={overviewQuery.isFetching}
+			/>
 		);
 	}
 

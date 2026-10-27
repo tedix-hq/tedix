@@ -4,7 +4,7 @@ import type {
 	ApprovalProvenance,
 	ApprovalRequest,
 } from "@tedix/api-contract/contracts/tedi-approvals";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
@@ -59,15 +59,13 @@ function ApprovalHistoryRequests() {
 				onValueChange={(status) => setPage({ status, offset: 0 })}
 			/>
 			{query.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Approval history unavailable</AlertTitle>
-					<AlertDescription>
-						Past requests could not be loaded.
-					</AlertDescription>
-					<Button variant="outline" onClick={() => void query.refetch()}>
-						Retry approval history
-					</Button>
-				</Alert>
+				<LoadError
+					title="Approval history unavailable"
+					error={query.error}
+					onRetry={() => void query.refetch()}
+					retrying={query.isFetching}
+					help="Past requests could not be loaded."
+				/>
 			) : !query.data ? (
 				<Text as="p" role="body">
 					Loading approval history…
@@ -173,15 +171,14 @@ function ApprovalProvenanceDetails({
 	);
 	if (query.isError)
 		return (
-			<Alert variant="destructive" className="mt-2">
-				<AlertTitle>Provenance unavailable</AlertTitle>
-				<AlertDescription>
-					Predictions and execution history could not be loaded.
-				</AlertDescription>
-				<Button variant="outline" onClick={() => void query.refetch()}>
-					Retry provenance
-				</Button>
-			</Alert>
+			<LoadError
+				title="Provenance unavailable"
+				error={query.error}
+				onRetry={() => void query.refetch()}
+				retrying={query.isFetching}
+				help="Predictions and execution history could not be loaded."
+				className="mt-2"
+			/>
 		);
 	if (!query.data)
 		return (

@@ -201,11 +201,14 @@ describe("AppTediAssignments", () => {
 			.mockResolvedValueOnce(assignments());
 		const view = mount();
 		await view.render();
-		await settles(() =>
+		await settles(() => {
 			expect(view.host.textContent).toContain(
-				"Failed to load assignments: Assignments offline",
-			),
-		);
+				"Assignments could not be loaded",
+			);
+			expect(view.host.querySelector("details")?.textContent).toContain(
+				"Assignments offline",
+			);
+		});
 		expect(button(view.host, "Assign tedi").disabled).toBe(true);
 		await act(async () => button(view.host, "Retry").click());
 		await settles(() =>
@@ -214,7 +217,7 @@ describe("AppTediAssignments", () => {
 			),
 		);
 		expect(view.host.textContent).toContain(
-			"Available tedis could not be loaded.",
+			"Available tedis could not be loaded",
 		);
 		expect(api.list.mock.calls.map(([input]) => input)).toEqual([
 			{ limit: TEDI_ROSTER_LIMIT, offset: 0 },

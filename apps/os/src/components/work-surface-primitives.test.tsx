@@ -52,10 +52,10 @@ describe("Work surface primitives", () => {
 	it.each([
 		[new Error("Read refused"), "Read refused"],
 		[{ message: "Projection unavailable" }, "Projection unavailable"],
-		[undefined, "The canonical read failed."],
+		[undefined, "This could not be loaded. Try again in a moment."],
 		[
 			{ message: "Malformed Orpc Error Response" },
-			"The canonical read failed.",
+			"This could not be loaded. Try again in a moment.",
 		],
 	])("renders a readable failure for %s", (error, message) => {
 		const html = renderToStaticMarkup(

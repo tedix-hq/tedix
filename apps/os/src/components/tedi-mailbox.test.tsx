@@ -534,7 +534,7 @@ describe("mailbox read recovery", () => {
 				expect(container.textContent).toContain("Address read failed"),
 			);
 			expect(container.textContent).not.toContain("No mailbox yet");
-			act(() => buttonByText(container, "Retry addresses").click());
+			act(() => buttonByText(container, "Retry").click());
 			await settle(() =>
 				expect(tediEmailApi.listAddresses).toHaveBeenCalledTimes(2),
 			);
@@ -578,7 +578,7 @@ describe("mailbox read recovery", () => {
 			);
 			expect(container.textContent).toContain("ledger@tedix.tech");
 			expect(container.textContent).not.toContain("Nothing here");
-			act(() => buttonByText(container, "Retry inbox").click());
+			act(() => buttonByText(container, "Retry").click());
 			await settle(() =>
 				expect(tediEmailApi.listInbox).toHaveBeenCalledTimes(2),
 			);
@@ -622,7 +622,7 @@ describe("mailbox read recovery", () => {
 			);
 			expect(row.getAttribute("aria-expanded")).toBe("true");
 			expect(container.textContent).toContain("Ana <ana@example.com>");
-			act(() => buttonByText(container, "Retry thread").click());
+			act(() => buttonByText(container, "Retry").click());
 			await settle(() =>
 				expect(tediEmailApi.readThread).toHaveBeenCalledTimes(2),
 			);
@@ -695,7 +695,7 @@ describe("mailbox read recovery", () => {
 			expect(
 				container.querySelector('button[aria-expanded="true"]'),
 			).not.toBeNull();
-			act(() => buttonByText(container, `Retry ${level}`).click());
+			act(() => buttonByText(container, "Retry").click());
 			await settle(() =>
 				expect(container.textContent).not.toContain("Refresh failed"),
 			);
@@ -723,7 +723,7 @@ describe("mailbox read recovery", () => {
 		);
 		expect(container.textContent).not.toContain("No mailbox yet");
 		tediEmailApi.listAddresses.mockResolvedValue({ addresses: [address()] });
-		act(() => buttonByText(container, "Retry addresses").click());
+		act(() => buttonByText(container, "Retry").click());
 		await settle(() => expect(container.textContent).toContain("Nothing here"));
 		tediEmailApi.listInbox.mockRejectedValueOnce(
 			new Error("Inbox unavailable"),
@@ -759,7 +759,7 @@ describe("mailbox read recovery", () => {
 			expect(container.textContent).toContain("Archived unavailable"),
 		);
 		expect(container.textContent).not.toContain("Old open failure");
-		act(() => buttonByText(container, "Retry inbox").click());
+		act(() => buttonByText(container, "Retry").click());
 		await settle(() =>
 			expect(container.textContent).toContain("No archived threads yet."),
 		);
@@ -795,7 +795,7 @@ describe("mailbox read recovery", () => {
 		);
 		expect(container.textContent).not.toContain("ledger@tedix.tech");
 		expect(container.textContent).not.toContain("Old thread failure");
-		act(() => buttonByText(container, "Retry addresses").click());
+		act(() => buttonByText(container, "Retry").click());
 		await settle(() =>
 			expect(container.textContent).toContain("next@tedix.tech"),
 		);
@@ -825,7 +825,7 @@ describe("mailbox read recovery", () => {
 		);
 		expect(container.textContent).not.toContain("needs a slug");
 		expect(container.textContent).not.toContain("No mailbox yet");
-		act(() => buttonByText(container, "Retry tedi details").click());
+		act(() => buttonByText(container, "Retry").click());
 		await settle(() =>
 			expect(container.textContent).toContain("ledger@tedix.tech"),
 		);
@@ -849,7 +849,7 @@ describe("mailbox read recovery", () => {
 		);
 		expect(container.textContent).toContain("ledger@tedix.tech");
 		expect(container.textContent).toContain("Sender policy");
-		act(() => buttonByText(container, "Retry tedi details").click());
+		act(() => buttonByText(container, "Retry").click());
 		await settle(() =>
 			expect(container.textContent).not.toContain("Tedi refresh failed"),
 		);
