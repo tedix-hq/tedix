@@ -4,13 +4,15 @@ import * as z from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { gadgetExecutionsQueryOptions } from "@/lib/os-query-options";
+import { cn } from "@/lib/utils";
 
 const traceSchema = z.object({
 	callId: z.string(),
@@ -36,17 +38,40 @@ const traceSchema = z.object({
 	),
 });
 
+const LEVELS = ["all", "debug", "log", "info", "warn", "error"] as const;
+const LEVEL_LABELS: Record<(typeof LEVELS)[number], string> = {
+	all: "All levels",
+	debug: "Debug",
+	log: "Log",
+	info: "Info",
+	warn: "Warnings",
+	error: "Errors",
+};
+
+function clockTime(timestamp: number | null | undefined): string {
+	if (timestamp == null) return "";
+	return new Date(timestamp).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+	});
+}
+
+/** The console lines one app run wrote, streamed while its details are open. */
 export function AppCallLogs({
 	workspaceId,
 	gadgetId,
 	callId,
+	finished = false,
 }: {
 	workspaceId: string;
 	gadgetId: string;
 	callId: string;
+	/** The run has settled, so an empty pane means it wrote nothing. */
+	finished?: boolean;
 }) {
 	const [live, setLive] = useState(true);
-	const [level, setLevel] = useState("all");
+	const [level, setLevel] = useState<(typeof LEVELS)[number]>("all");
 	const pane = useRef<HTMLDivElement>(null);
 	const traces = useQuery({
 		...gadgetExecutionsQueryOptions(workspaceId, gadgetId, 200, { callId }),
@@ -101,81 +126,104 @@ export function AppCallLogs({
 		if (live && pane.current)
 			pane.current.scrollTop = pane.current.scrollHeight;
 	}, [live, lastLine, level]);
+	const emptyMessage = traces.isPending
+		? "Loading logs…"
+		: level !== "all"
+			? "No lines at this level."
+			: !live
+				? "Paused. Resume to see new lines."
+				: finished
+					? "This run wrote no logs."
+					: "Waiting for output…";
 	return (
-		<Card size="sm">
-			<CardHeader>
-				<CardTitle>Console logs</CardTitle>
-				<div className="flex flex-wrap gap-1" aria-label="Log controls">
-					<Button
-						size="xs"
-						variant="outline"
-						aria-pressed={live}
-						onClick={() => setLive(!live)}
-					>
-						{live ? "Pause live logs" : "Resume live logs"}
-					</Button>
-					{["all", "debug", "log", "info", "warn", "error"].map((value) => (
-						<Button
-							key={value}
-							size="xs"
-							variant={level === value ? "secondary" : "ghost"}
-							aria-pressed={level === value}
-							onClick={() => setLevel(value)}
-						>
-							{value === "all" ? "All levels" : value}
-						</Button>
-					))}
-				</div>
-			</CardHeader>
-			<CardContent className="grid gap-2">
-				<Text role="label" tone="secondary">
-					Call {callId} · {live ? "Live" : "Paused"}
+		<section className="grid min-w-0 gap-2" aria-label="Logs">
+			<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+				<Text as="h4" role="label" weight="medium">
+					Logs
 				</Text>
-				{traces.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Console logs are unavailable</AlertTitle>
-						<AlertDescription>{traces.error.message}</AlertDescription>
-					</Alert>
-				)}
-				{clipped && (
-					<Text role="label" tone="secondary">
-						Some console lines were truncated by the runtime.
-					</Text>
-				)}
-				{traces.data?.truncated && (
-					<Text role="label" tone="secondary">
-						Showing the latest 200 trace receipts.
-					</Text>
-				)}
-				<div
-					ref={pane}
-					role="log"
-					aria-label={`Console logs for call ${callId}`}
-					aria-live={live ? "polite" : "off"}
-					className="max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-xs"
+				<Button
+					size="xs"
+					variant="ghost"
+					aria-pressed={live}
+					aria-label={live ? "Pause live logs" : "Resume live logs"}
+					onClick={() => setLive(!live)}
 				>
-					{lines.map((line) => (
-						<div key={line.key}>
-							<span className="text-kumo-subtle">
-								{line.timestamp == null
-									? ""
-									: new Date(line.timestamp).toISOString()}{" "}
-								[{line.level}]{" "}
-							</span>
-							{line.message}
-						</div>
-					))}
-				</div>
+					<span
+						aria-hidden
+						className={cn(
+							"size-1.5 rounded-full",
+							live
+								? "bg-kumo-success motion-safe:animate-pulse"
+								: "bg-kumo-line",
+						)}
+					/>
+					{live ? "Live" : "Paused"}
+				</Button>
+				<Select
+					items={LEVELS.map((value) => ({ value, label: LEVEL_LABELS[value] }))}
+					value={level}
+					onValueChange={(value) => {
+						if (value) setLevel(value as (typeof LEVELS)[number]);
+					}}
+				>
+					<SelectTrigger
+						aria-label="Log level"
+						className="ml-auto h-7 min-w-28 type-tedix-caption"
+					>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						{LEVELS.map((value) => (
+							<SelectItem key={value} value={value}>
+								{LEVEL_LABELS[value]}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+			</div>
+			{traces.isError && (
+				<Alert variant="destructive">
+					<AlertTitle>Logs are unavailable</AlertTitle>
+					<AlertDescription>{traces.error.message}</AlertDescription>
+				</Alert>
+			)}
+			<div
+				ref={pane}
+				role="log"
+				aria-label="Logs for this run"
+				aria-live={live ? "polite" : "off"}
+				className="max-h-72 min-h-14 overflow-auto whitespace-pre-wrap break-words rounded-md border border-kumo-hairline bg-kumo-tint px-3 py-2 font-mono text-xs"
+			>
+				{lines.map((line) => (
+					<div key={line.key}>
+						<span className="text-kumo-subtle">
+							{clockTime(line.timestamp)}{" "}
+						</span>
+						<span
+							className={
+								line.level === "error"
+									? "text-kumo-danger"
+									: line.level === "warn"
+										? "text-kumo-warning"
+										: "text-kumo-subtle"
+							}
+						>
+							{line.level}{" "}
+						</span>
+						{line.message}
+					</div>
+				))}
 				{!traces.isError && lines.length === 0 && (
-					<Text role="label" tone="secondary">
-						{traces.isPending
-							? "Loading console logs…"
-							: level === "all"
-								? "Waiting for console lines…"
-								: "No console lines at this level."}
-					</Text>
+					<span className="font-sans text-kumo-subtle">{emptyMessage}</span>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+			{(clipped || traces.data?.truncated) && (
+				<Text role="caption" tone="secondary">
+					{clipped
+						? "Some lines were cut short by the runtime."
+						: "Showing the latest lines only."}
+				</Text>
+			)}
+		</section>
 	);
 }
