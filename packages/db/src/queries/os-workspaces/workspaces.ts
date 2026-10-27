@@ -2,6 +2,7 @@ import {
 	and,
 	asc,
 	eq,
+	exists,
 	inArray,
 	isNotNull,
 	isNull,
@@ -328,6 +329,63 @@ export async function deleteOsWorkspace(
 	db: DbQueryClient,
 	params: OsWorkspaceScopeParams & { preferenceNamespace?: string },
 ): Promise<boolean> {
+	const retainedWorkspaceId = crypto.randomUUID();
+	const scopedOutputs = and(
+		eq(osOutputs.organizationId, params.organizationId),
+		eq(osOutputs.workspaceId, params.workspaceId),
+	);
+	// Capture the owner in the same batch as deletion, so no output can outlive
+	// its privacy boundary. A fresh workspace avoids racing a personal-space edit.
+	const retainPrivateWorkspace = db.insert(osWorkspaces).select(
+		db
+			.select({
+				id: sql<string>`${retainedWorkspaceId}`.as("id"),
+				organizationId: osWorkspaces.organizationId,
+				name: sql<string>`${`Saved documents ${retainedWorkspaceId.slice(0, 8)}`}`.as(
+					"name",
+				),
+				status: sql<"active">`'active'`.as("status"),
+				createdByKind: osWorkspaces.createdByKind,
+				createdById: osWorkspaces.createdById,
+				createdAt: sql<string>`(datetime('now'))`.as("created_at"),
+				updatedAt: sql<string>`(datetime('now'))`.as("updated_at"),
+				visibility: osWorkspaces.visibility,
+				ownerUserId: osWorkspaces.ownerUserId,
+			})
+			.from(osWorkspaces)
+			.where(
+				and(
+					eq(osWorkspaces.organizationId, params.organizationId),
+					eq(osWorkspaces.id, params.workspaceId),
+					eq(osWorkspaces.visibility, "private"),
+					exists(
+						db
+							.select({ id: osOutputs.id })
+							.from(osOutputs)
+							.where(scopedOutputs),
+					),
+				),
+			),
+	);
+	const movePrivateOutputs = db
+		.update(osOutputs)
+		.set({ workspaceId: retainedWorkspaceId })
+		.where(
+			and(
+				scopedOutputs,
+				exists(
+					db
+						.select({ id: osWorkspaces.id })
+						.from(osWorkspaces)
+						.where(
+							and(
+								eq(osWorkspaces.organizationId, params.organizationId),
+								eq(osWorkspaces.id, retainedWorkspaceId),
+							),
+						),
+				),
+			),
+		);
 	const deleteWorkspace = db
 		.delete(osWorkspaces)
 		.where(
@@ -344,6 +402,8 @@ export async function deleteOsWorkspace(
 		eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
 	);
 	const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+		retainPrivateWorkspace,
+		movePrivateOutputs,
 		deleteWorkspace,
 		db.delete(osWorkspaceShareKeys).where(
 			// bound-params: a subquery, not a bound list (two parameters).
@@ -384,7 +444,11 @@ export async function deleteOsWorkspace(
 					),
 				),
 		);
-	const [result] = (await db.batch(statements)) as [{ id: string }[]];
+	const [, , result] = (await db.batch(statements)) as [
+		unknown,
+		unknown,
+		{ id: string }[],
+	];
 	return result.length > 0;
 }
 
