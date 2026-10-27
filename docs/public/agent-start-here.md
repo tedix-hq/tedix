@@ -165,7 +165,7 @@ run through the first probe, daily health and evidence-based tuning.
 ## 5. Know the containers
 
 A **Workspace** holds Documents. A **Work project** holds Work Items and a brief.
-The **Work factory** records around them (cases, milestones, approvals,
+The **Work factory** records around them (epics, milestones, approvals,
 interactions, admission, capacity) are the control plane. A working factory is
 one project, one Workspace, one tedi and the skills or schedule that keep it
 producing. When you cannot tell where something belongs, this page decides it.

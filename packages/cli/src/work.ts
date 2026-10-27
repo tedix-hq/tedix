@@ -268,7 +268,7 @@ Choose the parent before creating. --project files the item under a portfolio
 project and inherits its objective. For example:
   tedix work create "<title>" --kind coding --project <project-id>
 Inherited objectives override --class and --expires defaults.
-A Work Item joins a case afterwards with case-attach, not at creation.
+A Work Item joins an epic afterwards with case-attach, not at creation.
 
 Accept states the outcome in plain language: --done-when writes the whole contract.
 
@@ -283,7 +283,7 @@ trusting a filtered page as a whole-ledger answer.
 
 Factory controls (--input accepts inline JSON or @path):
   agent-turn-triage|agent-reply-label|agent-reply-draft-request|agent-session-report
-  case-list|get|create|stage|close|attach|dependency-add
+  case-list|get|create|stage|close|attach|dependency-add (epics; the API calls them cases)
   milestone-list|create|update|attach|dependency-add · health-list|record
   approval-list|approval-audit-list|approval-propose|approval-decide (admission authority)
   interaction-list|interaction-outbox-list|interaction-audit-list|interaction-get|interaction-create|interaction-respond|interaction-cancel

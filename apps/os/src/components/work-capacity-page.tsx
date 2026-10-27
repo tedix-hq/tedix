@@ -397,7 +397,7 @@ export function WorkCapacityPage({
 									? "Edit budget envelope"
 									: "Create budget envelope"
 							}
-							description="Enter organization, project, case, or work_item scope and the exact UUID."
+							description="Enter organization, project, epic, or work_item scope and the exact UUID."
 							mobileOpen={budgetFormOpen}
 							onMobileOpenChange={setBudgetFormOpen}
 						>
@@ -421,7 +421,7 @@ export function WorkCapacityPage({
 										>
 											<SelectItem value="organization">Organization</SelectItem>
 											<SelectItem value="project">Project</SelectItem>
-											<SelectItem value="case">Case</SelectItem>
+											<SelectItem value="case">Epic</SelectItem>
 											<SelectItem value="work_item">Work Item</SelectItem>
 										</FormSelect>
 									)}

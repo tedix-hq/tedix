@@ -85,11 +85,11 @@ describe("Work more-views menu", () => {
 	});
 
 	it.each(["/work/cases/", "/work/cases/cedar-case"])(
-		"keeps Work streams active at %s",
+		"keeps Epics active at %s",
 		async (pathname) => {
 			route.pathname = pathname;
 			const { trigger, menu } = await openMenu();
-			expect(trigger.textContent).toBe("Work streams");
+			expect(trigger.textContent).toBe("Epics");
 			expect(
 				menu
 					.querySelector('[aria-current="page"]')
@@ -118,7 +118,7 @@ describe("Work more-views menu", () => {
 	it("updates context when navigating back to a primary view", async () => {
 		route.pathname = "/work/cases";
 		const { trigger } = await openMenu();
-		expect(trigger.textContent).toBe("Work streams");
+		expect(trigger.textContent).toBe("Epics");
 		route.pathname = "/work";
 		route.search = { view: "deck" };
 		await act(async () => root!.render(<WorkMoreViewsMenu />));

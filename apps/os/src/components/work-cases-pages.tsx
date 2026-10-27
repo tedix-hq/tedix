@@ -79,7 +79,7 @@ const CASE_STAGES = [
 	"closed",
 ] as const;
 
-/** Plain names for a work stream's stage; the stored values stay as they are. */
+/** Plain names for an epic's stage; the stored values stay as they are. */
 export const WORK_STREAM_STAGE_LABELS = {
 	investigating: "Looking into it",
 	planning: "Planning",
@@ -117,7 +117,7 @@ function DueDate({ at }: { at: string }) {
 }
 
 const caseFormSchema = z.object({
-	title: z.string().trim().min(1, "Give the work stream a name."),
+	title: z.string().trim().min(1, "Give the epic a name."),
 });
 
 /** Project names by id, from the shared Projects read. */
@@ -260,8 +260,8 @@ export function WorkCasesPage() {
 	return (
 		<Page width="xl">
 			<WorkPageHeader
-				title="Work streams"
-				description="Bigger pieces of work inside a project, such as a sprint, an incident or an investigation. Each one groups several tasks and has one owner."
+				title="Epics"
+				description="Bigger pieces of work inside a project, like an incident, an investigation or a feature. An epic groups several tasks and has one owner."
 				action={
 					<Button
 						variant={caseFormOpen ? "outline" : "default"}
@@ -269,12 +269,12 @@ export function WorkCasesPage() {
 						aria-expanded={caseFormOpen}
 						aria-controls="open-case-form"
 					>
-						{caseFormOpen ? "Cancel" : "New work stream"}
+						{caseFormOpen ? "Cancel" : "New epic"}
 					</Button>
 				}
 			/>
 			{caseFormOpen ? (
-				<PageSection id="open-case-form" aria-label="New work stream">
+				<PageSection id="open-case-form" aria-label="New epic">
 					<NewWorkStreamForm
 						projects={projects}
 						onCreated={async () => {
@@ -290,24 +290,21 @@ export function WorkCasesPage() {
 					/>
 				</PageSection>
 			) : null}
-			<PageSection aria-label="Work streams">
+			<PageSection aria-label="Epics">
 				{query.isPending ? (
 					<WorkListSkeleton />
 				) : query.isError ? (
-					<WorkReadFailure
-						title="Work streams unavailable"
-						error={query.error}
-					/>
+					<WorkReadFailure title="Epics unavailable" error={query.error} />
 				) : records.length === 0 ? (
 					<WorkEmpty
-						title="No work streams yet"
+						title="No epics yet"
 						description="Start one when a piece of work will need several tasks, and more will turn up as you go."
 					/>
 				) : (
 					<>
 						<Collection
 							appearance="inline"
-							aria-label="Work streams"
+							aria-label="Epics"
 							className="border-kumo-line border-y sm:hidden"
 						>
 							{records.map((record) => (
@@ -350,13 +347,10 @@ export function WorkCasesPage() {
 								</li>
 							))}
 						</Collection>
-						<Table
-							scrollLabel="Work streams"
-							containerClassName="hidden sm:block"
-						>
+						<Table scrollLabel="Epics" containerClassName="hidden sm:block">
 							<TableHeader>
 								<TableRow>
-									<TableHead>Work stream</TableHead>
+									<TableHead>Epic</TableHead>
 									<TableHead>Stage</TableHead>
 									<TableHead>Owner</TableHead>
 									{anyDue ? <TableHead>Due</TableHead> : null}
@@ -488,7 +482,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 		]);
 	const update = useMutation({
 		mutationFn: (stage: (typeof CASE_STAGES)[number]) => {
-			if (!query.data) throw new Error("Work stream is not loaded");
+			if (!query.data) throw new Error("Epic is not loaded");
 			return osApi.workItems.updateCase({
 				caseId,
 				expectedVersion: query.data.workCase.version,
@@ -527,30 +521,25 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 	if (query.isPending)
 		return (
 			<Page width="lg">
-				<PageBack render={<Link href="/work/cases" />}>
-					All work streams
-				</PageBack>
+				<PageBack render={<Link href="/work/cases" />}>All epics</PageBack>
 				<WorkListSkeleton />
 			</Page>
 		);
 	if (query.isError || !query.data)
 		return (
 			<Page width="lg">
-				<PageBack render={<Link href="/work/cases" />}>
-					All work streams
-				</PageBack>
-				<WorkReadFailure title="Work stream unavailable" error={query.error} />
+				<PageBack render={<Link href="/work/cases" />}>All epics</PageBack>
+				<WorkReadFailure title="Epic unavailable" error={query.error} />
 			</Page>
 		);
 	const record = query.data.workCase;
 	const streamOptions = (streams.data?.data ?? [])
 		.filter((row) => row.id !== caseId)
 		.map((row) => ({ value: row.id, label: row.title }));
-	const streamName = (id: string) =>
-		streamTitles.get(id) ?? "Another work stream";
+	const streamName = (id: string) => streamTitles.get(id) ?? "Another epic";
 	return (
 		<Page width="lg">
-			<PageBack render={<Link href="/work/cases" />}>All work streams</PageBack>
+			<PageBack render={<Link href="/work/cases" />}>All epics</PageBack>
 			<WorkPageHeader
 				title={record.title}
 				description={[
@@ -566,7 +555,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 					<SectionHeading>
 						<SectionTitle>Stage</SectionTitle>
 						<SectionDescription>
-							Closing a work stream does not finish its tasks.
+							Closing an epic does not finish its tasks.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -642,7 +631,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 					<CardHeader>
 						<CardTitle>Add a dependency</CardTitle>
 						<CardDescription>
-							Pick the work stream that has to wait until this one is done.
+							Pick the epic that has to wait until this one is done.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -655,7 +644,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 							}}
 						>
 							<OperationPicker
-								label="Choose a work stream"
+								label="Choose an epic"
 								options={streamOptions}
 								value={dependentId}
 								onSelect={setDependentId}
@@ -673,7 +662,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			</div>
 			<SectionCollection
 				title={`Tasks (${query.data.items.data.length})`}
-				description="Tasks in this work stream and why each belongs here."
+				description="Tasks in this epic and why each belongs here."
 				empty="No tasks yet."
 				footer={
 					<PageControls
@@ -701,7 +690,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			</SectionCollection>
 			<SectionCollection
 				title={`Dependencies (${query.data.dependencies.data.length})`}
-				description="Work streams that must finish before others can go ahead."
+				description="Epics that must finish before others can go ahead."
 				empty="No dependencies."
 				footer={
 					<PageControls

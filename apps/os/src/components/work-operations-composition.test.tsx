@@ -183,14 +183,14 @@ const pageClass = (width: "lg" | "xl") =>
 const mutations = (path: string) =>
 	api.calls.filter((call) => call.path === path).map((call) => call.input);
 
-describe("Work streams", () => {
+describe("Epics", () => {
 	const asOwner = (element: ReactNode) => (
 		<WorkActorOwnerContext.Provider value={OWNER}>
 			{element}
 		</WorkActorOwnerContext.Provider>
 	);
 
-	it("lists work streams first and reveals creation on demand", async () => {
+	it("lists epics first and reveals creation on demand", async () => {
 		viewport(false);
 		api.reads["workItems.listCases"] = {
 			data: [
@@ -209,10 +209,10 @@ describe("Work streams", () => {
 		const page = await mount(asOwner(<WorkCasesPage />));
 		const root = page.host.querySelector('[data-slot="page"]')!;
 		expect(root.className).toBe(pageClass("xl"));
-		expect(page.host.querySelector("h1")?.textContent).toBe("Work streams");
-		const list = page.host.querySelector('section[aria-label="Work streams"]')!;
+		expect(page.host.querySelector("h1")?.textContent).toBe("Epics");
+		const list = page.host.querySelector('section[aria-label="Epics"]')!;
 		const create = [...page.host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "New work stream",
+			(button) => button.textContent?.trim() === "New epic",
 		)!;
 		expect(create.closest('[data-slot="page-actions"]')).not.toBeNull();
 		expect(create.getAttribute("aria-expanded")).toBe("false");
@@ -224,7 +224,7 @@ describe("Work streams", () => {
 			form.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBeTruthy();
 		// A tappable mobile list beside the uncompressed desktop table.
-		const mobile = page.host.querySelector('ul[aria-label="Work streams"]')!;
+		const mobile = page.host.querySelector('ul[aria-label="Epics"]')!;
 		expect(mobile.classList.contains("sm:hidden")).toBe(true);
 		expect(mobile.querySelector("[data-mobile-case-row]")).not.toBeNull();
 		expect(mobile.querySelector("[data-mobile-case-owner]")).not.toBeNull();
@@ -242,11 +242,11 @@ describe("Work streams", () => {
 		expect(page.host.textContent).not.toContain("Not committed");
 		expect(
 			[...page.host.querySelectorAll("th")].map((th) => th.textContent),
-		).toEqual(["Work stream", "Stage", "Owner"]);
+		).toEqual(["Epic", "Stage", "Owner"]);
 
 		await page.submit("Create");
 		expect(mutations("workItems.createCase")).toEqual([]);
-		expect(page.host.textContent).toContain("Give the work stream a name.");
+		expect(page.host.textContent).toContain("Give the epic a name.");
 		await page.type("Name", "  Refund backlog  ");
 		await page.submit("Create");
 		expect(mutations("workItems.createCase")[0]).toMatchObject({
@@ -260,7 +260,7 @@ describe("Work streams", () => {
 		viewport(true);
 		const page = await mount(asOwner(<WorkCasesPage />));
 		const create = [...page.host.querySelectorAll("button")].find(
-			(button) => button.textContent?.trim() === "New work stream",
+			(button) => button.textContent?.trim() === "New epic",
 		)!;
 		expect(page.host.querySelector("#open-case-form")).toBeNull();
 		await act(async () => create.click());
@@ -755,7 +755,7 @@ describe("Work case detail and clusters", () => {
 		},
 	});
 
-	it("picks tasks and work streams by title and never shows raw ids", async () => {
+	it("picks tasks and epics by title and never shows raw ids", async () => {
 		viewport(false);
 		api.reads["workItems.getCase"] = workStream("planning");
 		api.reads["workItems.getById"] = {
@@ -782,9 +782,9 @@ describe("Work case detail and clusters", () => {
 			page.host.querySelector('[aria-label="Choose a task"]'),
 		).not.toBeNull();
 		expect(
-			page.host.querySelector('[aria-label="Choose a work stream"]'),
+			page.host.querySelector('[aria-label="Choose an epic"]'),
 		).not.toBeNull();
-		// Lists name tasks and work streams by title.
+		// Lists name tasks and epics by title.
 		const task = page.host.querySelector("[data-case-task]")!;
 		expect(task.textContent).toBe(
 			"Refund the March orders — Customers wait on it",

@@ -1354,7 +1354,7 @@ describe("Case route navigation", () => {
 		await act(async () => {
 			await router.navigate({ to: "/work/cases" });
 		});
-		expect(container.textContent).toContain("Work streams");
+		expect(container.textContent).toContain("Epics");
 		expect(container.textContent).not.toContain("Case detail");
 	});
 });

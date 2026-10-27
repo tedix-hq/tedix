@@ -196,7 +196,7 @@ export function NeedsYouNowSection() {
 						href={`/work/cases/${request.caseId}`}
 						className="min-h-11 py-2"
 					>
-						Linked case
+						Linked epic
 					</Link>
 				) : request.projectId ? (
 					<Link
@@ -564,7 +564,7 @@ export function WorkInteractionsPage() {
 								{(field, meta) => (
 									<FormSelect field={field} {...meta}>
 										<SelectItem value="work_item">Work Item</SelectItem>
-										<SelectItem value="case">Case</SelectItem>
+										<SelectItem value="case">Epic</SelectItem>
 										<SelectItem value="project">Project</SelectItem>
 									</FormSelect>
 								)}

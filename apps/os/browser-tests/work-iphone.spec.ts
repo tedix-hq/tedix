@@ -525,9 +525,7 @@ try {
 				}
 			}
 			await check("/work/cases", "[data-mobile-case-row]");
-			await page
-				.getByRole("button", { name: "New work stream", exact: true })
-				.click();
+			await page.getByRole("button", { name: "New epic", exact: true }).click();
 			for (const failure of await layoutFailures(page))
 				failures.push(`/work/cases form: ${failure}`);
 			await targets(
@@ -535,7 +533,7 @@ try {
 				page.locator(
 					"#open-case-form input:visible:not([aria-hidden=true]):not([tabindex='-1']), #open-case-form button:visible",
 				),
-				"work stream field",
+				"epic field",
 			);
 
 			await check("/work?view=feed", ".focus-today");
