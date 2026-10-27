@@ -11,7 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { FormTextarea } from "@/components/forms/form-textarea";
@@ -111,14 +111,20 @@ function WorkspaceFormDialog({
 	});
 
 	const resetMutation = mutation.reset;
+	// Fill the form when it opens or switches workspace, never when a refetch
+	// (say, after the icon saves) hands over a new copy of the same workspace;
+	// that would throw away what the user is typing.
+	const latestWorkspace = useRef(workspace);
+	latestWorkspace.current = workspace;
+	const workspaceId = workspace?.id;
 	useEffect(() => {
 		if (!open) return;
 		form.reset({
-			name: workspace?.name ?? "",
-			description: workspace?.description ?? "",
+			name: latestWorkspace.current?.name ?? "",
+			description: latestWorkspace.current?.description ?? "",
 		});
 		resetMutation();
-	}, [form, resetMutation, open, workspace]);
+	}, [form, resetMutation, open, workspaceId]);
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>

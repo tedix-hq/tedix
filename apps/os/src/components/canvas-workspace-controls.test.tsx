@@ -15,6 +15,8 @@ const workspaces = vi.hoisted(() => ({
 	create: vi.fn(),
 	update: vi.fn(),
 	archive: vi.fn(),
+	setIcon: vi.fn(),
+	removeIcon: vi.fn(),
 }));
 
 const osSharesApi = vi.hoisted(() => ({
@@ -95,23 +97,25 @@ function renderControls(workspace?: OsWorkspace, compactActions = false) {
 	const root = createRoot(container);
 	const onSelected = vi.fn();
 	const onArchived = vi.fn();
-	act(() => {
-		root.render(
-			<QueryClientProvider client={queryClient}>
-				<CanvasWorkspaceControls
-					workspace={workspace}
-					compactActions={compactActions}
-					onSelected={onSelected}
-					onArchived={onArchived}
-				/>
-			</QueryClientProvider>,
-		);
-	});
+	const render = (current?: OsWorkspace) =>
+		act(() => {
+			root.render(
+				<QueryClientProvider client={queryClient}>
+					<CanvasWorkspaceControls
+						workspace={current}
+						compactActions={compactActions}
+						onSelected={onSelected}
+						onArchived={onArchived}
+					/>
+				</QueryClientProvider>,
+			);
+		});
+	render(workspace);
 	cleanups.push(() => {
 		act(() => root.unmount());
 		container.remove();
 	});
-	return { container, onSelected, onArchived };
+	return { container, onSelected, onArchived, rerender: render };
 }
 
 function button(container: Element, text: string): HTMLButtonElement {
@@ -240,6 +244,30 @@ describe("CanvasWorkspaceControls", () => {
 			description: null,
 		});
 		expect(rendered.onSelected).toHaveBeenCalledWith(WORKSPACE.id);
+	});
+
+	it("keeps an unsaved rename when the icon changes and the workspace refetches", async () => {
+		const rendered = renderControls(WORKSPACE);
+		act(() => button(rendered.container, "Edit").click());
+		await flush();
+		const name = rendered.container.querySelector("input");
+		if (!(name instanceof HTMLInputElement)) throw new Error("name missing");
+		setValue(name, "Ops Center");
+		await flush();
+
+		rendered.rerender({
+			...WORKSPACE,
+			iconUrl: "https://imagedelivery.net/hash/0000000000000000/public",
+		});
+		await flush();
+
+		expect(name.value).toBe("Ops Center");
+		expect(
+			rendered.container.querySelector(
+				'[data-testid="workspace-icon-field"] img',
+			),
+		).not.toBeNull();
+		expect(button(rendered.container, "Remove")).toBeDefined();
 	});
 
 	it("toggles the workspace's push mute through saved preferences", async () => {
