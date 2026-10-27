@@ -67,11 +67,13 @@ async function insertSvgImage(container: HTMLElement) {
 	act(() => {
 		editor.dispatchEvent(event);
 	});
-	await until(() =>
-		container.querySelector('[data-inspector-element="image"], [data-inspector-element="svg"]') !==
-			null ||
-		container.querySelector(".slides-editor-inspector input[type='file']") !==
-			null,
+	await until(
+		() =>
+			container.querySelector(
+				'[data-inspector-element="image"], [data-inspector-element="svg"]',
+			) !== null ||
+			container.querySelector(".slides-editor-inspector input[type='file']") !==
+				null,
 	);
 }
 
@@ -109,7 +111,9 @@ describe("image reposition mode", () => {
 		const mounted = mountEditor();
 		await insertSvgImage(mounted.container);
 		const reposition = [...mounted.container.querySelectorAll("button")].find(
-			(button) => button.getAttribute("aria-label") === "Reposition image inside its frame",
+			(button) =>
+				button.getAttribute("aria-label") ===
+				"Reposition image inside its frame",
 		)!;
 		expect(reposition).toBeDefined();
 		act(() => reposition.click());
@@ -137,14 +141,11 @@ describe("image reposition mode", () => {
 			});
 		}
 		await until(() =>
-			mounted
-				.elements()
-				.some((item) => item.props?.focalPoint !== undefined),
+			mounted.elements().some((item) => item.props?.focalPoint !== undefined),
 		);
 		// (70, 50) inside a 280x200 frame pins the focal point at (0.25, 0.25).
 		expect(
-			mounted.elements().find((item) => item.type === "svg")?.props
-				?.focalPoint,
+			mounted.elements().find((item) => item.type === "svg")?.props?.focalPoint,
 		).toEqual({ x: 0.25, y: 0.25 });
 		expect(
 			mounted.container.querySelector("img")?.getAttribute("style"),
@@ -162,8 +163,7 @@ describe("image reposition mode", () => {
 			);
 		});
 		await until(
-			() =>
-				mounted.container.querySelector("[data-cropping]") === null,
+			() => mounted.container.querySelector("[data-cropping]") === null,
 		);
 		expect(
 			mounted.container.querySelector("[data-slide-element][data-selected]"),
@@ -208,11 +208,8 @@ describe("image reposition mode", () => {
 			(button) => button.textContent?.trim() === "Center image",
 		)!;
 		act(() => center.click());
-		await until(
-			() =>
-				mounted
-					.elements()
-					.every((item) => item.props?.focalPoint === undefined),
+		await until(() =>
+			mounted.elements().every((item) => item.props?.focalPoint === undefined),
 		);
 		expect(
 			mounted.container.querySelector("img")?.getAttribute("style"),

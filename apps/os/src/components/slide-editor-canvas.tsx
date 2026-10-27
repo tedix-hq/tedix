@@ -272,9 +272,7 @@ function SlideElementView({
 			if (gesture.dx !== 0 || gesture.dy !== 0) onGeometryCommit(current);
 		} else if (gesture.mode === "crop") {
 			// A plain press inside a cropping frame pins the focal point there.
-			const box = (
-				event.currentTarget as HTMLElement
-			).getBoundingClientRect();
+			const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
 			if (box.width && box.height)
 				onGeometryCommit({
 					...element,
@@ -286,8 +284,7 @@ function SlideElementView({
 						},
 					},
 				});
-		} else if (gesture.wasSelected)
-			beginEditing(event.clientX, event.clientY);
+		} else if (gesture.wasSelected) beginEditing(event.clientX, event.clientY);
 	};
 	const resizeWithKeyboard = (event: React.KeyboardEvent) => {
 		if (event.key === "Escape") {

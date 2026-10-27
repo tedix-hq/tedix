@@ -160,8 +160,8 @@ function WorkspaceImageList({
 	if (!images.length)
 		return (
 			<Text role="caption" tone="secondary" className="m-0 px-2">
-				No images in this workspace yet. Upload one below and it is added to
-				the workspace files.
+				No images in this workspace yet. Upload one below and it is added to the
+				workspace files.
 			</Text>
 		);
 	return (
@@ -233,10 +233,7 @@ export function SlideMediaPicker({
 							>
 								Workspace files
 							</Text>
-							<WorkspaceImageList
-								workspaceId={workspaceId}
-								onPick={pickFile}
-							/>
+							<WorkspaceImageList workspaceId={workspaceId} onPick={pickFile} />
 						</section>
 					) : null}
 					<SlideImageUploadButton
