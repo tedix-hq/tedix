@@ -99,6 +99,13 @@ function fixture({
 		env: NodeJS.ProcessEnv;
 		input?: Record<string, unknown>;
 	}> = [];
+	const recalls: Array<{
+		brief: string;
+		scope: string[];
+		harness: string;
+		cwd?: string;
+	}> = [];
+	const briefs: string[] = [];
 	const releases: Array<() => void> = [];
 	const control = {
 		spawnPid: undefined as number | undefined,
@@ -113,6 +120,7 @@ function fixture({
 		readiness: { ready: true, reasons: [] as Array<{ detail: string }> },
 		cooldownUntil: 0,
 		cooldownWorkspaces: [] as Array<string | undefined>,
+		recall: "",
 		history: {
 			data: [] as Record<string, unknown>[],
 			nextCursor: null as string | null,
@@ -137,6 +145,14 @@ function fixture({
 		landedCommits: async () => {
 			if (control.proofError) throw control.proofError;
 			return control.commits;
+		},
+		recall: async (brief, scope, harness, _organization, cwd) => {
+			recalls.push({ brief, scope, harness, cwd });
+			return {
+				brief: control.recall ? `${control.recall}\n\n${brief}` : brief,
+				recall: control.recall,
+				recallStatus: control.recall ? "matched" : "none",
+			};
 		},
 		cleanup: () => {
 			control.cleanups++;
@@ -204,6 +220,7 @@ function fixture({
 						? "claude-code"
 						: "codex";
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
+			briefs.push(brief);
 			expect(deps?.label).toBe(
 				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!
 					.title,
@@ -272,7 +289,17 @@ function fixture({
 	};
 	const restart = () => new LaneDispatcher(config, dir, deps);
 	const dispatcher = restart();
-	return { dispatcher, restart, dir, events, releases, control, items };
+	return {
+		dispatcher,
+		restart,
+		dir,
+		events,
+		releases,
+		control,
+		items,
+		recalls,
+		briefs,
+	};
 }
 async function until(test: () => boolean) {
 	for (let n = 0; n < 100 && !test(); n++)
@@ -645,6 +672,28 @@ describe("dispatcher admission", () => {
 		await dispatcher.tick();
 		await until(() => releases.length === 3);
 		releases[2]!();
+		await dispatcher.drain();
+	});
+	it("prefixes matching lessons before launching Codex without relying on hooks", async () => {
+		const { dispatcher, items, control, recalls, briefs, releases } = fixture();
+		items.splice(1);
+		control.recall =
+			"Tedix situational recall (advisory):\n- [lesson deadbeef] Keep product bindings aligned with the production overlay.";
+
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+
+		expect(recalls).toEqual([
+			{
+				brief: expect.stringContaining(`Work ${item().id}`),
+				scope: options.scope,
+				harness: "codex",
+				cwd: expect.stringContaining("/repo"),
+			},
+		]);
+		expect(briefs[0]).toStartWith(control.recall);
+		expect(briefs[0]).toContain("Your exclusive source worktree is");
+		releases[0]!();
 		await dispatcher.drain();
 	});
 	it("preserves rejection diagnostics once and retries only after backoff and fresh admission", async () => {
