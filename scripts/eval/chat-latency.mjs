@@ -541,21 +541,24 @@ async function main() {
 		return (cleanup ??= measurementsFinished.then(async () => {
 			if (!workspace) return;
 			const failures = [];
-			// An archive parked for human approval files a card per call; stop at
-			// the first so cleanup never fills the approval queue.
-			let approvalRequired = false;
-			const archive = async (write, read, check) => {
-				if (approvalRequired) return;
+			// An archive parked for human approval files a card per call; stop that
+			// kind at the first so cleanup never fills the approval queue. Other
+			// kinds still run, so a refused chat archive no longer leaves the
+			// scratch outputs and workspace active.
+			const parked = new Set();
+			const archive = async (kind, write, read, check) => {
+				if (parked.has(kind)) return;
 				try {
 					return await archiveWithReadback(write, read, check);
 				} catch (error) {
 					failures.push(error);
-					approvalRequired ||= isApprovalRequired(error);
+					if (isApprovalRequired(error)) parked.add(kind);
 				}
 			};
 			for (const row of rows) {
 				if (!row.conversation) continue;
 				await archive(
+					"conversation",
 					() =>
 						code(
 							`return await home.archive_conversation(${codeModeLiteral({ conversationId: row.conversation, archived: true })});`,
@@ -579,6 +582,7 @@ async function main() {
 				throw new Error("Scratch cleanup inventory missing or truncated");
 			for (const output of listed.items) {
 				await archive(
+					"output",
 					() =>
 						code(
 							`return await os.archive_os_output(${codeModeLiteral({ outputId: output.id })});`,
@@ -591,6 +595,7 @@ async function main() {
 				);
 			}
 			const archived = await archive(
+				"workspace",
 				() =>
 					code(
 						`return await os.archive_os_workspace(${codeModeLiteral({ workspaceId: workspace.id })});`,
