@@ -51,7 +51,9 @@ async function workspaceImageFile(
 	const response = await fetch(file.url);
 	if (!response.ok) throw new Error("The workspace file could not be read.");
 	const blob = await response.blob();
-	return new File([blob], file.filename, { type: blob.type || file.mimeType });
+	// The download serves SVG and other non-inline types as
+	// application/octet-stream, so the recorded type decides how it embeds.
+	return new File([blob], file.filename, { type: file.mimeType || blob.type });
 }
 
 function WorkspaceImageRow({

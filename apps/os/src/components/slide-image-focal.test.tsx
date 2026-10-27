@@ -67,13 +67,14 @@ async function insertSvgImage(container: HTMLElement) {
 	act(() => {
 		editor.dispatchEvent(event);
 	});
+	// Wait for the pasted image's own inspector section. The slide inspector
+	// always carries a background upload input, so a file input alone does not
+	// show that the paste has landed.
 	await until(
 		() =>
 			container.querySelector(
 				'[data-inspector-element="image"], [data-inspector-element="svg"]',
-			) !== null ||
-			container.querySelector(".slides-editor-inspector input[type='file']") !==
-				null,
+			) !== null,
 	);
 }
 

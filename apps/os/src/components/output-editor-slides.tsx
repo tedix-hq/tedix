@@ -222,18 +222,23 @@ export function SlidesEditor({
 			return null;
 		}
 	};
+	const insertImageSource = (
+		file: File,
+		src: string,
+		center?: { x: number; y: number },
+	) =>
+		insertElement(
+			file.type === "image/svg+xml" ? "svg" : "image",
+			src,
+			center,
+			file.name.replace(/\.[^.]+$/, "").slice(0, 200) || undefined,
+		);
 	const insertImageFile = async (
 		file: File,
 		center?: { x: number; y: number },
 	) => {
 		const src = await readImageFile(file);
-		if (src)
-			insertElement(
-				file.type === "image/svg+xml" ? "svg" : "image",
-				src,
-				center,
-				file.name.replace(/\.[^.]+$/, "").slice(0, 200) || undefined,
-			);
+		if (src) insertImageSource(file, src, center);
 	};
 	// The picker always resolves to the upload pipeline: a workspace file is
 	// downloaded into a File, so embeds, size limits and errors stay uniform.
@@ -246,7 +251,7 @@ export function SlidesEditor({
 			commitDeck(
 				replaceActiveSlide(deck, { ...activeSlide, backgroundImage: src }),
 			);
-		else insertElement("image", src);
+		else insertImageSource(file, src);
 	};
 
 	if (!activeSlide) {
@@ -565,8 +570,9 @@ export function SlidesEditor({
 						cropElementId={cropping ? selectedElementId : null}
 						disabled={disabled}
 						onSelect={(id) => {
+							// A press on the image being repositioned keeps that mode.
+							if (id !== selectedElementId) setCropping(false);
 							setSelectedElementId(id);
-							setCropping(false);
 						}}
 						onChangeElement={(next) => updateElement(next)}
 						onGeometryCommit={(next) => updateElement(next)}
