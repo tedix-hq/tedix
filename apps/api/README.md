@@ -15,7 +15,8 @@ The implementation is organized around these boundaries:
 | Source                                               | Responsibility                                                     |
 | ---------------------------------------------------- | ------------------------------------------------------------------ |
 | [src/index.ts](src/index.ts)                         | Worker entrypoint, Durable Object exports, and lazy workflow shims |
-| [src/worker-app.ts](src/worker-app.ts)               | Hono routes, RPC/REST handlers, scheduled and queue dispatch       |
+| [src/worker-app.ts](src/worker-app.ts)               | HTTP route composition, scheduled and queue dispatch               |
+| `src/http`                                           | HTTP middleware, RPC/REST handlers, docs, media, and webhooks      |
 | [src/rpc/routers/index.ts](src/rpc/routers/index.ts) | Lazily loaded contract namespaces                                  |
 | [src/rpc/orpc.ts](src/rpc/orpc.ts)                   | Request context and authentication/authorization primitives        |
 | `src/kernel`                                         | Durable Home/kernel transport and execution infrastructure         |
@@ -30,7 +31,8 @@ server implementation tree.
 
 ## HTTP surfaces
 
-Routes are registered in [src/worker-app.ts](src/worker-app.ts). Authentication
+HTTP modules in `src/http` register routes and middleware;
+[src/worker-app.ts](src/worker-app.ts) composes them in order. Authentication
 and authorization are specific to each procedure or endpoint.
 
 | Path                                                                   | Purpose                                                |
@@ -43,8 +45,8 @@ and authorization are specific to each procedure or endpoint.
 | `/kernel/voice/*`                                                      | Home voice transport and transcription                 |
 | `/webhooks/descope/audit`, `/webhooks/stripe`, `/webhooks/stripe/test` | Provider callbacks with endpoint-specific verification |
 
-Media, artifact, export, sharing, and branding endpoints also live in the route
-registration file. The REST operation inventory is
+Media, artifact, export, sharing, and branding endpoints also live in
+`src/http`. The REST operation inventory is
 [src/rpc/public-rest-operations.ts](src/rpc/public-rest-operations.ts).
 
 ## Development and validation

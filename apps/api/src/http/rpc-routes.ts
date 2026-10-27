@@ -1,8 +1,58 @@
-import type { Hono } from "hono";
-import type { RPCHandler } from "@orpc/server/fetch";
-import type { OpenAPIHandler } from "@orpc/openapi/fetch";
+import { ORPCError } from "@orpc/client";
+import { OpenAPIHandler } from "@orpc/openapi/fetch";
+import { RPCHandler } from "@orpc/server/fetch";
+import {
+	RequestLimitHandlerPlugin,
+	RethrowHandlerPlugin,
+} from "@orpc/server/plugins";
 import { D1_BOOKMARK_HEADER } from "@tedix/db/client";
-import { type BaseContext, createContext } from "../rpc/orpc";
+import type { Hono } from "hono";
+import { enrichInputValidationError } from "../rpc/input-validation-error";
+import { isPublicProcedure } from "../rpc/openapi-filter";
+import { type BaseContext, createContext, logProcedureCall } from "../rpc/orpc";
+import { apiRouter } from "../rpc/routers/index";
+
+const handlerPlugins = [
+	new RequestLimitHandlerPlugin({ maxBodySize: 10 * 1024 * 1024 }),
+	new RethrowHandlerPlugin({
+		filter: (error: unknown) => !(error instanceof ORPCError),
+	}),
+];
+
+// Client interceptors wrap input validation, so they can enrich field errors
+// while preserving data.issues for structured consumers.
+const clientInterceptors = [
+	// Outermost so logging also covers validation and permission rejections.
+	(options: {
+		context: BaseContext;
+		path: readonly string[];
+		next: () => Promise<unknown>;
+	}) => logProcedureCall(options),
+	async (options: { next: () => Promise<unknown> }) => {
+		try {
+			return await options.next();
+		} catch (error) {
+			throw enrichInputValidationError(error);
+		}
+	},
+];
+
+const rpcHandler = new RPCHandler(apiRouter, {
+	plugins: handlerPlugins,
+	clientInterceptors,
+});
+
+// Building the REST route table walks the full lazy router tree. Defer it
+// until /v1/* is requested so RPC traffic never pays that per-isolate cost.
+let openApiHandlerInstance: OpenAPIHandler<BaseContext> | undefined;
+function getOpenApiHandler(): OpenAPIHandler<BaseContext> {
+	openApiHandlerInstance ??= new OpenAPIHandler(apiRouter, {
+		plugins: handlerPlugins,
+		clientInterceptors,
+		filter: isPublicProcedure,
+	});
+	return openApiHandlerInstance;
+}
 
 function withDbBookmark(response: Response, context: BaseContext): Response {
 	const bookmark = context.dbBookmark?.();
@@ -16,11 +66,7 @@ function withDbBookmark(response: Response, context: BaseContext): Response {
 	});
 }
 
-export function registerRpcRoutes(
-	app: Hono<{ Bindings: CloudflareEnv }>,
-	rpcHandler: RPCHandler<BaseContext>,
-	getOpenApiHandler: () => OpenAPIHandler<BaseContext>,
-) {
+export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 	/**
 	 * oRPC handler - serves type-safe procedures through the oRPC RPC protocol
 	 *
