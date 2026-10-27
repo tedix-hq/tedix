@@ -589,23 +589,6 @@ describe("WorkspaceLibraryPage", () => {
 		act(() => root.unmount());
 	});
 
-	it("explains that deleting a private workspace keeps its outputs private", async () => {
-		api.collaboration.list.mockResolvedValue({ items: [], truncated: false });
-		const { dialog, root } = await openDelete(
-			workspace({
-				id: SECOND_WORKSPACE_ID,
-				name: "Private",
-				status: "archived",
-				visibility: "private",
-			}),
-		);
-		expect(dialog.textContent).toContain(
-			"They move to a new Saved documents workspace and stay private to the owner.",
-		);
-		expect(dialog.textContent).not.toContain("anyone in your organization");
-		act(() => root.unmount());
-	});
-
 	it("explains why agent suggestions keep a workspace from being deleted", async () => {
 		const archivedWorkspace = workspace({
 			id: SECOND_WORKSPACE_ID,

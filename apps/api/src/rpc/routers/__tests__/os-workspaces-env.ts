@@ -25,7 +25,6 @@ import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
-import { providerInstallations } from "@tedix/db/schema/provider-installations";
 import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
 	skillRunArtifacts,
@@ -62,7 +61,6 @@ export function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			connectionInstances,
-			providerInstallations,
 			organizationMembers,
 			osWorkspaceCollaborators,
 			osWorkspaceAccessEdges,
