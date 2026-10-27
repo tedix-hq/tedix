@@ -1,5 +1,9 @@
 # Expected-failure baseline for the Tedix stateless MCP transport
-# (`@modelcontextprotocol/conformance` 0.2.0-alpha.10,
+# (`@modelcontextprotocol/conformance` 0.2.0-alpha.11,
 # --spec-version 2026-07-28). Keep the explicit empty list so a future
 # regression cannot be hidden by an absent baseline file.
+# Hosted SEP-3415 events are app-configured, outside this transport fixture.
+# Discovery opt-in is covered by apps/mcp/src/index.test.ts; subscription,
+# challenge and signed delivery by interaction-event-route.test.ts,
+# interaction-events.test.ts and event-webhooks.test.ts in that directory.
 server: []

@@ -49,6 +49,61 @@ function createEnv(overrides: Record<string, unknown> = {}) {
 	} as unknown as CloudflareEnv;
 }
 
+describe("event extension discovery", () => {
+	it.each([
+		[true, true, true],
+		[false, true, false],
+		[true, false, false],
+	])(
+		"requires app opt-in (%s) and subscription binding (%s)",
+		async (interactionEvents, binding, advertised) => {
+			const response = await handleMcpRequest(
+				new Request("https://example.mcp.test/mcp", {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"MCP-Protocol-Version": "2026-07-28",
+						"Mcp-Method": "server/discover",
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "server/discover",
+						params: {
+							_meta: {
+								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+								"io.modelcontextprotocol/clientCapabilities": {},
+							},
+						},
+					}),
+				}),
+				{
+					app: { id: "fixture", slug: "fixture", name: "Fixture" },
+					metadata: { mcpConfig: { codeMode: true, interactionEvents } },
+					tools: [],
+				} as never,
+				createEnv(binding ? { MCP_SUBSCRIPTIONS: {} } : {}),
+				{ waitUntil: vi.fn() } as unknown as ExecutionContext,
+			);
+			const { result } = (await response.json()) as {
+				result: {
+					capabilities: Record<string, unknown> & {
+						extensions: Record<string, unknown>;
+					};
+				};
+			};
+			expect(response.status).toBe(200);
+			expect(Object.hasOwn(result.capabilities, "events")).toBe(advertised);
+			expect(
+				Object.hasOwn(
+					result.capabilities.extensions,
+					"io.modelcontextprotocol/events",
+				),
+			).toBe(advertised);
+		},
+	);
+});
+
 describe("aggregate activation epoch revision plane", () => {
 	it("prefers the KV Instant pointer without reading the R2 fallback", async () => {
 		const instantGet = vi.fn(async () => "instant-epoch");
