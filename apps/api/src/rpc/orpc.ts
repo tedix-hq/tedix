@@ -1544,6 +1544,31 @@ export async function identifyOsShareRecipient(
 }
 
 /**
+ * Whether the person opening a governed OS share may manage its links on the
+ * shared page (the Share dialog): an `os:author`, `os:admin` or
+ * `settings:manage` member of the link's organization. Identity and
+ * membership only — it authorizes nothing by itself; the dialog's own calls
+ * stay guarded by their procedures.
+ */
+export async function osShareCallerMayManage(
+	request: Request,
+	env: CloudflareEnv,
+	organizationId: string,
+): Promise<boolean> {
+	const context = createContext(request, env);
+	try {
+		await authenticateUserJwt(context);
+	} catch {
+		return false;
+	}
+	if (context.authType !== "user" || context.organizationId !== organizationId)
+		return false;
+	return (["os:author", "os:admin", "settings:manage"] as const).some(
+		(permission) => userHoldsPermission(context, permission),
+	);
+}
+
+/**
  * Revalidate source access for the existing authenticated output-export route.
  * That route historically required a user JWT plus organization membership,
  * but not an OS role; keep that contract distinct from governed share roles.

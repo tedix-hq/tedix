@@ -57,7 +57,7 @@ export const OsShareLinkSchema = z.object({
 		.string()
 		.url()
 		.describe(
-			"The bookmarkable link on the organization's own OS host: https://<org>.os.tedix.dev/s/<publicId>",
+			"The bookmarkable link on the organization's own OS host: https://<org>.os.tedix.dev/s/<publicId>/<title-slug>; only the id resolves",
 		),
 	organizationId: z.string(),
 	resourceType: OsShareResourceTypeSchema,
@@ -105,6 +105,12 @@ export const OsShareLinkSchema = z.object({
 		.nullable()
 		.describe(
 			"Set when the link was revoked; a revoked link never redeems again",
+		),
+	disabledAt: z
+		.string()
+		.nullable()
+		.describe(
+			"Set while the link is turned off: it stops redeeming but keeps its address, and turning it back on clears this and revives the same address",
 		),
 });
 
@@ -170,11 +176,20 @@ export const OsShareOpenResultSchema = z.object({
 			expiresAt: z.string().nullable(),
 			createdAt: z.string(),
 			createdByKind: OsCreatedByKindSchema,
+			/** Display name of the person or agent who made the link, when known. */
+			sharedByName: z.string().nullable(),
+			/** The readable suffix of the link's address, from the shared title. */
+			slug: z.string(),
 			policyReason: z.string().nullable(),
 			policyRestrictedAt: z.string().nullable(),
 		})
 		.optional(),
 	resource: z.unknown().optional(),
+	/**
+	 * True when the caller's own session may manage this link (create, turn
+	 * off or delete share links), so the page can offer them the Share dialog.
+	 */
+	canManage: z.boolean().optional(),
 	/** A 12-hour session; keep it in sessionStorage under `tedix.os.share.<id>`. */
 	sessionToken: z.string().optional(),
 });
@@ -473,13 +488,13 @@ export const osSharesContract = oc
 					path: "/resources/{resourceType}/{resourceId}/shares",
 					summary: "Create a governed Tedix OS share link",
 					description:
-						"Mints a role-aware living or pinned link. The returned token is the link's reusable secret, returned only in this answer; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
+						"Mints a role-aware living or pinned link. The returned token is the ONE-TIME plaintext capability; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
 				})
 				.input(createShareInput)
 				.output(
 					z.object({
 						share: OsShareLinkSchema,
-						/** The link's plaintext secret, returned only here; never retrievable again. */
+						/** The one-time plaintext token; never retrievable again. */
 						token: z.string(),
 					}),
 				),
@@ -577,6 +592,32 @@ export const osSharesContract = oc
 						revokedSessionCount: z.number().int().nonnegative(),
 					}),
 				),
+			setDisabled: oc
+				.route({
+					method: "POST",
+					path: "/shares/{shareId}/disabled",
+					summary: "Turn a share link off or back on, keeping its address",
+					description:
+						"Unlike revocation, turning a link off is reversible: it stops redeeming and ends live sessions, but the address stays reserved and turning it back on revives the same address with no new id.",
+				})
+				.input(
+					z
+						.object({
+							shareId: z.string().uuid(),
+							disabled: z
+								.boolean()
+								.describe(
+									"true turns the link off; false turns it back on at the same address",
+								),
+						})
+						.strict(),
+				)
+				.output(
+					z.object({
+						share: OsShareLinkSchema,
+						revokedSessionCount: z.number().int().nonnegative(),
+					}),
+				),
 			restrict: oc
 				.route({
 					method: "POST",
@@ -611,9 +652,9 @@ export const osSharesContract = oc
 				.route({
 					method: "DELETE",
 					path: "/shares/{shareId}",
-					summary: "Permanently delete a revoked Tedix OS share link",
+					summary: "Permanently delete a Tedix OS share link",
 					description:
-						"Requires os:admin and an already-revoked link. Deletes its hash-only redemption sessions; retained audit rows continue to name the stable share id.",
+						"Requires os:admin. Revokes the link if needed — the permanent-forever counterpart to turning it off — then deletes its row, so a new link mints a new address.",
 				})
 				.input(z.object({ shareId: z.string().uuid() }))
 				.output(z.object({ deleted: z.literal(true) })),
@@ -648,7 +689,7 @@ export const osSharesContract = oc
 						path: "/shares/{shareId}/invitees/{inviteeId}",
 						summary: "Remove a person from a share link",
 						description:
-							"Ends every live session on the link, including open apps, so the removed person is cut off at once; people still invited reopen the link.",
+							"Every session read rechecks the invite list, so removal takes effect on the person's next read.",
 					})
 					.input(
 						inviteeScopeInput.extend({ inviteeId: z.string().uuid() }).strict(),

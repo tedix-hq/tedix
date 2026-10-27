@@ -1224,6 +1224,10 @@
 		{
 			"name": "20261027125242_sensitive_data_latch/migration.sql",
 			"sha256": "3261fcab1c2c4fab1544ed5a054ec1ae9db8450a8e5f66c3ff70a8e10f3d63ab"
+		},
+		{
+			"name": "20261028120000_share_link_disabled/migration.sql",
+			"sha256": "35ee59bfbb20668cc0bf127f04a9a76636507d8ff27286a68d7371efa707ead3"
 		}
 	]
 }

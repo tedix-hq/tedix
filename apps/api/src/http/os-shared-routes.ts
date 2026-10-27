@@ -17,7 +17,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 	});
 
-	// The public viewer keeps the link secret in the URL fragment, which
+	// The public viewer keeps the one-time capability in the URL fragment, which
 	// never reaches an HTTP request, proxy log, or referrer. Its same-origin POST
 	// exchanges that in-memory token for the current read-only output. The legacy
 	// path-token redemption remains for already-minted links.
@@ -41,7 +41,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		return handleOsShareViewerStyles();
 	});
 
-	// authz: public — link secret redemption; a session credential, when
+	// authz: public — one-time capability redemption; a session credential, when
 	// the host proxy forwards one, only identifies the recipient of an
 	// organization or invited link and grants nothing by itself.
 	app.post("/os-shared/redeem", async (c) => {
@@ -56,6 +56,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			bodyString(await c.req.json().catch(() => null), "token"),
 			recipient.authorize,
 			recipient.identify,
+			recipient.mayManage,
 		);
 	});
 
@@ -75,22 +76,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			c.req.header("X-Tedix-Tenant-Id") ?? null,
 			recipient.authorize,
 			recipient.identify,
-		);
-	});
-
-	// What a pasted `/s/<id>` shows in chat apps and social sites. The OS
-	// Worker asks for it when it serves the share document on the host.
-	// authz: public — names content only for a link a signed-out stranger could open on this host; anything else gets the generic answer.
-	app.post("/os-shared/preview", async (c) => {
-		const [{ handleOsSharePreview }, { createDbQueryClient }] =
-			await Promise.all([
-				import("../lib/os-share-redemption"),
-				import("@tedix/db/query-client"),
-			]);
-		return handleOsSharePreview(
-			createDbQueryClient(c.env.DB),
-			bodyString(await c.req.json().catch(() => null), "id"),
-			c.req.header("X-Tedix-Tenant-Id") ?? null,
+			recipient.mayManage,
 		);
 	});
 
@@ -106,6 +92,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			bodyString(await c.req.json().catch(() => null), "sessionToken"),
 			recipient.authorize,
 			recipient.identify,
+			recipient.mayManage,
 		);
 	});
 
@@ -158,6 +145,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			c.req.param("token"),
 			recipient.authorize,
 			recipient.identify,
+			recipient.mayManage,
 		);
 	});
 }
@@ -170,8 +158,11 @@ function bodyString(body: unknown, key: string): string {
 
 /** The two recipient checks a share handler runs against the caller's own credential. */
 async function shareRecipient(request: Request, env: CloudflareEnv) {
-	const { authorizeOsShareRecipient, identifyOsShareRecipient } =
-		await import("../rpc/orpc");
+	const {
+		authorizeOsShareRecipient,
+		identifyOsShareRecipient,
+		osShareCallerMayManage,
+	} = await import("../rpc/orpc");
 	return {
 		authorize: (
 			link: { organizationId: string },
@@ -184,5 +175,7 @@ async function shareRecipient(request: Request, env: CloudflareEnv) {
 				accessEnvelope,
 			}),
 		identify: () => identifyOsShareRecipient(request, env),
+		mayManage: (link: { organizationId: string }) =>
+			osShareCallerMayManage(request, env, link.organizationId),
 	};
 }

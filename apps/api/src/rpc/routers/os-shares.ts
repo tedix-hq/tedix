@@ -35,6 +35,7 @@ import type {
 	OsShareLinkInviteeRow,
 	OsShareLinkRow,
 } from "@tedix/db/schema/os-shares";
+import { osShareTitleSlug } from "@tedix/api-contract/utils/share-slug";
 import {
 	generateOsSharePublicId,
 	generateOsShareToken,
@@ -76,20 +77,50 @@ function queryDb(context: BaseContext) {
  */
 async function shareUrlFor(
 	context: BaseContext,
-): Promise<(publicId: string) => string> {
+): Promise<(publicId: string, slug?: string) => string> {
 	const organization = await getOrganizationProfile(
 		queryDb(context),
 		requireOrgId(context),
 	);
 	if (!organization)
 		throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
-	return (publicId) => osShareUrl(context.env, organization.slug, publicId);
+	return (publicId, slug) =>
+		osShareUrl(context.env, organization.slug, publicId, slug);
+}
+
+/** The title a link's readable address suffix is made from, or null when the resource is gone. */
+async function shareLinkTitle(
+	context: BaseContext,
+	link: Pick<OsShareLinkRow, "organizationId" | "resourceType" | "resourceId">,
+): Promise<string | null> {
+	const db = queryDb(context);
+	const organizationId = link.organizationId;
+	if (link.resourceType === "output") {
+		const output = await getOsOutput(db, {
+			organizationId,
+			outputId: link.resourceId,
+		});
+		return output?.title ?? null;
+	}
+	if (link.resourceType === "gadget") {
+		const gadget = await getOsGadget(db, {
+			organizationId,
+			gadgetId: link.resourceId,
+		});
+		return gadget?.name ?? null;
+	}
+	const workspace = await getOsWorkspace(db, {
+		organizationId,
+		workspaceId: link.resourceId,
+	});
+	return workspace?.name ?? null;
 }
 
 /** Wire shape for one share link. The token hash never leaves the store. */
 function mapShareLink(
 	row: OsShareLinkRow,
-	urlFor: (publicId: string) => string,
+	urlFor: (publicId: string, slug?: string) => string,
+	title?: string | null,
 ): OsShareLink {
 	// Every row has a permanent id after the backfill migration; the create
 	// path always sets one.
@@ -97,7 +128,7 @@ function mapShareLink(
 	return {
 		id: row.id,
 		publicId,
-		url: urlFor(publicId),
+		url: urlFor(publicId, osShareTitleSlug(title)),
 		organizationId: row.organizationId,
 		resourceType: row.resourceType,
 		resourceId: row.resourceId,
@@ -114,6 +145,7 @@ function mapShareLink(
 		createdAt: row.createdAt,
 		expiresAt: row.expiresAt,
 		revokedAt: row.revokedAt,
+		disabledAt: row.disabledAt,
 	};
 }
 
@@ -416,7 +448,8 @@ const sharesCreate = authorOs.shares.create.handler(
 			revokedAt: null,
 		});
 		// The plaintext token exists only in this response — never again.
-		return { share: mapShareLink(row, urlFor), token };
+		const title = "title" in resource ? resource.title : resource.name;
+		return { share: mapShareLink(row, urlFor, title), token };
 	},
 );
 
@@ -433,7 +466,8 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 		resourceId: resource.id,
 	});
 	const urlFor = await shareUrlFor(context);
-	const items = rows.map((row) => mapShareLink(row, urlFor));
+	const title = "title" in resource ? resource.title : resource.name;
+	const items = rows.map((row) => mapShareLink(row, urlFor, title));
 	if (
 		input.resourceType !== "gadget" ||
 		!("currentRevisionId" in resource) ||
@@ -462,7 +496,11 @@ const sharesPreviewRevoke = readOs.shares.previewRevoke.handler(
 		if (!row)
 			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
 		return {
-			share: mapShareLink(row, await shareUrlFor(context)),
+			share: mapShareLink(
+				row,
+				await shareUrlFor(context),
+				await shareLinkTitle(context, row),
+			),
 			activeSessionCount: await countActiveOsShareSessions(
 				db,
 				row.id,
@@ -490,8 +528,56 @@ const sharesRevoke = authorOs.shares.revoke.handler(
 		}
 		await cutShareLinkAppSessions(context, db, row);
 		return {
-			share: mapShareLink(row, await shareUrlFor(context)),
+			share: mapShareLink(
+				row,
+				await shareUrlFor(context),
+				await shareLinkTitle(context, row),
+			),
 			revokedSessionCount,
+		};
+	},
+);
+
+/**
+ * Turn a link off and back on, keeping the same address. Off revokes live
+ * sessions but stays reversible; back on revives the same public id, so
+ * bookmarks and copied addresses never change.
+ */
+const sharesSetDisabled = authorOs.shares.setDisabled.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const db = queryDb(context);
+		const current = await getScopedOsShareLink(db, {
+			organizationId,
+			shareLinkId: input.shareId,
+		});
+		if (!current)
+			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		if (current.revokedAt)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"This link was deleted. Make a new link instead.",
+			);
+		const disabledAt = input.disabled
+			? (current.disabledAt ?? new Date().toISOString())
+			: null;
+		const result = await updateOsShareLinkSettings(db, {
+			organizationId,
+			shareLinkId: current.id,
+			set: { disabledAt },
+			endSessions: input.disabled && current.disabledAt === null,
+		});
+		if (!result)
+			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		if (input.disabled)
+			await cutShareLinkAppSessions(context, db, result.share);
+		return {
+			share: mapShareLink(
+				result.share,
+				await shareUrlFor(context),
+				await shareLinkTitle(context, result.share),
+			),
+			revokedSessionCount: result.revokedSessionCount,
 		};
 	},
 );
@@ -515,7 +601,7 @@ const sharesUpdate = adminOs.shares.update.handler(
 		if (current.revokedAt)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"This link is turned off. Make a new link instead.",
+				"This link was deleted. Make a new link instead.",
 			);
 		const role = input.role ?? current.role;
 		if ((current.resourceType === "output") !== (role === "viewer"))
@@ -557,11 +643,15 @@ const sharesUpdate = adminOs.shares.update.handler(
 		if (!result)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				"This link is turned off. Make a new link instead.",
+				"This link was deleted. Make a new link instead.",
 			);
 		if (endSessions) await cutShareLinkAppSessions(context, db, result.share);
 		return {
-			share: mapShareLink(result.share, await shareUrlFor(context)),
+			share: mapShareLink(
+				result.share,
+				await shareUrlFor(context),
+				await shareLinkTitle(context, result.share),
+			),
 			revokedSessionCount: result.revokedSessionCount,
 		};
 	},
@@ -603,7 +693,11 @@ const sharesRestrict = authorOs.shares.restrict.handler(
 		}
 		await cutShareLinkAppSessions(context, db, result.share);
 		return {
-			share: mapShareLink(result.share, await shareUrlFor(context)),
+			share: mapShareLink(
+				result.share,
+				await shareUrlFor(context),
+				await shareLinkTitle(context, result.share),
+			),
 			revokedSessionCount: result.revokedSessionCount,
 		};
 	},
@@ -642,11 +736,14 @@ const sharesDelete = adminOs.shares.delete.handler(
 		});
 		if (!row)
 			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		// Delete is the permanent counterpart to turning a link off: stamp the
+		// terminal revocation and cut sessions before removing the row.
 		if (!row.revokedAt) {
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Revoke the share link before permanently deleting it",
-			);
+			const revoked = await revokeOsShareLink(db, {
+				organizationId,
+				shareLinkId: row.id,
+			});
+			if (revoked) await cutShareLinkAppSessions(context, db, revoked);
 		}
 		const removed = await deleteOsShareLink(db, {
 			organizationId,
@@ -681,7 +778,7 @@ async function requireActiveShareLink(context: BaseContext, shareId: string) {
 	if (row.revokedAt)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			"This link is turned off. Make a new link instead.",
+			"This link was deleted. Make a new link instead.",
 		);
 	return row;
 }
@@ -723,13 +820,11 @@ const inviteesAdd = adminOs.shares.invitees.add.handler(
 const inviteesRemove = adminOs.shares.invitees.remove.handler(
 	async ({ input, context }) => {
 		const link = await requireActiveShareLink(context, input.shareId);
-		const db = queryDb(context);
-		const removed = await removeOsShareLinkInvitee(db, {
+		const removed = await removeOsShareLinkInvitee(queryDb(context), {
 			organizationId: link.organizationId,
 			shareLinkId: link.id,
 			inviteeId: input.inviteeId,
 		});
-		if (removed) await cutShareLinkAppSessions(context, db, link);
 		return { removed };
 	},
 );
@@ -742,6 +837,7 @@ export const osSharesContractRouter = osSharesOs.router({
 		update: sharesUpdate,
 		previewRevoke: sharesPreviewRevoke,
 		revoke: sharesRevoke,
+		setDisabled: sharesSetDisabled,
 		restrict: sharesRestrict,
 		delete: sharesDelete,
 		invitees: {

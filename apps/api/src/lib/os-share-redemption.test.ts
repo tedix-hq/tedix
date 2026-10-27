@@ -1,4 +1,8 @@
 import { organizations } from "@tedix/db/schema/organizations";
+import { apiKeys } from "@tedix/db/schema/api-keys";
+import { externalAgentPrincipals } from "@tedix/db/schema/external-agent-identity";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { tedis } from "@tedix/db/schema/tedis";
 import { eq } from "drizzle-orm";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -39,7 +43,6 @@ import {
 	generateOsSharePublicId,
 	generateOsShareToken,
 	handleOsShareOpen,
-	handleOsSharePreview,
 	handleOsShareRedemption,
 	handleOsShareSessionRead,
 	hashOsShareToken,
@@ -53,6 +56,10 @@ function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			organizations,
+			organizationMembers,
+			tedis,
+			externalAgentPrincipals,
+			apiKeys,
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaces,
@@ -67,6 +74,9 @@ function fixture() {
 	sqlite.exec(
 		"INSERT INTO organizations (id, name, slug, logo_url, descope_tenant_id) VALUES ('org-1', 'Example', 'example', 'https://images.example.test/org.png', 'tenant-1'), ('org-2', 'Other', 'other', NULL, 'tenant-2');",
 	);
+	sqlite.exec(
+		"INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status, kind) VALUES ('m-1', 'org-1', 'user-1', 'maya@example.test', 'Maya Chen', 'admin', 'active', 'human');",
+	);
 	return createDbQueryClient(createD1Facade(sqlite));
 }
 
@@ -79,6 +89,7 @@ async function openById(
 		host?: string | null;
 		authorize?: Parameters<typeof handleOsShareOpen>[3];
 		identify?: Parameters<typeof handleOsShareOpen>[4];
+		mayManage?: Parameters<typeof handleOsShareOpen>[5];
 		id?: string;
 	} = {},
 ) {
@@ -88,6 +99,7 @@ async function openById(
 		options.host === undefined ? HOST : options.host,
 		options.authorize,
 		options.identify,
+		options.mayManage,
 	);
 }
 
@@ -151,6 +163,7 @@ async function seedShare(
 		role: "viewer",
 		expiresAt: overrides.expiresAt ?? null,
 		revokedAt: overrides.revokedAt ?? null,
+		disabledAt: overrides.disabledAt ?? null,
 		...overrides,
 	});
 	return token;
@@ -233,12 +246,51 @@ describe("handleOsShareOpen", () => {
 			needsSignIn: false,
 			access: "anyone_with_link",
 			organization: { name: "Example" },
-			share: { publicId: PUBLIC_ID, access: "anyone_with_link" },
+			share: {
+				publicId: PUBLIC_ID,
+				access: "anyone_with_link",
+				sharedByName: "Maya Chen",
+				slug: "launch-brief",
+			},
 			resource: { type: "output" },
+			canManage: false,
 		});
 		expect((await handleOsShareSessionRead(db, body.sessionToken)).status).toBe(
 			200,
 		);
+	});
+
+	it("names the caller a manager only when the may-manage check says so", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		await seedShare(db);
+		const guest = (await (await openById(db)).json()) as {
+			canManage: boolean;
+		};
+		expect(guest.canManage).toBe(false);
+		const manager = (await (
+			await openById(db, {
+				authorize: async () => true,
+				mayManage: async () => true,
+			})
+		).json()) as { canManage: boolean };
+		expect(manager.canManage).toBe(true);
+	});
+
+	it("refuses a turned-off link identically to a revoked one, then revives on clear", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		const token = await seedShare(db, {
+			disabledAt: "2026-08-14T11:00:00.000Z",
+		});
+		expect((await openById(db)).status).toBe(404);
+		expect((await handleOsShareRedemption(db, token)).status).toBe(404);
+		await db
+			.update(osShareLinks)
+			.set({ disabledAt: null })
+			.where(eq(osShareLinks.publicId, PUBLIC_ID));
+		expect((await openById(db)).status).toBe(200);
+		expect((await handleOsShareRedemption(db, token)).status).toBe(200);
 	});
 
 	it("resolves only on the link's own organization host", async () => {
@@ -423,115 +475,6 @@ describe("handleOsShareOpen", () => {
 		expect(
 			(await handleOsShareRedemption(org, orgToken, allowRecipient)).status,
 		).toBe(200);
-	});
-});
-
-describe("handleOsSharePreview", () => {
-	const GENERIC = { kind: "generic" };
-	async function preview(
-		db: ReturnType<typeof fixture>,
-		options: { id?: string; host?: string | null } = {},
-	) {
-		const response = await handleOsSharePreview(
-			db,
-			options.id ?? PUBLIC_ID,
-			options.host === undefined ? HOST : options.host,
-		);
-		expect(response.status).toBe(200);
-		expect(response.headers.get("cache-control")).toBe("private, no-store");
-		expect(response.headers.get("x-robots-tag")).toBe("noindex");
-		return response.json();
-	}
-
-	it("names a link anyone may open, and opens no session", async () => {
-		const db = fixture();
-		await seedOutput(db);
-		await seedShare(db);
-		expect(await preview(db)).toEqual({
-			kind: "content",
-			title: "Launch brief",
-			description: null,
-			resourceType: "output",
-			organizationName: "Example",
-		});
-		expect(await db.select().from(osShareSessions)).toHaveLength(0);
-	});
-
-	it("names an app that runs for guests, and keeps other apps generic", async () => {
-		const db = fixture();
-		await seedGadget(db);
-		await seedShare(db, {
-			resourceType: "gadget",
-			resourceId: "gadget-1",
-			role: "use",
-		});
-		// An app that is not a runtime app needs a member to open it.
-		expect(await preview(db)).toEqual(GENERIC);
-		const runtime = await createOsGadgetRevision(db, {
-			id: "gadget-rev-2",
-			organizationId: "org-1",
-			gadgetId: "gadget-1",
-			manifest: JSON.stringify({ entry: "tedix:runtime/v1" }),
-			createdByKind: "user",
-			createdById: "user-1",
-		});
-		expect(runtime.ok).toBe(true);
-		expect(await preview(db)).toEqual({
-			kind: "content",
-			title: "Launch dashboard",
-			description: "Metrics",
-			resourceType: "gadget",
-			organizationName: "Example",
-		});
-	});
-
-	it("keeps organization and invited links generic", async () => {
-		for (const access of ["organization", "invited"] as const) {
-			const db = fixture();
-			await seedOutput(db);
-			await seedShare(db, { access });
-			expect(await preview(db)).toEqual(GENERIC);
-		}
-	});
-
-	it("keeps protected files generic: their content needs a checked recipient", async () => {
-		const db = fixture();
-		await seedOutput(
-			db,
-			JSON.stringify({
-				version: 1,
-				sources: [
-					{
-						workspaceResourceId: "00000000-0000-4000-8000-000000000001",
-						workspaceId: "00000000-0000-4000-8000-000000000002",
-						providerId: "github",
-						resourceType: "repository",
-						providerResourceId: "tedix-hq/tedix",
-						connectionScope: "tenant",
-						requiredScopes: ["repo:read"],
-						operations: ["read"],
-					},
-				],
-			}),
-		);
-		await seedShare(db);
-		expect(await preview(db)).toEqual(GENERIC);
-	});
-
-	it("answers unknown, revoked and other-host ids with the same generic preview", async () => {
-		const db = fixture();
-		await seedOutput(db);
-		await seedShare(db);
-		expect(await preview(db, { host: "tenant-2" })).toEqual(GENERIC);
-		expect(await preview(db, { host: null })).toEqual(GENERIC);
-		expect(await preview(db, { id: "nope" })).toEqual(GENERIC);
-		expect(await preview(db, { id: "0000000000000000000000" })).toEqual(
-			GENERIC,
-		);
-		const revoked = fixture();
-		await seedOutput(revoked);
-		await seedShare(revoked, { revokedAt: "2026-08-14T11:00:00.000Z" });
-		expect(await preview(revoked)).toEqual(GENERIC);
 	});
 });
 

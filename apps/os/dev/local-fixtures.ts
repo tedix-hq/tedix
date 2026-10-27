@@ -20,6 +20,7 @@ import type { OsAppDraftContent } from "@tedix/api-contract/schemas/os-workspace
 import type { OrganizationDomainSchema } from "@tedix/api-contract/schemas/organization-domains";
 import type * as z from "zod";
 import { documentBlockText } from "@tedix/api-contract/utils/os-document";
+import { osShareTitleSlug } from "@tedix/api-contract/utils/share-slug";
 import { LOCAL_OUTBOUND } from "./outbound-fixture";
 import { decisionGraphFixture } from "./decision-graph-fixture";
 import { applyDemoPack, demoPackIsStale } from "./demo-pack";
@@ -5078,6 +5079,26 @@ function findLocalShareLink(shareId: string): OsShareLink {
 	throw new RpcError("NOT_FOUND", "Share link not found");
 }
 
+/** The shared resource's title or name, for the readable address suffix. */
+function localShareTitle(input: {
+	resourceType: OsShareLink["resourceType"];
+	resourceId: string;
+}): string | null {
+	if (input.resourceType === "output") {
+		return (
+			state.outputs.find((row) => row.id === input.resourceId)?.title ?? null
+		);
+	}
+	if (input.resourceType === "gadget") {
+		return (
+			state.gadgets.find((row) => row.id === input.resourceId)?.name ?? null
+		);
+	}
+	return (
+		state.workspaces.find((row) => row.id === input.resourceId)?.name ?? null
+	);
+}
+
 /** Who each `invited` link admits, by share id. */
 const localShareInvitees = new Map<string, OsShareInvitee[]>();
 
@@ -8060,10 +8081,11 @@ const handlers: Record<string, (input: never) => unknown> = {
 		expiresAt?: string;
 	}) => {
 		const publicId = crypto.randomUUID().replaceAll("-", "").slice(0, 22);
+		const slug = osShareTitleSlug(localShareTitle(input));
 		const share: OsShareLink = {
 			id: crypto.randomUUID(),
 			publicId,
-			url: `${globalThis.location?.origin ?? "http://localhost:5173"}/s/${publicId}`,
+			url: `${globalThis.location?.origin ?? "http://localhost:5173"}/s/${publicId}${slug ? `/${slug}` : ""}`,
 			organizationId: ORG_ID,
 			resourceType: input.resourceType,
 			resourceId: input.resourceId,
@@ -8080,6 +8102,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			createdAt: now(),
 			expiresAt: input.expiresAt ?? null,
 			revokedAt: null,
+			disabledAt: null,
 		};
 		const key = `${input.resourceType}:${input.resourceId}`;
 		localShareLinks.set(key, [share, ...(localShareLinks.get(key) ?? [])]);
@@ -8150,6 +8173,28 @@ const handlers: Record<string, (input: never) => unknown> = {
 		const share = findLocalShareLink(input.shareId);
 		share.revokedAt ??= now();
 		return { share, revokedSessionCount: 0 };
+	},
+	"osShares/shares/setDisabled": (input: {
+		shareId: string;
+		disabled: boolean;
+	}) => {
+		const share = findLocalShareLink(input.shareId);
+		if (share.revokedAt)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"This link was deleted. Make a new link instead.",
+			);
+		share.disabledAt = input.disabled ? (share.disabledAt ?? now()) : null;
+		return { share, revokedSessionCount: 0 };
+	},
+	"osShares/shares/delete": (input: { shareId: string }) => {
+		const share = findLocalShareLink(input.shareId);
+		share.revokedAt ??= now();
+		for (const [key, links] of localShareLinks) {
+			const kept = links.filter((link) => link.id !== share.id);
+			if (kept.length !== links.length) localShareLinks.set(key, kept);
+		}
+		return { deleted: true };
 	},
 	"osWorkspaces/workspaces/update": (input: {
 		workspaceId: string;
@@ -10816,6 +10861,7 @@ export function handleLocalGuestShare(
 	const app = localGuestApp();
 	const share = {
 		organization: { name: "PricePilot", logoUrl: null },
+		canManage: true,
 		share: {
 			id: "00000039-0000-4000-8000-000000000001",
 			publicId: LOCAL_GUEST_SHARE_PUBLIC_ID,
@@ -10826,6 +10872,9 @@ export function handleLocalGuestShare(
 			revisionMode: "living",
 			note: null,
 			expiresAt: null,
+			createdAt: T0,
+			sharedByName: "Maya Chen",
+			slug: app ? osShareTitleSlug(app.gadget.name) : "",
 			policyReason: null,
 		},
 		resource: app

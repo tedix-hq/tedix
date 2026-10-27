@@ -11,8 +11,8 @@ import { startFixtureServer } from "./fixture-server";
 // - an old `/guest#token=` link moves to its `/s/<id>` address;
 // - an unknown id says so and shows nothing;
 // - the Share dialog shows the permanent address with Copy, offers the three
-//   audiences as plain buttons with one explaining line, changes access in
-//   place, adds and removes invited people, and turns the link off.
+//   audiences, changes access in place, adds and removes invited people, and
+//   turns the link off.
 const PUBLIC_ID = "PricePilotOpportunity1";
 const token = "share-link-token-0123456789abcdefghij";
 const evidence =
@@ -65,7 +65,18 @@ try {
 			// The permanent address opens the app for someone with no account.
 			await page.goto(`${server.origin}/s/${PUBLIC_ID}`);
 			await openGuestApp(page, `${label} /s`);
-			assert.equal(new URL(page.url()).pathname, `/s/${PUBLIC_ID}`);
+			assert.match(
+				new URL(page.url()).pathname,
+				new RegExp(`^/s/${PUBLIC_ID}(/[a-z0-9-]+)?$`),
+				`${label}: the page keeps its permanent address`,
+			);
+			// The guest bar names who shared it and offers managers Share.
+			assert(
+				(await page.locator("[data-shared-by]").textContent())?.includes(
+					"Shared by",
+				),
+				`${label}: the page names who shared it`,
+			);
 			assert.equal(
 				await page.locator("html").getAttribute("data-mode"),
 				theme,
@@ -96,9 +107,9 @@ try {
 				.waitFor();
 			if (await old.getByRole("textbox", { name: "Your name" }).count())
 				await openGuestApp(old, `${label} old`);
-			assert.equal(
+			assert.match(
 				new URL(old.url()).pathname,
-				`/s/${PUBLIC_ID}`,
+				new RegExp(`^/s/${PUBLIC_ID}(/[a-z0-9-]+)?$`),
 				`${label}: an old link shows its permanent address`,
 			);
 			assert.equal(new URL(old.url()).hash, "");
@@ -135,35 +146,25 @@ try {
 			const url = (await address.textContent()) ?? "";
 			assert.match(
 				url,
-				/^https?:\/\/[^/]+\/s\/[A-Za-z0-9]{22}$/,
-				`${label}: the dialog shows the permanent address`,
+				/^https?:\/\/[^/]+\/s\/[A-Za-z0-9]{22}\/[a-z0-9-]+$/,
+				`${label}: the dialog shows the readable permanent address`,
 			);
 			await current.getByRole("button", { name: "Copy link" }).waitFor();
 
-			// Who can open it: plain buttons, the choice applies at once, and
-			// one line says what it means.
-			const access = dialog.getByRole("radiogroup", {
-				name: "Who can open it",
-			});
-			const options = (await access.getByRole("radio").allTextContents()).map(
+			const access = dialog.getByRole("combobox", { name: "Who can open it" });
+			await access.click();
+			await page.getByRole("option").nth(2).waitFor();
+			const options = (await page.getByRole("option").allTextContents()).map(
 				(option) => option.trim(),
 			);
 			assert.equal(options.length, 3, `${label}: three audiences`);
 			assert.equal(options[0], "Anyone with the link");
 			assert.match(options[1] ?? "", /^People in \S/);
 			assert.equal(options[2], "Only people you invite");
-			const explainer = dialog.locator("[data-share-explainer]");
-			assert.match(
-				(await explainer.textContent()) ?? "",
-				/without signing in/,
-				`${label}: one line explains an open link`,
-			);
-			await access
-				.getByRole("radio", { name: "Only people you invite" })
+			await page
+				.getByRole("option", { name: "Only people you invite" })
 				.click();
-			await access
-				.getByRole("radio", { name: "Only people you invite", checked: true })
-				.waitFor();
+			await dialog.getByRole("button", { name: "Change access" }).click();
 			const invitees = dialog.locator("[data-share-invitees]");
 			await invitees.waitFor();
 			assert.equal(
@@ -176,11 +177,6 @@ try {
 				.fill("kai@example.test");
 			await invitees.getByRole("button", { name: "Add", exact: true }).click();
 			await invitees.getByText("kai@example.test").waitFor();
-			assert.match(
-				(await explainer.textContent()) ?? "",
-				/Only the people you add/,
-				`${label}: the line follows the choice`,
-			);
 			await fits(page, `${label} dialog`);
 			await page.screenshot({
 				path: `${evidence}/${width}-${theme}-dialog.png`,
@@ -198,8 +194,42 @@ try {
 				path: `${evidence}/${width}-${theme}-turn-off.png`,
 			});
 			await confirm.getByRole("button", { name: "Turn off link" }).click();
+			// Off keeps the same address, struck through, with Copy disabled.
+			await current
+				.getByRole("button", { name: "Turn link back on" })
+				.waitFor();
+			assert.equal(
+				await address.textContent(),
+				url,
+				`${label}: turning the link off keeps its address`,
+			);
+			assert(
+				await current.getByRole("button", { name: "Copy link" }).isDisabled(),
+				`${label}: Copy is disabled while the link is off`,
+			);
+			await page.screenshot({
+				path: `${evidence}/${width}-${theme}-off.png`,
+			});
+			// Back on revives the same address — no new id.
+			await current.getByRole("button", { name: "Turn link back on" }).click();
+			await current.getByRole("button", { name: "Copy link" }).waitFor();
+			assert.equal(
+				await address.textContent(),
+				url,
+				`${label}: turning the link back on revives the same address`,
+			);
+			// Delete link is the permanent one: the address is gone for good.
+			await dialog.getByRole("button", { name: "Link options" }).click();
+			await page.getByRole("menuitem", { name: "Delete link" }).click();
+			const remove = dialog.locator("[data-share-delete]");
+			await remove.waitFor();
+			await remove.getByRole("button", { name: "Delete link" }).click();
 			await create.waitFor();
-			assert.equal(await current.count(), 0, `${label}: the link is off`);
+			assert.equal(
+				await current.count(),
+				0,
+				`${label}: deleting the link removes the address`,
+			);
 			await fits(page, `${label} after turn off`);
 			await context.close();
 		}

@@ -34,9 +34,11 @@ import {
 } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { SharedReviewBatch } from "./shared-review-batch";
+import { ShareControls } from "@/components/share-controls";
 import { WidgetFrame } from "@/components/widget-frame";
 import { OutputContentView } from "@/components/output-content";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
+import { absoluteTime } from "@/lib/time";
 import { adoptShareLinkAddress } from "@/lib/share-link-session";
 
 type SharedGadget = {
@@ -63,8 +65,15 @@ export type SharePayload = {
 		revisionMode: "living" | "pinned";
 		note: string | null;
 		expiresAt: string | null;
+		createdAt?: string;
+		/** Who made the link, for the "Shared by <name> · <date>" line. */
+		sharedByName?: string | null;
+		/** The readable suffix of the link's address. */
+		slug?: string;
 		policyReason: string | null;
 	};
+	/** True when the visitor may manage this link, so the page offers Share. */
+	canManage?: boolean;
 	resource:
 		| {
 				type: "gadget";
@@ -180,20 +189,21 @@ const ROLE_LABEL: Record<OsShareRole, string> = {
 	build: "Can edit",
 };
 
-/**
- * Before permanent addresses, one tab kept one share session here. A link's
- * session now lives under its own id (`tedix.os.share.<id>`, see
- * share-link-session.ts); the original share secret never enters storage.
- */
-const LEGACY_SHARE_SESSION_KEY = "tedix.os.share.session.v1";
-/** Read and drop a session an older page kept for this tab, if any. */
-function takeLegacyShareSession(): string | null {
+// Per-tab resume capability only. The original share secret never enters storage.
+const SHARE_SESSION_KEY = "tedix.os.share.session.v1";
+function storedShareSession(): string | null {
 	try {
-		const token = window.sessionStorage.getItem(LEGACY_SHARE_SESSION_KEY);
-		window.sessionStorage.removeItem(LEGACY_SHARE_SESSION_KEY);
-		return token;
+		return window.sessionStorage.getItem(SHARE_SESSION_KEY);
 	} catch {
 		return null;
+	}
+}
+function storeShareSession(token: string | null): void {
+	try {
+		if (token) window.sessionStorage.setItem(SHARE_SESSION_KEY, token);
+		else window.sessionStorage.removeItem(SHARE_SESSION_KEY);
+	} catch {
+		/* Blocked storage still permits this in-memory session. */
 	}
 }
 
@@ -222,8 +232,10 @@ export function SharedResourcePage() {
 			);
 			// A new link replaces any previous tab session; it never falls back on failure.
 			const pending = token ? null : pendingOpening.current;
-			const legacyToken = takeLegacyShareSession();
-			const resumeToken = token ? null : (pending?.resumeToken ?? legacyToken);
+			const resumeToken = token
+				? null
+				: (pending?.resumeToken ?? storedShareSession());
+			if (token) storeShareSession(null);
 			if (!token && !resumeToken && !pending) {
 				setState({ status: "unavailable" });
 				return;
@@ -237,6 +249,7 @@ export function SharedResourcePage() {
 			const fail = () => {
 				if (!alive) return;
 				pendingOpening.current = null;
+				storeShareSession(null);
 				setState({ status: "unavailable" });
 				stopCurrent();
 			};
@@ -262,13 +275,17 @@ export function SharedResourcePage() {
 						return;
 					}
 					// Storage is never authority: redemption/resume must succeed on the server.
-					// An old link, or a session an older page kept, moves to the
-					// link's permanent address and its own session key; the router
-					// then shows that page, which resumes this session.
-					if (payload.share.publicId) {
-						adoptShareLinkAddress(payload.share.publicId, sessionToken);
+					// An old link moves to its permanent address; the router then
+					// shows that page, which resumes this session.
+					if (opening.redeeming && payload.share.publicId) {
+						adoptShareLinkAddress(
+							payload.share.publicId,
+							sessionToken,
+							payload.share.slug,
+						);
 						return;
 					}
+					storeShareSession(sessionToken);
 					setState({ status: "ready", payload, sessionToken });
 					timer = window.setInterval(() => {
 						shareRequest("/api/os-shared/session", { sessionToken }).then(
@@ -356,15 +373,62 @@ export function SharedResourceView({
 			))}
 		</section>
 	);
+	const sharedBy = payload.share.sharedByName ?? "someone";
+	const shareResource =
+		resource.type === "output"
+			? {
+					outputId: resource.output.id,
+					currentRevisionId: resource.revision.id,
+				}
+			: resource.type === "gadget"
+				? {
+						resourceType: "gadget" as const,
+						resourceId: resource.gadget.id,
+						currentRevisionId: resource.revision.id,
+					}
+				: {
+						resourceType: "workspace" as const,
+						resourceId: resource.workspace.id,
+					};
 	return (
 		// Desktop is a full-height app whose panes scroll on their own; on small
-		// screens the page scrolls normally.
-		<main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-3 py-3 sm:px-6 sm:py-4 lg:h-dvh lg:overflow-hidden">
-			<header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
-				<OrganizationMark
-					name={payload.organization?.name ?? "Tedix"}
-					logoUrl={payload.organization?.logoUrl}
-				/>
+		// screens the page scrolls normally. The content is full width below the
+		// header, like a shared artifact.
+		<main className="flex min-h-dvh w-full flex-col gap-3 px-3 py-3 sm:px-6 sm:py-4 lg:h-dvh lg:overflow-hidden">
+			<header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-kumo-line border-b pb-3">
+				<div className="flex min-w-0 flex-1 items-center gap-2">
+					<OrganizationMark
+						name={payload.organization?.name ?? "Tedix"}
+						logoUrl={payload.organization?.logoUrl}
+						size="sm"
+					/>
+					<Text
+						as="span"
+						role="label"
+						tone="strong"
+						className="m-0 truncate"
+						data-share-owner
+					>
+						{resource.type === "workspace"
+							? resource.workspace.name
+							: (payload.organization?.name ?? "Tedix")}
+					</Text>
+				</div>
+				<Text
+					as="p"
+					role="label"
+					tone="secondary"
+					className="m-0 shrink-0"
+					data-shared-by
+				>
+					Shared by {sharedBy}
+					{payload.share.createdAt
+						? ` · ${absoluteTime(payload.share.createdAt)}`
+						: ""}
+				</Text>
+				{payload.canManage ? <ShareControls {...shareResource} /> : null}
+			</header>
+			<div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
 				<section className="min-w-[12rem] flex-1">
 					<Text as="h1" role="title" className="m-0 truncate">
 						{title}
@@ -394,7 +458,7 @@ export function SharedResourceView({
 						</PopoverDescription>
 					</PopoverContent>
 				</Popover>
-			</header>
+			</div>
 			{payload.share.note && (
 				<p className="m-0 shrink-0 text-sm text-kumo-subtle">
 					{payload.share.note}

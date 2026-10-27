@@ -1,6 +1,10 @@
 import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { apiKeys } from "../schema/api-keys";
+import { externalAgentPrincipals } from "../schema/external-agent-identity";
+import { organizationMembers } from "../schema/organization-members";
 import { osWorkspaceCollaborators } from "../schema/os-collaborators";
+import { tedis } from "../schema/tedis";
 import {
 	type NewOsShareLinkInviteeRow,
 	type NewOsShareLinkRow,
@@ -171,7 +175,10 @@ export async function updateOsShareLinkSettings(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams & {
 		set: Partial<
-			Pick<OsShareLinkRow, "role" | "access" | "note" | "expiresAt">
+			Pick<
+				OsShareLinkRow,
+				"role" | "access" | "note" | "expiresAt" | "disabledAt"
+			>
 		>;
 		endSessions: boolean;
 		now?: string;
@@ -328,6 +335,7 @@ export async function createOsShareSession(
 					and(
 						eq(osShareLinks.id, params.linkId),
 						isNull(osShareLinks.revokedAt),
+						isNull(osShareLinks.disabledAt),
 						sql`(${osShareLinks.expiresAt} is null or ${osShareLinks.expiresAt} > ${params.now})`,
 						sql`${SHARE_ROLE_RANK[params.expectedEffectiveRole]} = ${effectiveShareRoleRankSql()}`,
 					),
@@ -424,38 +432,20 @@ export async function addOsShareLinkInvitee(
 	return row;
 }
 
-/**
- * Remove an invitee and, in the same batch, end every live session on the
- * link. A session does not record who opened it, and a guest's app calls do
- * not re-check the list, so ending them all is what stops the removed person;
- * everyone still invited reopens the link.
- */
 export async function removeOsShareLinkInvitee(
 	db: DbQueryClient,
-	params: OsShareLinkScopeParams & { inviteeId: string; now?: string },
+	params: OsShareLinkScopeParams & { inviteeId: string },
 ): Promise<boolean> {
-	const now = params.now ?? new Date().toISOString();
-	const invitee = and(
-		eq(osShareLinkInvitees.organizationId, params.organizationId),
-		eq(osShareLinkInvitees.shareLinkId, params.shareLinkId),
-		eq(osShareLinkInvitees.id, params.inviteeId),
-	);
-	const endSessions = db
-		.update(osShareSessions)
-		.set({ revokedAt: sql`coalesce(${osShareSessions.revokedAt}, ${now})` })
+	const result = await db
+		.delete(osShareLinkInvitees)
 		.where(
 			and(
-				eq(osShareSessions.shareLinkId, params.shareLinkId),
-				isNull(osShareSessions.revokedAt),
-				sql`exists (select 1 from ${osShareLinkInvitees} where ${invitee})`,
+				eq(osShareLinkInvitees.organizationId, params.organizationId),
+				eq(osShareLinkInvitees.shareLinkId, params.shareLinkId),
+				eq(osShareLinkInvitees.id, params.inviteeId),
 			),
 		);
-	const removeInvitee = db
-		.delete(osShareLinkInvitees)
-		.where(invitee)
-		.returning({ id: osShareLinkInvitees.id });
-	const [, removed] = await db.batch([endSessions, removeInvitee]);
-	return removed.length > 0;
+	return getAffectedRows(result) > 0;
 }
 
 /**
@@ -499,6 +489,75 @@ export async function isOsShareLinkInvitee(
 		.limit(1);
 	const [invitees, collaborators] = await db.batch([invitee, collaborator]);
 	return invitees.length > 0 || collaborators.length > 0;
+}
+
+/**
+ * The display name of whoever made a link, for the shared page's
+ * "Shared by <name>" line: a person's membership name, a tedi's display name,
+ * an external agent's principal name or an API key's name — org-scoped, and
+ * null when the principal can no longer be named.
+ */
+export async function getOsShareCreatorName(
+	db: DbQueryClient,
+	link: Pick<
+		OsShareLinkRow,
+		"organizationId" | "createdByKind" | "createdById"
+	>,
+): Promise<string | null> {
+	const scope = { organizationId: link.organizationId, id: link.createdById };
+	if (link.createdByKind === "user") {
+		const [row] = await db
+			.select({
+				name: organizationMembers.name,
+				email: organizationMembers.email,
+			})
+			.from(organizationMembers)
+			.where(
+				and(
+					eq(organizationMembers.organizationId, scope.organizationId),
+					eq(organizationMembers.descopeUserId, scope.id),
+				),
+			)
+			.limit(1);
+		return row?.name ?? row?.email ?? null;
+	}
+	if (link.createdByKind === "tedi") {
+		const [row] = await db
+			.select({ displayName: tedis.displayName, name: tedis.name })
+			.from(tedis)
+			.where(
+				and(
+					eq(tedis.organizationId, scope.organizationId),
+					eq(tedis.id, scope.id),
+				),
+			)
+			.limit(1);
+		return row?.displayName ?? row?.name ?? null;
+	}
+	if (link.createdByKind === "external_agent") {
+		const [row] = await db
+			.select({ displayName: externalAgentPrincipals.displayName })
+			.from(externalAgentPrincipals)
+			.where(
+				and(
+					eq(externalAgentPrincipals.organizationId, scope.organizationId),
+					eq(externalAgentPrincipals.id, scope.id),
+				),
+			)
+			.limit(1);
+		return row?.displayName ?? null;
+	}
+	const [row] = await db
+		.select({ name: apiKeys.name })
+		.from(apiKeys)
+		.where(
+			and(
+				eq(apiKeys.organizationId, scope.organizationId),
+				eq(apiKeys.id, scope.id),
+			),
+		)
+		.limit(1);
+	return row?.name ?? null;
 }
 
 /** Count live sessions for revocation-impact preview. */

@@ -527,6 +527,13 @@ const CALLS = {
 	"osShares/shares/revoke": {
 		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 	},
+	"osShares/shares/setDisabled": {
+		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+		disabled: true,
+	},
+	"osShares/shares/delete": {
+		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+	},
 	"osShares/shares/update": {
 		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 		access: "invited",
@@ -975,6 +982,8 @@ describe("local fixtures parse through the contract output schemas", () => {
 			const shareInput =
 				key === "osShares/shares/previewRevoke" ||
 				key === "osShares/shares/revoke" ||
+				key === "osShares/shares/setDisabled" ||
+				key === "osShares/shares/delete" ||
 				key === "osShares/shares/update" ||
 				key.startsWith("osShares/shares/invitees/")
 					? {

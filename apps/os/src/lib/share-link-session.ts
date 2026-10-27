@@ -12,8 +12,9 @@ export function isShareLinkId(value: string): boolean {
 	return OS_SHARE_PUBLIC_ID_PATTERN.test(value);
 }
 
-export function shareLinkPath(id: string): string {
-	return `/s/${encodeURIComponent(id)}`;
+export function shareLinkPath(id: string, slug?: string): string {
+	const suffix = slug ? `/${encodeURIComponent(slug)}` : "";
+	return `/s/${encodeURIComponent(id)}${suffix}`;
 }
 
 function key(id: string): string {
@@ -41,7 +42,11 @@ export function storeShareLinkSession(id: string, token: string | null): void {
  * An old `#token=` link was redeemed: keep its session under the link id and
  * show the permanent address, so a bookmark or reload opens the same link.
  */
-export function adoptShareLinkAddress(id: string, sessionToken: string): void {
+export function adoptShareLinkAddress(
+	id: string,
+	sessionToken: string,
+	slug?: string,
+): void {
 	storeShareLinkSession(id, sessionToken);
-	window.history.replaceState(null, "", shareLinkPath(id));
+	window.history.replaceState(null, "", shareLinkPath(id, slug));
 }
