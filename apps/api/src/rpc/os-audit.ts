@@ -686,7 +686,7 @@ export const OS_SHARES_AUDIT: OsAuditRegistry = {
 		}),
 	},
 
-	// `output.token` is the one-time plaintext share credential and is
+	// `output.token` is the link's plaintext share secret and is
 	// deliberately NOT in metadata — an audit table is readable by every
 	// analytics:read principal.
 	"shares.create": {

@@ -17,7 +17,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 	});
 
-	// The public viewer keeps the one-time capability in the URL fragment, which
+	// The public viewer keeps the link secret in the URL fragment, which
 	// never reaches an HTTP request, proxy log, or referrer. Its same-origin POST
 	// exchanges that in-memory token for the current read-only output. The legacy
 	// path-token redemption remains for already-minted links.
@@ -41,7 +41,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		return handleOsShareViewerStyles();
 	});
 
-	// authz: public — one-time capability redemption; a session credential, when
+	// authz: public — link secret redemption; a session credential, when
 	// the host proxy forwards one, only identifies the recipient of an
 	// organization or invited link and grants nothing by itself.
 	app.post("/os-shared/redeem", async (c) => {
@@ -75,6 +75,22 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			c.req.header("X-Tedix-Tenant-Id") ?? null,
 			recipient.authorize,
 			recipient.identify,
+		);
+	});
+
+	// What a pasted `/s/<id>` shows in chat apps and social sites. The OS
+	// Worker asks for it when it serves the share document on the host.
+	// authz: public — names content only for a link a signed-out stranger could open on this host; anything else gets the generic answer.
+	app.post("/os-shared/preview", async (c) => {
+		const [{ handleOsSharePreview }, { createDbQueryClient }] =
+			await Promise.all([
+				import("../lib/os-share-redemption"),
+				import("@tedix/db/query-client"),
+			]);
+		return handleOsSharePreview(
+			createDbQueryClient(c.env.DB),
+			bodyString(await c.req.json().catch(() => null), "id"),
+			c.req.header("X-Tedix-Tenant-Id") ?? null,
 		);
 	});
 

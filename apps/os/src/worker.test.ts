@@ -1008,7 +1008,24 @@ describe("Tedix OS origin router", () => {
 			expect(document.status, path).toBe(200);
 			expect(await document.text()).toContain("shell");
 			expect(document.headers.get("X-Robots-Tag")).toContain("noindex");
+			expect(document.headers.get("Cache-Control")).toBe("private, no-store");
+			// The document asks apps/api for its link preview as this host's
+			// tenant, carrying no visitor credential.
+			const preview = seen.at(-1)!;
+			expect(new URL(preview.url).pathname).toBe("/os-shared/preview");
+			expect(preview.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+			expect(preview.headers.get("Cookie")).toBeNull();
+			expect(await preview.json()).toEqual({ id: "AbCdEfGhIjKlMnOpQrStUv" });
 		}
+		// The preview picture is fetched by crawlers without an account.
+		const picture = await handleOsRequest(
+			new Request("https://acme.os.tedix.dev/images/share-preview.png", {
+				headers: { Accept: "text/html,image/*" },
+			}),
+			env,
+			provisionedWithTenant,
+		);
+		expect(picture.status).toBe(200);
 		// A malformed id is an ordinary signed-out document: it redirects to sign-in.
 		const malformed = await handleOsRequest(
 			new Request("https://acme.os.tedix.dev/s/not-an-id", {

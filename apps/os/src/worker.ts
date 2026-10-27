@@ -44,6 +44,11 @@ import {
 	resolveProductSession,
 } from "@tedix/auth/product-session-broker";
 import { resolveOsTenant } from "@/shared/os-tenant";
+import {
+	fetchSharePreview,
+	injectSharePreview,
+	SHARE_PREVIEW_IMAGE_PATH,
+} from "./share-preview";
 import { legacyWorkRedirect } from "@/shared/work-redirects";
 import { applyInboundTrustHeaderHygiene } from "@tedix/worker-kit/request-auth";
 import { handleCliOAuthRelay } from "./auth/cli-oauth-relay";
@@ -130,7 +135,7 @@ const GUEST_DOCUMENT_PATH = "/guest";
  * suffix that is ignored. The page mounts for a signed-out visitor; the open
  * call decides whether the link needs a signed-in person.
  */
-const SHARE_DOCUMENT_PATH = /^\/s\/[A-Za-z0-9]{22}(?:\/[^/]*)?$/;
+const SHARE_DOCUMENT_PATH = /^\/s\/([A-Za-z0-9]{22})(?:\/[^/]*)?$/;
 /** `/s/<id>?sign-in`: the share page asking for this host's sign-in. */
 const SHARE_SIGN_IN_PARAM = "sign-in";
 const GUEST_SHARE_API_PATH =
@@ -1440,6 +1445,9 @@ export async function handleOsRequest(
 		// A shared blueprint page holds no tenant data; its install action is
 		// what asks the visitor to sign in.
 		!BLUEPRINT_DOCUMENT_PATH.test(url.pathname) &&
+		// The share preview picture is one fixed image with no tenant data;
+		// link-preview crawlers fetch it without an account.
+		url.pathname !== SHARE_PREVIEW_IMAGE_PATH &&
 		!(await (
 			await import("./auth/oidc")
 		).oidcSessionMatchesTenant(request, env.API_SERVICE, hostTenantId)) &&
@@ -1521,13 +1529,28 @@ export async function handleOsRequest(
 			"private, max-age=31536000, immutable",
 		);
 	}
-	return isSandboxProxy
-		? stamped
-		: injectWebMcpBridge(
-				stamped,
-				tenant.kind,
-				customResolution?.slug ?? undefined,
-			);
+	if (isSandboxProxy) return stamped;
+	// A share address carries its link preview in the document itself, so a
+	// chat app or social site can show it without running the page.
+	const shareId = SHARE_DOCUMENT_PATH.exec(url.pathname)?.[1];
+	const page =
+		shareId &&
+		tenant.kind === "tenant" &&
+		hostTenantId &&
+		request.method === "GET" &&
+		stamped.status === 200 &&
+		!url.searchParams.has(SHARE_SIGN_IN_PARAM)
+			? injectSharePreview(
+					stamped,
+					await fetchSharePreview(env.API_SERVICE, shareId, hostTenantId),
+					url,
+				)
+			: stamped;
+	return injectWebMcpBridge(
+		page,
+		tenant.kind,
+		customResolution?.slug ?? undefined,
+	);
 }
 
 /**
