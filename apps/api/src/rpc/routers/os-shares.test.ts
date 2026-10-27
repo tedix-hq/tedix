@@ -8,7 +8,12 @@ import { organizations } from "@tedix/db/schema/organizations";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
-import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import {
+	osShareLinkInvitees,
+	osShareLinks,
+	osShareSessions,
+} from "@tedix/db/schema/os-shares";
 import {
 	osGadgetRevisions,
 	osGadgets,
@@ -22,6 +27,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
+	handleOsShareOpen,
 	handleOsShareRedemption,
 	handleOsShareSessionRead,
 	hashOsShareToken,
@@ -45,12 +51,19 @@ function createEnv(): CloudflareEnv {
 			osCollaborationProposals,
 			osShareLinks,
 			osShareSessions,
+			osShareLinkInvitees,
+			organizationMembers,
 			auditEvents,
 		),
+	);
+	// Share URLs name the organization's own OS host by slug.
+	sqlite.exec(
+		"INSERT INTO organizations (id, name, slug, descope_tenant_id) VALUES ('org-1', 'First Org', 'first', 'tenant-1'), ('org-2', 'Second Org', 'second', 'tenant-2');",
 	);
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",
+		OS_URL: "https://os.tedix.test",
 		DB: createD1Facade(sqlite),
 	} as CloudflareEnv;
 }
@@ -565,6 +578,55 @@ describe("shares.update", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 
+	it("returns the permanent address, changes the audience in place, and tightening ends sessions", async () => {
+		const h = harness();
+		const outputId = await seedOutput(h);
+		const { share, token } = await h.org1.shares.create(
+			outputShareInput(outputId),
+		);
+		expect(share.publicId).toMatch(/^[A-Za-z0-9]{22}$/);
+		expect(share).toMatchObject({
+			access: "anyone_with_link",
+			url: `https://first.os.tedix.test/s/${share.publicId}`,
+		});
+		const db = createDbQueryClient(h.env.DB);
+		const opened = (await (
+			await handleOsShareOpen(db, share.publicId, "tenant-1")
+		).json()) as { sessionToken: string; share: { publicId: string } };
+		expect(opened.share.publicId).toBe(share.publicId);
+		// The old token still redeems and names the same permanent id.
+		await expect(
+			(await handleOsShareRedemption(db, token)).json(),
+		).resolves.toMatchObject({ share: { publicId: share.publicId } });
+
+		const tightened = await h.org1.shares.update({
+			shareId: share.id,
+			access: "organization",
+		});
+		expect(tightened).toMatchObject({
+			share: {
+				publicId: share.publicId,
+				url: share.url,
+				access: "organization",
+			},
+			revokedSessionCount: 2,
+		});
+		expect(
+			(await handleOsShareSessionRead(db, opened.sessionToken)).status,
+		).toBe(404);
+		// The same address now asks visitors to sign in.
+		await expect(
+			(await handleOsShareOpen(db, share.publicId, "tenant-1")).json(),
+		).resolves.toMatchObject({ needsSignIn: true, access: "organization" });
+		// Widening back cuts nobody off.
+		await expect(
+			h.org1.shares.update({ shareId: share.id, access: "anyone_with_link" }),
+		).resolves.toMatchObject({
+			share: { access: "anyone_with_link" },
+			revokedSessionCount: 0,
+		});
+	});
+
 	it("keeps output links viewer-only", async () => {
 		const h = harness();
 		const outputId = await seedOutput(h);
@@ -572,5 +634,120 @@ describe("shares.update", () => {
 		await expect(
 			h.org1.shares.update({ shareId: share.id, role: "use" }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+});
+
+describe("shares.invitees", () => {
+	it("admins keep an invite list that decides who an invited link admits", async () => {
+		const h = harness();
+		const outputId = await seedOutput(h);
+		const db = createDbQueryClient(h.env.DB);
+		await db.insert(organizationMembers).values({
+			id: "m-kai",
+			organizationId: "org-2",
+			descopeUserId: "kai-user",
+			email: "kai@example.test",
+			name: "Kai",
+			role: "member",
+			status: "active",
+			kind: "human",
+		});
+		const { share } = await h.org1.shares.create({
+			...outputShareInput(outputId),
+			access: "invited",
+		});
+		const author = createRouterClient(osSharesContractRouter, {
+			context: userContext({
+				env: h.env,
+				organizationId: "org-1",
+				permissions: ["os:author"],
+			}),
+		});
+		await expect(
+			author.shares.invitees.add({
+				shareId: share.id,
+				email: "kai@example.test",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			h.org2.shares.invitees.list({ shareId: share.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+		// A known Tedix person is bound by user id as well; emails are lowercased.
+		const { invitee } = await h.org1.shares.invitees.add({
+			shareId: share.id,
+			email: "Kai@Example.test",
+		});
+		expect(invitee).toMatchObject({
+			shareLinkId: share.id,
+			email: "kai@example.test",
+			userId: "kai-user",
+			name: "Kai",
+			addedByKind: "user",
+			addedById: "user-1",
+		});
+		const { invitee: again } = await h.org1.shares.invitees.add({
+			shareId: share.id,
+			email: "kai@example.test",
+		});
+		expect(again.id).toBe(invitee.id);
+		const { invitee: outsider } = await h.org1.shares.invitees.add({
+			shareId: share.id,
+			email: "someone@else.test",
+		});
+		expect(outsider).toMatchObject({ userId: null, name: null });
+		await expect(
+			h.org1.shares.invitees.list({ shareId: share.id }),
+		).resolves.toMatchObject({
+			items: [{ id: invitee.id }, { id: outsider.id }],
+		});
+
+		const asKai = async () => ({ userId: "kai-user", email: null });
+		const asStranger = async () => ({
+			userId: "stranger",
+			email: "stranger@else.test",
+		});
+		expect(
+			(
+				await handleOsShareOpen(
+					db,
+					share.publicId,
+					"tenant-1",
+					undefined,
+					asStranger,
+				)
+			).status,
+		).toBe(404);
+		const opened = await handleOsShareOpen(
+			db,
+			share.publicId,
+			"tenant-1",
+			undefined,
+			asKai,
+		);
+		expect(opened.status).toBe(200);
+		const { sessionToken } = (await opened.json()) as {
+			sessionToken: string;
+		};
+
+		await expect(
+			h.org1.shares.invitees.remove({
+				shareId: share.id,
+				inviteeId: invitee.id,
+			}),
+		).resolves.toEqual({ removed: true });
+		await expect(
+			h.org1.shares.invitees.remove({
+				shareId: share.id,
+				inviteeId: invitee.id,
+			}),
+		).resolves.toEqual({ removed: false });
+		expect(
+			(await handleOsShareSessionRead(db, sessionToken, undefined, asKai))
+				.status,
+		).toBe(404);
+		await expect(
+			h.org1.shares.invitees.list({ shareId: share.id }),
+		).resolves.toMatchObject({ items: [{ id: outsider.id }] });
 	});
 });

@@ -21,6 +21,7 @@ import { createDbClient } from "@tedix/db/client";
 import { getAuditEventsByResource } from "@tedix/db/queries/audit";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osApprovalRules } from "@tedix/db/schema/os-approval-rules";
+import { organizations } from "@tedix/db/schema/organizations";
 import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
 	osBlueprintRevisions,
@@ -69,11 +70,10 @@ function createEnv(): CloudflareEnv {
 			auditEvents,
 		),
 	);
-	sqlite.exec(`
-		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
-		INSERT INTO organizations (id, name)
-			VALUES ('org-1', 'First Org'), ('org-2', 'Second Org');
-	`);
+	sqlite.exec(schemaDdl(organizations));
+	sqlite.exec(
+		"INSERT INTO organizations (id, name, slug) VALUES ('org-1', 'First Org', 'first'), ('org-2', 'Second Org', 'second');",
+	);
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",

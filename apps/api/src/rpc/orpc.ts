@@ -1520,6 +1520,30 @@ export async function authorizeOsShareRecipient(
 }
 
 /**
+ * Who is opening a governed OS share, from their own session JWT: the
+ * identity an `invited` link checks against its invite list. Identity only —
+ * no membership, permission or tenant check — because an invitee may belong
+ * to another organization or to none. Null when the request carries no valid
+ * user credential.
+ */
+export async function identifyOsShareRecipient(
+	request: Request,
+	env: CloudflareEnv,
+): Promise<{ userId: string; email: string | null } | null> {
+	const context = createContext(request, env);
+	try {
+		await authenticateUserJwt(context);
+	} catch {
+		return null;
+	}
+	if (context.authType !== "user" || !context.user?.sub) return null;
+	return {
+		userId: context.user.sub,
+		email: typeof context.user.email === "string" ? context.user.email : null,
+	};
+}
+
+/**
  * Revalidate source access for the existing authenticated output-export route.
  * That route historically required a user JWT plus organization membership,
  * but not an OS role; keep that contract distinct from governed share roles.

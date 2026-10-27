@@ -740,6 +740,25 @@ export const OS_SHARES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_share_link",
 		resourceId: ({ input }) => text(input.shareId),
 	},
+	"shares.invitees.add": {
+		action: "os.share_link.invitee_added",
+		resourceType: "os_share_link",
+		resourceId: ({ input }) => text(input.shareId),
+		metadata: ({ output }) => ({
+			inviteeId: fields(output.invitee).id,
+			email: fields(output.invitee).email ?? null,
+			userId: fields(output.invitee).userId ?? null,
+		}),
+	},
+	"shares.invitees.remove": {
+		action: "os.share_link.invitee_removed",
+		resourceType: "os_share_link",
+		resourceId: ({ input }) => text(input.shareId),
+		metadata: ({ input, output }) => ({
+			inviteeId: text(input.inviteeId),
+			removed: output.removed ?? null,
+		}),
+	},
 };
 
 /** `[{approvalId, ruleId}]` from an approval-rule sweep result. */

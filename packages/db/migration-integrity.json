@@ -1216,6 +1216,10 @@
 		{
 			"name": "20261027122422_app_tools_action_type/migration.sql",
 			"sha256": "5e5d404db4158fd64e1acc20f4cd9fd3164c7f31f713d0ddec49724c72712cb0"
+		},
+		{
+			"name": "20261027123806_os_share_link_public_id_access/migration.sql",
+			"sha256": "fca17639cb6e5b364ca0888e7abe6972dfdea2d8b9f9907424129ba2facc1285"
 		}
 	]
 }

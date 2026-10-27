@@ -2,9 +2,14 @@
 
 import {
 	getOrganizationGuestProfile,
+	getOrganizationProfile,
 	type OrganizationGuestProfileRow,
 } from "@tedix/db/queries/organizations";
-import type { OsShareRole } from "@tedix/api-contract/contracts/os-shares";
+import {
+	OS_SHARE_PUBLIC_ID_PATTERN,
+	type OsShareOpenResult,
+	type OsShareRole,
+} from "@tedix/api-contract/contracts/os-shares";
 import {
 	type OsDerivedAccessEnvelope,
 	OsDerivedAccessEnvelopeSchema,
@@ -14,7 +19,9 @@ import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import {
 	createOsShareSession,
 	getOsShareLinkById,
+	getOsShareLinkByPublicId,
 	getOsShareLinkByTokenHash,
+	isOsShareLinkInvitee,
 	touchOsShareSession,
 } from "@tedix/db/queries/os-shares";
 import {
@@ -41,6 +48,36 @@ export function generateOsShareToken(): string {
 		.replace(/=+$/, "");
 }
 
+const PUBLIC_ID_ALPHABET =
+	"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/**
+ * Mint the permanent id in a share URL: 22 base62 characters, about 131 bits
+ * of entropy. Rejection sampling keeps every character equally likely.
+ */
+export function generateOsSharePublicId(): string {
+	let id = "";
+	while (id.length < 22) {
+		const bytes = crypto.getRandomValues(new Uint8Array(32));
+		for (const byte of bytes) {
+			// 248 = 4 * 62: anything above would skew the first six characters.
+			if (byte >= 248 || id.length === 22) continue;
+			id += PUBLIC_ID_ALPHABET[byte % 62];
+		}
+	}
+	return id;
+}
+
+/** The bookmarkable link on the organization's own OS host. */
+export function osShareUrl(
+	env: { OS_URL?: string },
+	organizationSlug: string,
+	publicId: string,
+): string {
+	const launcher = new URL(env.OS_URL || "https://os.tedix.dev");
+	return `${launcher.protocol}//${organizationSlug}.${launcher.host}/s/${publicId}`;
+}
+
 /** sha-256 hex of a plaintext link or session secret. */
 export async function hashOsShareToken(token: string): Promise<string> {
 	const digest = await crypto.subtle.digest(
@@ -63,12 +100,17 @@ function notFound(): Response {
 	});
 }
 
+/**
+ * Share answers are never cached (revocation must bite on the next read) and
+ * never indexed: a permanent URL is bookmarkable, not a web page.
+ */
 function noStoreJson(body: unknown): Response {
 	return Response.json(body, {
 		headers: {
-			"Cache-Control": "no-store",
+			"Cache-Control": "private, no-store",
 			"Referrer-Policy": "no-referrer",
 			"X-Content-Type-Options": "nosniff",
+			"X-Robots-Tag": "noindex",
 		},
 	});
 }
@@ -91,6 +133,16 @@ export type AuthorizeOsShareRecipient = (
 	effectiveRole: OsShareRole,
 	accessEnvelope?: OsDerivedAccessEnvelope,
 ) => Promise<boolean>;
+
+/**
+ * Who is opening the link, from their own signed-in session, or null when
+ * the request carries no valid user credential. Identity only: it proves no
+ * membership, so `invited` links check it against their invite list.
+ */
+export type IdentifyOsShareRecipient = () => Promise<{
+	userId: string;
+	email: string | null;
+} | null>;
 
 /** The workspace a link's resource lives in, or null for a workspace-less output. */
 async function linkWorkspaceId(
@@ -157,10 +209,19 @@ export async function linkAdmitsGuest(
 	}
 }
 
+/**
+ * The recipient boundary, re-run on every read. The link's access mode comes
+ * first: `organization` needs a member of the link's organization and
+ * `invited` needs someone on the invite list; `anyone_with_link` keeps the
+ * guest scope. Then the resource's own rules apply: source-derived outputs
+ * recheck every connection, apps that run their own code admit guests for
+ * `use`, and anything else needs an authorized member.
+ */
 async function recipientMayOpen(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
+	identifyRecipient?: IdentifyOsShareRecipient,
 ): Promise<boolean> {
 	// A link minted before its workspace became private stops working.
 	const workspaceId = await linkWorkspaceId(db, link);
@@ -171,7 +232,25 @@ async function recipientMayOpen(
 		});
 		if (workspace?.visibility === "private") return false;
 	}
-	if (await linkAdmitsGuest(db, link)) return true;
+	if (
+		link.access === "organization" &&
+		!(
+			authorizeRecipient &&
+			(await authorizeRecipient(link, effectiveRole(link)))
+		)
+	)
+		return false;
+	if (link.access === "invited") {
+		const identity = identifyRecipient ? await identifyRecipient() : null;
+		if (!identity || !(await isOsShareLinkInvitee(db, { link, ...identity })))
+			return false;
+	}
+	if (link.resourceType !== "output") {
+		// The invite list is the boundary for an invited app or workspace link;
+		// its people need no membership in the organization.
+		if (link.access === "invited") return true;
+		if (await linkAdmitsGuest(db, link)) return true;
+	}
 	if (link.resourceType === "output") {
 		const output = await getOsOutput(db, {
 			organizationId: link.organizationId,
@@ -210,6 +289,10 @@ async function recipientMayOpen(
 function shareEnvelope(link: OsShareLinkRow) {
 	return {
 		id: link.id,
+		// Every link has one after the backfill migration; the viewer uses it to
+		// move an old `#token` link to its permanent `/s/<id>` address.
+		publicId: link.publicId ?? "",
+		access: link.access,
 		resourceType: link.resourceType,
 		role: link.role,
 		effectiveRole: effectiveRole(link),
@@ -438,6 +521,18 @@ function guestCopyOverrides(
 	return copy;
 }
 
+async function guestOrganization(db: DbQueryClient, organizationId: string) {
+	const organization = await getOrganizationGuestProfile(db, organizationId);
+	return organization
+		? {
+				name: organization.name,
+				logoUrl: organization.logoUrl,
+				locale: organization.locale,
+				copy: guestCopyOverrides(organization.translations),
+			}
+		: null;
+}
+
 async function sessionResponse(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
@@ -445,38 +540,30 @@ async function sessionResponse(
 ): Promise<Response> {
 	const resource = await readOsSharedResource(db, link);
 	if (!resource) return notFound();
-	const organization = await getOrganizationGuestProfile(
-		db,
-		link.organizationId,
-	);
-	return noStoreJson({
-		organization: organization
-			? {
-					name: organization.name,
-					logoUrl: organization.logoUrl,
-					locale: organization.locale,
-					copy: guestCopyOverrides(organization.translations),
-				}
-			: null,
+	const body: OsShareOpenResult = {
+		needsSignIn: false,
+		access: link.access,
+		organization: await guestOrganization(db, link.organizationId),
 		share: shareEnvelope(link),
 		resource,
 		...(sessionToken ? { sessionToken } : {}),
-	});
+	};
+	return noStoreJson(body);
 }
 
-/** Exchange a reusable link secret for a short-lived, independently revocable session. */
-export async function handleOsShareRedemption(
+/**
+ * Mint a session for a link that just passed the recipient boundary, then
+ * recheck the boundary against the row the conditional insert bound to, so a
+ * concurrent revocation, policy change or resource change cannot keep a
+ * session alive on stale approval.
+ */
+async function openSession(
 	db: DbQueryClient,
-	token: string,
+	link: OsShareLinkRow,
+	now: string,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
+	identifyRecipient?: IdentifyOsShareRecipient,
 ): Promise<Response> {
-	if (!TOKEN_SHAPE.test(token)) return notFound();
-	const now = new Date().toISOString();
-	const linkTokenHash = await hashOsShareToken(token);
-	const link = await getOsShareLinkByTokenHash(db, linkTokenHash);
-	if (!link || !isActive(link, now)) return notFound();
-	if (!(await recipientMayOpen(db, link, authorizeRecipient)))
-		return notFound();
 	const sessionToken = generateOsShareToken();
 	const linkExpiry = link.expiresAt
 		? Date.parse(link.expiresAt)
@@ -490,16 +577,91 @@ export async function handleOsShareRedemption(
 		createdAt: now,
 		lastSeenAt: now,
 		expiresAt,
-		linkTokenHash,
+		linkId: link.id,
 		expectedEffectiveRole: effectiveRole(link),
 		now,
 	});
 	if (!session) return notFound();
 	const currentLink = await getOsShareLinkById(db, session.shareLinkId);
 	if (!currentLink || !isActive(currentLink, now)) return notFound();
-	if (!(await recipientMayOpen(db, currentLink, authorizeRecipient)))
+	if (
+		!(await recipientMayOpen(
+			db,
+			currentLink,
+			authorizeRecipient,
+			identifyRecipient,
+		))
+	)
 		return notFound();
 	return sessionResponse(db, currentLink, sessionToken);
+}
+
+/** Exchange a reusable link secret for a short-lived, independently revocable session. */
+export async function handleOsShareRedemption(
+	db: DbQueryClient,
+	token: string,
+	authorizeRecipient?: AuthorizeOsShareRecipient,
+	identifyRecipient?: IdentifyOsShareRecipient,
+): Promise<Response> {
+	if (!TOKEN_SHAPE.test(token)) return notFound();
+	const now = new Date().toISOString();
+	const link = await getOsShareLinkByTokenHash(
+		db,
+		await hashOsShareToken(token),
+	);
+	if (!link || !isActive(link, now)) return notFound();
+	if (
+		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
+	)
+		return notFound();
+	return openSession(db, link, now, authorizeRecipient, identifyRecipient);
+}
+
+/**
+ * Open a link by its permanent id, the request behind `/s/<id>`. A link
+ * answers only on its own organization's host: `hostTenantId` is what the
+ * OS Worker asserted for the hostname (the organization's Descope tenant id,
+ * or its organization id for OIDC tenants), and it must name the link's
+ * organization. A link that needs a signed-in person answers `needsSignIn`
+ * when the request carries no identity, so the page can start sign-in and
+ * come back to the same address; a signed-in person the link does not admit
+ * gets the same 404 as an unknown link.
+ */
+export async function handleOsShareOpen(
+	db: DbQueryClient,
+	publicId: string,
+	hostTenantId: string | null,
+	authorizeRecipient?: AuthorizeOsShareRecipient,
+	identifyRecipient?: IdentifyOsShareRecipient,
+): Promise<Response> {
+	if (!hostTenantId || !OS_SHARE_PUBLIC_ID_PATTERN.test(publicId))
+		return notFound();
+	const now = new Date().toISOString();
+	const link = await getOsShareLinkByPublicId(db, publicId);
+	if (!link || !isActive(link, now)) return notFound();
+	const organization = await getOrganizationProfile(db, link.organizationId);
+	if (
+		!organization ||
+		(hostTenantId !== organization.descopeTenantId &&
+			hostTenantId !== organization.id)
+	)
+		return notFound();
+	if (
+		link.access !== "anyone_with_link" &&
+		!(identifyRecipient && (await identifyRecipient()))
+	) {
+		const body: OsShareOpenResult = {
+			needsSignIn: true,
+			access: link.access,
+			organization: await guestOrganization(db, link.organizationId),
+		};
+		return noStoreJson(body);
+	}
+	if (
+		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
+	)
+		return notFound();
+	return openSession(db, link, now, authorizeRecipient, identifyRecipient);
 }
 
 /** Read a redeemed session; revocation and policy narrowing apply immediately. */
@@ -507,6 +669,7 @@ export async function handleOsShareSessionRead(
 	db: DbQueryClient,
 	sessionToken: string,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
+	identifyRecipient?: IdentifyOsShareRecipient,
 ): Promise<Response> {
 	if (!TOKEN_SHAPE.test(sessionToken)) return notFound();
 	const now = new Date().toISOString();
@@ -518,7 +681,9 @@ export async function handleOsShareSessionRead(
 	if (!session) return notFound();
 	const link = await getOsShareLinkById(db, session.shareLinkId);
 	if (!link || !isActive(link, now)) return notFound();
-	if (!(await recipientMayOpen(db, link, authorizeRecipient)))
+	if (
+		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
+	)
 		return notFound();
 	return sessionResponse(db, link);
 }

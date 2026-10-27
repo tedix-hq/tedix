@@ -3,15 +3,20 @@ import { osSharesContract } from "@tedix/api-contract/contracts/os-shares";
 import type { OsShareLink } from "@tedix/api-contract/contracts/os-shares";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import {
+	addOsShareLinkInvitee,
 	countActiveOsShareSessions,
 	createOsShareLink,
 	deleteOsShareLink,
 	getScopedOsShareLink,
+	listOsShareLinkInvitees,
 	listOsShareLinks,
+	removeOsShareLinkInvitee,
 	restrictOsShareLink,
 	revokeOsShareLink,
 	updateOsShareLinkSettings,
 } from "@tedix/db/queries/os-shares";
+import { findTedixPersonByEmail } from "@tedix/db/queries/os-collaborators";
+import { getOrganizationProfile } from "@tedix/db/queries/organizations";
 import {
 	getOsGadget,
 	getOsGadgetRevision,
@@ -24,10 +29,15 @@ import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility
 import { cutWorkspaceAppSessions } from "../../services/os-app-session-revocation";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { createDbQueryClient } from "@tedix/db/query-client";
-import type { OsShareLinkRow } from "@tedix/db/schema/os-shares";
+import type {
+	OsShareLinkInviteeRow,
+	OsShareLinkRow,
+} from "@tedix/db/schema/os-shares";
 import {
+	generateOsSharePublicId,
 	generateOsShareToken,
 	hashOsShareToken,
+	osShareUrl,
 } from "../../lib/os-share-redemption";
 import { requireOrgId } from "../org-scope";
 import {
@@ -58,13 +68,38 @@ function queryDb(context: BaseContext) {
 	return createDbQueryClient(context.env.DB);
 }
 
+/**
+ * The organization's own OS host, where its share links resolve. Read once
+ * per call; the slug never changes within one.
+ */
+async function shareUrlFor(
+	context: BaseContext,
+): Promise<(publicId: string) => string> {
+	const organization = await getOrganizationProfile(
+		queryDb(context),
+		requireOrgId(context),
+	);
+	if (!organization)
+		throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
+	return (publicId) => osShareUrl(context.env, organization.slug, publicId);
+}
+
 /** Wire shape for one share link. The token hash never leaves the store. */
-function mapShareLink(row: OsShareLinkRow): OsShareLink {
+function mapShareLink(
+	row: OsShareLinkRow,
+	urlFor: (publicId: string) => string,
+): OsShareLink {
+	// Every row has a permanent id after the backfill migration; the create
+	// path always sets one.
+	const publicId = row.publicId ?? "";
 	return {
 		id: row.id,
+		publicId,
+		url: urlFor(publicId),
 		organizationId: row.organizationId,
 		resourceType: row.resourceType,
 		resourceId: row.resourceId,
+		access: row.access,
 		role: row.role,
 		revisionMode: row.revisionMode,
 		pinnedRevisionId: row.pinnedRevisionId,
@@ -326,12 +361,15 @@ const sharesCreate = authorOs.shares.create.handler(
 			);
 		}
 		const token = generateOsShareToken();
+		const urlFor = await shareUrlFor(context);
 		const row = await createOsShareLink(queryDb(context), {
 			id: crypto.randomUUID(),
+			publicId: generateOsSharePublicId(),
 			organizationId: resource.organizationId,
 			resourceType: input.resourceType,
 			resourceId: resource.id,
 			tokenHash: await hashOsShareToken(token),
+			access: input.access,
 			role: input.role,
 			revisionMode: input.revisionMode,
 			pinnedRevisionId,
@@ -347,7 +385,7 @@ const sharesCreate = authorOs.shares.create.handler(
 			revokedAt: null,
 		});
 		// The plaintext token exists only in this response — never again.
-		return { share: mapShareLink(row), token };
+		return { share: mapShareLink(row, urlFor), token };
 	},
 );
 
@@ -363,7 +401,8 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 		resourceType: input.resourceType,
 		resourceId: resource.id,
 	});
-	const items = rows.map(mapShareLink);
+	const urlFor = await shareUrlFor(context);
+	const items = rows.map((row) => mapShareLink(row, urlFor));
 	if (
 		input.resourceType !== "gadget" ||
 		!("currentRevisionId" in resource) ||
@@ -392,7 +431,7 @@ const sharesPreviewRevoke = readOs.shares.previewRevoke.handler(
 		if (!row)
 			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
 		return {
-			share: mapShareLink(row),
+			share: mapShareLink(row, await shareUrlFor(context)),
 			activeSessionCount: await countActiveOsShareSessions(
 				db,
 				row.id,
@@ -419,7 +458,10 @@ const sharesRevoke = authorOs.shares.revoke.handler(
 			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
 		}
 		await cutShareLinkAppSessions(context, db, row);
-		return { share: mapShareLink(row), revokedSessionCount };
+		return {
+			share: mapShareLink(row, await shareUrlFor(context)),
+			revokedSessionCount,
+		};
 	},
 );
 
@@ -464,26 +506,31 @@ const sharesUpdate = adminOs.shares.update.handler(
 		}
 		const note =
 			input.note === undefined ? current.note : input.note?.trim() || null;
+		const access = input.access ?? current.access;
 		const narrowed = ROLE_RANK[role] < ROLE_RANK[current.role];
+		// Anyone who opened the link under a wider audience must come back
+		// through the new one; widening to anyone_with_link cuts nobody off.
+		const audienceChanged =
+			access !== current.access && access !== "anyone_with_link";
 		const expiresSooner =
 			expiresAt !== null &&
 			(current.expiresAt === null ||
 				Date.parse(expiresAt) < Date.parse(current.expiresAt));
+		const endSessions = narrowed || audienceChanged || expiresSooner;
 		const result = await updateOsShareLinkSettings(db, {
 			organizationId,
 			shareLinkId: current.id,
-			set: { role, note, expiresAt },
-			endSessions: narrowed || expiresSooner,
+			set: { role, access, note, expiresAt },
+			endSessions,
 		});
 		if (!result)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				"This link is turned off. Make a new link instead.",
 			);
-		if (narrowed || expiresSooner)
-			await cutShareLinkAppSessions(context, db, result.share);
+		if (endSessions) await cutShareLinkAppSessions(context, db, result.share);
 		return {
-			share: mapShareLink(result.share),
+			share: mapShareLink(result.share, await shareUrlFor(context)),
 			revokedSessionCount: result.revokedSessionCount,
 		};
 	},
@@ -525,7 +572,7 @@ const sharesRestrict = authorOs.shares.restrict.handler(
 		}
 		await cutShareLinkAppSessions(context, db, result.share);
 		return {
-			share: mapShareLink(result.share),
+			share: mapShareLink(result.share, await shareUrlFor(context)),
 			revokedSessionCount: result.revokedSessionCount,
 		};
 	},
@@ -580,6 +627,80 @@ const sharesDelete = adminOs.shares.delete.handler(
 	},
 );
 
+function mapInvitee(row: OsShareLinkInviteeRow) {
+	return {
+		id: row.id,
+		shareLinkId: row.shareLinkId,
+		email: row.email,
+		userId: row.userId,
+		name: row.name,
+		addedByKind: row.addedByKind,
+		addedById: row.addedById,
+		addedAt: row.addedAt,
+	};
+}
+
+/** An active link in the caller's organization, or NOT_FOUND. */
+async function requireActiveShareLink(context: BaseContext, shareId: string) {
+	const row = await getScopedOsShareLink(queryDb(context), {
+		organizationId: requireOrgId(context),
+		shareLinkId: shareId,
+	});
+	if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+	if (row.revokedAt)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"This link is turned off. Make a new link instead.",
+		);
+	return row;
+}
+
+// The invite list decides who a live link reaches, so it sits with the other
+// audience edits under os:admin; reading it needs the same authority.
+const inviteesList = adminOs.shares.invitees.list.handler(
+	async ({ input, context }) => {
+		const link = await requireActiveShareLink(context, input.shareId);
+		const rows = await listOsShareLinkInvitees(queryDb(context), {
+			organizationId: link.organizationId,
+			shareLinkId: link.id,
+		});
+		return { items: rows.map(mapInvitee) };
+	},
+);
+
+const inviteesAdd = adminOs.shares.invitees.add.handler(
+	async ({ input, context }) => {
+		const link = await requireActiveShareLink(context, input.shareId);
+		const db = queryDb(context);
+		const person = await findTedixPersonByEmail(db, input.email);
+		const creator = resolveCreator(context);
+		const row = await addOsShareLinkInvitee(db, {
+			id: crypto.randomUUID(),
+			organizationId: link.organizationId,
+			shareLinkId: link.id,
+			email: input.email,
+			userId: person?.userId ?? null,
+			name: person?.name ?? null,
+			addedByKind: creator.kind,
+			addedById: creator.id,
+			addedAt: new Date().toISOString(),
+		});
+		return { invitee: mapInvitee(row) };
+	},
+);
+
+const inviteesRemove = adminOs.shares.invitees.remove.handler(
+	async ({ input, context }) => {
+		const link = await requireActiveShareLink(context, input.shareId);
+		const removed = await removeOsShareLinkInvitee(queryDb(context), {
+			organizationId: link.organizationId,
+			shareLinkId: link.id,
+			inviteeId: input.inviteeId,
+		});
+		return { removed };
+	},
+);
+
 export const osSharesContractRouter = osSharesOs.router({
 	reviews: osShareReviewsRouter,
 	shares: {
@@ -590,5 +711,10 @@ export const osSharesContractRouter = osSharesOs.router({
 		revoke: sharesRevoke,
 		restrict: sharesRestrict,
 		delete: sharesDelete,
+		invitees: {
+			list: inviteesList,
+			add: inviteesAdd,
+			remove: inviteesRemove,
+		},
 	},
 });

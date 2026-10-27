@@ -27,12 +27,42 @@ export const OsShareRoleSchema = z.enum(["viewer", "use", "build"]);
 
 export const OsShareRevisionModeSchema = z.enum(["living", "pinned"]);
 
+/**
+ * Who may open a link. `anyone_with_link` needs no account (today's guest
+ * scope); `organization` needs a signed-in member of the link's organization;
+ * `invited` needs a signed-in person on the link's invite list (a workspace
+ * link also admits its collaborators).
+ */
+export const OsShareAccessSchema = z.enum([
+	"anyone_with_link",
+	"organization",
+	"invited",
+]);
+
+/**
+ * The permanent id in a share URL (`/s/<id>`): 22 base62 characters, random
+ * and unguessable, stable for the link's life. Links minted before permanent
+ * ids were backfilled with 22 hex characters, which this pattern also admits.
+ */
+export const OS_SHARE_PUBLIC_ID_PATTERN = /^[A-Za-z0-9]{22}$/;
+
 /** One share link, backed by `os_share_links`. Never carries token material. */
 export const OsShareLinkSchema = z.object({
 	id: z.string().uuid(),
+	publicId: z
+		.string()
+		.regex(OS_SHARE_PUBLIC_ID_PATTERN)
+		.describe("Permanent id in the share URL; never the secret token"),
+	url: z
+		.string()
+		.url()
+		.describe(
+			"The bookmarkable link on the organization's own OS host: https://<org>.os.tedix.dev/s/<publicId>",
+		),
 	organizationId: z.string(),
 	resourceType: OsShareResourceTypeSchema,
 	resourceId: z.string().uuid(),
+	access: OsShareAccessSchema,
 	role: OsShareRoleSchema,
 	revisionMode: OsShareRevisionModeSchema,
 	pinnedRevisionId: z
@@ -81,7 +111,75 @@ export const OsShareLinkSchema = z.object({
 export type OsShareResourceType = z.infer<typeof OsShareResourceTypeSchema>;
 export type OsShareRole = z.infer<typeof OsShareRoleSchema>;
 export type OsShareRevisionMode = z.infer<typeof OsShareRevisionModeSchema>;
+export type OsShareAccess = z.infer<typeof OsShareAccessSchema>;
 export type OsShareLink = z.infer<typeof OsShareLinkSchema>;
+
+/** One person on an `invited` link's list, by email or by Tedix user id. */
+export const OsShareInviteeSchema = z.object({
+	id: z.string().uuid(),
+	shareLinkId: z.string().uuid(),
+	email: z.string().nullable(),
+	userId: z
+		.string()
+		.nullable()
+		.describe("Tedix user id when the person already has an account"),
+	name: z.string().nullable(),
+	addedByKind: OsCreatedByKindSchema,
+	addedById: z.string(),
+	addedAt: z.string(),
+});
+export type OsShareInvitee = z.infer<typeof OsShareInviteeSchema>;
+
+/**
+ * `POST /os-shared/open` on the organization's OS host: the public route
+ * behind `/s/<id>`. It is not an oRPC procedure because it must answer
+ * signed-out visitors; the host proxy forwards the visitor's own session for
+ * `organization` and `invited` links. A link resolves only on its own
+ * organization's host; anywhere else, and for revoked, expired, unknown or
+ * refused links, the answer is the same 404.
+ */
+export const OsShareOpenInputSchema = z.object({
+	id: z.string().regex(OS_SHARE_PUBLIC_ID_PATTERN),
+});
+export const OsShareOpenResultSchema = z.object({
+	needsSignIn: z
+		.boolean()
+		.describe(
+			"True when the link needs a signed-in person and none was presented; sign in on this host, then reopen /s/<id>",
+		),
+	access: OsShareAccessSchema,
+	organization: z
+		.object({
+			name: z.string(),
+			logoUrl: z.string().nullable(),
+			locale: z.string().nullable(),
+			copy: z.record(z.string(), z.record(z.string(), z.string())),
+		})
+		.nullable(),
+	/** Present only when the link opened. Same envelope as token redemption. */
+	share: z
+		.object({
+			id: z.string().uuid(),
+			publicId: z.string(),
+			access: OsShareAccessSchema,
+			resourceType: OsShareResourceTypeSchema,
+			role: OsShareRoleSchema,
+			effectiveRole: OsShareRoleSchema,
+			revisionMode: OsShareRevisionModeSchema,
+			note: z.string().nullable(),
+			expiresAt: z.string().nullable(),
+			createdAt: z.string(),
+			createdByKind: OsCreatedByKindSchema,
+			policyReason: z.string().nullable(),
+			policyRestrictedAt: z.string().nullable(),
+		})
+		.optional(),
+	resource: z.unknown().optional(),
+	/** A 12-hour session; keep it in sessionStorage under `tedix.os.share.<id>`. */
+	sessionToken: z.string().optional(),
+});
+export type OsShareOpenInput = z.infer<typeof OsShareOpenInputSchema>;
+export type OsShareOpenResult = z.infer<typeof OsShareOpenResultSchema>;
 
 export const OsReviewCardSchema = z.object({
 	id: z.string().trim().min(1).max(100),
@@ -165,6 +263,7 @@ const createShareInput = z
 			.uuid()
 			.describe("Resource UUID paired with resourceType"),
 		role: OsShareRoleSchema.default("viewer"),
+		access: OsShareAccessSchema.default("anyone_with_link"),
 		revisionMode: OsShareRevisionModeSchema.default("living"),
 		pinnedRevisionId: z
 			.string()
@@ -230,6 +329,8 @@ const listShareInput = z.object({
 		.uuid()
 		.describe("Resource UUID paired with resourceType"),
 });
+
+const inviteeScopeInput = z.object({ shareId: z.string().uuid() });
 
 export const osSharesContract = oc
 	.route({ tags: ["os-shares"], prefix: "/os-shares" })
@@ -390,9 +491,9 @@ export const osSharesContract = oc
 				.route({
 					method: "PATCH",
 					path: "/shares/{shareId}",
-					summary: "Change a share link's note, expiry or role",
+					summary: "Change a share link's note, expiry, role or access",
 					description:
-						"Edits an active link in place: the link keeps working and its URL is never returned again. Requires os:admin. Narrowing the role or bringing the expiry forward ends live redemption sessions; recipients reopen the same link at the new settings.",
+						"Edits an active link in place: the link keeps working at the same permanent URL. Requires os:admin. Narrowing the role, tightening access, or bringing the expiry forward ends live redemption sessions; recipients reopen the same link at the new settings.",
 				})
 				.input(
 					z
@@ -400,6 +501,9 @@ export const osSharesContract = oc
 							shareId: z.string().uuid(),
 							role: OsShareRoleSchema.optional().describe(
 								"New authored role; outputs stay viewer, App and workspace links use or build",
+							),
+							access: OsShareAccessSchema.optional().describe(
+								"Who may open the link; tightening ends live sessions",
 							),
 							note: z
 								.string()
@@ -493,5 +597,43 @@ export const osSharesContract = oc
 				})
 				.input(z.object({ shareId: z.string().uuid() }))
 				.output(z.object({ deleted: z.literal(true) })),
+			invitees: oc.router({
+				list: oc
+					.route({
+						method: "GET",
+						path: "/shares/{shareId}/invitees",
+						summary: "List who an invited-only share link admits",
+					})
+					.input(inviteeScopeInput.strict())
+					.output(z.object({ items: z.array(OsShareInviteeSchema) })),
+				add: oc
+					.route({
+						method: "POST",
+						path: "/shares/{shareId}/invitees",
+						summary: "Invite a person to a share link",
+						description:
+							"Adds an email to the link's invite list. A matching Tedix account is bound by user id as well, so the person is admitted whichever identity their session carries. Adding the same email twice returns the existing row.",
+					})
+					.input(
+						inviteeScopeInput
+							.extend({
+								email: z.string().trim().toLowerCase().email().max(320),
+							})
+							.strict(),
+					)
+					.output(z.object({ invitee: OsShareInviteeSchema })),
+				remove: oc
+					.route({
+						method: "DELETE",
+						path: "/shares/{shareId}/invitees/{inviteeId}",
+						summary: "Remove a person from a share link",
+						description:
+							"Every session read rechecks the invite list, so removal takes effect on the person's next read.",
+					})
+					.input(
+						inviteeScopeInput.extend({ inviteeId: z.string().uuid() }).strict(),
+					)
+					.output(z.object({ removed: z.boolean() })),
+			}),
 		}),
 	});

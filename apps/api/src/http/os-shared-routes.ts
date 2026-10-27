@@ -41,58 +41,55 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		return handleOsShareViewerStyles();
 	});
 
-	// authz: public — one-time capability redemption accepts no ambient browser authority.
+	// authz: public — one-time capability redemption; a session credential, when
+	// the host proxy forwards one, only identifies the recipient of an
+	// organization or invited link and grants nothing by itself.
 	app.post("/os-shared/redeem", async (c) => {
-		const [
-			{ handleOsShareRedemption },
-			{ createDbQueryClient },
-			{ authorizeOsShareRecipient },
-		] = await Promise.all([
-			import("../lib/os-share-redemption"),
-			import("@tedix/db/query-client"),
-			import("../rpc/orpc"),
-		]);
-		const body = await c.req.json().catch(() => null);
-		const token =
-			typeof body === "object" && body !== null && "token" in body
-				? (body as { token?: unknown }).token
-				: null;
+		const [{ handleOsShareRedemption }, { createDbQueryClient }, recipient] =
+			await Promise.all([
+				import("../lib/os-share-redemption"),
+				import("@tedix/db/query-client"),
+				shareRecipient(c.req.raw, c.env),
+			]);
 		return handleOsShareRedemption(
 			createDbQueryClient(c.env.DB),
-			typeof token === "string" ? token : "",
-			(link, role, accessEnvelope) =>
-				authorizeOsShareRecipient(c.req.raw, c.env, {
-					organizationId: link.organizationId,
-					role,
-					accessEnvelope,
-				}),
+			bodyString(await c.req.json().catch(() => null), "token"),
+			recipient.authorize,
+			recipient.identify,
+		);
+	});
+
+	// The permanent address behind `/s/<id>` on the organization's own host.
+	// The OS Worker asserts the host's tenant; a link answers only there.
+	// authz: public — resolves by unguessable public id; refusals are the same 404 as an unknown link.
+	app.post("/os-shared/open", async (c) => {
+		const [{ handleOsShareOpen }, { createDbQueryClient }, recipient] =
+			await Promise.all([
+				import("../lib/os-share-redemption"),
+				import("@tedix/db/query-client"),
+				shareRecipient(c.req.raw, c.env),
+			]);
+		return handleOsShareOpen(
+			createDbQueryClient(c.env.DB),
+			bodyString(await c.req.json().catch(() => null), "id"),
+			c.req.header("X-Tedix-Tenant-Id") ?? null,
+			recipient.authorize,
+			recipient.identify,
 		);
 	});
 
 	app.post("/os-shared/session", async (c) => {
-		const [
-			{ handleOsShareSessionRead },
-			{ createDbQueryClient },
-			{ authorizeOsShareRecipient },
-		] = await Promise.all([
-			import("../lib/os-share-redemption"),
-			import("@tedix/db/query-client"),
-			import("../rpc/orpc"),
-		]);
-		const body = await c.req.json().catch(() => null);
-		const sessionToken =
-			typeof body === "object" && body !== null && "sessionToken" in body
-				? (body as { sessionToken?: unknown }).sessionToken
-				: null;
+		const [{ handleOsShareSessionRead }, { createDbQueryClient }, recipient] =
+			await Promise.all([
+				import("../lib/os-share-redemption"),
+				import("@tedix/db/query-client"),
+				shareRecipient(c.req.raw, c.env),
+			]);
 		return handleOsShareSessionRead(
 			createDbQueryClient(c.env.DB),
-			typeof sessionToken === "string" ? sessionToken : "",
-			(link, role, accessEnvelope) =>
-				authorizeOsShareRecipient(c.req.raw, c.env, {
-					organizationId: link.organizationId,
-					role,
-					accessEnvelope,
-				}),
+			bodyString(await c.req.json().catch(() => null), "sessionToken"),
+			recipient.authorize,
+			recipient.identify,
 		);
 	});
 
@@ -134,24 +131,42 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 
 	// Unknown, revoked, and expired tokens are indistinguishable 404s.
 	app.get("/os-shared/:token", async (c) => {
-		const [
-			{ handleOsShareRedemption },
-			{ createDbQueryClient },
-			{ authorizeOsShareRecipient },
-		] = await Promise.all([
-			import("../lib/os-share-redemption"),
-			import("@tedix/db/query-client"),
-			import("../rpc/orpc"),
-		]);
+		const [{ handleOsShareRedemption }, { createDbQueryClient }, recipient] =
+			await Promise.all([
+				import("../lib/os-share-redemption"),
+				import("@tedix/db/query-client"),
+				shareRecipient(c.req.raw, c.env),
+			]);
 		return handleOsShareRedemption(
 			createDbQueryClient(c.env.DB),
 			c.req.param("token"),
-			(link, role, accessEnvelope) =>
-				authorizeOsShareRecipient(c.req.raw, c.env, {
-					organizationId: link.organizationId,
-					role,
-					accessEnvelope,
-				}),
+			recipient.authorize,
+			recipient.identify,
 		);
 	});
+}
+
+function bodyString(body: unknown, key: string): string {
+	if (typeof body !== "object" || body === null) return "";
+	const value = (body as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : "";
+}
+
+/** The two recipient checks a share handler runs against the caller's own credential. */
+async function shareRecipient(request: Request, env: CloudflareEnv) {
+	const { authorizeOsShareRecipient, identifyOsShareRecipient } =
+		await import("../rpc/orpc");
+	return {
+		authorize: (
+			link: { organizationId: string },
+			role: "viewer" | "use" | "build",
+			accessEnvelope?: import("@tedix/api-contract/schemas/os-workspaces").OsDerivedAccessEnvelope,
+		) =>
+			authorizeOsShareRecipient(request, env, {
+				organizationId: link.organizationId,
+				role,
+				accessEnvelope,
+			}),
+		identify: () => identifyOsShareRecipient(request, env),
+	};
 }

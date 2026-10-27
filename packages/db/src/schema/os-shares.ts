@@ -31,8 +31,22 @@ export const osShareLinks = sqliteTable(
 			enum: ["output", "gadget", "workspace"],
 		}).notNull(),
 		resourceId: text("resource_id").notNull(),
+		/**
+		 * Permanent id in the share URL (`/s/<public_id>`), stored in clear: it
+		 * names the link, it is not the secret. 22 random base62 characters;
+		 * links from before this column were backfilled with 22 hex characters.
+		 * Nullable only because SQLite cannot add a NOT NULL column to a
+		 * populated table; every row has one after the backfill migration.
+		 */
+		publicId: text("public_id"),
 		/** sha-256 hex of the one-time plaintext token; the plaintext is never stored. */
 		tokenHash: text("token_hash").notNull(),
+		/** Who may open the link; `invited` consults `os_share_link_invitees`. */
+		access: text("access", {
+			enum: ["anyone_with_link", "organization", "invited"],
+		})
+			.notNull()
+			.default("anyone_with_link"),
 		role: text("role", { enum: ["viewer", "use", "build"] })
 			.notNull()
 			.default("viewer"),
@@ -66,6 +80,43 @@ export const osShareLinks = sqliteTable(
 			table.resourceId,
 		),
 		uniqueIndex("os_share_links_token_hash_unique").on(table.tokenHash),
+		uniqueIndex("os_share_links_public_id_unique").on(table.publicId),
+	],
+);
+
+/**
+ * Who an `invited` link admits. A row names a person by lowercased email and,
+ * once known, by Tedix user id; either identity on a signed-in session
+ * matches. The link's role applies to every invitee. Rows go with their link.
+ */
+export const osShareLinkInvitees = sqliteTable(
+	"os_share_link_invitees",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		shareLinkId: text("share_link_id")
+			.notNull()
+			.references(() => osShareLinks.id, { onDelete: "cascade" }),
+		email: text("email"),
+		userId: text("user_id"),
+		name: text("name"),
+		addedByKind: text("added_by_kind", { enum: createdByKinds }).notNull(),
+		addedById: text("added_by_id").notNull(),
+		addedAt: text("added_at")
+			.notNull()
+			.default(sql`(datetime('now'))`),
+	},
+	(table) => [
+		uniqueIndex("os_share_link_invitees_link_email_unique").on(
+			table.shareLinkId,
+			table.email,
+		),
+		index("os_share_link_invitees_link_user_idx").on(
+			table.shareLinkId,
+			table.userId,
+		),
 	],
 );
 
@@ -104,6 +155,8 @@ export type OsShareLinkRow = typeof osShareLinks.$inferSelect;
 export type NewOsShareLinkRow = typeof osShareLinks.$inferInsert;
 export type OsShareSessionRow = typeof osShareSessions.$inferSelect;
 export type NewOsShareSessionRow = typeof osShareSessions.$inferInsert;
+export type OsShareLinkInviteeRow = typeof osShareLinkInvitees.$inferSelect;
+export type NewOsShareLinkInviteeRow = typeof osShareLinkInvitees.$inferInsert;
 
 /**
  * Immutable owner-reviewed projection; source provenance is retained independently.

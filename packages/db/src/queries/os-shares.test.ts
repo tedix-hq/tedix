@@ -218,7 +218,7 @@ describe("os share links", () => {
 				createdAt: "2026-08-14T11:00:00.000Z",
 				lastSeenAt: "2026-08-14T11:00:00.000Z",
 				expiresAt: "2099-01-01T00:00:00.000Z",
-				linkTokenHash: "hash-s-1",
+				linkId: "s-1",
 				expectedEffectiveRole: "build",
 				now: "2026-08-14T11:00:00.000Z",
 			}),

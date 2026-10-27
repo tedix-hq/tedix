@@ -52,9 +52,12 @@ const REVISION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 function shareFixture(overrides: Partial<OsShareLink> = {}): OsShareLink {
 	return {
 		id: SHARE_ID,
+		publicId: "AbCdEfGhIjKlMnOpQrStUv",
+		url: "https://example.os.tedix.test/s/AbCdEfGhIjKlMnOpQrStUv",
 		organizationId: "org-1",
 		resourceType: "output",
 		resourceId: OUTPUT_ID,
+		access: "anyone_with_link",
 		role: "viewer",
 		revisionMode: "living",
 		pinnedRevisionId: null,
