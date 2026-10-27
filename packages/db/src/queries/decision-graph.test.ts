@@ -1,5 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { DecisionContextSchema } from "@tedix/api-contract/schemas/decision-graph";
+import { DeckPipelineConfigSchema } from "@tedix/api-contract/schemas/deck-pipeline";
+import {
+	planDeckSweep,
+	type SweepCard,
+} from "@tedix/api-contract/utils/deck-pipeline";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { decisionEdges } from "../schema/decision-graph";
@@ -152,7 +157,7 @@ describe("decision graph", () => {
 		}
 	});
 
-	it("explains the GitHub card from the owner's earlier instruction", async () => {
+	it("keeps a Work instruction in the chain without claiming the card is decided", async () => {
 		const f = fixture();
 		try {
 			await upsertDecisionEdges(f.db, ORG, githubCardEdges);
@@ -160,13 +165,7 @@ describe("decision graph", () => {
 				maxHops: 4,
 			});
 			expect(DecisionContextSchema.parse(context)).toEqual(context);
-			expect(context.priorDecision?.node).toEqual({
-				kind: "owner_instruction",
-				id: "instruction-rotate",
-			});
-			expect(context.priorDecision?.edge.evidenceRef).toBe(
-				"work-comment:comment-rotate",
-			);
+			expect(context.priorDecision).toBeUndefined();
 			expect(context.chain.map((step) => [step.hop, step.node.id])).toEqual(
 				expect.arrayContaining([
 					[1, "work-github-audit"],
@@ -178,8 +177,23 @@ describe("decision graph", () => {
 			expect(context.blocksCount).toBe(2);
 			expect(context.duplicates).toEqual([]);
 			expect(explainChain(context)).toBe(
-				'You decided this on 20 Oct: "rotate leftover credentials" → from Work "Audit GitHub access" → involves GitHub, old deploy key → 2 items wait on this',
+				'From Work "Audit GitHub access" → involves GitHub, old deploy key → 2 items wait on this',
 			);
+			await upsertDecisionEdges(f.db, ORG, [
+				{
+					kind: "card_answers",
+					from: card("card-github"),
+					to: { kind: "decision", id: "exact-answer" },
+					source: "owner",
+					evidenceRef: "owner-response:exact-answer",
+				},
+			]);
+			expect(
+				(await getDecisionContext(f.db, ORG, "card-github")).priorDecision,
+			).toMatchObject({
+				node: { kind: "decision", id: "exact-answer" },
+				edge: { evidenceRef: "owner-response:exact-answer" },
+			});
 		} finally {
 			f.sqlite.close();
 		}
@@ -321,7 +335,7 @@ describe("decision graph", () => {
 		}
 	});
 
-	it("finds duplicates by same_as in both directions and by shared source Work", async () => {
+	it("finds duplicates by same_as in both directions, excluding shared source Work", async () => {
 		const f = fixture();
 		try {
 			await upsertDecisionEdges(f.db, ORG, [
@@ -365,11 +379,11 @@ describe("decision graph", () => {
 				},
 			]);
 			expect(await findDuplicateCards(f.db, ORG, "card-x")).toEqual([
-				"card-w",
 				"card-y",
 				"card-z",
 			]);
 			expect(await findDuplicateCards(f.db, ORG, "card-other")).toEqual([]);
+			expect(await findDuplicateCards(f.db, ORG, "card-w")).toEqual([]);
 		} finally {
 			f.sqlite.close();
 		}
@@ -491,4 +505,81 @@ describe("decision graph", () => {
 			}),
 		).toBe("Serves Grow orchard sales");
 	});
+});
+
+it("keeps five recipient follow-ups distinct until an explicit batch replacement", async () => {
+	const f = fixture();
+	try {
+		const config = DeckPipelineConfigSchema.parse({});
+		const cards: SweepCard[] = [];
+		for (const [i, name] of ["Ada", "Bryn", "Cleo", "Dara", "Eli"].entries()) {
+			const id = `follow-up-${i}`;
+			await upsertDecisionEdges(f.db, ORG, [
+				{
+					kind: "card_from_work",
+					from: card(id),
+					to: work("outreach-batch"),
+					source: "deck",
+				},
+				{
+					kind: "involves",
+					from: card(id),
+					to: { kind: "person", id: `profile-${i}` },
+					source: "deck",
+				},
+				{
+					kind: "card_from_work",
+					from: card(id),
+					to: work(`owner-task-${i}`),
+					source: "deck",
+				},
+			]);
+			cards.push({
+				id,
+				kind: "question",
+				subject: `Follow up with ${name}`,
+				prompt: `Review https://example.com/people/${i}`,
+				creatorType: "tedi",
+				creatorId: "orchard",
+				workItemId: "outreach-batch",
+				workItemDisposition: "accepted",
+				dueAt: null,
+				expiresAt: null,
+				createdAt: `2026-10-21T0${i}:00:00Z`,
+				metadata: {},
+				protected: false,
+				askKind: "answer",
+			});
+		}
+		for (const c of cards) c.graph = await getDecisionContext(f.db, ORG, c.id);
+		const sweep = () =>
+			planDeckSweep({
+				cards,
+				now: new Date("2026-10-22T12:00:00Z"),
+				config: config.sweep,
+				rules: [],
+			});
+		expect(cards.map((c) => c.graph?.duplicates)).toEqual([[], [], [], [], []]);
+		expect(sweep().actions).toEqual([]);
+		await upsertDecisionEdges(f.db, ORG, [
+			{
+				kind: "supersedes",
+				from: card(cards[4]!.id),
+				to: card(cards[0]!.id),
+				source: "owner",
+				evidenceRef: "work-comment:consolidate-batch",
+			},
+		]);
+		cards[0]!.graph = await getDecisionContext(f.db, ORG, cards[0]!.id);
+		expect(sweep().actions).toMatchObject([
+			{
+				cardId: cards[0]!.id,
+				reason: "superseded",
+				successorId: cards[4]!.id,
+				evidenceRefs: ["work-comment:consolidate-batch"],
+			},
+		]);
+	} finally {
+		f.sqlite.close();
+	}
 });

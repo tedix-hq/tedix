@@ -282,7 +282,7 @@ export async function listCardSourceWork(
 	return result;
 }
 
-/** Cards linked by same_as (either direction) or made from the same Work. */
+/** Only same_as establishes duplicate identity; a shared Work is context. */
 export async function findDuplicateCards(
 	db: DbQueryClient,
 	orgId: string,
@@ -295,7 +295,7 @@ export async function findDuplicateCards(
 					eq(decisionEdges.orgId, orgId),
 					eq(decisionEdges.fromId, cardId),
 					eq(decisionEdges.fromKind, "deck_card"),
-					inArray(decisionEdges.kind, ["same_as", "card_from_work"]),
+					eq(decisionEdges.kind, "same_as"),
 				),
 			)
 			.limit(EDGE_READ_LIMIT),
@@ -311,27 +311,8 @@ export async function findDuplicateCards(
 			.limit(EDGE_READ_LIMIT),
 	]);
 	const duplicates = new Set<string>();
-	const sourceWork: string[] = [];
-	for (const row of outgoing) {
-		if (row.kind === "same_as") duplicates.add(row.toId);
-		else sourceWork.push(row.toId);
-	}
+	for (const row of outgoing) duplicates.add(row.toId);
 	for (const row of incoming) duplicates.add(row.fromId);
-	const works = boundedIds(sourceWork);
-	if (works.length > 0) {
-		const siblings = await selectEdges(db)
-			.where(
-				and(
-					eq(decisionEdges.orgId, orgId),
-					// bound-params: boundedIds() caps the list at FRONTIER_LIMIT (50)
-					inArray(decisionEdges.toId, works),
-					eq(decisionEdges.kind, "card_from_work"),
-					eq(decisionEdges.toKind, "work_item"),
-				),
-			)
-			.limit(EDGE_READ_LIMIT);
-		for (const row of siblings) duplicates.add(row.fromId);
-	}
 	duplicates.delete(cardId);
 	return [...duplicates].sort();
 }
@@ -491,7 +472,7 @@ export async function getDecisionContext(
 	];
 	const [priorDecision, supersededRows, duplicates, blocksCount] =
 		await Promise.all([
-			findPriorDecision(db, orgId, subjects),
+			findPriorDecision(db, orgId, [cardId]),
 			selectEdges(db)
 				.where(
 					and(

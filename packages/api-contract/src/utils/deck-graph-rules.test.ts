@@ -178,3 +178,68 @@ it("folds a linked duplicate chain into one live keeper", () => {
 		{ cardId: "a", successorId: "c" },
 	]);
 });
+
+it.each([undefined, "choice", "task"] as const)(
+	"keeps pending credential chores with responseKind %s after a rotation decision",
+	(responseKind) => {
+		const cards = ["rotate-orchard", "revoke-orchard"].map((id) =>
+			card(id, {
+				subject: "Rotate the orchard credentials",
+				prompt: "The owner must sign in and revoke the old credential.",
+				workItemId: "credential-plan",
+				workItemDisposition: "completed",
+				responseKind,
+				metadata: {
+					ownerTask: {
+						presence: "login",
+						steps: ["Sign in", "Revoke the old credential"],
+						estimatedMinutes: 5,
+					},
+				},
+				protected: true,
+				graph: {
+					priorDecision: {
+						...prior,
+						edge: { ...prior.edge, from: { kind: "deck_card", id } },
+					},
+				},
+			}),
+		);
+		expect(plan(...cards).actions).toEqual([]);
+	},
+);
+
+it("does not discharge legacy credential asks from a Work-level rotation decision", () => {
+	const cards = ["verify-retirement", "revoke-credentials"].map((id) =>
+		card(id, {
+			subject: "Verify retirement of exposed orchard credentials",
+			prompt:
+				"Verify per-credential retirement, then revoke only outstanding credentials. Agent preparation does not prove invalidation.",
+			workItemId: "credential-plan",
+			workItemDisposition: "accepted",
+			protected: true,
+			graph: {
+				priorDecision: {
+					...prior,
+					edge: {
+						...prior.edge,
+						from: { kind: "work_item", id: "credential-plan" },
+					},
+				},
+			},
+		}),
+	);
+	expect(plan(...cards).actions).toEqual([]);
+});
+it("requires the prior answer to belong to this card or an explicit duplicate", () => {
+	expect(
+		plan(card("unrelated", { graph: { priorDecision: prior } })).actions,
+	).toEqual([]);
+	expect(
+		plan(
+			card("reminder", {
+				graph: { priorDecision: prior, duplicates: ["old"] },
+			}),
+		).actions,
+	).toMatchObject([{ cardId: "reminder", reason: "already_decided" }]);
+});

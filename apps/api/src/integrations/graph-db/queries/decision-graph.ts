@@ -135,7 +135,7 @@ export function blocksReachQuery() {
 
 /**
  * Duplicate community per card: the `same_as` component around it (either
- * direction, bounded walk) plus other cards made from the same Work.
+ * direction, bounded walk). Shared Work never establishes duplicate identity.
  */
 export function duplicateCommunityQuery() {
 	return {
@@ -147,12 +147,7 @@ export function duplicateCommunityQuery() {
 				OPTIONAL MATCH (card)-[:DG_SAME_AS*1..${DECISION_GRAPH_WALK_HOPS}]-(same:DecisionNode {orgId: $orgId, kind: 'deck_card'})
 				RETURN collect(DISTINCT same.id) AS sameAs
 			}
-			CALL {
-				WITH card
-				OPTIONAL MATCH (card)-[:DG_CARD_FROM_WORK]->(:DecisionNode {orgId: $orgId})<-[:DG_CARD_FROM_WORK]-(sibling:DecisionNode {orgId: $orgId, kind: 'deck_card'})
-				RETURN collect(DISTINCT sibling.id) AS siblings
-			}
-			RETURN cardId, [id IN sameAs + siblings WHERE id <> cardId] AS duplicates
+			RETURN cardId, [id IN sameAs WHERE id <> cardId] AS duplicates
 		`,
 	};
 }

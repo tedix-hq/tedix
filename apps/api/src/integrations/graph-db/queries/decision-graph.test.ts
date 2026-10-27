@@ -60,5 +60,7 @@ describe("decision graph Cypher", () => {
 		expect(duplicateCommunityQuery().query).toContain(
 			"(card:DecisionNode {orgId: $orgId, key: 'deck_card:' + cardId})",
 		);
+		expect(duplicateCommunityQuery().query).toContain("[:DG_SAME_AS*1..4]");
+		expect(duplicateCommunityQuery().query).not.toContain("DG_CARD_FROM_WORK");
 	});
 });

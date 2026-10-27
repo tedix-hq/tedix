@@ -1,4 +1,3 @@
-import { findPriorDecision } from "@tedix/db/queries/decision-graph";
 import { listDeckSourceStates } from "@tedix/db/queries/work-items/deck-sweep";
 import { deckCardStale } from "@tedix/api-contract/utils/deck-ask";
 import { classifyDeckAsk } from "@tedix/api-contract/utils/deck-qualification";
@@ -47,16 +46,15 @@ export async function deckCreateGate(
 			: null;
 	let sourceState: string | undefined;
 	if (config.qualification.enabled && input.workItemId) {
-		const [prior, states] = await Promise.all([
-			config.qualification.alreadyDecided && ask.responseKind !== "task"
-				? findPriorDecision(context.db, orgId, [input.workItemId])
-				: null,
-			listDeckSourceStates(context.db, orgId, [input.workItemId], new Date()),
-		]);
+		// A new card has no decision identity yet; Work-level answers may concern other asks.
+		const states = await listDeckSourceStates(
+			context.db,
+			orgId,
+			[input.workItemId],
+			new Date(),
+		);
 		sourceState = states.get(input.workItemId);
-		if (prior)
-			qualificationIssue = `Already decided: ${prior.edge.evidenceRef ?? `${prior.node.kind}:${prior.node.id}`}`;
-		else if (sourceState === "completed")
+		if (sourceState === "completed" && ask.responseKind !== "task")
 			qualificationIssue = `Already decided: /work/items/${input.workItemId}`;
 	}
 	if (

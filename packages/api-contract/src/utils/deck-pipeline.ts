@@ -11,6 +11,7 @@ import type {
 } from "../schemas/deck-pipeline";
 import { DecisionEnvelopeSchema } from "../schemas/os-decision-deck";
 import { deckCardExpired, deckCardStale } from "./deck-ask";
+import { classifyDeckAsk } from "./deck-qualification";
 import type { DecisionContext } from "../schemas/decision-graph";
 import defaults from "../assets/deck-pipeline.v1.json";
 
@@ -224,11 +225,18 @@ export function planDeckSweep(input: {
 			card.metadata.decisionDeck,
 		).data;
 		const prior = card.graph?.priorDecision;
+		const task =
+			card.responseKind === "task" ||
+			card.askKind === "task" ||
+			classifyDeckAsk(card, qualification).responseKind === "task";
 		if (
 			qualification.enabled &&
 			qualification.alreadyDecided &&
 			prior &&
-			card.responseKind !== "task"
+			prior.edge.from.kind === "deck_card" &&
+			(prior.edge.from.id === card.id ||
+				card.graph?.duplicates?.includes(prior.edge.from.id)) &&
+			!task
 		) {
 			add({
 				cardId: card.id,
@@ -285,7 +293,7 @@ export function planDeckSweep(input: {
 			});
 			continue;
 		}
-		if (card.workItemId && card.workItemDisposition === "completed") {
+		if (!task && card.workItemId && card.workItemDisposition === "completed") {
 			add({
 				cardId: card.id,
 				reason: "already_decided",

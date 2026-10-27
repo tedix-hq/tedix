@@ -28,12 +28,11 @@ export async function deckQualificationGraph(
 				const context = await getDecisionContext(db, orgId, card.id, {
 					maxHops: 4,
 				});
-				// Canonical Work FKs cover edge backfill lag; answered duplicates carry the same decision.
-				if (card.workItemId || context.duplicates.length) {
+				// An answered same_as card carries the same decision; a shared Work does not.
+				if (context.duplicates.length) {
 					context.priorDecision =
 						(await findPriorDecision(db, orgId, [
 							card.id,
-							...(card.workItemId ? [card.workItemId] : []),
 							...context.duplicates,
 						])) ?? context.priorDecision;
 				}
