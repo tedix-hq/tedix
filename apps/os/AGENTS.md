@@ -5,6 +5,7 @@ read_when:
   - Adding a useQuery/useMutation, or any invalidateQueries/setQueryData call
   - Changing the /capn, /collab, or session-broker paths in src/worker.ts
   - Adding or changing a WebMCP tool module (src/components/*-webmcp-tools.ts)
+  - Adding a new view, route, Output kind, or editor surface
   - Proposing a framework change (TanStack Start, Remix 3, TanStack DB)
 title: "apps/os agent guide"
 ---
@@ -248,6 +249,26 @@ with no compile-time check: a token Kumo renames silently stops being projected
 and the component keeps Cloudflare's default. `bun run lint:kumo`
 enforces both directions on every push (inside `lint:repo`); `bunx @cloudflare/kumo migrate` reports the renames Kumo
 declares for itself.
+
+## New views are apps, never routes
+
+A new view someone sees in OS is a **workspace app** rendered by the generic
+app renderer and configured per organization — never a new fixed route and
+never a new Board tab. A new kind of view is a runtime-app blueprint, not a
+new entry in the product's data layer.
+
+The native Output layer stays small on purpose. `document`, `sheet`, and
+`presentation` are the three typed, revisioned kinds with first-party editors
+(`video` is a rendered artifact with no editor). `scripts/lint-output-kinds.ts`
+(runs in `lint:repo`) guards this boundary: a fourth kind in
+`OsOutputKindSchema`, a new route naming outputs, or a new
+`output-editor*.tsx` component fails the gate unless it carries the decision
+that allowed it.
+
+Revisit rebuilding an editor as an app only when **both** are true: a paying
+tenant needs to fork an editor's behavior, **and** a spike shows the
+app-rendered editor's typing latency within 10% of native. Either one alone is
+not enough.
 
 ## Validation and deployment
 
