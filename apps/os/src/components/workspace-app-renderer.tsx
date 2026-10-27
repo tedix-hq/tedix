@@ -72,6 +72,12 @@ const SystemMapApp = lazy(() =>
 	import("./system-map-app").then((m) => ({ default: m.SystemMapApp })),
 );
 
+const AccountOrganizationsApp = lazy(() =>
+	import("./account-organizations-app").then((m) => ({
+		default: m.AccountOrganizationsApp,
+	})),
+);
+
 const OrganizationDomainApp = lazy(() =>
 	import("./organization-domain-app").then((m) => ({
 		default: m.OrganizationDomainApp,
@@ -121,6 +127,8 @@ function InstalledApp({
 	activityFeed?: ActivityFeedNavigation;
 }) {
 	const entry = manifest.entry.trim();
+	if (entry === "tedix:app/account-organizations")
+		return <AccountOrganizationsApp />;
 	if (
 		entry === ORGANIZATION_DOMAIN_ENTRY &&
 		typeof manifest.config?.organizationId === "string"

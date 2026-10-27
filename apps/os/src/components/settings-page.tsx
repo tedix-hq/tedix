@@ -813,6 +813,17 @@ export function SettingsPage({
 
 			{!localEvaluation && <WebPushSettings />}
 			{!localEvaluation && <PersonalAgentValue />}
+			{!localEvaluation && (
+				<PageSection>
+					<WorkspaceAppRenderer
+						manifest={{
+							entry: "tedix:app/account-organizations",
+							capabilities: [],
+							config: {},
+						}}
+					/>
+				</PageSection>
+			)}
 			{!localEvaluation &&
 				operationalContext.data &&
 				["owner", "admin"].includes(

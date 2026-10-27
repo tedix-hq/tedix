@@ -20,6 +20,14 @@ import {
 	updateEntityImageUrl,
 	updateEntityImageUrlForPlatform,
 } from "@tedix/db/queries/entity-images";
+import {
+	getMemberByCanonicalUserId,
+	getMemberByUserId,
+} from "@tedix/db/queries/organization-members";
+import {
+	getOrganizationById,
+	isOrganizationOffboarding,
+} from "@tedix/db/queries/organizations";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { hasScope } from "@tedix/mcp-shared/auth/scopes";
 import {
@@ -51,13 +59,12 @@ const authedImagesOs = imagesOs.use(withAuth);
 export const uploadImageContract = authedImagesOs.upload.handler(
 	async ({ context, input }) => {
 		const { entityType, entityId, fileData, contentType, filename } = input;
-		const { env, organizationId } = context;
-		assertEntityImageAuthorization(context, entityType);
-
-		if (!organizationId) {
-			throw createError(ErrorCodes.FORBIDDEN, "Organization context required");
-		}
-		await verifyEntityOwnership(context, entityType, entityId);
+		const { env } = context;
+		const organizationId = await authorizeEntityImage(
+			context,
+			entityType,
+			entityId,
+		);
 
 		const bytes = Uint8Array.from(atob(fileData), (c) => c.charCodeAt(0));
 		const { id } = await uploadImageBytes(env, bytes.buffer as ArrayBuffer, {
@@ -96,13 +103,12 @@ export const uploadImageContract = authedImagesOs.upload.handler(
 export const requestUploadContract = authedImagesOs.requestUpload.handler(
 	async ({ context, input }) => {
 		const { entityType, entityId } = input;
-		const { env, organizationId } = context;
-		assertEntityImageAuthorization(context, entityType);
-
-		if (!organizationId) {
-			throw createError(ErrorCodes.FORBIDDEN, "Organization context required");
-		}
-		await verifyEntityOwnership(context, entityType, entityId);
+		const { env } = context;
+		const organizationId = await authorizeEntityImage(
+			context,
+			entityType,
+			entityId,
+		);
 
 		const { id, uploadURL } = await requestDirectUpload(env, {
 			metadata: { entityType, entityId, organizationId },
@@ -119,13 +125,12 @@ export const requestUploadContract = authedImagesOs.requestUpload.handler(
 export const confirmUploadContract = authedImagesOs.confirmUpload.handler(
 	async ({ context, input }) => {
 		const { entityType, entityId, imageId } = input;
-		const { env, organizationId } = context;
-		assertEntityImageAuthorization(context, entityType);
-
-		if (!organizationId) {
-			throw createError(ErrorCodes.FORBIDDEN, "Organization context required");
-		}
-		await verifyEntityOwnership(context, entityType, entityId);
+		const { env } = context;
+		const organizationId = await authorizeEntityImage(
+			context,
+			entityType,
+			entityId,
+		);
 
 		// Confirm the Direct Creator Upload actually landed before we bind it.
 		const image = await getCfImage(env, imageId);
@@ -133,6 +138,17 @@ export const confirmUploadContract = authedImagesOs.confirmUpload.handler(
 			throw createError(
 				ErrorCodes.NOT_FOUND,
 				"Uploaded image not found; the upload may not have completed",
+			);
+		}
+
+		if (
+			image.meta?.entityType !== entityType ||
+			image.meta?.entityId !== entityId ||
+			image.meta?.organizationId !== organizationId
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Image was not uploaded for this entity",
 			);
 		}
 
@@ -166,13 +182,12 @@ export const confirmUploadContract = authedImagesOs.confirmUpload.handler(
 export const deleteImageContract = authedImagesOs.delete.handler(
 	async ({ context, input }) => {
 		const { entityType, entityId } = input;
-		const { env, organizationId } = context;
-		assertEntityImageAuthorization(context, entityType);
-
-		if (!organizationId) {
-			throw createError(ErrorCodes.FORBIDDEN, "Organization context required");
-		}
-		await verifyEntityOwnership(context, entityType, entityId);
+		const { env } = context;
+		const organizationId = await authorizeEntityImage(
+			context,
+			entityType,
+			entityId,
+		);
 
 		const currentUrl = await getEntityImageUrl(context.db, {
 			entityType,
@@ -395,17 +410,39 @@ function isMigratableUrl(url: string | null): url is string {
 	return true;
 }
 
-/**
- * Rows whose image column is set and migratable (legacy r2.dev assets and other
- * non-CF logos, excluding .ico). The SQL pre-filter drops already-migrated rows;
- * isMigratableUrl applies the http(s)/.ico rules in JS.
- */
-async function verifyEntityOwnership(
+/** Return the authorized target scope, independent of the current org for users. */
+async function authorizeEntityImage(
 	context: BaseContext,
 	entityType: EntityType,
 	entityId: string,
-): Promise<void> {
+): Promise<string> {
 	const { db, organizationId } = context;
+	if (entityType === "organization" && context.authType === "user") {
+		const member = context.userId
+			? await getMemberByCanonicalUserId(db, entityId, context.userId)
+			: context.user?.sub
+				? await getMemberByUserId(db, entityId, context.user.sub)
+				: undefined;
+		if (
+			!member ||
+			member.status !== "active" ||
+			!["owner", "admin"].includes(member.role)
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Organization owner or admin membership required",
+			);
+		}
+		const organization = await getOrganizationById(db, entityId);
+		if (!organization || isOrganizationOffboarding(organization.metadata)) {
+			throw createError(ErrorCodes.FORBIDDEN, "Organization access denied");
+		}
+		return entityId;
+	}
+	assertEntityImageAuthorization(context, entityType);
+	if (!organizationId) {
+		throw createError(ErrorCodes.FORBIDDEN, "Organization context required");
+	}
 
 	switch (entityType) {
 		case "organization": {
@@ -429,4 +466,5 @@ async function verifyEntityOwnership(
 			break;
 		}
 	}
+	return organizationId;
 }

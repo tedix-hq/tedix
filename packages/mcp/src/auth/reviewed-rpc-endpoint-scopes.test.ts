@@ -32,6 +32,37 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("exposes image writes to app writers while the API checks each target", () => {
+		for (const action of [
+			"upload",
+			"requestUpload",
+			"confirmUpload",
+			"delete",
+		]) {
+			const endpoint = `images/${action}`;
+			expect(resolve(endpoint, { readOnlyHint: false })).toEqual([
+				"mcp:apps.write",
+			]);
+			const tool = {
+				toolId: `images__${action}`,
+				toolTypeId: "rpc",
+				authRequired: true,
+				config: { endpoint },
+			};
+			for (const [scope, visible] of [
+				["mcp:apps.write", true],
+				["mcp:apps.read", false],
+			] as const) {
+				expect(
+					isMcpToolVisibleToCaller(tool, "images", undefined, {
+						authType: "oauth",
+						scopes: [scope],
+					}),
+				).toBe(visible);
+			}
+		}
+		expect(resolve("images/backfill")).toEqual(["platform:admin"]);
+	});
 	it("exposes OS onboarding to app writers while the API enforces ownership", () => {
 		const endpoint = "organizations/completeOsOnboarding";
 		expect(resolve(endpoint)).toEqual(["mcp:apps.write"]);
