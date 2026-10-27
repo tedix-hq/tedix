@@ -50,6 +50,7 @@ vi.mock("@/lib/use-os-identity", () => ({
 }));
 
 import {
+	authoritySummary,
 	inferenceAdmissionLabel,
 	modelPolicySummary,
 	preferenceOrigin,
@@ -209,27 +210,80 @@ describe("inferenceAdmissionLabel", () => {
 				localEvaluation: false,
 				localInferenceEnabled: false,
 			}),
-		).toBe("admitting inference");
+		).toBe("AI is available");
 		expect(
 			inferenceAdmissionLabel({
 				active: false,
 				localEvaluation: true,
 				localInferenceEnabled: true,
 			}),
-		).toBe("inference BLOCKED");
+		).toBe("AI is blocked");
 	});
 });
 
 describe("modelPolicySummary", () => {
 	it("keeps the unconfigured and limited model policies distinct", () => {
-		expect(modelPolicySummary(null)).toBe("All model tiers allowed");
+		expect(modelPolicySummary(null)).toBe("Any model allowed");
 		expect(
 			modelPolicySummary({
 				allowedModelTiers: ["balanced", "frontier"],
 				dailyTokenLimit: 50_000,
 				dailySpendLimitMicros: 2_500_000,
 			}),
-		).toBe("Model tiers: balanced · frontier · 50,000 tokens/day · $2.50/day");
+		).toBe("Models: balanced · frontier · 50,000 tokens/day · $2.50/day");
+	});
+});
+
+describe("authoritySummary", () => {
+	const base = {
+		authType: "user" as const,
+		machineScopes: [],
+		crossTenantOverrideActive: false,
+	};
+
+	it("says what each assignable role allows in one plain sentence", () => {
+		expect(authoritySummary({ ...base, role: "owner", permissions: [] })).toBe(
+			"You can manage this organization, including billing and members.",
+		);
+		expect(authoritySummary({ ...base, role: "admin", permissions: [] })).toBe(
+			"You can manage this organization, except billing.",
+		);
+		expect(authoritySummary({ ...base, role: "viewer", permissions: [] })).toBe(
+			"You can view this organization's work, but you can't make changes.",
+		);
+	});
+
+	it("summarizes a custom role from its granted capabilities, not its codes", () => {
+		const summary = authoritySummary({
+			...base,
+			role: "auditor",
+			permissions: ["apps:read", "team:read", "billing:read"],
+		});
+		expect(summary).toBe("You can view apps, view members, and view billing.");
+		expect(summary).not.toContain(":");
+	});
+
+	it("describes machine and agent sign-ins without pretending a role", () => {
+		expect(
+			authoritySummary({
+				...base,
+				authType: "tedi",
+				role: null,
+				permissions: [],
+			}),
+		).toContain("agent identity");
+		expect(
+			authoritySummary({
+				...base,
+				authType: "apikey",
+				role: null,
+				permissions: [],
+				machineScopes: ["work:read"],
+			}),
+		).toContain("machine sign-in");
+		expect(authoritySummary({ ...base, role: null, permissions: [] })).toBe(
+			"This sign-in has no permissions in this workspace.",
+		);
 	});
 });
 
@@ -385,12 +439,35 @@ describe("SettingsPage", () => {
 		expect(container.textContent).not.toContain("No charter authored");
 	});
 
-	it("reports a missing entitlement as blocked inference, never as healthy", async () => {
+	it("reports a missing AI plan as unavailable, never as healthy", async () => {
 		const container = render();
 		await flush();
+		expect(container.textContent).toContain("No AI plan is set up");
+	});
+
+	it("explains access in plain words and keeps raw codes behind Technical details", async () => {
+		const container = render();
+		await flush();
+		expect(container.textContent).toContain("What you can do");
 		expect(container.textContent).toContain(
-			"No runtime entitlement configured",
+			"You can do everyday work and build apps here.",
 		);
+		// The exact codes stay out of the summary and out of the DOM until the
+		// person opens Technical details.
+		expect(container.textContent).not.toContain("apps:read");
+		const trigger = [...container.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Technical details"),
+		);
+		expect(trigger).toBeTruthy();
+		await act(async () => {
+			trigger?.click();
+		});
+		expect(container.textContent).toContain("apps:read");
+		expect(container.textContent).toContain("os:run");
+		const values = [...container.querySelectorAll("dd")].map(
+			(value) => value.textContent,
+		);
+		expect(values).toContain("member");
 	});
 
 	it("keeps the save button disabled until something actually changed", async () => {

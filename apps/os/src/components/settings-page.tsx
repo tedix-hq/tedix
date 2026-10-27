@@ -2,12 +2,15 @@ import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { ORGANIZATION_DOMAIN_ENTRY } from "@tedix/api-contract/schemas/organization-domains";
 import { WebPushSettings } from "@/components/web-push-settings";
 import type {
+	OrganizationPermission,
+	OsCallerAuthority,
 	OsUserPreferences,
 	OsUserPreferencesState,
 } from "@tedix/api-contract/schemas/user-settings";
 import type { AiGatewayAdmissionPolicy } from "@tedix/api-contract/schemas/tedi";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import {
+	CaretRight,
 	Desktop,
 	Eye,
 	Globe,
@@ -26,6 +29,11 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { CodeInline } from "@/components/kumo/code";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { SettingsRow, SettingsRows } from "@/components/settings-row";
 import { OsRouterLink } from "@/components/kumo/link-provider";
 import {
@@ -234,8 +242,8 @@ export function inferenceAdmissionLabel(input: {
 	localEvaluation: boolean;
 	localInferenceEnabled: boolean;
 }): string {
-	if (!input.active) return "inference BLOCKED";
-	if (!input.localEvaluation) return "admitting inference";
+	if (!input.active) return "AI is blocked";
+	if (!input.localEvaluation) return "AI is available";
 	return input.localInferenceEnabled
 		? "Paid remote AI is enabled for this local session"
 		: "AI replies are off in this local session";
@@ -247,8 +255,8 @@ export function modelPolicySummary(
 ): string {
 	const parts = [
 		policy?.allowedModelTiers?.length
-			? `Model tiers: ${policy.allowedModelTiers.join(" · ")}`
-			: "All model tiers allowed",
+			? `Models: ${policy.allowedModelTiers.join(" · ")}`
+			: "Any model allowed",
 	];
 	if (policy?.dailyTokenLimit !== undefined) {
 		parts.push(`${formatCount(policy.dailyTokenLimit)} tokens/day`);
@@ -257,6 +265,82 @@ export function modelPolicySummary(
 		parts.push(`$${(policy.dailySpendLimitMicros / 1_000_000).toFixed(2)}/day`);
 	}
 	return parts.join(" · ");
+}
+
+/**
+ * What the four assignable membership roles let a person do, in one sentence
+ * each. `authority.role` is a free-form membership value — custom roles exist
+ * in the identity provider — so anything outside this map is summarized from
+ * the granted capabilities instead. The exact codes stay under Technical
+ * details in the rendered row.
+ */
+const ROLE_SUMMARIES: Record<string, string> = {
+	owner: "You can manage this organization, including billing and members.",
+	admin: "You can manage this organization, except billing.",
+	member:
+		"You can do everyday work and build apps here. An owner or admin manages members, settings, and billing.",
+	viewer: "You can view this organization's work, but you can't make changes.",
+};
+
+function joinPhrases(phrases: readonly string[]): string {
+	if (phrases.length <= 2) return phrases.join(" and ");
+	return `${phrases.slice(0, -1).join(", ")}, and ${phrases.at(-1)}`;
+}
+
+function capabilityPhrases(permissions: readonly string[]): string[] {
+	const has = (...codes: OrganizationPermission[]) =>
+		codes.some((code) => permissions.includes(code));
+	const phrases: string[] = [];
+	if (has("apps:create", "apps:update", "apps:delete"))
+		phrases.push("manage apps");
+	else if (has("apps:read")) phrases.push("view apps");
+	if (has("tedis:create", "tedis:update", "tedis:delete"))
+		phrases.push("manage agents");
+	else if (has("tedis:read")) phrases.push("view agents");
+	if (has("os:admin")) phrases.push("administer the OS");
+	else if (has("os:publish", "os:approve"))
+		phrases.push("publish and approve work in the OS");
+	else if (has("os:author")) phrases.push("build apps and work in the OS");
+	else if (has("os:run")) phrases.push("run work in the OS");
+	else if (has("os:read")) phrases.push("use the OS");
+	if (has("team:manage")) phrases.push("manage members and roles");
+	else if (has("team:read")) phrases.push("view members");
+	if (
+		has(
+			"settings:manage",
+			"secrets:manage",
+			"integrations:manage",
+			"api_keys:manage",
+		)
+	)
+		phrases.push("manage organization settings, keys, and integrations");
+	if (has("billing:manage")) phrases.push("manage billing");
+	else if (has("billing:read")) phrases.push("view billing");
+	if (has("analytics:read")) phrases.push("view analytics");
+	if (has("catalog:manage")) phrases.push("manage the app catalog");
+	if (has("platform:admin")) phrases.push("administer the platform");
+	return phrases;
+}
+
+/**
+ * What the caller's role allows, in plain words: a hand-written sentence for
+ * the known roles, a capability summary for a custom role, and an honest
+ * statement for machine or permissionless sign-ins.
+ */
+export function authoritySummary(authority: OsCallerAuthority): string {
+	const role = authority.role?.toLowerCase();
+	if (role && ROLE_SUMMARIES[role]) return ROLE_SUMMARIES[role];
+	if (authority.permissions.length > 0) {
+		const phrases = capabilityPhrases(authority.permissions);
+		if (phrases.length > 0) return `You can ${joinPhrases(phrases)}.`;
+	}
+	if (authority.authType === "tedi") {
+		return "This is an agent identity — its access comes from its granted capabilities.";
+	}
+	if (authority.machineScopes.length > 0) {
+		return "This is a machine sign-in; its access is set by the scopes under Technical details.";
+	}
+	return "This sign-in has no permissions in this workspace.";
 }
 
 /** Injectable-link seam for tests that render without a RouterProvider. */
@@ -272,6 +356,50 @@ type TeamMembersLinkProps = {
 };
 const DefaultTeamMembersLink: ComponentType<TeamMembersLinkProps> =
 	OsRouterLink;
+
+/**
+ * The plain-English access summary is what a person reads first; the exact
+ * role value, credential type, permission codes, and machine scopes stay
+ * reachable under Technical details instead of fronting the row.
+ */
+function AuthorityDescription({ authority }: { authority: OsCallerAuthority }) {
+	const details: Array<[string, string]> = [];
+	if (authority.role) details.push(["Role", authority.role]);
+	if (authority.authType) details.push(["Sign-in type", authority.authType]);
+	if (authority.permissions.length > 0)
+		details.push(["Permissions", authority.permissions.join(" · ")]);
+	if (authority.machineScopes.length > 0)
+		details.push(["Machine scopes", authority.machineScopes.join(" · ")]);
+	return (
+		<div className="grid gap-1">
+			<span>{authoritySummary(authority)}</span>
+			{details.length > 0 && (
+				<Collapsible>
+					<CollapsibleTrigger className="group/disclosure -mx-2 w-fit px-2">
+						<CaretRight
+							aria-hidden
+							className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+							size={12}
+						/>
+						Technical details
+					</CollapsibleTrigger>
+					<CollapsibleContent>
+						<dl className="m-0 mt-1 grid gap-2">
+							{details.map(([label, value]) => (
+								<div className="grid gap-0.5" key={label}>
+									<dt className="text-kumo-subtle">{label}</dt>
+									<dd className="m-0 break-words font-mono text-xs text-kumo-default">
+										{value}
+									</dd>
+								</div>
+							))}
+						</dl>
+					</CollapsibleContent>
+				</Collapsible>
+			)}
+		</div>
+	);
+}
 
 function OperationalContextSection({
 	localEvaluation,
@@ -339,14 +467,10 @@ function OperationalContextSection({
 					<SettingsRow
 						icon={Key}
 						title={
-							localEvaluation ? "Seeded local capabilities" : "Permissions"
+							localEvaluation ? "Seeded local capabilities" : "What you can do"
 						}
 						description={
-							context.data.authority.permissions.length > 0
-								? context.data.authority.permissions.join(" · ")
-								: context.data.authority.machineScopes.length > 0
-									? `Machine scopes: ${context.data.authority.machineScopes.join(" · ")}`
-									: "No tenant permissions resolved for this credential."
+							<AuthorityDescription authority={context.data.authority} />
 						}
 					>
 						{context.data.authority.crossTenantOverrideActive && (
@@ -392,7 +516,7 @@ function OperationalContextSection({
 													localInferenceEnabled,
 												},
 											)} · ${modelPolicySummary(entitlement.data.modelPolicy)}`
-										: "No runtime entitlement configured — runtime inference is not admitted."
+										: "No AI plan is set up — AI can't run in this workspace."
 						}
 					>
 						<Button
