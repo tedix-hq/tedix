@@ -2419,6 +2419,43 @@ describe("CanvasPage listing", () => {
 		);
 	});
 
+	it("points built-in app history guidance at the App and Files controls", async () => {
+		mockLists();
+		const currentRevision = gadgetRevisionFixture({
+			manifest: {
+				capabilities: [],
+				entry: "tedix:app/activity-feed",
+				config: { version: 1, scope: "organization", projects: [] },
+			},
+		});
+		osWorkspacesApi.gadgets.get.mockResolvedValue({
+			gadget: gadgetFixture(),
+			currentRevision,
+		});
+		mockCollab({ initial: docJson(currentRevision.manifest) });
+		routing.search = {
+			workpiece: `gadget:${GADGET_ID}`,
+			pane: "workpiece",
+			view: "history",
+		};
+		const container = renderPage();
+		await flush();
+
+		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
+		expect(container.textContent).toContain("Activity comes from linked Work");
+		expect(container.textContent).toContain(
+			"Open App to see activity. Each item keeps its history with its originating Work.",
+		);
+		expect(container.textContent).not.toContain("Open Preview");
+		expect(container.textContent).not.toContain("Open Resources");
+		click(findButton(container, "Open Files"));
+		expect(routing.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({ pane: "resources" }),
+			}),
+		);
+	});
+
 	it("keeps a non-resource Gadget in source mode", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
