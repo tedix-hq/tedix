@@ -99,7 +99,9 @@ try {
 		await composer.fill(`Use the newest evidence on ${label}.`);
 		await send.click();
 		const queued = page.locator('[data-steering-status="queued"]');
-		await queued.getByText("Queued · unread", { exact: true }).waitFor();
+		await queued
+			.getByText("Queued · waiting for the run", { exact: true })
+			.waitFor();
 		assert.match(await queued.innerText(), /Use the newest evidence/);
 		assert.equal(await composer.inputValue(), "");
 		await page.waitForFunction(() => {

@@ -63,7 +63,7 @@ describe("Deck standing approval", () => {
 			"WorkDecisionStack",
 		);
 	});
-	it("names the exact tool in confirmation and saves only that scope", async () => {
+	it("names the app in confirmation and saves only that exact tool scope", async () => {
 		renderToStaticMarkup(
 			<ApprovalDecisionCard
 				id="approval-1"
@@ -74,7 +74,7 @@ describe("Deck standing approval", () => {
 		const always = state.card?.actions?.find(
 			(action) => action.id === "always",
 		);
-		expect(always?.confirm).toContain("update requests from notes.update_note");
+		expect(always?.confirm).toContain("update requests in Notes across");
 		expect(always?.confirm).toContain(
 			"Other tools and destructive actions still require review",
 		);
