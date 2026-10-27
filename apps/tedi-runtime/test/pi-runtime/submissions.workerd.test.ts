@@ -6,6 +6,8 @@ import {
 } from "../../src/runtime-admission-do";
 import { getAgentByName } from "agents";
 import { describe, expect, it } from "vite-plus/test";
+import { admittedTediDo } from "../tedi-do";
+import { TediSessionRepo } from "@tedix/tedi-session/session-repo";
 import type { PiStorageFixture, PiStorageSnapshot } from "./storage-fixture";
 import type { PiFacetMediaFixture } from "./media-fixture";
 const bindings = env as unknown as {
@@ -671,8 +673,6 @@ it("checks child operation completion against its real parent-run accounting che
 });
 
 it("uses durable original compaction admission for skipped, modified and uncertain queued passes", async () => {
-	const { admittedTediDo } = await import("../tedi-do");
-	const { TediSessionRepo } = await import("@tedix/tedi-session/session-repo");
 	const ns = (env as unknown as { PI_TEST: DurableObjectNamespace }).PI_TEST;
 	const stub = ns.get(ns.idFromName(crypto.randomUUID()));
 	await runInDurableObject(stub, async (_actual, state) => {
@@ -811,8 +811,6 @@ it("uses durable original compaction admission for skipped, modified and uncerta
 });
 
 it("commits a known compaction summary and its original ledger receipt exactly once", async () => {
-	const { admittedTediDo } = await import("../tedi-do");
-	const { TediSessionRepo } = await import("@tedix/tedi-session/session-repo");
 	const ns = (env as unknown as { PI_TEST: DurableObjectNamespace }).PI_TEST;
 	const stub = ns.get(ns.idFromName(crypto.randomUUID()));
 	await runInDurableObject(stub, async (_actual, state) => {

@@ -16,6 +16,10 @@ vi.mock("../../services/lesson-distiller", async (importOriginal) => ({
 	runDistillModel: styleModel.run,
 }));
 
+// Build the shared migration template during collection, before timing router
+// behavior. Each fixture below still receives an independent writable copy.
+createMigratedSqlite().close();
+
 const org = "11111111-1111-4111-8111-111111111111";
 const work = "22222222-2222-4222-8222-222222222222";
 const agent = "33333333-3333-4333-8333-333333333333";
