@@ -8,6 +8,7 @@ import {
 	isNull,
 	like,
 	lt,
+	or,
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -609,6 +610,37 @@ export async function countKernelConversationEventsByKind(
 				eq(kernelRuntimeEvents.conversationId, input.conversationId),
 				// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
 				inArray(kernelRuntimeEvents.kind, input.kinds),
+			),
+		)
+		.groupBy(kernelRuntimeEvents.kind);
+	return new Map(rows.map((row) => [row.kind, Number(row.count) || 0]));
+}
+
+/** Count first-settlement events and title-bearing conversation updates only. */
+export async function countKernelConversationTitleGuardEvents(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		conversationId: string;
+	},
+): Promise<Map<TediRuntimeEventKind, number>> {
+	const rows = await db
+		.select({
+			kind: kernelRuntimeEvents.kind,
+			count: sql<number>`count(*)`,
+		})
+		.from(kernelRuntimeEvents)
+		.where(
+			and(
+				eq(kernelRuntimeEvents.organizationId, input.organizationId),
+				eq(kernelRuntimeEvents.conversationId, input.conversationId),
+				or(
+					eq(kernelRuntimeEvents.kind, "message.completed"),
+					and(
+						eq(kernelRuntimeEvents.kind, "conversation.updated"),
+						sql`(json_extract(${kernelRuntimeEvents.payload}, '$.conversation.title') IS NOT NULL OR json_extract(${kernelRuntimeEvents.payload}, '$.title') IS NOT NULL)`,
+					),
+				),
 			),
 		)
 		.groupBy(kernelRuntimeEvents.kind);

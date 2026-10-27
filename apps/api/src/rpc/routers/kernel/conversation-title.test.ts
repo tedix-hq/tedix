@@ -33,7 +33,7 @@ vi.mock("./llm", async (importOriginal) => {
 
 import type { BaseContext } from "../../orpc";
 import {
-	backfillCodeLikeConversationTitles,
+	backfillPlaceholderConversationTitles,
 	buildConversationTitlePrompt,
 	evaluateAutoTitleGuard,
 	generateAndPersistHomeConversationTitle,
@@ -239,7 +239,7 @@ describe("sanitizeConversationTitle", () => {
 describe("evaluateAutoTitleGuard", () => {
 	const base = {
 		conversationId: "home:abc-123",
-		conversationUpdatedCount: 0,
+		titleUpdatedCount: 0,
 		completedMessageCount: 1,
 	};
 
@@ -253,10 +253,10 @@ describe("evaluateAutoTitleGuard", () => {
 		).toBe(false);
 	});
 
-	it("yields to any existing conversation.updated event (rename OR prior auto-title)", () => {
-		expect(
-			evaluateAutoTitleGuard({ ...base, conversationUpdatedCount: 1 }),
-		).toBe(false);
+	it("yields to an existing title update (rename OR prior auto-title)", () => {
+		expect(evaluateAutoTitleGuard({ ...base, titleUpdatedCount: 1 })).toBe(
+			false,
+		);
 	});
 
 	it("only fires on the FIRST assistant settlement", () => {
@@ -422,7 +422,7 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		}
 	});
 
-	it("keeps provider text out of failure logs while persisting the fallback", async () => {
+	it("keeps provider text out of failure logs and leaves the fallback retryable", async () => {
 		const providerText = "Bearer sk-private-provider-response";
 		const causeText = "private prompt body";
 		mockGenerateText.mockReset();
@@ -431,7 +431,7 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		);
 		const inserted: unknown[] = [];
 		const db = scriptedDb(
-			[[{ kind: "message.completed", count: 1 }], [insertedEventRow()]],
+			[[{ kind: "message.completed", count: 1 }]],
 			inserted,
 		);
 		const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -441,9 +441,7 @@ describe("generateAndPersistHomeConversationTitle", () => {
 				contextWith(db, modelEnv()),
 				turnInput(),
 			);
-			expect(
-				(inserted[0] as { payload: { title: string } }).payload.title,
-			).toBe("How do invoices sync to globex");
+			expect(inserted).toHaveLength(0);
 			expect(warnings).toHaveBeenCalledWith({
 				component: "kernel.conversation_title",
 				event: "auto_title_model_failed",
@@ -521,10 +519,13 @@ describe("generateAndPersistHomeConversationTitle", () => {
 			id: string;
 			kind: string;
 			conversationId: string;
+			runId?: string;
 			payload: Record<string, unknown>;
 		};
 		expect(row.kind).toBe("conversation.updated");
 		expect(row.conversationId).toBe("home:abc-123");
+		// Conversation overlays belong to the run-free realtime lane.
+		expect(row.runId).toBeUndefined();
 		// Idempotency: the event id is keyed to the settled run.
 		expect(row.id).toContain("run-1");
 		expect(row.payload).toEqual({
@@ -609,11 +610,11 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		expect(inserted).toHaveLength(0);
 	});
 
-	it("unconfigured model env persists a deterministic first-message fallback", async () => {
+	it("unconfigured model env leaves the provisional title retryable", async () => {
 		mockGenerateText.mockReset();
 		const inserted: unknown[] = [];
 		const db = scriptedDb(
-			[[{ kind: "message.completed", count: 1 }], [insertedEventRow()]],
+			[[{ kind: "message.completed", count: 1 }]],
 			inserted,
 		);
 
@@ -623,18 +624,15 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		);
 
 		expect(mockGenerateText).not.toHaveBeenCalled();
-		expect(inserted).toHaveLength(1);
-		expect((inserted[0] as { payload: { title: string } }).payload.title).toBe(
-			"How do invoices sync to globex",
-		);
+		expect(inserted).toHaveLength(0);
 	});
 
-	it("LLM failure is swallowed and persists the deterministic fallback", async () => {
+	it("LLM failure is swallowed without finalizing the deterministic fallback", async () => {
 		mockGenerateText.mockReset();
 		mockGenerateText.mockRejectedValue(new Error("provider down"));
 		const inserted: unknown[] = [];
 		const db = scriptedDb(
-			[[{ kind: "message.completed", count: 1 }], [insertedEventRow()]],
+			[[{ kind: "message.completed", count: 1 }]],
 			inserted,
 		);
 
@@ -646,15 +644,15 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		).resolves.toBeUndefined();
 
 		expect(mockGenerateText).toHaveBeenCalledTimes(1);
-		expect(inserted).toHaveLength(1);
+		expect(inserted).toHaveLength(0);
 	});
 
-	it("placeholder model output falls back to the first user message", async () => {
+	it("placeholder model output leaves the first-message label retryable", async () => {
 		mockGenerateText.mockReset();
 		mockGenerateText.mockResolvedValue({ text: '"Chat"' });
 		const inserted: unknown[] = [];
 		const db = scriptedDb(
-			[[{ kind: "message.completed", count: 1 }], [insertedEventRow()]],
+			[[{ kind: "message.completed", count: 1 }]],
 			inserted,
 		);
 
@@ -664,10 +662,7 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		);
 
 		expect(mockGenerateText).toHaveBeenCalledTimes(1);
-		expect(inserted).toHaveLength(1);
-		expect((inserted[0] as { payload: { title: string } }).payload.title).toBe(
-			"How do invoices sync to globex",
-		);
+		expect(inserted).toHaveLength(0);
 	});
 
 	it("empty exchange sides → quiet no-op before any db read", async () => {
@@ -685,14 +680,18 @@ describe("generateAndPersistHomeConversationTitle", () => {
 	});
 });
 
-describe("backfillCodeLikeConversationTitles", () => {
-	function candidate(conversationId: string, title: string) {
+describe("backfillPlaceholderConversationTitles", () => {
+	function candidate(
+		conversationId: string,
+		title: string,
+		titleSource: "autoTitle" | "provisional" = "autoTitle",
+	) {
 		return {
 			id: `org-1:${conversationId}`,
 			organizationId: "org-1",
 			conversationId,
 			title,
-			titleSource: "autoTitle",
+			titleSource,
 		};
 	}
 	const firstExchange = [
@@ -710,7 +709,7 @@ describe("backfillCodeLikeConversationTitles", () => {
 		},
 	];
 
-	it("renames a code-titled chat from its first exchange, once, and advances the cursor", async () => {
+	it("renames code-like and provisional chats from their first exchange", async () => {
 		mockGenerateText.mockReset();
 		mockGenerateText.mockResolvedValue({ text: "Reddit-Antwort entwerfen" });
 		kernelModelCalls.length = 0;
@@ -722,30 +721,44 @@ describe("backfillCodeLikeConversationTitles", () => {
 					candidate("home:os:a", "A304"),
 					// The SQL prefilter is a superset; the exact test skips this one.
 					candidate("home:os:b", "Größe 42"),
+					candidate(
+						"home:os:c",
+						"Create exactly one new Work item",
+						"provisional",
+					),
 				],
+				firstExchange,
+				[insertedEventRow()],
+				firstExchange,
 				firstExchange,
 				[insertedEventRow()],
 			],
 			inserted,
 		);
 
-		const result = await backfillCodeLikeConversationTitles(
+		const result = await backfillPlaceholderConversationTitles(
 			contextWith(db, modelEnv()),
 		);
 
 		expect(result).toEqual({
-			titleBackfillScanned: 2,
-			titleBackfillRenamed: 1,
+			titleBackfillScanned: 3,
+			titleBackfillRenamed: 2,
 		});
-		expect(mockGenerateText).toHaveBeenCalledTimes(1);
+		expect(mockGenerateText).toHaveBeenCalledTimes(2);
 		expect(kernelModelCalls[0]?.[2]).toMatchObject({ runId: "run-first" });
 		const event = inserted.find(
 			(value) => (value as { kind?: string }).kind === "conversation.updated",
-		) as { id: string; conversationId: string; payload: unknown };
+		) as {
+			id: string;
+			conversationId: string;
+			runId?: string;
+			payload: unknown;
+		};
 		expect(event.conversationId).toBe("home:os:a");
+		expect(event.runId).toBeUndefined();
 		// A fixed key: a replayed tick conflicts on the id instead of writing again.
 		expect(event.id).toBe(
-			"home:org-1:event:conversation.updated:home:os:a:auto:retitle",
+			"home:org-1:event:conversation.updated:home:os:a:auto:retitle-v2",
 		);
 		expect(event.payload).toEqual({
 			conversation: { title: "Reddit-Antwort entwerfen" },
@@ -754,8 +767,53 @@ describe("backfillCodeLikeConversationTitles", () => {
 		});
 		expect(inserted.at(-1)).toEqual({
 			scheduleId: "kernel-conversation-retitle:v1",
-			through: "org-1:home:os:b",
+			through: "org-1:home:os:c",
 		});
+	});
+
+	it("retitles a historical auto-title that exactly matches the first-message placeholder", async () => {
+		mockGenerateText.mockReset();
+		mockGenerateText.mockResolvedValue({ text: "Create Work item" });
+		const inserted: unknown[] = [];
+		const exchange = [
+			{
+				kind: "message.received",
+				runId: null,
+				createdAt: "2026-10-26T09:00:00.000Z",
+				payload: {
+					role: "user",
+					content: "Please create exactly one new Work item, status open.",
+				},
+			},
+			{
+				kind: "message.completed",
+				runId: "run-first",
+				createdAt: "2026-10-26T09:00:05.000Z",
+				payload: { role: "assistant", content: "Created it." },
+			},
+		];
+		const db = scriptedDb(
+			[
+				[],
+				[candidate("home:os:old", "Create exactly one new Work item")],
+				exchange,
+				[insertedEventRow()],
+			],
+			inserted,
+		);
+
+		const result = await backfillPlaceholderConversationTitles(
+			contextWith(db, modelEnv()),
+		);
+
+		expect(result.titleBackfillRenamed).toBe(1);
+		expect(
+			inserted.some(
+				(value) =>
+					(value as { payload?: { title?: string } }).payload?.title ===
+					"Create Work item",
+			),
+		).toBe(true);
 	});
 
 	it("writes nothing when neither the model nor the request yields a title", async () => {
@@ -767,7 +825,7 @@ describe("backfillCodeLikeConversationTitles", () => {
 			inserted,
 		);
 
-		const result = await backfillCodeLikeConversationTitles(
+		const result = await backfillPlaceholderConversationTitles(
 			contextWith(db, modelEnv()),
 		);
 
@@ -783,7 +841,7 @@ describe("backfillCodeLikeConversationTitles", () => {
 		const inserted: unknown[] = [];
 		const db = scriptedDb([[{ through: "org-1:home:os:z" }], []], inserted);
 
-		const result = await backfillCodeLikeConversationTitles(
+		const result = await backfillPlaceholderConversationTitles(
 			contextWith(db, modelEnv()),
 		);
 

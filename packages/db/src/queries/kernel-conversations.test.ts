@@ -28,6 +28,7 @@ import {
 	purgeKernelConversation,
 	recordKernelConversationMessage,
 } from "./kernel-conversations";
+import { countKernelConversationTitleGuardEvents } from "./kernel-runtime-events";
 
 /**
  * The `origin` merge rule, against the strict D1 facade and DDL derived from
@@ -421,7 +422,7 @@ describe("listKernelConversationRetitleCandidates", () => {
 		});
 	}
 
-	it("pages open, non-renamed code-like titles and walks a CAS cursor", async () => {
+	it("pages open, non-renamed titles and walks a CAS cursor", async () => {
 		const db = retitleDb();
 		await seed(db, "home:os:1", "A304");
 		await seed(db, "home:os:2", "3f2a9c1e-6b7d", {
@@ -433,6 +434,9 @@ describe("listKernelConversationRetitleCandidates", () => {
 		await seed(db, "home:os:6", "C77", { archivedAt: "2026-10-26T10:00:00Z" });
 		await seed(db, "home:os:7", "D88", { deletedAt: "2026-10-26T10:00:00Z" });
 		await seed(db, "home:os:8", "E99", { titleSource: null });
+		await seed(db, "home:os:9", "Create exactly one new Work item", {
+			titleSource: "provisional",
+		});
 
 		const first = await listKernelConversationRetitleCandidates(db, {
 			limit: 2,
@@ -454,6 +458,72 @@ describe("listKernelConversationRetitleCandidates", () => {
 			limit: 2,
 		});
 		expect(second.previous).toBe(`${ORG}:home:os:2`);
-		expect(second.rows.map((row) => row.conversationId)).toEqual(["home:os:8"]);
+		expect(second.rows.map((row) => row.conversationId)).toEqual([
+			"home:os:3",
+			"home:os:4",
+		]);
+		await advanceKernelConversationRetitleCursor(
+			db,
+			second.previous,
+			second.rows.at(-1)!.id,
+		);
+
+		const third = await listKernelConversationRetitleCandidates(db, {
+			limit: 2,
+		});
+		expect(third.rows.map((row) => row.conversationId)).toEqual([
+			"home:os:8",
+			"home:os:9",
+		]);
+	});
+});
+
+describe("countKernelConversationTitleGuardEvents", () => {
+	it("ignores pin and archive updates but counts title updates", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(
+			`CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL);
+CREATE TABLE tedis (id TEXT PRIMARY KEY NOT NULL);
+${schemaDdl(kernelRuntimeEvents)}`,
+		);
+		sqlite.exec(`INSERT INTO organizations (id) VALUES ('${ORG}');`);
+		const db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
+		await db.insert(kernelRuntimeEvents).values([
+			{
+				id: "completed",
+				organizationId: ORG,
+				conversationId: "home:chat",
+				kind: "message.completed",
+			},
+			{
+				id: "pinned",
+				organizationId: ORG,
+				conversationId: "home:chat",
+				kind: "conversation.updated",
+				payload: { conversation: { pinned: true } },
+			},
+			{
+				id: "archived",
+				organizationId: ORG,
+				conversationId: "home:chat",
+				kind: "conversation.updated",
+				payload: { conversation: { archived: true } },
+			},
+			{
+				id: "title",
+				organizationId: ORG,
+				conversationId: "home:chat",
+				kind: "conversation.updated",
+				payload: { conversation: { title: "User title" } },
+			},
+		]);
+
+		const counts = await countKernelConversationTitleGuardEvents(db, {
+			organizationId: ORG,
+			conversationId: "home:chat",
+		});
+
+		expect(counts.get("message.completed")).toBe(1);
+		expect(counts.get("conversation.updated")).toBe(1);
 	});
 });

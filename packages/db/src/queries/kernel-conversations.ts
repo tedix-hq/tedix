@@ -445,11 +445,10 @@ export async function recordKernelConversationTitle(
 const RETITLE_CHECKPOINT = "kernel-conversation-retitle:v1";
 
 /**
- * One page of open conversations whose title may be a code or id (`A304`, a
- * uuid fragment), keyed after the stored cursor. User renames are never
- * candidates. The GLOBs are a superset prefilter of the API's
- * `isCodeLikeConversationTitle` (a digit, and no run of three ASCII letters
- * or only hex and dashes); the caller applies the exact test.
+ * One page of open conversations with a non-user title, keyed after the stored
+ * cursor. The caller compares each row with its first request to distinguish
+ * generated titles from deterministic placeholders. User renames are never
+ * candidates.
  */
 export async function listKernelConversationRetitleCandidates(
 	db: DbClient,
@@ -473,8 +472,6 @@ export async function listKernelConversationRetitleCandidates(
 					isNull(kernelConversations.titleSource),
 					ne(kernelConversations.titleSource, "rename"),
 				),
-				sql`${kernelConversations.title} GLOB '*[0-9]*'`,
-				sql`(${kernelConversations.title} NOT GLOB '*[A-Za-z][A-Za-z][A-Za-z]*' OR ${kernelConversations.title} NOT GLOB '*[^0-9A-Fa-f-]*')`,
 			),
 		)
 		.orderBy(kernelConversations.id)
