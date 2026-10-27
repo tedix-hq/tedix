@@ -255,12 +255,12 @@ describe("Code Mode discovery helpers", () => {
 			);
 		}
 		expect(serializations.every((count) => count === 0)).toBe(true);
-		// Only the unmatched "quarterlyledger" term reaches the schema, once per
-		// entry (the nearest-namespace pass reuses the ranking pass), and the
-		// walk stops at the indexed prefix long before 2,000 properties.
+		// Only the unmatched "quarterlyledger" term reaches the schema. Shared
+		// schema prefixes reuse their query-bounded match, and the first walk stops
+		// at the indexed prefix long before 2,000 properties.
 		const readsPerEntry = propertyReads / serializations.length;
 		expect(readsPerEntry).toBeGreaterThan(0);
-		expect(readsPerEntry).toBeLessThan(120);
+		expect(readsPerEntry).toBeLessThan(1);
 		expect(keyEnumerations).toBe(1);
 	});
 
@@ -284,6 +284,33 @@ describe("Code Mode discovery helpers", () => {
 			scoreCatalogSearch(terms, "billing", "get_record", near),
 		).toMatchObject({ matchedTerms: ["invoicenumber"] });
 		expect(scoreCatalogSearch(terms, "billing", "get_record", far)).toBeNull();
+
+		let keyEnumerations = 0;
+		const sharedProperties = new Proxy(
+			{
+				invoiceNumber: { type: "string" },
+				...schema(64).properties,
+			},
+			{
+				ownKeys(target) {
+					keyEnumerations++;
+					return Reflect.ownKeys(target);
+				},
+			},
+		);
+		for (const name of ["get_first", "get_second"]) {
+			expect(
+				scoreCatalogSearch(
+					terms,
+					"billing",
+					name,
+					entry("billing", name, {
+						parameters: { type: "object", properties: sharedProperties },
+					}),
+				),
+			).toMatchObject({ matchedTerms: ["invoicenumber"] });
+		}
+		expect(keyEnumerations).toBe(1);
 	});
 
 	it("finds nearest namespaces and useful query suggestions", () => {

@@ -346,6 +346,13 @@ const CATALOG_SEARCH_PARAMETERS_CHARS = 2_000;
  */
 const termPatterns = new Map<string, RegExp>();
 
+type PreparedSearchTerm = {
+	term: string;
+	variants: string[];
+	patterns: RegExp[];
+	cacheKey: string;
+};
+
 function termPattern(variant: string): RegExp {
 	let pattern = termPatterns.get(variant);
 	if (!pattern) {
@@ -354,6 +361,30 @@ function termPattern(variant: string): RegExp {
 		termPatterns.set(variant, pattern);
 	}
 	return pattern;
+}
+
+const preparedTerms = new WeakMap<
+	string[],
+	{ query: string; terms: PreparedSearchTerm[] }
+>();
+
+function prepareSearchTerms(
+	terms: string[],
+	query: string,
+): PreparedSearchTerm[] {
+	const cached = preparedTerms.get(terms);
+	if (cached?.query === query) return cached.terms;
+	const prepared = terms.map((term) => {
+		const variants = searchTermVariants(term);
+		return {
+			term,
+			variants,
+			patterns: variants.map(termPattern),
+			cacheKey: variants.join("\0"),
+		};
+	});
+	preparedTerms.set(terms, { query, terms: prepared });
+	return prepared;
 }
 
 const namespaceTokenCache = new Map<string, ReadonlySet<string>>();
@@ -381,12 +412,22 @@ function textContains(
 	return patterns.some((pattern) => pattern.test(bounded));
 }
 
-// Query-owned, bounded prefixes avoid repeatedly enumerating a shared vendor
-// schema. Tiny records are cheaper to read directly and do not evict wide ones.
-const schemaKeysByQuery = new WeakMap<string[], Map<object, string[]>>();
+type SchemaIndex = {
+	keys: string[];
+	matches: Map<string, { matched: boolean; spent: number }>;
+};
 
-function schemaKeys(value: Record<string, unknown>, terms: string[]): string[] {
-	const cached = schemaKeysByQuery.get(terms);
+// Query-owned, bounded indexes avoid repeatedly enumerating or walking a shared
+// vendor schema. Catalog schemas belong to an immutable revision snapshot for
+// the query. Tiny records are cheaper to read directly and do not evict wide
+// ones.
+const schemaIndexesByQuery = new WeakMap<string[], Map<object, SchemaIndex>>();
+
+function schemaIndex(
+	value: Record<string, unknown>,
+	terms: string[],
+): SchemaIndex {
+	const cached = schemaIndexesByQuery.get(terms);
 	const hit = cached?.get(value);
 	if (hit) return hit;
 	// Even an empty key costs three characters in the schema prefix budget.
@@ -394,13 +435,23 @@ function schemaKeys(value: Record<string, unknown>, terms: string[]): string[] {
 		0,
 		Math.ceil(CATALOG_SEARCH_PARAMETERS_CHARS / 3),
 	);
+	const index = { keys, matches: new Map() };
 	if (keys.length > 64) {
-		const entries = cached ?? new Map<object, string[]>();
+		const entries = cached ?? new Map<object, SchemaIndex>();
 		if (entries.size >= 16) entries.delete(entries.keys().next().value!);
-		entries.set(value, keys);
-		schemaKeysByQuery.set(terms, entries);
+		entries.set(value, index);
+		schemaIndexesByQuery.set(terms, entries);
 	}
-	return keys;
+	return index;
+}
+
+function cacheSchemaMatch(
+	index: SchemaIndex,
+	key: string,
+	match: { matched: boolean; spent: number },
+): void {
+	if (index.matches.size >= 32) index.matches.clear();
+	index.matches.set(key, match);
 }
 
 /**
@@ -409,7 +460,7 @@ function schemaKeys(value: Record<string, unknown>, terms: string[]): string[] {
  */
 function schemaContains(
 	schema: unknown,
-	patterns: readonly RegExp[],
+	term: PreparedSearchTerm,
 	terms: string[],
 ): boolean {
 	let budget = CATALOG_SEARCH_PARAMETERS_CHARS;
@@ -422,6 +473,12 @@ function schemaContains(
 		if (cursor.keys) {
 			const slot = cursor.index++;
 			if (slot >= cursor.keys.length * 2) {
+				if (cursor.indexed) {
+					cacheSchemaMatch(cursor.indexed.index, cursor.indexed.key, {
+						matched: false,
+						spent: cursor.indexed.startBudget - budget,
+					});
+				}
 				cursors.pop();
 				continue;
 			}
@@ -437,18 +494,57 @@ function schemaContains(
 			value = items[cursor.index++];
 		}
 		if (typeof value === "string") {
-			if (textContains(value, patterns, budget)) return true;
+			if (textContains(value, term.patterns, budget)) {
+				for (const active of cursors) {
+					if (active.indexed) {
+						cacheSchemaMatch(active.indexed.index, active.indexed.key, {
+							matched: true,
+							spent: active.indexed.startBudget - budget,
+						});
+					}
+				}
+				return true;
+			}
 			budget -= value.length + 3;
 		} else if (typeof value === "number" || typeof value === "boolean") {
 			const text = String(value);
-			if (textContains(text, patterns)) return true;
+			if (textContains(text, term.patterns)) return true;
 			budget -= text.length + 1;
 		} else if (Array.isArray(value)) {
 			budget -= 2;
 			cursors.push({ items: value, keys: null, index: 0 });
 		} else if (isRecord(value)) {
 			budget -= 2;
-			cursors.push({ items: value, keys: schemaKeys(value, terms), index: 0 });
+			const indexed = schemaIndex(value, terms);
+			const cacheKey = `${term.cacheKey}:${budget}`;
+			const cached = indexed.matches.get(cacheKey);
+			if (cached) {
+				if (cached.matched) return true;
+				budget -= cached.spent;
+				continue;
+			}
+			cursors.push({
+				items: value,
+				keys: indexed.keys,
+				index: 0,
+				...(indexed.keys.length > 64
+					? {
+							indexed: {
+								index: indexed,
+								key: cacheKey,
+								startBudget: budget,
+							},
+						}
+					: {}),
+			});
+		}
+	}
+	for (const active of cursors) {
+		if (active.indexed) {
+			cacheSchemaMatch(active.indexed.index, active.indexed.key, {
+				matched: false,
+				spent: active.indexed.startBudget - budget,
+			});
 		}
 	}
 	return false;
@@ -458,30 +554,33 @@ type SchemaCursor = {
 	items: unknown[] | Record<string, unknown>;
 	keys: string[] | null;
 	index: number;
+	indexed?: {
+		index: SchemaIndex;
+		key: string;
+		startBudget: number;
+	};
 };
 
-type ScoringField = {
-	weight: number;
-	matches: (patterns: readonly RegExp[]) => boolean;
-};
-
-function scoringFields(
+function scoringFieldWeight(
 	toolName: string,
 	meta: CatalogToolEntry,
+	term: PreparedSearchTerm,
 	terms: string[],
-): ScoringField[] {
-	return [
-		{ weight: 12, matches: (p) => textContains(toolName, p) },
-		{ weight: 10, matches: (p) => textContains(meta.callable, p) },
-		{ weight: 8, matches: (p) => textContains(meta.name, p) },
-		{ weight: 8, matches: (p) => textContains(meta.displayName, p) },
-		{
-			weight: 4,
-			matches: (p) =>
-				textContains(meta.description, p, CATALOG_SEARCH_DESCRIPTION_CHARS),
-		},
-		{ weight: 1, matches: (p) => schemaContains(meta.parameters, p, terms) },
-	];
+	best: number,
+): number {
+	const patterns = term.patterns;
+	if (best < 12 && textContains(toolName, patterns)) return 12;
+	if (best < 10 && textContains(meta.callable, patterns)) return 10;
+	if (best < 8 && textContains(meta.name, patterns)) return 8;
+	if (best < 8 && textContains(meta.displayName, patterns)) return 8;
+	if (
+		best < 4 &&
+		textContains(meta.description, patterns, CATALOG_SEARCH_DESCRIPTION_CHARS)
+	) {
+		return 4;
+	}
+	if (best < 1 && schemaContains(meta.parameters, term, terms)) return 1;
+	return best;
 }
 
 /**
@@ -538,37 +637,29 @@ export function scoreCatalogSearch(
 	) {
 		return cached.match;
 	}
-	const match = computeCatalogSearch(terms, namespace, toolName, meta);
+	const match = computeCatalogSearch(terms, query, namespace, toolName, meta);
 	lastCatalogMatch.set(meta, { query, namespace, toolName, match });
 	return match;
 }
 
 function computeCatalogSearch(
 	terms: string[],
+	query: string,
 	namespace: string,
 	toolName: string,
 	meta: CatalogToolEntry,
 ): CatalogSearchMatch | null {
-	let fields: ScoringField[] | undefined;
 	let score = 0;
 	const matchedTerms: string[] = [];
 	const unmatchedTerms: string[] = [];
-	for (const term of terms) {
-		const variants = searchTermVariants(term);
-		const patterns = variants.map(termPattern);
-		let best = namespaceWeight(namespace, variants, patterns);
-		for (const field of (fields ??= scoringFields(toolName, meta, terms))) {
-			if (field.weight <= best) break;
-			if (field.matches(patterns)) {
-				best = field.weight;
-				break;
-			}
-		}
+	for (const term of prepareSearchTerms(terms, query)) {
+		let best = namespaceWeight(namespace, term.variants, term.patterns);
+		best = scoringFieldWeight(toolName, meta, term, terms, best);
 		if (best > 0) {
 			score += best;
-			matchedTerms.push(term);
+			matchedTerms.push(term.term);
 		} else {
-			unmatchedTerms.push(term);
+			unmatchedTerms.push(term.term);
 		}
 	}
 	if (matchedTerms.length === 0) return null;
@@ -576,19 +667,24 @@ function computeCatalogSearch(
 	// When the name contains every query term, favour names devoted to those
 	// terms over longer vendor names. Count repeated tokens in the denominator.
 	const nameTokens = normalizeSearchText(toolName).split(" ").filter(Boolean);
-	if (terms.every((term) => nameTokens.includes(term))) {
+	const nameTokenSet = new Set(nameTokens);
+	if (terms.every((term) => nameTokenSet.has(term))) {
 		score += (terms.length / nameTokens.length) * 16;
 	}
 	// Every term can hit a high-weight field of a sibling tool too ("list tedis"
 	// scores tedis.list_addresses like tedis.list_tedis), so a query that IS
 	// the tool's name must outrank its namespace neighbours.
-	const namesTool = (text: string) => {
-		const tokens = new Set(normalizeSearchTerms(text));
-		return (
-			tokens.size === terms.length && terms.every((term) => tokens.has(term))
-		);
-	};
-	if (namesTool(toolName) || namesTool(meta.callable ?? "")) score += 20;
+	const toolNamesQuery =
+		nameTokenSet.size === terms.length &&
+		terms.every((term) => nameTokenSet.has(term));
+	let callableNamesQuery = false;
+	if (!toolNamesQuery) {
+		const callableTokens = new Set(normalizeSearchTerms(meta.callable ?? ""));
+		callableNamesQuery =
+			callableTokens.size === terms.length &&
+			terms.every((term) => callableTokens.has(term));
+	}
+	if (toolNamesQuery || callableNamesQuery) score += 20;
 	return { score, matchedTerms, unmatchedTerms };
 }
 
