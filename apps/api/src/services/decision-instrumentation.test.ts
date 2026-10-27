@@ -193,6 +193,19 @@ describe("decision instrumentation", () => {
 			"already used",
 		);
 	});
+	it("rejects browser-composed candidate ids no canonical source verifies", async () => {
+		const { db } = fixture();
+		await request(db);
+		const value = input();
+		value.candidates.push({
+			cardId: "factory:sheet-card",
+			score: null,
+			reason: "ranked_lower",
+			position: 1,
+		});
+		value.candidateCount = 2;
+		await expect(expose(db, value)).rejects.toThrow("unavailable");
+	});
 	it("snapshots the linked Work project shown by the Deck", async () => {
 		const { db } = fixture();
 		await request(db);

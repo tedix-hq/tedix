@@ -1,5 +1,8 @@
 import { useEffect, useRef, type RefObject } from "react";
-import type { DecisionExposureInput } from "@tedix/api-contract/schemas/decision-learning";
+import {
+	DecisionExposureInputSchema,
+	type DecisionExposureInput,
+} from "@tedix/api-contract/schemas/decision-learning";
 import { osApi } from "@/lib/api";
 
 export type DeckInstrumentationCandidate = {
@@ -17,6 +20,20 @@ const selectors: Record<DecisionExposureInput["aboveFold"][number], string> = {
 	urgency: "time",
 	proposer: "[data-slot=card-description]",
 };
+/**
+ * The API accepts only ids it can verify against canonical decision sources:
+ * bare interaction ids plus `work-approval:*` and `approval:*`. Rows composed
+ * in the browser, like `factory:*` review cards or `example:*` practice
+ * cards, are real deck alternatives but not canonical — reporting one fails
+ * the whole exposure.
+ */
+function canonicalCardId(id: string) {
+	return (
+		!id.includes(":") ||
+		id.startsWith("work-approval:") ||
+		id.startsWith("approval:")
+	);
+}
 /** Field names only: never scrape text or anything outside the active card. */
 export function visibleDecisionFields(
 	root: HTMLElement,
@@ -98,19 +115,22 @@ export function useDecisionInstrumentation(p: {
 				candidates: DeckInstrumentationCandidate[];
 				candidateSetComplete: boolean;
 			};
+			if (!canonicalCardId(state.cardId)) return;
 			const aboveFold = visibleDecisionFields(card);
 			const signature = JSON.stringify({ sessionId, ...state, aboveFold });
 			if (last.current === signature) return;
 			last.current = signature;
-			const candidates = state.candidates.slice(0, 100);
+			const candidates = state.candidates
+				.filter((candidate) => canonicalCardId(candidate.id))
+				.slice(0, 100);
 			if (!candidates.some((c) => c.id === state.cardId))
-				candidates[candidates.length - 1] = {
+				candidates[Math.max(0, candidates.length - 1)] = {
 					id: state.cardId,
 					score: state.ranking.score,
 					reason: "shown",
 					position: state.position,
 				};
-			const input: DecisionExposureInput = {
+			const parsed = DecisionExposureInputSchema.safeParse({
 				...feedOrigin(state.cardId),
 				selectionPolicy: "deterministic_current_order",
 				selectionProbability: null,
@@ -127,10 +147,12 @@ export function useDecisionInstrumentation(p: {
 				),
 				ranking: {
 					...state.ranking,
-					features: state.ranking.features.map((f) => ({
-						...f,
-						evidenceIds: f.evidenceIds.slice(0, 20),
-					})),
+					features: state.ranking.features
+						.map((f) => ({
+							...f,
+							evidenceIds: f.evidenceIds.slice(0, 20),
+						}))
+						.slice(0, 50),
 				},
 				candidates: candidates.map((c) => ({
 					cardId: c.id,
@@ -138,10 +160,14 @@ export function useDecisionInstrumentation(p: {
 					reason: c.reason,
 					position: c.position,
 				})),
-				candidateCount: state.candidates.length,
+				candidateCount: Math.max(state.candidates.length, candidates.length),
 				candidateSetComplete:
-					state.candidateSetComplete && state.candidates.length <= 100,
-			};
+					state.candidateSetComplete &&
+					candidates.length === state.candidates.length,
+			} satisfies DecisionExposureInput);
+			// Telemetry stays silent: a contract-invalid payload is skipped, never retried.
+			if (!parsed.success) return;
+			const input = parsed.data;
 			let attempts = 0;
 			const send = () => {
 				void osApi.learningFeedback.recordExposure(input).catch(() => {
@@ -176,18 +202,21 @@ function feedOrigin(cardId: string): Pick<DecisionExposureInput, "feedOrigin"> {
 			sessionStorage.getItem("tedix-focus-origin") ?? "null",
 		);
 		if (
-			origin &&
-			(origin.itemId === `decision:${cardId}` || origin.itemId === cardId) &&
-			Date.now() >= origin.openedAt &&
-			Date.now() - origin.openedAt < 86400000
+			!origin ||
+			(origin.itemId !== `decision:${cardId}` && origin.itemId !== cardId) ||
+			Date.now() < origin.openedAt ||
+			Date.now() - origin.openedAt >= 86400000
 		)
-			return {
-				feedOrigin: {
-					sessionId: origin.sessionId,
-					openedAt: origin.openedAt,
-					itemId: origin.itemId,
-				},
-			};
+			return {};
+		// A stale or foreign browser entry must not poison the whole exposure.
+		const feedOrigin = DecisionExposureInputSchema.shape.feedOrigin.safeParse({
+			sessionId: origin.sessionId,
+			openedAt: origin.openedAt,
+			itemId: origin.itemId,
+		});
+		return feedOrigin.success && feedOrigin.data
+			? { feedOrigin: feedOrigin.data }
+			: {};
 	} catch {
 		/* A stale browser-local pointer is not attribution. */
 	}
