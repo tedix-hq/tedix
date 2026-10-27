@@ -8,7 +8,11 @@ import { organizations } from "@tedix/db/schema/organizations";
 import { apps } from "@tedix/db/schema/apps";
 import { appTools } from "@tedix/db/schema";
 import * as providers from "@tedix/db/queries/connection-providers";
-import { setOrganizationConnectionAllowedResources } from "@tedix/db/queries/connection-instances";
+import { connectionInstances } from "@tedix/db/schema/connection-instances";
+import {
+	createConnectionInstance,
+	setOrganizationConnectionAllowedResources,
+} from "@tedix/db/queries/connection-instances";
 import { connectionsContractRouter } from "./connections";
 import { resolveCredentialChain } from "./connections/policy-resolution";
 import { userContext, apiKeyContext } from "../test-context";
@@ -26,7 +30,7 @@ async function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(organizations, apps, appTools));
+	sqlite.exec(schemaDdl(organizations, apps, appTools, connectionInstances));
 	const db = createDbClient(createD1Facade(sqlite));
 	await db
 		.insert(organizations)
@@ -137,6 +141,47 @@ it("refuses Y and a revoked X approval before provider registration or vault acc
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 	await setOrganizationConnectionAllowedResources(db, "org-1", "github", []);
 	await expect(execute(pending)).rejects.toMatchObject({ code: "FORBIDDEN" });
+	expect(provider).not.toHaveBeenCalled();
+	expect(network).not.toHaveBeenCalled();
+});
+
+it("refuses a named account's Y target before even discovering an unregistered provider", async () => {
+	const db = await fixture();
+	const instanceId = "10000000-0000-4000-8000-000000000001";
+	await createConnectionInstance(db, {
+		id: instanceId,
+		organizationId: "org-1",
+		ownerUserId: "owner",
+		providerId: "github",
+		label: "X only",
+		allowedResources: policy,
+	});
+	const provider = vi.spyOn(providers, "getConnectionProviderByDescopeAppId");
+	const network = vi.spyOn(globalThis, "fetch");
+	const context = apiKeyContext({
+		db,
+		scopes: ["connections.execute"],
+		headers: { "X-Tedix-Mcp-Tool-Id": "update_issue" },
+	});
+	await expect(
+		resolveCredentialChain(context, {
+			organizationId: "org-1",
+			descopeTenantId: "tenant-example",
+			providerId: "github",
+			scope: "tenant",
+			connectionInstanceId: instanceId,
+			delegatedToolUse: {
+				appId: "github-app",
+				arguments: {
+					owner: "example",
+					repo: "repo-y",
+					method: "update",
+					issue_number: 1,
+					title: "Updated",
+				},
+			},
+		}),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
 	expect(provider).not.toHaveBeenCalled();
 	expect(network).not.toHaveBeenCalled();
 });
