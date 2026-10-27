@@ -100,6 +100,23 @@ describe("Home quick-chat turns", () => {
 		expect(input.content).toContain('"id":"req-1"');
 		expect(input.content).not.toContain("For you");
 		expect(homeTurnText(input.content)).toBe("What is this card about?");
+		expect(input).not.toHaveProperty("modelRef");
+	});
+
+	it("answers with the model the picker shows, and no page when none is shared", async () => {
+		const home = deps({
+			status: "completed",
+			run: run("completed"),
+			assistantMessage: message("assistant", "Done."),
+		});
+		await runQuickChatHomeTurn(home, {
+			conversationId: "c-1",
+			text: "Hello",
+			modelRef: "cloudflare/auto",
+		});
+		const [input] = home.enqueueMessage.mock.calls[0]!;
+		expect(input.modelRef).toBe("cloudflare/auto");
+		expect(input.content).toBe("Hello");
 	});
 
 	it("follows a queued run to its answer", async () => {

@@ -382,6 +382,44 @@ function widget(
 
 export type Widget = Awaited<ReturnType<typeof bootWidget>>;
 
+/** Reads and drives one of the widget's menus the way a person would. */
+export function menu(w: Widget, selector: string) {
+	const element = () => w.$<HTMLElement>(selector)!;
+	const items = () => [
+		...element().querySelectorAll<HTMLButtonElement>(".tedix-menu-item"),
+	];
+	const trigger = () =>
+		element().querySelector<HTMLButtonElement>(".tedix-menu-trigger")!;
+	return {
+		get hidden() {
+			return element().hidden;
+		},
+		get disabled() {
+			return trigger().disabled;
+		},
+		get value() {
+			return element().dataset.value ?? "";
+		},
+		get label() {
+			return trigger().querySelector(".tedix-menu-trigger-label")?.textContent;
+		},
+		get labels() {
+			return items().map(
+				(item) => item.querySelector(".tedix-menu-label")?.textContent,
+			);
+		},
+		get values() {
+			return items().map((item) => item.dataset.value);
+		},
+		choose(value: string) {
+			trigger().click();
+			items()
+				.find((item) => item.dataset.value === value)!
+				.click();
+		},
+	};
+}
+
 /** A session answer that also carries a model roster or tedi selection. */
 export function sessionResult(extra: Record<string, unknown> = {}) {
 	return {

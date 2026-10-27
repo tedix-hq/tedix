@@ -341,6 +341,7 @@ describe("OsQuickChat mount", () => {
 			permissions?: string[];
 			tedis?: Array<{ id: string; status: string }>;
 			zIndex?: number;
+			subtitle?: string;
 		} = {},
 	) {
 		vi.stubEnv("MODE", "development");
@@ -364,7 +365,7 @@ describe("OsQuickChat mount", () => {
 				metadata: {
 					tediWidget: {
 						title: "Acme help",
-						subtitle: "Ask Acme",
+						subtitle: options.subtitle ?? "Ask Acme",
 						product: "Acme OS",
 						conversationStarters: ["What changed?"],
 						analyticsEnabled: options.analytics === true,
@@ -425,6 +426,14 @@ describe("OsQuickChat mount", () => {
 		const { script } = await mount();
 		expect(script.src).toBe("https://widget.tedix.dev/v1/loader.js?host-sdk=3");
 		expect(script.dataset.tedixPreload).toBe("open");
+	});
+
+	it("drops the generated subtitle that only repeats the title", async () => {
+		const { initOptions } = await mount({
+			subtitle: "Your assistant for Acme",
+		});
+		// Empty, not absent, so published branding cannot restore it.
+		expect(initOptions().subtitle).toBe("");
 	});
 
 	it("derives the white-label experience from organization configuration", async () => {

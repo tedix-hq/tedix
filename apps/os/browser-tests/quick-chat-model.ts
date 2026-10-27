@@ -11,16 +11,21 @@ await import("../../widget/src/embed/embed.mjs");
 	script,
 	branding: false,
 	locale: "en-US",
+	themeMode:
+		new URLSearchParams(location.search).get("theme") === "dark"
+			? "dark"
+			: "light",
 	session: async () => ({
 		token: "fixture-token",
 		streamUrl: "ws://127.0.0.1:9/embedded",
 		expiresAt: Date.now() + 3_600_000,
+		// Catalog order, Auto last, as the API sends it.
 		modelSelection: {
 			models: [
-				{ ref: "cloudflare/auto", label: "Cloudflare Auto" },
 				{ ref: "fast", label: "Fast" },
+				{ ref: "cloudflare/auto", label: "Cloudflare Auto" },
 			],
-			defaultRef: "fast",
+			defaultRef: "cloudflare/auto",
 		},
 	}),
 	home: { label: "Home", turn: async () => ({ text: "Fixture answer" }) },

@@ -64,3 +64,22 @@ it("names the selected model and marks it in the menu", async () => {
 	await act(async () => items[0]!.click());
 	expect(onSelect).toHaveBeenCalledExactlyOnceWith("fast");
 });
+
+it("lists Auto first whatever the catalog order", async () => {
+	const auto = { ref: "cloudflare/auto", label: "Auto" };
+	const button = await render(
+		<ChatModelPicker
+			models={[fast, deep, auto]}
+			choices={[fast, deep, auto]}
+			selectedRef="cloudflare/auto"
+			onSelect={vi.fn()}
+		/>,
+	);
+	expect(button.textContent).toBe("Auto");
+	await act(async () => button.click());
+	expect(
+		[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+			(item) => item.textContent,
+		),
+	).toEqual(["Auto", "Fast", "Deep"]);
+});

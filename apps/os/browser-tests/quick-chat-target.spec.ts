@@ -31,7 +31,16 @@ async function openChat(page: Page, scenario: string, theme: string) {
 const status = (page: Page) =>
 	page.locator(".tedix-status").getAttribute("data-state");
 const picker = (page: Page) =>
-	page.getByRole("combobox", { name: "Choose tedi" });
+	page.getByRole("button", { name: /^Choose tedi:/ });
+const pickerValue = (page: Page) =>
+	page.locator(".tedix-tedi-menu").getAttribute("data-value");
+async function choose(page: Page, name: string) {
+	await picker(page).click();
+	await page
+		.getByRole("menu", { name: "Choose tedi" })
+		.getByRole("menuitemradio", { name })
+		.click();
+}
 
 try {
 	browser = await chromium.launch({ headless: true });
@@ -61,6 +70,27 @@ try {
 					"Can see this page",
 				);
 				assert.equal(await picker(page).isVisible(), false, label);
+				// The header is compact: no generic subtitle under the title.
+				assert.equal(await page.locator(".tedix-subtitle").count(), 0);
+				// The page reaches the chat through one chip the person controls.
+				const chip = page.locator(".tedix-page-chip");
+				assert.equal(
+					(await chip.textContent())?.trim(),
+					"This page: Quick chat opening target",
+				);
+				assert.match(
+					(await chip.getAttribute("title")) ?? "",
+					/^Tedi can see this page/,
+				);
+				const chipBox = await chip.boundingBox();
+				assert(chipBox && chipBox.x >= 0 && chipBox.x + chipBox.width <= width);
+				await page
+					.getByRole("button", { name: "Stop sharing this page" })
+					.click();
+				assert.equal(await chip.isVisible(), false, label);
+				await snap("page-removed");
+				await page.locator(".tedix-page-add").click();
+				assert.equal(await chip.isVisible(), true, label);
 				assert.equal(
 					await page.locator(".tedix-session-recovery").isVisible(),
 					false,
@@ -73,22 +103,28 @@ try {
 
 				// Home plus two allowed tedis: the picker lists all three.
 				await openChat(page, "home-two", theme);
-				assert.deepEqual(
-					await picker(page).locator("option").allTextContents(),
-					["Home", "Support", "Sales"],
-				);
-				assert.equal(await picker(page).inputValue(), "home");
+				assert.equal(await pickerValue(page), "home");
 				const box = await picker(page).boundingBox();
 				assert(box && box.x >= 0 && box.x + box.width <= width, label);
+				if (width === 375) assert(box.height >= 44, JSON.stringify(box));
+				await picker(page).click();
+				const menu = page.getByRole("menu", { name: "Choose tedi" });
+				assert.deepEqual(
+					await menu.locator(".tedix-menu-label").allTextContents(),
+					["Home", "Support", "Sales"],
+				);
+				const list = await menu.boundingBox();
+				assert(list && list.x >= 0 && list.x + list.width <= width, label);
 				await snap("home-two");
+				await page.keyboard.press("Escape");
 				// The choice is remembered for this person across reloads.
-				await picker(page).selectOption("tedi-b");
+				await choose(page, "Sales");
 				assert.equal(
 					await page.evaluate((key) => localStorage.getItem(key), TARGET_KEY),
 					"tedi-b",
 				);
 				await openChat(page, "home-two", theme);
-				assert.equal(await picker(page).inputValue(), "tedi-b", label);
+				assert.equal(await pickerValue(page), "tedi-b", label);
 
 				// A remembered tedi that is gone falls back to Home silently.
 				await page.evaluate(
@@ -96,7 +132,7 @@ try {
 					TARGET_KEY,
 				);
 				await openChat(page, "home-two", theme);
-				assert.equal(await picker(page).inputValue(), "home", label);
+				assert.equal(await pickerValue(page), "home", label);
 				assert.equal(
 					await page.locator(".tedix-session-recovery").isVisible(),
 					false,

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import enCatalog from "@tedix/widget-i18n/en.json";
 import {
 	bootWidget,
+	menu,
 	sessionResult,
 	settle,
 	teardown,
@@ -96,7 +97,8 @@ describe("a turn", () => {
 		});
 		const first = await answering(w, "First");
 		expect(first.input.clientRequestId).toMatch(/^[0-9a-f-]{36}$/);
-		expect(first.input).not.toHaveProperty("modelRef");
+		// The turn names the model the picker shows: the session default.
+		expect(first.input.modelRef).toBe("fast");
 		expect(first.input).not.toHaveProperty("reasoningEffort");
 		expect(first.input.pageContext).toMatchObject({
 			title: "Orders",
@@ -109,15 +111,20 @@ describe("a turn", () => {
 		// The DOM snapshot belongs to the turn, never to the host's context.
 		expect(w.Tedix.status().pageContext).not.toHaveProperty("sections");
 
-		const model = w.$<HTMLSelectElement>(".tedix-model-select")!;
+		const model = menu(w, ".tedix-model-menu");
 		expect(model.hidden).toBe(false);
-		expect(model.options[0]?.textContent).toBe("Default");
-		model.value = "deep";
-		model.dispatchEvent(new Event("change"));
-		const effort = w.$<HTMLSelectElement>(".tedix-effort-select")!;
-		expect(effort.hidden).toBe(false);
-		effort.value = "high";
-		effort.dispatchEvent(new Event("change"));
+		expect(model.label).toBe("Fast");
+		// Effort belongs to models that take one; "Fast" does not.
+		expect(model.labels).toEqual(["Fast", "Deep"]);
+		model.choose("model:deep");
+		expect(model.labels).toEqual([
+			"Fast",
+			"Deep",
+			"Default thinking",
+			"Think briefly",
+			"Think hard",
+		]);
+		model.choose("effort:high");
 		document.title = "Orders updated";
 		document.querySelector("main h1")!.textContent = "Completed orders";
 		await w.say("Second");
@@ -154,9 +161,13 @@ describe("a turn", () => {
 		expect(stream.input.modelRef).toBe("deep");
 	});
 
-	it.each(["", "cloudflare/auto"])(
-		"distinguishes automatic routing from the explicit Auto model and preserves %j",
-		async (modelRef) => {
+	it.each([
+		["", "cloudflare/auto"],
+		["cloudflare/auto", "cloudflare/auto"],
+		["fast", "fast"],
+	])(
+		"lists Auto first with no Default entry, and a saved %j answers with %j",
+		async (modelRef, answeringRef) => {
 			const saved = JSON.stringify({ modelRef, effort: "" });
 			const w = await bootWidget({
 				before: () =>
@@ -165,31 +176,27 @@ describe("a turn", () => {
 					session: vi.fn(async () =>
 						sessionResult({
 							modelSelection: {
+								// Catalog order puts Auto last; the picker leads with it.
 								models: [
+									{ ref: "fast", label: "Fast" },
 									{
 										ref: "cloudflare/auto",
 										label: "Cloudflare Auto",
 										reasoning: true,
 									},
-									{ ref: "fast", label: "Fast" },
 								],
-								defaultRef: "cloudflare/auto",
+								defaultRef: null,
 							},
 						}),
 					),
 				},
 			});
 			const stream = await answering(w);
-			const model = w.$<HTMLSelectElement>(".tedix-model-select")!;
-			expect(
-				[...model.options].map((option) => [option.value, option.textContent]),
-			).toEqual([
-				["", "Default"],
-				["cloudflare/auto", "Auto"],
-				["fast", "Fast"],
-			]);
-			expect(model.value).toBe(modelRef);
-			expect(stream.input.modelRef).toBe(modelRef || undefined);
+			const model = menu(w, ".tedix-model-menu");
+			expect(model.values).toEqual(["model:cloudflare/auto", "model:fast"]);
+			expect(model.labels).toEqual(["Auto", "Fast"]);
+			expect(model.value).toBe(`model:${answeringRef}`);
+			expect(stream.input.modelRef).toBe(answeringRef);
 			expect(sessionStorage.getItem("tedix:model-choice:v1:demo-shop")).toBe(
 				saved,
 			);
