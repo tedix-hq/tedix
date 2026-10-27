@@ -1,7 +1,7 @@
 <h1 align="center">Tedix</h1>
 
 <p align="center">
-  <img src="docs/public/assets/tedix-banner.jpg" alt="Tedix: a platform for agents, apps, and work. Shared tasks, project knowledge, apps, and decisions, beside the Tedix interface showing a sample engineering decision." width="100%">
+  <img src="docs/public/assets/tedix-readme-hero.jpg" alt="Tedix: a platform for agents, apps, and work. Shared tasks, project knowledge, apps, and decisions, beside the Tedix interface showing a sample engineering decision." width="100%">
 </p>
 
 <p align="center">
