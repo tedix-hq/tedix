@@ -1,4 +1,3 @@
-import { MagnifyingGlass } from "@phosphor-icons/react";
 import {
 	keepPreviousData,
 	useMutation,
@@ -14,7 +13,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
-import { Input } from "@/components/kumo/input";
+import { Empty } from "@/components/kumo/empty";
+import { SearchInput } from "@/components/kumo/search-input";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { Text } from "@/components/kumo/text";
@@ -141,16 +141,12 @@ export function WorkspaceSkillLinkDialog({
 						</section>
 					)}
 					<section className="grid gap-3" aria-label="All skills">
-						<label className="canvas-resource-search">
-							<span className="sr-only">Search skills</span>
-							<MagnifyingGlass aria-hidden size={16} />
-							<Input
-								aria-label="Search skills"
-								placeholder="Search skills"
-								value={search}
-								onChange={(event) => setSearch(event.target.value)}
-							/>
-						</label>
+						<SearchInput
+							aria-label="Search skills"
+							placeholder="Search skills"
+							value={search}
+							onChange={(event) => setSearch(event.target.value)}
+						/>
 						{catalog.isPending && <ListSkeleton rows={3} rowClassName="h-9" />}
 						{catalog.isError && (
 							<Text as="p" role="label" tone="error" className="m-0">
@@ -158,9 +154,10 @@ export function WorkspaceSkillLinkDialog({
 							</Text>
 						)}
 						{catalog.data && catalog.data.entries.length === 0 && (
-							<Text as="p" role="label" tone="secondary" className="m-0">
-								{query ? "No skills match your search." : "No skills yet."}
-							</Text>
+							<Empty
+								appearance="inline"
+								title={query ? "No skills match your search" : "No skills yet"}
+							/>
 						)}
 						{catalog.data && catalog.data.entries.length > 0 && (
 							<ul className="m-0 grid max-h-80 list-none gap-1 overflow-y-auto p-0">

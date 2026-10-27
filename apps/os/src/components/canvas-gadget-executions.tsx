@@ -78,19 +78,16 @@ const EXECUTION_VARIANTS: Record<OsGadgetExecution["status"], BadgeVariant> = {
 	canceled: "outline",
 };
 
-/** The plain word and dot colour a run shows in the list. */
-const RUN_STATUS: Record<
-	OsGadgetExecution["status"],
-	{ label: string; dot: string }
-> = {
-	completed: { label: "Done", dot: "bg-kumo-success" },
-	failed: { label: "Failed", dot: "bg-kumo-danger" },
-	denied: { label: "Blocked", dot: "bg-kumo-danger" },
-	running: { label: "Running", dot: "bg-kumo-brand motion-safe:animate-pulse" },
-	queued: { label: "Starting", dot: "bg-kumo-brand" },
-	awaiting_approval: { label: "Needs approval", dot: "bg-kumo-warning" },
-	paused: { label: "Paused", dot: "bg-kumo-warning" },
-	canceled: { label: "Canceled", dot: "bg-kumo-line" },
+/** The plain word a run shows in the list; the chip colour comes from EXECUTION_VARIANTS. */
+const RUN_STATUS: Record<OsGadgetExecution["status"], { label: string }> = {
+	completed: { label: "Done" },
+	failed: { label: "Failed" },
+	denied: { label: "Blocked" },
+	running: { label: "Running" },
+	queued: { label: "Starting" },
+	awaiting_approval: { label: "Needs approval" },
+	paused: { label: "Paused" },
+	canceled: { label: "Canceled" },
 };
 
 export type ParsedExecutionInput =
@@ -614,12 +611,14 @@ function RunRow({
 	);
 	return (
 		<li className="min-w-0">
-			<button
+			<Button
 				type="button"
 				aria-expanded={open}
 				onClick={onToggle}
+				variant="ghost"
+				multiline
 				className={cn(
-					"grid w-full min-w-0 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 border-kumo-hairline border-b px-3 py-2 text-left transition-colors hover:bg-kumo-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus motion-reduce:transition-none",
+					"grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center justify-stretch gap-x-3 gap-y-0.5 rounded-none border-kumo-hairline border-b px-3 py-2 text-left shadow-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus",
 					open && "bg-kumo-tint/40",
 				)}
 			>
@@ -632,13 +631,12 @@ function RunRow({
 							open && "rotate-90",
 						)}
 					/>
-					<span
-						aria-hidden
-						className={cn("size-2 shrink-0 rounded-full", status.dot)}
-					/>
-					<Text as="span" role="label" weight="medium" className="shrink-0">
+					<Badge
+						variant={executionStatusVariant(execution.status)}
+						className="shrink-0"
+					>
 						{status.label}
-					</Text>
+					</Badge>
 					<Text as="span" role="label" className="min-w-0 truncate">
 						{runStarter(execution, directory)}
 					</Text>
@@ -672,7 +670,7 @@ function RunRow({
 				>
 					{duration ?? ""}
 				</Text>
-			</button>
+			</Button>
 			{open && children}
 		</li>
 	);

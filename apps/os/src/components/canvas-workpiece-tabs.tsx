@@ -10,6 +10,7 @@ import {
 import type { OsOutputKind } from "@tedix/api-contract/schemas/os-workspaces";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import {
 	type CanvasDocSelection,
@@ -93,14 +94,14 @@ export function CanvasWorkpieceTabs({
 		const strip = stripRef.current;
 		if (!strip) return;
 		const reveal = () => {
+			const list = strip.querySelector<HTMLElement>('[role="tablist"]');
 			const active = strip.querySelector<HTMLElement>("[data-selected]");
-			if (!active) return;
+			if (!list || !active) return;
 			const box = active.getBoundingClientRect();
-			const view = strip.getBoundingClientRect();
-			if (box.right > view.right)
-				strip.scrollLeft += box.right - view.right + 8;
+			const view = list.getBoundingClientRect();
+			if (box.right > view.right) list.scrollLeft += box.right - view.right + 8;
 			else if (box.left < view.left)
-				strip.scrollLeft -= view.left - box.left + 8;
+				list.scrollLeft -= view.left - box.left + 8;
 		};
 		reveal();
 		const observer = new ResizeObserver(reveal);
@@ -108,107 +109,96 @@ export function CanvasWorkpieceTabs({
 		return () => observer.disconnect();
 	}, [selectedKey, opened, gadgets, outputs]);
 	/**
-	 * One Tab stop for the strip: the selected tab holds it and the arrows,
-	 * Home and End roam it, selecting as they go -- the tablist pattern's
-	 * automatic activation. Delete closes the focused tab and hands the stop
-	 * to the neighbour the shell selects next.
+	 * The Tab primitive owns the roaming stop and the arrow, Home and End keys;
+	 * Delete stays local: it closes the focused tab and hands the stop to the
+	 * neighbour the shell selects next.
 	 */
-	const onTabsKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		const strip = stripRef.current;
-		if (!strip) return;
+	const onListKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+		if (event.key !== "Delete") return;
 		const tabs = Array.from(
-			strip.querySelectorAll<HTMLElement>('[role="tab"]'),
+			event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'),
 		);
 		const current = tabs.indexOf(document.activeElement as HTMLElement);
-		if (current < 0) return;
-		if (event.key === "Delete") {
-			const closing = opened[current];
-			if (!closing) return;
-			event.preventDefault();
-			(tabs[current + 1] ?? tabs[current - 1])?.focus();
-			onClose(canvasDocKey(closing));
-			return;
-		}
-		const next =
-			event.key === "ArrowRight"
-				? (current + 1) % tabs.length
-				: event.key === "ArrowLeft"
-					? (current - 1 + tabs.length) % tabs.length
-					: event.key === "Home"
-						? 0
-						: event.key === "End"
-							? tabs.length - 1
-							: -1;
-		const doc = next >= 0 ? opened[next] : undefined;
-		if (!doc) return;
+		const closing = current >= 0 ? opened[current] : undefined;
+		if (!closing) return;
 		event.preventDefault();
-		tabs[next]?.focus();
-		if (canvasDocKey(doc) !== selectedKey) onSelect(doc);
+		(tabs[current + 1] ?? tabs[current - 1])?.focus();
+		onClose(canvasDocKey(closing));
 	};
 	if (opened.length === 0) return null;
-	// With nothing selected the first tab keeps the strip reachable by Tab.
-	const focusableKey =
-		selectedKey ?? (opened[0] ? canvasDocKey(opened[0]) : null);
 	return (
-		<div
+		<Tabs
 			ref={stripRef}
+			value={selectedKey}
+			onValueChange={(key) => {
+				const doc = opened.find((candidate) => canvasDocKey(candidate) === key);
+				if (doc && key !== selectedKey) onSelect(doc);
+			}}
 			data-focus-ring="inset"
-			className="canvas-workpiece-tabs"
-			role="tablist"
-			aria-label="Open workpieces"
-			onKeyDown={onTabsKeyDown}
+			className="canvas-workpiece-tabs flex-row"
 		>
-			{opened.map((doc) => {
-				const key = canvasDocKey(doc);
-				const tabId = canvasWorkpieceTabId(doc);
-				const output = outputs.find((candidate) => candidate.id === doc.id);
-				const title =
-					doc.type === "gadget"
-						? gadgets.find((candidate) => candidate.id === doc.id)?.name
-						: output?.title;
-				const kind = doc.type === "gadget" ? "gadget" : (output?.kind ?? null);
-				const kindLabel =
-					doc.type === "gadget"
-						? "App"
-						: outputWorkshopKindLabel(output?.kind as OsOutputKind | undefined);
-				const accessibleName = `${title ?? "Workpiece"} (${kindLabel}, ${doc.id})`;
-				const selected = key === selectedKey;
-				return (
-					<div
-						className="canvas-workpiece-tab"
-						data-selected={selected || undefined}
-						key={key}
-					>
-						<Button
-							aria-label={accessibleName}
-							aria-controls={CANVAS_WORKPIECE_PANEL_ID}
-							aria-selected={selected}
-							id={tabId}
-							tabIndex={key === focusableKey ? 0 : -1}
-							title={title ?? "Workpiece"}
-							className="min-w-0 flex-1 justify-start px-2 type-tedix-control"
-							onClick={() => onSelect(doc)}
-							role="tab"
-							size="sm"
-							variant="ghost"
+			<TabsList
+				aria-label="Open workpieces"
+				variant="filter"
+				activateOnFocus
+				onKeyDown={onListKeyDown}
+				className="min-h-full"
+			>
+				{opened.map((doc) => {
+					const key = canvasDocKey(doc);
+					const output = outputs.find((candidate) => candidate.id === doc.id);
+					const title =
+						doc.type === "gadget"
+							? gadgets.find((candidate) => candidate.id === doc.id)?.name
+							: output?.title;
+					const kind =
+						doc.type === "gadget" ? "gadget" : (output?.kind ?? null);
+					const kindLabel =
+						doc.type === "gadget"
+							? "App"
+							: outputWorkshopKindLabel(
+									output?.kind as OsOutputKind | undefined,
+								);
+					const accessibleName = `${title ?? "Workpiece"} (${kindLabel}, ${doc.id})`;
+					const selected = key === selectedKey;
+					return (
+						<div
+							className="canvas-workpiece-tab"
+							data-selected={selected || undefined}
+							key={key}
 						>
-							<TabKindIcon kind={kind} />
-							<span className="truncate">{title ?? "Workpiece"}</span>
-						</Button>
-						<Button
-							aria-label={`Close ${accessibleName}`}
-							className="shrink-0"
-							onClick={() => onClose(key)}
-							size="icon-sm"
-							tabIndex={-1}
-							variant="ghost"
-						>
-							<X size={12} />
-						</Button>
-					</div>
-				);
-			})}
-		</div>
+							<TabsTrigger
+								aria-label={accessibleName}
+								aria-controls={CANVAS_WORKPIECE_PANEL_ID}
+								id={canvasWorkpieceTabId(doc)}
+								title={title ?? "Workpiece"}
+								className="min-w-0 flex-1 justify-start gap-1.5 px-2"
+								onClick={() => {
+									// Re-tapping the open tab returns to it from the
+									// library or Work pane; the primitive only reports
+									// value changes, so the shell hears this case here.
+									if (selected) onSelect(doc);
+								}}
+								value={key}
+							>
+								<TabKindIcon kind={kind} />
+								<span className="truncate">{title ?? "Workpiece"}</span>
+							</TabsTrigger>
+							<Button
+								aria-label={`Close ${accessibleName}`}
+								className="shrink-0"
+								onClick={() => onClose(key)}
+								size="icon-sm"
+								tabIndex={-1}
+								variant="ghost"
+							>
+								<X size={12} />
+							</Button>
+						</div>
+					);
+				})}
+			</TabsList>
+		</Tabs>
 	);
 }
 

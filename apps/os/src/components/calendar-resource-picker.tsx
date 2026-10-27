@@ -13,6 +13,7 @@ import {
 	AlertTitle,
 } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import {
 	Select,
 	SelectContent,
@@ -140,34 +141,40 @@ function ScopedCalendarResourcePicker({
 			className="grid min-w-0 gap-3 break-words [overflow-wrap:anywhere]"
 			aria-label="Choose a connected calendar"
 		>
-			{tokenScope === "either" && (
-				<div className="flex flex-wrap gap-2">
-					<Button
-						type="button"
-						variant={scope === "user" ? "default" : "outline"}
-						disabled={disabled}
-						aria-pressed={scope === "user"}
-						onClick={() => {
-							setScope("user");
+			{tokenScope === "either" &&
+				(disabled ? (
+					<div className="flex flex-wrap gap-2">
+						<Button
+							type="button"
+							variant={scope === "user" ? "default" : "outline"}
+							disabled
+							aria-pressed={scope === "user"}
+						>
+							My accounts
+						</Button>
+						<Button
+							type="button"
+							variant={scope === "tenant" ? "default" : "outline"}
+							disabled
+							aria-pressed={scope === "tenant"}
+						>
+							Organization accounts
+						</Button>
+					</div>
+				) : (
+					<SegmentedControl
+						ariaLabel="Whose accounts"
+						value={scope}
+						onValueChange={(next) => {
+							setScope(next);
 							setAccountId("");
 						}}
-					>
-						My accounts
-					</Button>
-					<Button
-						type="button"
-						variant={scope === "tenant" ? "default" : "outline"}
-						disabled={disabled}
-						aria-pressed={scope === "tenant"}
-						onClick={() => {
-							setScope("tenant");
-							setAccountId("");
-						}}
-					>
-						Organization accounts
-					</Button>
-				</div>
-			)}
+						options={[
+							{ value: "user", label: "My accounts" },
+							{ value: "tenant", label: "Organization accounts" },
+						]}
+					/>
+				))}
 			<Text as="p" role="label">
 				Connected account
 			</Text>

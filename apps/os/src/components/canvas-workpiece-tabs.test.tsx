@@ -131,16 +131,21 @@ function mountTabs() {
 	};
 }
 
-function press(key: string) {
+/**
+ * The Tabs primitive roams the highlight on keydown but applies DOM focus in
+ * a queued microtask, so a press is only done once that microtask has run.
+ */
+async function press(key: string) {
 	act(() => {
 		document.activeElement?.dispatchEvent(
 			new KeyboardEvent("keydown", { bubbles: true, key }),
 		);
 	});
+	await act(async () => {});
 }
 
 describe("workpiece tab keyboard operation", () => {
-	it("keeps one tab stop and roams it with the arrows, Home and End", () => {
+	it("keeps one tab stop and roams it with the arrows, Home and End", async () => {
 		const { container, unmount } = mountTabs();
 		const tabs = () => [
 			...container.querySelectorAll<HTMLElement>('[role="tab"]'),
@@ -158,25 +163,25 @@ describe("workpiece tab keyboard operation", () => {
 
 		// Arrows wrap around and selection follows focus.
 		act(() => tabs()[0]?.focus());
-		press("ArrowLeft");
+		await press("ArrowLeft");
 		expect(document.activeElement).toBe(tabs()[2]);
 		expect(tabs()[2]?.getAttribute("aria-selected")).toBe("true");
 		expect(tabs().map((tab) => tab.tabIndex)).toEqual([-1, -1, 0]);
-		press("ArrowRight");
+		await press("ArrowRight");
 		expect(document.activeElement).toBe(tabs()[0]);
 		expect(tabs()[0]?.getAttribute("aria-selected")).toBe("true");
 
 		// Home and End jump to the ends.
-		press("End");
+		await press("End");
 		expect(document.activeElement).toBe(tabs()[2]);
 		expect(tabs()[2]?.getAttribute("aria-selected")).toBe("true");
-		press("Home");
+		await press("Home");
 		expect(document.activeElement).toBe(tabs()[0]);
 		expect(tabs()[0]?.getAttribute("aria-selected")).toBe("true");
 		unmount();
 	});
 
-	it("closes the focused tab on Delete and hands focus to its neighbour", () => {
+	it("closes the focused tab on Delete and hands focus to its neighbour", async () => {
 		const { container, unmount } = mountTabs();
 		const tabs = () => [
 			...container.querySelectorAll<HTMLElement>('[role="tab"]'),
@@ -184,8 +189,8 @@ describe("workpiece tab keyboard operation", () => {
 
 		// End lands on the last tab and selects it; Delete closes it.
 		act(() => tabs()[0]?.focus());
-		press("End");
-		press("Delete");
+		await press("End");
+		await press("Delete");
 		expect(tabs()).toHaveLength(2);
 		expect(document.activeElement).toBe(tabs()[1]);
 		expect(tabs()[1]?.getAttribute("aria-selected")).toBe("true");
