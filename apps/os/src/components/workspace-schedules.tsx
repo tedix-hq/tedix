@@ -11,6 +11,7 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
+import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
@@ -64,10 +65,11 @@ export function WorkspaceSchedules({ workspaceId }: { workspaceId: string }) {
 			/>
 			{query.isPending && <ListSkeleton rows={1} rowClassName="h-20" />}
 			{query.data && items.length === 0 && (
-				<Text as="p" role="label" tone="secondary" className="m-0">
-					No skills run this workspace yet. Link the skills that fill it, and
-					they show here with their schedule and last run.
-				</Text>
+				<Empty
+					appearance="quiet"
+					title="No skills run this workspace yet"
+					description="Link the skills that fill it, and they show here with their schedule and last run."
+				/>
 			)}
 			{items.length > 0 && (
 				<ul className="m-0 grid list-none gap-3 p-0">

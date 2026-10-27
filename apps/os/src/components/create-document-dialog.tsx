@@ -10,7 +10,12 @@ import { Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsOutput } from "@tedix/api-contract/schemas/os-workspaces";
 import { useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -246,21 +251,13 @@ export function CreateDocumentDialog({
 								</SelectContent>
 							</Select>
 							{workspaces.isError && (
-								<div role="alert">
-									<Text role="label" tone="error">
-										Workspaces could not be loaded. You can create a document
-										without a workspace or{" "}
-										<Button
-											type="button"
-											variant="link"
-											size="sm"
-											onClick={() => void workspaces.refetch()}
-										>
-											try again
-										</Button>
-										.
-									</Text>
-								</div>
+								<LoadError
+									title="Workspaces could not be loaded"
+									error={workspaces.error}
+									onRetry={() => void workspaces.refetch()}
+									retrying={workspaces.isFetching}
+									help="You can create a document without a workspace."
+								/>
 							)}
 						</div>
 					)}

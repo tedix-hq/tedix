@@ -1,4 +1,5 @@
 import type { CollabParticipant } from "@/collab/presence";
+import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { EntityAvatar } from "@/components/entity-avatar";
@@ -97,9 +98,14 @@ export function CanvasPresence({
 								</span>
 							))}
 							{overflow > 0 && (
-								<span className="grid size-(--tedix-topbar-avatar-size) flex-none place-items-center rounded-full bg-kumo-fill font-semibold text-kumo-default type-tedix-caption">
-									+{overflow}
-								</span>
+								<Avatar
+									size="sm"
+									className="size-(--tedix-topbar-avatar-size) flex-none ring-0"
+								>
+									<AvatarFallback className="font-semibold text-kumo-default type-tedix-caption">
+										+{overflow}
+									</AvatarFallback>
+								</Avatar>
 							)}
 							<span className="canvas-presence-online" aria-hidden="true" />
 						</span>
