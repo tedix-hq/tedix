@@ -2,7 +2,7 @@
 	"name": "@tedix/os",
 	"version": "0.1.1",
 	"private": true,
-	"description": "Tedix OS, the product web application: conversations, workers, apps, skills, work management, and administration.",
+	"description": "Tedix OS: a shared place for people and AI agents to coordinate tasks, use apps, and review decisions and results.",
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"scripts": {

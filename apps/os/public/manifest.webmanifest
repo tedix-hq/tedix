@@ -2,6 +2,7 @@
 	"id": "/work",
 	"name": "Tedix",
 	"short_name": "Tedix",
+	"description": "A platform for agents, apps, and work. Shared tasks, project knowledge, apps, and decisions.",
 	"start_url": "/work",
 	"scope": "/",
 	"display": "standalone",
