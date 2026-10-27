@@ -74,6 +74,15 @@ Push wall time includes queue waiting. Push-to-live starts when the remote
 accepts the commit and ends at the guarded deployment's surface SHA readback.
 A green aggregate, a queued Ship, and a live revision are separate receipts.
 
+## Shard rerun
+
+`shard-rerun.yml` runs one workspace shard at one exact main commit on demand
+(`workflow_dispatch` with `sha`, `workspace`, `test_script`, `shard` and a
+`label` that becomes the run title). It runs outside the `main-certification`
+group and certifies nothing. The private ops red-main healer uses it to rerun
+a failing shard on the last green and on the red commit, which separates a
+flake from a regression, and to bisect the red range to the culprit commit.
+
 ## Advisory high-risk review
 
 The independent `Advisory high-risk review` job runs only for push ranges

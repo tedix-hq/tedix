@@ -1,0 +1,125 @@
+name: Shard rerun
+
+# One Full suite shard at one exact commit, on demand. The private ops
+# red-main healer uses it to tell a flake from a regression (same shard on
+# the last green and on the red commit) and to bisect the red range. It runs
+# outside the main-certification group, so it never delays certification,
+# and its verdict certifies nothing: Ship still requires the exact-SHA
+# `Main CI` aggregate. The title carries the shard and commit so a caller
+# can read the result back by listing runs.
+
+run-name: Shard rerun ${{ inputs.label }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact commit to test (40 hex characters, on main)"
+        required: true
+        type: string
+      workspace:
+        description: "Workspace directory, for example apps/os"
+        required: true
+        type: string
+      test_script:
+        description: "Split test script, for example test:browser:deck (empty for the workspace's test:ci / test:run)"
+        required: false
+        type: string
+        default: ""
+      shard:
+        description: "Shard of the script, for example 2/4 (empty when unsharded)"
+        required: false
+        type: string
+        default: ""
+      label:
+        description: "Run title suffix: <workspace> <script> <shard> @ <sha12>"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  BUN_VERSION: "1.4.4"
+
+jobs:
+  shard:
+    name: Workspace ${{ inputs.workspace }}${{ inputs.test_script && format(' / {0}', inputs.test_script) || '' }}${{ inputs.shard && format(' [{0}]', inputs.shard) || '' }}
+    runs-on: ${{ fromJSON(vars.FULL_SUITE_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 25
+    steps:
+      - name: Require an exact commit, workspace and shard
+        env:
+          SHA: ${{ inputs.sha }}
+          WORKSPACE: ${{ inputs.workspace }}
+          TEST_SCRIPT: ${{ inputs.test_script }}
+          TEST_SHARD: ${{ inputs.shard }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$WORKSPACE" =~ ^(apps|packages)/[A-Za-z0-9._-]+$ ]]
+          [[ -z "$TEST_SCRIPT" || "$TEST_SCRIPT" =~ ^[A-Za-z0-9:._-]+$ ]]
+          [[ -z "$TEST_SHARD" || "$TEST_SHARD" =~ ^[0-9]+/[0-9]+$ ]]
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - name: Require the commit to be on main
+        run: |
+          git fetch --no-tags --depth=1000 origin main
+          git merge-base --is-ancestor HEAD FETCH_HEAD
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Share the frozen dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - name: Frozen install
+        run: |
+          started=$SECONDS
+          bun install --frozen-lockfile --ignore-scripts
+          echo "FROZEN_INSTALL_SECONDS=$((SECONDS - started))" >> "$GITHUB_ENV"
+      - name: Provide the Vite+ package manager
+        uses: ./.github/actions/vite-plus-package-manager
+      - name: Install ripgrep
+        if: inputs.workspace == 'apps/tedi-runtime'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+      - name: Plan the shard's browsers
+        id: plan
+        env:
+          WORKSPACE: ${{ inputs.workspace }}
+          TEST_SCRIPT: ${{ inputs.test_script }}
+        run: |
+          script="${TEST_SCRIPT:-$(node -e 'const p=require("./"+process.env.WORKSPACE+"/package.json"); console.log(p.scripts["test:ci"] ? "test:ci" : "test:run")')}"
+          echo "script=$script" >> "$GITHUB_OUTPUT"
+          node scripts/ci/full-suite-hourly.mjs browsers "$WORKSPACE" "$script" >> "$GITHUB_OUTPUT"
+      - name: Install Playwright browsers
+        if: steps.plan.outputs.browsers != ''
+        uses: ./.github/actions/playwright-browsers
+        with:
+          browsers: ${{ steps.plan.outputs.browsers }}
+      - name: Run the shard
+        env:
+          WORKSPACE: ${{ inputs.workspace }}
+          TEST_SCRIPT: ${{ steps.plan.outputs.script }}
+          TEST_SHARD: ${{ inputs.shard }}
+          BROWSERS: ${{ steps.plan.outputs.browsers }}
+          TEDIX_SCREENSHOT_DIR: ${{ runner.temp }}/browser-evidence
+        run: |
+          command=(bun run --cwd "$WORKSPACE" "$TEST_SCRIPT")
+          if [ -n "$TEST_SHARD" ]; then command+=(--shard "$TEST_SHARD"); fi
+          # Same infrastructure-only rerun as certification, so a fixture
+          # crash does not read as a regression.
+          if [ -n "$BROWSERS" ]; then
+            node scripts/ci/rerun-on-infrastructure.mjs -- "${command[@]}"
+          else
+            "${command[@]}"
+          fi
