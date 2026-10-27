@@ -100,6 +100,9 @@
 	"share_can_use": "Puede usar",
 	"share_link_unavailable": "Este enlace ya no abre nada",
 	"share_link_unavailable_hint": "Puede que haya caducado, se haya desactivado o lo haya limitado una política. Pide un enlace nuevo a quien lo compartió.",
+	"share_guest_name": "Tu nombre",
+	"share_guest_name_hint": "Tu nombre se guarda con tus comentarios. No necesitas una cuenta.",
+	"share_guest_continue": "Abrir app",
 	"share_no_sign_in": "Compartido contigo · sin iniciar sesión",
 	"share_opening_app": "Abriendo la app…"
 }

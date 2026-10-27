@@ -9,6 +9,7 @@
  */
 import {
 	AppRuntimeArgumentsSchema,
+	AppRuntimeGuestNameSchema,
 	AppRuntimeMethodSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
@@ -188,6 +189,10 @@ export async function handleGuestAppOpen(
 ): Promise<Response> {
 	const scope = await resolveGuestAppScope(db, field(body, "sessionToken"));
 	if (!scope) return notFound();
+	const guestName = AppRuntimeGuestNameSchema.safeParse(
+		field(body, "guestName"),
+	);
+	if (!guestName.success) return notFound();
 	let code;
 	try {
 		code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
@@ -208,6 +213,7 @@ export async function handleGuestAppOpen(
 		config: code.config,
 		compatibilityDate: code.compatibilityDate,
 		shareLinkId: scope.shareLinkId,
+		guestName: guestName.data,
 	});
 	return noStoreJson({
 		session: session.token,
@@ -264,7 +270,8 @@ export async function handleGuestAppCall(
 		session.shareLinkId !== scope.shareLinkId ||
 		session.role !== GUEST_ROLE ||
 		session.previewId !== undefined ||
-		session.actorUserId !== undefined
+		session.actorUserId !== undefined ||
+		!session.guestName
 	)
 		return notFound();
 	try {
@@ -291,6 +298,8 @@ export async function handleGuestAppCall(
 			policy: {
 				shareLinkId: scope.shareLinkId,
 				shareSessionId: scope.shareSessionId,
+				guestName: session.guestName,
+				guestIdentity: "self_reported",
 			},
 		});
 		return noStoreJson({ result });

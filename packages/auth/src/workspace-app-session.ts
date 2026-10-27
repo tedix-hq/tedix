@@ -1,6 +1,9 @@
 import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
-import { AppRuntimeRoleSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import {
+	AppRuntimeGuestNameSchema,
+	AppRuntimeRoleSchema,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 
 export const APP_SESSION_TTL_SECONDS = 300;
 const issuer = "tedix:workspace-app";
@@ -32,6 +35,8 @@ export const WorkspaceAppSessionSchema = z
 		codeDigest: z.string().optional(),
 		/** Set for a guest who opened the app through a share link; revoking the link cuts the session. */
 		shareLinkId: z.uuid().optional(),
+		/** Guest-provided name, bound to this signed session for call receipts. */
+		guestName: AppRuntimeGuestNameSchema.optional(),
 	})
 	.strict();
 export type WorkspaceAppSession = z.infer<typeof WorkspaceAppSessionSchema>;
