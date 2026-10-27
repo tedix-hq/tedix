@@ -36,6 +36,7 @@ import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { userContext } from "../rpc/test-context";
 import { createOsAppRuntimeRouter } from "../rpc/routers/os-app-runtime";
 import {
+	guestAppRefusalForApp,
 	handleGuestAppCall,
 	handleGuestAppOpen,
 	handleGuestAppRead,
@@ -773,5 +774,35 @@ describe("share-link guests on a runtime app", () => {
 				})
 			).status,
 		).toBe(404);
+	});
+});
+
+describe("guestAppRefusalForApp", () => {
+	it("says an app that does not run its own code needs sign-in", async () => {
+		const { db } = await fixture();
+		expect(
+			await guestAppRefusalForApp(db, {
+				id: widgetGadgetId,
+				organizationId: "org-1",
+				workspaceId,
+				currentRevisionId: widgetRevisionId,
+			}),
+		).toEqual({ reason: "not_runtime_app" });
+		expect(
+			await guestAppRefusalForApp(db, {
+				id: gadgetId,
+				organizationId: "org-1",
+				workspaceId,
+				currentRevisionId: revisionId,
+			}),
+		).toBeNull();
+		expect(
+			await guestAppRefusalForApp(db, {
+				id: gadgetId,
+				organizationId: "org-1",
+				workspaceId,
+				currentRevisionId: null,
+			}),
+		).toBeUndefined();
 	});
 });

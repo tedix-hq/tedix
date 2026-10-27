@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	type OsShareAccess,
 	OsShareAccessSchema,
+	type OsShareGuestRefusal,
 	type OsShareLink,
 	type OsShareResourceType,
 	type OsShareRevisionMode,
@@ -490,11 +491,6 @@ type ShareResource =
 	  };
 
 type ShareLinksPanelProps = ShareResource & {
-	/**
-	 * The app runs its own code, so a `use` link opens for anyone on the
-	 * account-free guest page instead of the signed-in share page.
-	 */
-	guestEntry?: boolean;
 	/** Opens the app's Review tab, where review rounds are sent. */
 	onOpenReview?: () => void;
 };
@@ -524,15 +520,18 @@ function normalizeResource(props: ShareResource): {
 	};
 }
 
-/** Why a "Can use" link will not open this app for people without a Tedix account. */
-function guestRefusalText(refusal: {
-	slot: string;
-	reason: "connection_grant" | "unshared_output";
-}): string {
+/** Why "Anyone with the link" will not open this app for people without a Tedix account. */
+export function guestRefusalText(
+	refusal: OsShareGuestRefusal,
+	organization: string,
+): string {
+	if (refusal.reason === "not_runtime_app")
+		return `People without a Tedix account can't open this app: it works through Tedix skills and connected accounts, so it needs a sign-in. Choose "People in ${organization}" to share it with your team.`;
+	const slot = `"${refusal.slot ?? "a resource"}"`;
 	const why =
 		refusal.reason === "connection_grant"
-			? `it can reach a connected account through "${refusal.slot}"`
-			: `"${refusal.slot}" is not a Tedix Output, or its Output holds data from connected accounts`;
+			? `it can reach a connected account through ${slot}`
+			: `${slot} is not a Tedix Output, or its Output holds data from connected accounts`;
 	return `People without a Tedix account can't open this app through a link: ${why}, and Tedix can't check what they may see there. Invite them to the workspace instead, or remove that access from the app.`;
 }
 
@@ -911,15 +910,28 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 						);
 					})}
 				</div>
-				{props.guestEntry &&
-				access === "anyone_with_link" &&
-				shares.data?.guestRefusal ? (
+				{access === "anyone_with_link" && shares.data?.guestRefusal ? (
 					<Surface
-						className="m-0 px-3 py-2 text-kumo-subtle text-xs"
-						render={<p />}
+						className="m-0 grid gap-2 px-3 py-2 text-kumo-subtle text-xs"
 						data-guest-refusal={shares.data.guestRefusal.reason}
 					>
-						{guestRefusalText(shares.data.guestRefusal)}
+						<p className="m-0">
+							{guestRefusalText(shares.data.guestRefusal, organization)}
+						</p>
+						{shares.data.guestRefusal.reason === "not_runtime_app" ? (
+							<div>
+								<Button
+									size="sm"
+									variant="secondary"
+									disabled={busy || !shares.isSuccess}
+									onClick={() => chooseAccess("organization")}
+									data-guest-refusal-switch
+								>
+									<Buildings size={14} aria-hidden /> Use People in{" "}
+									{organization}
+								</Button>
+							</div>
+						) : null}
 					</Surface>
 				) : null}
 			</section>

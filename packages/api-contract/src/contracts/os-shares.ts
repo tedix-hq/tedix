@@ -147,6 +147,19 @@ export type OsShareInvitee = z.infer<typeof OsShareInviteeSchema>;
 export const OsShareOpenInputSchema = z.object({
 	id: z.string().regex(OS_SHARE_PUBLIC_ID_PATTERN),
 });
+/**
+ * Why people without a Tedix account cannot open an app through a link.
+ * `connection_grant`: it can reach a connected account through `slot`;
+ * `unshared_output`: `slot` is not an Output without connected data;
+ * `not_runtime_app`: it does not run its own code, so it renders through
+ * Tedix skills and connected accounts and always needs sign-in.
+ */
+export const OsShareGuestRefusalSchema = z.object({
+	slot: z.string().optional(),
+	reason: z.enum(["connection_grant", "unshared_output", "not_runtime_app"]),
+});
+export type OsShareGuestRefusal = z.infer<typeof OsShareGuestRefusalSchema>;
+
 export const OsShareOpenResultSchema = z.object({
 	needsSignIn: z
 		.boolean()
@@ -510,15 +523,10 @@ export const osSharesContract = oc
 				.output(
 					z.object({
 						items: z.array(OsShareLinkSchema),
-						guestRefusal: z
-							.object({
-								slot: z.string(),
-								reason: z.enum(["connection_grant", "unshared_output"]),
-							})
-							.nullable()
+						guestRefusal: OsShareGuestRefusalSchema.nullable()
 							.optional()
 							.describe(
-								"For an app that runs its own code: why people without a Tedix account cannot open it through a use link, or null when they can. Absent for other resources.",
+								"For an app: why people without a Tedix account cannot open it through a link, or null when they can. Absent for other resources.",
 							),
 					}),
 				),

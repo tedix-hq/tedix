@@ -92,7 +92,7 @@ function renderControls(
 				resourceId: string;
 				currentRevisionId?: string | null;
 		  }
-	) & { compact?: boolean; guestEntry?: boolean; onOpenReview?: () => void } = {
+	) & { compact?: boolean; onOpenReview?: () => void } = {
 		outputId: OUTPUT_ID,
 	},
 ): HTMLElement {
@@ -514,11 +514,36 @@ describe("ShareControls", () => {
 		const container = await openDialog({
 			resourceType: "gadget",
 			resourceId: OUTPUT_ID,
-			guestEntry: true,
 		});
 		const note = container.querySelector("[data-guest-refusal]");
 		expect(note?.getAttribute("data-guest-refusal")).toBe("connection_grant");
 		expect(note?.textContent).toContain('"notes"');
+	});
+
+	it("says plainly that an app without its own code needs sign-in, and offers the organization instead", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [shareFixture({ resourceType: "gadget", role: "use" })],
+			guestRefusal: { reason: "not_runtime_app" },
+		});
+		sharesApi.update.mockResolvedValue({
+			share: shareFixture({ access: "organization" }),
+			revokedSessionCount: 0,
+		});
+		const container = await openDialog({
+			resourceType: "gadget",
+			resourceId: OUTPUT_ID,
+		});
+		const note = container.querySelector("[data-guest-refusal]");
+		expect(note?.getAttribute("data-guest-refusal")).toBe("not_runtime_app");
+		expect(note?.textContent).toContain(
+			"People without a Tedix account can't open this app",
+		);
+		click(container.querySelector("[data-guest-refusal-switch]")!);
+		await flush();
+		expect(sharesApi.update).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			access: "organization",
+		});
 	});
 
 	it("asks before turning a link off, then turns it off in place", async () => {
