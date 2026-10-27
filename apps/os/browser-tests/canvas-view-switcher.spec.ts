@@ -7,7 +7,9 @@ import { startFixtureServer } from "./fixture-server";
 // and every view must stay reachable. Connections and Review open from the
 // workspace menu and join the row only while they show; when the row is too
 // narrow for every segment (chat open beside the app), the selected view
-// stays scrolled into sight.
+// stays scrolled into sight. Below the 820px tablet line the switcher
+// segments and the workspace header actions keep a 44px hit target, and
+// keyboard focus stays visible inside the scrolling row.
 const workpiecePath =
 	"/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece";
 const views = ["App", "Edit", "History"];
@@ -15,14 +17,15 @@ const server = await startFixtureServer("/work");
 
 try {
 	for (const { engine, widths } of [
-		{ engine: chromium, widths: [375, 1024, 1280] },
-		{ engine: webkit, widths: [390] },
+		{ engine: chromium, widths: [375, 768, 1024, 1280] },
+		{ engine: webkit, widths: [390, 768] },
 	]) {
 		const browser = await engine.launch({ headless: true });
 		try {
 			for (const width of widths) {
 				const label = `${engine.name()}/${width}`;
 				const phone = width < 640;
+				const tablet = width <= 819;
 				const page = await browser.newPage({
 					viewport: { width, height: 844 },
 					isMobile: phone && engine === chromium,
@@ -40,6 +43,8 @@ try {
 							text: el.textContent ?? "",
 							left: box.left,
 							right: box.right,
+							width: box.width,
+							height: box.height,
 							clipped: el.scrollWidth > el.clientWidth,
 						};
 					}),
@@ -57,6 +62,69 @@ try {
 							segment.right <= next.left + 0.5,
 							`${label}: ${segment.text} does not overlap ${next.text}`,
 						);
+					if (tablet)
+						assert(
+							segment.width >= 44 && segment.height >= 44,
+							`${label}: ${segment.text} keeps a 44px hit target`,
+						);
+				}
+				const headerActions = await page
+					.locator(".canvas-workspace-header button")
+					.evaluateAll((els) =>
+						els
+							.filter((el) => el.getBoundingClientRect().width > 0)
+							.map((el) => {
+								const box = el.getBoundingClientRect();
+								return {
+									name:
+										el.getAttribute("aria-label") ??
+										el.getAttribute("title") ??
+										el.textContent ??
+										"",
+									width: box.width,
+									height: box.height,
+								};
+							}),
+					);
+				assert(
+					headerActions.length > 0,
+					`${label}: the workspace header shows its actions`,
+				);
+				if (tablet)
+					for (const action of headerActions) {
+						assert(
+							action.width >= 44 && action.height >= 44,
+							`${label}: header action "${action.name}" is at least 44x44`,
+						);
+					}
+				// A focused view segment keeps its ring inside the scrolling row.
+				if (tablet) {
+					const focus = await switcher
+						.getByRole("button", { name: "History", exact: true })
+						.evaluate((el) => {
+							el.focus({ focusVisible: true });
+							const style = getComputedStyle(el);
+							return {
+								visible: el.matches(":focus-visible"),
+								outlineStyle: style.outlineStyle,
+								outlineWidth: style.outlineWidth,
+							};
+						});
+					assert.equal(
+						focus.visible,
+						true,
+						`${label}: a view segment takes keyboard focus`,
+					);
+					assert.equal(
+						focus.outlineStyle,
+						"solid",
+						`${label}: the focus ring is drawn`,
+					);
+					assert.equal(
+						focus.outlineWidth,
+						"2px",
+						`${label}: the focus ring is 2px`,
+					);
 				}
 				assert(
 					await page.evaluate(

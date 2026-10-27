@@ -784,6 +784,28 @@
 	background: var(--color-kumo-tint);
 }
 
+/*
+ * The workspace chrome keeps the shell's 44px hit-target floor through the
+ * tablet widths — the same line the topbar uses. The shared button sizes
+ * collapse to 28/32px on a fine pointer above `sm`, but a tablet is still a
+ * hand-held screen. Grow the boxes, never the labels or icons: the 56px
+ * header takes them as-is, and the workpiece bar stretches to fit the now
+ * 48px view rail instead of clipping it.
+ */
+@media (max-width: 819px) {
+	.canvas-workspace-header button,
+	.canvas-workpiece-bar button {
+		min-width: 44px;
+		min-height: 44px;
+	}
+
+	.canvas-workpiece-bar {
+		height: auto;
+		min-height: 48px;
+		padding-block: 4px;
+	}
+}
+
 .canvas-document-header {
 	position: sticky;
 	top: 0;
