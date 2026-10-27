@@ -706,17 +706,8 @@
 	}
 }
 
-/* The Deck column is the container: the rail and card respond to the room they have. */
-.fd-context-frame {
-	container: fd-context / inline-size;
-	width: 100%;
-	min-width: 0;
-}
 .fd-context-layout {
 	position: relative;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr);
-	column-gap: 0;
 	width: 100%;
 	max-width: 44rem;
 	margin-inline: auto;
@@ -726,27 +717,8 @@
 	background: none;
 	border-radius: 0;
 }
-.fd-context-layout[data-context-open="true"] {
-	max-width: calc(44rem + 2rem + 25rem);
-	grid-template-columns: minmax(0, 1fr) clamp(20rem, 30cqw, 25rem);
-	gap: 2rem;
-}
 .fd-context-main {
 	min-width: 0;
-}
-.fd-context-rail {
-	position: sticky;
-	top: 1rem;
-	align-self: start;
-	width: 100%;
-	min-width: 0;
-	max-height: calc(100dvh - 8rem);
-	overflow-y: auto;
-	border-left: 1px solid var(--color-kumo-line);
-	padding: 1.5rem;
-}
-.fd-context-rail[hidden] {
-	display: none;
 }
 .fd-context-sections {
 	display: flex;
@@ -983,8 +955,7 @@
 		display: none;
 	}
 }
-.fd-context-section :is(h2, h3),
-.fd-context-rail h2 {
+.fd-context-section :is(h2, h3) {
 	font-family: var(--font-sans);
 	font-size: 1.125rem;
 	line-height: 1.35;
@@ -1024,17 +995,6 @@
 	height: 1.75rem;
 	border-radius: 50%;
 	--tw-ring-color: transparent;
-}
-.fd-context-layout {
-	transition:
-		grid-template-columns 160ms ease-out,
-		column-gap 160ms ease-out;
-}
-.fd-context-layout[data-context-open="true"] {
-	transition-duration: 200ms;
-}
-.fd-context-layout[data-context-open="true"] .fd-context-sections {
-	animation: fd-closure-enter 120ms 80ms both;
 }
 [data-motion="reduced"] .fd-decision {
 	transform: none;

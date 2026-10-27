@@ -118,26 +118,17 @@ describe("decision context rail sections", () => {
 		}
 	});
 
-	it("toggles the inline rail beside the card on desktop widths", async () => {
-		const original = HTMLElement.prototype.getBoundingClientRect;
-		HTMLElement.prototype.getBoundingClientRect = function () {
-			const rect = original.call(this);
-			return { ...rect, width: 1200 } as DOMRect;
-		};
-		try {
-			await mountRail();
-			const aside = () =>
-				host.querySelector<HTMLElement>("aside.fd-context-rail")!;
-			expect(aside().hidden).toBe(true);
-			await click("Why this");
-			expect(aside().hidden).toBe(false);
-			expect(trigger("Why this").getAttribute("aria-expanded")).toBe("true");
-			await click("Why this");
-			expect(aside().hidden).toBe(true);
-			expect(trigger("Why this").getAttribute("aria-expanded")).toBe("false");
-		} finally {
-			HTMLElement.prototype.getBoundingClientRect = original;
-		}
+	it("uses the same Kumo sheet without an inline rail on desktop widths", async () => {
+		await mountRail();
+		expect(host.querySelector("aside.fd-context-rail")).toBeNull();
+		expect(popup().getAttribute("role")).toBe("dialog");
+		expect(popup().hasAttribute("hidden")).toBe(true);
+		await click("Why this");
+		expect(popup().hasAttribute("hidden")).toBe(false);
+		expect(trigger("Why this").getAttribute("aria-expanded")).toBe("true");
+		await click("Why this");
+		expect(popup().hasAttribute("hidden")).toBe(true);
+		expect(trigger("Why this").getAttribute("aria-expanded")).toBe("false");
 	});
 });
 
