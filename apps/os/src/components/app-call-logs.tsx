@@ -219,12 +219,7 @@ export function AppCallLogs({
 					</div>
 				))}
 				{!traces.isError && lines.length === 0 && (
-					<Text
-						as="span"
-						role="label"
-						tone="secondary"
-						className="font-sans"
-					>
+					<Text as="span" role="label" tone="secondary" className="font-sans">
 						{emptyMessage}
 					</Text>
 				)}

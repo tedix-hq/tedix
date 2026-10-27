@@ -30,7 +30,7 @@ import {
 	formatCount,
 	sentenceCase,
 } from "@/lib/format";
-import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
+import { isAuthorizationError } from "@/lib/orpc-error";
 import {
 	latestGrowthSnapshotQueryOptions,
 	tediExpertiseQueryOptions,
@@ -351,13 +351,18 @@ export function LearningEvidence({ tediId }: { tediId: string }) {
 				</Text>
 				{snapshot.isPending && <ListSkeleton rows={1} rowClassName="h-20" />}
 				{snapshot.isError && (
-					<Alert variant={snapshotRefused ? "warning" : "destructive"}>
-						<AlertDescription>
-							{snapshotRefused
+					<LoadError
+						title={
+							snapshotRefused
 								? "The growth-snapshot read was refused for this principal, so no weekly metrics are shown."
-								: `Growth snapshots are unavailable: ${errorMessage(snapshot.error)}`}
-						</AlertDescription>
-					</Alert>
+								: "Growth snapshots are unavailable"
+						}
+						error={snapshot.error}
+						onRetry={() => {
+							void snapshot.refetch();
+						}}
+						retrying={snapshot.isFetching}
+					/>
 				)}
 				{snapshot.isSuccess && snapshot.data === null && (
 					<Text role="body" tone="secondary" className="m-0">

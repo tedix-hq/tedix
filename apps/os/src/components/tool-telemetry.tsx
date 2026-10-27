@@ -99,11 +99,7 @@ export function TelemetryStat({
 			label={label}
 			value={value}
 			valueTone={
-				tone === "warn"
-					? "warning"
-					: tone === "danger"
-						? "error"
-						: "strong"
+				tone === "warn" ? "warning" : tone === "danger" ? "error" : "strong"
 			}
 		/>
 	);
