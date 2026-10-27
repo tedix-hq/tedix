@@ -41,6 +41,63 @@ describe("Work approvals contract", () => {
 		).toBe(false);
 	});
 
+	it("requires an exact action, owner, justification and sensitivity for agent requests", () => {
+		const valid = {
+			workItemId: "00000000-0000-4000-8000-000000000001",
+			workItemVersion: 1,
+			action: "agent.create",
+			authorityKey: "agent.create",
+			approverType: "user",
+			approverId: "admin",
+			requestRationale: "Research support",
+			expiresAt: "2099-01-01T00:00:00.000Z",
+			proposal: {
+				kind: "tedi",
+				name: "Research",
+				slug: "research",
+				ownerUserId: "owner",
+				justification: "Research support",
+				dataSensitivity: "internal",
+			},
+		};
+		expect(inputSchema("propose").safeParse(valid).success).toBe(true);
+		for (const field of [
+			"ownerUserId",
+			"justification",
+			"dataSensitivity",
+		] as const) {
+			expect(
+				inputSchema("propose").safeParse({
+					...valid,
+					proposal: { ...valid.proposal, [field]: undefined },
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			inputSchema("propose").safeParse({ ...valid, action: "agent.connect" })
+				.success,
+		).toBe(false);
+		expect(
+			inputSchema("propose").safeParse({
+				...valid,
+				authorityKey: "work:accept",
+			}).success,
+		).toBe(false);
+		expect(
+			inputSchema("propose").safeParse({ ...valid, approverType: "tedi" })
+				.success,
+		).toBe(false);
+		expect(
+			inputSchema("propose").safeParse({
+				...valid,
+				proposal: {
+					...valid.proposal,
+					organizationId: "00000000-0000-4000-8000-000000000099",
+				},
+			}).success,
+		).toBe(false);
+	});
+
 	it("requires a version-fenced typed decision with rationale", () => {
 		const valid = {
 			proposalId: "00000000-0000-4000-8000-000000000001",

@@ -10,6 +10,7 @@
  * Canonical provider registry for connection discovery and credential profiles.
  */
 
+import type { AgentRequestProposal } from "@tedix/api-contract/schemas/agent-requests";
 import type { ConnectionProviderDcrExceptionRecord } from "@tedix/api-contract/schemas/connections";
 import type {
 	ConnectionCredentialProfile,
@@ -33,6 +34,10 @@ export const connectionProviders = sqliteTable(
 	{
 		id: text("id").primaryKey(),
 
+		defaultDataSensitivity: text("default_data_sensitivity")
+			.$type<AgentRequestProposal["dataSensitivity"]>()
+			.notNull()
+			.default("confidential"),
 		name: text("name").notNull(),
 		description: text("description").notNull(),
 		icon: text("icon").notNull(),

@@ -544,6 +544,57 @@ its executor accepts it from the item's `## Done when` section
 (`--accept-proposed`). A local chat or script is no longer part of the loop;
 when it stops, the schedule and the dispatchers keep running.
 
+## Request an agent or connection
+
+When an installation has released the agent-request path, its organization
+owner can enable `metadata.agentRequestApprovals: { approver: "org_admin" }`
+through `organizations.update`. Omission or `null` keeps it disabled. This
+setting records the owner's choice of approver; an agent cannot enable it.
+
+Use the existing Work approval tools. Discover the proposal tool and its
+current schema before calling it. Bind the request to an open Work Item and
+its exact version, and name an independent organization owner or admin as
+the user approver. The requester and approver cannot represent the same person.
+
+| Action           | Proposal kind      | What approval carries out                                                                                  |
+| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `agent.create`   | `tedi`             | Creates a standard tedi using the installation's current defaults and limits.                              |
+| `agent.create`   | `external_agent`   | Registers an external agent against an existing active organization API key. It issues no credential.      |
+| `agent.connect`  | `connection`       | Creates a named organization account slot for an installed OAuth provider that supports multiple accounts. |
+| `resource.grant` | `connection_grant` | Applies the exact consumer policy to an existing organization account slot.                                |
+
+Each proposal carries `ownerUserId`, `justification` and `dataSensitivity`
+(`public`, `internal`, `confidential` or `restricted`), plus an optional
+`ownerTeam` label. The owner must be an active organization member. Provider
+templates supply a default sensitivity of `confidential`; put the chosen
+sensitivity explicitly in the proposal so the approver sees it.
+
+For example, the proposal body for a tedi is:
+
+```json
+{
+	"kind": "tedi",
+	"name": "Research",
+	"slug": "research",
+	"ownerUserId": "<canonical-user-id>",
+	"ownerTeam": "Research",
+	"justification": "Prepare research for the team to review",
+	"dataSensitivity": "internal"
+}
+```
+
+Requests use the existing approval inbox and Deck. Approval and execution
+have separate receipts: read `proposal.execution` to distinguish pending,
+running, succeeded and failed execution. A failed execution needs an operator
+to inspect the target before requesting another action. An interrupted running
+execution also needs inspection; it is not automatically replayed.
+
+A connection slot starts with no agent consumers and no provider grant. The
+person still completes provider consent and redeems their own connect ticket.
+Approve a separate `resource.grant` proposal when agents should use that account.
+Creating an agent does not grant an Earned Delegation entrustment or recertify
+one. Direct `tedis.create` remains available under its existing authorization.
+
 ## Authority and evidence rules
 
 - Read-only discovery does not authorize a mutation.

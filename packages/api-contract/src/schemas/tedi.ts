@@ -4,6 +4,7 @@
  */
 
 import * as z from "zod";
+import { DataSensitivitySchema } from "./agent-requests";
 import { ModelGenerationPolicySchema } from "./model-generation";
 import { SkillScheduleSchema } from "./cognitive";
 import { JsonValueSchema } from "./common";
@@ -326,6 +327,9 @@ export const TediSchema = z
 		id: z.uuid(),
 		organizationId: z.uuid(),
 		ownerUserId: z.string().nullable(),
+		ownerTeam: z.string().nullable().optional(),
+		justification: z.string().nullable().optional(),
+		dataSensitivity: DataSensitivitySchema.nullable().optional(),
 		scope: TediScopeSchema.nullable(),
 		name: z.string(),
 		slug: z.string(),

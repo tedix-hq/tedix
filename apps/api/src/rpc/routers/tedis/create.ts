@@ -1,4 +1,5 @@
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
+import type { AgentRequestProposal } from "@tedix/api-contract/schemas/agent-requests";
 import type { CreateTediInput } from "@tedix/api-contract/schemas/tedi";
 import { getManagementClient } from "@tedix/auth/client";
 import { createTediIdentity } from "@tedix/auth/tedi-identity";
@@ -148,11 +149,26 @@ export function createTediForPortableImport(
 	);
 }
 
+/** Called only after the owner/admin Work decision has been durably claimed. */
+export function createTediForApprovedRequest(
+	context: BaseContext,
+	proposal: Extract<AgentRequestProposal, { kind: "tedi" }>,
+) {
+	return createTediResources(
+		context,
+		{ name: proposal.name, slug: proposal.slug, registerDescopeAih: false },
+		false,
+		false,
+		proposal,
+	);
+}
+
 async function createTediResources(
 	context: BaseContext,
 	input: CreateTediInput,
 	providerAuthorized = false,
 	portableImport = false,
+	request?: Extract<AgentRequestProposal, { kind: "tedi" }>,
 ) {
 	const callerOrgId = requireOrganizationId(context);
 	const { orgId, forbidden } = resolveTediCreateOrg({
@@ -223,11 +239,12 @@ async function createTediResources(
 			`The ${entitlement.profile.name} profile allows ${entitlement.limits.maxTedis} tedi(s)`,
 		);
 	}
-	const mcpCapabilityProfile = portableImport
-		? "standard"
-		: resolveNewTediCapabilityProfile({
-				existingTediCount: existingOrgTedis.length,
-			});
+	const mcpCapabilityProfile =
+		portableImport || request
+			? "standard"
+			: resolveNewTediCapabilityProfile({
+					existingTediCount: existingOrgTedis.length,
+				});
 
 	const policyHeads = await listPolicyPacks(context.db, {
 		organizationId: orgId,
@@ -283,7 +300,10 @@ async function createTediResources(
 		language: input.language ?? null,
 		status: portableImport ? "paused" : "active",
 		scope: "organization",
-		ownerUserId: context.user?.sub ?? null,
+		ownerUserId: request?.ownerUserId ?? context.user?.sub ?? null,
+		ownerTeam: request?.ownerTeam ?? null,
+		justification: request?.justification ?? null,
+		dataSensitivity: request?.dataSensitivity ?? null,
 		r2BucketName: input.r2BucketName ?? null,
 		workerName: input.workerName ?? null,
 		runtimeOverrides:

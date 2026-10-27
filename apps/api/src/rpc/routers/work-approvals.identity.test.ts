@@ -20,6 +20,7 @@ import {
 	workResourceRequirements,
 	workBudgetEnvelopes,
 	workApprovalDecisions,
+	workApprovalExecutions,
 	workApprovalProposals,
 } from "@tedix/db/schema/work-factory";
 import { workEvents, workItems } from "@tedix/db/schema/work-items";
@@ -48,6 +49,7 @@ function fixture(userId = "canonical-user-id") {
 			workEvents,
 			workApprovalProposals,
 			workApprovalDecisions,
+			workApprovalExecutions,
 			organizationMembers,
 			tedis,
 			projects,

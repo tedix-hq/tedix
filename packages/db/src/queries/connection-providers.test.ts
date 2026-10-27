@@ -37,6 +37,7 @@ function makeDb(rows: ConnectionProviderRow[]): {
 function row(overrides: Partial<ConnectionProviderRow>): ConnectionProviderRow {
 	return {
 		id: "example",
+		defaultDataSensitivity: "confidential",
 		name: "Example",
 		description: "An example provider",
 		icon: "https://example.com/favicon.ico",

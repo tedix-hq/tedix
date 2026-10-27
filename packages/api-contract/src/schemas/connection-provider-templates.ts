@@ -18,6 +18,7 @@
  */
 
 import * as z from "zod";
+import { DataSensitivitySchema } from "./agent-requests";
 import {
 	type ConnectionCredentialFieldSchema,
 	ConnectionCredentialProfileSchema,
@@ -83,6 +84,7 @@ export type ConnectionProviderOAuthConfig = z.input<
  * `connection_providers` D1 table.
  */
 export const ConnectionProviderTemplateSchema = z.object({
+	defaultDataSensitivity: DataSensitivitySchema.optional(),
 	/** Unique provider identifier (e.g. "google-sheets", "github") */
 	id: z.string().min(1),
 	/** Display name */

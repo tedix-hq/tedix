@@ -1,3 +1,11 @@
+import {
+	AgentRequestActionSchema,
+	AgentRequestProposalSchema,
+	agentRequestAction,
+	type AgentRequestExecution,
+} from "@tedix/api-contract/schemas/agent-requests";
+import { organizations } from "../../schema/organizations";
+import { organizationMembers } from "../../schema/organization-members";
 import { normalizeWorkItemRow } from "./normalization";
 import {
 	recordCardCreationEdges,
@@ -5,12 +13,13 @@ import {
 } from "../decision-graph-writers";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { WorkItemAcceptanceContractSchema } from "@tedix/api-contract/schemas/work-items";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { prefixedColumns } from "../../utils/select";
 import { workItems, workEvents, type WorkItem } from "../../schema/work-items";
 import {
 	workApprovalDecisions,
+	workApprovalExecutions,
 	workApprovalProposals,
 	type WorkApprovalDecision,
 	type WorkApprovalProposal,
@@ -32,7 +41,12 @@ export interface ProposeWorkApprovalParams {
 	orgId: string;
 	workItemId: string;
 	workItemVersion: number;
-	action?: "admission" | "acceptance";
+	action?:
+		| "admission"
+		| "acceptance"
+		| "agent.create"
+		| "agent.connect"
+		| "resource.grant";
 	acceptanceContract?: { version: 1; doneLooksLike?: string };
 	authorityKey: string;
 	proposal: Record<string, JsonValue>;
@@ -143,10 +157,84 @@ function routineAcceptanceContract(
 	};
 }
 
+async function requireAgentRequestApprover(
+	db: DbQueryClient,
+	input: {
+		orgId: string;
+		approverType: string;
+		approverId: string;
+		authorityKey: string;
+		action: string;
+		proposal: Record<string, JsonValue>;
+	},
+) {
+	const parsed = AgentRequestProposalSchema.safeParse(input.proposal);
+	if (
+		!parsed.success ||
+		agentRequestAction(parsed.data) !== input.action ||
+		input.authorityKey !== input.action ||
+		input.approverType !== "user"
+	)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Agent requests require a matching typed proposal and user approver",
+		);
+	const [organization] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, input.orgId))
+		.limit(1);
+	if (organization?.metadata?.agentRequestApprovals?.approver !== "org_admin")
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Agent request approval policy has not been enabled by the organization owner",
+		);
+	const members = await db
+		.select({
+			userId: organizationMembers.userId,
+			role: organizationMembers.role,
+		})
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, input.orgId),
+				eq(organizationMembers.status, "active"),
+				eq(organizationMembers.kind, "human"),
+				inArray(organizationMembers.userId, [
+					input.approverId,
+					parsed.data.ownerUserId,
+				]),
+			),
+		);
+	if (
+		!members.some(
+			(member) =>
+				member.userId === input.approverId &&
+				["owner", "admin"].includes(member.role),
+		)
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Agent request approver must be an active organization owner or admin",
+		);
+	if (
+		!members.some(
+			(member) =>
+				member.userId === parsed.data.ownerUserId &&
+				["owner", "admin", "member"].includes(member.role),
+		)
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Agent request owner must be an active organization member",
+		);
+	return parsed.data;
+}
+
 export async function proposeWorkApproval(
 	db: DbQueryClient,
 	p: ProposeWorkApprovalParams,
-): Promise<WorkApprovalProposal> {
+): Promise<WorkApprovalProposal & { execution: AgentRequestExecution | null }> {
 	const item = await requireWorkItem(db, p.orgId, p.workItemId);
 	if (item.version !== p.workItemVersion)
 		throw new WorkControlError(
@@ -154,6 +242,15 @@ export async function proposeWorkApproval(
 			"Approval proposal Work Item version is stale",
 		);
 	const action = p.action ?? WORK_ADMISSION_APPROVAL_ACTION;
+	const agentRequest = AgentRequestActionSchema.safeParse(action).success;
+	if (agentRequest) {
+		await requireAgentRequestApprover(db, { ...p, action });
+		if (["completed", "cancelled"].includes(item.disposition))
+			throw new WorkControlError(
+				"NOT_ELIGIBLE",
+				"Agent requests require open Work",
+			);
+	}
 	const contract =
 		action === "acceptance"
 			? routineAcceptanceContract(item, p, p.acceptanceContract)
@@ -164,7 +261,7 @@ export async function proposeWorkApproval(
 			"Acceptance contracts require the acceptance action",
 		);
 	if (
-		action !== "acceptance" &&
+		action === "admission" &&
 		!requiredWorkAdmissionAuthorities(item).includes(p.authorityKey)
 	)
 		throw new WorkControlError(
@@ -255,7 +352,17 @@ export async function proposeWorkApproval(
 			version: 1,
 		})
 		.returning();
-	const [, rows] = await db.batch([expire, insert]);
+	const [, rows] = agentRequest
+		? await db.batch([
+				expire,
+				insert,
+				db.insert(workApprovalExecutions).values({
+					proposalId: p.id,
+					orgId: p.orgId,
+					execution: { status: "pending" },
+				}),
+			])
+		: await db.batch([expire, insert]);
 	if (rows[0] && p.approverType === "user")
 		await recordCardCreationEdges(
 			db,
@@ -272,7 +379,10 @@ export async function proposeWorkApproval(
 			},
 			item,
 		);
-	return rows[0]!;
+	return {
+		...rows[0]!,
+		execution: agentRequest ? { status: "pending" } : null,
+	};
 }
 
 export interface DecideWorkApprovalParams {
@@ -334,6 +444,12 @@ export async function decideWorkApproval(
 			"INVALID_PRINCIPAL",
 			"Requester cannot decide its own proposal",
 		);
+	const agentRequest = AgentRequestActionSchema.safeParse(
+		proposal.action,
+	).success;
+	const agentProposal = agentRequest
+		? await requireAgentRequestApprover(db, proposal)
+		: undefined;
 	const contract =
 		proposal.action === "acceptance" && p.decision === "approved"
 			? routineAcceptanceContract(
@@ -370,6 +486,12 @@ export async function decideWorkApproval(
 						eq(workApprovalProposals.status, "pending"),
 						sql`${workApprovalProposals.resolutionFence} IS NULL`,
 						sql`${workApprovalProposals.expiresAt}>${p.now}`,
+						agentProposal
+							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition} NOT IN ('completed', 'cancelled'))
+							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${p.deciderId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin'))
+							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${agentProposal.ownerUserId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin','member'))
+							 AND EXISTS (SELECT 1 FROM ${organizations} WHERE ${organizations.id}=${p.orgId} AND json_extract(${organizations.metadata}, '$.agentRequestApprovals.approver')='org_admin')`
+							: undefined,
 						contract
 							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition}='proposed')`
 							: undefined,
@@ -458,8 +580,18 @@ export async function getWorkApprovalProposal(
 	return (
 		(
 			await db
-				.select()
+				.select({
+					...getColumns(workApprovalProposals),
+					execution: workApprovalExecutions.execution,
+				})
 				.from(workApprovalProposals)
+				.leftJoin(
+					workApprovalExecutions,
+					and(
+						eq(workApprovalExecutions.proposalId, workApprovalProposals.id),
+						eq(workApprovalExecutions.orgId, workApprovalProposals.orgId),
+					),
+				)
 				.where(
 					and(
 						eq(workApprovalProposals.orgId, p.orgId),
@@ -470,6 +602,48 @@ export async function getWorkApprovalProposal(
 		)[0] ?? null
 	);
 }
+/** A durable claim prevents a repeated decision from repeating external effects. */
+export async function claimAgentRequestExecution(
+	db: DbQueryClient,
+	input: { orgId: string; proposalId: string; decisionId: string },
+) {
+	const rows = await db
+		.update(workApprovalExecutions)
+		.set({ execution: { status: "running" } })
+		.where(
+			and(
+				eq(workApprovalExecutions.orgId, input.orgId),
+				eq(workApprovalExecutions.proposalId, input.proposalId),
+				sql`json_extract(${workApprovalExecutions.execution}, '$.status') = 'pending'`,
+				sql`EXISTS (SELECT 1 FROM ${workApprovalProposals} p JOIN ${workApprovalDecisions} d ON d.proposal_id=p.id WHERE p.org_id=${input.orgId} AND p.id=${input.proposalId} AND p.status='approved' AND p.action IN ('agent.create','agent.connect','resource.grant') AND d.id=${input.decisionId} AND d.decision='approved'
+				 AND EXISTS (SELECT 1 FROM ${organizations} o WHERE o.id=p.org_id AND json_extract(o.metadata,'$.agentRequestApprovals.approver')='org_admin')
+				 AND EXISTS (SELECT 1 FROM ${workItems} wi WHERE wi.org_id=p.org_id AND wi.id=p.work_item_id AND wi.version=p.work_item_version AND wi.disposition NOT IN ('completed','cancelled')))`,
+			),
+		)
+		.returning();
+	return rows[0] ? getWorkApprovalProposal(db, input) : null;
+}
+
+export async function finishAgentRequestExecution(
+	db: DbQueryClient,
+	input: {
+		orgId: string;
+		proposalId: string;
+		execution: AgentRequestExecution & { status: "succeeded" | "failed" };
+	},
+) {
+	await db
+		.update(workApprovalExecutions)
+		.set({ execution: input.execution })
+		.where(
+			and(
+				eq(workApprovalExecutions.orgId, input.orgId),
+				eq(workApprovalExecutions.proposalId, input.proposalId),
+				sql`json_extract(${workApprovalExecutions.execution}, '$.status') = 'running'`,
+			),
+		);
+}
+
 export async function listWorkApprovalInbox(
 	db: DbQueryClient,
 	p: {
@@ -494,6 +668,7 @@ export async function listWorkApprovalInbox(
 	const limit = Math.min(p.limit ?? 50, 200);
 	const rows = await db
 		.select({
+			execution: workApprovalExecutions.execution,
 			proposal: prefixedColumns(
 				workApprovalProposals,
 				"work_approval_proposal",
@@ -506,6 +681,13 @@ export async function listWorkApprovalInbox(
 			workItem: prefixedColumns(workItems, "work_approval_item"),
 		})
 		.from(workApprovalProposals)
+		.leftJoin(
+			workApprovalExecutions,
+			and(
+				eq(workApprovalExecutions.proposalId, workApprovalProposals.id),
+				eq(workApprovalExecutions.orgId, workApprovalProposals.orgId),
+			),
+		)
 		.innerJoin(
 			workItems,
 			and(
@@ -552,6 +734,7 @@ export async function listWorkApprovalInbox(
 	// acceptance-contract shape, which the strict read contract rejects.
 	const data = rows.slice(0, limit).map((row) => ({
 		...row,
+		proposal: { ...row.proposal, execution: row.execution },
 		workItem: normalizeWorkItemRow(row.workItem),
 	}));
 	const last = data.at(-1);

@@ -55,6 +55,9 @@ export async function createConnectionInstance(
 		organizationId?: string;
 		providerId: string;
 		label: string;
+		ownerTeam?: string;
+		justification?: string;
+		dataSensitivity?: typeof connectionInstances.$inferInsert.dataSensitivity;
 		allowedResources?: typeof connectionInstances.$inferInsert.allowedResources;
 	},
 ) {

@@ -1,5 +1,9 @@
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import type * as z from "zod";
+import {
+	AgentRequestActionSchema,
+	AgentRequestProposalSchema,
+} from "@tedix/api-contract/schemas/agent-requests";
 import { WorkPrincipalTypeSchema } from "@tedix/api-contract/schemas/work-items";
 import { getWorkAdmissionSpecification } from "@tedix/db/queries/work-items/admissions";
 import { implement } from "@orpc/server";
@@ -74,6 +78,7 @@ function proposalOutput(row: ApprovalProposalRow) {
 		workItemVersion: row.workItemVersion,
 		action: row.action,
 		proposal: row.proposal,
+		execution: row.execution,
 		authorityKey: row.authorityKey,
 		approverType: row.approverType,
 		approverId: row.approverId,
@@ -124,6 +129,15 @@ const proposeProcedure = requestOs.propose.handler(
 		if (input.action === "acceptance" && input.acceptanceContract)
 			requireFactoryAcceptance(workItem.metadata, input.acceptanceContract);
 		try {
+			if (AgentRequestActionSchema.safeParse(input.action).success) {
+				const { validateAgentRequestTarget } =
+					await import("./work-agent-requests");
+				await validateAgentRequestTarget(
+					context,
+					workItem.orgId,
+					AgentRequestProposalSchema.parse(input.proposal),
+				);
+			}
 			const proposal = await proposeWorkApproval(context.db, {
 				id: crypto.randomUUID(),
 				orgId: workItem.orgId,
@@ -248,7 +262,7 @@ const decideProcedure = writeOs.decide.handler(async ({ input, context }) => {
 			rationale: input.rationale,
 			now: new Date().toISOString(),
 		});
-		const proposal = await getWorkApprovalProposal(context.db, {
+		let proposal = await getWorkApprovalProposal(context.db, {
 			orgId,
 			proposalId: input.proposalId,
 		});
@@ -257,6 +271,22 @@ const decideProcedure = writeOs.decide.handler(async ({ input, context }) => {
 				ErrorCodes.NOT_FOUND,
 				"Work approval proposal not found",
 			);
+		}
+		if (
+			input.decision === "approved" &&
+			AgentRequestActionSchema.safeParse(proposal.action).success
+		) {
+			const { carryOutAgentRequestDecision } =
+				await import("./work-agent-requests");
+			await carryOutAgentRequestDecision(context, {
+				orgId,
+				proposalId: proposal.id,
+				decisionId: decision.id,
+			});
+			proposal = (await getWorkApprovalProposal(context.db, {
+				orgId,
+				proposalId: proposal.id,
+			}))!;
 		}
 		if (actor.type === "tedi" && proposal.action === "admission") {
 			await carryOutHomeDelegationDecision(context, {

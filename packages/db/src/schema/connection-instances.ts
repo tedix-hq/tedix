@@ -1,3 +1,4 @@
+import type { AgentRequestProposal } from "@tedix/api-contract/schemas/agent-requests";
 import type { ConnectionAllowedResources } from "@tedix/api-contract/schemas/connections";
 import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
@@ -10,6 +11,10 @@ export const connectionInstances = sqliteTable(
 		organizationId: text("organization_id"),
 		providerId: text("provider_id").notNull(),
 		label: text("label").notNull(),
+		ownerTeam: text("owner_team"),
+		justification: text("justification"),
+		dataSensitivity:
+			text("data_sensitivity").$type<AgentRequestProposal["dataSensitivity"]>(),
 		tokenIds: text("token_ids", { mode: "json" }).$type<string[]>().notNull(),
 		tokenSub: text("token_sub"),
 		allowedResources: text("allowed_resources", {

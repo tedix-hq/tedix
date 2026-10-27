@@ -8,6 +8,7 @@
  * - Tedis are conceptually separate from MCP "Apps" — different entity, different purpose
  */
 
+import type { AgentRequestProposal } from "@tedix/api-contract/schemas/agent-requests";
 import type { AiGatewayAdmissionPolicy } from "@tedix/api-contract/schemas/tedi";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { sql } from "drizzle-orm";
@@ -252,6 +253,10 @@ export const tedis = sqliteTable(
 
 		// Ownership
 		ownerUserId: text("owner_user_id"), // Descope user ID for personal tedis
+		ownerTeam: text("owner_team"),
+		justification: text("justification"),
+		dataSensitivity:
+			text("data_sensitivity").$type<AgentRequestProposal["dataSensitivity"]>(),
 		scope: text("scope", {
 			enum: ["personal", "organization"],
 		}).default("personal"),
