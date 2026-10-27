@@ -1,3 +1,4 @@
+import { auditEvents } from "@tedix/db/schema/audit-events";
 import { decisionEdges } from "@tedix/db/schema/decision-graph";
 import {
 	tediEmailThreads,
@@ -61,6 +62,7 @@ function fixture(
 			projects,
 			tediObjectives,
 			decisionEdges,
+			auditEvents,
 		),
 	);
 	sqlite

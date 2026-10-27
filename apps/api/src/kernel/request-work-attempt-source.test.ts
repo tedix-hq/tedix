@@ -6,6 +6,7 @@ import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { policyPacks } from "@tedix/db/schema/control-plane";
+import { workInteractions } from "@tedix/db/schema/work-factory";
 import {
 	kernelRequests,
 	kernelRequestEvents,
@@ -73,6 +74,7 @@ async function fixture(deployedSha: string, workKind = "coding") {
 			workAttempts,
 			workItemComments,
 			workEvents,
+			workInteractions,
 			policyPacks,
 		),
 	);
