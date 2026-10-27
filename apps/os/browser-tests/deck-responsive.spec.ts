@@ -1,5 +1,5 @@
 import { startFixtureServer } from "./fixture-server";
-import { openExamples } from "./deck-controls";
+import { openExamples, settleAnimations } from "./deck-controls";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 
@@ -46,13 +46,18 @@ try {
 						},
 						[colorScheme, sidebar] as const,
 					);
+					await settleAnimations(page);
+					const closedCard = await page.locator(".fd-card").boundingBox();
+					assert(closedCard);
 					for (const rail of [false, true]) {
 						if (rail) {
 							await page.keyboard.press("i");
-							await page.waitForTimeout(400);
+							await page
+								.getByRole("dialog", { name: "Decision context", exact: true })
+								.waitFor();
+							await settleAnimations(page);
 						}
 						const label = `${width}x${height} ${colorScheme} sidebar=${sidebar} rail=${rail}`;
-						const available = width - (sidebar ? 272 : 0);
 						const result = await page.evaluate(() => {
 							const card = document.querySelector<HTMLElement>(".fd-card")!;
 							const fragments: string[] = [];
@@ -91,9 +96,7 @@ try {
 									),
 								].map((el) => el.getBoundingClientRect().bottom),
 								height: innerHeight,
-								inlineRail: !!document.querySelector(
-									"aside[data-decision-context]:not([hidden])",
-								),
+								cardLeft: card.getBoundingClientRect().left,
 							};
 						});
 						assert.deepEqual(result.fragments, [], `${label}: fragmented text`);
@@ -111,13 +114,24 @@ try {
 							result.cardBottom <= result.height - 8,
 							`${label}: card runs past the viewport`,
 						);
-						if (rail && available < 880)
-							assert(!result.inlineRail, `${label}: rail should be a sheet`);
-						if (rail && available >= 960)
+						if (rail) {
+							const context = await page
+								.getByRole("dialog", { name: "Decision context", exact: true })
+								.boundingBox();
 							assert(
-								result.inlineRail,
-								`${label}: rail should sit beside the card`,
+								context &&
+									context.x >= 0 &&
+									context.y >= 0 &&
+									context.x + context.width <= width + 1 &&
+									context.y + context.height <= height + 1,
+								`${label}: context sheet escaped the viewport`,
 							);
+							assert(
+								Math.abs(result.cardWidth - closedCard.width) <= 1 &&
+									Math.abs(result.cardLeft - closedCard.x) <= 1,
+								`${label}: opening context shifted or squeezed the card: ${JSON.stringify({ closed: closedCard, open: { x: result.cardLeft, width: result.cardWidth } })}`,
+							);
+						}
 						if (shots)
 							await page.screenshot({
 								path: `${shots}/deck-responsive-${width}-${sidebar ? "sidebar-" : ""}${rail ? "rail" : "closed"}-${colorScheme}.png`,
