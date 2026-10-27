@@ -321,7 +321,9 @@ export class QuickChatTediUnavailableError extends Error {
 /**
  * The tedis to try, in order: the requested one when it is allowed, then the
  * organization default, then the other allowed tedis. A remembered or default
- * tedi that is no longer allowed is skipped rather than refused.
+ * tedi that is no longer allowed is skipped rather than refused. An
+ * organization that never published a selection allows every active tedi,
+ * so the chat still opens on the first tedi the person may use.
  */
 export function quickChatTediCandidates(
 	selection:
@@ -329,8 +331,9 @@ export function quickChatTediCandidates(
 		| null
 		| undefined,
 	requestedTediId?: string,
+	activeTediIds: readonly string[] = [],
 ): string[] {
-	const allowed = selection?.allowedTediIds ?? [];
+	const allowed = selection?.allowedTediIds ?? activeTediIds;
 	return [
 		...new Set(
 			[requestedTediId, selection?.defaultTediId, ...allowed].filter(
@@ -578,10 +581,13 @@ export function OsQuickChat() {
 					const organization = await osApi.organizations.get({
 						organizationId: current.organization.id,
 					});
-					return quickChatTediCandidates(
-						organization.metadata?.tediWidget?.tediSelection,
-						selectedTediId,
-					);
+					const selection = organization.metadata?.tediWidget?.tediSelection;
+					const active = selection
+						? []
+						: (await osApi.tedis.list({ limit: 100 })).data
+								.filter((tedi) => tedi.status === "active")
+								.map((tedi) => tedi.id);
+					return quickChatTediCandidates(selection, selectedTediId, active);
 				};
 				disposers.push(
 					window.Tedix.on("error", ({ code = "unknown" }) => {

@@ -11,25 +11,41 @@ export async function resolveEmbeddedTediSelection(
 	organizationId: string,
 	policy: EmbeddedTediSelectionPolicy | null | undefined,
 	selectedTediId?: string,
+	options: {
+		/**
+		 * The OS quick chat of an organization that never published widget
+		 * tedis: every active tedi of the organization is selectable and the
+		 * tedi the host already cleared access for is the default. External
+		 * hosts keep the explicit policy requirement.
+		 */
+		unconfiguredFallback?: "organization";
+	} = {},
 ) {
 	const parsed = EmbeddedTediSelectionPolicySchema.safeParse(policy);
-	if (!parsed.success)
+	const active = (
+		await getTedisByOrganization(context.db, organizationId)
+	).filter((row) => row.status === "active" && !row.retiredAt);
+	const selection = parsed.success
+		? parsed.data
+		: options.unconfiguredFallback === "organization" &&
+			  selectedTediId &&
+			  active.some((row) => row.id === selectedTediId)
+			? {
+					defaultTediId: selectedTediId,
+					allowedTediIds: active.map((row) => row.id),
+				}
+			: null;
+	if (!selection)
 		throw new ORPCError("FORBIDDEN", {
 			message: "Configure the widget's selectable tedis and default first",
 		});
-	const selection = parsed.data;
 	const id = selectedTediId ?? selection.defaultTediId;
 	if (!selection.allowedTediIds.includes(id))
 		throw new ORPCError("FORBIDDEN", {
 			message: "This tedi is not available in this widget",
 		});
-	const rows = (
-		await getTedisByOrganization(context.db, organizationId)
-	).filter(
-		(row) =>
-			row.status === "active" &&
-			!row.retiredAt &&
-			selection.allowedTediIds.includes(row.id),
+	const rows = active.filter((row) =>
+		selection.allowedTediIds.includes(row.id),
 	);
 	const tedi = rows.find((row) => row.id === id);
 	if (!tedi)
