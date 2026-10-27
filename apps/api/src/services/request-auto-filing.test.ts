@@ -79,134 +79,277 @@ async function fixture(
 		requests: [{ kind, text: "Improve installation guides" }],
 	});
 	const model: LedgerModel = vi.fn(async () => JSON.stringify(pick));
-	model.scoreProjectFit = vi.fn(async () => 0.9);
+	model.chooseProject = vi.fn(async () => ({
+		projectId: "project-docs",
+		confidence: 0.9,
+		actionable: true,
+	}));
 	return { db, row: row!, model };
 }
 
 describe("automatic filing", () => {
-	it("keeps an unmeasured intake suggestion unfiled without creating Work", async () => {
-		const { db, row } = await fixture();
-		await autoFileRequests(
-			db,
-			async () => JSON.stringify({ ...pick, projectId: null }),
-			{
-				...owner,
-				now,
-				intakeProjectId: "project-docs",
-			},
-		);
-		expect((await listAgentSessionRequests(db, owner))[0]?.projectId).toBe(
-			null,
-		);
-		expect(await db.select().from(projects)).toHaveLength(1);
-		expect(await db.select().from(osWorkspaces)).toHaveLength(0);
-		const work = await getWorkItemBySourceIntentId(db, {
-			orgId: owner.organizationId,
-			sourceIntentId: `request-filing:${row.id}`,
-		});
-		expect(work).toBeNull();
-		expect((await listRequestFilings(db, owner))[0]?.metadata?.confidence).toBe(
-			null,
-		);
-	});
-	it("uses fit confidence, creates proposed Work once, and preserves open status", async () => {
+	it("chooses live projects before writing and retries Work idempotently", async () => {
 		const { db, row, model } = await fixture();
 		await autoFileRequests(db, model, { ...owner, now });
 		await autoFileRequests(db, model, { ...owner, now });
-		expect((await listAgentSessionRequests(db, owner))[0]?.projectId).toBe(
-			"project-docs",
-		);
-		expect(await listRequestFilings(db, owner)).toHaveLength(1);
-		const work = await getWorkItemBySourceIntentId(db, {
-			orgId: owner.organizationId,
-			sourceIntentId: `request-filing:${row.id}`,
+		expect(model).not.toHaveBeenCalled();
+		expect(model.chooseProject).toHaveBeenCalledOnce();
+		expect((await listAgentSessionRequests(db, owner))[0]).toMatchObject({
+			projectId: "project-docs",
+			status: "open",
 		});
-		expect(work?.disposition).toBe("proposed");
-		expect(model.scoreProjectFit).toHaveBeenCalledOnce();
-	});
-	it("flags an uncertain existing destination without creating a duplicate project or answering the ask", async () => {
-		const { db, row, model } = await fixture("ask");
-		model.scoreProjectFit = async () => 0.4;
-		await autoFileRequests(db, model, { ...owner, now });
-		const [filed] = await listAgentSessionRequests(db, owner);
-		expect(filed?.projectId).toBeNull();
-		expect(filed?.status).toBe("waiting_on_user");
-		expect(await db.select().from(projects)).toHaveLength(1);
-		const [event] = await listRequestFilings(db, owner);
-		expect(event?.metadata).toMatchObject({
-			confidence: 0.4,
-			pending: true,
-			suggestedProjectId: "project-docs",
-		});
-		await autoFileRequests(db, model, { ...owner, now });
 		expect(await listRequestFilings(db, owner)).toHaveLength(1);
 		expect(
-			await getWorkItemBySourceIntentId(db, {
-				orgId: owner.organizationId,
-				sourceIntentId: `request-filing:${row.id}`,
-			}),
-		).toBeNull();
+			(
+				await getWorkItemBySourceIntentId(db, {
+					orgId: owner.organizationId,
+					sourceIntentId: `request-filing:${row.id}`,
+				})
+			)?.disposition,
+		).toBe("proposed");
 	});
-	it("rejects malformed output, unknown projects and invalid fit scores without a filing", async () => {
-		for (const scenario of [
-			"invalid-json",
-			"foreign-project",
-			"invalid-score",
-		]) {
-			const { db, model } = await fixture();
-			const invalid: LedgerModel = async () =>
-				scenario === "invalid-json"
-					? "{}"
-					: JSON.stringify({
-							...pick,
-							projectId:
-								scenario === "foreign-project"
-									? "foreign-project"
-									: pick.projectId,
-						});
-			invalid.scoreProjectFit = async () => Number.NaN;
-			await expect(
-				autoFileRequests(db, invalid, { ...owner, now }),
-			).rejects.toThrow();
-			expect(await listRequestFilings(db, owner)).toEqual([]);
+	it("writes only a confident novel container brief and keeps it pending", async () => {
+		const { db, model } = await fixture();
+		model.chooseProject = vi.fn(async () => ({
+			projectId: "NONE",
+			confidence: 0.95,
+			actionable: true,
+		}));
+		const writer: LedgerModel = vi.fn(async () =>
+			JSON.stringify({ ...pick, projectId: null }),
+		);
+		writer.chooseProject = model.chooseProject;
+		await autoFileRequests(db, writer, {
+			...owner,
+			now,
+			intakeProjectId: "project-docs",
+		});
+		expect(writer).toHaveBeenCalledOnce();
+		expect((await listRequestFilings(db, owner))[0]?.metadata).toMatchObject({
+			pending: true,
+			confidence: null,
+			factoryProposal: true,
+			suggestedProjectId: "project-docs",
+		});
+		expect(await db.select().from(workItems)).toHaveLength(0);
+	});
+	it.each([
+		["UNCLEAR", 0.9],
+		["NONE", 0.4],
+		["project-docs", 0.4],
+	] as const)(
+		"keeps %s at %s pending without writing",
+		async (projectId, confidence) => {
+			const { db, model } = await fixture("ask");
+			model.chooseProject = async () => ({
+				projectId,
+				confidence,
+				actionable: true,
+			});
+			await autoFileRequests(db, model, { ...owner, now });
 			expect(model).not.toHaveBeenCalled();
+			expect((await listAgentSessionRequests(db, owner))[0]).toMatchObject({
+				projectId: null,
+				status: "waiting_on_user",
+			});
+			expect(await db.select().from(workItems)).toHaveLength(0);
+		},
+	);
+	it.each(["foreign", "nan", "timeout", "missing"])(
+		"retains captured requests after %s choice failure",
+		async (scenario) => {
+			const { db, row, model } = await fixture();
+			model.chooseProject =
+				scenario === "missing"
+					? undefined
+					: async () => {
+							if (scenario === "timeout") throw new Error("timeout");
+							return {
+								projectId:
+									scenario === "foreign" ? "foreign-project" : "project-docs",
+								confidence: scenario === "nan" ? NaN : 0.9,
+								actionable: true,
+							};
+						};
+			await expect(
+				autoFileRequests(db, model, { ...owner, now }),
+			).rejects.toThrow();
+			expect(model).not.toHaveBeenCalled();
+			expect(await listRequestFilings(db, owner)).toEqual([]);
+			expect((await listAgentSessionRequests(db, owner))[0]?.id).toBe(row.id);
+		},
+	);
+	it("rejects a novel writer that tries to override the choice", async () => {
+		const { db, model } = await fixture();
+		model.chooseProject = async () => ({
+			projectId: "NONE",
+			confidence: 0.9,
+			actionable: true,
+		});
+		await expect(
+			autoFileRequests(db, model, { ...owner, now }),
+		).rejects.toThrow("Novel brief cannot choose");
+		expect(await listRequestFilings(db, owner)).toEqual([]);
+	});
+	it.each([null, "{}", "private request text"])(
+		"retains requests after malformed novel brief %s",
+		async (raw) => {
+			const { db } = await fixture();
+			const writer: LedgerModel = async () => raw;
+			writer.chooseProject = async () => ({
+				projectId: "NONE",
+				confidence: 0.9,
+				actionable: true,
+			});
+			await expect(
+				autoFileRequests(db, writer, { ...owner, now }),
+			).rejects.toThrow("candidate unavailable");
+			expect(await listRequestFilings(db, owner)).toEqual([]);
+		},
+	);
+	it("exposes only active tenant projects and the ledger owner's context", async () => {
+		for (const userId of [owner.userId, "user-grace"]) {
+			const { db, model } = await fixture();
+			await db.insert(projects).values([
+				{
+					id: "foreign-project",
+					orgId: "org-other",
+					key: "OTHER",
+					name: "Foreign",
+					createdAt: now,
+				},
+				{
+					id: "archived",
+					orgId: owner.organizationId,
+					key: "OLD",
+					name: "Old",
+					status: "archived",
+					createdAt: now,
+				},
+			]);
+			await db.insert(workAgentSessions).values({
+				id: "session",
+				organizationId: owner.organizationId,
+				userId,
+				harness: "codex",
+				sessionKey: "session-example",
+				projectId: "project-docs",
+				label: "Installation",
+				state: "working",
+				stateSince: now,
+				lastEventAt: now,
+			});
+			model.chooseProject = async ({ context, projectIds }) => {
+				expect(projectIds).toEqual(["project-docs"]);
+				const input = JSON.parse(context);
+				expect(input.sourceSession?.projectId ?? null).toBe(
+					userId === owner.userId ? "project-docs" : null,
+				);
+				return { projectId: "project-docs", confidence: 0.9, actionable: true };
+			};
+			await autoFileRequests(db, model, { ...owner, now });
 		}
 	});
-	it("accepts an entire fenced JSON response and still validates its destination", async () => {
-		for (const projectId of ["project-docs", "foreign-project"]) {
-			const { db, model } = await fixture();
-			const fenced: LedgerModel = async () =>
-				`\`\`\`json\n${JSON.stringify({ ...pick, projectId })}\n\`\`\``;
-			fenced.scoreProjectFit = model.scoreProjectFit;
-			if (projectId === "foreign-project") {
+	it("retains all 85 multilingual live project choices", async () => {
+		const { db, model } = await fixture();
+		for (let i = 0; i < 84; i++)
+			await db.insert(projects).values({
+				id: `project-${i}`,
+				orgId: owner.organizationId,
+				key: `P${i}`,
+				name: `Fictional project ${i}`,
+				description: "Mehrsprachige Beschreibung 🐇 ".repeat(200),
+				createdAt: now,
+			});
+		model.chooseProject = async ({ context, projectIds }) => {
+			expect(projectIds).toHaveLength(85);
+			expect(JSON.parse(context).projects).toHaveLength(85);
+			expect(new TextEncoder().encode(context).byteLength).toBeLessThanOrEqual(
+				18000,
+			);
+			return { projectId: "project-docs", confidence: 0.9, actionable: true };
+		};
+		await autoFileRequests(db, model, { ...owner, now });
+		expect(model).not.toHaveBeenCalled();
+	});
+	it("reuses matching Work and rejects foreign or conflicting Work", async () => {
+		for (const scenario of [
+			"matching",
+			"unprojected",
+			"foreign",
+			"conflicting",
+		]) {
+			const { db, row, model } = await fixture();
+			await db.insert(workItems).values({
+				id: "existing",
+				orgId: scenario === "foreign" ? "org-other" : owner.organizationId,
+				title: "Installation",
+				projectId:
+					scenario === "unprojected"
+						? null
+						: scenario === "conflicting"
+							? "other-project"
+							: "project-docs",
+				disposition: "accepted",
+				createdAt: now,
+			});
+			model.chooseProject = async () => ({
+				projectId: "project-docs",
+				confidence: 0.9,
+				actionable: true,
+				workItemId: "existing",
+			});
+			if (["foreign", "conflicting"].includes(scenario))
 				await expect(
-					autoFileRequests(db, fenced, { ...owner, now }),
-				).rejects.toThrow("Unknown filing project");
-				expect(await listRequestFilings(db, owner)).toEqual([]);
-			} else {
-				await autoFileRequests(db, fenced, { ...owner, now });
-				expect(await listRequestFilings(db, owner)).toHaveLength(1);
+					autoFileRequests(db, model, { ...owner, now }),
+				).rejects.toThrow("Unknown filing Work");
+			else {
+				await autoFileRequests(db, model, { ...owner, now });
+				expect(
+					(await listRequestFilings(db, owner))[0]?.metadata?.workItemId,
+				).toBe("existing");
+				expect(
+					await getWorkItemBySourceIntentId(db, {
+						orgId: owner.organizationId,
+						sourceIntentId: `request-filing:${row.id}`,
+					}),
+				).toBeNull();
 			}
 		}
 	});
-	it("distinguishes model absence and invalid fields without disclosing content", async () => {
-		for (const [raw, reason] of [
-			[null, "model returned no response"],
-			["```json\n{}\n```", "invalid fields: projectId"],
-			["{}", "invalid fields: projectId"],
-			["private request text", "model returned invalid JSON"],
-		] as const) {
-			const { db } = await fixture();
-			await expect(
-				autoFileRequests(db, async () => raw, { ...owner, now }),
-			).rejects.toThrow(reason);
-			expect(await listRequestFilings(db, owner)).toEqual([]);
-		}
+	it("feeds corrections into the next choice and measures the cohort", async () => {
+		const { db, model } = await fixture();
+		await autoFileRequests(db, model, { ...owner, now });
+		const [row] = await listAgentSessionRequests(db, owner);
+		await recordRequestFiling(db, {
+			...owner,
+			row: row!,
+			projectId: null,
+			by: "correction",
+			confidence: 1,
+			reason: "Undo",
+			now: "2026-10-10T10:01:00.000Z",
+		});
+		model.chooseProject = async ({ context }) => {
+			expect(JSON.parse(context).corrections[0]).toEqual([
+				row!.text,
+				null,
+				"project-docs",
+			]);
+			return { projectId: "UNCLEAR", confidence: 0.9, actionable: false };
+		};
+		await autoFileRequests(db, model, {
+			...owner,
+			now: "2026-10-10T10:02:00.000Z",
+		});
+		expect(
+			await weeklyFilingDigest(db, owner, "2026-10-10T10:03:00.000Z"),
+		).toMatchObject({ total: 1, corrected: 1, correctionRate: 1 });
 	});
-	it.each([0, 0.4, 0.8, 0.9])(
-		"retries only confident committed filings after an interruption (%s)",
+	it.each([0.4, 0.9])(
+		"recovers committed filing Work after interruption at %s",
 		async (confidence) => {
-			const { db, row, model } = await fixture("issue");
+			const { db, row, model } = await fixture();
 			await recordRequestFiling(db, {
 				...owner,
 				row,
@@ -218,128 +361,14 @@ describe("automatic filing", () => {
 				now,
 			});
 			await autoFileRequests(db, model, { ...owner, now });
-			expect(model).not.toHaveBeenCalled();
+			expect(model.chooseProject).not.toHaveBeenCalled();
 			const work = await getWorkItemBySourceIntentId(db, {
 				orgId: owner.organizationId,
 				sourceIntentId: `request-filing:${row.id}`,
 			});
-			if (confidence >= 0.8) expect(work).not.toBeNull();
-			else expect(work).toBeNull();
+			expect(!!work).toBe(confidence >= 0.8);
 		},
 	);
-	it("feeds corrected examples into the next pick and measures the weekly cohort", async () => {
-		const { db, row, model } = await fixture("idea");
-		await autoFileRequests(db, model, { ...owner, now });
-		const [filed] = await listAgentSessionRequests(db, owner);
-		const correctionAt = "2026-10-10T10:01:00.000Z";
-		await recordRequestFiling(db, {
-			...owner,
-			row: filed!,
-			projectId: null,
-			by: "correction",
-			confidence: 1,
-			reason: "Belongs elsewhere",
-			now: correctionAt,
-		});
-		const next: LedgerModel = async (_system, prompt) => {
-			const input = JSON.parse(prompt);
-			expect(input.columns.corrections).toEqual([
-				"text",
-				"projectId",
-				"previousProjectId",
-			]);
-			expect(input.corrections[0]).toEqual([row.text, null, "project-docs"]);
-			return JSON.stringify({ ...pick, projectId: null });
-		};
-		await db.insert(workAgentSessions).values({
-			id: "intake-session",
-			organizationId: owner.organizationId,
-			userId: owner.userId,
-			harness: "codex",
-			sessionKey: "session-example",
-			projectId: "project-docs",
-			state: "working",
-			stateSince: now,
-			lastEventAt: now,
-		});
-		await autoFileRequests(db, next, {
-			...owner,
-			now: "2026-10-10T10:02:00.000Z",
-		});
-		const digest = await weeklyFilingDigest(
-			db,
-			owner,
-			"2026-10-10T10:03:00.000Z",
-		);
-		expect(digest).toMatchObject({
-			total: 1,
-			corrected: 1,
-			correctionRate: 1,
-		});
-		expect(
-			await weeklyFilingDigest(
-				db,
-				{ ...owner, userId: "user-grace" },
-				correctionAt,
-			),
-		).toMatchObject({ total: 0, correctionRate: null });
-		expect((await listAgentSessionRequests(db, owner))[0]?.id).toBe(row.id);
-	});
-	it("queues filing after capture rather than waiting for model classification in ingestion", async () => {
-		const { db, model } = await fixture();
-		const { observeAgentSessionRequests } =
-			await import("./agent-session-request-ledger");
-		const observer: LedgerModel = async () =>
-			JSON.stringify({ requests: [{ kind: "request", text: "Fix search" }] });
-		observer.routeProjects = true;
-		observer.enqueueFilings = vi.fn(async () => {});
-		await observeAgentSessionRequests(db, observer, {
-			...owner,
-			harness: "codex",
-			sessionKey: "session-two",
-			message: "Fix search",
-			sourceAt: now,
-			repository: "example/app",
-			now,
-		});
-		expect(observer.enqueueFilings).toHaveBeenCalledWith(owner);
-		expect(model).not.toHaveBeenCalled();
-	});
-	it("uses only the ledger owner's session context to interpret a short substep", async () => {
-		for (const userId of [owner.userId, "user-grace"]) {
-			const { db } = await fixture();
-			await db.insert(workAgentSessions).values({
-				id: "session-report",
-				organizationId: owner.organizationId,
-				userId,
-				harness: "codex",
-				sessionKey: "session-example",
-				projectId: "project-docs",
-				label: "Installation work",
-				summary: "Verify the documentation changes",
-				state: "working",
-				stateSince: now,
-				lastEventAt: now,
-			});
-			const contextual: LedgerModel = async (_system, prompt) => {
-				const context = JSON.parse(prompt);
-				if (userId === owner.userId)
-					expect(context.sourceSession).toMatchObject({
-						projectId: "project-docs",
-						label: "Installation work",
-					});
-				else expect(context.sourceSession).toBeNull();
-				return JSON.stringify(pick);
-			};
-			contextual.scoreProjectFit = async ({ request }) => {
-				expect(JSON.parse(request).sourceSession?.projectId ?? null).toBe(
-					userId === owner.userId ? "project-docs" : null,
-				);
-				return 0.9;
-			};
-			await autoFileRequests(db, contextual, { ...owner, now });
-		}
-	});
 });
 
 it("moves and undoes generated proposals with their filing, while accepted Work retains its project", async () => {
@@ -434,151 +463,45 @@ it("creates proposed Work for an actionable question without marking it answered
 	expect((await listAgentSessionRequests(db, owner))[0]?.status).toBe("open");
 });
 
-it("fits a large multilingual portfolio into the classifier window while retaining all 85 project choices", async () => {
+it("suppresses novel briefs when the choice found existing Work", async () => {
 	const { db, model } = await fixture();
-	const ids = ["project-docs"];
-	for (let index = 0; index < 84; index++) {
-		const id = `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
-		ids.push(id);
+	await db.insert(workItems).values({
+		id: "existing",
+		orgId: owner.organizationId,
+		title: "Installation",
+		projectId: "project-docs",
+		disposition: "accepted",
+		createdAt: now,
+	});
+	model.chooseProject = async () => ({
+		projectId: "NONE",
+		confidence: 0.9,
+		actionable: true,
+		workItemId: "existing",
+	});
+	await autoFileRequests(db, model, { ...owner, now });
+	expect(model).not.toHaveBeenCalled();
+	expect((await listRequestFilings(db, owner))[0]?.metadata).toMatchObject({
+		workItemId: "existing",
+		factoryProposal: false,
+		pending: true,
+	});
+});
+
+it("retains requests when the live project inventory may be truncated", async () => {
+	const { db, row, model } = await fixture();
+	for (let i = 0; i < 200; i++)
 		await db.insert(projects).values({
-			id,
+			id: `extra-${i}`,
 			orgId: owner.organizationId,
-			key: `PROJECT-${index}`,
-			name: `Fictional project ${index}`,
-			description: "Mehrsprachige Beschreibung 🐇 ".repeat(200),
+			key: `P${i}`,
+			name: `Project ${i}`,
 			createdAt: now,
 		});
-	}
-	let input = "";
-	const bounded: LedgerModel = async (_system, prompt) => {
-		input = prompt;
-		return JSON.stringify(pick);
-	};
-	bounded.scoreProjectFit = model.scoreProjectFit;
-	await autoFileRequests(db, bounded, { ...owner, now });
-	expect(new TextEncoder().encode(input).byteLength).toBeLessThanOrEqual(
-		18_000,
+	await expect(autoFileRequests(db, model, { ...owner, now })).rejects.toThrow(
+		"inventory may be truncated",
 	);
-	const context = JSON.parse(input) as { projects: [string, string, string][] };
-	expect(context.projects.map(([id]) => id).sort()).toEqual(ids.sort());
-	expect(await listRequestFilings(db, owner)).toHaveLength(1);
-});
-
-it("reuses older or unprojected Work without moving it, and rejects foreign or conflicting Work", async () => {
-	for (const scenario of ["older", "unprojected", "foreign", "other-project"]) {
-		const { db, row } = await fixture();
-		const projectId =
-			scenario === "unprojected"
-				? null
-				: scenario === "other-project"
-					? "project-tools"
-					: "project-docs";
-		await db.insert(workItems).values({
-			id: "existing-docs-work",
-			orgId: scenario === "foreign" ? "org-grace" : owner.organizationId,
-			title: "Installation work",
-			projectId,
-			disposition: "accepted",
-			createdAt: "2026-10-09T10:00:00.000Z",
-		});
-		if (scenario === "older" || scenario === "unprojected")
-			for (let index = 0; index < 100; index++)
-				await db.insert(workItems).values({
-					id: `newer-${index}`,
-					orgId: owner.organizationId,
-					title: `Other work ${index}`,
-					projectId: "project-docs",
-					createdAt: now,
-				});
-		const model: LedgerModel = async () =>
-			JSON.stringify({
-				...pick,
-				projectId: scenario === "older" ? null : pick.projectId,
-				workItemId: "existing-docs-work",
-			});
-		model.scoreProjectFit = async () => 0.9;
-		if (scenario === "foreign" || scenario === "other-project") {
-			await expect(
-				autoFileRequests(db, model, { ...owner, now }),
-			).rejects.toThrow("Unknown filing Work item");
-			expect(await listRequestFilings(db, owner)).toEqual([]);
-		} else {
-			await autoFileRequests(db, model, { ...owner, now });
-			const [event] = await listRequestFilings(db, owner);
-			expect(event?.metadata?.workItemId).toBe("existing-docs-work");
-			expect(event?.metadata?.factoryProposal).toBe(false);
-			expect(
-				await getWorkItemBySourceIntentId(db, {
-					orgId: owner.organizationId,
-					sourceIntentId: `request-filing:${row.id}`,
-				}),
-			).toBeNull();
-			const [existing] = await db
-				.select()
-				.from(workItems)
-				.where(eq(workItems.id, "existing-docs-work"));
-			expect(existing?.projectId).toBe(projectId);
-			expect(existing?.disposition).toBe("accepted");
-			expect(existing?.version).toBe(1);
-		}
-	}
-});
-
-it("proposes an unmatched scope within its existing intake, without creating standalone resources", async () => {
-	const { db, row } = await fixture();
-	await db.insert(workAgentSessions).values({
-		id: "intake-session",
-		organizationId: owner.organizationId,
-		userId: owner.userId,
-		harness: "codex",
-		sessionKey: "session-example",
-		projectId: "project-docs",
-		state: "working",
-		stateSince: now,
-		lastEventAt: now,
-	});
-	const model: LedgerModel = async () =>
-		JSON.stringify({
-			...pick,
-			projectId: null,
-			name: "New scope",
-			container: "workspace",
-		});
-	await autoFileRequests(db, model, { ...owner, now });
-	const [filed] = await listAgentSessionRequests(db, owner);
-	expect(filed?.projectId).toBeNull();
-	const [event] = await listRequestFilings(db, owner);
-	expect(event?.metadata).toMatchObject({
-		confidence: null,
-		pending: true,
-		suggestedProjectId: "project-docs",
-	});
-	expect(event?.metadata?.reason).toContain(
-		"Left unfiled: no measured project match",
-	);
-	const work = await getWorkItemBySourceIntentId(db, {
-		orgId: owner.organizationId,
-		sourceIntentId: `request-filing:${row.id}`,
-	});
-	expect(work).toBeNull();
-	expect(await db.select().from(projects)).toHaveLength(1);
-	expect(await db.select().from(osWorkspaces)).toEqual([]);
-});
-
-it("leaves an unbound unmatched row open instead of creating an unowned project", async () => {
-	const { db } = await fixture();
-	await autoFileRequests(
-		db,
-		async () => JSON.stringify({ ...pick, projectId: null }),
-		{ ...owner, now },
-	);
-	const [event] = await listRequestFilings(db, owner);
-	expect(event?.metadata).toMatchObject({
-		projectId: null,
-		confidence: null,
-		pending: true,
-		suggestedProjectId: null,
-	});
-	expect(await db.select().from(projects)).toHaveLength(1);
-	expect(await db.select().from(workItems)).toEqual([]);
+	expect(model.chooseProject).not.toHaveBeenCalled();
+	expect((await listAgentSessionRequests(db, owner))[0]?.id).toBe(row.id);
+	expect(await listRequestFilings(db, owner)).toEqual([]);
 });

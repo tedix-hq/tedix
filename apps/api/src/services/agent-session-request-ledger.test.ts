@@ -188,28 +188,24 @@ describe("request ledger observer", () => {
 			description: "Installation and onboarding guides",
 			createdAt: T0,
 		});
-		const model: LedgerModel = async (_system, prompt, surface) => {
-			if (surface === "agent-session-project-routing") {
-				const input = JSON.parse(prompt);
-				expect(input.columns.projects).toEqual(["id", "name", "brief"]);
-				expect(input.projects.map((p: string[]) => p[0])).toEqual([
-					"project-example",
-				]);
-				return JSON.stringify({
-					projectId: "project-example",
-					name: "Documentation",
-					brief: "Installation and onboarding guides",
-					container: "project",
-					actionable: true,
-					reason: "Matches installation brief",
-				});
-			}
-			return JSON.stringify({
+		const model: LedgerModel = async () =>
+			JSON.stringify({
 				requests: [{ kind: "request", text: "Improve the installation guide" }],
 			});
-		};
 		model.routeProjects = true;
-		model.scoreProjectFit = async () => 0.9;
+		model.chooseProject = async ({ context, projectIds }) => {
+			expect(projectIds).toEqual(["project-example"]);
+			expect(JSON.parse(context).columns.projects).toEqual([
+				"id",
+				"name",
+				"brief",
+			]);
+			return {
+				projectId: "project-example",
+				confidence: 0.9,
+				actionable: true,
+			};
+		};
 		await observe(db, model, "Improve the installation guide");
 		expect((await rows(db))[0]?.projectId).toBe("project-example");
 	});

@@ -171,11 +171,16 @@ export interface LedgerModel {
 		organizationId: string;
 		userId: string;
 	}) => Promise<void>;
-	scoreProjectFit?: (input: {
-		request: string;
-		project: unknown;
-		corrections: unknown[];
-	}) => Promise<number>;
+	chooseProject?: (input: {
+		context: string;
+		projectIds: string[];
+		workItemIds: string[];
+	}) => Promise<{
+		projectId: string;
+		confidence: number;
+		workItemId?: string | null;
+		actionable: boolean;
+	}>;
 	extractObligations?: (
 		rows: LedgerRowRef[],
 		turn: string,
