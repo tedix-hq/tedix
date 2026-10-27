@@ -178,7 +178,7 @@ export function unwrap(value) {
 
 export function createWorkspaceCode(label, now = Date.now()) {
 	return `return await os.create_os_workspace(${codeModeLiteral({
-		name: "Latency Lab",
+		name: `Latency ${now.toString(36)}`,
 		description: `Fictional scratch eval ${label} ${now}; archived after measurements.`,
 		visibility: "org",
 	})});`;
@@ -206,7 +206,7 @@ export function percentiles(values) {
 	const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
 	const at = (p) =>
 		sorted.length ? sorted[Math.ceil(sorted.length * p) - 1] : null;
-	return { n: sorted.length, p50: at(0.5), p90: at(0.9) };
+	return { n: sorted.length, p50: at(0.5), p90: at(0.9), p95: at(0.95) };
 }
 export function phases(metadata, completedAt) {
 	const t = metadata.kernelTurnTimings;
@@ -286,6 +286,52 @@ export function summarize(rows) {
 	);
 }
 
+export function acceptance(rows, rounds) {
+	const complete =
+		rows.length === fixtures.length * rounds &&
+		Array.from({ length: rounds }, (_, index) => index + 1).every((round) =>
+			fixtures.every(
+				(fixture) =>
+					rows.filter((row) => row.round === round && row.id === fixture.id)
+						.length === 1,
+			),
+		);
+	const measure = (selected, expected, limitMs) => {
+		const timing = percentiles(selected.map((row) => row.wallMs));
+		return {
+			...timing,
+			limitMs,
+			passed:
+				complete &&
+				selected.length === expected &&
+				timing.n === expected &&
+				selected.every((row) => row.ok) &&
+				timing.p95 < limitMs,
+		};
+	};
+	const documents = measure(
+		rows.filter((row) => row.kind === "document" && row.operation === "create"),
+		3 * rounds,
+		5000,
+	);
+	const answers = measure(
+		rows.filter((row) => row.operation === "question"),
+		10 * rounds,
+		3000,
+	);
+	return {
+		metric: "wallMs",
+		complete,
+		documents,
+		answers,
+		passed:
+			complete &&
+			rows.every((row) => row.ok) &&
+			documents.passed &&
+			answers.passed,
+	};
+}
+
 export function checkOutput(fixture, detail, target) {
 	const revision = detail.currentRevision;
 	if (!revision?.content || !Number.isInteger(revision.revision))
@@ -319,6 +365,10 @@ export async function recheckSaved(directory) {
 	);
 	const targets = new Map();
 	for (const row of saved.rows) {
+		if (!row.runId) {
+			row.ok = false;
+			continue;
+		}
 		const fixture = fixtures.find((f) => f.id === row.id);
 		try {
 			const inspected = JSON.parse(
@@ -332,6 +382,10 @@ export async function recheckSaved(directory) {
 			row.isolate = run.metadata.kernelTurnTimings?.isolate?.tag;
 			row.status = run.status;
 			row.model = run.metadata.bodyExecutionResult?.usage?.model ?? null;
+			if (run.status !== "completed")
+				throw new Error(
+					`Chat run ${run.status}: ${inspected.summary?.assistantText ?? ""}`,
+				);
 			if (fixture.kind) {
 				const detail = JSON.parse(
 					await readFile(
@@ -375,6 +429,10 @@ export async function recheckSaved(directory) {
 		}
 	}
 	saved.summary = summarize(saved.rows);
+	saved.acceptance = acceptance(
+		saved.rows,
+		saved.rounds ?? Math.max(...saved.rows.map((row) => row.round)),
+	);
 	await writeFile(
 		join(directory, "results.json"),
 		JSON.stringify(saved, null, 2),
@@ -427,7 +485,8 @@ async function main() {
 		if (!values.out) throw new Error("--recheck requires --out");
 		const result = await recheckSaved(values.out);
 		console.log(JSON.stringify(result.summary, null, 2));
-		if (result.rows.some((row) => !row.ok)) process.exitCode = 1;
+		console.log(JSON.stringify(result.acceptance, null, 2));
+		if (!result.acceptance.passed) process.exitCode = 1;
 		return;
 	}
 	if (!process.env.TEDIX_ORGANIZATION || !values.out)
@@ -703,9 +762,11 @@ async function main() {
 					JSON.stringify(
 						{
 							label: values.label,
+							rounds,
 							workspaceId: workspace.id,
 							rows,
 							summary: summarize(rows),
+							acceptance: acceptance(rows, rounds),
 						},
 						null,
 						2,
@@ -724,6 +785,7 @@ async function main() {
 		}
 	}
 	console.log(JSON.stringify(summarize(rows), null, 2));
-	if (!interrupted && rows.some((r) => !r.ok)) process.exitCode = 1;
+	console.log(JSON.stringify(acceptance(rows, rounds), null, 2));
+	if (!interrupted && !acceptance(rows, rounds).passed) process.exitCode = 1;
 }
 if (import.meta.main) await main();
