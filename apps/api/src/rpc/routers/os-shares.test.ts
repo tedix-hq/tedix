@@ -35,6 +35,7 @@ import {
 	hashOsShareToken,
 } from "../../lib/os-share-redemption";
 import { bindTestContexts } from "../test-context";
+import { countActiveOsShareSessions } from "@tedix/db/queries/os-shares";
 import { osSharesContractRouter } from "./os-shares";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
@@ -779,18 +780,41 @@ describe("shares.invitees", () => {
 			sessionToken: string;
 		};
 
+		const liveSessions = () =>
+			countActiveOsShareSessions(db, share.id, new Date().toISOString());
+		expect(await liveSessions()).toBe(1);
 		await expect(
 			h.org1.shares.invitees.remove({
 				shareId: share.id,
 				inviteeId: invitee.id,
 			}),
 		).resolves.toEqual({ removed: true });
+		// Removal ends the link's sessions outright: a guest's app calls never
+		// re-check the list, so the session itself must stop.
+		expect(await liveSessions()).toBe(0);
+		const asOutsider = async () => ({
+			userId: "outsider",
+			email: "someone@else.test",
+		});
+		expect(
+			(
+				await handleOsShareOpen(
+					db,
+					share.publicId,
+					"tenant-1",
+					undefined,
+					asOutsider,
+				)
+			).status,
+		).toBe(200);
+		// Removing nobody ends nobody's session.
 		await expect(
 			h.org1.shares.invitees.remove({
 				shareId: share.id,
 				inviteeId: invitee.id,
 			}),
 		).resolves.toEqual({ removed: false });
+		expect(await liveSessions()).toBe(1);
 		expect(
 			(await handleOsShareSessionRead(db, sessionToken, undefined, asKai))
 				.status,

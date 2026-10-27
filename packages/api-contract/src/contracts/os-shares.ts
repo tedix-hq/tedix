@@ -628,7 +628,7 @@ export const osSharesContract = oc
 						path: "/shares/{shareId}/invitees/{inviteeId}",
 						summary: "Remove a person from a share link",
 						description:
-							"Every session read rechecks the invite list, so removal takes effect on the person's next read.",
+							"Ends every live session on the link, including open apps, so the removed person is cut off at once; people still invited reopen the link.",
 					})
 					.input(
 						inviteeScopeInput.extend({ inviteeId: z.string().uuid() }).strict(),

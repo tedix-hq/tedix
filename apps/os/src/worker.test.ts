@@ -1,3 +1,4 @@
+import { OIDC_SESSION_COOKIE } from "@tedix/auth/oidc-cookies";
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { Window } from "happy-dom";
@@ -1088,6 +1089,29 @@ describe("Tedix OS origin router", () => {
 			provisionedWithTenant,
 		);
 		expect(seen.at(-1)!.headers.get("Cookie")).toBeNull();
+		// An OIDC organization's own session is forwarded under its own name,
+		// alone, so its members can open organization and invited links too.
+		const oidcOpen = await handleOsRequest(
+			new Request("https://acme.os.tedix.dev/api/os-shared/open", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: `${OIDC_SESSION_COOKIE}=oidc-session; ${OS_BROKER_SESSION_COOKIE}=${HOST_SESSION}; other=1`,
+				},
+				body: JSON.stringify({ id: "AbCdEfGhIjKlMnOpQrStUv" }),
+			}),
+			env,
+			async () => ({
+				provisioned: true,
+				identityProvider: "oidc",
+				organizationId: "org-acme",
+			}),
+		);
+		expect(oidcOpen.status).toBe(200);
+		expect(seen.at(-1)!.headers.get("Cookie")).toBe(
+			`${OIDC_SESSION_COOKIE}=oidc-session`,
+		);
+		expect(seen.at(-1)!.headers.get("X-Tedix-Tenant-Id")).toBe("org-acme");
 	});
 
 	it("serves a shared blueprint page and its public read to a signed-out visitor", async () => {

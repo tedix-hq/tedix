@@ -28,6 +28,7 @@ import {
 	serviceBindingFetch,
 } from "@tedix/api-client/internal";
 import { validateToken } from "@tedix/auth/jwt";
+import { OIDC_SESSION_COOKIE } from "@tedix/auth/oidc-cookies";
 import { handleTediConsole } from "./auth/tedi-console";
 import {
 	decodeUnverifiedJwtClaims,
@@ -638,6 +639,29 @@ function withBrokerApiSession(
 	return new Request(request, { headers });
 }
 
+/**
+ * The one cookie that identifies a share recipient to apps/api: an OIDC
+ * organization's own session under its own name, or this host's product
+ * session as `DS` when it was minted for this tenant. Nothing else is
+ * forwarded, so a session for another organization never reaches the API.
+ */
+function hostRecipientSessionCookie(
+	cookieHeader: string | null,
+	hostTenantId: string,
+	oidcOrganization: boolean,
+): string | null {
+	if (oidcOrganization) {
+		const session = resolveProductSession(cookieHeader, OIDC_SESSION_COOKIE);
+		return session
+			? `${OIDC_SESSION_COOKIE}=${encodeURIComponent(session)}`
+			: null;
+	}
+	const session = resolveProductSession(cookieHeader, OS_BROKER_SESSION_COOKIE);
+	return session && productSessionMatchesTenant(session, hostTenantId)
+		? `DS=${encodeURIComponent(session)}`
+		: null;
+}
+
 /** Routing hint only; apps/api still verifies the signature and membership. */
 function productSessionMatchesTenant(
 	session: string | null,
@@ -1127,32 +1151,30 @@ export async function handleOsRequest(
 		// A share-link guest has no account: these exact open, redemption and
 		// app calls carry their own capability in the body, so they pass without
 		// a session. A client-chosen Authorization header never reaches apps/api.
-		// The open, redeem and session calls keep this host's own product
-		// session cookie when it was minted for this tenant, so an organization
-		// or invited link can tell who is opening it; the app calls carry no
-		// browser credential at all.
+		// The open, redeem and session calls keep this host's own session (its
+		// product session minted for this tenant, or an OIDC organization's
+		// session), so an organization or invited link can tell who is opening
+		// it; the app calls carry no browser credential at all.
 		// authz: public — apps/api binds every call to one share link; a forwarded session only identifies the recipient.
 		if (
 			!cliApi &&
 			request.method === "POST" &&
 			GUEST_SHARE_API_PATH.test(url.pathname)
 		) {
-			const recipientSession = RECIPIENT_SHARE_API_PATH.test(url.pathname)
-				? withBrokerApiSession(
-						request,
-						OS_BROKER_SESSION_COOKIE,
-						false,
-						hostTenantId,
-					)
-				: null;
-			// withBrokerApiSession already moved the body into its copy; build on
-			// whichever request still owns it.
-			const source = recipientSession ?? request;
-			const headers = new Headers(source.headers);
-			if (!recipientSession) headers.delete("Cookie");
+			const headers = new Headers(request.headers);
+			headers.delete("Cookie");
 			headers.delete("Authorization");
+			const recipientSession =
+				hostTenantId && RECIPIENT_SHARE_API_PATH.test(url.pathname)
+					? hostRecipientSessionCookie(
+							request.headers.get("Cookie"),
+							hostTenantId,
+							oidcOrganization,
+						)
+					: null;
+			if (recipientSession) headers.set("Cookie", recipientSession);
 			return proxyApiRequest(
-				new Request(source, { headers }),
+				new Request(request, { headers }),
 				env,
 				url,
 				hostTenantId,

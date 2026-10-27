@@ -424,20 +424,38 @@ export async function addOsShareLinkInvitee(
 	return row;
 }
 
+/**
+ * Remove an invitee and, in the same batch, end every live session on the
+ * link. A session does not record who opened it, and a guest's app calls do
+ * not re-check the list, so ending them all is what stops the removed person;
+ * everyone still invited reopens the link.
+ */
 export async function removeOsShareLinkInvitee(
 	db: DbQueryClient,
-	params: OsShareLinkScopeParams & { inviteeId: string },
+	params: OsShareLinkScopeParams & { inviteeId: string; now?: string },
 ): Promise<boolean> {
-	const result = await db
-		.delete(osShareLinkInvitees)
+	const now = params.now ?? new Date().toISOString();
+	const invitee = and(
+		eq(osShareLinkInvitees.organizationId, params.organizationId),
+		eq(osShareLinkInvitees.shareLinkId, params.shareLinkId),
+		eq(osShareLinkInvitees.id, params.inviteeId),
+	);
+	const endSessions = db
+		.update(osShareSessions)
+		.set({ revokedAt: sql`coalesce(${osShareSessions.revokedAt}, ${now})` })
 		.where(
 			and(
-				eq(osShareLinkInvitees.organizationId, params.organizationId),
-				eq(osShareLinkInvitees.shareLinkId, params.shareLinkId),
-				eq(osShareLinkInvitees.id, params.inviteeId),
+				eq(osShareSessions.shareLinkId, params.shareLinkId),
+				isNull(osShareSessions.revokedAt),
+				sql`exists (select 1 from ${osShareLinkInvitees} where ${invitee})`,
 			),
 		);
-	return getAffectedRows(result) > 0;
+	const removeInvitee = db
+		.delete(osShareLinkInvitees)
+		.where(invitee)
+		.returning({ id: osShareLinkInvitees.id });
+	const [, removed] = await db.batch([endSessions, removeInvitee]);
+	return removed.length > 0;
 }
 
 /**

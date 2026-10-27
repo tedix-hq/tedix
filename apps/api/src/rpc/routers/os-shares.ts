@@ -723,11 +723,13 @@ const inviteesAdd = adminOs.shares.invitees.add.handler(
 const inviteesRemove = adminOs.shares.invitees.remove.handler(
 	async ({ input, context }) => {
 		const link = await requireActiveShareLink(context, input.shareId);
-		const removed = await removeOsShareLinkInvitee(queryDb(context), {
+		const db = queryDb(context);
+		const removed = await removeOsShareLinkInvitee(db, {
 			organizationId: link.organizationId,
 			shareLinkId: link.id,
 			inviteeId: input.inviteeId,
 		});
+		if (removed) await cutShareLinkAppSessions(context, db, link);
 		return { removed };
 	},
 );
