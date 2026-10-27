@@ -27,9 +27,11 @@ import {
 	osGadgetRevisions,
 	osCollaborationProposals,
 	osGadgets,
+	osOutputs,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { tedis } from "@tedix/db/schema/tedis";
+import { providerInstallations } from "@tedix/db/schema/provider-installations";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -55,6 +57,8 @@ function createEnv() {
 			kernelConversationGrants,
 			kernelRuntimeEvents,
 			osWorkspaces,
+			osOutputs,
+			providerInstallations,
 			osCollaborationProposals,
 			osGadgets,
 			osGadgetRevisions,
