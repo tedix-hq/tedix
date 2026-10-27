@@ -21,7 +21,9 @@ const lanes = {
 	},
 };
 
-beforeEach(() => request.mockReset());
+beforeEach(() => {
+	request.mockReset();
+});
 
 describe("factory chat reader", () => {
 	it("retries a failed read once", async () => {
@@ -44,4 +46,64 @@ describe("factory chat reader", () => {
 		).rejects.toThrow("Factory health could not be read");
 		expect(request).toHaveBeenCalledTimes(2);
 	});
+});
+
+it("keeps the workspace filter inside the lanes program", async () => {
+	const workspaceId =
+		'"; throw new Error("escaped"); // ` ${escape()} </script>\u2028\u2029';
+	request.mockImplementation(async (_env, _method, params) => {
+		const source = params.arguments.code;
+		expect(source).not.toContain("</script>");
+		expect(source).not.toMatch(/[\u2028\u2029]/);
+		const result = await new Function("projects", `return (${source})()`)({
+			inspect_factory_health: async () => ({
+				data: [
+					{ workspaceId, slug: "sample", name: "Sample" },
+					{ workspaceId: "other", slug: "other", name: "Other" },
+				],
+			}),
+		});
+		return { structuredContent: { executionId: "sample-exec", result } };
+	});
+	await expect(
+		factoryChatReader(
+			env,
+			"org-1",
+			"sample-tools",
+			undefined,
+			workspaceId,
+		).lanes(),
+	).resolves.toEqual({ total: 1, lanes: [{ slug: "sample", name: "Sample" }] });
+});
+
+it("keeps the factory slug inside the health program", async () => {
+	const slug =
+		'"; throw new Error("escaped"); // ` ${escape()} </script>\u2028\u2029';
+	const health = {
+		slug,
+		name: "Sample",
+		skillId: "sample",
+		ownerTediId: null,
+		verdict: "healthy",
+		reason: "Sample",
+		scheduleEnabled: true,
+		nextFireAt: null,
+		runs: [],
+	};
+	request.mockImplementation(async (_env, _method, params) => {
+		const source = params.arguments.code;
+		expect(source).not.toContain("</script>");
+		expect(source).not.toMatch(/[\u2028\u2029]/);
+		const result = await new Function("projects", `return (${source})()`)({
+			inspect_factory_health: async (input: unknown) => {
+				expect(input).toEqual({ factory: slug, runs: 1 });
+				return { data: [health] };
+			},
+		});
+		return { structuredContent: { executionId: "sample-exec", result } };
+	});
+	await expect(
+		factoryChatReader(env, "org-1", "sample-tools").health(slug),
+	).resolves.toEqual(health);
+	expect(request).toHaveBeenCalledTimes(1);
 });

@@ -2094,3 +2094,50 @@ describe("cloud agent mint", () => {
 		expect(f.calls).toHaveLength(1);
 	});
 });
+
+test("keeps hostile external-agent display names inside gateway arguments", async () => {
+	const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+	dirs.push(configDir);
+	process.env.TEDIX_CONFIG_DIR = configDir;
+	process.env.TEDIX_AGENT_SESSION = "codex:escaping-check";
+	const displayName =
+		'"; throw new Error("escaped"); // ` ${escape()} </script>\u2028\u2029 end';
+	writeExternalAgentProfile("sample", {
+		organizationId: ORG,
+		principalId: PRINCIPAL,
+		key: "sample-agent",
+		displayName: "Sample",
+		apiKeyId: "22222222-2222-4222-8222-222222222222",
+		rawApiKey: "sample-key",
+		scopes: ["mcp:work.read"],
+		mcpUrl: "https://sample.example.test/mcp",
+		createdAt: "2026-07-22T00:00:00.000Z",
+		sessions: {},
+	});
+	let calls = 0;
+	const renamed = await renameExternalAgentPrincipal({
+		workspace: "sample",
+		oauthBearer: "sample-token",
+		displayName,
+		createClient: () => ({
+			runCode: async (source: string) => {
+				expect(source).not.toContain("</script>");
+				expect(source).not.toMatch(/[\u2028\u2029]/);
+				return new Function("external", `return (${source})()`)({
+					rename_external_agent_principal: (input: unknown) => {
+						calls++;
+						expect(input).toEqual({
+							organizationId: ORG,
+							principalId: PRINCIPAL,
+							displayName,
+						});
+						return { displayName };
+					},
+				});
+			},
+			close: async () => {},
+		}),
+	});
+	expect(renamed.displayName).toBe(displayName);
+	expect(calls).toBe(1);
+});

@@ -93,3 +93,49 @@ describe("sidebar tool bridge", () => {
 		).rejects.toThrow();
 	});
 });
+
+it("keeps discovery query, exact tool and organization filters inside literals", async () => {
+	const hostile =
+		'"; throw new Error("escaped"); // ` ${escape()} </script>\u2028\u2029';
+	const match = { ...row, tool: hostile, organization: hostile };
+	const call = vi.fn(async (_name, args) => {
+		expect(args.code).not.toContain("</script>");
+		expect(args.code).not.toMatch(/[\u2028\u2029]/);
+		return envelope(
+			await runInNewContext(`(${args.code})()`, {
+				discover: {
+					search: async (input: unknown) => {
+						expect(input).toEqual({
+							query: hostile,
+							organization: hostile,
+							limit: 100,
+						});
+						return [
+							match,
+							{ ...match, tool: "other" },
+							{ ...match, organization: "other" },
+						];
+					},
+				},
+			}),
+		);
+	});
+	expect(await resolveSidebarTool(call, hostile, hostile)).toBe(row.callable);
+	expect(call).toHaveBeenCalledTimes(1);
+});
+
+it("keeps sidebar action arguments inside a literal", async () => {
+	const args = {
+		body: '"; throw new Error("escaped"); // ` ${escape()} </script>\u2028\u2029',
+	};
+	const call = vi.fn(async (_name, input) => {
+		expect(input.code).not.toContain("</script>");
+		expect(input.code).not.toMatch(/[\u2028\u2029]/);
+		return envelope(
+			await runInNewContext(`(${input.code})()`, {
+				maple_tedix: { show_deck: async (value: unknown) => value },
+			}),
+		);
+	});
+	expect(await callSidebarTool(call, row.callable, args)).toEqual(args);
+});

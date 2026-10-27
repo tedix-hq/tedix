@@ -1,3 +1,4 @@
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /**
@@ -227,7 +228,7 @@ export async function readCodeResultHandle(
 	const parts: string[] = [];
 	let offset = 0;
 	for (let page = 0; page < maxPages; page++) {
-		const args = JSON.stringify({ handle, offset, limit });
+		const args = codeModeLiteral({ handle, offset, limit });
 		const normalized = normalizeCodeResult(
 			await runCode(`async () => await discover.read_result(${args})`),
 		);

@@ -5,6 +5,7 @@ import {
 	codeModeDiscoveryParams,
 	codeModeExecutionParams,
 	codeModeResultHandle,
+	codeModeReadResultParams,
 	parseCodeModeCatalog,
 	parseCodeModeCatalogValue,
 	readCodeModeResultPages,
@@ -226,4 +227,18 @@ describe("schemas kept behind a Code Mode result handle", () => {
 			),
 		).toBeNull();
 	});
+});
+
+it("keeps result handles inside read_result arguments", async () => {
+	const handle =
+		'"; throw new Error("escaped"); // ` ${escape()} </script>\u2028\u2029';
+	const params = codeModeReadResultParams(handle, 42);
+	const source = (params.arguments as { code: string }).code;
+	expect(source).not.toContain("</script>");
+	expect(source).not.toMatch(/[\u2028\u2029]/);
+	expect(
+		await runGenerated(params, {
+			read_result: async (input: unknown) => input,
+		}),
+	).toEqual({ handle, offset: 42, limit: 16_000 });
 });

@@ -1,3 +1,4 @@
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { randomUUID } from "node:crypto";
 import { ExternalAgentPrincipalMetadataSchema } from "@tedix/api-contract/schemas/external-agent-identity";
 import { hostname, userInfo } from "node:os";
@@ -237,7 +238,7 @@ function gatewayCode(
 					_meta: { "com.tedix/approvalRequestId": approvalRequestId },
 				}
 			: input;
-	return `async () => await ${namespace}.${tool}(${JSON.stringify(resumed)})`;
+	return `async () => await ${namespace}.${tool}(${codeModeLiteral(resumed)})`;
 }
 
 /** Error prefix for a bootstrap that waits on an owner decision; callers may defer on it. */

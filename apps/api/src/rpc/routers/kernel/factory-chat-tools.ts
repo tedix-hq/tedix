@@ -1,3 +1,4 @@
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import * as z from "zod";
 import { requestFirstPartyMcp } from "../../../lib/first-party-mcp";
 import { codeModeResultData } from "./write-codemode";
@@ -84,7 +85,7 @@ export function factoryChatReader(
 	return {
 		async lanes() {
 			const data = await run(
-				`async () => { const workspaceId = ${JSON.stringify(workspaceId ?? null)}; const page = await projects.inspect_factory_health({ runs: 1 }); const lanes = page.data.filter(lane => !workspaceId || lane.workspaceId === workspaceId); return { total: lanes.length, lanes: lanes.slice(0, ${FACTORY_CHAT_LANE_LIMIT}).map(({ slug, name }) => ({ slug, name })) }; }`,
+				`async () => { const workspaceId = ${codeModeLiteral(workspaceId ?? null)}; const page = await projects.inspect_factory_health({ runs: 1 }); const lanes = page.data.filter(lane => !workspaceId || lane.workspaceId === workspaceId); return { total: lanes.length, lanes: lanes.slice(0, ${FACTORY_CHAT_LANE_LIMIT}).map(({ slug, name }) => ({ slug, name })) }; }`,
 			);
 			return z
 				.object({
@@ -95,7 +96,7 @@ export function factoryChatReader(
 		},
 		async health(slug) {
 			const data = await run(
-				`async () => { const page = await projects.inspect_factory_health({ factory: ${JSON.stringify(slug)}, runs: 1 }); const lane = page.data[0]; if (!lane) throw new Error("Factory not found"); const { name, skillId, ownerTediId, verdict, reason, scheduleEnabled, nextFireAt, runs } = lane; return { slug: lane.slug, name, skillId, ownerTediId, verdict, reason: reason.slice(0, 500), scheduleEnabled, nextFireAt, runs: runs.slice(0, 1).map(({ runId, status }) => ({ runId, status })) }; }`,
+				`async () => { const page = await projects.inspect_factory_health({ factory: ${codeModeLiteral(slug)}, runs: 1 }); const lane = page.data[0]; if (!lane) throw new Error("Factory not found"); const { name, skillId, ownerTediId, verdict, reason, scheduleEnabled, nextFireAt, runs } = lane; return { slug: lane.slug, name, skillId, ownerTediId, verdict, reason: reason.slice(0, 500), scheduleEnabled, nextFireAt, runs: runs.slice(0, 1).map(({ runId, status }) => ({ runId, status })) }; }`,
 			);
 			return ChatHealthSchema.parse(data);
 		},
