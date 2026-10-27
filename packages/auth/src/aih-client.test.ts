@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
+	allowDescopeClientPartialScopes,
 	buildMcpLoginPageURL,
 	DEFAULT_CIMD_DOMAIN_POLICIES,
 	exchangeAihClientCredentials,
@@ -249,6 +250,26 @@ describe("AIH MCP server registration hardening", () => {
 				{ name: "No audience", audienceWhitelist: [] },
 			),
 		).rejects.toThrow(/at least one exact audience/);
+	});
+});
+
+describe("AIH client partial scopes", () => {
+	it("patches only the partial-scope flag on the client", async () => {
+		const fetch = vi.fn(async () => new Response("{}", { status: 200 }));
+		vi.stubGlobal("fetch", fetch);
+
+		await allowDescopeClientPartialScopes(
+			{ DESCOPE_PROJECT_ID: "P123", DESCOPE_MANAGEMENT_KEY: "management-key" },
+			"TPA123",
+		);
+
+		expect(fetch).toHaveBeenCalledWith(
+			"https://api.descope.com/v2/mgmt/thirdparty/app/patch",
+			expect.objectContaining({
+				method: "POST",
+				body: JSON.stringify({ id: "TPA123", allowPartialScopes: true }),
+			}),
+		);
 	});
 });
 

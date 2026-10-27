@@ -4,6 +4,7 @@ import type {
 	VerifyHumanMcpGrantInput,
 } from "@tedix/api-contract/contracts/organizations";
 import {
+	allowDescopeClientPartialScopes,
 	loadDescopeMcpServer,
 	searchDescopeMcpServerClients,
 } from "@tedix/auth/aih-client";
@@ -279,6 +280,21 @@ export async function stageHumanMcpConsent(
 		mcpServerId: registered.mcpServerId,
 		clientId: registered.clientId,
 	};
+	// The consent step that follows rejects any narrower selection unless the
+	// client allows partial scopes. A failed patch only blocks narrower choices.
+	await allowDescopeClientPartialScopes(
+		{
+			DESCOPE_PROJECT_ID: env.DESCOPE_PROJECT_ID,
+			DESCOPE_MANAGEMENT_KEY: env.DESCOPE_MANAGEMENT_KEY,
+			DESCOPE_BASE_URL: env.DESCOPE_BASE_URL,
+		},
+		registered.appId,
+	).catch((error) =>
+		console.warn(
+			"[mcp-grant] Could not allow partial scopes for the client",
+			error instanceof Error ? error.message : error,
+		),
+	);
 	const current = await getMcpConsentSelection(db, key);
 	const revision = crypto.randomUUID();
 	await stageMcpConsentPending(db, {
