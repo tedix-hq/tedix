@@ -11,14 +11,20 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CACHE_TTL_MS, cacheDir, readCache, writeCache } from "./context-cache";
+import {
+	CACHE_TTL_MS,
+	cacheDir,
+	readCache,
+	writeCache,
+	readRecallCache,
+} from "./context-cache";
 
 const writtenAt = new Date("2026-10-21T12:00:00.000Z");
 const keys: [string, string] = [
 	"organization:fictional-alpha/workspace:one",
 	"organization:fictional-beta/workspace:two",
 ];
-const kinds = ["organization", "lessons", "next-work"] as const;
+const kinds = ["organization", "lessons", "next-work", "recall"] as const;
 
 function withConfig(run: (env: NodeJS.ProcessEnv) => void): void {
 	const config = mkdtempSync(join(tmpdir(), "tedix-context-cache-"));
@@ -57,7 +63,7 @@ test("round trips every cache kind and keeps organization/workspace scopes isola
 			expect(name).not.toContain(keys[0]);
 			expect(name).not.toContain(keys[1]);
 			expect(name).toMatch(
-				/^(organization|lessons|next-work)-[0-9a-f]{32}\.json$/,
+				/^(organization|lessons|next-work|recall)-[0-9a-f]{32}\.json$/,
 			);
 		}
 	});
@@ -66,7 +72,8 @@ test("round trips every cache kind and keeps organization/workspace scopes isola
 test("enforces the exact TTL boundary, expiry and clock skew for each kind", () => {
 	withConfig((env) => {
 		for (const kind of kinds) {
-			const ttl = kind === "next-work" ? 30_000 : CACHE_TTL_MS;
+			const ttl =
+				kind === "next-work" || kind === "recall" ? 30_000 : CACHE_TTL_MS;
 			writeCache(env, kind, keys[0], { kind }, writtenAt);
 
 			expect(readCache(env, kind, keys[0], new Date(+writtenAt + ttl))).toEqual(
@@ -166,4 +173,84 @@ test("completed writes are complete JSON and leave no temporary files", () => {
 				".json",
 		]);
 	});
+});
+
+test("parallel hook processes share one cold catalog fetch", async () => {
+	const config = mkdtempSync(join(tmpdir(), "tedix-recall-processes-"));
+	try {
+		const source = `
+			import { readRecallCache } from ${JSON.stringify(join(import.meta.dir, "context-cache.ts"))};
+			import { appendFileSync } from 'node:fs';
+			const value = await readRecallCache({TEDIX_CONFIG_DIR: process.argv[1]}, 'same-owner-org-repo', async () => {
+				appendFileSync(process.argv[2], 'fetch\\n');
+				await Bun.sleep(100);
+				return {catalog: 'shared'};
+			});
+			console.log(JSON.stringify(value));
+		`;
+		const countFile = join(config, "fetches");
+		const children = Array.from({ length: 8 }, () =>
+			Bun.spawn([process.execPath, "-e", source, config, countFile], {
+				stdout: "pipe",
+				stderr: "pipe",
+			}),
+		);
+		const results = await Promise.all(
+			children.map(async (child) => ({
+				code: await child.exited,
+				stdout: await new Response(child.stdout).text(),
+				stderr: await new Response(child.stderr).text(),
+			})),
+		);
+		for (const result of results) {
+			expect(result.stderr).toBe("");
+			expect(result.code).toBe(0);
+			expect(JSON.parse(result.stdout)).toEqual({ catalog: "shared" });
+		}
+		expect(readFileSync(countFile, "utf8")).toBe("fetch\n");
+	} finally {
+		rmSync(config, { recursive: true, force: true });
+	}
+});
+
+test("four sessions share two catalog reads per minute and retry failures", async () => {
+	const config = mkdtempSync(join(tmpdir(), "tedix-recall-load-"));
+	const env = { TEDIX_CONFIG_DIR: config };
+	let now = +writtenAt;
+	let requests = 0;
+	const load = async () => {
+		requests++;
+		return { lessons: [] };
+	};
+	try {
+		// Four sessions, each making 24 tool calls over a minute.
+		for (let turn = 0; turn < 24; turn++) {
+			now = +writtenAt + turn * 2500;
+			await Promise.all(
+				Array.from({ length: 4 }, () =>
+					readRecallCache(env, keys[0], load, () => new Date(now)),
+				),
+			);
+		}
+		expect(requests).toBe(2);
+		// Replay the incident's 78 other CLI calls and 17 prompt reads as background load.
+		expect(78 + 17 + requests).toBeLessThan(100);
+		await readRecallCache(env, keys[1], load, () => new Date(now));
+		expect(requests).toBe(3);
+		now += 30_001;
+		await expect(
+			readRecallCache(
+				env,
+				keys[0],
+				async () => {
+					throw Error("offline");
+				},
+				() => new Date(now),
+			),
+		).rejects.toThrow("offline");
+		await readRecallCache(env, keys[0], load, () => new Date(now));
+		expect(requests).toBe(4);
+	} finally {
+		rmSync(config, { recursive: true, force: true });
+	}
 });

@@ -72,6 +72,10 @@ and durable answer settlement.
   Lessons retry once after 150 ms, with a 3-second retry deadline. Unavailable
   sources are omitted; the organization id is cached for ten minutes
   (`src/hooks/context-cache.ts`); `TEDIX_HOOK_TRACE=1` prints step timings.
+  Pre-tool situational recall shares its approved lesson catalog for 30 seconds
+  across local hook processes with the same login, organization, gateway,
+  repository and harness. Concurrent cold reads share one fetch. Expired or
+  failed reads add no recall; prompt-time lessons still refresh each turn.
   Scope follows the nearest `.tedix/context.json` directory binding, then this
   chat's selected or admitted Work, then successful recent CLI calls. Other
   active organizations get one line. Hook reads never reinforce the selection.

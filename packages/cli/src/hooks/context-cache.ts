@@ -3,11 +3,12 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { beginFileLock } from "../local-file-lock";
 import { isObject, type JsonObject } from "./hook-io";
 
 /** How long a cached read stands in for the live one. */
 export const CACHE_TTL_MS = 10 * 60_000;
-export type CacheKind = "organization" | "lessons" | "next-work";
+export type CacheKind = "organization" | "lessons" | "next-work" | "recall";
 
 export interface CacheEntry {
 	value: JsonObject;
@@ -44,11 +45,38 @@ export function readCache(
 			return undefined;
 		// Clock skew counts as age zero.
 		const ageMs = Math.max(0, now.getTime() - Date.parse(parsed.writtenAt));
-		const ttl = kind === "next-work" ? 30_000 : CACHE_TTL_MS;
+		const ttl =
+			kind === "next-work" || kind === "recall" ? 30_000 : CACHE_TTL_MS;
 		if (!Number.isFinite(ageMs) || ageMs > ttl) return undefined;
 		return { value: parsed.value, ageMs, fresh: true };
 	} catch {
 		return undefined;
+	}
+}
+
+/** Coalesce catalog reads across hook processes, including simultaneous cold starts. */
+export async function readRecallCache(
+	env: NodeJS.ProcessEnv,
+	key: string,
+	load: () => Promise<JsonObject>,
+	now: () => Date = () => new Date(),
+): Promise<JsonObject> {
+	const cached = readCache(env, "recall", key, now());
+	if (cached) return cached.value;
+	const lock = beginFileLock(`${entryPath(env, "recall", key)}.lock`);
+	const deadline = Date.now() + 5000;
+	try {
+		while (!lock.ready()) {
+			if (Date.now() >= deadline) throw new Error("Recall cache busy");
+			await new Promise((resolve) => setTimeout(resolve, 10));
+		}
+		const shared = readCache(env, "recall", key, now());
+		if (shared) return shared.value;
+		const value = await load();
+		writeCache(env, "recall", key, value, now());
+		return value;
+	} finally {
+		lock.release();
 	}
 }
 
