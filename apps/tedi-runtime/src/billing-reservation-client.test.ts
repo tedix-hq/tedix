@@ -1,3 +1,7 @@
+import {
+	RuntimeEntitlementDenialCodeSchema,
+	runtimeInferenceDenialMessage,
+} from "@tedix/api-contract/schemas/runtime-entitlements";
 import { privateInferenceOriginGuard } from "./runtime-inference-origin";
 import assert from "node:assert/strict";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -147,12 +151,29 @@ const local = billingPolicyDeniedWorkflowResult(
 	),
 );
 assert.deepEqual(local, {
-	text: "I couldn't complete that turn because this workspace's billing policy blocked inference (payment_required). Please contact a workspace administrator.",
+	text: "I couldn't complete that turn. The wallet needs more credits. (payment_required) An organization owner can review Billing at /admin/billing.",
 	stopReason: "billing_policy_denied",
 	error: "Inference blocked by billing policy: payment_required",
 	billingCode: "payment_required",
 });
 assert.equal(isBillingPolicyDeniedWorkflowResult(local), true);
+
+for (const code of RuntimeEntitlementDenialCodeSchema.options) {
+	const message = `Inference blocked by billing policy: ${code}`;
+	for (const error of [
+		new BillingAdmissionError(code, message),
+		new Error(message),
+		{ message },
+	]) {
+		const result = billingPolicyDeniedWorkflowResult(error);
+		assert.equal(result?.billingCode, code);
+		assert.equal(isBillingPolicyDeniedWorkflowResult(result), true);
+		if (!code.startsWith("eu_") && code !== "residency_policy_unavailable") {
+			assert(result?.text.includes(runtimeInferenceDenialMessage(code)));
+			assert(result?.text.includes("/admin/billing"));
+		}
+	}
+}
 
 const serialized = billingPolicyDeniedWorkflowResult(
 	new Error(

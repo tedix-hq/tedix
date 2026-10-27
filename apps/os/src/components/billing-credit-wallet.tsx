@@ -1,3 +1,4 @@
+import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import { Link } from "@/components/kumo/link";
 import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
@@ -53,16 +54,6 @@ export function BillingCreditWallet({
 			? overview.period.creditAppliedMicros +
 				overview.period.customerChargeMicros
 			: null);
-	const reasons: Record<string, string> = {
-		subscription_inactive: "Your subscription needs attention.",
-		billing_period_inactive: "Your billing period needs to be renewed.",
-		monthly_allowance_exhausted: "The included allowance is exhausted.",
-		payment_required: "The wallet needs more credits.",
-		hard_spend_limit: "The monthly spending cap has been reached.",
-		inference_capacity_exhausted: "Today's usage limit has been reached.",
-		pricing_unavailable: "Model pricing is not available yet.",
-		credit_allowance_exhausted: "Add credits to continue.",
-	};
 	return (
 		<Card tone="raised">
 			<BillingSectionHeader
@@ -129,8 +120,11 @@ export function BillingCreditWallet({
 				{!overview.inferenceCapacity.available && (
 					<Alert variant="destructive">
 						<AlertDescription>
-							{reasons[overview.inferenceCapacity.blockingReason ?? ""] ??
-								"Usage is blocked. Check your plan and limits below."}
+							{overview.inferenceCapacity.blockingReason
+								? runtimeInferenceDenialMessage(
+										overview.inferenceCapacity.blockingReason,
+									)
+								: "Usage is blocked. Check your plan and limits below."}
 						</AlertDescription>
 					</Alert>
 				)}

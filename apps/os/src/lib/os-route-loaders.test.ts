@@ -30,6 +30,9 @@ const api = vi.hoisted(() => ({
 	getCatalogApp: vi.fn(),
 	listModels: vi.fn(),
 	getOperationalContext: vi.fn(),
+	getBillingOverview: vi.fn(),
+	listBillingPlans: vi.fn(),
+	getOrgUsage: vi.fn(),
 	listApprovals: vi.fn(),
 	listInteractions: vi.fn(),
 	listWorkApprovals: vi.fn(),
@@ -52,6 +55,11 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
+		billing: {
+			getOverview: api.getBillingOverview,
+			listPlans: api.listBillingPlans,
+		},
+		orgUsage: { getOrgUsage: api.getOrgUsage },
 		osWorkspaces: {
 			workspaces: { list: api.listWorkspaces },
 			gadgets: { list: api.listGadgets },
@@ -139,6 +147,8 @@ import {
 	prefetchWorkspacesRoute,
 } from "@/lib/os-route-loaders";
 import {
+	billingOverviewQueryOptions,
+	billingPlansQueryOptions,
 	activeOutputLibraryQueryOptions,
 	activeWorkspacesQueryOptions,
 	BLUEPRINT_GALLERY_LIMIT,
@@ -193,6 +203,11 @@ function client() {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	api.getBillingOverview.mockResolvedValue({
+		snapshot: { periodStart: "2026-10-01", periodEnd: "2026-11-01" },
+	});
+	api.listBillingPlans.mockResolvedValue({ plans: [] });
+	api.getOrgUsage.mockResolvedValue({});
 	api.listSessionRequests.mockResolvedValue({ data: [] });
 	api.listWorkspaces.mockResolvedValue({ items: [], truncated: false });
 	api.listGadgets.mockResolvedValue({ items: [], truncated: false });
@@ -285,6 +300,62 @@ beforeEach(() => {
 });
 
 describe("OS route loaders", () => {
+	it.each(["overview", "plans", "context", "usage"])(
+		"lands billing while %s is stalled and keeps the read in the cache",
+		async (read) => {
+			vi.useFakeTimers();
+			const queryClient = client();
+			let release!: (value: unknown) => void;
+			const pending = new Promise((resolve) => {
+				release = resolve;
+			});
+			const mock = {
+				overview: api.getBillingOverview,
+				plans: api.listBillingPlans,
+				context: api.getOperationalContext,
+				usage: api.getOrgUsage,
+			}[read]!;
+			mock.mockReturnValueOnce(pending);
+			try {
+				const loaded = prefetchAdminBillingRoute(queryClient);
+				await vi.advanceTimersByTimeAsync(OS_LOADER_FIRST_PAINT_DEADLINE_MS);
+				await expect(loaded).resolves.toBeUndefined();
+				expect(mock).toHaveBeenCalledTimes(1);
+				const value =
+					read === "overview"
+						? {
+								snapshot: {
+									periodStart: "2026-10-01",
+									periodEnd: "2026-11-01",
+								},
+							}
+						: read === "context"
+							? { organization: { id: "org-test" } }
+							: {};
+				release(value);
+				await vi.advanceTimersByTimeAsync(0);
+				if (read === "overview" || read === "plans") {
+					const key =
+						read === "overview"
+							? billingOverviewQueryOptions().queryKey
+							: billingPlansQueryOptions().queryKey;
+					expect(queryClient.getQueryData(key)).toEqual(value);
+				}
+				expect(mock).toHaveBeenCalledTimes(1);
+			} finally {
+				release({});
+				queryClient.clear();
+				vi.useRealTimers();
+			}
+		},
+	);
+
+	it("lands billing after denied overview and plan reads", async () => {
+		api.getBillingOverview.mockRejectedValueOnce(new Error("Forbidden"));
+		api.listBillingPlans.mockRejectedValueOnce(new Error("Forbidden"));
+		await expect(prefetchAdminBillingRoute(client())).resolves.toBeUndefined();
+	});
+
 	it("does not warm unavailable fleet capabilities locally", async () => {
 		const local = vi
 			.spyOn(localInference, "isLocalSession")

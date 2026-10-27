@@ -1,3 +1,4 @@
+import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import {
 	Collapsible,
@@ -96,7 +97,7 @@ export function BillingInferenceCapacitySection() {
 	// The backend is the authority on whether this account uses monthly metering;
 	// provider-sponsored customers retain their daily grant controls.
 	const monthlyMetered = capacity.monthlyMetered;
-	const blockingReason: string | null = capacity.blockingReason;
+	const blockingReason = capacity.blockingReason;
 	const showDailyCapacity = !monthlyMetered;
 	const packs = capacity.packs;
 	const allocations = capacity.allocations;
@@ -132,15 +133,9 @@ export function BillingInferenceCapacitySection() {
 					<Alert variant="destructive">
 						<AlertTitle>Inference is currently blocked</AlertTitle>
 						<AlertDescription>
-							{blockingReason === "hard_spend_limit"
-								? "The organization hard spend limit is reached. Ask your billing operator to raise it, or wait for the next billing period."
-								: blockingReason === "billing_period_inactive"
-									? "No active billing period is available. Renew the subscription below, or ask your billing operator to restore the period."
-									: capacity.unblockAction === "top_up"
-										? "Add capacity below to resume inference immediately."
-										: capacity.unblockAction === "upgrade"
-											? "Upgrade the plan to restore monthly inference allowance."
-											: "Open billing management to restore the subscription or payment method."}
+							{blockingReason
+								? runtimeInferenceDenialMessage(blockingReason)
+								: "Usage is blocked. Check your plan and limits below."}
 						</AlertDescription>
 					</Alert>
 				)}

@@ -551,34 +551,30 @@ export async function prefetchAdminBillingRoute(queryClient: QueryClient) {
 	// Usage is keyed by both the host-resolved organization and the canonical
 	// billing window. Resolve those two authorities before warming the chart row.
 	const plansRead = queryClient.ensureQueryData(billingPlansQueryOptions());
-	const [contextResult, overviewResult] = await Promise.allSettled([
+	const overviewReads = Promise.allSettled([
 		queryClient.ensureQueryData(operationalContextQueryOptions()),
 		queryClient.ensureQueryData(billingOverviewQueryOptions()),
-	]);
-	if (
-		contextResult.status === "fulfilled" &&
-		overviewResult.status === "fulfilled"
-	) {
-		// Warm the chart, but never gate the route on it. This read spans the
-		// whole billing period, and a period is not bounded (an annual plan can
-		// have most of a year left), and awaiting that query left /admin/billing blank behind "OS route load still
-		// pending after 20000ms" — on the one page a blocked operator is sent to.
-		// The surrounding `.catch()` already said a failed warm is survivable; a
-		// SLOW warm has to be survivable for the same reason.
-		void queryClient
-			.ensureQueryData(
-				orgUsageQueryOptions(
-					contextResult.value.organization.id,
-					ORG_USAGE_PERIOD,
-					{
-						from: overviewResult.value.snapshot.periodStart,
-						to: overviewResult.value.snapshot.periodEnd,
-					},
-				),
-			)
-			.catch(() => undefined);
-	}
-	await Promise.allSettled([plansRead]);
+	]).then(([contextResult, overviewResult]) => {
+		if (
+			contextResult.status === "fulfilled" &&
+			overviewResult.status === "fulfilled"
+		) {
+			// A full-period chart read must not delay the page used to resolve a denial.
+			void queryClient
+				.ensureQueryData(
+					orgUsageQueryOptions(
+						contextResult.value.organization.id,
+						ORG_USAGE_PERIOD,
+						{
+							from: overviewResult.value.snapshot.periodStart,
+							to: overviewResult.value.snapshot.periodEnd,
+						},
+					),
+				)
+				.catch(() => undefined);
+		}
+	});
+	await withFirstPaintDeadline(Promise.allSettled([plansRead, overviewReads]));
 }
 
 export async function prefetchAdminPaymentsRoute(
