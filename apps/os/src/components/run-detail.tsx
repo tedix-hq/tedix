@@ -24,6 +24,11 @@ import {
 } from "@/components/kumo/alert-dialog";
 import { Button } from "@/components/kumo/button";
 import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
+import {
 	Card,
 	CardContent,
 	CardDescription,
@@ -50,6 +55,7 @@ import {
 	RunTechnicalSection,
 } from "@/components/run-detail-sections";
 import { useRunWebMcpTools } from "@/components/run-webmcp-tools";
+import { RunTimeline } from "@/components/run-timeline";
 import { osApi } from "@/lib/api";
 import { useOsFormattingPreferences } from "@/lib/format";
 import {
@@ -457,11 +463,17 @@ export function RunDetailPage() {
 						</Alert>
 					)}
 
-					<RunEvidenceSections
-						inspection={inspect.data}
-						artifacts={artifacts}
-						rationale={rationale}
-					/>
+					<RunTimeline runId={runId} />
+					<Collapsible>
+						<CollapsibleTrigger>Step list and evidence</CollapsibleTrigger>
+						<CollapsibleContent className="grid gap-6">
+							<RunEvidenceSections
+								inspection={inspect.data}
+								artifacts={artifacts}
+								rationale={rationale}
+							/>
+						</CollapsibleContent>
+					</Collapsible>
 					<RunCostsSection run={run} costs={costs} />
 					<RunTechnicalSection run={run} definitionHealth={definitionHealth} />
 				</>

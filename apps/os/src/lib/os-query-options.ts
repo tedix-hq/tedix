@@ -144,6 +144,12 @@ export const workspaceWorkProjectsQueryOptions = (workspaceId: string) =>
 export const workflowRunInspectQueryOptions = (runId: string) =>
 	osQuery.skills.inspectWorkflowRun.queryOptions({ input: { runId } });
 
+export const workflowRunTimelineQueryOptions = (runId: string) =>
+	osQuery.skills.getWorkflowRunTimeline.queryOptions({ input: { runId } });
+
+export const workflowRunArtifactQueryOptions = (runId: string, path: string) =>
+	osQuery.skills.getRunArtifact.queryOptions({ input: { runId, path } });
+
 /** One Home/kernel execution. Home ids are not skill-workflow run ids. */
 export const homeRunQueryOptions = (runId: string) =>
 	osQuery.kernelRuntime.readRun.queryOptions({ input: { runId } });

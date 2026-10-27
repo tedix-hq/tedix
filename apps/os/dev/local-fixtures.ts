@@ -5,6 +5,10 @@ import {
 	visitAttentionFixture,
 	resetAttentionFixtures,
 } from "./attention-fixtures";
+import {
+	runTimelineFixture,
+	runTimelineArtifactFixture,
+} from "./run-timeline-fixture";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
 import type {
 	OsShareInvitee,
@@ -5744,6 +5748,20 @@ const handlers: Record<string, (input: never) => unknown> = {
 				error: run.error,
 			})),
 	}),
+	"skills/getWorkflowRunTimeline": (input: { runId: string }) => {
+		const run = findSkillRun(input.runId);
+		return runTimelineFixture({
+			id: run.id,
+			status: run.status,
+			startedAt: run.startedAt,
+			completedAt: run.completedAt,
+			executionEpoch: run.executionEpoch,
+		});
+	},
+	"skills/getRunArtifact": (input: { runId: string; path: string }) => {
+		findSkillRun(input.runId);
+		return runTimelineArtifactFixture(input.path);
+	},
 	"skills/inspectWorkflowRun": (input: { runId: string }) => {
 		const run = findSkillRun(input.runId);
 		return {
