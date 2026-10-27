@@ -38,6 +38,8 @@ import {
 	draftAnswerMetadata,
 	latestDraftOf,
 } from "@/components/work-interaction-draft";
+import { rowReviewSpec } from "@tedix/api-contract/utils/row-review";
+import { WorkRowReviewCard } from "@/components/work-row-review-card";
 import { osApi } from "@/lib/api";
 import {
 	osQuery,
@@ -348,6 +350,20 @@ export function WorkInteractionDecisionCard({
 		);
 	if (!detail) return readNotice;
 	const { request, effectiveState, canRespond, canCancel, responses } = detail;
+	const rowReview = rowReviewSpec(request.metadata);
+	if (rowReview && effectiveState === "open" && canRespond)
+		return (
+			<WorkRowReviewCard
+				key={`${request.id}:${request.version}`}
+				requestId={request.id}
+				requestVersion={request.version}
+				spec={rowReview}
+				title={request.subject}
+				askedBy={askedBy ?? preview?.askedBy ?? OS_COPY.feed.actors.user}
+				onNext={onNext}
+				onPrevious={onPrevious}
+			/>
+		);
 	const sourceCopy = manualStep(request.metadata);
 	const secureConnection = credentialCard(
 		`${request.subject} ${request.prompt}`,

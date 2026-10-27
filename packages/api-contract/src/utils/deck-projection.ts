@@ -17,6 +17,7 @@ import { compareFactoryScore } from "./card-priority";
 import { deadlineOverdue, deckAsk } from "./deck-ask";
 import { credentialCard } from "./card-secrets";
 import { humanOnlyAskReasons } from "./human-only-ask";
+import { rowReviewSpec } from "./row-review";
 import { scoreLearning, type LearningCandidate } from "./decision-learning";
 
 type Request = z.infer<typeof WorkInteractionInboxRowSchema>;
@@ -386,6 +387,7 @@ export function projectDeckCards(input: {
 			m.triage.urgency === "now"
 				? "now"
 				: "later";
+		const rowReview = rowReviewSpec(m);
 
 		cards.push({
 			id: r.id,
@@ -398,6 +400,7 @@ export function projectDeckCards(input: {
 			requestedAt: r.requestedAt,
 			dueAt: r.dueAt,
 			score: 0,
+			...(rowReview ? { rowReview } : {}),
 			interaction: row,
 			...(row.objective ? { objective: row.objective } : {}),
 		});
