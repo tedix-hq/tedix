@@ -1,5 +1,6 @@
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { decisionActionChange } from "@tedix/db/queries/work-items/decision-action-recheck";
+import { retireDecisionReviews } from "@tedix/db/queries/work-items/decision-review-retirement";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import {
 	createWorkInteraction,
@@ -88,5 +89,10 @@ export async function recheckDecisionAction(
 			now,
 		});
 	}
+	await retireDecisionReviews(db, {
+		orgId: request.orgId,
+		originalId: request.id,
+		now,
+	});
 	return { change, requestId: id };
 }

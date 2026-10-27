@@ -5,6 +5,48 @@ import {
 } from "../schemas/os-decision-deck";
 import { humanReservedActionClasses } from "./approval-policy";
 
+/** System follow-ups carry no authority from the decision they replace. */
+export function isFactsChangedReview(request: {
+	kind: string;
+	creatorType: string;
+	creatorId?: string | null;
+	metadata: Record<string, unknown>;
+}) {
+	const m = request.metadata;
+	const parsed = DecisionEnvelopeSchema.safeParse(m.decisionDeck);
+	return (
+		request.kind === "question" &&
+		request.creatorType === "system" &&
+		request.creatorId === "tedix" &&
+		typeof m.replacesDecisionId === "string" &&
+		m.replacesDecisionId.length > 0 &&
+		!m.protected &&
+		m.approvalOperation === undefined &&
+		m.schema !== "tedix.outbound.v1" &&
+		!m.localImport &&
+		(m.riskLevel === undefined ||
+			["low", "medium"].includes(String(m.riskLevel))) &&
+		(m.protectedEffects === undefined ||
+			(Array.isArray(m.protectedEffects) && m.protectedEffects.length === 0)) &&
+		(m.reversibility === undefined || m.reversibility === "two_way") &&
+		!(
+			m.cardPresentation &&
+			typeof m.cardPresentation === "object" &&
+			"effectStatus" in m.cardPresentation &&
+			m.cardPresentation.effectStatus === "unknown"
+		) &&
+		parsed.success &&
+		parsed.data.classId === "decision-facts-changed" &&
+		parsed.data.kind === "question" &&
+		parsed.data.reversibility === "two_way" &&
+		parsed.data.protectedEffects.length === 0 &&
+		parsed.data.options.every((option) => !option.effect) &&
+		parsed.data.options.some(
+			(option) => option.id === "dismiss" && option.intent === "reject",
+		)
+	);
+}
+
 /** Presentation and execution share the same headless action ceiling. */
 export function deckResponseRequiresHuman(
 	card: DeckCard,

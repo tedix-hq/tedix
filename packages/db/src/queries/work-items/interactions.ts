@@ -1,4 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { retireDecisionReviews } from "./decision-review-retirement";
 import {
 	decisionSourcesCurrent,
 	DECISION_SOURCE_CHANGED,
@@ -821,6 +822,12 @@ export async function respondToWorkInteraction(
 			evidenceRef: `work-interaction-response:${response.id}`,
 			note: response.body,
 		});
+	if (resolvesRequest)
+		await retireDecisionReviews(db, {
+			orgId: p.orgId,
+			originalId: request.id,
+			now: p.now,
+		});
 	return response;
 }
 /** One explicit handoff by the human currently asked to answer, never impersonation. */
@@ -952,6 +959,11 @@ export async function cancelWorkInteraction(
 			"CONFLICT",
 			"Interaction is not cancellable by this actor",
 		);
+	await retireDecisionReviews(db, {
+		orgId: p.orgId,
+		originalId: row.id,
+		now: p.now,
+	});
 	return row;
 }
 export interface SetWorkInteractionAttentionParams {
@@ -1832,6 +1844,7 @@ export async function listWorkInteractionInbox(
 		observedAt: string;
 	},
 ) {
+	await retireDecisionReviews(db, { orgId: p.orgId, now: p.observedAt });
 	const effective = sql<
 		"open" | "resolved" | "cancelled" | "expired"
 	>`CASE WHEN ${workInteractions.status}='open' AND ${workInteractions.expiresAt} IS NOT NULL AND ${workInteractions.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workInteractions.status} END`;

@@ -10,6 +10,18 @@ const mocks = vi.hoisted(() => ({
 	explainAbsence: vi.fn(),
 	call: vi.fn(),
 	record: vi.fn(),
+	getInteraction: vi.fn(),
+	retireReviews: vi.fn(),
+	actor: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/work-items/interactions", () => ({
+	getWorkInteraction: mocks.getInteraction,
+}));
+vi.mock("@tedix/db/queries/work-items/decision-review-retirement", () => ({
+	retireDecisionReviews: mocks.retireReviews,
+}));
+vi.mock("./work-items-principal", () => ({
+	verifiedActiveWorkActor: mocks.actor,
 }));
 vi.mock("../../services/attention-projection", () => ({
 	loadDeckProjection: mocks.loadDeckProjection,
@@ -850,4 +862,72 @@ it("show_feed separates Needs you from Updates without creating actions", async 
 	expect(view.needsYou.map((c) => c.id)).toEqual(["needs"]);
 	expect(view.updates.map((c) => c.id)).toEqual(["sample"]);
 	expect(view.cards.every((c) => !c.actions.length)).toBe(true);
+});
+
+it("lets an agent dismiss an effect-free facts review without a human inbox or answer", async () => {
+	const review = {
+		...boundedCard().interaction.request,
+		creatorType: "system",
+		creatorId: "tedix",
+		metadata: {
+			replacesDecisionId: "earlier",
+			decisionDeck: {
+				...envelope(),
+				kind: "question",
+				classId: "decision-facts-changed",
+				proposal: "Review changed facts: Delete the database?",
+				options: [
+					{ ...envelope().options[0], id: "dismiss", intent: "reject" },
+					envelope().options[1],
+				],
+			},
+		},
+	};
+	mocks.getInteraction.mockResolvedValue(review);
+	mocks.actor.mockResolvedValue({ type: "external_agent", id: "executor" });
+	mocks.retireReviews.mockResolvedValue(1);
+	const decision = response();
+	decision.decision.metadata = { cardAction: "dismiss" };
+	expect(await client().decideDeckCard({ decision })).toEqual({
+		saved: true,
+		cardId: requestId,
+	});
+	expect(mocks.retireReviews).toHaveBeenCalledWith(
+		expect.anything(),
+		expect.objectContaining({
+			orgId: "fictional-orchard",
+			dismiss: expect.objectContaining({
+				id: requestId,
+				version: 7,
+				actorType: "external_agent",
+				actorId: "executor",
+			}),
+		}),
+	);
+	expect(mocks.loadDeckProjection).not.toHaveBeenCalled();
+	expect(mocks.call).not.toHaveBeenCalled();
+});
+
+it("keeps effectful facts reviews behind the normal decision boundary", async () => {
+	const card = boundedCard(
+		{
+			replacesDecisionId: "earlier",
+			decisionDeck: {
+				...envelope(),
+				kind: "question",
+				classId: "decision-facts-changed",
+				protectedEffects: ["money"],
+			},
+		},
+		{ creatorType: "system", creatorId: "tedix" },
+	);
+	mocks.getInteraction.mockResolvedValue(card.interaction.request);
+	mocks.loadDeckProjection.mockResolvedValue({ cards: [card], complete: true });
+	const decision = response();
+	decision.decision.metadata = { cardAction: "dismiss" };
+	await expect(client().decideDeckCard({ decision })).rejects.toMatchObject({
+		code: "FORBIDDEN",
+	});
+	expect(mocks.retireReviews).not.toHaveBeenCalled();
+	expect(mocks.call).not.toHaveBeenCalled();
 });
