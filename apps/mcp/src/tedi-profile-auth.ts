@@ -1,6 +1,6 @@
 import { resolveTediScopes } from "@tedix/mcp-shared/auth/scopes";
 import { getTediProfileApiClient } from "./lib/api-client";
-import { UPSTREAM_RETRY_AFTER_SECONDS } from "./upstream";
+import { UPSTREAM_RETRY_AFTER_SECONDS, withUpstreamRetry } from "./upstream";
 
 /**
  * A tedi's live D1 authority for one request. Only `active` carries scopes:
@@ -15,21 +15,34 @@ export type TediProfileAuth =
 			mcpEndpoints?: string[];
 	  }
 	| { status: "missing" }
+	| { status: "denied"; errorCode: string }
 	| { status: "unavailable"; errorCode: string };
 
-type ErrorShape = { code?: unknown; status?: unknown };
+type ErrorShape = {
+	code?: unknown;
+	status?: unknown;
+	name?: unknown;
+	response?: { status?: unknown };
+};
 
 function isNotFound(error: unknown): boolean {
 	if (!error || typeof error !== "object") return false;
 	const shaped = error as ErrorShape;
-	return shaped.code === "NOT_FOUND" || shaped.status === 404;
+	return shaped.code === "NOT_FOUND" || errorCode(error) === "HTTP_404";
 }
 
 function errorCode(error: unknown): string {
 	if (!error || typeof error !== "object") return "UNKNOWN";
 	const shaped = error as ErrorShape;
+	const status =
+		shaped.status ??
+		(shaped.name === "MalformedResponseError"
+			? shaped.response?.status
+			: undefined);
+	if (typeof status === "number" && status >= 400 && status < 500)
+		return `HTTP_${status}`;
 	if (typeof shaped.code === "string") return shaped.code;
-	if (typeof shaped.status === "number") return `HTTP_${shaped.status}`;
+	if (typeof status === "number") return `HTTP_${status}`;
 	return "UNKNOWN";
 }
 
@@ -49,8 +62,9 @@ export async function resolveTediProfileAuth(
 		return { status: "unavailable", errorCode: "API_SERVICE_UNBOUND" };
 	}
 	try {
-		const tedi = await getTediProfileApiClient(env.API_SERVICE).tedis.get({
-			tediId,
+		const client = getTediProfileApiClient(env.API_SERVICE);
+		const tedi = await withUpstreamRetry(() => client.tedis.get({ tediId }), {
+			operation: "validate_tedi_profile",
 		});
 		return {
 			status: "active",
@@ -72,7 +86,16 @@ export async function resolveTediProfileAuth(
 		};
 	} catch (error) {
 		if (isNotFound(error)) return { status: "missing" };
-		return { status: "unavailable", errorCode: errorCode(error) };
+		const code = errorCode(error);
+		if (
+			code === "UNAUTHORIZED" ||
+			code === "FORBIDDEN" ||
+			code === "HTTP_401" ||
+			code === "HTTP_403"
+		) {
+			return { status: "denied", errorCode: code };
+		}
+		return { status: "unavailable", errorCode: code };
 	}
 }
 
@@ -90,15 +113,21 @@ export function tediProfileFailureResponse(
 			event: "tedi_profile_validation_failed",
 			outcome: auth.status,
 			credentialMode,
-			...(auth.status === "unavailable" ? { errorCode: auth.errorCode } : {}),
+			...(auth.status === "missing" ? {} : { errorCode: auth.errorCode }),
 		}),
 	);
 
-	if (auth.status === "missing") {
+	if (auth.status === "missing" || auth.status === "denied") {
 		return new Response(
 			JSON.stringify({
-				error: "tedi_inactive",
-				message: "Tedi identity is not active",
+				error:
+					auth.status === "missing"
+						? "tedi_inactive"
+						: "tedi_validation_denied",
+				message:
+					auth.status === "missing"
+						? "Tedi identity is not active"
+						: "Tedi authority validation was denied",
 			}),
 			{
 				status: 403,
