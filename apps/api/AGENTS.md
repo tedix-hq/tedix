@@ -154,7 +154,7 @@ need an exact, stale-checked `REVIEWED_NON_TENANT_HANDLERS` disposition.
 ## Logging
 
 `logProcedureCall` is registered once as a handler client interceptor in
-`worker-app.ts` and covers every procedure. Do not add per-procedure logging
+`http/rpc-routes.ts` and covers every procedure. Do not add per-procedure logging
 middleware; ordering there meant some routers never logged permission denials.
 
 ## D1
