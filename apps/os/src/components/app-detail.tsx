@@ -782,11 +782,14 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 				: membership.data?.enabled
 					? "Available in unified gateway"
 					: "Not in unified gateway";
+	// Readiness covers required connections, so a "ready" badge cannot read as
+	// met while the account state above says the connection needs attention.
+	const accountNeedsSetup = connectionValue === "Connection needs attention";
 	const governanceValue = eligibility.isPending
 		? "Checking readiness"
 		: eligibility.isError
 			? "Readiness unavailable"
-			: governance?.badge === "ready"
+			: governance?.badge === "ready" && !accountNeedsSetup
 				? "Requirements met"
 				: governance?.badge === "plan_upgrade"
 					? "Plan upgrade needed"
@@ -842,7 +845,8 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 							hint={
 								governance?.badge === "plan_upgrade"
 									? "Upgrade the plan to use this app."
-									: governance && governance.badge !== "ready"
+									: governance &&
+										  (governance.badge !== "ready" || accountNeedsSetup)
 										? "Finish the required connections or scopes."
 										: null
 							}
