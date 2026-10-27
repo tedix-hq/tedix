@@ -48,6 +48,15 @@ export class DoBrowserBudgetStore {
 				updated_at INTEGER NOT NULL
 			)
 		`;
+		this.runner.sql`
+			CREATE TABLE IF NOT EXISTS browser_session_windows (
+				session_id TEXT PRIMARY KEY,
+				started_at INTEGER NOT NULL,
+				last_seen_at INTEGER NOT NULL,
+				keep_alive_ms INTEGER NOT NULL,
+				ended_at INTEGER
+			)
+		`;
 		this.schemaReady = true;
 	}
 
@@ -89,6 +98,89 @@ export class DoBrowserBudgetStore {
 			remaining: Math.max(0, boundedLimit - used),
 			used,
 		};
+	}
+
+	/**
+	 * Record that the persistent browser `sessionId` was resolved alive at
+	 * `now`. A session the provider must already have reclaimed (idle past its
+	 * keep-alive) is settled at that expiry; live ones accrue to `now`.
+	 */
+	observePersistentWindow(
+		input: {
+			sessionId: string;
+			startedAt: number;
+			keepAliveMs: number;
+		},
+		now = new Date(),
+	): void {
+		this.ensureSchema();
+		const seenAt = now.getTime();
+		this.runner.sql`
+			INSERT INTO browser_session_windows
+				(session_id, started_at, last_seen_at, keep_alive_ms, ended_at)
+			VALUES (
+				${input.sessionId}, ${input.startedAt}, ${seenAt},
+				${input.keepAliveMs}, NULL
+			)
+			ON CONFLICT(session_id) DO UPDATE SET
+				last_seen_at = MAX(last_seen_at, excluded.last_seen_at)
+		`;
+		this.runner.sql`
+			UPDATE browser_session_windows
+			SET ended_at = last_seen_at + keep_alive_ms
+			WHERE ended_at IS NULL AND last_seen_at + keep_alive_ms <= ${seenAt}
+		`;
+		const dayStart = Date.parse(`${browserBudgetDay(now)}T00:00:00.000Z`);
+		this.runner.sql`
+			DELETE FROM browser_session_windows
+			WHERE ended_at IS NOT NULL AND ended_at < ${dayStart}
+		`;
+	}
+
+	/** An explicit close ends the observed lifetime, capped at idle expiry. */
+	endPersistentWindow(sessionId: string, now = new Date()): void {
+		this.ensureSchema();
+		this.runner.sql`
+			UPDATE browser_session_windows
+			SET ended_at = MIN(${now.getTime()}, last_seen_at + keep_alive_ms)
+			WHERE session_id = ${sessionId} AND ended_at IS NULL
+		`;
+	}
+
+	/**
+	 * Observed lifetime in `now`'s UTC day, rounded up per session to minutes.
+	 * The idle tail ends at last activity plus keep-alive, or an earlier close.
+	 */
+	persistentMinutes(now = new Date()): {
+		day: string;
+		minutes: number;
+		ms: number;
+	} {
+		this.ensureSchema();
+		const day = browserBudgetDay(now);
+		const dayStart = Date.parse(`${day}T00:00:00.000Z`);
+		const dayEnd = dayStart + 86_400_000;
+		const ts = now.getTime();
+		const rows = this.runner.sql<{
+			started_at: number;
+			last_seen_at: number;
+			keep_alive_ms: number;
+			ended_at: number | null;
+		}>`
+			SELECT started_at, last_seen_at, keep_alive_ms, ended_at
+			FROM browser_session_windows
+		`;
+		let ms = 0;
+		let minutes = 0;
+		for (const row of rows) {
+			const end =
+				row.ended_at ?? Math.min(ts, row.last_seen_at + row.keep_alive_ms);
+			const window = Math.min(end, dayEnd) - Math.max(row.started_at, dayStart);
+			if (window <= 0) continue;
+			ms += window;
+			minutes += Math.ceil(window / 60_000);
+		}
+		return { day, minutes, ms };
 	}
 
 	status(limit: number, now = new Date()): BrowserBudgetUsage {

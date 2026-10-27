@@ -109,6 +109,23 @@ export type BrowserSessionCloseReason =
 	| "login_ended"
 	| "operator_end";
 
+/** The DO-installed browser's storage name; the configured name labels events. */
+const TEDI_BROWSER_NAME = "tedi";
+
+/**
+ * A persistent browser's observed window grew (`active`) or ended (`closed`).
+ * Host-side only: feeds the budget store's persistent-minute accounting.
+ */
+export type BrowserSessionWindowEvent =
+	| {
+			kind: "active";
+			sessionId: string;
+			startedAt: number;
+			lastSeenAt: number;
+			keepAliveMs: number;
+	  }
+	| { kind: "closed"; sessionId: string; endedAt: number };
+
 /**
  * A persistent browser's lifecycle, for the run ledger. `sessionId` is the
  * Browser Run id: host-side only, never returned to the model.
@@ -123,6 +140,7 @@ export type BrowserSessionLifecycleEvent =
 	| {
 			kind: "closed";
 			name: string;
+			sessionId?: string;
 			reason: BrowserSessionCloseReason;
 	  };
 
@@ -194,14 +212,44 @@ export interface TediBrowserSessionOptions {
 	policy: BrowserSessionPolicy | undefined;
 	/** Organization then tedi `browserEgress`. */
 	hostnamePolicies?: readonly (BrowserHostnamePolicy | undefined)[];
-	/** Defaults to the DO's own storage. */
+	/**
+	 * The named Browser installed through the tedi DO's Lifecycle. When absent
+	 * (tests), one is built over {@link TediBrowserSessionOptions.store}.
+	 */
+	namedBrowser?: Browser;
+	/** Defaults to the DO's own storage; ignored when `namedBrowser` is set. */
 	store?: ListableBrowserSessionStore;
 	/** Defaults to the DO's own storage. */
 	launchMarkers?: BrowserLaunchMarkerStore;
 	/** Persistent mode: every open, reuse, restart and close. */
 	onLifecycle?: (event: BrowserSessionLifecycleEvent) => Promise<void> | void;
+	/** Persistent mode: lifetime observations for budget accounting. */
+	onWindow?: (event: BrowserSessionWindowEvent) => Promise<void> | void;
 	/** Test seam for the SDK's persistent browser tool. */
 	persistentTool?: typeof browserTool;
+}
+
+/**
+ * The tedi's named persistent Browser, for `Lifecycle.use()` on the DO.
+ * Provider options read the current policy at each launch, so keep-alive and
+ * guardrails follow config without rebuilding the capability.
+ */
+export function createTediBrowser(options: {
+	binding: BrowserBinding;
+	keepAliveMs(): number | undefined;
+	guardrails(): { allowedDomains: string[] } | undefined;
+}): Browser {
+	return new Browser({
+		name: TEDI_BROWSER_NAME,
+		provider: browserRun(options.binding, {
+			get keepAliveMs() {
+				return options.keepAliveMs();
+			},
+			get guardrails() {
+				return options.guardrails();
+			},
+		}),
+	});
 }
 
 function persistentEgressKey(egress: PersistentBrowserEgress): string {
@@ -253,17 +301,20 @@ export function createTediBrowserSession(
 	}
 	const egress = persistentBrowserEgress(hostnamePolicies);
 	const allowedDomains = egress.enforceable ? egress.allowedDomains : undefined;
-	const browser = new Browser({
-		name: `tedi-${policy.name}`,
-		provider: browserRun(options.browser, {
-			keepAliveMs: policy.keepAliveMs,
-			...(allowedDomains ? { guardrails: { allowedDomains } } : {}),
-		}),
-		store: options.store ?? new DurableBrowserSessionStore(options.ctx.storage),
-	});
+	const browser =
+		options.namedBrowser ??
+		new Browser({
+			name: `tedi-${policy.name}`,
+			provider: browserRun(options.browser, {
+				keepAliveMs: policy.keepAliveMs,
+				...(allowedDomains ? { guardrails: { allowedDomains } } : {}),
+			}),
+			store:
+				options.store ?? new DurableBrowserSessionStore(options.ctx.storage),
+		});
 	const markers = options.launchMarkers ?? options.ctx.storage;
-	const markerKey = `tedi-browser-launch:${policy.name}`;
-	const lastSessionKey = `tedi-browser-last-session:${policy.name}`;
+	const markerKey = `tedi-browser-launch:${browser.name}`;
+	const lastSessionKey = `tedi-browser-last-session:${browser.name}`;
 	const emit = async (event: BrowserSessionLifecycleEvent) => {
 		try {
 			await options.onLifecycle?.(event);
@@ -274,8 +325,24 @@ export function createTediBrowserSession(
 		}
 	};
 	const close = async (reason: BrowserSessionCloseReason) => {
+		const stored = await markers.get(lastSessionKey);
+		const closing = typeof stored === "string" ? stored : undefined;
 		const closed = await browser.close();
-		if (closed) await emit({ kind: "closed", name: policy.name, reason });
+		if (closed) {
+			if (closing) {
+				await options.onWindow?.({
+					kind: "closed",
+					sessionId: closing,
+					endedAt: Date.now(),
+				});
+			}
+			await emit({
+				kind: "closed",
+				name: policy.name,
+				...(closing ? { sessionId: closing } : {}),
+				reason,
+			});
+		}
 		return closed;
 	};
 	// Guardrails are fixed when Browser Run launches a session, so a browser
@@ -283,11 +350,10 @@ export function createTediBrowserSession(
 	let launchChecked: Promise<void> | undefined;
 	const ensureLaunchGuardrails = () => {
 		launchChecked ??= (async () => {
-			const key = persistentEgressKey(egress);
 			const previous = await markers.get(markerKey);
-			if (previous === key) return;
+			if (previous === signature) return;
 			if (previous !== undefined) await close("egress_changed");
-			await markers.put(markerKey, key);
+			await markers.put(markerKey, signature);
 		})().catch((error: unknown) => {
 			launchChecked = undefined;
 			throw error;
@@ -306,11 +372,20 @@ export function createTediBrowserSession(
 			execute: async (input, toolOptions) => {
 				await ensureLaunchGuardrails();
 				const resolved = await browser.resolve();
+				let active = resolved;
+				const previous = await markers.get(lastSessionKey);
 				const kind = resolved.restarted
 					? "restarted"
-					: (await markers.get(lastSessionKey)) === resolved.sessionId
+					: previous === resolved.sessionId
 						? "reused"
 						: "opened";
+				if (typeof previous === "string" && previous !== resolved.sessionId) {
+					await options.onWindow?.({
+						kind: "closed",
+						sessionId: previous,
+						endedAt: Date.now(),
+					});
+				}
 				await markers.put(lastSessionKey, resolved.sessionId);
 				await emit({
 					kind,
@@ -318,23 +393,44 @@ export function createTediBrowserSession(
 					sessionId: resolved.sessionId,
 					allowedDomains: allowedDomains ?? null,
 				});
-				const output = await execute.execute(input, toolOptions);
-				if (!output.restarted) return output;
-				if (kind !== "restarted") {
-					const current = await browser.resolve();
-					await emit({
-						kind: "restarted",
-						name: policy.name,
-						sessionId: current.sessionId,
-						allowedDomains: allowedDomains ?? null,
+				try {
+					const output = await execute.execute(input, toolOptions);
+					if (!output.restarted && !resolved.restarted) return output;
+					if (output.restarted) {
+						active = await browser.resolve();
+						await markers.put(lastSessionKey, active.sessionId);
+						if (active.sessionId !== resolved.sessionId) {
+							await options.onWindow?.({
+								kind: "closed",
+								sessionId: resolved.sessionId,
+								endedAt: Date.now(),
+							});
+						}
+					}
+					if (kind !== "restarted" || active.sessionId !== resolved.sessionId) {
+						await emit({
+							kind: "restarted",
+							name: policy.name,
+							sessionId: active.sessionId,
+							allowedDomains: allowedDomains ?? null,
+						});
+					}
+					return {
+						...output,
+						restarted: true as const,
+						notice: output.notice
+							? `${BROWSER_RESTARTED_NOTE} ${output.notice}`
+							: BROWSER_RESTARTED_NOTE,
+					};
+				} finally {
+					await options.onWindow?.({
+						kind: "active",
+						sessionId: active.sessionId,
+						startedAt: active.createdAt,
+						lastSeenAt: Date.now(),
+						keepAliveMs: policy.keepAliveMs,
 					});
 				}
-				return {
-					...output,
-					notice: output.notice
-						? `${BROWSER_RESTARTED_NOTE} ${output.notice}`
-						: BROWSER_RESTARTED_NOTE,
-				};
 			},
 		} as ToolSet[string],
 	};

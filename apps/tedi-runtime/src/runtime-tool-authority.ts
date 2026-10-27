@@ -129,6 +129,7 @@ export interface RuntimeToolAuthorityHost {
 	enforceBrowserTakeoverGate: AgentTediDO["enforceBrowserTakeoverGate"];
 	recordBrowserEgressDenial: AgentTediDO["recordBrowserEgressDenial"];
 	getBrowserBudgetStore: AgentTediDO["getBrowserBudgetStore"];
+	tediBrowser: AgentTediDO["tediBrowser"];
 	requestBrowserTakeover: AgentTediDO["requestBrowserTakeover"];
 	browserTakeoverStatus: AgentTediDO["browserTakeoverStatus"];
 	browserSession: AgentTediDO["browserSession"];
@@ -784,6 +785,7 @@ export const runtimeToolAuthority = {
 			},
 			budgetStatus: () => ({
 				...this.getBrowserBudgetStore().status(limit),
+				persistentMinutes: this.getBrowserBudgetStore().persistentMinutes(),
 				approvalPolicy: approvalRequired ? "always-approve" : "always-allow",
 				hostnamePolicy: {
 					organization: this.state.organizationBrowserEgress ?? null,
@@ -816,6 +818,7 @@ export const runtimeToolAuthority = {
 		this.browserSession = createTediBrowserSession({
 			ctx: this.ctx,
 			browser: this.env.BROWSER,
+			namedBrowser: this.tediBrowser,
 			loader: loader
 				? withDynamicWorkerLoaderDiagnostics(loader, {
 						surface: "tedi_browser_code",
@@ -824,6 +827,21 @@ export const runtimeToolAuthority = {
 				: loader,
 			policy,
 			hostnamePolicies,
+			onWindow: (event) => {
+				const store = this.getBrowserBudgetStore();
+				if (event.kind === "closed") {
+					store.endPersistentWindow(event.sessionId, new Date(event.endedAt));
+				} else {
+					store.observePersistentWindow(
+						{
+							sessionId: event.sessionId,
+							startedAt: event.startedAt,
+							keepAliveMs: event.keepAliveMs,
+						},
+						new Date(event.lastSeenAt),
+					);
+				}
+			},
 			onLifecycle: async (event) => {
 				const turn = await this.resolveTurnTelemetry({
 					warnLabel: "browser-session",
@@ -947,9 +965,8 @@ export const runtimeToolAuthority = {
 		return {
 			status: "approval_requested",
 			approvalRequestId: approval.id,
-			sessionId: liveView.sessionId,
 			urlExpiresAt: payload.urlExpiresAt,
-			targets: payload.targets,
+			targets: payload.targets.map(({ url: _liveViewUrl, ...tab }) => tab),
 			budget: payload.budget,
 			instruction:
 				"Wait for the operator to complete the browser step and approve in Tedix OS, then call get_browser_takeover_status.",
@@ -1002,7 +1019,6 @@ export const runtimeToolAuthority = {
 				resolution: row.resolution,
 				continuationReady: false,
 				sameSession: false,
-				sessionId: payload.sessionId,
 				closed: true,
 				budget: this.getBrowserBudgetStore().status(limit),
 			};
@@ -1016,12 +1032,10 @@ export const runtimeToolAuthority = {
 			resolution: row.resolution,
 			continuationReady: gateDecision.action === "allow" && sameSession,
 			sameSession,
-			sessionId: payload.sessionId,
 			...(sameSession && liveView
 				? {
 						targets: liveView.targets.map((target) => ({
 							targetId: target.targetId,
-							url: target.url,
 							pageUrl: browserPageOrigin(target.pageUrl),
 							title: null,
 						})),
