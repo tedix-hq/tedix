@@ -45,6 +45,17 @@ it("refuses unconfigured widgets and unlisted workers before reading their recor
 			two,
 		),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	// The OS fallback never widens a published selection.
+	await expect(
+		resolveEmbeddedTediSelection(
+			ctx,
+			"customer",
+			{ ...policy, allowedTediIds: [one] },
+			two,
+			{ unconfiguredFallback: "organization" },
+		),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	expect(roster).not.toHaveBeenCalled();
 });
 it("lets the OS surface of an unconfigured organization pick among its active tedis", async () => {
 	roster.mockResolvedValue([

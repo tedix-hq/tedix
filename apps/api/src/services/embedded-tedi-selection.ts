@@ -22,14 +22,25 @@ export async function resolveEmbeddedTediSelection(
 	} = {},
 ) {
 	const parsed = EmbeddedTediSelectionPolicySchema.safeParse(policy);
+	// A published selection is checked before reading any tedi record, so an
+	// unlisted tedi is refused without touching the roster. Only an
+	// organization that never published one may fall back to its active tedis.
+	if (parsed.success) {
+		const id = selectedTediId ?? parsed.data.defaultTediId;
+		if (!parsed.data.allowedTediIds.includes(id))
+			throw new ORPCError("FORBIDDEN", {
+				message: "This tedi is not available in this widget",
+			});
+	} else if (options.unconfiguredFallback !== "organization" || !selectedTediId)
+		throw new ORPCError("FORBIDDEN", {
+			message: "Configure the widget's selectable tedis and default first",
+		});
 	const active = (
 		await getTedisByOrganization(context.db, organizationId)
 	).filter((row) => row.status === "active" && !row.retiredAt);
 	const selection = parsed.success
 		? parsed.data
-		: options.unconfiguredFallback === "organization" &&
-			  selectedTediId &&
-			  active.some((row) => row.id === selectedTediId)
+		: selectedTediId && active.some((row) => row.id === selectedTediId)
 			? {
 					defaultTediId: selectedTediId,
 					allowedTediIds: active.map((row) => row.id),
@@ -40,10 +51,6 @@ export async function resolveEmbeddedTediSelection(
 			message: "Configure the widget's selectable tedis and default first",
 		});
 	const id = selectedTediId ?? selection.defaultTediId;
-	if (!selection.allowedTediIds.includes(id))
-		throw new ORPCError("FORBIDDEN", {
-			message: "This tedi is not available in this widget",
-		});
 	const rows = active.filter((row) =>
 		selection.allowedTediIds.includes(row.id),
 	);
