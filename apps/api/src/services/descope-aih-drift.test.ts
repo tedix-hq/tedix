@@ -2,6 +2,64 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildDescopeAihDriftReport } from "./descope-aih-drift";
 
 describe("buildDescopeAihDriftReport", () => {
+	it("records console-only token lifetimes and flags a wildcard CIMD domain", () => {
+		const report = buildDescopeAihDriftReport({
+			checkedAt: "2026-10-20T00:00:00.000Z",
+			projectId: "project",
+			servers: [
+				{
+					id: "server",
+					name: "Acme Unified MCP",
+					audienceWhitelist: ["https://acme-unified.mcp.example.test/mcp"],
+					cimdSettings: {
+						enabled: true,
+						domainPolicies: {
+							policies: [
+								{ domainPattern: "os.tedix.dev" },
+								{ domainPattern: "*" },
+							],
+						},
+					},
+					sessionSettings: {
+						enabled: true,
+						sessionTokenExpiration: 600,
+						refreshTokenExpiration: 520,
+						refreshTokenExpirationUnit: "weeks",
+						nested: { ignored: true },
+					},
+				} as Parameters<
+					typeof buildDescopeAihDriftReport
+				>[0]["servers"][number],
+			],
+			clientsByServerId: new Map(),
+			outboundApps: [],
+			tenants: [],
+			roles: [],
+			fgaRelations: [],
+			providers: [],
+			d1Tedis: [],
+			d1Apps: [],
+		});
+		expect(report.mcpServers[0]).toMatchObject({
+			sessionSettingsEnabled: true,
+			sessionLifetimes: {
+				refreshTokenExpiration: 520,
+				refreshTokenExpirationUnit: "weeks",
+				sessionTokenExpiration: 600,
+			},
+		});
+		expect(
+			report.issues.find(
+				(entry) => entry.code === "mcp_server_cimd_wildcard_domain",
+			),
+		).toMatchObject({ resourceId: "server", severity: "warning" });
+		expect(
+			report.issues.some(
+				(entry) => entry.code === "mcp_server_cli_cimd_unavailable",
+			),
+		).toBe(false);
+	});
+
 	it("reports connection mapping drift even when the MCP scope name is unchanged", () => {
 		const report = buildDescopeAihDriftReport({
 			checkedAt: "2026-10-17T00:00:00.000Z",

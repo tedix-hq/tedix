@@ -564,8 +564,12 @@ By default, uninstalling leaves your saved workspace logins, conversation
 metadata, command history, and update cache in `~/.tedix`. This makes a later
 reinstall convenient.
 
-To remove saved local OAuth credentials but keep the other local data, sign out
-first:
+To end your saved sign-ins but keep the other local data, sign out first. Sign-out
+attempts to revoke each sign-in at its authorization server, then removes its
+local credentials. It warns when revocation fails or is unavailable; that sign-in
+may remain valid until it expires. If another process holds the renewal lock,
+credentials are kept so you can retry. Deleting files alone does not revoke
+a sign-in:
 
 ```bash
 tedix logout --all
