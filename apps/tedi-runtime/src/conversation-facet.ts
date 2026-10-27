@@ -1450,7 +1450,7 @@ export class ConversationFacet extends PiAgent<
 			operationId: id,
 		});
 		this.readmitToolRegistry();
-		await this.recoverPendingSubmission();
+		await this.recoverPendingSubmission(id);
 		const previous = await this.ctx.storage.get<{
 			priorTurnCount: number;
 			result: ConversationFacetTurnResult;
@@ -1482,7 +1482,7 @@ export class ConversationFacet extends PiAgent<
 		const result = await this.runSubmittedConversationTurn(pending);
 		return { priorTurnCount: prior, result };
 	}
-	private async recoverPendingSubmission(): Promise<void> {
+	private async recoverPendingSubmission(submissionId: string): Promise<void> {
 		const pending = await this.ctx.storage.get<PendingFacetSubmission>(
 			"pi-facet-pending-submission",
 		);
@@ -1492,7 +1492,18 @@ export class ConversationFacet extends PiAgent<
 			throw new Error(
 				"Pending Pi submission lost its original run configuration",
 			);
-		await this.runSubmittedConversationTurn(pending);
+		try {
+			await this.runSubmittedConversationTurn(pending);
+		} catch (error) {
+			// A sealed failure stays pending and already failed its own run. Only a
+			// re-drive of that submission re-reads it; a later turn replaces it.
+			if (
+				pending.submissionId === submissionId ||
+				!(error instanceof Error) ||
+				!error.message.startsWith(MODEL_TURN_FAILED_PREFIX)
+			)
+				throw error;
+		}
 	}
 	/**
 	 * A configured turn is a parent entry that has just installed this run's
