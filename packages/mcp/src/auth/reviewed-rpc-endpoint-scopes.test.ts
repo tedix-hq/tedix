@@ -32,6 +32,27 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("exposes OS onboarding to app writers while the API enforces ownership", () => {
+		const endpoint = "organizations/completeOsOnboarding";
+		expect(resolve(endpoint)).toEqual(["mcp:apps.write"]);
+		const tool = {
+			toolId: "org__complete_os_onboarding",
+			toolTypeId: "rpc",
+			authRequired: true,
+			config: { endpoint },
+		};
+		for (const [scope, visible] of [
+			["mcp:apps.write", true],
+			["mcp:apps.read", false],
+		] as const) {
+			expect(
+				isMcpToolVisibleToCaller(tool, "org", undefined, {
+					authType: "oauth",
+					scopes: [scope],
+				}),
+			).toBe(visible);
+		}
+	});
 	it("requires writer scope for steering controls regardless of read-only hints", () => {
 		for (const readOnlyHint of [true, false])
 			expect(

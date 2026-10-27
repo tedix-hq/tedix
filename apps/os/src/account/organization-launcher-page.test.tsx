@@ -32,6 +32,94 @@ import {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("OrganizationLauncherContent", () => {
+	it("enables an owned older organization in one click while another OS workspace exists", async () => {
+		const assign = vi.fn();
+		(window.location as unknown as { assign: unknown }).assign = assign;
+		organizations.completeOsOnboarding.mockReset();
+		organizations.completeOsOnboarding.mockRejectedValueOnce(
+			new Error("temporary"),
+		);
+		organizations.completeOsOnboarding.mockResolvedValueOnce({
+			id: "old",
+			name: "Old Company",
+			slug: "old-company",
+		});
+		const queryClient = new QueryClient({
+			defaultOptions: { mutations: { retry: false } },
+		});
+		const container = document.createElement("div");
+		const root = createRoot(container);
+		try {
+			await act(async () =>
+				root.render(
+					<QueryClientProvider client={queryClient}>
+						<OrganizationLauncherContent
+							email="owner@example.com"
+							workspaces={[
+								{
+									organizationId: "current",
+									name: "Current",
+									slug: "current",
+									provisioned: true,
+									surfaces: [
+										{
+											surface: "os",
+											href: "https://current.os.tedix.dev/",
+											copyValue: null,
+										},
+									],
+								},
+								{
+									organizationId: "old",
+									name: "Old Company",
+									slug: "old-company",
+									provisioned: true,
+									canEnableOs: true,
+									surfaces: [],
+								},
+								{
+									organizationId: "member",
+									name: "Member Company",
+									slug: "member-company",
+									provisioned: true,
+									canEnableOs: false,
+									surfaces: [],
+								},
+							]}
+						/>
+					</QueryClientProvider>,
+				),
+			);
+			const buttons = () =>
+				Array.from(container.querySelectorAll("button")).filter(
+					(button) => button.textContent === "Open in Tedix OS",
+				);
+			expect(buttons()).toHaveLength(1);
+			await act(async () => {
+				buttons()[0]!.click();
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			});
+			expect(container.textContent).toContain("Could not enable Tedix OS");
+			expect(assign).not.toHaveBeenCalled();
+			await act(async () => {
+				buttons()[0]!.click();
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			});
+			expect(organizations.completeOsOnboarding).toHaveBeenLastCalledWith({
+				organizationId: "old",
+				name: "Old Company",
+				slug: "old-company",
+			});
+			expect(assign).toHaveBeenCalledWith("https://old-company.os.tedix.dev/");
+			expect(
+				container.querySelector('a[href="https://old-company.os.tedix.dev/"]'),
+			).not.toBeNull();
+		} finally {
+			act(() => root.unmount());
+			queryClient.clear();
+			delete (window.location as unknown as { assign?: unknown }).assign;
+		}
+	});
 	it("renders every provisioned surface per org, MCP as a copy entry", () => {
 		const html = renderToStaticMarkup(
 			<OrganizationLauncherContent

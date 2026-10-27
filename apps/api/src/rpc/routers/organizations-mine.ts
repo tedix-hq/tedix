@@ -527,7 +527,7 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 	});
 
 /**
- * Finish the account-level first run before a tenant OS origin exists.
+ * Enable an existing owned organization, including account-level first run.
  *
  * The apex launcher intentionally has no selected organization, so ordinary
  * `organizations.update` cannot authorize this call through context.orgId.
@@ -618,20 +618,23 @@ export const completeOsOnboardingContract =
 			).get(input.organizationId);
 			let gateway;
 			try {
-				// Onboarding is also a rename path: pinning the existing gateway
-				// slug here is what used to leave a corrected handle pointing at
-				// the old MCP address forever.
+				// Enabling OS must preserve an older gateway's address. Only a
+				// deliberate organization rename should move it to a new handle.
 				gateway =
-					(await renameOrganizationUnifiedGateway(db, context.env, {
-						organizationId: input.organizationId,
-						organizationName: input.name,
-						currentGatewaySlug: existingGateway?.slug,
-						nextOrganizationSlug: input.slug,
-					})) ??
+					(input.slug !== existing.slug
+						? await renameOrganizationUnifiedGateway(db, context.env, {
+								organizationId: input.organizationId,
+								organizationName: input.name,
+								currentGatewaySlug: existingGateway?.slug,
+								nextOrganizationSlug: input.slug,
+							})
+						: null) ??
 					(await ensureOrganizationUnifiedGateway(db, context.env, {
 						organizationId: input.organizationId,
 						organizationName: input.name,
 						organizationSlug: input.slug,
+						gatewaySlug:
+							input.slug === existing.slug ? existingGateway?.slug : undefined,
 					}));
 			} catch (error) {
 				if (error instanceof OrganizationGatewaySlugConflictError) {

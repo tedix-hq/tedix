@@ -45,6 +45,7 @@ export interface LauncherWorkspace {
 	slug: string;
 	/** `org.provisionComplete`; false workspaces render disabled, never routed. */
 	provisioned: boolean;
+	canEnableOs?: boolean;
 	surfaces: LauncherSurfaceEntry[];
 }
 
@@ -272,6 +273,7 @@ export function buildLauncherWorkspacesFromDirectory(
 		name: record.org.name,
 		slug: record.org.slug,
 		provisioned: record.org.provisionComplete,
+		canEnableOs: record.org.canEnableOs,
 		surfaces: record.org.provisionComplete
 			? record.surfaces.flatMap((surface): LauncherSurfaceEntry[] => {
 					if (!surface.provisioned || !surface.canonicalUrl) return [];

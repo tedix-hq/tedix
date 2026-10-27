@@ -58,6 +58,7 @@ type OrgCore = {
 	logoUrl: string | null;
 	descopeTenantId: string | null;
 	os: boolean;
+	owner: boolean;
 };
 
 type SurfaceRecord = {
@@ -186,6 +187,7 @@ function buildWorkspaceRecord(
 			logoUrl: org.logoUrl,
 			descopeTenantId: org.descopeTenantId,
 			provisionComplete,
+			canEnableOs: provisionComplete && org.owner && !org.os,
 		},
 		surfaces,
 	};
@@ -235,6 +237,7 @@ const listMyWorkspaces = authed.listMyWorkspaces
 					logoUrl: m.organizationLogoUrl,
 					descopeTenantId: m.descopeTenantId,
 					os: signals.get(m.organizationId)?.os === true,
+					owner: m.member.role === "owner",
 				},
 				signals.get(m.organizationId),
 				gateways.get(m.organizationId),
@@ -306,6 +309,7 @@ const resolveWorkspace = authed.resolveWorkspace
 				logoUrl: organization.logoUrl ?? null,
 				descopeTenantId: organization.descopeTenantId ?? null,
 				os: organization.features?.os === true,
+				owner: membership.role === "owner",
 			},
 			signals.get(organization.id),
 			gateways.get(organization.id),
