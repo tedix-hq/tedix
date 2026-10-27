@@ -279,19 +279,29 @@ try {
 				),
 				`${label}: no sideways page scroll`,
 			);
-			// Focus mode hides the top bar; Share stays reachable from the panel.
-			await page.getByRole("button", { name: "Focus", exact: true }).click();
-			const focusShare = page.getByRole("button", { name: /^Share\b/ });
-			await focusShare.waitFor();
-			assert.equal(await focusShare.count(), 1, `${label}: one Share in focus`);
-			await focusShare.click();
-			await page.getByRole("dialog").getByText("People with access").waitFor();
-			assert.equal(await page.getByRole("dialog").count(), 1);
-			await page.keyboard.press("Escape");
-			await page.getByRole("dialog").waitFor({ state: "hidden" });
-			await page
-				.getByRole("button", { name: "Exit focus", exact: true })
-				.click();
+			// Focus mode (wide screens only) hides the top bar; Share stays
+			// reachable from the panel.
+			if (!phone) {
+				await page.getByRole("button", { name: "Focus", exact: true }).click();
+				const focusShare = page.getByRole("button", { name: /^Share\b/ });
+				await focusShare.waitFor();
+				assert.equal(
+					await focusShare.count(),
+					1,
+					`${label}: one Share in focus`,
+				);
+				await focusShare.click();
+				await page
+					.getByRole("dialog")
+					.getByText("People with access")
+					.waitFor();
+				assert.equal(await page.getByRole("dialog").count(), 1);
+				await page.keyboard.press("Escape");
+				await page.getByRole("dialog").waitFor({ state: "hidden" });
+				await page
+					.getByRole("button", { name: "Exit focus", exact: true })
+					.click();
+			}
 			// Drop route handlers first: a request still in flight must not
 			// reach route.fetch() after the context is gone.
 			await page.unrouteAll({ behavior: "ignoreErrors" });
