@@ -599,9 +599,11 @@ async function cancelKernelRunCore(
 		reason: input.reason ?? null,
 	});
 	if (existingRun.childRunId && existingRun.delegatedTediId) {
-		const childRunStatuses = await readChildRunStatusesForRunRows(context, [
-			existingRun,
-		]);
+		const childRunStatuses = await withTimeout(
+			readChildRunStatusesForRunRows(context, [existingRun]),
+			3_000,
+			"Child status before cancel",
+		).catch(() => new Map<string, Record<string, unknown>>());
 		const childRunStatus = childRunStatuses.get(
 			childRunStatusKey(existingRun.delegatedTediId, existingRun.childRunId),
 		);
@@ -656,17 +658,29 @@ async function cancelKernelRunCore(
 		});
 	}
 	const delegatedChildStops = await Promise.all(
-		delegatedChildRunIds.map(async (childRunId) => ({
-			childRunId,
-			result: await kernelChildStopper({
+		delegatedChildRunIds.map(async (childRunId) => {
+			const stop = kernelChildStopper({
 				context,
 				organizationId,
 				delegatedTediId: existingRun.delegatedTediId as string,
 				childRunId,
 				childConversationId: existingRun.childConversationId,
 				reason: input.reason ?? undefined,
-			}),
-		})),
+			});
+			// Let a slow runtime receive the stop after this RPC returns. Abort
+			// intent is already durable on both submissions for recovery.
+			context.waitUntil?.(stop.catch(() => undefined));
+			const result = await withTimeout(
+				stop,
+				3_000,
+				"Delegated child stop",
+			).catch((error): KernelChildControlResult => ({
+				attempted: true,
+				outcome: "failed",
+				error: errorMessage(error),
+			}));
+			return { childRunId, result };
+		}),
 	);
 	const childStopErrors = delegatedChildStops
 		.map(({ childRunId, result }) =>
@@ -742,11 +756,13 @@ async function cancelKernelRunCore(
 	// top of the canceler's own internal fail-soft): a throwing test stub or
 	// future refactor must never fail the cancel RPC.
 	try {
-		await kernelDoTurnCanceler({
+		const stop = kernelDoTurnCanceler({
 			context,
 			organizationId,
 			runId: input.homeRunId,
 		});
+		context.waitUntil?.(stop.catch(() => undefined));
+		await withTimeout(stop, 3_000, "Home turn stop");
 	} catch (error) {
 		console.warn(
 			"[kernelRuntime] DO cancelTurn best-effort call threw (cancel is already durable)",
