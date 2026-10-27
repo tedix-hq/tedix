@@ -398,30 +398,44 @@ function diffTextChange(before: string, after: string): TextChange {
  * Durable Object before it answered, and the recovery offer never got a reply.
  */
 const DIFF_COMPARE_LIMIT = 10_000;
+// Charge the worst-case squared input size across line matching and all refinements,
+// so many individually bounded hunks cannot monopolize the room's CPU.
+const DIFF_WORK_LIMIT = 1_000_000;
 
 type DiffRun = [number, string];
 
 /**
  * fast-diff's edit script, with bounded work. The common prefix and suffix are kept; a small
- * differing middle diffs by character as before. A large one diffs by line and refines each small
- * replaced hunk by character, and a middle with too many lines is replaced whole. Every path is a
+ * differing middle diffs by character. A large one diffs by line and refines small replaced hunks
+ * within a shared work budget; exhausted work or too many lines uses replacement. Every path is a
  * correct script for (before, after) -- only minimality is traded -- and no boundary splits a
  * surrogate pair: lines end at "\n", and a trimmed middle never starts or ends inside a pair.
  */
 function boundedDiff(before: string, after: string): DiffRun[] {
 	const [prefix, removed, inserted, suffix] = splitAffixes(before, after);
+	let remaining = DIFF_WORK_LIMIT;
+	const compare = (left: string, right: string): DiffRun[] => {
+		const cost = (left.length + right.length) ** 2;
+		if (cost > remaining) return replacement(left, right);
+		remaining -= cost;
+		return fastDiff(left, right);
+	};
 	const runs: DiffRun[] = [];
 	if (prefix) runs.push([fastDiff.EQUAL, prefix]);
 	runs.push(
 		...(removed.length + inserted.length <= DIFF_COMPARE_LIMIT
-			? fastDiff(removed, inserted)
-			: diffLines(removed, inserted)),
+			? compare(removed, inserted)
+			: diffLines(removed, inserted, compare)),
 	);
 	if (suffix) runs.push([fastDiff.EQUAL, suffix]);
 	return runs;
 }
 
-function diffLines(before: string, after: string): DiffRun[] {
+function diffLines(
+	before: string,
+	after: string,
+	compare: (left: string, right: string) => DiffRun[],
+): DiffRun[] {
 	const lines: string[] = [];
 	const codes = new Map<string, string>();
 	const encode = (text: string): string | null => {
@@ -448,7 +462,7 @@ function diffLines(before: string, after: string): DiffRun[] {
 	) {
 		return replacement(before, after);
 	}
-	const lineRuns = fastDiff(left, right).map(([kind, text]): DiffRun => [
+	const lineRuns = compare(left, right).map(([kind, text]): DiffRun => [
 		kind,
 		Array.from(text, (code) => lines[code.charCodeAt(0)]!).join(""),
 	]);
@@ -461,7 +475,7 @@ function diffLines(before: string, after: string): DiffRun[] {
 			if (prefix) runs.push([fastDiff.EQUAL, prefix]);
 			runs.push(
 				...(removed.length + inserted.length <= DIFF_COMPARE_LIMIT
-					? fastDiff(removed, inserted)
+					? compare(removed, inserted)
 					: replacement(removed, inserted)),
 			);
 			if (suffix) runs.push([fastDiff.EQUAL, suffix]);

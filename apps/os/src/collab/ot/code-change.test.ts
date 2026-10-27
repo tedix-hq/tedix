@@ -487,12 +487,37 @@ describe("diffFiles", () => {
 		}
 		expect(work).toBeGreaterThan(0);
 		// The old whole-document comparisons have a squared-size bound above 10¹¹.
-		expect(work).toBeLessThan(1_000_000_000);
+		expect(work).toBeLessThanOrEqual(cases.length * 1_000_000);
 		const [, small] = diffFiles(
 			content({ "f.txt": cases[2][0] }),
 			content({ "f.txt": cases[2][1] }),
 		)[0]!;
 		expect(JSON.stringify(small).length).toBeLessThan(100);
+	});
+
+	it("shares comparison work across many small line refinements", () => {
+		const document = (letter: string) =>
+			Array.from(
+				{ length: 24 },
+				(_, i) => `anchor ${i}\n${letter.repeat(300)}\n`,
+			).join("");
+		const before = content({ "f.txt": document("A") });
+		const after = content({ "f.txt": document("B") });
+		vi.mocked(fastDiff).mockClear();
+		const change = diffFiles(before, after);
+		const calls = vi.mocked(fastDiff).mock.calls;
+		// Line matching and multiple character refinements must share one budget.
+		expect(calls.length).toBeGreaterThan(2);
+		expect(
+			calls.reduce(
+				(work, [left, right]) => work + (left.length + right.length) ** 2,
+				0,
+			),
+		).toBeLessThanOrEqual(1_000_000);
+		validateCodeChangeSchema(change);
+		validateCodeChangeContent(change, before);
+		expect(applyCodeChange(before, change)).toEqual(after);
+		expect(diffFiles(before, after)).toEqual(change);
 	});
 
 	it("keeps large astral-heavy diffs boundary-clean on the line and replacement paths", () => {
