@@ -571,6 +571,19 @@ describe("outputs", () => {
 		const archived = await c.org1.outputs.archive({ outputId: output.id });
 		expect(archived.output.status).toBe("archived");
 		await expect(
+			c.org2.outputs.restore({ outputId: output.id }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const restored = await c.org1.outputs.restore({ outputId: output.id });
+		expect(restored.output.status).toBe("active");
+		expect(restored.output.currentRevisionId).toBe(
+			archived.output.currentRevisionId,
+		);
+		// Restoring an active output returns it unchanged.
+		await expect(
+			c.org1.outputs.restore({ outputId: output.id }),
+		).resolves.toMatchObject({ output: { status: "active" } });
+		await c.org1.outputs.archive({ outputId: output.id });
+		await expect(
 			c.org2.outputs.delete({ outputId: output.id }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
 		await expect(

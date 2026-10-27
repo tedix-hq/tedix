@@ -11,20 +11,24 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 		0,
 	);
 	const open = card.getByRole("button", { name: /^Open / });
-	const share = card.getByRole("button", { name: "Share", exact: true });
-	const actions = card.getByRole("button", { name: /^Actions for/ });
+	const actions = card.getByRole("button", { name: /^More actions for / });
+	assert.equal(
+		await card.getByRole("button").count(),
+		2,
+		"one action row: Open, then ⋯",
+	);
+	assert.equal((await open.innerText()).trim(), "Open");
+	assert.equal(
+		(await actions.innerText()).trim(),
+		"",
+		"⋯ is an icon-only button",
+	);
 	const cardBox = (await card.boundingBox())!;
 	const boxes = [];
 	for (const [control, label] of [
 		[open, "Open"],
-		[share, "Share"],
-		[actions, "Actions"],
+		[actions, "More actions"],
 	] as const) {
-		assert.equal((await control.innerText()).trim(), label);
-		assert(
-			await control.evaluate((el) => getComputedStyle(el).fontSize !== "0px"),
-			`${label} has a visible label`,
-		);
 		const box = (await control.boundingBox())!;
 		assert(
 			box.x >= cardBox.x + 2 &&
@@ -39,12 +43,16 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 		boxes.push(box);
 	}
 	assert(
-		boxes.every((box) => box.y === boxes[0]!.y),
+		boxes.every(
+			(box) =>
+				Math.abs(
+					box.y + box.height / 2 - (boxes[0]!.y + boxes[0]!.height / 2),
+				) < 1,
+		),
 		"actions share one row",
 	);
 	assert(
-		boxes[0]!.x + boxes[0]!.width <= boxes[1]!.x &&
-			boxes[1]!.x + boxes[1]!.width <= boxes[2]!.x,
+		boxes[0]!.x + boxes[0]!.width <= boxes[1]!.x,
 		"actions do not overlap",
 	);
 	assert(
@@ -62,6 +70,14 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 	await page.waitForURL((url) => url.href !== libraryUrl);
 	await page.goBack();
 	await open.waitFor();
+	// A pointer click on ⋯ opens the menu, and Share… opens the dialog: the
+	// old Share button sat under Open's card-wide layer and opened the output.
+	await actions.click();
+	await page.getByRole("menuitem", { name: "Share…", exact: true }).click();
+	await page.getByRole("heading", { name: "Share this file" }).waitFor();
+	assert.equal(page.url(), libraryUrl, "Share does not open the output");
+	await page.keyboard.press("Escape");
+	await page.getByRole("dialog").waitFor({ state: "hidden" });
 	for (const key of ["Enter", "Space"]) {
 		await open.focus();
 		await page.keyboard.press("Tab");
@@ -91,32 +107,54 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 		assert(focus.overshoot <= 0.5, "Open focus stays inside the card");
 		await page.keyboard.press("Tab");
 		assert(
-			await share.evaluate((el) => el === document.activeElement),
-			"Tab moves from Open to Share",
-		);
-		await share.press(key);
-		await page.getByRole("heading", { name: "Share this file" }).waitFor();
-		assert.equal(page.url(), libraryUrl, "Share does not open the output");
-		await page.keyboard.press("Escape");
-		// Share is a dialog; let it close and hand focus back before moving on.
-		await page.getByRole("dialog").waitFor({ state: "hidden" });
-		await share.focus();
-		await page.keyboard.press("Tab");
-		assert(
 			await actions.evaluate((el) => el === document.activeElement),
-			"Tab moves from Share to Actions",
+			"Tab moves from Open to ⋯",
 		);
 		await actions.press(key);
 		await page
 			.getByRole("menuitem", { name: "Open standalone", exact: true })
 			.waitFor();
-		assert.equal(page.url(), libraryUrl, "Actions does not open the output");
+		assert.equal(page.url(), libraryUrl, "⋯ does not open the output");
 		await page.keyboard.press("Escape");
 		await open.press(key);
 		await page.waitForURL((url) => url.href !== libraryUrl);
 		await page.goBack();
 		await open.waitFor();
 	}
+}
+
+/** Archive… from ⋯, find it under Archived, Restore it, and see it back. */
+async function checkArchiveAndRestore(page: Page, card: Locator) {
+	const title = (await card.locator("strong").innerText()).trim();
+	const library = page.locator(".outputs-library");
+	const items = library.locator(".output-library-items > li");
+	const named = (scope: Locator) =>
+		scope.filter({ has: page.locator("strong", { hasText: title }) });
+	await card.getByRole("button", { name: /^More actions for / }).click();
+	await page.getByRole("menuitem", { name: "Archive…", exact: true }).click();
+	const confirm = page.getByRole("alertdialog").or(page.getByRole("dialog"));
+	await confirm.getByRole("button", { name: "Archive", exact: true }).click();
+	await confirm.waitFor({ state: "hidden" });
+	await named(items).waitFor({ state: "detached" });
+	const tabs = library.getByRole("tablist", { name: "Filter by type" });
+	await tabs.getByRole("tab", { name: /^Archived/ }).click();
+	const archived = named(items).first();
+	await archived.waitFor();
+	assert.equal(
+		await archived.getByRole("button", { name: /^Open / }).count(),
+		1,
+		"an archived output still opens",
+	);
+	await archived.getByRole("button", { name: /^More actions for / }).click();
+	assert.equal(
+		await page.getByRole("menuitem", { name: "Share…", exact: true }).count(),
+		0,
+		"an archived output is not shared",
+	);
+	await page.getByRole("menuitem", { name: "Restore", exact: true }).click();
+	await named(items).waitFor({ state: "detached" });
+	await tabs.getByRole("tab", { name: /^All/ }).click();
+	await named(items).first().waitFor();
 }
 
 const server = await startFixtureServer("/outputs");
@@ -199,6 +237,7 @@ try {
 					path: `${evidenceDir}/after-grid-${width}-${theme}.png`,
 				});
 			await checkCardKeyboard(page, card);
+			await checkArchiveAndRestore(page, card);
 			await library
 				.getByRole("button", { name: "List view", exact: true })
 				.click();
@@ -221,7 +260,7 @@ try {
 					path: `${evidenceDir}/after-list-${width}-${theme}.png`,
 				});
 			await checkCardKeyboard(page, row);
-			await row.getByRole("button", { name: /^Actions for/ }).click();
+			await row.getByRole("button", { name: /^More actions for/ }).click();
 			await page
 				.getByRole("menuitem", { name: "Open standalone", exact: true })
 				.click();

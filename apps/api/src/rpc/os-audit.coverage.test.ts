@@ -159,6 +159,7 @@ describe("Tedix OS audit coverage", () => {
 			"outputs.revise",
 			"outputs.rename",
 			"outputs.archive",
+			"outputs.restore",
 			"outputs.patchDocument",
 			"outputs.setSheetRange",
 			"blueprints.create",

@@ -308,6 +308,11 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		endpoint: "osWorkspaces/outputs/archive",
 		kind: "write",
 	},
+	{
+		toolId: "restore_os_output",
+		endpoint: "osWorkspaces/outputs/restore",
+		kind: "write",
+	},
 	// External-agent identity lifecycle. Session bootstrap remains a dedicated
 	// edge exchange and internal session resolution/attribution are never tools.
 	{

@@ -242,6 +242,7 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/outputs/setSheetRange": "set_os_sheet_range",
 	"osWorkspaces/outputs/export": "export_os_output",
 	"osWorkspaces/outputs/archive": "archive_os_output",
+	"osWorkspaces/outputs/restore": "restore_os_output",
 	"osWorkspaces/outputs/delete": "delete_os_output",
 };
 
@@ -370,6 +371,7 @@ export const OS_KIND_OVERRIDES: Record<
 	// same posture as the sibling receipt-writing `gadgets/run`.
 	"osWorkspaces/outputs/export": "write",
 	"osWorkspaces/outputs/archive": "write",
+	"osWorkspaces/outputs/restore": "write",
 	"osWorkspaces/outputs/delete": "destructive",
 };
 

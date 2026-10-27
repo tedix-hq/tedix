@@ -610,6 +610,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/gadgets/revise": "mcp:apps.write",
 	"osWorkspaces/gadgets/run": "mcp:apps.admin",
 	"osWorkspaces/outputs/archive": "mcp:apps.write",
+	"osWorkspaces/outputs/restore": "mcp:apps.write",
 	"osWorkspaces/outputs/delete": "mcp:apps.admin",
 	"osWorkspaces/outputs/export": "mcp:apps.write",
 	"osWorkspaces/outputs/library": "mcp:apps.read",

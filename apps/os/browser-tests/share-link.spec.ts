@@ -128,10 +128,8 @@ try {
 			await page.goto(`${server.origin}/outputs`);
 			const card = page.locator(".output-grid-card").first();
 			await card.waitFor();
-			// The card's own open control overlays it; Share is reached by keyboard.
-			await card
-				.getByRole("button", { name: "Share", exact: true })
-				.press("Enter");
+			await card.getByRole("button", { name: /^More actions for / }).click();
+			await page.getByRole("menuitem", { name: "Share…", exact: true }).click();
 			const dialog = page.getByRole("dialog");
 			await dialog.getByRole("heading", { name: "Share this file" }).waitFor();
 			const current = dialog.locator("[data-share-link-current]");
