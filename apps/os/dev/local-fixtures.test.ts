@@ -391,6 +391,11 @@ const CALLS = {
 	"modelCatalog/list": {},
 	"externalAgentIdentity/listPrincipals": { organizationId: IDS.orgId },
 	"organizations/get": { organizationId: IDS.orgId },
+	"organizations/getCustomDomain": {},
+	"organizations/beginCustomDomain": { hostname: "work.example.com" },
+	// The claim id comes from beginCustomDomain inside the parse case.
+	"organizations/verifyCustomDomain": { claimId: IDS.orgId },
+	"organizations/removeCustomDomain": { claimId: IDS.orgId },
 	"organizations/getFeatures": { organizationId: IDS.orgId },
 	"organizations/listInboundClientInventory": { organizationId: IDS.orgId },
 	"organizations/update": {
@@ -968,17 +973,27 @@ describe("local fixtures parse through the contract output schemas", () => {
 								) as { share: { id: string } }
 							).share.id,
 						}
-					: key === "osCollaborators/updateLink"
+					: key === "organizations/verifyCustomDomain" ||
+						  key === "organizations/removeCustomDomain"
 						? {
-								...(input as object),
-								linkId: (
+								claimId: (
 									callLocalOk(
-										"osCollaborators/createLink",
-										CALLS["osCollaborators/createLink"],
-									) as { link: { id: string } }
-								).link.id,
+										"organizations/beginCustomDomain",
+										CALLS["organizations/beginCustomDomain"],
+									) as { claimId: string }
+								).claimId,
 							}
-						: input;
+						: key === "osCollaborators/updateLink"
+							? {
+									...(input as object),
+									linkId: (
+										callLocalOk(
+											"osCollaborators/createLink",
+											CALLS["osCollaborators/createLink"],
+										) as { link: { id: string } }
+									).link.id,
+								}
+							: input;
 			if (key === "osCollaborators/setRole")
 				callLocalOk("osCollaborators/add", CALLS["osCollaborators/add"]);
 			const output = callLocalOk(key, shareInput);
