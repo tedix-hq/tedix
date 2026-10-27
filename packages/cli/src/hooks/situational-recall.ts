@@ -11,6 +11,7 @@ import {
 	type RecallSituation,
 } from "@tedix/context-core/situational-recall";
 import { harnessOf } from "./agent-status";
+import { readRecallCache } from "./context-cache";
 import { hostEvent, insideRoot, PROFILE, type HookDeps } from "./hook-io";
 import { repoSlug } from "./prompt-context";
 
@@ -100,13 +101,46 @@ export async function recallForSituation(
 	}
 	const repo =
 		repoSlug(binding.origin) ?? briefRepository(situation.text ?? "");
-	const catalog = await deps.read(
-		[
-			...command,
-			"code",
-			`async () => await agent.get_agent_session_lessons(${codeModeLiteral({ harness, repo, catalog: true })})`,
-		],
-		5000,
+	const principal = external
+		? auth.externalAgent.principalId
+		: auth.storedLogin?.loginId;
+	if (!principal) throw new Error("Recall principal unavailable");
+	const key = JSON.stringify([
+		command,
+		binding.mcpUrl,
+		auth.wouldUse,
+		principal,
+		binding.org,
+		binding.credentialOrganizationId,
+		external ? auth.externalAgent.organizationId : undefined,
+		options.expectedOrganizationId,
+		harness,
+		repo,
+	]);
+	const catalog = await readRecallCache(
+		deps.env,
+		key,
+		async () => {
+			const result = GetAgentSessionLessonsResultSchema.parse(
+				await deps.read(
+					[
+						...command,
+						"code",
+						`async () => await agent.get_agent_session_lessons(${codeModeLiteral({ harness, repo, catalog: true })})`,
+					],
+					5000,
+				),
+			);
+			if (
+				(binding.credentialOrganizationId &&
+					result.organizationId !== binding.credentialOrganizationId) ||
+				(options.expectedOrganizationId &&
+					result.organizationId !== options.expectedOrganizationId)
+			)
+				throw new Error("Recall organization differs from dispatch");
+			return result;
+		},
+		deps.now,
 	);
 	const parsed = GetAgentSessionLessonsResultSchema.parse(catalog);
 	if (
