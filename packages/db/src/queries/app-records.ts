@@ -521,6 +521,52 @@ function aggregateSourceAllowed(
 	);
 }
 
+/**
+ * {@link aggregateSourceAllowed} for one host → source link, so a check outside
+ * the gateway (skill manifest authorization) follows the same links the
+ * gateway serves.
+ */
+export async function isAggregateSourceAllowed(
+	db: DbClient,
+	hostOrganizationId: string,
+	sourceOrganizationId: string,
+): Promise<boolean> {
+	if (sourceOrganizationId === hostOrganizationId) return true;
+	const orgIds = [hostOrganizationId, sourceOrganizationId];
+	const [rows, grants] = await db.batch([
+		db
+			.select({
+				id: organizations.id,
+				slug: organizations.slug,
+				descopeTenantId: organizations.descopeTenantId,
+			})
+			.from(organizations)
+			.where(inArray(organizations.id, orgIds)),
+		db
+			.select({ id: providerInstallations.id })
+			.from(providerInstallations)
+			.where(
+				and(
+					eq(providerInstallations.status, "active"),
+					eq(
+						providerInstallations.providerOrganizationId,
+						sourceOrganizationId,
+					),
+					eq(providerInstallations.customerOrganizationId, hostOrganizationId),
+				),
+			)
+			.limit(1),
+	]);
+	return aggregateSourceAllowed(
+		hostOrganizationId,
+		sourceOrganizationId,
+		new Map(rows.map((row) => [row.id, row])),
+		new Set(
+			grants.length ? [`${sourceOrganizationId}:${hostOrganizationId}`] : [],
+		),
+	);
+}
+
 /** Result element of {@link getAppsBySlugsWithTools}; `null` = slug not found. */
 export type AppSurfaceResult = Awaited<
 	ReturnType<typeof loadAppBySlugWithTools>
