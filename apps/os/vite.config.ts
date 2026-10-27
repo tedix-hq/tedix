@@ -18,6 +18,7 @@ import {
 } from "./dev/dev-lane";
 import { fixturePackEnabled, localApiPlugin } from "./dev/local-api-plugin";
 import { localApiProxyOptions } from "./dev/local-api-proxy";
+import { phosphorImports } from "./dev/phosphor-imports";
 
 const optionalPublicValue = (name: string) =>
 	process.env[`TEDIX_BUILD_${name}`]?.trim() || "";
@@ -64,6 +65,7 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 	const withWorker =
 		command === "build" || isPreview || useRemoteWorker || useLocalWorker;
 	const buildSha = readOsBuildSha(process.env);
+	const iconImports = command === "serve" ? phosphorImports() : undefined;
 	return {
 		// Pin tsconfig for every transform and resolve. Auto-discovery walks
 		// ancestors for files no `include` owns (index.html among them); a
@@ -72,12 +74,18 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 		tsconfig: "./tsconfig.json",
 		plugins: [
 			osVersionPlugin(buildSha),
+			...(iconImports ? [{ ...iconImports, enforce: "pre" as const }] : []),
 			...(withWorker ? [workerPlugin()] : []),
 			TanStackRouterVite({ target: "react", autoCodeSplitting: true }),
 			react(),
 			tailwindcss(),
 			...(useLocalFixtures ? [localApiPlugin()] : []),
 		],
+		// Kumo also imports the barrel; rewriting only app source still eagerly
+		// initializes thousands of unused SVG weight maps on every navigation.
+		optimizeDeps: iconImports
+			? { rolldownOptions: { plugins: [iconImports] } }
+			: {},
 		define: {
 			__OS_BUILD_SHA__: JSON.stringify(buildSha),
 			__API_URL__: JSON.stringify(buildConfig.API_URL),
