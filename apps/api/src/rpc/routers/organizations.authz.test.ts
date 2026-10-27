@@ -26,6 +26,27 @@ const { userContext, apiKeyContext } = bindTestContexts({
 });
 
 describe("organizations authorization-plane composition", () => {
+	it("reserves agent-request approval policy to the human owner", async () => {
+		const metadata = {
+			agentRequestApprovals: { approver: "org_admin" as const },
+		};
+		const admin = createRouterClient(organizationsContractRouter, {
+			context: userContext({
+				permissions: ["settings:manage"],
+				userRole: "admin",
+			}),
+		});
+		await expect(
+			admin.update({ organizationId: ORGANIZATION_ID, metadata }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const machine = createRouterClient(organizationsContractRouter, {
+			context: apiKeyContext({ scopes: ["platform:admin"] }),
+		});
+		await expect(
+			machine.create({ name: "Example", metadata }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
 	it("rejects ordinary users from the cross-organization inventory", async () => {
 		const client = createRouterClient(organizationsContractRouter, {
 			context: userContext({ permissions: ["apps:read"] }),

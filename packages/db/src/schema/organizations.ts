@@ -109,6 +109,7 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	agentRequestApprovals?: OrganizationContractMetadata["agentRequestApprovals"];
 	sessionProjectBindings?: OrganizationContractMetadata["sessionProjectBindings"];
 	modelFallback?: OrganizationContractMetadata["modelFallback"];
 	workStewardship?: OrganizationContractMetadata["workStewardship"];

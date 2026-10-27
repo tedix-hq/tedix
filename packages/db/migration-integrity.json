@@ -1204,6 +1204,10 @@
 		{
 			"name": "20261027043713_os_workspace_icon/migration.sql",
 			"sha256": "d21fdf5b803d87be5c3bc835dd2fa6c806bb625f284d2241d166424d8675d62c"
+		},
+		{
+			"name": "20261027070505_agent-request-approvals/migration.sql",
+			"sha256": "67c20dfc85e11f8fdd1ea075b8d396ebe0433de9418c4a27c9739c1bbc8fc8e5"
 		}
 	]
 }

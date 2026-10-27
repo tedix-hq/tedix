@@ -418,6 +418,13 @@ export const PortfolioBucketsSchema = z
 	);
 
 export const OrganizationMetadataSchema = z.object({
+	agentRequestApprovals: z
+		.strictObject({ approver: z.literal("org_admin") })
+		.nullable()
+		.optional()
+		.describe(
+			"Enable agent requests after the organization owner chooses org-admin approval; absent means disabled.",
+		),
 	sessionProjectBindings: z
 		.array(
 			z.strictObject({

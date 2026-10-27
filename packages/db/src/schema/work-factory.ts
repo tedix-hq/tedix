@@ -13,6 +13,7 @@ import type {
 	KeptCardHunk,
 	CardRevision,
 } from "@tedix/api-contract/schemas/card-revisions";
+import type { AgentRequestExecution } from "@tedix/api-contract/schemas/agent-requests";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkProposal } from "@tedix/api-contract/schemas/work-interactions";
@@ -512,6 +513,19 @@ export const workApprovalProposals = sqliteTable(
 		),
 	],
 );
+
+/** Execution receipts are separate so approval scope and decisions remain immutable. */
+export const workApprovalExecutions = sqliteTable("work_approval_executions", {
+	proposalId: text("proposal_id")
+		.primaryKey()
+		.references(() => workApprovalProposals.id, { onDelete: "restrict" }),
+	orgId: text("org_id")
+		.notNull()
+		.references(() => organizations.id, { onDelete: "restrict" }),
+	execution: text("execution", { mode: "json" })
+		.$type<AgentRequestExecution>()
+		.notNull(),
+});
 
 export const workApprovalDecisions = sqliteTable(
 	"work_approval_decisions",

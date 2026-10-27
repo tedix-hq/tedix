@@ -26,6 +26,7 @@ function toConnectionProviderTemplate(
 ): ConnectionProviderTemplate {
 	return {
 		id: row.id,
+		defaultDataSensitivity: row.defaultDataSensitivity,
 		name: row.name,
 		description: row.description,
 		icon: row.icon,

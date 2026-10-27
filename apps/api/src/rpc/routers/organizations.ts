@@ -235,6 +235,14 @@ async function createOrganizationResources(
 	providerAuthorized = false,
 ) {
 	if (
+		input.metadata?.agentRequestApprovals &&
+		(context.authType !== "user" || context.externalAgentPrincipalId)
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Agent request approval policy requires the human organization owner's decision",
+		);
+	if (
 		((input.metadata?.providerCustomerKey && !providerAuthorized) ||
 			(input.metadata && "providerOnboarding" in input.metadata)) &&
 		!isPlatformPrincipal(context)
@@ -517,6 +525,17 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 
 		requireOrganizationAccess(context, organizationId);
 		requireAdminOrOwner(context);
+		if (
+			updates.metadata?.agentRequestApprovals !== undefined &&
+			(context.authType !== "user" ||
+				context.userRole !== "owner" ||
+				context.externalAgentPrincipalId)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Agent request approval policy requires the human organization owner's decision",
+			);
+
 		if (
 			updates.metadata?.portfolioBuckets !== undefined &&
 			context.userRole !== "owner"
