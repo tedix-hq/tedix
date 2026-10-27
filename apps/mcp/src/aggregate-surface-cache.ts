@@ -18,9 +18,15 @@ import {
 import { contentFreeMcpException, createMcpLogger } from "./log";
 const log = createMcpLogger("mcp.router");
 
+export type AggregateSurfaceCacheEntry = {
+	result: AggregatedMcpSurface;
+	expiresAt: number;
+	/** Content hash of the serialized snapshot this object was built from. */
+	generation?: string;
+};
 export const aggregateSurfaceCache = new Map<
 	string,
-	{ result: AggregatedMcpSurface; expiresAt: number }
+	AggregateSurfaceCacheEntry
 >();
 export const aggregateSurfaceInFlight = new Map<
 	string,
@@ -36,14 +42,42 @@ export function rememberAggregateSurface(
 	cacheKey: string,
 	result: AggregatedMcpSurface,
 	visited: ReadonlySet<string>,
+	generation?: string,
 ) {
 	if (visited.size > 0) return;
 	setBoundedExpiringCacheEntry(
 		aggregateSurfaceCache,
 		cacheKey,
-		{ result, expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS },
+		{
+			result,
+			expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
+			...(generation ? { generation } : {}),
+		},
 		MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
 	);
+}
+
+/**
+ * One serialized aggregate snapshot, shared by the L2 and R2 writes.
+ *
+ * Root surfaces serialize to ~25 MB. Serializing once per write tier doubled
+ * the transient heap of every rebuild on the 128 MB isolate that is also
+ * serving requests (2026-10-27 `exceededMemory` on connect). `generation` is a
+ * content hash of `body`, so a reader can recognize a snapshot it already
+ * holds in memory without parsing it again.
+ */
+export type SerializedAggregateSnapshot = {
+	body: string;
+	generation: string;
+	cachedAt: number;
+};
+
+export function serializeAggregateSnapshot(
+	result: AggregatedMcpSurface,
+	cachedAt = Date.now(),
+): SerializedAggregateSnapshot {
+	const body = JSON.stringify(result);
+	return { body, generation: hashAggregateCacheKey(body), cachedAt };
 }
 
 export function aggregateSurfaceCacheKey(
@@ -124,7 +158,25 @@ const AGGREGATE_L2_HARD_TTL_MS = 600_000; // serve-stale ceiling (10 min)
 const AGGREGATE_L2_HARD_TTL_SECONDS = AGGREGATE_L2_HARD_TTL_MS / 1000;
 // One background revalidation per cache key at a time (no rebuild stampede).
 export const aggregateRevalidateInFlight = new Set<string>();
-type AggregateL2Read = { surface: AggregatedMcpSurface; stale: boolean };
+type AggregateL2Read = {
+	surface: AggregatedMcpSurface;
+	stale: boolean;
+	generation?: string;
+	/** True when the in-memory `reuse` object was returned without parsing. */
+	reused: boolean;
+};
+type AggregateTierReadOptions = {
+	allowExpired?: boolean;
+	/**
+	 * The isolate's last copy for this key, possibly expired. A tier holding the
+	 * same generation returns this object and never reads its body: parsing a
+	 * root snapshot allocates ~25 MB of text plus its object graph, and a new
+	 * object also discards every revision-owned catalog projection.
+	 */
+	reuse?: AggregateSurfaceCacheEntry;
+};
+const AGGREGATE_CACHED_AT_HEADER = "X-Tedix-Aggregate-Cached-At";
+const AGGREGATE_GENERATION_HEADER = "X-Tedix-Aggregate-Generation";
 
 function aggregateL2Request(cacheKey: string): Request {
 	return aggregateL2RequestFromHash(hashAggregateCacheKey(cacheKey));
@@ -134,6 +186,90 @@ function aggregateL2RequestFromHash(cacheKeyHash: string): Request {
 	return new Request(
 		`https://aggregate-cache.mcp.tedix.internal/v1/${cacheKeyHash}`,
 	);
+}
+
+async function cancelSnapshotBody(cancel: () => unknown): Promise<void> {
+	try {
+		await cancel();
+	} catch {
+		// Releasing an unread body is best effort.
+	}
+}
+
+type SnapshotBodySource = {
+	cachedAt: string | null | undefined;
+	generation: string | null | undefined;
+	json: () => Promise<unknown>;
+	cancel: () => unknown;
+};
+
+type SnapshotBodyRead = {
+	surface: AggregatedMcpSurface | undefined;
+	cachedAt: number;
+	generation?: string;
+	reused: boolean;
+};
+
+/**
+ * Decode one tier's snapshot. Current snapshots carry their age and generation
+ * as metadata, so a reader can decide to skip the body before reading it.
+ * Bodies without that metadata use the original `{ cachedAt, surface }` shape.
+ */
+async function readSnapshotBody(
+	source: SnapshotBodySource,
+	reuse: AggregateSurfaceCacheEntry | undefined,
+	isAbandoned: () => boolean,
+): Promise<SnapshotBodyRead | null> {
+	if (isAbandoned()) {
+		await cancelSnapshotBody(source.cancel);
+		return null;
+	}
+	const cachedAt = Number(source.cachedAt);
+	if (source.generation && Number.isFinite(cachedAt)) {
+		if (reuse?.generation === source.generation) {
+			await cancelSnapshotBody(source.cancel);
+			return {
+				surface: reuse.result,
+				cachedAt,
+				generation: source.generation,
+				reused: true,
+			};
+		}
+		return {
+			surface: (await source.json()) as AggregatedMcpSurface,
+			cachedAt,
+			generation: source.generation,
+			reused: false,
+		};
+	}
+	const legacy = (await source.json()) as {
+		cachedAt?: number;
+		surface?: AggregatedMcpSurface;
+	};
+	return {
+		surface: legacy?.surface,
+		cachedAt: typeof legacy?.cachedAt === "number" ? legacy.cachedAt : 0,
+		reused: false,
+	};
+}
+
+function toTierRead(
+	read: SnapshotBodyRead | null,
+	hardTtlMs: number,
+	allowExpired = false,
+): AggregateL2Read | null {
+	const surface = read?.surface;
+	// Never serve a degraded/foreign snapshot — degraded surfaces are not
+	// written, but guard defensively against an older/foreign entry.
+	if (!read || !surface || surface.degraded) return null;
+	const age = Date.now() - read.cachedAt;
+	if (age >= hardTtlMs && !allowExpired) return null; // too stale → rebuild
+	return {
+		surface,
+		stale: age >= AGGREGATE_SURFACE_CACHE_TTL_MS,
+		...(read.generation ? { generation: read.generation } : {}),
+		reused: read.reused,
+	};
 }
 // Emit a cache-effectiveness datapoint to Analytics Engine (isolated by blob1
 // = "aggregate_cache") so hit-rate / cold-miss / SWR effectiveness is queryable
@@ -153,36 +289,41 @@ export function emitAggregateCacheMetric(
 }
 export async function readAggregateL2(
 	cacheKey: string,
+	options: AggregateTierReadOptions = {},
 ): Promise<AggregateL2Read | null> {
+	// A budget trip stops waiting but cannot cancel the read. Without this flag
+	// the abandoned read went on to parse the snapshot while the caller built a
+	// second copy on the next tier.
+	let abandoned = false;
 	try {
 		if (typeof caches === "undefined" || !caches.default) return null;
 		// Budgeted (match + body read together): an unbudgeted Cache API hang here
 		// sits at the top of the shared aggregate load — the silent-hang class in
 		// `docs/engineering/mcp/runtime.md`. A trip emits the
 		// diagnosis line and fails open to the next tier.
-		const wrapped = await withStepBudget(
+		const read = await withStepBudget(
 			"aggregate_l2_read",
 			CACHE_TIER_BUDGET_MS,
 			(async () => {
 				const hit = await caches.default.match(aggregateL2Request(cacheKey));
 				if (!hit) return null;
-				return (await hit.json()) as {
-					cachedAt?: number;
-					surface?: AggregatedMcpSurface;
-				};
+				return readSnapshotBody(
+					{
+						cachedAt: hit.headers.get(AGGREGATE_CACHED_AT_HEADER),
+						generation: hit.headers.get(AGGREGATE_GENERATION_HEADER),
+						json: () => hit.json(),
+						cancel: () => hit.body?.cancel(),
+					},
+					options.reuse,
+					() => abandoned,
+				);
 			})(),
 			cacheKey,
-		);
-		if (!wrapped) return null;
-		const surface = wrapped?.surface;
-		// Never serve a degraded/foreign snapshot — degraded surfaces are not
-		// written, but guard defensively against an older/foreign entry.
-		if (!surface || surface.degraded) return null;
-		const age =
-			Date.now() -
-			(typeof wrapped.cachedAt === "number" ? wrapped.cachedAt : 0);
-		if (age >= AGGREGATE_L2_HARD_TTL_MS) return null; // too stale → force rebuild
-		return { surface, stale: age >= AGGREGATE_SURFACE_CACHE_TTL_MS };
+		).catch((error: unknown) => {
+			abandoned = true;
+			throw error;
+		});
+		return toTierRead(read, AGGREGATE_L2_HARD_TTL_MS);
 	} catch (error) {
 		// A budget trip already emitted its structured diagnosis line.
 		if (!(error instanceof StepBudgetExceededError)) {
@@ -198,19 +339,18 @@ export async function readAggregateL2(
 }
 export async function writeAggregateL2(
 	cacheKey: string,
-	result: AggregatedMcpSurface,
+	snapshot: SerializedAggregateSnapshot,
 ): Promise<void> {
 	try {
 		if (typeof caches === "undefined" || !caches.default) return;
-		const body = new Response(
-			JSON.stringify({ cachedAt: Date.now(), surface: result }),
-			{
-				headers: {
-					"Content-Type": "application/json",
-					"Cache-Control": `max-age=${AGGREGATE_L2_HARD_TTL_SECONDS}`,
-				},
+		const body = new Response(snapshot.body, {
+			headers: {
+				"Content-Type": "application/json",
+				"Cache-Control": `max-age=${AGGREGATE_L2_HARD_TTL_SECONDS}`,
+				[AGGREGATE_CACHED_AT_HEADER]: String(snapshot.cachedAt),
+				[AGGREGATE_GENERATION_HEADER]: snapshot.generation,
 			},
-		);
+		});
 		// Budgeted: awaited on the request path, so a wedged put must fail open.
 		await withStepBudget(
 			"aggregate_l2_write",
@@ -230,6 +370,53 @@ export async function writeAggregateL2(
 	}
 }
 
+// A stale snapshot used to be rebuilt by every isolate whose 120s L1 entry
+// expired, because each one found its own last write stale. Each rebuild holds
+// a second root surface plus its serialized text next to the copy the isolate
+// is serving, which is how connect isolates crossed 128 MB. A short colo-local
+// lease lets one isolate rebuild a key while the others keep serving the stale
+// snapshot, which stays bounded by the hard TTL. Any lease failure fails open
+// to the previous behavior (rebuild).
+const AGGREGATE_REVALIDATION_LEASE_SECONDS = 60;
+
+function aggregateRevalidationLeaseRequest(cacheKey: string): Request {
+	return new Request(
+		`https://aggregate-cache.mcp.tedix.internal/v1/revalidation-lease/${hashAggregateCacheKey(cacheKey)}`,
+	);
+}
+
+export async function claimAggregateRevalidationLease(
+	cacheKey: string,
+): Promise<boolean> {
+	try {
+		if (typeof caches === "undefined" || !caches.default) return true;
+		const request = aggregateRevalidationLeaseRequest(cacheKey);
+		return await withStepBudget(
+			"aggregate_revalidation_lease",
+			CACHE_TIER_BUDGET_MS,
+			(async () => {
+				const held = await caches.default.match(request);
+				if (held) {
+					await cancelSnapshotBody(() => held.body?.cancel());
+					return false;
+				}
+				await caches.default.put(
+					request,
+					new Response("1", {
+						headers: {
+							"Cache-Control": `max-age=${AGGREGATE_REVALIDATION_LEASE_SECONDS}`,
+						},
+					}),
+				);
+				return true;
+			})(),
+			cacheKey,
+		);
+	} catch {
+		return true;
+	}
+}
+
 // ── L3: durable global aggregate cache (R2 bucket AGGREGATE_CACHE) ──
 // L2 (`caches.default`) is per-colo and capped at 10 min; a cold isolate in a
 // brand-new colo, or after the L2 hard TTL under sparse traffic, still pays the
@@ -245,38 +432,41 @@ function aggregateR2Key(cacheKey: string): string {
 export async function readAggregateR2(
 	env: CloudflareEnv,
 	cacheKey: string,
-	options?: { allowExpired?: boolean },
+	options: AggregateTierReadOptions = {},
 ): Promise<AggregateL2Read | null> {
+	let abandoned = false;
 	try {
 		if (!("AGGREGATE_CACHE" in env) || !env.AGGREGATE_CACHE) return null;
 		const bucket = env.AGGREGATE_CACHE;
 		// Budgeted (get + body read together): this read also backs the
 		// join-deadline and degraded-rebuild stale fallbacks, where an unbudgeted
 		// R2 hang turned "serve stale instead of waiting" into a silent hang.
-		const wrapped = await withStepBudget(
+		const read = await withStepBudget(
 			"aggregate_r2_read",
 			CACHE_TIER_BUDGET_MS,
 			(async () => {
 				const obj = await bucket.get(aggregateR2Key(cacheKey));
 				if (!obj) return null;
-				return (await obj.json()) as {
-					cachedAt?: number;
-					surface?: AggregatedMcpSurface;
-				};
+				return readSnapshotBody(
+					{
+						cachedAt: obj.customMetadata?.cachedAt,
+						generation: obj.customMetadata?.generation,
+						json: () => obj.json(),
+						cancel: () => obj.body?.cancel(),
+					},
+					options.reuse,
+					() => abandoned,
+				);
 			})(),
 			cacheKey,
-		);
-		if (!wrapped) return null;
-		const surface = wrapped?.surface;
-		if (!surface || surface.degraded) return null;
-		const age =
-			Date.now() -
-			(typeof wrapped.cachedAt === "number" ? wrapped.cachedAt : 0);
+		).catch((error: unknown) => {
+			abandoned = true;
+			throw error;
+		});
 		// allowExpired: stale-beats-degraded fallback — when a cold rebuild comes
 		// back degraded (e.g. the API service binding is mid-deploy), an old full
 		// surface is far better than a fresh 3-namespace toy surface.
-		if (age >= AGGREGATE_R2_HARD_TTL_MS && !options?.allowExpired) return null;
-		return { surface, stale: age >= AGGREGATE_SURFACE_CACHE_TTL_MS };
+		return toTierRead(read, AGGREGATE_R2_HARD_TTL_MS, options.allowExpired);
 	} catch (error) {
 		// A budget trip already emitted its structured diagnosis line.
 		if (!(error instanceof StepBudgetExceededError)) {
@@ -293,8 +483,9 @@ export async function readAggregateR2(
 export async function writeAggregateR2(
 	env: CloudflareEnv,
 	cacheKey: string,
-	result: AggregatedMcpSurface,
-	rootSlug?: string,
+	snapshot: SerializedAggregateSnapshot,
+	rootSlug: string | undefined,
+	toolCount: number,
 ): Promise<void> {
 	try {
 		if (!("AGGREGATE_CACHE" in env) || !env.AGGREGATE_CACHE) return;
@@ -302,11 +493,13 @@ export async function writeAggregateR2(
 		await withStepBudget(
 			"aggregate_r2_write",
 			CACHE_TIER_BUDGET_MS,
-			env.AGGREGATE_CACHE.put(
-				aggregateR2Key(cacheKey),
-				JSON.stringify({ cachedAt: Date.now(), surface: result }),
-				{ httpMetadata: { contentType: "application/json" } },
-			),
+			env.AGGREGATE_CACHE.put(aggregateR2Key(cacheKey), snapshot.body, {
+				httpMetadata: { contentType: "application/json" },
+				customMetadata: {
+					cachedAt: String(snapshot.cachedAt),
+					generation: snapshot.generation,
+				},
+			}),
 			cacheKey,
 		);
 	} catch (error) {
@@ -323,7 +516,7 @@ export async function writeAggregateR2(
 		emitAggregateCacheMetric(env, {
 			cacheEvent: "r2_write_failed",
 			appSlug: rootSlug,
-			toolCount: result.tools.length,
+			toolCount,
 		});
 	}
 }

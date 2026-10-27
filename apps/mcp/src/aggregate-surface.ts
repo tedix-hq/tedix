@@ -15,7 +15,9 @@ import {
 	aggregateSurfaceInFlight,
 	aggregateRevalidateInFlight,
 	aggregateSurfaceCacheKey,
+	claimAggregateRevalidationLease,
 	rememberAggregateSurface,
+	serializeAggregateSnapshot,
 	readAggregateL2,
 	writeAggregateL2,
 	readAggregateR2,
@@ -59,6 +61,8 @@ async function revalidateAggregate(
 	if (aggregateRevalidateInFlight.has(cacheKey)) return;
 	aggregateRevalidateInFlight.add(cacheKey);
 	try {
+		// Another isolate in this colo is already rebuilding this key.
+		if (!(await claimAggregateRevalidationLease(cacheKey))) return;
 		const fresh = await aggregateAndPrefixToolsUncached(
 			entries,
 			env,
@@ -70,9 +74,24 @@ async function revalidateAggregate(
 			ctx,
 		);
 		if (!fresh.degraded) {
-			rememberAggregateSurface(cacheKey, fresh, visited);
-			await writeAggregateL2(cacheKey, fresh);
-			await writeAggregateR2(env, cacheKey, fresh, rootSlug);
+			const snapshot = serializeAggregateSnapshot(fresh);
+			// An unchanged rebuild keeps the object this isolate already serves,
+			// so revision-owned catalog projections stay valid.
+			const current = aggregateSurfaceCache.get(cacheKey);
+			rememberAggregateSurface(
+				cacheKey,
+				current?.generation === snapshot.generation ? current.result : fresh,
+				visited,
+				snapshot.generation,
+			);
+			await writeAggregateL2(cacheKey, snapshot);
+			await writeAggregateR2(
+				env,
+				cacheKey,
+				snapshot,
+				rootSlug,
+				fresh.tools.length,
+			);
 			console.log(JSON.stringify({ _cm: "aggregate", event: "revalidated" }));
 			emitAggregateCacheMetric(env, {
 				cacheEvent: "revalidated",
@@ -132,14 +151,16 @@ export async function aggregateAndPrefixTools(
 			ctx,
 		);
 	}
-	pruneExpiredCacheEntries(aggregateSurfaceCache);
 	// Consent-composed roots duplicate shared schemas across organizations when
 	// serialized. Keep source-app caches and in-flight sharing, but do not retain
 	// or deserialize the combined catalog in any snapshot tier.
+	// An expired entry is still read before pruning: when the durable tier holds
+	// the same generation, the load reuses it instead of parsing the snapshot.
 	const cached =
 		cacheSnapshot && visited.size === 0
 			? aggregateSurfaceCache.get(cacheKey)
 			: undefined;
+	pruneExpiredCacheEntries(aggregateSurfaceCache);
 	if (cached && cached.expiresAt > Date.now()) return cached.result;
 
 	const inFlight = aggregateSurfaceInFlight.get(cacheKey);
@@ -157,9 +178,11 @@ export async function aggregateAndPrefixTools(
 
 	const loadPromise = (async () => {
 		// L2 (durable, cross-isolate) before the expensive live rebuild.
-		const l2 = cacheSnapshot ? await readAggregateL2(cacheKey) : null;
+		const l2 = cacheSnapshot
+			? await readAggregateL2(cacheKey, { reuse: cached })
+			: null;
 		if (l2) {
-			rememberAggregateSurface(cacheKey, l2.surface, visited);
+			rememberAggregateSurface(cacheKey, l2.surface, visited, l2.generation);
 			if (l2.stale) {
 				// Stale-while-revalidate: serve now, refresh in the background.
 				console.log(
@@ -190,11 +213,20 @@ export async function aggregateAndPrefixTools(
 			return l2.surface;
 		}
 		// L3 (durable, global across colos) before the expensive live rebuild.
-		const l3 = cacheSnapshot ? await readAggregateR2(env, cacheKey) : null;
+		const l3 = cacheSnapshot
+			? await readAggregateR2(env, cacheKey, { reuse: cached })
+			: null;
 		if (l3) {
-			rememberAggregateSurface(cacheKey, l3.surface, visited);
-			// Promote R2 → this colo's L2 so subsequent local reads stay warm.
-			await writeAggregateL2(cacheKey, l3.surface);
+			rememberAggregateSurface(cacheKey, l3.surface, visited, l3.generation);
+			// Promote R2 → this colo's L2 so subsequent local reads stay warm. A
+			// reused snapshot was never read, so promoting it would mean
+			// serializing the whole surface again; the next reader uses R2.
+			if (!l3.reused) {
+				await writeAggregateL2(
+					cacheKey,
+					serializeAggregateSnapshot(l3.surface),
+				);
+			}
 			if (l3.stale) {
 				console.log(
 					JSON.stringify({ _cm: "aggregate", event: "r2_stale_revalidate" }),
@@ -235,9 +267,16 @@ export async function aggregateAndPrefixTools(
 		);
 		if (!cacheSnapshot) return result;
 		if (!result.degraded) {
-			rememberAggregateSurface(cacheKey, result, visited);
-			await writeAggregateL2(cacheKey, result);
-			await writeAggregateR2(env, cacheKey, result, rootSlug);
+			const snapshot = serializeAggregateSnapshot(result);
+			rememberAggregateSurface(cacheKey, result, visited, snapshot.generation);
+			await writeAggregateL2(cacheKey, snapshot);
+			await writeAggregateR2(
+				env,
+				cacheKey,
+				snapshot,
+				rootSlug,
+				result.tools.length,
+			);
 			return result;
 		}
 		// Stale-beats-degraded: a degraded cold rebuild (upstream entries dropped —
@@ -263,7 +302,12 @@ export async function aggregateAndPrefixTools(
 				appSlug: rootSlug,
 				toolCount: expired.surface.tools.length,
 			});
-			rememberAggregateSurface(cacheKey, expired.surface, visited);
+			rememberAggregateSurface(
+				cacheKey,
+				expired.surface,
+				visited,
+				expired.generation,
+			);
 			const job = revalidateAggregate(
 				cacheKey,
 				entries,
