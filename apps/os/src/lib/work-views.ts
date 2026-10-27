@@ -59,8 +59,9 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	},
 	{
 		id: "cases",
-		label: "Work streams",
-		description: "Bigger pieces of work inside a project, like a sprint.",
+		label: "Epics",
+		description:
+			"Bigger pieces of work that group several tasks under one owner.",
 		group: "planning",
 		to: "/work/cases",
 	},

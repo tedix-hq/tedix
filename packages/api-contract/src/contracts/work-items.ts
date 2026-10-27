@@ -343,7 +343,7 @@ export const workItemsContract = oc
 			.route({
 				method: "POST",
 				path: "/cases",
-				summary: "Create Work case",
+				summary: "Create epic",
 				successStatus: 201,
 			})
 			.input(
@@ -353,12 +353,12 @@ export const workItemsContract = oc
 							.uuid()
 							.optional()
 							.describe(
-								"Optional project context; cases may instead be objective- or organization-scoped.",
+								"Optional project context; epics may instead be objective- or organization-scoped.",
 							),
 						objectiveId: z
 							.uuid()
 							.optional()
-							.describe("Optional strategic objective context for the case."),
+							.describe("Optional strategic objective context for the epic."),
 						kind: WorkCaseKindSchema,
 						title: z.string().trim().min(1).max(500),
 						description: z
@@ -366,12 +366,12 @@ export const workItemsContract = oc
 							.max(10_000)
 							.optional()
 							.describe(
-								"Optional initial narrative; investigating cases may begin title-only.",
+								"Optional initial narrative; investigating epics may begin title-only.",
 							),
 						stage: WorkCaseStageSchema.exclude(["closed"])
 							.optional()
 							.describe(
-								"Optional initial stage; omission starts the case in investigating.",
+								"Optional initial stage; omission starts the epic in investigating.",
 							),
 						accountableOwnerType: WorkFactoryOwnerTypeSchema,
 						accountableOwnerId: z.string().trim().min(1).max(300),
@@ -384,7 +384,7 @@ export const workItemsContract = oc
 						targetResolutionAt: z.iso
 							.datetime()
 							.optional()
-							.describe("Optional target date for resolving the case."),
+							.describe("Optional target date for resolving the epic."),
 					})
 					.strict(),
 			)
@@ -394,7 +394,7 @@ export const workItemsContract = oc
 			.route({
 				method: "GET",
 				path: "/cases",
-				summary: "List Work cases",
+				summary: "List epics",
 			})
 			.input(
 				z
@@ -403,7 +403,7 @@ export const workItemsContract = oc
 							.uuid()
 							.optional()
 							.describe(
-								"Optional project filter; omission includes cases across the organization.",
+								"Optional project filter; omission includes epics across the organization.",
 							),
 						stages: z
 							.array(WorkCaseStageSchema)
@@ -411,10 +411,10 @@ export const workItemsContract = oc
 							.max(5)
 							.optional()
 							.describe(
-								"Optional stage filter; omission includes every case stage.",
+								"Optional stage filter; omission includes every epic stage.",
 							),
 						cursor: WorkFactoryProjectionCursorSchema.optional().describe(
-							"Opaque case timeline cursor; omit to start at the newest page.",
+							"Opaque epic timeline cursor; omit to start at the newest page.",
 						),
 						limit: z.number().int().min(1).max(100).default(50),
 					})
@@ -425,7 +425,7 @@ export const workItemsContract = oc
 					.object({
 						data: z.array(WorkCaseSchema),
 						nextCursor: WorkFactoryProjectionCursorSchema.nullable().describe(
-							"Null when the bounded case list has no further page.",
+							"Null when the bounded epic list has no further page.",
 						),
 					})
 					.strict(),
@@ -435,7 +435,7 @@ export const workItemsContract = oc
 			.route({
 				method: "GET",
 				path: "/cases/{caseId}",
-				summary: "Get Work case detail",
+				summary: "Get epic detail",
 			})
 			.input(
 				z
@@ -464,7 +464,7 @@ export const workItemsContract = oc
 			.route({
 				method: "PATCH",
 				path: "/cases/{caseId}",
-				summary: "Update Work case",
+				summary: "Update epic",
 			})
 			.input(
 				z
@@ -477,7 +477,7 @@ export const workItemsContract = oc
 							.min(1)
 							.max(500)
 							.optional()
-							.describe("Omit to preserve the current case title."),
+							.describe("Omit to preserve the current epic title."),
 						description: z
 							.string()
 							.max(10_000)
@@ -485,7 +485,7 @@ export const workItemsContract = oc
 							.optional()
 							.describe("Omit to preserve the narrative; null clears it."),
 						stage: WorkCaseStageSchema.optional().describe(
-							"Omit to preserve the current case stage.",
+							"Omit to preserve the current epic stage.",
 						),
 						accountableOwnerType:
 							WorkFactoryOwnerTypeSchema.optional().describe(
@@ -512,7 +512,7 @@ export const workItemsContract = oc
 			.route({
 				method: "POST",
 				path: "/cases/{caseId}/work-items",
-				summary: "Attach Work Item to case",
+				summary: "Attach Work Item to epic",
 				successStatus: 201,
 			})
 			.input(
@@ -525,7 +525,7 @@ export const workItemsContract = oc
 							.max(2_000)
 							.optional()
 							.describe(
-								"Optional explanation of how the attached Work Item informs the case.",
+								"Optional explanation of how the attached Work Item informs the epic.",
 							),
 					})
 					.strict(),
@@ -536,7 +536,7 @@ export const workItemsContract = oc
 			.route({
 				method: "POST",
 				path: "/cases/dependencies",
-				summary: "Add Work case dependency",
+				summary: "Add epic dependency",
 				successStatus: 201,
 			})
 			.input(z.object({ fromCaseId: z.uuid(), toCaseId: z.uuid() }).strict())

@@ -150,7 +150,7 @@ export const WorkInteractionRequestSchema = z.strictObject({
 		.uuid()
 		.nullable()
 		.describe(
-			"Set only when the interaction is scoped directly to a Work case.",
+			"Set only when the interaction is scoped directly to an epic (a Work case).",
 		),
 	projectId: z
 		.uuid()
@@ -253,7 +253,7 @@ export const CreateWorkInteractionInputSchema = z
 			.uuid()
 			.optional()
 			.describe(
-				"Supply for Work case context; exactly one context identifier is required.",
+				"Supply for epic (Work case) context; exactly one context identifier is required.",
 			),
 		projectId: z
 			.uuid()

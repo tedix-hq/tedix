@@ -565,7 +565,7 @@ export const OS_PAGES: readonly OsPage[] = [
 	{
 		id: "work-cases",
 		path: "/work/cases",
-		label: "Work streams",
+		label: "Epics",
 		parentId: "work",
 		breadcrumb: "parent",
 	},
@@ -628,7 +628,7 @@ export const OS_PAGES: readonly OsPage[] = [
 	{
 		id: "work-cases-detail",
 		path: "/work/cases/$caseId",
-		label: "Work streams",
+		label: "Epics",
 		parentId: "work",
 		breadcrumb: "parent",
 	},

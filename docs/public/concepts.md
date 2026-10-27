@@ -5,7 +5,7 @@ title: "Core concepts"
 topic: "Platform"
 resource_type: guide
 description: "The small set of Tedix terms a new operator or agent needs before using the platform."
-summary: "Public glossary for organizations, tedis, runs, Work Items, cases, milestones, Documents, apps, skills, and approvals"
+summary: "Public glossary for organizations, tedis, runs, Work Items, epics, milestones, Documents, apps, skills, and approvals"
 read_when:
   - Learning Tedix terminology
   - Translating a product request into Tedix objects
@@ -36,18 +36,18 @@ recent activity and receipts. Your organization chooses the apps and batch
 settings; [workspace apps](./build-a-workspace-app.md#decisions)
 explains how to set them up.
 
-| Term        | Meaning                                                                                                                                                                                                             |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home        | The conversation where you ask for work. Tedix answers there or hands the request to a tedi, and saves each turn as a run.                                                                                          |
-| Run         | The saved record of one piece of work: status, events, rationale, artifacts, and result.                                                                                                                            |
-| Work Item   | A bounded outcome with an owner, a risk level, a budget, a time-limited claim, discussion, and a recorded result.                                                                                                   |
-| Case        | What a project is investigating or driving right now, with one accountable owner. Stages: investigating, planning, executing, monitoring, closed.                                                                   |
-| Milestone   | A project's group of Work Items due together, with an optional target date. Statuses: proposed, planned, active, done, cancelled.                                                                                   |
-| Output      | A document, sheet, presentation or video in a Workspace. Every save is an append-only revision; the Output points at its current one.                                                                               |
-| Task        | Handle for asynchronous work. Having a task id does not mean the work finished.                                                                                                                                     |
-| Interaction | A question or request a session or tedi raises on a Work Item. An answer given in Tedix OS reaches the session that asked; a tedi may answer in its own name, and a later human answer is recorded as a correction. |
-| Delegation  | A lead session's hand-off of work to a subagent or another session, registered as an accepted Work Item and completed with a recorded outcome.                                                                      |
-| Workstation | Bounded Sandbox lease for jobs that need files, processes, a repository, or operating-system tools. It is additive compute, not the tedi's identity.                                                                |
+| Term        | Meaning                                                                                                                                                                                                                                |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home        | The conversation where you ask for work. Tedix answers there or hands the request to a tedi, and saves each turn as a run.                                                                                                             |
+| Run         | The saved record of one piece of work: status, events, rationale, artifacts, and result.                                                                                                                                               |
+| Work Item   | A bounded outcome with an owner, a risk level, a budget, a time-limited claim, discussion, and a recorded result.                                                                                                                      |
+| Epic        | A bigger piece of work inside a project, like an incident, an investigation or a feature. It groups several tasks and has one owner; tools and the CLI call it a case. Stages: investigating, planning, executing, monitoring, closed. |
+| Milestone   | A project's group of Work Items due together, with an optional target date. Statuses: proposed, planned, active, done, cancelled.                                                                                                      |
+| Output      | A document, sheet, presentation or video in a Workspace. Every save is an append-only revision; the Output points at its current one.                                                                                                  |
+| Task        | Handle for asynchronous work. Having a task id does not mean the work finished.                                                                                                                                                        |
+| Interaction | A question or request a session or tedi raises on a Work Item. An answer given in Tedix OS reaches the session that asked; a tedi may answer in its own name, and a later human answer is recorded as a correction.                    |
+| Delegation  | A lead session's hand-off of work to a subagent or another session, registered as an accepted Work Item and completed with a recorded outcome.                                                                                         |
+| Workstation | Bounded Sandbox lease for jobs that need files, processes, a repository, or operating-system tools. It is additive compute, not the tedi's identity.                                                                                   |
 
 ## Capabilities
 
