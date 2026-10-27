@@ -52,7 +52,7 @@ export function DocumentLinkPopover({
 				initialFocus={false}
 				finalFocus={false}
 				align="start"
-				className="max-w-[min(24rem,calc(100vw-2rem))] gap-2 p-2"
+				className="w-[min(24rem,calc(100vw-2rem))] gap-2 p-2"
 				aria-label="Document link"
 			>
 				{/* The whole destination stays readable before anyone opens it. */}
