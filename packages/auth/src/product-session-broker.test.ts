@@ -421,3 +421,107 @@ describe("product session broker handoff", () => {
 		).toBe(true);
 	});
 });
+
+describe("custom OS host handoff", () => {
+	const customHost = { organizationId: "org-acme", tenantId: "tenant-1" };
+	const origin = "https://share.example.com";
+	const options = {
+		customHost,
+		correlationCookie: CORRELATION_COOKIE,
+		productCookie: PRODUCT_COOKIE,
+		surface: "os" as const,
+	};
+
+	async function handoff() {
+		const response = await startProductSessionBroker({
+			...options,
+			broker: broker(),
+			operation: "issue_session",
+			redirectPath: "/s/permanent-link",
+			tenantId: customHost.tenantId,
+			requireSameOriginStart: true,
+			request: new Request(`${origin}/auth/session-broker/start`, {
+				headers: { "Sec-Fetch-Site": "same-origin" },
+			}),
+		});
+		const cookie = response.headers.getSetCookie()[0]!;
+		expect(cookie).toContain("Secure; HttpOnly; SameSite=Lax");
+		expect(cookie).not.toContain("Domain=");
+		return new Request(
+			`${origin}/auth/session-broker/callback?intent=${INTENT}&code=${CODE}`,
+			{
+				headers: { Cookie: cookie.split(";")[0]! },
+			},
+		);
+	}
+
+	it("returns to the permanent share path with a host-only session", async () => {
+		const request = await handoff();
+		let exchanged: ExchangeSessionBrokerCodeInput | undefined;
+		const response = await finishProductSessionBroker({
+			...options,
+			request,
+			broker: broker({
+				async exchangeCode(input) {
+					exchanged = input;
+					return {
+						kind: "session",
+						tenantId: customHost.tenantId,
+						subject: "user-1",
+						sessionJwt: "custom-session",
+						expiresAt: Math.floor(Date.now() / 1000) + 600,
+					};
+				},
+			}),
+		});
+		expect(exchanged?.customHost).toEqual(customHost);
+		expect(exchanged?.targetOrigin).toBe(origin);
+		expect(response.headers.get("Location")).toBe("/s/permanent-link");
+		const cookie = response.headers
+			.getSetCookie()
+			.find((c) => c.startsWith(`${PRODUCT_COOKIE}=custom-session`))!;
+		expect(cookie).toContain("Secure; HttpOnly; SameSite=Lax");
+		expect(cookie).not.toContain("Domain=");
+	});
+
+	it.each([
+		{ organizationId: "org-other", tenantId: "tenant-1" },
+		{ organizationId: "org-acme", tenantId: "tenant-other" },
+		undefined,
+	])("refuses changed edge binding before exchange: %j", async (changed) => {
+		const request = await handoff();
+		let called = false;
+		const response = await finishProductSessionBroker({
+			...options,
+			customHost: changed,
+			request,
+			broker: broker({
+				async exchangeCode() {
+					called = true;
+					throw new Error("must not exchange");
+				},
+			}),
+		});
+		expect(called).toBe(false);
+		expect(response.headers.get("Location")).toContain("error=invalid_request");
+		expect(
+			response.headers
+				.getSetCookie()
+				.every((cookie) => cookie.includes("Max-Age=0")),
+		).toBe(true);
+	});
+
+	it("keeps the static allowlist closed without a binding", async () => {
+		await expect(
+			startProductSessionBroker({
+				...options,
+				customHost: undefined,
+				broker: broker(),
+				operation: "issue_session",
+				redirectPath: "/s/permanent-link",
+				tenantId: customHost.tenantId,
+				request: new Request(`${origin}/auth/session-broker/start`),
+			}),
+		).rejects.toThrow("not allowlisted");
+	});
+});

@@ -1,3 +1,4 @@
+import { assertFreshCustomHost } from "./custom-host";
 import { DurableObject } from "cloudflare:workers";
 import {
 	assertExchangeSessionBrokerCodeInput,
@@ -250,6 +251,15 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 		now = Math.floor(Date.now() / 1000),
 	): Promise<SessionBrokerExchangeResult | null> {
 		assertExchangeSessionBrokerCodeInput(input, surface, this.osOrigin);
+		const pending = this.readRow();
+		if (!pending || pending.status !== "granted") return null;
+		try {
+			const boundIntent = parseIntent(pending, this.osOrigin, now);
+			await assertFreshCustomHost(this.env.API_SERVICE, boundIntent);
+		} catch {
+			await this.fail();
+			return null;
+		}
 		const result: SessionBrokerExchangeResult | null =
 			this.ctx.storage.transactionSync(() => {
 				const row = this.readRow();
@@ -274,7 +284,10 @@ export class SessionIntentOwner extends DurableObject<Cloudflare.Env> {
 					intent.intentId !== input.intentId ||
 					intent.stateHash !== input.stateHash ||
 					intent.targetOrigin !== input.targetOrigin ||
-					intent.tenantId !== input.tenantId
+					intent.tenantId !== input.tenantId ||
+					intent.customHost?.organizationId !==
+						input.customHost?.organizationId ||
+					intent.customHost?.tenantId !== input.customHost?.tenantId
 				) {
 					return null;
 				}

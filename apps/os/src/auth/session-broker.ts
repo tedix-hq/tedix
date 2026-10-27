@@ -4,7 +4,10 @@ import {
 	PRODUCT_SESSION_BROKER_POLICIES,
 } from "@tedix/auth/mount-session-broker";
 import { resolveProductSession } from "@tedix/auth/product-session-broker";
-import type { SessionBrokerRpc } from "@tedix/auth/session-broker";
+import type {
+	SessionBrokerCustomHost,
+	SessionBrokerRpc,
+} from "@tedix/auth/session-broker";
 import type { resolveOsTenant } from "@/shared/os-tenant";
 import { isOsBrokerSessionRenewalDue } from "./broker-session.shared";
 
@@ -117,6 +120,7 @@ export async function handleOsSessionBroker(
 	env: OsSessionBrokerEnv,
 	host: ReturnType<typeof resolveOsTenant>,
 	hostTenantId: string | null,
+	customHost?: SessionBrokerCustomHost,
 ): Promise<Response | null> {
 	const url = new URL(request.url);
 	const cli = url.pathname.startsWith("/cli/session-broker/");
@@ -148,6 +152,7 @@ export async function handleOsSessionBroker(
 	}
 	const mounted = mountSessionBroker(cli ? "cli" : "os", broker, {
 		installationOsOrigin: env.OS_URL,
+		customHost,
 	});
 	// authz: public — login-flow callback: the broker verifies the one-time code and correlation cookie itself.
 	if (url.pathname === `${prefix}/callback`) {

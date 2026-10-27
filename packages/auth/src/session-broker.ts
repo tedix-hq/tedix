@@ -39,6 +39,7 @@ export type SessionBrokerOperation =
 	| "outbound_connect";
 
 export interface SessionBrokerIntent {
+	customHost?: SessionBrokerCustomHost;
 	callbackPath: string;
 	expiresAt: number;
 	intentId: string;
@@ -78,6 +79,7 @@ export type CreateSessionBrokerIntentInput = Omit<
  * atomically consumes the intent and code after checking every binding.
  */
 export interface ExchangeSessionBrokerCodeInput {
+	customHost?: SessionBrokerCustomHost;
 	code: string;
 	intentId: string;
 	stateHash: string;
@@ -105,6 +107,35 @@ export interface SessionBrokerRpc {
 	exchangeCode(
 		input: ExchangeSessionBrokerCodeInput,
 	): Promise<SessionBrokerExchangeResult>;
+}
+
+/** Routing binding only; the broker must independently resolve the live claim. */
+export interface SessionBrokerCustomHost {
+	organizationId: string;
+	tenantId: string;
+}
+
+export function assertSessionBrokerBoundTargetOrigin(
+	surface: SessionBrokerSurface,
+	value: string,
+	installationOsOrigin?: string,
+	customHost?: SessionBrokerCustomHost,
+): string {
+	if (!customHost)
+		return assertSessionBrokerTargetOrigin(
+			surface,
+			value,
+			installationOsOrigin,
+		);
+	if (
+		surface !== "os" ||
+		(installationOsOrigin &&
+			installationOsOrigin !== SESSION_BROKER_LOGIN_ORIGIN) ||
+		!customHost.organizationId ||
+		!isSessionBrokerTenantId(customHost.tenantId)
+	)
+		fail("INVALID_TARGET_ORIGIN", "Invalid custom OS host binding");
+	return assertCanonicalSessionBrokerOrigin(value);
 }
 
 export function buildSessionBrokerLoginUrl(
@@ -507,10 +538,18 @@ export function assertSessionBrokerIntent(
 	) {
 		fail("INVALID_EXPIRY", "Intent is expired or exceeds its maximum TTL");
 	}
-	const targetOrigin = assertSessionBrokerTargetOrigin(
+	if (
+		value.customHost &&
+		((value.operation !== "issue_session" && value.operation !== "logout") ||
+			(value.operation === "issue_session" &&
+				value.tenantId !== value.customHost.tenantId))
+	)
+		fail("INVALID_TENANT_ID", "Custom host requires its exact tenant");
+	const targetOrigin = assertSessionBrokerBoundTargetOrigin(
 		value.surface,
 		value.targetOrigin,
 		installationOsOrigin,
+		value.customHost,
 	);
 	if (value.callbackPath !== SESSION_BROKER_CALLBACK_PATHS[value.surface]) {
 		fail(
@@ -552,10 +591,11 @@ export function assertExchangeSessionBrokerCodeInput(
 	assertOpaqueReference(value.code, "INVALID_CODE");
 	assertOpaqueReference(value.intentId, "INVALID_INTENT_ID");
 	assertSessionBrokerStateHash(value.stateHash);
-	assertSessionBrokerTargetOrigin(
+	assertSessionBrokerBoundTargetOrigin(
 		surface,
 		value.targetOrigin,
 		installationOsOrigin,
+		value.customHost,
 	);
 	if (value.tenantId !== null && !isSessionBrokerTenantId(value.tenantId)) {
 		fail("INVALID_TENANT_ID", "Tenant id has an invalid shape");

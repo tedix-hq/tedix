@@ -366,3 +366,39 @@ describe("session broker contract", () => {
 		).toMatchObject({ tenantId: null });
 	});
 });
+
+describe("custom OS host intent contract", () => {
+	const customHost = { organizationId: "org-acme", tenantId: "org_tedix" };
+	it("keeps the static allowlist closed while accepting an explicit OS binding", () => {
+		expect(() =>
+			assertSessionBrokerTargetOrigin("os", "https://share.example.com"),
+		).toThrow();
+		expect(
+			assertSessionBrokerIntent(
+				intent({ targetOrigin: "https://share.example.com", customHost }),
+				NOW,
+			).customHost,
+		).toEqual(customHost);
+	});
+	it.each([
+		{ surface: "docs" as const },
+		{ surface: "cms" as const },
+		{ surface: "cli" as const },
+		{ targetOrigin: "https://share.example.com:8443" },
+		{ targetOrigin: "https://share.example.com/path" },
+		{ targetOrigin: "http://share.example.com" },
+		{ tenantId: "other-tenant" },
+		{ operation: "resume_session" as const, tenantId: null },
+	])("rejects a custom binding outside its exact contract: %j", (overrides) => {
+		expect(() =>
+			assertSessionBrokerIntent(
+				intent({
+					targetOrigin: "https://share.example.com",
+					customHost,
+					...overrides,
+				}),
+				NOW,
+			),
+		).toThrow();
+	});
+});

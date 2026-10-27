@@ -1116,6 +1116,12 @@ export async function handleOsRequest(
 		env,
 		tenant,
 		hostTenantId,
+		customResolution?.organizationId && hostTenantId
+			? {
+					organizationId: customResolution.organizationId,
+					tenantId: hostTenantId,
+				}
+			: undefined,
 	);
 	if (brokerResponse) return withSecurityHeaders(brokerResponse);
 	// authz: verified OS session on the fixed Tedix tenant host. This is a

@@ -5,6 +5,7 @@ import {
 	startProductSessionBroker,
 } from "./product-session-broker";
 import type {
+	SessionBrokerCustomHost,
 	SessionBrokerOperation,
 	SessionBrokerRpc,
 	SessionBrokerSurface,
@@ -102,7 +103,10 @@ function isCmsDirectoryHandoff(request: Request): boolean {
 export function mountSessionBroker(
 	surface: SessionBrokerSurface,
 	broker: SessionBrokerRpc,
-	options?: { installationOsOrigin?: string },
+	options?: {
+		installationOsOrigin?: string;
+		customHost?: SessionBrokerCustomHost;
+	},
 ) {
 	const policy = PRODUCT_SESSION_BROKER_POLICIES[surface];
 	return {
@@ -119,6 +123,7 @@ export function mountSessionBroker(
 		}) {
 			return continueProductSessionBroker({
 				installationOsOrigin: options?.installationOsOrigin,
+				customHost: options?.customHost,
 				redirectPath,
 				request,
 				startPath: policy.startPath,
@@ -128,6 +133,7 @@ export function mountSessionBroker(
 		finish(request: Request) {
 			return finishProductSessionBroker({
 				installationOsOrigin: options?.installationOsOrigin,
+				customHost: options?.customHost,
 				broker,
 				correlationCookie: policy.correlationCookie,
 				failureRedirectPath: policy.failureRedirectPath,
@@ -150,6 +156,7 @@ export function mountSessionBroker(
 		}) {
 			return startProductSessionBroker({
 				installationOsOrigin: options?.installationOsOrigin,
+				customHost: options?.customHost,
 				broker,
 				correlationCookie: policy.correlationCookie,
 				operation,
