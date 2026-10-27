@@ -241,6 +241,30 @@ the done column gets `yes` from **Do it** (`no` from **Not useful**). A
 factory that already reads those cells keeps working unchanged. Snooze is
 per viewer and writes nothing.
 
+To offer **Re-score these cards**, add `replay` to a source's settings:
+
+```json
+{
+	"skillId": "<scoring-skill-id>",
+	"tediId": "<owner-tedi-uuid>",
+	"columns": { "url": "Source", "title": "Title", "text": "Text" }
+}
+```
+
+Open **Waiting → Inspect all cards → Re-score cards…**, choose a sheet,
+and select up to 200 cards, including decided cards. **Select all cards in
+this sheet** selects the loaded cards from that sheet. The console reads
+the sheet again and starts the configured skill's active workflow with
+`{mode: "replay", items: [{url, title, text}]}`. The URL column must contain
+the same source link the card shows. **View run** opens its progress and
+result; starting a run does not mean scoring has finished.
+
+The console does not change verdicts, feedback or scores itself. Configure
+only a replay workflow that updates existing cards by URL, changes their
+scores and validation status, and preserves decisions and feedback. Check
+that behavior in the workflow's tests before enabling this action. Running
+it requires the same permission as **Run now** on a skill.
+
 **Do it** is named after the card's action cell, a short concrete label of
 at most 40 characters such as "Draft a reply to Mia" or "Add to calendar".
 A card with an empty action cell has no **Do it** button. A sheet without

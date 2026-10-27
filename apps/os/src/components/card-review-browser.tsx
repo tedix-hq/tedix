@@ -1,17 +1,29 @@
 import { useState } from "react";
 import { isOpen, type ReviewCard } from "@tedix/api-contract/utils/card-review";
 import { Button } from "./kumo/button";
+import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
+import { CardRescorePanel } from "./card-rescore-panel";
 
-/** Only receives already authorized cards and local navigation; no write callbacks. */
 export function CardReviewBrowser({
 	cards,
+	sources,
 	onBack,
 }: {
 	cards: readonly ReviewCard[];
+	sources: readonly CardReviewSource[];
 	onBack: () => void;
 }) {
 	const [selected, setSelected] = useState<string | null>(null);
+	const [rescore, setRescore] = useState(false);
 	const card = cards.find((item) => item.key === selected);
+	if (rescore)
+		return (
+			<CardRescorePanel
+				cards={cards}
+				sources={sources}
+				onBack={() => setRescore(false)}
+			/>
+		);
 	return (
 		<section
 			aria-label="Inspect all cards"
@@ -27,6 +39,11 @@ export function CardReviewBrowser({
 					{card ? "Back to all cards" : "Back to waiting"}
 				</Button>
 			</div>
+			{!card && sources.some((source) => source.replay) && (
+				<Button variant="outline" onClick={() => setRescore(true)}>
+					Re-score cards…
+				</Button>
+			)}
 			{card ? (
 				<dl className="grid min-w-0 gap-2 whitespace-pre-wrap break-words">
 					{Object.entries({

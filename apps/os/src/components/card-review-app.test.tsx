@@ -292,6 +292,28 @@ describe("CardReviewApp decision interactions", () => {
 		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
 	});
+	it("keeps cards excluded by ranking available for inspection and replay selection", async () => {
+		const appConfig = CardReviewConfigSchema.parse(config);
+		appConfig.sources[0]!.scoring = {
+			weights: {},
+			topN: 1,
+			skipReasonChips: [],
+			agentDecidableClasses: [],
+		};
+		await mount(false, false, appConfig);
+		expect(host.textContent).toContain("1 waiting");
+		await act(async () =>
+			(
+				host.querySelector("[data-card-review-progress]") as HTMLButtonElement
+			).click(),
+		);
+		await click("Inspect all cards");
+		const inspector = host.querySelector('[aria-label="Inspect all cards"]');
+		expect(inspector?.textContent).toContain("#1");
+		expect(inspector?.textContent).toContain("#2");
+		expect(inspector?.textContent).toContain("#3");
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+	});
 	it("inspects decided feedback without writes and preserves the review note", async () => {
 		sheet.rows[1]![6] = "yes";
 		sheet.rows[1]![7] = "Recorded feedback";

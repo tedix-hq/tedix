@@ -310,6 +310,19 @@ export const CardReviewSourceSchema = z
 		scoring: CardScoringSchema.optional().describe(
 			"Score-based ranking, caps and skip reasons; without it cards keep sheet order",
 		),
+		replay: z
+			.object({
+				skillId: z.string().trim().min(1).max(200),
+				tediId: z.string().uuid(),
+				columns: z
+					.object({ url: header, title: header, text: header })
+					.strict(),
+			})
+			.strict()
+			.optional()
+			.describe(
+				"Re-score selected cards with the active skill using {mode: 'replay', items: [{url, title, text}]}. The workflow must update scores and validation status by URL while preserving decisions and feedback; no skill version is pinned.",
+			),
 		protectedEffects: z
 			.array(ProtectedEffectSchema)
 			.max(7)

@@ -340,7 +340,7 @@ export function CardReviewApp({
 		return map;
 	}, [detailIds, details]);
 
-	const { cards, missing } = useMemo(() => {
+	const { cards, allCards, missing } = useMemo(() => {
 		const all: ReviewCard[] = [];
 		const gaps: MissingColumns[] = [];
 		for (const ref of sheetRefs.cards) {
@@ -358,7 +358,7 @@ export function CardReviewApp({
 			if ("missing" in result) gaps.push(result.missing);
 			else all.push(...result.cards);
 		}
-		return { cards: scoredCards(all, sources), missing: gaps };
+		return { cards: scoredCards(all, sources), allCards: all, missing: gaps };
 	}, [sheetRefs, sheets, sources]);
 
 	const rules = useMemo(() => {
@@ -1024,7 +1024,7 @@ export function CardReviewApp({
 			}
 			return;
 		}
-		if (key === "w" && inChannel.length > 0) {
+		if (key === "w" && allCards.length > 0) {
 			setBrowsing(true);
 			event.preventDefault();
 			return;
@@ -1201,7 +1201,7 @@ export function CardReviewApp({
 						{channels[0] ?? sources.map((s) => s.label).join(" · ")}
 					</Text>
 				)}
-				{inChannel.length > 0 && (
+				{allCards.length > 0 && (
 					<Button
 						size="sm"
 						variant="ghost"
@@ -1265,7 +1265,8 @@ export function CardReviewApp({
 			) : browsing ? (
 				<WaitingList
 					queue={queue}
-					cards={inChannel}
+					cards={allCards}
+					sources={sources}
 					now={now}
 					onOpen={(key) => {
 						setBrowseKey(key);
@@ -1448,12 +1449,14 @@ export function CardReviewApp({
 function WaitingList({
 	queue,
 	cards,
+	sources,
 	now,
 	onOpen,
 	onBack,
 }: {
 	queue: readonly ReviewCard[];
 	cards: readonly ReviewCard[];
+	sources: readonly CardReviewSource[];
 	now: Date;
 	onOpen: (cardKey: string) => void;
 	onBack: () => void;
@@ -1465,7 +1468,13 @@ function WaitingList({
 			: a.runCreatedAt.localeCompare(b.runCreatedAt),
 	);
 	if (inspect)
-		return <CardReviewBrowser cards={cards} onBack={() => setInspect(false)} />;
+		return (
+			<CardReviewBrowser
+				cards={cards}
+				sources={sources}
+				onBack={() => setInspect(false)}
+			/>
+		);
 	return (
 		<section
 			aria-label={decisionText("Waiting")}
