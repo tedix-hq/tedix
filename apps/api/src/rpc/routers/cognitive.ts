@@ -78,6 +78,7 @@ import {
 } from "./cognitive-skill-runs/artifacts";
 import {
 	skillsInspectWorkflowRun,
+	skillsGetWorkflowRunTimeline,
 	skillsListWorkflowRetryCandidates,
 	skillsListWorkflowSteps,
 	skillsListWorkflowToolCalls,
@@ -160,6 +161,7 @@ export const skillsContractRouter = skillsOs.router({
 	runWorkflowHistory: skillsRunWorkflowHistory,
 	listWorkflowRetryCandidates: skillsListWorkflowRetryCandidates,
 	inspectWorkflowRun: skipOutputValidation(skillsInspectWorkflowRun),
+	getWorkflowRunTimeline: skillsGetWorkflowRunTimeline,
 	listWorkflowSteps: skipOutputValidation(skillsListWorkflowSteps),
 	listWorkflowToolCalls: skipOutputValidation(skillsListWorkflowToolCalls),
 	listWorkflowRevisions: skipOutputValidation(skillsListWorkflowRevisions),

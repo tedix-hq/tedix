@@ -16,6 +16,7 @@ import {
 } from "@tedix/db/queries/skill-run-artifacts";
 import * as z from "zod";
 import { recordArtifactOnceForRun } from "./artifact-immutability";
+import { compactTimelineReceipt } from "./artifact-timeline";
 
 const ArtifactRecordSchema = z.object({
 	path: z.string().min(1),
@@ -178,7 +179,22 @@ export class ArtifactBridge extends WorkerEntrypoint<
 				`ARTIFACT_INVALID_REQUEST: ${JSON.stringify(parsed.error.issues)}`,
 			);
 		}
-		await recordArtifactForRun(this.env, this.ctx.props.runId, parsed.data);
+		const input = parsed.data;
+		const compact = compactTimelineReceipt(input);
+		if (compact || input.path.startsWith("timeline/")) {
+			const { createDbClient } = await import("@tedix/db/client");
+			// Inline rows survive isolate replay and require no R2 body reads.
+			await recordRunArtifact(createDbClient(this.env.DB), {
+				runId: this.ctx.props.runId,
+				path: compact ? "timeline/" + input.path : input.path,
+				value: compact ?? input.value,
+				outcome: input.outcome,
+				attempt: input.attempt,
+			});
+		}
+		if (!input.path.startsWith("timeline/")) {
+			await recordArtifactForRun(this.env, this.ctx.props.runId, input);
+		}
 		return true;
 	}
 

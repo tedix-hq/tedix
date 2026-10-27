@@ -1,6 +1,10 @@
+import { buildSkillWorkflowTimeline } from "../../../services/skill-workflow-timeline";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { SkillWorkflowConnectionRecoverySchema } from "@tedix/api-contract/schemas/cognitive";
-import { getRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
+import {
+	getRunArtifact,
+	listRunTimelineArtifacts,
+} from "@tedix/db/queries/skill-run-artifacts";
 import {
 	isMethodAllowed,
 	parseCapabilityManifest,
@@ -647,4 +651,26 @@ export const skillsListWorkflowToolCalls = authedSkills.listWorkflowToolCalls
 			truncated: projectionTruncated,
 			nextOffset: projectionTruncated ? input.offset + input.limit : null,
 		};
+	});
+
+export const skillsGetWorkflowRunTimeline = authedSkills.getWorkflowRunTimeline
+	.use(AUTHZ.tedisRead)
+	.handler(async ({ input, context }) => {
+		const orgId = requireOrgId(context);
+		const run = await getSkillRunForEnvironment(context, input.runId, orgId);
+		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
+		requireWorkflowRunTedi(run, input.tediId);
+		if (
+			run.workflowRetiredAt ||
+			run.error === "REVOKED" ||
+			run.error?.startsWith("REVOKED:")
+		) {
+			throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
+		}
+		const artifacts = await listRunTimelineArtifacts(
+			context.db,
+			run.id,
+			run.executionEpoch ?? 0,
+		);
+		return buildSkillWorkflowTimeline(run, artifacts);
 	});

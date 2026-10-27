@@ -111,14 +111,13 @@ export function skillRuntimeStubKey(
 
 // Bump when DISPATCH_SHIM source changes so cached isolates from a previous
 // deploy don't shadow updated routing logic.
-export const DISPATCH_SHIM_VERSION = "v49-safe-media-post-step";
+export const DISPATCH_SHIM_VERSION = "v50-compact-run-timeline";
 
 // Bump when loader-side bridges or host orchestration change the observable
 // semantics of an already-started execution epoch. Exact tenant module sources
 // are hashed separately; this covers the TypeScript bridge implementations
 // that cannot be introspected from a deployed Worker at runtime.
-export const WORKFLOW_BRIDGE_COMPATIBILITY_VERSION =
-	"v6-manifest-approval-refusal-outcomes";
+export const WORKFLOW_BRIDGE_COMPATIBILITY_VERSION = "v7-compact-run-timeline";
 
 function createMcpBridgeProps(
 	input: LoadSkillRuntimeInput,
@@ -308,6 +307,7 @@ import {
   getWorkflowDispose,
   joinWorkflowArray,
   matchWorkflowString,
+  workflowRequestHost,
   parseWorkflowJson,
   pushWorkflowArray,
   rejectWorkflowPromise,
@@ -401,6 +401,10 @@ ${RUNNER_RPC_SOURCE}${RUNNER_EVIDENCE_SOURCE}${RUNNER_STEPS_SOURCE}export class 
 	        })] : []),
 	      ]);
 
+	      await persistArtifact(this.env, {
+	        path: "timeline/epochs/" + meta.executionEpoch + "/coverage.json",
+	        value: { schemaVersion: 1, kind: "coverage", executionEpoch: meta.executionEpoch },
+	      });
 	      const timeline = makeTimeline();
 	      const wrappedStep = wrapStep(step, this.env, timeline, meta);
 	      const schedulePolicy = meta.capabilityManifest && meta.capabilityManifest.schedule;

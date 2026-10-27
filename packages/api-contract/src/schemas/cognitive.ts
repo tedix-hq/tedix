@@ -833,3 +833,62 @@ export const WorkspaceSkillDraftListSchema = z.object({
 		}),
 	),
 });
+
+/** Compact inline workflow receipts; paths identify the original evidence. */
+export const SkillWorkflowTimelineEventSchema = z.object({
+	schemaVersion: z.literal(1),
+	id: z.string(),
+	path: z.string(),
+	executionEpoch: z.number().int().nonnegative(),
+	kind: z.enum(["step", "mcp", "network", "sleep", "wait", "rollback"]),
+	name: z.string(),
+	count: z.number().int().nonnegative(),
+	attempt: z.number().int().positive().optional(),
+	phase: z.enum(["run", "rollback"]).optional(),
+	lane: z.string(),
+	startedAt: z.string().nullable(),
+	endedAt: z.string().nullable(),
+	durationMs: z.number().nonnegative().nullable(),
+	status: z.string(),
+	outcome: z.enum(["pending", "success", "failure"]),
+	namespace: z.string().optional(),
+	method: z.string().optional(),
+	host: z.string().optional(),
+	httpStatus: z.number().int().nullable().optional(),
+});
+export type SkillWorkflowTimelineEvent = z.infer<
+	typeof SkillWorkflowTimelineEventSchema
+>;
+
+export const SkillWorkflowRunTimelineSchema = z.object({
+	run: z.object({
+		id: z.string(),
+		status: SkillRunStatusSchema,
+		startedAt: z.string().nullable(),
+		completedAt: z.string().nullable(),
+		executionEpoch: z.number().int().nonnegative(),
+	}),
+	coverage: z.enum(["complete", "partial"]),
+	lanes: z.array(
+		z.object({ id: z.string(), label: z.string(), kind: z.string() }),
+	),
+	events: z.array(SkillWorkflowTimelineEventSchema),
+	phases: z.array(
+		z.object({
+			id: z.string(),
+			label: z.string(),
+			startedAt: z.string().nullable(),
+			endedAt: z.string().nullable(),
+			calls: z.object({
+				ok: z.number().int().nonnegative(),
+				failed: z.number().int().nonnegative(),
+				pending: z.number().int().nonnegative(),
+			}),
+		}),
+	),
+	truncated: z.literal(false),
+	warnings: z.array(z.string()),
+});
+export type SkillWorkflowRunTimeline = z.infer<
+	typeof SkillWorkflowRunTimelineSchema
+>;

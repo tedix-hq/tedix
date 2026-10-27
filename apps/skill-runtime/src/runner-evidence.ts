@@ -1,7 +1,13 @@
-export const RUNNER_EVIDENCE_SOURCE = `// Artifact persistence is best-effort — failures here must never fail the
-// workflow itself. We still await it so Workers RPC can close call handles
-// deterministically instead of relying on GC.
+export const RUNNER_EVIDENCE_SOURCE = `// Operational receipts are required. Optional display artifacts remain best-effort.
 function persistArtifact(env, payload) {
+  const required = payload && (testWorkflowRegex(/^timeline\\//, payload.path) ||
+    (payload.value && testWorkflowRegex(/^workflow_(?:step_|mcp_call$|network_call$)/, payload.value.kind)));
+  if (required) {
+    if (!env.__ARTIFACT_BRIDGE__ || typeof env.__ARTIFACT_BRIDGE__.record !== "function") {
+      return rejectWorkflowPromise(createWorkflowError("WORKFLOW_TIMELINE_STORE_UNAVAILABLE"));
+    }
+    return observeRpcCall(env.__ARTIFACT_BRIDGE__.record(payload), "timeline.record:" + payload.path);
+  }
   if (!env.__ARTIFACT_BRIDGE__ || typeof env.__ARTIFACT_BRIDGE__.record !== "function") return resolveWorkflowPromise();
   return thenWorkflowPromise(
     observeRpcCall(env.__ARTIFACT_BRIDGE__.record(payload), "artifact.record:" + (payload && payload.path ? payload.path : "unknown")),
