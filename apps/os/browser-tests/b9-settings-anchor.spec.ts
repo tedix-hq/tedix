@@ -426,7 +426,13 @@ try {
 								name: "Settings sections",
 								exact: true,
 							});
-							await settings.waitFor();
+							// Below md the settings sidebar is a sheet behind one menu row.
+							const openSettings = async () => {
+								if (viewport.width < 768)
+									await page.locator("[data-settings-menu]").click();
+								await settings.waitFor();
+							};
+							await openSettings();
 							const accounts = settings.getByRole("link", {
 								name: "My accounts",
 								exact: true,
@@ -461,6 +467,7 @@ try {
 							await page.waitForURL(
 								(url) => url.pathname === "/admin/organization",
 							);
+							await openSettings();
 							await settings
 								.getByRole("link", { name: "Activity log", exact: true })
 								.click();
@@ -469,10 +476,11 @@ try {
 							await page.waitForURL(
 								(url) => url.pathname === "/admin/organization",
 							);
-							await settings.evaluate((nav) => {
-								nav.scrollLeft = 0;
-								nav.scrollTop = 0;
-							});
+							await page
+								.locator('nav[aria-label="Settings sections"]')
+								.evaluate((nav) => {
+									nav.closest('[data-sidebar="viewport"]')!.scrollTop = 0;
+								});
 							await page.goForward();
 							await page.waitForURL((url) => url.pathname === "/audit");
 							await page.waitForFunction(() => {
@@ -483,7 +491,9 @@ try {
 									"[data-settings-active]",
 								)!;
 								const r = link.getBoundingClientRect();
-								const bounds = nav.getBoundingClientRect();
+								const bounds = nav
+									.closest('[data-sidebar="viewport"]')!
+									.getBoundingClientRect();
 								return (
 									link.getAttribute("href") === "/audit" &&
 									r.left >= bounds.left - 1 &&
