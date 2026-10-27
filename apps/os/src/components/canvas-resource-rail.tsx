@@ -510,10 +510,18 @@ export function CanvasResourceRail({
 									) : null}
 								</div>
 							)}
+							{workspaceId && (
+								<WorkspaceFileUpload
+									workspaceId={workspaceId}
+									document={false}
+									label="Attach file"
+								/>
+							)}
 							{resources.data && shownResources.length > 0 && (
 								<WorkspaceSourceCards
 									sources={shownResources}
 									onOpenOutput={onSelectOutput}
+									workspaceId={workspaceId!}
 								/>
 							)}
 						</section>

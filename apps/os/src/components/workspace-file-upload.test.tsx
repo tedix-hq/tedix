@@ -113,6 +113,7 @@ describe("WorkspaceFileUpload", () => {
 			workspaceId: WORKSPACE_ID,
 			resourceId: "file-1",
 			parts: [{ partNumber: 1, etag: "part-etag" }],
+			document: true,
 		});
 		expect(onUploaded).toHaveBeenCalledWith({
 			outputId: "output-1",

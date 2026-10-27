@@ -2,6 +2,7 @@ import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import { WORKSPACE_FILE_PART_BYTES } from "@tedix/api-contract/schemas/workspace-files";
 import { confirmOsWorkspaceFile } from "@tedix/db/queries/os-workspaces/files";
+import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import {
 	AUTHZ,
@@ -108,6 +109,80 @@ export const requestFileUpload = author.resources.requestFileUpload.handler(
 	},
 );
 
+/** The document Output and first revision a confirmed file may publish. */
+function fileDocumentRows(
+	creator: {
+		organizationId: string;
+		createdByKind: WorkspaceFileManifest["createdByKind"];
+		createdById: string;
+		createdAt: string;
+	},
+	workspaceId: string,
+	resourceId: string,
+	title: string,
+) {
+	return {
+		output: {
+			...creator,
+			id: resourceId,
+			workspaceId,
+			kind: "document" as const,
+			title,
+			status: "active" as const,
+			currentRevisionId: resourceId,
+			updatedAt: creator.createdAt,
+		},
+		revision: {
+			...creator,
+			id: resourceId,
+			outputId: resourceId,
+			revision: 1,
+			content: JSON.stringify({
+				kind: "document",
+				blocks: [],
+				file: { workspaceId, resourceId },
+			}),
+			note: "Uploaded workspace file",
+			// Uploaded bytes have no connected-source dependencies; file reads check workspace access.
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+		},
+	};
+}
+
+/**
+ * Publish the document Output for a resource that was retained without one.
+ * The insert is conflict-idempotent, so a parallel confirm stays safe.
+ */
+async function ensureWorkspaceFileDocument(
+	context: BaseContext,
+	workspaceId: string,
+	manifest: WorkspaceFileManifest,
+	resourceId: string,
+): Promise<string> {
+	const db = queryDb(context);
+	const existing = await getOsOutput(db, {
+		organizationId: manifest.organizationId,
+		outputId: resourceId,
+	});
+	if (!existing) {
+		await confirmOsWorkspaceFile(
+			db,
+			fileDocumentRows(
+				{
+					organizationId: manifest.organizationId,
+					createdByKind: manifest.createdByKind,
+					createdById: manifest.createdById,
+					createdAt: manifest.createdAt,
+				},
+				workspaceId,
+				resourceId,
+				manifest.filename,
+			),
+		);
+	}
+	return resourceId;
+}
+
 export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 	async ({ input, context }) => {
 		const workspace = await requireWorkspace(context, input.workspaceId);
@@ -138,7 +213,16 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 				missing();
 			return {
 				resource: mapWorkspaceResource(existing),
-				outputId: existing.id,
+				...(input.document
+					? {
+							outputId: await ensureWorkspaceFileDocument(
+								context,
+								workspace.id,
+								manifest,
+								existing.id,
+							),
+						}
+					: {}),
 			};
 		}
 		if (Date.parse(manifest.expiresAt) <= Date.now())
@@ -212,30 +296,14 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 				status: "active",
 				updatedAt: manifest.createdAt,
 			},
-			output: {
-				...creator,
-				id: input.resourceId,
-				workspaceId: workspace.id,
-				kind: "document",
-				title: manifest.filename,
-				status: "active",
-				currentRevisionId: input.resourceId,
-				updatedAt: manifest.createdAt,
-			},
-			revision: {
-				...creator,
-				id: input.resourceId,
-				outputId: input.resourceId,
-				revision: 1,
-				content: JSON.stringify({
-					kind: "document",
-					blocks: [],
-					file: { workspaceId: workspace.id, resourceId: input.resourceId },
-				}),
-				note: "Uploaded workspace file",
-				// Uploaded bytes have no connected-source dependencies; file reads check workspace access.
-				accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
-			},
+			...(input.document
+				? fileDocumentRows(
+						creator,
+						workspace.id,
+						input.resourceId,
+						manifest.filename,
+					)
+				: {}),
 		});
 		const resource = await getOsWorkspaceResource(queryDb(context), {
 			organizationId: organizationId,
@@ -245,7 +313,7 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 		if (!resource) missing();
 		return {
 			resource: mapWorkspaceResource(resource),
-			outputId: input.resourceId,
+			...(input.document ? { outputId: input.resourceId } : {}),
 		};
 	},
 );

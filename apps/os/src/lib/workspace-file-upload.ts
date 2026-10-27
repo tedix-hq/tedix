@@ -5,6 +5,7 @@ export async function uploadWorkspaceFile(
 	workspaceId: string,
 	file: File,
 	onProgress?: (percent: number) => void,
+	options?: { document?: boolean },
 ) {
 	if (file.size < 1 || file.size > WORKSPACE_FILE_MAX_BYTES)
 		throw new Error("Choose a file between 1 byte and 200 MiB.");
@@ -35,5 +36,6 @@ export async function uploadWorkspaceFile(
 		workspaceId,
 		resourceId: upload.resourceId,
 		parts,
+		...(options?.document === undefined ? {} : { document: options.document }),
 	});
 }

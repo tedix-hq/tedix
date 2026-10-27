@@ -1,10 +1,15 @@
 import { ArrowSquareOut, Plugs } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { friendlyProviderName, usableLogoUrl } from "@/components/account-list";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
-import { connectionProvidersQueryOptions } from "@/lib/os-query-options";
+import { osApi } from "@/lib/api";
+import {
+	connectionProvidersQueryOptions,
+	workspaceResourcesQueryOptions,
+} from "@/lib/os-query-options";
 import {
 	sourceLabel,
 	sourceOrigin,
@@ -24,11 +29,51 @@ const TEDIX_LOGO = "/icon-192.png";
 export function WorkspaceSourceCards({
 	sources,
 	onOpenOutput,
+	workspaceId,
 }: {
 	sources: readonly WorkspaceSource[];
 	onOpenOutput: (outputId: string) => void;
+	workspaceId: string;
 }) {
 	// Logos are decoration: a slow or denied catalog leaves the plain tile.
+	const queryClient = useQueryClient();
+	const [busy, setBusy] = useState<string | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	const isWorkspaceFile = (source: WorkspaceSource) =>
+		source.providerId === "tedix" && source.resourceType === "file";
+	async function openFile(source: WorkspaceSource) {
+		setBusy(source.id);
+		setError(null);
+		try {
+			const file = await osApi.osWorkspaces.resources.getFile({
+				workspaceId,
+				resourceId: source.id,
+			});
+			window.open(file.url, "_blank", "noopener");
+		} catch {
+			setError(`Could not open ${source.name}.`);
+		} finally {
+			setBusy(null);
+		}
+	}
+	async function removeSource(source: WorkspaceSource) {
+		setBusy(source.id);
+		setError(null);
+		try {
+			await osApi.osWorkspaces.resources.remove({
+				workspaceId,
+				resourceId: source.id,
+				expectedUpdatedAt: source.updatedAt,
+			});
+			await queryClient.invalidateQueries({
+				queryKey: workspaceResourcesQueryOptions(workspaceId).queryKey,
+			});
+		} catch {
+			setError(`Could not remove ${source.name}.`);
+		} finally {
+			setBusy(null);
+		}
+	}
 	const providers = useQuery({
 		...connectionProvidersQueryOptions(),
 		staleTime: 60_000,
@@ -100,7 +145,17 @@ export function WorkspaceSourceCards({
 								<Badge className="shrink-0" variant="secondary">
 									{sourceTypeLabel(source.resourceType)}
 								</Badge>
-								{target?.kind === "output" ? (
+								{target?.kind === "file" ? (
+									<Button
+										size="sm"
+										variant="ghost"
+										aria-label={`Open ${source.name}`}
+										disabled={busy === source.id}
+										onClick={() => void openFile(source)}
+									>
+										Open
+									</Button>
+								) : target?.kind === "output" ? (
 									<Button
 										size="sm"
 										variant="ghost"
@@ -132,11 +187,27 @@ export function WorkspaceSourceCards({
 										) : null}
 									</Button>
 								) : null}
+								{isWorkspaceFile(source) ? (
+									<Button
+										size="sm"
+										variant="ghost"
+										aria-label={`Remove ${source.name}`}
+										disabled={busy === source.id}
+										onClick={() => void removeSource(source)}
+									>
+										Remove
+									</Button>
+								) : null}
 							</div>
 						</article>
 					</li>
 				);
 			})}
+			{error ? (
+				<Text as="p" role="label" tone="error" className="m-0">
+					{error}
+				</Text>
+			) : null}
 		</ul>
 	);
 }

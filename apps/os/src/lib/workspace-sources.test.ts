@@ -14,6 +14,7 @@ const source = (patch: Partial<WorkspaceSource>): WorkspaceSource => ({
 	providerResourceId: "page-1",
 	connectionScope: "tenant",
 	metadata: {},
+	updatedAt: "2026-10-01T00:00:00.000Z",
 	...patch,
 });
 
@@ -50,6 +51,9 @@ describe("workspace sources", () => {
 		expect(
 			sourceTarget(source({ providerId: "tedix", resourceType: "tedi" })),
 		).toBeNull();
+		expect(
+			sourceTarget(source({ providerId: "tedix", resourceType: "file" })),
+		).toEqual({ kind: "file" });
 	});
 
 	it("opens a stored web address before any derived one", () => {

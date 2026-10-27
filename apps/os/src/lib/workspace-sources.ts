@@ -10,11 +10,13 @@ export type WorkspaceSource = Pick<
 	| "providerResourceId"
 	| "connectionScope"
 	| "metadata"
+	| "updatedAt"
 >;
 
 /** Where a source's Open goes: a Tedix file, an outside page, or nowhere. */
 export type SourceTarget =
 	| { kind: "output"; outputId: string }
+	| { kind: "file" }
 	| { kind: "link"; href: string; external: boolean }
 	| null;
 
@@ -67,6 +69,7 @@ export function sourceTarget(source: WorkspaceSource): SourceTarget {
 	const type = source.resourceType.toLowerCase();
 	const id = source.providerResourceId.trim();
 	if (provider === "tedix") {
+		if (type === "file") return { kind: "file" };
 		return type === "output" ? { kind: "output", outputId: id } : null;
 	}
 	const stored =
