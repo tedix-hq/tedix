@@ -18,6 +18,7 @@ const OptionalIdSchema = z.string().min(1).max(128).optional();
 
 export const PollHomeRunFinishedInputSchema = z.object({
 	after: McpEventKeysetCursorSchema.nullable().optional(),
+	agentSessionKey: OptionalIdSchema,
 	conversationId: OptionalIdSchema,
 	limit: PollLimitSchema,
 });

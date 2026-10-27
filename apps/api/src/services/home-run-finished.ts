@@ -1,4 +1,8 @@
+import { ORPCError } from "@orpc/server";
+import { hasPermission } from "@tedix/auth/rbac";
 import { listHomeRunFinishedEvents } from "@tedix/db/queries/kernel-runtime-events";
+import { resolveOwnerHostSession } from "@tedix/db/queries/external-agent-identity/owner-host-sessions";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { resolveKernelConversationAccess } from "../kernel/conversation-access";
 import type { BaseContext } from "../rpc/orpc";
 
@@ -52,11 +56,38 @@ export async function pollHomeRunFinished(
 	context: BaseContext,
 	input: {
 		after?: { at: string; id: string } | null;
+		agentSessionKey?: string;
 		conversationId?: string;
 		limit: number;
 	},
 	organizationId: string,
 ) {
+	let ownerHostSessionId: string | undefined;
+	if (input.agentSessionKey) {
+		const subject = context.descopeUserId ?? context.user?.sub ?? "";
+		const member = await getMemberByUserId(context.db, organizationId, subject);
+		if (
+			member?.status !== "active" ||
+			!member.userId ||
+			!hasPermission(
+				{ roles: [member.role], permissions: member.customPermissions ?? [] },
+				"tedis:read",
+			)
+		)
+			throw new ORPCError("FORBIDDEN", {
+				message: "Current chat access is required",
+			});
+		const recipient = await resolveOwnerHostSession(context.db, {
+			organizationId,
+			userId: member.userId,
+			externalSessionKey: input.agentSessionKey,
+		});
+		if (!recipient)
+			throw new ORPCError("FORBIDDEN", {
+				message: "Agent session is unavailable",
+			});
+		ownerHostSessionId = recipient.session.id;
+	}
 	const after = input.after
 		? await resolvePosition(
 				context,
@@ -68,6 +99,7 @@ export async function pollHomeRunFinished(
 	const rows = await listHomeRunFinishedEvents(context.db, {
 		organizationId,
 		...input,
+		ownerHostSessionId,
 		after,
 		head: input.after == null,
 		limit: input.after == null ? 1 : input.limit + 1,

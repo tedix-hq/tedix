@@ -228,6 +228,7 @@ export interface ChannelSubscription {
  * with the organization and only the filters its inputSchema accepts.
  */
 export function planSubscriptions(input: {
+	agentSessionKey?: string;
 	listResult: unknown;
 	organizationId: string;
 	requested: readonly string[];
@@ -257,6 +258,11 @@ export function planSubscriptions(input: {
 		cursor: null,
 		arguments: {
 			organization_id: input.organizationId,
+			...(event.name === "home.run.finished" &&
+			input.agentSessionKey &&
+			event.argumentKeys.includes("agent_session_key")
+				? { agent_session_key: input.agentSessionKey }
+				: {}),
 			...Object.fromEntries(
 				Object.entries(input.filters).filter(([key]) =>
 					event.argumentKeys.includes(key),

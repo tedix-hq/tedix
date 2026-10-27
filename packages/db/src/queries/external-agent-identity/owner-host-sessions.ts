@@ -39,12 +39,17 @@ export async function getOwnerUserExternalAgentPrincipal(
 	return rows[0] ?? null;
 }
 
-export type ResolveOwnerHostSessionParams = {
+type ResolveOwnerHostSessionOwner = {
 	organizationId: string;
 	/** Canonical user id of the authenticated human owner. */
 	userId: string;
-	sessionId: string;
 };
+
+export type ResolveOwnerHostSessionParams = ResolveOwnerHostSessionOwner &
+	(
+		| { sessionId: string; externalSessionKey?: never }
+		| { sessionId?: never; externalSessionKey: string }
+	);
 
 export type ResolveOwnerHostSessionResult = {
 	principal: ExternalAgentPrincipal;
@@ -80,7 +85,12 @@ export async function resolveOwnerHostSession(
 		.where(
 			and(
 				eq(externalAgentSessions.organizationId, params.organizationId),
-				eq(externalAgentSessions.id, params.sessionId),
+				params.sessionId
+					? eq(externalAgentSessions.id, params.sessionId)
+					: eq(
+							externalAgentSessions.externalSessionKey,
+							params.externalSessionKey as string,
+						),
 				eq(externalAgentSessions.status, "active"),
 				eq(externalAgentPrincipals.status, "active"),
 				eq(

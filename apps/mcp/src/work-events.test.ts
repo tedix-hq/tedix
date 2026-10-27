@@ -108,6 +108,7 @@ it("polls Home completion with messaging authority and preserves non-UUID conver
 	const name = "home.run.finished";
 	const args = {
 		organization_id: ORG_A,
+		agent_session_key: "claude-code:session:owner-host",
 		conversation_id: "home:example:CaseSensitive",
 	};
 	const head = await poll({ name, arguments: args });
@@ -115,6 +116,7 @@ it("polls Home completion with messaging authority and preserves non-UUID conver
 	await poll({ name, arguments: args, cursor: head.cursor });
 	expect(api.mcpEvents.pollHomeRunFinished).toHaveBeenCalledWith({
 		after: { at: "", id: "" },
+		agentSessionKey: args.agent_session_key,
 		conversationId: args.conversation_id,
 		limit: 50,
 	});
