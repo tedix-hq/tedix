@@ -1229,6 +1229,98 @@ describe("output patch verbs", () => {
 				{ type: "paragraph", text: "New summary." },
 				{ type: "quote", text: "Ship it." },
 			],
+			richText: {
+				type: "doc",
+				content: [
+					{
+						type: "heading",
+						attrs: { level: 1 },
+						content: [{ type: "text", text: "Launch" }],
+					},
+					{
+						type: "paragraph",
+						content: [{ type: "text", text: "New summary." }],
+					},
+					{
+						type: "blockquote",
+						content: [
+							{
+								type: "paragraph",
+								content: [{ type: "text", text: "Ship it." }],
+							},
+						],
+					},
+				],
+			},
+		});
+	});
+
+	it("keeps a document's file reference and re-derives richText on patch", async () => {
+		const file = {
+			workspaceId: "00000000-0000-4000-8000-000000000001",
+			resourceId: "00000000-0000-4000-8000-000000000002",
+		};
+		// An OS-edited document: the editor body is richText-primary and blocks
+		// are its projection, so the stored pair can carry formatting blocks
+		// never spelled out.
+		const { output } = await c.org1.outputs.create({
+			kind: "document",
+			title: "Preview brief",
+			content: {
+				kind: "document",
+				file,
+				blocks: [{ type: "paragraph", text: "Intro." }],
+				richText: {
+					type: "doc",
+					content: [
+						{
+							type: "paragraph",
+							content: [
+								{ type: "text", text: "Intro with " },
+								{
+									type: "text",
+									text: "emphasis",
+									marks: [{ type: "bold" }],
+								},
+							],
+						},
+					],
+				},
+			},
+		});
+
+		const patched = await c.org1.outputs.patchDocument({
+			outputId: output.id,
+			ops: [
+				{
+					op: "replace",
+					index: 0,
+					block: { type: "paragraph", text: "Updated **body**." },
+				},
+			],
+		});
+		const content = patched.revision.content;
+		if (content.kind !== "document") throw new Error("expected a document");
+		expect(content.file).toEqual(file);
+		expect(content.blocks).toEqual([
+			{ type: "paragraph", text: "Updated **body**." },
+		]);
+		expect(content.richText).toEqual({
+			type: "doc",
+			content: [
+				{
+					type: "paragraph",
+					content: [
+						{ type: "text", text: "Updated " },
+						{
+							type: "text",
+							text: "body",
+							marks: [{ type: "bold" }],
+						},
+						{ type: "text", text: "." },
+					],
+				},
+			],
 		});
 	});
 

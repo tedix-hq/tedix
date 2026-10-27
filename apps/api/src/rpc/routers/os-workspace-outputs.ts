@@ -815,10 +815,20 @@ const outputsPatchDocument = authorOs.outputs.patchDocument.handler(
 				blocks.splice(op.index, 1);
 			}
 		}
-		const next = OsOutputContentSchema.safeParse({
-			kind: "document",
-			blocks,
-		});
+		// A document body is richText-primary — blocks are its headless
+		// projection — so a block patch rebuilds the whole body through the
+		// same normalization a revise applies: richText is re-derived from the
+		// patched blocks instead of going stale or being dropped, and the file
+		// preview reference carries through. Formatting the block vocabulary
+		// cannot express is simplified exactly as revising to that block list
+		// would simplify it.
+		const next = OsOutputContentSchema.safeParse(
+			normalizeOsOutputInput({
+				kind: "document",
+				...(content.file ? { file: content.file } : {}),
+				blocks,
+			}),
+		);
 		if (!next.success) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
