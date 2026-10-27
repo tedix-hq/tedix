@@ -26,6 +26,8 @@ export interface TenantRuntimeEnvHashEnv {
 	ENVIRONMENT: string;
 	GIT_SHA?: string;
 	PLATFORM_API_URL?: string;
+	/** Installation-configured platform API URL (manifest worker var `API_URL`). */
+	API_URL?: string;
 }
 
 /**
@@ -49,10 +51,14 @@ function tenantEnvSecretFingerprint(value: string | undefined): string {
 }
 
 export function resolveTenantPlatformApiUrl(
-	env: Pick<TenantRuntimeEnvHashEnv, "ENVIRONMENT" | "PLATFORM_API_URL">,
+	env: Pick<
+		TenantRuntimeEnvHashEnv,
+		"ENVIRONMENT" | "PLATFORM_API_URL" | "API_URL"
+	>,
 ): string {
 	return (
 		env.PLATFORM_API_URL ??
+		env.API_URL ??
 		(env.ENVIRONMENT === "production"
 			? "https://api.tedix.dev"
 			: "https://api.tedix.tech")

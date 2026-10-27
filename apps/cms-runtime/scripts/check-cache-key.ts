@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+	resolveTenantPlatformApiUrl,
 	TENANT_RUNTIME_LOADER_POLICY_VERSION,
 	tenantRuntimeBundleHash,
 	tenantRuntimeCacheKey,
@@ -83,6 +84,34 @@ assert.notEqual(
 		PLATFORM_API_URL: "https://api.example.com",
 	}),
 	"changing PLATFORM_API_URL must evict the tenant Worker Loader isolate",
+);
+
+assert.equal(
+	resolveTenantPlatformApiUrl({
+		ENVIRONMENT: "production",
+		API_URL: "https://api.example.com",
+	}),
+	"https://api.example.com",
+	"the tenant platform API URL must follow the installation's configured API_URL",
+);
+
+assert.equal(
+	resolveTenantPlatformApiUrl({
+		ENVIRONMENT: "production",
+		PLATFORM_API_URL: "https://api.override.example",
+		API_URL: "https://api.example.com",
+	}),
+	"https://api.override.example",
+	"PLATFORM_API_URL remains the explicit override",
+);
+
+assert.notEqual(
+	base,
+	tenantRuntimeEnvHash(org, {
+		...env,
+		API_URL: "https://api.example.com",
+	}),
+	"changing API_URL must evict the tenant Worker Loader isolate",
 );
 
 assert.notEqual(

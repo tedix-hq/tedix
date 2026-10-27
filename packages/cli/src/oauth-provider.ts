@@ -44,22 +44,40 @@ import { runLoopbackCapture } from "./oauth-loopback";
 
 const DEFAULT_PORT = 8976;
 export const TEDIX_OAUTH_CLIENT_ID = TEDIX_CLI_OAUTH_CLIENT_ID;
-export const TEDIX_CONNECT_MCP_URL = "https://connect.mcp.tedix.dev/mcp";
+export const DEFAULT_TEDIX_CONNECT_MCP_URL =
+	"https://connect.mcp.tedix.dev/mcp";
+// Self-hosted installations point the CLI at their own connect surface; the
+// env var is the product hostname's operator-facing override.
+export const TEDIX_CONNECT_MCP_URL =
+	process.env.TEDIX_CONNECT_MCP_URL?.trim() || DEFAULT_TEDIX_CONNECT_MCP_URL;
 export function isMultiOrganizationMcpUrl(value: string): boolean {
 	return value === TEDIX_CONNECT_MCP_URL;
 }
-export const TEDIX_OAUTH_CLIENT_URI = "https://tedix.dev";
+export const TEDIX_OAUTH_CLIENT_URI =
+	process.env.TEDIX_OAUTH_CLIENT_URI?.trim() || "https://tedix.dev";
 export const TEDIX_OAUTH_LOGO_URI =
+	process.env.TEDIX_OAUTH_LOGO_URI?.trim() ||
 	"https://os.tedix.dev/images/tedi-astronaut-waving.png";
 export const SESSION_REFRESH_TIMEOUT_MS = 15_000;
 
-export function isTedixHostedMcpUrl(value: string): boolean {
+/**
+ * Managed MCP endpoints sit under the connect surface's `mcp.` host —
+ * `connect.mcp.tedix.dev` yields the `mcp.tedix.dev` suffix. A custom
+ * TEDIX_CONNECT_MCP_URL rebases the predicate on the installation's domain.
+ */
+export function isTedixHostedMcpUrl(
+	value: string,
+	connectUrl: string = TEDIX_CONNECT_MCP_URL,
+): boolean {
 	try {
 		const url = new URL(value);
+		const connectHost = new URL(connectUrl).hostname;
+		const dot = connectHost.indexOf(".");
+		const baseHost = dot === -1 ? "" : connectHost.slice(dot + 1);
 		return (
 			url.protocol === "https:" &&
-			(url.hostname === "mcp.tedix.dev" ||
-				url.hostname.endsWith(".mcp.tedix.dev"))
+			baseHost.length > 0 &&
+			(url.hostname === baseHost || url.hostname.endsWith(`.${baseHost}`))
 		);
 	} catch {
 		return false;

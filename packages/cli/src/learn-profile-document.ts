@@ -11,6 +11,7 @@ import {
 import type { Meter } from "./learn-profile-model";
 
 export const OS_URL = "https://os.tedix.dev";
+const osUrl = () => process.env.TEDIX_OS_URL?.trim() || OS_URL;
 
 const DOC_TITLE = "What Tedix knows about you";
 
@@ -114,14 +115,14 @@ export function renderDocument(input: {
 		const facts = [
 			`${w.status === "paused" ? "Paused" : "Active"}: worked on ${w.days} day${w.days === 1 ? "" : "s"} between ${day(w.from)} and ${day(w.to)}; ${w.shipped} of ${w.sessions.length} sessions shipped something${repos.length ? `; in ${repos.join(", ")}` : ""}.`,
 			w.project
-				? `Tedix project ${w.project.key} (${w.project.name}): ${OS_URL}/work/projects/${w.project.id}`
+				? `Tedix project ${w.project.key} (${w.project.name}): ${osUrl()}/work/projects/${w.project.id}`
 				: w.spread
 					? `No board link: its Work is spread over ${w.spread} projects, none clearly its own.`
 					: "No board link: none of its sessions named a Tedix project or touched Work in one.",
 		];
 		for (const item of w.items.slice(0, 3))
 			facts.push(
-				`Work: ${item.title} (${item.disposition}): ${OS_URL}/work/items/${item.id}`,
+				`Work: ${item.title} (${item.disposition}): ${osUrl()}/work/items/${item.id}`,
 			);
 		if (w.next) facts.push(`Next: ${w.next}`);
 		list(facts);

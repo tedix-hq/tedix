@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	delegatedMcpScopes,
+	getMcpBaseDomain,
 	matchesPersistedHomeDelegation,
 } from "./mcp-credentials";
 
@@ -132,5 +133,33 @@ describe("delegated MCP credential issuer fence", () => {
 				tuple,
 			),
 		).toBe(false);
+	});
+});
+
+describe("getMcpBaseDomain", () => {
+	it("derives the base domain from the configured MCP_URL", () => {
+		expect(
+			getMcpBaseDomain({
+				ENVIRONMENT: "production",
+				MCP_URL: "https://mcp.example.com",
+			}),
+		).toBe("example.com");
+	});
+	it("keeps the first-party defaults without a usable MCP_URL", () => {
+		expect(
+			getMcpBaseDomain({ ENVIRONMENT: "production", MCP_URL: undefined }),
+		).toBe("tedix.dev");
+		expect(
+			getMcpBaseDomain({ ENVIRONMENT: "development", MCP_URL: undefined }),
+		).toBe("tedix.tech");
+		expect(
+			getMcpBaseDomain({
+				ENVIRONMENT: "production",
+				MCP_URL: "http://localhost:3000",
+			}),
+		).toBe("tedix.dev");
+		expect(
+			getMcpBaseDomain({ ENVIRONMENT: "production", MCP_URL: "not a url" }),
+		).toBe("tedix.dev");
 	});
 });

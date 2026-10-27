@@ -40,7 +40,10 @@ import {
 	type WorkAttemptStore,
 } from "./work-attempt-store";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import { isMultiOrganizationMcpUrl } from "./oauth-provider";
+import {
+	isMultiOrganizationMcpUrl,
+	TEDIX_CONNECT_MCP_URL,
+} from "./oauth-provider";
 import { resolveOrganizationTarget } from "./organization-target";
 
 type FetchLike = (
@@ -1530,7 +1533,12 @@ export interface MintedExternalAgent {
 export function cloudAgentSetup(
 	agent: Omit<MintedExternalAgent, "rawKey" | "setup">,
 ): string {
-	const networkHost = "connect.mcp.tedix.dev";
+	let networkHost = "connect.mcp.tedix.dev";
+	try {
+		networkHost = new URL(TEDIX_CONNECT_MCP_URL).hostname;
+	} catch {
+		/* keep the default product hostname */
+	}
 	const lines =
 		agent.platform === "claude-cloud"
 			? [
