@@ -22,6 +22,7 @@ import {
 	TOOL_SCHEMA_DIALECT_VALUES,
 	TOOL_SCHEMA_SOURCE_VALUES,
 	TOOL_WRITE_CAPABILITY_VALUES,
+	ToolActionTypeSchema,
 	ToolAnnotationsSchema,
 	ToolIconSchema,
 	ToolInputJsonSchemaSchema,
@@ -1262,6 +1263,12 @@ export const AppToolSchema = z.object({
 		.optional()
 		.describe(
 			"Absent or null means UNDECLARED — nobody has stated what this tool does — which every gate treats as write-capable. It is NOT a synonym for read-only, and absent is also how code-built tools that carry explicit annotations arrive.",
+		),
+	actionType: ToolActionTypeSchema.nullable()
+		.catch(null)
+		.optional()
+		.describe(
+			"Declared action type, for example comment_on_issue. An organization admin can let a declared type run without asking; absent or null keeps the normal approval.",
 		),
 	meta: ToolMetaSchema.nullable(),
 	invocationStatus: ToolInvocationStatusSchema.nullable(),

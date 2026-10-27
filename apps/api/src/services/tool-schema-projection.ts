@@ -590,6 +590,8 @@ export async function buildProjectedTool(
 			// annotationsForEndpoint is its fallback, and either way the answer is
 			// recorded once here instead of being re-inferred at every gate.
 			writeCapability,
+			// Owner-declared, never derived: projection keeps whatever is stored.
+			actionType: existing?.actionType ?? null,
 			meta: meta == null ? null : toJsonRecord(meta),
 			invocationStatus: existing?.invocationStatus ?? null,
 			fileParams: existing?.fileParams ?? null,

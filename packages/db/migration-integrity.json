@@ -1212,6 +1212,10 @@
 		{
 			"name": "20261027115059_organization-domains/migration.sql",
 			"sha256": "4f22c2b9a09a07bf992b1aa5b53ac28f050c176c8da39d013174b0fc15035103"
+		},
+		{
+			"name": "20261027122422_app_tools_action_type/migration.sql",
+			"sha256": "5e5d404db4158fd64e1acc20f4cd9fd3164c7f31f713d0ddec49724c72712cb0"
 		}
 	]
 }

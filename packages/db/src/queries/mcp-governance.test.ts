@@ -10,12 +10,15 @@ import {
 	buildGrantScopeCandidates,
 	consumeGrant,
 	createGrant,
+	findActionTypeOptIn,
 	findActiveGrant,
+	listActionTypeOptIns,
 	OWNED_CHANNEL_AUTHORIZATION_EVENT,
 	OWNED_CHANNEL_AUTHORIZATION_PROOF_KEY,
 	OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
 	resolveToolApprovalGrant,
 	resolveWorkItemAuthorization,
+	setActionTypeOptIn,
 	signOwnedChannelAuthorizationProof,
 } from "./mcp-governance";
 
@@ -662,6 +665,93 @@ describe("MCP tool-approval grants — real SQLite lifecycle", () => {
 			grantKind: "always",
 		});
 		expect(found?.id).toBe(exact.id);
+	});
+});
+
+describe("organization opt-in per tool action type — real SQLite", () => {
+	it("turns on once, stays org-scoped, and turns off without deleting history", async () => {
+		const db = realDb();
+		const first = await setActionTypeOptIn(db, {
+			organizationId: ORG,
+			actionType: "comment_on_issue",
+			enabled: true,
+			reason: "set by user:owner-1",
+			nowIso: NOW,
+		});
+		const again = await setActionTypeOptIn(db, {
+			organizationId: ORG,
+			actionType: "comment_on_issue",
+			enabled: true,
+			reason: "set by user:owner-1",
+			nowIso: NOW,
+		});
+		expect(again?.grantId).toBe(first?.grantId);
+		expect(
+			await findActionTypeOptIn(db, {
+				organizationId: ORG,
+				actionType: "comment_on_issue",
+				nowIso: NOW,
+			}),
+		).toMatchObject({ actionType: "comment_on_issue" });
+		expect(
+			await findActionTypeOptIn(db, {
+				organizationId: ORG,
+				actionType: "close_issue",
+				nowIso: NOW,
+			}),
+		).toBeUndefined();
+		expect(
+			await findActionTypeOptIn(db, {
+				organizationId: OTHER_ORG,
+				actionType: "comment_on_issue",
+				nowIso: NOW,
+			}),
+		).toBeUndefined();
+		expect(
+			(
+				await listActionTypeOptIns(db, { organizationId: ORG, nowIso: NOW })
+			).map((optIn) => optIn.actionType),
+		).toEqual(["comment_on_issue"]);
+
+		await setActionTypeOptIn(db, {
+			organizationId: ORG,
+			actionType: "comment_on_issue",
+			enabled: false,
+			reason: "set by user:owner-1",
+			nowIso: NOW,
+		});
+		expect(
+			await findActionTypeOptIn(db, {
+				organizationId: ORG,
+				actionType: "comment_on_issue",
+				nowIso: NOW,
+			}),
+		).toBeUndefined();
+		expect(
+			sqliteByDb
+				.get(db)
+				?.prepare("SELECT count(*) AS n FROM mcp_tool_approval_grants")
+				.get(),
+		).toEqual({ n: 1 });
+	});
+
+	it("never satisfies a per-subject tool grant lookup", async () => {
+		const db = realDb();
+		await setActionTypeOptIn(db, {
+			organizationId: ORG,
+			actionType: "comment_on_issue",
+			enabled: true,
+			reason: "set by user:owner-1",
+		});
+		expect(
+			await resolveToolApprovalGrant(db, {
+				organizationId: ORG,
+				subjectId: SUBJECT,
+				appSlug: "action_type",
+				toolId: "comment_on_issue",
+				grantKind: "always",
+			}),
+		).toEqual({ approved: false, grantId: null });
 	});
 });
 

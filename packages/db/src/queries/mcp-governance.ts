@@ -268,6 +268,145 @@ export async function resolveToolApprovalGrant(
 		: { approved: false, grantId: null };
 }
 
+/**
+ * Organization-wide opt-in for one declared tool action type, stored as an
+ * `always` grant row. `*` is never a caller actor id and `action_type` is not
+ * an app slug (slugs use hyphens), so these rows never satisfy the per-subject
+ * tool lookup above, and per-subject rows never satisfy this one.
+ */
+export const ACTION_TYPE_OPT_IN_SUBJECT = "*" as const;
+const ACTION_TYPE_SCOPE_PREFIX = "action_type:";
+
+function actionTypeScope(actionType: string): string {
+	return `${ACTION_TYPE_SCOPE_PREFIX}${normalizeScopeSegment(actionType)}`;
+}
+
+function activeActionTypeOptIns(organizationId: string, nowIso: string) {
+	return and(
+		eq(mcpToolApprovalGrants.organizationId, organizationId),
+		eq(mcpToolApprovalGrants.subjectId, ACTION_TYPE_OPT_IN_SUBJECT),
+		eq(mcpToolApprovalGrants.grantKind, "always"),
+		isNull(mcpToolApprovalGrants.consumedAt),
+		or(
+			isNull(mcpToolApprovalGrants.expiresAt),
+			gt(mcpToolApprovalGrants.expiresAt, nowIso),
+		),
+	);
+}
+
+export interface ActionTypeOptIn {
+	grantId: string;
+	actionType: string;
+	reason: string | null;
+	createdAt: string;
+}
+
+/** The action type an org admin opted in, or undefined. Read-only. */
+export async function findActionTypeOptIn(
+	db: DbClient,
+	args: { organizationId: string; actionType: string; nowIso?: string },
+): Promise<ActionTypeOptIn | undefined> {
+	const [row] = await db
+		.select()
+		.from(mcpToolApprovalGrants)
+		.where(
+			and(
+				activeActionTypeOptIns(
+					args.organizationId,
+					args.nowIso ?? new Date().toISOString(),
+				),
+				eq(mcpToolApprovalGrants.toolId, actionTypeScope(args.actionType)),
+			),
+		)
+		.orderBy(mcpToolApprovalGrants.createdAt)
+		.limit(1);
+	return row
+		? {
+				grantId: row.id,
+				actionType: row.toolId.slice(ACTION_TYPE_SCOPE_PREFIX.length),
+				reason: row.reason,
+				createdAt: row.createdAt,
+			}
+		: undefined;
+}
+
+export async function listActionTypeOptIns(
+	db: DbClient,
+	args: { organizationId: string; nowIso?: string },
+): Promise<ActionTypeOptIn[]> {
+	const rows = await db
+		.select()
+		.from(mcpToolApprovalGrants)
+		.where(
+			and(
+				activeActionTypeOptIns(
+					args.organizationId,
+					args.nowIso ?? new Date().toISOString(),
+				),
+				sql`${mcpToolApprovalGrants.toolId} LIKE ${`${ACTION_TYPE_SCOPE_PREFIX}%`}`,
+			),
+		)
+		.orderBy(mcpToolApprovalGrants.toolId)
+		.limit(200);
+	return rows.map((row) => ({
+		grantId: row.id,
+		actionType: row.toolId.slice(ACTION_TYPE_SCOPE_PREFIX.length),
+		reason: row.reason,
+		createdAt: row.createdAt,
+	}));
+}
+
+/**
+ * Turn one action type's opt-in on or off. Callers must check the admin and
+ * that the type is not platform-critical. Turning off expires the row, so the
+ * grant history stays readable. Idempotent in both directions.
+ */
+export async function setActionTypeOptIn(
+	db: DbClient,
+	args: {
+		organizationId: string;
+		actionType: string;
+		enabled: boolean;
+		/** Recorded on the row and named in run history, e.g. "set by user:abc". */
+		reason: string;
+		nowIso?: string;
+	},
+): Promise<ActionTypeOptIn | undefined> {
+	const nowIso = args.nowIso ?? new Date().toISOString();
+	const existing = await findActionTypeOptIn(db, { ...args, nowIso });
+	if (args.enabled) {
+		if (existing) return existing;
+		const [created] = await db
+			.insert(mcpToolApprovalGrants)
+			.values({
+				id: crypto.randomUUID(),
+				organizationId: args.organizationId,
+				subjectId: ACTION_TYPE_OPT_IN_SUBJECT,
+				toolId: actionTypeScope(args.actionType),
+				grantKind: "always",
+				reason: args.reason,
+			})
+			.returning();
+		if (!created) throw new Error("Action type opt-in was not recorded");
+		return {
+			grantId: created.id,
+			actionType: normalizeScopeSegment(args.actionType),
+			reason: created.reason,
+			createdAt: created.createdAt,
+		};
+	}
+	await db
+		.update(mcpToolApprovalGrants)
+		.set({ expiresAt: nowIso })
+		.where(
+			and(
+				activeActionTypeOptIns(args.organizationId, nowIso),
+				eq(mcpToolApprovalGrants.toolId, actionTypeScope(args.actionType)),
+			),
+		);
+	return undefined;
+}
+
 export const OWNED_CHANNEL_AUTHORIZATION_EVENT =
 	"owned_channel_authorization" as const;
 export const OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT =

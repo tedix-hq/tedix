@@ -289,6 +289,23 @@ export type ToolWriteCapability = (typeof TOOL_WRITE_CAPABILITY_VALUES)[number];
 export const ToolWriteCapabilitySchema = z.enum(TOOL_WRITE_CAPABILITY_VALUES);
 
 /**
+ * DECLARED action type on `app_tools.action_type`: what one call of the tool
+ * does, in the words an admin opts into, e.g. `comment_on_issue`. Data, not a
+ * fixed vocabulary — each organization's tool rows declare their own.
+ *
+ * NULL is UNDECLARED and the call keeps its normal approval. An organization
+ * admin may let one declared type run without asking; a platform-critical
+ * type (`isPlatformCriticalActionType`) can never be opted in.
+ */
+export const ToolActionTypeSchema = z
+	.string()
+	.regex(
+		/^[a-z][a-z0-9_]{1,62}$/,
+		"Use lowercase snake_case, for example comment_on_issue",
+	);
+export type ToolActionType = z.infer<typeof ToolActionTypeSchema>;
+
+/**
  * Operator-intent kind for first-party platform tools. Mirrors the in-memory
  * `kind` field on `PLATFORM_OPERATOR_TOOL_DEFINITIONS` and is the canonical
  * source for derived MCP `annotations` on those rows.

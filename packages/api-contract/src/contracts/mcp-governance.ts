@@ -30,6 +30,11 @@ import {
 	ResolveMcpToolApprovalGrantResponseSchema,
 	ResolveWorkItemAuthorizationInputSchema,
 	ResolveWorkItemAuthorizationResponseSchema,
+	ResolveActionTypeOptInInputSchema,
+	ResolveActionTypeOptInResponseSchema,
+	ListActionTypeOptInsResponseSchema,
+	SetActionTypeOptInInputSchema,
+	SetActionTypeOptInResponseSchema,
 } from "../schemas/mcp-governance";
 
 export const mcpGovernanceContract = oc
@@ -125,6 +130,36 @@ export const mcpGovernanceContract = oc
 			})
 			.input(ResolveWorkItemAuthorizationInputSchema)
 			.output(ResolveWorkItemAuthorizationResponseSchema),
+		resolveActionTypeOptIn: oc
+			.route({
+				method: "POST",
+				path: "/resolve-action-type-opt-in",
+				summary: "Resolve an organization's opt-in for a tool action type",
+				description:
+					"Internal service-binding lookup used by the MCP gateway. Approves only when an organization admin let this declared action type run without asking and the type is not platform-critical.",
+				tags: ["internal"],
+			})
+			.input(ResolveActionTypeOptInInputSchema)
+			.output(ResolveActionTypeOptInResponseSchema),
+		listActionTypeOptIns: oc
+			.route({
+				method: "GET",
+				path: "/action-type-opt-ins",
+				summary: "List actions that run without asking",
+				description:
+					"Lists the declared tool action types an organization admin let run without an approval card, for example comment_on_issue.",
+			})
+			.output(ListActionTypeOptInsResponseSchema),
+		setActionTypeOptIn: oc
+			.route({
+				method: "POST",
+				path: "/action-type-opt-ins",
+				summary: "Let an action run without asking, or ask again",
+				description:
+					"Organization owners and admins only. Lets every tool that declares this action type run without an approval card, or turns that off. Platform-critical types such as payments, sending messages, publishing, deletion and access changes always ask and are refused. Tools with no declared action type keep asking.",
+			})
+			.input(SetActionTypeOptInInputSchema)
+			.output(SetActionTypeOptInResponseSchema),
 	});
 
 export type McpGovernanceContract = typeof mcpGovernanceContract;

@@ -1,0 +1,1 @@
+ALTER TABLE `app_tools` ADD `action_type` text;
