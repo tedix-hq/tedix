@@ -24,13 +24,17 @@ import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
 import {
 	formatShareLink,
+	ShareControls,
 	shareLinkBase,
 	shareStatus,
 } from "@/components/share-controls";
+import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { osApi } from "@/lib/api";
 import {
+	canvasGadgetDetailQueryOptions,
 	osQueryKeys,
 	osSharesQueryOptions,
+	outputDetailQueryOptions,
 	workspaceCollaboratorsQueryOptions,
 } from "@/lib/os-query-options";
 
@@ -81,11 +85,20 @@ type PendingRemoval = {
 	keep: Set<string>;
 };
 
+/** The app or file open in the workspace when Share is pressed. */
+export type WorkspaceShareItem = {
+	type: "gadget" | "output";
+	id: string;
+	/** Opens the app's Review tab, where review rounds are sent. */
+	onOpenReview?: () => void;
+};
+
 export function WorkspaceShareDialog(props: {
 	workspaceId: string;
 	workspaceName: string;
 	/** Private workspaces cannot have a no-sign-in link. */
 	visibility?: "org" | "private";
+	item?: WorkspaceShareItem;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
@@ -428,8 +441,82 @@ export function WorkspaceShareDialog(props: {
 					isPrivate={props.visibility === "private"}
 					canManage={data?.role === "build"}
 				/>
+				{props.item ? (
+					<OpenItemShare
+						workspaceId={workspaceId}
+						item={props.item}
+						onOpenReview={
+							props.item.onOpenReview
+								? () => {
+										props.onOpenChange(false);
+										props.item?.onOpenReview?.();
+									}
+								: undefined
+						}
+					/>
+				) : null}
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+/**
+ * A link to the open app or file alone. It lives here so the workspace page
+ * has one Share control, in the top bar.
+ */
+function OpenItemShare(props: {
+	workspaceId: string;
+	item: WorkspaceShareItem;
+	onOpenReview?: () => void;
+}) {
+	const { workspaceId, item } = props;
+	const gadget = useQuery({
+		...canvasGadgetDetailQueryOptions(workspaceId, item.id),
+		enabled: item.type === "gadget",
+	});
+	const output = useQuery({
+		...outputDetailQueryOptions(item.id),
+		enabled: item.type === "output",
+	});
+	const noun = item.type === "gadget" ? "app" : "file";
+	const name =
+		item.type === "gadget"
+			? gadget.data?.gadget.name
+			: output.data?.output.title;
+	return (
+		<section
+			className="grid gap-2 border-kumo-line border-t pt-4"
+			aria-label={`Only this ${noun}`}
+			data-share-open-item
+		>
+			<Text as="h3" role="label" tone="strong" className="m-0">
+				Only this {noun}
+			</Text>
+			<Text role="label" tone="secondary" className="m-0">
+				{name ? `A link to ${name} alone` : `A link to this ${noun} alone`},
+				without the rest of the workspace.
+			</Text>
+			<div>
+				{item.type === "gadget" && gadget.data ? (
+					<ShareControls
+						resourceType="gadget"
+						resourceId={gadget.data.gadget.id}
+						currentRevisionId={gadget.data.currentRevision?.id}
+						guestEntry={isAppRuntimeManifest(
+							gadget.data.currentRevision?.manifest,
+						)}
+						onOpenReview={props.onOpenReview}
+						label="Link to this app"
+					/>
+				) : item.type === "output" && output.data ? (
+					<ShareControls
+						outputId={item.id}
+						currentRevisionId={output.data.currentRevision.id}
+						label="Link to this file"
+					/>
+				) : null}
+			</div>
+		</section>
 	);
 }
 

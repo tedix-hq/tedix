@@ -45,7 +45,10 @@ import {
 	BlueprintUpdateDialog,
 	useBlueprintUpdate,
 } from "@/components/workspace-blueprint-update";
-import { WorkspaceShareDialog } from "@/components/workspace-share-dialog";
+import {
+	WorkspaceShareDialog,
+	type WorkspaceShareItem,
+} from "@/components/workspace-share-dialog";
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error
@@ -196,6 +199,7 @@ export function CanvasWorkspaceControls({
 	workspace,
 	showCreate = true,
 	compactActions = false,
+	openItem,
 	menuItems,
 	onSelected,
 	onArchived,
@@ -203,6 +207,8 @@ export function CanvasWorkspaceControls({
 	workspace?: OsWorkspace;
 	showCreate?: boolean;
 	compactActions?: boolean;
+	/** The open app or file; Share also offers a link to it alone. */
+	openItem?: WorkspaceShareItem;
 	/** The host's own entries, listed first in the workspace menu. */
 	menuItems?: ReactNode;
 	onSelected: (workspaceId: string) => void;
@@ -418,6 +424,7 @@ export function CanvasWorkspaceControls({
 							workspaceId={workspace.id}
 							workspaceName={workspace.name}
 							visibility={workspace.visibility}
+							item={openItem}
 							open
 							onOpenChange={setShareOpen}
 						/>

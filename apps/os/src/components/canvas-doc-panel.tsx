@@ -41,7 +41,6 @@ import {
 	OutputWorkshopIdentity,
 	OutputWorkshopStatus,
 } from "@/components/output-workshop";
-import { ShareControls } from "@/components/share-controls";
 import { WidgetFrame } from "@/components/widget-frame";
 import { AppRuntimePreview } from "@/components/app-runtime-panel";
 import { AppTranslateButton } from "@/components/app-translate-button";
@@ -230,7 +229,6 @@ export function CanvasDocPanel({
 	onAppDraftSaved,
 	onOpenDrafts,
 	onAppDraftMerged,
-	onOpenReview,
 	focusMode,
 	onFocusModeChange,
 	onShowResources,
@@ -249,8 +247,6 @@ export function CanvasDocPanel({
 	onOpenDrafts?: () => void;
 	/** A draft accepted in the host's Edit view: show the app it became. */
 	onAppDraftMerged?: () => void;
-	/** Opens this app's Review tab. */
-	onOpenReview?: () => void;
 	focusMode: boolean;
 	/**
 	 * The tab row's action area. An app's status and actions render there, so
@@ -834,31 +830,13 @@ export function CanvasDocPanel({
 				{isRuntimeApp && effectiveGadgetView === "preview" && (
 					<AppTranslateButton translation={translation} compact />
 				)}
-				{isGadget && gadgetDetail.data && (
-					<ShareControls
-						resourceType="gadget"
-						resourceId={gadgetDetail.data.gadget.id}
-						currentRevisionId={gadgetDetail.data.currentRevision?.id}
-						workspaceId={workspaceId}
-						guestEntry={isRuntimeApp}
-						onOpenReview={onOpenReview}
+				{/* Sharing this item lives in the top bar's one Share dialog. */}
+				{!isGadget && outputDetail.data && (
+					<OutputExportButtons
+						outputId={doc.id}
+						kind={outputDetail.data.output.kind}
 						compact
 					/>
-				)}
-				{!isGadget && outputDetail.data && (
-					<>
-						<OutputExportButtons
-							outputId={doc.id}
-							kind={outputDetail.data.output.kind}
-							compact
-						/>
-						<ShareControls
-							outputId={doc.id}
-							currentRevisionId={outputDetail.data.currentRevision.id}
-							workspaceId={workspaceId}
-							compact
-						/>
-					</>
 				)}
 				{/* Entering focus is a workspace top-bar control; leaving it has
 				    to live here, where the top bar is hidden. */}

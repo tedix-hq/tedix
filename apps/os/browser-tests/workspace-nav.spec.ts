@@ -112,6 +112,21 @@ try {
 				1,
 				`${label}: one Focus control`,
 			);
+			// One Share, in the top bar. Sharing the open app alone is a section
+			// of its dialog, not a second icon beside History.
+			const share = page.getByRole("button", { name: /^Share\b/ });
+			assert.equal(await share.count(), 1, `${label}: one Share control`);
+			assert(
+				await share.evaluate(
+					(button) => !!button.closest(".canvas-workspace-header"),
+				),
+				`${label}: Share sits in the top bar`,
+			);
+			await share.click();
+			await page
+				.getByRole("button", { name: "Link to this app", exact: true })
+				.waitFor();
+			await page.keyboard.press("Escape");
 			assert(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth + 1,

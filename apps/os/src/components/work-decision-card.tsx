@@ -90,6 +90,7 @@ import {
 	useOsFormattingPreferences,
 } from "@/lib/format";
 import { relativeTime, absoluteTime, shortDeadline } from "@/lib/time";
+import { useMoreBelow } from "@/lib/use-more-below";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import {
 	decisionCardActionLabel,
@@ -413,6 +414,7 @@ export function WorkDecisionCard({
 	const submittingActor = actor ?? proposer.actor;
 	const contributionSource = source ?? proposer.source;
 	const footer = useRef<HTMLDivElement>(null);
+	const cardBody = useMoreBelow<HTMLDivElement>();
 	useEffect(() => {
 		const node = footer.current;
 		if (!node) return;
@@ -966,7 +968,7 @@ export function WorkDecisionCard({
 						<DecisionProposalHeading title={heading} />
 					</CardTitle>
 				</CardHeader>
-				<CardContent>
+				<CardContent ref={cardBody}>
 					<div className="fd-card-body grid grid-cols-1 gap-4">
 						{deckNotice}
 						{submittingActor && (
@@ -1023,7 +1025,9 @@ export function WorkDecisionCard({
 										!compact && (
 											<>
 												{"context" in face && face.context && (
-													<Text className="fd-story">{face.context}</Text>
+													<Text className="fd-card-context">
+														{face.context}
+													</Text>
 												)}
 												<Text className="fd-recommendation">
 													<strong>{decisionText("Tedix recommends:")}</strong>{" "}

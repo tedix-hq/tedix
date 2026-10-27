@@ -4,6 +4,7 @@ import {
 	checkDecisionCardCopy,
 	formatIsoCardDates,
 	hasRelativeCardDates,
+	recommendationIssues,
 	unsupportedCopyFacts,
 	withoutListPrefix,
 } from "@tedix/api-contract/utils/decision-card-copy";
@@ -32,6 +33,8 @@ import {
 } from "./decision-card-subject";
 
 const MAX_WRITING_CONTEXT_CHARS = 3000;
+const RECOMMENDATION_REPAIR =
+	"Start recommendation with the recommended action, such as Yes, No or a verb like Record or Keep, then a short reason. A fact on its own is not a recommendation.";
 const RAW_IDENTIFIER = new RegExp(copySpec.rawIdentifierPattern, "i");
 
 export function decisionCardProducerContext(
@@ -437,6 +440,11 @@ export async function generateDecisionCard(
 			}
 			if (parsed.success) {
 				const issues = checkDecisionCardCopy(parsed.data);
+				const recommendation = recommendationIssues(
+					parsed.data,
+					readerLanguage,
+				);
+				issues.push(...recommendation);
 				if (parsed.data.version === 2) {
 					issues.push(...subjectIssues(parsed.data, subject));
 					if (nextStep) issues.push(...nextStepIssues(parsed.data));
@@ -467,7 +475,9 @@ export async function generateDecisionCard(
 						failures,
 						undefined,
 						gaps.filter(({ check }) => check !== "context"),
-						subjectInstructions,
+						recommendation.length
+							? [...subjectInstructions, RECOMMENDATION_REPAIR]
+							: subjectInstructions,
 					);
 					continue;
 				}

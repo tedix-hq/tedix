@@ -402,7 +402,7 @@ it("leads with the question, one story line, the recommendation and at most thre
 		dates: ["2026-10-27T10:30:00Z"],
 	});
 	expect(heading()).toBe(FACE.title);
-	expect(host.querySelector(".fd-story")?.textContent).toBe(context);
+	expect(host.querySelector(".fd-card-context")?.textContent).toBe(context);
 	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
 		`Tedix recommends: ${FACE.recommendation}`,
 	);
@@ -514,7 +514,7 @@ it("shows only the question and actions in compact density", async () => {
 		preferences: { density: "compact" },
 	});
 	expect(heading()).toBe(FACE.title);
-	expect(host.querySelector(".fd-story")).toBeNull();
+	expect(host.querySelector(".fd-card-context")).toBeNull();
 	expect(host.querySelector("[data-context-item]")).toBeNull();
 	expect(actionButtons().length).toBeGreaterThan(0);
 });

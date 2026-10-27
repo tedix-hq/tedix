@@ -1367,6 +1367,15 @@ export function CanvasPage({
 						workspace={selectedWorkspace as OsWorkspace | undefined}
 						showCreate={false}
 						compactActions
+						openItem={
+							selectedDoc
+								? {
+										type: selectedDoc.type,
+										id: selectedDoc.id,
+										onOpenReview: () => selectWorkpieceMode("activity"),
+									}
+								: undefined
+						}
 						menuItems={workspaceMenuItems}
 						onSelected={selectWorkspace}
 						onArchived={() => selectWorkspace()}
@@ -1677,7 +1686,6 @@ export function CanvasPage({
 												: undefined
 										}
 										focusMode={focusMode}
-										onOpenReview={() => selectWorkpieceMode("activity")}
 										onAppDraftSaved={() => selectWorkpieceMode("edit")}
 										onOpenDrafts={() => selectWorkpieceMode("edit")}
 										onAppDraftMerged={() => selectWorkpieceMode("workpiece")}

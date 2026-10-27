@@ -588,6 +588,8 @@ type ShareControlsProps = (
 	  }
 ) & {
 	compact?: boolean;
+	/** Text of the full-size trigger; "Share" by default. */
+	label?: string;
 	/** The workspace holding this resource; shows who can open it without a link. */
 	workspaceId?: string;
 	/**
@@ -762,8 +764,8 @@ export function ShareControls(props: ShareControlsProps) {
 							<span className="sr-only">Share</span>
 						</Button>
 					) : (
-						<Button variant="secondary" size="sm" title="Share">
-							<LinkSimple size={14} /> Share
+						<Button variant="secondary" size="sm">
+							<LinkSimple size={14} /> {props.label ?? "Share"}
 						</Button>
 					)
 				}
