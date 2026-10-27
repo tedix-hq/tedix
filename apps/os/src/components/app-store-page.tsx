@@ -144,7 +144,7 @@ function AppCard({ app }: { app: CatalogApp }) {
 						{(app.mcpToolCount ?? 0) > 0 ? (
 							<Badge variant="secondary" className="gap-1">
 								<Wrench className="size-3" />
-								{app.mcpToolCount} tools
+								{app.mcpToolCount} {app.mcpToolCount === 1 ? "tool" : "tools"}
 							</Badge>
 						) : null}
 					</div>

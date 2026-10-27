@@ -318,6 +318,20 @@ describe("AppRowMain", () => {
 		expect(html).not.toContain(">Healthy<");
 	});
 
+	it("keeps an unknown inventory distinct from listed tools", () => {
+		const html = renderToStaticMarkup(
+			<AppRowMain
+				app={baseApp}
+				eligibility={{
+					badge: "ready",
+					result: { ...readyResult, availableTools: [] },
+				}}
+			/>,
+		);
+		expect(html).toContain("tool count unavailable · acme");
+		expect(html).not.toContain("unavailable listed");
+	});
+
 	it("omits badge and description when absent", () => {
 		const html = renderToStaticMarkup(
 			<AppRowMain app={{ ...baseApp, description: null }} />,

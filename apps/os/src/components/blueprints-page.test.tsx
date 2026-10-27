@@ -1020,7 +1020,7 @@ describe("instantiate", () => {
 		await flush();
 
 		setFieldValue(fieldByLabel(container, "Workspace name"), "Ops room");
-		click(findButton(container, "Instantiate workspace"));
+		click(findButton(container, "Create workspace"));
 		await flush();
 
 		expect(blueprintsApi.instantiate).toHaveBeenCalledWith({
@@ -1063,7 +1063,7 @@ describe("instantiate", () => {
 			"Pinned requirements need attention",
 		);
 		expect(container.textContent).toContain("Pinned skill revision moved");
-		expect(findButton(container, "Instantiate workspace").disabled).toBe(true);
+		expect(findButton(container, "Create workspace").disabled).toBe(true);
 		expect(blueprintsApi.instantiate).not.toHaveBeenCalled();
 	});
 
@@ -1096,7 +1096,7 @@ describe("instantiate", () => {
 		expect(
 			container.querySelector('a[href="/account/connections"]'),
 		).not.toBeNull();
-		expect(findButton(container, "Instantiate workspace").disabled).toBe(false);
+		expect(findButton(container, "Create workspace").disabled).toBe(false);
 	});
 
 	it("keeps an incomplete resource selection unresolved", async () => {
@@ -1142,7 +1142,7 @@ describe("instantiate", () => {
 			expect.anything(),
 		);
 		setFieldValue(fieldByLabel(container, "Workspace name"), "Ops room");
-		expect(findButton(container, "Instantiate workspace").disabled).toBe(true);
+		expect(findButton(container, "Create workspace").disabled).toBe(true);
 	});
 
 	it("passes the discovered named account unchanged through preflight and instantiation", async () => {
@@ -1190,7 +1190,7 @@ describe("instantiate", () => {
 			expect.anything(),
 		);
 		setFieldValue(fieldByLabel(container, "Workspace name"), "Agency room");
-		click(findButton(container, "Instantiate workspace"));
+		click(findButton(container, "Create workspace"));
 		await flush();
 		expect(blueprintsApi.instantiate).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1209,7 +1209,7 @@ describe("instantiate", () => {
 		await flush();
 
 		setFieldValue(fieldByLabel(container, "Workspace name"), "Ops room");
-		click(findButton(container, "Instantiate workspace"));
+		click(findButton(container, "Create workspace"));
 		await flush();
 
 		expect(container.textContent).toContain(
@@ -1229,7 +1229,7 @@ describe("instantiate", () => {
 		await flush();
 		setFieldValue(fieldByLabel(container, "Workspace name"), "Ops room");
 		expect(container.textContent).toContain("Ready to create");
-		click(findButton(container, "Instantiate workspace"));
+		click(findButton(container, "Create workspace"));
 		await flush();
 		expect(container.textContent).toContain("Pinned skill revision moved");
 		expect(container.textContent).not.toContain("Created workspace");
@@ -1371,7 +1371,7 @@ describe("explore tab", () => {
 			fieldByLabel(container, "Workspace name for Sales Pod"),
 			"Ops room",
 		);
-		click(findButton(container, "Instantiate workspace"));
+		click(findButton(container, "Create workspace"));
 		await flush();
 
 		expect(blueprintsApi.instantiateFromGallery).toHaveBeenCalledWith({
@@ -1414,7 +1414,7 @@ describe("explore tab", () => {
 			fieldByLabel(container, "Workspace name for Sales Pod"),
 			"Ops room",
 		);
-		click(findButton(container, "Instantiate workspace"));
+		click(findButton(container, "Create workspace"));
 		await flush();
 
 		expect(container.textContent).toContain(

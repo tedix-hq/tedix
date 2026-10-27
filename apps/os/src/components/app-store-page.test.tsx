@@ -85,6 +85,7 @@ describe("App Store migration", () => {
 						name: "Acme with a very long catalog name",
 						description: "Accounts and invoices",
 						developer: "Acme Labs",
+						mcpToolCount: 1,
 						installability: { installable: true },
 					},
 				],
@@ -94,6 +95,8 @@ describe("App Store migration", () => {
 			kumoClass(<Page width="xl" />),
 		);
 		expect(host.textContent).toContain("Browse and add");
+		expect(host.textContent).toContain("1 tool");
+		expect(host.textContent).not.toContain("1 tools");
 		// The overview section lives behind the diagnostics disclosure.
 		const diagnostics = [...host.querySelectorAll<HTMLElement>("button")].find(
 			(button) => button.textContent?.trim() === "Catalog diagnostics",
