@@ -126,6 +126,9 @@ async function guestRequest<T>(path: string, body: unknown): Promise<T> {
 	const response = await fetch(path, {
 		method: "POST",
 		credentials: "omit",
+		// An app saves on a click without waiting; a reload or a closed tab
+		// right after must not cancel the call that carries that save.
+		keepalive: true,
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
 	});

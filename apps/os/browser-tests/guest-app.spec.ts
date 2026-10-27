@@ -126,9 +126,21 @@ try {
 			await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
 
 			// A verdict goes to the server through the guest call route and is
-			// shown again on the card after a resume.
+			// shown again on the card after a resume. The app moves to the next
+			// card at once and saves in the background, so wait for the save
+			// before reloading: a reload in the same instant can beat it.
+			const saved = page.waitForResponse(
+				(response) =>
+					new URL(response.url()).pathname === "/api/os-shared/app/call" &&
+					(response.request().postData() ?? "").includes('"recordVerdict"'),
+			);
 			await guest.getByRole("button", { name: "Useful", exact: true }).click();
 			await guest.getByText(/2 of 8/).waitFor();
+			assert.equal(
+				(await saved).status(),
+				200,
+				`${label}: the verdict reaches the server`,
+			);
 			await page.reload();
 			await page
 				.frameLocator('iframe[title="Opportunity cards"]')
