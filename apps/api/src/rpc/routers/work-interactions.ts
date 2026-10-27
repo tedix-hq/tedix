@@ -8,6 +8,7 @@ import {
 } from "@tedix/api-contract/schemas/work-interactions";
 import { call, implement } from "@orpc/server";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import { RowReviewSpecSchema } from "@tedix/api-contract/schemas/os-row-review";
 import { defaultDecisionExpiry } from "@tedix/api-contract/utils/decision-expiry";
 import { sourceInteractionDeadline } from "@tedix/api-contract/utils/deck-ask";
 import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
@@ -309,6 +310,32 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		createGate: _untrustedGate,
 		...creationMetadata
 	} = input.metadata ?? {};
+	if (
+		input.metadata?.schema === "tedix.row-review.v1" &&
+		!RowReviewSpecSchema.safeParse(input.metadata.rowReview).success
+	)
+		throw createError(
+			ErrorCodes.UNPROCESSABLE_CONTENT,
+			"A row-review card needs a valid metadata.rowReview spec",
+		);
+	if (
+		input.metadata?.schema === "tedix.row-review.v1" &&
+		input.kind !== "question" &&
+		input.kind !== "input"
+	)
+		throw createError(
+			ErrorCodes.UNPROCESSABLE_CONTENT,
+			"A row-review card must be a question or input request",
+		);
+	if (
+		input.metadata?.schema === "tedix.row-review.v1" &&
+		(input.metadata.decisionSources !== undefined ||
+			input.metadata.decisionDeck !== undefined)
+	)
+		throw createError(
+			ErrorCodes.UNPROCESSABLE_CONTENT,
+			"A row-review card uses its sheet revision as its decision-source fence",
+		);
 	const capturedWithoutTriage =
 		input.metadata?.schema === "tedix.decision-capture.v1" &&
 		(input.metadata.triage as { status?: string } | undefined)?.status !== "ok";

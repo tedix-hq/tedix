@@ -584,6 +584,31 @@ describe("Work interaction canonical actor projections", () => {
 			}),
 		).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
 	});
+	it("rejects row reviews for interaction kinds that cannot answer them", async () => {
+		const { owner } = fixture();
+		for (const kind of ["coordination", "handoff"] as const)
+			await expect(
+				owner.create({
+					workItemId: WORK_ITEM_ID,
+					kind,
+					subject: "Review rows",
+					prompt: "Confirm or correct each row.",
+					requestedFrom: { type: "user", id: "owner-id" },
+					metadata: {
+						schema: "tedix.row-review.v1",
+						rowReview: {
+							sheet: {
+								outputId: "22222222-2222-4222-8222-222222222222",
+								title: "Vouchers",
+								revision: 3,
+							},
+							columns: { status: "Status", correction: "Correction" },
+							rows: [{ row: 0, label: "Rewe", proposal: "Meal" }],
+						},
+					},
+				}),
+			).rejects.toMatchObject({ code: "UNPROCESSABLE_CONTENT" });
+	});
 
 	it("allows only the target human to delegate the existing question", async () => {
 		const { owner, target, other, sqlite } = fixture();

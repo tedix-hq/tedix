@@ -38,6 +38,7 @@ function boundedCard(
 	return {
 		id: requestId,
 		kind: "question",
+		label: "Which topic should we choose?",
 		source: `/work?view=deck#card=${requestId}`,
 		interaction: {
 			request: {
@@ -545,6 +546,167 @@ it("records a scored factory card's features, score and mapped skip reason", asy
 	);
 });
 
+it("writes row-review verdicts back to the sheet and resolves the ask", async () => {
+	const sheetOutput = "22222222-2222-4222-8222-222222222222";
+	const rowReview = {
+		sheet: { outputId: sheetOutput, title: "Vouchers", revision: 3 },
+		columns: { status: "Status", correction: "Note" },
+		rows: [
+			{ row: 0, label: "Rewe 12.03", proposal: "Kategorie: Verpflegung" },
+			{ row: 2, label: "Vapiano", proposal: "Teilnehmer: Aaron" },
+		],
+	};
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [
+			boundedCard({
+				schema: "tedix.row-review.v1",
+				rowReview,
+			}),
+		],
+		complete: true,
+	});
+	mocks.call
+		.mockResolvedValueOnce({
+			output: { title: "Vouchers" },
+			currentRevision: {
+				revision: 3,
+				content: {
+					kind: "sheet",
+					columns: ["Beleg", "Status", "Anlass", "Note"],
+					rows: [
+						["Rewe", "", "", ""],
+						["Baker", "", "", ""],
+						["Vapiano", "", "", ""],
+					],
+				},
+			},
+		})
+		.mockResolvedValueOnce({})
+		.mockResolvedValueOnce({ revision: { id: "rev4", revision: 4 } })
+		.mockResolvedValueOnce({});
+	await expect(
+		client().decideDeckCard({
+			decision: {
+				kind: "row_review",
+				requestId,
+				expectedRequestVersion: 7,
+				verdicts: [
+					{ row: 0, verdict: "confirmed" },
+					{ row: 2, verdict: "corrected", correction: "Aaron, Christian" },
+				],
+			},
+		}),
+	).resolves.toEqual({ saved: true, cardId: requestId });
+	expect(mocks.call.mock.calls[1]?.[1]).toMatchObject({
+		requestId,
+		expectedRequestVersion: 7,
+		responseKind: "answer",
+		resolvesRequest: false,
+		metadata: expect.objectContaining({ status: "started" }),
+	});
+	expect(mocks.call.mock.calls[2]?.[1]).toMatchObject({
+		outputId: sheetOutput,
+		startRow: 0,
+		startColumn: 1,
+		cells: [
+			["confirmed", "", ""],
+			["", "", ""],
+			["corrected", "", "Aaron, Christian"],
+		],
+		expectedRevision: 3,
+	});
+	expect(mocks.call.mock.calls[3]?.[1]).toMatchObject({
+		requestId,
+		expectedRequestVersion: 8,
+		responseKind: "answer",
+		resolvesRequest: true,
+		metadata: expect.objectContaining({
+			schema: "tedix.row-review-result.v1",
+			sheet: expect.objectContaining({ outputId: sheetOutput, revision: 4 }),
+		}),
+	});
+});
+it("refuses a row-review answer when the sheet moved", async () => {
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [
+			boundedCard({
+				schema: "tedix.row-review.v1",
+				rowReview: {
+					sheet: {
+						outputId: "22222222-2222-4222-8222-222222222222",
+						title: "Vouchers",
+						revision: 3,
+					},
+					columns: { status: "Status", correction: "Correction" },
+					rows: [{ row: 0, label: "Rewe", proposal: "x" }],
+				},
+			}),
+		],
+		complete: true,
+	});
+	mocks.call.mockResolvedValueOnce({
+		currentRevision: { revision: 4, content: { kind: "sheet" } },
+	});
+	await expect(
+		client().decideDeckCard({
+			decision: {
+				kind: "row_review",
+				requestId,
+				expectedRequestVersion: 7,
+				verdicts: [{ row: 0, verdict: "confirmed" }],
+			},
+		}),
+	).rejects.toMatchObject({ code: "CONFLICT" });
+	expect(mocks.call).toHaveBeenCalledTimes(1);
+});
+it("keeps a claimed row-review ask open when the sheet write fails", async () => {
+	mocks.loadDeckProjection.mockResolvedValue({
+		cards: [
+			boundedCard({
+				schema: "tedix.row-review.v1",
+				rowReview: {
+					sheet: {
+						outputId: "22222222-2222-4222-8222-222222222222",
+						title: "Vouchers",
+						revision: 3,
+					},
+					columns: { status: "Status", correction: "Correction" },
+					rows: [{ row: 0, label: "Rewe", proposal: "x" }],
+				},
+			}),
+		],
+		complete: true,
+	});
+	mocks.call
+		.mockResolvedValueOnce({
+			output: { title: "Vouchers" },
+			currentRevision: {
+				revision: 3,
+				content: {
+					kind: "sheet",
+					columns: ["Status", "Correction"],
+					rows: [["", ""]],
+				},
+			},
+		})
+		.mockResolvedValueOnce({})
+		.mockRejectedValueOnce(new Error("sheet write failed"));
+	await expect(
+		client().decideDeckCard({
+			decision: {
+				kind: "row_review",
+				requestId,
+				expectedRequestVersion: 7,
+				verdicts: [{ row: 0, verdict: "confirmed" }],
+			},
+		}),
+	).rejects.toThrow("sheet write failed");
+	expect(mocks.call).toHaveBeenCalledTimes(3);
+	expect(mocks.call.mock.calls[1]?.[1]).toMatchObject({
+		requestId,
+		resolvesRequest: false,
+	});
+});
 it("allows an explicit reversible envelope without protected or executable effects", async () => {
 	const decisionDeck = DecisionEnvelopeSchema.parse(envelope());
 	mocks.loadDeckProjection.mockResolvedValue({

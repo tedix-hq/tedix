@@ -9,6 +9,7 @@ import {
 } from "./decision-card-copy";
 import { containsCardSecret } from "./card-secrets";
 import { isRecord } from "./is-record";
+import { rowReviewDisplayRows } from "./row-review";
 import { DECK_ASK_LABELS } from "./deck-ask";
 import type { JsonValue } from "../schemas/common";
 import { AttentionOfferedChoicesSchema } from "../schemas/attention";
@@ -82,7 +83,7 @@ export function deckDisplayCard(
 		outbound?.body ??
 		card.decision?.preview?.body ??
 		card.factory?.draft ??
-		null;
+		(card.rowReview ? rowReviewDisplayRows(card.rowReview) : null);
 	const critical =
 		classifyDeckCard(
 			{
@@ -120,6 +121,7 @@ export function deckDisplayCard(
 		dueAt: card.deadline ?? card.dueAt,
 		askKind: card.askKind ?? null,
 		responseKind: card.responseKind,
+		...(card.rowReview ? { rowReview: card.rowReview } : {}),
 		ownerTask: card.ownerTask,
 		askLabel:
 			card.responseKind === "task"
@@ -268,6 +270,16 @@ export function deckDisplayCard(
 					},
 				});
 		} else {
+			if (card.rowReview)
+				add("confirm-all", `Confirm all ${card.rowReview.rows.length} rows`, {
+					kind: "row_review",
+					requestId: request.id,
+					expectedRequestVersion: request.version,
+					verdicts: card.rowReview.rows.map((row) => ({
+						row: row.row,
+						verdict: "confirmed",
+					})),
+				});
 			const responseKind =
 				request.kind === "input"
 					? "input_provided"
@@ -318,7 +330,7 @@ export function deckDisplayCard(
 	view.actions = view.actions.filter((action) => {
 		const choice = action.arguments.decision;
 		if (!isRecord(choice)) return false;
-		if (choice.kind === "factory") return true;
+		if (choice.kind === "factory" || choice.kind === "row_review") return true;
 		if (choice.kind !== "interaction" || !isRecord(choice.decision))
 			return false;
 		return !deckResponseRequiresHuman(

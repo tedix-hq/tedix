@@ -12,6 +12,12 @@ import { osWorkspacesContractRouter } from "./os-workspaces";
 import { AUTHZ, type BaseContext, withAuth, withAuthorization } from "../orpc";
 import { workInteractionsContractRouter } from "./work-interactions";
 import { deckResponseRequiresHuman } from "@tedix/api-contract/utils/deck-action-boundary";
+import {
+	rowReviewResultMetadata,
+	rowReviewSpec,
+	rowReviewSummary,
+	rowReviewWrites,
+} from "@tedix/api-contract/utils/row-review";
 
 const os = implement(attentionContract).$context<BaseContext>();
 const authenticated = os.use(withAuth);
@@ -179,11 +185,13 @@ export const attentionContractRouter = os.router({
 				input.kind === "request_changes" ||
 				input.kind === "restore_revision"
 					? input.cardId
-					: input.kind === "interaction"
-						? input.decision.requestId
-						: input.kind === "work_approval"
-							? `work-approval:${input.decision.proposalId}`
-							: `approval:${input.decision.id}`;
+					: input.kind === "row_review"
+						? input.requestId
+						: input.kind === "interaction"
+							? input.decision.requestId
+							: input.kind === "work_approval"
+								? `work-approval:${input.decision.proposalId}`
+								: `approval:${input.decision.id}`;
 			const card = projection.cards.find((card) => card.id === cardId);
 			if (!card) {
 				const { explainDeckCardAbsence } =
@@ -436,6 +444,119 @@ export const attentionContractRouter = os.router({
 					},
 				});
 				return { saved: true as const, cardId: input.cardId };
+			}
+
+			if (input.kind === "row_review") {
+				const request = card.interaction?.request;
+				const spec = request ? rowReviewSpec(request.metadata) : null;
+				if (!request || !spec)
+					throw errors.BAD_REQUEST({
+						message: "This card carries no sheet rows to review",
+					});
+				if (request.version !== input.expectedRequestVersion)
+					throw errors.CONFLICT({
+						message: "This decision changed; reload the card",
+					});
+				const detail = await call(
+					osWorkspacesContractRouter.outputs.get,
+					{ outputId: spec.sheet.outputId },
+					{ context },
+				);
+				if (
+					detail.currentRevision.revision !== spec.sheet.revision ||
+					detail.currentRevision.content.kind !== "sheet"
+				)
+					throw errors.CONFLICT({
+						message: "The sheet changed; reload the card before answering",
+					});
+				if (detail.output.title !== spec.sheet.title)
+					throw errors.CONFLICT({
+						message:
+							"The sheet identity changed; reload the card before answering",
+					});
+				const sheet = detail.currentRevision.content;
+				let writes: ReturnType<typeof rowReviewWrites>;
+				try {
+					writes = rowReviewWrites(sheet, spec, input.verdicts);
+				} catch (error) {
+					throw errors.BAD_REQUEST({
+						message:
+							error instanceof Error
+								? error.message
+								: "The row answers are invalid",
+					});
+				}
+				const summary = rowReviewSummary(input.verdicts);
+				const responseKind =
+					request.kind === "input" ? "input_provided" : "answer";
+				await call(
+					workInteractionsContractRouter.respond,
+					{
+						requestId: request.id,
+						expectedRequestVersion: request.version,
+						responseKind,
+						body: "Row review write started.",
+						resolvesRequest: false,
+						metadata: {
+							schema: "tedix.row-review-result.v1",
+							status: "started",
+							source: "decision_deck",
+						},
+					},
+					{ context },
+				);
+				const written = await call(
+					osWorkspacesContractRouter.outputs.setSheetRange,
+					{
+						outputId: spec.sheet.outputId,
+						...writes[0]!,
+						expectedRevision: spec.sheet.revision,
+						note: `Row review: ${summary}`,
+					},
+					{ context },
+				);
+				await call(
+					workInteractionsContractRouter.respond,
+					{
+						requestId: request.id,
+						expectedRequestVersion: request.version + 1,
+						responseKind,
+						body: `${summary} — written back to "${spec.sheet.title}".`,
+						resolvesRequest: true,
+						metadata: rowReviewResultMetadata({
+							sheetOutputId: spec.sheet.outputId,
+							revision: written.revision.revision,
+							revisionId: written.revision.id,
+							verdicts: input.verdicts,
+							source: "decision_deck",
+						}),
+					},
+					{ context },
+				);
+				await recordObservedLearningInteraction(context, {
+					organizationId: requireOrgId(context),
+					clientEventId: `row-review:${written.revision.id}:${request.id}`,
+					eventKind: input.verdicts.some(
+						(verdict) => verdict.verdict === "corrected",
+					)
+						? "edited"
+						: "accepted",
+					surface: "decision_deck",
+					targetType: "work_interaction",
+					targetId: request.id,
+					metadata: {
+						decisionClass: "row_review",
+						decisionChoice: "row_review",
+						cardId: card.id,
+						cardTitle: card.label.slice(0, 500),
+						rows: spec.rows.length,
+						corrected: input.verdicts.filter(
+							(verdict) => verdict.verdict === "corrected",
+						).length,
+						sheetOutputId: spec.sheet.outputId,
+					},
+				});
+				return { saved: true as const, cardId: request.id };
 			}
 
 			const cardUrl = context.env.OS_URL

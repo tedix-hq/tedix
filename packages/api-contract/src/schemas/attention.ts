@@ -19,6 +19,10 @@ import {
 	WorkApprovalInboxRowSchema,
 	DecideWorkApprovalProposalInputSchema,
 } from "./work-approvals";
+import {
+	RowReviewRowVerdictSchema,
+	RowReviewSpecSchema,
+} from "./os-row-review";
 import { ApprovalRequestSchema } from "../contracts/tedi-approvals";
 
 const AttentionTimeZoneSchema = z
@@ -97,6 +101,8 @@ export const DeckCardSchema = z.strictObject({
 	/** A ready message draft that has waited longer than the Deck's staleDraftHours. */
 	draftedNotSent: z.boolean().optional(),
 	score: z.number(),
+	/** The proposed sheet rows this card asks the person to confirm or correct. */
+	rowReview: RowReviewSpecSchema.optional(),
 	interaction: WorkInteractionInboxRowSchema.optional(),
 	workApproval: WorkApprovalInboxRowSchema.optional(),
 	runtimeApproval: ApprovalRequestSchema.optional(),
@@ -183,6 +189,22 @@ export const DecideDeckCardInputSchema = z.discriminatedUnion("kind", [
 		decision: RespondToWorkInteractionInputSchema,
 	}),
 	z.strictObject({
+		kind: z
+			.literal("row_review")
+			.describe(
+				"Confirm or correct each proposed sheet row in one answer. Writes the verdict and any correction back to the spec's named sheet columns as a new revision, then resolves the interaction so the answer is linked on its Work Item.",
+			),
+		requestId: z.uuid(),
+		expectedRequestVersion: z.number().int().positive(),
+		gadgetId: z.uuid().optional(),
+		timeZone: AttentionTimeZoneSchema.optional(),
+		verdicts: z
+			.array(RowReviewRowVerdictSchema)
+			.min(1)
+			.max(25)
+			.describe("One verdict per proposed row."),
+	}),
+	z.strictObject({
 		kind: z.literal("work_approval"),
 		gadgetId: z.uuid().optional(),
 		timeZone: AttentionTimeZoneSchema.optional(),
@@ -246,6 +268,7 @@ export const AttentionDisplayCardSchema = z.strictObject({
 	dueAt: z.string().nullable(),
 	askKind: DeckAskKindSchema.nullable().optional(),
 	responseKind: z.enum(["choice", "open", "task"]).optional(),
+	rowReview: RowReviewSpecSchema.optional(),
 	ownerTask: DeckOwnerTaskSchema.nullable().optional(),
 	askLabel: z.string().nullable().optional(),
 	overdue: z.boolean().optional(),
