@@ -16,7 +16,12 @@ import {
 	OsDerivedAccessEnvelopeSchema,
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
+import {
+	appRuntimeGuestRefusal,
+	type AppRuntimeGuestRefusal,
+	type AppRuntimeGuestSlot,
+	isAppRuntimeManifest,
+} from "@tedix/api-contract/utils/app-runtime";
 import { osShareTitleSlug } from "@tedix/api-contract/utils/share-slug";
 import {
 	createOsShareSession,
@@ -35,10 +40,13 @@ import {
 import {
 	getOsOutput,
 	getOsOutputRevision,
+	listOsOutputs,
 } from "@tedix/db/queries/os-workspaces/outputs";
+import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type { OsShareLinkRow } from "@tedix/db/schema/os-shares";
+import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 
 /** Mint a 256-bit base64url secret. The plaintext is never persisted. */
 export function generateOsShareToken(): string {
@@ -224,12 +232,220 @@ export async function linkAdmitsGuest(
 }
 
 /**
+ * True when a workspace link opens for a visitor without an account: an
+ * "Anyone with the link" link below `build`. The visitor reads what is in the
+ * workspace and nothing else; `build` keeps its signed-in recipient check.
+ */
+export function workspaceLinkAdmitsGuest(link: OsShareLinkRow): boolean {
+	return (
+		link.resourceType === "workspace" &&
+		link.access === "anyone_with_link" &&
+		effectiveRole(link) !== "build"
+	);
+}
+
+/** The app revision a workspace link opens: the pinned snapshot's, else the app's current one. */
+export function workspaceLinkAppRevisionId(
+	link: OsShareLinkRow,
+	gadget: { id: string; currentRevisionId: string | null },
+): string | null {
+	if (link.revisionMode !== "pinned") return gadget.currentRevisionId;
+	try {
+		const snapshot = JSON.parse(link.pinnedSnapshot ?? "") as {
+			gadgets?: Array<{ id: string; revision: { id: string } | null }>;
+		};
+		return (
+			snapshot.gadgets?.find((item) => item.id === gadget.id)?.revision?.id ??
+			null
+		);
+	} catch {
+		return null;
+	}
+}
+
+type WorkspaceScope = { organizationId: string; workspaceId: string };
+
+/** The current revision of an Output, when it is active in the workspace and carries no connected data. */
+export async function shareableOutputRevision(
+	db: DbQueryClient,
+	scope: WorkspaceScope,
+	outputId: string,
+) {
+	const output = await getOsOutput(db, {
+		organizationId: scope.organizationId,
+		outputId,
+	});
+	if (
+		!output ||
+		output.workspaceId !== scope.workspaceId ||
+		output.status !== "active" ||
+		!output.currentRevisionId
+	)
+		return null;
+	const revision = await getOsOutputRevision(db, {
+		organizationId: scope.organizationId,
+		revisionId: output.currentRevisionId,
+	});
+	if (!revision?.accessEnvelope) return null;
+	let envelope: unknown;
+	try {
+		envelope = JSON.parse(revision.accessEnvelope);
+	} catch {
+		return null;
+	}
+	const parsed = OsDerivedAccessEnvelopeSchema.safeParse(envelope);
+	if (!parsed.success || parsed.data.sources.length > 0) return null;
+	return { output, revision };
+}
+
+function activeWorkspaceResources(db: DbQueryClient, scope: WorkspaceScope) {
+	return listOsWorkspaceResources(db, {
+		organizationId: scope.organizationId,
+		workspaceId: scope.workspaceId,
+		status: "active",
+		limit: 200,
+	});
+}
+
+/**
+ * Why guests may not open this app, or null when they may. Every granted slot
+ * must be bound to an Output in the workspace that carries no data from
+ * connected accounts; see `appRuntimeGuestRefusal`.
+ */
+export async function guestAppRefusal(
+	db: DbQueryClient,
+	scope: WorkspaceScope,
+	grants: ReadonlyArray<{ slot: string; operations: readonly string[] }>,
+	resources?: readonly OsWorkspaceResourceRow[],
+): Promise<AppRuntimeGuestRefusal | null> {
+	if (grants.length === 0) return null;
+	const bound = resources ?? (await activeWorkspaceResources(db, scope));
+	const slots = new Map<string, AppRuntimeGuestSlot>();
+	for (const grant of grants) {
+		const resource = bound.find((row) => row.slot === grant.slot);
+		if (!resource) continue;
+		slots.set(
+			grant.slot,
+			resource.providerId === "tedix" && resource.resourceType === "output"
+				? {
+						kind: "output",
+						shareable: Boolean(
+							await shareableOutputRevision(
+								db,
+								scope,
+								resource.providerResourceId,
+							),
+						),
+					}
+				: { kind: "other" },
+		);
+	}
+	return appRuntimeGuestRefusal(grants, slots);
+}
+
+/** Whether a visitor without an account may run an app with this manifest. */
+async function appRunsForGuests(
+	db: DbQueryClient,
+	scope: WorkspaceScope,
+	manifest: unknown,
+	resources: readonly OsWorkspaceResourceRow[],
+): Promise<boolean> {
+	const parsed = OsGadgetManifestSchema.safeParse(manifest);
+	if (!parsed.success || !isAppRuntimeManifest(parsed.data)) return false;
+	return !(await guestAppRefusal(
+		db,
+		scope,
+		parsed.data.resourceGrants ?? [],
+		resources,
+	));
+}
+
+/**
+ * The documents, sheets and slides of a workspace a link may show: active
+ * Outputs that hold no data from connected accounts. `hiddenCount` counts the
+ * rest, so the page and the Share dialog can say something is left out.
+ */
+async function workspaceShareableFiles(
+	db: DbQueryClient,
+	scope: WorkspaceScope,
+) {
+	const outputs = await listOsOutputs(
+		db,
+		scope.organizationId,
+		{ userIds: [], workspaceIds: [scope.workspaceId] },
+		{ workspaceId: scope.workspaceId, status: "active", limit: 200 },
+	);
+	const checked = await Promise.all(
+		outputs.map((output) => shareableOutputRevision(db, scope, output.id)),
+	);
+	const files = checked.flatMap((shared) =>
+		shared
+			? [
+					{
+						id: shared.output.id,
+						title: shared.output.title,
+						kind: shared.output.kind,
+						updatedAt: shared.output.updatedAt,
+					},
+				]
+			: [],
+	);
+	return { files, hiddenCount: outputs.length - files.length };
+}
+
+/**
+ * What an "Anyone with the link" workspace link leaves out, for the Share
+ * dialog: files holding data from connected accounts, and apps that need a
+ * signed-in person to open.
+ */
+export async function workspaceGuestLimits(
+	db: DbQueryClient,
+	scope: WorkspaceScope,
+): Promise<{ hiddenFiles: number; appsNeedingSignIn: number }> {
+	const [{ hiddenCount }, gadgets, resources] = await Promise.all([
+		workspaceShareableFiles(db, scope),
+		listOsGadgets(db, scope.organizationId, {
+			workspaceId: scope.workspaceId,
+			status: "active",
+			limit: 200,
+		}),
+		activeWorkspaceResources(db, scope),
+	]);
+	const runs = await Promise.all(
+		gadgets.map(async (gadget) => {
+			const revision = gadget.currentRevisionId
+				? await getOsGadgetRevision(db, {
+						organizationId: scope.organizationId,
+						revisionId: gadget.currentRevisionId,
+					})
+				: null;
+			return revision
+				? appRunsForGuests(db, scope, parseJson(revision.manifest), resources)
+				: false;
+		}),
+	);
+	return {
+		hiddenFiles: hiddenCount,
+		appsNeedingSignIn: runs.filter((runs) => !runs).length,
+	};
+}
+
+function parseJson(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return null;
+	}
+}
+
+/**
  * The recipient boundary, re-run on every read. The link's access mode comes
  * first: `organization` needs a member of the link's organization and
  * `invited` needs someone on the invite list; `anyone_with_link` keeps the
  * guest scope. Then the resource's own rules apply: source-derived outputs
  * recheck every connection, apps that run their own code admit guests for
- * `use`, and anything else needs an authorized member.
+ * `use`, an "Anyone with the link" workspace link admits guests read-only,
+ * and anything else needs an authorized member.
  */
 async function recipientMayOpen(
 	db: DbQueryClient,
@@ -263,6 +479,7 @@ async function recipientMayOpen(
 		// The invite list is the boundary for an invited app or workspace link;
 		// its people need no membership in the organization.
 		if (link.access === "invited") return true;
+		if (workspaceLinkAdmitsGuest(link)) return true;
 		if (await linkAdmitsGuest(db, link)) return true;
 	}
 	if (link.resourceType === "output") {
@@ -374,37 +591,26 @@ async function readGadget(
 	};
 }
 
-function projectWorkspaceSnapshot(snapshot: string, role: OsShareRole) {
-	const parsed = JSON.parse(snapshot) as {
-		workspace: unknown;
-		gadgets: Array<{
+type WorkspaceSnapshot = {
+	workspace: unknown;
+	gadgets: Array<{
+		id: string;
+		name: string;
+		description: string | null;
+		revision: null | {
 			id: string;
-			name: string;
-			description: string | null;
-			revision: null | {
-				id: string;
-				revision: number;
-				manifest: Record<string, unknown>;
-			};
-		}>;
-	};
-	return {
-		workspace: parsed.workspace,
-		gadgets: parsed.gadgets.map((gadget) => ({
-			...gadget,
-			revision: gadget.revision
-				? {
-						...gadget.revision,
-						manifest:
-							role === "build"
-								? gadget.revision.manifest
-								: { entry: gadget.revision.manifest.entry ?? "" },
-					}
-				: null,
-		})),
-	};
-}
+			revision: number;
+			manifest: Record<string, unknown>;
+		};
+	}>;
+};
 
+/**
+ * A workspace as its link shows it: its apps, each saying whether it opens
+ * for a visitor without an account, and, for a living link, the documents,
+ * sheets and slides that hold no data from connected accounts. Connected
+ * data sources are never listed. A pinned link froze its apps only.
+ */
 async function readWorkspace(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
@@ -415,60 +621,154 @@ async function readWorkspace(
 		workspaceId: link.resourceId,
 	});
 	if (!workspace || workspace.status !== "active") return null;
+	const scope = {
+		organizationId: link.organizationId,
+		workspaceId: workspace.id,
+	};
+	let snapshot: WorkspaceSnapshot;
 	if (link.revisionMode === "pinned") {
 		if (!link.pinnedSnapshot) return null;
-		return {
-			type: "workspace" as const,
-			...projectWorkspaceSnapshot(link.pinnedSnapshot, role),
-			openPath:
-				role === "build"
-					? `/canvas?workspace=${encodeURIComponent(link.resourceId)}`
-					: null,
+		snapshot = JSON.parse(link.pinnedSnapshot) as WorkspaceSnapshot;
+	} else {
+		const gadgets = await listOsGadgets(db, link.organizationId, {
+			workspaceId: workspace.id,
+			status: "active",
+			limit: 200,
+		});
+		snapshot = {
+			workspace: {
+				id: workspace.id,
+				name: workspace.name,
+				description: workspace.description,
+				sourceBlueprintId: workspace.sourceBlueprintId,
+				sourceBlueprintRevisionNumber: workspace.sourceBlueprintRevisionNumber,
+				createdByKind: workspace.createdByKind,
+			},
+			gadgets: await Promise.all(
+				gadgets.map(async (gadget) => {
+					const revision = gadget.currentRevisionId
+						? await getOsGadgetRevision(db, {
+								organizationId: link.organizationId,
+								revisionId: gadget.currentRevisionId,
+							})
+						: null;
+					return {
+						id: gadget.id,
+						name: gadget.name,
+						description: gadget.description,
+						revision: revision
+							? {
+									id: revision.id,
+									revision: revision.revision,
+									manifest: parseJson(revision.manifest) as Record<
+										string,
+										unknown
+									>,
+								}
+							: null,
+					};
+				}),
+			),
 		};
 	}
-	const gadgets = await listOsGadgets(db, link.organizationId, {
-		workspaceId: workspace.id,
-		status: "active",
-		limit: 200,
-	});
-	const projected = await Promise.all(
-		gadgets.map(async (gadget) => {
-			const revision = gadget.currentRevisionId
-				? await getOsGadgetRevision(db, {
-						organizationId: link.organizationId,
-						revisionId: gadget.currentRevisionId,
-					})
-				: null;
-			return {
-				id: gadget.id,
-				name: gadget.name,
-				description: gadget.description,
-				revision: revision
-					? {
-							id: revision.id,
-							revision: revision.revision,
-							manifest: exposedManifest(revision.manifest, role),
-						}
-					: null,
-			};
-		}),
+	const [resources, files] = await Promise.all([
+		activeWorkspaceResources(db, scope),
+		link.revisionMode === "pinned"
+			? { files: [], hiddenCount: 0 }
+			: workspaceShareableFiles(db, scope),
+	]);
+	const gadgets = await Promise.all(
+		snapshot.gadgets.map(async (gadget) => ({
+			...gadget,
+			opensWithoutSignIn:
+				role === "use" && gadget.revision
+					? await appRunsForGuests(
+							db,
+							scope,
+							gadget.revision.manifest,
+							resources,
+						)
+					: false,
+			revision: gadget.revision
+				? {
+						...gadget.revision,
+						manifest:
+							role === "build"
+								? gadget.revision.manifest
+								: { entry: gadget.revision.manifest?.entry ?? "" },
+					}
+				: null,
+		})),
 	);
 	return {
 		type: "workspace" as const,
-		workspace: {
-			id: workspace.id,
-			name: workspace.name,
-			description: workspace.description,
-			sourceBlueprintId: workspace.sourceBlueprintId,
-			sourceBlueprintRevisionNumber: workspace.sourceBlueprintRevisionNumber,
-			createdByKind: workspace.createdByKind,
-		},
-		gadgets: projected,
+		workspace: snapshot.workspace,
+		gadgets,
+		files: files.files,
+		hiddenFileCount: files.hiddenCount,
 		openPath:
 			role === "build"
 				? `/canvas?workspace=${encodeURIComponent(workspace.id)}`
 				: null,
 	};
+}
+
+/**
+ * One document, sheet or slide deck from a living workspace link, by id:
+ * only one the workspace listing shows, i.e. active and holding no data from
+ * connected accounts. Every refusal is the same 404 as an unknown link.
+ */
+export async function handleOsShareSessionOutput(
+	db: DbQueryClient,
+	sessionToken: string,
+	outputId: string,
+	authorizeRecipient?: AuthorizeOsShareRecipient,
+	identifyRecipient?: IdentifyOsShareRecipient,
+): Promise<Response> {
+	if (!TOKEN_SHAPE.test(sessionToken) || !outputId || outputId.length > 100)
+		return notFound();
+	const now = new Date().toISOString();
+	const session = await touchOsShareSession(
+		db,
+		await hashOsShareToken(sessionToken),
+		now,
+	);
+	if (!session) return notFound();
+	const link = await getOsShareLinkById(db, session.shareLinkId);
+	if (
+		!link ||
+		!isActive(link, now) ||
+		link.resourceType !== "workspace" ||
+		link.revisionMode === "pinned"
+	)
+		return notFound();
+	if (
+		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
+	)
+		return notFound();
+	const workspace = await getOsWorkspace(db, {
+		organizationId: link.organizationId,
+		workspaceId: link.resourceId,
+	});
+	if (!workspace || workspace.status !== "active") return notFound();
+	const shared = await shareableOutputRevision(
+		db,
+		{ organizationId: link.organizationId, workspaceId: workspace.id },
+		outputId,
+	);
+	if (!shared) return notFound();
+	return noStoreJson({
+		output: {
+			id: shared.output.id,
+			title: shared.output.title,
+			kind: shared.output.kind,
+		},
+		revision: {
+			id: shared.revision.id,
+			revision: shared.revision.revision,
+			content: JSON.parse(shared.revision.content) as unknown,
+		},
+	});
 }
 
 async function readOutput(db: DbQueryClient, link: OsShareLinkRow) {

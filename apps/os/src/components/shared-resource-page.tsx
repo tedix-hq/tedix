@@ -34,6 +34,10 @@ import {
 } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { SharedReviewBatch } from "./shared-review-batch";
+import {
+	SharedWorkspaceContents,
+	type SharedWorkspaceFile,
+} from "@/components/shared-workspace-contents";
 import { ShareControls } from "@/components/share-controls";
 import { WidgetFrame } from "@/components/widget-frame";
 import { OutputContentView } from "@/components/output-content";
@@ -84,7 +88,11 @@ export type SharePayload = {
 		| {
 				type: "workspace";
 				workspace: { id: string; name: string; description: string | null };
-				gadgets: SharedGadget[];
+				gadgets: Array<SharedGadget & { opensWithoutSignIn?: boolean }>;
+				/** Documents, sheets and slides without data from connected accounts. */
+				files?: SharedWorkspaceFile[];
+				/** How many files were left out because they hold connected data. */
+				hiddenFileCount?: number;
 				openPath: string | null;
 		  }
 		| {
@@ -338,15 +346,18 @@ export function SharedResourcePage() {
 	);
 }
 
-/** What an open share shows: an app, a workspace's apps, or a file. */
+/** What an open share shows: an app, a workspace's contents, or a file. */
 export function SharedResourceView({
 	payload,
 	sessionToken,
 	subtitle = "Shared with you · opened with your own Tedix sign-in",
+	onOpenApp,
 }: {
 	payload: SharePayload;
 	sessionToken: string;
 	subtitle?: string;
+	/** Opens one of a shared workspace's apps in the guest sandbox. */
+	onOpenApp?: (appId: string) => void;
 }) {
 	const resource = payload.resource;
 	const role = payload.share.effectiveRole;
@@ -477,7 +488,18 @@ export function SharedResourceView({
 					</Text>
 				</div>
 			)}
-			{resource.type === "output" ? (
+			{resource.type === "workspace" &&
+			resource.files &&
+			payload.share.access === "anyone_with_link" &&
+			role !== "build" ? (
+				<SharedWorkspaceContents
+					files={resource.files}
+					apps={resource.gadgets}
+					hiddenFileCount={resource.hiddenFileCount ?? 0}
+					sessionToken={sessionToken}
+					onOpenApp={onOpenApp}
+				/>
+			) : resource.type === "output" ? (
 				<div
 					className="flex-1 lg:min-h-0 lg:overflow-y-auto"
 					data-shared-output

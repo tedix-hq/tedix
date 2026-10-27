@@ -1,4 +1,4 @@
-import { ShieldCheck } from "@phosphor-icons/react";
+import { ArrowLeft, ShieldCheck } from "@phosphor-icons/react";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	AppRuntimeGuestNameSchema,
@@ -85,15 +85,25 @@ type Redeemed = {
 export type GuestShare = Redeemed;
 
 export type GuestPageState = PageState;
+/**
+ * `appId` names the app when the link is to a whole workspace; an app link
+ * names its own app, so it is absent there.
+ */
 type PageState =
 	| { status: "loading" }
-	| { status: "identify"; share: Redeemed; sessionToken: string }
+	| {
+			status: "identify";
+			share: Redeemed;
+			sessionToken: string;
+			appId?: string;
+	  }
 	| {
 			status: "ready";
 			share: Redeemed;
 			sessionToken: string;
 			app: GuestOpen;
 			guestName: string;
+			appId?: string;
 	  }
 	| { status: "unavailable" };
 
@@ -236,14 +246,16 @@ export function GuestAppPage() {
 export async function openGuestApp(
 	share: GuestShare,
 	sessionToken: string,
+	appId?: string,
 ): Promise<GuestPageState> {
 	const guestName = storedGuestName();
-	if (!guestName) return { status: "identify", share, sessionToken };
+	if (!guestName) return { status: "identify", share, sessionToken, appId };
 	const app = await guestRequest<GuestOpen>("/api/os-shared/app/open", {
 		sessionToken,
 		guestName,
+		...(appId ? { appId } : {}),
 	});
-	return { status: "ready", share, sessionToken, app, guestName };
+	return { status: "ready", share, sessionToken, app, guestName, appId };
 }
 
 /** A guest's app once its share session is known, in the organization's words. */
@@ -251,11 +263,14 @@ export function GuestAppScreen({
 	state,
 	setState,
 	forget,
+	back,
 }: {
 	state: GuestPageState;
 	setState: (state: GuestPageState) => void;
 	/** Drops the stored share session after the server refuses it. */
 	forget: () => void;
+	/** Returns to the shared workspace the app was opened from. */
+	back?: { label: string; onBack: () => void };
 }) {
 	const organization =
 		state.status === "ready" || state.status === "identify"
@@ -296,7 +311,11 @@ export function GuestAppScreen({
 					try {
 						const app = await guestRequest<GuestOpen>(
 							"/api/os-shared/app/open",
-							{ sessionToken: state.sessionToken, guestName },
+							{
+								sessionToken: state.sessionToken,
+								guestName,
+								...(state.appId ? { appId: state.appId } : {}),
+							},
 						);
 						try {
 							window.sessionStorage.setItem(GUEST_NAME_KEY, guestName);
@@ -311,7 +330,7 @@ export function GuestAppScreen({
 				}}
 			/>
 		);
-	return <GuestApp state={state} t={t} />;
+	return <GuestApp state={state} t={t} back={back} />;
 }
 
 function GuestName({
@@ -367,11 +386,14 @@ function GuestName({
 function GuestApp({
 	state,
 	t,
+	back,
 }: {
 	state: Extract<PageState, { status: "ready" }>;
 	t: Translate;
+	back?: { label: string; onBack: () => void };
 }) {
-	const { app, sessionToken, share, guestName } = state;
+	// A workspace link names the app on every call; an app link names its own.
+	const { app, sessionToken, share, guestName, appId } = state;
 	const translation = useAppRuntimeTranslation(app.app.settings);
 	const context = useMemo<AppRuntimeContext>(
 		() => ({
@@ -394,7 +416,7 @@ function GuestApp({
 					open: async () => {
 						const next = await guestRequest<GuestOpen>(
 							"/api/os-shared/app/open",
-							{ sessionToken, guestName },
+							{ sessionToken, guestName, ...(appId ? { appId } : {}) },
 						);
 						return next;
 					},
@@ -403,6 +425,7 @@ function GuestApp({
 							"/api/os-shared/app/call",
 							{
 								sessionToken,
+								...(appId ? { appId } : {}),
 								session: input.session,
 								method: input.method,
 								args: input.args,
@@ -416,7 +439,7 @@ function GuestApp({
 					revisionId: app.revisionId,
 				},
 			),
-		[app, sessionToken, guestName],
+		[app, sessionToken, guestName, appId],
 	);
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>
@@ -431,7 +454,7 @@ function GuestApp({
 						(
 							await guestRequest<{ revision: { content: OsOutputContent } }>(
 								"/api/os-shared/app/read",
-								{ sessionToken, slot },
+								{ sessionToken, ...(appId ? { appId } : {}), slot },
 							)
 						).revision.content,
 					callServer,
@@ -439,7 +462,7 @@ function GuestApp({
 				method,
 				args,
 			),
-		[context, callServer, sessionToken],
+		[context, callServer, sessionToken, appId],
 	);
 	const html = useMemo(
 		() =>
@@ -459,6 +482,17 @@ function GuestApp({
 				{/* One row, the organization's mark and name only. Viewer tools
 				    such as Translate join the trailing group. */}
 				<header className="flex min-h-10 min-w-0 items-center gap-2 px-3 sm:px-4">
+					{back ? (
+						<Button
+							variant="ghost"
+							size="icon-sm"
+							aria-label={`Back to ${back.label}`}
+							onClick={back.onBack}
+							data-guest-back
+						>
+							<ArrowLeft size={16} aria-hidden />
+						</Button>
+					) : null}
 					<OrganizationMark
 						name={share.organization?.name ?? app.app.name}
 						logoUrl={share.organization?.logoUrl ?? null}
@@ -490,7 +524,7 @@ function GuestApp({
 						className="flex shrink-0 items-center gap-1"
 						data-guest-bar-tools
 					>
-						{share.canManage ? (
+						{share.canManage && !appId ? (
 							<ShareControls
 								resourceType="gadget"
 								resourceId={app.app.id}

@@ -41,6 +41,7 @@ import {
 	generateOsShareToken,
 	hashOsShareToken,
 	osShareUrl,
+	workspaceGuestLimits,
 } from "../../lib/os-share-redemption";
 import { requireOrgId } from "../org-scope";
 import {
@@ -468,6 +469,15 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 	const urlFor = await shareUrlFor(context);
 	const title = "title" in resource ? resource.title : resource.name;
 	const items = rows.map((row) => mapShareLink(row, urlFor, title));
+	if (input.resourceType === "workspace") {
+		return {
+			items,
+			guestLimits: await workspaceGuestLimits(db, {
+				organizationId: resource.organizationId,
+				workspaceId: resource.id,
+			}),
+		};
+	}
 	if (
 		input.resourceType !== "gadget" ||
 		!("currentRevisionId" in resource) ||

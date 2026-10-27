@@ -44,7 +44,9 @@ import {
 import {
 	generateOsShareToken,
 	handleOsShareRedemption,
+	handleOsShareSessionOutput,
 	hashOsShareToken,
+	workspaceGuestLimits,
 } from "./os-share-redemption";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
@@ -774,6 +776,202 @@ describe("share-link guests on a runtime app", () => {
 				})
 			).status,
 		).toBe(404);
+	});
+});
+
+describe("Anyone-with-the-link workspace links", () => {
+	const workspaceLink = (overrides: Partial<NewOsShareLinkRow> = {}) => ({
+		resourceType: "workspace" as const,
+		resourceId: workspaceId,
+		access: "anyone_with_link" as const,
+		...overrides,
+	});
+	type WorkspacePayload = {
+		resource: {
+			type: "workspace";
+			gadgets: Array<{
+				id: string;
+				opensWithoutSignIn: boolean;
+				revision: { manifest: Record<string, unknown> } | null;
+			}>;
+			files: Array<{ id: string; title: string; kind: string }>;
+			hiddenFileCount: number;
+		};
+	};
+
+	async function seedConnectedOutput(db: Fixture["db"]) {
+		const connectedId = "99999999-9999-4999-8999-999999999999";
+		await db.insert(osOutputs).values({
+			id: connectedId,
+			organizationId: "org-1",
+			workspaceId,
+			kind: "document",
+			title: "Inbox digest",
+			currentRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await db.insert(osOutputRevisions).values({
+			id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			organizationId: "org-1",
+			outputId: connectedId,
+			revision: 1,
+			content: JSON.stringify({ kind: "document", blocks: [] }),
+			accessEnvelope: JSON.stringify({
+				version: 1,
+				sources: [
+					{
+						workspaceResourceId: "00000000-0000-4000-8000-000000000001",
+						workspaceId,
+						providerId: "gmail",
+						connectionScope: "personal",
+						providerResourceId: "inbox",
+						requiredScopes: [],
+					},
+				],
+			}),
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		return connectedId;
+	}
+
+	it("opens signed out, read-only, with its files and apps but no connected data", async () => {
+		const { db } = await fixture();
+		const connectedId = await seedConnectedOutput(db);
+		const link = await seedLink(db, workspaceLink());
+		const response = await handleOsShareRedemption(db, link.token);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as WorkspacePayload & {
+			sessionToken: string;
+		};
+		expect(body.resource.files).toEqual([
+			expect.objectContaining({
+				id: outputId,
+				title: "Opportunities",
+				kind: "sheet",
+			}),
+		]);
+		expect(body.resource.hiddenFileCount).toBe(1);
+		const byId = new Map(body.resource.gadgets.map((g) => [g.id, g]));
+		expect(byId.get(gadgetId)?.opensWithoutSignIn).toBe(true);
+		expect(byId.get(widgetGadgetId)?.opensWithoutSignIn).toBe(false);
+		// Read-only: no app is shown with how it is built.
+		expect(byId.get(gadgetId)?.revision?.manifest).toEqual({
+			entry: "tedix:runtime/v1",
+		});
+		// No connected source leaves the server, not even by name.
+		expect(JSON.stringify(body)).not.toContain("Inbox digest");
+		expect(JSON.stringify(body)).not.toContain("Opportunities sheet");
+
+		const readFile = (id: string) =>
+			handleOsShareSessionOutput(db, body.sessionToken, id);
+		const sheet = await readFile(outputId);
+		expect(sheet.status).toBe(200);
+		expect(await sheet.json()).toMatchObject({
+			output: { id: outputId, title: "Opportunities" },
+			revision: { content: { kind: "sheet" } },
+		});
+		expect((await readFile(connectedId)).status).toBe(404);
+		expect((await readFile("not-a-file")).status).toBe(404);
+	});
+
+	it("opens only the workspace's own runtime apps for a guest", async () => {
+		const { db, env } = await fixture();
+		const link = await seedLink(db, workspaceLink());
+		const sessionToken = await redeem(db, link.token);
+		const open = (appId?: string) =>
+			handleGuestAppOpen(env, db, {
+				sessionToken,
+				guestName: "Maya",
+				...(appId ? { appId } : {}),
+			});
+		const opened = await open(gadgetId);
+		expect(opened.status).toBe(200);
+		expect(await opened.json()).toMatchObject({
+			role: "use",
+			app: { id: gadgetId, workspaceId },
+		});
+		// The workspace link names no app of its own, and a widget app needs sign-in.
+		expect((await open()).status).toBe(404);
+		expect((await open(widgetGadgetId)).status).toBe(404);
+		// An app from another workspace is never in reach.
+		await db.insert(osGadgets).values({
+			id: "44444444-4444-4444-8444-444444444444",
+			organizationId: "org-1",
+			workspaceId: "other-workspace",
+			name: "Elsewhere",
+			currentRevisionId: revisionId,
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		expect((await open("44444444-4444-4444-8444-444444444444")).status).toBe(
+			404,
+		);
+		const read = await handleGuestAppRead(db, {
+			sessionToken,
+			appId: gadgetId,
+			slot: "opportunities",
+		});
+		expect(read.status).toBe(200);
+	});
+
+	it("a viewer link lists apps but opens none", async () => {
+		const { db, env } = await fixture();
+		const link = await seedLink(db, workspaceLink({ role: "viewer" }));
+		const response = await handleOsShareRedemption(db, link.token);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as WorkspacePayload & {
+			sessionToken: string;
+		};
+		expect(
+			body.resource.gadgets.every((gadget) => !gadget.opensWithoutSignIn),
+		).toBe(true);
+		expect(
+			(
+				await handleGuestAppOpen(env, db, {
+					sessionToken: body.sessionToken,
+					guestName: "Maya",
+					appId: gadgetId,
+				})
+			).status,
+		).toBe(404);
+	});
+
+	it("a build link, or a link to a workspace made private, stays closed to guests", async () => {
+		const { db } = await fixture();
+		const build = await seedLink(db, workspaceLink({ role: "build" }));
+		expect(await redeem(db, build.token)).toBeNull();
+		const link = await seedLink(db, workspaceLink());
+		const sessionToken = await redeem(db, link.token);
+		expect(sessionToken).not.toBeNull();
+		await db
+			.update(osWorkspaces)
+			.set({ visibility: "private" })
+			.where(eq(osWorkspaces.id, workspaceId));
+		expect(await redeem(db, link.token)).toBeNull();
+		expect(
+			(await handleOsShareSessionOutput(db, sessionToken!, outputId)).status,
+		).toBe(404);
+	});
+
+	it("organization and invited workspace links still need a signed-in person", async () => {
+		const { db } = await fixture();
+		for (const access of ["organization", "invited"] as const) {
+			const link = await seedLink(db, workspaceLink({ access }));
+			expect(await redeem(db, link.token), access).toBeNull();
+		}
+	});
+
+	it("tells the Share dialog what the link leaves out", async () => {
+		const { db } = await fixture();
+		expect(
+			await workspaceGuestLimits(db, { organizationId: "org-1", workspaceId }),
+		).toEqual({ hiddenFiles: 0, appsNeedingSignIn: 1 });
+		await seedConnectedOutput(db);
+		expect(
+			await workspaceGuestLimits(db, { organizationId: "org-1", workspaceId }),
+		).toEqual({ hiddenFiles: 1, appsNeedingSignIn: 1 });
 	});
 });
 

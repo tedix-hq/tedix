@@ -33,7 +33,12 @@ type Opened = { payload: OpenedShare; sessionToken: string };
 type PageState =
 	| { status: "loading" }
 	| { status: "unavailable"; signedIn: boolean }
-	| { status: "guest"; guest: GuestPageState }
+	| {
+			status: "guest";
+			guest: GuestPageState;
+			/** The shared workspace this app was opened from. */
+			from?: string;
+	  }
 	| ({ status: "ready" } & Opened);
 
 /** Back from sign-in: the page must not send the visitor round again. */
@@ -108,8 +113,48 @@ export function ShareLinkPage({ id }: { id: string }) {
 		id: string;
 		promise: Promise<Opened | "sign-in">;
 	} | null>(null);
+	// The latest opened share, so an app opened from a workspace can go back.
+	const lastReady = useRef<Opened | null>(null);
+	const showReady = (opened: Opened) => {
+		lastReady.current = opened;
+		setState((current) =>
+			current.status === "guest" ? current : { status: "ready", ...opened },
+		);
+	};
 
 	useEffect(() => followDeviceTheme(), []);
+
+	// Back from an app returns to the workspace it was opened from.
+	useEffect(() => {
+		const onPopState = () => {
+			const ready = lastReady.current;
+			if (ready) setState({ status: "ready", ...ready });
+		};
+		window.addEventListener("popstate", onPopState);
+		return () => window.removeEventListener("popstate", onPopState);
+	}, []);
+
+	/** One of a shared workspace's apps, in the guest sandbox, with Back. */
+	const openWorkspaceApp = async (appId: string) => {
+		const ready = lastReady.current;
+		if (!ready) return;
+		const from =
+			ready.payload.resource.type === "workspace"
+				? ready.payload.resource.workspace.name
+				: "the workspace";
+		try {
+			const guest = await openGuestApp(
+				ready.payload,
+				ready.sessionToken,
+				appId,
+			);
+			window.history.pushState({ shareApp: appId }, "");
+			setState({ status: "guest", guest, from });
+		} catch {
+			// The app stopped running for guests since the list was read; the
+			// next refresh shows it as needing sign-in.
+		}
+	};
 
 	useEffect(() => {
 		if (!isShareLinkId(id)) {
@@ -145,6 +190,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 					if (alive) setState({ status: "guest", guest });
 					return;
 				}
+				lastReady.current = opened;
 				setState({ status: "ready", ...opened });
 				// The readable suffix makes the permanent address tell people what
 				// it opens; only the id resolves it.
@@ -161,8 +207,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 						sessionToken: opened.sessionToken,
 					}).then((payload) => {
 						if (alive)
-							setState({
-								status: "ready",
+							showReady({
 								payload: { ...payload, access: opened.payload.access },
 								sessionToken: opened.sessionToken,
 							});
@@ -204,8 +249,15 @@ export function ShareLinkPage({ id }: { id: string }) {
 		return (
 			<GuestAppScreen
 				state={state.guest}
-				setState={(guest) => setState({ status: "guest", guest })}
+				setState={(guest) =>
+					setState({ status: "guest", guest, from: state.from })
+				}
 				forget={() => storeShareLinkSession(id, null)}
+				back={
+					state.from
+						? { label: state.from, onBack: () => window.history.back() }
+						: undefined
+				}
 			/>
 		);
 	return (
@@ -213,6 +265,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 			payload={state.payload}
 			sessionToken={state.sessionToken}
 			subtitle={subtitle(state.payload.access ?? state.payload.share.access)}
+			onOpenApp={(appId) => void openWorkspaceApp(appId)}
 		/>
 	);
 }

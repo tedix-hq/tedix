@@ -10983,7 +10983,14 @@ export function handleLocalRpc(
 const GUEST_TOKEN_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
 /** The permanent `/s/<id>` address of the fixture's one shared app. */
 export const LOCAL_GUEST_SHARE_PUBLIC_ID = "PricePilotOpportunity1";
-const guestSessions = new Set<string>();
+/**
+ * The "Anyone with the link" address of that app's workspace: its files and
+ * apps, read-only. One fictional file is counted as left out, the way a file
+ * holding connected-account data would be.
+ */
+export const LOCAL_GUEST_WORKSPACE_PUBLIC_ID = "PricePilotWorkspace001";
+/** Each guest session, and whether it came from the app or the workspace link. */
+const guestSessions = new Map<string, "gadget" | "workspace">();
 const guestVerdicts: Record<string, { value: string; at: number }> = {};
 
 function localGuestApp() {
@@ -11046,6 +11053,17 @@ export function handleLocalGuestShare(
 		const token = field("sessionToken");
 		return typeof token === "string" && guestSessions.has(token) ? token : null;
 	};
+	const sessionKind = () => {
+		const token = sessionOf();
+		return token ? guestSessions.get(token) : undefined;
+	};
+	// A workspace link names the app it opens; an app link names none.
+	const appAllowed = () => {
+		const appId = field("appId");
+		return sessionKind() === "workspace"
+			? appId === app?.gadget.id
+			: appId === undefined;
+	};
 	const app = localGuestApp();
 	const share = {
 		organization: { name: "PricePilot", logoUrl: null },
@@ -11085,15 +11103,77 @@ export function handleLocalGuestShare(
 				}
 			: null,
 	};
-	const startSession = (seed: string) => {
+	const startSession = (
+		seed: string,
+		kind: "gadget" | "workspace" = "gadget",
+	) => {
 		const sessionToken = `guest-${seed.slice(0, 16)}-${guestSessions.size + 1}`;
-		guestSessions.add(sessionToken);
+		guestSessions.set(sessionToken, kind);
 		return sessionToken;
 	};
+	const workspace = app
+		? state.workspaces.find((row) => row.id === app.gadget.workspaceId)
+		: undefined;
+	const workspaceFiles = workspace
+		? state.outputs.filter(
+				(row) => row.workspaceId === workspace.id && row.status === "active",
+			)
+		: [];
+	const workspaceShare = workspace
+		? {
+				...share,
+				share: {
+					...share.share,
+					id: "00000039-0000-4000-8000-000000000002",
+					publicId: LOCAL_GUEST_WORKSPACE_PUBLIC_ID,
+					resourceType: "workspace",
+					slug: osShareTitleSlug(workspace.name),
+				},
+				resource: {
+					type: "workspace",
+					workspace: {
+						id: workspace.id,
+						name: workspace.name,
+						description: workspace.description,
+					},
+					gadgets: state.gadgets
+						.filter(
+							(row) =>
+								row.workspaceId === workspace.id && row.status === "active",
+						)
+						.map((row) => ({
+							id: row.id,
+							name: row.name,
+							description: row.description,
+							revision: null,
+							opensWithoutSignIn: row.id === app?.gadget.id,
+						})),
+					files: workspaceFiles.map((row) => ({
+						id: row.id,
+						title: row.title,
+						kind: row.kind,
+						updatedAt: row.updatedAt,
+					})),
+					hiddenFileCount: 1,
+					openPath: null,
+				},
+			}
+		: null;
 	switch (path) {
 		case "/api/os-shared/open": {
-			// A permanent link open to anyone: the fixture's one shared app.
+			// A permanent link open to anyone: the fixture's one shared app, or
+			// its workspace.
 			const id = field("id");
+			if (id === LOCAL_GUEST_WORKSPACE_PUBLIC_ID && workspaceShare)
+				return {
+					status: 200,
+					body: {
+						...workspaceShare,
+						needsSignIn: false,
+						access: "anyone_with_link",
+						sessionToken: startSession(id, "workspace"),
+					},
+				};
 			if (!app || id !== LOCAL_GUEST_SHARE_PUBLIC_ID) return refused;
 			return {
 				status: 200,
@@ -11115,9 +11195,31 @@ export function handleLocalGuestShare(
 			};
 		}
 		case "/api/os-shared/session":
+			if (sessionKind() === "workspace" && workspaceShare)
+				return { status: 200, body: workspaceShare };
 			return app && sessionOf() ? { status: 200, body: share } : refused;
+		case "/api/os-shared/output": {
+			const output = workspaceFiles.find((row) => row.id === field("outputId"));
+			const revision = output
+				? latestRevision(
+						state.outputRevisions.filter((row) => row.outputId === output.id),
+					)
+				: null;
+			if (sessionKind() !== "workspace" || !output || !revision) return refused;
+			return {
+				status: 200,
+				body: {
+					output: { id: output.id, title: output.title, kind: output.kind },
+					revision: {
+						id: revision.id,
+						revision: revision.revision,
+						content: revision.content,
+					},
+				},
+			};
+		}
 		case "/api/os-shared/app/open": {
-			if (!app || !sessionOf()) return refused;
+			if (!app || !sessionOf() || !appAllowed()) return refused;
 			const config = app.revision.manifest.config ?? {};
 			return {
 				status: 200,
@@ -11143,7 +11245,7 @@ export function handleLocalGuestShare(
 			};
 		}
 		case "/api/os-shared/app/call": {
-			if (!app || !sessionOf()) return refused;
+			if (!app || !sessionOf() || !appAllowed()) return refused;
 			const method = field("method");
 			const args = Array.isArray(field("args"))
 				? (field("args") as unknown[])
@@ -11165,7 +11267,8 @@ export function handleLocalGuestShare(
 		}
 		case "/api/os-shared/app/read": {
 			const slot = field("slot");
-			if (!app || !sessionOf() || typeof slot !== "string") return refused;
+			if (!app || !sessionOf() || !appAllowed() || typeof slot !== "string")
+				return refused;
 			const read = guestSheet(slot);
 			return read ? { status: 200, body: read } : refused;
 		}
