@@ -184,7 +184,12 @@ function OutputDetail({ outputId }: { outputId: string }) {
 					<div className="output-detail-workshop-feedback">{saveFeedback}</div>
 				) : null}
 				<OutputWorkshopStage>
-					<OutputEditor value={draft} onChange={setDraft} disabled={saving} />
+					<OutputEditor
+						value={draft}
+						onChange={setDraft}
+						disabled={saving}
+						workspaceId={detail.data.output.workspaceId ?? undefined}
+					/>
 				</OutputWorkshopStage>
 				<OutputWorkshopFooter>
 					<Input

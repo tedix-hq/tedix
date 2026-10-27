@@ -38,10 +38,41 @@ const TEXT_ELEMENT_TYPES: readonly OsPresentationElementType[] = [
 	"box",
 ];
 
+const IMAGE_ELEMENT_TYPES: readonly OsPresentationElementType[] = [
+	"image",
+	"svg",
+];
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+/**
+ * The image overflow on one axis, in screen pixels: the difference between
+ * the element box and the rendered image under its object-fit. Negative when
+ * the image overflows (cover); `object-position` maps a 0-1 focal fraction
+ * onto this slack, so a pointer delta converts with `dx / slack`.
+ */
+function imageSlack(elementNode: HTMLElement, fit: "contain" | "cover") {
+	const image = elementNode.querySelector("img");
+	const box = elementNode.getBoundingClientRect();
+	const naturalWidth = image?.naturalWidth ?? 0,
+		naturalHeight = image?.naturalHeight ?? 0;
+	if (!naturalWidth || !naturalHeight || !box.width || !box.height)
+		return { x: 0, y: 0 };
+	const scale =
+		fit === "cover"
+			? Math.max(box.width / naturalWidth, box.height / naturalHeight)
+			: Math.min(box.width / naturalWidth, box.height / naturalHeight);
+	return {
+		x: box.width - naturalWidth * scale,
+		y: box.height - naturalHeight * scale,
+	};
+}
+
 function SlideElementView({
 	element,
 	others,
 	selected,
+	cropping,
 	disabled,
 	onSelect,
 	onChange,
@@ -50,6 +81,8 @@ function SlideElementView({
 	element: OsPresentationElement;
 	others: readonly OsPresentationElement[];
 	selected: boolean;
+	/** Dragging moves the image inside its frame instead of moving the frame. */
+	cropping?: boolean;
 	disabled?: boolean;
 	onSelect: () => void;
 	onChange: (next: OsPresentationElement) => void;
@@ -62,7 +95,7 @@ function SlideElementView({
 	const editPointRef = useRef<{ x: number; y: number } | null>(null);
 	const organization = usePresentationAppearance();
 	const [gesture, setGesture] = useState<null | {
-		mode: "move" | "resize";
+		mode: "move" | "resize" | "crop";
 		startX: number;
 		startY: number;
 		origin: OsPresentationElement;
@@ -75,6 +108,10 @@ function SlideElementView({
 		wasSelected: boolean;
 		snap: boolean;
 		targets: SnapTargets;
+		// Crop drag state: the focal point at press time and the image slack
+		// each axis maps to, measured once so the drag tracks the pointer.
+		focal?: { x: number; y: number };
+		slack?: { x: number; y: number };
 	}>(null);
 	const clampX = (x: number) =>
 		Math.max(0, Math.min(PRESENTATION_WIDTH - element.width, x));
@@ -116,7 +153,23 @@ function SlideElementView({
 			: moved
 				? { ...element, x: Math.round(moved.x), y: Math.round(moved.y) }
 				: element;
-	const current = slideElementGeometry(element, geometry);
+	const cropFocal =
+		gesture?.mode === "crop" && gesture.dragging && gesture.focal
+			? {
+					x: gesture.slack?.x
+						? clamp01(gesture.focal.x + gesture.dx / gesture.slack.x)
+						: gesture.focal.x,
+					y: gesture.slack?.y
+						? clamp01(gesture.focal.y + gesture.dy / gesture.slack.y)
+						: gesture.focal.y,
+				}
+			: null;
+	const current = slideElementGeometry(
+		element,
+		cropFocal
+			? { ...geometry, props: { ...geometry.props, focalPoint: cropFocal } }
+			: geometry,
+	);
 	useSlideElementFont(current.style.fontFamily);
 	// Card and box elements with structured props edit their text in the
 	// inspector instead; the rest take a plain textarea over the element.
@@ -140,7 +193,10 @@ function SlideElementView({
 			caret?.offsetNode === textarea ? caret.offset : textarea.value.length;
 		textarea.setSelectionRange(offset, offset);
 	}, [editing]);
-	const startGesture = (mode: "move" | "resize", event: React.PointerEvent) => {
+	const startGesture = (
+		mode: "move" | "resize" | "crop",
+		event: React.PointerEvent,
+	) => {
 		if (disabled || event.button !== 0) return;
 		// Preventing the press also keeps the textarea from taking focus and
 		// starting a text selection, so a press on the element body drags it.
@@ -173,6 +229,14 @@ function SlideElementView({
 				PRESENTATION_WIDTH,
 				PRESENTATION_HEIGHT,
 			),
+			...(mode === "crop"
+				? {
+						focal: element.props?.focalPoint ?? { x: 0.5, y: 0.5 },
+						slack: elementNode
+							? imageSlack(elementNode, element.style.fit ?? "contain")
+							: { x: 0, y: 0 },
+					}
+				: {}),
 		});
 	};
 	const moveGesture = (event: React.PointerEvent) =>
@@ -206,7 +270,24 @@ function SlideElementView({
 		setGesture(null);
 		if (gesture.dragging) {
 			if (gesture.dx !== 0 || gesture.dy !== 0) onGeometryCommit(current);
-		} else if (gesture.wasSelected) beginEditing(event.clientX, event.clientY);
+		} else if (gesture.mode === "crop") {
+			// A plain press inside a cropping frame pins the focal point there.
+			const box = (
+				event.currentTarget as HTMLElement
+			).getBoundingClientRect();
+			if (box.width && box.height)
+				onGeometryCommit({
+					...element,
+					props: {
+						...element.props,
+						focalPoint: {
+							x: clamp01((event.clientX - box.left) / box.width),
+							y: clamp01((event.clientY - box.top) / box.height),
+						},
+					},
+				});
+		} else if (gesture.wasSelected)
+			beginEditing(event.clientX, event.clientY);
 	};
 	const resizeWithKeyboard = (event: React.KeyboardEvent) => {
 		if (event.key === "Escape") {
@@ -265,8 +346,12 @@ function SlideElementView({
 				data-slide-element={element.id}
 				data-selected={selected || undefined}
 				data-editable={canEdit || undefined}
+				data-cropping={cropping || undefined}
 				className={`${SLIDE_ELEMENT_CLASS} outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
-				style={slideElementStyle(current, "canvas", organization)}
+				style={{
+					...slideElementStyle(current, "canvas", organization),
+					cursor: cropping ? "move" : undefined,
+				}}
 				onFocus={(event) => {
 					// Tabbing to an element selects it, as a click does, so the arrow
 					// keys move it straight away instead of changing slides.
@@ -303,7 +388,12 @@ function SlideElementView({
 						document.activeElement === textareaRef.current
 					)
 						return;
-					startGesture("move", event);
+					startGesture(
+						cropping && IMAGE_ELEMENT_TYPES.includes(element.type)
+							? "crop"
+							: "move",
+						event,
+					);
 				}}
 				onPointerMove={moveGesture}
 				onPointerUp={endGesture}
@@ -375,6 +465,7 @@ function SlideElementView({
 export function SlideCanvas({
 	slide,
 	selectedElementId,
+	cropElementId,
 	disabled,
 	onSelect,
 	onChangeElement,
@@ -383,6 +474,8 @@ export function SlideCanvas({
 }: {
 	slide: OsPresentationCanvasSlide;
 	selectedElementId: string | null;
+	/** The element whose image is being repositioned inside its frame. */
+	cropElementId?: string | null;
 	disabled?: boolean;
 	onSelect: (id: string | null) => void;
 	onChangeElement: (next: OsPresentationElement) => void;
@@ -408,6 +501,7 @@ export function SlideCanvas({
 					element={element}
 					others={slide.elements.filter((other) => other.id !== element.id)}
 					selected={element.id === selectedElementId}
+					cropping={element.id === cropElementId}
 					disabled={disabled}
 					onSelect={() => onSelect(element.id)}
 					onChange={onChangeElement}

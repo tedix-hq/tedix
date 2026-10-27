@@ -1423,6 +1423,7 @@ export function CanvasDocPanel({
 					value={outputDraft}
 					onChange={updateSharedOutput}
 					disabled={!live}
+					workspaceId={workspaceId}
 					documentCollab={documentCollab.collab}
 					remoteCursors={documentCollab.cursors}
 					presence={

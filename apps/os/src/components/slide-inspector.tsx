@@ -3,7 +3,9 @@ import {
 	ArrowUp,
 	CaretRight,
 	Copy,
+	Crop,
 	CursorClick,
+	ImageSquare,
 	Trash,
 } from "@phosphor-icons/react";
 import type {
@@ -42,7 +44,9 @@ import {
 	type SlideInspectorField,
 	slideInspectorFields,
 	writeSlideField,
+	writeSlideFocalPoint,
 } from "@/components/slide-inspector-fields";
+import { Slider } from "@/components/kumo/slider";
 import { SlideField, SlideImageUrlField } from "@/components/slide-field";
 import {
 	svgMarkupFromSource,
@@ -373,6 +377,92 @@ function InspectorField({
 }
 
 /**
+ * The image element's focal controls: a drag mode on the canvas, two sliders
+ * for keyboard-precise positioning, and a center reset. The focal point is
+ * stored as a 0-1 fraction and applied through `object-position`, so the
+ * viewer and every export see the same crop.
+ */
+function ImageFocalControls({
+	element,
+	cropping,
+	disabled,
+	onChange,
+	onCropToggle,
+}: {
+	element: OsPresentationElement;
+	cropping?: boolean;
+	disabled?: boolean;
+	onChange: (next: OsPresentationElement) => void;
+	onCropToggle?: () => void;
+}) {
+	if (!element.src) return null;
+	const focal = element.props?.focalPoint ?? { x: 0.5, y: 0.5 };
+	const write = (axis: "x" | "y", percent: number) =>
+		onChange(
+			writeSlideFocalPoint(element, {
+				...focal,
+				[axis]: percent / 100,
+			}),
+		);
+	return (
+		<div className="grid gap-2">
+			<div className="flex flex-wrap items-center gap-2">
+				<Button
+					type="button"
+					size="sm"
+					variant={cropping ? "default" : "secondary"}
+					aria-pressed={cropping ?? false}
+					aria-label="Reposition image inside its frame"
+					disabled={disabled}
+					onClick={onCropToggle}
+				>
+					<Crop size={14} /> Reposition
+				</Button>
+				{element.props?.focalPoint ? (
+					<Button
+						type="button"
+						size="sm"
+						variant="ghost"
+						disabled={disabled}
+						onClick={() => onChange(writeSlideFocalPoint(element, undefined))}
+					>
+						Center image
+					</Button>
+				) : null}
+			</div>
+			{cropping ? (
+				<Text role="caption" tone="secondary" className="m-0">
+					Drag the picture inside its frame, or press where the focus should
+					sit.
+				</Text>
+			) : null}
+			<SlideField label="Horizontal position">
+				<Slider
+					ariaLabel="Image horizontal position"
+					min={0}
+					max={100}
+					step={1}
+					disabled={disabled}
+					value={Math.round(focal.x * 100)}
+					onValueChange={(value) => write("x", Number(value))}
+				/>
+			</SlideField>
+			<SlideField label="Vertical position">
+				<Slider
+					ariaLabel="Image vertical position"
+					min={0}
+					max={100}
+					step={1}
+					disabled={disabled}
+					value={Math.round(focal.y * 100)}
+					onValueChange={(value) => write("y", Number(value))}
+				/>
+			</SlideField>
+		</div>
+	);
+}
+
+/**
  * The slides inspector: the slide's own settings, then the selected element's
  * fields for its type, and speaker notes. The content scrolls inside the
  * panel; the element's action row is pinned below it so it stays reachable.
@@ -381,6 +471,7 @@ export function SlideInspector({
 	slide,
 	element,
 	disabled,
+	cropping,
 	canMoveForward,
 	canMoveBackward,
 	onChangeSlide,
@@ -388,12 +479,17 @@ export function SlideInspector({
 	onAction,
 	onImageFile,
 	onBackgroundImageFile,
+	onChooseImage,
+	onChooseBackgroundImage,
+	onCropToggle,
 	onInsert,
 	onUploadImage,
 }: {
 	slide: OsPresentationCanvasSlide;
 	element: OsPresentationElement | null;
 	disabled?: boolean;
+	/** True while the selected image element is in canvas reposition mode. */
+	cropping?: boolean;
 	canMoveForward: boolean;
 	canMoveBackward: boolean;
 	onChangeSlide: (next: OsPresentationCanvasSlide) => void;
@@ -401,6 +497,11 @@ export function SlideInspector({
 	onAction: (action: SlideElementAction) => void;
 	onImageFile: (file: File) => void;
 	onBackgroundImageFile: (file: File) => void;
+	/** Opens the media picker for the selected element's image. */
+	onChooseImage?: () => void;
+	/** Opens the media picker for the slide background image. */
+	onChooseBackgroundImage?: () => void;
+	onCropToggle?: () => void;
 	/** Adds an element from the palette; without it the palette is hidden. */
 	onInsert?: (type: OsPresentationElementType) => void;
 	onUploadImage?: (file: File) => void;
@@ -436,6 +537,7 @@ export function SlideInspector({
 				disabled={disabled}
 				onChangeSlide={onChangeSlide}
 				onBackgroundImageFile={onBackgroundImageFile}
+				onChooseBackgroundImage={onChooseBackgroundImage}
 			/>
 		</section>
 	);
@@ -499,10 +601,32 @@ export function SlideInspector({
 							/>
 						))}
 						{(element.type === "image" || element.type === "svg") && (
-							<SlideImageUploadButton
-								label={element.src ? "Replace image" : "Upload image"}
+							<div className="flex flex-wrap gap-2">
+								<SlideImageUploadButton
+									label={element.src ? "Replace image" : "Upload image"}
+									disabled={disabled}
+									onFile={onImageFile}
+								/>
+								{onChooseImage ? (
+									<Button
+										type="button"
+										size="sm"
+										variant="secondary"
+										disabled={disabled}
+										onClick={onChooseImage}
+									>
+										<ImageSquare size={14} /> Choose from workspace
+									</Button>
+								) : null}
+							</div>
+						)}
+						{(element.type === "image" || element.type === "svg") && (
+							<ImageFocalControls
+								element={element}
+								cropping={cropping}
 								disabled={disabled}
-								onFile={onImageFile}
+								onChange={onChangeElement}
+								onCropToggle={onCropToggle}
 							/>
 						)}
 						<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>

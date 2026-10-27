@@ -28,11 +28,14 @@ export function SlideBackgroundControls({
 	disabled,
 	onChangeSlide,
 	onBackgroundImageFile,
+	onChooseBackgroundImage,
 }: {
 	slide: OsPresentationCanvasSlide;
 	disabled?: boolean;
 	onChangeSlide: (next: OsPresentationCanvasSlide) => void;
 	onBackgroundImageFile: (file: File) => void;
+	/** Opens the workspace media picker; hidden when not provided. */
+	onChooseBackgroundImage?: () => void;
 }) {
 	const [opacityDraft, setOpacityDraft] = useState<string | null>(null);
 	const [hexDraft, setHexDraft] = useState<string | null>(null);
@@ -117,6 +120,17 @@ export function SlideBackgroundControls({
 					disabled={disabled}
 					onFile={onBackgroundImageFile}
 				/>
+				{onChooseBackgroundImage ? (
+					<Button
+						type="button"
+						size="sm"
+						variant="secondary"
+						disabled={disabled}
+						onClick={onChooseBackgroundImage}
+					>
+						Choose from workspace
+					</Button>
+				) : null}
 				{image && (
 					<Button
 						type="button"

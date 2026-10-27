@@ -1106,6 +1106,15 @@ export const OsPresentationElementPropsSchema = z.object({
 	kind: z.enum(["rectangle", "ellipse"]).default("rectangle").optional(),
 	radius: z.number().min(0).max(600).optional(),
 	compact: z.boolean().optional(),
+	focalPoint: z
+		.object({
+			x: z.number().min(0).max(1),
+			y: z.number().min(0).max(1),
+		})
+		.optional()
+		.describe(
+			"The point of an image or SVG that stays in view inside its frame, as a 0-1 fraction from the top-left; omitted for centered",
+		),
 });
 export type OsPresentationElementProps = z.infer<
 	typeof OsPresentationElementPropsSchema

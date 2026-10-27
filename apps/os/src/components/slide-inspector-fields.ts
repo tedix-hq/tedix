@@ -418,6 +418,22 @@ export function slideFieldValue(
 	}
 }
 
+/**
+ * Writes the image focal point, or clears it to recenter. The point is a 0-1
+ * fraction of the source the frame keeps in view; undefined is centered.
+ */
+export function writeSlideFocalPoint(
+	element: OsPresentationElement,
+	focalPoint: { x: number; y: number } | undefined,
+): OsPresentationElement {
+	return withProps(element, {
+		focalPoint: focalPoint && {
+			x: Math.min(1, Math.max(0, focalPoint.x)),
+			y: Math.min(1, Math.max(0, focalPoint.y)),
+		},
+	});
+}
+
 /** Merges props and drops cleared keys, so an element never stores `{}`. */
 function withProps(
 	element: OsPresentationElement,
