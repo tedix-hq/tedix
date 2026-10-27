@@ -975,6 +975,103 @@ describe("Tedix OS origin router", () => {
 		}
 	});
 
+	it("serves a permanent share address signed-out and forwards only this host's own session to the open call", async () => {
+		const seen: Request[] = [];
+		const env = {
+			...withApiService(assetsReturning("shell")),
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					seen.push(request);
+					return Response.json({ ok: true });
+				},
+			},
+			OS_SESSION_BROKER: SESSION_BROKER,
+		};
+		const navigation = {
+			Accept: "text/html",
+			"Sec-Fetch-Dest": "document",
+			"Sec-Fetch-Mode": "navigate",
+			"Sec-Fetch-Site": "cross-site",
+		};
+		for (const path of [
+			"/s/AbCdEfGhIjKlMnOpQrStUv",
+			"/s/AbCdEfGhIjKlMnOpQrStUv/launch-brief",
+		]) {
+			const document = await handleOsRequest(
+				new Request(`https://acme.os.tedix.dev${path}`, {
+					headers: navigation,
+				}),
+				env,
+				provisionedWithTenant,
+			);
+			expect(document.status, path).toBe(200);
+			expect(await document.text()).toContain("shell");
+			expect(document.headers.get("X-Robots-Tag")).toContain("noindex");
+		}
+		// A malformed id is an ordinary signed-out document: it redirects to sign-in.
+		const malformed = await handleOsRequest(
+			new Request("https://acme.os.tedix.dev/s/not-an-id", {
+				headers: navigation,
+			}),
+			env,
+			provisionedWithTenant,
+		);
+		expect(malformed.status).toBe(302);
+
+		const open = (headers: Record<string, string>) =>
+			handleOsRequest(
+				new Request("https://acme.os.tedix.dev/api/os-shared/open", {
+					method: "POST",
+					headers: { "Content-Type": "application/json", ...headers },
+					body: JSON.stringify({ id: "AbCdEfGhIjKlMnOpQrStUv" }),
+				}),
+				env,
+				provisionedWithTenant,
+			);
+		// Signed out: no credential at all, but the host tenant is asserted.
+		expect((await open({})).status).toBe(200);
+		let forwarded = seen.at(-1)!;
+		expect(new URL(forwarded.url).pathname).toBe("/os-shared/open");
+		expect(forwarded.headers.get("Cookie")).toBeNull();
+		expect(forwarded.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+		// This host's own session rides along so an organization or invited
+		// link can tell who is opening it; a client-chosen bearer never does.
+		expect(
+			(
+				await open({
+					Authorization: "Bearer attacker-selected",
+					Cookie: `${OS_BROKER_SESSION_COOKIE}=${HOST_SESSION}`,
+				})
+			).status,
+		).toBe(200);
+		forwarded = seen.at(-1)!;
+		expect(forwarded.headers.get("Cookie")).toContain(`DS=${HOST_SESSION}`);
+		expect(forwarded.headers.get("Authorization")).toBeNull();
+		// A session minted for another tenant is dropped, not forwarded.
+		expect(
+			(
+				await open({
+					Cookie: `${OS_BROKER_SESSION_COOKIE}=header.eyJkY3QiOiJULW90aGVyIn0.sig`,
+				})
+			).status,
+		).toBe(200);
+		expect(seen.at(-1)!.headers.get("Cookie")).toBeNull();
+		// The app calls never carry a browser credential.
+		await handleOsRequest(
+			new Request("https://acme.os.tedix.dev/api/os-shared/app/open", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Cookie: `${OS_BROKER_SESSION_COOKIE}=${HOST_SESSION}`,
+				},
+				body: "{}",
+			}),
+			env,
+			provisionedWithTenant,
+		);
+		expect(seen.at(-1)!.headers.get("Cookie")).toBeNull();
+	});
+
 	it("serves a shared blueprint page and its public read to a signed-out visitor", async () => {
 		const blueprintId = "00000050-0000-4000-8000-000000000001";
 		const seen: Request[] = [];

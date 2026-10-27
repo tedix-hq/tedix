@@ -124,8 +124,20 @@ export interface OsRouterEnv extends OsSessionBrokerEnv {
 const DESCOPE_OUTBOUND_BRIDGE_PATH = "/auth/descope/v1/outbound/oauth/connect";
 /** The share-link guest's document and the API calls it makes without an account. */
 const GUEST_DOCUMENT_PATH = "/guest";
+/**
+ * A permanent share address: `/s/<22-char id>`, with an optional readable
+ * suffix that is ignored. The page mounts for a signed-out visitor; the open
+ * call decides whether the link needs a signed-in person.
+ */
+const SHARE_DOCUMENT_PATH = /^\/s\/[A-Za-z0-9]{22}(?:\/[^/]*)?$/;
 const GUEST_SHARE_API_PATH =
-	/^\/api\/os-shared\/(?:redeem|session|app\/(?:open|call|read))$/;
+	/^\/api\/os-shared\/(?:open|redeem|session|app\/(?:open|call|read))$/;
+/**
+ * The share calls that may carry the visitor's own host session: an
+ * `organization` or `invited` link needs to know who is opening it. The app
+ * calls never do; their share session is the only credential.
+ */
+const RECIPIENT_SHARE_API_PATH = /^\/api\/os-shared\/(?:open|redeem|session)$/;
 /** A gallery blueprint's shareable landing page and the one public read it makes. */
 const BLUEPRINT_DOCUMENT_PATH = /^\/blueprint\/[0-9a-f-]{36}$/i;
 const PUBLIC_BLUEPRINT_API_PATH = /^\/api\/public\/blueprints\/[0-9a-f-]{36}$/i;
@@ -1110,20 +1122,35 @@ export async function handleOsRequest(
 	) {
 		const cliApi =
 			url.pathname === "/cli/api" || url.pathname.startsWith("/cli/api/");
-		// A share-link guest has no account: these exact redemption and app
-		// calls carry their own capability in the body, so they pass without a
-		// session, and without any browser credential that happens to be set.
-		// authz: public — apps/api binds every call to one share session and the `use` role.
+		// A share-link guest has no account: these exact open, redemption and
+		// app calls carry their own capability in the body, so they pass without
+		// a session. A client-chosen Authorization header never reaches apps/api.
+		// The open, redeem and session calls keep this host's own product
+		// session cookie when it was minted for this tenant, so an organization
+		// or invited link can tell who is opening it; the app calls carry no
+		// browser credential at all.
+		// authz: public — apps/api binds every call to one share link; a forwarded session only identifies the recipient.
 		if (
 			!cliApi &&
 			request.method === "POST" &&
 			GUEST_SHARE_API_PATH.test(url.pathname)
 		) {
-			const headers = new Headers(request.headers);
-			headers.delete("Cookie");
+			const recipientSession = RECIPIENT_SHARE_API_PATH.test(url.pathname)
+				? withBrokerApiSession(
+						request,
+						OS_BROKER_SESSION_COOKIE,
+						false,
+						hostTenantId,
+					)
+				: null;
+			// withBrokerApiSession already moved the body into its copy; build on
+			// whichever request still owns it.
+			const source = recipientSession ?? request;
+			const headers = new Headers(source.headers);
+			if (!recipientSession) headers.delete("Cookie");
 			headers.delete("Authorization");
 			return proxyApiRequest(
-				new Request(request, { headers }),
+				new Request(source, { headers }),
 				env,
 				url,
 				hostTenantId,
@@ -1378,6 +1405,9 @@ export async function handleOsRequest(
 		// The guest document is the one page a signed-out person may open; it
 		// holds nothing itself and every call it makes carries the share session.
 		url.pathname !== GUEST_DOCUMENT_PATH &&
+		// A permanent share address likewise mounts signed-out; its open call
+		// answers whether the link needs sign-in on this host.
+		!SHARE_DOCUMENT_PATH.test(url.pathname) &&
 		// A shared blueprint page holds no tenant data; its install action is
 		// what asks the visitor to sign in.
 		!BLUEPRINT_DOCUMENT_PATH.test(url.pathname) &&
