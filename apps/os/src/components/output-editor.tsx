@@ -25,6 +25,7 @@ export function OutputEditor({
 	value,
 	onChange,
 	disabled,
+	workspaceId,
 	documentCollab,
 	remoteCursors,
 	presence,
@@ -32,6 +33,8 @@ export function OutputEditor({
 	value: OsOutputContent;
 	onChange: (next: OsOutputContent) => void;
 	disabled?: boolean;
+	/** The output's workspace; presentations offer its files in the image picker. */
+	workspaceId?: string;
 	/** Live co-editing for a document; other kinds ignore it. */
 	documentCollab?: DocumentCollab;
 	remoteCursors?: readonly RemoteCursor[];
@@ -67,7 +70,12 @@ export function OutputEditor({
 			break;
 		case "presentation":
 			editor = (
-				<SlidesEditor value={value} onChange={onChange} disabled={disabled} />
+				<SlidesEditor
+					value={value}
+					onChange={onChange}
+					disabled={disabled}
+					workspaceId={workspaceId}
+				/>
 			);
 			break;
 		case "video":

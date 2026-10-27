@@ -58,6 +58,7 @@ import {
 	slideElementShortcut,
 } from "@/components/slide-element-actions";
 import { SlideInsertLibrary } from "@/components/slide-insert-library";
+import { SlideMediaPicker } from "@/components/slide-media-picker";
 import {
 	centeredSlidePosition,
 	fileToSlideImageSource,
@@ -80,12 +81,18 @@ interface SlidesEditorProps {
 	value: PresentationContent;
 	onChange: (next: PresentationContent) => void;
 	disabled?: boolean;
+	/** The workspace whose files the image picker offers; omitted hides them. */
+	workspaceId?: string;
 }
+
+/** Where a picked image lands: a new element, the selected one, or the background. */
+type MediaTarget = "insert" | "element" | "background";
 
 export function SlidesEditor({
 	value,
 	onChange,
 	disabled = false,
+	workspaceId,
 }: SlidesEditorProps) {
 	const normalized = normalizePresentationContent(value);
 	const deck = normalized.deck!;
@@ -109,6 +116,11 @@ export function SlidesEditor({
 	const [selectedElementId, setSelectedElementId] = useState<string | null>(
 		null,
 	);
+	// Reposition mode: drags on the selected image move the picture inside its
+	// frame instead of moving the frame. It ends on Escape, a new selection or
+	// a slide change.
+	const [cropping, setCropping] = useState(false);
+	const [mediaTarget, setMediaTarget] = useState<MediaTarget | null>(null);
 	const [presenting, setPresenting] = useState(false);
 	const [showThumbnails, setShowThumbnails] = useState(true);
 	const [showInspector, setShowInspector] = useState(false);
@@ -124,6 +136,7 @@ export function SlidesEditor({
 		if (!next) return;
 		setViewedSlideId(next.id);
 		setSelectedElementId(null);
+		setCropping(false);
 	};
 	const swipe = useSlideSwipe(
 		() => viewSlide(activeIndex - 1),
@@ -188,7 +201,11 @@ export function SlidesEditor({
 		return true;
 	};
 	const addElement = (type: OsPresentationElementType) => {
-		if (type === "image" || type === "svg") {
+		if (type === "image") {
+			setMediaTarget("insert");
+			return;
+		}
+		if (type === "svg") {
 			setAssetElementType(type);
 			return;
 		}
@@ -217,6 +234,19 @@ export function SlidesEditor({
 				center,
 				file.name.replace(/\.[^.]+$/, "").slice(0, 200) || undefined,
 			);
+	};
+	// The picker always resolves to the upload pipeline: a workspace file is
+	// downloaded into a File, so embeds, size limits and errors stay uniform.
+	const pickImageFile = async (file: File) => {
+		const src = await readImageFile(file);
+		if (!src) return;
+		if (mediaTarget === "element" && selectedElement)
+			updateElement({ ...selectedElement, src });
+		else if (mediaTarget === "background" && activeSlide)
+			commitDeck(
+				replaceActiveSlide(deck, { ...activeSlide, backgroundImage: src }),
+			);
+		else insertElement("image", src);
 	};
 
 	if (!activeSlide) {
@@ -334,7 +364,9 @@ export function SlidesEditor({
 					return;
 				if (event.key === "Escape") {
 					event.preventDefault();
-					setSelectedElementId(null);
+					// Escape leaves reposition mode first; a second one deselects.
+					if (cropping) setCropping(false);
+					else setSelectedElementId(null);
 					return;
 				}
 				if (event.key === "Delete" || event.key === "Backspace") {
@@ -530,9 +562,11 @@ export function SlidesEditor({
 						ref={canvasRef}
 						slide={activeSlide}
 						selectedElementId={selectedElementId}
+						cropElementId={cropping ? selectedElementId : null}
 						disabled={disabled}
 						onSelect={(id) => {
 							setSelectedElementId(id);
+							setCropping(false);
 						}}
 						onChangeElement={(next) => updateElement(next)}
 						onGeometryCommit={(next) => updateElement(next)}
@@ -553,6 +587,7 @@ export function SlidesEditor({
 						slide={activeSlide}
 						element={selectedElement}
 						disabled={disabled}
+						cropping={cropping}
 						canMoveForward={activeSlide.elements.at(-1) !== selectedElement}
 						canMoveBackward={activeSlide.elements[0] !== selectedElement}
 						onChangeSlide={(next) => commitDeck(replaceActiveSlide(deck, next))}
@@ -560,6 +595,13 @@ export function SlidesEditor({
 						onAction={runElementAction}
 						onInsert={addElement}
 						onUploadImage={(file) => void insertImageFile(file)}
+						onChooseImage={
+							selectedElement ? () => setMediaTarget("element") : undefined
+						}
+						onChooseBackgroundImage={
+							workspaceId ? () => setMediaTarget("background") : undefined
+						}
+						onCropToggle={() => setCropping((active) => !active)}
 						onImageFile={async (file) => {
 							const src = await readImageFile(file);
 							if (src && selectedElement)
@@ -588,6 +630,19 @@ export function SlidesEditor({
 					onDeselect={() => setSelectedElementId(null)}
 				/>
 			)}
+			<SlideMediaPicker
+				workspaceId={workspaceId}
+				open={mediaTarget !== null}
+				onOpenChange={(open) => {
+					if (!open) setMediaTarget(null);
+				}}
+				onPickFile={(file) => void pickImageFile(file)}
+				onPickUrl={
+					mediaTarget === "insert"
+						? (src) => insertElement("image", src)
+						: undefined
+				}
+			/>
 			<EditorTextDialog
 				open={assetElementType !== null}
 				title={

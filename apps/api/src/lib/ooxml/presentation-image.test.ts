@@ -160,6 +160,43 @@ describe("SVG presentation dimensions", () => {
 	);
 });
 
+describe("focal point framing", () => {
+	const wide = element(svg("viewBox='0 0 320 160'"), "cover");
+	it("splits the cover crop around the focal point", () => {
+		// The 2:1 source in a square frame loses half its width to the crop.
+		expect(pptxImageFrame(wide).crop).toBe(
+			'<a:srcRect l="25000" r="25000" t="0" b="0"/>',
+		);
+		expect(
+			pptxImageFrame({
+				...wide,
+				props: { focalPoint: { x: 0.2, y: 0.5 } },
+			}).crop,
+		).toBe('<a:srcRect l="10000" r="40000" t="0" b="0"/>');
+		// A tall source in the same frame loses half its height instead.
+		const tall = element(svg("viewBox='0 0 160 320'"), "cover");
+		expect(
+			pptxImageFrame({
+				...tall,
+				props: { focalPoint: { x: 0.5, y: 0.9 } },
+			}).crop,
+		).toBe('<a:srcRect l="0" r="0" t="45000" b="5000"/>');
+	});
+	it("moves a contained image toward the focal corner", () => {
+		const contained = element(svg("viewBox='0 0 320 160'"));
+		expect(pptxImageFrame(contained).element).toMatchObject({
+			x: 10,
+			y: 45,
+		});
+		expect(
+			pptxImageFrame({
+				...contained,
+				props: { focalPoint: { x: 0, y: 1 } },
+			}).element,
+		).toMatchObject({ x: 10, y: 70 });
+	});
+});
+
 describe("raster presentation dimensions", () => {
 	it.each(["png", "gif", "jpeg"])("retains the %s reader", (format) => {
 		const bytes = new Uint8Array(24);

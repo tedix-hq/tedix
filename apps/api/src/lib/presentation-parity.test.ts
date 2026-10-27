@@ -10,6 +10,9 @@ import { pptxImageFrame } from "./ooxml/presentation-image";
 
 const image =
 	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY7sAAAAASUVORK5CYII=";
+// A distinct 1x1 PNG so the focal photo exports its own media part.
+const photo =
+	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 const organization = {
 	name: "Example Studio",
 	logoUrl: image,
@@ -99,6 +102,14 @@ const content = OsOutputContentSchema.parse({
 						style: { background: "#dddddd" },
 					},
 					{ ...base, id: "logo", type: "logo", width: 180, height: 60 },
+					{
+						...base,
+						id: "photo",
+						type: "image",
+						src: photo,
+						style: { fit: "cover" },
+						props: { focalPoint: { x: 0.2, y: 0.8 } },
+					},
 				],
 			},
 		],
@@ -121,6 +132,7 @@ describe("slide parity exports", () => {
 			"linear-gradient(120deg, #123456 0%, #abcdef 100%)",
 			"opacity:0.3",
 			"object-fit:cover",
+			"object-position:20% 80%",
 			"inset:24px",
 			"Safe &lt;copy&gt;",
 		])
@@ -161,9 +173,11 @@ describe("slide parity exports", () => {
 		])
 			expect(slide).toContain(value);
 		expect(slide).not.toContain("**Card**");
+		// The focal cover image exports a crop window shifted toward its focus.
+		expect(slide).toContain('<a:srcRect l="0" r="0" t="16000" b="4000"/>');
 		expect(
 			Object.keys(file).filter((name) => name.startsWith("ppt/media/")),
-		).toHaveLength(2);
+		).toHaveLength(3);
 		const relations = strFromU8(file["ppt/slides/_rels/slide1.xml.rels"]!);
 		expect(relations).toContain('/image"');
 		for (const match of relations.matchAll(/Target="\.\.\/media\/([^"]+)"/g))

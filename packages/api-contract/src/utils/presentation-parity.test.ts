@@ -162,6 +162,38 @@ describe("presentation parity", () => {
 			}),
 		).toBe("");
 	});
+	it("positions an image inside its frame from the focal point", () => {
+		const cover = slideElementMarkup(
+			{
+				...element,
+				type: "image" as const,
+				src: "https://example.org/photo.png",
+				style: { fit: "cover" },
+				props: { focalPoint: { x: 0.25, y: 0.75 } },
+			},
+			"pixels",
+		);
+		expect(cover).toContain("object-fit:cover");
+		expect(cover).toContain("object-position:25% 75%");
+		expect(
+			slideElementMarkup(
+				{ ...element, type: "image" as const, src: "https://x.org/a.png" },
+				"pixels",
+			),
+		).not.toContain("object-position");
+		// Values outside 0-1 still serialize inside the frame.
+		expect(
+			slideElementMarkup(
+				{
+					...element,
+					type: "image" as const,
+					src: "https://x.org/a.png",
+					props: { focalPoint: { x: -0.5, y: 2 } },
+				},
+				"pixels",
+			),
+		).toContain("object-position:0% 100%");
+	});
 	it("renders the organization's logo or wordmark and refuses script image sources", () => {
 		const logo = { ...element, type: "logo" as const };
 		expect(slideElementMarkup(logo, "pixels", organization)).toBe(

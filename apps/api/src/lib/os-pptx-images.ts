@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
+import { slideFocalPosition } from "@tedix/api-contract/utils/presentation-style";
 import {
 	runBrowserQuickAction,
 	isUsableScreenshot,
@@ -20,15 +21,16 @@ export async function prepareOsPptxImages(
 		width: number,
 		height: number,
 		fit: "contain" | "cover",
+		objectPosition?: string,
 	) => {
 		if (!/^data:image\/webp;/i.test(source)) return source;
 		width = Math.ceil(width);
 		height = Math.ceil(height);
-		const key = `${width}:${height}:${fit}:${source}`;
+		const key = `${width}:${height}:${fit}:${objectPosition ?? ""}:${source}`;
 		const cached = converted.get(key);
 		if (cached) return cached;
 		const response = await runBrowserQuickAction(browser, "screenshot", {
-			html: `<!doctype html><html><head><style>html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden;background:transparent}img{display:block;width:100%;height:100%;object-fit:${fit}}</style></head><body><img alt="" src="${escapeHtml(source)}"></body></html>`,
+			html: `<!doctype html><html><head><style>html,body{margin:0;width:${width}px;height:${height}px;overflow:hidden;background:transparent}img{display:block;width:100%;height:100%;object-fit:${fit}${objectPosition ? `;object-position:${escapeHtml(objectPosition)}` : ""}}</style></head><body><img alt="" src="${escapeHtml(source)}"></body></html>`,
 			viewport: { width, height, deviceScaleFactor: 1 },
 			screenshotOptions: { type: "png", omitBackground: true, fullPage: false },
 			...OS_EXPORT_RESOURCE_WAIT,
@@ -56,6 +58,7 @@ export async function prepareOsPptxImages(
 					element.width,
 					element.height,
 					element.style.fit ?? "contain",
+					slideFocalPosition(element),
 				);
 		}
 	}

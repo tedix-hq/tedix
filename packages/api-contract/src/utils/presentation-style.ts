@@ -239,6 +239,17 @@ export function slideImageSource(
 		: undefined;
 }
 
+/** The element's `object-position` value, or undefined when the image is centered. */
+export function slideFocalPosition(
+	element: OsPresentationElement,
+): string | undefined {
+	const focal = element.props?.focalPoint;
+	if (!focal) return undefined;
+	const percent = (value: number) =>
+		String(Math.round(Math.max(0, Math.min(1, value)) * 10000) / 100);
+	return `${percent(focal.x)}% ${percent(focal.y)}%`;
+}
+
 export function slideTextMarkup(
 	text: string,
 	element: OsPresentationElement,
@@ -268,8 +279,9 @@ export function slideElementMarkup(
 			: presentationCanvasLength;
 	const props = element.props;
 	const text = (value: string) => slideTextMarkup(value, element, organization);
+	const focal = slideFocalPosition(element);
 	const image = (source: string, alt: string) =>
-		`<img src="${escapeSlideHtml(source)}" alt="${escapeSlideHtml(alt)}" draggable="false" class="h-full w-full object-${element.style.fit === "cover" ? "cover" : "contain"}" style="width:100%;height:100%;object-fit:${element.style.fit === "cover" ? "cover" : "contain"}">`;
+		`<img src="${escapeSlideHtml(source)}" alt="${escapeSlideHtml(alt)}" draggable="false" class="h-full w-full object-${element.style.fit === "cover" ? "cover" : "contain"}" style="width:100%;height:100%;object-fit:${element.style.fit === "cover" ? "cover" : "contain"}${focal ? `;object-position:${escapeSlideHtml(focal)}` : ""}">`;
 	if (element.type === "logo") {
 		const source = slideImageSource(organization.logoUrl);
 		return source

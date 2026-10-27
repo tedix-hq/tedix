@@ -72,20 +72,25 @@ export function pptxImageFrame(
 	if (!size?.width || !size.height) return { element, crop: "" };
 	const imageRatio = size.width / size.height,
 		frameRatio = element.width / element.height;
+	// The focal point is the fraction of the cropped-away slack on each axis:
+	// 0 keeps the start edge, 1 keeps the end edge, 0.5 stays centered — the
+	// same fractions `object-position` applies in the viewer and HTML exports.
+	const focalX = element.props?.focalPoint?.x ?? 0.5,
+		focalY = element.props?.focalPoint?.y ?? 0.5;
 	if (element.style.fit === "cover") {
 		const crop =
 			imageRatio > frameRatio
 				? {
-						l: (1 - frameRatio / imageRatio) * 50000,
-						r: (1 - frameRatio / imageRatio) * 50000,
+						l: (1 - frameRatio / imageRatio) * focalX * 100000,
+						r: (1 - frameRatio / imageRatio) * (1 - focalX) * 100000,
 						t: 0,
 						b: 0,
 					}
 				: {
 						l: 0,
 						r: 0,
-						t: (1 - imageRatio / frameRatio) * 50000,
-						b: (1 - imageRatio / frameRatio) * 50000,
+						t: (1 - imageRatio / frameRatio) * focalY * 100000,
+						b: (1 - imageRatio / frameRatio) * (1 - focalY) * 100000,
 					};
 		return {
 			element,
@@ -101,8 +106,8 @@ export function pptxImageFrame(
 	return {
 		element: {
 			...element,
-			x: element.x + (element.width - width) / 2,
-			y: element.y + (element.height - height) / 2,
+			x: element.x + (element.width - width) * focalX,
+			y: element.y + (element.height - height) * focalY,
 			width,
 			height,
 		},
