@@ -5,7 +5,6 @@ import {
 	WarningCircle,
 	XCircle,
 } from "@phosphor-icons/react";
-import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 
 export const CATALOG_HEALTH = {
@@ -56,30 +55,5 @@ export function CatalogHealthBadge({ status }: { status: string | null }) {
 			<Icon aria-hidden className="size-3" />
 			{config.label}
 		</Badge>
-	);
-}
-
-export function CatalogAppLogo({
-	id,
-	logoUrl,
-	name,
-	size = "small",
-}: {
-	/** Stable key for the shared avatar palette: the app's slug or id. */
-	id: string;
-	logoUrl: string | null;
-	name: string;
-	size?: "small" | "large";
-}) {
-	return (
-		<EntityAvatar
-			kind="workspace"
-			id={id}
-			name={name}
-			image={logoUrl}
-			imageFit="contain"
-			alt={`${name} logo`}
-			className={size === "large" ? "size-16 rounded-xl" : "size-10 rounded-lg"}
-		/>
 	);
 }

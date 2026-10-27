@@ -3465,18 +3465,24 @@ const OWNER_BRIEF = {
 	},
 };
 
+/**
+ * One app per logo source: its own logo, one inherited from its base app, and
+ * none at all (letters). The domains are reserved, so no favicon resolves.
+ */
 const appListItem = (
 	id: string,
 	name: string,
 	slug: string,
 	description: string,
+	logos: { logoUrl?: string; inheritedLogoUrl?: string } = {},
 ) => ({
 	id,
 	name,
 	slug,
 	domain: `${slug}.solstice.example`,
 	description,
-	logoUrl: null,
+	logoUrl: logos.logoUrl ?? null,
+	inheritedLogoUrl: logos.inheritedLogoUrl ?? null,
 	visibility: "private" as const,
 	discoveryStatus: "scraped" as const,
 	customMcpDomain: null,
@@ -3491,12 +3497,14 @@ const APPS = [
 		"Storefront",
 		"storefront",
 		"Orders, subscriptions, and wholesale accounts",
+		{ logoUrl: svgAvatar("#0f766e", "S") },
 	),
 	appListItem(
 		APP_SUPPORT,
 		"Support Inbox",
 		"support-inbox",
 		"Ticket queue with SLA tracking",
+		{ inheritedLogoUrl: svgAvatar("#b45309", "H") },
 	),
 	appListItem(
 		APP_FINANCE,
@@ -3630,7 +3638,8 @@ const fullApp = (item: (typeof APPS)[number]) => ({
 	slug: item.slug,
 	description: item.description,
 	primaryDomain: item.domain,
-	logoUrl: null,
+	logoUrl: item.logoUrl,
+	inheritedLogoUrl: item.inheritedLogoUrl,
 	visibility: item.visibility,
 	discoveryStatus: item.discoveryStatus,
 	customMcpDomain: null,

@@ -18,10 +18,8 @@ import {
 	Shield,
 } from "@phosphor-icons/react";
 import { toast } from "@/components/kumo/toast";
-import {
-	CatalogAppLogo,
-	CatalogHealthBadge,
-} from "@/components/app-store-shared";
+import { AppLogo } from "@/components/app-logo";
+import { CatalogHealthBadge } from "@/components/app-store-shared";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card } from "@/components/kumo/card";
@@ -505,11 +503,12 @@ export function AppStoreDetailPage({ slug }: { slug: string }) {
 			</PageBack>
 			<PageHeader>
 				<div className="flex min-w-0 items-start gap-4">
-					<CatalogAppLogo
+					<AppLogo
 						id={app.slug ?? app.id}
-						logoUrl={app.logoUrl ?? null}
+						logoUrl={app.logoUrl}
+						domain={app.website}
 						name={app.name}
-						size="large"
+						size="xl"
 					/>
 					<PageHeading>
 						<div className="flex min-w-0 flex-wrap items-center gap-2">
