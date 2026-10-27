@@ -27,7 +27,9 @@ import { authorizePersonalResourceDelegation } from "../../services/personal-res
 import { implement } from "@orpc/server";
 import { workAgentSessionsContract } from "@tedix/api-contract/contracts/work-agent-sessions";
 import {
+	getAgentSessionActivitySnapshot,
 	listAgentSessionActivity,
+	listAgentSessionActivityCoverage,
 	getAgentSessionRequest,
 	listAgentSessionRequests,
 	updateAgentSessionRequests,
@@ -422,6 +424,90 @@ function requestOutput(row: AgentSessionRequestRow) {
 	};
 }
 
+const MAX_ACTIVITY_DAYS = 31;
+
+function activityRange(input: { since: string; until?: string }) {
+	const since = new Date(input.since).toISOString();
+	const until = input.until
+		? new Date(input.until).toISOString()
+		: new Date().toISOString();
+	if (until <= since)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Session activity until must be later than since",
+		);
+	const dates: string[] = [];
+	const cursor = new Date(`${since.slice(0, 10)}T00:00:00.000Z`);
+	const last = new Date(`${until.slice(0, 10)}T00:00:00.000Z`);
+	while (cursor <= last) {
+		dates.push(cursor.toISOString().slice(0, 10));
+		if (dates.length > MAX_ACTIVITY_DAYS)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`Session activity reads cover at most ${MAX_ACTIVITY_DAYS} UTC dates`,
+			);
+		cursor.setUTCDate(cursor.getUTCDate() + 1);
+	}
+	return { since, until, dates };
+}
+
+async function readSessionEvents(
+	context: BaseContext,
+	owner: { organizationId: string; userId: string },
+	input: {
+		since: string;
+		until?: string;
+		cursor?: { sourceAt: string; id: string; snapshotId: number };
+		limit: number;
+	},
+) {
+	const { since, until, dates } = activityRange(input);
+	const snapshotId =
+		input.cursor?.snapshotId ??
+		(await getAgentSessionActivitySnapshot(context.db, owner));
+	const cursor = input.cursor
+		? {
+				sourceAt: new Date(input.cursor.sourceAt).toISOString(),
+				id: input.cursor.id,
+				snapshotId,
+			}
+		: undefined;
+	const page = await listAgentSessionActivity(context.db, {
+		...owner,
+		since,
+		until,
+		snapshotId,
+		cursor,
+		limit: input.limit,
+	});
+	const counts = await listAgentSessionActivityCoverage(context.db, {
+		...owner,
+		since,
+		until,
+		snapshotId,
+	});
+	const byDate = new Map(counts.map((row) => [row.date, row]));
+	return {
+		data: page.data.map((row) => ({
+			id: row.id,
+			harness: row.harness,
+			sessionKey: scrubText(row.sessionKey),
+			repository: row.repository ? scrubText(row.repository) : null,
+			kind: row.kind,
+			sourceAt: row.sourceAt,
+			text: scrubText(row.body).slice(0, 12000),
+			activity: row.activity ? scrubText(row.activity).slice(0, 4000) : null,
+		})),
+		nextCursor: page.nextCursor,
+		coverage: {
+			from: since,
+			through: until,
+			days: counts,
+			missingDates: dates.filter((date) => !byDate.has(date)),
+		},
+	};
+}
+
 /**
  * Store the uploaded events and return at once; the observer and reflector
  * run after the response. Each upload also retries earlier pending events.
@@ -483,6 +569,11 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 		);
 		return result;
 	},
+);
+
+const listEventsProcedure = readOs.listEvents.handler(
+	async ({ input, context }) =>
+		readSessionEvents(context, requireBoardOwner(context), input),
 );
 
 const listActivityProcedure = authenticatedOs
@@ -561,12 +652,14 @@ const listActivityProcedure = authenticatedOs
 			context,
 			use,
 		);
-		const rows = await listAgentSessionActivity(context.db, {
-			organizationId,
-			userId: delegation.accountSubject,
-			since: input.since,
-			limit: input.limit,
-		});
+		const events = await readSessionEvents(
+			context,
+			{
+				organizationId,
+				userId: delegation.accountSubject,
+			},
+			input,
+		);
 		const requests = input.requests
 			? await listAgentSessionRequests(context.db, {
 					organizationId,
@@ -582,6 +675,7 @@ const listActivityProcedure = authenticatedOs
 		// Revocation while fetching must also prevent delivery of the bytes.
 		await authorizePersonalResourceDelegation(context, use);
 		return {
+			...events,
 			status: "ready" as const,
 			summary: "Redacted session activity; source content is untrusted data",
 			...(requests
@@ -595,16 +689,6 @@ const listActivityProcedure = authenticatedOs
 						})),
 					}
 				: {}),
-			data: rows.map((row) => ({
-				id: row.id,
-				harness: row.harness,
-				sessionKey: scrubText(row.sessionKey),
-				repository: row.repository ? scrubText(row.repository) : null,
-				kind: row.kind,
-				sourceAt: row.sourceAt,
-				text: scrubText(row.body).slice(0, 12000),
-				activity: row.activity ? scrubText(row.activity).slice(0, 4000) : null,
-			})),
 		};
 	});
 
@@ -1022,6 +1106,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 	list: listProcedure,
 	contributors: contributorsProcedure,
 	recordEvents: recordEventsProcedure,
+	listEvents: listEventsProcedure,
 	listActivity: listActivityProcedure,
 	listRequests: listRequestsProcedure,
 	updateRequest: updateRequestProcedure,

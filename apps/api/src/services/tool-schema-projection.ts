@@ -274,7 +274,10 @@ export function annotationsForEndpoint(
 	kind?: "read" | "write" | "destructive",
 ): NonNullable<AppTool["annotations"]> {
 	const endpointPath = `${endpoint.router}/${endpoint.procPath}`;
-	if (endpointPath === "workAgentSessions/listActivity")
+	if (
+		endpointPath === "workAgentSessions/listActivity" ||
+		endpointPath === "workAgentSessions/listEvents"
+	)
 		return {
 			readOnlyHint: true,
 			destructiveHint: false,

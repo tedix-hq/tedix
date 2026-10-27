@@ -17,6 +17,7 @@ import {
 	isNotNull,
 	isNull,
 	lt,
+	lte,
 	notExists,
 	or,
 	sql,
@@ -92,7 +93,7 @@ export async function recordAgentSessionRequests(
 		sourceAt: params.sourceAt,
 		sourceKey: `${params.sourceKey}:${index}`,
 		statusChangedAt: params.now,
-		createdAt: params.now,
+		createdAt: new Date(params.now).toISOString(),
 		updatedAt: params.now,
 	}));
 	const inserted: AgentSessionRequestRow[] = [];
@@ -195,9 +196,10 @@ export async function recordAgentSessionEvents(
 		organizationId: params.organizationId,
 		userId: params.userId,
 		...event,
+		sourceAt: new Date(event.sourceAt).toISOString(),
 		status: "pending" as const,
 		attempts: 0,
-		createdAt: params.now,
+		createdAt: new Date(params.now).toISOString(),
 	}));
 	let inserted = 0;
 	// 15 bound parameters per row: five rows stay under D1's 100.
@@ -669,9 +671,16 @@ export async function updateAgentSessionRequests(
 /** Bounded newest-first activity for exactly one ledger owner and tenant. */
 export async function listAgentSessionActivity(
 	db: DbQueryClient,
-	input: AgentSessionRequestOwner & { since: string; limit?: number },
+	input: AgentSessionRequestOwner & {
+		since: string;
+		until: string;
+		snapshotId: number;
+		cursor?: { sourceAt: string; id: string; snapshotId: number };
+		limit?: number;
+	},
 ) {
-	return db
+	const limit = Math.min(100, Math.max(1, input.limit ?? 50));
+	const data = await db
 		.select({
 			id: agentSessionEvents.id,
 			harness: agentSessionEvents.harness,
@@ -688,10 +697,87 @@ export async function listAgentSessionActivity(
 				eq(agentSessionEvents.organizationId, input.organizationId),
 				eq(agentSessionEvents.userId, input.userId),
 				gt(agentSessionEvents.sourceAt, input.since),
+				lte(agentSessionEvents.sourceAt, input.until),
+				sql`rowid <= ${input.snapshotId}`,
+				input.cursor
+					? or(
+							lt(agentSessionEvents.sourceAt, input.cursor.sourceAt),
+							and(
+								eq(agentSessionEvents.sourceAt, input.cursor.sourceAt),
+								lt(agentSessionEvents.id, input.cursor.id),
+							),
+						)
+					: undefined,
 			),
 		)
 		.orderBy(desc(agentSessionEvents.sourceAt), desc(agentSessionEvents.id))
-		.limit(Math.min(100, Math.max(1, input.limit ?? 50)));
+		.limit(limit + 1);
+	const hasMore = data.length > limit;
+	const rows = hasMore ? data.slice(0, limit) : data;
+	const last = rows.at(-1);
+	return {
+		data: rows,
+		nextCursor:
+			hasMore && last
+				? {
+						sourceAt: last.sourceAt,
+						id: last.id,
+						snapshotId: input.snapshotId,
+					}
+				: null,
+	};
+}
+
+/** UTC event and activity-digest counts for one owner across the full range. */
+export async function listAgentSessionActivityCoverage(
+	db: DbQueryClient,
+	input: AgentSessionRequestOwner & {
+		since: string;
+		until: string;
+		snapshotId: number;
+	},
+) {
+	const sourceDay = sql<string>`substr(${agentSessionEvents.sourceAt}, 1, 10)`;
+	return db
+		.select({
+			date: sourceDay.as("source_day"),
+			eventCount: sql<number>`count(*)`.mapWith(Number).as("event_count"),
+			activityDigestCount:
+				sql<number>`sum(case when ${agentSessionEvents.activity} is not null then 1 else 0 end)`
+					.mapWith(Number)
+					.as("activity_digest_count"),
+		})
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, input.organizationId),
+				eq(agentSessionEvents.userId, input.userId),
+				gt(agentSessionEvents.sourceAt, input.since),
+				lte(agentSessionEvents.sourceAt, input.until),
+				sql`rowid <= ${input.snapshotId}`,
+			),
+		)
+		.groupBy(sourceDay)
+		.orderBy(asc(sourceDay));
+}
+
+/** Highest database insertion id currently visible to one owner. */
+export async function getAgentSessionActivitySnapshot(
+	db: DbQueryClient,
+	owner: AgentSessionRequestOwner,
+) {
+	const [row] = await db
+		.select({
+			snapshotId: sql<number>`coalesce(max(rowid), 0)`.mapWith(Number),
+		})
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.organizationId, owner.organizationId),
+				eq(agentSessionEvents.userId, owner.userId),
+			),
+		);
+	return row?.snapshotId ?? 0;
 }
 
 /** File a private request without changing its status or completion evidence. */

@@ -185,19 +185,20 @@ describe("annotationsForEndpoint", () => {
 		});
 	});
 
-	it("pins workAgentSessions/listActivity regardless of kind", () => {
-		expect(
-			annotationsForEndpoint(
-				endpoint({ router: "workAgentSessions", procPath: "listActivity" }),
-				"write",
-			),
-		).toEqual({
-			readOnlyHint: true,
-			destructiveHint: false,
-			idempotentHint: true,
-			openWorldHint: false,
-			untrustedContentHint: true,
-		});
+	it("pins stored session source reads regardless of kind", () => {
+		for (const procPath of ["listActivity", "listEvents"])
+			expect(
+				annotationsForEndpoint(
+					endpoint({ router: "workAgentSessions", procPath }),
+					"write",
+				),
+			).toEqual({
+				readOnlyHint: true,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: false,
+				untrustedContentHint: true,
+			});
 	});
 });
 

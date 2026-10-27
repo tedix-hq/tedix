@@ -181,6 +181,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	// Work authority when an organization alias hides the `work` namespace.
 	"workAgentSessions/report": "mcp:work.write",
 	"workAgentSessions/list": "mcp:work.read",
+	"workAgentSessions/listEvents": "mcp:work.read",
 	"workAgentSessions/listActivity": "mcp:work.read",
 	"workAgentSessions/contributors": "mcp:work.read",
 	"mcpHealth/run": "mcp:observe.write",

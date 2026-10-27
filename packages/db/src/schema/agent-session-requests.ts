@@ -178,6 +178,12 @@ export const agentSessionEvents = sqliteTable(
 			table.status,
 			table.sourceAt,
 		),
+		index("idx_agent_session_events_org_user_source_at").on(
+			table.organizationId,
+			table.userId,
+			table.sourceAt,
+			table.id,
+		),
 	],
 );
 
