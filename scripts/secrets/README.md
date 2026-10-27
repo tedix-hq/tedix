@@ -21,7 +21,8 @@ tokens and store nothing, so they need no drain.
 1. Generate a key: `openssl rand -base64 32`.
 2. Set the secret on every Worker that reads it to `<new>,<old>` (index 0
    encrypts, the rest still decrypt) and deploy. Decrypts try each key in order.
-3. Dry run, then apply, from a laptop with `wrangler login`:
+3. Dry run, then apply, with Cloudflare credentials available to the pinned
+   project-installed `cf` CLI:
 
    ```sh
    export SECRETS_MASTER_KEY='<new>,<old>'   # env only, never a CLI argument
@@ -29,11 +30,17 @@ tokens and store nothing, so they need no drain.
    bun scripts/secrets/rotate-master-key.ts --remote --apply
    ```
 
-   Options: `--database <binding or name>` (default: first D1 binding in
+   Options: `--database <binding, name or UUID>` (default: first D1 binding in
    `apps/api/wrangler.jsonc`), `--config <wrangler.jsonc>`, `--local`,
    `--limit N` (rows per table). Output is counts per table plus the ids of
    unreadable rows (exit code 2); plaintext and keys are never printed. Writes
    are optimistic per row: a row changed meanwhile is skipped for the next run.
+
+   Remote queries use `cf d1 query` with the UUID resolved from the selected
+   config, or an explicit UUID. Missing, ambiguous and placeholder targets
+   are rejected before querying. Use the installation's configured file;
+   the public example is not a production target. `--local` still uses the
+   project-installed Wrangler because pinned cf has no local D1 query endpoint.
 
 4. When every table reports `stale=0`, set the secret to `<new>` alone. Tests:
    `bun test scripts/secrets/rotate-master-key.test.ts`.

@@ -11,8 +11,8 @@
  *     --remote [--apply] [--database DB] [--config apps/api/wrangler.jsonc] [--limit N]
  *
  * The key comes from the environment only, so it never lands in shell history.
- * Rows are read and written through `wrangler d1 execute --json`, so this runs
- * from a laptop after `wrangler login`; no D1 binding is opened. The default
+ * Remote rows are read and written through the project-installed `cf d1 query`.
+ * Local stores still use Wrangler until cf supports local D1 queries. The default
  * is a dry run that classifies every row and prints counts, never plaintext,
  * key material or ciphertext. Row ids are printed only for unreadable rows.
  *
@@ -99,7 +99,7 @@ export const ENCRYPTED_TABLES: readonly EncryptedTable[] = [
 /** Keyset page size. Each row is a small base64 string; 200 keeps JSON small. */
 export const PAGE_SIZE = 200;
 /**
- * UPDATE statements per `wrangler d1 execute` call. Each UPDATE carries three
+ * UPDATE statements per D1 query. Each UPDATE carries three
  * literal values; 30 keeps a batch under D1's 100-bound-parameter ceiling even
  * if these statements were ever rewritten to use placeholders.
  */
@@ -134,7 +134,7 @@ export function updateRowSql(
 
 // ---------------------------------------------------------------------------
 // Runner: one function that executes SQL and returns one result per statement.
-// The CLI backs it with wrangler; tests back it with an in-memory table.
+// Tests back it with an in-memory table.
 // ---------------------------------------------------------------------------
 
 export type D1StatementResult = {
@@ -382,34 +382,76 @@ export function defaultDatabaseFromConfig(configPath: string): string {
 	return binding;
 }
 
-function wranglerRunner(args: CliArgs, database: string): D1Runner {
-	const wrangler = resolve(import.meta.dir, "../../node_modules/.bin/wrangler");
-	return async (sql) => {
-		const proc = Bun.spawn(
-			[
-				wrangler,
-				"d1",
-				"execute",
-				database,
-				args.target,
-				"--config",
-				args.config,
-				"--json",
-				"--command",
-				sql,
-			],
-			{ stdout: "pipe", stderr: "pipe" },
+export function remoteDatabaseId(configPath: string, database: string): string {
+	const uuid =
+		/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+	let id = database;
+	if (!uuid.test(database)) {
+		const parsed = parseJsonc(readFileSync(configPath, "utf8")) as {
+			d1_databases?: {
+				binding?: string;
+				database_name?: string;
+				database_id?: string;
+			}[];
+		};
+		const matches = parsed.d1_databases?.filter(
+			(entry) => entry.binding === database || entry.database_name === database,
 		);
+		if (matches?.length !== 1) {
+			throw new Error(
+				`${configPath} must declare exactly one D1 target for ${database}`,
+			);
+		}
+		id = matches[0]?.database_id ?? "";
+	}
+	if (!uuid.test(id) || id === "00000000-0000-0000-0000-000000000000") {
+		throw new Error("Remote rotation requires a configured D1 database UUID");
+	}
+	return id;
+}
+
+export function rotationCommand(args: CliArgs, database: string): string[] {
+	if (args.target === "--remote") {
+		return [
+			resolve(import.meta.dir, "../../node_modules/.bin/cf"),
+			"d1",
+			"query",
+			remoteDatabaseId(args.config, database),
+			"--sql",
+		];
+	}
+	return [
+		resolve(import.meta.dir, "../../node_modules/.bin/wrangler"),
+		"d1",
+		"execute",
+		database,
+		"--local",
+		"--config",
+		args.config,
+		"--json",
+		"--command",
+	];
+}
+
+function d1Runner(args: CliArgs, database: string): D1Runner {
+	const command = rotationCommand(args, database);
+	const label =
+		args.target === "--remote" ? "cf d1 query" : "wrangler d1 execute";
+	return async (sql) => {
+		const proc = Bun.spawn([...command, sql], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 		const stdout = await new Response(proc.stdout).text();
 		const stderr = await new Response(proc.stderr).text();
 		if ((await proc.exited) !== 0) {
-			throw new Error(`wrangler d1 execute failed:\n${stderr}`);
+			throw new Error(`${label} failed:\n${stderr}`);
 		}
 		const parsed = JSON.parse(stdout) as (D1StatementResult & {
 			success?: boolean;
 		})[];
 		if (!Array.isArray(parsed) || parsed.some((r) => r.success !== true)) {
-			throw new Error("wrangler d1 execute returned a failed statement");
+			throw new Error(`${label} returned a failed statement`);
 		}
 		return parsed;
 	};
@@ -427,7 +469,7 @@ async function main(): Promise<void> {
 	if (keys.length === 1 && args.apply) {
 		console.log("Only one key configured; nothing can be stale.");
 	}
-	const reports = await rotateAll(wranglerRunner(args, database), {
+	const reports = await rotateAll(d1Runner(args, database), {
 		keys,
 		apply: args.apply,
 		limit: args.limit,
