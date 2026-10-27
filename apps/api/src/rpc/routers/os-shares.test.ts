@@ -21,6 +21,7 @@ import {
 	osCollaborationProposals,
 	osOutputRevisions,
 	osOutputs,
+	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -48,6 +49,7 @@ function createEnv(): CloudflareEnv {
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaces,
+			osWorkspaceResources,
 			osGadgets,
 			osGadgetRevisions,
 			osCollaborationProposals,
@@ -296,7 +298,7 @@ describe("shares.list", () => {
 });
 
 describe("shares.list guest notes", () => {
-	it("says an app that does not run its own code needs sign-in, as the server does", async () => {
+	it("says an app that does not run its own code needs sign-in, and what a workspace link leaves out", async () => {
 		const h = harness();
 		const { workspace } = await h.outputs.workspaces.create({
 			name: "Partner workspace",
@@ -315,6 +317,16 @@ describe("shares.list guest notes", () => {
 			resourceId: gadget.id,
 		});
 		expect(app.guestRefusal).toEqual({ reason: "not_runtime_app" });
+		expect(app.guestLimits).toBeUndefined();
+		const space = await h.org1.shares.list({
+			resourceType: "workspace",
+			resourceId: workspace.id,
+		});
+		expect(space.guestLimits).toEqual({
+			hiddenFiles: 0,
+			appsNeedingSignIn: 1,
+		});
+		expect(space.guestRefusal).toBeUndefined();
 		// Server and dialog agree: a signed-out visitor gets the same 404.
 		const { token } = await h.org1.shares.create({
 			resourceType: "gadget",

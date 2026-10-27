@@ -546,6 +546,22 @@ describe("ShareControls", () => {
 		});
 	});
 
+	it("names what a no-sign-in workspace link leaves out", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [],
+			guestLimits: { hiddenFiles: 2, appsNeedingSignIn: 1 },
+		});
+		const container = await openDialog({
+			resourceType: "workspace",
+			resourceId: OUTPUT_ID,
+		});
+		const note = container.querySelector("[data-guest-limits]");
+		expect(note?.textContent).toContain(
+			"2 files hold data from connected accounts",
+		);
+		expect(note?.textContent).toContain("1 app needs a sign-in");
+	});
+
 	it("asks before turning a link off, then turns it off in place", async () => {
 		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
 		sharesApi.previewRevoke.mockResolvedValue({

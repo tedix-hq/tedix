@@ -25,7 +25,7 @@
 		"test:browser:install": "playwright install --with-deps chromium webkit",
 		"test:browser:shell": "bun browser-tests/run-specs.ts browser-tests/shell.spec.ts browser-tests/shell-navigation.spec.ts",
 		"test:browser:avatars": "bun browser-tests/entity-avatar.spec.ts",
-		"test:browser:dialogs": "bun browser-tests/run-specs.ts browser-tests/dialogs.spec.ts browser-tests/sheet-close.spec.ts browser-tests/b9-toast-phone.spec.ts browser-tests/approvals-popover.spec.ts browser-tests/approvals-page.spec.ts browser-tests/skill-approval-feedback.spec.ts browser-tests/kumo-popover.spec.ts browser-tests/org-switcher.spec.ts browser-tests/workspace-sharing.spec.ts browser-tests/workspace-icon.spec.ts browser-tests/workspace-blueprint.spec.ts browser-tests/blueprint-landing.spec.ts browser-tests/share-link.spec.ts",
+		"test:browser:dialogs": "bun browser-tests/run-specs.ts browser-tests/dialogs.spec.ts browser-tests/sheet-close.spec.ts browser-tests/b9-toast-phone.spec.ts browser-tests/approvals-popover.spec.ts browser-tests/approvals-page.spec.ts browser-tests/skill-approval-feedback.spec.ts browser-tests/kumo-popover.spec.ts browser-tests/org-switcher.spec.ts browser-tests/workspace-sharing.spec.ts browser-tests/workspace-icon.spec.ts browser-tests/workspace-blueprint.spec.ts browser-tests/blueprint-landing.spec.ts browser-tests/share-link.spec.ts browser-tests/shared-workspace.spec.ts",
 		"test:browser:memory": "bun browser-tests/b9-memory-browser.spec.ts",
 		"test:browser:templates": "bun browser-tests/b11-templates-phone.spec.ts",
 		"test:browser:state-gallery": "bun browser-tests/run-specs.ts browser-tests/state-gallery.spec.ts browser-tests/skills-metadata.spec.ts",

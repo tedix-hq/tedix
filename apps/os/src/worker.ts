@@ -139,13 +139,14 @@ const SHARE_DOCUMENT_PATH = /^\/s\/([A-Za-z0-9]{22})(?:\/[^/]*)?$/;
 /** `/s/<id>?sign-in`: the share page asking for this host's sign-in. */
 const SHARE_SIGN_IN_PARAM = "sign-in";
 const GUEST_SHARE_API_PATH =
-	/^\/api\/os-shared\/(?:open|redeem|session|app\/(?:open|call|read))$/;
+	/^\/api\/os-shared\/(?:open|redeem|session|output|app\/(?:open|call|read))$/;
 /**
  * The share calls that may carry the visitor's own host session: an
  * `organization` or `invited` link needs to know who is opening it. The app
  * calls never do; their share session is the only credential.
  */
-const RECIPIENT_SHARE_API_PATH = /^\/api\/os-shared\/(?:open|redeem|session)$/;
+const RECIPIENT_SHARE_API_PATH =
+	/^\/api\/os-shared\/(?:open|redeem|session|output)$/;
 /** A gallery blueprint's shareable landing page and the one public read it makes. */
 const BLUEPRINT_DOCUMENT_PATH = /^\/blueprint\/[0-9a-f-]{36}$/i;
 const PUBLIC_BLUEPRINT_API_PATH = /^\/api\/public\/blueprints\/[0-9a-f-]{36}$/i;

@@ -528,6 +528,15 @@ export const osSharesContract = oc
 							.describe(
 								"For an app: why people without a Tedix account cannot open it through a link, or null when they can. Absent for other resources.",
 							),
+						guestLimits: z
+							.object({
+								hiddenFiles: z.number().int().nonnegative(),
+								appsNeedingSignIn: z.number().int().nonnegative(),
+							})
+							.optional()
+							.describe(
+								"For a workspace: what an Anyone-with-the-link link leaves out. Files holding data from connected accounts are not shown, and apps that need sign-in are listed but do not open. Absent for other resources.",
+							),
 					}),
 				),
 			update: oc

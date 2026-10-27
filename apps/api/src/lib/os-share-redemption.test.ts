@@ -34,6 +34,7 @@ import {
 	osGadgets,
 	osOutputRevisions,
 	osOutputs,
+	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -64,6 +65,7 @@ function fixture() {
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaces,
+			osWorkspaceResources,
 			osGadgets,
 			osGadgetRevisions,
 			osShareLinks,
@@ -536,6 +538,39 @@ describe("handleOsSharePreview", () => {
 			resourceType: "gadget",
 			organizationName: "Example",
 		});
+	});
+
+	it("names a workspace anyone may open, and opens it signed out by permanent id", async () => {
+		const db = fixture();
+		await seedGadget(db);
+		await seedShare(db, {
+			resourceType: "workspace",
+			resourceId: "workspace-1",
+			role: "use",
+		});
+		expect(await preview(db)).toEqual({
+			kind: "content",
+			title: "Shared workspace",
+			description: "Safe collaboration",
+			resourceType: "workspace",
+			organizationName: "Example",
+		});
+		const opened = await openById(db);
+		expect(opened.status).toBe(200);
+		expect(await opened.json()).toMatchObject({
+			needsSignIn: false,
+			share: { access: "anyone_with_link", slug: "shared-workspace" },
+			resource: {
+				type: "workspace",
+				files: [],
+				hiddenFileCount: 0,
+				gadgets: [{ id: "gadget-1", opensWithoutSignIn: false }],
+			},
+		});
+		// A workspace made private stops the link and its preview.
+		await db.update(osWorkspaces).set({ visibility: "private" });
+		expect((await openById(db)).status).toBe(404);
+		expect(await preview(db)).toEqual(GENERIC);
 	});
 
 	it("keeps organization and invited links generic", async () => {

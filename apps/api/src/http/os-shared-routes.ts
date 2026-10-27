@@ -112,6 +112,26 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 	});
 
+	// One document, sheet or slide deck a workspace link lists, read through the
+	// link's session; it rechecks the link and the file on every read.
+	// authz: public — the share session token is the credential; only files without connected data, same 404 for every refusal.
+	app.post("/os-shared/output", async (c) => {
+		const [{ handleOsShareSessionOutput }, { createDbQueryClient }, recipient] =
+			await Promise.all([
+				import("../lib/os-share-redemption"),
+				import("@tedix/db/query-client"),
+				shareRecipient(c.req.raw, c.env),
+			]);
+		const body = await c.req.json().catch(() => null);
+		return handleOsShareSessionOutput(
+			createDbQueryClient(c.env.DB),
+			bodyString(body, "sessionToken"),
+			bodyString(body, "outputId"),
+			recipient.authorize,
+			recipient.identify,
+		);
+	});
+
 	// A share-link guest using a runtime app: open its client, call its server,
 	// read a granted Output. Each call re-resolves the share session; every
 	// refusal is the same 404 as an unknown link.

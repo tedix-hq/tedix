@@ -535,6 +535,26 @@ export function guestRefusalText(
 	return `People without a Tedix account can't open this app through a link: ${why}, and Tedix can't check what they may see there. Invite them to the workspace instead, or remove that access from the app.`;
 }
 
+/**
+ * What an "Anyone with the link" workspace link leaves out, in plain words,
+ * or null when it shows everything.
+ */
+export function workspaceGuestLimitsText(limits: {
+	hiddenFiles: number;
+	appsNeedingSignIn: number;
+}): string | null {
+	const parts = [
+		limits.hiddenFiles > 0
+			? `${limits.hiddenFiles === 1 ? "1 file holds" : `${limits.hiddenFiles} files hold`} data from connected accounts, so it stays hidden`
+			: null,
+		limits.appsNeedingSignIn > 0
+			? `${limits.appsNeedingSignIn === 1 ? "1 app needs" : `${limits.appsNeedingSignIn} apps need`} a sign-in, so people see its name but can't open it`
+			: null,
+	].filter(Boolean);
+	if (parts.length === 0) return null;
+	return `People without a Tedix account see this workspace's documents, sheets, slides and apps, read-only. Not everything: ${parts.join("; ")}.`;
+}
+
 type FormMode =
 	| { kind: "closed" }
 	| { kind: "create" }
@@ -932,6 +952,17 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 								</Button>
 							</div>
 						) : null}
+					</Surface>
+				) : null}
+				{access === "anyone_with_link" &&
+				shares.data?.guestLimits &&
+				workspaceGuestLimitsText(shares.data.guestLimits) ? (
+					<Surface
+						className="m-0 px-3 py-2 text-kumo-subtle text-xs"
+						render={<p />}
+						data-guest-limits
+					>
+						{workspaceGuestLimitsText(shares.data.guestLimits)}
 					</Surface>
 				) : null}
 			</section>

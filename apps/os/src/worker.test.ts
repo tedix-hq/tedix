@@ -934,6 +934,7 @@ describe("Tedix OS origin router", () => {
 		for (const path of [
 			"/api/os-shared/redeem",
 			"/api/os-shared/session",
+			"/api/os-shared/output",
 			"/api/os-shared/app/open",
 			"/api/os-shared/app/call",
 			"/api/os-shared/app/read",

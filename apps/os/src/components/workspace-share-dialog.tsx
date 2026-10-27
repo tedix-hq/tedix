@@ -55,6 +55,7 @@ import {
 	SHARE_DIALOG_CLASS,
 	ShareLinksPanel,
 	shareStatus,
+	workspaceGuestLimitsText,
 } from "@/components/share-controls";
 import { osApi } from "@/lib/api";
 import {
@@ -414,8 +415,9 @@ function WorkspaceAccess(props: {
 		},
 	});
 
-	// The no-sign-in link: anyone holding it can view the workspace's apps
-	// without a Tedix account. Turning it off revokes every active public link.
+	// The no-sign-in link: anyone holding it can view the workspace's
+	// documents, sheets, slides and apps, read-only, without a Tedix account.
+	// Turning it off revokes every active public link.
 	const publicQuery = osSharesQueryOptions({
 		resourceType: "workspace",
 		resourceId: workspaceId,
@@ -426,6 +428,10 @@ function WorkspaceAccess(props: {
 	);
 	// The no-sign-in link has a permanent address, shown whenever it is on.
 	const publicUrl = activePublic[0]?.url ?? null;
+	// What that link leaves out: files with connected data, apps that need sign-in.
+	const publicLimits = publicShares.data?.guestLimits
+		? workspaceGuestLimitsText(publicShares.data.guestLimits)
+		: null;
 	const publicToggle = useMutation({
 		mutationFn: async (on: boolean) => {
 			if (on) {
@@ -675,7 +681,7 @@ function WorkspaceAccess(props: {
 				<SectionHeading
 					learnMore={{
 						label: "About links",
-						text: "A link with sign-in adds people at that role once they open it. The no-sign-in link shows the apps only, never how they are built. Copy link makes a fresh address for the same link.",
+						text: "A link with sign-in adds people at that role once they open it. The no-sign-in link shows the documents, sheets, slides and apps, read-only, never how they are built. Copy link makes a fresh address for the same link.",
 					}}
 				>
 					General access
@@ -737,6 +743,17 @@ function WorkspaceAccess(props: {
 					<div data-public-url>
 						<PermanentUrl url={publicUrl} />
 					</div>
+				) : null}
+				{access === "public" && publicLimits ? (
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						className="m-0"
+						data-guest-limits
+					>
+						{publicLimits}
+					</Text>
 				) : null}
 				{links.length > 0 ? (
 					<ul className="m-0 grid list-none p-0" data-share-link-list>

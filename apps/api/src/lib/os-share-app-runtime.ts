@@ -12,16 +12,9 @@ import {
 	AppRuntimeGuestNameSchema,
 	AppRuntimeMethodSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
-import type { OsShareGuestRefusal } from "@tedix/api-contract/contracts/os-shares";
+import { OsGadgetManifestSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import {
-	OsDerivedAccessEnvelopeSchema,
-	OsGadgetManifestSchema,
-} from "@tedix/api-contract/schemas/os-workspaces";
-import {
-	appRuntimeGuestRefusal,
 	appRuntimePermission,
-	type AppRuntimeGuestRefusal,
-	type AppRuntimeGuestSlot,
 	isAppRuntimeManifest,
 } from "@tedix/api-contract/utils/app-runtime";
 import {
@@ -38,25 +31,30 @@ import {
 	getOsGadget,
 	getOsGadgetRevision,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import {
-	getOsOutput,
-	getOsOutputRevision,
-} from "@tedix/db/queries/os-workspaces/outputs";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
-import type { OsShareSessionRow } from "@tedix/db/schema/os-shares";
+import type {
+	OsShareLinkRow,
+	OsShareSessionRow,
+} from "@tedix/db/schema/os-shares";
+import type { OsShareGuestRefusal } from "@tedix/api-contract/contracts/os-shares";
 import { z } from "zod";
 import {
 	loadAppRuntimeRevision,
 	runAppRuntimeCall,
 } from "../services/os-app-runtime-code";
 import {
+	effectiveRole,
+	guestAppRefusal,
 	guestAppRevisionId,
 	hashOsShareToken,
 	isActive,
 	linkAdmitsGuest,
+	shareableOutputRevision,
 	TOKEN_SHAPE,
+	workspaceLinkAdmitsGuest,
+	workspaceLinkAppRevisionId,
 } from "./os-share-redemption";
 
 export const SHARE_SESSION_PRINCIPAL_KIND = "share_session";
@@ -93,20 +91,25 @@ export interface GuestAppScope {
  * Resolve a guest's share session to the app it may use, or null. The link
  * must still be live and admit guests, the workspace must not have turned
  * private since the link was minted, and the app must still run its own code.
+ * An app link names its app; a workspace link opens the app `appId` names,
+ * which must be one of the workspace's own.
  */
 export async function resolveGuestAppScope(
 	db: DbQueryClient,
 	sessionToken: unknown,
+	appId?: unknown,
 	now = new Date().toISOString(),
 ): Promise<GuestAppScope | null> {
 	if (typeof sessionToken !== "string" || !TOKEN_SHAPE.test(sessionToken))
+		return null;
+	if (appId !== undefined && (typeof appId !== "string" || appId.length > 100))
 		return null;
 	const session = await touchOsShareSession(
 		db,
 		await hashOsShareToken(sessionToken),
 		now,
 	);
-	return session ? resolveGuestAppLinkScope(db, session, now) : null;
+	return session ? resolveGuestAppLinkScope(db, session, now, appId) : null;
 }
 
 /** Reauthorize a verified app session at the server's resource callback. */
@@ -125,7 +128,12 @@ export async function resolveGuestAppCapabilityScope(
 		return null;
 	const session = await getLiveOsShareSession(db, appSession.principal.id, now);
 	if (!session) return null;
-	const scope = await resolveGuestAppLinkScope(db, session, now);
+	const scope = await resolveGuestAppLinkScope(
+		db,
+		session,
+		now,
+		appSession.gadgetId,
+	);
 	if (
 		!scope ||
 		scope.shareLinkId !== appSession.shareLinkId ||
@@ -138,19 +146,73 @@ export async function resolveGuestAppCapabilityScope(
 	return scope;
 }
 
+/**
+ * The app and revision a guest link opens: the link's own app, or for a
+ * workspace link one of the workspace's active apps that runs its own code.
+ */
+async function guestLinkApp(
+	db: DbQueryClient,
+	link: OsShareLinkRow,
+	appId: string | undefined,
+) {
+	if (link.resourceType === "gadget") {
+		if (appId !== undefined && appId !== link.resourceId) return null;
+		if (!(await linkAdmitsGuest(db, link))) return null;
+		const gadget = await getOsGadget(db, {
+			organizationId: link.organizationId,
+			gadgetId: link.resourceId,
+		});
+		const revisionId = gadget ? guestAppRevisionId(link, gadget) : null;
+		return gadget && revisionId ? { gadget, revisionId } : null;
+	}
+	if (
+		!appId ||
+		!workspaceLinkAdmitsGuest(link) ||
+		effectiveRole(link) !== GUEST_ROLE
+	)
+		return null;
+	const gadget = await getOsGadget(db, {
+		organizationId: link.organizationId,
+		gadgetId: appId,
+	});
+	if (
+		!gadget ||
+		gadget.status !== "active" ||
+		gadget.workspaceId !== link.resourceId
+	)
+		return null;
+	const revisionId = workspaceLinkAppRevisionId(link, gadget);
+	const revision = revisionId
+		? await getOsGadgetRevision(db, {
+				organizationId: link.organizationId,
+				revisionId,
+			})
+		: null;
+	if (!revision || revision.gadgetId !== gadget.id) return null;
+	try {
+		if (
+			!isAppRuntimeManifest(
+				OsGadgetManifestSchema.parse(JSON.parse(revision.manifest)),
+			)
+		)
+			return null;
+	} catch {
+		return null;
+	}
+	return { gadget, revisionId: revision.id };
+}
+
 async function resolveGuestAppLinkScope(
 	db: DbQueryClient,
 	session: OsShareSessionRow,
 	now: string,
+	appId?: string,
 ): Promise<GuestAppScope | null> {
 	const link = await getOsShareLinkById(db, session.shareLinkId);
-	if (!link || !isActive(link, now) || !(await linkAdmitsGuest(db, link)))
-		return null;
-	const gadget = await getOsGadget(db, {
-		organizationId: link.organizationId,
-		gadgetId: link.resourceId,
-	});
-	if (!gadget) return null;
+	if (!link || !isActive(link, now)) return null;
+	const opened = await guestLinkApp(db, link, appId);
+	if (!opened) return null;
+	const { gadget, revisionId } = opened;
 	const workspace = await getOsWorkspace(db, {
 		organizationId: link.organizationId,
 		workspaceId: gadget.workspaceId,
@@ -161,8 +223,6 @@ async function resolveGuestAppLinkScope(
 		workspace.visibility === "private"
 	)
 		return null;
-	const revisionId = guestAppRevisionId(link, gadget);
-	if (!revisionId) return null;
 	return {
 		organizationId: link.organizationId,
 		workspaceId: workspace.id,
@@ -195,7 +255,11 @@ export async function handleGuestAppOpen(
 	db: DbQueryClient,
 	body: unknown,
 ): Promise<Response> {
-	const scope = await resolveGuestAppScope(db, field(body, "sessionToken"));
+	const scope = await resolveGuestAppScope(
+		db,
+		field(body, "sessionToken"),
+		field(body, "appId"),
+	);
 	if (!scope) return notFound();
 	const guestName = AppRuntimeGuestNameSchema.safeParse(
 		field(body, "guestName"),
@@ -245,7 +309,11 @@ export async function handleGuestAppCall(
 	db: DbQueryClient,
 	body: unknown,
 ): Promise<Response> {
-	const scope = await resolveGuestAppScope(db, field(body, "sessionToken"));
+	const scope = await resolveGuestAppScope(
+		db,
+		field(body, "sessionToken"),
+		field(body, "appId"),
+	);
 	if (!scope) return notFound();
 	const input = z
 		.object({
@@ -314,79 +382,6 @@ export async function handleGuestAppCall(
 	} catch {
 		return notFound();
 	}
-}
-
-/** The current revision of an Output, when it is active in the workspace and carries no connected data. */
-async function shareableOutputRevision(
-	db: DbQueryClient,
-	scope: Pick<GuestAppScope, "organizationId" | "workspaceId">,
-	outputId: string,
-) {
-	const output = await getOsOutput(db, {
-		organizationId: scope.organizationId,
-		outputId,
-	});
-	if (
-		!output ||
-		output.workspaceId !== scope.workspaceId ||
-		output.status !== "active" ||
-		!output.currentRevisionId
-	)
-		return null;
-	const revision = await getOsOutputRevision(db, {
-		organizationId: scope.organizationId,
-		revisionId: output.currentRevisionId,
-	});
-	if (!revision?.accessEnvelope) return null;
-	let envelope: unknown;
-	try {
-		envelope = JSON.parse(revision.accessEnvelope);
-	} catch {
-		return null;
-	}
-	const parsed = OsDerivedAccessEnvelopeSchema.safeParse(envelope);
-	if (!parsed.success || parsed.data.sources.length > 0) return null;
-	return { output, revision };
-}
-
-/**
- * Why guests may not open this app, or null when they may. Every granted slot
- * must be bound to an Output in the workspace that carries no data from
- * connected accounts; see `appRuntimeGuestRefusal`.
- */
-export async function guestAppRefusal(
-	db: DbQueryClient,
-	scope: Pick<GuestAppScope, "organizationId" | "workspaceId">,
-	grants: ReadonlyArray<{ slot: string; operations: readonly string[] }>,
-): Promise<AppRuntimeGuestRefusal | null> {
-	if (grants.length === 0) return null;
-	const resources = await listOsWorkspaceResources(db, {
-		organizationId: scope.organizationId,
-		workspaceId: scope.workspaceId,
-		status: "active",
-		limit: 200,
-	});
-	const slots = new Map<string, AppRuntimeGuestSlot>();
-	for (const grant of grants) {
-		const resource = resources.find((row) => row.slot === grant.slot);
-		if (!resource) continue;
-		slots.set(
-			grant.slot,
-			resource.providerId === "tedix" && resource.resourceType === "output"
-				? {
-						kind: "output",
-						shareable: Boolean(
-							await shareableOutputRevision(
-								db,
-								scope,
-								resource.providerResourceId,
-							),
-						),
-					}
-				: { kind: "other" },
-		);
-	}
-	return appRuntimeGuestRefusal(grants, slots);
 }
 
 /**
@@ -474,7 +469,11 @@ export async function handleGuestAppRead(
 	db: DbQueryClient,
 	body: unknown,
 ): Promise<Response> {
-	const scope = await resolveGuestAppScope(db, field(body, "sessionToken"));
+	const scope = await resolveGuestAppScope(
+		db,
+		field(body, "sessionToken"),
+		field(body, "appId"),
+	);
 	if (!scope) return notFound();
 	const slot = field(body, "slot");
 	if (typeof slot !== "string" || slot.length === 0 || slot.length > 160)
