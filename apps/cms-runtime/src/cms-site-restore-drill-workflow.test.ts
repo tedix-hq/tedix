@@ -82,8 +82,7 @@ function harness(
 	const copied = new Map<string, string | Uint8Array>();
 	const storage = {
 		get: vi.fn(async (key: string) => {
-			if (key === CMS_SITE_DRILL_CONFIG_KEY)
-				return { json: async () => drill };
+			if (key === CMS_SITE_DRILL_CONFIG_KEY) return { json: async () => drill };
 			if (key === DRILL_RECEIPT_KEY && receipt)
 				return { json: async () => receipt };
 			const saved = copied.get(key);
@@ -109,10 +108,7 @@ function harness(
 					events.push(`receipt:${receipt.phase}`);
 				} else if (typeof value === "string") copied.set(key, value);
 				else {
-					if (
-						rejectPrivatePut &&
-						key.startsWith(DRILL_PREFIX + "media/")
-					)
+					if (rejectPrivatePut && key.startsWith(DRILL_PREFIX + "media/"))
 						throw new Error("private R2 put rejected");
 					const chunks: Uint8Array[] = [];
 					for await (const chunk of value) chunks.push(chunk);
@@ -124,10 +120,7 @@ function harness(
 						stored.set(chunk, offset);
 						offset += chunk.byteLength;
 					}
-					if (
-						corruptPrivateCopy &&
-						key.startsWith(DRILL_PREFIX + "media/")
-					)
+					if (corruptPrivateCopy && key.startsWith(DRILL_PREFIX + "media/"))
 						stored[0] = (stored[0] ?? 0) ^ 1;
 					copied.set(key, stored);
 					return { size: stored.byteLength };
@@ -336,8 +329,7 @@ describe("fixed disposable CMS restore drill", () => {
 		expect(DRILL_RECEIPT_KEY.startsWith(DRILL_PREFIX)).toBe(true);
 		dependencies.readVerifiedCmsRecoveryCapture.mockImplementation(
 			async (_storage: unknown, _identity: unknown, prefix?: string) => {
-				if (prefix !== DRILL_PREFIX)
-					throw new Error("original capture purged");
+				if (prefix !== DRILL_PREFIX) throw new Error("original capture purged");
 				return {
 					manifest: { bookmark: "captured-bookmark", media: { pageCount: 1 } },
 					records: [record],

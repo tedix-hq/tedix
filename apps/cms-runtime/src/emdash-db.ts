@@ -381,8 +381,7 @@ export class EmDashDB extends EmdashSqlDB {
 		const drill = await readSiteDrillIdentity(
 			this.siteDrillEnv().RECOVERY_STORAGE,
 		);
-		if (!drill)
-			throw new Error("CMS site restore drill is not configured");
+		if (!drill) throw new Error("CMS site restore drill is not configured");
 		if (
 			this.ctx.id.toString() !==
 			this.siteDrillEnv().DB_DO.idFromName(drill.slug).toString()

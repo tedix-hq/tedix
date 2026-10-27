@@ -186,9 +186,9 @@ export async function databaseRecoveryBookmarkAdminResponse(args: {
 		const stub = env.DB_DO.get(
 			env.DB_DO.idFromName(slug),
 		) as unknown as EmDashDBStub;
-		const siteDrill = await readSiteDrillIdentity(
-			env.RECOVERY_STORAGE,
-		).catch(() => null);
+		const siteDrill = await readSiteDrillIdentity(env.RECOVERY_STORAGE).catch(
+			() => null,
+		);
 		const fixedDrillSite =
 			siteDrill !== null &&
 			siteId === siteDrill.siteId &&

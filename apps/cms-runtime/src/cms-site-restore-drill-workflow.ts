@@ -35,8 +35,7 @@ export interface CmsSiteDrillIdentity {
 export function isCmsSiteDrillIdentity(
 	value: unknown,
 ): value is CmsSiteDrillIdentity {
-	if (!value || typeof value !== "object" || Array.isArray(value))
-		return false;
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
 	const candidate = value as Partial<CmsSiteDrillIdentity>;
 	return (
 		candidate.version === 1 &&
