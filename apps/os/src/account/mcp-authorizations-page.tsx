@@ -10,7 +10,6 @@ import { useState } from "react";
 import { osApi } from "@/lib/api";
 import { allMyOrganizationsQueryOptions } from "./query-options";
 import { Button } from "@/components/kumo/button";
-import { Pagination } from "@/components/kumo/pagination";
 import {
 	Card,
 	CardContent,
@@ -183,15 +182,20 @@ export function McpAuthorizationsPage() {
 					onDisable={() => disable.mutate(item)}
 				/>
 			))}
-			<Pagination
-				labels={{ navigation: "Connected application pages" }}
-				page={offset / PAGE_SIZE + 1}
-				perPage={PAGE_SIZE}
-				hasNextPage={query.data?.hasMore === true}
-				setPage={(page) => setOffset((page - 1) * PAGE_SIZE)}
-			>
-				<Pagination.Controls controls="simple" />
-			</Pagination>
+			<section className="flex gap-3">
+				<Button
+					disabled={offset === 0}
+					onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+				>
+					Previous
+				</Button>
+				<Button
+					disabled={!query.data?.hasMore}
+					onClick={() => setOffset(offset + PAGE_SIZE)}
+				>
+					Next
+				</Button>
+			</section>
 		</main>
 	);
 }
