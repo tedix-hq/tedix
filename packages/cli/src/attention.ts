@@ -61,7 +61,9 @@ export async function runAttentionCommand(
 						? `work-approval:${parsed.decision.proposalId}`
 						: parsed.kind === "runtime_approval"
 							? `approval:${parsed.decision.id}`
-							: parsed.cardId;
+							: parsed.kind === "row_review"
+								? parsed.requestId
+								: parsed.cardId;
 			if (expectedId !== cardId)
 				throw new Error("The card ID and decision payload do not match");
 			tool = "decide_deck_card";
