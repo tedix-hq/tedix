@@ -477,7 +477,8 @@ describe("schema-only provenance refresh", () => {
 });
 
 describe("projection native transport opt-in", () => {
-	const endpoint = "workItems/listCliProjection";
+	// Not opted in by a reviewed asset, so only a stored policy can enable it.
+	const endpoint = "organizations/get";
 	const options = {
 		mode: "projection" as const,
 		apply: true,
@@ -488,7 +489,7 @@ describe("projection native transport opt-in", () => {
 	it("preserves a reviewed true opt-in through projection and repeated no-op sync", async () => {
 		const fixture = makeDb([
 			makeRpcTool({
-				toolId: "list_work_item_cli_rows",
+				toolId: "get_organization",
 				endpoint,
 				config: { nativeDirect: true, unreviewedPolicy: "discard" },
 				authRequired: true,
@@ -572,7 +573,7 @@ describe("projection native transport opt-in", () => {
 		async (nativeDirect) => {
 			const fixture = makeDb([
 				makeRpcTool({
-					toolId: "list_work_item_cli_rows",
+					toolId: "get_organization",
 					endpoint,
 					config: nativeDirect === undefined ? {} : { nativeDirect },
 				}),
@@ -584,6 +585,25 @@ describe("projection native transport opt-in", () => {
 			expect(fixture.store[0]!.config).not.toHaveProperty("nativeDirect");
 		},
 	);
+
+	it("opts an existing CLI Work row in from the reviewed asset", async () => {
+		const fixture = makeDb([
+			makeRpcTool({
+				toolId: "update_work_item_specification",
+				endpoint: "workItems/updateSpecification",
+			}),
+		]);
+		expect(
+			await runToolSchemaSync(fixture.db, {
+				...options,
+				endpoints: ["workItems/updateSpecification"],
+			}),
+		).toMatchObject({ updated: 1, failed: 0 });
+		expect(fixture.store[0]!.config).toMatchObject({
+			endpoint: "workItems/updateSpecification",
+			nativeDirect: true,
+		});
+	});
 
 	it("does not enable native transport for newly generated rows", async () => {
 		const fixture = makeDb([]);
