@@ -47,13 +47,8 @@ import type {
  */
 export const COLLAB_DOC_PATH = "document";
 
-/**
- * Hard cap on a single frame. One MiB is the Workers WebSocket message limit,
- * so it is the transport's own ceiling rather than a policy of ours; a change
- * large enough to exceed it cannot cross the socket at all, whatever
- * `MAX_CODE_CHANGE_SIZE` in `./ot/code-change` permits on the far side.
- */
-export const MAX_MESSAGE_BYTES = 1024 * 1024;
+/** Application cap below Workers' 32 MiB received-message limit. Measured in UTF-8 bytes. */
+export const MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
 
 export function isOversizedMessage(byteLength: number): boolean {
 	return byteLength > MAX_MESSAGE_BYTES;

@@ -308,7 +308,7 @@ describe("collab server frames", () => {
 });
 
 describe("frame size", () => {
-	it("flags only payloads beyond the 1 MiB transport cap", () => {
+	it("flags only payloads beyond the application frame cap", () => {
 		expect(isOversizedMessage(MAX_MESSAGE_BYTES)).toBe(false);
 		expect(isOversizedMessage(MAX_MESSAGE_BYTES + 1)).toBe(true);
 	});
