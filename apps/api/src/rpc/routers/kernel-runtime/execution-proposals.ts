@@ -874,6 +874,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				content: turnContent,
 				...(input.modelRef ? { modelRef: input.modelRef } : {}),
 				descopeUserId: context.descopeUserId ?? context.user?.sub,
+				...(context.externalAgentPrincipalId
+					? { externalAgentPrincipalId: context.externalAgentPrincipalId }
+					: {}),
 				createdAt,
 				assistantAt,
 				completedAt,
@@ -1189,6 +1192,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				// Preserve the authenticated actor for org context and authority
 				// assembly in the pure routing pass.
 				descopeUserId: context.descopeUserId ?? context.user?.sub,
+				...(context.externalAgentPrincipalId
+					? { externalAgentPrincipalId: context.externalAgentPrincipalId }
+					: {}),
 				createdAt,
 				assistantAt,
 				completedAt,

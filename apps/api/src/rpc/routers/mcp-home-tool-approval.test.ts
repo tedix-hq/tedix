@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	member: vi.fn(),
 	run: vi.fn(),
 	consume: vi.fn(),
+	principal: vi.fn(),
 	consumed: new Set<string>(),
 }));
 vi.mock("@tedix/db/queries/approvals", async (load) => ({
@@ -18,6 +19,13 @@ vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
 	getMemberByUserId: mocks.member,
 }));
+vi.mock(
+	"@tedix/db/queries/external-agent-identity/principals",
+	async (load) => ({
+		...(await load<object>()),
+		getExternalAgentPrincipal: mocks.principal,
+	}),
+);
 vi.mock("@tedix/db/queries/kernel-runtime-runs", async (load) => ({
 	...(await load<object>()),
 	getKernelRuntimeRun: mocks.run,
@@ -249,6 +257,90 @@ describe("Home approval dispatch receipt", () => {
 			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
 				approved: false,
 			});
+			expect(mocks.consume).not.toHaveBeenCalled();
+		});
+	});
+	describe("recorded starting agent", () => {
+		const agentPrincipalId = "22222222-2222-4222-8222-222222222222";
+		const asApprover = {
+			...input,
+			userId: "owner-1",
+			credential: "tenant" as const,
+		};
+		beforeEach(() => {
+			mocks.approval.mockResolvedValue({
+				...approval,
+				payload: {
+					...payload,
+					initiatedByUserId: null,
+					initiatedByAgentPrincipalId: agentPrincipalId,
+				},
+			});
+			mocks.principal.mockResolvedValue({
+				status: "active",
+				credentialBindingType: "owner_user",
+				credentialBindingId: "agent-owner",
+			});
+		});
+		it("keeps the exact approver-bound receipt and consumes it once", async () => {
+			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+				approved: true,
+			});
+			expect(mocks.principal).toHaveBeenCalledWith(expect.anything(), {
+				organizationId: "org-1",
+				principalId: agentPrincipalId,
+			});
+			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+				approved: false,
+			});
+		});
+		it.each([
+			["suspended", { status: "suspended" }],
+			["retired", { status: "retired" }],
+			["removed", null],
+		])(
+			"refuses a %s starting agent without consuming the receipt",
+			async (_, principal) => {
+				mocks.principal.mockResolvedValue(principal);
+				expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+					approved: false,
+				});
+				expect(mocks.consume).not.toHaveBeenCalled();
+			},
+		);
+		it.each([
+			["removed", undefined],
+			["suspended", { status: "suspended", role: "owner" }],
+			["without Home access", { status: "active", role: "viewer" }],
+		])("refuses an agent whose owning member is %s", async (_, member) => {
+			mocks.member.mockImplementation(async (_db, _org, userId) =>
+				userId === "agent-owner" ? member : { status: "active", role: "owner" },
+			);
+			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+				approved: false,
+			});
+			expect(mocks.consume).not.toHaveBeenCalled();
+		});
+		it("honors an owning member's explicit Home grant", async () => {
+			mocks.member.mockImplementation(async (_db, _org, userId) =>
+				userId === "agent-owner"
+					? { status: "active", role: "viewer", customPermissions: ["os:run"] }
+					: { status: "active", role: "owner" },
+			);
+			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+				approved: true,
+			});
+		});
+		it("does not accept another human or a personal credential for the receipt", async () => {
+			for (const patch of [
+				{ userId: "agent-owner" },
+				{ credential: "user" as const },
+				{ args: { ...input.args, title: "Changed" } },
+			]) {
+				expect(
+					await client().resolveHomeToolApproval({ ...asApprover, ...patch }),
+				).toEqual({ approved: false });
+			}
 			expect(mocks.consume).not.toHaveBeenCalled();
 		});
 	});

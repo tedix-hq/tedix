@@ -182,6 +182,15 @@ vi.mock("@tedix/db/queries/work-items/projections", async (importOriginal) => ({
 	),
 }));
 
+const externalAgentPrincipal = vi.hoisted(() => vi.fn());
+vi.mock(
+	"@tedix/db/queries/external-agent-identity/principals",
+	async (importOriginal) => ({
+		...(await importOriginal<object>()),
+		getExternalAgentPrincipal: externalAgentPrincipal,
+	}),
+);
+
 vi.mock("@tedix/db/queries/work-items/crud", async (importOriginal) => ({
 	...(await importOriginal<
 		typeof import("@tedix/db/queries/work-items/crud")
@@ -585,6 +594,129 @@ describe("home approved-write layer (v1)", () => {
 			expect(run?.metadata).not.toHaveProperty("kernelWriteExecutedAt");
 		},
 	);
+
+	describe("a write an external agent started", () => {
+		const AGENT_ID = "22222222-2222-4222-8222-222222222222";
+		async function enqueueAgentTurn(
+			db: ReturnType<typeof createKernelRuntimeDb>,
+			runId: string,
+		) {
+			const context = {
+				...createContext(db),
+				externalAgentPrincipalId: AGENT_ID,
+			} as BaseContext;
+			return enqueueWriteProposalTurn(db, runId, PROPOSAL, context);
+		}
+
+		it("records the starting agent through redrive and keeps the approver-bound receipt once", async () => {
+			const db = createKernelRuntimeDb();
+			const { context } = await enqueueAgentTurn(db, "home-write-agent");
+			const approval = db.approvals[0];
+			if (!approval) throw new Error("approval row missing");
+			expect(approval.payload).toMatchObject({
+				initiatedByUserId: null,
+				initiatedByAgentPrincipalId: AGENT_ID,
+			});
+			expect(
+				db.runs.find((row) => row.id === "home-write-agent")?.metadata,
+			).toMatchObject({ redriveInput: { externalAgentPrincipalId: AGENT_ID } });
+			externalAgentPrincipal.mockResolvedValue({
+				status: "active",
+				credentialBindingType: "api_key",
+				credentialBindingId: "api-key-1",
+			});
+			const executor = vi.fn(async () => ({
+				ok: true as const,
+				data: { ok: true },
+			}));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			withInitiatorMember(db, { role: "admin", status: "active" });
+			const approved = {
+				approval: {
+					...approval,
+					status: "approved" as const,
+					resolvedBy: "user:approver-sub",
+				},
+				status: "approved" as const,
+			};
+			await settleHomeToolWriteApproval(context, approved);
+			await settleHomeToolWriteApproval(context, approved);
+			expect(externalAgentPrincipal).toHaveBeenCalledWith(expect.anything(), {
+				organizationId: ORG_ID,
+				principalId: AGENT_ID,
+			});
+			expect(executor).toHaveBeenCalledOnce();
+			expect(executor.mock.calls[0]?.[0]).toMatchObject({
+				payload: { initiatedByAgentPrincipalId: AGENT_ID },
+				approvedByUserId: "approver-sub",
+			});
+		});
+
+		it.each([
+			["suspended", { status: "suspended", credentialBindingType: "api_key" }],
+			["retired", { status: "retired", credentialBindingType: "api_key" }],
+			["removed", null],
+		])("never executes once the agent was %s", async (_label, principal) => {
+			const db = createKernelRuntimeDb();
+			const { context } = await enqueueAgentTurn(db, "home-write-agent-off");
+			externalAgentPrincipal.mockResolvedValue(principal);
+			const executor = vi.fn(async () => ({
+				ok: true as const,
+				data: { ok: true },
+			}));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			const approval = db.approvals[0];
+			if (!approval) throw new Error("approval row missing");
+			await expect(
+				settleHomeToolWriteApproval(context, {
+					approval: { ...approval, status: "approved" },
+					status: "approved",
+				}),
+			).resolves.toBe("closed");
+			expect(executor).not.toHaveBeenCalled();
+			const run = db.runs.find((row) => row.id === "home-write-agent-off");
+			expect(run?.status).toBe("canceled");
+			expect(run?.metadata).not.toHaveProperty("kernelWriteExecutedAt");
+			expect(run?.metadata).toMatchObject({
+				approvalStatus: "initiator_revoked",
+			});
+		});
+
+		it.each([
+			["removed", undefined],
+			["suspended", { role: "owner", status: "suspended" }],
+			["without Home access", { role: "viewer", status: "active" }],
+		])(
+			"never executes once the agent's owning member is %s",
+			async (_, member) => {
+				const db = createKernelRuntimeDb();
+				const { context } = await enqueueAgentTurn(
+					db,
+					"home-write-agent-owner",
+				);
+				externalAgentPrincipal.mockResolvedValue({
+					status: "active",
+					credentialBindingType: "owner_user",
+					credentialBindingId: "owner-sub",
+				});
+				const findMember = withInitiatorMember(db, member);
+				const executor = vi.fn();
+				kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+				const approval = db.approvals[0];
+				if (!approval) throw new Error("approval row missing");
+				await expect(
+					settleHomeToolWriteApproval(context, {
+						approval: { ...approval, status: "approved" },
+						status: "approved",
+					}),
+				).resolves.toBe("closed");
+				expect(findMember).toHaveBeenCalledWith({
+					where: { organizationId: ORG_ID, descopeUserId: "owner-sub" },
+				});
+				expect(executor).not.toHaveBeenCalled();
+			},
+		);
+	});
 
 	it("executes for an initiator whose Home access comes from a member grant", async () => {
 		const db = createKernelRuntimeDb();

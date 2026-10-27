@@ -579,6 +579,9 @@ async function planAndParkKernelWriteProposal(
 					homeRunId: runId,
 					conversationId,
 					initiatedByUserId: input.descopeUserId ?? null,
+					...(!input.descopeUserId && input.externalAgentPrincipalId
+						? { initiatedByAgentPrincipalId: input.externalAgentPrincipalId }
+						: {}),
 					transport: writeProposal.transport,
 					...(writeProposal.editableFields?.length
 						? { editableFields: writeProposal.editableFields }

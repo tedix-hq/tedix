@@ -531,6 +531,8 @@ export interface KernelTurnWorkInput {
 	modelRef?: string;
 	/** Acting user (`context.descopeUserId ?? context.user?.sub`). */
 	descopeUserId?: string;
+	/** Gateway-verified external agent principal that started the turn. */
+	externalAgentPrincipalId?: string;
 	/** Ingress-owned control decision, retained through DO execution and redrive. */
 	allowWorkflowConfirmation?: boolean;
 	createdAt: string;
