@@ -107,14 +107,23 @@ function AppCard({ app }: { app: CatalogApp }) {
 				</CardHeader>
 				<CardContent className="space-y-3">
 					{app.description ? (
-						<Text
-							as="p"
-							role="body"
-							tone="secondary"
-							className="line-clamp-2 [overflow-wrap:anywhere] max-sm:line-clamp-none"
-						>
-							{app.description}
-						</Text>
+						<>
+							<Text
+								as="p"
+								role="body"
+								tone="secondary"
+								className="line-clamp-2 [overflow-wrap:anywhere]"
+							>
+								{app.description}
+							</Text>
+							<Text
+								as="span"
+								role="label"
+								className="block w-fit text-kumo-brand group-hover:underline"
+							>
+								Read more
+							</Text>
+						</>
 					) : null}
 					<div className="flex flex-wrap items-center gap-1.5">
 						{app.category ? (
