@@ -223,6 +223,24 @@ function sessionSettingsEnabled(server: DescopeServer): boolean {
 	return settings.enabled === true;
 }
 
+/**
+ * Preserve provider field names and units so console changes can be compared
+ * without interpreting disabled resource settings as effective lifetimes.
+ */
+function sessionLifetimes(
+	server: DescopeServer,
+): Record<string, string | number> {
+	return Object.fromEntries(
+		Object.entries(asRecord(asRecord(server).sessionSettings))
+			.filter(
+				(entry): entry is [string, string | number] =>
+					entry[0] !== "enabled" &&
+					(typeof entry[1] === "number" || typeof entry[1] === "string"),
+			)
+			.sort(([a], [b]) => a.localeCompare(b)),
+	);
+}
+
 function isTaggedTediClient(client: DescopeClient): boolean {
 	return (client.tags ?? []).some((tag) => tag.startsWith("tedi:"));
 }
@@ -654,6 +672,7 @@ export function buildDescopeAihDriftReport(
 			cimdEnabled: cimdEnabled(server),
 			cimdDomainPolicies: cimdDomainPolicies(server),
 			sessionSettingsEnabled: sessionSettingsEnabled(server),
+			sessionLifetimes: sessionLifetimes(server),
 			tags: [...((asRecord(server).tags as string[] | undefined) ?? [])].sort(),
 			hasLogo: Boolean(asRecord(server).logo),
 			approvedScopes: extractApprovedScopeNames(server.approvedScopes),
@@ -707,6 +726,18 @@ export function buildDescopeAihDriftReport(
 					cimdDomainPolicies: cimdPolicies,
 					requiredDomain: TEDIX_CLI_CIMD_DOMAIN,
 				},
+			});
+		}
+
+		if (cimdPolicies.includes("*")) {
+			issue(report, {
+				severity: "warning",
+				code: "mcp_server_cimd_wildcard_domain",
+				resourceType: "mcp_server",
+				resourceId: server.id,
+				resourceName: server.name,
+				message: `Descope MCP server ${server.name} accepts client metadata documents from any domain. Tedix registration never writes this policy and reconciliation preserves it, so remove it in Descope.`,
+				details: { cimdDomainPolicies: cimdPolicies },
 			});
 		}
 

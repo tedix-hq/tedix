@@ -194,6 +194,7 @@ export const DescopeAihServerAuditSchema = z.object({
 	cimdEnabled: z.boolean(),
 	cimdDomainPolicies: z.array(z.string()),
 	sessionSettingsEnabled: z.boolean(),
+	sessionLifetimes: z.record(z.string(), z.union([z.string(), z.number()])),
 	tags: z.array(z.string()),
 	hasLogo: z.boolean(),
 	approvedScopes: z.array(z.string()),

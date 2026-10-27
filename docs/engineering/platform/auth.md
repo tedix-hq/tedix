@@ -368,6 +368,49 @@ Consent-flow rules (`packages/auth/src/aih-client.ts`,
 4. CLI access tokens use a current-tenant JWT template: `dct` plus that tenant's
    roles and permissions, no multi-tenant `tenants` map.
 
+## CLI OAuth lifecycle
+
+Each stage of a `tedix login` grant has one owner. Code-owned settings are
+rewritten on every registration or reconcile. Console-owned settings exist only
+in Descope; `descopeAih.auditDrift` (`apps/api/src/services/descope-aih-drift.ts`)
+is their reproducible record, so read it before and after changing them.
+
+| Stage                 | Owner   | Source of truth and check                                                                                                                                                                                                 |
+| --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client identity       | Code    | CIMD document `TEDIX_CLI_CLIENT_METADATA` (`apps/os/src/oauth-client-metadata.ts`), served at `TEDIX_CLI_OAUTH_CLIENT_ID`: public, PKCE, no secret, one exact HTTPS redirect relayed to the state-bound loopback listener |
+| Resource registration | Code    | `hardenDescopeMcpServerRegistration` (`packages/auth/src/aih-client.ts`) sets the consent flow, DCR without default scopes and the CIMD domain policies. Audit codes `mcp_server_*`                                       |
+| Consent and claims    | Console | Tenant-gated consent policies, the current-tenant JWT template and the step-up flow (rules above; scope steps in `mcp-capability-scopes.ts`)                                                                              |
+| Token lifetimes       | Console | Resource `sessionSettings` and audit fields `sessionSettingsEnabled` / `sessionLifetimes`. Disabled resource settings inherit project defaults; record those separately in the private ops runbook.                       |
+| Login                 | CLI     | Protected-resource discovery, scope narrowed by profile before consent, PKCE, one grant per organization, saved per workspace in `~/.tedix/credentials.json`                                                              |
+| Renewal               | CLI     | `refreshStoredSession` (`packages/cli/src/oauth-provider.ts`): 120 seconds before expiry, under the workspace lock, repeating the exact granted scope; a wider scope, resource, tenant or organization set is refused     |
+| Logout                | CLI     | `logoutWorkspace` (`packages/cli/src/oauth-revoke.ts`) revokes the refresh token at the `revocation_endpoint` recorded at login (RFC 7009), then removes the local login                                                  |
+
+A console change is complete when the next audit shows it. A wildcard (`*`) CIMD
+domain policy is never written by Tedix and survives reconciliation, so the
+audit reports it as `mcp_server_cimd_wildcard_domain`; remove it in Descope.
+Changing the CIMD URL changes the client identity, and stored logins keep
+presenting the old `client_id` when they renew.
+
+Logout attempts revocation only at the recorded HTTPS endpoint, with a five-second
+timeout and no redirects. A failed or unsupported revocation removes the local
+login with a warning; the earlier grant may remain valid. A busy renewal lock
+keeps credentials and asks the caller to retry. Replacing a workspace login does
+not revoke its earlier grant. End remaining grants in Descope through an
+authorized operator. Already-issued access tokens may remain usable until expiry
+even after successful refresh-token revocation; see
+[RFC 7009](https://www.rfc-editor.org/rfc/rfc7009#section-5).
+
+### Rotations
+
+| Credential               | Rotates                                              | Failure and recovery                                                                                       |
+| ------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| CLI refresh token        | Every renewal (Descope)                              | Reusing a superseded token invalidates the family (`E064006`); the CLI marks it and `tedix login` recovers |
+| Tedi access key          | Daily cron, keys older than 60 days                  | Old key deactivated only after runtime refresh; 90-day expiry still applies                                |
+| Tedi AIH client secret   | When a scope change deletes and recreates the client | The caller must re-persist the new credentials in `tedi_secrets`                                           |
+| Organization API key     | On demand, step-up required                          | Old hash stays valid for 24 hours                                                                          |
+| External-agent MCP token | Each issuance; the Descope client is reused          | Busy lease returns 409 and the CLI retries                                                                 |
+| Browser product session  | `apps/session-broker`, the only refresh owner        | See [Browser sessions](#browser-sessions)                                                                  |
+
 ## Security properties
 
 **Step-up.** Organization deletion, `organizations.rotateApiKey`, and

@@ -51,7 +51,6 @@ import {
 	getCurrentWorkspace,
 	listWorkspaces,
 	readWorkspaceCredentials,
-	removeWorkspace,
 	setCurrentWorkspace,
 	type WorkspaceCredential,
 	writeWorkspaceCredentials,
@@ -66,6 +65,7 @@ import {
 	startExternalAgentSession,
 } from "./external-agent";
 import { runFlowCommand } from "./flow";
+import { logoutMessage, logoutWorkspace } from "./oauth-revoke";
 import { parseMcpCallRequest, runMcpCall } from "./mcp-call";
 import {
 	channelUsage,
@@ -838,6 +838,12 @@ async function main() {
 	}
 	if (command === "logout") {
 		if (options.all) {
+			for (const { name } of listWorkspaces()) {
+				const outcome = await logoutWorkspace(name);
+				(outcome === "failed" || outcome === "unsupported"
+					? console.error
+					: console.log)(logoutMessage(name, outcome));
+			}
 			clearAllCredentials();
 			console.log("Logged out of all workspaces — credentials cleared.");
 			return;
@@ -847,8 +853,10 @@ async function main() {
 			console.log("No stored login to clear.");
 			return;
 		}
-		removeWorkspace(workspace);
-		console.log(`Logged out of workspace "${workspace}".`);
+		const outcome = await logoutWorkspace(workspace);
+		(outcome === "failed" || outcome === "unsupported"
+			? console.error
+			: console.log)(logoutMessage(workspace, outcome));
 		return;
 	}
 	if (command === "login") {
