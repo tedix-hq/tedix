@@ -222,7 +222,11 @@ describe("installed generator CLI review before recording", () => {
 		const root = path.join(fixture, "packages/db");
 		try {
 			mkdirSync(path.join(root, "scripts"), { recursive: true });
-			for (const name of ["oss/git-env.ts", "ci/push-range-selection.mjs"]) {
+			for (const name of [
+				"oss/git-env.ts",
+				"ci/push-range-selection.mjs",
+				"lib/remote-d1.ts",
+			]) {
 				const destination = path.join(fixture, "scripts", name);
 				mkdirSync(path.dirname(destination), { recursive: true });
 				copyFileSync(path.resolve(dbRoot, "../../scripts", name), destination);
