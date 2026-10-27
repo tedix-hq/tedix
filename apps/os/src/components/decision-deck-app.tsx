@@ -968,11 +968,18 @@ function DecisionDeckContent({
 						</Suspense>
 					</div>
 				) : mode === "decide" && focusCard && !selected ? (
-					<Text>
-						{decisions.pending
-							? "Opening that decision…"
-							: "That decision is no longer available in this view."}
-					</Text>
+					<div className="grid gap-3">
+						<Text>
+							{decisions.pending
+								? "Opening that decision…"
+								: "That decision is no longer available in this view."}
+						</Text>
+						{decisions.pending ? null : (
+							<Button variant="outline" onClick={clearFocusCard}>
+								{decisionText("Back to Decisions")}
+							</Button>
+						)}
+					</div>
 				) : selected ? (
 					<div
 						key={`${mode}:${selected.id}:${selected.row?.request.version ?? 0}`}

@@ -13,6 +13,7 @@ import {
 	type DecisionCardFeedback,
 } from "@/components/work-decision-card";
 import { ApprovalFieldEdits } from "@/components/approval-field-edits";
+import { appLabel } from "@/lib/approval-titles";
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 
@@ -133,7 +134,7 @@ export function ApprovalDecisionCard({
 											{
 												id: "always",
 												label: "Always allow this",
-												confirm: `Automatically approve future ${verb} requests from ${toolSlug} across this organization? Other tools and destructive actions still require review. You can disable the rule in Approvals.`,
+												confirm: `Automatically approve future ${verb} requests${appLabel(appSlug) ? ` in ${appLabel(appSlug)}` : ""} across this organization? Other tools and destructive actions still require review. You can disable the rule in Approvals.`,
 											},
 										]
 									: []),

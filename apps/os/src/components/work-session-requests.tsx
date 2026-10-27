@@ -107,8 +107,8 @@ export function SessionRequestsSection({
 				<SectionHeading>
 					<SectionTitle id="your-requests-title">Your requests</SectionTitle>
 					<SectionDescription>
-						What you asked your Claude Code and Codex sessions, so nothing gets
-						lost. {active} still open. Only you see these.
+						What you asked your agent sessions, so nothing gets lost. {active}{" "}
+						still open. Only you see these.
 					</SectionDescription>
 				</SectionHeading>
 				<SectionActions>

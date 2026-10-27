@@ -425,7 +425,7 @@ describe("Work interactions", () => {
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
 			pageClass("xl"),
 		);
-		const views = page.host.querySelector('[aria-label="Message view"]');
+		const views = page.host.querySelector('[aria-label="Request view"]');
 		expect(views?.textContent).toContain("Requested by me");
 		const queue = page.host.querySelector(
 			'[aria-labelledby="interaction-queue-title"]',
@@ -543,7 +543,7 @@ describe("Work interactions", () => {
 		expect(page.host.querySelector('[data-slot="page"]')!.className).toBe(
 			pageClass("lg"),
 		);
-		expect(page.host.querySelector('a[href="/work/needs-you"]')).not.toBeNull();
+		expect(page.host.querySelector('a[href="/work?view=deck"]')).not.toBeNull();
 		expect(page.host.querySelectorAll('[data-slot="card"]')).toHaveLength(1);
 		expect(page.host.textContent).toContain("OS");
 		expect(page.host.textContent).not.toContain("Responses (0)");

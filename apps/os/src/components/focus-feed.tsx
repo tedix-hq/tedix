@@ -399,7 +399,8 @@ export function FocusFeed({
 				],
 			};
 		}).catch(() => {
-			if (active) setStatus("Could not save your attention budget. Try again.");
+			if (active)
+				setStatus("Could not save your Activity preferences. Try again.");
 		});
 		return () => {
 			active = false;
@@ -459,7 +460,7 @@ export function FocusFeed({
 				return true;
 			} catch {
 				if (reaction === "impression") counters.current.delete(impressionKey);
-				setStatus("Could not save this signal. Try again.");
+				setStatus("Could not save your choice. Try again.");
 				return false;
 			}
 		},
@@ -517,7 +518,6 @@ export function FocusFeed({
 			),
 		).catch(() => {
 			counters.current.delete(key);
-			setStatus("Could not save the held-item record. Try again.");
 		});
 	}, [
 		timeline,

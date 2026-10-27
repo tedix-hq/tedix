@@ -142,9 +142,7 @@ export function actionHistoryEntries(
 				? (item.securityDecision.denialReason ?? "Stopped before it ran")
 				: item.success
 					? null
-					: item.errorCode
-						? `It failed (${item.errorCode})`
-						: "It failed",
+					: "It failed",
 			at: item.timestamp,
 			href: item.app?.id
 				? { label: "Open app", to: `/apps/${item.app.id}/analytics` }
@@ -233,7 +231,7 @@ export function ActivityHistory({
 			</div>
 			{approvals.isError && actions.isError ? (
 				<Text className="m-0 px-4 py-6" role="label" tone="error">
-					History could not be loaded. Close the panel and try again.
+					History could not be loaded. Reload and try again.
 				</Text>
 			) : loading ? (
 				<Text className="m-0 px-4 py-6" role="label" tone="secondary">
