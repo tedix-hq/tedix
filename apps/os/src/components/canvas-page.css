@@ -187,7 +187,8 @@
 	background: transparent;
 }
 
-.canvas-resource-outputs {
+.canvas-resource-outputs,
+.canvas-resource-sources {
 	grid-column: 1 / -1;
 }
 
