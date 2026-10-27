@@ -112,6 +112,7 @@ function queryLive(
 	run: typeof runWrangler,
 ): unknown[] {
 	const stdout = withD1LedgerReadRetry(() =>
+		// remote-d1: runWrangler audits this argv before executing it.
 		run([
 			"d1",
 			"execute",
@@ -226,6 +227,7 @@ export function checkLiveDrift(
 	} catch (error) {
 		return {
 			verdict: "unverified",
+			// remote-d1: operator reproduction text, not an invocation.
 			message:
 				`Could not build the declared schema by replaying the migration chain: ${error instanceof Error ? error.message : String(error)}\n` +
 				`elapsed: ${Date.now() - startedAt}ms`,
@@ -243,6 +245,7 @@ export function checkLiveDrift(
 			verdict: "unverified",
 			message:
 				`Could not read the live production schema: ${error instanceof Error ? error.message : String(error)}\n` +
+				// remote-d1: operator reproduction text, not an invocation.
 				`command: wrangler d1 execute ${D1_DATABASE_NAME} --remote --config wrangler.jsonc --json --command "<sqlite_master / pragma_table_info>" (cwd packages/db)\n` +
 				`requires: CLOUDFLARE_API_TOKEN with D1:read on account ${process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || process.env.CF_ACCOUNT_ID?.trim() || "<CLOUDFLARE_ACCOUNT_ID is unset>"}\n` +
 				`elapsed: ${Date.now() - startedAt}ms`,

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { fileURLToPath } from "node:url";
+import { remoteD1Execute } from "../lib/remote-d1.ts";
 
 /**
  * Optional bootstrap/reconciliation of the connection_providers D1 table.
@@ -52,12 +53,6 @@ function selectedProviderIds(): Set<string> | null {
 		throw new Error("--only requires at least one provider id");
 	}
 	return new Set(ids);
-}
-
-interface D1Result<T> {
-	results?: T[];
-	success?: boolean;
-	error?: string;
 }
 
 interface ConnectionProviderRow {
@@ -1221,34 +1216,15 @@ function sqlString(value: string | null): string {
 }
 
 async function d1<T>(sql: string): Promise<T[]> {
-	const proc = Bun.spawn(
-		[
-			"bunx",
-			"wrangler",
-			"d1",
-			"execute",
-			D1_DB,
-			"--remote",
-			"--config",
-			fileURLToPath(new URL("../../apps/api/wrangler.jsonc", import.meta.url)),
-			"--json",
-			"--command",
-			sql,
-		],
-		{ stdout: "pipe", stderr: "pipe" },
-	);
-	const stdout = await new Response(proc.stdout).text();
-	const stderr = await new Response(proc.stderr).text();
-	const code = await proc.exited;
-	if (code !== 0) {
-		throw new Error(
-			`wrangler d1 execute failed (${code}):\n${stderr}\n${stdout}`,
-		);
-	}
-	const parsed = JSON.parse(stdout) as D1Result<T>[];
-	const first = parsed[0];
-	if (!first?.success) throw new Error(`D1 command failed:\n${stdout}`);
-	return first.results ?? [];
+	const parsed = await remoteD1Execute({
+		database: D1_DB,
+		config: fileURLToPath(
+			new URL("../../apps/api/wrangler.jsonc", import.meta.url),
+		),
+		sql,
+		caller: "scripts/descope/seed-connection-providers.ts",
+	});
+	return (parsed[0]?.results ?? []) as T[];
 }
 
 /** Row shape a seed would produce, for diffing against what's already stored. */

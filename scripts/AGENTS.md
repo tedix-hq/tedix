@@ -14,20 +14,21 @@ relaxing the gate.
 
 ## Gates
 
-| Gate                                                 | Checks                                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `check-package-boundaries.ts`                        | Tracked-path hygiene, the D1 transaction ban, DB/model boundary, tsconfigs      |
-| `check-package-exports.ts`                           | `package.json#exports` targets exist; imports use exported subpaths             |
-| `lint-import-cycles.ts` (+ `import-cycle-policy.ts`) | No new circular imports                                                         |
-| `lint-db-access.ts`                                  | D1 access stays in `packages/db` or a listed storage owner                      |
-| `lint-d1.ts`                                         | Duplicate output columns and unbounded `inArray` parameters                     |
-| `lint-authz.ts`                                      | Two-plane authorization coverage and tenant scope in `apps/api` routers         |
-| `lint-worker-route-authz.ts`                         | Every Worker HTTP route is guarded or annotated public                          |
-| `lint-wrangler.ts`                                   | Both Worker config forms: secrets, DO migrations, crons, SSRF flag, env parity  |
-| `lint-contracts.ts`                                  | Contract naming/JSON conventions; collection-read inputs reject unknown keys    |
-| `lint-kumo.ts`, `lint-os.ts`                         | Tedix OS design tokens, Kumo adapters, query-key namespace, WebMCP tool modules |
-| `lint-loader-sandbox.ts`                             | Every Worker Loader site sets its sandbox policy explicitly                     |
-| `lint-vite-plus-imports.ts`                          | Vite/Vitest are imported through `vite-plus`                                    |
+| Gate                                                 | Checks                                                                            |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `check-package-boundaries.ts`                        | Tracked-path hygiene, the D1 transaction ban, DB/model boundary, tsconfigs        |
+| `check-package-exports.ts`                           | `package.json#exports` targets exist; imports use exported subpaths               |
+| `lint-import-cycles.ts` (+ `import-cycle-policy.ts`) | No new circular imports                                                           |
+| `lint-db-access.ts`                                  | D1 access stays in `packages/db` or a listed storage owner                        |
+| `lint-d1.ts`                                         | Duplicate output columns and unbounded `inArray` parameters                       |
+| `lint-remote-d1.ts`                                  | Remote D1 calls route through `scripts/lib/remote-d1.ts`, which records the actor |
+| `lint-authz.ts`                                      | Two-plane authorization coverage and tenant scope in `apps/api` routers           |
+| `lint-worker-route-authz.ts`                         | Every Worker HTTP route is guarded or annotated public                            |
+| `lint-wrangler.ts`                                   | Both Worker config forms: secrets, DO migrations, crons, SSRF flag, env parity    |
+| `lint-contracts.ts`                                  | Contract naming/JSON conventions; collection-read inputs reject unknown keys      |
+| `lint-kumo.ts`, `lint-os.ts`                         | Tedix OS design tokens, Kumo adapters, query-key namespace, WebMCP tool modules   |
+| `lint-loader-sandbox.ts`                             | Every Worker Loader site sets its sandbox policy explicitly                       |
+| `lint-vite-plus-imports.ts`                          | Vite/Vitest are imported through `vite-plus`                                      |
 
 Each script's header states its rule. Run one with `bun run lint:<name>`; run
 them all with `bun run lint:repo` (`lint-repo.ts`, which runs them in parallel and

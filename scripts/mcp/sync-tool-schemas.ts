@@ -48,6 +48,7 @@ import {
 	zodToStructuredOutputJsonSchema,
 	zodToToolInputJsonSchema,
 } from "@tedix/api-contract/utils/tool-json-schema";
+import { auditedRemoteD1ExecuteArgv } from "../lib/remote-d1.ts";
 
 const TEDIX_ADMIN_APP_SLUG = "tedix";
 const TEDIX_APP_ID_SQL = `(SELECT id FROM apps WHERE slug = '${TEDIX_ADMIN_APP_SLUG}')`;
@@ -524,15 +525,13 @@ export async function executeD1(
 		[
 			tools.node,
 			tools.wrangler,
-			"d1",
-			"execute",
-			D1_DB,
-			"--remote",
-			"--config",
-			tools.config,
-			"--json",
-			"--command",
-			sql,
+			...auditedRemoteD1ExecuteArgv({
+				database: D1_DB,
+				config: tools.config,
+				sql,
+				caller: "scripts/mcp/sync-tool-schemas.ts",
+				env: { ...process.env, ...io.env },
+			}),
 		],
 		scope,
 		io,

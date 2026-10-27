@@ -109,6 +109,7 @@ export function checkLiveMigrationLedger(options: {
 	const manifest = options.manifest ?? readMigrationManifest();
 	const command = options.run ?? runWrangler;
 	const stdout = withD1LedgerReadRetry(() =>
+		// remote-d1: runWrangler audits this argv before executing it.
 		command([
 			"d1",
 			"execute",
