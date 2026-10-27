@@ -8,7 +8,8 @@ const evidence =
 	new URL("../node_modules/.cache/connection-resource-limits/", import.meta.url)
 		.pathname;
 await mkdir(evidence, { recursive: true });
-const server = await startFixtureServer();
+// Saves GitHub resource limits; keep that write off the shared fixture.
+const server = await startFixtureServer("/", { shared: false });
 const browser = await chromium.launch({ headless: true });
 try {
 	for (const width of [375, 1280])

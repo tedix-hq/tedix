@@ -12,7 +12,8 @@ const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ??
 	new URL("../node_modules/.cache/outside-apps/", import.meta.url).pathname;
 await mkdir(evidence, { recursive: true });
-const server = await startFixtureServer();
+// Saves the organization's outside app list; keep that write off the shared fixture.
+const server = await startFixtureServer("/", { shared: false });
 const browser = await chromium.launch({ headless: true });
 let checks = 0;
 try {
