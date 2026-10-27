@@ -9,7 +9,10 @@ import type {
 } from "./aggregate-types";
 import { internalToolCache } from "./aggregate-internal-tools";
 import { writeAggregateActivationEpoch } from "./aggregate-activation-epoch";
-import { setBoundedExpiringCacheEntry } from "./lib/bounded-cache";
+import {
+	pruneExpiredCacheEntries,
+	setBoundedCacheEntry,
+} from "./lib/bounded-cache";
 import {
 	CACHE_TIER_BUDGET_MS,
 	StepBudgetExceededError,
@@ -34,18 +37,38 @@ export const aggregateSurfaceInFlight = new Map<
 >();
 // Surfaces retain complete parsed schemas. Bound isolate retention under
 // arbitrary namespace subsets and activation epochs; L2/R2 remain available.
-const MAX_AGGREGATE_SURFACE_CACHE_ENTRIES = 8;
+// A consent-composed connect root retains one entry per mounted organization
+// and nested gateway (14+ on the Tedix connect surface), so the bound leaves
+// room for one such root without evicting its own members.
+const MAX_AGGREGATE_SURFACE_CACHE_ENTRIES = 32;
 export const AGGREGATE_SURFACE_CACHE_TTL_MS = 120_000;
+// An expired entry stays reusable this long: a durable tier holding the same
+// generation then returns it without parsing (see AggregateTierReadOptions).
+const AGGREGATE_SURFACE_REUSE_GRACE_MS = AGGREGATE_SURFACE_CACHE_TTL_MS;
 
-/** Nested graphs use durable snapshots without retaining duplicate schemas in L1. */
+/** Release entries past their reuse grace, including keys never read again. */
+export function pruneAggregateSurfaceCache(now = Date.now()): void {
+	pruneExpiredCacheEntries(
+		aggregateSurfaceCache,
+		now - AGGREGATE_SURFACE_REUSE_GRACE_MS,
+	);
+}
+
+/**
+ * Retain a surface in L1. Nested graphs under a cached root are not retained:
+ * the root already holds their tools. Nested graphs under a transient
+ * (consent-composed) root are retained, because that root is recomposed from
+ * them on every request.
+ */
 export function rememberAggregateSurface(
 	cacheKey: string,
 	result: AggregatedMcpSurface,
-	visited: ReadonlySet<string>,
+	retain: boolean,
 	generation?: string,
 ) {
-	if (visited.size > 0) return;
-	setBoundedExpiringCacheEntry(
+	if (!retain) return;
+	pruneAggregateSurfaceCache();
+	setBoundedCacheEntry(
 		aggregateSurfaceCache,
 		cacheKey,
 		{
@@ -188,12 +211,12 @@ function aggregateL2RequestFromHash(cacheKeyHash: string): Request {
 	);
 }
 
-async function cancelSnapshotBody(cancel: () => unknown): Promise<void> {
-	try {
-		await cancel();
-	} catch {
-		// Releasing an unread body is best effort.
-	}
+// Releasing an unread body is best effort and never awaited: cancelling one
+// branch of a teed stream settles only once every branch is cancelled.
+function cancelSnapshotBody(cancel: () => unknown): void {
+	void Promise.resolve()
+		.then(cancel)
+		.catch(() => {});
 }
 
 type SnapshotBodySource = {
@@ -221,13 +244,13 @@ async function readSnapshotBody(
 	isAbandoned: () => boolean,
 ): Promise<SnapshotBodyRead | null> {
 	if (isAbandoned()) {
-		await cancelSnapshotBody(source.cancel);
+		cancelSnapshotBody(source.cancel);
 		return null;
 	}
 	const cachedAt = Number(source.cachedAt);
 	if (source.generation && Number.isFinite(cachedAt)) {
 		if (reuse?.generation === source.generation) {
-			await cancelSnapshotBody(source.cancel);
+			cancelSnapshotBody(source.cancel);
 			return {
 				surface: reuse.result,
 				cachedAt,
@@ -397,7 +420,7 @@ export async function claimAggregateRevalidationLease(
 			(async () => {
 				const held = await caches.default.match(request);
 				if (held) {
-					await cancelSnapshotBody(() => held.body?.cancel());
+					cancelSnapshotBody(() => held.body?.cancel());
 					return false;
 				}
 				await caches.default.put(

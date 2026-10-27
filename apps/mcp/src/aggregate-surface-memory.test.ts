@@ -265,6 +265,68 @@ describe("aggregate snapshot memory", () => {
 		expect(resolveUpstreamToolsInternally).toHaveBeenCalledTimes(2);
 	});
 
+	it("keeps a consent-composed root's organization graphs in memory", async () => {
+		resolveUpstreamToolsInternally.mockImplementation(
+			async (source: AggregateAppEntry) =>
+				source.slug === "org-gateway"
+					? toInternalResolveResult("org-gateway", {
+							app: {
+								id: "org-gateway-app",
+								slug: "org-gateway",
+								organizationId: "org-test",
+								metadata: {
+									mcpConfig: { aggregateApps: [{ slug: "source" }] },
+								},
+							},
+							tools: [],
+							catalogResources: [],
+							catalogResourceTemplates: [],
+						} as never)
+					: sourceApp(["read_item", "list_items"]),
+		);
+		const organizationEntries: AggregateAppEntry[] = [
+			{
+				slug: "org-gateway",
+				prefix: "org-gateway",
+				organizationId: "org-test",
+				organizationMount: true,
+			},
+		];
+		// Connect's multi-organization root is never snapshotted (`cacheSnapshot`
+		// false), so it is recomposed from its organization graphs per request.
+		const loadTransient = () =>
+			aggregateAndPrefixTools(
+				organizationEntries,
+				env,
+				new Set(),
+				ctx,
+				"connect",
+				activation,
+				false,
+			);
+		const first = await loadTransient();
+		expect(first.tools).toHaveLength(2);
+		// The root resolves its own entries every request (the internal tool
+		// cache absorbs that in production); the organization graph is reused.
+		const sourceResolves = () =>
+			resolveUpstreamToolsInternally.mock.calls.filter(
+				([source]) => (source as AggregateAppEntry).slug === "source",
+			).length;
+		const resolves = sourceResolves();
+		colo.cache.match.mockClear();
+
+		const second = await loadTransient();
+		expect(second.tools).toHaveLength(first.tools.length);
+		expect(sourceResolves()).toBe(resolves);
+		expect(colo.cache.match).not.toHaveBeenCalled();
+
+		// After L1 expiry the unchanged organization snapshot is recognized by
+		// its generation instead of being parsed again.
+		vi.setSystemTime(Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS + 1_000);
+		await loadTransient();
+		expect(colo.bodyReads.count).toBe(0);
+	});
+
 	it("does not parse a snapshot after its read budget tripped", async () => {
 		vi.useRealTimers();
 		vi.useFakeTimers();

@@ -16,6 +16,7 @@ import {
 	aggregateRevalidateInFlight,
 	aggregateSurfaceCacheKey,
 	claimAggregateRevalidationLease,
+	pruneAggregateSurfaceCache,
 	rememberAggregateSurface,
 	serializeAggregateSnapshot,
 	readAggregateL2,
@@ -25,7 +26,6 @@ import {
 	emitAggregateCacheMetric,
 	joinAggregateLoad,
 } from "./aggregate-surface-cache";
-import { pruneExpiredCacheEntries } from "./lib/bounded-cache";
 import { StepBudgetExceededError, trackInFlightLoad } from "./lib/step-budget";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 import {
@@ -57,6 +57,8 @@ async function revalidateAggregate(
 	rootSlug?: string,
 	visited: Set<string> = new Set(),
 	ctx?: ExecutionContext,
+	retain = visited.size === 0,
+	retainNested = false,
 ): Promise<void> {
 	if (aggregateRevalidateInFlight.has(cacheKey)) return;
 	aggregateRevalidateInFlight.add(cacheKey);
@@ -72,6 +74,7 @@ async function revalidateAggregate(
 			activationEpoch,
 			true,
 			ctx,
+			retainNested,
 		);
 		if (!fresh.degraded) {
 			const snapshot = serializeAggregateSnapshot(fresh);
@@ -81,7 +84,7 @@ async function revalidateAggregate(
 			rememberAggregateSurface(
 				cacheKey,
 				current?.generation === snapshot.generation ? current.result : fresh,
-				visited,
+				retain,
 				snapshot.generation,
 			);
 			await writeAggregateL2(cacheKey, snapshot);
@@ -121,6 +124,8 @@ export async function aggregateAndPrefixTools(
 	rootSlug?: string,
 	activation?: { value: string; cacheable: boolean },
 	cacheSnapshot = true,
+	// Set for nested graphs of a transient root; see rememberAggregateSurface.
+	retainNested = false,
 ): Promise<AggregatedMcpSurface> {
 	// A deploy must never reuse a durable aggregate snapshot built from an older
 	// tool contract. The original intent was "GIT_SHA is injected by the release
@@ -151,16 +156,19 @@ export async function aggregateAndPrefixTools(
 			ctx,
 		);
 	}
+	const retain = visited.size === 0 || retainNested;
+	// A transient root is recomposed from its nested graphs on every request.
+	// Without L1 for them, each connect request re-parsed every organization's
+	// snapshot (~25 MB in total) and could start one rebuild per stale graph.
+	const nestedRetained = retainNested || (visited.size === 0 && !cacheSnapshot);
 	// Consent-composed roots duplicate shared schemas across organizations when
 	// serialized. Keep source-app caches and in-flight sharing, but do not retain
 	// or deserialize the combined catalog in any snapshot tier.
 	// An expired entry is still read before pruning: when the durable tier holds
 	// the same generation, the load reuses it instead of parsing the snapshot.
 	const cached =
-		cacheSnapshot && visited.size === 0
-			? aggregateSurfaceCache.get(cacheKey)
-			: undefined;
-	pruneExpiredCacheEntries(aggregateSurfaceCache);
+		cacheSnapshot && retain ? aggregateSurfaceCache.get(cacheKey) : undefined;
+	pruneAggregateSurfaceCache();
 	if (cached && cached.expiresAt > Date.now()) return cached.result;
 
 	const inFlight = aggregateSurfaceInFlight.get(cacheKey);
@@ -182,7 +190,7 @@ export async function aggregateAndPrefixTools(
 			? await readAggregateL2(cacheKey, { reuse: cached })
 			: null;
 		if (l2) {
-			rememberAggregateSurface(cacheKey, l2.surface, visited, l2.generation);
+			rememberAggregateSurface(cacheKey, l2.surface, retain, l2.generation);
 			if (l2.stale) {
 				// Stale-while-revalidate: serve now, refresh in the background.
 				console.log(
@@ -200,6 +208,8 @@ export async function aggregateAndPrefixTools(
 					rootSlug,
 					visited,
 					ctx,
+					retain,
+					nestedRetained,
 				);
 				if (ctx) ctx.waitUntil(job);
 				else void job.catch(() => {});
@@ -217,7 +227,7 @@ export async function aggregateAndPrefixTools(
 			? await readAggregateR2(env, cacheKey, { reuse: cached })
 			: null;
 		if (l3) {
-			rememberAggregateSurface(cacheKey, l3.surface, visited, l3.generation);
+			rememberAggregateSurface(cacheKey, l3.surface, retain, l3.generation);
 			// Promote R2 → this colo's L2 so subsequent local reads stay warm. A
 			// reused snapshot was never read, so promoting it would mean
 			// serializing the whole surface again; the next reader uses R2.
@@ -243,6 +253,8 @@ export async function aggregateAndPrefixTools(
 					rootSlug,
 					visited,
 					ctx,
+					retain,
+					nestedRetained,
 				);
 				if (ctx) ctx.waitUntil(job);
 				else void job.catch(() => {});
@@ -264,11 +276,12 @@ export async function aggregateAndPrefixTools(
 			activationEpoch,
 			true,
 			ctx,
+			nestedRetained,
 		);
 		if (!cacheSnapshot) return result;
 		if (!result.degraded) {
 			const snapshot = serializeAggregateSnapshot(result);
-			rememberAggregateSurface(cacheKey, result, visited, snapshot.generation);
+			rememberAggregateSurface(cacheKey, result, retain, snapshot.generation);
 			await writeAggregateL2(cacheKey, snapshot);
 			await writeAggregateR2(
 				env,
@@ -305,7 +318,7 @@ export async function aggregateAndPrefixTools(
 			rememberAggregateSurface(
 				cacheKey,
 				expired.surface,
-				visited,
+				retain,
 				expired.generation,
 			);
 			const job = revalidateAggregate(
@@ -316,6 +329,8 @@ export async function aggregateAndPrefixTools(
 				rootSlug,
 				visited,
 				ctx,
+				retain,
+				nestedRetained,
 			);
 			if (ctx) ctx.waitUntil(job);
 			else void job.catch(() => {});
@@ -355,6 +370,7 @@ async function aggregateAndPrefixToolsUncached(
 	activationEpoch = "direct",
 	cacheable = true,
 	ctx?: ExecutionContext,
+	retainNested = false,
 ): Promise<AggregatedMcpSurface> {
 	// Per-stage timing: aggregate hydration is the dominant Code Mode cold-start
 	// cost (live D1/service-binding fan-out across the aggregate apps). Time each
@@ -597,6 +613,8 @@ async function aggregateAndPrefixToolsUncached(
 					ctx,
 					undefined,
 					{ value: activationEpoch, cacheable },
+					true,
+					retainNested,
 				);
 			};
 
