@@ -8,7 +8,9 @@ import type {
 import {
 	homeTurnContent,
 	homeTurnText,
+	readQuickChatHomeOpenTurn,
 	readQuickChatHomeTranscript,
+	resumeQuickChatHomeTurn,
 	runQuickChatHomeTurn,
 	type QuickChatHomeDeps,
 } from "./quick-chat-home";
@@ -242,6 +244,68 @@ describe("Home quick-chat turns", () => {
 			runPageTool: vi.fn(),
 		});
 		expect(home.enqueueMessage.mock.calls[0]![0].pageTools).toBeUndefined();
+	});
+
+	it("names the newest unanswered turn after a refresh: running, or over without an answer", async () => {
+		const asked = message("user", "Remind me", { runId: "run-1" });
+		await expect(
+			readQuickChatHomeOpenTurn(deps({}, [run("running")], [asked]), "c-1"),
+		).resolves.toEqual({ runId: "run-1", status: "running" });
+		await expect(
+			readQuickChatHomeOpenTurn(deps({}, [run("failed")], [asked]), "c-1"),
+		).resolves.toEqual({ runId: "run-1", status: "failed" });
+		// Answered: nothing to pick up.
+		const answered = deps(
+			{},
+			[],
+			[asked, message("assistant", "Done.", { runId: "run-1" })],
+		);
+		await expect(
+			readQuickChatHomeOpenTurn(answered, "c-1"),
+		).resolves.toBeNull();
+		expect(answered.readRun).not.toHaveBeenCalled();
+		await expect(
+			readQuickChatHomeOpenTurn(deps({}, [], []), "c-1"),
+		).resolves.toBeNull();
+	});
+
+	it("re-attaches to a running turn, replays what Home wrote, and returns the answer", async () => {
+		const home = deps(
+			{},
+			[run("running"), run("completed", { outputMessageId: "answer-1" })],
+			[
+				message("user", "Remind me", { runId: "run-1" }),
+				message("assistant", "Two reminders set.", { id: "answer-1" }),
+			],
+		);
+		const pages: RuntimeStreamReadOutput[] = [
+			{
+				events: [
+					{ kind: "message.delta", delta: "Two reminders " },
+					{ kind: "message.delta", delta: "set." },
+				],
+				stream: { nextOffset: 2, closed: true },
+			} as unknown as RuntimeStreamReadOutput,
+		];
+		home.readRunEvents = vi.fn(async () => pages.shift()!);
+		const deltas: string[] = [];
+		await expect(
+			resumeQuickChatHomeTurn(home, {
+				conversationId: "c-1",
+				runId: "run-1",
+				onDelta: (text) => deltas.push(text),
+			}),
+		).resolves.toEqual({ text: "Two reminders set." });
+		expect(deltas.join("")).toBe("Two reminders set.");
+		expect(home.readRunEvents).toHaveBeenCalledWith(
+			expect.objectContaining({ runId: "run-1", offset: 0 }),
+		);
+		await expect(
+			resumeQuickChatHomeTurn(deps({}, [run("failed")]), {
+				conversationId: "c-1",
+				runId: "run-1",
+			}),
+		).rejects.toThrow("Home could not answer this message.");
 	});
 
 	it("restores the thread without the appended page context", async () => {

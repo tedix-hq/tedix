@@ -886,6 +886,131 @@ describe("opening target", () => {
 		expect(session).toHaveBeenCalledTimes(1);
 	});
 
+	/** A reload mid-turn: the Home thread is remembered, bound to Home. */
+	const rememberedHomeThread = () => {
+		sessionStorage.setItem(THREADS_KEY, JSON.stringify([ONE]));
+		sessionStorage.setItem(ACTIVE_THREAD_KEY, ONE);
+		sessionStorage.setItem(
+			`tedix:thread-tedis:v1:${TENANT}`,
+			JSON.stringify({ [ONE]: "home" }),
+		);
+	};
+	const noTediSession = () =>
+		vi.fn(async () => {
+			throw noTedi();
+		});
+
+	it("picks a Home turn back up after a reload: thinking again, then the answer", async () => {
+		let answer!: (text: string) => void;
+		const resume = vi.fn(
+			(input: { onDelta?: (text: string) => void }) =>
+				new Promise<{ text: string }>((resolve) => {
+					answer = (text) => {
+						input.onDelta?.(text);
+						resolve({ text });
+					};
+				}),
+		);
+		const w = await bootWidget({
+			before: rememberedHomeThread,
+			options: {
+				session: noTediSession(),
+				home: {
+					...home(),
+					transcript: vi.fn(async () => [
+						{ role: "user", content: "Remind me to call Emile" },
+					]),
+					openTurn: vi.fn(async () => ({ runId: "run-1", status: "running" })),
+					resume,
+				},
+			},
+		});
+		await w.open();
+		await settle();
+		expect(resume).toHaveBeenCalledWith(
+			expect.objectContaining({ conversationId: ONE, runId: "run-1" }),
+		);
+		expect(w.messages()).toEqual([
+			["user", "Remind me to call Emile"],
+			["assistant", "Thinking"],
+		]);
+		expect(w.$(".tedix-send")?.dataset.state).toBe("stop");
+		answer("Done: two reminders set.");
+		await settle();
+		expect(w.messages()).toEqual([
+			["user", "Remind me to call Emile"],
+			["assistant", "Done: two reminders set."],
+		]);
+		expect(w.$(".tedix-send")?.dataset.state).toBeUndefined();
+		expect(w.eventNames()).toContain("answer-completed");
+	});
+
+	it("says plainly that a cut-off Home turn ended without an answer and offers a retry", async () => {
+		const turn = vi.fn(async () => ({ text: "Second time lucky." }));
+		const w = await bootWidget({
+			before: rememberedHomeThread,
+			options: {
+				session: noTediSession(),
+				home: {
+					label: "Home",
+					turn,
+					transcript: vi.fn(async () => [
+						{ role: "user", content: "Remind me to call Emile" },
+					]),
+					openTurn: vi.fn(async () => ({ runId: "run-1", status: "failed" })),
+					resume: vi.fn(async () => ({ text: "never" })),
+				},
+			},
+		});
+		await w.open();
+		await settle();
+		expect(w.messages()).toEqual([
+			["user", "Remind me to call Emile"],
+			["assistant", "I couldn't complete the request. Try again.Retry"],
+		]);
+		expect(w.eventNames()).toContain("answer-failed");
+		w.$<HTMLButtonElement>(".tedix-message-assistant .tedix-prompt")!.click();
+		await settle();
+		expect(turn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationId: ONE,
+				text: "Remind me to call Emile",
+			}),
+		);
+		expect(w.messages()).toEqual([
+			["user", "Remind me to call Emile"],
+			["user", "Remind me to call Emile"],
+			["assistant", "Second time lucky."],
+		]);
+	});
+
+	it("restores a settled Home thread as it was, with nothing to follow", async () => {
+		const resume = vi.fn();
+		const w = await bootWidget({
+			before: rememberedHomeThread,
+			options: {
+				session: noTediSession(),
+				home: {
+					...home(),
+					transcript: vi.fn(async () => [
+						{ role: "user", content: "Hi" },
+						{ role: "assistant", content: "Hello." },
+					]),
+					openTurn: vi.fn(async () => null),
+					resume,
+				},
+			},
+		});
+		await w.open();
+		await settle();
+		expect(resume).not.toHaveBeenCalled();
+		expect(w.messages()).toEqual([
+			["user", "Hi"],
+			["assistant", "Hello."],
+		]);
+		expect(w.$<HTMLTextAreaElement>(".tedix-input")!.disabled).toBe(false);
+	});
+
 	it("shows Home plus allowed tedis only when there is more than one choice", async () => {
 		const one = await bootWidget({
 			options: {

@@ -182,16 +182,43 @@ export async function runQuickChatHomeTurn(
 	);
 	if (output.status === "failed" || output.run.status === "failed")
 		throw new Error(output.error ?? "Home could not answer this message.");
-	let run = output.run;
+	const run = output.run;
 	if (TERMINAL.has(run.status) && output.assistantMessage?.content.trim())
 		return { text: output.assistantMessage.content.trim() };
 	if (output.status === "needs_delegation" && !TERMINAL.has(run.status))
 		return {
 			text: "Home could not choose a tedi for this. Pick a tedi above and ask again.",
 		};
-	const deadline =
-		deps.now() +
-		(pageTools.length ? PAGE_TOOL_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS);
+	return followRun(deps, {
+		conversationId,
+		run,
+		signal: input.signal,
+		timeoutMs: pageTools.length ? PAGE_TOOL_TURN_TIMEOUT_MS : TURN_TIMEOUT_MS,
+		runPageTool: input.runPageTool,
+		onDelta: input.onDelta,
+	});
+}
+
+/**
+ * Waits for a Home run to settle and returns its answer. Streams the answer
+ * text and relays page tool requests when the deps allow; otherwise polls.
+ */
+async function followRun(
+	deps: QuickChatHomeDeps,
+	input: {
+		conversationId: string;
+		run: HomeRun;
+		signal?: AbortSignal;
+		timeoutMs: number;
+		runPageTool?: (
+			call: QuickChatPageToolCall,
+		) => Promise<QuickChatPageToolResult | null>;
+		onDelta?: (text: string) => void;
+	},
+): Promise<{ text: string }> {
+	const { conversationId } = input;
+	let run = input.run;
+	const deadline = deps.now() + input.timeoutMs;
 	let offset = 0;
 	const handled = new Set<string>();
 	while (!TERMINAL.has(run.status)) {
@@ -240,6 +267,65 @@ export async function runQuickChatHomeTurn(
 	const text = answerFor(run, messages);
 	if (!text) throw new Error("Home finished without an answer.");
 	return { text };
+}
+
+/** A turn the person has not seen an answer to: still running, or over without one. */
+export interface QuickChatHomeOpenTurn {
+	runId: string;
+	status: "running" | "failed";
+}
+
+/**
+ * The newest turn of a Home thread that has no answer yet. After a page
+ * refresh the widget shows it as still thinking and follows it, or offers a
+ * retry when the run ended without an answer. Null when the thread is
+ * settled or empty.
+ */
+export async function readQuickChatHomeOpenTurn(
+	deps: Pick<QuickChatHomeDeps, "readMessages" | "readRun">,
+	widgetConversationId: string,
+): Promise<QuickChatHomeOpenTurn | null> {
+	const conversationId = homeConversationId(widgetConversationId);
+	const { messages } = await deps.readMessages({ conversationId, limit: 100 });
+	const asked = messages.filter((message) => message.role === "user").at(-1);
+	if (!asked?.runId) return null;
+	const answered = messages.some(
+		(message) =>
+			message.role === "assistant" &&
+			message.runId === asked.runId &&
+			message.content.trim(),
+	);
+	if (answered) return null;
+	const { run } = await deps.readRun({ runId: asked.runId });
+	return {
+		runId: run.id,
+		status: TERMINAL.has(run.status) ? "failed" : "running",
+	};
+}
+
+/**
+ * Re-attaches to a Home run after a page refresh: streams what Home has
+ * written so far and returns the final answer. Page tools are never run on
+ * resume: a request Home made before the refresh may already have been
+ * carried out, so a pending one is declined instead of repeated.
+ */
+export async function resumeQuickChatHomeTurn(
+	deps: QuickChatHomeDeps,
+	input: {
+		conversationId: string;
+		runId: string;
+		signal?: AbortSignal;
+		onDelta?: (text: string) => void;
+	},
+): Promise<{ text: string }> {
+	const { run } = await deps.readRun({ runId: input.runId });
+	return followRun(deps, {
+		conversationId: homeConversationId(input.conversationId),
+		run,
+		signal: input.signal,
+		timeoutMs: PAGE_TOOL_TURN_TIMEOUT_MS,
+		onDelta: input.onDelta,
+	});
 }
 
 /** Restore a Home quick-chat thread from its durable Home conversation. */

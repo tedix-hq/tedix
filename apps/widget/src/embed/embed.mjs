@@ -356,6 +356,17 @@ import {
 							typeof options.home.transcript === "function"
 								? options.home.transcript
 								: null,
+						// After a reload: the turn still without an answer, and a way
+						// to follow it to one.
+						openTurn:
+							typeof options.home.openTurn === "function" &&
+							typeof options.home.resume === "function"
+								? options.home.openTurn
+								: null,
+						resume:
+							typeof options.home.resume === "function"
+								? options.home.resume
+								: null,
 					}
 				: null;
 		/**
@@ -1359,6 +1370,9 @@ import {
 			approvalProjectionWatcher?.dispose();
 			approvalProjectionWatcher = null;
 			thread.replaceChildren(...next.fragment.childNodes);
+			// A Home turn the reload cut off: still running, or over with no
+			// answer. Read alongside the transcript, followed once it is shown.
+			let openHomeTurn = null;
 			if (next.hydrated === false) {
 				hydrating = true;
 				let releaseHydration = () => {};
@@ -1389,11 +1403,22 @@ import {
 				try {
 					const read = async () => {
 						if (homeTarget?.transcript && next.tediId === HOME_TARGET) {
-							const messages = await homeTarget.transcript({
-								conversationId: id,
-							});
+							const [messages, openTurn] = await Promise.all([
+								homeTarget.transcript({ conversationId: id }),
+								homeTarget.openTurn
+									? homeTarget
+											.openTurn({ conversationId: id })
+											.catch((error) => {
+												console.error(
+													`[tedix widget] conversation ${id}: could not read the open Home turn: ${error?.message ?? error}`,
+												);
+												return null;
+											})
+									: null,
+							]);
 							if (!messages?.length)
 								throw new Error("Conversation unavailable");
+							if (typeof openTurn?.runId === "string") openHomeTurn = openTurn;
 							return messages;
 						}
 						if (typeof transcriptProvider === "function")
@@ -1491,6 +1516,7 @@ import {
 			persistThreads();
 			setHistoryOpen(false);
 			scrollLatest();
+			if (openHomeTurn) void resumeHomeTurn(openHomeTurn);
 			if (panel.hasAttribute("data-open")) {
 				void getEmbeddedSession()
 					.then(startApprovalProjection)
@@ -2866,6 +2892,108 @@ import {
 				flushQueuedMessage();
 			}
 			return submittedAnswer;
+		};
+		/**
+		 * Picks a Home turn back up after a reload. The run kept going on the
+		 * server while the page was gone; the thread shows it thinking again
+		 * and fills in the answer, or says plainly that it ended without one
+		 * and offers to send the question again.
+		 */
+		const resumeHomeTurn = async (turn) => {
+			if (busy || destroyed || !homeTarget?.resume) return;
+			const resumedConversationId = conversationId;
+			const askedText =
+				[...thread.querySelectorAll(".tedix-message-user .tedix-bubble")]
+					.at(-1)
+					?.textContent?.trim() ?? "";
+			busy = true;
+			renderTediSelection();
+			activeRequest = new AbortController();
+			const request = activeRequest;
+			root.querySelector(".tedix-new").disabled = true;
+			send.disabled = false;
+			send.innerHTML = icon(ICONS.stop);
+			send.setAttribute("aria-label", t("stop"));
+			send.dataset.state = "stop";
+			const pending = addMessage(
+				"assistant",
+				t("is_thinking", { assistant: configuredTitle }),
+				true,
+			);
+			const resumedAt = now();
+			const progressTimer = setInterval(
+				() =>
+					setPendingStatus(
+						pending,
+						`${t("thinking")} · ${Math.max(1, Math.round((now() - resumedAt) / 1000))}s`,
+					),
+				1000,
+			);
+			let outcome = "succeeded";
+			let streamed = "";
+			try {
+				if (turn.status !== "running")
+					throw new Error("Home could not answer this message.");
+				const result = await homeTarget.resume({
+					conversationId: resumedConversationId,
+					runId: turn.runId,
+					signal: request.signal,
+					onDelta: (delta) => {
+						if (typeof delta !== "string" || !delta) return;
+						streamed += delta;
+						pending.bubble.innerHTML = renderMarkdown(streamed);
+						scrollLatest();
+					},
+				});
+				const answer =
+					typeof result?.text === "string" ? result.text.trim() : "";
+				if (!answer) throw new Error("Home returned no answer.");
+				pending.bubble.innerHTML = renderMarkdown(answer);
+				lastAssistantAnswer = answer;
+				emit("answer-completed", {
+					durationMs: Math.max(0, Math.round(now() - resumedAt)),
+				});
+			} catch (error) {
+				const cancelled =
+					error instanceof DOMException && error.name === "AbortError";
+				outcome = cancelled ? "cancelled" : "failed";
+				pending.bubble.innerHTML = streamed ? renderMarkdown(streamed) : "";
+				const failure = document.createElement("p");
+				failure.textContent = userFacingChatError(error, t);
+				pending.bubble.append(failure);
+				if (!cancelled && askedText) {
+					const retry = document.createElement("button");
+					retry.className = "tedix-prompt";
+					retry.type = "button";
+					retry.textContent = t("retry");
+					retry.addEventListener("click", () => {
+						if (busy || conversationId !== resumedConversationId) return;
+						pending.item.remove();
+						void submit(askedText).catch((submitError) => {
+							addMessage("assistant", userFacingChatError(submitError, t));
+						});
+					});
+					pending.bubble.append(retry);
+				}
+				emit(cancelled ? "answer-cancelled" : "answer-failed", {
+					durationMs: Math.max(0, Math.round(now() - resumedAt)),
+					code: classifyChatError(error),
+					conversationId: resumedConversationId,
+				});
+			} finally {
+				clearInterval(progressTimer);
+				reliability.lastTurnOutcome = outcome;
+				if (activeRequest === request) activeRequest = null;
+				busy = false;
+				renderTediSelection();
+				root.querySelector(".tedix-new").disabled = false;
+				send.innerHTML = icon(ICONS.send);
+				send.setAttribute("aria-label", t("send"));
+				delete send.dataset.state;
+				send.disabled = !input.value.trim();
+				scrollLatest();
+				flushQueuedMessage();
+			}
 		};
 		/** Send the next follow-up that was typed while a turn was answering. */
 		function flushQueuedMessage() {
