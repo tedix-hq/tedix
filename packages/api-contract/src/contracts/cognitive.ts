@@ -50,6 +50,11 @@ import {
 	WorkspaceSkillDraftListSchema,
 } from "../schemas/cognitive";
 import { JsonValueSchema } from "../schemas/common";
+import {
+	ClearRunSensitiveDataLatchResultSchema,
+	RunSensitiveDataLatchQuerySchema,
+	RunSensitiveDataLatchStateSchema,
+} from "../schemas/sensitive-data-latch";
 
 // ============================================================================
 // Contract
@@ -2108,6 +2113,35 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 			}),
 		)
 		.output(SkillWorkflowLifecycleOutputSchema),
+
+	getRunSensitiveDataLatch: oc
+		.route({
+			method: "GET",
+			path: "/skills/run-sensitive-data-latch",
+			tags: ["cognitive"],
+			summary: "Read a run's sensitive-data lock",
+			description:
+				"Shows whether a skill run or Home run has read data marked sensitive. While the lock is set, the run cannot send data outside the organization (publish, share link, post, outbound message) and no grant or policy approves its actions automatically. Use before planning an action for a run; `known: false` means no such run in this organization.",
+		})
+		.input(RunSensitiveDataLatchQuerySchema)
+		.output(RunSensitiveDataLatchStateSchema),
+
+	clearRunSensitiveDataLatch: oc
+		.route({
+			method: "POST",
+			path: "/skills/clear-run-sensitive-data-latch",
+			tags: ["cognitive"],
+			summary: "Clear a run's sensitive-data lock after review",
+			description:
+				"An owner or admin confirms they reviewed what the run read and clears the lock so the run may publish or share again. Recorded as an audit event (run.sensitive_data_latch_cleared). Idempotent: an unlocked run reports cleared: false.",
+		})
+		.input(
+			z.object({
+				...RunSensitiveDataLatchQuerySchema.shape,
+				reason: z.string().trim().min(1).max(2000),
+			}),
+		)
+		.output(ClearRunSensitiveDataLatchResultSchema),
 
 	revokeSkillRun: oc
 		.route({

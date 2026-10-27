@@ -6,6 +6,7 @@
 import * as z from "zod";
 import { MUSCLE_KIND, MUSCLE_ORIGIN } from "../constants/enums";
 import { JsonValueSchema } from "./common";
+import { SensitiveDataLatchSchema } from "./sensitive-data-latch";
 
 // =============================================================================
 // ENUM SCHEMAS
@@ -370,6 +371,10 @@ export const SkillRunSchema = z.object({
 	// observation; null for in-flight runs and legacy terminal rows that were
 	// never re-observed.
 	costSummary: SkillRunCostSummarySchema.nullable().optional(),
+	// Set once the run read a source marked sensitive. While present the run
+	// cannot send data outside the organization or be approved automatically;
+	// an owner or admin clears it (clearRunSensitiveDataLatch).
+	sensitiveDataLatch: SensitiveDataLatchSchema.nullable().optional(),
 	// Live engine snapshot from Cloudflare Workflows (only populated by
 	// runWorkflowStatus for in-flight runs). Shape varies by engine version
 	// — at minimum has `status` and (when finished) `output` / `error`.

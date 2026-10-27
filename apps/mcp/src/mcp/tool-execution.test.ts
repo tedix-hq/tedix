@@ -549,6 +549,64 @@ describe("executeTool home soft-deadline ack (honest text on queued turns)", () 
 		expect(failed._meta["io.tedix/readCollection"]).toBeUndefined();
 	});
 
+	it("latches the calling run on a declared sensitive read and withholds the result when it cannot", async () => {
+		const latchRunSensitiveData = vi.fn(async () => ({
+			known: true,
+			latch: null,
+		}));
+		const base = makeAgent({ status: 200, data: { rows: [] } });
+		const agent = {
+			...base,
+			callerIdentity: {
+				...base.callerIdentity,
+				authType: "service",
+				skillRunId: "run-1",
+			},
+			apiClient: { mcpGovernance: { latchRunSensitiveData } },
+		} as unknown as ServerContext;
+		const tool = {
+			...makeTool(),
+			toolId: "list_salaries",
+			sensitiveData: true,
+			writeCapability: "read" as const,
+			annotations: { readOnlyHint: true },
+		};
+		const result = await executeTool(
+			agent,
+			tool,
+			{},
+			{
+				adapterScope: "primary",
+				resultStrategy: "merge",
+			},
+		);
+		expect(result.isError).toBeUndefined();
+		expect(latchRunSensitiveData).toHaveBeenCalledWith({
+			organizationId: "org-uuid",
+			runRef: { kind: "skill_run", id: "run-1" },
+			source: {
+				appSlug: "test-app",
+				toolId: "list_salaries",
+				connectionProviderId: null,
+				toolDeclaredSensitive: true,
+			},
+		});
+
+		latchRunSensitiveData.mockRejectedValueOnce(new Error("api down"));
+		const withheld = await executeTool(
+			agent,
+			tool,
+			{},
+			{
+				adapterScope: "primary",
+				resultStrategy: "merge",
+			},
+		);
+		expect(withheld.isError).toBe(true);
+		expect(withheld.structuredContent).toBeNull();
+		expect(withheld.content[0]?.text).toContain("withheld");
+	});
+
 	it("records an unclassified read without guessing from the tool name", async () => {
 		const tool = {
 			...makeTool(),

@@ -7,6 +7,9 @@ import {
 	skillRuns,
 	skillWorkflowSources,
 } from "@tedix/db/schema/cognitive";
+import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
+import { connectionInstances } from "@tedix/db/schema/connection-instances";
+import { connectionProviders } from "@tedix/db/schema/connection-providers";
 import {
 	createPinnedSkillRun,
 	getSkillRun,
@@ -401,6 +404,113 @@ capabilities:
 			await expect(
 				client.resolveSkillManifestAuthorization({ ...call, ...target }),
 			).resolves.toEqual({ approved: false });
+		} finally {
+			sqlite.close();
+		}
+	});
+});
+
+describe("sensitive-data latch through the gateway", () => {
+	function fixture() {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		sqlite.exec(
+			schemaDdl(
+				skillRuns,
+				kernelRuntimeRuns,
+				connectionProviders,
+				connectionInstances,
+			),
+		);
+		sqlite
+			.prepare(
+				"INSERT INTO skill_runs (id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status) VALUES ('run-1', ?, 'skill-1', ?, 'wf-1', 'production', 'running')",
+			)
+			.run(ORG_ID, TEDI_ID);
+		sqlite
+			.prepare(
+				"INSERT INTO connection_providers (id, default_data_sensitivity, name, description, icon, category, type, recommended_scope, supported_scopes, required_scopes) VALUES ('crm', 'confidential', 'CRM', 'CRM', 'crm', 'business', 'api_key', 'tenant', '[]', '[]')",
+			)
+			.run();
+		const db = createDbClient(createD1Facade(sqlite, { maxBoundParams: 100 }));
+		const context = { ...createContext(), db } as BaseContext;
+		const client = createRouterClient(mcpGovernanceContractRouter, { context });
+		// A continuation or approval replay reaches the API as a new request.
+		const later = createRouterClient(mcpGovernanceContractRouter, {
+			context: { ...createContext(), db } as BaseContext,
+		});
+		return { sqlite, client, later };
+	}
+	const runRef = { kind: "skill_run" as const, id: "run-1" };
+
+	it("latches on a declared sensitive read and keeps the latch for later requests", async () => {
+		const { sqlite, client, later } = fixture();
+		try {
+			await expect(
+				client.resolveRunSensitiveDataLatch({ organizationId: ORG_ID, runRef }),
+			).resolves.toEqual({ known: true, latch: null });
+			const latched = await client.latchRunSensitiveData({
+				organizationId: ORG_ID,
+				runRef,
+				source: {
+					appSlug: "hr",
+					toolId: "list_salaries",
+					connectionProviderId: null,
+					toolDeclaredSensitive: true,
+				},
+			});
+			expect(latched.latch).toMatchObject({
+				source: { toolId: "list_salaries", reason: "tool_declared_sensitive" },
+			});
+			await expect(
+				later.resolveRunSensitiveDataLatch({ organizationId: ORG_ID, runRef }),
+			).resolves.toMatchObject({
+				known: true,
+				latch: { source: { toolId: "list_salaries" } },
+			});
+			await expect(
+				later.resolveRunSensitiveDataLatch({
+					organizationId: "00000000-0000-4000-8000-00000000dead",
+					runRef,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("leaves an ordinary connected read alone until the connection is restricted", async () => {
+		const { sqlite, client } = fixture();
+		try {
+			const source = {
+				appSlug: "crm",
+				toolId: "list_contacts",
+				connectionProviderId: "crm",
+				toolDeclaredSensitive: false,
+			};
+			await expect(
+				client.latchRunSensitiveData({
+					organizationId: ORG_ID,
+					runRef,
+					source,
+				}),
+			).resolves.toEqual({ known: true, latch: null });
+			sqlite
+				.prepare(
+					"INSERT INTO connection_instances (id, owner_user_id, organization_id, provider_id, label, data_sensitivity, token_ids, created_at, updated_at) VALUES ('inst-1', 'user-1', ?, 'crm', 'main', 'restricted', '[]', 'now', 'now')",
+				)
+				.run(ORG_ID);
+			await expect(
+				client.latchRunSensitiveData({
+					organizationId: ORG_ID,
+					runRef,
+					source,
+				}),
+			).resolves.toMatchObject({
+				latch: {
+					source: { toolId: "list_contacts", reason: "connection_restricted" },
+				},
+			});
 		} finally {
 			sqlite.close();
 		}

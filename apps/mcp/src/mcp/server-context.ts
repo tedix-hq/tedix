@@ -59,6 +59,10 @@ export interface AppTool {
 	writeCapability?: ToolWriteCapability | null;
 	/** Declared action type an org admin can opt in; absent/null keeps approval. */
 	actionType?: string | null;
+	/** Declared sensitive source: a successful read latches the calling run. */
+	sensitiveData?: boolean;
+	/** Declared public egress: refused while the calling run is latched. */
+	publicEgress?: boolean;
 	meta: Record<string, JsonValue> | null;
 	invocationStatus: ToolInvocationStatus | null;
 	fileParams: string[] | null;

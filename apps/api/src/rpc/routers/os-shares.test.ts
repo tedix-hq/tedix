@@ -14,6 +14,7 @@ import {
 	osShareLinks,
 	osShareSessions,
 } from "@tedix/db/schema/os-shares";
+import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import {
 	osGadgetRevisions,
 	osGadgets,
@@ -23,6 +24,7 @@ import {
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { eq } from "drizzle-orm";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
@@ -54,6 +56,7 @@ function createEnv(): CloudflareEnv {
 			osShareLinkInvitees,
 			organizationMembers,
 			auditEvents,
+			kernelRuntimeRuns,
 		),
 	);
 	// Share URLs name the organization's own OS host by slug.
@@ -195,6 +198,52 @@ describe("shares.create", () => {
 			},
 			sessionToken: expect.any(String),
 		});
+	});
+
+	it("waits for review when the Home run that saved the version read sensitive data", async () => {
+		const db = createDbQueryClient(h.env.DB);
+		const [output] = await db
+			.select({ currentRevisionId: osOutputs.currentRevisionId })
+			.from(osOutputs)
+			.where(eq(osOutputs.id, outputId));
+		await db.insert(kernelRuntimeRuns).values({
+			id: "home-author",
+			organizationId: "org-1",
+			conversationId: "conv-1",
+			status: "completed",
+			createdAt: "2026-10-27",
+			updatedAt: "2026-10-27",
+			metadata: {
+				kernelOutputReceipt: {
+					outputId,
+					revisionId: output!.currentRevisionId!,
+				},
+			},
+			outputRevisionId: output!.currentRevisionId!,
+			sensitiveDataLatch: {
+				version: 1,
+				latchedAt: "2026-10-27T10:00:00.000Z",
+				source: {
+					appSlug: "hr",
+					toolId: "list_salaries",
+					connectionProviderId: "hr-system",
+					reason: "connection_restricted",
+				},
+			},
+		});
+		await expect(
+			h.org1.shares.create(outputShareInput(outputId)),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("clear_run_sensitive_data_latch"),
+		});
+		await db
+			.update(kernelRuntimeRuns)
+			.set({ sensitiveDataLatch: null })
+			.where(eq(kernelRuntimeRuns.id, "home-author"));
+		await expect(
+			h.org1.shares.create(outputShareInput(outputId)),
+		).resolves.toMatchObject({ share: { resourceId: outputId } });
 	});
 
 	it("refuses a foreign org's output and a past expiry", async () => {

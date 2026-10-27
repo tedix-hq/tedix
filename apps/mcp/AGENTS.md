@@ -108,6 +108,15 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
   assume an arbitrary write is visible on the next request, cache longer, or
   add another cache layer on top.
 
+## Sensitive-data latch
+
+`src/mcp/sensitive-data-latch.ts` records a sensitive read on the calling
+run (`skill_runs` / `kernel_runtime_runs.sensitive_data_latch`, through
+`mcpGovernance.latchRunSensitiveData`) and `requireDestructiveToolApproval`
+reads it back. While latched, a tool row declared `public_egress` is refused,
+and grant or policy auto-approval is refused; both carry the plain-English
+reason. Declare egress and sensitivity on the `app_tools` row, never by slug.
+
 ## Verification
 
 `bun run test:run` (never `bun test` — Workers aliases). Check live MCP

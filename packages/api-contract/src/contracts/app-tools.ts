@@ -89,6 +89,18 @@ export const CreateAppToolInputSchema = z.object({
 			"What one call does, for example comment_on_issue. An organization admin can let a declared type run without asking. Omit to keep it; null clears it so the tool asks again.",
 		),
 	meta: ToolMetaSchema.nullable().optional(),
+	sensitiveData: z
+		.boolean()
+		.default(false)
+		.describe(
+			"Declared: results of this tool are sensitive. A run that reads through it is locked: no public egress and no automatic approval until an owner or admin clears the lock.",
+		),
+	publicEgress: z
+		.boolean()
+		.default(false)
+		.describe(
+			"Declared: this tool sends data outside the organization (publish, share link, post, outbound message). A run locked by a sensitive read may not call it.",
+		),
 	invocationStatus: ToolInvocationStatusSchema.nullable().optional(),
 	fileParams: z.array(z.string().min(1)).nullable().optional(),
 	widgetDescription: z.string().nullable().optional(),
@@ -152,6 +164,18 @@ export const UpdateAppToolInputSchema = z.object({
 			"What one call does, for example comment_on_issue. An organization admin can let a declared type run without asking. Omit to keep it; null clears it so the tool asks again.",
 		),
 	meta: ToolMetaSchema.nullable().optional(),
+	sensitiveData: z
+		.boolean()
+		.optional()
+		.describe(
+			"Declared: results of this tool are sensitive. A run that reads through it is locked: no public egress and no automatic approval until an owner or admin clears the lock.",
+		),
+	publicEgress: z
+		.boolean()
+		.optional()
+		.describe(
+			"Declared: this tool sends data outside the organization (publish, share link, post, outbound message). A run locked by a sensitive read may not call it.",
+		),
 	invocationStatus: ToolInvocationStatusSchema.nullable().optional(),
 	fileParams: z.array(z.string().min(1)).nullable().optional(),
 	widgetDescription: z.string().nullable().optional(),

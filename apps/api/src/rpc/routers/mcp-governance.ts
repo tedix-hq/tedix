@@ -18,6 +18,11 @@ import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import {
+	getRunSensitiveDataLatch,
+	isConnectionProviderRestricted,
+	latchRunSensitiveData,
+} from "@tedix/db/queries/sensitive-data-latch";
+import {
 	approvingUserId,
 	parseHomeToolWritePayload,
 } from "./kernel/write-executor";
@@ -702,6 +707,49 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			return resolveWorkItemAuthorization(context.db, {
 				...input,
 				authorizationSigningSecret: context.env.SECRETS_MASTER_KEY,
+			});
+		},
+	),
+	latchRunSensitiveData: serviceOs.latchRunSensitiveData.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			const db = context.db;
+			const reason = input.source.toolDeclaredSensitive
+				? "tool_declared_sensitive"
+				: input.source.connectionProviderId &&
+					  (await isConnectionProviderRestricted(db, {
+							organizationId: input.organizationId,
+							providerId: input.source.connectionProviderId,
+					  }))
+					? "connection_restricted"
+					: null;
+			if (!reason)
+				return getRunSensitiveDataLatch(db, {
+					organizationId: input.organizationId,
+					runRef: input.runRef,
+				});
+			return latchRunSensitiveData(db, {
+				organizationId: input.organizationId,
+				runRef: input.runRef,
+				latch: {
+					version: 1,
+					latchedAt: new Date().toISOString(),
+					source: {
+						appSlug: input.source.appSlug,
+						toolId: input.source.toolId,
+						connectionProviderId: input.source.connectionProviderId,
+						reason,
+					},
+				},
+			});
+		},
+	),
+	resolveRunSensitiveDataLatch: serviceOs.resolveRunSensitiveDataLatch.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			return getRunSensitiveDataLatch(context.db, {
+				organizationId: input.organizationId,
+				runRef: input.runRef,
 			});
 		},
 	),

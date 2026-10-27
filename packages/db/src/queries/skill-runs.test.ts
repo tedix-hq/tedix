@@ -84,7 +84,8 @@ function fixture() {
 			created_by TEXT,
 		certification INTEGER DEFAULT 0,
 			work_item_id TEXT,
-			origin_tedi_run_id TEXT
+			origin_tedi_run_id TEXT,
+			sensitive_data_latch TEXT
 		);
 	`);
 	const insertSkill = (

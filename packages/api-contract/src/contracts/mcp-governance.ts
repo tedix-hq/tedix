@@ -36,6 +36,11 @@ import {
 	SetActionTypeOptInInputSchema,
 	SetActionTypeOptInResponseSchema,
 } from "../schemas/mcp-governance";
+import {
+	LatchRunSensitiveDataInputSchema,
+	ResolveRunSensitiveDataLatchInputSchema,
+	RunSensitiveDataLatchStateSchema,
+} from "../schemas/sensitive-data-latch";
 
 export const mcpGovernanceContract = oc
 	.route({ tags: ["mcp-governance"], prefix: "/mcpGovernance" })
@@ -160,6 +165,28 @@ export const mcpGovernanceContract = oc
 			})
 			.input(SetActionTypeOptInInputSchema)
 			.output(SetActionTypeOptInResponseSchema),
+		latchRunSensitiveData: oc
+			.route({
+				method: "POST",
+				path: "/latch-run-sensitive-data",
+				summary: "Record that a run read a sensitive source",
+				description:
+					"Internal service-binding call from the MCP gateway after a successful read. Latches the run row when the tool is declared sensitive or the connection's classification is restricted; otherwise leaves it unchanged. Returns the run's current latch state.",
+				tags: ["internal"],
+			})
+			.input(LatchRunSensitiveDataInputSchema)
+			.output(RunSensitiveDataLatchStateSchema),
+		resolveRunSensitiveDataLatch: oc
+			.route({
+				method: "POST",
+				path: "/resolve-run-sensitive-data-latch",
+				summary: "Read a run's sensitive-data latch",
+				description:
+					"Internal service-binding read used before public egress and before grant or policy auto-approval. `known: false` means no run row matched.",
+				tags: ["internal"],
+			})
+			.input(ResolveRunSensitiveDataLatchInputSchema)
+			.output(RunSensitiveDataLatchStateSchema),
 	});
 
 export type McpGovernanceContract = typeof mcpGovernanceContract;

@@ -28,6 +28,8 @@ import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";
 import { cutWorkspaceAppSessions } from "../../services/os-app-session-revocation";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import { findKernelRuntimeRunForOutputRevision } from "@tedix/db/queries/kernel-runtime-runs";
+import { getRunSensitiveDataLatch } from "@tedix/db/queries/sensitive-data-latch";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type {
 	OsShareLinkInviteeRow,
@@ -291,6 +293,7 @@ async function requireShareableOutputRevision(
 			"This version's source record is damaged, so it can't be shared",
 		);
 	}
+	await requireUnlatchedAuthoringRun(context, outputId, revision.id);
 	for (const source of parsed.data.sources) {
 		const resource = await getOsWorkspaceResource(queryDb(context), {
 			organizationId,
@@ -321,6 +324,34 @@ async function requireShareableOutputRevision(
 			);
 		}
 	}
+}
+
+/**
+ * A share link is public egress. When the Home run that saved this version
+ * read data marked sensitive, the link waits until an owner or admin reviews
+ * the run and clears its lock.
+ */
+async function requireUnlatchedAuthoringRun(
+	context: BaseContext,
+	outputId: string,
+	revisionId: string,
+): Promise<void> {
+	const organizationId = requireOrgId(context);
+	const run = await findKernelRuntimeRunForOutputRevision(queryDb(context), {
+		organizationId,
+		outputId,
+		revisionId,
+	});
+	if (!run) return;
+	const state = await getRunSensitiveDataLatch(context.db, {
+		organizationId,
+		runRef: { kind: "kernel_run", id: run.id },
+	});
+	if (!state.latch) return;
+	throw createError(
+		ErrorCodes.BAD_REQUEST,
+		`This version can't be shared yet: the run that made it read data marked sensitive (${state.latch.source.toolId}). An owner or admin reviews that run and clears its sensitive-data lock (clear_run_sensitive_data_latch for kernel_run ${run.id}); then try again.`,
+	);
 }
 
 const sharesCreate = authorOs.shares.create.handler(

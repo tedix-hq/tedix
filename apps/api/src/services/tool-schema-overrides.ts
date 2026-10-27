@@ -407,6 +407,8 @@ export const SKILL_WORKFLOW_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"skills/getRunArtifact": "get_skill_run_artifact",
 	"skills/listRunArtifacts": "list_skill_run_artifacts",
 	"skills/revokeSkillRun": "revoke_skill_run",
+	"skills/getRunSensitiveDataLatch": "get_run_sensitive_data_latch",
+	"skills/clearRunSensitiveDataLatch": "clear_run_sensitive_data_latch",
 	"skills/moveToTedi": "move_skill_to_tedi",
 };
 
@@ -452,6 +454,9 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	"skills/getRunArtifact": "read",
 	"skills/listRunArtifacts": "read",
 	"skills/revokeSkillRun": "destructive",
+	"skills/getRunSensitiveDataLatch": "read",
+	// Lifts a lock after a person's review; the run can publish again.
+	"skills/clearRunSensitiveDataLatch": "destructive",
 };
 
 /** Stable lifecycle surface for tedi procedural memory. */
