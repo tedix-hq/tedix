@@ -133,6 +133,10 @@ import {
 } from "./workstation/recovery-checkpoint";
 import { pushGuardViolation } from "./workstation/files-exec";
 import { workstation } from "./workstation/router";
+import {
+	clearWorkstationReadinessCache,
+	prepareWorkstationFast,
+} from "./workstation/prepare";
 describe("probeTool", () => {
 	const execOk = (stdout: string) =>
 		vi.fn().mockResolvedValue({ exitCode: 0, stdout, stderr: "" });
@@ -464,6 +468,7 @@ beforeEach(() => {
 	repoSyncInFlight.clear();
 	bootstrapInstallInFlight.clear();
 	bootstrapInstallLaunchFailedAt.clear();
+	clearWorkstationReadinessCache();
 });
 
 describe("native spool upload", () => {
@@ -2973,6 +2978,90 @@ it("reuses an authorized persisted cancellation without killing again", async ()
 	expect(repeated.body.canceled).toBe(true);
 	expect(f.raw.getProcess).not.toHaveBeenCalled();
 	expect(f.handle.kill).not.toHaveBeenCalled();
+});
+
+describe("workstation readiness cache", () => {
+	it("reuses unchanged probes and invalidates placement, generation, and repo changes", async () => {
+		let placement = "placement-1";
+		let generationId = "generation-1";
+		let repoSha = "a".repeat(40);
+		const exec = vi.fn(async (command: string) => ({
+			...completeOutput,
+			stdout: command.includes(".tedix-container-placement")
+				? `placement=${placement}\nrepo=${repoSha}\n`
+				: command === "git --version"
+					? "git version 2.51.0\n"
+					: "gh version 2.80.0\n",
+		}));
+		const launcher = {
+			arm: vi.fn(async () => ({
+				bodyKind: "workstation" as const,
+				externalId: "test-computer",
+				generationId,
+				issuedAt: "2026-10-27T00:00:00.000Z",
+				status: "armed" as const,
+				tediId: "tedi-1",
+				token: "token",
+				tokenExpiresAt: "2026-10-28T00:00:00.000Z",
+				tokenHash: "hash",
+				trackingEnabled: true,
+			})),
+			exec,
+			writeBodyGenerationProof: vi.fn(async () => {}),
+		};
+		const config = {
+			id: "tedi-1",
+			organizationId: "org_tedix",
+			repoConfig: {
+				branch: "main",
+				repoUrl: "https://github.com/tedix/tedix.git",
+			},
+			slug: "cto",
+			secrets: {},
+		} as AppEnv["Variables"]["tediConfig"];
+		const sandbox = {
+			mkdir: vi.fn(async () => {}),
+			setOutboundPolicy: vi.fn(async () => {}),
+			writeFile: vi.fn(async () => ({ success: true })),
+		};
+		const values = {
+			runtimeBodyLauncher: launcher,
+			sandbox,
+			tediConfig: config,
+			workstationBodyInstance: { id: "body-id", name: "body-name" },
+			workstationRuntimeSelection: {
+				leaseId: "lease-1",
+				participantTediId: "tedi-1",
+				workstationId: "test-computer",
+			},
+		};
+		const context = {
+			get: (key: keyof typeof values) => values[key],
+			set: vi.fn(),
+		} as unknown as Parameters<typeof prepareWorkstationFast>[0];
+
+		await prepareWorkstationFast(context);
+		await prepareWorkstationFast(context);
+		expect(processMocks.readRepoSyncStatus).toHaveBeenCalledTimes(1);
+		expect(
+			exec.mock.calls.filter(([command]) => command === "git --version"),
+		).toHaveLength(1);
+		expect(
+			exec.mock.calls.filter(([command]) => command === "gh --version"),
+		).toHaveLength(1);
+
+		placement = "placement-2";
+		await prepareWorkstationFast(context);
+		expect(processMocks.readRepoSyncStatus).toHaveBeenCalledTimes(2);
+
+		generationId = "generation-2";
+		await prepareWorkstationFast(context);
+		expect(processMocks.readRepoSyncStatus).toHaveBeenCalledTimes(3);
+
+		repoSha = "b".repeat(40);
+		await prepareWorkstationFast(context);
+		expect(processMocks.readRepoSyncStatus).toHaveBeenCalledTimes(4);
+	});
 });
 
 describe("preparation egress identity", () => {

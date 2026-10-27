@@ -183,7 +183,7 @@ export function workstationPreparation(
 
 export type WorkstationState = {
 	preparation?: WorkstationPreparation;
-	/** Physical placement is unavailable in v1; native handles fence critical callbacks. */
+	/** Opaque filesystem marker that changes when Computer replaces the container. */
 	containerPlacementId: string | null;
 	credentials: Awaited<ReturnType<typeof hydrateGitHubCliCredentials>>;
 	repoSync: RepoSyncResult;

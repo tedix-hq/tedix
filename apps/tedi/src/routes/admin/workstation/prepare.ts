@@ -37,6 +37,8 @@ import {
 	WORKSTATION_BOOTSTRAP_INSTALL_LAUNCH_BACKOFF_MS,
 	WORKSTATION_BOOTSTRAP_INSTALL_TIMEOUT_MS,
 	blockedSetupState,
+	repoReady,
+	shellSingleQuote,
 } from "./shared";
 import {
 	probeWorkstationTools,
@@ -50,6 +52,71 @@ import {
 	bootstrapInstallLaunchFailedAt,
 } from "./in-flight";
 import { verifiedInstallCommandForLockfile } from "./bootstrap-install";
+
+const WORKSTATION_PLACEMENT_MARKER = `${WORKSTATION_HOME}/.tedix-container-placement`;
+const READINESS_CACHE_MAX_ENTRIES = 32;
+
+type ReadinessCacheEntry = {
+	bodyGenerationKey: string;
+	containerPlacementId: string;
+	preparation: WorkstationPreparation;
+	repoConfig: string;
+	repoFingerprint: string;
+	repoSync: RepoSyncResult;
+	tools: WorkstationState["tools"];
+};
+
+const readinessCache = new Map<string, ReadinessCacheEntry>();
+
+export function clearWorkstationReadinessCache(): void {
+	readinessCache.clear();
+}
+
+function readinessCacheKey(c: {
+	get: <K extends keyof AppEnv["Variables"]>(key: K) => AppEnv["Variables"][K];
+}): string {
+	const config = c.get("tediConfig");
+	return `${config.id}:${c.get("workstationRuntimeSelection")?.workstationId ?? c.get("workstationBodyInstance")?.name ?? "default"}`;
+}
+
+function repoConfigKey(config: AppEnv["Variables"]["tediConfig"]): string {
+	return JSON.stringify(config.repoConfig ?? null);
+}
+
+function configuredRepoWorkdir(
+	config: AppEnv["Variables"]["tediConfig"],
+): string | null {
+	if (!config.repoConfig?.repoUrl) return null;
+	try {
+		const parts = new URL(config.repoConfig.repoUrl).pathname
+			.replace(/^\/+|\/+$/g, "")
+			.replace(/\.git$/i, "")
+			.split("/")
+			.filter(Boolean);
+		const owner = parts.at(-2);
+		const repo = parts.at(-1);
+		if (
+			!owner ||
+			!repo ||
+			!/^[A-Za-z0-9._-]+$/.test(owner) ||
+			!/^[A-Za-z0-9._-]+$/.test(repo)
+		) {
+			return null;
+		}
+		return `${WORKSTATION_REPOS_DIR}/${owner}/${repo}`;
+	} catch {
+		return null;
+	}
+}
+
+function cacheReadiness(key: string, entry: ReadinessCacheEntry): void {
+	readinessCache.delete(key);
+	readinessCache.set(key, entry);
+	if (readinessCache.size > READINESS_CACHE_MAX_ENTRIES) {
+		const oldest = readinessCache.keys().next().value;
+		if (oldest) readinessCache.delete(oldest);
+	}
+}
 
 /** Prepare the native body after registering its egress policy. */
 export async function prepareWorkstationFast(
@@ -77,7 +144,7 @@ export async function prepareWorkstationFast(
 	await phases.time("prepare.egressGuardMarker", () =>
 		writeWorkstationEgressGuardMarker(c),
 	);
-	await phases.time("prepare.bodyGeneration", () =>
+	const bodyGeneration = await phases.time("prepare.bodyGeneration", () =>
 		prepareWorkstationBodyGeneration(c),
 	);
 	await phases.time("prepare.bodyGenerationProof", () =>
@@ -85,20 +152,44 @@ export async function prepareWorkstationFast(
 	);
 	const exec = (command: string, options?: WorkstationExecOptions) =>
 		execInRuntimeBody(c, command, options);
-	await phases.time("prepare.mkdir", () =>
+	const repoWorkdir = configuredRepoWorkdir(tediConfig);
+	const placement = await phases.time("prepare.mkdir", () =>
 		exec(
-			`mkdir -p ${WORKSTATION_DIR} ${WORKSTATION_REPOS_DIR} ${WORKSTATION_HOME}/.config/gh`,
+			`set -eu; mkdir -p ${WORKSTATION_DIR} ${WORKSTATION_REPOS_DIR} ${WORKSTATION_HOME}/.config/gh; marker=${shellSingleQuote(WORKSTATION_PLACEMENT_MARKER)}; if [ ! -s "$marker" ]; then cat /proc/sys/kernel/random/uuid > "$marker"; fi; printf 'placement=%s\\n' "$(cat "$marker")"; ${repoWorkdir ? `printf 'repo=%s:%s\\n' "$(git -C ${shellSingleQuote(repoWorkdir)} rev-parse HEAD 2>/dev/null || true)" "$(cksum ${shellSingleQuote(`${repoWorkdir}.sync-process.json`)} 2>/dev/null | cut -d ' ' -f 1,2 || true)"` : "printf 'repo=\\n'"}`,
 			{ timeout: 5000 },
 		),
 	);
-	const containerPlacementId = null;
+	const observations = Object.fromEntries(
+		placement.stdout
+			.split(/\r?\n/)
+			.map((line) => line.split("=", 2))
+			.filter((pair): pair is [string, string] => pair.length === 2),
+	);
+	const containerPlacementId = observations.placement || null;
+	const repoFingerprint = observations.repo ?? "";
+	const bodyGenerationKey = bodyGeneration
+		? `${bodyGeneration.generationId}:${bodyGeneration.tokenHash}`
+		: null;
+	const cacheKey = readinessCacheKey(c);
+	const cached = readinessCache.get(cacheKey);
+	const reusable =
+		cached &&
+		bodyGenerationKey &&
+		containerPlacementId &&
+		cached.bodyGenerationKey === bodyGenerationKey &&
+		cached.containerPlacementId === containerPlacementId &&
+		cached.preparation === preparation &&
+		cached.repoConfig === repoConfigKey(tediConfig) &&
+		cached.repoFingerprint === repoFingerprint
+			? cached
+			: null;
 	// Before anything can commit: the tedi commits as ITSELF. Sequential on
 	// purpose — `git config --global` takes a lock on `~/.gitconfig`, and the
 	// credential hydration below writes the same file.
 	await phases.time("prepare.gitIdentity", () =>
 		hydrateGitIdentity(sandbox, tediConfig),
 	);
-	const [hydratedCredentials, repoSync, tools] = await Promise.all([
+	const [hydratedCredentials, readiness] = await Promise.all([
 		phases.time("prepare.githubCredentials", () =>
 			hydrateGitHubCliCredentials(sandbox, tediConfig, {
 				configDir: `${WORKSTATION_HOME}/.config/gh`,
@@ -106,17 +197,25 @@ export async function prepareWorkstationFast(
 				gitCredentialsPath: WORKSTATION_GIT_CREDENTIALS_PATH,
 			}),
 		),
-		preparation === "shell"
-			? Promise.resolve<RepoSyncResult>({
-					configured: false,
-					strategy: ACTIVE_WORKSTATION_PROFILE.repoStrategy,
-					status: "not_configured",
-				})
-			: phases.time("prepare.repoSyncStatus", () =>
-					readRepoSyncStatus(sandbox, tediConfig, REPO_SYNC_OPTIONS),
-				),
-		phases.time("prepare.toolProbes", () => probeWorkstationTools(exec)),
+		reusable
+			? phases.time("prepare.readinessCacheHit", async () => ({
+					repoSync: reusable.repoSync,
+					tools: reusable.tools,
+				}))
+			: Promise.all([
+					preparation === "shell"
+						? Promise.resolve<RepoSyncResult>({
+								configured: false,
+								strategy: ACTIVE_WORKSTATION_PROFILE.repoStrategy,
+								status: "not_configured",
+							})
+						: phases.time("prepare.repoSyncStatus", () =>
+								readRepoSyncStatus(sandbox, tediConfig, REPO_SYNC_OPTIONS),
+							),
+					phases.time("prepare.toolProbes", () => probeWorkstationTools(exec)),
+				]).then(([repoSync, tools]) => ({ repoSync, tools })),
 	]);
+	const { repoSync, tools } = readiness;
 	const credentials =
 		hydratedCredentials.configured &&
 		repoSync.configured &&
@@ -135,6 +234,23 @@ export async function prepareWorkstationFast(
 				}
 			: hydratedCredentials;
 	const toolsReady = Object.values(tools).every((tool) => tool.ok);
+	if (
+		!reusable &&
+		bodyGenerationKey &&
+		containerPlacementId &&
+		toolsReady &&
+		(!repoSync.configured || repoReady(repoSync))
+	) {
+		cacheReadiness(cacheKey, {
+			bodyGenerationKey,
+			containerPlacementId,
+			preparation,
+			repoConfig: repoConfigKey(tediConfig),
+			repoFingerprint,
+			repoSync,
+			tools,
+		});
+	}
 	return {
 		preparation,
 		containerPlacementId,
@@ -149,6 +265,7 @@ export function scheduleRepoSync(c: Context<AppEnv>): void {
 	const tediConfig = c.get("tediConfig");
 	const key = tediConfig.id;
 	if (repoSyncInFlight.has(key)) return;
+	readinessCache.delete(readinessCacheKey(c));
 	const task: Promise<void> = syncRepoIfConfigured(
 		c.get("sandbox"),
 		tediConfig,
