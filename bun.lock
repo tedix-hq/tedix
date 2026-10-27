@@ -718,9 +718,7 @@
         "dotenv": "^18.0.9",
         "drizzle-kit": "1.0.0-rc.5",
         "jiti": "catalog:",
-        "vite": "catalog:",
         "vite-plus": "catalog:",
-        "vitest": "catalog:",
       },
     },
     "packages/design-tokens": {
