@@ -39,17 +39,23 @@ async function mount(rows?: SkillRunSummary[], status?: "failed") {
 		client.clear();
 		node.remove();
 	});
-	await act(async () => {
-		root.render(
-			<QueryClientProvider client={client}>
-				<SkillRunsPage search={{ status }} updateSearch={updateSearch} />
-			</QueryClientProvider>,
-		);
-	});
-	await act(async () => {
-		await new Promise((done) => setTimeout(done, 20));
-	});
-	return { node, client, options, updateSearch };
+	const render = async (next?: "failed") => {
+		await act(async () => {
+			root.render(
+				<QueryClientProvider client={client}>
+					<SkillRunsPage
+						search={{ status: next }}
+						updateSearch={updateSearch}
+					/>
+				</QueryClientProvider>,
+			);
+		});
+		await act(async () => {
+			await new Promise((done) => setTimeout(done, 20));
+		});
+	};
+	await render(status);
+	return { node, client, options, updateSearch, render };
 }
 const run: SkillRunSummary = {
 	organizationId: "example-org",
@@ -122,10 +128,20 @@ describe("skill run history", () => {
 			await client.refetchQueries(options);
 			await new Promise((done) => setTimeout(done, 20));
 		});
-		expect(node.textContent).toContain("Runs unavailable");
+		expect(node.textContent).toContain("Runs could not refresh");
+		expect(node.textContent).toContain("they may be out of date");
+		expect(node.textContent).toContain("Refresh failed");
 		expect(
 			node.querySelector('a[href="/work/runs/example-run"]'),
 		).not.toBeNull();
+	});
+	it("never shows another status's runs while the new filter loads", async () => {
+		const { node, render } = await mount([run]);
+		read.mockReturnValueOnce(new Promise(() => {}));
+		await render("failed");
+		expect(node.querySelector('a[href="/work/runs/example-run"]')).toBeNull();
+		expect(node.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+		expect(node.querySelector('[data-slot="empty"]')).toBeNull();
 	});
 	it("preserves the status search callback", async () => {
 		const { node, updateSearch } = await mount([]);
