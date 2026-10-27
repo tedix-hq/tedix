@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import { MAX_FILE_TEXT_LENGTH } from "../src/collab/ot/code-change";
 
 /**
  * A wide, many-tab sheet open in the workspace canvas, read-only because the
@@ -156,7 +157,13 @@ try {
 			viewport: { width: 1280, height: 820 },
 			colorScheme: "dark",
 		});
-		await widenSheet(page, 120);
+		let rows = 120;
+		while (
+			JSON.stringify(wideWorkbook(rows), null, 2).length <= MAX_FILE_TEXT_LENGTH
+		) {
+			rows += 24;
+		}
+		await widenSheet(page, rows);
 		await page.goto(`${server.origin}${path}`);
 		await page.locator("[data-canvas-too-large]").waitFor();
 		const status =
