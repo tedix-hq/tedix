@@ -406,46 +406,57 @@ function GuestApp({
 		[app.app.client],
 	);
 	return (
-		<main
-			className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-3 px-4 py-3 sm:px-6 sm:py-4"
-			data-guest-app
-		>
-			{/* One row, the organization's mark and name only. Viewer tools such
-			    as Translate join the trailing group. */}
-			<header className="flex min-w-0 items-center gap-2">
-				<OrganizationMark
-					name={share.organization?.name ?? app.app.name}
-					logoUrl={share.organization?.logoUrl ?? null}
-				/>
-				<Text
-					as="h1"
-					role="body"
-					weight="semibold"
-					className="m-0 min-w-0 flex-1 truncate"
-				>
-					{share.organization?.name && `${share.organization.name} · `}
-					<Text as="span" tone="secondary">
-						{app.app.name}
+		// Like a shared artifact: one thin bar is the only chrome, and the app
+		// fills the rest of the viewport edge to edge on its own background.
+		<main className="flex h-dvh w-full flex-col" data-guest-app>
+			<div
+				className="shrink-0 border-b border-kumo-hairline bg-kumo-base"
+				data-guest-bar
+			>
+				{/* One row, the organization's mark and name only. Viewer tools
+				    such as Translate join the trailing group. */}
+				<header className="flex min-h-10 min-w-0 items-center gap-2 px-3 sm:px-4">
+					<OrganizationMark
+						name={share.organization?.name ?? app.app.name}
+						logoUrl={share.organization?.logoUrl ?? null}
+					/>
+					<Text
+						as="h1"
+						role="body"
+						weight="semibold"
+						className="m-0 min-w-0 flex-1 truncate"
+					>
+						{share.organization?.name && `${share.organization.name} · `}
+						<Text as="span" tone="secondary">
+							{app.app.name}
+						</Text>
 					</Text>
-				</Text>
-				<div className="flex shrink-0 items-center gap-1" data-guest-bar-tools>
-					<Badge variant="success" title={t("share_no_sign_in")}>
-						<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
-					</Badge>
-					<AppTranslateButton translation={translation} compact />
-				</div>
-			</header>
-			{share.share.note && (
-				<Text as="p" role="body" tone="secondary" className="m-0">
-					{share.share.note}
-				</Text>
-			)}
-			{share.share.policyReason && (
-				<Alert variant="warning">
-					<AlertTitle>{t("share_access_narrowed")}</AlertTitle>
-					<AlertDescription>{share.share.policyReason}</AlertDescription>
-				</Alert>
-			)}
+					<div
+						className="flex shrink-0 items-center gap-1"
+						data-guest-bar-tools
+					>
+						<Badge variant="success" title={t("share_no_sign_in")}>
+							<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
+						</Badge>
+						<AppTranslateButton translation={translation} compact />
+					</div>
+				</header>
+				{(share.share.note || share.share.policyReason) && (
+					<div className="grid gap-2 px-3 pb-2 sm:px-4">
+						{share.share.note && (
+							<Text as="p" role="body" tone="secondary" className="m-0">
+								{share.share.note}
+							</Text>
+						)}
+						{share.share.policyReason && (
+							<Alert variant="warning">
+								<AlertTitle>{t("share_access_narrowed")}</AlertTitle>
+								<AlertDescription>{share.share.policyReason}</AlertDescription>
+							</Alert>
+						)}
+					</div>
+				)}
+			</div>
 			<AppRuntimeFrame
 				key={app.revisionId}
 				html={html}

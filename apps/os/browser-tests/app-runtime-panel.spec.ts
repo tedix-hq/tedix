@@ -93,6 +93,22 @@ try {
 				`${label}: the app view says a change is waiting`,
 			);
 			await noOverflow(page, `${label} app`);
+			// No card around the app: its frame spans the canvas column edge to
+			// edge, as on the guest page.
+			const edges = await page.evaluate(() => {
+				const column = document
+					.querySelector(".canvas-document-shell")!
+					.getBoundingClientRect();
+				const frame = document
+					.querySelector('iframe[title="Opportunity cards"]')!
+					.getBoundingClientRect();
+				return [column.left, column.right, frame.left, frame.right];
+			});
+			assert(
+				Math.abs(edges[0]! - edges[2]!) <= 1 &&
+					Math.abs(edges[1]! - edges[3]!) <= 1,
+				`${label}: the app frame fills the canvas column (${edges})`,
+			);
 			await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
 
 			// Edit: builders can edit the revision files into a draft.
