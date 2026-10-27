@@ -16,6 +16,8 @@ import {
 	removeWorkspaceAccess,
 	requireCollaboratorIdentity,
 	requireWorkspaceCollaboratorAccess,
+	setWorkspaceCollaboratorRole,
+	updateWorkspaceShareLink,
 } from "../../services/os-workspace-collaborators";
 import { type BaseContext, withAuth, withAuthorization } from "../orpc";
 
@@ -112,6 +114,32 @@ const createLink = collaborator.createLink
 	)
 	.handler(({ input, context }) => createWorkspaceShareLink(context, input));
 
+const setRole = collaborator.setRole
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Access is the workspace permission graph: the handler requires a signed-in human who is the workspace owner or an owner or admin of its organization, and never grants above the caller's role.",
+			},
+			"apps:write",
+		),
+	)
+	.handler(async ({ input, context }) => ({
+		affected: await setWorkspaceCollaboratorRole(context, input),
+	}));
+
+const updateLink = collaborator.updateLink
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"Access is the workspace permission graph: the handler requires a signed-in human who is the workspace owner or an owner or admin of its organization, and never grants above the caller's role.",
+			},
+			"apps:write",
+		),
+	)
+	.handler(({ input, context }) => updateWorkspaceShareLink(context, input));
+
 const copyLink = collaborator.copyLink
 	.use(
 		withAuthorization(
@@ -206,6 +234,8 @@ export const osCollaboratorsContractRouter = os.router({
 	list,
 	add,
 	createLink,
+	setRole,
+	updateLink,
 	copyLink,
 	previewRemove,
 	remove,

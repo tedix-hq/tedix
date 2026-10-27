@@ -17,6 +17,7 @@ const sharesApi = vi.hoisted(() => ({
 	list: vi.fn(),
 	previewRevoke: vi.fn(),
 	revoke: vi.fn(),
+	update: vi.fn(),
 }));
 
 const getContext = vi.hoisted(() => vi.fn());
@@ -464,11 +465,7 @@ describe("ShareControls", () => {
 		await flush();
 		expect(container.textContent).not.toContain("Create link");
 
-		await pickMenuItem(
-			container,
-			"Options for Old note",
-			"Edit and get a new link",
-		);
+		await pickMenuItem(container, "Options for Old note", "Get a new link");
 		const note = container.querySelector<HTMLInputElement>(
 			'input[aria-label="Share note"]',
 		);
@@ -500,15 +497,73 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
-		await pickMenuItem(
-			container,
-			"Options for link",
-			"Edit and get a new link",
-		);
+		await pickMenuItem(container, "Options for link", "Get a new link");
 		click(findButton(container, "Save and get new link"));
 		await flush();
 		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
 		expect(container.textContent).toContain("The old link is still on");
+	});
+
+	it("lets an admin edit a link's settings in place, without a new URL", async () => {
+		getContext.mockResolvedValue({
+			authority: { role: "admin", permissions: ["os:admin"] },
+		});
+		const share = shareFixture({
+			resourceType: "gadget",
+			resourceId: GADGET_ID,
+			role: "build",
+			note: "Launch team",
+		});
+		sharesApi.list.mockResolvedValue({ items: [share] });
+		sharesApi.update.mockResolvedValue({
+			share: { ...share, role: "use", note: "Reviewers" },
+			revokedSessionCount: 1,
+		});
+		const container = renderControls({
+			resourceType: "gadget",
+			resourceId: GADGET_ID,
+			currentRevisionId: REVISION_ID,
+		});
+		click(findButton(container, "Share"));
+		await flush();
+		await pickMenuItem(container, "Options for Launch team", "Edit settings");
+		expect(container.textContent).toContain("The link stays the same");
+		expect(
+			container.querySelector('[aria-label="Share revision behavior"]'),
+		).toBeNull();
+		const note = container.querySelector<HTMLInputElement>(
+			'input[aria-label="Share note"]',
+		);
+		if (!note) throw new Error("share note missing");
+		setFieldValue(note, "Reviewers");
+		click(findButton(container, "Use"));
+		click(findButton(container, "Save"));
+		await flush();
+
+		expect(sharesApi.update).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			role: "use",
+			note: "Reviewers",
+			expiresAt: null,
+		});
+		expect(sharesApi.create).not.toHaveBeenCalled();
+		expect(sharesApi.revoke).not.toHaveBeenCalled();
+		expect(linkField(container)).toBeNull();
+	});
+
+	it("offers in-place edits only to owners and admins", async () => {
+		getContext.mockResolvedValue({
+			authority: { role: "member", permissions: ["os:author"] },
+		});
+		sharesApi.list.mockResolvedValue({
+			items: [shareFixture({ note: "Handoff" })],
+		});
+		const container = renderControls();
+		click(findButton(container, "Share"));
+		await flush();
+		await expect(
+			pickMenuItem(container, "Options for Handoff", "Edit settings"),
+		).rejects.toThrow("menu item not found");
 	});
 
 	it("explains the empty list without implying failure", async () => {

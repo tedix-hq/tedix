@@ -711,6 +711,18 @@ export const OS_SHARES_AUDIT: OsAuditRegistry = {
 			revokedSessionCount: output.revokedSessionCount ?? null,
 		}),
 	},
+	"shares.update": {
+		action: "os.share_link.updated",
+		resourceType: "os_share_link",
+		resourceId: ({ output }) => nestedId(output, "share"),
+		metadata: ({ output }) => ({
+			sharedResourceType: fields(output.share).resourceType,
+			sharedResourceId: fields(output.share).resourceId,
+			role: fields(output.share).role,
+			expiresAt: fields(output.share).expiresAt ?? null,
+			revokedSessionCount: output.revokedSessionCount ?? null,
+		}),
+	},
 	"shares.restrict": {
 		action: "os.share_link.restricted",
 		resourceType: "os_share_link",

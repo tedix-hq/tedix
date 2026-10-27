@@ -268,6 +268,48 @@ try {
 			await page.keyboard.press("Escape");
 			await share.click();
 			await page.getByRole("heading", { name: "Share this file" }).waitFor();
+			// An owner edits a link's note in place; its URL is never shown again.
+			const shareDialog = page.getByRole("dialog");
+			const linkRows = shareDialog.locator("[data-share-row]");
+			await linkRows
+				.or(shareDialog.getByText("Pick “Anyone with the link”"))
+				.first()
+				.waitFor();
+			if ((await linkRows.count()) === 0) {
+				await shareDialog
+					.getByRole("combobox", { name: "General access" })
+					.click();
+				await page
+					.getByRole("option", { name: "Anyone with the link can view" })
+					.click();
+				await shareDialog.getByRole("button", { name: "Done" }).click();
+			}
+			await linkRows
+				.first()
+				.getByRole("button", { name: /^Options for/ })
+				.click();
+			await page.getByRole("menuitem", { name: "Edit settings" }).click();
+			const linkNote = `Board pack ${width} ${theme}`;
+			await shareDialog.getByLabel("Share note").fill(linkNote);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				"link settings fit without horizontal overflow",
+			);
+			if (evidenceDir)
+				await page.screenshot({
+					path: `${evidenceDir}/after-link-settings-${width}-${theme}.png`,
+				});
+			await shareDialog
+				.getByRole("button", { name: "Save", exact: true })
+				.click();
+			await shareDialog.getByText(linkNote).waitFor();
+			assert.equal(
+				await shareDialog.locator("[data-share-url]").count(),
+				0,
+				"editing settings never re-shows the link",
+			);
 			await page.keyboard.press("Escape");
 			await page.getByRole("dialog").waitFor({ state: "hidden" });
 			assert(

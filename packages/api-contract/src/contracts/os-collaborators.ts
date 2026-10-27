@@ -148,6 +148,48 @@ export const osCollaboratorsContract = oc
 					.strict(),
 			)
 			.output(z.object({ link: OsCollaboratorLinkSchema, key: z.string() })),
+		setRole: oc
+			.route({
+				method: "POST",
+				path: "/workspaces/{workspaceId}/collaborators/{userId}/role",
+				summary: "Change a person's role",
+				description:
+					"Replaces every grant to the person with one from you at this role. Only the workspace owner or an organization owner or admin may do this. Returns anyone whose access fell as a result, including people the person had shared with.",
+			})
+			.input(
+				z
+					.object({
+						workspaceId,
+						userId: z.string().min(1).max(200),
+						role: OsCollaboratorRoleSchema,
+					})
+					.strict(),
+			)
+			.output(z.object({ affected: z.array(OsAffectedCollaboratorSchema) })),
+		updateLink: oc
+			.route({
+				method: "PATCH",
+				path: "/workspaces/{workspaceId}/links/{linkId}",
+				summary: "Change a share link's label or role",
+				description:
+					"Edits an active link in place; no key is minted or shown. Only the workspace owner or an organization owner or admin may do this. People who joined through the link follow its new role.",
+			})
+			.input(
+				z
+					.object({
+						workspaceId,
+						linkId: z.string().uuid(),
+						role: OsCollaboratorRoleSchema.optional(),
+						label: z.string().trim().max(120).nullable().optional(),
+					})
+					.strict(),
+			)
+			.output(
+				z.object({
+					link: OsCollaboratorLinkSchema,
+					affected: z.array(OsAffectedCollaboratorSchema),
+				}),
+			),
 		copyLink: oc
 			.route({
 				method: "POST",

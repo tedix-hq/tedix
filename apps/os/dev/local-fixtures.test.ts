@@ -515,6 +515,22 @@ const CALLS = {
 	"osShares/shares/revoke": {
 		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 	},
+	"osShares/shares/update": {
+		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+		note: "Launch reviewers",
+		expiresAt: null,
+	},
+	"osCollaborators/setRole": {
+		workspaceId: IDS.workspaceRevenue,
+		userId: "local-kai@example.test",
+		role: "build",
+	},
+	"osCollaborators/updateLink": {
+		workspaceId: IDS.workspaceRevenue,
+		linkId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+		role: "build",
+		label: "Builders",
+	},
 	"osCollaborators/copyLink": {
 		workspaceId: IDS.workspaceRevenue,
 		linkId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
@@ -931,11 +947,13 @@ describe("local fixtures parse through the contract output schemas", () => {
 					"connections/stageConnectTicket",
 					CALLS["connections/stageConnectTicket"],
 				);
-			// A share link exists only once created; act on a real one.
+			// A share link or person exists only once created; act on a real one.
 			const shareInput =
 				key === "osShares/shares/previewRevoke" ||
-				key === "osShares/shares/revoke"
+				key === "osShares/shares/revoke" ||
+				key === "osShares/shares/update"
 					? {
+							...(input as object),
 							shareId: (
 								callLocalOk(
 									"osShares/shares/create",
@@ -943,7 +961,19 @@ describe("local fixtures parse through the contract output schemas", () => {
 								) as { share: { id: string } }
 							).share.id,
 						}
-					: input;
+					: key === "osCollaborators/updateLink"
+						? {
+								...(input as object),
+								linkId: (
+									callLocalOk(
+										"osCollaborators/createLink",
+										CALLS["osCollaborators/createLink"],
+									) as { link: { id: string } }
+								).link.id,
+							}
+						: input;
+			if (key === "osCollaborators/setRole")
+				callLocalOk("osCollaborators/add", CALLS["osCollaborators/add"]);
 			const output = callLocalOk(key, shareInput);
 			await expectParsesAgainstContract(key, output);
 		});

@@ -456,3 +456,121 @@ describe("governed resource roles and revision modes", () => {
 		]);
 	});
 });
+
+describe("shares.update", () => {
+	it("edits note, expiry and role in place; only admins may, and narrowing ends sessions", async () => {
+		const h = harness();
+		const { workspace } = await h.outputs.workspaces.create({
+			name: "Launch workspace",
+		});
+		const { gadget } = await h.outputs.gadgets.create({
+			workspaceId: workspace.id,
+			name: "Launch dashboard",
+		});
+		await h.outputs.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+			manifest: {
+				entry: "ui://widgets/mcp-app/tedix/r/launch.html",
+				capabilities: ["metrics.read"],
+			},
+		});
+		const { share, token } = await h.org1.shares.create({
+			resourceType: "gadget",
+			resourceId: gadget.id,
+			role: "build",
+			revisionMode: "living",
+			note: "For the launch team",
+		});
+		const author = createRouterClient(osSharesContractRouter, {
+			context: userContext({
+				env: h.env,
+				organizationId: "org-1",
+				permissions: ["os:author"],
+			}),
+		});
+		await expect(
+			author.shares.update({ shareId: share.id, note: "Mine now" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			h.org2.shares.update({ shareId: share.id, note: "Elsewhere" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+		const db = createDbQueryClient(h.env.DB);
+		const opened = (await (
+			await handleOsShareRedemption(db, token, async () => true)
+		).json()) as { sessionToken: string };
+
+		// A note-only edit keeps live sessions and the same link.
+		const renamed = await h.org1.shares.update({
+			shareId: share.id,
+			note: "Launch reviewers",
+		});
+		expect(renamed).toMatchObject({
+			share: { id: share.id, note: "Launch reviewers", role: "build" },
+			revokedSessionCount: 0,
+		});
+		expect(renamed).not.toHaveProperty("token");
+		expect(
+			(
+				await handleOsShareSessionRead(
+					db,
+					opened.sessionToken,
+					async () => true,
+				)
+			).status,
+		).toBe(200);
+
+		const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+		const narrowed = await h.org1.shares.update({
+			shareId: share.id,
+			role: "use",
+			expiresAt,
+			note: null,
+		});
+		expect(narrowed).toMatchObject({
+			share: { role: "use", note: null, expiresAt },
+			revokedSessionCount: 1,
+		});
+		expect(
+			(
+				await handleOsShareSessionRead(
+					db,
+					opened.sessionToken,
+					async () => true,
+				)
+			).status,
+		).toBe(404);
+		// The same token still redeems, now at the narrowed role.
+		expect(
+			(await handleOsShareRedemption(db, token, async () => true)).status,
+		).toBe(200);
+
+		await expect(
+			h.org1.shares.update({ shareId: share.id, role: "viewer" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			h.org1.shares.update({
+				shareId: share.id,
+				expiresAt: new Date(Date.now() - 1000).toISOString(),
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			h.org1.shares.update({ shareId: share.id, expiresAt: null }),
+		).resolves.toMatchObject({ share: { expiresAt: null } });
+
+		await h.org1.shares.revoke({ shareId: share.id });
+		await expect(
+			h.org1.shares.update({ shareId: share.id, note: "Back on" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("keeps output links viewer-only", async () => {
+		const h = harness();
+		const outputId = await seedOutput(h);
+		const { share } = await h.org1.shares.create(outputShareInput(outputId));
+		await expect(
+			h.org1.shares.update({ shareId: share.id, role: "use" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+});

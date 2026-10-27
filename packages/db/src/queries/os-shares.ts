@@ -157,6 +157,55 @@ export async function restrictOsShareLink(
 }
 
 /**
+ * Edit an active link's note, expiry or role in place. The token hash never
+ * changes, so the link keeps redeeming. With `endSessions`, live sessions end
+ * in the same batch, so none outlives a narrowed role or earlier expiry.
+ * Returns undefined when the link is missing, revoked, or in another
+ * organization.
+ */
+export async function updateOsShareLinkSettings(
+	db: DbQueryClient,
+	params: OsShareLinkScopeParams & {
+		set: Partial<Pick<OsShareLinkRow, "role" | "note" | "expiresAt">>;
+		endSessions: boolean;
+		now?: string;
+	},
+): Promise<{ share: OsShareLinkRow; revokedSessionCount: number } | undefined> {
+	const now = params.now ?? new Date().toISOString();
+	const activeLink = and(
+		eq(osShareLinks.organizationId, params.organizationId),
+		eq(osShareLinks.id, params.shareLinkId),
+		isNull(osShareLinks.revokedAt),
+	);
+	const revokeSessions = db
+		.update(osShareSessions)
+		.set({ revokedAt: sql`coalesce(${osShareSessions.revokedAt}, ${now})` })
+		.where(
+			and(
+				eq(osShareSessions.shareLinkId, params.shareLinkId),
+				isNull(osShareSessions.revokedAt),
+				gt(osShareSessions.expiresAt, now),
+				sql`exists (select 1 from ${osShareLinks} where ${activeLink})`,
+			),
+		)
+		.returning({ id: osShareSessions.id });
+	const updateLink = db
+		.update(osShareLinks)
+		.set(params.set)
+		.where(activeLink)
+		.returning();
+	if (!params.endSessions) {
+		const [share] = await updateLink;
+		return share ? { share, revokedSessionCount: 0 } : undefined;
+	}
+	const [revokedSessions, rows] = await db.batch([revokeSessions, updateLink]);
+	const share = rows[0];
+	return share
+		? { share, revokedSessionCount: revokedSessions.length }
+		: undefined;
+}
+
+/**
  * Resolve a share link by its token hash — deliberately NOT org-scoped: the
  * token is the capability. Returns the row whatever its revoked/expired state;
  * the caller decides how to refuse.

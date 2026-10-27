@@ -136,6 +136,11 @@ export const OsCollaboratorSchema = OsCollaboratorPersonSchema.extend({
 	canRemove: z
 		.boolean()
 		.describe("Whether the caller may remove this person (or their own grant)"),
+	canChangeRole: z
+		.boolean()
+		.describe(
+			"Whether the caller may change this person's role: the workspace owner or an organization owner or admin",
+		),
 	lastOpenedAt: z.string().nullable(),
 });
 export type OsCollaborator = z.infer<typeof OsCollaboratorSchema>;
@@ -147,6 +152,11 @@ export const OsCollaboratorLinkSchema = z.object({
 	createdBy: OsCollaboratorPersonSchema,
 	createdAt: z.string(),
 	canRevoke: z.boolean(),
+	canEdit: z
+		.boolean()
+		.describe(
+			"Whether the caller may change the link's label or role: the workspace owner or an organization owner or admin",
+		),
 });
 export type OsCollaboratorLink = z.infer<typeof OsCollaboratorLinkSchema>;
 
