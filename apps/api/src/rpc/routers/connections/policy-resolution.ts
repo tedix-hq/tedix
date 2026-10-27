@@ -618,6 +618,30 @@ export async function resolveCredentialChain(
 	};
 	if ((args.scope ?? "tenant") === "tenant")
 		await authorizeTenantProvider(args.providerId);
+	if (args.connectionInstanceId && args.scope !== "user") {
+		if (args.scope !== "tenant")
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Choose personal or organization scope for a named account",
+			);
+		const instance = await getConnectionInstance(
+			context.db,
+			{ organizationId: args.organizationId },
+			args.connectionInstanceId,
+			args.providerId,
+		);
+		if (!instance)
+			throw createError(
+				ErrorCodes.NOT_FOUND,
+				"Selected organization account not found",
+			);
+		if (instance.allowedResources != null)
+			await assertConnectionResourceArguments(
+				context,
+				instance,
+				args.delegatedToolUse,
+			);
+	}
 	const registeredProvider = await getConnectionProviderByDescopeAppId(
 		context.db,
 		args.providerId,

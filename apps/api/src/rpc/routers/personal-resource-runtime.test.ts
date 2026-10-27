@@ -250,6 +250,10 @@ describe("hybrid credentials in a tedi run without personal consent", () => {
 	};
 	beforeEach(() => {
 		run.resourceAccessEnvelope = { version: 1, sources: [] };
+		vi.spyOn(
+			accounts,
+			"getOrganizationConnectionAllowedResources",
+		).mockResolvedValue(null);
 		vi.spyOn(organizations, "getConnectionConsumerGrants").mockResolvedValue({
 			mode: "all",
 		});
