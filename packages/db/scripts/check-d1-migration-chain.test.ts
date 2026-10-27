@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+	cpSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -9,7 +10,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vite-plus/test";
 import {
 	assertLocalMigrationInspection,
 	checkD1MigrationChain,
@@ -35,6 +44,8 @@ describe("full D1 migration-chain inspection", () => {
 });
 
 describe("real local D1 prefix snapshots", () => {
+	let seedRoot: string;
+	let extendedSeedRoot: string;
 	let root: string;
 	let cacheDirectory: string;
 	let dbRoot: string;
@@ -65,8 +76,9 @@ describe("real local D1 prefix snapshots", () => {
 	function check(env: NodeJS.ProcessEnv = {}) {
 		return checkD1MigrationChain({ dbRoot, cacheDirectory, env });
 	}
-	beforeEach(() => {
-		root = mkdtempSync(path.join(tmpdir(), "tedix-chain-test-"));
+	beforeAll(() => {
+		seedRoot = mkdtempSync(path.join(tmpdir(), "tedix-chain-seed-"));
+		root = seedRoot;
 		dbRoot = path.join(root, "db");
 		cacheDirectory = path.join(root, "cache");
 		mkdirSync(dbRoot);
@@ -74,6 +86,7 @@ describe("real local D1 prefix snapshots", () => {
 			path.join(dbRoot, "wrangler.jsonc"),
 			JSON.stringify({
 				name: "chain-fixture",
+				send_metrics: false,
 				d1_databases: [
 					{
 						binding: "DB",
@@ -88,11 +101,34 @@ describe("real local D1 prefix snapshots", () => {
 		);
 		migration(names[0]!, "CREATE TABLE parent (id INTEGER PRIMARY KEY);");
 		manifest([names[0]!]);
+		expect(check()).toEqual({ cachedCount: 0, appliedCount: 1 });
+	});
+	beforeAll(() => {
+		extendedSeedRoot = mkdtempSync(
+			path.join(tmpdir(), "tedix-chain-extended-seed-"),
+		);
+		cpSync(seedRoot, extendedSeedRoot, { recursive: true });
+		dbRoot = path.join(extendedSeedRoot, "db");
+		cacheDirectory = path.join(extendedSeedRoot, "cache");
+		migration(names[1]!, "CREATE TABLE child (id INTEGER PRIMARY KEY);");
+		manifest();
+		expect(check()).toEqual({ cachedCount: 1, appliedCount: 1 });
+	});
+	beforeEach(() => {
+		root = mkdtempSync(path.join(tmpdir(), "tedix-chain-test-"));
+		// Reuse the verified real D1 prefix, but isolate every mutation and cache.
+		cpSync(seedRoot, root, { recursive: true });
+		dbRoot = path.join(root, "db");
+		cacheDirectory = path.join(root, "cache");
+	});
+	afterAll(() => {
+		if (seedRoot) rmSync(seedRoot, { recursive: true, force: true });
+		if (extendedSeedRoot)
+			rmSync(extendedSeedRoot, { recursive: true, force: true });
 	});
 	afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 	it("restores a verified prefix, applies only new migrations, and inspects a complete hit", () => {
-		expect(check()).toEqual({ cachedCount: 0, appliedCount: 1 });
 		migration(
 			names[1]!,
 			"CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));",
@@ -103,7 +139,6 @@ describe("real local D1 prefix snapshots", () => {
 	});
 
 	it("rejects a broken new migration without publishing its snapshot", () => {
-		check();
 		migration(names[1]!, "INSERT INTO missing_table VALUES (1);");
 		manifest();
 		expect(() => check()).toThrow("missing_table");
@@ -111,17 +146,13 @@ describe("real local D1 prefix snapshots", () => {
 	});
 
 	it("rejects a reordered ledger even when the SQL can replay", () => {
-		migration(names[1]!, "CREATE TABLE child (id INTEGER PRIMARY KEY);");
-		manifest();
-		check();
+		cpSync(extendedSeedRoot, root, { recursive: true });
 		manifest([...names].reverse());
 		expect(() => check()).toThrow("diverged at position 0");
 	});
 
 	it("reads and rejects a reordered real D1 ledger on a complete hit", () => {
-		migration(names[1]!, "CREATE TABLE child (id INTEGER PRIMARY KEY);");
-		manifest();
-		check();
+		cpSync(extendedSeedRoot, root, { recursive: true });
 		expect(() =>
 			checkD1MigrationChain({
 				dbRoot,
@@ -140,7 +171,6 @@ describe("real local D1 prefix snapshots", () => {
 	});
 
 	it("hashes old SQL rather than trusting an unchanged integrity manifest", () => {
-		check();
 		migration(
 			names[0]!,
 			"CREATE TABLE parent (id INTEGER PRIMARY KEY); CREATE TABLE revised (id INTEGER PRIMARY KEY);",
@@ -151,19 +181,16 @@ describe("real local D1 prefix snapshots", () => {
 	it.each([{ CI: "true" }, { CI: "1" }, { TEDIX_D1_CHAIN_FULL_REPLAY: "1" }])(
 		"forces an empty-store replay with %j",
 		(env) => {
-			check();
 			expect(check(env)).toEqual({ cachedCount: 0, appliedCount: 1 });
 		},
 	);
 
 	it("rejects unrecorded migrations on a complete cache hit", () => {
-		check();
 		migration(names[1]!, "CREATE TABLE unrecorded (id INTEGER PRIMARY KEY);");
 		expect(() => check()).toThrow("diverged at position 1");
 	});
 
 	it("does not accept a damaged snapshot", () => {
-		check();
 		const snapshot = path.join(cacheDirectory, readdirSync(cacheDirectory)[0]!);
 		writeFileSync(path.join(snapshot, "state", "unexpected"), "damage");
 		expect(check()).toEqual({ cachedCount: 0, appliedCount: 1 });
