@@ -5,6 +5,7 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
 import { Text } from "@/components/kumo/text";
+import { followDeviceTheme } from "@/lib/theme";
 
 /**
  * The shareable page for one gallery blueprint. It opens without an account:
@@ -24,20 +25,6 @@ export function blueprintShareUrl(origin: string, blueprintId: string): string {
 
 export function blueprintInstallPath(blueprintId: string): string {
 	return `/blueprints?install=${encodeURIComponent(blueprintId)}`;
-}
-
-/** A visitor has no account to keep a theme choice on, so follow the device. */
-function followSystemTheme(): () => void {
-	const media = window.matchMedia("(prefers-color-scheme: dark)");
-	const apply = () => {
-		const mode = media.matches ? "dark" : "light";
-		document.documentElement.dataset.theme = "tedix";
-		document.documentElement.dataset.mode = mode;
-		document.documentElement.classList.toggle("dark", mode === "dark");
-	};
-	apply();
-	media.addEventListener("change", apply);
-	return () => media.removeEventListener("change", apply);
 }
 
 function NeedsList({
@@ -182,7 +169,7 @@ export function BlueprintLanding({
 export function BlueprintLandingPage({ blueprintId }: { blueprintId: string }) {
 	const [state, setState] = useState<PageState>({ status: "loading" });
 
-	useEffect(() => followSystemTheme(), []);
+	useEffect(() => followDeviceTheme(), []);
 
 	useEffect(() => {
 		let alive = true;

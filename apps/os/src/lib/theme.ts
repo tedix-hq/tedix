@@ -110,6 +110,29 @@ export function applyTedixOsTheme(): void {
 		});
 }
 
+/**
+ * Pages a visitor opens without an account (share links, blueprint pages)
+ * follow the device rather than a saved choice. `applyTedixOsTheme` already
+ * wrote the cached organization palette for the saved mode, so the palette is
+ * written again for the device's mode: a dark `.dark` class over a light
+ * palette resolves every `light-dark()` to its dark branch and renders a
+ * document's ink in the paper's colour.
+ */
+export function followDeviceTheme(): () => void {
+	const media = window.matchMedia("(prefers-color-scheme: dark)");
+	const apply = () => {
+		const mode: OsThemeMode = media.matches ? "dark" : "light";
+		const root = document.documentElement;
+		root.dataset.theme = "tedix";
+		root.dataset.mode = mode;
+		root.classList.toggle("dark", mode === "dark");
+		hydrateCachedOrganizationTheme(mode);
+	};
+	apply();
+	media.addEventListener("change", apply);
+	return () => media.removeEventListener("change", apply);
+}
+
 /** Theme preference hook for chrome controls (e.g. the sidebar cycle button). */
 export function useOsTheme() {
 	const preference = useSyncExternalStore(

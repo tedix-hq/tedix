@@ -2,7 +2,6 @@ import type { OsShareAccess } from "@tedix/api-contract/contracts/os-shares";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { useEffect, useRef, useState } from "react";
 import {
-	followSystemTheme,
 	GuestAppScreen,
 	type GuestPageState,
 	type GuestShare,
@@ -10,6 +9,7 @@ import {
 } from "@/components/guest-app-page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
+import { followDeviceTheme } from "@/lib/theme";
 import {
 	type SharePayload,
 	SharedResourceView,
@@ -109,7 +109,7 @@ export function ShareLinkPage({ id }: { id: string }) {
 		promise: Promise<Opened | "sign-in">;
 	} | null>(null);
 
-	useEffect(() => followSystemTheme(), []);
+	useEffect(() => followDeviceTheme(), []);
 
 	useEffect(() => {
 		if (!isShareLinkId(id)) {
