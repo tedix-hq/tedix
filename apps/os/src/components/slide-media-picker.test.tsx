@@ -164,11 +164,15 @@ describe("slide media picker", () => {
 		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<svg/>")));
 		const mounted = mountEditor();
 		await openImagePicker(mounted.container);
-		expect(resources.list).toHaveBeenCalledWith({
-			workspaceId: WORKSPACE_ID,
-			status: "active",
-			limit: 100,
-		});
+		// The query utilities pass the abort signal alongside the input.
+		expect(resources.list).toHaveBeenCalledWith(
+			{
+				workspaceId: WORKSPACE_ID,
+				status: "active",
+				limit: 100,
+			},
+			expect.objectContaining({ signal: expect.any(AbortSignal) }),
+		);
 		await until(
 			() =>
 				document.querySelector(
