@@ -216,6 +216,11 @@ const CALLS = {
 	"skills/runWorkflowHistory": { limit: 50 },
 	"skills/listWorkflowRetryCandidates": {},
 	"skills/inspectWorkflowRun": { runId: IDS.skillRunFailed },
+	"skills/getWorkflowRunTimeline": { runId: IDS.skillRunFailed },
+	"skills/getRunArtifact": {
+		runId: IDS.skillRunFailed,
+		path: "calls/storefront/list_orders/4.json",
+	},
 	"skills/listRunArtifacts": { runId: IDS.skillRunCompleted },
 	"skills/listWorkflowToolCalls": { runId: IDS.skillRunCompleted },
 	"skills/getWorkflowRevision": { runId: IDS.skillRunCompleted },
