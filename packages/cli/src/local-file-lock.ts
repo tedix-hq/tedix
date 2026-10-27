@@ -110,13 +110,16 @@ export function beginFileLock(directory: string): {
 export function withFileLockSync<T>(directory: string, operation: () => T): T {
 	const lock = beginFileLock(directory);
 	const deadline = Date.now() + 10_000;
+	const sleeper = new Int32Array(new SharedArrayBuffer(4));
 	try {
 		while (!lock.ready()) {
 			if (Date.now() >= deadline)
 				throw new Error(
 					"Timed out waiting for credential storage lock; retry the command.",
 				);
-			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+			// Short writes need prompt handoff: a 10ms wait can oversleep by hundreds
+			// of ms on macOS, serializing that delay for every ticket.
+			Atomics.wait(sleeper, 0, 0, 0.1);
 		}
 		return operation();
 	} finally {
