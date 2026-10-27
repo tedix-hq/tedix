@@ -44,9 +44,10 @@ describe("outer-surface lanes", () => {
 				).sort(),
 			).toEqual(["agentSessionId", "code"]);
 			expect(tools[0]!.description).toContain(
-				"discover show_deck and show_feed in the active organization",
+				"Run one async JavaScript function",
 			);
-			expect(tools[0]!.description).toContain("respect quiet/opt-out requests");
+			// Deck/Feed guidance lives in the server instructions, not the tool.
+			expect(tools[0]!.description).not.toContain("show_deck");
 			expect((tools[0]!.description as string).length).toBeLessThanOrEqual(
 				MAX_CODEMODE_DESCRIPTION_CHARS,
 			);

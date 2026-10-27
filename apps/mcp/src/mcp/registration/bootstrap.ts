@@ -1,4 +1,8 @@
-import { sidebarAppConfig, sidebarAppToolMeta } from "../sidebar-app";
+import {
+	SIDEBAR_APP_WIDGET_DESCRIPTION,
+	sidebarAppConfig,
+	sidebarAppToolMeta,
+} from "../sidebar-app";
 import {
 	buildMcpAppResourceMeta,
 	WIDGET_MIME_TYPES,
@@ -28,6 +32,7 @@ import { resolveMcpToolRequiredScopes } from "@tedix/mcp-shared/auth/tool-scopes
  */
 
 import * as z from "zod";
+import { getInfoOutputSchema } from "./get-info-schema";
 import {
 	McpNativeBootstrapSchema,
 	McpNativeDescriptorSchema,
@@ -279,6 +284,7 @@ export function registerGetInfoTool(
 			_meta: sidebarAppToolMeta(agent.appSlug, agent.appMetadata?.mcpConfig),
 			description: `Get metadata about the ${appName} MCP server itself (name, version, tool count). Only use when the user asks about this server's identity or capabilities — NOT for answering general questions.`,
 			inputSchema: z.object({}),
+			outputSchema: getInfoOutputSchema,
 			annotations: {
 				readOnlyHint: true,
 				openWorldHint: false,
@@ -458,6 +464,7 @@ export function registerBootstrapResources(agent: ServerContext): void {
 							null,
 							await agent.buildAppCsp(),
 							agent.getWidgetDomain(),
+							{ description: SIDEBAR_APP_WIDGET_DESCRIPTION },
 						),
 					},
 				],

@@ -329,13 +329,26 @@ export function buildAppsSdkResourceMeta(
  * @returns Metadata object for MCP-App resource
  */
 export function buildMcpAppResourceMeta(
-	tool: Pick<AppTool, "config" | "widgetDomain" | "widgetPrefersBorder"> | null,
+	tool: Pick<
+		AppTool,
+		| "config"
+		| "widgetDomain"
+		| "widgetPrefersBorder"
+		| "widgetDescription"
+		| "description"
+	> | null,
 	csp: OpenAiWidgetCSP,
 	widgetDomain: string,
-	options?: { prefersBorder?: boolean },
+	options?: { prefersBorder?: boolean; description?: string },
 ): Record<string, unknown> {
 	const assetOrigin = tool?.widgetDomain ?? widgetDomain;
+	const description =
+		options?.description ?? tool?.widgetDescription ?? tool?.description;
 	return {
+		// ChatGPT requires one exact origin per view for app submission; other
+		// hosts ignore the openai/* keys.
+		"openai/widgetDomain": exactOrigin(assetOrigin),
+		...(description ? { "openai/widgetDescription": description } : {}),
 		ui: {
 			csp: {
 				baseUriDomains: [assetOrigin],
@@ -350,6 +363,15 @@ export function buildMcpAppResourceMeta(
 		},
 		"mcpui.dev/ui-preferred-frame-size": ["100%", "420px"],
 	};
+}
+
+/** A widget domain may carry a path; hosts want the bare origin. */
+function exactOrigin(value: string): string {
+	try {
+		return new URL(value).origin;
+	} catch {
+		return value;
+	}
 }
 
 /** Parse per-tool permissions without ever widening host authority. */

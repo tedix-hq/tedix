@@ -74,6 +74,7 @@ import {
 	isNonPayingConnection,
 	CONNECT_PAYMENT_DENIED,
 	codeModeInputSchema,
+	codeModeOutputSchema,
 	hasPaymentProof,
 } from "./connect-payment-policy";
 import { codeModeToolMeta } from "./codemode-security";
@@ -417,6 +418,7 @@ export async function registerCodeModeTools(
 			description,
 			annotations: CODE_MODE_TOOL_ANNOTATIONS,
 			_meta: codeModeToolMeta(mcpConfig),
+			outputSchema: codeModeOutputSchema,
 			inputSchema: codeModeInputSchema(
 				serverCtx.connectionAppSlug ?? serverCtx.appSlug,
 			),

@@ -173,6 +173,23 @@ describe("register-widget MCP Apps ui/ dialect parity", () => {
 		expect(parsed.permissions).toEqual({});
 	});
 
+	it("gives ChatGPT one exact origin and a description for every view", () => {
+		const resourceMeta = buildMcpAppResourceMeta(
+			{ ...sampleTool, widgetDomain: `${WIDGET_DOMAIN}/r/path` },
+			sampleCsp,
+			WIDGET_DOMAIN,
+		);
+		expect(resourceMeta["openai/widgetDomain"]).toBe(WIDGET_DOMAIN);
+		expect(resourceMeta["openai/widgetDescription"]).toBe(
+			sampleTool.widgetDescription,
+		);
+		expect(
+			buildMcpAppResourceMeta(null, sampleCsp, WIDGET_DOMAIN, {
+				description: "Workspace view",
+			})["openai/widgetDescription"],
+		).toBe("Workspace view");
+	});
+
 	it("emits only valid per-tool MCP Apps sandbox permissions", () => {
 		const resourceMeta = buildMcpAppResourceMeta(
 			{

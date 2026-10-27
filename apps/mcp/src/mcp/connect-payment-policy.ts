@@ -9,9 +9,38 @@ export function isNonPayingConnection(appSlug: string): boolean {
 export const CONNECT_PAYMENT_DENIED =
 	"Payment proofs, paid tools and money-moving operations are unavailable through this connection.";
 
+/**
+ * The envelope every Code Mode result carries. `result` is whatever the
+ * program returned, so only the surrounding fields are described.
+ */
+export const codeModeOutputSchema = z.looseObject({
+	executionId: z.string().optional().describe("Identifier of this run."),
+	result: z
+		.unknown()
+		.optional()
+		.describe("The JSON value the function returned."),
+	completionEvidence: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.describe("What the calls actually did; claim only its supportedClaims."),
+	partial: z
+		.boolean()
+		.optional()
+		.describe("True when some inner tool calls failed."),
+	failures: z
+		.array(z.unknown())
+		.optional()
+		.describe("Inner tool calls that failed."),
+	error: z.string().optional().describe("Why the run failed."),
+});
+
 export function codeModeInputSchema(appSlug: string) {
 	return z.strictObject({
-		code: z.string().describe("JavaScript async arrow function."),
+		code: z
+			.string()
+			.describe(
+				'One async arrow function, for example `async () => { const { results } = await discover.search({ query: "work items" }); return results; }`. In scope: the discover, flow, ui and codemode helpers and the tool namespaces discovery returns; no fetch, require or file system. Its return value must be JSON-serializable and becomes `result`.',
+			),
 		...(isNonPayingConnection(appSlug)
 			? {}
 			: {

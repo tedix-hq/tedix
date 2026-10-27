@@ -871,7 +871,11 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		};
 		expect(
 			listPayload.result?._meta?.["io.modelcontextprotocol/serverInfo"],
-		).toEqual({ name: "Trusted Compact Host", version: "2.0.0" });
+		).toEqual({
+			name: "Trusted Compact Host",
+			title: "Trusted Compact Host",
+			version: "2.0.0",
+		});
 
 		const call = await postMcp(
 			"code-mode-host-modern",
@@ -892,7 +896,11 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		};
 		expect(
 			callPayload.result?._meta?.["io.modelcontextprotocol/serverInfo"],
-		).toEqual({ name: "Trusted Compact Host", version: "2.0.0" });
+		).toEqual({
+			name: "Trusted Compact Host",
+			title: "Trusted Compact Host",
+			version: "2.0.0",
+		});
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
 

@@ -1,5 +1,4 @@
 import { sidebarAppConfig, sidebarAppToolMeta } from "./mcp/sidebar-app";
-import { ATTENTION_GUIDANCE } from "./mcp/attention-guidance";
 import {
 	capServerInstructions,
 	codeModeInstructionParts,
@@ -10,7 +9,11 @@ import { isCodeModeNativeOptIn } from "./mcp/code-mode-native-tools";
 import { z } from "zod";
 import { extractCodeModeProviderNamespacesFromCode } from "./mcp/code-mode-namespaces";
 import { parseMcpCallerFromHeaders } from "./mcp-result-transform";
-import { codeModeInputSchema } from "./mcp/connect-payment-policy";
+import {
+	codeModeInputSchema,
+	codeModeOutputSchema,
+} from "./mcp/connect-payment-policy";
+import { getInfoOutputSchema } from "./mcp/registration/get-info-schema";
 import { isConfiguredCatalogTool } from "./mcp/registration/bootstrap";
 import { resolveToolAnnotations } from "@tedix/api-contract/schemas/tools";
 import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
@@ -119,12 +122,12 @@ export async function maybeHandleBootstrapFastMcp(
 }
 
 function compactCodeModeToolDescription(resolvedApp: ResolvedApp): string {
-	const appSlug = resolvedApp.app.slug;
+	const appName = resolvedApp.app.name ?? "Tedix";
 	return [
-		`Execute JavaScript against the ${appSlug} Code Mode surface.`,
-		'Find tools and skills with bounded discovery, for example `async () => await discover.search({"query":"list_mcp_authorizations","limit":3})`; this loads the aggregate catalog. Use each returned tool callable exactly, including its namespace prefix; follow the returned load expression for skills. Once the namespace is known, a single JSON-literal search with that exact `namespace` value or an exact `async () => await discover.describe("namespace.tool")` expression loads only that namespace.',
-		"Call `codemode.__runtime()` for execution-surface proof.",
-		ATTENTION_GUIDANCE,
+		`Run one async JavaScript function that calls ${appName} tools: Work Items, knowledge, apps, workspace outputs and connected services in the organizations you authorized.`,
+		'Find tools first with discovery, for example `async () => await discover.search({"query":"list work items","limit":3})`, then call each returned callable exactly as given, namespace included. A search or `discover.describe("namespace.tool")` with a known namespace loads only that namespace.',
+		"The function's return value comes back as the result, with completionEvidence describing what the calls actually did. Tools that change or delete data may ask the user to approve first.",
+		"Call `codemode.__runtime()` to see which organization and caller the run uses.",
 	].join(" ");
 }
 
@@ -174,6 +177,7 @@ export function compactCodeModeTools(
 			_meta: codeModeToolMeta(resolvedApp.metadata?.mcpConfig),
 			description: compactCodeModeToolDescription(resolvedApp),
 			inputSchema: z.toJSONSchema(codeModeInputSchema(connectionAppSlug)),
+			outputSchema: z.toJSONSchema(codeModeOutputSchema),
 		},
 		{
 			name: "get_info",
@@ -186,6 +190,7 @@ export function compactCodeModeTools(
 			),
 			description: `Get metadata about the ${appName} MCP server itself.`,
 			inputSchema: { type: "object", properties: {} },
+			outputSchema: z.toJSONSchema(getInfoOutputSchema),
 			annotations: {
 				readOnlyHint: true,
 				openWorldHint: false,

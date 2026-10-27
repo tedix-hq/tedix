@@ -8,6 +8,9 @@ export function sidebarAppConfig(
 	return parsed.success ? parsed.data : null;
 }
 
+export const SIDEBAR_APP_WIDGET_DESCRIPTION =
+	"Tedix workspace: your organizations, decisions waiting for you and recent activity.";
+
 export function sidebarAppToolMeta(
 	slug: string,
 	config: Record<string, unknown> | null | undefined,
@@ -20,5 +23,7 @@ export function sidebarAppToolMeta(
 		},
 		"openai/ui": { entrypoints: [{ type: "global" }] },
 		"openai/widgetAccessible": true,
+		"openai/toolInvocation/invoking": "Opening Tedix…",
+		"openai/toolInvocation/invoked": "Tedix opened",
 	};
 }

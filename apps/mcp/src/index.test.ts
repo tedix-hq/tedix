@@ -649,9 +649,11 @@ describe("Connect compact protocol organization routing", () => {
 					},
 				});
 			} else {
-				expect(JSON.stringify(body.result)).toContain(
-					"tedix-unified Code Mode surface",
-				);
+				expect(body.result).toMatchObject({
+					_meta: {
+						"io.modelcontextprotocol/serverInfo": { name: "Tedix MCP" },
+					},
+				});
 			}
 		},
 	);
