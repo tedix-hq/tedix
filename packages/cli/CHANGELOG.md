@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.17.12 — 2026-10-27
+
+### Patch Changes
+
+- `tedix lane serve` no longer holds code Work just because its text mentions consent, credentials, tokens, sign-in, sending, publishing or deleting. A lane asks for the owner's Delegation comment only when the item tells the executor to do a human-reserved act itself: grant or revoke consent, issue, rotate or enter credentials, pay, send an outside message, publish, delete live data, sign an agreement or change a live customer's settings. Prohibitions such as "no consent, payment or publication" do not count as requests.
+- `tedix lane serve` still holds such an act when it follows an urgency idiom ("do not wait — send it to the customer"), is written in German, uses a synonym ("wire money", "post on LinkedIn", "push the secret", "drop the table"), is stated as an outcome ("done when the invoice is paid"), or hides the verb behind look-alike or invisible characters.
+- `tedix logout` revokes the stored sign-in at the authorization server before removing the local login, and warns when it cannot. The Descope AIH drift audit reports each resource's token lifetimes and flags wildcard client-metadata domain policies.
+- Task boundaries show the selected Work, its active objective, success signal and days left, with a dated parking prompt when no active objective applies.
+- Help text calls the Feed "Activity" and the Deck "Decisions"; `tedix flow` says "automation" instead of "workflow". The `tedix feed`, `tedix deck`, `tedix flow` and `tedix workflow` commands keep their names.
+- CLI help describes Tedix as a platform for agents, apps, and work, and tedis as agents.
+
 ## 0.17.11 — 2026-10-26
 
 ### Patch Changes
