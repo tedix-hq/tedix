@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { sql } from "drizzle-orm";
 import {
 	osWorkspaceCollaborators,
 	osWorkspaceAccessEdges,
@@ -49,11 +50,12 @@ function fixture(...extraTables: Parameters<typeof schemaDdl>) {
 		schemaDdl(
 			osWorkspaces,
 			userConfigs,
+			osOutputs,
 			osWorkspaceCollaborators,
 			osWorkspaceAccessEdges,
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
-			...extraTables,
+			...extraTables.filter((table) => table !== osOutputs),
 		),
 	);
 	return createDbQueryClient(createD1Facade(sqlite));
@@ -128,6 +130,116 @@ describe("os workspaces", () => {
 			status: "active",
 		});
 		expect(filtered).toHaveLength(0);
+	});
+
+	it("keeps every private output behind an owner-only workspace after deletion", async () => {
+		const db = fixture();
+		await createOsWorkspace(db, {
+			...workspace,
+			visibility: "private",
+			ownerUserId: "u-1",
+		});
+		for (const kind of ["document", "sheet", "presentation"] as const) {
+			await db.insert(osOutputs).values({
+				id: kind,
+				organizationId: "org-1",
+				workspaceId: workspace.id,
+				kind,
+				title: kind,
+				createdByKind: "user",
+				createdById: "u-1",
+			});
+		}
+		expect(
+			await deleteOsWorkspace(db, {
+				organizationId: "org-2",
+				workspaceId: workspace.id,
+			}),
+		).toBe(false);
+		expect(
+			await deleteOsWorkspace(db, {
+				organizationId: "org-1",
+				workspaceId: workspace.id,
+			}),
+		).toBe(true);
+		expect(
+			await getOsWorkspace(db, {
+				organizationId: "org-1",
+				workspaceId: workspace.id,
+			}),
+		).toBeUndefined();
+		const [retained] = await listOsWorkspaces(db, "org-1", {
+			userIds: ["u-1"],
+		});
+		expect(retained).toMatchObject({
+			visibility: "private",
+			ownerUserId: "u-1",
+			status: "active",
+		});
+		expect(retained!.id).not.toBe(workspace.id);
+		expect(await listOsWorkspaces(db, "org-1", ANYONE)).toEqual([]);
+		const outputs = await db.select().from(osOutputs);
+		expect(outputs).toHaveLength(3);
+		expect(outputs.every((output) => output.workspaceId === retained!.id)).toBe(
+			true,
+		);
+	});
+
+	it("rolls back private output relocation if a restrictive reference prevents deletion", async () => {
+		const db = fixture();
+		await createOsWorkspace(db, {
+			...workspace,
+			visibility: "private",
+			ownerUserId: "u-1",
+		});
+		await db.insert(osOutputs).values({
+			id: "private-doc",
+			organizationId: "org-1",
+			workspaceId: workspace.id,
+			kind: "document",
+			title: "Private",
+			createdByKind: "user",
+			createdById: "u-1",
+		});
+		await db.run(
+			sql`CREATE TABLE workspace_holds (workspace_id TEXT REFERENCES os_workspaces(id) ON DELETE RESTRICT)`,
+		);
+		await db.run(
+			sql`INSERT INTO workspace_holds (workspace_id) VALUES (${workspace.id})`,
+		);
+		await expect(
+			deleteOsWorkspace(db, {
+				organizationId: "org-1",
+				workspaceId: workspace.id,
+			}),
+		).rejects.toThrow(/FOREIGN KEY/);
+		expect((await db.select().from(osOutputs))[0]?.workspaceId).toBe(
+			workspace.id,
+		);
+		expect(
+			(await listOsWorkspaces(db, "org-1", { userIds: ["u-1"] })).map(
+				(row) => row.id,
+			),
+		).toEqual([workspace.id]);
+		expect(await listOsWorkspaces(db, "org-1", ANYONE)).toEqual([]);
+	});
+
+	it("does not replace an empty private workspace", async () => {
+		const db = fixture();
+		await createOsWorkspace(db, {
+			...workspace,
+			visibility: "private",
+			ownerUserId: "u-1",
+		});
+		expect(
+			await deleteOsWorkspace(db, {
+				organizationId: "org-1",
+				workspaceId: workspace.id,
+			}),
+		).toBe(true);
+		expect(await listOsWorkspaces(db, "org-1", { userIds: ["u-1"] })).toEqual(
+			[],
+		);
 	});
 
 	it("deletes within tenant scope and reports whether a row went", async () => {

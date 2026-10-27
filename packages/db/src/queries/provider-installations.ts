@@ -7,11 +7,29 @@ import {
 } from "@tedix/api-contract/schemas/embedded-widget-access";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import {
 	providerInstallations,
 	type NewProviderInstallation,
 	type ProviderInstallation,
 } from "../schema/provider-installations";
+
+export async function hasProviderInstallationForWorkspace(
+	db: DbQueryClient,
+	params: { organizationId: string; workspaceId: string },
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: providerInstallations.id })
+		.from(providerInstallations)
+		.where(
+			and(
+				eq(providerInstallations.customerOrganizationId, params.organizationId),
+				eq(providerInstallations.primaryWorkspaceId, params.workspaceId),
+			),
+		)
+		.limit(1);
+	return row !== undefined;
+}
 
 export interface ProviderCapacitySponsorship {
 	installationId: string;
