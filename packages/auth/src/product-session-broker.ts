@@ -1,6 +1,7 @@
 import {
 	assertSessionBrokerRedirectPath,
-	assertSessionBrokerTargetOrigin,
+	assertSessionBrokerBoundTargetOrigin,
+	type SessionBrokerCustomHost,
 	type SessionBrokerOperation,
 	type SessionBrokerRpc,
 	type SessionBrokerSurface,
@@ -8,6 +9,7 @@ import {
 import { base64UrlDecode, base64UrlEncode } from "./utils";
 
 interface ProductSessionCorrelation {
+	customHost?: SessionBrokerCustomHost;
 	expiresAt: number;
 	intentId: string;
 	operation: SessionBrokerOperation;
@@ -19,6 +21,7 @@ interface ProductSessionCorrelation {
 }
 
 export interface ProductSessionBrokerOptions {
+	customHost?: SessionBrokerCustomHost;
 	broker: SessionBrokerRpc;
 	correlationCookie: `__Host-${string}`;
 	failureRedirectPath?: string;
@@ -213,10 +216,11 @@ export async function startProductSessionBroker(
 			});
 		}
 	}
-	const targetOrigin = assertSessionBrokerTargetOrigin(
+	const targetOrigin = assertSessionBrokerBoundTargetOrigin(
 		input.surface,
 		new URL(input.request.url).origin,
 		input.installationOsOrigin,
+		input.customHost,
 	);
 	const redirectPath = assertSessionBrokerRedirectPath(
 		input.redirectPath,
@@ -224,6 +228,7 @@ export async function startProductSessionBroker(
 	);
 	const state = randomState();
 	const result = await input.broker.createIntent({
+		customHost: input.customHost,
 		operation: input.operation,
 		redirectPath,
 		stateHash: await stateHash(state),
@@ -231,6 +236,7 @@ export async function startProductSessionBroker(
 		tenantId: input.tenantId,
 	});
 	const correlation: ProductSessionCorrelation = {
+		customHost: input.customHost,
 		expiresAt: result.expiresAt,
 		intentId: result.intentId,
 		operation: input.operation,
@@ -295,6 +301,7 @@ function escapeHtml(value: string): string {
  * refresh is a document-initiated navigation and needs no CSP allowance.
  */
 export function continueProductSessionBroker(input: {
+	customHost?: SessionBrokerCustomHost;
 	installationOsOrigin?: string;
 	redirectPath: string;
 	request: Request;
@@ -307,10 +314,11 @@ export function continueProductSessionBroker(input: {
 			headers: { Allow: "GET, HEAD", "Cache-Control": "no-store" },
 		});
 	}
-	const targetOrigin = assertSessionBrokerTargetOrigin(
+	const targetOrigin = assertSessionBrokerBoundTargetOrigin(
 		input.surface,
 		new URL(input.request.url).origin,
 		input.installationOsOrigin,
+		input.customHost,
 	);
 	const redirectPath = assertSessionBrokerRedirectPath(
 		input.redirectPath,
@@ -380,7 +388,13 @@ export async function finishProductSessionBroker(
 		input.request.headers.get("Cookie"),
 		input.correlationCookie,
 	);
-	if (!correlation || correlation.targetOrigin !== url.origin) {
+	if (
+		!correlation ||
+		correlation.targetOrigin !== url.origin ||
+		correlation.customHost?.organizationId !==
+			input.customHost?.organizationId ||
+		correlation.customHost?.tenantId !== input.customHost?.tenantId
+	) {
 		return callbackFailure(
 			input.correlationCookie,
 			input.productCookie,
@@ -391,10 +405,11 @@ export async function finishProductSessionBroker(
 		);
 	}
 	try {
-		assertSessionBrokerTargetOrigin(
+		assertSessionBrokerBoundTargetOrigin(
 			input.surface,
 			correlation.targetOrigin,
 			input.installationOsOrigin,
+			input.customHost,
 		);
 		assertSessionBrokerRedirectPath(
 			correlation.redirectPath,
@@ -435,6 +450,7 @@ export async function finishProductSessionBroker(
 	}
 	try {
 		const result = await input.broker.exchangeCode({
+			customHost: correlation.customHost,
 			code,
 			intentId,
 			stateHash: await stateHash(correlation.state),
@@ -451,7 +467,7 @@ export async function finishProductSessionBroker(
 			if (result.kind !== "session")
 				throw new Error("Unexpected logout result");
 			if (
-				correlation.operation === "issue_session" &&
+				(correlation.operation === "issue_session" || correlation.customHost) &&
 				result.tenantId !== correlation.tenantId
 			) {
 				throw new Error("Broker tenant mismatch");

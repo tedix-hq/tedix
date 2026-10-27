@@ -2710,3 +2710,87 @@ describe("organization custom hostname routing", () => {
 		).toBe(503);
 	});
 });
+
+describe("custom-host share sign-in return", () => {
+	it.each([false, true])(
+		"returns to /s only while the organization binding is unchanged (transfer=%s)",
+		async (transferred) => {
+			let organizationId = "org-acme";
+			const apiFetch = vi.fn(async () =>
+				Response.json({
+					json: {
+						provisioned: true,
+						slug: "acme",
+						organizationId,
+						descopeTenantId: "T-acme",
+					},
+				}),
+			);
+			const intentId = "i".repeat(43);
+			const createIntent = vi.fn(async () => ({
+				intentId,
+				authorizeUrl: `https://auth.tedix.dev/tedix/session/authorize?intent=${intentId}`,
+				expiresAt: Math.floor(Date.now() / 1000) + 600,
+			}));
+			const exchangeCode = vi.fn(async () => ({
+				kind: "session" as const,
+				tenantId: "T-acme",
+				subject: "user-acme",
+				sessionJwt: "custom-session",
+				expiresAt: Math.floor(Date.now() / 1000) + 600,
+			}));
+			const env = {
+				...assetsReturning("shell"),
+				API_SERVICE: { fetch: apiFetch },
+				OS_SESSION_BROKER: { createIntent, exchangeCode },
+			};
+			const start = await handleOsRequest(
+				new Request(
+					"https://share.example.com/auth/session-broker/start?redirect_to=%2Fs%2Fpermanent-link",
+					{ headers: { "Sec-Fetch-Site": "same-origin" } },
+				),
+				env,
+			);
+			expect(start.status).toBe(302);
+			expect(createIntent).toHaveBeenCalledWith(
+				expect.objectContaining({
+					customHost: { organizationId: "org-acme", tenantId: "T-acme" },
+					tenantId: "T-acme",
+					targetOrigin: "https://share.example.com",
+					redirectPath: "/s/permanent-link",
+				}),
+			);
+			if (transferred) organizationId = "org-other";
+			const callback = await handleOsRequest(
+				new Request(
+					`https://share.example.com/auth/session-broker/callback?intent=${intentId}&code=${"c".repeat(43)}`,
+					{
+						headers: {
+							Cookie: start.headers.getSetCookie()[0]!.split(";")[0]!,
+						},
+					},
+				),
+				env,
+			);
+			expect(apiFetch).toHaveBeenCalledTimes(2);
+			if (transferred) {
+				expect(exchangeCode).not.toHaveBeenCalled();
+				expect(callback.headers.get("Location")).toContain(
+					"error=invalid_request",
+				);
+			} else {
+				expect(callback.headers.get("Location")).toBe("/s/permanent-link");
+				expect(exchangeCode).toHaveBeenCalledWith(
+					expect.objectContaining({
+						customHost: { organizationId: "org-acme", tenantId: "T-acme" },
+					}),
+				);
+				const cookie = callback.headers
+					.getSetCookie()
+					.find((c) => c.startsWith("__Host-tedix-os-session=custom-session"))!;
+				expect(cookie).toContain("Secure; HttpOnly; SameSite=Lax");
+				expect(cookie).not.toContain("Domain=");
+			}
+		},
+	);
+});

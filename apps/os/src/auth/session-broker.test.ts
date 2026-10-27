@@ -249,3 +249,57 @@ describe("OS broker status", () => {
 		expect(cookies).toContain(`${CLI_BROKER_CORRELATION_COOKIE}=;`);
 	});
 });
+
+describe("custom hostname sign-in", () => {
+	it("binds sign-in and its /s return to the freshly resolved organization", async () => {
+		const createIntent = vi.fn(async () => ({
+			authorizeUrl:
+				"https://auth.tedix.dev/tedix/session/authorize?intent=custom",
+			intentId: "i".repeat(43),
+			expiresAt: Math.floor(Date.now() / 1000) + 600,
+		}));
+		const response = await handleOsSessionBroker(
+			new Request(
+				"https://share.example.com/auth/session-broker/start?redirect_to=%2Fs%2Fpermanent-link&tenant_id=T-other",
+				{
+					headers: { "Sec-Fetch-Site": "same-origin" },
+				},
+			),
+			{ OS_SESSION_BROKER: { createIntent, exchangeCode: vi.fn() } },
+			{ kind: "tenant", slug: "acme" },
+			"T-acme",
+			{ organizationId: "org-acme", tenantId: "T-acme" },
+		);
+		expect(response?.status).toBe(302);
+		expect(createIntent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				customHost: { organizationId: "org-acme", tenantId: "T-acme" },
+				targetOrigin: "https://share.example.com",
+				tenantId: "T-acme",
+				operation: "issue_session",
+				redirectPath: "/s/permanent-link",
+			}),
+		);
+	});
+
+	it("keeps the same-origin start guard on custom hosts", async () => {
+		const createIntent = vi.fn();
+		const response = await handleOsSessionBroker(
+			new Request(
+				"https://share.example.com/auth/session-broker/start?redirect_to=%2Fs%2Fpermanent-link",
+				{
+					headers: {
+						"Sec-Fetch-Site": "cross-site",
+						Referer: "https://attacker.example/",
+					},
+				},
+			),
+			{ OS_SESSION_BROKER: { createIntent, exchangeCode: vi.fn() } },
+			{ kind: "tenant", slug: "acme" },
+			"T-acme",
+			{ organizationId: "org-acme", tenantId: "T-acme" },
+		);
+		expect(response?.status).toBe(403);
+		expect(createIntent).not.toHaveBeenCalled();
+	});
+});

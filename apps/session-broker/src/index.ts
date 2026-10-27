@@ -1,3 +1,4 @@
+import { assertFreshCustomHost } from "./custom-host";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import {
 	assertSessionBrokerIntent,
@@ -764,6 +765,7 @@ async function createIntentForSurface(
 		issuedAt,
 		brokerOrigins(env).osOrigin,
 	);
+	await assertFreshCustomHost(env.API_SERVICE, intent);
 	const created =
 		await env.SESSION_INTENTS.getByName(intentId).initialize(intent);
 	if (!created) throw new Error("Session broker intent collision");
@@ -1013,6 +1015,12 @@ async function authorize(request: Request, env: BrokerEnv): Promise<Response> {
 	const intentOwner = env.SESSION_INTENTS.getByName(intentId);
 	const intent = await intentOwner.readPending();
 	if (!intent) {
+		return unavailableIntentResponse(osOrigin ?? "https://os.tedix.dev");
+	}
+	try {
+		await assertFreshCustomHost(env.API_SERVICE, intent);
+	} catch {
+		await intentOwner.fail();
 		return unavailableIntentResponse(osOrigin ?? "https://os.tedix.dev");
 	}
 	const brokerRefreshValues = distinctCookieValues(

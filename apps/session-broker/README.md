@@ -42,10 +42,12 @@ through one-time grants.
 Cookie serialization derives the Descope-readable twin's domain from the
 already-routed broker request hostname. Expiry clears host-only and exact-host
 cookies; only `auth.tedix.dev` also clears historical `.tedix.dev` cookies.
-This is an own-installation prerequisite, not custom-domain deployment support:
-the public host allowlist, product target origins, and central login redirects
-still require portability work. The broker and Descope must share the auth host
-so their `DSR` writes replace the same cookie identity.
+The broker and Descope must share the auth host so their `DSR` writes replace
+the same cookie identity. Custom OS hosts use a separate organization and
+tenant binding, checked against the fresh active claim through the API service
+binding at intent creation, authorization, and code exchange. Removed or
+transferred hosts cannot receive a session. The static product-origin allowlist
+stays unchanged; other product surfaces cannot use this custom-host path.
 
 Product sessions remain the sole browser credential accepted by their Worker.
 Products contain no direct Descope refresh, tenant-selection, or session-cookie
