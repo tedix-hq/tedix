@@ -6,8 +6,9 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { isWorkspaceLinkResource } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { type ReactNode, useState } from "react";
+import { ResourceCard } from "@/components/resource-card";
 import { OutputPreview } from "@/components/output-preview";
-import { CreateDocumentButton } from "@/components/create-document-dialog";
+import { NewResourceMenu } from "@/components/create-document-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -32,7 +33,6 @@ import {
 } from "@/lib/canvas-deliverables";
 import type { CanvasDocSelection } from "@/lib/canvas-search";
 import { SURFACE_ICONS } from "@/lib/surface-icons";
-import { cn } from "@/lib/utils";
 import { WorkspaceAppCards } from "@/components/workspace-app-cards";
 import { WorkspaceRunners } from "@/components/workspace-runners";
 import { WorkspaceSchedules } from "@/components/workspace-schedules";
@@ -81,46 +81,24 @@ function DocButton({
 	selected: boolean;
 	onSelect: () => void;
 	children: ReactNode;
-	item?: OsOutputLibraryItem;
+	item: OsOutputLibraryItem;
 }) {
 	return (
-		<Button
-			disabled={item?.preview.kind === "unavailable"}
-			aria-current={selected || undefined}
-			multiline
-			onClick={onSelect}
-			size="sm"
-			variant={selected ? "secondary" : "ghost"}
-			className={cn(
-				"w-full min-w-0 justify-start overflow-hidden px-3 py-2 text-left",
-				item &&
-					"h-auto flex-col items-stretch rounded-xl border border-kumo-line p-0",
-				/*
-				 * Selection paints the solid control step, not the tint. Tint is the
-				 * hover token, and the type badge on the right is ALSO tint — so a
-				 * tinted row made that badge vanish, leaving the selected row the
-				 * only one without a visible chip. This is the same rule the shell
-				 * nav follows.
-				 */
-				selected && "bg-kumo-control",
-			)}
+		<ResourceCard
+			label={`Open ${item.output.title}`}
+			selected={selected}
+			disabled={item.preview.kind === "unavailable"}
+			onOpen={onSelect}
+			preview={
+				<div data-workspace-output-preview className="h-full">
+					<OutputPreview preview={item.preview} />
+				</div>
+			}
 		>
-			{item ? (
-				<>
-					<div
-						data-workspace-output-preview
-						className="h-36 w-full overflow-hidden border-b border-kumo-line"
-					>
-						<OutputPreview preview={item.preview} />
-					</div>
-					<span className="flex w-full min-w-0 flex-wrap items-center gap-2 p-3">
-						{children}
-					</span>
-				</>
-			) : (
-				children
-			)}
-		</Button>
+			<div className="flex min-w-0 flex-wrap items-center gap-2">
+				{children}
+			</div>
+		</ResourceCard>
 	);
 }
 
@@ -195,7 +173,7 @@ export function CanvasResourceRail({
 						</p>
 					</div>
 					{workspaceId && (
-						<CreateDocumentButton
+						<NewResourceMenu
 							workspaceId={workspaceId}
 							onCreated={(output) => onSelectOutput(output.id)}
 						/>

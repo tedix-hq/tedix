@@ -1,9 +1,9 @@
+import "./workspace-app-cards.css";
 import { AppWindow, Cards } from "@phosphor-icons/react";
 import type { CardReviewConfig } from "@tedix/api-contract/schemas/os-card-review";
 import type { OsGadget } from "@tedix/api-contract/schemas/os-workspaces";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/kumo/badge";
-import { Button } from "@/components/kumo/button";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import {
@@ -17,7 +17,7 @@ import {
 	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,
 } from "@/lib/os-query-options";
-import { cn } from "@/lib/utils";
+import { ResourceCard } from "@/components/resource-card";
 import {
 	appKindLabel,
 	appPurpose,
@@ -58,16 +58,18 @@ export function WorkspaceAppCards({
 	);
 }
 
-function WorkspaceAppCard({
+export function WorkspaceAppCard({
 	workspaceId,
 	gadget,
 	selected,
 	onOpen,
+	layout = "grid",
 }: {
 	workspaceId: string;
 	gadget: Pick<OsGadget, "id" | "name" | "description">;
 	selected: boolean;
 	onOpen: () => void;
+	layout?: "grid" | "list";
 }) {
 	const detail = useQuery(
 		canvasGadgetDetailQueryOptions(workspaceId, gadget.id),
@@ -84,105 +86,83 @@ function WorkspaceAppCard({
 		: detail.data
 			? appKindLabel(manifest)
 			: null;
-	const titleId = `workspace-app-${gadget.id}`;
 
 	return (
-		<article
-			aria-labelledby={titleId}
-			className={cn("workspace-app-card", selected && "bg-kumo-control")}
-			data-workspace-app={gadget.id}
-		>
-			<Button
-				variant="ghost"
-				multiline
-				className="workspace-app-preview"
-				onClick={onOpen}
-				aria-label={`Open ${gadget.name}`}
-				tabIndex={-1}
-			>
-				{config ? (
-					summary === null ? (
-						<Skeleton className="h-full w-full" />
-					) : summary.next ? (
-						<span className="workspace-app-preview-card" aria-hidden>
-							<span className="flex min-w-0 items-center gap-2">
-								<Badge variant="secondary">{summary.next.channel}</Badge>
+		<ResourceCard
+			openLabel="Open app"
+			layout={layout}
+			title={gadget.name}
+			label={`Open ${gadget.name}`}
+			selected={selected}
+			onOpen={onOpen}
+			resourceId={gadget.id}
+			preview={
+				<div className="workspace-app-preview h-full">
+					{config ? (
+						summary === null ? (
+							<Skeleton className="h-full w-full" />
+						) : summary.next ? (
+							<span className="workspace-app-preview-card" aria-hidden>
+								<span className="flex min-w-0 items-center gap-2">
+									<Badge variant="secondary">{summary.next.channel}</Badge>
+									<Text
+										as="span"
+										role="label"
+										tone="strong"
+										weight="medium"
+										className="min-w-0 truncate"
+									>
+										{summary.next.who ||
+											sourceParts(summary.next.sourceText).label}
+									</Text>
+								</span>
 								<Text
 									as="span"
 									role="label"
-									tone="strong"
-									weight="medium"
-									className="min-w-0 truncate"
+									tone="secondary"
+									className="line-clamp-2"
 								>
-									{summary.next.who ||
-										sourceParts(summary.next.sourceText).label}
+									{summary.next.why}
+								</Text>
+								<span className="workspace-app-preview-actions">
+									<span>Useful</span>
+									<span>Not useful</span>
+									<span>Do it</span>
+								</span>
+							</span>
+						) : (
+							<span className="workspace-app-preview-empty" aria-hidden>
+								<Cards size={28} />
+								<Text as="span" role="label" tone="secondary">
+									All caught up
 								</Text>
 							</span>
-							<Text
-								as="span"
-								role="label"
-								tone="secondary"
-								className="line-clamp-2"
-							>
-								{summary.next.why}
-							</Text>
-							<span className="workspace-app-preview-actions">
-								<span>Useful</span>
-								<span>Not useful</span>
-								<span>Do it</span>
-							</span>
-						</span>
+						)
 					) : (
 						<span className="workspace-app-preview-empty" aria-hidden>
-							<Cards size={28} />
-							<Text as="span" role="label" tone="secondary">
-								All caught up
-							</Text>
+							<AppWindow size={28} />
 						</span>
-					)
-				) : (
-					<span className="workspace-app-preview-empty" aria-hidden>
-						<AppWindow size={28} />
-					</span>
-				)}
-			</Button>
-			<div className="workspace-app-body">
-				<Text
-					as="h3"
-					id={titleId}
-					role="section"
-					tone="strong"
-					weight="semibold"
-					className="m-0 truncate"
-				>
-					{gadget.name}
-				</Text>
-				{purpose && (
-					<Text as="p" role="body" tone="secondary" className="m-0">
-						{purpose}
-					</Text>
-				)}
-				<div className="workspace-app-footer">
-					{status ? (
-						<Text
-							as="p"
-							role="label"
-							tone={summary && summary.waiting > 0 ? "strong" : "secondary"}
-							weight={summary && summary.waiting > 0 ? "medium" : "normal"}
-							className="m-0"
-							data-workspace-app-status
-						>
-							{status}
-						</Text>
-					) : (
-						<span />
 					)}
-					<Button size="sm" variant="outline" onClick={onOpen}>
-						Open app
-					</Button>
 				</div>
-			</div>
-		</article>
+			}
+		>
+			{purpose && (
+				<Text as="p" role="body" tone="secondary" className="m-0">
+					{purpose}
+				</Text>
+			)}
+			{status && (
+				<Text
+					as="p"
+					role="label"
+					tone="secondary"
+					className="m-0"
+					data-workspace-app-status
+				>
+					{status}
+				</Text>
+			)}
+		</ResourceCard>
 	);
 }
 

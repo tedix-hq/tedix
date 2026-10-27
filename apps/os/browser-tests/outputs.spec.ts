@@ -181,7 +181,9 @@ try {
 			);
 			await page.goto(`${origin}/outputs`);
 			const library = page.locator(".outputs-library");
-			const card = library.locator(".output-grid-card").first();
+			const card = library
+				.locator(".output-grid-card:not([data-workspace-app])")
+				.first();
 			await card.waitFor();
 			const title = card.locator("strong");
 			assert.equal(
@@ -241,7 +243,9 @@ try {
 			await library
 				.getByRole("button", { name: "List view", exact: true })
 				.click();
-			const row = library.locator(".output-list-row").first();
+			const row = library
+				.locator(".output-list-row:not([data-workspace-app])")
+				.first();
 			await row.waitFor();
 			assert.equal(
 				await row

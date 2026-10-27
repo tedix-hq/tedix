@@ -1,4 +1,11 @@
 import { Text } from "@/components/kumo/text";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLinkItem,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
 import { Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsOutput } from "@tedix/api-contract/schemas/os-workspaces";
@@ -36,16 +43,38 @@ import {
 
 type Props = { workspaceId?: string; onCreated: (output: OsOutput) => void };
 
-export function CreateDocumentButton(props: Props) {
-	const [open, setOpen] = useState(false);
+type CreationKind = "document" | "sheet" | "presentation";
+
+export function NewResourceMenu(props: Props) {
+	const [kind, setKind] = useState<CreationKind | null>(null);
 	return (
 		<>
-			<Button size="sm" onClick={() => setOpen(true)}>
-				<Plus size={16} />
-				New document
-			</Button>
-			{open && (
-				<CreateDocumentDialog {...props} onClose={() => setOpen(false)} />
+			<DropdownMenu>
+				<DropdownMenuTrigger render={<Button size="sm" />}>
+					<Plus size={16} />
+					New
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="end">
+					<DropdownMenuItem onClick={() => setKind("document")}>
+						Document
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={() => setKind("sheet")}>
+						Sheet
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={() => setKind("presentation")}>
+						Slides
+					</DropdownMenuItem>
+					<DropdownMenuLinkItem href="/blueprints">
+						App from template
+					</DropdownMenuLinkItem>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			{kind && (
+				<CreateDocumentDialog
+					{...props}
+					kind={kind}
+					onClose={() => setKind(null)}
+				/>
 			)}
 		</>
 	);
@@ -55,7 +84,10 @@ export function CreateDocumentDialog({
 	workspaceId,
 	onCreated,
 	onClose,
-}: Props & { onClose: () => void }) {
+	kind = "document",
+}: Props & { onClose: () => void; kind?: CreationKind }) {
+	const label = kind === "presentation" ? "slides" : kind;
+	const defaultTitle = `Untitled ${label}`;
 	const queryClient = useQueryClient();
 	const [title, setTitle] = useState("");
 	const [templateId, setTemplateId] = useState<DocumentTemplateId>("blank");
@@ -98,14 +130,24 @@ export function CreateDocumentDialog({
 	const createDocument = () => {
 		const cleanTitle =
 			title.trim() ||
-			(templateId === "blank" ? "Untitled document" : template.name);
+			(kind !== "document" || templateId === "blank"
+				? defaultTitle
+				: template.name);
 		create.mutate({
-			kind: "document",
+			kind,
 			title: cleanTitle,
 			...(selectedWorkspace === "none"
 				? {}
 				: { workspaceId: selectedWorkspace }),
-			content: documentFromTemplate(templateId, cleanTitle),
+			content:
+				kind === "sheet"
+					? { kind: "sheet", columns: ["A", "B", "C"], rows: [] }
+					: kind === "presentation"
+						? {
+								kind: "presentation",
+								slides: [{ title: cleanTitle, bullets: [] }],
+							}
+						: documentFromTemplate(templateId, cleanTitle),
 		});
 	};
 	return (
@@ -117,10 +159,12 @@ export function CreateDocumentDialog({
 		>
 			<DialogContent showCloseButton={!create.isPending}>
 				<DialogHeader>
-					<DialogTitle>New document</DialogTitle>
+					<DialogTitle>New {label}</DialogTitle>
 					<DialogDescription>
-						Start from a blank page or a working template. You can edit
-						everything afterwards.
+						{kind === "document"
+							? "Start from a blank page or a working template."
+							: "Start with an editable blank file."}{" "}
+						You can edit everything afterwards.
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -134,40 +178,45 @@ export function CreateDocumentDialog({
 						<Label htmlFor="new-document-title">Title</Label>
 						<Input
 							id="new-document-title"
+							aria-label="Title"
 							value={title}
 							onChange={(event) => setTitle(event.target.value)}
 							placeholder={
-								templateId === "blank" ? "Untitled document" : template.name
+								kind !== "document" || templateId === "blank"
+									? defaultTitle
+									: template.name
 							}
 							maxLength={120}
 							disabled={create.isPending}
 							autoFocus
 						/>
 					</div>
-					<div className="grid gap-2">
-						<Label htmlFor="new-document-template">Template</Label>
-						<Select
-							value={templateId}
-							onValueChange={(value) => {
-								if (value) setTemplateId(value as DocumentTemplateId);
-							}}
-							disabled={create.isPending}
-						>
-							<SelectTrigger id="new-document-template">
-								<SelectValue>{template.name}</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{documentTemplates.map((item) => (
-									<SelectItem key={item.id} value={item.id}>
-										{item.name}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<Text role="label" tone="secondary">
-							{template.description}
-						</Text>
-					</div>
+					{kind === "document" && (
+						<div className="grid gap-2">
+							<Label htmlFor="new-document-template">Template</Label>
+							<Select
+								value={templateId}
+								onValueChange={(value) => {
+									if (value) setTemplateId(value as DocumentTemplateId);
+								}}
+								disabled={create.isPending}
+							>
+								<SelectTrigger id="new-document-template">
+									<SelectValue>{template.name}</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									{documentTemplates.map((item) => (
+										<SelectItem key={item.id} value={item.id}>
+											{item.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Text role="label" tone="secondary">
+								{template.description}
+							</Text>
+						</div>
+					)}
 					{!workspaceId && (
 						<div className="grid gap-2">
 							<Label htmlFor="new-document-workspace">Workspace</Label>
@@ -217,7 +266,7 @@ export function CreateDocumentDialog({
 					)}
 					{create.isError && (
 						<Alert variant="destructive">
-							<AlertTitle>Document not created</AlertTitle>
+							<AlertTitle>{label} not created</AlertTitle>
 							<AlertDescription>{create.error.message}</AlertDescription>
 						</Alert>
 					)}
@@ -231,7 +280,7 @@ export function CreateDocumentDialog({
 							Cancel
 						</Button>
 						<Button type="submit" loading={create.isPending}>
-							Create document
+							Create {label}
 						</Button>
 					</DialogFooter>
 				</form>
