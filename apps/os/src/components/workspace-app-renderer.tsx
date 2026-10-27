@@ -1,3 +1,4 @@
+import { ORGANIZATION_DOMAIN_ENTRY } from "@tedix/api-contract/schemas/organization-domains";
 import {
 	WORK_DISPATCH_ENTRY,
 	WorkDispatchConfigSchema,
@@ -71,6 +72,12 @@ const SystemMapApp = lazy(() =>
 	import("./system-map-app").then((m) => ({ default: m.SystemMapApp })),
 );
 
+const OrganizationDomainApp = lazy(() =>
+	import("./organization-domain-app").then((m) => ({
+		default: m.OrganizationDomainApp,
+	})),
+);
+
 const Portfolio = lazy(() =>
 	import("./organization-portfolio-app").then((m) => ({
 		default: m.OrganizationPortfolioApp,
@@ -114,6 +121,13 @@ function InstalledApp({
 	activityFeed?: ActivityFeedNavigation;
 }) {
 	const entry = manifest.entry.trim();
+	if (
+		entry === ORGANIZATION_DOMAIN_ENTRY &&
+		typeof manifest.config?.organizationId === "string"
+	)
+		return (
+			<OrganizationDomainApp organizationId={manifest.config.organizationId} />
+		);
 	if (
 		entry === "tedix:app/portfolio" ||
 		entry === "tedix:app/portfolio-settings"

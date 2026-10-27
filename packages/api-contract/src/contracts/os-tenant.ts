@@ -23,6 +23,17 @@ export const osTenantContract = oc
 	.route({ tags: ["os-tenant", "internal"], prefix: "/os-tenant" })
 	.errors(baseErrors)
 	.router({
+		resolveHostname: oc
+			.input(z.object({ hostname: z.string().min(1).max(253) }))
+			.output(
+				z.object({
+					provisioned: z.boolean(),
+					slug: z.string().nullable(),
+					organizationId: z.string().nullable(),
+					descopeTenantId: z.string().nullable(),
+					identityProvider: z.literal("oidc").optional(),
+				}),
+			),
 		resolve: oc
 			.route({
 				method: "POST",

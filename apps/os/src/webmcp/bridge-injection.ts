@@ -109,6 +109,7 @@ interface HtmlRewriterLike {
 export function injectWebMcpBridge(
 	response: Response,
 	kind: OsTenantKind,
+	customTenantSlug?: string,
 ): Response {
 	if (!shouldInjectWebMcpBridge(kind, response)) return response;
 	const Rewriter = (globalThis as { HTMLRewriter?: new () => HtmlRewriterLike })
@@ -117,6 +118,14 @@ export function injectWebMcpBridge(
 	return new Rewriter()
 		.on("head", {
 			element(element) {
+				if (
+					customTenantSlug &&
+					/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(customTenantSlug)
+				)
+					element.append(
+						`<meta name="tedix-custom-host-tenant" content="${customTenantSlug}">`,
+						{ html: true },
+					);
 				element.append(webMcpBridgeTag(), { html: true });
 			},
 		})

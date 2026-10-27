@@ -1,3 +1,5 @@
+import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
+import { ORGANIZATION_DOMAIN_ENTRY } from "@tedix/api-contract/schemas/organization-domains";
 import { WebPushSettings } from "@/components/web-push-settings";
 import type {
 	OsUserPreferences,
@@ -456,6 +458,7 @@ export function SettingsPage({
 } = {}) {
 	useOsFormattingPreferences();
 	const identity = useOsIdentity();
+	const operationalContext = useOsOperationalContext();
 	const localEvaluation =
 		__LOCAL_DEMO_ENABLED__ &&
 		resolveOsTenant(window.location.hostname).kind === "local";
@@ -686,6 +689,23 @@ export function SettingsPage({
 
 			{!localEvaluation && <WebPushSettings />}
 			{!localEvaluation && <PersonalAgentValue />}
+			{!localEvaluation &&
+				operationalContext.data &&
+				["owner", "admin"].includes(
+					operationalContext.data.authority.role ?? "",
+				) && (
+					<PageSection>
+						<WorkspaceAppRenderer
+							manifest={{
+								entry: ORGANIZATION_DOMAIN_ENTRY,
+								capabilities: [],
+								config: {
+									organizationId: operationalContext.data.organization.id,
+								},
+							}}
+						/>
+					</PageSection>
+				)}
 			<OperationalContextSection
 				localEvaluation={localEvaluation}
 				localInferenceEnabled={__LOCAL_INFERENCE_ENABLED__}

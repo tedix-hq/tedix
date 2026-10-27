@@ -1208,6 +1208,10 @@
 		{
 			"name": "20261027070505_agent-request-approvals/migration.sql",
 			"sha256": "67c20dfc85e11f8fdd1ea075b8d396ebe0433de9418c4a27c9739c1bbc8fc8e5"
+		},
+		{
+			"name": "20261027115059_organization-domains/migration.sql",
+			"sha256": "4f22c2b9a09a07bf992b1aa5b53ac28f050c176c8da39d013174b0fc15035103"
 		}
 	]
 }

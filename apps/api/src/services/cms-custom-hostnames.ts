@@ -39,10 +39,11 @@ interface CfResponse<T> {
 	errors?: Array<{ code?: number; message?: string }>;
 }
 
-function assertHostname(hostname: string): string {
+export function assertCustomHostname(hostname: string): string {
 	const normalized = hostname.toLowerCase().replace(/\.$/, "");
 	if (
 		normalized.length > 253 ||
+		normalized.split(".").some((label) => label.length > 63) ||
 		!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$/.test(
 			normalized,
 		) ||
@@ -115,14 +116,14 @@ export function createCmsDomainVerificationToken(): string {
 }
 
 export function cmsDomainVerificationName(hostname: string): string {
-	return `_tedix-cms.${assertHostname(hostname)}`;
+	return `_tedix-cms.${assertCustomHostname(hostname)}`;
 }
 
 export async function createCmsCustomHostname(
 	env: CmsCustomHostnameEnv,
 	hostname: string,
 ): Promise<CmsCustomHostname> {
-	const exact = assertHostname(hostname);
+	const exact = assertCustomHostname(hostname);
 	const result = await request<CmsCustomHostname>(env, "POST", "", {
 		body: {
 			hostname: exact,
@@ -151,7 +152,7 @@ export async function findCmsCustomHostname(
 	env: CmsCustomHostnameEnv,
 	hostname: string,
 ): Promise<CmsCustomHostname | null> {
-	const exact = assertHostname(hostname);
+	const exact = assertCustomHostname(hostname);
 	const query = new URLSearchParams({ "hostname.exact": exact, per_page: "2" });
 	const result = await request<CmsCustomHostname[]>(
 		env,
@@ -169,7 +170,7 @@ export async function deleteCmsCustomHostname(
 ): Promise<boolean> {
 	if (!/^[a-zA-Z0-9-]{1,64}$/.test(id))
 		throw new Error("Invalid CMS custom hostname ID");
-	const exact = assertHostname(expectedHostname);
+	const exact = assertCustomHostname(expectedHostname);
 	const current = await getCmsCustomHostname(env, id);
 	if (!current) return false;
 	if (current.hostname.toLowerCase() !== exact)
@@ -196,6 +197,7 @@ async function dnsRecords(hostname: string, type: "TXT" | "CNAME" | "SOA") {
 	url.searchParams.set("type", type);
 	const response = await fetch(url, {
 		headers: { Accept: "application/dns-json" },
+		signal: AbortSignal.timeout(10_000),
 	});
 	if (!response.ok) throw new Error(`CMS DNS check failed: ${response.status}`);
 	const body = (await response.json()) as DnsJson;
@@ -207,10 +209,11 @@ async function dnsRecords(hostname: string, type: "TXT" | "CNAME" | "SOA") {
 export async function verifyCmsDnsChallenge(
 	hostname: string,
 	verificationToken: string,
+	verificationName = cmsDomainVerificationName(hostname),
 ): Promise<boolean> {
 	if (!/^[a-f0-9]{64}$/.test(verificationToken))
 		throw new Error("Invalid CMS domain verification token");
-	const name = cmsDomainVerificationName(hostname);
+	const name = verificationName;
 	const records = await dnsRecords(name, "TXT");
 	return records.some(
 		(record) =>
@@ -225,10 +228,15 @@ export async function verifyCmsDnsChallenge(
 export async function verifyCmsDnsTarget(
 	hostname: string,
 	expectedTarget: string,
+	surface: "cms" | "os" = "cms",
 ): Promise<boolean> {
-	const normalized = assertHostname(hostname);
+	const normalized = assertCustomHostname(hostname);
 	const target = expectedTarget.toLowerCase().replace(/\.$/, "");
-	if (!/^[a-z0-9]+(?:-[a-z0-9]+)*\.cms\.tedix\.dev$/.test(target))
+	if (
+		!(surface === "cms"
+			? /^[a-z0-9]+(?:-[a-z0-9]+)*\.cms\.tedix\.dev$/.test(target)
+			: target === "os.tedix.dev")
+	)
 		throw new Error("Invalid CMS SaaS target");
 	const records = await dnsRecords(normalized, "CNAME");
 	return records.some(
@@ -242,7 +250,7 @@ export async function verifyCmsDnsTarget(
 /** A flattened apex CNAME has no public CNAME answer. The provider's active
  * hostname and certificate supply the target proof before activation. */
 export async function verifyCmsDnsZoneApex(hostname: string): Promise<boolean> {
-	const normalized = assertHostname(hostname);
+	const normalized = assertCustomHostname(hostname);
 	const records = await dnsRecords(normalized, "SOA");
 	return records.some(
 		(record) =>

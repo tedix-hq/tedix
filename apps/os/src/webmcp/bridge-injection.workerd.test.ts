@@ -66,3 +66,21 @@ describe("injectWebMcpBridge (workerd)", () => {
 		expect(await result.text()).toBe('{"ok":true}');
 	});
 });
+
+it("injects only a validated custom-host tenant hint into the document head", async () => {
+	const response = injectWebMcpBridge(stampedShell(), "tenant", "alpha");
+	const html = await response.text();
+	expect(html).toContain(
+		'<meta name="tedix-custom-host-tenant" content="alpha">',
+	);
+	expect(html.indexOf('name="tedix-custom-host-tenant"')).toBeLessThan(
+		html.indexOf("</head>"),
+	);
+	expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+	const invalid = await injectWebMcpBridge(
+		stampedShell(),
+		"tenant",
+		'"><script>bad</script>',
+	).text();
+	expect(invalid).not.toContain("tedix-custom-host-tenant");
+});

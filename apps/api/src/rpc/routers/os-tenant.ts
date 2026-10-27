@@ -1,3 +1,5 @@
+import { createDbClient } from "@tedix/db/client";
+import { resolveOrganizationHostname } from "@tedix/db/queries/organization-domains";
 import { implement } from "@orpc/server";
 import { osTenantContract } from "@tedix/api-contract/contracts/os-tenant";
 import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
@@ -31,4 +33,24 @@ const resolve = service.resolve.handler(async ({ input, context }) => {
 	};
 });
 
-export const osTenantContractRouter = osTenantOs.router({ resolve });
+const resolveHostname = service.resolveHostname.handler(
+	async ({ input, context }) => {
+		const row = await resolveOrganizationHostname(
+			context.env.DB ? createDbClient(context.env.DB) : context.db,
+			input.hostname,
+		);
+		return {
+			provisioned: Boolean(row),
+			slug: row?.slug ?? null,
+			organizationId: row?.organizationId ?? null,
+			descopeTenantId: row?.descopeTenantId ?? null,
+			...(row?.metadata?.identityProvider?.kind === "oidc"
+				? { identityProvider: "oidc" as const }
+				: {}),
+		};
+	},
+);
+export const osTenantContractRouter = osTenantOs.router({
+	resolve,
+	resolveHostname,
+});

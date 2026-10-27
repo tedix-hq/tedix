@@ -11,8 +11,8 @@ export type OsTenantRoute =
  * Resolve an OS hostname to its route. A thin re-derivation of the single
  * hostname-grammar authority in `@tedix/tenant-directory`. Production uses
  * `*.os.tedix.dev`; the explicit shared-production development lane uses the
- * identical grammar under `*.os.tedix.tech`. Both remain exact Tedix-owned
- * surfaces: arbitrary custom domains still fail closed to `invalid`.
+ * identical grammar under `*.os.tedix.tech`. Custom hosts need an edge-injected tenant hint from a fresh verified claim;
+ * arbitrary hostnames otherwise fail closed to `invalid`.
  */
 export function resolveOsTenant(
 	hostname: string,
@@ -21,6 +21,19 @@ export function resolveOsTenant(
 		: undefined,
 ): OsTenantRoute {
 	const normalizedHostname = hostname.trim().toLowerCase().replace(/\.$/, "");
+	// The edge emits this only after a fresh active-claim lookup. This is a UI
+	// routing hint; API calls still prove membership in the asserted host tenant.
+	if (
+		typeof document !== "undefined" &&
+		typeof window !== "undefined" &&
+		normalizedHostname === window.location.hostname
+	) {
+		const slug = document.querySelector<HTMLMetaElement>(
+			'meta[name="tedix-custom-host-tenant"]',
+		)?.content;
+		if (slug && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
+			return { kind: "tenant", slug };
+	}
 	if (installationOsOrigin && installationOsOrigin !== "https://os.tedix.dev") {
 		// A standalone installation serves only its declared launcher host. It
 		// cannot claim arbitrary workers.dev siblings as tenant subdomains.

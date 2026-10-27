@@ -6,7 +6,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
-import { organizations } from "@tedix/db/schema";
+import { organizations, cmsDomainClaims } from "@tedix/db/schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
@@ -83,5 +83,38 @@ describe("osTenant.resolve", () => {
 			organizationId: null,
 			descopeTenantId: null,
 		});
+	});
+});
+
+describe("osTenant.resolveHostname", () => {
+	beforeEach(() => {
+		sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(schemaDdl(organizations, cmsDomainClaims));
+		sqlite.exec("CREATE TABLE cms_sites (id TEXT PRIMARY KEY)");
+		seedOrganization("alpha", JSON.stringify({ os: true }));
+		sqlite.exec(
+			`INSERT INTO cms_domain_claims (id,organization_id,hostname,kind,verification_token,provider_hostname_id,status,expires_at,created_at,updated_at) VALUES ('domain','org-alpha','share.example.com','organization','proof','provider','active','2027-01-01','2026-01-01','2026-01-01');`,
+		);
+	});
+	it("requires service authentication and re-reads claim removal on every lookup", async () => {
+		const api = createRouterClient(osTenantContractRouter, {
+			context: context(true),
+		});
+		await expect(
+			createRouterClient(osTenantContractRouter, {
+				context: context(false),
+			}).resolveHostname({ hostname: "share.example.com" }),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		expect(
+			await api.resolveHostname({ hostname: "share.example.com" }),
+		).toMatchObject({
+			provisioned: true,
+			organizationId: "org-alpha",
+			slug: "alpha",
+		});
+		sqlite.exec("UPDATE cms_domain_claims SET status='removing'");
+		expect(
+			await api.resolveHostname({ hostname: "share.example.com" }),
+		).toMatchObject({ provisioned: false, organizationId: null, slug: null });
 	});
 });
