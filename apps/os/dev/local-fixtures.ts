@@ -14,6 +14,8 @@ import {
 	hasAppConflictMarkers,
 } from "@tedix/api-contract/utils/app-draft-merge";
 import type { OsAppDraftContent } from "@tedix/api-contract/schemas/os-workspaces";
+import type { OrganizationDomainSchema } from "@tedix/api-contract/schemas/organization-domains";
+import type * as z from "zod";
 import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 import { LOCAL_OUTBOUND } from "./outbound-fixture";
 import { decisionGraphFixture } from "./decision-graph-fixture";
@@ -1366,6 +1368,7 @@ export function resetLocalFixtures(): void {
 	localCollaborators.clear();
 	localCollaboratorLinks.clear();
 	localShareLinks.clear();
+	localCustomDomain = null;
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
 	else installWorkViewFixtures();
 }
@@ -5062,6 +5065,7 @@ const localCollaborators = new Map<string, LocalCollaborator[]>();
 const localCollaboratorLinks = new Map<string, LocalCollaboratorLink[]>();
 /** Share links per resource; the token is returned once and never kept. */
 const localShareLinks = new Map<string, OsShareLink[]>();
+let localCustomDomain: z.infer<typeof OrganizationDomainSchema> | null = null;
 
 function findLocalShareLink(shareId: string): OsShareLink {
 	for (const links of localShareLinks.values()) {
@@ -6746,20 +6750,37 @@ const handlers: Record<string, (input: never) => unknown> = {
 		member: ORG_MEMBERSHIP.member,
 		created: { organization: false, member: false },
 	}),
-	"organizations/getCustomDomain": () => null,
-	"organizations/beginCustomDomain": () => {
-		throw new RpcError(
-			"BAD_REQUEST",
-			"Connect an organization to set up a domain. Sample data does not check DNS.",
-		);
+	"organizations/getCustomDomain": () => localCustomDomain,
+	// Sample data never checks DNS: a domain stays pending until it is removed.
+	"organizations/beginCustomDomain": (input: { hostname: string }) => {
+		const hostname = input.hostname.trim().toLowerCase();
+		const txtName = `_tedix-challenge.${hostname}`;
+		const txtValue = "tedix-verify-sample";
+		const cnameTarget = "sites.tedix.example";
+		localCustomDomain = {
+			claimId: crypto.randomUUID(),
+			hostname,
+			status: "pending",
+			txtName,
+			txtValue,
+			cnameTarget,
+			expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+			validationRecords: [
+				{ type: "TXT", name: txtName, value: txtValue },
+				{ type: "CNAME", name: hostname, value: cnameTarget },
+			],
+		};
+		return localCustomDomain;
 	},
-	"organizations/verifyCustomDomain": () => {
-		throw new RpcError(
-			"BAD_REQUEST",
-			"Sample data does not verify domain ownership.",
-		);
+	"organizations/verifyCustomDomain": (input: { claimId: string }) => {
+		if (localCustomDomain?.claimId !== input.claimId)
+			throw new RpcError("NOT_FOUND", "Domain not found");
+		return localCustomDomain;
 	},
-	"organizations/removeCustomDomain": () => ({ success: true }),
+	"organizations/removeCustomDomain": (input: { claimId: string }) => {
+		if (localCustomDomain?.claimId === input.claimId) localCustomDomain = null;
+		return { success: true };
+	},
 	"organizations/get": (input: { organizationId: string }) => {
 		if (input.organizationId !== ORG_ID)
 			throw new RpcError("NOT_FOUND", "Organization not found");
