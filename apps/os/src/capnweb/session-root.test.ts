@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { RpcTarget } from "capnweb";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import type {
 	CapnEventFrame,
 	CapnRespondApprovalParams,
@@ -406,6 +406,34 @@ describe("enqueue", () => {
 });
 
 describe("cancel and respondApproval", () => {
+	it("waits for a slow delegated cancellation receipt without retrying the mutation", async () => {
+		vi.useFakeTimers();
+		try {
+			let reachedApi: () => void = () => {};
+			const reached = new Promise<void>((resolve) => {
+				reachedApi = resolve;
+			});
+			const { service, calls } = mockApiService(async (path) => {
+				expect(path).toBe("kernelRuntime/cancelRun");
+				reachedApi();
+				await new Promise((resolve) => setTimeout(resolve, 16_000));
+				return { run: { id: "run-1", status: "canceled" } };
+			});
+			const result = makeSession(service)
+				.openConversation("conv-1")
+				.cancel("run-1");
+			const receipt = expect(result).resolves.toMatchObject({
+				run: { status: "canceled" },
+			});
+			await reached;
+			await vi.advanceTimersByTimeAsync(16_001);
+			await receipt;
+			expect(calls).toHaveLength(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("forwards steering with its idempotency key and withdraws through the canonical verbs", async () => {
 		const { service, calls } = mockApiService((path) =>
 			path === "kernelRuntime/steerRun"

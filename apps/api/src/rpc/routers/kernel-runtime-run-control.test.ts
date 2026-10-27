@@ -14,6 +14,113 @@ import {
 } from "./__tests__/kernel-runtime-db";
 
 describe("kernel runtime router: run-control", () => {
+	it.each(["member", "admin"] as const)(
+		"lets a %s stop their own delegated run without approval",
+		async (userRole) => {
+			const db = createKernelRuntimeDb();
+			db.runs.push(
+				normalizeKernelRuntimeRunInsert({
+					id: "own-run",
+					organizationId: ORG_ID,
+					conversationId: "home:own",
+					status: "running",
+					delegatedTediId: "tedi-cto",
+					childRunId: "child-own",
+					metadata: { redriveInput: { descopeUserId: "member-1" } },
+				}),
+			);
+			const stopper = vi.fn(async () => ({
+				attempted: true,
+				outcome: "succeeded" as const,
+			}));
+			kernelRuntimeTestHooks.setChildStopperForTest(stopper);
+			const client = createKernelRuntimeClient({
+				...createContext(db, { userSub: "member-1" }),
+				apiKey: undefined,
+				authType: "user",
+				userRole,
+			});
+			expect((await client.cancelRun({ runId: "own-run" })).run.status).toBe(
+				"canceled",
+			);
+			expect(stopper).toHaveBeenCalledOnce();
+		},
+	);
+
+	it.each(["another-user", null])(
+		"denies a member stopping a run started by %s",
+		async (startedBy) => {
+			const db = createKernelRuntimeDb();
+			db.runs.push(
+				normalizeKernelRuntimeRunInsert({
+					id: "other-run",
+					organizationId: ORG_ID,
+					conversationId: "home:other",
+					status: "running",
+					metadata: { redriveInput: { descopeUserId: startedBy } },
+				}),
+			);
+			const client = createKernelRuntimeClient({
+				...createContext(db, { userSub: "member-1" }),
+				apiKey: undefined,
+				authType: "user",
+				userRole: "member",
+			});
+			await expect(
+				client.cancelRun({ runId: "other-run" }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(db.runs[0]?.status).toBe("running");
+		},
+	);
+
+	it.each(["hang", "throw"])(
+		"durably cancels when the delegated stop does %s",
+		async (failure) => {
+			const db = createKernelRuntimeDb();
+			db.runs.push(
+				normalizeKernelRuntimeRunInsert({
+					id: "slow-cancel",
+					organizationId: ORG_ID,
+					conversationId: "home:slow",
+					status: "running",
+					delegatedTediId: "tedi-cto",
+					childRunId: "child-slow",
+				}),
+			);
+			let reachedStop: () => void = () => {};
+			const stopping = new Promise<void>((resolve) => {
+				reachedStop = resolve;
+			});
+			kernelRuntimeTestHooks.setChildStopperForTest(async () => {
+				reachedStop();
+				if (failure === "throw") throw new Error("runtime disconnected");
+				return new Promise(() => {});
+			});
+			vi.useFakeTimers();
+			try {
+				const result = createKernelRuntimeClient(createContext(db)).cancelRun({
+					runId: "slow-cancel",
+				});
+				await stopping;
+				await vi.advanceTimersByTimeAsync(3_001);
+				const canceled = await result;
+				expect(canceled.run.status).toBe("canceled");
+				expect(canceled.run.metadata?.delegatedChildStop).toMatchObject({
+					attempted: true,
+					outcome: "failed",
+				});
+				expect(
+					db.events.some(
+						(event) =>
+							event.runId === "slow-cancel" && event.kind === "run.canceled",
+					),
+				).toBe(true);
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
+
 	it("#3 steerRun forwards the instruction to a live delegated child and records the outcome", async () => {
 		const db = createKernelRuntimeDb();
 		db.runs.push(

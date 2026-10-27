@@ -1107,6 +1107,48 @@ export async function requireDestructiveToolApproval(
 			}
 		}
 	}
+	// Stopping one's own reply withdraws the user's request. Verify ownership
+	// from the API receipt, never caller arguments or request metadata.
+	if (
+		!configuredApproval &&
+		tool.config?.transport === "rpc" &&
+		tool.config.endpoint === "kernelRuntime/cancelRun" &&
+		tool.toolId.split("__").at(-1) === "cancel_home_run" &&
+		callerIsUserPrincipalPath(agent) &&
+		agent.callerIdentity?.userId &&
+		!agent.callerIdentity.tediId &&
+		!agent.callerIdentity.externalAgentPrincipalId &&
+		!agent.callerIdentity.kernel &&
+		!agent.callerIdentity.ownerHostSessionId &&
+		agent.app?.organizationId &&
+		(!options?.args?.organizationId ||
+			options.args.organizationId === agent.app.organizationId) &&
+		typeof options?.args?.runId === "string"
+	) {
+		try {
+			const receipt = await agent.apiClient?.kernelRuntime.readRun({
+				organizationId: agent.app.organizationId,
+				runId: options.args.runId,
+			});
+			const saved = receipt?.run.metadata?.redriveInput;
+			if (
+				receipt?.run.id === options.args.runId &&
+				receipt.run.organizationId === agent.app.organizationId &&
+				isRecord(saved) &&
+				saved.descopeUserId === agent.callerIdentity.userId
+			) {
+				emitGovernanceAuditEvent(
+					agent,
+					tool,
+					"destructive_approved",
+					"own_home_run",
+				);
+				return null;
+			}
+		} catch {
+			// Unavailable or inaccessible ownership proof retains the approval gate.
+		}
+	}
 	// This call IS the human's approval. The API still checks the run, tenant,
 	// conversation access and owner/admin authority; asking again creates a loop.
 	if (

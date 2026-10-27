@@ -1038,10 +1038,14 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 		this.#core.takeToken();
 		const id = parseOrThrow(NonEmptyStringSchema, runId, "runId");
 		const note = parseOrThrow(CancelReasonSchema, reason, "reason");
-		return this.#core.call<CapnCancelOutput>("kernelRuntime/cancelRun", {
-			runId: id,
-			...(note === undefined ? {} : { reason: note }),
-		});
+		return this.#core.call<CapnCancelOutput>(
+			"kernelRuntime/cancelRun",
+			{
+				runId: id,
+				...(note === undefined ? {} : { reason: note }),
+			},
+			{ timeoutMs: CAPN_CHAT_MUTATION_TIMEOUT_MS },
+		);
 	}
 
 	/**

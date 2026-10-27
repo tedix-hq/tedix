@@ -345,7 +345,7 @@ export const readRunEventsRoute = authed.readRunEvents
 	});
 
 export const cancelRunRoute = authed.cancelRun
-	.use(AUTHZ.tedisWrite)
+	.use(AUTHZ.homeUse)
 	.handler(async ({ context, input }) => {
 		const organizationId = resolveOrganizationId(context, input.organizationId);
 		const existingRun = await getKernelRuntimeRun(context.db, {
@@ -354,6 +354,20 @@ export const cancelRunRoute = authed.cancelRun
 		});
 		if (!existingRun) {
 			throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
+		}
+		if (
+			context.authType === "user" &&
+			!userHoldsPermission(context, "tedis:update")
+		) {
+			const startedBy = nonNullRecord(
+				nonNullRecord(existingRun.metadata)?.redriveInput,
+			)?.descopeUserId;
+			const userId = context.descopeUserId ?? context.user?.sub;
+			if (!userId || startedBy !== userId)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Members may stop only their own Home runs",
+				);
 		}
 		await ensureHomeConversationAccess(context, {
 			conversationId: existingRun.conversationId,

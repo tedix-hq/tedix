@@ -20,9 +20,8 @@ const MUTATING: ToolAnnotations = {
 };
 /**
  * Run-terminating writes (e.g. `cancel_home_run`) carry `destructiveHint:true`
- * so `requireDestructiveToolApproval` (governance.ts) trips the destructive
- * elicitation gate before the side effect runs. Without this tier the hint is
- * always unset and a cancel silently bypasses the approval gate.
+ * so the approval gate protects other users' runs. Governance verifies an
+ * own-run cancellation before allowing it without another approval.
  */
 const DESTRUCTIVE: ToolAnnotations = {
 	readOnlyHint: false,
@@ -655,7 +654,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "cancel_home_run",
 		description:
-			"Stop a parent Home run by runId without killing the whole Home conversation. Records a cancellation event and optional reason.",
+			"Stop a parent Home run and its delegated children by runId without ending the conversation. The authenticated user may stop their own run without another approval. Records a cancellation event and optional reason.",
 		inputSchema: CANCEL_HOME_RUN_SCHEMA,
 		annotations: DESTRUCTIVE,
 		rpcEndpoint: "kernelRuntime/cancelRun",

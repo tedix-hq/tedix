@@ -182,7 +182,7 @@ export const KERNEL_RUNTIME_TOOLS: TediToolSpec[] = [
 		name: "cancel_home_run",
 		remoteName: "cancel_home_run",
 		description:
-			"Stop a parent Home run by runId without killing the whole Home conversation.",
+			"Stop a parent Home run and its delegated children by runId without ending the conversation. The authenticated user may stop their own run without another approval.",
 		inputSchema: HOME_RUN_CANCEL_SCHEMA,
 		allowExplicitTediId: false,
 		includeTediIdParam: false,
