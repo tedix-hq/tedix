@@ -40,15 +40,22 @@ function repoKey(value: string): string {
 }
 function textPaths(text: string): string[] {
 	text = text.slice(0, MAX_RECALL_HINT_LENGTH);
+	if (!/[./]/.test(text)) return [];
 	const paths: string[] = [];
 	// Sticky matches cannot search ahead; separators never occur in segments.
 	const slashPath = /[\w.@-]+(?:\/[\w.@*-]+)+/y;
 	const dottedPath = /[\w@*-]+(?:\.[\w@*-]+)+/y;
 	const slashSegment = /[\w.@-]*/y;
 	const dotSegment = /[\w@*-]*/y;
+	const pathStart = /[\w.@*-]/g;
 	let slashFailedUntil = 0;
 	let dotFailedUntil = 0;
 	for (let i = 0; i < text.length;) {
+		// Neither path grammar can start in a run of separators or whitespace.
+		pathStart.lastIndex = i;
+		const next = pathStart.exec(text);
+		if (!next) break;
+		i = next.index;
 		let match: RegExpExecArray | null = null;
 		if (i >= slashFailedUntil) {
 			slashPath.lastIndex = i;
@@ -162,20 +169,23 @@ export function incidentFingerprint(reason: string): string {
 export function briefRepository(brief: string): string | undefined {
 	brief = brief.slice(0, MAX_RECALL_HINT_LENGTH);
 	let raw: string | undefined;
-	// Each whitespace run is consumed once, including runs spanning newlines.
-	for (let i = 0; i < brief.length; i++) {
-		if (i !== 0 && !/[\n.;:]/.test(brief[i - 1]!)) continue;
-		while (i < brief.length && /\s/.test(brief[i]!)) i++;
-		const header = /^(?:repository|repo)/i.exec(brief.slice(i, i + 10));
-		if (!header) continue;
-		let end = i + header[0].length;
+	// Newlines are boundaries themselves; excluding them from whitespace keeps
+	// a failed header search from retrying suffixes of the same whitespace run.
+	const repoHeader = /(?:^|[\n.;:])[^\S\n]*(?:repository|repo)/gi;
+	const whitespace = /\s*/y;
+	while (repoHeader.test(brief)) {
+		let end = repoHeader.lastIndex;
 		const afterHeader = end;
-		while (end < brief.length && /\s/.test(brief[end]!)) end++;
+		whitespace.lastIndex = end;
+		whitespace.test(brief);
+		end = whitespace.lastIndex;
 		const beforeSeparator = end;
 		if (brief[end] === ":" || brief[end] === "=") {
 			end++;
 			const afterSeparator = end;
-			while (end < brief.length && /\s/.test(brief[end]!)) end++;
+			whitespace.lastIndex = end;
+			whitespace.test(brief);
+			end = whitespace.lastIndex;
 			if (end === afterSeparator) {
 				if (beforeSeparator === afterHeader) continue;
 				end = beforeSeparator;

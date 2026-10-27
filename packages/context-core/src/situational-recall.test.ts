@@ -101,25 +101,28 @@ it("reads an explicit repository URL or path from a lane brief", () => {
 });
 
 it.each([
-	"a".repeat(50_000),
-	`${"a".repeat(25_000)}.${"a".repeat(24_998)}/`,
-	`${"a./".repeat(16_666)}a.`,
-	`${"/".repeat(49_999)}!`,
-	"\n".repeat(50_000),
-	`Repo${" ".repeat(49_996)}`,
-])("handles 50 KB adversarial recall input in under 50 ms", (input) => {
-	const start = performance.now();
-	lessonMatches(
-		{ pathGlobs: ["missing.ts"], repos: ["example/product"] },
-		{
-			repo: input,
-			text: input,
-		},
-	);
-	lessonMatches({ pathGlobs: ["missing.ts"] }, { text: input });
-	briefRepository(input);
-	expect(performance.now() - start).toBeLessThan(50);
-});
+	["letters", "a".repeat(50_000)],
+	["long dotted segment", `${"a".repeat(25_000)}.${"a".repeat(24_998)}/`],
+	["repeated a./", `${"a./".repeat(16_666)}a.`],
+	["slashes", `${"/".repeat(49_999)}!`],
+	["newlines", "\n".repeat(50_000)],
+	["Repo spaces", `Repo${" ".repeat(49_996)}`],
+])(
+	"handles 50 KB adversarial recall input in under 50 ms (%s)",
+	(_name, input) => {
+		const start = performance.now();
+		lessonMatches(
+			{ pathGlobs: ["missing.ts"], repos: ["example/product"] },
+			{
+				repo: input,
+				text: input,
+			},
+		);
+		lessonMatches({ pathGlobs: ["missing.ts"] }, { text: input });
+		briefRepository(input);
+		expect(performance.now() - start).toBeLessThan(50);
+	},
+);
 
 it.each([
 	["Repo `team/my product`; next", "team/my product"],
@@ -131,6 +134,10 @@ it.each([
 	["Repo    ", undefined],
 	["Repo 'unterminated", "unterminated"],
 	["notes. repository team/product", "team/product"],
+	["notes\n\n\t Repository : \n team/product", "team/product"],
+	["notes; Repo:missing; repo team/product", "team/product"],
+	["notes\n \t \n no header; Repo team/product", "team/product"],
+	["not a repo team/product", undefined],
 ])("parses repository hint %s", (brief, expected) => {
 	expect(briefRepository(brief)).toBe(expected);
 });
@@ -160,6 +167,8 @@ it.each([
 		"apps/example/worker.jsonc",
 	],
 	["Edit aaaa*bbbb.ts", "aaaa*bbbb.ts"],
+	["///! \n\tapps/example/worker.jsonc", "apps/example/worker.jsonc"],
+	["///! \n\tfile.ts", "file.ts"],
 ])("extracts paths from %s", (text, path) => {
 	expect(lessonMatches({ pathGlobs: [path] }, { text })).toBe(true);
 });
