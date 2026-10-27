@@ -710,7 +710,12 @@ export function facetRunnerProbe(
 	};
 	const agent = tediDo({
 		env: {},
-		state: { tediId: "tedi-1", slug: "acme", systemPrompt: "SYSTEM" },
+		state: {
+			tediId: "tedi-1",
+			orgId: "org-1",
+			slug: "acme",
+			systemPrompt: "SYSTEM",
+		},
 		runtimeConfigCache: { modelPolicy: undefined },
 		activeFacetTurnTools: new Map(),
 		activeFacetTurnConversations: new Map(),
@@ -721,6 +726,8 @@ export function facetRunnerProbe(
 		},
 		admitInferenceTurn() {},
 		tediAigMetadata: (source: string, correlation: unknown) => ({
+			orgId: agent.state.orgId,
+			tediId: agent.state.tediId,
 			source,
 			correlation,
 		}),

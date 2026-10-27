@@ -57,6 +57,8 @@ import {
 	observeComputerWorkflowProgress,
 } from "./computer-workflow-continuation";
 import { computerWorkspaceScope } from "./computer-workspace-scope";
+import { executeRuntimeAdapterTurn } from "@tedix/context-core/runtime-adapter";
+import { cloudflareRuntimeAdapter } from "./cloudflare-runtime-adapter";
 import {
 	ConversationFacet,
 	type FacetBudgetStopReason,
@@ -1416,8 +1418,17 @@ export const runtimeFacetTurns = {
 						text: input.guardedUserText,
 						userTs: input.userTs,
 					});
-			const { priorTurnCount, result } =
-				await facet.runConfiguredConversationTurn({
+			const scope = {
+				orgId: this.state.orgId,
+				tediId: this.state.tediId,
+				runId: input.runId,
+				sessionKey: input.sessionKey,
+			};
+			const { output, receipt } = await executeRuntimeAdapterTurn({
+				adapter: cloudflareRuntimeAdapter(scope, facet),
+				scope,
+				control: { assertActive: () => this.assertChatTurnActive(input.runId) },
+				payload: {
 					configuration: turnConfiguration,
 					text: input.guardedUserText,
 					firstTurnText,
@@ -1425,7 +1436,10 @@ export const runtimeFacetTurns = {
 					durableSubmissionId: input.durableSubmissionId,
 					...(input.images?.length ? { images: input.images } : {}),
 					...(input.imageRefs?.length ? { imageRefs: input.imageRefs } : {}),
-				});
+				},
+			});
+			const { priorTurnCount, result } = output;
+			console.log("[runtime-adapter] turn returned", receipt);
 			firstFacetTurn = priorTurnCount === 0;
 			this.settleCumulativeInferenceTokens(
 				input.runId,

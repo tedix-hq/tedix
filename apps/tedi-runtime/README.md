@@ -125,6 +125,30 @@ bootstrap required to run or deploy this Worker. The `dev` and deploy scripts
 are maintainer-only until the public installation path described in the
 [self-hosted boundary](../../docs/public/self-hosted-boundary.md) is complete.
 
+## Runtime adapter boundary
+
+Non-streaming conversation turns use `RuntimeAdapter` from
+`@tedix/context-core/runtime-adapter`. The parent binds the canonical organization,
+tedi, run and session before dispatch. The first adapter,
+`cloudflare-runtime-adapter.ts`, receives only the already resolved conversation
+facet and checks its configuration against those bindings.
+
+The adapter consumes a parent-built context projection. Identity, memory,
+habits, responsibilities and trust history remain Tedix-owned state; this change
+does not migrate their existing D1, R2 or DO stores. Tool credentials, approvals
+and memory writes remain behind the parent's existing scoped services. Admission
+and cancellation are checked before dispatch and after return; the Cloudflare
+facet continues checking through its parent during execution. A future remote
+adapter also needs an authenticated scoped service transport and cooperative
+cancellation before it can be admitted for real work.
+
+The parent logs an attributed `returned` receipt. That receipt proves only that
+the adapter returned, not that its answer or effects are correct. Streaming,
+judge and synthesis paths retain their existing facet handoffs. The scripted
+second adapter in `runtime-adapter.test.ts` checks local contract behavior with
+the same identity and memory projection. It proves neither live celld/Therion
+execution nor tenant-store residency on another host.
+
 ## Delegated research and budgets
 
 Home resolves original Work references inside the selected organization before
