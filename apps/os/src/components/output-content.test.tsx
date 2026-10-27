@@ -55,6 +55,36 @@ function classAttributeFor(html: string, className: string): string {
 }
 
 describe("OutputContentView", () => {
+	it("does not call an uploaded file an empty document", () => {
+		const html = renderToStaticMarkup(
+			<OutputContentView
+				content={{
+					kind: "document",
+					file: {
+						workspaceId: "00000001-0000-4000-8000-000000000001",
+						resourceId: "00000002-0000-4000-8000-000000000002",
+					},
+					blocks: [],
+				}}
+				onEdit={() => {}}
+			/>,
+		);
+		expect(html).toContain("Loading file");
+		expect(html).not.toContain("This document is empty");
+		expect(html).not.toContain("Start writing");
+	});
+
+	it("keeps the writing prompt for a document without a file", () => {
+		const html = renderToStaticMarkup(
+			<OutputContentView
+				content={{ kind: "document", blocks: [] }}
+				onEdit={() => {}}
+			/>,
+		);
+		expect(html).toContain("This document is empty");
+		expect(html).toContain("Start writing");
+	});
+
 	it("renders an authenticated native player for video outputs", () => {
 		const html = renderToStaticMarkup(
 			<OutputContentView
