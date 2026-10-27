@@ -1,0 +1,69 @@
+name: Coding trajectory report
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: coding-trajectory-report
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  BUN_VERSION: "1.4.4"
+
+jobs:
+  report:
+    name: Advisory live trajectory report
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Share the frozen dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Find the previous report
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          mkdir -p trajectory-baseline
+          for run_id in $(gh run list --workflow trajectory-eval.yml --branch main --status completed --limit 20 --json databaseId,conclusion,headSha --jq '.[] | select(.conclusion == "success" and .headSha != env.CURRENT_SHA) | .databaseId'); do
+            if gh run download "$run_id" --name trajectory-eval-baseline --dir trajectory-baseline; then
+              break
+            fi
+          done
+          if [ -f trajectory-baseline/trajectory-report.json ]; then
+            echo "path=$GITHUB_WORKSPACE/trajectory-baseline/trajectory-report.json" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run live coding trajectories
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_WORKERS_AI_TOKEN: ${{ secrets.CF_WORKERS_AI_TOKEN }}
+        run: bun run --cwd apps/api eval:kernel:trajectories --output eval/kernel/results/trajectory-report.json ${{ steps.baseline.outputs.path && format('--baseline {0}', steps.baseline.outputs.path) || '' }}
+      - name: Attach report for this run and the next baseline
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: trajectory-eval-baseline
+          path: apps/api/eval/kernel/results/trajectory-report.json
+          if-no-files-found: warn
+          retention-days: 30

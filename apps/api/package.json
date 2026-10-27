@@ -27,6 +27,7 @@
 		"type-check": "tsc --noEmit",
 		"test:kernel": "vp test run eval/kernel/*.test.ts src/rpc/routers/kernel/route-planner.test.ts",
 		"eval:kernel:models": "bun run eval/kernel/route-eval-sweep.ts",
+		"eval:kernel:trajectories": "bun run eval/kernel/trajectory-eval.ts",
 		"billing:reconcile": "bun scripts/billing/reconcile-stripe.ts",
 		"billing:certify-meter": "bun scripts/billing/certify-stripe-meter.ts"
 	},
