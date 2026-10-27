@@ -883,6 +883,8 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				runtimeMetadata,
 				governancePolicy,
 				sessionWriteAllowlist,
+				// A retried page-action turn still asks the same page.
+				...(input.pageTools?.length ? { pageTools: input.pageTools } : {}),
 			},
 		};
 		try {

@@ -4,7 +4,9 @@ import { simulateReadableStream } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { KernelContext } from "./context-assembly";
+import { HomeAnswerIncompleteError } from "./home-page-tools";
 import {
+	HOME_PAGE_ANSWER_STOPPED_AFTER_CHANGE,
 	planKernelRoute as runPlanKernelRoute,
 	resolveRouteHedgeAfterMs,
 	shapeRouteUsage as actualShapeRouteUsage,
@@ -3259,6 +3261,126 @@ describe("planKernelRoute — page tools on a Home turn", () => {
 		expect(answerPrompt.split("end_external_page_tool>>>")).toHaveLength(2);
 		expect(answerPrompt).toContain("Mention the evidence before you finish.");
 		expect(prompts[0]).not.toContain("Mention the evidence before you finish.");
+	});
+
+	// Regression (27 Oct): "I'll read the app files first" streamed,
+	// read_app_files answered, then the next step ran out of output tokens
+	// with no text. The preamble was kept as the finished answer.
+	function preambleThenCutOff(toolName: string) {
+		return new MockLanguageModelV3({
+			doStream: async (options) => {
+				const answered = options.prompt.some(
+					(message) => message.role === "tool",
+				);
+				const chunks = !options.tools?.length
+					? [
+							{ type: "stream-start" as const, warnings: [] },
+							{ type: "text-start" as const, id: "0" },
+							{
+								type: "text-delta" as const,
+								id: "0",
+								delta: JSON.stringify(routeWire),
+							},
+							{ type: "text-end" as const, id: "0" },
+							finish("stop"),
+						]
+					: !answered
+						? [
+								{ type: "stream-start" as const, warnings: [] },
+								{ type: "text-start" as const, id: "p" },
+								{
+									type: "text-delta" as const,
+									id: "p",
+									delta: "I'll read the app files first.",
+								},
+								{ type: "text-end" as const, id: "p" },
+								{
+									type: "tool-call" as const,
+									toolCallId: "t1",
+									toolName,
+									input: JSON.stringify({ gadgetId: "g1" }),
+								},
+								finish("tool-calls"),
+							]
+						: [
+								{ type: "stream-start" as const, warnings: [] },
+								{
+									type: "finish" as const,
+									finishReason: { unified: "length" as const, raw: "length" },
+									usage: {
+										inputTokens: { total: 3 },
+										outputTokens: { total: 8000 },
+									},
+								},
+							];
+				return {
+					stream: simulateReadableStream({
+						initialDelayInMs: null,
+						chunkDelayInMs: null,
+						chunks,
+					}),
+				};
+			},
+			doGenerate: async () => ({
+				finishReason: "stop",
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				warnings: [],
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(normalizeRouteDecisionCandidate(routeWire)),
+					},
+				],
+			}),
+		});
+	}
+
+	it("never settles a preamble as the answer when the last step was cut off", async () => {
+		const relay = vi.fn(async () => ({ ok: true, content: '{"files":{}}' }));
+		await expect(
+			planKernelRoute({
+				content: "Remove this subtitle from the app",
+				context: EMPTY_CONTEXT,
+				model: preambleThenCutOff("read_app_files"),
+				onAnswerDelta: () => {},
+				pageTools: {
+					descriptors: [
+						{
+							name: "read_app_files",
+							description: "Read the app files.",
+							inputSchema: { type: "object" },
+							annotations: { readOnlyHint: true },
+						},
+					],
+					relay,
+				},
+			}),
+		).rejects.toBeInstanceOf(HomeAnswerIncompleteError);
+		expect(relay).toHaveBeenCalledOnce();
+	});
+
+	it("keeps a cut-off answer that already changed the page, and says it stopped", async () => {
+		const relay = vi.fn(async () => ({ ok: true, content: "draft saved" }));
+		const result = await planKernelRoute({
+			content: "Remove this subtitle from the app",
+			context: EMPTY_CONTEXT,
+			model: preambleThenCutOff("propose_app_edit"),
+			onAnswerDelta: () => {},
+			pageTools: {
+				descriptors: [
+					{
+						name: "propose_app_edit",
+						description: "Save a draft edit.",
+						inputSchema: { type: "object" },
+						annotations: { readOnlyHint: false, consequentialHint: true },
+					},
+				],
+				relay,
+			},
+		});
+		expect(result?.answer).toBe(
+			`I'll read the app files first.\n\n${HOME_PAGE_ANSWER_STOPPED_AFTER_CHANGE}`,
+		);
 	});
 
 	it("never asks the page for anything on a route Home does not answer", async () => {

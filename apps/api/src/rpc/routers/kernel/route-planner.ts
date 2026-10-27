@@ -4,8 +4,10 @@ import { ZodError } from "zod";
 import { jsonSchema, NoObjectGeneratedError, stepCountIs, tool } from "ai";
 import { pageToolModelOutput } from "@tedix/chat-transport/page-tools";
 import {
+	HOME_PAGE_TOOL_MAX_OUTPUT_TOKENS,
 	HOME_PAGE_TOOL_MAX_STEPS,
 	HOME_PAGE_TOOLS_INSTRUCTION,
+	HomeAnswerIncompleteError,
 	homePageToolsRouteNote,
 	type HomePageTools,
 } from "./home-page-tools";
@@ -1573,6 +1575,10 @@ async function streamRoutePlan(args: {
 	};
 }
 
+/** Closes a page-action answer that stopped after it already changed the page. */
+export const HOME_PAGE_ANSWER_STOPPED_AFTER_CHANGE =
+	"I stopped before finishing. Check what changed on the page before you ask me again.";
+
 /**
  * The answer pass for a Home turn whose page offers tools: the model may ask
  * the page to run them, one at a time, through `pageTools.relay`, which waits
@@ -1594,6 +1600,9 @@ async function streamHomePageAnswer(
 	const signal = args.abortSignal
 		? AbortSignal.any([idle.signal, args.abortSignal])
 		: idle.signal;
+	// A successful non-read-only call changed the page; a replay of this turn
+	// would repeat that change.
+	let changedPage = false;
 	const tools = Object.fromEntries(
 		pageTools.descriptors.map((descriptor) => [
 			descriptor.name,
@@ -1603,19 +1612,20 @@ async function streamHomePageAnswer(
 				execute: async (input: unknown) => {
 					const keepAlive = setInterval(() => idle.reset(), 5_000);
 					try {
-						return pageToolModelOutput(
-							await pageTools.relay(
-								{
-									name: descriptor.name,
-									args:
-										input && typeof input === "object" && !Array.isArray(input)
-											? (input as Record<string, unknown>)
-											: {},
-									confirm: descriptor.confirm === true,
-								},
-								args.abortSignal,
-							),
+						const result = await pageTools.relay(
+							{
+								name: descriptor.name,
+								args:
+									input && typeof input === "object" && !Array.isArray(input)
+										? (input as Record<string, unknown>)
+										: {},
+								confirm: descriptor.confirm === true,
+							},
+							args.abortSignal,
 						);
+						if (result.ok && descriptor.annotations?.readOnlyHint !== true)
+							changedPage = true;
+						return pageToolModelOutput(result);
 					} finally {
 						clearInterval(keepAlive);
 						idle.reset();
@@ -1654,7 +1664,7 @@ async function streamHomePageAnswer(
 						}
 					: {};
 			},
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
+			maxOutputTokens: HOME_PAGE_TOOL_MAX_OUTPUT_TOKENS,
 			maxRetries: 0,
 			abortSignal: signal,
 			runtimeContext: kernelSpanContext({
@@ -1680,7 +1690,25 @@ async function streamHomePageAnswer(
 			}
 		}
 		signal.throwIfAborted();
-		if (!answer.trim()) throw new Error("Incomplete Home page-action answer");
+		// The last step must end the answer. A step cut off by its output limit
+		// (or the step limit) leaves only what was streamed before it, often a
+		// preamble like "I'll read the app files first", which is not an answer.
+		const finish = await awaitWithSettleBound(
+			result.finishReason,
+			"Home page-action finish did not settle",
+		);
+		if (finish !== "stop" || !answer.trim()) {
+			// After a page change, a replay would repeat it: keep the turn and
+			// say plainly that it stopped.
+			if (!changedPage) throw new HomeAnswerIncompleteError(finish);
+			const notice = `${answer.trim() ? "\n\n" : ""}${HOME_PAGE_ANSWER_STOPPED_AFTER_CHANGE}`;
+			answer = `${answer.trim()}${notice}`;
+			try {
+				args.onAnswerDelta?.(notice);
+			} catch {
+				/* Advisory delivery only. */
+			}
+		}
 		const usage = shapeRouteUsage(
 			await awaitWithSettleBound(
 				result.usage,
@@ -1758,7 +1786,7 @@ async function streamHomeAnswer(
 			"Home answer finish did not settle",
 		);
 		if (finish !== "stop" || !answer.trim())
-			throw new Error("Incomplete Home answer stream");
+			throw new HomeAnswerIncompleteError(finish);
 		const usage = shapeRouteUsage(
 			await awaitWithSettleBound(
 				result.usage,

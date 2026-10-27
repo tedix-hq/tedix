@@ -37,6 +37,34 @@ export interface HomePageTools {
 /** At most this many model steps in a page-action answer. */
 export const HOME_PAGE_TOOL_MAX_STEPS = 8;
 
+/**
+ * Output budget per page-action step. A step after `read_app_files` writes
+ * exact replacements for `propose_app_edit`; the route pass's 3000 tokens cut
+ * that call off mid-argument.
+ */
+export const HOME_PAGE_TOOL_MAX_OUTPUT_TOKENS = 8000;
+
+/**
+ * A Home answer stream ended without a finished answer: the last step hit its
+ * output limit, the step limit, or produced no text. Text streamed before that
+ * (a preamble such as "I'll read the app files first") is not an answer.
+ */
+export class HomeAnswerIncompleteError extends Error {
+	override readonly name = "HomeAnswerIncompleteError";
+	readonly finishReason: string;
+	constructor(finishReason: string) {
+		super(`Incomplete Home answer stream (finish: ${finishReason})`);
+		this.finishReason = finishReason;
+	}
+}
+
+export function isHomeAnswerIncompleteError(error: unknown): boolean {
+	return (
+		error instanceof HomeAnswerIncompleteError ||
+		(error instanceof Error && error.name === "HomeAnswerIncompleteError")
+	);
+}
+
 /** Appended to the route prompt so acting on the page stays with Home. */
 export function homePageToolsRouteNote(
 	descriptors: readonly HomePageToolDescriptor[],
