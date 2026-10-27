@@ -119,24 +119,14 @@ describe("fixed disposable CMS cron pause", () => {
 			phase: "restore-scheduled",
 		});
 		expect(
-			await fixedSiteCronPauseDecision(
-				storage(),
-				{ siteId, slug },
-				drill,
-				now,
-			),
+			await fixedSiteCronPauseDecision(storage(), { siteId, slug }, drill, now),
 		).toEqual({ pause: true, reason: "unfinished-drill" });
 	});
 
 	it("resumes after a verified drill and control removal", async () => {
 		dependencies.readSiteDrillReceipt.mockResolvedValue({ phase: "verified" });
 		expect(
-			await fixedSiteCronPauseDecision(
-				storage(),
-				{ siteId, slug },
-				drill,
-				now,
-			),
+			await fixedSiteCronPauseDecision(storage(), { siteId, slug }, drill, now),
 		).toEqual({ pause: false });
 	});
 
