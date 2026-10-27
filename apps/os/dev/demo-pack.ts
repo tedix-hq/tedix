@@ -913,7 +913,68 @@ export function applyDemoPack(
 		nextCursor: null,
 		truncated: false,
 	});
-	h["workItems/listAttemptProjection"] = empty;
+	// Settled delegations as older producers stored them: outcome codes, ids
+	// and "Failed: <code>" stamps that Activity must show in plain words.
+	const results = [
+		{
+			title: "Run the certification for draft",
+			failureReason: "partial_result",
+			summary:
+				"Failed: partial_result\n\nDelegated tedi returned a partial result (reported_partial; The tedi reported a partial result). The Work Item remains incomplete. Recovery: continue or re-dispatch the same work order, then attach fresh terminal proof.",
+		},
+		{
+			title:
+				"Copy skill 4f1c2a90-3b7d-4e21-9a55-0c8e7d6b1f42 (Forum Scout) into the pilot workspace",
+			failureReason: "partial_result",
+			summary:
+				"Failed: partial_result\n\nDelegated tedi reported Outcome: needs_follow_up. The Work Item remains incomplete. Update skill 7d2e9b14-6a03-4c8f-b1d2-5e9f0a3c8b67 with the new schedule.",
+		},
+		{
+			title: "Refresh the supplier price list",
+			failureReason: "delegation_failed",
+			summary:
+				"Failed: delegation_failed\n\nDelegated tedi reported failure (provider_error; provider error sealed the turn).",
+		},
+	].map((result, i) => ({
+		attempt: {
+			id: uid(173, i + 1),
+			orgId,
+			workItemId: uid(174, i + 1),
+			executorType: "tedi",
+			executorId: ctx.tedis[0]?.id ?? uid(175, 1),
+			executorSessionId: null,
+			externalSessionKey: null,
+			runtimeState: "failed",
+			outcome: "failed",
+			runId: null,
+			admissionId: null,
+			attemptNumber: 1,
+			startedAt: at(i, 200),
+			heartbeatAt: at(i, 190),
+			expiresAt: null,
+			finishedAt: at(i, 180),
+			summary: result.summary,
+			metadata: { failureReason: result.failureReason, sampleData: true },
+		},
+		workItem: {
+			id: uid(174, i + 1),
+			title: result.title,
+			projectId: ctx.projects[0]?.id ?? null,
+			disposition: "accepted",
+			workKind: "coding",
+			riskLevel: "low",
+			priority: "medium",
+			accountableOwnerType: null,
+			accountableOwnerId: null,
+		},
+		laneState: null,
+	}));
+	h["workItems/listAttemptProjection"] = () => ({
+		data: results,
+		nextCursor: null,
+		hasMore: false,
+		observedAt: stamp(),
+	});
 	h["workApprovals/listInbox"] = empty;
 	h["tediApprovals/list"] = () => page([]);
 	h["members/listMembers"] = () => page(members);

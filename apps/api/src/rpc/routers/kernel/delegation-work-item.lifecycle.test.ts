@@ -404,6 +404,55 @@ describe("Home delegation evidence lifecycle", () => {
 		);
 	});
 
+	it.each([
+		[
+			"failed" as const,
+			null,
+			"The tedi finished part of “Run the certification for draft” and needs you to check the rest.",
+		],
+		[
+			"completed" as const,
+			"needs_follow_up" as const,
+			"The tedi finished part of “Run the certification for draft” and needs you to check the rest.",
+		],
+	])(
+		"writes a plain-English partial result for a %s child run",
+		async (childRunStatus, declaredOutcome, feedSentence) => {
+			mocks.getWorkItemById.mockReset();
+			mocks.getWorkItemById.mockResolvedValue({
+				...wrapper,
+				title: "Run the certification for draft",
+			});
+			await disposeDelegationWorkItem(context(), {
+				childRunId: "child-1",
+				childRunStatus,
+				childStop:
+					childRunStatus === "failed"
+						? {
+								outcome: "partial",
+								stopReason: "reported_partial",
+								detail: "The tedi reported a partial result",
+								steps: null,
+								output: "Partial result: two of three checks ran.",
+							}
+						: null,
+				declaredOutcome,
+				createdAt: NOW,
+				delegatedTediId: "tedi-1",
+				delegationError: null,
+				organizationId: "org-1",
+				proof,
+				workItemId: WORK_ITEM_ID,
+			});
+			const settled = mocks.settleWorkItemAttempt.mock.calls[0]?.[1];
+			expect(settled.metadata.feedSentence).toBe(feedSentence);
+			expect(settled.summary.startsWith(feedSentence)).toBe(true);
+			expect(settled.summary).not.toMatch(
+				/partial_result|reported_partial|needs_follow_up|Outcome:|Delegated tedi/,
+			);
+		},
+	);
+
 	it("settles then completes without consulting the evidence plane", async () => {
 		mocks.listWorkItemEvidence.mockRejectedValue(
 			new Error("evidence read unavailable"),

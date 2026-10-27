@@ -34,6 +34,9 @@ it("switches the Activity timeline labels between English and Spanish", () => {
 	expect(OS_COPY.feed.timeline.status).toEqual({
 		finished: "Finished",
 		unfinished: "Didn't finish",
+		partial: "Partly done",
+		paused: "Paused",
+		stopped: "Stopped",
 		needsLook: "Needs a look",
 		needsYou: "Needs you",
 	});
@@ -73,6 +76,9 @@ it("switches the Activity timeline labels between English and Spanish", () => {
 	expect(OS_COPY.feed.timeline.status).toEqual({
 		finished: "Terminado",
 		unfinished: "No terminó",
+		partial: "Hecho en parte",
+		paused: "En pausa",
+		stopped: "Detenido",
 		needsLook: "Necesita revisión",
 		needsYou: "Necesita tu atención",
 	});

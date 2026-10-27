@@ -1,5 +1,6 @@
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import { focusDay } from "@tedix/api-contract/utils/focus-feed";
+import { plainFeedText } from "@tedix/api-contract/utils/activity-feed";
 import { OS_COPY } from "@/shared/os-copy";
 
 export const ACTIVITY_WHO = [
@@ -32,16 +33,30 @@ export function matchesActivityWho(item: ActivityFeedItem, who: ActivityWho) {
 	return activityActorKind(item) === who;
 }
 
-/** A finished or failed outcome reads as a green or red chip. */
+export type ActivityStatusTone = "success" | "warning" | "neutral" | "error";
+
+/**
+ * A result's chip: green finished, amber partly done or paused, grey stopped.
+ * Red "Didn't finish" is reserved for a real failure.
+ */
 export function activityStatus(
 	item: ActivityFeedItem,
-): { tone: "success" | "error"; label: string } | null {
+): { tone: ActivityStatusTone; label: string } | null {
 	if (item.needsAction) return null;
 	const status = OS_COPY.feed.timeline.status;
 	if (item.kind === "result")
-		return item.done
-			? { tone: "success", label: status.finished }
-			: { tone: "error", label: status.unfinished };
+		switch (item.resultOutcome) {
+			case "partial":
+				return { tone: "warning", label: status.partial };
+			case "expired":
+				return { tone: "warning", label: status.paused };
+			case "cancelled":
+				return { tone: "neutral", label: status.stopped };
+			default:
+				return item.done
+					? { tone: "success", label: status.finished }
+					: { tone: "error", label: status.unfinished };
+		}
 	if (item.kind !== "work") return null;
 	if (/failed|expired|blocked/.test(item.classId))
 		return { tone: "error", label: status.needsLook };
@@ -59,20 +74,23 @@ export function activityHeadline(
 	item: ActivityFeedItem,
 	boilerplate: readonly string[] = [],
 ) {
-	const [first, ...rest] = item.sentence.split(SENTENCE_BREAK);
+	// Older stored events can still carry codes and ids; people see words.
+	const plain = (text: string) => plainFeedText(text, OS_COPY.feed);
+	const plainSentence = plain(item.sentence);
+	const [first, ...rest] = plainSentence.split(SENTENCE_BREAK);
 	const split = first && first.length >= 12 && rest.length > 0;
-	const headline = split ? first : item.sentence;
+	const headline = split ? first : plainSentence;
 	const remainder = split ? rest.join(" ") : "";
 	const normalized = (value: string) =>
 		value.toLowerCase().replace(/\s+/g, " ").trim();
-	const sentence = normalized(item.sentence);
+	const sentence = normalized(plainSentence);
 	const extra = item.explanation
 		.split(/\n{2,}/)
 		.map((part) => {
-			const text = part.trim();
+			const text = plain(part);
 			// A body that repeats the headline keeps only what it adds.
 			return normalized(text).startsWith(sentence)
-				? text.slice(item.sentence.trim().length).trim()
+				? text.slice(plainSentence.length).trim()
 				: text;
 		})
 		.find(
