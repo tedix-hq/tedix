@@ -18,6 +18,8 @@ import {
 	EvidenceRowSignal,
 	EvidenceRowStatus,
 } from "@/components/kumo/evidence-row";
+import { Meter } from "@/components/kumo/meter";
+import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
 	PageSection,
 	SectionActions,
@@ -26,7 +28,6 @@ import {
 	SectionHeading,
 	SectionTitle,
 } from "@/components/kumo/page";
-import { Surface } from "@/components/kumo/surface";
 import { KumoTabs } from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
@@ -92,28 +93,25 @@ export function TelemetryStat({
 	tone?: "neutral" | "warn" | "danger";
 }) {
 	return (
-		<Surface data-tone={tone} className="grid gap-0.5 px-3 py-2">
-			<Text
-				as="span"
-				className="tabular-nums"
-				role="dialog"
-				tone={
-					tone === "warn" ? "warning" : tone === "danger" ? "error" : "strong"
-				}
-				weight="semibold"
-			>
-				{value}
-			</Text>
-			<Text as="span" role="caption" tone="secondary">
-				{label}
-			</Text>
-		</Surface>
+		<MetricItem
+			data-tone={tone}
+			emphasis="dialog"
+			label={label}
+			value={value}
+			valueTone={
+				tone === "warn"
+					? "warning"
+					: tone === "danger"
+						? "error"
+						: "strong"
+			}
+		/>
 	);
 }
 
 /**
- * One tool's rollup. The bar is a plain div width — apps/os ships no chart
- * library, and a horizontal magnitude comparison does not need one.
+ * One tool's rollup. The meter compares call volume against the busiest
+ * tool in the window; failures tint it warning.
  */
 export function ToolBreakdownRowView({
 	row,
@@ -156,18 +154,18 @@ export function ToolBreakdownRowView({
 						{latency ? ` · ${latency} median` : ""}
 					</Text>
 				</span>
-				<span
+				<Meter
 					aria-hidden
-					className="h-1.5 overflow-hidden rounded-full bg-kumo-fill"
-				>
-					<span
-						className={cn(
-							"block h-full rounded-full",
-							row.failures > 0 ? "bg-kumo-warning" : "bg-kumo-info",
-						)}
-						style={{ width: `${barPercent(row.calls, maxCalls)}%` }}
-					/>
-				</span>
+					label={`${row.toolName} call volume`}
+					hideLabel
+					value={barPercent(row.calls, maxCalls)}
+					trackClassName="h-1.5"
+					indicatorClassName={
+						row.failures > 0
+							? "from-kumo-warning via-kumo-warning to-kumo-warning"
+							: "from-kumo-info via-kumo-info to-kumo-info"
+					}
+				/>
 			</Button>
 		</li>
 	);
@@ -363,7 +361,11 @@ export function ToolTelemetry({ tediId }: { tediId: string }) {
 
 			{completed.data && failed.data && (
 				<>
-					<div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+					<MetricGrid
+						appearance="bounded"
+						aria-label="Tool call summary"
+						columns={5}
+					>
 						<TelemetryStat
 							label="tool calls"
 							value={formatCount(summary.calls)}
@@ -394,7 +396,7 @@ export function ToolTelemetry({ tediId }: { tediId: string }) {
 							label="distinct tools"
 							value={formatCount(summary.distinctTools)}
 						/>
-					</div>
+					</MetricGrid>
 
 					<Text className="m-0" role="label" tone="secondary">
 						{summary.calls === 0

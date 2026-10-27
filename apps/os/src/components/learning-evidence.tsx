@@ -13,6 +13,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
+import { Meter } from "@/components/kumo/meter";
 import { MetricGrid } from "@/components/kumo/metric-grid";
 import { MetricTile } from "@/components/metric-tile";
 import {
@@ -35,7 +36,6 @@ import {
 	tediExpertiseQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteDate, absoluteTime, relativeTime } from "@/lib/time";
-import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for tests)
@@ -195,21 +195,19 @@ export function ExpertiseDomainRow({ row }: { row: ExpertiseRow }) {
 					{row.domainName}
 				</Text>
 			</span>
-			<span
+			<Meter
 				aria-hidden
-				className="h-1.5 overflow-hidden rounded-full bg-kumo-fill"
-			>
-				<span
-					data-filled={filled}
-					className={cn(
-						"block h-full rounded-full",
-						row.expertiseLevel === "expert"
-							? "bg-kumo-success"
-							: "bg-kumo-info",
-					)}
-					style={{ width: `${filled}%` }}
-				/>
-			</span>
+				label={`${row.domainName} competence`}
+				hideLabel
+				value={filled}
+				data-filled={filled}
+				trackClassName="h-1.5"
+				indicatorClassName={
+					row.expertiseLevel === "expert"
+						? "from-kumo-success via-kumo-success to-kumo-success"
+						: "from-kumo-info via-kumo-info to-kumo-info"
+				}
+			/>
 			<Text as="span" role="label" tone="secondary" className="tabular-nums">
 				competence {Math.round(row.competenceScore * 100)}% ·{" "}
 				{formatCount(row.factCount)} {row.factCount === 1 ? "fact" : "facts"} ·{" "}
@@ -353,11 +351,13 @@ export function LearningEvidence({ tediId }: { tediId: string }) {
 				</Text>
 				{snapshot.isPending && <ListSkeleton rows={1} rowClassName="h-20" />}
 				{snapshot.isError && (
-					<p className="m-0 text-kumo-subtle text-xs" role="alert">
-						{snapshotRefused
-							? "The growth-snapshot read was refused for this principal, so no weekly metrics are shown."
-							: `Growth snapshots are unavailable: ${errorMessage(snapshot.error)}`}
-					</p>
+					<Alert variant={snapshotRefused ? "warning" : "destructive"}>
+						<AlertDescription>
+							{snapshotRefused
+								? "The growth-snapshot read was refused for this principal, so no weekly metrics are shown."
+								: `Growth snapshots are unavailable: ${errorMessage(snapshot.error)}`}
+						</AlertDescription>
+					</Alert>
 				)}
 				{snapshot.isSuccess && snapshot.data === null && (
 					<Text role="body" tone="secondary" className="m-0">

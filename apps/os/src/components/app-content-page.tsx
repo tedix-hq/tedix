@@ -235,9 +235,7 @@ export function AppContentPage() {
 			/>
 
 			{detail.isPending ? (
-				<p role="status" className="m-0 text-kumo-subtle text-sm">
-					Loading content settings...
-				</p>
+				<AppTabLoading label="Loading content settings" />
 			) : detail.isError ? (
 				<LoadError
 					error={detail.error}

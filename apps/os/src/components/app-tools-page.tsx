@@ -498,11 +498,19 @@ export function AppToolsPage() {
 							}}
 						/>
 						{gatewayTools.length === 0 && (
-							<Text as="p">
-								{gatewayQuery
-									? "No matching gateway tools."
-									: "No configured tools found in this preview. Host-generated tools may still be available."}
-							</Text>
+							<AppTabEmpty
+								icon={<Wrench size={20} />}
+								title={
+									gatewayQuery
+										? "No matching gateway tools"
+										: "No configured tools found in this preview"
+								}
+								description={
+									gatewayQuery
+										? "No tool name in the preview matches this search."
+										: "Host-generated tools may still be available."
+								}
+							/>
 						)}
 						<AppTabTable
 							label="Gateway tools"

@@ -21,6 +21,7 @@ import {
 } from "@/components/kumo/card";
 
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
+import { IconFrame } from "@/components/kumo/icon-frame";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
 import {
@@ -100,9 +101,9 @@ export function CallerTypesCard({ callerTypes }: { callerTypes: string[] }) {
 	return (
 		<Card>
 			<CardContent className="flex min-h-[88px] items-center gap-4">
-				<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-kumo-fill">
-					<Users size={20} aria-hidden className="text-kumo-subtle" />
-				</div>
+				<IconFrame appearance="fill" className="size-10">
+					<Users size={20} aria-hidden />
+				</IconFrame>
 				<div className="min-w-0 space-y-1">
 					{display.visible.length > 0 ? (
 						<div className="flex flex-wrap gap-1.5">

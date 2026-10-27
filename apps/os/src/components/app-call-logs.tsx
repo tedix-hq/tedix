@@ -10,6 +10,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/kumo/select";
+import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { gadgetExecutionsQueryOptions } from "@/lib/os-query-options";
 import { cn } from "@/lib/utils";
@@ -191,12 +192,12 @@ export function AppCallLogs({
 					retrying={traces.isFetching}
 				/>
 			)}
-			<div
+			<Surface
 				ref={pane}
 				role="log"
 				aria-label="Logs for this run"
 				aria-live={live ? "polite" : "off"}
-				className="max-h-72 min-h-14 overflow-auto whitespace-pre-wrap break-words rounded-md border border-kumo-hairline bg-kumo-tint px-3 py-2 font-mono text-xs"
+				className="max-h-72 min-h-14 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-xs"
 			>
 				{lines.map((line) => (
 					<div key={line.key}>
@@ -218,9 +219,16 @@ export function AppCallLogs({
 					</div>
 				))}
 				{!traces.isError && lines.length === 0 && (
-					<span className="font-sans text-kumo-subtle">{emptyMessage}</span>
+					<Text
+						as="span"
+						role="label"
+						tone="secondary"
+						className="font-sans"
+					>
+						{emptyMessage}
+					</Text>
 				)}
-			</div>
+			</Surface>
 			{(clipped || traces.data?.truncated) && (
 				<Text role="caption" tone="secondary">
 					{clipped
