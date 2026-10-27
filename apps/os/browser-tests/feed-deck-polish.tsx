@@ -262,6 +262,10 @@ client.setQueryData(
 client.setQueryData(userPreferencesQueryOptions().queryKey, {
 	preferences: {
 		...DEFAULT_OS_USER_PREFERENCES,
+		accessibility: {
+			...DEFAULT_OS_USER_PREFERENCES.accessibility,
+			motion: params.get("motion") === "reduced" ? "reduced" : "system",
+		},
 		activityFeed: {
 			projectIds: [],
 			mutedClasses: [],
@@ -654,8 +658,6 @@ if (todayMode) {
 		);
 }
 
-if (params.get("motion") === "reduced")
-	document.documentElement.dataset.motion = "reduced";
 if (params.has("resilience")) {
 	const snapshots = client
 		.getQueryCache()

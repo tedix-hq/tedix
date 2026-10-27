@@ -1,19 +1,8 @@
 import { startFixtureServer } from "./fixture-server";
-import { openExamples } from "./deck-controls";
+import { openExamples, settleAnimations } from "./deck-controls";
 import { chromium, type Browser, type Page } from "playwright";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
-
-async function settleAnimations(page: Page) {
-	await page.evaluate(async () => {
-		await document.fonts.ready;
-		await Promise.all(
-			document
-				.getAnimations()
-				.map((animation) => animation.finished.catch(() => {})),
-		);
-	});
-}
 
 /** Phones keep Why this in the Deck action row's "⋯" menu. */
 async function openWhy(page: Page) {
@@ -1073,10 +1062,29 @@ try {
 	await reduced.close();
 	const explicitReduced = await browser.newPage({
 		reducedMotion: "no-preference",
+		viewport: { width: 390, height: 844 },
+		isMobile: true,
+		hasTouch: true,
 	});
 	await explicitReduced.goto(
 		`${origin}/browser-tests/feed-deck-polish.html?motion=reduced&cards=one`,
 	);
+	await explicitReduced.locator(".fd-closure").waitFor();
+	const closureMotion = await explicitReduced
+		.locator(".fd-closure")
+		.evaluate((el) => ({
+			animation: getComputedStyle(el).animationName,
+			tick: getComputedStyle(el.querySelector("path")!).animationName,
+			opacity: getComputedStyle(el).opacity,
+		}));
+	if (
+		closureMotion.animation !== "none" ||
+		closureMotion.tick !== "none" ||
+		closureMotion.opacity !== "1"
+	)
+		throw new Error(
+			`Explicit reduced motion must show closure immediately: ${JSON.stringify(closureMotion)}`,
+		);
 	await openExamples(explicitReduced);
 	await explicitReduced.keyboard.press("Escape");
 	const explicitBox = (await explicitReduced
@@ -1094,6 +1102,39 @@ try {
 	)
 		throw new Error("Explicit reduced motion still moves the card");
 	await explicitReduced.mouse.up();
+	const reducedCdp = await explicitReduced
+		.context()
+		.newCDPSession(explicitReduced);
+	const reducedPoint = { x: explicitBox.x + 20, y: explicitBox.y + 20 };
+	await reducedCdp.send("Input.dispatchTouchEvent", {
+		type: "touchStart",
+		touchPoints: [reducedPoint],
+	});
+	for (let i = 1; i <= 8; i++)
+		await reducedCdp.send("Input.dispatchTouchEvent", {
+			type: "touchMove",
+			touchPoints: [{ x: reducedPoint.x + i * 14, y: reducedPoint.y }],
+		});
+	const reducedCard = await explicitReduced
+		.locator(".fd-decision")
+		.evaluate((el) => ({
+			transform: getComputedStyle(el).transform,
+			animation: getComputedStyle(el).animationName,
+			transition: getComputedStyle(el).transitionDuration,
+		}));
+	if (
+		reducedCard.transform !== "none" ||
+		reducedCard.animation !== "none" ||
+		reducedCard.transition !== "0s"
+	)
+		throw new Error(`Reduced touch drag moved: ${JSON.stringify(reducedCard)}`);
+	await reducedCdp.send("Input.dispatchTouchEvent", {
+		type: "touchEnd",
+		touchPoints: [],
+	});
+	await explicitReduced
+		.getByText("1 practice choices in this preview.", { exact: true })
+		.waitFor();
 	await explicitReduced.close();
 	const failed = await browser.newPage({
 		viewport: { width: 390, height: 844 },
