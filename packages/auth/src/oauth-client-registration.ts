@@ -1,3 +1,5 @@
+import { isClientIdMetadataDocumentUrl } from "@tedix/api-contract/schemas/mcp-grant";
+
 /**
  * Registration-method classification for callers of Tedix MCP resources.
  *
@@ -68,12 +70,11 @@ export function classifyMcpClientRegistrationMethod(input: {
 	authType?: McpCallerAuthType;
 	clientId?: string;
 }): McpClientRegistrationMethod | undefined {
-	const clientId = input.clientId?.trim();
+	const clientId = input.clientId;
 	if (!clientId) return undefined;
 
-	if (clientId.startsWith("https://")) return "cimd";
+	if (isClientIdMetadataDocumentUrl(clientId)) return "cimd";
 	if (
-		clientId === TEDIX_CLI_OAUTH_CLIENT_ID ||
 		input.authType === "m2m" ||
 		input.authType === "tedi" ||
 		input.authType === "external_agent"

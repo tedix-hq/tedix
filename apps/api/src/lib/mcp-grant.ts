@@ -252,7 +252,7 @@ export async function stageHumanMcpConsent(
 			if (member?.status !== "active") return null;
 			const verdict = evaluateInboundClientPolicy(
 				organization.metadata?.mcpInboundClientPolicy,
-				client,
+				{ ...client, scopes: input.approvedScopes },
 			);
 			await recordInboundClientVerdict(
 				db,
@@ -759,7 +759,7 @@ async function judgeLedger(
 		const client = { mcpServerId: input.mcpServerId, clientId: input.clientId };
 		const verdict = evaluateInboundClientPolicy(
 			parseStoredInboundClientPolicy(row.inboundClientPolicyJson),
-			client,
+			{ ...client, scopes: input.tokenScopes },
 		);
 		await recordInboundClientVerdict(
 			db,

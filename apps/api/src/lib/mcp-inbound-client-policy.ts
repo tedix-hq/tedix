@@ -1,4 +1,6 @@
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { classifyMcpClientRegistrationMethod } from "@tedix/auth/oauth-client-registration";
+import { isReadOnlyConsentSelection } from "@tedix/mcp-shared/auth/consent-scopes";
 import { recordMcpInboundClientAttempt } from "@tedix/db/queries/mcp-consent";
 import {
 	isClientIdMetadataDocumentUrl,
@@ -21,11 +23,18 @@ export interface InboundClientVerdict {
  */
 export function evaluateInboundClientPolicy(
 	stored: unknown,
-	client: { mcpServerId: string; clientId: string },
+	client: { mcpServerId: string; clientId: string; scopes?: readonly string[] },
 	now = Date.now(),
 ): InboundClientVerdict {
+	const needsException =
+		classifyMcpClientRegistrationMethod({
+			authType: "oauth",
+			clientId: client.clientId,
+		}) === "dcr" &&
+		client.scopes !== undefined &&
+		!isReadOnlyConsentSelection(client.scopes);
 	if (stored === undefined || stored === null)
-		return { mode: "none", listed: false, allowed: true };
+		return { mode: "none", listed: false, allowed: !needsException };
 	const parsed = McpInboundClientPolicySchema.safeParse(stored);
 	if (!parsed.success)
 		return { mode: "invalid", listed: false, allowed: false };
@@ -38,7 +47,7 @@ export function evaluateInboundClientPolicy(
 	return {
 		mode: parsed.data.mode,
 		listed,
-		allowed: parsed.data.mode === "audit" || listed,
+		allowed: listed || (parsed.data.mode === "audit" && !needsException),
 	};
 }
 
@@ -58,9 +67,9 @@ const INVENTORY_REFRESH_SECONDS = 300;
 /**
  * One content-light audit line per organization and decision point, plus the
  * admin inventory row. Consent staging always records; a grant check runs on
- * every Connect request and records only when a policy exists, persisting
- * only clients the allowlist does not admit. The inventory is best effort:
- * a failed write never changes the decision. `defer` keeps the write off the
+ * every Connect request and records policy decisions and default denials,
+ * persisting only clients the allowlist does not admit. The inventory is best
+ * effort: a failed write never changes the decision. `defer` keeps the write off the
  * request path when the caller can extend the request lifetime.
  */
 export async function recordInboundClientVerdict(
@@ -71,7 +80,7 @@ export async function recordInboundClientVerdict(
 	verdict: InboundClientVerdict,
 	defer?: (promise: Promise<unknown>) => void,
 ): Promise<void> {
-	if (verdict.mode === "none" && stage === "grant") return;
+	if (verdict.mode === "none" && stage === "grant" && verdict.allowed) return;
 	console.log(
 		JSON.stringify({
 			_tr: "mcp_inbound_client_policy",
