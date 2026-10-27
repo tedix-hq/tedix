@@ -220,45 +220,97 @@ export async function createWorkInteraction(
 				: "quiet_batch",
 			deliverAt: urgent ? p.now : nextInteractionDigestAt(p.now),
 		};
+	const creatorSessionId =
+		p.creator.sessionId ??
+		(p.creator.type === "user" &&
+		typeof p.metadata?.agentSession === "string" &&
+		p.metadata.agentSession.length <= 300
+			? p.metadata.agentSession
+			: null);
+	// Exact content and source/session fences preserve distinct choices and private asks.
+	const equivalent = and(
+		eq(workInteractions.orgId, p.orgId),
+		eq(workInteractions.status, "open"),
+		sql`(${workInteractions.expiresAt} IS NULL OR ${workInteractions.expiresAt}>${p.now})`,
+		eq(workInteractions.creatorType, p.creator.type),
+		eq(workInteractions.creatorId, p.creator.id),
+		sql`${workInteractions.creatorSessionId} IS ${creatorSessionId}`,
+		sql`${workInteractions.creatorExternalSessionKey} IS ${p.creator.externalSessionKey ?? null}`,
+		sql`${workInteractions.workItemId} IS ${p.workItemId ?? null}`,
+		sql`${workInteractions.caseId} IS ${p.caseId ?? null}`,
+		sql`${workInteractions.projectId} IS ${p.projectId ?? null}`,
+		eq(workInteractions.targetType, p.targetType),
+		eq(workInteractions.targetId, p.targetId),
+		eq(workInteractions.kind, p.kind),
+		eq(workInteractions.subject, p.subject),
+		eq(workInteractions.prompt, p.prompt),
+		sql`json_remove(${workInteractions.metadata}, '$.notification', '$.followThrough') = json_remove(${JSON.stringify(metadata)}, '$.notification', '$.followThrough')`,
+		p.metadata?.blockerRouting
+			? undefined
+			: sql`${workInteractions.dueAt} IS ${p.dueAt ?? null} AND ${workInteractions.expiresAt} IS ${p.expiresAt ?? null}`,
+	);
+	const dedupe = ["question", "input"].includes(p.kind);
 	const created = (
 		await db
 			.insert(workInteractions)
-			.values({
-				id: p.id,
-				orgId: p.orgId,
-				workItemId: p.workItemId,
-				caseId: p.caseId,
-				projectId: p.projectId,
-				kind: p.kind,
-				status: "open",
-				subject: p.subject,
-				prompt: p.prompt,
-				creatorType: p.creator.type,
-				creatorId: p.creator.id,
-				// Owner-authenticated harness calls retain their requester session as
-				// provenance; it never grants external-agent authority.
-				creatorSessionId:
-					p.creator.sessionId ??
-					(p.creator.type === "user" &&
-					typeof p.metadata?.agentSession === "string" &&
-					p.metadata.agentSession.length <= 300
-						? p.metadata.agentSession
-						: null),
-				creatorExternalSessionKey: p.creator.externalSessionKey,
-				targetType: p.targetType,
-				targetId: p.targetId,
-				dueAt: p.dueAt,
-				expiresAt: p.expiresAt,
-				resolutionFence: null,
-				createdAt: p.now,
-				version: 1,
-				metadata,
-			})
+			.select(
+				db
+					.select({
+						id: sql<string>`${p.id}`.as("id"),
+						orgId: sql<string>`${p.orgId}`.as("org_id"),
+						workItemId: sql<string | null>`${p.workItemId ?? null}`.as(
+							"work_item_id",
+						),
+						caseId: sql<string | null>`${p.caseId ?? null}`.as("case_id"),
+						projectId: sql<string | null>`${p.projectId ?? null}`.as(
+							"project_id",
+						),
+						kind: sql<string>`${p.kind}`.as("kind"),
+						status: sql<string>`'open'`.as("status"),
+						subject: sql<string>`${p.subject}`.as("subject"),
+						prompt: sql<string>`${p.prompt}`.as("prompt"),
+						creatorType: sql<string>`${p.creator.type}`.as("creator_type"),
+						creatorId: sql<string>`${p.creator.id}`.as("creator_id"),
+						creatorSessionId: sql<string | null>`${creatorSessionId}`.as(
+							"creator_session_id",
+						),
+						creatorExternalSessionKey: sql<
+							string | null
+						>`${p.creator.externalSessionKey ?? null}`.as(
+							"creator_external_session_key",
+						),
+						targetType: sql<string>`${p.targetType}`.as("target_type"),
+						targetId: sql<string>`${p.targetId}`.as("target_id"),
+						dueAt: sql<string | null>`${p.dueAt ?? null}`.as("due_at"),
+						expiresAt: sql<string | null>`${p.expiresAt ?? null}`.as(
+							"expires_at",
+						),
+						resolutionFence: sql<null>`NULL`.as("resolution_fence"),
+						createdAt: sql<string>`${p.now}`.as("created_at"),
+						version: sql<number>`1`.as("version"),
+						metadata: sql<string>`${JSON.stringify(metadata)}`.as("metadata"),
+					})
+					.from(sql`(SELECT 1)`)
+					.where(
+						dedupe
+							? sql`NOT EXISTS (SELECT 1 FROM ${workInteractions} WHERE ${equivalent})`
+							: sql`1=1`,
+					),
+			)
 			.onConflictDoNothing({
 				target: [workInteractions.orgId, workInteractions.id],
 			})
 			.returning()
 	)[0];
+	if (!created && dedupe) {
+		const [existing] = await db
+			.select()
+			.from(workInteractions)
+			.where(equivalent)
+			.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
+			.limit(1);
+		if (existing) return existing;
+	}
 	if (!created) {
 		const existing = await getWorkInteraction(db, {
 			orgId: p.orgId,

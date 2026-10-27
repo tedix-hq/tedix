@@ -251,3 +251,63 @@ it("does not let autonomy metadata bypass the owner-only capture policy", async 
 		targetId: "fictional-person",
 	});
 });
+
+it.each([false, true])(
+	"routes routine repair with a deadline and server-owned recipient evidence (capture=%s)",
+	async (captured) => {
+		mocks.work.mockResolvedValue({
+			id: workItemId,
+			stewardType: "tedi",
+			stewardId: "repair-owner",
+		});
+		const before = Date.now();
+		await client.create({
+			...input,
+			subject: "Clean up the tests?",
+			prompt: "Inspect the failed test and repair the fixture.",
+			reason: "Tests need repair.",
+			metadata: captured
+				? input.metadata
+				: { blockerRouting: { ownerId: "forged-owner" } },
+		});
+		const created = mocks.create.mock.calls[0]![1];
+		expect(created).toMatchObject({
+			targetType: "tedi",
+			targetId: "repair-owner",
+			metadata: {
+				blockerRouting: {
+					ownerId: "repair-owner",
+					evidenceRef: `/work/items/${workItemId}`,
+				},
+			},
+		});
+		expect(Date.parse(created.dueAt)).toBeGreaterThan(before);
+		expect(Date.parse(created.dueAt)).toBeLessThanOrEqual(
+			Date.now() + 86_400_000,
+		);
+		expect(mocks.gate).not.toHaveBeenCalled();
+	},
+);
+
+it("keeps a real human action with its reason, exact instruction and Work evidence", async () => {
+	await client.create({
+		...input,
+		subject: "Complete sign-in and consent",
+		prompt:
+			"Open https://provider.example.test/settings and click Connect; review the requested access.",
+		reason: "The provider requires your presence and consent.",
+		metadata: { evidenceRefs: [`/work/items/${workItemId}`] },
+	});
+	expect(mocks.create.mock.calls[0]![1]).toMatchObject({
+		targetType: "user",
+		targetId: "fictional-person",
+		prompt:
+			"Open https://provider.example.test/settings and click Connect; review the requested access.",
+		metadata: {
+			reason: "The provider requires your presence and consent.",
+			evidenceRefs: [`/work/items/${workItemId}`],
+			blockerRouting: null,
+		},
+	});
+	expect(mocks.gate).toHaveBeenCalled();
+});

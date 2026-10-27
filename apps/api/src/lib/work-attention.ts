@@ -75,7 +75,7 @@ export function buildAttention(
 			!row.outcome &&
 			now.getTime() >=
 				(Date.parse(row.heartbeatAt) + Date.parse(row.expiresAt ?? "")) / 2;
-		const needsHuman = requests.some(
+		const reportedWait = requests.some(
 			(request) =>
 				`${request.harness}:${request.sessionKey}` === row.session &&
 				request.projectId === row.projectId &&
@@ -99,8 +99,8 @@ export function buildAttention(
 					? "done"
 					: row.outcome || expired || stale
 						? "blocked"
-						: needsHuman || session?.state === "needs_you"
-							? "waiting"
+						: reportedWait || session?.state === "needs_you"
+							? "blocked"
 							: row.state === "waiting"
 								? "blocked"
 								: row.state === "queued"
@@ -157,7 +157,7 @@ export function buildAttention(
 			column: !fresh
 				? "blocked"
 				: row.state === "needs_you"
-					? "waiting"
+					? "blocked"
 					: row.state === "done" && today(row.lastEventAt)
 						? "done"
 						: row.state === "error"

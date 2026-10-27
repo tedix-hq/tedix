@@ -1599,3 +1599,58 @@ it("returns the latest resolved related answer only within the same tenant and r
 	).toBe("previous");
 	sqlite.close();
 });
+
+it("atomically reuses an equivalent open ask without merging different evidence, recipients or answered asks", async () => {
+	const { db, sqlite } = fixture();
+	sqlite.exec(
+		schemaDdl(tedis, policyPacks, runtimeProfiles, workspaceTemplateSets),
+	);
+	sqlite.exec(
+		"INSERT INTO tedis (id,organization_id,name,slug,status) VALUES ('worker','org','Worker','worker','active'),('other','org','Other','other','active')",
+	);
+	const input = {
+		id: "repair",
+		orgId: "org",
+		workItemId: "work",
+		kind: "question" as const,
+		subject: "Inspect the lane?",
+		prompt: "Check the failed Attempt.",
+		creator: { type: "tedi" as const, id: "worker" },
+		targetType: "tedi" as const,
+		targetId: "worker",
+		metadata: { evidenceRefs: ["attempt:one"] },
+		now: NOW,
+	};
+	const [a, b] = await Promise.all([
+		createWorkInteraction(db, input),
+		createWorkInteraction(db, { ...input, id: "retry" }),
+	]);
+	expect(a.id).toBe(b.id);
+	expect(
+		await createWorkInteraction(db, {
+			...input,
+			id: "other-session",
+			creator: { ...input.creator, sessionId: "private-session" },
+		}),
+	).toMatchObject({ id: "other-session" });
+	expect(
+		await createWorkInteraction(db, {
+			...input,
+			id: "different-evidence",
+			metadata: { evidenceRefs: ["attempt:two"] },
+		}),
+	).toMatchObject({ id: "different-evidence" });
+	expect(
+		await createWorkInteraction(db, {
+			...input,
+			id: "different-target",
+			targetId: "other",
+		}),
+	).toMatchObject({ id: "different-target" });
+	sqlite.exec(
+		"UPDATE work_interactions SET status='resolved' WHERE id='repair'",
+	);
+	expect(
+		await createWorkInteraction(db, { ...input, id: "new-ask" }),
+	).toMatchObject({ id: "new-ask", status: "open" });
+});

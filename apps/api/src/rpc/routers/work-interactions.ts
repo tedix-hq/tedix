@@ -307,6 +307,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 	const {
 		curation: _untrustedCuration,
 		internalRouting: _untrustedRouting,
+		blockerRouting: _untrustedBlockerRouting,
 		createGate: _untrustedGate,
 		...creationMetadata
 	} = input.metadata ?? {};
@@ -354,10 +355,23 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		input.requestedFrom.type === "user" && !capturedTurn
 			? await internalDecisionRouting(context, orgId, actor, input)
 			: null;
+	const { blockerAttentionRouting } =
+		await import("../../services/blocker-attention-routing");
+	const blockerRoute =
+		input.requestedFrom.type === "user" && !internalRoute
+			? await blockerAttentionRouting(context, orgId, actor, input)
+			: null;
+	if (blockerRoute && !input.dueAt)
+		input = {
+			...input,
+			dueAt: new Date(Date.now() + 86_400_000).toISOString(),
+		};
 	let target =
-		capturedWithoutTriage || internalRoute ? actor : input.requestedFrom;
+		blockerRoute?.target ??
+		(capturedWithoutTriage || internalRoute ? actor : input.requestedFrom);
 	if (
 		capturedTurn &&
+		!blockerRoute &&
 		!capturedWithoutTriage &&
 		input.requestedFrom.type === "user" &&
 		humanOnlyAskReasons(input.subject).length === 0
@@ -477,6 +491,14 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 			expiresAt,
 			metadata: {
 				...creationMetadata,
+				blockerRouting: blockerRoute
+					? {
+							reason: blockerRoute.reason,
+							evidenceRef: blockerRoute.evidenceRef,
+							ownerType: blockerRoute.target.type,
+							ownerId: blockerRoute.target.id,
+						}
+					: null,
 				// Client metadata cannot forge a server-owned autonomy receipt.
 				internalRouting: internalRoute
 					? {

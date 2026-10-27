@@ -15,6 +15,7 @@ import {
 	notifyStoppedLanes,
 	readLaneState,
 } from "./lane-lifecycle";
+import { tedis } from "../../schema/tedis";
 import { agentSessionRequests } from "../../schema/agent-session-requests";
 import { sweepElapsedWorkAttempts } from "./attempts";
 
@@ -32,6 +33,7 @@ async function fixture() {
 			workInteractions,
 			externalAgentPrincipals,
 			agentSessionRequests,
+			tedis,
 			workResourceReservations,
 			workBudgetReservations,
 		),
@@ -89,10 +91,7 @@ describe("server lane lifecycle", () => {
 		expect(await notifyStoppedLanes(db, expiry)).toBe(1);
 		expect(await notifyStoppedLanes(db, expiry)).toBe(0);
 		const notices = await db.select().from(workInteractions);
-		expect(notices.map((n) => n.targetId)).toEqual([
-			"user-example",
-			"user-example",
-		]);
+		expect(notices.map((n) => n.targetId)).toEqual(["agent", "agent"]);
 		expect(notices.map((n) => n.metadata.laneLifecycle)).toMatchObject([
 			{ state: "stale", recovery: { action: "automatic_retry_once" } },
 			{ state: "failed", recovery: { action: "automatic_retry_once" } },
@@ -102,7 +101,7 @@ describe("server lane lifecycle", () => {
 			"accepted",
 		);
 	});
-	it("names the accountable next mover and blocks after the bounded retry", async () => {
+	it("keeps repair machine-owned even with human accountability and blocks after the bounded retry", async () => {
 		const { db, sqlite } = await fixture();
 		sqlite.exec(
 			"UPDATE work_items SET accountable_owner_type='user', accountable_owner_id='accountable-user'",
@@ -127,10 +126,11 @@ describe("server lane lifecycle", () => {
 		await sweepElapsedWorkAttempts(db, { now: "2026-10-17T12:10:00.000Z" });
 		expect(await notifyStoppedLanes(db, "2026-10-17T12:10:00.000Z")).toBe(1);
 		const [notice] = await db.select().from(workInteractions);
-		expect(notice?.targetId).toBe("accountable-user");
+		expect(notice?.targetType).toBe("external_agent");
+		expect(notice?.targetId).toBe("agent");
 		expect(notice?.metadata.laneLifecycle).toMatchObject({
 			state: "blocked",
-			nextMover: { type: "user", id: "accountable-user" },
+			nextMover: { type: "external_agent", id: "agent" },
 			recovery: {
 				action: "inspect_latest_attempt_and_start_governed_attempt",
 				maxAttempts: 2,
@@ -228,7 +228,7 @@ it("derives lane state from canonical time, asks and the owner's ledger", async 
 	);
 	sqlite.exec("UPDATE agent_session_requests SET user_id='user-example'");
 	expect(await readLaneState(db, "org-example", "attempt", start)).toBe(
-		"needs-human",
+		"blocked",
 	);
 	sqlite.exec(
 		"UPDATE agent_session_requests SET status='done'; UPDATE work_attempts SET runtime_state='finished',outcome='succeeded',finished_at='2026-10-17T12:01:00.000Z'",
@@ -237,3 +237,23 @@ it("derives lane state from canonical time, asks and the owner's ledger", async 
 		"done",
 	);
 });
+
+it.each(["active", "retired", "foreign"])(
+	"routes lane repair to an eligible steward, preserving fallback for %s",
+	async (state) => {
+		const { db, sqlite } = await fixture();
+		sqlite.exec(
+			`INSERT INTO tedis(id,organization_id,name,slug,status,retired_at) VALUES ('repair-owner','${state === "foreign" ? "foreign-org" : "org-example"}','Repair','repair','active',${state === "retired" ? "'2026-10-16T00:00:00Z'" : "NULL"}); UPDATE work_items SET steward_type='tedi',steward_id='repair-owner'`,
+		);
+		await recordStaleLanes(db, stale);
+		expect(await notifyStoppedLanes(db, stale)).toBe(1);
+		const [notice] = await db.select().from(workInteractions);
+		expect(notice).toMatchObject({
+			targetType: state === "active" ? "tedi" : "external_agent",
+			targetId: state === "active" ? "repair-owner" : "agent",
+			dueAt: "2026-10-17T13:02:30.000Z",
+		});
+		expect(notice?.metadata.reason).toContain("machine investigation");
+		expect(notice?.metadata.evidenceRefs).toEqual(["/work/items/item"]);
+	},
+);
