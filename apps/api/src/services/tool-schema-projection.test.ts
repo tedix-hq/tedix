@@ -266,6 +266,28 @@ describe("mergeGeneratedConfig", () => {
 		});
 	});
 
+	it("opts the CLI's reviewed Work endpoints into native transport", () => {
+		// `tedix work move` and `work accept --executor` call this natively; a
+		// row without the opt-in is ineligible and the CLI refuses the call.
+		const updateSpecification = endpoint({
+			router: "workItems",
+			procPath: "updateSpecification",
+			route: { method: "POST", path: "/work-items/{id}/specification" },
+		});
+		expect(
+			mergeGeneratedConfig(undefined, updateSpecification, emptyObjectSchema),
+		).toEqual({
+			transport: "rpc",
+			endpoint: "workItems/updateSpecification",
+			responsePath: "json",
+			method: "POST",
+			nativeDirect: true,
+		});
+		expect(
+			mergeGeneratedConfig(undefined, listSkillsByApp, emptyObjectSchema),
+		).not.toHaveProperty("nativeDirect");
+	});
+
 	it("floors the durable code transport timeout and keeps a longer one", () => {
 		expect(
 			mergeGeneratedConfig(undefined, runDurableCode, {

@@ -137,7 +137,7 @@ const CLI_PROJECTION_SCHEMAS: Record<
 		output: ListWorkInteractionCliInboxResultSchema,
 	},
 };
-const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
+export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	list_deck_cards: "attention/listDeckCards",
 	get_deck_card: "attention/getDeckCard",
 	decide_deck_card: "attention/decideDeckCard",

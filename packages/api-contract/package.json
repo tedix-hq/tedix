@@ -341,7 +341,8 @@
 		"./utils/attention-app-view": "./src/utils/attention-app-view.ts",
 		"./utils/decision-card-preferences": "./src/utils/decision-card-preferences.ts",
 		"./assets/attention-app-views.v1.json": "./src/assets/attention-app-views.v1.json",
-		"./assets/attention-app-views.v2.json": "./src/assets/attention-app-views.v2.json"
+		"./assets/attention-app-views.v2.json": "./src/assets/attention-app-views.v2.json",
+		"./assets/cli-native-endpoints.v1.json": "./src/assets/cli-native-endpoints.v1.json"
 	},
 	"scripts": {
 		"clean": "true",

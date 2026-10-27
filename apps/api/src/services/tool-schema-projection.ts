@@ -5,6 +5,7 @@
  * Nothing here touches D1; `tool-schema-sync.ts` owns the reads and writes.
  */
 import attentionAppViews from "@tedix/api-contract/assets/attention-app-views.v2.json";
+import cliNativeEndpoints from "@tedix/api-contract/assets/cli-native-endpoints.v1.json";
 import { TEDI_DURABLE_CODE_TRANSPORT_TIMEOUT_MS } from "@tedix/api-contract/schemas/tedi-durable-code";
 import type { ToolSchemaSyncInput } from "@tedix/api-contract/contracts/tool-schema-sync";
 import {
@@ -354,13 +355,14 @@ export function mergeGeneratedConfig(
 			? { method: endpoint.route.method.toUpperCase() }
 			: {}),
 	};
-	// Preserve stored opt-ins and the versioned attention asset’s reviewed native calls.
-	// Native dispatch still enforces the caller’s endpoint scopes.
+	// Preserve stored opt-ins and the versioned assets’ reviewed native calls
+	// (attention views and the CLI's Work verbs). Native dispatch still enforces
+	// the caller’s endpoint scopes and the router's own authorization.
+	const endpointPath = `${endpoint.router}/${endpoint.procPath}`;
 	if (
 		existingConfig.nativeDirect === true ||
-		attentionAppViews.nativeDirectEndpoints.includes(
-			`${endpoint.router}/${endpoint.procPath}`,
-		)
+		attentionAppViews.nativeDirectEndpoints.includes(endpointPath) ||
+		cliNativeEndpoints.nativeDirectEndpoints.includes(endpointPath)
 	)
 		nextConfig.nativeDirect = true;
 
@@ -411,15 +413,11 @@ export function mergeGeneratedConfig(
 	if (widgetOverride) {
 		nextConfig.layoutId = widgetOverride.layoutId;
 		nextConfig.layoutSpec = widgetOverride.layoutSpec;
-		if (`${endpoint.router}/${endpoint.procPath}` in attentionAppViews.views)
+		if (endpointPath in attentionAppViews.views)
 			nextConfig.modelSummaryTemplate = "{markdown}";
 	}
 
-	if (
-		attentionAppViews.textSummaryEndpoints.includes(
-			`${endpoint.router}/${endpoint.procPath}`,
-		)
-	)
+	if (attentionAppViews.textSummaryEndpoints.includes(endpointPath))
 		nextConfig.modelSummaryTemplate = "{markdown}";
 	return nextConfig;
 }
