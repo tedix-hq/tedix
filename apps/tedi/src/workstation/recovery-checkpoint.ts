@@ -460,7 +460,8 @@ export async function restoreWorkstationRecoveryCheckpoint(
 										`base64 -d < ${quote(`${bundlePath}.base64`)} > ${quote(bundlePath)}`,
 										`git cat-file -e ${quote(`${manifest.bundle.prerequisite}^{commit}`)}`,
 										`git bundle verify ${quote(bundlePath)} >&2`,
-										`git -c core.hooksPath=/dev/null fetch --no-write-fetch-head ${quote(bundlePath)} HEAD >&2`,
+										// Without maintenance.auto=false, fetch detaches a background repack that runs beside the checkout below.
+										`git -c core.hooksPath=/dev/null -c maintenance.auto=false fetch --no-write-fetch-head ${quote(bundlePath)} HEAD >&2`,
 									]
 								: []),
 							`git cat-file -e ${quote(`${manifest.baseCommit}^{commit}`)}`,
