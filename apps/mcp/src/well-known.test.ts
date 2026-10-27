@@ -24,6 +24,7 @@ import {
 } from "@tedix/mcp-shared/auth/scopes";
 import {
 	handleFavicon,
+	handleServerCard,
 	handleWellKnown,
 	normalizeAdvertisedScopeNames,
 } from "./well-known";
@@ -395,5 +396,60 @@ describe("OAuth metadata scope advertisement", () => {
 		});
 		expect(response?.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(response?.headers.has("Cache-Tag")).toBe(false);
+	});
+});
+
+describe("MCP Server Card", () => {
+	beforeEach(() => vi.clearAllMocks());
+
+	it("publishes a public card for an app with a registry name", async () => {
+		getBySlugWithTools.mockResolvedValue({
+			app: {
+				id: "app_1",
+				slug: "acme",
+				name: "Acme Connect",
+				description: "Acme tasks and knowledge for agents.",
+				logoUrl: "https://acme.example/logo.png",
+				metadata: {
+					mcpConfig: {
+						registryName: "io.github.acme/acme",
+						serverName: "Acme",
+						serverVersion: "1.2.3",
+						resourceDocumentation: "https://docs.acme.example",
+					},
+				},
+			},
+			tools: [],
+		});
+		const response = await handleServerCard(HOST, createEnv());
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Content-Type")).toBe(
+			"application/mcp-server-card+json",
+		);
+		expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
+		expect(await response.json()).toMatchObject({
+			$schema:
+				"https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+			name: "io.github.acme/acme",
+			title: "Acme",
+			version: "1.2.3",
+			websiteUrl: "https://docs.acme.example",
+			remotes: [
+				{ type: "streamable-http", url: "https://acme.mcp.tedix.tech/mcp" },
+			],
+		});
+	});
+
+	it("serves no card without a valid registry name", async () => {
+		getBySlugWithTools.mockResolvedValue({
+			app: {
+				id: "app_1",
+				slug: "acme",
+				name: "Acme",
+				metadata: { mcpConfig: { registryName: "not a registry name" } },
+			},
+			tools: [],
+		});
+		expect((await handleServerCard(HOST, createEnv())).status).toBe(404);
 	});
 });
