@@ -97,7 +97,7 @@ export function buildAppEditTools(
 						{
 							proposalId: result.proposal.id,
 							status: result.proposal.status,
-							next: "Open the app Drafts tab to preview and accept or reject.",
+							next: "Open Edit in the app to preview and accept or reject it.",
 						},
 						deepLink,
 					);

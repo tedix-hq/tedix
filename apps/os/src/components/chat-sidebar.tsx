@@ -8,6 +8,7 @@ import {
 	ChatCircle,
 	Check,
 	DotsThree,
+	Info,
 	PencilSimple,
 	Plus,
 	PushPin,
@@ -1048,17 +1049,25 @@ export function ChatSidebar({
  * editable behind a pencil, and a delete control with confirmation
  * (`ChatInterface.tsx`, "Chat sub-header"). Rename is optimistic like the
  * list's own rename; delete is the same permanent-delete contract the list menu performs.
+ * With `onToggleDetails`, an info icon opens the thread's "Chat details" panel.
  */
 export function ChatConversationHeader({
 	conversationId,
 	workspaceId,
 	onBack,
 	onDeleted,
+	backClassName,
+	detailsOpen = false,
+	onToggleDetails,
 }: {
 	conversationId: string | null;
 	workspaceId?: string;
 	onBack: () => void;
 	onDeleted: () => void;
+	/** Hides Back where the conversation list is already on screen. */
+	backClassName?: string;
+	detailsOpen?: boolean;
+	onToggleDetails?: () => void;
 }) {
 	const queryClient = useQueryClient();
 	const [editing, setEditing] = useState(false);
@@ -1119,6 +1128,7 @@ export function ChatConversationHeader({
 			<Button
 				aria-label="Back to conversations"
 				title="Back to conversations"
+				className={backClassName}
 				onClick={onBack}
 				size="icon-sm"
 				variant="ghost"
@@ -1181,6 +1191,20 @@ export function ChatConversationHeader({
 						</Button>
 					)}
 				</>
+			)}
+			{conversationId === null || !onToggleDetails ? null : (
+				<Button
+					aria-label="Chat details"
+					title="Chat details"
+					aria-expanded={detailsOpen}
+					// ChatThread's details panel.
+					aria-controls="chat-details-panel"
+					onClick={onToggleDetails}
+					size="icon-sm"
+					variant="ghost"
+				>
+					<Info size={14} />
+				</Button>
 			)}
 			{/* A thread that does not exist yet has nothing to rename or delete. */}
 			{conversationId === null ? null : (

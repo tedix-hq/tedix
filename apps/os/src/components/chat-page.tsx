@@ -119,6 +119,7 @@ export function ChatPage() {
 	useChatWebMcpTools();
 	const [mobileListOpen, setMobileListOpen] = useState(false);
 	const [newConversationKey, setNewConversationKey] = useState(0);
+	const [detailsOpen, setDetailsOpen] = useState(false);
 	const selectionGeneration = useRef(0);
 	const generation = selectionGeneration.current;
 
@@ -177,9 +178,16 @@ export function ChatPage() {
 					data-slot="chat-active-conversation"
 					className={`${mobileListOpen ? "hidden" : "flex"} min-h-0 min-w-0 flex-1 flex-col md:flex`}
 				>
-					<div className="flex h-12 shrink-0 items-center border-kumo-line border-b md:hidden">
+					{/* On desktop the list is beside the thread, so the header only
+					    carries the open conversation's actions. */}
+					<div
+						className={`flex h-12 shrink-0 items-center border-kumo-line border-b ${activeConversationId ? "" : "md:hidden"}`}
+					>
 						<ChatConversationHeader
 							conversationId={activeConversationId}
+							backClassName="md:hidden"
+							detailsOpen={detailsOpen}
+							onToggleDetails={() => setDetailsOpen((open) => !open)}
 							onBack={() => setMobileListOpen(true)}
 							onDeleted={() => {
 								selectConversation(null);
@@ -189,6 +197,7 @@ export function ChatPage() {
 					</div>
 					<ChatThread
 						key={newConversationKey}
+						detailsOpen={detailsOpen}
 						detailsActions={
 							activeConversationId ? (
 								<SaveAsWorkspaceButton conversationId={activeConversationId} />

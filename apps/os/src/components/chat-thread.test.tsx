@@ -3042,7 +3042,20 @@ describe("<ChatThread> active run steering", () => {
 		transport.actions.cancelRun.mockResolvedValue({});
 		const { container } = mountThread();
 		await flush();
+		// With nothing typed, the send slot is Stop (filled square, no text)
+		// and nothing else in the thread offers Stop.
+		const stops = () =>
+			container.querySelectorAll<HTMLButtonElement>(
+				'button[aria-label="Stop"]',
+			);
+		expect(stops()).toHaveLength(1);
+		expect(stops()[0]!.closest(".chat-composer-actions")).not.toBeNull();
+		expect(stops()[0]!.textContent?.trim()).toBe("");
+		expect(
+			container.querySelector('button[aria-label="Send message"]'),
+		).toBeNull();
 		typeDraft(container, "Use the latest evidence");
+		expect(stops()).toHaveLength(0);
 		const queueButton = container.querySelector<HTMLButtonElement>(
 			'button[aria-label="Queue steering message"]',
 		)!;
@@ -3052,18 +3065,12 @@ describe("<ChatThread> active run steering", () => {
 		expect(transport.actions.enqueueMessage).not.toHaveBeenCalled();
 		expect(container.textContent).toContain("Queued · unread");
 		expect(composerTextarea(container).value).toBe("");
-		typeDraft(container, "Keep this draft too");
-		const stop = [
-			...container.querySelectorAll<HTMLButtonElement>("button"),
-		].find((button) => button.textContent?.trim() === "Stop")!;
-		act(() => stop.click());
+		act(() => stops()[0]!.click());
 		await flush();
 		expect(transport.actions.cancelRun).toHaveBeenCalledWith({ runId: RUN_ID });
-		expect(composerTextarea(container).value).toBe(
-			"Use the latest evidence\n\nKeep this draft too",
-		);
+		expect(composerTextarea(container).value).toBe("Use the latest evidence");
 		expect(window.localStorage.getItem(chatDraftKey(CONVERSATION_ID))).toBe(
-			"Use the latest evidence\n\nKeep this draft too",
+			"Use the latest evidence",
 		);
 	});
 	it("keeps a failed steering draft and retries the same key", async () => {

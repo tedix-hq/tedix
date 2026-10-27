@@ -13,6 +13,15 @@ const surfaces = [
 	{ name: "chat page", path: "/chat" },
 	{ name: "workspace chat", path: workspacePath },
 ] as const;
+// A fixture conversation whose Home run is still running.
+const runningConversation = "00000060-0000-4000-8000-000000000009";
+const runningSurfaces = [
+	{ name: "chat page", path: `/chat?conversation=${runningConversation}` },
+	{
+		name: "workspace chat",
+		path: `${workspacePath}&conversation=${runningConversation}`,
+	},
+] as const;
 const shots = process.env.CHAT_COMPOSER_LAYOUT_SHOTS;
 const server = await startFixtureServer("/chat");
 const browser = await chromium.launch({ headless: true });
@@ -113,6 +122,88 @@ async function openComposer(page: Page, path: string) {
 		.waitFor();
 }
 
+/**
+ * A running turn: the send slot holds exactly one control, the Stop icon, and
+ * nothing else on the page offers Stop. "Chat details" is an icon in the
+ * conversation header beside rename and delete, never a text row in the thread.
+ */
+async function checkRunning(page: Page, label: string, phone: boolean) {
+	const actions = page.locator(".chat-composer-actions");
+	const stop = actions.getByRole("button", { name: "Stop", exact: true });
+	await stop.waitFor();
+	assert.equal(
+		await page.getByRole("button", { name: "Stop", exact: true }).count(),
+		1,
+		`${label}: one Stop on the page`,
+	);
+	assert.equal(
+		await actions
+			.getByRole("button", { name: /^(Send message|Queue steering message)$/ })
+			.count(),
+		0,
+		`${label}: Stop replaces Send`,
+	);
+	const slot = await actions.evaluate((row) => {
+		const buttons = Array.from(row.querySelectorAll("button")).filter((el) => {
+			const box = el.getBoundingClientRect();
+			return box.width > 1 && box.height > 1;
+		});
+		const last = buttons.at(-1)!;
+		return {
+			name: last.getAttribute("aria-label"),
+			text: last.textContent?.trim() ?? "",
+			icon: last.querySelector("svg") !== null,
+		};
+	});
+	assert.deepEqual(
+		slot,
+		{ name: "Stop", text: "", icon: true },
+		`${label}: send slot is the Stop icon`,
+	);
+	if (!phone) {
+		await stop.hover();
+		await page
+			.locator("[data-base-ui-portal]")
+			.getByText("Stop", { exact: true })
+			.waitFor();
+		await page.mouse.move(0, 0);
+	}
+	const details = page.getByRole("button", {
+		name: "Chat details",
+		exact: true,
+	});
+	assert.equal(await details.count(), 1, `${label}: one Chat details control`);
+	assert.equal(
+		(await details.innerText()).trim(),
+		"",
+		`${label}: Chat details is an icon`,
+	);
+	assert(
+		await details.evaluate(
+			(button) =>
+				button.parentElement?.querySelector(
+					'[aria-label="Delete conversation"]',
+				) != null && button.closest("[data-slot='chat-composer']") == null,
+		),
+		`${label}: Chat details sits in the header beside delete`,
+	);
+	assert.equal(
+		await page.getByText("Chat details", { exact: true }).count(),
+		0,
+		`${label}: no Chat details text in the thread`,
+	);
+	const panel = page.locator("#chat-details-panel");
+	assert.equal(
+		await panel.isVisible(),
+		false,
+		`${label}: details start closed`,
+	);
+	await details.click();
+	await panel.waitFor();
+	await details.click();
+	await panel.waitFor({ state: "hidden" });
+}
+
 try {
 	for (const theme of ["light", "dark"] as const) {
 		for (const width of [320, 375, 560, 1280]) {
@@ -154,6 +245,16 @@ try {
 						path: `${shots}/${surface.name.replace(" ", "-")}-${width}-${theme}.png`,
 					});
 				}
+			}
+			for (const surface of runningSurfaces) {
+				const label = `${surface.name} running ${width}px ${theme}`;
+				await page.goto(`${server.origin}${surface.path}`);
+				await checkRunning(page, label, phone);
+				assert.deepEqual(await footerDefects(page), [], label);
+				if (shots)
+					await page.screenshot({
+						path: `${shots}/${surface.name.replace(" ", "-")}-running-${width}-${theme}.png`,
+					});
 			}
 			await context.close();
 		}
