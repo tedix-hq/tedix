@@ -89,7 +89,9 @@ Widget iframes never receive bearer tokens.
 - `/sandbox_proxy.html` is framed without `allow-same-origin`, so the guest has
   an opaque origin and cannot read OS cookies or DOM. It is the only OS
   response allowed to frame on its own origin; everything else is `DENY`. It
-  accepts injection only from its parent at the expected origin.
+  accepts injection only from its parent at the expected origin. Its own
+  `frame-src 'none'` lets the srcdoc guest load but refuses every later
+  navigation of the guest frame, so a guest cannot leave with data in a URL.
 
 ### View state
 

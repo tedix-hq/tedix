@@ -3,6 +3,11 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="robots" content="noindex" />
+		<!-- The guest arrives as srcdoc, which frame-src does not check. Every
+		     later navigation of the guest frame, including one the guest starts
+		     itself with location.href, is checked here and blocked, so a guest
+		     cannot carry app data to an outside URL by leaving its document. -->
+		<meta http-equiv="Content-Security-Policy" content="frame-src 'none'" />
 		<title>Tedix OS widget sandbox</title>
 		<style>
 			html,

@@ -234,30 +234,18 @@ async function run() {
 			);
 		}
 
-		// A nested cross-origin sender has a distinct event.origin and source.
-		await page.route("https://wrong-origin.test/**", (route) =>
-			route.fulfill({
-				status: 200,
-				contentType: "text/html",
-				body: "<html></html>",
-			}),
-		);
-		const attacker = await proxyFrame.evaluateHandle(() => {
+		// A nested opaque-origin sender has a distinct event.origin and source.
+		// It is a srcdoc frame because the proxy's frame-src refuses URL frames.
+		await proxyFrame.evaluate(() => {
 			const frame = document.createElement("iframe");
-			frame.src = "https://wrong-origin.test/attacker.html";
+			frame.sandbox.add("allow-scripts");
+			frame.srcdoc = `<script>parent.postMessage(${JSON.stringify({
+				jsonrpc: "2.0",
+				method: "ui/notifications/sandbox-resource-ready",
+				params: { html: "<body>forged origin</body>" },
+			})}, "*")</script>`;
 			document.body.appendChild(frame);
-			return frame;
 		});
-		await attacker.evaluate((frame) =>
-			frame.contentWindow?.postMessage(
-				{
-					jsonrpc: "2.0",
-					method: "ui/notifications/sandbox-resource-ready",
-					params: { html: "<body>forged origin</body>" },
-				},
-				"*",
-			),
-		);
 		await page.waitForTimeout(150);
 		if (!(await originalGuest?.evaluate((frame) => frame.isConnected))) {
 			throw new Error("Cross-origin frame injected an MCP app resource.");
