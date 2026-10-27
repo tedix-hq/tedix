@@ -497,6 +497,11 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_output",
 		resourceId: ({ output }) => nestedId(output, "output"),
 	},
+	"outputs.restore": {
+		action: "os.output.restored",
+		resourceType: "os_output",
+		resourceId: ({ output }) => nestedId(output, "output"),
+	},
 	"outputs.delete": {
 		action: "os.output.deleted",
 		resourceType: "os_output",

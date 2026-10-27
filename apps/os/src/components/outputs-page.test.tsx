@@ -18,6 +18,7 @@ const outputsApi = vi.hoisted(() => ({
 	library: vi.fn(),
 	rename: vi.fn(),
 	archive: vi.fn(),
+	restore: vi.fn(),
 }));
 const navigate = vi.hoisted(() => vi.fn());
 
@@ -29,7 +30,7 @@ vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigate,
 }));
 vi.mock("@/components/share-controls", () => ({
-	ShareControls: () => <button type="button">Share</button>,
+	ShareDialog: () => <div role="dialog">Share this file</div>,
 }));
 
 import { OutputsPage } from "./outputs-page";
@@ -149,7 +150,7 @@ afterEach(() => {
 
 describe("OutputsPage", () => {
 	it.each(["grid", "list"])(
-		"keeps Open, Share, and Actions as sibling controls in %s layout",
+		"keeps one action row, Open then an icon-only ⋯, in %s layout",
 		async (layout) => {
 			window.localStorage.setItem("tedix:outputs:layout:v1", layout);
 			outputsApi.library.mockResolvedValue({
@@ -172,22 +173,56 @@ describe("OutputsPage", () => {
 			expect(
 				card.querySelector("button button, [role=button] button"),
 			).toBeNull();
-			const share = [...card.querySelectorAll("button")].find(
-				(button) => button.textContent === "Share",
+			// Share sits in the menu: a button beside Open lies under Open's
+			// card-wide click layer, so a pointer click on it opened the output.
+			expect(
+				[...card.querySelectorAll("button")].map((button) =>
+					button.getAttribute("aria-label"),
+				),
+			).toEqual([
+				"Open Weekly report in Q3 planning",
+				"More actions for Weekly report",
+			]);
+			const more = card.querySelector<HTMLButtonElement>(
+				'button[aria-label="More actions for Weekly report"]',
 			)!;
-			const actions = card.querySelector<HTMLButtonElement>(
-				'button[aria-label="Actions for Weekly report"]',
-			)!;
-			expect(actions.textContent).toContain("Actions");
-			for (const control of [share, actions]) {
-				expect(control.closest('button, [role="button"]')).toBe(control);
-				act(() => control.click());
-			}
+			expect(more.textContent).toBe("");
+			expect(more.className).toContain("z-10");
+			act(() => more.click());
 			expect(navigate).not.toHaveBeenCalled();
 			act(() => open!.click());
 			expect(navigate).toHaveBeenCalledTimes(1);
 		},
 	);
+
+	it("lists archived outputs under Archived, loading them only when asked", async () => {
+		const archivedItem = libraryItem({
+			output: { ...output, title: "Old plan", status: "archived" },
+		});
+		outputsApi.library.mockImplementation(
+			async ({ status }: { status?: string }) =>
+				status === "archived"
+					? { items: [archivedItem], truncated: false }
+					: { items: [libraryItem()], truncated: false },
+		);
+		const container = renderPage();
+		await flush();
+		expect(outputsApi.library).toHaveBeenCalledTimes(1);
+		expect(outputsApi.library.mock.calls[0]?.[0]).toMatchObject({
+			status: "active",
+		});
+		const archivedTab = [
+			...container.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+		].find((tab) => tab.textContent?.startsWith("Archived"))!;
+		act(() => archivedTab.click());
+		await flush();
+		expect(outputsApi.library.mock.calls.at(-1)?.[0]).toMatchObject({
+			status: "archived",
+		});
+		expect(container.textContent).toContain("Old plan");
+		expect(container.textContent).not.toContain("Weekly report");
+		expect(archivedTab.textContent).toContain("Archived 1");
+	});
 
 	it("uses the ordinary desktop lane for the compact filter row", async () => {
 		outputsApi.library.mockResolvedValue({
@@ -458,7 +493,7 @@ describe("OutputsPage", () => {
 		expect(gridPreview?.className).toContain("aspect-video");
 		expect(gridPreview?.className).not.toContain("sm:aspect-[4/3]");
 		const typeTabs = container.querySelectorAll('[role="tab"]');
-		expect(typeTabs).toHaveLength(5);
+		expect(typeTabs).toHaveLength(6);
 		const typeTabList = container.querySelector(
 			'[role="tablist"][aria-label="Filter by type"]',
 		);

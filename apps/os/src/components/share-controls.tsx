@@ -1266,10 +1266,8 @@ export function ShareButton(props: {
  * without a workspace Share dialog (the file library and file detail).
  */
 export function ShareControls(props: ShareControlsProps) {
-	const { resourceType } = normalizeResource(props);
 	const [open, setOpen] = useState(false);
-	const noun = RESOURCE_NOUN[resourceType];
-	const { compact, label, onOpenReview, ...panelProps } = props;
+	const { compact, label, ...panelProps } = props;
 	return (
 		<>
 			<ShareButton
@@ -1278,27 +1276,49 @@ export function ShareControls(props: ShareControlsProps) {
 				expanded={open}
 				onClick={() => setOpen(true)}
 			/>
-			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent size="sm" className={SHARE_DIALOG_CLASS}>
-					<DialogHeader>
-						<DialogTitle>Share this {noun}</DialogTitle>
-					</DialogHeader>
-					{open ? (
-						<ShareLinksPanel
-							{...(panelProps as ShareLinksPanelProps)}
-							onOpenReview={
-								onOpenReview
-									? () => {
-											setOpen(false);
-											onOpenReview();
-										}
-									: undefined
-							}
-						/>
-					) : null}
-				</DialogContent>
-			</Dialog>
+			<ShareDialog
+				{...(panelProps as ShareLinksPanelProps)}
+				open={open}
+				onOpenChange={setOpen}
+			/>
 		</>
+	);
+}
+
+/**
+ * The Share dialog on its own, for a page that opens it from somewhere
+ * other than a Share button, such as a card's ⋯ menu.
+ */
+export function ShareDialog(
+	props: ShareLinksPanelProps & {
+		open: boolean;
+		onOpenChange: (open: boolean) => void;
+	},
+) {
+	const { resourceType } = normalizeResource(props);
+	const noun = RESOURCE_NOUN[resourceType];
+	const { open, onOpenChange, onOpenReview, ...panelProps } = props;
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent size="sm" className={SHARE_DIALOG_CLASS}>
+				<DialogHeader>
+					<DialogTitle>Share this {noun}</DialogTitle>
+				</DialogHeader>
+				{open ? (
+					<ShareLinksPanel
+						{...(panelProps as ShareLinksPanelProps)}
+						onOpenReview={
+							onOpenReview
+								? () => {
+										onOpenChange(false);
+										onOpenReview();
+									}
+								: undefined
+						}
+					/>
+				) : null}
+			</DialogContent>
+		</Dialog>
 	);
 }
 

@@ -9554,6 +9554,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 		output.updatedAt = now();
 		return { output };
 	},
+	"osWorkspaces/outputs/restore": (input: { outputId: string }) => {
+		const output = findOutput(input.outputId);
+		if (output.status === "active") return { output };
+		output.status = "active";
+		output.updatedAt = now();
+		return { output };
+	},
 	"osWorkspaces/collaboration/list": (input: {
 		workspaceId: string;
 		documentType?: OsCollaborationProposal["documentType"];

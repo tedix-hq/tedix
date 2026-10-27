@@ -89,6 +89,11 @@ export const activeOutputLibraryQueryOptions = () =>
 		input: ACTIVE_OUTPUT_LIBRARY_INPUT,
 	});
 
+export const archivedOutputLibraryQueryOptions = () =>
+	osQuery.osWorkspaces.outputs.library.queryOptions({
+		input: { ...ACTIVE_OUTPUT_LIBRARY_INPUT, status: "archived" },
+	});
+
 export const canvasOutputLibraryQueryOptions = (workspaceId: string) =>
 	osQuery.osWorkspaces.outputs.library.queryOptions({
 		input: { workspaceId, limit: CANVAS_RESOURCE_LIST_LIMIT },

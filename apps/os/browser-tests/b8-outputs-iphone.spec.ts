@@ -333,7 +333,7 @@ try {
 					...(await tabs.all()),
 					cards().first().locator(".output-card-open"),
 					page.getByRole("button", {
-						name: `Actions for ${readable.output.title}`,
+						name: `More actions for ${readable.output.title}`,
 						exact: true,
 					}),
 				];

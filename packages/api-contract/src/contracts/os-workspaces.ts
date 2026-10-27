@@ -1534,6 +1534,16 @@ export const osWorkspacesContract = oc
 				})
 				.input(outputIdInput)
 				.output(z.object({ output: OsOutputSchema })),
+			restore: oc
+				.route({
+					method: "POST",
+					path: "/outputs/{outputId}/restore",
+					summary: "Restore an archived Tedix OS output",
+					description:
+						"Returns an archived output to active, with its revisions and share links as they were. Restoring an active output returns it unchanged.",
+				})
+				.input(outputIdInput)
+				.output(z.object({ output: OsOutputSchema })),
 			delete: oc
 				.route({
 					method: "DELETE",

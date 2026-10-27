@@ -792,6 +792,7 @@ const CALLS = {
 	},
 	"osWorkspaces/outputs/export": { outputId: IDS.outputSheet, format: "pdf" },
 	"osWorkspaces/outputs/archive": { outputId: IDS.outputDeck },
+	"osWorkspaces/outputs/restore": { outputId: IDS.outputDeck },
 	"osWorkspaces/collaboration/list": {
 		workspaceId: IDS.workspaceRevenue,
 		limit: 20,

@@ -2,6 +2,7 @@ import "./outputs-page.css";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
 	Archive,
+	ArrowCounterClockwise,
 	ArrowSquareOut,
 	CaretDown,
 	Clock,
@@ -71,11 +72,12 @@ import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { useOutputsWebMcpTools } from "@/components/outputs-webmcp-tools";
-import { ShareControls } from "@/components/share-controls";
+import { ShareDialog } from "@/components/share-controls";
 import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
 import {
 	activeOutputLibraryQueryOptions,
+	archivedOutputLibraryQueryOptions,
 	osQuery,
 	osQueryKeys,
 } from "@/lib/os-query-options";
@@ -94,12 +96,14 @@ const KIND_ICONS: Record<
 	video: VideoCamera,
 };
 
+/** The type tabs, then Archived: every archived output, whatever its type. */
 const KIND_FILTERS = [
 	"all",
 	"document",
 	"sheet",
 	"presentation",
 	"video",
+	"archived",
 ] as const;
 type KindFilter = (typeof KIND_FILTERS)[number];
 type ScopeFilter = "all" | "mine" | "organization";
@@ -113,6 +117,7 @@ type OutputLibraryData = {
 
 function kindLabel(kind: KindFilter): string {
 	if (kind === "all") return "All";
+	if (kind === "archived") return "Archived";
 	if (kind === "presentation") return "Slides";
 	if (kind === "video") return "Videos";
 	return kind === "document" ? "Documents" : "Sheets";
@@ -163,51 +168,55 @@ function outputMetric(preview: OsOutputLibraryPreview): string {
 	return `${preview.slideCount} ${preview.slideCount === 1 ? "slide" : "slides"}`;
 }
 
-function OutputMenu(props: {
-	item: OsOutputLibraryItem;
+type OutputActions = {
 	onOpen: () => void;
 	onOpenStandalone: () => void;
 	onOpenWorkspace: () => void;
 	onRename: () => void;
+	onShare: () => void;
 	onArchive: () => void;
-}) {
+	onRestore: () => void;
+};
+
+/**
+ * Open, then ⋯ with everything else. Open's ::after covers the whole card so
+ * a click anywhere opens it; only the ⋯ trigger is lifted above that layer,
+ * which is why Share lives in the menu and not as a button beside Open.
+ */
+function OutputMenu(props: OutputActions & { item: OsOutputLibraryItem }) {
 	const affordance = outputOpenAffordance(props.item);
 	const opensInWorkspace = affordance.target.kind === "workspace";
 	const contentAvailable = props.item.preview.kind !== "unavailable";
+	const archived = props.item.output.status === "archived";
 	return (
 		<div className="output-card-actions flex shrink-0 items-center gap-1">
 			{contentAvailable ? (
-				<>
-					<Button
-						type="button"
-						tabIndex={0}
-						variant="ghost"
-						size="sm"
-						aria-label={affordance.cardLabel}
-						onClick={props.onOpen}
-						className="output-card-open static after:absolute after:inset-px after:content-['']"
-					>
-						Open
-					</Button>
-					<ShareControls
-						outputId={props.item.output.id}
-						currentRevisionId={props.item.output.currentRevisionId}
-					/>
-				</>
+				<Button
+					type="button"
+					tabIndex={0}
+					variant="ghost"
+					size="sm"
+					aria-label={affordance.cardLabel}
+					onClick={props.onOpen}
+					className="output-card-open static after:absolute after:inset-px after:content-['']"
+				>
+					Open
+				</Button>
 			) : null}
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={
 						<Button
-							aria-label={`Actions for ${props.item.output.title}`}
-							title={`Actions for ${props.item.output.title}`}
-							size="sm"
+							aria-label={`More actions for ${props.item.output.title}`}
+							title="More actions"
+							size="icon-sm"
 							variant="ghost"
-							className="relative z-10"
+							// Open's height, so the row reads as one line of controls.
+							className="relative z-10 !size-7"
 						/>
 					}
 				>
-					<DotsThree size={16} weight="bold" /> Actions
+					<DotsThree size={16} weight="bold" />
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
 					{contentAvailable ? (
@@ -233,27 +242,30 @@ function OutputMenu(props: {
 					<DropdownMenuItem onClick={props.onRename}>
 						<PencilSimple size={14} /> Rename
 					</DropdownMenuItem>
-					<DropdownMenuItem variant="destructive" onClick={props.onArchive}>
-						<Archive size={14} /> Archive
-					</DropdownMenuItem>
+					{contentAvailable && !archived ? (
+						<DropdownMenuItem onClick={props.onShare}>
+							<ShareNetwork size={14} /> Share…
+						</DropdownMenuItem>
+					) : null}
+					{archived ? (
+						<DropdownMenuItem onClick={props.onRestore}>
+							<ArrowCounterClockwise size={14} /> Restore
+						</DropdownMenuItem>
+					) : (
+						<DropdownMenuItem variant="destructive" onClick={props.onArchive}>
+							<Archive size={14} /> Archive…
+						</DropdownMenuItem>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
 		</div>
 	);
 }
 
-interface OutputCardProps {
-	item: OsOutputLibraryItem;
-	layout: Layout;
-	onOpen: () => void;
-	onOpenStandalone: () => void;
-	onOpenWorkspace: () => void;
-	onRename: () => void;
-	onArchive: () => void;
-}
-
-function OutputCard(props: OutputCardProps) {
-	const { item } = props;
+function OutputCard(
+	props: OutputActions & { item: OsOutputLibraryItem; layout: Layout },
+) {
+	const { item, layout, ...actions } = props;
 	const Icon = KIND_ICONS[item.output.kind];
 	const provenance = workspaceLabel(item);
 	const affordance = outputOpenAffordance(item);
@@ -261,17 +273,8 @@ function OutputCard(props: OutputCardProps) {
 	const cardLabel = contentAvailable
 		? affordance.cardLabel
 		: `${item.output.title} — source access unavailable`;
-	const menu = (
-		<OutputMenu
-			item={item}
-			onArchive={props.onArchive}
-			onOpen={props.onOpen}
-			onOpenStandalone={props.onOpenStandalone}
-			onOpenWorkspace={props.onOpenWorkspace}
-			onRename={props.onRename}
-		/>
-	);
-	if (props.layout === "list") {
+	const menu = <OutputMenu item={item} {...actions} />;
+	if (layout === "list") {
 		return (
 			<li
 				aria-label={cardLabel}
@@ -565,12 +568,23 @@ export function OutputsPage() {
 	);
 	const [archiveTarget, setArchiveTarget] =
 		useState<OsOutputLibraryItem | null>(null);
+	const [shareTarget, setShareTarget] = useState<OsOutputLibraryItem | null>(
+		null,
+	);
 	useEffect(() => persistLayout(layout), [layout]);
 	const outputLibraryOptions = activeOutputLibraryQueryOptions();
-	const outputs = useQuery({
+	const archivedLibraryOptions = archivedOutputLibraryQueryOptions();
+	const activeOutputs = useQuery({
 		...outputLibraryOptions,
 		retry: false,
 	});
+	// Archived outputs load when someone opens the Archived tab.
+	const archivedOutputs = useQuery({
+		...archivedLibraryOptions,
+		enabled: kind === "archived",
+		retry: false,
+	});
+	const outputs = kind === "archived" ? archivedOutputs : activeOutputs;
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
 	const rename = useMutation({
@@ -611,9 +625,26 @@ export function OutputsPage() {
 			void invalidate();
 		},
 	});
-	const allItems = outputs.data?.items ?? [];
+	const restore = useMutation({
+		...osQuery.osWorkspaces.outputs.restore.mutationOptions(),
+		onSuccess: ({ output }) => {
+			queryClient.setQueryData<OutputLibraryData>(
+				archivedLibraryOptions.queryKey,
+				(current) =>
+					current
+						? {
+								...current,
+								items: current.items.filter(
+									(item) => item.output.id !== output.id,
+								),
+							}
+						: current,
+			);
+			void invalidate();
+		},
+	});
 	const normalizedQuery = query.trim().toLocaleLowerCase();
-	const searchResults = allItems.filter((item) =>
+	const matchesSearch = (item: OsOutputLibraryItem) =>
 		[
 			item.output.title,
 			item.workspace?.name ?? "",
@@ -622,30 +653,36 @@ export function OutputsPage() {
 		]
 			.join(" ")
 			.toLocaleLowerCase()
-			.includes(normalizedQuery),
+			.includes(normalizedQuery);
+	const matchesScope = (item: OsOutputLibraryItem) =>
+		scope === "all" || item.scope === scope;
+	const matchesKind = (item: OsOutputLibraryItem) =>
+		kind === "all" || kind === "archived" || item.output.kind === kind;
+	const allItems = outputs.data?.items ?? [];
+	const searchResults = allItems.filter(matchesSearch);
+	const activeInScope = (activeOutputs.data?.items ?? []).filter(
+		(item) => matchesSearch(item) && matchesScope(item),
 	);
-	const inScope = searchResults.filter(
-		(item) => scope === "all" || item.scope === scope,
-	);
-	const inKind = searchResults.filter(
-		(item) => kind === "all" || item.output.kind === kind,
-	);
-	const visibleOutputs = inScope.filter(
-		(item) => kind === "all" || item.output.kind === kind,
-	);
+	const inKind = searchResults.filter(matchesKind);
+	const visibleOutputs = inKind.filter(matchesScope);
 	useEffect(() => {
 		setVisibleLimit(OUTPUT_LIBRARY_PAGE_SIZE);
 	}, [kind, normalizedQuery, scope]);
 	const displayedOutputs = visibleOutputs.slice(0, visibleLimit);
 	const hasMoreOutputs = displayedOutputs.length < visibleOutputs.length;
+	// Archived shows a count only once its list has loaded.
 	const kindCounts = Object.fromEntries(
 		KIND_FILTERS.map((filter) => [
 			filter,
-			filter === "all"
-				? inScope.length
-				: inScope.filter((item) => item.output.kind === filter).length,
+			filter === "archived"
+				? archivedOutputs.data?.items.filter(
+						(item) => matchesSearch(item) && matchesScope(item),
+					).length
+				: filter === "all"
+					? activeInScope.length
+					: activeInScope.filter((item) => item.output.kind === filter).length,
 		]),
-	) as Record<KindFilter, number>;
+	) as Record<KindFilter, number | undefined>;
 	const scopeCounts: Record<ScopeFilter, number> = {
 		all: inKind.length,
 		mine: inKind.filter((item) => item.scope === "mine").length,
@@ -786,6 +823,12 @@ export function OutputsPage() {
 					</AlertDescription>
 				</Alert>
 			) : null}
+			{restore.isError ? (
+				<Alert variant="destructive">
+					<AlertTitle>Output not restored</AlertTitle>
+					<AlertDescription>{restore.error.message}</AlertDescription>
+				</Alert>
+			) : null}
 			{outputs.data && visibleOutputs.length === 0 ? (
 				<Empty appearance="quiet">
 					<EmptyHeader>
@@ -793,12 +836,18 @@ export function OutputsPage() {
 							<EmptyIcon size={20} />
 						</EmptyMedia>
 						<EmptyTitle>
-							{allItems.length === 0 ? "No outputs yet" : "No matching outputs"}
+							{allItems.length > 0
+								? "No matching outputs"
+								: kind === "archived"
+									? "No archived outputs"
+									: "No outputs yet"}
 						</EmptyTitle>
 						<EmptyDescription>
-							{allItems.length === 0
-								? "Create a document from a blank page or a template. Documents, sheets, and presentations created with your tedi also appear here."
-								: "Try another search, format, or sharing scope."}
+							{allItems.length > 0
+								? "Try another search, format, or sharing scope."
+								: kind === "archived"
+									? "Outputs you archive appear here, and you can restore them from the ⋯ menu."
+									: "Create a document from a blank page or a template. Documents, sheets, and presentations created with your tedi also appear here."}
 						</EmptyDescription>
 					</EmptyHeader>
 				</Empty>
@@ -823,10 +872,12 @@ export function OutputsPage() {
 								rename.reset();
 								setRenameTarget(item);
 							}}
+							onShare={() => setShareTarget(item)}
 							onArchive={() => {
 								archive.reset();
 								setArchiveTarget(item);
 							}}
+							onRestore={() => restore.mutate({ outputId: item.output.id })}
 						/>
 					))}
 				</ul>
@@ -869,6 +920,16 @@ export function OutputsPage() {
 					rename.mutate({ outputId: renameTarget.output.id, title })
 				}
 			/>
+			{shareTarget ? (
+				<ShareDialog
+					outputId={shareTarget.output.id}
+					currentRevisionId={shareTarget.output.currentRevisionId}
+					open
+					onOpenChange={(open) => {
+						if (!open) setShareTarget(null);
+					}}
+				/>
+			) : null}
 			<ArchiveDialog
 				item={archiveTarget}
 				busy={archive.isPending}

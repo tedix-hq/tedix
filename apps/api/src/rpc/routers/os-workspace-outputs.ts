@@ -516,6 +516,22 @@ const outputsArchive = authorOs.outputs.archive.handler(
 	},
 );
 
+const outputsRestore = authorOs.outputs.restore.handler(
+	async ({ input, context }) => {
+		const output = await requireOutput(context, input.outputId);
+		if (output.status === "active") return { output: mapOsOutputRow(output) };
+		const row = await updateOsOutput(
+			queryDb(context),
+			{ organizationId: output.organizationId, outputId: output.id },
+			{ status: "active" },
+		);
+		if (!row) {
+			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		}
+		return { output: mapOsOutputRow(row) };
+	},
+);
+
 /** Load the revision an output's current pointer names, or fail loudly. */
 async function requireCurrentOutputRevision(
 	context: BaseContext,
@@ -1113,4 +1129,5 @@ export const osOutputProcedures = {
 	setSheetRange: outputsSetSheetRange,
 	export: outputsExport,
 	archive: outputsArchive,
+	restore: outputsRestore,
 };
