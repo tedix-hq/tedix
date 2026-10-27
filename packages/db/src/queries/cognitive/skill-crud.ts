@@ -248,9 +248,8 @@ export async function updateSkillEntry(
 				eq(skillEntries.organizationId, options.organizationId),
 			)!
 		: eq(skillEntries.id, id);
-	// Execute-to-promote: every lifecycle transition through this write path
-	// is verified against the skill_usage_events ledger, so no caller can
-	// promote a skill that never executed. Demotions/archival always pass.
+	// Executable skills require ledger evidence; instruction-only activation
+	// and demotions/archival need no workflow run.
 	// Force promotions carry the proposer≠approver backstop instead.
 	if (updates.lifecycleState != null) {
 		const rows = await db
@@ -260,6 +259,7 @@ export async function updateSkillEntry(
 				lifecycleState: skillEntries.lifecycleState,
 				tediId: skillEntries.tediId,
 				proposedByTediId: skillEntries.proposedByTediId,
+				files: skillEntries.files,
 			})
 			.from(skillEntries)
 			.where(scopedWhere)
@@ -275,7 +275,11 @@ export async function updateSkillEntry(
 			} else {
 				await assertSkillLifecycleTransition(
 					db,
-					current,
+					{
+						...current,
+						// Adding or removing a workflow in this write cannot skip its gate.
+						files: { ...current.files, ...updates.files },
+					},
 					updates.lifecycleState,
 					{ via: options?.via },
 				);
