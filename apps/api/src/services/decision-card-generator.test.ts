@@ -35,7 +35,7 @@ const copy = {
 	title: "Let the assistant sign in with a test account?",
 	context: "The owner is waiting on this review.",
 	body: "Checks the sample profile page using a separate browser.",
-	recommendation: "The owner needs proof that sign-in works.",
+	recommendation: "Yes — the owner needs proof that sign-in works.",
 };
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -89,6 +89,29 @@ it("writes the card in the reader's chosen language and asks for the user story 
 	expect(system).toContain("question first");
 	expect(system).toContain("Review 07 —");
 	expect(system).toContain("Tedix recommends");
+});
+it("repairs a recommendation that only states a fact", async () => {
+	const fact = {
+		...copy,
+		recommendation:
+			"The prep deadline is proposed, not an external commitment.",
+	};
+	mocks.model.mockResolvedValueOnce(JSON.stringify(fact));
+	const failures: string[] = [];
+	const card = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		request,
+		(reason) => failures.push(reason),
+	);
+	expect(failures).toEqual(["invalid_copy:recommendation_action"]);
+	const feedback = JSON.parse(
+		mocks.model.mock.calls[1]?.[2].validationFeedback,
+	);
+	expect(feedback.failedChecks).toEqual(["recommendation_action"]);
+	expect(feedback.instructions.join(" ")).toContain(
+		"Start recommendation with the recommended action",
+	);
+	expect(card?.recommendation).toBe(copy.recommendation);
 });
 it("uses the recipient's style and configured model without generating authority", async () => {
 	expect(
@@ -156,7 +179,7 @@ it.each([
 		...copy,
 		title: "Use a simpler purpose statement?",
 		body: "Use the simpler purpose statement.",
-		recommendation: "The purpose statement should be simpler.",
+		recommendation: "Yes — the purpose statement should be simpler.",
 	},
 	{ ...copy, body: "Review ticket 11111111-2222-4333-8444-555555555555." },
 	{ ...copy, body: "Read work_abcd1234." },
@@ -194,7 +217,7 @@ it.each(copySpec.bannedWords)(
 		mocks.model.mockResolvedValue(
 			JSON.stringify({
 				...copy,
-				recommendation: `The current ${word} needs a review.`,
+				recommendation: `Yes — the current ${word} needs a review.`,
 			}),
 		);
 		expect(
@@ -373,7 +396,7 @@ it("keeps filing facts separate from executing the task and repairs a wrong topi
 		...copy,
 		title: "File the profile panel request here?",
 		body: "Keeps the request under the Account project.",
-		recommendation: "That team owns sign-in problems.",
+		recommendation: "Keep it here — that team owns sign-in problems.",
 	};
 	mocks.model
 		.mockResolvedValueOnce(
@@ -440,21 +463,22 @@ it("rejects a WHY that contradicts an explicit filing mismatch", async () => {
 		...copy,
 		title: "File the account project request here?",
 		body: "Keeps the request with the Account team.",
-		recommendation: "An existing task proves this is the right place.",
+		recommendation:
+			"Keep it here — an existing task proves this is the right place.",
 	};
 	mocks.model
 		.mockResolvedValueOnce(JSON.stringify(candidate))
 		.mockResolvedValueOnce(
 			JSON.stringify({
 				...candidate,
-				recommendation: "No supplied project fits this request.",
+				recommendation: "Return it — no supplied project fits this request.",
 			}),
 		);
 	const failure = vi.fn();
 	expect(
 		(await generateDecisionCard({ db: {}, env: {} } as never, filing, failure))
 			?.recommendation,
-	).toBe("No supplied project fits this request.");
+	).toBe("Return it — no supplied project fits this request.");
 	expect(failure).toHaveBeenCalledWith("invalid_copy:filing_mismatch");
 });
 it("uses the source's unconfirmed fit when two drafts contradict it", async () => {
@@ -463,7 +487,8 @@ it("uses the source's unconfirmed fit when two drafts contradict it", async () =
 			...copy,
 			title: "File the account project request here?",
 			body: "Keeps the request with the Account team.",
-			recommendation: "An existing task proves this is the right place.",
+			recommendation:
+				"Keep it here — an existing task proves this is the right place.",
 		}),
 	);
 	const result = await generateDecisionCard({ db: {}, env: {} } as never, {
@@ -484,7 +509,7 @@ it("allows a plain-English replacement when the source topic is a banned technic
 		...copy,
 		title: "File the steps cleanup here?",
 		body: "Keeps the request under the Account project.",
-		recommendation: "That team owns sign-in problems.",
+		recommendation: "Keep it here — that team owns sign-in problems.",
 	};
 	mocks.model.mockResolvedValue(JSON.stringify(candidate));
 	expect(
@@ -500,7 +525,8 @@ it("accepts an asset translation as the filing topic without restoring jargon", 
 		...copy,
 		title: "File the company-control idea here?",
 		body: "Keeps the request under the Account project.",
-		recommendation: "The brief covers how AI helpers make choices.",
+		recommendation:
+			"Keep it here — the brief covers how AI helpers make choices.",
 	};
 	mocks.model.mockResolvedValue(JSON.stringify(candidate));
 	expect(
@@ -516,7 +542,7 @@ it("keeps an ordinary topic word when only a compound technical phrase is banned
 		...copy,
 		title: "File the memory question here?",
 		body: "Keeps it under the Account project.",
-		recommendation: "That team owns profile display.",
+		recommendation: "Keep it here — that team owns profile display.",
 	};
 	mocks.model.mockResolvedValue(JSON.stringify(candidate));
 	expect(
@@ -593,7 +619,7 @@ it("allows Keep when the question still names the actual filing topic", async ()
 		...copy,
 		title: "Keep the profile-picture request here?",
 		body: "Files it under the Account project.",
-		recommendation: "That team owns profile display.",
+		recommendation: "Keep it here — that team owns profile display.",
 	};
 	mocks.model.mockResolvedValue(JSON.stringify(candidate));
 	expect(
@@ -610,14 +636,14 @@ it.each([
 		prompt: "Create a work board for the ABC challenge.",
 		title: "Keep the ABC setup request here?",
 		reason: "This project covers shared planning.",
-		recommendation: "This team handles shared planning.",
+		recommendation: "Keep it here — this team handles shared planning.",
 	},
 	{
 		prompt: "Create a demo video.",
 		title: "Keep the video request here?",
 		reason:
 			"No supplied project brief fits video production; this is only a filing hint.",
-		recommendation: "This project does not cover video production.",
+		recommendation: "Return it — this project does not cover video production.",
 	},
 ])(
 	"accepts a short company name or a plain negative coverage statement",
@@ -835,7 +861,7 @@ it("repairs a decision face that drops what waiting and yes cost, quoting the so
 		title: "Buy the yearly vendor plan?",
 		context: "The vendor sent a quote.",
 		body: "Buys the plan for the team.",
-		recommendation: "It replaces three monthly tools.",
+		recommendation: "Yes — it replaces three monthly tools.",
 	};
 	const complete = {
 		...vague,
@@ -907,7 +933,8 @@ const instinctCopy = {
 	title: "Set Instinct back to Member?",
 	context: "Instinct still has Admin with 22 permissions.",
 	body: "Instinct keeps only the update permission it was given.",
-	recommendation: "Its checks need member-level access to prove the setup.",
+	recommendation:
+		"Yes — its checks need member-level access to prove the setup.",
 };
 it("rejects a card that turns another account into the reader's own", async () => {
 	mocks.model
@@ -979,7 +1006,8 @@ it("states the real next step on a reminder instead of an effect Yes won't perfo
 			title: "Authorize Devin in the prepared consent tab?",
 			context: "Devin waits for your Authorize click in that tab.",
 			body: "Devin can read apps and tasks, then resume testing.",
-			recommendation: "Testing and the rule change are blocked until then.",
+			recommendation:
+				"Yes — testing and the rule change are blocked until then.",
 		}),
 	);
 	const failures: string[] = [];
@@ -1008,7 +1036,7 @@ it("states the real next step on a consent ask", async () => {
 			title: "Allow Devin to read apps and tasks?",
 			context: "Devin is blocked until access exists.",
 			body: "Devin can read apps and tasks.",
-			recommendation: "Testing is blocked until then.",
+			recommendation: "Yes — testing is blocked until then.",
 		}),
 	);
 	const failures: string[] = [];

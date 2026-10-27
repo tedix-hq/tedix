@@ -613,6 +613,13 @@
 	align-content: start;
 	scrollbar-width: thin;
 }
+/*
+ * A body with more below fades out above the action row, so a part-hidden
+ * chip reads as "scroll for more" rather than as cut off.
+ */
+.fd-deck-current [data-slot="card-content"][data-more-below] {
+	mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent);
+}
 .fd-deck-current .fd-card-body {
 	padding-bottom: 0;
 	grid-auto-rows: min-content;
@@ -868,9 +875,16 @@
 	line-height: 1.4;
 	color: var(--fd-muted);
 }
-/* The card face: one story line, the recommendation, then at most three context items. */
-.fd-story {
+/*
+ * The card face: one story line, the recommendation, then at most three
+ * context items. The grid gap is the only spacing between them; the feed's
+ * .fd-story padding must never reach the card.
+ */
+.fd-card-context {
 	color: var(--fd-ink);
+}
+.fd-card-body .fd-face > .fd-recommendation {
+	margin-top: 0;
 }
 .fd-context-strip {
 	display: flex;

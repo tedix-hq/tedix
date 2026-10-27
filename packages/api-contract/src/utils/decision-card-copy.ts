@@ -231,6 +231,36 @@ export function checkDecisionCardCopy(copy: CardCopy) {
 	return issues;
 }
 
+const recommendationAction = new RegExp(
+	copySpec.recommendationActionPattern,
+	"iu",
+);
+
+/**
+ * "Tedix recommends:" must name what to do, then why: "Record it — the
+ * deadline is only proposed." A bare fact ("The deadline is only proposed.")
+ * fails. Checked when a face is written, so saved faces keep rendering. The
+ * action words are English; other reader languages are not checked.
+ */
+export function recommendationIssues(
+	copy: Pick<CardCopy, "recommendation" | "actionLabels">,
+	readerLanguage?: string | null,
+): string[] {
+	if (readerLanguage && !/^en(?:-|$)/i.test(readerLanguage)) return [];
+	const text = copy.recommendation.trim();
+	const lower = text.toLowerCase();
+	const startsWithAction =
+		recommendationAction.test(text) ||
+		Object.values(copy.actionLabels ?? {}).some(
+			(label) => label.trim() && lower.startsWith(label.trim().toLowerCase()),
+		);
+	if (!startsWithAction) return ["recommendation_action"];
+	// The action plus at least a few words of reason.
+	if ((text.match(/\p{L}+/gu) ?? []).length < 4)
+		return ["recommendation_reason"];
+	return [];
+}
+
 /** The face labels the consequence "If yes:", so generated bodies must not repeat it. */
 function consequenceWithoutIfYes(body: string): string {
 	const rest = body.replace(/^\s*(?:If yes[,:]?\s*)+/i, "");

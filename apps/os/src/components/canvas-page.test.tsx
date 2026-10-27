@@ -1451,7 +1451,7 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelector("[data-canvas-revision-status]")?.textContent,
 		).toContain("Revision 2");
-		expect(container.querySelector('[aria-label="Share"]')).not.toBeNull();
+		expect(container.querySelectorAll('[aria-label="Share"]')).toHaveLength(1);
 		// No "Resources" control anywhere: the library opens from the Files
 		// panel, and the one Files toggle lives in the top bar.
 		expect(
@@ -2217,8 +2217,8 @@ describe("CanvasPage listing", () => {
 			container.querySelector(`[data-export-buttons="${OUTPUT_ID}"]`),
 		).not.toBeNull();
 		expect(
-			container.querySelector('button[aria-label="Share"]'),
-		).not.toBeNull();
+			container.querySelectorAll('button[aria-label="Share"]'),
+		).toHaveLength(1);
 		expect(
 			container
 				.querySelector("[data-gadget-executions]")
