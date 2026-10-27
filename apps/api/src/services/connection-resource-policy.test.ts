@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import * as instances from "@tedix/db/queries/connection-instances";
+import * as organizations from "@tedix/db/queries/organizations";
+import * as providers from "@tedix/db/queries/connection-providers";
 import * as tools from "@tedix/db/queries/tools";
 import * as vault from "@tedix/auth/connections";
 import type { ConnectionInstanceRow } from "@tedix/db/schema/connection-instances";
@@ -62,7 +64,11 @@ function fetchPage(args: JsonValue, ctx = context) {
 }
 const policy = [{ resourceType: "notion_page" as const, resourceId: allowed }];
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+	vi.useRealTimers();
+});
 
 describe("organization connection resource gate before token retrieval", () => {
 	it("denies an outside page without fetching any credential", async () => {
@@ -185,6 +191,150 @@ describe("organization connection resource gate before token retrieval", () => {
 		await expect(fetchPage({ url: outside })).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
+		expect(token).toHaveBeenCalledOnce();
+	});
+});
+
+describe("own-access check on a live tool call through an organization account", () => {
+	const reader = "member-b";
+	const ownSlot: ConnectionInstanceRow = {
+		id: "own-b",
+		ownerUserId: reader,
+		organizationId: null,
+		providerId: "notion",
+		label: "Mine",
+		tokenIds: ["grant-b"],
+		tokenSub: "subject-b",
+		allowedResources: null,
+		createdAt: "now",
+		updatedAt: "now",
+	};
+
+	function readerFixture(input: {
+		providerStatus?: number;
+		linked?: boolean;
+		checkEachPersonsAccess?: boolean;
+		enforce?: boolean;
+	}) {
+		const { instance, token } = fixture(policy);
+		vi.spyOn(instances, "getConnectionInstance").mockImplementation(
+			async (_db, slotOwner, id) =>
+				"userId" in slotOwner
+					? id === ownSlot.id && slotOwner.userId === reader
+						? ownSlot
+						: undefined
+					: instance,
+		);
+		vi.spyOn(instances, "listConnectionInstances").mockResolvedValue(
+			input.linked === false ? [] : [ownSlot],
+		);
+		vi.spyOn(organizations, "getOrganizationById").mockResolvedValue({
+			id: "org-a",
+			metadata:
+				input.checkEachPersonsAccess === undefined
+					? {}
+					: {
+							connectionAccessChecks: [
+								{
+									connectionInstanceId: "slot-a",
+									checkEachPersonsAccess: input.checkEachPersonsAccess,
+								},
+							],
+						},
+		} as Awaited<ReturnType<typeof organizations.getOrganizationById>>);
+		vi.spyOn(
+			providers,
+			"getConnectionProviderByDescopeAppId",
+		).mockResolvedValue({ category: "productivity" } as Awaited<
+			ReturnType<typeof providers.getConnectionProviderByDescopeAppId>
+		>);
+		const personalToken = vi
+			.spyOn(vault, "fetchPersonalConnectionToken")
+			.mockResolvedValue({
+				id: "grant-b",
+				tokenSub: "subject-b",
+				accessToken: "reader-token",
+				scopes: [],
+			});
+		const probe = vi.fn(
+			async () => new Response("{}", { status: input.providerStatus ?? 200 }),
+		);
+		vi.stubGlobal("fetch", probe);
+		if (input.enforce !== false) {
+			vi.useFakeTimers({ toFake: ["Date"] });
+			vi.setSystemTime(new Date("2026-11-02T00:00:00.000Z"));
+		}
+		return { token, personalToken, probe };
+	}
+	const readPage = () =>
+		fetchNamedConnection(
+			context,
+			owner,
+			"notion",
+			"slot-a",
+			undefined,
+			{ appId: "app-a", arguments: { url: allowed } },
+			{ userId: reader },
+		);
+
+	it("refuses a member whose own Notion account cannot open the page", async () => {
+		const { token, probe } = readerFixture({ providerStatus: 404 });
+		await expect(readPage()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("cannot open this resource"),
+		});
+		const [url, init] = probe.mock.calls[0] as unknown as [string, RequestInit];
+		expect(String(url)).toBe(
+			`https://api.notion.com/v1/blocks/${allowed.replaceAll("-", "")}`,
+		);
+		expect(new Headers(init.headers).get("Authorization")).toBe(
+			"Bearer reader-token",
+		);
+		expect(token).not.toHaveBeenCalled();
+	});
+	it("serves the organization token when the member's own account opens the page", async () => {
+		const { token } = readerFixture({ providerStatus: 200 });
+		expect(await readPage()).toMatchObject({ accessToken: "opaque" });
+		expect(token).toHaveBeenCalledOnce();
+	});
+	it("asks a member without a linked account to link it instead of returning data", async () => {
+		const { token, probe } = readerFixture({ linked: false });
+		await expect(readPage()).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("Link your own notion account"),
+		});
+		expect(probe).not.toHaveBeenCalled();
+		expect(token).not.toHaveBeenCalled();
+	});
+	it("fails closed when no person stands behind the call", async () => {
+		const { token } = readerFixture({});
+		await expect(
+			fetchNamedConnection(
+				context,
+				owner,
+				"notion",
+				"slot-a",
+				undefined,
+				{ appId: "app-a", arguments: { url: allowed } },
+				{ userId: null },
+			),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(token).not.toHaveBeenCalled();
+	});
+	it("only logs the would-deny during the audit week", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { token } = readerFixture({ providerStatus: 403, enforce: false });
+		expect(await readPage()).toMatchObject({ accessToken: "opaque" });
+		expect(token).toHaveBeenCalledOnce();
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining("would deny"));
+	});
+	it("leaves a connection the org admin set to shared visibility unaffected", async () => {
+		const { token, probe } = readerFixture({
+			providerStatus: 404,
+			checkEachPersonsAccess: false,
+		});
+		expect(await readPage()).toMatchObject({ accessToken: "opaque" });
+		expect(probe).not.toHaveBeenCalled();
 		expect(token).toHaveBeenCalledOnce();
 	});
 });

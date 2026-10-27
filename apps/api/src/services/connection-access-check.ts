@@ -5,7 +5,7 @@ import { getConnectionProviderByDescopeAppId } from "@tedix/db/queries/connectio
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
 import { guardedFetch } from "@tedix/ssrf-guard";
-import type { BaseContext } from "../rpc/orpc";
+import { type BaseContext, ErrorCodes, createError } from "../rpc/orpc";
 
 /**
  * Reads through an organization account first run audit-only: a would-deny is
@@ -67,10 +67,20 @@ export function ownAccessDenies(outcome: OwnAccessOutcome): boolean {
 	return DENYING_OUTCOMES.has(outcome);
 }
 
+/** The resource a read targets: a workspace slot or a live tool call's verified page. */
+export type OwnAccessTarget = Pick<
+	OsWorkspaceResourceRow,
+	| "organizationId"
+	| "providerId"
+	| "providerResourceId"
+	| "connectionInstanceId"
+	| "connectionScope"
+>;
+
 /** One provider read with the reader's own token; true when the resource opened. */
 type AccessProbe = (
 	token: string,
-	resource: OsWorkspaceResourceRow,
+	resource: OwnAccessTarget,
 	fetchFn?: typeof fetch,
 ) => Promise<boolean>;
 
@@ -105,10 +115,12 @@ const ACCESS_PROBES: Record<string, AccessProbe> = { notion: notionProbe };
  */
 export async function checkOwnProviderAccess(
 	context: BaseContext,
-	actingUserId: string,
-	resource: OsWorkspaceResourceRow,
+	actingUserId: string | null,
+	resource: OwnAccessTarget,
 	options: { fetchFn?: typeof fetch } = {},
 ): Promise<OwnAccessOutcome> {
+	// A run with no person behind it has no own account to check.
+	if (!actingUserId) return "no_linked_account";
 	const own = (
 		await listConnectionInstances(context.db, { userId: actingUserId })
 	).find(
@@ -149,11 +161,11 @@ export interface OwnAccessEvaluation {
 	containsRestrictedData: boolean;
 }
 
-/** Evaluates "check each person's access" for one app read of a workspace slot. */
+/** Evaluates "check each person's access" for one read through an organization account. */
 export async function evaluateOwnAccess(
 	context: BaseContext,
-	actingUserId: string,
-	resource: OsWorkspaceResourceRow,
+	actingUserId: string | null,
+	resource: OwnAccessTarget,
 	options: { now?: Date; fetchFn?: typeof fetch } = {},
 ): Promise<OwnAccessEvaluation> {
 	const mode =
@@ -203,4 +215,29 @@ export function ownAccessRefusal(
 	if (outcome === "no_access")
 		return `Your own ${providerId} account cannot open this resource, so it is not shown through the organization account.`;
 	return `Your own ${providerId} access could not be confirmed, so the read was refused. Try again, or reconnect your ${providerId} account.`;
+}
+
+/**
+ * "Check each person's access" for a live tool call through a pinned
+ * organization account, before its token is released. During the audit week
+ * a would-deny is logged and the call proceeds; afterwards it is refused.
+ */
+export async function assertOwnAccessForToolCall(
+	context: BaseContext,
+	readerUserId: string | null,
+	target: Omit<OwnAccessTarget, "connectionScope">,
+): Promise<void> {
+	const evaluation = await evaluateOwnAccess(context, readerUserId, {
+		...target,
+		connectionScope: "tenant",
+	});
+	if (!evaluation.wouldDeny) return;
+	console.warn(
+		`[Connections] Own-access ${evaluation.denied ? "denied" : "would deny"}: provider=${target.providerId} slot=${target.connectionInstanceId} outcome=${evaluation.outcome} mode=${evaluation.mode}`,
+	);
+	if (evaluation.denied)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			ownAccessRefusal(target.providerId, evaluation.outcome),
+		);
 }

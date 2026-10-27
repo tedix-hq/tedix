@@ -10,6 +10,7 @@ import {
 	withTediAuth,
 } from "../../orpc";
 import { assertConnectionResourceArguments } from "../../../services/connection-resource-policy";
+import { assertOwnAccessForToolCall } from "../../../services/connection-access-check";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	IssuerPinDriftError,
@@ -435,6 +436,8 @@ export async function fetchNamedConnection(
 	instanceId: string,
 	scopes?: string[],
 	delegatedToolUse?: { appId: string; arguments: JsonValue } | "inventory",
+	/** The person a live tool call reads for; checks their own provider access. */
+	reader?: { userId: string | null },
 ) {
 	const instance = await getConnectionInstance(
 		context.db,
@@ -445,11 +448,18 @@ export async function fetchNamedConnection(
 	if (!instance) return null;
 	// Inventory consumes credential metadata internally; RPC inputs cannot select this mode.
 	if (instance.allowedResources != null && delegatedToolUse !== "inventory") {
-		await assertConnectionResourceArguments(
+		const providerResourceId = await assertConnectionResourceArguments(
 			context,
 			instance,
 			delegatedToolUse,
 		);
+		if (reader && "organizationId" in owner)
+			await assertOwnAccessForToolCall(context, reader.userId, {
+				organizationId: owner.organizationId,
+				providerId,
+				providerResourceId,
+				connectionInstanceId: instance.id,
+			});
 	}
 	const selection = {
 		appId: providerId,
@@ -657,6 +667,13 @@ export async function resolveCredentialChain(
 				args.connectionInstanceId,
 				args.scopes,
 				args.delegatedToolUse,
+				args.delegatedToolUse && {
+					userId:
+						args.callerUserId ??
+						context.gatewayEndUserId ??
+						args.ownerUserId ??
+						null,
+				},
 			);
 			if (selected?.reconnectNeeded)
 				throw createError(

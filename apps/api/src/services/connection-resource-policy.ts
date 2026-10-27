@@ -27,12 +27,15 @@ const pageId = (value: string) => {
 	return value.replaceAll("-", "").toLowerCase();
 };
 
-/** Resolve only reviewed page reads. Blocks, searches and unknown commands have no proven page boundary. */
+/**
+ * Resolve only reviewed page reads. Blocks, searches and unknown commands have
+ * no proven page boundary. Returns the verified page id.
+ */
 export async function assertConnectionResourceArguments(
 	context: BaseContext,
 	instance: ConnectionInstanceRow,
 	toolUse?: { appId: string; arguments: JsonValue },
-) {
+): Promise<string> {
 	const denied = () => {
 		throw createError(
 			ErrorCodes.FORBIDDEN,
@@ -93,4 +96,5 @@ export async function assertConnectionResourceArguments(
 		!policy.data.some((resource) => pageId(resource.resourceId) === target)
 	)
 		return denied();
+	return target;
 }
