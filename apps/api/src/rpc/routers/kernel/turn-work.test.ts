@@ -77,6 +77,7 @@ vi.mock("./direct-skill-move", async (importOriginal) => {
 	};
 });
 
+import { HomeAnswerIncompleteError } from "./home-page-tools";
 import { readDelegationDepth, runKernelTurnWork } from "./turn-work";
 import {
 	chatApprovalReplyContent,
@@ -1227,6 +1228,60 @@ describe("runKernelTurnWork progress seam", () => {
 			routeAttempts: [{ model: "first", outcome: "invalid", ms: 5 }],
 		});
 		expect(scheduleRouteRedrive).not.toHaveBeenCalled();
+	});
+
+	// Regression (27 Oct): the page-action pass streamed "I'll read the
+	// app files first", read them, then hit its output limit. The preamble was
+	// saved as the finished answer and the chat went silent.
+	it("an answer that stops before finishing says so and retries once", async () => {
+		const scheduleRouteRedrive = vi.fn(async () => {});
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const result = await runKernelTurnWork(
+				stubDeps({
+					kernel: async () => {
+						throw new HomeAnswerIncompleteError("length");
+					},
+					scheduleRouteRedrive,
+				}),
+				turnInput(),
+			);
+			expect(result.run.status).toBe("queued");
+			expect(result.assistantMessage.content).toBe(
+				"I stopped before finishing. Your message is saved; I’ll try again automatically in 20 seconds.",
+			);
+			expect(scheduleRouteRedrive).toHaveBeenCalledOnce();
+		} finally {
+			warnSpy.mockRestore();
+		}
+	});
+
+	it("an answer that stops again after its retry fails with a plain Try again message", async () => {
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const result = await runKernelTurnWork(
+				stubDeps({
+					kernel: async () => {
+						throw new HomeAnswerIncompleteError("length");
+					},
+					scheduleRouteRedrive: vi.fn(async () => {}),
+				}),
+				{ ...turnInput(), runRowMetadata: { routeRetryCount: 1 } },
+			);
+			expect(result.run.status).toBe("failed");
+			expect(result.assistantMessage.content).toBe(
+				"I stopped before finishing. Try again?",
+			);
+			// The OS offers "Try again" for exactly this shape.
+			expect(result.run.metadata).toMatchObject({
+				kernelRoute: null,
+				bodyExecutionResult: {
+					error: { kind: "model", retryable: true },
+				},
+			});
+		} finally {
+			warnSpy.mockRestore();
+		}
 	});
 
 	it("records route attempts even when the planner returns no route", async () => {

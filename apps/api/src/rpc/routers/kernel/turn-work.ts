@@ -7,6 +7,7 @@ import {
 	recordOrNull,
 } from "./turn-work-intercepts";
 import type { KernelRouteAttempt } from "./route-planner";
+import { isHomeAnswerIncompleteError } from "./home-page-tools";
 import { runInboxWakeIntercept } from "./turn-work-inbox";
 import {
 	KERNEL_RUNTIME_BACKEND,
@@ -141,6 +142,15 @@ function readParentTediId(...sources: Array<unknown>): string | null {
 	}
 	return null;
 }
+
+/**
+ * The model started answering and stopped before it finished. Never leave the
+ * streamed preamble as the final message: say so plainly, with a retry.
+ */
+export const HOME_ANSWER_STOPPED_RETRY_SCHEDULED_MESSAGE =
+	"I stopped before finishing. Your message is saved; I’ll try again automatically in 20 seconds.";
+export const HOME_ANSWER_STOPPED_MESSAGE =
+	"I stopped before finishing. Try again?";
 
 /** Shown only after the saved turn has spent its automatic retry. */
 const KERNEL_MODEL_UNAVAILABLE_MESSAGE =
@@ -809,6 +819,8 @@ export async function runKernelTurnWork(
 	const routeAttempts: KernelRouteAttempt[] = [];
 	let billingDenialCode: BillingPolicyDenialCode | null = null;
 	let residencyDenialMessage: string | null = null;
+	// The answer began but did not finish (output or step limit).
+	let answerIncomplete = false;
 	// A rename of a Workspace app or output (or the undo of the last one) is
 	// one exact call with no model in it: it skips the router (a one-line
 	// rename spent 60–80 s there) and goes straight to the same write approval.
@@ -1024,6 +1036,7 @@ export async function runKernelTurnWork(
 									selectedWorkspaceDocument: input.selectedWorkspaceDocument,
 								})
 								.catch((e) => {
+									answerIncomplete = isHomeAnswerIncompleteError(e);
 									billingDenialCode = billingPolicyDenialCode(e);
 									if (
 										billingDenialCode?.startsWith("eu_") ||
@@ -1564,11 +1577,15 @@ export async function runKernelTurnWork(
 			? billingDenialCode
 				? (residencyDenialMessage ??
 					renderKernelBillingBlockedMessage(billingDenialCode))
-				: routeRetryScheduled
-					? "The configured model did not produce a valid route decision. Your message is saved; I’ll retry it automatically in 20 seconds."
-					: routeRetryCount > 0
-						? KERNEL_MODEL_UNAVAILABLE_MESSAGE
-						: "The configured model did not produce a valid route decision. Your message is saved, but automatic retry is unavailable for this run."
+				: answerIncomplete
+					? routeRetryScheduled
+						? HOME_ANSWER_STOPPED_RETRY_SCHEDULED_MESSAGE
+						: HOME_ANSWER_STOPPED_MESSAGE
+					: routeRetryScheduled
+						? "The configured model did not produce a valid route decision. Your message is saved; I’ll retry it automatically in 20 seconds."
+						: routeRetryCount > 0
+							? KERNEL_MODEL_UNAVAILABLE_MESSAGE
+							: "The configured model did not produce a valid route decision. Your message is saved, but automatic retry is unavailable for this run."
 			: writeProposalActive && writeProposal && writeApprovalRequestId
 				? writeWillAutoResolve
 					? `${writeApprovalDecision?.source === "session" ? "Authorized for this conversation" : "Authorized by tenant policy"}: executing \`${writeProposal.toolName}\` on ${writeProposal.appSlug}.`
@@ -1730,8 +1747,9 @@ export async function runKernelTurnWork(
 					}
 				: {
 						kind: "model" as const,
-						message:
-							"Configured kernel model did not produce a valid route decision",
+						message: answerIncomplete
+							? "Home stopped before finishing its answer"
+							: "Configured kernel model did not produce a valid route decision",
 						retryable: true,
 					}
 			: null,
