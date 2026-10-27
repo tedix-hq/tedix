@@ -76,6 +76,30 @@ describe("outbound MCP CIMD callback", () => {
 		expect(response.headers.get("location")).toContain("status=success");
 	});
 
+	it("settles a personal grant into the user's own vault", async () => {
+		const deps = dependencies();
+		deps.openState.mockResolvedValue({ ...state, userId: "user_1" });
+		const response = await handleOutboundMcpOAuthCallback(
+			new Request(
+				"https://api.tedix.dev/oauth/mcp/callback?state=sealed&code=code&iss=https%3A%2F%2Fauth.example.com",
+			),
+			env,
+			{} as never,
+			deps,
+		);
+
+		const upload = deps.uploadToken.mock.calls[0]![1];
+		expect(upload).toMatchObject({ userId: "user_1", grantedBy: "user_1" });
+		expect(upload).not.toHaveProperty("tenantId");
+		expect(deps.insertAudit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				metadata: expect.objectContaining({ tokenScope: "user" }),
+			}),
+		);
+		expect(response.headers.get("location")).toContain("status=success");
+	});
+
 	it("never exchanges a code after issuer validation rejects", async () => {
 		const deps = dependencies();
 		deps.validateIssuer.mockImplementation(assertAuthorizationResponseIss);

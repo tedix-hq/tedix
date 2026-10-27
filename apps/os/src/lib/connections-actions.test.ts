@@ -351,24 +351,29 @@ describe("startOauthConnect", () => {
 		expect(initiateConnectionMock).toHaveBeenCalledWith({
 			appId: "firecrawl",
 			redirectUri: `${ORIGIN}/oauth/callback`,
+			tokenScope: "tenant",
 			scopes: ["search.read"],
 		});
 		expect(fetch).not.toHaveBeenCalled();
 		expect(popup?.location.href).toBe(CONSENT_URL);
 	});
 
-	it("does not silently turn a personal CIMD request into an organization grant", async () => {
-		await expect(
-			startOauthConnect({
-				appId: "firecrawl",
-				effectiveScope: "user",
-				registrationMode: "cimd",
-			}),
-		).rejects.toThrow("organization OAuth connection");
+	it("asks for a personal grant when a CIMD account is personal", async () => {
+		const started = startOauthConnect({
+			appId: "todoist",
+			effectiveScope: "user",
+			registrationMode: "cimd",
+		});
+		await flush();
+		postCompletion(ORIGIN, popup!);
+		await started;
 
-		expect(initiateConnectionMock).not.toHaveBeenCalled();
+		expect(initiateConnectionMock).toHaveBeenCalledWith({
+			appId: "todoist",
+			redirectUri: `${ORIGIN}/oauth/callback`,
+			tokenScope: "user",
+		});
 		expect(fetch).not.toHaveBeenCalled();
-		expect(popup?.closed).toBe(true);
 	});
 
 	it("fails closed before Descope when the workspace session is absent", async () => {

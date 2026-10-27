@@ -347,6 +347,8 @@ export const connectionsContract = oc
 					scopes: z.union([z.string(), z.array(z.string())]).optional(),
 					/** Callback URL after OAuth flow completes */
 					redirectUri: z.url().optional(),
+					/** Who owns the account: the organization (default) or the caller */
+					tokenScope: z.enum(["tenant", "user"]).optional(),
 				}),
 			)
 			.output(

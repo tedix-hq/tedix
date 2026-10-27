@@ -407,12 +407,10 @@ export interface UploadTenantApiKeyTokenParams {
 	apiKey: string;
 }
 
-/** OAuth grant imported into the tenant-scoped Descope Token Vault. */
-export interface UploadTenantOAuthTokenParams {
+/** OAuth grant imported into the Descope Token Vault for one owner. */
+export type UploadOAuthTokenParams = {
 	/** Descope outbound app ID that owns refresh and retrieval policy. */
 	appId: string;
-	/** Descope tenant ID that receives the organization-wide grant. */
-	tenantId: string;
 	/** Access token returned by the upstream authorization server. */
 	accessToken: string;
 	/** Refresh token, when the upstream issued one. */
@@ -427,11 +425,14 @@ export interface UploadTenantOAuthTokenParams {
 	externalIdentifier?: string;
 	/** Optional OIDC ID token returned alongside the access token. */
 	idToken?: string;
-	/** Descope user ID of the operator who granted tenant consent. */
+	/** Descope user ID of the person who granted consent. */
 	grantedBy: string;
 	/** Ask Descope to verify the refresh token while importing it. */
 	verifyRefresh?: boolean;
-}
+} &
+	// The owner: a Descope tenant for an organization-wide grant, or a
+	// Descope user for a personal one.
+	({ tenantId: string; userId?: never } | { userId: string; tenantId?: never });
 
 export interface ExchangedOAuthToken {
 	accessToken: string;
@@ -880,13 +881,14 @@ export async function uploadTenantApiKeyToken(
  * resulting secret material directly into Descope and never persists it in D1.
  * Descope then owns refresh rotation and scoped token retrieval.
  */
-export async function uploadTenantOAuthToken(
+export async function uploadOAuthToken(
 	env: DescopeConnectionManagementEnv,
-	params: UploadTenantOAuthTokenParams,
+	params: UploadOAuthTokenParams,
 ): Promise<void> {
+	const kind = params.userId !== undefined ? "user" : "tenant";
+	const ownerId = params.userId ?? params.tenantId ?? "";
 	if (!params.appId.trim()) throw new Error("OAuth token appId is required");
-	if (!params.tenantId.trim())
-		throw new Error("OAuth token tenantId is required");
+	if (!ownerId.trim()) throw new Error(`OAuth token ${kind}Id is required`);
 	if (!params.accessToken.trim()) {
 		throw new Error("OAuth token accessToken is required");
 	}
@@ -905,10 +907,10 @@ export async function uploadTenantOAuthToken(
 
 	await postDescopeManagementJson(
 		env,
-		"/v1/mgmt/outbound/app/tenant/oauthtoken/upload",
+		`/v1/mgmt/outbound/app/${kind}/oauthtoken/upload`,
 		{
 			appId: params.appId,
-			tenantId: params.tenantId,
+			[`${kind}Id`]: ownerId,
 			accessToken: params.accessToken,
 			...(params.refreshToken ? { refreshToken: params.refreshToken } : {}),
 			...(params.accessTokenExpiry !== undefined
@@ -923,7 +925,7 @@ export async function uploadTenantOAuthToken(
 			grantedBy: params.grantedBy,
 			verifyRefresh: params.verifyRefresh ?? false,
 		},
-		"Descope outbound app tenant OAuth token upload",
+		`Descope outbound app ${kind} OAuth token upload`,
 	);
 }
 
