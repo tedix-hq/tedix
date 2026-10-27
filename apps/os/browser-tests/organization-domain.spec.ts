@@ -103,14 +103,12 @@ try {
 			const remove = app.getByRole("button", { name: "Remove domain" });
 			await remove.focus();
 			assert(await remove.evaluate((el) => el === document.activeElement));
-			const targets = await app
-				.getByRole("button")
-				.evaluateAll((buttons) =>
-					buttons.map((button) => ({
-						width: button.getBoundingClientRect().width,
-						height: button.getBoundingClientRect().height,
-					})),
-				);
+			const targets = await app.getByRole("button").evaluateAll((buttons) =>
+				buttons.map((button) => ({
+					width: button.getBoundingClientRect().width,
+					height: button.getBoundingClientRect().height,
+				})),
+			);
 			assert(targets.every((r) => r.width >= 24 && r.height >= 24));
 			await app.scrollIntoViewIfNeeded();
 			await page.screenshot({
