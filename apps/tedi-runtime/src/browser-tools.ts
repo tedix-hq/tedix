@@ -65,7 +65,7 @@ export function createBrowserTools(deps: BrowserToolDependencies): ToolSet {
 	});
 	governed.get_browser_takeover_status = tool({
 		description:
-			"Read a Browser Live View approval status. Continue browser_execute only after status is approved; rejection, cancellation, or expiry closes the continuation. Returns a refreshed Live View while the shared session still exists. Does not consume browser budget.",
+			"Read a Browser Live View approval status. Continue browser_execute only after status is approved; rejection, cancellation, or expiry closes the continuation. Returns the shared session's tab origins while it still exists — session ids and Live View URLs never reach the model. Does not consume browser budget.",
 		inputSchema: z.object({ approvalRequestId: z.uuid() }),
 		execute: async ({ approvalRequestId }) =>
 			deps.takeoverStatus(approvalRequestId),

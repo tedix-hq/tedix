@@ -215,7 +215,8 @@ import type {
 	SkillSearchEntry,
 } from "./brain/platform-client";
 import { DoBrowserBudgetStore } from "./browser-budget-store-do";
-import { type TediBrowserSession } from "./browser-session";
+import { createTediBrowser, type TediBrowserSession } from "./browser-session";
+import { persistentBrowserEgress } from "./browser-egress-policy";
 import { ChatStreamHub, type FrameSink } from "./chat-stream-hub";
 import { type InboundEmailTrust } from "./email-turn-tools";
 import {
@@ -536,6 +537,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			recordBrowserEgressDenial: (...args) =>
 				parent.recordBrowserEgressDenial(...args),
 			getBrowserBudgetStore: (...args) => parent.getBrowserBudgetStore(...args),
+			get tediBrowser() {
+				return parent.tediBrowser;
+			},
 			requestBrowserTakeover: (...args) =>
 				parent.requestBrowserTakeover(...args),
 			browserTakeoverStatus: (...args) => parent.browserTakeoverStatus(...args),
@@ -1510,6 +1514,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		if (requiresInertReceiver(ctx.storage, ctx.id.toString()))
 			return new InertRuntimeDO(ctx, env) as unknown as AgentTediDO;
 		super(ctx, env);
+		this.lifecycle.use(this.tediBrowser);
 	}
 	override async onStart(): Promise<void> {
 		await this.ensureIdentity();
@@ -1653,6 +1658,27 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private dedupStore: DoDedupStore | null = null;
 	/** Cached DO-SQLite-backed atomic Browser Run daily budget store. */
 	private browserBudgetStore: DoBrowserBudgetStore | null = null;
+	/**
+	 * The tedi's named persistent browser, installed on this DO's Lifecycle.
+	 * Provider options read current governance per launch since config loads
+	 * after the constructor, where `lifecycle.use()` must run.
+	 */
+	private readonly tediBrowser = createTediBrowser({
+		binding: this.env.BROWSER,
+		keepAliveMs: () => {
+			const policy = this.state.toolPolicy?.browserSession;
+			return policy?.mode === "persistent" ? policy.keepAliveMs : undefined;
+		},
+		guardrails: () => {
+			const egress = persistentBrowserEgress([
+				this.state.organizationBrowserEgress,
+				this.state.toolPolicy?.browserEgress,
+			]);
+			return egress.enforceable && egress.allowedDomains
+				? { allowedDomains: egress.allowedDomains }
+				: undefined;
+		},
+	});
 	/** Cached browser session so tools and operator takeover share one session store. */
 	private browserSession: TediBrowserSession | null = null;
 	/** Cached DO-SQLite-backed atomic model-inference daily budget store. */
