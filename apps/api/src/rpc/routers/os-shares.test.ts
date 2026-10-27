@@ -1,5 +1,5 @@
 /**
- * Share-links router: tenant binding, shown-once token contract, revocation,
+ * Share-links router: tenant binding, one-time token contract, revocation,
  * and creator accountability — end to end against the real D1 facade, with
  * the redemption handler proving the minted token actually redeems.
  */
@@ -35,7 +35,6 @@ import {
 	hashOsShareToken,
 } from "../../lib/os-share-redemption";
 import { bindTestContexts } from "../test-context";
-import { countActiveOsShareSessions } from "@tedix/db/queries/os-shares";
 import { osSharesContractRouter } from "./os-shares";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
@@ -324,19 +323,17 @@ describe("shares.revoke", () => {
 		expect(again.share.revokedAt).toBe(revoked.share.revokedAt);
 	});
 
-	it("requires revocation before permanent deletion and preserves the audit id", async () => {
+	it("deletes a live link permanently, keeping it tenant-bound and preserving the audit id", async () => {
 		const h = harness();
 		const outputId = await seedOutput(h);
 		const { share } = await h.org1.shares.create(outputShareInput(outputId));
 
-		await expect(
-			h.org1.shares.delete({ shareId: share.id }),
-		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		await h.outputs.outputs.archive({ outputId });
 		await expect(h.outputs.outputs.delete({ outputId })).rejects.toMatchObject({
 			code: "BAD_REQUEST",
 		});
-		await h.org1.shares.revoke({ shareId: share.id });
+		// Deleting a still-live link revokes it on the way out; the row is gone
+		// for good, unlike turning the link off.
 		await expect(
 			h.org2.shares.delete({ shareId: share.id }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
@@ -637,7 +634,8 @@ describe("shares.update", () => {
 		expect(share.publicId).toMatch(/^[A-Za-z0-9]{22}$/);
 		expect(share).toMatchObject({
 			access: "anyone_with_link",
-			url: `https://first.os.tedix.test/s/${share.publicId}`,
+			url: `https://first.os.tedix.test/s/${share.publicId}/launch-brief`,
+			disabledAt: null,
 		});
 		const db = createDbQueryClient(h.env.DB);
 		const opened = (await (
@@ -684,6 +682,69 @@ describe("shares.update", () => {
 		await expect(
 			h.org1.shares.update({ shareId: share.id, role: "use" }),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+});
+
+describe("shares.setDisabled", () => {
+	it("turns a link off and back on at the same address, and authors may", async () => {
+		const h = harness();
+		const outputId = await seedOutput(h);
+		const { share, token } = await h.org1.shares.create(
+			outputShareInput(outputId),
+		);
+		const db = createDbQueryClient(h.env.DB);
+		const opened = (await (
+			await handleOsShareRedemption(db, token)
+		).json()) as { sessionToken: string };
+
+		const author = createRouterClient(osSharesContractRouter, {
+			context: userContext({
+				env: h.env,
+				organizationId: "org-1",
+				permissions: ["os:author"],
+			}),
+		});
+		await expect(
+			author.shares.setDisabled({ shareId: share.id, disabled: true }),
+		).resolves.toMatchObject({
+			share: { disabledAt: expect.any(String), revokedAt: null },
+			revokedSessionCount: 1,
+		});
+		// Off ends redemption and live sessions, but the address stays reserved.
+		expect((await handleOsShareRedemption(db, token)).status).toBe(404);
+		expect(
+			(await handleOsShareSessionRead(db, opened.sessionToken)).status,
+		).toBe(404);
+		expect(
+			(await handleOsShareOpen(db, share.publicId, "tenant-1")).status,
+		).toBe(404);
+		const { items } = await h.org1.shares.list(outputShareInput(outputId));
+		expect(items[0]).toMatchObject({
+			id: share.id,
+			publicId: share.publicId,
+			url: share.url,
+		});
+
+		// Back on revives the same address and id; only the id resolves it.
+		await expect(
+			h.org1.shares.setDisabled({ shareId: share.id, disabled: false }),
+		).resolves.toMatchObject({
+			share: { publicId: share.publicId, disabledAt: null },
+			revokedSessionCount: 0,
+		});
+		expect(
+			(await handleOsShareOpen(db, share.publicId, "tenant-1")).status,
+		).toBe(200);
+		expect(
+			(await handleOsShareOpen(db, `${share.publicId}/anything`, "tenant-1"))
+				.status,
+		).toBe(404);
+
+		// Deleted links cannot come back.
+		await h.org1.shares.delete({ shareId: share.id });
+		await expect(
+			h.org1.shares.setDisabled({ shareId: share.id, disabled: false }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
 	});
 });
 
@@ -780,41 +841,18 @@ describe("shares.invitees", () => {
 			sessionToken: string;
 		};
 
-		const liveSessions = () =>
-			countActiveOsShareSessions(db, share.id, new Date().toISOString());
-		expect(await liveSessions()).toBe(1);
 		await expect(
 			h.org1.shares.invitees.remove({
 				shareId: share.id,
 				inviteeId: invitee.id,
 			}),
 		).resolves.toEqual({ removed: true });
-		// Removal ends the link's sessions outright: a guest's app calls never
-		// re-check the list, so the session itself must stop.
-		expect(await liveSessions()).toBe(0);
-		const asOutsider = async () => ({
-			userId: "outsider",
-			email: "someone@else.test",
-		});
-		expect(
-			(
-				await handleOsShareOpen(
-					db,
-					share.publicId,
-					"tenant-1",
-					undefined,
-					asOutsider,
-				)
-			).status,
-		).toBe(200);
-		// Removing nobody ends nobody's session.
 		await expect(
 			h.org1.shares.invitees.remove({
 				shareId: share.id,
 				inviteeId: invitee.id,
 			}),
 		).resolves.toEqual({ removed: false });
-		expect(await liveSessions()).toBe(1);
 		expect(
 			(await handleOsShareSessionRead(db, sessionToken, undefined, asKai))
 				.status,

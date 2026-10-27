@@ -146,6 +146,14 @@ export function ShareLinkPage({ id }: { id: string }) {
 					return;
 				}
 				setState({ status: "ready", ...opened });
+				// The readable suffix makes the permanent address tell people what
+				// it opens; only the id resolves it.
+				if (opened.payload.share?.slug)
+					window.history.replaceState(
+						null,
+						"",
+						shareLinkPath(id, opened.payload.share.slug),
+					);
 				// Every read is rechecked, so turning the link off or narrowing
 				// it reaches an open page within seconds.
 				timer = window.setInterval(() => {

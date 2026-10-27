@@ -39,7 +39,7 @@ export const osShareLinks = sqliteTable(
 		 * populated table; every row has one after the backfill migration.
 		 */
 		publicId: text("public_id"),
-		/** sha-256 hex of the link's plaintext secret; the plaintext is never stored. */
+		/** sha-256 hex of the one-time plaintext token; the plaintext is never stored. */
 		tokenHash: text("token_hash").notNull(),
 		/** Who may open the link; `invited` consults `os_share_link_invitees`. */
 		access: text("access", {
@@ -73,6 +73,11 @@ export const osShareLinks = sqliteTable(
 		expiresAt: text("expires_at"),
 		/** Set when the link was revoked; a revoked link never redeems again. */
 		revokedAt: text("revoked_at"),
+		/**
+		 * Set while the link is turned off: it stops redeeming like a revoked
+		 * link, but clearing it revives the same address — no new public id.
+		 */
+		disabledAt: text("disabled_at"),
 	},
 	(table) => [
 		index("os_share_links_org_resource_idx").on(

@@ -566,6 +566,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osShares/shares/previewRevoke": "mcp:apps.read",
 	"osShares/shares/restrict": "mcp:apps.write",
 	"osShares/shares/revoke": "mcp:apps.admin",
+	"osShares/shares/setDisabled": "mcp:apps.admin",
 	"osShares/shares/update": "mcp:apps.admin",
 	"osWorkspaces/blueprints/archive": "mcp:apps.write",
 	"osWorkspaces/blueprints/create": "mcp:apps.write",

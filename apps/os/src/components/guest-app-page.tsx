@@ -26,6 +26,8 @@ import {
 } from "@/lib/app-runtime-host";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
+import { ShareControls } from "@/components/share-controls";
+import { absoluteTime } from "@/lib/time";
 import { adoptShareLinkAddress } from "@/lib/share-link-session";
 import { OrganizationMark } from "@/shared/organization-mark";
 
@@ -69,7 +71,14 @@ type Redeemed = {
 		policyReason: string | null;
 		/** The link's permanent id; an old `#token=` link moves to `/s/<id>`. */
 		publicId?: string;
+		createdAt?: string;
+		/** Who made the link, for the "Shared by <name> · <date>" line. */
+		sharedByName?: string | null;
+		/** The readable suffix of the link's address. */
+		slug?: string;
 	};
+	/** True when the visitor may manage this link, so the bar offers Share. */
+	canManage?: boolean;
 	sessionToken?: string;
 };
 export type GuestShare = Redeemed;
@@ -87,12 +96,9 @@ type PageState =
 	  }
 	| { status: "unavailable" };
 
-// The guest's name for this tab. A link's session lives under its own id
-// (`tedix.os.share.<id>`, see share-link-session.ts); the link secret itself
-// never enters storage.
+// Per-tab resume capability only; the link secret itself never enters storage.
+const GUEST_SESSION_KEY = "tedix.os.guest.session.v1";
 const GUEST_NAME_KEY = "tedix.os.guest.name.v1";
-/** Before permanent addresses, one tab kept one guest session here. */
-const LEGACY_GUEST_SESSION_KEY = "tedix.os.guest.session.v1";
 function storedGuestName(): string | null {
 	try {
 		const name = AppRuntimeGuestNameSchema.safeParse(
@@ -103,22 +109,22 @@ function storedGuestName(): string | null {
 		return null;
 	}
 }
-/** Read and drop a session an older page kept for this tab, if any. */
-function takeLegacyGuestSession(): string | null {
+function storedGuestSession(): string | null {
 	try {
-		const token = window.sessionStorage.getItem(LEGACY_GUEST_SESSION_KEY);
-		window.sessionStorage.removeItem(LEGACY_GUEST_SESSION_KEY);
-		return token;
+		return window.sessionStorage.getItem(GUEST_SESSION_KEY);
 	} catch {
 		return null;
 	}
 }
-function forgetGuest(): void {
+function storeGuestSession(token: string | null): void {
 	try {
-		window.sessionStorage.removeItem(LEGACY_GUEST_SESSION_KEY);
-		window.sessionStorage.removeItem(GUEST_NAME_KEY);
+		if (token) window.sessionStorage.setItem(GUEST_SESSION_KEY, token);
+		else {
+			window.sessionStorage.removeItem(GUEST_SESSION_KEY);
+			window.sessionStorage.removeItem(GUEST_NAME_KEY);
+		}
 	} catch {
-		/* Nothing was stored. */
+		/* Blocked storage still permits this in-memory session. */
 	}
 }
 
@@ -178,8 +184,8 @@ export function followSystemTheme(): () => void {
 
 export function GuestAppPage() {
 	const [state, setState] = useState<PageState>({ status: "loading" });
-	// One redemption survives StrictMode's effect replay: the first run strips
-	// the fragment, so the replay finds nothing to redeem.
+	// One redemption survives StrictMode's effect replay: the link is one-time,
+	// and the replay finds the fragment already stripped.
 	const opening = useRef<Promise<PageState> | null>(null);
 
 	useEffect(() => followSystemTheme(), []);
@@ -194,7 +200,8 @@ export function GuestAppPage() {
 			"",
 			window.location.pathname + window.location.search,
 		);
-		const resumeToken = takeLegacyGuestSession();
+		const resumeToken = token ? null : storedGuestSession();
+		if (token) storeGuestSession(null);
 		if (!token && !resumeToken && !opening.current) {
 			setState({ status: "unavailable" });
 			return;
@@ -207,16 +214,20 @@ export function GuestAppPage() {
 					});
 			const sessionToken = token ? share.sessionToken : resumeToken;
 			if (!sessionToken) throw new Error("Share unavailable");
-			// An old link, or a session an older page kept, moves to the link's
-			// permanent address and its own session key; the router then shows
+			// An old link moves to its permanent address; the router then shows
 			// that page, which resumes this session.
-			if (share.share.publicId) {
-				adoptShareLinkAddress(share.share.publicId, sessionToken);
+			if (token && share.share.publicId) {
+				adoptShareLinkAddress(
+					share.share.publicId,
+					sessionToken,
+					share.share.slug,
+				);
 				return { status: "loading" };
 			}
+			storeGuestSession(sessionToken);
 			return openGuestApp(share, sessionToken);
 		})().catch((): PageState => {
-			forgetGuest();
+			storeGuestSession(null);
 			return { status: "unavailable" };
 		});
 		void opening.current.then((next) => {
@@ -228,7 +239,11 @@ export function GuestAppPage() {
 	}, []);
 
 	return (
-		<GuestAppScreen state={state} setState={setState} forget={forgetGuest} />
+		<GuestAppScreen
+			state={state}
+			setState={setState}
+			forget={() => storeGuestSession(null)}
+		/>
 	);
 }
 
@@ -474,10 +489,29 @@ function GuestApp({
 							{app.app.name}
 						</Text>
 					</Text>
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						className="m-0 shrink-0 max-sm:hidden"
+						data-shared-by
+					>
+						Shared by {share.share.sharedByName ?? "someone"}
+						{share.share.createdAt
+							? ` · ${absoluteTime(share.share.createdAt)}`
+							: ""}
+					</Text>
 					<div
 						className="flex shrink-0 items-center gap-1"
 						data-guest-bar-tools
 					>
+						{share.canManage ? (
+							<ShareControls
+								resourceType="gadget"
+								resourceId={app.app.id}
+								currentRevisionId={app.revisionId}
+							/>
+						) : null}
 						<Badge variant="success" title={t("share_no_sign_in")}>
 							<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
 						</Badge>

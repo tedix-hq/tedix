@@ -17,6 +17,8 @@ const sharesApi = vi.hoisted(() => ({
 	list: vi.fn(),
 	previewRevoke: vi.fn(),
 	revoke: vi.fn(),
+	setDisabled: vi.fn(),
+	delete: vi.fn(),
 	update: vi.fn(),
 	invitees: { list: vi.fn(), add: vi.fn(), remove: vi.fn() },
 }));
@@ -71,6 +73,7 @@ function shareFixture(overrides: Partial<OsShareLink> = {}): OsShareLink {
 		createdAt: "2026-08-14T10:00:00.000Z",
 		expiresAt: null,
 		revokedAt: null,
+		disabledAt: null,
 		...overrides,
 	};
 }
@@ -231,6 +234,8 @@ beforeEach(() => {
 		sharesApi.list,
 		sharesApi.previewRevoke,
 		sharesApi.revoke,
+		sharesApi.setDisabled,
+		sharesApi.delete,
 		sharesApi.update,
 		...Object.values(sharesApi.invitees),
 	])
@@ -250,7 +255,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("shareStatus", () => {
-	it("distinguishes active, expired, and revoked; revoked wins", () => {
+	it("distinguishes active, off, expired, and revoked; revoked wins", () => {
 		const now = new Date("2026-08-15T00:00:00.000Z");
 		expect(shareStatus(shareFixture(), now)).toBe("active");
 		expect(
@@ -259,6 +264,15 @@ describe("shareStatus", () => {
 		expect(
 			shareStatus(shareFixture({ expiresAt: "2026-08-16T00:00:00.000Z" }), now),
 		).toBe("active");
+		expect(
+			shareStatus(
+				shareFixture({
+					disabledAt: "2026-08-14T11:00:00.000Z",
+					expiresAt: "2026-08-14T00:00:00.000Z",
+				}),
+				now,
+			),
+		).toBe("off");
 		expect(
 			shareStatus(
 				shareFixture({
@@ -272,6 +286,7 @@ describe("shareStatus", () => {
 
 	it("maps every status to a badge variant", () => {
 		expect(shareStatusVariant("active")).toBe("success");
+		expect(shareStatusVariant("off")).toBe("secondary");
 		expect(shareStatusVariant("expired")).toBe("warning");
 		expect(shareStatusVariant("revoked")).toBe("secondary");
 	});
@@ -324,14 +339,14 @@ describe("ShareRow", () => {
 		expect(html).toContain("Keep link");
 	});
 
-	it("hides the revoke button on a revoked link", () => {
+	it("hides the options menu on a deleted link", () => {
 		const html = renderToStaticMarkup(
 			<ShareRow
 				share={shareFixture({ revokedAt: "2026-08-14T11:00:00.000Z" })}
 				onRevoke={() => {}}
 			/>,
 		);
-		expect(html).toContain("Turned off");
+		expect(html).toContain("Deleted");
 		expect(html).not.toContain("Options for");
 	});
 });
@@ -347,6 +362,22 @@ async function openDialog(
 	click(findButton(container, "Share"));
 	await flush();
 	return container;
+}
+
+/** Picks an option from a Kumo Select by its trigger's label. */
+async function pickOption(label: string, option: string) {
+	const trigger = document.querySelector<HTMLElement>(
+		`[aria-label="${label}"]`,
+	);
+	if (!trigger) throw new Error(`select missing: ${label}`);
+	click(trigger);
+	await flush();
+	const item = [...document.querySelectorAll('[role="option"]')].find(
+		(node) => (node.textContent ?? "").trim() === option,
+	);
+	if (!item) throw new Error(`option missing: ${option}`);
+	click(item);
+	await flush();
 }
 
 describe("ShareControls", () => {
@@ -394,26 +425,20 @@ describe("ShareControls", () => {
 
 	it("offers the three audiences in plain words, naming the organization", async () => {
 		sharesApi.list.mockResolvedValue({ items: [] });
-		const container = await openDialog();
-		const options = [
-			...container.querySelectorAll(
-				'[role="radiogroup"][aria-label="Who can open it"] [role="radio"]',
-			),
-		];
-		expect(options.map((node) => node.textContent?.trim())).toEqual([
+		await openDialog();
+		const trigger = document.querySelector<HTMLElement>(
+			'[aria-label="Who can open it"]',
+		);
+		click(trigger!);
+		await flush();
+		const options = [...document.querySelectorAll('[role="option"]')].map(
+			(node) => node.textContent?.trim(),
+		);
+		expect(options).toEqual([
 			"Anyone with the link",
 			"People in Acme Fictional",
 			"Only people you invite",
 		]);
-		expect(options.map((node) => node.getAttribute("aria-checked"))).toEqual([
-			"true",
-			"false",
-			"false",
-		]);
-		// One plain line says what the choice means.
-		expect(
-			container.querySelector("[data-share-explainer]")?.textContent,
-		).toContain("without signing in");
 	});
 
 	it("creates a link for the chosen audience", async () => {
@@ -423,8 +448,7 @@ describe("ShareControls", () => {
 			token: TOKEN,
 		});
 		const container = await openDialog();
-		click(findButton(container, "People in Acme Fictional"));
-		await flush();
+		await pickOption("Who can open it", "People in Acme Fictional");
 		click(findButton(container, "Create link"));
 		await flush();
 		expect(sharesApi.create).toHaveBeenCalledWith({
@@ -443,7 +467,9 @@ describe("ShareControls", () => {
 			revokedSessionCount: 0,
 		});
 		const container = await openDialog();
-		click(findButton(container, "Only people you invite"));
+		expect(container.textContent).not.toContain("Change access");
+		await pickOption("Who can open it", "Only people you invite");
+		click(findButton(container, "Change access"));
 		await flush();
 		expect(sharesApi.update).toHaveBeenCalledWith({
 			shareId: SHARE_ID,
@@ -506,14 +532,14 @@ describe("ShareControls", () => {
 		expect(note?.textContent).toContain('"notes"');
 	});
 
-	it("asks before turning a link off, then turns it off", async () => {
+	it("asks before turning a link off, then turns it off in place", async () => {
 		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
 		sharesApi.previewRevoke.mockResolvedValue({
 			share: shareFixture(),
 			activeSessionCount: 2,
 		});
-		sharesApi.revoke.mockResolvedValue({
-			share: shareFixture({ revokedAt: "2026-08-14T11:00:00.000Z" }),
+		sharesApi.setDisabled.mockResolvedValue({
+			share: shareFixture({ disabledAt: "2026-08-14T11:00:00.000Z" }),
 			revokedSessionCount: 2,
 		});
 		const container = await openDialog();
@@ -523,8 +549,49 @@ describe("ShareControls", () => {
 		expect(container.textContent).toContain("2 people have it open now");
 		click(findButton(container, "Turn off link"));
 		await flush();
-		expect(sharesApi.revoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
+		expect(sharesApi.setDisabled).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			disabled: true,
+		});
+		expect(sharesApi.revoke).not.toHaveBeenCalled();
 		expect(sharesApi.list.mock.calls.length).toBeGreaterThan(listCallsBefore);
+	});
+
+	it("keeps the address struck through with Copy off while the link is off", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [shareFixture({ disabledAt: "2026-08-14T11:00:00.000Z" })],
+		});
+		sharesApi.setDisabled.mockResolvedValue({
+			share: shareFixture(),
+			revokedSessionCount: 0,
+		});
+		const container = await openDialog();
+		const field = linkField(container);
+		expect(field?.value).toBe(SHARE_URL);
+		expect(field?.value).not.toContain("#token=");
+		const copy = findButton(container, "Copy link");
+		expect(copy.disabled).toBe(true);
+		click(findButton(container, "Turn link back on"));
+		await flush();
+		expect(sharesApi.setDisabled).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			disabled: false,
+		});
+	});
+
+	it("asks before deleting a link for good, then deletes it", async () => {
+		getContext.mockResolvedValue({
+			organization: { name: "Acme Fictional" },
+			authority: { role: "admin", permissions: ["os:admin"] },
+		});
+		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
+		sharesApi.delete.mockResolvedValue({ deleted: true });
+		const container = await openDialog();
+		await pickMenuItem(container, "Link options", "Delete link");
+		expect(container.textContent).toContain("Delete this link?");
+		click(findButton(container, "Delete link"));
+		await flush();
+		expect(sharesApi.delete).toHaveBeenCalledWith({ shareId: SHARE_ID });
 	});
 
 	it("lets an admin edit a link's settings in place", async () => {

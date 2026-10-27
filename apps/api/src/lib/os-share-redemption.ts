@@ -8,7 +8,6 @@ import {
 import {
 	OS_SHARE_PUBLIC_ID_PATTERN,
 	type OsShareOpenResult,
-	type OsSharePreview,
 	type OsShareRole,
 } from "@tedix/api-contract/contracts/os-shares";
 import {
@@ -17,8 +16,10 @@ import {
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
+import { osShareTitleSlug } from "@tedix/api-contract/utils/share-slug";
 import {
 	createOsShareSession,
+	getOsShareCreatorName,
 	getOsShareLinkById,
 	getOsShareLinkByPublicId,
 	getOsShareLinkByTokenHash,
@@ -74,9 +75,11 @@ export function osShareUrl(
 	env: { OS_URL?: string },
 	organizationSlug: string,
 	publicId: string,
+	slug?: string,
 ): string {
 	const launcher = new URL(env.OS_URL || "https://os.tedix.dev");
-	return `${launcher.protocol}//${organizationSlug}.${launcher.host}/s/${publicId}`;
+	const suffix = slug ? `/${encodeURIComponent(slug)}` : "";
+	return `${launcher.protocol}//${organizationSlug}.${launcher.host}/s/${publicId}${suffix}`;
 }
 
 /** sha-256 hex of a plaintext link or session secret. */
@@ -118,7 +121,9 @@ function noStoreJson(body: unknown): Response {
 
 export function isActive(link: OsShareLinkRow, now: string): boolean {
 	return (
-		link.revokedAt === null && (link.expiresAt === null || link.expiresAt > now)
+		link.revokedAt === null &&
+		link.disabledAt === null &&
+		(link.expiresAt === null || link.expiresAt > now)
 	);
 }
 
@@ -144,6 +149,13 @@ export type IdentifyOsShareRecipient = () => Promise<{
 	userId: string;
 	email: string | null;
 } | null>;
+
+/**
+ * Whether the caller's own session may manage this link (its Share dialog is
+ * offered only then). Optional: a plain guest never manages, so a missing
+ * check reports `canManage: false`.
+ */
+export type ManageOsShareCheck = (link: OsShareLinkRow) => Promise<boolean>;
 
 /** The workspace a link's resource lives in, or null for a workspace-less output. */
 async function linkWorkspaceId(
@@ -534,10 +546,20 @@ async function guestOrganization(db: DbQueryClient, organizationId: string) {
 		: null;
 }
 
+/** The title the readable address suffix and the page header are made from. */
+function resourceTitle(resource: NonNullable<ShareResourceResult>): string {
+	if (resource.type === "output") return resource.output.title;
+	if (resource.type === "gadget") return resource.gadget.name;
+	return (resource.workspace as { name: string }).name;
+}
+
+type ShareResourceResult = Awaited<ReturnType<typeof readOsSharedResource>>;
+
 async function sessionResponse(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
 	sessionToken?: string,
+	mayManage?: ManageOsShareCheck,
 ): Promise<Response> {
 	const resource = await readOsSharedResource(db, link);
 	if (!resource) return notFound();
@@ -545,8 +567,13 @@ async function sessionResponse(
 		needsSignIn: false,
 		access: link.access,
 		organization: await guestOrganization(db, link.organizationId),
-		share: shareEnvelope(link),
+		share: {
+			...shareEnvelope(link),
+			sharedByName: await getOsShareCreatorName(db, link),
+			slug: osShareTitleSlug(resourceTitle(resource)),
+		},
 		resource,
+		canManage: mayManage ? await mayManage(link) : false,
 		...(sessionToken ? { sessionToken } : {}),
 	};
 	return noStoreJson(body);
@@ -564,6 +591,7 @@ async function openSession(
 	now: string,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
+	mayManage?: ManageOsShareCheck,
 ): Promise<Response> {
 	const sessionToken = generateOsShareToken();
 	const linkExpiry = link.expiresAt
@@ -594,7 +622,7 @@ async function openSession(
 		))
 	)
 		return notFound();
-	return sessionResponse(db, currentLink, sessionToken);
+	return sessionResponse(db, currentLink, sessionToken, mayManage);
 }
 
 /** Exchange a reusable link secret for a short-lived, independently revocable session. */
@@ -603,6 +631,7 @@ export async function handleOsShareRedemption(
 	token: string,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
+	mayManage?: ManageOsShareCheck,
 ): Promise<Response> {
 	if (!TOKEN_SHAPE.test(token)) return notFound();
 	const now = new Date().toISOString();
@@ -615,7 +644,14 @@ export async function handleOsShareRedemption(
 		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
 	)
 		return notFound();
-	return openSession(db, link, now, authorizeRecipient, identifyRecipient);
+	return openSession(
+		db,
+		link,
+		now,
+		authorizeRecipient,
+		identifyRecipient,
+		mayManage,
+	);
 }
 
 /**
@@ -634,6 +670,7 @@ export async function handleOsShareOpen(
 	hostTenantId: string | null,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
+	mayManage?: ManageOsShareCheck,
 ): Promise<Response> {
 	if (!hostTenantId || !OS_SHARE_PUBLIC_ID_PATTERN.test(publicId))
 		return notFound();
@@ -662,73 +699,14 @@ export async function handleOsShareOpen(
 		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
 	)
 		return notFound();
-	return openSession(db, link, now, authorizeRecipient, identifyRecipient);
-}
-
-const GENERIC_PREVIEW: OsSharePreview = { kind: "generic" };
-
-/**
- * The link preview behind `/s/<id>`: its title, a short description and the
- * organization's name, only when a signed-out stranger could open the link
- * on this host anyway. Organization and invited links, protected files and
- * anything that would need an account get the generic answer, as do
- * unknown, revoked and expired ids, so a preview never tells more than the
- * link itself. It mints no session and runs no recipient check.
- */
-export async function handleOsSharePreview(
-	db: DbQueryClient,
-	publicId: string,
-	hostTenantId: string | null,
-): Promise<Response> {
-	if (!hostTenantId || !OS_SHARE_PUBLIC_ID_PATTERN.test(publicId))
-		return noStoreJson(GENERIC_PREVIEW);
-	const link = await getOsShareLinkByPublicId(db, publicId);
-	if (
-		!link ||
-		link.access !== "anyone_with_link" ||
-		!isActive(link, new Date().toISOString())
-	)
-		return noStoreJson(GENERIC_PREVIEW);
-	const organization = await getOrganizationProfile(db, link.organizationId);
-	if (
-		!organization ||
-		(hostTenantId !== organization.descopeTenantId &&
-			hostTenantId !== organization.id) ||
-		!(await recipientMayOpen(db, link))
-	)
-		return noStoreJson(GENERIC_PREVIEW);
-	const resource = await readOsSharedResource(db, link);
-	if (!resource) return noStoreJson(GENERIC_PREVIEW);
-	const named =
-		resource.type === "output"
-			? { title: resource.output.title, description: null }
-			: resource.type === "gadget"
-				? {
-						title: resource.gadget.name,
-						description: resource.gadget.description,
-					}
-				: workspaceNaming(resource.workspace);
-	if (!named.title.trim()) return noStoreJson(GENERIC_PREVIEW);
-	const preview: OsSharePreview = {
-		kind: "content",
-		title: named.title,
-		description: named.description,
-		resourceType: link.resourceType,
-		organizationName: organization.name,
-	};
-	return noStoreJson(preview);
-}
-
-function workspaceNaming(workspace: unknown): {
-	title: string;
-	description: string | null;
-} {
-	const value = (workspace ?? {}) as { name?: unknown; description?: unknown };
-	return {
-		title: typeof value.name === "string" ? value.name : "",
-		description:
-			typeof value.description === "string" ? value.description : null,
-	};
+	return openSession(
+		db,
+		link,
+		now,
+		authorizeRecipient,
+		identifyRecipient,
+		mayManage,
+	);
 }
 
 /** Read a redeemed session; revocation and policy narrowing apply immediately. */
@@ -737,6 +715,7 @@ export async function handleOsShareSessionRead(
 	sessionToken: string,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
+	mayManage?: ManageOsShareCheck,
 ): Promise<Response> {
 	if (!TOKEN_SHAPE.test(sessionToken)) return notFound();
 	const now = new Date().toISOString();
@@ -752,5 +731,5 @@ export async function handleOsShareSessionRead(
 		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
 	)
 		return notFound();
-	return sessionResponse(db, link);
+	return sessionResponse(db, link, undefined, mayManage);
 }
