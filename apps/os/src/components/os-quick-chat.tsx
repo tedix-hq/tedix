@@ -113,6 +113,8 @@ type TedixWidgetApi = {
 		conversationStarters: string[];
 		script: HTMLScriptElement;
 		session(input: EmbeddedSessionInput): Promise<unknown>;
+		/** Opaque per-person key; the widget remembers the last choice under it. */
+		preferenceKey?: string;
 		subtitle: string;
 		tenant: string;
 		title: string;
@@ -308,6 +310,100 @@ export function osPortableRouteContext(pathname: string): PortableRouteContext {
 	};
 }
 
+/** The widget reads this code as "no tedi for this person", never Offline. */
+export class QuickChatTediUnavailableError extends Error {
+	readonly code = "tedi_unavailable";
+	constructor() {
+		super("No tedi is available to you here.");
+	}
+}
+
+/**
+ * The tedis to try, in order: the requested one when it is allowed, then the
+ * organization default, then the other allowed tedis. A remembered or default
+ * tedi that is no longer allowed is skipped rather than refused.
+ */
+export function quickChatTediCandidates(
+	selection:
+		| { defaultTediId?: string; allowedTediIds?: readonly string[] }
+		| null
+		| undefined,
+	requestedTediId?: string,
+): string[] {
+	const allowed = selection?.allowedTediIds ?? [];
+	return [
+		...new Set(
+			[requestedTediId, selection?.defaultTediId, ...allowed].filter(
+				(id): id is string => typeof id === "string" && allowed.includes(id),
+			),
+		),
+	];
+}
+
+/** A refusal about this tedi, not about the connection or the page. */
+function isTediRefusal(error: unknown): boolean {
+	if (!error || typeof error !== "object") return false;
+	const { code, data, message } = error as {
+		code?: unknown;
+		data?: { reason?: unknown };
+		message?: unknown;
+	};
+	if (typeof message === "string" && /first-party route/i.test(message))
+		return false;
+	return (
+		code === "FORBIDDEN" ||
+		code === "NOT_FOUND" ||
+		(code === "SERVICE_UNAVAILABLE" && data?.reason === "worker_unavailable")
+	);
+}
+
+/**
+ * Mints a session with the first candidate the API accepts. Only refusals of
+ * a particular tedi move on to the next; a network or server failure stays a
+ * failure so the widget can say it is offline.
+ */
+export async function createSessionWithFallback<T>(
+	candidates: readonly string[],
+	create: (tediId: string) => Promise<T>,
+): Promise<T> {
+	for (const tediId of candidates) {
+		try {
+			return await create(tediId);
+		} catch (error) {
+			if (!isTediRefusal(error)) throw error;
+		}
+	}
+	throw new QuickChatTediUnavailableError();
+}
+
+export function canUseQuickChatHome(
+	authority: { permissions?: readonly string[] } | undefined,
+): boolean {
+	return authority?.permissions?.includes("os:run") === true;
+}
+
+/**
+ * An opaque per-organization, per-person key under which the widget remembers
+ * the last chosen tedi or Home. Hashed so no email lands in browser storage.
+ */
+export async function quickChatPreferenceKey(
+	organizationId: string,
+	person: string,
+): Promise<string | undefined> {
+	if (!person) return undefined;
+	try {
+		const digest = await crypto.subtle.digest(
+			"SHA-256",
+			new TextEncoder().encode(`${organizationId}\n${person}`),
+		);
+		return [...new Uint8Array(digest).slice(0, 16)]
+			.map((byte) => byte.toString(16).padStart(2, "0"))
+			.join("");
+	} catch {
+		return undefined;
+	}
+}
+
 type WidgetLifecycleDetail = {
 	code?: string;
 	conversationId?: string;
@@ -477,18 +573,15 @@ export function OsQuickChat() {
 				portableRouteAdapterRef.current = createOsPortableRouteAdapter(
 					() => window.Tedix,
 				);
-				const getSelectedTedi = async (selectedTediId?: string) => {
+				const getTediCandidates = async (selectedTediId?: string) => {
 					const current = await osApi.userSettings.getContext({});
 					const organization = await osApi.organizations.get({
 						organizationId: current.organization.id,
 					});
-					const selection = organization.metadata?.tediWidget?.tediSelection;
-					const id = selectedTediId ?? selection?.defaultTediId;
-					if (!id || !selection?.allowedTediIds.includes(id))
-						throw new Error(
-							"Configure selectable tedis in Tedi widget settings first.",
-						);
-					return { id };
+					return quickChatTediCandidates(
+						organization.metadata?.tediWidget?.tediSelection,
+						selectedTediId,
+					);
 				};
 				disposers.push(
 					window.Tedix.on("error", ({ code = "unknown" }) => {
@@ -522,7 +615,7 @@ export function OsQuickChat() {
 					}),
 					window.Tedix.on("opened", () => {
 						recordLifecycle({ event: "opened" });
-						void getSelectedTedi().catch((error) =>
+						void getTediCandidates().catch((error) =>
 							console.error("[OS quick chat tedi prefetch]", error),
 						);
 					}),
@@ -562,6 +655,11 @@ export function OsQuickChat() {
 				if (disposed || !window.Tedix) return;
 				const config = resolveTediWidgetConfig(organization);
 				lifecycleAnalyticsEnabled = config.analyticsEnabled === true;
+				const preferenceKey = await quickChatPreferenceKey(
+					context.organization.id,
+					identityRef.current.email,
+				);
+				if (disposed || !window.Tedix) return;
 				window.Tedix.init({
 					script,
 					consent: {
@@ -577,12 +675,22 @@ export function OsQuickChat() {
 					portableTool,
 					requireSignedPortableRoute: true,
 					pageTools: { list: listPageChatTools },
-					home: {
-						label: QUICK_CHAT_HOME_LABEL,
-						turn: (input) => runQuickChatHomeTurn(quickChatHomeDeps, input),
-						transcript: ({ conversationId }) =>
-							readQuickChatHomeTranscript(quickChatHomeDeps, conversationId),
-					},
+					...(preferenceKey ? { preferenceKey } : {}),
+					// Home runs under os:run; without it the chat opens on a tedi.
+					...(canUseQuickChatHome(context.authority)
+						? {
+								home: {
+									label: QUICK_CHAT_HOME_LABEL,
+									turn: (input) =>
+										runQuickChatHomeTurn(quickChatHomeDeps, input),
+									transcript: ({ conversationId }) =>
+										readQuickChatHomeTranscript(
+											quickChatHomeDeps,
+											conversationId,
+										),
+								},
+							}
+						: {}),
 					conversationStarters: config.conversationStarters,
 					locale: config.locale ?? "en-US",
 					accent: config.accentColor,
@@ -609,7 +717,7 @@ export function OsQuickChat() {
 						selectedTediId,
 						pathname,
 					}) => {
-						const tedi = await getSelectedTedi(selectedTediId);
+						const candidates = await getTediCandidates(selectedTediId);
 						const routeContext = osPortableRouteContext(pathname);
 						const route =
 							routeContext.routeKey === "workspaces" &&
@@ -618,28 +726,31 @@ export function OsQuickChat() {
 										(candidate) => candidate.match.routeKey === "workspaces",
 									)
 								: undefined;
-						return osApi.tedis.createEmbeddedSession({
-							tediId: tedi.id,
-							// Quick chat is a utility surface, not the tedi's full
-							// workstation; the runtime reads this instead of the hostname.
-							surface: "os",
-							allowedOrigin: window.location.origin,
-							conversationId,
-							hostOrganizationId: context.organization.id,
-							hostOrganizationLabel: context.organization.name,
-							hostUserId: identityRef.current.email || identityRef.current.name,
-							hostUserLabel: identityRef.current.name,
-							...(route
-								? {
-										portableRouteAssertion: {
-											routeId: route.id,
-											pathname: "/workspaces",
-											routeKey: "workspaces",
-										},
-									}
-								: {}),
-							...(hostConversationContext ? { hostConversationContext } : {}),
-						});
+						return createSessionWithFallback(candidates, (tediId) =>
+							osApi.tedis.createEmbeddedSession({
+								tediId,
+								// Quick chat is a utility surface, not the tedi's full
+								// workstation; the runtime reads this instead of the hostname.
+								surface: "os",
+								allowedOrigin: window.location.origin,
+								conversationId,
+								hostOrganizationId: context.organization.id,
+								hostOrganizationLabel: context.organization.name,
+								hostUserId:
+									identityRef.current.email || identityRef.current.name,
+								hostUserLabel: identityRef.current.name,
+								...(route
+									? {
+											portableRouteAssertion: {
+												routeId: route.id,
+												pathname: "/workspaces",
+												routeKey: "workspaces",
+											},
+										}
+									: {}),
+								...(hostConversationContext ? { hostConversationContext } : {}),
+							}),
+						);
 					},
 				});
 				publishOsPortableRouteContext(

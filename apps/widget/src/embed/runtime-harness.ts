@@ -236,6 +236,7 @@ export async function bootWidget(boot: BootOptions = {}) {
 	document.documentElement.className = "";
 	delete document.documentElement.dataset.theme;
 	sessionStorage.clear();
+	localStorage.clear();
 	delete (window as unknown as { Tedix?: unknown }).Tedix;
 	const fetch = vi.fn(
 		async (_url: unknown, _init?: RequestInit) =>

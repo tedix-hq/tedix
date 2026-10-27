@@ -48,6 +48,7 @@ export type EmbeddedConnectionState =
 	| "connected"
 	| "page_context"
 	| "page_tools"
+	| "unavailable"
 	| "error";
 
 export function embeddedConnectionLabel(
@@ -63,6 +64,8 @@ export function embeddedConnectionLabel(
 			return t("can_see_page");
 		case "page_tools":
 			return t("can_act_on_page");
+		case "unavailable":
+			return t("not_available");
 		case "error":
 			return t("offline");
 		default:
