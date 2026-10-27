@@ -45,6 +45,7 @@
  * promotion shortcut.
  */
 
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { readFileSync } from "node:fs";
 import { parseSkillFrontmatter } from "@tedix/api-contract/utils/skill-manifest";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
@@ -360,7 +361,7 @@ async function flowCall(
 	destructiveApprovalReason?: string,
 ): Promise<FlowResult> {
 	// Parse JSON at execution time so __proto__ stays data, not a literal setter.
-	const input = JSON.stringify(JSON.stringify(flowInput(ctx, args)));
+	const input = codeModeLiteral(JSON.stringify(flowInput(ctx, args)));
 	return runSource(
 		ctx,
 		`async () => await ${callable}(JSON.parse(${input}))`,

@@ -1,3 +1,4 @@
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { readFileSync } from "node:fs";
 import { basename, dirname, relative } from "node:path";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
@@ -131,8 +132,8 @@ const FILE_CHUNK = 12_000;
  */
 function skillReadStatements(id: string): string {
 	const read = UUID_RE.test(id)
-		? `const g = await skills.get_skills(${JSON.stringify({ id })}); let e = g?.entry ?? g;`
-		: `const m = await skills.get_skills_for_mcp(${JSON.stringify({ slug: id })}); let e = m?.entry ?? null; if (!e) { const hit = (await skills.list_skills_by_org(${JSON.stringify({ query: id, limit: 20, offset: 0, summary: true })})).entries?.find((x) => x.slug === ${JSON.stringify(id)}); if (hit) { const g = await skills.get_skills({ id: hit.id }); e = g?.entry ?? g; } }`;
+		? `const g = await skills.get_skills(${codeModeLiteral({ id })}); let e = g?.entry ?? g;`
+		: `const m = await skills.get_skills_for_mcp(${codeModeLiteral({ slug: id })}); let e = m?.entry ?? null; if (!e) { const hit = (await skills.list_skills_by_org(${codeModeLiteral({ query: id, limit: 20, offset: 0, summary: true })})).entries?.find((x) => x.slug === ${codeModeLiteral(id)}); if (hit) { const g = await skills.get_skills({ id: hit.id }); e = g?.entry ?? g; } }`;
 	return `${read} if (!e) return { missing: true }; const files = e.files ?? {};`;
 }
 
@@ -161,7 +162,7 @@ async function showSkill(ctx: SkillContext, id: string): Promise<number> {
 		for (let offset = 0; ; offset += FILE_CHUNK) {
 			const chunk = await runSkillProjection(
 				ctx,
-				`async () => { ${read} const path = ${JSON.stringify(path)}; const text = path === "SKILL.md" ? e.content : files[path]; if (typeof text !== "string") return { missingFile: path, files: ["SKILL.md", ...Object.keys(files)] }; return { total: text.length, chunk: text.slice(${offset}, ${offset + FILE_CHUNK}) }; }`,
+				`async () => { ${read} const path = ${codeModeLiteral(path)}; const text = path === "SKILL.md" ? e.content : files[path]; if (typeof text !== "string") return { missingFile: path, files: ["SKILL.md", ...Object.keys(files)] }; return { total: text.length, chunk: text.slice(${offset}, ${offset + FILE_CHUNK}) }; }`,
 			);
 			if (chunk.missing) throw notFound();
 			if (chunk.missingFile)

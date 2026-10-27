@@ -1,6 +1,7 @@
 // One-time cleanup through the governed Work API. First save a dry-run plan,
 // then apply that exact plan; changed rows and newly ineligible rows are skipped.
 // bun scripts/ci/backfill-commit-watch.mjs --organization <org> --workspace connect --project <uuid> --plan <path> [--apply]
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -41,6 +42,14 @@ export function settlementReason(row, rows, now) {
 	return "no action needed: push observation older than 24 hours with no open red follow-up";
 }
 
+export function listWorkProgram(projectId, disposition, offset) {
+	return `async () => { const p = await work.list_work_items(${codeModeLiteral({ projectId, disposition, limit: 100, offset })}); return {data:p.data.map(r=>({id:r.id,orgId:r.orgId,projectId:r.projectId,title:r.title,version:r.version,createdAt:r.createdAt,disposition:r.disposition,activeAttempt:r.activeAttempt,metadata:{repositoryObserver:r.metadata?.repositoryObserver,event:r.metadata?.event && {kind:r.metadata.event.kind,repository:r.metadata.event.repository,branch:r.metadata.event.branch,sha:r.metadata.event.sha},report:r.metadata?.report,latestReport:r.metadata?.latestReport}})),hasMore:p.pagination.hasMore}; }`;
+}
+
+export function cancelWorkProgram(row) {
+	return `async () => { const {workItem:r}=await work.get_work_items_by_id({id:${codeModeLiteral(row.id)}}); if(r.version!==${codeModeLiteral(row.version)} || !['proposed','accepted'].includes(r.disposition)) return {id:r.id,status:'changed'}; const closed=await ceo.cancel_work_item(${codeModeLiteral({ id: row.id, reason: row.reason })}); return {id:closed.id,status:closed.disposition}; }`;
+}
+
 async function main() {
 	const { values } = parseArgs({
 		options: {
@@ -74,7 +83,7 @@ async function main() {
 	for (const disposition of ["proposed", "accepted"]) {
 		for (let offset = 0; ; offset += 100) {
 			const page = await code(
-				`async () => { const p = await work.list_work_items(${JSON.stringify({ projectId: values.project, disposition, limit: 100, offset })}); return {data:p.data.map(r=>({id:r.id,orgId:r.orgId,projectId:r.projectId,title:r.title,version:r.version,createdAt:r.createdAt,disposition:r.disposition,activeAttempt:r.activeAttempt,metadata:{repositoryObserver:r.metadata?.repositoryObserver,event:r.metadata?.event && {kind:r.metadata.event.kind,repository:r.metadata.event.repository,branch:r.metadata.event.branch,sha:r.metadata.event.sha},report:r.metadata?.report,latestReport:r.metadata?.latestReport}})),hasMore:p.pagination.hasMore}; }`,
+				listWorkProgram(values.project, disposition, offset),
 			);
 			rows.push(...page.data);
 			if (!page.hasMore) break;
@@ -117,9 +126,7 @@ async function main() {
 	for (const row of eligible) {
 		// Re-read version immediately before cancellation. The Work API also fences
 		// cancellation against any live Attempt and concurrent lifecycle writes.
-		const result = await code(
-			`async () => { const {workItem:r}=await work.get_work_items_by_id({id:${JSON.stringify(row.id)}}); if(r.version!==${row.version} || !['proposed','accepted'].includes(r.disposition)) return {id:r.id,status:'changed'}; const closed=await ceo.cancel_work_item(${JSON.stringify({ id: row.id, reason: row.reason })}); return {id:closed.id,status:closed.disposition}; }`,
-		);
+		const result = await code(cancelWorkProgram(row));
 		console.log(JSON.stringify(result));
 	}
 	console.log(

@@ -1,3 +1,4 @@
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 type CallTool = (
@@ -26,7 +27,7 @@ export async function resolveSidebarTool(
 	const query = { query: tool, organization, limit: 100 };
 	const result = codeResult(
 		await call("code", {
-			code: `async () => { const result = await discover.search(${JSON.stringify(query)}); const rows = Array.isArray(result) ? result : result.results; return rows.filter(row => row.tool === ${JSON.stringify(tool)} && row.organization === ${JSON.stringify(organization)}).map(row => ({ callable: row.callable, tool: row.tool, organization: row.organization, authorized: row.authorized, annotations: { readOnlyHint: row.annotations?.readOnlyHint } })); }`,
+			code: `async () => { const result = await discover.search(${codeModeLiteral(query)}); const rows = Array.isArray(result) ? result : result.results; return rows.filter(row => row.tool === ${codeModeLiteral(tool)} && row.organization === ${codeModeLiteral(organization)}).map(row => ({ callable: row.callable, tool: row.tool, organization: row.organization, authorized: row.authorized, annotations: { readOnlyHint: row.annotations?.readOnlyHint } })); }`,
 		}),
 	);
 	const rows = isRecord(result) ? result.results : result;
@@ -61,7 +62,7 @@ export async function callSidebarTool(
 	if (!/^[a-zA-Z_$][\w$]*\.[a-zA-Z_$][\w$]*$/.test(callable))
 		throw new Error("Invalid workspace tool.");
 	const result = await call("code", {
-		code: `async () => await ${callable}(${JSON.stringify(args)})`,
+		code: `async () => await ${callable}(${codeModeLiteral(args)})`,
 	});
 	const output = codeResult(result);
 	if (!isRecord(output) || output.ok === false || output.isError === true)

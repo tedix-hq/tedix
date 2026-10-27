@@ -7,6 +7,7 @@
  * callable and arguments persisted in the approval payload.
  */
 
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import {
 	stripCodeModeExecutionEnvelope,
 	unwrapCallToolResult,
@@ -187,7 +188,7 @@ export function codeModeReadResultParams(
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
-			code: `async () => await discover.read_result(${JSON.stringify({ handle, offset, limit: RESULT_PAGE_CHARS })})`,
+			code: `async () => await discover.read_result(${codeModeLiteral({ handle, offset, limit: RESULT_PAGE_CHARS })})`,
 		},
 	};
 }

@@ -1,3 +1,4 @@
+import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import type {
 	TedixHomeClient,
 	McpCallOptions,
@@ -40,7 +41,7 @@ export async function callHomeTool(
 	return this.callTool(
 		"code",
 		{
-			code: `async () => await home.${toolName}(${JSON.stringify(args)})`,
+			code: `async () => await home.${toolName}(${codeModeLiteral(args)})`,
 		},
 		options,
 	);
