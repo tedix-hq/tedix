@@ -422,6 +422,11 @@ const CALLS = {
 	},
 	"connections/getUserConnections": {},
 	"connections/getConnectionsOverview": { scope: "organization" },
+	"connections/getConsumerGrants": { providerId: "github" },
+	"connections/setConsumerGrants": {
+		providerId: "github",
+		policy: { mode: "all" },
+	},
 	"connections/listProviders": {},
 	"connections/setProviderAccountMode": {
 		appId: "github",

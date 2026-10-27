@@ -35,6 +35,7 @@ import type {
 	ListCatalogAppsInput,
 } from "@tedix/api-contract/schemas/catalog";
 import type {
+	ConnectionConsumerGrants,
 	ConnectionInventoryInput,
 	ConnectionInventoryRow,
 	ConnectionProvider,
@@ -1296,6 +1297,10 @@ const localConnectTickets = new Map<
 		redeemed: boolean;
 	}
 >();
+const localConnectionConsumerGrants = new Map<
+	string,
+	ConnectionConsumerGrants
+>();
 installWorkViewFixtures();
 
 function installWorkViewFixtures(): void {
@@ -1348,6 +1353,7 @@ export function resetLocalFixtures(): void {
 	localSnoozes.clear();
 	runSteeringMessages.clear();
 	localConnectTickets.clear();
+	localConnectionConsumerGrants.clear();
 	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
@@ -7378,6 +7384,24 @@ const handlers: Record<string, (input: never) => unknown> = {
 						},
 					],
 		};
+	},
+	"connections/getConsumerGrants": (input: {
+		providerId: string;
+		connectionInstanceId?: string;
+	}) =>
+		localConnectionConsumerGrants.get(
+			`${input.providerId}\0${input.connectionInstanceId ?? ""}`,
+		) ?? { mode: "all" as const },
+	"connections/setConsumerGrants": (input: {
+		providerId: string;
+		connectionInstanceId?: string;
+		policy: ConnectionConsumerGrants;
+	}) => {
+		localConnectionConsumerGrants.set(
+			`${input.providerId}\0${input.connectionInstanceId ?? ""}`,
+			input.policy,
+		);
+		return { success: true as const };
 	},
 	"connections/getUserConnections": () => ({ data: CONNECTIONS }),
 	"connections/stageConnectTicket": (input: {
