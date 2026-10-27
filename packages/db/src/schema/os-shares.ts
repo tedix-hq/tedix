@@ -39,7 +39,7 @@ export const osShareLinks = sqliteTable(
 		 * populated table; every row has one after the backfill migration.
 		 */
 		publicId: text("public_id"),
-		/** sha-256 hex of the one-time plaintext token; the plaintext is never stored. */
+		/** sha-256 hex of the link's plaintext secret; the plaintext is never stored. */
 		tokenHash: text("token_hash").notNull(),
 		/** Who may open the link; `invited` consults `os_share_link_invitees`. */
 		access: text("access", {

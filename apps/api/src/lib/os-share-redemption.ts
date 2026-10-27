@@ -8,6 +8,7 @@ import {
 import {
 	OS_SHARE_PUBLIC_ID_PATTERN,
 	type OsShareOpenResult,
+	type OsSharePreview,
 	type OsShareRole,
 } from "@tedix/api-contract/contracts/os-shares";
 import {
@@ -707,6 +708,72 @@ export async function handleOsShareOpen(
 		identifyRecipient,
 		mayManage,
 	);
+}
+
+const GENERIC_PREVIEW: OsSharePreview = { kind: "generic" };
+
+/**
+ * The link preview behind `/s/<id>`: its title, a short description and the
+ * organization's name, only when a signed-out stranger could open the link
+ * on this host anyway. Organization and invited links, protected files and
+ * anything that would need an account get the generic answer, as do
+ * unknown, revoked and expired ids, so a preview never tells more than the
+ * link itself. It mints no session and runs no recipient check.
+ */
+export async function handleOsSharePreview(
+	db: DbQueryClient,
+	publicId: string,
+	hostTenantId: string | null,
+): Promise<Response> {
+	if (!hostTenantId || !OS_SHARE_PUBLIC_ID_PATTERN.test(publicId))
+		return noStoreJson(GENERIC_PREVIEW);
+	const link = await getOsShareLinkByPublicId(db, publicId);
+	if (
+		!link ||
+		link.access !== "anyone_with_link" ||
+		!isActive(link, new Date().toISOString())
+	)
+		return noStoreJson(GENERIC_PREVIEW);
+	const organization = await getOrganizationProfile(db, link.organizationId);
+	if (
+		!organization ||
+		(hostTenantId !== organization.descopeTenantId &&
+			hostTenantId !== organization.id) ||
+		!(await recipientMayOpen(db, link))
+	)
+		return noStoreJson(GENERIC_PREVIEW);
+	const resource = await readOsSharedResource(db, link);
+	if (!resource) return noStoreJson(GENERIC_PREVIEW);
+	const named =
+		resource.type === "output"
+			? { title: resource.output.title, description: null }
+			: resource.type === "gadget"
+				? {
+						title: resource.gadget.name,
+						description: resource.gadget.description,
+					}
+				: workspaceNaming(resource.workspace);
+	if (!named.title.trim()) return noStoreJson(GENERIC_PREVIEW);
+	const preview: OsSharePreview = {
+		kind: "content",
+		title: named.title,
+		description: named.description,
+		resourceType: link.resourceType,
+		organizationName: organization.name,
+	};
+	return noStoreJson(preview);
+}
+
+function workspaceNaming(workspace: unknown): {
+	title: string;
+	description: string | null;
+} {
+	const value = (workspace ?? {}) as { name?: unknown; description?: unknown };
+	return {
+		title: typeof value.name === "string" ? value.name : "",
+		description:
+			typeof value.description === "string" ? value.description : null,
+	};
 }
 
 /** Read a redeemed session; revocation and policy narrowing apply immediately. */

@@ -189,21 +189,20 @@ const ROLE_LABEL: Record<OsShareRole, string> = {
 	build: "Can edit",
 };
 
-// Per-tab resume capability only. The original share secret never enters storage.
-const SHARE_SESSION_KEY = "tedix.os.share.session.v1";
-function storedShareSession(): string | null {
+/**
+ * Before permanent addresses, one tab kept one share session here. A link's
+ * session now lives under its own id (`tedix.os.share.<id>`, see
+ * share-link-session.ts); the original share secret never enters storage.
+ */
+const LEGACY_SHARE_SESSION_KEY = "tedix.os.share.session.v1";
+/** Read and drop a session an older page kept for this tab, if any. */
+function takeLegacyShareSession(): string | null {
 	try {
-		return window.sessionStorage.getItem(SHARE_SESSION_KEY);
+		const token = window.sessionStorage.getItem(LEGACY_SHARE_SESSION_KEY);
+		window.sessionStorage.removeItem(LEGACY_SHARE_SESSION_KEY);
+		return token;
 	} catch {
 		return null;
-	}
-}
-function storeShareSession(token: string | null): void {
-	try {
-		if (token) window.sessionStorage.setItem(SHARE_SESSION_KEY, token);
-		else window.sessionStorage.removeItem(SHARE_SESSION_KEY);
-	} catch {
-		/* Blocked storage still permits this in-memory session. */
 	}
 }
 
@@ -232,10 +231,8 @@ export function SharedResourcePage() {
 			);
 			// A new link replaces any previous tab session; it never falls back on failure.
 			const pending = token ? null : pendingOpening.current;
-			const resumeToken = token
-				? null
-				: (pending?.resumeToken ?? storedShareSession());
-			if (token) storeShareSession(null);
+			const legacyToken = takeLegacyShareSession();
+			const resumeToken = token ? null : (pending?.resumeToken ?? legacyToken);
 			if (!token && !resumeToken && !pending) {
 				setState({ status: "unavailable" });
 				return;
@@ -249,7 +246,6 @@ export function SharedResourcePage() {
 			const fail = () => {
 				if (!alive) return;
 				pendingOpening.current = null;
-				storeShareSession(null);
 				setState({ status: "unavailable" });
 				stopCurrent();
 			};
@@ -275,9 +271,10 @@ export function SharedResourcePage() {
 						return;
 					}
 					// Storage is never authority: redemption/resume must succeed on the server.
-					// An old link moves to its permanent address; the router then
-					// shows that page, which resumes this session.
-					if (opening.redeeming && payload.share.publicId) {
+					// An old link, or a session an older page kept, moves to the
+					// link's permanent address and its own session key; the router
+					// then shows that page, which resumes this session.
+					if (payload.share.publicId) {
 						adoptShareLinkAddress(
 							payload.share.publicId,
 							sessionToken,
@@ -285,7 +282,6 @@ export function SharedResourcePage() {
 						);
 						return;
 					}
-					storeShareSession(sessionToken);
 					setState({ status: "ready", payload, sessionToken });
 					timer = window.setInterval(() => {
 						shareRequest("/api/os-shared/session", { sessionToken }).then(
