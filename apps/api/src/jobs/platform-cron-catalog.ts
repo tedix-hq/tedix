@@ -54,6 +54,7 @@ export const PLATFORM_CRON_IDS = [
 	"reply-draft-career",
 	"capture-health-heartbeat",
 	"dispatcher-health-alarm",
+	"work-routing",
 ] as const;
 export type PlatformCronId = (typeof PLATFORM_CRON_IDS)[number];
 
@@ -124,6 +125,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 		id: "stall-recovery",
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
+		requiresBinding: "TEDI_SERVICE",
+	},
+	{
+		id: "work-routing",
+		cron: "*/2 * * * *",
+		intervalMinutes: 10,
 		requiresBinding: "TEDI_SERVICE",
 	},
 	{

@@ -70,6 +70,16 @@ the item unassigned. Human-owned Work and Work marked for human execution keep
 their existing assignment. This rule applies to new Work, including support
 intake; it does not reassign existing items, accept Work, or complete it.
 
+Coding lanes only take coding Work. To have tedis start the rest, add
+`autoRoute: { enabled: true }` to the same policy. Every ten minutes, accepted
+Work that is not coding, has a done-when, has no executor and is not already
+running goes to its steward tedi. If it has no steward, the order above picks
+the tedi. Each item is handed over once, and a comment on the item names the
+tedi and its run. Work that may need a person, such as payments, credentials or
+messages to people outside, gets a comment and is left for a person.
+`autoRoute.maxPerRun` (1 to 10, default 2) limits how many items each run hands
+over per organization.
+
 ## A factory in practice
 
 Most teams do not need every record above. A working factory is the pattern:

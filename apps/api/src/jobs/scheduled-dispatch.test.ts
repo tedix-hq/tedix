@@ -74,6 +74,9 @@ vi.mock("./commitment-wakes", () => ({
 	dispatchCommitmentWakes: catchup.commitment,
 }));
 vi.mock("./stall-recovery", () => ({ dispatchStallRecovery: catchup.stall }));
+vi.mock("./work-routing", () => ({
+	dispatchWorkRouting: vi.fn().mockResolvedValue({ delegated: 0, reserved: 0 }),
+}));
 vi.mock("./repository-observer", () => ({
 	maintainRepositoryObservers: vi.fn().mockResolvedValue({ overdue: 0 }),
 }));
