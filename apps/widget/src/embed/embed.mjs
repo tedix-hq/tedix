@@ -6,6 +6,7 @@ import {
 	numericMountOption,
 } from "./ui/index";
 import { embeddedTediStyles } from "./ui/styles";
+import { createWidgetMenu } from "./ui/menu.mjs";
 import {
 	bindMarkdownCopyButtons,
 	renderMarkdown as renderSharedMarkdown,
@@ -208,19 +209,11 @@ import {
 		chevron: "m8 10 4 4 4-4",
 		history: "M4 6h16M4 12h16M4 18h10",
 		back: "m15 18-6-6 6-6",
+		plus: "M12 5v14M5 12h14",
 	};
 
 	function button(className, label, iconMarkup) {
 		return `<button class="${className}" type="button" aria-label="${label}" title="${label}">${iconMarkup}</button>`;
-	}
-
-	function routeContext(productLabel, t) {
-		return [
-			productLabel,
-			t("starter_attention"),
-			t("starter_recent_activity"),
-			t("starter_explain_page"),
-		];
 	}
 
 	const identityMounts = new Map();
@@ -327,6 +320,8 @@ import {
 		 * path instead of a signed tedi session.
 		 */
 		const HOME_TARGET = "home";
+		/** The adaptive platform default; the picker always names it "Auto". */
+		const AUTO_MODEL_REF = "cloudflare/auto";
 		/**
 		 * A host refuses a session with code `tedi_unavailable` when this person
 		 * may use no tedi here. That is an access answer, not a lost connection.
@@ -517,11 +512,12 @@ import {
 					: { year: "numeric" }),
 			}).format(date);
 		};
+		// Only a subtitle the tenant wrote; a generic one repeats the title.
 		const subtitle =
 			translation.subtitle ||
 			options.subtitle ||
 			script.dataset.tedixSubtitle ||
-			t("your_assistant_for", { product: productLabel });
+			"";
 		const accent = safeAccent(
 			options.accent || script.dataset.tedixAccent || "#2557d6",
 		);
@@ -583,10 +579,8 @@ import {
 			<div class="tedix-empty-mark">${icon(ICONS.chat)}</div><h2>${escapeHtml(t("no_tedi_available"))}</h2><p>${escapeHtml(t("ask_admin_for_tedi", { product: productLabel }))}</p>
 		</div>`;
 		let pageContext = normalizePageContext(sharedContext || {});
-		const context = routeContext(productLabel, t);
 		const safeTitle = escapeHtml(title);
 		const safeSubtitle = escapeHtml(subtitle);
-		const safeContext = escapeHtml(context[0]);
 		const recentSessionsMarkup =
 			() => `<section class="tedix-recent" aria-label="${t("recent_chats")}" hidden>
 			<h2>${t("recent_chats")}</h2>
@@ -689,7 +683,7 @@ import {
 						<strong>${t("history")}</strong>
 					</div>
 					<div class="tedix-avatar" aria-hidden="true">${assistantMark}<span class="tedix-presence"></span></div>
-					<div class="tedix-heading"><h1 class="tedix-title">${safeTitle}</h1><select class="tedix-tedi-select" aria-label="${t("choose_tedi")}" hidden></select><p class="tedix-subtitle">${safeSubtitle}</p></div>
+					<div class="tedix-heading"><h1 class="tedix-title">${safeTitle}</h1>${safeSubtitle ? `<p class="tedix-subtitle">${safeSubtitle}</p>` : ""}</div>
 					<div class="tedix-actions">
 						${button("tedix-icon tedix-history-open", t("conversation_history"), icon(ICONS.history))}
 						${button("tedix-icon tedix-new", t("new_conversation"), icon(ICONS.newChat))}
@@ -703,7 +697,7 @@ import {
 				</section>
 				<main class="tedix-thread" aria-live="polite">${homeMarkup()}</main>
 				<footer class="tedix-composer-wrap">
-				<div class="tedix-context"><span>${t("context")}</span><strong>${safeContext}</strong><select class="tedix-model-select" aria-label="${t("choose_model")}" hidden></select><select class="tedix-effort-select" aria-label="${t("choose_effort")}" hidden></select>${embeddedConnectionMarkup("idle", t)}</div>
+				<div class="tedix-context"><span class="tedix-page-chip" title="${t("page_chip_can_see")}" hidden><span class="tedix-status-dot" aria-hidden="true"></span><span class="tedix-page-chip-text">${t("this_page")} <strong></strong></span><button class="tedix-page-chip-remove" type="button" aria-label="${t("remove_this_page")}" title="${t("remove_this_page")}">${icon(ICONS.close)}</button></span><button class="tedix-page-add" type="button" title="${t("page_chip_can_see")}" hidden>${icon(ICONS.plus)}<span>${t("add_this_page")}</span></button>${embeddedConnectionMarkup("idle", t)}</div>
 				<div class="tedix-session-recovery" role="alert" hidden><span></span><button class="tedix-session-retry" type="button">${t("retry")}</button></div>
 					<form class="tedix-form">
 						<button class="tedix-voice-cancel" type="button" aria-label="${t("cancel_dictation")}" title="${t("cancel_dictation")}" hidden>${icon(ICONS.close)}</button>
@@ -718,7 +712,8 @@ import {
 			</section>`;
 
 		const panel = root.querySelector(".tedix-panel");
-		const tediSelect = root.querySelector(".tedix-tedi-select");
+		// Assigned with the conversation helpers it needs, further down.
+		let chooseTarget = () => {};
 		/**
 		 * The person's last chosen target, kept per tenant and per the host's
 		 * opaque person key. A preference, never authority: the host decides
@@ -766,26 +761,34 @@ import {
 						...tediChoices.filter((choice) => choice.id !== HOME_TARGET),
 					]
 				: tediChoices;
+		const tediMenu = createWidgetMenu({
+			className: "tedix-tedi-menu",
+			label: t("choose_tedi"),
+			placement: "below",
+			onSelect: (value) => chooseTarget(value),
+		});
+		root.querySelector(".tedix-title").after(tediMenu.element);
 		const renderTediSelection = () => {
 			const choices = targetChoices();
-			tediSelect.replaceChildren(
-				...choices.map((choice) => {
-					const option = document.createElement("option");
-					option.value = choice.id;
-					option.textContent = choice.name;
-					return option;
-				}),
-			);
-			// A single choice is no choice: the picker appears only with two or more.
-			tediSelect.hidden = choices.length < 2;
-			tediSelect.value = selectedTediId ?? "";
-			tediSelect.disabled = busy || voiceState !== "idle" || choices.length < 2;
+			const current =
+				choices.find((choice) => choice.id === selectedTediId) ?? choices[0];
+			// A single choice is no choice: the switcher appears only with two or more.
+			tediMenu.render({
+				items: choices.map((choice) => ({
+					value: choice.id,
+					label: choice.name,
+					avatar: true,
+					selected: choice.id === selectedTediId,
+				})),
+				triggerLabel: current?.name ?? "",
+				triggerAvatar: true,
+				hidden: choices.length < 2,
+				disabled: busy || voiceState !== "idle" || choices.length < 2,
+			});
 			// Both pickers share every state transition that disables the composer,
 			// so driving one from the other keeps them from drifting apart.
 			renderModelSelection();
 		};
-		const modelSelect = root.querySelector(".tedix-model-select");
-		const effortSelect = root.querySelector(".tedix-effort-select");
 		let modelChoices = [];
 		let effortChoices = [];
 		let defaultModelRef = "";
@@ -795,11 +798,38 @@ import {
 		// threw at mount and took the whole widget with it.
 		let selectedModelRef = "";
 		let selectedEffort = "";
+		const modelMenu = createWidgetMenu({
+			className: "tedix-model-menu",
+			label: t("choose_model"),
+			placement: "above",
+			onSelect: (value) => {
+				const split = value.indexOf(":");
+				const choice = value.slice(split + 1);
+				if (value.slice(0, split) === "effort") selectedEffort = choice;
+				else selectedModelRef = choice;
+				persistModelChoice();
+				renderModelSelection();
+			},
+		});
+		root.querySelector(".tedix-context").append(modelMenu.element);
+		const modelLabel = (model) =>
+			model.ref === AUTO_MODEL_REF ? t("model_automatic") : model.label;
+		/**
+		 * The model that answers the next turn: the person's pick, else the
+		 * session's default, else Auto — the order the OS chat composer uses.
+		 * Only a model in the roster counts; the turn names it explicitly so the
+		 * picker never shows one model while another answers.
+		 */
+		const activeModel = () =>
+			modelChoices.find(
+				(model) =>
+					model.ref === (selectedModelRef || defaultModelRef || AUTO_MODEL_REF),
+			);
 		/**
 		 * The roster is advisory: the runtime edge re-validates every choice, so a
-		 * ref that is no longer offered simply falls back to the surface default
-		 * rather than failing the turn. Dropping it here keeps the control honest
-		 * about what it can still deliver.
+		 * ref that is no longer offered simply falls back to the default rather
+		 * than failing the turn. Dropping it here keeps the control honest about
+		 * what it can still deliver.
 		 */
 		const renderModelSelection = () => {
 			if (
@@ -807,63 +837,41 @@ import {
 				!modelChoices.some((m) => m.ref === selectedModelRef)
 			)
 				selectedModelRef = "";
-			const automatic = document.createElement("option");
-			automatic.value = "";
-			// An inherited default can change independently of an explicit Auto ref.
-			automatic.textContent = t("model_default");
-			modelSelect.replaceChildren(
-				automatic,
-				...modelChoices.map((choice) => {
-					const option = document.createElement("option");
-					option.value = choice.ref;
-					option.textContent =
-						choice.ref === "cloudflare/auto"
-							? t("model_automatic")
-							: choice.label;
-					return option;
-				}),
-			);
-			modelSelect.hidden = modelChoices.length === 0;
-			modelSelect.value = selectedModelRef;
-			modelSelect.disabled = busy || voiceState !== "idle";
-			// Effort only means something on a model that can take one on the wire.
-			// Offering it elsewhere would promise a control the runtime drops.
-			const active = modelChoices.find((m) => m.ref === selectedModelRef);
+			const active = activeModel();
+			// Effort only means something on a model that can take one on the wire,
+			// and Home takes no effort. Offering it elsewhere would promise a
+			// control the runtime drops.
 			const supportsEffort =
-				Boolean(active?.reasoning) && effortChoices.length > 0;
+				Boolean(active?.reasoning) &&
+				effortChoices.length > 0 &&
+				!(homeTarget && selectedTediId === HOME_TARGET);
 			if (!supportsEffort) selectedEffort = "";
-			effortSelect.replaceChildren(
-				...(supportsEffort
-					? [
-							(() => {
-								const option = document.createElement("option");
-								option.value = "";
-								option.textContent = t("effort_default");
-								return option;
-							})(),
-							...effortChoices.map((effort) => {
-								const option = document.createElement("option");
-								option.value = effort;
-								option.textContent = t(`effort_${effort}`);
-								return option;
-							}),
-						]
-					: []),
-			);
-			effortSelect.hidden = !supportsEffort;
-			effortSelect.value = selectedEffort;
-			effortSelect.disabled = busy || voiceState !== "idle";
+			// Auto leads, as in the OS chat composer; the rest keep catalog order.
+			const ordered = [
+				...modelChoices.filter((m) => m.ref === AUTO_MODEL_REF),
+				...modelChoices.filter((m) => m.ref !== AUTO_MODEL_REF),
+			];
+			modelMenu.render({
+				items: [
+					...ordered.map((model) => ({
+						value: `model:${model.ref}`,
+						label: modelLabel(model),
+						selected: model === active,
+					})),
+					...(supportsEffort
+						? ["", ...effortChoices].map((effort) => ({
+								value: `effort:${effort}`,
+								label: t(effort ? `effort_${effort}` : "effort_default"),
+								group: t("thinking"),
+								selected: effort === selectedEffort,
+							}))
+						: []),
+				],
+				triggerLabel: active ? modelLabel(active) : t("model_automatic"),
+				hidden: modelChoices.length === 0,
+				disabled: busy || voiceState !== "idle",
+			});
 		};
-		modelSelect.addEventListener("change", () => {
-			selectedModelRef = modelSelect.value;
-			persistModelChoice();
-			renderModelSelection();
-		});
-		effortSelect.addEventListener("change", () => {
-			selectedEffort = effortSelect.value;
-			persistModelChoice();
-			renderModelSelection();
-		});
 		const launcher = root.querySelector(".tedix-launcher");
 		const thread = root.querySelector(".tedix-thread");
 		const form = root.querySelector(".tedix-form");
@@ -975,6 +983,49 @@ import {
 		thread.addEventListener("scroll", () => {
 			followLatest = isNearBottom(thread);
 		});
+		/**
+		 * Whether this page reaches the chat. A turn carries the page, and the
+		 * page's tools, only while the chip shows it; the person can take it off
+		 * and put it back. The chip names what "this" resolves to: the item in
+		 * focus, else the page title, else its path.
+		 */
+		let pageContextAttached = true;
+		const pageChipLabel = () =>
+			(
+				pageContext.entity?.label ||
+				pageContext.title ||
+				document.title ||
+				pageContext.pathname?.split("?")[0] ||
+				""
+			).trim();
+		const sharesPage = () => pageContextAttached && Boolean(pageChipLabel());
+		const sharedPageTools = () => (sharesPage() ? hostPageTools : null);
+		const pageChip = root.querySelector(".tedix-page-chip");
+		const pageAdd = root.querySelector(".tedix-page-add");
+		const renderPageChip = (effective) => {
+			const label = pageChipLabel();
+			pageChip.hidden = !label || !pageContextAttached;
+			pageAdd.hidden = !label || pageContextAttached;
+			pageChip.dataset.state = effective;
+			pageChip.querySelector("strong").textContent = label;
+			const tooltip = t(
+				effective === "page_tools" ? "page_chip_can_act" : "page_chip_can_see",
+			);
+			pageChip.title = `${tooltip}\n${label}`;
+		};
+		pageChip
+			.querySelector(".tedix-page-chip-remove")
+			.addEventListener("click", () => {
+				pageContextAttached = false;
+				setConnectionState(connectionState);
+				pageAdd.focus();
+			});
+		pageAdd.addEventListener("click", () => {
+			pageContextAttached = true;
+			setConnectionState(connectionState);
+			pageChip.querySelector(".tedix-page-chip-remove").focus();
+		});
+		renderPageChip(connectionState);
 		const setConnectionState = (state) => {
 			connectionState = state;
 			const status = root.querySelector(".tedix-status");
@@ -982,7 +1033,7 @@ import {
 			// Say what actually reaches the chat: the page it is on, and whether
 			// the page lets it act there.
 			const effective =
-				state === "connected"
+				state === "connected" && sharesPage()
 					? snapshotPageTools(hostPageTools).descriptors.length
 						? "page_tools"
 						: "page_context"
@@ -990,6 +1041,7 @@ import {
 			status.dataset.state = effective;
 			status.querySelector(".tedix-status-label").textContent =
 				embeddedConnectionLabel(effective, t);
+			renderPageChip(effective);
 			// With no tedi and no Home, a new conversation has nothing to ask:
 			// say so plainly instead of offering a composer that cannot answer.
 			const unavailable = effective === "unavailable";
@@ -1577,8 +1629,7 @@ import {
 			void renderRecentSessions();
 			setHistoryOpen(false);
 		};
-		tediSelect.addEventListener("change", () => {
-			const next = tediSelect.value;
+		chooseTarget = (next) => {
 			if (
 				busy ||
 				voiceState !== "idle" ||
@@ -1597,7 +1648,7 @@ import {
 				sessionRecovery.hidden = false;
 				sessionRecoveryText.textContent = t("tedi_selection_failed");
 			});
-		});
+		};
 		const permanentlyDeleteConversation = async (id) => {
 			if (busy)
 				throw new Error(
@@ -2541,7 +2592,10 @@ import {
 			reliability.lastFirstTextMs = null;
 			reliability.lastReconnects = 0;
 			// DOM-derived headings belong to this turn, not the host's route snapshot.
-			const turnPageContext = hostPageContext(pageContext);
+			const turnPageContext = sharesPage()
+				? hostPageContext(pageContext)
+				: undefined;
+			const turnModel = activeModel();
 			let progressLabel = t("thinking");
 			// One owner for the waiting label. The per-second timer and the render
 			// frame both write it, and when the render frame composed its own
@@ -2565,13 +2619,14 @@ import {
 			let answer = "";
 			try {
 				if (homeTarget && selectedTediId === HOME_TARGET) {
-					const homePageTools = snapshotPageTools(hostPageTools);
+					const homePageTools = snapshotPageTools(sharedPageTools());
 					const handledHomeCalls = new Set();
 					let homeStreamed = "";
 					const result = await homeTarget.turn({
 						conversationId,
 						text: content,
 						pageContext: turnPageContext,
+						...(turnModel ? { modelRef: turnModel.ref } : {}),
 						signal: request.signal,
 						...(homePageTools.descriptors.length
 							? {
@@ -2714,7 +2769,7 @@ import {
 				armIdleWatchdog();
 				// This turn's allow-list: only these page tools may run, whatever a
 				// frame names. A replayed frame (stream resume) never runs twice.
-				const turnPageTools = snapshotPageTools(hostPageTools);
+				const turnPageTools = snapshotPageTools(sharedPageTools());
 				const handledPageCalls = new Set();
 				const startPageToolCall = (call) => {
 					if (handledPageCalls.has(call.callId)) return;
@@ -2752,7 +2807,7 @@ import {
 							...(turnPageTools.descriptors.length
 								? { pageTools: turnPageTools.descriptors }
 								: {}),
-							...(selectedModelRef ? { modelRef: selectedModelRef } : {}),
+							...(turnModel ? { modelRef: turnModel.ref } : {}),
 							...(selectedEffort ? { reasoningEffort: selectedEffort } : {}),
 						},
 						(frame) => {
@@ -3049,9 +3104,6 @@ import {
 				embeddedSession = null;
 				embeddedClient = null;
 			}
-			const label =
-				pageContext.entity?.label || routeContext(productLabel, t)[0];
-			root.querySelector(".tedix-context strong").textContent = label;
 			void registerPortableWebMcp();
 		};
 		contextListeners.add(updateContext);

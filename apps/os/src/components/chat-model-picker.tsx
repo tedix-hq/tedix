@@ -1,4 +1,5 @@
 import { Check } from "@phosphor-icons/react";
+import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import { Button } from "@/components/kumo/button";
 import {
 	DropdownMenu,
@@ -8,6 +9,14 @@ import {
 } from "@/components/kumo/dropdown-menu";
 
 type PickerModel = { ref: string; label: string };
+
+/** Auto leads the menu, as in the quick chat; the rest keep catalog order. */
+function autoFirst(models: readonly PickerModel[]): PickerModel[] {
+	return [
+		...models.filter((model) => model.ref === CLOUDFLARE_AUTO_MODEL_REF),
+		...models.filter((model) => model.ref !== CLOUDFLARE_AUTO_MODEL_REF),
+	];
+}
 
 /**
  * The composer's model button always names what will answer. With nothing
@@ -59,7 +68,7 @@ export function ChatModelPicker({
 				}
 			/>
 			<DropdownMenuContent>
-				{choices.map((model) => {
+				{autoFirst(choices).map((model) => {
 					const selected = model.ref === selectedRef;
 					return (
 						<DropdownMenuItem

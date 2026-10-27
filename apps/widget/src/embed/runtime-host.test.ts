@@ -149,10 +149,12 @@ describe("mounting", () => {
 			dataset: { tedixProduct: "Tienda <b>Uno</b>" },
 			options: { title: '<img src=x onerror="boom()">' },
 		});
-		expect(w.$(".tedix-subtitle")?.textContent).toBe(
-			"Your assistant for Tienda <b>Uno</b>",
+		// No generic subtitle: it only repeated the title.
+		expect(w.$(".tedix-subtitle")).toBeNull();
+		expect(w.$(".tedix-empty h2")?.textContent).toBe(
+			"How can I help you in Tienda <b>Uno</b>?",
 		);
-		expect(w.$(".tedix-subtitle b")).toBeNull();
+		expect(w.$(".tedix-empty h2 b")).toBeNull();
 		expect(w.$(".tedix-title")?.textContent).toBe(
 			'<img src=x onerror="boom()">',
 		);
@@ -161,7 +163,9 @@ describe("mounting", () => {
 
 	it("titles the tenant from its slug when no product is configured", async () => {
 		const w = await bootWidget();
-		expect(w.$(".tedix-context strong")?.textContent).toBe("Demo Shop");
+		expect(w.$(".tedix-empty h2")?.textContent).toBe(
+			"How can I help you in Demo Shop?",
+		);
 	});
 
 	it("validates the CSS accent before it reaches the stylesheet", async () => {
@@ -600,7 +604,8 @@ describe("the SDK", () => {
 			pathname: "/work",
 			routeKey: "work",
 		});
-		expect(w.$(".tedix-context strong")?.textContent).toBe("Tedix");
+		// Without a focused item or title, the chip names the page by its path.
+		expect(w.$(".tedix-context strong")?.textContent).toBe("/work");
 		w.Tedix.track("opened", { tab: "open" });
 		expect(w.Tedix.status().pageContext).toEqual({
 			pathname: "/work",

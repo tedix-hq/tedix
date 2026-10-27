@@ -264,6 +264,49 @@ describe("page tools on a direct tedi turn", () => {
 		expect(w.$(".tedix-status-label")?.textContent).toBe("Can see this page");
 		expect(transport().streams).toHaveLength(1);
 	});
+
+	it("shares the page only while its chip shows it, and lets the person put it back", async () => {
+		const page = deckPage();
+		const w = await bootWidget({ options: { pageTools: page.pageTools } });
+		w.Tedix.context({
+			pathname: "/work",
+			title: "Work",
+			entity: { type: "decision-card", id: "req-1", label: "Pick a vendor" },
+		});
+		const first = await ask(w, "What is this?");
+		const chip = w.$<HTMLElement>(".tedix-page-chip")!;
+		const add = w.$<HTMLButtonElement>(".tedix-page-add")!;
+		expect(chip.hidden).toBe(false);
+		expect(chip.textContent).toContain("This page: Pick a vendor");
+		expect(chip.title).toContain("Tedi can see and act on this page");
+		expect(add.hidden).toBe(true);
+		expect(first.input.pageContext).toMatchObject({
+			entity: { id: "req-1" },
+		});
+		expect(first.input.pageTools).toHaveLength(3);
+		first.frame({ kind: "done", text: "ok" });
+		first.finish();
+		await settle();
+
+		w.$<HTMLButtonElement>(".tedix-page-chip-remove")!.click();
+		expect(chip.hidden).toBe(true);
+		expect(add.hidden).toBe(false);
+		expect(w.$(".tedix-status")?.getAttribute("data-state")).toBe("connected");
+		await w.say("And now?");
+		const second = await w.waitForStream(2);
+		expect(second.input.pageContext).toBeUndefined();
+		expect(second.input.pageTools).toBeUndefined();
+		second.frame({ kind: "done", text: "ok" });
+		second.finish();
+		await settle();
+
+		add.click();
+		expect(chip.hidden).toBe(false);
+		await w.say("Back again");
+		const third = await w.waitForStream(3);
+		expect(third.input.pageContext).toMatchObject({ title: "Work" });
+		expect(third.input.pageTools).toHaveLength(3);
+	});
 });
 
 describe("page tools on a Home turn", () => {

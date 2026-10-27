@@ -102,6 +102,7 @@ type TedixWidgetApi = {
 				conversationId: string;
 				text: string;
 				pageContext?: unknown;
+				modelRef?: string;
 				signal?: AbortSignal;
 				pageTools?: HomePageToolDescriptor[];
 				runPageTool?: (
@@ -689,7 +690,13 @@ export function OsQuickChat() {
 					},
 					tenant: context.organization.slug,
 					title: config.title,
-					subtitle: config.subtitle,
+					// The generated "Your assistant for …" only repeats the title; an
+					// organization's own subtitle stays. Empty, not absent, so published
+					// branding cannot fill the generic one back in.
+					subtitle:
+						config.subtitle === defaultTediWidgetConfig(organization).subtitle
+							? ""
+							: config.subtitle,
 					product: config.product,
 					prompts: config.conversationStarters,
 					portableTool,

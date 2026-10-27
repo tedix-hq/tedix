@@ -53,10 +53,27 @@ export function embeddedTediStyles(
 				.tedix-header { display: flex; min-height: 66px; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--tedix-border); background: color-mix(in srgb, var(--tedix-bg) 94%, transparent); }
 				.tedix-avatar { position: relative; display: grid; flex: 0 0 auto; place-items: center; width: 36px; height: 36px; border-radius: var(--tedix-radius-xl); background: color-mix(in srgb, var(--tedix-accent) 12%, var(--tedix-bg)); color: var(--tedix-accent); font-weight: 750; letter-spacing: -.03em; }
 				.tedix-presence { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border: 2px solid var(--tedix-bg); border-radius: 50%; background: #22a06b; }
-				.tedix-model-select, .tedix-effort-select, .tedix-tedi-select { font: inherit; font-size: 14px; line-height: 20px; color: var(--tedix-text); background: var(--tedix-bg); border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-lg); min-width: 44px; max-width: 100%; height: 44px; padding: 0 12px; }
-				.tedix-model-select:disabled, .tedix-effort-select:disabled, .tedix-tedi-select:disabled { cursor: not-allowed; opacity: .5; }
-				.tedix-model-select[hidden], .tedix-effort-select[hidden], .tedix-tedi-select[hidden] { display: none; }
-				.tedix-heading { min-width: 0; flex: 1; }
+				/* Kumo-style menus: a ghost trigger naming the choice, a floating list with a check. */
+				.tedix-menu { position: relative; min-width: 0; }
+				.tedix-menu[hidden] { display: none; }
+				.tedix-menu-trigger { display: inline-flex; min-width: 0; max-width: 100%; height: 28px; align-items: center; gap: 6px; padding: 0 6px 0 8px; border: 0; border-radius: var(--tedix-radius-md); background: transparent; color: var(--tedix-text); cursor: pointer; font-size: 12px; font-weight: var(--tedix-font-medium); line-height: 1; }
+				.tedix-menu-trigger:hover, .tedix-menu-trigger[aria-expanded="true"] { background: var(--tedix-soft); }
+				.tedix-menu-trigger:disabled { cursor: not-allowed; opacity: .5; }
+				.tedix-menu-trigger-label, .tedix-menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+				.tedix-menu-chevron { display: inline-flex; flex: 0 0 auto; color: var(--tedix-muted); }
+				.tedix-menu-chevron svg, .tedix-menu-check svg { width: 14px; height: 14px; }
+				.tedix-menu-list { position: absolute; z-index: 3; display: grid; min-width: 168px; max-width: min(280px, calc(var(--tedix-viewport-width) - 32px)); max-height: min(320px, 50vh); overflow-y: auto; padding: 6px; border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-lg); background: var(--tedix-bg); color: var(--tedix-text); box-shadow: 0 12px 32px rgba(24,24,27,.16), 0 2px 6px rgba(24,24,27,.06); }
+				.tedix-menu-list[hidden] { display: none; }
+				.tedix-menu[data-placement="below"] .tedix-menu-list { top: calc(100% + 4px); left: 0; }
+				.tedix-menu[data-placement="above"] .tedix-menu-list { right: 0; bottom: calc(100% + 4px); }
+				.tedix-menu-group { padding: 8px 8px 4px; color: var(--tedix-muted); font-size: 11px; font-weight: var(--tedix-font-medium); }
+				.tedix-menu-item { display: flex; min-height: 32px; align-items: center; gap: 8px; padding: 0 8px; border: 0; border-radius: var(--tedix-radius-md); background: transparent; color: inherit; cursor: pointer; font-size: 13px; text-align: left; }
+				.tedix-menu-item:hover, .tedix-menu-item:focus-visible { background: var(--tedix-soft); outline: 0; }
+				.tedix-menu-check { display: inline-flex; width: 14px; flex: 0 0 14px; }
+				.tedix-menu-avatar { display: grid; width: 20px; height: 20px; flex: 0 0 20px; place-items: center; border-radius: var(--tedix-radius-full); background: color-mix(in srgb, var(--tedix-accent) 14%, var(--tedix-bg)); color: var(--tedix-accent); font-size: 11px; font-weight: 700; line-height: 1; }
+				.tedix-heading { display: flex; min-width: 0; flex: 1; flex-direction: column; align-items: flex-start; gap: 2px; }
+				.tedix-heading .tedix-tedi-menu { max-width: 100%; margin-left: -8px; }
+				.tedix-tedi-menu:not([hidden]) ~ .tedix-subtitle { display: none; }
 				.tedix-history-bar { display: none; min-width: 0; flex: 1; align-items: center; gap: 4px; }
 				.tedix-history-bar strong { font-size: 16px; font-weight: 620; letter-spacing: -.01em; }
 				.tedix-panel[data-history] .tedix-history-bar { display: flex; }
@@ -184,9 +201,23 @@ export function embeddedTediStyles(
 				.tedix-widget-frame { width: 100%; min-height: 180px; margin: -7px 0 20px; overflow: hidden; border: 1px solid var(--tedix-border); border-radius: 18px; background: var(--tedix-bg); }
 				.tedix-widget-frame iframe { display: block; width: 100%; min-height: 260px; border: 0; }
 				.tedix-composer-wrap { flex: 0 0 auto; padding: 12px 16px 16px; border-top: 1px solid var(--tedix-border); background: var(--tedix-bg); }
-				.tedix-context { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 20px; padding: 0 0 8px; color: var(--tedix-muted); font-size: 11px; }
-				.tedix-context .tedix-status { margin-left: auto; }
-				.tedix-context strong { min-width: 0; overflow: hidden; max-width: 220px; color: var(--tedix-text); font-weight: 590; text-overflow: ellipsis; white-space: nowrap; }
+				.tedix-context { display: flex; min-width: 0; align-items: center; gap: 6px; min-height: 28px; padding: 0 0 8px; color: var(--tedix-muted); font-size: 12px; }
+				.tedix-context .tedix-model-menu { margin-left: auto; flex: 0 1 auto; }
+				/* Connected states speak through the page chip; the pill names only trouble. */
+				.tedix-context .tedix-status:is([data-state="idle"], [data-state="connected"], [data-state="page_context"], [data-state="page_tools"]) { display: none; }
+				.tedix-page-chip { display: inline-flex; min-width: 0; height: 28px; align-items: center; gap: 6px; padding: 0 2px 0 9px; border: 1px solid var(--tedix-border); border-radius: var(--tedix-radius-full); background: var(--tedix-bg); color: var(--tedix-muted); }
+				.tedix-page-chip[hidden], .tedix-page-add[hidden] { display: none; }
+				.tedix-page-chip .tedix-status-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: var(--tedix-radius-full); background: #a1a1aa; }
+				.tedix-page-chip:is([data-state="page_context"], [data-state="page_tools"]) .tedix-status-dot { background: #22a06b; }
+				.tedix-page-chip[data-state="connecting"] .tedix-status-dot { background: #f59e0b; }
+				.tedix-page-chip-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+				.tedix-page-chip strong { color: var(--tedix-text); font-weight: 590; }
+				.tedix-page-chip-remove, .tedix-page-add { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--tedix-muted); cursor: pointer; }
+				.tedix-page-chip-remove { width: 22px; height: 22px; padding: 0; border-radius: var(--tedix-radius-full); }
+				.tedix-page-chip-remove svg { width: 13px; height: 13px; }
+				.tedix-page-add { height: 28px; gap: 4px; padding: 0 8px; border: 1px dashed var(--tedix-border); border-radius: var(--tedix-radius-full); font-size: 12px; }
+				.tedix-page-add svg { width: 13px; height: 13px; }
+				.tedix-page-chip-remove:hover, .tedix-page-add:hover { background: var(--tedix-soft); color: var(--tedix-text); }
 				.tedix-session-recovery { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 8px 8px; padding: 9px 10px; border: 1px solid var(--tedix-border); border-radius: 12px; background: var(--tedix-canvas); color: var(--tedix-muted); font-size: 11px; line-height: 1.35; }
 				.tedix-session-recovery[hidden] { display: none; }
 				.tedix-session-retry { flex: 0 0 auto; min-height: 34px; padding: 6px 10px; border: 1px solid var(--tedix-border); border-radius: 9px; background: var(--tedix-bg); color: var(--tedix-text); cursor: pointer; font-size: 11px; font-weight: 650; }
@@ -223,7 +254,7 @@ export function embeddedTediStyles(
 				:host([data-theme="dark"]) .tedix-brand-image[data-theme-dark] { display: block; }
 				:host([data-theme="light"]) { --tedix-bg: #fff; --tedix-canvas: #fafafa; --tedix-text: #18181b; --tedix-muted: #71717a; --tedix-border: rgba(24,24,27,.12); --tedix-soft: rgba(24,24,27,.055); color-scheme: light; }
 				@media (max-width: 600px) { .tedix-launcher { bottom: calc(14px + var(--tedix-host-bottom-inset, 0px)); ${appearance.position === "bottom-left" ? "left: 14px; right: auto;" : "right: 14px; left: auto;"} } .tedix-panel, .tedix-panel[data-expanded] { top: var(--tedix-viewport-top); right: auto; bottom: auto; left: 0; width: var(--tedix-viewport-width); height: var(--tedix-viewport-height); border: 0; border-radius: 0; } :host([data-keyboard-open]) .tedix-composer-wrap { padding-bottom: 0; } :host([data-keyboard-open]) .tedix-footer { display: none; } .tedix-expand { display: none; } }
-				@media (max-width: 639px), (pointer: coarse) { .tedix-model-select, .tedix-effort-select, .tedix-tedi-select { min-height: var(--tedix-touch-target); } }
+				@media (max-width: 639px), (pointer: coarse) { .tedix-menu-trigger, .tedix-page-chip, .tedix-page-add { min-height: var(--tedix-touch-target); } .tedix-menu-item { min-height: var(--tedix-touch-target); } .tedix-page-chip-remove { width: 36px; height: 36px; } }
 				@media (pointer: coarse) { .tedix-input { font-size: 16px; } }
 				/* Every tap target reaches 44px on phones and touch screens. */
 				@media (max-width: 639px), (pointer: coarse) { .tedix-icon, .tedix-form .tedix-icon, .tedix-voice, .tedix-voice-cancel, .tedix-send { width: var(--tedix-touch-target); height: var(--tedix-touch-target); } .tedix-page-action > button, .tedix-prompt, .tedix-approval button, .tedix-session-retry, .tedix-route-link, .tedix-md-link[href^="/"], .tedix-recent-item, .tedix-recent-more, .tedix-history-new, .tedix-history-item, .tedix-voice-error button, .tedix-worklog summary { min-height: var(--tedix-touch-target); } .tedix-md-copy { min-width: var(--tedix-touch-target); min-height: var(--tedix-touch-target); } .tedix-conversation-reference summary { padding-block: 12px; margin-block: -12px -10px; } }

@@ -8,6 +8,7 @@ import esCatalog from "@tedix/widget-i18n/es.json";
 import {
 	ACTIVE_THREAD_KEY,
 	bootWidget,
+	menu,
 	sessionResult,
 	settle,
 	teardown,
@@ -179,7 +180,10 @@ describe("the home", () => {
 			expect(w.$$(".tedix-prompt").map((node) => node.textContent)).toEqual(
 				expected,
 			);
-			expect(w.$(".tedix-context strong")?.textContent).toBe("Provider");
+			// The chip names the page, never the product: an untitled page by path.
+			expect(w.$(".tedix-page-chip strong")?.textContent).toBe(
+				"/orders/42/invoices",
+			);
 		},
 	);
 
@@ -715,12 +719,9 @@ describe("tedi selection", () => {
 		);
 		const w = await bootWidget({ options: { session } });
 		await w.open();
-		const select = w.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		const select = menu(w, ".tedix-tedi-menu");
 		expect(select.hidden).toBe(false);
-		expect([...select.options].map((option) => option.textContent)).toEqual([
-			"A",
-			"B",
-		]);
+		expect(select.labels).toEqual(["A", "B"]);
 		await w.say("Hello");
 		await finishTurn(w, 1, "Hi");
 		await w.say("Again");
@@ -739,8 +740,7 @@ describe("tedi selection", () => {
 		// Switching workers starts a new conversation bound to the choice; a
 		// session that ignores the choice surfaces a recovery message.
 		session.mockResolvedValueOnce(selection("worker-a"));
-		select.value = "worker-b";
-		select.dispatchEvent(new Event("change"));
+		select.choose("worker-b");
 		await settle();
 		expect(session).toHaveBeenLastCalledWith(
 			expect.objectContaining({ selectedTediId: "worker-b" }),
@@ -778,12 +778,8 @@ describe("Home target", () => {
 			entity: { type: "decision-card", id: "req-1", label: "Pick a vendor" },
 		});
 		await w.open();
-		const select = w.$<HTMLSelectElement>(".tedix-tedi-select")!;
-		expect([...select.options].map((option) => option.textContent)).toEqual([
-			"Home",
-			"A",
-			"B",
-		]);
+		const select = menu(w, ".tedix-tedi-menu");
+		expect(select.labels).toEqual(["Home", "A", "B"]);
 		expect(select.value).toBe("home");
 		// The roster session binds to the host default, never to Home.
 		expect(session).not.toHaveBeenCalledWith(
@@ -810,8 +806,7 @@ describe("Home target", () => {
 		);
 		expect(select.value).toBe("home");
 
-		select.value = "worker-b";
-		select.dispatchEvent(new Event("change"));
+		select.choose("worker-b");
 		await settle();
 		expect(session).toHaveBeenLastCalledWith(
 			expect.objectContaining({ selectedTediId: "worker-b" }),
@@ -833,10 +828,8 @@ describe("Home target", () => {
 			},
 		});
 		await w.open();
-		const select = w.$<HTMLSelectElement>(".tedix-tedi-select")!;
-		expect([...select.options].map((option) => option.value)).toEqual([
-			"worker-a",
-		]);
+		const select = menu(w, ".tedix-tedi-menu");
+		expect(select.values).toEqual(["worker-a"]);
 	});
 });
 
@@ -869,7 +862,7 @@ describe("opening target", () => {
 		const w = await bootWidget({ options: { session, home: target } });
 		await w.open();
 		await settle();
-		const select = w.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		const select = menu(w, ".tedix-tedi-menu");
 		expect(select.hidden).toBe(true);
 		expect(select.value).toBe("home");
 		expect(w.$(".tedix-status")?.getAttribute("data-state")).not.toBe("error");
@@ -1025,7 +1018,7 @@ describe("opening target", () => {
 			},
 		});
 		await one.open();
-		expect(one.$<HTMLSelectElement>(".tedix-tedi-select")!.hidden).toBe(true);
+		expect(menu(one, ".tedix-tedi-menu").hidden).toBe(true);
 
 		const two = await bootWidget({
 			options: {
@@ -1041,12 +1034,9 @@ describe("opening target", () => {
 			},
 		});
 		await two.open();
-		const select = two.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		const select = menu(two, ".tedix-tedi-menu");
 		expect(select.hidden).toBe(false);
-		expect([...select.options].map((option) => option.textContent)).toEqual([
-			"Home",
-			"A",
-		]);
+		expect(select.labels).toEqual(["Home", "A"]);
 	});
 
 	it("remembers the chosen target per person and reopens on it", async () => {
@@ -1057,10 +1047,9 @@ describe("opening target", () => {
 			options: { session, home: home(), preferenceKey: "person-1" },
 		});
 		await first.open();
-		const select = first.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		const select = menu(first, ".tedix-tedi-menu");
 		expect(select.value).toBe("home");
-		select.value = "worker-b";
-		select.dispatchEvent(new Event("change"));
+		select.choose("worker-b");
 		await settle();
 		expect(localStorage.getItem(TARGET_KEY)).toBe("worker-b");
 
@@ -1072,9 +1061,7 @@ describe("opening target", () => {
 		expect(session).toHaveBeenLastCalledWith(
 			expect.objectContaining({ selectedTediId: "worker-b" }),
 		);
-		expect(again.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe(
-			"worker-b",
-		);
+		expect(menu(again, ".tedix-tedi-menu").value).toBe("worker-b");
 
 		// Another person in the same browser keeps their own default.
 		const other = await bootWidget({
@@ -1082,9 +1069,7 @@ describe("opening target", () => {
 			options: { session, home: home(), preferenceKey: "person-2" },
 		});
 		await other.open();
-		expect(other.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe(
-			"home",
-		);
+		expect(menu(other, ".tedix-tedi-menu").value).toBe("home");
 	});
 
 	it("falls back to Home silently when the remembered tedi is no longer allowed", async () => {
@@ -1098,7 +1083,7 @@ describe("opening target", () => {
 		expect(session).toHaveBeenCalledWith(
 			expect.objectContaining({ selectedTediId: "worker-gone" }),
 		);
-		expect(w.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe("home");
+		expect(menu(w, ".tedix-tedi-menu").value).toBe("home");
 		expect(w.$(".tedix-session-recovery")!.hidden).toBe(true);
 	});
 
@@ -1110,9 +1095,7 @@ describe("opening target", () => {
 		});
 		await w.open();
 		await settle();
-		expect(w.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe(
-			"worker-a",
-		);
+		expect(menu(w, ".tedix-tedi-menu").value).toBe("worker-a");
 		expect(w.$(".tedix-session-recovery")!.hidden).toBe(true);
 		expect(w.$(".tedix-status")?.getAttribute("data-state")).not.toBe("error");
 	});

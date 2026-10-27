@@ -155,6 +155,8 @@ export async function runQuickChatHomeTurn(
 		conversationId: string;
 		text: string;
 		pageContext?: unknown;
+		/** The model the chat's picker shows; Home answers with it. */
+		modelRef?: string;
 		signal?: AbortSignal;
 		/** The page's tools for this turn; Home asks, the page runs them. */
 		pageTools?: HomePageToolDescriptor[];
@@ -176,6 +178,7 @@ export async function runQuickChatHomeTurn(
 			conversationId,
 			content: homeTurnContent(input.text, input.pageContext),
 			idempotencyKey: deps.randomUuid(),
+			...(input.modelRef ? { modelRef: input.modelRef } : {}),
 			...(pageTools.length ? { pageTools } : {}),
 		},
 		{ signal: input.signal },
