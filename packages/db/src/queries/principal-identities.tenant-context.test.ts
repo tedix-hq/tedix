@@ -19,12 +19,25 @@ const TENANT = "org_acme";
 const SUBJECT = "user-1";
 const NOW = "2026-08-30T00:00:00.000Z";
 
-function setup() {
+function setup(plans: string[] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		schemaDdl(organizations, organizationMembers, principalIdentities),
 	);
-	return createDbClient(createD1Facade(sqlite));
+	return createDbClient(
+		createD1Facade({
+			prepare(query) {
+				plans.push(
+					...sqlite
+						.prepare(`EXPLAIN QUERY PLAN ${query}`)
+						.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+						.map((row) => String(row.detail)),
+				);
+				return sqlite.prepare(query);
+			},
+			exec: (query) => sqlite.exec(query),
+		}),
+	);
 }
 
 describe("user tenant identity context", () => {
@@ -55,6 +68,59 @@ describe("user tenant identity context", () => {
 				subject: SUBJECT,
 			},
 		});
+
+	it("seeks candidate organizations instead of scanning every tenant", async () => {
+		const plans: string[] = [];
+		db = setup(plans);
+		await db.insert(organizations).values({
+			id: ORG,
+			name: "Acme",
+			slug: "acme",
+			descopeTenantId: TENANT,
+		});
+		plans.length = 0;
+		expect((await resolve())?.organizationId).toBe(ORG);
+		expect(plans.some((plan) => /^SCAN organizations\b/.test(plan))).toBe(
+			false,
+		);
+		expect(plans).toContainEqual(
+			expect.stringMatching(/^SEARCH organizations USING INDEX .*\(id=\?\)/),
+		);
+		expect(plans).toContainEqual(
+			expect.stringMatching(/SEARCH .* USING .*\(descope_tenant_id=\?\)/),
+		);
+		expect(plans).toContainEqual(
+			expect.stringMatching(
+				/SEARCH .* USING .*\(provider=\? AND issuer=\? AND subject=\?\)/,
+			),
+		);
+	});
+
+	it.each(["active", "revoked", "other-issuer", "retired"] as const)(
+		"preserves canonical organization precedence for a %s mapping",
+		async (state) => {
+			await db.insert(organizations).values({
+				id: "canonical-org",
+				name: "Canonical",
+				slug: "canonical",
+				metadata: state === "retired" ? { retiredAt: NOW } : null,
+			});
+			await db.insert(principalIdentities).values({
+				id: "tenant-mapping",
+				organizationId: "canonical-org",
+				principalType: "organization",
+				principalId: "canonical-org",
+				provider: "descope",
+				issuer:
+					state === "other-issuer" ? "https://other.example.test" : ISSUER,
+				subject: TENANT,
+				status: state === "revoked" ? "revoked" : "active",
+			});
+			expect((await resolve())?.organizationId).toBe(
+				state === "active" ? "canonical-org" : ORG,
+			);
+		},
+	);
 
 	it("returns canonical organization, user, and membership authority in one read", async () => {
 		await bindPrincipalIdentity(db, {

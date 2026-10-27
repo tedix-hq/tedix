@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { OrganizationPermission } from "@tedix/api-contract/schemas/user-settings";
 import type { DbQueryClient } from "../query-client";
@@ -83,6 +83,26 @@ export async function resolveUserTenantIdentityContext(
 		"tenant_organization_identity",
 	);
 	const userMapping = alias(principalIdentities, "tenant_user_identity");
+	// Resolve at most two candidates by indexed identity/tenant lookups before
+	// joining membership. An OR across the outer join scans every organization.
+	const candidateOrganizations = db
+		.select({ id: principalIdentities.principalId })
+		.from(principalIdentities)
+		.where(
+			and(
+				eq(principalIdentities.provider, organizationIdentity.provider),
+				eq(principalIdentities.issuer, organizationIdentity.issuer),
+				eq(principalIdentities.subject, organizationIdentity.subject),
+				eq(principalIdentities.principalType, "organization"),
+				eq(principalIdentities.status, "active"),
+			),
+		)
+		.union(
+			db
+				.select({ id: organizations.id })
+				.from(organizations)
+				.where(eq(organizations.descopeTenantId, organizationIdentity.subject)),
+		);
 
 	const [row] = await db
 		.select({
@@ -144,10 +164,8 @@ export async function resolveUserTenantIdentityContext(
 		)
 		.where(
 			and(
-				or(
-					isNotNull(organizationMapping.id),
-					eq(organizations.descopeTenantId, organizationIdentity.subject),
-				),
+				// bound-params: SQL subquery with six fixed bindings, not a caller-supplied list.
+				inArray(organizations.id, candidateOrganizations),
 				sql`json_extract(${organizations.metadata}, '$.retiredAt') IS NULL`,
 			),
 		)
