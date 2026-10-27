@@ -6,8 +6,12 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import type { CreatePersonalResourceDelegation } from "@tedix/api-contract/schemas/personal-resource-delegations";
+import { eq } from "drizzle-orm";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
+import * as connectionAuth from "@tedix/auth/connections";
+import { connectionInstances } from "@tedix/db/schema/connection-instances";
 import { apps, appTools } from "@tedix/db/schema";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { skillRuns, skillSchedules } from "@tedix/db/schema/cognitive";
@@ -35,6 +39,7 @@ const mocks = vi.hoisted(() => ({
 	skills: new Map<string, unknown>(),
 	runtime: vi.fn(),
 	validate: vi.fn(),
+	realConsent: false,
 }));
 
 vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
@@ -43,25 +48,35 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", () => ({
 vi.mock("../../services/skill-runtime-client", () => ({
 	callSkillRuntime: mocks.runtime,
 }));
+vi.mock("../../lib/descope-management", () => ({
+	getDescopeManagement: () => ({}),
+}));
 vi.mock("../../services/personal-resource-delegation-authority", () => ({
-	// Consent checks against the live vault are covered by their own tests.
 	preparePersonalResourceDelegation: async (
 		context: BaseContext,
-		input: Record<string, unknown>,
-	) => ({
-		...input,
-		id: crypto.randomUUID(),
-		organizationId: "org-1",
-		ownerUserId: context.user?.sub,
-		providerId: "google-gmail",
-		resourceType: "mailbox",
-		providerResourceId: "robin@example.test",
-		accountSubject: "google-robin",
-		grantFingerprint: "fingerprint",
-		requiredScopes: [],
-		createdAt: new Date().toISOString(),
-		revokedAt: null,
-	}),
+		input: CreatePersonalResourceDelegation,
+	) => {
+		if (mocks.realConsent) {
+			const actual = await vi.importActual<
+				typeof import("../../services/personal-resource-delegation-authority")
+			>("../../services/personal-resource-delegation-authority");
+			return actual.preparePersonalResourceDelegation(context, input);
+		}
+		return {
+			...input,
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			ownerUserId: context.user?.sub,
+			providerId: "google-gmail",
+			resourceType: "mailbox",
+			providerResourceId: "robin@example.test",
+			accountSubject: "google-robin",
+			grantFingerprint: "fingerprint",
+			requiredScopes: [],
+			createdAt: new Date().toISOString(),
+			revokedAt: null,
+		};
+	},
 	validatePersonalRunSources: mocks.validate,
 	personalDelegationSource: (row: Record<string, unknown>) => ({
 		workspaceResourceId: row.resourceId,
@@ -95,6 +110,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			tedis,
+			connectionInstances,
 			osWorkspaces,
 			osWorkspaceResources,
 			personalResourceDelegations,
@@ -253,6 +269,8 @@ async function seed(env: CloudflareEnv) {
 }
 
 beforeEach(() => {
+	vi.restoreAllMocks();
+	mocks.realConsent = false;
 	mocks.skills.clear();
 	mocks.runtime.mockReset();
 	mocks.runtime.mockResolvedValue({ runId: "run-1" });
@@ -261,6 +279,162 @@ beforeEach(() => {
 		async (_context: unknown, input: { resourceAccessEnvelope: unknown }) =>
 			input.resourceAccessEnvelope,
 	);
+});
+
+describe("background read consent with a default personal login", () => {
+	const token = {
+		id: "default-grant",
+		tokenSub: "google-robin",
+		accessToken: "fixture-token",
+		scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+	};
+	async function setup() {
+		mocks.realConsent = true;
+		const env = createEnv();
+		const { workspaceId } = await seed(env);
+		const db = createDbClient(env.DB);
+		await db.insert(tedis).values({
+			id: TEDI,
+			organizationId: "org-1",
+			name: "Inbox helper",
+			slug: "inbox-helper",
+		});
+		const [link] = await db
+			.select()
+			.from(osWorkspaceResources)
+			.where(eq(osWorkspaceResources.providerResourceId, FACTORY));
+		const fetchDefault = vi
+			.spyOn(connectionAuth, "fetchConnectionToken")
+			.mockResolvedValue(token);
+		const fetchNamed = vi
+			.spyOn(connectionAuth, "fetchPersonalConnectionToken")
+			.mockResolvedValue(null);
+		const request = {
+			workspaceId,
+			resourceId: link!.id,
+			providerId: "google-gmail",
+		};
+		return { env, db, request, fetchDefault, fetchNamed };
+	}
+
+	it("pins the default login and persists read-only consent without Add account or OAuth", async () => {
+		const { env, db, request, fetchDefault, fetchNamed } = await setup();
+		const owner = member(env, OWNER);
+		await expect(
+			owner.schedules.allowPersonalRead(request),
+		).resolves.toMatchObject({ status: "allowed" });
+		const [account] = await db.select().from(connectionInstances);
+		expect(account).toMatchObject({
+			ownerUserId: OWNER,
+			organizationId: null,
+			providerId: "google-gmail",
+			tokenIds: [token.id],
+			tokenSub: token.tokenSub,
+		});
+		const [grant] = await db.select().from(personalResourceDelegations);
+		expect(grant).toMatchObject({
+			ownerUserId: OWNER,
+			connectionInstanceId: account!.id,
+			accountSubject: token.tokenSub,
+			operations: ["read"],
+			toolIds: ["search_threads"],
+		});
+		expect(fetchDefault).toHaveBeenCalledWith(
+			expect.anything(),
+			"google-gmail",
+			OWNER,
+		);
+		expect(fetchNamed).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				userId: OWNER,
+				externalIdentifier: `tedix_${account!.id}`,
+			}),
+		);
+		await owner.schedules.allowPersonalRead(request);
+		expect(await db.select().from(connectionInstances)).toHaveLength(1);
+	});
+
+	it.each([null, { ...token, tokenSub: undefined }])(
+		"does not grant access for an absent or unverified default login: %j",
+		async (missing) => {
+			const { env, db, request, fetchDefault } = await setup();
+			fetchDefault.mockResolvedValue(missing);
+			await expect(
+				member(env, OWNER).schedules.allowPersonalRead(request),
+			).resolves.toEqual({
+				status: "not_connected",
+				providerId: "google-gmail",
+			});
+			expect(await db.select().from(connectionInstances)).toHaveLength(0);
+			expect(await db.select().from(personalResourceDelegations)).toHaveLength(
+				0,
+			);
+		},
+	);
+
+	it("does not hide vault errors as a disconnected account", async () => {
+		const { env, db, request, fetchDefault } = await setup();
+		fetchDefault.mockRejectedValue(new Error("vault unavailable"));
+		await expect(
+			member(env, OWNER).schedules.allowPersonalRead(request),
+		).rejects.toThrow("vault unavailable");
+		expect(await db.select().from(personalResourceDelegations)).toHaveLength(0);
+	});
+
+	it("refuses a default grant that changes during consent", async () => {
+		const { env, db, request, fetchDefault } = await setup();
+		fetchDefault
+			.mockResolvedValueOnce(token)
+			.mockResolvedValue({ ...token, id: "reconnected-grant" });
+		await expect(
+			member(env, OWNER).schedules.allowPersonalRead(request),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(await db.select().from(personalResourceDelegations)).toHaveLength(0);
+	});
+
+	it("refuses another member before looking up the owner's default login", async () => {
+		const { env, request, fetchDefault } = await setup();
+		await expect(
+			member(env, OTHER).schedules.allowPersonalRead(request),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(fetchDefault).not.toHaveBeenCalled();
+	});
+
+	it("refuses a default login missing the required read scope", async () => {
+		const { env, db, request, fetchDefault } = await setup();
+		fetchDefault.mockResolvedValue({ ...token, scopes: [] });
+		await expect(
+			member(env, OWNER).schedules.allowPersonalRead(request),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(await db.select().from(personalResourceDelegations)).toHaveLength(0);
+	});
+
+	it("keeps an existing named account instead of adopting the default", async () => {
+		const { env, db, request, fetchDefault, fetchNamed } = await setup();
+		await db.insert(connectionInstances).values({
+			id: ACCOUNT,
+			ownerUserId: OWNER,
+			providerId: "google-gmail",
+			label: "robin@example.test",
+			tokenIds: ["named-grant"],
+			tokenSub: "named-robin",
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+		});
+		fetchNamed.mockResolvedValue({
+			...token,
+			id: "named-grant",
+			tokenSub: "named-robin",
+		});
+		await expect(
+			member(env, OWNER).schedules.allowPersonalRead(request),
+		).resolves.toMatchObject({ status: "allowed" });
+		expect(fetchDefault).not.toHaveBeenCalled();
+		expect(await db.select().from(connectionInstances)).toHaveLength(1);
+		const [grant] = await db.select().from(personalResourceDelegations);
+		expect(grant!.connectionInstanceId).toBe(ACCOUNT);
+	});
 });
 
 describe("access level on an attached personal account", () => {

@@ -19,7 +19,11 @@ import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifes
 import { PersonalResourceToolBindingSchema } from "@tedix/api-contract/schemas/tools";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
-import { listConnectionInstances } from "@tedix/db/queries/connection-instances";
+import {
+	createConnectionInstance,
+	listConnectionInstances,
+	recordConnectionGrant,
+} from "@tedix/db/queries/connection-instances";
 import {
 	createOsWorkspaceResource,
 	findOsWorkspaceTenantResource,
@@ -66,6 +70,7 @@ import {
 	requireWorkspace,
 	resolveCreator,
 } from "./os-workspaces-shared";
+import { adoptDefaultPersonalConnection } from "./connections/policy-resolution";
 
 const os = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
@@ -408,14 +413,58 @@ const allowPersonalRead = authorOs.schedules.allowPersonalRead.handler(
 				"Session activity requires the owner's canonical user identity",
 			);
 		const localResourceId = crypto.randomUUID();
-		const account = localActivity
+		const accounts = localActivity
+			? []
+			: await listConnectionInstances(db, { userId: owner });
+		let account = localActivity
 			? { id: localResourceId, label: context.userId! }
-			: (await listConnectionInstances(db, { userId: owner })).find(
+			: accounts.find(
 					(row) =>
 						row.providerId === need.providerId &&
 						row.tokenIds.length > 0 &&
 						row.tokenSub,
 				);
+		if (!account) {
+			let grant;
+			try {
+				grant = await adoptDefaultPersonalConnection(context, {
+					userId: owner,
+					providerId: need.providerId,
+				});
+			} catch (error) {
+				if (
+					!(
+						error instanceof Error &&
+						"code" in error &&
+						error.code === "NOT_FOUND"
+					)
+				)
+					throw error;
+			}
+			if (grant) {
+				if (accounts.length >= 100)
+					throw createError(ErrorCodes.BAD_REQUEST, "Account limit reached");
+				const slot = await createConnectionInstance(db, {
+					id: crypto.randomUUID(),
+					ownerUserId: owner,
+					providerId: need.providerId,
+					label: grant.tokenSub,
+				});
+				const [recorded] = await recordConnectionGrant(db, {
+					owner: { userId: owner },
+					id: slot.id,
+					providerId: need.providerId,
+					tokenId: grant.tokenId,
+					tokenSub: grant.tokenSub,
+				});
+				if (!recorded)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Account identity changed during adoption",
+					);
+				account = recorded;
+			}
+		}
 		if (!account)
 			return { status: "not_connected" as const, providerId: need.providerId };
 		const attached = (
