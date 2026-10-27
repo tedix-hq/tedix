@@ -35,6 +35,8 @@ import { cn } from "@/lib/utils";
 import { WorkspaceAppCards } from "@/components/workspace-app-cards";
 import { WorkspaceRunners } from "@/components/workspace-runners";
 import { WorkspaceSchedules } from "@/components/workspace-schedules";
+import { WorkspaceSourceCards } from "@/components/workspace-source-cards";
+import type { WorkspaceSource } from "@/lib/workspace-sources";
 import { WorkspaceFileUpload } from "./workspace-file-upload";
 
 /**
@@ -67,13 +69,6 @@ function fileLabel(item: OsOutputLibraryItem) {
 		.replace(/^sheet$/, "Spreadsheet")
 		.replace(/^presentation$/, "Slides")
 		.replace(/^video$/, "Video");
-}
-
-function sourceLabel(value: string) {
-	if (value === "github") return "GitHub";
-	return value
-		.replace(/[_-]/g, " ")
-		.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function DocButton({
@@ -143,12 +138,7 @@ export function CanvasResourceRail({
 	workspaceId: string | null;
 	gadgets: ResourceListQuery<Pick<OsGadget, "id" | "name" | "description">>;
 	outputs: ResourceListQuery<OsOutputLibraryItem>;
-	resources: ResourceListQuery<{
-		id: string;
-		name: string;
-		providerId: string;
-		resourceType: string;
-	}>;
+	resources: ResourceListQuery<WorkspaceSource>;
 	selectedDoc: CanvasDocSelection | null;
 	onSelectGadget: (gadgetId: string) => void;
 	onSelectOutput: (outputId: string) => void;
@@ -474,7 +464,10 @@ export function CanvasResourceRail({
 								</>
 							)}
 						</section>
-						<section className="canvas-resource-section">
+						<section
+							aria-label="Connected sources"
+							className="canvas-resource-section canvas-resource-sources"
+						>
 							<SectionEyebrow
 								title="Connected sources"
 								count={shownResources.length}
@@ -492,42 +485,35 @@ export function CanvasResourceRail({
 								your permission.
 							</Text>
 							{resources.isPending && (
-								<ListSkeleton rows={1} rowClassName="h-9" />
+								<ListSkeleton rows={1} rowClassName="h-24" />
 							)}
 							{resources.isError && (
 								<Text as="p" role="label" tone="error" className="m-0">
-									Attached resources are unavailable.
+									Connected sources are unavailable.
 								</Text>
 							)}
 							{resources.data && shownResources.length === 0 && (
-								<Text as="p" role="label" tone="secondary" className="m-0">
-									{normalizedQuery
-										? "No sources match your search."
-										: "No sources attached yet."}
-								</Text>
+								<div
+									data-workspace-sources-empty
+									className="grid justify-items-start gap-3 rounded-xl border border-dashed border-kumo-line p-4"
+								>
+									<Text as="p" role="body" tone="secondary" className="m-0">
+										{normalizedQuery
+											? "No sources match your search."
+											: "No sources yet. Add an account, page or sheet that tedis in this workspace should be able to use."}
+									</Text>
+									{!normalizedQuery && onAddSource ? (
+										<Button size="sm" variant="secondary" onClick={onAddSource}>
+											Add source
+										</Button>
+									) : null}
+								</div>
 							)}
 							{resources.data && shownResources.length > 0 && (
-								<ul className="m-0 grid list-none gap-0.5 p-0">
-									{shownResources.map((resource) => (
-										<li
-											key={resource.id}
-											className="min-w-0 rounded-md px-3 py-2 text-left"
-										>
-											<Text as="p" role="body" className="m-0 truncate">
-												{resource.name}
-											</Text>
-											<Text
-												as="p"
-												role="label"
-												tone="secondary"
-												className="m-0 truncate"
-											>
-												{sourceLabel(resource.providerId)} ·{" "}
-												{sourceLabel(resource.resourceType)}
-											</Text>
-										</li>
-									))}
-								</ul>
+								<WorkspaceSourceCards
+									sources={shownResources}
+									onOpenOutput={onSelectOutput}
+								/>
 							)}
 						</section>
 					</div>

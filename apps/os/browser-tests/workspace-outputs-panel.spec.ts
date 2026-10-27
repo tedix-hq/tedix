@@ -47,6 +47,116 @@ async function routeFixture(
 	});
 }
 
+// Connected sources as the overview shows them: one per kind of origin.
+const source = (
+	n: number,
+	providerId: string,
+	resourceType: string,
+	name: string,
+	providerResourceId = `source-${n}`,
+) => ({
+	id: `00000099-0000-4000-8000-${String(n).padStart(12, "0")}`,
+	organizationId: "0000000a-0000-4000-8000-000000000001",
+	workspaceId: workspacePath.split("/").pop(),
+	slot: null,
+	providerId,
+	connectionScope: n === 2 ? "user" : "tenant",
+	personalOwnerUserId: null,
+	connectionInstanceId: null,
+	providerAccess: null,
+	requiredScopes: [],
+	resourceType,
+	providerResourceId,
+	name,
+	metadata: {},
+	status: "active",
+	createdByKind: "user",
+	createdById: "dev-operator",
+	createdAt: "2026-10-16T09:00:00.000Z",
+	updatedAt: "2026-10-16T09:00:00.000Z",
+	removedAt: null,
+});
+const sources = [
+	source(
+		1,
+		"firecrawl",
+		"research_account",
+		"Firecrawl · Northwind research account",
+	),
+	source(
+		2,
+		"notion",
+		"page",
+		"Initial results · Alignment meeting · 16 October 2026",
+		"0f8fad5b-d9cb-469f-a165-70867728950e",
+	),
+	source(3, "tedix", "output", "Opportunities sheet"),
+	source(
+		4,
+		"google_sheets",
+		"spreadsheet",
+		"Opportunity insights · Google Sheet",
+		"1AbCdEfGhIjKlMnOpQrStUvWxYz",
+	),
+	source(
+		5,
+		"notion",
+		"page",
+		"Opportunity rules and learnings with a much longer title that has to wrap",
+	),
+];
+
+async function routeSources(page: Page, items: unknown[]) {
+	await page.route("**/osWorkspaces/resources/list*", async (route) => {
+		const response = await route.fetch();
+		const body = await response.json();
+		body.json.items = items;
+		return route.fulfill({ response, json: body });
+	});
+}
+
+/** The overview's Connected sources: full-width cards, nothing scrolls sideways. */
+async function checkSources(page: Page, label: string, columns: number) {
+	const section = page.getByRole("region", { name: "Connected sources" });
+	const cards = section.locator("[data-workspace-source]");
+	await cards.first().waitFor();
+	assert.equal(await cards.count(), sources.length, `${label}: one card each`);
+	const files = page.locator(".canvas-resource-outputs");
+	const [sectionBox, filesBox] = await Promise.all([
+		section.boundingBox(),
+		files.boundingBox(),
+	]);
+	assert(sectionBox && filesBox, `${label}: sections have boxes`);
+	assert(
+		Math.abs(sectionBox.width - filesBox.width) <= 1 &&
+			Math.abs(sectionBox.x - filesBox.x) <= 1,
+		`${label}: sources span the same width as Files`,
+	);
+	const lefts = new Set(
+		await cards.evaluateAll((nodes) =>
+			nodes.map((node) => Math.round(node.getBoundingClientRect().left)),
+		),
+	);
+	assert.equal(lefts.size, columns, `${label}: ${columns} card columns`);
+	for (const name of ["Account", "Page", "Output", "Spreadsheet"]) {
+		assert(
+			(await section.getByText(name, { exact: true }).count()) > 0,
+			`${label}: ${name} chip`,
+		);
+	}
+	assert.equal(
+		(await section.getByRole("button", { name: /^Open / }).count()) +
+			(await section.getByRole("link", { name: /^Open / }).count()),
+		sources.length,
+		`${label}: every card has Open`,
+	);
+	await noOverflow(page, label);
+	await section.scrollIntoViewIfNeeded();
+	await page.screenshot({
+		path: `${evidence}/${label.replaceAll("/", "-")}-sources.png`,
+	});
+}
+
 async function noOverflow(page: Page, label: string) {
 	assert(
 		await page.evaluate(
@@ -176,6 +286,40 @@ try {
 			});
 			await page.keyboard.press("Escape");
 			await noOverflow(page, label);
+			await context.close();
+			console.log(`outputs panel ${label}: ok`);
+		}
+
+		// The overview's Connected sources, wide and narrow.
+		for (const [width, height, columns] of [
+			[1280, 800, 3],
+			[375, 740, 1],
+		] as const) {
+			const label = `${width}/${theme}/sources`;
+			const context = await browser.newContext({
+				viewport: { width, height },
+				colorScheme: theme,
+				reducedMotion: "reduce",
+				isMobile: width < 640,
+				hasTouch: width < 640,
+			});
+			const page = await context.newPage();
+			await routeFixture(page, theme);
+			await routeSources(page, sources);
+			await page.goto(`${server.origin}${workspacePath}`);
+			if (width < 640) {
+				await page
+					.getByRole("group", { name: "Canvas pane" })
+					.getByRole("button", { name: "Files" })
+					.click();
+			} else {
+				await page
+					.getByRole("complementary", { name: "Workspace files" })
+					.getByRole("button", { name: "Everything here" })
+					.click();
+			}
+			await page.evaluate(() => document.fonts.ready);
+			await checkSources(page, label, columns);
 			await context.close();
 			console.log(`outputs panel ${label}: ok`);
 		}

@@ -138,6 +138,8 @@ vi.mock("@/lib/api", () => ({
 		osShares: osSharesApi,
 		kernelRuntime: kernelRuntimeApi,
 		webPush: webPushApi,
+		// Connected source cards read app logos from the provider catalog.
+		connections: { listProviders: vi.fn(async () => ({ data: [] })) },
 		// The Review tab asks who is signed in before offering review rounds.
 		userSettings: {
 			getContext: vi.fn(async () => ({ authority: { role: "member" } })),
@@ -1482,6 +1484,16 @@ describe("CanvasPage listing", () => {
 			container.querySelector("[data-workspace-output-preview]"),
 		).not.toBeNull();
 		expect(container.textContent).toContain("Connected sources");
+		// Each source is a card: name, type chip, whose account, and Open.
+		const source = container.querySelector("[data-workspace-source]");
+		expect(source?.textContent).toContain("Cube Reaction Hybrid Pro 800");
+		expect(source?.textContent).toContain("Product Listing");
+		expect(source?.textContent).toContain("Acme · shared organization account");
+		expect(
+			source
+				?.querySelector('[aria-label="Open Cube Reaction Hybrid Pro 800"]')
+				?.getAttribute("href"),
+		).toBe("/admin/connections");
 		// Apps lead the pane as cards with an Open control; nothing calls them
 		// automations.
 		const apps = container.querySelector(".canvas-resource-apps");
