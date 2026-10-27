@@ -5,12 +5,10 @@ import {
 	type SessionSummary,
 	countMap,
 	day,
-	escape,
 	one,
 	strings,
 	top,
 } from "./learn-profile-digest";
-import type { Board } from "./learn-profile-board";
 import { type Json, parseJson } from "./learn-profile-model";
 
 // ---------------------------------------------------------------------------
@@ -109,115 +107,40 @@ export function priorities(
 export const PLAN_PROMPT = `You are an assistant that has just read one person's whole agent history and now meets them for the first time. Below: the goals they set their agents, notes their agents keep, and their open workstreams ranked by stakes (customer, deadline, revenue, blocking others) and recency, with where each stands.
 Only state names, numbers and versions that appear in the input below.
 Return ONLY one JSON object, no prose:
-{"week":"<3-4 plain sentences addressed to them as you, starting \"This week you\": the two or three biggest things they built or moved and for whom (customers, users, their team), then the one or two stuck things that matter most. A story, not a list of every fix; concrete product and customer names; no buzzwords, no praise>","actions":[{"title":"<starts with a verb, at most 12 words>","why":"<one sentence: which goal or stake it serves, citing the evidence>","workstream":"<workstream name>","kind":"delegate|factory|doc","start":"<what Tedix does first, at most 20 words>","tedi":"<for delegate: the slug of the best-fit tedi from the list, else empty>"}]}
+{"actions":[{"title":"<starts with a verb, at most 12 words>","why":"<one sentence: which goal or stake it serves, citing the evidence>","workstream":"<workstream name>","kind":"delegate|factory|doc","start":"<what Tedix does first, at most 20 words>","tedi":"<for delegate: the slug of the best-fit tedi from the list, else empty>"}]}
 Give 5 actions, best first. Each is one concrete, valuable step Tedix can start today on its own: "delegate" hands a piece of real work to an AI teammate (a tedi), "factory" sets up a recurring scheduled run that produces something, "doc" drafts a document they need (a plan, a proposal, a customer brief). Call an organisation a customer only when the ranked list marks it "customer". Pick from their stated goals and the highest-stakes open work: moving a customer, a deadline, revenue or unblocking others beats internal polish. Never housekeeping: no verifying, confirming, committing, pushing, re-running tests or tidying the board. Never invent facts.
 
 `;
 
-const WEEK_VERSION =
-	/(?<![\w.-])v?\d+\.\d+(?:\.\d+)*(?:-\w+(?:[.-]\w+)*)?(?:\+\w+(?:[.-]\w+)*)?(?![\w]|[.-]\w)/g;
-
-const WEEK_NUMBER = /(?<![\w])\d+(?:[.,]\d+)*(?:%)?(?![\w])/g;
-
-const WEEK_DATE =
-	/\b(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{4}|(?:19|20)\d{2})\b/g;
-
-const WEEK_GENERIC = new Set(
-	(
-		"Tedix This That These Those You Your I We The A An It Its They Their There " +
-		"But And Or With Without For From In On At By To As After Before Now Next Then " +
-		"Monday Tuesday Wednesday Thursday Friday Saturday Sunday " +
-		"January February March April May June July August September October November December"
-	)
-		.toLowerCase()
-		.split(/\s+/),
-);
-
-export function weekCorpus(
+/** The last seven UTC dates, using only recorded session activity. */
+export function weekSummary(
 	sessions: SessionFacts[],
-	summaries: Map<string, SessionSummary>,
-	workstreams: Workstream[],
-	board: Pick<Board, "items">,
-): string {
-	return [
-		...sessions.map((f) => JSON.stringify(f)),
-		...[...summaries.values()].map((s) => JSON.stringify(s)),
-		...[...board.items.values()].map((item) => item.title),
-		...workstreams.map((w) =>
-			[w.name, w.description, w.state, w.next, ...w.openLoops].join("\n"),
-		),
-	].join("\n");
-}
-
-export function groundWeek(
-	text: string,
-	corpus: string,
-	counts: number[] = [],
-): string {
-	const present = (token: string, insensitive = false) =>
-		new RegExp(
-			`(?<![\\p{L}\\p{N}_])${escape(token)}(?![\\p{L}\\p{N}_])`,
-			insensitive ? "iu" : "u",
-		).test(corpus);
-	const versions = new Set(
-		[...corpus.matchAll(WEEK_VERSION)].map(([token]) => token),
-	);
-	const numbers = new Set(
-		[...corpus.replace(WEEK_VERSION, " ").matchAll(WEEK_NUMBER)].map(
-			([token]) => token,
-		),
-	);
-	const unsupportedNumber = (fragment: string) => {
-		let unsupported = false;
-		const rest = fragment
-			.replace(WEEK_VERSION, (token) => {
-				if (!versions.has(token)) unsupported = true;
-				return " ";
-			})
-			.replace(WEEK_DATE, " ");
-		for (const [token] of rest.matchAll(WEEK_NUMBER))
-			if (
-				!numbers.has(token) &&
-				!counts.some((count) => String(count) === token)
-			)
-				unsupported = true;
-		return unsupported;
+	today: string,
+): { text: string; sources: string[] } {
+	const end = Date.parse(`${today}T00:00:00Z`) + 86_400_000;
+	const start = end - 7 * 86_400_000;
+	const recent = new Map<string, SessionFacts>();
+	for (const f of sessions) {
+		const time = Date.parse(f.to);
+		if (time >= start && time < end) {
+			const old = recent.get(f.key);
+			if (!old || f.to > old.to) recent.set(f.key, f);
+		}
+	}
+	if (!recent.size) return { text: "", sources: [] };
+	const from = new Date(start).toISOString().slice(0, 10);
+	return {
+		text: `From ${from} through ${today}, ${recent.size} recorded agent session${recent.size === 1 ? " had its" : "s had their"} latest activity in this period.`,
+		sources: [...recent.values()]
+			.sort((a, b) => a.key.localeCompare(b.key))
+			.map(
+				(f) =>
+					`${f.harness} session ${f.sessionId} on ${day(f.to)} (resume: ${f.harness === "codex" ? "codex resume" : "claude --resume"} ${f.sessionId})`,
+			),
 	};
-	return text
-		.split(/(?<=[.!?])\s+(?=[\p{Lu}"“])/u)
-		.flatMap((original) => {
-			const sentence = original
-				.replace(/\([^()]*\)/g, (fragment) =>
-					unsupportedNumber(fragment) ? "" : fragment,
-				)
-				.replace(
-					/,\s*v\d+\.\d+(?:\.\d+)*(?:-\w+(?:[.-]\w+)*)?(?:\+\w+(?:[.-]\w+)*)?,?/g,
-					(fragment) => (unsupportedNumber(fragment) ? "" : fragment),
-				)
-				.replace(/\s+([,.;!?])/g, "$1")
-				.replace(/ {2,}/g, " ")
-				.trim();
-			if (unsupportedNumber(sentence)) return [];
-			const tokens = [
-				...sentence.matchAll(/[\p{L}][\p{L}\p{N}]*(?:[-'][\p{L}\p{N}]+)*/gu),
-			];
-			for (const [index, match] of tokens.entries()) {
-				const token = match[0];
-				if (
-					index === 0 ||
-					!/\p{Lu}/u.test(token) ||
-					WEEK_GENERIC.has(token.toLowerCase())
-				)
-					continue;
-				if (!present(token, true)) return [];
-			}
-			return sentence ? [sentence] : [];
-		})
-		.join(" ");
 }
 
 export interface Plan {
-	week: string;
 	actions: PersonProfile["actions"];
 }
 
@@ -335,7 +258,7 @@ export async function planNow(input: {
 				"Collect its open loops and Work Items into a short plan with owners and dates.",
 		});
 	}
-	return { week: one(String(parsed?.week ?? ""), 1200), actions };
+	return { actions };
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +278,7 @@ export interface PersonProfile {
 	people: Array<{ name: string; context: string }>;
 	orgs: Array<{ name: string; context: string }>;
 	tools: string[];
-	/** "Your week in Tedix": what they built, for whom, and what is stuck. */
+	/** Recorded activity for the last seven UTC dates, with session sources. */
 	week: string;
 	actions: Array<{
 		title: string;

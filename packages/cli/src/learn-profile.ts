@@ -77,8 +77,7 @@ import {
 	planNow,
 	priorities,
 	CUSTOMER,
-	groundWeek,
-	weekCorpus,
+	weekSummary,
 } from "./learn-profile-insights";
 import { newMeter, profileModel, type Json } from "./learn-profile-model";
 import {
@@ -342,11 +341,7 @@ export async function runProfile(
 		run: rollups.run,
 		today,
 	});
-	profile.week = groundWeek(
-		plan.week,
-		weekCorpus(sessions, summaries, workstreams, board),
-		[sessions.length, new Set(sessions.map((f) => day(f.to))).size],
-	);
+	profile.week = weekSummary(sessions, today).text;
 	profile.actions = plan.actions;
 	rollups.save();
 	const actions: ActionLink[] = [];

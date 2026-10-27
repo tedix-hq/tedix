@@ -85,7 +85,7 @@ export function stabilizeWorkstreams(
 				(a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
 			)[0]?.[0],
 			items: [...new Set(w.items.map((item) => item.id))].sort(),
-			sessions: [...new Set(w.sessions.map((f) => f.key))],
+			sessions: [...new Set(w.sessions.map((f) => f.key))].sort(),
 		};
 	});
 	const overlap = (a: string[], b: string[]) => {
@@ -164,7 +164,7 @@ export function stabilizeWorkstreams(
 				...e,
 				name: stable.name,
 				description: stable.description,
-				sessions: e.sessions.slice(0, 200),
+				sessions: e.sessions,
 				order: stable.order,
 			};
 			return stable;
@@ -346,9 +346,8 @@ Return ONLY JSON, no prose: [{"name":"<2-4 words>","description":"<one sentence:
 
 /**
  * Merge fine threads into at most MAX_WORKSTREAMS workstreams. A thread
- * whose sessions mostly belong to a workstream from an earlier run stays in
- * it, under its name, so a re-run keeps its sections; only the rest is
- * merged afresh.
+ * keeps its previously assigned sessions, even when the model groups them
+ * differently. Only new sessions are assigned by a majority or merged afresh.
  */
 export async function mergeWorkstreams(
 	fine: Workstream[],
@@ -363,11 +362,31 @@ export async function mergeWorkstreams(
 	const anchored = new Map<string, Workstream[]>();
 	const rest: Workstream[] = [];
 	for (const w of fine) {
-		const [id, votes] =
+		const [majority, votes] =
 			countMap(w.sessions.map((f) => owner.get(f.key) ?? ""))[0] ?? [];
-		if (id && votes! * 2 >= w.sessions.length)
-			anchored.set(id, [...(anchored.get(id) ?? []), w]);
-		else rest.push(w);
+		const groups = new Map<string, SessionFacts[]>();
+		for (const f of w.sessions) {
+			const id =
+				owner.get(f.key) ??
+				(majority && votes! * 2 > w.sessions.length ? majority : "");
+			groups.set(id, [...(groups.get(id) ?? []), f]);
+		}
+		for (const [id, sessions] of groups) {
+			const keys = new Set(sessions.map((f) => f.key));
+			const part = workstream(
+				w.name,
+				w.description,
+				w.parts
+					.map((p) => ({
+						...p,
+						sessions: p.sessions.filter((f) => keys.has(f.key)),
+					}))
+					.filter((p) => p.sessions.length),
+				summaries,
+			);
+			if (id) anchored.set(id, [...(anchored.get(id) ?? []), part]);
+			else rest.push(part);
+		}
 	}
 	if (!anchored.size) return mergeFresh(fine, summaries, board, run);
 	const merged = [
