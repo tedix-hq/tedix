@@ -39,9 +39,9 @@ import { masterKeyFingerprint } from "./routes/master-key-fingerprint";
 import { workspaceAppRuntime } from "./routes/workspace-app-runtime";
 import {
 	attachBodyGenerationHeaders,
-	CloudflareAgentBodyLauncher,
-	CloudflareSandboxWorkstationLauncher,
-} from "./runtime/body-launcher";
+	armAgentGeneration,
+} from "./runtime/generation";
+import { WorkstationGeneration } from "./runtime/workstation-generation";
 import { createSelectedWorkstationOutboundHandlerParams } from "./runtime/workstation-egress";
 import type { AppEnv, TediEnv } from "./types";
 import { workstationSandboxId } from "./workstation/egress-guard";
@@ -339,13 +339,11 @@ app.use("*", async (c, next) => {
 				`[tedi.isolate-forward] tedi=${tediConfig.slug} path=${requestPath} method=${c.req.method}`,
 			);
 		}
-		const isolateLauncher = new CloudflareAgentBodyLauncher({
+		const generation = await armAgentGeneration({
 			db: c.env.DB,
 			externalId: tediConfig.isolateAgentId ?? tediConfig.slug,
-			fetcher: c.env.TEDI_RUNTIME_SERVICE,
 			record: { kind: "tedi", id: tediConfig.id, tediId: tediConfig.id },
 		});
-		const generation = await isolateLauncher.arm({ requireToken: true });
 		const forwardUrl = new URL(c.req.url);
 		// Service-binding requests arrive at apps/tedi with a neutral internal
 		// host plus X-Tedix-Host. apps/tedi resolves that safely above, but the
@@ -377,8 +375,7 @@ app.use("*", async (c, next) => {
 			headers: forwardHeaders,
 			method: c.req.method,
 		});
-		const isolateService = await isolateLauncher.ensureBody();
-		return isolateService.fetch(forwardRequest);
+		return c.env.TEDI_RUNTIME_SERVICE.fetch(forwardRequest);
 	}
 
 	const workstationRuntimeSelection = await explicitWorkstationRuntimeSelection(
@@ -423,7 +420,7 @@ app.use("*", async (c, next) => {
 	const physicalSandboxId = workstationSandboxId(
 		selectedWorkstation.workstationId,
 	);
-	const runtimeBodyLauncher = new CloudflareSandboxWorkstationLauncher({
+	const runtimeBodyLauncher = new WorkstationGeneration({
 		bodyKind: "workstation",
 		db: c.env.DB,
 		externalId: selectedWorkstation.workstationId,

@@ -1,18 +1,20 @@
 import type { Context } from "hono";
 import type { AppEnv } from "../../../types";
+import { workstationRequestPhases } from "./timings";
 import {
-	workstationRequestPhases,
 	parseProcessId,
 	workstationErrorStatus,
 	workstationPreparation,
-	ACTIVE_WORKSTATION_BINDING,
 	repoReady,
 	assertCheckoutAuthority,
 	isRecoverableWorkstationSandboxError,
-	type WorkstationJobStatus,
-	DEFAULT_PROCESS_TAIL_BYTES,
 	clampTimeout,
 } from "./shared";
+import {
+	ACTIVE_WORKSTATION_BINDING,
+	DEFAULT_PROCESS_TAIL_BYTES,
+} from "./constants";
+import { type WorkstationJobStatus } from "./types";
 import {
 	parseJsonBody,
 	workstationSessionSelectionForRequest,

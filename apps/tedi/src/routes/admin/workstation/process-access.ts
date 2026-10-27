@@ -6,18 +6,19 @@ import {
 	readRepoSyncStatus,
 } from "../../../workstation/repo-sync";
 import { repoSyncInFlight } from "./in-flight";
+import { REPO_SYNC_OPTIONS, ACTIVE_WORKSTATION_PROFILE_ID } from "./constants";
 import {
-	REPO_SYNC_OPTIONS,
 	type WorkstationState,
+	type WorkstationProcessContext,
+	type WorkstationJobStatus,
+} from "./types";
+import {
 	repoWorkdir,
 	repoReady,
 	execInRuntimeBody,
 	shellSingleQuote,
-	type WorkstationProcessContext,
 	activeWorkstationIdentity,
 	stringBodyValue,
-	ACTIVE_WORKSTATION_PROFILE_ID,
-	type WorkstationJobStatus,
 } from "./shared";
 import { scheduleRepoSync } from "./prepare";
 import { errorMessage } from "@tedix/worker-kit/error-message";

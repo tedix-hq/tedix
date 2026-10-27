@@ -26,10 +26,14 @@ import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/at
 import { errorMessage } from "@tedix/worker-kit/error-message";
 import {
 	type WorkstationState,
-	ACTIVE_WORKSTATION_BINDING,
-	ACTIVE_WORKSTATION_PROFILE,
 	type WorkstationPreparation,
 	type WorkstationSessionSelection,
+} from "./types";
+import {
+	ACTIVE_WORKSTATION_BINDING,
+	ACTIVE_WORKSTATION_PROFILE,
+} from "./constants";
+import {
 	activeWorkstationIdentity,
 	workstationPreparation,
 	repoWorkdir,

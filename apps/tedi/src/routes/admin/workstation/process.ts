@@ -1,13 +1,10 @@
 import type { Context } from "hono";
 import type { AppEnv } from "../../../types";
 import { parseJsonBody, readJobStatus } from "./process-runtime";
-import {
-	parseProcessId,
-	workstationRequestPhases,
-	workstationErrorStatus,
-	DEFAULT_PROCESS_TAIL_BYTES,
-	type WorkstationJobStatus,
-} from "./shared";
+import { parseProcessId, workstationErrorStatus } from "./shared";
+import { workstationRequestPhases } from "./timings";
+import { DEFAULT_PROCESS_TAIL_BYTES } from "./constants";
+import { type WorkstationJobStatus } from "./types";
 import {
 	readPersistedProcessEvidence,
 	workstationProcessArtifactRefs,

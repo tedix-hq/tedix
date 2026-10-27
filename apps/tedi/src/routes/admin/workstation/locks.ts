@@ -7,13 +7,12 @@ import type { AppEnv } from "../../../types";
 import { WORKSTATION_DIR } from "../../../workstation/paths";
 import {
 	WORKSTATION_SESSION_LOCKS_DIR,
-	shellSingleQuote,
 	WORKSTATION_OPERATION_LOCKS_DIR,
 	WORKSTATION_OPERATION_LOCK_STALE_SECONDS,
 	WORKSTATION_OPERATION_LOCK_TIMEOUT_SECONDS,
-	type WorkstationOperationLockSelection,
-	execInRuntimeBody,
-} from "./shared";
+} from "./constants";
+import { shellSingleQuote, execInRuntimeBody } from "./shared";
+import { type WorkstationOperationLockSelection } from "./types";
 
 export function workstationSessionLockDir(sessionId: string): string {
 	const stableId =

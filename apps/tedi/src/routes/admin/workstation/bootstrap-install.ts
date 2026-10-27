@@ -5,14 +5,16 @@ import {
 	shellSingleQuote,
 	packageManagerForLockfile,
 	packageManagerCacheDir,
-	WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER,
-	WORKSTATION_BOOTSTRAP_INSTALL_STUCK_MS,
-	WORKSTATION_JOBS_DIR,
 	parseKeyValueLines,
-	WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH,
 	execCheckoutOperation,
 	parseProcessId,
 } from "./shared";
+import {
+	WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER,
+	WORKSTATION_BOOTSTRAP_INSTALL_STUCK_MS,
+	WORKSTATION_JOBS_DIR,
+	WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH,
+} from "./constants";
 
 /** Marker echoed because workstation bootstrap deliberately skips lifecycle scripts. */
 export const WORKSTATION_INSTALL_DEGRADED_MARKER =

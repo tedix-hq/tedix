@@ -12,15 +12,16 @@ import {
 	getWorkstationLeaseBundle,
 	upsertWorkstationLeaseBundle,
 } from "../../../workstation/persistence";
+import { r2PrefixForTedi, uniqueStrings } from "./shared";
 import {
-	r2PrefixForTedi,
 	ACTIVE_WORKSTATION_PROFILE_ID,
 	WORKSTATION_PROCESS_ARTIFACT_BUCKET_REF,
+	MAX_REVIEWER_OPENABLE_LOG_BYTES,
+} from "./constants";
+import {
 	type WorkstationProcessEvidence,
 	type WorkstationJobStatus,
-	MAX_REVIEWER_OPENABLE_LOG_BYTES,
-	uniqueStrings,
-} from "./shared";
+} from "./types";
 import {
 	type JobObservationDiagnostics,
 	buildWorkstationProcessEvidence,

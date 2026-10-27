@@ -17,10 +17,12 @@ vi.mock("@cloudflare/sandbox", () => ({
 	getByName: namespaceMocks.getByName,
 }));
 
+import { WorkstationGeneration } from "./workstation-generation";
 import {
-	CloudflareSandboxWorkstationLauncher,
+	armAgentGeneration,
+	attachBodyGenerationHeaders,
 	verifyArmedBodyGeneration,
-} from "./body-launcher";
+} from "./generation";
 
 type MockGenerationRow = {
 	bodyGenerationExternalId?: string | null;
@@ -63,7 +65,7 @@ function createMockD1(
 	return db;
 }
 
-describe("CloudflareSandboxWorkstationLauncher", () => {
+describe("WorkstationGeneration", () => {
 	beforeEach(() => {
 		namespaceMocks.getByName.mockReset();
 	});
@@ -77,7 +79,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 			return sandbox;
 		});
 
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -110,7 +112,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 			.mockReturnValueOnce(firstSandbox)
 			.mockReturnValueOnce(secondSandbox);
 
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -129,7 +131,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 		const sandbox = { nativeExec: vi.fn() };
 		namespaceMocks.getByName.mockReturnValue(sandbox);
 
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			externalId: "tedi-1",
@@ -161,7 +163,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 			bodyGenerationTokenHash:
 				await hashTediBodyGenerationToken("tbg_existing"),
 		});
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -180,7 +182,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 
 	it("reuses a token generation only when the durable row still matches", async () => {
 		const db = createMockD1();
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -209,7 +211,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 
 	it("rotates a cached token generation when the durable row changed", async () => {
 		const db = createMockD1();
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -240,7 +242,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 
 	it("reports an untracked generation when the arm update matches no durable row", async () => {
 		const db = createMockD1({ changes: 0 });
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -264,7 +266,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 		};
 		namespaceMocks.getByName.mockReturnValue(sandbox);
 
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -306,7 +308,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 			};
 			namespaceMocks.getByName.mockReturnValue(sandbox);
 
-			const launcher = new CloudflareSandboxWorkstationLauncher({
+			const launcher = new WorkstationGeneration({
 				bodyKind: "workstation",
 				db: db as unknown as D1Database,
 				namespace: { getByName: namespaceMocks.getByName } as never,
@@ -346,7 +348,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 		};
 		namespaceMocks.getByName.mockReturnValue(sandbox);
 
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -379,7 +381,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 		};
 		namespaceMocks.getByName.mockReturnValue(sandbox);
 
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -407,7 +409,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 
 	it("falls back to legacy passthrough when generation columns are absent", async () => {
 		const db = createMockD1({ throwMissingSchema: true });
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -426,7 +428,7 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 
 	it("verifies the armed generation token against the selected record", async () => {
 		const db = createMockD1();
-		const launcher = new CloudflareSandboxWorkstationLauncher({
+		const launcher = new WorkstationGeneration({
 			bodyKind: "workstation",
 			db: db as unknown as D1Database,
 			namespace: { getByName: namespaceMocks.getByName } as never,
@@ -467,5 +469,48 @@ describe("CloudflareSandboxWorkstationLauncher", () => {
 				token: "tbg_wrong",
 			}),
 		).resolves.toBe(false);
+	});
+});
+
+describe("agent generation without a body launcher", () => {
+	it("reuses only a D1-current credential and forwards the armed proof", async () => {
+		const db = createMockD1();
+		const params = {
+			db: db as unknown as D1Database,
+			externalId: "agent-generation-fixture",
+			record: {
+				kind: "tedi" as const,
+				id: "agent-generation-fixture",
+				tediId: "agent-generation-fixture",
+			},
+		};
+		const first = await armAgentGeneration(params);
+		expect(first.bodyKind).toBe("agent");
+		expect(first.trackingEnabled).toBe(true);
+		expect(first.token).toBeTruthy();
+		db.setFirstRow({
+			bodyGenerationId: first.generationId,
+			bodyGenerationKind: "agent",
+			bodyGenerationStatus: "armed",
+			bodyGenerationTokenExpiresAt: first.tokenExpiresAt,
+			bodyGenerationTokenHash: first.tokenHash,
+		});
+		expect((await armAgentGeneration(params)).generationId).toBe(
+			first.generationId,
+		);
+		expect(db.runs).toHaveLength(1);
+		const headers = attachBodyGenerationHeaders(new Headers(), first);
+		expect(headers.get("X-Tedix-Body-Generation-Id")).toBe(first.generationId);
+		expect(headers.get("X-Tedix-Body-Generation-Token")).toBe(first.token);
+		db.setFirstRow({
+			bodyGenerationId: "replacement-generation",
+			bodyGenerationStatus: "armed",
+			bodyGenerationTokenExpiresAt: first.tokenExpiresAt,
+			bodyGenerationTokenHash: first.tokenHash,
+		});
+		const replacement = await armAgentGeneration(params);
+		expect(replacement.generationId).not.toBe(first.generationId);
+		expect(replacement.token).not.toBe(first.token);
+		expect(db.runs).toHaveLength(2);
 	});
 });
