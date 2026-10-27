@@ -303,3 +303,41 @@ it("links unclaimed sessions to their project or the configured Board apps", () 
 		).cards[0]?.href,
 	).toBe("/work/items/fictional-item");
 });
+
+it("keeps an unconfirmed needs-you session visibly blocked until an addressed Interaction exists", () => {
+	const session: Parameters<typeof buildAttention>[1][number] = {
+		id: "session",
+		organizationId: "org",
+		userId: "person",
+		harness: "codex",
+		sessionKey: "private",
+		label: "Repair tests",
+		state: "needs_you",
+		summary: "Clean up the tests",
+		stateSince: now.toISOString(),
+		lastEventAt: now.toISOString(),
+		telemetry: null,
+		projectId: "project",
+		workItemId: "item",
+		createdAt: now.toISOString(),
+		updatedAt: now.toISOString(),
+	};
+	const input = sources();
+	expect(buildAttention(input, [session], [], now).cards).toMatchObject([
+		{ column: "blocked", title: "Repair tests" },
+	]);
+	input.waiting = [
+		{
+			id: "real-ask",
+			subject: "Complete sign-in",
+			prompt: "Click Connect in the provider settings.",
+			projectId: "project",
+			workItemId: "item",
+			creatorSession: "codex:private",
+			createdAt: now.toISOString(),
+		},
+	];
+	expect(buildAttention(input, [session], [], now).cards).toMatchObject([
+		{ id: "real-ask", column: "waiting", href: "/work/interactions/real-ask" },
+	]);
+});

@@ -212,3 +212,32 @@ describe("private local request adapter", () => {
 		).rejects.toThrow("share the same");
 	});
 });
+
+it.each(["open", "dropped_risk"] as const)(
+	"keeps %s Unfiled source private with a machine owner and bounded filing deadline",
+	async (status) => {
+		const { context, db, source } = await fixture();
+		await db.update(agentSessionRequests).set({ projectId: null, status });
+		const before = Date.now();
+		await captureLocalKernelRequests(context, session);
+		await captureLocalKernelRequests(context, session);
+		const rows = await db.select().from(kernelRequests);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			nextOwner: "kernel-example",
+			nextAction: "file_request",
+		});
+		expect(Date.parse(rows[0]!.nextDueAt)).toBeGreaterThanOrEqual(before);
+		expect(Date.parse(rows[0]!.nextDueAt)).toBeLessThanOrEqual(
+			Date.now() + 1000,
+		);
+		expect(JSON.stringify(rows)).not.toContain(source.text);
+		expect(
+			await getKernelRequest(db, {
+				organizationId: "foreign",
+				ownerUserId: owner.userId,
+				id: rows[0]!.id,
+			}),
+		).toBeUndefined();
+	},
+);

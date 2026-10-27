@@ -1,0 +1,5 @@
+{
+	"version": 1,
+	"routineSubjectPattern": "\\b(?:test (?:cleanup|repair)|(?:clean up|repair|fix|rerun|retry) (?:the )?(?:tests?|test suite|failed checks)|(?:inspect|check|retry|repair) (?:the )?(?:lane|attempt|worker|scheduler)|(?:file|triage) (?:the )?(?:backlog|unfiled|dropped[- ]risk|follow[- ]up)|tool discovery)\\b",
+	"humanChoicePattern": "\\b(?:choose|decide|select|approve)\\b[^\\n.;!?]{0,80}\\b(?:strategy|acquisition|investment|hiring|dismissal|contract|pricing|business direction)\\b"
+}

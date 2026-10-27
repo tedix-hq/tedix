@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workAttempts, workEvents, workItems } from "../../schema/work-items";
 import { workInteractions } from "../../schema/work-factory";
+import { tedis } from "../../schema/tedis";
 import { externalAgentPrincipals } from "../../schema/external-agent-identity";
 
 export async function readLaneState(
@@ -18,8 +19,8 @@ export async function readLaneState(
 		WHEN json_extract(${workAttempts.metadata}, '$.lane') IS NOT 1 THEN NULL
 		WHEN ${workAttempts.outcome} IN ('failed','expired','cancelled') OR ${workAttempts.expiresAt} <= ${now} AND ${workAttempts.outcome} IS NULL THEN 'failed'
 		WHEN ${workAttempts.outcome} IS NULL AND julianday(${now}) >= (julianday(${workAttempts.heartbeatAt}) + julianday(${workAttempts.expiresAt})) / 2 THEN 'stale'
-		WHEN EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${workAttempts.orgId} AND i.work_item_id=${workAttempts.workItemId} AND i.status='open' AND i.target_type='user' AND i.kind IN ('question','input','handoff') AND (i.expires_at IS NULL OR i.expires_at>${now}))
-			OR EXISTS (SELECT 1 FROM agent_session_requests r JOIN external_agent_principals p ON p.organization_id=r.organization_id AND p.credential_binding_type='owner_user' AND p.credential_binding_id=r.user_id WHERE r.organization_id=${workAttempts.orgId} AND p.id=${workAttempts.executorId} AND r.harness || ':' || r.session_key=${workAttempts.externalSessionKey} AND r.project_id=${workItems.projectId} AND r.status_changed_at>=${workAttempts.startedAt} AND r.status='waiting_on_user') THEN 'needs-human'
+		WHEN EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id=${workAttempts.orgId} AND i.work_item_id=${workAttempts.workItemId} AND i.status='open' AND i.target_type='user' AND i.kind IN ('question','input','handoff') AND (i.expires_at IS NULL OR i.expires_at>${now})) THEN 'needs-human'
+		WHEN EXISTS (SELECT 1 FROM agent_session_requests r JOIN external_agent_principals p ON p.organization_id=r.organization_id AND p.credential_binding_type='owner_user' AND p.credential_binding_id=r.user_id WHERE r.organization_id=${workAttempts.orgId} AND p.id=${workAttempts.executorId} AND r.harness || ':' || r.session_key=${workAttempts.externalSessionKey} AND r.project_id=${workItems.projectId} AND r.status_changed_at>=${workAttempts.startedAt} AND r.status='waiting_on_user') THEN 'blocked'
 		WHEN ${workAttempts.outcome}='succeeded' THEN 'done'
 		WHEN ${workAttempts.runtimeState}='waiting' OR ${workItems.disposition}='cancelled' THEN 'blocked'
 		ELSE 'ready' END`.as("lane_state"),
@@ -94,6 +95,11 @@ export async function recordStaleLanes(db: DbQueryClient, now: string) {
 
 /** Retry notifications from the ledger even if a previous tick died after commit. */
 export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
+	const machineTedi = sql<string | null>`COALESCE(
+		(SELECT id FROM ${tedis} WHERE organization_id=${workItems.orgId} AND id=${workItems.stewardId} AND ${workItems.stewardType}='tedi' AND retired_at IS NULL AND status='active'),
+		(SELECT id FROM ${tedis} WHERE organization_id=${workItems.orgId} AND id=${workItems.accountableOwnerId} AND ${workItems.accountableOwnerType}='tedi' AND retired_at IS NULL AND status='active'))`;
+	const targetType = sql<string>`CASE WHEN ${machineTedi} IS NOT NULL THEN 'tedi' ELSE 'external_agent' END`;
+	const targetId = sql<string>`COALESCE(${machineTedi},${externalAgentPrincipals.id})`;
 	const eligible = and(
 		sql`${workEvents.eventType} IN ('lane.stale', 'attempt.expired')`,
 		sql`json_extract(${workAttempts.metadata}, '$.lane') = 1`,
@@ -109,8 +115,8 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 			title: workItems.title,
 			workItemId: sql<string>`${workItems.id}`.as("lane_work_item_id"),
 			orgId: workEvents.orgId,
-			accountableOwnerType: workItems.accountableOwnerType,
-			accountableOwnerId: workItems.accountableOwnerId,
+			targetType: targetType.as("repair_target_type"),
+			targetId: targetId.as("repair_target_id"),
 			attemptNumber: workAttempts.attemptNumber,
 		})
 		.from(workEvents)
@@ -133,7 +139,7 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 			and(
 				eq(externalAgentPrincipals.organizationId, workAttempts.orgId),
 				eq(externalAgentPrincipals.id, workAttempts.executorId),
-				eq(externalAgentPrincipals.credentialBindingType, "owner_user"),
+				eq(externalAgentPrincipals.status, "active"),
 			),
 		)
 		.where(eligible)
@@ -141,14 +147,9 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 		.limit(100);
 	let notified = 0;
 	for (const row of rows) {
-		const nextMover =
-			row.accountableOwnerType === "user" && row.accountableOwnerId
-				? { type: "user", id: row.accountableOwnerId }
-				: { type: "user", id: undefined };
+		const nextMover = { type: row.targetType, id: row.targetId };
 		const retryAvailable = row.attemptNumber === 1;
-		const nextMoverLabel = nextMover.id
-			? `user ${nextMover.id}`
-			: "the lane owner";
+		const nextMoverLabel = `${nextMover.type} ${nextMover.id}`;
 		const prompt = retryAvailable
 			? `Heartbeat stopped. Tedix recorded ${row.eventType} for /work/items/${row.workItemId}. The named next mover is ${nextMoverLabel}. One automatic retry is allowed; if it also stops, the item is blocked and needs the recovery action below.`
 			: `The bounded retry for /work/items/${row.workItemId} also stopped (${row.eventType}). The item is blocked. The named next mover is ${nextMoverLabel}; inspect the latest Attempt and start one new governed Attempt after fixing the worker or scheduler.`;
@@ -184,19 +185,20 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 						kind: sql<string>`'coordination'`.as("kind"),
 						creatorType: sql<string>`'system'`.as("creator_type"),
 						creatorId: sql<string>`'tedix'`.as("creator_id"),
-						targetType: sql<string>`'user'`.as("target_type"),
-						targetId:
-							row.accountableOwnerType === "user" && row.accountableOwnerId
-								? sql<string>`${row.accountableOwnerId}`.as("target_id")
-								: externalAgentPrincipals.credentialBindingId,
+						targetType: targetType.as("target_type"),
+						targetId: targetId.as("target_id"),
 						subject:
 							sql<string>`${`${row.eventType === "lane.stale" ? "Lane stale" : "Lane failed"}: ${row.title}`}`.as(
 								"subject",
 							),
 						prompt: sql<string>`${prompt}`.as("prompt"),
 						metadata:
-							sql<string>`${JSON.stringify({ laneLifecycle, notification: { state: "immediate" } })}`.as(
+							sql<string>`${JSON.stringify({ laneLifecycle, reason: "A stopped lane needs machine investigation, not human approval.", evidenceRefs: [`/work/items/${row.workItemId}`], notification: { state: "immediate" } })}`.as(
 								"metadata",
+							),
+						dueAt:
+							sql<string>`${new Date(Date.parse(now) + 3_600_000).toISOString()}`.as(
+								"due_at",
 							),
 						createdAt: sql<string>`${now}`.as("created_at"),
 						expiresAt:
@@ -225,12 +227,13 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 						and(
 							eq(externalAgentPrincipals.organizationId, workAttempts.orgId),
 							eq(externalAgentPrincipals.id, workAttempts.executorId),
-							eq(externalAgentPrincipals.credentialBindingType, "owner_user"),
+							eq(externalAgentPrincipals.status, "active"),
 						),
 					)
 					.where(
 						and(
 							eligible,
+							sql`${targetType}=${row.targetType} AND ${targetId}=${row.targetId}`,
 							eq(workAttempts.orgId, row.orgId),
 							eq(workAttempts.workItemId, row.workItemId),
 						),

@@ -19,6 +19,7 @@
 		"./utils/card-priority": "./src/utils/card-priority.ts",
 		"./utils/decision-card-copy": "./src/utils/decision-card-copy.ts",
 		"./utils/card-context": "./src/utils/card-context.ts",
+		"./assets/blocker-attention.v1.json": "./src/assets/blocker-attention.v1.json",
 		"./assets/card-context.v1.json": "./src/assets/card-context.v1.json",
 		"./assets/critical-actions.v1.json": "./src/assets/critical-actions.v1.json",
 		"./assets/organization-autonomy.v1.json": "./src/assets/organization-autonomy.v1.json",
