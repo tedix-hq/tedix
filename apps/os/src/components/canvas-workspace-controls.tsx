@@ -14,6 +14,9 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { FormTextarea } from "@/components/forms/form-textarea";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { OS_COPY } from "@/shared/os-copy";
+import { WorkspaceEffectList } from "@/components/workspace-delete-dialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
@@ -433,37 +436,33 @@ export function CanvasWorkspaceControls({
 						onOpenChange={setEditOpen}
 						onSaved={(saved) => onSelected(saved.id)}
 					/>
-					<Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
-						<DialogContent>
-							<DialogHeader>
-								<DialogTitle>Archive {workspace.name}?</DialogTitle>
-								<DialogDescription>
-									It will leave the active Canvas list. Its committed records
-									and execution evidence remain durable.
-								</DialogDescription>
-							</DialogHeader>
-							{archive.isError && (
-								<Alert variant="destructive">
-									<AlertTitle>Workspace not archived</AlertTitle>
-									<AlertDescription>
-										{errorMessage(archive.error)}
-									</AlertDescription>
-								</Alert>
-							)}
-							<DialogFooter>
-								<Button variant="outline" onClick={() => setArchiveOpen(false)}>
-									Cancel
-								</Button>
-								<Button
-									variant="destructive"
-									loading={archive.isPending}
-									onClick={() => archive.mutate()}
-								>
-									Archive workspace
-								</Button>
-							</DialogFooter>
-						</DialogContent>
-					</Dialog>
+					<ConfirmDialog
+						open={archiveOpen}
+						onOpenChange={setArchiveOpen}
+						title={`Archive ${workspace.name}?`}
+						description="Nothing is deleted. You can restore it any time from Workspaces → Archived."
+						confirmLabel="Archive workspace"
+						pendingLabel="Archiving…"
+						destructive
+						isPending={archive.isPending}
+						error={archive.error}
+						onConfirm={() => archive.mutate()}
+					>
+						<div className="grid gap-3">
+							<WorkspaceEffectList
+								heading="What stops"
+								items={OS_COPY.workspaceLifecycle.archiveStops}
+							/>
+							<WorkspaceEffectList
+								heading="What's kept"
+								items={OS_COPY.workspaceLifecycle.archiveKeeps}
+							/>
+							<Text role="body" tone="secondary" className="m-0">
+								Just a test workspace? After archiving, choose Delete
+								permanently under Workspaces → Archived.
+							</Text>
+						</div>
+					</ConfirmDialog>
 				</>
 			)}
 		</>

@@ -279,7 +279,30 @@ describe("workspaces", () => {
 		const { workspace } = await c.org1.workspaces.create({ name: "Active" });
 		await expect(
 			c.org1.workspaces.delete({ workspaceId: workspace.id }),
-		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: "Archive this workspace before you delete it permanently.",
+		});
+	});
+
+	// Apps go by the D1 foreign-key cascade, which the DB query test covers;
+	// this harness runs SQLite with foreign keys off.
+	it("permanently deletes a workspace but keeps its documents", async () => {
+		const { workspace } = await c.org1.workspaces.create({ name: "Test" });
+		const { output } = await c.org1.outputs.create({
+			workspaceId: workspace.id,
+			kind: "document",
+			title: "Kept notes",
+			content: { kind: "document", blocks: [] },
+		});
+		await c.org1.workspaces.archive({ workspaceId: workspace.id });
+
+		await expect(
+			c.org1.workspaces.delete({ workspaceId: workspace.id }),
+		).resolves.toEqual({ deleted: true });
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).output,
+		).toMatchObject({ id: output.id, title: "Kept notes" });
 	});
 
 	it("preserves retained collaboration evidence during permanent deletion", async () => {
@@ -306,7 +329,12 @@ describe("workspaces", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		await expect(
 			c.org1.workspaces.delete({ workspaceId: workspace.id }),
-		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining(
+				"Tedix keeps those suggestions as a record of who changed what",
+			),
+		});
 	});
 
 	it("maps the per-org unique name to CONFLICT and truncates lists", async () => {

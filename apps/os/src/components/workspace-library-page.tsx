@@ -8,6 +8,7 @@ import {
 	Question,
 	SquaresFour,
 	Star,
+	Trash,
 } from "@phosphor-icons/react";
 import {
 	keepPreviousData,
@@ -35,6 +36,7 @@ import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SharedWorkspacesList } from "@/components/shared-workspaces-list";
+import { WorkspaceDeleteDialog } from "@/components/workspace-delete-dialog";
 import {
 	activeWorkspacesQueryOptions,
 	archivedWorkspacesQueryOptions,
@@ -456,9 +458,10 @@ export function WorkspaceLibraryPage() {
 }
 
 /**
- * Archived workspaces and the way back. Archiving changes only the workspace's
- * own status, so a restore returns its outputs, gadgets and resources as they
- * were; the shared `workspaces()` key refreshes every list at once.
+ * Archived workspaces: the way back, or the way out. Archiving changes only
+ * the workspace's own status, so a restore returns its outputs, gadgets and
+ * resources as they were; Delete permanently removes a test workspace for
+ * good. The shared `workspaces()` key refreshes every list at once.
  */
 function ArchivedWorkspaces({
 	restoredAt,
@@ -471,6 +474,8 @@ function ArchivedWorkspaces({
 	const archived = useQuery(archivedWorkspacesQueryOptions());
 	const [restoreRefreshFailed, setRestoreRefreshFailed] = useState(false);
 	const restoreInFlight = useRef(false);
+	const [deleting, setDeleting] = useState<OsWorkspace | null>(null);
+	const [deletedName, setDeletedName] = useState<string | null>(null);
 	const restore = useMutation({
 		...osQuery.osWorkspaces.workspaces.restore.mutationOptions(),
 		onSettled: () => {
@@ -540,6 +545,11 @@ function ArchivedWorkspaces({
 					</Button>
 				</Alert>
 			) : null}
+			{deletedName ? (
+				<Text role="body" tone="secondary" aria-live="polite">
+					{deletedName} was deleted permanently.
+				</Text>
+			) : null}
 			{restore.isSuccess && !restoreRefreshFailed ? (
 				<Text role="body" tone="secondary">
 					Workspace restored.
@@ -559,7 +569,7 @@ function ArchivedWorkspaces({
 					description={
 						archived.data.truncated
 							? "More archived workspaces may exist beyond this page."
-							: "Archived workspaces appear here, and you can restore them with their outputs and apps."
+							: "Archived workspaces appear here. Restore one with its documents and apps, or delete it permanently."
 					}
 				></Empty>
 			) : null}
@@ -587,6 +597,17 @@ function ArchivedWorkspaces({
 									description={`Archived ${new Date(workspace.updatedAt).toLocaleDateString()}`}
 								/>
 								<Button
+									aria-label={`Delete ${workspace.name} permanently`}
+									disabled={restoring || archived.isError}
+									onClick={() => setDeleting(workspace)}
+									size="sm"
+									variant="ghost"
+									className="shrink-0 text-kumo-danger"
+								>
+									<Trash size={14} aria-hidden="true" />
+									<span className="max-sm:sr-only">Delete permanently</span>
+								</Button>
+								<Button
 									aria-label={`Restore ${workspace.name}`}
 									disabled={
 										restore.isPending ||
@@ -607,6 +628,17 @@ function ArchivedWorkspaces({
 						);
 					})}
 				</Collection>
+			) : null}
+			{deleting ? (
+				<WorkspaceDeleteDialog
+					key={deleting.id}
+					workspace={deleting}
+					open
+					onOpenChange={(open) => {
+						if (!open) setDeleting(null);
+					}}
+					onDeleted={() => setDeletedName(deleting.name)}
+				/>
 			) : null}
 			{archived.data?.truncated ? (
 				<Text role="body" tone="secondary" className="m-0">

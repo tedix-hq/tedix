@@ -42,7 +42,8 @@ vi.mock("@/lib/api", () => ({
 }));
 
 // Keep lifecycle tests focused on the control logic instead of Kumo's portal.
-vi.mock("@/components/kumo/dialog", () => ({
+vi.mock("@/components/kumo/dialog", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/components/kumo/dialog")>()),
 	Dialog: ({ open, children }: { open: boolean; children: ReactNode }) =>
 		open ? <>{children}</> : null,
 	DialogContent: ({ children }: { children: ReactNode }) => (
@@ -293,14 +294,25 @@ describe("CanvasWorkspaceControls", () => {
 			mutedWorkspaceIds: [WORKSPACE.id],
 		});
 	});
-	it("archives without deleting durable workspace evidence", async () => {
+	it("explains in plain words what archiving hides and keeps", async () => {
 		workspaces.archive.mockResolvedValue({
 			workspace: { ...WORKSPACE, status: "archived" },
 		});
 		const rendered = renderControls(WORKSPACE);
 		act(() => button(rendered.container, "Archive").click());
 		await flush();
-		act(() => button(rendered.container, "Archive workspace").click());
+		const dialog = document.querySelector('[role="alertdialog"]');
+		const text = dialog?.textContent ?? "";
+		expect(text).toContain("Nothing is deleted");
+		expect(text).toContain("Workspaces → Archived");
+		expect(text).toContain("hidden from Workspaces");
+		expect(text).toContain("share and invite links stop working");
+		expect(text).toContain("documents, apps, files and chats");
+		expect(text).toContain("Delete permanently");
+		expect(text).not.toMatch(
+			/Canvas list|committed records|execution evidence/,
+		);
+		act(() => button(document.body, "Archive workspace").click());
 		await flush();
 
 		expect(workspaces.archive).toHaveBeenCalledWith({

@@ -357,6 +357,29 @@ const ENGLISH_COPY = {
 		allWorkspaces: "All workspaces",
 		overview: "Overview",
 	},
+	/** What archiving or permanently deleting a workspace does, in plain words. */
+	workspaceLifecycle: {
+		archiveStops: [
+			"It's hidden from Workspaces.",
+			"Its share and invite links stop working, and its apps stop running.",
+		],
+		archiveKeeps: [
+			"Its documents, apps, files and chats, with their history. Documents stay in Outputs.",
+		],
+		deleteRemoves: [
+			"The workspace, its member list and its invite links",
+			"Its apps, with every saved version",
+			"Its uploaded files and its links to connected accounts, skills and Work projects",
+		],
+		deleteKeepsOutputs: "Documents, sheets and slides. They stay in Outputs.",
+		deleteKeepsPrivateOutputs:
+			"Documents, sheets and slides. They stay in Outputs, where anyone in your organization will be able to see them.",
+		deleteKeeps: [
+			"Chats. They stay in your chat history.",
+			"The skills, schedules and Work projects themselves",
+			"Run history and the activity log",
+		],
+	},
 	notebookSubjects: ["Answers", "Git", "Deploys", "Work", "Agents"],
 	weekdays: [
 		"Sunday",
