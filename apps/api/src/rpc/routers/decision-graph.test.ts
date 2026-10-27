@@ -69,10 +69,15 @@ describe("decisionGraph.getContext", () => {
 		const f = await fixture();
 		try {
 			const result = await f.client().getContext({ cardId: "card-github" });
-			expect(result.explanation).toBe(
-				'You decided this on 20 Oct: "rotate leftover credentials" → from Work "Audit GitHub access"',
+			expect(result.explanation).toBe('From Work "Audit GitHub access"');
+			expect(result.context.priorDecision).toBeUndefined();
+			expect(result.context.chain).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						node: { kind: "owner_instruction", id: "instruction-rotate" },
+					}),
+				]),
 			);
-			expect(result.context.priorDecision?.node.id).toBe("instruction-rotate");
 		} finally {
 			f.sqlite.close();
 		}
@@ -116,7 +121,7 @@ describe("decisionGraph.getContext", () => {
 				top: true,
 			});
 			expect(result.explanation).toBe(
-				'You decided this on 20 Oct: "rotate leftover credentials" → from Work "Audit GitHub access" → serves Keep access tight',
+				'From Work "Audit GitHub access" → serves Keep access tight',
 			);
 		} finally {
 			f.sqlite.close();

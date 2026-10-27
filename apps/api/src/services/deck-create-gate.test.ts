@@ -137,7 +137,7 @@ describe("deckCreateGate", () => {
 	});
 });
 
-it("blocks a cited prior decision and blocked sources without creating a card", async () => {
+it("allows a distinct ask under decided Work but still blocks stale sources", async () => {
 	mocks.prior.mockResolvedValue({
 		node: { kind: "owner_instruction", id: "maple-lesson" },
 		edge: { evidenceRef: "/lessons/maple-lesson" },
@@ -148,10 +148,10 @@ it("blocks a cited prior decision and blocked sources without creating a card", 
 		prompt: "I recommend renewal.",
 		workItemId: orgId,
 	};
-	await expect(deckCreateGate(context, orgId, actor, input)).rejects.toThrow(
-		"Already decided: /lessons/maple-lesson",
-	);
-	mocks.prior.mockResolvedValue(null);
+	expect(await deckCreateGate(context, orgId, actor, input)).toMatchObject({
+		receipt: null,
+	});
+	expect(mocks.prior).not.toHaveBeenCalled();
 	mocks.states.mockResolvedValue(new Map([[orgId, "blocked"]]));
 	await expect(deckCreateGate(context, orgId, actor, input)).rejects.toThrow(
 		"Withdrawn: check the source",
@@ -185,6 +185,26 @@ it("rejects a stale re-ask without a Work link and permits a refreshed ordinary 
 		await deckCreateGate(context, orgId, actor, {
 			...input,
 			prompt: "I recommend renewal: the quote is still valid.",
+		}),
+	).toMatchObject({ receipt: null });
+});
+
+it("keeps an explicit owner credential chore after its parent plan finishes", async () => {
+	mocks.states.mockResolvedValue(new Map([[orgId, "completed"]]));
+	expect(
+		await deckCreateGate(context, orgId, actor, {
+			...status,
+			subject: "Rotate orchard credentials",
+			prompt:
+				"Sign in and revoke the old credential. I recommend doing this now.",
+			workItemId: orgId,
+			metadata: {
+				ownerTask: {
+					presence: "login",
+					steps: ["Sign in", "Revoke old credential"],
+					estimatedMinutes: 5,
+				},
+			},
 		}),
 	).toMatchObject({ receipt: null });
 });
