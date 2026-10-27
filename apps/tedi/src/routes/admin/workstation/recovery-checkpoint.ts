@@ -23,11 +23,11 @@ import { errorMessage } from "@tedix/worker-kit/error-message";
 import {
 	r2PrefixForTedi,
 	shellSingleQuote,
-	CHECKOUT_CLOSING_MARKER,
 	assertCheckoutAuthority,
 	repoWorkdir,
 	repoReady,
 } from "./shared";
+import { CHECKOUT_CLOSING_MARKER } from "./constants";
 
 export function workstationRecoveryCheckpointKeys(c: Context<AppEnv>) {
 	const selection = c.get("workstationRuntimeSelection");

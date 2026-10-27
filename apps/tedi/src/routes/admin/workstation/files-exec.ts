@@ -17,10 +17,9 @@ import {
 	type WorkstationRecoveryCheckpointResult,
 } from "../../../workstation/recovery-checkpoint";
 import type { RepoSyncResult } from "../../../workstation/repo-sync";
+import { ACTIVE_WORKSTATION_BINDING } from "./constants";
 import {
-	ACTIVE_WORKSTATION_BINDING,
 	workstationPreparation,
-	type WorkstationSessionSelection,
 	workstationErrorStatus,
 	assertCheckoutAuthority,
 	execCheckoutOperation,
@@ -31,6 +30,7 @@ import {
 	repoWorkdir,
 	stringBodyValue,
 } from "./shared";
+import { type WorkstationSessionSelection } from "./types";
 import {
 	workstationOperationLockedInvocation,
 	workstationOperationLockSelection,

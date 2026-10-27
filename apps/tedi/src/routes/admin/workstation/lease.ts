@@ -28,17 +28,21 @@ import { destroySandboxWithTimeout } from "../../../workstation/sandbox-destroy"
 import {
 	ACTIVE_WORKSTATION_PROFILE_ID,
 	ACTIVE_WORKSTATION_BINDING,
-	workstationPreparation,
-	type WorkstationState,
-	type WorkstationSessionSelection,
-	workstationErrorStatus,
 	CHECKOUT_CLOSING_MARKER,
+	REPO_SYNC_OPTIONS,
+} from "./constants";
+import {
+	workstationPreparation,
+	workstationErrorStatus,
 	assertCheckoutAuthority,
 	shellSingleQuote,
 	repoReady,
 	stringBodyValue,
-	REPO_SYNC_OPTIONS,
 } from "./shared";
+import {
+	type WorkstationState,
+	type WorkstationSessionSelection,
+} from "./types";
 import {
 	readBootstrapReadiness,
 	workstationStatusForReadiness,

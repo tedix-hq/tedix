@@ -27,26 +27,30 @@ import {
 	type WorkstationSessionSelection,
 	type WorkstationOperationLockSelection,
 	type WorkstationProcessContext,
-	stringBodyValue,
-	WORKSTATION_RUN_HEADER,
-	WORKSTATION_CONVERSATION_HEADER,
-	ACTIVE_WORKSTATION_PROFILE_ID,
-	shellSingleQuote,
-	packageManagerCacheDir,
-	jobPaths,
 	type WorkstationExecOptions,
 	type ToolProbe,
 	type WorkstationRequestPhases,
 	type WorkstationJobStatus,
-	workstationRequestPhases,
-	clampBytes,
-	DEFAULT_PROCESS_TAIL_BYTES,
-	MAX_PROCESS_TAIL_BYTES,
-	activeWorkstationIdentity,
 	type WorkstationProcessEventType,
 	type WorkstationOperationLockSource,
 	type WorkstationProcessEvidence,
+} from "./types";
+import {
+	stringBodyValue,
+	shellSingleQuote,
+	packageManagerCacheDir,
+	jobPaths,
+	clampBytes,
+	activeWorkstationIdentity,
 } from "./shared";
+import {
+	WORKSTATION_RUN_HEADER,
+	WORKSTATION_CONVERSATION_HEADER,
+	ACTIVE_WORKSTATION_PROFILE_ID,
+	DEFAULT_PROCESS_TAIL_BYTES,
+	MAX_PROCESS_TAIL_BYTES,
+} from "./constants";
+import { workstationRequestPhases } from "./timings";
 import {
 	workstationOperationLockedInvocation,
 	workstationSessionLockedInvocation,

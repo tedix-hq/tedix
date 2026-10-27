@@ -1,6 +1,5 @@
 import {
 	createTediBodyGenerationCredential,
-	hashTediBodyGenerationToken,
 	type TediBodyGenerationCredential,
 	type TediBodyGenerationStatus,
 	type TediBodyKind,
@@ -15,15 +14,6 @@ import {
 	touchRuntimeBodyGenerationHeartbeat,
 	updateRuntimeBodyGenerationStatus,
 } from "@tedix/db/queries/runtime-body-generations";
-import {
-	workstationExec,
-	workstationWriteFile,
-	withWorkstationObservationDeadline,
-	type WorkstationRuntimeBody,
-	type WorkstationRuntimeNamespace,
-	type WorkstationExecResult,
-} from "../workstation/computer-body";
-
 export const BODY_GENERATION_TOKEN_HEADER = "X-Tedix-Body-Generation-Token";
 export const BODY_GENERATION_ID_HEADER = "X-Tedix-Body-Generation-Id";
 
@@ -58,19 +48,7 @@ export interface RuntimeBodyStatus {
 	trackingEnabled: boolean;
 }
 
-export interface RuntimeBodyLauncher<TBody> {
-	arm(options?: { requireToken?: boolean }): Promise<RuntimeBodyGeneration>;
-	ensureBody(): Promise<TBody>;
-	exec?(
-		command: string,
-		options?: { cwd?: string; timeout?: number },
-	): Promise<unknown>;
-	heartbeat(): Promise<RuntimeBodyStatus>;
-	status(status?: TediBodyGenerationStatus): Promise<RuntimeBodyStatus>;
-	terminateGeneration(reason?: string): Promise<void>;
-}
-
-type TediGenerationDb = Pick<D1Database, "prepare">;
+export type TediGenerationDb = Pick<D1Database, "prepare">;
 
 function nowIso(now = new Date()): string {
 	return now.toISOString();
@@ -324,62 +302,10 @@ export function attachBodyGenerationSecrets<
 	return tediConfig;
 }
 
-function shellSingleQuote(value: string): string {
-	return `'${value.replace(/'/g, "'\\''")}'`;
-}
-
-function readProofCommand(proofEnvPath: string): string {
-	const path = shellSingleQuote(proofEnvPath);
-	return `set -eu; test -f ${path}; . ${path}; printf '%s\\n%s' "$TEDIX_BODY_GENERATION_ID" "$TEDIX_BODY_GENERATION_TOKEN"`;
-}
-
-interface BodyProof {
-	generationId: string | null;
-	token: string | null;
-}
-
-async function readBodyProof(
-	sandbox: WorkstationRuntimeBody,
-	proofEnvPath: string,
-): Promise<BodyProof> {
-	const result = await workstationExec(
-		sandbox,
-		readProofCommand(proofEnvPath),
-		{
-			timeout: 5_000,
-		},
-	);
-	if (
-		result.exitCode !== 0 ||
-		result.timedOut ||
-		result.signal !== undefined ||
-		result.truncated
-	)
-		return { generationId: null, token: null };
-	const [generationId, token] = String(result.stdout ?? "").split(/\r?\n/);
-	return {
-		generationId: generationId || null,
-		token: token || null,
-	};
-}
-
-interface CloudflareSandboxLauncherOptions {
-	bodyKind: "workstation";
-	db: TediGenerationDb;
-	externalId?: string;
-	namespace: WorkstationRuntimeNamespace;
-	proofEnvPath: string;
-	record: RuntimeBodyGenerationRecord;
-	sandboxId?: string;
-	tokenTtlMs?: number;
-}
-
-abstract class BaseRuntimeBodyLauncher<
-	TBody,
-> implements RuntimeBodyLauncher<TBody> {
+export class RuntimeGeneration {
 	protected generation: RuntimeBodyGeneration | null = null;
 
-	protected constructor(
+	constructor(
 		protected readonly params: {
 			bodyKind: TediBodyKind;
 			db: TediGenerationDb;
@@ -536,8 +462,6 @@ abstract class BaseRuntimeBodyLauncher<
 		};
 	}
 
-	abstract ensureBody(): Promise<TBody>;
-
 	async heartbeat(): Promise<RuntimeBodyStatus> {
 		const generation = await this.existingGeneration();
 		if (!generation) {
@@ -577,139 +501,12 @@ abstract class BaseRuntimeBodyLauncher<
 	}
 }
 
-export class CloudflareSandboxWorkstationLauncher extends BaseRuntimeBodyLauncher<WorkstationRuntimeBody> {
-	private sandbox: WorkstationRuntimeBody | null = null;
-
-	constructor(
-		private readonly sandboxParams: CloudflareSandboxLauncherOptions,
-	) {
-		super({
-			bodyKind: sandboxParams.bodyKind,
-			db: sandboxParams.db,
-			externalId: sandboxParams.externalId ?? sandboxParams.record.id,
-			record: sandboxParams.record,
-			tokenTtlMs: sandboxParams.tokenTtlMs,
-		});
-	}
-
-	async ensureBody(): Promise<WorkstationRuntimeBody> {
-		if (!this.sandbox) {
-			this.sandbox = this.sandboxParams.namespace.getByName(
-				this.sandboxParams.sandboxId ?? this.sandboxParams.record.tediId,
-			);
-		}
-		return this.sandbox;
-	}
-
-	override async terminateGeneration(reason?: string): Promise<void> {
-		await super.terminateGeneration(reason);
-		this.sandbox = null;
-	}
-
-	async exec(
-		command: string,
-		options?: { cwd?: string; timeout?: number },
-	): Promise<WorkstationExecResult> {
-		const sandbox = await this.ensureBody();
-		return workstationExec(sandbox, command, options);
-	}
-
-	async writeBodyGenerationProof(): Promise<void> {
-		const generation = await this.arm({ requireToken: true });
-		if (!generation.token) return;
-		const sandbox = await this.ensureBody();
-		const content = [
-			`export TEDIX_BODY_GENERATION_ID=${shellSingleQuote(generation.generationId)}`,
-			`export TEDIX_BODY_GENERATION_TOKEN=${shellSingleQuote(generation.token)}`,
-		].join("\n");
-		const path = shellSingleQuote(this.sandboxParams.proofEnvPath);
-		const prepared = await workstationExec(
-			sandbox,
-			`set -eu; mkdir -p "$(dirname -- ${path})"; umask 077; : > ${path}; chmod 600 ${path}`,
-			{ timeout: 5_000 },
-		);
-		if (
-			prepared.exitCode !== 0 ||
-			prepared.timedOut ||
-			prepared.signal !== undefined ||
-			prepared.truncated
-		) {
-			throw new Error("Unable to prepare runtime body credential file");
-		}
-		await withWorkstationObservationDeadline(
-			() =>
-				workstationWriteFile(
-					sandbox,
-					this.sandboxParams.proofEnvPath,
-					`${content}\n`,
-				),
-			{ timeoutMs: 5_000, operation: "body credential write" },
-		);
-	}
-
-	async verifyBodyProof(): Promise<boolean> {
-		let generation = await this.existingGeneration();
-		if (!generation) return true;
-		generation = await this.refreshTrackingFromStore(generation);
-		if (!generation?.trackingEnabled) return true;
-		// Proof is intentionally both body-presented and D1-current; the env file
-		// alone is not authority for marking a generation ready.
-		const sandbox = await this.ensureBody();
-		const proof = await readBodyProof(sandbox, this.sandboxParams.proofEnvPath);
-		if (!proof.generationId || !proof.token) return false;
-		if (proof.generationId !== generation.generationId) return false;
-		if (generation.token && proof.token !== generation.token) return false;
-		const proofHash = await hashTediBodyGenerationToken(proof.token);
-		if (proofHash !== generation.tokenHash) return false;
-		return verifyArmedBodyGeneration(this.params.db, {
-			generationId: proof.generationId,
-			record: this.params.record,
-			token: proof.token,
-		});
-	}
-
-	override async status(
-		status: TediBodyGenerationStatus = "ready",
-	): Promise<RuntimeBodyStatus> {
-		const generation = await this.existingGeneration();
-		if (!generation) {
-			return {
-				externalId: this.params.externalId,
-				generationId: "",
-				status,
-				trackingEnabled: false,
-			};
-		}
-		if (status === "ready" && !(await this.verifyBodyProof())) {
-			await this.markStatus("failed");
-			throw new Error("Runtime body generation credential verification failed");
-		}
-		return this.markStatus(status);
-	}
-}
-
-interface CloudflareIsolateLauncherOptions {
+export async function armAgentGeneration(params: {
 	db: TediGenerationDb;
 	externalId: string;
-	fetcher: Fetcher;
 	record: RuntimeBodyGenerationRecord;
-	tokenTtlMs?: number;
-}
-
-export class CloudflareAgentBodyLauncher extends BaseRuntimeBodyLauncher<Fetcher> {
-	constructor(
-		private readonly isolateParams: CloudflareIsolateLauncherOptions,
-	) {
-		super({
-			bodyKind: "agent",
-			db: isolateParams.db,
-			externalId: isolateParams.externalId,
-			record: isolateParams.record,
-			tokenTtlMs: isolateParams.tokenTtlMs,
-		});
-	}
-
-	async ensureBody(): Promise<Fetcher> {
-		return this.isolateParams.fetcher;
-	}
+}): Promise<RuntimeBodyGeneration> {
+	return new RuntimeGeneration({ ...params, bodyKind: "agent" }).arm({
+		requireToken: true,
+	});
 }

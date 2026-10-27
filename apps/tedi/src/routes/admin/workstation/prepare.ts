@@ -22,24 +22,28 @@ import { errorMessage } from "@tedix/worker-kit/error-message";
 import {
 	type WorkstationPreparation,
 	type WorkstationRequestPhases,
-	workstationRequestPhases,
 	type WorkstationState,
+	type WorkstationExecOptions,
+	type WorkstationSessionSelection,
+} from "./types";
+import { workstationRequestPhases } from "./timings";
+import {
 	ensureWorkstationEgressGuard,
 	writeWorkstationEgressGuardMarker,
 	prepareWorkstationBodyGeneration,
 	writeWorkstationBodyGenerationProof,
-	type WorkstationExecOptions,
 	execInRuntimeBody,
-	ACTIVE_WORKSTATION_PROFILE,
-	REPO_SYNC_OPTIONS,
 	assertCheckoutAuthority,
-	type WorkstationSessionSelection,
-	WORKSTATION_BOOTSTRAP_INSTALL_LAUNCH_BACKOFF_MS,
-	WORKSTATION_BOOTSTRAP_INSTALL_TIMEOUT_MS,
 	blockedSetupState,
 	repoReady,
 	shellSingleQuote,
 } from "./shared";
+import {
+	ACTIVE_WORKSTATION_PROFILE,
+	REPO_SYNC_OPTIONS,
+	WORKSTATION_BOOTSTRAP_INSTALL_LAUNCH_BACKOFF_MS,
+	WORKSTATION_BOOTSTRAP_INSTALL_TIMEOUT_MS,
+} from "./constants";
 import {
 	probeWorkstationTools,
 	workstationSessionSelection,

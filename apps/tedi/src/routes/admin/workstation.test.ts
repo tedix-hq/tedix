@@ -118,9 +118,9 @@ import {
 } from "./workstation/process-runtime";
 import {
 	isWorkstationRequest,
-	WORKSTATION_HEADER,
 	ensureWorkstationEgressGuard,
 } from "./workstation/shared";
+import { WORKSTATION_HEADER } from "./workstation/constants";
 import {
 	resolveWorkstationArtifactScopeRunId,
 	workstationSourceArtifactRefs,

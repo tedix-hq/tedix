@@ -8,7 +8,7 @@ import type {
 	RuntimeProfileConfig,
 	WorkspaceTemplateSetDefinition,
 } from "@tedix/db/schema/control-plane";
-import type { RuntimeBodyLauncher } from "./runtime/body-launcher";
+import type { WorkstationGenerationControl } from "./runtime/workstation-generation";
 import type {
 	WorkstationRuntimeBody,
 	WorkstationRuntimeNamespace,
@@ -206,7 +206,7 @@ export interface TediConfig {
 export type AppEnv = {
 	Bindings: TediEnv;
 	Variables: {
-		runtimeBodyLauncher: RuntimeBodyLauncher<WorkstationRuntimeBody> | null;
+		runtimeBodyLauncher: WorkstationGenerationControl | null;
 		sandbox: WorkstationRuntimeBody;
 		/**
 		 * The container body this request resolved to, recorded onto the lease so

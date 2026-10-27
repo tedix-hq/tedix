@@ -12,22 +12,26 @@ import { startCheckoutOperation } from "../../../workstation/checkout-lock";
 import {
 	WORKSTATION_PROCESS_ARTIFACT_BUCKET_REF,
 	WORKSTATION_BOOTSTRAP_CACHE_PROFILE_VERSION,
-	r2PrefixForTedi,
 	ACTIVE_WORKSTATION_PROFILE_ID,
-	type WorkstationBootstrapCacheBackupEntry,
-	type WorkstationBootstrapCacheRecord,
 	WORKSTATION_BOOTSTRAP_CACHE_RECORD_VERSION,
-	bootstrapCacheKey,
 	WORKSTATION_BOOTSTRAP_CACHE_MAX_RECORDS,
-	type WorkstationBootstrapCacheResult,
+	WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER,
+	WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH,
+} from "./constants";
+import {
+	r2PrefixForTedi,
+	bootstrapCacheKey,
 	packageManagerForLockfile,
 	packageManagerCacheDir,
 	shellSingleQuote,
-	WORKSTATION_BOOTSTRAP_DEPENDENCY_MARKER,
-	WORKSTATION_BOOTSTRAP_CACHE_RESTORED_AT_PATH,
 	assertCheckoutAuthority,
 	execInRuntimeBody,
 } from "./shared";
+import {
+	type WorkstationBootstrapCacheBackupEntry,
+	type WorkstationBootstrapCacheRecord,
+	type WorkstationBootstrapCacheResult,
+} from "./types";
 import { sanitizeArtifactIdPart } from "./process-evidence";
 import {
 	workstationOperationLockedInvocation,

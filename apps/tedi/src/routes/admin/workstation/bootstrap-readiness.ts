@@ -13,18 +13,22 @@ import { errorMessage } from "@tedix/worker-kit/error-message";
 import { type RepoSyncResult } from "../../../workstation/repo-sync";
 import {
 	type WorkstationState,
-	repoReady,
-	WORKSTATION_BOOTSTRAP_INSTALL_PROCESS_ID,
-	parseProcessId,
 	type WorkstationSessionSelection,
+	type WorkstationBootstrapCacheResult,
+} from "./types";
+import {
+	repoReady,
+	parseProcessId,
 	repoWorkdir,
 	execInRuntimeBody,
 	packageManagerForLockfile,
 	bootstrapCacheKey,
-	type WorkstationBootstrapCacheResult,
+} from "./shared";
+import {
+	WORKSTATION_BOOTSTRAP_INSTALL_PROCESS_ID,
 	WORKSTATION_BOOTSTRAP_CACHE_BACKUP_ENABLED,
 	WORKSTATION_BOOTSTRAP_INSTALL_STUCK_MS,
-} from "./shared";
+} from "./constants";
 import {
 	bootstrapProbeCommand,
 	parseBootstrapProbeOutput,
