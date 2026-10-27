@@ -74,6 +74,7 @@ import { AppLifecyclePanel, AppOverviewPage } from "./app-detail";
 import {
 	appDetailQueryOptions,
 	appGatewayMembershipQueryOptions,
+	connectionsOverviewQueryOptions,
 	installedAppEligibilityQueryOptions,
 } from "@/lib/os-query-options";
 
@@ -158,16 +159,32 @@ describe("app lifecycle", () => {
 		membershipStatus = "success",
 		badge = "ready",
 		eligibilityStatus = "success",
+		organizationRows,
 	}: {
 		gatewayId?: string;
 		enabled?: boolean;
 		membershipStatus?: "success" | "pending" | "error";
 		badge?: string | null;
 		eligibilityStatus?: "success" | "pending" | "error";
+		organizationRows?: unknown[];
 	} = {}) {
 		const client = new QueryClient({
 			defaultOptions: { queries: { enabled: false, retry: false } },
 		});
+		if (organizationRows)
+			for (const scope of ["organization", "personal"] as const)
+				client.setQueryData(
+					connectionsOverviewQueryOptions({
+						scope,
+						q: "",
+						status: "all",
+						limit: 100,
+						offset: 0,
+					}).queryKey,
+					{
+						rows: scope === "organization" ? organizationRows : [],
+					} as never,
+				);
 		const membershipKey = appGatewayMembershipQueryOptions(
 			detailApp.id,
 		).queryKey;
@@ -277,6 +294,37 @@ describe("app lifecycle", () => {
 			expect(summary.textContent).not.toContain("Published");
 		},
 	);
+
+	it("does not call readiness met while the account needs setup", () => {
+		const summary = renderLifecycle({
+			badge: "ready",
+			organizationRows: [
+				{
+					accountState: "expired",
+					connection: { status: "reconnect_needed" },
+					references: [{ appId: detailApp.id, appSlug: "initech" }],
+				},
+			],
+		});
+		expect(summary.textContent).toContain("Connection needs attention");
+		expect(summary.textContent).toContain("Setup needed");
+		expect(summary.textContent).not.toContain("Requirements met");
+	});
+
+	it("calls readiness met when the account is connected", () => {
+		const summary = renderLifecycle({
+			badge: "ready",
+			organizationRows: [
+				{
+					accountState: "present",
+					connection: { status: "connected" },
+					references: [{ appId: detailApp.id, appSlug: "initech" }],
+				},
+			],
+		});
+		expect(summary.textContent).toContain("Organization account connected");
+		expect(summary.textContent).toContain("Requirements met");
+	});
 
 	it.each([
 		["pending", "Checking readiness"],
