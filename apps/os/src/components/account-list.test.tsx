@@ -456,7 +456,7 @@ describe("account list rows", () => {
 		expect(host.textContent).toContain("Several accounts");
 	});
 
-	it("shows an unchecked status as neutral, with no Reconnect and Check now in Details", async () => {
+	it("shows an unchecked status as neutral, with Reconnect on the account and Check now in Details", async () => {
 		const props = await render([
 			{ ...named, accountState: "unknown", connection: null },
 			{ ...base, accountState: "restricted", connection: null },
@@ -475,7 +475,7 @@ describe("account list rows", () => {
 		expect(host.textContent).toContain(
 			"Status not checked: Provider didn't allow a status check",
 		);
-		expect(button("Reconnect")).toBeUndefined();
+		expect(button("Reconnect")).toBeDefined();
 		expect(button("Connect")).toBeUndefined();
 		expect(host.textContent).not.toContain("Not connected");
 		await details();

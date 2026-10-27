@@ -120,7 +120,7 @@ function missingPermissions(row: ConnectionInventoryRow) {
  * One status per account. "Needs attention" and Reconnect are reserved for a
  * known fault (expired, revoked, missing permissions). A status read that
  * failed or was refused is neutral "Status not checked", never "Not
- * connected": it proves neither a fault nor absence, and Reconnect won't fix it.
+ * connected": it proves neither a fault nor absence.
  */
 export function accountStatus(row: ConnectionInventoryRow): AccountStatus {
 	const attention = (
@@ -520,10 +520,13 @@ function AccountLine({
 	const status = accountStatus(row);
 	const label = accountLabel(row);
 	const allowed = props.canManage(row);
+	const unchecked = status.kind === "unchecked";
+	// An unreadable status may be a token that can no longer renew; signing in
+	// again is the only way back, so it keeps Reconnect without a fault label.
 	const reconnect =
 		status.kind === "connected" ||
+		unchecked ||
 		(status.kind === "attention" && status.action === "reconnect");
-	const unchecked = status.kind === "unchecked";
 	const connectedBy =
 		props.owner === "organization" ? row.connection?.connectedByEmail : null;
 	return (
@@ -548,21 +551,21 @@ function AccountLine({
 				) : null}
 			</div>
 			<div className="flex shrink-0 items-center gap-2">
-				{!unchecked && (
-					<Button
-						size="sm"
-						variant={status.kind === "connected" ? "outline" : "default"}
-						className="max-sm:min-h-11"
-						aria-label={`${reconnect ? "Reconnect" : "Connect"} ${name} ${label}`}
-						disabled={!allowed || props.isConnecting}
-						title={allowed ? undefined : props.deniedReason(row)}
-						onClick={() =>
-							reconnect ? props.onReconnect(row) : props.onConnect(row)
-						}
-					>
-						{reconnect ? "Reconnect" : "Connect"}
-					</Button>
-				)}
+				<Button
+					size="sm"
+					variant={
+						status.kind === "connected" || unchecked ? "outline" : "default"
+					}
+					className="max-sm:min-h-11"
+					aria-label={`${reconnect ? "Reconnect" : "Connect"} ${name} ${label}`}
+					disabled={!allowed || props.isConnecting}
+					title={allowed ? undefined : props.deniedReason(row)}
+					onClick={() =>
+						reconnect ? props.onReconnect(row) : props.onConnect(row)
+					}
+				>
+					{reconnect ? "Reconnect" : "Connect"}
+				</Button>
 				<Button
 					size="sm"
 					variant="ghost"
