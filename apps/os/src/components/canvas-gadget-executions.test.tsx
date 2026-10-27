@@ -31,6 +31,8 @@ import {
 	executionStatusVariant,
 	gadgetExecutionToolResult,
 	parseExecutionInput,
+	runStarter,
+	runSummary,
 } from "./canvas-gadget-executions";
 
 (
@@ -110,6 +112,27 @@ function renderPanel() {
 	});
 }
 
+async function chooseLevel(label: string) {
+	const trigger = container.querySelector<HTMLElement>(
+		'[aria-label="Log level"]',
+	)!;
+	await act(async () => trigger.click());
+	const option = [
+		...document.querySelectorAll<HTMLElement>('[role="option"]'),
+	].find((candidate) => candidate.textContent?.includes(label));
+	if (!option) throw new Error(`level not found: ${label}`);
+	await act(async () => {
+		option.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+}
+
+function submit() {
+	const form = container.querySelector('form[aria-label="Run manually"]');
+	if (!(form instanceof HTMLFormElement)) throw new Error("run form missing");
+	form.requestSubmit();
+}
+
 function button(label: string): HTMLButtonElement {
 	const match = [...container.querySelectorAll("button")].find((candidate) =>
 		candidate.textContent?.includes(label),
@@ -118,8 +141,16 @@ function button(label: string): HTMLButtonElement {
 	return match;
 }
 
+function openRow(text: string) {
+	const row = [
+		...container.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+	].find((candidate) => candidate.textContent?.includes(text));
+	if (!row) throw new Error(`run row not found: ${text}`);
+	act(() => row.click());
+}
+
 function setTextarea(value: string) {
-	const textarea = container.querySelector('[aria-label="App input JSON"]');
+	const textarea = container.querySelector('[aria-label="Input as JSON"]');
 	if (!(textarea instanceof HTMLTextAreaElement)) {
 		throw new Error("App input textarea missing");
 	}
@@ -180,6 +211,41 @@ describe("parseExecutionInput", () => {
 	});
 });
 
+describe("run wording", () => {
+	const directory = new Map([["user:user-1", { name: "Robin Example" }]]);
+	it("names who started a run the way a teammate would", () => {
+		expect(
+			runStarter(
+				executionFixture({
+					grantedCapabilities: ["app.call"],
+					input: { method: "rateItem", args: [5] },
+				}),
+				directory,
+			),
+		).toBe("Robin clicked Rate item");
+		expect(
+			runStarter(
+				executionFixture({ createdByKind: "service", createdById: "cron" }),
+				directory,
+			),
+		).toBe("Scheduled");
+		expect(runStarter(executionFixture(), directory)).toBe("Robin ran it");
+	});
+	it("summarizes the result, or why there is none, in one line", () => {
+		expect(runSummary(executionFixture({ output: { count: 1 } }))).toBe(
+			"count: 1",
+		);
+		expect(runSummary(executionFixture({ output: {} }))).toBe(
+			"Finished with no output",
+		);
+		expect(
+			runSummary(
+				executionFixture({ status: "failed", error: "Quota hit\nstack" }),
+			),
+		).toBe("Quota hit");
+	});
+});
+
 describe("executionStatusVariant", () => {
 	it("maps admitted, approval, success and denial states", () => {
 		expect(executionStatusVariant("running")).toBe("info");
@@ -214,7 +280,7 @@ describe("gadgetExecutionToolResult", () => {
 });
 
 describe("CanvasGadgetExecutions", () => {
-	it("renders canonical receipt output, cost, lineage, and evidence", async () => {
+	it("lists runs in plain words and opens one for its result and technical details", async () => {
 		const selected = vi.fn();
 		const client = new QueryClient({
 			defaultOptions: {
@@ -247,17 +313,42 @@ describe("CanvasGadgetExecutions", () => {
 			// queryFn this replaced passed no signal at all.
 			expect.objectContaining({ signal: expect.any(AbortSignal) }),
 		);
-		expect(container.textContent).toContain("Completed");
-		expect(container.textContent).toContain("run-1");
-		expect(container.textContent).toContain('"summary": "ready"');
-		expect(container.textContent).toContain('"totalUsd": 0.02');
-		expect(container.textContent).toContain("artifact://report-1");
+		const row = container.querySelector("button[aria-expanded]")!;
+		expect(row.textContent).toContain("Done");
+		expect(row.textContent).toContain("A teammate ran it");
+		expect(row.textContent).toContain("summary: ready");
+		expect(row.textContent).toContain("1m");
+		const text = container.textContent ?? "";
+		for (const jargon of ["receipt", "admission", "pinned", "admitted"])
+			expect(text.toLowerCase()).not.toContain(jargon);
 		expect(selected).toHaveBeenLastCalledWith(
 			expect.objectContaining({ id: EXECUTION_ID }),
 		);
-		expect(
-			button("Run App").closest('[data-slot="card-footer"]'),
-		).not.toBeNull();
+
+		openRow("summary: ready");
+		const details = container.querySelector("[data-execution-id]")!;
+		expect(details.textContent).toContain("Version 3");
+		expect(details.textContent).toContain("region");
+		expect(details.textContent).toContain("emea");
+		expect(details.textContent).not.toContain("run-1");
+		act(() => button("Technical details").click());
+		await flush();
+		expect(details.textContent).toContain("run-1");
+		expect(details.textContent).toContain('"totalUsd": 0.02');
+		expect(details.textContent).toContain("artifact://report-1");
+	});
+
+	it("shows the empty state when the app has never run", async () => {
+		api.osWorkspaces.executions.list.mockResolvedValue({
+			items: [],
+			truncated: false,
+		});
+		renderPanel();
+		await flush();
+		expect(container.textContent).toContain("No runs yet");
+		expect(container.textContent).toContain(
+			"Runs appear here when someone uses the app, a schedule runs, or you run it manually.",
+		);
 	});
 
 	it("dispatches through the selected active tedi with parsed JSON", async () => {
@@ -278,8 +369,13 @@ describe("CanvasGadgetExecutions", () => {
 		});
 		renderPanel();
 		await flush();
+		act(() => button("Run manually").click());
+		await flush();
+		expect(container.textContent).toContain("Operations tedi");
+		expect(container.textContent).not.toContain(TEDI_ID);
+		act(() => button("Edit as JSON").click());
 		setTextarea('{"region":"apac"}');
-		act(() => button("Run App").click());
+		act(() => submit());
 		await flush();
 
 		expect(api.osWorkspaces.gadgets.run).toHaveBeenCalledWith({
@@ -289,7 +385,10 @@ describe("CanvasGadgetExecutions", () => {
 			input: { region: "apac" },
 			idempotencyKey: expect.any(String),
 		});
-		expect(container.textContent).toContain("Awaiting approval");
+		expect(container.textContent).toContain("Needs approval");
+		expect(container.textContent).toContain("Waiting for approval");
+		act(() => button("Technical details").click());
+		await flush();
 		expect(container.textContent).toContain("human approval required");
 		expect(container.textContent).toContain("approval-1");
 	});
@@ -297,8 +396,11 @@ describe("CanvasGadgetExecutions", () => {
 	it("rejects invalid input before admission", async () => {
 		renderPanel();
 		await flush();
+		act(() => button("Run manually").click());
+		await flush();
+		act(() => button("Edit as JSON").click());
 		setTextarea("{");
-		act(() => button("Run App").click());
+		act(() => submit());
 		await flush();
 
 		expect(api.osWorkspaces.gadgets.run).not.toHaveBeenCalled();
@@ -350,6 +452,7 @@ describe("CanvasGadgetExecutions", () => {
 			);
 		});
 		await flush();
+		openRow("summary: ready");
 		act(() => button("Calendar (.ics)").click());
 		await flush();
 
@@ -399,8 +502,9 @@ describe("connection read receipts", () => {
 		});
 		renderPanel();
 		await flush();
+		expect(container.textContent).toContain("Someone read Roadmap");
+		openRow("Roadmap");
 		const text = container.textContent ?? "";
-		expect(text).toContain("Connection read");
 		expect(text).toContain("Contains restricted data");
 		expect(text).toContain("Roadmap in notion");
 		expect(text).toContain("Organization account");
@@ -464,6 +568,8 @@ describe("app call console logs", () => {
 		}));
 		renderPanel();
 		await flush();
+		openRow("Done");
+		await flush();
 		expect(api.osWorkspaces.executions.list).toHaveBeenCalledWith(
 			{
 				workspaceId: WORKSPACE_ID,
@@ -477,11 +583,11 @@ describe("app call console logs", () => {
 		expect(pane.textContent).toContain("hello");
 		expect(pane.textContent).toContain("Error: failed call");
 		expect(pane.textContent).not.toContain("private");
-		act(() => button("warn").click());
+		await chooseLevel("Warnings");
 		expect(pane.textContent).toContain("careful");
 		expect(pane.textContent).not.toContain("hello");
 		expect(pane.textContent).not.toContain("failed call");
-		act(() => button("error").click());
+		await chooseLevel("Errors");
 		expect(pane.textContent).toContain("Error: failed call");
 	});
 	it("uses the final tail without duplicating the live console lines", async () => {
@@ -517,7 +623,7 @@ describe("app call console logs", () => {
 			});
 			renderLogs();
 			await flush();
-			expect(container.textContent).toContain("Waiting for console lines");
+			expect(container.textContent).toContain("Waiting for output…");
 			api.osWorkspaces.executions.list.mockResolvedValue({
 				items: [trace("trace-1", EXECUTION_ID, "late line")],
 				truncated: false,
@@ -527,11 +633,11 @@ describe("app call console logs", () => {
 			expect(container.querySelector('[role="log"]')?.textContent).toContain(
 				"late line",
 			);
-			act(() => button("Pause live logs").click());
+			act(() => button("Live").click());
 			const calls = api.osWorkspaces.executions.list.mock.calls.length;
 			await act(async () => vi.advanceTimersByTimeAsync(5_000));
 			expect(api.osWorkspaces.executions.list).toHaveBeenCalledTimes(calls);
-			act(() => button("Resume live logs").click());
+			act(() => button("Paused").click());
 			await act(async () => vi.advanceTimersByTimeAsync(2_500));
 			expect(
 				api.osWorkspaces.executions.list.mock.calls.length,
@@ -563,6 +669,6 @@ describe("app call console logs", () => {
 		expect(container.querySelector('[role="log"]')?.textContent).not.toContain(
 			"first call",
 		);
-		expect(container.textContent).toContain("latest 200 trace receipts");
+		expect(container.textContent).toContain("Showing the latest lines only.");
 	});
 });
