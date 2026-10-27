@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { auditEvents } from "@tedix/db/schema/audit-events";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { tedis } from "@tedix/db/schema/tedis";
 import {
@@ -59,6 +60,7 @@ async function fixture(fetchWake?: (request: Request) => Promise<Response>) {
 			workInteractions,
 			workInteractionCardPresentations,
 			workInteractionResponses,
+			auditEvents,
 		),
 	);
 	sqlite
@@ -428,10 +430,11 @@ it.each([false, true])(
 		if (stale) {
 			const replacements = sqlite
 				.prepare(
-					"SELECT id,metadata FROM work_interactions WHERE json_extract(metadata,'$.replacesDecisionId')=?",
+					"SELECT id,status,metadata FROM work_interactions WHERE json_extract(metadata,'$.replacesDecisionId')=?",
 				)
-				.all(ASK) as Array<{ id: string; metadata: string }>;
+				.all(ASK) as Array<{ id: string; status: string; metadata: string }>;
 			expect(replacements).toHaveLength(1);
+			expect(replacements[0]!.status).toBe("cancelled");
 			const decision = JSON.parse(replacements[0]!.metadata).decisionDeck;
 			expect(decision.whyNow).toContain("live production");
 			expect(

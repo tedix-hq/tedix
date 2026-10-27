@@ -11,7 +11,10 @@ import {
 import { osWorkspacesContractRouter } from "./os-workspaces";
 import { AUTHZ, type BaseContext, withAuth, withAuthorization } from "../orpc";
 import { workInteractionsContractRouter } from "./work-interactions";
-import { deckResponseRequiresHuman } from "@tedix/api-contract/utils/deck-action-boundary";
+import {
+	deckResponseRequiresHuman,
+	isFactsChangedReview,
+} from "@tedix/api-contract/utils/deck-action-boundary";
 import {
 	rowReviewResultMetadata,
 	rowReviewSpec,
@@ -167,6 +170,43 @@ export const attentionContractRouter = os.router({
 	decideDeckCard: write.decideDeckCard.handler(
 		async ({ input: requestInput, context, errors }) => {
 			const input = requestInput.decision;
+			if (
+				input.kind === "interaction" &&
+				input.decision.metadata?.cardAction === "dismiss" &&
+				input.decision.resolvesRequest &&
+				input.decision.responseKind === "answer"
+			) {
+				const { getWorkInteraction } =
+					await import("@tedix/db/queries/work-items/interactions");
+				const orgId = requireOrgId(context);
+				const review = await getWorkInteraction(context.db, {
+					orgId,
+					interactionId: input.decision.requestId,
+				});
+				if (review && isFactsChangedReview(review)) {
+					const { verifiedActiveWorkActor } =
+						await import("./work-items-principal");
+					const actor = await verifiedActiveWorkActor(context, orgId);
+					const { retireDecisionReviews } =
+						await import("@tedix/db/queries/work-items/decision-review-retirement");
+					const retired = await retireDecisionReviews(context.db, {
+						orgId,
+						now: new Date().toISOString(),
+						dismiss: {
+							id: review.id,
+							version: input.decision.expectedRequestVersion,
+							actorType: actor.type,
+							actorId: actor.id,
+							note: input.decision.body,
+						},
+					});
+					if (!retired)
+						throw errors.CONFLICT({
+							message: "This review changed; reload the card",
+						});
+					return { saved: true as const, cardId: review.id };
+				}
+			}
 			const { loadDeckProjection } =
 				await import("../../services/attention-projection");
 			const projection = await loadDeckProjection(context, {

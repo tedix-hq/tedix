@@ -8,6 +8,7 @@
 	"exports": {
 		"./queries/web-push": "./src/queries/web-push.ts",
 		"./queries/work-items/decision-action-recheck": "./src/queries/work-items/decision-action-recheck.ts",
+		"./queries/work-items/decision-review-retirement": "./src/queries/work-items/decision-review-retirement.ts",
 		"./queries/work-items/decision-sources": "./src/queries/work-items/decision-sources.ts",
 		"./test/migrated-sqlite": "./src/test/migrated-sqlite.ts",
 		"./queries/work-items/factory-state": "./src/queries/work-items/factory-state.ts",

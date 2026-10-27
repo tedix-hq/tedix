@@ -2,6 +2,8 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade, type D1FacadeOptions } from "../../test/d1-facade";
+import { schemaDdl } from "../../test/schema-ddl";
+import { workInteractions } from "../../schema/work-factory";
 import {
 	heartbeatWorkItemAttempt,
 	settleWorkItemAttempt,
@@ -80,6 +82,7 @@ CREATE TABLE work_events (
 function fixture(options?: D1FacadeOptions) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	sqlite.exec(schemaDdl(workInteractions));
 	sqlite.exec(
 		"CREATE TABLE work_item_comments (id TEXT PRIMARY KEY,work_item_id TEXT NOT NULL,org_id TEXT NOT NULL,author_type TEXT NOT NULL,author_id TEXT,body TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)",
 	);

@@ -45,6 +45,7 @@ import {
 import { normalizeWorkItemRow } from "./normalization";
 import { acceptanceRenewedPurposeExpiry } from "./purpose";
 import { resolveWorkItemSteward } from "./stewardship";
+import { retireDecisionReviews } from "./decision-review-retirement";
 
 export interface CreateWorkItemParams {
 	id: string;
@@ -911,6 +912,11 @@ export async function completeWorkItem(
 			"NOT_READY",
 			"Work changed while completion was evaluated",
 		);
+	await retireDecisionReviews(db, {
+		orgId: params.orgId,
+		workItemId: completed.id,
+		now: completedAt,
+	});
 	return normalizeWorkItemRow(completed);
 }
 
@@ -975,6 +981,11 @@ export async function cancelWorkItem(
 			"NOT_READY",
 			"Terminal work cannot be cancelled",
 		);
+	await retireDecisionReviews(db, {
+		orgId: params.orgId,
+		workItemId: item.id,
+		now: cancelledAt,
+	});
 	return normalizeWorkItemRow(item);
 }
 
