@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	decryptAppSecret,
 	decryptSecret,
@@ -11,8 +14,10 @@ import {
 	type D1StatementResult,
 	ENCRYPTED_TABLES,
 	parseCli,
+	remoteDatabaseId,
 	rotateAll,
 	rotateTable,
+	rotationCommand,
 } from "./rotate-master-key";
 
 const newKey = generateMasterKey();
@@ -20,6 +25,101 @@ const oldKey = generateMasterKey();
 const lostKey = generateMasterKey();
 const orgTable = ENCRYPTED_TABLES[0]!;
 const appTable = ENCRYPTED_TABLES[1]!;
+
+describe("rotation transport", () => {
+	const id = "00000000-0000-4000-8000-000000000001";
+
+	test("resolves binding and resource names to the same explicit D1 UUID", () => {
+		const directory = mkdtempSync(join(tmpdir(), "rotation-target-"));
+		const config = join(directory, "wrangler.jsonc");
+		try {
+			writeFileSync(
+				config,
+				JSON.stringify({
+					d1_databases: [
+						{
+							binding: "DB",
+							database_name: "example-database",
+							database_id: id,
+						},
+					],
+				}),
+			);
+			expect(remoteDatabaseId(config, "DB")).toBe(id);
+			expect(remoteDatabaseId(config, "example-database")).toBe(id);
+			expect(() => remoteDatabaseId(config, "OTHER")).toThrow("exactly one");
+			writeFileSync(
+				config,
+				JSON.stringify({
+					d1_databases: [
+						{ binding: "DB", database_id: id },
+						{
+							database_name: "DB",
+							database_id: "00000000-0000-4000-8000-000000000002",
+						},
+					],
+				}),
+			);
+			expect(() => remoteDatabaseId(config, "DB")).toThrow("exactly one");
+			for (const database_id of [
+				undefined,
+				"placeholder",
+				"00000000-0000-0000-0000-000000000000",
+			]) {
+				writeFileSync(
+					config,
+					JSON.stringify({ d1_databases: [{ binding: "DB", database_id }] }),
+				);
+				expect(() => remoteDatabaseId(config, "DB")).toThrow(
+					"configured D1 database UUID",
+				);
+			}
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("remote queries use pinned cf without a Wrangler binding lookup", async () => {
+		const args = parseCli([
+			"--remote",
+			"--database",
+			id,
+			"--config",
+			"/missing/config.jsonc",
+		]);
+		const command = rotationCommand(args, id);
+		expect(command[0]).toEndWith("/node_modules/.bin/cf");
+		expect(command.slice(1)).toEqual(["d1", "query", id, "--sql"]);
+		const proc = Bun.spawn([...command, "SELECT 1 AS probe", "--dry-run"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(proc.stdout).text(),
+			new Response(proc.stderr).text(),
+			proc.exited,
+		]);
+		expect(code, stderr).toBe(0);
+		expect(stdout).toContain(id);
+		expect(stdout).toContain("SELECT 1 AS probe");
+	});
+
+	test("local rotation keeps its explicit Wrangler target", () => {
+		const args = parseCli(["--local"]);
+		const command = rotationCommand(args, "DB");
+		expect(command[0]).toEndWith("/node_modules/.bin/wrangler");
+		expect(command.slice(1)).toEqual([
+			"d1",
+			"execute",
+			"DB",
+			"--local",
+			"--config",
+			args.config,
+			"--json",
+			"--command",
+		]);
+	});
+});
 
 type Row = { id: string; salt: string; value: string };
 
