@@ -651,7 +651,16 @@ export function AttentionBoard({
 							disabled={saving}
 						>
 							<SelectTrigger aria-label={ATTENTION_COPY.focusProject}>
-								<SelectValue />
+								<SelectValue>
+									{layout.focusProjectId
+										? attentionCopy("onlyProject", {
+												name:
+													allData.projects.find(
+														(p) => p.id === layout.focusProjectId,
+													)?.name ?? layout.focusProjectId,
+											})
+										: ATTENTION_COPY.allProjects}
+								</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								<SelectItem value="all">

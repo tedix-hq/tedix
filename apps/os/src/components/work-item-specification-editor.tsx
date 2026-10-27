@@ -20,6 +20,7 @@ import {
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { osApi } from "@/lib/api";
+import { sentenceCase } from "@/lib/format";
 import { osQuery } from "@/lib/os-query-options";
 
 export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
@@ -80,6 +81,12 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 					</Label>
 					<Select
 						value={priority}
+						items={{
+							low: "Low",
+							medium: "Medium",
+							high: "High",
+							critical: "Critical",
+						}}
 						onValueChange={(value) => {
 							if (value) setPriority(value);
 						}}
@@ -94,7 +101,7 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 						<SelectContent>
 							{(["low", "medium", "high", "critical"] as const).map((value) => (
 								<SelectItem key={value} value={value}>
-									{value}
+									{sentenceCase(value)}
 								</SelectItem>
 							))}
 						</SelectContent>

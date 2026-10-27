@@ -302,7 +302,7 @@ function MemberRoleControl({
 				className="w-32"
 				size="sm"
 			>
-				<SelectValue />
+				<SelectValue>{roleLabel(member.role)}</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
 				{MANAGEABLE_ROLES.map((role) => (
@@ -945,7 +945,7 @@ export function InviteMemberDialog({
 							disabled={pending}
 						>
 							<SelectTrigger id="invite-role">
-								<SelectValue />
+								<SelectValue>{roleLabel(role)}</SelectValue>
 							</SelectTrigger>
 							<SelectContent>
 								{MANAGEABLE_ROLES.map((option) => (

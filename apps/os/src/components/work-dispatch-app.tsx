@@ -52,6 +52,7 @@ function ExecutorChoice({
 			<Label htmlFor={id}>Executor</Label>
 			<Select
 				value={value}
+				items={labels}
 				onValueChange={(next) => onChange(WorkExecutorSchema.parse(next))}
 				disabled={disabled}
 			>
@@ -171,6 +172,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 							<Label htmlFor={hostId}>Host</Label>
 							<Select
 								value={host}
+								items={labels}
 								onValueChange={(next) => {
 									if (isSessionHost(next)) setHost(next);
 								}}

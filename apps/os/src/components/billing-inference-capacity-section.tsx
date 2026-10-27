@@ -22,7 +22,7 @@ import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import { formatTokens } from "@/lib/billing-display";
 import { formatBillingAmount } from "@/lib/billing-price";
-import { formatCount } from "@/lib/format";
+import { formatCount, sentenceCase } from "@/lib/format";
 import {
 	billingOverviewQueryOptions,
 	providerCapacitySponsorshipsQueryOptions,
@@ -383,7 +383,7 @@ export function BillingInferenceCapacitySection() {
 														: "outline"
 												}
 											>
-												{allocation.state}
+												{sentenceCase(allocation.state)}
 											</Badge>
 											<Text role="label" tone="secondary" className="mt-1">
 												{formatCount(allocation.tokenAmount)} tokens ·{" "}

@@ -456,7 +456,7 @@ describe("TediMailbox", () => {
 		expect(list.textContent).toContain("Invoice 42");
 		expect(list.textContent).toContain("Ana <ana@example.com>");
 		expect(list.textContent).toContain("1 unread");
-		expect(list.textContent).toContain("open");
+		expect(list.textContent).toContain("Open");
 
 		act(() => buttonByText(container, "Mark read").click());
 		await settle(() => expect(tediEmailApi.mark).toHaveBeenCalledTimes(1));

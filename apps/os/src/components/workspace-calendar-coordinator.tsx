@@ -820,6 +820,10 @@ export function WorkspaceCalendarCoordinator({
 						{!resource.connectionInstanceId && " · Choose the account again"}
 						<Select
 							value={deliveryModes[resource.id] ?? "push"}
+							items={{
+								push: "Immediate notifications",
+								poll: "Periodic check",
+							}}
 							disabled={busy}
 							onValueChange={(value) => {
 								if (value !== "push" && value !== "poll") return;

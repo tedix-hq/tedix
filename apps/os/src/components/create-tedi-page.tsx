@@ -847,6 +847,11 @@ export function CreateTediPage({
 										<Label htmlFor="telegram-dm-policy">DM access</Label>
 										<Select
 											value={state.telegramDmPolicy}
+											items={{
+												pairing: "Pairing (recommended)",
+												open: "Open DMs",
+												disabled: "Disable DMs",
+											}}
 											onValueChange={(value) =>
 												form.setFieldValue(
 													"telegramDmPolicy",
@@ -878,6 +883,11 @@ export function CreateTediPage({
 										<Label htmlFor="telegram-group-policy">Group access</Label>
 										<Select
 											value={state.telegramGroupPolicy}
+											items={{
+												open: "Open in groups",
+												allowlist: "Allowlist only",
+												disabled: "Disable groups",
+											}}
 											onValueChange={(value) =>
 												form.setFieldValue(
 													"telegramGroupPolicy",

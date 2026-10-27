@@ -68,6 +68,9 @@ export function RequestFilingReview({
 						<Select
 							disabled={filing}
 							value={row.projectId}
+							items={Object.fromEntries(
+								data.projects.map((project) => [project.id, project.name]),
+							)}
 							onValueChange={(value) => {
 								if (value) file(row.id, value);
 							}}

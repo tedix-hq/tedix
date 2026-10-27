@@ -523,6 +523,10 @@ export function TediSettingsPage({ tediId }: { tediId: string }) {
 								<div className="flex items-center gap-2">
 									<Select
 										value={assignment.role}
+										items={{
+											operator: "Operator",
+											observer: "Observer",
+										}}
 										disabled={!canManage || updateAssignmentRole.isPending}
 										onValueChange={(value) =>
 											value &&
