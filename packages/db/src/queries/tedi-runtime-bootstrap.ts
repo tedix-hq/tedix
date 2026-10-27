@@ -323,7 +323,10 @@ export interface TediRuntimeApprovalRow {
 	status: string;
 	resolution: string | null;
 	tediId: string;
+	orgId: string;
 	payload: string;
+	resolvedAt: string | null;
+	resolvedBy: string | null;
 }
 
 export async function getTediRuntimeApproval(
@@ -332,7 +335,8 @@ export async function getTediRuntimeApproval(
 ): Promise<TediRuntimeApprovalRow | null> {
 	return db
 		.prepare(
-			`SELECT status, resolution, tedi_id AS tediId, payload
+			`SELECT status, resolution, tedi_id AS tediId, org_id AS orgId, payload,
+			        resolved_at AS resolvedAt, resolved_by AS resolvedBy
 			   FROM tedi_approval_requests
 			  WHERE id = ?
 			  LIMIT 1`,

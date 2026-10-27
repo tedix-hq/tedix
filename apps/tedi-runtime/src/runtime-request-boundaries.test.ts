@@ -128,6 +128,7 @@ const internal = (path: string, method = "POST", body?: string) =>
 	for (const path of [
 		"/__admin/force-compact",
 		"/__internal/browser/takeover-status",
+		"/__internal/browser/login-session",
 	]) {
 		assert.equal((await agent.onRequest(request(path))).status, 403, path);
 	}

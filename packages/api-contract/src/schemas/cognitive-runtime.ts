@@ -76,6 +76,8 @@ export const TediRuntimeEventKindSchema = z.enum([
 	"browser.session.reused",
 	"browser.session.restarted",
 	"browser.session.closed",
+	"browser.login.recorded",
+	"browser.login.ended",
 ]);
 export type TediRuntimeEventKind = z.infer<typeof TediRuntimeEventKindSchema>;
 

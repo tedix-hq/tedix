@@ -229,6 +229,7 @@ const options = { toolCallId: "domain-test", messages: [] };
 		},
 		ctx: {
 			storage: {
+				get: async () => undefined,
 				delete: async (key: string) => {
 					calls.push(key);
 				},

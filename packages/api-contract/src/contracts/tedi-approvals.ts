@@ -15,7 +15,10 @@ import {
 	PaginationSchema,
 } from "../schemas/common";
 
-import { BrowserTakeoverStatusSchema } from "../schemas/tedi";
+import {
+	BrowserLoginSessionSchema,
+	BrowserTakeoverStatusSchema,
+} from "../schemas/tedi";
 import { ApprovalEditsInputSchema } from "../schemas/approval-edits";
 
 // =============================================================================
@@ -530,6 +533,28 @@ export const tediApprovalsContract = oc
 			})
 			.input(z.object({ id: z.uuid() }))
 			.output(BrowserTakeoverStatusSchema),
+
+		getBrowserLoginSession: oc
+			.route({
+				method: "GET",
+				path: "/browser-login-sessions/{tediId}",
+				summary: "Read a tedi's browser sign-in",
+				description:
+					"The sign-in a person left in this tedi's browser through an approved Live View takeover: who approved it, which sites, and when it expires. Null when there is none.",
+			})
+			.input(z.object({ tediId: z.uuid() }))
+			.output(z.object({ login: BrowserLoginSessionSchema.nullable() })),
+
+		endBrowserLoginSession: oc
+			.route({
+				method: "POST",
+				path: "/browser-login-sessions/{tediId}/end",
+				summary: "End a tedi's browser sign-in",
+				description:
+					"Close the tedi's Browser Run session, discarding its cookies and sign-in. The tedi must ask for a new takeover to sign in again. Audited.",
+			})
+			.input(z.object({ tediId: z.uuid() }))
+			.output(z.object({ ended: BrowserLoginSessionSchema.nullable() })),
 
 		/**
 		 * Resolve an approval request (approve or reject)

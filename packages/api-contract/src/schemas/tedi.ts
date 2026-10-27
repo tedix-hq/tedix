@@ -126,6 +126,23 @@ export const BrowserTakeoverStatusSchema = z.object({
 		.default([]),
 });
 
+/**
+ * A sign-in a person completed in a tedi's browser through an approved Live
+ * View takeover. Later turns reuse it until `expiresAt` or until it is ended.
+ */
+export const BrowserLoginSessionSchema = z.object({
+	approvalRequestId: z.string(),
+	tediId: z.string(),
+	orgId: z.string(),
+	/** The user who approved the takeover. */
+	principal: z.string().nullable(),
+	reason: z.string().nullable(),
+	siteHosts: z.array(z.string()),
+	approvedAt: z.string(),
+	expiresAt: z.string(),
+});
+export type BrowserLoginSession = z.infer<typeof BrowserLoginSessionSchema>;
+
 /** Browser Run's server-side `keep_alive` bounds for a tedi's persistent browser. */
 export const BROWSER_SESSION_KEEP_ALIVE_MIN_MS = 60_000;
 export const BROWSER_SESSION_KEEP_ALIVE_MAX_MS = 600_000;

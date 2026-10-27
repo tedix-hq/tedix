@@ -18,6 +18,7 @@ interface BrowserToolDependencies {
 	getSession(): TediBrowserSession;
 	getSessionPolicy: Parameters<typeof browserSessionTools>[1];
 	onClosed(): Promise<void>;
+	login(): Promise<unknown>;
 	gates: Omit<BrowserToolGates, "retain">;
 	budgetStatus(): unknown;
 	requestTakeover(input: {
@@ -34,6 +35,7 @@ export function createBrowserTools(deps: BrowserToolDependencies): ToolSet {
 			deps.getSession,
 			deps.getSessionPolicy,
 			deps.onClosed,
+			deps.login,
 		),
 		...governBrowserTools(deps.session.tools, {
 			...deps.gates,

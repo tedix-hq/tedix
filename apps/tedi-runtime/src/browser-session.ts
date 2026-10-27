@@ -105,7 +105,9 @@ function withBrowserExecuteUsage(
 export type BrowserSessionCloseReason =
 	| "tedi_request"
 	| "takeover_closed"
-	| "egress_changed";
+	| "egress_changed"
+	| "login_ended"
+	| "operator_end";
 
 /**
  * A persistent browser's lifecycle, for the run ledger. `sessionId` is the
@@ -417,11 +419,13 @@ export function browserSessionTools(
 	session: () => TediBrowserSession,
 	policy: () => BrowserSessionPolicy | undefined,
 	onClosed: () => Promise<void>,
+	/** The human login the browser holds, if any. */
+	login: () => Promise<unknown> = async () => null,
 ): ToolSet {
 	return {
 		browser_session_status: tool({
 			description:
-				"Read this tedi's browser session: mode, persistent name and idle keep-alive, the hostname guardrails it launches with, and whether a browser is open now. Does not open a browser or consume budget.",
+				"Read this tedi's browser session: mode, persistent name and idle keep-alive, the hostname guardrails it launches with, whether a browser is open now, and the human sign-in it holds (site hosts, approver, expiry). Does not open a browser or consume budget.",
 			inputSchema: z.object({}),
 			execute: async () => {
 				const current = session();
@@ -441,6 +445,7 @@ export function browserSessionTools(
 								: `browser_execute_refused:${current.executeEgress.reason}`,
 					allowedDomains: current.allowedDomains ?? null,
 					open: (await current.currentSessionId()) !== undefined,
+					login: await login(),
 				};
 			},
 		}),

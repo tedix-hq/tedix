@@ -23,10 +23,12 @@ export function decideBrowserTakeoverGate(input: {
 	gate: BrowserTakeoverGate;
 	now?: number;
 	row: {
+		orgId: string;
 		payload: string;
 		status: string;
 		tediId: string;
 	} | null;
+	orgId: string | undefined;
 	tediId: string | undefined;
 }): BrowserTakeoverGateDecision {
 	let kind: unknown;
@@ -43,7 +45,9 @@ export function decideBrowserTakeoverGate(input: {
 	}
 	if (
 		!input.tediId ||
+		!input.orgId ||
 		input.row?.tediId !== input.tediId ||
+		input.row.orgId !== input.orgId ||
 		kind !== "browser_live_view_takeover" ||
 		sessionId !== input.gate.sessionId
 	) {
