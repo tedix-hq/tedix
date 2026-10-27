@@ -1293,6 +1293,7 @@ const seedState = (): LocalState => ({
 });
 
 let state = seedState();
+/** Automation drafts proposed in this session; the Versions page tests and activates them. */
 const runSteeringMessages = new Map<string, RunSteeringMessage[]>();
 // Staged OAuth connect tickets: each redeems once, like the API's ticket row.
 const localConnectTickets = new Map<
@@ -1361,6 +1362,7 @@ function installWorkViewFixtures(): void {
 let demoPackBuiltAt: number | null = null;
 
 export function resetLocalFixtures(): void {
+	localSkillDrafts = seedSkillDrafts();
 	localSnoozes.clear();
 	runSteeringMessages.clear();
 	localConnectTickets.clear();
@@ -1853,6 +1855,38 @@ const runtimeProvenanceNulls = {
 	tenantCpuMs: null,
 	tenantSubRequests: null,
 };
+
+const LOCAL_WORKFLOW_SOURCE =
+	"export default {\n\tasync run(step, params) {\n\t\tconst orders = await step.call('storefront.list_orders', params);\n\t\treturn { published: true, certification: { passed: true }, orders };\n\t},\n};\n";
+type LocalSkillDraft = Omit<
+	(typeof SKILLS)[number],
+	"files" | "sourceSkillId" | "sourceRevision" | "revisionReasoning" | "tags"
+> & {
+	files: Record<string, string> | null;
+	sourceSkillId: string | null;
+	sourceRevision: number | null;
+	revisionReasoning: string | null;
+	tags: string[] | null;
+};
+const seedSkillDrafts = (): LocalSkillDraft[] => [
+	{
+		...SKILLS[0]!,
+		id: fid("5d", 1),
+		title: "weekly-revenue-report improvement 1",
+		files: {
+			"scripts/workflow.ts": LOCAL_WORKFLOW_SOURCE.replace(
+				"published: true",
+				"published: true, narrative: true",
+			),
+		},
+		lifecycleState: "draft" as const,
+		sourceSkillId: SKILLS[0]!.id,
+		sourceRevision: SKILLS[0]!.revision,
+		tags: ["workflow-improvement", `baseline-run:${RUN_REVENUE_OK}`],
+		revisionReasoning: `Workflow improvement proposed from run ${RUN_REVENUE_OK} at baseline revision ${SKILLS[0]!.revision}. Add the narrative paragraph to the sheet.`,
+	},
+];
+let localSkillDrafts = seedSkillDrafts();
 
 const workflowDefinitionOperatorSurface = {
 	namespace: "skills" as const,
@@ -5615,7 +5649,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 	},
 
 	// --- skills + workflows ---
-	"skills/listByOrg": () => ({ entries: SKILLS, total: SKILLS.length }),
+	"skills/listByOrg": (input: { lifecycleState?: string } | undefined) => {
+		const entries = [...SKILLS, ...localSkillDrafts].filter(
+			(skill) =>
+				!input?.lifecycleState || skill.lifecycleState === input.lifecycleState,
+		);
+		return { entries, total: entries.length };
+	},
 	"skills/get": (input: { id: string }) => ({
 		entry: SKILLS.find((entry) => entry.id === input.id) ?? null,
 	}),
@@ -5946,6 +5986,152 @@ const handlers: Record<string, (input: never) => unknown> = {
 			],
 			truncated: false,
 			nextOffset: null,
+		};
+	},
+	"skills/listWorkflowToolCalls": (input: { runId: string }) => {
+		const run = findSkillRun(input.runId);
+		return {
+			toolCalls: [
+				{
+					path: "calls/run/1.json",
+					name: "fetch-orders",
+					count: 1,
+					executionEpoch: run.executionEpoch,
+					stepId: "fetch-orders",
+					kind: "tool_call" as const,
+					attempt: 1,
+					ordinal: 1,
+					outcome:
+						run.status === "failed"
+							? ("failure" as const)
+							: ("success" as const),
+					status:
+						run.status === "failed"
+							? ("failed" as const)
+							: ("succeeded" as const),
+					durationMs: 840,
+					retryable: null,
+					sensitiveOutput: false,
+					outputArtifactPath: null,
+					error: run.status === "failed" ? run.error : null,
+					provenance: "step_artifact" as const,
+					mimeType: "application/json",
+					sizeBytes: 512,
+					createdAt: run.startedAt,
+					phase: "run",
+					namespace: "storefront",
+					method: "list_orders",
+					callId: `call-${run.id.slice(0, 8)}`,
+					idempotencyKey: null,
+					idempotencyRequested: false,
+					providerConfirmation: null,
+				},
+			],
+			truncated: false,
+			nextOffset: null,
+		};
+	},
+	"skills/getWorkflowRevision": (input: { runId: string }) => {
+		const run = findSkillRun(input.runId);
+		const skill = SKILLS.find((entry) => entry.id === run.skillId);
+		return {
+			provenance: "observed_executed_run" as const,
+			revision: {
+				runId: run.id,
+				skillId: run.skillId,
+				tediId: run.tediId,
+				skillSlug: run.skillSlug,
+				revision: 3,
+				status: run.status,
+				observedAt: run.startedAt,
+				observedRunCount: 4,
+				firstObservedAt: T0,
+				lastObservedAt: run.startedAt,
+				completedCount: 3,
+				failedCount: run.status === "failed" ? 1 : 0,
+				canceledCount: 0,
+				workflowSourceSha256: null,
+				skillDocSha256: null,
+				runtimeVariants: [],
+				runtimeDriftObserved: false,
+				runtimeDriftBlocked: false,
+				...runtimeProvenanceNulls,
+			},
+			workflowSource: LOCAL_WORKFLOW_SOURCE,
+			skillDoc: skill?.content ?? null,
+		};
+	},
+	"skills/proposeWorkflowImprovement": (input: {
+		baselineRunId: string;
+		reason: string;
+		content: string;
+		files: Record<string, string>;
+	}) => {
+		const run = findSkillRun(input.baselineRunId);
+		const baseline = SKILLS.find((entry) => entry.id === run.skillId);
+		if (!baseline) throw new RpcError("NOT_FOUND", "Baseline skill not found");
+		const proposal = {
+			...baseline,
+			id: fid("5d", localSkillDrafts.length + 1),
+			title: `${baseline.slug} improvement ${localSkillDrafts.length + 1}`,
+			content: input.content,
+			files: input.files,
+			lifecycleState: "draft" as const,
+			sourceSkillId: baseline.id,
+			sourceRevision: baseline.revision,
+			tags: ["workflow-improvement", `baseline-run:${run.id}`],
+			revisionReasoning: `Workflow improvement proposed from run ${run.id} at baseline revision ${baseline.revision}. ${input.reason}`,
+		};
+		localSkillDrafts.push(proposal);
+		return {
+			proposal,
+			validation: { valid: true, errors: [], warnings: [] },
+			governance: {
+				state: "pending_activation" as const,
+				baselineRunId: run.id,
+				baselineSkillId: baseline.id,
+				baselineRevision: baseline.revision,
+				baselineWorkflowSha256: "a".repeat(64),
+				candidateWorkflowSha256: "b".repeat(64),
+				certificationRunId: null,
+				certificationPassed: false,
+			},
+		};
+	},
+	"skills/activateWorkflowImprovement": (input: {
+		id: string;
+		certificationRunId: string;
+		reason: string;
+	}) => {
+		const proposal = localSkillDrafts.find((draft) => draft.id === input.id);
+		if (!proposal) throw new RpcError("NOT_FOUND", "Skill not found");
+		const run = findSkillRun(input.certificationRunId);
+		const baseline = SKILLS.find(
+			(entry) => entry.id === proposal.sourceSkillId,
+		);
+		if (!baseline) throw new RpcError("NOT_FOUND", "Baseline skill not found");
+		localSkillDrafts = localSkillDrafts.filter(
+			(draft) => draft.id !== input.id,
+		);
+		return {
+			baseline: {
+				...baseline,
+				content: proposal.content,
+				files: proposal.files,
+				revision: baseline.revision + 1,
+				revisionReasoning: `Workflow improvement ${proposal.id} activated after certified run ${run.id}: ${input.reason}`,
+			},
+			proposal: { ...proposal, lifecycleState: "archived" as const },
+			governance: {
+				state: "activated" as const,
+				baselineRunId: run.id,
+				baselineSkillId: baseline.id,
+				baselineRevision: baseline.revision,
+				baselineWorkflowSha256: "a".repeat(64),
+				candidateWorkflowSha256: "b".repeat(64),
+				certificationRunId: run.id,
+				certificationPassed: true,
+			},
 		};
 	},
 	"skills/restartWorkflow": (input: { runId: string; restartId: string }) => {

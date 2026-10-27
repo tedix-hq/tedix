@@ -217,6 +217,19 @@ const CALLS = {
 	"skills/listWorkflowRetryCandidates": {},
 	"skills/inspectWorkflowRun": { runId: IDS.skillRunFailed },
 	"skills/listRunArtifacts": { runId: IDS.skillRunCompleted },
+	"skills/listWorkflowToolCalls": { runId: IDS.skillRunCompleted },
+	"skills/getWorkflowRevision": { runId: IDS.skillRunCompleted },
+	"skills/proposeWorkflowImprovement": {
+		baselineRunId: IDS.skillRunCompleted,
+		reason: "Local sample improvement",
+		content: "# Weekly revenue report\n\nUpdated instructions.",
+		files: { "scripts/workflow.ts": "export default { run() { return 2; } };" },
+	},
+	"skills/activateWorkflowImprovement": {
+		id: "0000005d-0000-4000-8000-000000000001",
+		certificationRunId: IDS.skillRunCompleted,
+		reason: "Local sample activation",
+	},
 	"skills/restartWorkflow": {
 		runId: IDS.skillRunFailed,
 		restartId: "restart-test-epoch-0",
