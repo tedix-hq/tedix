@@ -310,9 +310,15 @@ a {
 	}
 }
 
+/*
+ * The Deck fits its card to the window (`useDeckViewport`), subtracting this
+ * padding whenever its container resizes. The launcher mounts after the Deck,
+ * so the card took one height on load and another at the next resize. Leave
+ * the Deck's page alone so its height never depends on that order.
+ */
 :root[data-quick-chat-launcher]
 	.route-content
-	[data-slot="page"]:not([data-full-height]) {
+	[data-slot="page"]:not([data-full-height]):not(:has(.fd-deck)) {
 	/* Keep the last content above the launcher without shrinking the scrollport. */
 	padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
 }
@@ -329,7 +335,7 @@ a {
 :root[data-quick-chat-launcher]
 	.route-content
 	.fd-work-shell
-	[data-slot="page"]:not([data-full-height]) {
+	[data-slot="page"]:not([data-full-height]):not(:has(.fd-deck)) {
 	padding-bottom: calc(
 		5rem + env(safe-area-inset-bottom, 0px) + var(--viewport-tedix-bottom, 0px)
 	);

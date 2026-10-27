@@ -88,6 +88,9 @@ try {
 				),
 				`${label}: long catalog text does not widen the page`,
 			);
+			// Drop route handlers first: a request still in flight must not
+			// reach route.fetch() after the context is gone.
+			await page.unrouteAll({ behavior: "ignoreErrors" });
 			await context.close();
 			console.log(`catalog cards ${label}: ok`);
 		}
