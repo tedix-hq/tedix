@@ -179,7 +179,7 @@ function hashAggregateCacheKey(cacheKey: string): string {
 // background-rebuild failure falls through to (or leaves intact) a live rebuild.
 const AGGREGATE_L2_HARD_TTL_MS = 600_000; // serve-stale ceiling (10 min)
 const AGGREGATE_L2_HARD_TTL_SECONDS = AGGREGATE_L2_HARD_TTL_MS / 1000;
-// One background revalidation per cache key at a time (no rebuild stampede).
+// Keys with a background revalidation running in this isolate (at most one).
 export const aggregateRevalidateInFlight = new Set<string>();
 type AggregateL2Read = {
 	surface: AggregatedMcpSurface;

@@ -60,7 +60,11 @@ async function revalidateAggregate(
 	retain = visited.size === 0,
 	retainNested = false,
 ): Promise<void> {
-	if (aggregateRevalidateInFlight.has(cacheKey)) return;
+	// One background rebuild per isolate at a time. Each rebuild holds a fresh
+	// graph plus its serialized snapshot beside the surfaces being served; on
+	// 2026-10-27 one connect request started seven at once and crossed 128 MB.
+	// Other stale keys keep serving their snapshot until a later request.
+	if (aggregateRevalidateInFlight.size > 0) return;
 	aggregateRevalidateInFlight.add(cacheKey);
 	try {
 		// Another isolate in this colo is already rebuilding this key.
@@ -228,15 +232,10 @@ export async function aggregateAndPrefixTools(
 			: null;
 		if (l3) {
 			rememberAggregateSurface(cacheKey, l3.surface, retain, l3.generation);
-			// Promote R2 → this colo's L2 so subsequent local reads stay warm. A
-			// reused snapshot was never read, so promoting it would mean
-			// serializing the whole surface again; the next reader uses R2.
-			if (!l3.reused) {
-				await writeAggregateL2(
-					cacheKey,
-					serializeAggregateSnapshot(l3.surface),
-				);
-			}
+			// Promote R2 → this colo's L2 so subsequent local reads stay warm. The
+			// promoted copy counts as fresh, which also keeps every isolate in the
+			// colo from rebuilding a key that only R2 still holds.
+			await writeAggregateL2(cacheKey, serializeAggregateSnapshot(l3.surface));
 			if (l3.stale) {
 				console.log(
 					JSON.stringify({ _cm: "aggregate", event: "r2_stale_revalidate" }),

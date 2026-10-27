@@ -265,6 +265,33 @@ describe("aggregate snapshot memory", () => {
 		expect(resolveUpstreamToolsInternally).toHaveBeenCalledTimes(2);
 	});
 
+	it("runs at most one background rebuild per isolate", async () => {
+		const other: AggregateAppEntry[] = [{ slug: "source", prefix: "other" }];
+		const loadOther = () =>
+			aggregateAndPrefixTools(other, env, new Set(), ctx, "other", activation);
+		await load();
+		await loadOther();
+		vi.setSystemTime(Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS + 1_000);
+
+		let finishRebuild: () => void = () => {};
+		resolveUpstreamToolsInternally.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishRebuild = () => resolve(sourceApp(["read_item", "list_items"]));
+				}),
+		);
+		const before = resolveUpstreamToolsInternally.mock.calls.length;
+		// Both keys are stale; the second must not start a rebuild while the
+		// first one still holds its fresh graph.
+		await load();
+		for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+		await loadOther();
+		for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+		finishRebuild();
+		await settleBackground();
+		expect(resolveUpstreamToolsInternally.mock.calls.length - before).toBe(1);
+	});
+
 	it("keeps a consent-composed root's organization graphs in memory", async () => {
 		resolveUpstreamToolsInternally.mockImplementation(
 			async (source: AggregateAppEntry) =>
