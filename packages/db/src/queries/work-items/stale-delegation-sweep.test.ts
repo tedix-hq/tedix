@@ -9,6 +9,8 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
+import { schemaDdl } from "../../test/schema-ddl";
+import { workInteractions } from "../../schema/work-factory";
 import {
 	STALE_FAILED_DELEGATION_REASON,
 	sweepStaleFailedDelegationWorkItems,
@@ -106,6 +108,7 @@ function disposition(id: string) {
 beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	sqlite.exec(schemaDdl(workInteractions));
 	db = createDbQueryClient(createD1Facade(sqlite));
 });
 
