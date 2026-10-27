@@ -6724,6 +6724,15 @@ const handlers: Record<string, (input: never) => unknown> = {
 		},
 	}),
 	"organizations/listAllMine": () => paginate([ORG_MEMBERSHIP]),
+	"organizations/listOsMine": () =>
+		paginate([
+			{
+				organizationId: ORG_MEMBERSHIP.organizationId,
+				organizationName: ORG_MEMBERSHIP.organizationName,
+				organizationSlug: ORG_MEMBERSHIP.organizationSlug,
+				organizationLogoUrl: ORG_MEMBERSHIP.organizationLogoUrl,
+			},
+		]),
 	"organizations/getMyOrganization": () => ({
 		organization: state.organization,
 		member: ORG_MEMBERSHIP.member,
