@@ -23,11 +23,24 @@ import { DECISION_DECK_EXAMPLES } from "../dev/decision-deck-fixture";
 import "../src/styles.css";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
+import { DEFAULT_ORGANIZATION_OS_THEME } from "@tedix/api-contract/schemas/os-theme";
 import { learnDecisions } from "@tedix/api-contract/utils/decision-learning";
+import { organizationThemeVariables } from "../src/lib/organization-theme";
 import {
 	focusDay,
 	FOCUS_HISTORY_SURFACES,
 } from "@tedix/api-contract/utils/focus-feed";
+
+const params = new URLSearchParams(location.search);
+const dark = params.get("theme") === "dark";
+document.documentElement.classList.toggle("dark", dark);
+const palette = { ...DEFAULT_ORGANIZATION_OS_THEME[dark ? "dark" : "light"] };
+if (params.get("palette") === "blue")
+	palette.accent = dark ? "#60a5fa" : "#2563eb";
+for (const [key, value] of Object.entries(
+	organizationThemeVariables(palette, DEFAULT_ORGANIZATION_OS_THEME),
+))
+	document.documentElement.style.setProperty(key, value);
 
 const client = new QueryClient({
 	defaultOptions: {
@@ -270,7 +283,6 @@ client.setQueryData(
 	}).queryKey,
 	{ events: [] },
 );
-const params = new URLSearchParams(location.search);
 if (["approval", "question"].includes(params.get("surface") ?? "")) {
 	client.setQueryData(userProfileQueryOptions().queryKey, {
 		id: "fictional-approval-reviewer",

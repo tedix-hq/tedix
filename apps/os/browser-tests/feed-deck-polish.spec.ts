@@ -61,232 +61,220 @@ try {
 		await page.keyboard.press("Escape");
 		await page.close();
 	}
-	for (const width of [390, 1199, 1280, 1600, 2000]) {
+	for (const width of [390, 1280]) {
 		for (const theme of ["light", "dark"] as const) {
 			for (const surface of ["feed", "question"]) {
-				const page = await browser.newPage({
-					viewport: { width, height: 844 },
-					colorScheme: theme,
-				});
-				await page.goto(
-					`${origin}/browser-tests/feed-deck-polish.html?shell&surface=${surface}&theme=${theme}`,
-				);
-				if (surface === "question") {
-					const filters = page.getByRole("button", {
-						name: "Filters",
+				const palettes = ["default", "blue"];
+				for (const palette of palettes) {
+					const page = await browser.newPage({
+						viewport: { width, height: 844 },
+						colorScheme: theme,
+					});
+					await page.goto(
+						`${origin}/browser-tests/feed-deck-polish.html?shell&surface=${surface}&theme=${theme}&palette=${palette}`,
+					);
+					if (surface === "question" && palette === "default") {
+						const filters = page.getByRole("button", {
+							name: "Filters",
+							exact: true,
+						});
+						const kind = page.getByRole("combobox", { name: "Decision kind" });
+						if (width === 390) await filters.click();
+						await kind.focus();
+						await page.keyboard.press("Enter");
+						const popup = page.locator(".fd-filter-options:visible");
+						await popup.waitFor();
+						await settleAnimations(page);
+						await page.waitForFunction(
+							() => document.activeElement?.getAttribute("role") === "option",
+						);
+						const geometry = await popup.evaluate((node) => ({
+							width: (node as HTMLElement).offsetWidth,
+							padding: getComputedStyle(node).padding,
+							rowHeight:
+								node.querySelector<HTMLElement>('[role="option"]')!
+									.offsetHeight,
+						}));
+						if (
+							geometry.width < 200 ||
+							geometry.width > 260 ||
+							geometry.padding !== "4px" ||
+							geometry.rowHeight !== (width < 640 ? 44 : 32)
+						)
+							throw new Error(`Filter geometry: ${JSON.stringify(geometry)}`);
+						if (
+							await popup
+								.getByRole("button", { name: "What you decided" })
+								.count()
+						)
+							throw new Error("Deck view toggle is inside the Kind filter");
+						await page.keyboard.type("Answer");
+						await page.keyboard.press("Enter");
+						await popup.waitFor({ state: "hidden" });
+						await page.waitForFunction(() =>
+							document
+								.querySelector('[aria-label="Decision kind"]')
+								?.textContent?.includes("Answer"),
+						);
+						await page.waitForFunction(
+							() =>
+								document.activeElement?.getAttribute("aria-label") ===
+								"Decision kind",
+						);
+						await kind.click();
+						await settleAnimations(page);
+						await page.waitForFunction(
+							() => document.activeElement?.getAttribute("role") === "option",
+						);
+						if (
+							(await page
+								.getByRole("option", { name: "Answer", exact: true })
+								.getAttribute("aria-selected")) !== "true"
+						)
+							throw new Error("Kind selection was not retained");
+						await page.keyboard.press("Home");
+						await page.keyboard.press("Enter");
+						await popup.waitFor({ state: "hidden" });
+						const project = page.getByRole("combobox", {
+							name: "Decision project",
+						});
+						await project.click();
+						await settleAnimations(page);
+						await page.waitForFunction(
+							() => document.activeElement?.getAttribute("role") === "option",
+						);
+						await page.keyboard.type("All projects");
+						await page.keyboard.press("Enter");
+						await popup.waitFor({ state: "hidden" });
+						const urgency = page.getByRole("combobox", {
+							name: "Decision urgency",
+						});
+						await urgency.click();
+						await settleAnimations(page);
+						await page.waitForFunction(
+							() => document.activeElement?.getAttribute("role") === "option",
+						);
+						await page.keyboard.press("Home");
+						await page.keyboard.press("ArrowDown");
+						await page.keyboard.press("Enter");
+						await popup.waitFor({ state: "hidden" });
+						await page.waitForFunction(() =>
+							document
+								.querySelector('[aria-label="Decision urgency"]')
+								?.textContent?.includes("Needs you now"),
+						);
+						await urgency.click();
+						await settleAnimations(page);
+						await page.waitForFunction(
+							() => document.activeElement?.getAttribute("role") === "option",
+						);
+						await page.keyboard.press("Home");
+						await page.keyboard.press("Enter");
+						await popup.waitFor({ state: "hidden" });
+						await kind.click();
+						await settleAnimations(page);
+						await page.waitForFunction(
+							() => document.activeElement?.getAttribute("role") === "option",
+						);
+						await page.keyboard.press("Escape");
+						await popup.waitFor({ state: "hidden" });
+						if (width === 390) await page.keyboard.press("Escape");
+						const url = page.url();
+						await page
+							.getByRole("button", { name: "What you decided", exact: true })
+							.click();
+						if (page.url() !== url)
+							throw new Error("View toggle changed route state");
+						await page
+							.getByRole("button", { name: "For you", exact: true })
+							.click();
+					}
+					const trigger = page.locator("header").getByRole("button", {
+						name: "Decision context",
 						exact: true,
 					});
-					const kind = page.getByRole("combobox", { name: "Decision kind" });
-					if (width === 390) await filters.click();
-					await kind.focus();
+					await trigger.waitFor();
+					const before = (await page
+						.locator(".fd-context-main")
+						.boundingBox())!;
+					const target = (await trigger.boundingBox())!;
+					if (width === 390 && (target.width < 44 || target.height < 44))
+						throw new Error("Context entry is below the mobile touch floor");
+					await trigger.focus();
 					await page.keyboard.press("Enter");
-					const popup = page.locator(".fd-filter-options:visible");
-					await popup.waitFor();
+					const dialog = page.locator("[data-decision-context]:visible");
+					await dialog.waitFor();
 					await settleAnimations(page);
-					await page.waitForFunction(
-						() => document.activeElement?.getAttribute("role") === "option",
-					);
-					const geometry = await popup.evaluate((node) => ({
-						width: (node as HTMLElement).offsetWidth,
-						padding: getComputedStyle(node).padding,
-						rowHeight:
-							node.querySelector<HTMLElement>('[role="option"]')!.offsetHeight,
-					}));
+					const after = (await page.locator(".fd-context-main").boundingBox())!;
 					if (
-						geometry.width < 200 ||
-						geometry.width > 260 ||
-						geometry.padding !== "4px" ||
-						geometry.rowHeight !== (width < 640 ? 44 : 32)
+						Math.abs(before.width - after.width) > 1 ||
+						Math.abs(before.x - after.x) > 1
 					)
-						throw new Error(`Filter geometry: ${JSON.stringify(geometry)}`);
+						throw new Error("Opening context changed the main column geometry");
+					if ((await dialog.getAttribute("role")) !== "dialog")
+						throw new Error("Context entry did not open a Kumo Sheet");
+					if (process.env.TEDIX_SCREENSHOT_DIR)
+						await page.screenshot({
+							path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-context-${surface === "question" ? "deck" : "feed"}-${width}-${theme}-${palette}.png`,
+						});
+					for (let i = 0; i < 8; i++) {
+						await page.keyboard.press("Tab");
+						await page.waitForFunction(() =>
+							document.activeElement?.closest("[data-decision-context]"),
+						);
+					}
 					if (
-						await popup
-							.getByRole("button", { name: "What you decided" })
-							.count()
+						await page.evaluate(
+							() => document.documentElement.scrollWidth > innerWidth,
+						)
 					)
-						throw new Error("Deck view toggle is inside the Kind filter");
-					await page.keyboard.type("Answer");
-					await page.keyboard.press("Enter");
-					await popup.waitFor({ state: "hidden" });
-					await page.waitForFunction(() =>
-						document
-							.querySelector('[aria-label="Decision kind"]')
-							?.textContent?.includes("Answer"),
-					);
+						throw new Error(`Context overflows at ${width}/${theme}`);
+					await page.keyboard.press("Escape");
+					await dialog.waitFor({ state: "hidden" });
 					await page.waitForFunction(
 						() =>
 							document.activeElement?.getAttribute("aria-label") ===
-							"Decision kind",
+							"Decision context",
 					);
-					await kind.click();
-					await settleAnimations(page);
-					await page.waitForFunction(
-						() => document.activeElement?.getAttribute("role") === "option",
-					);
-					if (
-						(await page
-							.getByRole("option", { name: "Answer", exact: true })
-							.getAttribute("aria-selected")) !== "true"
-					)
-						throw new Error("Kind selection was not retained");
-					await page.keyboard.press("Home");
-					await page.keyboard.press("Enter");
-					await popup.waitFor({ state: "hidden" });
-					const project = page.getByRole("combobox", {
-						name: "Decision project",
-					});
-					await project.click();
-					await settleAnimations(page);
-					await page.waitForFunction(
-						() => document.activeElement?.getAttribute("role") === "option",
-					);
-					await page.keyboard.type("All projects");
-					await page.keyboard.press("Enter");
-					await popup.waitFor({ state: "hidden" });
-					const urgency = page.getByRole("combobox", {
-						name: "Decision urgency",
-					});
-					await urgency.click();
-					await settleAnimations(page);
-					await page.waitForFunction(
-						() => document.activeElement?.getAttribute("role") === "option",
-					);
-					await page.keyboard.press("Home");
-					await page.keyboard.press("ArrowDown");
-					await page.keyboard.press("Enter");
-					await popup.waitFor({ state: "hidden" });
-					await page.waitForFunction(() =>
-						document
-							.querySelector('[aria-label="Decision urgency"]')
-							?.textContent?.includes("Needs you now"),
-					);
-					await urgency.click();
-					await settleAnimations(page);
-					await page.waitForFunction(
-						() => document.activeElement?.getAttribute("role") === "option",
-					);
-					await page.keyboard.press("Home");
-					await page.keyboard.press("Enter");
-					await popup.waitFor({ state: "hidden" });
-					await kind.click();
-					await settleAnimations(page);
-					await page.waitForFunction(
-						() => document.activeElement?.getAttribute("role") === "option",
-					);
-					await page.keyboard.press("Escape");
-					await popup.waitFor({ state: "hidden" });
-					if (width === 390) await page.keyboard.press("Escape");
-					const url = page.url();
-					await page
-						.getByRole("button", { name: "What you decided", exact: true })
-						.click();
-					if (page.url() !== url)
-						throw new Error("View toggle changed route state");
-					await page
-						.getByRole("button", { name: "For you", exact: true })
-						.click();
-				}
-				const trigger = page.locator("header").getByRole("button", {
-					name: "Decision context",
-					exact: true,
-				});
-				await trigger.waitFor();
-				const before = (await page.locator(".fd-context-main").boundingBox())!;
-				// The rail sits beside the card only when the Deck column has room.
-				const frameWidth = (await page
-					.locator(".fd-context-frame")
-					.boundingBox())!.width;
-				const inline = frameWidth >= 880;
-				const target = (await trigger.boundingBox())!;
-				if (width === 390 && (target.width < 44 || target.height < 44))
-					throw new Error("Context entry is below the mobile touch floor");
-				await trigger.focus();
-				await page.keyboard.press("Enter");
-				const dialog = page.locator("[data-decision-context]:visible");
-				await dialog.waitFor();
-				await settleAnimations(page);
-				const after = (await page.locator(".fd-context-main").boundingBox())!;
-				if (
-					!inline &&
-					(Math.abs(before.width - after.width) > 1 ||
-						Math.abs(before.x - after.x) > 1)
-				)
-					throw new Error("Opening context changed the main column geometry");
-				const rail = (await dialog.boundingBox())!;
-				if (inline) {
-					const expected = Math.min(400, Math.max(320, frameWidth * 0.3));
-					if (rail.width > 400 || Math.abs(rail.width - expected) > 1)
-						throw new Error(`Context rail width ${rail.width} at ${width}`);
-					if (Math.abs(rail.x - after.x - after.width - 32) > 1)
-						throw new Error("Card and rail gap is not 32px");
-				} else if ((await dialog.getAttribute("role")) !== "dialog") {
-					throw new Error("Narrow context did not use the topbar Sheet");
-				}
-				console.log(
-					JSON.stringify({
-						surface,
-						width,
-						theme,
-						railWidth: rail.width,
-						gap: inline ? rail.x - after.x - after.width : null,
-					}),
-				);
-				if (process.env.TEDIX_SCREENSHOT_DIR && width !== 1199)
-					await page.screenshot({
-						path: `${process.env.TEDIX_SCREENSHOT_DIR}/work-rail-${surface === "question" ? "deck" : "feed"}-${width}-${theme}.png`,
-					});
-				for (let i = 0; !inline && i < 8; i++) {
-					await page.keyboard.press("Tab");
-					await page.waitForFunction(() =>
-						document.activeElement?.closest("[data-decision-context]"),
-					);
-				}
-				if (
-					await page.evaluate(
-						() => document.documentElement.scrollWidth > innerWidth,
-					)
-				)
-					throw new Error(`Context overflows at ${width}/${theme}`);
-				await page.keyboard.press("Escape");
-				await dialog.waitFor({ state: "hidden" });
-				await page.waitForFunction(
-					() =>
-						document.activeElement?.getAttribute("aria-label") ===
-						"Decision context",
-				);
-				await page.keyboard.press("i");
-				await dialog.waitFor();
-				await page.reload();
-				await dialog.waitFor();
-				await dialog
-					.getByRole("button", { name: "Close decision context" })
-					.click();
-				await dialog.waitFor({ state: "hidden" });
-				await page.keyboard.press("Tab");
-				if (
-					await page.evaluate(() =>
-						Boolean(document.activeElement?.closest("[data-decision-context]")),
-					)
-				)
-					throw new Error("Closed context remained in keyboard navigation");
-				if (surface === "question") {
-					await page.getByRole("textbox", { name: "Your answer" }).press("i");
-					if (await dialog.isVisible())
-						throw new Error("Typing i opened context");
-					await openWhy(page);
+					await page.keyboard.press("i");
+					await dialog.waitFor();
+					await page.reload();
+					await dialog.waitFor();
 					await dialog
-						.getByRole("heading", { name: "Why am I seeing this", exact: true })
-						.waitFor();
-					await page.keyboard.press("Escape");
+						.getByRole("button", { name: "Close decision context" })
+						.click();
 					await dialog.waitFor({ state: "hidden" });
-					await page
-						.getByRole("button", { name: "Details", exact: true })
-						.click();
-					await dialog
-						.getByRole("heading", { name: "Details", exact: true })
-						.waitFor();
+					await page.keyboard.press("Tab");
+					if (
+						await page.evaluate(() =>
+							Boolean(
+								document.activeElement?.closest("[data-decision-context]"),
+							),
+						)
+					)
+						throw new Error("Closed context remained in keyboard navigation");
+					if (surface === "question") {
+						await page.getByRole("textbox", { name: "Your answer" }).press("i");
+						if (await dialog.isVisible())
+							throw new Error("Typing i opened context");
+						await openWhy(page);
+						await dialog
+							.getByRole("heading", {
+								name: "Why am I seeing this",
+								exact: true,
+							})
+							.waitFor();
+						await page.keyboard.press("Escape");
+						await dialog.waitFor({ state: "hidden" });
+						await page
+							.getByRole("button", { name: "Details", exact: true })
+							.click();
+						await dialog
+							.getByRole("heading", { name: "Details", exact: true })
+							.waitFor();
+					}
+					await page.close();
 				}
-				await page.close();
 			}
 		}
 	}
@@ -1143,7 +1131,7 @@ try {
 		});
 	await failed.close();
 	console.log(
-		"Feed and Deck: bounded context rail, responsive Sheets, retry recovery, drag/spring-back, accent, timeline and reduced motion passed.",
+		"Feed and Deck: topbar context Sheets, stable main column, custom palettes, retry recovery, drag/spring-back, timeline and reduced motion passed.",
 	);
 } finally {
 	await browser?.close();
