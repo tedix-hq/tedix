@@ -4,12 +4,14 @@ import {
 	Info,
 	LinkSimple,
 	Lock,
+	PencilSimple,
 	Prohibit,
 	UsersThree,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	OsAffectedCollaborator,
+	OsCollaboratorLink,
 	OsCollaboratorRole,
 	OsCollaboratorTarget,
 } from "@tedix/api-contract/schemas/os-collaborators";
@@ -113,6 +115,25 @@ export function removalConsequences(
 
 function errorText(error: unknown, fallback: string): string {
 	return error instanceof Error && error.message ? error.message : fallback;
+}
+
+/** After a role change, name anyone else whose access fell with it. */
+function knockOnText(
+	affected: readonly OsAffectedCollaborator[],
+	changedUserId?: string,
+): string | null {
+	const others = affected.filter((person) => person.userId !== changedUserId);
+	if (others.length === 0) return null;
+	return `${others
+		.map(
+			(person) =>
+				`${personLabel(person)} ${
+					person.newRole
+						? `now ${ROLE_LABEL[person.newRole].toLowerCase()}`
+						: "lost access"
+				}`,
+		)
+		.join("; ")}.`;
 }
 
 type PendingRemoval = {
@@ -308,6 +329,8 @@ function WorkspaceAccess(props: {
 	const [freshUrl, setFreshUrl] = useState<string | null>(null);
 	const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
 	const [pending, setPending] = useState<PendingRemoval | null>(null);
+	const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
+	const [knockOn, setKnockOn] = useState<string | null>(null);
 	const refresh = () =>
 		queryClient.invalidateQueries({ queryKey: osQueryKeys.collaborators() });
 	const origin = typeof window === "undefined" ? "" : window.location.origin;
@@ -332,6 +355,31 @@ function WorkspaceAccess(props: {
 			setFreshUrl(workspaceShareUrl(origin, workspaceId, result.key));
 			void refresh();
 		},
+	});
+	const setRole = useMutation({
+		mutationFn: (input: { userId: string; role: OsCollaboratorRole }) =>
+			osApi.osCollaborators.setRole({ workspaceId, ...input }),
+		onSuccess: (result, input) =>
+			setKnockOn(knockOnText(result.affected, input.userId)),
+		onSettled: () => void refresh(),
+	});
+	const updateLink = useMutation({
+		mutationFn: (input: {
+			linkId: string;
+			label: string;
+			role: OsCollaboratorRole;
+		}) =>
+			osApi.osCollaborators.updateLink({
+				workspaceId,
+				linkId: input.linkId,
+				role: input.role,
+				label: input.label.trim() || null,
+			}),
+		onSuccess: (result) => {
+			setEditingLinkId(null);
+			setKnockOn(knockOnText(result.affected));
+		},
+		onSettled: () => void refresh(),
 	});
 	const copyLink = useMutation({
 		mutationFn: async (linkId: string) => {
@@ -442,7 +490,9 @@ function WorkspaceAccess(props: {
 		createLink.isPending ||
 		publicToggle.isPending ||
 		preview.isPending ||
-		remove.isPending;
+		remove.isPending ||
+		setRole.isPending ||
+		updateLink.isPending;
 	const chooseAccess = (choice: AccessChoice) => {
 		if (choice === access) return;
 		if (choice === "restricted") {
@@ -543,9 +593,22 @@ function WorkspaceAccess(props: {
 							data-collaborator={person.userId}
 							trailing={
 								<>
-									<Text as="span" role="label" tone="secondary">
-										{ROLE_LABEL[person.role]}
-									</Text>
+									{person.canChangeRole ? (
+										<RoleSelect
+											ariaLabel={`Role for ${personLabel(person)}`}
+											value={person.role}
+											options={roleOptions}
+											disabled={busy}
+											onChange={(role) =>
+												role !== person.role &&
+												setRole.mutate({ userId: person.userId, role })
+											}
+										/>
+									) : (
+										<Text as="span" role="label" tone="secondary">
+											{ROLE_LABEL[person.role]}
+										</Text>
+									)}
 									{person.canRemove ? (
 										<DropdownMenu>
 											<DropdownMenuTrigger
@@ -580,6 +643,21 @@ function WorkspaceAccess(props: {
 						/>
 					))}
 				</ul>
+				{setRole.isError ? (
+					<Text role="label" tone="error" className="m-0" aria-live="polite">
+						{errorText(setRole.error, "Couldn't change that role.")}
+					</Text>
+				) : knockOn ? (
+					<Text
+						role="label"
+						tone="secondary"
+						className="m-0"
+						aria-live="polite"
+						data-role-knock-on
+					>
+						{knockOn}
+					</Text>
+				) : null}
 			</section>
 
 			{pending ? (
@@ -690,56 +768,86 @@ function WorkspaceAccess(props: {
 						{links.map((link) => (
 							<li
 								key={link.id}
-								className="flex min-h-10 items-center gap-2"
+								className="grid gap-2"
 								data-share-link={link.id}
 							>
-								<LinkSimple size={14} className="shrink-0 text-kumo-subtle" />
-								<span className="grid min-w-0 flex-1">
-									<Text as="span" role="body" className="truncate">
-										{link.label ?? "Link with sign-in"}
-									</Text>
-									<Text
-										as="span"
-										role="label"
-										tone="secondary"
-										className="truncate"
-									>
-										{ROLE_LABEL[link.role]} · made by{" "}
-										{personLabel(link.createdBy)}
-									</Text>
-								</span>
-								<DropdownMenu>
-									<DropdownMenuTrigger
-										render={
-											<Button
-												size="icon-sm"
-												variant="ghost"
-												aria-label={`Options for ${link.label ?? "link"}`}
-												disabled={busy || copyLink.isPending}
-											/>
-										}
-									>
-										<DotsThree size={16} weight="bold" />
-									</DropdownMenuTrigger>
-									<DropdownMenuContent align="end">
-										<DropdownMenuItem onClick={() => copyLink.mutate(link.id)}>
-											<LinkSimple size={14} /> Copy link
-										</DropdownMenuItem>
-										{link.canRevoke ? (
+								<div className="flex min-h-10 items-center gap-2">
+									<LinkSimple size={14} className="shrink-0 text-kumo-subtle" />
+									<span className="grid min-w-0 flex-1">
+										<Text as="span" role="body" className="truncate">
+											{link.label ?? "Link with sign-in"}
+										</Text>
+										<Text
+											as="span"
+											role="label"
+											tone="secondary"
+											className="truncate"
+										>
+											{ROLE_LABEL[link.role]} · made by{" "}
+											{personLabel(link.createdBy)}
+										</Text>
+									</span>
+									<DropdownMenu>
+										<DropdownMenuTrigger
+											render={
+												<Button
+													size="icon-sm"
+													variant="ghost"
+													aria-label={`Options for ${link.label ?? "link"}`}
+													disabled={busy || copyLink.isPending}
+												/>
+											}
+										>
+											<DotsThree size={16} weight="bold" />
+										</DropdownMenuTrigger>
+										<DropdownMenuContent align="end">
 											<DropdownMenuItem
-												variant="destructive"
-												onClick={() =>
-													preview.mutate({
-														target: { kind: "link", linkId: link.id },
-														label: link.label ?? "this link",
-													})
-												}
+												onClick={() => copyLink.mutate(link.id)}
 											>
-												<Prohibit size={14} /> Turn off
+												<LinkSimple size={14} /> Copy link
 											</DropdownMenuItem>
-										) : null}
-									</DropdownMenuContent>
-								</DropdownMenu>
+											{link.canEdit ? (
+												<DropdownMenuItem
+													onClick={() => {
+														updateLink.reset();
+														setEditingLinkId(link.id);
+													}}
+												>
+													<PencilSimple size={14} /> Edit settings
+												</DropdownMenuItem>
+											) : null}
+											{link.canRevoke ? (
+												<DropdownMenuItem
+													variant="destructive"
+													onClick={() =>
+														preview.mutate({
+															target: { kind: "link", linkId: link.id },
+															label: link.label ?? "this link",
+														})
+													}
+												>
+													<Prohibit size={14} /> Turn off
+												</DropdownMenuItem>
+											) : null}
+										</DropdownMenuContent>
+									</DropdownMenu>
+								</div>
+								{editingLinkId === link.id ? (
+									<LinkSettingsForm
+										link={link}
+										roleOptions={roleOptions}
+										pending={updateLink.isPending}
+										error={
+											updateLink.isError
+												? errorText(updateLink.error, "Couldn't save the link.")
+												: null
+										}
+										onSave={(settings) =>
+											updateLink.mutate({ linkId: link.id, ...settings })
+										}
+										onCancel={() => setEditingLinkId(null)}
+									/>
+								) : null}
 							</li>
 						))}
 					</ul>
@@ -757,18 +865,91 @@ function WorkspaceAccess(props: {
 	);
 }
 
+/**
+ * A link's label and role, changed in place. The link keeps working and its
+ * URL is never shown again.
+ */
+function LinkSettingsForm(props: {
+	link: OsCollaboratorLink;
+	roleOptions: OsCollaboratorRole[];
+	pending: boolean;
+	error: string | null;
+	onSave: (settings: { label: string; role: OsCollaboratorRole }) => void;
+	onCancel: () => void;
+}) {
+	const [label, setLabel] = useState(props.link.label ?? "");
+	const [role, setRole] = useState<OsCollaboratorRole>(props.link.role);
+	const options = props.roleOptions.includes(props.link.role)
+		? props.roleOptions
+		: [...props.roleOptions, props.link.role];
+	return (
+		<form
+			className="grid gap-2 rounded-md border border-kumo-line p-3"
+			data-link-settings
+			onSubmit={(event) => {
+				event.preventDefault();
+				props.onSave({ label, role });
+			}}
+		>
+			<div className="flex flex-col gap-2 sm:flex-row">
+				<Input
+					aria-label="Link name"
+					placeholder="Link with sign-in"
+					maxLength={120}
+					value={label}
+					onChange={(event) => setLabel(event.target.value)}
+					className="min-w-0 flex-1"
+				/>
+				<RoleSelect
+					ariaLabel="Role for people with this link"
+					value={role}
+					options={options}
+					onChange={setRole}
+				/>
+			</div>
+			<Text role="label" tone="secondary" className="m-0">
+				The link stays the same. Everyone who joined through it moves to the new
+				role.
+			</Text>
+			{props.error ? (
+				<Text role="label" tone="error" className="m-0" aria-live="polite">
+					{props.error}
+				</Text>
+			) : null}
+			<div className="flex flex-wrap gap-2">
+				<Button type="submit" size="sm" loading={props.pending}>
+					Save
+				</Button>
+				<Button
+					type="button"
+					size="sm"
+					variant="ghost"
+					onClick={props.onCancel}
+				>
+					Cancel
+				</Button>
+			</div>
+		</form>
+	);
+}
+
 function RoleSelect(props: {
 	ariaLabel: string;
 	value: OsCollaboratorRole;
 	options: OsCollaboratorRole[];
 	onChange: (role: OsCollaboratorRole) => void;
+	disabled?: boolean;
 }) {
 	return (
 		<Select
 			value={props.value}
 			onValueChange={(value) => props.onChange(value as OsCollaboratorRole)}
 		>
-			<SelectTrigger aria-label={props.ariaLabel} className="shrink-0">
+			<SelectTrigger
+				aria-label={props.ariaLabel}
+				className="shrink-0"
+				disabled={props.disabled}
+			>
 				<SelectValue>{ROLE_LABEL[props.value]}</SelectValue>
 			</SelectTrigger>
 			<SelectContent>

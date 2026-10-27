@@ -32,6 +32,7 @@ import {
 	revokeOsWorkspaceShareLink,
 	severOsWorkspaceUserAccess,
 	type TedixPersonResult,
+	updateOsWorkspaceShareLink,
 } from "@tedix/db/queries/os-collaborators";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
 import {
@@ -114,6 +115,8 @@ type WorkspaceAccess = {
 	roles: RoleMap;
 	role: OsCollaboratorRole | null;
 	isRoot: boolean;
+	/** The workspace owner, or an owner or admin of its organization. */
+	canAdminister: boolean;
 };
 
 const ORG_ROLE: Record<string, OsCollaboratorRole> = {
@@ -146,18 +149,24 @@ function toGraphEdges(rows: OsWorkspacePermissionRows): GraphEdge[] {
  * Roots hold `build` implicitly. A private workspace has one: its owner. An
  * organization workspace is already open to its organization's members, so
  * members who appear in the graph (as sharers, link creators or the caller)
- * are roots at their organization role.
+ * are roots at their organization role. Administrators are the private
+ * owner, or the organization's owners and admins.
  */
 async function loadRoots(
 	database: DbQueryClient,
 	workspace: OsWorkspaceRow,
 	rows: OsWorkspacePermissionRows,
 	callerId: string,
-): Promise<Map<string, OsCollaboratorRole>> {
+): Promise<{
+	roots: Map<string, OsCollaboratorRole>;
+	administrators: Set<string>;
+}> {
 	if (workspace.visibility === "private") {
-		return new Map(
-			workspace.ownerUserId ? [[workspace.ownerUserId, "build"] as const] : [],
-		);
+		const owner = workspace.ownerUserId;
+		return {
+			roots: new Map(owner ? [[owner, "build"] as const] : []),
+			administrators: new Set(owner ? [owner] : []),
+		};
 	}
 	const candidates = new Set<string>([callerId]);
 	for (const edge of rows.edges) {
@@ -169,12 +178,19 @@ async function loadRoots(
 		organizationId: workspace.organizationId,
 		userIds: [...candidates],
 	});
-	return new Map(
-		members.flatMap((member) => {
-			const role = ORG_ROLE[member.role];
-			return role ? [[member.userId, role] as const] : [];
-		}),
-	);
+	return {
+		roots: new Map(
+			members.flatMap((member) => {
+				const role = ORG_ROLE[member.role];
+				return role ? [[member.userId, role] as const] : [];
+			}),
+		),
+		administrators: new Set(
+			members
+				.filter((member) => member.role === "owner" || member.role === "admin")
+				.map((member) => member.userId),
+		),
+	};
 }
 
 async function loadAccess(
@@ -186,7 +202,12 @@ async function loadAccess(
 		organizationId: workspace.organizationId,
 		workspaceId: workspace.id,
 	});
-	const roots = await loadRoots(database, workspace, rows, callerId);
+	const { roots, administrators } = await loadRoots(
+		database,
+		workspace,
+		rows,
+		callerId,
+	);
 	const graph: PermissionGraph = {
 		roots,
 		edges: toGraphEdges(rows),
@@ -206,6 +227,7 @@ async function loadAccess(
 		roles,
 		role: roles.get(callerId) ?? null,
 		isRoot: roots.has(callerId),
+		canAdminister: administrators.has(callerId),
 	};
 }
 
@@ -515,6 +537,7 @@ export async function listWorkspaceSharing(
 					role,
 					addedBy,
 					canRemove: access.isRoot || callerHasOwnEdge(access, row.userId),
+					canChangeRole: access.canAdminister,
 					lastOpenedAt: row.lastOpenedAt,
 				},
 			];
@@ -528,6 +551,7 @@ export async function listWorkspaceSharing(
 			createdBy: personView(directory, link.creatorUserId),
 			createdAt: link.createdAt,
 			canRevoke: access.isRoot || link.creatorUserId === access.callerId,
+			canEdit: access.canAdminister,
 		}));
 	return {
 		role: access.role as OsCollaboratorRole,
@@ -598,6 +622,7 @@ export async function addWorkspaceCollaborator(
 		role: after.roles.get(person.userId) ?? input.role,
 		addedBy: [sharer?.name ?? sharer?.email ?? "You"],
 		canRemove: true,
+		canChangeRole: access.canAdminister,
 		lastOpenedAt: null,
 	};
 }
@@ -638,6 +663,7 @@ export async function createWorkspaceShareLink(
 			},
 			createdAt: link.createdAt,
 			canRevoke: true,
+			canEdit: access.canAdminister,
 		},
 	};
 }
@@ -800,4 +826,130 @@ export async function removeWorkspaceAccess(
 		principalIds: fell.map((change) => change.userId),
 	});
 	return affectedView(context, access, fell);
+}
+
+const ADMINISTER_DENIED =
+	"Only the workspace owner or an organization admin can change access settings";
+
+/**
+ * Write a role or link change, then end live app sessions for anyone whose
+ * access fell, and report them.
+ */
+async function applyAccessChange(
+	context: BaseContext,
+	access: WorkspaceAccess,
+	write: () => Promise<void>,
+): Promise<OsAffectedCollaborator[]> {
+	const database = db(context);
+	await write();
+	const after = await loadAccess(database, access.workspace, access.callerId);
+	const fell = diffRoles(access.roles, after.roles);
+	await cutWorkspaceAppSessions(context.env, {
+		organizationId: access.workspace.organizationId,
+		workspaceId: access.workspace.id,
+		principalIds: fell.map((change) => change.userId),
+	});
+	return affectedView(context, access, fell);
+}
+
+/**
+ * Set one person's role: every grant to them is replaced by a single grant
+ * from the caller. People they shared with follow, since an edge never grants
+ * more than its sharer holds.
+ */
+export async function setWorkspaceCollaboratorRole(
+	context: BaseContext,
+	input: { workspaceId: string; userId: string; role: OsCollaboratorRole },
+): Promise<OsAffectedCollaborator[]> {
+	const access = await requireWorkspaceCollaboratorAccess(
+		context,
+		input.workspaceId,
+		"sharing.write",
+	);
+	if (!access.canAdminister)
+		throw createError(ErrorCodes.FORBIDDEN, ADMINISTER_DENIED);
+	requireGrantable(access, input.role);
+	if (access.graph.roots.has(input.userId))
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"The owner's access can't be changed here",
+		);
+	const row = access.rows.collaborators.find((c) => c.userId === input.userId);
+	if (!row || !access.roles.has(input.userId))
+		throw createError(ErrorCodes.NOT_FOUND, "That person has no access");
+	return applyAccessChange(context, access, () =>
+		severOsWorkspaceUserAccess(db(context), {
+			organizationId: access.workspace.organizationId,
+			workspaceId: access.workspace.id,
+			targetUserId: input.userId,
+			now: new Date().toISOString(),
+			keepEdges: [
+				{
+					kind: "user",
+					targetUserId: input.userId,
+					targetEmail: row.email,
+					targetName: row.name,
+					sharerUserId: access.callerId,
+					role: input.role,
+				},
+			],
+		}),
+	);
+}
+
+/** Change a link's label or role in place; its keys keep working. */
+export async function updateWorkspaceShareLink(
+	context: BaseContext,
+	input: {
+		workspaceId: string;
+		linkId: string;
+		role?: OsCollaboratorRole;
+		label?: string | null;
+	},
+): Promise<{ link: OsCollaboratorLink; affected: OsAffectedCollaborator[] }> {
+	const access = await requireWorkspaceCollaboratorAccess(
+		context,
+		input.workspaceId,
+		"sharing.write",
+	);
+	if (!access.canAdminister)
+		throw createError(ErrorCodes.FORBIDDEN, ADMINISTER_DENIED);
+	if (input.role) requireGrantable(access, input.role);
+	const existing = access.rows.links.find((link) => link.id === input.linkId);
+	if (!existing || existing.revokedAt)
+		throw createError(ErrorCodes.NOT_FOUND, "Share link not found");
+	const set = {
+		...(input.role ? { role: input.role } : {}),
+		...(input.label !== undefined
+			? { label: input.label?.trim() || null }
+			: {}),
+	};
+	let updated = existing;
+	const affected =
+		Object.keys(set).length === 0
+			? []
+			: await applyAccessChange(context, access, async () => {
+					const row = await updateOsWorkspaceShareLink(db(context), {
+						organizationId: access.workspace.organizationId,
+						workspaceId: access.workspace.id,
+						linkId: existing.id,
+						set,
+					});
+					if (!row)
+						throw createError(ErrorCodes.NOT_FOUND, "Share link not found");
+					updated = row;
+				});
+	const directory = await people(db(context), access, [updated.creatorUserId]);
+	return {
+		link: {
+			id: updated.id,
+			role: updated.role,
+			label: updated.label,
+			createdBy: personView(directory, updated.creatorUserId),
+			createdAt: updated.createdAt,
+			canRevoke: true,
+			canEdit: true,
+		},
+		affected,
+	};
 }

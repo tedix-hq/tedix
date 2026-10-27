@@ -386,6 +386,45 @@ export const osSharesContract = oc
 							),
 					}),
 				),
+			update: oc
+				.route({
+					method: "PATCH",
+					path: "/shares/{shareId}",
+					summary: "Change a share link's note, expiry or role",
+					description:
+						"Edits an active link in place: the link keeps working and its URL is never returned again. Requires os:admin. Narrowing the role or bringing the expiry forward ends live redemption sessions; recipients reopen the same link at the new settings.",
+				})
+				.input(
+					z
+						.object({
+							shareId: z.string().uuid(),
+							role: OsShareRoleSchema.optional().describe(
+								"New authored role; outputs stay viewer, App and workspace links use or build",
+							),
+							note: z
+								.string()
+								.trim()
+								.max(240)
+								.nullable()
+								.optional()
+								.describe("New recipient-facing note; null or empty clears it"),
+							expiresAt: z
+								.string()
+								.datetime({ offset: true })
+								.nullable()
+								.optional()
+								.describe(
+									"New future ISO-8601 expiry; null makes the link never expire",
+								),
+						})
+						.strict(),
+				)
+				.output(
+					z.object({
+						share: OsShareLinkSchema,
+						revokedSessionCount: z.number().int().nonnegative(),
+					}),
+				),
 			previewRevoke: oc
 				.route({
 					method: "GET",

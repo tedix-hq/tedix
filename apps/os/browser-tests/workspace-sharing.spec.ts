@@ -25,6 +25,7 @@ const kai = {
 	role: "build",
 	addedBy: ["Robin"],
 	canRemove: true,
+	canChangeRole: true,
 	lastOpenedAt: null,
 };
 const zoe = {
@@ -34,6 +35,7 @@ const zoe = {
 	role: "use",
 	addedBy: ["Kai Fictional"],
 	canRemove: true,
+	canChangeRole: true,
 	lastOpenedAt: null,
 };
 
@@ -145,8 +147,23 @@ document.querySelector('button').onclick = async () => { const result = await te
 						createdBy: { userId: "member-robin", email: null, name: "Robin" },
 						createdAt: "2026-10-25T10:00:00.000Z",
 						canRevoke: true,
+						canEdit: true,
 					},
 				],
+			};
+		else if (endpoint === "setRole") json = { affected: [] };
+		else if (endpoint === "updateLink")
+			json = {
+				link: {
+					id: input.linkId,
+					role: input.role,
+					label: input.label,
+					createdBy: { userId: "member-robin", email: null, name: "Robin" },
+					createdAt: "2026-10-25T10:00:00.000Z",
+					canRevoke: true,
+					canEdit: true,
+				},
+				affected: [],
 			};
 		else if (endpoint === "add")
 			json = {
@@ -175,6 +192,7 @@ document.querySelector('button').onclick = async () => { const result = await te
 					createdBy: { userId: "member-robin", email: null, name: "Robin" },
 					createdAt: "2026-10-25T11:00:00.000Z",
 					canRevoke: true,
+					canEdit: true,
 				},
 			};
 		else if (endpoint === "access") {
@@ -238,6 +256,12 @@ document.querySelector('button').onclick = async () => { const result = await te
 		});
 	});
 	return calls;
+}
+
+async function expectCall(calls: Calls, endpoint: string, expected: unknown) {
+	for (let attempt = 0; attempt < 50 && !calls[endpoint]; attempt++)
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.deepEqual(calls[endpoint]?.[0], expected);
 }
 
 async function assertFits(page: Page, width: number, label: string) {
@@ -324,6 +348,45 @@ try {
 					email: "lee@example.test",
 					role: "use",
 				});
+
+				// Owners change a person's role in place from their row.
+				await dialog
+					.getByRole("combobox", { name: "Role for Zoe Fictional" })
+					.click();
+				await page.getByRole("option", { name: "Can build" }).click();
+				await dialog
+					.getByRole("combobox", { name: "Role for Kai Fictional" })
+					.waitFor();
+				await expectCall(calls, "setRole", {
+					workspaceId: WORKSPACE_ID,
+					userId: "member-zoe",
+					role: "build",
+				});
+
+				// A link's settings change without minting or showing its URL.
+				await dialog
+					.getByRole("button", {
+						name: "Options for Reviewers with a rather long link name",
+					})
+					.click();
+				await page.getByRole("menuitem", { name: "Edit settings" }).click();
+				const settings = dialog.locator("[data-link-settings]");
+				await settings.getByLabel("Link name").fill("Reviewers");
+				await assertFits(page, width, `link settings ${width} ${theme}`);
+				await page.screenshot({
+					path: `${directory}/dialog-link-settings-${width}-${theme}.png`,
+					fullPage: true,
+				});
+				await settings.getByRole("button", { name: "Save" }).click();
+				await settings.waitFor({ state: "detached" });
+				await expectCall(calls, "updateLink", {
+					workspaceId: WORKSPACE_ID,
+					linkId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+					role: "use",
+					label: "Reviewers",
+				});
+				assert.equal(await dialog.locator("[data-fresh-link]").count(), 0);
+				assert.equal(calls.copyLink, undefined);
 
 				await dialog
 					.getByRole("button", { name: "Options for Kai Fictional" })

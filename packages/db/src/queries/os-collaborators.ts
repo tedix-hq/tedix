@@ -362,6 +362,29 @@ export async function createOsWorkspaceShareLink(
 	return link;
 }
 
+/** Change an active link's label or role; undefined when missing or revoked. */
+export async function updateOsWorkspaceShareLink(
+	db: DbQueryClient,
+	params: OsWorkspaceGraphScopeParams & {
+		linkId: string;
+		set: { role?: OsCollaboratorRole; label?: string | null };
+	},
+): Promise<OsWorkspaceShareLinkRow | undefined> {
+	const [row] = await db
+		.update(osWorkspaceShareLinks)
+		.set(params.set)
+		.where(
+			and(
+				eq(osWorkspaceShareLinks.organizationId, params.organizationId),
+				eq(osWorkspaceShareLinks.workspaceId, params.workspaceId),
+				eq(osWorkspaceShareLinks.id, params.linkId),
+				isNull(osWorkspaceShareLinks.revokedAt),
+			),
+		)
+		.returning();
+	return row;
+}
+
 /** Mint another key for an active link; returns false when it is revoked. */
 export async function addOsWorkspaceShareKey(
 	db: DbQueryClient,

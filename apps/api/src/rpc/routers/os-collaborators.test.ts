@@ -692,4 +692,139 @@ describe("workspace collaborators", () => {
 			},
 		);
 	});
+
+	it("lets only the owner change a person's role, and dependents follow", async () => {
+		const { env, workspaceId } = await seed();
+		const { key } = await as(env, ROBIN).createLink({
+			workspaceId,
+			role: "build",
+		});
+		await as(env, KAI).open({ workspaceId, shareKey: key });
+		await as(env, KAI).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "build",
+		});
+		const byOwner = await as(env, ROBIN).list({ workspaceId });
+		expect(byOwner.collaborators.every((c) => c.canChangeRole)).toBe(true);
+		expect(byOwner.links.every((l) => l.canEdit)).toBe(true);
+		const byKai = await as(env, KAI).list({ workspaceId });
+		expect(byKai.collaborators.some((c) => c.canChangeRole)).toBe(false);
+		expect(byKai.links.some((l) => l.canEdit)).toBe(false);
+
+		await expect(
+			as(env, KAI).setRole({ workspaceId, userId: ZOE, role: "use" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			as(env, ROBIN).setRole({ workspaceId, userId: ROBIN, role: "use" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			as(env, ROBIN).setRole({ workspaceId, userId: STRANGER, role: "use" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			as(env, STRANGER).setRole({ workspaceId, userId: KAI, role: "use" }),
+		).rejects.toMatchObject(DENIED);
+
+		// Kai joined through the build link; his role is set without it.
+		const changed = await as(env, ROBIN).setRole({
+			workspaceId,
+			userId: KAI,
+			role: "use",
+		});
+		expect(changed.affected.map((a) => [a.userId, a.newRole])).toEqual([
+			[KAI, "use"],
+			[ZOE, "use"],
+		]);
+		expect((await as(env, KAI).open({ workspaceId })).role).toBe("use");
+		expect((await as(env, ZOE).open({ workspaceId })).role).toBe("use");
+
+		await as(env, ROBIN).setRole({ workspaceId, userId: KAI, role: "build" });
+		expect((await as(env, ZOE).open({ workspaceId })).role).toBe("build");
+		const listed = await as(env, ROBIN).list({ workspaceId });
+		expect(listed.collaborators.find((c) => c.userId === KAI)).toMatchObject({
+			role: "build",
+			addedBy: ["Robin"],
+		});
+	});
+
+	it("edits a link's label and role in place, keeping its keys", async () => {
+		const { env, sqlite, workspaceId } = await seed();
+		const { link, key } = await as(env, ROBIN).createLink({
+			workspaceId,
+			role: "use",
+			label: "Reviewers",
+		});
+		await as(env, LEE).open({ workspaceId, shareKey: key });
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "kai@example.test",
+			role: "build",
+		});
+		await expect(
+			as(env, KAI).updateLink({ workspaceId, linkId: link.id, role: "build" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+		const raised = await as(env, ROBIN).updateLink({
+			workspaceId,
+			linkId: link.id,
+			role: "build",
+			label: "Builders",
+		});
+		expect(raised.link).toMatchObject({
+			id: link.id,
+			role: "build",
+			label: "Builders",
+		});
+		expect(raised).not.toHaveProperty("key");
+		expect(raised.affected).toEqual([]);
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM os_workspace_share_keys").get(),
+		).toMatchObject({ n: 1 });
+		expect((await as(env, LEE).open({ workspaceId })).role).toBe("build");
+		expect((await as(env, ZOE).open({ workspaceId, shareKey: key })).role).toBe(
+			"build",
+		);
+
+		const lowered = await as(env, ROBIN).updateLink({
+			workspaceId,
+			linkId: link.id,
+			role: "use",
+			label: null,
+		});
+		expect(lowered.link.label).toBeNull();
+		expect(lowered.affected.map((a) => [a.userId, a.newRole])).toEqual([
+			[LEE, "use"],
+			[ZOE, "use"],
+		]);
+
+		await as(env, ROBIN).remove({
+			workspaceId,
+			target: { kind: "link", linkId: link.id },
+		});
+		await expect(
+			as(env, ROBIN).updateLink({ workspaceId, linkId: link.id, role: "use" }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+
+	it("lets an organization admin, not any member, change roles in an organization workspace", async () => {
+		const { env, sqlite } = createEnv();
+		const { workspace } = await workspacesAs(env, ROBIN).workspaces.create({
+			name: "Team space",
+			visibility: "org",
+		});
+		const workspaceId = workspace.id;
+		await as(env, ROBIN).add({
+			workspaceId,
+			email: "zoe@example.test",
+			role: "build",
+		});
+		await expect(
+			as(env, KAI).setRole({ workspaceId, userId: ZOE, role: "use" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		sqlite.exec(
+			"UPDATE organization_members SET role = 'admin' WHERE id = 'm-kai'",
+		);
+		await as(env, KAI).setRole({ workspaceId, userId: ZOE, role: "use" });
+		expect((await as(env, ZOE).access({ workspaceId })).role).toBe("use");
+	});
 });

@@ -5040,6 +5040,7 @@ type LocalCollaborator = {
 	role: "use" | "build";
 	addedBy: string[];
 	canRemove: boolean;
+	canChangeRole: boolean;
 	lastOpenedAt: string | null;
 };
 type LocalCollaboratorLink = {
@@ -5049,6 +5050,7 @@ type LocalCollaboratorLink = {
 	createdBy: { userId: string; email: string | null; name: string | null };
 	createdAt: string;
 	canRevoke: boolean;
+	canEdit: boolean;
 };
 const localCollaborators = new Map<string, LocalCollaborator[]>();
 const localCollaboratorLinks = new Map<string, LocalCollaboratorLink[]>();
@@ -7856,6 +7858,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			role: input.role,
 			addedBy: ["You"],
 			canRemove: true,
+			canChangeRole: true,
 			lastOpenedAt: null,
 		};
 		const people = (localCollaborators.get(input.workspaceId) ?? []).filter(
@@ -7877,12 +7880,54 @@ const handlers: Record<string, (input: never) => unknown> = {
 			createdBy: { userId: "local-you", email: null, name: "You" },
 			createdAt: now(),
 			canRevoke: true,
+			canEdit: true,
 		};
 		localCollaboratorLinks.set(input.workspaceId, [
 			link,
 			...(localCollaboratorLinks.get(input.workspaceId) ?? []),
 		]);
 		return { link, key: localShareKey() };
+	},
+	"osCollaborators/setRole": (input: {
+		workspaceId: string;
+		userId: string;
+		role: "use" | "build";
+	}) => {
+		const person = (localCollaborators.get(input.workspaceId) ?? []).find(
+			(candidate) => candidate.userId === input.userId,
+		);
+		if (!person) throw new RpcError("NOT_FOUND", "That person has no access");
+		const oldRole = person.role;
+		person.role = input.role;
+		person.addedBy = ["You"];
+		return {
+			affected:
+				oldRole === "build" && input.role === "use"
+					? [
+							{
+								userId: person.userId,
+								email: person.email,
+								name: person.name,
+								oldRole,
+								newRole: input.role,
+							},
+						]
+					: [],
+		};
+	},
+	"osCollaborators/updateLink": (input: {
+		workspaceId: string;
+		linkId: string;
+		role?: "use" | "build";
+		label?: string | null;
+	}) => {
+		const link = (localCollaboratorLinks.get(input.workspaceId) ?? []).find(
+			(candidate) => candidate.id === input.linkId,
+		);
+		if (!link) throw new RpcError("NOT_FOUND", "Share link not found");
+		if (input.role) link.role = input.role;
+		if (input.label !== undefined) link.label = input.label?.trim() || null;
+		return { link, affected: [] };
 	},
 	"osCollaborators/copyLink": () => ({ key: localShareKey() }),
 	"osCollaborators/previewRemove": (input: {
@@ -7967,6 +8012,23 @@ const handlers: Record<string, (input: never) => unknown> = {
 		const key = `${input.resourceType}:${input.resourceId}`;
 		localShareLinks.set(key, [share, ...(localShareLinks.get(key) ?? [])]);
 		return { share, token: localShareKey() };
+	},
+	"osShares/shares/update": (input: {
+		shareId: string;
+		role?: OsShareLink["role"];
+		note?: string | null;
+		expiresAt?: string | null;
+	}) => {
+		const share = findLocalShareLink(input.shareId);
+		if (share.revokedAt)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"This link is turned off. Make a new link instead.",
+			);
+		if (input.role) share.role = input.role;
+		if (input.note !== undefined) share.note = input.note?.trim() || null;
+		if (input.expiresAt !== undefined) share.expiresAt = input.expiresAt;
+		return { share, revokedSessionCount: 0 };
 	},
 	"osShares/shares/previewRevoke": (input: { shareId: string }) => ({
 		share: findLocalShareLink(input.shareId),

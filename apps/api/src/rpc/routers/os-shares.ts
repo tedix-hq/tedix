@@ -10,6 +10,7 @@ import {
 	listOsShareLinks,
 	restrictOsShareLink,
 	revokeOsShareLink,
+	updateOsShareLinkSettings,
 } from "@tedix/db/queries/os-shares";
 import {
 	getOsGadget,
@@ -424,6 +425,70 @@ const sharesRevoke = authorOs.shares.revoke.handler(
 
 const ROLE_RANK = { viewer: 0, use: 1, build: 2 } as const;
 
+/**
+ * Edit an active link without minting a new token. Only organization owners
+ * and admins (os:admin) may change who a live link reaches.
+ */
+const sharesUpdate = adminOs.shares.update.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const db = queryDb(context);
+		const current = await getScopedOsShareLink(db, {
+			organizationId,
+			shareLinkId: input.shareId,
+		});
+		if (!current)
+			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		if (current.revokedAt)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"This link is turned off. Make a new link instead.",
+			);
+		const role = input.role ?? current.role;
+		if ((current.resourceType === "output") !== (role === "viewer"))
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				current.resourceType === "output"
+					? "Output shares are read-only viewer links"
+					: "App and workspace shares use the use or build role",
+			);
+		const expiresAt =
+			input.expiresAt === undefined ? current.expiresAt : input.expiresAt;
+		if (input.expiresAt) {
+			const expiry = Date.parse(input.expiresAt);
+			if (!Number.isFinite(expiry) || expiry <= Date.now())
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"expiresAt must be a future timestamp",
+				);
+		}
+		const note =
+			input.note === undefined ? current.note : input.note?.trim() || null;
+		const narrowed = ROLE_RANK[role] < ROLE_RANK[current.role];
+		const expiresSooner =
+			expiresAt !== null &&
+			(current.expiresAt === null ||
+				Date.parse(expiresAt) < Date.parse(current.expiresAt));
+		const result = await updateOsShareLinkSettings(db, {
+			organizationId,
+			shareLinkId: current.id,
+			set: { role, note, expiresAt },
+			endSessions: narrowed || expiresSooner,
+		});
+		if (!result)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"This link is turned off. Make a new link instead.",
+			);
+		if (narrowed || expiresSooner)
+			await cutShareLinkAppSessions(context, db, result.share);
+		return {
+			share: mapShareLink(result.share),
+			revokedSessionCount: result.revokedSessionCount,
+		};
+	},
+);
+
 const sharesRestrict = authorOs.shares.restrict.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
@@ -520,6 +585,7 @@ export const osSharesContractRouter = osSharesOs.router({
 	shares: {
 		create: sharesCreate,
 		list: sharesList,
+		update: sharesUpdate,
 		previewRevoke: sharesPreviewRevoke,
 		revoke: sharesRevoke,
 		restrict: sharesRestrict,
