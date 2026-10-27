@@ -150,6 +150,22 @@ const typography = advanced([
 		max: 40,
 		step: 0.1,
 	},
+	{
+		kind: "number",
+		key: "padding",
+		label: "Padding",
+		min: 0,
+		max: 200,
+		step: 1,
+		placeholder: 0,
+	},
+	{
+		kind: "select",
+		key: "verticalAlign",
+		label: "Vertical align",
+		options: ["top", "middle", "bottom"],
+		fallback: "top",
+	},
 ]);
 const border = advanced([
 	{
@@ -198,12 +214,12 @@ const appearance = advanced([
 const SLIDE_GEOMETRY_FIELDS = advanced([
 	{ kind: "number", key: "x", label: "X", min: 0, max: PRESENTATION_WIDTH },
 	{ kind: "number", key: "y", label: "Y", min: 0, max: PRESENTATION_HEIGHT },
-	{ kind: "number", key: "width", label: "W", min: 8, max: PRESENTATION_WIDTH },
+	{ kind: "number", key: "width", label: "W", min: 1, max: PRESENTATION_WIDTH },
 	{
 		kind: "number",
 		key: "height",
 		label: "H",
-		min: 8,
+		min: 1,
 		max: PRESENTATION_HEIGHT,
 	},
 ]);

@@ -1116,8 +1116,8 @@ export const OsPresentationElementSchema = z.object({
 	type: OsPresentationElementTypeSchema,
 	x: z.number().min(0).max(1_200),
 	y: z.number().min(0).max(675),
-	width: z.number().min(8).max(1_200),
-	height: z.number().min(8).max(675),
+	width: z.number().min(1).max(1_200),
+	height: z.number().min(1).max(675),
 	text: z
 		.string()
 		.max(20_000)
@@ -1161,6 +1161,16 @@ export const OsPresentationElementSchema = z.object({
 				.describe(
 					"Letter spacing in pixels on the 1200-wide canvas; omitted for normal spacing",
 				),
+			padding: z
+				.number()
+				.min(0)
+				.max(200)
+				.optional()
+				.describe("Inner padding in canvas pixels; omitted for no padding"),
+			verticalAlign: z
+				.enum(["top", "middle", "bottom"])
+				.optional()
+				.describe("Vertical text alignment; omitted for top alignment"),
 			color: z
 				.string()
 				.max(32)

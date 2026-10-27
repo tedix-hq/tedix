@@ -54,6 +54,8 @@ describe("slide styles", () => {
 				fontWeight: "light",
 				lineHeight: 2.5,
 				letterSpacing: -1.2,
+				padding: 24,
+				verticalAlign: "middle",
 				borderWidth: 2,
 				borderStyle: "dashed",
 			},
@@ -62,12 +64,16 @@ describe("slide styles", () => {
 			fontWeight: 300,
 			lineHeight: 2.5,
 			letterSpacing: "calc(-1.2 * 100cqw / 1200)",
+			padding: "calc(24 * 100cqw / 1200)",
+			display: "flex",
+			justifyContent: "center",
 			borderStyle: "dashed",
 		});
 		expect(slideElementStyle(styled, "pixels")).toMatchObject({
 			fontWeight: 300,
 			lineHeight: 2.5,
 			letterSpacing: "-1.2px",
+			padding: "24px",
 			borderWidth: "2px",
 			borderStyle: "dashed",
 		});
@@ -86,6 +92,25 @@ describe("slide styles", () => {
 				style: { borderWidth: 1, borderStyle: "dotted" },
 			}).borderStyle,
 		).toBe("dotted");
+	});
+
+	it("accepts hairline elements and aligns padded text at either edge", () => {
+		expect(
+			OsPresentationElementSchema.parse({
+				...element,
+				type: "divider",
+				height: 1,
+			}),
+		).toMatchObject({ height: 1 });
+		expect(
+			slideElementStyle(
+				{
+					...element,
+					style: { padding: 12, verticalAlign: "bottom" },
+				},
+				"pixels",
+			),
+		).toMatchObject({ padding: "12px", justifyContent: "flex-end" });
 	});
 
 	it("parses multiple bold spans and preserves line breaks and literal unmatched markers", () => {
