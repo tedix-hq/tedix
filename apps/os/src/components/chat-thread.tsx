@@ -2281,18 +2281,16 @@ export function ChatThread({
 				</Alert>
 			) : null}
 			{sendError ? (
-				<div className="[&_button]:min-h-11 [&_button]:min-w-11">
-					<SendFailureBanner
-						message={sendError}
-						// The banner's claim is read off the same overlay the transcript
-						// renders, so the two can never disagree about whether the outcome
-						// is unknown.
-						outcomeUnknown={sendOutcomeUnknown}
-						draftHeld={sendHeldProvisionally}
-						retrying={send.isPending || directRead.isPending}
-						onRetry={directReadRetryRef.current ? retryDirectRead : retrySend}
-					/>
-				</div>
+				<SendFailureBanner
+					message={sendError}
+					// The banner's claim is read off the same overlay the transcript
+					// renders, so the two can never disagree about whether the outcome
+					// is unknown.
+					outcomeUnknown={sendOutcomeUnknown}
+					draftHeld={sendHeldProvisionally}
+					retrying={send.isPending || directRead.isPending}
+					onRetry={directReadRetryRef.current ? retryDirectRead : retrySend}
+				/>
 			) : null}
 			{firstSendInFlight && sendErrorUnknown ? (
 				<Button

@@ -165,12 +165,7 @@ function LearnMore(props: { label: string; children: string }) {
 		<Tooltip>
 			<TooltipTrigger
 				render={
-					<Button
-						variant="ghost"
-						size="icon-sm"
-						aria-label={props.label}
-						className="size-6"
-					/>
+					<Button variant="ghost" size="icon-xs" aria-label={props.label} />
 				}
 			>
 				<Info size={14} />

@@ -419,11 +419,7 @@ export function MemoryBrowser({
 					})
 				}
 			>
-				<TabsList
-					variant="line"
-					aria-label="Memory sections"
-					className="flex-wrap !h-auto !overflow-visible [&>button]:min-h-11 [&>[role=presentation]]:hidden [&>[role=tab]]:border-b-2 [&>[role=tab]]:border-transparent [&>[role=tab][aria-selected=true]]:border-kumo-brand"
-				>
+				<TabsList variant="line" aria-label="Memory sections">
 					{MEMORY_TABS.map((tab) => (
 						<TabsTrigger key={tab.id} value={tab.id}>
 							{tab.label}

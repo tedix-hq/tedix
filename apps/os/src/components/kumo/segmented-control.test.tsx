@@ -31,4 +31,47 @@ describe("SegmentedControl", () => {
 		expect(html).toContain('data-pressed=""');
 		expect(html.match(/tabindex="-1"/g)).toHaveLength(3);
 	});
+
+	it("draws icon-only segments as named, centred icon buttons", () => {
+		const html = renderToStaticMarkup(
+			<SegmentedControl
+				ariaLabel="Layout"
+				iconOnly
+				onValueChange={() => {}}
+				options={[
+					{ value: "list", label: "List view", icon: <svg data-list="" /> },
+					{ value: "grid", label: "Grid view", icon: <svg data-grid="" /> },
+				]}
+				value="grid"
+			/>,
+		);
+
+		expect(html).toContain('aria-label="List view"');
+		expect(html).toContain('aria-label="Grid view"');
+		expect(html.match(/data-icon-only="true"/g)).toHaveLength(2);
+		// Kumo turns the square button's title into its hover tooltip.
+		expect(html.match(/data-base-ui-tooltip-trigger/g)).toHaveLength(2);
+		expect(html).toMatch(/!justify-center/);
+		expect(html).toMatch(/!rounded-md/);
+		expect(html).not.toContain("!rounded-full");
+		expect(html).not.toContain("sr-only");
+		expect(html).toContain("data-list");
+	});
+
+	it("draws a text segment's icon before its label", () => {
+		const html = renderToStaticMarkup(
+			<SegmentedControl
+				ariaLabel="Theme"
+				onValueChange={() => {}}
+				options={[
+					{ value: "light", label: "Light", icon: <svg data-sun="" /> },
+					{ value: "dark", label: "Dark" },
+				]}
+				value="light"
+			/>,
+		);
+
+		expect(html.indexOf("data-sun")).toBeLessThan(html.indexOf("Light"));
+		expect(html).not.toContain("data-icon-only");
+	});
 });

@@ -521,12 +521,14 @@ describe("OutputsPage", () => {
 		const listButton = container.querySelector(
 			'button[aria-pressed="false"]',
 		) as HTMLButtonElement;
-		expect(listButton.textContent).toContain("List view");
+		expect(listButton.getAttribute("aria-label")).toBe("List view");
 		act(() => listButton.click());
 		expect(listButton.getAttribute("aria-pressed")).toBe("true");
 		expect(
-			container.querySelector('button[aria-pressed="false"]')?.textContent,
-		).toContain("Grid view");
+			container
+				.querySelector('button[aria-pressed="false"]')
+				?.getAttribute("aria-label"),
+		).toBe("Grid view");
 		expect(window.localStorage.getItem("tedix:outputs:layout:v1")).toBe("list");
 		expect(
 			container.querySelector(

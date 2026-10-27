@@ -884,7 +884,7 @@ export function InviteMemberDialog({
 										<span>{email}</span>
 										<Button
 											aria-label={`Remove ${email}`}
-											className="-my-1 -mr-1 ml-1"
+											className="ml-1"
 											disabled={pending}
 											onClick={() => {
 												setRecipients((current) =>
@@ -896,7 +896,7 @@ export function InviteMemberDialog({
 													return next;
 												});
 											}}
-											size="icon-sm"
+											size="icon-xs"
 											type="button"
 											variant="ghost"
 										>

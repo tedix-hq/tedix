@@ -104,6 +104,14 @@ const COARSE_TOUCH_TARGET =
  */
 const MULTILINE_HEIGHT = "h-auto min-h-11";
 
+/*
+ * Kumo has no link variant. A link-styled action reads as text, so it drops
+ * the ghost fill and the pill padding: it lines up with the words around it
+ * without call-site `px-0` overrides.
+ */
+const LINK_CLASS =
+	"bg-transparent !px-0 text-kumo-link underline-offset-4 shadow-none hover:bg-transparent hover:underline";
+
 function isIconSize(size: ButtonSize) {
 	return size.startsWith("icon");
 }
@@ -179,8 +187,7 @@ function buttonVariants({
 			variant === "ghost" &&
 			"focus-visible:bg-kumo-tint not-disabled:active:bg-kumo-tint",
 		textSizeClass(size),
-		variant === "link" &&
-			"bg-transparent text-kumo-link underline-offset-4 shadow-none hover:underline",
+		variant === "link" && !iconSize && LINK_CLASS,
 		multiline && !iconSize && MULTILINE_HEIGHT,
 		className,
 	);
@@ -347,6 +354,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 				COARSE_TOUCH_TARGET,
 				!multiline && PRODUCT_SIZE_CLASS[size],
 				textSizeClass(size),
+				variant === "link" && LINK_CLASS,
 				multiline && MULTILINE_HEIGHT,
 				className,
 			)}

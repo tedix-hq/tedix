@@ -810,7 +810,7 @@ export function AuditPage({
 								onValueChange={(value) =>
 									onSearchChange({ resourceType: value as string, page: 1 })
 								}
-								className="shrink-0 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-w-11"
+								className="shrink-0"
 								tabs={[
 									{ value: AUDIT_ALL_RESOURCES, label: "All" },
 									...facetTabs.map((type) => ({
