@@ -4,7 +4,7 @@ Official-MCP-conformance test harness for the Tedix stateless MCP transport
 (`src/transport.ts::mountMcp`). It mounts a fixture `McpServer` (built with
 `src/server.ts::createMcpServer`) behind `mountMcp()` on a local Bun HTTP
 server and runs the official `@modelcontextprotocol/conformance` CLI
-(0.2.0-alpha.10, 2026-07-28 scenario suite + the
+(0.2.0-alpha.11, 2026-07-28 scenario suite + the
 `io.modelcontextprotocol/tasks` extension scenarios) against it.
 
 ## Run

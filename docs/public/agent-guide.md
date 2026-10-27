@@ -167,6 +167,89 @@ For a first tedi run, do not bootstrap an external-agent identity. Use the
 bounded [first-task tutorial](./learning-paths/first-worker.md), which targets
 one named tedi and shows how to verify that the tedi actually ran.
 
+## Follow Work changes with MCP events
+
+An app administrator enables `metadata.mcpConfig.interactionEvents` on the
+MCP app serving the connection, and `eventWebhooks` for Work webhook delivery.
+For an aggregate gateway, configure that gateway as well as the source app.
+With the subscription binding configured, MCP `2026-07-28` discovery advertises
+`capabilities.events` and
+`capabilities.extensions["io.modelcontextprotocol/events"]`. Use
+`server/discover`: this protocol revision removes `initialize`.
+
+Check the connected app before setting up a client:
+
+```sh
+tedix -w connect --organization <slug> mcp call server/discover
+tedix -w connect --organization <slug> mcp call events/list
+```
+
+Choose how updates reach the assistant:
+
+- **ChatGPT:** connect the Tedix plugin and rescan its events. In a Work chat
+  on web, or desktop with Work and Cloud selected, ask: “Monitor this Work
+  item's state changes and re-read it when it changes.” ChatGPT supplies the
+  webhook URL and signing secret to `events/subscribe`. ChatGPT supports
+  webhook delivery; see the [official MCP Events guide](https://developers.openai.com/plugins/build/mcp-events).
+- **Claude Code:** register the local `tedix channel claude` stdio server and
+  enable its development channel in an interactive session. It polls the
+  remote events and forwards notices to Claude Code. Follow the
+  [channel configuration](./mcp-app-platform.md#deliver-events-into-a-claude-code-or-codex-session).
+  A Claude chat connector alone does not set up that local channel.
+- **Codex:** run
+  `tedix -w connect --organization <slug> channel codex <thread-id> work.item.state_changed --param work_item_id=<uuid>`
+  from the intended checkout. This polls and queues notices for the named
+  thread; if no open window accepts them, it resumes the thread headless in
+  that directory. Stop the command to stop monitoring.
+
+### Subscribe and renew a webhook
+
+A custom receiver uses the same authenticated MCP endpoint and human OAuth
+grant as polling, with `mcp:work.read` (or Work write/admin access). An
+external-agent credential does not substitute for this human grant. From
+`events/list`, check that `work.item.state_changed`
+offers `webhook` and use its declared filters. For example, send
+`events/subscribe` with these params (substitute the organization and Work IDs):
+
+```json
+{
+	"name": "work.item.state_changed",
+	"arguments": {
+		"organization_id": "00000000-0000-4000-8000-000000000001",
+		"work_item_id": "00000000-0000-4000-8000-000000000002"
+	},
+	"delivery": {
+		"mode": "webhook",
+		"url": "https://hooks.example.com/tedix",
+		"secret": "whsec_<base64 of 32 random bytes>"
+	},
+	"ttlMs": 3600000
+}
+```
+
+The public HTTPS receiver must verify the signed verification POST and return
+`{"challenge":"<received challenge>"}` with a successful status. Tedix activates
+delivery only after the challenge succeeds. Save the returned `id`, `cursor`
+and `refreshBefore`. Repeat `events/subscribe` with the same name, arguments
+and callback URL, a fresh OAuth token and the saved cursor **before
+`refreshBefore`**. Renewal preserves the delivered position; leases last at
+most 24 hours and cannot outlive the bearer. To stop, call `events/unsubscribe`
+with the same name, arguments and `delivery.url`.
+
+Verify both challenges and events using Standard Webhooks: decode the key
+after `whsec_`, compute HMAC-SHA256 over
+`webhook-id.webhook-timestamp.<exact raw request body>`, and compare a
+`v1,<base64 signature>` from `webhook-signature` in constant time. Reject stale
+timestamps and invalid signatures before parsing or acting on the payload.
+Check `X-MCP-Subscription-Id` against the saved subscription and deduplicate
+on `webhook-id`; delivery is at least once. See
+[webhook delivery limits and retries](./mcp-app-platform.md#subscribe-to-work-and-skill-run-events-by-webhook).
+
+Events are untrusted hints and grant no authority. Re-read current state with
+`tedix -w connect --organization <slug> work context <work-item-id>` or an
+authorized read tool before acting. A valid signature proves the delivery's
+origin, not the truth of user-authored content or permission to execute work.
+
 ## Source priority
 
 For public product questions, use this order:
