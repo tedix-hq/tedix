@@ -1,3 +1,5 @@
+import { chromium } from "playwright";
+
 type FixtureProcess = {
 	exitCode: number | null;
 	exited: Promise<number>;
@@ -68,4 +70,21 @@ export async function waitForFixtureServer(
 		}
 	}
 	throw failure(`not ready within ${timeoutMs}ms`);
+}
+
+export async function waitForFixtureBrowser(
+	url: string,
+	remaining: () => number,
+) {
+	const browser = await chromium.launch({ timeout: remaining() });
+	try {
+		const page = await browser.newPage();
+		const errors: string[] = [];
+		page.on("pageerror", (error) => errors.push(error.message));
+		await page.goto(url, { timeout: remaining() });
+		if (errors.length)
+			throw new Error(`Fixture bootstrap failed: ${errors.join("; ")}`);
+	} finally {
+		await browser.close();
+	}
 }

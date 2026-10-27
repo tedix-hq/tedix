@@ -1,5 +1,8 @@
 import type { SpawnOptions } from "bun";
-import { waitForFixtureServer } from "../dev/fixture-server-readiness";
+import {
+	waitForFixtureBrowser,
+	waitForFixtureServer,
+} from "../dev/fixture-server-readiness";
 
 /**
  * The OS fixture server a browser spec runs against. With `OS_FIXTURE_ORIGIN`
@@ -58,6 +61,13 @@ export async function startFixtureServer(
 	}
 	const port = fixturePort();
 	const origin = `http://127.0.0.1:${port}`;
+	const deadline = performance.now() + 90_000;
+	const remaining = () => {
+		const milliseconds = deadline - performance.now();
+		if (milliseconds <= 0)
+			throw new Error(`Fixture server ${origin}: not ready within 90000ms`);
+		return milliseconds;
+	};
 	const server = Bun.spawn(
 		[
 			"../../node_modules/.bin/vp",
@@ -93,7 +103,15 @@ export async function startFixtureServer(
 		await server.exited;
 	}
 	try {
-		await waitForFixtureServer(`${origin}${readyPath}`, { server });
+		await waitForFixtureServer(`${origin}${readyPath}`, {
+			server,
+			timeoutMs: remaining(),
+		});
+		// HTML is available before Vite's cold dependency scan and compilation.
+		// Finish that work before concurrent specs spend their navigation budgets.
+		// Individual fixtures may require the spec's request mocks, so use the
+		// normal OS entry for bootstrap.
+		await waitForFixtureBrowser(origin, remaining);
 	} catch (error) {
 		await stop();
 		throw error;
