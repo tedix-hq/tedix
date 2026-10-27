@@ -13,11 +13,11 @@ import {
 	type D1Runner,
 	type D1StatementResult,
 	ENCRYPTED_TABLES,
+	localRotationCommand,
 	parseCli,
 	remoteDatabaseId,
 	rotateAll,
 	rotateTable,
-	rotationCommand,
 } from "./rotate-master-key";
 
 const newKey = generateMasterKey();
@@ -79,34 +79,13 @@ describe("rotation transport", () => {
 		}
 	});
 
-	test("remote queries use pinned cf without a Wrangler binding lookup", async () => {
-		const args = parseCli([
-			"--remote",
-			"--database",
-			id,
-			"--config",
-			"/missing/config.jsonc",
-		]);
-		const command = rotationCommand(args, id);
-		expect(command[0]).toEndWith("/node_modules/.bin/cf");
-		expect(command.slice(1)).toEqual(["d1", "query", id, "--sql"]);
-		const proc = Bun.spawn([...command, "SELECT 1 AS probe", "--dry-run"], {
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		const [stdout, stderr, code] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
-			proc.exited,
-		]);
-		expect(code, stderr).toBe(0);
-		expect(stdout).toContain(id);
-		expect(stdout).toContain("SELECT 1 AS probe");
+	test("a remote database UUID needs no Wrangler binding lookup", () => {
+		expect(remoteDatabaseId("/missing/config.jsonc", id)).toBe(id);
 	});
 
 	test("local rotation keeps its explicit Wrangler target", () => {
 		const args = parseCli(["--local"]);
-		const command = rotationCommand(args, "DB");
+		const command = localRotationCommand(args, "DB");
 		expect(command[0]).toEndWith("/node_modules/.bin/wrangler");
 		expect(command.slice(1)).toEqual([
 			"d1",

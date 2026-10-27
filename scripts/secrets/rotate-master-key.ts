@@ -36,6 +36,7 @@ import {
 	encryptTediSecret,
 	splitMasterKeys,
 } from "../../packages/db/src/utils/secrets-encryption";
+import { remoteD1CfQuery } from "../lib/remote-d1.ts";
 
 // ---------------------------------------------------------------------------
 // Table inventory: every column holding a master-key-encrypted value, with the
@@ -410,16 +411,10 @@ export function remoteDatabaseId(configPath: string, database: string): string {
 	return id;
 }
 
-export function rotationCommand(args: CliArgs, database: string): string[] {
-	if (args.target === "--remote") {
-		return [
-			resolve(import.meta.dir, "../../node_modules/.bin/cf"),
-			"d1",
-			"query",
-			remoteDatabaseId(args.config, database),
-			"--sql",
-		];
-	}
+export function localRotationCommand(
+	args: CliArgs,
+	database: string,
+): string[] {
 	return [
 		resolve(import.meta.dir, "../../node_modules/.bin/wrangler"),
 		"d1",
@@ -434,9 +429,17 @@ export function rotationCommand(args: CliArgs, database: string): string[] {
 }
 
 function d1Runner(args: CliArgs, database: string): D1Runner {
-	const command = rotationCommand(args, database);
-	const label =
-		args.target === "--remote" ? "cf d1 query" : "wrangler d1 execute";
+	if (args.target === "--remote") {
+		const databaseId = remoteDatabaseId(args.config, database);
+		return (sql) =>
+			remoteD1CfQuery({
+				databaseId,
+				sql,
+				caller: "scripts/secrets/rotate-master-key.ts",
+			});
+	}
+	const command = localRotationCommand(args, database);
+	const label = "wrangler d1 execute";
 	return async (sql) => {
 		const proc = Bun.spawn([...command, sql], {
 			stdout: "pipe",

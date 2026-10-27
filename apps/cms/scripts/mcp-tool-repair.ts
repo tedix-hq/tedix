@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { remoteD1ExecuteSync } from "../../../scripts/lib/remote-d1.ts";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	normalizeToolMeta,
@@ -188,34 +188,16 @@ function normalizeOutputSchema(
 }
 
 function runD1<T>(sql: string): D1Result<T>[] {
-	const child = spawnSync(
-		"bunx",
-		[
-			"wrangler",
-			"d1",
-			"execute",
-			databaseName,
-			"--remote",
-			"--json",
-			"--command",
+	try {
+		return remoteD1ExecuteSync({
+			database: databaseName,
 			sql,
-		],
-		{
 			cwd: apiCwd,
-			encoding: "utf8",
-			maxBuffer: 1024 * 1024 * 30,
-		},
-	);
-
-	if (child.status !== 0) {
-		fail(`wrangler d1 execute failed:\n${child.stderr || child.stdout}`);
+			caller: "apps/cms/scripts/mcp-tool-repair.ts",
+		}) as D1Result<T>[];
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
 	}
-
-	const parsed = JSON.parse(child.stdout) as D1Result<T>[];
-	for (const result of parsed) {
-		if (!result.success) fail(`D1 query failed: ${child.stdout}`);
-	}
-	return parsed;
 }
 
 async function siteBuilderToolsList(): Promise<SiteBuilderTool[]> {

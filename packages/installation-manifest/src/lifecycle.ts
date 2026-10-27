@@ -1,4 +1,5 @@
 import { executeD1Statements } from "./provision";
+import { remoteD1QueryRest } from "../../../scripts/lib/remote-d1";
 
 /**
  * Backup, restore, and upgrade lifecycle operations for a provisioned
@@ -215,12 +216,14 @@ async function queryScalar(
 	databaseId: string,
 	sql: string,
 ): Promise<unknown[]> {
-	const response = await apiJson(
-		options,
-		"POST",
-		`/d1/database/${encodeURIComponent(databaseId)}/query`,
-		{ sql },
-	);
+	const response = await remoteD1QueryRest({
+		accountId: options.accountId,
+		databaseId,
+		sql,
+		apiToken: options.apiToken,
+		apiBaseUrl: options.apiBaseUrl,
+		fetchImplementation: options.fetchImplementation,
+	});
 	if (!response.ok) {
 		throw new Error(`d1 query failed: ${response.detail ?? response.status}`);
 	}

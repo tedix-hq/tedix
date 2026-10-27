@@ -15,6 +15,7 @@ import {
 	type InstallationManifest,
 	parseInstallationManifest,
 } from "./schema";
+import { remoteD1QueryRest } from "../../../scripts/lib/remote-d1";
 
 type ResourceKind = CloudflareResource["kind"];
 
@@ -628,20 +629,16 @@ export async function executeD1Statements(options: {
 	apiBaseUrl?: string;
 	fetchImplementation?: typeof fetch;
 }): Promise<{ ok: boolean; executed: number; detail?: string }> {
-	const apiBaseUrl = options.apiBaseUrl ?? CLOUDFLARE_API_BASE_URL;
-	const fetchImplementation =
-		options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
-	const api = createApiClient(
-		`${apiBaseUrl}/accounts/${options.accountId}`,
-		options.apiToken,
-		fetchImplementation,
-	);
 	let executed = 0;
 	for (const sql of options.statements) {
-		const result = await api.post(
-			`/d1/database/${encodeURIComponent(options.databaseId)}/query`,
-			{ sql },
-		);
+		const result = await remoteD1QueryRest({
+			accountId: options.accountId,
+			databaseId: options.databaseId,
+			sql,
+			apiToken: options.apiToken,
+			apiBaseUrl: options.apiBaseUrl,
+			fetchImplementation: options.fetchImplementation,
+		});
 		if (!result.ok) {
 			return {
 				ok: false,

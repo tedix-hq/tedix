@@ -58,6 +58,7 @@
 		"lint:knip:diff": "bun scripts/lint-knip-diff.ts",
 		"lint:knip:baseline": "bun scripts/lint-knip-diff.ts --baseline",
 		"lint:kumo": "bun scripts/lint-kumo.ts",
+		"lint:remote-d1": "bun scripts/lint-remote-d1.ts",
 		"lint:repo": "bun scripts/lint-repo.ts",
 		"mcp:sync-tool-schemas": "bun scripts/mcp/sync-tool-schemas.ts",
 		"mcp:tool-collisions": "bun scripts/mcp/tool-collision-report.ts",

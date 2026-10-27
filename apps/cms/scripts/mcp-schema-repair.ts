@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { remoteD1ExecuteSync } from "../../../scripts/lib/remote-d1.ts";
 import { parseArgs } from "node:util";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
@@ -224,34 +224,16 @@ async function siteBuilderToolsList(): Promise<SiteBuilderTool[]> {
 }
 
 function runD1<T>(sql: string): D1Result<T>[] {
-	const child = spawnSync(
-		"bunx",
-		[
-			"wrangler",
-			"d1",
-			"execute",
-			databaseName,
-			"--remote",
-			"--json",
-			"--command",
+	try {
+		return remoteD1ExecuteSync({
+			database: databaseName,
 			sql,
-		],
-		{
 			cwd: apiCwd,
-			encoding: "utf8",
-			maxBuffer: 1024 * 1024 * 20,
-		},
-	);
-
-	if (child.status !== 0) {
-		fail(`wrangler d1 execute failed:\n${child.stderr || child.stdout}`);
+			caller: "apps/cms/scripts/mcp-schema-repair.ts",
+		}) as D1Result<T>[];
+	} catch (error) {
+		fail(error instanceof Error ? error.message : String(error));
 	}
-
-	const parsed = JSON.parse(child.stdout) as D1Result<T>[];
-	for (const result of parsed) {
-		if (!result.success) fail(`D1 query failed: ${child.stdout}`);
-	}
-	return parsed;
 }
 
 if (tools.length === 0) fail("At least one tool must be provided");

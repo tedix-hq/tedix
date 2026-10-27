@@ -92,7 +92,12 @@ function fixture(
 		},
 		log: (line) => logs.push(line),
 		error: (line) => errors.push(line),
-		env: { CLOUDFLARE_API_TOKEN: FICTION_TOKEN, PATH: "/fiction/bin" },
+		env: {
+			CLOUDFLARE_API_TOKEN: FICTION_TOKEN,
+			PATH: "/fiction/bin",
+			TEDIX_D1_ACTOR: "test:sync-tool-schemas",
+			TEDIX_D1_AUDIT_LOG: "/dev/null",
+		},
 	};
 	return {
 		io,

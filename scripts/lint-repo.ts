@@ -23,6 +23,7 @@ const GATES: string[][] = [
 	["lint-loader-sandbox.ts", "--strict"],
 	["lint-kumo.ts"],
 	["lint-d1.ts"],
+	["lint-remote-d1.ts"],
 	["lint-authz.ts", "--strict"],
 	["lint-worker-route-authz.ts", "--strict"],
 	["lint-contracts.ts"],

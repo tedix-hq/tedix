@@ -79,6 +79,7 @@ export function applyProductionMigrations(
 	);
 
 	try {
+		// remote-d1: runWrangler audits this argv before executing it.
 		const applyOutput = run(
 			[
 				"d1",
@@ -104,6 +105,7 @@ export function applyProductionMigrations(
 	}
 
 	const optimize = parseWranglerJson(
+		// remote-d1: runWrangler audits this argv before executing it.
 		run([
 			"d1",
 			"execute",

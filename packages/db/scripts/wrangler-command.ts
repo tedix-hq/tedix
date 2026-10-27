@@ -2,6 +2,10 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import {
+	auditRemoteD1Argv,
+	isRemoteD1Argv,
+} from "../../../scripts/lib/remote-d1";
 
 const DB_ROOT = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -31,6 +35,12 @@ export function runWrangler(
 	args: string[],
 	options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ): string {
+	// Every remote D1 touch leaves an actor trail before the process runs.
+	if (isRemoteD1Argv(args)) {
+		auditRemoteD1Argv(args, {
+			env: { ...process.env, ...options.env },
+		});
+	}
 	const result = spawnSync(
 		wranglerRuntimeExecutable(),
 		[
