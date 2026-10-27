@@ -1,4 +1,6 @@
 import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { workInteractions } from "@tedix/db/schema/work-factory";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -33,7 +35,7 @@ CREATE TABLE work_items (
  priority TEXT NOT NULL DEFAULT 'medium', accountable_owner_type TEXT, accountable_owner_id TEXT, steward_type TEXT, steward_id TEXT, reviewer_type TEXT, reviewer_id TEXT, reviewer_lease_expires_at TEXT,
  objective_id TEXT, work_class TEXT, purpose_exception_expires_at TEXT, project_id TEXT, parent_work_item_id TEXT, source_session_key TEXT, source_intent_id TEXT,
  due_date TEXT, deadline TEXT, start_at TEXT, duration_days INTEGER, provenance TEXT DEFAULT '{}', metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, accepted_at TEXT,
- completed_at TEXT, cancelled_at TEXT, admission_spec_revision TEXT NOT NULL DEFAULT (lower(hex(randomblob(16)))), version INTEGER NOT NULL DEFAULT 1);
+ completed_at TEXT, cancelled_at TEXT, admission_spec_revision TEXT NOT NULL DEFAULT (lower(hex(randomblob(16)))), version INTEGER NOT NULL DEFAULT 1, UNIQUE (org_id, id));
 CREATE UNIQUE INDEX uniq_work_items_org_source_intent ON work_items(org_id, source_intent_id);
 CREATE TABLE work_item_comments (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, author_type TEXT NOT NULL, author_id TEXT, body TEXT NOT NULL, metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL);
 CREATE TABLE work_item_relations (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, from_work_item_id TEXT NOT NULL, to_work_item_id TEXT NOT NULL, relation_type TEXT NOT NULL, metadata TEXT DEFAULT '{}', created_at TEXT NOT NULL);
@@ -44,7 +46,6 @@ CREATE TABLE work_item_projections (id TEXT PRIMARY KEY, work_item_id TEXT NOT N
 CREATE TABLE work_attempts (id TEXT PRIMARY KEY, admission_id TEXT, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, executor_type TEXT NOT NULL, executor_id TEXT NOT NULL, executor_session_id TEXT, external_session_key TEXT, run_id TEXT, runtime_state TEXT NOT NULL, outcome TEXT, attempt_number INTEGER NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL, expires_at TEXT, finished_at TEXT, summary TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_evidence (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, attempt_id TEXT, claim_key TEXT NOT NULL, kind TEXT NOT NULL, uri TEXT NOT NULL, digest TEXT, media_type TEXT, label TEXT, submitted_by_type TEXT NOT NULL, submitted_by_id TEXT NOT NULL, submitted_by_session_id TEXT, disposition TEXT NOT NULL DEFAULT 'pending', reviewed_by_type TEXT, reviewed_by_id TEXT, reviewed_by_session_id TEXT, review_reason TEXT, submitted_at TEXT NOT NULL, reviewed_at TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL);
-CREATE TABLE work_interactions (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, work_item_id TEXT, target_type TEXT NOT NULL, target_id TEXT NOT NULL);
 CREATE TABLE external_agent_principals (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, key TEXT NOT NULL, display_name TEXT NOT NULL, status TEXT NOT NULL, credential_binding_type TEXT NOT NULL, credential_binding_id TEXT NOT NULL, created_by_type TEXT NOT NULL, created_by_id TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE work_resource_pools (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, resource_key TEXT NOT NULL, allocation_mode TEXT NOT NULL, capacity INTEGER NOT NULL, owner_ref TEXT, enabled INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, version INTEGER NOT NULL DEFAULT 1);
 CREATE UNIQUE INDEX uniq_work_resource_pool_org_key ON work_resource_pools(org_id,resource_key);
@@ -121,6 +122,7 @@ function seed(row: {
 beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
+	sqlite.exec(schemaDdl(workInteractions));
 	sqlite
 		.prepare(
 			"INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,role,status) VALUES ('m1',?,?,?,'owner@test','owner','active')",
