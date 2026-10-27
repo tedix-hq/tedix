@@ -399,6 +399,102 @@ describe("home approved-write layer (v1)", () => {
 		},
 	);
 
+	it.each([
+		["user:approver-sub", "approver-sub"],
+		["approver-sub", "approver-sub"],
+		["policy", undefined],
+	])(
+		"an agent-started write binds its receipt to the approving human (%s)",
+		async (resolvedBy, approvedByUserId) => {
+			const db = createKernelRuntimeDb();
+			const { context } = await enqueueWriteProposalTurn(
+				db,
+				"home-write-agent",
+			);
+			const executor = vi.fn(async () => ({
+				ok: true as const,
+				data: { ok: true },
+			}));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			const findMember = withInitiatorMember(db, {
+				role: "admin",
+				status: "active",
+			});
+			const approval = db.approvals[0];
+			if (!approval) throw new Error("approval row missing");
+			await settleHomeToolWriteApproval(context, {
+				approval: {
+					...approval,
+					status: "approved",
+					resolvedBy,
+					payload: {
+						...(approval.payload as Record<string, unknown>),
+						initiatedByUserId: null,
+					},
+				},
+				status: "approved",
+			});
+			expect(executor).toHaveBeenCalledOnce();
+			expect(executor.mock.calls[0]?.[0]).toMatchObject({
+				payload: { initiatedByUserId: null },
+				approvedByUserId,
+			});
+			// The approver is re-checked at apply time; a policy resolution names
+			// no human to check.
+			if (approvedByUserId)
+				expect(findMember).toHaveBeenCalledWith({
+					where: { organizationId: ORG_ID, descopeUserId: approvedByUserId },
+				});
+			else expect(findMember).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([
+		["removed from the organization", undefined],
+		["suspended", { role: "admin", status: "suspended" }],
+		["downgraded to member", { role: "member", status: "active" }],
+	])(
+		"never executes an agent-started write once the approver was %s",
+		async (_label, member) => {
+			const db = createKernelRuntimeDb();
+			const { context } = await enqueueWriteProposalTurn(
+				db,
+				"home-write-approver-revoked",
+			);
+			const executor = vi.fn(async () => ({
+				ok: true as const,
+				data: { ok: true },
+			}));
+			kernelRuntimeTestHooks.setKernelWriteExecutorForTest(executor);
+			withInitiatorMember(db, member);
+			const approval = db.approvals[0];
+			if (!approval) throw new Error("approval row missing");
+			await expect(
+				settleHomeToolWriteApproval(context, {
+					approval: {
+						...approval,
+						status: "approved",
+						resolvedBy: "user:approver-sub",
+						payload: {
+							...(approval.payload as Record<string, unknown>),
+							initiatedByUserId: null,
+						},
+					},
+					status: "approved",
+				}),
+			).resolves.toBe("closed");
+			expect(executor).not.toHaveBeenCalled();
+			const run = db.runs.find(
+				(row) => row.id === "home-write-approver-revoked",
+			);
+			expect(run?.status).toBe("canceled");
+			expect(run?.metadata).toMatchObject({
+				approvalStatus: "approver_revoked",
+			});
+			expect(run?.metadata).not.toHaveProperty("kernelWriteExecutedAt");
+		},
+	);
+
 	it("executes an admin-approved write as the initiator, not the approver", async () => {
 		const db = createKernelRuntimeDb();
 		const { context } = await enqueueWriteProposalTurn(db, "home-write-as");

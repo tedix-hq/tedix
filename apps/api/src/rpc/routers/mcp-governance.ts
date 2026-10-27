@@ -17,7 +17,10 @@ import {
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
-import { parseHomeToolWritePayload } from "./kernel/write-executor";
+import {
+	approvingUserId,
+	parseHomeToolWritePayload,
+} from "./kernel/write-executor";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import {
 	buildSurfaceUrl,
@@ -139,13 +142,23 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			);
 			const payload = parseHomeToolWritePayload(approval?.payload);
 			const digest = await canonicalDigest(input.args);
+			// The receipt's principal: the member who asked for a Home write, or,
+			// for an agent-started run with no initiator, the human who approved
+			// it. The approver's receipt is only valid on the tenant credential; it
+			// never selects their personal connection or user scopes.
+			const approvedByUserId = approvingUserId(approval?.resolvedBy);
+			const principalMatches = payload?.initiatedByUserId
+				? payload.initiatedByUserId === input.userId
+				: input.credential === "tenant" &&
+					approvedByUserId !== undefined &&
+					approvedByUserId === input.userId;
 			if (
 				approval?.orgId !== input.organizationId ||
 				approval.actionType !== "home.tool_write" ||
 				approval.status !== "approved" ||
 				!payload ||
 				payload.organizationId !== input.organizationId ||
-				payload.initiatedByUserId !== input.userId ||
+				!principalMatches ||
 				payload.appSlug !== input.appSlug ||
 				payload.toolName !== input.toolName ||
 				!(

@@ -31,7 +31,10 @@ import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
  * approved write executes attributable to the kernel, not generic service.
  * The executor sends no scopes. After apps/mcp verifies the Home approval
  * receipt for the exact call, it delegates only that tool's required scopes
- * on the API hop; revalidation and read-back calls get none.
+ * on the API hop; revalidation and read-back calls get none. An agent-started
+ * run has no initiating user: the receipt then names the approving human
+ * (`X-Tedix-Approved-Home-User`) on the tenant credential, so the write still
+ * carries only the approved tool's authority, never the approver's scopes.
  *
  * NOTE: the MCP call helpers (mcpHost/mcpCall and the credential-missing
  * sniff) are frozen copies of the ones in write-proposal.ts; both send through
@@ -178,6 +181,18 @@ export function parseHomeToolWritePayload(
 		initiatedByUserId,
 		...(transport ? { transport } : {}),
 	};
+}
+
+/**
+ * The human who resolved an approval, or undefined for a policy or machine
+ * resolution. `resolvedBy` stores either `user:<sub>` or a bare subject.
+ */
+export function approvingUserId(
+	resolvedBy: string | null | undefined,
+): string | undefined {
+	if (!resolvedBy || resolvedBy === "policy") return undefined;
+	const userId = resolvedBy.replace(/^user:/, "");
+	return userId.length > 0 ? userId : undefined;
 }
 
 export type KernelWriteExecutionResult =
@@ -378,6 +393,13 @@ export async function executeApprovedKernelWrite(args: {
 	approvalRequestId?: string;
 	/** Human from the resolved approval, distinct from the initiating user. */
 	approvedWorkResponderUserId?: string;
+	/**
+	 * Human who approved the call. An agent-started run has no initiator, so
+	 * the approval receipt is matched against this person instead. It names the
+	 * receipt's principal only: the call runs on the tenant credential, never
+	 * on the approver's personal credential or user scopes.
+	 */
+	approvedByUserId?: string;
 	timings?: KernelWriteExecutorTimings;
 }): Promise<KernelWriteExecutionResult> {
 	const { env, payload } = args;
@@ -509,6 +531,11 @@ export async function executeApprovedKernelWrite(args: {
 					payload.toolName,
 				)
 					? args.approvalRequestId
+					: undefined,
+				// An agent-started run has no initiator: the receipt names the
+				// approver, and the call already runs on the tenant credential.
+				!payload.initiatedByUserId && args.approvalRequestId
+					? args.approvedByUserId
 					: undefined,
 			)) as ToolCallResult | null;
 			if (payload.initiatedByUserId && isCredentialMissing(result)) {

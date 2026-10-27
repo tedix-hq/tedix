@@ -185,6 +185,73 @@ describe("Home approval dispatch receipt", () => {
 			approved: false,
 		});
 	});
+	describe("agent-started run (no initiator)", () => {
+		const agentPayload = { ...payload, initiatedByUserId: null };
+		const asApprover = {
+			...input,
+			userId: "owner-1",
+			credential: "tenant" as const,
+		};
+		beforeEach(() => {
+			mocks.approval.mockResolvedValue({ ...approval, payload: agentPayload });
+		});
+		it.each(["user:owner-1", "owner-1"])(
+			"binds the receipt to the approving human (%s) on the tenant credential, once",
+			async (resolvedBy) => {
+				mocks.approval.mockResolvedValue({
+					...approval,
+					resolvedBy,
+					payload: agentPayload,
+				});
+				expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+					approved: true,
+				});
+				// Approving twice writes once.
+				expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+					approved: false,
+				});
+				expect(mocks.consume).toHaveBeenCalledTimes(2);
+			},
+		);
+		it.each([
+			["the approver's personal credential", { credential: "user" as const }],
+			["another member", { userId: "user-1" }],
+			["changed arguments", { args: { ...input.args, title: "Changed" } }],
+		])("never carries %s", async (_label, patch) => {
+			expect(
+				await client().resolveHomeToolApproval({ ...asApprover, ...patch }),
+			).toEqual({ approved: false });
+			expect(mocks.consume).not.toHaveBeenCalled();
+		});
+		it.each(["policy", "tedi_1", null])(
+			"refuses when no human approved it (%s)",
+			async (resolvedBy) => {
+				mocks.approval.mockResolvedValue({
+					...approval,
+					resolvedBy,
+					payload: agentPayload,
+				});
+				// A tedi or service principal is never an organization member.
+				mocks.member.mockImplementation(async (_db, _org, userId: string) =>
+					userId === "tedi_1" ? undefined : { status: "active", role: "owner" },
+				);
+				expect(
+					await client().resolveHomeToolApproval({
+						...asApprover,
+						userId: resolvedBy ?? "owner-1",
+					}),
+				).toEqual({ approved: false });
+				expect(mocks.consume).not.toHaveBeenCalled();
+			},
+		);
+		it("refuses at apply time once the approver lost access", async () => {
+			mocks.member.mockResolvedValue({ status: "suspended", role: "owner" });
+			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
+				approved: false,
+			});
+			expect(mocks.consume).not.toHaveBeenCalled();
+		});
+	});
 	it("rejects public callers and another gateway organization", async () => {
 		await expect(
 			client("user").resolveHomeToolApproval(input),
