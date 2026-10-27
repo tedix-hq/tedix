@@ -297,6 +297,12 @@ const CALLS = {
 	},
 	"skills/getWorkflowReliability": { skillId: IDS.skillRevenue },
 	"skills/listWorkflowSchedules": { limit: 100 },
+	"skills/pauseSchedule": { id: IDS.skillRevenue },
+	"skills/resumeSchedule": { id: IDS.skillRevenue },
+	"skills/updateSchedule": {
+		id: IDS.skillRevenue,
+		cron: "0 7 * * 1",
+	},
 	"skills/runWorkflowHistory": { limit: 50 },
 	"skills/listWorkflowRetryCandidates": {},
 	"skills/inspectWorkflowRun": { runId: IDS.skillRunFailed },

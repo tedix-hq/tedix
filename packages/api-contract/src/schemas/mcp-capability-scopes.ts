@@ -520,6 +520,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	run_skill_workflow: "mcp:skills",
 	send_skill_workflow_event: "mcp:skills",
 	track_skill_usage: "mcp:skills",
+	update_skill_schedule: "mcp:skills",
 	validate_skill: "mcp:skills",
 	validate_skills: "mcp:skills",
 };
@@ -778,6 +779,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	register_muscle_memory: "write",
 	crystallize_muscle_memory: "write",
 	track_muscle_usage: "write",
+	update_skill_schedule: "write",
 };
 
 const EXACT_AGGREGATE_ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> =

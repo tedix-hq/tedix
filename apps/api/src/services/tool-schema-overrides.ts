@@ -405,6 +405,7 @@ export const SKILL_WORKFLOW_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"skills/resumeWorkflow": "resume_skill_workflow",
 	"skills/pauseSchedule": "pause_skill_schedule",
 	"skills/resumeSchedule": "resume_skill_schedule",
+	"skills/updateSchedule": "update_skill_schedule",
 	"skills/restartWorkflow": "restart_skill_workflow",
 	"skills/approveWorkflow": "approve_skill_workflow",
 	"skills/rejectWorkflow": "reject_skill_workflow",
@@ -452,6 +453,8 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	// Only capabilities.schedule.enabled changes; resume undoes pause.
 	"skills/pauseSchedule": "write",
 	"skills/resumeSchedule": "write",
+	// Only capabilities.schedule.cron/enabled change; the prior policy is a revision away.
+	"skills/updateSchedule": "write",
 	"skills/restartWorkflow": "destructive",
 	"skills/approveWorkflow": "destructive",
 	"skills/rejectWorkflow": "destructive",

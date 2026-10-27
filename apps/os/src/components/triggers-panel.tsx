@@ -6,7 +6,7 @@ import type {
 	WorkflowDefinition,
 	WorkflowDefinitionHealth,
 } from "@tedix/api-contract/contracts/workflows";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { RunStatusChip } from "@/components/activity-runs";
 import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
@@ -21,6 +21,11 @@ import {
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { SkillChip } from "@/components/skill-chip";
+import {
+	SkillScheduleDialog,
+	scheduleUpdateConfirmation,
+	useUpdateSkillSchedule,
+} from "@/components/skill-schedule-controls";
 import { Text } from "@/components/kumo/text";
 import { Pagination } from "@/components/kumo/pagination";
 import { osApi } from "@/lib/api";
@@ -201,6 +206,10 @@ export function TriggerRow({
 	tediNames = {},
 	runPending = false,
 	onRunNow,
+	controlPending = false,
+	onToggle,
+	onEdit,
+	notice,
 }: {
 	schedule: SkillSchedule;
 	/** undefined = the workflow catalog has no dynamic definition for this skill. */
@@ -210,6 +219,13 @@ export function TriggerRow({
 	tediNames?: Record<string, string>;
 	runPending?: boolean;
 	onRunNow?: () => void;
+	/** True while this schedule's on/off write is in flight. */
+	controlPending?: boolean;
+	onToggle?: () => void;
+	/** Opens the change-time dialog for this schedule. */
+	onEdit?: () => void;
+	/** Plain-English result of the last schedule write on this row. */
+	notice?: string;
 }) {
 	useOsFormattingPreferences();
 	const owner = tediNames[schedule.tediId] ?? "a tedi";
@@ -219,14 +235,12 @@ export function TriggerRow({
 		osTimeZone() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
 	const nextRun = `${absoluteTime(schedule.nextFireAt)} (${timeZone})`;
 	return (
-		<li className="flex min-h-14 min-w-0 items-start gap-3 rounded-lg px-3 py-2.5">
+		<li className="flex min-h-14 min-w-0 flex-wrap items-start gap-3 rounded-lg px-3 py-2.5">
 			<IconFrame aria-hidden>
 				<Alarm size={18} />
 			</IconFrame>
 			<span className="grid min-w-0 flex-1 gap-1">
 				<span className="flex flex-wrap items-center gap-1.5">
-					{/* Read-only state: the contract has no schedule pause/resume verb —
-					    schedules are manifest-owned, so the state only renders here. */}
 					<SkillChip tone={schedule.enabled ? "active" : "neutral"}>
 						{schedule.enabled ? "On" : "Off"}
 					</SkillChip>
@@ -281,7 +295,23 @@ export function TriggerRow({
 					) : null}
 				</Text>
 			</span>
-			<span className="ml-auto flex shrink-0 items-center self-center">
+			<span className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 self-center">
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={controlPending}
+					onClick={() => onEdit?.()}
+				>
+					Change time
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={controlPending}
+					onClick={() => onToggle?.()}
+				>
+					{schedule.enabled ? "Turn off" : "Turn on"}
+				</Button>
 				<Button
 					size="sm"
 					variant="outline"
@@ -292,6 +322,17 @@ export function TriggerRow({
 					Run now
 				</Button>
 			</span>
+			{notice ? (
+				<Text
+					as="span"
+					role="label"
+					tone="secondary"
+					className="m-0 w-full tracking-[-0.1px]"
+					aria-live="polite"
+				>
+					{notice}
+				</Text>
+			) : null}
 		</li>
 	);
 }
@@ -356,6 +397,16 @@ export function TriggersPanel({
 	});
 
 	const tediNames = useTediNames();
+	const [editing, setEditing] = useState<SkillSchedule | null>(null);
+	const [notices, setNotices] = useState<Record<string, string>>({});
+	const timezone =
+		osTimeZone() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const update = useUpdateSkillSchedule((result) =>
+		setNotices((current) => ({
+			...current,
+			[result.skillId]: scheduleUpdateConfirmation(result, timezone),
+		})),
+	);
 
 	const definitionsBySkillId = useMemo(
 		() => dynamicDefinitionsBySkillId(definitions.data?.definitions ?? []),
@@ -438,6 +489,17 @@ export function TriggersPanel({
 										params: schedule.params,
 									})
 								}
+								controlPending={
+									update.isPending && update.variables?.id === schedule.skillId
+								}
+								onToggle={() =>
+									update.mutate({
+										id: schedule.skillId,
+										enabled: !schedule.enabled,
+									})
+								}
+								onEdit={() => setEditing(schedule)}
+								notice={notices[schedule.skillId]}
 							/>
 						);
 					})}
@@ -470,6 +532,17 @@ export function TriggersPanel({
 						: `Run ${runNow.data.runId.slice(0, 8)} dispatched — track it in Activity.`}
 				</p>
 			)}
+			{update.isError && (
+				<p className="m-0 text-kumo-danger text-sm" role="alert">
+					Could not update the schedule: {(update.error as Error).message}
+				</p>
+			)}
+			{editing ? (
+				<SkillScheduleDialog
+					schedule={editing}
+					close={() => setEditing(null)}
+				/>
+			) : null}
 		</div>
 	);
 }

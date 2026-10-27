@@ -20,6 +20,7 @@ import {
 const skillsApi = vi.hoisted(() => ({
 	listWorkflowSchedules: vi.fn(),
 	runWorkflow: vi.fn(),
+	updateSchedule: vi.fn(),
 	// Run-now invalidates the run-history family by its generated key, which
 	// resolves through the client proxy — the leaf has to exist on the mock.
 	runWorkflowHistory: vi.fn(),
@@ -573,5 +574,44 @@ describe("TriggersPanel", () => {
 		await flush();
 		expect(container.textContent).toContain("Could not dispatch the run");
 		expect(container.textContent).toContain("budget exhausted");
+	});
+
+	it("turns a schedule off through skills.updateSchedule and confirms it", async () => {
+		skillsApi.listWorkflowSchedules.mockResolvedValue({
+			schedules: [baseSchedule],
+		});
+		skillsApi.updateSchedule.mockResolvedValue({
+			skillId: SKILL_ID,
+			slug: "weekly-digest",
+			action: "updated",
+			changed: true,
+			cron: baseSchedule.cron,
+			scheduleEnabled: false,
+			nextFireAt: null,
+		});
+		const container = renderPanel();
+		await flush();
+		click(findButton(container, "Turn off"));
+		await flush();
+		expect(skillsApi.updateSchedule).toHaveBeenCalledWith({
+			id: SKILL_ID,
+			enabled: false,
+		});
+		expect(container.textContent).toContain(
+			"Off — it will not run again until you turn it back on.",
+		);
+	});
+
+	it("reports a failed schedule write without faking success", async () => {
+		skillsApi.listWorkflowSchedules.mockResolvedValue({
+			schedules: [baseSchedule],
+		});
+		skillsApi.updateSchedule.mockRejectedValue(new Error("forbidden"));
+		const container = renderPanel();
+		await flush();
+		click(findButton(container, "Turn off"));
+		await flush();
+		expect(container.textContent).toContain("Could not update the schedule");
+		expect(container.textContent).toContain("forbidden");
 	});
 });
