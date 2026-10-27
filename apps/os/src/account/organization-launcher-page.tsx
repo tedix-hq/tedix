@@ -617,6 +617,50 @@ function RouteSurfaceEntry({
 	);
 }
 
+function EnableOrganizationOs({ workspace }: { workspace: LauncherWorkspace }) {
+	const [openUrl, setOpenUrl] = useState<string | null>(null);
+	const enable = useMutation({
+		mutationFn: () =>
+			osApi.organizations.completeOsOnboarding({
+				organizationId: workspace.organizationId,
+				name: workspace.name,
+				slug: workspace.slug,
+			}),
+		onSuccess: (updated) => {
+			const target = buildTenantOsUrl(
+				updated.slug,
+				resolveOsPlatformDomain(window.location.hostname),
+			);
+			if (target) {
+				setOpenUrl(target);
+				window.location.assign(target);
+			}
+		},
+	});
+	return (
+		<div className="grid gap-2">
+			{openUrl ? (
+				<Button render={<a href={openUrl} />} size="sm">
+					Open in Tedix OS
+				</Button>
+			) : (
+				<Button
+					size="sm"
+					disabled={enable.isPending}
+					onClick={() => enable.mutate()}
+				>
+					{enable.isPending ? "Opening…" : "Open in Tedix OS"}
+				</Button>
+			)}
+			{enable.isError ? (
+				<Text role="label" tone="secondary" aria-live="polite">
+					Could not enable Tedix OS. Please try again.
+				</Text>
+			) : null}
+		</div>
+	);
+}
+
 function WorkspaceRow({
 	workspace,
 	onOpen,
@@ -698,11 +742,16 @@ function WorkspaceRow({
 					)}
 				</div>
 			) : null}
+			{!disabled && !osSurface && workspace.canEnableOs ? (
+				<EnableOrganizationOs workspace={workspace} />
+			) : null}
 			{disabled ? (
 				<Text role="label" tone="secondary" className="max-w-65 px-2">
 					This workspace is still being set up.
 				</Text>
-			) : !osSurface && secondarySurfaces.length === 0 ? (
+			) : !osSurface &&
+			  !workspace.canEnableOs &&
+			  secondarySurfaces.length === 0 ? (
 				<Text role="label" tone="secondary" className="max-w-65 px-2">
 					Nothing to open yet.
 				</Text>

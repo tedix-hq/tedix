@@ -245,6 +245,70 @@ describe("organizations.completeOsOnboarding", () => {
 		);
 	});
 
+	it.each(["T-legacy-random", "org_old-company"])(
+		"upgrades another owned org repeatedly without changing legacy data (%s)",
+		async (tenantId) => {
+			const legacy = {
+				id: ORGANIZATION_ID,
+				createdAt: "2026-08-17T00:00:00.000Z",
+				updatedAt: "2026-08-17T00:00:00.000Z",
+				name: "Old Company",
+				slug: "old-company",
+				type: "organization",
+				descopeTenantId: tenantId,
+				features: { maxApps: 5, sso: true },
+				metadata: null,
+			};
+			mocks.getOrganizationById.mockImplementation(async () => legacy);
+			mocks.updateOrganization.mockImplementation(async (_db, _id, updates) =>
+				Object.assign(legacy, updates),
+			);
+			mocks.getOrganizationAggregatorGateways.mockResolvedValue(
+				new Map([[ORGANIZATION_ID, { slug: "legacy-gateway" }]]),
+			);
+			const { organizationsContractRouter } = await import("./organizations");
+			const client = createRouterClient(organizationsContractRouter, {
+				context: userContext({
+					organizationId: "11111111-1111-4111-8111-111111111111",
+					tenantId: "org_other",
+					userRole: "member",
+					roles: ["member"],
+					permissions: [],
+				}),
+			});
+			const input = {
+				organizationId: ORGANIZATION_ID,
+				name: legacy.name,
+				slug: legacy.slug,
+			};
+			for (let i = 0; i < 2; i++)
+				await expect(client.completeOsOnboarding(input)).resolves.toMatchObject(
+					{ features: { os: true } },
+				);
+			expect(mocks.getMemberByUserId).toHaveBeenCalledWith(
+				expect.anything(),
+				ORGANIZATION_ID,
+				"user-1",
+			);
+			expect(mocks.updateOrganization).toHaveBeenLastCalledWith(
+				expect.anything(),
+				ORGANIZATION_ID,
+				{
+					name: legacy.name,
+					slug: legacy.slug,
+					features: { maxApps: 5, sso: true, os: true },
+				},
+			);
+			expect(legacy.descopeTenantId).toBe(tenantId);
+			expect(legacy.metadata).toBeNull();
+			expect(mocks.ensureOrganizationUnifiedGateway).toHaveBeenLastCalledWith(
+				expect.anything(),
+				expect.anything(),
+				expect.objectContaining({ gatewaySlug: "legacy-gateway" }),
+			);
+		},
+	);
+
 	it("keeps the OS origin disabled until Work apps are installed and retries safely", async () => {
 		mocks.installDefaultWorkApps.mockRejectedValueOnce(
 			new Error("installation unavailable"),
@@ -307,27 +371,34 @@ describe("organizations.completeOsOnboarding", () => {
 		expect(mocks.updateOrganization).not.toHaveBeenCalled();
 	});
 
-	it("rejects a member who is not the active owner", async () => {
-		mocks.getMemberByUserId.mockResolvedValue({
-			organizationId: ORGANIZATION_ID,
-			descopeUserId: "user-1",
-			role: "member",
-			status: "active",
-		});
-		const { organizationsContractRouter } = await import("./organizations");
-		const client = createRouterClient(organizationsContractRouter, {
-			context: userContext(),
-		});
-
-		await expect(
-			client.completeOsOnboarding({
+	it.each([
+		["member", "active"],
+		["admin", "active"],
+		["owner", "suspended"],
+	])(
+		"rejects a caller without active ownership (%s, %s)",
+		async (role, status) => {
+			mocks.getMemberByUserId.mockResolvedValue({
 				organizationId: ORGANIZATION_ID,
-				name: "Acme",
-				slug: "acme",
-			}),
-		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		expect(mocks.updateOrganization).not.toHaveBeenCalled();
-	});
+				descopeUserId: "user-1",
+				role,
+				status,
+			});
+			const { organizationsContractRouter } = await import("./organizations");
+			const client = createRouterClient(organizationsContractRouter, {
+				context: userContext(),
+			});
+
+			await expect(
+				client.completeOsOnboarding({
+					organizationId: ORGANIZATION_ID,
+					name: "Acme",
+					slug: "acme",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(mocks.updateOrganization).not.toHaveBeenCalled();
+		},
+	);
 
 	it("never allows machine credentials to perform account onboarding", async () => {
 		const { organizationsContractRouter } = await import("./organizations");

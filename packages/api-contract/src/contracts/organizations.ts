@@ -303,7 +303,7 @@ export const organizationsContract = oc
 			),
 
 		/**
-		 * Complete the signed-in owner's first-run Tedix OS setup.
+		 * Enable Tedix OS for any organization the signed-in person owns.
 		 *
 		 * This is deliberately separate from the ordinary organization settings
 		 * mutation: the apex launcher has account-level identity but no selected
@@ -317,15 +317,13 @@ export const organizationsContract = oc
 				tags: ["internal"],
 				summary: "Complete Tedix OS onboarding",
 				description:
-					"Name the signed-in owner's organization, choose its canonical OS hostname, and explicitly enable Tedix OS. The operation is idempotent and never selects a tenant for the launcher.",
+					"Enable Tedix OS for an existing organization where the signed-in person is an active owner, even while using another OS organization. Supply the existing name and slug to preserve them. Idempotent; requires app-write scope and owner membership, not platform administration.",
 			})
 			.input(
 				z.object({
 					organizationId: z
 						.uuid()
-						.describe(
-							"Existing organization bootstrapped for the signed-in user.",
-						),
+						.describe("Existing organization owned by the signed-in user."),
 					name: z
 						.string()
 						.trim()

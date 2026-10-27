@@ -83,6 +83,8 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	// tenant Apps read boundary for this exact RPC without granting an alias
 	// authority over unknown tools or unrelated provider inventories.
 	"apps/list": "mcp:apps.read",
+	// Ownership is checked by the API against the target organization.
+	"organizations/completeOsOnboarding": "mcp:apps.write",
 	// Connect uses an organization aggregate alias instead of the underlying
 	// `kernel` or `os` namespace. Preserve the API's capability at these exact
 	// endpoints; an arbitrary aggregate name must never borrow a family grant.

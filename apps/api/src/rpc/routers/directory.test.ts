@@ -110,6 +110,27 @@ beforeEach(() => {
 });
 
 describe("directory.listMyWorkspaces", () => {
+	it.each([
+		["owner", false, "legacy-tenant", true],
+		["member", false, "legacy-tenant", false],
+		["admin", false, "legacy-tenant", false],
+		["owner", true, "legacy-tenant", false],
+		["owner", false, null, false],
+	])(
+		"offers OS enablement only to a provisioned OS-less owner (%s, os=%s, tenant=%s)",
+		async (role, os, tenant, expected) => {
+			mocks.getUserOrganizationMemberships.mockResolvedValue([
+				membership({ member: { role }, descopeTenantId: tenant }),
+			]);
+			mocks.getOrganizationSurfaceSignals.mockResolvedValue(
+				new Map([[ORG_A, signals({ os })]]),
+			);
+			const result = await createClient(
+				createContext("user-1"),
+			).listMyWorkspaces({});
+			expect(result.data[0]?.org.canEnableOs).toBe(expected);
+		},
+	);
 	it("scopes enumeration to the caller's own sub", async () => {
 		mocks.getUserOrganizationMemberships.mockResolvedValue([membership()]);
 		const client = createClient(createContext("user-1"));

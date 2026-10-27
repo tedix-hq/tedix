@@ -485,7 +485,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"organizationPurpose/listRevisions": "mcp:settings.read",
 	"organizations/canCreateApp": "platform:admin",
 	"organizations/cancel": "platform:admin",
-	"organizations/completeOsOnboarding": "platform:admin",
+	"organizations/completeOsOnboarding": "mcp:apps.write",
 	"organizations/configureSso": "platform:admin",
 	"organizations/create": "platform:admin",
 	"organizations/delete": "platform:admin",

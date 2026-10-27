@@ -60,6 +60,12 @@ export const DirectorySurfaceRecordSchema = z.object({
 
 export const DirectoryWorkspaceRecordSchema = z.object({
 	org: z.object({
+		canEnableOs: z
+			.boolean()
+			.optional()
+			.describe(
+				"Active owner may enable Tedix OS on this existing organization.",
+			),
 		organizationId: z.string(),
 		slug: z.string(),
 		name: z.string(),
