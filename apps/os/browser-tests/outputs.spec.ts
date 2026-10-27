@@ -98,6 +98,8 @@ async function checkCardKeyboard(page: Page, card: Locator) {
 		await page.getByRole("heading", { name: "Share this file" }).waitFor();
 		assert.equal(page.url(), libraryUrl, "Share does not open the output");
 		await page.keyboard.press("Escape");
+		// Share is a dialog; let it close and hand focus back before moving on.
+		await page.getByRole("dialog").waitFor({ state: "hidden" });
 		await share.focus();
 		await page.keyboard.press("Tab");
 		assert(
@@ -267,6 +269,7 @@ try {
 			await share.click();
 			await page.getByRole("heading", { name: "Share this file" }).waitFor();
 			await page.keyboard.press("Escape");
+			await page.getByRole("dialog").waitFor({ state: "hidden" });
 			assert(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth,
