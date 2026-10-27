@@ -70,7 +70,11 @@ import {
 	sanitizeConversationTitle,
 	stripConversationTitleContext,
 } from "./conversation-index";
-import { type KernelEnv, kernelModel } from "./llm";
+import {
+	KERNEL_ROUTE_MODEL_REF_DEFAULT,
+	type KernelEnv,
+	kernelModel,
+} from "./llm";
 import { insertKernelRuntimeEventWithStatus } from "./run-store";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
@@ -167,15 +171,27 @@ async function deriveConversationTitle(
 	// The title is part of the settled run, and billing counts it there: a
 	// monetary plan with a per-run budget refuses a call without a run as
 	// hard_spend_limit, so a run-less title uses the fallback only.
-	const model = input.runId
-		? kernelModel(context.env as unknown as KernelEnv, undefined, {
+	// Like routing, the title uses the bounded non-reasoning route model. Auto
+	// Router often picked a reasoning model that spent the whole output budget
+	// thinking and returned no text, so the chat kept its placeholder.
+	const gatewayContext = input.runId
+		? {
 				organizationId: input.organizationId,
 				runId: input.runId,
 				sessionKey: input.conversationId,
 				source: "kernel:conversation_title",
-			})
+			}
+		: null;
+	const env = context.env as unknown as KernelEnv;
+	const model = gatewayContext
+		? (kernelModel(
+				env,
+				{ modelRef: KERNEL_ROUTE_MODEL_REF_DEFAULT },
+				gatewayContext,
+			) ?? kernelModel(env, undefined, gatewayContext))
 		: null;
 	let raw: string | undefined;
+	let finishReason: string | undefined;
 	if (model) {
 		const abortController = new AbortController();
 		const timeoutId = setTimeout(
@@ -206,6 +222,7 @@ async function deriveConversationTitle(
 				abortSignal: abortController.signal,
 			});
 			raw = result.text;
+			finishReason = result.finishReason;
 		} catch (error) {
 			console.warn({
 				component: "kernel.conversation_title",
@@ -218,6 +235,13 @@ async function deriveConversationTitle(
 	}
 	const generatedTitle = sanitizeConversationTitle(raw);
 	if (generatedTitle) return { title: generatedTitle, generated: true };
+	if (raw !== undefined)
+		console.log({
+			component: "kernel.conversation_title",
+			event: "auto_title_unusable_output",
+			finishReason,
+			chars: raw.length,
+		});
 	const fallbackTitle = fallbackConversationTitle(input.userContent);
 	return fallbackTitle ? { title: fallbackTitle, generated: false } : null;
 }
@@ -353,8 +377,13 @@ function firstExchange(events: readonly KernelRuntimeEvent[]): {
 	};
 }
 
-/** Rows scanned per backfill tick; each renamed row costs at most one model call. */
-const RETITLE_BACKFILL_BATCH = 20;
+/**
+ * Rows scanned per backfill tick. Most open chats already carry a generated
+ * title and cost one indexed read, so the scan is wide; model calls are capped
+ * separately, and the cursor stops at the last row it actually checked.
+ */
+const RETITLE_BACKFILL_BATCH = 100;
+const RETITLE_BACKFILL_MODEL_CALLS = 20;
 
 /**
  * Bounded, idempotent rename of open conversations whose title is still the
@@ -372,7 +401,11 @@ export async function backfillPlaceholderConversationTitles(
 		{ limit: RETITLE_BACKFILL_BATCH },
 	);
 	let renamed = 0;
+	let modelCalls = 0;
+	let scanned = 0;
 	for (const row of rows) {
+		if (modelCalls >= RETITLE_BACKFILL_MODEL_CALLS) break;
+		scanned++;
 		if (
 			row.conversationId === HOME_MAIN_CONVERSATION_ID ||
 			isEphemeralHomeConversation(row.conversationId)
@@ -394,6 +427,7 @@ export async function backfillPlaceholderConversationTitles(
 				isCodeLikeConversationTitle(row.title) ||
 				row.title === fallbackConversationTitle(exchange.userContent);
 			if (!isPlaceholder) continue;
+			modelCalls++;
 			const derived = await deriveConversationTitle(context, {
 				organizationId: row.organizationId,
 				conversationId: row.conversationId,
@@ -417,11 +451,10 @@ export async function backfillPlaceholderConversationTitles(
 			});
 		}
 	}
-	const last = rows.at(-1);
 	await advanceKernelConversationRetitleCursor(
 		context.db,
 		previous,
-		last ? last.id : "",
+		scanned ? rows[scanned - 1]!.id : "",
 	);
-	return { titleBackfillScanned: rows.length, titleBackfillRenamed: renamed };
+	return { titleBackfillScanned: scanned, titleBackfillRenamed: renamed };
 }

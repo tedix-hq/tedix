@@ -44,6 +44,7 @@ import {
 	KERNEL_AUTO_TITLE_SOURCE,
 	sanitizeConversationTitle,
 } from "./conversation-index";
+import { KERNEL_ROUTE_MODEL_REF_DEFAULT } from "./llm";
 
 // ---------------------------------------------------------------------------
 // pure helpers
@@ -550,6 +551,11 @@ describe("generateAndPersistHomeConversationTitle", () => {
 		);
 
 		expect(kernelModelCalls).toHaveLength(1);
+		// Not Auto Router: a routed reasoning model can spend the whole output
+		// budget thinking and return no title.
+		expect(kernelModelCalls[0]?.[1]).toEqual({
+			modelRef: KERNEL_ROUTE_MODEL_REF_DEFAULT,
+		});
 		expect(kernelModelCalls[0]?.[2]).toMatchObject({
 			organizationId: "org-1",
 			runId: "run-1",
@@ -835,6 +841,39 @@ describe("backfillPlaceholderConversationTitles", () => {
 				(value) => (value as { kind?: string }).kind === "conversation.updated",
 			),
 		).toBe(false);
+	});
+
+	it("caps model calls per tick and stops the cursor at the last checked row", async () => {
+		mockGenerateText.mockReset();
+		mockGenerateText.mockResolvedValue({ text: "Draft the reply" });
+		const inserted: unknown[] = [];
+		const rows = Array.from({ length: 25 }, (_, index) =>
+			candidate(`home:os:${String(index).padStart(2, "0")}`, "A304"),
+		);
+		const db = scriptedDb(
+			[
+				[],
+				rows,
+				...rows
+					.slice(0, 20)
+					.flatMap(() => [firstExchange, [insertedEventRow()]]),
+			],
+			inserted,
+		);
+
+		const result = await backfillPlaceholderConversationTitles(
+			contextWith(db, modelEnv()),
+		);
+
+		expect(mockGenerateText).toHaveBeenCalledTimes(20);
+		expect(result).toEqual({
+			titleBackfillScanned: 20,
+			titleBackfillRenamed: 20,
+		});
+		expect(inserted.at(-1)).toEqual({
+			scheduleId: "kernel-conversation-retitle:v1",
+			through: "org-1:home:os:19",
+		});
 	});
 
 	it("restarts the pass after an empty page", async () => {
