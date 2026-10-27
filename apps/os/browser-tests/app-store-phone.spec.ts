@@ -3,10 +3,12 @@ import { chromium, type Browser } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
 /*
- * Catalog cards at phone width, light and dark: a long description and
- * provider byline stay fully readable instead of silently truncating. At `sm`
- * and up the card keeps its two-line clamp and single-line byline, and the
- * card link to the app detail page is the accessible full-text path.
+ * Catalog cards at phone, tablet and desktop widths, light and dark: a long
+ * description stays clamped to two lines at every width, so it cannot fill a
+ * phone screen. The card carries a labelled "Read more" affordance and the
+ * whole card links to the app detail page — the accessible full-text path.
+ * The provider byline keeps its phone behaviour: it wraps below `sm` and
+ * truncates to one line at `sm` and up.
  */
 const server = await startFixtureServer("/explore/apps");
 const LONG_DESCRIPTION =
@@ -20,7 +22,7 @@ const FIXTURE_DESCRIPTION =
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [390, 1280]) {
+	for (const width of [375, 768, 1280]) {
 		for (const theme of ["light", "dark"] as const) {
 			const label = `${width}px ${theme}`;
 			const context = await browser.newContext({
@@ -44,7 +46,7 @@ try {
 			const card = page.locator('a[href="/explore/apps/local-documents"]');
 			await card.waitFor();
 			const description = card.locator(
-				'[data-slot="card-content"] [data-slot="text"]',
+				'[data-slot="card-content"] p[data-slot="text"]',
 			);
 			const byline = card.locator('[data-slot="card-description"]');
 			await page.evaluate(() => document.fonts.ready);
@@ -58,10 +60,18 @@ try {
 				await description.evaluate(
 					(el) => el.scrollHeight <= el.clientHeight + 1,
 				),
-				phone,
-				phone
-					? `${label}: long description is fully readable`
-					: `${label}: long description stays clamped to two lines`,
+				false,
+				`${label}: long description stays clamped to two lines`,
+			);
+			const readMore = card.locator("span", { hasText: "Read more" });
+			assert(
+				(await readMore.count()) > 0,
+				`${label}: card labels the path to the full description`,
+			);
+			assert.equal(
+				await readMore.first().isVisible(),
+				true,
+				`${label}: Read more is visible`,
 			);
 			assert.equal(
 				await byline.evaluate((el) => el.scrollWidth <= el.clientWidth + 1),

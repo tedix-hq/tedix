@@ -125,15 +125,22 @@ describe("App Store migration", () => {
 		expect(byline?.classList.contains("sm:truncate")).toBe(true);
 		expect(byline?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
 		const description = card?.querySelector(
-			'[data-slot="card-content"] [data-slot="text"]',
+			'[data-slot="card-content"] p[data-slot="text"]',
 		);
 		expect(description?.textContent).toBe("Accounts and invoices");
-		// Phones render the full text; the two-line clamp returns at `sm`, where
-		// the card link to the app detail page is the full-text path.
-		expect(description?.classList.contains("max-sm:line-clamp-none")).toBe(
-			true,
-		);
+		// The two-line clamp holds at every width so a long description cannot
+		// fill a phone screen; the labelled "Read more" affordance sits inside
+		// the card link to the detail page, which keeps the full text reachable.
 		expect(description?.classList.contains("line-clamp-2")).toBe(true);
+		expect(description?.classList.contains("max-sm:line-clamp-none")).toBe(
+			false,
+		);
+		const cardLink = card?.closest("a");
+		expect(cardLink?.getAttribute("href")).toBe("/explore/apps/acme");
+		const readMore = [...(card?.querySelectorAll("span") ?? [])].find(
+			(element) => element.textContent?.trim() === "Read more",
+		);
+		expect(readMore?.classList.contains("text-kumo-brand")).toBe(true);
 		for (const header of host.querySelectorAll('[data-slot="card-header"]'))
 			expect(header.classList.contains("pb-3")).toBe(false);
 		for (const content of host.querySelectorAll('[data-slot="card-content"]'))
