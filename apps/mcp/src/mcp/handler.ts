@@ -14,6 +14,10 @@ import {
 } from "@tedix/api-contract/schemas/tools";
 import { delegatedMachineScopes } from "@tedix/mcp-shared/auth/scopes";
 import {
+	resolveMcpToolNamespace,
+	resolveMcpToolRequiredScopes,
+} from "@tedix/mcp-shared/auth/tool-scopes";
+import {
 	type ConnectionRecovery,
 	readConnectionRecovery,
 } from "@tedix/mcp-shared/tool-result";
@@ -198,6 +202,38 @@ export interface RpcToolResult {
 	readObservation?: DocsFileObservationReceipt;
 	/** Host-generated only; a pinned credential lookup failed before execution. */
 	connectionRecovery?: ConnectionRecovery;
+}
+
+/** The approved tool's required scopes plus their machine translations. */
+function homeApprovedToolScopes(
+	toolId: string,
+	config: ToolConfig,
+	transport: string,
+	mcpConfig: Record<string, unknown> | undefined,
+	args: Record<string, unknown>,
+	readOnlyHint: boolean | undefined,
+): string[] {
+	const tool = {
+		toolId,
+		config: config as unknown as Record<string, unknown>,
+		toolTypeId: transport,
+		...(readOnlyHint !== undefined ? { annotations: { readOnlyHint } } : {}),
+	};
+	try {
+		const required = resolveMcpToolRequiredScopes(
+			tool,
+			resolveMcpToolNamespace(
+				tool,
+				mcpConfig?.codeModeNamespaces as Record<string, string> | undefined,
+			),
+			mcpConfig,
+			{ fallbackOnAuthenticatedAuthMode: true, toolCall: { arguments: args } },
+		);
+		return [...new Set([...required, ...delegatedMachineScopes(required)])];
+	} catch {
+		// No resolvable mapping: delegate nothing, so apps/api refuses the call.
+		return [];
+	}
 }
 
 /**
@@ -845,6 +881,33 @@ export class ToolHandler {
 				headers,
 				serviceBinding: useServiceBinding,
 			});
+		// An approved Home write: governance verified the receipt for exactly
+		// this tool and these arguments. Delegate only the scopes this tool
+		// requires, for this one request; apps/api still runs its guard and
+		// tenant and member checks. An exchanged token keeps narrowing instead.
+		if (
+			useServiceBinding &&
+			ctx.callerIdentity?.authType === "service" &&
+			ctx.callerIdentity.kernel === true &&
+			ctx.callerIdentity.homeApprovedCall === true
+		) {
+			const approvedScopes = homeApprovedToolScopes(
+				ctx.toolId,
+				config,
+				transport,
+				ctx.appMetadata?.mcpConfig as Record<string, unknown> | undefined,
+				params,
+				ctx.readOnlyHint,
+			);
+			if (approvedScopes.length > 0)
+				headers["X-Tedix-Tedi-Scopes"] = [
+					...new Set([
+						...(headers["X-Tedix-Tedi-Scopes"]?.split(/\s+/).filter(Boolean) ??
+							[]),
+						...approvedScopes,
+					]),
+				].join(" ");
+		}
 
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeout);

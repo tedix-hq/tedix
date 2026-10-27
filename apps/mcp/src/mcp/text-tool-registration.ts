@@ -8,6 +8,7 @@ import {
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
 import {
 	enforceExpectedAnnotations,
+	isHomeApprovalCall,
 	requireDestructiveToolApproval,
 	stripDestructiveApprovalArgs,
 } from "./governance";
@@ -166,6 +167,7 @@ export async function registerTextOnlyTool(
 			adapterScope: parseAdapterScope(tool.adapterScope),
 			resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
 			clientSupportsTasks: clientSupportsTasks(extra?._meta),
+			homeApprovedCall: isHomeApprovalCall(agent, { extra }),
 		});
 		if (result.isError) return result;
 		const settlement = await settleToolPayment(agent, payment.settlement);

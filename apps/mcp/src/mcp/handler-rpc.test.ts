@@ -296,6 +296,70 @@ describe("kernel acting user", () => {
 	);
 });
 
+describe("approved Home write scopes", () => {
+	async function delegatedScopes(
+		endpoint: string,
+		caller: Partial<ToolExecutionContext["callerIdentity"]>,
+	) {
+		const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
+		await new ToolHandler().execute(
+			{ kind: "document", title: "Welcome" },
+			{
+				...ctx({ transport: "rpc", endpoint }),
+				toolId: "tedix__create_os_output",
+				env: {
+					ENVIRONMENT: "test",
+					API_URL: "https://api.example.test",
+					API_SERVICE: { fetch: apiFetch },
+				} as unknown as CloudflareEnv,
+				callerIdentity: {
+					authType: "service",
+					kernel: true,
+					userId: "owner-sub",
+					organizationId: "org_1",
+					...caller,
+				} as ToolExecutionContext["callerIdentity"],
+			},
+		);
+		const call = apiFetch.mock.calls[0] as unknown as Parameters<typeof fetch>;
+		return (
+			headersFromFetch(...call)
+				.get("X-Tedix-Tedi-Scopes")
+				?.split(" ")
+				.sort() ?? []
+		);
+	}
+
+	it("carries only the approved tool's scopes to the API", async () => {
+		expect(
+			await delegatedScopes("osWorkspaces/outputs/create", {
+				homeApprovedCall: true,
+			}),
+		).toEqual(["apps:write", "mcp:apps.write", "tools:write"]);
+	});
+
+	it("never delegates a write scope for an approved read tool", async () => {
+		const scopes = await delegatedScopes("osWorkspaces/outputs/get", {
+			homeApprovedCall: true,
+		});
+		expect(scopes).not.toContain("apps:write");
+		expect(scopes).toContain("apps:read");
+	});
+
+	it.each([
+		{ homeApprovedCall: undefined },
+		{ homeApprovedCall: true, kernel: false },
+		{ homeApprovedCall: true, authType: "tedi" as const, tediId: "tedi_1" },
+	])(
+		"delegates nothing without a verified kernel approval (%j)",
+		async (caller) => {
+			expect(
+				await delegatedScopes("osWorkspaces/outputs/create", caller),
+			).not.toContain("apps:write");
+		},
+	);
+});
+
 describe("Home Work creator provenance", () => {
 	it.each([
 		{

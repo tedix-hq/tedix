@@ -82,6 +82,12 @@ export interface CallerIdentity {
 	 * credential or grants any other authority.
 	 */
 	approvedHomeUserId?: string;
+	/**
+	 * Set for one dispatch after MCP verified the Home approval receipt for that
+	 * exact call; never parsed from a header. Lets the API hop carry the scopes
+	 * the approved tool itself requires.
+	 */
+	homeApprovedCall?: boolean;
 }
 
 export function shouldBypassCodeModeForCaller(

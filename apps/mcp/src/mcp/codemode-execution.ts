@@ -64,6 +64,7 @@ import {
 import {
 	enforceExpectedAnnotations,
 	callToolResultText,
+	isHomeApprovalCall,
 	requireDestructiveToolApproval,
 	stripDestructiveApprovalArgs,
 	withDestructiveApprovalSchema,
@@ -377,6 +378,17 @@ export function buildNamespaceGroups(
 				if (riskRateLimitFailure) {
 					throw new Error(callToolResultText(riskRateLimitFailure));
 				}
+				const approvalExtra = {
+					_meta: {
+						...executionRefs.approvalExtra?._meta,
+						...(inlineExtra?._meta?.["com.tedix/approvalRequestId"]
+							? {
+									"com.tedix/approvalRequestId":
+										inlineExtra._meta["com.tedix/approvalRequestId"],
+								}
+							: {}),
+					},
+				};
 				const approvalFailure = await requireDestructiveToolApproval(
 					serverCtx,
 					tool,
@@ -392,17 +404,7 @@ export function buildNamespaceGroups(
 							serverCtx.callerIdentity?.authType === "tedi" ||
 							serverCtx.callerIdentity?.authType === "service",
 						args: toolArgs,
-						extra: {
-							_meta: {
-								...executionRefs.approvalExtra?._meta,
-								...(inlineExtra?._meta?.["com.tedix/approvalRequestId"]
-									? {
-											"com.tedix/approvalRequestId":
-												inlineExtra._meta["com.tedix/approvalRequestId"],
-										}
-									: {}),
-							},
-						},
+						extra: approvalExtra,
 						requestBinding: executionRefs.approvalSource
 							? await sha256Hex(
 									JSON.stringify([executionRefs.approvalSource, toolArgs]),
@@ -439,6 +441,9 @@ export function buildNamespaceGroups(
 						resultStrategy,
 						executionId: executionRefs.executionId,
 						ownerHostSession: executionRefs.ownerHostSession,
+						homeApprovedCall: isHomeApprovalCall(serverCtx, {
+							extra: approvalExtra,
+						}),
 					});
 					if (result.isError) {
 						rpcSuccess = false;
