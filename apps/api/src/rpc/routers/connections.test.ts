@@ -1556,6 +1556,7 @@ describe("credential resolution provider failures", () => {
 			await expect(
 				resolveCredentialChain(
 					{
+						authType: "user",
 						db,
 						env: {
 							DESCOPE_PROJECT_ID: "P1",

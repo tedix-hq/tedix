@@ -623,3 +623,18 @@ export type ConnectionInventory = z.infer<typeof ConnectionInventorySchema>;
 export type ConnectionInventoryRow = z.infer<
 	typeof ConnectionInventoryRowSchema
 >;
+
+export const ConnectionAccessRequestSchema = z.object({
+	organizationId: z.string().min(1),
+	providerId: z.string().min(1),
+	scope: z.enum(["tenant", "user"]),
+	ownerUserId: z.string().min(1),
+	connectionInstanceId: z.uuid().optional(),
+	tediId: z.uuid(),
+	skill: z
+		.object({ id: z.uuid(), revision: z.number().int().positive() })
+		.optional(),
+});
+export type ConnectionAccessRequest = z.infer<
+	typeof ConnectionAccessRequestSchema
+>;

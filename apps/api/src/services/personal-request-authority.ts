@@ -1,3 +1,4 @@
+import { enforceConnectionConsumerGrants } from "../rpc/routers/connections/consumer-grant-resolution";
 import {
 	personalResourceScopesCover,
 	reviewedPersonalAccountName,
@@ -268,6 +269,12 @@ export async function resolveRequestPersonalCredential(
 		: undefined;
 	if (input.connectionInstanceId && !instance)
 		return deny("This personal account does not belong to the requester");
+	await enforceConnectionConsumerGrants(context, {
+		organizationId: input.organizationId,
+		providerId: input.providerId,
+		connectionInstanceId: input.connectionInstanceId,
+		personalUserId: userId,
+	});
 	const scopedToken = input.connectionInstanceId
 		? await fetchNamedConnection(
 				context,

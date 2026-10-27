@@ -79,11 +79,12 @@ export const connectionsContract = oc
 			.route({
 				method: "GET",
 				path: "/consumer-grants",
-				summary: "Read organization connection consumers",
+				summary: "Read connection consumers",
 			})
 			.input(
 				z.object({
 					providerId: z.string().min(1).max(200),
+					scope: z.enum(["tenant", "user"]).optional(),
 					connectionInstanceId: z.uuid().optional(),
 				}),
 			)
@@ -92,11 +93,12 @@ export const connectionsContract = oc
 			.route({
 				method: "PUT",
 				path: "/consumer-grants",
-				summary: "Choose organization connection consumers",
+				summary: "Choose connection consumers",
 			})
 			.input(
 				z.object({
 					providerId: z.string().min(1).max(200),
+					scope: z.enum(["tenant", "user"]).optional(),
 					connectionInstanceId: z.uuid().optional(),
 					policy: ConnectionConsumerGrantsSchema,
 				}),

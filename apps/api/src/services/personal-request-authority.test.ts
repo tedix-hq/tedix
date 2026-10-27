@@ -11,6 +11,7 @@ import {
 } from "./personal-request-authority";
 
 const mocks = vi.hoisted(() => ({
+	consumerGrants: vi.fn(),
 	consent: vi.fn(),
 	home: vi.fn(),
 	submission: vi.fn(),
@@ -23,6 +24,9 @@ const mocks = vi.hoisted(() => ({
 	audit: vi.fn(),
 	homeEvent: vi.fn(),
 	tediEvent: vi.fn(),
+}));
+vi.mock("../rpc/routers/connections/consumer-grant-resolution", () => ({
+	enforceConnectionConsumerGrants: mocks.consumerGrants,
 }));
 vi.mock("@tedix/db/queries/personal-request-consent", () => ({
 	getPersonalRequestConsent: mocks.consent,
@@ -94,6 +98,7 @@ function consent(tediId: string | null = null) {
 }
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.consumerGrants.mockResolvedValue(undefined);
 	mocks.app.mockResolvedValue(undefined);
 	mocks.consent.mockResolvedValue(consent());
 	mocks.home.mockResolvedValue({
@@ -591,4 +596,16 @@ describe("request-bound personal reads", () => {
 			resolveRequestPersonalCredential(context(), input),
 		).rejects.toThrow("audit unavailable");
 	});
+});
+
+it("refuses a request-bound personal consumer before either vault lookup", async () => {
+	mocks.consumerGrants.mockRejectedValueOnce(
+		new Error("Not granted for this connection"),
+	);
+	await expect(
+		resolveRequestPersonalCredential(context(), input),
+	).rejects.toThrow("Not granted for this connection");
+	expect(mocks.token).not.toHaveBeenCalled();
+	expect(mocks.defaultToken).not.toHaveBeenCalled();
+	expect(mocks.namedToken).not.toHaveBeenCalled();
 });

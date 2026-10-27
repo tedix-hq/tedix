@@ -592,6 +592,23 @@ execution also needs inspection; it is not automatically replayed.
 A connection slot starts with no agent consumers and no provider grant. The
 person still completes provider consent and redeems their own connect ticket.
 Approve a separate `resource.grant` proposal when agents should use that account.
+
+Connection owners can also limit which tedis or exact skill revisions may use
+their personal credentials. Discover `connections.setConsumerGrants` and
+`connections.getConsumerGrants`: `scope: "user"` reads or changes the signed-in
+person's policy in the current organization; omitted scope means organization
+credentials. Only the person can change their personal policy. A provider's
+policy and a named account's policy must both allow the consumer. These limits
+apply before credential lookup, including labeled providers and personal
+fallbacks. The person's own direct use remains available.
+
+When a tedi is refused, Tedix puts an access request in the connection owner's
+existing inbox. Retries reuse one card for the same tedi, exact skill revision
+and connection. Accepting the card adds that consumer while keeping the other
+grants; declining leaves access blocked. A skill request allows only its exact
+revision. The owner and consumer are checked again when the person accepts.
+This approval changes Tedix access rules; provider sign-in and consent remain
+with the person.
 Creating an agent does not grant an Earned Delegation entrustment or recertify
 one. Direct `tedis.create` remains available under its existing authorization.
 

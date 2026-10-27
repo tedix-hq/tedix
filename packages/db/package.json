@@ -196,6 +196,8 @@
 		"./queries/jobs": "./src/queries/jobs.ts",
 		"./queries/connection-providers": "./src/queries/connection-providers.ts",
 		"./queries/connection-instances": "./src/queries/connection-instances.ts",
+		"./queries/connection-access-requests": "./src/queries/connection-access-requests.ts",
+		"./queries/personal-connection-grants": "./src/queries/personal-connection-grants.ts",
 		"./queries/connection-connect-tickets": "./src/queries/connection-connect-tickets.ts",
 		"./schema/connection-instances": "./src/schema/connection-instances.ts",
 		"./queries/conversation-capabilities": "./src/queries/conversation-capabilities.ts",

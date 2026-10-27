@@ -7,6 +7,7 @@ import { schemaDdl } from "../test/schema-ddl";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	getUserById,
+	upsertUser,
 	updateUserProfile,
 	upsertUserForExternalIdentity,
 } from "./users";
@@ -77,5 +78,41 @@ describe("canonical user profiles", () => {
 				expectedRevision: 1,
 			}),
 		).toBeUndefined();
+	});
+});
+
+it("preserves connection policies during provider sync and rejects provider-supplied policies", async () => {
+	const { db } = fixture();
+	await upsertUser(db, {
+		id: USER_ID,
+		email: "owner@example.test",
+		metadata: {
+			connectionConsumerGrants: { forged: { mode: "all" } },
+			language: "en",
+		},
+	});
+	expect((await getUserById(db, USER_ID))?.metadata).toEqual({
+		language: "en",
+	});
+	await db.update(users).set({
+		metadata: {
+			connectionConsumerGrants: {
+				pinned: { mode: "selected", tediIds: [], skills: [] },
+			},
+		},
+	});
+	await upsertUser(db, {
+		id: USER_ID,
+		email: "owner@example.test",
+		metadata: {
+			language: "de",
+			connectionConsumerGrants: { forged: { mode: "all" } },
+		},
+	});
+	expect((await getUserById(db, USER_ID))?.metadata).toEqual({
+		language: "de",
+		connectionConsumerGrants: {
+			pinned: { mode: "selected", tediIds: [], skills: [] },
+		},
 	});
 });
