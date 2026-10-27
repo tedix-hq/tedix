@@ -19,6 +19,26 @@ const inspect = async (
 ): Promise<PiStorageSnapshot> => JSON.parse(await agent.inspectFixture(runId));
 
 describe("native Pi provider and durable storage", () => {
+	it("keeps repeated Workers AI call IDs distinct across durable tool rounds and eviction", async () => {
+		const name = crypto.randomUUID();
+		const agent = await fixture(name);
+		const first = await agent.turnWithRepeatedToolIds("repeated-ids");
+		expect(first.result.assistantText).toBe("completed");
+		const snapshot = await inspect(agent, "repeated-ids");
+		expect(snapshot.requests).toHaveLength(3);
+		expect(snapshot.effects).toBe(2);
+		const calls = snapshot.checkpoint.attempts.flatMap(
+			(attempt) => attempt.generatedToolCallIds ?? [],
+		);
+		expect(calls).toHaveLength(2);
+		expect(new Set(calls).size).toBe(2);
+		expect(snapshot.checkpoint.fault).toBeNull();
+		expect(snapshot.budget.usedTokens).toBe(250);
+		await abortAllDurableObjects();
+		const reopened = await fixture(name);
+		expect(await reopened.turn("repeated-ids")).toEqual(first);
+		expect((await inspect(reopened, "repeated-ids")).effects).toBe(2);
+	});
 	it("steers one owned run between tool rounds and replays the receipt after eviction", async () => {
 		const name = crypto.randomUUID();
 		const agent = await fixture(name);
