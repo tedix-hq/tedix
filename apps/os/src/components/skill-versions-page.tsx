@@ -27,6 +27,10 @@ import {
 } from "@/components/kumo/table";
 import { Text } from "@/components/kumo/text";
 import {
+	SkillRollbackButton,
+	SkillWorkflowDrafts,
+} from "@/components/skill-workflow-drafts";
+import {
 	skillDetailQueryOptions,
 	skillRevisionsQueryOptions,
 } from "@/lib/os-query-options";
@@ -89,6 +93,7 @@ export function SkillVersionsPage() {
 					.
 				</Text>
 			) : null}
+			<SkillWorkflowDrafts skillId={skillId} />
 			{revisions.isPending ? <ListSkeleton /> : null}
 			{revisions.isError ? (
 				<Alert variant={revisions.data ? "warning" : "destructive"}>
@@ -172,6 +177,16 @@ export function SkillVersionsPage() {
 													<strong>What changed: </strong>
 													{detail.data.entry.revisionReasoning}
 												</Text>
+											) : null}
+											{!current &&
+											canVerifyCurrent &&
+											detail.data?.entry &&
+											revision.revision != null ? (
+												<SkillRollbackButton
+													baseline={detail.data.entry}
+													runId={revision.runId}
+													revision={revision.revision}
+												/>
 											) : null}
 											<Collapsible>
 												<CollapsibleTrigger

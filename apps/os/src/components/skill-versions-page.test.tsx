@@ -23,6 +23,16 @@ vi.mock("@/lib/api", () => ({
 		skills: {
 			listWorkflowRevisions: reads.listWorkflowRevisions,
 			get: reads.get,
+			listByOrg: () => Promise.resolve({ entries: [], total: 0 }),
+		},
+		// The drafts section reads the viewer's permissions; a member without
+		// tedis:update sees no draft controls, which these cases rely on.
+		userSettings: {
+			getContext: () =>
+				Promise.resolve({
+					authority: { permissions: [] },
+					organization: { id: "example-org" },
+				}),
 		},
 	},
 }));
