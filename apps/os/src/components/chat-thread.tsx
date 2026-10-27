@@ -2216,7 +2216,7 @@ export function ChatThread({
 										>
 											{message.content}
 											<div className="mt-1 text-kumo-subtle text-xs">
-												Queued · unread
+												Queued · waiting for the run
 											</div>
 										</li>
 									))}
@@ -2705,7 +2705,7 @@ export function ChatThread({
 							<Text
 								as="span"
 								role="label"
-								className="chat-composer-hint truncate text-kumo-inactive"
+								className="chat-composer-hint truncate text-kumo-subtle"
 							>
 								Enter to send · Shift+Enter for a new line
 							</Text>

@@ -898,9 +898,7 @@ describe("approval builders", () => {
 		expect(
 			container.querySelector('[data-slot="chat-json-code"]')?.textContent,
 		).toContain('"title": "Orion plan"');
-		expect(container.textContent).toContain(
-			"os.create_os_output · tedix · Request appr-write",
-		);
+		expect(container.textContent).toContain("os.create_os_output · tedix");
 		expect(
 			approvalsFromRunSet({
 				runs: [{ ...write, status: "completed" }],

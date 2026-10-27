@@ -1614,11 +1614,11 @@ describe("ProvisionalUserBubble", () => {
 		expect(unknown).toContain("Delivery unconfirmed");
 	});
 
-	it("names the attempt on a same-key retry", () => {
+	it("marks a same-key retry as retrying", () => {
 		const html = renderToStaticMarkup(
 			<ProvisionalUserBubble send={provisional({ attempts: 2 })} />,
 		);
-		expect(html).toContain("attempt 2");
+		expect(html).toContain("retrying");
 	});
 
 	it("is visibly provisional rather than dressed as a durable bubble", () => {
@@ -3063,7 +3063,7 @@ describe("<ChatThread> active run steering", () => {
 		await flush();
 		expect(kernelRuntimeApi.steerRun).toHaveBeenCalledTimes(1);
 		expect(transport.actions.enqueueMessage).not.toHaveBeenCalled();
-		expect(container.textContent).toContain("Queued · unread");
+		expect(container.textContent).toContain("Queued · waiting for the run");
 		expect(composerTextarea(container).value).toBe("");
 		act(() => stops()[0]!.click());
 		await flush();

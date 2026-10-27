@@ -84,7 +84,9 @@ export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 							<span className="min-w-0 truncate">{workspace.org.name}</span>
 						</DropdownMenuLabel>
 						{!workspace.org.provisionComplete ? (
-							<DropdownMenuItem disabled>Provisioning</DropdownMenuItem>
+							<DropdownMenuItem disabled>
+								Setting up — check back soon
+							</DropdownMenuItem>
 						) : (
 							APP_SURFACES.map((surface) => {
 								const entry = findWorkspaceSurface(workspace, surface);

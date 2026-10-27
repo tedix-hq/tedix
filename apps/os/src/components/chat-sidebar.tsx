@@ -1017,7 +1017,7 @@ export function ChatSidebar({
 				title="Delete conversation"
 				description={
 					deleteTarget
-						? `“${conversationTitle(deleteTarget)}” and its messages and run records will be permanently deleted. Active runs and delegations are stopped first. Accepted Work and external outcomes remain. You can’t undo this.`
+						? `“${conversationTitle(deleteTarget)}” and its messages are permanently deleted. Anything still working is stopped first. Accepted Work stays on the board. You can’t undo this.`
 						: null
 				}
 				confirmLabel="Delete"
@@ -1143,36 +1143,45 @@ export function ChatConversationHeader({
 				<CaretLeft size={14} />
 			</Button>
 			{editing ? (
-				<>
-					<Input
-						aria-label="Conversation title"
-						autoFocus
-						className="h-7 min-w-0 flex-1"
-						onChange={(event) => setTitleInput(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Enter") saveTitle();
-							if (event.key === "Escape") setEditing(false);
-						}}
-						value={titleInput}
-					/>
-					<Button
-						aria-label="Save conversation title"
-						disabled={!titleInput.trim() || rename.isPending}
-						onClick={saveTitle}
-						size="icon-sm"
-						variant="ghost"
-					>
-						<Check size={13} />
-					</Button>
-					<Button
-						aria-label="Cancel title edit"
-						onClick={() => setEditing(false)}
-						size="icon-sm"
-						variant="ghost"
-					>
-						<X size={13} />
-					</Button>
-				</>
+				<div className="flex min-w-0 flex-1 flex-col">
+					<div className="flex items-center gap-1">
+						<Input
+							aria-label="Conversation title"
+							autoFocus
+							className="h-7 min-w-0 flex-1"
+							maxLength={200}
+							onChange={(event) => setTitleInput(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") saveTitle();
+								if (event.key === "Escape") setEditing(false);
+							}}
+							placeholder={CONVERSATION_TITLE_FALLBACK}
+							value={titleInput}
+						/>
+						<Button
+							aria-label="Save conversation title"
+							disabled={!titleInput.trim() || rename.isPending}
+							onClick={saveTitle}
+							size="icon-sm"
+							variant="ghost"
+						>
+							<Check size={13} />
+						</Button>
+						<Button
+							aria-label="Cancel title edit"
+							onClick={() => setEditing(false)}
+							size="icon-sm"
+							variant="ghost"
+						>
+							<X size={13} />
+						</Button>
+					</div>
+					{rename.isError && (
+						<Text role="label" tone="error">
+							Could not rename. Try again.
+						</Text>
+					)}
+				</div>
 			) : (
 				<>
 					<Text
@@ -1188,7 +1197,9 @@ export function ChatConversationHeader({
 						<Button
 							aria-label="Rename conversation"
 							onClick={() => {
-								setTitleInput(title);
+								setTitleInput(
+									title === CONVERSATION_TITLE_FALLBACK ? "" : title,
+								);
 								setEditing(true);
 							}}
 							size="icon-sm"
@@ -1230,8 +1241,8 @@ export function ChatConversationHeader({
 				title="Delete this conversation?"
 				description={
 					<>
-						"{title}" and its messages and run records are permanently deleted.
-						Active runs and delegations stop first. You can’t undo this.
+						"{title}" and its messages are permanently deleted. Anything still
+						working is stopped first. You can’t undo this.
 					</>
 				}
 				confirmLabel="Delete"

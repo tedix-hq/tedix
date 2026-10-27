@@ -121,7 +121,12 @@ export function DecisionDeckToolbar({
 							}
 						/>
 						<DecisionFilterChip
-							label={project === "all" ? "Project" : projectLabel(project)}
+							label={
+								project === "all"
+									? "Project"
+									: (projectLabel(project) ??
+										decisionText("Project unavailable"))
+							}
 							ariaLabel={decisionText("Decision project")}
 							searchable
 							value={project}
@@ -135,7 +140,8 @@ export function DecisionDeckToolbar({
 									label:
 										value === "all"
 											? decisionText("All projects")
-											: projectLabel(value),
+											: (projectLabel(value) ??
+												decisionText("Project unavailable")),
 								}),
 							)}
 						/>

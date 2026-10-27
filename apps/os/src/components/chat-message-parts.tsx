@@ -435,7 +435,7 @@ export function ProvisionalUserBubble({
 					{pending && held
 						? "Reconnecting… will send"
 						: PROVISIONAL_SEND_LABEL[send.state]}
-					{send.attempts > 1 ? ` · attempt ${send.attempts}` : ""}
+					{send.attempts > 1 ? " · retrying" : ""}
 				</span>
 			</div>
 		</li>

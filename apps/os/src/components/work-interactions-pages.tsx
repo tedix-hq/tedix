@@ -505,7 +505,7 @@ export function WorkInteractionsPage() {
 				}
 			/>
 			<KumoTabs
-				aria-label="Message view"
+				aria-label="Request view"
 				value={listView}
 				onValueChange={(value) => {
 					paging.reset();
@@ -629,7 +629,7 @@ export function WorkInteractionsPage() {
 				{query.isPending ? (
 					<WorkListSkeleton />
 				) : query.isError ? (
-					<WorkReadFailure title="Messages unavailable" error={query.error} />
+					<WorkReadFailure title="Requests unavailable" error={query.error} />
 				) : visibleRows.length === 0 ? (
 					<WorkEmpty
 						title={
@@ -653,12 +653,12 @@ export function WorkInteractionsPage() {
 					<>
 						<Collection
 							appearance="inline"
-							aria-label="Messages"
+							aria-label="Requests"
 							className="border-kumo-line border-y sm:hidden"
 						>
 							{interactionRows(true)}
 						</Collection>
-						<Table scrollLabel="Messages" containerClassName="hidden sm:block">
+						<Table scrollLabel="Requests" containerClassName="hidden sm:block">
 							<TableHeader>
 								<TableRow>
 									<TableHead>Request</TableHead>
@@ -708,7 +708,7 @@ export function WorkInteractionPage({ requestId }: { requestId: string }) {
 	);
 	return (
 		<Page width="lg">
-			<PageBack render={<Link href="/work/needs-you" />}>Needs you</PageBack>
+			<PageBack render={<Link href="/work?view=deck" />}>Decisions</PageBack>
 			<WorkInteractionDecisionCard
 				deliveryText={answerDeliveryLine(request?.metadata)?.text}
 				requestId={requestId}

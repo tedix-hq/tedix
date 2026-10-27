@@ -1479,7 +1479,6 @@ export function ApprovalCard({
 							{approval.appSlug
 								? ` · ${sanitizeUntrustedText(approval.appSlug)}`
 								: ""}
-							{` · Request ${sanitizeUntrustedText(approval.approvalId)}`}
 						</Text>
 					) : null}
 					{approval.detail && approval.args === undefined ? (

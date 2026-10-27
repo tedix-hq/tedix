@@ -136,7 +136,7 @@ describe("activity history", () => {
 			title: "Add note",
 			who: "CFO",
 			where: "Example CRM",
-			how: "It failed (TIMEOUT)",
+			how: "It failed",
 		});
 		expect(blocked?.status.label).toBe("Blocked");
 	});

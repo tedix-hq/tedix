@@ -69,7 +69,7 @@ export function DeckWaitingList({
 									</Text>
 								)}
 							</span>
-							<Text as="span" className="min-w-0">
+							<Text as="span" className="min-w-0 break-words">
 								{row.label}
 							</Text>
 							{(row.costOfWaiting || row.deadline) && (

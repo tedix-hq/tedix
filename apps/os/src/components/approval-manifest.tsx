@@ -78,7 +78,7 @@ export function ApprovalManifestActions({
 								className="m-0 grid gap-1 pl-5"
 							>
 								{action.dependencies.map((edge) => (
-									<li key={edge.declarationEventId}>
+									<li key={edge.declarationEventId} className="break-all">
 										{edge.kind === "hard"
 											? "Blocked: baseline verification unavailable"
 											: "Informational only"}{" "}
@@ -97,12 +97,17 @@ export function ApprovalManifestActions({
 									/>
 									Veto also cancels{" "}
 									{action.vetoCascadeApprovalRequestIds.length} pending
-									dependent requests
+									dependent{" "}
+									{action.vetoCascadeApprovalRequestIds.length === 1
+										? "request"
+										: "requests"}
 								</CollapsibleTrigger>
 								<CollapsibleContent keepMounted>
 									<ul>
 										{action.vetoCascadeApprovalRequestIds.map((id) => (
-											<li key={id}>{id}</li>
+											<li key={id} className="break-all">
+												{id}
+											</li>
 										))}
 									</ul>
 								</CollapsibleContent>
