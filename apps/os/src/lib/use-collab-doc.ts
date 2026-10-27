@@ -26,6 +26,7 @@ import {
 	type CodeChange,
 	type CodeContent,
 	diffFiles,
+	MAX_FILE_TEXT_LENGTH,
 } from "@/collab/ot/code-change";
 import { OtClient, type OtBlockedState } from "@/collab/ot/client";
 import type { OtEditSession } from "@/collab/ot/edit-session";
@@ -113,6 +114,14 @@ export type UseCollabDocResult = {
 	 */
 	session: OtEditSession | null;
 	status: CollabDocStatus;
+	/**
+	 * The saved version is longer than a room can hold (`MAX_FILE_TEXT_LENGTH`), so no
+	 * room is opened and `status` stays `"disconnected"`. Its seed would exceed the
+	 * socket frame cap, the room would drop it unanswered, and the client would
+	 * reconnect forever showing "Connecting". The surface shows the saved version
+	 * read-only and says why instead.
+	 */
+	tooLarge: boolean;
 	/** Restart an unavailable connection, preserving the session and its visible text. */
 	retry: () => void;
 	/** Verified principals, collapsed across tabs/processes; excludes this client. */
@@ -926,6 +935,8 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	});
 	canonicalBox.value = canonical;
 	const hasCanonical = canonical !== null;
+	const tooLarge =
+		canonical !== null && canonical.text.length > MAX_FILE_TEXT_LENGTH;
 	const canonicalRevision = canonical?.revision ?? null;
 	const canonicalRevisionId = canonical?.revisionId ?? null;
 	const locationSurface = location?.surface;
@@ -934,7 +945,13 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	const locationSelectionLabel = location?.selectionLabel;
 
 	useEffect(() => {
-		if (!enabled || workspaceId === "" || docKey === "" || !hasCanonical) {
+		if (
+			!enabled ||
+			workspaceId === "" ||
+			docKey === "" ||
+			!hasCanonical ||
+			tooLarge
+		) {
 			return;
 		}
 		let active = true;
@@ -980,7 +997,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 			setRoomCanonical(null);
 			setRecoveryRequired(false);
 		};
-	}, [workspaceId, docKey, enabled, hasCanonical, canonicalBox]);
+	}, [workspaceId, docKey, enabled, hasCanonical, tooLarge, canonicalBox]);
 
 	// A refetch that carried a newer canonical revision must reach the room: the
 	// session reads the box at offer time, but nothing else would tell it to look.
@@ -1046,7 +1063,8 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 		// Not gated on `status`: see the module header and `UseCollabDocResult.session`.
 		// A transient disconnect must not unmount the editor and destroy its view.
 		session,
-		status,
+		status: tooLarge ? "disconnected" : status,
+		tooLarge,
 		retry,
 		participants,
 		peers: status === "connected" ? participants.length + 1 : 0,

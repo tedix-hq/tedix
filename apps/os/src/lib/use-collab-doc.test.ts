@@ -17,7 +17,11 @@ import {
 	parseClientFrame,
 } from "@/collab/protocol";
 import type { CollabVerifiedIdentity } from "@/collab/presence";
-import { diffFiles, type CodeChange } from "@/collab/ot/code-change";
+import {
+	diffFiles,
+	MAX_FILE_TEXT_LENGTH,
+	type CodeChange,
+} from "@/collab/ot/code-change";
 
 const identity: CollabVerifiedIdentity = {
 	displayName: "Grace",
@@ -257,6 +261,20 @@ describe("useCollabDoc", () => {
 		// establish the base from, so the connection waits.
 		rendered.rerender(input({ canonical: canonicalDoc("{}") }));
 		expect(sockets).toHaveLength(1);
+		rendered.unmount();
+	});
+
+	it("opens no room for a saved version longer than a room can hold", () => {
+		// Its seed would cross the socket's frame cap; the room drops such a frame
+		// unanswered and the client would reconnect forever reading "Connecting".
+		const large = "x".repeat(MAX_FILE_TEXT_LENGTH + 1);
+		const rendered = renderCollabDoc(input({ canonical: canonicalDoc(large) }));
+		expect(sockets).toHaveLength(0);
+		expect(rendered.result.current?.tooLarge).toBe(true);
+		expect(rendered.result.current?.status).toBe("disconnected");
+		rendered.rerender(input({ canonical: canonicalDoc("hello", 2) }));
+		expect(sockets).toHaveLength(1);
+		expect(rendered.result.current?.tooLarge).toBe(false);
 		rendered.unmount();
 	});
 
