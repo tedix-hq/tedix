@@ -96,6 +96,47 @@ export function dayAndTime(
 	return `${date}, ${time}`;
 }
 
+/**
+ * The platform's refusal marker: a run whose declared tool calls were all
+ * refused surfaces in the ledger as
+ * `Error: WorkflowToolsRefused: WORKFLOW_TOOLS_REFUSED: a tool capability in
+ * step <name> was wholly refused` — an exception class, a code and an internal
+ * step name, none of which a person should have to read.
+ */
+const TOOLS_REFUSED = /\bWORKFLOW_TOOLS_REFUSED\b|\bWorkflowToolsRefused\b/;
+
+/**
+ * Why a failed run stopped, in plain English, and who can resolve it.
+ * `details` keeps the recorded error for the card's "Technical details" and is
+ * null when the reason already is the recorded error.
+ */
+export function lastRunFailure(
+	lastRun: NonNullable<OsWorkspaceSchedule["lastRun"]>,
+	schedule: Pick<OsWorkspaceSchedule, "personalRead"> | null = null,
+): { reason: string; details: string | null } {
+	const recorded = lastRun.error ?? null;
+	if (recorded && TOOLS_REFUSED.test(recorded)) {
+		const access = schedule?.personalRead;
+		if (access && !access.grantId) {
+			return {
+				reason:
+					`The run could not read ${access.providerName} because access was refused. ` +
+					(access.canAllow
+						? "You can allow it below."
+						: "The workspace's owner can allow it."),
+				details: recorded,
+			};
+		}
+		return {
+			reason:
+				"The run stopped because access to a tool it needs was refused. " +
+				"It will try again on its next run.",
+			details: recorded,
+		};
+	}
+	return { reason: recorded ?? "no reason was recorded", details: null };
+}
+
 /** What the last run did, in a few words. */
 function lastRunResult(
 	run: NonNullable<OsWorkspaceSchedule["lastRun"]>,
@@ -115,7 +156,7 @@ export function lastRunLine(
 ): string {
 	if (!lastRun) return "Has not run yet";
 	if (lastRun.status === "failed")
-		return `Last run failed: ${lastRun.error ?? "no reason was recorded"}`;
+		return `Last run failed: ${lastRunFailure(lastRun).reason}`;
 	const at = lastRun.startedAt ?? lastRun.completedAt;
 	const when = at ? ` ${dayAndTime(at, now, options)}` : "";
 	return `Last run${when}: ${lastRunResult(lastRun)}`;
