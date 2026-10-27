@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { DEFAULT_WORKERS_AI_MODEL } from "../packages/workers-ai/src/model-select";
 import { findCatalogEntry } from "../packages/api-contract/src/schemas/model-catalog";
 import {
@@ -37,6 +38,40 @@ function appScripts(): Array<[string, Record<string, string>]> {
 }
 
 describe("local Wrangler config", () => {
+	test("pins browser build and Worker Descope identity in the spawned local lane", () => {
+		const keys = [
+			"DESCOPE_PROJECT_ID",
+			"DESCOPE_BASE_URL",
+			"TEDIX_BUILD_DESCOPE_PROJECT_ID",
+			"TEDIX_BUILD_DESCOPE_BASE_URL",
+		];
+		const result = spawnSync(
+			process.execPath,
+			[
+				join(repoRoot, "scripts/dev-local.ts"),
+				"--",
+				process.execPath,
+				"-e",
+				`console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key]]))))`,
+			],
+			{
+				cwd: join(repoRoot, "apps/os"),
+				env: {
+					PATH: process.env.PATH,
+					...Object.fromEntries(keys.map((key) => [key, "ambient-identity"])),
+				},
+				encoding: "utf8",
+			},
+		);
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			DESCOPE_PROJECT_ID: "local-development-disabled",
+			DESCOPE_BASE_URL: "http://127.0.0.1:9",
+			TEDIX_BUILD_DESCOPE_PROJECT_ID: "local-development-disabled",
+			TEDIX_BUILD_DESCOPE_BASE_URL: "http://127.0.0.1:9",
+		});
+	});
+
 	test("disables fleet authority in both private and exported local configs", () => {
 		for (const mode of ["co-located", "configured-via-private-overlay"]) {
 			const directory = mkdtempSync(join(tmpdir(), "tedix-local-fleet-"));

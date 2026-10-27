@@ -230,6 +230,8 @@ function requireLocalVar(key: string): string {
 const LOCAL_PROCESS_ENV: Record<string, string> = {
 	DESCOPE_PROJECT_ID: requireLocalVar("DESCOPE_PROJECT_ID"),
 	DESCOPE_BASE_URL: requireLocalVar("DESCOPE_BASE_URL"),
+	TEDIX_BUILD_DESCOPE_PROJECT_ID: requireLocalVar("DESCOPE_PROJECT_ID"),
+	TEDIX_BUILD_DESCOPE_BASE_URL: requireLocalVar("DESCOPE_BASE_URL"),
 };
 
 const LOCAL_D1_DATABASE_ID = "00000000-0000-0000-0000-000000000000";

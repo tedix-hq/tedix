@@ -41,6 +41,27 @@ describe("Tedix OS build configuration", () => {
 		]);
 	});
 
+	test.each(["DESCOPE_PROJECT_ID", "DESCOPE_BASE_URL"] as const)(
+		"fails closed when only %s is missing from a deployed build",
+		(name) => {
+			for (const value of [undefined, "", "  ", PUBLIC_OVERLAY_PLACEHOLDER]) {
+				const environment = Object.fromEntries(
+					Object.entries(cloudLike).map(([key, configured]) => [
+						`TEDIX_BUILD_${key}`,
+						key === name ? value : configured,
+					]),
+				);
+				expect(() =>
+					resolveOsBuildConfig({
+						environment,
+						localLane: false,
+						workerVars: { [name]: value },
+					}),
+				).toThrow(`TEDIX_BUILD_${name} not set`);
+			}
+		},
+	);
+
 	test("TEDIX_BUILD_* wins over the sentinel and over Worker vars", () => {
 		expect(
 			resolveOsBuildConfig({
