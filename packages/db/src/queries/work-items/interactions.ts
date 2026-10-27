@@ -643,6 +643,14 @@ export async function respondToWorkInteraction(
 	const metadata = corrects
 		? { ...p.metadata, corrects: corrects.id }
 		: (p.metadata ?? {});
+	const accessGrants =
+		request.metadata.connectionAccess &&
+		resolvesRequest &&
+		p.responseKind === "handoff_accepted"
+			? await (
+					await import("../connection-access-requests")
+				).buildConnectionAccessGrantStatements(db, request, p.id, p.responder)
+			: undefined;
 	const resolutionFence = crypto.randomUUID();
 	const resolvedVersion = p.expectedVersion + 1;
 	const responseInsert = db
@@ -698,6 +706,7 @@ export async function respondToWorkInteraction(
 						eq(workInteractions.orgId, p.orgId),
 						eq(workInteractions.id, p.interactionId),
 						eq(workInteractions.version, p.expectedVersion),
+						accessGrants?.valid,
 						corrects
 							? eq(workInteractions.status, "resolved")
 							: and(
@@ -716,6 +725,7 @@ export async function respondToWorkInteraction(
 	try {
 		const [responses] = await db.batch([
 			responseInsert,
+			...(accessGrants?.statements ?? []),
 			...(p.metadata?.cardAction === "ask_changes"
 				? [
 						db

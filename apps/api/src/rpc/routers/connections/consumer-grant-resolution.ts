@@ -1,4 +1,10 @@
 import { getConnectionConsumerGrants } from "@tedix/db/queries/organizations";
+import { getPersonalConnectionConsumerGrants } from "@tedix/db/queries/personal-connection-grants";
+import {
+	createConnectionAccessRequest,
+	getConnectionAccessOwner,
+} from "@tedix/db/queries/connection-access-requests";
+import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 
@@ -8,24 +14,38 @@ export async function enforceConnectionConsumerGrants(
 		organizationId: string;
 		providerId: string;
 		connectionInstanceId?: string;
+		personalUserId?: string;
 	},
 ) {
-	const policies = [
-		await getConnectionConsumerGrants(
-			context.db,
-			input.organizationId,
-			input.providerId,
-		),
-	];
-	if (input.connectionInstanceId)
-		policies.push(
-			await getConnectionConsumerGrants(
-				context.db,
-				input.organizationId,
-				input.providerId,
-				input.connectionInstanceId,
-			),
+	// The owner's direct use does not make an agent a permitted consumer.
+	if (input.personalUserId && !context.tediId && context.authType === "user")
+		return;
+	const ownerUserId = input.personalUserId
+		? await getConnectionAccessOwner(context.db, input)
+		: undefined;
+	if (input.personalUserId && !ownerUserId)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Personal connection owner is not active in this organization",
 		);
+	const readPolicy = (instanceId?: string) =>
+		ownerUserId
+			? getPersonalConnectionConsumerGrants(
+					context.db,
+					ownerUserId,
+					input.organizationId,
+					input.providerId,
+					instanceId,
+				)
+			: getConnectionConsumerGrants(
+					context.db,
+					input.organizationId,
+					input.providerId,
+					instanceId,
+				);
+	const policies = [await readPolicy()];
+	if (input.connectionInstanceId)
+		policies.push(await readPolicy(input.connectionInstanceId));
 	if (policies.every((policy) => policy.mode === "all")) return;
 	// The MCP edge strips public skill headers; only its trusted binding carries run provenance.
 	const runId =
@@ -56,9 +76,45 @@ export async function enforceConnectionConsumerGrants(
 			)
 		)
 			continue;
+		let requested = false;
+		if (context.tediId) {
+			try {
+				const owner =
+					ownerUserId ?? (await getConnectionAccessOwner(context.db, input));
+				if (owner)
+					requested = Boolean(
+						await createConnectionAccessRequest(
+							context.db,
+							{
+								organizationId: input.organizationId,
+								providerId: input.providerId,
+								connectionInstanceId: input.connectionInstanceId,
+								scope: input.personalUserId ? "user" : "tenant",
+								ownerUserId: owner,
+								tediId: context.tediId,
+								...(verifiedRun?.skillRevision
+									? {
+											skill: {
+												id: verifiedRun.skillId,
+												revision: verifiedRun.skillRevision,
+											},
+										}
+									: {}),
+							},
+							verifiedRun?.workItemId,
+						),
+					);
+			} catch (error) {
+				console.error("[Connections] Could not record access request", {
+					exception: safeExceptionTopology(error),
+				});
+			}
+		}
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Not granted for this connection. Request access from an administrator in /admin/connections.",
+			requested
+				? "Not granted for this connection. An access request is in the connection owner's inbox."
+				: "Not granted for this connection. Ask the connection owner to allow this tedi or skill.",
 		);
 	}
 }

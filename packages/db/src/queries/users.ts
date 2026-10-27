@@ -62,6 +62,9 @@ export async function upsertUser(
 ): Promise<User> {
 	const now = new Date().toISOString();
 	const email = data.email.toLowerCase();
+	// Provider profile metadata cannot replace owner-controlled connection policies.
+	const { connectionConsumerGrants: _providerGrants, ...profileMetadata } =
+		data.metadata ?? {};
 
 	const update: Partial<NewUser> = {
 		email,
@@ -71,8 +74,6 @@ export async function upsertUser(
 	if (data.name !== undefined && data.name !== null) update.name = data.name;
 	if (data.avatarUrl !== undefined && data.avatarUrl !== null)
 		update.avatarUrl = data.avatarUrl;
-	if (data.metadata !== undefined && data.metadata !== null)
-		update.metadata = data.metadata;
 	if (data.lastLoginAt !== undefined && data.lastLoginAt !== null)
 		update.lastLoginAt = data.lastLoginAt;
 
@@ -90,16 +91,26 @@ export async function upsertUser(
 		insertValues.avatarUrl = data.avatarUrl;
 	}
 	if (data.metadata !== undefined && data.metadata !== null) {
-		insertValues.metadata = data.metadata;
+		insertValues.metadata = profileMetadata;
 	}
 	if (data.lastLoginAt !== undefined && data.lastLoginAt !== null) {
 		insertValues.lastLoginAt = data.lastLoginAt;
 	}
 
-	await db.insert(users).values(insertValues).onConflictDoUpdate({
-		target: users.id,
-		set: update,
-	});
+	await db
+		.insert(users)
+		.values(insertValues)
+		.onConflictDoUpdate({
+			target: users.id,
+			set: {
+				...update,
+				...(data.metadata != null
+					? {
+							metadata: sql`CASE WHEN json_type(${users.metadata}, '$.connectionConsumerGrants') IS NOT NULL THEN json_set(json(${JSON.stringify(profileMetadata)}), '$.connectionConsumerGrants', json_extract(${users.metadata}, '$.connectionConsumerGrants')) ELSE json(${JSON.stringify(profileMetadata)}) END`,
+						}
+					: {}),
+			},
+		});
 
 	const saved = await getUserById(db, data.id);
 	if (!saved) {

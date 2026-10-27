@@ -449,6 +449,19 @@ export async function fetchNamedConnection(
 		providerId,
 	);
 	if (!instance) return null;
+	if (context.tediId && "userId" in owner) {
+		if (!context.organizationId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Personal connection consumers require an organization",
+			);
+		await enforceConnectionConsumerGrants(context, {
+			organizationId: context.organizationId,
+			providerId,
+			connectionInstanceId: instanceId,
+			personalUserId: owner.userId,
+		});
+	}
 	// Inventory consumes credential metadata internally; RPC inputs cannot select this mode.
 	if (instance.allowedResources != null && delegatedToolUse !== "inventory") {
 		const providerResourceId = await assertConnectionResourceArguments(
@@ -661,7 +674,6 @@ export async function resolveCredentialChain(
 			);
 		}
 	}
-	const client = getDescopeManagement(context.env, true);
 	let actingUserOwnsOrganization = false;
 	const actingUserId = args.callerUserId ?? args.ownerUserId ?? undefined;
 	if (actingUserId && (args.scope === "user" || args.scope === "hybrid")) {
@@ -702,6 +714,11 @@ export async function resolveCredentialChain(
 						};
 			if (target.kind === "tenant")
 				await authorizeTenantProvider(args.providerId);
+			else
+				await enforceConnectionConsumerGrants(context, {
+					...args,
+					personalUserId: target.userId,
+				});
 			const selected = await fetchNamedConnection(
 				context,
 				owner,
@@ -752,7 +769,20 @@ export async function resolveCredentialChain(
 				if (providerId !== args.providerId)
 					await authorizeTenantProvider(providerId);
 			}
+			if (target.kind === "user") {
+				await enforceConnectionConsumerGrants(context, {
+					...args,
+					personalUserId: target.userId,
+				});
+				if (providerId !== args.providerId)
+					await enforceConnectionConsumerGrants(context, {
+						...args,
+						providerId,
+						personalUserId: target.userId,
+					});
+			}
 			try {
+				const client = getDescopeManagement(context.env, true);
 				if (target.kind === "user") {
 					token = args.scopes?.length
 						? await fetchConnectionTokenByScopes(

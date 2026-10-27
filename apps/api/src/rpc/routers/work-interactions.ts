@@ -309,6 +309,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		internalRouting: _untrustedRouting,
 		blockerRouting: _untrustedBlockerRouting,
 		createGate: _untrustedGate,
+		connectionAccess: _untrustedConnectionAccess,
 		...creationMetadata
 	} = input.metadata ?? {};
 	if (
