@@ -6,7 +6,7 @@ import type {
 } from "@tedix/api-contract/contracts/tedi-approvals";
 import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import { Pagination } from "@/components/kumo/pagination";
+import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { CodeBlock } from "@/components/kumo/code";
 import { Surface } from "@/components/kumo/surface";
@@ -94,22 +94,38 @@ function ApprovalHistoryRequests() {
 					))}
 				</ol>
 			)}
-			<Pagination
-				labels={{
-					navigation: "Approval history pages",
-					previousPage: "Previous requests",
-					nextPage: "Next requests",
-				}}
-				page={page.offset / 10 + 1}
-				perPage={10}
-				totalCount={query.data?.pagination.total}
-				hasNextPage={query.data?.pagination.hasMore}
-				setPage={(next) =>
-					setPage((previous) => ({ ...previous, offset: (next - 1) * 10 }))
-				}
+			<Surface
+				className="flex gap-2"
+				role="group"
+				aria-label="Approval history pages"
 			>
-				<Pagination.Controls controls="simple" />
-			</Pagination>
+				<Button
+					variant="outline"
+					disabled={query.isFetching || page.offset === 0}
+					onClick={() =>
+						setPage((previous) => ({
+							...previous,
+							offset: Math.max(0, previous.offset - 10),
+						}))
+					}
+				>
+					Previous requests
+				</Button>
+				<Button
+					variant="outline"
+					disabled={
+						query.isFetching || query.isError || !query.data?.pagination.hasMore
+					}
+					onClick={() =>
+						setPage((previous) => ({
+							...previous,
+							offset: previous.offset + 10,
+						}))
+					}
+				>
+					Next requests
+				</Button>
+			</Surface>
 		</Surface>
 	);
 }
@@ -200,24 +216,34 @@ function ApprovalProvenanceDetails({
 					</Surface>
 				))
 			)}
-			<Pagination
-				labels={{
-					navigation: "Prediction history pages",
-					previousPage: "Previous predictions",
-					nextPage: "Next predictions",
-				}}
-				page={simulationCursors.length}
-				hasNextPage={Boolean(simulations.nextCursor)}
-				setPage={(next) =>
-					setSimulationCursors((previous) =>
-						next > previous.length && simulations.nextCursor
-							? [...previous, simulations.nextCursor]
-							: previous.slice(0, next),
-					)
-				}
+			<Surface
+				className="flex gap-2"
+				role="group"
+				aria-label="Prediction history pages"
 			>
-				<Pagination.Controls controls="simple" />
-			</Pagination>
+				<Button
+					variant="outline"
+					disabled={query.isFetching || simulationCursors.length === 1}
+					onClick={() =>
+						setSimulationCursors((previous) => previous.slice(0, -1))
+					}
+				>
+					Previous predictions
+				</Button>
+				<Button
+					variant="outline"
+					disabled={query.isFetching || !simulations.nextCursor}
+					onClick={() => {
+						if (simulations.nextCursor)
+							setSimulationCursors((previous) => [
+								...previous,
+								simulations.nextCursor!,
+							]);
+					}}
+				>
+					Next predictions
+				</Button>
+			</Surface>
 			<Text as="strong" role="body">
 				Observed execution
 			</Text>
@@ -245,24 +271,32 @@ function ApprovalProvenanceDetails({
 					</Surface>
 				))
 			)}
-			<Pagination
-				labels={{
-					navigation: "Execution history pages",
-					previousPage: "Previous receipts",
-					nextPage: "Next receipts",
-				}}
-				page={receiptCursors.length}
-				hasNextPage={Boolean(executionReceipts.nextCursor)}
-				setPage={(next) =>
-					setReceiptCursors((previous) =>
-						next > previous.length && executionReceipts.nextCursor
-							? [...previous, executionReceipts.nextCursor]
-							: previous.slice(0, next),
-					)
-				}
+			<Surface
+				className="flex gap-2"
+				role="group"
+				aria-label="Execution history pages"
 			>
-				<Pagination.Controls controls="simple" />
-			</Pagination>
+				<Button
+					variant="outline"
+					disabled={query.isFetching || receiptCursors.length === 1}
+					onClick={() => setReceiptCursors((previous) => previous.slice(0, -1))}
+				>
+					Previous receipts
+				</Button>
+				<Button
+					variant="outline"
+					disabled={query.isFetching || !executionReceipts.nextCursor}
+					onClick={() => {
+						if (executionReceipts.nextCursor)
+							setReceiptCursors((previous) => [
+								...previous,
+								executionReceipts.nextCursor!,
+							]);
+					}}
+				>
+					Next receipts
+				</Button>
+			</Surface>
 		</Surface>
 	);
 }
