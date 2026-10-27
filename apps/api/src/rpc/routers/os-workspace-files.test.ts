@@ -13,6 +13,7 @@ import { auditEvents } from "@tedix/db/schema/audit-events";
 import { describe, it, expect, vi, onTestFinished } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { osOutputProcedures } from "./os-workspace-outputs";
+import { osWorkspaceResourceProcedures } from "./os-workspace-resources";
 import {
 	requestFileUpload,
 	confirmFileUpload,
@@ -155,9 +156,15 @@ function fixture() {
 	}
 	const caller = context();
 	authentication.context = caller;
-	const request = createRouterClient(requestFileUpload, { context: caller });
-	const confirm = createRouterClient(confirmFileUpload, { context: caller });
-	const get = createRouterClient(getFile, { context: caller });
+	// The audit middleware resolves specs by call-path suffix; keep the
+	// `resources.` namespace on the client so the registry entries match.
+	const resources = createRouterClient(
+		{ resources: { requestFileUpload, confirmFileUpload, getFile } },
+		{ context: caller },
+	);
+	const request = resources.resources.requestFileUpload;
+	const confirm = resources.resources.confirmFileUpload;
+	const get = resources.resources.getFile;
 	async function upload(
 		size = 6,
 		mimeType = "video/mp4",
@@ -217,6 +224,7 @@ describe("workspace file uploads", () => {
 			workspaceId: W,
 			resourceId: ticket.resourceId,
 			parts: receipts,
+			document: true,
 		};
 		const first = await f.confirm(input);
 		const second = await f.confirm(input);
@@ -285,6 +293,98 @@ describe("workspace file uploads", () => {
 		expect(
 			(await serveWorkspaceFile(new Request(url), f.env, params)).status,
 		).toBe(404);
+	});
+	it("attaches, reopens and removes a local file on the resource alone, with audit evidence", async () => {
+		const f = fixture();
+		const { ticket, receipts } = await f.upload();
+		const input = {
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+		};
+		const first = await f.confirm(input);
+		expect(first.outputId).toBeUndefined();
+		expect(first.resource.providerId).toBe("tedix");
+		expect(first.resource.resourceType).toBe("file");
+		expect(
+			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+		).toBe(0);
+		expect(
+			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_output_revisions").get()
+				?.n,
+		).toBe(0);
+		const file = await f.get({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+		});
+		const url = new URL(file.url.replace(/^\/api/, ""), f.env.API_URL);
+		const params = {
+			organizationId: "fictional-a",
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+		};
+		const response = await serveWorkspaceFile(new Request(url), f.env, params);
+		expect(response.status).toBe(200);
+		// A retry keeps the retained resource without minting a document.
+		const retry = await f.confirm(input);
+		expect(retry.outputId).toBeUndefined();
+		expect(
+			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+		).toBe(0);
+		const remove = createRouterClient(
+			{ resources: osWorkspaceResourceProcedures },
+			{ context: f.context() },
+		).resources.remove;
+		const removed = await remove({
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			expectedUpdatedAt: first.resource.updatedAt,
+		});
+		expect(removed.resource.status).toBe("removed");
+		await expect(
+			f.get({ workspaceId: W, resourceId: ticket.resourceId }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(
+			(await serveWorkspaceFile(new Request(url), f.env, params)).status,
+		).toBe(404);
+		const actions = f.sqlite
+			.prepare(
+				"SELECT action FROM audit_events WHERE resource_id = ? ORDER BY action",
+			)
+			.all(ticket.resourceId)
+			.map((row) => (row as { action: string }).action);
+		// The retry confirm is a second governance event, not a deduplicated no-op.
+		expect(actions).toEqual([
+			"os.workspace_file.upload_confirmed",
+			"os.workspace_file.upload_confirmed",
+			"os.workspace_file.upload_requested",
+			"os.workspace_resource.removed",
+		]);
+	});
+	it("publishes the document later when a retained file is confirmed again with document", async () => {
+		const f = fixture();
+		const { ticket, receipts } = await f.upload();
+		const input = {
+			workspaceId: W,
+			resourceId: ticket.resourceId,
+			parts: receipts,
+		};
+		await f.confirm(input);
+		expect(
+			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+		).toBe(0);
+		const published = await f.confirm({ ...input, document: true });
+		expect(published.outputId).toBe(ticket.resourceId);
+		expect(
+			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
+		).toBe(1);
+		const output = await createRouterClient(osOutputProcedures.get, {
+			context: f.context(),
+		})({ outputId: ticket.resourceId });
+		expect(output.currentRevision.content).toMatchObject({
+			kind: "document",
+			file: { workspaceId: W, resourceId: ticket.resourceId },
+		});
 	});
 	it("binds tenant, workspace, scope and private owner before issuing capabilities", async () => {
 		const f = fixture();
@@ -595,6 +695,7 @@ describe("workspace file content validation", () => {
 			workspaceId: W,
 			resourceId: ticket.resourceId,
 			parts: receipts,
+			document: true,
 		});
 		expect(result.resource.name).toBe("ab.html");
 		expect(f.sqlite.prepare("SELECT title FROM os_outputs").get()?.title).toBe(

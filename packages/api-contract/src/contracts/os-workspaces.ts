@@ -581,15 +581,24 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/files/confirm",
 					summary: "Confirm a workspace file upload",
 					description:
-						"Checks uploaded size and creates the workspace Resource and previewable Output atomically. Safe to retry with the same resourceId and part receipts.",
+						"Checks uploaded size and creates the workspace Resource that retains the file. Pass document to also publish a previewable document Output atomically. Safe to retry with the same resourceId and part receipts.",
 				})
 				.input(
 					WorkspaceFileReferenceSchema.extend({
 						parts: z.array(WorkspaceFilePartSchema).min(1).max(25),
+						document: z
+							.boolean()
+							.optional()
+							.describe(
+								"Also publish a previewable document Output in the workspace Files library. Omitted keeps the file on the resource alone.",
+							),
 					}),
 				)
 				.output(
-					z.object({ resource: OsWorkspaceResourceSchema, outputId: z.uuid() }),
+					z.object({
+						resource: OsWorkspaceResourceSchema,
+						outputId: z.uuid().optional(),
+					}),
 				),
 			getFile: oc
 				.route({

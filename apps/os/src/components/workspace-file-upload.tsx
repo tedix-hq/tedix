@@ -23,16 +23,21 @@ export function WorkspaceFileUpload({
 	onUploaded,
 	compact,
 	onError,
+	document = true,
+	label = "Upload file",
 }: {
 	workspaceId: string;
 	onUploaded?: (file: { outputId: string; name: string; url: string }) => void;
 	compact?: boolean;
 	onError?: (message: string | null) => void;
+	/** Publish the file as a document Output; false retains it on the resource alone. */
+	document?: boolean;
+	label?: string;
 }) {
 	const input = useRef<HTMLInputElement>(null);
 	const busyRef = useRef(false);
-	const latest = useRef({ workspaceId, onUploaded, onError });
-	latest.current = { workspaceId, onUploaded, onError };
+	const latest = useRef({ workspaceId, onUploaded, onError, document });
+	latest.current = { workspaceId, onUploaded, onError, document };
 	const [progress, setProgress] = useState<number | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const queryClient = useQueryClient();
@@ -61,9 +66,14 @@ export function WorkspaceFileUpload({
 		setError(null);
 		latest.current.onError?.(null);
 		try {
-			const result = await uploadWorkspaceFile(workspaceId, file, (percent) => {
-				if (current()) setProgress(percent);
-			});
+			const result = await uploadWorkspaceFile(
+				workspaceId,
+				file,
+				(percent) => {
+					if (current()) setProgress(percent);
+				},
+				{ document: latest.current.document },
+			);
 			if (current()) {
 				try {
 					await refresh();
@@ -73,11 +83,12 @@ export function WorkspaceFileUpload({
 							void refresh().catch(() => {});
 					}, RECONCILIATION_RETRY_MS);
 				}
-				latest.current.onUploaded?.({
-					outputId: result.outputId,
-					name: result.resource.name,
-					url: `/outputs/${result.outputId}`,
-				});
+				if (result.outputId)
+					latest.current.onUploaded?.({
+						outputId: result.outputId,
+						name: result.resource.name,
+						url: `/outputs/${result.outputId}`,
+					});
 			}
 		} catch (error) {
 			if (current()) {
@@ -92,7 +103,7 @@ export function WorkspaceFileUpload({
 			if (input.current) input.current.value = "";
 		}
 	}
-	const label = progress === null ? "Upload file" : `Uploading ${progress}%`;
+	const buttonLabel = progress === null ? label : `Uploading ${progress}%`;
 	const picker = (
 		<input
 			ref={input}
@@ -114,16 +125,20 @@ export function WorkspaceFileUpload({
 					size="sm"
 					variant="outline"
 					className="chat-composer-upload"
-					aria-label={label}
-					title={label}
+					aria-label={buttonLabel}
+					title={buttonLabel}
 					disabled={progress !== null}
 					onClick={() => input.current?.click()}
 					icon={<UploadSimple size={14} aria-hidden="true" />}
 				>
-					<span className="chat-composer-label">{label}</span>
+					<span className="chat-composer-label">{buttonLabel}</span>
 				</Button>
 				<span className="sr-only" aria-live="polite">
-					{progress === 100 ? "Saving file…" : progress === null ? "" : label}
+					{progress === 100
+						? "Saving file…"
+						: progress === null
+							? ""
+							: buttonLabel}
 				</span>
 			</>
 		);
@@ -137,7 +152,7 @@ export function WorkspaceFileUpload({
 				disabled={progress !== null}
 				onClick={() => input.current?.click()}
 			>
-				{label}
+				{buttonLabel}
 			</Button>
 			{progress !== null ? (
 				<Text as="p" role="label" aria-live="polite">
