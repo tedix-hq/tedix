@@ -223,6 +223,23 @@ describe("native Pi provider and durable storage", () => {
 		expect(state.requests).toHaveLength(1);
 		expect(state.effects).toBe(0);
 	});
+	it("runs a later turn after a sealed failure instead of replaying it", async () => {
+		const name = crypto.randomUUID();
+		const agent = await fixture(name);
+		await agent.rejectProvider();
+		const failure = await agent.rejectedTurn("failed-earlier");
+		expect(failure).toMatch(/^Model turn failed: /);
+		await agent.acceptProvider();
+		await abortAllDurableObjects();
+		// The failed submission stays pending in facet storage. A later run must
+		// not recover it and fail with its stale reason on every turn.
+		const later = await fixture(name);
+		expect((await later.turn("later")).result.assistantText).toBe("completed");
+		// A re-drive of the failed run still reads its sealed failure, without inference.
+		const requests = (await inspect(later, "later")).requests.length;
+		expect(await later.rejectedTurn("failed-earlier")).toBe(failure);
+		expect((await inspect(later, "later")).requests).toHaveLength(requests);
+	});
 	it("materializes private images through native Pi and replays the settled answer after eviction", async () => {
 		const name = crypto.randomUUID();
 		const agent = await getAgentByName(bindings.PI_FACET_MEDIA, name);

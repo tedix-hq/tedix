@@ -195,6 +195,9 @@ export class PiStorageFixture extends ConversationFacet {
 	async rejectProvider() {
 		await this.ctx.storage.put("fixture:provider-rejects", true);
 	}
+	async acceptProvider() {
+		await this.ctx.storage.delete("fixture:provider-rejects");
+	}
 	async cancelRun(id: string) {
 		await this.ctx.storage.put(`cancel:${id}`, true);
 	}
