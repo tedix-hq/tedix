@@ -17,7 +17,7 @@ import {
 import { WorkProposalMetadataSchema } from "@tedix/api-contract/schemas/work-interactions";
 import type { AskedProposal } from "./learn-proposals";
 import {
-	groundWeek,
+	weekSummary,
 	PLAN_PROMPT,
 	planNow,
 	priorities,
@@ -528,6 +528,27 @@ describe("runProfile", () => {
 		}
 	});
 
+	it("reuses persisted identities and publishes sourced activity on consecutive runs", async () => {
+		const { dir, deps, sources } = fixture();
+		try {
+			expect(await runProfile([], deps)).toBe(0);
+			const first = readProfileState(
+				join(dir, "profile/state.json"),
+			).workstreams;
+			sources.length = 0;
+			expect(await runProfile([], deps)).toBe(0);
+			expect(
+				readProfileState(join(dir, "profile/state.json")).workstreams,
+			).toEqual(first);
+			const published = sources.find((s) => s.includes("create_os_output"))!;
+			expect(published).toContain("recorded agent sessions");
+			expect(published).toContain("claude --resume");
+			expect(published).not.toContain("You built Acme exports.");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
 	it("removes possessive person names from published subjects and prompts", async () => {
 		const { dir, deps, sources } = fixture(true);
 		try {
@@ -954,7 +975,7 @@ describe("strategic workstreams", () => {
 		expect(merged.length).toBeLessThanOrEqual(MAX_WORKSTREAMS);
 	});
 
-	it("filters housekeeping, fills strategic actions from ranked workstreams and passes week text through", async () => {
+	it("filters housekeeping, fills strategic actions and ignores model week claims", async () => {
 		const streams = await fineThreads(4);
 		const ranked = priorities(streams, new Map(), "2026-03-01");
 		const week = "You built Acme exports. Quill Labs needs a launch brief.";
@@ -983,7 +1004,7 @@ describe("strategic workstreams", () => {
 				});
 			},
 		});
-		expect(result.week).toBe(week);
+		expect(result).not.toHaveProperty("week");
 		expect(result.actions).toHaveLength(3);
 		expect(result.actions[0]!.title).toBe("Draft customer brief");
 		expect(result.actions.slice(1).map((a) => [a.workstream, a.kind])).toEqual([
@@ -1155,6 +1176,38 @@ describe("stable workstream identity", () => {
 		expect(second.workstreams[0]!.sessions).toContain(fresh);
 	});
 
+	it("preserves membership when a later model group combines established streams", async () => {
+		const a = await facts("stream-a");
+		const b = await facts("stream-b");
+		const first = stabilizeWorkstreams([
+			await thread("Exports", [a]),
+			await thread("Onboarding", [b]),
+		]);
+		const merged = await mergeWorkstreams(
+			[await thread("Everything", [b, a])],
+			new Map(),
+			emptyBoard(),
+			async () => {
+				throw new Error("Established sessions need no merge call");
+			},
+			first.registry,
+		);
+		const second = stabilizeWorkstreams(merged, first.registry);
+		expect(
+			second.workstreams.map((w) => [
+				w.key,
+				w.name,
+				w.sessions.map((f) => f.key),
+			]),
+		).toEqual(
+			first.workstreams.map((w) => [
+				w.key,
+				w.name,
+				w.sessions.map((f) => f.key),
+			]),
+		);
+	});
+
 	it("uses a new id and name when the project changes", async () => {
 		const w = await thread("Exports", [await facts()]);
 		w.project = { id: "project-elm", key: "ELM", name: "Elm" };
@@ -1257,14 +1310,10 @@ describe("stable workstream identity", () => {
 				.filter((b) => b.level === 3)
 				.map((b) => b.text),
 		).toEqual(["Exports", "Onboarding", "Invoices"]);
-		expect(
-			blocks.some(
-				(b) => b.type === "heading" && b.text === "Your week in Tedix",
-			),
-		).toBe(false);
+		expect(JSON.stringify(blocks)).not.toContain("You built exports.");
 	});
 
-	it("loads old version 1 state and persists bounded registry evidence", async () => {
+	it("loads old version 1 state and persists all membership evidence", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "profile-registry-"));
 		try {
 			const path = join(dir, "state.json");
@@ -1280,7 +1329,7 @@ describe("stable workstream identity", () => {
 			writeProfileState(path, state);
 			expect(
 				Object.values(readProfileState(path).workstreams!)[0]!.sessions,
-			).toHaveLength(200);
+			).toHaveLength(210);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -1288,61 +1337,87 @@ describe("stable workstream identity", () => {
 });
 
 describe("week grounding", () => {
-	it("drops unsupported versions without confusing their periods with sentence endings", () => {
-		expect(
-			groundWeek(
-				"You released CLI 0.11.2. You finished exports.",
-				"CLI 0.10.0 exports",
-			),
-		).toBe("You finished exports.");
-		expect(groundWeek("You released CLI (0.11.2).", "CLI 0.10.0")).toBe(
-			"You released CLI.",
+	it("counts only recent dated sessions, deduplicates them and cites exact sources", async () => {
+		const f = await facts("weekly");
+		const recent = { ...f, to: "2026-03-01T23:59:59Z" };
+		const first = {
+			...f,
+			key: "first",
+			sessionId: "first",
+			to: "2026-02-23T00:00:00Z",
+		};
+		const stale = { ...f, key: "stale", to: "2026-02-22T23:59:59Z" };
+		const future = { ...f, key: "future", to: "2026-03-02T00:00:00Z" };
+		const invalid = { ...f, key: "invalid", to: "unknown" };
+		const week = weekSummary(
+			[recent, recent, first, stale, future, invalid],
+			"2026-03-01",
 		);
-		expect(
-			groundWeek("You released CLI, v1.2.3-beta, for users.", "CLI v1.1"),
-		).toBe("You released CLI for users.");
-		expect(groundWeek("You released CLI 0.10.0.", "CLI 0.10.0")).toBe(
-			"You released CLI 0.10.0.",
+		expect(week.text).toContain(
+			"From 2026-02-23 through 2026-03-01, 2 recorded agent sessions",
 		);
+		expect(week.sources.join(" ")).toContain(
+			`claude --resume ${recent.sessionId}`,
+		);
+		expect(week.sources.join(" ")).toContain("claude --resume first");
+		expect(JSON.stringify(week)).not.toContain("stale");
+		expect(JSON.stringify(week)).not.toContain("future");
+		expect(weekSummary([stale, future, invalid], "2026-03-01")).toEqual({
+			text: "",
+			sources: [],
+		});
 	});
 
-	it("drops unsupported numbers but allows exact evidence, years, dates and computed counts", () => {
-		expect(
-			groundWeek(
-				"You shipped 42 exports. You finished review.",
-				"exports review",
-			),
-		).toBe("You finished review.");
-		expect(groundWeek("You shipped exports (42 total).", "exports")).toBe(
-			"You shipped exports.",
+	it("renders every weekly source beyond the per-list limit and ignores supplied prose", async () => {
+		const f = await facts();
+		const sessions = Array.from({ length: 65 }, (_, i) => ({
+			...f,
+			key: `weekly-${i}`,
+			sessionId: `weekly-${i}`,
+			to: "2026-03-01T12:00:00Z",
+		}));
+		const blocks = renderDocument({
+			who: "Mara Quill",
+			sessions,
+			files: 65,
+			summaries: new Map(),
+			workstreams: [],
+			profile: { ...profile(), week: "You shipped everything." },
+			actions: [],
+			model: "fake",
+			meter: newMeter(),
+			seconds: 0,
+			today: "2026-03-01",
+		});
+		const end = blocks.findIndex(
+			(b) =>
+				b.type === "heading" &&
+				b.text === "3 things I can do for you right now",
 		);
-		expect(groundWeek("You shipped 4 exports.", "14 exports")).toBe("");
-		expect(groundWeek("You released v1.2.", "v1.2.3")).toBe("");
-		expect(groundWeek("You released 2026.1.", "2026")).toBe("");
-		expect(groundWeek("You released v1.2.3-beta.", "v1.2.3-beta")).toBe(
-			"You released v1.2.3-beta.",
-		);
-		const clean = "You worked in 3 sessions on 2026-03-01 in 2026.";
-		expect(groundWeek(clean, "", [3])).toBe(clean);
+		const weekly = blocks.slice(0, end);
+		const sources = weekly.flatMap((b) => (b.type === "list" ? b.items : []));
+		expect(sources).toHaveLength(65);
+		for (const f of sessions)
+			expect(
+				sources.some((s) => s.includes(`claude --resume ${f.sessionId})`)),
+			).toBe(true);
+		expect(JSON.stringify(weekly)).not.toContain("You shipped everything.");
 	});
 
-	it("keeps known customers case-insensitively and rejects unknown names at word boundaries", () => {
-		const clean =
-			"This week you built exports for Quill Labs. The review is open.";
-		expect(groundWeek(clean, "quill labs exports review")).toBe(clean);
-		expect(
-			groundWeek(
-				"You built exports for Nebula. You finished review.",
-				"Nebulary review",
-			),
-		).toBe("You finished review.");
-		expect(groundWeek("You worked with Élodie.", "exports")).toBe("");
-	});
-
-	it("leaves a clean paragraph unchanged", () => {
-		const clean =
-			"This week you built exports. You have a review open for Monday.";
-		expect(groundWeek(clean, "exports review")).toBe(clean);
+	it("does not turn requests or agent claims into verified outcomes", async () => {
+		const f = {
+			...(await facts()),
+			to: "2026-03-01T12:00:00Z",
+			lastAgent: "You shipped 42 exports for Nebula on 2099-01-01.",
+			asks: [{ text: "Release CLI 9.9.9", at: "2026-03-01T11:00:00Z" }],
+		};
+		const week = weekSummary([f], "2026-03-01");
+		expect(week.text).toContain(
+			"1 recorded agent session had its latest activity",
+		);
+		for (const unsupported of ["shipped", "42", "Nebula", "2099", "9.9.9"])
+			expect(JSON.stringify(week)).not.toContain(unsupported);
+		expect(weekSummary([f], "invalid")).toEqual({ text: "", sources: [] });
 	});
 });
 

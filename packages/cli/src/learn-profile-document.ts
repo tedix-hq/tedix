@@ -1,7 +1,11 @@
 import type { SessionFacts } from "./learn-facts";
 import { words } from "./learn-context-candidates";
 import { asciiJson } from "./hooks/agent-status";
-import { type PersonProfile, usageStats } from "./learn-profile-insights";
+import {
+	type PersonProfile,
+	usageStats,
+	weekSummary,
+} from "./learn-profile-insights";
 import { day, type SessionSummary, publicText } from "./learn-profile-digest";
 import {
 	type Workstream,
@@ -74,9 +78,12 @@ export function renderDocument(input: {
 			blocks.push({ type: "list", ordered, items: clean.slice(0, 60) });
 	};
 	h(1, DOC_TITLE);
-	if (profile.week) {
+	const week = weekSummary(input.sessions, input.today);
+	if (week.text) {
 		h(2, "Your week in Tedix");
-		p(profile.week);
+		p(week.text);
+		for (let i = 0; i < week.sources.length; i += 60)
+			list(week.sources.slice(i, i + 60));
 	}
 	if (profile.role) p(profile.role);
 
