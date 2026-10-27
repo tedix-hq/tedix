@@ -313,7 +313,7 @@ try {
 			} else {
 				await page
 					.getByRole("complementary", { name: "Workspace files" })
-					.getByRole("button", { name: "Everything here" })
+					.getByRole("button", { name: "Overview" })
 					.click();
 			}
 			await page.evaluate(() => document.fonts.ready);
