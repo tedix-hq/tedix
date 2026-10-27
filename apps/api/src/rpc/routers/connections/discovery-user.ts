@@ -1,3 +1,5 @@
+import { filterAppConnectionResourceTools } from "@tedix/db/queries/app-records";
+import { getToolsByAppId } from "@tedix/db/queries/tools";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { getDescopeManagement } from "../../../lib/descope-management";
 import { decodeTokenUnsafe, isTokenExpired } from "@tedix/auth/jwt";
@@ -62,6 +64,7 @@ import {
 import {
 	createConnectionInstance as createConnectionInstanceRecord,
 	getConnectionInstance,
+	getOrganizationConnectionAllowedResources,
 	listConnectionInstances,
 	recordConnectionGrant,
 	renameConnectionInstance as renameConnectionInstanceRecord,
@@ -135,6 +138,39 @@ export const bindConnectionInstance = authedOs.bindConnectionInstance
 				ErrorCodes.BAD_REQUEST,
 				"Choose an app configured for this provider",
 			);
+		if (
+			instance.allowedResources != null ||
+			(input.scope === "tenant" &&
+				(await getOrganizationConnectionAllowedResources(
+					context.db,
+					orgId,
+					input.providerId,
+				)) !== null)
+		) {
+			const tools = (await getToolsByAppId(context.db, app.id)).filter(
+				(tool) => tool.enabled,
+			);
+			const allowed = await filterAppConnectionResourceTools(
+				context.db,
+				{
+					...app,
+					metadata: {
+						...app.metadata,
+						mcpConfig: {
+							...mcpConfig,
+							connectionInstanceId: instance.id,
+							connectionScope: input.scope,
+						},
+					},
+				},
+				tools,
+			);
+			if (!allowed.length)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Connection resource limits do not allow this app's operations",
+				);
+		}
 		if (!context.env.MCP_SERVICE)
 			throw createError(
 				ErrorCodes.SERVICE_UNAVAILABLE,

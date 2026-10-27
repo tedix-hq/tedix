@@ -61,6 +61,8 @@ export interface UpstreamToolCall {
 	modernOnly: boolean;
 	signal: AbortSignal;
 	timeoutMs: number;
+	/** Recheck connection policy after an upstream pause, before any replay. */
+	reauthorize?: () => Promise<{ status: number; error: string } | undefined>;
 }
 
 export type UpstreamToolOutcome =
@@ -234,6 +236,10 @@ export async function callUpstreamMcpTool(
 ): Promise<UpstreamToolOutcome> {
 	const google = isGoogleMcp(call.url);
 	for (let attempt = 0; ; attempt++) {
+		if (attempt > 0) {
+			const denied = await call.reauthorize?.();
+			if (denied) return { ok: false, ...denied };
+		}
 		const outcome = await callUpstreamMcpToolOnce(call);
 		if (
 			outcome.ok ||
@@ -356,6 +362,8 @@ async function callUpstreamMcpToolOnce(
 			) {
 				throw error;
 			}
+			const denied = await call.reauthorize?.();
+			if (denied) return { ok: false, ...denied };
 			const listed = await client
 				.listTools(undefined, requestOptions)
 				.catch(() => undefined);
@@ -382,6 +390,8 @@ async function callUpstreamMcpToolOnce(
 				inputRequired.inputRequests,
 			);
 			if (!inputResponses) break;
+			const denied = await call.reauthorize?.();
+			if (denied) return { ok: false, ...denied };
 			try {
 				result = await send({
 					inputResponses,

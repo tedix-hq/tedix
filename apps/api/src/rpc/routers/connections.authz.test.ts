@@ -292,6 +292,9 @@ describe("connections authorization-plane composition", () => {
 				.mockResolvedValue({ id: TEDI_ID } as NonNullable<
 					Awaited<ReturnType<typeof instanceQueries.getConnectionInstance>>
 				>);
+			const resources = vi
+				.spyOn(instanceQueries, "getOrganizationConnectionAllowedResources")
+				.mockResolvedValue(null);
 			const appLookup = vi
 				.spyOn(appRecords, "getAppByIdForOrganization")
 				.mockResolvedValue({ id: TEDI_ID, slug: "wrapper" } as NonNullable<
@@ -360,6 +363,7 @@ describe("connections authorization-plane composition", () => {
 							],
 				);
 			} finally {
+				resources.mockRestore();
 				lookup.mockRestore();
 				appLookup.mockRestore();
 				metadata.mockRestore();

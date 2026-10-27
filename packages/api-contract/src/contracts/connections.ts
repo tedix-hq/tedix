@@ -40,6 +40,41 @@ export const connectionsContract = oc
 	.route({ tags: ["connections"], prefix: "/connections" })
 	.errors(baseErrors)
 	.router({
+		getAllowedResources: oc
+			.route({
+				method: "GET",
+				path: "/allowed-resources",
+				summary: "Read allowed resources",
+			})
+			.input(
+				z.object({
+					id: z.uuid().optional(),
+					providerId: z.string().min(1).max(200),
+				}),
+			)
+			.output(
+				z.object({
+					allowedResources: ConnectionAllowedResourcesSchema.nullable(),
+				}),
+			),
+		setAllowedResources: oc
+			.route({
+				method: "PUT",
+				path: "/allowed-resources",
+				summary: "Choose allowed resources",
+			})
+			.input(
+				z.object({
+					id: z.uuid().optional(),
+					providerId: z.string().min(1).max(200),
+					allowedResources: ConnectionAllowedResourcesSchema.nullable(),
+				}),
+			)
+			.output(
+				z.object({
+					allowedResources: ConnectionAllowedResourcesSchema.nullable(),
+				}),
+			),
 		getConsumerGrants: oc
 			.route({
 				method: "GET",

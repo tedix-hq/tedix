@@ -665,11 +665,38 @@ export async function executeMcpTransport(
 		// see ./upstream-mcp-client. Loaded on first proxied call so the
 		// client stays off the Worker startup path.
 		const { callUpstreamMcpTool } = await import("./upstream-mcp-client");
+		const connectionAuth = config.auth;
+		const connectionId =
+			connectionAuth?.type === "connection"
+				? connectionAuth.connectionId
+				: undefined;
 		const upstream = await callUpstreamMcpTool({
 			url: mcpServerUrl,
 			fetcher,
 			headers,
 			toolName: mcpToolName,
+			reauthorize: connectionId
+				? async () => {
+						const result = await credentials.fetchConnectionToken(
+							ctx,
+							connectionId,
+							connectionAuth?.credentialScope ?? connectionAuth?.scope,
+							connectionAuth?.scopes,
+							(readToolConfigExtension(config, "_aggregateConnectionLabel") as
+								| string
+								| undefined) ?? ctx.connectionLabel,
+							connectionAuth?.credentialPreference,
+							params,
+						);
+						return result.token
+							? undefined
+							: {
+									status: result.status ?? 403,
+									error:
+										"Connection access changed while awaiting provider input; the call was not replayed",
+								};
+					}
+				: undefined,
 			args: params,
 			toolInputSchema: ctx.toolInputSchema,
 			readOnly: ctx.readOnlyHint === true,

@@ -338,3 +338,81 @@ describe("own-access check on a live tool call through an organization account",
 		expect(token).toHaveBeenCalledOnce();
 	});
 });
+
+describe("GitHub repository limit before provider access", () => {
+	const githubPolicy = [
+		{
+			resourceType: "github_repository" as const,
+			resourceId: "example/repo-x",
+		},
+	];
+	const args = {
+		owner: "example",
+		repo: "repo-x",
+		method: "update",
+		issue_number: 1,
+		title: "Updated",
+	};
+	function githubFixture() {
+		const result = fixture(githubPolicy, "issue_write");
+		result.instance.providerId = "github";
+		result.tool.mockResolvedValue({
+			enabled: true,
+			config: {
+				transport: "mcp",
+				mcpToolName: "issue_write",
+				mcpServerUrl: "https://api.githubcopilot.com/mcp/",
+				auth: { type: "connection", connectionId: "github" },
+			},
+		} as Awaited<
+			ReturnType<typeof tools.getToolByAppAndToolIdForOrganization>
+		>);
+		return result;
+	}
+	const execute = (arguments_: JsonValue) =>
+		fetchNamedConnection(context, owner, "github", "slot-a", undefined, {
+			appId: "app-a",
+			arguments: arguments_,
+		});
+	it("allows X and refuses Y before credential retrieval", async () => {
+		const { token } = githubFixture();
+		await expect(execute({ ...args, repo: "repo-y" })).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		expect(token).not.toHaveBeenCalled();
+		expect(await execute(args)).toMatchObject({ accessToken: "opaque" });
+		expect(token).toHaveBeenCalledOnce();
+	});
+	it("re-reads a revoked X grant when the pending call is replayed", async () => {
+		const { instance, token } = githubFixture();
+		// The pending approval retains arguments, never a credential or policy decision.
+		const pending = structuredClone(args);
+		instance.allowedResources = [];
+		await expect(execute(pending)).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(token).not.toHaveBeenCalled();
+		expect(instances.getConnectionInstance).toHaveBeenCalledWith(
+			context.db,
+			owner,
+			"slot-a",
+			"github",
+		);
+	});
+	it.each(["rpc", "rest", "external", "code", "catalog"])(
+		"refuses unsupported %s transports before credential retrieval",
+		async (transport) => {
+			const { token, tool } = githubFixture();
+			tool.mockResolvedValue({
+				enabled: true,
+				config: {
+					transport,
+					mcpToolName: "issue_write",
+					auth: { type: "connection", connectionId: "github" },
+				},
+			} as Awaited<
+				ReturnType<typeof tools.getToolByAppAndToolIdForOrganization>
+			>);
+			await expect(execute(args)).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(token).not.toHaveBeenCalled();
+		},
+	);
+});

@@ -5,6 +5,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { connectionInstances } from "../schema/connection-instances";
 import { schemaDdl } from "../test/schema-ddl";
 import {
+	setConnectionAllowedResources,
 	clearConnectionGrants,
 	createConnectionInstance,
 	getConnectionInstance,
@@ -186,4 +187,67 @@ it("persists opt-in page limits, including deny-all, while defaults remain whole
 	expect(
 		Object.fromEntries(rows.map((row) => [row.id, row.allowedResources])),
 	).toEqual({ default: null, scoped: resources, empty: [] });
+});
+
+it("stores repository limits and revocation only for the exact organization and provider", async () => {
+	const db = fixture();
+	await createConnectionInstance(db, {
+		id: "github-a",
+		ownerUserId: "alice",
+		organizationId: "org-a",
+		providerId: "github",
+		label: "Repos",
+	});
+	const policy = [
+		{
+			resourceType: "github_repository" as const,
+			resourceId: "example/repo-x",
+		},
+	];
+	expect(
+		await setConnectionAllowedResources(
+			db,
+			"org-b",
+			"github-a",
+			"github",
+			policy,
+		),
+	).toEqual([]);
+	expect(
+		await setConnectionAllowedResources(
+			db,
+			"org-a",
+			"github-a",
+			"other",
+			policy,
+		),
+	).toEqual([]);
+	await setConnectionAllowedResources(
+		db,
+		"org-a",
+		"github-a",
+		"github",
+		policy,
+	);
+	expect(
+		(
+			await getConnectionInstance(
+				db,
+				{ organizationId: "org-a" },
+				"github-a",
+				"github",
+			)
+		)?.allowedResources,
+	).toEqual(policy);
+	await setConnectionAllowedResources(db, "org-a", "github-a", "github", []);
+	expect(
+		(
+			await getConnectionInstance(
+				db,
+				{ organizationId: "org-a" },
+				"github-a",
+				"github",
+			)
+		)?.allowedResources,
+	).toEqual([]);
 });

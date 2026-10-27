@@ -35,6 +35,7 @@ import type {
 	ListCatalogAppsInput,
 } from "@tedix/api-contract/schemas/catalog";
 import type {
+	ConnectionAllowedResources,
 	ConnectionConsumerGrants,
 	ConnectionInventoryInput,
 	ConnectionInventoryRow,
@@ -1297,6 +1298,10 @@ const localConnectTickets = new Map<
 		redeemed: boolean;
 	}
 >();
+const localConnectionResourceLimits = new Map<
+	string,
+	ConnectionAllowedResources | null
+>();
 const localConnectionConsumerGrants = new Map<
 	string,
 	ConnectionConsumerGrants
@@ -1354,6 +1359,7 @@ export function resetLocalFixtures(): void {
 	runSteeringMessages.clear();
 	localConnectTickets.clear();
 	localConnectionConsumerGrants.clear();
+	localConnectionResourceLimits.clear();
 	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
@@ -7395,6 +7401,26 @@ const handlers: Record<string, (input: never) => unknown> = {
 						},
 					],
 		};
+	},
+	"connections/getAllowedResources": (input: {
+		providerId: string;
+		id?: string;
+	}) => ({
+		allowedResources:
+			localConnectionResourceLimits.get(
+				`${input.providerId}\0${input.id ?? ""}`,
+			) ?? null,
+	}),
+	"connections/setAllowedResources": (input: {
+		providerId: string;
+		id?: string;
+		allowedResources: ConnectionAllowedResources | null;
+	}) => {
+		localConnectionResourceLimits.set(
+			`${input.providerId}\0${input.id ?? ""}`,
+			input.allowedResources,
+		);
+		return { allowedResources: input.allowedResources };
 	},
 	"connections/getConsumerGrants": (input: {
 		providerId: string;

@@ -156,7 +156,7 @@ function credentialActingUserId<TConfig>(
 /** Named accounts verify the installed source tool, including calls through an aggregate. */
 function connectionToolIdentity(ctx: ToolExecutionContext<ToolConfig>) {
 	const sourceAppId = readToolConfigExtension(ctx.config, "_sourceAppId");
-	if (!selectedConnectionInstanceId(ctx) || typeof sourceAppId !== "string")
+	if (typeof sourceAppId !== "string")
 		return { appId: ctx.appId, toolId: ctx.toolId };
 	return {
 		appId: sourceAppId,
@@ -492,11 +492,6 @@ export async function fetchTediConnectionToken(
 	const callerUserId = credentialActingUserId(ctx);
 	// Read the authoritative vault on every call so revocation and rotation
 	// take effect in every isolate without waiting for a local cache TTL.
-	const backgroundRun = Boolean(ctx.callerIdentity?.skillRunId);
-	const requestRun = Boolean(
-		ctx.callerIdentity?.requestRunId ||
-		(ctx.callerIdentity?.tediId && ctx.requestMeta?.["io.tedix/kernelRunId"]),
-	);
 
 	const useServiceBinding = !!ctx.env.API_SERVICE;
 	try {
@@ -505,14 +500,10 @@ export async function fetchTediConnectionToken(
 			providerId: connectionId,
 			scope: resolvedScope,
 			...(connectionInstanceId ? { connectionInstanceId } : {}),
-			...(backgroundRun || requestRun || connectionInstanceId
-				? {
-						delegatedToolUse: {
-							appId: connectionToolIdentity(ctx).appId,
-							arguments: providerArguments ?? {},
-						},
-					}
-				: {}),
+			delegatedToolUse: {
+				appId: connectionToolIdentity(ctx).appId,
+				arguments: providerArguments ?? {},
+			},
 		};
 		if (resolvedScope === "hybrid" && preference) {
 			rpcInput.preference = preference;
@@ -619,15 +610,11 @@ export async function fetchOrgConnectionToken(
 			organizationId,
 			providerId: connectionId,
 			scope: resolvedScope,
-			...(connectionInstanceId
-				? {
-						connectionInstanceId,
-						delegatedToolUse: {
-							appId: connectionToolIdentity(ctx).appId,
-							arguments: providerArguments ?? {},
-						},
-					}
-				: {}),
+			...(connectionInstanceId ? { connectionInstanceId } : {}),
+			delegatedToolUse: {
+				appId: connectionToolIdentity(ctx).appId,
+				arguments: providerArguments ?? {},
+			},
 		};
 		if (resolvedScope === "hybrid" && preference) {
 			rpcInput.preference = preference;

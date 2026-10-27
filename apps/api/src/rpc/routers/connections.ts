@@ -1,4 +1,8 @@
 import {
+	getAllowedResources,
+	setAllowedResources,
+} from "./connections/resource-limits";
+import {
 	getConsumerGrants,
 	setConsumerGrants,
 } from "./connections/consumer-grants";
@@ -49,6 +53,8 @@ import { connectionsOs } from "./connections/policy-resolution";
 // =============================================================================
 
 export const connectionsContractRouter = connectionsOs.router({
+	getAllowedResources,
+	setAllowedResources,
 	getConsumerGrants,
 	setConsumerGrants,
 	createConnectionInstance,
