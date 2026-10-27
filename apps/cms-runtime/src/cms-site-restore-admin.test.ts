@@ -17,8 +17,8 @@ vi.mock("./cms-recovery-workflow", async (importOriginal) => ({
 
 import { cmsSiteRestoreAdminResponse } from "./recovery-admin";
 
-const siteId = "13d1b0d0-2664-4006-981b-d27af4e73794";
-const captureId = "8b7637c1-39b2-41ba-9bac-33fc7e19be7b";
+const siteId = "00000000-0000-4000-8000-0000000000a1";
+const captureId = "00000000-0000-4000-8000-0000000000ca";
 const slug = "restore-proof";
 const url = new URL(
 	`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/site-restores?siteId=${siteId}`,

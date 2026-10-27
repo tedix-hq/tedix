@@ -1,20 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const dependencies = vi.hoisted(() => ({ readSiteDrillReceipt: vi.fn() }));
+const drillFixture = vi.hoisted(() => ({
+	version: 1 as const,
+	siteId: "00000000-0000-4000-8000-0000000000d1",
+	slug: "site-drill-fixture",
+	captureId: "00000000-0000-4000-8000-0000000000ca",
+	instanceId: "cms-site-restore-drill-fixture",
+}));
 vi.mock("./cms-site-restore-drill-workflow", () => ({
-	CMS_SITE_DRILL_CAPTURE_ID: "capture",
-	CMS_SITE_DRILL_SITE_ID: "13d1b0d0-2664-4006-981b-d27af4e73794",
-	CMS_SITE_DRILL_SLUG: "emdash1rc-src-20260928",
 	CmsSiteRestoreDrillWorkflow: class {},
 	insertSiteDrillSentinel: vi.fn(),
 	readSiteDrillCapture: vi.fn(),
+	readSiteDrillIdentity: vi.fn(async () => drillFixture),
 	readSiteDrillReceipt: dependencies.readSiteDrillReceipt,
 	writeSiteDrillReceipt: vi.fn(),
 }));
 
 import {
-	CMS_SITE_CRON_PAUSE_KEY,
 	CMS_SITE_CRON_PAUSE_MAX_MS,
+	cmsSiteCronPauseKey,
 	fixedSiteCronPauseDecision,
 } from "./cms-site-cron-pause";
 import {
@@ -24,8 +29,9 @@ import {
 } from "./emdash-db";
 import { databaseRecoveryBookmarkAdminResponse } from "./database-admin";
 
-const siteId = "13d1b0d0-2664-4006-981b-d27af4e73794";
-const slug = "emdash1rc-src-20260928";
+const drill = drillFixture;
+const siteId = drill.siteId;
+const slug = drill.slug;
 const now = Date.parse("2026-09-29T03:00:00.000Z");
 
 function control(overrides: Record<string, unknown> = {}) {
@@ -57,6 +63,7 @@ describe("fixed disposable CMS cron pause", () => {
 			await fixedSiteCronPauseDecision(
 				bucket,
 				{ siteId: "another", slug },
+				drill,
 				now,
 			),
 		).toEqual({ pause: false });
@@ -64,8 +71,12 @@ describe("fixed disposable CMS cron pause", () => {
 			await fixedSiteCronPauseDecision(
 				bucket,
 				{ siteId, slug: "another" },
+				drill,
 				now,
 			),
+		).toEqual({ pause: false });
+		expect(
+			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, null, now),
 		).toEqual({ pause: false });
 		expect(bucket.get).not.toHaveBeenCalled();
 		expect(dependencies.readSiteDrillReceipt).not.toHaveBeenCalled();
@@ -74,9 +85,9 @@ describe("fixed disposable CMS cron pause", () => {
 	it("pauses the exact site while a bounded control is active", async () => {
 		const bucket = storage(control());
 		expect(
-			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, drill, now),
 		).toEqual({ pause: true, reason: "active-control" });
-		expect(bucket.get).toHaveBeenCalledWith(CMS_SITE_CRON_PAUSE_KEY);
+		expect(bucket.get).toHaveBeenCalledWith(cmsSiteCronPauseKey(drill));
 		expect(dependencies.readSiteDrillReceipt).not.toHaveBeenCalled();
 	});
 
@@ -85,9 +96,12 @@ describe("fixed disposable CMS cron pause", () => {
 			control({ expiresAt: new Date(now - 1).toISOString() }),
 		);
 		expect(
-			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, drill, now),
 		).toEqual({ pause: false });
-		expect(dependencies.readSiteDrillReceipt).toHaveBeenCalledWith(bucket);
+		expect(dependencies.readSiteDrillReceipt).toHaveBeenCalledWith(
+			bucket,
+			drill,
+		);
 	});
 
 	it("keeps maintenance paused after control expiry until drill reconciliation", async () => {
@@ -96,7 +110,7 @@ describe("fixed disposable CMS cron pause", () => {
 			control({ expiresAt: new Date(now - 1).toISOString() }),
 		);
 		expect(
-			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, drill, now),
 		).toEqual({ pause: true, reason: "unfinished-drill" });
 	});
 
@@ -105,14 +119,24 @@ describe("fixed disposable CMS cron pause", () => {
 			phase: "restore-scheduled",
 		});
 		expect(
-			await fixedSiteCronPauseDecision(storage(), { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(
+				storage(),
+				{ siteId, slug },
+				drill,
+				now,
+			),
 		).toEqual({ pause: true, reason: "unfinished-drill" });
 	});
 
 	it("resumes after a verified drill and control removal", async () => {
 		dependencies.readSiteDrillReceipt.mockResolvedValue({ phase: "verified" });
 		expect(
-			await fixedSiteCronPauseDecision(storage(), { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(
+				storage(),
+				{ siteId, slug },
+				drill,
+				now,
+			),
 		).toEqual({ pause: false });
 	});
 
@@ -126,7 +150,12 @@ describe("fixed disposable CMS cron pause", () => {
 		{ ...control(), version: 2 },
 	])("fails closed on malformed or unbounded controls %#", async (value) => {
 		expect(
-			await fixedSiteCronPauseDecision(storage(value), { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(
+				storage(value),
+				{ siteId, slug },
+				drill,
+				now,
+			),
 		).toEqual({ pause: true, reason: "invalid-control" });
 	});
 
@@ -134,13 +163,13 @@ describe("fixed disposable CMS cron pause", () => {
 		const bucket = storage();
 		bucket.get.mockRejectedValueOnce(new Error("R2 unavailable"));
 		expect(
-			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, drill, now),
 		).toEqual({ pause: true, reason: "invalid-control" });
 		dependencies.readSiteDrillReceipt.mockRejectedValueOnce(
 			new Error("receipt invalid"),
 		);
 		expect(
-			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, now),
+			await fixedSiteCronPauseDecision(bucket, { siteId, slug }, drill, now),
 		).toEqual({ pause: true, reason: "invalid-control" });
 	});
 });

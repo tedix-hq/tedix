@@ -7,9 +7,9 @@ import {
 } from "./cms-site-restore-receipt";
 
 const identity = {
-	siteId: "13d1b0d0-2664-4006-981b-d27af4e73794",
+	siteId: "00000000-0000-4000-8000-0000000000a1",
 	slug: "restore-proof",
-	captureId: "8b7637c1-39b2-41ba-9bac-33fc7e19be7b",
+	captureId: "00000000-0000-4000-8000-0000000000ca",
 	generation: "3d2a177a-34e1-4caa-83b1-af457c26e4c0",
 };
 

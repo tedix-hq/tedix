@@ -22,18 +22,26 @@ vi.mock("./tenant-media-backup", () => ({
 }));
 
 import {
-	CMS_SITE_DRILL_BASELINE_DIGEST,
-	CMS_SITE_DRILL_CAPTURE_ID,
-	CMS_SITE_DRILL_INSTANCE_ID,
-	CMS_SITE_DRILL_PREFIX,
-	CMS_SITE_DRILL_RECEIPT_KEY,
-	CMS_SITE_DRILL_SITE_ID,
-	CMS_SITE_DRILL_SLUG,
+	CMS_SITE_DRILL_CONFIG_KEY,
+	cmsSiteDrillPrefix,
+	cmsSiteDrillReceiptKey,
 	insertSiteDrillSentinel,
 	readSiteDrillCapture,
 	runCmsSiteRestoreDrill,
+	type CmsSiteDrillIdentity,
 	type CmsSiteDrillReceipt,
 } from "./cms-site-restore-drill-workflow";
+
+const drill: CmsSiteDrillIdentity = {
+	version: 1,
+	siteId: "00000000-0000-4000-8000-0000000000d1",
+	slug: "site-drill-fixture",
+	captureId: "00000000-0000-4000-8000-0000000000ca",
+	instanceId: "cms-site-restore-drill-fixture",
+};
+const DRILL_PREFIX = cmsSiteDrillPrefix(drill);
+const DRILL_RECEIPT_KEY = cmsSiteDrillReceiptKey(drill);
+const BASELINE_DIGEST = "c9f8".repeat(16);
 
 const bytes = new Uint8Array([1, 2, 3]);
 const sha256 = createHash("sha256").update(bytes).digest("hex");
@@ -69,12 +77,14 @@ function harness(
 	let sentinel: "absent" | "after" = "absent";
 	let mediaPresent = true;
 	let bookmark = "captured-bookmark";
-	let databaseDigest = CMS_SITE_DRILL_BASELINE_DIGEST;
+	let databaseDigest = BASELINE_DIGEST;
 	const events: string[] = [];
 	const copied = new Map<string, string | Uint8Array>();
 	const storage = {
 		get: vi.fn(async (key: string) => {
-			if (key === CMS_SITE_DRILL_RECEIPT_KEY && receipt)
+			if (key === CMS_SITE_DRILL_CONFIG_KEY)
+				return { json: async () => drill };
+			if (key === DRILL_RECEIPT_KEY && receipt)
 				return { json: async () => receipt };
 			const saved = copied.get(key);
 			if (typeof saved === "string")
@@ -93,7 +103,7 @@ function harness(
 				value: string | ReadableStream<Uint8Array>,
 				opts?: { onlyIf?: unknown },
 			) => {
-				if (key === CMS_SITE_DRILL_RECEIPT_KEY) {
+				if (key === DRILL_RECEIPT_KEY) {
 					if (opts?.onlyIf && receipt) return null;
 					receipt = JSON.parse(value as string) as CmsSiteDrillReceipt;
 					events.push(`receipt:${receipt.phase}`);
@@ -101,7 +111,7 @@ function harness(
 				else {
 					if (
 						rejectPrivatePut &&
-						key.startsWith(CMS_SITE_DRILL_PREFIX + "media/")
+						key.startsWith(DRILL_PREFIX + "media/")
 					)
 						throw new Error("private R2 put rejected");
 					const chunks: Uint8Array[] = [];
@@ -116,7 +126,7 @@ function harness(
 					}
 					if (
 						corruptPrivateCopy &&
-						key.startsWith(CMS_SITE_DRILL_PREFIX + "media/")
+						key.startsWith(DRILL_PREFIX + "media/")
 					)
 						stored[0] = (stored[0] ?? 0) ^ 1;
 					copied.set(key, stored);
@@ -277,11 +287,14 @@ function wireMedia(
 describe("fixed disposable CMS restore drill", () => {
 	beforeEach(() => {
 		dependencies.readRecoveryAuthority.mockReset().mockResolvedValue({
-			siteId: CMS_SITE_DRILL_SITE_ID,
+			siteId: drill.siteId,
 			bundle: { version: 7, etag: "bundle" },
 		});
 		dependencies.readVerifiedCmsRecoveryCapture.mockReset().mockResolvedValue({
 			manifest: {
+				version: 2,
+				digestAlgorithm: "cms-site-sqlite-v2",
+				databaseDigest: BASELINE_DIGEST,
 				bookmark: "captured-bookmark",
 				bundle: { version: 7, etag: "bundle" },
 				capturedAt: new Date().toISOString(),
@@ -317,15 +330,13 @@ describe("fixed disposable CMS restore drill", () => {
 
 	it("publishes a private drill snapshot last and survives source capture purge", async () => {
 		const h = harness();
-		await readSiteDrillCapture(h.env.RECOVERY_STORAGE as never);
+		await readSiteDrillCapture(h.env.RECOVERY_STORAGE as never, drill);
 		const keys = h.env.RECOVERY_STORAGE.put.mock.calls.map((call) => call[0]);
-		expect(keys.at(-1)).toBe(`${CMS_SITE_DRILL_PREFIX}manifest.json`);
-		expect(CMS_SITE_DRILL_RECEIPT_KEY.startsWith(CMS_SITE_DRILL_PREFIX)).toBe(
-			true,
-		);
+		expect(keys.at(-1)).toBe(`${DRILL_PREFIX}manifest.json`);
+		expect(DRILL_RECEIPT_KEY.startsWith(DRILL_PREFIX)).toBe(true);
 		dependencies.readVerifiedCmsRecoveryCapture.mockImplementation(
 			async (_storage: unknown, _identity: unknown, prefix?: string) => {
-				if (prefix !== CMS_SITE_DRILL_PREFIX)
+				if (prefix !== DRILL_PREFIX)
 					throw new Error("original capture purged");
 				return {
 					manifest: { bookmark: "captured-bookmark", media: { pageCount: 1 } },
@@ -334,7 +345,7 @@ describe("fixed disposable CMS restore drill", () => {
 			},
 		);
 		await expect(
-			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never),
+			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never, drill),
 		).resolves.toMatchObject({ records: [record] });
 	});
 
@@ -349,6 +360,9 @@ describe("fixed disposable CMS restore drill", () => {
 		};
 		dependencies.readVerifiedCmsRecoveryCapture.mockResolvedValue({
 			manifest: {
+				version: 2,
+				digestAlgorithm: "cms-site-sqlite-v2",
+				databaseDigest: BASELINE_DIGEST,
 				bookmark: "captured-bookmark",
 				bundle: { version: 7, etag: "bundle" },
 				capturedAt: new Date().toISOString(),
@@ -361,14 +375,14 @@ describe("fixed disposable CMS restore drill", () => {
 		const result = await runCmsSiteRestoreDrill(
 			h.env as never,
 			h.step as never,
-			CMS_SITE_DRILL_INSTANCE_ID,
+			drill.instanceId,
 			{},
 		);
 		expect(result.status).toBe("verified");
 		expect(h.receipt?.mediaSha256).toBe(largeRecord.sha256);
 		expect(
 			h.env.RECOVERY_STORAGE.put.mock.calls.find((call) =>
-				(call[0] as string).startsWith(CMS_SITE_DRILL_PREFIX + "media/"),
+				(call[0] as string).startsWith(DRILL_PREFIX + "media/"),
 			)?.[1],
 		).toBeInstanceOf(ReadableStream);
 		vi.unstubAllGlobals();
@@ -383,11 +397,11 @@ describe("fixed disposable CMS restore drill", () => {
 			new Uint8Array([4, 5, 6]),
 		);
 		await expect(
-			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never),
+			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never, drill),
 		).rejects.toThrow("source copy digest mismatch");
 		expect(
 			h.env.RECOVERY_STORAGE.put.mock.calls.some(
-				(call) => call[0] === `${CMS_SITE_DRILL_PREFIX}manifest.json`,
+				(call) => call[0] === `${DRILL_PREFIX}manifest.json`,
 			),
 		).toBe(false);
 	});
@@ -395,11 +409,11 @@ describe("fixed disposable CMS restore drill", () => {
 	it("rejects a private copy whose stored bytes changed", async () => {
 		const h = harness(undefined, false, undefined, undefined, bytes, true);
 		await expect(
-			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never),
+			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never, drill),
 		).rejects.toThrow("copied backup digest mismatch");
 		expect(
 			h.env.RECOVERY_STORAGE.put.mock.calls.some(
-				(call) => call[0] === `${CMS_SITE_DRILL_PREFIX}manifest.json`,
+				(call) => call[0] === `${DRILL_PREFIX}manifest.json`,
 			),
 		).toBe(false);
 	});
@@ -415,11 +429,11 @@ describe("fixed disposable CMS restore drill", () => {
 			true,
 		);
 		await expect(
-			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never),
+			readSiteDrillCapture(h.env.RECOVERY_STORAGE as never, drill),
 		).rejects.toThrow("private R2 put rejected");
 		expect(
 			h.env.RECOVERY_STORAGE.put.mock.calls.some(
-				(call) => call[0] === `${CMS_SITE_DRILL_PREFIX}manifest.json`,
+				(call) => call[0] === `${DRILL_PREFIX}manifest.json`,
 			),
 		).toBe(false);
 	});
@@ -428,13 +442,13 @@ describe("fixed disposable CMS restore drill", () => {
 		const h = harness();
 		await expect(
 			runCmsSiteRestoreDrill(h.env as never, h.step as never, "other", {}),
-		).rejects.toThrow("fixed Workflow instance ID");
+		).rejects.toThrow("configured Workflow instance ID");
 		await expect(
 			runCmsSiteRestoreDrill(
 				h.env as never,
 				h.step as never,
-				CMS_SITE_DRILL_INSTANCE_ID,
-				{ siteId: CMS_SITE_DRILL_SITE_ID },
+				drill.instanceId,
+				{ siteId: drill.siteId },
 			),
 		).rejects.toThrow("empty parameters");
 		expect(h.step.do).not.toHaveBeenCalled();
@@ -447,11 +461,11 @@ describe("fixed disposable CMS restore drill", () => {
 		const result = await runCmsSiteRestoreDrill(
 			h.env as never,
 			h.step as never,
-			CMS_SITE_DRILL_INSTANCE_ID,
+			drill.instanceId,
 			{},
 		);
 		expect(result.status).toBe("verified");
-		expect(h.receipt?.databaseDigest).toBe(CMS_SITE_DRILL_BASELINE_DIGEST);
+		expect(h.receipt?.databaseDigest).toBe(BASELINE_DIGEST);
 		expect(h.receipt?.schedulerHeartbeatRevision).toBe("frozen-revision");
 		vi.unstubAllGlobals();
 	});
@@ -464,7 +478,7 @@ describe("fixed disposable CMS restore drill", () => {
 			runCmsSiteRestoreDrill(
 				h.env as never,
 				h.step as never,
-				CMS_SITE_DRILL_INSTANCE_ID,
+				drill.instanceId,
 				{},
 			),
 		).rejects.toThrow("database drifted from capture");
@@ -480,7 +494,7 @@ describe("fixed disposable CMS restore drill", () => {
 			runCmsSiteRestoreDrill(
 				h.env as never,
 				h.step as never,
-				CMS_SITE_DRILL_INSTANCE_ID,
+				drill.instanceId,
 				{},
 			),
 		).rejects.toThrow("database proof mismatch");
@@ -522,7 +536,7 @@ describe("fixed disposable CMS restore drill", () => {
 		const result = await runCmsSiteRestoreDrill(
 			h.env as never,
 			h.step as never,
-			CMS_SITE_DRILL_INSTANCE_ID,
+			drill.instanceId,
 			{},
 		);
 		expect(result).toEqual({ status: "verified", evidence: "fresh" });
@@ -533,7 +547,7 @@ describe("fixed disposable CMS restore drill", () => {
 			h.events.indexOf("restore-scheduled"),
 		);
 		expect(h.stub.restartSiteDrill).toHaveBeenCalledTimes(3);
-		expect(h.env.DB_DO.idFromName).toHaveBeenCalledWith(CMS_SITE_DRILL_SLUG);
+		expect(h.env.DB_DO.idFromName).toHaveBeenCalledWith(drill.slug);
 		vi.unstubAllGlobals();
 	});
 
@@ -569,7 +583,7 @@ describe("fixed disposable CMS restore drill", () => {
 			runCmsSiteRestoreDrill(
 				h.env as never,
 				h.step as never,
-				CMS_SITE_DRILL_INSTANCE_ID,
+				drill.instanceId,
 				{},
 			),
 		).rejects.toThrow("interrupted at schedule-fixed-site-restore");
@@ -586,7 +600,7 @@ describe("fixed disposable CMS restore drill", () => {
 			runCmsSiteRestoreDrill(
 				h.env as never,
 				h.step as never,
-				CMS_SITE_DRILL_INSTANCE_ID,
+				drill.instanceId,
 				{},
 			),
 		).rejects.toThrow("lost result");
@@ -594,7 +608,7 @@ describe("fixed disposable CMS restore drill", () => {
 		const result = await runCmsSiteRestoreDrill(
 			h.env as never,
 			h.step as never,
-			CMS_SITE_DRILL_INSTANCE_ID,
+			drill.instanceId,
 			{},
 		);
 		expect(result.status).toBe("verified");
@@ -613,7 +627,7 @@ describe("fixed disposable CMS restore drill", () => {
 			runCmsSiteRestoreDrill(
 				h.env as never,
 				h.step as never,
-				CMS_SITE_DRILL_INSTANCE_ID,
+				drill.instanceId,
 				{},
 			),
 		).rejects.toThrow("interrupted at schedule-final-baseline-restore");
@@ -622,7 +636,7 @@ describe("fixed disposable CMS restore drill", () => {
 		const result = await runCmsSiteRestoreDrill(
 			h.env as never,
 			h.step as never,
-			CMS_SITE_DRILL_INSTANCE_ID,
+			drill.instanceId,
 			{},
 		);
 		expect(result.status).toBe("verified");

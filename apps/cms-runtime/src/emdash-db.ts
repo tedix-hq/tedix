@@ -7,12 +7,12 @@ import {
 	type CmsPitrSelfTestReceipt,
 } from "./cms-pitr-self-test-workflow";
 import {
-	CMS_SITE_DRILL_SITE_ID,
-	CMS_SITE_DRILL_SLUG,
 	insertSiteDrillSentinel,
 	readSiteDrillCapture,
+	readSiteDrillIdentity,
 	readSiteDrillReceipt,
 	writeSiteDrillReceipt,
+	type CmsSiteDrillIdentity,
 	type CmsSiteDrillProof,
 } from "./cms-site-restore-drill-workflow";
 import {
@@ -377,12 +377,18 @@ export class EmDashDB extends EmdashSqlDB {
 		>;
 	}
 
-	private assertSiteDrillObject(): void {
+	private async siteDrill(): Promise<CmsSiteDrillIdentity> {
+		const drill = await readSiteDrillIdentity(
+			this.siteDrillEnv().RECOVERY_STORAGE,
+		);
+		if (!drill)
+			throw new Error("CMS site restore drill is not configured");
 		if (
 			this.ctx.id.toString() !==
-			this.siteDrillEnv().DB_DO.idFromName(CMS_SITE_DRILL_SLUG).toString()
+			this.siteDrillEnv().DB_DO.idFromName(drill.slug).toString()
 		)
 			throw new Error("CMS site restore drill object identity mismatch");
+		return drill;
 	}
 
 	private siteDrillPrimary():
@@ -419,7 +425,7 @@ export class EmDashDB extends EmdashSqlDB {
 
 	/** Fixed-site SQL proof; every RPC checks the actual Durable Object id. */
 	async readSiteDrillProof(): Promise<CmsSiteDrillDigestProof> {
-		this.assertSiteDrillObject();
+		await this.siteDrill();
 		const primary = this.siteDrillPrimary();
 		if (primary) return primary.readSiteDrillProof();
 		const posts = this.ctx.storage.sql
@@ -467,24 +473,22 @@ export class EmDashDB extends EmdashSqlDB {
 	}
 
 	async prepareSiteDrillMutation(): Promise<void> {
-		this.assertSiteDrillObject();
+		const drill = await this.siteDrill();
 		const primary = this.siteDrillPrimary();
 		if (primary) return primary.prepareSiteDrillMutation();
 		const env = this.siteDrillEnv();
-		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE);
+		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE, drill);
 		if (receipt?.phase === "mutated" || receipt?.phase === "media-deleted")
 			return;
 		if (receipt?.phase !== "claimed")
 			throw new Error("CMS site restore drill not claimed");
 		const { manifest, records } = await readSiteDrillCapture(
 			env.RECOVERY_STORAGE,
+			drill,
 		);
-		const authority = await readRecoveryAuthority(
-			env as Env,
-			CMS_SITE_DRILL_SLUG,
-		);
+		const authority = await readRecoveryAuthority(env as Env, drill.slug);
 		if (
-			authority?.siteId !== CMS_SITE_DRILL_SITE_ID ||
+			authority?.siteId !== drill.siteId ||
 			authority.bundle.version !== manifest.bundle.version ||
 			authority.bundle.etag !== manifest.bundle.etag ||
 			!records.some(
@@ -507,7 +511,7 @@ export class EmDashDB extends EmdashSqlDB {
 		if (proof.sentinel === "after") {
 			// The prior R2 receipt write may have failed after the exact SQL
 			// sentinel committed. This reserved table identifies that partial step.
-			await writeSiteDrillReceipt(env.RECOVERY_STORAGE, {
+			await writeSiteDrillReceipt(env.RECOVERY_STORAGE, drill, {
 				...receipt,
 				phase: "mutated",
 			});
@@ -519,28 +523,31 @@ export class EmDashDB extends EmdashSqlDB {
 		if (digestCmsSiteSqlite(this.ctx.storage.sql) !== receipt.databaseDigest)
 			throw new Error("CMS site restore drill database drifted from capture");
 		insertSiteDrillSentinel(this.ctx.storage);
-		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, {
+		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, drill, {
 			...receipt,
 			phase: "mutated",
 		});
 	}
 
 	async scheduleSiteDrillRestore(): Promise<void> {
-		this.assertSiteDrillObject();
+		const drill = await this.siteDrill();
 		const primary = this.siteDrillPrimary();
 		if (primary) return primary.scheduleSiteDrillRestore();
 		const env = this.siteDrillEnv();
-		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE);
+		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE, drill);
 		if (receipt?.phase === "restore-scheduled") return;
 		if (receipt?.phase !== "media-deleted")
 			throw new Error("CMS site restore drill media deletion not verified");
 		if (this.siteDrillSentinel() !== "after")
 			throw new Error("CMS site restore drill sentinel mutation unavailable");
-		const { manifest } = await readSiteDrillCapture(env.RECOVERY_STORAGE);
+		const { manifest } = await readSiteDrillCapture(
+			env.RECOVERY_STORAGE,
+			drill,
+		);
 		const undoBookmark = await this.ctx.storage.onNextSessionRestoreBookmark(
 			manifest.bookmark,
 		);
-		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, {
+		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, drill, {
 			...receipt,
 			phase: "restore-scheduled",
 			undoBookmark,
@@ -548,11 +555,12 @@ export class EmDashDB extends EmdashSqlDB {
 	}
 
 	async restartSiteDrill(): Promise<void> {
-		this.assertSiteDrillObject();
+		const drill = await this.siteDrill();
 		const primary = this.siteDrillPrimary();
 		if (primary) return primary.restartSiteDrill();
 		const receipt = await readSiteDrillReceipt(
 			this.siteDrillEnv().RECOVERY_STORAGE,
+			drill,
 		);
 		if (!receipt) throw new Error("CMS site restore drill receipt missing");
 		const sentinel = this.siteDrillSentinel();
@@ -565,11 +573,11 @@ export class EmDashDB extends EmdashSqlDB {
 	}
 
 	async scheduleSiteDrillUndo(): Promise<void> {
-		this.assertSiteDrillObject();
+		const drill = await this.siteDrill();
 		const primary = this.siteDrillPrimary();
 		if (primary) return primary.scheduleSiteDrillUndo();
 		const env = this.siteDrillEnv();
-		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE);
+		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE, drill);
 		if (receipt?.phase === "undo-scheduled") return;
 		if (receipt?.phase !== "restored" || !receipt.undoBookmark)
 			throw new Error("CMS site restore drill undo unavailable");
@@ -578,7 +586,7 @@ export class EmDashDB extends EmdashSqlDB {
 		const redoBookmark = await this.ctx.storage.onNextSessionRestoreBookmark(
 			receipt.undoBookmark,
 		);
-		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, {
+		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, drill, {
 			...receipt,
 			phase: "undo-scheduled",
 			redoBookmark,
@@ -586,20 +594,23 @@ export class EmDashDB extends EmdashSqlDB {
 	}
 
 	async scheduleSiteDrillFinalRestore(): Promise<void> {
-		this.assertSiteDrillObject();
+		const drill = await this.siteDrill();
 		const primary = this.siteDrillPrimary();
 		if (primary) return primary.scheduleSiteDrillFinalRestore();
 		const env = this.siteDrillEnv();
-		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE);
+		const receipt = await readSiteDrillReceipt(env.RECOVERY_STORAGE, drill);
 		if (receipt?.phase === "final-scheduled") return;
 		if (receipt?.phase !== "undone" || !receipt.redoBookmark)
 			throw new Error("CMS site restore drill final restore unavailable");
 		if (this.siteDrillSentinel() !== "after")
 			throw new Error("CMS site restore drill undo not observed");
-		const { manifest } = await readSiteDrillCapture(env.RECOVERY_STORAGE);
+		const { manifest } = await readSiteDrillCapture(
+			env.RECOVERY_STORAGE,
+			drill,
+		);
 		const finalUndoBookmark =
 			await this.ctx.storage.onNextSessionRestoreBookmark(manifest.bookmark);
-		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, {
+		await writeSiteDrillReceipt(env.RECOVERY_STORAGE, drill, {
 			...receipt,
 			phase: "final-scheduled",
 			finalUndoBookmark,
