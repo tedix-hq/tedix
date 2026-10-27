@@ -289,7 +289,12 @@ describe("Code Mode discovery helpers", () => {
 		const sharedProperties = new Proxy(
 			{
 				invoiceNumber: { type: "string" },
-				...schema(64).properties,
+				...Object.fromEntries(
+					Array.from({ length: 64 }, (_, p) => [
+						`shared_${p}`,
+						{ type: "string" },
+					]),
+				),
 			},
 			{
 				ownKeys(target) {
