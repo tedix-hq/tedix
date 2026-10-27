@@ -58,7 +58,8 @@ export class PiFacetMediaFixture extends ConversationFacet {
 	constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
 		super(ctx, env);
 		Object.assign(this, {
-			parentAgent: async () => ({
+			// Replace the parent port before its resolver imports the production DO.
+			parent: async () => ({
 				enrollFacetDispatchRun: async () => {},
 				assertChatTurnActive: async () => {},
 				reservePiStep: async (input: { estimatedTokens: number }) => {
