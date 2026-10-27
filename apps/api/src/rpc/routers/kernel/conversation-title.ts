@@ -11,8 +11,9 @@
  *
  * Invariants:
  * - NEVER overwrites an operator rename. Two layers of protection:
- *   1. The guard skips generation when ANY `conversation.updated` event
- *      already exists for the conversation (rename or prior auto-title).
+ *   1. The guard skips generation when a title-bearing
+ *      `conversation.updated` event already exists (rename or prior
+ *      auto-title), without treating pin/archive updates as renames.
  *   2. Auto-title events are stamped `source: "kernelRuntime.autoTitle"` and
  *      the `listConversations` overlay prefers the newest NON-auto event, so
  *      even a lost race can never shadow a human rename.
@@ -45,13 +46,13 @@
  *   the autoTitle write-through overwrites any non-rename source).
  * - Titles are at most six words, in the request's language, and never a code
  *   or id (`isCodeLikeConversationTitle`). An hourly bounded backfill
- *   ({@link backfillCodeLikeConversationTitles}) renames open conversations
- *   whose non-rename title is still one.
+ *   ({@link backfillPlaceholderConversationTitles}) renames open conversations
+ *   still carrying a provisional or previously promoted first-request title.
  */
 
 import { kernelSpanContext } from "./gateway-attribution";
 import {
-	countKernelConversationEventsByKind,
+	countKernelConversationTitleGuardEvents,
 	type KernelRuntimeEvent,
 	listKernelRuntimeEvents,
 } from "@tedix/db/queries/kernel-runtime-events";
@@ -117,27 +118,25 @@ export function buildConversationTitlePrompt(input: {
  * Pure guard: auto-title ONLY the first settled exchange of a topical Home
  * conversation that has no label yet.
  *
- * - `conversationUpdatedCount > 0` ⇒ an operator rename OR a prior auto-title
+ * - `titleUpdatedCount > 0` ⇒ an operator rename OR a prior auto-title
  *   already labelled it — never touch it again (only-write-if-empty).
  * - `completedMessageCount > 1` ⇒ not the first assistant settlement (the
  *   count includes the event the settling turn just inserted).
  */
 export function evaluateAutoTitleGuard(input: {
 	conversationId: string;
-	conversationUpdatedCount: number;
+	titleUpdatedCount: number;
 	completedMessageCount: number;
 }): boolean {
 	if (input.conversationId === HOME_MAIN_CONVERSATION_ID) return false;
 	if (isEphemeralHomeConversation(input.conversationId)) return false;
-	return (
-		input.conversationUpdatedCount === 0 && input.completedMessageCount <= 1
-	);
+	return input.titleUpdatedCount === 0 && input.completedMessageCount <= 1;
 }
 
 /**
  * DB-backed guard read: one grouped count over the conversation's
- * `conversation.updated` + `message.completed` events, then the pure
- * {@link evaluateAutoTitleGuard} decision.
+ * title-bearing `conversation.updated` + `message.completed` events, then the
+ * pure {@link evaluateAutoTitleGuard} decision.
  */
 export async function shouldAutoTitleHomeConversation(
 	db: BaseContext["db"],
@@ -145,27 +144,26 @@ export async function shouldAutoTitleHomeConversation(
 ): Promise<boolean> {
 	if (input.conversationId === HOME_MAIN_CONVERSATION_ID) return false;
 	if (isEphemeralHomeConversation(input.conversationId)) return false;
-	const counts = await countKernelConversationEventsByKind(db, {
+	const counts = await countKernelConversationTitleGuardEvents(db, {
 		organizationId: input.organizationId,
 		conversationId: input.conversationId,
-		kinds: ["conversation.updated", "message.completed"],
 	});
 	return evaluateAutoTitleGuard({
 		conversationId: input.conversationId,
-		conversationUpdatedCount: counts.get("conversation.updated") ?? 0,
+		titleUpdatedCount: counts.get("conversation.updated") ?? 0,
 		completedMessageCount: counts.get("message.completed") ?? 0,
 	});
 }
 
 /**
- * Title one exchange: the cheap model call when a run can carry its cost,
- * else (or when the model output is unusable) the deterministic first-request
- * fallback. Returns `null` when neither yields a usable title.
+ * Title one exchange and report whether the model or deterministic
+ * first-request fallback produced it. Callers only promote generated titles;
+ * fallback labels remain eligible for the hourly retry.
  */
 async function deriveConversationTitle(
 	context: Pick<BaseContext, "env">,
 	input: Omit<ConversationTitleTurnInput, "runId"> & { runId?: string },
-): Promise<string | null> {
+): Promise<{ title: string; generated: boolean } | null> {
 	// The title is part of the settled run, and billing counts it there: a
 	// monetary plan with a per-run budget refuses a call without a run as
 	// hard_spend_limit, so a run-less title uses the fallback only.
@@ -218,10 +216,10 @@ async function deriveConversationTitle(
 			clearTimeout(timeoutId);
 		}
 	}
-	return (
-		sanitizeConversationTitle(raw) ??
-		fallbackConversationTitle(input.userContent)
-	);
+	const generatedTitle = sanitizeConversationTitle(raw);
+	if (generatedTitle) return { title: generatedTitle, generated: true };
+	const fallbackTitle = fallbackConversationTitle(input.userContent);
+	return fallbackTitle ? { title: fallbackTitle, generated: false } : null;
 }
 
 /**
@@ -236,7 +234,6 @@ async function persistConversationAutoTitle(
 	input: {
 		organizationId: string;
 		conversationId: string;
-		runId?: string;
 		eventKey: string;
 		title: string;
 	},
@@ -254,7 +251,6 @@ async function persistConversationAutoTitle(
 		organizationId: input.organizationId,
 		kind: "conversation.updated",
 		conversationId: input.conversationId,
-		runId: input.runId,
 		payload: {
 			conversation: { title: input.title },
 			title: input.title,
@@ -300,12 +296,12 @@ export async function generateAndPersistHomeConversationTitle(
 			return;
 		}
 
-		const title = await deriveConversationTitle(context, input);
-		if (!title) {
+		const derived = await deriveConversationTitle(context, input);
+		if (!derived?.generated) {
 			console.log({
 				component: "kernel.conversation_title",
 				event: "auto_title_skipped",
-				reason: "unusable_model_output",
+				reason: derived ? "model_fallback" : "unusable_model_output",
 			});
 			return;
 		}
@@ -313,9 +309,8 @@ export async function generateAndPersistHomeConversationTitle(
 		await persistConversationAutoTitle(context, {
 			organizationId: input.organizationId,
 			conversationId: input.conversationId,
-			runId: input.runId,
 			eventKey: input.runId,
-			title,
+			title: derived.title,
 		});
 		console.log({
 			component: "kernel.conversation_title",
@@ -362,14 +357,14 @@ function firstExchange(events: readonly KernelRuntimeEvent[]): {
 const RETITLE_BACKFILL_BATCH = 20;
 
 /**
- * Bounded, idempotent rename of open conversations whose auto or provisional
- * title is a code or id (`A304`, a uuid fragment). Titles derive from the
- * first request exactly as the live path does; user renames are never
- * candidates. A CAS cursor walks the candidates across ticks, so a row that
- * stays untitleable cannot starve later ones, and the fixed `retitle` event
- * key keeps a replayed tick from writing twice.
+ * Bounded, idempotent rename of open conversations whose title is still the
+ * provisional first-request label or is a code/id (`A304`, a uuid fragment).
+ * Titles derive from the first exchange exactly as the live path does; user
+ * renames are never candidates. A CAS cursor walks the candidates across
+ * ticks, so a row that stays untitleable cannot starve later ones, and the
+ * fixed `retitle` event key keeps a replayed tick from writing twice.
  */
-export async function backfillCodeLikeConversationTitles(
+export async function backfillPlaceholderConversationTitles(
 	context: BaseContext,
 ): Promise<{ titleBackfillScanned: number; titleBackfillRenamed: number }> {
 	const { rows, previous } = await listKernelConversationRetitleCandidates(
@@ -379,7 +374,6 @@ export async function backfillCodeLikeConversationTitles(
 	let renamed = 0;
 	for (const row of rows) {
 		if (
-			!isCodeLikeConversationTitle(row.title) ||
 			row.conversationId === HOME_MAIN_CONVERSATION_ID ||
 			isEphemeralHomeConversation(row.conversationId)
 		)
@@ -395,19 +389,23 @@ export async function backfillCodeLikeConversationTitles(
 				}),
 			);
 			if (!exchange) continue;
-			const title = await deriveConversationTitle(context, {
+			const isPlaceholder =
+				row.titleSource === "provisional" ||
+				isCodeLikeConversationTitle(row.title) ||
+				row.title === fallbackConversationTitle(exchange.userContent);
+			if (!isPlaceholder) continue;
+			const derived = await deriveConversationTitle(context, {
 				organizationId: row.organizationId,
 				conversationId: row.conversationId,
 				...exchange,
 			});
-			if (!title) continue;
+			if (!derived?.generated) continue;
 			if (
 				await persistConversationAutoTitle(context, {
 					organizationId: row.organizationId,
 					conversationId: row.conversationId,
-					runId: exchange.runId,
-					eventKey: "retitle",
-					title,
+					eventKey: "retitle-v2",
+					title: derived.title,
 				})
 			)
 				renamed++;

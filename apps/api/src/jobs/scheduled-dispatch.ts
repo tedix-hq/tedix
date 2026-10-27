@@ -469,18 +469,18 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		// Rename open chats still titled with a code or id (`A304`): one bounded
-		// page per hour, at most one cheap title call per renamed chat.
+		// Rename open chats still carrying a first-message placeholder or code:
+		// one bounded page per hour, at most one title call per matching chat.
 		if (fleetEnabled && cron === "0 * * * *") {
 			const { createContext } = await import("../rpc/context");
-			const { backfillCodeLikeConversationTitles } =
+			const { backfillPlaceholderConversationTitles } =
 				await import("../rpc/routers/kernel/conversation-title");
 			await trackPlatformCronPath(
 				env,
 				event,
 				"conversation-title-backfill",
 				() =>
-					backfillCodeLikeConversationTitles(
+					backfillPlaceholderConversationTitles(
 						createContext(
 							new Request("https://api/internal/conversation-title-backfill"),
 							env,
