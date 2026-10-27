@@ -208,6 +208,10 @@ export const osSharesQueryOptions = (
 	input: ClientInput<typeof osApi.osShares.shares.list>,
 ) => osQuery.osShares.shares.list.queryOptions({ input });
 
+/** The people invited to one permanent link. */
+export const shareInviteesQueryOptions = (shareId: string) =>
+	osQuery.osShares.shares.invitees.list.queryOptions({ input: { shareId } });
+
 /** The caller's durable OS presentation preferences and CAS revision. */
 export const userPreferencesQueryOptions = () =>
 	osQuery.userSettings.getPreferences.queryOptions({

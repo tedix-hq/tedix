@@ -6,7 +6,10 @@ import {
 	resetAttentionFixtures,
 } from "./attention-fixtures";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
-import type { OsShareLink } from "@tedix/api-contract/contracts/os-shares";
+import type {
+	OsShareInvitee,
+	OsShareLink,
+} from "@tedix/api-contract/contracts/os-shares";
 import type { OsApprovalRule } from "@tedix/api-contract/contracts/os-approval-rules";
 import {
 	mergeAppFiles,
@@ -5075,6 +5078,9 @@ function findLocalShareLink(shareId: string): OsShareLink {
 	throw new RpcError("NOT_FOUND", "Share link not found");
 }
 
+/** Who each `invited` link admits, by share id. */
+const localShareInvitees = new Map<string, OsShareInvitee[]>();
+
 function localShareKey(): string {
 	const bytes = crypto.getRandomValues(new Uint8Array(16));
 	return btoa(String.fromCharCode(...bytes))
@@ -8079,8 +8085,47 @@ const handlers: Record<string, (input: never) => unknown> = {
 		localShareLinks.set(key, [share, ...(localShareLinks.get(key) ?? [])]);
 		return { share, token: localShareKey() };
 	},
+	"osShares/shares/invitees/list": (input: { shareId: string }) => ({
+		items: localShareInvitees.get(input.shareId) ?? [],
+	}),
+	"osShares/shares/invitees/add": (input: {
+		shareId: string;
+		email: string;
+	}) => {
+		findLocalShareLink(input.shareId);
+		const email = input.email.trim().toLowerCase();
+		const existing = (localShareInvitees.get(input.shareId) ?? []).find(
+			(invitee) => invitee.email === email,
+		);
+		if (existing) return { invitee: existing };
+		const invitee: OsShareInvitee = {
+			id: crypto.randomUUID(),
+			shareLinkId: input.shareId,
+			email,
+			userId: null,
+			name: null,
+			addedByKind: "user",
+			addedById: "local-you",
+			addedAt: now(),
+		};
+		localShareInvitees.set(input.shareId, [
+			...(localShareInvitees.get(input.shareId) ?? []),
+			invitee,
+		]);
+		return { invitee };
+	},
+	"osShares/shares/invitees/remove": (input: {
+		shareId: string;
+		inviteeId: string;
+	}) => {
+		const before = localShareInvitees.get(input.shareId) ?? [];
+		const after = before.filter((invitee) => invitee.id !== input.inviteeId);
+		localShareInvitees.set(input.shareId, after);
+		return { removed: after.length !== before.length };
+	},
 	"osShares/shares/update": (input: {
 		shareId: string;
+		access?: OsShareLink["access"];
 		role?: OsShareLink["role"];
 		note?: string | null;
 		expiresAt?: string | null;
@@ -8091,6 +8136,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 				"BAD_REQUEST",
 				"This link is turned off. Make a new link instead.",
 			);
+		if (input.access) share.access = input.access;
 		if (input.role) share.role = input.role;
 		if (input.note !== undefined) share.note = input.note?.trim() || null;
 		if (input.expiresAt !== undefined) share.expiresAt = input.expiresAt;
@@ -10702,6 +10748,8 @@ export function handleLocalRpc(
 // kept here the way the app host's storage would.
 // ---------------------------------------------------------------------------
 const GUEST_TOKEN_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
+/** The permanent `/s/<id>` address of the fixture's one shared app. */
+export const LOCAL_GUEST_SHARE_PUBLIC_ID = "PricePilotOpportunity1";
 const guestSessions = new Set<string>();
 const guestVerdicts: Record<string, { value: string; at: number }> = {};
 
@@ -10770,6 +10818,8 @@ export function handleLocalGuestShare(
 		organization: { name: "PricePilot", logoUrl: null },
 		share: {
 			id: "00000039-0000-4000-8000-000000000001",
+			publicId: LOCAL_GUEST_SHARE_PUBLIC_ID,
+			access: "anyone_with_link",
 			resourceType: "gadget",
 			role: "use",
 			effectiveRole: "use",
@@ -10778,15 +10828,52 @@ export function handleLocalGuestShare(
 			expiresAt: null,
 			policyReason: null,
 		},
+		resource: app
+			? {
+					type: "gadget",
+					gadget: {
+						id: app.gadget.id,
+						workspaceId: app.gadget.workspaceId,
+						name: app.gadget.name,
+						description: app.gadget.description,
+					},
+					revision: {
+						id: app.revision.id,
+						revision: app.revision.revision,
+						manifest: { entry: app.revision.manifest.entry },
+					},
+					openPath: null,
+				}
+			: null,
+	};
+	const startSession = (seed: string) => {
+		const sessionToken = `guest-${seed.slice(0, 16)}-${guestSessions.size + 1}`;
+		guestSessions.add(sessionToken);
+		return sessionToken;
 	};
 	switch (path) {
+		case "/api/os-shared/open": {
+			// A permanent link open to anyone: the fixture's one shared app.
+			const id = field("id");
+			if (!app || id !== LOCAL_GUEST_SHARE_PUBLIC_ID) return refused;
+			return {
+				status: 200,
+				body: {
+					...share,
+					needsSignIn: false,
+					access: "anyone_with_link",
+					sessionToken: startSession(id),
+				},
+			};
+		}
 		case "/api/os-shared/redeem": {
 			const token = field("token");
 			if (!app || typeof token !== "string" || !GUEST_TOKEN_SHAPE.test(token))
 				return refused;
-			const sessionToken = `guest-${token.slice(0, 16)}-${guestSessions.size + 1}`;
-			guestSessions.add(sessionToken);
-			return { status: 200, body: { ...share, sessionToken } };
+			return {
+				status: 200,
+				body: { ...share, sessionToken: startSession(token) },
+			};
 		}
 		case "/api/os-shared/session":
 			return app && sessionOf() ? { status: 200, body: share } : refused;

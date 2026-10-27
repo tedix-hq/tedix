@@ -1017,6 +1017,24 @@ describe("Tedix OS origin router", () => {
 			provisionedWithTenant,
 		);
 		expect(malformed.status).toBe(302);
+		// The page asks for sign-in with ?sign-in: the ordinary gate takes it
+		// and brings the visitor back to the same address.
+		const signIn = await handleOsRequest(
+			new Request(
+				"https://acme.os.tedix.dev/s/AbCdEfGhIjKlMnOpQrStUv?sign-in",
+				{
+					headers: navigation,
+				},
+			),
+			env,
+			provisionedWithTenant,
+		);
+		expect(signIn.status).toBe(302);
+		const bounce = new URL(signIn.headers.get("Location")!);
+		expect(bounce.pathname).toBe("/auth/session-broker/continue");
+		expect(bounce.searchParams.get("redirect_to")).toBe(
+			"/s/AbCdEfGhIjKlMnOpQrStUv?sign-in",
+		);
 
 		const open = (headers: Record<string, string>) =>
 			handleOsRequest(

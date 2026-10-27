@@ -6,8 +6,14 @@ import {
 } from "@/components/kumo/collapsible";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { ArrowRight, ShieldCheck } from "@phosphor-icons/react";
-import type { OsShareRole } from "@tedix/api-contract/contracts/os-shares";
-import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
+import type {
+	OsShareAccess,
+	OsShareRole,
+} from "@tedix/api-contract/contracts/os-shares";
+import type {
+	OsGadgetManifest,
+	OsOutputContent,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
@@ -29,7 +35,9 @@ import {
 import { Text } from "@/components/kumo/text";
 import { SharedReviewBatch } from "./shared-review-batch";
 import { WidgetFrame } from "@/components/widget-frame";
+import { OutputContentView } from "@/components/output-content";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
+import { adoptShareLinkAddress } from "@/lib/share-link-session";
 
 type SharedGadget = {
 	id: string;
@@ -42,10 +50,13 @@ type SharedGadget = {
 	};
 };
 
-type SharePayload = {
+export type SharePayload = {
 	organization?: { name: string; logoUrl: string | null } | null;
 	share: {
 		id: string;
+		/** The link's permanent id; an old `#token=` link moves to `/s/<id>`. */
+		publicId?: string;
+		access?: OsShareAccess;
 		resourceType: "gadget" | "workspace" | "output";
 		role: OsShareRole;
 		effectiveRole: OsShareRole;
@@ -67,7 +78,11 @@ type SharePayload = {
 				gadgets: SharedGadget[];
 				openPath: string | null;
 		  }
-		| { type: "output" };
+		| {
+				type: "output";
+				output: { id: string; title: string };
+				revision: { id: string; revision: number; content: OsOutputContent };
+		  };
 	sessionToken?: string;
 };
 
@@ -251,6 +266,12 @@ export function SharedResourcePage() {
 						return;
 					}
 					// Storage is never authority: redemption/resume must succeed on the server.
+					// An old link moves to its permanent address; the router then
+					// shows that page, which resumes this session.
+					if (opening.redeeming && payload.share.publicId) {
+						adoptShareLinkAddress(payload.share.publicId, sessionToken);
+						return;
+					}
 					storeShareSession(sessionToken);
 					setState({ status: "ready", payload, sessionToken });
 					timer = window.setInterval(() => {
@@ -300,30 +321,42 @@ export function SharedResourcePage() {
 			</main>
 		);
 	}
-	const { payload } = state;
+	return (
+		<SharedResourceView
+			payload={state.payload}
+			sessionToken={state.sessionToken}
+		/>
+	);
+}
+
+/** What an open share shows: an app, a workspace's apps, or a file. */
+export function SharedResourceView({
+	payload,
+	sessionToken,
+	subtitle = "Shared with you · opened with your own Tedix sign-in",
+}: {
+	payload: SharePayload;
+	sessionToken: string;
+	subtitle?: string;
+}) {
 	const resource = payload.resource;
-	if (resource.type === "output") {
-		return null;
-	}
+	const role = payload.share.effectiveRole;
 	const title =
-		resource.type === "gadget" ? resource.gadget.name : resource.workspace.name;
+		resource.type === "output"
+			? resource.output.title
+			: resource.type === "gadget"
+				? resource.gadget.name
+				: resource.workspace.name;
 	const gadgets: SharedGadget[] =
 		resource.type === "gadget"
-			? [
-					{
-						...resource.gadget,
-						revision: resource.revision,
-					},
-				]
-			: resource.gadgets;
+			? [{ ...resource.gadget, revision: resource.revision }]
+			: resource.type === "workspace"
+				? resource.gadgets
+				: [];
 	const gadgetCards = (
 		<section className="grid gap-4">
 			{gadgets.map((gadget) => (
-				<SharedGadgetCard
-					key={gadget.id}
-					gadget={gadget}
-					role={payload.share.effectiveRole}
-				/>
+				<SharedGadgetCard key={gadget.id} gadget={gadget} role={role} />
 			))}
 		</section>
 	);
@@ -341,11 +374,11 @@ export function SharedResourcePage() {
 						{title}
 					</Text>
 					<Text as="p" role="label" tone="secondary" className="m-0">
-						Shared with you · opened with your own Tedix sign-in
+						{subtitle}
 					</Text>
 				</section>
 				<Badge variant="success">
-					<ShieldCheck size={13} /> {ROLE_LABEL[payload.share.effectiveRole]}
+					<ShieldCheck size={13} /> {ROLE_LABEL[role]}
 				</Badge>
 				<Badge variant="secondary">
 					{payload.share.revisionMode === "pinned"
@@ -359,9 +392,9 @@ export function SharedResourcePage() {
 					<PopoverContent align="end" className="w-72">
 						<PopoverTitle className="sr-only">About access</PopoverTitle>
 						<PopoverDescription>
-							This share uses your own signed-in Tedix account. It does not
-							transfer the owner's connections, credentials or private memory.
-							Tedix checks access when you open it and while it remains open.
+							This share does not pass on the owner's connections, credentials
+							or private memory. Tedix checks access when you open it and while
+							it stays open.
 						</PopoverDescription>
 					</PopoverContent>
 				</Popover>
@@ -377,7 +410,7 @@ export function SharedResourcePage() {
 					<AlertDescription>{payload.share.policyReason}</AlertDescription>
 				</Alert>
 			)}
-			{payload.share.effectiveRole === "build" && resource.openPath && (
+			{role === "build" && resource.type !== "output" && resource.openPath && (
 				<div className="shrink-0">
 					<Button onClick={() => window.location.assign(resource.openPath!)}>
 						Open authenticated Canvas <ArrowRight size={14} />
@@ -388,11 +421,18 @@ export function SharedResourcePage() {
 					</Text>
 				</div>
 			)}
-			{resource.type === "gadget" && payload.share.effectiveRole === "use" ? (
+			{resource.type === "output" ? (
+				<div
+					className="flex-1 lg:min-h-0 lg:overflow-y-auto"
+					data-shared-output
+				>
+					<OutputContentView content={sharedOutputContent(resource)} />
+				</div>
+			) : resource.type === "gadget" && role === "use" ? (
 				<div className="flex flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
 					<SharedReviewBatch
 						shareId={payload.share.id}
-						sessionToken={state.sessionToken}
+						sessionToken={sessionToken}
 						fallback={gadgetCards}
 					/>
 				</div>
@@ -403,4 +443,17 @@ export function SharedResourcePage() {
 			)}
 		</main>
 	);
+}
+
+type SharedOutput = Extract<SharePayload["resource"], { type: "output" }>;
+
+/**
+ * A shared file's content. An uploaded file's preview reads through the
+ * owner's workspace, which a link never opens, so only its text shows.
+ */
+function sharedOutputContent(resource: SharedOutput): OsOutputContent {
+	const content = resource.revision.content;
+	if (content.kind !== "document" || !content.file) return content;
+	const { file: _file, ...text } = content;
+	return text;
 }

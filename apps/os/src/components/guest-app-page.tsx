@@ -26,6 +26,7 @@ import {
 } from "@/lib/app-runtime-host";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
+import { adoptShareLinkAddress } from "@/lib/share-link-session";
 import { OrganizationMark } from "@/shared/organization-mark";
 
 /**
@@ -63,10 +64,17 @@ type Redeemed = {
 		/** The organization's own `share_*` wording, keyed by locale. */
 		copy?: Record<string, Record<string, string>>;
 	} | null;
-	share: { note: string | null; policyReason: string | null };
+	share: {
+		note: string | null;
+		policyReason: string | null;
+		/** The link's permanent id; an old `#token=` link moves to `/s/<id>`. */
+		publicId?: string;
+	};
 	sessionToken?: string;
 };
+export type GuestShare = Redeemed;
 
+export type GuestPageState = PageState;
 type PageState =
 	| { status: "loading" }
 	| { status: "identify"; share: Redeemed; sessionToken: string }
@@ -149,7 +157,7 @@ export function guestCopy(organization?: Redeemed["organization"]): {
 }
 
 /** The guest's document follows the device: there is no account to keep a choice on. */
-function followSystemTheme(): () => void {
+export function followSystemTheme(): () => void {
 	const media = window.matchMedia("(prefers-color-scheme: dark)");
 	const apply = () => {
 		const mode = media.matches ? "dark" : "light";
@@ -194,14 +202,14 @@ export function GuestAppPage() {
 					});
 			const sessionToken = token ? share.sessionToken : resumeToken;
 			if (!sessionToken) throw new Error("Share unavailable");
+			// An old link moves to its permanent address; the router then shows
+			// that page, which resumes this session.
+			if (token && share.share.publicId) {
+				adoptShareLinkAddress(share.share.publicId, sessionToken);
+				return { status: "loading" };
+			}
 			storeGuestSession(sessionToken);
-			const guestName = storedGuestName();
-			if (!guestName) return { status: "identify", share, sessionToken };
-			const app = await guestRequest<GuestOpen>("/api/os-shared/app/open", {
-				sessionToken,
-				guestName,
-			});
-			return { status: "ready", share, sessionToken, app, guestName };
+			return openGuestApp(share, sessionToken);
 		})().catch((): PageState => {
 			storeGuestSession(null);
 			return { status: "unavailable" };
@@ -214,6 +222,40 @@ export function GuestAppPage() {
 		};
 	}, []);
 
+	return (
+		<GuestAppScreen
+			state={state}
+			setState={setState}
+			forget={() => storeGuestSession(null)}
+		/>
+	);
+}
+
+/** Open a share session's app, or ask the guest's name first. */
+export async function openGuestApp(
+	share: GuestShare,
+	sessionToken: string,
+): Promise<GuestPageState> {
+	const guestName = storedGuestName();
+	if (!guestName) return { status: "identify", share, sessionToken };
+	const app = await guestRequest<GuestOpen>("/api/os-shared/app/open", {
+		sessionToken,
+		guestName,
+	});
+	return { status: "ready", share, sessionToken, app, guestName };
+}
+
+/** A guest's app once its share session is known, in the organization's words. */
+export function GuestAppScreen({
+	state,
+	setState,
+	forget,
+}: {
+	state: GuestPageState;
+	setState: (state: GuestPageState) => void;
+	/** Drops the stored share session after the server refuses it. */
+	forget: () => void;
+}) {
 	const organization =
 		state.status === "ready" || state.status === "identify"
 			? state.share.organization
@@ -262,7 +304,7 @@ export function GuestAppPage() {
 						}
 						setState({ ...state, status: "ready", app, guestName });
 					} catch {
-						storeGuestSession(null);
+						forget();
 						setState({ status: "unavailable" });
 					}
 				}}

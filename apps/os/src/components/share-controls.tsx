@@ -10,11 +10,13 @@ import {
 	Prohibit,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-	OsShareLink,
-	OsShareResourceType,
-	OsShareRevisionMode,
-	OsShareRole,
+import {
+	type OsShareAccess,
+	OsShareAccessSchema,
+	type OsShareLink,
+	type OsShareResourceType,
+	type OsShareRevisionMode,
+	type OsShareRole,
 } from "@tedix/api-contract/contracts/os-shares";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import { type ReactNode, useState } from "react";
@@ -46,30 +48,15 @@ import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
-import { osSharesQueryOptions } from "@/lib/os-query-options";
+import {
+	osSharesQueryOptions,
+	shareInviteesQueryOptions,
+} from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
-export const SHARE_LINK_BASE = "https://api.tedix.dev/os-shared";
 declare const __LOCAL_DEMO_ENABLED__: boolean;
-
-export function formatShareLink(
-	token: string,
-	base: string = SHARE_LINK_BASE,
-): string {
-	return `${base}#token=${encodeURIComponent(token)}`;
-}
-
-export function shareLinkBase(input: {
-	resourceType: OsShareResourceType;
-	origin: string;
-	localEvaluation: boolean;
-}): string {
-	return input.localEvaluation || input.resourceType !== "output"
-		? `${input.origin}/shared`
-		: SHARE_LINK_BASE;
-}
 
 export type ShareLinkStatus = "active" | "expired" | "revoked";
 
@@ -167,9 +154,8 @@ function ShareField(props: {
 export type ShareRevokeConfirmation = { activeSessionCount: number };
 
 /**
- * One link: what it allows, in one line, and a quiet menu for the rest. The
- * URL itself is never shown again, so the menu offers Edit settings (same
- * link), Get a new link, and Turn off.
+ * One link: what it allows, in one line, and a quiet menu for the rest
+ * (Edit settings, Get a new link, Turn off), each offered only when passed.
  */
 export function ShareRow(props: {
 	share: OsShareLink;
@@ -366,9 +352,8 @@ function LinkForm(props: {
 	noun: string;
 	initial: LinkSettings;
 	cannotPinRevision: boolean;
+	/** The link changed in place: same address, so the version it shows stays. */
 	editing: OsShareLink | null;
-	/** Edit the link in place: same URL, so the version it shows stays. */
-	inPlace?: boolean;
 	pending: boolean;
 	onSubmit: (settings: LinkSettings) => void;
 	onCancel?: () => void;
@@ -376,14 +361,12 @@ function LinkForm(props: {
 	const [settings, setSettings] = useState<LinkSettings>(props.initial);
 	const set = (patch: Partial<LinkSettings>) =>
 		setSettings((current) => ({ ...current, ...patch }));
-	const cannotPin = props.cannotPinRevision && !props.editing?.pinnedRevisionId;
+	const cannotPin = props.cannotPinRevision;
 	return (
 		<Surface className="grid gap-4 p-3" data-share-form>
 			<Text as="h3" role="label" tone="strong" className="m-0">
 				{props.editing
-					? props.inPlace
-						? `Settings for “${props.editing.note || "Link"}”`
-						: `New link for “${props.editing.note || "Link"}”`
+					? `Settings for “${props.editing.note || "Link"}”`
 					: "New link with options"}
 			</Text>
 			{props.resourceType !== "output" && (
@@ -400,7 +383,7 @@ function LinkForm(props: {
 					/>
 				</ShareField>
 			)}
-			{props.inPlace ? null : (
+			{props.editing ? null : (
 				<ShareField
 					as="div"
 					label="Link shows"
@@ -446,21 +429,11 @@ function LinkForm(props: {
 					placeholder="Never"
 				/>
 			</ShareField>
-			{props.inPlace ? (
+			{props.editing ? (
 				<Text role="label" tone="secondary" className="m-0">
 					The link stays the same; people who have it see the new settings.
 				</Text>
-			) : (
-				props.editing && (
-					<Text role="label" tone="secondary" className="m-0">
-						Saving gives you a new link. The old one stops working
-						{props.editing.resourceType === "gadget" &&
-						props.editing.role === "use"
-							? ", and so does any review sent with it."
-							: "."}
-					</Text>
-				)
-			)}
+			) : null}
 			<div className="flex flex-wrap gap-2">
 				<Button
 					className="flex-1 justify-center"
@@ -470,10 +443,8 @@ function LinkForm(props: {
 					}
 					onClick={() => props.onSubmit(settings)}
 				>
-					{props.inPlace ? (
+					{props.editing ? (
 						"Save"
-					) : props.editing ? (
-						"Save and get new link"
 					) : (
 						<>
 							<LinkSimple size={14} /> Create link
@@ -569,7 +540,6 @@ function guestRefusalText(refusal: {
 type FormMode =
 	| { kind: "closed" }
 	| { kind: "create" }
-	| { kind: "edit"; share: OsShareLink }
 	| { kind: "settings"; share: OsShareLink };
 
 /** Changing a live link in place is for organization owners and admins. */
@@ -581,25 +551,172 @@ function useCanEditLinkSettings(): boolean {
 	);
 }
 
-/** The General access choices: no link, or a link at one role. */
-type AccessChoice = "restricted" | `link:${OsShareRole}`;
+function accessLabel(access: OsShareAccess, organization: string): string {
+	if (access === "anyone_with_link") return "Anyone with the link";
+	if (access === "organization") return `People in ${organization}`;
+	return "Only people you invite";
+}
 
-function accessRoles(resourceType: OsShareResourceType): OsShareRole[] {
-	return resourceType === "output" ? ["viewer"] : ["use", "build"];
+function accessHint(access: OsShareAccess, organization: string): string {
+	if (access === "anyone_with_link") return "No sign-in needed.";
+	if (access === "organization")
+		return `They sign in with their ${organization} account.`;
+	return "They sign in with the email address you add below.";
+}
+
+/** The link's permanent address, always on show, with a copy button. */
+export function PermanentUrl(props: { url: string }) {
+	const [copied, setCopied] = useState(false);
+	return (
+		<div className="flex min-w-0 items-center gap-2" data-share-permanent-url>
+			<Text
+				as="code"
+				role="label"
+				tone="strong"
+				className="m-0 min-w-0 flex-1 select-all truncate rounded-md bg-kumo-recessed px-2 py-1.5 font-mono"
+				aria-label="Link address"
+				data-share-url
+			>
+				{props.url}
+			</Text>
+			<Button
+				size="sm"
+				className="shrink-0"
+				onClick={() => {
+					navigator.clipboard?.writeText(props.url).then(
+						() => setCopied(true),
+						() => setCopied(false),
+					);
+				}}
+			>
+				<Copy size={14} /> {copied ? "Copied" : "Copy link"}
+			</Button>
+		</div>
+	);
+}
+
+/** Who may open an "Only people you invite" link. */
+function InviteList(props: { shareId: string }) {
+	const queryClient = useQueryClient();
+	const inviteesQuery = shareInviteesQueryOptions(props.shareId);
+	const invitees = useQuery(inviteesQuery);
+	const [email, setEmail] = useState("");
+	const refresh = () =>
+		queryClient.invalidateQueries({ queryKey: inviteesQuery.queryKey });
+	const add = useMutation({
+		mutationFn: () =>
+			osApi.osShares.shares.invitees.add({
+				shareId: props.shareId,
+				email: email.trim(),
+			}),
+		onSuccess: () => setEmail(""),
+		onSettled: () => void refresh(),
+	});
+	const remove = useMutation({
+		mutationFn: (inviteeId: string) =>
+			osApi.osShares.shares.invitees.remove({
+				shareId: props.shareId,
+				inviteeId,
+			}),
+		onSettled: () => void refresh(),
+	});
+	const items = invitees.data?.items ?? [];
+	return (
+		<section
+			className="grid gap-2"
+			aria-label="Invited people"
+			data-share-invitees
+		>
+			<Text as="h3" role="label" tone="strong" className="m-0">
+				Invited people
+			</Text>
+			<form
+				className="flex gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (email.trim()) add.mutate();
+				}}
+			>
+				<Input
+					aria-label="Email address to invite"
+					type="email"
+					autoComplete="off"
+					placeholder="name@company.com"
+					value={email}
+					onChange={(event) => setEmail(event.target.value)}
+					className="min-w-0 flex-1"
+				/>
+				<Button
+					type="submit"
+					variant="secondary"
+					loading={add.isPending}
+					disabled={!email.trim() || add.isPending}
+				>
+					Add
+				</Button>
+			</form>
+			{add.isError ? (
+				<Text role="label" tone="error" className="m-0" aria-live="polite">
+					{shareErrorText(add.error, "Couldn't add that person.")}
+				</Text>
+			) : null}
+			{invitees.isSuccess && items.length === 0 ? (
+				<Text role="label" tone="secondary" className="m-0">
+					Nobody yet. Add the people who should open this link.
+				</Text>
+			) : null}
+			{items.length > 0 ? (
+				<ul className="m-0 grid list-none divide-y divide-kumo-line p-0">
+					{items.map((invitee) => {
+						const label = invitee.name ?? invitee.email ?? "Someone";
+						return (
+							<li
+								key={invitee.id}
+								className="flex min-h-10 items-center gap-2"
+								data-share-invitee={invitee.id}
+							>
+								<Text
+									as="span"
+									role="body"
+									className="m-0 min-w-0 flex-1 truncate"
+								>
+									{label}
+								</Text>
+								<Button
+									variant="ghost"
+									size="sm"
+									aria-label={`Remove ${label}`}
+									disabled={remove.isPending}
+									onClick={() => remove.mutate(invitee.id)}
+								>
+									Remove
+								</Button>
+							</li>
+						);
+					})}
+				</ul>
+			) : null}
+			{remove.isError ? (
+				<Text role="label" tone="error" className="m-0" aria-live="polite">
+					{shareErrorText(remove.error, "Couldn't remove that person.")}
+				</Text>
+			) : null}
+		</section>
+	);
 }
 
 /**
- * Links to one app or file: a General access row that makes or turns off a
- * link, the one-time URL right under it, and the list of links each with a
- * quiet menu. It has no surface of its own, so it sits inside the workspace
- * Share dialog or inside ShareControls' own dialog.
+ * The link to one app or file: its permanent address with Copy, who may
+ * open it, the invite list when only invited people may, and Turn off. It
+ * has no surface of its own, so it sits inside the workspace Share dialog
+ * or inside ShareControls' own dialog.
  */
 export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	const { resourceType, resourceId, currentRevisionId } =
 		normalizeResource(props);
 	const [formMode, setFormMode] = useState<FormMode>({ kind: "closed" });
-	const [showInactive, setShowInactive] = useState(false);
-	const [revokeImpact, setRevokeImpact] = useState<{
+	const [staged, setStaged] = useState<OsShareAccess | null>(null);
+	const [confirmOff, setConfirmOff] = useState<{
 		shareId: string;
 		activeSessionCount: number;
 	} | null>(null);
@@ -608,37 +725,48 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	const shares = useQuery(sharesQuery);
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: sharesQuery.queryKey });
-	const saveLink = useMutation({
-		mutationFn: async (input: {
-			settings: LinkSettings;
-			replaces: OsShareLink | null;
-		}) => {
-			const { role, revisionMode, note, expiresAt } = input.settings;
+	const organization =
+		useOsOperationalContext().data?.organization?.name ?? "your organization";
+	const canEditSettings = useCanEditLinkSettings();
+	const activeLinks = (shares.data?.items ?? []).filter(
+		(share) => shareStatus(share) === "active",
+	);
+	const link = activeLinks[0] ?? null;
+	const access: OsShareAccess = staged ?? link?.access ?? "anyone_with_link";
+	const defaultRole: OsShareRole = resourceType === "output" ? "viewer" : "use";
+	const noun = RESOURCE_NOUN[resourceType];
+	const cannotPinRevision =
+		resourceType !== "workspace" && currentRevisionId === null;
+
+	const createLink = useMutation({
+		mutationFn: (settings: LinkSettings) => {
 			const pinnedRevisionId =
-				revisionMode === "pinned" && resourceType !== "workspace"
-					? (input.replaces?.pinnedRevisionId ?? currentRevisionId)
+				settings.revisionMode === "pinned" && resourceType !== "workspace"
+					? currentRevisionId
 					: null;
-			const created = await osApi.osShares.shares.create({
+			return osApi.osShares.shares.create({
 				resourceType,
 				resourceId,
-				role,
-				revisionMode,
+				role: settings.role,
+				access,
+				revisionMode: settings.revisionMode,
 				...(pinnedRevisionId ? { pinnedRevisionId } : {}),
-				...(note.trim() ? { note: note.trim() } : {}),
-				...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
+				...(settings.note.trim() ? { note: settings.note.trim() } : {}),
+				...(settings.expiresAt
+					? { expiresAt: settings.expiresAt.toISOString() }
+					: {}),
 			});
-			// The new link exists before the old one stops, so a failed turn-off
-			// never leaves the owner with no working link, and the one-time URL
-			// is still shown.
-			if (!input.replaces) return { ...created, replaced: "none" as const };
-			try {
-				await osApi.osShares.shares.revoke({ shareId: input.replaces.id });
-				return { ...created, replaced: "off" as const };
-			} catch {
-				return { ...created, replaced: "still-on" as const };
-			}
 		},
-		onSuccess: () => setFormMode({ kind: "closed" }),
+		onSuccess: () => {
+			setStaged(null);
+			setFormMode({ kind: "closed" });
+		},
+		onSettled: () => void invalidate(),
+	});
+	const changeAccess = useMutation({
+		mutationFn: (input: { shareId: string; access: OsShareAccess }) =>
+			osApi.osShares.shares.update(input),
+		onSuccess: () => setStaged(null),
 		onSettled: () => void invalidate(),
 	});
 	const updateSettings = useMutation({
@@ -654,105 +782,51 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		onSuccess: () => setFormMode({ kind: "closed" }),
 		onSettled: () => void invalidate(),
 	});
-	const canEditSettings = useCanEditLinkSettings();
 	const previewRevoke = useMutation({
 		mutationFn: (shareId: string) =>
 			osApi.osShares.shares.previewRevoke({ shareId }),
 		onSuccess: (result) =>
-			setRevokeImpact({
+			setConfirmOff({
 				shareId: result.share.id,
 				activeSessionCount: result.activeSessionCount,
 			}),
 	});
-	const revokeShare = useMutation({
+	const revoke = useMutation({
 		mutationFn: (shareId: string) => osApi.osShares.shares.revoke({ shareId }),
 		onSuccess: () => {
-			setRevokeImpact(null);
-			void invalidate();
+			setConfirmOff(null);
+			setStaged(null);
 		},
+		onSettled: () => void invalidate(),
 	});
+	const busy =
+		createLink.isPending ||
+		changeAccess.isPending ||
+		updateSettings.isPending ||
+		previewRevoke.isPending ||
+		revoke.isPending;
 	const localEvaluation =
 		typeof window !== "undefined" &&
 		__LOCAL_DEMO_ENABLED__ &&
 		resolveOsTenant(window.location.hostname).kind === "local";
-	const shareBase =
-		typeof window === "undefined"
-			? SHARE_LINK_BASE
-			: shareLinkBase({
-					resourceType,
-					origin: window.location.origin,
-					localEvaluation,
-				});
-	const noun = RESOURCE_NOUN[resourceType];
-	const cannotPinRevision =
-		resourceType !== "workspace" && currentRevisionId === null;
-	const items = shares.data?.items ?? [];
-	const activeLinks = items.filter((share) => shareStatus(share) === "active");
-	const inactiveLinks = items.filter(
-		(share) => shareStatus(share) !== "active",
-	);
-	const created = saveLink.data;
-	const editing =
-		formMode.kind === "edit" || formMode.kind === "settings"
-			? formMode.share
-			: null;
-	const inPlace = formMode.kind === "settings";
-	const defaultRole: OsShareRole = resourceType === "output" ? "viewer" : "use";
-	const newest = activeLinks[0] ?? null;
-	const access: AccessChoice = newest ? `link:${newest.role}` : "restricted";
-	const busy =
-		saveLink.isPending ||
-		updateSettings.isPending ||
-		previewRevoke.isPending ||
-		revokeShare.isPending;
-
-	const openForm = (mode: FormMode) => {
-		setRevokeImpact(null);
-		saveLink.reset();
-		updateSettings.reset();
-		setFormMode(mode);
-	};
-	const chooseAccess = (choice: AccessChoice) => {
-		if (choice === access) return;
-		if (choice === "restricted") {
-			if (newest) previewRevoke.mutate(newest.id);
-			return;
-		}
-		const role = choice.slice("link:".length) as OsShareRole;
-		setFormMode({ kind: "closed" });
-		setRevokeImpact(null);
-		saveLink.mutate({
-			settings: { role, revisionMode: "living", note: "", expiresAt: null },
-			replaces: null,
-		});
-	};
+	const editing = formMode.kind === "settings" ? formMode.share : null;
+	const error =
+		createLink.error ??
+		changeAccess.error ??
+		updateSettings.error ??
+		revoke.error ??
+		previewRevoke.error;
 	const rowProps = (share: OsShareLink) => ({
 		share,
-		onEditSettings: canEditSettings
-			? (target: OsShareLink) => openForm({ kind: "settings", share: target })
-			: undefined,
-		onEdit: (target: OsShareLink) => openForm({ kind: "edit", share: target }),
 		onRevoke: (shareId: string) => previewRevoke.mutate(shareId),
-		revoking: previewRevoke.isPending || revokeShare.isPending,
+		revoking: busy,
 		confirmRevoke:
-			revokeImpact?.shareId === share.id
-				? { activeSessionCount: revokeImpact.activeSessionCount }
+			confirmOff?.shareId === share.id
+				? { activeSessionCount: confirmOff.activeSessionCount }
 				: null,
-		onConfirmRevoke: (shareId: string) => revokeShare.mutate(shareId),
-		onCancelRevoke: () => setRevokeImpact(null),
-		editing: editing?.id === share.id,
+		onConfirmRevoke: (shareId: string) => revoke.mutate(shareId),
+		onCancelRevoke: () => setConfirmOff(null),
 	});
-	const createdUrl = created
-		? formatShareLink(
-				created.token,
-				props.guestEntry &&
-					resourceType === "gadget" &&
-					created.share.role === "use" &&
-					typeof window !== "undefined"
-					? `${window.location.origin}/guest`
-					: shareBase,
-			)
-		: null;
 
 	return (
 		<div className="grid gap-4" data-share-links>
@@ -764,67 +838,97 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					Links made here only work on this local copy of Tedix.
 				</Surface>
 			)}
-			<section className="grid gap-2" aria-label="General access">
+			{link ? (
+				<section
+					className="grid gap-2"
+					aria-label="Link"
+					data-share-link-current
+				>
+					<div className="flex min-h-6 items-center gap-1">
+						<Text as="h3" role="label" tone="strong" className="m-0 flex-1">
+							Link
+						</Text>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										aria-label="Link options"
+										disabled={busy}
+									/>
+								}
+							>
+								<DotsThree size={16} weight="bold" />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{canEditSettings ? (
+									<DropdownMenuItem
+										onClick={() =>
+											setFormMode({ kind: "settings", share: link })
+										}
+									>
+										<PencilSimple size={14} /> Edit settings
+									</DropdownMenuItem>
+								) : null}
+								<DropdownMenuItem
+									variant="destructive"
+									onClick={() => previewRevoke.mutate(link.id)}
+								>
+									<Prohibit size={14} /> Turn off link
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+					<PermanentUrl url={link.url} />
+					<Text role="label" tone="secondary" className="m-0">
+						{ROLE_LABEL[link.role]} ·{" "}
+						{revisionModeLabel(link.revisionMode).toLowerCase()} ·{" "}
+						{shareExpiryLabel(link)}
+						{link.note ? ` · ${link.note}` : ""}
+					</Text>
+				</section>
+			) : null}
+			<section className="grid gap-2" aria-label="Access" data-share-access>
 				<Text as="h3" role="label" tone="strong" className="m-0">
-					General access
+					Who can open it
 				</Text>
 				<div className="flex flex-wrap items-center gap-2">
-					{access === "restricted" ? (
-						<Lock size={16} className="shrink-0 text-kumo-subtle" />
-					) : (
+					{access === "anyone_with_link" ? (
 						<Globe size={16} className="shrink-0 text-kumo-subtle" />
+					) : (
+						<Lock size={16} className="shrink-0 text-kumo-subtle" />
 					)}
 					<Select
 						value={access}
-						onValueChange={(value) => chooseAccess(value as AccessChoice)}
+						onValueChange={(value) => {
+							setStaged(
+								value === link?.access ? null : (value as OsShareAccess),
+							);
+						}}
 					>
 						<SelectTrigger
-							aria-label="General access"
+							aria-label="Who can open it"
 							className="min-w-0 flex-1"
 							disabled={busy || !shares.isSuccess}
 						>
-							<SelectValue>
-								{access === "restricted"
-									? resourceType === "workspace"
-										? "Only people invited"
-										: "Only people in the workspace"
-									: `Anyone with the link can ${ROLE_VERB[newest?.role ?? defaultRole]}`}
-							</SelectValue>
+							<SelectValue>{accessLabel(access, organization)}</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="restricted">
-								{resourceType === "workspace"
-									? "Only people invited"
-									: "Only people in the workspace"}
-							</SelectItem>
-							{accessRoles(resourceType).map((role) => (
-								<SelectItem key={role} value={`link:${role}`}>
-									Anyone with the link can {ROLE_VERB[role]}
+							{OsShareAccessSchema.options.map((option) => (
+								<SelectItem key={option} value={option}>
+									{accessLabel(option, organization)}
 								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									aria-label="Link options"
-									disabled={busy || !shares.isSuccess}
-								/>
-							}
-						>
-							<DotsThree size={16} weight="bold" />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							<DropdownMenuItem onClick={() => openForm({ kind: "create" })}>
-								<LinkSimple size={14} /> New link with options
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
 				</div>
-				{props.guestEntry && shares.data?.guestRefusal && (
+				<Text role="label" tone="secondary" className="m-0">
+					{accessHint(access, organization)}
+				</Text>
+				{props.guestEntry &&
+				access === "anyone_with_link" &&
+				shares.data?.guestRefusal ? (
 					<Surface
 						className="m-0 px-3 py-2 text-kumo-subtle text-xs"
 						render={<p />}
@@ -832,87 +936,122 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					>
 						{guestRefusalText(shares.data.guestRefusal)}
 					</Surface>
-				)}
-				{created && createdUrl ? (
-					<FreshLink
-						url={createdUrl}
-						title={
-							created.replaced === "none"
-								? "Your link is ready"
-								: "Your new link is ready"
-						}
-						note={`Anyone with this link can ${ROLE_VERB[created.share.role]} this ${noun}. Copy it now: it is shown only once.${
-							created.replaced === "off" ? " The old link no longer works." : ""
-						}${
-							created.replaced === "still-on"
-								? " The old link is still on: turn it off below."
-								: ""
-						}`}
-						onDismiss={() => saveLink.reset()}
-					/>
 				) : null}
+				<div className="flex flex-wrap gap-2">
+					{link && staged ? (
+						<>
+							<Button
+								size="sm"
+								loading={changeAccess.isPending}
+								disabled={busy}
+								onClick={() =>
+									changeAccess.mutate({ shareId: link.id, access: staged })
+								}
+							>
+								Change access
+							</Button>
+							<Button size="sm" variant="ghost" onClick={() => setStaged(null)}>
+								Cancel
+							</Button>
+						</>
+					) : null}
+					{!link && shares.isSuccess && formMode.kind === "closed" ? (
+						<>
+							<Button
+								size="sm"
+								loading={createLink.isPending}
+								disabled={busy}
+								onClick={() =>
+									createLink.mutate({
+										role: defaultRole,
+										revisionMode: "living",
+										note: "",
+										expiresAt: null,
+									})
+								}
+							>
+								<LinkSimple size={14} /> Create link
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={busy}
+								onClick={() => setFormMode({ kind: "create" })}
+							>
+								More options
+							</Button>
+						</>
+					) : null}
+				</div>
 				{shares.isPending && (
 					<Text role="label" tone="secondary" className="m-0">
-						Loading links…
+						Loading link…
 					</Text>
 				)}
 				{shares.isError && (
 					<Text role="label" tone="error" className="m-0">
-						{shareErrorText(shares.error, "Can't load links right now.")}
+						{shareErrorText(shares.error, "Can't load the link right now.")}
 					</Text>
 				)}
-				{shares.isSuccess && activeLinks.length === 0 && !created ? (
-					<Text role="label" tone="secondary" className="m-0">
-						Pick “Anyone with the link” to get a link you can send.
-					</Text>
-				) : null}
 			</section>
-			{activeLinks.length > 0 && (
-				<section className="grid gap-1" aria-label="Links">
+			{link?.access === "invited" && !staged ? (
+				<InviteList shareId={link.id} />
+			) : null}
+			{link && confirmOff?.shareId === link.id ? (
+				<Alert variant="warning" data-share-turn-off>
+					<Prohibit aria-hidden />
+					<AlertTitle>Turn off this link?</AlertTitle>
+					<AlertDescription className="space-y-3">
+						<p>
+							It stops working right away.{" "}
+							{confirmOff.activeSessionCount === 0
+								? "Nobody has it open now."
+								: `${confirmOff.activeSessionCount} ${
+										confirmOff.activeSessionCount === 1
+											? "person has"
+											: "people have"
+									} it open now and will lose access.`}
+						</p>
+						<div className="flex flex-wrap gap-2">
+							<Button
+								size="sm"
+								variant="destructive"
+								loading={revoke.isPending}
+								onClick={() => revoke.mutate(link.id)}
+							>
+								Turn off link
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								onClick={() => setConfirmOff(null)}
+							>
+								Keep link
+							</Button>
+						</div>
+					</AlertDescription>
+				</Alert>
+			) : null}
+			{activeLinks.length > 1 ? (
+				<section className="grid gap-1" aria-label="Other links">
 					<Text as="h3" role="label" tone="strong" className="m-0">
-						Links
+						Other links
 					</Text>
 					<ul className="m-0 grid list-none divide-y divide-kumo-line p-0">
-						{activeLinks.map((share) => (
+						{activeLinks.slice(1).map((share) => (
 							<ShareRow key={share.id} {...rowProps(share)} />
 						))}
 					</ul>
-					{!created ? (
-						<Text role="label" tone="secondary" className="m-0">
-							A link is shown only once. Lost one? Get a new link from its menu.
-						</Text>
-					) : null}
 				</section>
-			)}
-			{inactiveLinks.length > 0 && (
-				<div className="grid gap-1">
-					<Button
-						variant="ghost"
-						size="sm"
-						className="-mx-2 justify-start"
-						onClick={() => setShowInactive((value) => !value)}
-					>
-						{showInactive ? "Hide" : "Show"} {inactiveLinks.length} old{" "}
-						{inactiveLinks.length === 1 ? "link" : "links"}
-					</Button>
-					{showInactive && (
-						<ul className="m-0 grid list-none divide-y divide-kumo-line p-0">
-							{inactiveLinks.map((share) => (
-								<ShareRow key={share.id} share={share} />
-							))}
-						</ul>
-					)}
-				</div>
-			)}
-			{formMode.kind !== "closed" ? (
+			) : null}
+			{formMode.kind === "create" || editing ? (
 				<LinkForm
-					key={`${formMode.kind}:${editing?.id ?? "create"}`}
+					key={editing?.id ?? "create"}
 					resourceType={resourceType}
 					noun={noun}
 					cannotPinRevision={cannotPinRevision}
 					editing={editing}
-					inPlace={inPlace}
-					pending={inPlace ? updateSettings.isPending : saveLink.isPending}
+					pending={editing ? updateSettings.isPending : createLink.isPending}
 					initial={
 						editing
 							? {
@@ -931,40 +1070,18 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 								}
 					}
 					onSubmit={(settings) =>
-						inPlace && editing
+						editing
 							? updateSettings.mutate({ share: editing, settings })
-							: saveLink.mutate({ settings, replaces: editing })
+							: createLink.mutate(settings)
 					}
 					onCancel={() => setFormMode({ kind: "closed" })}
 				/>
 			) : null}
-			{(saveLink.isPending || revokeShare.isPending) && (
-				<p
-					className="m-0 text-kumo-subtle text-xs"
-					role="status"
-					data-slot="share-pending"
-				>
-					{saveLink.isPending
-						? editing
-							? "Making the new link…"
-							: "Creating link…"
-						: "Turning off link…"}
-				</p>
-			)}
-			{(saveLink.isError ||
-				updateSettings.isError ||
-				revokeShare.isError ||
-				previewRevoke.isError) && (
+			{error ? (
 				<p className="m-0 text-kumo-danger text-xs" role="alert">
-					{updateSettings.isError
-						? `Couldn't save the link settings. ${(updateSettings.error as Error).message}`
-						: saveLink.isError
-							? `Couldn't ${saveLink.variables?.replaces ? "save" : "create"} the link. ${(saveLink.error as Error).message}`
-							: revokeShare.isError
-								? `Couldn't turn off the link. ${(revokeShare.error as Error).message}`
-								: `Couldn't check this link. ${(previewRevoke.error as Error).message}`}
+					{shareErrorText(error, "Couldn't change the link.")}
 				</p>
-			)}
+			) : null}
 			{resourceType === "gadget" && props.onOpenReview && (
 				<ReviewEntry onOpen={props.onOpenReview} />
 			)}

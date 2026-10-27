@@ -529,8 +529,20 @@ const CALLS = {
 	},
 	"osShares/shares/update": {
 		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+		access: "invited",
 		note: "Launch reviewers",
 		expiresAt: null,
+	},
+	"osShares/shares/invitees/list": {
+		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+	},
+	"osShares/shares/invitees/add": {
+		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+		email: "kai@example.test",
+	},
+	"osShares/shares/invitees/remove": {
+		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+		inviteeId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
 	},
 	"osCollaborators/setRole": {
 		workspaceId: IDS.workspaceRevenue,
@@ -963,7 +975,8 @@ describe("local fixtures parse through the contract output schemas", () => {
 			const shareInput =
 				key === "osShares/shares/previewRevoke" ||
 				key === "osShares/shares/revoke" ||
-				key === "osShares/shares/update"
+				key === "osShares/shares/update" ||
+				key.startsWith("osShares/shares/invitees/")
 					? {
 							...(input as object),
 							shareId: (
