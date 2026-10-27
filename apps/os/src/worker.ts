@@ -911,9 +911,36 @@ export async function handleOsRequest(
 	resolver: TenantResolver = resolveTenantViaApi,
 ): Promise<Response> {
 	const url = new URL(request.url);
-	const tenant = resolveOsTenant(url.hostname, env.OS_URL);
+	let tenant = resolveOsTenant(url.hostname, env.OS_URL);
+	let customResolution: (TenantResolution & { slug: string | null }) | null =
+		null;
 	if (tenant.kind === "invalid") {
-		return refuse(404, "No Tedix OS workspace at this hostname.");
+		if (!env.API_SERVICE)
+			return refuse(404, "No Tedix OS workspace at this hostname.");
+		try {
+			customResolution = await callRpc<
+				TenantResolution & { slug: string | null }
+			>(
+				"osTenant/resolveHostname",
+				{ hostname: url.hostname },
+				{
+					apiUrl: "https://api",
+					fetch: serviceBindingFetch(env.API_SERVICE),
+					headers: { "X-Service-Binding": "true" },
+					timeoutMs: 5_000,
+					retry: 0,
+				},
+			);
+		} catch {
+			return tenantResolutionUnavailable(request);
+		}
+		if (
+			!customResolution.provisioned ||
+			!customResolution.slug ||
+			!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(customResolution.slug)
+		)
+			return refuse(404, "No Tedix OS workspace at this hostname.");
+		tenant = { kind: "tenant", slug: customResolution.slug };
 	}
 	// authz: public — OAuth Client ID Metadata Document (CIMD, currently an
 	// IETF Internet-Draft), distinct from RFC 9728 protected-resource metadata.
@@ -953,7 +980,8 @@ export async function handleOsRequest(
 	let hostTenantId: string | null = null;
 	let oidcOrganization = false;
 	if (tenant.kind === "tenant" && env.API_SERVICE) {
-		const resolution = await resolveWithCache(env, tenant.slug, resolver);
+		const resolution =
+			customResolution ?? (await resolveWithCache(env, tenant.slug, resolver));
 		if (resolution === "unavailable") {
 			return tenantResolutionUnavailable(request);
 		}
@@ -1434,7 +1462,13 @@ export async function handleOsRequest(
 			"private, max-age=31536000, immutable",
 		);
 	}
-	return isSandboxProxy ? stamped : injectWebMcpBridge(stamped, tenant.kind);
+	return isSandboxProxy
+		? stamped
+		: injectWebMcpBridge(
+				stamped,
+				tenant.kind,
+				customResolution?.slug ?? undefined,
+			);
 }
 
 /**

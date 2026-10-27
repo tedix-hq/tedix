@@ -185,3 +185,51 @@ describe("CMS domain DNS proof", () => {
 		expect(await verifyCmsDnsZoneApex("blog.example.com")).toBe(false);
 	});
 });
+
+it("checks an OS-specific TXT challenge and exact OS CNAME without accepting the CMS target", async () => {
+	const token = "a".repeat(64);
+	const fetchMock = vi
+		.fn()
+		.mockResolvedValueOnce(
+			Response.json({
+				Status: 0,
+				Answer: [
+					{
+						name: "_tedix-os.share.example.com.",
+						type: 16,
+						data: `"${token}"`,
+					},
+				],
+			}),
+		)
+		.mockResolvedValueOnce(
+			Response.json({
+				Status: 0,
+				Answer: [
+					{ name: "share.example.com.", type: 5, data: "os.tedix.dev." },
+				],
+			}),
+		)
+		.mockResolvedValueOnce(
+			Response.json({
+				Status: 0,
+				Answer: [
+					{ name: "share.example.com.", type: 5, data: "alpha.cms.tedix.dev." },
+				],
+			}),
+		);
+	vi.stubGlobal("fetch", fetchMock);
+	expect(
+		await verifyCmsDnsChallenge(
+			"share.example.com",
+			token,
+			"_tedix-os.share.example.com",
+		),
+	).toBe(true);
+	expect(
+		await verifyCmsDnsTarget("share.example.com", "os.tedix.dev", "os"),
+	).toBe(true);
+	expect(
+		await verifyCmsDnsTarget("share.example.com", "os.tedix.dev", "os"),
+	).toBe(false);
+});

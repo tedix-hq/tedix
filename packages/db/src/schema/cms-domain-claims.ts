@@ -11,11 +11,11 @@ export const cmsDomainClaims = sqliteTable(
 		organizationId: text("organization_id")
 			.notNull()
 			.references(() => organizations.id, { onDelete: "cascade" }),
-		siteId: text("site_id")
-			.notNull()
-			.references(() => cmsSites.id, { onDelete: "cascade" }),
+		siteId: text("site_id").references(() => cmsSites.id, {
+			onDelete: "cascade",
+		}),
 		hostname: text("hostname").notNull(),
-		kind: text("kind", { enum: ["primary", "www_alias"] })
+		kind: text("kind", { enum: ["primary", "www_alias", "organization"] })
 			.notNull()
 			.default("primary"),
 		verificationToken: text("verification_token").notNull(),
@@ -49,6 +49,9 @@ export const cmsDomainClaims = sqliteTable(
 			.on(table.siteId)
 			.where(sql`status = 'pending'`),
 		index("cms_domain_claims_site_idx").on(table.organizationId, table.siteId),
+		uniqueIndex("cms_domain_claims_organization_unique")
+			.on(table.organizationId)
+			.where(sql`kind = 'organization'`),
 	],
 );
 

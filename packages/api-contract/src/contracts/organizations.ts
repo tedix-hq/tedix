@@ -1,3 +1,8 @@
+import {
+	OrganizationDomainSchema,
+	OrganizationDomainBeginSchema,
+	OrganizationDomainKeySchema,
+} from "../schemas/organization-domains";
 import "@orpc/openapi/extensions/route";
 /**
  * Organizations Contract for oRPC
@@ -59,6 +64,18 @@ export const organizationsContract = oc
 	.route({ tags: ["organizations"], prefix: "/organizations" })
 	.errors(baseErrors)
 	.router({
+		getCustomDomain: oc
+			.input(z.object({}))
+			.output(OrganizationDomainSchema.nullable()),
+		beginCustomDomain: oc
+			.input(OrganizationDomainBeginSchema)
+			.output(OrganizationDomainSchema),
+		verifyCustomDomain: oc
+			.input(OrganizationDomainKeySchema)
+			.output(OrganizationDomainSchema),
+		removeCustomDomain: oc
+			.input(OrganizationDomainKeySchema)
+			.output(SuccessResponseSchema),
 		getDataResidency: oc
 			.route({
 				summary: "Read this organization's model data residency setting",

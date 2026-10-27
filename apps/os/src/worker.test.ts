@@ -693,6 +693,17 @@ describe("/capn server-side gate", () => {
 	it("does not enable the local-demo lane on a non-loopback origin", async () => {
 		const env = {
 			...withApiService(envRecordingRequests()),
+			API_SERVICE: {
+				fetch: async () =>
+					Response.json({
+						json: {
+							provisioned: false,
+							slug: null,
+							organizationId: null,
+							descopeTenantId: null,
+						},
+					}),
+			},
 			DESCOPE_PROJECT_ID: LOCAL_DEMO_PROJECT_ID,
 			TEDIX_LOCAL_DEMO_ENABLED: "true",
 		};
@@ -2250,7 +2261,11 @@ describe("collaboration socket routing", () => {
 		);
 
 		expect(response.status).toBe(404);
-		expect(env.apiRequests).toHaveLength(0);
+		expect(env.apiRequests).toHaveLength(1);
+		expect(new URL(env.apiRequests[0]!.url).pathname).toBe(
+			"/rpc/osTenant/resolveHostname",
+		);
+		expect(env.apiRequests[0]!.headers.has("Authorization")).toBe(false);
 		expect(env.roomRequests).toHaveLength(0);
 	});
 
@@ -2475,4 +2490,66 @@ describe("legacy Work collection URLs", () => {
 			expect(response.headers.get("Cache-Control")).toContain("no-store");
 		},
 	);
+});
+
+describe("organization custom hostname routing", () => {
+	it("resolves the host afresh and asserts its own tenant on every API request", async () => {
+		let active = true;
+		const apiFetch = vi.fn(async (request: Request) => {
+			if (new URL(request.url).pathname.endsWith("/osTenant/resolveHostname"))
+				return Response.json({
+					json: {
+						provisioned: active,
+						slug: active ? "alpha" : null,
+						organizationId: active ? "org-alpha" : null,
+						descopeTenantId: active ? "T-host-org" : null,
+					},
+				});
+			return Response.json({
+				hostTenant: request.headers.get("X-Tedix-Tenant-Id"),
+			});
+		});
+		const env = {
+			...assetsReturning("shell"),
+			API_SERVICE: { fetch: apiFetch },
+		};
+		const request = () =>
+			new Request("https://share.example.com/api/os-shared/redeem", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Tedix-Tenant-Id": "other-org",
+					Authorization: "Bearer other-org",
+				},
+				body: JSON.stringify({ token: "opaque" }),
+			});
+		const first = await handleOsRequest(request(), env);
+		expect(first.status).toBe(200);
+		expect(await first.json()).toEqual({ hostTenant: "T-host-org" });
+		const proxied = apiFetch.mock.calls[1]![0];
+		expect(proxied.headers.has("Authorization")).toBe(false);
+		active = false;
+		expect((await handleOsRequest(request(), env)).status).toBe(404);
+		expect(
+			apiFetch.mock.calls.filter(([req]) =>
+				new URL(req.url).pathname.endsWith("/osTenant/resolveHostname"),
+			),
+		).toHaveLength(2);
+	});
+	it("fails closed when custom-host resolution is unavailable", async () => {
+		const env = {
+			...assetsReturning("shell"),
+			API_SERVICE: {
+				fetch: async () => new Response("unavailable", { status: 503 }),
+			},
+		};
+		expect(
+			(
+				await handleOsRequest(
+					new Request("https://share.example.com/guest"),
+					env,
+				)
+			).status,
+		).toBe(503);
+	});
 });

@@ -10,6 +10,11 @@
  * after this MCP gate.
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
+	"organizations/getCustomDomain": "mcp:apps.read",
+	"organizations/beginCustomDomain": "mcp:apps.write",
+	"organizations/verifyCustomDomain": "mcp:apps.write",
+	"organizations/removeCustomDomain": "mcp:apps.write",
+	"osTenant/resolveHostname": "platform:admin",
 	// OS person-only settings; the API still rejects machine principals.
 	"webPush/getStatus": "mcp:apps.read",
 	"webPush/subscribe": "mcp:apps.write",

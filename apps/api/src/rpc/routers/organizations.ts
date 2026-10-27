@@ -1,3 +1,9 @@
+import {
+	getCustomDomain,
+	beginCustomDomain,
+	verifyCustomDomain,
+	removeCustomDomain,
+} from "./organization-domains";
 /** oRPC organizations router: CRUD, provisioning, features and the router assembly. */
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
@@ -771,6 +777,10 @@ export const isSlugAvailableContract = authedOrganizationsOs.isSlugAvailable
  * - syncFromDescope uses service auth
  */
 export const organizationsContractRouter = organizationsOs.router({
+	getCustomDomain,
+	beginCustomDomain,
+	verifyCustomDomain,
+	removeCustomDomain,
 	getDataResidency,
 	setDataResidency,
 	listResidencyProviderCatalog,
