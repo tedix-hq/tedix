@@ -1,3 +1,4 @@
+import type { LaneCheckpoint } from "@tedix/api-contract/schemas/lane-execution";
 import {
 	KernelRequestSnapshotSchema,
 	KernelWorkOrderSchema,
@@ -64,6 +65,7 @@ export function kernelRequestAcceptanceReport(
 }
 
 export type KernelRequestEvent =
+	| { kind: "lane_checkpoint"; checkpoint: LaneCheckpoint }
 	| { kind: "file"; workItemId: string | null }
 	| {
 			kind: "brief";
@@ -118,6 +120,29 @@ export function advanceKernelRequest(
 	if (s.state === "learned" || s.state === "cancelled") return current;
 	let patch: Partial<KernelRequestSnapshot> | null = null;
 	switch (event.kind) {
+		case "lane_checkpoint": {
+			const prior = s.laneCheckpoint;
+			const allowed =
+				!prior || prior.previousAttemptId !== s.attemptId
+					? event.checkpoint.status === "reconcile"
+					: prior.key === event.checkpoint.key &&
+						(
+							{
+								reconcile: ["ready", "held"],
+								ready: ["dispatching", "held"],
+								dispatching: ["continued", "held"],
+								continued: [],
+								held: [],
+							}[prior.status] as string[]
+						).includes(event.checkpoint.status);
+			if (
+				s.state === "running" &&
+				s.attemptId === event.checkpoint.previousAttemptId &&
+				allowed
+			)
+				patch = { laneCheckpoint: event.checkpoint };
+			break;
+		}
 		case "file":
 			if (s.state === "received")
 				patch = { state: "filed", workItemId: event.workItemId };
@@ -148,7 +173,11 @@ export function advanceKernelRequest(
 		case "successor":
 			if (
 				(s.state === "running" || s.state === "verifying") &&
-				s.attemptId === event.previousAttemptId
+				s.attemptId === event.previousAttemptId &&
+				(!s.laneCheckpoint ||
+					s.laneCheckpoint.previousAttemptId !== s.attemptId ||
+					(s.laneCheckpoint.status === "continued" &&
+						s.laneCheckpoint.successorAttemptId === event.attemptId))
 			)
 				patch = {
 					state: "running",
@@ -162,7 +191,13 @@ export function advanceKernelRequest(
 				};
 			break;
 		case "terminal":
-			if (s.state === "running" && s.attemptId === event.attemptId)
+			if (
+				s.state === "running" &&
+				s.attemptId === event.attemptId &&
+				(event.outcome === "cancelled" ||
+					!s.laneCheckpoint ||
+					s.laneCheckpoint.previousAttemptId !== s.attemptId)
+			)
 				patch =
 					event.outcome === "cancelled"
 						? { state: "cancelled" }

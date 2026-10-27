@@ -1,3 +1,7 @@
+import {
+	LaneExecutionPolicySchema,
+	laneResourceKeys,
+} from "@tedix/api-contract/schemas/lane-execution";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { capabilityLinks, orgCapabilities } from "../../schema/capabilities";
@@ -400,6 +404,89 @@ async function evaluate(
 			},
 		};
 	const envelopes = envelopeFacts.rows;
+	if (item.metadata?.laneExecution !== undefined) {
+		const parsed = LaneExecutionPolicySchema.safeParse(
+			item.metadata.laneExecution,
+		);
+		const reject = (reason: string): Eligibility => ({
+			item,
+			requirements,
+			envelopes,
+			rejection: { code: "evaluation_required", reason },
+		});
+		if (!parsed.success) return reject("Invalid lane execution policy");
+		const policy = parsed.data;
+		const makerPool = (
+			await db
+				.select({ capacity: workResourcePools.capacity })
+				.from(workResourcePools)
+				.where(
+					and(
+						eq(workResourcePools.orgId, p.orgId),
+						eq(workResourcePools.resourceKey, policy.makerResourceKey),
+						eq(workResourcePools.enabled, true),
+					),
+				)
+				.limit(1)
+		)[0];
+		if (
+			!makerPool ||
+			policy.sharedResourceKeys.some((key) => {
+				const shared = requirements.find((r) => r.resourceKey === key);
+				return (
+					!shared?.capacity ||
+					makerPool.capacity + policy.reservedSlots > shared.capacity
+				);
+			})
+		)
+			return reject(
+				"Lane maker pool must leave the configured verification and closure slots",
+			);
+		const executor = policy.executors.find(
+			(e) =>
+				e.principalType === p.executorType && e.principalId === p.executorId,
+		);
+		if (!executor || executor.costMicros === null)
+			return reject("Lane executor or its pricing is unavailable");
+		if (policy.delegationDepth > policy.maxDelegationDepth)
+			return reject("Lane delegation depth exhausted");
+		const attempts = await db
+			.select({ id: workAttempts.id })
+			.from(workAttempts)
+			.where(
+				and(
+					eq(workAttempts.orgId, p.orgId),
+					eq(workAttempts.workItemId, p.workItemId),
+				),
+			)
+			.limit(policy.maxAttempts);
+		if (attempts.length >= policy.maxAttempts)
+			return reject("Lane retry budget exhausted");
+		if (
+			laneResourceKeys(policy, executor).some(
+				(key) =>
+					!requirements.some((r) => r.resourceKey === key && r.quantity === 1),
+			)
+		)
+			return reject(
+				"Lane shared, maker and executor reservations must be declared",
+			);
+		if (
+			policy.budgetEnvelopeIds.some(
+				(id) =>
+					!envelopes.some(
+						(e) => e.id === id && e.reservationMicros >= executor.costMicros!,
+					),
+			)
+		)
+			return reject(
+				"Lane budget reservations must cover the known executor cost",
+			);
+		if (
+			item.requiredCapabilities.some((c) => !executor.capabilities.includes(c))
+		)
+			return reject("Configured lane executor lacks a required capability");
+	}
 	const blockedBudget = envelopes.find(
 		(x) => x.committed + x.reservationMicros > x.limitMicros,
 	);

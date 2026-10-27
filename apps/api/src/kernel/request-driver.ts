@@ -1,3 +1,7 @@
+import {
+	routeKernelRequest,
+	type KernelExecutorRouter,
+} from "./request-executor-routing";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import {
 	getKernelRequest,
@@ -62,7 +66,10 @@ function nextKernelRequestAction(s: KernelRequestSnapshot) {
 		case "briefed":
 			return "await_admitted_attempt";
 		case "running":
-			return "read_attempt_terminal";
+			return s.laneCheckpoint &&
+				s.laneCheckpoint.previousAttemptId === s.attemptId
+				? `lane_${s.laneCheckpoint.status}`
+				: "read_attempt_terminal";
 		case "verifying":
 			return s.delivery
 				? "deliver_report"
@@ -79,6 +86,7 @@ function nextKernelRequestAction(s: KernelRequestSnapshot) {
 }
 
 export interface KernelRequestSourceReader {
+	executorRouter?: KernelExecutorRouter;
 	/** Re-read canonical Work/Attempt and source ACLs; never trust a terminal notification. */
 	readExecution(row: KernelRequestRow): Promise<{
 		attemptId: string;
@@ -102,6 +110,38 @@ export async function driveKernelRequest(
 ): Promise<KernelRequestRow | undefined> {
 	let row = await getKernelRequest(db, scope);
 	if (!row) return;
+	if (row.snapshot.state === "running" && source.executorRouter) {
+		row = await routeKernelRequest(
+			row,
+			source.executorRouter,
+			(current, checkpoint) =>
+				applyKernelRequestEvent(
+					db,
+					current,
+					{ kind: "lane_checkpoint", checkpoint },
+					policy,
+					now(),
+				),
+			now(),
+			policy.retryMs * policy.maxProbeAttempts,
+		);
+		const checkpoint = row.snapshot.laneCheckpoint;
+		if (checkpoint && checkpoint.previousAttemptId === row.snapshot.attemptId) {
+			if (checkpoint.status !== "continued" || !checkpoint.successorAttemptId)
+				return row;
+			row = await applyKernelRequestEvent(
+				db,
+				row,
+				{
+					kind: "successor",
+					previousAttemptId: checkpoint.previousAttemptId,
+					attemptId: checkpoint.successorAttemptId,
+				},
+				policy,
+				now(),
+			);
+		}
+	}
 	if (row.snapshot.state === "running") {
 		const execution = await source.readExecution(row);
 		if (execution.outcome && execution.attemptId === row.snapshot.attemptId)
