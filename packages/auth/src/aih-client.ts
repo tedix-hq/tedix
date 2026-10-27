@@ -600,6 +600,30 @@ export async function searchDescopeMcpServerClients(
 }
 
 /**
+ * Let a person approve fewer scopes than the client requested. Descope stores
+ * self-registered (CIMD/DCR) clients with `allowPartialScopes` off, so any
+ * narrower consent fails with E108001 even when every scope is optional. The
+ * flag is not in the Console or the MCP client update API; patch the client
+ * as the third-party application it is.
+ */
+export async function allowDescopeClientPartialScopes(
+	env: AihEnv,
+	appId: string,
+	options?: { deadline?: number },
+): Promise<void> {
+	await postDescopeManagementJson(
+		env,
+		"/v2/mgmt/thirdparty/app/patch",
+		{ id: appId, allowPartialScopes: true },
+		{
+			idempotent: true,
+			errorPrefix: "AIH client partial-scope patch failed",
+			deadline: options?.deadline,
+		},
+	);
+}
+
+/**
  * Retrieve the current cleartext secret for a pre-registered AIH client.
  */
 export async function getDescopeMcpServerClientSecret(

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	deleteConsents: vi.fn(),
 	searchDescopeMcpServerClients: vi.fn(),
 	loadDescopeMcpServer: vi.fn(),
+	allowDescopeClientPartialScopes: vi.fn(async () => undefined),
 	listMcpConsentSelections: vi.fn(),
 	disableMcpConsentSelection: vi.fn(),
 	getMcpConsentSelection: vi.fn(),
@@ -57,6 +58,7 @@ vi.mock("@tedix/db/queries/mcp-consent", () => ({
 vi.mock("@tedix/auth/aih-client", () => ({
 	searchDescopeMcpServerClients: mocks.searchDescopeMcpServerClients,
 	loadDescopeMcpServer: mocks.loadDescopeMcpServer,
+	allowDescopeClientPartialScopes: mocks.allowDescopeClientPartialScopes,
 }));
 
 vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
@@ -284,6 +286,10 @@ describe("verifyHumanMcpGrant", () => {
 				}),
 			);
 		}
+		expect(mocks.allowDescopeClientPartialScopes).toHaveBeenLastCalledWith(
+			expect.anything(),
+			"app-1",
+		);
 		expect(
 			StageHumanMcpConsentInputSchema.safeParse({
 				clientId: input.clientId,
@@ -293,6 +299,25 @@ describe("verifyHumanMcpGrant", () => {
 			}).success,
 		).toBe(false);
 		expect(mocks.deleteConsents).not.toHaveBeenCalled();
+	});
+
+	it("still stages a consent when the client's partial-scope patch fails", async () => {
+		const { stageHumanMcpConsent } = await import("./mcp-grant");
+		mocks.allowDescopeClientPartialScopes.mockRejectedValueOnce(
+			new Error("Descope unavailable"),
+		);
+		const revision = await stageHumanMcpConsent(
+			{} as never,
+			env,
+			input.descopeUserId,
+			StageHumanMcpConsentInputSchema.parse({
+				clientId: input.clientId,
+				resourceUrl: input.resourceUrl,
+				selectedTenantIds: tenantIds,
+				approvedScopes: input.tokenScopes,
+			}),
+		);
+		expect(revision).not.toBeNull();
 	});
 
 	it("refuses a new consent that selects a cancelled or retired organization", async () => {
