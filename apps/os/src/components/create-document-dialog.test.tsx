@@ -25,7 +25,7 @@ vi.mock("@/lib/api", () => ({
 	},
 }));
 import { canvasOutputsQueryOptions } from "@/lib/os-query-options";
-import { CreateDocumentButton } from "./create-document-dialog";
+import { NewResourceMenu } from "./create-document-dialog";
 import {
 	documentFromTemplate,
 	documentTemplates,
@@ -48,7 +48,7 @@ function renderButton(workspaceId?: string) {
 	act(() =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<CreateDocumentButton workspaceId={workspaceId} onCreated={onCreated} />
+				<NewResourceMenu workspaceId={workspaceId} onCreated={onCreated} />
 			</QueryClientProvider>,
 		),
 	);
@@ -66,9 +66,9 @@ async function flush() {
 	});
 }
 function click(label: string) {
-	const button = [...document.querySelectorAll("button")].find(
-		(item) => item.textContent?.trim() === label,
-	);
+	const button = [
+		...document.querySelectorAll<HTMLElement>("button, [role=menuitem]"),
+	].find((item) => item.textContent?.trim() === label);
 	if (!button) throw new Error(`Missing ${label}`);
 	act(() => button.click());
 }
@@ -94,7 +94,9 @@ describe("document creation", () => {
 		const output = { id: "new-output", workspaceId: WORKSPACE_ID };
 		api.create.mockResolvedValue({ output, revision: {} });
 		const { onCreated, invalidate } = renderButton(WORKSPACE_ID);
-		click("New document");
+		click("New");
+		await flush();
+		click("Document");
 		await flush();
 		submit();
 		await flush();
@@ -153,7 +155,9 @@ describe("document creation", () => {
 				truncated: true,
 			});
 		});
-		click("New document");
+		click("New");
+		await flush();
+		click("Document");
 		await flush();
 		submit();
 		await flush();
@@ -170,7 +174,9 @@ describe("document creation", () => {
 			revision: {},
 		});
 		renderButton(WORKSPACE_ID);
-		click("New document");
+		click("New");
+		await flush();
+		click("Document");
 		await flush();
 		const input = document.querySelector<HTMLInputElement>(
 			"#new-document-title",
@@ -205,7 +211,9 @@ describe("document creation", () => {
 	it("keeps the creation form and error available when creation fails", async () => {
 		api.create.mockRejectedValue(new Error("Workspace is archived"));
 		const { onCreated } = renderButton(WORKSPACE_ID);
-		click("New document");
+		click("New");
+		await flush();
+		click("Document");
 		await flush();
 		submit();
 		await flush();
@@ -220,7 +228,9 @@ describe("document creation", () => {
 			revision: {},
 		});
 		renderButton();
-		click("New document");
+		click("New");
+		await flush();
+		click("Document");
 		await flush();
 		expect(document.body.textContent).toContain(
 			"Workspaces could not be loaded",
@@ -244,5 +254,41 @@ describe("document creation", () => {
 		expect(
 			JSON.stringify(documentFromTemplate("monthly-close", "September")),
 		).toContain("Status: not assessed");
+	});
+	for (const [label, kind] of [
+		["Sheet", "sheet"],
+		["Slides", "presentation"],
+	] as const) {
+		it(`creates a typed ${label} in the current workspace`, async () => {
+			const output = { id: "typed-output", workspaceId: WORKSPACE_ID };
+			api.create.mockResolvedValue({ output, revision: {} });
+			const { onCreated } = renderButton(WORKSPACE_ID);
+			click("New");
+			await flush();
+			click(label);
+			await flush();
+			expect(document.querySelector("#new-document-template")).toBeNull();
+			submit();
+			await flush();
+			const input = api.create.mock.calls[0]![0];
+			expect(input.kind).toBe(kind);
+			expect(input.workspaceId).toBe(WORKSPACE_ID);
+			expect(input.content.kind).toBe(kind);
+			expect(OsOutputContentSchema.safeParse(input.content).success).toBe(true);
+			expect(onCreated).toHaveBeenCalledWith(output);
+		});
+	}
+	it("offers the same four creation choices with a link to the template gallery", async () => {
+		renderButton(WORKSPACE_ID);
+		click("New");
+		await flush();
+		expect(
+			[...document.querySelectorAll('[role="menuitem"]')].map((item) =>
+				item.textContent?.trim(),
+			),
+		).toEqual(["Document", "Sheet", "Slides", "App from template"]);
+		expect(
+			document.querySelector('a[role="menuitem"]')?.getAttribute("href"),
+		).toBe("/blueprints");
 	});
 });

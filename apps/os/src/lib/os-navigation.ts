@@ -88,7 +88,7 @@ const OS_SURFACES = [
 		get description() {
 			return navigationDescription(
 				"outputs",
-				"Find your documents, sheets and presentations.",
+				"Find your documents, sheets, slides and apps.",
 			);
 		},
 	},

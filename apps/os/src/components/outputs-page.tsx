@@ -1,4 +1,6 @@
 import "./outputs-page.css";
+import { useLibraryApps } from "@/lib/use-library-apps";
+import { WorkspaceAppCard } from "@/components/workspace-app-cards";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
 	Archive,
@@ -30,7 +32,7 @@ import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
 import * as z from "zod";
 import { OutputPreview } from "@/components/output-preview";
-import { CreateDocumentButton } from "@/components/create-document-dialog";
+import { NewResourceMenu } from "@/components/create-document-dialog";
 import { FormInput } from "@/components/forms/form-input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
@@ -69,7 +71,7 @@ import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
 import { SearchInput } from "@/components/kumo/search-input";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
-import { Surface } from "@/components/kumo/surface";
+import { ResourceCard } from "@/components/resource-card";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { useOutputsWebMcpTools } from "@/components/outputs-webmcp-tools";
 import { ShareDialog } from "@/components/share-controls";
@@ -103,6 +105,7 @@ const KIND_FILTERS = [
 	"sheet",
 	"presentation",
 	"video",
+	"app",
 	"archived",
 ] as const;
 type KindFilter = (typeof KIND_FILTERS)[number];
@@ -117,6 +120,7 @@ type OutputLibraryData = {
 
 function kindLabel(kind: KindFilter): string {
 	if (kind === "all") return "All";
+	if (kind === "app") return "Apps";
 	if (kind === "archived") return "Archived";
 	if (kind === "presentation") return "Slides";
 	if (kind === "video") return "Videos";
@@ -276,10 +280,11 @@ function OutputCard(
 	const menu = <OutputMenu item={item} {...actions} />;
 	if (layout === "list") {
 		return (
-			<li
-				aria-label={cardLabel}
-				aria-disabled={contentAvailable ? undefined : true}
-				className={`output-list-row group relative flex min-h-16 items-center gap-3 rounded-lg px-3 py-2.5 outline-none transition-colors motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:bg-kumo-tint" : "cursor-default"}`}
+			<ResourceCard
+				asListItem
+				layout="list"
+				label={cardLabel}
+				disabled={!contentAvailable}
 			>
 				<IconFrame>
 					<Icon size={18} />
@@ -349,28 +354,23 @@ function OutputCard(
 					{relativeTime(item.output.updatedAt)}
 				</time>
 				{menu}
-			</li>
+			</ResourceCard>
 		);
 	}
 	return (
-		<Surface
-			aria-label={cardLabel}
-			tier="panel"
-			aria-disabled={contentAvailable ? undefined : true}
-			className={`output-grid-card group relative overflow-visible outline-none transition-[border-color] motion-reduce:transition-none ${contentAvailable ? "cursor-pointer hover:border-kumo-fill" : "cursor-default"}`}
-			render={<li />}
+		<ResourceCard
+			asListItem
+			bodyClassName="grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1"
+			label={cardLabel}
+			disabled={!contentAvailable}
+			preview={<OutputPreview preview={item.preview} />}
+			actions={menu}
 		>
-			<div
-				data-slot="output-grid-preview"
-				className="aspect-video overflow-hidden rounded-t-xl border-kumo-line border-b"
-			>
-				<OutputPreview preview={item.preview} />
-			</div>
-			<div className="output-card-footer grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 p-4">
+			<>
 				<IconFrame size="sm">
 					<Icon size={16} />
 				</IconFrame>
-				<span className="grid min-w-0 flex-1">
+				<span className="grid min-w-0">
 					<Text
 						as="strong"
 						tone="strong"
@@ -398,9 +398,8 @@ function OutputCard(
 						</time>
 					</Text>
 				</span>
-				{menu}
-			</div>
-		</Surface>
+			</>
+		</ResourceCard>
 	);
 }
 
@@ -557,6 +556,7 @@ export function OutputsPage() {
 	const surface = getOsSurface("outputs");
 	const EmptyIcon = SURFACE_ICONS.outputs;
 	const navigate = useNavigate();
+	const apps = useLibraryApps();
 	const queryClient = useQueryClient();
 	const [query, setQuery] = useState("");
 	const [kind, setKind] = useState<KindFilter>("all");
@@ -658,6 +658,15 @@ export function OutputsPage() {
 		scope === "all" || item.scope === scope;
 	const matchesKind = (item: OsOutputLibraryItem) =>
 		kind === "all" || kind === "archived" || item.output.kind === kind;
+	const matchingApps = apps.items.filter(({ gadget, workspace }) =>
+		`${gadget.name} ${gadget.description ?? ""} ${workspace.name} app`
+			.toLocaleLowerCase()
+			.includes(normalizedQuery),
+	);
+	const appsInScope = matchingApps.filter(
+		(item) => scope === "all" || item.scope === scope,
+	);
+	const visibleApps = kind === "all" || kind === "app" ? appsInScope : [];
 	const allItems = outputs.data?.items ?? [];
 	const searchResults = allItems.filter(matchesSearch);
 	const activeInScope = (activeOutputs.data?.items ?? []).filter(
@@ -668,8 +677,14 @@ export function OutputsPage() {
 	useEffect(() => {
 		setVisibleLimit(OUTPUT_LIBRARY_PAGE_SIZE);
 	}, [kind, normalizedQuery, scope]);
-	const displayedOutputs = visibleOutputs.slice(0, visibleLimit);
-	const hasMoreOutputs = displayedOutputs.length < visibleOutputs.length;
+	const displayedApps = visibleApps.slice(0, visibleLimit);
+	const displayedOutputs = visibleOutputs.slice(
+		0,
+		Math.max(0, visibleLimit - displayedApps.length),
+	);
+	const visibleCount = visibleApps.length + visibleOutputs.length;
+	const displayedCount = displayedApps.length + displayedOutputs.length;
+	const hasMoreOutputs = displayedCount < visibleCount;
 	// Archived shows a count only once its list has loaded.
 	const kindCounts = Object.fromEntries(
 		KIND_FILTERS.map((filter) => [
@@ -679,14 +694,22 @@ export function OutputsPage() {
 						(item) => matchesSearch(item) && matchesScope(item),
 					).length
 				: filter === "all"
-					? activeInScope.length
-					: activeInScope.filter((item) => item.output.kind === filter).length,
+					? activeInScope.length + appsInScope.length
+					: filter === "app"
+						? appsInScope.length
+						: activeInScope.filter((item) => item.output.kind === filter)
+								.length,
 		]),
 	) as Record<KindFilter, number | undefined>;
+	const appsInKind = kind === "all" || kind === "app" ? matchingApps : [];
 	const scopeCounts: Record<ScopeFilter, number> = {
-		all: inKind.length,
-		mine: inKind.filter((item) => item.scope === "mine").length,
-		organization: inKind.filter((item) => item.scope === "organization").length,
+		all: inKind.length + appsInKind.length,
+		mine:
+			inKind.filter((item) => item.scope === "mine").length +
+			appsInKind.filter((item) => item.scope === "mine").length,
+		organization:
+			inKind.filter((item) => item.scope === "organization").length +
+			appsInKind.filter((item) => item.scope === "organization").length,
 	};
 	const openStandaloneOutput = (item: OsOutputLibraryItem) =>
 		void navigate({
@@ -722,7 +745,7 @@ export function OutputsPage() {
 						<PageDescription>{surface.description}</PageDescription>
 					</PageHeading>
 					<PageActions>
-						<CreateDocumentButton
+						<NewResourceMenu
 							onCreated={(output) => {
 								if (output.workspaceId)
 									void navigate({
@@ -796,6 +819,22 @@ export function OutputsPage() {
 				</PageToolbar>
 			</div>
 
+			{(kind === "all" || kind === "app") && apps.failed && (
+				<Alert variant="destructive">
+					<AlertTitle>Apps are unavailable</AlertTitle>
+					<AlertDescription>
+						<Button variant="outline" size="sm" onClick={apps.retry}>
+							Try again
+						</Button>
+					</AlertDescription>
+				</Alert>
+			)}
+			{(kind === "all" || kind === "app") && apps.truncated && (
+				<Text role="label" tone="secondary">
+					Showing apps from the loaded workspaces. Open a workspace to see its
+					full library.
+				</Text>
+			)}
 			{outputs.isPending ? <ListSkeleton /> : null}
 			{outputs.isError ? (
 				<Alert variant="destructive">
@@ -820,7 +859,10 @@ export function OutputsPage() {
 					<AlertDescription>{restore.error.message}</AlertDescription>
 				</Alert>
 			) : null}
-			{outputs.data && visibleOutputs.length === 0 ? (
+			{outputs.data &&
+			visibleOutputs.length === 0 &&
+			visibleApps.length === 0 &&
+			!apps.pending ? (
 				<Empty appearance="quiet">
 					<EmptyHeader>
 						<EmptyMedia variant="icon">
@@ -843,7 +885,7 @@ export function OutputsPage() {
 					</EmptyHeader>
 				</Empty>
 			) : null}
-			{visibleOutputs.length > 0 ? (
+			{visibleOutputs.length > 0 || visibleApps.length > 0 ? (
 				<ul
 					className={
 						layout === "grid"
@@ -851,6 +893,26 @@ export function OutputsPage() {
 							: "output-library-items m-0 grid grid-cols-1 list-none gap-1 p-0"
 					}
 				>
+					{displayedApps.map(({ gadget, workspace }) => (
+						<li key={`app:${gadget.id}`} className="min-w-0">
+							<WorkspaceAppCard
+								workspaceId={workspace.id}
+								gadget={gadget}
+								selected={false}
+								layout={layout}
+								onOpen={() =>
+									void navigate({
+										to: "/workspace/$workspaceId",
+										params: { workspaceId: workspace.id },
+										search: {
+											pane: "workpiece",
+											workpiece: `gadget:${gadget.id}`,
+										},
+									})
+								}
+							/>
+						</li>
+					))}
 					{displayedOutputs.map((item) => (
 						<OutputCard
 							key={item.output.id}
@@ -873,13 +935,13 @@ export function OutputsPage() {
 					))}
 				</ul>
 			) : null}
-			{visibleOutputs.length > OUTPUT_LIBRARY_PAGE_SIZE ? (
+			{visibleCount > OUTPUT_LIBRARY_PAGE_SIZE ? (
 				<div
 					className="flex min-h-11 items-center justify-between gap-3 border-kumo-hairline border-t pt-3"
 					aria-live="polite"
 				>
 					<Text role="label" tone="secondary">
-						Showing {displayedOutputs.length} of {visibleOutputs.length} outputs
+						Showing {displayedCount} of {visibleCount} items
 					</Text>
 					{hasMoreOutputs ? (
 						<Button

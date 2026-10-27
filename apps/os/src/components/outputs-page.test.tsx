@@ -20,6 +20,16 @@ const outputsApi = vi.hoisted(() => ({
 	archive: vi.fn(),
 	restore: vi.fn(),
 }));
+const libraryApps = vi.hoisted(() => ({
+	items: [],
+	pending: false,
+	failed: false,
+	truncated: false,
+	retry: vi.fn(),
+}));
+vi.mock("@/lib/use-library-apps", () => ({
+	useLibraryApps: () => libraryApps,
+}));
 const navigate = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/api", () => ({
@@ -493,7 +503,7 @@ describe("OutputsPage", () => {
 		expect(gridPreview?.className).toContain("aspect-video");
 		expect(gridPreview?.className).not.toContain("sm:aspect-[4/3]");
 		const typeTabs = container.querySelectorAll('[role="tab"]');
-		expect(typeTabs).toHaveLength(6);
+		expect(typeTabs).toHaveLength(7);
 		const typeTabList = container.querySelector(
 			'[role="tablist"][aria-label="Filter by type"]',
 		);
@@ -554,9 +564,9 @@ describe("OutputsPage", () => {
 		await flush();
 
 		expect(container.querySelectorAll(".output-grid-card")).toHaveLength(20);
-		expect(container.textContent).toContain("Showing 20 of 25 outputs");
+		expect(container.textContent).toContain("Showing 20 of 25 items");
 		clickButton(container, "Show more");
 		expect(container.querySelectorAll(".output-grid-card")).toHaveLength(25);
-		expect(container.textContent).toContain("Showing 25 of 25 outputs");
+		expect(container.textContent).toContain("Showing 25 of 25 items");
 	});
 });

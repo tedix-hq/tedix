@@ -806,8 +806,10 @@ async function flush() {
 }
 
 function findButton(container: Element, label: string): HTMLButtonElement {
-	const match = [...container.querySelectorAll("button")].find((button) =>
-		(button.textContent ?? "").includes(label),
+	const match = [...container.querySelectorAll("button")].find(
+		(button) =>
+			(button.textContent ?? "").includes(label) ||
+			button.getAttribute("aria-label") === `Open ${label}`,
 	);
 	if (!match) throw new Error(`button not found: ${label}`);
 	return match;
@@ -1628,7 +1630,13 @@ describe("CanvasPage listing", () => {
 		await flush();
 		const preview = container.querySelector("[data-workspace-output-preview]");
 		expect(preview?.textContent).toContain("Source access unavailable");
-		expect(preview?.closest("button")?.disabled).toBe(true);
+		expect(
+			preview?.closest("[data-resource-card]")?.getAttribute("aria-disabled"),
+		).toBe("true");
+		expect(
+			preview?.closest("[data-resource-card]")?.querySelector("button")
+				?.disabled,
+		).toBe(true);
 	});
 
 	it("distinguishes an approved video deliverable from newer candidates", async () => {
