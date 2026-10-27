@@ -334,6 +334,7 @@ const [
 	runtimeWorker,
 	builderWorker,
 	runtimeSource,
+	runtimeAdminSource,
 	cmsProxySource,
 	cmsDoc,
 ] = await Promise.all([
@@ -346,6 +347,7 @@ const [
 	),
 	loadCloudflareConfigWorker("apps/cms/cloudflare.config.ts", "production"),
 	read("apps/cms-runtime/src/index.ts"),
+	read("apps/cms-runtime/src/internal-admin-http.ts"),
 	read("apps/cms/src/agent/cms-proxy-inspection.ts"),
 	read("docs/engineering/emdash/cms.md"),
 ]);
@@ -388,7 +390,7 @@ const starterDeclaresDurableObject =
 	/"durable_objects"\s*:/.test(starterWrangler) &&
 	/"new_sqlite_classes"\s*:/.test(starterWrangler);
 const runtimeExposesDiagnostic =
-	runtimeSource.includes("/_tedix/internal/database-runtime") &&
+	runtimeAdminSource.includes("/_tedix/internal/database-runtime") &&
 	runtimeSource.includes("databaseRuntimeAdminResponse") &&
 	runtimeSource.includes("detectBundleDatabaseAdapter");
 const runtimeSupportsDurableObjects =
@@ -420,7 +422,7 @@ const checks: Check[] = [
 		name: "cms-runtime database diagnostic",
 		ok: runtimeExposesDiagnostic,
 		detail:
-			"apps/cms-runtime/src/index.ts should expose the protected database-runtime diagnostic that reports the active bundle's database adapter.",
+			"apps/cms-runtime/src/index.ts and internal-admin-http.ts should expose the protected database-runtime diagnostic that reports the active bundle's database adapter.",
 	},
 	{
 		name: "no account-scoped D1 token in CMS Workers",
