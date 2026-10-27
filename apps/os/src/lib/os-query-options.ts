@@ -436,6 +436,25 @@ export const skillRevisionsQueryOptions = (skillId: string) =>
 		input: { skillId, limit: 100 },
 	});
 
+/** Draft revisions of one skill's automation, proposed for test and activation. */
+export const skillWorkflowDraftsQueryOptions = () =>
+	osQuery.skills.listByOrg.queryOptions({
+		input: { lifecycleState: "draft", limit: 100, offset: 0 },
+	});
+
+export const skillRunStatusQueryOptions = (runId: string) =>
+	osQuery.skills.runWorkflowStatus.queryOptions({ input: { runId } });
+
+export const skillRunToolCallsQueryOptions = (runId: string) =>
+	osQuery.skills.listWorkflowToolCalls.queryOptions({
+		input: { runId, includeContent: false, limit: 200, offset: 0 },
+	});
+
+export const skillWorkflowRevisionSourceQueryOptions = (runId: string) =>
+	osQuery.skills.getWorkflowRevision.queryOptions({
+		input: { runId, includeSource: true },
+	});
+
 export const skillSpecificSchedulesQueryOptions = (skillId: string) =>
 	osQuery.skills.listWorkflowSchedules.queryOptions({
 		input: { skillId, limit: SKILL_SCHEDULES_LIMIT },

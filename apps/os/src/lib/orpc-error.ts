@@ -59,3 +59,34 @@ export function errorMessage(
 	}
 	return fallback;
 }
+
+/**
+ * The server's own reasons behind a refusal, when the error carries them in
+ * its `data`: skill validation issues (`errors`, `warnings`, or a nested
+ * `validation`). Each line is "code: message (path)" so a person can act on
+ * it instead of reading a bare "Skill validation failed".
+ */
+export function errorDetails(error: unknown): string[] {
+	if (typeof error !== "object" || error === null) return [];
+	const data = (error as { data?: unknown }).data;
+	if (typeof data !== "object" || data === null) return [];
+	const record = data as Record<string, unknown>;
+	const nested =
+		typeof record.validation === "object" && record.validation !== null
+			? (record.validation as Record<string, unknown>)
+			: null;
+	const issues = [
+		...(Array.isArray(record.errors) ? record.errors : []),
+		...(Array.isArray(nested?.errors) ? nested.errors : []),
+		...(Array.isArray(record.warnings) ? record.warnings : []),
+		...(Array.isArray(nested?.warnings) ? nested.warnings : []),
+	];
+	return issues.flatMap((issue) => {
+		if (typeof issue !== "object" || issue === null) return [];
+		const { code, message, path } = issue as Record<string, unknown>;
+		if (typeof message !== "string") return [];
+		const prefix = typeof code === "string" ? `${code}: ` : "";
+		const where = typeof path === "string" ? ` (${path})` : "";
+		return [`${prefix}${message}${where}`];
+	});
+}
