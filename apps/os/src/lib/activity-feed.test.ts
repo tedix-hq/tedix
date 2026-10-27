@@ -11,6 +11,7 @@ import {
 	resultFeedItems,
 	safeSource,
 	decisionFeedItems,
+	feedHeadlineIssues,
 	sentence,
 } from "@tedix/api-contract/utils/activity-feed";
 import { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
@@ -325,7 +326,7 @@ it("keeps lifecycle bookkeeping quiet and resolves human, tedi and coding author
 		project,
 	)[0];
 	expect(fyi).toMatchObject({
-		sentence: "Delegated “Review the paper” to Cedar: completed.",
+		sentence: "Delegated “Review the paper” to Cedar: finished.",
 		needsAction: false,
 		autonomyFeedback: {
 			eventId: events[0]!.id,
@@ -383,7 +384,7 @@ describe("attempt result projections", () => {
 	it.each([
 		["succeeded", true, false, "normal", "the work finished"],
 		["failed", false, true, "high", "Didn't finish"],
-		["expired", false, true, "low", "Didn't finish"],
+		["expired", false, true, "low", "paused before finishing"],
 		["cancelled", false, true, "low", "was stopped"],
 	] as const)(
 		"projects %s without changing the accepted Work disposition",
@@ -477,6 +478,61 @@ describe("attempt result projections", () => {
 			expect(result.sentence).not.toContain("inspect its run history");
 		},
 	);
+
+	// Real Activity rows from before 2026-10-27: codes, ids and a red chip.
+	it.each([
+		[
+			"Failed: partial_result\n\nDelegated tedi returned a partial result (reported_partial; The tedi reported a partial result). The Work Item remains incomplete. Recovery: continue or re-dispatch the same work order, then attach fresh terminal proof.",
+			{ failureReason: "partial_result" },
+			"Run the certification for draft",
+			"Finished part of “Run the certification for draft” and needs you to check the rest.",
+		],
+		[
+			"Failed: partial_result\n\nDelegated tedi reported Outcome: needs_follow_up. The Work Item remains incomplete. Outcome: needs_follow_up",
+			{},
+			"Copy skill 4f1c2a90-3b7d-4e21-9a55-0c8e7d6b1f42 (Reddit Operator) into the workspace",
+			"Finished part of “Copy skill Reddit Operator into the workspace” and needs you to check the rest.",
+		],
+		[
+			"Failed: partial_result\n\nCedar finished part of “Update the schedule” and needs you to check the rest. It stays open so it can be continued or sent again.",
+			{
+				failureReason: "partial_result",
+				feedSentence:
+					"Cedar finished part of “Update the schedule” and needs you to check the rest.",
+			},
+			"Update skill 7d2e9b14-6a03-4c8f-b1d2-5e9f0a3c8b67 with the new schedule",
+			"Cedar finished part of “Update the schedule” and needs you to check the rest.",
+		],
+	] as const)(
+		"turns a partial delegation into plain words and an amber outcome (%#)",
+		(summary, metadata, title, headline) => {
+			const row = attemptRow({ summary, metadata });
+			row.workItem.title = title;
+			const result = ActivityFeedItemSchema.parse(resultFeedItems([row])[0]);
+			expect(result.sentence).toBe(headline);
+			expect(result.resultOutcome).toBe("partial");
+			const shown = [
+				result.sentence,
+				result.attachment?.title ?? "",
+				result.attachment?.summary ?? "",
+				result.explanation,
+			].join("\n");
+			expect(shown).not.toMatch(/[a-z]+_[a-z_]+|[0-9a-f]{8}-[0-9a-f]{4}/);
+			expect(shown).not.toMatch(/Failed:|Delegated tedi/);
+			expect(feedHeadlineIssues(result.sentence)).toEqual([]);
+		},
+	);
+
+	it("keeps a real failure red and names it in words", () => {
+		const row = attemptRow({
+			summary:
+				"Failed: delegation_failed\n\nDelegated tedi reported failure (provider_error; provider error sealed the turn).",
+			metadata: { failureReason: "delegation_failed" },
+		});
+		const result = ActivityFeedItemSchema.parse(resultFeedItems([row])[0]);
+		expect(result.resultOutcome).toBe("failed");
+		expect(result.sentence).toBe("Supplier review — Didn't finish.");
+	});
 
 	it("bounds long first sentences in both the card and attachment", () => {
 		const first = `The review ${"remains ready ".repeat(100)}`;

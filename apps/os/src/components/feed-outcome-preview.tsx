@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
+import { plainFeedText } from "@tedix/api-contract/utils/activity-feed";
+import { OS_COPY } from "@/shared/os-copy";
 import { RichPreview } from "@/components/feed-deck-primitives";
 import { Button } from "@/components/kumo/button";
 import { Loader } from "@/components/kumo/loader";
@@ -42,7 +44,15 @@ export function FeedOutcomePreview({
 			row.reference.kind === "output_revision" &&
 			row.reference.status === "available",
 	);
-	const attachment = item.attachment;
+	// Older stored titles can name records by id; the preview shows words.
+	const attachment = item.attachment && {
+		title:
+			plainFeedText(item.attachment.title, OS_COPY.feed) ||
+			item.attachment.title,
+		summary:
+			item.attachment.summary &&
+			plainFeedText(item.attachment.summary, OS_COPY.feed),
+	};
 	const title = image?.label || document?.label || attachment?.title;
 	if (!title && (compact || !enabled)) return null;
 

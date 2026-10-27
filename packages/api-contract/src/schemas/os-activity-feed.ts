@@ -42,6 +42,10 @@ export const ActivityFeedItemSchema = z.strictObject({
 	stalled: z.boolean(),
 	done: z.boolean(),
 	explanation: z.string(),
+	/** A result's outcome; `partial` is a failed attempt that delivered part of the work. */
+	resultOutcome: z
+		.enum(["succeeded", "partial", "failed", "expired", "cancelled"])
+		.optional(),
 	reactions: z.array(ActivityFeedReactionSchema).max(5),
 	autonomyFeedback: z
 		.object({ eventId: z.string(), classId: z.string() })

@@ -157,6 +157,18 @@ export function renderDecisionCardDates<T extends CardCopy>(
 }
 
 const rawIdentifier = new RegExp(copySpec.rawIdentifierPattern, "i");
+const technicalText = new RegExp(copySpec.technicalTextPattern);
+
+/**
+ * People-facing copy names things in words: no ids, hashes or `snake_case`
+ * codes. Shared by Decision cards and Activity headlines.
+ */
+export function technicalCopyIssues(text: string) {
+	const issues: Array<"raw_identifier" | "technical_text"> = [];
+	if (rawIdentifier.test(text)) issues.push("raw_identifier");
+	if (technicalText.test(text)) issues.push("technical_text");
+	return issues;
+}
 const listPrefix = new RegExp(copySpec.listPrefixPattern, "i");
 
 /** "Review 07 — Send the draft?" reads as "Send the draft?": list numbers are not part of the ask. */
@@ -216,9 +228,7 @@ export function checkDecisionCardCopy(copy: CardCopy) {
 		copySpec.faceWordLimit
 	)
 		issues.push("face_word_limit");
-	if (rawIdentifier.test(text)) issues.push("raw_identifier");
-	if (new RegExp(copySpec.technicalTextPattern).test(text))
-		issues.push("technical_text");
+	issues.push(...technicalCopyIssues(text));
 	if (
 		Object.values(copy.actionLabels ?? {}).some(
 			(label) => (label.match(/\S+/gu) ?? []).length > 4,

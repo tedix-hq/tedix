@@ -1,4 +1,5 @@
 import { cardIsDue } from "./card-schedule";
+import { technicalCopyIssues } from "./decision-card-copy";
 import type { WorkActorReference } from "../schemas/os-work-actor";
 function sessionHarness(harness: unknown, sessionKey?: string | null) {
 	return typeof harness === "string" && harness
@@ -50,6 +51,11 @@ export interface FeedCopy {
 	workEvents: Record<string, string>;
 	outcomes: Record<string, string>;
 	workUpdated: string;
+	/** Known outcome codes in people's words, for older stored text. */
+	codes: Record<string, string>;
+	partlyDone: (title: string) => string;
+	delegationOutcomes: Record<string, string>;
+	didntFinish: string;
 	workExplanation: string;
 	resultExplanation: string;
 	correctionExplanation: string;
@@ -81,6 +87,30 @@ export const DEFAULT_FEED_COPY: FeedCopy = {
 		cancelled: "was stopped",
 	},
 	workUpdated: "was updated",
+	codes: {
+		partial_result: "partly done",
+		reported_partial: "partly done",
+		needs_follow_up: "needs follow-up",
+		delegation_failed: "didn't finish",
+		stopped_without_output: "stopped before producing anything",
+		completed_without_proof: "finished without proof",
+		dispatch_timeout: "didn't start in time",
+		dispatch_never_landed: "never started",
+		delegation_cancelled: "was cancelled",
+		context_ceiling: "ran out of room",
+		step_ceiling: "ran out of steps",
+		budget_exhausted: "ran out of budget",
+		provider_error: "hit a model error",
+		early_stop: "stopped early",
+	},
+	partlyDone: (title) =>
+		`Finished part of “${title}” and needs you to check the rest.`,
+	didntFinish: "Didn't finish",
+	delegationOutcomes: {
+		completed: "finished",
+		failed: "didn't finish",
+		canceled: "stopped",
+	},
 	workExplanation: "Recorded in the linked Work history.",
 	resultExplanation: "The linked attempt records this outcome.",
 	correctionExplanation:
@@ -118,6 +148,63 @@ export function sentence(text: string) {
 		.next().value?.segment;
 	return (first ?? plain).trim().slice(0, 1000);
 }
+const UUID = "[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}";
+const CODE = "[a-z][a-z0-9]*(?:_[a-z0-9]+)+";
+const LEADING_CODE = new RegExp(
+	`^\\s*(?:failed:\\s*)?${CODE}\\b[:.]?\\s*`,
+	"i",
+);
+const CODE_ASIDE = new RegExp(`\\s*\\([^()]*\\b${CODE}\\b[^()]*\\)`, "gi");
+const OUTCOME_CODE = new RegExp(`\\bOutcome:\\s*(${CODE})\\b`, "gi");
+const NAMED_UUID = new RegExp(`\\b${UUID}\\s*\\(([^()]+)\\)`, "gi");
+const BARE_UUID = new RegExp(`\\s*\\b${UUID}\\b`, "gi");
+const ANY_CODE = new RegExp(`\\b${CODE}\\b`, "gi");
+
+/**
+ * People-facing Activity text: known outcome codes become words; ids and
+ * other `snake_case` tokens are dropped. Older stored events still carry them,
+ * so both the feed builders and the Activity card pass text through here.
+ */
+export function plainFeedText(
+	text: string,
+	copy: FeedCopy = DEFAULT_FEED_COPY,
+) {
+	const word = (code: string) => copy.codes[code.toLowerCase()] ?? "";
+	return (
+		text
+			// "Failed: partial_result" or a bare leading code repeats the chip.
+			.replace(LEADING_CODE, "")
+			// "(reported_partial; The tedi reported …)" is a machine aside.
+			.replace(CODE_ASIDE, "")
+			.replace(OUTCOME_CODE, (_, code: string) => word(code))
+			// "skill <id> (Reddit Operator)" names the record by its name.
+			.replace(NAMED_UUID, "$1")
+			.replace(BARE_UUID, "")
+			.replace(ANY_CODE, word)
+			.replace(/\(\s*\)/g, "")
+			.replace(/\s+([.,;:!?…])/g, "$1")
+			.replace(/\s{2,}/g, " ")
+			.trim()
+	);
+}
+
+/** Copy self-check: an Activity headline never shows ids or `snake_case` codes. */
+export function feedHeadlineIssues(text: string) {
+	return technicalCopyIssues(text);
+}
+
+/** A headline that still reads as machine output after cleaning is replaced. */
+function plainHeadline(
+	text: string | undefined,
+	copy: FeedCopy,
+): string | undefined {
+	if (!text) return undefined;
+	const plain = plainFeedText(text, copy);
+	return plain && /\p{L}/u.test(plain) && !feedHeadlineIssues(plain).length
+		? plain
+		: undefined;
+}
+
 export function workSource(id: string) {
 	return `/work/items/${id}`;
 }
@@ -219,15 +306,24 @@ export function workFeedItems(
 			kind: e.personalAgentContribution?.kind === "fyi" ? "signal" : "work",
 			sentence: sentence(
 				e.delegationFyi
-					? `Delegated “${e.delegationFyi.task.slice(0, 100)}” to ${e.delegationFyi.tediName}: ${e.delegationFyi.outcome}.`
+					? plainFeedText(
+							`Delegated “${plainFeedText(e.delegationFyi.task, copy).slice(0, 100)}” to ${
+								plainFeedText(e.delegationFyi.tediName, copy) ||
+								names.get(`tedi:${e.delegationFyi.tediId}`) ||
+								copy.actors.tedi ||
+								"Tedi"
+							}: ${copy.delegationOutcomes[e.delegationFyi.outcome] ?? e.delegationFyi.outcome}.`,
+							copy,
+						)
 					: e.body !== e.eventType &&
 						  e.body.length <= 180 &&
 						  /\p{L}/u.test(sentence(e.body)) &&
 						  !/[`\n]|https?:|[a-f\d]{8,}|(?:session|codex|claude-code)\s*(?:·|waiting:)|\b(?:SHA|D1|Attempt)\b/i.test(
 								e.body,
 						  )
-						? e.body
-						: `${e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`,
+						? (plainHeadline(e.body, copy) ??
+							`${plainFeedText(e.workItemTitle, copy) || e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`)
+						: `${plainFeedText(e.workItemTitle, copy) || e.workItemTitle} ${workEvents[e.eventType] ?? copy.workUpdated}.`,
 			),
 			classId: (e.delegationFyi?.classId ?? `work:${e.eventType}`).slice(
 				0,
@@ -267,64 +363,105 @@ function outcomeSummary(value: unknown) {
 	return sentence(value.replace(/^failed:\s*/i, ""));
 }
 
+/** The pre-2026-10-27 delegation producer never named the task or the tedi. */
+const LEGACY_DELEGATION_TEXT =
+	/^Delegated tedi (?:returned|reported|produced|failed)\b/i;
+
+function readableOutcome(value: unknown, copy: FeedCopy) {
+	const plain = plainHeadline(outcomeSummary(value), copy);
+	return plain && !LEGACY_DELEGATION_TEXT.test(plain) ? plain : undefined;
+}
+
+/** Drop the "Failed: <code>" stamp and machine codes; keep the paragraphs. */
+function plainReceipt(value: string | null | undefined, copy: FeedCopy) {
+	return (value ?? "")
+		.split(/\n{2,}/)
+		.map((part) => plainFeedText(part, copy))
+		.filter(
+			(part) =>
+				part && /\p{L}/u.test(part) && !LEGACY_DELEGATION_TEXT.test(part),
+		)
+		.join("\n\n");
+}
+
+function resultOutcome(
+	a: z.infer<typeof WorkAttemptProjectionSchema>["attempt"],
+): ActivityFeedItem["resultOutcome"] {
+	if (a.outcome === "failed")
+		return a.metadata.failureReason === "partial_result" ||
+			/^\s*failed:\s*partial_result\b/i.test(a.summary ?? "")
+			? "partial"
+			: "failed";
+	return a.outcome ?? undefined;
+}
+
 export function resultFeedItems(
 	rows: z.infer<typeof WorkAttemptProjectionSchema>[],
 	copy: FeedCopy = DEFAULT_FEED_COPY,
 ): ActivityFeedItem[] {
 	return rows
 		.filter((r) => r.attempt.outcome !== null)
-		.map(({ attempt: a, workItem: w }) => ({
-			...base(
-				`attempt:${a.id}`,
-				a.finishedAt ?? a.startedAt,
-				w.projectId,
-				w.id,
-			),
-			kind: "result",
-			classId: `${a.executorType}:result:${a.outcome}`,
-			actor:
-				a.executorType === "tedi"
-					? (copy.actors.tedi ?? "Tedi")
-					: sessionHarness(a.metadata.agentHarness, a.externalSessionKey) ===
-						  "claude-code"
-						? "Claude"
+		.map(({ attempt: a, workItem: w }) => {
+			const outcome = resultOutcome(a);
+			const title = plainFeedText(w.title, copy) || w.title;
+			return {
+				...base(
+					`attempt:${a.id}`,
+					a.finishedAt ?? a.startedAt,
+					w.projectId,
+					w.id,
+				),
+				kind: "result",
+				classId: `${a.executorType}:result:${a.outcome}`,
+				actor:
+					a.executorType === "tedi"
+						? (copy.actors.tedi ?? "Tedi")
 						: sessionHarness(a.metadata.agentHarness, a.externalSessionKey) ===
-							  "codex"
-							? "Codex"
+							  "claude-code"
+							? "Claude"
 							: sessionHarness(
 										a.metadata.agentHarness,
 										a.externalSessionKey,
-								  ) === "devin"
-								? "Devin"
-								: (copy.actors.external_agent ?? "Project team"),
-			actorIdentity: workActorReference(
-				a.executorType,
-				a.executorId,
-				a.metadata,
-				a.externalSessionKey,
-			),
-			tediId: a.executorType === "tedi" ? a.executorId : null,
-			sentence: sentence(
-				outcomeSummary(a.metadata.feedSentence) ??
-					outcomeSummary(a.summary) ??
-					`${w.title} — ${a.outcome === "failed" || a.outcome === "expired" ? "Didn't finish" : (copy.outcomes[a.outcome as keyof typeof copy.outcomes] ?? copy.workUpdated)}.`,
-			),
-			attachment: {
-				title: w.title.slice(0, 200),
-				summary: outcomeSummary(a.summary)?.slice(0, 300),
-			},
-			importance:
-				a.outcome === "failed"
-					? "high"
-					: a.outcome === "succeeded"
-						? "normal"
-						: "low",
-			stalled: a.outcome !== "succeeded",
-			done: a.outcome === "succeeded",
-			explanation: [a.summary, copy.resultExplanation]
-				.filter(Boolean)
-				.join("\n\n"),
-		}));
+								  ) === "codex"
+								? "Codex"
+								: sessionHarness(
+											a.metadata.agentHarness,
+											a.externalSessionKey,
+									  ) === "devin"
+									? "Devin"
+									: (copy.actors.external_agent ?? "Project team"),
+				actorIdentity: workActorReference(
+					a.executorType,
+					a.executorId,
+					a.metadata,
+					a.externalSessionKey,
+				),
+				tediId: a.executorType === "tedi" ? a.executorId : null,
+				resultOutcome: outcome,
+				sentence: sentence(
+					readableOutcome(a.metadata.feedSentence, copy) ??
+						readableOutcome(a.summary, copy) ??
+						(outcome === "partial"
+							? copy.partlyDone(title)
+							: `${title} — ${outcome === "failed" ? copy.didntFinish : (copy.outcomes[a.outcome as keyof typeof copy.outcomes] ?? copy.workUpdated)}.`),
+				),
+				attachment: {
+					title: title.slice(0, 200),
+					summary: readableOutcome(a.summary, copy)?.slice(0, 300),
+				},
+				importance:
+					a.outcome === "failed"
+						? "high"
+						: a.outcome === "succeeded"
+							? "normal"
+							: "low",
+				stalled: a.outcome !== "succeeded",
+				done: a.outcome === "succeeded",
+				explanation: [plainReceipt(a.summary, copy), copy.resultExplanation]
+					.filter(Boolean)
+					.join("\n\n"),
+			};
+		});
 }
 
 export function decisionFeedItems(

@@ -1,5 +1,13 @@
 import { useContext, useId, useRef, useState } from "react";
-import { ChatText, Info, ListPlus } from "@phosphor-icons/react";
+import {
+	ChatText,
+	CheckCircle,
+	CircleHalf,
+	Info,
+	ListPlus,
+	StopCircle,
+	XCircle,
+} from "@phosphor-icons/react";
 import { decisionCardFallbackTitle } from "@tedix/api-contract/utils/decision-card-copy";
 import { FocusRowActions, type FocusRowAction } from "./focus-row-actions";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
@@ -23,8 +31,35 @@ import { Text } from "./kumo/text";
 import { Textarea } from "./kumo/textarea";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { absoluteTime, relativeTime } from "@/lib/time";
-import { activityHeadline, activityStatus } from "@/lib/feed-timeline";
+import {
+	activityHeadline,
+	activityStatus,
+	type ActivityStatusTone,
+} from "@/lib/feed-timeline";
 import { OS_COPY } from "@/shared/os-copy";
+
+const STATUS_CHIP = {
+	success: { variant: "success", Icon: CheckCircle },
+	warning: { variant: "warning", Icon: CircleHalf },
+	neutral: { variant: "secondary", Icon: StopCircle },
+	error: { variant: "error", Icon: XCircle },
+} as const;
+
+function ActivityStatusBadge({
+	tone,
+	label,
+}: {
+	tone: ActivityStatusTone;
+	label: string;
+}) {
+	const { variant, Icon } = STATUS_CHIP[tone];
+	return (
+		<Badge variant={variant} className="gap-1">
+			<Icon aria-hidden className="size-3" weight="bold" />
+			{label}
+		</Badge>
+	);
+}
 
 const RECEIPT_NOTES = [
 	OS_COPY.feed.workExplanation,
@@ -177,11 +212,7 @@ export function FeedCard({
 							</Badge>
 						</Link>
 					)}
-					{status && (
-						<Badge variant={status.tone === "success" ? "success" : "error"}>
-							{status.label}
-						</Badge>
-					)}
+					{status && <ActivityStatusBadge {...status} />}
 					{story.detail && (
 						<p
 							className={quote ? "ft-detail ft-quote" : "ft-detail"}

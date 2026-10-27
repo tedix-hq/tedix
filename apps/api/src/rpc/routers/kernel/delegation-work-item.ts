@@ -41,6 +41,7 @@ import {
 	listWorkItems,
 } from "@tedix/db/queries/work-items/crud";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
 	findWorkItemsBlockedBy,
 	queryWorkItemBlockers,
@@ -850,6 +851,46 @@ export function delegationCompletionProofBody(input: {
 	return `Delegated tedi reported completion. Result references: ${refs.join("; ")}. Exact output remains in the child-run trace.`;
 }
 
+/** The tedi's own `Outcome: <code>` first line; the headline already says it. */
+const DECLARED_OUTCOME_LINE = /^\s*Outcome:\s*[a-z_]+\s*/i;
+
+export type DelegationFeedOutcome =
+	| "succeeded"
+	| "partial"
+	| "unverified"
+	| "failed"
+	| "no_output"
+	| "never_dispatched"
+	| "cancelled";
+
+/**
+ * The plain-English Activity headline for a delegation outcome: the tedi and
+ * the task by name, never an outcome code or an id.
+ */
+export function delegationFeedSentence(
+	outcome: DelegationFeedOutcome,
+	tediName: string,
+	taskTitle: string,
+): string {
+	const task = `“${taskTitle.trim().slice(0, 120)}”`;
+	switch (outcome) {
+		case "succeeded":
+			return `${tediName} finished ${task}.`;
+		case "partial":
+			return `${tediName} finished part of ${task} and needs you to check the rest.`;
+		case "unverified":
+			return `${tediName} says ${task} is done but did not show the check passing, so it needs another look.`;
+		case "failed":
+			return `${tediName} could not finish ${task}.`;
+		case "no_output":
+			return `${tediName} stopped ${task} before producing anything.`;
+		case "never_dispatched":
+			return `${task} never reached ${tediName}, so it needs to be sent again.`;
+		case "cancelled":
+			return `${tediName} stopped working on ${task} because it was cancelled.`;
+	}
+}
+
 /** Settle the exact tedi Attempt from the task/runtime outcome, then complete Home wrappers.
  * Result references remain telemetry; neither proof qualification nor evidence persistence is a prerequisite.
  */
@@ -898,7 +939,22 @@ export async function disposeDelegationWorkItem(
 	let canonicalWorkItemReuse = false;
 	let homeCreatedDelegationWrapper = false;
 	let taskTitle = "Delegated work";
+	let tediName = "The tedi";
+	let feedOutcome: DelegationFeedOutcome;
 	let requiredProofKind: DelegationRequiredProofKind = null;
+	try {
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			input.delegatedTediId,
+			input.organizationId,
+		);
+		if (tedi?.name?.trim()) tediName = tedi.name.trim();
+	} catch (error) {
+		console.warn("[kernelRuntime] delegated tedi name lookup failed", {
+			delegatedTediId: input.delegatedTediId,
+			error: errorMessage(error),
+		});
+	}
 	try {
 		const existingItem = await getWorkItemById(context.db, input.workItemId);
 		const existingMetadata = nonNullRecord(existingItem?.metadata);
@@ -979,12 +1035,13 @@ export async function disposeDelegationWorkItem(
 							: "delegation_failed";
 				retryable = true;
 				recoveryHints = ["redispatch_same_work_order"];
-				const reason =
-					input.declaredOutcome === "failed" ||
-					input.declaredOutcome === "needs_follow_up"
-						? `Outcome: ${input.declaredOutcome}`
-						: input.childStop?.detail;
-				body = `Delegated tedi reported ${reason}. The Work Item remains incomplete. ${delegationProofTranscriptPreview(input.proof.transcript) ?? "See the child-run trace for the reported reason."}`;
+				feedOutcome =
+					failureReason === "partial_result"
+						? "partial"
+						: failureReason === "stopped_without_output"
+							? "no_output"
+							: "failed";
+				body = `${delegationFeedSentence(feedOutcome, tediName, taskTitle)} It stays open so it can be continued or sent again. ${delegationProofTranscriptPreview(input.proof.transcript)?.replace(DECLARED_OUTCOME_LINE, "") || "The child-run trace has the reported reason."}`;
 			} else if (verificationMissing) {
 				// The work order carried a verify command and the child's final
 				// report has no `Verification output:` section: a success claim that
@@ -999,10 +1056,12 @@ export async function disposeDelegationWorkItem(
 					"redispatch_same_work_order",
 					"require_durable_proof_ref",
 				];
-				body = `Delegated tedi reported success, but ${input.childStop?.detail ?? "verification output missing"}. Home treats the result as partial: the verify command was not run, or its output was not quoted under \`Verification output:\`. Recovery: re-run the exact verify command in the child's environment, quote its output, then retry completion.`;
+				feedOutcome = "unverified";
+				body = `${delegationFeedSentence(feedOutcome, tediName, taskTitle)} Reason: ${input.childStop?.detail ?? "verification output missing"}. Re-run the exact check where the work was done, quote its output under “Verification output:”, then complete it again.`;
 			} else {
 				outcome = "succeeded";
 				releaseReason = "delegation_completed";
+				feedOutcome = "succeeded";
 				body = delegationCompletionProofBody({
 					childRunId: input.childRunId,
 					proof: input.proof,
@@ -1040,20 +1099,42 @@ export async function disposeDelegationWorkItem(
 				));
 			}
 			retryable = true;
-			body =
+			feedOutcome =
 				stop?.outcome === "partial"
-					? `Delegated tedi returned a partial result (${stop.stopReason}; ${stop.detail}). The Work Item remains incomplete. Recovery: continue or re-dispatch the same work order, then attach fresh terminal proof.`
-					: stop?.output
-						? `Delegated tedi reported failure (${stop.stopReason}; ${stop.detail}). ${delegationProofTranscriptPreview(stop.output)}`
-						: stop
-							? `Delegated tedi produced no output (${stop.stopReason}; ${stop.detail}). Nothing was delivered, so there is no partial result to continue from. Recovery: re-dispatch the same work order with a tighter scope or a larger budget, then attach terminal proof.`
-							: failureReason === "dispatch_never_landed"
-								? `Delegation was never dispatched: ${input.delegationError ?? "unknown error"}. The target tedi never received this work order, so this is not a failure of ${input.delegatedTediId}. Recovery: re-dispatch the same work order.`
-								: `Delegated tedi failed: ${input.delegationError ?? "unknown error"}. Recovery: Home to re-route or ${input.delegatedTediId} to retry with a corrected approach.`;
+					? "partial"
+					: stop && !stop.output
+						? "no_output"
+						: failureReason === "dispatch_never_landed"
+							? "never_dispatched"
+							: "failed";
+			{
+				const headline = delegationFeedSentence(
+					feedOutcome,
+					tediName,
+					taskTitle,
+				);
+				// The stop reason stays in metadata (childStopReason); the
+				// default detail only repeats the headline.
+				const detail =
+					stop?.detail && stop.detail !== "The tedi reported a partial result"
+						? ` ${stop.detail.replace(/[.\s]+$/, "")}.`
+						: "";
+				body =
+					stop?.outcome === "partial"
+						? `${headline}${detail} It stays open so it can be continued or sent again with fresh proof.`
+						: stop?.output
+							? `${headline}${detail} ${delegationProofTranscriptPreview(stop.output)}`
+							: stop
+								? `${headline}${detail} Nothing was delivered, so it needs to be sent again with a smaller scope or a larger budget.`
+								: failureReason === "dispatch_never_landed"
+									? `${headline} ${tediName} never received it, so this is not their failure. Reason: ${input.delegationError ?? "unknown error"}.`
+									: `${headline} Reason: ${input.delegationError ?? "unknown error"}. Home can send it to another tedi, or ${tediName} can try again another way.`;
+			}
 			break;
 		}
 		case "canceled":
 			outcome = "cancelled";
+			feedOutcome = "cancelled";
 			workItemDisposition = canonicalWorkItemReuse ? "accepted" : "cancelled";
 			releaseReason = canonicalWorkItemReuse
 				? "delegation_cancelled_canonical_reuse"
@@ -1180,6 +1261,11 @@ export async function disposeDelegationWorkItem(
 					summary: body,
 					metadata: toJsonRecord({
 						...proofMetadata,
+						feedSentence: delegationFeedSentence(
+							feedOutcome,
+							tediName,
+							taskTitle,
+						),
 						proof: canonicalProofRef,
 						failureReason,
 						retryable,
@@ -1310,7 +1396,7 @@ export async function disposeDelegationWorkItem(
 							homeRunId,
 							childRunId: input.childRunId,
 							tediId: input.delegatedTediId,
-							tediName: input.delegatedTediId,
+							tediName,
 							task: taskTitle,
 						}),
 				outcome: input.childRunStatus,

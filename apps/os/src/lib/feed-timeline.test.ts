@@ -102,6 +102,36 @@ describe("activity timeline", () => {
 		).toBeNull();
 	});
 
+	it("shows a partial result as amber Partly done, keeping red for real failures", () => {
+		const result = (resultOutcome: ActivityFeedItem["resultOutcome"]) =>
+			activityStatus(
+				item({ kind: "result", done: false, stalled: true, resultOutcome }),
+			);
+		expect(result("partial")).toEqual({
+			tone: "warning",
+			label: "Partly done",
+		});
+		expect(result("expired")).toEqual({ tone: "warning", label: "Paused" });
+		expect(result("cancelled")).toEqual({ tone: "neutral", label: "Stopped" });
+		expect(result("failed")).toEqual({ tone: "error", label: "Didn't finish" });
+	});
+
+	it("cleans codes and ids out of older stored headlines and detail lines", () => {
+		const story = activityHeadline(
+			item({
+				kind: "result",
+				sentence:
+					"partial_result Delegated tedi reported Outcome: needs_follow_up.",
+				explanation:
+					"Failed: partial_result\n\nUpdate skill 7d2e9b14-6a03-4c8f-b1d2-5e9f0a3c8b67 with the new schedule.",
+			}),
+		);
+		expect(story).toEqual({
+			headline: "Delegated tedi reported needs follow-up.",
+			detail: "Update skill with the new schedule.",
+		});
+	});
+
 	it("groups by day newest first and folds three repeated events into one row", () => {
 		const now = new Date("2026-10-26T15:00:00.000Z");
 		const commits = [0, 1, 2].map((n) =>
@@ -173,6 +203,18 @@ describe("activity timeline", () => {
 		expect(
 			activityStatus(item({ kind: "result", done: false, stalled: true })),
 		).toEqual({ tone: "error", label: "No terminó" });
+		expect(
+			activityStatus(
+				item({ kind: "result", done: false, resultOutcome: "partial" }),
+			),
+		).toEqual({ tone: "warning", label: "Hecho en parte" });
+		expect(
+			activityHeadline(
+				item({
+					sentence: "partial_result El tedi informó Outcome: needs_follow_up.",
+				}),
+			).headline,
+		).toBe("El tedi informó necesita seguimiento.");
 		expect(
 			activityStatus(item({ classId: "work:attempt.failed", done: false }))
 				?.label,
