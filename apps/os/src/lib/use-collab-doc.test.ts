@@ -265,8 +265,6 @@ describe("useCollabDoc", () => {
 	});
 
 	it("opens no room for a saved version longer than a room can hold", () => {
-		// Its seed would cross the socket's frame cap; the room drops such a frame
-		// unanswered and the client would reconnect forever reading "Connecting".
 		const large = "x".repeat(MAX_FILE_TEXT_LENGTH + 1);
 		const rendered = renderCollabDoc(input({ canonical: canonicalDoc(large) }));
 		expect(sockets).toHaveLength(0);
@@ -1558,6 +1556,37 @@ describe("useCollabDoc", () => {
 				artifactLabel: "Research",
 			},
 		});
+		rendered.unmount();
+	});
+});
+
+describe("large sheet admission", () => {
+	it("opens a room for a saved 12-tab workbook at research-log scale", async () => {
+		const { largeSheetText } = await import("../collab/large-sheet.fixture");
+		const text = largeSheetText();
+		const rendered = renderCollabDoc(
+			input({ canonical: canonicalDoc(text, 23) }),
+		);
+		expect(sockets).toHaveLength(1);
+		expect(rendered.result.current?.tooLarge).toBe(false);
+		await handshake(lastSocket(), text, 0, {
+			revision: 23,
+			revisionId: "rev-23",
+		});
+		expect(rendered.result.current?.status).toBe("connected");
+		const basis = rendered.result.current?.commitBasis();
+		expect(basis?.text).toBe(text);
+		await act(async () => {
+			rendered.result.current?.groundCommit(basis!, 24, "rev-24");
+		});
+		expect(lastSocket().requestsOf("ground").at(-1)?.offer.files).toEqual([
+			[COLLAB_DOC_PATH, text],
+		]);
+		expect(lastSocket().sent.find((frame) => frame.t === "base")).toMatchObject(
+			{
+				seed: { files: [[COLLAB_DOC_PATH, text]], revision: 23 },
+			},
+		);
 		rendered.unmount();
 	});
 });

@@ -59,11 +59,13 @@ import {
 } from "@tedix/api-client/internal";
 import { OtAuthority, type OtAuthorityStorage } from "./ot/authority";
 import type { CodeChangeRow } from "./ot/wire";
+import { ChunkedRoomStorage } from "./chunked-storage";
 import {
 	type CollabServerFrame,
 	contentToFiles,
 	encodeFrame,
 	isOversizedMessage,
+	MAX_MESSAGE_BYTES,
 	parseClientFrame,
 } from "./protocol";
 import {
@@ -171,7 +173,7 @@ export class CollabRoom {
 		private readonly env: { API_SERVICE?: FetcherLike } = {},
 	) {
 		this.#authority = new OtAuthority({
-			storage: state.storage,
+			storage: new ChunkedRoomStorage(state.storage),
 			broadcast: (row) => this.#broadcastRow(row),
 			now: () => Date.now(),
 		});
@@ -315,9 +317,17 @@ export class CollabRoom {
 		ws: CollabSocket,
 		message: ArrayBuffer | string,
 	): Promise<void> {
-		// The protocol is JSON text frames; drop binary and oversized payloads.
+		// Reject before parsing; an uncorrelated error is followed by a 1009 close.
 		if (typeof message !== "string") return;
-		if (isOversizedMessage(message.length)) return;
+		if (isOversizedMessage(new TextEncoder().encode(message).byteLength)) {
+			this.#send(ws, {
+				t: "error",
+				id: null,
+				message: `Collaboration message exceeds the ${MAX_MESSAGE_BYTES}-byte limit. Reduce the document size and reconnect.`,
+			});
+			ws.close(1009, "Collaboration message too large.");
+			return;
+		}
 		const frame = parseClientFrame(message);
 		if (!frame) return;
 		const { peerId, identity } = readAttachment(ws);

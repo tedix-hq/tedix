@@ -261,9 +261,8 @@ export const MATERIALIZE_THRESHOLD_ROWS = 128;
  * Deliberately not upstream's job for this number. `CHAT_CHANGE_MESSAGE_BUDGET` exists because
  * upstream materializes into a *message* whose body is the rows' composed change, and a composition
  * of many rows can exceed what one record may hold — so the budget chunks the batch. Nothing here
- * stores a composed change: the base is the resulting content, already bounded per file by
- * `MAX_FILE_TEXT_LENGTH`, so there is no chunking problem to solve and copying upstream's use would
- * be cargo cult. The budget is repurposed as the second trigger, because the costs materialization
+ * stores a composed change: the base is the resulting content, and room storage chunks both bases
+ * and rows independently. The budget is the second trigger, because the costs materialization
  * removes are byte-driven, not row-driven: a single `{set}` of a 512 KiB file is one row and half
  * this budget, and three of them would make every subsequent accept copy 1.5 MiB of string data
  * through the fold long before the row count noticed. Same magnitude as upstream (1 Mi units ≈

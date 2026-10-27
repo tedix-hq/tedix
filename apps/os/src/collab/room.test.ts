@@ -96,6 +96,12 @@ function state(sockets: FakeSocket[]): FakeRoomState {
 				return values.get(key) as T | undefined;
 			},
 			list: async <T>({ prefix }: { prefix: string }) => {
+				const hold = holds.get(prefix);
+				if (hold !== undefined) {
+					holds.delete(prefix);
+					hold.entered();
+					await hold.gate;
+				}
 				const matched = new Map<string, T>();
 				for (const [key, value] of [...values].sort(([a], [b]) =>
 					a < b ? -1 : a > b ? 1 : 0,
@@ -104,7 +110,12 @@ function state(sockets: FakeSocket[]): FakeRoomState {
 				}
 				return matched;
 			},
-			put: async (key, value) => void values.set(key, value),
+			put: async (key, value) => {
+				if (JSON.stringify(value).length * 2 > 2 * 1024 * 1024) {
+					throw new Error("SQLite value exceeds 2 MiB");
+				}
+				values.set(key, value);
+			},
 			delete: async (key) => void values.delete(key),
 		},
 		acceptWebSocket: (ws) => {
@@ -714,6 +725,118 @@ describe("live workspace access", () => {
 				const next = vi.mocked(roomState.storage.setAlarm).mock.calls[0]![0];
 				expect(next).toBeLessThanOrEqual(Date.now() + COLLAB_ACCESS_CHECK_MS);
 			} else expect(roomState.storage.setAlarm).not.toHaveBeenCalled();
+		},
+	);
+});
+
+describe("large workbook rooms", () => {
+	it("edits a 12-tab workbook, wakes with its edits, and grounds a save", async () => {
+		const { largeSheetText } = await import("./large-sheet.fixture");
+		const text = largeSheetText();
+		expect(text.length).toBeGreaterThan(1_824_753);
+		expect(text.length).toBeLessThan(2_000_000);
+		const workbook = JSON.parse(text).workbook;
+		expect(workbook.sheets).toHaveLength(12);
+		expect(workbook.sheets[0].rows).toHaveLength(208);
+		expect(workbook.sheets[0].columns).toHaveLength(31);
+		const sockets: FakeSocket[] = [];
+		const stored = state(sockets);
+		let room = new CollabRoom(stored);
+		const ada = await connect(room, sockets);
+		await room.webSocketMessage(
+			ada,
+			encodeFrame({ t: "base", id: 1, seed: offer(23, text) }),
+		);
+		expect(ada.of("base").at(-1)?.files).toEqual([[COLLAB_DOC_PATH, text]]);
+		const grace = await connect(room, sockets, other);
+		await room.webSocketMessage(grace, encodeFrame({ t: "base", id: 2 }));
+		expect(grace.of("base").at(-1)?.files).toEqual([[COLLAB_DOC_PATH, text]]);
+		// A full replacement exercises chunked rows as well as materialized bases.
+		const changed = text.replace(
+			"Sample research note 0/0/0",
+			"Shared research note 0/0/0",
+		);
+		await room.webSocketMessage(
+			ada,
+			encodeFrame({
+				t: "submit",
+				id: 3,
+				submission: submission({
+					change: [[COLLAB_DOC_PATH, { set: changed }]],
+				}),
+			}),
+		);
+		expect(ada.of("result").at(-1)?.result.ok).toBe(true);
+		expect(grace.of("row").at(-1)?.row.change).toEqual([
+			[COLLAB_DOC_PATH, { set: changed }],
+		]);
+		expect(
+			[...stored.values.keys()].some((key) => key.startsWith("ot:base:chunk:")),
+		).toBe(true);
+		expect(
+			[...stored.values.keys()].some((key) =>
+				key.startsWith("ot:row:000000000001:chunk:"),
+			),
+		).toBe(true);
+		room = new CollabRoom(stored);
+		await room.webSocketMessage(grace, encodeFrame({ t: "base", id: 4 }));
+		const base = grace.of("base").at(-1)!;
+		expect(base.files).toEqual([[COLLAB_DOC_PATH, changed]]);
+		expect(base.revision).toBe(1);
+		const updated = changed + " ";
+		await room.webSocketMessage(
+			grace,
+			encodeFrame({
+				t: "submit",
+				id: 5,
+				submission: submission({
+					revision: 1,
+					clientId: "client-b",
+					change: [[COLLAB_DOC_PATH, { edit: [changed.length, [0, " "]] }]],
+				}),
+			}),
+		);
+		expect(grace.of("result").at(-1)?.result.ok).toBe(true);
+		await room.webSocketMessage(
+			grace,
+			encodeFrame({
+				t: "ground",
+				id: 6,
+				offer: offer(24, updated),
+				at: { generation: 0, revision: 2 },
+			}),
+		);
+		expect(grace.of("canonicalResult").at(-1)?.outcome).toBe("repaired");
+		room = new CollabRoom(stored);
+		await room.webSocketMessage(ada, encodeFrame({ t: "base", id: 7 }));
+		expect(ada.of("base").at(-1)).toMatchObject({
+			files: [[COLLAB_DOC_PATH, updated]],
+			canonical: { revision: 24, revisionId: "rev-24" },
+		});
+	});
+
+	it.each(["x", "界"])(
+		"rejects oversized UTF-8 frames (%s) with an error and 1009 close",
+		async (char) => {
+			const { MAX_MESSAGE_BYTES } = await import("./protocol");
+			const sockets: FakeSocket[] = [];
+			const room = new CollabRoom(state(sockets));
+			const ws = await connect(room, sockets);
+			const close = vi.spyOn(ws, "close");
+			const width = new TextEncoder().encode(char).byteLength;
+			await room.webSocketMessage(
+				ws,
+				char.repeat(Math.floor(MAX_MESSAGE_BYTES / width) + 1),
+			);
+			expect(ws.of("error").at(-1)).toMatchObject({
+				id: null,
+				message: expect.stringContaining("exceeds"),
+			});
+			expect(close).toHaveBeenCalledWith(
+				1009,
+				expect.stringContaining("too large"),
+			);
+			expect(ws.of("base")).toHaveLength(0);
 		},
 	);
 });

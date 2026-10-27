@@ -735,7 +735,11 @@ describe("validateCodeChangeSchema", () => {
 		// before its lines are walked: the poisoned last line would otherwise report "contains a
 		// newline".
 		const padded: TextChange = [
-			[0, ...Array.from({ length: 2_100_000 }, () => ""), "a\nb"],
+			[
+				0,
+				...Array.from({ length: MAX_CODE_CHANGE_SIZE + 1 }, () => ""),
+				"a\nb",
+			],
 		];
 		expect(() => validateCodeChangeSchema([["f", { edit: padded }]])).toThrow(
 			/code change is too large/,

@@ -116,10 +116,8 @@ export type UseCollabDocResult = {
 	status: CollabDocStatus;
 	/**
 	 * The saved version is longer than a room can hold (`MAX_FILE_TEXT_LENGTH`), so no
-	 * room is opened and `status` stays `"disconnected"`. Its seed would exceed the
-	 * socket frame cap, the room would drop it unanswered, and the client would
-	 * reconnect forever showing "Connecting". The surface shows the saved version
-	 * read-only and says why instead.
+	 * room is opened and `status` stays `"disconnected"`. The surface shows the
+	 * saved version read-only and says why instead of retrying a refused seed.
 	 */
 	tooLarge: boolean;
 	/** Restart an unavailable connection, preserving the session and its visible text. */

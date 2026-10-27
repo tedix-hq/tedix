@@ -122,15 +122,10 @@ export type CodeContent = Map<string, string>;
 // Size caps
 
 /**
- * Maximum length, in UTF-16 code units, of a single file's text that a change may produce (a
- * `set`'s content or an `edit`'s after-length). It must hold every saved revision a room is
- * offered: an output revised through the API is not held to the editor's size checks, and a cap
- * below it leaves the room unable to load that revision at all (a 615K-unit deck with images was
- * refused as "malformed", so its open draft could never be discarded). The real ceilings are the
- * 1 MiB socket frame a whole-file `set` must cross (`MAX_MESSAGE_BYTES`; structured JSON escapes
- * by up to ~15% more) and the 2 MiB storage value (UTF-16 is at most 2 bytes per unit).
+ * Maximum UTF-16 length of a file produced by a change. Room storage chunks large
+ * bases and rows; the socket independently bounds their UTF-8 frame size.
  */
-export const MAX_FILE_TEXT_LENGTH = 768 * 1024;
+export const MAX_FILE_TEXT_LENGTH = 4 * 1024 * 1024;
 
 /**
  * Maximum length, in UTF-16 code units, of a single file path within a change. Enforced only on
@@ -148,7 +143,7 @@ export const MAX_FILE_PATH_LENGTH = 1024;
  * socket frames, and transform work even for changes made of many payload-free parts (mass
  * removes). Enforced by `validateCodeChangeSchema`.
  */
-export const MAX_CODE_CHANGE_SIZE = 2 * 1024 * 1024;
+export const MAX_CODE_CHANGE_SIZE = 8 * 1024 * 1024;
 
 // The two module-private weights behind MAX_CODE_CHANGE_SIZE (callers only need the cap itself):
 // the fixed per-file-entry share, and each edit section's share -- a section serializes to a few
