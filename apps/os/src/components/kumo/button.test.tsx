@@ -54,4 +54,36 @@ describe("Kumo Button adapter", () => {
 		expect(loading).not.toContain('href="/settings"');
 		expect(loading).toContain('role="status"');
 	});
+
+	it("centres icon buttons as Kumo squares at every size", () => {
+		for (const size of ["icon-xs", "icon-sm", "icon", "icon-lg"] as const) {
+			const html = renderToStaticMarkup(
+				<Button aria-label="Close" size={size} variant="ghost">
+					<svg aria-hidden="true" />
+				</Button>,
+			);
+			expect(html).toContain('data-icon-only="true"');
+			expect(html).toMatch(/!items-center/);
+			expect(html).toMatch(/!justify-center/);
+			expect(html).toMatch(/!p-0/);
+			expect(html).toMatch(/coarse:min-w-11/);
+		}
+	});
+
+	it("draws link actions flush with surrounding text on both render paths", () => {
+		const action = renderToStaticMarkup(
+			<Button size="sm" variant="link">
+				try again
+			</Button>,
+		);
+		const anchor = renderToStaticMarkup(
+			<Button render={<a href="/preview" />} size="xs" variant="link">
+				Open preview
+			</Button>,
+		);
+		for (const html of [action, anchor]) {
+			expect(html).toContain("!px-0");
+			expect(html).toContain("text-kumo-link");
+		}
+	});
 });

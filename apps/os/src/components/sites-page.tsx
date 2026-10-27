@@ -1320,7 +1320,7 @@ export function SitesPage() {
 															<Button
 																size="sm"
 																variant="link"
-																className="h-auto justify-start px-0 text-kumo-strong"
+																className="justify-start text-kumo-strong"
 																onClick={() => manageSite(site)}
 															>
 																{site.name}

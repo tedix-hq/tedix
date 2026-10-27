@@ -737,7 +737,7 @@ export function AdminConnectionsPage({
 					<PageToolbar aria-label="Account list controls" appearance="inline">
 						<div className="min-w-0 flex-1">
 							<KumoTabs
-								className="min-w-0 max-sm:[&_button]:min-w-11 coarse:[&_button]:min-w-11"
+								className="min-w-0"
 								value={statusFilter}
 								onValueChange={(value) =>
 									onSearchChange({

@@ -279,7 +279,7 @@ export function TodayPost({
 								<Button
 									variant="link"
 									size="sm"
-									className="!px-0 text-kumo-subtle"
+									className="text-kumo-subtle"
 									aria-expanded={expanded}
 									onClick={() => setExpanded((value) => !value)}
 								>

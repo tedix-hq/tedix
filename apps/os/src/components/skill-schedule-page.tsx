@@ -43,7 +43,7 @@ export function SkillSchedulePage() {
 	return (
 		<PageSection
 			aria-labelledby="skill-schedules-title"
-			className="[overflow-wrap:anywhere] [&_button]:min-h-11 [&_button]:min-w-11"
+			className="[overflow-wrap:anywhere]"
 		>
 			<SectionHeader>
 				<SectionHeading>

@@ -742,28 +742,19 @@ export function OutputsPage() {
 						/>
 						<SegmentedControl
 							ariaLabel="Layout"
-							className="[&_button]:size-8 [&_button]:px-0 coarse:[&_button]:size-11"
-							compact
+							iconOnly
 							value={layout}
 							onValueChange={setLayout}
 							options={[
 								{
 									value: "list",
-									label: (
-										<>
-											<ListIcon size={16} />
-											<span className="sr-only">List view</span>
-										</>
-									),
+									label: "List view",
+									icon: <ListIcon aria-hidden size={16} />,
 								},
 								{
 									value: "grid",
-									label: (
-										<>
-											<SquaresFour size={16} />
-											<span className="sr-only">Grid view</span>
-										</>
-									),
+									label: "Grid view",
+									icon: <SquaresFour aria-hidden size={16} />,
 								},
 							]}
 						/>
