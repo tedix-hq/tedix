@@ -99,9 +99,45 @@ activation are separate.
 
 ## 4. Run the first probe and proof
 
-Run a probe against the returned **skill ID** first. A probe checks the source,
-project and Workspace bindings without asking the owner tedi for a report or
-writing a result.
+Check the lifecycle first. A draft workflow improvement proposal requires a
+certification run started by a signed-in organization owner or admin. An
+external agent's admitted Work Attempt, autonomy settings, or `params.probe`
+does not grant that authority. Ordinary draft proposal runs are refused before
+dispatch.
+
+For a proposal, use this owner handoff:
+
+1. Inspect the proposal and baseline with `inspect_skill_workflow_improvement`.
+   If `stale` is true, rebase the proposal and review it again before testing.
+2. Give the owner or admin the proposal ID, owning tedi ID, reviewed proposal
+   revision, and exact probe parameters. They can ask Home: `Run certification
+   for draft <proposal ID> with params {"probe":true}`. Include the schedule's
+   required parameters in that object. They must review the action and follow
+   any approval request in their own signed-in session.
+3. For a direct API call, the owner uses `skills.runWorkflow` with `skillId`,
+   `tediId`, `expectedSkillRevision`, `certification: true`, and the reviewed
+   `params`. Certification is a top-level field; putting it in `params` does
+   not authorize a draft. Agents must not borrow the owner's credentials or
+   claim to be the owner.
+4. Read the terminal run and its tool receipts. Activation requires a completed
+   run of the exact proposal, no failed tool calls, and a result containing
+   `certification.passed: true`, `certification.status: "passed"`, or
+   `certification.overallStatus: "passed"`. A probe only returns this result
+   if its workflow implements the checks; `probe: true` alone is not a receipt.
+5. Return the run ID to the admitted agent. An authorized caller can use
+   `activate_skill_workflow_improvement` with that `certificationRunId`, the
+   proposal `id`, and a `reason`. Recheck the baseline first: a changed baseline
+   requires rebasing and a new certification. Continue the linked activation
+   Work only while it remains open and admitted, then inspect a scheduled run
+   of the activated baseline and its actual results.
+
+Certification preserves organization, run, execution epoch, current draft
+revision, and declared tool checks. It does not grant consent, MFA, user
+presence, or permission for other human-reserved actions.
+
+For an active skill, run a probe against the returned **skill ID** first. A
+probe checks the source, project and Workspace bindings without asking the
+owner tedi for a report or writing a result.
 
 ```bash
 tedix -w <profile> skill run '<returned skill ID>' \

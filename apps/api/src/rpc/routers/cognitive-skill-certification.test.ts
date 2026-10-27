@@ -109,6 +109,11 @@ describe("certification run admission", () => {
 		{ authType: "apikey" },
 		{ authType: "tedi" },
 		{ externalAgentPrincipalId: "executor" },
+		{
+			authType: "service-binding",
+			externalAgentPrincipalId: "executor",
+			gatewayEndUserId: "owner-1",
+		},
 		{ tediId: "tedi-1" },
 	] as Partial<BaseContext>[])(
 		"refuses certification without direct human owner/admin authority: %j",
@@ -118,7 +123,63 @@ describe("certification run admission", () => {
 			expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
 		},
 	);
-	it("does not turn an ordinary draft run into certification from params", async () => {
+	it.each([{ probe: true }, { probe: true, certification: true }, {}])(
+		"refuses a proposal before dispatch without owner certification: %j",
+		async (params) => {
+			mocks.getSkillEntry.mockResolvedValue({
+				...(await mocks.getSkillEntry()),
+				sourceSkillId: "baseline-1",
+				tags: ["workflow-improvement"],
+			});
+			await expect(
+				client()({ ...input, certification: false, params }),
+			).rejects.toThrow(
+				"Ask that person to run the reviewed proposal revision",
+			);
+			expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
+			expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
+			expect(mocks.recordTediSubmissionStarted).not.toHaveBeenCalled();
+		},
+	);
+	it("dispatches an owner-certified proposal with its pinned revision and probe params", async () => {
+		mocks.getSkillEntry.mockResolvedValue({
+			...(await mocks.getSkillEntry()),
+			sourceSkillId: "baseline-1",
+			tags: ["workflow-improvement"],
+		});
+		await client()({ ...input, params: { probe: true } });
+		expect(mocks.callSkillRuntime).toHaveBeenCalledWith(
+			expect.anything(),
+			"/run",
+			expect.objectContaining({
+				orgId: "org-1",
+				tediId: "tedi-1",
+				skillId: "skill-1",
+				skillRevision: 7,
+				createdBy: "user:owner-1",
+				certification: true,
+				params: { probe: true },
+			}),
+		);
+	});
+	it("rejects an unreviewed revision before certification dispatch", async () => {
+		await expect(
+			client()({ ...input, expectedSkillRevision: 6 }),
+		).rejects.toThrow();
+		expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
+		expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
+	});
+	it("rejects another organization's tedi before certification dispatch", async () => {
+		mocks.getTediOrganizationId.mockResolvedValue("org-other");
+		await expect(client()(input)).rejects.toThrow();
+		expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
+		expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
+	});
+	it("does not turn an ordinary draft copy into certification from params", async () => {
+		mocks.getSkillEntry.mockResolvedValue({
+			...(await mocks.getSkillEntry()),
+			sourceSkillId: "baseline-1",
+		});
 		await client()({
 			...input,
 			certification: undefined,
