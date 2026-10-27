@@ -46,6 +46,28 @@ it("refuses unconfigured widgets and unlisted workers before reading their recor
 		),
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
+it("lets the OS surface of an unconfigured organization pick among its active tedis", async () => {
+	roster.mockResolvedValue([
+		{ id: one, name: "Engineer", status: "active", retiredAt: null },
+		{ id: two, name: "Support", status: "paused", retiredAt: null },
+	]);
+	const fallback = { unconfiguredFallback: "organization" } as const;
+	expect(
+		(await resolveEmbeddedTediSelection(ctx, "customer", null, one, fallback))
+			.tediSelection,
+	).toEqual({
+		defaultTediId: one,
+		selectedTediId: one,
+		tedis: [{ id: one, name: "Engineer" }],
+	});
+	// A paused tedi is not selectable, and no selection means no fallback.
+	await expect(
+		resolveEmbeddedTediSelection(ctx, "customer", null, two, fallback),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	await expect(
+		resolveEmbeddedTediSelection(ctx, "customer", null, undefined, fallback),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
 it.each(["missing", "retired", "inactive"])(
 	"rejects a %s configured worker without selecting another",
 	async (state) => {

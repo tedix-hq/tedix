@@ -283,6 +283,7 @@ export const createEmbeddedSessionProcedure =
 				tedi.organizationId,
 				organization?.metadata?.tediWidget?.tediSelection,
 				tedi.id,
+				{ unconfiguredFallback: "organization" },
 			);
 			// Resolve BEFORE minting: the surviving default is signed into the
 			// session, so the runtime honours an operator's choice without the

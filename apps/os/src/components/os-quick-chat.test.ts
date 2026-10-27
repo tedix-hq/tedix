@@ -264,6 +264,16 @@ describe("quick chat tedi choice", () => {
 			quickChatTediCandidates({ defaultTediId: "x", allowedTediIds: ["a"] }),
 		).toEqual(["a"]);
 		expect(quickChatTediCandidates(undefined, "a")).toEqual([]);
+		// No published selection: every active tedi, the requested one first.
+		expect(quickChatTediCandidates(undefined, "b", ["a", "b"])).toEqual([
+			"b",
+			"a",
+		]);
+		expect(quickChatTediCandidates(selection, "c", ["z"])).toEqual([
+			"c",
+			"b",
+			"a",
+		]);
 	});
 
 	it("moves past refused tedis but keeps real failures as failures", async () => {
@@ -329,6 +339,7 @@ describe("OsQuickChat mount", () => {
 			defaultTediId?: string | null;
 			allowedTediIds?: string[];
 			permissions?: string[];
+			tedis?: Array<{ id: string; status: string }>;
 			zIndex?: number;
 		} = {},
 	) {
@@ -363,6 +374,7 @@ describe("OsQuickChat mount", () => {
 				},
 			}),
 			"tedis.createEmbeddedSession": (input) => ({ session: input }),
+			"tedis.list": () => ({ data: options.tedis ?? [] }),
 		};
 		const listeners = new Map<string, Listener>();
 		const disposed: string[] = [];
@@ -701,6 +713,21 @@ describe("OsQuickChat mount", () => {
 		).toBe(false);
 		// Home is still offered, so the chat opens there.
 		expect(initOptions().home).toBeDefined();
+	});
+
+	it("binds the first active tedi when the organization published no selection", async () => {
+		const { initOptions } = await mount({
+			defaultTediId: null,
+			tedis: [
+				{ id: "tedi-paused", status: "paused" },
+				{ id: "tedi-9", status: "active" },
+			],
+		});
+		await initOptions().session({ conversationId: "c-1", pathname: "/work" });
+		const tried = calls
+			.filter((call) => call.path === "tedis.createEmbeddedSession")
+			.map((call) => (call.input as { tediId: string }).tediId);
+		expect(tried).toEqual(["tedi-9"]);
 	});
 
 	it("skips a remembered or default tedi the API refuses and binds the next allowed one", async () => {
