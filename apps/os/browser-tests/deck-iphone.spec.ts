@@ -307,8 +307,10 @@ try {
 			);
 			await page.locator(".fd-deck-current .fd-card").waitFor();
 			await page.locator('[data-slot="card-footer"]').first().waitFor();
+			// The launcher marks <html> last; measure once it has fully mounted.
 			await page.waitForFunction(
 				() =>
+					document.documentElement.hasAttribute("data-quick-chat-launcher") &&
 					document
 						.querySelector("[data-tedix-widget]")
 						?.shadowRoot?.querySelector(".tedix-launcher")
@@ -424,6 +426,9 @@ try {
 				[],
 				`${label}: card layout at 360px with a wrapped action row`,
 			);
+			// Drop route handlers first: a request still in flight must not
+			// reach route.fetch() after the context is gone.
+			await page.unrouteAll({ behavior: "ignoreErrors" });
 			await context.close();
 			console.log(`PASS ${label}`);
 		}

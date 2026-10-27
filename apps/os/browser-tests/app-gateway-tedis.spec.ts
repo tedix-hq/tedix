@@ -82,6 +82,9 @@ try {
 						.length === count,
 				before + 1,
 			);
+			// Drop route handlers first: a request still in flight must not
+			// reach route.fetch() after the context is gone.
+			await page.unrouteAll({ behavior: "ignoreErrors" });
 			await page.close();
 			console.log(`app gateway tedis ${label}: ok`);
 		}

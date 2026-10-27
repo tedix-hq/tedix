@@ -82,6 +82,9 @@ try {
 				box.x >= -1 && box.x + box.width <= geometry.clientWidth + 1,
 				`${label}: server name stays inside the viewport ${JSON.stringify(box)}`,
 			);
+			// Drop route handlers first: a request still in flight must not
+			// reach route.fetch() after the context is gone.
+			await page.unrouteAll({ behavior: "ignoreErrors" });
 			await page.close();
 			console.log(`app settings mcp ${label}: ok`);
 		}

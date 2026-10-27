@@ -162,6 +162,9 @@ try {
 				return problems;
 			});
 			assert.deepEqual(failures, [], `${label}: card fits`);
+			// Drop route handlers first: a request still in flight must not
+			// reach route.fetch() after the context is gone.
+			await page.unrouteAll({ behavior: "ignoreErrors" });
 			await context.close();
 			console.log(`deck face fit ${label}: ok`);
 		}
