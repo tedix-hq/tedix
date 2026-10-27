@@ -5,8 +5,9 @@ import { workHomeSearch } from "@/lib/work-home-search";
 
 export const Route = createFileRoute("/_session/_tenant/work/")({
 	validateSearch: workHomeSearch,
-	loader: ({ context }) => {
-		prefetchWorkDeck(context.queryClient);
+	loaderDeps: ({ search }) => ({ view: search.view }),
+	loader: ({ context, deps }) => {
+		prefetchWorkDeck(context.queryClient, deps.view);
 	},
 	component: WorkLanding,
 });

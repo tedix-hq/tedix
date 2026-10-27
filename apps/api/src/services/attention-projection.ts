@@ -14,8 +14,8 @@ import {
 import {
 	projectDeckCards,
 	annotateDeckAsk,
-	compareDecisionFreshness,
 	rankDeckCard,
+	sortByDecisionFreshness,
 	type DeckRoutingReceipt,
 } from "@tedix/api-contract/utils/deck-projection";
 import {
@@ -477,7 +477,7 @@ async function loadConfiguredDeckProjection(
 			}
 		}
 	}
-	cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));
+	sortByDecisionFreshness(cards, now, timeZone);
 	return {
 		cards,
 		count: cards.length,

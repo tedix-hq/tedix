@@ -1,7 +1,16 @@
 import { expect, it } from "vite-plus/test";
-import { cardIsDue, factoryCardDeadline } from "./card-schedule";
+import { calendarDay, cardIsDue, factoryCardDeadline } from "./card-schedule";
 
 const now = new Date("2026-10-20T12:00:00Z");
+
+it("keeps each time zone's calendar day when formatters are reused", () => {
+	const late = new Date("2026-10-20T23:30:00Z");
+	for (let round = 0; round < 2; round++) {
+		expect(calendarDay(late, "UTC")).toBe("2026-10-20");
+		expect(calendarDay(late, "Europe/Berlin")).toBe("2026-10-21");
+		expect(calendarDay(late, "America/Los_Angeles")).toBe("2026-10-20");
+	}
+});
 it.each(["due", "dueAt", "dueDate", "due_date", "deadline"])(
 	"keeps future %s visible and uses it as the deadline",
 	(field) => {
