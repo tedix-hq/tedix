@@ -41,7 +41,8 @@ async function trackPlatformCronPath(
  *   database config is present), Deck pipeline sweep (in the first two minutes
  *   of each quarter hour: retire expired, finished-Work and duplicate cards),
  *   due skill schedules, always-on keepalive, orphan-run sweep, work-attempt
- *   lease sweep, work approval redrive, MCP event webhook delivery.
+ *   lease sweep, work approval redrive, MCP event webhook delivery, Work
+ *   routing (every ten minutes: accepted non-coding Work to its steward tedi).
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
  *   workstation compute metering, D1 retention (policy rows in
@@ -223,6 +224,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 					),
 				})),
 			);
+			if (minute % 10 < 2) {
+				// Accepted non-coding Work with no executor goes to its steward tedi.
+				const { dispatchWorkRouting } = await import("./work-routing");
+				await trackPlatformCronPath(env, event, "work-routing", () =>
+					dispatchWorkRouting(env, event.scheduledTime),
+				);
+			}
 			const { dispatchCommitmentWakes } = await import("./commitment-wakes");
 			await trackPlatformCronPath(env, event, "commitment-wakes", () =>
 				dispatchCommitmentWakes(env, event.scheduledTime),
