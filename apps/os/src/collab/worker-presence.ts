@@ -9,6 +9,17 @@ import type {
 } from "./presence";
 
 type PresencePayload = Record<string, unknown>;
+
+/** The plain label for a person whose name the roster may not show. */
+export const TEAMMATE_LABEL = "Teammate";
+
+/**
+ * True for a placeholder rather than a person's name. The workspace API still
+ * answers "Tedix member" until it deploys the plainer label.
+ */
+export function isPlaceholderPresenceName(name: string): boolean {
+	return name === TEAMMATE_LABEL || name === "Tedix member";
+}
 type PresenceVerifier = typeof validateToken;
 
 function claimString(payload: PresencePayload, key: string): string | null {
@@ -38,7 +49,7 @@ function displayName(
 		? "Tedi"
 		: kind === "external_agent"
 			? "External agent"
-			: "Tedix member";
+			: TEAMMATE_LABEL;
 }
 
 function participantRole(
@@ -149,12 +160,11 @@ export async function authenticateCollabPresence(
 		if (identity?.kind === "human" && payload.sub && resolveMemberName) {
 			try {
 				const name = (await resolveMemberName(payload.sub))?.trim();
-				identity.displayName =
-					name && name.length <= 100 && !name.includes("@")
-						? name
-						: "Tedix member";
+				// The member directory wins; the sign-in's own name claim is next.
+				if (name && name.length <= 100 && !name.includes("@"))
+					identity.displayName = name;
 			} catch {
-				identity.displayName = "Tedix member";
+				// Keep the name from the sign-in, or the plain label.
 			}
 		}
 		return identity;

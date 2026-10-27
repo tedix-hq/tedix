@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	authenticateCollabPresence,
+	isPlaceholderPresenceName,
 	collabIdentityFromPayload,
 } from "./worker-presence";
 
@@ -140,7 +141,7 @@ describe("collaboration profile names", () => {
 				resolveName,
 			);
 			expect(resolveName).toHaveBeenCalledWith("fictional-user");
-			expect(identity?.displayName).toBe(name?.trim() || "Tedix member");
+			expect(identity?.displayName).toBe(name?.trim() || "Teammate");
 		},
 	);
 	it("keeps the fallback when the members lookup is unavailable", async () => {
@@ -152,7 +153,25 @@ describe("collaboration profile names", () => {
 			"verified-session",
 			vi.fn().mockRejectedValue(new Error("Unavailable")),
 		);
-		expect(identity?.displayName).toBe("Tedix member");
+		expect(identity?.displayName).toBe("Teammate");
+	});
+	it("falls back to the sign-in's own name before the plain label", async () => {
+		const identity = await authenticateCollabPresence(
+			new Request("https://example.com/collab/w"),
+			"project",
+			"tenant-a",
+			vi.fn().mockResolvedValue({
+				sub: "fictional-user",
+				dct: "tenant-a",
+				name: "Rhea Quill",
+			}),
+			"verified-session",
+			vi.fn().mockResolvedValue(null),
+		);
+		expect(identity?.displayName).toBe("Rhea Quill");
+		expect(isPlaceholderPresenceName("Rhea Quill")).toBe(false);
+		expect(isPlaceholderPresenceName("Teammate")).toBe(true);
+		expect(isPlaceholderPresenceName("Tedix member")).toBe(true);
 	});
 	it("does not look up a profile for a foreign tenant", async () => {
 		const resolveName = vi.fn();

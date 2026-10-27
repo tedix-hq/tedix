@@ -355,6 +355,7 @@ const ENGLISH_COPY = {
 	},
 	workspace: {
 		allWorkspaces: "All workspaces",
+		overview: "Overview",
 	},
 	notebookSubjects: ["Answers", "Git", "Deploys", "Work", "Agents"],
 	weekdays: [
@@ -603,6 +604,11 @@ export const OS_COPY = {
 		return osLocale().startsWith("es")
 			? SPANISH_FEED_DECK_COPY.learning
 			: ENGLISH_COPY.learning;
+	},
+	get workspace() {
+		return osLocale().startsWith("es")
+			? SPANISH_FEED_DECK_COPY.workspace
+			: ENGLISH_COPY.workspace;
 	},
 	get feed() {
 		return osLocale().startsWith("es")

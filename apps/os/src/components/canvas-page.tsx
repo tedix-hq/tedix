@@ -10,8 +10,9 @@ import {
 	FileX,
 	Kanban,
 	ListChecks,
+	ChatCircle,
+	FolderOpen,
 	Plugs,
-	SidebarSimple,
 } from "@phosphor-icons/react";
 import type {
 	OsGadget,
@@ -1238,7 +1239,7 @@ export function CanvasPage({
 	const workspaceMenuItems = (
 		<>
 			<DropdownMenuItem onClick={showCanvasResources}>
-				<Books size={14} /> Everything in this workspace
+				<Books size={14} /> {OS_COPY.workspace.overview}
 			</DropdownMenuItem>
 			<DropdownMenuItem onClick={() => showPane("work")}>
 				<Kanban size={14} /> Work
@@ -1272,7 +1273,10 @@ export function CanvasPage({
 			data-canvas-transition={transitionEnabled && !resizingChat}
 		>
 			<PageHeader className="canvas-workspace-header">
-				<div className="canvas-workspace-identity">
+				<div
+					className="canvas-workspace-identity"
+					data-open-item={selectedApp ? "" : undefined}
+				>
 					<Button
 						aria-label={OS_COPY.workspace.allWorkspaces}
 						className="canvas-workspace-back"
@@ -1293,7 +1297,7 @@ export function CanvasPage({
 									: undefined
 							}
 							kind="workspace"
-							className="size-6 rounded-md"
+							className="canvas-workspace-avatar size-6 rounded-md"
 						/>
 					) : (
 						<OrganizationMark
@@ -1329,7 +1333,16 @@ export function CanvasPage({
 					</div>
 				</div>
 				<PageActions className="canvas-workspace-actions">
-					<CanvasPresence participants={workspaceParticipants} />
+					<CanvasPresence
+						participants={workspaceParticipants}
+						openItem={
+							selectedApp
+								? { kind: "gadget", label: selectedApp.name }
+								: selectedOutput
+									? { kind: "output", label: selectedOutput.title }
+									: null
+						}
+					/>
 					<span
 						className="contents"
 						data-workspace-activity-entry=""
@@ -1338,24 +1351,35 @@ export function CanvasPage({
 						<ApprovalNotifications conversationId={activeConversationId} />
 					</span>
 					<TransportStatus />
-					{/* The one control for the Files panel on a wide screen; phones
-					    reach the library from the bottom switcher instead. */}
+					{/* The chat and Files panel toggles on a wide screen; phones
+					    switch panes from the bottom switcher instead. */}
+					{openedDocs.length > 0 && !simpleMode ? (
+						<Button
+							aria-expanded={!chatCollapsed}
+							aria-label={chatCollapsed ? "Show chat" : "Hide chat"}
+							className="canvas-chat-toggle"
+							icon={<ChatCircle size={16} />}
+							onClick={toggleChatCollapsed}
+							size="icon-sm"
+							title={chatCollapsed ? "Show chat" : "Hide chat"}
+							variant="ghost"
+						/>
+					) : null}
 					<Button
 						aria-controls={WORKSPACE_OUTPUTS_PANEL_ID}
 						aria-expanded={outputsPanelExpanded}
-						aria-label={
-							outputsPanelExpanded ? "Collapse files" : "Expand files"
-						}
+						aria-label={outputsPanelExpanded ? "Hide files" : "Show files"}
 						className="canvas-files-toggle"
-						icon={<SidebarSimple className="-scale-x-100" size={16} />}
+						icon={<FolderOpen size={16} />}
 						onClick={() => changeOutputsPanelExpanded(!outputsPanelExpanded)}
 						size="icon-sm"
-						title={outputsPanelExpanded ? "Collapse files" : "Expand files"}
+						title={outputsPanelExpanded ? "Hide files" : "Show files"}
 						variant="ghost"
 					/>
 					{canvasView === "doc" ? (
 						<Button
 							aria-label="Focus"
+							className="canvas-workspace-focus"
 							icon={<ArrowsOut size={16} />}
 							onClick={enterFocusMode}
 							size="icon-sm"
@@ -1545,20 +1569,6 @@ export function CanvasPage({
 				>
 					{openedDocs.length > 0 ? (
 						<div className="canvas-workpiece-bar" data-focus-ring="inset">
-							<Button
-								className="canvas-chat-toggle"
-								size="icon"
-								variant="ghost"
-								aria-label={
-									chatCollapsed ? "Show conversations" : "Hide conversations"
-								}
-								title={
-									chatCollapsed ? "Show conversations" : "Hide conversations"
-								}
-								aria-pressed={chatCollapsed}
-								onClick={toggleChatCollapsed}
-								icon={<SidebarSimple size={16} />}
-							/>
 							<CanvasWorkpieceTabs
 								gadgets={gadgets.data?.items ?? []}
 								onClose={closeCanvasDoc}
@@ -1567,11 +1577,13 @@ export function CanvasPage({
 								outputs={outputs.data?.items ?? []}
 								selectedKey={selectedDoc ? canvasDocKey(selectedDoc) : null}
 							/>
-							{workpieceViewControls}
+							{/* Actions that come and go with the view (Translate, Save)
+							    sit before the view tabs, so the tabs keep their place. */}
 							<div
 								className="canvas-workpiece-actions"
 								ref={setWorkpieceActionsSlot}
 							/>
+							{workpieceViewControls}
 						</div>
 					) : null}
 					{canvasView === "library" ? (

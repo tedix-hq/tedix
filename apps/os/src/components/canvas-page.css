@@ -74,7 +74,7 @@
 }
 
 .canvas-workspace-title {
-	min-width: 0;
+	min-width: 3rem;
 }
 
 .canvas-workspace-title h1 {
@@ -881,25 +881,9 @@
 	}
 }
 
-.canvas-presence-trigger {
-	position: relative;
-	display: inline-flex;
-	cursor: pointer;
-	align-items: center;
-	border: 1px solid var(--border);
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--card) 80%, transparent);
-	padding: 2px;
-	transition:
-		background-color var(--duration-tedix-standard) var(--ease-tedix-standard),
-		transform var(--duration-tedix-standard) var(--ease-tedix-standard);
-}
-
-.canvas-presence-trigger:hover,
-.canvas-presence-trigger:focus-visible {
-	background: var(--background-lighter);
-	outline: 2px solid var(--ring);
-	outline-offset: 2px;
+/* Who is here: the same box as the icon buttons beside it, one avatar size. */
+:root {
+	--tedix-topbar-avatar-size: 24px;
 }
 
 .canvas-presence-trigger:active {
@@ -907,12 +891,9 @@
 }
 
 .canvas-presence-stack {
+	position: relative;
 	display: flex;
-	padding-right: 1px;
-}
-
-.canvas-presence-stack > * + * {
-	margin-left: -7px;
+	gap: 2px;
 }
 
 /* Collaborators' carets and selections in the rich document editor. Each
@@ -973,10 +954,11 @@
 	}
 }
 
+/* Anchored to the last visible avatar's bottom-right edge. */
 .canvas-presence-online {
 	position: absolute;
-	right: -1px;
-	bottom: -1px;
+	right: -2px;
+	bottom: -2px;
 	height: 10px;
 	width: 10px;
 	border: 2px solid var(--card);
@@ -1103,12 +1085,22 @@
 		padding-inline: 16px;
 	}
 
+	/* A phone names one thing: the open item, or the workspace beside its
+	   avatar. Focus belongs to wide screens; the pane switcher does its job. */
+	.canvas-workspace-separator,
+	.canvas-workspace-focus,
+	.canvas-workspace-identity[data-open-item] .canvas-workspace-avatar {
+		display: none;
+	}
+
 	.canvas-workspace-actions [data-slot="badge"],
 	.canvas-workspace-actions .transport-status {
 		display: none;
 	}
 
-	.canvas-workspace-header .canvas-presence-stack > :nth-child(n + 2) {
+	.canvas-workspace-header
+		.canvas-presence-stack
+		> :nth-child(n + 2):not(.canvas-presence-online) {
 		display: none;
 	}
 
@@ -1134,7 +1126,14 @@
 		flex: 0 1 auto;
 	}
 
-	/* The view tabs take their own line only when the row is too narrow. */
+	/* The view tabs always take the second line, so they keep their place
+	   whichever view adds or drops a control on the first. */
+	.canvas-workpiece-bar::after {
+		content: "";
+		order: 2;
+		flex-basis: 100%;
+	}
+
 	.canvas-workpiece-mode-switcher {
 		order: 3;
 		margin-bottom: 8px;

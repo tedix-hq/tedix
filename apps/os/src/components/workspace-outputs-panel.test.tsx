@@ -197,7 +197,7 @@ describe("WorkspaceOutputsPanel", () => {
 			doc
 				.querySelector("[data-workspace-outputs-library]")
 				?.getAttribute("aria-label"),
-		).toBe("Everything here");
+		).toBe("Overview");
 	});
 
 	it("marks the canvas view the footer row opened", () => {

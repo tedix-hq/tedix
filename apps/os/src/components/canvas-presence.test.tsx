@@ -113,6 +113,31 @@ describe("CanvasPresence", () => {
 		expect(html).not.toContain("canvas-presence-avatar");
 	});
 
+	it("says in one line where each person is, marking the open item", () => {
+		const inApp = {
+			...participant("opaque-a", "Ada King"),
+			location: {
+				surface: "canvas" as const,
+				artifactKind: "gadget" as const,
+				artifactLabel: "Reddit Opportunities",
+			},
+		};
+		const elsewhere = participant("opaque-b", "Ada Lovelace");
+		const nowhere = { ...participant("opaque-c", "Teammate"), location: null };
+		const html = renderToStaticMarkup(
+			<CanvasPresence
+				participants={[inApp, elsewhere, nowhere]}
+				openItem={{ kind: "gadget", label: "Reddit Opportunities" }}
+			/>,
+		);
+		expect(html).toContain("In this app");
+		expect(html).toContain("Viewing Launch deck");
+		expect(html).toContain("In this workspace");
+		expect(html).not.toContain("Human ·");
+		// The stack and the roster draw the same initials.
+		expect(html.match(/>AK</g)).toHaveLength(2);
+	});
+
 	it("renders nothing when nobody else is present", () => {
 		expect(renderToStaticMarkup(<CanvasPresence participants={[]} />)).toBe("");
 	});

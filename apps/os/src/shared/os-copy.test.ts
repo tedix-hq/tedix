@@ -10,12 +10,14 @@ it("follows personal Spanish preferences after the app modules have already load
 	expect(OS_COPY.decisionDeck.title).toBe("Una decisión a la vez");
 	expect(OS_COPY.feed.filters.all).toBe("Para ti");
 	expect(OS_COPY.feedDeckVisual.clear).toBe("Todo decidido");
+	expect(OS_COPY.workspace.overview).toBe("Resumen");
 	expect(OS_COPY.learning.shorter("introducciones")).toContain(
 		"textos más breves",
 	);
 	expect(decisionText("Confirm decision")).toBe("Confirmar decisión");
 	setOsFormattingPreferences({ locale: "en-GB", timezone: null });
 	expect(OS_COPY.feed.filters.all).toBe("All");
+	expect(OS_COPY.workspace.overview).toBe("Overview");
 	expect(decisionText("Confirm decision")).toBe("Confirm decision");
 });
 

@@ -392,6 +392,10 @@ export const SPANISH_FEED_DECK_COPY = {
 			signal: "Señal",
 		},
 	},
+	workspace: {
+		allWorkspaces: "Todos los espacios de trabajo",
+		overview: "Resumen",
+	},
 };
 
 export const SPANISH_DECISION_CONTROLS: Record<string, string> = {

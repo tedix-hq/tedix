@@ -230,7 +230,7 @@ try {
 
 			// One toggle, in the top bar: collapse, and the choice survives a reload.
 			const toggles = page.getByRole("button", {
-				name: /^(Collapse|Expand) files$/,
+				name: /^(Hide|Show) files$/,
 			});
 			assert.equal(
 				await toggles.count(),
@@ -242,8 +242,8 @@ try {
 				0,
 				`${label}: the panel carries no toggle of its own`,
 			);
-			await page.getByRole("button", { name: "Collapse files" }).click();
-			await page.getByRole("button", { name: "Expand files" }).waitFor();
+			await page.getByRole("button", { name: "Hide files" }).click();
+			await page.getByRole("button", { name: "Show files" }).waitFor();
 			assert(
 				Math.abs(((await panel.boundingBox())?.width ?? 0) - 48) <= 1,
 				`${label}: collapsed to the icon rail`,
@@ -252,7 +252,7 @@ try {
 				path: `${evidence}/${label.replace("/", "-")}-collapsed.png`,
 			});
 			await page.reload();
-			await page.getByRole("button", { name: "Expand files" }).waitFor();
+			await page.getByRole("button", { name: "Show files" }).waitFor();
 			assert.equal(
 				await page.evaluate(() =>
 					localStorage.getItem("tedix-os:workspace-outputs-panel"),
@@ -260,15 +260,13 @@ try {
 				"collapsed",
 				`${label}: collapsed state is remembered`,
 			);
-			await page.getByRole("button", { name: "Expand files" }).click();
-			await page.getByRole("button", { name: "Collapse files" }).waitFor();
+			await page.getByRole("button", { name: "Show files" }).click();
+			await page.getByRole("button", { name: "Hide files" }).waitFor();
 
 			// The footer opens the library and Work in the canvas; the open file
 			// stays beside the chat on the way back.
-			await panel.getByRole("button", { name: "Everything here" }).click();
-			await page
-				.getByRole("heading", { name: "Everything in this workspace" })
-				.waitFor();
+			await panel.getByRole("button", { name: "Overview" }).click();
+			await page.getByRole("heading", { name: "Overview" }).waitFor();
 			await panel.getByRole("button", { name: "Work", exact: true }).click();
 			await page
 				.getByRole("region", { name: "Workspace work", exact: true })
@@ -369,9 +367,7 @@ try {
 				`${label}: side panel is hidden on a phone`,
 			);
 			assert.equal(
-				await page
-					.getByRole("button", { name: /^(Collapse|Expand) files$/ })
-					.count(),
+				await page.getByRole("button", { name: /^(Hide|Show) files$/ }).count(),
 				0,
 				`${label}: no panel toggle on a phone`,
 			);

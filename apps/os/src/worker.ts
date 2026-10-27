@@ -56,6 +56,7 @@ import { CAPN_ROUTE_PATH } from "./capnweb/contract";
 import { COLLAB_PRESENCE_HEADER } from "./collab/presence";
 import {
 	authenticateCollabPresence,
+	isPlaceholderPresenceName,
 	localCollabPresence,
 } from "./collab/worker-presence";
 import { createOsClientErrorIngest } from "./lib/error-reporting/ingest";
@@ -1587,7 +1588,11 @@ async function handleCollabUpgrade(
 		authenticatedPresence && workspacePresence
 			? {
 					...authenticatedPresence,
-					displayName: workspacePresence.displayName,
+					// The workspace's own answer, unless it only has a placeholder
+					// and the sign-in carries the person's name.
+					displayName: isPlaceholderPresenceName(workspacePresence.displayName)
+						? authenticatedPresence.displayName
+						: workspacePresence.displayName,
 					role: workspacePresence.role,
 				}
 			: authenticatedPresence;

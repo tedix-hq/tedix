@@ -425,7 +425,7 @@ export async function getWorkspacePresenceIdentity(
 	const [person] = await listTedixPeople(db(context), [access.callerId]);
 	return {
 		workspaceId: access.workspace.id,
-		displayName: person?.name?.trim() || "Tedix member",
+		displayName: person?.name?.trim() || "Teammate",
 		role:
 			access.workspace.visibility === "private" &&
 			access.workspace.ownerUserId === access.callerId
