@@ -71,16 +71,20 @@ Every upward lifecycle transition is checked inside the db write path
 (`assertSkillLifecycleTransition()` in
 `packages/db/src/queries/skill-lifecycle.ts`, called by `updateSkillEntry()`)
 against `skill_usage_events` rows with `source="workflow_run"` from a terminal
-`skill_runs` row. No handler, tool, or script can promote a skill that never
-ran. Demotion and archival always pass.
+`skill_runs` row. Instruction-only skills (no `files["scripts/workflow.ts"]`)
+can become `active` without a workflow run. Executable activation and all
+transitions to `proven` still require verified execution evidence. Adding or
+removing a workflow in the activation write does not bypass that gate.
+Demotion and archival always pass; force-authority and eval-policy checks
+still apply.
 
 | State          | Advances when                                                                    | Falls back when                                      |
 | -------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `draft`        | → `active` after ≥1 verified workflow success                                    | Zero-usage drafts archive after 14 days              |
+| `draft`        | → `active` for instructions, or after ≥1 verified workflow success for workflows | Zero-usage drafts archive after 14 days              |
 | `active`       | → `proven` after ≥5 verified successes and no unrecovered failure in the last 10 | 3 consecutive failures → `draft`                     |
 | `proven`       | → `crystallized` only via `muscle.crystallize` or operator force                 | 3 consecutive failures → `active`                    |
 | `crystallized` | —                                                                                | Never auto-demotes; a failure sets `reviewFlaggedAt` |
-| `stale`        | → `active` through the same ≥1-success gate                                      | → `archived`                                         |
+| `stale`        | → `active` through the same instruction/workflow gate                            | → `archived`                                         |
 
 - A failure is recovered once ≥2 consecutive verified successes follow it.
 - Direct (`skills.usage`) and muscle usage rows are telemetry only. A direct

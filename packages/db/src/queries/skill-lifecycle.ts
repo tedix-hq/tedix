@@ -5,7 +5,8 @@
  * `skill_usage_events` ledger — never by authorship, rollup counters, or
  * direct self-reports:
  *
- * - `draft → active` requires ≥1 recorded success event.
+ * - `draft → active` requires ≥1 recorded success event for executable skills;
+ *   instruction-only skills can activate without workflow execution.
  * - `active → proven` requires ≥SKILL_PROVEN_MIN_SUCCESSES ledger successes
  *   AND zero unrecovered failures in the last SKILL_PROVEN_RECENT_WINDOW
  *   events (a failure followed by ≥SKILL_FAILURE_RECOVERY_SUCCESSES
@@ -537,18 +538,20 @@ export function assertForcedSkillPromotionAuthority(
 /**
  * Hard write-path gate for lifecycle transitions, verified against the
  * skill_usage_events ledger (not the rollup counters). Demotions and archival
- * are always allowed; upward transitions require recorded execution evidence.
+ * are always allowed; instruction-only activation needs no workflow evidence.
  * Throws SkillLifecycleTransitionError when blocked.
  */
 export async function assertSkillLifecycleTransition(
 	db: DbClient,
-	entry: Pick<SkillEntry, "id" | "organizationId" | "lifecycleState">,
+	entry: Pick<SkillEntry, "id" | "organizationId" | "lifecycleState" | "files">,
 	target: SkillLifecycleState,
 	options?: AssertSkillLifecycleTransitionOptions,
 ): Promise<void> {
 	const current = entry.lifecycleState ?? "draft";
 	if (target === current) return;
 	if (LIFECYCLE_RANK[target] <= LIFECYCLE_RANK[current]) return;
+	if (target === "active" && entry.files?.["scripts/workflow.ts"] === undefined)
+		return;
 
 	if (target === "crystallized") {
 		if (options?.via === "crystallize") return;

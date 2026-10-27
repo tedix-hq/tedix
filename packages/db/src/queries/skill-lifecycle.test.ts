@@ -96,14 +96,15 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 		proposedByTediId?: string | null;
 		/** null = org-scoped (authorless unless proposedByTediId is set). */
 		tediId?: string | null;
+		files?: Record<string, string> | null;
 	}) => {
 		sqlite
 			.prepare(
 				`INSERT INTO skill_entries (
 					id, organization_id, tedi_id, title, slug, content,
 					success_count, failure_count, lifecycle_state, created_at, updated_at,
-					last_used_at, tags, proposed_by_tedi_id
-				) VALUES (?, ?, ?, 'Deploy reconciler', ?, '# Skill', ?, ?, ?, ?, ?, ?, ?, ?)`,
+					last_used_at, tags, proposed_by_tedi_id, files
+				) VALUES (?, ?, ?, 'Deploy reconciler', ?, '# Skill', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			)
 			.run(
 				row.id,
@@ -120,6 +121,11 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 				row.lastUsedAt ?? null,
 				row.tags ? JSON.stringify(row.tags) : null,
 				row.proposedByTediId ?? null,
+				JSON.stringify(
+					row.files === undefined
+						? { "scripts/workflow.ts": "export default {}" }
+						: row.files,
+				),
 			);
 	};
 
@@ -408,7 +414,45 @@ describe("assertSkillLifecycleTransition via updateSkillEntry", () => {
 		expect(created.lifecycleState).toBe("draft");
 	});
 
-	it("blocks draft → active with zero recorded usage events", async () => {
+	it.each([null, {}, { "references/guide.md": "# Guide" }])(
+		"activates instruction-only skills with files %j without workflow evidence",
+		async (files) => {
+			const { db, insertSkill, skillRow } = fixture();
+			insertSkill({ id: "skill-1", lifecycleState: "draft", files });
+			await updateSkillEntry(db, "skill-1", { lifecycleState: "active" });
+			expect(skillRow("skill-1").lifecycleState).toBe("active");
+		},
+	);
+
+	it("still requires evidence to mark instruction-only skills proven", async () => {
+		const { db, insertSkill } = fixture();
+		insertSkill({ id: "skill-1", lifecycleState: "active", files: null });
+		await expect(
+			updateSkillEntry(db, "skill-1", { lifecycleState: "proven" }),
+		).rejects.toMatchObject({ details: { rule: "proven_requires_successes" } });
+	});
+
+	it.each(["add", "remove"])(
+		"cannot %s a workflow to bypass activation evidence",
+		async (edit) => {
+			const { db, insertSkill, skillRow } = fixture();
+			const workflow = { "scripts/workflow.ts": "export default {}" };
+			insertSkill({
+				id: "skill-1",
+				lifecycleState: "draft",
+				files: edit === "add" ? null : workflow,
+			});
+			await expect(
+				updateSkillEntry(db, "skill-1", {
+					lifecycleState: "active",
+					files: edit === "add" ? workflow : null,
+				}),
+			).rejects.toMatchObject({ details: { rule: "active_requires_success" } });
+			expect(skillRow("skill-1").lifecycleState).toBe("draft");
+		},
+	);
+
+	it("blocks executable draft → active with zero recorded usage events", async () => {
 		const { db, insertSkill, skillRow } = fixture();
 		insertSkill({ id: "skill-1", lifecycleState: "draft" });
 		await expect(
@@ -733,7 +777,12 @@ describe("assertSkillLifecycleTransition via updateSkillEntry", () => {
 		await expect(
 			assertSkillLifecycleTransition(
 				db,
-				{ id: "skill-1", organizationId: "org-1", lifecycleState: "draft" },
+				{
+					id: "skill-1",
+					organizationId: "org-1",
+					lifecycleState: "draft",
+					files: null,
+				},
 				"draft",
 			),
 		).resolves.toBeUndefined();
