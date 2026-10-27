@@ -500,7 +500,7 @@ describe("AppTediAssignments", () => {
 			assignmentId: ASSIGNMENT_A,
 			role: "observer",
 		});
-		expect(role?.textContent).toContain("operator");
+		expect(role?.textContent).toContain("Operator");
 
 		await act(async () => labelledButton(view.host, "Unassign Atlas").click());
 		await settles(() =>
