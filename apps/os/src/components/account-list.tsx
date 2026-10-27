@@ -291,6 +291,7 @@ export interface AccountListProps {
 		checkEachPersonsAccess: boolean | null,
 	) => void;
 	isSettingAccessCheck?: boolean;
+	renderConsumerGrants?: (row: ConnectionInventoryRow) => ReactNode;
 	serviceHealth: Record<string, ServiceHealth | undefined>;
 	onCheckService: (providerId: string, appSlug: string) => void;
 	/** Open "Available to connect" without a click (search, filters, empty list). */
@@ -621,7 +622,7 @@ function AccountDetails({
 		<div className="grid gap-2 px-4 pb-4 sm:ps-15">
 			<Text role="label" tone="secondary">
 				{props.owner === "organization"
-					? "Everyone in this organization can use it through its apps."
+					? "Everyone in this organization can use it by default. Open Details to limit access."
 					: "Only you can use it."}
 			</Text>
 			<ul aria-label={`${name} accounts`} className="m-0 grid list-none p-0">
@@ -724,6 +725,7 @@ function MoreDetails({
 		: [];
 	const renamable = accounts.filter((row) => row.connectionInstanceId);
 	const accessChecked = accounts.filter((row) => row.accessCheck);
+	const renderConsumerGrants = props.renderConsumerGrants;
 	const health = props.serviceHealth[provider.appId];
 	const slugs = [
 		...new Set(
@@ -759,6 +761,20 @@ function MoreDetails({
 						capabilities={accounts.flatMap((row) => row.toolCapabilities ?? [])}
 					/>
 					<dl className="m-0 grid gap-3">
+						{props.owner === "organization" && renderConsumerGrants
+							? accounts.map((row) => (
+									<DetailRow
+										key={row.connectionInstanceId ?? "default"}
+										term={
+											multiple
+												? `Who can use ${accountLabel(row)}`
+												: "Who can use this"
+										}
+									>
+										{renderConsumerGrants(row)}
+									</DetailRow>
+								))
+							: null}
 						<DetailRow term="Last checked">
 							<div className="flex flex-wrap items-center gap-2">
 								<span>

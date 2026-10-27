@@ -78,6 +78,12 @@ export function buildCredentialErrorMessage(
 ): string {
 	const genericMessage =
 		"Connection credential not found. Ensure the provider is connected in Settings > Connections.";
+	if (
+		result.status === 403 &&
+		result.detail?.includes("Not granted for this connection")
+	) {
+		return "This tedi or skill revision is not allowed to use this organization connection. Ask an administrator to grant access in Admin > Connections.";
+	}
 	if (result.status !== undefined && result.status !== 404) {
 		return `Connection credential lookup failed (status ${result.status})${
 			result.detail ? `: ${result.detail}` : ""

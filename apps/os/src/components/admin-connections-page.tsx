@@ -76,6 +76,7 @@ import {
 	groupAccounts,
 	type ServiceHealth,
 } from "@/components/account-list";
+import { ConnectionConsumerGrantsEditor } from "@/components/connection-consumer-grants";
 import {
 	DisconnectConnectionDialog,
 	type DisconnectConnectionTarget,
@@ -856,6 +857,18 @@ export function AdminConnectionsPage({
 								});
 							}}
 							isSettingAccessCheck={accessCheckMutation.isPending}
+							renderConsumerGrants={
+								scope === "organization"
+									? (row) => (
+											<ConnectionConsumerGrantsEditor
+												providerId={row.provider.appId}
+												connectionInstanceId={row.connectionInstanceId}
+												accountLabel={accountDisplayLabel(row)}
+												canManage={canManageConnections}
+											/>
+										)
+									: undefined
+							}
 							serviceHealth={serviceHealthByProvider}
 							onCheckService={handleCheckService}
 						/>

@@ -230,6 +230,32 @@ describe("account list model", () => {
 	});
 });
 
+it("places Who can use this only in organization account details", async () => {
+	await render([{ ...named, scope: "tenant" }], {
+		owner: "organization",
+		renderConsumerGrants: (row) => (
+			<span data-grants-for={row.connectionInstanceId}>Grant controls</span>
+		),
+	});
+	await expand();
+	await details();
+	expect(host.textContent).toContain("Who can use this");
+	expect(
+		host.querySelector(`[data-grants-for="${named.connectionInstanceId}"]`),
+	).not.toBeNull();
+
+	await act(async () => root?.unmount());
+	root = undefined;
+	await render([named], {
+		owner: "personal",
+		renderConsumerGrants: () => <span>Grant controls</span>,
+	});
+	await expand();
+	await details();
+	expect(host.textContent).not.toContain("Who can use this");
+	expect(host.textContent).not.toContain("Grant controls");
+});
+
 describe("account list rows", () => {
 	it("shows one status closed, the accounts open, and everything else behind Details", async () => {
 		const access = {

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { ToolHandler, type ToolExecutionContext } from "./handler";
-import { buildCredentialErrorData } from "./handler-connection-credentials";
+import {
+	buildCredentialErrorData,
+	buildCredentialErrorMessage,
+} from "./handler-connection-credentials";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 const selection = {
@@ -125,4 +128,23 @@ describe("unconfigured MCP capabilities", () => {
 			).not.toHaveProperty("capability");
 		},
 	);
+
+	it("explains a consumer grant refusal without exposing the RPC envelope", () => {
+		const message = buildCredentialErrorMessage({
+			token: null,
+			status: 403,
+			detail:
+				'{"code":"FORBIDDEN","message":"Not granted for this connection. Request access from an administrator in /admin/connections."}',
+		});
+		expect(message).toBe(
+			"This tedi or skill revision is not allowed to use this organization connection. Ask an administrator to grant access in Admin > Connections.",
+		);
+		expect(message).not.toContain("FORBIDDEN");
+		expect(
+			buildCredentialErrorData(
+				{ token: null, status: 403, detail: message },
+				selection,
+			),
+		).not.toHaveProperty("capability");
+	});
 });

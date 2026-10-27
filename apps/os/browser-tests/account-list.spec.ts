@@ -162,6 +162,16 @@ try {
 					) && details.includes("Last checked"),
 					`${label}: Details hold account mode and last check`,
 				);
+				assert.equal(
+					details.includes("Who can use this"),
+					owner === "organization",
+					`${label}: organization Details alone control who can use it`,
+				);
+				if (owner === "organization")
+					assert.ok(
+						details.includes("Everyone in the organization"),
+						`${label}: everyone is the default`,
+					);
 				if (owner === "personal") {
 					for (const app of ["Notion", "GitHub"]) {
 						const appRow = page.locator("li[data-account-group]", {

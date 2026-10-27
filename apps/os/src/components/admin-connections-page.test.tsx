@@ -48,6 +48,9 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/capability-navigation", () => ({
 	CapabilityNavigation: () => null,
 }));
+vi.mock("@/components/connection-consumer-grants", () => ({
+	ConnectionConsumerGrantsEditor: () => <span>Consumer grant controls</span>,
+}));
 vi.mock("@/lib/webmcp/use-webmcp-tools", () => ({ useWebMcpTools: () => {} }));
 vi.mock("@/lib/os-query-options", () => ({
 	connectionsOverviewQueryOptions: () => ({}),
