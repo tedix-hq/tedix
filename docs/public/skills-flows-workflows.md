@@ -128,6 +128,33 @@ tedix -w acme skill runs
 activation, and scheduling remain governed skill lifecycle decisions, not
 automatic consequences of a successful flow.
 
+## Call a tedi from a skill workflow
+
+A workflow can ask its owning tedi to review findings or make a decision.
+Declare `tedi: [run_tedi_turn, messages_read]` under `capabilities.mcp` in the
+skill manifest, then use this pattern:
+
+1. Send the request with `env.MCP.tedi.run_tedi_turn`, passing `text`, a
+   `session_key` for this conversation, and a stable `client_request_id` for
+   this request. Keep both identifiers so later steps can check the result.
+2. If the call returns a pending receipt or times out, the turn may still be
+   running. A timeout does not prove that the request failed or succeeded.
+   Check for a reply before sending again; if you retry the same request,
+   reuse its `client_request_id`.
+3. Read `env.MCP.tedi.messages_read({ session_key: sessionKey, limit: 20 })`
+   using the same session key. Check for an assistant reply to this request,
+   not an older reply. Use separate `step.do` calls for reads and `step.sleep`
+   between checks, with a fixed number of checks or a deadline.
+4. If no matching reply arrives by that deadline, report that the result is
+   still unconfirmed and keep the session key for follow-up. Do not treat an
+   empty message list as a completed review.
+
+Keep prompts short and bounded: send only the facts needed for the decision,
+ask for a concise answer, and split large batches into smaller requests.
+For example, review a few relevant excerpts rather than several full threads
+at once. Longer prompts can take longer to answer; repeated sends do not
+replace checking the original conversation.
+
 ## Start a skill from upstream MCP events
 
 A tedi skill can run when a connected MCP app emits an event. Tedix supports
