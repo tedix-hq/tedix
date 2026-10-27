@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
-import { Input } from "@/components/kumo/input";
+import { Combobox } from "@/components/kumo/combobox";
 import { X } from "@phosphor-icons/react";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -38,7 +38,7 @@ export function ChatSkillPicker({
 	};
 	skills: readonly ComposerSkill[];
 }) {
-	const list = useRef<HTMLUListElement>(null);
+	const list = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		list.current?.children[activeIndex]?.scrollIntoView({ block: "nearest" });
 	}, [activeIndex]);
@@ -56,72 +56,73 @@ export function ChatSkillPicker({
 			className="absolute right-0 bottom-full left-0 z-20 mb-2 max-h-[50dvh] overflow-y-auto py-1"
 		>
 			<CardContent className="px-1">
-				{search ? (
-					<Input
-						ref={searchRef}
-						aria-label="Search skills"
-						role="combobox"
-						aria-autocomplete="list"
-						aria-expanded={!loading && !error && skills.length > 0}
-						aria-controls={
-							!loading && !error && skills.length > 0 ? listboxId : undefined
-						}
-						aria-activedescendant={
-							activeIndex >= 0 && skills[activeIndex]
-								? `${listboxId}-option-${activeIndex}`
-								: undefined
-						}
-						placeholder="Search skills…"
-						value={search.value}
-						onValueChange={search.onValueChange}
-						onKeyDown={search.onKeyDown}
-					/>
-				) : null}
-				{error ? (
-					// A failed read is NOT an empty library. Saying "no skills" here
-					// would teach the operator their org has none.
-					<div
-						role="alert"
-						className="flex items-center justify-between gap-3 px-2 py-2"
-					>
-						<Text role="label" tone="secondary">
-							Couldn't load skills.
+				<Combobox<ComposerSkill>
+					items={skills}
+					open
+					filter={null}
+					autoHighlight={false}
+					value={null}
+					itemToStringLabel={(skill) => skill.title}
+					onValueChange={(skill) => {
+						if (skill) onSelect(skill);
+					}}
+				>
+					{search ? (
+						<Combobox.Input
+							ref={searchRef}
+							aria-label="Search skills"
+							placeholder="Search skills…"
+							value={search.value}
+							onChange={(event) => search.onValueChange(event.target.value)}
+							onKeyDown={search.onKeyDown}
+						/>
+					) : null}
+					{error ? (
+						// A failed read is NOT an empty library. Saying "no skills" here
+						// would teach the operator their org has none.
+						<div
+							role="alert"
+							className="flex items-center justify-between gap-3 px-2 py-2"
+						>
+							<Text role="label" tone="secondary">
+								Couldn't load skills.
+							</Text>
+							<Button
+								type="button"
+								size="sm"
+								variant="outline"
+								onClick={onRetry}
+							>
+								Retry
+							</Button>
+						</div>
+					) : loading ? (
+						<Text role="label" tone="secondary" className="block px-2 py-2">
+							Loading skills…
 						</Text>
-						<Button type="button" size="sm" variant="outline" onClick={onRetry}>
-							Retry
-						</Button>
-					</div>
-				) : loading ? (
-					<Text role="label" tone="secondary" className="block px-2 py-2">
-						Loading skills…
-					</Text>
-				) : skills.length === 0 ? (
-					<Text role="label" tone="secondary" className="block px-2 py-2">
-						No matching skills.
-					</Text>
-				) : (
-					<ul
-						ref={list}
-						id={listboxId}
-						role="listbox"
-						aria-label="Skills"
-						className="m-0 flex list-none flex-col gap-0.5 p-0"
-					>
-						{skills.map((skill, index) => (
-							<li key={skill.id} role="none">
-								<Button
-									id={`${listboxId}-option-${index}`}
-									type="button"
-									role="option"
+					) : skills.length === 0 ? (
+						<Text role="label" tone="secondary" className="block px-2 py-2">
+							No matching skills.
+						</Text>
+					) : (
+						<Combobox.List
+							ref={list}
+							id={listboxId}
+							role="listbox"
+							aria-label="Skills"
+							className="m-0 flex list-none flex-col gap-0.5 p-0"
+						>
+							{skills.map((skill, index) => (
+								<Combobox.Item
+									key={skill.id}
+									value={skill}
+									render={<div id={`${listboxId}-option-${index}`} />}
 									aria-selected={index === activeIndex}
 									tabIndex={-1}
-									variant={index === activeIndex ? "secondary" : "ghost"}
 									// The composer must keep focus: a blur here swallows the
 									// next Enter exactly the way a disabled send control does.
 									onMouseDown={(event) => event.preventDefault()}
-									onClick={() => onSelect(skill)}
-									multiline
-									className="w-full min-w-0 justify-start px-2 py-2 text-left"
+									className={`min-w-0 px-2 py-2 text-left ${index === activeIndex ? "bg-kumo-tint" : ""}`}
 								>
 									<span className="flex w-full min-w-0 flex-col items-start gap-1">
 										<span className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -148,11 +149,11 @@ export function ChatSkillPicker({
 											</Text>
 										) : null}
 									</span>
-								</Button>
-							</li>
-						))}
-					</ul>
-				)}
+								</Combobox.Item>
+							))}
+						</Combobox.List>
+					)}
+				</Combobox>
 			</CardContent>
 		</Card>
 	);

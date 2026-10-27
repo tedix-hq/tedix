@@ -13,6 +13,7 @@ import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { errorMessage } from "@/lib/orpc-error";
 import { Badge } from "@/components/kumo/badge";
+import { Combobox } from "@/components/kumo/combobox";
 import {
 	Card,
 	CardContent,
@@ -49,7 +50,6 @@ function DirectReadComposer({
 	onClose: () => void;
 	onRun: (command: DirectReadCommand) => void;
 }) {
-	const [search, setSearch] = useState("");
 	const initiallyConnected =
 		apps.find((app) => app.connectionState === "connected") ?? apps[0];
 	const [appSlug, setAppSlug] = useState(initiallyConnected?.slug ?? "");
@@ -63,80 +63,102 @@ function DirectReadComposer({
 		initialReadValues(selectedTool),
 	);
 	const [error, setError] = useState<string | null>(null);
-	const visibleApps = apps.filter((app) =>
-		`${app.name} ${app.slug} ${app.tools.map((tool) => tool.title).join(" ")}`
-			.toLowerCase()
-			.includes(search.toLowerCase()),
-	);
 	return (
 		<Card
 			size="sm"
-			className="relative z-30 mb-2 max-h-[min(70vh,48rem)] overflow-y-auto bg-kumo-base shadow-tedix-floating"
+			className="mb-2 max-h-[min(70vh,48rem)] overflow-y-auto bg-kumo-base shadow-tedix-floating"
 		>
 			<CardHeader>
 				<CardTitle>Read from a connected app</CardTitle>
 			</CardHeader>
 			<CardContent className="grid gap-3">
-				<Input
-					aria-label="Search connected apps"
-					placeholder="Search apps and tools"
-					value={search}
-					onChange={(event) => setSearch(event.target.value)}
-				/>
-				<div className="flex max-h-28 flex-wrap gap-1 overflow-y-auto">
-					{visibleApps.length === 0 ? (
-						<Text role="label" tone="secondary" className="m-0">
+				<Combobox
+					items={apps}
+					value={selectedApp ?? null}
+					itemToStringLabel={(app) => app.name}
+					isItemEqualToValue={(a, b) => a.slug === b.slug}
+					filter={(app, query) =>
+						`${app.name} ${app.slug} ${app.tools.map((tool) => tool.title).join(" ")}`
+							.toLowerCase()
+							.includes(query.toLowerCase())
+					}
+					onValueChange={(app) => {
+						if (!app) return;
+						setAppSlug(app.slug);
+						setToolName(app.tools[0]?.name ?? "");
+						setValues(initialReadValues(app.tools[0] ?? null));
+					}}
+				>
+					<Combobox.Trigger
+						aria-label="Connected app"
+						render={
+							<Button variant="outline" className="w-full justify-between" />
+						}
+					>
+						{selectedApp?.name ?? "Choose an app"}
+					</Combobox.Trigger>
+					<Combobox.Content className="relative z-(--tedix-layer-dropdown) max-w-[calc(100vw-2rem)]">
+						<Combobox.Input
+							aria-label="Search connected apps"
+							placeholder="Search apps and tools"
+						/>
+						<Combobox.Empty>
 							No app or read action matches your search.
-						</Text>
-					) : null}
-					{visibleApps.map((app) => (
-						<Button
-							key={app.slug}
-							type="button"
-							size="sm"
-							variant={app.slug === selectedApp?.slug ? "secondary" : "ghost"}
-							aria-pressed={app.slug === selectedApp?.slug}
-							onClick={() => {
-								setAppSlug(app.slug);
-								setToolName(app.tools[0]?.name ?? "");
-								setValues(initialReadValues(app.tools[0] ?? null));
-							}}
-						>
-							{app.name}
-							<Badge variant="outline" className="ml-1">
-								{readConnectionLabel(app.connectionState)}
-							</Badge>
-						</Button>
-					))}
-				</div>
+						</Combobox.Empty>
+						<Combobox.List>
+							{(app: HomeReadOnlyApp) => (
+								<Combobox.Item key={app.slug} value={app}>
+									{app.name}
+									<Badge variant="outline" className="ml-1">
+										{readConnectionLabel(app.connectionState)}
+									</Badge>
+								</Combobox.Item>
+							)}
+						</Combobox.List>
+					</Combobox.Content>
+				</Combobox>
 				{selectedApp ? (
-					<div className="grid gap-1">
-						<Label>Read action</Label>
-						<div className="flex flex-wrap gap-1">
-							{selectedApp.tools.map((tool) => (
-								<Button
-									key={tool.name}
-									type="button"
-									size="sm"
-									variant={
-										tool.name === selectedTool?.name ? "outline" : "ghost"
-									}
-									aria-pressed={tool.name === selectedTool?.name}
-									onClick={() => {
-										setToolName(tool.name);
-										setValues(initialReadValues(tool));
-									}}
-								>
-									{tool.title}
-									{tool.connectionState !== "connected" ? (
-										<Badge variant="outline" className="ml-1">
-											{readConnectionLabel(tool.connectionState)}
-										</Badge>
-									) : null}
-								</Button>
-							))}
-						</div>
-					</div>
+					<Combobox
+						key={selectedApp.slug}
+						label="Read action"
+						items={selectedApp.tools}
+						value={selectedTool}
+						itemToStringLabel={(tool) => tool.title}
+						isItemEqualToValue={(a, b) => a.name === b.name}
+						onValueChange={(tool) => {
+							if (!tool) return;
+							setToolName(tool.name);
+							setValues(initialReadValues(tool));
+						}}
+					>
+						<Combobox.Trigger
+							aria-label="Read action"
+							render={
+								<Button variant="outline" className="w-full justify-between" />
+							}
+						>
+							{selectedTool?.title ?? "Choose a read action"}
+						</Combobox.Trigger>
+						<Combobox.Content className="relative z-(--tedix-layer-dropdown) max-w-[calc(100vw-2rem)]">
+							<Combobox.Input
+								aria-label="Search read actions"
+								placeholder="Search read actions"
+							/>
+							<Combobox.Empty>No matching read actions.</Combobox.Empty>
+							<Combobox.List>
+								{(tool: HomeReadOnlyApp["tools"][number]) => (
+									<Combobox.Item key={tool.name} value={tool}>
+										{tool.title}
+										{tool.connectionState !== "connected" ? (
+											<Badge variant="outline" className="ml-1">
+												{readConnectionLabel(tool.connectionState)}
+											</Badge>
+										) : null}
+									</Combobox.Item>
+								)}
+							</Combobox.List>
+						</Combobox.Content>
+					</Combobox>
 				) : null}
 				{selectedTool ? (
 					<div className="grid gap-2">

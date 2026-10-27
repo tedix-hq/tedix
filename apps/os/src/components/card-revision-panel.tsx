@@ -24,7 +24,11 @@ import {
 } from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import { Input } from "@/components/kumo/input";
-import { createPortal } from "react-dom";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTitle,
+} from "@/components/kumo/popover";
 import type { CardFeedbackAnchor } from "@tedix/api-contract/schemas/card-revisions";
 import { osApi } from "@/lib/api";
 import { osQuery, workAttentionQueryOptions } from "@/lib/os-query-options";
@@ -350,68 +354,84 @@ export function CardRevisionPanel({
 			className="grid min-w-0 gap-3"
 			aria-label="Card revisions"
 		>
-			{selection &&
-				createPortal(
-					<div
-						ref={selectionDialog}
-						role="dialog"
-						aria-label="Comment on selected text"
-						tabIndex={-1}
-						className="fixed z-50 grid w-80 max-w-[calc(100vw-32px)] gap-2 rounded-xl border border-kumo-line bg-kumo-base p-3 shadow-lg"
-						style={{ top: selection.top, left: selection.left }}
-						onKeyDown={(event) => {
-							if (event.key === "Escape") {
-								window.getSelection()?.removeAllRanges();
-								setSelection(null);
-							}
+			<Popover
+				open={selectionOpen}
+				onOpenChange={(nextOpen) => {
+					if (!nextOpen) {
+						window.getSelection()?.removeAllRanges();
+						setSelection(null);
+					}
+				}}
+			>
+				{selection && (
+					<PopoverContent
+						anchor={{
+							getBoundingClientRect: () =>
+								new DOMRect(selection.left, selection.top, 0, 0),
 						}}
+						side="bottom"
+						align="start"
+						sideOffset={0}
+						className="w-80"
+						initialFocus={false}
+						finalFocus={false}
 					>
-						<p className="type-tedix-caption line-clamp-2 break-words">
-							“{selection.anchor.quote}”
-						</p>
-						<div className="flex flex-wrap gap-2">
-							{options.map((chip) => (
+						<div
+							ref={selectionDialog}
+							tabIndex={-1}
+							aria-label="Comment on selected text"
+							className="grid gap-2"
+						>
+							<PopoverTitle className="sr-only">
+								Comment on selected text
+							</PopoverTitle>
+							<p className="type-tedix-caption line-clamp-2 break-words">
+								“{selection.anchor.quote}”
+							</p>
+							<div className="flex flex-wrap gap-2">
+								{options.map((chip) => (
+									<Button
+										key={chip}
+										variant="outline"
+										size="sm"
+										onClick={() => addComment(chip)}
+									>
+										{chip}
+									</Button>
+								))}
+							</div>
+							<Input
+								aria-label="Comment on selection"
+								placeholder="Comment…"
+								value={comment}
+								onChange={(event) => setComment(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter" && comment.trim()) {
+										event.preventDefault();
+										addComment();
+									}
+								}}
+							/>
+							<div className="flex gap-2">
 								<Button
-									key={chip}
-									variant="outline"
 									size="sm"
-									onClick={() => addComment(chip)}
+									disabled={!comment.trim() || anchors.length >= 20}
+									onClick={() => addComment()}
 								>
-									{chip}
+									Add comment
 								</Button>
-							))}
+								<Button
+									size="sm"
+									variant="ghost"
+									onClick={() => setSelection(null)}
+								>
+									Close
+								</Button>
+							</div>
 						</div>
-						<Input
-							aria-label="Comment on selection"
-							placeholder="Comment…"
-							value={comment}
-							onChange={(event) => setComment(event.target.value)}
-							onKeyDown={(event) => {
-								if (event.key === "Enter" && comment.trim()) {
-									event.preventDefault();
-									addComment();
-								}
-							}}
-						/>
-						<div className="flex gap-2">
-							<Button
-								size="sm"
-								disabled={!comment.trim() || anchors.length >= 20}
-								onClick={() => addComment()}
-							>
-								Add comment
-							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								onClick={() => setSelection(null)}
-							>
-								Close
-							</Button>
-						</div>
-					</div>,
-					document.body,
+					</PopoverContent>
 				)}
+			</Popover>
 			<div className="flex flex-wrap items-center gap-2">
 				<Button
 					variant="outline"
