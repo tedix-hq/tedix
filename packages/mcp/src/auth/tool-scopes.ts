@@ -85,6 +85,11 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"apps/list": "mcp:apps.read",
 	// Ownership is checked by the API against the target organization.
 	"organizations/completeOsOnboarding": "mcp:apps.write",
+	// Image handlers enforce target membership and entity-specific machine scopes.
+	"images/upload": "mcp:apps.write",
+	"images/requestUpload": "mcp:apps.write",
+	"images/confirmUpload": "mcp:apps.write",
+	"images/delete": "mcp:apps.write",
 	// Connect uses an organization aggregate alias instead of the underlying
 	// `kernel` or `os` namespace. Preserve the API's capability at these exact
 	// endpoints; an arbitrary aggregate name must never borrow a family grant.

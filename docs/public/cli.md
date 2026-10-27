@@ -458,6 +458,35 @@ can change, so discover those live through Code Mode instead:
 tedix code 'async () => await discover.search({ query: "calendar", limit: 3 })'
 ```
 
+## Set an organization logo
+
+In Tedix OS, open **Account → Personal settings → Your organizations**.
+Upload a logo beside any organization where you are an active owner or admin.
+The organization does not need its own OS. Other members can see its logo but
+cannot change it. A saved logo also appears in the organization switcher.
+
+For CLI or MCP, discover the image upload tool and inspect its inputs:
+
+```sh
+tedix -w connect code 'async () => await discover.search({query:"upload image",limit:1,includeParameters:true})'
+```
+
+Call the returned tool with `entityType: "organization"`, the target organization's
+UUID as `entityId`, base64 image bytes as `fileData`, a supported `contentType`,
+and a `filename`. The projected tool is `images.upload_images` on a gateway
+with the images namespace. For example, after discovery confirms that callable:
+
+```sh
+tedix -w connect code 'async () => await images.upload_images({entityType:"organization",entityId:"<organization-uuid>",fileData:"<base64-image-bytes>",contentType:"image/png",filename:"logo.png"})'
+```
+
+Use the human owner's existing OAuth connection with `mcp:apps.write`.
+Authorization checks the caller's active owner/admin membership in the target
+organization, independently of the current organization. An organization-scoped
+machine credential cannot use another person's memberships to cross organizations.
+Read back `organizations.listAllMine` or the organization switcher to check the
+saved logo; an upload response alone does not prove what the switcher displays.
+
 ## Read your Decisions and Activity
 
 Use the same ranked attention view as Tedix OS:

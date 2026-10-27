@@ -30,7 +30,7 @@ import { Loader } from "@/components/kumo/loader";
 import { Separator } from "@/components/kumo/separator";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
-import { osQueryKeys } from "@/lib/os-query-options";
+import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 
 const OrganizationProfileSchema = z.object({
 	name: z.string().min(1, "Name is required").max(100),
@@ -90,6 +90,7 @@ export function OrganizationProfileForm({
 	 */
 	const invalidateOrganization = () =>
 		Promise.all([
+			queryClient.invalidateQueries({ queryKey: osQuery.directory.key() }),
 			queryClient.invalidateQueries({
 				queryKey: osQueryKeys.organizationDetail(),
 			}),
@@ -333,7 +334,7 @@ async function directCreatorUpload(
 	});
 }
 
-function OrganizationLogoUpload({
+export function OrganizationLogoUpload({
 	organizationId,
 	currentImageUrl,
 	fallbackText,
@@ -443,6 +444,7 @@ function OrganizationLogoUpload({
 					<input
 						ref={fileInputRef}
 						type="file"
+						aria-label={`Upload ${fallbackText || "organization"} logo`}
 						accept={ACCEPTED_TYPES.join(",")}
 						className="hidden"
 						onChange={(event) => {
