@@ -25,6 +25,7 @@ import type {
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { mapAppBrandingToProfile } from "@tedix/api-contract/schemas/widget-theme";
 import { createMcpServer } from "@tedix/mcp-shared/server";
+import { resolvedMcpServerInfo } from "../json-rpc-envelope";
 import type { McpResultCacheHint } from "@tedix/mcp-shared/transport";
 import { createMcpLogger } from "../log";
 import { type ApiClient, getApiClient } from "../lib/api-client";
@@ -954,22 +955,19 @@ export async function buildMcpServer(
 				connectionAppSlug ?? cachedData.app.slug,
 			);
 
-	const server = createMcpServer(
-		{ name: serverName, version: serverVersion },
-		{
-			...(instructions ? { instructions } : {}),
-			capabilities: {
-				extensions: {
-					"io.modelcontextprotocol/apps": {},
-					"io.modelcontextprotocol/ui": {},
-					// Same declared shape as the modern server/discover path in
-					// src/index.ts — the transport serves resources/directory/read on
-					// both handshakes, so legacy clients must be told they may call it.
-					"io.modelcontextprotocol/skills": { directoryRead: true },
-				},
+	const server = createMcpServer(resolvedMcpServerInfo(cachedData), {
+		...(instructions ? { instructions } : {}),
+		capabilities: {
+			extensions: {
+				"io.modelcontextprotocol/apps": {},
+				"io.modelcontextprotocol/ui": {},
+				// Same declared shape as the modern server/discover path in
+				// src/index.ts — the transport serves resources/directory/read on
+				// both handshakes, so legacy clients must be told they may call it.
+				"io.modelcontextprotocol/skills": { directoryRead: true },
 			},
 		},
-	);
+	});
 
 	// Build per-request context — closures capture this, not cached data
 	const serverCtx = buildServerContext(

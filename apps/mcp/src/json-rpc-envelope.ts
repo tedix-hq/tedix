@@ -43,14 +43,26 @@ export function jsonRpcEnvelopeResponse(
 	);
 }
 
-export function resolvedMcpServerInfo(resolvedApp: ResolvedApp) {
+/** The handshake identity directories and hosts show for this server. */
+export function resolvedMcpServerInfo(
+	resolvedApp: Pick<ResolvedApp, "metadata"> & {
+		app: Pick<ResolvedApp["app"], "name" | "description" | "logoUrl">;
+	},
+) {
+	const config = resolvedApp.metadata?.mcpConfig;
+	const name =
+		(config?.serverName as string | undefined) ?? `${resolvedApp.app.name} MCP`;
+	const websiteUrl = config?.resourceDocumentation as string | undefined;
+	const icon = resolvedApp.app.logoUrl;
 	return {
-		name:
-			(resolvedApp.metadata?.mcpConfig?.serverName as string | undefined) ??
-			`${resolvedApp.app.name} MCP`,
-		version:
-			(resolvedApp.metadata?.mcpConfig?.serverVersion as string | undefined) ??
-			"1.0.0",
+		name,
+		title: name,
+		version: (config?.serverVersion as string | undefined) ?? "1.0.0",
+		...(resolvedApp.app.description
+			? { description: resolvedApp.app.description }
+			: {}),
+		...(websiteUrl ? { websiteUrl } : {}),
+		...(icon ? { icons: [{ src: icon }] } : {}),
 	};
 }
 

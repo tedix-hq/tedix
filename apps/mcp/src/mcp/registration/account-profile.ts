@@ -4,10 +4,14 @@ import type { CallerIdentity, ServerContext } from "../server-context";
 
 export const accountProfileSchema = z
 	.object({
-		id: z.string().min(1).regex(/\S/),
-		name: z.string().optional(),
-		email: z.string().optional(),
-		nickname: z.string().optional(),
+		id: z
+			.string()
+			.min(1)
+			.regex(/\S/)
+			.describe("Stable opaque identifier of the signed-in Tedix account."),
+		name: z.string().optional().describe("Display name, when known."),
+		email: z.string().optional().describe("Account email, when shared."),
+		nickname: z.string().optional().describe("Short name, when set."),
 	})
 	.strict();
 export const accountProfileInputSchema = z.object({}).strict();
