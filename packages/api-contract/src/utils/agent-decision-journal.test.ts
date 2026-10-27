@@ -17,7 +17,24 @@ import {
 	agentDecisionsFromEvents,
 	agentDecisionStandings,
 	agentDisplayName,
+	slug,
 } from "./agent-decision-journal";
+
+describe("slug", () => {
+	it("trims edge dashes like /^-+|-+$/ did", () => {
+		expect(slug("--Claude Code!--")).toBe("claude-code");
+		expect(slug("a--b")).toBe("a--b");
+		expect(slug("----")).toBe("agent");
+		expect(slug(" Long name here ", 6)).toBe("long-n");
+	});
+
+	it("stays linear on a long dash run that made the old regex backtrack", () => {
+		const hostile = `a${"-".repeat(100_000)}a`;
+		const started = performance.now();
+		expect(slug(hostile)).toBe(`a${"-".repeat(39)}`);
+		expect(performance.now() - started).toBeLessThan(250);
+	});
+});
 
 const config = AgentDecisionJournalConfigSchema.parse({});
 const input = RecordAgentDecisionInputSchema.parse({

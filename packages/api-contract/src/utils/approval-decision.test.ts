@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { approvalDecision } from "./approval-decision";
+import {
+	approvalDecision,
+	parseSkillRunDescription,
+	stripDashTail,
+	stripRetryNote,
+} from "./approval-decision";
 describe("approval decision catalog", () => {
 	it("keeps the skill name when the producer includes its requester and app", () => {
 		const result = approvalDecision({
@@ -138,5 +143,72 @@ describe("approval decision catalog", () => {
 			recommendation: "rejected",
 			reason: expect.stringContaining("your presence"),
 		});
+	});
+});
+
+describe("approval description parsers", () => {
+	const OLD_RETRY_NOTE =
+		/\.?\s*(?:Nothing has run yet;|After deciding in Tedix OS,).*$/i;
+	const OLD_SKILL_RUN =
+		/^Run skill: (.+?)\.(?: (In .+?\.))? Nothing has run yet;/;
+	const OLD_DASH_TAIL = /\s+—\s+.*$/;
+
+	// Seeded so a failure reproduces.
+	function random(seed: number) {
+		let state = seed;
+		return () => {
+			state = (state * 1103515245 + 12345) % 2147483648;
+			return state / 2147483648;
+		};
+	}
+	const PARTS = [
+		"a",
+		".",
+		" ",
+		"\t",
+		"\n",
+		"\u2028",
+		"—",
+		"In ",
+		". In ",
+		"Run skill: ",
+		" Nothing has run yet;",
+		". Nothing has run yet;",
+		"nothing HAS run yet;",
+		"After deciding in Tedix OS,",
+	];
+
+	it("matches the regexes they replace on generated descriptions", () => {
+		const next = random(7);
+		for (let i = 0; i < 20_000; i++) {
+			let text = next() < 0.5 ? "Run skill: " : "";
+			const length = Math.floor(next() * 12);
+			for (let j = 0; j < length; j++) {
+				text += PARTS[Math.floor(next() * PARTS.length)];
+			}
+			expect(stripRetryNote(text)).toBe(text.replace(OLD_RETRY_NOTE, ""));
+			expect(stripDashTail(text)).toBe(text.replace(OLD_DASH_TAIL, ""));
+			const old = text.match(OLD_SKILL_RUN);
+			expect(parseSkillRunDescription(text)).toEqual(
+				old ? { name: old[1], detail: old[2] ?? null } : null,
+			);
+		}
+	});
+
+	it("stays linear on inputs that made the old regexes backtrack", () => {
+		const n = 50_000;
+		const hostile = [
+			"\t".repeat(n),
+			"nothing has run yet;".repeat(n / 10),
+			`${"\t—".repeat(n / 2)}\t\n`,
+			`Run skill: ${"a. In ".repeat(n / 5)}`,
+		];
+		for (const text of hostile) {
+			const started = performance.now();
+			stripRetryNote(text);
+			stripDashTail(text);
+			parseSkillRunDescription(text);
+			expect(performance.now() - started).toBeLessThan(250);
+		}
 	});
 });

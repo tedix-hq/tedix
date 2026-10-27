@@ -13,8 +13,96 @@ export interface ApprovalDecision {
 }
 
 /** The note the MCP gateway appends to every parked tool call, old and new wording. */
-export const RETRY_NOTE =
-	/\.?\s*(?:Nothing has run yet;|After deciding in Tedix OS,).*$/i;
+const RETRY_PHRASE = /Nothing has run yet;|After deciding in Tedix OS,/i;
+const LINE_TERMINATOR = /[\n\r\u2028\u2029]/;
+const WHITESPACE = /\s/;
+
+// The parsers below replace regexes with nested quantifiers that backtrack
+// quadratically on crafted descriptions; each keeps the regex's exact result.
+
+function lastLineTerminator(text: string): number {
+	for (let i = text.length - 1; i >= 0; i--) {
+		if (LINE_TERMINATOR.test(text.charAt(i))) return i;
+	}
+	return -1;
+}
+
+function isSpace(text: string, index: number): boolean {
+	return WHITESPACE.test(text.charAt(index));
+}
+
+/**
+ * Drops the gateway's retry note and the rest of its line, with the whitespace
+ * and one period before it. Equivalent to replacing
+ * `/\.?\s*(?:Nothing has run yet;|After deciding in Tedix OS,).*$/i`.
+ */
+export function stripRetryNote(text: string): string {
+	const tail = lastLineTerminator(text) + 1;
+	const found = text.slice(tail).search(RETRY_PHRASE);
+	if (found < 0) return text;
+	let start = tail + found;
+	while (start > 0 && isSpace(text, start - 1)) start--;
+	if (start > 0 && text.charAt(start - 1) === ".") start--;
+	return text.slice(0, start);
+}
+
+/** Equivalent to replacing `/\s+—\s+.*$/` with "". */
+export function stripDashTail(text: string): string {
+	const last = lastLineTerminator(text);
+	for (
+		let dash = text.indexOf("—");
+		dash >= 0;
+		dash = text.indexOf("—", dash + 1)
+	) {
+		if (dash === 0 || !isSpace(text, dash - 1)) continue;
+		let end = dash + 1;
+		while (end < text.length && isSpace(text, end)) end++;
+		if (end === dash + 1 || end <= last) continue;
+		let start = dash - 1;
+		while (start > 0 && isSpace(text, start - 1)) start--;
+		return text.slice(0, start);
+	}
+	return text;
+}
+
+const SKILL_PREFIX = "Run skill: ";
+const SKILL_NOTE = ". Nothing has run yet;";
+
+/**
+ * The skill name and optional "In …." detail of a parked skill run. Same
+ * captures as `/^Run skill: (.+?)\.(?: (In .+?\.))? Nothing has run yet;/`.
+ */
+export function parseSkillRunDescription(
+	description: string,
+): { name: string; detail: string | null } | null {
+	if (!description.startsWith(SKILL_PREFIX)) return null;
+	const lineEnd = description.search(LINE_TERMINATOR);
+	const line = lineEnd < 0 ? description : description.slice(0, lineEnd);
+	const first = SKILL_PREFIX.length + 1;
+	const notes: number[] = [];
+	for (
+		let at = line.indexOf(SKILL_NOTE, first);
+		at >= 0;
+		at = line.indexOf(SKILL_NOTE, at + 1)
+	) {
+		notes.push(at);
+	}
+	let next = 0;
+	for (let dot = first; dot < line.length; dot++) {
+		if (line.charAt(dot) !== ".") continue;
+		const name = line.slice(SKILL_PREFIX.length, dot);
+		if (line.startsWith(". In ", dot)) {
+			// "In " plus at least one character before the closing period.
+			while (next < notes.length && (notes[next] ?? 0) < dot + 6) next++;
+			const end = notes[next];
+			if (end !== undefined) {
+				return { name, detail: line.slice(dot + 2, end + 1) };
+			}
+		}
+		if (line.startsWith(SKILL_NOTE, dot)) return { name, detail: null };
+	}
+	return null;
+}
 
 const CREDENTIAL_TARGET = /api[-_ ]?key|token|secret|credential|password/i;
 
@@ -78,7 +166,7 @@ export function approvalArgumentSummary(args: unknown, limit = 4): string[] {
 
 /** The action named by a parked request's description, without the retry note. */
 export function approvalActionTitle(description: string | undefined): string {
-	const title = (description ?? "").replace(RETRY_NOTE, "").trim();
+	const title = stripRetryNote(description ?? "").trim();
 	return title.endsWith(".") ? title.slice(0, -1) : title;
 }
 
@@ -100,16 +188,14 @@ export function approvalDecision(input: {
 		target?.transport === "rpc" &&
 		target.endpoint === "skills/runWorkflow"
 	) {
-		const title = input.description?.match(
-			/^Run skill: (.+?)\.(?: (In .+?\.))? Nothing has run yet;/,
-		);
-		const name = title?.[1]?.replace(/ improvement [a-f0-9]+$/i, "");
+		const title = parseSkillRunDescription(input.description ?? "");
+		const name = title?.name.replace(/ improvement [a-f0-9]+$/i, "");
 		const probe = asRecord(args?.params)?.probe === true;
 		return {
 			what: probe
 				? `Run a test of ${name ? `the ${name}` : "the saved"} skill proposal.`
 				: `Run ${name ? `the ${name}` : "the saved"} skill.`,
-			details: title?.[2] ? [title[2]] : [],
+			details: title?.detail ? [title.detail] : [],
 			whyNow: "The skill run was stopped before it started.",
 			ifApproved:
 				"The caller can retry this exact skill run once. Approval alone does not start it or activate the proposal.",
@@ -157,10 +243,7 @@ export function approvalDecision(input: {
 			input.payload?.kind === "home_tool_write")
 	) {
 		const low = riskTier === "low";
-		const title = approvalActionTitle(input.description).replace(
-			/\s+—\s+.*$/,
-			"",
-		);
+		const title = stripDashTail(approvalActionTitle(input.description));
 		return {
 			what: title ? `${title}.` : "Make the change shown in the details.",
 			details,
