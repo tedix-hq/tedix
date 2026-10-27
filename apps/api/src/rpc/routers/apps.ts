@@ -47,7 +47,11 @@ import {
 } from "@tedix/db/queries/app-records";
 import { listAppSecrets } from "@tedix/db/queries/app-secrets";
 import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
-import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
+import {
+	getAppBySlug,
+	getAppsByOrganization,
+	getInheritedAppLogos,
+} from "@tedix/db/queries/apps";
 import { invalidateKernelContextCache } from "../../kernel/context-cache";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import {
@@ -129,9 +133,12 @@ export const listApps = authedAppsOs.list
 		const apps = await getAppsByOrganization(db, orgId);
 		const total = apps.length;
 		const pagedApps = apps.slice(offset, offset + limit);
+		const inheritedLogos = await getInheritedAppLogos(db, pagedApps);
 
 		return {
-			data: pagedApps.map(toAppListItem),
+			data: pagedApps.map((app) =>
+				toAppListItem(app, inheritedLogos.get(app.id) ?? null),
+			),
 			pagination: {
 				limit,
 				offset,
@@ -1458,9 +1465,13 @@ export const getByIdWithToolsProcedure = mcpAppsOs.getByIdWithTools.handler(
 			catalogPrompts,
 		} = result;
 		const metadata = normalizeAppMetadata(getAppMetadataJson(app));
+		const inheritedLogos = await getInheritedAppLogos(db, [app]);
 
 		return {
-			app: toAppDto(app, { metadata: metadata ?? null }),
+			app: {
+				...toAppDto(app, { metadata: metadata ?? null }),
+				inheritedLogoUrl: inheritedLogos.get(app.id) ?? null,
+			},
 			tools: tools.map(toAppToolDto),
 			catalogMcp,
 			catalogResources: catalogResources.map(toCatalogMcpSurfaceDto),
@@ -1735,7 +1746,7 @@ type AppWithToolsResult = NonNullable<
 >;
 type AppToolRecord = AppWithToolsResult["tools"][number];
 
-function toAppListItem(app: AppRecord) {
+function toAppListItem(app: AppRecord, inheritedLogoUrl: string | null) {
 	return {
 		id: app.id,
 		name: app.name,
@@ -1743,6 +1754,7 @@ function toAppListItem(app: AppRecord) {
 		domain: app.primaryDomain,
 		description: app.description,
 		logoUrl: app.logoUrl,
+		inheritedLogoUrl,
 		visibility: app.visibility ?? "private",
 		discoveryStatus: app.discoveryStatus,
 		customMcpDomain: app.customMcpDomain,

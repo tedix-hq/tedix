@@ -1,7 +1,8 @@
 import { ArrowSquareOut, Plugs } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { friendlyProviderName, usableLogoUrl } from "@/components/account-list";
+import { friendlyProviderName } from "@/components/account-list";
+import { usableLogoUrl } from "@/lib/app-icon";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";

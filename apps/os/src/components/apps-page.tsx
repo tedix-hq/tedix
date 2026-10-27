@@ -21,6 +21,7 @@ import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
+import { AppLogo } from "@/components/app-logo";
 import {
 	Collection,
 	Page,
@@ -301,6 +302,26 @@ export function AppChip({
 		<Badge variant={CHIP_VARIANTS[tone]} data-tone={tone}>
 			{children}
 		</Badge>
+	);
+}
+
+function InstalledAppLogo({
+	app,
+	providerLogoUrl,
+}: {
+	app: AppListItem;
+	providerLogoUrl: string | null;
+}) {
+	return (
+		<AppLogo
+			id={app.slug}
+			name={app.name}
+			logoUrl={app.logoUrl}
+			inheritedLogoUrl={app.inheritedLogoUrl}
+			providerLogoUrl={providerLogoUrl}
+			domain={app.domain}
+			decorative
+		/>
 	);
 }
 
@@ -880,6 +901,9 @@ export function AppsPage({
 			gateway: appGatewayStatus(gatewayState),
 			service: appServiceStatus(serviceChecks[app.id]),
 			check: serviceChecks[app.id],
+			providerLogoUrl:
+				connectionRows.find((row) => row.provider.logoUrl)?.provider.logoUrl ??
+				null,
 		};
 	});
 	const changeSearch = (query: string) => {
@@ -987,13 +1011,21 @@ export function AppsPage({
 								</TableHeader>
 								<TableBody>
 									{appRows.map(
-										({ app, connection, gateway, service, check }) => (
+										({
+											app,
+											connection,
+											gateway,
+											service,
+											check,
+											providerLogoUrl,
+										}) => (
 											<TableRow key={app.id} data-app-row="desktop">
 												<TableCell className="min-w-60 max-w-80 whitespace-normal">
 													<div className="flex min-w-0 items-start gap-3">
-														<IconFrame aria-hidden>
-															<AppWindow size={18} />
-														</IconFrame>
+														<InstalledAppLogo
+															app={app}
+															providerLogoUrl={providerLogoUrl}
+														/>
 														<AppRowMain
 															app={app}
 															eligibility={eligibilityByAppId[app.id]}
@@ -1029,36 +1061,46 @@ export function AppsPage({
 							className="sm:hidden"
 							aria-label="Installed apps mobile"
 						>
-							{appRows.map(({ app, connection, gateway, service, check }) => (
-								<li
-									key={app.id}
-									data-app-row="mobile"
-									className="grid gap-3 px-4 py-3"
-								>
-									<div className="flex min-w-0 items-start gap-3">
-										<IconFrame aria-hidden>
-											<AppWindow size={18} />
-										</IconFrame>
-										<AppRowMain
-											app={app}
-											eligibility={eligibilityByAppId[app.id]}
+							{appRows.map(
+								({
+									app,
+									connection,
+									gateway,
+									service,
+									check,
+									providerLogoUrl,
+								}) => (
+									<li
+										key={app.id}
+										data-app-row="mobile"
+										className="grid gap-3 px-4 py-3"
+									>
+										<div className="flex min-w-0 items-start gap-3">
+											<InstalledAppLogo
+												app={app}
+												providerLogoUrl={providerLogoUrl}
+											/>
+											<AppRowMain
+												app={app}
+												eligibility={eligibilityByAppId[app.id]}
+											/>
+										</div>
+										<AppStatusLine
+											statuses={[
+												{ label: "Connection", status: connection },
+												{ label: "Gateway", status: gateway },
+												{ label: "MCP", status: service },
+											]}
 										/>
-									</div>
-									<AppStatusLine
-										statuses={[
-											{ label: "Connection", status: connection },
-											{ label: "Gateway", status: gateway },
-											{ label: "MCP", status: service },
-										]}
-									/>
-									<AppServiceDetail check={check} />
-									<AppActions
-										app={app}
-										check={check}
-										onCheck={() => void checkService(app)}
-									/>
-								</li>
-							))}
+										<AppServiceDetail check={check} />
+										<AppActions
+											app={app}
+											check={check}
+											onCheck={() => void checkService(app)}
+										/>
+									</li>
+								),
+							)}
 						</Collection>
 						{filteredApps.length > APPS_VISIBLE_PAGE_SIZE ? (
 							<div

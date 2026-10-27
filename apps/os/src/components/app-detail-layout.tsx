@@ -29,6 +29,7 @@ import {
 import { Skeleton } from "@/components/kumo/skeleton";
 import { KumoTabs } from "@/components/kumo/tabs";
 import type { App } from "@tedix/api-contract/schemas/app";
+import { AppLogo } from "@/components/app-logo";
 import { mcpEndpointHost } from "@/components/app-detail";
 import { useIsOrganizationGateway } from "@/components/app-gateway-overview";
 import { appDetailQueryOptions } from "@/lib/os-query-options";
@@ -133,23 +134,34 @@ export function AppDetailLayout() {
 				<>
 					<div className="grid min-w-0 gap-4">
 						<PageHeader>
-							<PageHeading>
-								<PageTitle>{app.name}</PageTitle>
-								{isGateway ? (
-									<PageDescription>
-										Your organization&apos;s shared connection. Add it once to
-										your AI tool, such as Claude, ChatGPT or Cursor, to use your
-										organization&apos;s apps from there.
-									</PageDescription>
-								) : (
-									<>
-										{app.description && (
-											<PageDescription>{app.description}</PageDescription>
-										)}
-										<AppMeta app={app} />
-									</>
-								)}
-							</PageHeading>
+							<div className="flex min-w-0 items-start gap-4">
+								<AppLogo
+									id={app.slug}
+									name={app.name}
+									logoUrl={app.logoUrl}
+									inheritedLogoUrl={app.inheritedLogoUrl}
+									domain={app.primaryDomain}
+									size="xl"
+									decorative
+								/>
+								<PageHeading>
+									<PageTitle>{app.name}</PageTitle>
+									{isGateway ? (
+										<PageDescription>
+											Your organization&apos;s shared connection. Add it once to
+											your AI tool, such as Claude, ChatGPT or Cursor, to use
+											your organization&apos;s apps from there.
+										</PageDescription>
+									) : (
+										<>
+											{app.description && (
+												<PageDescription>{app.description}</PageDescription>
+											)}
+											<AppMeta app={app} />
+										</>
+									)}
+								</PageHeading>
+							</div>
 						</PageHeader>
 
 						<AppTabStrip appId={appId} />

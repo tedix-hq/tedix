@@ -1,7 +1,7 @@
 import { CapabilityNavigation } from "@/components/capability-navigation";
+import { AppLogo } from "@/components/app-logo";
 import {
 	CATALOG_HEALTH,
-	CatalogAppLogo,
 	CatalogHealthBadge,
 } from "@/components/app-store-shared";
 import { isLocalSession } from "@/lib/local-inference";
@@ -84,10 +84,12 @@ function AppCard({ app }: { app: CatalogApp }) {
 				className="group h-full min-w-0 shadow-none transition-[border-color] motion-reduce:transition-none hover:border-kumo-brand/40"
 			>
 				<CardHeader className="flex flex-row items-start gap-3 space-y-0">
-					<CatalogAppLogo
+					<AppLogo
 						id={app.slug ?? app.id}
-						logoUrl={app.logoUrl ?? null}
+						logoUrl={app.logoUrl}
+						domain={app.website}
 						name={app.name}
+						size="lg"
 					/>
 					<div className="min-w-0 flex-1">
 						<div className="flex min-w-0 flex-wrap items-center gap-2">

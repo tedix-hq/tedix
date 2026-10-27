@@ -1049,6 +1049,8 @@ export const AppSchema = z.object({
 	description: z.string().nullable(),
 	primaryDomain: z.string().nullable(),
 	logoUrl: z.string().nullable(),
+	/** Logo from the base app or catalog entry when the app has none of its own. */
+	inheritedLogoUrl: z.string().nullable().optional(),
 	visibility: AppVisibilitySchema.nullable(),
 	discoveryStatus: DiscoveryStatusSchema.nullable(),
 	customMcpDomain: z.string().nullable(),
@@ -1093,6 +1095,8 @@ export const AppListItemSchema = z.object({
 	domain: z.string().nullable(),
 	description: z.string().nullable(),
 	logoUrl: z.string().nullable(),
+	/** Logo from the base app or catalog entry when the app has none of its own. */
+	inheritedLogoUrl: z.string().nullable().optional(),
 	visibility: AppVisibilitySchema.nullable(),
 	discoveryStatus: DiscoveryStatusSchema.nullable(),
 	customMcpDomain: z.string().nullable(),

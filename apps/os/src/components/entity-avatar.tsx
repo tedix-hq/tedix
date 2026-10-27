@@ -17,11 +17,13 @@ export function EntityAvatar({
 	role,
 	alt,
 	imageFit = "cover",
+	onImageError,
 	className,
 }: {
 	id: string;
 	name: string;
-	kind: "workspace" | "tedi" | "person";
+	/** `app` falls back to letters only: an app's name says nothing about its glyph. */
+	kind: "workspace" | "tedi" | "person" | "app";
 	image?: string | null;
 	role?: string | null;
 	/** Accessible name; without it the avatar is decoration beside its label. */
@@ -31,6 +33,8 @@ export function EntityAvatar({
 	 * light tile inside the circle, so a transparent or bare glyph stays legible.
 	 */
 	imageFit?: "cover" | "contain";
+	/** Lets a caller with more than one image try the next one. */
+	onImageError?: (url: string) => void;
 	className?: string;
 }) {
 	const [failedImage, setFailedImage] = useState<string | null>(null);
@@ -40,7 +44,7 @@ export function EntityAvatar({
 			: null;
 	const glyph =
 		image && !imageUrl && [...image.trim()].length <= 4 ? image.trim() : null;
-	const Icon = entityGlyph(kind, role || name);
+	const Icon = kind === "app" ? null : entityGlyph(kind, role || name);
 	return (
 		<Avatar
 			aria-hidden={alt ? undefined : "true"}
@@ -50,7 +54,7 @@ export function EntityAvatar({
 			data-avatar-palette={entityAvatarIndex(id)}
 			className={cn(
 				"entity-avatar items-center justify-center overflow-hidden ring-0",
-				kind === "workspace" && "rounded-lg",
+				(kind === "workspace" || kind === "app") && "rounded-lg",
 				// A light tile on a light row needs the standard avatar outline to
 				// read as a circle at all.
 				imageFit === "contain" && "ring ring-kumo-line",
@@ -69,7 +73,10 @@ export function EntityAvatar({
 							? "bg-white object-contain p-1"
 							: "object-cover",
 					)}
-					onError={() => setFailedImage(imageUrl)}
+					onError={() => {
+						setFailedImage(imageUrl);
+						onImageError?.(imageUrl);
+					}}
 				/>
 			) : glyph ? (
 				glyph

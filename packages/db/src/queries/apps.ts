@@ -349,3 +349,83 @@ export async function getAllApps(
 	}
 	return db.query.apps.findMany();
 }
+
+// ============================================================================
+// Inherited Logos
+// ============================================================================
+
+type AppLogoLineage = Pick<
+	App,
+	"id" | "logoUrl" | "sourceAppId" | "catalogAppId"
+>;
+
+function present(value: string | null | undefined): value is string {
+	return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * The logo an app inherits when it has none of its own: its base app's logo
+ * (`source_app_id`), else the base app's catalog logo, else its own catalog
+ * entry's logo. Only apps without their own logo that inherit one appear in
+ * the result.
+ */
+export async function getInheritedAppLogos(
+	db: DbClient,
+	rows: readonly AppLogoLineage[],
+): Promise<Map<string, string>> {
+	const pending = rows.filter((row) => !present(row.logoUrl));
+	const inherited = new Map<string, string>();
+	if (pending.length === 0) return inherited;
+
+	const sourceIds = [
+		...new Set(pending.map((row) => row.sourceAppId).filter(present)),
+	];
+	const sources = new Map<
+		string,
+		{ logoUrl: string | null; catalogAppId: string | null }
+	>();
+	for (const chunk of chunkForBoundParams(sourceIds, D1_IN_LIST_CHUNK)) {
+		const found = await db
+			.select({
+				id: apps.id,
+				logoUrl: apps.logoUrl,
+				catalogAppId: apps.catalogAppId,
+			})
+			.from(apps)
+			.where(inArray(apps.id, chunk));
+		for (const source of found) sources.set(source.id, source);
+	}
+
+	const catalogIds = [
+		...new Set(
+			pending
+				.flatMap((row) => [
+					row.catalogAppId,
+					row.sourceAppId ? sources.get(row.sourceAppId)?.catalogAppId : null,
+				])
+				.filter(present),
+		),
+	];
+	const catalogLogos = new Map<string, string>();
+	for (const chunk of chunkForBoundParams(catalogIds, D1_IN_LIST_CHUNK)) {
+		const found = await db
+			.select({ id: appCatalog.id, logoUrl: appCatalog.logoUrl })
+			.from(appCatalog)
+			.where(inArray(appCatalog.id, chunk));
+		for (const entry of found) {
+			if (present(entry.logoUrl)) catalogLogos.set(entry.id, entry.logoUrl);
+		}
+	}
+
+	for (const row of pending) {
+		const source = row.sourceAppId ? sources.get(row.sourceAppId) : undefined;
+		const logo =
+			(present(source?.logoUrl) ? source.logoUrl : undefined) ??
+			(source?.catalogAppId
+				? catalogLogos.get(source.catalogAppId)
+				: undefined) ??
+			(row.catalogAppId ? catalogLogos.get(row.catalogAppId) : undefined);
+		if (logo) inherited.set(row.id, logo);
+	}
+	return inherited;
+}

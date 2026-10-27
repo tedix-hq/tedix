@@ -19,6 +19,13 @@ import {
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** A row's words; the logo's letter fallback is decoration beside the name. */
+function textWithoutLogo(element: Element): string {
+	const copy = element.cloneNode(true) as Element;
+	for (const logo of copy.querySelectorAll(".entity-avatar")) logo.remove();
+	return copy.textContent ?? "";
+}
+
 const provider: ConnectionProvider = {
 	appId: "ms-calendar",
 	name: "Microsoft Graph Calendar OAuth",
@@ -287,7 +294,7 @@ describe("account list rows", () => {
 		};
 		await render([access]);
 		const row = host.querySelector('[data-account-group="ms-calendar"]')!;
-		expect(row.textContent).toBe("Outlook CalendarConnected");
+		expect(textWithoutLogo(row)).toBe("Outlook CalendarConnected");
 		await expand();
 		expect(host.textContent).toContain("Only you can use it.");
 		expect(button("Reconnect")).toBeDefined();
@@ -462,7 +469,7 @@ describe("account list rows", () => {
 			{ ...base, accountState: "restricted", connection: null },
 		]);
 		const row = host.querySelector('[data-account-group="ms-calendar"]')!;
-		expect(row.textContent).toBe("Outlook CalendarStatus not checked");
+		expect(textWithoutLogo(row)).toBe("Outlook CalendarStatus not checked");
 		expect(
 			row.querySelector('[data-account-status="unchecked"]'),
 		).not.toBeNull();

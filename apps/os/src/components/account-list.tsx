@@ -14,8 +14,9 @@ import type {
 	ConnectionProvider,
 } from "@tedix/api-contract/schemas/connections";
 import { connectionAccountMode } from "@tedix/api-contract/utils/connection-account-mode";
-import { CaretDown, Key, Plugs, Plus } from "@phosphor-icons/react";
+import { CaretDown, Plus } from "@phosphor-icons/react";
 import { useState, type ReactNode } from "react";
+import { AppLogo } from "@/components/app-logo";
 import { Button } from "@/components/kumo/button";
 import { cn } from "@/components/kumo/cn";
 import {
@@ -68,20 +69,6 @@ export function friendlyProviderName(
 		return "Outlook Mail";
 	if (/^Google Gmail(?: OAuth)?$/i.test(provider.name)) return "Gmail";
 	return provider.name.replace(/ OAuth$/i, "");
-}
-
-export function usableLogoUrl(logoUrl: string | null): string | null {
-	if (!logoUrl) return null;
-	const trimmed = logoUrl.trim();
-	if (trimmed.startsWith("data:image/")) return trimmed;
-	try {
-		const parsed = new URL(trimmed);
-		return parsed.protocol === "https:" || parsed.protocol === "http:"
-			? parsed.toString()
-			: null;
-	} catch {
-		return null;
-	}
 }
 
 /** A readable fallback when the API sent no app name: never the raw slug. */
@@ -358,24 +345,14 @@ export function AccountList(props: AccountListProps) {
 }
 
 function ProviderLogo({ provider }: { provider: ConnectionProvider }) {
-	const logo = usableLogoUrl(provider.logoUrl);
-	return logo ? (
-		<img
-			src={logo}
-			alt=""
-			className="size-8 shrink-0 rounded-md border border-kumo-hairline bg-kumo-base object-contain p-1"
+	return (
+		<AppLogo
+			id={provider.appId}
+			name={friendlyProviderName(provider)}
+			providerLogoUrl={provider.logoUrl}
+			size="sm"
+			decorative
 		/>
-	) : (
-		<span
-			aria-hidden
-			className="flex size-8 shrink-0 items-center justify-center rounded-md bg-kumo-fill text-kumo-subtle"
-		>
-			{provider.connectionType === "api_key" ? (
-				<Key className="size-4" />
-			) : (
-				<Plugs className="size-4" />
-			)}
-		</span>
 	);
 }
 
