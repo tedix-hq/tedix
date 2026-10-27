@@ -368,6 +368,19 @@ describe("WorkspaceOAuthProvider", () => {
 		expect(isTedixHostedMcpUrl("https://mcp.tedix.dev/mcp")).toBe(true);
 		expect(isTedixHostedMcpUrl("https://mcp.example.com/mcp")).toBe(false);
 		expect(isTedixHostedMcpUrl("not a URL")).toBe(false);
+		// A self-hosted connect surface rebases the managed-MCP suffix.
+		expect(
+			isTedixHostedMcpUrl(
+				"https://acme.mcp.example.com/mcp",
+				"https://connect.mcp.example.com/mcp",
+			),
+		).toBe(true);
+		expect(
+			isTedixHostedMcpUrl(
+				"https://mcp.tedix.dev/mcp",
+				"https://connect.mcp.example.com/mcp",
+			),
+		).toBe(false);
 	});
 
 	test("publishes first-party branding in client registration metadata", () => {

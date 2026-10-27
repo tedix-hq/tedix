@@ -10,10 +10,16 @@ import {
 	type WebMcpOrgInfo,
 } from "../src/webmcp";
 
+// The fixture site's product hostname is overridable so the check can run
+// against an installation's own domain instead of Tedix Cloud's default.
+const directSiteUrl = (
+	process.env.CHECK_WEBMCP_SITE_URL ?? "https://blog.tedix.dev"
+).replace(/\/+$/, "");
+
 const directOrg: WebMcpOrgInfo = {
 	slug: "tedix",
 	siteTitle: "Tedix",
-	publicSiteUrl: "https://blog.tedix.dev",
+	publicSiteUrl: directSiteUrl,
 	publicPathPrefix: null,
 	webMcpToolPacks: ["site-search", "page-reader"],
 };
@@ -110,7 +116,7 @@ assert.deepEqual(
 assert.deepEqual(normalizeWebMcpToolPacks("site-search"), []);
 
 const listResponse = await handleWebMcpRequest(
-	rpcRequest(`https://blog.tedix.dev${WEBMCP_MCP_PATH}`, "tools/list", {}),
+	rpcRequest(`${directSiteUrl}${WEBMCP_MCP_PATH}`, "tools/list", {}),
 	directOrg,
 	WEBMCP_MCP_PATH,
 	allowLimiter,
@@ -155,7 +161,7 @@ assert.deepEqual(
 const disabledOrg = { ...directOrg, webMcpToolPacks: [] };
 assert.equal(ensureWebMcpBridge("<head></head>", disabledOrg), "<head></head>");
 const disabledEndpoint = await handleWebMcpRequest(
-	rpcRequest(`https://blog.tedix.dev${WEBMCP_MCP_PATH}`, "tools/list", {}),
+	rpcRequest(`${directSiteUrl}${WEBMCP_MCP_PATH}`, "tools/list", {}),
 	disabledOrg,
 	WEBMCP_MCP_PATH,
 	allowLimiter,
@@ -164,7 +170,7 @@ assert.equal(disabledEndpoint?.status, 404);
 
 let limiterKey = "";
 const denied = await handleWebMcpRequest(
-	rpcRequest(`https://blog.tedix.dev${WEBMCP_MCP_PATH}`, "tools/list", {}),
+	rpcRequest(`${directSiteUrl}${WEBMCP_MCP_PATH}`, "tools/list", {}),
 	directOrg,
 	WEBMCP_MCP_PATH,
 	{
@@ -179,7 +185,7 @@ assert.equal(denied?.headers.get("retry-after"), "60");
 assert.equal(limiterKey, "tedix:unknown");
 
 const badHeaders = rpcRequest(
-	`https://blog.tedix.dev${WEBMCP_MCP_PATH}`,
+	`${directSiteUrl}${WEBMCP_MCP_PATH}`,
 	"tools/list",
 	{},
 );
@@ -197,7 +203,7 @@ assert.equal(
 
 const extraArgument = await handleWebMcpRequest(
 	rpcRequest(
-		`https://blog.tedix.dev${WEBMCP_MCP_PATH}`,
+		`${directSiteUrl}${WEBMCP_MCP_PATH}`,
 		"tools/call",
 		{ name: "search_site", arguments: { query: "agents", extra: true } },
 		{ name: "search_site" },
@@ -215,7 +221,7 @@ assert.match(
 	/query must be a string|Error/,
 );
 
-const oversized = new Request(`https://blog.tedix.dev${WEBMCP_MCP_PATH}`, {
+const oversized = new Request(`${directSiteUrl}${WEBMCP_MCP_PATH}`, {
 	method: "POST",
 	headers: {
 		"content-type": "application/json",
@@ -290,7 +296,7 @@ try {
 }
 
 const head = await handleWebMcpRequest(
-	new Request(`https://blog.tedix.dev${WEBMCP_BRIDGE_PATH}`, {
+	new Request(`${directSiteUrl}${WEBMCP_BRIDGE_PATH}`, {
 		method: "HEAD",
 	}),
 	directOrg,

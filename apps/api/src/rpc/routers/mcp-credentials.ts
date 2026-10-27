@@ -224,13 +224,20 @@ async function resolveTediForServerUrl(
 	}
 }
 
-function getMcpBaseDomain(env: Pick<CloudflareEnv, "ENVIRONMENT">): string {
-	switch (env.ENVIRONMENT) {
-		case "production":
-			return "tedix.dev";
-		default:
-			return "tedix.tech";
+export function getMcpBaseDomain(
+	env: Pick<CloudflareEnv, "ENVIRONMENT" | "MCP_URL">,
+): string {
+	// The installation's own edge decides tenant MCP hostnames: MCP_URL arrives
+	// through the installation manifest's worker vars, so `{app}.mcp.{domain}`
+	// follows it. First-party defaults remain for lanes with no MCP_URL set.
+	try {
+		const host = env.MCP_URL ? new URL(env.MCP_URL).hostname : "";
+		const dot = host.indexOf(".");
+		if (dot > 0) return host.slice(dot + 1);
+	} catch {
+		/* fall through to the environment default */
 	}
+	return env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech";
 }
 
 async function getOrExchangeAihToken(params: {
@@ -364,6 +371,7 @@ export const listServers = os.listServers
 
 			const baseDomain = getMcpBaseDomain({
 				ENVIRONMENT: context.env.ENVIRONMENT,
+				MCP_URL: context.env.MCP_URL,
 			});
 			const servers: Array<{
 				serverId: string;

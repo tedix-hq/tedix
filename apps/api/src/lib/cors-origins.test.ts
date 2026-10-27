@@ -10,6 +10,11 @@ const installEnv = {
 		"https://preview.example-install.workers.dev, https://ops.customer.example",
 };
 
+const customDomainEnv = {
+	OS_URL: "https://os.example.com",
+	API_URL: "https://api.example.com",
+};
+
 describe("resolveCorsOrigin", () => {
 	it("allows first-party production origins", () => {
 		expect(resolveCorsOrigin("https://os.tedix.dev", {})).toBe(
@@ -61,6 +66,48 @@ describe("resolveCorsOrigin", () => {
 			"https://anything.tedix.tech",
 		);
 		expect(resolveCorsOrigin("https://tedix.tech", {})).toBeUndefined();
+	});
+
+	it("allows the API_URL origin itself", () => {
+		expect(resolveCorsOrigin("https://api.example.com", customDomainEnv)).toBe(
+			"https://api.example.com",
+		);
+	});
+
+	it("derives the tenant OS subdomain suffix from OS_URL", () => {
+		expect(
+			resolveCorsOrigin("https://acme.os.example.com", customDomainEnv),
+		).toBe("https://acme.os.example.com");
+		expect(resolveCorsOrigin("https://os.example.com", customDomainEnv)).toBe(
+			"https://os.example.com",
+		);
+		expect(
+			resolveCorsOrigin("http://acme.os.example.com", customDomainEnv),
+		).toBeUndefined();
+		expect(
+			resolveCorsOrigin("https://acme.other.example.com", customDomainEnv),
+		).toBeUndefined();
+	});
+
+	it("ignores local OS_URL lanes for the subdomain suffix", () => {
+		expect(
+			resolveCorsOrigin("https://acme.localhost", {
+				OS_URL: "http://localhost:3000",
+			}),
+		).toBeUndefined();
+	});
+
+	it("honours extra CORS_SUBDOMAIN_SUFFIXES and rejects unsafe entries", () => {
+		const env = {
+			CORS_SUBDOMAIN_SUFFIXES: " *.os.example.org , not a host , com ",
+		};
+		expect(resolveCorsOrigin("https://acme.os.example.org", env)).toBe(
+			"https://acme.os.example.org",
+		);
+		expect(
+			resolveCorsOrigin("http://acme.os.example.org", env),
+		).toBeUndefined();
+		expect(resolveCorsOrigin("https://anything.com", env)).toBeUndefined();
 	});
 
 	it("denies non-normalized origins that differ only in serialization", () => {

@@ -4,7 +4,7 @@
  * First-party Tedix domains are always allowed. A self-hosted installation
  * runs its UI surfaces on customer-owned domains the hardcoded list can never
  * know, so origins derived from the installation's own configured surface URLs
- * (OS_URL, MCP_UI_URL, MCP_URL, TEDI_DEV_BASE_URL) are allowed too,
+ * (OS_URL, MCP_UI_URL, MCP_URL, TEDI_DEV_BASE_URL, API_URL) are allowed too,
  * plus any origins listed in the optional CORS_ALLOWED_ORIGINS csv var for
  * browser surfaces the API has no URL var for. Found live on the OSS
  * clean-account certification: an OS installation on a non-first-party origin
@@ -51,7 +51,14 @@ export interface CorsOriginEnv {
 	MCP_UI_URL?: string;
 	MCP_URL?: string;
 	TEDI_DEV_BASE_URL?: string;
+	API_URL?: string;
 	CORS_ALLOWED_ORIGINS?: string;
+	/**
+	 * Extra HTTPS subdomain suffixes (csv of bare host suffixes, e.g.
+	 * "os.example.com, tunnel.example.dev") for first-party-style surfaces the
+	 * URL vars cannot express. Installation manifests can set it as a var.
+	 */
+	CORS_SUBDOMAIN_SUFFIXES?: string;
 }
 
 function originOf(value: string | undefined): string | null {
@@ -71,6 +78,7 @@ export function installationOrigins(env: CorsOriginEnv): Set<string> {
 		env.MCP_UI_URL,
 		env.MCP_URL,
 		env.TEDI_DEV_BASE_URL,
+		env.API_URL,
 	]) {
 		const origin = originOf(value);
 		if (origin) origins.add(origin);
@@ -80,6 +88,41 @@ export function installationOrigins(env: CorsOriginEnv): Set<string> {
 		if (origin) origins.add(origin);
 	}
 	return origins;
+}
+
+const HOST_SUFFIX_RE =
+	/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/;
+
+/**
+ * HTTPS subdomain suffixes this installation's own configuration declares.
+ *
+ * Tenant OS origins are `{slug}.{os-host}` — deriving the suffix from the
+ * configured OS_URL keeps `{slug}.os.example.com` working on self-hosted
+ * installs, mirroring the `os.tedix.dev` default. CORS_SUBDOMAIN_SUFFIXES
+ * accepts extra bare suffixes; entries that are not plain DNS names are
+ * ignored rather than widening the policy (`"com"` must never match).
+ */
+function installationSubdomainSuffixes(env: CorsOriginEnv): string[] {
+	const suffixes: string[] = [];
+	const osOrigin = originOf(env.OS_URL);
+	if (osOrigin && new URL(osOrigin).protocol === "https:") {
+		const host = new URL(osOrigin).hostname;
+		if (
+			host.includes(".") &&
+			host !== "localhost" &&
+			!host.endsWith(".localhost")
+		) {
+			suffixes.push(host);
+		}
+	}
+	for (const entry of (env.CORS_SUBDOMAIN_SUFFIXES ?? "").split(",")) {
+		const suffix = entry
+			.trim()
+			.toLowerCase()
+			.replace(/^\*?\./, "");
+		if (HOST_SUFFIX_RE.test(suffix)) suffixes.push(suffix);
+	}
+	return suffixes;
 }
 
 /**
@@ -97,7 +140,13 @@ function corsOriginPolicy(env: CorsOriginEnv): CorsOriginPolicy {
 			...FIRST_PARTY_ORIGINS,
 			...installationOrigins(env),
 		]),
-		httpsSubdomainSuffixes: ["tedix.tech", "os.tedix.dev"],
+		httpsSubdomainSuffixes: [
+			...new Set([
+				"tedix.tech",
+				"os.tedix.dev",
+				...installationSubdomainSuffixes(env),
+			]),
+		],
 		allowLocalhost: false,
 	};
 }
