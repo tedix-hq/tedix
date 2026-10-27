@@ -16,7 +16,6 @@ import {
 } from "@/lib/local-inference";
 import {
 	ArrowUp,
-	CaretDown,
 	File,
 	MagnifyingGlass,
 	Microphone,
@@ -52,11 +51,7 @@ import {
 } from "@tedix/chat-transport/voice-composer";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@/components/kumo/collapsible";
+import { Collapsible, CollapsibleContent } from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
 import { Text } from "@/components/kumo/text";
 import { ConversationCapabilityPalette } from "@/components/conversation-capability-palette";
@@ -78,6 +73,7 @@ import {
 	DelegationSummaryRow,
 	mergeToolEvents,
 	pruneDepartedRunFrames,
+	isStoppableRunStatus,
 	RunControls,
 	sortToolStates,
 	TOOL_EVENT_KINDS,
@@ -278,6 +274,7 @@ export function ChatThread({
 	onSendMessageReady,
 	onOutputCreated,
 	detailsActions,
+	detailsOpen = false,
 }: {
 	/** `null` = fresh conversation not yet created; the first send creates it. */
 	conversationId: string | null;
@@ -312,8 +309,10 @@ export function ChatThread({
 	 * loaded on open or by "Load earlier" never fires it.
 	 */
 	onOutputCreated?: (outputId: string) => void;
-	/** Conversation-level actions that share the "Chat details" row. */
+	/** Conversation-level actions shown in the "Chat details" panel. */
 	detailsActions?: ReactNode;
+	/** The header's "Chat details" icon button owns this toggle. */
+	detailsOpen?: boolean;
 }) {
 	const pushVisibilityRef = usePushConversation(
 		composerOnly ? null : conversationId,
@@ -1940,20 +1939,12 @@ export function ChatThread({
 			}
 		>
 			{!composerOnly && conversationId !== null ? (
-				<Collapsible className="shrink-0">
-					<div className="flex min-w-0 flex-wrap items-center justify-end gap-x-2">
-						{detailsActions}
-						<CollapsibleTrigger className="group">
-							Chat details
-							<CaretDown
-								size={14}
-								aria-hidden
-								className="transition-transform group-data-panel-open:rotate-180"
-							/>
-						</CollapsibleTrigger>
-					</div>
-					<CollapsibleContent>
+				// Opened by the "Chat details" icon in the conversation header,
+				// which names this id in aria-controls.
+				<Collapsible className="shrink-0" open={detailsOpen}>
+					<CollapsibleContent id="chat-details-panel">
 						<div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+							{detailsActions}
 							<ConversationCapabilityPalette conversationId={conversationId} />
 							{runSet !== undefined ? (
 								<>
@@ -2202,17 +2193,15 @@ export function ChatThread({
 											}
 										/>
 									) : null}
-									{/* Stop and Retry sit under the progress line they act on. */}
-									{pendingRun ? (
+									{/* Retry sits under the line it acts on; Stop is the
+									    composer's send slot. */}
+									{pendingRun?.status === "failed" ? (
 										<li className="flex w-full justify-start">
 											<RunControls
 												status={pendingRun.status}
 												delegated={pendingRun.delegatedTediId != null}
 												routeRetryable={isHomeRouteRetryable(pendingRun)}
 												pending={cancelRun.isPending || retryRun.isPending}
-												onStop={() =>
-													cancelRun.mutate({ runId: pendingRun.id })
-												}
 												onRetry={() =>
 													retryRun.mutate({ runId: pendingRun.id })
 												}
@@ -2785,27 +2774,45 @@ export function ChatThread({
 									}}
 								/>
 							)}
-							<Button
-								type="submit"
-								size="icon-sm"
-								aria-label={
-									steeringRunId ? "Queue steering message" : "Send message"
-								}
-								// No spinner here: the sending bubble and the running row
-								// already say the message is on its way.
-								icon={<ArrowUp size={16} weight="bold" />}
-								disabled={
-									preparingAttachments ||
-									send.isPending ||
-									steer.isPending ||
-									cancelRun.isPending ||
-									firstSendInFlight !== null ||
-									directRead.isPending ||
-									blockedByAttachedImage ||
-									(localAiUnavailable && !parseDirectReadCommand(draft)) ||
-									(!draft.trim() && attachments.length === 0)
-								}
-							/>
+							{/* While a run can be stopped and nothing is typed, the send
+							    slot IS Stop. Typing turns it back into the submit control,
+							    which queues steering text or answers an approval. */}
+							{pendingRun &&
+							isStoppableRunStatus(pendingRun.status) &&
+							!draft.trim() &&
+							attachments.length === 0 ? (
+								<Button
+									type="button"
+									size="icon-sm"
+									aria-label="Stop"
+									title="Stop"
+									icon={<Square size={14} weight="fill" />}
+									disabled={cancelRun.isPending || retryRun.isPending}
+									onClick={() => cancelRun.mutate({ runId: pendingRun.id })}
+								/>
+							) : (
+								<Button
+									type="submit"
+									size="icon-sm"
+									aria-label={
+										steeringRunId ? "Queue steering message" : "Send message"
+									}
+									// No spinner here: the sending bubble and the running row
+									// already say the message is on its way.
+									icon={<ArrowUp size={16} weight="bold" />}
+									disabled={
+										preparingAttachments ||
+										send.isPending ||
+										steer.isPending ||
+										cancelRun.isPending ||
+										firstSendInFlight !== null ||
+										directRead.isPending ||
+										blockedByAttachedImage ||
+										(localAiUnavailable && !parseDirectReadCommand(draft)) ||
+										(!draft.trim() && attachments.length === 0)
+									}
+								/>
+							)}
 						</div>
 					</div>
 				) : null}

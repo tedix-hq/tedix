@@ -91,7 +91,11 @@ try {
 			name: "Queue steering message",
 			exact: true,
 		});
-		await send.waitFor();
+		// An empty composer offers Stop; typing turns the slot into Queue.
+		await page
+			.locator(".chat-composer-actions")
+			.getByRole("button", { name: "Stop", exact: true })
+			.waitFor();
 		await composer.fill(`Use the newest evidence on ${label}.`);
 		await send.click();
 		const queued = page.locator('[data-steering-status="queued"]');
@@ -123,23 +127,20 @@ try {
 				path: `${screenshots}/steering-${label}.png`,
 				fullPage: true,
 			});
-		await composer.fill("Keep this draft");
+		// The empty composer's send slot is Stop; stopping returns the unread
+		// steering text to the draft.
 		await page
+			.locator(".chat-composer-actions")
 			.getByRole("button", { name: "Stop", exact: true })
-			.first()
 			.click();
-		await page.waitForFunction(
-			() =>
-				document
-					.querySelector<HTMLTextAreaElement>("textarea")
-					?.value.includes("Keep this draft") &&
-				document
-					.querySelector<HTMLTextAreaElement>("textarea")
-					?.value.includes("Use the newest evidence"),
+		await page.waitForFunction(() =>
+			document
+				.querySelector<HTMLTextAreaElement>("textarea")
+				?.value.includes("Use the newest evidence"),
 		);
 		assert.equal(
 			await composer.inputValue(),
-			`Use the newest evidence on ${label}.\n\nKeep this draft`,
+			`Use the newest evidence on ${label}.`,
 		);
 		const deadline = Date.now() + 5000;
 		while (

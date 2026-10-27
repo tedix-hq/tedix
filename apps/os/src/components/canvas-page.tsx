@@ -518,6 +518,7 @@ export function CanvasPage({
 	const [chatWidth, setChatWidth] = useState(() =>
 		restoreCanvasChatWidth(window.localStorage),
 	);
+	const [chatDetailsOpen, setChatDetailsOpen] = useState(false);
 	const [activeConversationId, setActiveConversationId] = useState<
 		string | null
 	>(requestedConversation ?? MAIN_HOME_CONVERSATION_ID);
@@ -1439,6 +1440,8 @@ export function CanvasPage({
 							<ChatConversationHeader
 								conversationId={activeConversationId}
 								workspaceId={workspaceId ?? undefined}
+								detailsOpen={chatDetailsOpen}
+								onToggleDetails={() => setChatDetailsOpen((open) => !open)}
 								onBack={() => setConversationListOpen(true)}
 								onDeleted={() => {
 									setActiveConversationId(null);
@@ -1477,6 +1480,7 @@ export function CanvasPage({
 							<ChatThread
 								key={newConversationKey}
 								composerOnly={conversationListOpen}
+								detailsOpen={chatDetailsOpen}
 								conversationId={
 									conversationListOpen ? null : activeConversationId
 								}

@@ -1611,20 +1611,24 @@ export function ApprovalCard({
 const STOPPABLE_RUN_STATUSES: ReadonlySet<TediRunStatus> =
 	new Set<TediRunStatus>(["queued", "running", "requires_approval"]);
 
+/** True while the composer's send slot shows Stop for this run. */
+export function isStoppableRunStatus(status: TediRunStatus): boolean {
+	return STOPPABLE_RUN_STATUSES.has(status);
+}
+
 /**
- * Interruption controls for one run. Pure and NEVER optimistic: Stop/Retry
- * only dispatch callbacks; the integrator keeps `status` sourced from the run
- * set / stream terminals (`run.canceled`, `run.failed`, `run.started` of the
- * retry) and passes `pending` from the mutation. Retry supports failed delegated
- * runs and model failures before routing. The API rechecks eligibility.
- * Renders null when no control applies.
+ * Retry for one failed run; Stop lives in the composer's send slot. Pure and
+ * NEVER optimistic: Retry only dispatches; the integrator keeps `status`
+ * sourced from the run set / stream terminals (`run.failed`, `run.started` of
+ * the retry) and passes `pending` from the mutation. Retry supports failed
+ * delegated runs and model failures before routing. The API rechecks
+ * eligibility. Renders null when no control applies.
  */
 export function RunControls({
 	status,
 	delegated = false,
 	routeRetryable = false,
 	pending = false,
-	onStop,
 	onRetry,
 }: {
 	status: TediRunStatus;
@@ -1632,47 +1636,31 @@ export function RunControls({
 	delegated?: boolean;
 	/** A model failure before any route or side effect was selected. */
 	routeRetryable?: boolean;
-	/** True while a cancel/retry mutation is in flight — disables both. */
+	/** True while a cancel/retry mutation is in flight. */
 	pending?: boolean;
-	onStop?: () => void;
 	onRetry?: () => void;
 }) {
-	const showStop = STOPPABLE_RUN_STATUSES.has(status);
-	const showRetry = status === "failed" && (delegated || routeRetryable);
-	if (!showStop && !showRetry) return null;
+	if (status !== "failed" || !(delegated || routeRetryable)) return null;
 	return (
 		<div
 			data-slot="run-controls"
 			data-run-status={status}
 			data-pending={pending || undefined}
-			// Stop and Retry both DISPATCH: cancel is terminal, retry opens a new
-			// execution epoch and spends. Neither may render its effect before the
-			// server confirms, so the only in-flight signal is a busy control.
+			// Retry opens a new execution epoch that spends, so it may not render
+			// its effect before the server confirms: the only in-flight signal is
+			// a busy control.
 			aria-busy={pending || undefined}
 			className="flex items-center gap-2"
 		>
-			{showStop ? (
-				<Button
-					size="sm"
-					variant="outline"
-					icon={<StopCircle size={14} />}
-					disabled={pending}
-					onClick={() => onStop?.()}
-				>
-					Stop
-				</Button>
-			) : null}
-			{showRetry ? (
-				<Button
-					size="sm"
-					variant="outline"
-					icon={<ArrowCounterClockwise size={14} />}
-					disabled={pending}
-					onClick={() => onRetry?.()}
-				>
-					{routeRetryable ? "Try again" : "Retry"}
-				</Button>
-			) : null}
+			<Button
+				size="sm"
+				variant="outline"
+				icon={<ArrowCounterClockwise size={14} />}
+				disabled={pending}
+				onClick={() => onRetry?.()}
+			>
+				{routeRetryable ? "Try again" : "Retry"}
+			</Button>
 		</div>
 	);
 }

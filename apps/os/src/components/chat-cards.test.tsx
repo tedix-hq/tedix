@@ -18,6 +18,7 @@ import {
 	delegationHoldReason,
 	delegationProofFromRun,
 	ExecutionLinkChip,
+	isStoppableRunStatus,
 	mergeToolEvents,
 	PREVIEW_MAX_LENGTH,
 	pruneDepartedRunFrames,
@@ -1171,20 +1172,12 @@ describe("approval builders", () => {
 });
 
 describe("RunControls", () => {
-	it("renders Stop for an active run", () => {
-		const html = renderToStaticMarkup(
-			<RunControls status="running" onStop={() => {}} />,
-		);
-		expect(html).toContain('data-run-status="running"');
-		expect(html).toContain("Stop");
-		expect(html).not.toContain("Retry");
-	});
-
-	it("renders Stop while a run is parked on approval", () => {
-		const html = renderToStaticMarkup(
-			<RunControls status="requires_approval" />,
-		);
-		expect(html).toContain("Stop");
+	it("leaves Stop to the composer for active runs", () => {
+		for (const status of ["queued", "running", "requires_approval"] as const) {
+			expect(renderToStaticMarkup(<RunControls status={status} />)).toBe("");
+			expect(isStoppableRunStatus(status)).toBe(true);
+		}
+		expect(isStoppableRunStatus("failed")).toBe(false);
 	});
 
 	it("renders Retry only for failed delegated runs", () => {
@@ -1210,9 +1203,7 @@ describe("RunControls", () => {
 		expect(renderToStaticMarkup(<RunControls status="canceled" />)).toBe("");
 	});
 
-	it("disables both controls while a mutation is pending (never optimistic)", () => {
-		const stop = renderToStaticMarkup(<RunControls status="running" pending />);
-		expect(stop).toContain('disabled=""');
+	it("disables Retry while a mutation is pending (never optimistic)", () => {
 		const retry = renderToStaticMarkup(
 			<RunControls status="failed" delegated pending />,
 		);
@@ -1220,13 +1211,15 @@ describe("RunControls", () => {
 	});
 
 	it("exposes the in-flight dispatch to assistive tech, status unchanged", () => {
-		// Cancel is terminal and Retry opens a new execution epoch that spends;
-		// neither may render its effect before the server confirms, so the run
-		// status stays put and only the busy marker moves.
-		const html = renderToStaticMarkup(<RunControls status="running" pending />);
+		// Retry opens a new execution epoch that spends; it may not render its
+		// effect before the server confirms, so the run status stays put and only
+		// the busy marker moves.
+		const html = renderToStaticMarkup(
+			<RunControls status="failed" delegated pending />,
+		);
 		expect(html).toContain('aria-busy="true"');
 		expect(html).toContain('data-pending="true"');
-		expect(html).toContain('data-run-status="running"');
+		expect(html).toContain('data-run-status="failed"');
 	});
 });
 
