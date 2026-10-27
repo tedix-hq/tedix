@@ -12,12 +12,17 @@ import {
 	AppRuntimeGuestNameSchema,
 	AppRuntimeMethodSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
-import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import type { OsShareGuestRefusal } from "@tedix/api-contract/contracts/os-shares";
+import {
+	OsDerivedAccessEnvelopeSchema,
+	OsGadgetManifestSchema,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	appRuntimeGuestRefusal,
 	appRuntimePermission,
 	type AppRuntimeGuestRefusal,
 	type AppRuntimeGuestSlot,
+	isAppRuntimeManifest,
 } from "@tedix/api-contract/utils/app-runtime";
 import {
 	mintWorkspaceAppSession,
@@ -29,7 +34,10 @@ import {
 	getOsShareLinkById,
 	touchOsShareSession,
 } from "@tedix/db/queries/os-shares";
-import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
+import {
+	getOsGadget,
+	getOsGadgetRevision,
+} from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	getOsOutput,
 	getOsOutputRevision,
@@ -382,8 +390,10 @@ export async function guestAppRefusal(
 }
 
 /**
- * For the share dialog: why guests cannot open this app's current revision,
- * null when they can, undefined when the app does not run its own code.
+ * For the share dialog: why people without an account cannot open this app's
+ * current revision through a link, null when they can, undefined when it has
+ * no revision. An app that does not run its own code renders through Tedix
+ * skills and the builder's connected accounts, so it always needs sign-in.
  */
 export async function guestAppRefusalForApp(
 	db: DbQueryClient,
@@ -393,19 +403,21 @@ export async function guestAppRefusalForApp(
 		workspaceId: string;
 		currentRevisionId: string | null;
 	},
-): Promise<AppRuntimeGuestRefusal | null | undefined> {
+): Promise<OsShareGuestRefusal | null | undefined> {
 	if (!app.currentRevisionId) return undefined;
-	let code;
+	const revision = await getOsGadgetRevision(db, {
+		organizationId: app.organizationId,
+		revisionId: app.currentRevisionId,
+	});
+	if (!revision || revision.gadgetId !== app.id) return undefined;
+	let manifest;
 	try {
-		code = await loadAppRuntimeRevision(
-			db,
-			{ organizationId: app.organizationId, gadgetId: app.id },
-			app.currentRevisionId,
-		);
+		manifest = OsGadgetManifestSchema.parse(JSON.parse(revision.manifest));
 	} catch {
-		return undefined;
+		return { reason: "not_runtime_app" };
 	}
-	return guestAppRefusal(db, app, code.grants);
+	if (!isAppRuntimeManifest(manifest)) return { reason: "not_runtime_app" };
+	return guestAppRefusal(db, app, manifest.resourceGrants ?? []);
 }
 
 /**

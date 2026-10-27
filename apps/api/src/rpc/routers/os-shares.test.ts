@@ -295,6 +295,41 @@ describe("shares.list", () => {
 	});
 });
 
+describe("shares.list guest notes", () => {
+	it("says an app that does not run its own code needs sign-in, as the server does", async () => {
+		const h = harness();
+		const { workspace } = await h.outputs.workspaces.create({
+			name: "Partner workspace",
+		});
+		const { gadget } = await h.outputs.gadgets.create({
+			workspaceId: workspace.id,
+			name: "Skill app",
+		});
+		await h.outputs.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+			manifest: { entry: "share-test-skill", capabilities: [] },
+		});
+		const app = await h.org1.shares.list({
+			resourceType: "gadget",
+			resourceId: gadget.id,
+		});
+		expect(app.guestRefusal).toEqual({ reason: "not_runtime_app" });
+		// Server and dialog agree: a signed-out visitor gets the same 404.
+		const { token } = await h.org1.shares.create({
+			resourceType: "gadget",
+			resourceId: gadget.id,
+			role: "use",
+			access: "anyone_with_link",
+			revisionMode: "living",
+		});
+		expect(
+			(await handleOsShareRedemption(createDbQueryClient(h.env.DB), token))
+				.status,
+		).toBe(404);
+	});
+});
+
 describe("shares.revoke", () => {
 	it("kills redemption, is idempotent, and stays tenant-bound", async () => {
 		const h = harness();

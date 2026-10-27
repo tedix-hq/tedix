@@ -15,7 +15,6 @@ import type {
 	OsCollaboratorRole,
 	OsCollaboratorTarget,
 } from "@tedix/api-contract/schemas/os-collaborators";
-import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
@@ -297,9 +296,6 @@ function ItemLinks(props: {
 					resourceType="gadget"
 					resourceId={gadget.data.gadget.id}
 					currentRevisionId={gadget.data.currentRevision?.id}
-					guestEntry={isAppRuntimeManifest(
-						gadget.data.currentRevision?.manifest,
-					)}
 					onOpenReview={props.onOpenReview}
 				/>
 			) : item.type === "output" && output.data ? (
