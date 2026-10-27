@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/lane-execution": "./src/schemas/lane-execution.ts",
 		"./schemas/agent-requests": "./src/schemas/agent-requests.ts",
 		"./schemas/composer-command": "./src/schemas/composer-command.ts",
 		"./schemas/web-push": "./src/schemas/web-push.ts",

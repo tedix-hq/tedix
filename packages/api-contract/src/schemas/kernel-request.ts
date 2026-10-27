@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { LaneCheckpointSchema } from "./lane-execution";
 
 export const KernelRequestStateSchema = z.enum([
 	"received",
@@ -107,6 +108,7 @@ export const KernelRequestSnapshotSchema = z
 		checks: z.array(KernelAcceptanceCheckSchema).max(20),
 		acceptanceKey: z.string().nullable(),
 		probeAttempts: z.number().int().nonnegative().optional(),
+		laneCheckpoint: LaneCheckpointSchema.optional(),
 		observations: z.array(KernelAcceptanceObservationSchema).max(20),
 		outcome: z.enum(["verified", "failed", "unknown"]).nullable(),
 		delivery: z
