@@ -176,6 +176,7 @@
 		"./schema/os-shares": "./src/schema/os-shares.ts",
 		"./schema/os-collaborators": "./src/schema/os-collaborators.ts",
 		"./schema/os-workspaces": "./src/schema/os-workspaces.ts",
+		"./schema/provider-installations": "./src/schema/provider-installations.ts",
 		"./schema/platform-cron-executions": "./src/schema/platform-cron-executions.ts",
 		"./schema/tedi-secrets": "./src/schema/tedi-secrets.ts",
 		"./schema/organizations": "./src/schema/organizations.ts",

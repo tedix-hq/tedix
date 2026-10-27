@@ -8,6 +8,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { listOsCollaborationProposals } from "@tedix/db/queries/os-workspaces/collaboration";
 import { listOsShareLinks } from "@tedix/db/queries/os-shares";
+import { hasProviderInstallationForWorkspace } from "@tedix/db/queries/provider-installations";
 import {
 	createOsWorkspace,
 	deleteOsWorkspace,
@@ -524,6 +525,18 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 				"Archive this workspace before you delete it permanently.",
 			);
 		}
+		const scope = {
+			organizationId: workspace.organizationId,
+			workspaceId: workspace.id,
+		};
+		const refuseInstallation = () =>
+			createError(
+				ErrorCodes.BAD_REQUEST,
+				"A partner app installation uses this workspace. Move or remove the installation before deleting it. You can keep the workspace archived.",
+			);
+		if (await hasProviderInstallationForWorkspace(queryDb(context), scope)) {
+			throw refuseInstallation();
+		}
 		const proposals = await listOsCollaborationProposals(
 			queryDb(context),
 			workspace.organizationId,
@@ -546,11 +559,19 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 				"This workspace still has share links. Turn them off, then delete it.",
 			);
 		}
-		const removed = await deleteOsWorkspace(queryDb(context), {
-			organizationId: workspace.organizationId,
-			workspaceId: workspace.id,
-			preferenceNamespace: preferenceNamespace(workspace.organizationId),
-		});
+		let removed: boolean;
+		try {
+			removed = await deleteOsWorkspace(queryDb(context), {
+				...scope,
+				preferenceNamespace: preferenceNamespace(workspace.organizationId),
+			});
+		} catch (error) {
+			// An installation may have been attached after the preflight read.
+			if (await hasProviderInstallationForWorkspace(queryDb(context), scope)) {
+				throw refuseInstallation();
+			}
+			throw error;
+		}
 		if (!removed) {
 			throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
 		}

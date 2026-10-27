@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { osWorkspacesContractRouter } from "./os-workspaces";
 
 import { userContext, clients } from "./__tests__/os-workspaces-env";
+import { providerInstallations } from "@tedix/db/schema/provider-installations";
 
 // Governed-dispatch collaborators. The paths a receipt records (preflight,
 // budget, approvals, skill lookup, tedi ownership) are mocked per test; the
@@ -304,6 +305,82 @@ describe("workspaces", () => {
 			(await c.org1.outputs.get({ outputId: output.id })).output,
 		).toMatchObject({ id: output.id, title: "Kept notes" });
 	});
+
+	it.each(["active", "paused"] as const)(
+		"refuses deletion when a %s partner installation uses the workspace",
+		async (status) => {
+			const { workspace } = await c.org1.workspaces.create({
+				name: "Installed",
+			});
+			const db = createDbClient(c.env.DB);
+			await db.insert(providerInstallations).values({
+				id: "installation-1",
+				providerOrganizationId: "org-2",
+				providerAppId: "partner-app",
+				providerApiKeyId: "partner-key",
+				externalTenantId: "customer-1",
+				customerOrganizationId: "org-1",
+				primaryWorkspaceId: workspace.id,
+				primaryTediId: "partner-tedi",
+				allowedOrigin: "https://partner.example",
+				hostTenantArgument: "tenantId",
+				hostTenantNamespace: "partner",
+				provisionedBy: "user-1",
+				status,
+			});
+			await c.org1.workspaces.archive({ workspaceId: workspace.id });
+			await expect(
+				c.org1.workspaces.delete({ workspaceId: workspace.id }),
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message:
+					"A partner app installation uses this workspace. Move or remove the installation before deleting it. You can keep the workspace archived.",
+			});
+			await expect(
+				c.org1.workspaces.get({ workspaceId: workspace.id }),
+			).resolves.toMatchObject({ workspace: { status: "archived" } });
+		},
+	);
+
+	it.each(["member", "owner"] as const)(
+		"deletes a private workspace without exposing its documents to another %s",
+		async (userRole) => {
+			const { workspace } = await c.org1.workspaces.create({
+				name: "Private",
+				visibility: "private",
+			});
+			const { output } = await c.org1.outputs.create({
+				workspaceId: workspace.id,
+				kind: "document",
+				title: "Private notes",
+				content: { kind: "document", blocks: [] },
+			});
+			await c.org1.workspaces.archive({ workspaceId: workspace.id });
+			await c.org1.workspaces.delete({ workspaceId: workspace.id });
+			const retained = await c.org1.outputs.get({ outputId: output.id });
+			expect(retained.output.workspaceId).not.toBe(workspace.id);
+			const otherContext = userContext({ env: c.env, organizationId: "org-1" });
+			otherContext.user = { ...otherContext.user!, sub: "other-member" };
+			otherContext.userRole = userRole;
+			const other = createRouterClient(osWorkspacesContractRouter, {
+				context: otherContext,
+			});
+			await expect(
+				other.outputs.get({ outputId: output.id }),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			await expect(
+				other.outputs.export({ outputId: output.id, format: "pdf" }),
+			).rejects.toMatchObject({ code: "NOT_FOUND" });
+			expect(
+				(await other.outputs.list({ limit: 50 })).items.map((item) => item.id),
+			).not.toContain(output.id);
+			expect(
+				(
+					await other.outputs.library({ search: "Private notes", limit: 50 })
+				).items.map((item) => item.output.id),
+			).not.toContain(output.id);
+		},
+	);
 
 	it("preserves retained collaboration evidence during permanent deletion", async () => {
 		const { workspace } = await c.org1.workspaces.create({ name: "Reviewed" });
