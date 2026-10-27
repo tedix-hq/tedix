@@ -16,9 +16,12 @@ import {
 import {
 	abortableSleep,
 	QUICK_CHAT_HOME_LABEL,
+	type QuickChatHomeOpenTurn,
 	type QuickChatPageToolCall,
 	type QuickChatPageToolResult,
+	readQuickChatHomeOpenTurn,
 	readQuickChatHomeTranscript,
+	resumeQuickChatHomeTurn,
 	runQuickChatHomeTurn,
 	type QuickChatHomeDeps,
 } from "@/lib/quick-chat-home";
@@ -109,6 +112,17 @@ type TedixWidgetApi = {
 			transcript(input: {
 				conversationId: string;
 			}): Promise<Array<{ role: "user" | "assistant"; content: string }>>;
+			/** The thread's newest turn without an answer yet, after a refresh. */
+			openTurn(input: {
+				conversationId: string;
+			}): Promise<QuickChatHomeOpenTurn | null>;
+			/** Follows such a turn to its answer. */
+			resume(input: {
+				conversationId: string;
+				runId: string;
+				signal?: AbortSignal;
+				onDelta?: (text: string) => void;
+			}): Promise<{ text: string }>;
 		};
 		conversationStarters: string[];
 		script: HTMLScriptElement;
@@ -694,6 +708,13 @@ export function OsQuickChat() {
 											quickChatHomeDeps,
 											conversationId,
 										),
+									openTurn: ({ conversationId }) =>
+										readQuickChatHomeOpenTurn(
+											quickChatHomeDeps,
+											conversationId,
+										),
+									resume: (input) =>
+										resumeQuickChatHomeTurn(quickChatHomeDeps, input),
 								},
 							}
 						: {}),
