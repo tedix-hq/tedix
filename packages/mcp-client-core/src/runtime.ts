@@ -1613,16 +1613,20 @@ export class TedixMcpRuntime {
 		if (connections.length === 0) {
 			throw new Error("No assigned MCP servers connected");
 		}
-		const unified = connections
-			.filter(
+		const unified =
+			connections.find((conn) => {
+				const id = conn.serverId.toLowerCase();
+				return (
+					id.endsWith("-unified") &&
+					id !== "tedix-unified" &&
+					this.hasCodeTool(conn.serverId)
+				);
+			}) ??
+			connections.find(
 				(conn) =>
-					conn.serverId.toLowerCase().endsWith("-unified") &&
+					conn.serverId.toLowerCase() === "tedix-unified" &&
 					this.hasCodeTool(conn.serverId),
-			)
-			.sort(
-				(left, right) =>
-					reviewServerRank(left.serverId) - reviewServerRank(right.serverId),
-			)[0];
+			);
 		if (unified) {
 			return unified.serverId;
 		}

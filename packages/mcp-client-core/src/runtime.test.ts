@@ -82,12 +82,13 @@ describe("Code Mode server selection", () => {
 		);
 		expect(result).toMatchObject({ actionReceipts });
 	});
-	it("prefers a tenant unified gateway when an embedded gateway connects first", async () => {
+	it("prefers a tenant unified gateway regardless of connection order", async () => {
 		const { TedixMcpRuntime } = await import("./runtime");
 		const calledServers: string[] = [];
 		const manager = {
 			listConnections: () => [
 				{ serverId: "embedded-gateway-tenant" },
+				{ serverId: "tedix-unified" },
 				{ serverId: "tenant-unified" },
 			],
 			listTools: () => [{ name: "code" }],
