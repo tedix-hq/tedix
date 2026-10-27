@@ -38,8 +38,15 @@ test("malformed shard values fail rather than silently miss specs", () => {
 		expect(() => parseSpecShard(value)).toThrow("Invalid spec shard");
 });
 
-test("deck, feed-deck, viewport and shell each run as two CI shards", () => {
-	for (const name of ["deck", "feed-deck", "viewport", "shell"])
+test("the long browser suites each run as two CI shards", () => {
+	for (const name of [
+		"deck",
+		"feed-deck",
+		"viewport",
+		"shell",
+		"work-iphone",
+		"settings",
+	])
 		expect(shards[`test:browser:${name}`]).toBe(2);
 });
 

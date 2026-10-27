@@ -5,10 +5,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gateInProfile, procedureParityGates } from "./preflight-profiles.mjs";
 
-test("procedure parity selects only the three unit suites for every risky source path", () => {
+test("procedure parity selects only the invariant suites for every risky source path", () => {
 	for (const file of [
 		"packages/api-contract/src/contracts/os-app-runtime.ts",
+		"packages/api-contract/src/contract-versions.ts",
+		"packages/api-contract/src/utils/contract-routers.ts",
+		"packages/api-contract/src/schemas/mcp-capability-scopes.ts",
+		"packages/mcp/src/auth/reviewed-rpc-endpoint-scopes.ts",
 		"apps/api/src/rpc/routers/connections.ts",
+		"apps/api/src/rpc/os-audit.ts",
+		"apps/api/src/rpc/fleet-authority-guards.json",
+		"apps/mcp/src/mcp/home-surface-tools.ts",
+		"apps/mcp/src/mcp/aggregate-tedis-work-items.ts",
 		"apps/os/src/components/workspace-webmcp-tools.ts",
 		"apps/os/src/lib/webmcp/derive-schema.ts",
 		"apps/os/dev/local-fixtures.ts",
@@ -28,6 +36,34 @@ test("procedure parity selects only the three unit suites for every risky source
 				"apps/api",
 				"test:unit",
 				"src/services/tool-schema-sync-scope-coverage.test.ts",
+				"src/rpc/os-audit.coverage.test.ts",
+				"src/rpc/routers/contract-parity.test.ts",
+				"src/rpc/fleet-authority-coverage.test.ts",
+				"src/rpc/contract-surface-versions.test.ts",
+			],
+			[
+				"bun",
+				"run",
+				"--cwd",
+				"packages/mcp",
+				"test:run",
+				"src/auth/reviewed-rpc-endpoint-scopes.test.ts",
+			],
+			[
+				"bun",
+				"run",
+				"--cwd",
+				"packages/api-contract",
+				"test:run",
+				"src/schemas/mcp-capability-scopes.test.ts",
+			],
+			[
+				"bun",
+				"run",
+				"--cwd",
+				"apps/mcp",
+				"test:run",
+				"src/mcp/aggregate-contract-parity.test.ts",
 			],
 			[
 				"bun",
@@ -36,6 +72,7 @@ test("procedure parity selects only the three unit suites for every risky source
 				"apps/os",
 				"test:unit",
 				"dev/local-fixtures-parity.test.ts",
+				"dev/local-fixtures.test.ts",
 				"src/components/webmcp-tools-conventions.test.ts",
 			],
 		]);
@@ -63,6 +100,15 @@ case "$*" in
   *local-fixtures-parity.test.ts*)
     echo 'OS procedures checked; missing fixtures: example/propose'
     exit 1 ;;
+  *reviewed-rpc-endpoint-scopes.test.ts*)
+    echo 'reviewed endpoint without a valid scope: example/propose'
+    exit 1 ;;
+  *mcp-capability-scopes.test.ts*)
+    echo 'tool without an exact capability scope: propose_example'
+    exit 1 ;;
+  *aggregate-contract-parity.test.ts*)
+    echo 'aggregate tool without a contract procedure: example/propose'
+    exit 1 ;;
 esac
 exit 0
 `,
@@ -88,6 +134,12 @@ exit 0
 			"new endpoints without an MCP capability mapping: example/propose",
 		);
 		expect(result.stderr).toContain("missing fixtures: example/propose");
+		for (const message of [
+			"reviewed endpoint without a valid scope: example/propose",
+			"tool without an exact capability scope: propose_example",
+			"aggregate tool without a contract procedure: example/propose",
+		])
+			expect(result.stderr).toContain(message);
 		for (const gate of procedureParityGates(null)) {
 			expect(result.stderr).toContain(gate.name);
 			expect(result.stderr).toContain(`fix: ${gate.fix}`);
