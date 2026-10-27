@@ -367,16 +367,42 @@ describe("the signed session", () => {
 	it.each([
 		"This tedi is not available to you. Choose another tedi.",
 		"Configure selectable tedis in Tedi widget settings first.",
-	])("explains unavailable selection: %s", async (message) => {
+	])(
+		"treats no available tedi as an access answer, never Offline: %s",
+		async (message) => {
+			const w = await bootWidget({
+				options: {
+					product: "Acme",
+					session: vi.fn().mockRejectedValue(new Error(message)),
+				},
+			});
+			await w.open();
+			expect(w.Tedix.status().lastError).toBe("tedi_unavailable");
+			const status = w.$(".tedix-status")!;
+			expect(status.getAttribute("data-state")).toBe("unavailable");
+			expect(status.textContent).toBe("Not available");
+			expect(w.$(".tedix-session-recovery")!.hidden).toBe(true);
+			expect(w.$(".tedix-unavailable")?.textContent).toContain(
+				"Ask an admin of Acme to give you access to a tedi.",
+			);
+			expect(w.$<HTMLTextAreaElement>(".tedix-input")!.disabled).toBe(true);
+			expect(w.detailsOf("error")).toEqual([]);
+		},
+	);
+
+	it("accepts the typed tedi_unavailable code from a host", async () => {
 		const w = await bootWidget({
 			options: {
-				session: vi.fn().mockRejectedValue(new Error(message)),
+				session: vi
+					.fn()
+					.mockRejectedValue(
+						Object.assign(new Error("No tedi"), { code: "tedi_unavailable" }),
+					),
 			},
 		});
 		await w.open();
-		expect(w.Tedix.status().lastError).toBe("tedi_unavailable");
-		expect(w.$(".tedix-session-recovery")?.textContent).toContain(
-			"This tedi is not available to you. Choose another tedi.",
+		expect(w.$(".tedix-status")?.getAttribute("data-state")).toBe(
+			"unavailable",
 		);
 	});
 

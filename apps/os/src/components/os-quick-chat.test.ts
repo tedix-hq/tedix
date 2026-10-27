@@ -58,8 +58,12 @@ vi.mock("@/shared/os-tenant", () => ({
 }));
 
 import {
+	canUseQuickChatHome,
 	createOsPortableRouteAdapter,
+	createSessionWithFallback,
 	OsQuickChat,
+	quickChatPreferenceKey,
+	quickChatTediCandidates,
 	osPortableRouteContext,
 	shouldSuppressQuickChatLauncher,
 	withPageFocus,
@@ -245,6 +249,67 @@ describe("OS quick chat dogfood", () => {
  * production loader script; the test plays the loader by installing
  * `window.Tedix` and firing the script's load event.
  */
+describe("quick chat tedi choice", () => {
+	it("tries the requested tedi, then the default, then the other allowed tedis", () => {
+		const selection = {
+			defaultTediId: "b",
+			allowedTediIds: ["a", "b", "c"],
+		};
+		expect(quickChatTediCandidates(selection, "c")).toEqual(["c", "b", "a"]);
+		expect(quickChatTediCandidates(selection)).toEqual(["b", "a", "c"]);
+		// A remembered tedi that is no longer allowed is skipped, not refused.
+		expect(quickChatTediCandidates(selection, "gone")).toEqual(["b", "a", "c"]);
+		// A default outside the allowed list never binds.
+		expect(
+			quickChatTediCandidates({ defaultTediId: "x", allowedTediIds: ["a"] }),
+		).toEqual(["a"]);
+		expect(quickChatTediCandidates(undefined, "a")).toEqual([]);
+	});
+
+	it("moves past refused tedis but keeps real failures as failures", async () => {
+		const refused = Object.assign(new Error("Access denied to this tedi"), {
+			code: "FORBIDDEN",
+		});
+		await expect(
+			createSessionWithFallback(["a", "b"], async (id) => {
+				if (id === "a") throw refused;
+				return id;
+			}),
+		).resolves.toBe("b");
+		await expect(
+			createSessionWithFallback(["a"], async () => {
+				throw refused;
+			}),
+		).rejects.toMatchObject({ code: "tedi_unavailable" });
+		await expect(
+			createSessionWithFallback([], async () => "never"),
+		).rejects.toMatchObject({ code: "tedi_unavailable" });
+		const offline = new TypeError("Failed to fetch");
+		await expect(
+			createSessionWithFallback(["a", "b"], async () => {
+				throw offline;
+			}),
+		).rejects.toBe(offline);
+		const route = Object.assign(
+			new Error("First-party route is unavailable or outside its organization"),
+			{ code: "FORBIDDEN" },
+		);
+		await expect(
+			createSessionWithFallback(["a", "b"], async () => {
+				throw route;
+			}),
+		).rejects.toBe(route);
+	});
+
+	it("treats Home as usable only with the os:run permission", () => {
+		expect(canUseQuickChatHome({ permissions: ["os:read", "os:run"] })).toBe(
+			true,
+		);
+		expect(canUseQuickChatHome({ permissions: ["os:read"] })).toBe(false);
+		expect(canUseQuickChatHome(undefined)).toBe(false);
+	});
+});
+
 describe("OsQuickChat mount", () => {
 	type Listener = (detail: Record<string, unknown>) => void;
 	const cleanups: Array<() => Promise<void>> = [];
@@ -262,6 +327,8 @@ describe("OsQuickChat mount", () => {
 		options: {
 			analytics?: boolean;
 			defaultTediId?: string | null;
+			allowedTediIds?: string[];
+			permissions?: string[];
 			zIndex?: number;
 		} = {},
 	) {
@@ -272,11 +339,14 @@ describe("OsQuickChat mount", () => {
 				? undefined
 				: {
 						defaultTediId: options.defaultTediId ?? "tedi-7",
-						allowedTediIds: [options.defaultTediId ?? "tedi-7"],
+						allowedTediIds: options.allowedTediIds ?? [
+							options.defaultTediId ?? "tedi-7",
+						],
 					};
 		api.handlers = {
 			"userSettings.getContext": () => ({
 				organization: { id: "org-1", slug: "acme", name: "Acme" },
+				authority: { permissions: options.permissions ?? ["os:run"] },
 			}),
 			"organizations.get": () => ({
 				name: "Acme",
@@ -621,20 +691,60 @@ describe("OsQuickChat mount", () => {
 		marks.mockRestore();
 	});
 
-	it("reports a tedi prefetch failure when selection is not configured", async () => {
-		const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-		const { listeners } = await mount({ defaultTediId: null });
-		listeners.get("opened")?.({});
-		await act(async () => {
-			for (let tick = 0; tick < 5; tick += 1)
-				await new Promise((resolve) => setTimeout(resolve, 0));
-		});
+	it("answers 'no tedi for you' when the organization configured none, never a connection error", async () => {
+		const { initOptions } = await mount({ defaultTediId: null });
+		await expect(
+			initOptions().session({ conversationId: "c-1", pathname: "/work" }),
+		).rejects.toMatchObject({ code: "tedi_unavailable" });
 		expect(
-			errors.mock.calls.some(
-				([tag]) => tag === "[OS quick chat tedi prefetch]",
-			),
-		).toBe(true);
-		errors.mockRestore();
+			calls.some((call) => call.path === "tedis.createEmbeddedSession"),
+		).toBe(false);
+		// Home is still offered, so the chat opens there.
+		expect(initOptions().home).toBeDefined();
+	});
+
+	it("skips a remembered or default tedi the API refuses and binds the next allowed one", async () => {
+		const { initOptions } = await mount({
+			defaultTediId: "tedi-7",
+			allowedTediIds: ["tedi-7", "tedi-8"],
+		});
+		api.handlers["tedis.createEmbeddedSession"] = (input) => {
+			const { tediId } = input as { tediId: string };
+			if (tediId === "tedi-7")
+				throw Object.assign(new Error("The selected tedi is unavailable"), {
+					code: "SERVICE_UNAVAILABLE",
+					data: { reason: "worker_unavailable" },
+				});
+			return { session: input };
+		};
+		await initOptions().session({
+			conversationId: "c-1",
+			pathname: "/work",
+			selectedTediId: "tedi-gone",
+		});
+		const tried = calls
+			.filter((call) => call.path === "tedis.createEmbeddedSession")
+			.map((call) => (call.input as { tediId: string }).tediId);
+		expect(tried).toEqual(["tedi-7", "tedi-8"]);
+	});
+
+	it("offers Home only to people who may run it", async () => {
+		const { initOptions } = await mount({ permissions: ["os:read"] });
+		expect(initOptions()).not.toHaveProperty("home");
+	});
+
+	it("remembers the choice under an opaque per-organization, per-person key", async () => {
+		const { initOptions } = await mount();
+		const key = initOptions().preferenceKey as string;
+		expect(key).toMatch(/^[0-9a-f]{32}$/);
+		expect(key).not.toContain("ada");
+		expect(key).toBe(await quickChatPreferenceKey("org-1", "ada@example.com"));
+		expect(key).not.toBe(
+			await quickChatPreferenceKey("org-2", "ada@example.com"),
+		);
+		expect(key).not.toBe(
+			await quickChatPreferenceKey("org-1", "bo@example.com"),
+		);
 	});
 
 	it("shuts down actor-scoped widget state before removing the loader", async () => {

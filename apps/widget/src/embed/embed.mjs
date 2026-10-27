@@ -327,6 +327,21 @@ import {
 		 * path instead of a signed tedi session.
 		 */
 		const HOME_TARGET = "home";
+		/**
+		 * A host refuses a session with code `tedi_unavailable` when this person
+		 * may use no tedi here. That is an access answer, not a lost connection.
+		 */
+		const isTediUnavailable = (error) =>
+			error?.code === "tedi_unavailable" ||
+			/tedi is not available|configure selectable tedis/i.test(
+				error instanceof Error ? error.message : String(error),
+			);
+		const quietSessionFailure = () =>
+			Object.assign(new Error("No tedi is available"), {
+				code: "tedi_unavailable",
+				quiet: true,
+			});
+		const isQuietSessionFailure = (error) => error?.quiet === true;
 		const PAGE_TOOL_CONFIRM_WINDOW_MS = 100_000;
 		const homeTarget =
 			options.home && typeof options.home.turn === "function"
@@ -552,6 +567,10 @@ import {
 			${startMode === "home" && starters.length ? `<div class="tedix-prompts" role="group" aria-label="${t("suggested_prompts")}">${starters.map((prompt) => `<button class="tedix-prompt" type="button">${escapeHtml(prompt)}</button>`).join("")}</div>` : ""}
 			${startMode === "home" && homeModules.has("recent") ? recentSessionsMarkup() : ""}
 		</div>`;
+		const unavailableMarkup =
+			() => `<div class="tedix-empty tedix-unavailable" role="status">
+			<div class="tedix-empty-mark">${icon(ICONS.chat)}</div><h2>${escapeHtml(t("no_tedi_available"))}</h2><p>${escapeHtml(t("ask_admin_for_tedi", { product: productLabel }))}</p>
+		</div>`;
 		let pageContext = normalizePageContext(sharedContext || {});
 		const context = routeContext(productLabel, t);
 		const safeTitle = escapeHtml(title);
@@ -689,7 +708,45 @@ import {
 
 		const panel = root.querySelector(".tedix-panel");
 		const tediSelect = root.querySelector(".tedix-tedi-select");
-		let selectedTediId = homeTarget ? HOME_TARGET : null;
+		/**
+		 * The person's last chosen target, kept per tenant and per the host's
+		 * opaque person key. A preference, never authority: the host decides
+		 * which tedi a session may bind to, and an unavailable choice falls back.
+		 */
+		const TARGET_CHOICE_KEY =
+			typeof options.preferenceKey === "string" &&
+			/^[A-Za-z0-9_-]{1,128}$/.test(options.preferenceKey)
+				? `tedix:target-choice:v1:${tenant}:${options.preferenceKey}`
+				: null;
+		let rememberedTarget = (() => {
+			try {
+				const stored =
+					TARGET_CHOICE_KEY && localStorage.getItem(TARGET_CHOICE_KEY);
+				return typeof stored === "string" && stored.length <= 200
+					? stored
+					: null;
+			} catch {
+				return null;
+			}
+		})();
+		const rememberTarget = (target) => {
+			rememberedTarget = target;
+			try {
+				if (TARGET_CHOICE_KEY) localStorage.setItem(TARGET_CHOICE_KEY, target);
+			} catch {
+				// Preference persistence is best effort.
+			}
+		};
+		/** Home when the host offers it, unless the person chose a tedi before. */
+		const defaultTarget = () =>
+			rememberedTarget && rememberedTarget !== HOME_TARGET
+				? rememberedTarget
+				: homeTarget
+					? HOME_TARGET
+					: null;
+		let selectedTediId = defaultTarget();
+		/** Set when the host has no tedi this person may use. */
+		let noTediAvailable = false;
 		let tediChoices = [];
 		const targetChoices = () =>
 			homeTarget
@@ -708,7 +765,8 @@ import {
 					return option;
 				}),
 			);
-			tediSelect.hidden = choices.length === 0;
+			// A single choice is no choice: the picker appears only with two or more.
+			tediSelect.hidden = choices.length < 2;
 			tediSelect.value = selectedTediId ?? "";
 			tediSelect.disabled = busy || voiceState !== "idle" || choices.length < 2;
 			// Both pickers share every state transition that disables the composer,
@@ -881,6 +939,8 @@ import {
 		let activeConversation = {
 			id: conversationId,
 			tediId: selectedTediId,
+			// A default or remembered target may be replaced by the host's choice.
+			tediFallback: true,
 			title: t("new_conversation"),
 			updatedAt: Date.now(),
 			fragment: document.createDocumentFragment(),
@@ -919,16 +979,36 @@ import {
 			status.dataset.state = effective;
 			status.querySelector(".tedix-status-label").textContent =
 				embeddedConnectionLabel(effective, t);
-			sessionRecovery.hidden = effective !== "error";
-			if (effective === "error")
+			// With no tedi and no Home, a new conversation has nothing to ask:
+			// say so plainly instead of offering a composer that cannot answer.
+			const unavailable = effective === "unavailable";
+			const showRecovery =
+				effective === "error" ||
+				(unavailable && activeConversation.hasMessages);
+			sessionRecovery.hidden = !showRecovery;
+			if (showRecovery)
 				sessionRecoveryText.textContent = embeddedSessionFailureLabel(
 					lastError,
 					t,
 				);
+			if (unavailable && !activeConversation.hasMessages) {
+				thread.innerHTML = unavailableMarkup();
+				input.disabled = true;
+				send.disabled = true;
+			} else if (!unavailable && thread.querySelector(".tedix-unavailable")) {
+				thread.innerHTML = homeMarkup();
+				bindHome();
+				input.disabled = false;
+			}
+		};
+		/** Only a real connection failure reads as Offline. */
+		const onSessionFailure = (error) => {
+			if (!isQuietSessionFailure(error)) setConnectionState("error");
 		};
 		sessionRetry.addEventListener("click", async () => {
 			sessionRetry.disabled = true;
 			embeddedSession = null;
+			noTediAvailable = false;
 			setConnectionState("connecting");
 			try {
 				await getEmbeddedSession();
@@ -1414,10 +1494,10 @@ import {
 			if (panel.hasAttribute("data-open")) {
 				void getEmbeddedSession()
 					.then(startApprovalProjection)
-					.catch(() => setConnectionState("error"));
+					.catch(onSessionFailure);
 			}
 		};
-		const reset = (nextTediId = homeTarget ? HOME_TARGET : null) => {
+		const reset = (nextTediId = defaultTarget(), explicit = false) => {
 			if (busy) return;
 			++hydrationVersion;
 			hydrating = false;
@@ -1443,6 +1523,7 @@ import {
 			activeConversation = {
 				id: conversationId,
 				tediId: selectedTediId,
+				tediFallback: !explicit,
 				title: t("new_conversation"),
 				updatedAt: Date.now(),
 				fragment: document.createDocumentFragment(),
@@ -1482,8 +1563,10 @@ import {
 				return;
 			}
 			input.value = "";
-			reset(next);
-			void getEmbeddedSession().catch(() => {
+			rememberTarget(next);
+			reset(next, true);
+			void getEmbeddedSession().catch((error) => {
+				if (isQuietSessionFailure(error)) return;
 				setConnectionState("error");
 				sessionRecovery.hidden = false;
 				sessionRecoveryText.textContent = t("tedi_selection_failed");
@@ -1879,15 +1962,27 @@ import {
 			}
 		};
 		const requestEmbeddedSession = async (sessionConversationId) => {
-			const conversationTarget =
-				conversations.get(sessionConversationId)?.tediId ?? selectedTediId;
+			const sessionConversation = conversations.get(sessionConversationId);
+			const conversationTarget = sessionConversation?.tediId ?? selectedTediId;
 			// A Home conversation still opens a signed session for the roster and
 			// page tools; it binds to the host's default tedi, not to Home.
 			const requestedTediId =
 				conversationTarget === HOME_TARGET ? null : conversationTarget;
+			// A default or remembered tedi the person can no longer use gives way
+			// to the host's choice before the conversation starts; an explicit
+			// choice or a conversation in progress never switches silently.
+			const mayFallBack =
+				sessionConversation?.tediFallback === true &&
+				!sessionConversation.hasMessages;
+			if (noTediAvailable && conversationTarget === HOME_TARGET)
+				throw quietSessionFailure();
 			const verifySelection = (result) => {
 				const selection = result?.tediSelection;
-				if (requestedTediId && selection?.selectedTediId !== requestedTediId)
+				if (
+					requestedTediId &&
+					selection?.selectedTediId !== requestedTediId &&
+					!mayFallBack
+				)
 					throw new Error(t("tedi_selection_failed"));
 				if (
 					selection &&
@@ -1899,7 +1994,11 @@ import {
 					throw new Error(t("tedi_selection_failed"));
 				if (selection && conversationId === sessionConversationId) {
 					if (conversationTarget !== HOME_TARGET) {
-						selectedTediId = selection.selectedTediId;
+						// A fallback lands on Home when the host offers it.
+						selectedTediId =
+							homeTarget && selection.selectedTediId !== requestedTediId
+								? HOME_TARGET
+								: selection.selectedTediId;
 						activeConversation.tediId = selectedTediId;
 					}
 					tediChoices = selection.tedis;
@@ -1951,15 +2050,33 @@ import {
 					});
 					return result;
 				} catch (error) {
-					lastError = /tedi is not available|configure selectable tedis/i.test(
-						error instanceof Error ? error.message : String(error),
-					)
-						? "tedi_unavailable"
-						: "session_provider_failed";
-					setConnectionState("error");
 					finishSessionAttempt("failed");
-					emit("error", { tenant, code: lastError });
-					throw error;
+					if (!isTediUnavailable(error)) {
+						lastError = "session_provider_failed";
+						setConnectionState("error");
+						emit("error", { tenant, code: lastError });
+						throw error;
+					}
+					// Not a connection problem: this person has no tedi to talk to.
+					lastError = "tedi_unavailable";
+					noTediAvailable = true;
+					if (conversationId === sessionConversationId) {
+						tediChoices = [];
+						if (
+							homeTarget &&
+							(conversationTarget === HOME_TARGET || mayFallBack)
+						) {
+							// Home still answers; it needs no tedi session.
+							selectedTediId = HOME_TARGET;
+							activeConversation.tediId = HOME_TARGET;
+							renderTediSelection();
+							setConnectionState("connected");
+						} else {
+							renderTediSelection();
+							setConnectionState("unavailable");
+						}
+					}
+					throw quietSessionFailure();
 				}
 			}
 			let response;
@@ -3150,7 +3267,7 @@ import {
 			setOpen(true);
 			void getEmbeddedSession()
 				.then(loadPendingApprovals)
-				.catch(() => setConnectionState("error"));
+				.catch(onSessionFailure);
 		});
 		const hostLauncherClick = (event) => {
 			if (
@@ -3168,7 +3285,7 @@ import {
 			.addEventListener("click", () => setOpen(false));
 		root.querySelector(".tedix-new").addEventListener("click", () => {
 			reset();
-			void getEmbeddedSession().catch(() => setConnectionState("error"));
+			void getEmbeddedSession().catch(onSessionFailure);
 		});
 		root
 			.querySelector(".tedix-history-open")
@@ -3178,7 +3295,7 @@ import {
 			.addEventListener("click", () => setHistoryOpen(false));
 		root.querySelector(".tedix-history-new").addEventListener("click", () => {
 			reset();
-			void getEmbeddedSession().catch(() => setConnectionState("error"));
+			void getEmbeddedSession().catch(onSessionFailure);
 		});
 		const expandButton = root.querySelector(".tedix-expand");
 		const setExpanded = (expanded) => {

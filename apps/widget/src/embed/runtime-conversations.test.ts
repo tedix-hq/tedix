@@ -11,6 +11,7 @@ import {
 	sessionResult,
 	settle,
 	teardown,
+	TENANT,
 	THREADS_KEY,
 	tick,
 	transport,
@@ -836,6 +837,171 @@ describe("Home target", () => {
 		expect([...select.options].map((option) => option.value)).toEqual([
 			"worker-a",
 		]);
+	});
+});
+
+describe("opening target", () => {
+	const TARGET_KEY = `tedix:target-choice:v1:${TENANT}:person-1`;
+	const roster = (selectedTediId: string) =>
+		sessionResult({
+			tediSelection: {
+				selectedTediId,
+				tedis: [
+					{ id: "worker-a", name: "A" },
+					{ id: "worker-b", name: "B" },
+				],
+			},
+		});
+	const home = () => ({
+		label: "Home",
+		turn: vi.fn(async () => ({ text: "Home answered." })),
+	});
+	const noTedi = () =>
+		Object.assign(new Error("No tedi is available to you here."), {
+			code: "tedi_unavailable",
+		});
+
+	it("opens on Home with no picker and no Offline when no tedi is allowed", async () => {
+		const session = vi.fn(async () => {
+			throw noTedi();
+		});
+		const target = home();
+		const w = await bootWidget({ options: { session, home: target } });
+		await w.open();
+		await settle();
+		const select = w.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		expect(select.hidden).toBe(true);
+		expect(select.value).toBe("home");
+		expect(w.$(".tedix-status")?.getAttribute("data-state")).not.toBe("error");
+		expect(w.$(".tedix-status")?.textContent).not.toBe("Offline");
+		expect(w.$(".tedix-session-recovery")!.hidden).toBe(true);
+		expect(w.detailsOf("error")).toEqual([]);
+		await w.say("Hello");
+		await settle();
+		expect(target.turn).toHaveBeenCalled();
+		expect(w.$$(".tedix-message-assistant").at(-1)?.textContent).toContain(
+			"Home answered.",
+		);
+		// The host answered once; Home does not keep asking for a tedi.
+		expect(session).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows Home plus allowed tedis only when there is more than one choice", async () => {
+		const one = await bootWidget({
+			options: {
+				session: vi.fn(async () =>
+					sessionResult({
+						tediSelection: {
+							selectedTediId: "worker-a",
+							tedis: [{ id: "worker-a", name: "A" }],
+						},
+					}),
+				),
+			},
+		});
+		await one.open();
+		expect(one.$<HTMLSelectElement>(".tedix-tedi-select")!.hidden).toBe(true);
+
+		const two = await bootWidget({
+			options: {
+				session: vi.fn(async () =>
+					sessionResult({
+						tediSelection: {
+							selectedTediId: "worker-a",
+							tedis: [{ id: "worker-a", name: "A" }],
+						},
+					}),
+				),
+				home: home(),
+			},
+		});
+		await two.open();
+		const select = two.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		expect(select.hidden).toBe(false);
+		expect([...select.options].map((option) => option.textContent)).toEqual([
+			"Home",
+			"A",
+		]);
+	});
+
+	it("remembers the chosen target per person and reopens on it", async () => {
+		const session = vi.fn(async (request: Record<string, unknown>) =>
+			roster((request.selectedTediId as string) ?? "worker-a"),
+		);
+		const first = await bootWidget({
+			options: { session, home: home(), preferenceKey: "person-1" },
+		});
+		await first.open();
+		const select = first.$<HTMLSelectElement>(".tedix-tedi-select")!;
+		expect(select.value).toBe("home");
+		select.value = "worker-b";
+		select.dispatchEvent(new Event("change"));
+		await settle();
+		expect(localStorage.getItem(TARGET_KEY)).toBe("worker-b");
+
+		const again = await bootWidget({
+			before: () => localStorage.setItem(TARGET_KEY, "worker-b"),
+			options: { session, home: home(), preferenceKey: "person-1" },
+		});
+		await again.open();
+		expect(session).toHaveBeenLastCalledWith(
+			expect.objectContaining({ selectedTediId: "worker-b" }),
+		);
+		expect(again.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe(
+			"worker-b",
+		);
+
+		// Another person in the same browser keeps their own default.
+		const other = await bootWidget({
+			before: () => localStorage.setItem(TARGET_KEY, "worker-b"),
+			options: { session, home: home(), preferenceKey: "person-2" },
+		});
+		await other.open();
+		expect(other.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe(
+			"home",
+		);
+	});
+
+	it("falls back to Home silently when the remembered tedi is no longer allowed", async () => {
+		const session = vi.fn(async () => roster("worker-a"));
+		const w = await bootWidget({
+			before: () => localStorage.setItem(TARGET_KEY, "worker-gone"),
+			options: { session, home: home(), preferenceKey: "person-1" },
+		});
+		await w.open();
+		await settle();
+		expect(session).toHaveBeenCalledWith(
+			expect.objectContaining({ selectedTediId: "worker-gone" }),
+		);
+		expect(w.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe("home");
+		expect(w.$(".tedix-session-recovery")!.hidden).toBe(true);
+	});
+
+	it("falls back to the host's first allowed tedi silently without Home", async () => {
+		const session = vi.fn(async () => roster("worker-a"));
+		const w = await bootWidget({
+			before: () => localStorage.setItem(TARGET_KEY, "worker-gone"),
+			options: { session, preferenceKey: "person-1" },
+		});
+		await w.open();
+		await settle();
+		expect(w.$<HTMLSelectElement>(".tedix-tedi-select")!.value).toBe(
+			"worker-a",
+		);
+		expect(w.$(".tedix-session-recovery")!.hidden).toBe(true);
+		expect(w.$(".tedix-status")?.getAttribute("data-state")).not.toBe("error");
+	});
+
+	it("still shows Offline for a real connection failure", async () => {
+		const w = await bootWidget({
+			options: {
+				session: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+				home: home(),
+			},
+		});
+		await w.open();
+		expect(w.$(".tedix-status")?.getAttribute("data-state")).toBe("error");
+		expect(w.$(".tedix-status")?.textContent).toBe("Offline");
 	});
 });
 
