@@ -2,7 +2,7 @@ import {
 	WorkspaceAppRenderer,
 	WorkspaceAppRunsInfo,
 } from "@/components/workspace-app-renderer";
-import { ArrowsIn, FloppyDisk, X } from "@phosphor-icons/react";
+import { ArrowsIn, FloppyDisk, UsersThree, X } from "@phosphor-icons/react";
 import type {
 	OsGadgetExecution,
 	OsGadgetManifest,
@@ -222,6 +222,7 @@ export function CanvasDocPanel({
 	onAppDraftMerged,
 	focusMode,
 	onFocusModeChange,
+	onShare,
 	onShowResources,
 	onWidgetFollowUp,
 	actionsSlot,
@@ -246,6 +247,8 @@ export function CanvasDocPanel({
 	 */
 	actionsSlot?: HTMLElement | null;
 	onFocusModeChange: (focused: boolean) => void;
+	/** Opens the workspace Share dialog; focus mode hides the top bar's. */
+	onShare?: () => void;
 	onShowResources: () => void;
 	onWidgetFollowUp?: (message: string) => void;
 }) {
@@ -819,6 +822,18 @@ export function CanvasDocPanel({
 				)}
 				{/* Entering focus is a workspace top-bar control; leaving it has
 				    to live here, where the top bar is hidden. */}
+				{focusMode && onShare && (
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label="Share"
+						title="Share"
+						onClick={onShare}
+					>
+						<UsersThree size={16} />
+						<span className="sr-only">Share</span>
+					</Button>
+				)}
 				{focusMode && (
 					<Button
 						variant="ghost"

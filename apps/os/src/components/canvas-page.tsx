@@ -50,6 +50,7 @@ import {
 	canvasWorkpieceTabId,
 } from "@/components/canvas-workpiece-tabs";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
+import { WorkspaceShareDialog } from "@/components/workspace-share-dialog";
 import { useAppDrafts } from "@/components/app-runtime-drafts";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
@@ -508,6 +509,8 @@ export function CanvasPage({
 	const activityEntryRef = useRef<HTMLSpanElement>(null);
 	const [newConversationKey, setNewConversationKey] = useState(0);
 	const [focusMode, setFocusMode] = useState(requestedFocus === true);
+	// Focus mode hides the top bar, so its Share opens this copy of the dialog.
+	const [focusShareOpen, setFocusShareOpen] = useState(false);
 	const [mobilePane, setMobilePane] = useState<CanvasMobilePane>(
 		requestedPane ?? (requestedDoc ? "workpiece" : "chat"),
 	);
@@ -1720,6 +1723,11 @@ export function CanvasPage({
 												focus: focused ? true : undefined,
 											});
 										}}
+										onShare={
+											selectedWorkspace
+												? () => setFocusShareOpen(true)
+												: undefined
+										}
 										onShowResources={showCanvasResources}
 										onWidgetFollowUp={sendWidgetFollowUp}
 									/>
@@ -1794,6 +1802,24 @@ export function CanvasPage({
 				]}
 				value={mobilePane}
 			/>
+			{focusShareOpen && selectedWorkspace ? (
+				<WorkspaceShareDialog
+					workspaceId={selectedWorkspace.id}
+					workspaceName={selectedWorkspace.name}
+					visibility={selectedWorkspace.visibility}
+					item={
+						selectedDoc
+							? {
+									type: selectedDoc.type,
+									id: selectedDoc.id,
+									onOpenReview: () => selectWorkpieceMode("activity"),
+								}
+							: undefined
+					}
+					open
+					onOpenChange={setFocusShareOpen}
+				/>
+			) : null}
 		</Page>
 	);
 }

@@ -311,7 +311,9 @@ try {
 				await assertFits(page, width, `dialog ${width} ${theme}`);
 
 				await dialog.getByLabel("Email address").fill("lee@example.test");
-				await dialog.getByRole("button", { name: "Invite" }).click();
+				await dialog
+					.getByRole("button", { name: "Invite", exact: true })
+					.click();
 				await page.waitForFunction(
 					() =>
 						(document.querySelector("input[type=email]") as HTMLInputElement)
@@ -324,7 +326,10 @@ try {
 				});
 
 				await dialog
-					.getByRole("button", { name: "Remove Kai Fictional" })
+					.getByRole("button", { name: "Options for Kai Fictional" })
+					.click();
+				await page
+					.getByRole("menuitem", { name: "Remove Kai Fictional" })
 					.click();
 				const confirm = dialog.locator("[data-removal-confirm]");
 				await confirm.getByText("This also removes Zoe Fictional.").waitFor();
@@ -344,27 +349,20 @@ try {
 					keepUserIds: ["member-zoe"],
 				});
 
-				// The no-sign-in link is a separate option, off by default.
-				const publicSwitch = dialog.getByRole("switch", {
-					name: "Anyone with the link can view",
+				// General access is one dropdown: a sign-in link at a role, or the
+				// no-sign-in link. Each new link is shown once, with Copy link.
+				const access = dialog.getByRole("combobox", {
+					name: "General access",
 				});
-				assert.equal(await publicSwitch.getAttribute("aria-checked"), "false");
-				await publicSwitch.click();
-				const publicUrl = dialog.locator("[data-public-url]");
-				await publicUrl.waitFor();
-				assert(
-					(await publicUrl.textContent())?.includes(
-						`/shared#token=${PUBLIC_TOKEN}`,
-					),
+				assert.equal(
+					(await access.textContent())?.trim(),
+					"Anyone with the link can use",
+					"the existing link sets the shown access",
 				);
-				assert.deepEqual(calls["public:create"]?.[0], {
-					resourceType: "workspace",
-					resourceId: WORKSPACE_ID,
-					role: "use",
-					revisionMode: "living",
-				});
-
-				await dialog.getByRole("button", { name: "Create link" }).click();
+				await access.click();
+				await page
+					.getByRole("option", { name: "Anyone with the link can build" })
+					.click();
 				const fresh = dialog.locator("[data-fresh-link]");
 				await fresh.waitFor();
 				const text = await fresh.textContent();
@@ -372,7 +370,41 @@ try {
 					text?.includes(`/shared/workspace/${WORKSPACE_ID}#share=${KEY}`),
 					text ?? "",
 				);
+				await fresh.getByRole("button", { name: "Copy link" }).waitFor();
+				assert.deepEqual(calls.createLink?.[0], {
+					workspaceId: WORKSPACE_ID,
+					role: "build",
+				});
+				assert.equal(await page.getByRole("dialog").count(), 1);
+				assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
 				await assertFits(page, width, `link ${width} ${theme}`);
+
+				await access.click();
+				await page
+					.getByRole("option", {
+						name: "Anyone with the link can view, no sign-in",
+					})
+					.click();
+				const publicUrl = dialog.locator("[data-public-url]");
+				await publicUrl.waitFor();
+				assert(
+					(await publicUrl.textContent())?.includes(
+						`/shared#token=${PUBLIC_TOKEN}`,
+					),
+				);
+				await publicUrl.getByRole("button", { name: "Copy link" }).waitFor();
+				assert.equal(await dialog.locator("[data-fresh-link]").count(), 0);
+				assert.deepEqual(calls["public:create"]?.[0], {
+					resourceType: "workspace",
+					resourceId: WORKSPACE_ID,
+					role: "use",
+					revisionMode: "living",
+				});
+				assert.equal(
+					(await access.textContent())?.trim(),
+					"Anyone with the link can view, no sign-in",
+				);
+				await assertFits(page, width, `public ${width} ${theme}`);
 				await page.screenshot({
 					path: `${directory}/dialog-${width}-${theme}.png`,
 					fullPage: true,

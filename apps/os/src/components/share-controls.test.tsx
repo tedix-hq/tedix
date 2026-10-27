@@ -36,7 +36,6 @@ import {
 	shareExpiryLabel,
 	shareStatus,
 	shareStatusVariant,
-	workspaceAccessRows,
 } from "./share-controls";
 
 (
@@ -143,6 +142,31 @@ function click(element: Element) {
 	act(() => {
 		element.click();
 	});
+}
+
+/** Opens a row's quiet "…" menu and picks one item from it. */
+async function pickMenuItem(
+	container: Element,
+	triggerLabel: string,
+	itemLabel: string,
+) {
+	const trigger = container.querySelector<HTMLButtonElement>(
+		`button[aria-label="${triggerLabel}"]`,
+	);
+	if (!trigger) throw new Error(`menu trigger not found: ${triggerLabel}`);
+	click(trigger);
+	await flush();
+	const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+		(node) => (node.textContent ?? "").includes(itemLabel),
+	);
+	if (!item) throw new Error(`menu item not found: ${itemLabel}`);
+	click(item);
+	await flush();
+}
+
+/** The create form sits behind "Link options" so the main row stays short. */
+async function openCreateForm(container: Element) {
+	await pickMenuItem(container, "Link options", "New link with options");
 }
 
 function setFieldValue(field: HTMLInputElement, value: string) {
@@ -306,8 +330,8 @@ describe("ShareRow", () => {
 		expect(html).toContain("never expires");
 		expect(html).toContain("Can view");
 		expect(html).toContain("latest version");
-		expect(html).toContain("Edit");
-		expect(html).toContain("Turn off");
+		// Edit and Turn off live in the row's quiet menu.
+		expect(html).toContain('aria-label="Options for For the team"');
 	});
 
 	it("asks inline before turning a link off", () => {
@@ -331,7 +355,7 @@ describe("ShareRow", () => {
 			/>,
 		);
 		expect(html).toContain("Turned off");
-		expect(html).not.toContain("Turn off this link");
+		expect(html).not.toContain("Options for");
 	});
 });
 
@@ -349,7 +373,7 @@ describe("ShareControls", () => {
 		expect(trigger.querySelector(".sr-only")?.textContent).toBe("Share");
 	});
 
-	it("uses the semantic Kumo layer and bounds its panel to the viewport", async () => {
+	it("opens one dialog, never a popover", async () => {
 		sharesApi.list.mockResolvedValue({ items: [] });
 		const surface = renderControls();
 		const trigger = findButton(surface, "Share");
@@ -357,20 +381,10 @@ describe("ShareControls", () => {
 		click(trigger);
 		await flush();
 
-		expect(trigger.getAttribute("aria-expanded")).toBe("true");
-		const popup = surface.querySelector<HTMLElement>(".kumo-popover-popup");
-		expect(popup).not.toBeNull();
-		expect(popup?.className).toContain("overflow-y-auto");
-		expect(popup?.className).toContain("var(--available-height)");
-		expect(popup?.className).toContain("var(--viewport-tedix-height)");
-		expect(popup?.className).toContain("calc(100vw-2rem)");
-		expect(popup?.parentElement?.className).toContain(
-			"z-(--tedix-layer-dropdown)",
-		);
-
-		click(trigger);
-		await flush();
-		expect(trigger.getAttribute("aria-expanded")).toBe("false");
+		const dialog = surface.querySelector<HTMLElement>('[role="dialog"]');
+		expect(dialog).not.toBeNull();
+		expect(dialog?.textContent).toContain("Share this file");
+		expect(dialog?.textContent).toContain("General access");
 		expect(surface.querySelector(".kumo-popover-popup")).toBeNull();
 	});
 
@@ -450,7 +464,11 @@ describe("ShareControls", () => {
 		await flush();
 		expect(container.textContent).not.toContain("Create link");
 
-		click(findButton(container, "Edit"));
+		await pickMenuItem(
+			container,
+			"Options for Old note",
+			"Edit and get a new link",
+		);
 		const note = container.querySelector<HTMLInputElement>(
 			'input[aria-label="Share note"]',
 		);
@@ -482,7 +500,11 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
-		click(findButton(container, "Edit"));
+		await pickMenuItem(
+			container,
+			"Options for link",
+			"Edit and get a new link",
+		);
 		click(findButton(container, "Save and get new link"));
 		await flush();
 		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
@@ -494,7 +516,9 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
-		expect(container.textContent).toContain("No links yet");
+		expect(container.textContent).toContain("Only people in the workspace");
+		expect(container.textContent).toContain("Anyone with the link");
+		expect(container.textContent).not.toContain("Couldn't");
 	});
 
 	it("creates a link and shows the one-time URL with the access warning", async () => {
@@ -507,6 +531,7 @@ describe("ShareControls", () => {
 		click(findButton(container, "Share"));
 		await flush();
 
+		await openCreateForm(container);
 		click(findButton(container, "Create link"));
 		await flush();
 
@@ -539,6 +564,7 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
+		await openCreateForm(container);
 
 		openExpiryCalendar();
 		click(expiryDay("2099-01-02"));
@@ -568,6 +594,7 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
+		await openCreateForm(container);
 
 		// Optional expiry: the trigger reads "No expiry" and offers nothing to
 		// clear until a day is chosen.
@@ -617,7 +644,8 @@ describe("ShareControls", () => {
 		});
 		click(findButton(container, "Share"));
 		await flush();
-		click(findButton(container, "Edit the workspace"));
+		await openCreateForm(container);
+		click(findButton(container, "Build"));
 		click(findButton(container, "This version"));
 		const note = container.querySelector<HTMLInputElement>(
 			'input[aria-label="Share note"]',
@@ -635,9 +663,7 @@ describe("ShareControls", () => {
 			note: "Approved build handoff",
 		});
 		expect(linkField(container)?.value).toContain("/shared#token=");
-		expect(container.textContent).toContain(
-			"Your connected accounts are never shared",
-		);
+		expect(container.textContent).toContain("can build this app");
 	});
 
 	it("pins an output to the exact revision shown in its detail view", async () => {
@@ -655,6 +681,7 @@ describe("ShareControls", () => {
 		});
 		click(findButton(container, "Share"));
 		await flush();
+		await openCreateForm(container);
 		click(findButton(container, "This version"));
 		click(findButton(container, "Create link"));
 		await flush();
@@ -682,8 +709,7 @@ describe("ShareControls", () => {
 		await flush();
 
 		const listCallsBefore = sharesApi.list.mock.calls.length;
-		click(findButton(container, "Turn off"));
-		await flush();
+		await pickMenuItem(container, "Options for link", "Turn off");
 		expect(sharesApi.previewRevoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
 		expect(container.textContent).toContain("2 people have it open now");
 		expect(container.querySelector('[data-slot="alert"]')).not.toBeNull();
@@ -701,6 +727,7 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
+		await openCreateForm(container);
 		click(findButton(container, "Create link"));
 		await flush();
 		expect(container.textContent).toContain("Couldn't create the link. nope");
@@ -719,6 +746,7 @@ describe("ShareControls", () => {
 		const container = renderControls();
 		click(findButton(container, "Share"));
 		await flush();
+		await openCreateForm(container);
 		click(findButton(container, "Create link"));
 		await flush();
 
@@ -772,37 +800,5 @@ describe("ShareControls review entry", () => {
 		click(findButton(container, "Share"));
 		await flush();
 		expect(container.textContent).not.toContain("Ask people to review");
-	});
-});
-
-describe("workspaceAccessRows", () => {
-	const base = {
-		createdById: "user-ana",
-		ownerUserId: null,
-		organizationName: "Acme",
-	};
-
-	it("lists the owner and the whole organization for an org workspace", () => {
-		expect(
-			workspaceAccessRows({
-				...base,
-				visibility: "org",
-				viewerUserId: "user-ana",
-			}),
-		).toEqual([
-			{ key: "owner", name: "You", role: "Owner" },
-			{ key: "organization", name: "Everyone in Acme", role: "Can edit" },
-		]);
-	});
-
-	it("lists only the owner of a private workspace", () => {
-		expect(
-			workspaceAccessRows({
-				...base,
-				visibility: "private",
-				ownerUserId: "user-ben",
-				viewerUserId: "user-ana",
-			}),
-		).toEqual([{ key: "owner", name: "The workspace owner", role: "Owner" }]);
 	});
 });

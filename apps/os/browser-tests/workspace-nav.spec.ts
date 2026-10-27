@@ -255,16 +255,43 @@ try {
 				`${label}: Share sits in the top bar`,
 			);
 			await share.click();
-			await page
-				.getByRole("button", { name: "Link to this app", exact: true })
-				.waitFor();
+			const dialog = page.getByRole("dialog");
+			await dialog.getByText("People with access").waitFor();
+			// Sharing the open app alone is a scope inside the same dialog, never
+			// a popover stacked on top of it.
+			await dialog
+				.getByRole("button", { name: "This app", exact: true })
+				.click();
+			await dialog.getByRole("combobox", { name: "General access" }).waitFor();
+			assert.equal(await page.getByRole("dialog").count(), 1);
+			assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${label}: no sideways page scroll with Share open`,
+			);
 			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
 			assert(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth <= innerWidth + 1,
 				),
 				`${label}: no sideways page scroll`,
 			);
+			// Focus mode hides the top bar; Share stays reachable from the panel.
+			await page.getByRole("button", { name: "Focus", exact: true }).click();
+			const focusShare = page.getByRole("button", { name: /^Share\b/ });
+			await focusShare.waitFor();
+			assert.equal(await focusShare.count(), 1, `${label}: one Share in focus`);
+			await focusShare.click();
+			await page.getByRole("dialog").getByText("People with access").waitFor();
+			assert.equal(await page.getByRole("dialog").count(), 1);
+			await page.keyboard.press("Escape");
+			await page.getByRole("dialog").waitFor({ state: "hidden" });
+			await page
+				.getByRole("button", { name: "Exit focus", exact: true })
+				.click();
 			// Drop route handlers first: a request still in flight must not
 			// reach route.fetch() after the context is gone.
 			await page.unrouteAll({ behavior: "ignoreErrors" });
