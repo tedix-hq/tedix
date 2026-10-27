@@ -1,6 +1,6 @@
 import {
 	exchangeCimdAuthorizationCode,
-	uploadTenantOAuthToken,
+	uploadOAuthToken,
 } from "@tedix/auth/connections";
 import {
 	openOutboundMcpOAuthState,
@@ -30,7 +30,7 @@ interface CallbackDependencies {
 	openState: typeof openOutboundMcpOAuthState;
 	validateIssuer: typeof assertAuthorizationResponseIss;
 	exchangeCode: typeof exchangeCimdAuthorizationCode;
-	uploadToken: typeof uploadTenantOAuthToken;
+	uploadToken: typeof uploadOAuthToken;
 	insertAudit: typeof insertAuditEvent;
 }
 
@@ -55,7 +55,7 @@ const defaultDependencies: CallbackDependencies = {
 	openState: openOutboundMcpOAuthState,
 	validateIssuer: assertAuthorizationResponseIss,
 	exchangeCode: exchangeCimdAuthorizationCode,
-	uploadToken: uploadTenantOAuthToken,
+	uploadToken: uploadOAuthToken,
 	insertAudit: insertAuditEvent,
 };
 
@@ -109,6 +109,7 @@ async function recordGrantedAudit(
 				issuerValidated: true,
 				resource: state.resource,
 				scopeCount,
+				tokenScope: state.userId ? "user" : "tenant",
 			},
 		});
 	} catch (error) {
@@ -205,7 +206,9 @@ export async function handleOutboundMcpOAuthCallback(
 	try {
 		await dependencies.uploadToken(env, {
 			appId: state.appId,
-			tenantId: state.tenantId,
+			...(state.userId
+				? { userId: state.userId }
+				: { tenantId: state.tenantId }),
 			accessToken: token.accessToken,
 			...(token.refreshToken ? { refreshToken: token.refreshToken } : {}),
 			...(token.accessTokenExpiry

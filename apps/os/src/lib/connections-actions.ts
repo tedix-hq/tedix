@@ -400,14 +400,10 @@ async function resolveAuthorizeUrl(input: {
 }): Promise<string> {
 	const callbackTarget = new URL(`${window.location.origin}/oauth/callback`);
 	if (input.registrationMode === "cimd") {
-		if (input.effectiveScope !== "tenant") {
-			throw new Error(
-				"This provider uses an organization OAuth connection and cannot be connected as a personal account.",
-			);
-		}
 		const result = await osApi.connections.initiateConnection({
 			appId: input.appId,
 			redirectUri: callbackTarget.toString(),
+			tokenScope: input.effectiveScope,
 			...(input.scopes?.length ? { scopes: input.scopes } : {}),
 		});
 		return result.redirectUrl;

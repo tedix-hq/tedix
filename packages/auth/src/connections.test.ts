@@ -10,7 +10,7 @@ import {
 	fetchConnectionTokenByScopes,
 	listUserConnectedAppIds,
 	uploadTenantApiKeyToken,
-	uploadTenantOAuthToken,
+	uploadOAuthToken,
 	uploadUserApiKeyToken,
 } from "./connections.ts";
 import {
@@ -347,7 +347,7 @@ describe("Descope outbound-app SDK wrappers", () => {
 			.spyOn(globalThis, "fetch")
 			.mockResolvedValue(jsonResponse({ id: "vault-token-1" }));
 
-		await uploadTenantOAuthToken(
+		await uploadOAuthToken(
 			{
 				DESCOPE_PROJECT_ID: "project",
 				DESCOPE_MANAGEMENT_KEY: "management-key",
@@ -392,10 +392,38 @@ describe("Descope outbound-app SDK wrappers", () => {
 		});
 	});
 
+	it("imports a personal OAuth token for one user", async () => {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(jsonResponse({ id: "vault-token-2" }));
+
+		await uploadOAuthToken(
+			{
+				DESCOPE_PROJECT_ID: "project",
+				DESCOPE_MANAGEMENT_KEY: "management-key",
+				DESCOPE_BASE_URL: "https://descope.example.com",
+			},
+			{
+				appId: "catalog-provider",
+				userId: "user_1",
+				accessToken: "access-secret",
+				grantedBy: "user_1",
+			},
+		);
+
+		const [url, init] = fetchMock.mock.calls[0]!;
+		expect(url).toBe(
+			"https://descope.example.com/v1/mgmt/outbound/app/user/oauthtoken/upload",
+		);
+		const body = JSON.parse(String(init?.body));
+		expect(body).toMatchObject({ appId: "catalog-provider", userId: "user_1" });
+		expect(body).not.toHaveProperty("tenantId");
+	});
+
 	it("rejects malformed tenant OAuth grants before vault upload", async () => {
 		const fetchMock = vi.spyOn(globalThis, "fetch");
 		await expect(
-			uploadTenantOAuthToken(
+			uploadOAuthToken(
 				{
 					DESCOPE_PROJECT_ID: "project",
 					DESCOPE_MANAGEMENT_KEY: "management-key",
@@ -417,7 +445,7 @@ describe("Descope outbound-app SDK wrappers", () => {
 			.spyOn(globalThis, "fetch")
 			.mockResolvedValue(jsonResponse({ id: "vault-token-1" }));
 
-		await uploadTenantOAuthToken(
+		await uploadOAuthToken(
 			{
 				DESCOPE_PROJECT_ID: "project",
 				DESCOPE_MANAGEMENT_KEY: "management-key",

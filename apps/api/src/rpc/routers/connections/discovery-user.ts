@@ -474,9 +474,9 @@ export async function readConnectionProviders(context: BaseContext) {
 					app as unknown as Record<string, unknown>,
 					connectionType,
 				);
-				// The native CIMD callback settles directly into the tenant vault, so
-				// it is organization-only. Descope-managed OAuth retains the provider
-				// template's user/tenant policy; API keys default to shared org secrets.
+				// OAuth keeps the provider template's user/tenant policy, whether the
+				// grant settles through Descope or the native CIMD callback; API keys
+				// default to shared org secrets.
 				const defaultScopes: ("tenant" | "user")[] = isOAuth
 					? ["tenant", "user"]
 					: ["tenant"];
@@ -484,14 +484,9 @@ export async function readConnectionProviders(context: BaseContext) {
 					? "user"
 					: "tenant";
 				const knownProvider = providerMap.get(app.id);
-				const supportedScopes =
-					registrationMode === "cimd"
-						? (["tenant"] as ("tenant" | "user")[])
-						: (knownProvider?.supportedScopes ?? defaultScopes);
+				const supportedScopes = knownProvider?.supportedScopes ?? defaultScopes;
 				const recommendedScope =
-					registrationMode === "cimd"
-						? ("tenant" as const)
-						: (knownProvider?.recommendedScope ?? defaultRecommended);
+					knownProvider?.recommendedScope ?? defaultRecommended;
 				const credentialProfile =
 					knownProvider?.credentialProfile ??
 					referencedProviders.credentialProfiles.get(app.id);
@@ -913,6 +908,7 @@ export const initiateConnection = authedOs.initiateConnection
 				appId: string;
 				scopes?: string | string[];
 				redirectUri?: string;
+				tokenScope?: "tenant" | "user";
 			};
 			context: BaseContext;
 		}) => {
@@ -948,7 +944,10 @@ export const initiateConnection = authedOs.initiateConnection
 				providerId: input.appId,
 			});
 			if (provider?.clientId === TEDIX_OUTBOUND_MCP_OAUTH_CLIENT_ID) {
-				if (!userHoldsPermission(context, "integrations:manage")) {
+				// A personal grant is the caller's own credential; only an
+				// organization-wide grant is an administration action.
+				const personal = input.tokenScope === "user";
+				if (!personal && !userHoldsPermission(context, "integrations:manage")) {
 					throw createError(
 						ErrorCodes.FORBIDDEN,
 						"CIMD consent creates an organization grant. Required: integrations:manage",
@@ -990,6 +989,7 @@ export const initiateConnection = authedOs.initiateConnection
 						appId: input.appId,
 						organizationId: orgId,
 						tenantId: organization.descopeTenantId,
+						...(personal ? { userId } : {}),
 						grantedBy: userId,
 						expectedIssuer: pinned.pinnedIssuer,
 						issSupported: pinned.authorizationResponseIssSupported === true,

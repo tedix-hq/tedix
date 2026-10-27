@@ -21,6 +21,8 @@ export interface OutboundMcpOAuthState {
 	appId: string;
 	organizationId: string;
 	tenantId: string;
+	/** Set for a personal grant: the token goes to this Descope user. */
+	userId?: string;
 	grantedBy: string;
 	expectedIssuer: string;
 	issSupported: boolean;
@@ -152,6 +154,7 @@ export async function openOutboundMcpOAuthState(
 			typeof state.appId !== "string" ||
 			typeof state.organizationId !== "string" ||
 			typeof state.tenantId !== "string" ||
+			(state.userId !== undefined && typeof state.userId !== "string") ||
 			typeof state.grantedBy !== "string" ||
 			typeof state.expectedIssuer !== "string" ||
 			typeof state.issSupported !== "boolean" ||
