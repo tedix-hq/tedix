@@ -1,15 +1,12 @@
 /// <reference types="node" />
-import { readdirSync, readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
-import { URL } from "node:url";
 import { createDbClient } from "@tedix/db/client";
 import {
 	getMcpPaymentEventByIdForOrg,
 	listMcpPaymentReservations,
 } from "@tedix/db/queries/mcp-payments";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 import {
-	afterAll,
 	afterEach,
 	beforeAll,
 	beforeEach,
@@ -39,7 +36,7 @@ const policy: TedixToolPaymentPolicy = {
 	network: "solana-devnet",
 	recipient: "fictional-recipient",
 };
-const sqlite = new DatabaseSync(":memory:");
+const sqlite = createMigratedSqlite();
 const d1 = createD1Facade(sqlite, { maxBoundParams: 100 });
 const db = createDbClient(d1);
 
@@ -102,14 +99,7 @@ function rows(
 }
 
 beforeAll(() => {
-	const root = new URL("../../../../packages/db/drizzle/", import.meta.url);
-	for (const name of readdirSync(root)
-		.filter((name) => /^\d{14}_/.test(name))
-		.sort()) {
-		sqlite.exec(readFileSync(new URL(`${name}/migration.sql`, root), "utf8"));
-	}
 	sqlite.exec(`
-		PRAGMA foreign_keys=ON;
 		INSERT INTO organizations (id, name, slug) VALUES
 			('org-ledger', 'Ledger Demo', 'ledger-demo'), ('org-other', 'Other Demo', 'other-demo');
 		INSERT INTO apps (id, organization_id, name, slug) VALUES
@@ -130,7 +120,6 @@ beforeEach(() => {
 	vi.setSystemTime(NOW);
 });
 afterEach(() => vi.useRealTimers());
-afterAll(() => sqlite.close());
 
 describe("reservePaymentRequirement", () => {
 	it.each([

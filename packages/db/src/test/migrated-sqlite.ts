@@ -1,8 +1,10 @@
 /// <reference types="node" />
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 import { afterAll } from "vite-plus/test";
 
 interface MigratedSqliteOptions {
@@ -19,13 +21,16 @@ const worker = process as typeof process & {
 };
 const templates = (worker.__tedixMigratedSqlite ??= new Map());
 const copies: DatabaseSync[] = [];
-const migrationRoot = new URL("../../drizzle/", import.meta.url);
+const migrationRoot = join(
+	dirname(fileURLToPath(import.meta.url)),
+	"../../drizzle",
+);
 const migrations = readdirSync(migrationRoot)
 	.filter((name) => /^\d{14}_/.test(name))
 	.sort()
 	.map((name) => ({
 		name,
-		sql: readFileSync(new URL(`${name}/migration.sql`, migrationRoot), "utf8"),
+		sql: readFileSync(join(migrationRoot, name, "migration.sql"), "utf8"),
 	}));
 
 afterAll(() => {
