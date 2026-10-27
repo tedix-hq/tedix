@@ -24,6 +24,10 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { fixedSiteCronPauseDecision } from "./cms-site-cron-pause";
 import {
+	readSiteDrillIdentity,
+	type CmsSiteDrillIdentity,
+} from "./cms-site-restore-drill-workflow";
+import {
 	CmsRestoreFenceUnavailableError,
 	cmsRestoreFenceResponse,
 	type CmsRestoreFenceIdentity,
@@ -2138,6 +2142,16 @@ export default {
 			failed: 0,
 		};
 
+		let siteDrill: CmsSiteDrillIdentity | null = null;
+		try {
+			siteDrill = await readSiteDrillIdentity(env.RECOVERY_STORAGE);
+		} catch (error) {
+			console.error(
+				"[cms-runtime] site restore drill configuration unreadable:",
+				error,
+			);
+		}
+
 		for (const bundle of bundles) {
 			const slug = bundle.slug;
 			try {
@@ -2149,10 +2163,14 @@ export default {
 					);
 					continue;
 				}
-				const pause = await fixedSiteCronPauseDecision(env.RECOVERY_STORAGE, {
-					siteId: org.siteId,
-					slug,
-				});
+				const pause = await fixedSiteCronPauseDecision(
+					env.RECOVERY_STORAGE,
+					{
+						siteId: org.siteId,
+						slug,
+					},
+					siteDrill,
+				);
 				if (pause.pause) {
 					counters.skipped += 1;
 					console.warn(

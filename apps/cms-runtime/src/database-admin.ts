@@ -1,7 +1,4 @@
-import {
-	CMS_SITE_DRILL_SITE_ID,
-	CMS_SITE_DRILL_SLUG,
-} from "./cms-site-restore-drill-workflow";
+import { readSiteDrillIdentity } from "./cms-site-restore-drill-workflow";
 import {
 	CmsRestoreFenceUnavailableError,
 	cmsRestoreFenceResponse,
@@ -189,8 +186,13 @@ export async function databaseRecoveryBookmarkAdminResponse(args: {
 		const stub = env.DB_DO.get(
 			env.DB_DO.idFromName(slug),
 		) as unknown as EmDashDBStub;
+		const siteDrill = await readSiteDrillIdentity(
+			env.RECOVERY_STORAGE,
+		).catch(() => null);
 		const fixedDrillSite =
-			siteId === CMS_SITE_DRILL_SITE_ID && slug === CMS_SITE_DRILL_SLUG;
+			siteDrill !== null &&
+			siteId === siteDrill.siteId &&
+			slug === siteDrill.slug;
 		const drillProof = fixedDrillSite ? await stub.readSiteDrillProof() : null;
 		const bookmark =
 			drillProof?.bookmark ?? (await stub.captureRecoveryBookmark());
