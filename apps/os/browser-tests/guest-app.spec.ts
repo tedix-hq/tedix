@@ -86,6 +86,43 @@ try {
 				),
 				`${label}: no horizontal page overflow`,
 			);
+			// Like a shared artifact: the thin bar is the only chrome and the app
+			// frame fills everything below it, edge to edge.
+			const layout = await page.evaluate(() => {
+				const box = (selector: string) =>
+					document.querySelector(selector)!.getBoundingClientRect();
+				const bar = box("[data-guest-bar]");
+				const frame = box('iframe[title="Opportunity cards"]');
+				return {
+					bar: { left: bar.left, width: bar.width, bottom: bar.bottom },
+					frame: {
+						left: frame.left,
+						top: frame.top,
+						width: frame.width,
+						bottom: frame.bottom,
+					},
+					border: getComputedStyle(document.querySelector("[data-guest-bar]")!)
+						.borderBottomWidth,
+					viewport: { width: innerWidth, height: innerHeight },
+				};
+			});
+			assert.deepEqual(
+				{ left: layout.frame.left, width: layout.frame.width },
+				{ left: 0, width: layout.viewport.width },
+				`${label}: the app frame is as wide as the viewport (${JSON.stringify(layout)})`,
+			);
+			assert(
+				Math.abs(layout.frame.top - layout.bar.bottom) <= 1 &&
+					Math.abs(layout.frame.bottom - layout.viewport.height) <= 1,
+				`${label}: the app frame fills from the bar to the bottom (${JSON.stringify(layout)})`,
+			);
+			assert(
+				layout.bar.left === 0 &&
+					layout.bar.width === layout.viewport.width &&
+					layout.bar.bottom <= 45 &&
+					layout.border !== "0px",
+				`${label}: one thin full-width bar with a hairline (${JSON.stringify(layout)})`,
+			);
 			await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
 
 			// A verdict goes to the server through the guest call route and is

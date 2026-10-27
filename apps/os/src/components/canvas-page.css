@@ -1154,6 +1154,11 @@
 	margin: -24px -24px 0;
 	padding-inline: 24px;
 }
+/* A runtime app paints its own surface, so its frame bleeds to the column's
+   edges and bottom like the guest view; banners above it stay inset. */
+.canvas-document-shell .canvas-runtime-app {
+	margin: 0 -24px -24px;
+}
 @media (max-width: 639px) {
 	.canvas-document-shell {
 		padding: 16px;
@@ -1162,6 +1167,9 @@
 	.canvas-document-shell > .canvas-document-header {
 		margin: -16px -16px 0;
 		padding-inline: 16px;
+	}
+	.canvas-document-shell .canvas-runtime-app {
+		margin: 0 -16px -16px;
 	}
 }
 .canvas-code-workbench {

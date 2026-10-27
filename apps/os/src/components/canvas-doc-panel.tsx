@@ -1173,32 +1173,23 @@ export function CanvasDocPanel({
 					{isRuntimeApp &&
 					effectiveGadgetView === "preview" &&
 					gadgetDetail.data?.currentRevision ? (
-						<Card
+						// The app owns its surface: no card, edge to edge in the column.
+						<div
 							data-canvas-gadget-preview
 							data-canvas-runtime-app
-							size="sm"
-							tone="raised"
-							className={
-								runtimeAppFills ? "flex min-h-0 flex-1 flex-col" : undefined
-							}
+							className={`canvas-runtime-app ${
+								runtimeAppFills ? "flex min-h-0 flex-1 flex-col" : "grid"
+							}`}
 						>
-							<CardContent
-								className={
-									runtimeAppFills
-										? "flex min-h-0 flex-1 flex-col gap-3"
-										: "grid gap-3"
-								}
-							>
-								<AppRuntimePreview
-									key={gadgetDetail.data.currentRevision.id}
-									workspaceId={workspaceId}
-									gadget={gadgetDetail.data.gadget}
-									revision={gadgetDetail.data.currentRevision}
-									layout={runtimeAppFills ? "fill" : "content"}
-									translation={translation.channel}
-								/>
-							</CardContent>
-						</Card>
+							<AppRuntimePreview
+								key={gadgetDetail.data.currentRevision.id}
+								workspaceId={workspaceId}
+								gadget={gadgetDetail.data.gadget}
+								revision={gadgetDetail.data.currentRevision}
+								layout={runtimeAppFills ? "fill" : "content"}
+								translation={translation.channel}
+							/>
+						</div>
 					) : isRuntimeApp &&
 					  effectiveGadgetView === "drafts" &&
 					  gadgetDetail.data?.currentRevision ? (
