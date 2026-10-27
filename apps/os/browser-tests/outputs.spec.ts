@@ -268,26 +268,20 @@ try {
 			await page.keyboard.press("Escape");
 			await share.click();
 			await page.getByRole("heading", { name: "Share this file" }).waitFor();
-			// An owner edits a link's note in place; its URL is never shown again.
+			// An owner edits a link's note in place; its permanent address stays.
 			const shareDialog = page.getByRole("dialog");
-			const linkRows = shareDialog.locator("[data-share-row]");
-			await linkRows
-				.or(shareDialog.getByText("Pick “Anyone with the link”"))
-				.first()
-				.waitFor();
-			if ((await linkRows.count()) === 0) {
-				await shareDialog
-					.getByRole("combobox", { name: "General access" })
-					.click();
-				await page
-					.getByRole("option", { name: "Anyone with the link can view" })
-					.click();
-				await shareDialog.getByRole("button", { name: "Done" }).click();
-			}
-			await linkRows
-				.first()
-				.getByRole("button", { name: /^Options for/ })
-				.click();
+			const current = shareDialog.locator("[data-share-link-current]");
+			const create = shareDialog.getByRole("button", {
+				name: "Create link",
+				exact: true,
+			});
+			await current.or(create).first().waitFor();
+			if ((await current.count()) === 0) await create.click();
+			const address = current.locator("[data-share-url]");
+			await address.waitFor();
+			const url = (await address.textContent()) ?? "";
+			assert.match(url, /\/s\/[A-Za-z0-9]{22}$/, "the link is permanent");
+			await shareDialog.getByRole("button", { name: "Link options" }).click();
 			await page.getByRole("menuitem", { name: "Edit settings" }).click();
 			const linkNote = `Board pack ${width} ${theme}`;
 			await shareDialog.getByLabel("Share note").fill(linkNote);
@@ -304,11 +298,11 @@ try {
 			await shareDialog
 				.getByRole("button", { name: "Save", exact: true })
 				.click();
-			await shareDialog.getByText(linkNote).waitFor();
+			await shareDialog.getByText(linkNote, { exact: false }).waitFor();
 			assert.equal(
-				await shareDialog.locator("[data-share-url]").count(),
-				0,
-				"editing settings never re-shows the link",
+				await address.textContent(),
+				url,
+				"editing settings keeps the same address",
 			);
 			await page.keyboard.press("Escape");
 			await page.getByRole("dialog").waitFor({ state: "hidden" });

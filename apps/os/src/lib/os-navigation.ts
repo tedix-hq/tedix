@@ -459,6 +459,8 @@ export const OS_PAGES: readonly OsPage[] = [
 	},
 	{ id: "shared", path: "/shared", label: "Shared" },
 	{ id: "guest", path: "/guest", label: "Shared app" },
+	{ id: "share-link", path: "/s/$id", label: "Shared link" },
+	{ id: "share-link-titled", path: "/s/$id/$slug", label: "Shared link" },
 	{
 		id: "blueprint-landing",
 		path: "/blueprint/$blueprintId",

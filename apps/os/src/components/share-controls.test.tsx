@@ -18,6 +18,7 @@ const sharesApi = vi.hoisted(() => ({
 	previewRevoke: vi.fn(),
 	revoke: vi.fn(),
 	update: vi.fn(),
+	invitees: { list: vi.fn(), add: vi.fn(), remove: vi.fn() },
 }));
 
 const getContext = vi.hoisted(() => vi.fn());
@@ -30,8 +31,6 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import {
-	formatShareLink,
-	shareLinkBase,
 	ShareControls,
 	ShareRow,
 	shareExpiryLabel,
@@ -46,14 +45,16 @@ import {
 const OUTPUT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const SHARE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TOKEN = "tok_one-time-plaintext";
+const PUBLIC_ID = "AbCdEfGhIjKlMnOpQrStUv";
+const SHARE_URL = `https://example.os.tedix.test/s/${PUBLIC_ID}`;
 const GADGET_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const REVISION_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 function shareFixture(overrides: Partial<OsShareLink> = {}): OsShareLink {
 	return {
 		id: SHARE_ID,
-		publicId: "AbCdEfGhIjKlMnOpQrStUv",
-		url: "https://example.os.tedix.test/s/AbCdEfGhIjKlMnOpQrStUv",
+		publicId: PUBLIC_ID,
+		url: SHARE_URL,
 		organizationId: "org-1",
 		resourceType: "output",
 		resourceId: OUTPUT_ID,
@@ -225,9 +226,16 @@ function withSystemTime(now: Date) {
 }
 
 beforeEach(() => {
-	for (const mock of Object.values(sharesApi)) {
+	for (const mock of [
+		sharesApi.create,
+		sharesApi.list,
+		sharesApi.previewRevoke,
+		sharesApi.revoke,
+		sharesApi.update,
+		...Object.values(sharesApi.invitees),
+	])
 		mock.mockReset();
-	}
+	sharesApi.invitees.list.mockResolvedValue({ items: [] });
 });
 
 afterEach(() => {
@@ -240,41 +248,6 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
-
-describe("formatShareLink", () => {
-	it("builds the public redemption URL from the one-time token", () => {
-		expect(formatShareLink("abc")).toBe(
-			"https://api.tedix.dev/os-shared#token=abc",
-		);
-	});
-
-	it("keeps every isolated-local share on localhost", () => {
-		expect(
-			shareLinkBase({
-				resourceType: "output",
-				origin: "http://localhost:3030",
-				localEvaluation: true,
-			}),
-		).toBe("http://localhost:3030/shared");
-	});
-
-	it("uses the central production redeemer only for production outputs", () => {
-		expect(
-			shareLinkBase({
-				resourceType: "output",
-				origin: "https://acme.os.tedix.dev",
-				localEvaluation: false,
-			}),
-		).toBe("https://api.tedix.dev/os-shared");
-		expect(
-			shareLinkBase({
-				resourceType: "workspace",
-				origin: "https://acme.os.tedix.dev",
-				localEvaluation: false,
-			}),
-		).toBe("https://acme.os.tedix.dev/shared");
-	});
-});
 
 describe("shareStatus", () => {
 	it("distinguishes active, expired, and revoked; revoked wins", () => {
@@ -367,148 +340,207 @@ describe("ShareRow", () => {
 // Behavior (mocked osApi)
 // ---------------------------------------------------------------------------
 
+async function openDialog(
+	props?: Parameters<typeof renderControls>[0],
+): Promise<HTMLElement> {
+	const container = renderControls(props);
+	click(findButton(container, "Share"));
+	await flush();
+	return container;
+}
+
+/** Picks an option from a Kumo Select by its trigger's label. */
+async function pickOption(label: string, option: string) {
+	const trigger = document.querySelector<HTMLElement>(
+		`[aria-label="${label}"]`,
+	);
+	if (!trigger) throw new Error(`select missing: ${label}`);
+	click(trigger);
+	await flush();
+	const item = [...document.querySelectorAll('[role="option"]')].find(
+		(node) => (node.textContent ?? "").trim() === option,
+	);
+	if (!item) throw new Error(`option missing: ${option}`);
+	click(item);
+	await flush();
+}
+
 describe("ShareControls", () => {
+	beforeEach(() => {
+		getContext.mockResolvedValue({
+			organization: { name: "Acme Fictional" },
+			authority: { role: "member", permissions: ["os:author"] },
+		});
+	});
+
 	it("keeps the compact trigger accessible while removing its visible label", () => {
 		const container = renderControls({ outputId: OUTPUT_ID, compact: true });
 		const trigger = findButton(container, "Share");
 		expect(trigger.getAttribute("aria-label")).toBe("Share");
 		expect(trigger.className).toContain("size-8");
-		expect(trigger.className).not.toContain("ring-kumo-line");
 		expect(trigger.querySelector(".sr-only")?.textContent).toBe("Share");
 	});
 
-	it("opens one dialog, never a popover", async () => {
+	it("opens one dialog, fetching links only once it is open", async () => {
 		sharesApi.list.mockResolvedValue({ items: [] });
-		const surface = renderControls();
-		const trigger = findButton(surface, "Share");
-
-		click(trigger);
-		await flush();
-
-		const dialog = surface.querySelector<HTMLElement>('[role="dialog"]');
-		expect(dialog).not.toBeNull();
-		expect(dialog?.textContent).toContain("Share this file");
-		expect(dialog?.textContent).toContain("General access");
-		expect(surface.querySelector(".kumo-popover-popup")).toBeNull();
-	});
-
-	it("fetches links only when opened and lists them", async () => {
-		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
 		const container = renderControls();
 		await flush();
 		expect(sharesApi.list).not.toHaveBeenCalled();
-
 		click(findButton(container, "Share"));
 		await flush();
+		const dialog = container.querySelector<HTMLElement>('[role="dialog"]');
+		expect(dialog?.textContent).toContain("Share this file");
+		expect(dialog?.textContent).toContain("Who can open it");
+		expect(container.querySelector(".kumo-popover-popup")).toBeNull();
 		expect(sharesApi.list.mock.calls[0]?.[0]).toEqual({
 			resourceType: "output",
 			resourceId: OUTPUT_ID,
 		});
-		expect(container.textContent).toContain("never expires");
+	});
+
+	it("shows the permanent address with Copy, any time the dialog opens", async () => {
+		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
+		const container = await openDialog();
+		expect(linkField(container)?.value).toBe(SHARE_URL);
+		expect(findButton(container, "Copy link")).toBeTruthy();
 		expect(container.textContent).toContain("Can view");
+		expect(container.textContent).toContain("never expires");
+		expect(container.textContent).not.toContain("#token=");
 	});
 
-	it("explains why a guest link will not open an app that reaches a connected account", async () => {
-		sharesApi.list.mockResolvedValue({
-			items: [],
-			guestRefusal: { slot: "notes", reason: "connection_grant" },
-		});
-		const container = renderControls({
-			resourceType: "gadget",
-			resourceId: OUTPUT_ID,
-			guestEntry: true,
-		});
-		click(findButton(container, "Share"));
-		await flush();
-		const note = container.querySelector("[data-guest-refusal]");
-		expect(note?.getAttribute("data-guest-refusal")).toBe("connection_grant");
-		expect(note?.textContent).toContain(
-			"People without a Tedix account can't open this app",
+	it("offers the three audiences in plain words, naming the organization", async () => {
+		sharesApi.list.mockResolvedValue({ items: [] });
+		await openDialog();
+		const trigger = document.querySelector<HTMLElement>(
+			'[aria-label="Who can open it"]',
 		);
-		expect(note?.textContent).toContain('"notes"');
-	});
-
-	it("tucks turned-off links away behind one toggle", async () => {
-		sharesApi.list.mockResolvedValue({
-			items: [
-				shareFixture(),
-				shareFixture({
-					id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-					note: "Old handoff",
-					revokedAt: "2026-08-14T11:00:00.000Z",
-				}),
-			],
-		});
-		const container = renderControls();
-		click(findButton(container, "Share"));
+		click(trigger!);
 		await flush();
-		expect(container.textContent).not.toContain("Old handoff");
-		click(findButton(container, "Show 1 old link"));
-		expect(container.textContent).toContain("Old handoff");
-		expect(container.textContent).toContain("Turned off");
+		const options = [...document.querySelectorAll('[role="option"]')].map(
+			(node) => node.textContent?.trim(),
+		);
+		expect(options).toEqual([
+			"Anyone with the link",
+			"People in Acme Fictional",
+			"Only people you invite",
+		]);
 	});
 
-	it("edits a link by making a new one and turning the old one off", async () => {
-		sharesApi.list.mockResolvedValue({
-			items: [shareFixture({ note: "Old note" })],
-		});
+	it("creates a link for the chosen audience", async () => {
+		sharesApi.list.mockResolvedValue({ items: [] });
 		sharesApi.create.mockResolvedValue({
-			share: shareFixture({
-				id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
-				note: "New note",
-			}),
+			share: shareFixture({ access: "organization" }),
 			token: TOKEN,
 		});
-		sharesApi.revoke.mockResolvedValue({
-			share: shareFixture({ revokedAt: "2026-08-14T11:00:00.000Z" }),
-			revokedSessionCount: 0,
-		});
-		const container = renderControls();
-		click(findButton(container, "Share"));
+		const container = await openDialog();
+		await pickOption("Who can open it", "People in Acme Fictional");
+		click(findButton(container, "Create link"));
 		await flush();
-		expect(container.textContent).not.toContain("Create link");
-
-		await pickMenuItem(container, "Options for Old note", "Get a new link");
-		const note = container.querySelector<HTMLInputElement>(
-			'input[aria-label="Share note"]',
-		);
-		expect(note?.value).toBe("Old note");
-		if (!note) throw new Error("share note missing");
-		setFieldValue(note, "New note");
-		click(findButton(container, "Save and get new link"));
-		await flush();
-
 		expect(sharesApi.create).toHaveBeenCalledWith({
 			resourceType: "output",
 			resourceId: OUTPUT_ID,
 			role: "viewer",
+			access: "organization",
 			revisionMode: "living",
-			note: "New note",
 		});
-		expect(sharesApi.revoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
-		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
-		expect(container.textContent).toContain("The old link no longer works");
 	});
 
-	it("keeps the new link visible when the old one fails to turn off", async () => {
+	it("changes who can open a link without changing its address", async () => {
 		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
-		sharesApi.create.mockResolvedValue({
-			share: shareFixture({ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }),
-			token: TOKEN,
+		sharesApi.update.mockResolvedValue({
+			share: shareFixture({ access: "invited" }),
+			revokedSessionCount: 0,
 		});
-		sharesApi.revoke.mockRejectedValue(new Error("offline"));
-		const container = renderControls();
-		click(findButton(container, "Share"));
+		const container = await openDialog();
+		expect(container.textContent).not.toContain("Change access");
+		await pickOption("Who can open it", "Only people you invite");
+		click(findButton(container, "Change access"));
 		await flush();
-		await pickMenuItem(container, "Options for link", "Get a new link");
-		click(findButton(container, "Save and get new link"));
-		await flush();
-		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
-		expect(container.textContent).toContain("The old link is still on");
+		expect(sharesApi.update).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			access: "invited",
+		});
+		expect(sharesApi.create).not.toHaveBeenCalled();
 	});
 
-	it("lets an admin edit a link's settings in place, without a new URL", async () => {
+	it("adds and removes invited people on an invite-only link", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [shareFixture({ access: "invited" })],
+		});
+		const invitee = {
+			id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+			shareLinkId: SHARE_ID,
+			email: "kai@example.test",
+			userId: null,
+			name: null,
+			addedByKind: "user",
+			addedById: "user-1",
+			addedAt: "2026-08-14T10:00:00.000Z",
+		};
+		sharesApi.invitees.list.mockResolvedValue({ items: [invitee] });
+		sharesApi.invitees.add.mockResolvedValue({ invitee });
+		sharesApi.invitees.remove.mockResolvedValue({ removed: true });
+		const container = await openDialog();
+		expect(container.textContent).toContain("kai@example.test");
+		const email = container.querySelector<HTMLInputElement>(
+			'input[aria-label="Email address to invite"]',
+		);
+		setFieldValue(email!, "zoe@example.test");
+		click(findButton(container, "Add"));
+		await flush();
+		expect(sharesApi.invitees.add).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			email: "zoe@example.test",
+		});
+		click(
+			container.querySelector('button[aria-label="Remove kai@example.test"]')!,
+		);
+		await flush();
+		expect(sharesApi.invitees.remove).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			inviteeId: invitee.id,
+		});
+	});
+
+	it("explains why a no-sign-in link will not open an app that reaches a connected account", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [],
+			guestRefusal: { slot: "notes", reason: "connection_grant" },
+		});
+		const container = await openDialog({
+			resourceType: "gadget",
+			resourceId: OUTPUT_ID,
+			guestEntry: true,
+		});
+		const note = container.querySelector("[data-guest-refusal]");
+		expect(note?.getAttribute("data-guest-refusal")).toBe("connection_grant");
+		expect(note?.textContent).toContain('"notes"');
+	});
+
+	it("asks before turning a link off, then turns it off", async () => {
+		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
+		sharesApi.previewRevoke.mockResolvedValue({
+			share: shareFixture(),
+			activeSessionCount: 2,
+		});
+		sharesApi.revoke.mockResolvedValue({
+			share: shareFixture({ revokedAt: "2026-08-14T11:00:00.000Z" }),
+			revokedSessionCount: 2,
+		});
+		const container = await openDialog();
+		const listCallsBefore = sharesApi.list.mock.calls.length;
+		await pickMenuItem(container, "Link options", "Turn off link");
+		expect(sharesApi.previewRevoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
+		expect(container.textContent).toContain("2 people have it open now");
+		click(findButton(container, "Turn off link"));
+		await flush();
+		expect(sharesApi.revoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
+		expect(sharesApi.list.mock.calls.length).toBeGreaterThan(listCallsBefore);
+	});
+
+	it("lets an admin edit a link's settings in place", async () => {
 		getContext.mockResolvedValue({
+			organization: { name: "Acme Fictional" },
 			authority: { role: "admin", permissions: ["os:admin"] },
 		});
 		const share = shareFixture({
@@ -522,94 +554,33 @@ describe("ShareControls", () => {
 			share: { ...share, role: "use", note: "Reviewers" },
 			revokedSessionCount: 1,
 		});
-		const container = renderControls({
+		const container = await openDialog({
 			resourceType: "gadget",
 			resourceId: GADGET_ID,
 			currentRevisionId: REVISION_ID,
 		});
-		click(findButton(container, "Share"));
-		await flush();
-		await pickMenuItem(container, "Options for Launch team", "Edit settings");
-		expect(container.textContent).toContain("The link stays the same");
-		expect(
-			container.querySelector('[aria-label="Share revision behavior"]'),
-		).toBeNull();
+		await pickMenuItem(container, "Link options", "Edit settings");
 		const note = container.querySelector<HTMLInputElement>(
 			'input[aria-label="Share note"]',
 		);
-		if (!note) throw new Error("share note missing");
-		setFieldValue(note, "Reviewers");
+		setFieldValue(note!, "Reviewers");
 		click(findButton(container, "Use"));
 		click(findButton(container, "Save"));
 		await flush();
-
 		expect(sharesApi.update).toHaveBeenCalledWith({
 			shareId: SHARE_ID,
 			role: "use",
 			note: "Reviewers",
 			expiresAt: null,
 		});
-		expect(sharesApi.create).not.toHaveBeenCalled();
-		expect(sharesApi.revoke).not.toHaveBeenCalled();
-		expect(linkField(container)).toBeNull();
 	});
 
 	it("offers in-place edits only to owners and admins", async () => {
-		getContext.mockResolvedValue({
-			authority: { role: "member", permissions: ["os:author"] },
-		});
-		sharesApi.list.mockResolvedValue({
-			items: [shareFixture({ note: "Handoff" })],
-		});
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
+		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
+		const container = await openDialog();
 		await expect(
-			pickMenuItem(container, "Options for Handoff", "Edit settings"),
+			pickMenuItem(container, "Link options", "Edit settings"),
 		).rejects.toThrow("menu item not found");
-	});
-
-	it("explains the empty list without implying failure", async () => {
-		sharesApi.list.mockResolvedValue({ items: [] });
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
-		expect(container.textContent).toContain("Only people in the workspace");
-		expect(container.textContent).toContain("Anyone with the link");
-		expect(container.textContent).not.toContain("Couldn't");
-	});
-
-	it("creates a link and shows the one-time URL with the access warning", async () => {
-		sharesApi.list.mockResolvedValue({ items: [] });
-		sharesApi.create.mockResolvedValue({
-			share: shareFixture(),
-			token: TOKEN,
-		});
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
-
-		await openCreateForm(container);
-		click(findButton(container, "Create link"));
-		await flush();
-
-		expect(sharesApi.create).toHaveBeenCalledWith({
-			resourceType: "output",
-			resourceId: OUTPUT_ID,
-			role: "viewer",
-			revisionMode: "living",
-		});
-		expect(linkField(container)?.value).toBe(formatShareLink(TOKEN));
-		expect(findButton(container, "Copy link")).toBeTruthy();
-		expect(container.textContent).toContain(
-			"Anyone with this link can view this file",
-		);
-		expect(container.textContent).toContain("shown only once");
-
-		// Dismissing hides the plaintext for good.
-		click(findButton(container, "Done"));
-		await flush();
-		expect(linkField(container)).toBeNull();
 	});
 
 	it("passes an optional expiry as an absolute timestamp", async () => {
@@ -619,205 +590,60 @@ describe("ShareControls", () => {
 			share: shareFixture(),
 			token: TOKEN,
 		});
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
-		await openCreateForm(container);
-
+		const container = await openDialog();
+		click(findButton(container, "More options"));
 		openExpiryCalendar();
 		click(expiryDay("2099-01-02"));
-		const expiryTime = expiryTimeField();
-		setFieldValue(expiryTime, "03:04");
-
+		setFieldValue(expiryTimeField(), "03:04");
 		click(findButton(container, "Create link"));
 		await flush();
-		// Unchanged wire format: the same absolute instant the native
-		// datetime-local input used to produce.
 		expect(sharesApi.create).toHaveBeenCalledWith({
 			resourceType: "output",
 			resourceId: OUTPUT_ID,
 			role: "viewer",
+			access: "anyone_with_link",
 			revisionMode: "living",
 			expiresAt: new Date(2099, 0, 2, 3, 4, 0, 0).toISOString(),
 		});
 	});
 
-	it("omits the expiry once it is cleared back to no expiry", async () => {
-		withSystemTime(new Date(2099, 0, 1, 12, 0, 0));
+	it("pins an app link to the version on screen", async () => {
 		sharesApi.list.mockResolvedValue({ items: [] });
 		sharesApi.create.mockResolvedValue({
 			share: shareFixture(),
 			token: TOKEN,
 		});
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
-		await openCreateForm(container);
-
-		// Optional expiry: the trigger reads "No expiry" and offers nothing to
-		// clear until a day is chosen.
-		const trigger = expiryTrigger();
-		expect(trigger.textContent).toContain("Never");
-		expect(
-			document.querySelector('[aria-label="Clear Link expiry"]'),
-		).toBeNull();
-
-		openExpiryCalendar();
-		click(expiryDay("2099-01-02"));
-		expect(expiryTrigger().textContent).not.toContain("Never");
-
-		const clear = document.querySelector<HTMLButtonElement>(
-			'[aria-label="Clear Link expiry"]',
-		);
-		if (!clear) throw new Error("clear control missing");
-		click(clear);
-		expect(expiryTrigger().textContent).toContain("Never");
-
-		click(findButton(container, "Create link"));
-		await flush();
-		expect(sharesApi.create).toHaveBeenCalledWith({
-			resourceType: "output",
-			resourceId: OUTPUT_ID,
-			role: "viewer",
-			revisionMode: "living",
-		});
-	});
-
-	it("mints a pinned build Gadget link on the tenant viewer without inheriting connections", async () => {
-		sharesApi.list.mockResolvedValue({ items: [] });
-		sharesApi.create.mockResolvedValue({
-			share: shareFixture({
-				resourceType: "gadget",
-				resourceId: GADGET_ID,
-				role: "build",
-				revisionMode: "pinned",
-				pinnedRevisionId: REVISION_ID,
-			}),
-			token: TOKEN,
-		});
-		const container = renderControls({
+		const container = await openDialog({
 			resourceType: "gadget",
 			resourceId: GADGET_ID,
 			currentRevisionId: REVISION_ID,
 		});
-		click(findButton(container, "Share"));
-		await flush();
-		await openCreateForm(container);
+		click(findButton(container, "More options"));
 		click(findButton(container, "Build"));
 		click(findButton(container, "This version"));
-		const note = container.querySelector<HTMLInputElement>(
-			'input[aria-label="Share note"]',
-		);
-		if (!note) throw new Error("share note missing");
-		setFieldValue(note, "Approved build handoff");
 		click(findButton(container, "Create link"));
 		await flush();
 		expect(sharesApi.create).toHaveBeenCalledWith({
 			resourceType: "gadget",
 			resourceId: GADGET_ID,
 			role: "build",
-			revisionMode: "pinned",
-			pinnedRevisionId: REVISION_ID,
-			note: "Approved build handoff",
-		});
-		expect(linkField(container)?.value).toContain("/shared#token=");
-		expect(container.textContent).toContain("can build this app");
-	});
-
-	it("pins an output to the exact revision shown in its detail view", async () => {
-		sharesApi.list.mockResolvedValue({ items: [] });
-		sharesApi.create.mockResolvedValue({
-			share: shareFixture({
-				revisionMode: "pinned",
-				pinnedRevisionId: REVISION_ID,
-			}),
-			token: TOKEN,
-		});
-		const container = renderControls({
-			outputId: OUTPUT_ID,
-			currentRevisionId: REVISION_ID,
-		});
-		click(findButton(container, "Share"));
-		await flush();
-		await openCreateForm(container);
-		click(findButton(container, "This version"));
-		click(findButton(container, "Create link"));
-		await flush();
-		expect(sharesApi.create).toHaveBeenCalledWith({
-			resourceType: "output",
-			resourceId: OUTPUT_ID,
-			role: "viewer",
+			access: "anyone_with_link",
 			revisionMode: "pinned",
 			pinnedRevisionId: REVISION_ID,
 		});
-	});
-
-	it("revokes a listed link and refetches the list", async () => {
-		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
-		sharesApi.revoke.mockResolvedValue({
-			share: shareFixture({ revokedAt: "2026-08-14T11:00:00.000Z" }),
-			revokedSessionCount: 2,
-		});
-		sharesApi.previewRevoke.mockResolvedValue({
-			share: shareFixture(),
-			activeSessionCount: 2,
-		});
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
-
-		const listCallsBefore = sharesApi.list.mock.calls.length;
-		await pickMenuItem(container, "Options for link", "Turn off");
-		expect(sharesApi.previewRevoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
-		expect(container.textContent).toContain("2 people have it open now");
-		expect(container.querySelector('[data-slot="alert"]')).not.toBeNull();
-		expect(container.textContent).toContain("Turn off this link?");
-		click(findButton(container, "Turn off link"));
-		await flush();
-
-		expect(sharesApi.revoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
-		expect(sharesApi.list.mock.calls.length).toBeGreaterThan(listCallsBefore);
 	});
 
 	it("surfaces a failed create inline", async () => {
 		sharesApi.list.mockResolvedValue({ items: [] });
-		sharesApi.create.mockRejectedValue(new Error("nope"));
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
-		await openCreateForm(container);
-		click(findButton(container, "Create link"));
-		await flush();
-		expect(container.textContent).toContain("Couldn't create the link. nope");
-	});
-
-	it("shows no share link until the server has actually minted one", async () => {
-		// AUTHORITATIVE-ONLY: the token is shown exactly once and only the server
-		// can produce it, so an optimistic row would be a link that does not work.
-		sharesApi.list.mockResolvedValue({ items: [] });
-		const settle: { resolve?: (value: unknown) => void } = {};
-		sharesApi.create.mockReturnValue(
-			new Promise((resolve) => {
-				settle.resolve = resolve;
-			}),
+		sharesApi.create.mockRejectedValue(
+			new Error("The link could not be made right now"),
 		);
-		const container = renderControls();
-		click(findButton(container, "Share"));
-		await flush();
-		await openCreateForm(container);
+		const container = await openDialog();
 		click(findButton(container, "Create link"));
 		await flush();
-
-		expect(
-			container.querySelector('[data-slot="share-pending"]'),
-		).not.toBeNull();
-		expect(container.textContent).toContain("Creating link…");
-		expect(container.textContent).not.toContain("tok_");
-
-		settle.resolve?.({ token: TOKEN, share: shareFixture() });
-		await flush();
-		expect(container.querySelector('[data-slot="share-pending"]')).toBeNull();
-		expect(linkField(container)?.value).toContain(TOKEN);
+		expect(container.textContent).toContain(
+			"The link could not be made right now",
+		);
 	});
 });
 

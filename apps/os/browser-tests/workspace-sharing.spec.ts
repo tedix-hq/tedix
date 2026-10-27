@@ -12,6 +12,7 @@ const path = "/browser-tests/workspace-sharing.html";
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const KEY = "AbCdEfGhIjKlMnOpQrStUv";
 const PUBLIC_TOKEN = "PublicTokenPublicTokenPublicToken12";
+const PUBLIC_ID = "PublicLinkPublicLink12";
 const server = await startFixtureServer(path);
 const browser = await chromium.launch({ headless: true });
 const directory =
@@ -115,6 +116,9 @@ document.querySelector('button').onclick = async () => { const result = await te
 		else if (endpoint === "public:create") {
 			const share = {
 				id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+				publicId: PUBLIC_ID,
+				url: `${server.origin}/s/${PUBLIC_ID}`,
+				access: input.access,
 				organizationId: "org-fictional",
 				resourceType: "workspace",
 				resourceId: WORKSPACE_ID,
@@ -450,10 +454,11 @@ try {
 					.click();
 				const publicUrl = dialog.locator("[data-public-url]");
 				await publicUrl.waitFor();
+				const publicText = await publicUrl.textContent();
 				assert(
-					(await publicUrl.textContent())?.includes(
-						`/shared#token=${PUBLIC_TOKEN}`,
-					),
+					publicText?.includes(`/s/${PUBLIC_ID}`) &&
+						!publicText.includes("#token="),
+					publicText ?? "",
 				);
 				await publicUrl.getByRole("button", { name: "Copy link" }).waitFor();
 				assert.equal(await dialog.locator("[data-fresh-link]").count(), 0);
@@ -461,6 +466,7 @@ try {
 					resourceType: "workspace",
 					resourceId: WORKSPACE_ID,
 					role: "use",
+					access: "anyone_with_link",
 					revisionMode: "living",
 				});
 				assert.equal(

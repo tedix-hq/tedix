@@ -130,6 +130,8 @@ const GUEST_DOCUMENT_PATH = "/guest";
  * call decides whether the link needs a signed-in person.
  */
 const SHARE_DOCUMENT_PATH = /^\/s\/[A-Za-z0-9]{22}(?:\/[^/]*)?$/;
+/** `/s/<id>?sign-in`: the share page asking for this host's sign-in. */
+const SHARE_SIGN_IN_PARAM = "sign-in";
 const GUEST_SHARE_API_PATH =
 	/^\/api\/os-shared\/(?:open|redeem|session|app\/(?:open|call|read))$/;
 /**
@@ -1406,8 +1408,13 @@ export async function handleOsRequest(
 		// holds nothing itself and every call it makes carries the share session.
 		url.pathname !== GUEST_DOCUMENT_PATH &&
 		// A permanent share address likewise mounts signed-out; its open call
-		// answers whether the link needs sign-in on this host.
-		!SHARE_DOCUMENT_PATH.test(url.pathname) &&
+		// answers whether the link needs sign-in on this host. The page asks for
+		// that sign-in with `?sign-in`, which takes the ordinary gate below and
+		// returns to the same address.
+		!(
+			SHARE_DOCUMENT_PATH.test(url.pathname) &&
+			!url.searchParams.has(SHARE_SIGN_IN_PARAM)
+		) &&
 		// A shared blueprint page holds no tenant data; its install action is
 		// what asks the visitor to sign in.
 		!BLUEPRINT_DOCUMENT_PATH.test(url.pathname) &&

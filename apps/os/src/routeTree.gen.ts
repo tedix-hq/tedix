@@ -19,6 +19,7 @@ import { Route as SessionChromeFreeRouteImport } from './routes/_session/_chrome
 import { Route as SessionTenantRouteImport } from './routes/_session/_tenant'
 import { Route as SessionAccountRouteImport } from './routes/_session/account'
 import { Route as BlueprintBlueprintIdRouteImport } from './routes/blueprint.$blueprintId'
+import { Route as SIdRouteImport } from './routes/s.$id'
 import { Route as AuthOauthConsentRouteImport } from './routes/_auth.oauth.consent'
 import { Route as CliSessionCliLoginRouteImport } from './routes/_cli-session/cli/login'
 import { Route as SessionChromeFreeSharedRouteImport } from './routes/_session/_chrome-free/shared'
@@ -43,6 +44,7 @@ import { Route as SessionAccountAuthorizationsRouteImport } from './routes/_sess
 import { Route as SessionAccountOnboardingRouteImport } from './routes/_session/account/onboarding'
 import { Route as SessionAccountOrganizationsRouteImport } from './routes/_session/account/organizations'
 import { Route as SessionAccountProfileRouteImport } from './routes/_session/account/profile'
+import { Route as SIdSlugRouteImport } from './routes/s.$id.$slug'
 import { Route as SessionChromeFreeOauthCallbackRouteImport } from './routes/_session/_chrome-free/oauth.callback'
 import { Route as SessionChromeFreeWorkspaceWorkspaceIdRouteImport } from './routes/_session/_chrome-free/workspace_.$workspaceId'
 import { Route as SessionTenantAccountConnectionsRouteImport } from './routes/_session/_tenant/account.connections'
@@ -143,6 +145,11 @@ const SessionAccountRoute = SessionAccountRouteImport.update({
 const BlueprintBlueprintIdRoute = BlueprintBlueprintIdRouteImport.update({
   id: '/blueprint/$blueprintId',
   path: '/blueprint/$blueprintId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SIdRoute = SIdRouteImport.update({
+  id: '/s/$id',
+  path: '/s/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthOauthConsentRoute = AuthOauthConsentRouteImport.update({
@@ -267,6 +274,11 @@ const SessionAccountProfileRoute = SessionAccountProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
   getParentRoute: () => SessionAccountRoute,
+} as any)
+const SIdSlugRoute = SIdSlugRouteImport.update({
+  id: '/$slug',
+  path: '/$slug',
+  getParentRoute: () => SIdRoute,
 } as any)
 const SessionChromeFreeOauthCallbackRoute =
   SessionChromeFreeOauthCallbackRouteImport.update({
@@ -604,6 +616,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof AuthLoginRoute
   '/account': typeof SessionAccountRouteWithChildren
   '/blueprint/$blueprintId': typeof BlueprintBlueprintIdRoute
+  '/s/$id': typeof SIdRouteWithChildren
   '/oauth/consent': typeof AuthOauthConsentRoute
   '/cli/login': typeof CliSessionCliLoginRoute
   '/shared': typeof SessionChromeFreeSharedRoute
@@ -627,6 +640,7 @@ export interface FileRoutesByFullPath {
   '/account/onboarding': typeof SessionAccountOnboardingRoute
   '/account/organizations': typeof SessionAccountOrganizationsRoute
   '/account/profile': typeof SessionAccountProfileRoute
+  '/s/$id/$slug': typeof SIdSlugRoute
   '/oauth/callback': typeof SessionChromeFreeOauthCallbackRoute
   '/workspace/$workspaceId': typeof SessionChromeFreeWorkspaceWorkspaceIdRoute
   '/account/connections': typeof SessionTenantAccountConnectionsRoute
@@ -691,6 +705,7 @@ export interface FileRoutesByTo {
   '/login': typeof AuthLoginRoute
   '/account': typeof SessionAccountRouteWithChildren
   '/blueprint/$blueprintId': typeof BlueprintBlueprintIdRoute
+  '/s/$id': typeof SIdRouteWithChildren
   '/oauth/consent': typeof AuthOauthConsentRoute
   '/cli/login': typeof CliSessionCliLoginRoute
   '/shared': typeof SessionChromeFreeSharedRoute
@@ -711,6 +726,7 @@ export interface FileRoutesByTo {
   '/account/onboarding': typeof SessionAccountOnboardingRoute
   '/account/organizations': typeof SessionAccountOrganizationsRoute
   '/account/profile': typeof SessionAccountProfileRoute
+  '/s/$id/$slug': typeof SIdSlugRoute
   '/oauth/callback': typeof SessionChromeFreeOauthCallbackRoute
   '/workspace/$workspaceId': typeof SessionChromeFreeWorkspaceWorkspaceIdRoute
   '/account/connections': typeof SessionTenantAccountConnectionsRoute
@@ -777,6 +793,7 @@ export interface FileRoutesById {
   '/_session/_tenant': typeof SessionTenantRouteWithChildren
   '/_session/account': typeof SessionAccountRouteWithChildren
   '/blueprint/$blueprintId': typeof BlueprintBlueprintIdRoute
+  '/s/$id': typeof SIdRouteWithChildren
   '/_auth/oauth/consent': typeof AuthOauthConsentRoute
   '/_cli-session/cli/login': typeof CliSessionCliLoginRoute
   '/_session/_chrome-free/shared': typeof SessionChromeFreeSharedRoute
@@ -800,6 +817,7 @@ export interface FileRoutesById {
   '/_session/account/onboarding': typeof SessionAccountOnboardingRoute
   '/_session/account/organizations': typeof SessionAccountOrganizationsRoute
   '/_session/account/profile': typeof SessionAccountProfileRoute
+  '/s/$id/$slug': typeof SIdSlugRoute
   '/_session/_tenant/': typeof SessionTenantIndexRoute
   '/_session/_chrome-free/oauth/callback': typeof SessionChromeFreeOauthCallbackRoute
   '/_session/_chrome-free/workspace_/$workspaceId': typeof SessionChromeFreeWorkspaceWorkspaceIdRoute
@@ -867,6 +885,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/account'
     | '/blueprint/$blueprintId'
+    | '/s/$id'
     | '/oauth/consent'
     | '/cli/login'
     | '/shared'
@@ -890,6 +909,7 @@ export interface FileRouteTypes {
     | '/account/onboarding'
     | '/account/organizations'
     | '/account/profile'
+    | '/s/$id/$slug'
     | '/oauth/callback'
     | '/workspace/$workspaceId'
     | '/account/connections'
@@ -954,6 +974,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/account'
     | '/blueprint/$blueprintId'
+    | '/s/$id'
     | '/oauth/consent'
     | '/cli/login'
     | '/shared'
@@ -974,6 +995,7 @@ export interface FileRouteTypes {
     | '/account/onboarding'
     | '/account/organizations'
     | '/account/profile'
+    | '/s/$id/$slug'
     | '/oauth/callback'
     | '/workspace/$workspaceId'
     | '/account/connections'
@@ -1039,6 +1061,7 @@ export interface FileRouteTypes {
     | '/_session/_tenant'
     | '/_session/account'
     | '/blueprint/$blueprintId'
+    | '/s/$id'
     | '/_auth/oauth/consent'
     | '/_cli-session/cli/login'
     | '/_session/_chrome-free/shared'
@@ -1062,6 +1085,7 @@ export interface FileRouteTypes {
     | '/_session/account/onboarding'
     | '/_session/account/organizations'
     | '/_session/account/profile'
+    | '/s/$id/$slug'
     | '/_session/_tenant/'
     | '/_session/_chrome-free/oauth/callback'
     | '/_session/_chrome-free/workspace_/$workspaceId'
@@ -1127,6 +1151,7 @@ export interface RootRouteChildren {
   SessionRoute: typeof SessionRouteWithChildren
   GuestRoute: typeof GuestRoute
   BlueprintBlueprintIdRoute: typeof BlueprintBlueprintIdRoute
+  SIdRoute: typeof SIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -1199,6 +1224,13 @@ declare module '@tanstack/react-router' {
       path: '/blueprint/$blueprintId'
       fullPath: '/blueprint/$blueprintId'
       preLoaderRoute: typeof BlueprintBlueprintIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$id': {
+      id: '/s/$id'
+      path: '/s/$id'
+      fullPath: '/s/$id'
+      preLoaderRoute: typeof SIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth/oauth/consent': {
@@ -1368,6 +1400,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/account/profile'
       preLoaderRoute: typeof SessionAccountProfileRouteImport
       parentRoute: typeof SessionAccountRoute
+    }
+    '/s/$id/$slug': {
+      id: '/s/$id/$slug'
+      path: '/$slug'
+      fullPath: '/s/$id/$slug'
+      preLoaderRoute: typeof SIdSlugRouteImport
+      parentRoute: typeof SIdRoute
     }
     '/_session/_chrome-free/oauth/callback': {
       id: '/_session/_chrome-free/oauth/callback'
@@ -2086,12 +2125,23 @@ const SessionRouteChildren: SessionRouteChildren = {
 const SessionRouteWithChildren =
   SessionRoute._addFileChildren(SessionRouteChildren)
 
+interface SIdRouteChildren {
+  SIdSlugRoute: typeof SIdSlugRoute
+}
+
+const SIdRouteChildren: SIdRouteChildren = {
+  SIdSlugRoute: SIdSlugRoute,
+}
+
+const SIdRouteWithChildren = SIdRoute._addFileChildren(SIdRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRouteWithChildren,
   CliSessionRoute: CliSessionRouteWithChildren,
   SessionRoute: SessionRouteWithChildren,
   GuestRoute: GuestRoute,
   BlueprintBlueprintIdRoute: BlueprintBlueprintIdRoute,
+  SIdRoute: SIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

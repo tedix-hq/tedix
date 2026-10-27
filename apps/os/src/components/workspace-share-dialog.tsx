@@ -51,11 +51,10 @@ import {
 	TooltipTrigger,
 } from "@/components/kumo/tooltip";
 import {
-	formatShareLink,
 	FreshLink,
+	PermanentUrl,
 	SHARE_DIALOG_CLASS,
 	ShareLinksPanel,
-	shareLinkBase,
 	shareStatus,
 } from "@/components/share-controls";
 import { osApi } from "@/lib/api";
@@ -351,7 +350,6 @@ function WorkspaceAccess(props: {
 		mutationFn: (role: OsCollaboratorRole) =>
 			osApi.osCollaborators.createLink({ workspaceId, role }),
 		onSuccess: (result) => {
-			setPublicUrl(null);
 			setFreshUrl(workspaceShareUrl(origin, workspaceId, result.key));
 			void refresh();
 		},
@@ -427,39 +425,28 @@ function WorkspaceAccess(props: {
 		resourceId: workspaceId,
 	});
 	const publicShares = useQuery(publicQuery);
-	const [publicUrl, setPublicUrl] = useState<string | null>(null);
 	const activePublic = (publicShares.data?.items ?? []).filter(
 		(share) => shareStatus(share) === "active",
 	);
+	// The no-sign-in link has a permanent address, shown whenever it is on.
+	const publicUrl = activePublic[0]?.url ?? null;
 	const publicToggle = useMutation({
 		mutationFn: async (on: boolean) => {
 			if (on) {
-				const created = await osApi.osShares.shares.create({
+				await osApi.osShares.shares.create({
 					resourceType: "workspace",
 					resourceId: workspaceId,
 					role: "use",
+					access: "anyone_with_link",
 					revisionMode: "living",
 				});
-				return created.token;
+				return;
 			}
 			for (const share of activePublic)
 				await osApi.osShares.shares.revoke({ shareId: share.id });
-			return null;
 		},
-		onSuccess: (token) => {
+		onSuccess: () => {
 			setFreshUrl(null);
-			setPublicUrl(
-				token
-					? formatShareLink(
-							token,
-							shareLinkBase({
-								resourceType: "workspace",
-								origin,
-								localEvaluation: false,
-							}),
-						)
-					: null,
-			);
 			void queryClient.invalidateQueries({ queryKey: publicQuery.queryKey });
 		},
 	});
@@ -728,7 +715,7 @@ function WorkspaceAccess(props: {
 							)}
 						</SelectContent>
 					</Select>
-					{newestLink && !freshUrl && !publicUrl ? (
+					{newestLink && !freshUrl && access !== "public" ? (
 						<Button
 							variant="secondary"
 							size="sm"
@@ -750,18 +737,10 @@ function WorkspaceAccess(props: {
 						/>
 					</div>
 				) : null}
-				{publicUrl ? (
+				{access === "public" && publicUrl ? (
 					<div data-public-url>
-						<FreshLink
-							url={publicUrl}
-							note="Copy it now; it can't be shown again. Choosing another option turns it off."
-							onDismiss={() => setPublicUrl(null)}
-						/>
+						<PermanentUrl url={publicUrl} />
 					</div>
-				) : access === "public" ? (
-					<Text role="label" tone="secondary" className="m-0">
-						A no-sign-in link is on. Turn it off and on again for a new link.
-					</Text>
 				) : null}
 				{links.length > 0 ? (
 					<ul className="m-0 grid list-none p-0" data-share-link-list>

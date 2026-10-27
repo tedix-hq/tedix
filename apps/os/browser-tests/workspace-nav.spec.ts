@@ -262,7 +262,7 @@ try {
 			await dialog
 				.getByRole("button", { name: "This app", exact: true })
 				.click();
-			await dialog.getByRole("combobox", { name: "General access" }).waitFor();
+			await dialog.getByRole("combobox", { name: "Who can open it" }).waitFor();
 			assert.equal(await page.getByRole("dialog").count(), 1);
 			assert.equal(await page.locator(".kumo-popover-popup").count(), 0);
 			assert(

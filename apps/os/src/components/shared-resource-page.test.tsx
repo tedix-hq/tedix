@@ -111,6 +111,62 @@ afterEach(() => {
 });
 
 describe("SharedResourcePage", () => {
+	it("moves an old #token link to its permanent address and keeps the session there", async () => {
+		const publicId = "AbCdEfGhIjKlMnOpQrStUv";
+		const redeemed = payload("use");
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					...redeemed,
+					share: { ...redeemed.share, publicId },
+				}),
+				{ status: 200 },
+			),
+		);
+		await renderPage();
+		expect(window.location.pathname).toBe(`/s/${publicId}`);
+		expect(window.location.hash).toBe("");
+		expect(window.sessionStorage.getItem(`tedix.os.share.${publicId}`)).toBe(
+			SESSION,
+		);
+		// The router shows the permanent page from here; the old one stops.
+		expect(fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("renders a shared file's text", async () => {
+		const file = payload("use");
+		vi.mocked(fetch).mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					...file,
+					share: {
+						...file.share,
+						resourceType: "output",
+						role: "viewer",
+						effectiveRole: "viewer",
+					},
+					resource: {
+						type: "output",
+						output: { id: "output-1", title: "Launch brief" },
+						revision: {
+							id: "revision-1",
+							revision: 2,
+							content: {
+								kind: "document",
+								blocks: [{ type: "paragraph", text: "Ship on Friday" }],
+							},
+						},
+						openPath: null,
+					},
+				}),
+				{ status: 200 },
+			),
+		);
+		const container = await renderPage();
+		expect(container.querySelector("h1")?.textContent).toBe("Launch brief");
+		expect(container.querySelector("[data-shared-output]")).not.toBeNull();
+	});
+
 	it("redeems from the fragment, removes it, and gives use access no source or build path", async () => {
 		vi.mocked(fetch).mockResolvedValue(
 			new Response(JSON.stringify(payload("use")), { status: 200 }),
