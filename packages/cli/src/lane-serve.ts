@@ -1,5 +1,4 @@
 import type * as z from "zod";
-import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -22,6 +21,11 @@ import {
 	type WorkAttemptSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
+import {
+	laneReservedActions,
+	userPresenceStep,
+	withoutNegatedClauses,
+} from "./lane-reserved-actions";
 import { readExecutorBudgets } from "./lane-budget";
 import {
 	localExecutors,
@@ -71,11 +75,6 @@ export type DispatchItem = Pick<
 	| "accountableOwnerId"
 > & { activeAttempt?: unknown; riskLevel?: WorkItem["riskLevel"] };
 
-const negatedClause =
-	/\b(?:never|do not|don't|don’t|must not|not)\b[^.;!?\n]*/gi;
-const userPresenceStep =
-	/\b(?:complete|approve|grant|give|pass|perform|finish|enter|type|accept)\s+(?:(?:the|an?|your|my|their|its)\s+)?(?:oauth\s+|login\s+|sign[- ]?in\s+)?(?:mfa|2fa|otp|consent|passkey|password|captcha)\b/i;
-
 export function dispatchSkip(
 	item: DispatchItem,
 	comments: Pick<WorkItemComment, "authorType" | "authorId" | "body">[] = [],
@@ -101,14 +100,11 @@ export function dispatchSkip(
 		return `Work is scheduled for ${item.startAt}`;
 	if (item.activeAttempt) return "Work already has a live Attempt";
 	const text = `${item.title}\n${item.description ?? ""}`;
-	const reserved = humanReservedActionClasses(text);
+	const reserved = laneReservedActions(text);
 	if (!reserved.length) return;
-	// Mentioning logins or credentials is ordinary work an owner may delegate;
-	// asking the executor to perform consent, MFA or a sign-in step is not.
-	if (
-		reserved.includes("credentials") &&
-		userPresenceStep.test(text.replace(negatedClause, " "))
-	)
+	// Describing logins or credentials is ordinary code work; asking the
+	// executor to perform consent, MFA or a sign-in step is not delegable.
+	if (userPresenceStep.test(withoutNegatedClauses(text)))
 		return "Consent, MFA and user presence remain human-only";
 	const kind = reserved.includes("credentials")
 		? "Possible human-reserved action (consent or credentials)"
