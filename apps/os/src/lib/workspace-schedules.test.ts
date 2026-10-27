@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	lastRunFailure,
 	lastRunLine,
 	nextRunLine,
 	scheduleWhen,
@@ -110,6 +111,74 @@ describe("lastRunLine", () => {
 			),
 		).toBe("Last run failed: Gmail search failed");
 		expect(lastRunLine(null, NOW, BERLIN)).toBe("Has not run yet");
+	});
+});
+
+describe("lastRunFailure", () => {
+	const refused = {
+		runId: "run-2",
+		status: "failed" as const,
+		startedAt: "2026-07-01T11:17:00.000Z",
+		completedAt: "2026-07-01T11:19:00.000Z",
+		cards: null,
+		summary: null,
+		error:
+			"Error: WorkflowToolsRefused: WORKFLOW_TOOLS_REFUSED: a tool capability in step gather was wholly refused",
+	};
+	const sessionRead = {
+		providerId: "tedix-session-activity",
+		providerName: "session activity",
+		toolIds: ["list_agent_session_activity"],
+		level: "none" as const,
+	};
+
+	it("says in plain words what a refused read needed and who can allow it", () => {
+		expect(
+			lastRunFailure(refused, {
+				personalRead: { ...sessionRead, grantId: null, canAllow: true },
+			}),
+		).toEqual({
+			reason:
+				"The run could not read session activity because access was refused. " +
+				"You can allow it below.",
+			details: refused.error,
+		});
+		expect(
+			lastRunFailure(refused, {
+				personalRead: { ...sessionRead, grantId: null, canAllow: false },
+			}).reason,
+		).toBe(
+			"The run could not read session activity because access was refused. " +
+				"The workspace's owner can allow it.",
+		);
+	});
+
+	it("keeps a refusal with no personal read generic, and plain errors as recorded", () => {
+		expect(lastRunFailure(refused)).toEqual({
+			reason:
+				"The run stopped because access to a tool it needs was refused. " +
+				"It will try again on its next run.",
+			details: refused.error,
+		});
+		expect(
+			lastRunFailure(refused, {
+				personalRead: {
+					...sessionRead,
+					grantId: "33333333-3333-4333-8333-333333333333",
+					canAllow: true,
+				},
+			}).reason,
+		).toBe(
+			"The run stopped because access to a tool it needs was refused. " +
+				"It will try again on its next run.",
+		);
+		expect(
+			lastRunFailure({ ...refused, error: "Gmail search failed" }),
+		).toEqual({ reason: "Gmail search failed", details: null });
+		expect(lastRunFailure({ ...refused, error: null })).toEqual({
+			reason: "no reason was recorded",
+			details: null,
+		});
 	});
 });
 

@@ -1,4 +1,4 @@
-import { Clock, LinkBreak, Plus } from "@phosphor-icons/react";
+import { CaretRight, Clock, LinkBreak, Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	OsWorkspaceSchedule,
@@ -6,6 +6,11 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { SectionEyebrow } from "@/components/section-eyebrow";
@@ -20,6 +25,7 @@ import {
 	workspaceSchedulesQueryOptions,
 } from "@/lib/os-query-options";
 import {
+	lastRunFailure,
 	lastRunLine,
 	nextRunLine,
 	scheduleWhen,
@@ -104,6 +110,10 @@ function WorkspaceScheduleRow({
 }) {
 	useOsFormattingPreferences();
 	const next = schedule.enabled ? nextRunLine(schedule.nextRunAt) : null;
+	const failure =
+		schedule.lastRun?.status === "failed"
+			? lastRunFailure(schedule.lastRun, schedule)
+			: null;
 	const titleId = `workspace-schedule-${schedule.resourceId}`;
 	return (
 		<Surface
@@ -149,12 +159,34 @@ function WorkspaceScheduleRow({
 				<Text
 					as="p"
 					role="label"
-					tone={schedule.lastRun?.status === "failed" ? "error" : "secondary"}
+					tone={failure ? "error" : "secondary"}
 					className="m-0"
 					data-schedule-last-run
 				>
-					{lastRunLine(schedule.lastRun)}
+					{failure
+						? `Last run failed: ${failure.reason}`
+						: lastRunLine(schedule.lastRun)}
 				</Text>
+				{failure?.details && (
+					<Collapsible
+						className="text-kumo-subtle type-tedix-control"
+						data-schedule-last-run-details
+					>
+						<CollapsibleTrigger className="group/disclosure -mx-2">
+							<CaretRight
+								size={14}
+								aria-hidden
+								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+							/>
+							Technical details
+						</CollapsibleTrigger>
+						<CollapsibleContent keepMounted>
+							<p className="m-0 whitespace-pre-wrap wrap-anywhere">
+								{failure.details}
+							</p>
+						</CollapsibleContent>
+					</Collapsible>
+				)}
 				{next && (
 					<Text
 						as="p"

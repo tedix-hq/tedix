@@ -250,6 +250,54 @@ it("leaves the session grant absent until the owner presses the named tedi butto
 	}
 });
 
+it("tells a refused run in plain words and keeps the exception under Technical details", async () => {
+	const refused =
+		"Error: WorkflowToolsRefused: WORKFLOW_TOOLS_REFUSED: a tool capability in step gather was wholly refused";
+	mocks.list.mockResolvedValue({
+		items: [
+			{
+				...schedule({
+					providerId: "tedix-session-activity",
+					providerName: "session activity",
+					workerName: "CTO",
+					toolIds: ["list_agent_session_activity"],
+					grantId: null,
+					level: "none" as const,
+					canAllow: true,
+				}),
+				lastRun: {
+					runId: "run-refused",
+					status: "failed" as const,
+					startedAt: "2026-07-01T11:17:00.000Z",
+					completedAt: "2026-07-01T11:19:00.000Z",
+					cards: null,
+					summary: null,
+					error: refused,
+				},
+			},
+		],
+	});
+	const view = await mount();
+	try {
+		expect(
+			view.node.querySelector("[data-schedule-last-run]")?.textContent,
+		).toBe(
+			"Last run failed: The run could not read session activity because " +
+				"access was refused. You can allow it below.",
+		);
+		const details = view.button("Technical details");
+		expect(details).toBeDefined();
+		expect(details?.getAttribute("aria-expanded")).toBe("false");
+		await act(async () => details!.click());
+		expect(details?.getAttribute("aria-expanded")).toBe("true");
+		expect(
+			view.node.querySelector("[data-schedule-last-run-details]")?.textContent,
+		).toContain(refused);
+	} finally {
+		await view.close();
+	}
+});
+
 describe("linking skills to the workspace", () => {
 	it("shows who runs each linked skill and unlinks it", async () => {
 		mocks.list
