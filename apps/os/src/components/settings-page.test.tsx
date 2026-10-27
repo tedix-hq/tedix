@@ -28,6 +28,12 @@ vi.mock("@/lib/api", () => ({
 		userSettings: userSettingsApi,
 		runtimeEntitlements: runtimeEntitlementsApi,
 		connections: connectionsApi,
+		organizations: {
+			listAllMine: vi.fn(async () => ({
+				data: [],
+				pagination: { total: 0, offset: 0, limit: 50, hasMore: false },
+			})),
+		},
 		personalAgentInbound: { value: vi.fn(async () => []) },
 		webPush: {
 			getStatus: vi.fn(async () => ({

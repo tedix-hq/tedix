@@ -126,7 +126,9 @@ try {
 
 			// The Share dialog for a file.
 			await page.goto(`${server.origin}/outputs`);
-			const card = page.locator(".output-grid-card").first();
+			const card = page
+				.locator(".output-grid-card:not([data-workspace-app])")
+				.first();
 			await card.waitFor();
 			await card.getByRole("button", { name: /^More actions for / }).click();
 			await page.getByRole("menuitem", { name: "Share…", exact: true }).click();

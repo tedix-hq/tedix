@@ -250,6 +250,13 @@ try {
 					await route.abort();
 					return;
 				}
+				// Keep this native-output fixture independent of sample workspace apps.
+				if (url.pathname === "/api/rpc/osWorkspaces/gadgets/list") {
+					await route.fulfill({
+						json: { json: { items: [], truncated: false } },
+					});
+					return;
+				}
 				if (url.pathname === "/api/rpc/osWorkspaces/outputs/library") {
 					reads++;
 					if (mode === "pending") await gate;
@@ -520,7 +527,7 @@ try {
 				await ready();
 				assert.equal(await cards().count(), 20);
 				await visible(
-					page.getByText("Showing 20 of 200 outputs", { exact: true }),
+					page.getByText("Showing 20 of 200 items", { exact: true }),
 				);
 				await visible(
 					page.getByText("Showing the 200 most recently updated outputs.", {
@@ -539,7 +546,7 @@ try {
 				assert.equal(await cards().count(), 1);
 				await search.fill("");
 				await visible(
-					page.getByText("Showing 20 of 200 outputs", { exact: true }),
+					page.getByText("Showing 20 of 200 items", { exact: true }),
 				);
 			});
 			assert.deepEqual(

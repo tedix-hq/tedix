@@ -22,6 +22,7 @@ import { getAuditEventsByResource } from "@tedix/db/queries/audit";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osApprovalRules } from "@tedix/db/schema/os-approval-rules";
 import { organizations } from "@tedix/db/schema/organizations";
+import { providerInstallations } from "@tedix/db/schema/provider-installations";
 import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
 import {
 	osBlueprintRevisions,
@@ -52,6 +53,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			osWorkspaces,
+			providerInstallations,
 			osWorkspaceResources,
 			osWorkspaceCollaborators,
 			osWorkspaceAccessEdges,
