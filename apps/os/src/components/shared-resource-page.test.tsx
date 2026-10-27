@@ -102,6 +102,9 @@ beforeEach(() => {
 	vi.useRealTimers();
 	window.sessionStorage.clear();
 	vi.stubGlobal("fetch", vi.fn());
+	// The page rechecks an open session every 3s; the one poll test uses fake
+	// timers, so a stray interval must never refetch a consumed response.
+	vi.stubGlobal("setInterval", vi.fn());
 });
 
 afterEach(() => {
