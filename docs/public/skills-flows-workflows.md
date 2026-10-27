@@ -155,6 +155,14 @@ For example, review a few relevant excerpts rather than several full threads
 at once. Longer prompts can take longer to answer; repeated sends do not
 replace checking the original conversation.
 
+The [research judge example](https://github.com/tedix-hq/tedix/tree/main/apps/skill-runtime/examples/research-judge)
+checks every input thread ID, preserves valid verdicts from partial replies,
+and splits missing judgments into smaller calls. The bridge retries an unknown
+acknowledgement once with the same request ID. The example then splits an
+unavailable batch and fails visibly if any singleton remains unjudged. Use
+this pattern only for tool-free judgment; an action may still have happened
+when its acknowledgement was lost.
+
 ## Start a skill from upstream MCP events
 
 A tedi skill can run when a connected MCP app emits an event. Tedix supports
