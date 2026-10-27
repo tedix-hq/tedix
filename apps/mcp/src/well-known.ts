@@ -195,10 +195,8 @@ export async function handleServerCard(
 	hostname: string,
 	env: CloudflareEnv,
 ): Promise<Response> {
-	const { app, mcpConfig, upstreamUnavailable } = await resolveAppMcpConfig(
-		hostname,
-		env,
-	);
+	const { app, mcpConfig, description, upstreamUnavailable } =
+		await resolveAppMcpConfig(hostname, env);
 	if (upstreamUnavailable) return upstreamUnavailableResponse();
 	const name = mcpConfig?.registryName;
 	if (!app || typeof name !== "string" || !REGISTRY_NAME.test(name)) {
@@ -216,7 +214,7 @@ export async function handleServerCard(
 		$schema: SERVER_CARD_SCHEMA,
 		name,
 		version: mcpConfig?.serverVersion ?? "1.0.0",
-		description: app.description ?? title,
+		description: description ?? app.description ?? title,
 		title,
 		...(websiteUrl ? { websiteUrl } : {}),
 		...(app.logoUrl ? { icons: [{ src: app.logoUrl }] } : {}),
@@ -482,6 +480,8 @@ async function resolveAppMcpConfig(
 	app: AppData | null;
 	mcpConfig: AppMetadata["mcpConfig"] | undefined;
 	tools: AppTool[];
+	/** The full app record's description; the hostname lookup omits it. */
+	description?: string | null;
 	upstreamUnavailable?: boolean;
 }> {
 	const hostnameInfo = extractAppFromHostname(hostname, env);
@@ -489,6 +489,7 @@ async function resolveAppMcpConfig(
 	const { app } = lookup;
 
 	let tools: AppTool[] = [];
+	let description: string | null | undefined;
 	let mcpConfigUpstreamUnavailable = false;
 	const mcpConfig = app
 		? await (async () => {
@@ -501,6 +502,7 @@ async function resolveAppMcpConfig(
 						slug: app.slug,
 					});
 					tools = result.tools ?? [];
+					description = result.app?.description;
 					return (result.app?.metadata as AppMetadata | null)?.mcpConfig;
 				} catch (error) {
 					// App resolved but its mcpConfig fetch failed transiently — flag
@@ -516,6 +518,7 @@ async function resolveAppMcpConfig(
 		app,
 		mcpConfig,
 		tools,
+		description,
 		upstreamUnavailable:
 			lookup.upstreamUnavailable || mcpConfigUpstreamUnavailable,
 	};

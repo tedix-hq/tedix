@@ -432,6 +432,7 @@ describe("MCP Server Card", () => {
 				"https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
 			name: "io.github.acme/acme",
 			title: "Acme",
+			description: "Acme tasks and knowledge for agents.",
 			version: "1.2.3",
 			websiteUrl: "https://docs.acme.example",
 			remotes: [
