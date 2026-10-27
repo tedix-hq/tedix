@@ -169,11 +169,14 @@ export function injectSharePreview(
 				element.setInnerContent(title);
 			},
 		})
-		.on('head > meta[name="description"]', {
-			element(element) {
-				element.remove();
+		.on(
+			'head > meta[name="description"], head > meta[property^="og:"], head > meta[name^="twitter:"]',
+			{
+				element(element) {
+					element.remove();
+				},
 			},
-		})
+		)
 		.on("head", {
 			element(element) {
 				element.append(sharePreviewTags(preview, pageUrl), { html: true });

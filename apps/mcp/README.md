@@ -1,5 +1,9 @@
 # @tedix/mcp — MCP Server
 
+Connect AI assistants to your Tedix organization's tasks, project knowledge,
+apps, decisions, and results through MCP. Tedix is a platform for agents,
+apps, and work.
+
 Cloudflare Worker that serves MCP tools through a stateless, per-request
 `mountMcp()` (`@tedix/mcp-shared/transport`, MCP SDK v2). Every tenant gets its
 own subdomain; every request resolves its app from D1 and builds the tool set

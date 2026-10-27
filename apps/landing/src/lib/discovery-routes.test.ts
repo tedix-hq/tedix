@@ -60,11 +60,9 @@ describe("landing crawler discovery routes", () => {
 	it("opens with the site tagline and links the agent docs", async () => {
 		const text = await (await llms(context("tedix.dev"))).text();
 		expect(
-			text.startsWith(
-				"# Tedix — hand off recurring work, with proof of every step\n",
-			),
+			text.startsWith("# Tedix — A platform for agents, apps, and work\n"),
 		).toBe(true);
-		expect(text).toContain("> Hand recurring work to tedis.");
+		expect(text).toContain("> A platform for agents, apps, and work.");
 		expect(text).toContain("https://docs.tedix.dev/agent-start-here/");
 		expect(text).toContain("https://docs.tedix.dev/sessions-per-project/");
 	});

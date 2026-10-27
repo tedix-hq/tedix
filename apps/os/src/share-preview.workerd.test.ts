@@ -7,7 +7,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { injectSharePreview } from "./share-preview";
 
 const SHELL_HTML =
-	'<!doctype html><html><head><meta charset="utf-8"><meta name="description" content="Tedix OS"><title>Tedix OS</title></head><body><div id="root"></div></body></html>';
+	'<!doctype html><html><head><meta charset="utf-8"><meta name="description" content="Tedix OS"><meta property="og:title" content="Tedix OS"><meta property="og:image" content="https://tedix.dev/images/tedix-preview.jpg"><meta name="twitter:description" content="Tedix OS"><title>Tedix OS</title></head><body><div id="root"></div></body></html>';
 
 function shell(): Response {
 	return new Response(SHELL_HTML, {

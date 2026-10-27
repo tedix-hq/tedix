@@ -7,9 +7,7 @@ export const GET: APIRoute = () => {
 
 	lines.push(`# ${meta.title}`);
 	lines.push("");
-	lines.push(
-		`> ${meta.description} That record says what was done, with which tools, and who approved it. Open source, runs on Cloudflare.`,
-	);
+	lines.push(`> ${meta.description} Open source, runs on Cloudflare.`);
 	lines.push("");
 	lines.push(
 		"Tedix Cloud is in invited beta. The Tedix CLI is in public beta. The source is public on GitHub under AGPL-3.0-only (some packages are Apache-2.0 or MIT); local mode runs from a checkout without an invitation. Self-hosting is experimental and unsupported.",
@@ -63,7 +61,7 @@ export const GET: APIRoute = () => {
 	lines.push("## Platform");
 	lines.push("");
 	lines.push(
-		"- [Tedix Homepage](https://tedix.dev): Hand off recurring work, with proof of every step",
+		"- [Tedix Homepage](https://tedix.dev): A platform for agents, apps, and work",
 	);
 	lines.push(
 		"- [AI App Directory](https://tedix.dev/apps): Browse AI apps across ChatGPT, Claude, and more",
@@ -81,7 +79,7 @@ export const GET: APIRoute = () => {
 	lines.push("## MCP Apps");
 	lines.push("");
 	lines.push(
-		"- [Tedix MCP Server](https://tedix.mcp.tedix.dev): Platform administration and management tools",
+		"- [Tedix Connect](https://connect.mcp.tedix.dev/mcp): Connect AI assistants to your organization's tasks, project knowledge, apps, decisions, and results through MCP",
 	);
 	lines.push(
 		"- Each customer app has its own MCP server at {slug}.mcp.tedix.dev with domain-specific tools",

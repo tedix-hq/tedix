@@ -24,9 +24,9 @@ export const supportedLocaleCodes = Object.keys(supportedLocales) as Locale[];
 
 const englishContent = {
 	meta: {
-		title: "Tedix — hand off recurring work, with proof of every step",
+		title: "Tedix — A platform for agents, apps, and work",
 		description:
-			"Hand recurring work to tedis. Check what they did, which tools they used, and who approved each risky step.",
+			"A platform for agents, apps, and work. Coordinate people and AI agents with shared tasks, project knowledge, apps, and decisions.",
 	},
 	layout: {
 		skipToContent: "Skip to content",
@@ -43,7 +43,7 @@ const englishContent = {
 		languageLabel: "Language",
 	},
 	footer: {
-		tagline: "Hand off recurring work. Check every step.",
+		tagline: "A platform for agents, apps, and work.",
 		product: "Product",
 		appStore: "App Store",
 		howItWorks: "How It Works",
@@ -85,13 +85,13 @@ const englishContent = {
 	},
 	home: {
 		hero: {
-			line1: "Turn signals",
-			line2: "into approved",
-			line3: "actions.",
-			subtitleIntro: "Run autonomous workflows across",
-			subtitleHighlight: "systems your company already uses.",
+			line1: "A platform for",
+			line2: "agents, apps,",
+			line3: "and work.",
+			subtitleIntro: "People and AI agents,",
+			subtitleHighlight: "working together.",
 			description:
-				"Draft a meeting agenda, revise it in the same conversation, or assign tool-based work to a tedi with scoped permissions and a record of its actions.",
+				"Keep shared tasks, project knowledge, apps, decisions, and results in one place.",
 			primaryCta: "Open Tedix Cloud",
 			secondaryCta: "See how it works",
 			trustSignals: [
@@ -338,9 +338,9 @@ export type TimelineContent = HomeContent["timeline"];
 
 const germanContent = {
 	meta: {
-		title: "Tedix — KI-Kollegen, die ihre Arbeit zeigen",
+		title: "Tedix — Eine Plattform für Agenten, Apps und Arbeit",
 		description:
-			"Tedix gibt Ihrem Team KI-Kollegen für wiederkehrende Arbeit. Sie fragen vor riskanten Schritten nach und dokumentieren jeden Lauf.",
+			"Eine Plattform für Agenten, Apps und Arbeit. Menschen und KI-Agenten teilen Aufgaben, Projektwissen, Apps und Entscheidungen.",
 	},
 	layout: {
 		skipToContent: "Zum Inhalt springen",
@@ -357,7 +357,7 @@ const germanContent = {
 		languageLabel: "Sprache",
 	},
 	footer: {
-		tagline: "KI-Kollegen, die ihre Arbeit zeigen.",
+		tagline: "Eine Plattform für Agenten, Apps und Arbeit.",
 		product: "Produkt",
 		appStore: "App Store",
 		howItWorks: "So funktioniert es",
@@ -399,13 +399,13 @@ const germanContent = {
 	},
 	home: {
 		hero: {
-			line1: "Aus Signalen",
-			line2: "werden freigegebene",
-			line3: "Aktionen.",
-			subtitleIntro: "Führen Sie autonome Workflows über",
-			subtitleHighlight: "Systeme aus, die Ihr Unternehmen bereits nutzt.",
+			line1: "Eine Plattform für",
+			line2: "Agenten, Apps",
+			line3: "und Arbeit.",
+			subtitleIntro: "Menschen und KI-Agenten,",
+			subtitleHighlight: "die zusammenarbeiten.",
 			description:
-				"Erstellen Sie eine Besprechungsagenda, überarbeiten Sie sie im selben Gespräch oder delegieren Sie Aufgaben mit Tools an einen Tedi mit begrenzten Rechten und nachvollziehbaren Aktionen.",
+				"Aufgaben, Projektwissen, Apps, Entscheidungen und Ergebnisse an einem gemeinsamen Ort.",
 			primaryCta: "Tedix Cloud öffnen",
 			secondaryCta: "So funktioniert es",
 			trustSignals: [
@@ -648,9 +648,9 @@ const germanContent = {
 
 const spanishContent = {
 	meta: {
-		title: "Tedix — Compañeros de IA que muestran su trabajo",
+		title: "Tedix — Una plataforma para agentes, apps y trabajo",
 		description:
-			"Tedix ofrece a tu equipo compañeros de IA para el trabajo recurrente. Preguntan antes de dar pasos arriesgados y dejan un registro de cada ejecución.",
+			"Una plataforma para agentes, apps y trabajo. Personas y agentes de IA comparten tareas, conocimientos del proyecto, apps y decisiones.",
 	},
 	layout: {
 		skipToContent: "Saltar al contenido",
@@ -667,7 +667,7 @@ const spanishContent = {
 		languageLabel: "Idioma",
 	},
 	footer: {
-		tagline: "Compañeros de IA que muestran su trabajo.",
+		tagline: "Una plataforma para agentes, apps y trabajo.",
 		product: "Producto",
 		appStore: "App Store",
 		howItWorks: "Cómo funciona",
@@ -709,13 +709,13 @@ const spanishContent = {
 	},
 	home: {
 		hero: {
-			line1: "Convierte señales",
-			line2: "en acciones",
-			line3: "aprobadas.",
-			subtitleIntro: "Ejecuta flujos de trabajo autónomos en",
-			subtitleHighlight: "los sistemas que tu empresa ya usa.",
+			line1: "Una plataforma para",
+			line2: "agentes, apps",
+			line3: "y trabajo.",
+			subtitleIntro: "Personas y agentes de IA,",
+			subtitleHighlight: "trabajando juntos.",
 			description:
-				"Crea una agenda, revísala en la misma conversación o asigna tareas con herramientas a un tedi con permisos limitados y un registro de sus acciones.",
+				"Tareas, conocimientos del proyecto, apps, decisiones y resultados en un mismo lugar.",
 			primaryCta: "Abrir Tedix Cloud",
 			secondaryCta: "Ver cómo funciona",
 			trustSignals: [

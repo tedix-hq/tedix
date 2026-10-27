@@ -7,7 +7,7 @@ const MCP_PROTOCOL_BINDING =
 export const tedixAgentCard = {
 	name: "Tedix",
 	description:
-		"Governed digital workers that coordinate durable work through authenticated MCP tools.",
+		"A platform for agents, apps, and work. Connect AI assistants to shared tasks, project knowledge, apps, decisions, and results through MCP.",
 	supportedInterfaces: [
 		{
 			url: "https://tedix-unified.mcp.tedix.dev/mcp",
@@ -43,13 +43,13 @@ export const tedixAgentCard = {
 	skills: [
 		{
 			id: "coordinate-digital-workers",
-			name: "Coordinate Digital Workers",
+			name: "Coordinate People and AI Agents",
 			description:
-				"Submit governed work to Home, coordinate organization tedis, and recover durable task results.",
-			tags: ["coordination", "digital-workers", "durable-tasks", "governance"],
+				"Ask Home to coordinate a task, see who is doing what, and find the results.",
+			tags: ["coordination", "agents", "tasks", "results"],
 			examples: [
-				"Ask Home to coordinate a governed task for my organization.",
-				"Read the current status of a durable task.",
+				"Ask Home to coordinate a task for my organization.",
+				"Read a task's current progress and results.",
 			],
 		},
 		{

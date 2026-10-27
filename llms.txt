@@ -1,6 +1,6 @@
 # Tedix
 
-> Hand off the work. Tedix brings back only the decisions that need you, and handles the rest. Public source; local preview without login.
+> A platform for agents, apps, and work. People and AI agents share tasks, project knowledge, apps, decisions, and results. Public source; local demo without login.
 
 - [Review Tedix for your project](https://github.com/tedix-hq/tedix/blob/main/AGENT-REVIEW.md): A 15-minute coding-agent prompt, report format and feedback submission without CLI setup.
 - [Documentation index](https://docs.tedix.dev/llms.txt): Select current product documentation.
