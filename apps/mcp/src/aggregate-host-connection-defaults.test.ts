@@ -135,12 +135,12 @@ describe("aggregate surface cache fingerprint", () => {
 			connectionScope: "user",
 		});
 	});
-	it("rolls durable cache keys across Worker deployments", () => {
-		expect(aggregateSurfaceCacheKey([], "sha-a")).not.toBe(
-			aggregateSurfaceCacheKey([], "sha-b"),
+	it("rolls durable cache keys for incompatible snapshot formats", () => {
+		expect(aggregateSurfaceCacheKey([], "format-a")).not.toBe(
+			aggregateSurfaceCacheKey([], "format-b"),
 		);
-		expect(aggregateSurfaceCacheKey([], "sha-a")).toBe(
-			aggregateSurfaceCacheKey([], "sha-a"),
+		expect(aggregateSurfaceCacheKey([], "format-a")).toBe(
+			aggregateSurfaceCacheKey([], "format-a"),
 		);
 	});
 

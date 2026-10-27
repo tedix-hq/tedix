@@ -55,8 +55,17 @@ vi.mock("./mcp/server-factory", async (importOriginal) => {
 });
 
 import { aggregateAndPrefixTools } from "./aggregate-surface";
-import { aggregateSurfaceCacheKey } from "./aggregate-surface-cache";
+import {
+	aggregateSurfaceCache,
+	aggregateSurfaceInFlight,
+	aggregateSurfaceCacheKey,
+} from "./aggregate-surface-cache";
 import worker from "./index";
+
+beforeEach(() => {
+	aggregateSurfaceCache.clear();
+	aggregateSurfaceInFlight.clear();
+});
 
 function createExecutionContext() {
 	return {
@@ -73,8 +82,6 @@ function createEnv() {
 		MCP_URL: "https://mcp.tedix.tech",
 		API_URL: "https://api.tedix.tech",
 		MCP_UI_URL: "https://mcp-ui.tedix.tech",
-		// Unique per test run so L1/L2 aggregate caches never carry a surface
-		// across cases (the cache key includes the deployment fingerprint).
 		GIT_SHA: `test-${Math.random().toString(36).slice(2)}`,
 		DESCOPE_AIH_BASE_URL: "https://api.descope.com",
 		DEFAULT_APP_SLUG: "",

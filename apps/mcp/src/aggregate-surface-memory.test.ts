@@ -36,6 +36,7 @@ import {
 	aggregateRevalidateInFlight,
 	aggregateSurfaceCache,
 	aggregateSurfaceInFlight,
+	aggregateSurfaceCacheKey,
 	readAggregateL2,
 } from "./aggregate-surface-cache";
 import { CACHE_TIER_BUDGET_MS } from "./lib/step-budget";
@@ -198,6 +199,104 @@ describe("aggregate snapshot memory", () => {
 		);
 		expect(generation).toBeTruthy();
 		expect(r2Object?.customMetadata?.generation).toBe(generation);
+	});
+
+	it.each(["l2", "r2"])(
+		"reuses %s after a Worker deploy without live fan-out",
+		async (tier) => {
+			env.WORKER_VERSION = {
+				id: "deploy-before",
+			} as CloudflareEnv["WORKER_VERSION"];
+			const first = await load();
+			aggregateSurfaceCache.clear();
+			aggregateSurfaceInFlight.clear();
+			if (tier === "r2") colo.store.clear();
+			env.WORKER_VERSION = {
+				id: "deploy-after",
+			} as CloudflareEnv["WORKER_VERSION"];
+			env.GIT_SHA = "another-source-commit";
+			const second = await load();
+			expect(second).toEqual(first);
+			expect(resolveUpstreamToolsInternally).toHaveBeenCalledTimes(1);
+			expect(pending).toHaveLength(0);
+		},
+	);
+
+	it.each(["cold", "joined"])(
+		"does not retry R2 at a nested %s join deadline",
+		async (kind) => {
+			vi.useFakeTimers();
+			const visited = new Set(["parent-gateway"]);
+			const key = aggregateSurfaceCacheKey(
+				entries,
+				undefined,
+				activation.value,
+				visited,
+			);
+			if (kind === "joined") {
+				aggregateSurfaceInFlight.set(
+					key,
+					new Promise((resolve) =>
+						setTimeout(
+							() =>
+								resolve({
+									tools: [],
+									resources: [],
+									resourceTemplates: [],
+									prompts: [],
+								}),
+							9_000,
+						),
+					),
+				);
+			} else {
+				resolveUpstreamToolsInternally.mockImplementation(
+					() =>
+						new Promise((resolve) =>
+							setTimeout(() => resolve(sourceApp(["read_item"])), 9_000),
+						),
+				);
+			}
+			const result = aggregateAndPrefixTools(
+				entries,
+				env,
+				visited,
+				ctx,
+				undefined,
+				activation,
+			);
+			await vi.advanceTimersByTimeAsync(8_001);
+			expect(r2.bucket.get).toHaveBeenCalledTimes(kind === "cold" ? 1 : 0);
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect((await result).degraded).not.toBe(true);
+		},
+	);
+
+	it("rebuilds changed tool contracts after activation even across deploys", async () => {
+		await load();
+		aggregateSurfaceCache.clear();
+		aggregateSurfaceInFlight.clear();
+		env.WORKER_VERSION = {
+			id: "deploy-after",
+		} as CloudflareEnv["WORKER_VERSION"];
+		resolveUpstreamToolsInternally.mockImplementation(async () =>
+			sourceApp(["new_contract"]),
+		);
+		const changed = await aggregateAndPrefixTools(
+			entries,
+			env,
+			new Set(),
+			ctx,
+			"connect",
+			{
+				value: "epoch-new-contract",
+				cacheable: true,
+			},
+		);
+		expect(changed.tools.map((tool) => tool.toolId)).toEqual([
+			"source__new_contract",
+		]);
+		expect(resolveUpstreamToolsInternally).toHaveBeenCalledTimes(2);
 	});
 
 	it("reuses the served object instead of re-parsing an unchanged snapshot", async () => {
