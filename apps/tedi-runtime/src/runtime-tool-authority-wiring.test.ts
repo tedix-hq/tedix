@@ -37,4 +37,58 @@ import { tediDo } from "../test/tedi-do";
 		approvalRequestId: "approved-card",
 	});
 }
+// Live View credentials belong in the human approval, never in tool output.
+{
+	let approvalBody = "";
+	const agent = tediDo({
+		state: { tediId: "test-tedi", orgId: "test-org" },
+		ensureIdentity: async () => {},
+		env: {
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					approvalBody = await request.text();
+					return Response.json({
+						json: {
+							id: "approval",
+							expiresAt: "2099-01-01T00:00:00.000Z",
+							status: "pending",
+						},
+					});
+				},
+			},
+		},
+		getBrowserSession: () => ({
+			liveView: async () => ({
+				sessionId: "private-provider-session",
+				expiresInMs: 300_000,
+				targets: [
+					{
+						targetId: "tab",
+						url: "https://live.example.com/secret-token",
+						pageUrl: "https://example.com/private",
+					},
+				],
+			}),
+		}),
+		getBrowserBudgetStore: () => ({ status: () => ({ remaining: 1 }) }),
+	});
+	const output = await agent.requestBrowserTakeover(
+		{ reason: "login", note: "Sign in", limit: 1 },
+		{
+			sessionKey: "chat",
+			runId: "test-run",
+			platform: { recordRuntimeEvent: async () => {} },
+		},
+	);
+	assert.match(approvalBody, /private-provider-session/);
+	assert.match(approvalBody, /secret-token/);
+	assert.doesNotMatch(
+		JSON.stringify(output),
+		/private-provider-session|secret-token|live.example.com/,
+	);
+	assert.deepEqual(output.targets, [
+		{ targetId: "tab", pageUrl: "https://example.com", title: null },
+	]);
+}
+
 console.log("runtime tool authority wiring characterization passed");

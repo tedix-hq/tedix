@@ -211,6 +211,7 @@ const allowHttpbin = [
 	assert.deepEqual(changed[0], {
 		kind: "closed",
 		name: "research",
+		sessionId: "session-2",
 		reason: "egress_changed",
 	});
 	// The same allowlist on a later turn reuses that browser.

@@ -218,6 +218,7 @@ const options = { toolCallId: "domain-test", messages: [] };
 		getBrowserBudgetStore: () => ({
 			consume: (limit: number) => calls.push(limit),
 			status: (limit: number) => ({ limit }),
+			persistentMinutes: () => ({ day: "2026-10-27", minutes: 5, ms: 300_000 }),
 		}),
 		requestBrowserTakeover: (...args: unknown[]) => {
 			calls.push(args);
@@ -242,6 +243,7 @@ const options = { toolCallId: "domain-test", messages: [] };
 	assert.deepEqual(calls.splice(0), ["browser_execute", 7, "execute"]);
 	assert.deepEqual(await tools.browser_budget_status.execute({}, options), {
 		limit: 7,
+		persistentMinutes: { day: "2026-10-27", minutes: 5, ms: 300_000 },
 		approvalPolicy: "always-approve",
 		hostnamePolicy: { organization: null, tedi: null },
 		timezone: "UTC",
