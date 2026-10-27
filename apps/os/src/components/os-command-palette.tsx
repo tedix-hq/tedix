@@ -44,7 +44,12 @@ type PaletteCommand = {
 	title: string;
 	description: string;
 	icon: ComponentType<{ size?: number; className?: string }>;
-	workspace?: { id: string; name: string; visibility: string };
+	workspace?: {
+		id: string;
+		name: string;
+		visibility: string;
+		iconUrl?: string | null;
+	};
 	run: () => void;
 };
 
@@ -410,6 +415,8 @@ export function OsCommandPalette({
 												<EntityAvatar
 													id={item.workspace.id}
 													name={item.workspace.name}
+													image={item.workspace.iconUrl}
+													imageFit="contain"
 													kind="workspace"
 													role={
 														item.workspace.visibility === "private"

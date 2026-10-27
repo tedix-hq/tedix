@@ -199,6 +199,17 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 			),
 		}),
 	},
+	"workspaces.setIcon": {
+		action: "os.workspace.icon_set",
+		resourceType: "os_workspace",
+		resourceId: ({ output }) => nestedId(output, "workspace"),
+		metadata: ({ input }) => ({ contentType: text(input.contentType) }),
+	},
+	"workspaces.removeIcon": {
+		action: "os.workspace.icon_removed",
+		resourceType: "os_workspace",
+		resourceId: ({ input }) => text(input.workspaceId),
+	},
 	"workspaces.archive": {
 		action: "os.workspace.archived",
 		resourceType: "os_workspace",

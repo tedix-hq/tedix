@@ -3,10 +3,7 @@ import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspace
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	type OsCreatedByKind,
-	type OsWorkspace,
 	type OsWorkspacePreference,
-	OsBlueprintPreflightSchema,
-	OsWorkspaceBlueprintDecisionSchema,
 	OsWorkspacePreferenceSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { listOsCollaborationProposals } from "@tedix/db/queries/os-workspaces/collaboration";
@@ -40,6 +37,17 @@ import {
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
+import { mapWorkspace } from "./os-workspaces-shared";
+import {
+	buildDeliveryUrl,
+	deleteCfImage,
+	extractImageId,
+	uploadImageBytes,
+} from "../../lib/cf-images";
+import {
+	checkOsWorkspaceIcon,
+	decodeOsWorkspaceIcon,
+} from "../../services/os-workspace-icon";
 import {
 	assertOsWorkspaceVisible,
 	resolveOsWorkspaceOwnerCandidate,
@@ -56,58 +64,6 @@ const adminOs = authed.use(AUTHZ.osAdmin);
 
 function queryDb(context: BaseContext) {
 	return createDbQueryClient(context.env.DB);
-}
-
-function parsePreflight(value: string | null) {
-	if (!value) return null;
-	try {
-		const parsed = OsBlueprintPreflightSchema.safeParse(JSON.parse(value));
-		return parsed.success ? parsed.data : null;
-	} catch {
-		return null;
-	}
-}
-
-function parseDecision(value: string | null) {
-	if (!value) return null;
-	try {
-		const parsed = OsWorkspaceBlueprintDecisionSchema.safeParse(
-			JSON.parse(value),
-		);
-		return parsed.success ? parsed.data : null;
-	} catch {
-		return null;
-	}
-}
-
-function mapWorkspace(row: OsWorkspaceRow): OsWorkspace {
-	return {
-		id: row.id,
-		organizationId: row.organizationId,
-		name: row.name,
-		description: row.description,
-		status: row.status,
-		sourceBlueprintId: row.sourceBlueprintId,
-		sourceBlueprintRevisionId: row.sourceBlueprintRevisionId,
-		sourceBlueprintRevisionNumber: row.sourceBlueprintRevisionNumber,
-		instantiationPreflight: parsePreflight(row.instantiationPreflight),
-		rollbackReference:
-			row.previousBlueprintRevisionId &&
-			row.previousBlueprintRevisionNumber !== null
-				? {
-						revisionId: row.previousBlueprintRevisionId,
-						revision: row.previousBlueprintRevisionNumber,
-						preflight: parsePreflight(row.previousInstantiationPreflight),
-					}
-				: null,
-		blueprintDecision: parseDecision(row.blueprintDecision),
-		createdByKind: row.createdByKind,
-		createdById: row.createdById,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
-		visibility: row.visibility,
-		ownerUserId: row.ownerUserId,
-	};
 }
 
 function creator(context: BaseContext): { kind: OsCreatedByKind; id: string } {
@@ -441,6 +397,82 @@ const update = authorOs.workspaces.update.handler(
 	},
 );
 
+const ICON_EXTENSIONS = {
+	"image/png": "png",
+	"image/jpeg": "jpg",
+	"image/webp": "webp",
+	"image/svg+xml": "svg",
+} as const;
+
+async function saveIconUrl(
+	context: BaseContext,
+	workspaceId: string,
+	iconUrl: string | null,
+) {
+	const row = await updateOsWorkspace(
+		queryDb(context),
+		{ organizationId: requireOrgId(context), workspaceId },
+		{ iconUrl },
+	);
+	if (!row) {
+		throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
+	}
+	return row;
+}
+
+/** Best-effort: a stale stored image costs storage, never correctness. */
+async function deleteStoredIcon(context: BaseContext, iconUrl: string | null) {
+	const imageId = extractImageId(iconUrl);
+	if (imageId) await deleteCfImage(context.env, imageId).catch(() => {});
+}
+
+const setIcon = authorOs.workspaces.setIcon.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		const decoded = decodeOsWorkspaceIcon(input.fileData);
+		if (!decoded) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"The image is not valid base64",
+			);
+		}
+		const checked = checkOsWorkspaceIcon(decoded, input.contentType);
+		if (!checked.ok) {
+			throw createError(ErrorCodes.BAD_REQUEST, checked.reason);
+		}
+		const { id } = await uploadImageBytes(
+			context.env,
+			checked.bytes.slice().buffer,
+			{
+				filename: `workspace-icon.${ICON_EXTENSIONS[input.contentType]}`,
+				contentType: input.contentType,
+				metadata: {
+					entityType: "os_workspace",
+					entityId: workspace.id,
+					organizationId: workspace.organizationId,
+				},
+			},
+		);
+		const row = await saveIconUrl(
+			context,
+			workspace.id,
+			buildDeliveryUrl(context.env.CF_ACCOUNT_HASH, id),
+		);
+		await deleteStoredIcon(context, workspace.iconUrl);
+		return { workspace: mapWorkspace(row) };
+	},
+);
+
+const removeIcon = authorOs.workspaces.removeIcon.handler(
+	async ({ input, context }) => {
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		if (!workspace.iconUrl) return { workspace: mapWorkspace(workspace) };
+		const row = await saveIconUrl(context, workspace.id, null);
+		await deleteStoredIcon(context, workspace.iconUrl);
+		return { workspace: mapWorkspace(row) };
+	},
+);
+
 const archive = authorOs.workspaces.archive.handler(
 	async ({ input, context }) => {
 		await requireWorkspace(context, input.workspaceId, { ownerOnly: true });
@@ -640,6 +672,8 @@ export const osWorkspaceProcedures = {
 	createFromConversation,
 	get,
 	update,
+	setIcon,
+	removeIcon,
 	archive,
 	restore,
 	delete: deleteWorkspace,

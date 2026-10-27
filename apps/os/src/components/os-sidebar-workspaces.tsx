@@ -42,6 +42,8 @@ function WorkspaceMark({
 			id={workspace.id}
 			name={workspace.name}
 			role={workspace.visibility === "private" ? "private" : undefined}
+			image={workspace.iconUrl}
+			imageFit="contain"
 			kind="workspace"
 			className="size-6 rounded-md"
 		/>

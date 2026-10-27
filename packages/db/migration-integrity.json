@@ -1200,6 +1200,10 @@
 		{
 			"name": "20261027005337_agent_session_event_owner_reads/migration.sql",
 			"sha256": "d8538e74307cbec48b15cfe78db6b678923c6f297a433d6663814bb4f9c19103"
+		},
+		{
+			"name": "20261027043713_os_workspace_icon/migration.sql",
+			"sha256": "d21fdf5b803d87be5c3bc835dd2fa6c806bb625f284d2241d166424d8675d62c"
 		}
 	]
 }

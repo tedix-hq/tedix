@@ -60,6 +60,8 @@ import {
 	OsWorkspaceResourceStatusSchema,
 	OsWorkspaceStatusSchema,
 	OsWorkspaceVisibilitySchema,
+	OS_WORKSPACE_ICON_CONTENT_TYPES,
+	OS_WORKSPACE_ICON_MAX_BYTES,
 } from "../schemas/os-workspaces";
 import {
 	AllowWorkspaceSchedulePersonalReadResultSchema,
@@ -387,6 +389,39 @@ export const osWorkspacesContract = oc
 						"Renames a workspace, changes its operator-facing description, and/or makes it private to the calling member (or shares it with the organization again). Workspace identity, tenant ownership, provenance, and lifecycle status are immutable through this verb.",
 				})
 				.input(workspaceUpdateSchema)
+				.output(z.object({ workspace: OsWorkspaceSchema })),
+			setIcon: oc
+				.route({
+					method: "PUT",
+					path: "/workspaces/{workspaceId}/icon",
+					summary: "Set a Tedix OS workspace icon",
+					description:
+						"Uploads an image shown instead of the workspace's initials and replaces any earlier icon. Accepts PNG, JPEG, WebP or SVG up to 1 MB, sent as base64. The bytes must match the declared type; an SVG containing scripts, event handlers, external references or embedded HTML is rejected. Needs the right to edit the workspace.",
+				})
+				.input(
+					workspaceIdInput.extend({
+						contentType: z
+							.enum(OS_WORKSPACE_ICON_CONTENT_TYPES)
+							.describe("The image's type"),
+						fileData: z
+							.string()
+							.min(1)
+							.max(Math.ceil(OS_WORKSPACE_ICON_MAX_BYTES / 3) * 4)
+							.describe(
+								"The image bytes, base64-encoded (at most 1 MB decoded)",
+							),
+					}),
+				)
+				.output(z.object({ workspace: OsWorkspaceSchema })),
+			removeIcon: oc
+				.route({
+					method: "DELETE",
+					path: "/workspaces/{workspaceId}/icon",
+					summary: "Remove a Tedix OS workspace icon",
+					description:
+						"Removes the workspace's icon so it shows its initials again. Removing when none is set returns the workspace unchanged. Needs the right to edit the workspace.",
+				})
+				.input(workspaceIdInput)
 				.output(z.object({ workspace: OsWorkspaceSchema })),
 			archive: oc
 				.route({

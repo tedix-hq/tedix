@@ -419,7 +419,25 @@ export const OsWorkspaceSchema = z.object({
 		.string()
 		.nullable()
 		.describe("The member who owns a private workspace; null for org"),
+	iconUrl: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"Public URL of the workspace's uploaded icon, shown instead of its initials; null or absent when none is set",
+		),
 });
+
+/** Image types a workspace icon may be uploaded as. */
+export const OS_WORKSPACE_ICON_CONTENT_TYPES = [
+	"image/png",
+	"image/jpeg",
+	"image/webp",
+	"image/svg+xml",
+] as const;
+
+/** Largest workspace icon accepted, in bytes (1 MiB). */
+export const OS_WORKSPACE_ICON_MAX_BYTES = 1024 * 1024;
 
 /**
  * The declared shape of one gadget revision: capabilities it needs, the entry

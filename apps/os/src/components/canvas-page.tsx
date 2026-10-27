@@ -1297,6 +1297,8 @@ export function CanvasPage({
 									? "private"
 									: undefined
 							}
+							image={selectedWorkspace.iconUrl}
+							imageFit="contain"
 							kind="workspace"
 							className="canvas-workspace-avatar size-6 rounded-md"
 						/>

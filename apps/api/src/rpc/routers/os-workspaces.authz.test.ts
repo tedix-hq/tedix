@@ -23,7 +23,7 @@ import {
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import { bindTestContexts, type UserContextOptions } from "../test-context";
 import { osWorkspacesContractRouter } from "./os-workspaces";
@@ -702,5 +702,119 @@ describe("os-workspaces machine plane (unchanged)", () => {
 				candidateRevisionId: WORKSPACE_ID,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+});
+
+describe("workspace icon", () => {
+	const ICON = btoa(
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#FF4500" d="M0 0h24v24H0z"/></svg>',
+	);
+
+	function iconEnv() {
+		return {
+			...createEnv(),
+			CF_ACCOUNT_ID: "account",
+			CF_IMAGES_TOKEN: "token",
+			CF_ACCOUNT_HASH: "hash",
+		} as CloudflareEnv;
+	}
+
+	function stubImages() {
+		const calls: Array<{ method: string; url: string }> = [];
+		let next = 0;
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async (input, init) => {
+				calls.push({ method: init?.method ?? "GET", url: String(input) });
+				const id = `0000000000000000000000000000000${next++}`;
+				return Response.json({ success: true, result: { id }, errors: [] });
+			});
+		return { calls, restore: () => fetchSpy.mockRestore() };
+	}
+
+	it("lets an editor set, replace and remove an icon, cleaning up the old image", async () => {
+		const env = iconEnv();
+		const author = userClient(env, ["os:author"]);
+		const { workspace } = await author.workspaces.create({ name: "Ops" });
+		const images = stubImages();
+		try {
+			const first = await author.workspaces.setIcon({
+				workspaceId: workspace.id,
+				contentType: "image/svg+xml",
+				fileData: ICON,
+			});
+			expect(first.workspace.iconUrl).toBe(
+				"https://imagedelivery.net/hash/00000000000000000000000000000000/public",
+			);
+			const second = await author.workspaces.setIcon({
+				workspaceId: workspace.id,
+				contentType: "image/svg+xml",
+				fileData: ICON,
+			});
+			expect(second.workspace.iconUrl).toContain(
+				"00000000000000000000000000000001",
+			);
+			const removed = await author.workspaces.removeIcon({
+				workspaceId: workspace.id,
+			});
+			expect(removed.workspace.iconUrl).toBeNull();
+			expect(
+				images.calls
+					.filter((call) => call.method === "DELETE")
+					.map((call) => call.url),
+			).toEqual([
+				expect.stringMatching(
+					/\/images\/v1\/00000000000000000000000000000000$/,
+				),
+				expect.stringMatching(
+					/\/images\/v1\/00000000000000000000000000000001$/,
+				),
+			]);
+		} finally {
+			images.restore();
+		}
+	});
+
+	it("refuses readers and unsafe or mislabelled files without storing anything", async () => {
+		const env = iconEnv();
+		const admin = userClient(env, ["settings:manage"]);
+		const { workspace } = await admin.workspaces.create({ name: "Ops" });
+		const reader = userClient(env, ["os:read"]);
+		const images = stubImages();
+		try {
+			await expect(
+				reader.workspaces.setIcon({
+					workspaceId: workspace.id,
+					contentType: "image/svg+xml",
+					fileData: ICON,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				reader.workspaces.removeIcon({ workspaceId: workspace.id }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			await expect(
+				admin.workspaces.setIcon({
+					workspaceId: workspace.id,
+					contentType: "image/svg+xml",
+					fileData: btoa(
+						'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+					),
+				}),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			await expect(
+				admin.workspaces.setIcon({
+					workspaceId: workspace.id,
+					contentType: "image/png",
+					fileData: ICON,
+				}),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			expect(images.calls).toEqual([]);
+			expect(
+				(await admin.workspaces.get({ workspaceId: workspace.id })).workspace
+					.iconUrl,
+			).toBeNull();
+		} finally {
+			images.restore();
+		}
 	});
 });

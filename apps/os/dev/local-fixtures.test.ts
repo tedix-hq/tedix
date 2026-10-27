@@ -529,6 +529,12 @@ const CALLS = {
 		workspaceId: IDS.workspaceRevenue,
 		name: "Revenue Operations",
 	},
+	"osWorkspaces/workspaces/setIcon": {
+		workspaceId: IDS.workspaceRevenue,
+		contentType: "image/svg+xml",
+		fileData: btoa('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+	},
+	"osWorkspaces/workspaces/removeIcon": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspaces/archive": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspaces/restore": { workspaceId: IDS.workspaceRevenue },
 	"osWorkspaces/workspacePreferences/list": {},

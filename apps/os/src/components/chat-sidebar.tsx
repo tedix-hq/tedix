@@ -358,7 +358,12 @@ export function ConversationRow({
 	onSelect,
 }: {
 	conversation: HomeConversation;
-	workspace?: { id: string; name: string; visibility: string };
+	workspace?: {
+		id: string;
+		name: string;
+		visibility: string;
+		iconUrl?: string | null;
+	};
 	active?: boolean;
 	/**
 	 * The row is showing a locally-applied value the server has not confirmed
@@ -409,6 +414,8 @@ export function ConversationRow({
 										? `${workspace.name} (private workspace, only you)`
 										: undefined
 								}
+								image={workspace.iconUrl}
+								imageFit="contain"
 								kind="workspace"
 								className="size-6 rounded-md"
 							/>
