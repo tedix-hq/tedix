@@ -909,7 +909,8 @@ function InstantiateForm({
 						<Alert variant="destructive">
 							<AlertTitle>Setup check unavailable</AlertTitle>
 							<AlertDescription>
-								The server will check requirements again when you instantiate.
+								The server will check requirements again when you create the
+								workspace.
 								<Button
 									size="sm"
 									variant="outline"
@@ -1004,7 +1005,7 @@ function InstantiateForm({
 					}
 					type="submit"
 				>
-					{instantiate.isPending ? "Instantiating…" : "Instantiate workspace"}
+					{instantiate.isPending ? "Creating…" : "Create workspace"}
 				</Button>
 			</div>
 			{instantiate.isError &&
@@ -1279,7 +1280,7 @@ function BlueprintDetail({ blueprintId }: { blueprintId: string }) {
 						)}
 					</div>
 					<div className="grid gap-2">
-						<EditorLabel>Instantiate</EditorLabel>
+						<EditorLabel>Create workspace</EditorLabel>
 						<InstantiateForm
 							blueprintId={blueprintId}
 							revisionId={currentRevision?.id}
@@ -1787,7 +1788,7 @@ function MyBlueprints({
 				<SectionHeading>
 					<SectionTitle id="my-blueprints-title">My templates</SectionTitle>
 					<SectionDescription>
-						Versioned workspace definitions owned by this organization.
+						Workspace templates saved by your organization.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>

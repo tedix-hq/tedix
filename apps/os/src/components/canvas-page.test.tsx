@@ -2411,7 +2411,7 @@ describe("CanvasPage listing", () => {
 
 		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
 		expect(container.textContent).toContain("Cards come from scheduled skills");
-		click(findButton(container, "Open Resources"));
+		click(findButton(container, "Open Files"));
 		expect(routing.navigate).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				search: expect.objectContaining({ pane: "resources" }),

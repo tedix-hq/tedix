@@ -186,7 +186,7 @@ function InstalledApp({
 		<Alert variant="warning">
 			<AlertTitle>This app's settings need a fix</AlertTitle>
 			<AlertDescription>
-				Open Code to edit the entry and settings in manifest.json.
+				Open Edit to change the entry and settings in manifest.json.
 			</AlertDescription>
 		</Alert>
 	);
@@ -216,15 +216,15 @@ export function WorkspaceAppRunsInfo({
 				</Text>
 				<Text>
 					{sessions
-						? "Open Preview to see live activity, replies and delegation results."
+						? "Open App to see live activity, replies and delegation results."
 						: attention
-							? "Open Preview to see local sessions and cloud work in this workspace, with their latest progress."
+							? "Open App to see local sessions and cloud work in this workspace, with their latest progress."
 							: cards
-								? "Card review opens saved card sheets. To check when new cards were produced, open Resources and choose See runs on a scheduled skill."
-								: "Open Preview to review drafts. Each card keeps its reviews, decisions and sending result with its originating Work."}
+								? "Card review opens saved card sheets. To check when new cards were produced, open Files and choose See runs on a scheduled skill."
+								: "Open App to see activity. Each item keeps its history with its originating Work."}
 				</Text>
 				<Button variant="outline" onClick={onShowResources}>
-					Open Resources
+					Open Files
 				</Button>
 			</CardContent>
 		</Card>

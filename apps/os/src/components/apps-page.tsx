@@ -327,7 +327,9 @@ export function AppRowMain({
 				) : null}
 			</span>
 			<Text as="span" role="caption" tone="secondary" truncate>
-				{eligibility ? `${toolCountLabel(eligibility.result)} listed · ` : null}
+				{eligibility
+					? `${toolCountLabel(eligibility.result)}${eligibility.result.availableTools.length + eligibility.result.unavailableTools.length > 0 ? " listed" : ""} · `
+					: null}
 				{app.slug} · {appMcpHost(app)}
 			</Text>
 			{app.description ? (
