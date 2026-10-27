@@ -179,8 +179,15 @@ describe("sample company in fixture mode", () => {
 			),
 		).toEqual(["Reddit Scout", "Reply Writer", "Reconciler", "On-call"]);
 		expect(
-			ok<{ entries: { title: string }[] }>("skills/listByOrg").entries,
-		).toHaveLength(4);
+			ok<{ entries: { title: string }[] }>("skills/listByOrg").entries.map(
+				(skill) => skill.title,
+			),
+		).toEqual([
+			"Reddit opportunity scouting",
+			"English reply drafting",
+			"Invoice & stock reconciliation",
+			"Critical error digest",
+		]);
 		const facts = ok<{ lessons: unknown[] }>("agentTurnTriage/listLessons");
 		expect(facts.lessons.length).toBeGreaterThanOrEqual(5);
 	});

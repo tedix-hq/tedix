@@ -10819,6 +10819,8 @@ function installDemoPack(): number {
 		memoryHealth: MEMORY_HEALTH,
 	} as unknown as Parameters<typeof applyDemoPack>[0]);
 	state.homeRuns.push(...delegationRuns());
+	// The seeded draft improves the classic revenue skill, which the sample company replaces.
+	localSkillDrafts = [];
 	installWorkViewFixtures();
 	return builtAt;
 }
