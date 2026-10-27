@@ -7,6 +7,7 @@ import {
 	rankDeckCard,
 	projectDeckCards,
 	compareDecisionFreshness,
+	sortByDecisionFreshness,
 } from "./deck-projection";
 import { factoryCardDeadline } from "./card-schedule";
 
@@ -441,11 +442,23 @@ it("orders overdue, critical, due today, then the ranker's label ahead of score"
 		{ id: "critical", kind: "approval", score: 0 },
 		{ id: "overdue", dueAt: "2026-10-19T15:00:00Z", score: 0 },
 	] as unknown as Parameters<typeof compareDecisionFreshness>[0][];
+	const order = [
+		"overdue",
+		"critical",
+		"today",
+		"valuable",
+		"noise-high-score",
+	];
 	expect(
-		cards
+		[...cards]
 			.sort((a, b) => compareDecisionFreshness(a, b, now, "UTC"))
 			.map((card) => (card as { id: string }).id),
-	).toEqual(["overdue", "critical", "today", "valuable", "noise-high-score"]);
+	).toEqual(order);
+	expect(
+		sortByDecisionFreshness([...cards].reverse(), now, "UTC").map(
+			(card) => (card as { id: string }).id,
+		),
+	).toEqual(order);
 });
 
 it("merges Work asks and factory rows: critical first, then factory score, then the existing order", () => {

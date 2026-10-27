@@ -8,6 +8,7 @@ import {
 } from "../schemas/decision-learning";
 import type { LearningInteractionEvent } from "../schemas/learning-feedback";
 import { safeSource, type FeedPreferences } from "./activity-feed";
+import { calendarDay } from "./card-schedule";
 
 export type FocusSignal =
 	| "open"
@@ -69,12 +70,7 @@ export function everythingFeed(
 	});
 }
 export function focusDay(at: string, timezone: string) {
-	return new Intl.DateTimeFormat("en-CA", {
-		timeZone: timezone,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	}).format(new Date(at));
+	return calendarDay(new Date(at), timezone);
 }
 function latestSignal(events: readonly LearningInteractionEvent[], id: string) {
 	return [...events]

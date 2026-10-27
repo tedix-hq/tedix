@@ -160,6 +160,7 @@ export function compareDecisionFreshness(
 	},
 	now: Date,
 	timeZone?: string,
+	critical: (card: typeof a) => boolean = isCriticalDeckCard,
 ) {
 	const due = (value?: string | null) =>
 		value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : Infinity;
@@ -189,7 +190,7 @@ export function compareDecisionFreshness(
 		(!aSettled && !bSettled ? blockingWeight(b) - blockingWeight(a) : 0) ||
 		Number(bOverdue) - Number(aOverdue) ||
 		(aOverdue && bOverdue ? aDue - bDue : 0) ||
-		Number(isCriticalDeckCard(b)) - Number(isCriticalDeckCard(a)) ||
+		Number(critical(b)) - Number(critical(a)) ||
 		Number(b.kind === "approval") - Number(a.kind === "approval") ||
 		compareFactoryScore(a.factory, b.factory) ||
 		Number(dueToday(bDeadline, bDue)) - Number(dueToday(aDeadline, aDue)) ||
@@ -485,5 +486,27 @@ export function projectDeckCards(input: {
 		timeZone,
 		staleDraftHours: input.staleDraftHours,
 	});
-	return cards.sort((a, b) => compareDecisionFreshness(a, b, now, timeZone));
+	return sortByDecisionFreshness(cards, now, timeZone);
+}
+
+type FreshnessCard = Parameters<typeof compareDecisionFreshness>[0];
+
+/** Sorts in place, checking each card's critical policy text once, not per comparison. */
+export function sortByDecisionFreshness<T extends FreshnessCard>(
+	cards: T[],
+	now: Date,
+	timeZone?: string,
+): T[] {
+	const critical = new Map<FreshnessCard, boolean>();
+	const isCritical = (card: FreshnessCard) => {
+		let value = critical.get(card);
+		if (value === undefined) {
+			value = isCriticalDeckCard(card);
+			critical.set(card, value);
+		}
+		return value;
+	};
+	return cards.sort((a, b) =>
+		compareDecisionFreshness(a, b, now, timeZone, isCritical),
+	);
 }

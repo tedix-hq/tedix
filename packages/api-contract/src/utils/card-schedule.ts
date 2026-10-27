@@ -20,13 +20,21 @@ export function isCardScheduleField(name: string) {
 	return VISIBILITY_FIELDS.has(field) || DEADLINE_FIELDS.has(field);
 }
 
+// Building a formatter costs far more than formatting; sort comparators call this per pair.
+const dayFormats = new Map<string | undefined, Intl.DateTimeFormat>();
+
 export function calendarDay(date: Date, timeZone?: string) {
-	const parts = new Intl.DateTimeFormat("en-CA", {
-		timeZone,
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	}).formatToParts(date);
+	let format = dayFormats.get(timeZone);
+	if (!format) {
+		format = new Intl.DateTimeFormat("en-CA", {
+			timeZone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
+		});
+		dayFormats.set(timeZone, format);
+	}
+	const parts = format.formatToParts(date);
 	return ["year", "month", "day"]
 		.map((type) => parts.find((p) => p.type === type)!.value)
 		.join("-");
