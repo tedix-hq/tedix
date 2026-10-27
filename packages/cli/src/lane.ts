@@ -23,13 +23,14 @@ export async function prefixLaneBrief(
 	scope: string[],
 	harness: string,
 	expectedOrganizationId?: string,
+	cwd = process.cwd(),
 ): Promise<{ brief: string; recall: string; recallStatus: string }> {
 	try {
 		const recall = await recallForSituation(
 			{
 				env: process.env,
 				stdin: "{}",
-				cwd: process.cwd(),
+				cwd,
 				read: cliRead,
 				write: () => {},
 			},
