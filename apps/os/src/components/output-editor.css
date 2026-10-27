@@ -829,6 +829,10 @@
 
 .sheet-editor-page {
 	display: grid;
+	/* One column the page's width, never its content's: a footer's min-content
+	 * is every tab side by side, and an auto column would grow to it and push
+	 * the grid and tabs out past the pane. */
+	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
@@ -847,6 +851,8 @@
 
 .sheet-read-page {
 	display: grid;
+	/* See `.sheet-editor-page`: the column is the page's width. */
+	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: auto minmax(0, 1fr) auto;
 	max-height: 64vh;
 }
@@ -893,6 +899,7 @@
  */
 .sheet-editor-desk {
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	grid-template-rows: minmax(0, 1fr);
 	min-width: 0;
 	min-height: 0;
@@ -1340,6 +1347,13 @@
 	overflow: hidden;
 	color: var(--tedix-sheet-muted);
 	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* The read view's status is one short count: it keeps its width and the tab
+ * strip beside it scrolls instead. */
+.sheet-read-page .sheet-status {
+	flex: none;
 	white-space: nowrap;
 }
 

@@ -599,8 +599,11 @@ function mockCollab({
 	unacknowledged = false,
 	discarded = 0,
 	blocked = null,
+	tooLarge = false,
 }: {
 	status?: string;
+	/** The saved version is too long for a room, so none is opened. */
+	tooLarge?: boolean;
 	peers?: number;
 	initial?: string;
 	/** `undefined` means "whatever the loaded document says"; set it to diverge. */
@@ -627,6 +630,7 @@ function mockCollab({
 			// editor and destroy its view.
 			session,
 			status,
+			tooLarge,
 			peers,
 			participants: [],
 			blocked,
@@ -1569,7 +1573,7 @@ describe("CanvasPage listing", () => {
 		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
 	});
 
-	it("keeps the room connection indicator for a readable saved document", async () => {
+	it("shows one connection status for a readable saved document", async () => {
 		mockLists();
 		osWorkspacesApi.outputs.get.mockResolvedValue({
 			output: outputFixture(),
@@ -1579,11 +1583,26 @@ describe("CanvasPage listing", () => {
 		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
 		const container = renderPage();
 		await flush();
-		expect(
-			container.querySelector(
-				'.canvas-document-status [data-connection="connecting"]',
-			),
-		).not.toBeNull();
+		const status = container.querySelector(".canvas-document-status");
+		expect(status?.querySelector("[data-connection]")).toBeNull();
+		expect(status?.textContent?.match(/Connecting/g)).toHaveLength(1);
+		expect(container.textContent).toContain("Connecting to the shared draft");
+	});
+
+	it("says a saved version too large for a room is read-only, without retrying", async () => {
+		mockLists();
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision: outputRevisionFixture(),
+		});
+		mockCollab({ status: "disconnected", tooLarge: true });
+		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
+		const container = renderPage();
+		await flush();
+		expect(container.querySelector("[data-canvas-too-large]")).not.toBeNull();
+		expect(container.textContent).toContain("Read-only");
+		expect(container.textContent).not.toContain("Connecting");
+		expect(() => findButton(container, "Retry connection")).toThrow();
 	});
 
 	it("does not open a file whose source access is unavailable", async () => {
@@ -2846,7 +2865,7 @@ describe("agent proposal review", () => {
 			rationale: "Ready for immutable history",
 			evidenceRefs: [],
 		});
-		expect(container.textContent).toContain("Saved version 3.");
+		expect(container.textContent).toContain("Saved version 3");
 	});
 });
 
@@ -2859,7 +2878,12 @@ async function commit(container: HTMLElement) {
 		(b) => b.textContent?.trim() === "Save version",
 	);
 	click(findButton(container, isOutput ? "Save version" : "Save"));
-	click(findButton(container, isOutput ? "Save version now" : "Save now"));
+	// An output asks for its revision note in a dialog, outside the page.
+	click(
+		isOutput
+			? findButton(document.body, "Save version now")
+			: findButton(container, "Save now"),
+	);
 	await flush();
 }
 
@@ -3252,7 +3276,7 @@ describe("live-draft status the panel renders", () => {
 					blocks: [{ type: "paragraph", text: "unsaved draft" }],
 				}),
 			},
-			"Draft synced · Save version",
+			"Draft synced",
 		],
 		[
 			{ initial: docJson(baseContent), unacknowledged: true },
@@ -3453,7 +3477,7 @@ describe("adopting a newer canonical revision", () => {
 		).toContain("Draft can't be opened");
 		expect(
 			container.querySelector(".canvas-document-status")?.textContent,
-		).not.toContain("Draft synced · Save version");
+		).not.toContain("Draft synced");
 		expect(
 			findButton(container, "Download a copy of my changes"),
 		).toBeDefined();
@@ -3612,7 +3636,7 @@ describe("adopting a newer canonical revision", () => {
 			revision: outputRevisionFixture({ revision: 7 }),
 		});
 		click(findButton(container, "Save as v7"));
-		click(findButton(container, "Save as v7 now"));
+		click(findButton(document.body, "Save as v7 now"));
 		await flush();
 		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith(
 			expect.objectContaining({ expectedRevision: 6 }),
@@ -3670,8 +3694,8 @@ describe("output commit", () => {
 		const container = await openDoc("Weekly report");
 		session.remote(JSON.stringify(edited));
 		click(findButton(container, "Save version"));
-		setFieldValue(fieldByLabel(container, "Revision note"), "tweak");
-		click(findButton(container, "Save version now"));
+		setFieldValue(fieldByLabel(document.body, "Revision note"), "tweak");
+		click(findButton(document.body, "Save version now"));
 		await flush();
 
 		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith({
@@ -3680,7 +3704,8 @@ describe("output commit", () => {
 			expectedRevision: 2,
 			note: "tweak",
 		});
-		expect(container.textContent).toContain("Saved version 3.");
+		// The save dialog closes once the version exists.
+		expect(document.body.textContent).not.toContain("Save version now");
 	});
 
 	it("discards unsaved changes back to the saved version only after confirming", async () => {
@@ -3698,7 +3723,7 @@ describe("output commit", () => {
 		await flush();
 		click(findButton(container, "Discard changes"));
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Discard and reload v2"));
+		click(findButton(document.body, "Discard and reload v2"));
 		await flush();
 		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
 		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();

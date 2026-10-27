@@ -28,6 +28,7 @@ import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
 import { Input } from "@/components/kumo/input";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
 import { Surface } from "@/components/kumo/surface";
@@ -38,7 +39,6 @@ import { OutputExportButtons } from "@/components/output-export-buttons";
 import {
 	OutputWorkshopActions,
 	OutputWorkshopCommandBar,
-	OutputWorkshopFooter,
 	OutputWorkshopIdentity,
 	OutputWorkshopStatus,
 } from "@/components/output-workshop";
@@ -306,6 +306,7 @@ export function CanvasDocPanel({
 	const {
 		session,
 		status,
+		tooLarge,
 		peers,
 		participants,
 		blocked,
@@ -646,21 +647,25 @@ export function CanvasDocPanel({
 	};
 	const documentSaveStatus = detail.isError
 		? "Unavailable"
-		: !live
-			? status === "connecting"
-				? "Connecting…"
-				: "Disconnected · Changes paused"
-			: recoveryRequired && canonicalDoc
-				? `Newer version saved (v${canonicalDoc.revision})`
-				: outputDraftIssue
-					? "Draft can't be opened"
-					: committing
-						? "Saving version…"
-						: unsynced || unacknowledged
-							? "Syncing changes…"
-							: draftMatchesSaved
-								? "Saved"
-								: "Draft synced · Save version";
+		: tooLarge
+			? "Read-only"
+			: !live
+				? status === "connecting"
+					? "Connecting…"
+					: "Disconnected · Changes paused"
+				: recoveryRequired && canonicalDoc
+					? `Newer version saved (v${canonicalDoc.revision})`
+					: outputDraftIssue
+						? "Draft can't be opened"
+						: committing
+							? "Saving version…"
+							: unsynced || unacknowledged
+								? "Syncing changes…"
+								: draftMatchesSaved
+									? committedRevision !== null
+										? `Saved version ${committedRevision}`
+										: "Saved"
+									: "Draft synced";
 	const revisionLabel = isGadget
 		? gadgetDetail.data
 			? gadgetDetail.data.currentRevision
@@ -736,6 +741,17 @@ export function CanvasDocPanel({
 		setConfirming(true);
 	};
 
+	// Discarding is offered while the shared draft differs from the saved version.
+	const discardOffered =
+		!isGadget &&
+		live &&
+		canonicalDoc !== null &&
+		!draftMatchesSaved &&
+		!recoveryRequired &&
+		!outputDraftIssue &&
+		!confirming &&
+		!committing;
+
 	const gadgetActionsInSlot =
 		isGadget && !focusMode && actionsSlot ? actionsSlot : null;
 	const documentStatusActions = (
@@ -751,7 +767,9 @@ export function CanvasDocPanel({
 			>
 				{detail.data && !detail.isError && (
 					<>
-						{status !== "connected" && (
+						{/* An output's status pill below already says how the room is;
+						    a second connection pill would repeat it. */}
+						{isGadget && status !== "connected" && (
 							<ConnectionChip status={status} peers={peers} />
 						)}
 						{/* Who is here shows once, in the workspace top bar; focus
@@ -790,7 +808,19 @@ export function CanvasDocPanel({
 				)}
 			</OutputWorkshopStatus>
 			<OutputWorkshopActions className="canvas-document-actions">
-				{!isGadget && !confirming && (
+				{discardOffered && (
+					<Button
+						size="sm"
+						variant="ghost"
+						onClick={() => {
+							setDiscardError(null);
+							setDiscarding("confirm");
+						}}
+					>
+						Discard changes
+					</Button>
+				)}
+				{!isGadget && !tooLarge && (
 					<Button
 						size="sm"
 						disabled={commitDisabled}
@@ -840,106 +870,24 @@ export function CanvasDocPanel({
 		</>
 	);
 
-	// Save sits where it acts: in the output footer, or beside the manifest an
-	// app's Code view edits. Other app views have nothing for it to save.
-	const discardOffered =
-		!isGadget &&
-		live &&
-		canonicalDoc &&
-		!draftMatchesSaved &&
-		!recoveryRequired &&
-		!outputDraftIssue &&
-		!confirming &&
-		!committing;
-	const outputFooterShown =
-		!isGadget &&
-		(confirming ||
-			discardOffered ||
-			discardError !== null ||
-			(unacknowledged && live && !recoveryRequired) ||
-			committedRevision !== null);
+	// A gadget saves beside the manifest its Code view edits; an output saves
+	// from its top bar, with the revision note asked in a dialog.
 	const saveControls = (
 		<>
-			{discardOffered &&
-				canonicalDoc &&
-				(discarding === null ? (
-					<Button
-						size="sm"
-						variant="ghost"
-						onClick={() => {
-							setDiscardError(null);
-							setDiscarding("confirm");
-						}}
-					>
-						Discard changes
-					</Button>
-				) : (
-					<>
-						<Text as="span" role="label" tone="secondary">
-							{`Discard your unsaved changes for everyone and reload v${canonicalDoc.revision}?`}
-						</Text>
-						<Button
-							size="sm"
-							variant="destructive"
-							disabled={discarding === "busy" || unacknowledged || unsynced}
-							onClick={async () => {
-								setDiscarding("busy");
-								const result = await replaceWithCanonical().catch(() => ({
-									ok: false as const,
-									message: `v${canonicalDoc.revision} did not load. Try again.`,
-								}));
-								setDiscarding(null);
-								if (!result.ok) setDiscardError(result.message);
-							}}
-						>
-							{discarding === "busy"
-								? `Loading v${canonicalDoc.revision}…`
-								: `Discard and reload v${canonicalDoc.revision}`}
-						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							disabled={discarding === "busy"}
-							onClick={() => setDiscarding(null)}
-						>
-							Cancel
-						</Button>
-					</>
-				))}
-			{discardError && (
-				<Text as="span" role="label" tone="secondary">
-					{discardError}
-				</Text>
-			)}
 			{unacknowledged && live && !recoveryRequired && (
 				<span className="text-kumo-subtle text-xs" data-canvas-commit-waiting>
-					{isGadget
-						? UNACKNOWLEDGED_COMMIT_MESSAGE
-						: "Syncing your latest edits… Save version is available once they reach the shared draft. If the connection drops first, they are discarded."}
+					{UNACKNOWLEDGED_COMMIT_MESSAGE}
 				</span>
 			)}
-			{/* An output's Save version already sits in its header. */}
 			{!confirming ? (
-				isGadget && (
-					<Button size="sm" disabled={commitDisabled} onClick={beginSave}>
-						<FloppyDisk size={14} />{" "}
-						{keepingChanges && canonicalDoc
-							? `Save as v${canonicalDoc.revision + 1}`
-							: "Save"}
-					</Button>
-				)
+				<Button size="sm" disabled={commitDisabled} onClick={beginSave}>
+					<FloppyDisk size={14} />{" "}
+					{keepingChanges && canonicalDoc
+						? `Save as v${canonicalDoc.revision + 1}`
+						: "Save"}
+				</Button>
 			) : (
 				<>
-					{!isGadget && (
-						<Input
-							aria-label="Revision note"
-							placeholder="Revision note (optional)"
-							value={note}
-							onChange={(event) => setNote(event.target.value)}
-							maxLength={2000}
-							className="max-w-sm"
-						/>
-					)}
 					<Button
 						size="sm"
 						disabled={committing || commitDisabled}
@@ -950,9 +898,7 @@ export function CanvasDocPanel({
 							? "Saving…"
 							: keepingChanges && canonicalDoc
 								? `Save as v${canonicalDoc.revision + 1} now`
-								: isGadget
-									? "Save now"
-									: "Save version now"}
+								: "Save now"}
 					</Button>
 					<Button
 						variant="ghost"
@@ -974,6 +920,16 @@ export function CanvasDocPanel({
 			)}
 		</>
 	);
+	const saveVersionLabel =
+		keepingChanges && canonicalDoc
+			? `Save as v${canonicalDoc.revision + 1} now`
+			: "Save version now";
+	const saveError =
+		draftError ??
+		failureMessage ??
+		(conflicted
+			? "Someone saved a newer version. Your changes were not saved and are still here."
+			: null);
 
 	return (
 		<div
@@ -1038,7 +994,15 @@ export function CanvasDocPanel({
 					</AlertDescription>
 				</Alert>
 			)}
-			{!isGadget && detail.data && !live && (
+			{!isGadget && detail.data && tooLarge && (
+				<Alert variant="info" data-canvas-too-large>
+					<AlertTitle>Too large to edit here</AlertTitle>
+					<AlertDescription>
+						{`Showing saved version ${canonicalDoc?.revision} read-only. This ${outputKind ?? "output"} is larger than a shared draft can hold, so it cannot be edited together here. Move some of it into a separate ${outputKind ?? "output"}, or ask a tedi to make the change.`}
+					</AlertDescription>
+				</Alert>
+			)}
+			{!isGadget && detail.data && !live && !tooLarge && (
 				<Alert variant="warning">
 					<AlertTitle>
 						{status === "connecting"
@@ -1425,13 +1389,62 @@ export function CanvasDocPanel({
 			) : (
 				<ListSkeleton rows={1} rowClassName="h-64" />
 			)}
-			{outputFooterShown && (
-				<OutputWorkshopFooter
-					ref={saveFooter}
-					className="canvas-document-footer justify-end"
+			{!isGadget && (
+				<ConfirmDialog
+					open={confirming}
+					onOpenChange={(open) => {
+						if (open) return;
+						setConfirming(false);
+						setDraftError(null);
+					}}
+					title="Save version"
+					description="Records the shared draft in version history. Everyone editing keeps working on it."
+					confirmLabel={saveVersionLabel}
+					pendingLabel="Saving…"
+					isPending={committing}
+					confirmDisabled={commitDisabled}
+					error={saveError}
+					onConfirm={() => void commitDraft()}
 				>
-					{saveControls}
-				</OutputWorkshopFooter>
+					<Input
+						aria-label="Revision note"
+						placeholder="Revision note (optional)"
+						value={note}
+						onChange={(event) => setNote(event.target.value)}
+						maxLength={2000}
+					/>
+				</ConfirmDialog>
+			)}
+			{!isGadget && canonicalDoc && (
+				<ConfirmDialog
+					open={discarding !== null}
+					onOpenChange={(open) => {
+						if (!open) setDiscarding(null);
+					}}
+					title="Discard unsaved changes?"
+					description={`Everyone editing loses the unsaved changes, and v${canonicalDoc.revision} reloads.`}
+					confirmLabel={`Discard and reload v${canonicalDoc.revision}`}
+					pendingLabel={`Loading v${canonicalDoc.revision}…`}
+					cancelLabel="Keep editing"
+					destructive
+					isPending={discarding === "busy"}
+					confirmDisabled={unacknowledged || unsynced}
+					error={discardError}
+					onConfirm={async () => {
+						setDiscarding("busy");
+						const result = await replaceWithCanonical().catch(() => ({
+							ok: false as const,
+							message: `v${canonicalDoc.revision} did not load. Try again.`,
+						}));
+						if (result.ok) {
+							setDiscardError(null);
+							setDiscarding(null);
+						} else {
+							setDiscardError(result.message);
+							setDiscarding("confirm");
+						}
+					}}
+				/>
 			)}
 			{draftError && (
 				<Alert variant="destructive">
