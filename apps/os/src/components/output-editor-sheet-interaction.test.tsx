@@ -21,13 +21,15 @@ const baseValue = (): SheetContent => ({
 
 type Changes = SheetContent[];
 
-function mount(presence?: SheetEditorPresence) {
+function mount(presence?: SheetEditorPresence, initial?: SheetContent) {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
 	const root = createRoot(container);
 	const changes: Changes = [];
 	function Harness() {
-		const [value, setValue] = useState<SheetContent>(baseValue());
+		const [value, setValue] = useState<SheetContent>(
+			initial ?? baseValue(),
+		);
 		return (
 			<SheetEditor
 				value={value}
@@ -331,6 +333,80 @@ describe("SheetEditor interaction", () => {
 		view.mouse(tab, "contextmenu", { button: 2 });
 		act(() => menuItem("Duplicate")!.click());
 		expect(view.changes.at(-1)?.workbook?.sheets).toHaveLength(2);
+		view.cleanup();
+	});
+
+	it("reorders tabs from the tab menu and by dragging, saving a revision", () => {
+		const sheetOf = (id: string, name: string) => ({
+			id,
+			name,
+			columns: [{ id: `${id}-a`, label: "A", width: 120 }],
+			rows: [[{ input: name, value: name }]],
+			frozenRows: 0,
+			frozenColumns: 0,
+		});
+		const value = {
+			kind: "sheet",
+			columns: ["A"],
+			rows: [["One"]],
+			workbook: {
+				activeSheetId: "one",
+				sheets: [
+					sheetOf("one", "One"),
+					sheetOf("two", "Two"),
+					sheetOf("three", "Three"),
+				],
+			},
+		} as unknown as SheetContent;
+		const view = mount(undefined, value);
+		const items = () =>
+			Array.from(
+				view.container.querySelectorAll<HTMLElement>(".sheet-tab-item"),
+			);
+		const order = () =>
+			view.changes.at(-1)?.workbook?.sheets.map((item) => item.name);
+		const menuItem = (label: string) =>
+			Array.from(
+				document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+			).find((item) => item.textContent === label);
+
+		// The second tab moves left through its context menu, changing tab one.
+		view.mouse(items()[1]!.querySelector("button")!, "contextmenu", {
+			button: 2,
+		});
+		act(() => menuItem("Move left")!.click());
+		expect(order()).toEqual(["Two", "One", "Three"]);
+		expect(view.changes).toHaveLength(1);
+
+		// "Three" now sits last; dragging it before "Two" puts it first.
+		const drag = (type: string, clientX: number) => {
+			const event = new Event(type, { bubbles: true, cancelable: true });
+			Object.assign(event, {
+				clientX,
+				dataTransfer: {
+					effectAllowed: "",
+					dropEffect: "",
+					setData: () => {},
+					getData: () => "",
+				},
+			});
+			return event;
+		};
+		for (const item of items())
+			item.getBoundingClientRect = () =>
+				({ left: 0, width: 100 }) as DOMRect;
+		act(() => {
+			items()[2]!.dispatchEvent(drag("dragstart", 0));
+		});
+		act(() => {
+			items()[0]!.dispatchEvent(drag("dragover", 10));
+		});
+		expect(items()[0]!.getAttribute("data-drop")).toBe("before");
+		act(() => {
+			items()[0]!.dispatchEvent(drag("drop", 10));
+		});
+		expect(order()).toEqual(["Three", "Two", "One"]);
+		expect(view.changes).toHaveLength(2);
 		view.cleanup();
 	});
 

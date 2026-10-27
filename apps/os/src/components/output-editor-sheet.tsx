@@ -122,6 +122,7 @@ import {
 	HEADER_HEIGHT,
 	insertColumns,
 	insertRows,
+	moveSheet,
 	renameSheet,
 	resizeColumn,
 	resizeRow,
@@ -325,6 +326,11 @@ export function SheetEditor({
 	const [nameDraft, setNameDraft] = useState<string | null>(null);
 	const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null);
 	const [menuTabId, setMenuTabId] = useState<string | null>(null);
+	const [tabDragId, setTabDragId] = useState<string | null>(null);
+	const [tabDrop, setTabDrop] = useState<{
+		index: number;
+		before: boolean;
+	} | null>(null);
 	const gridRef = useRef<HTMLTableElement>(null);
 	const focusCellRef = useRef(false);
 	const dragRef = useRef<DragMode | null>(null);
@@ -602,6 +608,17 @@ export function SheetEditor({
 		const next = duplicateSheet(workbook, id);
 		commitWorkbook(next);
 		openSheet(next.activeSheetId);
+	};
+
+	const moveTab = (from: number, to: number) => {
+		if (disabled) return;
+		const next = moveSheet(workbook, from, to);
+		if (next !== workbook) commitWorkbook(next);
+	};
+
+	const endTabDrag = () => {
+		setTabDragId(null);
+		setTabDrop(null);
 	};
 
 	const sortRows = (direction: 1 | -1) => {
@@ -976,6 +993,7 @@ export function SheetEditor({
 
 	const insertFunction = (name: string) => startEdit("cell", `=${name}(`);
 	const menuTab = workbook.sheets.find((tab) => tab.id === menuTabId);
+	const menuTabIndex = workbook.sheets.findIndex((tab) => tab.id === menuTabId);
 	const multi =
 		bounds.rowStart !== bounds.rowEnd ||
 		bounds.columnStart !== bounds.columnEnd;
@@ -1759,13 +1777,68 @@ export function SheetEditor({
 								className="sheet-tab-strip"
 								onContextMenuCapture={() => setMenuTabId(null)}
 							>
-								{workbook.sheets.map((tab) => {
+								{workbook.sheets.map((tab, index) => {
 									const open = tab.id === workbook.activeSheetId;
 									return (
 										<div
 											key={tab.id}
 											className="sheet-tab-item"
 											data-active={open ? "" : undefined}
+											data-dragging={tabDragId === tab.id || undefined}
+											data-drop={
+												tabDrop?.index === index
+													? tabDrop.before
+														? "before"
+														: "after"
+													: undefined
+											}
+											draggable={!disabled && workbook.sheets.length > 1}
+											onDragStart={(event) => {
+												if (disabled) return;
+												setTabDragId(tab.id);
+												event.dataTransfer.effectAllowed = "move";
+												event.dataTransfer.setData("text/plain", tab.id);
+											}}
+											onDragEnd={endTabDrag}
+											onDragOver={(event) => {
+												if (!tabDragId) return;
+												event.preventDefault();
+												event.dataTransfer.dropEffect = "move";
+												const from = workbook.sheets.findIndex(
+													(item) => item.id === tabDragId,
+												);
+												const rect =
+													event.currentTarget.getBoundingClientRect();
+												const before =
+													event.clientX - rect.left < rect.width / 2;
+												const noop =
+													from === index ||
+													(before
+														? from === index - 1
+														: from === index + 1);
+												setTabDrop(noop ? null : { index, before });
+											}}
+											onDragLeave={(event) => {
+												if (
+													!event.currentTarget.contains(
+														event.relatedTarget as Node,
+													)
+												)
+													setTabDrop((current) =>
+														current?.index === index ? null : current,
+													);
+											}}
+											onDrop={(event) => {
+												event.preventDefault();
+												const from = workbook.sheets.findIndex(
+													(item) => item.id === tabDragId,
+												);
+												endTabDrag();
+												if (from === -1 || tabDrop?.index !== index) return;
+												let to = tabDrop.before ? index : index + 1;
+												if (from < to) to -= 1;
+												moveTab(from, to);
+											}}
 										>
 											<Button
 												type="button"
@@ -1848,6 +1921,25 @@ export function SheetEditor({
 									</ContextMenuItem>
 									{workbook.sheets.length > 1 ? (
 										<>
+											<ContextMenuItem
+												disabled={disabled || menuTabIndex <= 0}
+												onClick={() =>
+													moveTab(menuTabIndex, menuTabIndex - 1)
+												}
+											>
+												Move left
+											</ContextMenuItem>
+											<ContextMenuItem
+												disabled={
+													disabled ||
+													menuTabIndex >= workbook.sheets.length - 1
+												}
+												onClick={() =>
+													moveTab(menuTabIndex, menuTabIndex + 1)
+												}
+											>
+												Move right
+											</ContextMenuItem>
 											<ContextMenuSeparator />
 											<ContextMenuItem
 												variant="danger"
