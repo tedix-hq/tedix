@@ -174,3 +174,17 @@ test("wraps domain JSON in the native object envelope without approval elicitati
 	expect(calls.at(-1)?.input).toMatchObject({ decision });
 	expect(Object.keys(calls.at(-1)!.input)).toEqual(["decision"]);
 });
+
+test("matches a row review decision to its interaction card", async () => {
+	const { ctx, calls } = fixture({ decide: true });
+	const requestId = "22222222-2222-4222-8222-222222222222";
+	const decision = {
+		kind: "row_review",
+		requestId,
+		expectedRequestVersion: 2,
+		verdicts: [{ row: 0, verdict: "confirmed" }],
+	};
+	ctx.positionals = ["decide", requestId, JSON.stringify(decision)];
+	expect(await runAttentionCommand("deck", ctx)).toBe(0);
+	expect(calls.at(-1)?.input).toMatchObject({ decision });
+});
