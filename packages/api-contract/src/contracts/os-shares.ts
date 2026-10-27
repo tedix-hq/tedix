@@ -488,13 +488,13 @@ export const osSharesContract = oc
 					path: "/resources/{resourceType}/{resourceId}/shares",
 					summary: "Create a governed Tedix OS share link",
 					description:
-						"Mints a role-aware living or pinned link. The returned token is the ONE-TIME plaintext capability; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
+						"Mints a role-aware living or pinned link. The returned token is the link's reusable secret, returned only in this answer; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
 				})
 				.input(createShareInput)
 				.output(
 					z.object({
 						share: OsShareLinkSchema,
-						/** The one-time plaintext token; never retrievable again. */
+						/** The link's plaintext secret, returned only here; never retrievable again. */
 						token: z.string(),
 					}),
 				),

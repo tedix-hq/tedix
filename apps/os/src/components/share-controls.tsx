@@ -1,5 +1,7 @@
 import {
+	Buildings,
 	CaretRight,
+	Check,
 	Copy,
 	ArrowsClockwise,
 	DotsThree,
@@ -8,6 +10,7 @@ import {
 	Lock,
 	PencilSimple,
 	Prohibit,
+	ShareNetwork,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -37,13 +40,6 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { Input } from "@/components/kumo/input";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/kumo/select";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
@@ -65,7 +61,8 @@ export function shareStatus(
 	now: Date = new Date(),
 ): ShareLinkStatus {
 	if (share.revokedAt !== null) return "revoked";
-	if (share.disabledAt !== null) return "off";
+	// A link from before "off" existed has no disabledAt at all; it is active.
+	if (share.disabledAt) return "off";
 	if (
 		share.expiresAt !== null &&
 		Date.parse(share.expiresAt) <= now.getTime()
@@ -292,7 +289,7 @@ export function ShareRow(props: {
 	);
 }
 
-/** The one-time URL, shown right where the link was made. */
+/** A link's address, shown right where the link was made. */
 export function FreshLink(props: {
 	url: string;
 	title?: string;
@@ -559,12 +556,20 @@ function accessLabel(access: OsShareAccess, organization: string): string {
 	return "Only people you invite";
 }
 
+/** The one line under the dialog: what the chosen audience means. */
 function accessHint(access: OsShareAccess, organization: string): string {
-	if (access === "anyone_with_link") return "No sign-in needed.";
+	if (access === "anyone_with_link")
+		return "Anyone who has the address can open it, without signing in.";
 	if (access === "organization")
-		return `They sign in with their ${organization} account.`;
-	return "They sign in with the email address you add below.";
+		return `People in ${organization} open it after signing in with their ${organization} account.`;
+	return "Only the people you add can open it, after signing in with that email address.";
 }
+
+const ACCESS_ICON: Record<OsShareAccess, typeof Globe> = {
+	anyone_with_link: Globe,
+	organization: Buildings,
+	invited: Lock,
+};
 
 /** The link's permanent address, always on show, with a copy button. */
 export function PermanentUrl(props: { url: string; off?: boolean }) {
@@ -738,7 +743,6 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	);
 	const link = listedLinks[0] ?? null;
 	const linkOff = link !== null && shareStatus(link) === "off";
-	const access: OsShareAccess = staged ?? link?.access ?? "anyone_with_link";
 	const defaultRole: OsShareRole = resourceType === "output" ? "viewer" : "use";
 	const noun = RESOURCE_NOUN[resourceType];
 	const cannotPinRevision =
@@ -769,12 +773,19 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		},
 		onSettled: () => void invalidate(),
 	});
+	// Choosing who can open an existing link changes it at once; the address
+	// stays the same.
 	const changeAccess = useMutation({
 		mutationFn: (input: { shareId: string; access: OsShareAccess }) =>
 			osApi.osShares.shares.update(input),
-		onSuccess: () => setStaged(null),
 		onSettled: () => void invalidate(),
 	});
+	// While a change is on its way, the choice already shows as made.
+	const access: OsShareAccess =
+		(link
+			? ((changeAccess.isPending ? changeAccess.variables?.access : null) ??
+				link.access)
+			: staged) ?? "anyone_with_link";
 	const updateSettings = useMutation({
 		mutationFn: (input: { share: OsShareLink; settings: LinkSettings }) => {
 			const { role, note, expiresAt } = input.settings;
@@ -797,6 +808,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 				activeSessionCount: result.activeSessionCount,
 			}),
 	});
+	// Turning a link off keeps its address: the same id comes back on.
 	const setDisabled = useMutation({
 		mutationFn: (input: { shareId: string; disabled: boolean }) =>
 			osApi.osShares.shares.setDisabled(input),
@@ -836,6 +848,11 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		setDisabled.error ??
 		deleteLink.error ??
 		previewRevoke.error;
+	const chooseAccess = (option: OsShareAccess) => {
+		if (!link) setStaged(option);
+		else if (option !== link.access)
+			changeAccess.mutate({ shareId: link.id, access: option });
+	};
 	const rowProps = (share: OsShareLink) => ({
 		share,
 		onRevoke: (shareId: string) => previewRevoke.mutate(shareId),
@@ -859,16 +876,63 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					Links made here only work on this local copy of Tedix.
 				</Surface>
 			)}
+			<section className="grid gap-2" aria-label="Access" data-share-access>
+				<Text as="h3" role="label" tone="strong" className="m-0">
+					Who can open it
+				</Text>
+				<div
+					role="radiogroup"
+					aria-label="Who can open it"
+					className="grid gap-1"
+				>
+					{OsShareAccessSchema.options.map((option) => {
+						const selected = option === access;
+						const Icon = ACCESS_ICON[option];
+						return (
+							<Button
+								key={option}
+								type="button"
+								role="radio"
+								aria-checked={selected}
+								variant={selected ? "secondary" : "ghost"}
+								className="w-full justify-start"
+								disabled={busy || !shares.isSuccess}
+								onClick={() => chooseAccess(option)}
+								data-share-access-option={option}
+							>
+								<Icon size={16} aria-hidden className="shrink-0" />
+								<span className="min-w-0 flex-1 truncate text-left">
+									{accessLabel(option, organization)}
+								</span>
+								{selected ? (
+									<Check size={14} aria-hidden className="shrink-0" />
+								) : null}
+							</Button>
+						);
+					})}
+				</div>
+				{props.guestEntry &&
+				access === "anyone_with_link" &&
+				shares.data?.guestRefusal ? (
+					<Surface
+						className="m-0 px-3 py-2 text-kumo-subtle text-xs"
+						render={<p />}
+						data-guest-refusal={shares.data.guestRefusal.reason}
+					>
+						{guestRefusalText(shares.data.guestRefusal)}
+					</Surface>
+				) : null}
+			</section>
 			{link ? (
 				<section
 					className="grid gap-2"
 					aria-label="Link"
 					data-share-link-current
 				>
-					<div className="flex min-h-6 items-center gap-1">
-						<Text as="h3" role="label" tone="strong" className="m-0 flex-1">
-							Link
-						</Text>
+					<div className="flex min-w-0 items-center gap-1">
+						<div className="min-w-0 flex-1">
+							<PermanentUrl url={link.url} off={linkOff} />
+						</div>
 						<DropdownMenu>
 							<DropdownMenuTrigger
 								render={
@@ -895,10 +959,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 								{linkOff ? (
 									<DropdownMenuItem
 										onClick={() =>
-											setDisabled.mutate({
-												shareId: link.id,
-												disabled: false,
-											})
+											setDisabled.mutate({ shareId: link.id, disabled: false })
 										}
 									>
 										<LinkSimple size={14} /> Turn on link
@@ -921,7 +982,6 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 							</DropdownMenuContent>
 						</DropdownMenu>
 					</div>
-					<PermanentUrl url={link.url} off={linkOff} />
 					{linkOff ? (
 						<div className="flex flex-wrap items-center gap-2">
 							<Button
@@ -942,122 +1002,45 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 							</Text>
 						</div>
 					) : null}
-					<Text role="label" tone="secondary" className="m-0">
-						{ROLE_LABEL[link.role]} ·{" "}
-						{revisionModeLabel(link.revisionMode).toLowerCase()} ·{" "}
-						{shareExpiryLabel(link)}
-						{link.note ? ` · ${link.note}` : ""}
-					</Text>
 				</section>
-			) : null}
-			<section className="grid gap-2" aria-label="Access" data-share-access>
-				<Text as="h3" role="label" tone="strong" className="m-0">
-					Who can open it
-				</Text>
-				<div className="flex flex-wrap items-center gap-2">
-					{access === "anyone_with_link" ? (
-						<Globe size={16} className="shrink-0 text-kumo-subtle" />
-					) : (
-						<Lock size={16} className="shrink-0 text-kumo-subtle" />
-					)}
-					<Select
-						value={access}
-						onValueChange={(value) => {
-							setStaged(
-								value === link?.access ? null : (value as OsShareAccess),
-							);
-						}}
-					>
-						<SelectTrigger
-							aria-label="Who can open it"
-							className="min-w-0 flex-1"
-							disabled={busy || !shares.isSuccess}
-						>
-							<SelectValue>{accessLabel(access, organization)}</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							{OsShareAccessSchema.options.map((option) => (
-								<SelectItem key={option} value={option}>
-									{accessLabel(option, organization)}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
-				<Text role="label" tone="secondary" className="m-0">
-					{accessHint(access, organization)}
-				</Text>
-				{props.guestEntry &&
-				access === "anyone_with_link" &&
-				shares.data?.guestRefusal ? (
-					<Surface
-						className="m-0 px-3 py-2 text-kumo-subtle text-xs"
-						render={<p />}
-						data-guest-refusal={shares.data.guestRefusal.reason}
-					>
-						{guestRefusalText(shares.data.guestRefusal)}
-					</Surface>
-				) : null}
+			) : shares.isSuccess && formMode.kind === "closed" ? (
 				<div className="flex flex-wrap gap-2">
-					{link && staged ? (
-						<>
-							<Button
-								size="sm"
-								loading={changeAccess.isPending}
-								disabled={busy}
-								onClick={() =>
-									changeAccess.mutate({ shareId: link.id, access: staged })
-								}
-							>
-								Change access
-							</Button>
-							<Button size="sm" variant="ghost" onClick={() => setStaged(null)}>
-								Cancel
-							</Button>
-						</>
-					) : null}
-					{!link && shares.isSuccess && formMode.kind === "closed" ? (
-						<>
-							<Button
-								size="sm"
-								loading={createLink.isPending}
-								disabled={busy}
-								onClick={() =>
-									createLink.mutate({
-										role: defaultRole,
-										revisionMode: "living",
-										note: "",
-										expiresAt: null,
-									})
-								}
-							>
-								<LinkSimple size={14} /> Create link
-							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								disabled={busy}
-								onClick={() => setFormMode({ kind: "create" })}
-							>
-								More options
-							</Button>
-						</>
-					) : null}
+					<Button
+						size="sm"
+						loading={createLink.isPending}
+						disabled={busy}
+						onClick={() =>
+							createLink.mutate({
+								role: defaultRole,
+								revisionMode: "living",
+								note: "",
+								expiresAt: null,
+							})
+						}
+					>
+						<LinkSimple size={14} /> Create link
+					</Button>
+					<Button
+						size="sm"
+						variant="ghost"
+						disabled={busy}
+						onClick={() => setFormMode({ kind: "create" })}
+					>
+						More options
+					</Button>
 				</div>
-				{shares.isPending && (
-					<Text role="label" tone="secondary" className="m-0">
-						Loading link…
-					</Text>
-				)}
-				{shares.isError && (
-					<Text role="label" tone="error" className="m-0">
-						{shareErrorText(shares.error, "Can't load the link right now.")}
-					</Text>
-				)}
-			</section>
-			{link?.access === "invited" && !staged ? (
-				<InviteList shareId={link.id} />
 			) : null}
+			{shares.isPending && (
+				<Text role="label" tone="secondary" className="m-0">
+					Loading link…
+				</Text>
+			)}
+			{shares.isError && (
+				<Text role="label" tone="error" className="m-0">
+					{shareErrorText(shares.error, "Can't load the link right now.")}
+				</Text>
+			)}
+			{link?.access === "invited" ? <InviteList shareId={link.id} /> : null}
 			{link && confirmOff?.shareId === link.id ? (
 				<Alert variant="warning" data-share-turn-off>
 					<Prohibit aria-hidden />
@@ -1175,6 +1158,12 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					{shareErrorText(error, "Couldn't change the link.")}
 				</p>
 			) : null}
+			<Text role="label" tone="secondary" className="m-0" data-share-explainer>
+				{accessHint(access, organization)}
+				{link
+					? ` ${ROLE_LABEL[link.role]} · ${revisionModeLabel(link.revisionMode).toLowerCase()} · ${shareExpiryLabel(link)}${link.note ? ` · ${link.note}` : ""}.`
+					: ""}
+			</Text>
 			{resourceType === "gadget" && props.onOpenReview && (
 				<ReviewEntry onOpen={props.onOpenReview} />
 			)}
@@ -1210,7 +1199,7 @@ export function ShareButton(props: {
 			onClick={props.onClick}
 			data-share-button
 		>
-			<LinkSimple size={14} />
+			<ShareNetwork size={16} />
 			<span className="sr-only">{label}</span>
 		</Button>
 	) : (
@@ -1224,7 +1213,7 @@ export function ShareButton(props: {
 			onClick={props.onClick}
 			data-share-button
 		>
-			<LinkSimple size={14} /> {label}
+			<ShareNetwork size={14} /> {label}
 		</Button>
 	);
 }

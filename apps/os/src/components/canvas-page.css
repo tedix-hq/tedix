@@ -770,6 +770,16 @@
 	justify-content: center;
 }
 
+/*
+ * A focused view segment draws its 2px ring inside its own box: the switcher
+ * row scrolls sideways and would clip an outer outline, and the toggle
+ * primitive drops the outline the base layer gives every button.
+ */
+.canvas-workpiece-mode-switcher button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
 .canvas-workpiece-tab {
 	display: flex;
 	min-width: 148px;

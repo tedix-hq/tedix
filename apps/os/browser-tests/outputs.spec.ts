@@ -280,7 +280,12 @@ try {
 			const address = current.locator("[data-share-url]");
 			await address.waitFor();
 			const url = (await address.textContent()) ?? "";
-			assert.match(url, /\/s\/[A-Za-z0-9]{22}$/, "the link is permanent");
+			// The id is the address; a readable title suffix may follow it.
+			assert.match(
+				url,
+				/\/s\/[A-Za-z0-9]{22}(\/[a-z0-9-]+)?$/,
+				"the link is permanent",
+			);
 			await shareDialog.getByRole("button", { name: "Link options" }).click();
 			await page.getByRole("menuitem", { name: "Edit settings" }).click();
 			const linkNote = `Board pack ${width} ${theme}`;

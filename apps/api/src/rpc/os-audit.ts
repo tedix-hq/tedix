@@ -735,6 +735,17 @@ export const OS_SHARES_AUDIT: OsAuditRegistry = {
 			revokedSessionCount: output.revokedSessionCount ?? null,
 		}),
 	},
+	"shares.setDisabled": {
+		action: "os.share_link.disabled_changed",
+		resourceType: "os_share_link",
+		resourceId: ({ output }) => nestedId(output, "share"),
+		metadata: ({ input, output }) => ({
+			disabled: input.disabled ?? null,
+			sharedResourceType: fields(output.share).resourceType,
+			sharedResourceId: fields(output.share).resourceId,
+			revokedSessionCount: output.revokedSessionCount ?? null,
+		}),
+	},
 	"shares.delete": {
 		action: "os.share_link.deleted",
 		resourceType: "os_share_link",

@@ -1,5 +1,5 @@
 /**
- * Share-links router: tenant binding, one-time token contract, revocation,
+ * Share-links router: tenant binding, shown-once token contract, revocation,
  * and creator accountability — end to end against the real D1 facade, with
  * the redemption handler proving the minted token actually redeems.
  */

@@ -4,6 +4,7 @@
  * the redemption handler proving the minted token actually redeems.
  */
 
+import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { organizations } from "@tedix/db/schema/organizations";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
@@ -42,6 +43,9 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			organizations,
+			// The shared page names who made the link; nobody is a member here, so
+			// that lookup answers null.
+			organizationMembers,
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaces,

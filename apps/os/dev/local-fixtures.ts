@@ -11047,7 +11047,9 @@ export function handleLocalGuestShare(
 	const app = localGuestApp();
 	const share = {
 		organization: { name: "PricePilot", logoUrl: null },
-		canManage: true,
+		// A guest opens the app signed out; only a signed-in author or admin of
+		// the organization gets the Share button on this page.
+		canManage: false,
 		share: {
 			id: "00000039-0000-4000-8000-000000000001",
 			publicId: LOCAL_GUEST_SHARE_PUBLIC_ID,
