@@ -477,7 +477,11 @@ Record the lane's skill, Workspace and objective once in the project's
 Use the binding's optional `resourceIds` map for named related resources, such
 as a Docs site or another check skill. The runtime freezes those IDs with the
 other inputs; they grant no additional access or tool capabilities.
-Unbound skills receive `null`; a factory without a Blueprint has a null revision.
+A draft automation improvement inherits its canonical skill's binding only
+while its source revision, organization and owner still match. This lets a
+reviewer test the candidate before activation. Ordinary copies do not inherit
+a factory binding. Unbound skills receive `null`; a factory without a Blueprint
+has a null revision.
 The runtime resolves the Workspace's current pin on the first load of a run
 and saves those inputs for its later resumes. Applying a Workspace Blueprint
 upgrade changes the next run's inputs without changing the skill.
