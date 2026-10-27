@@ -20,6 +20,15 @@ describe("browser workspace selection", () => {
 				},
 			});
 			const html = await page;
+			let script = "";
+			await new HTMLRewriter()
+				.on("script", {
+					text: (chunk) => {
+						script += chunk.text;
+					},
+				})
+				.transform(new Response(html))
+				.text();
 			expect(() => session.continueInBrowser("http://unsafe.example")).toThrow(
 				"unsafe URL",
 			);
@@ -28,27 +37,22 @@ describe("browser workspace selection", () => {
 			const mark = { textContent: "" };
 			const timers: unknown[] = [];
 			let requests = 0;
-			await runInNewContext(
-				html
-					.match(/<script>([\s\S]*?)<\/script>/)![1]!
-					.replace("void poll()", "poll()"),
-				{
-					URLSearchParams,
-					location: { search: "?state=expired-callback" },
-					document: {
-						querySelector: (selector: string) =>
-							selector === "h1" ? heading : selector === ".mark" ? mark : body,
-					},
-					setTimeout: (callback: unknown) => timers.push(callback),
-					fetch: async () => {
-						requests++;
-						if (failure === "closed") throw new TypeError("Failed to fetch");
-						return failure === "expired"
-							? new Response(null, { status: 400 })
-							: Response.json({});
-					},
+			await runInNewContext(script.replace("void poll()", "poll()"), {
+				URLSearchParams,
+				location: { search: "?state=expired-callback" },
+				document: {
+					querySelector: (selector: string) =>
+						selector === "h1" ? heading : selector === ".mark" ? mark : body,
 				},
-			);
+				setTimeout: (callback: unknown) => timers.push(callback),
+				fetch: async () => {
+					requests++;
+					if (failure === "closed") throw new TypeError("Failed to fetch");
+					return failure === "expired"
+						? new Response(null, { status: 400 })
+						: Response.json({});
+				},
+			});
 			expect(requests).toBe(1);
 			expect(timers).toHaveLength(0);
 			expect(heading.textContent).toBe("Authorization stopped");

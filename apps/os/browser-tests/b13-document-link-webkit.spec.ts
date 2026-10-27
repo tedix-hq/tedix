@@ -391,10 +391,9 @@ try {
 							.querySelector('[aria-label="Document link"] a')
 							?.getAttribute("href") === "https://example.invalid/updated",
 				);
-				assert(
-					(await popover(page).textContent())?.includes(
-						"https://example.invalid/updated",
-					),
+				assert.equal(
+					await popover(page).locator("[data-link-destination]").textContent(),
+					"https://example.invalid/updated",
 					"Destination text must update too",
 				);
 				await page.evaluate(() =>
@@ -477,7 +476,11 @@ try {
 				await destination.waitForLoadState("domcontentloaded");
 				assert.equal(destination.url(), "https://example.invalid/alpha");
 				assert.equal(await destination.evaluate(() => window.opener), null);
-				assert(receipt.navigation.includes("https://example.invalid/alpha"));
+				assert(
+					receipt.navigation.some(
+						(url) => new URL(url).href === "https://example.invalid/alpha",
+					),
+				);
 				await destination.close();
 			});
 			await check("disabled-actions", async () => {
