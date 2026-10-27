@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { requireDestructiveToolApproval } from "./governance";
+import {
+	isHomeApprovalCall,
+	requireDestructiveToolApproval,
+} from "./governance";
 import * as analytics from "./utils/analytics";
 import type { ServerContext } from "./server-context";
 
@@ -160,6 +163,19 @@ describe("Home approval at MCP dispatch", () => {
 				options,
 			);
 			expect(resolve).not.toHaveBeenCalled();
+		},
+	);
+	it.each([
+		[true, "service", options, true],
+		[false, "service", options, false],
+		[true, "oauth", options, false],
+		[true, "service", { extra: { _meta: {} } }, false],
+	])(
+		"marks a call for scoped delegation only on a kernel Home replay (kernel=%s authType=%s)",
+		(kernel, authType, callOptions, expected) => {
+			expect(
+				isHomeApprovalCall(context(vi.fn(), kernel, authType), callOptions),
+			).toBe(expected);
 		},
 	);
 });

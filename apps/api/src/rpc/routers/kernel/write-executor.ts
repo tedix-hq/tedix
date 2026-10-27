@@ -29,6 +29,9 @@ import { verifyAction } from "@tedix/api-contract/utils/action-receipt";
  * carries `X-Tedix-Kernel: true` — apps/mcp maps it to the
  * `kernel` audit actor (subjectUserId = initiating human), so the
  * approved write executes attributable to the kernel, not generic service.
+ * The executor sends no scopes. After apps/mcp verifies the Home approval
+ * receipt for the exact call, it delegates only that tool's required scopes
+ * on the API hop; revalidation and read-back calls get none.
  *
  * NOTE: the MCP call helpers (mcpHost/mcpCall and the credential-missing
  * sniff) are frozen copies of the ones in write-proposal.ts; both send through

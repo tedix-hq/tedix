@@ -202,6 +202,8 @@ export async function executeTool(
 		clientSupportsTasks?: boolean;
 		/** Verified owner-host Agent-Session for this Code Mode execution. */
 		ownerHostSession?: OwnerHostSession;
+		/** The Home approval receipt for this exact call was verified. */
+		homeApprovedCall?: boolean;
 	},
 ): Promise<{
 	content: Array<{ type: "text"; text: string }>;
@@ -221,6 +223,12 @@ export async function executeTool(
 				ownerHostHarness: session.harness,
 				ownerHostModel: session.model,
 			},
+		};
+	}
+	if (options.homeApprovedCall && agent.callerIdentity) {
+		agent = {
+			...agent,
+			callerIdentity: { ...agent.callerIdentity, homeApprovedCall: true },
 		};
 	}
 	if (isToolDeniedForConnection(agent, tool)) {

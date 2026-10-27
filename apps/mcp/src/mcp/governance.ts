@@ -749,6 +749,29 @@ async function ownerToolApproval(
 	}
 }
 
+/**
+ * Whether this call is a kernel replay of a Home approval. Once
+ * {@link requireDestructiveToolApproval} returns null for such a call, its
+ * receipt matched this exact tool and arguments.
+ */
+export function isHomeApprovalCall(
+	agent: Pick<ApprovalContext, "app" | "callerIdentity">,
+	options?: Pick<DestructiveApprovalOptions, "extra">,
+): boolean {
+	return (
+		typeof options?.extra?._meta?.["com.tedix/homeApprovalRequestId"] ===
+			"string" &&
+		agent.callerIdentity?.kernel === true &&
+		agent.callerIdentity.authType === "service" &&
+		// A tenant-credential retry carries the initiating member separately, so
+		// it can match the receipt without switching to their personal credential.
+		Boolean(
+			agent.callerIdentity.userId ?? agent.callerIdentity.approvedHomeUserId,
+		) &&
+		Boolean(agent.app?.organizationId)
+	);
+}
+
 export async function requireDestructiveToolApproval(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
@@ -757,14 +780,11 @@ export async function requireDestructiveToolApproval(
 ): Promise<CallToolResult | null> {
 	const homeApprovalId =
 		options?.extra?._meta?.["com.tedix/homeApprovalRequestId"];
-	// A tenant-credential retry carries the initiating member separately, so
-	// it can match the receipt without switching to their personal credential.
 	const homeUserId =
 		agent.callerIdentity?.userId ?? agent.callerIdentity?.approvedHomeUserId;
 	if (
+		isHomeApprovalCall(agent, options) &&
 		typeof homeApprovalId === "string" &&
-		agent.callerIdentity?.kernel === true &&
-		agent.callerIdentity.authType === "service" &&
 		homeUserId &&
 		agent.app?.organizationId
 	) {
@@ -773,7 +793,7 @@ export async function requireDestructiveToolApproval(
 				await agent.apiClient?.mcpGovernance.resolveHomeToolApproval({
 					organizationId: agent.app.organizationId,
 					userId: homeUserId,
-					credential: agent.callerIdentity.userId ? "user" : "tenant",
+					credential: agent.callerIdentity?.userId ? "user" : "tenant",
 					appSlug: agent.appSlug ?? "",
 					toolName: options?.toolName ?? tool.toolId,
 					args: JSON.parse(JSON.stringify(options?.args ?? {})),

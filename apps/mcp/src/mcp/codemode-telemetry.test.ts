@@ -469,6 +469,9 @@ describe("Code Mode tail telemetry", () => {
 			});
 			if (approved) {
 				expect(executeToolMock).toHaveBeenCalledTimes(1);
+				expect(executeToolMock.mock.calls[0]![3]).toMatchObject({
+					homeApprovedCall: true,
+				});
 				expect(result.isError).not.toBe(true);
 			} else {
 				expect(executeToolMock).not.toHaveBeenCalled();
