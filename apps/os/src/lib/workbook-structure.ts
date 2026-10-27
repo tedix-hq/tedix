@@ -623,6 +623,23 @@ export function duplicateSheet(
 		),
 	};
 }
+export function moveSheet(
+	workbook: OsWorkbook,
+	from: number,
+	to: number,
+): OsWorkbook {
+	if (
+		from === to ||
+		to < 0 ||
+		to >= workbook.sheets.length ||
+		!workbook.sheets[from]
+	)
+		return workbook;
+	const sheets = [...workbook.sheets];
+	const [moved] = sheets.splice(from, 1);
+	sheets.splice(to, 0, moved!);
+	return { ...workbook, sheets };
+}
 export function deleteSheet(workbook: OsWorkbook, sheetId: string): OsWorkbook {
 	const sheet = workbook.sheets.find((item) => item.id === sheetId);
 	if (!sheet || workbook.sheets.length <= 1) return workbook;

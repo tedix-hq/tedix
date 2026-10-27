@@ -1276,6 +1276,32 @@
 		var(--tedix-sheet-paper) !important;
 }
 
+/* Drag-reorder in the strip: the dragged tab dims and a vertical line marks
+ * the drop edge (::after, since ::before is the open tab's top rule). */
+.sheet-tab-item[data-dragging] {
+	opacity: 0.4;
+}
+
+.sheet-tab-item[data-drop]::after {
+	position: absolute;
+	top: 4px;
+	bottom: 4px;
+	z-index: 2;
+	width: 2px;
+	border-radius: 2px;
+	background: var(--color-kumo-brand);
+	content: "";
+	pointer-events: none;
+}
+
+.sheet-tab-item[data-drop="before"]::after {
+	left: -1px;
+}
+
+.sheet-tab-item[data-drop="after"]::after {
+	right: -1px;
+}
+
 /* Per-tab duplicate and delete appear with the pointer or focus, never as
  * permanent clutter; touch screens keep them on the open tab. */
 .sheet-tab-action {
