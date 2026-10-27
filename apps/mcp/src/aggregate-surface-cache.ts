@@ -103,14 +103,18 @@ export function serializeAggregateSnapshot(
 	return { body, generation: hashAggregateCacheKey(body), cachedAt };
 }
 
+// Bump when aggregation changes the meaning or shape of a serialized surface.
+// D1 tool-contract changes are fenced separately by the activation epoch.
+const AGGREGATE_SNAPSHOT_FORMAT = "aggregate-surface-v2";
+
 export function aggregateSurfaceCacheKey(
 	entries: AggregateAppEntry[],
-	deploymentFingerprint = "dev",
+	formatFingerprint = AGGREGATE_SNAPSHOT_FORMAT,
 	activationEpoch = "initial",
 	visited?: ReadonlySet<string>,
 ): string {
 	return JSON.stringify({
-		deploymentFingerprint,
+		formatFingerprint,
 		activationEpoch,
 		...(visited?.size ? { visited: [...visited].sort() } : {}),
 		entries: entries.map((entry) => ({
@@ -174,8 +178,8 @@ function hashAggregateCacheKey(cacheKey: string): string {
 // stale surface is served immediately (no 4-7s block) while one background
 // rebuild refreshes L1+L2 via ctx.waitUntil. This removes the cold-rebuild
 // latency cliff for every request after the first populate. Worst-case staleness
-// is bounded by the hard TTL, and the fingerprint key busts on deployments and
-// aggregate config changes. Fully fail-safe: any Cache API error or
+// is bounded by the hard TTL; format, activation and aggregate config changes
+// bust the key. Fully fail-safe: any Cache API error or
 // background-rebuild failure falls through to (or leaves intact) a live rebuild.
 const AGGREGATE_L2_HARD_TTL_MS = 600_000; // serve-stale ceiling (10 min)
 const AGGREGATE_L2_HARD_TTL_SECONDS = AGGREGATE_L2_HARD_TTL_MS / 1000;
@@ -559,7 +563,7 @@ const AGGREGATE_DEADLINE = Symbol("aggregate-join-deadline");
 const AGGREGATE_JOIN_DEADLINE_MS = 8_000;
 
 /**
- * Await an aggregate load, but never longer than {@link AGGREGATE_JOIN_DEADLINE_MS}.
+ * Snapshot-backed roots try a fallback after {@link AGGREGATE_JOIN_DEADLINE_MS}.
  *
  * On deadline, fall back to the newest snapshot R2 has, however old. That is the
  * same "stale beats nothing" judgement the degraded-rebuild path below already
@@ -575,10 +579,12 @@ export async function joinAggregateLoad(
 	kind: "cold" | "joined",
 	deadlineMs: number = AGGREGATE_JOIN_DEADLINE_MS,
 	cacheSnapshot = true,
+	nested = false,
 ): Promise<AggregatedMcpSurface> {
-	// Transient roots have no safe serialized fallback. The shared load itself
-	// remains bounded by its upstream step budgets.
-	if (!cacheSnapshot) return load;
+	// Nested deadline fallbacks parsed 9–25 MB snapshots alongside the live build
+	// in the same isolate. Let their budgeted load finish without a second graph.
+	// Transient roots have no safe serialized fallback either.
+	if (!cacheSnapshot || nested) return load;
 	// The load owns its own lifecycle; a deadline here must never turn into an
 	// unhandled rejection when we stop waiting on it.
 	load.catch(() => {});

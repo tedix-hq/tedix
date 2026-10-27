@@ -131,20 +131,14 @@ export async function aggregateAndPrefixTools(
 	// Set for nested graphs of a transient root; see rememberAggregateSurface.
 	retainNested = false,
 ): Promise<AggregatedMcpSurface> {
-	// A deploy must never reuse a durable aggregate snapshot built from an older
-	// tool contract. The original intent was "GIT_SHA is injected by the release
-	// workflow" — it never was: the deployed var is the literal wrangler value
-	// ("production"), so L2/R2 keys never rolled and a redeploy kept serving
-	// snapshots with pre-deploy tool schemas (see `docs/engineering/mcp/runtime.md`).
-	// `version_metadata` cannot drift the same way — the runtime stamps a fresh
-	// id on every deploy, no CI cooperation required. GIT_SHA stays as the
-	// fallback for local dev/tests.
+	// Worker versions do not change D1 tool contracts. Reuse durable snapshots
+	// across deploys; projection activation still fences changed tool schemas.
 	const activationState =
 		activation ?? (await readAggregateActivationEpoch(env));
 	const activationEpoch = activationState.value;
 	const cacheKey = aggregateSurfaceCacheKey(
 		entries,
-		env.WORKER_VERSION?.id ?? env.GIT_SHA,
+		undefined,
 		activationEpoch,
 		visited,
 	);
@@ -185,6 +179,7 @@ export async function aggregateAndPrefixTools(
 			"joined",
 			undefined,
 			cacheSnapshot,
+			visited.size > 0,
 		);
 	}
 
@@ -354,6 +349,7 @@ export async function aggregateAndPrefixTools(
 		"cold",
 		undefined,
 		cacheSnapshot,
+		visited.size > 0,
 	);
 }
 

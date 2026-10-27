@@ -182,13 +182,18 @@ Aggregators bundle dozens of apps, so resolution degrades rather than hangs
   Results are positional, so `app: null` stays distinct from `tools: []`. The
   prefetch only seeds caches; on failure entries resolve one at a time. Nested
   aggregates' late requests are coalesced into one batch.
-- Requests join an in-flight rebuild only up to `AGGREGATE_DEADLINE`; the
-  rebuild keeps running and fills the caches. Wedged shared promises are
-  evicted after budgets sized above the sum of inner budgets.
+- Snapshot-backed roots try an R2 fallback after the aggregate join deadline.
+  Nested joins wait for their budgeted load instead of parsing another large
+  snapshot beside the live build. The rebuild keeps running and fills the
+  caches. Wedged shared promises are evicted after budgets sized above the sum
+  of inner budgets.
 - A surface with failed entries is `degraded` and never cached (cache tiers:
   [Code Mode](codemode.md#aggregate-cache)).
-- Cache keys include the deploy version id, and tool-schema sync rolls a global
-  activation epoch before purging snapshots. The epoch lives in R2; when
+- Cache keys include the snapshot format revision, not the Worker version, so
+  deploys reuse compatible snapshots. Bump `AGGREGATE_SNAPSHOT_FORMAT` when
+  aggregation changes the meaning or shape of a stored surface. Tool-schema
+  sync rolls a global activation epoch before purging snapshots, so changed D1
+  contracts still invalidate every tier. The epoch lives in R2; when
   `MCP_AGGREGATE_EPOCH_KV_ID` names a KV Instant namespace (private beta,
   `mode: "instant"`), requests prefer that pointer and fall back to R2.
   Invalidation writes R2 first; if the Instant write and the cleanup of the old

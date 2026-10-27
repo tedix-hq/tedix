@@ -93,6 +93,47 @@ describe("aggregate join deadline", () => {
 		expect(get).not.toHaveBeenCalled();
 	});
 
+	it("does not parse an R2 fallback beside a nested cold build", async () => {
+		vi.useFakeTimers();
+		const get = vi.fn();
+		const env = { AGGREGATE_CACHE: { get } } as never;
+		const load = new Promise<AggregatedMcpSurface>((resolve) =>
+			setTimeout(() => resolve(surface(12)), 500),
+		);
+		const joined = joinAggregateLoad(
+			load,
+			"nested",
+			env,
+			undefined,
+			"cold",
+			100,
+			true,
+			true,
+		);
+		await vi.advanceTimersByTimeAsync(500);
+		expect((await joined).tools).toHaveLength(12);
+		expect(get).not.toHaveBeenCalled();
+	});
+
+	it("still serves a full stale snapshot at a root deadline", async () => {
+		vi.useFakeTimers();
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const stale = surface(12);
+		const json = vi.fn(async () => ({ cachedAt: 0, surface: stale }));
+		const env = {
+			AGGREGATE_CACHE: { get: vi.fn(async () => ({ json })) },
+		} as never;
+		const load = new Promise<AggregatedMcpSurface>((resolve) =>
+			setTimeout(() => resolve(surface(14)), 500),
+		);
+		const joined = joinAggregateLoad(load, "root", env, "connect", "cold", 100);
+		await vi.advanceTimersByTimeAsync(100);
+		expect(await joined).toBe(stale);
+		expect(json).toHaveBeenCalledOnce();
+		await vi.advanceTimersByTimeAsync(400);
+		expect((await load).tools).toHaveLength(14);
+	});
+
 	it("returns promptly when the load beats the deadline", async () => {
 		vi.useFakeTimers();
 		let settled = false;
