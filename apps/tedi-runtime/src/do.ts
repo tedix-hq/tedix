@@ -1329,6 +1329,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				return parent.env;
 			},
 			browserTakeoverStatus: (...args) => parent.browserTakeoverStatus(...args),
+			browserLoginSession: (...args) => parent.browserLoginSession(...args),
 			get runtimeConfigCache() {
 				return parent.runtimeConfigCache;
 			},
@@ -3171,6 +3172,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			this.toolAuthorityHost(),
 			approvalRequestId,
 			limit,
+		);
+	}
+
+	private async browserLoginSession(
+		action: "status" | "end",
+	): Promise<unknown> {
+		return runtimeToolAuthority.browserLoginSession.call(
+			this.toolAuthorityHost(),
+			action,
 		);
 	}
 

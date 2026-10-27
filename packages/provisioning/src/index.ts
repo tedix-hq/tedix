@@ -337,6 +337,17 @@ export async function getBrowserTakeoverStatus(
 	});
 }
 
+/** Read (`status`) or end the tedi's recorded browser sign-in. */
+export async function browserLoginSession(
+	config: ProvisioningConfig,
+	action: "status" | "end",
+): Promise<unknown> {
+	return runtimeFetch(config, "/__internal/browser/login-session", {
+		method: "POST",
+		body: JSON.stringify({ action }),
+	});
+}
+
 /**
  * Inject a message into an Agent-runtime tedi via its service-binding
  * `/hooks/inject` route. Apps/tedi forwards requests to apps/tedi-runtime; the

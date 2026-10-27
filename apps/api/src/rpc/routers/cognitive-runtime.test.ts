@@ -206,6 +206,8 @@ it("keeps API-contract and DB runtime event kind enums aligned", () => {
 		"browser.session.opened",
 		"browser.session.restarted",
 		"browser.session.closed",
+		"browser.login.recorded",
+		"browser.login.ended",
 	]) {
 		expect(TEDI_RUNTIME_EVENT_KIND_VALUES).toContain(kind);
 	}

@@ -357,6 +357,7 @@ assert.equal(
 		egress: "guardrails",
 		allowedDomains: ["*.example.com", "httpbin.org"],
 		open: true,
+		login: null,
 	});
 }
 

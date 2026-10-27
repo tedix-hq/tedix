@@ -82,6 +82,8 @@ export const TEDI_RUNTIME_EVENT_KIND_VALUES = [
 	"browser.session.reused",
 	"browser.session.restarted",
 	"browser.session.closed",
+	"browser.login.recorded",
+	"browser.login.ended",
 ] as const;
 
 export const TEDI_RUN_STATUS_VALUES = [

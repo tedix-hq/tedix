@@ -19,6 +19,7 @@ const INTERNAL_ROUTES = [
 	"/__internal/messages/read",
 	"/__internal/review-capabilities",
 	"/__internal/browser/takeover-status",
+	"/__internal/browser/login-session",
 	"/__internal/cm-session/authorize",
 	"/__internal/cm-session/revoke",
 	"/__internal/repo-commit/drain",

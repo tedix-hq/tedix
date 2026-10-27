@@ -20,7 +20,10 @@ import {
 	type ProvisionalOutcome,
 	tediApprovalsContract,
 } from "@tedix/api-contract/contracts/tedi-approvals";
-import { BrowserTakeoverStatusSchema } from "@tedix/api-contract/schemas/tedi";
+import {
+	BrowserLoginSessionSchema,
+	BrowserTakeoverStatusSchema,
+} from "@tedix/api-contract/schemas/tedi";
 import { approverEditedPayload } from "../../services/approval-edits";
 import {
 	hasApprovalProvenanceRequest,
@@ -83,7 +86,10 @@ import {
 } from "../orpc";
 import { settleHomeToolWriteApproval } from "./kernel/write-approval-settlement";
 import { requireOrgId } from "../org-scope";
-import { getBrowserTakeoverStatus } from "@tedix/provisioning";
+import {
+	browserLoginSession,
+	getBrowserTakeoverStatus,
+} from "@tedix/provisioning";
 import { getProvisioningConfig } from "./tedis/helpers";
 import { isSameBrowserTakeover } from "../../services/browser-takeover";
 
@@ -1607,8 +1613,67 @@ const getBrowserTakeoverStatusProcedure = authedOs.getBrowserTakeoverStatus
 		);
 	});
 
+async function tediBrowserLogin(
+	context: BaseContext,
+	tediId: string,
+	action: "status" | "end",
+) {
+	const orgId = requireOrgId(context, "browser sign-in");
+	const tedi = await getTediByIdForOrganization(context.db, tediId, orgId);
+	if (!tedi) throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
+	const config = getProvisioningConfig(tedi, context.env);
+	if (!config)
+		throw createError(
+			ErrorCodes.SERVICE_UNAVAILABLE,
+			"Tedi runtime is unavailable",
+		);
+	const result = (await browserLoginSession(config, action)) as {
+		login?: unknown;
+		ended?: unknown;
+	};
+	const login = BrowserLoginSessionSchema.nullable().parse(
+		(action === "end" ? result.ended : result.login) ?? null,
+	);
+	// A runtime may only report its own tedi's sign-in in this organization.
+	return login && login.tediId === tedi.id && login.orgId === orgId
+		? { orgId, login }
+		: { orgId, login: null };
+}
+
+const getBrowserLoginSessionProcedure = authedOs.getBrowserLoginSession
+	.use(AUTHZ.osApprove)
+	.handler(async ({ input, context }) => ({
+		login: (await tediBrowserLogin(context, input.tediId, "status")).login,
+	}));
+
+const endBrowserLoginSessionProcedure = authedOs.endBrowserLoginSession
+	.use(AUTHZ.osApprove)
+	.handler(async ({ input, context }) => {
+		const { orgId, login } = await tediBrowserLogin(
+			context,
+			input.tediId,
+			"end",
+		);
+		await insertAuditEvent(context.db, {
+			organizationId: orgId,
+			actorId: context.user?.sub ?? context.authType ?? "unknown",
+			actorType: "user",
+			action: "tedi.browser_login.end",
+			resourceType: "tedi",
+			resourceId: input.tediId,
+			metadata: toJsonRecord({
+				approvalRequestId: login?.approvalRequestId ?? null,
+				principal: login?.principal ?? null,
+				siteHosts: login?.siteHosts ?? [],
+			}),
+		});
+		return { ended: login };
+	});
+
 export const tediApprovalsContractRouter = approvalsOs.router({
 	getBrowserTakeoverStatus: getBrowserTakeoverStatusProcedure,
+	getBrowserLoginSession: getBrowserLoginSessionProcedure,
+	endBrowserLoginSession: endBrowserLoginSessionProcedure,
 	createProvisionalOutcome: createProvisionalOutcomeProcedure,
 	listProvisionalOutcomes: listProvisionalOutcomesProcedure,
 	requestProvisionalOutcomePromotion:

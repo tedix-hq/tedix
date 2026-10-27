@@ -163,6 +163,7 @@ export interface RuntimeRequestHost {
 		approvalRequestId: string,
 		limit: number,
 	) => Promise<unknown>;
+	browserLoginSession: (action: "status" | "end") => Promise<unknown>;
 	runtimeConfigCache: RuntimeConfigCache;
 	setState: (state: State) => void;
 	cronReconcileDone: boolean;
@@ -546,6 +547,16 @@ export async function handleRuntimeRequest(
 				host.state.budgets?.browserBudgetDaily ?? 50,
 			),
 		);
+	}
+	if (url.pathname === "/__internal/browser/login-session") {
+		if (request.method !== "POST")
+			return new Response("Method Not Allowed", { status: 405 });
+		if (!(await adminAuthorized()))
+			return new Response("Forbidden", { status: 403 });
+		const input = z
+			.object({ action: z.enum(["status", "end"]) })
+			.parse(await request.json());
+		return Response.json(await host.browserLoginSession(input.action));
 	}
 	if (url.pathname === "/__internal/config/refresh") {
 		if (request.method !== "POST")

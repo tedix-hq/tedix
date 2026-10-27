@@ -148,6 +148,16 @@ If that browser has gone, ask for a new takeover. A replacement request for
 the same browser supersedes its earlier approval; an old live-view link is
 not proof the session is still available.
 
+After continuation, the sign-in stays with that tedi for up to 8 hours, so
+later turns use it without a new takeover. Tedix records who approved it, the
+tedi, the organization and the site hosts. `browser_session_status` shows it
+to the tedi; operators read it with `tediApprovals.getBrowserLoginSession`
+and end it with `tediApprovals.endBrowserLoginSession`, which closes the
+browser, discards its cookies and writes an audit event. A sign-in never
+moves to another tedi or organization. When it expires, or the browser has
+gone, the tedi's next browser call reports that the sign-in ended and asks
+it to request a new takeover.
+
 ### Tedi console access
 
 A tedi can sign in as itself to a small read-only console. Access starts

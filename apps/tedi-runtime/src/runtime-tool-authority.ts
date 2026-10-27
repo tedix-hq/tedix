@@ -14,6 +14,11 @@ import {
 	type TediBrowserSession,
 } from "./browser-session";
 import {
+	browserLoginFromApproval,
+	browserLoginRuntimeEvent,
+	browserLoginSessions,
+} from "./browser-login-session";
+import {
 	BROWSER_TAKEOVER_GATE_KEY,
 	type BrowserTakeoverGate,
 	decideBrowserTakeoverGate,
@@ -72,6 +77,32 @@ function browserPageOrigin(value: string | undefined): string | null {
 	} catch {
 		return null;
 	}
+}
+
+/** The tedi's recorded human login, scoped to this Durable Object. */
+function browserLogins(host: RuntimeToolAuthorityHost) {
+	return browserLoginSessions({
+		storage: host.ctx.storage,
+		owner: () => ({
+			tediId: identityValue(host.state.tediId),
+			orgId: identityValue(host.state.orgId),
+		}),
+		currentSessionId: () => host.getBrowserSession().currentSessionId(),
+		closeBrowser: (reason) => host.getBrowserSession().close(reason),
+		emit: async (event) => {
+			try {
+				const turn = await host.resolveTurnTelemetry({
+					warnLabel: "browser-login",
+				});
+				if (turn)
+					await host.eventOutbox.publish(browserLoginRuntimeEvent(event, turn));
+			} catch (error) {
+				console.warn("[browser-login] runtime event failed", {
+					exception: exceptionTopology(error),
+				});
+			}
+		},
+	});
 }
 
 export interface RuntimeToolAuthorityHost {
@@ -737,8 +768,11 @@ export const runtimeToolAuthority = {
 			session,
 			getSession: () => this.getBrowserSession(),
 			getSessionPolicy: () => this.state.toolPolicy?.browserSession,
-			onClosed: () =>
-				this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY).then(() => {}),
+			onClosed: async () => {
+				await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
+				await browserLogins(this).forget("tedi_request");
+			},
+			login: () => browserLogins(this).status(),
 			gates: {
 				approvalRequired,
 				hostnamePolicies: this.browserHostnamePolicies(),
@@ -952,10 +986,16 @@ export const runtimeToolAuthority = {
 		) {
 			throw new Error("Browser takeover continuation gate is unavailable");
 		}
-		const gateDecision = decideBrowserTakeoverGate({ gate, row, tediId });
+		const gateDecision = decideBrowserTakeoverGate({
+			gate,
+			row,
+			tediId,
+			orgId: identityValue(this.state.orgId),
+		});
 		if (gateDecision.action === "close") {
 			await this.getBrowserSession().close("takeover_closed");
 			await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
+			await browserLogins(this).forget("session_lost");
 			return {
 				approvalRequestId,
 				status: gateDecision.reason,
@@ -1001,17 +1041,20 @@ export const runtimeToolAuthority = {
 		const gate = await this.ctx.storage.get<BrowserTakeoverGate>(
 			BROWSER_TAKEOVER_GATE_KEY,
 		);
-		if (!gate) return;
+		const logins = browserLogins(this);
+		if (!gate) return logins.ensure();
 		const row = await getTediRuntimeApproval(
 			this.env.DB,
 			gate.approvalRequestId,
 		);
 		const tediId = identityValue(this.state.tediId);
-		const decision = decideBrowserTakeoverGate({ gate, row, tediId });
+		const orgId = identityValue(this.state.orgId);
+		const decision = decideBrowserTakeoverGate({ gate, row, tediId, orgId });
 		if (decision.action !== "allow") {
 			if (decision.action === "close") {
 				await this.getBrowserSession().close("takeover_closed");
 				await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
+				await logins.forget("session_lost");
 			}
 			throw new Error(
 				decision.action === "wait"
@@ -1019,14 +1062,40 @@ export const runtimeToolAuthority = {
 					: `Browser takeover continuation closed (${decision.reason}).`,
 			);
 		}
-		const sessionId = await this.getBrowserSession().currentSessionId();
-		if (sessionId !== gate.sessionId) {
+		const liveView = await this.getBrowserSession().liveView();
+		// `allow` already implies a row and an identity; the guard narrows them.
+		if (!row || !tediId || !orgId || liveView?.sessionId !== gate.sessionId) {
 			await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
 			throw new Error(
 				"Approved browser takeover cannot resume because the original Browser Run session is no longer available.",
 			);
 		}
+		// The person's sign-in now lives in this session; later turns reuse
+		// it until it expires or someone ends it.
+		await logins.record(
+			browserLoginFromApproval({
+				approvalRequestId: gate.approvalRequestId,
+				sessionId: gate.sessionId,
+				tediId,
+				orgId,
+				row,
+				pageUrls: liveView.targets.map((target) => target.pageUrl),
+			}),
+		);
 		await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
+	},
+	/** Operator read or end of the tedi's recorded human login. */
+	async browserLoginSession(
+		this: RuntimeToolAuthorityHost,
+		action: "status" | "end",
+	): Promise<unknown> {
+		await this.ensureIdentity();
+		const logins = browserLogins(this);
+		if (action === "end") {
+			await this.ctx.storage.delete(BROWSER_TAKEOVER_GATE_KEY);
+			return logins.end();
+		}
+		return { login: await logins.status() };
 	},
 	async recordBrowserEgressDenial(
 		this: RuntimeToolAuthorityHost,

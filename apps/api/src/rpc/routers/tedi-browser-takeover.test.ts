@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	getTedi: vi.fn(),
 	status: vi.fn(),
+	login: vi.fn(),
 	audit: vi.fn(),
 	update: vi.fn(),
 }));
@@ -31,6 +32,7 @@ vi.mock("@tedix/db/queries/audit", () => ({ insertAuditEvent: mocks.audit }));
 vi.mock("@tedix/provisioning", async (original) => ({
 	...(await original<typeof import("@tedix/provisioning")>()),
 	getBrowserTakeoverStatus: mocks.status,
+	browserLoginSession: mocks.login,
 }));
 import { tediApprovalsContractRouter } from "./tedi-approvals";
 import { updateTediProcedure } from "./tedis/update";
@@ -132,6 +134,71 @@ describe("fresh takeover links", () => {
 				context: context(),
 			}).getBrowserTakeoverStatus({ id }),
 		).rejects.toThrow();
+	});
+});
+describe("browser sign-in kept after a takeover", () => {
+	const login = {
+		approvalRequestId: id,
+		tediId,
+		orgId,
+		principal: "user-approver",
+		reason: "login",
+		siteHosts: ["app.example.com"],
+		approvedAt: "2026-10-27T09:00:00.000Z",
+		expiresAt: "2026-10-27T17:00:00.000Z",
+	};
+	it("shows who signed in, for which site, until when", async () => {
+		mocks.login.mockResolvedValue({ login });
+		await expect(
+			createRouterClient(tediApprovalsContractRouter, {
+				context: context(),
+			}).getBrowserLoginSession({ tediId }),
+		).resolves.toEqual({ login });
+		expect(mocks.login).toHaveBeenCalledWith(expect.anything(), "status");
+	});
+	it("ends the session in the runtime and audits the operator", async () => {
+		mocks.login.mockResolvedValue({ ended: login });
+		await expect(
+			createRouterClient(tediApprovalsContractRouter, {
+				context: context(),
+			}).endBrowserLoginSession({ tediId }),
+		).resolves.toEqual({ ended: login });
+		expect(mocks.login).toHaveBeenCalledWith(expect.anything(), "end");
+		expect(mocks.audit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				organizationId: orgId,
+				action: "tedi.browser_login.end",
+				resourceId: tediId,
+				metadata: expect.objectContaining({
+					principal: "user-approver",
+					siteHosts: ["app.example.com"],
+				}),
+			}),
+		);
+	});
+	it("never reports another tedi's or organization's sign-in", async () => {
+		for (const other of [
+			{ ...login, tediId: "another-tedi" },
+			{ ...login, orgId: "another-org" },
+		]) {
+			mocks.login.mockResolvedValue({ login: other });
+			await expect(
+				createRouterClient(tediApprovalsContractRouter, {
+					context: context(),
+				}).getBrowserLoginSession({ tediId }),
+			).resolves.toEqual({ login: null });
+		}
+	});
+	it("does not reach a tedi outside the caller's organization", async () => {
+		mocks.getTedi.mockResolvedValue(null);
+		await expect(
+			createRouterClient(tediApprovalsContractRouter, {
+				context: context(),
+			}).endBrowserLoginSession({ tediId }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(mocks.login).not.toHaveBeenCalled();
+		expect(mocks.audit).not.toHaveBeenCalled();
 	});
 });
 describe("replace a stale takeover", () => {
