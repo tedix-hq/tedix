@@ -6746,6 +6746,20 @@ const handlers: Record<string, (input: never) => unknown> = {
 		member: ORG_MEMBERSHIP.member,
 		created: { organization: false, member: false },
 	}),
+	"organizations/getCustomDomain": () => null,
+	"organizations/beginCustomDomain": () => {
+		throw new RpcError(
+			"BAD_REQUEST",
+			"Connect an organization to set up a domain. Sample data does not check DNS.",
+		);
+	},
+	"organizations/verifyCustomDomain": () => {
+		throw new RpcError(
+			"BAD_REQUEST",
+			"Sample data does not verify domain ownership.",
+		);
+	},
+	"organizations/removeCustomDomain": () => ({ success: true }),
 	"organizations/get": (input: { organizationId: string }) => {
 		if (input.organizationId !== ORG_ID)
 			throw new RpcError("NOT_FOUND", "Organization not found");
