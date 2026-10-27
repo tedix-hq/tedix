@@ -15,6 +15,7 @@ import type { BlueprintProvisioningRows } from "@tedix/db/queries/os-workspaces/
 import type { InstantiateOsBlueprintParams } from "@tedix/db/queries/os-workspaces/instantiate";
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
 import { canonicalDigest } from "../lib/blueprint-digest";
+import { buildBlueprintOutputRows } from "./blueprint-outputs";
 
 interface BlueprintPlanInput {
 	organizationId: string;
@@ -404,5 +405,13 @@ export async function buildBlueprintApplyRows(
 		metadata: JSON.stringify(receipt),
 		updatedAt: base.now,
 	});
+	const outputs = await buildBlueprintOutputRows(
+		definition,
+		params.workspace,
+		params.gadgets,
+	);
+	params.outputs = outputs.outputs;
+	params.outputRevisions = outputs.outputRevisions;
+	params.resources!.push(...outputs.resources);
 	return params;
 }

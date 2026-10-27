@@ -103,6 +103,120 @@ describe("blueprints", () => {
 		c = clients();
 	});
 
+	it.each([false, true])(
+		"creates declared outputs and slot bindings (gallery=%s)",
+		async (gallery) => {
+			const owner = gallery ? c.org2 : c.org1;
+			const { blueprint } = await owner.blueprints.create({
+				name: "Output kit",
+			});
+			const outputs = [
+				{
+					gadget: "Editor",
+					kind: "document" as const,
+					title: "Notes",
+					slot: "notes",
+				},
+				{
+					gadget: "Editor",
+					kind: "sheet" as const,
+					title: "Data",
+					slot: "data",
+				},
+				{ gadget: "Editor", kind: "presentation" as const, title: "Deck" },
+			];
+			await owner.blueprints.revise({
+				blueprintId: blueprint.id,
+				definition: {
+					gadgets: [
+						{
+							name: "Editor",
+							manifest: {
+								entry: "editor.ts",
+								capabilities: [],
+								resourceGrants: [
+									{ slot: "notes", operations: ["outputs.read"] },
+								],
+							},
+						},
+					],
+					requirements: {
+						version: 1,
+						skills: [],
+						connections: [],
+						policies: [],
+						runtime: null,
+						layout: null,
+						outputs,
+					},
+				},
+			});
+			await owner.blueprints.publish({ blueprintId: blueprint.id });
+			if (gallery)
+				await owner.blueprints.setVisibility({
+					blueprintId: blueprint.id,
+					visibility: "catalog",
+				});
+			const result = gallery
+				? await c.org1.blueprints.instantiateFromGallery({
+						blueprintId: blueprint.id,
+						workspaceName: "Output team",
+					})
+				: await c.org1.blueprints.instantiate({
+						blueprintId: blueprint.id,
+						workspaceName: "Output team",
+					});
+			expect(result.resources.map((resource) => resource.slot)).toEqual([
+				"notes",
+				"data",
+				"output_3",
+			]);
+			for (const [index, declaration] of outputs.entries()) {
+				const resource = result.resources[index]!;
+				expect(resource).toMatchObject({
+					organizationId: "org-1",
+					workspaceId: result.workspace.id,
+					providerId: "tedix",
+					resourceType: "output",
+					metadata: { gadgetId: result.gadgets[0]!.gadget.id },
+				});
+				const { output, currentRevision } = await c.org1.outputs.get({
+					outputId: resource.providerResourceId,
+				});
+				expect(output).toMatchObject({
+					workspaceId: result.workspace.id,
+					kind: declaration.kind,
+					title: declaration.title,
+				});
+				expect(currentRevision).toMatchObject({
+					revision: 1,
+					content: { kind: declaration.kind },
+				});
+				await expect(
+					c.org2.outputs.get({ outputId: output.id }),
+				).rejects.toMatchObject({ code: "NOT_FOUND" });
+			}
+			expect(result.gadgets[0]!.revision.manifest.resourceGrants).toEqual([
+				{ slot: "notes", operations: ["outputs.read"] },
+			]);
+			await expect(
+				c.org1.blueprints.instantiate({
+					blueprintId: result.blueprint.id,
+					workspaceName: "Output team",
+				}),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			expect(
+				(await c.org1.outputs.list({ workspaceId: result.workspace.id })).items,
+			).toHaveLength(3);
+			const saved = await c.org1.blueprints.saveWorkspace({
+				workspaceId: result.workspace.id,
+				name: "Saved output kit",
+			});
+			expect(saved.revision.definition.requirements?.outputs).toEqual(outputs);
+			expect(saved.revision.definition.requirements?.resources).toEqual([]);
+		},
+	);
+
 	it("drafts, revises with CAS, and publishes the current revision", async () => {
 		const { blueprint } = await c.org1.blueprints.create({
 			name: "Sales Pod",

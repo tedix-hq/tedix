@@ -525,7 +525,6 @@ function resolveOutputDecisions(input: {
 					kind: "output" as const,
 					subject: output.title,
 					verdict: "allowed" as const,
-					// Says only what was checked: instantiation does not create outputs.
 					reason: `declared ${output.kind} produced by gadget "${output.gadget}", which this revision declares`,
 					resolvedPin: null,
 				}

@@ -108,8 +108,13 @@ export const saveWorkspaceBlueprint = os
 		const slots = new Map(
 			(inherited?.resources ?? []).map((slot) => [slot.slot, slot]),
 		);
+		const outputSlots = new Set(
+			(inherited?.outputs ?? []).map(
+				(output, index) => output.slot ?? `output_${index + 1}`,
+			),
+		);
 		for (const resource of resources) {
-			if (!resource.slot) continue;
+			if (!resource.slot || outputSlots.has(resource.slot)) continue;
 			// Keep the shape only: no selected account, resource id, metadata or source name.
 			slots.set(resource.slot, {
 				slot: resource.slot,
@@ -122,7 +127,7 @@ export const saveWorkspaceBlueprint = os
 		}
 		for (const app of gadgets)
 			for (const grant of app.manifest.resourceGrants ?? [])
-				if (!slots.has(grant.slot))
+				if (!slots.has(grant.slot) && !outputSlots.has(grant.slot))
 					throw createError(
 						ErrorCodes.BAD_REQUEST,
 						`Resource slot ${grant.slot} needs a resource shape before saving`,

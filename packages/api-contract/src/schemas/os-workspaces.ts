@@ -1996,10 +1996,8 @@ export type OsBlueprintLayoutRequirement = z.infer<
 >;
 
 /**
- * A deliverable the blueprint declares one of its gadgets produces. This is a
- * declaration, not a provisioning instruction: instantiation does NOT create
- * `os_outputs` rows. Preflight checks only what it can read — that the
- * producing gadget is declared by the same revision and that titles are unique.
+ * Instantiation creates an empty native output and binds its workspace slot.
+ * App resource grants independently control access to the slot.
  */
 export const OsBlueprintOutputRequirementSchema = z
 	.object({
@@ -2008,8 +2006,11 @@ export const OsBlueprintOutputRequirementSchema = z
 			.min(1)
 			.max(120)
 			.describe("Name of the declared app that produces this output"),
-		kind: OsOutputKindSchema,
+		kind: OsOutputKindSchema.exclude(["video"]),
 		title: z.string().min(1).max(200),
+		slot: OsWorkspaceResourceSlotSchema.optional().describe(
+			"Workspace slot; older declarations default to output_1, output_2, etc.",
+		),
 	})
 	.strict();
 export type OsBlueprintOutputRequirement = z.infer<
@@ -2113,6 +2114,19 @@ export const OsBlueprintRequirementsSchema = z
 				code: "custom",
 				path: ["outputs"],
 				message: `Duplicate output title: ${duplicateOutput}`,
+			});
+		}
+		const duplicateSlot = duplicate([
+			...(value.resources ?? []).map((resource) => resource.slot),
+			...value.outputs.map(
+				(output, index) => output.slot ?? `output_${index + 1}`,
+			),
+		]);
+		if (duplicateSlot) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["outputs"],
+				message: `Duplicate output/resource slot: ${duplicateSlot}`,
 			});
 		}
 	});
@@ -2290,8 +2304,8 @@ export const OS_BLUEPRINT_EXPORT_ENVELOPE_VERSION = 1;
  *   references; the definition has no field for either.
  * - private artifacts, evidence, receipts, costs: `os_gadget_executions` in
  *   whole. Nothing in this envelope references an execution.
- * - output CONTENT: a blueprint declares `{gadget, kind, title}` and
- *   instantiation creates no `os_outputs` rows, so no body can travel.
+ * - output CONTENT: a blueprint carries only output declarations. Instantiation
+ *   creates empty outputs; no source output body travels.
  * - chat, memory, rationale: no reference exists from the blueprint domain.
  * - `instantiationPreflight`: org-specific resolution evidence that lives on a
  *   workspace, not a blueprint, and means nothing in another tenant.
