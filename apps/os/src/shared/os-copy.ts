@@ -373,7 +373,7 @@ const ENGLISH_COPY = {
 		],
 		deleteKeepsOutputs: "Documents, sheets and slides. They stay in Outputs.",
 		deleteKeepsPrivateOutputs:
-			"Documents, sheets and slides. They stay in Outputs, where anyone in your organization will be able to see them.",
+			"Documents, sheets and slides. They move to a new Saved documents workspace and stay private to the owner.",
 		deleteKeeps: [
 			"Chats. They stay in your chat history.",
 			"The skills, schedules and Work projects themselves",
