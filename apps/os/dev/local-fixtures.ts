@@ -8047,16 +8047,21 @@ const handlers: Record<string, (input: never) => unknown> = {
 		resourceType: OsShareLink["resourceType"];
 		resourceId: string;
 		role?: OsShareLink["role"];
+		access?: OsShareLink["access"];
 		revisionMode?: OsShareLink["revisionMode"];
 		pinnedRevisionId?: string;
 		note?: string;
 		expiresAt?: string;
 	}) => {
+		const publicId = crypto.randomUUID().replaceAll("-", "").slice(0, 22);
 		const share: OsShareLink = {
 			id: crypto.randomUUID(),
+			publicId,
+			url: `${globalThis.location?.origin ?? "http://localhost:5173"}/s/${publicId}`,
 			organizationId: ORG_ID,
 			resourceType: input.resourceType,
 			resourceId: input.resourceId,
+			access: input.access ?? "anyone_with_link",
 			role: input.role ?? "viewer",
 			revisionMode: input.revisionMode ?? "living",
 			pinnedRevisionId: input.pinnedRevisionId ?? null,

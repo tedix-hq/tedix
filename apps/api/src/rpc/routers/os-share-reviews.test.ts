@@ -55,6 +55,9 @@ function createEnv(): CloudflareEnv {
 			auditEvents,
 		),
 	);
+	sqlite.exec(
+		"INSERT INTO organizations (id, name, slug) VALUES ('org-1', 'First Org', 'first'), ('org-2', 'Second Org', 'second');",
+	);
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",

@@ -1,9 +1,13 @@
 import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { osWorkspaceCollaborators } from "../schema/os-collaborators";
 import {
+	type NewOsShareLinkInviteeRow,
 	type NewOsShareLinkRow,
+	type OsShareLinkInviteeRow,
 	type OsShareLinkRow,
 	type OsShareSessionRow,
+	osShareLinkInvitees,
 	osShareLinks,
 	osShareSessions,
 } from "../schema/os-shares";
@@ -166,7 +170,9 @@ export async function restrictOsShareLink(
 export async function updateOsShareLinkSettings(
 	db: DbQueryClient,
 	params: OsShareLinkScopeParams & {
-		set: Partial<Pick<OsShareLinkRow, "role" | "note" | "expiresAt">>;
+		set: Partial<
+			Pick<OsShareLinkRow, "role" | "access" | "note" | "expiresAt">
+		>;
 		endSessions: boolean;
 		now?: string;
 	},
@@ -222,6 +228,23 @@ export async function getOsShareLinkByTokenHash(
 	return row;
 }
 
+/**
+ * Resolve a link by its permanent public id (the `/s/<id>` path) — not
+ * org-scoped, because the visitor has no organization yet; the caller proves
+ * the host matches the link's organization before answering.
+ */
+export async function getOsShareLinkByPublicId(
+	db: DbQueryClient,
+	publicId: string,
+): Promise<OsShareLinkRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(osShareLinks)
+		.where(eq(osShareLinks.publicId, publicId))
+		.limit(1);
+	return row;
+}
+
 /** Resolve a link by id for a session read. */
 export async function getOsShareLinkById(
 	db: DbQueryClient,
@@ -268,7 +291,7 @@ export async function deleteOsShareLink(
 }
 
 /**
- * Mint a hash-only viewer session only while its presented link token is live.
+ * Mint a hash-only viewer session only while its link is live.
  * The INSERT..SELECT predicate makes link validation and session creation one
  * D1 statement, so revocation cannot interleave between them.
  */
@@ -280,7 +303,7 @@ export async function createOsShareSession(
 		createdAt: string;
 		lastSeenAt: string;
 		expiresAt: string;
-		linkTokenHash: string;
+		linkId: string;
 		expectedEffectiveRole: NonNullable<OsShareLinkRow["policyMaxRole"]>;
 		now: string;
 	},
@@ -303,7 +326,7 @@ export async function createOsShareSession(
 				.from(osShareLinks)
 				.where(
 					and(
-						eq(osShareLinks.tokenHash, params.linkTokenHash),
+						eq(osShareLinks.id, params.linkId),
 						isNull(osShareLinks.revokedAt),
 						sql`(${osShareLinks.expiresAt} is null or ${osShareLinks.expiresAt} > ${params.now})`,
 						sql`${SHARE_ROLE_RANK[params.expectedEffectiveRole]} = ${effectiveShareRoleRankSql()}`,
@@ -355,6 +378,109 @@ export async function getLiveOsShareSession(
 		)
 		.limit(1);
 	return row;
+}
+
+/** Everyone on a link's invite list, oldest first. */
+export async function listOsShareLinkInvitees(
+	db: DbQueryClient,
+	params: OsShareLinkScopeParams,
+): Promise<OsShareLinkInviteeRow[]> {
+	return db
+		.select()
+		.from(osShareLinkInvitees)
+		.where(
+			and(
+				eq(osShareLinkInvitees.organizationId, params.organizationId),
+				eq(osShareLinkInvitees.shareLinkId, params.shareLinkId),
+			),
+		)
+		.orderBy(osShareLinkInvitees.addedAt, osShareLinkInvitees.id);
+}
+
+/**
+ * Add a person to a link's invite list. A repeat for the same email keeps the
+ * existing row (and its earlier `added_at`); the insert and the read-back run
+ * in one D1 batch.
+ */
+export async function addOsShareLinkInvitee(
+	db: DbQueryClient,
+	invitee: NewOsShareLinkInviteeRow & { email: string },
+): Promise<OsShareLinkInviteeRow> {
+	const [, rows] = await db.batch([
+		db.insert(osShareLinkInvitees).values(invitee).onConflictDoNothing(),
+		db
+			.select()
+			.from(osShareLinkInvitees)
+			.where(
+				and(
+					eq(osShareLinkInvitees.shareLinkId, invitee.shareLinkId),
+					eq(osShareLinkInvitees.email, invitee.email),
+				),
+			)
+			.limit(1),
+	]);
+	const row = rows[0];
+	if (!row) throw new Error("OS share link invitee insert returned no row");
+	return row;
+}
+
+export async function removeOsShareLinkInvitee(
+	db: DbQueryClient,
+	params: OsShareLinkScopeParams & { inviteeId: string },
+): Promise<boolean> {
+	const result = await db
+		.delete(osShareLinkInvitees)
+		.where(
+			and(
+				eq(osShareLinkInvitees.organizationId, params.organizationId),
+				eq(osShareLinkInvitees.shareLinkId, params.shareLinkId),
+				eq(osShareLinkInvitees.id, params.inviteeId),
+			),
+		);
+	return getAffectedRows(result) > 0;
+}
+
+/**
+ * Whether a signed-in person is on a link's invite list, by Tedix user id or
+ * by (lowercased) email. A workspace link also admits the workspace's
+ * collaborators, who were invited through the workspace itself.
+ */
+export async function isOsShareLinkInvitee(
+	db: DbQueryClient,
+	params: {
+		link: Pick<OsShareLinkRow, "id" | "resourceType" | "resourceId">;
+		userId: string;
+		email: string | null;
+	},
+): Promise<boolean> {
+	const email = params.email?.trim().toLowerCase() || null;
+	const invitee = db
+		.select({ inviteeId: osShareLinkInvitees.id })
+		.from(osShareLinkInvitees)
+		.where(
+			and(
+				eq(osShareLinkInvitees.shareLinkId, params.link.id),
+				email
+					? sql`(${osShareLinkInvitees.userId} = ${params.userId} or ${osShareLinkInvitees.email} = ${email})`
+					: eq(osShareLinkInvitees.userId, params.userId),
+			),
+		)
+		.limit(1);
+	if (params.link.resourceType !== "workspace") {
+		return (await invitee).length > 0;
+	}
+	const collaborator = db
+		.select({ collaboratorId: osWorkspaceCollaborators.id })
+		.from(osWorkspaceCollaborators)
+		.where(
+			and(
+				eq(osWorkspaceCollaborators.workspaceId, params.link.resourceId),
+				eq(osWorkspaceCollaborators.userId, params.userId),
+			),
+		)
+		.limit(1);
+	const [invitees, collaborators] = await db.batch([invitee, collaborator]);
+	return invitees.length > 0 || collaborators.length > 0;
 }
 
 /** Count live sessions for revocation-impact preview. */

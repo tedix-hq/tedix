@@ -18,8 +18,10 @@ import {
 	createOsOutputRevision,
 } from "@tedix/db/queries/os-workspaces/outputs";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { osWorkspaceCollaborators } from "@tedix/db/schema/os-collaborators";
 import {
 	type NewOsShareLinkRow,
+	osShareLinkInvitees,
 	osShareLinks,
 	osShareSessions,
 } from "@tedix/db/schema/os-shares";
@@ -34,10 +36,13 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+	generateOsSharePublicId,
 	generateOsShareToken,
+	handleOsShareOpen,
 	handleOsShareRedemption,
 	handleOsShareSessionRead,
 	hashOsShareToken,
+	osShareUrl,
 	readOsSharedResource,
 } from "./os-share-redemption";
 
@@ -54,13 +59,41 @@ function fixture() {
 			osGadgetRevisions,
 			osShareLinks,
 			osShareSessions,
+			osShareLinkInvitees,
+			osWorkspaceCollaborators,
 		),
 	);
 	sqlite.exec(
-		"INSERT INTO organizations (id, name, slug, logo_url) VALUES ('org-1', 'Example', 'example', 'https://images.example.test/org.png');",
+		"INSERT INTO organizations (id, name, slug, logo_url, descope_tenant_id) VALUES ('org-1', 'Example', 'example', 'https://images.example.test/org.png', 'tenant-1'), ('org-2', 'Other', 'other', NULL, 'tenant-2');",
 	);
 	return createDbQueryClient(createD1Facade(sqlite));
 }
+
+const PUBLIC_ID = "AbCdEfGhIjKlMnOpQrStUv";
+const HOST = "tenant-1";
+
+async function openById(
+	db: ReturnType<typeof fixture>,
+	options: {
+		host?: string | null;
+		authorize?: Parameters<typeof handleOsShareOpen>[3];
+		identify?: Parameters<typeof handleOsShareOpen>[4];
+		id?: string;
+	} = {},
+) {
+	return handleOsShareOpen(
+		db,
+		options.id ?? PUBLIC_ID,
+		options.host === undefined ? HOST : options.host,
+		options.authorize,
+		options.identify,
+	);
+}
+
+const asInvitee = async () => ({
+	userId: "guest-user",
+	email: "Guest@Example.test",
+});
 
 const accountability = {
 	organizationId: "org-1",
@@ -107,6 +140,10 @@ async function seedShare(
 	await createOsShareLink(db, {
 		...accountability,
 		id: crypto.randomUUID(),
+		// The first link in a fixture takes the well-known id the open tests use.
+		publicId: (await db.select().from(osShareLinks).limit(1)).length
+			? generateOsSharePublicId()
+			: PUBLIC_ID,
 		resourceType: "output",
 		resourceId: "out-1",
 		tokenHash: await hashOsShareToken(token),
@@ -161,6 +198,230 @@ describe("token helpers", () => {
 		const hash = await hashOsShareToken(token);
 		expect(hash).toMatch(/^[0-9a-f]{64}$/);
 		expect(await hashOsShareToken(token)).toBe(hash);
+	});
+
+	it("mints 22-char base62 public ids and builds the organization's own share URL", () => {
+		const id = generateOsSharePublicId();
+		expect(id).toMatch(/^[A-Za-z0-9]{22}$/);
+		expect(generateOsSharePublicId()).not.toBe(id);
+		expect(
+			osShareUrl({ OS_URL: "https://os.tedix.test/" }, "example", id),
+		).toBe(`https://example.os.tedix.test/s/${id}`);
+		expect(osShareUrl({}, "example", id)).toBe(
+			`https://example.os.tedix.dev/s/${id}`,
+		);
+	});
+});
+
+describe("handleOsShareOpen", () => {
+	it("opens an anyone_with_link link by permanent id on its own host and mints a session", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		await seedShare(db);
+		const response = await openById(db);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("private, no-store");
+		expect(response.headers.get("x-robots-tag")).toBe("noindex");
+		const body = (await response.json()) as {
+			needsSignIn: boolean;
+			access: string;
+			share: { publicId: string; access: string };
+			sessionToken: string;
+		};
+		expect(body).toMatchObject({
+			needsSignIn: false,
+			access: "anyone_with_link",
+			organization: { name: "Example" },
+			share: { publicId: PUBLIC_ID, access: "anyone_with_link" },
+			resource: { type: "output" },
+		});
+		expect((await handleOsShareSessionRead(db, body.sessionToken)).status).toBe(
+			200,
+		);
+	});
+
+	it("resolves only on the link's own organization host", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		await seedShare(db);
+		// Another organization's host, the launcher (no tenant) and a missing host.
+		expect((await openById(db, { host: "tenant-2" })).status).toBe(404);
+		expect((await openById(db, { host: "org-2" })).status).toBe(404);
+		expect((await openById(db, { host: null })).status).toBe(404);
+		// OIDC organizations are asserted by organization id instead.
+		expect((await openById(db, { host: "org-1" })).status).toBe(200);
+		expect((await openById(db, { host: "tenant-1" })).status).toBe(200);
+	});
+
+	it("refuses unknown, malformed, revoked and expired ids identically", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		await seedShare(db, { revokedAt: "2026-08-14T11:00:00.000Z" });
+		expect((await openById(db)).status).toBe(404);
+		expect((await openById(db, { id: "nope" })).status).toBe(404);
+		expect((await openById(db, { id: "0000000000000000000000" })).status).toBe(
+			404,
+		);
+		const expired = fixture();
+		await seedOutput(expired);
+		await seedShare(expired, { expiresAt: "2020-01-01T00:00:00.000Z" });
+		expect((await openById(expired)).status).toBe(404);
+	});
+
+	it("an organization link asks for sign-in, then admits only a member of that organization", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		await seedShare(db, { access: "organization" });
+		const signedOut = await openById(db);
+		expect(signedOut.status).toBe(200);
+		expect(await signedOut.json()).toEqual({
+			needsSignIn: true,
+			access: "organization",
+			organization: {
+				name: "Example",
+				logoUrl: "https://images.example.test/org.png",
+				locale: null,
+				copy: {},
+			},
+		});
+		// Signed in, but the membership check fails: same 404 as an unknown link.
+		const outsider = await openById(db, {
+			identify: asInvitee,
+			authorize: async () => false,
+		});
+		expect(outsider.status).toBe(404);
+		const member = await openById(db, {
+			identify: asInvitee,
+			authorize: allowRecipient,
+		});
+		expect(member.status).toBe(200);
+		const { sessionToken } = (await member.json()) as { sessionToken: string };
+		// Every read re-proves membership; a session alone opens nothing.
+		expect((await handleOsShareSessionRead(db, sessionToken)).status).toBe(404);
+		expect(
+			(await handleOsShareSessionRead(db, sessionToken, allowRecipient)).status,
+		).toBe(200);
+	});
+
+	it("an invited link admits people on its list by user id or email, and nobody else", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		await seedShare(db, { access: "invited" });
+		const link = (await db.select().from(osShareLinks).limit(1))[0]!;
+		expect((await openById(db)).status).toBe(200);
+		expect(await (await openById(db)).json()).toMatchObject({
+			needsSignIn: true,
+			access: "invited",
+		});
+		// Signed in but not invited; membership in the organization changes nothing.
+		expect(
+			(await openById(db, { identify: asInvitee, authorize: allowRecipient }))
+				.status,
+		).toBe(404);
+		await db.insert(osShareLinkInvitees).values({
+			id: "invitee-1",
+			organizationId: "org-1",
+			shareLinkId: link.id,
+			email: "guest@example.test",
+			userId: null,
+			addedByKind: "user",
+			addedById: "user-1",
+		});
+		// Email match is case-insensitive; no organization membership needed.
+		const byEmail = await openById(db, { identify: asInvitee });
+		expect(byEmail.status).toBe(200);
+		const { sessionToken } = (await byEmail.json()) as { sessionToken: string };
+		expect(
+			(await handleOsShareSessionRead(db, sessionToken, undefined, asInvitee))
+				.status,
+		).toBe(200);
+		// Removing the person ends their access on the next read.
+		await db.delete(osShareLinkInvitees);
+		expect(
+			(await handleOsShareSessionRead(db, sessionToken, undefined, asInvitee))
+				.status,
+		).toBe(404);
+		await db.insert(osShareLinkInvitees).values({
+			id: "invitee-2",
+			organizationId: "org-1",
+			shareLinkId: link.id,
+			email: "other@example.test",
+			userId: "guest-user",
+			addedByKind: "user",
+			addedById: "user-1",
+		});
+		expect(
+			(
+				await openById(db, {
+					identify: async () => ({ userId: "guest-user", email: null }),
+				})
+			).status,
+		).toBe(200);
+	});
+
+	it("an invited workspace link also admits the workspace's collaborators", async () => {
+		const db = fixture();
+		await seedGadget(db);
+		await seedShare(db, {
+			access: "invited",
+			resourceType: "workspace",
+			resourceId: "workspace-1",
+			role: "use",
+		});
+		expect((await openById(db, { identify: asInvitee })).status).toBe(404);
+		await db.insert(osWorkspaceCollaborators).values({
+			id: "collab-1",
+			organizationId: "org-1",
+			workspaceId: "workspace-1",
+			userId: "guest-user",
+		});
+		const opened = await openById(db, { identify: asInvitee });
+		expect(opened.status).toBe(200);
+		expect(await opened.json()).toMatchObject({
+			share: { access: "invited", effectiveRole: "use" },
+			resource: { type: "workspace", gadgets: [{ id: "gadget-1" }] },
+		});
+	});
+
+	it("revocation ends the permanent address and every session at once", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		const token = await seedShare(db);
+		const opened = (await (await openById(db)).json()) as {
+			share: { id: string };
+			sessionToken: string;
+		};
+		await revokeOsShareLink(db, {
+			organizationId: "org-1",
+			shareLinkId: opened.share.id,
+		});
+		expect((await openById(db)).status).toBe(404);
+		expect(
+			(await handleOsShareSessionRead(db, opened.sessionToken)).status,
+		).toBe(404);
+		expect((await handleOsShareRedemption(db, token)).status).toBe(404);
+	});
+
+	it("an old #token link still redeems and reports its permanent id", async () => {
+		const db = fixture();
+		await seedOutput(db);
+		const token = await seedShare(db);
+		const redeemed = await handleOsShareRedemption(db, token);
+		expect(redeemed.status).toBe(200);
+		expect(await redeemed.json()).toMatchObject({
+			needsSignIn: false,
+			access: "anyone_with_link",
+			share: { publicId: PUBLIC_ID, access: "anyone_with_link" },
+			sessionToken: expect.any(String),
+		});
+		// A token link to an organization link needs the same sign-in.
+		const org = fixture();
+		await seedOutput(org);
+		const orgToken = await seedShare(org, { access: "organization" });
+		expect((await handleOsShareRedemption(org, orgToken)).status).toBe(404);
+		expect(
+			(await handleOsShareRedemption(org, orgToken, allowRecipient)).status,
+		).toBe(200);
 	});
 });
 
@@ -223,7 +484,8 @@ describe("handleOsShareRedemption", () => {
 		const token = await seedShare(db);
 		const response = await handleOsShareRedemption(db, token);
 		expect(response.status).toBe(200);
-		expect(response.headers.get("cache-control")).toBe("no-store");
+		expect(response.headers.get("cache-control")).toBe("private, no-store");
+		expect(response.headers.get("x-robots-tag")).toBe("noindex");
 		expect(await response.json()).toMatchObject({
 			organization: {
 				name: "Example",

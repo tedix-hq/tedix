@@ -558,6 +558,10 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osShares/reviews/saveGadgetFeedback": "mcp:apps.write",
 	"osShares/shares/create": "mcp:apps.write",
 	"osShares/shares/delete": "mcp:apps.admin",
+	// The invite list decides who a live link reaches: os:admin on the API.
+	"osShares/shares/invitees/add": "mcp:apps.admin",
+	"osShares/shares/invitees/list": "mcp:apps.admin",
+	"osShares/shares/invitees/remove": "mcp:apps.admin",
 	"osShares/shares/list": "mcp:apps.read",
 	"osShares/shares/previewRevoke": "mcp:apps.read",
 	"osShares/shares/restrict": "mcp:apps.write",
