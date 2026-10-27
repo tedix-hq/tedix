@@ -27,6 +27,7 @@ import {
 	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { skillEntries, skillRuns, skillSchedules } from "../schema/cognitive";
 import { osOutputRevisions, osWorkspaces } from "../schema/os-workspaces";
@@ -163,6 +164,7 @@ export async function resolveFactoryRunContext(
 	db: DbQueryClient,
 	params: { orgId: string; skillId: string },
 ): Promise<FactoryRunContext | null> {
+	const sourceSkill = alias(skillEntries, "factory_source_skill");
 	const rows = await db
 		.select({
 			projectId: projects.id,
@@ -178,11 +180,27 @@ export async function resolveFactoryRunContext(
 				eq(skillEntries.organizationId, params.orgId),
 			),
 		)
+		.innerJoin(
+			sourceSkill,
+			and(
+				eq(sourceSkill.organizationId, params.orgId),
+				or(
+					eq(sourceSkill.id, skillEntries.id),
+					and(
+						eq(sourceSkill.id, skillEntries.sourceSkillId),
+						eq(sourceSkill.tediId, skillEntries.tediId),
+						eq(sourceSkill.revision, skillEntries.sourceRevision),
+						eq(skillEntries.lifecycleState, "draft"),
+						sql`exists (select 1 from json_each(${skillEntries.tags}) as factory_proposal_tag where factory_proposal_tag.value = 'workflow-improvement')`,
+					),
+				),
+			),
+		)
 		.where(
 			and(
 				eq(projects.orgId, params.orgId),
 				eq(projects.status, "active"),
-				eq(bindingSkillId, params.skillId),
+				eq(bindingSkillId, sourceSkill.id),
 			),
 		)
 		.limit(2);

@@ -12,7 +12,7 @@ import {
 
 const DDL = `
 CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, name TEXT NOT NULL, display_name TEXT);
-CREATE TABLE skill_entries (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, tedi_id TEXT, title TEXT NOT NULL, slug TEXT, lifecycle_state TEXT, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT, content TEXT NOT NULL DEFAULT '');
+CREATE TABLE skill_entries (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, tedi_id TEXT, title TEXT NOT NULL, slug TEXT, lifecycle_state TEXT, revision INTEGER NOT NULL DEFAULT 1, created_at TEXT, content TEXT NOT NULL DEFAULT '', source_skill_id TEXT, source_revision INTEGER, tags TEXT);
 CREATE TABLE skill_schedules (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, skill_id TEXT NOT NULL, tedi_id TEXT NOT NULL, cron TEXT NOT NULL, enabled INTEGER NOT NULL, next_fire_at TEXT NOT NULL, last_fire_at TEXT, last_error TEXT, created_at TEXT);
 CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, skill_id TEXT NOT NULL, tedi_id TEXT NOT NULL, status TEXT NOT NULL, params TEXT, error TEXT, started_at TEXT, completed_at TEXT, created_by TEXT);
 CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, name TEXT NOT NULL, description TEXT, status TEXT NOT NULL DEFAULT 'active', lead_tedi_id TEXT, owner_user_id TEXT, objective_id TEXT, target_date TEXT, metadata TEXT, created_at TEXT NOT NULL, updated_at TEXT, archived_at TEXT);
@@ -423,6 +423,46 @@ describe("factory run context", () => {
 		await expect(resolveFactoryRunContext(db, params)).rejects.toThrow(
 			"FACTORY_BINDING_AMBIGUOUS",
 		);
+		sqlite.close();
+	});
+});
+
+describe("factory improvement context", () => {
+	it("inherits only current same-owner, same-organization proposal lineage", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(DDL);
+		sqlite.exec(`INSERT INTO skill_entries (id, organization_id, tedi_id, title, lifecycle_state, source_skill_id, source_revision, tags) VALUES
+   ('canonical', 'org', 'owner', 'Canonical', 'active', NULL, NULL, '[]'),
+   ('proposal', 'org', 'owner', 'Candidate', 'draft', 'canonical', 1, '["workflow-improvement"]'),
+   ('ordinary-copy', 'org', 'owner', 'Copy', 'draft', 'canonical', 1, '[]'),
+   ('foreign', 'other', 'owner', 'Foreign', 'draft', 'canonical', 1, '["workflow-improvement"]'),
+   ('other-owner', 'org', 'other-owner', 'Other owner', 'draft', 'canonical', 1, '["workflow-improvement"]'),
+   ('stale', 'org', 'owner', 'Stale', 'draft', 'canonical', 2, '["workflow-improvement"]');
+   INSERT INTO projects (id, org_id, key, name, metadata, created_at) VALUES
+   ('project', 'org', 'P', 'Project', '{"factory":{"slug":"factory","skillId":"canonical"}}', 'now'),
+   ('foreign-project', 'other', 'F', 'Foreign', '{"factory":{"slug":"factory","skillId":"canonical"}}', 'now');`);
+		const db = createDbClient(createD1Facade(sqlite));
+		const canonical = await resolveFactoryRunContext(db, {
+			orgId: "org",
+			skillId: "canonical",
+		});
+		expect(
+			await resolveFactoryRunContext(db, { orgId: "org", skillId: "proposal" }),
+		).toEqual(canonical);
+		for (const skillId of ["ordinary-copy", "foreign", "other-owner", "stale"])
+			expect(
+				await resolveFactoryRunContext(db, { orgId: "org", skillId }),
+			).toBeNull();
+		expect(
+			await resolveFactoryRunContext(db, {
+				orgId: "other",
+				skillId: "foreign",
+			}),
+		).toBeNull();
+		sqlite.exec("UPDATE skill_entries SET revision = 2 WHERE id = 'canonical'");
+		expect(
+			await resolveFactoryRunContext(db, { orgId: "org", skillId: "proposal" }),
+		).toBeNull();
 		sqlite.close();
 	});
 });
