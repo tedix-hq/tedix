@@ -68,11 +68,11 @@ export function isClientIdMetadataDocumentUrl(clientId: string): boolean {
 }
 
 /**
- * Organization admission policy for inbound human OAuth clients. In audit mode
- * every client is admitted and each consent and grant check records whether
- * the allowlist would have admitted it; in enforce mode only listed clients
- * are. Entries match the exact MCP server and the exact canonical client ID.
- * A dynamically registered (opaque) client ID is only an expiring exception.
+ * Organization admission policy for inbound human OAuth clients. Audit mode
+ * records allowlist misses; enforce mode admits only listed clients. Dynamic
+ * (opaque) clients need an unexpired exception for scopes beyond read-only,
+ * including without a policy or in audit mode. Entries match the exact MCP
+ * server and canonical client ID; opaque IDs always require an expiry.
  */
 export const McpInboundClientPolicySchema = z.strictObject({
 	mode: z.enum(["audit", "enforce"]),

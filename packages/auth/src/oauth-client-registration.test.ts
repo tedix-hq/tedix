@@ -48,6 +48,23 @@ describe("classifyMcpClientRegistrationMethod", () => {
 		).toBe("dcr");
 	});
 
+	it.each([
+		"https://client.example.test/",
+		"https://client.example.test/client.json?scope=write",
+		"https://user:pass@client.example.test/client.json",
+		"https://client.example.test/client.json#fragment",
+		"https://CLIENT.example.test/client.json",
+		" https://client.example.test/client.json ",
+		"https://",
+	])(
+		"does not let a malformed metadata identity evade DCR policy: %s",
+		(clientId) => {
+			expect(
+				classifyMcpClientRegistrationMethod({ authType: "oauth", clientId }),
+			).toBe("dcr");
+		},
+	);
+
 	it("classifies managed machine clients as pre-registered", () => {
 		for (const authType of ["m2m", "tedi", "external_agent"] as const) {
 			expect(

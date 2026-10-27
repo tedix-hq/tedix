@@ -969,6 +969,75 @@ describe("verifyHumanMcpGrant", () => {
 		});
 	});
 
+	it("checks dynamic write exceptions at consent and again for an existing grant", async () => {
+		const { stageHumanMcpConsent, verifyHumanMcpGrant } =
+			await import("./mcp-grant");
+		const scopes = ["mcp:apps.write"];
+		const server = await mocks.loadDescopeMcpServer();
+		server.approvedScopes.connectionsScopes.push({ name: scopes[0] });
+		const resource = await mocks.getMcpConsentResource();
+		resource.metadata.mcpConfig.protectedResourceMetadata.scopes_supported.push(
+			scopes[0],
+		);
+		const selection = await mocks.getMcpConsentSelection();
+		selection.approvedScopes = scopes;
+		const consent = await mocks.searchConsents();
+		consent.data[0].scopes = scopes;
+		const stage = {
+			resourceUrl: input.resourceUrl,
+			clientId: input.clientId,
+			selectedTenantIds: tenantIds,
+			approvedScopes: scopes,
+		};
+		const grant = { ...input, tokenScopes: scopes };
+		const entries = [
+			{
+				mcpServerId: input.mcpServerId,
+				clientId: input.clientId,
+				expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+			},
+		];
+		for (const [policy, allowed] of [
+			[undefined, false],
+			[{ mode: "audit", entries }, true],
+			[{ mode: "audit", entries: [] }, false],
+			[{ mode: "enforce", entries }, true],
+			[
+				{
+					mode: "enforce",
+					entries: [
+						{
+							...entries[0],
+							expiresAt: new Date(Date.now() - 1000).toISOString(),
+						},
+					],
+				},
+				false,
+			],
+		] as const) {
+			mocks.getOrganizationByDescopeId.mockImplementation(
+				async (_db: unknown, tenantId: string) => ({
+					id: orgIds[tenantIds.indexOf(tenantId)],
+					descopeTenantId: tenantId,
+					metadata: { mcpInboundClientPolicy: policy },
+				}),
+			);
+			expect(
+				(await stageHumanMcpConsent(
+					{} as never,
+					env,
+					input.descopeUserId,
+					stage,
+				)) !== null,
+			).toBe(allowed);
+			expect(await verifyHumanMcpGrant({} as never, env, grant)).toMatchObject(
+				allowed
+					? { allowed: true }
+					: { allowed: false, reason: "client_not_allowed" },
+			);
+		}
+	});
+
 	it("applies each selected organization's inbound client policy at consent and on every grant check", async () => {
 		const { stageHumanMcpConsent, verifyHumanMcpGrant } =
 			await import("./mcp-grant");
@@ -1781,6 +1850,18 @@ describe("explicit human platform administration", () => {
 			async (_db: unknown, tenantId: string) => ({
 				id: orgIds[tenantIds.indexOf(tenantId)],
 				descopeTenantId: tenantId,
+				metadata: {
+					mcpInboundClientPolicy: {
+						mode: "enforce",
+						entries: [
+							{
+								mcpServerId: input.mcpServerId,
+								clientId: input.clientId,
+								expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+							},
+						],
+					},
+				},
 			}),
 		);
 		mocks.getMemberByUserId.mockResolvedValue({ status: "active" });
