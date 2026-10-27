@@ -1356,7 +1356,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/document/patch",
 					summary: "Patch a Tedix OS document output block-by-block",
 					description:
-						"Edits an existing document in place — append, insert, update or delete paragraphs, headings and other blocks — without resending the rest of it. Applies ordered insert/replace/delete block operations server-side against the current document revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Indices are bounds-checked against the evolving block list — an out-of-range index or a non-document output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
+						"Edits an existing document in place — append, insert, update or delete paragraphs, headings and other blocks — without resending the rest of it. Applies ordered insert/replace/delete block operations server-side against the current document revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. The document's file preview reference carries through and its rich-text body is re-derived from the patched blocks, so formatting only the editor body can express is simplified to what the block list says. Indices are bounds-checked against the evolving block list — an out-of-range index or a non-document output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
 				})
 				.input(
 					outputIdInput.extend({
