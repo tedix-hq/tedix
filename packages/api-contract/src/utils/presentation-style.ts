@@ -101,6 +101,16 @@ export function slideElementStyle(
 			style.letterSpacing === undefined
 				? "normal"
 				: length(style.letterSpacing),
+		display: style.verticalAlign ? "flex" : undefined,
+		flexDirection: style.verticalAlign ? ("column" as const) : undefined,
+		justifyContent:
+			style.verticalAlign === "middle"
+				? "center"
+				: style.verticalAlign === "bottom"
+					? "flex-end"
+					: style.verticalAlign
+						? "flex-start"
+						: undefined,
 		color: style.color ?? (pill ? tone.color : undefined),
 		background: style.background ?? (container || pill ? tone.fill : undefined),
 		borderColor: style.borderColor ?? (container ? tone.border : undefined),
@@ -125,11 +135,14 @@ export function slideElementStyle(
 		textAlign: style.textAlign,
 		opacity: style.opacity,
 		transform: style.rotation ? `rotate(${style.rotation}deg)` : undefined,
-		padding: container
-			? length(element.type === "card" ? 20 : 14)
-			: pill
-				? `${length(5)} ${length(12)}`
-				: 0,
+		padding:
+			style.padding !== undefined
+				? length(style.padding)
+				: container
+					? length(element.type === "card" ? 20 : 14)
+					: pill
+						? `${length(5)} ${length(12)}`
+						: 0,
 		boxSizing: "border-box" as const,
 	};
 }

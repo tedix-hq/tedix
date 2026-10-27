@@ -462,7 +462,13 @@ describe("pptx export", () => {
 									width: 1_056,
 									height: 96,
 									text: "Q3",
-									style: { fontSize: 44, fontWeight: "bold", color: "#ffffff" },
+									style: {
+										fontSize: 44,
+										fontWeight: "bold",
+										color: "#ffffff",
+										padding: 12,
+										verticalAlign: "middle",
+									},
 								},
 								{
 									id: "b1",
@@ -532,6 +538,10 @@ describe("pptx export", () => {
 		expect(titleFrame["a:off"]["@x"]).toBe("731520");
 		expect(titleFrame["a:ext"]["@cx"]).toBe("10728960");
 		const titleRun = shapes[0]!["p:txBody"]["a:p"][0]!["a:r"][0]!;
+		const titleBody = shapes[0]!["p:txBody"]["a:bodyPr"];
+		expect(titleBody["@anchor"]).toBe("ctr");
+		expect(titleBody["@lIns"]).toBe(String(12 * 10_160));
+		expect(titleBody["@tIns"]).toBe(String(12 * 10_160));
 		expect(titleRun["a:t"]).toBe("Q3");
 		// 44px is 35.2pt, and OOXML counts font size in hundredths of a point.
 		expect(titleRun["a:rPr"]["@sz"]).toBe("3520");

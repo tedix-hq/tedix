@@ -230,8 +230,15 @@ function shapeXml(
 	if (element.type === "image" || element.type === "svg") return "";
 	const hasText = (element.text ?? "").length > 0;
 	if (!hasText && TEXT_TYPES.has(element.type)) return "";
+	const inset = Math.round((element.style.padding ?? 0) * EMU_PER_PX);
+	const anchor =
+		element.style.verticalAlign === "middle"
+			? ' anchor="ctr"'
+			: element.style.verticalAlign === "bottom"
+				? ' anchor="b"'
+				: "";
 	const body = hasText
-		? `<p:txBody><a:bodyPr wrap="square" lIns="0" tIns="0" rIns="0" bIns="0"><a:normAutofit/></a:bodyPr><a:lstStyle/>${paragraphs(
+		? `<p:txBody><a:bodyPr wrap="square" lIns="${inset}" tIns="${inset}" rIns="${inset}" bIns="${inset}"${anchor}><a:normAutofit/></a:bodyPr><a:lstStyle/>${paragraphs(
 				element,
 				organization,
 			)}</p:txBody>`

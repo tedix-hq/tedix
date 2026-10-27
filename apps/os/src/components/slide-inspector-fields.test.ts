@@ -51,6 +51,8 @@ describe("slide inspector fields", () => {
 			expect.arrayContaining([
 				"Line height",
 				"Letter spacing (px)",
+				"Padding",
+				"Vertical align",
 				"Opacity",
 				"Rotation (deg)",
 			]),
@@ -69,6 +71,14 @@ describe("slide inspector fields", () => {
 		expect(labels(slideInspectorFields("shape").basic)).toContain(
 			"Corner radius",
 		);
+	});
+
+	it("writes text padding, vertical alignment and hairline geometry", () => {
+		let next = writeSlideField(element(), find("text", "Padding"), "24");
+		next = writeSlideField(next, find("text", "Vertical align"), "middle");
+		next = writeSlideField(next, find("text", "H"), "1");
+		expect(next.style).toMatchObject({ padding: 24, verticalAlign: "middle" });
+		expect(next.height).toBe(1);
 	});
 
 	it("clamps numbers to the schema and keeps geometry on the canvas", () => {
