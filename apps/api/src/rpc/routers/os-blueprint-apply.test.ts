@@ -170,6 +170,57 @@ const input = {
 };
 
 describe("generic blueprint apply", () => {
+	it("creates declared native outputs once and preserves edits on instance-key retry", async () => {
+		const declared = definition();
+		declared.requirements = OsBlueprintDefinitionSchema.parse({
+			requirements: {
+				version: 1,
+				outputs: [
+					{ gadget: "Board", kind: "document", title: "Notes", slot: "notes" },
+					{ gadget: "Board", kind: "sheet", title: "Data", slot: "data" },
+					{
+						gadget: "Board",
+						kind: "presentation",
+						title: "Slides",
+						slot: "slides",
+					},
+				],
+			},
+		}).requirements;
+		const f = fixture({ definition: declared });
+		const first = await f.client.apply(input);
+		expect(f.count("os_outputs")).toBe(4);
+		const bindings = f.sqlite
+			.prepare(
+				"SELECT slot, provider_resource_id FROM os_workspace_resources WHERE resource_type = 'output' ORDER BY slot",
+			)
+			.all();
+		expect(bindings.map((row) => row.slot)).toEqual([
+			"data",
+			"notes",
+			"slides",
+		]);
+		f.sqlite
+			.prepare("UPDATE os_outputs SET title = 'Edited title' WHERE id = ?")
+			.run(String(bindings[0]!.provider_resource_id));
+		const second = await f.client.apply(input);
+		expect(second.receipt).toEqual({ ...first.receipt, replayed: true });
+		expect(f.count("os_outputs")).toBe(4);
+		expect(f.count("os_output_revisions")).toBe(4);
+		expect(
+			f.sqlite
+				.prepare("SELECT title FROM os_outputs WHERE id = ?")
+				.get(String(bindings[0]!.provider_resource_id))?.title,
+		).toBe("Edited title");
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT slot, provider_resource_id FROM os_workspace_resources WHERE resource_type = 'output' ORDER BY slot",
+				)
+				.all(),
+		).toEqual(bindings);
+	});
+
 	it("previews exact identities and content with no provisioning writes, then writes all rows in one batch", async () => {
 		const f = fixture({ count: 110 });
 		const preview = await f.client.previewApply(input);

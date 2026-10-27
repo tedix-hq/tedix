@@ -7,6 +7,9 @@ import {
 	osGadgetRevisions,
 	osGadgets,
 	osWorkspaces,
+	osWorkspaceResources,
+	osOutputs,
+	osOutputRevisions,
 } from "../../schema/os-workspaces";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -30,6 +33,9 @@ function fixture() {
 			osGadgetRevisions,
 			osBlueprints,
 			osBlueprintRevisions,
+			osWorkspaceResources,
+			osOutputs,
+			osOutputRevisions,
 		),
 	);
 	return { db: createDbQueryClient(createD1Facade(sqlite)), sqlite };
@@ -135,6 +141,71 @@ describe("os blueprint instantiation", () => {
 			gadgetId: "gd-3",
 			revision: 1,
 		});
+	});
+
+	it("rolls outputs, slots, apps and the gallery copy back on an output revision failure", async () => {
+		const { db, sqlite } = fixture();
+		const base = params(1);
+		const creator = {
+			organizationId: "org-1",
+			createdByKind: "user" as const,
+			createdById: "u-1",
+			createdAt: base.workspace.createdAt,
+		};
+		await expect(
+			instantiateOsBlueprint(db, {
+				...base,
+				blueprintCopy: blueprintCopy(),
+				resources: [
+					{
+						...creator,
+						id: "resource-1",
+						workspaceId: "ws-1",
+						slot: "notes",
+						providerId: "tedix",
+						connectionScope: "tenant",
+						resourceType: "output",
+						providerResourceId: "output-1",
+						name: "Notes",
+						updatedAt: creator.createdAt,
+					},
+				],
+				outputs: [
+					{
+						...creator,
+						id: "output-1",
+						workspaceId: "ws-1",
+						kind: "document",
+						title: "Notes",
+						currentRevisionId: "output-revision-1",
+						updatedAt: creator.createdAt,
+					},
+				],
+				outputRevisions: [
+					{
+						...creator,
+						id: "output-revision-1",
+						outputId: "missing-output",
+						revision: 1,
+						content: '{"kind":"document","blocks":[]}',
+					},
+				],
+			}),
+		).rejects.toThrow(/foreign key/i);
+		for (const table of [
+			"os_workspaces",
+			"os_blueprints",
+			"os_blueprint_revisions",
+			"os_gadgets",
+			"os_gadget_revisions",
+			"os_workspace_resources",
+			"os_outputs",
+			"os_output_revisions",
+		]) {
+			expect(
+				sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n,
+			).toBe(0);
+		}
 	});
 
 	it("supports a gadgetless blueprint", async () => {

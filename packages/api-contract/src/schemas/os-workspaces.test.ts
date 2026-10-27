@@ -3,7 +3,57 @@ import {
 	OsGadgetManifestSchema,
 	OsGadgetManifestWriteSchema,
 	OsOutputLibraryPreviewSchema,
+	OsBlueprintRequirementsSchema,
 } from "./os-workspaces";
+
+describe("Blueprint output slots", () => {
+	it("rejects duplicate named slots and collisions with selected resources or legacy defaults", () => {
+		const output = {
+			gadget: "Editor",
+			kind: "document",
+			title: "Notes",
+			slot: "notes",
+		};
+		for (const outputs of [
+			[output, { ...output, title: "Other" }],
+			[
+				{ ...output, slot: "output_2" },
+				{ gadget: "Editor", kind: "sheet", title: "Data" },
+			],
+		]) {
+			expect(
+				OsBlueprintRequirementsSchema.safeParse({ version: 1, outputs })
+					.success,
+			).toBe(false);
+		}
+		expect(
+			OsBlueprintRequirementsSchema.safeParse({
+				version: 1,
+				outputs: [output],
+				resources: [
+					{
+						slot: "notes",
+						providerId: "tedix",
+						resourceType: "output",
+						label: "Notes",
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			OsBlueprintRequirementsSchema.safeParse({
+				version: 1,
+				outputs: [{ ...output, slot: "Bad Slot" }],
+			}).success,
+		).toBe(false);
+		expect(
+			OsBlueprintRequirementsSchema.safeParse({
+				version: 1,
+				outputs: [{ ...output, kind: "video" }],
+			}).success,
+		).toBe(false);
+	});
+});
 
 describe("Built-in app manifest settings", () => {
 	it("preserves the Work start-app flag on a validated manifest revision", () => {

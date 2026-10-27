@@ -75,6 +75,7 @@ import {
 	isAppRuntimeManifest,
 } from "@tedix/api-contract/utils/app-runtime";
 import { instantiateOsBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
+import { buildBlueprintOutputRows } from "../../services/blueprint-outputs";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import type {
 	NewOsGadgetExecutionRow,
@@ -1466,6 +1467,16 @@ async function materializeBlueprintWorkspace(
 			sourceArtifactRef: null,
 		});
 	}
+	const outputRows = await buildBlueprintOutputRows(
+		definition,
+		{
+			...accountability,
+			id: workspaceId,
+			name: workspaceName,
+			updatedAt: now,
+		},
+		gadgetRows,
+	);
 	const result = await instantiateOsBlueprint(queryDb(context), {
 		blueprintCopy,
 		workspace: {
@@ -1480,7 +1491,8 @@ async function materializeBlueprintWorkspace(
 			instantiationPreflight: JSON.stringify(preflight),
 			updatedAt: now,
 		},
-		resources: resourceRows,
+		...outputRows,
+		resources: [...resourceRows, ...outputRows.resources],
 		code: codeRows,
 		gadgets: gadgetRows,
 		revisions: revisionRows,
