@@ -415,7 +415,9 @@ it("does not imply a funded wallet bypasses a canonical spending block", () => {
 	const html = render(usage(), { monetary: true, paused: true });
 	expect(html).toContain("8,300 credits");
 	expect(html).toContain("Usage paused");
-	expect(html).toContain("monthly spending cap has been reached");
+	expect(html).toContain(
+		"This request exceeds a configured spending limit. (hard_spend_limit)",
+	);
 	expect(html).not.toContain("Ready to run");
 });
 

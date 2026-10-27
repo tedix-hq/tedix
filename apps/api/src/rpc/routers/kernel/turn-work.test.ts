@@ -1420,11 +1420,12 @@ describe("runKernelTurnWork progress seam", () => {
 			expect(scheduleRouteRedrive).not.toHaveBeenCalled();
 			expect(result.run.status).toBe("failed");
 			expect(result.assistantMessage.content).toContain(
-				"billing/entitlement state (entitlement_inactive)",
+				"Runtime entitlement is inactive. (entitlement_inactive)",
 			);
 			expect(result.assistantMessage.content).toContain(
 				"Runtime entitlement card",
 			);
+			expect(result.assistantMessage.content).toContain("/admin/billing");
 			// It must never impersonate a provider outage.
 			expect(result.assistantMessage.content).not.toContain(
 				"configured model did not produce a valid route decision",

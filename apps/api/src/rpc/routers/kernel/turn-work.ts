@@ -1,3 +1,4 @@
+import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { homeDelegationApprovalId } from "@tedix/api-contract/utils/home-delegation-approval";
 import { findApprovalRule } from "../approval-rule-matcher";
 import {
@@ -155,7 +156,7 @@ const KERNEL_MODEL_UNAVAILABLE_MESSAGE =
 function renderKernelBillingBlockedMessage(
 	code: BillingPolicyDenialCode,
 ): string {
-	return `I couldn't run this turn — runtime inference is blocked for this workspace by its billing/entitlement state (${code}). This is a policy denial, not a provider outage; retrying won't help until the entitlement changes. A workspace administrator can review and update it on the Team page's Runtime entitlement card.`;
+	return `I couldn't run this turn. ${runtimeInferenceDenialMessage(code)} An organization owner can review Billing at /admin/billing. For runtime entitlement settings, review the Team page's Runtime entitlement card.`;
 }
 
 function durationMs(startedAt: string, endedAt: string): number | null {

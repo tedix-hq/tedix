@@ -23,7 +23,11 @@ import {
 	encodeAiGatewayAttribution,
 } from "@tedix/api-contract/schemas/ai-gateway-attribution";
 import type { AuthorizeRuntimeInferenceResponse } from "@tedix/api-contract/schemas/runtime-entitlements";
-import { BillingSettlementModeSchema } from "@tedix/api-contract/schemas/runtime-entitlements";
+import {
+	RuntimeEntitlementDenialCodeSchema,
+	runtimeInferenceDenialMessage,
+	BillingSettlementModeSchema,
+} from "@tedix/api-contract/schemas/runtime-entitlements";
 import type { AigMetadata } from "./llm";
 import { markInferenceAuthorize } from "./runtime-latency-markers";
 
@@ -57,23 +61,9 @@ export interface BillingPolicyDeniedWorkflowResult {
 	billingCode: BillingPolicyDenialCode;
 }
 
-const BILLING_POLICY_DENIAL_CODES = new Set<BillingPolicyDenialCode>([
-	"eu_provider_pool_required",
-	"eu_provider_route_required",
-	"eu_provider_credential_required",
-	"residency_policy_unavailable",
-	"billing_not_configured",
-	"subscription_inactive",
-	"billing_period_inactive",
-	"monthly_allowance_exhausted",
-	"payment_required",
-	"hard_spend_limit",
-	"inference_capacity_exhausted",
-	"model_tier_not_allowed",
-	"entitlement_not_configured",
-	"entitlement_inactive",
-	"entitlement_period_inactive",
-]);
+const BILLING_POLICY_DENIAL_CODES = new Set<BillingPolicyDenialCode>(
+	RuntimeEntitlementDenialCodeSchema.options,
+);
 
 const BILLING_POLICY_DENIED_MESSAGE = "Inference blocked by billing policy: ";
 
@@ -139,7 +129,8 @@ export function billingPolicyDeniedWorkflowResult(
 							/^(?:EU_PROVIDER_[A-Z_]+|RESIDENCY_POLICY_UNAVAILABLE): /,
 							"",
 						)
-				: `I couldn't complete that turn because this workspace's billing policy blocked inference (${billingCode}). Please contact a workspace administrator.`,
+						.trim() || runtimeInferenceDenialMessage(billingCode)
+				: `I couldn't complete that turn. ${runtimeInferenceDenialMessage(billingCode)} An organization owner can review Billing at /admin/billing.`,
 		stopReason: BILLING_POLICY_DENIED_STOP_REASON,
 		error: errorMessage(error),
 		billingCode,

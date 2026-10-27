@@ -1,3 +1,5 @@
+import { BillingOverviewSchema } from "@tedix/api-contract/schemas/billing";
+import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runtime-entitlements";
 import type { BillingOverview } from "@tedix/api-contract/schemas/billing";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
@@ -19,6 +21,18 @@ function render(value: BillingOverview) {
 }
 
 describe("BillingCreditWallet", () => {
+	it.each(
+		BillingOverviewSchema.shape.inferenceCapacity.shape.blockingReason.unwrap()
+			.options,
+	)("names the canonical denial reason: %s", (code) => {
+		const value = overview();
+		value.inferenceCapacity.available = false;
+		value.inferenceCapacity.blockingReason = code;
+		expect(render(value).body.textContent).toContain(
+			runtimeInferenceDenialMessage(code),
+		);
+	});
+
 	it("leads a zero-credit token plan with the remaining allowance", () => {
 		const value = overview();
 		value.snapshot.availableCreditMicros = 0;
