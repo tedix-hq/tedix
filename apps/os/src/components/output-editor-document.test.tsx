@@ -531,12 +531,12 @@ describe("DocumentEditor", () => {
 		const mounted = await mountEditor();
 		let incoming: DocumentContent;
 		let length = 0;
-		let paragraphLength = 10_000;
+		let paragraphLength = 1;
 		do {
 			const richText = mounted.editor.schema
 				.nodeFromJSON({
 					type: "doc",
-					content: Array.from({ length: 20 }, () => ({
+					content: Array.from({ length: 128 }, () => ({
 						type: "paragraph",
 						content: [{ type: "text", text: "R".repeat(paragraphLength) }],
 					})),
@@ -548,7 +548,11 @@ describe("DocumentEditor", () => {
 				blocks: blocksFromRichText(richText),
 			};
 			length = canonicalJsonText(incoming).length;
-			paragraphLength += 25;
+			// Both rich text and its block projection carry each paragraph's text.
+			paragraphLength += Math.max(
+				1,
+				Math.floor((MAX_FILE_TEXT_LENGTH - 3_072 - length) / (128 * 2)),
+			);
 		} while (length < MAX_FILE_TEXT_LENGTH - 3_072);
 		expect(length).toBeGreaterThan(MAX_FILE_TEXT_LENGTH - 4_096);
 		expect(length).toBeLessThan(MAX_FILE_TEXT_LENGTH);
@@ -572,9 +576,16 @@ describe("DocumentEditor", () => {
 		await act(async () => {
 			mounted.editor.commands.setContent({
 				type: "doc",
-				content: Array.from({ length: 26 }, () => ({
+				content: Array.from({ length: 128 }, () => ({
 					type: "paragraph",
-					content: [{ type: "text", text: "A".repeat(10_000) }],
+					content: [
+						{
+							type: "text",
+							text: "A".repeat(
+								Math.floor((MAX_FILE_TEXT_LENGTH - 128 * 1024) / (128 * 2)),
+							),
+						},
+					],
 				})),
 			});
 		});
