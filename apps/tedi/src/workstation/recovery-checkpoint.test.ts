@@ -191,7 +191,10 @@ describe("Git checkpoint preservation", () => {
 				provenance,
 			});
 			expect(f.producer.native.exec).toHaveBeenCalledTimes(1);
-			expect(await restore(f.restore)).toMatchObject({
+			const restored = await restore(f.restore);
+			// Name the Git error when the restore fails instead of only its status.
+			expect(restored.error).toBeUndefined();
+			expect(restored).toMatchObject({
 				status: "restored",
 				baseCommit: head,
 			});
