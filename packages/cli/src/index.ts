@@ -1266,20 +1266,25 @@ async function main() {
 				.filter(Boolean);
 			const filters = parseChannelFilters(options.flowParam);
 			const channelClient = client;
-			const subscriptionsFor = (requested: string[]) => async () =>
-				planSubscriptions({
-					listResult: await channelClient.rawRequest("events/list"),
-					organizationId: await resolveThreadOrganizationId(channelClient),
-					requested,
-					filters,
-				});
+			const subscriptionsFor =
+				(requested: string[], agentSessionKey?: string) => async () =>
+					planSubscriptions({
+						agentSessionKey,
+						listResult: await channelClient.rawRequest("events/list"),
+						organizationId: await resolveThreadOrganizationId(channelClient),
+						requested,
+						filters,
+					});
 			if (host === "codex") {
 				const [thread, ...codexEvents] = eventNames;
 				if (!thread || !looksLikeUuid(thread)) throw new Error(channelUsage());
 				const { codexDriver } = await import("./supervise-drivers");
 				await runCodexEventChannel({
 					client: channelClient,
-					resolveSubscriptions: subscriptionsFor(codexEvents),
+					resolveSubscriptions: subscriptionsFor(
+						codexEvents,
+						`codex:${thread}:owner-host`,
+					),
 					driver: codexDriver(process.env),
 					thread,
 					cwd: process.cwd(),
@@ -1289,9 +1294,13 @@ async function main() {
 				return;
 			}
 			if (host !== "claude") throw new Error(channelUsage());
+			const claudeSession = process.env.CLAUDE_CODE_SESSION_ID?.trim();
 			await runEventChannel({
 				client: channelClient,
-				resolveSubscriptions: subscriptionsFor(eventNames),
+				resolveSubscriptions: subscriptionsFor(
+					eventNames,
+					claudeSession ? `claude-code:${claudeSession}:owner-host` : undefined,
+				),
 				io: {
 					input: process.stdin,
 					write: (line) => process.stdout.write(`${line}\n`),

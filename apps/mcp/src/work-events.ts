@@ -267,6 +267,7 @@ export const pollableEventDefinitions = [
 		inputSchema: objectSchema(
 			{
 				organization_id: organizationProperty,
+				agent_session_key: { type: "string", minLength: 1, maxLength: 128 },
 				conversation_id: { type: "string" },
 			},
 			["organization_id"],
@@ -315,7 +316,11 @@ export function isPollableEvent(name: unknown): name is PollableEventName {
 
 const ARGUMENT_KEYS = {
 	[LANE_REQUESTED_EVENT]: ["organization_id", "work_item_id"],
-	[HOME_RUN_FINISHED_EVENT]: ["organization_id", "conversation_id"],
+	[HOME_RUN_FINISHED_EVENT]: [
+		"organization_id",
+		"agent_session_key",
+		"conversation_id",
+	],
 	[INTERACTION_REPLY_EVENT]: [
 		"organization_id",
 		"request_id",
@@ -373,6 +378,7 @@ export function eventArguments(
 						? !["question", "input", "handoff", "coordination"].includes(entry)
 						: key !== "approver_id" &&
 							key !== "target_id" &&
+							key !== "agent_session_key" &&
 							key !== "conversation_id" &&
 							!UUID.test(entry))
 		)
@@ -383,6 +389,7 @@ export function eventArguments(
 			"author_type",
 			"responder_type",
 			"kind",
+			"agent_session_key",
 			"conversation_id",
 		].includes(key)
 			? entry
@@ -552,6 +559,7 @@ export async function readEventFeed(
 		if (name === HOME_RUN_FINISHED_EVENT) {
 			const result = await client.mcpEvents.pollHomeRunFinished({
 				after: cursor === null ? null : decodeKeyset("hrf1", cursor),
+				agentSessionKey: args.agent_session_key,
 				conversationId: args.conversation_id,
 				limit,
 			});

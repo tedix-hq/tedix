@@ -118,6 +118,13 @@ describe("owner-host session resolution", () => {
 			metadata: { ownerBound: true, source: "mcp-plugin" },
 		});
 		expect(
+			await resolveOwnerHostSession(db, {
+				organizationId: ORG,
+				userId: OWNER,
+				externalSessionKey: opened.externalSessionKey,
+			}),
+		).toMatchObject({ session: { id: opened.id } });
+		expect(
 			await getOwnerUserExternalAgentPrincipal(db, {
 				organizationId: ORG,
 				userId: OWNER,

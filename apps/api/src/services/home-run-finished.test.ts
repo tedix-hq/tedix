@@ -7,11 +7,30 @@ import {
 	kernelRuntimeRuns,
 	tediRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
-import { describe, expect, it } from "vite-plus/test";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createD1Facade } from "../../../../packages/db/src/test/d1-facade";
 import { schemaDdl } from "../../../../packages/db/src/test/schema-ddl";
 import type { BaseContext } from "../rpc/orpc";
 import { pollHomeRunFinished } from "./home-run-finished";
+
+const resolveOwnerHostSession = vi.hoisted(() =>
+	vi.fn(async (_db, input: { externalSessionKey?: string }) =>
+		input.externalSessionKey === "claude-code:session:owner-host"
+			? { session: { id: "owner-session" }, principal: { id: "principal" } }
+			: null,
+	),
+);
+
+vi.mock(
+	"@tedix/db/queries/external-agent-identity/owner-host-sessions",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("@tedix/db/queries/external-agent-identity/owner-host-sessions")
+		>()),
+		resolveOwnerHostSession,
+	}),
+);
 
 function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
@@ -21,6 +40,7 @@ function fixture(onPrepare?: (query: string) => void) {
 			kernelRuntimeRuns,
 			tediRuntimeEvents,
 			kernelConversationGrants,
+			organizationMembers,
 		),
 	);
 	sqlite.exec("PRAGMA foreign_keys = OFF");
@@ -124,6 +144,54 @@ describe("Home completion feed visibility", () => {
 			(await pollHomeRunFinished(context("owner-example"), start, "other-org"))
 				.events,
 		).toEqual([]);
+	});
+
+	it("does not deliver a session-targeted event without current chat access", async () => {
+		const { sqlite, context, event } = fixture();
+		event("event-example", "run-example");
+		sqlite
+			.prepare(
+				"INSERT INTO organization_members (id,organization_id,descope_user_id,user_id,email,role,status,created_at,updated_at) VALUES ('membership','org-example','runtime-tedi','user-runtime-tedi','runtime@example.invalid','tedi','active','2026-10-15','2026-10-15')",
+			)
+			.run();
+		await expect(
+			pollHomeRunFinished(
+				context("runtime-tedi"),
+				{ ...start, agentSessionKey: "claude-code:session:owner-host" },
+				"org-example",
+			),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("delivers only runs started by the polling owner-host session", async () => {
+		const { sqlite, context, event } = fixture();
+		sqlite
+			.prepare(
+				"INSERT INTO organization_members (id,organization_id,descope_user_id,user_id,email,role,status,created_at,updated_at) VALUES ('membership','org-example','owner-example','user-owner','owner@example.invalid','viewer','active','2026-10-15','2026-10-15')",
+			)
+			.run();
+		for (const [runId, sessionId] of [
+			["own-run", "owner-session"],
+			["other-run", "other-session"],
+		]) {
+			sqlite
+				.prepare(
+					"INSERT INTO kernel_runtime_runs (id,organization_id,conversation_id,metadata,created_at,updated_at) VALUES (?,'org-example','private-chat',?,'2026-10-15','2026-10-15')",
+				)
+				.run(runId, JSON.stringify({ ownerHostSessionId: sessionId }));
+			event(`event-${runId}`, runId);
+		}
+		const page = await pollHomeRunFinished(
+			context("owner-example"),
+			{ ...start, agentSessionKey: "claude-code:session:owner-host" },
+			"org-example",
+		);
+		expect(page.events.map((entry) => entry.data.run_id)).toEqual(["own-run"]);
+		expect(resolveOwnerHostSession).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: "org-example",
+			userId: "user-owner",
+			externalSessionKey: "claude-code:session:owner-host",
+		});
 	});
 
 	it("uses the parent grants for direct and plan-delegated children", async () => {

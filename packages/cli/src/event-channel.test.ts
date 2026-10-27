@@ -83,12 +83,20 @@ const listResult = {
 				properties: { organization_id: {}, tedi_id: {}, skill_id: {} },
 			},
 		},
+		{
+			name: "home.run.finished",
+			delivery: ["poll"],
+			inputSchema: {
+				properties: { organization_id: {}, agent_session_key: {} },
+			},
+		},
 	],
 };
 
 describe("planSubscriptions", () => {
 	test("subscribes to every pollable event and passes only accepted filters", () => {
 		const plan = planSubscriptions({
+			agentSessionKey: "claude-code:session:owner-host",
 			listResult,
 			organizationId: ORG,
 			requested: [],
@@ -104,6 +112,14 @@ describe("planSubscriptions", () => {
 				name: "skill.run.failed",
 				cursor: null,
 				arguments: { organization_id: ORG },
+			},
+			{
+				name: "home.run.finished",
+				cursor: null,
+				arguments: {
+					organization_id: ORG,
+					agent_session_key: "claude-code:session:owner-host",
+				},
 			},
 		]);
 	});

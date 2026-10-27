@@ -553,6 +553,9 @@ export async function persistKernelTurnStart(
 		...input.run,
 		metadata: {
 			...input.run.metadata,
+			...(context.ownerHostSessionId
+				? { ownerHostSessionId: context.ownerHostSessionId }
+				: {}),
 			pushRecipient: personStarted
 				? {
 						descopeUserId: context.descopeUserId ?? context.user?.sub ?? null,

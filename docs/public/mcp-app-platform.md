@@ -115,7 +115,10 @@ only organization, request and response IDs. Re-read the record before acting.
 
 `home.run.finished` reports `completed`, `failed` or `needs_input` (an approval
 pause or unanswered Home question/handoff) for a Home run or delegated child. It requires a messaging read scope.
-Every delivery checks the canonical conversation grants: private chats reach
+Claude and Codex channels filter this feed to the verified owner-host session
+that started the run. Every delivery rechecks that the session owner is an
+active member with chat access and checks the canonical conversation grants:
+private chats reach
 their owner and shared readers, never other members merely because they belong
 to the organization. Child events use the parent Home conversation's grants,
 including multi-tedi plan branches. Payloads contain organization, conversation,
@@ -126,8 +129,9 @@ Claude and Codex channels deliver these events as `Home finished: <title>` with
 the run ID. They read the title through the existing authorized Home list.
 Use `tedix run <id>` to read the result; a delegated child ID resolves to its
 Home parent and child evidence. Run a channel before starting the turn; its
-initial cursor starts from now. Use `--param conversation_id=<id>` to route
-only that Home chat to its originating host session.
+initial cursor starts from now. The channel supplies its Claude or Codex session
+identity automatically. Use `--param conversation_id=<id>` only when you also
+want to follow one Home chat.
 
 ```sh
 curl -s https://<app-host>/mcp -H "Authorization: Bearer $TOKEN" \
