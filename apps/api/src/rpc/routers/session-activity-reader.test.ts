@@ -41,7 +41,10 @@ function client(toolId = "list_agent_session_activity") {
 		} as BaseContext,
 	});
 }
-beforeEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+	vi.restoreAllMocks();
+	vi.spyOn(activity, "getAgentSessionActivitySnapshot").mockResolvedValue(10);
+});
 describe("delegated session activity reader", () => {
 	// The organization gateway mounts the platform tool under its app prefix.
 	it("accepts the gateway-prefixed tool and refuses another method", async () => {
@@ -94,27 +97,37 @@ describe("delegated session activity reader", () => {
 			} as never);
 		const read = vi
 			.spyOn(activity, "listAgentSessionActivity")
-			.mockResolvedValue([
-				{
-					id,
-					harness: "codex",
-					sessionKey: "chat",
-					repository: "sample",
-					kind: "turn",
-					sourceAt: "2026-10-01T01:00:00Z",
-					body: "Authorization: Bearer secret-value",
-					activity: "api_key=never-share-this",
-				},
-			] as never);
+			.mockResolvedValue({
+				data: [
+					{
+						id,
+						harness: "codex",
+						sessionKey: "chat",
+						repository: "sample",
+						kind: "turn",
+						sourceAt: "2026-10-01T01:00:00Z",
+						body: "Authorization: Bearer secret-value",
+						activity: "api_key=never-share-this",
+					},
+				],
+				nextCursor: null,
+			} as never);
+		vi.spyOn(activity, "listAgentSessionActivityCoverage").mockResolvedValue([
+			{ date: "2026-10-01", eventCount: 1, activityDigestCount: 1 },
+		] as never);
 		const result = await client().listActivity({
 			since: "2026-10-01T00:00:00Z",
+			until: "2026-10-02T00:00:00Z",
 		});
 		expect(read).toHaveBeenCalledWith(
 			{},
 			{
 				organizationId: id,
 				userId: "canonical-ada",
-				since: "2026-10-01T00:00:00Z",
+				since: "2026-10-01T00:00:00.000Z",
+				until: "2026-10-02T00:00:00.000Z",
+				snapshotId: 10,
+				cursor: undefined,
 				limit: 50,
 			},
 		);
@@ -136,11 +149,18 @@ describe("delegated session activity reader", () => {
 				delegation: { accountSubject: "canonical-ada" },
 			} as never)
 			.mockRejectedValueOnce(new Error("revoked"));
-		vi.spyOn(activity, "listAgentSessionActivity").mockResolvedValue([]);
+		vi.spyOn(activity, "listAgentSessionActivity").mockResolvedValue({
+			data: [],
+			nextCursor: null,
+		} as never);
+		vi.spyOn(activity, "listAgentSessionActivityCoverage").mockResolvedValue(
+			[],
+		);
 		vi.spyOn(activity, "listAgentSessionRequests").mockResolvedValue([]);
 		await expect(
 			client().listActivity({
 				since: "2026-10-01T00:00:00Z",
+				until: "2026-10-02T00:00:00Z",
 				requests: { statuses: ["done"] },
 			}),
 		).rejects.toThrow("revoked");
@@ -158,7 +178,13 @@ describe("delegated session activity reader", () => {
 			.mockResolvedValue({
 				delegation: { accountSubject: "canonical-ada" },
 			} as never);
-		vi.spyOn(activity, "listAgentSessionActivity").mockResolvedValue([]);
+		vi.spyOn(activity, "listAgentSessionActivity").mockResolvedValue({
+			data: [],
+			nextCursor: null,
+		} as never);
+		vi.spyOn(activity, "listAgentSessionActivityCoverage").mockResolvedValue(
+			[],
+		);
 		const ledger = vi
 			.spyOn(activity, "listAgentSessionRequests")
 			.mockResolvedValue([
@@ -177,6 +203,7 @@ describe("delegated session activity reader", () => {
 			] as never);
 		const result = await client().listActivity({
 			since: "2026-10-01T00:00:00Z",
+			until: "2026-10-02T00:00:00Z",
 			requests: { statuses: ["done"], order: "newest", limit: 20 },
 		});
 		expect(ledger).toHaveBeenCalledWith(

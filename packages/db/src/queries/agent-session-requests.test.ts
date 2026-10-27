@@ -11,6 +11,8 @@ import { workInteractions } from "../schema/work-factory";
 import { schemaDdl } from "../test/schema-ddl";
 import {
 	listAgentSessionActivity,
+	listAgentSessionActivityCoverage,
+	getAgentSessionActivitySnapshot,
 	getPreviousAgentSessionTurn,
 	listRecentAgentSessionTurns,
 	getAgentSessionRequestPrompts,
@@ -581,11 +583,12 @@ it("recovers original prompts without later goals or another owner's events", as
 	).toEqual([]);
 });
 
-it("scopes activity to its owner and organization, with deterministic bounded dates", async () => {
+it("scopes and paginates activity to its owner and organization with daily coverage", async () => {
 	const db = fixture();
-	for (const [organizationId, userId, sourceAt, sourceKey] of [
+	for (const [organizationId, userId, sourceAt, sourceKey, activity] of [
 		[ORG, USER, T0, "old"],
 		[ORG, USER, T1, "own"],
+		[ORG, USER, T1, "own-same-time", "second digest"],
 		[ORG, OTHER_USER, T1, "other-user"],
 		["other-org", USER, T1, "other-org"],
 	])
@@ -602,29 +605,94 @@ it("scopes activity to its owner and organization, with deterministic bounded da
 					sourceAt,
 					sourceKey,
 					body: sourceKey,
-					activity: "tool failure digest",
+					activity: activity ?? null,
 				},
 			],
 		});
-	const rows = await listAgentSessionActivity(db, {
+	const snapshotId = await getAgentSessionActivitySnapshot(db, {
 		organizationId: ORG,
 		userId: USER,
-		since: T0,
+	});
+	const first = await listAgentSessionActivity(db, {
+		organizationId: ORG,
+		userId: USER,
+		since: "2026-10-06T00:00:00.000Z",
+		until: T1,
+		snapshotId,
 		limit: 1,
 	});
-	expect(rows).toHaveLength(1);
-	expect(rows[0]).toMatchObject({
-		body: "own",
-		activity: "tool failure digest",
+	expect(first.data).toHaveLength(1);
+	expect(first.data[0]).not.toHaveProperty("userId");
+	expect(first.nextCursor).not.toBeNull();
+	await recordAgentSessionEvents(db, {
+		organizationId: ORG,
+		userId: USER,
+		now: "2026-10-06T10:10:00Z",
+		events: [
+			{
+				kind: "turn",
+				harness: "codex",
+				sessionKey: "chat",
+				repository: null,
+				sourceAt: "2026-10-06T10:04:30Z",
+				sourceKey: "late-backfill",
+				body: "late-backfill",
+				activity: null,
+			},
+		],
 	});
-	expect(rows[0]).not.toHaveProperty("userId");
+	const second = await listAgentSessionActivity(db, {
+		organizationId: ORG,
+		userId: USER,
+		since: "2026-10-06T00:00:00.000Z",
+		until: T1,
+		snapshotId,
+		cursor: first.nextCursor!,
+		limit: 2,
+	});
+	expect([...first.data, ...second.data].map((row) => row.body).sort()).toEqual(
+		["old", "own", "own-same-time"],
+	);
+	expect(second.nextCursor).toBeNull();
+	const freshSnapshotId = await getAgentSessionActivitySnapshot(db, {
+		organizationId: ORG,
+		userId: USER,
+	});
+	expect(
+		await listAgentSessionActivity(db, {
+			organizationId: ORG,
+			userId: USER,
+			since: "2026-10-06T00:00:00Z",
+			until: T1,
+			snapshotId: freshSnapshotId,
+			limit: 10,
+		}),
+	).toMatchObject({
+		data: expect.arrayContaining([
+			expect.objectContaining({
+				body: "late-backfill",
+				sourceAt: "2026-10-06T10:04:30.000Z",
+			}),
+		]),
+	});
+	expect(
+		await listAgentSessionActivityCoverage(db, {
+			organizationId: ORG,
+			userId: USER,
+			since: "2026-10-05T00:00:00.000Z",
+			until: "2026-10-07T00:00:00.000Z",
+			snapshotId,
+		}),
+	).toEqual([{ date: "2026-10-06", eventCount: 3, activityDigestCount: 1 }]);
 	expect(
 		await listAgentSessionActivity(db, {
 			organizationId: ORG,
 			userId: USER,
 			since: T1,
+			until: "2026-10-07T00:00:00.000Z",
+			snapshotId,
 		}),
-	).toEqual([]);
+	).toEqual({ data: [], nextCursor: null });
 });
 
 for (const requestCount of [0, 1])

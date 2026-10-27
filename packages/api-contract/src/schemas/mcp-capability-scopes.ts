@@ -173,6 +173,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	list_work_agent_sessions: "mcp:work",
 	read_work_attention: "mcp:work",
 	record_agent_session_events: "mcp:work",
+	list_agent_session_events: "mcp:work",
 	list_agent_session_activity: "mcp:work",
 	list_agent_session_requests: "mcp:work",
 	file_agent_session_request: "mcp:work",

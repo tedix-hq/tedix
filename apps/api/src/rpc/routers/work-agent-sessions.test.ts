@@ -15,7 +15,11 @@ import {
 } from "@tedix/db/schema/cognitive-runtime";
 import { tedis } from "@tedix/db/schema/tedis";
 import { tediObjectives } from "@tedix/db/schema/tedi-objectives";
-import { agentSessionRequests } from "@tedix/db/schema/agent-session-requests";
+import {
+	agentSessionEvents,
+	agentSessionRequests,
+} from "@tedix/db/schema/agent-session-requests";
+import { recordAgentSessionEvents } from "@tedix/db/queries/agent-session-requests";
 import { LaneTelemetryInputSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import {
 	osWorkspaces,
@@ -63,6 +67,7 @@ function fixture() {
 		workAttempts,
 		workInteractions,
 		skillRuns,
+		agentSessionEvents,
 		kernelRuntimeRuns,
 		kernelConversations,
 		kernelConversationGrants,
@@ -131,6 +136,7 @@ function fixture() {
 		owner: userClient("owner", "owner"),
 		queued,
 		grace: userClient("grace"),
+		db: baseContext.db,
 		tediClient,
 	};
 }
@@ -345,6 +351,86 @@ describe("workAgentSessions router", () => {
 		await expect(tediClient.list({})).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
+	});
+});
+
+describe("stored session event owner read", () => {
+	it("returns exact owner events, pagination and explicit missing UTC dates", async () => {
+		const { ada, grace, db, tediClient } = fixture();
+		for (const [organizationId, userId, sourceAt, sourceKey, activity] of [
+			[ORG_ID, "ada", "2026-10-25T12:00:00.000Z", "ada-old", null],
+			[
+				ORG_ID,
+				"ada",
+				"2026-10-26T12:00:00.000Z",
+				"ada-new",
+				"tool failure digest",
+			],
+			[ORG_ID, "grace", "2026-10-26T12:00:00.000Z", "grace", null],
+			["other-org", "ada", "2026-10-26T12:00:00.000Z", "other-org", null],
+		] as const)
+			await recordAgentSessionEvents(db, {
+				organizationId,
+				userId,
+				now: sourceAt,
+				events: [
+					{
+						kind: "turn",
+						harness: "opencode",
+						sessionKey: "session-1",
+						repository: "tedix",
+						sourceAt,
+						sourceKey,
+						body: sourceKey,
+						activity,
+					},
+				],
+			});
+
+		const first = await ada.listEvents({
+			since: "2026-10-24T00:00:00.000Z",
+			until: "2026-10-27T00:00:00.000Z",
+			limit: 1,
+		});
+		expect(first.data).toHaveLength(1);
+		expect(first.data[0]).toMatchObject({
+			harness: "opencode",
+			repository: "tedix",
+			text: "ada-new",
+			activity: "tool failure digest",
+		});
+		expect(first.data[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+		expect(first.coverage).toEqual({
+			from: "2026-10-24T00:00:00.000Z",
+			through: "2026-10-27T00:00:00.000Z",
+			days: [
+				{ date: "2026-10-25", eventCount: 1, activityDigestCount: 0 },
+				{ date: "2026-10-26", eventCount: 1, activityDigestCount: 1 },
+			],
+			missingDates: ["2026-10-24", "2026-10-27"],
+		});
+		const second = await ada.listEvents({
+			since: first.coverage.from,
+			until: first.coverage.through,
+			cursor: first.nextCursor!,
+			limit: 1,
+		});
+		expect(second.data.map((event) => event.text)).toEqual(["ada-old"]);
+		expect(second.nextCursor).toBeNull();
+		expect(
+			(
+				await grace.listEvents({
+					since: "2026-10-24T00:00:00.000Z",
+					until: "2026-10-27T00:00:00.000Z",
+				})
+			).data.map((event) => event.text),
+		).toEqual(["grace"]);
+		await expect(
+			tediClient.listEvents({
+				since: "2026-10-24T00:00:00.000Z",
+				until: "2026-10-27T00:00:00.000Z",
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 });
 

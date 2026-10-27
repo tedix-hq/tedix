@@ -175,30 +175,84 @@ export const SESSION_ACTIVITY_RESOURCE = {
 	resourceType: "session_activity",
 	toolId: "list_agent_session_activity",
 } as const;
-export const ListAgentSessionActivityInputSchema = z.strictObject({
-	since: z.iso.datetime(),
-	limit: z.number().int().min(1).max(100).default(50),
-	requests: ListAgentSessionRequestsInputSchema.optional().describe(
-		"Also read the consenting owner's derived request ledger with these filters. Never accepts an owner identity.",
-	),
+
+export const AgentSessionEventCursorSchema = z.strictObject({
+	sourceAt: z.iso.datetime(),
+	id: z.string(),
+	snapshotId: z
+		.number()
+		.int()
+		.nonnegative()
+		.describe("Database insertion watermark fixed by the first page."),
 });
-export const ListAgentSessionActivityResultSchema = z.strictObject({
-	status: z.enum(["ready", "needs_grant"]),
-	summary: z.string(),
-	requests: z.array(AgentSessionRequestSchema).optional(),
-	data: z.array(
+
+export const ListAgentSessionEventsInputSchema = z.strictObject({
+	since: z.iso.datetime(),
+	until: z.iso
+		.datetime()
+		.optional()
+		.describe(
+			"Upper bound for a repeatable read. Defaults to the request time and is returned as coverage.through.",
+		),
+	cursor: AgentSessionEventCursorSchema.optional().describe(
+		"Continue newest-first after this exact source timestamp and event id.",
+	),
+	limit: z.number().int().min(1).max(100).default(50),
+});
+
+export const ListAgentSessionActivityInputSchema =
+	ListAgentSessionEventsInputSchema.extend({
+		requests: ListAgentSessionRequestsInputSchema.optional().describe(
+			"Also read the consenting owner's derived request ledger with these filters. Never accepts an owner identity.",
+		),
+	});
+
+const StoredAgentSessionEventSchema = z.strictObject({
+	id: z.string(),
+	harness: WorkAgentSessionHarnessSchema,
+	sessionKey: z.string(),
+	repository: z.string().nullable(),
+	kind: z.enum(["prompt", "turn"]),
+	sourceAt: z.iso.datetime(),
+	text: z.string(),
+	activity: z.string().nullable(),
+});
+
+const AgentSessionEventCoverageSchema = z.strictObject({
+	from: z.iso.datetime(),
+	through: z.iso.datetime(),
+	days: z.array(
 		z.strictObject({
-			id: z.string(),
-			harness: WorkAgentSessionHarnessSchema,
-			sessionKey: z.string(),
-			repository: z.string().nullable(),
-			kind: z.enum(["prompt", "turn"]),
-			sourceAt: z.string(),
-			text: z.string(),
-			activity: z.string().nullable(),
+			date: z.iso.date(),
+			eventCount: z.number().int().nonnegative(),
+			activityDigestCount: z.number().int().nonnegative(),
 		}),
 	),
+	missingDates: z
+		.array(z.iso.date())
+		.describe(
+			"UTC dates in the requested range with no stored event. This makes absent source data explicit but does not prove whether the hook ran.",
+		),
 });
+
+export const ListAgentSessionEventsResultSchema = z.strictObject({
+	data: z.array(StoredAgentSessionEventSchema),
+	nextCursor: AgentSessionEventCursorSchema.nullable(),
+	coverage: AgentSessionEventCoverageSchema,
+});
+
+export const ListAgentSessionActivityResultSchema = z.union([
+	ListAgentSessionEventsResultSchema.extend({
+		status: z.literal("ready"),
+		summary: z.string(),
+		requests: z.array(AgentSessionRequestSchema).optional(),
+	}),
+	z.strictObject({
+		status: z.literal("needs_grant"),
+		summary: z.string(),
+		data: z.array(StoredAgentSessionEventSchema).max(0),
+	}),
+]);
 
 export const ClassifyAgentSessionRequestsInputSchema = z.strictObject({
 	intakeProjectId: z

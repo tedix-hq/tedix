@@ -1196,6 +1196,10 @@
 		{
 			"name": "20261026232055_restore_deck_curation_delegation_guard/migration.sql",
 			"sha256": "de51dd031ed4fed95fa3d09d4fb916ea86e322e6f7ae43862ee260495fb08d0e"
+		},
+		{
+			"name": "20261027005337_agent_session_event_owner_reads/migration.sql",
+			"sha256": "d8538e74307cbec48b15cfe78db6b678923c6f297a433d6663814bb4f9c19103"
 		}
 	]
 }

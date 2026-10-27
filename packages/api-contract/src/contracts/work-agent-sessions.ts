@@ -17,6 +17,8 @@ import {
 	ListAgentSessionActivityInputSchema,
 	FileAgentSessionRequestInputSchema,
 	ListAgentSessionActivityResultSchema,
+	ListAgentSessionEventsInputSchema,
+	ListAgentSessionEventsResultSchema,
 	ListAgentSessionRequestsInputSchema,
 	ListAgentSessionRequestsResultSchema,
 	RecordAgentSessionEventsInputSchema,
@@ -106,6 +108,16 @@ export const workAgentSessionsContract = oc
 			})
 			.input(RecordAgentSessionEventsInputSchema)
 			.output(RecordAgentSessionEventsResultSchema),
+		listEvents: oc
+			.route({
+				method: "GET",
+				path: "/events",
+				summary: "Read the caller's own stored agent session events",
+				description:
+					"Reads only the authenticated human owner's redacted source events and activity digests. Supports a bounded UTC date range and stable newest-first cursor pagination. Daily coverage names dates with no stored events. No caller-supplied owner is accepted.",
+			})
+			.input(ListAgentSessionEventsInputSchema)
+			.output(ListAgentSessionEventsResultSchema),
 		listActivity: oc
 			.route({
 				method: "GET",
