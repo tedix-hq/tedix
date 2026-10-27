@@ -62,7 +62,7 @@ vi.mock("@/components/approval-notifications", () => ({
 vi.mock("@/components/os-workspace-switcher", () => ({
 	OsWorkspaceSwitcher: ({ children }: { children?: ReactNode }) => (
 		<button
-			aria-label="Switch workspace or app"
+			aria-label="Switch organization"
 			className="ghost-icon-button"
 			type="button"
 		>
@@ -284,7 +284,7 @@ describe("OS shell chrome", () => {
 		expect(account.contains(trigger)).toBe(false);
 		expect(footer.className).toContain("gap-1");
 		const switcher = header.querySelector(
-			'[aria-label="Switch workspace or app"]',
+			'[aria-label="Switch organization"]',
 		)!;
 		expect(switcher.querySelector("strong")?.textContent?.trim()).toBe(
 			"Local workspace",
@@ -298,7 +298,7 @@ describe("OS shell chrome", () => {
 			),
 		).toBe(false);
 		expect(
-			footer.querySelector('[aria-label="Switch workspace or app"]'),
+			footer.querySelector('[aria-label="Switch organization"]'),
 		).toBeNull();
 		expect(footer.querySelector('[aria-label^="Theme:"]')).toBeNull();
 		expect(container.querySelector('[aria-label="Search"]')).toBeNull();

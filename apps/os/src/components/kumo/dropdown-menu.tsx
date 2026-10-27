@@ -40,6 +40,28 @@ const DropdownMenuTrigger = KumoDropdownMenu.Trigger;
 const DropdownMenuGroup = KumoDropdownMenu.Group;
 const DropdownMenuLabel = KumoDropdownMenu.Label;
 const DropdownMenuSeparator = KumoDropdownMenu.Separator;
+// Base UI's filterable menu: wrap the root in the provider, then put the items
+// in `DropdownMenuList` beside a `DropdownMenuFilterInput`. DOM focus stays in
+// the input while the arrow keys move the highlight through the items.
+const DropdownMenuFilterProvider = MenuPrimitive.FilterProvider;
+const DropdownMenuList = MenuPrimitive.List;
+const DropdownMenuEmpty = MenuPrimitive.Empty;
+
+const DropdownMenuFilterInput = React.forwardRef<
+	HTMLInputElement,
+	React.ComponentPropsWithoutRef<typeof MenuPrimitive.Input>
+>(function DropdownMenuFilterInput({ className, ...props }, ref) {
+	return (
+		<MenuPrimitive.Input
+			ref={ref}
+			className={cn(
+				"h-8 w-full min-w-0 rounded-md bg-kumo-base px-2 type-tedix-control text-kumo-default outline-none ring ring-kumo-line placeholder:text-kumo-subtle focus-visible:ring-kumo-brand max-sm:min-h-11 coarse:min-h-11",
+				className,
+			)}
+			{...props}
+		/>
+	);
+});
 
 // The 44px floor is a pointer-capability question: a touch laptop above `sm`
 // still needs it, a narrow desktop window does not.
@@ -106,10 +128,14 @@ const DropdownMenuLinkItem = React.forwardRef<
 export {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuEmpty,
+	DropdownMenuFilterInput,
+	DropdownMenuFilterProvider,
 	DropdownMenuGroup,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuLinkItem,
+	DropdownMenuList,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 };
