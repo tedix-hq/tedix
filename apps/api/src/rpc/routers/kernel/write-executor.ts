@@ -481,9 +481,7 @@ export async function executeApprovedKernelWrite(args: {
 		const callStored = async (
 			callArgs: Record<string, unknown>,
 		): Promise<KernelWriteExecutionResult> => {
-			const nativeName = args.approvalRequestId
-				? undefined
-				: described?.native?.name;
+			const nativeName = described?.native?.name;
 			const params = nativeName
 				? { name: nativeName, arguments: callArgs }
 				: transport === "codemode"
@@ -492,6 +490,9 @@ export async function executeApprovedKernelWrite(args: {
 			if (args.approvalRequestId)
 				params._meta = {
 					"com.tedix/homeApprovalRequestId": args.approvalRequestId,
+					...(nativeName
+						? { "com.tedix/homeApprovalToolName": payload.toolName }
+						: {}),
 				};
 			const callStartedAt = Date.now();
 			let result = (await mcpCall(

@@ -26,6 +26,15 @@ directory outside the source repository. Verification reads and cleanup are
 excluded from chat wall time. Missing measurements remain null. Percentiles
 use nearest rank and include failed runs with measured timings.
 
+The acceptance record uses completed chat wall time, including CLI and ingress
+overhead: document creates must have p95 below 5000 ms and questions below
+3000 ms. First-answer deltas remain diagnostic. All 20 fixed fixtures must
+succeed in every requested round, with complete timings for both target groups;
+partial runs and `--documents-only` cannot pass acceptance. Each round has
+three document creates and ten questions. The command exits nonzero when a
+target is missed. Scratch workspace names include a run timestamp to avoid
+collisions with earlier runs whose cleanup required approval.
+
 - Route: `routePlanEnded - routePlanStarted`, context and route together.
   Explicit output creates and edits skip context assembly, so only this is set.
 - Context: `plannerFirstProgress - routePlanStarted`.

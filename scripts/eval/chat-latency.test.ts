@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	acceptance,
 	archiveWithReadback,
 	checkOutput,
 	createWorkspaceCode,
@@ -11,12 +12,56 @@ import {
 	percentiles,
 	phases,
 	readScratchWithBackoff,
+	recheckSaved,
 	runReadbackCode,
 	summarize,
 	unwrap,
 } from "./chat-latency.mjs";
 
 describe("live chat eval accounting", () => {
+	test("rechecking a failed run preserves its provider failure without requiring an output", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "chat-latency-recheck-"));
+		try {
+			await writeFile(
+				join(directory, "results.json"),
+				JSON.stringify({
+					rounds: 1,
+					rows: [
+						{
+							id: "doc-1",
+							round: 1,
+							runId: "failed-run",
+							kind: "document",
+							operation: "create",
+							ok: false,
+							wallMs: 100,
+						},
+						{
+							id: "doc-edit",
+							round: 1,
+							ok: false,
+							error: "Prerequisite create failed",
+						},
+					],
+				}),
+			);
+			await writeFile(
+				join(directory, "1-doc-1-inspect.json"),
+				JSON.stringify({
+					run: { run: { status: "failed", metadata: {} } },
+					summary: { assistantText: "FORBIDDEN: delegated scope required" },
+				}),
+			);
+			const saved = await recheckSaved(directory);
+			expect(saved.rows[0].error).toContain(
+				"FORBIDDEN: delegated scope required",
+			);
+			expect(saved.rows[1].error).toBe("Prerequisite create failed");
+			expect(saved.acceptance.passed).toBe(false);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
 	test("recognizes an archive parked for human approval", () => {
 		expect(
 			isApprovalRequired(
@@ -43,7 +88,7 @@ describe("live chat eval accounting", () => {
 			create_os_workspace: async (input: unknown) => input,
 		});
 		expect(result).toEqual({
-			name: "Latency Lab",
+			name: "Latency 3f",
 			description: `Fictional scratch eval ${label} 123; archived after measurements.`,
 			visibility: "org",
 		});
@@ -62,7 +107,7 @@ describe("live chat eval accounting", () => {
 			new Set(fixtures.filter((f) => f.target).map((f) => f.kind)),
 		).toEqual(new Set(["document", "sheet", "presentation"]));
 	});
-	test("nearest-rank p50/p90 exclude missing measurements", () => {
+	test("nearest-rank p50/p90/p95 exclude missing measurements", () => {
 		expect(
 			percentiles([
 				null,
@@ -70,8 +115,50 @@ describe("live chat eval accounting", () => {
 				NaN,
 				...Array.from({ length: 20 }, (_, i) => i + 1),
 			]),
-		).toEqual({ n: 20, p50: 10, p90: 18 });
-		expect(percentiles([null])).toEqual({ n: 0, p50: null, p90: null });
+		).toEqual({ n: 20, p50: 10, p90: 18, p95: 19 });
+		expect(percentiles([null])).toEqual({
+			n: 0,
+			p50: null,
+			p90: null,
+			p95: null,
+		});
+	});
+	test("acceptance requires every fixed request and strict p95 limits", () => {
+		const rows = fixtures.map((fixture) => ({
+			id: fixture.id,
+			round: 1,
+			kind: fixture.kind,
+			operation: fixture.target ? "edit" : fixture.kind ? "create" : "question",
+			ok: true,
+			wallMs: fixture.kind ? 4999 : 2999,
+		}));
+		expect(acceptance(rows, 1).passed).toBe(true);
+		expect(acceptance(rows.slice(1), 1).passed).toBe(false);
+		expect(acceptance([...rows.slice(1), rows[1]], 1).passed).toBe(false);
+		expect(
+			acceptance(
+				rows.map((row) => ({ ...row, wallMs: undefined })),
+				1,
+			).passed,
+		).toBe(false);
+		for (const id of ["doc-1", "q-1"]) {
+			expect(
+				acceptance(
+					rows.map((row) =>
+						row.id === id ? { ...row, wallMs: row.kind ? 5000 : 3000 } : row,
+					),
+					1,
+				).passed,
+			).toBe(false);
+		}
+		expect(
+			acceptance(
+				rows.map((row) =>
+					row.id === "deck-edit" ? { ...row, ok: false } : row,
+				),
+				1,
+			).passed,
+		).toBe(false);
 	});
 	test("hedge token time includes launch delay, never substitutes a missing token", () => {
 		expect(

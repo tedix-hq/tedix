@@ -5,6 +5,9 @@ import {
 } from "./governance";
 import * as analytics from "./utils/analytics";
 import type { ServerContext } from "./server-context";
+import { registerTextOnlyTool } from "./text-tool-registration";
+import type { ToolCallback } from "./middleware/telemetry";
+import * as toolExecution from "./tool-execution";
 
 const args = {
 	kind: "sheet",
@@ -107,6 +110,110 @@ describe("Home approval at MCP dispatch", () => {
 			credential: "user",
 		});
 	});
+	it.each([true, false])(
+		"native dispatch executes only after receipt verification (%s)",
+		async (approved) => {
+			const execute = vi.spyOn(toolExecution, "executeTool").mockResolvedValue({
+				content: [],
+				structuredContent: { ok: true },
+				_meta: {},
+			});
+			const audit = vi
+				.spyOn(analytics, "emitMcpAuditEvent")
+				.mockImplementation(() => {});
+			let callback: ToolCallback | undefined;
+			const resolve = vi.fn().mockResolvedValue({ approved });
+			const agent = context(resolve);
+			Object.assign(agent, {
+				env: {},
+				ctx: { waitUntil: vi.fn() },
+				requestMeta: {
+					"com.tedix/homeApprovalRequestId": "approval-1",
+					"com.tedix/homeApprovalToolName": "os.create_os_output",
+				},
+				server: {
+					registerTool: vi.fn((_name, _spec, handler: ToolCallback) => {
+						callback = handler;
+						return {};
+					}),
+				},
+				registeredTools: new Map(),
+				appToolIds: new Set(),
+				loadedTools: new Map(),
+				authRequiredTools: new Set(),
+			});
+			try {
+				await registerTextOnlyTool(
+					agent,
+					{
+						toolId: "tedix__create_os_output",
+						toolTypeId: "rpc",
+						title: "Create output",
+						inputSchema: { type: "object", properties: {} },
+						config: {
+							transport: "rpc",
+							endpoint: "osWorkspaces/outputs/create",
+						},
+					} as unknown as Parameters<typeof registerTextOnlyTool>[1],
+					{} as never,
+					{ readOnlyHint: false },
+				);
+				if (!callback) throw new Error("Missing registered callback");
+				await callback(args, {} as Parameters<ToolCallback>[1]);
+				expect(resolve).toHaveBeenCalledWith(
+					expect.objectContaining({ toolName: "os.create_os_output", args }),
+				);
+				if (approved)
+					expect(execute).toHaveBeenCalledWith(
+						agent,
+						expect.any(Object),
+						args,
+						expect.objectContaining({ homeApprovedCall: true }),
+					);
+				else expect(execute).not.toHaveBeenCalled();
+			} finally {
+				execute.mockRestore();
+				audit.mockRestore();
+			}
+		},
+	);
+	it.each(["os.create_os_output", "os.delete_os_output", 42])(
+		"binds a native replay's stored callable to its current server identity (%s)",
+		async (storedName) => {
+			const resolve = vi.fn().mockResolvedValue({ approved: true });
+			const result = await requireDestructiveToolApproval(
+				context(resolve),
+				{
+					toolId: "tedix__create_os_output",
+					title: "Create output",
+					config: { transport: "rpc", endpoint: "osWorkspaces/outputs/create" },
+				},
+				{ readOnlyHint: false },
+				{
+					args,
+					extra: {
+						_meta: {
+							"com.tedix/homeApprovalRequestId": "approval-1",
+							"com.tedix/homeApprovalToolName": storedName,
+						},
+					},
+				},
+			);
+			if (storedName === "os.create_os_output") {
+				expect(result).toBeNull();
+				expect(resolve).toHaveBeenCalledWith(
+					expect.objectContaining({
+						toolName: storedName,
+						args,
+						approvalRequestId: "approval-1",
+					}),
+				);
+			} else {
+				expect(result).toMatchObject({ isError: true });
+				expect(resolve).not.toHaveBeenCalled();
+			}
+		},
+	);
 	it("matches a tenant-credential retry to the approval's member", async () => {
 		const resolve = vi.fn().mockResolvedValue({ approved: true });
 		expect(

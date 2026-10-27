@@ -789,13 +789,36 @@ export async function requireDestructiveToolApproval(
 		agent.app?.organizationId
 	) {
 		try {
+			let toolName = options?.toolName ?? tool.toolId;
+			const storedName =
+				options?.extra?._meta?.["com.tedix/homeApprovalToolName"];
+			if (storedName !== undefined) {
+				const namespace = resolveMcpToolNamespace(
+					tool,
+					agent.appMetadata?.mcpConfig?.codeModeNamespaces as
+						| Record<string, string>
+						| undefined,
+				);
+				const method = sanitizeToolName(
+					tool.toolId.includes("__")
+						? tool.toolId.split("__").slice(1).join("__")
+						: tool.toolId,
+				);
+				// A native replay may name its stored Code Mode callable, but only
+				// when the current server tool projects to that exact identity.
+				if (storedName !== `${namespace}.${method}`)
+					return approvalFailure(
+						"Home approval tool identity does not match this call.",
+					);
+				toolName = storedName;
+			}
 			const approval =
 				await agent.apiClient?.mcpGovernance.resolveHomeToolApproval({
 					organizationId: agent.app.organizationId,
 					userId: homeUserId,
 					credential: agent.callerIdentity?.userId ? "user" : "tenant",
 					appSlug: agent.appSlug ?? "",
-					toolName: options?.toolName ?? tool.toolId,
+					toolName,
 					args: JSON.parse(JSON.stringify(options?.args ?? {})),
 					approvalRequestId: homeApprovalId,
 				});

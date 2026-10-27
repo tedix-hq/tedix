@@ -487,25 +487,11 @@ describe("executeApprovedKernelWrite", () => {
 			const writes = service.calls.filter(
 				(call) => call.params.name === "create_work_items",
 			);
-			const fallback = [
-				"denied",
-				"ineligible",
-				"malformed",
-				"approved",
-			].includes(scenario);
+			const fallback = ["denied", "ineligible", "malformed"].includes(scenario);
 			if (["read-only", "missing"].includes(scenario))
 				expect(service.calls).toHaveLength(1);
 			else if (fallback) {
 				expect(writes).toHaveLength(0);
-				if (scenario === "approved") {
-					expect(service.calls[0]?.params._meta).not.toHaveProperty(
-						"com.tedix/homeApprovalRequestId",
-					);
-					expect(service.calls[1]?.params._meta).toHaveProperty(
-						"com.tedix/homeApprovalRequestId",
-						"sample-approval",
-					);
-				}
 				expect(service.calls[1]?.params).toMatchObject({
 					name: "code",
 					arguments: {
@@ -517,6 +503,15 @@ describe("executeApprovedKernelWrite", () => {
 				expect(writes[0]?.params.arguments).toEqual({
 					title: "Stored arguments",
 				});
+				if (scenario === "approved") {
+					expect(service.calls[0]?.params._meta).not.toHaveProperty(
+						"com.tedix/homeApprovalRequestId",
+					);
+					expect(writes[0]?.params._meta).toMatchObject({
+						"com.tedix/homeApprovalRequestId": "sample-approval",
+						"com.tedix/homeApprovalToolName": "work.create_work_items",
+					});
+				}
 			}
 			for (const call of service.calls) {
 				expect(call.headers.get("X-Tedix-Org-Id")).toBe("org-1");
