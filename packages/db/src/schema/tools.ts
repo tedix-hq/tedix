@@ -149,6 +149,13 @@ export const appTools = sqliteTable(
 		writeCapability: text("write_capability", {
 			enum: TOOL_WRITE_CAPABILITY_VALUES,
 		}).$type<ToolWriteCapability>(),
+		/**
+		 * DECLARED action type, e.g. `comment_on_issue` (see `ToolActionTypeSchema`).
+		 * An organization admin can let one declared type run without asking,
+		 * through an org-wide `mcp_tool_approval_grants` row. NULL = undeclared:
+		 * the call keeps its normal approval. Catalog sync never writes it.
+		 */
+		actionType: text("action_type"),
 		/** MCP _meta extensions (vendor/app metadata). */
 		meta: text("meta", { mode: "json" }).$type<Record<string, JsonValue>>(),
 		/** Invocation status text (Apps SDK). Auto-(de)serialized via mode: "json". */

@@ -7,13 +7,17 @@ import {
 	reviewedConnectedEffect,
 	decideAutonomousAction,
 	humanReservedActionClasses,
+	isPlatformCriticalActionType,
 	isSafeNotionPageUpdateCall,
 	isWorkItemPurposeRepairCall,
 	platformAutonomousOperation,
 	type DelegationAutonomyPolicy,
 } from "@tedix/api-contract/utils/approval-policy";
 import { AgentLifecycleEndpointSchema } from "@tedix/api-contract/schemas/mcp-governance";
-import type { ToolAnnotations } from "@tedix/api-contract/schemas/tools";
+import {
+	ToolActionTypeSchema,
+	type ToolAnnotations,
+} from "@tedix/api-contract/schemas/tools";
 import {
 	checkAnnotationAssertion,
 	type ExpectedAnnotations,
@@ -64,7 +68,7 @@ type ApprovalContext = Pick<ServerContext, "server"> &
 		>
 	>;
 type ApprovalTool = Pick<AppTool, "toolId" | "title"> &
-	Partial<Pick<AppTool, "config" | "meta">>;
+	Partial<Pick<AppTool, "config" | "meta" | "actionType" | "writeCapability">>;
 
 /** Presentation only: keep the stored schema intact for upstream argument stripping. */
 export function withDestructiveApprovalSchema(
@@ -458,6 +462,85 @@ async function tryResolveApprovalGrant(
 			error,
 		);
 		return { approved: false };
+	}
+}
+
+/**
+ * An organization admin let this declared action type run without asking
+ * ("comment on issues without asking"). Approves only for a caller of the
+ * tool's own organization, when no "ask me" correction covers the tool or
+ * type, and the API finds a current opt-in. Any failure keeps the gate.
+ */
+async function resolveActionTypeOptIn(
+	agent: ApprovalContext,
+	tool: ApprovalTool,
+	actionType: string,
+): Promise<boolean> {
+	const organizationId = agent.app?.organizationId;
+	const governance = agent.apiClient?.mcpGovernance;
+	if (
+		!organizationId ||
+		agent.callerIdentity?.organizationId !== organizationId ||
+		!governance?.resolveActionTypeOptIn
+	)
+		return false;
+	try {
+		const policy = await governance.resolveAgentTransportPolicy?.({
+			organizationId,
+			...(agent.callerIdentity.tediId
+				? { tediId: agent.callerIdentity.tediId }
+				: {}),
+		});
+		const askForClasses = policy?.autonomy?.askForClasses ?? [];
+		if (
+			askForClasses.includes("*") ||
+			askForClasses.includes(`tool:${agent.appSlug ?? ""}:${tool.toolId}`) ||
+			askForClasses.includes(`action_type:${actionType}`)
+		)
+			return false;
+		const optIn = await governance.resolveActionTypeOptIn({
+			organizationId,
+			actionType,
+		});
+		if (!optIn.approved) return false;
+		const reason = `Allowed without asking by the organization setting for "${actionType.replaceAll("_", " ")}"`;
+		emitGovernanceAuditEvent(agent, tool, "destructive_approved", reason, {
+			resolvedBy: "action_type_opt_in",
+			actionType,
+			grantId: optIn.grantId,
+		});
+		// Run history lists automatic approvals from approval rows; the row is a
+		// record, not a gate, so failing to write it never blocks the call.
+		await governance
+			.recordPolicyToolApproval?.({
+				organizationId,
+				appSlug: agent.appSlug ?? "",
+				toolId: tool.toolId,
+				reason,
+				operationId: `action_type:${actionType}`,
+				...(agent.callerIdentity.userId
+					? { userId: agent.callerIdentity.userId }
+					: {}),
+				...(agent.callerIdentity.tediId
+					? { tediId: agent.callerIdentity.tediId }
+					: {}),
+				...(agent.callerIdentity.externalAgentPrincipalId
+					? {
+							externalAgentPrincipalId:
+								agent.callerIdentity.externalAgentPrincipalId,
+						}
+					: {}),
+			})
+			.catch(() => {
+				console.warn("[governance] policy_approval_record_failed", {
+					organizationId,
+					toolId: tool.toolId,
+				});
+			});
+		return true;
+	} catch {
+		// Without a verified opt-in the normal gates below decide.
+		return false;
 	}
 }
 
@@ -944,6 +1027,27 @@ export async function requireDestructiveToolApproval(
 		humanReservedActionClasses(
 			`${tool.config?.endpoint ?? ""} ${tool.config?.mcpToolName ?? ""}`,
 		).length > 0;
+	// A declared action type an organization admin opted in. An undeclared,
+	// destructive or platform-critical tool, an explicit tool policy and the
+	// owned publish boundary never take this path; external effects such as a
+	// comment on a provider's issue may, because that is what the admin chose.
+	const declaredActionType = ToolActionTypeSchema.safeParse(tool.actionType);
+	if (
+		declaredActionType.success &&
+		risk !== "read" &&
+		annotations?.readOnlyHint !== true &&
+		!isPlatformCriticalActionType(declaredActionType.data) &&
+		!isOwnedChannelBoundary &&
+		!configuredApproval &&
+		!manifestProtectedEffect &&
+		annotations?.destructiveHint !== true &&
+		tool.writeCapability !== "destructive" &&
+		risk !== "high_impact_write" &&
+		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
+			.length === 0 &&
+		(await resolveActionTypeOptIn(agent, tool, declaredActionType.data))
+	)
+		return null;
 	// A tenant skill reaches platform tools (os.*, tedix.*) on the public tedix
 	// app, which another organization owns. The run, skill, tedi and policy
 	// belong to the caller's organization, so authorize there; the API checks

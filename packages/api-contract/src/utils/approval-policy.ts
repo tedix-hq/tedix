@@ -403,6 +403,19 @@ export function humanReservedActionClasses(content: string): string[] {
 		.filter((id) => !(draftOnly && draftOnlyWaivedClasses.has(id)));
 }
 
+/**
+ * Whether a declared tool action type names a platform-critical class (money,
+ * external messages, publishing, credentials, access, deletion, legal,
+ * production settings). Such a type always asks; no organization can opt in.
+ */
+export function isPlatformCriticalActionType(actionType: string): boolean {
+	const type = actionType.trim().toLowerCase();
+	return (
+		criticalActionRules.some((rule) => rule.id === type) ||
+		humanReservedActionClasses(type).length > 0
+	);
+}
+
 export function decideAutonomousAction(input: {
 	policy?: DelegationAutonomyPolicy | null;
 	risk: "low" | "medium" | "high" | "critical" | "unknown";

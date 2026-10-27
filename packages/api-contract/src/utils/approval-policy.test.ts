@@ -15,6 +15,7 @@ import {
 	runtimeApprovalResolverMetadata,
 	runtimeApprovalReviewSemantics,
 	writeToolMatchesAllowlist,
+	isPlatformCriticalActionType,
 } from "./approval-policy";
 
 describe("resolveRuntimeApprovalAuthority", () => {
@@ -934,4 +935,27 @@ describe("isWorkItemPurposeRepairCall", () => {
 	])("refuses %s", (_label, args) => {
 		expect(isWorkItemPurposeRepairCall(args)).toBe(false);
 	});
+});
+
+describe("isPlatformCriticalActionType", () => {
+	it.each([
+		"money",
+		"external_message",
+		"public_publish",
+		"delete_data",
+		"send_email",
+		"publish_post",
+		"pay_invoice",
+		"delete_issue",
+		"rotate_api_key",
+		"change_member_role",
+	])("%s always asks", (type) => {
+		expect(isPlatformCriticalActionType(type)).toBe(true);
+	});
+	it.each(["comment_on_issue", "close_issue", "label_issue", "update_ticket"])(
+		"%s can be opted in",
+		(type) => {
+			expect(isPlatformCriticalActionType(type)).toBe(false);
+		},
+	);
 });

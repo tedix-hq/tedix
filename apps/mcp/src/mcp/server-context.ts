@@ -57,6 +57,8 @@ export interface AppTool {
 	 * read-only — code-built tools that carry explicit annotations simply omit it.
 	 */
 	writeCapability?: ToolWriteCapability | null;
+	/** Declared action type an org admin can opt in; absent/null keeps approval. */
+	actionType?: string | null;
 	meta: Record<string, JsonValue> | null;
 	invocationStatus: ToolInvocationStatus | null;
 	fileParams: string[] | null;

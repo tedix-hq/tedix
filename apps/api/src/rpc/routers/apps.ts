@@ -1805,6 +1805,7 @@ function toAppToolDto(tool: AppToolRecord) {
 		// apps/mcp folds this onto the wire annotations, so omitting it here would
 		// leave every declared-but-unannotated tool UNDECLARED at the gates.
 		writeCapability: tool.writeCapability,
+		actionType: tool.actionType,
 		meta: tool.meta,
 		invocationStatus: tool.invocationStatus,
 		fileParams: tool.fileParams,

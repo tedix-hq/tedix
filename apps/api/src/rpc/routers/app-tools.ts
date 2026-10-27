@@ -256,6 +256,7 @@ export const createAppTool = authedAppToolsOs.create
 				toolData.writeCapability !== undefined
 					? toolData.writeCapability
 					: deriveToolWriteCapability(toolData.annotations),
+			actionType: toolData.actionType,
 			meta: toolData.meta == null ? toolData.meta : toJsonRecord(toolData.meta),
 			invocationStatus: toolData.invocationStatus,
 			fileParams: toolData.fileParams,
@@ -417,6 +418,10 @@ export const updateAppTool = authedAppToolsOs.update
 					: input.annotations !== undefined
 						? deriveToolWriteCapability(input.annotations)
 						: existingTool.writeCapability,
+			actionType:
+				input.actionType !== undefined
+					? input.actionType
+					: existingTool.actionType,
 			meta:
 				input.meta !== undefined
 					? input.meta === null

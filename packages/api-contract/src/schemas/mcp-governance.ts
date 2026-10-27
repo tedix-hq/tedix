@@ -14,6 +14,7 @@
 
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
+import { ToolActionTypeSchema } from "./tools";
 
 /** Exact Home write receipt, checked again at the MCP dispatch boundary. */
 export const ResolveHomeToolApprovalInputSchema = z.object({
@@ -71,6 +72,39 @@ export const ResolveMcpToolApprovalGrantResponseSchema = z.object({
 export type ResolveMcpToolApprovalGrantResponse = z.infer<
 	typeof ResolveMcpToolApprovalGrantResponseSchema
 >;
+
+/** Gateway lookup: did an org admin let this declared action type run without asking? */
+export const ResolveActionTypeOptInInputSchema = z.object({
+	organizationId: z.string().min(1),
+	actionType: ToolActionTypeSchema,
+});
+export const ResolveActionTypeOptInResponseSchema = z.object({
+	approved: z.boolean(),
+	grantId: z.string().nullable(),
+});
+
+export const ActionTypeOptInSchema = z.object({
+	grantId: z.string(),
+	actionType: z.string(),
+	reason: z.string().nullable(),
+	createdAt: z.string(),
+});
+export const ListActionTypeOptInsResponseSchema = z.object({
+	data: z.array(ActionTypeOptInSchema),
+});
+export const SetActionTypeOptInInputSchema = z.object({
+	actionType: ToolActionTypeSchema.describe(
+		"Declared tool action type, for example comment_on_issue.",
+	),
+	enabled: z
+		.boolean()
+		.describe("true lets this action run without asking; false asks again."),
+});
+export const SetActionTypeOptInResponseSchema = z.object({
+	actionType: z.string(),
+	enabled: z.boolean(),
+	optIn: ActionTypeOptInSchema.nullable(),
+});
 
 export const ResolveAgentTransportPolicyInputSchema = z.object({
 	organizationId: z.string().min(1),

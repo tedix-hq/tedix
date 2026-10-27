@@ -30,7 +30,10 @@ import { createError, ErrorCodes } from "../orpc";
 import { resolveAgentLifecycleAuthorization } from "@tedix/db/queries/mcp-agent-lifecycle";
 import { implement } from "@orpc/server";
 import { mcpGovernanceContract } from "@tedix/api-contract/contracts/mcp-governance";
-import { parseKernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
+import {
+	isPlatformCriticalActionType,
+	parseKernelGovernancePolicy,
+} from "@tedix/api-contract/utils/approval-policy";
 import {
 	isMethodAllowed,
 	readPinnedCapabilityManifest,
@@ -47,14 +50,20 @@ import {
 import { getPolicyPackById } from "@tedix/db/queries/control-plane/definitions";
 import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-support";
 import {
+	findActionTypeOptIn,
+	listActionTypeOptIns,
 	resolveToolApprovalGrant,
 	resolveWorkItemAuthorization,
+	setActionTypeOptIn,
 } from "@tedix/db/queries/mcp-governance";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
+import { requireOrgId } from "../org-scope";
 import {
+	AUTHZ,
 	type BaseContext,
 	resolveServiceBindingOrganizationId,
+	withAuth,
 	withServiceAuth,
 } from "../orpc";
 
@@ -62,6 +71,7 @@ const mcpGovernanceOs = implement(
 	mcpGovernanceContract,
 ).$context<BaseContext>();
 const serviceOs = mcpGovernanceOs.use(withServiceAuth);
+const authOs = mcpGovernanceOs.use(withAuth);
 const RESERVED_SKILL_NAMESPACES = new Set(["tedi", "home", "kernel", "os"]);
 const RUNNABLE_SKILL_STATES = new Set(["active", "proven", "crystallized"]);
 
@@ -637,6 +647,56 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			return result;
 		},
 	),
+	resolveActionTypeOptIn: serviceOs.resolveActionTypeOptIn.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			// Re-checked here so a row written before a class became critical
+			// can never approve it.
+			if (isPlatformCriticalActionType(input.actionType))
+				return { approved: false, grantId: null };
+			const optIn = await findActionTypeOptIn(context.db, input);
+			return { approved: Boolean(optIn), grantId: optIn?.grantId ?? null };
+		},
+	),
+	listActionTypeOptIns: authOs.listActionTypeOptIns
+		.use(AUTHZ.settingsRead)
+		.handler(async ({ context }) => ({
+			data: await listActionTypeOptIns(context.db, {
+				organizationId: requireOrgId(context),
+			}),
+		})),
+	setActionTypeOptIn: authOs.setActionTypeOptIn
+		.use(AUTHZ.settingsWrite)
+		.handler(async ({ input, context }) => {
+			const organizationId = requireOrgId(context);
+			// A person decides; a tedi, agent or key holding apps:write cannot
+			// widen its own approvals.
+			if (
+				context.authType !== "user" ||
+				!context.userId ||
+				!(await isActiveOwnerOrAdmin(context, organizationId, context.userId))
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only an organization owner or admin can change which actions run without asking",
+				);
+			if (input.enabled && isPlatformCriticalActionType(input.actionType))
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					`"${input.actionType}" is a platform-critical action and always asks for approval`,
+				);
+			const optIn = await setActionTypeOptIn(context.db, {
+				organizationId,
+				actionType: input.actionType,
+				enabled: input.enabled,
+				reason: `set by user:${context.userId}`,
+			});
+			return {
+				actionType: input.actionType,
+				enabled: input.enabled,
+				optIn: optIn ?? null,
+			};
+		}),
 	resolveWorkItemAuthorization: serviceOs.resolveWorkItemAuthorization.handler(
 		async ({ input, context }) => {
 			return resolveWorkItemAuthorization(context.db, {

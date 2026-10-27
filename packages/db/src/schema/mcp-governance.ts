@@ -16,6 +16,10 @@
  * operator action via `createGrant` (queries layer only; no RPC/UI wired yet,
  * intentionally — see `docs/engineering/mcp/runtime.md` follow-up).
  *
+ * The one admin-facing writer is the organization-wide opt-in per declared
+ * tool action type (`subject_id = '*'`, `tool_id = 'action_type:<type>'`,
+ * `always`), set through `mcpGovernance.setActionTypeOptIn`.
+ *
  * Additive table only. No existing table is altered.
  */
 

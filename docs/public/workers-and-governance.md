@@ -72,6 +72,21 @@ set `governancePolicy.writeTier.trustedTools` to the permitted tool patterns.
 An explicit `"*"` pattern provides standing consent within existing grants;
 high-risk and critical actions still require a human.
 
+An owner or admin can also let one kind of action run without asking, such as
+"comment on issues". It works like this:
+
+1. The app's tool says what it does with an action type, for example
+   `comment_on_issue` on a GitHub comment tool. A tool with no action type
+   keeps asking.
+2. The owner or admin turns that type on with
+   `mcpGovernance.setActionTypeOptIn` (`{ "actionType": "comment_on_issue",
+   "enabled": true }`). Send `"enabled": false` to have it ask again.
+3. Agents now comment without an approval card. Activity names the setting as
+   the reason. Closing an issue is a different type, so it still asks.
+
+Critical actions can never be turned on this way, and neither can permanent
+deletion. A **This should have asked me** correction for the tool still wins.
+
 Home dispatches eligible work immediately, waking a standby tedi when needed.
 Coding work is spread across tedis that share the same repository, least busy
 first. Its Activity receipt identifies the task, tedi, and outcome. **This should

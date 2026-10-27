@@ -21,6 +21,7 @@ import {
 	TOOL_EXECUTION_TASK_SUPPORT_VALUES,
 	TOOL_SCHEMA_DIALECT_VALUES,
 	TOOL_SCHEMA_SOURCE_VALUES,
+	ToolActionTypeSchema,
 	ToolAnnotationsSchema,
 	ToolIconSchema,
 	ToolInputJsonSchemaSchema,
@@ -82,6 +83,11 @@ export const CreateAppToolInputSchema = z.object({
 		.describe(
 			"Explicit write-capability declaration. Omit to derive it from `annotations`; send null to clear it back to UNDECLARED. The manual path exists for upstream MCP servers that never send annotations at all, whose tools can otherwise never be classified.",
 		),
+	actionType: ToolActionTypeSchema.nullable()
+		.optional()
+		.describe(
+			"What one call does, for example comment_on_issue. An organization admin can let a declared type run without asking. Omit to keep it; null clears it so the tool asks again.",
+		),
 	meta: ToolMetaSchema.nullable().optional(),
 	invocationStatus: ToolInvocationStatusSchema.nullable().optional(),
 	fileParams: z.array(z.string().min(1)).nullable().optional(),
@@ -139,6 +145,11 @@ export const UpdateAppToolInputSchema = z.object({
 		.optional()
 		.describe(
 			"Explicit write-capability declaration. Omit to derive it from `annotations`; send null to clear it back to UNDECLARED. The manual path exists for upstream MCP servers that never send annotations at all, whose tools can otherwise never be classified.",
+		),
+	actionType: ToolActionTypeSchema.nullable()
+		.optional()
+		.describe(
+			"What one call does, for example comment_on_issue. An organization admin can let a declared type run without asking. Omit to keep it; null clears it so the tool asks again.",
 		),
 	meta: ToolMetaSchema.nullable().optional(),
 	invocationStatus: ToolInvocationStatusSchema.nullable().optional(),
