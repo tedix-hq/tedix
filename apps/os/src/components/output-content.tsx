@@ -420,6 +420,7 @@ function RichDocumentView({
 	const empty = document.content.every(
 		(node) => node.type === "paragraph" && !node.content?.length,
 	);
+	if (empty && content.file) return null;
 	if (empty) {
 		return (
 			<Empty
