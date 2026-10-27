@@ -105,13 +105,17 @@ async function openImagePicker(container: HTMLElement) {
 			.querySelector<HTMLButtonElement>('[aria-label="Insert slide element"]')!
 			.click();
 	});
-	await until(() => document.querySelector('[data-slide-component="image"]') !== null);
+	await until(
+		() => document.querySelector('[data-slide-component="image"]') !== null,
+	);
 	await act(async () => {
 		document
 			.querySelector<HTMLButtonElement>('[data-slide-component="image"]')!
 			.click();
 	});
-	await until(() => document.querySelector('[aria-label="Choose slide image"]') !== null);
+	await until(
+		() => document.querySelector('[aria-label="Choose slide image"]') !== null,
+	);
 }
 
 afterEach(() => {
@@ -131,9 +135,9 @@ describe("isSlideImageResource", () => {
 		expect(
 			isSlideImageResource(fileResource({ resourceType: "calendar" })),
 		).toBe(false);
-		expect(
-			isSlideImageResource(fileResource({ providerId: "google" })),
-		).toBe(false);
+		expect(isSlideImageResource(fileResource({ providerId: "google" }))).toBe(
+			false,
+		);
 	});
 });
 
@@ -157,10 +161,7 @@ describe("slide media picker", () => {
 			url: "/api/workspace-files/icon.svg",
 			expiresAt: "2026-01-01T01:00:00Z",
 		});
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue(new Response("<svg/>")),
-		);
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("<svg/>")));
 		const mounted = mountEditor();
 		await openImagePicker(mounted.container);
 		expect(resources.list).toHaveBeenCalledWith({
@@ -170,8 +171,9 @@ describe("slide media picker", () => {
 		});
 		await until(
 			() =>
-				document.querySelector('[aria-label="Use workspace image Icon.svg"]') !==
-				null,
+				document.querySelector(
+					'[aria-label="Use workspace image Icon.svg"]',
+				) !== null,
 		);
 		expect(
 			document.querySelector('[aria-label^="Use workspace image notes.pdf"]'),
