@@ -5362,6 +5362,25 @@ const localPreparation = (descriptor: unknown) => ({
 	descriptorDigest: LOCAL_POLICY_DIGEST,
 	expiresAt: localPolicyExpiry,
 });
+function fixtureScheduleControl(
+	input: { id: string },
+	action: "paused" | "resumed",
+) {
+	const row = SCHEDULES.find((schedule) => schedule.skillId === input.id);
+	if (!row) throw new RpcError("NOT_FOUND", "Skill has no schedule");
+	const enabled = action === "resumed";
+	const changed = row.enabled !== enabled;
+	row.enabled = enabled;
+	return {
+		skillId: row.skillId,
+		slug: SKILLS.find((skill) => skill.id === row.skillId)?.slug ?? null,
+		action,
+		changed,
+		scheduleEnabled: row.enabled,
+		nextFireAt: row.enabled ? row.nextFireAt : null,
+	};
+}
+
 const handlers: Record<string, (input: never) => unknown> = {
 	"mcpGovernance/listTenantToolPolicies": () => ({ items: localPolicyRows }),
 	"mcpGovernance/listDeletedTenantPolicyFences": () => ({ items: [] }),
@@ -6017,6 +6036,33 @@ const handlers: Record<string, (input: never) => unknown> = {
 		limit: 100,
 		nextOffset: null,
 	}),
+	"skills/pauseSchedule": (input: { id: string }) =>
+		fixtureScheduleControl(input, "paused"),
+	"skills/resumeSchedule": (input: { id: string }) =>
+		fixtureScheduleControl(input, "resumed"),
+	"skills/updateSchedule": (input: {
+		id: string;
+		cron?: string;
+		enabled?: boolean;
+	}) => {
+		const row = SCHEDULES.find((schedule) => schedule.skillId === input.id);
+		if (!row) throw new RpcError("NOT_FOUND", "Skill has no schedule");
+		const cronChanged = input.cron !== undefined && input.cron !== row.cron;
+		const enabledChanged =
+			input.enabled !== undefined && input.enabled !== row.enabled;
+		const changed = cronChanged || enabledChanged;
+		if (cronChanged) row.cron = input.cron!;
+		if (enabledChanged) row.enabled = input.enabled!;
+		return {
+			skillId: row.skillId,
+			slug: SKILLS.find((skill) => skill.id === row.skillId)?.slug ?? null,
+			action: "updated" as const,
+			changed,
+			cron: row.cron,
+			scheduleEnabled: row.enabled,
+			nextFireAt: row.enabled ? row.nextFireAt : null,
+		};
+	},
 	"skills/runWorkflowHistory": (
 		input: { status?: SkillRunRow["status"]; limit?: number } | undefined,
 	) => {

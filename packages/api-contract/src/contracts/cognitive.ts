@@ -306,6 +306,44 @@ const SkillScheduleControlResultSchema = z.object({
 	nextFireAt: z.string().nullable(),
 });
 
+const SkillScheduleUpdateInputSchema = z
+	.object({
+		organizationId: z.uuid().optional(),
+		id: z
+			.string()
+			.min(1)
+			.describe("The skill whose manifest-owned schedule to update"),
+		cron: z
+			.string()
+			.min(1)
+			.max(200)
+			.optional()
+			.describe(
+				"New five-field UTC cron for capabilities.schedule.cron; omit to keep the current cadence",
+			),
+		enabled: z
+			.boolean()
+			.optional()
+			.describe(
+				"New capabilities.schedule.enabled state; omit to keep the current state",
+			),
+	})
+	.strict()
+	.refine((value) => value.cron !== undefined || value.enabled !== undefined, {
+		message: "Provide cron and/or enabled to update the schedule",
+	});
+
+const SkillScheduleUpdateResultSchema = z.object({
+	skillId: z.string(),
+	slug: z.string().nullable(),
+	action: z.literal("updated"),
+	/** False when the schedule already held the requested cron and state. */
+	changed: z.boolean(),
+	cron: z.string(),
+	scheduleEnabled: z.boolean(),
+	nextFireAt: z.string().nullable(),
+});
+
 const SkillWorkflowRestartFromSchema = z.object({
 	name: z.string().min(1),
 	count: z.number().int().min(1).optional(),
@@ -2053,6 +2091,18 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 		})
 		.input(SkillScheduleControlInputSchema)
 		.output(SkillScheduleControlResultSchema),
+
+	updateSchedule: oc
+		.route({
+			method: "POST",
+			path: "/skills/update-schedule",
+			tags: ["cognitive"],
+			summary: "Update a skill's schedule",
+			description:
+				"Change one skill's schedule policy (capabilities.schedule.cron and/or enabled) in a single skill revision; params, workflow and body stay as they are. Use for 'run skill <id> at a different time' or a combined retime-and-toggle. Idempotent: an unchanged policy records no revision. A plain on/off flip can also use pause_skill_schedule/resume_skill_schedule.",
+		})
+		.input(SkillScheduleUpdateInputSchema)
+		.output(SkillScheduleUpdateResultSchema),
 
 	restartWorkflow: oc
 		.route({

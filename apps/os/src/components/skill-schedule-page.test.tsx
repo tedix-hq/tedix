@@ -19,9 +19,14 @@ import {
 	vi,
 } from "vite-plus/test";
 
-const mocks = vi.hoisted(() => ({ read: vi.fn() }));
+const mocks = vi.hoisted(() => ({ read: vi.fn(), update: vi.fn() }));
 vi.mock("@/lib/api", () => ({
-	osApi: { skills: { listWorkflowSchedules: mocks.read } },
+	osApi: {
+		skills: {
+			listWorkflowSchedules: mocks.read,
+			updateSchedule: mocks.update,
+		},
+	},
 }));
 vi.mock("@/lib/use-tedi-names", () => ({
 	useTediNames: () => ({ worker: "Example worker" }),
@@ -220,6 +225,30 @@ describe("manifest skill schedule clocks", () => {
 		expect(node.textContent).toContain("Could not refresh schedules");
 		expect(node.textContent).toContain("Showing previously loaded schedules");
 		expect(node.textContent).toContain("Next run in 1h");
+	});
+	it("turns a schedule off through skills.updateSchedule and confirms it", async () => {
+		mocks.update.mockResolvedValue({
+			skillId: "alpha",
+			slug: "alpha-skill",
+			action: "updated",
+			changed: true,
+			cron: "0 13 * * *",
+			scheduleEnabled: false,
+			nextFireAt: null,
+		});
+		const { node } = await mount([schedule()]);
+		const toggle = [...node.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Turn off"),
+		)!;
+		await act(async () => toggle.click());
+		await flush();
+		expect(mocks.update).toHaveBeenCalledWith({
+			id: "alpha",
+			enabled: false,
+		});
+		expect(node.textContent).toContain(
+			"Off — it will not run again until you turn it back on.",
+		);
 	});
 	it("changes the generated query identity when the skill changes", async () => {
 		const { node, router } = await mount([schedule()]);

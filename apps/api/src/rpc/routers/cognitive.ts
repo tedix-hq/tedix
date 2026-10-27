@@ -62,6 +62,7 @@ import {
 import {
 	skillsPauseSchedule,
 	skillsResumeSchedule,
+	skillsUpdateSchedule,
 } from "./cognitive-skill-schedule";
 import {
 	skillsCompareWorkflowRevisions,
@@ -177,6 +178,7 @@ export const skillsContractRouter = skillsOs.router({
 	resumeWorkflow: skillsResumeWorkflow,
 	pauseSchedule: skillsPauseSchedule,
 	resumeSchedule: skillsResumeSchedule,
+	updateSchedule: skillsUpdateSchedule,
 	restartWorkflow: skillsRestartWorkflow,
 	approveWorkflow: skillsApproveWorkflow,
 	rejectWorkflow: skillsRejectWorkflow,

@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useEffect, useReducer } from "react";
+import { useEffect, useReducer, useState } from "react";
+import type { SkillSchedule } from "@tedix/api-contract/contracts/cognitive";
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import {
 	Collection,
@@ -13,6 +15,12 @@ import {
 } from "@/components/kumo/page";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { ListQueryBoundary } from "@/components/list-query-boundary";
+import {
+	SkillScheduleDialog,
+	scheduleUpdateConfirmation,
+	useUpdateSkillSchedule,
+} from "@/components/skill-schedule-controls";
+import { errorMessage } from "@/lib/orpc-error";
 import { Text } from "@/components/kumo/text";
 import { skillSpecificSchedulesQueryOptions } from "@/lib/os-query-options";
 import { osTimeZone, useOsFormattingPreferences } from "@/lib/format";
@@ -25,9 +33,17 @@ export function SkillSchedulePage() {
 	const schedules = useQuery(skillSpecificSchedulesQueryOptions(skillId));
 	const tediNames = useTediNames();
 	const [, tick] = useReducer((value: number) => value + 1, 0);
+	const [editing, setEditing] = useState<SkillSchedule | null>(null);
+	const [notices, setNotices] = useState<Record<string, string>>({});
 	const now = Date.now();
 	const timezone =
 		osTimeZone() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+	const update = useUpdateSkillSchedule((result) =>
+		setNotices((current) => ({
+			...current,
+			[result.skillId]: scheduleUpdateConfirmation(result, timezone),
+		})),
+	);
 	useEffect(() => {
 		const next = Math.min(
 			...(schedules.data?.schedules ?? [])
@@ -48,8 +64,8 @@ export function SkillSchedulePage() {
 				<SectionHeading>
 					<SectionTitle id="skill-schedules-title">Schedule</SectionTitle>
 					<SectionDescription>
-						Schedules defined by this skill. To change them, publish a new
-						revision.
+						Schedules defined by this skill. Change the time or switch a
+						schedule off and on here; each change is saved as a new revision.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -118,24 +134,69 @@ export function SkillSchedulePage() {
 											: ""}
 									</Text>
 								) : null}
-								{schedule.lastRunId ? (
-									<Link
-										href={`/work/runs/${schedule.lastRunId}`}
-										variant="inline"
-										className="flex min-h-11 min-w-11 w-fit items-center"
-										title={
-											schedule.lastFireAt
-												? absoluteTime(schedule.lastFireAt)
-												: undefined
+								<span className="flex flex-wrap items-center gap-2">
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={update.isPending}
+										onClick={() =>
+											update.mutate({
+												id: schedule.skillId,
+												enabled: !schedule.enabled,
+											})
 										}
 									>
-										Open latest run
-									</Link>
+										{schedule.enabled ? "Turn off" : "Turn on"}
+									</Button>
+									<Button
+										size="sm"
+										variant="outline"
+										disabled={update.isPending}
+										onClick={() => setEditing(schedule)}
+									>
+										Change time
+									</Button>
+									{schedule.lastRunId ? (
+										<Link
+											href={`/work/runs/${schedule.lastRunId}`}
+											variant="inline"
+											className="flex min-h-11 min-w-11 w-fit items-center"
+											title={
+												schedule.lastFireAt
+													? absoluteTime(schedule.lastFireAt)
+													: undefined
+											}
+										>
+											Open latest run
+										</Link>
+									) : null}
+								</span>
+								{notices[schedule.skillId] ? (
+									<Text
+										as="span"
+										role="label"
+										tone="secondary"
+										className="m-0"
+										aria-live="polite"
+									>
+										{notices[schedule.skillId]}
+									</Text>
+								) : null}
+								{update.isError ? (
+									<Text as="span" role="label" tone="error" className="m-0">
+										{(update.error as Error).message}
+									</Text>
 								) : null}
 							</li>
 						))}
 					</Collection>
 				))}
+			{editing ? (
+				<SkillScheduleDialog
+					schedule={editing}
+					close={() => setEditing(null)}
+				/>
+			) : null}
 		</PageSection>
 	);
 }
