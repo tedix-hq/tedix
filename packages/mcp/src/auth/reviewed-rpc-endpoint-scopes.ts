@@ -632,6 +632,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osWorkspaces/workspaces/delete": "mcp:apps.admin",
 	"osWorkspaces/workspaces/previewBlueprintUpgrade": "mcp:apps.read",
 	"osWorkspaces/workspaces/restore": "mcp:apps.write",
+	"osWorkspaces/workspaces/removeIcon": "mcp:apps.write",
+	"osWorkspaces/workspaces/setIcon": "mcp:apps.write",
 	"osWorkspaces/workspaces/update": "mcp:apps.write",
 	"personalResourceDelegations/create": "mcp:settings.admin",
 	"personalResourceDelegations/list": "mcp:settings.read",

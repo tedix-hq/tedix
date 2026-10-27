@@ -7957,6 +7957,22 @@ const handlers: Record<string, (input: never) => unknown> = {
 		workspace.updatedAt = now();
 		return { workspace };
 	},
+	"osWorkspaces/workspaces/setIcon": (input: {
+		workspaceId: string;
+		contentType: string;
+		fileData: string;
+	}) => {
+		const workspace = findWorkspace(input.workspaceId);
+		workspace.iconUrl = `data:${input.contentType};base64,${input.fileData}`;
+		workspace.updatedAt = now();
+		return { workspace };
+	},
+	"osWorkspaces/workspaces/removeIcon": (input: { workspaceId: string }) => {
+		const workspace = findWorkspace(input.workspaceId);
+		workspace.iconUrl = null;
+		workspace.updatedAt = now();
+		return { workspace };
+	},
 	"osWorkspaces/workspaces/archive": (input: { workspaceId: string }) => {
 		const workspace = findWorkspace(input.workspaceId);
 		workspace.status = "archived";

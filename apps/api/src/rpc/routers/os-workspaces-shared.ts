@@ -300,6 +300,7 @@ export function mapWorkspace(row: OsWorkspaceRow): OsWorkspace {
 		updatedAt: row.updatedAt,
 		visibility: row.visibility,
 		ownerUserId: row.ownerUserId,
+		iconUrl: row.iconUrl,
 	};
 }
 

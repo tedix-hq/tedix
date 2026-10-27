@@ -1,0 +1,1 @@
+ALTER TABLE `os_workspaces` ADD `icon_url` text;

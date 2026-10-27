@@ -64,6 +64,16 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "set_os_workspace_icon",
+		endpoint: "osWorkspaces/workspaces/setIcon",
+		kind: "write",
+	},
+	{
+		toolId: "remove_os_workspace_icon",
+		endpoint: "osWorkspaces/workspaces/removeIcon",
+		kind: "write",
+	},
+	{
 		toolId: "list_os_workspace_preferences",
 		endpoint: "osWorkspaces/workspacePreferences/list",
 		kind: "read",

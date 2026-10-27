@@ -122,6 +122,7 @@ export interface UpdateOsWorkspacePatch {
 	status?: OsWorkspaceRow["status"];
 	visibility?: OsWorkspaceRow["visibility"];
 	ownerUserId?: string | null;
+	iconUrl?: string | null;
 }
 
 export async function createOsWorkspace(

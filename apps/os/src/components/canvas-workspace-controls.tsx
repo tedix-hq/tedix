@@ -40,6 +40,7 @@ import {
 import { osApi } from "@/lib/api";
 import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 import { WorkspaceBlueprintDialog } from "@/components/workspace-blueprint-dialog";
+import { WorkspaceIconField } from "@/components/workspace-icon-field";
 import {
 	BlueprintUpdateButton,
 	BlueprintUpdateDialog,
@@ -159,6 +160,9 @@ function WorkspaceFormDialog({
 							/>
 						)}
 					</FormField>
+					{mode === "edit" && workspace ? (
+						<WorkspaceIconField workspace={workspace} />
+					) : null}
 					{mutation.isError && (
 						<Alert variant="destructive">
 							<AlertTitle>Workspace not saved</AlertTitle>

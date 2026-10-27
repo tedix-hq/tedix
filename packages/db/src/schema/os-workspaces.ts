@@ -98,6 +98,11 @@ export const osWorkspaces = sqliteTable(
 			.default("org"),
 		/** Descope user id of the member who owns a private workspace; null for `org`. */
 		ownerUserId: text("owner_user_id"),
+		/**
+		 * Public delivery URL of the workspace's uploaded icon (Cloudflare
+		 * Images), shown instead of its initials. Null when none is set.
+		 */
+		iconUrl: text("icon_url"),
 	},
 	(table) => [
 		uniqueIndex("os_workspaces_org_id_unique").on(
