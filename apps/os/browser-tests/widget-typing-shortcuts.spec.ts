@@ -89,6 +89,7 @@ try {
 	});
 	const before = await page.evaluate(() => ({
 		url: location.href,
+		dialogs: document.querySelectorAll("[role=dialog]").length,
 		scroll: document.querySelector('.route-content [data-slot="page"]')
 			?.scrollTop,
 		context: document.querySelectorAll("[data-decision-context]").length,
@@ -115,13 +116,14 @@ try {
 	);
 	const after = await page.evaluate(() => ({
 		url: location.href,
+		dialogs: document.querySelectorAll("[role=dialog]").length,
 		scroll: document.querySelector('.route-content [data-slot="page"]')
 			?.scrollTop,
 		context: document.querySelectorAll("[data-decision-context]").length,
 	}));
 	assert.deepEqual(after, before, "No page shortcut changed the page");
 	assert.equal(
-		await page.locator("[role=dialog]").count(),
+		await page.getByRole("dialog").count(),
 		0,
 		"No shortcut dialog opened",
 	);
