@@ -3,6 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { skillEntries } from "../../schema/cognitive";
+import { organizations } from "../../schema/organizations";
+import { providerInstallations } from "../../schema/provider-installations";
 import { appTools } from "../../schema/tools";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -28,7 +30,9 @@ const PLATFORM_ORG = "20000000-0000-4000-8000-000000000003";
 function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	sqlite.exec(schemaDdl(apps, skillEntries));
+	sqlite.exec(
+		schemaDdl(apps, skillEntries, organizations, providerInstallations),
+	);
 	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
 }
 
@@ -584,6 +588,66 @@ describe("skill MCP aggregate source authorization", () => {
 			sqlite.close();
 		},
 	);
+	it("follows an org install to a private Tedix platform base app, not another tenant's", async () => {
+		const { db, sqlite } = realDb();
+		sqlite
+			.prepare(
+				"INSERT INTO organizations (id, name, slug, descope_tenant_id) VALUES (?, ?, ?, ?), (?, ?, ?, ?), (?, ?, ?, ?)",
+			)
+			.run(
+				PLATFORM_ORG,
+				"Tedix",
+				"tedix",
+				"org_tedix",
+				ACME_ORG,
+				"Acme",
+				"acme",
+				"acme_tenant",
+				OTHER_ORG,
+				"Other",
+				"other",
+				"other_tenant",
+			);
+		insertApp(sqlite, {
+			id: "proxy",
+			slug: "acme-source",
+			organizationId: ACME_ORG,
+		});
+		insertApp(sqlite, {
+			id: "provider",
+			slug: "source",
+			organizationId: PLATFORM_ORG,
+		});
+		sqlite.prepare("UPDATE apps SET metadata=? WHERE id=?").run(
+			JSON.stringify({
+				mcpConfig: { aggregateApps: [{ appId: "provider" }] },
+			}),
+			"proxy",
+		);
+		const includes = (organizationId: string) =>
+			skillMcpProxyIncludesSource(db, {
+				organizationId,
+				appSlug: "acme-source",
+				sourceAppSlug: "source",
+			});
+		expect(await includes(ACME_ORG)).toBe(true);
+		// Another organization's skill cannot use Acme's install.
+		expect(await includes(OTHER_ORG)).toBe(false);
+
+		sqlite
+			.prepare("UPDATE apps SET visibility='disabled' WHERE id=?")
+			.run("provider");
+		expect(await includes(ACME_ORG)).toBe(false);
+
+		// A private app of another tenant stays out of reach.
+		sqlite
+			.prepare(
+				"UPDATE apps SET organization_id=?, visibility='private' WHERE id=?",
+			)
+			.run(OTHER_ORG, "provider");
+		expect(await includes(ACME_ORG)).toBe(false);
+		sqlite.close();
+	});
 	it("bounds cycles and rejects a proxy outside the organization", async () => {
 		const { db, sqlite } = realDb();
 		insertApp(sqlite, {

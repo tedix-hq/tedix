@@ -25,6 +25,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { skillEntries } from "../../schema/cognitive";
+import { isAggregateSourceAllowed } from "../app-records";
 import { chunkForBoundParams } from "../../utils/batch";
 import { parseSkillFrontmatterCapabilities } from "./skill-tool-metadata";
 
@@ -384,12 +385,21 @@ export async function repairSkillMcpAppBindings(
  * An installed proxy can inherit a provider's tools without owning tool rows.
  * Follow only unfiltered aggregate links; filtered mounts require their own
  * method-level authorization and must not become a grant for the whole app.
+ *
+ * The proxy itself must be bindable for the organization. A linked app is
+ * followed when it is bindable too, or when the gateway's aggregate ownership
+ * rule serves it to the linking app (`isAggregateSourceAllowed`): an org-owned
+ * install over a private Tedix platform base app (`acme-peec` → `peec`)
+ * resolves here exactly as it does in the gateway. Another tenant's private app
+ * is never followed.
  */
 export async function skillMcpProxyIncludesSource(
 	db: DbClient,
 	params: { organizationId: string; appSlug: string; sourceAppSlug: string },
 ): Promise<boolean> {
-	const pending: Array<{ id?: string; slug?: string }> = [
+	// `host` is the organization of the app whose link named this ref; the
+	// root proxy has none and must itself be bindable.
+	const pending: Array<{ id?: string; slug?: string; host?: string }> = [
 		{ slug: params.appSlug },
 	];
 	const visited = new Set<string>();
@@ -400,11 +410,13 @@ export async function skillMcpProxyIncludesSource(
 			.from(apps)
 			.where(ref.id ? eq(apps.id, ref.id) : eq(apps.slug, ref.slug!))
 			.limit(1);
+		if (!app || visited.has(app.id) || app.visibility === "disabled") continue;
 		if (
-			!app ||
-			visited.has(app.id) ||
-			!isBindable(app, params.organizationId) ||
-			app.visibility === "disabled"
+			!isBindable(app, params.organizationId) &&
+			!(
+				ref.host &&
+				(await isAggregateSourceAllowed(db, ref.host, app.organizationId))
+			)
 		)
 			continue;
 		visited.add(app.id);
@@ -418,8 +430,9 @@ export async function skillMcpProxyIncludesSource(
 				link.readOnly === true
 			)
 				continue;
-			if (link.appId) pending.push({ id: link.appId });
-			else if (link.slug) pending.push({ slug: link.slug });
+			const host = app.organizationId;
+			if (link.appId) pending.push({ id: link.appId, host });
+			else if (link.slug) pending.push({ slug: link.slug, host });
 			if (pending.length >= 8) break;
 		}
 	}
