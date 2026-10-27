@@ -156,6 +156,21 @@ export const appTools = sqliteTable(
 		 * the call keeps its normal approval. Catalog sync never writes it.
 		 */
 		actionType: text("action_type"),
+		/**
+		 * Declared: results of this tool are sensitive. A run that reads through
+		 * it is latched (see `@tedix/api-contract/schemas/sensitive-data-latch`).
+		 * Default false; a connection's `restricted` classification latches too.
+		 */
+		sensitiveData: integer("sensitive_data", { mode: "boolean" })
+			.notNull()
+			.default(false),
+		/**
+		 * Declared: this tool sends data outside the organization (publish,
+		 * share link, post, outbound message). A latched run may not call it.
+		 */
+		publicEgress: integer("public_egress", { mode: "boolean" })
+			.notNull()
+			.default(false),
 		/** MCP _meta extensions (vendor/app metadata). */
 		meta: text("meta", { mode: "json" }).$type<Record<string, JsonValue>>(),
 		/** Invocation status text (Apps SDK). Auto-(de)serialized via mode: "json". */

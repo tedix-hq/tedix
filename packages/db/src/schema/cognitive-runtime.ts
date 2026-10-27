@@ -6,6 +6,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { SensitiveDataLatch } from "@tedix/api-contract/schemas/sensitive-data-latch";
 import { sql } from "drizzle-orm";
 import {
 	check,
@@ -395,6 +396,10 @@ export const kernelRuntimeRuns = sqliteTable(
 		 * hit instead of a JSON scan of every run in the org.
 		 */
 		outputRevisionId: text("output_revision_id"),
+		/** Set once the run reads a sensitive source; cleared only by an owner or admin. */
+		sensitiveDataLatch: text("sensitive_data_latch", {
+			mode: "json",
+		}).$type<SensitiveDataLatch>(),
 	},
 	(table) => [
 		index("idx_kernel_runtime_runs_conversation_updated").on(

@@ -41,6 +41,11 @@ MCP calls can participate in durable Tedix work:
 - tools are attributed to the worker and run that used them;
 - long-running operations can return durable task identifiers;
 - policies can require confirmation before sensitive mutations;
+- a run that reads a source marked sensitive (a tool with `sensitiveData`,
+  or a connection classified `restricted`) is locked: it cannot publish,
+  share, or post outside the organization and gets no automatic approval
+  until an owner or admin reviews it and clears the lock
+  (`clear_run_sensitive_data_latch`); the clear is an audit event;
 - results can be attached to rationale and audit records.
 
 MCP provides the connection. Tedix adds organization-specific identity,

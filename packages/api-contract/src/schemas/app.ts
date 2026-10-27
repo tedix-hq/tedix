@@ -1270,6 +1270,10 @@ export const AppToolSchema = z.object({
 		.describe(
 			"Declared action type, for example comment_on_issue. An organization admin can let a declared type run without asking; absent or null keeps the normal approval.",
 		),
+	/** Declared sensitive source; a read through it latches the run. */
+	sensitiveData: z.boolean().catch(false).optional(),
+	/** Declared public egress; refused while the run is latched. */
+	publicEgress: z.boolean().catch(false).optional(),
 	meta: ToolMetaSchema.nullable(),
 	invocationStatus: ToolInvocationStatusSchema.nullable(),
 	fileParams: z.array(z.string()).nullable(),

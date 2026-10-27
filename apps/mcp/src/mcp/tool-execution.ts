@@ -66,6 +66,7 @@ import {
 	parseConnectedCollectionRead,
 } from "@tedix/mcp-shared/read-observation-receipt";
 import { homeQueuedAckText } from "./home-surface";
+import { recordSensitiveRead } from "./sensitive-data-latch";
 import {
 	OS_GADGET_RUN_ENDPOINT,
 	OS_GADGET_TASK_PREFIX,
@@ -953,6 +954,21 @@ async function executeWithHandler(
 		const collectionRead = isErrorResult
 			? null
 			: connectedCollectionRead(agent, tool);
+		if (
+			!isErrorResult &&
+			!(await recordSensitiveRead(agent, tool, collectionRead))
+		)
+			return {
+				content: [
+					{
+						type: "text" as const,
+						text: `The result of ${tool.toolId} was withheld: this run's sensitive-data lock could not be recorded. Retry; if it keeps failing, ask an owner or admin to check the run.`,
+					},
+				],
+				structuredContent: null,
+				isError: true as const,
+				_meta: {} as OpenAiWidgetMeta,
+			};
 
 		// Honest ack on the Home soft-deadline shape (home-surface enqueue tools
 		// only, gated by `_emitTaskLinkage`): a queued turn returns no

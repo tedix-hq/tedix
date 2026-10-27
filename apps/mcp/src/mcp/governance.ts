@@ -18,6 +18,12 @@ import {
 	ToolActionTypeSchema,
 	type ToolAnnotations,
 } from "@tedix/api-contract/schemas/tools";
+import { sensitiveDataLatchRefusal } from "@tedix/api-contract/schemas/sensitive-data-latch";
+import {
+	callerRunRef,
+	type LatchLookup,
+	lookupSensitiveDataLatch,
+} from "./sensitive-data-latch";
 import {
 	checkAnnotationAssertion,
 	type ExpectedAnnotations,
@@ -68,7 +74,12 @@ type ApprovalContext = Pick<ServerContext, "server"> &
 		>
 	>;
 type ApprovalTool = Pick<AppTool, "toolId" | "title"> &
-	Partial<Pick<AppTool, "config" | "meta" | "actionType" | "writeCapability">>;
+	Partial<
+		Pick<
+			AppTool,
+			"config" | "meta" | "actionType" | "writeCapability" | "publicEgress"
+		>
+	>;
 
 /** Presentation only: keep the stored schema intact for upstream argument stripping. */
 export function withDestructiveApprovalSchema(
@@ -861,6 +872,67 @@ export async function requireDestructiveToolApproval(
 	annotations?: ToolAnnotations | null,
 	options?: DestructiveApprovalOptions,
 ): Promise<CallToolResult | null> {
+	// Sensitive-data latch. Read once per call, only when a run is involved.
+	// Public egress is refused even on a Home approval replay: the person who
+	// approved the action may not have known the run had read sensitive data.
+	const latchRunRef = callerRunRef(agent.callerIdentity);
+	let latchLookup: Promise<LatchLookup> | undefined;
+	const sensitiveLatch = (): Promise<LatchLookup> =>
+		(latchLookup ??= latchRunRef
+			? lookupSensitiveDataLatch(agent, latchRunRef)
+			: Promise.resolve({ status: "clear" }));
+	// A latched run gets no automatic approval: neither an admin's action-type
+	// opt-in, the organization's standing policy nor a durable grant stands in
+	// for the person who has to review what the run read. Returns null when
+	// the run is clear (or there is no run).
+	const refuseAutoApprovalWhileLatched =
+		async (): Promise<CallToolResult | null> => {
+			if (!latchRunRef) return null;
+			const lookup = await sensitiveLatch();
+			if (lookup.status === "clear") return null;
+			const latchedAt =
+				lookup.status === "latched" ? lookup.latch.latchedAt : null;
+			emitGovernanceAuditEvent(
+				agent,
+				tool,
+				"destructive_denied",
+				`sensitive_data_latch:auto_approval${latchedAt ? "" : "_unknown"}`,
+				{ runRef: latchRunRef, latchedAt },
+			);
+			return lookup.status === "latched"
+				? approvalFailure(
+						sensitiveDataLatchRefusal(
+							lookup.latch,
+							`Action "${tool.toolId}" (automatic approval)`,
+						),
+					)
+				: preDispatchUnavailableToolResult(
+						"sensitive_data_latch_unavailable",
+						"The run's sensitive-data lock could not be checked, so this action was not approved automatically; no side effect was executed.",
+						5,
+					);
+		};
+	if (latchRunRef && tool.publicEgress === true) {
+		const lookup = await sensitiveLatch();
+		if (lookup.status === "unavailable")
+			return preDispatchUnavailableToolResult(
+				"sensitive_data_latch_unavailable",
+				"The run's sensitive-data lock could not be checked; this action sends data outside the organization, so it was not executed.",
+				5,
+			);
+		if (lookup.status === "latched") {
+			emitGovernanceAuditEvent(
+				agent,
+				tool,
+				"destructive_denied",
+				"sensitive_data_latch:public_egress",
+				{ runRef: latchRunRef, latchedAt: lookup.latch.latchedAt },
+			);
+			return approvalFailure(
+				sensitiveDataLatchRefusal(lookup.latch, `Action "${tool.toolId}"`),
+			);
+		}
+	}
 	const homeApprovalId =
 		options?.extra?._meta?.["com.tedix/homeApprovalRequestId"];
 	const homeUserId =
@@ -1044,10 +1116,13 @@ export async function requireDestructiveToolApproval(
 		tool.writeCapability !== "destructive" &&
 		risk !== "high_impact_write" &&
 		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
-			.length === 0 &&
-		(await resolveActionTypeOptIn(agent, tool, declaredActionType.data))
-	)
-		return null;
+			.length === 0
+	) {
+		const latched = await refuseAutoApprovalWhileLatched();
+		if (latched) return latched;
+		if (await resolveActionTypeOptIn(agent, tool, declaredActionType.data))
+			return null;
+	}
 	// A tenant skill reaches platform tools (os.*, tedix.*) on the public tedix
 	// app, which another organization owns. The run, skill, tedi and policy
 	// belong to the caller's organization, so authorize there; the API checks
@@ -1500,6 +1575,14 @@ export async function requireDestructiveToolApproval(
 				? "reviewed tool effect"
 				: `${agent.appSlug ?? ""}:${tool.toolId}`,
 	});
+	const wouldAutoApprove =
+		(autonomy && autonomousDecision.autoApprove) ||
+		configuredApproval === "always" ||
+		configuredApproval === "once";
+	if (wouldAutoApprove) {
+		const latched = await refuseAutoApprovalWhileLatched();
+		if (latched) return latched;
+	}
 	// Org standing consent covers bounded actions; Work authorization is separate.
 	if (
 		autonomy &&

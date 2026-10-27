@@ -16,6 +16,7 @@ import {
 } from "@tedix/api-contract/constants/enums";
 import type { SkillRunCostSummary } from "@tedix/api-contract/contracts/cognitive";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { SensitiveDataLatch } from "@tedix/api-contract/schemas/sensitive-data-latch";
 import { sql } from "drizzle-orm";
 import {
 	type AnySQLiteColumn,
@@ -676,6 +677,10 @@ export const skillRuns = sqliteTable(
 		workItemId: text("work_item_id"),
 		/** Chat turn that dispatched this run; attribution still requires runtime evidence. */
 		originTediRunId: text("origin_tedi_run_id"),
+		/** Set once the run reads a sensitive source; cleared only by an owner or admin. */
+		sensitiveDataLatch: text("sensitive_data_latch", {
+			mode: "json",
+		}).$type<SensitiveDataLatch>(),
 	},
 	(table) => [
 		index("idx_skill_runs_completed").on(table.completedAt),

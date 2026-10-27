@@ -125,6 +125,7 @@ export function publicSkillRun(
 		createdBy: run.createdBy,
 		workItemId: run.workItemId ?? null,
 		costSummary: retired ? null : (run.costSummary ?? null),
+		sensitiveDataLatch: run.sensitiveDataLatch ?? null,
 		engine: retired ? null : (engine ?? null),
 	};
 }

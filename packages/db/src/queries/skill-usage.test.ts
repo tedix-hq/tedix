@@ -82,7 +82,8 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 			created_by TEXT,
 			certification INTEGER DEFAULT 0,
 			work_item_id TEXT,
-			origin_tedi_run_id TEXT
+			origin_tedi_run_id TEXT,
+			sensitive_data_latch TEXT
 		);
 		CREATE TABLE skill_usage_events (
 			id TEXT PRIMARY KEY NOT NULL,

@@ -257,6 +257,8 @@ export const createAppTool = authedAppToolsOs.create
 					? toolData.writeCapability
 					: deriveToolWriteCapability(toolData.annotations),
 			actionType: toolData.actionType,
+			sensitiveData: toolData.sensitiveData,
+			publicEgress: toolData.publicEgress,
 			meta: toolData.meta == null ? toolData.meta : toJsonRecord(toolData.meta),
 			invocationStatus: toolData.invocationStatus,
 			fileParams: toolData.fileParams,
@@ -422,6 +424,8 @@ export const updateAppTool = authedAppToolsOs.update
 				input.actionType !== undefined
 					? input.actionType
 					: existingTool.actionType,
+			sensitiveData: input.sensitiveData ?? existingTool.sensitiveData,
+			publicEgress: input.publicEgress ?? existingTool.publicEgress,
 			meta:
 				input.meta !== undefined
 					? input.meta === null

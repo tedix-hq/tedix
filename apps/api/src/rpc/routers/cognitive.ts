@@ -87,6 +87,10 @@ import {
 	skillsRunWorkflowStatus,
 } from "./cognitive-skill-runs/run-reads";
 import { skillsRunWorkflow } from "./cognitive-skill-runs/run-start";
+import {
+	skillsClearRunSensitiveDataLatch,
+	skillsGetRunSensitiveDataLatch,
+} from "./cognitive-skill-runs/sensitive-data-latch";
 import { skillsMoveToTedi } from "./cognitive-skill-ownership";
 import { knowledgeOs, muscleOs, skillsOs } from "./cognitive-shared";
 import {
@@ -166,6 +170,8 @@ export const skillsContractRouter = skillsOs.router({
 	getWorkflowReliability: skipOutputValidation(skillsGetWorkflowReliability),
 	listWorkflowSchedules: skillsListWorkflowSchedules,
 	pauseWorkflow: skillsPauseWorkflow,
+	getRunSensitiveDataLatch: skillsGetRunSensitiveDataLatch,
+	clearRunSensitiveDataLatch: skillsClearRunSensitiveDataLatch,
 	resumeWorkflow: skillsResumeWorkflow,
 	pauseSchedule: skillsPauseSchedule,
 	resumeSchedule: skillsResumeSchedule,

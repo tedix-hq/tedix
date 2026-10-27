@@ -1505,7 +1505,8 @@ snapshotSqlite.exec(`
 		certification INTEGER DEFAULT 0,
 		work_item_id TEXT,
 		origin_tedi_run_id TEXT,
-		resource_access_envelope TEXT
+		resource_access_envelope TEXT,
+		sensitive_data_latch TEXT
 	);
 	INSERT INTO skill_runs (
 		id, skill_id, tedi_id, organization_id, params, execution_epoch,
@@ -3645,7 +3646,8 @@ usageStampSqlite.exec(`
 		certification INTEGER DEFAULT 0,
 		work_item_id TEXT,
 		origin_tedi_run_id TEXT,
-		resource_access_envelope TEXT
+		resource_access_envelope TEXT,
+		sensitive_data_latch TEXT
 	);
 	CREATE TABLE skill_usage_events (
 		id TEXT PRIMARY KEY NOT NULL,

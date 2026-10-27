@@ -592,6 +592,9 @@ export async function buildProjectedTool(
 			writeCapability,
 			// Owner-declared, never derived: projection keeps whatever is stored.
 			actionType: existing?.actionType ?? null,
+			// Operator declarations, never inferred from the endpoint.
+			sensitiveData: existing?.sensitiveData ?? false,
+			publicEgress: existing?.publicEgress ?? false,
 			meta: meta == null ? null : toJsonRecord(meta),
 			invocationStatus: existing?.invocationStatus ?? null,
 			fileParams: existing?.fileParams ?? null,

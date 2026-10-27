@@ -248,6 +248,7 @@
 		"./schemas/mcp-credentials": "./src/schemas/mcp-credentials.ts",
 		"./schemas/mcp-events": "./src/schemas/mcp-events.ts",
 		"./schemas/mcp-governance": "./src/schemas/mcp-governance.ts",
+		"./schemas/sensitive-data-latch": "./src/schemas/sensitive-data-latch.ts",
 		"./schemas/mcp-network-security": "./src/schemas/mcp-network-security.ts",
 		"./schemas/mcp-payments": "./src/schemas/mcp-payments.ts",
 		"./schemas/mcp-tasks": "./src/schemas/mcp-tasks.ts",
