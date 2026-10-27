@@ -216,6 +216,17 @@ try {
 		"Owned Vite server did not become ready within 90s; see server logs",
 	);
 	browser = await webkit.launch({ headless: true });
+	const warmContext = await browser.newContext();
+	const warmPage = await warmContext.newPage();
+	warmPage.setDefaultTimeout(90_000);
+	await warmPage.goto(
+		`${origin}/browser-tests/b13-document-link-webkit.html?theme=light`,
+	);
+	await warmPage.waitForFunction(() =>
+		Boolean((window as FixtureWindow).documentLinkFixture),
+	);
+	await warmPage.evaluate(() => document.fonts.ready);
+	await warmContext.close();
 	for (const viewport of [
 		{ width: 375, height: 667 },
 		{ width: 390, height: 844 },
@@ -267,6 +278,12 @@ try {
 					Boolean((window as FixtureWindow).documentLinkFixture),
 				);
 				await page.waitForLoadState("networkidle");
+				await page.evaluate(async () => {
+					await document.fonts.ready;
+					await new Promise<void>((resolve) =>
+						requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+					);
+				});
 				await page.waitForFunction(
 					(theme) =>
 						getComputedStyle(document.body).backgroundColor ===
@@ -591,6 +608,14 @@ try {
 				await select(page, "Outside");
 				await page.evaluate(() =>
 					(window as FixtureWindow).documentLinkFixture.mount(true),
+				);
+				await page.evaluate(
+					() =>
+						new Promise<void>((resolve) =>
+							requestAnimationFrame(() =>
+								requestAnimationFrame(() => resolve()),
+							),
+						),
 				);
 				await hidden(page);
 				await select(page, "Beta guide");
