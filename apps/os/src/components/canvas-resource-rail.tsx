@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import type {
 	OsGadget,
@@ -186,7 +187,7 @@ export function CanvasResourceRail({
 			<div className="canvas-resource-library">
 				<header className="canvas-resource-library-header">
 					<div className="grid gap-3">
-						<h2 className="type-tedix-section">Everything in this workspace</h2>
+						<h2 className="type-tedix-section">{OS_COPY.workspace.overview}</h2>
 						<p className="type-tedix-body">
 							{shownGadgets.length > 0
 								? "Open an app to work through this workspace, or a file to read or edit it. Use the conversation to ask for changes."

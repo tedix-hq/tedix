@@ -26,17 +26,28 @@ export function collabParticipantColor(key: string): string {
 	return AVATAR_COLORS[Math.abs(value) % AVATAR_COLORS.length] as string;
 }
 
-function locationLabel(participant: CollabParticipant): string {
+/** The item open on this screen, so the roster can mark who is in it too. */
+export interface CanvasPresenceOpenItem {
+	kind: "gadget" | "output";
+	label: string;
+}
+
+/** One short line saying where a collaborator is. */
+export function presenceWhereLabel(
+	participant: CollabParticipant,
+	openItem?: CanvasPresenceOpenItem | null,
+): string {
 	const location = participant.location;
-	if (!location) return "Canvas";
-	const artifact = location.artifactLabel
-		? `Canvas · ${location.artifactLabel}`
-		: location.artifactKind
-			? `Canvas · ${sentenceCase(location.artifactKind)}`
-			: "Canvas";
-	return location.selectionLabel
-		? `${artifact} · ${location.selectionLabel}`
-		: artifact;
+	if (
+		openItem &&
+		location?.artifactKind === openItem.kind &&
+		location.artifactLabel === openItem.label
+	) {
+		return openItem.kind === "gadget" ? "In this app" : "In this file";
+	}
+	return location?.artifactLabel
+		? `Viewing ${location.artifactLabel}`
+		: "In this workspace";
 }
 
 function avatar(participant: CollabParticipant, size: "large" | "small") {
@@ -46,9 +57,7 @@ function avatar(participant: CollabParticipant, size: "large" | "small") {
 			id={participant.key}
 			name={participant.displayName}
 			className={
-				size === "small"
-					? "size-6 ring-2 ring-kumo-base"
-					: "size-7 ring-2 ring-kumo-base"
+				size === "small" ? "size-(--tedix-topbar-avatar-size)" : "size-7"
 			}
 		/>
 	);
@@ -57,8 +66,10 @@ function avatar(participant: CollabParticipant, size: "large" | "small") {
 /** Compact roster backed by the room's server-asserted presence projection. */
 export function CanvasPresence({
 	participants,
+	openItem,
 }: {
 	participants: CollabParticipant[];
+	openItem?: CanvasPresenceOpenItem | null;
 }) {
 	if (participants.length === 0) return null;
 	const visible = participants.slice(0, MAX_VISIBLE);
@@ -70,9 +81,9 @@ export function CanvasPresence({
 			<Popover.Trigger
 				render={
 					<Button
-						className="canvas-presence-trigger"
+						className="canvas-presence-trigger !w-auto !px-1"
 						aria-label={`${label}. Open collaborator details.`}
-						multiline
+						size="icon-sm"
 						variant="ghost"
 					>
 						<span className="canvas-presence-stack">
@@ -86,12 +97,12 @@ export function CanvasPresence({
 								</span>
 							))}
 							{overflow > 0 && (
-								<span className="grid size-6 flex-none place-items-center rounded-full bg-kumo-fill font-semibold text-kumo-default ring-2 ring-kumo-base type-tedix-caption">
+								<span className="grid size-(--tedix-topbar-avatar-size) flex-none place-items-center rounded-full bg-kumo-fill font-semibold text-kumo-default type-tedix-caption">
 									+{overflow}
 								</span>
 							)}
+							<span className="canvas-presence-online" aria-hidden="true" />
 						</span>
-						<span className="canvas-presence-online" aria-hidden="true" />
 					</Button>
 				}
 			/>
@@ -127,11 +138,7 @@ export function CanvasPresence({
 									role="caption"
 									tone="secondary"
 								>
-									{sentenceCase(participant.kind)} ·{" "}
-									{locationLabel(participant)}
-									{participant.sessions > 1
-										? ` · ${participant.sessions} sessions`
-										: ""}
+									{presenceWhereLabel(participant, openItem)}
 								</Text>
 							</span>
 							<Badge variant="secondary">

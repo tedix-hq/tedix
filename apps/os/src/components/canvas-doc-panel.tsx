@@ -51,7 +51,6 @@ import {
 	useAppDrafts,
 } from "@/components/app-runtime-drafts";
 import { isAppDraftProposal } from "@/lib/app-runtime-drafts";
-import { mergeAppPresence, useAppPresence } from "@/lib/app-runtime-presence";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { diffFiles } from "@/collab/ot/code-change";
@@ -182,14 +181,6 @@ const GADGET_VIEW_OPTIONS: readonly {
 	{ value: "source", label: "Code" },
 	{ value: "runs", label: "Runs" },
 ];
-
-/** What others see next to a person's name in a runtime app's presence. */
-const GADGET_VIEW_LABELS = {
-	preview: "App",
-	source: "Code",
-	drafts: "Drafts",
-	runs: "Runs",
-} as const;
 
 export type CollabConnectionStatus =
 	| "connecting"
@@ -443,14 +434,6 @@ export function CanvasDocPanel({
 				: GADGET_VIEW_OPTIONS,
 		[appDrafts.length, isRuntimeApp],
 	);
-	const appParticipants = useAppPresence({
-		workspaceId,
-		gadgetId: doc.id,
-		revision: gadgetDetail.data?.currentRevision,
-		appName: gadgetDetail.data?.gadget.name,
-		view: GADGET_VIEW_LABELS[effectiveGadgetView],
-		enabled: isRuntimeApp,
-	});
 	const runtimeSettings = useMemo(
 		() => appRuntimeSettings(isRuntimeApp ? builtinManifestEarly : undefined),
 		[builtinManifestEarly, isRuntimeApp],
@@ -767,13 +750,9 @@ export function CanvasDocPanel({
 						{status !== "connected" && (
 							<ConnectionChip status={status} peers={peers} />
 						)}
-						<CanvasPresence
-							participants={
-								isRuntimeApp
-									? mergeAppPresence(appParticipants, participants ?? [])
-									: (participants ?? [])
-							}
-						/>
+						{/* Who is here shows once, in the workspace top bar; focus
+						    mode hides that bar, so the open item shows it instead. */}
+						{focusMode && <CanvasPresence participants={participants ?? []} />}
 					</>
 				)}
 				<span className="sr-only" data-canvas-revision-status>

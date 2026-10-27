@@ -5,8 +5,8 @@ import { startFixtureServer } from "./fixture-server";
 /*
  * A workspace page has at most two navigation rows above the canvas: the
  * workspace's top bar, and the open item's tab row. No control appears twice
- * (one Files toggle, one place for each view), and every width gets the same
- * structure in both themes.
+ * (one chat toggle, one Files toggle, one presence stack, one place for each
+ * view), and every width gets the same structure in both themes.
  */
 const appPath =
 	"/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece";
@@ -37,7 +37,7 @@ async function navigationRows(page: Page): Promise<number> {
 
 try {
 	for (const theme of ["light", "dark"] as const) {
-		for (const width of [375, 768, 1280, 1600]) {
+		for (const width of [375, 470, 768, 1280, 1600]) {
 			const label = `${width}/${theme}`;
 			const phone = width < 700;
 			// Below 960px the workbench shows one pane at a time.
@@ -50,6 +50,48 @@ try {
 				hasTouch: phone,
 			});
 			const page = await context.newPage();
+			// One collaborator in the open app, so the roster renders.
+			await page.routeWebSocket("**/collab/*/workspace%3A*", (socket) => {
+				socket.onMessage((data) => {
+					const frame = JSON.parse(String(data));
+					if (frame.t !== "base") return;
+					socket.send(JSON.stringify({ t: "hello", peerId: 1 }));
+					socket.send(
+						JSON.stringify({
+							t: "base",
+							id: frame.id,
+							generation: 0,
+							revision: 0,
+							files: [["document", ""]],
+							canonical: { revision: 0, revisionId: null },
+						}),
+					);
+					socket.send(
+						JSON.stringify({
+							t: "presence",
+							peers: [
+								[
+									2,
+									{
+										user: {
+											key: "p_ada",
+											displayName: "Ada Lovelace",
+											kind: "human",
+											role: "build",
+											verified: true,
+										},
+										location: {
+											surface: "canvas",
+											artifactKind: "gadget",
+											artifactLabel: "Activity",
+										},
+									},
+								],
+							],
+						}),
+					);
+				});
+			});
 			await page.route("**/userSettings/getPreferences", async (route) => {
 				const response = await route.fetch();
 				const body = await response.json();
@@ -90,15 +132,106 @@ try {
 				`${label}: three plain tabs for the open app`,
 			);
 
-			// One control per job: a single Files toggle, and nothing named
-			// Resources or Outputs beside it.
-			const filesToggles = page.getByRole("button", {
-				name: /^(Collapse|Expand) files$/,
+			// One control per job: a single chat toggle and a single Files toggle,
+			// both in the top bar, and nothing named Resources or Outputs.
+			for (const name of [/^(Hide|Show) files$/, /^(Hide|Show) chat$/]) {
+				const toggles = page.getByRole("button", { name });
+				assert.equal(
+					await toggles.count(),
+					narrow ? 0 : 1,
+					`${label}: one ${name} toggle on wide screens, none on narrow ones`,
+				);
+				if (!narrow)
+					assert(
+						await toggles.evaluate(
+							(button) => !!button.closest(".canvas-workspace-header"),
+						),
+						`${label}: ${name} sits in the top bar`,
+					);
+			}
+
+			// Who is here shows once, in the top bar, as tall as its icon buttons.
+			const roster = page.getByRole("button", {
+				name: "1 collaborator here now. Open collaborator details.",
 			});
+			await roster.waitFor();
 			assert.equal(
-				await filesToggles.count(),
-				narrow ? 0 : 1,
-				`${label}: one Files toggle on wide screens, none on narrow ones`,
+				await page.locator(".canvas-presence-trigger").count(),
+				1,
+				`${label}: exactly one presence stack on the page`,
+			);
+			assert(
+				await roster.evaluate(
+					(button) => !!button.closest(".canvas-workspace-header"),
+				),
+				`${label}: the presence stack sits in the top bar`,
+			);
+			const share = page.getByRole("button", { name: /^Share\b/ });
+			assert.equal(
+				(await roster.boundingBox())?.height,
+				(await share.boundingBox())?.height,
+				`${label}: presence stack is as tall as the icon buttons`,
+			);
+			await roster.click();
+			await page.getByText("In this app", { exact: true }).waitFor();
+			await page.keyboard.press("Escape");
+
+			// The title never collapses to an empty segment.
+			const emptySegments = await page.evaluate(
+				() =>
+					[
+						...document.querySelectorAll(
+							".canvas-workspace-title :is(h1, [data-kumo-part=link], [aria-current=page])",
+						),
+					].filter((segment) => {
+						const box = segment.getBoundingClientRect();
+						// Hidden, or kept for assistive technology only.
+						if (box.width <= 1 || box.height <= 1) return false;
+						return box.width < 24 || !segment.textContent?.trim();
+					}).length,
+			);
+			assert.equal(emptySegments, 0, `${label}: no empty title segment`);
+
+			// The view tabs keep their place whichever view is open.
+			const viewTabs = page.getByRole("group", {
+				name: "Active workpiece view",
+			});
+			const tabX: number[] = [];
+			for (const view of ["App", "Edit", "History"]) {
+				await viewTabs.getByRole("button", { name: view, exact: true }).click();
+				await page.waitForTimeout(150);
+				tabX.push(Math.round((await viewTabs.boundingBox())?.x ?? -1));
+			}
+			assert.equal(
+				new Set(tabX).size,
+				1,
+				`${label}: view tabs stay put across App, Edit and History (${tabX})`,
+			);
+			await viewTabs.getByRole("button", { name: "App", exact: true }).click();
+
+			// The open item's bar is at most two rows, on one left edge.
+			const barRows = await page.evaluate(() => {
+				const bar = document.querySelector(".canvas-workpiece-bar");
+				const boxes = [...(bar?.children ?? [])]
+					.map((child) => child.getBoundingClientRect())
+					.filter((box) => box.width > 0 && box.height > 0)
+					.sort((a, b) => a.top - b.top);
+				// A row starts where a control begins below the previous row.
+				const rows: { bottom: number; left: number }[] = [];
+				for (const box of boxes) {
+					const row = rows.at(-1);
+					if (row && box.top < row.bottom - 1) {
+						row.bottom = Math.max(row.bottom, box.bottom);
+						row.left = Math.min(row.left, box.left);
+					} else rows.push({ bottom: box.bottom, left: box.left });
+				}
+				return rows.map((row) => Math.round(row.left));
+			});
+			assert(barRows.length <= 2, `${label}: item bar is at most two rows`);
+			assert.equal(
+				new Set(barRows).size,
+				1,
+				`${label}: item bar rows share one left edge (${barRows})`,
 			);
 			for (const stale of ["Resources", "Outputs", "Editor"]) {
 				assert.equal(
@@ -109,12 +242,11 @@ try {
 			}
 			assert.equal(
 				await page.getByRole("button", { name: "Focus", exact: true }).count(),
-				1,
-				`${label}: one Focus control`,
+				phone ? 0 : 1,
+				`${label}: one Focus control, none on a phone`,
 			);
 			// One Share, in the top bar. Sharing the open app alone is a section
 			// of its dialog, not a second icon beside History.
-			const share = page.getByRole("button", { name: /^Share\b/ });
 			assert.equal(await share.count(), 1, `${label}: one Share control`);
 			assert(
 				await share.evaluate(

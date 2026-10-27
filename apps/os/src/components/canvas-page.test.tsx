@@ -1479,7 +1479,7 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelector(".canvas-resource-library-header h2")
 				?.textContent,
-		).toBe("Everything in this workspace");
+		).toBe("Overview");
 		expect(
 			container.querySelector("[data-workspace-output-preview]"),
 		).not.toBeNull();

@@ -97,7 +97,10 @@ try {
 		await page.getByText("Grace Hopper", { exact: true }).waitFor();
 		await page.getByText("Build", { exact: true }).waitFor();
 		await page.getByText("Use", { exact: true }).waitFor();
-		await page.getByText("Canvas · Revenue Dashboard · Editor").waitFor();
+		await page
+			.getByText("Viewing Revenue Dashboard", { exact: true })
+			.waitFor();
+		await page.getByText("In this workspace", { exact: true }).waitFor();
 		assert(
 			await page.evaluate(
 				() => document.documentElement.scrollWidth <= innerWidth,

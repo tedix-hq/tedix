@@ -2158,7 +2158,7 @@ describe("collaboration socket routing", () => {
 					JSON.parse(
 						env.roomRequests[0]!.headers.get("X-Tedix-Collab-Presence")!,
 					),
-				).toMatchObject({ displayName: name ?? "Tedix member" });
+				).toMatchObject({ displayName: name ?? "Teammate" });
 				for (const request of profileRequests) {
 					expect(request.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
 					expect(request.headers.get("Authorization")).toBe(

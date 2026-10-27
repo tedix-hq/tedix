@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import "./workspace-outputs-panel.css";
 import {
 	Books,
@@ -323,7 +324,7 @@ export function WorkspaceOutputsList({
 			)}
 			<div className="workspace-outputs-footer">
 				<FooterRow
-					label="Everything here"
+					label={OS_COPY.workspace.overview}
 					icon={
 						<Books aria-hidden className="workspace-outputs-icon" size={16} />
 					}
