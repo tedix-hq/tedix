@@ -1,3 +1,4 @@
+import { assistantMessageText } from "./facet-submission-result";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
@@ -1563,11 +1564,7 @@ export class ConversationFacet extends PiAgent<
 			throw new Error("Native Pi answer ownership mismatch");
 		await this.accounting.begin(pending.configuration.runId);
 		await this.accounting.assertComplete();
-		const text = (owned?.parts ?? [])
-			.filter((part) => part.type === "text")
-			.map((part) => part.text ?? "")
-			.join("")
-			.trim();
+		const text = assistantMessageText(owned?.parts ?? []);
 		const ceiling = resolveFacetStepCeiling(this.state.maxSteps);
 		const checkpoint = await this.accounting.inspect(
 			pending.configuration.runId,
@@ -1622,11 +1619,7 @@ export class ConversationFacet extends PiAgent<
 			const settledReport = await this.waitForSubmission(reportId);
 			if (settledReport.status === "completed" && settledReport.messageId) {
 				const answer = await this.session.getMessage(settledReport.messageId);
-				report =
-					answer?.parts
-						.filter((part) => part.type === "text")
-						.map((part) => part.text ?? "")
-						.join("") ?? "";
+				report = assistantMessageText(answer?.parts ?? []);
 			} else
 				console.error("[tedi.pi.final-report]", {
 					exception: exceptionTopology(settledReport.error),

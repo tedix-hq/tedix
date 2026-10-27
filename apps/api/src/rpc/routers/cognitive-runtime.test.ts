@@ -1576,55 +1576,68 @@ describe("cognitive runtime router invariants", () => {
 		]);
 	});
 
-	it("collapses cumulative-prefix runs across turn boundaries (regression: 9f25f47e — runId carrying multiple assistant turns)", async () => {
-		const db = createRuntimeDb();
-		const client = createRuntimeClient(createContext(db));
+	it.each([
+		{
+			stream: ["Hi —", "Hi — there.", "Hi —", "Hi — again."],
+			expected: "Hi — there.\n\nHi — again.",
+		},
+		{
+			stream: [
+				"I checked",
+				"I checked the subtitle.",
+				"I found",
+				"I found the result.",
+			],
+			expected: "I checked the subtitle.\n\nI found the result.",
+		},
+	])(
+		"separates recovered cumulative turns: $expected",
+		async ({ stream, expected }) => {
+			const db = createRuntimeDb();
+			const client = createRuntimeClient(createContext(db));
 
-		// Same runId carrying TWO assistant turns. Each turn restarts
-		// cumulative from "". Raw per-delta concat would produce
-		// "Hi — there.Hi —Hi — again."; longest-delta would lose turn 1.
-		// Expected: longest cumulative per turn, joined.
-		const stream: string[] = [
-			"Hi —",
-			"Hi — there.",
-			// turn boundary — non-prefix
-			"Hi —",
-			"Hi — again.",
-		];
-		for (let i = 0; i < stream.length; i++) {
+			// Same runId carrying TWO assistant turns. Each turn restarts
+			// cumulative from "". Raw per-delta concat would produce
+			// "Hi — there.Hi —Hi — again."; longest-delta would lose turn 1.
+			// Expected: longest cumulative per turn, joined.
+
+			for (let i = 0; i < stream.length; i++) {
+				await client.recordEvent({
+					tediId: TEDI_ID,
+					kind: "message.delta",
+					conversationId: "agent:main:9f25f47e",
+					runId: "9f25f47e",
+					messageId: "assistant:9f25f47e",
+					sequence: i + 1,
+					delta: stream[i],
+					payload: { role: "assistant" },
+					runtime: { backend: "cloudflare-agents" },
+					createdAt: `2026-05-27T12:49:${String(i).padStart(2, "0")}.000Z`,
+				});
+			}
 			await client.recordEvent({
 				tediId: TEDI_ID,
-				kind: "message.delta",
+				kind: "run.completed",
 				conversationId: "agent:main:9f25f47e",
 				runId: "9f25f47e",
-				messageId: "assistant:9f25f47e",
-				sequence: i + 1,
-				delta: stream[i],
-				payload: { role: "assistant" },
+				payload: { status: "completed" },
 				runtime: { backend: "cloudflare-agents" },
-				createdAt: `2026-05-27T12:49:${String(i).padStart(2, "0")}.000Z`,
+				createdAt: "2026-05-27T12:49:10.000Z",
 			});
-		}
-		await client.recordEvent({
-			tediId: TEDI_ID,
-			kind: "run.completed",
-			conversationId: "agent:main:9f25f47e",
-			runId: "9f25f47e",
-			payload: { status: "completed" },
-			runtime: { backend: "cloudflare-agents" },
-			createdAt: "2026-05-27T12:49:10.000Z",
-		});
 
-		const events = await client.listEvents({
-			tediId: TEDI_ID,
-			conversationId: "agent:main:9f25f47e",
-			limit: 50,
-		});
-		const completed = events.events.find((e) => e.kind === "message.completed");
-		expect(completed?.payload).toMatchObject({
-			content: "Hi — there.Hi — again.",
-		});
-	});
+			const events = await client.listEvents({
+				tediId: TEDI_ID,
+				conversationId: "agent:main:9f25f47e",
+				limit: 50,
+			});
+			const completed = events.events.find(
+				(e) => e.kind === "message.completed",
+			);
+			expect(completed?.payload).toMatchObject({
+				content: expected,
+			});
+		},
+	);
 
 	it("recovers a 246-char cumulative stream punctuated by a short trailing fragment (regression: 0562024d)", async () => {
 		const db = createRuntimeDb();

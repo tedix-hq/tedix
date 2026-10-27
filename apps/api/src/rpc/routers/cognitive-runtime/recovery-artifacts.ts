@@ -488,7 +488,9 @@ export function assembleCompletedContentFromDeltas(
 		segmentBest = entry.content;
 	}
 	if (segmentBest) segments.push(segmentBest);
-	const concatenated = segments.join("");
+	// Confirmed cumulative turns are complete replies; raw token chunks must
+	// still join byte-for-byte so words split across deltas stay intact.
+	const concatenated = segments.join(multiTurnDetected ? "\n\n" : "");
 
 	// Safety: if concatenation produced something shorter than the single
 	// longest delta we observed (which can happen when one delta already
