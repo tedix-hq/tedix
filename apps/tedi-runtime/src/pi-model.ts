@@ -476,6 +476,13 @@ export function createTedixPiProvider<R>(
 				receipt = prepared.receipt;
 				reserved = config.prepare !== undefined;
 				const actual = prepared.model ?? selected;
+				// Workers AI can reuse provider or synthesized call IDs across responses.
+				// Pi receipts and effect journals require identities unique across rounds.
+				const toolCallPrefix =
+					actual.provider === "workers-ai" ||
+					actual.provider === "cloudflare-auto"
+						? `call_${crypto.randomUUID()}`
+						: null;
 				const translated = piToSdkPrompt(context.messages);
 				const call: LanguageModelV2CallOptions = {
 					prompt: prepared.prompt ?? translated.prompt,
@@ -653,7 +660,7 @@ export function createTedixPiProvider<R>(
 								inputs.set(part.id, "");
 								message.content.push({
 									type: "toolCall",
-									id: part.id,
+									id: toolCallPrefix ? `${toolCallPrefix}_${index}` : part.id,
 									name: part.toolName,
 									arguments: {},
 									thoughtSignature: encodeSdkProviderOptions(
@@ -691,7 +698,9 @@ export function createTedixPiProvider<R>(
 									blocks.set(part.toolCallId, index);
 									message.content.push({
 										type: "toolCall",
-										id: part.toolCallId,
+										id: toolCallPrefix
+											? `${toolCallPrefix}_${index}`
+											: part.toolCallId,
 										name: part.toolName,
 										arguments: {},
 										thoughtSignature: encodeSdkProviderOptions(

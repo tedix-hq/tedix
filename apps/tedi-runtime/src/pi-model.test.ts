@@ -758,6 +758,66 @@ test("delegated deadline aborts upstream inference and settles before terminal",
 	assert.equal(signal?.aborted, true);
 	assert.equal(settled, true);
 });
+test("Workers AI repeated wire IDs have distinct Pi identities and correlated replay", async () => {
+	for (const { providerName, streamed } of [
+		"workers-ai",
+		"cloudflare-auto",
+	].flatMap((providerName) =>
+		[false, true].map((streamed) => ({ providerName, streamed })),
+	)) {
+		const sdk = v2([
+			...(streamed
+				? [
+						{
+							type: "tool-input-start" as const,
+							id: "call_0_read",
+							toolName: "read",
+						},
+					]
+				: []),
+			{
+				type: "tool-call",
+				toolCallId: "call_0_read",
+				toolName: "read",
+				input: "{}",
+			},
+			finish,
+		]);
+		const provider = createTedixPiProvider({
+			catalog: () => [model],
+			resolveModel: () => ({ ...sdk, provider: providerName }),
+		});
+		const ids: string[] = [];
+		for (let round = 0; round < 2; round++) {
+			const output = await provider.streamSimple(model, context).result();
+			const call = output.content.find((part) => part.type === "toolCall")!;
+			ids.push(call.id);
+			const durable = JSON.parse(JSON.stringify(output)) as AssistantMessage;
+			const replay = piToSdkPrompt([
+				durable,
+				{
+					role: "toolResult",
+					toolCallId: call.id,
+					toolName: call.name,
+					content: [{ type: "text", text: "ok" }],
+					isError: false,
+					timestamp: 1,
+				},
+			]).prompt;
+			assert.equal(
+				replay[0]?.role === "assistant" &&
+					replay[0].content[0]?.type === "tool-call" &&
+					replay[0].content[0].toolCallId,
+				call.id,
+			);
+			assert.equal(
+				replay[1]?.role === "tool" && replay[1].content[0]?.toolCallId,
+				call.id,
+			);
+		}
+		assert.notEqual(ids[0], ids[1]);
+	}
+});
 for (const entry of cases) {
 	await entry.run();
 	console.log(`PASS ${entry.name}`);

@@ -34,6 +34,7 @@ export class PiStorageFixture extends ConversationFacet {
 	private readonly actionReceipts = new ActionReceiptJournal(this.ctx.storage);
 	private fixtureToolName = "receipt";
 	private holdSteeringTool = false;
+	private repeatedToolIds = false;
 	private releaseSteeringTool: (() => void) | undefined;
 	private steeringToolReady: (() => void) | undefined;
 	private heldTurn?: ReturnType<PiStorageFixture["turn"]>;
@@ -99,18 +100,21 @@ export class PiStorageFixture extends ConversationFacet {
 		});
 	}
 	protected selectModelForTurn() {
+		const model = responsesFixtureModel(async (body) => {
+			const requests =
+				(await this.ctx.storage.get<Array<Record<string, unknown>>>(
+					"fixture:requests",
+				)) ?? [];
+			requests.push(body);
+			await this.ctx.storage.put("fixture:requests", requests);
+			if (await this.ctx.storage.get("fixture:provider-rejects"))
+				throw new Error("fixture deployment rejected the request");
+			return this.repeatedToolIds && requests.length <= 2 ? 1 : requests.length;
+		}, this.fixtureToolName);
 		return {
-			model: responsesFixtureModel(async (body) => {
-				const requests =
-					(await this.ctx.storage.get<Array<Record<string, unknown>>>(
-						"fixture:requests",
-					)) ?? [];
-				requests.push(body);
-				await this.ctx.storage.put("fixture:requests", requests);
-				if (await this.ctx.storage.get("fixture:provider-rejects"))
-					throw new Error("fixture deployment rejected the request");
-				return requests.length;
-			}, this.fixtureToolName),
+			model: this.repeatedToolIds
+				? { ...model, provider: "cloudflare-auto" }
+				: model,
 			identity: {
 				provider: "azure-openai" as const,
 				model: "gpt-5.6-terra",
@@ -149,6 +153,10 @@ export class PiStorageFixture extends ConversationFacet {
 			completed.result.assistantText,
 		);
 		return completed;
+	}
+	async turnWithRepeatedToolIds(id: string) {
+		this.repeatedToolIds = true;
+		return this.turn(id);
 	}
 	async beginHeldTurn(id: string) {
 		await this.nativeConversation();
