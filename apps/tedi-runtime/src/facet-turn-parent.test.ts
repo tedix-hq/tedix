@@ -87,6 +87,7 @@ for (const stream of [false, true]) {
 			fields: {
 				state: {
 					tediId: "tedi-1",
+					orgId: "org-1",
 					slug: "acme",
 					systemPrompt: "SYSTEM",
 					toolPolicy: { runtimeTools: allowed },
