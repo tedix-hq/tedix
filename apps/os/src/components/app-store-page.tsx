@@ -32,6 +32,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/kumo/empty";
+import { Pagination } from "@/components/kumo/pagination";
 import { SearchInput } from "@/components/kumo/search-input";
 import {
 	Page,
@@ -488,31 +489,19 @@ function CloudAppStorePage({
 					</Card>
 				) : null}
 				{search.offset > 0 || data?.pagination.hasMore ? (
-					<nav
-						aria-label="Catalog pagination"
-						className="flex justify-center gap-2"
+					<Pagination
+						className="justify-center"
+						labels={{ navigation: "Catalog pagination" }}
+						page={search.offset / CATALOG_PAGE_SIZE + 1}
+						perPage={CATALOG_PAGE_SIZE}
+						totalCount={data?.total}
+						hasNextPage={data?.pagination.hasMore}
+						setPage={(page) =>
+							updateSearch({ offset: (page - 1) * CATALOG_PAGE_SIZE })
+						}
 					>
-						<Button
-							variant="outline"
-							disabled={resultsPending || search.offset === 0}
-							onClick={() =>
-								updateSearch({
-									offset: Math.max(0, search.offset - CATALOG_PAGE_SIZE),
-								})
-							}
-						>
-							Previous page
-						</Button>
-						<Button
-							variant="outline"
-							disabled={resultsPending || !data?.pagination.hasMore}
-							onClick={() =>
-								updateSearch({ offset: search.offset + CATALOG_PAGE_SIZE })
-							}
-						>
-							Next page
-						</Button>
-					</nav>
+						<Pagination.Controls controls="simple" className="grow-0" />
+					</Pagination>
 				) : null}
 			</PageSection>
 			<Collapsible>

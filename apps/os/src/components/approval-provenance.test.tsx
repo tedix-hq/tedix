@@ -122,7 +122,8 @@ async function open() {
 }
 function button(label: string) {
 	const result = [...host.querySelectorAll("button")].find(
-		(item) => item.textContent === label,
+		(item) =>
+			item.textContent === label || item.getAttribute("aria-label") === label,
 	);
 	if (!result) throw new Error(`Missing button ${label}`);
 	return result;
