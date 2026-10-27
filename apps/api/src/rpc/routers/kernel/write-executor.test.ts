@@ -398,6 +398,65 @@ describe("executeApprovedKernelWrite", () => {
 	);
 
 	it.each([
+		{
+			label: "names the approver on the tenant credential",
+			payload: { initiatedByUserId: null },
+			approvalRequestId: "sample-approval",
+			approvedByUserId: "approver-1",
+			expected: "approver-1",
+		},
+		{
+			label: "names nobody without an approval receipt",
+			payload: { initiatedByUserId: null },
+			approvedByUserId: "approver-1",
+			expected: null,
+		},
+		{
+			label: "keeps the initiator's receipt when one asked for the write",
+			payload: {},
+			approvalRequestId: "sample-approval",
+			approvedByUserId: "approver-1",
+			expected: null,
+		},
+	])(
+		"an agent-started approved write $label",
+		async ({
+			payload: overrides,
+			approvalRequestId,
+			approvedByUserId,
+			expected,
+		}) => {
+			const service = mcpService((body) =>
+				body.method === "tools/list"
+					? LISTED
+					: {
+							json: {
+								jsonrpc: "2.0",
+								id: 1,
+								result: { structuredContent: { id: "INV-3" }, isError: false },
+							},
+						},
+			);
+			const result = await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload(overrides),
+				...(approvalRequestId ? { approvalRequestId } : {}),
+				approvedByUserId,
+			});
+			expect(result).toMatchObject({ ok: true });
+			const toolCalls = service.calls.filter((c) => c.method === "tools/call");
+			expect(toolCalls).toHaveLength(1);
+			// The approver never becomes the acting user: no personal credential.
+			expect(toolCalls[0]?.headers.get("X-Tedix-Acting-User")).toBe(
+				overrides.initiatedByUserId === null ? null : "user-123",
+			);
+			expect(toolCalls[0]?.headers.get("X-Tedix-Approved-Home-User")).toBe(
+				expected,
+			);
+		},
+	);
+
+	it.each([
 		"native",
 		"approved",
 		"denied",

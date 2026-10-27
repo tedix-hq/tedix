@@ -285,4 +285,18 @@ describe("Home approval at MCP dispatch", () => {
 			).toBe(expected);
 		},
 	);
+	it.each([
+		[{ approvedHomeUserId: "approver-1" }, true],
+		[{}, false],
+	])(
+		"an agent-started replay carries the approver's receipt only (%j)",
+		(identity, expected) => {
+			expect(
+				isHomeApprovalCall(
+					context(vi.fn(), true, "service", identity),
+					options,
+				),
+			).toBe(expected);
+		},
+	);
 });

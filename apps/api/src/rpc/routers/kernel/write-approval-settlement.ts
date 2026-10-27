@@ -44,6 +44,7 @@ import {
 	nowIso,
 } from "./runtime-shared";
 import {
+	approvingUserId,
 	executeApprovedKernelWrite,
 	parseHomeToolWritePayload,
 	type KernelWriteExecutorTimings,
@@ -483,14 +484,16 @@ export function kernelWriteCardContent(input: {
 }
 
 /**
- * Whether the human who started a parked Home write may still act in the
- * organization: an active member whose current role or grants include Home
- * use (`os:run`, the permission that admitted the original turn).
+ * Whether the human a parked Home write acts for may still act in the
+ * organization: an active member whose current role or grants include the
+ * permission that admitted them (`os:run` for the initiator of a Home turn,
+ * `os:approve` for the approver of an agent-started run).
  */
-async function initiatorMayStillAct(
+async function principalMayStillAct(
 	context: BaseContext,
 	organizationId: string,
 	descopeUserId: string,
+	permission: "os:run" | "os:approve",
 ): Promise<boolean> {
 	const member = await getMemberByUserId(
 		context.db,
@@ -498,11 +501,11 @@ async function initiatorMayStillAct(
 		descopeUserId,
 	);
 	if (member?.status !== "active") return false;
-	if (roleImpliesPermission([member.role], "os:run")) return true;
-	// `os:run` is tenant-grantable, so a member override counts.
+	if (roleImpliesPermission([member.role], permission)) return true;
+	// Both permissions are tenant-grantable, so a member override counts.
 	return (
 		Array.isArray(member.customPermissions) &&
-		member.customPermissions.includes("os:run")
+		member.customPermissions.includes(permission)
 	);
 }
 
@@ -681,10 +684,11 @@ export async function settleHomeToolWriteApproval(
 		if (
 			!admittedMetadata &&
 			payload.initiatedByUserId &&
-			!(await initiatorMayStillAct(
+			!(await principalMayStillAct(
 				context,
 				payload.organizationId,
 				payload.initiatedByUserId,
+				"os:run",
 			))
 		) {
 			console.warn("[kernelRuntime] kernel write initiator lost access", {
@@ -696,6 +700,41 @@ export async function settleHomeToolWriteApproval(
 					"Kernel write not executed — the person who asked for it no longer has access.",
 				content: `The approved write \`${payload.toolName}\` on ${payload.appSlug} was not executed: the person who asked for it no longer has access to this organization.`,
 				approvalStatus: "initiator_revoked",
+			});
+		}
+		// An agent-started run has no initiator. Its receipt is bound to the
+		// approving human instead, so the same apply-time re-check applies to
+		// them: still an active member who may approve. Their personal
+		// credential and scopes are never used; the write carries only the
+		// approved tool's authority on the tenant credential. An approver
+		// resolving in their own authenticated request just passed the resolve
+		// guard; a deferred settlement re-reads their membership.
+		const approvedByUserId = approvingUserId(input.approval.resolvedBy);
+		const approverActsNow =
+			approvedByUserId !== undefined &&
+			approvedByUserId ===
+				(context.gatewayEndUserId ?? context.user?.sub ?? context.authType);
+		if (
+			!admittedMetadata &&
+			!payload.initiatedByUserId &&
+			approvedByUserId &&
+			!approverActsNow &&
+			!(await principalMayStillAct(
+				context,
+				payload.organizationId,
+				approvedByUserId,
+				"os:approve",
+			))
+		) {
+			console.warn("[kernelRuntime] kernel write approver lost access", {
+				approvalRequestId: input.approval.id,
+				homeRunId: payload.homeRunId,
+			});
+			return closeWithoutExecuting({
+				preview:
+					"Kernel write not executed — the person who approved it no longer has access.",
+				content: `The approved write \`${payload.toolName}\` on ${payload.appSlug} was not executed: the person who approved it no longer has access to this organization.`,
+				approvalStatus: "approver_revoked",
 			});
 		}
 
@@ -745,6 +784,7 @@ export async function settleHomeToolWriteApproval(
 				input.approval.resolvedBy === "policy"
 					? (payload.initiatedByUserId ?? undefined)
 					: (input.approval.resolvedBy ?? undefined),
+			approvedByUserId,
 			timings: executorTimings,
 		}).catch((error) => ({
 			ok: false as const,
