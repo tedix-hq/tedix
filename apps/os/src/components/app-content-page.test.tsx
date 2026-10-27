@@ -236,7 +236,7 @@ describe("read recovery", () => {
 		await act(async () =>
 			buttonIn(
 				alertWith(view.host, "Content settings could not be loaded"),
-				"Try again",
+				"Retry",
 			).click(),
 		);
 		await settles(() => expect(view.host.textContent).toContain("Weekly"));
@@ -262,7 +262,7 @@ describe("read recovery", () => {
 		await act(async () =>
 			buttonIn(
 				alertWith(view.host, "Content sources are unavailable"),
-				"Try again",
+				"Retry",
 			).click(),
 		);
 		await settles(() => expect(view.host.textContent).toContain("Docs guide"));
@@ -312,7 +312,7 @@ describe("refresh failures with a loaded inventory", () => {
 		await act(async () =>
 			buttonIn(
 				alertWith(view.host, "Content sources may be stale"),
-				"Try again",
+				"Retry",
 			).click(),
 		);
 		await settles(() =>

@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import {
 	Empty,
 	EmptyDescription,
@@ -14,6 +14,7 @@ import {
 	PageTitle,
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
+
 import { errorMessage } from "@/lib/orpc-error";
 import { useDocumentTitle } from "@/lib/use-document-title";
 
@@ -57,17 +58,24 @@ export function WorkListSkeleton({
 export function WorkReadFailure({
 	title,
 	error,
-	fallback = "The canonical read failed.",
+	fallback = "This could not be loaded. Try again in a moment.",
+	onRetry,
+	retrying,
 }: {
 	title: string;
 	error?: unknown;
 	fallback?: string;
+	onRetry?: () => unknown;
+	retrying?: boolean;
 }) {
 	return (
-		<Alert variant="destructive">
-			<AlertTitle>{title}</AlertTitle>
-			<AlertDescription>{errorMessage(error, fallback)}</AlertDescription>
-		</Alert>
+		<LoadError
+			title={title}
+			error={error}
+			help={errorMessage(error, "") ? undefined : fallback}
+			onRetry={onRetry}
+			retrying={retrying}
+		/>
 	);
 }
 

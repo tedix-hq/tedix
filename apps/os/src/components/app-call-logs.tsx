@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import * as z from "zod";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Select,
@@ -182,10 +182,14 @@ export function AppCallLogs({
 				</Select>
 			</div>
 			{traces.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Logs are unavailable</AlertTitle>
-					<AlertDescription>{traces.error.message}</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Logs are unavailable"
+					error={traces.error}
+					onRetry={() => {
+						void traces.refetch();
+					}}
+					retrying={traces.isFetching}
+				/>
 			)}
 			<div
 				ref={pane}

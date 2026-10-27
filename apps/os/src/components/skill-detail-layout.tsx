@@ -137,7 +137,12 @@ export function SkillDetailLayout() {
 				{detail.isPending ? (
 					<ListSkeleton rows={6} />
 				) : (
-					<DetailUnavailable resource="Skill" error={detail.error} />
+					<DetailUnavailable
+						resource="Skill"
+						error={detail.error}
+						onRetry={() => detail.refetch()}
+						retrying={detail.isFetching}
+					/>
 				)}
 			</Page>
 		);

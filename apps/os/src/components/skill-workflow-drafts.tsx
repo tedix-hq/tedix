@@ -10,7 +10,12 @@ import type {
 	SkillWorkflowToolCall,
 } from "@tedix/api-contract/schemas/cognitive";
 import { useState, type ReactNode } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -255,17 +260,12 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 				version moves to revision {baseline.revision + 1}.
 			</Text>
 			{drafts.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Drafts could not be read</AlertTitle>
-					<AlertDescription>{errorMessage(drafts.error)}</AlertDescription>
-					<Button
-						variant="outline"
-						className="mt-2 min-h-11 w-fit"
-						onClick={() => void drafts.refetch()}
-					>
-						Retry drafts
-					</Button>
-				</Alert>
+				<LoadError
+					title="Drafts could not be read"
+					error={drafts.error}
+					onRetry={() => void drafts.refetch()}
+					retrying={drafts.isFetching}
+				/>
 			) : null}
 			{activated ? (
 				<Alert variant="info">
@@ -661,20 +661,15 @@ export function SkillWorkflowDraftDialog({
 							/>
 						</label>
 						{runs.isError ? (
-							<Alert variant="warning">
-								<AlertTitle>Run history could not be read</AlertTitle>
-								<AlertDescription>
-									{errorMessage(runs.error)} A draft needs a finished run of
-									revision {baseline.revision} to compare against.
-								</AlertDescription>
-								<Button
-									variant="outline"
-									className="mt-2 min-h-11 w-fit"
-									onClick={() => void runs.refetch()}
-								>
-									Retry run history
-								</Button>
-							</Alert>
+							<LoadError
+								title={<>Run history could not be read</>}
+								error={runs.error}
+								onRetry={() => {
+									void runs.refetch();
+								}}
+								retrying={runs.isFetching}
+								help={`A draft needs a finished run of revision ${baseline.revision} to compare against.`}
+							/>
 						) : null}
 						{needsBaseline ? (
 							<Alert variant="warning">

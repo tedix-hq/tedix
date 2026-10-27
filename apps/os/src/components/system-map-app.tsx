@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { SystemMapConfig } from "@tedix/api-contract/schemas/os-system-map";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Collapsible,
@@ -305,12 +305,25 @@ export function SystemMapApp({ config }: { config: SystemMapConfig }) {
 		workspaces.isError
 	)
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>The system map is unavailable</AlertTitle>
-				<AlertDescription>
-					Some of your team’s setup could not be read. Reload to try again.
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="The system map is unavailable"
+				error={
+					tedis.error ?? skills.error ?? connections.error ?? workspaces.error
+				}
+				onRetry={() => {
+					void tedis.refetch();
+					void skills.refetch();
+					void connections.refetch();
+					void workspaces.refetch();
+				}}
+				retrying={
+					tedis.isFetching ||
+					skills.isFetching ||
+					connections.isFetching ||
+					workspaces.isFetching
+				}
+				help="Some of your team’s setup could not be read. Reload to try again."
+			/>
 		);
 	if (!sources) return <ListSkeleton rows={4} />;
 	return <SystemMapView sources={sources} config={config} />;

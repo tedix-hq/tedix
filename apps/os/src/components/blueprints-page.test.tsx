@@ -680,7 +680,7 @@ describe("BlueprintsPage list", () => {
 		expect(container.textContent).toContain(
 			"API request timed out after 15000ms",
 		);
-		click(findButton(container, "Try again"));
+		click(findButton(container, "Retry"));
 		await flush();
 
 		expect(blueprintsApi.list).toHaveBeenCalledTimes(2);

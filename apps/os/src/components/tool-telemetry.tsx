@@ -1,7 +1,7 @@
 import { Wrench } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -31,7 +31,7 @@ import { KumoTabs } from "@/components/kumo/tabs";
 import { Text } from "@/components/kumo/text";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
-import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
+import { isAuthorizationError } from "@/lib/orpc-error";
 import { runtimeEventsQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, formatDurationMs, relativeTime } from "@/lib/time";
 import {
@@ -346,18 +346,19 @@ export function ToolTelemetry({ tediId }: { tediId: string }) {
 			{pending && <ListSkeleton rows={2} />}
 
 			{error != null && (
-				<Alert variant={refused ? "warning" : "destructive"}>
-					<AlertTitle>
-						{refused
+				<LoadError
+					title={
+						refused
 							? "Tool telemetry is not readable with your access"
-							: "Tool telemetry is unavailable"}
-					</AlertTitle>
-					<AlertDescription>
-						{refused
-							? "The runtime-event ledger read was refused for this principal. Nothing is inferred about this tedi's tool use."
-							: errorMessage(error)}
-					</AlertDescription>
-				</Alert>
+							: "Tool telemetry is unavailable"
+					}
+					error={error}
+					onRetry={() => {
+						void completed.refetch();
+						void failed.refetch();
+					}}
+					retrying={completed.isFetching || failed.isFetching}
+				/>
 			)}
 
 			{completed.data && failed.data && (

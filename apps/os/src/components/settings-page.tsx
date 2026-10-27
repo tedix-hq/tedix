@@ -25,7 +25,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { CodeInline } from "@/components/kumo/code";
@@ -440,12 +445,14 @@ function OperationalContextSection({
 
 			{context.isPending && <ListSkeleton rows={2} rowClassName="h-20" />}
 			{context.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Workspace context is unavailable</AlertTitle>
-					<AlertDescription>
-						{(context.error as Error).message}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Workspace context is unavailable"
+					error={context.error}
+					onRetry={() => {
+						void context.refetch();
+					}}
+					retrying={context.isFetching}
+				/>
 			)}
 
 			{context.data && (
@@ -649,12 +656,14 @@ export function SettingsPage({
 				</SectionHeader>
 
 				{query.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Preferences could not be loaded</AlertTitle>
-						<AlertDescription>
-							{(query.error as Error).message}
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Preferences could not be loaded"
+						error={query.error}
+						onRetry={() => {
+							void query.refetch();
+						}}
+						retrying={query.isFetching}
+					/>
 				)}
 				{state === "conflict" && (
 					<Alert variant="destructive">

@@ -30,7 +30,7 @@ import {
 import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Dialog,
@@ -859,12 +859,14 @@ export function ChatSidebar({
 
 			{conversations.isPending && <ListSkeleton rows={5} rowClassName="h-12" />}
 			{conversations.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Conversations are unavailable</AlertTitle>
-					<AlertDescription>
-						{(conversations.error as Error).message}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Conversations are unavailable"
+					error={conversations.error}
+					onRetry={() => {
+						void conversations.refetch();
+					}}
+					retrying={conversations.isFetching}
+				/>
 			)}
 			{conversations.data &&
 				sorted.length === 0 &&

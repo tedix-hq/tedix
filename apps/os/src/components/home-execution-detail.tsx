@@ -909,6 +909,8 @@ export function HomeExecutionDetailPage({
 						<DetailUnavailable
 							resource="Home execution"
 							error={runQuery.error}
+							onRetry={() => runQuery.refetch()}
+							retrying={runQuery.isFetching}
 						/>
 						<Button
 							variant="outline"
@@ -924,6 +926,8 @@ export function HomeExecutionDetailPage({
 						<DetailUnavailable
 							resource="Execution trace"
 							error={traceQuery.error}
+							onRetry={() => traceQuery.refetch()}
+							retrying={traceQuery.isFetching}
 						/>
 						<Button
 							variant="outline"

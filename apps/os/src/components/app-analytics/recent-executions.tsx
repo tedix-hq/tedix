@@ -3,7 +3,7 @@ import type { RecentExecutionsSchema } from "@tedix/api-contract/contracts/analy
 import { CaretRight, Code } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import type { z } from "zod";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -161,7 +161,7 @@ function ExecutionRow({
 // =============================================================================
 
 function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
-	const { data, isPending, isError } = useQuery({
+	const { data, isPending, isError, error, refetch, isFetching } = useQuery({
 		...executionDrilldownQueryOptions(executionId),
 		staleTime: 300_000,
 	});
@@ -176,11 +176,13 @@ function ExecutionDrilldownPanel({ executionId }: { executionId: string }) {
 
 	if (isError) {
 		return (
-			<Alert variant="destructive" className="mx-4 my-3 w-auto">
-				<AlertDescription>
-					Execution details could not be loaded.
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				error={error}
+				onRetry={() => refetch()}
+				retrying={isFetching}
+				title="Execution details could not be loaded"
+				className="mx-4 my-3 w-auto"
+			/>
 		);
 	}
 

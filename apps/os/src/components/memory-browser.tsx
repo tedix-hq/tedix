@@ -49,7 +49,7 @@ import {
 } from "./kumo/table";
 import { Tabs, TabsList, TabsTrigger } from "./kumo/tabs";
 import { Text } from "./kumo/text";
-import { Alert, AlertTitle, AlertDescription } from "./kumo/alert";
+import { LoadError } from "./kumo/alert";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "./kumo/empty";
 import { ListSkeleton } from "./list-skeleton";
 import {
@@ -522,18 +522,12 @@ export function MemoryBrowser({
 						)}
 					</div>
 					{activeQuery.isError && (
-						<Alert variant="destructive">
-							<AlertTitle>{label} is unavailable</AlertTitle>
-							<AlertDescription>
-								{activeQuery.error.message}
-								<Button
-									variant="outline"
-									onClick={() => void activeQuery.refetch()}
-								>
-									Try again
-								</Button>
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title={`${label} is unavailable`}
+							error={activeQuery.error}
+							onRetry={() => void activeQuery.refetch()}
+							retrying={activeQuery.isFetching}
+						/>
 					)}
 					{activeQuery.isPending ? (
 						<ListSkeleton rows={5} />

@@ -10,7 +10,7 @@ import type { App } from "@tedix/api-contract/schemas/app";
 import { Plus, Trash } from "@phosphor-icons/react";
 import { useState } from "react";
 import { AppTabHeader } from "@/components/app-detail-tab-shared";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { PageSection } from "@/components/kumo/page";
@@ -158,11 +158,13 @@ export function AppAggregatedTedis({
 					</Alert>
 				) : null}
 				{roster.error ? (
-					<Alert variant="destructive">
-						<AlertDescription>
-							Tedi names could not be loaded. Slugs are shown instead.
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Tedi names could not be loaded"
+						onRetry={() => roster.refetch()}
+						retrying={roster.isFetching}
+						error={roster.error}
+						help="Slugs are shown instead. Try again in a moment."
+					/>
 				) : null}
 				{included.length === 0 ? (
 					<Empty appearance="quiet">

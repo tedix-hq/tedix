@@ -15,7 +15,7 @@ import type { ToolAnnotations } from "@tedix/api-contract/schemas/tools";
 import type { ReactNode } from "react";
 import { Component, useMemo, useState } from "react";
 import { AppGatewayMembership } from "@/components/app-gateway-membership";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -1021,10 +1021,14 @@ export function AppOverviewPage() {
 	}
 	if (detail.isError) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>App is unavailable</AlertTitle>
-				<AlertDescription>{(detail.error as Error).message}</AlertDescription>
-			</Alert>
+			<LoadError
+				title="App is unavailable"
+				error={detail.error}
+				onRetry={() => {
+					void detail.refetch();
+				}}
+				retrying={detail.isFetching}
+			/>
 		);
 	}
 	if (!app) return null;

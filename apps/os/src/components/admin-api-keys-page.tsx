@@ -43,7 +43,12 @@ import {
 	type ApiKeyDraft,
 } from "@/components/api-keys-webmcp-tools";
 import { useWebMcpTools } from "@/lib/webmcp/use-webmcp-tools";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -67,7 +72,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import { Input } from "@/components/kumo/input";
+
 import { Label } from "@/components/kumo/label";
 import { Loader } from "@/components/kumo/loader";
 import {
@@ -90,13 +95,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/kumo/popover";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/kumo/select";
+import { Select, SelectItem } from "@/components/kumo/select";
 import { Separator } from "@/components/kumo/separator";
 import { ListSkeleton } from "@/components/list-skeleton";
 import { errorMessage } from "@/lib/orpc-error";
@@ -463,15 +462,14 @@ export function AdminApiKeysPage({
 			{context.isPending ? (
 				<ApiKeysPanelPending />
 			) : context.isError || !context.data ? (
-				<Alert variant="destructive">
-					<AlertTitle>API keys are unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(
-							context.error,
-							"The operational context read failed.",
-						)}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="API keys are unavailable"
+					error={context.error}
+					onRetry={() => {
+						void context.refetch();
+					}}
+					retrying={context.isFetching}
+				/>
 			) : (
 				<AdminApiKeysBody
 					onPageChange={onPageChange}

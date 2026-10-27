@@ -10,7 +10,7 @@ import type {
 	MemoryHealthFindingSample,
 	MemoryHealthFindings,
 } from "@tedix/api-contract/schemas/memory-graph";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
@@ -391,12 +391,14 @@ export function MemoryHealthFindingsSection() {
 			</SectionHeader>
 			{findings.isPending && <ListSkeleton rows={3} />}
 			{findings.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Memory health findings are unavailable</AlertTitle>
-					<AlertDescription>
-						{(findings.error as Error).message}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Memory health findings are unavailable"
+					error={findings.error}
+					onRetry={() => {
+						void findings.refetch();
+					}}
+					retrying={findings.isFetching}
+				/>
 			)}
 			{findings.data && <MemoryHealthFindingsList data={findings.data} />}
 		</PageSection>

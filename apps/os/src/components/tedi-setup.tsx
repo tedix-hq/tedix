@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { TediSetup } from "@tedix/api-contract/contracts/tedis";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Link } from "@/components/kumo/link";
 import { Button } from "@/components/kumo/button";
@@ -270,13 +270,15 @@ export function TediSetupChecklist({ tediId }: { tediId: string }) {
 			{query.isPending ? (
 				<ListSkeleton rows={3} />
 			) : query.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Setup is unavailable</AlertTitle>
-					<AlertDescription>
-						The configured requirements could not be checked. Try again to
-						refresh the checklist.
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Setup is unavailable"
+					error={query.error}
+					onRetry={() => {
+						void query.refetch();
+					}}
+					retrying={query.isFetching}
+					help="The configured requirements could not be checked. Try again to refresh the checklist."
+				/>
 			) : (
 				<SetupChecklist setup={query.data} />
 			)}

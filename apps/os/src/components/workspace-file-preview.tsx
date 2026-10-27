@@ -1,9 +1,9 @@
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
-import { Button, buttonVariants } from "@/components/kumo/button";
+import { buttonVariants } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
 
 const VIDEO_MIME_TYPES = ["video/mp4", "video/webm"];
@@ -51,20 +51,13 @@ export function WorkspaceFilePreview({
 	if (query.isError) {
 		playback.current = { fileKey, time: 0, playing: false };
 		return (
-			<Alert variant="destructive">
-				<AlertDescription>
-					<span>This file is unavailable or you no longer have access.</span>
-					<Button
-						variant="outline"
-						size="sm"
-						className="mt-2 w-fit"
-						disabled={query.isFetching}
-						onClick={() => void query.refetch()}
-					>
-						{query.isFetching ? "Trying again…" : "Try again"}
-					</Button>
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="This file could not be loaded"
+				help="It may be unavailable or you may no longer have access."
+				error={query.error}
+				onRetry={() => void query.refetch()}
+				retrying={query.isFetching}
+			/>
 		);
 	}
 	const file = query.data;

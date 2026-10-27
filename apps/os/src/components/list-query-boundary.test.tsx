@@ -36,7 +36,7 @@ describe("operational list read boundary", () => {
 					errorTitle="Skills are unavailable"
 				/>,
 			);
-			expect(html).toContain("The list could not be read.");
+			expect(html).toContain("Try again in a moment.");
 			expect(html).toContain("Try again");
 			expect(html).not.toContain("No skills");
 		},

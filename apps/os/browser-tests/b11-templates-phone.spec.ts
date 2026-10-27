@@ -425,7 +425,7 @@ async function run(engine: string, type: BrowserType) {
 					0,
 					"A failed read must not claim there are no templates",
 				);
-				const retry = page.getByRole("button", { name: "Try again" });
+				const retry = page.getByRole("button", { name: "Retry" });
 				await inspect(page, `${label}-error`, phone, [retry]);
 				const before = listReads;
 				mode = "ready";

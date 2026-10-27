@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Combobox } from "@/components/kumo/combobox";
 import { Button } from "@/components/kumo/button";
 export type AudiencePerson = { value: string; label: string };
@@ -132,11 +132,16 @@ export function WidgetAudiencePicker({
 				</Combobox.Content>
 			</Combobox>
 			{(query.isError || saved.some((page) => page.isError)) && (
-				<Alert variant="destructive">
-					<AlertDescription>
-						Some names are unavailable. Your selected user IDs are preserved.
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Some names are unavailable"
+					error={query.error ?? saved.find((page) => page.isError)?.error}
+					onRetry={() => {
+						void query.refetch();
+						for (const page of saved) void page.refetch();
+					}}
+					retrying={query.isFetching || saved.some((page) => page.isFetching)}
+					help="Your selected user IDs are preserved."
+				/>
 			)}
 		</section>
 	);

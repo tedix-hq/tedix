@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import type { HomeReadOnlyApp } from "@tedix/api-contract/schemas/kernel-runtime";
 import { useState } from "react";
 import {
+	LoadError,
 	Alert,
 	AlertAction,
 	AlertDescription,
@@ -11,7 +12,7 @@ import {
 import { Button } from "@/components/kumo/button";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
-import { errorMessage } from "@/lib/orpc-error";
+
 import { Badge } from "@/components/kumo/badge";
 import { Combobox } from "@/components/kumo/combobox";
 import {
@@ -345,6 +346,8 @@ export function DirectReadPanel({
 	catalog: {
 		isLoading: boolean;
 		isError: boolean;
+		refetch?: () => unknown;
+		isFetching?: boolean;
 		error: unknown;
 		data?: { apps: HomeReadOnlyApp[] };
 	};
@@ -359,15 +362,12 @@ export function DirectReadPanel({
 			</Text>
 		</Surface>
 	) : catalog.isError ? (
-		<Alert variant="destructive">
-			<AlertTitle>Connected app reads unavailable</AlertTitle>
-			<AlertDescription>
-				{errorMessage(
-					catalog.error,
-					"Could not load the read-only tool catalog.",
-				)}
-			</AlertDescription>
-		</Alert>
+		<LoadError
+			title="Connected app reads are unavailable"
+			error={catalog.error}
+			onRetry={catalog.refetch}
+			retrying={catalog.isFetching}
+		/>
 	) : (
 		<div className="mx-auto w-full max-w-3xl">
 			<DirectReadComposer

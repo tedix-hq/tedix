@@ -5,7 +5,12 @@ import { buildAttentionWebMcpTools } from "@/components/attention-webmcp-tools";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { AttentionBoard } from "@/components/attention-live-view";
-import { Alert, AlertTitle, AlertDescription } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertTitle,
+	AlertDescription,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Text } from "@/components/kumo/text";
 import { osApi, OS_USES_FIXTURES } from "@/lib/api";
@@ -130,10 +135,14 @@ export function AttentionApp({ workspaceId }: { workspaceId?: string }) {
 				</Badge>
 			</div>
 			{query.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>{ATTENTION_COPY.updatesPaused}</AlertTitle>
-					<AlertDescription>{ATTENTION_COPY.reconnecting}</AlertDescription>
-				</Alert>
+				<LoadError
+					title={ATTENTION_COPY.updatesPaused}
+					error={query.error}
+					onRetry={() => {
+						void query.refetch();
+					}}
+					retrying={query.isFetching}
+				/>
 			)}
 			{(filing.isError || save.isError || layout.isError) && (
 				<Alert variant="destructive">

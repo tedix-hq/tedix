@@ -15,7 +15,7 @@ import {
 	type InboundClientInventoryItem,
 	type McpInboundClientPolicy,
 } from "@tedix/api-contract/schemas/mcp-grant";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
@@ -127,14 +127,13 @@ export function OrganizationInboundClientsSection({
 					<SectionTitle>Outside apps</SectionTitle>
 				</SectionHeader>
 				<SettingsSectionContent>
-					<Alert variant="destructive">
-						<AlertDescription>
-							{errorMessage(
-								inventory.error,
-								"The list of outside apps could not be read.",
-							)}
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						error={inventory.error}
+						onRetry={() => {
+							void inventory.refetch();
+						}}
+						retrying={inventory.isFetching}
+					/>
 				</SettingsSectionContent>
 			</SettingsSection>
 		);

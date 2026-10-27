@@ -16,7 +16,12 @@ import {
 	resolveWidgetCatalog,
 	WIDGET_CATALOGS,
 } from "@tedix/widget-i18n/catalogs";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	SectionHeader,
@@ -491,9 +496,14 @@ export function ExperienceEditor({
 				</SectionHeader>
 				<SettingsSectionContent>
 					{tedis.isError ? (
-						<Alert variant="destructive">
-							<AlertDescription>Could not load tedis.</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Could not load tedis."
+							error={tedis.error}
+							onRetry={() => {
+								void tedis.refetch();
+							}}
+							retrying={tedis.isFetching}
+						/>
 					) : (
 						<WidgetTediSelection
 							disabled={pending}

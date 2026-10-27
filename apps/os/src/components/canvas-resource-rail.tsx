@@ -9,7 +9,12 @@ import { type ReactNode, useState } from "react";
 import { ResourceCard } from "@/components/resource-card";
 import { OutputPreview } from "@/components/output-preview";
 import { NewResourceMenu } from "@/components/create-document-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
@@ -50,6 +55,8 @@ import { WorkspaceFileUpload } from "./workspace-file-upload";
 
 /** The slice of a TanStack list query the rail renders; structural on purpose. */
 type ResourceListQuery<TItem> = {
+	refetch: () => Promise<unknown>;
+	isFetching: boolean;
 	isPending: boolean;
 	isError: boolean;
 	error: unknown;
@@ -191,12 +198,14 @@ export function CanvasResourceRail({
 				</header>
 				{workspaces.isPending && <ListSkeleton rows={2} rowClassName="h-9" />}
 				{workspaces.isError && (
-					<Alert variant="destructive">
-						<AlertTitle>Workspaces are unavailable</AlertTitle>
-						<AlertDescription>
-							{(workspaces.error as Error).message}
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Workspaces are unavailable"
+						error={workspaces.error}
+						onRetry={() => {
+							void workspaces.refetch();
+						}}
+						retrying={workspaces.isFetching}
+					/>
 				)}
 				{workspaces.data && workspaces.data.items.length === 0 && (
 					<Empty appearance="quiet">
@@ -227,12 +236,14 @@ export function CanvasResourceRail({
 									<ListSkeleton rows={1} rowClassName="h-44" />
 								)}
 								{gadgets.isError && (
-									<Alert variant="destructive">
-										<AlertTitle>Apps are unavailable</AlertTitle>
-										<AlertDescription>
-											{(gadgets.error as Error).message}
-										</AlertDescription>
-									</Alert>
+									<LoadError
+										title="Apps are unavailable"
+										error={gadgets.error}
+										onRetry={() => {
+											void gadgets.refetch();
+										}}
+										retrying={gadgets.isFetching}
+									/>
 								)}
 								{shownGadgets.length > 0 && (
 									<WorkspaceAppCards
@@ -263,12 +274,14 @@ export function CanvasResourceRail({
 								<ListSkeleton rows={2} rowClassName="h-9" />
 							)}
 							{outputs.isError && (
-								<Alert variant="destructive">
-									<AlertTitle>Files are unavailable</AlertTitle>
-									<AlertDescription>
-										{(outputs.error as Error).message}
-									</AlertDescription>
-								</Alert>
+								<LoadError
+									title="Files are unavailable"
+									error={outputs.error}
+									onRetry={() => {
+										void outputs.refetch();
+									}}
+									retrying={outputs.isFetching}
+								/>
 							)}
 							{outputs.data && stateCounts.all > 0 && (
 								<SegmentedControl

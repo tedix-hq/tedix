@@ -2,8 +2,8 @@ import { getRouteApi, useLocation } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import type { MemoryHealth } from "@tedix/api-contract/schemas/memory-graph";
 import { MemoryBrowser } from "./memory-browser";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Button } from "@/components/kumo/button";
+import { LoadError } from "@/components/kumo/alert";
+
 import { MetricGrid } from "@/components/kumo/metric-grid";
 import {
 	Page,
@@ -123,15 +123,12 @@ export function BrainPage() {
 				</div>
 			)}
 			{health.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Memory health is unavailable</AlertTitle>
-					<AlertDescription>
-						{health.error.message}
-						<Button variant="outline" onClick={() => void health.refetch()}>
-							Try again
-						</Button>
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Memory health is unavailable"
+					error={health.error}
+					onRetry={() => void health.refetch()}
+					retrying={health.isFetching}
+				/>
 			)}
 			{health.data && <MemoryVitals health={health.data} />}
 			<MemoryBrowser

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ActivityItem } from "@tedix/api-contract/schemas/analytics";
 import { Info, Users } from "@phosphor-icons/react";
 import { useId, useState } from "react";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -160,7 +160,7 @@ function ActivityRow({ item }: { item: ActivityItem }) {
 }
 
 function TraceActivityPanel({ traceId }: { traceId: string }) {
-	const { data, isPending, isError } = useQuery({
+	const { data, isPending, isError, error, refetch, isFetching } = useQuery({
 		...traceActivityQueryOptions(traceId),
 		staleTime: 300_000,
 	});
@@ -175,9 +175,13 @@ function TraceActivityPanel({ traceId }: { traceId: string }) {
 
 	if (isError) {
 		return (
-			<Alert variant="destructive" className="mx-6 my-2 w-auto">
-				<AlertDescription>Trace activity could not be loaded.</AlertDescription>
-			</Alert>
+			<LoadError
+				error={error}
+				onRetry={() => refetch()}
+				retrying={isFetching}
+				title="Trace activity could not be loaded"
+				className="mx-6 my-2 w-auto"
+			/>
 		);
 	}
 

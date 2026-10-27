@@ -23,7 +23,12 @@ import { CanvasOutputTitle } from "@/components/canvas-output-title";
 import { CanvasPresence } from "@/components/canvas-presence";
 import { CanvasDocumentRecovery } from "@/components/canvas-document-recovery";
 import { CanvasProposals } from "@/components/canvas-proposals";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
@@ -979,20 +984,20 @@ export function CanvasDocPanel({
 			)}
 			{detail.isPending && <ListSkeleton rows={2} />}
 			{detail.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>The document is unavailable</AlertTitle>
-					<AlertDescription>
-						{(detail.error as Error).message}
-						{(detail.error as Error).message ===
-							"Output source access is unavailable" && (
-							<p>
-								This document uses restricted sources. Workspace access does not
-								grant access to those sources. Ask the document owner for a
-								version they can share with you.
-							</p>
-						)}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="The document is unavailable"
+					error={detail.error}
+					onRetry={() => {
+						void detail.refetch();
+					}}
+					retrying={detail.isFetching}
+					help={
+						(detail.error as Error).message ===
+						"Output source access is unavailable"
+							? "This document uses restricted sources. Workspace access does not grant access to those sources. Ask the document owner for a version they can share with you."
+							: undefined
+					}
+				/>
 			)}
 			{!isGadget && detail.data && tooLarge && (
 				<Alert variant="info" data-canvas-too-large>

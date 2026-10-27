@@ -24,7 +24,12 @@ import {
 import * as z from "zod";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { CodeBlock } from "@/components/kumo/code";
@@ -807,10 +812,14 @@ function RunManuallyForm({
 			</div>
 			{tedis.isPending && <ListSkeleton rows={1} rowClassName="h-9" />}
 			{tedis.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Tedis are unavailable</AlertTitle>
-					<AlertDescription>{(tedis.error as Error).message}</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Tedis are unavailable"
+					error={tedis.error}
+					onRetry={() => {
+						void tedis.refetch();
+					}}
+					retrying={tedis.isFetching}
+				/>
 			)}
 			{tedis.data && activeTedis.length === 0 && (
 				<Alert variant="warning">
@@ -1045,12 +1054,14 @@ export function CanvasGadgetExecutions({
 			)}
 			{executions.isPending && <ListSkeleton rows={3} />}
 			{executions.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>History is unavailable</AlertTitle>
-					<AlertDescription>
-						{(executions.error as Error).message}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="History is unavailable"
+					error={executions.error}
+					onRetry={() => {
+						void executions.refetch();
+					}}
+					retrying={executions.isFetching}
+				/>
 			)}
 			{executions.data && runs.length === 0 && (
 				<Empty

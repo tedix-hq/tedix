@@ -14,7 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link as RouterLink, useParams } from "@tanstack/react-router";
 import type { App, AppListItem } from "@tedix/api-contract/schemas/app";
 import { type ReactNode, useMemo, useState } from "react";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
 import { CodeBlock } from "@/components/kumo/code";
@@ -467,21 +467,15 @@ function AppsSection({ gatewayId }: { gatewayId: string }) {
 					<Skeleton className="h-14 rounded-lg" />
 				</div>
 			) : error ? (
-				<Alert variant="destructive">
-					<AlertDescription>
-						The list of apps could not be loaded.{" "}
-						<Button
-							variant="secondary"
-							size="sm"
-							onClick={() => {
-								void apps.refetch();
-								void memberships.refetch();
-							}}
-						>
-							Retry
-						</Button>
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					onRetry={() => {
+						void apps.refetch();
+						void memberships.refetch();
+					}}
+					title="Apps could not be loaded"
+					error={apps.error ?? memberships.error}
+					retrying={apps.isFetching || memberships.isFetching}
+				/>
 			) : rows.length === 0 ? (
 				<Text as="p" role="body" tone="secondary">
 					No other apps are installed yet. Install an app and it can be added

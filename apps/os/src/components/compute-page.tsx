@@ -10,7 +10,12 @@ import {
 import { Link } from "@/components/kumo/link";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import {
 	Collapsible,
@@ -621,13 +626,11 @@ export function ComputePage() {
 					</Alert>
 				)}
 				{nonData?.kind === "broken" && (
-					<Alert variant="destructive">
-						<AlertTitle>The compute posture is unavailable</AlertTitle>
-						<AlertDescription>
-							{nonData.message} — no spend, budget or ingestion state is known
-							for this workspace right now. This is not zero spend.
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="The compute posture is unavailable"
+						error={nonData.message}
+						help="Spending and budget information are unknown until this loads."
+					/>
 				)}
 				{posture.data && (
 					<Collection

@@ -8,7 +8,7 @@ import type {
 } from "@tedix/api-contract/contracts/workflows";
 import { useMemo } from "react";
 import { RunStatusChip } from "@/components/activity-runs";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import {
@@ -403,12 +403,14 @@ export function TriggersPanel({
 			<SectionEyebrow title="Triggers" count={schedules.data?.total} />
 			{schedules.isPending && <ListSkeleton />}
 			{schedules.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Triggers are unavailable</AlertTitle>
-					<AlertDescription>
-						{(schedules.error as Error).message}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Triggers are unavailable"
+					error={schedules.error}
+					onRetry={() => {
+						void schedules.refetch();
+					}}
+					retrying={schedules.isFetching}
+				/>
 			)}
 			{schedules.data && rows.length === 0 && <TriggersEmpty />}
 			{schedules.data && rows.length > 0 && (

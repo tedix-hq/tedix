@@ -1,7 +1,7 @@
 import type { ConnectionConsumerGrants } from "@tedix/api-contract/schemas/connections";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Checkbox } from "@/components/kumo/checkbox";
 import { Switch } from "@/components/kumo/switch";
@@ -126,25 +126,16 @@ export function ConnectionConsumerGrantsEditor({
 				</p>
 			) : null}
 			{failedRead ? (
-				<Alert variant="destructive">
-					<AlertDescription>
-						Access settings are unavailable. Read them again before saving.
-					</AlertDescription>
-					<Button
-						variant="outline"
-						className="mt-3"
-						disabled={
-							grants.isFetching || tedis.isFetching || skills.isFetching
-						}
-						onClick={() => {
-							void grants.refetch();
-							void tedis.refetch();
-							void skills.refetch();
-						}}
-					>
-						Retry access settings
-					</Button>
-				</Alert>
+				<LoadError
+					title="Access settings are unavailable"
+					retrying={grants.isFetching || tedis.isFetching || skills.isFetching}
+					onRetry={() => {
+						void grants.refetch();
+						void tedis.refetch();
+						void skills.refetch();
+					}}
+					error={grants.error ?? tedis.error ?? skills.error}
+				/>
 			) : null}
 			{mode === "selected" && (
 				<div className="grid gap-4 sm:grid-cols-2">

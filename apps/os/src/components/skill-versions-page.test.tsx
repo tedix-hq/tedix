@@ -200,7 +200,7 @@ describe("skill versions", () => {
 		expect(node.textContent).not.toContain("Clearer instructions");
 		expect(node.querySelector('[data-slot="badge"]')).toBeNull();
 		const retry = [...node.querySelectorAll("button")].find(
-			(button) => button.textContent === "Retry skill details",
+			(button) => button.textContent === "Retry",
 		);
 		expect(retry).toBeDefined();
 		await act(async () => retry!.click());

@@ -293,9 +293,7 @@ try {
 				"chat",
 			]) {
 				const frame = page.locator(`#${surface}-error`);
-				await frame
-					.getByRole("button", { name: "Try again", exact: true })
-					.click();
+				await frame.getByRole("button", { name: "Retry", exact: true }).click();
 				assert(
 					await frame
 						.getByText("Retry requested (1)", { exact: true })

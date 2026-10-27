@@ -16,7 +16,12 @@ import type {
 	OsCollaboratorTarget,
 } from "@tedix/api-contract/schemas/os-collaborators";
 import { type FormEvent, type ReactNode, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -503,12 +508,14 @@ function WorkspaceAccess(props: {
 	return (
 		<>
 			{sharing.isError ? (
-				<Alert variant="destructive">
-					<AlertTitle>Can't load sharing</AlertTitle>
-					<AlertDescription>
-						{errorText(sharing.error, "Try again in a moment.")}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Can't load sharing"
+					error={sharing.error}
+					onRetry={() => {
+						void sharing.refetch();
+					}}
+					retrying={sharing.isFetching}
+				/>
 			) : null}
 
 			<form className="grid gap-2" onSubmit={submitInvite}>

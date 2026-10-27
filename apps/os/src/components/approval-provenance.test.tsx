@@ -208,7 +208,7 @@ describe("read-only runtime approval history", () => {
 			expect(host.textContent).toContain("Approval history unavailable"),
 		);
 		expect(host.textContent).not.toContain("No approved requests");
-		await act(async () => button("Retry approval history").click());
+		await act(async () => button("Retry").click());
 		await vi.waitFor(() =>
 			expect(host.textContent).toContain("No approved requests in this page."),
 		);
@@ -308,7 +308,7 @@ describe("approval provenance disclosure", () => {
 			expect(host.textContent).toContain("Provenance unavailable"),
 		);
 		expect(host.textContent).not.toContain("No recorded simulations");
-		await act(async () => button("Retry provenance").click());
+		await act(async () => button("Retry").click());
 		await vi.waitFor(() =>
 			expect(host.textContent).toContain("Simulated — not executed"),
 		);

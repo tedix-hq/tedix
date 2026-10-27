@@ -166,7 +166,7 @@ try {
 				`${origin}/browser-tests/b13-skill-schedule-clocks.html?theme=${theme}`,
 			);
 			const retry = page.getByRole("button", {
-				name: "Try again",
+				name: "Retry",
 				exact: true,
 			});
 			await retry.waitFor();

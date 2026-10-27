@@ -255,7 +255,7 @@ it("fences a cached grant after refresh failure, then recovers through its named
 	await view.click(view.save());
 	expect(mocks.setGrant).not.toHaveBeenCalled();
 	mocks.getGrant.mockResolvedValue(initialGrant);
-	await view.click(view.button("Retry console access settings"));
+	await view.click(view.button("Retry"));
 	expect(view.save().disabled).toBe(false);
 	await view.click(view.save());
 	expect(mocks.setGrant.mock.calls[0]?.[0]).toEqual({
@@ -276,7 +276,7 @@ it("shows cold grant loading and a retry after failure", async () => {
 	expect(view.save().disabled).toBe(false);
 	mocks.getGrant.mockRejectedValue(new Error("Offline"));
 	await view.refresh(grantOptions().queryKey);
-	expect(view.button("Retry console access settings")).toBeDefined();
+	expect(view.button("Retry")).toBeDefined();
 });
 
 it("waits for cold workspace inventory and preserves only current workspace IDs", async () => {
@@ -311,7 +311,7 @@ it("fences failed workspace reads even while access is disabled and retries inve
 	expect(view.toggle().disabled).toBe(true);
 	expect(view.host.textContent).toContain("Workspaces are unavailable");
 	mocks.workspaces.mockResolvedValue(inventory);
-	await view.click(view.button("Retry Workspaces"));
+	await view.click(view.button("Retry"));
 	expect(view.toggle().getAttribute("aria-checked")).toBe("false");
 	await view.click(view.save());
 	expect(mocks.setGrant.mock.calls[0]?.[0]).toEqual({

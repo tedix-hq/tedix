@@ -1,6 +1,6 @@
 import { Robot } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Empty } from "@/components/kumo/empty";
 import {
 	PageSection,
@@ -32,10 +32,15 @@ export function PersonalAgentValue() {
 			</SectionHeader>
 			{query.isPending && <ListSkeleton rows={2} rowClassName="h-20" />}
 			{query.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>Contributions could not be loaded</AlertTitle>
-					<AlertDescription>Refresh the page to try again.</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Contributions could not be loaded"
+					error={query.error}
+					onRetry={() => {
+						void query.refetch();
+					}}
+					retrying={query.isFetching}
+					help="Refresh the page to try again."
+				/>
 			)}
 			{!query.isPending && !query.isError && query.data?.length === 0 && (
 				<Empty

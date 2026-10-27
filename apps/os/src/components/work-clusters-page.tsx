@@ -77,6 +77,8 @@ export function WorkClustersPage() {
 						<WorkReadFailure
 							title="Tedi roster unavailable"
 							error={tedis.error}
+							onRetry={() => tedis.refetch()}
+							retrying={tedis.isFetching}
 						/>
 					) : tedis.data?.data.length ? (
 						<>
@@ -132,6 +134,8 @@ export function WorkClustersPage() {
 				<WorkReadFailure
 					title="Execution cluster plan unavailable"
 					error={clusters.error}
+					onRetry={() => clusters.refetch()}
+					retrying={clusters.isFetching}
 				/>
 			) : clusters.data ? (
 				<>

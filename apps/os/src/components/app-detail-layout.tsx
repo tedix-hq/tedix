@@ -16,7 +16,12 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import {
 	Page,
 	PageBack,
@@ -116,10 +121,14 @@ export function AppDetailLayout() {
 				</div>
 			)}
 			{detail.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>App is unavailable</AlertTitle>
-					<AlertDescription>{(detail.error as Error).message}</AlertDescription>
-				</Alert>
+				<LoadError
+					title="App is unavailable"
+					error={detail.error}
+					onRetry={() => {
+						void detail.refetch();
+					}}
+					retrying={detail.isFetching}
+				/>
 			)}
 			{detail.data && !app && (
 				<Alert variant="destructive">

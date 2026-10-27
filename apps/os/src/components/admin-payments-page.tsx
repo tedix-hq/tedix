@@ -25,7 +25,7 @@ import type {
 import { CheckCircle, Clock, Receipt, XCircle } from "@phosphor-icons/react";
 import { type ReactNode, useMemo, useState } from "react";
 import { isImeComposing } from "@/lib/keyboard";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -95,7 +95,7 @@ import {
 	mcpPaymentsReceiptQueryOptions,
 	mcpPaymentsSpendSummaryQueryOptions,
 } from "@/lib/os-query-options";
-import { errorMessage } from "@/lib/orpc-error";
+
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 
@@ -159,15 +159,14 @@ export function AdminPaymentsPage({
 			{context.isPending ? (
 				<PaymentsPending />
 			) : context.isError || !context.data ? (
-				<Alert variant="destructive">
-					<AlertTitle>Payments are unavailable</AlertTitle>
-					<AlertDescription>
-						{errorMessage(
-							context.error,
-							"The operational context read failed.",
-						)}
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Payments are unavailable"
+					error={context.error}
+					onRetry={() => {
+						void context.refetch();
+					}}
+					retrying={context.isFetching}
+				/>
 			) : !context.data.authority.permissions.includes("billing:manage") ? (
 				<PaymentsRestricted />
 			) : (
@@ -225,15 +224,20 @@ function AdminPaymentsBody({
 		!policies
 	) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>The payment ledger could not be read</AlertTitle>
-				<AlertDescription>
-					{errorMessage(
-						eventsQuery.error ?? spendQuery.error ?? policiesQuery.error,
-						"The payments read failed.",
-					)}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="The payment ledger could not be read"
+				error={eventsQuery.error ?? spendQuery.error ?? policiesQuery.error}
+				onRetry={() => {
+					void eventsQuery.refetch();
+					void spendQuery.refetch();
+					void policiesQuery.refetch();
+				}}
+				retrying={
+					eventsQuery.isFetching ||
+					spendQuery.isFetching ||
+					policiesQuery.isFetching
+				}
+			/>
 		);
 	}
 
@@ -321,12 +325,14 @@ function AdminPaymentsBody({
 						{receiptQuery.isLoading ? (
 							<Skeleton className="h-64 w-full" />
 						) : receiptQuery.isError ? (
-							<Alert variant="destructive">
-								<AlertTitle>Could not load the receipt</AlertTitle>
-								<AlertDescription>
-									{errorMessage(receiptQuery.error, "The receipt read failed.")}
-								</AlertDescription>
-							</Alert>
+							<LoadError
+								title="Could not load the receipt"
+								error={receiptQuery.error}
+								onRetry={() => {
+									void receiptQuery.refetch();
+								}}
+								retrying={receiptQuery.isFetching}
+							/>
 						) : receiptQuery.data ? (
 							<ReceiptDetails receipt={receiptQuery.data.receipt} />
 						) : (

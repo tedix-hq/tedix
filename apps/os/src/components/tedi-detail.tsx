@@ -19,7 +19,7 @@ import {
 	useRouterState,
 } from "@tanstack/react-router";
 import type { TediType } from "@tedix/api-contract/schemas/tedi";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import {
 	Page,
 	PageBack,
@@ -49,7 +49,7 @@ import {
 	formatCount,
 	sentenceCase,
 } from "@/lib/format";
-import { errorMessage } from "@/lib/orpc-error";
+
 import { isLocalSession } from "@/lib/local-inference";
 import {
 	tediDetailQueryOptions,
@@ -224,10 +224,14 @@ export function TediDetailPage() {
 
 			{tediQuery.isPending && <ListSkeleton rows={1} rowClassName="h-20" />}
 			{tediQuery.isError && (
-				<Alert variant="destructive">
-					<AlertTitle>The tedi roster is unavailable</AlertTitle>
-					<AlertDescription>{errorMessage(tediQuery.error)}</AlertDescription>
-				</Alert>
+				<LoadError
+					title="The tedi roster is unavailable"
+					error={tediQuery.error}
+					onRetry={() => {
+						void tediQuery.refetch();
+					}}
+					retrying={tediQuery.isFetching}
+				/>
 			)}
 			<div className="grid min-w-0 gap-4">
 				{tedi && <TediDetailHeader tedi={tedi} summary={summary} />}

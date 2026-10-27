@@ -169,7 +169,7 @@ try {
 
 			// Retry the exact query with the keyboard.
 			fail = false;
-			const retry = page.getByRole("button", { name: "Try again" });
+			const retry = page.getByRole("button", { name: "Retry" });
 			await retry.focus();
 			assert(await retry.evaluate((el) => el.matches(":focus-visible")));
 			const before = reads.length;
@@ -271,7 +271,7 @@ try {
 				fullPage: true,
 			});
 			fail = false;
-			await page.getByRole("button", { name: "Try again" }).click();
+			await page.getByRole("button", { name: "Retry" }).click();
 			await page
 				.getByText("Runs could not refresh")
 				.waitFor({ state: "detached" });

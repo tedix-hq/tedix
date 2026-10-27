@@ -233,7 +233,7 @@ describe("media playback identity", () => {
 		expect(host?.querySelector("img")).toBeNull();
 		expect(host?.textContent).toContain("no longer have access");
 		const retry = host?.querySelector("button");
-		expect(retry?.textContent).toBe("Try again");
+		expect(retry?.textContent).toBe("Retry");
 		await act(async () => retry!.click());
 		expect(state.refetch).toHaveBeenCalledTimes(1);
 	});

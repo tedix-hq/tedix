@@ -16,7 +16,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Warning } from "@phosphor-icons/react";
 import { lazy, Suspense } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Card,
@@ -128,15 +133,15 @@ export function BillingUsageOverview({
 		!overviewQuery.data
 	) {
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Billing usage could not be read</AlertTitle>
-				<AlertDescription>
-					{errorText(
-						usageQuery.error ?? overviewQuery.error,
-						"The usage read failed.",
-					)}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Billing usage could not be read"
+				error={usageQuery.error ?? overviewQuery.error}
+				onRetry={() => {
+					void usageQuery.refetch();
+					void overviewQuery.refetch();
+				}}
+				retrying={usageQuery.isFetching || overviewQuery.isFetching}
+			/>
 		);
 	}
 

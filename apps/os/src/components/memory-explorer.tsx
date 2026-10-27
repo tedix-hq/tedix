@@ -1,9 +1,9 @@
 import { CaretDown, Graph } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
-import { Button } from "@/components/kumo/button";
+
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -33,7 +33,7 @@ import {
 	humanize,
 	sentenceCase,
 } from "@/lib/format";
-import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
+import { isAuthorizationError } from "@/lib/orpc-error";
 import {
 	tediKnowledgeMapQueryOptions,
 	tediRationaleQueryOptions,
@@ -528,18 +528,18 @@ export function MemoryExplorer({ tediId }: { tediId: string }) {
 				</SectionHeader>
 				{graph.isPending && <ListSkeleton rows={1} rowClassName="h-48" />}
 				{graph.isError && (
-					<Alert variant={graphRefused ? "warning" : "destructive"}>
-						<AlertTitle>
-							{graphRefused
+					<LoadError
+						title={
+							graphRefused
 								? "The knowledge map is not readable with your access"
-								: "The knowledge map is unavailable"}
-						</AlertTitle>
-						<AlertDescription>
-							{graphRefused
-								? "The graph read was refused for this principal. An empty map is not shown in its place."
-								: errorMessage(graph.error)}
-						</AlertDescription>
-					</Alert>
+								: "The knowledge map is unavailable"
+						}
+						error={graph.error}
+						onRetry={() => {
+							void graph.refetch();
+						}}
+						retrying={graph.isFetching}
+					/>
 				)}
 				{graph.data && layout.nodes.length === 0 && <KnowledgeMapEmpty />}
 				{layout.nodes.length > 0 && (
@@ -579,18 +579,18 @@ export function MemoryExplorer({ tediId }: { tediId: string }) {
 				</SectionHeader>
 				{rationale.isPending && <ListSkeleton rows={2} />}
 				{rationale.isError && (
-					<Alert variant={rationaleRefused ? "warning" : "destructive"}>
-						<AlertTitle>
-							{rationaleRefused
+					<LoadError
+						title={
+							rationaleRefused
 								? "Decisions are not readable with your access"
-								: "Decisions are unavailable"}
-						</AlertTitle>
-						<AlertDescription>
-							{rationaleRefused
-								? "The rationale read was refused for this principal."
-								: errorMessage(rationale.error)}
-						</AlertDescription>
-					</Alert>
+								: "Decisions are unavailable"
+						}
+						error={rationale.error}
+						onRetry={() => {
+							void rationale.refetch();
+						}}
+						retrying={rationale.isFetching}
+					/>
 				)}
 				{rationale.data && records.length === 0 && (
 					<Text as="p" role="body" tone="secondary" className="m-0">

@@ -7,9 +7,14 @@ import { Progress } from "@/components/kumo/progress";
 import { ShieldCheck } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type { DelegationProfile } from "@tedix/api-contract/contracts/earned-delegation";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
-import { Button } from "@/components/kumo/button";
+
 import {
 	Empty,
 	EmptyDescription,
@@ -35,7 +40,7 @@ import {
 	humanize,
 	sentenceCase,
 } from "@/lib/format";
-import { errorMessage, isAuthorizationError } from "@/lib/orpc-error";
+import { isAuthorizationError } from "@/lib/orpc-error";
 import { earnedDelegationProfileQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
@@ -613,35 +618,21 @@ export function TediAuthority({ tediId }: { tediId: string }) {
 				</div>
 			)}
 			{profile.isError && (
-				<Alert variant={refused ? "warning" : "destructive"}>
-					<AlertTitle>
-						{refused
+				<LoadError
+					title={
+						refused
 							? "Earned-authority evidence is not readable with your access"
-							: "Earned-authority evidence is unavailable"}
-					</AlertTitle>
-					<AlertDescription>
-						{refused
-							? "The delegation-profile read was refused for this principal. No authority is inferred from a refused read."
-							: errorMessage(profile.error)}
-						{profile.data && !refused && (
-							<p>
-								Previously loaded evidence is stale and hidden until a read
-								succeeds. Current authority is unknown.
-							</p>
-						)}
-					</AlertDescription>
-					<div className="mt-3">
-						<Button
-							variant="secondary"
-							disabled={profile.isFetching}
-							onClick={() => void profile.refetch()}
-						>
-							{profile.isFetching
-								? "Retrying earned-authority read"
-								: "Retry earned-authority read"}
-						</Button>
-					</div>
-				</Alert>
+							: "Earned-authority evidence is unavailable"
+					}
+					error={profile.error}
+					help={
+						profile.data && !refused
+							? "Previously loaded evidence is stale and hidden until a read succeeds. Current authority is unknown."
+							: undefined
+					}
+					onRetry={() => void profile.refetch()}
+					retrying={profile.isFetching}
+				/>
 			)}
 			{currentProfile && <EarnedAuthorityPanel profile={currentProfile} />}
 		</PageSection>

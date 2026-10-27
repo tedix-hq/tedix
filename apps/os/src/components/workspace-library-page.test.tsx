@@ -717,7 +717,7 @@ describe("Workspace library recovery", () => {
 		).toBe(true);
 		api.workspacePreferences.list.mockResolvedValue({ items: [] });
 		const discoveryCalls = api.workspaces.list.mock.calls.length;
-		click(button(container, "Retry favorites"));
+		click(button(container, "Retry"));
 		await flush();
 		expect(api.workspaces.list).toHaveBeenCalledTimes(discoveryCalls);
 		expect(button(container, "Add Revenue Ops to favorites").disabled).toBe(
@@ -750,7 +750,7 @@ describe("Workspace library recovery", () => {
 		expect(container.textContent).not.toContain("No loaded workspaces match");
 		const preferenceCalls = api.workspacePreferences.list.mock.calls.length;
 		api.workspaces.list.mockResolvedValue({ items: [], truncated: false });
-		click(button(container, "Retry workspaces"));
+		click(button(container, "Retry"));
 		await flush();
 		expect(container.textContent).toContain("No workspaces yet");
 		expect(api.workspacePreferences.list).toHaveBeenCalledTimes(
@@ -796,7 +796,7 @@ describe("Workspace library recovery", () => {
 			items: [workspace({ status: "archived" })],
 			truncated: true,
 		});
-		click(button(container, "Retry archived workspaces"));
+		click(button(container, "Retry"));
 		await flush();
 		expect(container.textContent).toContain("Revenue Ops");
 		expect(api.workspaces.list.mock.calls.at(-1)?.[0]).toEqual({
@@ -872,7 +872,7 @@ describe("Workspace library recovery", () => {
 			expect(
 				button(container, "Favorites unavailable for Support Desk").disabled,
 			).toBe(true);
-			click(button(container, "Retry favorites"));
+			click(button(container, "Retry"));
 			await flush();
 			expect(api.workspacePreferences.setFavorite).toHaveBeenCalledTimes(1);
 			act(() => root.unmount());
@@ -908,7 +908,7 @@ describe("Workspace library recovery", () => {
 			expect(
 				container.querySelector('[aria-label="Restore Revenue Ops"]'),
 			).toBeNull();
-			click(button(container, "Retry archived workspaces"));
+			click(button(container, "Retry"));
 			await flush();
 			expect(api.workspaces.restore).toHaveBeenCalledTimes(1);
 			expect(
@@ -935,7 +935,7 @@ it("retries initial active discovery without fetching preferences or mutating", 
 		items: [workspace()],
 		truncated: false,
 	});
-	click(button(container, "Retry workspaces"));
+	click(button(container, "Retry"));
 	await flush();
 	expect(api.workspaces.list.mock.calls.at(-1)?.[0]).toEqual({
 		status: "active",
@@ -1043,7 +1043,7 @@ it("shows a newer archive after a confirmed restore without replaying the write"
 		status: "archived",
 		updatedAt: "2026-10-21T12:01:00.000Z",
 	});
-	click(button(container, "Retry archived workspaces"));
+	click(button(container, "Retry"));
 	await flush();
 	expect(button(container, "Restore Revenue Ops").disabled).toBe(false);
 	expect(api.workspaces.restore).toHaveBeenCalledTimes(1);

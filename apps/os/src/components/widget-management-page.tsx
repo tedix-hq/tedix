@@ -5,7 +5,12 @@ import { getOsSurface } from "@/lib/os-navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -97,12 +102,15 @@ export function WidgetManagementPage() {
 	if (context.isError)
 		return (
 			<Page width="xl">
-				<Alert variant="destructive">
-					<AlertTitle>Website chat settings unavailable</AlertTitle>
-					<AlertDescription>
-						The organization context could not be loaded.
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Website chat settings unavailable"
+					error={context.error}
+					onRetry={() => {
+						void context.refetch();
+					}}
+					retrying={context.isFetching}
+					help="The organization context could not be loaded."
+				/>
 			</Page>
 		);
 	return <WidgetManagementBody organizationId={context.data.organization.id} />;
@@ -175,12 +183,15 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 	if (organizationQuery.isError)
 		return (
 			<Page width="xl">
-				<Alert variant="destructive">
-					<AlertTitle>Website chat settings unavailable</AlertTitle>
-					<AlertDescription>
-						The organization profile could not be loaded.
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					title="Website chat settings unavailable"
+					error={organizationQuery.error}
+					onRetry={() => {
+						void organizationQuery.refetch();
+					}}
+					retrying={organizationQuery.isFetching}
+					help="The organization profile could not be loaded."
+				/>
 			</Page>
 		);
 	const organization = organizationQuery.data;
@@ -309,12 +320,15 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 					</Alert>
 					{sponsorships.isPending && <Skeleton className="h-32 w-full" />}
 					{sponsorships.isError && (
-						<Alert variant="destructive">
-							<AlertTitle>Tenant installations unavailable</AlertTitle>
-							<AlertDescription>
-								The provider sponsorship inventory could not be loaded.
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Tenant installations unavailable"
+							error={sponsorships.error}
+							onRetry={() => {
+								void sponsorships.refetch();
+							}}
+							retrying={sponsorships.isFetching}
+							help="The provider sponsorship inventory could not be loaded."
+						/>
 					)}
 					{rows.map((row) => (
 						<Card key={row.installationId}>

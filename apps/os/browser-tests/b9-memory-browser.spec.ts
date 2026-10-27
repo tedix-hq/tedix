@@ -358,7 +358,7 @@ try {
 						await capture(page, receipt, "cold-error");
 						control.setMode("ready");
 						await memory(page)
-							.getByRole("button", { name: "Try again", exact: true })
+							.getByRole("button", { name: "Retry", exact: true })
 							.click();
 						await pageCount(page, 1, 20);
 						assert(
@@ -586,7 +586,7 @@ try {
 							await page.clock.resume();
 							await shown(
 								memory(page).getByRole("button", {
-									name: "Try again",
+									name: "Retry",
 									exact: true,
 								}),
 							);
@@ -597,7 +597,7 @@ try {
 							);
 							control.setMode("ready");
 							await memory(page)
-								.getByRole("button", { name: "Try again", exact: true })
+								.getByRole("button", { name: "Retry", exact: true })
 								.click();
 							await pageCount(page, 1, 20);
 						}

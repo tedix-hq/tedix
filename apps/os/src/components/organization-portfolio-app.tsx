@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { PortfolioApp } from "@/components/work-portfolio-page";
 import { OrganizationPortfolioForm } from "@/components/organization-portfolio-form";
 import { organizationDetailQueryOptions } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { OS_COPY } from "@/shared/os-copy";
-import { errorMessage } from "@/lib/orpc-error";
 
 function OrganizationPortfolio({ settings = false }: { settings?: boolean }) {
 	const context = useOsOperationalContext();
@@ -17,15 +16,15 @@ function OrganizationPortfolio({ settings = false }: { settings?: boolean }) {
 	});
 	if (context.isError || detail.isError)
 		return (
-			<Alert variant="destructive">
-				<AlertTitle>Project sections unavailable</AlertTitle>
-				<AlertDescription>
-					{errorMessage(
-						context.error ?? detail.error,
-						"Organization settings could not be loaded.",
-					)}
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Project sections unavailable"
+				error={context.error ?? detail.error}
+				onRetry={() => {
+					void context.refetch();
+					void detail.refetch();
+				}}
+				retrying={context.isFetching || detail.isFetching}
+			/>
 		);
 	if (!context.data || !detail.data)
 		return <Skeleton className="h-24 w-full" />;

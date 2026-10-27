@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Alert, AlertDescription, AlertTitle } from "./alert";
-import { Button } from "./button";
+import { LoadError } from "./alert";
+
 import { cn } from "./cn";
 import { Empty } from "./empty";
 import { Skeleton } from "./skeleton";
@@ -164,17 +164,7 @@ export function DataTable<T extends Record<string, unknown>>({
 				className={cn("relative w-full min-w-0", className)}
 				{...containerProps}
 			>
-				<Alert variant="destructive">
-					<AlertTitle>{errorTitle}</AlertTitle>
-					<AlertDescription>{error}</AlertDescription>
-					{onRetry ? (
-						<div className="mt-3">
-							<Button variant="outline" size="sm" onClick={onRetry}>
-								Try again
-							</Button>
-						</div>
-					) : null}
-				</Alert>
+				<LoadError title={errorTitle} onRetry={onRetry} error={error} />
 			</div>
 		);
 	}

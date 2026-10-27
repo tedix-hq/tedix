@@ -18,7 +18,12 @@ import {
 } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { CanvasWorkspaceControls } from "@/components/canvas-workspace-controls";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import {
@@ -224,24 +229,21 @@ export function WorkspaceLibraryPage() {
 				<ListSkeleton rows={4} />
 			) : null}
 			{view === "active" && workspaces.isError ? (
-				<Alert variant={workspaces.data ? "warning" : "destructive"}>
-					<AlertTitle>
-						{workspaces.data
+				<LoadError
+					title={
+						workspaces.data
 							? "Workspaces could not refresh"
-							: "Workspaces are unavailable"}
-					</AlertTitle>
-					<AlertDescription className="break-words">
-						{workspaces.data ? "Showing previously loaded workspaces. " : null}
-						{workspaces.error.message}
-					</AlertDescription>
-					<Button
-						disabled={workspaces.isFetching}
-						onClick={() => void workspaces.refetch()}
-						variant="outline"
-					>
-						Retry workspaces
-					</Button>
-				</Alert>
+							: "Workspaces are unavailable"
+					}
+					error={workspaces.error}
+					onRetry={() => void workspaces.refetch()}
+					retrying={workspaces.isFetching}
+					help={
+						workspaces.data
+							? "Showing previously loaded workspaces."
+							: undefined
+					}
+				/>
 			) : null}
 			{view === "active" &&
 			(preferences.isPending ||
@@ -257,24 +259,19 @@ export function WorkspaceLibraryPage() {
 						</Text>
 					) : null}
 					{preferences.isError || favoriteRefreshFailed ? (
-						<Alert variant="warning">
-							<AlertTitle>
-								{favoriteRefreshFailed
-									? "Favorite saved; favorites could not refresh"
-									: "Favorites are unavailable"}
-							</AlertTitle>
-							<AlertDescription className="break-words">
-								Favorite state is unverified. You can still open workspaces.{" "}
-								{preferences.error?.message}
-							</AlertDescription>
-							<Button
-								disabled={preferences.isFetching}
-								onClick={() => void retryFavorites()}
-								variant="outline"
-							>
-								Retry favorites
-							</Button>
-						</Alert>
+						<LoadError
+							title={
+								<>
+									{favoriteRefreshFailed
+										? "Favorite saved; favorites could not refresh"
+										: "Favorites are unavailable"}
+								</>
+							}
+							error={preferences.error}
+							onRetry={() => void retryFavorites()}
+							retrying={preferences.isFetching}
+							help="Favorite state is unverified. You can still open workspaces."
+						/>
 					) : null}
 					{favorite.isPending ? (
 						<Text role="body" tone="secondary">
@@ -524,26 +521,23 @@ function ArchivedWorkspaces({
 	return (
 		<div className="grid gap-4">
 			{archived.isError || restoreRefreshFailed ? (
-				<Alert variant="warning">
-					<AlertTitle>
-						{restoreRefreshFailed
-							? "Workspace restored; some workspace lists could not refresh"
-							: archived.data
-								? "Archived workspaces could not refresh"
-								: "Archived workspaces are unavailable"}
-					</AlertTitle>
-					<AlertDescription className="break-words">
-						{archived.data ? "Showing previously loaded workspaces. " : null}
-						{archived.error?.message}
-					</AlertDescription>
-					<Button
-						disabled={archived.isFetching}
-						onClick={() => void retryArchive()}
-						variant="outline"
-					>
-						Retry archived workspaces
-					</Button>
-				</Alert>
+				<LoadError
+					title={
+						<>
+							{restoreRefreshFailed
+								? "Workspace restored; some workspace lists could not refresh"
+								: archived.data
+									? "Archived workspaces could not refresh"
+									: "Archived workspaces are unavailable"}
+						</>
+					}
+					error={archived.error}
+					onRetry={() => void retryArchive()}
+					retrying={archived.isFetching}
+					help={
+						archived.data ? "Showing previously loaded workspaces." : undefined
+					}
+				/>
 			) : null}
 			{deletedName ? (
 				<Text role="body" tone="secondary" aria-live="polite">

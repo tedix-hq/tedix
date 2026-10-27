@@ -6,7 +6,12 @@ import type {
 	CalendarInfoSchema,
 } from "@tedix/api-contract/schemas/calendar-coordinator";
 import type { OsWorkspaceResourceSelection } from "@tedix/api-contract/schemas/os-workspaces";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Select,
@@ -213,21 +218,16 @@ function ScopedCalendarResourcePicker({
 				</Text>
 			)}
 			{accounts.isError && (
-				<Alert variant="warning">
-					<AlertTitle>Calendar discovery unavailable</AlertTitle>
-					<AlertDescription>
-						Accounts could not be checked. Cached details may be out of date.
-						Retry before choosing a calendar.
-					</AlertDescription>
-					<Button
-						type="button"
-						variant="outline"
-						disabled={disabled || accounts.isFetching}
-						onClick={() => void accounts.refetch()}
-					>
-						Retry accounts
-					</Button>
-				</Alert>
+				<LoadError
+					title={<>Calendar discovery unavailable</>}
+					error={accounts.error}
+					onRetry={() => {
+						void accounts.refetch();
+					}}
+					retrying={accounts.isFetching}
+					help="Cached details may be out of date. Try again before choosing a calendar."
+					retryDisabled={disabled}
+				/>
 			)}
 			{account && (calendars.isPending || calendars.isFetching) && (
 				<Text as="p" tone="secondary">
@@ -235,21 +235,16 @@ function ScopedCalendarResourcePicker({
 				</Text>
 			)}
 			{account && calendars.isError && (
-				<Alert variant="warning">
-					<AlertTitle>Could not read this account</AlertTitle>
-					<AlertDescription>
-						{calendars.error.message} Cached calendars may be out of date. Retry
-						before choosing.
-					</AlertDescription>
-					<Button
-						type="button"
-						variant="outline"
-						disabled={disabled || !accountsReady || calendars.isFetching}
-						onClick={() => void calendars.refetch()}
-					>
-						Retry calendars
-					</Button>
-				</Alert>
+				<LoadError
+					title={<>Could not read this account</>}
+					error={calendars.error}
+					onRetry={() => {
+						void calendars.refetch();
+					}}
+					retrying={calendars.isFetching}
+					help="Cached calendars may be out of date. Try again before choosing."
+					retryDisabled={disabled || !accountsReady}
+				/>
 			)}
 			{account && calendars.isSuccess && calendars.data && !result && (
 				<Alert variant="warning">

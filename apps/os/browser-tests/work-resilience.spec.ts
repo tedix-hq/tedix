@@ -51,16 +51,15 @@ try {
 		window.dispatchEvent(new Event("work-resilience:fail")),
 	);
 	await page
-		.getByText("Some items couldn't load. Try again when you're ready.", {
+		.getByText("Some items couldn't load", {
 			exact: true,
 		})
 		.waitFor();
 	if (await page.locator('[role="alert"]').count())
 		throw new Error("Partial failure rendered a full error banner");
 	if (
-		(await page
-			.getByRole("button", { name: "Try again", exact: true })
-			.count()) !== 1
+		(await page.getByRole("button", { name: "Retry", exact: true }).count()) !==
+		1
 	)
 		throw new Error("Stacked retry states");
 	if ((await answer.inputValue()) !== "Friday works for us.")
@@ -69,10 +68,7 @@ try {
 		path: `${output}/work-resilience-degraded.png`,
 		fullPage: true,
 	});
-	await page
-		.locator('[aria-label="Read error details"]')
-		.getByRole("button", { name: "Details", exact: true })
-		.click();
+	await page.locator('[data-slot="load-error"] summary').click();
 	await page
 		.getByText("Support reference: 11111111-1111-4111-8111-111111111111", {
 			exact: true,
@@ -97,7 +93,7 @@ try {
 		window.dispatchEvent(new Event("work-resilience:recover")),
 	);
 	await page
-		.getByText("Some items couldn't load. Try again when you're ready.", {
+		.getByText("Some items couldn't load", {
 			exact: true,
 		})
 		.waitFor({ state: "hidden" });
@@ -109,10 +105,7 @@ try {
 	});
 	await page.goto(`${fixture}&resilience=empty`);
 	await page
-		.getByText(
-			"Tedix couldn't load this view. Your decisions are safe. Try again when you're ready.",
-			{ exact: true },
-		)
+		.getByText("Tedix couldn't load this view", { exact: true })
 		.waitFor();
 	if ((await page.locator('[role="alert"]').count()) !== 1)
 		throw new Error("Full failure needs exactly one banner");

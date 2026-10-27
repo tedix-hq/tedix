@@ -8,7 +8,12 @@ import { useEffect, useRef, useState } from "react";
 import * as z from "zod";
 import { FormInput } from "@/components/forms/form-input";
 import { toast } from "@/components/kumo/toast";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -213,36 +218,22 @@ function ReadFailureAlert({
 	error,
 	cached,
 	retrying,
-	retryLabel,
 	onRetry,
 }: {
 	title: string;
 	error: unknown;
 	cached: boolean;
 	retrying: boolean;
-	retryLabel: string;
 	onRetry: () => void;
 }) {
 	return (
-		<Alert variant="destructive">
-			<AlertTitle>{title}</AlertTitle>
-			<AlertDescription>
-				<span className="block">
-					{error instanceof Error ? error.message : "The read failed."}
-					{cached ? " Showing the last result that loaded." : ""}
-				</span>
-				<Button
-					size="sm"
-					variant="outline"
-					className="mt-2"
-					disabled={retrying}
-					aria-label={retryLabel}
-					onClick={onRetry}
-				>
-					{retrying ? "Retrying…" : "Retry"}
-				</Button>
-			</AlertDescription>
-		</Alert>
+		<LoadError
+			title={title}
+			retrying={retrying}
+			onRetry={onRetry}
+			error={error}
+			help={cached ? "Showing the last result that loaded." : undefined}
+		/>
 	);
 }
 
@@ -485,12 +476,14 @@ function CmsDomainManager({
 				) : null}
 				{domain.isPending ? <ListSkeleton /> : null}
 				{domain.isError ? (
-					<Alert variant="destructive">
-						<AlertTitle>Domain status is unavailable</AlertTitle>
-						<AlertDescription>
-							{(domain.error as Error).message}
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Domain status is unavailable"
+						error={domain.error}
+						onRetry={() => {
+							void domain.refetch();
+						}}
+						retrying={domain.isFetching}
+					/>
 				) : null}
 				{claim ? (
 					<div className="space-y-3">
@@ -509,12 +502,14 @@ function CmsDomainManager({
 								</Text>
 								{redirect.isPending ? <ListSkeleton /> : null}
 								{redirect.isError ? (
-									<Alert variant="destructive">
-										<AlertTitle>www status is unavailable</AlertTitle>
-										<AlertDescription>
-											{(redirect.error as Error).message}
-										</AlertDescription>
-									</Alert>
+									<LoadError
+										title="www status is unavailable"
+										error={redirect.error}
+										onRetry={() => {
+											void redirect.refetch();
+										}}
+										retrying={redirect.isFetching}
+									/>
 								) : null}
 								{redirectClaim ? (
 									<DomainClaimPanel
@@ -1208,12 +1203,14 @@ export function SitesPage() {
 					) : null}
 					{sites.isPending ? <ListSkeleton /> : null}
 					{sites.isError ? (
-						<Alert variant="destructive">
-							<AlertTitle>Sites are unavailable</AlertTitle>
-							<AlertDescription>
-								{(sites.error as Error).message}
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Sites are unavailable"
+							error={sites.error}
+							onRetry={() => {
+								void sites.refetch();
+							}}
+							retrying={sites.isFetching}
+						/>
 					) : null}
 					{sites.data?.sites.length === 0 ? (
 						<Empty
@@ -1406,12 +1403,14 @@ export function SitesPage() {
 						) : null}
 					</SectionHeader>
 					{deprovisionStatus.isError ? (
-						<Alert variant="destructive">
-							<AlertTitle>Cleanup status is unavailable</AlertTitle>
-							<AlertDescription>
-								{(deprovisionStatus.error as Error).message}
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Cleanup status is unavailable"
+							error={deprovisionStatus.error}
+							onRetry={() => {
+								void deprovisionStatus.refetch();
+							}}
+							retrying={deprovisionStatus.isFetching}
+						/>
 					) : null}
 					{receipt.status === "checking" ? (
 						<Text as="p" role="body" tone="secondary">
@@ -1502,7 +1501,6 @@ export function SitesPage() {
 									error={docsWorkspace.error}
 									cached={docsWorkspace.data !== undefined}
 									retrying={docsWorkspace.isFetching}
-									retryLabel="Retry loading builds"
 									onRetry={() => void docsWorkspace.refetch()}
 								/>
 							) : null}
@@ -1586,7 +1584,6 @@ export function SitesPage() {
 									error={deprovisionPlan.error}
 									cached={deprovisionPlan.data !== undefined}
 									retrying={deprovisionPlan.isFetching}
-									retryLabel="Retry loading the cleanup plan"
 									onRetry={() => void deprovisionPlan.refetch()}
 								/>
 							) : null}
@@ -1721,7 +1718,6 @@ export function SitesPage() {
 							error={reconciliation.error}
 							cached={reconciliation.data !== undefined}
 							retrying={reconciliation.isFetching}
-							retryLabel="Retry loading the last check"
 							onRetry={() => void reconciliation.refetch()}
 						/>
 					) : null}

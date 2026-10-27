@@ -629,7 +629,12 @@ export function WorkInteractionsPage() {
 				{query.isPending ? (
 					<WorkListSkeleton />
 				) : query.isError ? (
-					<WorkReadFailure title="Requests unavailable" error={query.error} />
+					<WorkReadFailure
+						title="Requests unavailable"
+						error={query.error}
+						onRetry={() => query.refetch()}
+						retrying={query.isFetching}
+					/>
 				) : visibleRows.length === 0 ? (
 					<WorkEmpty
 						title={

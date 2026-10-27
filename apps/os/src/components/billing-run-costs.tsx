@@ -3,7 +3,7 @@ import { Link } from "@/components/kumo/link";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { CostChip } from "@/components/cost-chip";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
@@ -61,12 +61,15 @@ export function BillingRunCosts({
 					{ledger.isPending ? (
 						<Skeleton className="h-24" aria-label="Loading recorded costs" />
 					) : ledger.isError || !ledger.data ? (
-						<Alert variant="destructive">
-							<AlertDescription>
-								Recorded costs could not be read. This does not mean zero
-								spending.
-							</AlertDescription>
-						</Alert>
+						<LoadError
+							title="Recorded costs could not be loaded"
+							help="This does not mean zero spending. Try again in a moment."
+							error={ledger.error}
+							onRetry={() => {
+								void ledger.refetch();
+							}}
+							retrying={ledger.isFetching}
+						/>
 					) : (
 						<>
 							<Text tone="secondary">

@@ -299,9 +299,7 @@ try {
 			);
 			preferencesFail = false;
 			const discoveryBefore = reads.active;
-			await page
-				.getByRole("button", { name: "Retry favorites", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await page
 				.getByRole("button", {
 					name: `Add ${longName} to favorites`,
@@ -343,9 +341,7 @@ try {
 			);
 			activeFail = false;
 			const prefsBefore = reads.preferences;
-			await page
-				.getByRole("button", { name: "Retry workspaces", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await page
 				.getByText("Workspaces could not refresh", { exact: true })
 				.waitFor({ state: "hidden" });
@@ -374,9 +370,7 @@ try {
 					exact: true,
 				})
 				.waitFor();
-			await page
-				.getByRole("button", { name: "Retry favorites", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await page
 				.getByRole("button", {
 					name: `Remove ${longName} from favorites`,
@@ -398,9 +392,7 @@ try {
 			);
 			archiveFail = false;
 			const activeBefore = reads.active;
-			await page
-				.getByRole("button", { name: "Retry archived workspaces", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await page
 				.getByRole("button", { name: `Restore ${longName}`, exact: true })
 				.waitFor();
@@ -420,9 +412,7 @@ try {
 				theme,
 			);
 			archiveFail = false;
-			await page
-				.getByRole("button", { name: "Retry archived workspaces", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await page
 				.getByRole("button", { name: `Restore ${longName}`, exact: true })
 				.waitFor({ state: "visible" });
@@ -464,9 +454,7 @@ try {
 				size.height,
 				theme,
 			);
-			await page
-				.getByRole("button", { name: "Retry archived workspaces", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			assert.equal(restoreWrites, 1);
 			assert.equal(
 				await page

@@ -49,7 +49,12 @@ import {
 	VOICE_WAVE_BAR_COUNT,
 	voiceWaveBarHeight,
 } from "@tedix/chat-transport/voice-composer";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	LoadError,
+	Alert,
+	AlertDescription,
+	AlertTitle,
+} from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Collapsible, CollapsibleContent } from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
@@ -144,7 +149,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
+
 import {
 	type ComposerAttachment,
 	attachmentType,
@@ -1994,12 +1999,14 @@ export function ChatThread({
 							{conversationId !== null &&
 							transcript.isError &&
 							messages.length === 0 ? (
-								<Alert variant="destructive">
-									<AlertTitle>The transcript is unavailable</AlertTitle>
-									<AlertDescription>
-										{(transcript.error as Error).message}
-									</AlertDescription>
-								</Alert>
+								<LoadError
+									title="The transcript is unavailable"
+									error={transcript.error}
+									onRetry={() => {
+										void transcript.refetch();
+									}}
+									retrying={transcript.isFetching}
+								/>
 							) : null}
 							{conversationId !== null &&
 							transcript.isSuccess &&

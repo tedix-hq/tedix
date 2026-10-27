@@ -32,7 +32,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from "@/components/kumo/alert-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
@@ -56,7 +56,6 @@ import {
 	AppTabEmpty,
 	AppTabError,
 	AppTabLoading,
-	AppTabReadRetry,
 	AppTabDate,
 } from "./app-detail-tab-shared";
 import { osApi } from "@/lib/api";
@@ -240,31 +239,31 @@ export function AppContentPage() {
 					Loading content settings...
 				</p>
 			) : detail.isError ? (
-				<Alert variant={detail.data ? "warning" : "destructive"}>
-					<AlertDescription>
-						<span>
-							{detail.data
-								? "Content settings could not be refreshed. Sync scheduling stays paused on the last loaded values."
-								: "Content settings could not be loaded. Sync scheduling is unavailable."}
-						</span>
-						<AppTabReadRetry query={detail} />
-					</AlertDescription>
-				</Alert>
+				<LoadError
+					error={detail.error}
+					onRetry={() => detail.refetch()}
+					retrying={detail.isFetching}
+					title="Content settings could not be loaded"
+					help={
+						detail.data
+							? "Showing earlier settings. Sync scheduling stays paused."
+							: "Sync scheduling is unavailable. Try again in a moment."
+					}
+				/>
 			) : null}
 
 			{sources.isPending && <AppTabLoading label="Loading content sources" />}
 			{sources.isError &&
 				(sources.data ? (
-					<Alert variant="warning">
-						<AlertTitle>Content sources may be stale</AlertTitle>
-						<AlertDescription>
-							<span>
-								{errorMessage(sources.error, "The latest refresh failed.")}{" "}
-								Showing the last loaded inventory.
-							</span>
-							<AppTabReadRetry query={sources} />
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title={<>Content sources may be stale</>}
+						error={sources.error}
+						onRetry={() => {
+							void sources.refetch();
+						}}
+						retrying={sources.isFetching}
+						help="Showing the last loaded inventory."
+					/>
 				) : (
 					<AppTabError title="Content sources are unavailable" query={sources}>
 						{errorMessage(

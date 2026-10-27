@@ -237,30 +237,22 @@ try {
 			await page.goto(
 				`${origin}/browser-tests/b13-calendar-picker-recovery.html?theme=${theme}`,
 			);
-			await page
-				.getByRole("button", { name: "Retry accounts", exact: true })
-				.waitFor();
+			await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
 			assert(await page.getByRole("combobox").isDisabled());
 			await capture(
 				page,
 				`${viewport.width}x${viewport.height}-${theme}-accounts-cold-error`,
 			);
 			accountsFail = false;
-			await page
-				.getByRole("button", { name: "Retry accounts", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await select(page);
-			await page
-				.getByRole("button", { name: "Retry calendars", exact: true })
-				.waitFor();
+			await page.getByRole("button", { name: "Retry", exact: true }).waitFor();
 			await capture(
 				page,
 				`${viewport.width}x${viewport.height}-${theme}-calendars-cold-error`,
 			);
 			calendarsFail = false;
-			await page
-				.getByRole("button", { name: "Retry calendars", exact: true })
-				.click();
+			await page.getByRole("button", { name: "Retry", exact: true }).click();
 			await waitEnabled(page);
 			assert.equal((await choices(page)).length, 0);
 			assert(
@@ -294,7 +286,7 @@ try {
 					read,
 				);
 				await page
-					.getByRole("button", { name: `Retry ${read}`, exact: true })
+					.getByRole("button", { name: "Retry", exact: true })
 					.waitFor();
 				assert(await chooseButton(page).isDisabled());
 				assert(
@@ -307,9 +299,7 @@ try {
 				if (read === "accounts") accountsFail = false;
 				else calendarsFail = false;
 				deferred = read;
-				await page
-					.getByRole("button", { name: `Retry ${read}`, exact: true })
-					.click();
+				await page.getByRole("button", { name: "Retry", exact: true }).click();
 				await waitForRequest();
 				await page.waitForFunction(
 					(label) =>
@@ -321,7 +311,7 @@ try {
 				assert(await chooseButton(page).isDisabled());
 				assert(
 					await page
-						.getByRole("button", { name: `Retry ${read}`, exact: true })
+						.getByRole("button", { name: "Retry", exact: true })
 						.isDisabled(),
 				);
 				deferred = undefined;

@@ -8,7 +8,7 @@ import {
 } from "@/components/kumo/collapsible";
 import type { BillingInferenceSpending } from "@tedix/api-contract/schemas/billing-spending";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError } from "@/components/kumo/alert";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Text } from "@/components/kumo/text";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -159,12 +159,15 @@ export function BillingSettledSpending() {
 		);
 	if (spending.isError || !spending.data)
 		return (
-			<Alert variant="destructive">
-				<AlertDescription>
-					Settled credit charges could not be read. This does not mean zero
-					spending.
-				</AlertDescription>
-			</Alert>
+			<LoadError
+				title="Credit charges could not be loaded"
+				help="This does not mean zero spending. Try again in a moment."
+				error={spending.error}
+				onRetry={() => {
+					void spending.refetch();
+				}}
+				retrying={spending.isFetching}
+			/>
 		);
 	return <SettledSpendingRows data={spending.data} />;
 }

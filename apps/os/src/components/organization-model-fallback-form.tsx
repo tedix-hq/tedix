@@ -5,7 +5,7 @@ import {
 	PLATFORM_MODEL_FALLBACK,
 	type ModelFallbackPolicy,
 } from "@tedix/api-contract/schemas/model-fallback";
-import { Alert, AlertDescription } from "@/components/kumo/alert";
+import { LoadError, Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
@@ -84,12 +84,15 @@ export function OrganizationModelFallbackForm({
 			</SectionHeader>
 			<SettingsSectionContent className="space-y-4">
 				{catalog.isError && (
-					<Alert variant="destructive">
-						<AlertDescription>
-							Model availability could not be read. Reload before saving this
-							policy.
-						</AlertDescription>
-					</Alert>
+					<LoadError
+						title="Model availability could not be loaded"
+						help="Try again before saving this policy."
+						error={catalog.error}
+						onRetry={() => {
+							void catalog.refetch();
+						}}
+						retrying={catalog.isFetching}
+					/>
 				)}
 				{catalog.isPending && (
 					<Text role="label" tone="secondary">
