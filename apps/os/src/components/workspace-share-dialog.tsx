@@ -679,7 +679,7 @@ function WorkspaceAccess(props: {
 				<SectionHeading
 					learnMore={{
 						label: "About links",
-						text: "A link with sign-in adds people at that role once they open it. The no-sign-in link shows the apps only, never how they are built. Each link is shown once.",
+						text: "A link with sign-in adds people at that role once they open it. The no-sign-in link shows the apps only, never how they are built. Copy link makes a fresh address for the same link.",
 					}}
 				>
 					General access
@@ -732,7 +732,7 @@ function WorkspaceAccess(props: {
 					<div data-fresh-link>
 						<FreshLink
 							url={freshUrl}
-							note="Copy it now. Tedix keeps only a fingerprint, so this exact link can't be shown again."
+							note="Anyone who opens it and signs in joins at this role. Copy link in the list below makes a fresh address for it later."
 							onDismiss={() => setFreshUrl(null)}
 						/>
 					</div>

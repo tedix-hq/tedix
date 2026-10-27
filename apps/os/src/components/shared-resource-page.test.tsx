@@ -173,10 +173,8 @@ describe("SharedResourcePage", () => {
 		);
 		const container = await renderPage();
 		expect(window.location.hash).toBe("");
-		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
-			SESSION,
-		);
-		expect(Object.values(window.sessionStorage).join()).not.toContain(TOKEN);
+		// A link without a permanent address keeps its session in memory only.
+		expect(window.sessionStorage.length).toBe(0);
 		expect(fetch).toHaveBeenCalledWith(
 			"/api/os-shared/redeem",
 			expect.objectContaining({ body: JSON.stringify({ token: TOKEN }) }),
@@ -227,20 +225,18 @@ describe("SharedResourcePage", () => {
 		container.remove();
 		vi.useRealTimers();
 	});
-	it("resumes after reload through a server-validated session without the original link secret", async () => {
-		vi.mocked(fetch).mockResolvedValueOnce(
-			new Response(JSON.stringify(payload("use")), { status: 200 }),
-		);
-		await renderPage();
-		while (cleanups.length) cleanups.pop()?.();
+	it("moves a session an older page kept to its link's own key and address", async () => {
+		const publicId = "AbCdEfGhIjKlMnOpQrStUv";
+		window.sessionStorage.setItem("tedix.os.share.session.v1", SESSION);
 		const next = payload("use");
 		delete (next as { sessionToken?: string }).sessionToken;
-		vi.mocked(fetch)
-			.mockClear()
-			.mockResolvedValueOnce(
-				new Response(JSON.stringify(next), { status: 200 }),
-			);
-		const container = await renderPage("/shared");
+		vi.mocked(fetch).mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({ ...next, share: { ...next.share, publicId } }),
+				{ status: 200 },
+			),
+		);
+		await renderPage("/shared");
 		expect(fetch).toHaveBeenCalledTimes(1);
 		expect(fetch).toHaveBeenCalledWith(
 			"/api/os-shared/session",
@@ -248,10 +244,13 @@ describe("SharedResourcePage", () => {
 				body: JSON.stringify({ sessionToken: SESSION }),
 			}),
 		);
-		expect(container.textContent).toContain("Launch dashboard");
-		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
+		expect(window.location.pathname).toBe(`/s/${publicId}`);
+		expect(window.sessionStorage.getItem(`tedix.os.share.${publicId}`)).toBe(
 			SESSION,
 		);
+		expect(
+			window.sessionStorage.getItem("tedix.os.share.session.v1"),
+		).toBeNull();
 	});
 	it("clears invalid stored sessions and renders no widget or old batch", async () => {
 		window.sessionStorage.setItem("tedix.os.share.session.v1", SESSION);
@@ -315,9 +314,7 @@ describe("SharedResourcePage", () => {
 		expect(container.textContent).toContain("Second review");
 		expect(container.textContent).not.toContain("Launch dashboard");
 		expect(window.location.hash).toBe("");
-		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
-			next.sessionToken,
-		);
+		expect(window.sessionStorage.length).toBe(0);
 	});
 	it("ignores a late response from the old share after a new fragment is opened", async () => {
 		let resolveOld: (response: Response) => void = () => {};
@@ -351,9 +348,7 @@ describe("SharedResourcePage", () => {
 		const container = await renderPage(`/shared#token=${TOKEN}`, true);
 		expect(container.textContent).toContain("Launch dashboard");
 		expect(fetch).toHaveBeenCalledTimes(1);
-		expect(window.sessionStorage.getItem("tedix.os.share.session.v1")).toBe(
-			SESSION,
-		);
+		expect(Object.values(window.sessionStorage).join()).not.toContain(TOKEN);
 		expect(window.location.hash).toBe("");
 	});
 });

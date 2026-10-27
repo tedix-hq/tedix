@@ -7,7 +7,6 @@ import {
 	DotsThree,
 	PencilSimple,
 	Plus,
-	UsersThree,
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
@@ -46,6 +45,7 @@ import {
 	BlueprintUpdateDialog,
 	useBlueprintUpdate,
 } from "@/components/workspace-blueprint-update";
+import { ShareButton } from "@/components/share-controls";
 import {
 	WorkspaceShareDialog,
 	type WorkspaceShareItem,
@@ -303,25 +303,12 @@ export function CanvasWorkspaceControls({
 								onOpen={() => setUpdateOpen(true)}
 							/>
 						) : null}
-						{compactActions ? (
-							<Button
-								aria-label="Share"
-								size="icon-sm"
-								title="Share workspace"
-								variant="ghost"
-								onClick={() => setShareOpen(true)}
-							>
-								<UsersThree size={16} />
-							</Button>
-						) : (
-							<Button
-								size="sm"
-								variant="secondary"
-								onClick={() => setShareOpen(true)}
-							>
-								<UsersThree size={14} /> Share
-							</Button>
-						)}
+						<ShareButton
+							compact={compactActions}
+							title="Share workspace"
+							expanded={shareOpen}
+							onClick={() => setShareOpen(true)}
+						/>
 						{/* The compact header keeps Share as its one icon; Edit, mute and
 						    Archive live in the menu. */}
 						{!compactActions && (

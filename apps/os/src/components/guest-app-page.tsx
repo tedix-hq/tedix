@@ -87,9 +87,12 @@ type PageState =
 	  }
 	| { status: "unavailable" };
 
-// Per-tab resume capability only; the link secret itself never enters storage.
-const GUEST_SESSION_KEY = "tedix.os.guest.session.v1";
+// The guest's name for this tab. A link's session lives under its own id
+// (`tedix.os.share.<id>`, see share-link-session.ts); the link secret itself
+// never enters storage.
 const GUEST_NAME_KEY = "tedix.os.guest.name.v1";
+/** Before permanent addresses, one tab kept one guest session here. */
+const LEGACY_GUEST_SESSION_KEY = "tedix.os.guest.session.v1";
 function storedGuestName(): string | null {
 	try {
 		const name = AppRuntimeGuestNameSchema.safeParse(
@@ -100,22 +103,22 @@ function storedGuestName(): string | null {
 		return null;
 	}
 }
-function storedGuestSession(): string | null {
+/** Read and drop a session an older page kept for this tab, if any. */
+function takeLegacyGuestSession(): string | null {
 	try {
-		return window.sessionStorage.getItem(GUEST_SESSION_KEY);
+		const token = window.sessionStorage.getItem(LEGACY_GUEST_SESSION_KEY);
+		window.sessionStorage.removeItem(LEGACY_GUEST_SESSION_KEY);
+		return token;
 	} catch {
 		return null;
 	}
 }
-function storeGuestSession(token: string | null): void {
+function forgetGuest(): void {
 	try {
-		if (token) window.sessionStorage.setItem(GUEST_SESSION_KEY, token);
-		else {
-			window.sessionStorage.removeItem(GUEST_SESSION_KEY);
-			window.sessionStorage.removeItem(GUEST_NAME_KEY);
-		}
+		window.sessionStorage.removeItem(LEGACY_GUEST_SESSION_KEY);
+		window.sessionStorage.removeItem(GUEST_NAME_KEY);
 	} catch {
-		/* Blocked storage still permits this in-memory session. */
+		/* Nothing was stored. */
 	}
 }
 
@@ -172,8 +175,8 @@ export function followSystemTheme(): () => void {
 
 export function GuestAppPage() {
 	const [state, setState] = useState<PageState>({ status: "loading" });
-	// One redemption survives StrictMode's effect replay: the link is one-time,
-	// and the replay finds the fragment already stripped.
+	// One redemption survives StrictMode's effect replay: the first run strips
+	// the fragment, so the replay finds nothing to redeem.
 	const opening = useRef<Promise<PageState> | null>(null);
 
 	useEffect(() => followSystemTheme(), []);
@@ -188,8 +191,7 @@ export function GuestAppPage() {
 			"",
 			window.location.pathname + window.location.search,
 		);
-		const resumeToken = token ? null : storedGuestSession();
-		if (token) storeGuestSession(null);
+		const resumeToken = takeLegacyGuestSession();
 		if (!token && !resumeToken && !opening.current) {
 			setState({ status: "unavailable" });
 			return;
@@ -202,16 +204,16 @@ export function GuestAppPage() {
 					});
 			const sessionToken = token ? share.sessionToken : resumeToken;
 			if (!sessionToken) throw new Error("Share unavailable");
-			// An old link moves to its permanent address; the router then shows
+			// An old link, or a session an older page kept, moves to the link's
+			// permanent address and its own session key; the router then shows
 			// that page, which resumes this session.
-			if (token && share.share.publicId) {
+			if (share.share.publicId) {
 				adoptShareLinkAddress(share.share.publicId, sessionToken);
 				return { status: "loading" };
 			}
-			storeGuestSession(sessionToken);
 			return openGuestApp(share, sessionToken);
 		})().catch((): PageState => {
-			storeGuestSession(null);
+			forgetGuest();
 			return { status: "unavailable" };
 		});
 		void opening.current.then((next) => {
@@ -223,11 +225,7 @@ export function GuestAppPage() {
 	}, []);
 
 	return (
-		<GuestAppScreen
-			state={state}
-			setState={setState}
-			forget={() => storeGuestSession(null)}
-		/>
+		<GuestAppScreen state={state} setState={setState} forget={forgetGuest} />
 	);
 }
 

@@ -181,6 +181,26 @@ export const OsShareOpenResultSchema = z.object({
 export type OsShareOpenInput = z.infer<typeof OsShareOpenInputSchema>;
 export type OsShareOpenResult = z.infer<typeof OsShareOpenResultSchema>;
 
+/**
+ * `POST /os-shared/preview`: what a chat app or social site may show when
+ * someone pastes `/s/<id>`. The OS Worker calls it for the document and
+ * writes the answer into the page's Open Graph tags. Only a link a
+ * signed-out stranger could open names its content; every other link, and
+ * every unknown, revoked or refused id, gets the same generic answer, so the
+ * preview never reveals more than opening the link would.
+ */
+export const OsSharePreviewSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("generic") }),
+	z.object({
+		kind: z.literal("content"),
+		title: z.string(),
+		description: z.string().nullable(),
+		resourceType: OsShareResourceTypeSchema,
+		organizationName: z.string(),
+	}),
+]);
+export type OsSharePreview = z.infer<typeof OsSharePreviewSchema>;
+
 export const OsReviewCardSchema = z.object({
 	id: z.string().trim().min(1).max(100),
 	title: z.string().trim().min(1).max(240),
@@ -453,13 +473,13 @@ export const osSharesContract = oc
 					path: "/resources/{resourceType}/{resourceId}/shares",
 					summary: "Create a governed Tedix OS share link",
 					description:
-						"Mints a role-aware living or pinned link. The returned token is the ONE-TIME plaintext capability; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
+						"Mints a role-aware living or pinned link. The returned token is the link's reusable secret, returned only in this answer; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
 				})
 				.input(createShareInput)
 				.output(
 					z.object({
 						share: OsShareLinkSchema,
-						/** The one-time plaintext token; never retrievable again. */
+						/** The link's plaintext secret, returned only here; never retrievable again. */
 						token: z.string(),
 					}),
 				),

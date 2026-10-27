@@ -11,8 +11,8 @@ import { startFixtureServer } from "./fixture-server";
 // - an old `/guest#token=` link moves to its `/s/<id>` address;
 // - an unknown id says so and shows nothing;
 // - the Share dialog shows the permanent address with Copy, offers the three
-//   audiences, changes access in place, adds and removes invited people, and
-//   turns the link off.
+//   audiences as plain buttons with one explaining line, changes access in
+//   place, adds and removes invited people, and turns the link off.
 const PUBLIC_ID = "PricePilotOpportunity1";
 const token = "share-link-token-0123456789abcdefghij";
 const evidence =
@@ -140,20 +140,30 @@ try {
 			);
 			await current.getByRole("button", { name: "Copy link" }).waitFor();
 
-			const access = dialog.getByRole("combobox", { name: "Who can open it" });
-			await access.click();
-			await page.getByRole("option").nth(2).waitFor();
-			const options = (await page.getByRole("option").allTextContents()).map(
+			// Who can open it: plain buttons, the choice applies at once, and
+			// one line says what it means.
+			const access = dialog.getByRole("radiogroup", {
+				name: "Who can open it",
+			});
+			const options = (await access.getByRole("radio").allTextContents()).map(
 				(option) => option.trim(),
 			);
 			assert.equal(options.length, 3, `${label}: three audiences`);
 			assert.equal(options[0], "Anyone with the link");
 			assert.match(options[1] ?? "", /^People in \S/);
 			assert.equal(options[2], "Only people you invite");
-			await page
-				.getByRole("option", { name: "Only people you invite" })
+			const explainer = dialog.locator("[data-share-explainer]");
+			assert.match(
+				(await explainer.textContent()) ?? "",
+				/without signing in/,
+				`${label}: one line explains an open link`,
+			);
+			await access
+				.getByRole("radio", { name: "Only people you invite" })
 				.click();
-			await dialog.getByRole("button", { name: "Change access" }).click();
+			await access
+				.getByRole("radio", { name: "Only people you invite", checked: true })
+				.waitFor();
 			const invitees = dialog.locator("[data-share-invitees]");
 			await invitees.waitFor();
 			assert.equal(
@@ -166,6 +176,11 @@ try {
 				.fill("kai@example.test");
 			await invitees.getByRole("button", { name: "Add", exact: true }).click();
 			await invitees.getByText("kai@example.test").waitFor();
+			assert.match(
+				(await explainer.textContent()) ?? "",
+				/Only the people you add/,
+				`${label}: the line follows the choice`,
+			);
 			await fits(page, `${label} dialog`);
 			await page.screenshot({
 				path: `${evidence}/${width}-${theme}-dialog.png`,

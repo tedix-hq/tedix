@@ -349,22 +349,6 @@ async function openDialog(
 	return container;
 }
 
-/** Picks an option from a Kumo Select by its trigger's label. */
-async function pickOption(label: string, option: string) {
-	const trigger = document.querySelector<HTMLElement>(
-		`[aria-label="${label}"]`,
-	);
-	if (!trigger) throw new Error(`select missing: ${label}`);
-	click(trigger);
-	await flush();
-	const item = [...document.querySelectorAll('[role="option"]')].find(
-		(node) => (node.textContent ?? "").trim() === option,
-	);
-	if (!item) throw new Error(`option missing: ${option}`);
-	click(item);
-	await flush();
-}
-
 describe("ShareControls", () => {
 	beforeEach(() => {
 		getContext.mockResolvedValue({
@@ -410,20 +394,26 @@ describe("ShareControls", () => {
 
 	it("offers the three audiences in plain words, naming the organization", async () => {
 		sharesApi.list.mockResolvedValue({ items: [] });
-		await openDialog();
-		const trigger = document.querySelector<HTMLElement>(
-			'[aria-label="Who can open it"]',
-		);
-		click(trigger!);
-		await flush();
-		const options = [...document.querySelectorAll('[role="option"]')].map(
-			(node) => node.textContent?.trim(),
-		);
-		expect(options).toEqual([
+		const container = await openDialog();
+		const options = [
+			...container.querySelectorAll(
+				'[role="radiogroup"][aria-label="Who can open it"] [role="radio"]',
+			),
+		];
+		expect(options.map((node) => node.textContent?.trim())).toEqual([
 			"Anyone with the link",
 			"People in Acme Fictional",
 			"Only people you invite",
 		]);
+		expect(options.map((node) => node.getAttribute("aria-checked"))).toEqual([
+			"true",
+			"false",
+			"false",
+		]);
+		// One plain line says what the choice means.
+		expect(
+			container.querySelector("[data-share-explainer]")?.textContent,
+		).toContain("without signing in");
 	});
 
 	it("creates a link for the chosen audience", async () => {
@@ -433,7 +423,8 @@ describe("ShareControls", () => {
 			token: TOKEN,
 		});
 		const container = await openDialog();
-		await pickOption("Who can open it", "People in Acme Fictional");
+		click(findButton(container, "People in Acme Fictional"));
+		await flush();
 		click(findButton(container, "Create link"));
 		await flush();
 		expect(sharesApi.create).toHaveBeenCalledWith({
@@ -452,9 +443,7 @@ describe("ShareControls", () => {
 			revokedSessionCount: 0,
 		});
 		const container = await openDialog();
-		expect(container.textContent).not.toContain("Change access");
-		await pickOption("Who can open it", "Only people you invite");
-		click(findButton(container, "Change access"));
+		click(findButton(container, "Only people you invite"));
 		await flush();
 		expect(sharesApi.update).toHaveBeenCalledWith({
 			shareId: SHARE_ID,
