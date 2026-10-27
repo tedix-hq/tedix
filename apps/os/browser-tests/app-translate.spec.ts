@@ -51,6 +51,19 @@ async function open(locale: string, width: number, path: string) {
 			: route.abort("blockedbyclient"),
 	);
 	await page.goto(`${server.origin}${path}`, { waitUntil: "domcontentloaded" });
+	if (path.startsWith("/guest")) {
+		await page
+			.getByRole("textbox", {
+				name: locale.startsWith("de") ? "Ihr Name" : "Your name",
+			})
+			.fill("Maya");
+		await page
+			.getByRole("button", {
+				name: locale.startsWith("de") ? "App öffnen" : "Open app",
+				exact: true,
+			})
+			.click();
+	}
 	return { context, page };
 }
 

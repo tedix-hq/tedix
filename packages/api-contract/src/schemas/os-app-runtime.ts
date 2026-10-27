@@ -13,6 +13,17 @@ import { nextSkillScheduleFireAt } from "../utils/skill-schedule";
  */
 export const APP_RUNTIME_ENTRY = "tedix:runtime/v1";
 
+/** Self-reported attribution, never a verified member identity. */
+export const AppRuntimeGuestNameSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(80)
+	.refine(
+		(name) => !/[\p{Cc}\p{Cf}]/u.test(name),
+		"Use a name without control characters",
+	);
+
 export const APP_RUNTIME_SERVER_MODULE = "server.js";
 export const APP_RUNTIME_CLIENT_MODULE = "client.js";
 /** Upper bound for all files of one revision together, in UTF-16 code units. */

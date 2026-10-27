@@ -100,6 +100,9 @@
 	"share_can_use": "Kann nutzen",
 	"share_link_unavailable": "Dieser Link öffnet nichts mehr",
 	"share_link_unavailable_hint": "Er ist vielleicht abgelaufen, wurde deaktiviert oder durch eine Richtlinie eingeschränkt. Bitten Sie die Person, die ihn geteilt hat, um einen neuen Link.",
+	"share_guest_name": "Ihr Name",
+	"share_guest_name_hint": "Ihr Name wird mit Ihrem Feedback gespeichert. Sie brauchen kein Konto.",
+	"share_guest_continue": "App öffnen",
 	"share_no_sign_in": "Mit Ihnen geteilt · keine Anmeldung nötig",
 	"share_opening_app": "App wird geöffnet…"
 }

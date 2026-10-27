@@ -34,6 +34,22 @@ try {
 					: route.abort("blockedbyclient"),
 			);
 			await page.goto(`${server.origin}/guest#token=${token}`);
+			const nameInput = page.getByRole("textbox", { name: "Your name" });
+			await nameInput.fill("Maya");
+			assert(
+				await nameInput.evaluate(
+					(input) => input.getBoundingClientRect().height >= 44,
+				),
+				`${label}: guest name has a phone touch target`,
+			);
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${label}: name form does not overflow`,
+			);
+			await page.screenshot({ path: `${evidence}/${width}-${theme}-name.png` });
+			await page.getByRole("button", { name: "Open app", exact: true }).click();
 			const main = page.locator("[data-guest-app]");
 			await main.waitFor();
 			assert.equal(
@@ -103,6 +119,8 @@ try {
 		});
 		const page = await context.newPage();
 		await page.goto(`${server.origin}/guest#token=${token}`);
+		await page.getByRole("textbox", { name: "Ihr Name" }).fill("Maya");
+		await page.getByRole("button", { name: "App öffnen", exact: true }).click();
 		const main = page.locator("[data-guest-app]");
 		await main.getByText("Kann nutzen", { exact: true }).waitFor();
 		assert.equal(await page.locator("html").getAttribute("lang"), "de-DE");

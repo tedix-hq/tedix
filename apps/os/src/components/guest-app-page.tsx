@@ -1,6 +1,9 @@
 import { ShieldCheck } from "@phosphor-icons/react";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import type { AppRuntimeFiles } from "@tedix/api-contract/schemas/os-app-runtime";
+import {
+	AppRuntimeGuestNameSchema,
+	type AppRuntimeFiles,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { buildTranslate, type Translate } from "@tedix/widget-i18n";
 import {
@@ -13,6 +16,8 @@ import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import { AppTranslateButton } from "@/components/app-translate-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
+import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
 import {
 	type AppRuntimeContext,
@@ -64,11 +69,29 @@ type Redeemed = {
 
 type PageState =
 	| { status: "loading" }
-	| { status: "ready"; share: Redeemed; sessionToken: string; app: GuestOpen }
+	| { status: "identify"; share: Redeemed; sessionToken: string }
+	| {
+			status: "ready";
+			share: Redeemed;
+			sessionToken: string;
+			app: GuestOpen;
+			guestName: string;
+	  }
 	| { status: "unavailable" };
 
 // Per-tab resume capability only; the link secret itself never enters storage.
 const GUEST_SESSION_KEY = "tedix.os.guest.session.v1";
+const GUEST_NAME_KEY = "tedix.os.guest.name.v1";
+function storedGuestName(): string | null {
+	try {
+		const name = AppRuntimeGuestNameSchema.safeParse(
+			window.sessionStorage.getItem(GUEST_NAME_KEY),
+		);
+		return name.success ? name.data : null;
+	} catch {
+		return null;
+	}
+}
 function storedGuestSession(): string | null {
 	try {
 		return window.sessionStorage.getItem(GUEST_SESSION_KEY);
@@ -79,7 +102,10 @@ function storedGuestSession(): string | null {
 function storeGuestSession(token: string | null): void {
 	try {
 		if (token) window.sessionStorage.setItem(GUEST_SESSION_KEY, token);
-		else window.sessionStorage.removeItem(GUEST_SESSION_KEY);
+		else {
+			window.sessionStorage.removeItem(GUEST_SESSION_KEY);
+			window.sessionStorage.removeItem(GUEST_NAME_KEY);
+		}
 	} catch {
 		/* Blocked storage still permits this in-memory session. */
 	}
@@ -168,11 +194,14 @@ export function GuestAppPage() {
 					});
 			const sessionToken = token ? share.sessionToken : resumeToken;
 			if (!sessionToken) throw new Error("Share unavailable");
+			storeGuestSession(sessionToken);
+			const guestName = storedGuestName();
+			if (!guestName) return { status: "identify", share, sessionToken };
 			const app = await guestRequest<GuestOpen>("/api/os-shared/app/open", {
 				sessionToken,
+				guestName,
 			});
-			storeGuestSession(sessionToken);
-			return { status: "ready", share, sessionToken, app };
+			return { status: "ready", share, sessionToken, app, guestName };
 		})().catch((): PageState => {
 			storeGuestSession(null);
 			return { status: "unavailable" };
@@ -186,7 +215,9 @@ export function GuestAppPage() {
 	}, []);
 
 	const organization =
-		state.status === "ready" ? state.share.organization : null;
+		state.status === "ready" || state.status === "identify"
+			? state.share.organization
+			: null;
 	const { locale, t } = useMemo(() => guestCopy(organization), [organization]);
 	useEffect(() => {
 		document.documentElement.lang = locale;
@@ -214,7 +245,80 @@ export function GuestAppPage() {
 				</Alert>
 			</main>
 		);
+	if (state.status === "identify")
+		return (
+			<GuestName
+				t={t}
+				onContinue={async (guestName) => {
+					try {
+						const app = await guestRequest<GuestOpen>(
+							"/api/os-shared/app/open",
+							{ sessionToken: state.sessionToken, guestName },
+						);
+						try {
+							window.sessionStorage.setItem(GUEST_NAME_KEY, guestName);
+						} catch {
+							/* The name remains in memory when storage is blocked. */
+						}
+						setState({ ...state, status: "ready", app, guestName });
+					} catch {
+						storeGuestSession(null);
+						setState({ status: "unavailable" });
+					}
+				}}
+			/>
+		);
 	return <GuestApp state={state} t={t} />;
+}
+
+function GuestName({
+	t,
+	onContinue,
+}: {
+	t: Translate;
+	onContinue: (name: string) => Promise<void>;
+}) {
+	const [name, setName] = useState("");
+	const [busy, setBusy] = useState(false);
+	const parsed = AppRuntimeGuestNameSchema.safeParse(name);
+	return (
+		<main className="mx-auto grid min-h-dvh w-full max-w-md place-items-center p-4">
+			<form
+				className="flex w-full flex-col gap-4"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (!parsed.success || busy) return;
+					setBusy(true);
+					void onContinue(parsed.data);
+				}}
+			>
+				<Text as="h1" role="section">
+					{t("share_guest_name")}
+				</Text>
+				<Text as="p" className="m-0" tone="secondary" id="guest-name-hint">
+					{t("share_guest_name_hint")}
+				</Text>
+				<Input
+					className="min-h-11"
+					aria-label={t("share_guest_name")}
+					aria-describedby="guest-name-hint"
+					autoComplete="name"
+					maxLength={80}
+					required
+					value={name}
+					onChange={(event) => setName(event.target.value)}
+					disabled={busy}
+				/>
+				<Button
+					className="min-h-11"
+					type="submit"
+					disabled={!parsed.success || busy}
+				>
+					{t("share_guest_continue")}
+				</Button>
+			</form>
+		</main>
+	);
 }
 
 function GuestApp({
@@ -224,7 +328,7 @@ function GuestApp({
 	state: Extract<PageState, { status: "ready" }>;
 	t: Translate;
 }) {
-	const { app, sessionToken, share } = state;
+	const { app, sessionToken, share, guestName } = state;
 	const translation = useAppRuntimeTranslation(app.app.settings);
 	const context = useMemo<AppRuntimeContext>(
 		() => ({
@@ -247,7 +351,7 @@ function GuestApp({
 					open: async () => {
 						const next = await guestRequest<GuestOpen>(
 							"/api/os-shared/app/open",
-							{ sessionToken },
+							{ sessionToken, guestName },
 						);
 						return next;
 					},
@@ -269,7 +373,7 @@ function GuestApp({
 					revisionId: app.revisionId,
 				},
 			),
-		[app, sessionToken],
+		[app, sessionToken, guestName],
 	);
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>

@@ -251,7 +251,10 @@ describe("share-link guests on a runtime app", () => {
 		const { db, env } = await fixture();
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
-		const response = await handleGuestAppOpen(env, db, { sessionToken });
+		const response = await handleGuestAppOpen(env, db, {
+			sessionToken,
+			guestName: "Maya",
+		});
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Cache-Control")).toBe("no-store");
 		const body = (await response.json()) as {
@@ -285,13 +288,14 @@ describe("share-link guests on a runtime app", () => {
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
 		const opened = (await (
-			await handleGuestAppOpen(env, db, { sessionToken })
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 		).json()) as { session: string };
 		const response = await handleGuestAppCall(env, db, {
 			sessionToken,
 			session: opened.session,
 			method: "verdicts",
 			args: [],
+			guestName: "Forged caller name",
 		});
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ result: [] });
@@ -308,7 +312,59 @@ describe("share-link guests on a runtime app", () => {
 		expect(JSON.parse(execution!.policyDecision)).toMatchObject({
 			role: "use",
 			shareLinkId: link.id,
+			guestName: "Maya",
+			guestIdentity: "self_reported",
 		});
+	});
+
+	it.each([
+		undefined,
+		null,
+		"",
+		"   ",
+		"x".repeat(81),
+		"Maya\u0000",
+		"Maya\u202e",
+		123,
+	])("refuses an invalid guest name: %j", async (guestName) => {
+		const { db, env, fetch } = await fixture();
+		const link = await seedLink(db);
+		const sessionToken = await redeem(db, link.token);
+		expect(
+			(await handleGuestAppOpen(env, db, { sessionToken, guestName })).status,
+		).toBe(404);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it("signs a trimmed guest name and refuses calls from an older unnamed session", async () => {
+		const { db, env, fetch } = await fixture();
+		const link = await seedLink(db);
+		const sessionToken = await redeem(db, link.token);
+		const opened = (await (
+			await handleGuestAppOpen(env, db, {
+				sessionToken,
+				guestName: "  Zoë 李  ",
+			})
+		).json()) as { session: string };
+		const {
+			expiresAt: _expiresAt,
+			sessionId: _sessionId,
+			guestName,
+			...session
+		} = await verifyWorkspaceAppSession(key, opened.session);
+		expect(guestName).toBe("Zoë 李");
+		const unnamed = await mintWorkspaceAppSession(key, session);
+		expect(
+			(
+				await handleGuestAppCall(env, db, {
+					sessionToken,
+					session: unnamed.token,
+					method: "verdicts",
+					guestName: "Maya",
+				})
+			).status,
+		).toBe(404);
+		expect(fetch).not.toHaveBeenCalled();
 	});
 
 	it("refuses a guest an app that may reach a connected account or an unbound slot", async () => {
@@ -316,7 +372,7 @@ describe("share-link guests on a runtime app", () => {
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
 		const opened = (await (
-			await handleGuestAppOpen(env, db, { sessionToken })
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 		).json()) as { session: string };
 		const grant = async (
 			resourceGrants: Array<{ slot: string; operations: string[] }>,
@@ -351,9 +407,10 @@ describe("share-link guests on a runtime app", () => {
 			[{ slot: "unbound", operations: ["outputs.read"] }],
 		]) {
 			await grant(resourceGrants);
-			expect((await handleGuestAppOpen(env, db, { sessionToken })).status).toBe(
-				404,
-			);
+			expect(
+				(await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" }))
+					.status,
+			).toBe(404);
 			// A session opened before the grant changed is refused at the call too.
 			expect(
 				(
@@ -386,7 +443,7 @@ describe("share-link guests on a runtime app", () => {
 			(await handleGuestAppRead(db, { sessionToken, slot: "other" })).status,
 		).toBe(404);
 		const opened = (await (
-			await handleGuestAppOpen(env, db, { sessionToken })
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 		).json()) as { session: string };
 		await db
 			.update(osOutputRevisions)
@@ -402,9 +459,10 @@ describe("share-link guests on a runtime app", () => {
 				.status,
 		).toBe(404);
 		// The app no longer opens for guests at all once it reads connected data.
-		expect((await handleGuestAppOpen(env, db, { sessionToken })).status).toBe(
-			404,
-		);
+		expect(
+			(await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" }))
+				.status,
+		).toBe(404);
 		// The host's capability path answers the same way for a session opened before.
 		const internal = createRouterClient(createOsAppRuntimeRouter(), {
 			context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
@@ -444,14 +502,14 @@ describe("share-link guests on a runtime app", () => {
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
 		const opened = (await (
-			await handleGuestAppOpen(env, db, { sessionToken })
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 		).json()) as { session: string };
 		await db
 			.update(osWorkspaces)
 			.set({ visibility: "private" })
 			.where(eq(osWorkspaces.id, workspaceId));
 		for (const response of [
-			await handleGuestAppOpen(env, db, { sessionToken }),
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" }),
 			await handleGuestAppCall(env, db, {
 				sessionToken,
 				session: opened.session,
@@ -466,18 +524,25 @@ describe("share-link guests on a runtime app", () => {
 			.update(osWorkspaces)
 			.set({ visibility: "organization" })
 			.where(eq(osWorkspaces.id, workspaceId));
-		expect((await handleGuestAppOpen(env, db, { sessionToken })).status).toBe(
-			200,
-		);
+		expect(
+			(await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" }))
+				.status,
+		).toBe(200);
 		await db
 			.update(osShareLinks)
 			.set({ revokedAt: "2026-10-25T11:00:00.000Z" })
 			.where(eq(osShareLinks.id, link.id));
-		expect((await handleGuestAppOpen(env, db, { sessionToken })).status).toBe(
-			404,
-		);
 		expect(
-			(await handleGuestAppOpen(env, db, { sessionToken: "nope" })).status,
+			(await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" }))
+				.status,
+		).toBe(404);
+		expect(
+			(
+				await handleGuestAppOpen(env, db, {
+					sessionToken: "nope",
+					guestName: "Maya",
+				})
+			).status,
 		).toBe(404);
 		expect((await handleGuestAppOpen(env, db, null)).status).toBe(404);
 	});
@@ -493,7 +558,7 @@ describe("share-link guests on a runtime app", () => {
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
 		const opened = (await (
-			await handleGuestAppOpen(env, db, { sessionToken })
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 		).json()) as { session: string };
 		const appSession = await verifyWorkspaceAppSession(key, opened.session);
 		const past = "2000-01-01T00:00:00.000Z";
@@ -519,7 +584,7 @@ describe("share-link guests on a runtime app", () => {
 				.where(eq(osShareLinks.id, link.id));
 		}
 		for (const response of [
-			await handleGuestAppOpen(env, db, { sessionToken }),
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" }),
 			await handleGuestAppRead(db, { sessionToken, slot: "opportunities" }),
 			await handleGuestAppCall(env, db, {
 				sessionToken,
@@ -556,7 +621,7 @@ describe("share-link guests on a runtime app", () => {
 			const link = await seedLink(db);
 			const sessionToken = await redeem(db, link.token);
 			const opened = (await (
-				await handleGuestAppOpen(env, db, { sessionToken })
+				await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 			).json()) as { session: string };
 			const {
 				expiresAt: _expiresAt,
@@ -588,7 +653,7 @@ describe("share-link guests on a runtime app", () => {
 			const link = await seedLink(db);
 			const sessionToken = await redeem(db, link.token);
 			const opened = (await (
-				await handleGuestAppOpen(env, db, { sessionToken })
+				await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 			).json()) as { session: string };
 			const internal = createRouterClient(createOsAppRuntimeRouter(), {
 				context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
@@ -638,7 +703,7 @@ describe("share-link guests on a runtime app", () => {
 			});
 			const sessionToken = await redeem(db, link.token);
 			const opened = (await (
-				await handleGuestAppOpen(env, db, { sessionToken })
+				await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
 			).json()) as { session: string };
 			const internal = createRouterClient(createOsAppRuntimeRouter(), {
 				context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
@@ -694,7 +759,10 @@ describe("share-link guests on a runtime app", () => {
 		const firstToken = await redeem(db, first.token);
 		const secondToken = await redeem(db, second.token);
 		const opened = (await (
-			await handleGuestAppOpen(env, db, { sessionToken: firstToken })
+			await handleGuestAppOpen(env, db, {
+				sessionToken: firstToken,
+				guestName: "Maya",
+			})
 		).json()) as { session: string };
 		expect(
 			(

@@ -100,6 +100,9 @@
 	"share_can_use": "Can use",
 	"share_link_unavailable": "This link no longer opens anything",
 	"share_link_unavailable_hint": "It may have expired, been turned off, or been narrowed by policy. Ask the person who shared it for a new link.",
+	"share_guest_name": "Your name",
+	"share_guest_name_hint": "Your name is saved with your feedback. No account is needed.",
+	"share_guest_continue": "Open app",
 	"share_no_sign_in": "Shared with you · no sign-in needed",
 	"share_opening_app": "Opening the app…"
 }
