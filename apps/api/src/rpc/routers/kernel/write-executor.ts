@@ -96,6 +96,8 @@ export interface HomeToolWritePayload {
 	homeRunId: string;
 	conversationId: string;
 	initiatedByUserId: string | null;
+	/** Starting agent for apply-time access checks; the receipt stays approver-bound. */
+	initiatedByAgentPrincipalId?: string;
 	/** Missing on pre-Code-Mode approvals and therefore normalized to direct. */
 	transport?: KernelWriteTransport;
 	/**
@@ -145,6 +147,12 @@ export function parseHomeToolWritePayload(
 		payload.initiatedByUserId.length > 0
 			? payload.initiatedByUserId
 			: null;
+	const initiatedByAgentPrincipalId =
+		!initiatedByUserId &&
+		typeof payload.initiatedByAgentPrincipalId === "string" &&
+		payload.initiatedByAgentPrincipalId.length > 0
+			? payload.initiatedByAgentPrincipalId
+			: undefined;
 	const transport = payload.transport;
 	if (
 		transport !== undefined &&
@@ -179,6 +187,7 @@ export function parseHomeToolWritePayload(
 		homeRunId,
 		conversationId,
 		initiatedByUserId,
+		...(initiatedByAgentPrincipalId ? { initiatedByAgentPrincipalId } : {}),
 		...(transport ? { transport } : {}),
 	};
 }

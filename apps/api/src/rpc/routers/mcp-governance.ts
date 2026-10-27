@@ -26,6 +26,7 @@ import {
 	approvingUserId,
 	parseHomeToolWritePayload,
 } from "./kernel/write-executor";
+import { initiatingAgentMayStillAct } from "./kernel/write-approval-settlement";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import {
 	buildSurfaceUrl,
@@ -183,6 +184,15 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						),
 					)
 				).includes(digest)
+			)
+				return { approved: false };
+			if (
+				payload.initiatedByAgentPrincipalId &&
+				!(await initiatingAgentMayStillAct(
+					context,
+					input.organizationId,
+					payload.initiatedByAgentPrincipalId,
+				))
 			)
 				return { approved: false };
 			const initiator = await getMemberByUserId(

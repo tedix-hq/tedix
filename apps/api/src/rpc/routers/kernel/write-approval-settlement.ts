@@ -25,6 +25,7 @@ import {
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { getTedisByOrganization } from "@tedix/db/queries/tedis";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getExternalAgentPrincipal } from "@tedix/db/queries/external-agent-identity/principals";
 import { roleImpliesPermission } from "@tedix/auth/rbac";
 import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -509,6 +510,28 @@ async function principalMayStillAct(
 	);
 }
 
+/** Approval does not outlive the starting agent or its owning member's Home access. */
+export async function initiatingAgentMayStillAct(
+	context: BaseContext,
+	organizationId: string,
+	principalId: string,
+): Promise<boolean> {
+	const principal = await getExternalAgentPrincipal(context.db, {
+		organizationId,
+		principalId,
+	});
+	if (principal?.status !== "active") return false;
+	return (
+		principal.credentialBindingType !== "owner_user" ||
+		principalMayStillAct(
+			context,
+			organizationId,
+			principal.credentialBindingId,
+			"os:run",
+		)
+	);
+}
+
 /**
  * Settle a resolved "home_tool_write" approval: execute the SERVER-STORED
  * call exactly once on approve, or close the Home run without executing on
@@ -676,20 +699,23 @@ export async function settleHomeToolWriteApproval(
 			});
 		}
 
-		// The approval authorizes this one stored call on behalf of the person
-		// who asked for it, never with the approver's authority. A deferred
-		// approval can land after that person left the organization or lost Home
-		// access, so re-check their current membership before acting for them.
+		// A deferred approval can outlive the starting member or agent's access.
 		// The admitted path runs inside the initiator's own authenticated turn.
 		if (
 			!admittedMetadata &&
-			payload.initiatedByUserId &&
-			!(await principalMayStillAct(
-				context,
-				payload.organizationId,
-				payload.initiatedByUserId,
-				"os:run",
-			))
+			((payload.initiatedByUserId &&
+				!(await principalMayStillAct(
+					context,
+					payload.organizationId,
+					payload.initiatedByUserId,
+					"os:run",
+				))) ||
+				(payload.initiatedByAgentPrincipalId &&
+					!(await initiatingAgentMayStillAct(
+						context,
+						payload.organizationId,
+						payload.initiatedByAgentPrincipalId,
+					))))
 		) {
 			console.warn("[kernelRuntime] kernel write initiator lost access", {
 				approvalRequestId: input.approval.id,
@@ -697,12 +723,12 @@ export async function settleHomeToolWriteApproval(
 			});
 			return closeWithoutExecuting({
 				preview:
-					"Kernel write not executed — the person who asked for it no longer has access.",
-				content: `The approved write \`${payload.toolName}\` on ${payload.appSlug} was not executed: the person who asked for it no longer has access to this organization.`,
+					"Kernel write not executed — the initiator no longer has access.",
+				content: `The approved write \`${payload.toolName}\` on ${payload.appSlug} was not executed: the initiator no longer has access to this organization.`,
 				approvalStatus: "initiator_revoked",
 			});
 		}
-		// An agent-started run has no initiator. Its receipt is bound to the
+		// An agent-started run has no initiating member. Its receipt is bound to the
 		// approving human instead, so the same apply-time re-check applies to
 		// them: still an active member who may approve. Their personal
 		// credential and scopes are never used; the write carries only the
