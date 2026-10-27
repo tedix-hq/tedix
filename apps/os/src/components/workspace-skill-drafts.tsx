@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SkillEntry } from "@tedix/api-contract/schemas/cognitive";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
@@ -22,7 +23,10 @@ import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { Input } from "@/components/kumo/input";
 import { SectionEyebrow } from "@/components/section-eyebrow";
+import { SkillWorkflowDraftDialog } from "@/components/skill-workflow-drafts";
 import { osApi } from "@/lib/api";
+import { errorDetails, errorMessage } from "@/lib/orpc-error";
+import { useCanManageTedis } from "@/lib/tedi-permissions";
 import {
 	membersListQueryOptions,
 	osQuery,
@@ -123,7 +127,7 @@ export function WorkspaceSkillDrafts({
 			</Button>
 			{load.isError && (
 				<Text role="label" tone="error">
-					{load.error.message}
+					{errorMessage(load.error)}
 				</Text>
 			)}
 			{canManage && (
@@ -372,9 +376,17 @@ function WorkspaceSkillDraftEditor({
 							)}
 						</details>
 						{propose.isError && (
-							<Text role="label" tone="error">
-								{propose.error.message}
-							</Text>
+							<div role="alert" className="grid gap-1">
+								<Text role="label" tone="error" className="m-0">
+									The draft could not be saved:{" "}
+									{errorMessage(propose.error, "Tedix gave no reason.")}
+								</Text>
+								{errorDetails(propose.error).map((line) => (
+									<Text key={line} role="label" tone="error" className="m-0">
+										{line}
+									</Text>
+								))}
+							</div>
 						)}
 					</div>
 				)}
@@ -548,8 +560,97 @@ function WorkspaceSkillDraftReviewBody(target: {
 			)}
 			{withdraw.isError && (
 				<Text role="label" tone="error">
-					{withdraw.error.message}
+					{errorMessage(withdraw.error)}
 				</Text>
+			)}
+			{proposal.status === "pending" &&
+			proposal.files?.["scripts/workflow.ts"] !== undefined ? (
+				<WorkspaceDraftTestPath
+					skillId={proposal.skillId}
+					content={proposal.content}
+					workflow={proposal.files["scripts/workflow.ts"]}
+					reason={proposal.reason}
+					proposalId={proposal.id}
+				/>
+			) : null}
+		</div>
+	);
+}
+
+/**
+ * Owners and admins take a saved workspace draft down the same path as any
+ * automation change: a testable draft on the skill's Versions page. Members
+ * without that permission see nothing here; the owner review stays theirs.
+ */
+function WorkspaceDraftTestPath({
+	skillId,
+	content,
+	workflow,
+	reason,
+	proposalId,
+}: {
+	skillId: string;
+	content: string;
+	workflow: string;
+	reason: string;
+	proposalId: string;
+}) {
+	const canManage = useCanManageTedis();
+	const queryClient = useQueryClient();
+	const [baseline, setBaseline] = useState<SkillEntry | null>(null);
+	const load = useMutation({
+		mutationFn: async () => {
+			const result = await queryClient.fetchQuery({
+				...skillDetailQueryOptions(skillId),
+				staleTime: 0,
+			});
+			if (!result.entry)
+				throw new Error("The linked skill could not be loaded.");
+			return result.entry;
+		},
+		onSuccess: setBaseline,
+	});
+	if (!canManage) return null;
+	return (
+		<div className="grid gap-1">
+			<Button
+				size="sm"
+				variant="outline"
+				disabled={load.isPending}
+				onClick={() => load.mutate()}
+			>
+				{load.isPending ? "Loading skill…" : "Test and switch on this draft"}
+			</Button>
+			<Text role="label" tone="secondary" className="m-0">
+				Creates a testable draft from this proposal on the skill's Versions
+				page. Nothing changes until that draft passes its test and is switched
+				on.
+			</Text>
+			{load.isError && (
+				<Text role="label" tone="error">
+					{errorMessage(load.error)}
+				</Text>
+			)}
+			{baseline && (
+				<SkillWorkflowDraftDialog
+					baseline={baseline}
+					seed={{
+						content,
+						workflow,
+						reason: `${reason} (workspace draft ${proposalId})`,
+						origin: "from a workspace draft",
+					}}
+					close={() => setBaseline(null)}
+					afterSave={
+						<Link
+							to="/skills/$skillId/versions"
+							params={{ skillId }}
+							className="w-fit underline"
+						>
+							Open Versions to test and switch it on
+						</Link>
+					}
+				/>
 			)}
 		</div>
 	);

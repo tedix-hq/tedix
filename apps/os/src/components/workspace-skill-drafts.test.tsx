@@ -71,8 +71,24 @@ vi.mock("@/lib/os-query-options", () => {
 			queryKey: ["skill", id],
 			queryFn: () => harness.getSource(id),
 		}),
+		// Read by the shared draft dialog an owner opens from a saved proposal.
+		skillRunsQueryOptions: (id: string) => ({
+			queryKey: ["runs", id],
+			queryFn: () => Promise.resolve({ runs: [] }),
+		}),
+		tediRosterQueryOptions: () => ({
+			queryKey: ["tedis"],
+			queryFn: () => Promise.resolve({ data: [] }),
+		}),
+		skillRevisionsQueryOptions: (id: string) => ({
+			queryKey: ["revisions", id],
+		}),
+		osQueryKeys: { skills: () => ["skill"], skillRuns: () => ["runs"] },
 	};
 });
+vi.mock("@tanstack/react-router", () => ({
+	Link: (props: { children?: unknown }) => <a>{String(props.children)}</a>,
+}));
 
 import { WorkspaceSkillDrafts } from "./workspace-skill-drafts";
 
@@ -473,6 +489,83 @@ describe("workspace skill draft safety and usability", () => {
 			),
 		).toBe(false);
 		expect(harness.withdraw).not.toHaveBeenCalled();
+	});
+
+	it("shows the server's real reason, with its details, when a draft cannot be saved", async () => {
+		harness.propose.mockRejectedValueOnce(
+			Object.assign(new Error("Skill validation failed: WORKFLOW_SYNTAX"), {
+				code: "BAD_REQUEST",
+				data: {
+					errors: [
+						{
+							code: "WORKFLOW_SYNTAX",
+							message: "Unexpected token at line 3",
+							path: "scripts/workflow.ts",
+						},
+					],
+					warnings: [],
+				},
+			}),
+		);
+		await mount();
+		await click(button("Propose changes"));
+		fill("Draft automation source", "export default {");
+		fill("Draft change reason", "Try a broken draft");
+		await click(button("Save draft for review"));
+		const alert = document.querySelector('[role="alert"]');
+		expect(alert?.textContent).toContain(
+			"The draft could not be saved: Skill validation failed: WORKFLOW_SYNTAX",
+		);
+		expect(alert?.textContent).toContain(
+			"WORKFLOW_SYNTAX: Unexpected token at line 3 (scripts/workflow.ts)",
+		);
+	});
+
+	it("offers owners the shared test-and-switch-on path from a saved draft, and members nothing", async () => {
+		harness.listProposals.mockResolvedValue({
+			proposals: [
+				{
+					id: PROPOSAL_ID,
+					memberId: "other-agent",
+					sourceRevision: 4,
+					reason: "Include citations in each result.",
+					status: "pending",
+				},
+			],
+		});
+		await mount();
+		await click(button("View pending draft"));
+		expect(document.body.textContent).not.toContain(
+			"Test and switch on this draft",
+		);
+		act(() => root.unmount());
+		root = createRoot(container);
+		harness.permissions = ["team:manage", "tedis:update"];
+		harness.getSource.mockResolvedValue({
+			entry: { ...source, organizationId: "org-fixture", tediId: "worker-1" },
+		});
+		await mount();
+		await click(button("View pending draft"));
+		await click(button("Test and switch on this draft"));
+		expect(harness.getSource).toHaveBeenCalledWith(source.id);
+		expect(document.body.textContent).toContain("from a workspace draft");
+		expect(
+			(
+				document.querySelector(
+					'[aria-label="Draft skill instructions"]',
+				) as HTMLTextAreaElement
+			).value,
+		).toBe(receipt().proposal.content);
+		expect(
+			(
+				document.querySelector(
+					'[aria-label="Draft change reason"]',
+				) as HTMLTextAreaElement
+			).value,
+		).toContain(
+			`Include citations in each result. (workspace draft ${PROPOSAL_ID})`,
+		);
+		expect(harness.propose).not.toHaveBeenCalled();
 	});
 
 	it("distinguishes unavailable saved history from an empty list and retries the read", async () => {
