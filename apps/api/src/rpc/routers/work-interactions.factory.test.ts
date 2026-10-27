@@ -317,7 +317,8 @@ it("projects targeted open inbox prompts and strips metadata/drafts with truthfu
 			kind: "question",
 			reason: "Only the asked person can decide this.",
 			subject: "Bounded",
-			prompt: "p".repeat(i === 0 ? 800 : 801),
+			// Distinct prompts: identical open asks are reused, not duplicated.
+			prompt: `${i}${"p".repeat(i === 0 ? 799 : 800)}`,
 			metadata: { policy: "x".repeat(20000) },
 			requestedFrom: { type: "user", id: "target-id" },
 		});
