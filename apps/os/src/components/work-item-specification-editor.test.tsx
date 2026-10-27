@@ -228,7 +228,7 @@ it.each(["Access denied", "Conflict: Work Item version changed"])(
 		await submit(view.host);
 		expect(view.title.value).toBe("  Unsaved Cedar title  ");
 		expect(view.description.value).toBe("Unsaved description\nwith detail");
-		expect(view.priority.textContent).toContain("high");
+		expect(view.priority.textContent).toContain("High");
 		expect(view.host.querySelector('[role="alert"]')?.textContent).toContain(
 			message,
 		);

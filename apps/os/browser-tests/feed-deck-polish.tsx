@@ -102,6 +102,20 @@ client.setQueryData(
 const projectId = "11111111-1111-4111-8111-111111111111";
 const input = { projectId, limit: 20, cursor: undefined };
 const today = new Date();
+// Activity groups by UTC day; spacing the fixture's events an hour apart would
+// split them across midnight for most of the day, so keep all 17 inside today.
+const step = Math.min(
+	3600000,
+	Math.floor(
+		(today.getTime() -
+			Date.UTC(
+				today.getUTCFullYear(),
+				today.getUTCMonth(),
+				today.getUTCDate(),
+			)) /
+			20,
+	),
+);
 client.setQueryData(
 	osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
 	learnDecisions({
@@ -120,7 +134,7 @@ const event = (id: number, title: string, body: string, small = false) => ({
 	workItemDisposition: "completed",
 	agentHarness: "codex",
 	authorType: "external_agent",
-	createdAt: new Date(today.getTime() - id * 3600000).toISOString(),
+	createdAt: new Date(today.getTime() - id * step).toISOString(),
 });
 const options = {
 	initialPageParam: undefined,
@@ -192,9 +206,7 @@ client.setQueryData(
 						startedAt: today.toISOString(),
 						heartbeatAt: today.toISOString(),
 						expiresAt: null,
-						finishedAt: new Date(
-							today.getTime() - index * 3600000,
-						).toISOString(),
+						finishedAt: new Date(today.getTime() - index * step).toISOString(),
 						summary,
 						metadata: {
 							feedSentence: summary,

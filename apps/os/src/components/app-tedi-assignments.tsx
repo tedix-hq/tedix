@@ -80,6 +80,8 @@ const assignmentSchema = z.object({
 	role: z.enum(["operator", "observer"]),
 });
 
+const ROLE_LABELS = { operator: "Operator", observer: "Observer" };
+
 export function AppTediAssignments({ appId }: { appId: string }) {
 	useOsFormattingPreferences();
 	const queryClient = useQueryClient();
@@ -233,6 +235,9 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 								field={field}
 								{...meta}
 								placeholder="Select a tedi..."
+								items={Object.fromEntries(
+									availableTedis.map((tedi) => [tedi.id, tedi.name]),
+								)}
 							>
 								{tedisLoading ? (
 									<div className="p-2">
@@ -254,7 +259,7 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 					</FormField>
 					<FormField form={assignmentForm} name="role" label="Role">
 						{(field, meta) => (
-							<FormSelect field={field} {...meta}>
+							<FormSelect field={field} {...meta} items={ROLE_LABELS}>
 								<SelectItem value="operator">Operator</SelectItem>
 								<SelectItem value="observer">Observer</SelectItem>
 							</FormSelect>
@@ -363,10 +368,7 @@ export function AppTediAssignments({ appId }: { appId: string }) {
 										<TableCell>
 											<Select
 												value={assignment.role}
-												items={{
-													operator: "Operator",
-													observer: "Observer",
-												}}
+												items={ROLE_LABELS}
 												onValueChange={(role) =>
 													updateRole.mutate({
 														assignmentId: assignment.id,
