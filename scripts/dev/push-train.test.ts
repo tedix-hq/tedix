@@ -109,6 +109,21 @@ function amend(ticket: TrainTicket, file: string, content: string) {
 	ticket.lane = snapshotLane(ticket.lane.cwd, false)!;
 }
 
+function missingPreflightDependency(f: ReturnType<typeof fixture>) {
+	writeFileSync(
+		join(f.root, "preflight-gates.mjs"),
+		'import "./preflight-helper.mjs";',
+	);
+	writeFileSync(
+		join(f.root, "preflight-helper.mjs"),
+		'import "tedix-missing-preflight-test-dependency";',
+	);
+	writeFileSync(
+		join(f.common, "hooks/pre-push"),
+		`#!/bin/sh\n"${process.execPath}" "${join(f.root, "preflight-gates.mjs")}"\n`,
+	);
+}
+
 describe("push train with real repositories and hooks", () => {
 	describe("batched reference", () => {
 		let f: ReturnType<typeof fixture>;
@@ -372,6 +387,61 @@ describe("push train with real repositories and hooks", () => {
 		20000,
 	);
 });
+
+test("startup dependency crashes leave the single-lane retry budget available", () => {
+	const f = fixture(1);
+	const hook = join(f.common, "hooks/pre-push");
+	missingPreflightDependency(f);
+	const run = () =>
+		spawnSync(
+			process.execPath,
+			[resolve(import.meta.dirname, "push-queue.ts")],
+			{
+				cwd: f.tickets[0]!.lane.cwd,
+				env: {
+					...env,
+					TEDIX_PUSH_QUEUE_SNAPSHOT: "fixture",
+					TEDIX_DEVIN_HEADLESS: "1",
+					TEDIX_WORK_ID: "fixture-work",
+				},
+				encoding: "utf8",
+			},
+		);
+	for (let i = 0; i < 3; i++) {
+		const result = run();
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("Retry budget unchanged");
+	}
+	expect(existsSync(join(f.common, "push-queue-retries.jsonl"))).toBe(false);
+	writeFileSync(
+		hook,
+		"#!/bin/sh\necho 'pre-push: type-check (1/1)' >&2\necho '✗ type-check (1s)' >&2\nexit 1\n",
+	);
+	expect(run().stderr).toContain("rejected by a gate");
+	expect(run().stderr).toContain("rejected by a gate");
+	expect(run().stderr).toContain("retry budget exhausted");
+}, 20_000);
+
+test("startup dependency crashes do not charge train lanes or split the batch", () => {
+	const f = fixture(3);
+	missingPreflightDependency(f);
+	const failures: string[] = [];
+	expect(
+		runTrain(f.repo, f.common, f.tickets, {
+			onFailure: (cwd) => failures.push(cwd),
+			onPass: () => {
+				throw new Error("A startup crash cannot pass");
+			},
+		}),
+	).toBe(false);
+	expect(failures).toEqual([]);
+	for (const ticket of f.tickets) {
+		expect(readResult(ticket.result)).toMatchObject({ code: 1 });
+		expect(readResult(ticket.result)!.message).toContain(
+			"Retry budget unchanged",
+		);
+	}
+}, 20_000);
 
 test("conditional automated pushes refuse a moved main before running a gate", () => {
 	const f = fixture(1);

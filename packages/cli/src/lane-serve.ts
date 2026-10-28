@@ -1,5 +1,6 @@
 import type * as z from "zod";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import {
 	appendFileSync,
@@ -602,6 +603,15 @@ export async function landedLaneCommits(
 	);
 }
 
+export async function installLaneDependencies(repo: string) {
+	await promisify(execFile)("bun", ["install", "--frozen-lockfile"], {
+		cwd: repo,
+		env: laneChildEnv(),
+		timeout: 300_000,
+		maxBuffer: 10 * 1024 * 1024,
+	});
+}
+
 interface DispatcherDeps {
 	cli: typeof cli;
 	devinAvailable: typeof devinAvailable;
@@ -620,6 +630,7 @@ interface DispatcherDeps {
 	launch: typeof runLaneProcess;
 	darkWake: typeof inDarkWake;
 	provision: (source: string, destination: string) => string;
+	installDependencies: typeof installLaneDependencies;
 	baseCommit: (repo: string) => string;
 	landedCommits: typeof landedLaneCommits;
 	cleanup: (source: string, destination: string) => boolean;
@@ -675,6 +686,7 @@ const defaultDeps: DispatcherDeps = {
 		return run(["-C", source, "worktree", "remove", destination]).status === 0;
 	},
 	provision: provisionLaneWorktree,
+	installDependencies: installLaneDependencies,
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
 	landedCommits: landedLaneCommits,
 	recall: prefixLaneBrief,
@@ -1147,6 +1159,7 @@ export class LaneDispatcher {
 			receipt.baseCommit =
 				previousLane?.baseCommit ?? this.deps.baseCommit(repo);
 			receipt.expectsCode = item.workKind === "coding";
+			if (executor === "devin") await this.deps.installDependencies(repo);
 			const previousSession = previousLane?.session?.startsWith(`${executor}:`)
 				? previousLane.session.slice(executor.length + 1)
 				: undefined;

@@ -11,6 +11,7 @@ import {
 import { basename, join } from "node:path";
 import { detachedGitEnv } from "../oss/git-env";
 import { pushesToCanonicalRepo } from "../ci/push-range-selection.mjs";
+import { failedPushGate } from "./push-gate-failure";
 
 export type Lane = {
 	version: 1;
@@ -178,12 +179,8 @@ type Attempt = {
 	pushed: boolean;
 	accepted: { ticket: TrainTicket; sha: string }[];
 	skipped: Skip[];
-	gate?: string;
+	gate?: string | null;
 };
-
-const failedGate = (output: string) =>
-	[...output.matchAll(/^✗\s+(.+?)(?:\s+\([^\n]*\))?$/gm)].at(-1)?.[1]?.trim() ??
-	"pre-push gates";
 
 const REJECTED = "lane rejected by a gate or the remote; fix it and run again";
 const UNREACHABLE = "could not fetch or reset to origin/main; run again";
@@ -290,7 +287,7 @@ export function runTrain(
 		const attempt = (batch: TrainTicket[]): Attempt => {
 			let accepted: Attempt["accepted"] = [];
 			let skipped: Skip[] = [];
-			let gate: string | undefined;
+			let gate: string | null | undefined;
 			for (let retry = 0; retry <= 2; retry++) {
 				if (!git(integration, ["fetch", "--quiet", "origin", "main"]).ok) break;
 				const base = git(integration, ["rev-parse", "origin/main"]).out;
@@ -350,7 +347,7 @@ export function runTrain(
 					return { pushed: true, accepted, skipped };
 				}
 				rmSync(journal, { force: true });
-				gate = failedGate(`${push.out}\n${push.err}`);
+				gate = failedPushGate(`${push.out}\n${push.err}`);
 				if (
 					!git(integration, ["fetch", "--quiet", "origin", "main"]).ok ||
 					git(integration, ["rev-parse", "origin/main"]).out === base
@@ -371,6 +368,15 @@ export function runTrain(
 				return;
 			}
 			const rejected = outcome.accepted.map(({ ticket }) => ticket);
+			if (outcome.gate === null) {
+				for (const ticket of rejected)
+					complete(ticket, {
+						code: 1,
+						message:
+							"preflight dependencies missing; run bun install --frozen-lockfile and retry. Retry budget unchanged",
+					});
+				return;
+			}
 			if (rejected.length === 1) {
 				if (outcome.skipped.length === 0)
 					retryHooks?.onFailure(
@@ -392,7 +398,11 @@ export function runTrain(
 		for (const { ticket, reason } of deferred) {
 			const solo = attempt([ticket]);
 			if (solo.pushed) continue;
-			if (!solo.skipped.length && solo.accepted.length === 1)
+			if (
+				!solo.skipped.length &&
+				solo.accepted.length === 1 &&
+				solo.gate !== null
+			)
 				retryHooks?.onFailure(ticket.lane.cwd, solo.gate ?? "pre-push gates");
 			complete(ticket, {
 				code: 1,

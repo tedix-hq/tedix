@@ -20,6 +20,7 @@ import {
 	waitNote,
 } from "./push-queue";
 import { splitRejected, type Lane } from "./push-train";
+import { failedPushGate } from "./push-gate-failure";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "push-queue-"));
 const DEAD = 99999;
@@ -195,6 +196,24 @@ describe("wait estimate", () => {
 });
 
 describe("gate retry budget", () => {
+	test("excludes only missing-module preflight startup crashes", () => {
+		const crash =
+			"error: Cannot find package 'jsonc-parser' from '/repo/scripts/ci/preflight-gates.mjs'";
+		expect(failedPushGate(crash)).toBeNull();
+		expect(
+			failedPushGate(
+				"Error [ERR_MODULE_NOT_FOUND]: Cannot find module 'oxc-parser' imported from /repo/scripts/ci/preflight-gates.mjs",
+			),
+		).toBeNull();
+		expect(failedPushGate("pre-push: type-check (1/3)\n" + crash)).toBe(
+			"pre-push gates",
+		);
+		expect(failedPushGate("✗ type-check (1s)\n" + crash)).toBe("type-check");
+		expect(failedPushGate("remote: permission denied")).toBe("pre-push gates");
+		expect(failedPushGate("Cannot find module 'app-dependency'")).toBe(
+			"pre-push gates",
+		);
+	});
 	test("refuses a third failure, resets on pass, and leaves another lane alone", () => {
 		const file = join(tmp(), "retries.jsonl");
 		const now = Date.now();
