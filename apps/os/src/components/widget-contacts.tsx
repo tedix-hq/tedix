@@ -16,9 +16,11 @@ import {
 	CardTitle,
 	CardDescription,
 } from "@/components/kumo/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/kumo/empty";
 import { Input } from "@/components/kumo/input";
 import { SectionTitle } from "@/components/kumo/page";
-import { Text } from "@/components/kumo/text";
+import { Pagination } from "@/components/kumo/pagination";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { ListSkeleton } from "@/components/list-skeleton";
 import {
 	Dialog,
@@ -135,20 +137,15 @@ export function WidgetContacts({
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="grid gap-4">
-					<nav className="flex gap-2" aria-label="Customer directory">
-						<Button
-							variant={kind === "people" ? "default" : "secondary"}
-							onClick={() => changeKind("people")}
-						>
-							People
-						</Button>
-						<Button
-							variant={kind === "companies" ? "default" : "secondary"}
-							onClick={() => changeKind("companies")}
-						>
-							Companies
-						</Button>
-					</nav>
+					<SegmentedControl
+						ariaLabel="Customer directory"
+						value={kind}
+						onValueChange={changeKind}
+						options={[
+							{ value: "people", label: "People" },
+							{ value: "companies", label: "Companies" },
+						]}
+					/>
 					<Input
 						aria-label="Search customers"
 						placeholder={
@@ -315,32 +312,24 @@ export function WidgetContacts({
 								</Table>
 							)}
 							{(kind === "people" ? people.length : companies.length) === 0 && (
-								<Text as="p" role="label" tone="secondary" aria-live="polite">
-									No matching customers.
-								</Text>
+								<Empty appearance="quiet" aria-live="polite">
+									<EmptyHeader>
+										<EmptyTitle>No matching customers.</EmptyTitle>
+									</EmptyHeader>
+								</Empty>
 							)}
-							<nav
-								className="flex items-center gap-3"
-								aria-label="Customer pages"
+							<Pagination
+								page={offset / 50 + 1}
+								perPage={50}
+								totalCount={directory.data.total}
+								setPage={(page) => setOffset((page - 1) * 50)}
+								labels={{ navigation: "Customer pages" }}
 							>
-								<Button
-									variant="secondary"
-									disabled={offset === 0}
-									onClick={() => setOffset(Math.max(0, offset - 50))}
-								>
-									Previous
-								</Button>
-								<p>
-									{directory.data.total} {kind}
-								</p>
-								<Button
-									variant="secondary"
-									disabled={directory.data.nextOffset === null}
-									onClick={() => setOffset(directory.data.nextOffset ?? offset)}
-								>
-									Next
-								</Button>
-							</nav>
+								<Pagination.Info>
+									{({ totalCount }) => `${totalCount ?? 0} ${kind}`}
+								</Pagination.Info>
+								<Pagination.Controls controls="simple" />
+							</Pagination>
 						</>
 					)}
 				</CardContent>

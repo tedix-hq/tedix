@@ -25,8 +25,10 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/kumo/empty";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
+import { Pagination } from "@/components/kumo/pagination";
 import { Switch } from "@/components/kumo/switch";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
@@ -142,26 +144,21 @@ export function WidgetAccessSettings({
 				) : null;
 			})}
 			{companies.data.companies.length === 0 && (
-				<Text as="p" role="label" tone="secondary" aria-live="polite">
-					No matching companies.
-				</Text>
+				<Empty appearance="quiet" aria-live="polite">
+					<EmptyHeader>
+						<EmptyTitle>No matching companies.</EmptyTitle>
+					</EmptyHeader>
+				</Empty>
 			)}
-			<nav className="flex gap-2" aria-label="Audience company pages">
-				<Button
-					variant="secondary"
-					disabled={offset === 0}
-					onClick={() => setOffset(Math.max(0, offset - 50))}
-				>
-					Previous companies
-				</Button>
-				<Button
-					variant="secondary"
-					disabled={companies.data.nextOffset === null}
-					onClick={() => setOffset(companies.data.nextOffset ?? offset)}
-				>
-					Next companies
-				</Button>
-			</nav>
+			<Pagination
+				page={offset / 50 + 1}
+				perPage={50}
+				totalCount={companies.data.total}
+				setPage={(page) => setOffset((page - 1) * 50)}
+				labels={{ navigation: "Audience company pages" }}
+			>
+				<Pagination.Controls controls="simple" />
+			</Pagination>
 		</section>
 	);
 }

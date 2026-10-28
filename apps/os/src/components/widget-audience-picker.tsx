@@ -3,7 +3,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
 import { LoadError } from "@/components/kumo/alert";
 import { Combobox } from "@/components/kumo/combobox";
-import { Button } from "@/components/kumo/button";
+import { Pagination } from "@/components/kumo/pagination";
 export type AudiencePerson = { value: string; label: string };
 export function WidgetAudiencePicker({
 	label,
@@ -110,24 +110,16 @@ export function WidgetAudiencePicker({
 						)}
 					</Combobox.List>
 					{(offset > 0 || query.data?.nextOffset != null) && (
-						<nav className="flex gap-2 px-2 py-1" aria-label={`${label} pages`}>
-							<Button
-								size="sm"
-								variant="secondary"
-								disabled={offset === 0}
-								onClick={() => setOffset(Math.max(0, offset - 50))}
-							>
-								Previous people
-							</Button>
-							<Button
-								size="sm"
-								variant="secondary"
-								disabled={query.data?.nextOffset == null}
-								onClick={() => setOffset(query.data?.nextOffset ?? offset)}
-							>
-								Next people
-							</Button>
-						</nav>
+						<Pagination
+							className="px-2 py-1"
+							page={offset / 50 + 1}
+							perPage={50}
+							totalCount={query.data?.total ?? 0}
+							setPage={(page) => setOffset((page - 1) * 50)}
+							labels={{ navigation: `${label} pages` }}
+						>
+							<Pagination.Controls controls="simple" />
+						</Pagination>
 					)}
 				</Combobox.Content>
 			</Combobox>

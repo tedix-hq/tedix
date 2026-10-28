@@ -25,6 +25,7 @@ import {
 } from "@/lib/memory-browser";
 import { Button } from "./kumo/button";
 import { Input } from "./kumo/input";
+import { Pagination } from "./kumo/pagination";
 import {
 	Select,
 	SelectContent,
@@ -47,7 +48,7 @@ import {
 	TableRow,
 	TableCell,
 } from "./kumo/table";
-import { Tabs, TabsList, TabsTrigger } from "./kumo/tabs";
+import { KumoTabs } from "./kumo/tabs";
 import { Text } from "./kumo/text";
 import { LoadError } from "./kumo/alert";
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "./kumo/empty";
@@ -406,7 +407,9 @@ export function MemoryBrowser({
 						: `Search and sort the latest ${MEMORY_RECENT_LIMIT} records. Open a memory for full text and evidence.`;
 	return (
 		<section className="grid min-w-0 gap-4" aria-label="Memory browser">
-			<Tabs
+			<KumoTabs
+				aria-label="Memory sections"
+				variant="underline"
 				value={search.tab}
 				onValueChange={(tab) =>
 					change({
@@ -418,15 +421,11 @@ export function MemoryBrowser({
 						sort: "updated",
 					})
 				}
-			>
-				<TabsList variant="line" aria-label="Memory sections">
-					{MEMORY_TABS.map((tab) => (
-						<TabsTrigger key={tab.id} value={tab.id}>
-							{tab.label}
-						</TabsTrigger>
-					))}
-				</TabsList>
-			</Tabs>
+				tabs={MEMORY_TABS.map((tab) => ({
+					value: tab.id,
+					label: tab.label,
+				}))}
+			/>
 			{search.tab === "health" ? (
 				<MemoryHealthFindingsSection />
 			) : (
@@ -612,28 +611,22 @@ export function MemoryBrowser({
 							</TableBody>
 						</Table>
 					)}
-					<div className="flex flex-wrap items-center justify-between gap-2">
-						<Text role="caption" tone="secondary" aria-live="polite">
-							Page {search.page + 1} · {pageRows.length} memories
-							{factView ? "" : ` of ${filtered.length} in this recent window`}
-						</Text>
-						<div className="flex gap-2">
-							<Button
-								variant="outline"
-								disabled={search.page === 0}
-								onClick={() => onSearch({ page: search.page - 1, detail: "" })}
-							>
-								Previous
-							</Button>
-							<Button
-								variant="outline"
-								disabled={!hasNext || activeQuery.isFetching}
-								onClick={() => onSearch({ page: search.page + 1, detail: "" })}
-							>
-								Next
-							</Button>
-						</div>
-					</div>
+					<Pagination
+						className="flex-wrap items-center justify-between gap-2"
+						page={search.page + 1}
+						perPage={MEMORY_PAGE_SIZE}
+						totalCount={factView ? undefined : filtered.length}
+						hasNextPage={hasNext && !activeQuery.isFetching}
+						setPage={(page) => onSearch({ page: page - 1, detail: "" })}
+						labels={{ navigation: "Memory pages" }}
+					>
+						<Pagination.Info>
+							{() =>
+								`Page ${search.page + 1} · ${pageRows.length} memories${factView ? "" : ` of ${filtered.length} in this recent window`}`
+							}
+						</Pagination.Info>
+						<Pagination.Controls controls="simple" />
+					</Pagination>
 					<Sheet
 						open={selected !== null}
 						onOpenChange={(open) => {

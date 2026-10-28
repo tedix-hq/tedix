@@ -371,24 +371,24 @@ try {
 							await geometry(page, receipt, viewport.width < 600);
 							assert(
 								await memory(page)
-									.getByRole("button", { name: "Previous", exact: true })
+									.getByRole("button", { name: "Previous page", exact: true })
 									.isDisabled(),
 							);
 							await memory(page)
-								.getByRole("button", { name: "Next", exact: true })
+								.getByRole("button", { name: "Next page", exact: true })
 								.click();
 							await pageCount(page, 2, 20);
 							await memory(page)
-								.getByRole("button", { name: "Next", exact: true })
+								.getByRole("button", { name: "Next page", exact: true })
 								.click();
 							await pageCount(page, 3, 3);
 							assert(
 								await memory(page)
-									.getByRole("button", { name: "Next", exact: true })
+									.getByRole("button", { name: "Next page", exact: true })
 									.isDisabled(),
 							);
 							await memory(page)
-								.getByRole("button", { name: "Previous", exact: true })
+								.getByRole("button", { name: "Previous page", exact: true })
 								.click();
 							await pageCount(page, 2, 20);
 							await memory(page)
@@ -457,12 +457,12 @@ try {
 							assert.equal(params.get("confidence") ?? "all", "all");
 							assert.equal(params.get("sort") ?? "updated", "updated");
 							await memory(page)
-								.getByRole("button", { name: "Next", exact: true })
+								.getByRole("button", { name: "Next page", exact: true })
 								.click();
 							await pageCount(page, 2, 3);
 							assert(
 								await memory(page)
-									.getByRole("button", { name: "Next", exact: true })
+									.getByRole("button", { name: "Next page", exact: true })
 									.isDisabled(),
 							);
 							await memory(page)

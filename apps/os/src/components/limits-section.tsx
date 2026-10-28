@@ -1,6 +1,7 @@
 import type { ComputePosture } from "@tedix/api-contract/contracts/os-compute";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
+import { Empty } from "@/components/kumo/empty";
 import { Meter } from "@/components/kumo/meter";
 import {
 	Collection,
@@ -194,12 +195,11 @@ export function LimitsSection({ posture }: { posture: ComputePosture }) {
 				</SectionHeading>
 			</SectionHeader>
 			{rows.length === 0 ? (
-				<Alert>
-					<AlertTitle>No limits are readable here</AlertTitle>
-					<AlertDescription>
-						No plan allowance or daily limit is configured for this workspace.
-					</AlertDescription>
-				</Alert>
+				<Empty
+					appearance="quiet"
+					title="No limits are readable here"
+					description="No plan allowance or daily limit is configured for this workspace."
+				/>
 			) : (
 				<Collection aria-label="Limits" className="[&>li]:min-w-0">
 					{rows.map((row) => (
