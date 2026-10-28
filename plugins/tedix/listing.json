@@ -1,11 +1,11 @@
 {
 	"displayName": "Tedix",
-	"shortDescription": "Agents, apps, and work",
-	"longDescription": "Tedix is a platform for agents, apps, and work. It gives your team and AI agents a shared place for project information, tasks, apps, and results.\n\nExplain your project's setup and guidelines once, see who is doing what, keep investigation notes and test results together, and review requests for your approval.\n\nConnect the AI assistant you already use to find shared tasks, review progress, and pick up results. With the permissions you grant, ask a Tedix agent for help and save results for your team.\n\nYou choose what agents can access and which actions need approval. A task marked complete does not prove that its result is correct.",
+	"shortDescription": "Shared work across assistants",
+	"longDescription": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use. Find shared tasks, review progress and evidence, and read results in your Tedix organization. With the permissions you grant, ask a tedi for help and save results for your team.",
 	"defaultPrompt": [
-		"Find the shared tasks for my current project.",
-		"Show me what needs my approval.",
-		"Summarize the latest results in my Tedix workspace."
+		"Find the Work Item for my current task.",
+		"Summarize the status and evidence for a Work Item.",
+		"Read the latest output in my Tedix workspace."
 	],
 	"developerName": "Tedix",
 	"category": "Productivity",

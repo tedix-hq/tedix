@@ -1,22 +1,11 @@
 # Tedix plugin
 
-**A platform for agents, apps, and work.**
-
-Tedix gives your team and AI agents a shared place for project information,
-tasks, apps, and results. The plugin connects the AI assistant you already use
-to that shared work.
-
-- **Explain things once.** Save your project's setup, coding guidelines,
-  and past decisions for agents to use in later tasks.
-- **See who is doing what.** People and agents share a list of tasks, with an
-  owner, progress, and results for each one.
-- **Keep the result useful.** Keep investigation notes, test results, release
-  plans, and apps together in a workspace where your team can find them.
-- **Know when you are needed.** Review requests for your approval in one place
-  and check other updates when it suits you.
-
-You choose what agents can access and which actions need approval. Sign in
-to your Tedix organization to use the plugin with the permissions you grant.
+Add Tedix to the AI assistant you already use. Once you sign in, Claude,
+Codex, ChatGPT, Devin or OpenCode can see the work your team has handed off, pick
+up your company's context and preferences, hand a task to a tedi, and save
+results where your colleagues can find them. Installing the plugin gives the
+assistant a connection, not power: it can only do what you allow after you
+sign in.
 
 You need Tedix Cloud access, which is an invited beta. The five-minute
 walkthrough for people is
