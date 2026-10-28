@@ -239,6 +239,53 @@ describe("owner gateway approvals", () => {
 			} as BaseContext,
 		});
 	}
+	it("parks a target admin request and links to the target OS", async () => {
+		mocks.member.mockImplementation(async (_db, orgId) =>
+			orgId === "target" ? { role: "admin", status: "active" } : undefined,
+		);
+		mocks.organization.mockResolvedValue({ slug: "target" });
+		const result = await headerOnlyClient("target").requestOwnerToolApproval({
+			...input,
+			organizationId: "target",
+			appSlug: "connect",
+		});
+		expect(result).toMatchObject({ approved: false, status: "pending" });
+		expect(new URL(result.url).hostname).toBe("target.os.tedix.dev");
+		expect(mocks.member).toHaveBeenCalledWith(
+			expect.anything(),
+			"target",
+			input.userId,
+		);
+		expect(mocks.organization).toHaveBeenCalledWith(
+			expect.anything(),
+			"target",
+		);
+		expect(mocks.create.mock.calls[0]![1].orgId).toBe("target");
+	});
+	it.each([
+		["target non-admin", { role: "member", status: "active" }],
+		["hosting-only admin", undefined],
+		["inactive target admin", { role: "admin", status: "suspended" }],
+	])(
+		"refuses a %s even with an active hosting admin membership",
+		async (_label, targetMember) => {
+			mocks.member.mockImplementation(async (_db, orgId) =>
+				orgId === "target" ? targetMember : { role: "admin", status: "active" },
+			);
+			await expect(
+				headerOnlyClient("target").requestOwnerToolApproval({
+					...input,
+					organizationId: "target",
+				}),
+			).rejects.toThrow(/owner or admin/);
+			expect(mocks.member).toHaveBeenCalledWith(
+				expect.anything(),
+				"target",
+				input.userId,
+			);
+			expect(mocks.create).not.toHaveBeenCalled();
+		},
+	);
 	it("takes the gateway organization from the service-binding header", async () => {
 		await expect(
 			headerOnlyClient("org-1").requestOwnerToolApproval(input),
