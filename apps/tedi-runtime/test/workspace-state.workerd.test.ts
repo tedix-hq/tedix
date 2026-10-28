@@ -10,6 +10,15 @@ const bindings = env as unknown as {
 	TEDI_COMPUTER_WORKSPACE: DurableObjectNamespace<TediComputerWorkspaceDO>;
 };
 
+// Keep the first Worker fixture load outside each behavior deadline.
+await bindings.TEDI_COMPUTER_WORKSPACE.getByName(
+	`state-startup-${crypto.randomUUID()}`,
+).initialize({
+	ownerId: "owner-test",
+	tediId: "tedi-test",
+	scope: "state-startup",
+});
+
 async function open() {
 	const stub = bindings.TEDI_COMPUTER_WORKSPACE.getByName(crypto.randomUUID());
 	await stub.initialize({

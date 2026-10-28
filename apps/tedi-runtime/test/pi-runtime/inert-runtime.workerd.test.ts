@@ -43,7 +43,7 @@ function seal(state: DurableObjectState) {
 	);
 }
 
-async function productionClasses() {
+const productionClasses = await (async () => {
 	const parentPath = "../../src/do";
 	const facetPath = "../../src/conversation-facet";
 	const { AgentTediDO } = (await import(/* @vite-ignore */ parentPath)) as {
@@ -58,10 +58,10 @@ async function productionClasses() {
 		) => object;
 	};
 	return [AgentTediDO, ConversationFacet] as const;
-}
+})();
 
 async function expectInert(state: DurableObjectState) {
-	for (const Production of await productionClasses()) {
+	for (const Production of productionClasses) {
 		const receiver = new Production(state, env as Cloudflare.Env);
 		expect(receiver).toBeInstanceOf(InertRuntimeDO);
 		const inert = receiver as InertRuntimeDO;
