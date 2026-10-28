@@ -9,6 +9,14 @@ import type { PiStorageFixture } from "./storage-fixture";
 const RESET = "Durable Object reset because its code was updated.";
 const RUN = "budget-reset-run";
 const context = { messages: [{ role: "user", content: "budget integration" }] };
+const limits = {
+	dailyMessageLimit: 10,
+	dailyTokenLimit: 1000,
+	operatorMessageReserve: 0,
+	operatorTokenReserve: 0,
+	governedLearningMessageReserve: 0,
+	governedLearningTokenReserve: 0,
+};
 const completed = {
 	usage: { inputTokens: 60, outputTokens: 40, totalTokens: 100 },
 	toolCalls: [],
@@ -65,6 +73,20 @@ const { ConversationFacet } = (await import(
 	/* @vite-ignore */ facetModulePath
 )) as {
 	ConversationFacet: { prototype: Harness };
+};
+const parentModulePath = "../../src/do";
+const { AgentTediDO } = (await import(/* @vite-ignore */ parentModulePath)) as {
+	AgentTediDO: {
+		prototype: {
+			checkFacetTurnBudget(
+				this: {
+					getInferenceBudgetStore(): DoInferenceBudgetStore;
+					inferenceBudgetLimits(): typeof limits;
+				},
+				input: BudgetInput,
+			): Promise<Verdict>;
+		};
+	};
 };
 
 // Invoke production methods without constructing a live Agent or its bindings.
@@ -381,31 +403,7 @@ describe("production ConversationFacet budget stop integration", () => {
 					return state.storage.sql.exec(query, ...values).toArray() as T[];
 				},
 			});
-			const limits = {
-				dailyMessageLimit: 10,
-				dailyTokenLimit: 1000,
-				operatorMessageReserve: 0,
-				operatorTokenReserve: 0,
-				governedLearningMessageReserve: 0,
-				governedLearningTokenReserve: 0,
-			};
 			store.admit(RUN, limits, 20);
-			const parentModulePath = "../../src/do";
-			const { AgentTediDO } = (await import(
-				/* @vite-ignore */ parentModulePath
-			)) as {
-				AgentTediDO: {
-					prototype: {
-						checkFacetTurnBudget(
-							this: {
-								getInferenceBudgetStore(): DoInferenceBudgetStore;
-								inferenceBudgetLimits(): typeof limits;
-							},
-							input: BudgetInput,
-						): Promise<Verdict>;
-					};
-				};
-			};
 			const parent = Object.assign(Object.create(AgentTediDO.prototype), {
 				getInferenceBudgetStore: () => store,
 				inferenceBudgetLimits: () => limits,
