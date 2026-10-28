@@ -13,6 +13,7 @@ import { WORKFLOW_SYNTH_SESSION_PREFIX } from "@tedix/api-contract/utils/runtime
 import type { CapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import type { McpBridgeProps } from "./mcp-bridge";
 import * as z from "zod";
+import { extractPendingTediTaskId } from "./mcp-bridge-utils";
 import type { WorkflowMcpCallContext } from "./workflow-identity";
 
 /** The lean synthesis turn is reached through the same tool as the judge. */
@@ -51,7 +52,7 @@ export const REASON_MAX_CALLS_CEILING = 64;
 /** Default when a manifest enables reasoning without naming a budget. */
 export const REASON_DEFAULT_MAX_CALLS = 8;
 
-/** Ephemeral turns have no task projection; redelivery reads their exact settled receipt. */
+/** Redelivery must reuse the session and client_request_id to read the same turn. */
 export async function awaitReasonTurn(
 	sessionKey: string,
 	dispatch: () => Promise<unknown>,
@@ -62,8 +63,11 @@ export async function awaitReasonTurn(
 			new Promise<void>((resolve) => setTimeout(resolve, ms)),
 	} = {},
 ): Promise<unknown> {
-	const deadline = now() + timeoutMs;
+	// The first bridge dispatch can itself take 180 seconds. Budget recovery
+	// from its first pending receipt, without resetting on later receipts.
+	let deadline: number | undefined;
 	let runId: string | undefined;
+	let taskId: string | undefined;
 	while (true) {
 		const response = await dispatch();
 		const envelope = response as {
@@ -74,21 +78,32 @@ export async function awaitReasonTurn(
 			envelope?.__tedixMcpResult === true ? envelope.value : response;
 		const payload = (result ?? {}) as Record<string, unknown>;
 		const receipt = (payload.result ?? payload) as Record<string, unknown>;
+		const pendingTaskId = extractPendingTediTaskId(receipt);
+		const taskOnly =
+			pendingTaskId !== null &&
+			receipt.run_id === undefined &&
+			receipt.session_key === undefined;
+		if (taskId && pendingTaskId && pendingTaskId !== taskId)
+			throw new Error("REASON_TURN_IDENTITY_CHANGED");
 		if (
 			runId &&
+			!taskOnly &&
 			(receipt.run_id !== runId || receipt.session_key !== sessionKey)
 		)
 			throw new Error("REASON_TURN_IDENTITY_CHANGED");
 		if (receipt.pending !== true) return result;
 		if (
 			receipt.ok !== true ||
-			receipt.session_key !== sessionKey ||
-			typeof receipt.run_id !== "string" ||
-			!receipt.run_id ||
+			(!taskOnly &&
+				(receipt.session_key !== sessionKey ||
+					typeof receipt.run_id !== "string" ||
+					!receipt.run_id)) ||
 			receipt.assistant !== null
 		)
 			throw new Error("REASON_PENDING_RECEIPT_INVALID");
-		runId = receipt.run_id;
+		if (!taskOnly) runId = receipt.run_id as string;
+		if (pendingTaskId) taskId = pendingTaskId;
+		deadline ??= now() + timeoutMs;
 		const remaining = deadline - now();
 		if (remaining <= 0) throw new Error("REASON_TURN_TIMEOUT");
 		await sleep(Math.min(2_500, remaining));
