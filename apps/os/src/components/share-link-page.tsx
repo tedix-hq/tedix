@@ -5,6 +5,7 @@ import {
 	GuestAppScreen,
 	type GuestPageState,
 	type GuestShare,
+	guestCopy,
 	openGuestApp,
 } from "@/components/guest-app-page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -221,30 +222,34 @@ export function ShareLinkPage({ id }: { id: string }) {
 		};
 	}, [id]);
 
-	if (state.status === "loading")
-		return (
-			<main
-				className="mx-auto grid min-h-dvh w-full max-w-5xl place-items-center p-4"
-				aria-busy
-			>
-				<Text as="p" role="body" tone="secondary" className="m-0">
-					Opening link…
-				</Text>
-			</main>
-		);
-	if (state.status === "unavailable")
+	// Before the link opens, the organization is unknown: the guest's own
+	// browser language picks the words.
+	if (state.status === "loading" || state.status === "unavailable") {
+		const { t } = guestCopy();
+		if (state.status === "loading")
+			return (
+				<main
+					className="mx-auto grid min-h-dvh w-full max-w-5xl place-items-center p-4"
+					aria-busy
+				>
+					<Text as="p" role="body" tone="secondary" className="m-0">
+						{t("share_opening_link")}
+					</Text>
+				</main>
+			);
 		return (
 			<main className="mx-auto grid min-h-dvh w-full max-w-xl place-items-center p-4">
 				<Alert variant="destructive" data-share-unavailable>
-					<AlertTitle>This link isn't available</AlertTitle>
+					<AlertTitle>{t("share_link_unavailable")}</AlertTitle>
 					<AlertDescription>
 						{state.signedIn
-							? "Your account doesn't have access. Ask the person who sent it to invite you."
-							: "It may have been turned off or expired, or it belongs to another organization."}
+							? t("share_no_access_hint")
+							: t("share_link_unavailable_hint")}
 					</AlertDescription>
 				</Alert>
 			</main>
 		);
+	}
 	if (state.status === "guest")
 		return (
 			<GuestAppScreen

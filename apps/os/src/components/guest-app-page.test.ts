@@ -42,4 +42,19 @@ describe("guestCopy", () => {
 		expect(t("share_no_sign_in")).toBe("Ohne Konto");
 		expect(t("share_opening_app")).toBe(de.share_opening_app);
 	});
+
+	it("names who shared the link in the guest's language", () => {
+		vi.stubGlobal("navigator", { language: "de-DE" });
+		const { t } = guestCopy(null);
+		expect(t("share_shared_by", { name: "Aaron" })).toBe("Geteilt von Aaron");
+		expect(t("share_shared_by", { name: t("share_someone") })).toBe(
+			"Geteilt von jemandem",
+		);
+	});
+
+	it("covers every share_ key in every catalog", () => {
+		const keys = Object.keys(en).filter((key) => key.startsWith("share_"));
+		for (const catalog of Object.values(WIDGET_CATALOGS))
+			for (const key of keys) expect(catalog).toHaveProperty(key);
+	});
 });

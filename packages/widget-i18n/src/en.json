@@ -109,5 +109,10 @@
 	"share_guest_name_hint": "Your name is saved with your feedback. No account is needed.",
 	"share_guest_continue": "Open app",
 	"share_no_sign_in": "Shared with you · no sign-in needed",
-	"share_opening_app": "Opening the app…"
+	"share_opening_app": "Opening the app…",
+	"share_back": "Back to {{name}}",
+	"share_no_access_hint": "Your account doesn't have access. Ask the person who sent it to invite you.",
+	"share_opening_link": "Opening link…",
+	"share_shared_by": "Shared by {{name}}",
+	"share_someone": "someone"
 }

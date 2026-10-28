@@ -28,7 +28,6 @@ import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
 import { ShareControls } from "@/components/share-controls";
 import { followDeviceTheme } from "@/lib/theme";
-import { absoluteTime } from "@/lib/time";
 import { adoptShareLinkAddress } from "@/lib/share-link-session";
 import { OrganizationMark } from "@/shared/organization-mark";
 
@@ -182,6 +181,19 @@ export function guestCopy(organization?: Redeemed["organization"]): {
 	};
 }
 
+/** The link's date in the guest's language, e.g. "27. Okt. 2026". */
+function sharedOn(iso: string, locale: string): string {
+	const date = new Date(iso);
+	if (Number.isNaN(date.getTime())) return iso;
+	try {
+		return date.toLocaleDateString(locale, { dateStyle: "medium" });
+	} catch {
+		return date.toLocaleDateString(WIDGET_SOURCE_LOCALE, {
+			dateStyle: "medium",
+		});
+	}
+}
+
 export function GuestAppPage() {
 	const [state, setState] = useState<PageState>({ status: "loading" });
 	// One redemption survives StrictMode's effect replay: the first run strips
@@ -330,7 +342,7 @@ export function GuestAppScreen({
 				}}
 			/>
 		);
-	return <GuestApp state={state} t={t} back={back} />;
+	return <GuestApp state={state} t={t} locale={locale} back={back} />;
 }
 
 function GuestName({
@@ -386,10 +398,12 @@ function GuestName({
 function GuestApp({
 	state,
 	t,
+	locale,
 	back,
 }: {
 	state: Extract<PageState, { status: "ready" }>;
 	t: Translate;
+	locale: string;
 	back?: { label: string; onBack: () => void };
 }) {
 	// A workspace link names the app on every call; an app link names its own.
@@ -486,7 +500,7 @@ function GuestApp({
 						<Button
 							variant="ghost"
 							size="icon-sm"
-							aria-label={`Back to ${back.label}`}
+							aria-label={t("share_back", { name: back.label })}
 							onClick={back.onBack}
 							data-guest-back
 						>
@@ -515,9 +529,11 @@ function GuestApp({
 						className="m-0 shrink-0 max-sm:hidden"
 						data-shared-by
 					>
-						Shared by {share.share.sharedByName ?? "someone"}
+						{t("share_shared_by", {
+							name: share.share.sharedByName ?? t("share_someone"),
+						})}
 						{share.share.createdAt
-							? ` · ${absoluteTime(share.share.createdAt)}`
+							? ` · ${sharedOn(share.share.createdAt, locale)}`
 							: ""}
 					</Text>
 					<div
