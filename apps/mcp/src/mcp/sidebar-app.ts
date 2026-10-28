@@ -8,6 +8,8 @@ export function sidebarAppConfig(
 	return parsed.success ? parsed.data : null;
 }
 
+export const SIDEBAR_APP_ROUTE = "/r/sidebar-app";
+
 export const SIDEBAR_APP_WIDGET_DESCRIPTION =
 	"Tedix workspace: your organizations, decisions waiting for you and recent activity.";
 
@@ -18,7 +20,7 @@ export function sidebarAppToolMeta(
 	if (!sidebarAppConfig(config)) return {};
 	return {
 		ui: {
-			resourceUri: `ui://widgets/mcp-app/${slug}/r/sidebar-app.html`,
+			resourceUri: `ui://widgets/mcp-app/${slug}${SIDEBAR_APP_ROUTE}.html`,
 			visibility: ["model", "app"],
 		},
 		"openai/ui": { entrypoints: [{ type: "global" }] },

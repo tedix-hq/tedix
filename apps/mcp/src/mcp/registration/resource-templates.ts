@@ -39,6 +39,10 @@ import {
 	buildResourceUris,
 } from "../utils/register-widget";
 import { isWidgetAppSlug, resolveWidgetAppSlug } from "../utils/widget-app";
+import {
+	SIDEBAR_APP_ROUTE,
+	SIDEBAR_APP_WIDGET_DESCRIPTION,
+} from "../sidebar-app";
 
 function trackResourceRead(
 	agent: ServerContext,
@@ -889,7 +893,14 @@ export function registerResourceTemplates(agent: ServerContext): void {
 							matchingTool ?? null,
 							csp,
 							widgetDomain,
-							{ prefersBorder: false },
+							{
+								prefersBorder: false,
+								// Connect advertises the sidebar under its own slug, which reaches
+								// this template rather than the bootstrap resource.
+								...(!matchingTool && route === SIDEBAR_APP_ROUTE
+									? { description: SIDEBAR_APP_WIDGET_DESCRIPTION }
+									: {}),
+							},
 						),
 					},
 				],
