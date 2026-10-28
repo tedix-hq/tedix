@@ -174,6 +174,11 @@ try {
 		await main.getByText("Kann nutzen", { exact: true }).waitFor();
 		assert.equal(await page.locator("html").getAttribute("lang"), "de-DE");
 		await page.screenshot({ path: `${evidence}/375-de.png` });
+		// Wider screens add who shared the link, also in German.
+		await page.setViewportSize({ width: 1280, height: 800 });
+		const sharedBy = await main.locator("[data-shared-by]").textContent();
+		assert.match(sharedBy ?? "", /^Geteilt von /);
+		await page.screenshot({ path: `${evidence}/1280-de.png` });
 		await context.close();
 	}
 

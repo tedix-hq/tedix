@@ -109,5 +109,10 @@
 	"share_guest_name_hint": "Ihr Name wird mit Ihrem Feedback gespeichert. Sie brauchen kein Konto.",
 	"share_guest_continue": "App öffnen",
 	"share_no_sign_in": "Mit Ihnen geteilt · keine Anmeldung nötig",
-	"share_opening_app": "App wird geöffnet…"
+	"share_opening_app": "App wird geöffnet…",
+	"share_back": "Zurück zu {{name}}",
+	"share_no_access_hint": "Ihr Konto hat keinen Zugriff. Bitten Sie die Person, die den Link gesendet hat, Sie einzuladen.",
+	"share_opening_link": "Link wird geöffnet…",
+	"share_shared_by": "Geteilt von {{name}}",
+	"share_someone": "jemandem"
 }

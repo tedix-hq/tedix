@@ -109,5 +109,10 @@
 	"share_guest_name_hint": "Tu nombre se guarda con tus comentarios. No necesitas una cuenta.",
 	"share_guest_continue": "Abrir app",
 	"share_no_sign_in": "Compartido contigo · sin iniciar sesión",
-	"share_opening_app": "Abriendo la app…"
+	"share_opening_app": "Abriendo la app…",
+	"share_back": "Volver a {{name}}",
+	"share_no_access_hint": "Tu cuenta no tiene acceso. Pide a quien te lo envió que te invite.",
+	"share_opening_link": "Abriendo el enlace…",
+	"share_shared_by": "Compartido por {{name}}",
+	"share_someone": "alguien"
 }
