@@ -11,6 +11,48 @@ import {
 const policy = { version: 1 as const, maxRisk: "medium" as const };
 describe("critical-only autonomy v1", () => {
 	it.each([
+		"List API keys",
+		"list_api_keys",
+		"listApiKeys",
+		"provider:list_api_keys",
+		"provider.list_api_keys",
+		"Read API key metadata only.",
+		"get_credential_metadata",
+		"List access token metadata",
+	])("allows credential metadata reads: %s", (content) => {
+		expect(humanReservedActionClasses(content)).toEqual([]);
+		for (const risk of ["low", "medium"] as const)
+			expect(
+				decideAutonomousAction({ policy, risk, content }).autoApprove,
+			).toBe(true);
+	});
+	it.each([
+		"Create API key",
+		"reveal_api_key",
+		"rotateApiKey",
+		"delete_api_key",
+		"Read API keys",
+		"Get credentials",
+		"List secrets",
+		"List API key values",
+		"List API keys including values",
+		"list_api_keys_with_secrets",
+		"List API keys and reveal them",
+		"List API keys; rotate the key",
+		"List API keys\nCreate another key",
+		"Read API key metadata and the secret value",
+		"Read credential metadata from /workspace/.env",
+		"provider:reveal_api_key",
+	])(
+		"keeps credential effects and ambiguous reads human-reserved: %s",
+		(content) => {
+			expect(humanReservedActionClasses(content)).toContain("credentials");
+			expect(
+				decideAutonomousAction({ policy, risk: "low", content }).autoApprove,
+			).toBe(false);
+		},
+	);
+	it.each([
 		"/workspace/.env",
 		"/workspace/.env.production",
 		"/workspace/.dev.vars",

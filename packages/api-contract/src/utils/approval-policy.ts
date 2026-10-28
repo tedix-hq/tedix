@@ -101,6 +101,11 @@ const neutralPhrasePatterns = criticalActions.neutralPhrases.map(
 	(pattern) => new RegExp(pattern, "gi"),
 );
 
+// Match the whole read, so a request to include values or perform another
+// action cannot borrow the metadata exception. Credential files stay gated.
+const credentialMetadataReadPattern =
+	/^\s*(?:[\w-]+[.:])?(?:list[ -]+api[ -]+keys|(?:list|read|get|describe)[ -]+(?:api[ -]+keys?|credentials?|access[ -]+tokens?)[ -]+metadata)(?:[ -]+only)?\s*[.!]?\s*$/i;
+
 // "do not finalize, send or book" negates every verb in the list, not only
 // the first one; a non-verb word ends the list ("never delete anything or pay").
 const negatedVerbs = criticalActions.negatedVerbs.join("|");
@@ -394,10 +399,15 @@ export function humanReservedActionClasses(content: string): string[] {
 		)
 		.replace(/[_:.]/g, " ");
 	const draftOnly = draftOnlyPattern.test(normalized);
+	const credentialMetadataRead = credentialMetadataReadPattern.test(
+		actionable.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " "),
+	);
 	return criticalActionRules
 		.filter(
 			(rule) =>
-				rule.pattern.test(normalized) || rule.filePattern?.test(actionable),
+				(rule.pattern.test(normalized) &&
+					!(rule.id === "credentials" && credentialMetadataRead)) ||
+				rule.filePattern?.test(actionable),
 		)
 		.map((rule) => rule.id)
 		.filter((id) => !(draftOnly && draftOnlyWaivedClasses.has(id)));
