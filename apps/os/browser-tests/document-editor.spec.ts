@@ -35,6 +35,12 @@ const noSidewaysScroll = (page: Page) =>
 		page: document.documentElement.scrollWidth,
 	}));
 
+// 1x1 PNG standing in for an uploaded screenshot.
+const UPLOAD_PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+	"base64",
+);
+
 try {
 	browser = await chromium.launch({ headless: true });
 	for (const viewport of [
@@ -196,8 +202,58 @@ try {
 			);
 			await page.screenshot({ path: `${evidence}/empty-edit-${name}.png` });
 
+			// --- File-backed document ------------------------------------
+			// An uploaded file with no written text still owns the view: the
+			// preview renders and the empty-document prompt stays away.
+			await page.route(
+				"**/api/rpc/osWorkspaces/resources/getFile*",
+				async (route) => {
+					await route.fulfill({
+						contentType: "application/json",
+						body: JSON.stringify({
+							json: {
+								filename: "fictional-uploaded-screenshot.png",
+								mimeType: "image/png",
+								size: 4321,
+								resourceId: "00000002-0000-4000-8000-000000000002",
+								url: "/media/uploaded-screenshot.png",
+								expiresAt: "2026-10-22T13:00:00.000Z",
+							},
+						}),
+					});
+				},
+			);
+			await page.route("**/media/uploaded-screenshot.png", async (route) => {
+				await route.fulfill({ contentType: "image/png", body: UPLOAD_PNG });
+			});
+			await open(page, `theme=${theme}&view=read&empty=1&file=1`, (p) =>
+				p.locator('img[alt="fictional-uploaded-screenshot.png"]').waitFor(),
+			);
+			await page
+				.locator('img[alt="fictional-uploaded-screenshot.png"]')
+				.evaluate(async (element) => {
+					await (element as HTMLImageElement).decode();
+				});
+			assert.equal(
+				await page.getByText("This document is empty").count(),
+				0,
+				`${name}: file-backed document called empty`,
+			);
+			assert.equal(
+				await page.getByRole("button", { name: "Start writing" }).count(),
+				0,
+				`${name}: file-backed document offers Start writing`,
+			);
+			const fileScroll = await noSidewaysScroll(page);
+			assert.ok(
+				fileScroll.page <= fileScroll.viewport,
+				`${name}: file view scrolls sideways ${JSON.stringify(fileScroll)}`,
+			);
+			await page.screenshot({ path: `${evidence}/file-read-${name}.png` });
+			await page.unrouteAll({ behavior: "ignoreErrors" });
+
 			assert.deepEqual(errors, [], `${name}: page errors`);
-			receipts.push({ name, editGeometry, editScroll, readScroll });
+			receipts.push({ name, editGeometry, editScroll, readScroll, fileScroll });
 			await page.close();
 		}
 	}
