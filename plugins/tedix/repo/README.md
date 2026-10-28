@@ -1,22 +1,11 @@
 # Tedix plugins
 
-**A platform for agents, apps, and work.**
+Connect Claude Code, Codex, and other AI assistants to Tedix for shared tasks,
+project knowledge, decisions, and results. Bring your team's working
+instructions into the assistant you already use.
 
-Tedix gives your team and AI agents a shared place for project information,
-tasks, apps, and results. The plugin connects the AI assistant you already use
-to that shared work.
-
-- **Explain things once.** Save your project's setup, coding guidelines,
-  and past decisions for agents to use in later tasks.
-- **See who is doing what.** People and agents share a list of tasks, with an
-  owner, progress, and results for each one.
-- **Keep the result useful.** Keep investigation notes, test results, release
-  plans, and apps together in a workspace where your team can find them.
-- **Know when you are needed.** Review requests for your approval in one place
-  and check other updates when it suits you.
-
-You choose what agents can access and which actions need approval. Sign in
-to your Tedix organization to use the plugin with the permissions you grant.
+Tedix is a platform for agents, apps, and work. The plugin connects your
+assistant to your Tedix organization through Tedix Connect, its MCP server.
 
 > Generated from [`plugins/tedix`](https://github.com/tedix-hq/tedix/tree/main/plugins/tedix)
 > in [tedix-hq/tedix](https://github.com/tedix-hq/tedix). Edit there; this

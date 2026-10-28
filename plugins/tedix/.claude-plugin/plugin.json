@@ -1,7 +1,7 @@
 {
 	"name": "tedix",
-	"version": "0.2.11",
-	"description": "Tedix is a platform for agents, apps, and work. Give your team and AI agents a shared place for project information, tasks, apps, and results.",
+	"version": "0.2.10",
+	"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use.",
 	"author": {
 		"name": "Tedix",
 		"url": "https://tedix.dev"
