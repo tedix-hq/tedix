@@ -117,7 +117,7 @@ try {
 
 			// An unknown link explains itself and shows nothing.
 			await page.goto(`${server.origin}/s/UnknownLinkUnknownLink`);
-			await page.getByText("This link isn't available").waitFor();
+			await page.getByText("This link no longer opens anything").waitFor();
 			assert.equal(await page.locator("iframe").count(), 0);
 			await fits(page, `${label} unavailable`);
 			await page.screenshot({
