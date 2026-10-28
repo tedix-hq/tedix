@@ -178,7 +178,7 @@ describe("tediApprovals.retryExecution", () => {
 		const result = await client(fixture).retryExecution({ id: APPROVAL_ID });
 		expect(result.payload.execution).toMatchObject({
 			status: "executed",
-			attempt: 2,
+			attempt: 3,
 			retriedBy: "admin-2",
 		});
 		const fresh = createFixture();
@@ -195,7 +195,7 @@ describe("tediApprovals.retryExecution", () => {
 		expect(mocks.executor).toHaveBeenCalledTimes(1);
 	});
 
-	it("retries at most once", async () => {
+	it("allows another retry while the platform keeps failing and the approval is unconsumed", async () => {
 		const fixture = createFixture();
 		await seedFailedCall(fixture);
 		mocks.executor.mockResolvedValueOnce({
@@ -207,14 +207,14 @@ describe("tediApprovals.retryExecution", () => {
 		expect(result.payload.execution).toMatchObject({
 			status: "failed",
 			attempt: 2,
+			retryable: true,
 		});
-		await expect(
-			client(fixture).retryExecution({ id: APPROVAL_ID }),
-		).rejects.toMatchObject({
-			code: "BAD_REQUEST",
-			message: expect.stringContaining("already tried again"),
+		const again = await client(fixture).retryExecution({ id: APPROVAL_ID });
+		expect(again.payload.execution).toMatchObject({
+			status: "executed",
+			attempt: 3,
 		});
-		expect(mocks.executor).toHaveBeenCalledTimes(1);
+		expect(mocks.executor).toHaveBeenCalledTimes(2);
 	});
 
 	it("refuses a target refusal, a run that succeeded and an expired request", async () => {

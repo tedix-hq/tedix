@@ -511,11 +511,15 @@ export async function executeApprovedOwnerToolCall(args: {
 			};
 		}
 		if (result.isError) {
+			const text = mcpContentText(result.content);
 			return {
 				ok: false,
-				error: boundedError(
-					mcpContentText(result.content) ?? result.content ?? result,
-				),
+				error: boundedError(text ?? result.content ?? result),
+				// The gateway's own refusals (approval match, rate limiter) end with
+				// this sentence: the approval stays unconsumed and nothing ran.
+				...(text && /No side effect was executed/.test(text)
+					? { retryable: true }
+					: {}),
 			};
 		}
 		const data = unwrapCallToolResult(result, tool.name);

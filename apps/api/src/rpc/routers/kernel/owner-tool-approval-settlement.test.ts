@@ -473,7 +473,7 @@ describe("owner tool approval retry", () => {
 		).toBe("failed");
 		expect(mocks.executor).not.toHaveBeenCalled();
 	});
-	it("refuses a second retry, a refusal by the target and a run that did not fail", async () => {
+	it("counts a further retry of a platform-side failure, and refuses a refusal by the target and a run that did not fail", async () => {
 		expect(
 			await retry({
 				approval: failed({
@@ -485,7 +485,13 @@ describe("owner tool approval retry", () => {
 				}),
 				retriedBy: "admin-2",
 			}),
-		).toBe("already_retried");
+		).toBe("succeeded");
+		expect(mocks.reclaim).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({ attempt: 3 }),
+		);
+		mocks.reclaim.mockClear();
+		mocks.executor.mockClear();
 		expect(
 			await retry({
 				approval: failed({

@@ -1526,8 +1526,6 @@ const retryExecutionProcedure = authedOs.retryExecution
 				still_running: "This call is running now; check back in a few minutes",
 				not_retryable:
 					"This call was refused by its target or the target changed; request a new approval instead",
-				already_retried:
-					"This call was already tried again; it runs at most twice",
 				claim_lost:
 					"This call could not be claimed for a retry: it may have expired, been consumed, or be running now",
 			};

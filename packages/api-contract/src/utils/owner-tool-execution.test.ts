@@ -44,9 +44,18 @@ describe("owner tool execution record", () => {
 		expect(isRetryableOwnerToolExecution(failed({ retryable: false }))).toBe(
 			false,
 		);
+		// A retry that failed on the platform's side again may be tried again.
 		expect(
 			isRetryableOwnerToolExecution(failed({ retryable: true, attempt: 2 })),
-		).toBe(false);
+		).toBe(true);
+		expect(
+			isRetryableOwnerToolExecution(
+				failed({
+					error:
+						"Human approval required: critical or destructive action requires human approval. Route this action through Home's approval flow. No side effect was executed.",
+				}),
+			),
+		).toBe(true);
 		// Rows recorded before the flag existed: classified by their error.
 		expect(
 			isRetryableOwnerToolExecution(

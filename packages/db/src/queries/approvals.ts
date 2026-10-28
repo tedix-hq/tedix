@@ -658,17 +658,18 @@ export interface OwnerToolApprovalExecution {
 	 * the target refusing or changing; an owner may try the call once more.
 	 */
 	retryable?: boolean;
-	/** Set on the one retry an owner or admin started; absent on the first run. */
-	attempt?: 2;
+	/** 2 on the first retry an owner or admin started, and so on; absent on the first run. */
+	attempt?: number;
 	retriedBy?: string;
 }
 
 /**
- * Claim the single retry of a failed platform-side execution. Only an
- * approved, unexpired, unconsumed request wins, and only when its run failed
- * and was never retried, or started before `staleBefore` and never finished
- * (the request that ran it was cut off before the gateway consumed the
- * approval, so nothing happened). The losing side of any race never executes.
+ * Claim a retry of a failed platform-side execution. Only an approved,
+ * unexpired, unconsumed request wins, and only when its last run failed or
+ * started before `staleBefore` and never finished (the request that ran it
+ * was cut off before the gateway consumed the approval, so nothing happened).
+ * The gateway's consumed receipt keeps the call to one run; the losing side
+ * of any race never executes.
  */
 export async function reclaimOwnerToolApprovalExecution(
 	db: DbClient,
@@ -678,12 +679,14 @@ export async function reclaimOwnerToolApprovalExecution(
 		now: string;
 		retriedBy: string;
 		staleBefore: string;
+		/** 2 for the first retry, one more for each later retry. */
+		attempt: number;
 	},
 ): Promise<boolean> {
 	const execution: OwnerToolApprovalExecution = {
 		status: "running",
 		startedAt: input.now,
-		attempt: 2,
+		attempt: input.attempt,
 		retriedBy: input.retriedBy,
 	};
 	const rows = await db
@@ -699,8 +702,7 @@ export async function reclaimOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`(
-					(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
-						AND json_extract(${tediApprovalRequests.payload}, '$.execution.attempt') IS NULL)
+					json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
 					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
 				)`,

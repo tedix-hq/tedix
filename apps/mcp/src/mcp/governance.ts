@@ -790,7 +790,9 @@ export function isOwnerApprovalReplayCall(
 			"string" &&
 		agent.callerIdentity?.kernel === true &&
 		agent.callerIdentity.authType === "service" &&
-		!agent.callerIdentity.tediId &&
+		// The gateway binds a kernel caller to the human's primary tedi
+		// (`shouldBindHumanToTedi`), so `tediId` is set on every replay; the
+		// receipt is matched to the requester's user id, never to that tedi.
 		Boolean(agent.callerIdentity.userId) &&
 		Boolean(agent.app?.organizationId)
 	);
