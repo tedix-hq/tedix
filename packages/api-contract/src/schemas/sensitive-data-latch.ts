@@ -68,6 +68,17 @@ export const ResolveRunSensitiveDataLatchInputSchema = z.object({
 	runRef: RunRefSchema,
 });
 
+export const ResolveConnectionSensitivityInputSchema = z.object({
+	organizationId: z.string().min(1),
+	connectionProviderId: z.string().min(1),
+});
+
+export const ConnectionSensitivitySchema = z.object({
+	/** The organization's account for the provider, or the provider default, is `restricted`. */
+	restricted: z.boolean(),
+});
+export type ConnectionSensitivity = z.infer<typeof ConnectionSensitivitySchema>;
+
 export const RunSensitiveDataLatchQuerySchema = z.object({
 	runRef: RunRefSchema,
 });

@@ -763,4 +763,15 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			});
 		},
 	),
+	resolveConnectionSensitivity: serviceOs.resolveConnectionSensitivity.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			return {
+				restricted: await isConnectionProviderRestricted(context.db, {
+					organizationId: input.organizationId,
+					providerId: input.connectionProviderId,
+				}),
+			};
+		},
+	),
 });

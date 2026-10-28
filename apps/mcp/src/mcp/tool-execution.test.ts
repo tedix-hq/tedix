@@ -592,7 +592,7 @@ describe("executeTool home soft-deadline ack (honest text on queued turns)", () 
 			},
 		});
 
-		latchRunSensitiveData.mockRejectedValueOnce(new Error("api down"));
+		latchRunSensitiveData.mockRejectedValue(new Error("api down"));
 		const withheld = await executeTool(
 			agent,
 			tool,
@@ -605,6 +605,53 @@ describe("executeTool home soft-deadline ack (honest text on queued turns)", () 
 		expect(withheld.isError).toBe(true);
 		expect(withheld.structuredContent).toBeNull();
 		expect(withheld.content[0]?.text).toContain("withheld");
+	});
+
+	it("returns a non-sensitive connected read inside a run even when the latch API errors", async () => {
+		const latchRunSensitiveData = vi.fn(async () => {
+			throw new Error("D1 unavailable");
+		});
+		const resolveConnectionSensitivity = vi.fn(async () => ({
+			restricted: false,
+		}));
+		const base = makeAgent({ status: 200, data: { results: [{ url: "x" }] } });
+		const agent = {
+			...base,
+			callerIdentity: {
+				...base.callerIdentity,
+				authType: "service",
+				skillRunId: "run-research",
+			},
+			apiClient: {
+				mcpGovernance: { latchRunSensitiveData, resolveConnectionSensitivity },
+			},
+		} as unknown as ServerContext;
+		const tool = {
+			...makeTool(),
+			toolId: "firecrawl__firecrawl_search",
+			writeCapability: "read" as const,
+			annotations: { readOnlyHint: true },
+			config: {
+				transport: "mcp" as const,
+				endpoint: "",
+				auth: { type: "connection", connectionId: "firecrawl" },
+				_sourceAppId: "00000000-0000-4000-8000-000000000002",
+				_sourceAppSlug: "firecrawl",
+			},
+		};
+		const result = await executeTool(
+			agent,
+			tool,
+			{},
+			{ adapterScope: "primary", resultStrategy: "merge" },
+		);
+		expect(result.isError).toBeUndefined();
+		expect(result.structuredContent).toMatchObject({ results: [{ url: "x" }] });
+		expect(latchRunSensitiveData).not.toHaveBeenCalled();
+		expect(resolveConnectionSensitivity).toHaveBeenCalledWith({
+			organizationId: "org-uuid",
+			connectionProviderId: "firecrawl",
+		});
 	});
 
 	it("records an unclassified read without guessing from the tool name", async () => {

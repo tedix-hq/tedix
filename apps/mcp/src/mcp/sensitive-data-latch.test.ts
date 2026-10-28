@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { SensitiveDataLatch } from "@tedix/api-contract/schemas/sensitive-data-latch";
 import {
 	callToolResultText,
 	requireDestructiveToolApproval,
 } from "./governance";
-import { callerRunRef, recordSensitiveRead } from "./sensitive-data-latch";
+import {
+	callerRunRef,
+	recordSensitiveRead,
+	resetSensitiveDataLatchCaches,
+} from "./sensitive-data-latch";
 import type { ServerContext } from "./server-context";
 
 const LATCH: SensitiveDataLatch = {
@@ -282,6 +286,45 @@ describe("sensitive-data latch and an admin's action-type opt-in", () => {
 });
 
 describe("recording a sensitive read", () => {
+	beforeEach(() => resetSensitiveDataLatchCaches());
+
+	const gmailRead = (toolName = "get_message") => ({
+		version: 1 as const,
+		kind: "connected_collection_read" as const,
+		source: {
+			appId: "app-1",
+			appSlug: "google-gmail",
+			toolName,
+			connectionProviderId: "google-gmail",
+		},
+		collection: "messages",
+		observedAt: "2026-10-27T10:00:00.000Z",
+	});
+	const firecrawlRead = {
+		version: 1 as const,
+		kind: "connected_collection_read" as const,
+		source: {
+			appId: "app-2",
+			appSlug: "firecrawl",
+			toolName: "firecrawl_search",
+			connectionProviderId: "firecrawl",
+		},
+		collection: null,
+		observedAt: "2026-10-28T07:00:00.000Z",
+	};
+
+	function agentFor(
+		runId: string,
+		mcpGovernance: Record<string, unknown>,
+	): ServerContext {
+		return {
+			app: { organizationId: "org-1" },
+			appSlug: "hr",
+			callerIdentity: { authType: "service", skillRunId: runId },
+			apiClient: { mcpGovernance },
+		} as unknown as ServerContext;
+	}
+
 	it("maps the caller to its skill run or Home run", () => {
 		expect(
 			callerRunRef({ skillRunId: "run-1", requestRunId: "home-1" }),
@@ -293,18 +336,16 @@ describe("recording a sensitive read", () => {
 		expect(callerRunRef({})).toBeNull();
 	});
 
-	it("latches declared sensitive tools and connected reads, and nothing else", async () => {
+	it("latches a declared sensitive tool without asking about any connection", async () => {
 		const latchRunSensitiveData = vi.fn(async () => ({
 			known: true,
 			latch: LATCH,
 		}));
-		const agent = {
-			app: { organizationId: "org-1" },
-			appSlug: "hr",
-			callerIdentity: { authType: "service", skillRunId: "run-1" },
-			apiClient: { mcpGovernance: { latchRunSensitiveData } },
-		} as unknown as ServerContext;
-
+		const resolveConnectionSensitivity = vi.fn();
+		const agent = agentFor("run-1", {
+			latchRunSensitiveData,
+			resolveConnectionSensitivity,
+		});
 		expect(
 			await recordSensitiveRead(
 				agent,
@@ -312,7 +353,8 @@ describe("recording a sensitive read", () => {
 				null,
 			),
 		).toBe(true);
-		expect(latchRunSensitiveData).toHaveBeenLastCalledWith({
+		expect(resolveConnectionSensitivity).not.toHaveBeenCalled();
+		expect(latchRunSensitiveData).toHaveBeenCalledWith({
 			organizationId: "org-1",
 			runRef: { kind: "skill_run", id: "run-1" },
 			source: {
@@ -322,33 +364,126 @@ describe("recording a sensitive read", () => {
 				toolDeclaredSensitive: true,
 			},
 		});
+	});
 
-		await recordSensitiveRead(
-			agent,
-			{ toolId: "get_message", sensitiveData: false },
-			{
-				version: 1,
-				kind: "connected_collection_read",
-				source: {
-					appId: "app-1",
-					appSlug: "google-gmail",
-					toolName: "get_message",
-					connectionProviderId: "google-gmail",
-				},
-				collection: "messages",
-				observedAt: "2026-10-27T10:00:00.000Z",
-			},
-		);
-		expect(latchRunSensitiveData).toHaveBeenLastCalledWith(
+	it("never withholds a non-sensitive connected read, even when the latch API errors", async () => {
+		const latchRunSensitiveData = vi.fn(async () => {
+			throw new Error("D1 unavailable");
+		});
+		const resolveConnectionSensitivity = vi.fn(async () => ({
+			restricted: false,
+		}));
+		const agent = agentFor("run-fc", {
+			latchRunSensitiveData,
+			resolveConnectionSensitivity,
+		});
+		for (let i = 0; i < 3; i += 1) {
+			expect(
+				await recordSensitiveRead(
+					agent,
+					{ toolId: "firecrawl__firecrawl_search", sensitiveData: false },
+					firecrawlRead,
+				),
+			).toBe(true);
+		}
+		expect(latchRunSensitiveData).not.toHaveBeenCalled();
+		// The classification is cached per organization and provider.
+		expect(resolveConnectionSensitivity).toHaveBeenCalledTimes(1);
+		expect(resolveConnectionSensitivity).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			connectionProviderId: "firecrawl",
+		});
+	});
+
+	it("reuses a known classification when the lookup fails later", async () => {
+		const latchRunSensitiveData = vi.fn(async () => {
+			throw new Error("D1 unavailable");
+		});
+		const resolveConnectionSensitivity = vi
+			.fn<() => Promise<{ restricted: boolean }>>()
+			.mockResolvedValueOnce({ restricted: false })
+			.mockRejectedValue(new Error("D1 unavailable"));
+		const agent = agentFor("run-fc2", {
+			latchRunSensitiveData,
+			resolveConnectionSensitivity,
+		});
+		const read = () =>
+			recordSensitiveRead(
+				agent,
+				{ toolId: "firecrawl__firecrawl_search", sensitiveData: false },
+				firecrawlRead,
+			);
+		expect(await read()).toBe(true);
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(Date.now() + 6 * 60 * 1000);
+			expect(await read()).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(resolveConnectionSensitivity).toHaveBeenCalledTimes(2);
+		expect(latchRunSensitiveData).not.toHaveBeenCalled();
+	});
+
+	it("withholds a connected read whose classification was never known while the API is down", async () => {
+		const agent = agentFor("run-unknown", {
+			latchRunSensitiveData: vi.fn(),
+			resolveConnectionSensitivity: vi.fn(async () => {
+				throw new Error("D1 unavailable");
+			}),
+		});
+		expect(
+			await recordSensitiveRead(
+				agent,
+				{ toolId: "firecrawl__firecrawl_search", sensitiveData: false },
+				firecrawlRead,
+			),
+		).toBe(false);
+	});
+
+	it("latches a restricted connection's read once per run and skips the write afterwards", async () => {
+		const latchRunSensitiveData = vi.fn(async () => ({
+			known: true,
+			latch: LATCH,
+		}));
+		const agent = agentFor("run-2", {
+			latchRunSensitiveData,
+			resolveConnectionSensitivity: vi.fn(async () => ({ restricted: true })),
+		});
+		expect(
+			await recordSensitiveRead(
+				agent,
+				{ toolId: "get_message", sensitiveData: false },
+				gmailRead(),
+			),
+		).toBe(true);
+		expect(latchRunSensitiveData).toHaveBeenCalledWith(
 			expect.objectContaining({
+				runRef: { kind: "skill_run", id: "run-2" },
 				source: expect.objectContaining({
+					appSlug: "google-gmail",
 					connectionProviderId: "google-gmail",
 					toolDeclaredSensitive: false,
 				}),
 			}),
 		);
+		expect(
+			await recordSensitiveRead(
+				agent,
+				{ toolId: "list_messages", sensitiveData: false },
+				gmailRead("list_messages"),
+			),
+		).toBe(true);
+		expect(latchRunSensitiveData).toHaveBeenCalledTimes(1);
+	});
 
-		latchRunSensitiveData.mockClear();
+	it("does nothing for a read that is neither declared sensitive nor connected", async () => {
+		const latchRunSensitiveData = vi.fn();
+		const resolveConnectionSensitivity = vi.fn();
+		const agent = agentFor("run-3", {
+			latchRunSensitiveData,
+			resolveConnectionSensitivity,
+		});
 		expect(
 			await recordSensitiveRead(
 				agent,
@@ -357,13 +492,32 @@ describe("recording a sensitive read", () => {
 			),
 		).toBe(true);
 		expect(latchRunSensitiveData).not.toHaveBeenCalled();
+		expect(resolveConnectionSensitivity).not.toHaveBeenCalled();
 	});
 
-	it("withholds the read when the latch cannot be recorded for a run", async () => {
+	it("retries the latch write once, then withholds the sensitive read", async () => {
+		const latchRunSensitiveData = vi
+			.fn<() => Promise<{ known: boolean; latch: SensitiveDataLatch | null }>>()
+			.mockRejectedValueOnce(new Error("api down"))
+			.mockResolvedValueOnce({ known: true, latch: LATCH });
 		const agent = {
 			app: { organizationId: "org-1" },
 			appSlug: "hr",
 			callerIdentity: { authType: "service", requestRunId: "home-1" },
+			apiClient: { mcpGovernance: { latchRunSensitiveData } },
+		} as unknown as ServerContext;
+		expect(
+			await recordSensitiveRead(
+				agent,
+				{ toolId: "list_salaries", sensitiveData: true },
+				null,
+			),
+		).toBe(true);
+		expect(latchRunSensitiveData).toHaveBeenCalledTimes(2);
+
+		const failing = {
+			...agent,
+			callerIdentity: { authType: "service", requestRunId: "home-2" },
 			apiClient: {
 				mcpGovernance: {
 					latchRunSensitiveData: vi.fn(async () => {
@@ -374,7 +528,7 @@ describe("recording a sensitive read", () => {
 		} as unknown as ServerContext;
 		expect(
 			await recordSensitiveRead(
-				agent,
+				failing,
 				{ toolId: "list_salaries", sensitiveData: true },
 				null,
 			),

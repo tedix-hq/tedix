@@ -479,6 +479,37 @@ describe("sensitive-data latch through the gateway", () => {
 		}
 	});
 
+	it("tells the gateway whether a connection is restricted, inside its own organization only", async () => {
+		const { sqlite, client } = fixture();
+		try {
+			await expect(
+				client.resolveConnectionSensitivity({
+					organizationId: ORG_ID,
+					connectionProviderId: "crm",
+				}),
+			).resolves.toEqual({ restricted: false });
+			sqlite
+				.prepare(
+					"INSERT INTO connection_instances (id, owner_user_id, organization_id, provider_id, label, data_sensitivity, token_ids, created_at, updated_at) VALUES ('inst-1', 'user-1', ?, 'crm', 'main', 'restricted', '[]', 'now', 'now')",
+				)
+				.run(ORG_ID);
+			await expect(
+				client.resolveConnectionSensitivity({
+					organizationId: ORG_ID,
+					connectionProviderId: "crm",
+				}),
+			).resolves.toEqual({ restricted: true });
+			await expect(
+				client.resolveConnectionSensitivity({
+					organizationId: "00000000-0000-4000-8000-00000000dead",
+					connectionProviderId: "crm",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("leaves an ordinary connected read alone until the connection is restricted", async () => {
 		const { sqlite, client } = fixture();
 		try {

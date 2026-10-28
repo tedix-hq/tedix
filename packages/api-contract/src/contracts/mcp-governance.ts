@@ -37,7 +37,9 @@ import {
 	SetActionTypeOptInResponseSchema,
 } from "../schemas/mcp-governance";
 import {
+	ConnectionSensitivitySchema,
 	LatchRunSensitiveDataInputSchema,
+	ResolveConnectionSensitivityInputSchema,
 	ResolveRunSensitiveDataLatchInputSchema,
 	RunSensitiveDataLatchStateSchema,
 } from "../schemas/sensitive-data-latch";
@@ -187,6 +189,17 @@ export const mcpGovernanceContract = oc
 			})
 			.input(ResolveRunSensitiveDataLatchInputSchema)
 			.output(RunSensitiveDataLatchStateSchema),
+		resolveConnectionSensitivity: oc
+			.route({
+				method: "POST",
+				path: "/resolve-connection-sensitivity",
+				summary: "Read whether a connection is classified restricted",
+				description:
+					"Internal service-binding read the MCP gateway makes before a connected read inside a run to decide whether that read must latch the run. A read on a connection that is not restricted never reaches the latch write.",
+				tags: ["internal"],
+			})
+			.input(ResolveConnectionSensitivityInputSchema)
+			.output(ConnectionSensitivitySchema),
 	});
 
 export type McpGovernanceContract = typeof mcpGovernanceContract;

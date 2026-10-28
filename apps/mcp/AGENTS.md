@@ -113,9 +113,15 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
 `src/mcp/sensitive-data-latch.ts` records a sensitive read on the calling
 run (`skill_runs` / `kernel_runtime_runs.sensitive_data_latch`, through
 `mcpGovernance.latchRunSensitiveData`) and `requireDestructiveToolApproval`
-reads it back. While latched, a tool row declared `public_egress` is refused,
-and grant or policy auto-approval is refused; both carry the plain-English
-reason. Declare egress and sensitivity on the `app_tools` row, never by slug.
+reads it back. The gateway decides first whether the read is sensitive: a
+tool declared `sensitive_data`, or a connected read whose connection is
+classified `restricted` (`mcpGovernance.resolveConnectionSensitivity`, cached
+per organization and provider). Only then does it write the latch, retrying
+once and withholding the result if the write still fails. Any other read
+never touches the latch API, so an API or database failure cannot withhold
+it. While latched, a tool row declared `public_egress` is refused, and grant
+or policy auto-approval is refused; both carry the plain-English reason.
+Declare egress and sensitivity on the `app_tools` row, never by slug.
 
 ## Verification
 
