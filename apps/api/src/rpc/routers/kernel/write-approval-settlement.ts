@@ -32,6 +32,7 @@ import { toJsonRecord } from "@tedix/db/utils/json";
 import { canonicalDigest } from "../../../lib/blueprint-digest";
 import { retainKernelToolResult } from "../../../services/kernel-tool-result-retention";
 import type { BaseContext } from "../../orpc";
+import { settleOwnerToolCallApproval } from "./owner-tool-approval-settlement";
 import { settleRepoCommitApprovalIfNeeded } from "./repo-commit-approval-settle";
 import {
 	insertKernelRuntimeEvent,
@@ -566,6 +567,10 @@ export async function settleHomeToolWriteApproval(
 	// it resolves, trigger the owning DO to drain its local changeset ledger.
 	if (await settleRepoCommitApprovalIfNeeded(context, input))
 		return "not_applicable";
+	// An owner's parked gateway call runs through the same settle point, so
+	// every resolve path executes it exactly once with no second hook.
+	const ownerToolCall = await settleOwnerToolCallApproval(context, input);
+	if (ownerToolCall !== "not_applicable") return ownerToolCall;
 	const payload = parseHomeToolWritePayload(input.approval.payload);
 	if (!payload) return "not_applicable";
 	if (payload.organizationId !== input.approval.orgId) {

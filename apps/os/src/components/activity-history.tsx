@@ -71,6 +71,24 @@ function payloadString(
 	return typeof value === "string" && value.trim() ? value : null;
 }
 
+/**
+ * What happened after approval of a parked gateway call: the platform runs
+ * it once and records the outcome on the request ("Done: …" / "Failed: …").
+ */
+export function approvalExecutionOutcome(
+	payload: Record<string, unknown>,
+): string | null {
+	const execution = payload.execution;
+	if (!execution || typeof execution !== "object") return null;
+	const { status, summary, error } = execution as Record<string, unknown>;
+	if (status === "executed")
+		return `Done${typeof summary === "string" && summary ? `: ${summary}` : ""}`;
+	if (status === "failed")
+		return `Failed${typeof error === "string" && error ? `: ${error}` : ""}`;
+	if (status === "running") return "Running now";
+	return null;
+}
+
 /** Decided, expired and cancelled requests as History rows (pending stays in Needs review). */
 export function approvalHistoryEntries(
 	approvals: readonly ApprovalRequest[],
@@ -81,17 +99,20 @@ export function approvalHistoryEntries(
 		const automatic = isAutomaticApproval(approval);
 		const payload = approval.payload as Record<string, unknown>;
 		const conversationId = payloadString(payload, "conversationId");
-		const how = automatic
-			? /^auto-approved by rule\b/i.test(approval.resolution ?? "")
-				? "A saved rule approved it"
-				: "Low risk, approved by your policy"
-			: approval.status === "expired"
-				? "No one answered in time, so it did not run"
-				: approval.status === "approved" || approval.status === "rejected"
-					? /^decide for me\b/i.test(approval.resolution ?? "")
-						? "Decided by the suggestion a person accepted"
-						: "Decided by a person"
-					: null;
+		const execution = approvalExecutionOutcome(payload);
+		const how = execution
+			? execution
+			: automatic
+				? /^auto-approved by rule\b/i.test(approval.resolution ?? "")
+					? "A saved rule approved it"
+					: "Low risk, approved by your policy"
+				: approval.status === "expired"
+					? "No one answered in time, so it did not run"
+					: approval.status === "approved" || approval.status === "rejected"
+						? /^decide for me\b/i.test(approval.resolution ?? "")
+							? "Decided by the suggestion a person accepted"
+							: "Decided by a person"
+						: null;
 		return [
 			{
 				key: `approval:${approval.id}`,

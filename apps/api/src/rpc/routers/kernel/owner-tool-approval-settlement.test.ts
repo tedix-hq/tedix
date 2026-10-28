@@ -1,0 +1,326 @@
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
+import type { BaseContext } from "../../orpc";
+import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
+
+const mocks = vi.hoisted(() => ({
+	claim: vi.fn(),
+	record: vi.fn(),
+	receipt: vi.fn(),
+	audit: vi.fn(),
+	member: vi.fn(),
+	organization: vi.fn(),
+	executor: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/approvals", async (load) => ({
+	...(await load<object>()),
+	claimOwnerToolApprovalExecution: mocks.claim,
+	recordOwnerToolApprovalExecution: mocks.record,
+}));
+vi.mock("@tedix/db/queries/approval-simulations", async (load) => ({
+	...(await load<object>()),
+	recordApprovalExecutionReceipt: mocks.receipt,
+}));
+vi.mock("@tedix/db/queries/audit", async (load) => ({
+	...(await load<object>()),
+	insertAuditEvent: mocks.audit,
+}));
+vi.mock("@tedix/db/queries/organization-members", async (load) => ({
+	...(await load<object>()),
+	getMemberByUserId: mocks.member,
+}));
+vi.mock("@tedix/db/queries/organizations", async (load) => ({
+	...(await load<object>()),
+	getOrganizationById: mocks.organization,
+}));
+import {
+	ownerToolReplayAppSlug,
+	parseOwnerToolCallPayload,
+	setOwnerToolExecutorForTest,
+	settleOwnerToolCallApproval,
+} from "./owner-tool-approval-settlement";
+import { settleHomeToolWriteApproval } from "./write-approval-settlement";
+import { resolveReplayTool } from "./write-executor";
+
+type ApprovalRow = typeof tediApprovalRequests.$inferSelect;
+const context = {
+	db: {},
+	env: { MCP_URL: "https://mcp.example.test", MCP_SERVICE: { fetch: vi.fn() } },
+	authType: "user",
+	user: { sub: "owner-1" },
+} as unknown as BaseContext;
+const payload = {
+	kind: "mcp_tool_call",
+	initiatedByUserId: "owner-1",
+	appSlug: "connect",
+	toolId: "example_unified_tedix__delete_descope_aih_mcp_client",
+	target: {
+		transport: "rpc",
+		endpoint: "descopeAih/deleteMcpClient",
+		mcpToolName: null,
+		providerId: null,
+		configHash: "abc",
+	},
+	args: { id: "client-1", mcpServerId: "server-1", confirmDestructive: true },
+	fingerprint: "fp-1",
+};
+function approval(overrides: Partial<ApprovalRow> = {}): ApprovalRow {
+	return {
+		id: "11111111-1111-4111-8111-111111111111",
+		tediId: "anchor",
+		orgId: "org-1",
+		actionType: "mcp.tool_call",
+		description: "Delete descope aih mcp client",
+		payload,
+		status: "approved",
+		createdAt: "2026-10-28T10:00:00.000Z",
+		expiresAt: "2099-10-29T10:00:00.000Z",
+		resolvedAt: "2026-10-28T10:48:00.000Z",
+		resolvedBy: "user:owner-1",
+		resolution: null,
+		workflowId: null,
+		...overrides,
+	} as ApprovalRow;
+}
+
+beforeEach(() => {
+	vi.clearAllMocks();
+	mocks.claim.mockResolvedValue(true);
+	mocks.record.mockResolvedValue(undefined);
+	mocks.receipt.mockResolvedValue({});
+	mocks.audit.mockResolvedValue(undefined);
+	mocks.member.mockResolvedValue({ role: "owner", status: "active" });
+	mocks.organization.mockResolvedValue({ id: "org-1", slug: "example" });
+	mocks.executor.mockResolvedValue({ ok: true, data: { success: true } });
+	setOwnerToolExecutorForTest(mocks.executor);
+});
+afterEach(() => setOwnerToolExecutorForTest(null));
+
+describe("owner tool approval settlement", () => {
+	it("runs the stored call once on approval and records the result on the request", async () => {
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: approval(),
+				status: "approved",
+			}),
+		).toBe("succeeded");
+		expect(mocks.claim).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				id: "11111111-1111-4111-8111-111111111111",
+				organizationId: "org-1",
+			}),
+		);
+		expect(mocks.executor).toHaveBeenCalledTimes(1);
+		expect(mocks.executor).toHaveBeenCalledWith(
+			expect.objectContaining({
+				approvalRequestId: "11111111-1111-4111-8111-111111111111",
+				payload: {
+					appSlug: "example-unified",
+					toolId: payload.toolId,
+					args: payload.args,
+					organizationId: "org-1",
+					initiatedByUserId: "owner-1",
+				},
+			}),
+		);
+		expect(mocks.record).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				execution: expect.objectContaining({
+					status: "executed",
+					summary: "Delete descope aih mcp client",
+				}),
+			}),
+		);
+		expect(mocks.receipt).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				outcome: "succeeded",
+				idempotencyKey: "owner-tool-call:11111111-1111-4111-8111-111111111111",
+			}),
+		);
+		expect(mocks.audit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				action: "approval.executed",
+				actorId: "owner-1",
+			}),
+		);
+	});
+	it("reaches the stored call through the shared Home settle point", async () => {
+		expect(
+			await settleHomeToolWriteApproval(context, {
+				approval: approval(),
+				status: "approved",
+			}),
+		).toBe("succeeded");
+		expect(mocks.executor).toHaveBeenCalledTimes(1);
+	});
+	it("runs once when approved twice or settled again", async () => {
+		const row = approval();
+		await settleOwnerToolCallApproval(context, {
+			approval: row,
+			status: "approved",
+		});
+		mocks.claim.mockResolvedValue(false);
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: row,
+				status: "approved",
+			}),
+		).toBe("unknown");
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: approval({
+					payload: {
+						...payload,
+						execution: { status: "executed", startedAt: "x" },
+					},
+				}),
+				status: "approved",
+			}),
+		).toBe("succeeded");
+		expect(mocks.executor).toHaveBeenCalledTimes(1);
+	});
+	it.each(["rejected", "cancelled"] as const)(
+		"never runs a %s decision",
+		async (status) => {
+			expect(
+				await settleOwnerToolCallApproval(context, {
+					approval: approval({ status }),
+					status,
+				}),
+			).toBe("not_applicable");
+			expect(mocks.claim).not.toHaveBeenCalled();
+			expect(mocks.executor).not.toHaveBeenCalled();
+		},
+	);
+	it("never runs an expired request (the claim refuses it)", async () => {
+		mocks.claim.mockResolvedValue(false);
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: approval({ expiresAt: "2026-10-28T19:01:00.000Z" }),
+				status: "approved",
+			}),
+		).toBe("unknown");
+		expect(mocks.executor).not.toHaveBeenCalled();
+		expect(mocks.record).not.toHaveBeenCalled();
+	});
+	it("records a failure when the target changed at apply time", async () => {
+		mocks.executor.mockResolvedValue({
+			ok: false,
+			error:
+				'Tool "example_unified_tedix__delete_descope_aih_mcp_client" is no longer available on example-unified',
+		});
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: approval(),
+				status: "approved",
+			}),
+		).toBe("failed");
+		expect(mocks.record).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				execution: expect.objectContaining({
+					status: "failed",
+					error: expect.stringContaining("no longer available"),
+				}),
+			}),
+		);
+		expect(mocks.audit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ action: "approval.execution_failed" }),
+		);
+	});
+	it.each([
+		["requester", [{ role: "member", status: "active" }]],
+		[
+			"approver",
+			[
+				{ role: "owner", status: "active" },
+				{ role: "owner", status: "suspended" },
+			],
+		],
+	])(
+		"refuses to run when the %s lost authority at apply time",
+		async (who, members) => {
+			for (const member of members) mocks.member.mockResolvedValueOnce(member);
+			expect(
+				await settleOwnerToolCallApproval(context, {
+					approval: approval(),
+					status: "approved",
+				}),
+			).toBe("failed");
+			expect(mocks.executor).not.toHaveBeenCalled();
+			expect(mocks.record).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					execution: expect.objectContaining({
+						status: "failed",
+						error: expect.stringContaining(who),
+					}),
+				}),
+			);
+		},
+	);
+	it("ignores policy rows and other payload kinds", async () => {
+		expect(
+			parseOwnerToolCallPayload({
+				kind: "mcp_tool_call",
+				appSlug: "tedix-unified",
+				toolId: "tedix__add_comment",
+				platformOperation: "work_items",
+				initiatedByUserId: "owner-1",
+			}),
+		).toBeNull();
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: approval({
+					actionType: "home.tool_write",
+					payload: { kind: "home_tool_write" },
+				}),
+				status: "approved",
+			}),
+		).toBe("not_applicable");
+	});
+	it("replays a connect request on the organization gateway and others where they ran", () => {
+		expect(
+			ownerToolReplayAppSlug({
+				appSlug: "connect",
+				organizationId: "org-1",
+				organizationSlug: "example",
+			}),
+		).toBe("example-unified");
+		expect(
+			ownerToolReplayAppSlug({
+				appSlug: "mail",
+				organizationId: "org-1",
+				organizationSlug: "example",
+			}),
+		).toBe("mail");
+	});
+	it("finds the mounted tool by its source-qualified name", () => {
+		const tools = [
+			{ name: "tedix__delete_descope_aih_mcp_client" },
+			{ name: "mail__send" },
+			{ name: "send" },
+		];
+		expect(
+			resolveReplayTool(
+				tools,
+				"example_unified_tedix__delete_descope_aih_mcp_client",
+			)?.name,
+		).toBe("tedix__delete_descope_aih_mcp_client");
+		expect(resolveReplayTool(tools, "mail__send")?.name).toBe("mail__send");
+		expect(resolveReplayTool(tools, "other_mail__delete")).toBeUndefined();
+		// A bare suffix is not a mount: "send" must not stand in for "mail__send".
+		expect(resolveReplayTool(tools, "example_unified__send")).toBeUndefined();
+	});
+});

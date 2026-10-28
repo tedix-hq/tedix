@@ -35,9 +35,7 @@ describe("approval decision catalog", () => {
 	it("names a saved skill proposal probe without claiming approval executes it", () => {
 		const result = approvalDecision(skillRequest);
 		expect(result.what).toBe("Run a test of the nightly-check skill proposal.");
-		expect(result.ifApproved).toContain(
-			"Approval alone does not start it or activate the proposal",
-		);
+		expect(result.ifApproved).toContain("It does not activate the proposal");
 		expect(result.reason).not.toContain("can't describe");
 		expect(result.recommendation).toBe("rejected");
 	});

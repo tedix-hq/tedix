@@ -21,8 +21,6 @@ describe("skill approval feedback", () => {
 		);
 		expect(html).toContain("Run a test of the nightly-check skill proposal.");
 		expect(html).not.toContain("can't describe");
-		expect(html).toContain(
-			"Approval alone does not start it or activate the proposal",
-		);
+		expect(html).toContain("It does not activate the proposal");
 	});
 });

@@ -392,6 +392,115 @@ function reportedWriteFailure(data: unknown): unknown {
 	return null;
 }
 
+/** The stored call behind an owner tool approval (`mcp.tool_call` rows). */
+export interface OwnerToolCallReplay {
+	/** Gateway host to replay on (the organization's own gateway for `connect`). */
+	appSlug: string;
+	/** Native wire name of the tool on that gateway. */
+	toolId: string;
+	args: Record<string, unknown>;
+	organizationId: string;
+	initiatedByUserId: string;
+}
+
+/**
+ * Execute the one gateway call an owner approved, exactly as stored. The
+ * gateway re-checks the approval receipt for this exact call on the way
+ * (`com.tedix/approvalRequestId`), the requester's and approver's membership,
+ * and consumes the approval; here the tool is re-validated upstream first. A
+ * `connect` request names a mount-prefixed tool; the organization gateway
+ * serves the same tool under its own name, found by that name's source
+ * suffix. Never throws.
+ */
+export async function executeApprovedOwnerToolCall(args: {
+	env: WriteExecutorEnv;
+	payload: OwnerToolCallReplay;
+	approvalRequestId: string;
+	timings?: KernelWriteExecutorTimings;
+}): Promise<KernelWriteExecutionResult> {
+	const { env, payload } = args;
+	const timings = args.timings ?? {};
+	const since = (startedAt: number) => Date.now() - startedAt;
+	if (!env.MCP_SERVICE || !env.MCP_URL) {
+		return { ok: false, error: "MCP service binding is not configured" };
+	}
+	try {
+		const host = mcpHost(env.MCP_URL, payload.appSlug);
+		const revalidateStartedAt = Date.now();
+		const listed = await listUpstreamTools(
+			env,
+			host,
+			payload.organizationId,
+			payload.initiatedByUserId,
+		);
+		timings.revalidateMs = since(revalidateStartedAt);
+		const tool = resolveReplayTool(listed.items, payload.toolId);
+		if (!tool) {
+			return {
+				ok: false,
+				error: listed.truncated
+					? `Tool "${payload.toolId}" could not be verified on ${payload.appSlug}: its tool catalog exceeded the pagination bound`
+					: `Tool "${payload.toolId}" is no longer available on ${payload.appSlug}`,
+			};
+		}
+		if (tool.annotations?.readOnlyHint === true) {
+			return {
+				ok: false,
+				error: `Tool "${payload.toolId}" was re-published as read-only; aborting the approved call`,
+			};
+		}
+		const callStartedAt = Date.now();
+		const result = (await mcpCall(
+			env,
+			host,
+			payload.organizationId,
+			"tools/call",
+			{
+				name: tool.name,
+				arguments: payload.args,
+				_meta: { "com.tedix/approvalRequestId": args.approvalRequestId },
+			},
+			payload.initiatedByUserId,
+		)) as ToolCallResult | null;
+		timings.callMs = since(callStartedAt);
+		if (!result) {
+			return { ok: false, error: "Provider tool call failed (transport)" };
+		}
+		if (result.isError) {
+			return {
+				ok: false,
+				error: boundedError(
+					mcpContentText(result.content) ?? result.content ?? result,
+				),
+			};
+		}
+		const data = unwrapCallToolResult(result, tool.name);
+		const failure = reportedWriteFailure(data);
+		if (failure !== null) return { ok: false, error: boundedError(failure) };
+		return { ok: true, data };
+	} catch (error) {
+		return { ok: false, error: boundedError(errorMessage(error)) };
+	}
+}
+
+/**
+ * The stored tool on the replay gateway: its exact name, or, for a tool the
+ * request reached through a mount (`<mount>_<source>__<tool>`), the one
+ * mounted tool whose source-qualified name ends the stored one.
+ */
+export function resolveReplayTool<T extends { name: string }>(
+	tools: readonly T[],
+	storedToolId: string,
+): T | undefined {
+	const exact = tools.find((tool) => tool.name === storedToolId);
+	if (exact) return exact;
+	const matches = tools.filter(
+		(tool) =>
+			tool.name.includes("__") && storedToolId.endsWith(`_${tool.name}`),
+	);
+	return matches.length === 1 ? matches[0] : undefined;
+}
+
 /**
  * Execute the approved, server-stored write call exactly as recorded.
  * Never throws — every failure returns `{ok:false}` with a bounded error.
