@@ -279,6 +279,10 @@ const CALLS = {
 		maxNodes: 60,
 	},
 	"rationaleRecords/list": { limit: 50 },
+	"cognitiveRuntime/readMessages": {
+		tediId: IDS.tediMiles,
+		conversationId: "workflow:sample-judgment",
+	},
 	"cognitiveRuntime/listEvents": {
 		tediId: IDS.tediMiles,
 		kind: "tool.completed",

@@ -6447,6 +6447,11 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"memoryGraph/graph/visualization": () => KNOWLEDGE_GRAPH,
 
 	// --- tedi detail: telemetry, authority, growth ---
+	"cognitiveRuntime/readMessages": () => ({
+		messages: [],
+		compaction: null,
+		nextCursor: null,
+	}),
 	"cognitiveRuntime/listEvents": (input: {
 		tediId: string;
 		kind?: string;

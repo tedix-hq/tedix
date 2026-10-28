@@ -67,6 +67,39 @@ try {
 				if (url.pathname.endsWith("/skills/getRunArtifact")) {
 					artifactReads++;
 					const input = route.request().postDataJSON().json;
+					if (input.path === timeline.events[246]!.path) {
+						const response = await route.fetch();
+						const body = await response.json();
+						body.json.content = JSON.stringify({
+							response: {
+								truncated: false,
+								value: {
+									ok: true,
+									accepted: true,
+									pending: true,
+									assistant: null,
+								},
+							},
+						});
+						return route.fulfill({ response, json: body });
+					}
+					if (input.path === timeline.events[248]!.path) {
+						const response = await route.fetch();
+						const body = await response.json();
+						body.json.content = JSON.stringify({
+							response: {
+								value: {
+									ok: true,
+									runId: "11111111-1111-4111-8111-111111111111:mcp:review",
+									conversationId: "fictional-review",
+									assistant: {
+										content: '{"reason":"The question was already answered."}',
+									},
+								},
+							},
+						});
+						return route.fulfill({ response, json: body });
+					}
 					if (input.path === timeline.events[2]!.path) {
 						const response = await route.fetch();
 						const body = await response.json();
@@ -82,6 +115,32 @@ try {
 						"outputs/private.json",
 						"sensitive output is never fetched",
 					);
+				}
+				if (url.pathname.endsWith("/cognitiveRuntime/readMessages")) {
+					assert.deepEqual(route.request().postDataJSON().json, {
+						tediId: "11111111-1111-4111-8111-111111111111",
+						conversationId: "fictional-review",
+						limit: 30,
+					});
+					return route.fulfill({
+						json: {
+							json: {
+								messages: [
+									{
+										id: "saved-request",
+										tediId: "11111111-1111-4111-8111-111111111111",
+										conversationId: "fictional-review",
+										role: "user",
+										status: "completed",
+										content: "Check whether the question is still open.",
+										createdAt: startedAt,
+									},
+								],
+								compaction: null,
+								nextCursor: null,
+							},
+						},
+					});
 				}
 				if (url.pathname.endsWith("/userSettings/getPreferences")) {
 					const response = await route.fetch();
@@ -148,12 +207,20 @@ try {
 			await first.focus();
 			await page.keyboard.press("Enter");
 			const drawer = page.getByRole("dialog");
+			await drawer.getByText("What came back", { exact: true }).waitFor();
+			await drawer.getByRole("button", { name: "Item 1", exact: true }).click();
+			await drawer.getByText("paid", { exact: true }).waitFor();
+			assert.equal(
+				await drawer.getByRole("button", { name: /^Item \d+$/ }).count(),
+				50,
+				"large arrays remain bounded",
+			);
+			await drawer
+				.getByRole("button", { name: "Technical details", exact: true })
+				.click();
 			await drawer.getByText("Sample truncated", { exact: false }).waitFor();
 			assert.equal(artifactReads, 1);
-			assert(
-				(await drawer.locator("[data-output-sample]").innerText()).length <
-					4100,
-			);
+			assert((await drawer.locator("pre").innerText()).length < 4100);
 			assert.equal(await drawer.getByText("2s", { exact: true }).count(), 1);
 			if (evidenceDir)
 				await page.screenshot({ path: `${evidenceDir}/drawer-${label}.png` });
@@ -174,11 +241,38 @@ try {
 			await lateCall.focus();
 			await page.keyboard.press("Enter");
 			await drawer.locator("[data-output-sample]").waitFor();
+			await drawer
+				.getByText("The question was already answered.", { exact: true })
+				.waitFor();
+			await drawer
+				.getByRole("button", { name: "Read saved conversation", exact: true })
+				.click();
+			await drawer
+				.getByText("Check whether the question is still open.", { exact: true })
+				.waitFor();
+			if (evidenceDir)
+				await page.screenshot({
+					path: `${evidenceDir}/conversation-${label}.png`,
+				});
 			await page.keyboard.press("Escape");
-			const sensitiveCall = chart.locator(
+			await chart
+				.getByRole("textbox", { name: "Find a step" })
+				.fill("list_orders 247");
+			await chart
+				.getByRole("button", { name: /Storefront.list orders 247/ })
+				.click();
+			await drawer.getByText("Request accepted", { exact: true }).waitFor();
+			await drawer.getByText(/This record is not the final reply/).waitFor();
+			assert.equal(
+				await drawer.getByText("Pending", { exact: true }).count(),
+				0,
+				"transport flags stay in technical details",
+			);
+			await page.keyboard.press("Escape");
+			const hiddenOutputCall = chart.locator(
 				`[data-timeline-event="${timeline.events[2]!.id}"]`,
 			);
-			await sensitiveCall.focus();
+			await hiddenOutputCall.focus();
 			await page.keyboard.press("Enter");
 			await drawer
 				.getByText("Sensitive output is hidden.", { exact: true })
@@ -187,7 +281,7 @@ try {
 				await drawer.getByText("must stay hidden", { exact: true }).count(),
 				0,
 			);
-			assert.equal(artifactReads, 4, "only selected receipts are read");
+			assert.equal(artifactReads, 5, "only selected receipts are read");
 			await page.keyboard.press("Escape");
 			await page
 				.getByRole("button", { name: "Step list and evidence", exact: true })
