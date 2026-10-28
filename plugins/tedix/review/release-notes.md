@@ -1,3 +1,10 @@
+Tedix 0.2.11 — match the README's plain-English introduction.
+
+The plugin listing and host descriptions now introduce Tedix as a platform for
+agents, apps, and work. The introduction explains shared project information,
+tasks, results, and approvals, with examples for engineering teams. Skills,
+tools, and permissions are unchanged.
+
 Tedix 0.2.10 — request platform administration alongside default permissions.
 
 The OpenAI connection declares platform administration as a base scope in
