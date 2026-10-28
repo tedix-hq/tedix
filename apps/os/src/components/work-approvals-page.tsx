@@ -148,11 +148,18 @@ export function WorkApprovalsPage() {
 						Low-risk actions inside your organization run without asking. They
 						are listed here so you can check them.
 					</Text>
-					<ActivityHistory only="automatic" tediNames={inbox.tediNames} />
+					<ActivityHistory
+						canRetry={inbox.canDecide}
+						only="automatic"
+						tediNames={inbox.tediNames}
+					/>
 					<ActivityAutoApproval canChange={inbox.canDecide} />
 				</TabsContent>
 				<TabsContent className="pt-2" value="history">
-					<ActivityHistory tediNames={inbox.tediNames} />
+					<ActivityHistory
+						canRetry={inbox.canDecide}
+						tediNames={inbox.tediNames}
+					/>
 					<div className="px-4 py-3">
 						<ApprovalProvenanceHistory />
 					</div>

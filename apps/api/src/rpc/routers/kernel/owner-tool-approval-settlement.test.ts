@@ -11,6 +11,7 @@ import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
 
 const mocks = vi.hoisted(() => ({
 	claim: vi.fn(),
+	reclaim: vi.fn(),
 	record: vi.fn(),
 	receipt: vi.fn(),
 	audit: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	...(await load<object>()),
 	claimOwnerToolApprovalExecution: mocks.claim,
+	reclaimOwnerToolApprovalExecution: mocks.reclaim,
 	recordOwnerToolApprovalExecution: mocks.record,
 }));
 vi.mock("@tedix/db/queries/approval-simulations", async (load) => ({
@@ -42,6 +44,7 @@ vi.mock("@tedix/db/queries/organizations", async (load) => ({
 import {
 	ownerToolReplayAppSlug,
 	parseOwnerToolCallPayload,
+	retryOwnerToolCallExecution,
 	setOwnerToolExecutorForTest,
 	settleOwnerToolCallApproval,
 } from "./owner-tool-approval-settlement";
@@ -92,6 +95,7 @@ function approval(overrides: Partial<ApprovalRow> = {}): ApprovalRow {
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.claim.mockResolvedValue(true);
+	mocks.reclaim.mockResolvedValue(true);
 	mocks.record.mockResolvedValue(undefined);
 	mocks.receipt.mockResolvedValue({});
 	mocks.audit.mockResolvedValue(undefined);
@@ -322,5 +326,166 @@ describe("owner tool approval settlement", () => {
 		expect(resolveReplayTool(tools, "other_mail__delete")).toBeUndefined();
 		// A bare suffix is not a mount: "send" must not stand in for "mail__send".
 		expect(resolveReplayTool(tools, "example_unified__send")).toBeUndefined();
+	});
+	it("records a platform-side failure as retryable and a refusal as final", async () => {
+		mocks.executor.mockResolvedValueOnce({
+			ok: false,
+			error: 'Tool "x" is no longer available on example-unified',
+			retryable: true,
+		});
+		await settleOwnerToolCallApproval(context, {
+			approval: approval(),
+			status: "approved",
+		});
+		expect(mocks.record).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				execution: expect.objectContaining({
+					status: "failed",
+					retryable: true,
+				}),
+			}),
+		);
+		mocks.executor.mockResolvedValueOnce({
+			ok: false,
+			error: "insufficient_scope: platform:admin",
+		});
+		await settleOwnerToolCallApproval(context, {
+			approval: approval(),
+			status: "approved",
+		});
+		expect(mocks.record).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				execution: expect.objectContaining({
+					status: "failed",
+					retryable: false,
+				}),
+			}),
+		);
+	});
+});
+
+describe("owner tool approval retry", () => {
+	const failed = (
+		execution: Record<string, unknown> = {
+			status: "failed",
+			startedAt: "2026-10-28T13:23:45.692Z",
+			finishedAt: "2026-10-28T13:23:46.311Z",
+			error:
+				'Tool "example_unified_tedix__delete_descope_aih_mcp_client" is no longer available on example-unified',
+		},
+	) => approval({ payload: { ...payload, execution } });
+
+	it("runs the stored call once more and records the second attempt", async () => {
+		expect(
+			await retryOwnerToolCallExecution(context, {
+				approval: failed(),
+				retriedBy: "admin-2",
+			}),
+		).toBe("succeeded");
+		expect(mocks.reclaim).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				id: "11111111-1111-4111-8111-111111111111",
+				organizationId: "org-1",
+				retriedBy: "admin-2",
+			}),
+		);
+		expect(mocks.executor).toHaveBeenCalledTimes(1);
+		expect(mocks.executor).toHaveBeenCalledWith(
+			expect.objectContaining({
+				approvalRequestId: "11111111-1111-4111-8111-111111111111",
+				payload: expect.objectContaining({
+					appSlug: "example-unified",
+					toolId: payload.toolId,
+					args: payload.args,
+				}),
+			}),
+		);
+		expect(mocks.record).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				execution: expect.objectContaining({
+					status: "executed",
+					attempt: 2,
+					retriedBy: "admin-2",
+				}),
+			}),
+		);
+		expect(mocks.receipt).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				idempotencyKey:
+					"owner-tool-call:11111111-1111-4111-8111-111111111111:retry",
+			}),
+		);
+		expect(mocks.audit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				action: "approval.executed",
+				metadata: expect.objectContaining({ attempt: 2, retriedBy: "admin-2" }),
+			}),
+		);
+	});
+	it("re-checks requester and approver authority before the retry", async () => {
+		mocks.member.mockResolvedValueOnce({ role: "member", status: "active" });
+		expect(
+			await retryOwnerToolCallExecution(context, {
+				approval: failed(),
+				retriedBy: "admin-2",
+			}),
+		).toBe("failed");
+		expect(mocks.executor).not.toHaveBeenCalled();
+	});
+	it("refuses a second retry, a refusal by the target and a run that did not fail", async () => {
+		expect(
+			await retryOwnerToolCallExecution(context, {
+				approval: failed({
+					status: "failed",
+					startedAt: "x",
+					error: "Provider tool call failed (transport)",
+					attempt: 2,
+					retriedBy: "admin-2",
+				}),
+				retriedBy: "admin-2",
+			}),
+		).toBe("already_retried");
+		expect(
+			await retryOwnerToolCallExecution(context, {
+				approval: failed({
+					status: "failed",
+					startedAt: "x",
+					error: "insufficient_scope: platform:admin",
+					retryable: false,
+				}),
+				retriedBy: "admin-2",
+			}),
+		).toBe("not_retryable");
+		expect(
+			await retryOwnerToolCallExecution(context, {
+				approval: failed({ status: "executed", startedAt: "x" }),
+				retriedBy: "admin-2",
+			}),
+		).toBe("not_failed");
+		expect(
+			await retryOwnerToolCallExecution(context, {
+				approval: approval({ status: "expired" }),
+				retriedBy: "admin-2",
+			}),
+		).toBe("not_owner_tool_call");
+		expect(mocks.reclaim).not.toHaveBeenCalled();
+		expect(mocks.executor).not.toHaveBeenCalled();
+	});
+	it("never runs when the retry claim is lost", async () => {
+		mocks.reclaim.mockResolvedValue(false);
+		expect(
+			await retryOwnerToolCallExecution(context, {
+				approval: failed(),
+				retriedBy: "admin-2",
+			}),
+		).toBe("claim_lost");
+		expect(mocks.executor).not.toHaveBeenCalled();
+		expect(mocks.record).not.toHaveBeenCalled();
 	});
 });

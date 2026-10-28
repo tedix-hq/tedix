@@ -3,9 +3,12 @@ import { describe, expect, it } from "vite-plus/test";
 import { MCP_LIST_MAX_PAGES } from "@tedix/mcp-shared/bounded-list";
 import {
 	executeApprovedKernelWrite,
+	executeApprovedOwnerToolCall,
 	type HomeToolWritePayload,
 	type KernelWriteExecutorTimings,
 	parseHomeToolWritePayload,
+	replayToolBaseName,
+	resolveReplayCatalogEntry,
 	type WriteExecutorEnv,
 } from "./write-executor";
 
@@ -1360,5 +1363,273 @@ describe("edited write live validation", () => {
 		expect(service.calls[1]?.headers.get("X-Tedix-Acting-User")).toBe(
 			"user-123",
 		);
+	});
+});
+
+/**
+ * Owner tool approval replay. A programmatic caller's `tools/list` on a Code
+ * Mode gateway is the compact surface, so the stored native tool is found
+ * through the gateway's own catalog and matched by its wire name across the
+ * three ways a tool reaches an organization gateway.
+ */
+describe("approved owner tool call replay", () => {
+	const descope = {
+		name: "descope.delete_descope_aih_mcp_client",
+		annotations: { readOnlyHint: false, destructiveHint: true },
+		wire: {
+			name: "tedix__delete_descope_aih_mcp_client",
+			endpoint: "descopeAih/deleteMcpClient",
+		},
+	};
+	const native = {
+		name: "work.add_comment",
+		annotations: { readOnlyHint: false },
+		wire: { name: "tedix__add_comment", endpoint: "workItems/addComment" },
+	};
+	const tenantMcp = {
+		name: "notion.notion_update_page",
+		annotations: { readOnlyHint: false },
+		wire: { name: "notion__notion_update_page", endpoint: null },
+	};
+	const unbound = { name: "home.ask", annotations: { readOnlyHint: true } };
+	const catalog = [native, descope, tenantMcp, unbound];
+
+	it("matches the stored wire name, not the Code Mode namespace, for every mount type", () => {
+		// Native tedix tool on the organization gateway.
+		expect(resolveReplayCatalogEntry(catalog, "tedix__add_comment")).toBe(
+			native,
+		);
+		// Aggregated platform app: mounted as `tedix__`, projected as `descope.`.
+		expect(
+			resolveReplayCatalogEntry(
+				catalog,
+				"tedix__delete_descope_aih_mcp_client",
+			),
+		).toBe(descope);
+		// Tenant MCP app, parked through `connect` and replayed on the
+		// organization gateway under its source-qualified name.
+		expect(
+			resolveReplayCatalogEntry(
+				catalog,
+				"example_unified_notion__notion_update_page",
+			),
+		).toBe(tenantMcp);
+		expect(
+			resolveReplayCatalogEntry(catalog, "tedix__delete_something_else"),
+		).toBeUndefined();
+		expect(resolveReplayCatalogEntry(catalog, "home.ask")).toBeUndefined();
+	});
+
+	it("strips every mount prefix to the tool's own name", () => {
+		expect(replayToolBaseName("tedix__delete_descope_aih_mcp_client")).toBe(
+			"delete_descope_aih_mcp_client",
+		);
+		expect(
+			replayToolBaseName("example_unified_notion__notion_update_page"),
+		).toBe("notion_update_page");
+		expect(replayToolBaseName("add_comment")).toBe("add_comment");
+	});
+
+	function codeModeGateway(
+		entries: unknown[],
+		onCall: (params: Record<string, unknown>) => unknown,
+	) {
+		return mcpService((body) => {
+			if (body.method === "tools/list")
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: {
+							tools: [
+								{ name: "code", inputSchema: { type: "object" } },
+								{ name: "ask", inputSchema: { type: "object" } },
+							],
+						},
+					},
+				};
+			const code = String(
+				(body.params as { arguments?: { code?: string } })?.arguments?.code ??
+					"",
+			);
+			if (body.params.name === "code" && code.includes("discover.search"))
+				return {
+					json: {
+						jsonrpc: "2.0",
+						id: 1,
+						result: {
+							structuredContent: {
+								executionId: "exec-lookup",
+								result: JSON.stringify(entries),
+							},
+						},
+					},
+				};
+			return { json: onCall(body.params) };
+		});
+	}
+
+	const liveEntry = {
+		callable: "descope.delete_descope_aih_mcp_client",
+		annotations: { readOnlyHint: false, destructiveHint: true },
+		native: {
+			name: "tedix__delete_descope_aih_mcp_client",
+			toolRowId: "row-1",
+			endpoint: "descopeAih/deleteMcpClient",
+			eligible: false,
+			authorized: true,
+			schemaFreshness: {
+				source: "orpc",
+				sourceRef: "descopeAih/deleteMcpClient",
+				sourceHash: null,
+				syncedAt: null,
+			},
+		},
+	};
+
+	it("finds a native tool the compact tools/list hides and calls it by its wire name with the receipt", async () => {
+		const service = codeModeGateway([liveEntry], () => ({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { structuredContent: { success: true, id: "TPA-1" } },
+		}));
+		const timings: KernelWriteExecutorTimings = {};
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			payload: {
+				appSlug: "example-unified",
+				toolId: "tedix__delete_descope_aih_mcp_client",
+				args: { id: "TPA-1", mcpServerId: "RS-1", confirmDestructive: true },
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+			approvalRequestId: "approval-1",
+			timings,
+		});
+		expect(result).toEqual({ ok: true, data: { success: true, id: "TPA-1" } });
+		const lookup = service.calls.find(
+			(call) => call.method === "tools/call" && call.params.name === "code",
+		);
+		expect(
+			String((lookup?.params.arguments as { code: string }).code),
+		).toContain('"query":"delete_descope_aih_mcp_client"');
+		const call = service.calls.at(-1)!;
+		expect(call.params).toEqual({
+			_meta: {
+				...HOME_REQUEST_META,
+				"com.tedix/approvalRequestId": "approval-1",
+			},
+			name: "tedix__delete_descope_aih_mcp_client",
+			arguments: { id: "TPA-1", mcpServerId: "RS-1", confirmDestructive: true },
+		});
+		expect(call.headers.get("X-Tedix-Acting-User")).toBe("owner-1");
+		expect(call.headers.get("X-Tedix-Kernel")).toBe("true");
+		expect(timings.revalidateMs).toBeTypeOf("number");
+	});
+
+	it("reports an unresolvable tool as a retryable platform-side failure", async () => {
+		const service = codeModeGateway([], () => {
+			throw new Error("must not call");
+		});
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			payload: {
+				appSlug: "example-unified",
+				toolId: "tedix__delete_descope_aih_mcp_client",
+				args: {},
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+			approvalRequestId: "approval-1",
+		});
+		expect(result).toEqual({
+			ok: false,
+			error:
+				'Tool "tedix__delete_descope_aih_mcp_client" is no longer available on example-unified',
+			retryable: true,
+		});
+	});
+
+	it("keeps a target refusal final", async () => {
+		const service = codeModeGateway([liveEntry], () => ({
+			jsonrpc: "2.0",
+			id: 1,
+			result: {
+				isError: true,
+				content: [{ type: "text", text: "insufficient_scope: platform:admin" }],
+			},
+		}));
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			payload: {
+				appSlug: "example-unified",
+				toolId: "tedix__delete_descope_aih_mcp_client",
+				args: {},
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+			approvalRequestId: "approval-1",
+		});
+		expect(result).toEqual({
+			ok: false,
+			error: "insufficient_scope: platform:admin",
+		});
+	});
+
+	it("aborts a tool re-published as read-only", async () => {
+		const service = codeModeGateway(
+			[{ ...liveEntry, annotations: { readOnlyHint: true } }],
+			() => {
+				throw new Error("must not call");
+			},
+		);
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			payload: {
+				appSlug: "example-unified",
+				toolId: "tedix__delete_descope_aih_mcp_client",
+				args: {},
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+			approvalRequestId: "approval-1",
+		});
+		expect(result).toMatchObject({ ok: false });
+		expect((result as { error: string }).error).toContain("read-only");
+	});
+
+	it("uses the full catalog of a gateway without Code Mode", async () => {
+		const service = mcpService((body) =>
+			body.method === "tools/list"
+				? {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: {
+								tools: [{ name: "mail__send", annotations: {} }],
+							},
+						},
+					}
+				: {
+						json: {
+							jsonrpc: "2.0",
+							id: 1,
+							result: { structuredContent: { ok: true, id: "msg-1" } },
+						},
+					},
+		);
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			payload: {
+				appSlug: "mail",
+				toolId: "mail__send",
+				args: { to: "a@example.test" },
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+			approvalRequestId: "approval-2",
+		});
+		expect(result).toEqual({ ok: true, data: { ok: true, id: "msg-1" } });
+		expect(service.calls.at(-1)?.params.name).toBe("mail__send");
 	});
 });

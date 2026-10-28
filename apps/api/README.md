@@ -90,7 +90,9 @@ policy requires an active organization owner/admin to request approval and an
 active owner/admin approver at retry. Build access alone is insufficient.
 Standing OS rules use the existing rule sweep and canonical resolution path.
 Pending, rejected, cancelled, expired and consumed requests never dispatch.
-An approved request permits one identical retry before its 24-hour expiry.
+Approving runs the stored call once before its 24-hour expiry; a run the
+platform itself failed (tool lookup, transport) can be tried again once by an
+owner or admin (`tediApprovals.retryExecution`, "Try again" in Activity).
 The approval fingerprint includes the app revision, slot, live resource,
 account grant, tool configuration and provider arguments; changing any of these
 requires a new approval.

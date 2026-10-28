@@ -753,6 +753,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tediApprovals/promoteProvisionalOutcome": "mcp:tedis.write",
 	"tediApprovals/requestProvisionalOutcomePromotion": "platform:admin",
 	"tediApprovals/resolve": "mcp:tedis.write",
+	"tediApprovals/retryExecution": "mcp:tedis.write",
 	"tediApprovals/resolveReviewManifest": "mcp:tedis.write",
 	"tediApprovals/rollbackProvisionalOutcome": "mcp:tedis.write",
 	// Tenant mailbox self-serve: API guard is withAuthorization("tedis:update",

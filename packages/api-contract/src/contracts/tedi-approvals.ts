@@ -582,6 +582,21 @@ export const tediApprovalsContract = oc
 			.output(ApprovalRequestSchema),
 
 		/**
+		 * Run an approved gateway call once more after a platform-side failure
+		 * POST /tedi-approvals/{id}/retry-execution
+		 */
+		retryExecution: oc
+			.route({
+				method: "POST",
+				path: "/{id}/retry-execution",
+				summary: "Try an approved call again",
+				description:
+					"Runs an approved gateway call (an owner's tool call parked for approval) once more after its first run failed on the platform's side, such as a tool lookup or transport error. Only an owner or admin may retry, only once per request, and only while the request is still approved and within its window. A call the target refused, a target that changed, or a run that already happened is not retried. The result is recorded on the request.",
+			})
+			.input(z.object({ id: z.uuid() }))
+			.output(ApprovalRequestSchema),
+
+		/**
 		 * Close every request in the caller's organization whose window has passed
 		 * POST /tedi-approvals/clear-expired
 		 */

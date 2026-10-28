@@ -653,6 +653,50 @@ export interface OwnerToolApprovalExecution {
 	/** Plain-language result for people: "Client deleted", "Scope 'x' required". */
 	summary?: string;
 	error?: string;
+	/**
+	 * A failure the platform caused (catalog lookup, transport) rather than
+	 * the target refusing or changing; an owner may try the call once more.
+	 */
+	retryable?: boolean;
+	/** Set on the one retry an owner or admin started; absent on the first run. */
+	attempt?: 2;
+	retriedBy?: string;
+}
+
+/**
+ * Claim the single retry of a failed platform-side execution. Only an
+ * approved, unexpired, unconsumed request whose first run failed and was never
+ * retried wins; the losing side of any race never executes.
+ */
+export async function reclaimOwnerToolApprovalExecution(
+	db: DbClient,
+	input: { id: string; organizationId: string; now: string; retriedBy: string },
+): Promise<boolean> {
+	const execution: OwnerToolApprovalExecution = {
+		status: "running",
+		startedAt: input.now,
+		attempt: 2,
+		retriedBy: input.retriedBy,
+	};
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(execution)}))`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "approved"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				gt(tediApprovalRequests.expiresAt, input.now),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.attempt') IS NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length === 1;
 }
 
 /**

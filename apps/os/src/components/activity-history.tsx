@@ -1,20 +1,32 @@
-import { ClockCounterClockwise } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import {
+	ArrowCounterClockwise,
+	ClockCounterClockwise,
+} from "@phosphor-icons/react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ActivityItem } from "@tedix/api-contract/schemas/analytics";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
+import {
+	isRetryableOwnerToolExecution,
+	ownerToolExecutionOutcome,
+	parseOwnerToolExecution,
+} from "@tedix/api-contract/utils/owner-tool-execution";
 import { useState } from "react";
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
+import { osApi } from "@/lib/api";
 import { appLabel, plainApprovalTitle } from "@/lib/approval-titles";
 import {
 	approvalHistoryQueryOptions,
+	osQueryKeys,
 	recentToolActivityQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
+import { errorMessage } from "@/lib/orpc-error";
 
 export type HistoryFilter = "all" | "approvals" | "actions" | "automatic";
 
@@ -33,6 +45,8 @@ export type HistoryEntry = {
 	how: string | null;
 	at: string;
 	href: { label: string; to: string } | null;
+	/** An approved call the platform failed to run; an owner may try it once more. */
+	retry?: { approvalId: string };
 };
 
 const HISTORY_FILTERS: readonly { value: HistoryFilter; label: string }[] = [
@@ -78,15 +92,7 @@ function payloadString(
 export function approvalExecutionOutcome(
 	payload: Record<string, unknown>,
 ): string | null {
-	const execution = payload.execution;
-	if (!execution || typeof execution !== "object") return null;
-	const { status, summary, error } = execution as Record<string, unknown>;
-	if (status === "executed")
-		return `Done${typeof summary === "string" && summary ? `: ${summary}` : ""}`;
-	if (status === "failed")
-		return `Failed${typeof error === "string" && error ? `: ${error}` : ""}`;
-	if (status === "running") return "Running now";
-	return null;
+	return ownerToolExecutionOutcome(parseOwnerToolExecution(payload.execution));
 }
 
 /** Decided, expired and cancelled requests as History rows (pending stays in Needs review). */
@@ -99,7 +105,11 @@ export function approvalHistoryEntries(
 		const automatic = isAutomaticApproval(approval);
 		const payload = approval.payload as Record<string, unknown>;
 		const conversationId = payloadString(payload, "conversationId");
-		const execution = approvalExecutionOutcome(payload);
+		const executionRecord = parseOwnerToolExecution(payload.execution);
+		const execution = ownerToolExecutionOutcome(executionRecord);
+		const retry = isRetryableOwnerToolExecution(executionRecord)
+			? { approvalId: approval.id }
+			: undefined;
 		const how = execution
 			? execution
 			: automatic
@@ -134,6 +144,7 @@ export function approvalHistoryEntries(
 							to: `/chat?conversation=${encodeURIComponent(conversationId)}`,
 						}
 					: null,
+				...(retry ? { retry } : {}),
 			},
 		];
 	});
@@ -203,10 +214,13 @@ const EMPTY_COPY: Record<HistoryFilter, { title: string; body: string }> = {
 export function ActivityHistory({
 	tediNames,
 	only,
+	canRetry = false,
 }: {
 	tediNames: Record<string, string>;
 	/** Show one kind of entry and no filter control. */
 	only?: Exclude<HistoryFilter, "all">;
+	/** The signed-in person may try a failed approved call again (owner or admin). */
+	canRetry?: boolean;
 }) {
 	const [chosen, setFilter] = useState<HistoryFilter>("all");
 	const filter = only ?? chosen;
@@ -275,7 +289,7 @@ export function ActivityHistory({
 			) : (
 				<ol aria-label="Approvals history" className="m-0 grid list-none p-0">
 					{entries.map((entry) => (
-						<HistoryRow entry={entry} key={entry.key} />
+						<HistoryRow canRetry={canRetry} entry={entry} key={entry.key} />
 					))}
 				</ol>
 			)}
@@ -288,11 +302,23 @@ export function ActivityHistory({
 	);
 }
 
-function HistoryRow({ entry }: { entry: HistoryEntry }) {
+function HistoryRow({
+	entry,
+	canRetry,
+}: {
+	entry: HistoryEntry;
+	canRetry: boolean;
+}) {
 	const title = sanitizeUntrustedText(entry.title);
 	const context = [entry.who, entry.where && `in ${entry.where}`]
 		.filter(Boolean)
 		.join(" ");
+	const queryClient = useQueryClient();
+	const retry = useMutation({
+		mutationFn: (id: string) => osApi.tediApprovals.retryExecution({ id }),
+		onSettled: () =>
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
+	});
 	return (
 		<li className="grid min-w-0 gap-1 border-b border-kumo-hairline px-4 py-2.5 last:border-b-0">
 			<div className="flex min-w-0 items-start gap-2">
@@ -322,6 +348,24 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
 				<Text as="p" className="m-0 break-words" role="label" tone="secondary">
 					{sanitizeUntrustedText(entry.how)}
 				</Text>
+			) : null}
+			{entry.retry && canRetry ? (
+				<div className="flex min-w-0 flex-wrap items-center gap-2">
+					<Button
+						disabled={retry.isPending}
+						icon={<ArrowCounterClockwise size={14} />}
+						onClick={() => retry.mutate(entry.retry!.approvalId)}
+						size="sm"
+						variant="secondary"
+					>
+						{retry.isPending ? "Trying again…" : "Try again"}
+					</Button>
+					{retry.isError ? (
+						<Text as="span" className="min-w-0" role="label" tone="error">
+							{sanitizeUntrustedText(errorMessage(retry.error))}
+						</Text>
+					) : null}
+				</div>
 			) : null}
 		</li>
 	);

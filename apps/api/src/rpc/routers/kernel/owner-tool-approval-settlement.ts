@@ -15,10 +15,12 @@
  * never claimed, so it never runs.
  */
 
+import { isRetryableOwnerToolExecution } from "@tedix/api-contract/utils/owner-tool-execution";
 import { recordApprovalExecutionReceipt } from "@tedix/db/queries/approval-simulations";
 import {
 	claimOwnerToolApprovalExecution,
 	type OwnerToolApprovalExecution,
+	reclaimOwnerToolApprovalExecution,
 	recordOwnerToolApprovalExecution,
 } from "@tedix/db/queries/approvals";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
@@ -151,6 +153,179 @@ async function activeOwnerOrAdmin(
 	);
 }
 
+type OwnerToolRunOutcome = "succeeded" | "failed";
+
+/**
+ * One claimed run of the stored call: apply-time access checks, the gateway
+ * replay, and the record on the request, the receipt and the audit event.
+ */
+async function runOwnerToolCall(
+	context: BaseContext,
+	input: {
+		approval: typeof tediApprovalRequests.$inferSelect;
+		payload: OwnerToolCallPayload;
+		startedAt: string;
+		retry?: { retriedBy: string };
+	},
+): Promise<OwnerToolRunOutcome> {
+	const { approval, payload, startedAt } = input;
+	const organizationId = approval.orgId;
+	const attempt: Pick<OwnerToolApprovalExecution, "attempt" | "retriedBy"> =
+		input.retry ? { attempt: 2, retriedBy: input.retry.retriedBy } : {};
+
+	const finish = async (
+		execution: Omit<
+			OwnerToolApprovalExecution,
+			"startedAt" | "attempt" | "retriedBy"
+		>,
+		observed:
+			| { outcome: "succeeded"; data: unknown }
+			| { outcome: "failed"; error: string },
+	): Promise<OwnerToolRunOutcome> => {
+		const finishedAt = nowIso();
+		const record: OwnerToolApprovalExecution = {
+			...execution,
+			...attempt,
+			startedAt,
+			finishedAt,
+		};
+		await recordOwnerToolApprovalExecution(context.db, {
+			id: approval.id,
+			organizationId,
+			execution: record,
+		});
+		const canonicalInputHash = `sha256:${await canonicalDigest({
+			appSlug: payload.appSlug,
+			toolId: payload.toolId,
+			args: payload.args,
+		})}`;
+		const receiptFields = {
+			approvalRequestId: approval.id,
+			canonicalInputHash,
+			baselineFenceOutcome: "not_checked" as const,
+			...(observed.outcome === "succeeded"
+				? {
+						outcome: "succeeded" as const,
+						observedResult: toJsonRecord({
+							summary: record.summary ?? null,
+							result: observed.data ?? null,
+						}),
+					}
+				: {
+						outcome: "failed" as const,
+						observedError: {
+							code: "owner_tool_call_failed",
+							message: observed.error.slice(0, 500),
+							retryable: isRetryableOwnerToolExecution(record),
+						},
+					}),
+			providerReceiptRefs: [],
+			executedAt: finishedAt,
+		};
+		try {
+			await recordApprovalExecutionReceipt(context.db, {
+				id: crypto.randomUUID(),
+				organizationId,
+				idempotencyKey: `owner-tool-call:${approval.id}${input.retry ? ":retry" : ""}`,
+				recordHash: `sha256:${await canonicalDigest(receiptFields)}`,
+				createdAt: finishedAt,
+				...receiptFields,
+			});
+		} catch (error) {
+			console.warn("[approvals] owner tool call receipt failed", {
+				approvalRequestId: approval.id,
+				error: errorMessage(error),
+			});
+		}
+		await insertAuditEvent(context.db, {
+			organizationId,
+			actorId: payload.initiatedByUserId,
+			actorType: "user",
+			action:
+				observed.outcome === "succeeded"
+					? "approval.executed"
+					: "approval.execution_failed",
+			resourceType: "approval_request",
+			resourceId: approval.id,
+			metadata: toJsonRecord({
+				source: "approvals.settleOwnerToolCallApproval",
+				appSlug: payload.appSlug,
+				toolId: payload.toolId,
+				approvedBy: approval.resolvedBy,
+				...attempt,
+				...(record.summary ? { summary: record.summary } : {}),
+				...(record.error ? { error: record.error } : {}),
+			}),
+		}).catch((error) => {
+			console.warn("[approvals] owner tool call audit failed", {
+				approvalRequestId: approval.id,
+				error: errorMessage(error),
+			});
+		});
+		return observed.outcome;
+	};
+	const fail = (error: string, retryable = false) =>
+		finish(
+			{ status: "failed", error, retryable },
+			{ outcome: "failed", error },
+		);
+
+	try {
+		// Apply-time access: the requester still holds the authority that parked
+		// the call, and the person who approved it still may approve. The
+		// gateway repeats both checks when it consumes the approval.
+		if (
+			!(await activeOwnerOrAdmin(
+				context,
+				organizationId,
+				payload.initiatedByUserId,
+			))
+		)
+			return fail("The requester is no longer an active owner or admin");
+		const approvedBy = approvingUserId(approval.resolvedBy);
+		if (
+			!approvedBy ||
+			!(await activeOwnerOrAdmin(context, organizationId, approvedBy))
+		)
+			return fail("The approver is no longer an active owner or admin");
+		const organization = await getOrganizationById(context.db, organizationId);
+		if (!organization) return fail("Organization not found");
+		const timings: KernelWriteExecutorTimings = {};
+		const result = await activeOwnerToolExecutor({
+			env: context.env as unknown as WriteExecutorEnv,
+			payload: {
+				appSlug: ownerToolReplayAppSlug({
+					appSlug: payload.appSlug,
+					organizationId,
+					organizationSlug: organization.slug,
+				}),
+				toolId: payload.toolId,
+				args: payload.args,
+				organizationId,
+				initiatedByUserId: payload.initiatedByUserId,
+			},
+			approvalRequestId: approval.id,
+			timings,
+		});
+		if (result.ok)
+			return finish(
+				{
+					status: "executed",
+					summary: ownerToolExecutionSummary(payload.toolId, result.data),
+				},
+				{ outcome: "succeeded", data: result.data },
+			);
+		return fail(result.error.slice(0, 500), result.retryable === true);
+	} catch (error) {
+		const message = errorMessage(error);
+		console.warn("[approvals] owner tool call settle failed", {
+			approvalRequestId: approval.id,
+			error: message,
+		});
+		return fail(message.slice(0, 500), true);
+	}
+}
+
 /**
  * Run the stored call once after approval. Returns `not_applicable` for every
  * other payload kind and for a non-approving decision; `unknown` when the
@@ -172,182 +347,62 @@ export async function settleOwnerToolCallApproval(
 			: payload.execution.status === "failed"
 				? "failed"
 				: "unknown";
-	const organizationId = input.approval.orgId;
 	const startedAt = nowIso();
 	const claimed = await claimOwnerToolApprovalExecution(context.db, {
 		id: input.approval.id,
-		organizationId,
+		organizationId: input.approval.orgId,
 		now: startedAt,
 	});
 	if (!claimed) return "unknown";
+	return runOwnerToolCall(context, {
+		approval: input.approval,
+		payload,
+		startedAt,
+	});
+}
 
-	const finish = async (
-		execution: Omit<OwnerToolApprovalExecution, "startedAt">,
-		observed:
-			| { outcome: "succeeded"; data: unknown }
-			| { outcome: "failed"; error: string },
-	): Promise<"succeeded" | "failed"> => {
-		const finishedAt = nowIso();
-		const record: OwnerToolApprovalExecution = {
-			...execution,
-			startedAt,
-			finishedAt,
-		};
-		await recordOwnerToolApprovalExecution(context.db, {
-			id: input.approval.id,
-			organizationId,
-			execution: record,
-		});
-		const canonicalInputHash = `sha256:${await canonicalDigest({
-			appSlug: payload.appSlug,
-			toolId: payload.toolId,
-			args: payload.args,
-		})}`;
-		const receiptFields = {
-			approvalRequestId: input.approval.id,
-			canonicalInputHash,
-			baselineFenceOutcome: "not_checked" as const,
-			...(observed.outcome === "succeeded"
-				? {
-						outcome: "succeeded" as const,
-						observedResult: toJsonRecord({
-							summary: record.summary ?? null,
-							result: observed.data ?? null,
-						}),
-					}
-				: {
-						outcome: "failed" as const,
-						observedError: {
-							code: "owner_tool_call_failed",
-							message: observed.error.slice(0, 500),
-							retryable: false,
-						},
-					}),
-			providerReceiptRefs: [],
-			executedAt: finishedAt,
-		};
-		try {
-			await recordApprovalExecutionReceipt(context.db, {
-				id: crypto.randomUUID(),
-				organizationId,
-				idempotencyKey: `owner-tool-call:${input.approval.id}`,
-				recordHash: `sha256:${await canonicalDigest(receiptFields)}`,
-				createdAt: finishedAt,
-				...receiptFields,
-			});
-		} catch (error) {
-			console.warn("[approvals] owner tool call receipt failed", {
-				approvalRequestId: input.approval.id,
-				error: errorMessage(error),
-			});
-		}
-		await insertAuditEvent(context.db, {
-			organizationId,
-			actorId: payload.initiatedByUserId,
-			actorType: "user",
-			action:
-				observed.outcome === "succeeded"
-					? "approval.executed"
-					: "approval.execution_failed",
-			resourceType: "approval_request",
-			resourceId: input.approval.id,
-			metadata: toJsonRecord({
-				source: "approvals.settleOwnerToolCallApproval",
-				appSlug: payload.appSlug,
-				toolId: payload.toolId,
-				approvedBy: input.approval.resolvedBy,
-				...(record.summary ? { summary: record.summary } : {}),
-				...(record.error ? { error: record.error } : {}),
-			}),
-		}).catch((error) => {
-			console.warn("[approvals] owner tool call audit failed", {
-				approvalRequestId: input.approval.id,
-				error: errorMessage(error),
-			});
-		});
-		return observed.outcome;
-	};
+export type OwnerToolRetryRefusal =
+	| "not_owner_tool_call"
+	| "not_failed"
+	| "not_retryable"
+	| "already_retried"
+	| "claim_lost";
 
-	try {
-		// Apply-time access: the requester still holds the authority that parked
-		// the call, and the person who approved it still may approve. The
-		// gateway repeats both checks when it consumes the approval.
-		if (
-			!(await activeOwnerOrAdmin(
-				context,
-				organizationId,
-				payload.initiatedByUserId,
-			))
-		)
-			return finish(
-				{
-					status: "failed",
-					error: "The requester is no longer an active owner or admin",
-				},
-				{
-					outcome: "failed",
-					error: "The requester is no longer an active owner or admin",
-				},
-			);
-		const approvedBy = approvingUserId(input.approval.resolvedBy);
-		if (
-			!approvedBy ||
-			!(await activeOwnerOrAdmin(context, organizationId, approvedBy))
-		)
-			return finish(
-				{
-					status: "failed",
-					error: "The approver is no longer an active owner or admin",
-				},
-				{
-					outcome: "failed",
-					error: "The approver is no longer an active owner or admin",
-				},
-			);
-		const organization = await getOrganizationById(context.db, organizationId);
-		if (!organization)
-			return finish(
-				{ status: "failed", error: "Organization not found" },
-				{ outcome: "failed", error: "Organization not found" },
-			);
-		const timings: KernelWriteExecutorTimings = {};
-		const result = await activeOwnerToolExecutor({
-			env: context.env as unknown as WriteExecutorEnv,
-			payload: {
-				appSlug: ownerToolReplayAppSlug({
-					appSlug: payload.appSlug,
-					organizationId,
-					organizationSlug: organization.slug,
-				}),
-				toolId: payload.toolId,
-				args: payload.args,
-				organizationId,
-				initiatedByUserId: payload.initiatedByUserId,
-			},
-			approvalRequestId: input.approval.id,
-			timings,
-		});
-		if (result.ok)
-			return finish(
-				{
-					status: "executed",
-					summary: ownerToolExecutionSummary(payload.toolId, result.data),
-				},
-				{ outcome: "succeeded", data: result.data },
-			);
-		return finish(
-			{ status: "failed", error: result.error.slice(0, 500) },
-			{ outcome: "failed", error: result.error },
-		);
-	} catch (error) {
-		const message = errorMessage(error);
-		console.warn("[approvals] owner tool call settle failed", {
-			approvalRequestId: input.approval.id,
-			error: message,
-		});
-		return finish(
-			{ status: "failed", error: message.slice(0, 500) },
-			{ outcome: "failed", error: message },
-		);
-	}
+/**
+ * Try a failed platform-side execution once more, for an owner or admin. The
+ * same re-check-then-run-once rules apply: the request must still be approved
+ * and unexpired, requester and approver must still hold authority, and the
+ * gateway re-matches and consumes the approval. Returns the run outcome, or
+ * why the retry was refused without running anything.
+ */
+export async function retryOwnerToolCallExecution(
+	context: BaseContext,
+	input: {
+		approval: typeof tediApprovalRequests.$inferSelect;
+		retriedBy: string;
+	},
+): Promise<OwnerToolRunOutcome | OwnerToolRetryRefusal> {
+	if (input.approval.actionType !== "mcp.tool_call")
+		return "not_owner_tool_call";
+	const payload = parseOwnerToolCallPayload(input.approval.payload);
+	if (!payload || input.approval.status !== "approved")
+		return "not_owner_tool_call";
+	const execution = payload.execution;
+	if (!execution || execution.status !== "failed") return "not_failed";
+	if (execution.attempt !== undefined) return "already_retried";
+	if (!isRetryableOwnerToolExecution(execution)) return "not_retryable";
+	const startedAt = nowIso();
+	const claimed = await reclaimOwnerToolApprovalExecution(context.db, {
+		id: input.approval.id,
+		organizationId: input.approval.orgId,
+		now: startedAt,
+		retriedBy: input.retriedBy,
+	});
+	if (!claimed) return "claim_lost";
+	return runOwnerToolCall(context, {
+		approval: input.approval,
+		payload,
+		startedAt,
+		retry: { retriedBy: input.retriedBy },
+	});
 }

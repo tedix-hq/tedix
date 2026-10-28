@@ -157,4 +157,56 @@ describe("approvalOutcome", () => {
 			"Rejected: 2 requests: Create work items. Nothing ran.",
 		);
 	});
+	it("reports how an approved tool call ran, from the resolved request", () => {
+		const request = runtimeRequest(5, 4);
+		const item = runtimeApprovalItem(
+			{
+				...request,
+				actionType: "mcp.tool_call",
+				description: "Delete descope aih mcp client",
+				payload: {
+					kind: "mcp_tool_call",
+					appSlug: "example-unified",
+					toolId: "tedix__delete_descope_aih_mcp_client",
+					args: { id: "TPA-1" },
+				},
+				review: { ...request.review, summary: "Delete descope aih mcp client" },
+			} as Parameters<typeof runtimeApprovalItem>[0],
+			{},
+		);
+		expect(item.afterApprove).toBe("It runs once now.");
+		expect(approvalOutcome([item], "approved").message).toBe(
+			"Approved: Delete descope aih mcp client. It runs once now.",
+		);
+		expect(
+			approvalOutcome([item], "approved", [
+				{ status: "executed", startedAt: "x", summary: "Client deleted" },
+			]).message,
+		).toBe("Done: Delete descope aih mcp client. Client deleted.");
+		expect(
+			approvalOutcome([item, item], "approved", [
+				{ status: "executed", startedAt: "x" },
+				{
+					status: "failed",
+					startedAt: "x",
+					error: "Provider tool call failed (transport)",
+					retryable: true,
+				},
+			]).message,
+		).toBe(
+			"Failed: 1 of 2 requests: Delete descope aih mcp client. Provider tool call failed (transport). Try again from Activity.",
+		);
+		expect(
+			approvalOutcome([item], "approved", [
+				{
+					status: "failed",
+					startedAt: "x",
+					error: "insufficient_scope: platform:admin",
+					retryable: false,
+				},
+			]).message,
+		).toBe(
+			"Failed: Delete descope aih mcp client. insufficient_scope: platform:admin. Request a new approval.",
+		);
+	});
 });
