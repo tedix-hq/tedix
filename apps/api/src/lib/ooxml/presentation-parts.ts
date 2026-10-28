@@ -1,9 +1,11 @@
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationTheme,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	slideArrowEndpoints,
+	slideThemeFontFamily,
 	slideTone,
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
@@ -11,6 +13,7 @@ import {
 export function pptxSlideParts(
 	slide: OsPresentationCanvasSlide,
 	organization: PresentationAppearance,
+	theme?: OsPresentationTheme,
 ): OsPresentationElement[] {
 	const parts: OsPresentationElement[] = [];
 	if (slide.backgroundImage)
@@ -58,6 +61,7 @@ export function pptxSlideParts(
 			...element,
 			style: {
 				...element.style,
+				fontFamily: slideThemeFontFamily(element, theme),
 				background:
 					element.style.background ??
 					(container || pill ? tone.fill : undefined),
@@ -157,7 +161,7 @@ export function pptxSlideParts(
 						height,
 						text: part.text,
 						style: {
-							fontFamily: element.style.fontFamily,
+							fontFamily: resolved.style.fontFamily,
 							fontSize: part.size,
 							fontWeight: part.weight,
 							color: part.color,
@@ -180,6 +184,7 @@ export function pptxSlideParts(
 					height: 18,
 					text: element.props.label,
 					style: {
+						fontFamily: resolved.style.fontFamily,
 						fontSize: 12,
 						fontWeight: "semibold",
 						textAlign: "center",

@@ -438,7 +438,11 @@ export function SlideList({
 								>
 									{String(index + 1).padStart(2, "0")}
 								</Text>
-								<ReadOnlySlide slide={slide} className="slide-thumb-canvas" />
+								<ReadOnlySlide
+									slide={slide}
+									className="slide-thumb-canvas"
+									theme={deck.theme}
+								/>
 								<Text as="span" className="block wrap-anywhere" role="caption">
 									{label}
 								</Text>

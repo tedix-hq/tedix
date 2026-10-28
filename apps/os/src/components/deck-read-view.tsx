@@ -105,6 +105,7 @@ export function DeckReadView({
 							<ReadOnlySlide
 								slide={candidate}
 								className="deck-read-thumb-canvas"
+								theme={deck.theme}
 							/>
 							<span className="deck-read-thumb-name">
 								<span className="deck-read-thumb-number">
@@ -124,6 +125,7 @@ export function DeckReadView({
 					<ReadOnlySlide
 						slide={slide}
 						className="deck-read-canvas relative overflow-hidden rounded-md"
+						theme={deck.theme}
 					/>
 				</div>
 				<div className="deck-read-footer grid justify-items-center gap-3">

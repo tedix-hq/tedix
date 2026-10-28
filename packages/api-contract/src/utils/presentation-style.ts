@@ -1,6 +1,7 @@
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationTheme,
 } from "../schemas/os-workspaces";
 import {
 	DEFAULT_ORGANIZATION_OS_THEME,
@@ -63,11 +64,29 @@ export function presentationCanvasLength(value: number): string {
 	return `calc(${value} * 100cqw / 1200)`;
 }
 
+/**
+ * The font stack an element renders with: its own override first, then the
+ * deck theme — `headingFont` for title and subtitle elements, `bodyFont` for
+ * every other text-bearing element.
+ */
+export function slideThemeFontFamily(
+	element: Pick<OsPresentationElement, "type" | "style">,
+	theme: OsPresentationTheme | undefined,
+): string | undefined {
+	return (
+		element.style?.fontFamily ??
+		(element.type === "title" || element.type === "subtitle"
+			? theme?.headingFont
+			: theme?.bodyFont)
+	);
+}
+
 /** Shared by slide editors, viewers and fixed-size PDF/PNG exports. */
 export function slideElementStyle(
 	element: OsPresentationElement,
 	sizing: "canvas" | "pixels" = "canvas",
 	organization: PresentationAppearance = {},
+	theme?: OsPresentationTheme,
 ) {
 	const { style } = element;
 	const box = slideElementBox(element);
@@ -86,7 +105,7 @@ export function slideElementStyle(
 			sizing === "pixels" ? length(box.width) : `${(box.width / 1200) * 100}%`,
 		height:
 			sizing === "pixels" ? length(box.height) : `${(box.height / 675) * 100}%`,
-		fontFamily: style.fontFamily ?? "Arial, sans-serif",
+		fontFamily: slideThemeFontFamily(element, theme) ?? "Arial, sans-serif",
 		fontSize: length(fontSize),
 		lineHeight: style.lineHeight ?? (fontSize >= 40 ? 1.1 : 1.3),
 		fontWeight:

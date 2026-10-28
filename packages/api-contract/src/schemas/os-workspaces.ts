@@ -1261,10 +1261,37 @@ export const OsPresentationCanvasSlideSchema = z.object({
 		.describe("Speaker notes; omitted when the author added none"),
 });
 
+/**
+ * Deck-level typography: the font stacks a whole deck falls back to, named the
+ * way PowerPoint's theme splits them — one for titles, one for everything
+ * else. An element's own `style.fontFamily` always wins over these.
+ */
+export const OsPresentationThemeSchema = z
+	.object({
+		headingFont: z
+			.string()
+			.max(120)
+			.optional()
+			.describe(
+				"CSS font stack applied to title and subtitle elements; omitted for the presentation default",
+			),
+		bodyFont: z
+			.string()
+			.max(120)
+			.optional()
+			.describe(
+				"CSS font stack applied to every other text element; omitted for the presentation default",
+			),
+	})
+	.strict();
+
 export const OsPresentationDeckSchema = z.object({
 	width: z.literal(1_200).default(1_200),
 	height: z.literal(675).default(675),
 	activeSlideId: z.string().min(1).max(80),
+	theme: OsPresentationThemeSchema.optional().describe(
+		"Deck-level font defaults shared by every slide; omitted for the presentation default",
+	),
 	slides: z.array(OsPresentationCanvasSlideSchema).max(200),
 });
 
@@ -2583,6 +2610,7 @@ export type OsPresentationCanvasSlide = z.infer<
 	typeof OsPresentationCanvasSlideSchema
 >;
 export type OsPresentationDeck = z.infer<typeof OsPresentationDeckSchema>;
+export type OsPresentationTheme = z.infer<typeof OsPresentationThemeSchema>;
 export type OsOutputContent = z.infer<typeof OsOutputContentSchema>;
 export type OsOutput = z.infer<typeof OsOutputSchema>;
 export type OsOutputRevision = z.infer<typeof OsOutputRevisionSchema>;

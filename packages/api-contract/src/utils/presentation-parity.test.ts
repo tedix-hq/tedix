@@ -117,6 +117,30 @@ describe("presentation parity", () => {
 		expect(markup).toContain('<strong style="font-weight:700">C++</strong>');
 		expect(markup).toContain("&lt;tag&gt;");
 	});
+	it("falls back to deck theme fonts and keeps element overrides first", () => {
+		const theme = {
+			headingFont: "Space Grotesk, sans-serif",
+			bodyFont: "Inter, sans-serif",
+		};
+		expect(
+			slideElementStyle({ ...element, type: "title" }, "pixels", {}, theme)
+				.fontFamily,
+		).toBe(theme.headingFont);
+		expect(slideElementStyle(element, "pixels", {}, theme).fontFamily).toBe(
+			theme.bodyFont,
+		);
+		expect(
+			slideElementStyle(
+				{ ...element, style: { fontFamily: "JetBrains Mono, monospace" } },
+				"pixels",
+				{},
+				theme,
+			).fontFamily,
+		).toBe("JetBrains Mono, monospace");
+		expect(slideElementStyle(element, "pixels").fontFamily).toBe(
+			"Arial, sans-serif",
+		);
+	});
 	it("uses organization tone overrides and deterministic semantic defaults", () => {
 		expect(slideTone("success", organization).color).toBe("#116633");
 		expect(slideTone("accent", organization).color).toBe(

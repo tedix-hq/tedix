@@ -23,6 +23,7 @@ import type {
 	OsOutputRevision,
 	OsPresentationElement,
 	OsPresentationSlide,
+	OsPresentationTheme,
 	OsRichTextNode,
 	OsSheetCell,
 } from "@tedix/api-contract/schemas/os-workspaces";
@@ -325,13 +326,14 @@ function renderWorkbook(
 function renderDeckElement(
 	element: OsPresentationElement,
 	organization: PresentationAppearance,
+	theme?: OsPresentationTheme,
 ): string {
 	const source = element.src;
 	const safe =
 		source && !isExportImage(source) ? { ...element, src: undefined } : element;
 	const declarations = slideCss({
 		position: "absolute",
-		...slideElementStyle(element, "pixels", organization),
+		...slideElementStyle(element, "pixels", organization, theme),
 		whiteSpace: "pre-wrap",
 		overflowWrap: "break-word",
 		overflow: "hidden",
@@ -354,7 +356,7 @@ function renderDeck(
 	return content.deck.slides
 		.map(
 			(slide) =>
-				`<section class="canvas-slide" style="${slideCss({ background: slide.background })}">${slideBackgroundMarkup({ ...slide, backgroundImage: slide.backgroundImage && isExportImage(slide.backgroundImage) ? slide.backgroundImage : undefined }, "pixels", safeOrganization)}${slide.elements.map((element) => renderDeckElement(element, safeOrganization)).join("")}</section>`,
+				`<section class="canvas-slide" style="${slideCss({ background: slide.background })}">${slideBackgroundMarkup({ ...slide, backgroundImage: slide.backgroundImage && isExportImage(slide.backgroundImage) ? slide.backgroundImage : undefined }, "pixels", safeOrganization)}${slide.elements.map((element) => renderDeckElement(element, safeOrganization, content.deck!.theme)).join("")}</section>`,
 		)
 		.join("");
 }
@@ -479,6 +481,12 @@ function collectExportFonts(content: OsOutputContent) {
 		}
 	};
 	if (content.kind === "presentation") {
+		// Deck theme fonts come first so they keep their slot inside the family cap.
+		for (const stack of [
+			content.deck?.theme?.headingFont,
+			content.deck?.theme?.bodyFont,
+		])
+			for (const weight of [300, 400, 500, 600, 700]) add(stack, weight);
 		for (const slide of content.deck?.slides ?? []) {
 			for (const { style, text, props, type } of slide.elements) {
 				add(

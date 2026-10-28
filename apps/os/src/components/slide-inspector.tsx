@@ -12,6 +12,7 @@ import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
 	OsPresentationElementType,
+	OsPresentationTheme,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/kumo/button";
@@ -376,6 +377,59 @@ function InspectorField({
 	}
 }
 
+function ThemeFontField({
+	label,
+	value,
+	disabled,
+	onChange,
+}: {
+	label: string;
+	value: string | undefined;
+	disabled?: boolean;
+	onChange: (font: string | undefined) => void;
+}) {
+	const options: readonly (readonly [string, string])[] = [
+		[DEFAULT_FONT, "Default"],
+		...SLIDE_FONT_FAMILIES.map(([name, stack]) => [stack, name] as const),
+		...(value && !SLIDE_FONT_FAMILIES.some(([, stack]) => stack === value)
+			? [[value, value.split(",")[0]!] as const]
+			: []),
+	];
+	return (
+		<SlideField label={label}>
+			<Select
+				disabled={disabled}
+				value={value ?? DEFAULT_FONT}
+				onValueChange={(next) => {
+					if (typeof next === "string")
+						onChange(next === DEFAULT_FONT ? undefined : next);
+				}}
+			>
+				<SelectTrigger aria-label={label}>
+					<SelectValue>
+						{(current: string) =>
+							options.find(([option]) => option === current)?.[1] ?? current
+						}
+					</SelectValue>
+				</SelectTrigger>
+				<SelectContent>
+					{options.map(([option, name]) => (
+						<SelectItem
+							key={option}
+							value={option}
+							style={
+								option !== DEFAULT_FONT ? { fontFamily: option } : undefined
+							}
+						>
+							{name}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+		</SlideField>
+	);
+}
+
 /**
  * The image element's focal controls: a drag mode on the canvas, two sliders
  * for keyboard-precise positioning, and a center reset. The focal point is
@@ -474,6 +528,8 @@ export function SlideInspector({
 	cropping,
 	canMoveForward,
 	canMoveBackward,
+	theme,
+	onChangeTheme,
 	onChangeSlide,
 	onChangeElement,
 	onAction,
@@ -492,6 +548,8 @@ export function SlideInspector({
 	cropping?: boolean;
 	canMoveForward: boolean;
 	canMoveBackward: boolean;
+	theme?: OsPresentationTheme;
+	onChangeTheme?: (theme: OsPresentationTheme | undefined) => void;
 	onChangeSlide: (next: OsPresentationCanvasSlide) => void;
 	onChangeElement: (next: OsPresentationElement) => void;
 	onAction: (action: SlideElementAction) => void;
@@ -541,6 +599,33 @@ export function SlideInspector({
 			/>
 		</section>
 	);
+	const deckSection = onChangeTheme ? (
+		<section aria-label="Deck" className="slide-inspector-section">
+			<h3 className="slide-inspector-heading">Deck</h3>
+			<ThemeFontField
+				label="Deck heading font"
+				value={theme?.headingFont}
+				disabled={disabled}
+				onChange={(headingFont) =>
+					onChangeTheme(
+						headingFont || theme?.bodyFont
+							? { ...theme, headingFont }
+							: undefined,
+					)
+				}
+			/>
+			<ThemeFontField
+				label="Deck body font"
+				value={theme?.bodyFont}
+				disabled={disabled}
+				onChange={(bodyFont) =>
+					onChangeTheme(
+						bodyFont || theme?.headingFont ? { ...theme, bodyFont } : undefined,
+					)
+				}
+			/>
+		</section>
+	) : null;
 	return (
 		<>
 			<div className="slide-inspector-scroll grid min-h-0 content-start gap-3 overflow-y-auto p-3">
@@ -570,6 +655,7 @@ export function SlideInspector({
 					</Collapsible>
 				) : null}
 				{element ? null : slideSection}
+				{element ? null : deckSection}
 				{element && fields ? (
 					<section
 						aria-label={`${element.type} element`}
@@ -666,6 +752,7 @@ export function SlideInspector({
 					</div>
 				)}
 				{element ? slideSection : null}
+				{element ? deckSection : null}
 				<SlideField label="Speaker notes">
 					<Textarea
 						aria-label="Speaker notes"
