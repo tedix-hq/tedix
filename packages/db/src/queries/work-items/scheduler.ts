@@ -1,3 +1,4 @@
+import { ensureWorkRiskApproval } from "./approvals";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -285,6 +286,7 @@ export async function listReadyWork(
 			truncatedFacts: [] as WorkAdmissionFactKind[],
 		};
 	}
+	for (const item of candidates) await ensureWorkRiskApproval(db, item, p.now);
 	const ids = candidates.map((x) => x.id),
 		idChunks = chunkForBoundParams(ids, 40);
 	const [

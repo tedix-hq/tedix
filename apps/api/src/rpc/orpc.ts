@@ -1792,7 +1792,7 @@ async function authenticateUserJwt(
 						organizationIdentity: descopeTenantIdentity(payload, tenantId),
 						userIdentity: descopeUserIdentityForContext(context, payload),
 					}),
-				{ timeoutMs: 5_000 },
+				{ attempts: 3, timeoutMs: 5_000 },
 			);
 			context.userId = identity?.canonicalUserId ?? undefined;
 			if (identity) {

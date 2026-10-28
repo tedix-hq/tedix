@@ -828,3 +828,92 @@ export async function getLatestWorkApprovalPosition(
 		.limit(1);
 	return row ?? null;
 }
+
+/** Materialize the human decision that otherwise leaves accepted Work invisible. */
+export async function ensureWorkRiskApproval(
+	db: DbQueryClient,
+	item: WorkItem,
+	now: string,
+) {
+	if (
+		item.disposition !== "accepted" ||
+		!["high", "critical"].includes(item.riskLevel)
+	)
+		return;
+	const authorityKey = `risk:${item.riskLevel}`;
+	const existing = await db
+		.select({ id: workApprovalProposals.id })
+		.from(workApprovalProposals)
+		.where(
+			and(
+				eq(workApprovalProposals.orgId, item.orgId),
+				eq(workApprovalProposals.workItemId, item.id),
+				eq(workApprovalProposals.workItemVersion, item.version),
+				eq(workApprovalProposals.authorityKey, authorityKey),
+				eq(workApprovalProposals.action, "admission"),
+			),
+		)
+		.limit(1);
+	// A rejection is a decision, not an invitation to request approval again.
+	if (existing.length) return;
+	const ownerId =
+		item.accountableOwnerType === "user" ? item.accountableOwnerId : null;
+	const [approver] = await db
+		.select({ userId: organizationMembers.userId })
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, item.orgId),
+				eq(organizationMembers.status, "active"),
+				eq(organizationMembers.kind, "human"),
+				sql`${organizationMembers.userId} IS NOT NULL`,
+				sql`(${organizationMembers.userId}=${ownerId} OR ${organizationMembers.role}='owner')`,
+			),
+		)
+		.orderBy(
+			sql`CASE WHEN ${organizationMembers.userId}=${ownerId} THEN 0 ELSE 1 END`,
+			asc(organizationMembers.userId),
+		)
+		.limit(1);
+	if (!approver?.userId) return;
+	// Stable identity also fences concurrent passes after a decision is recorded.
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(
+			`risk-approval:${item.orgId}:${item.id}:${item.version}:${item.riskLevel}`,
+		),
+	);
+	const hex = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+	const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+	try {
+		await proposeWorkApproval(db, {
+			id,
+			orgId: item.orgId,
+			workItemId: item.id,
+			workItemVersion: item.version,
+			authorityKey,
+			requesterType: "system",
+			requesterId: "tedix",
+			approverType: "user",
+			approverId: approver.userId,
+			proposal: { workItemId: item.id },
+			rationale: `This Work needs your approval before it can run because its risk is ${item.riskLevel}.`,
+			expiresAt: new Date(Date.parse(now) + 30 * 86400000).toISOString(),
+			now,
+		});
+	} catch (error) {
+		const raced = await db
+			.select({ id: workApprovalProposals.id })
+			.from(workApprovalProposals)
+			.where(
+				and(
+					eq(workApprovalProposals.orgId, item.orgId),
+					eq(workApprovalProposals.id, id),
+				),
+			)
+			.limit(1);
+		if (!raced.length) throw error;
+	}
+}

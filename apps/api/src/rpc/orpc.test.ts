@@ -660,6 +660,18 @@ describe("public user-session authentication", () => {
 		return seen;
 	}
 
+	it("recovers transient tenant identity failures before invoking the protected handler", async () => {
+		shareAuthMocks.resolveUserTenantIdentityContext.mockRejectedValueOnce(
+			new Error("D1_ERROR: internal error"),
+		);
+		const context = await authenticate({
+			iss: "https://auth.tedix.dev/P2fictional",
+		});
+		expect(context?.organizationId).toBe("org-1");
+		expect(
+			shareAuthMocks.resolveUserTenantIdentityContext,
+		).toHaveBeenCalledTimes(2);
+	});
 	it.each(["deactivated", "invited", null])(
 		"rejects a %s personal membership without a tenant claim",
 		async (status) => {

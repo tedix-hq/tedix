@@ -1,3 +1,4 @@
+import { organizationMembers } from "../../schema/organization-members";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
@@ -82,7 +83,7 @@ CREATE TABLE work_events (
 function fixture(options?: D1FacadeOptions) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
-	sqlite.exec(schemaDdl(workInteractions));
+	sqlite.exec(schemaDdl(workInteractions, organizationMembers));
 	sqlite.exec(
 		"CREATE TABLE work_item_comments (id TEXT PRIMARY KEY,work_item_id TEXT NOT NULL,org_id TEXT NOT NULL,author_type TEXT NOT NULL,author_id TEXT,body TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)",
 	);
