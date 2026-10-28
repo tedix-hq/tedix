@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mock, test } from "bun:test";
+import { mock, spyOn, test } from "bun:test";
 import type { CapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import { awaitReasonTurn } from "../src/reason-core";
 
@@ -752,6 +752,112 @@ test("reasoning unwraps real MCP bridge receipts while retaining the synthesis r
 	assert.equal(programs.length, 2);
 	assert.equal(programs[0], programs[1]);
 	assert.match(programs[0]!, /"client_request_id":"reason:stable"/);
+});
+
+test("slow synthesis recovers after the bridge's first task wait expires", async () => {
+	const sessionKey = "workflow:synth:slow";
+	const taskId = "tedi:tedi-1:slow-synthesis";
+	const programs: string[] = [];
+	const taskReads: string[] = [];
+	let elapsed = 0;
+	const clock = spyOn(Date, "now").mockImplementation(() => elapsed);
+	const probeEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const body = (await new Request(input, init).json()) as {
+					method: string;
+					params: { taskId: string; arguments: { code: string } };
+				};
+				if (body.method === "tools/call") {
+					programs.push(body.params.arguments.code);
+					return Response.json({
+						jsonrpc: "2.0",
+						id: "dispatch",
+						result: {
+							structuredContent: {
+								executionId: "execution",
+								result: {
+									ok: true,
+									accepted: true,
+									pending: true,
+									assistant: null,
+									task: { id: taskId, pollWith: "tasks/get" },
+								},
+							},
+						},
+					});
+				}
+				assert.equal(body.method, "tasks/get");
+				taskReads.push(body.params.taskId);
+				if (taskReads.length === 1) {
+					elapsed += 180_000;
+					return Response.json({
+						jsonrpc: "2.0",
+						id: "pending",
+						result: { taskId, status: "working" },
+					});
+				}
+				return Response.json({
+					jsonrpc: "2.0",
+					id: "settled",
+					result: {
+						taskId,
+						status: "completed",
+						result: {
+							structuredContent: {
+								assistant: { content: "Slow synthesis answer" },
+							},
+						},
+					},
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+	try {
+		const result = await awaitReasonTurn(
+			sessionKey,
+			() =>
+				callMcpTool(
+					probeEnv,
+					{
+						...props,
+						tediNamespace: "chief",
+						manifest: {
+							...manifest,
+							mcp: { tedi: ["run_tedi_turn"] },
+							expectedAnnotations: { destructive: false, readOnly: false },
+						},
+					},
+					{
+						namespace: "tedi",
+						method: "run_tedi_turn",
+						workflow,
+						args: {
+							session_key: sessionKey,
+							text: "Synthesize the research",
+							client_request_id: "reason:stable-slow",
+						},
+					},
+				),
+			{
+				now: () => elapsed,
+				sleep: async (ms) => {
+					elapsed += ms;
+				},
+			},
+		);
+		assert.deepEqual(result, {
+			assistant: { content: "Slow synthesis answer" },
+		});
+		assert.equal(programs.length, 2);
+		assert.equal(programs[0], programs[1]);
+		assert.match(programs[0]!, /"client_request_id":"reason:stable-slow"/);
+		assert.match(programs[0]!, /"session_key":"workflow:synth:slow"/);
+		assert.deepEqual(taskReads, [taskId, taskId]);
+		assert.equal(elapsed, 182_500);
+	} finally {
+		clock.mockRestore();
+	}
 });
 
 test("a failed tedi turn ends the waiting call with a permanent error", async () => {

@@ -266,4 +266,105 @@ assert.equal(
 );
 assert.equal(calls, 2);
 
+test("a synthesis turn outlasting the first dispatch recovers its task-only receipt", async () => {
+	let elapsed = 0;
+	let dispatches = 0;
+	const result = await awaitReasonTurn(
+		pending.session_key,
+		async () => {
+			dispatches++;
+			if (dispatches === 1) {
+				elapsed += 180_000;
+				return {
+					__tedixMcpResult: true,
+					value: {
+						ok: true,
+						accepted: true,
+						pending: true,
+						assistant: null,
+						task: { id: "tedi:tedi-1:synthesis-run", pollWith: "tasks/get" },
+					},
+				};
+			}
+			return settled;
+		},
+		{
+			now: () => elapsed,
+			sleep: async (ms) => {
+				elapsed += ms;
+			},
+		},
+	);
+	assert.equal(result, settled);
+	assert.equal(dispatches, 2);
+	assert.equal(elapsed, 182_500);
+});
+
+const taskPending = {
+	ok: true,
+	accepted: true,
+	pending: true,
+	assistant: null,
+	task: { id: "tedi:tedi-1:synthesis-run", pollWith: "tasks/get" },
+};
+
+test("task-only recovery keeps a fixed deadline", async () => {
+	let elapsed = 0;
+	let calls = 0;
+	await assert.rejects(
+		awaitReasonTurn(
+			pending.session_key,
+			async () => {
+				calls++;
+				return taskPending;
+			},
+			{
+				timeoutMs: 5_000,
+				now: () => elapsed,
+				sleep: async (ms) => {
+					elapsed += ms;
+				},
+			},
+		),
+		/REASON_TURN_TIMEOUT/,
+	);
+	assert.equal(calls, 2);
+});
+
+test("task-only recovery rejects changed task identity", async () => {
+	let calls = 0;
+	await assert.rejects(
+		awaitReasonTurn(
+			pending.session_key,
+			async () => ({
+				...taskPending,
+				task: {
+					...taskPending.task,
+					id: ++calls === 1 ? taskPending.task.id : "tedi:other:run",
+				},
+			}),
+			clock,
+		),
+		/REASON_TURN_IDENTITY_CHANGED/,
+	);
+	assert.equal(calls, 2);
+});
+
+for (const invalid of [
+	{ ...taskPending, ok: false },
+	{ ...taskPending, accepted: false },
+	{ ...taskPending, assistant: { content: "incomplete" } },
+	{ ...taskPending, session_key: "other" },
+	{ ...taskPending, run_id: "other" },
+	{ ...taskPending, task: { ...taskPending.task, id: "unrelated:task" } },
+	{ ...taskPending, task: { ...taskPending.task, pollWith: "other" } },
+]) {
+	test(`invalid task-only receipt fails closed: ${JSON.stringify(invalid)}`, async () => {
+		await assert.rejects(
+			awaitReasonTurn(pending.session_key, async () => invalid),
+			/REASON_PENDING_RECEIPT_INVALID/,
+		);
+	});
+}
+
 console.log("skill-runtime reason tests passed");
