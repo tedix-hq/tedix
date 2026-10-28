@@ -8,6 +8,7 @@
 				"com.openai": {
 					"auth": {
 						"type": "oauth",
+						"baseScopes": ["platform:admin"],
 						"defaultScopes": [
 							"connections.admin",
 							"connections.execute",

@@ -1,3 +1,10 @@
+Tedix 0.2.10 — request platform administration alongside default permissions.
+
+The OpenAI connection declares platform administration as a base scope in
+addition to the default permissions. Tedix still shows this permission only to
+eligible platform administrators, with a separate checkbox that starts
+unchecked. Requesting the permission does not grant it.
+
 Tedix 0.2.9 — offer platform administration during OpenAI reconnect.
 
 The OpenAI connection explicitly requests Tedix's supported permissions,
