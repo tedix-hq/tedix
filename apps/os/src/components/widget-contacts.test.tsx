@@ -166,11 +166,15 @@ it("paginates canonical companies and filters people by the selected company", a
 	// The request starts before React Query publishes its result. Wait for the
 	// loaded company page, not just the mock invocation, before paginating.
 	await vi.waitFor(() =>
-		expect(
-			document.querySelector('[aria-label="Customer pages"]')?.textContent,
-		).toContain("51 companies"),
+		expect(document.body.textContent).toContain("51 companies"),
 	);
-	await click("Next");
+	await act(async () => {
+		document
+			.querySelector<HTMLElement>(
+				'[aria-label="Customer pages"] [aria-label="Next page"]',
+			)!
+			.click();
+	});
 	await vi.waitFor(() =>
 		expect(document.body.textContent).toContain("Initech"),
 	);
