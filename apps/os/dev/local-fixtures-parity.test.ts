@@ -215,7 +215,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"organizations/completeOsOnboarding",
 		"organizations/configureSso",
 		"organizations/create",
-		"organizations/deleteApiKey",
 		"organizations/disableMcpAuthorization",
 		"organizations/generateSsoSetupLink",
 		"organizations/getSsoStatus",
