@@ -129,6 +129,7 @@
 			"test:browser:feed-deck": 2,
 			"test:browser:viewport": 2,
 			"test:browser:shell": 2,
+			"test:browser:outputs": 2,
 			"test:browser:work-iphone": 2,
 			"test:browser:settings": 2,
 			"test:browser:focus-clip": 8
