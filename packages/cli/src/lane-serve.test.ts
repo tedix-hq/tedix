@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
 	LaneCommitFetchError,
+	cleanupLaneWorktree,
 	installLaneDependencies,
 	laneFailureSignature,
 	provisionLaneWorktree,
@@ -116,6 +117,10 @@ function fixture({
 		installed: [] as string[],
 		commits: [] as string[],
 		cleanups: 0,
+		cleanupResult: true,
+		cleanupRemoves: false,
+		cleanupWait: undefined as Promise<boolean> | undefined,
+		cleanupAfterPickup: [] as boolean[],
 		proofError: undefined as Error | undefined,
 		startError: refuse
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
@@ -161,9 +166,13 @@ function fixture({
 				recallStatus: control.recall ? "matched" : "none",
 			};
 		},
-		cleanup: () => {
+		cleanup: (_source, destination) => {
 			control.cleanups++;
-			return true;
+			control.cleanupAfterPickup.push(
+				events.some((event) => event.verb === "dispatch-list"),
+			);
+			if (control.cleanupRemoves) rmSync(destination, { recursive: true });
+			return control.cleanupWait ?? control.cleanupResult;
 		},
 		thread: async (repo, executor) => {
 			if (executor === "devin") expect(control.installed).toContain(repo);
@@ -1667,3 +1676,228 @@ it.each([false, true])(
 		expect(delays).toEqual([1000, 2000]);
 	},
 );
+
+it("queries ready work before bounded cleanup of 715 retained runs", async () => {
+	const { dispatcher, dir, items, control, releases } = fixture();
+	items.splice(1);
+	control.cleanupResult = false;
+	for (let n = 10; n < 725; n++) {
+		const old = item(n);
+		const repo = join(dir, "runs", `${old.id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			join(dir, `${old.id}-2.json`),
+			JSON.stringify({
+				itemId: old.id,
+				version: 2,
+				phase: "settled",
+				outcome: "failed",
+				repo,
+			}),
+		);
+	}
+	await dispatcher.tick();
+	expect(control.cleanups).toBe(1);
+	expect(control.cleanupAfterPickup).toEqual([true]);
+	expect(dispatcher.nextTickDelayMs()).toBe(30_000);
+	expect(
+		existsSync(join(dir, "dispatcher.log")) &&
+			readFileSync(join(dir, "dispatcher.log"), "utf8").includes(
+				"worktree-retained",
+			),
+	).toBe(false);
+	await until(() => releases.length === 1);
+	releases[0]!();
+	await dispatcher.drain();
+});
+
+it("backs off retained cleanup and archives only removed run metadata", async () => {
+	const { dispatcher, restart, dir, items, control } = fixture();
+	items.splice(0);
+	const repo = join(dir, "runs", "finished", "repo");
+	mkdirSync(repo, { recursive: true });
+	const path = join(dir, `${item().id}-2.json`);
+	writeFileSync(
+		path,
+		JSON.stringify({
+			itemId: item().id,
+			version: 2,
+			phase: "settled",
+			outcome: "failed",
+			repo,
+		}),
+	);
+	control.cleanupResult = false;
+	await dispatcher.tick();
+	await dispatcher.tick();
+	expect(control.cleanups).toBe(1);
+	expect(existsSync(repo)).toBe(true);
+	expect(existsSync(join(dir, "dispatcher.log"))).toBe(false);
+	writeFileSync(join(dirname(repo), "last.txt"), "Result in OS");
+	control.cleanupResult = true;
+	control.cleanupRemoves = true;
+	const recovering = restart();
+	await recovering.tick();
+	await recovering.drain();
+	expect(existsSync(dirname(repo))).toBe(false);
+	const archived = readdirSync(join(dir, "archive"));
+	expect(archived).toHaveLength(1);
+	expect(
+		readFileSync(join(dir, "archive", archived[0]!, "last.txt"), "utf8"),
+	).toBe("Result in OS");
+});
+
+it.each(["succeeded", "failed"])(
+	"only retries settled failures on the same revision: %s",
+	async (outcome) => {
+		const { dispatcher, dir, items, releases, events, control } = fixture();
+		items.splice(1);
+		writeFileSync(
+			join(dir, `${item().id}-2.json`),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "settled",
+				outcome,
+				attemptId: "old-attempt",
+				retryAt: 0,
+			}),
+		);
+		control.history.data = [
+			{ id: "old-attempt", outcome, metadata: { dispatchVersion: 2 } },
+		];
+		await dispatcher.tick();
+		if (outcome === "failed") {
+			await until(() => releases.length === 1);
+			releases[0]!();
+		}
+		await dispatcher.drain();
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+			outcome === "failed" ? 1 : 0,
+		);
+	},
+);
+
+it.each(["dirty", "unlanded", "live", "locked", "ignored", "landed"])(
+	"cleanup protects work and uses origin/main: %s",
+	async (state) => {
+		const { root, repo, git } = gitFixture(true);
+		const destination = join(root, "runs", "finished", "repo");
+		git(["worktree", "add", "--detach", destination]);
+		if (state === "dirty")
+			writeFileSync(join(destination, "unfinished.txt"), "keep");
+		if (state === "unlanded" || state === "landed") {
+			git(
+				[
+					"-c",
+					"commit.gpgsign=false",
+					"commit",
+					"--allow-empty",
+					"-m",
+					"run work",
+				],
+				destination,
+			);
+			if (state === "landed") {
+				git(["push", "origin", "HEAD:main"], destination);
+				git(["fetch", "origin", "main"]);
+				expect(git(["rev-parse", "HEAD"])).not.toBe(
+					git(["rev-parse", "HEAD"], destination),
+				);
+			}
+		}
+		if (state === "locked") git(["worktree", "lock", destination]);
+		if (state === "ignored") {
+			writeFileSync(join(destination, ".gitignore"), ".env\n");
+			git(["add", ".gitignore"], destination);
+			git(
+				["-c", "commit.gpgsign=false", "commit", "-m", "ignore local settings"],
+				destination,
+			);
+			git(["push", "origin", "HEAD:main"], destination);
+			git(["fetch", "origin", "main"]);
+			writeFileSync(join(destination, ".env"), "LOCAL_SETTING=keep");
+		}
+		expect(
+			await cleanupLaneWorktree(repo, destination, () => state === "live"),
+		).toBe(state === "landed");
+		expect(existsSync(destination)).toBe(state !== "landed");
+	},
+);
+
+it("keeps polling and picking up unrelated work while a large worktree is removed", async () => {
+	const { dispatcher, dir, items, control, releases } = fixture();
+	const ready = items.splice(0);
+	const old = item(99);
+	const repo = join(dir, "runs", "old", "repo");
+	mkdirSync(repo, { recursive: true });
+	writeFileSync(
+		join(dir, `${old.id}-2.json`),
+		JSON.stringify({
+			itemId: old.id,
+			version: 2,
+			phase: "settled",
+			outcome: "succeeded",
+			repo,
+		}),
+	);
+	let finish!: (value: boolean) => void;
+	control.cleanupWait = new Promise<boolean>((resolve) => {
+		finish = resolve;
+	});
+	await dispatcher.tick();
+	expect(control.cleanups).toBe(1);
+	items.push(ready[0]!);
+	try {
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		expect(control.cleanups).toBe(1);
+	} finally {
+		finish(false);
+		for (const release of releases) release();
+		await dispatcher.drain();
+	}
+});
+
+it("detects a live process inside a landed worktree independently of its receipt", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const destination = join(root, "runs", "old", "repo");
+	git(["worktree", "add", "--detach", destination]);
+	const child = spawn(process.execPath, ["-e", "setTimeout(()=>{},60000)"], {
+		cwd: destination,
+		detached: true,
+		stdio: "ignore",
+	});
+	await once(child, "spawn");
+	try {
+		expect(await cleanupLaneWorktree(repo, destination)).toBe(false);
+		expect(existsSync(destination)).toBe(true);
+	} finally {
+		const ended = once(child, "exit");
+		process.kill(-child.pid!, "SIGTERM");
+		await ended;
+	}
+});
+
+it("keeps even an empty pending-proof marker fenced from retry and cleanup", async () => {
+	const { dispatcher, dir, items, releases, control } = fixture();
+	items.splice(1);
+	const repo = join(dir, "runs", "pending", "repo");
+	mkdirSync(repo, { recursive: true });
+	writeFileSync(
+		join(dir, `${item().id}-2.json`),
+		JSON.stringify({
+			itemId: item().id,
+			version: 2,
+			phase: "settled",
+			outcome: "failed",
+			pendingCommitProof: "",
+			repo,
+		}),
+	);
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(releases).toHaveLength(0);
+	expect(control.cleanups).toBe(0);
+	expect(existsSync(repo)).toBe(true);
+});
