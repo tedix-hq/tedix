@@ -1,4 +1,4 @@
-import { CaretDown } from "@phosphor-icons/react";
+import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink, useParams } from "@tanstack/react-router";
 import { DetailUnavailable } from "@/components/detail-unavailable";
@@ -139,6 +139,34 @@ function EvidenceRetry({ query }: { query: SkillReliabilityRead }) {
 	);
 }
 
+function EvidenceWarnings({ warnings }: { warnings: string[] }) {
+	return (
+		<>
+			<span className="block">
+				Some runs have incomplete records, so the counts shown may be
+				incomplete.
+			</span>
+			<Collapsible className="text-kumo-subtle type-tedix-control">
+				<CollapsibleTrigger className="group/disclosure -mx-2 w-fit px-2">
+					<CaretRight
+						aria-hidden
+						size={12}
+						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+					/>
+					Technical details
+				</CollapsibleTrigger>
+				<CollapsibleContent keepMounted>
+					<ul className="m-0 mt-1 grid list-disc gap-1 pl-4">
+						{warnings.map((warning) => (
+							<li key={warning}>{warning}</li>
+						))}
+					</ul>
+				</CollapsibleContent>
+			</Collapsible>
+		</>
+	);
+}
+
 export function SkillOverviewSummary({
 	description,
 	tags,
@@ -217,7 +245,7 @@ export function SkillOverviewSummary({
 									"Appears after observed execution."
 								)}
 								{evidence?.warnings.length ? (
-									<span className="block">{evidence.warnings.join(" ")}</span>
+									<EvidenceWarnings warnings={evidence.warnings} />
 								) : null}
 								{refreshError ? (
 									<>
