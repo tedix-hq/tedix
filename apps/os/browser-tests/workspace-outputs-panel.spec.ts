@@ -344,6 +344,45 @@ try {
 			console.log(`outputs panel ${label}: ok`);
 		}
 
+		// Keep the original sheet hit test even though phones now use Files.
+		{
+			const label = `375/${theme}`;
+			const context = await browser.newContext({
+				viewport: { width: 375, height: 740 },
+				colorScheme: theme,
+				reducedMotion: "reduce",
+				isMobile: true,
+				hasTouch: true,
+			});
+			const page = await context.newPage();
+			await page.goto(
+				`${server.origin}/browser-tests/dialogs.html?view=outputs&theme=${theme}`,
+			);
+			await page.getByRole("button", { name: "Outputs", exact: true }).tap();
+			const sheet = page.getByRole("dialog", { name: "Outputs" });
+			await sheet.waitFor();
+			await sheet.getByRole("list", { name: "Files" }).waitFor();
+			const close = sheet.getByRole("button", { name: "Close", exact: true });
+			assert(
+				await close.evaluate((node) => {
+					const box = node.getBoundingClientRect();
+					const hit = document.elementFromPoint(
+						box.x + box.width / 2,
+						box.y + box.height / 2,
+					);
+					return hit !== null && node.contains(hit);
+				}),
+				`${label}: the sheet's close button is reachable`,
+			);
+			await page.screenshot({
+				path: `${evidence}/${label.replace("/", "-")}-sheet.png`,
+			});
+			await close.tap();
+			await sheet.waitFor({ state: "hidden" });
+			await context.close();
+			console.log(`outputs sheet ${label}: ok`);
+		}
+
 		// Phone: no side panel and no toggle; the bottom switcher shows one pane
 		// at a time and Files is the whole library.
 		{

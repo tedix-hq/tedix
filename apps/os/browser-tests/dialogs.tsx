@@ -19,6 +19,7 @@ import {
 } from "../src/components/kumo/sheet";
 import { MemberIdentityDialog } from "../src/components/member-identity-dialog";
 import { SupportGetHelp } from "../src/components/support-get-help";
+import { WorkspaceOutputsList } from "../src/components/workspace-outputs-panel";
 import { installViewportMetrics } from "../src/lib/viewport-metrics";
 import "../src/styles.css";
 
@@ -168,12 +169,48 @@ function SheetFixture() {
 	);
 }
 
+// Preserve the former phone Outputs composition after Files moved to a pane.
+function OutputsSheetFixture() {
+	const [open, setOpen] = useState(false);
+	return (
+		<>
+			<Button onClick={() => setOpen(true)}>Outputs</Button>
+			<Sheet open={open} onOpenChange={setOpen}>
+				<SheetContent size="sm" className="[&_.workspace-outputs-row]:min-h-12">
+					<SheetHeader>
+						<SheetTitle>Outputs</SheetTitle>
+						<SheetDescription>Open one to view or edit it.</SheetDescription>
+					</SheetHeader>
+					<WorkspaceOutputsList
+						items={Array.from({ length: 20 }, (_, index) => ({
+							doc: { type: "output" as const, id: `output-${index}` },
+							key: `output-${index}`,
+							title: `Research note ${index + 1}`,
+							kind: "document" as const,
+							kindLabel: "Document",
+							updatedAt: "2026-10-16T09:00:00.000Z",
+						}))}
+						loading={false}
+						error={false}
+						selectedDoc={null}
+						onSelect={() => setOpen(false)}
+						onOpenActivity={() => setOpen(false)}
+						onBrowseLibrary={() => setOpen(false)}
+						onOpenWork={() => setOpen(false)}
+					/>
+				</SheetContent>
+			</Sheet>
+		</>
+	);
+}
+
 const views = {
 	typed: TypedConfirmFixture,
 	confirm: ConfirmFixture,
 	form: FormFixture,
 	identity: IdentityFixture,
 	sheet: SheetFixture,
+	outputs: OutputsSheetFixture,
 } as const;
 const view = params.get("view");
 const View = view && view in views ? views[view as keyof typeof views] : null;
