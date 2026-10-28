@@ -7,6 +7,19 @@ import type {
 import { useState } from "react";
 import { Alert, AlertDescription, LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
+import { Badge } from "@/components/kumo/badge";
+import { Input } from "@/components/kumo/input";
+import {
+	RunStepConversation,
+	RunStepResult,
+} from "@/components/run-step-result";
+import {
+	readableField,
+	readableStepResult,
+	stepConversation,
+	stepRecord,
+	stepTitle,
+} from "@/lib/run-step-content";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -66,10 +79,10 @@ export function RunTimeline({ runId }: { runId: string }) {
 		<PageSection>
 			<SectionHeader>
 				<SectionHeading>
-					<SectionTitle>Run timeline</SectionTitle>
+					<SectionTitle>What happened</SectionTitle>
 					<SectionDescription>
-						Calls and recorded waits on a shared time scale. Select a step for
-						its receipt.
+						See which tasks ran together and where time was spent. Choose a step
+						to read its request and result.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -95,6 +108,7 @@ export function RunTimelineChart({
 	timeline: SkillWorkflowRunTimeline;
 }) {
 	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const [search, setSearch] = useState("");
 	const selected = timeline.events.find((event) => event.id === selectedId);
 	const layout = layoutRunTimeline(timeline, Date.now());
 	const calls = timeline.events.filter(
@@ -111,6 +125,36 @@ export function RunTimelineChart({
 	const select = (event: SkillWorkflowTimelineEvent) => setSelectedId(event.id);
 	return (
 		<div className="grid min-w-0 gap-4" data-run-timeline>
+			<label className="grid gap-2">
+				Find a step
+				<Input
+					aria-label="Find a step"
+					value={search}
+					onChange={(event) => setSearch(event.target.value)}
+					placeholder="Search tasks or tools"
+				/>
+			</label>
+			{search.trim() && (
+				<div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
+					{timeline.events
+						.filter((event) =>
+							`${event.name} ${event.method ?? ""} ${event.lane}`
+								.toLowerCase()
+								.includes(search.toLowerCase().trim()),
+						)
+						.map((event) => (
+							<Button
+								key={event.id}
+								variant="outline"
+								onClick={() => select(event)}
+								multiline
+							>
+								{readableField(event.name)} ·{" "}
+								{formatDurationMs(event.durationMs) ?? "Time not recorded"}
+							</Button>
+						))}
+				</div>
+			)}
 			<MetricGrid columns={5} appearance="bounded" aria-label="Run summary">
 				<MetricItem
 					label="Elapsed"
@@ -282,10 +326,12 @@ export function RunTimelineChart({
 			>
 				<SheetContent size="lg">
 					<SheetHeader className="pr-16">
-						<SheetTitle>{selected?.name ?? "Step details"}</SheetTitle>
+						<SheetTitle>
+							{selected ? stepTitle(selected) : "Step details"}
+						</SheetTitle>
 						<SheetDescription>
 							{selected
-								? `${selected.kind} · ${selected.status}`
+								? "Read what this step was asked to do and what it returned."
 								: "Select a step"}
 						</SheetDescription>
 					</SheetHeader>
@@ -329,18 +375,44 @@ function RunTimelineStep({
 			(event.attempt !== undefined &&
 				outputRecord.attempt !== undefined &&
 				outputRecord.attempt !== event.attempt));
-	const sample = sensitive
-		? null
-		: outputSample(
-				outputPath
-					? mismatched
-						? null
-						: outputRecord.value
-					: (record.response ?? record.output ?? record.value),
-			);
+	const value =
+		sensitive || mismatched
+			? null
+			: outputPath
+				? outputRecord.value
+				: (record.response ?? record.output ?? record.value);
+	const sample = outputSample(value);
+	const result = readableStepResult(value);
+	const awaitingAnswer = stepRecord(result).pending === true;
+	const reference =
+		sensitive || mismatched ? null : stepConversation(value, record);
+	const request = stepRecord(record.request);
+	const instructions = sensitive ? null : stepRecord(request.value).text;
 	const error = outputSample(record.error);
 	return (
 		<div className="grid min-w-0 gap-5 p-4 pt-0 sm:p-6 sm:pt-0">
+			<div className="flex flex-wrap items-center gap-3">
+				<Badge
+					variant={
+						event.outcome === "failure"
+							? "destructive"
+							: event.outcome === "pending"
+								? "secondary"
+								: "success"
+					}
+				>
+					{awaitingAnswer
+						? "Request accepted"
+						: event.outcome === "failure"
+							? "Failed"
+							: event.outcome === "pending"
+								? "Waiting"
+								: "Finished"}
+				</Badge>
+				<Text as="span" tone="secondary">
+					{formatDurationMs(event.durationMs) ?? "Time not recorded"}
+				</Text>
+			</div>
 			<MetricGrid columns={2} appearance="bounded">
 				<MetricItem
 					label="Started"
@@ -350,21 +422,25 @@ function RunTimelineStep({
 					label="Finished"
 					value={event.endedAt ? absoluteTime(event.endedAt) : "Not recorded"}
 				/>
-				<MetricItem
-					label="Duration"
-					value={formatDurationMs(event.durationMs) ?? "Unknown"}
-				/>
-				<MetricItem label="Outcome" value={event.outcome} />
 			</MetricGrid>
-			<Text as="p" role="label" className="m-0 wrap-anywhere">
-				{event.lane} · call {event.count}
-				{event.attempt ? ` · attempt ${event.attempt}` : ""}
-				{event.httpStatus ? ` · HTTP ${event.httpStatus}` : ""}
-			</Text>
+			{typeof instructions === "string" && (
+				<Collapsible>
+					<CollapsibleTrigger>What was asked</CollapsibleTrigger>
+					<CollapsibleContent>
+						<RunStepResult value={instructions} />
+						{request.truncated === true && (
+							<Text as="p" tone="secondary">
+								Only part of the request was saved here. The conversation may
+								contain more.
+							</Text>
+						)}
+					</CollapsibleContent>
+				</Collapsible>
+			)}
 			{receipt.isPending && <Skeleton className="h-20" />}
 			{receipt.isError && (
 				<LoadError
-					title="Receipt unavailable"
+					title="Step details unavailable"
 					error={receipt.error}
 					onRetry={() => receipt.refetch()}
 					retrying={receipt.isFetching}
@@ -384,7 +460,7 @@ function RunTimelineStep({
 			)}
 			<div className="grid min-w-0 gap-2">
 				<Text as="h3" role="label" weight="medium">
-					Output sample
+					What came back
 				</Text>
 				{output.isFetching && <Skeleton className="h-20" />}
 				{output.isError && (
@@ -396,25 +472,54 @@ function RunTimelineStep({
 					/>
 				)}
 				{sample ? (
-					<pre
-						data-output-sample
-						className="m-0 max-h-80 overflow-y-auto rounded-lg bg-kumo-tint p-3 whitespace-pre-wrap wrap-anywhere type-tedix-caption"
-					>
-						{sample}
-					</pre>
+					awaitingAnswer ? (
+						<Text as="p" tone="secondary">
+							The request was accepted, but its answer arrived separately. This
+							record is not the final reply.
+						</Text>
+					) : (
+						<div
+							data-output-sample
+							className="max-h-[32rem] overflow-y-auto rounded-lg border border-kumo-line p-4"
+						>
+							<RunStepResult value={result} />
+						</div>
+					)
 				) : (
 					<Text as="p" tone="secondary">
 						{sensitive
 							? "Sensitive output is hidden."
 							: mismatched
 								? "The saved output belongs to another attempt."
-								: "No output sample recorded."}
+								: "No result was saved for this step."}
 					</Text>
 				)}
 			</div>
-			<Text as="p" role="label" tone="secondary" className="wrap-anywhere">
-				Receipt: {event.path}
-			</Text>
+			{reference && <RunStepConversation reference={reference} />}
+			{!reference && !sensitive && !mismatched && event.kind === "step" && (
+				<Text as="p" tone="secondary">
+					No conversation was linked to this task. Its saved result is shown
+					above.
+				</Text>
+			)}
+			<Collapsible>
+				<CollapsibleTrigger>Technical details</CollapsibleTrigger>
+				<CollapsibleContent>
+					<Text as="p" role="label" className="wrap-anywhere">
+						{event.name} · {event.lane} · call {event.count}
+						{event.attempt ? ` · attempt ${event.attempt}` : ""}
+						{event.httpStatus ? ` · HTTP ${event.httpStatus}` : ""}
+					</Text>
+					<Text as="p" tone="secondary" className="wrap-anywhere">
+						Saved record: {event.path}
+					</Text>
+					{sample && (
+						<pre className="max-h-80 overflow-auto whitespace-pre-wrap wrap-anywhere">
+							{sample}
+						</pre>
+					)}
+				</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }

@@ -56,6 +56,7 @@ import {
 } from "@/components/run-detail-sections";
 import { useRunWebMcpTools } from "@/components/run-webmcp-tools";
 import { RunTimeline } from "@/components/run-timeline";
+import { readableField } from "@/lib/run-step-content";
 import { osApi } from "@/lib/api";
 import { useOsFormattingPreferences } from "@/lib/format";
 import {
@@ -303,14 +304,20 @@ export function RunDetailPage() {
 				<>
 					<PageHeader>
 						<PageHeading>
-							<PageTitle>{skillLabel}</PageTitle>
+							<PageTitle>
+								{inspect.data.revision.skillSlug
+									? readableField(inspect.data.revision.skillSlug)
+									: "Workflow run"}
+							</PageTitle>
 							<PageMeta className="gap-x-5">
 								<li>
 									<RunStatusChip status={run.status} />
 								</li>
 								<li>
-									Actor <strong>{run.createdBy ?? "unattributed"}</strong> ·
-									tedi <strong>{tediNames[run.tediId] ?? run.tediId}</strong>
+									{run.createdBy === "schedule"
+										? "Scheduled run"
+										: "Started on request"}{" "}
+									· <strong>{tediNames[run.tediId] ?? "Assistant"}</strong>
 								</li>
 								{run.startedAt && (
 									<li>
@@ -452,13 +459,22 @@ export function RunDetailPage() {
 
 					{inspect.data.warnings.length > 0 && (
 						<Alert variant="warning">
-							<AlertTitle>Run warnings</AlertTitle>
+							<AlertTitle>Run notes</AlertTitle>
 							<AlertDescription>
-								<ul className="m-0 list-disc pl-4">
-									{inspect.data.warnings.map((warning) => (
-										<li key={warning}>{warning}</li>
-									))}
-								</ul>
+								<Text as="p">
+									Some records need attention. Select a step to load its saved
+									result, or open the recording details below.
+								</Text>
+								<Collapsible>
+									<CollapsibleTrigger>Recording details</CollapsibleTrigger>
+									<CollapsibleContent>
+										<ul className="m-0 list-disc pl-4">
+											{inspect.data.warnings.map((warning) => (
+												<li key={warning}>{warning}</li>
+											))}
+										</ul>
+									</CollapsibleContent>
+								</Collapsible>
 							</AlertDescription>
 						</Alert>
 					)}
