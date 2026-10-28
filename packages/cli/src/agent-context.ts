@@ -172,7 +172,19 @@ function git(cwd: string, args: string[]): string {
 }
 function repoAt(options?: AgentContextOptions): Repo {
 	const cwd = resolve(options?.cwd ?? process.cwd());
-	const root = realpathSync(git(cwd, ["rev-parse", "--show-toplevel"]));
+	const [rootValue, commonDirValue, gitDirValue] = git(cwd, [
+		"rev-parse",
+		"--show-toplevel",
+		"--git-common-dir",
+		"--git-dir",
+	]).split("\n");
+	if (!rootValue || !commonDirValue || !gitDirValue)
+		throw new Error("Git returned incomplete repository metadata");
+	const root = realpathSync(rootValue);
+	const head = readFileSync(resolve(cwd, gitDirValue, "HEAD"), "utf8").trim();
+	const branch = head.startsWith("ref: refs/heads/")
+		? head.slice("ref: refs/heads/".length)
+		: "";
 	let origin = "";
 	try {
 		origin = git(root, ["remote", "get-url", "origin"]);
@@ -181,11 +193,9 @@ function repoAt(options?: AgentContextOptions): Repo {
 	}
 	return {
 		root,
-		commonDir: realpathSync(
-			resolve(root, git(root, ["rev-parse", "--git-common-dir"])),
-		),
+		commonDir: realpathSync(resolve(cwd, commonDirValue)),
 		origin,
-		branch: git(root, ["branch", "--show-current"]),
+		branch,
 	};
 }
 function checkedBinding(
