@@ -11,7 +11,6 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, describe, expect, it } from "vite-plus/test";
 import { readMigrationManifest } from "./check-live-migration-ledger";
-import { splitMigrationStatements } from "./expected-schema";
 import {
 	APPLIED_BASELINE,
 	assertMigrationOrder,
@@ -155,9 +154,7 @@ describe("reconstructed behavioral-evaluation snapshots", () => {
 					path.join(dbRoot, "drizzle", migration.name),
 					"utf8",
 				);
-				for (const statement of splitMigrationStatements(sql)) {
-					database.exec(statement);
-				}
+				database.exec(sql);
 				const folder = migration.name.replace(/\/migration\.sql$/, "");
 				if (!migrationNames.includes(folder)) continue;
 				const snapshot = JSON.parse(

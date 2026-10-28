@@ -6,6 +6,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -213,7 +214,7 @@ describe("Drizzle Kit machine-readable commands", () => {
 });
 
 describe("installed generator CLI review before recording", () => {
-	it("isolates actual generation, no_changes, explicit recording and strict check", async () => {
+	it("isolates actual generation, no_changes, explicit recording and strict check", () => {
 		const dbRoot = path.resolve(
 			path.dirname(fileURLToPath(import.meta.url)),
 			"..",
@@ -274,9 +275,16 @@ describe("installed generator CLI review before recording", () => {
 				"json",
 			]);
 			expect(initial.status, initial.stderr + initial.stdout).toBe(0);
-			const baseline = readdirSync(path.join(root, "drizzle")).filter(
+			const generatedBaseline = readdirSync(path.join(root, "drizzle")).filter(
 				(name) => name !== "meta",
 			)[0]!;
+			// Distinct fixture-local names replace wall-clock sleeps without changing
+			// the generated SQL or snapshot identity chain.
+			const baseline = "20000101000000_initial";
+			renameSync(
+				path.join(root, "drizzle", generatedBaseline),
+				path.join(root, "drizzle", baseline),
+			);
 			const manifest = JSON.stringify({
 				version: 1,
 				migrations: [
@@ -297,15 +305,19 @@ describe("installed generator CLI review before recording", () => {
 				path.join(root, "schema.ts"),
 				`import {sqliteTable,text,integer} from "drizzle-orm/sqlite-core"; export const sample=sqliteTable("sample",{id:text().primaryKey(),count:integer()});`,
 			);
-			// Migration directory timestamps have second precision. Keep genuine CLI
-			// generations distinct without mocking the clock or editing generated names.
-			await new Promise((resolve) => setTimeout(resolve, 1100));
 			const generated = run("scripts/generate-migration.ts", [
 				"--name",
 				"review",
 			]);
 			expect(generated.status, generated.stderr + generated.stdout).toBe(0);
 			expect(generated.stdout).toContain("unrecorded draft");
+			const generatedReview = readdirSync(path.join(root, "drizzle")).find(
+				(name) => name !== "meta" && name !== baseline,
+			)!;
+			renameSync(
+				path.join(root, "drizzle", generatedReview),
+				path.join(root, "drizzle", "20000101000001_review"),
+			);
 			expect(
 				readFileSync(path.join(root, "migration-integrity.json"), "utf8"),
 			).toBe(manifest);
@@ -327,7 +339,6 @@ describe("installed generator CLI review before recording", () => {
 			).toHaveLength(2);
 			const final = run("scripts/generate-migration.ts", ["--check"]);
 			expect(final.status, final.stderr + final.stdout).toBe(0);
-			await new Promise((resolve) => setTimeout(resolve, 1100));
 			const custom = run("scripts/generate-migration.ts", [
 				"--custom",
 				"--name",
