@@ -157,6 +157,7 @@ const ROLE_OPERATIONS: Record<AppRuntimeRole, readonly AppRuntimeOperation[]> =
 			"outputs.patch",
 			"outputs.write",
 			"connections.call",
+			"skills.read",
 			"skills.run",
 		],
 		build: [
@@ -165,9 +166,10 @@ const ROLE_OPERATIONS: Record<AppRuntimeRole, readonly AppRuntimeOperation[]> =
 			"outputs.patch",
 			"outputs.write",
 			"connections.call",
+			"skills.read",
 			"skills.run",
 		],
-		use: ["app.call", "outputs.read"],
+		use: ["app.call", "outputs.read", "skills.read"],
 		viewer: [],
 	};
 
@@ -177,6 +179,7 @@ const GRANT_GATED: ReadonlySet<AppRuntimeOperation> = new Set([
 	"outputs.patch",
 	"outputs.write",
 	"connections.call",
+	"skills.read",
 	"skills.run",
 ]);
 
@@ -241,7 +244,9 @@ export function appRuntimeGuestRefusal(
 		if (
 			grant.operations.some(
 				(operation) =>
-					operation === "connections.call" || operation === "skills.run",
+					operation === "connections.call" ||
+					operation === "skills.run" ||
+					operation === "skills.read",
 			) ||
 			bound?.kind === "other"
 		)

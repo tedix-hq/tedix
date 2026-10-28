@@ -23,6 +23,8 @@ export default defineConfig({
 								args?: { decision?: string };
 							};
 						};
+						if (body.json?.operation === "skills.read")
+							return Response.json({ json: { run: { id: "fixture-run" } } });
 						if (body.json?.operation === "connections.call") {
 							const status = body.json.args?.decision ?? "pending";
 							if (status === "revoked")
