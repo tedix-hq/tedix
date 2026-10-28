@@ -184,10 +184,34 @@ export const APP_RUNTIME_OPERATIONS = [
 	"outputs.patch",
 	"outputs.write",
 	"connections.call",
+	"skills.read",
 	"skills.run",
 ] as const;
 export const AppRuntimeOperationSchema = z.enum(APP_RUNTIME_OPERATIONS);
 export type AppRuntimeOperation = z.infer<typeof AppRuntimeOperationSchema>;
+
+/** Read evidence only from the skill bound to the granted workspace slot. */
+export const AppRuntimeSkillReadSchema = z.discriminatedUnion("view", [
+	z.strictObject({ view: z.literal("run"), runId: z.string().min(1).max(200) }),
+	z.strictObject({
+		view: z.literal("artifacts"),
+		runId: z.string().min(1).max(200),
+		limit: z.number().int().min(1).max(200).default(200),
+		offset: z.number().int().min(0).max(10000).default(0),
+	}),
+	z.strictObject({
+		view: z.literal("artifact"),
+		runId: z.string().min(1).max(200),
+		path: z
+			.string()
+			.max(512)
+			.regex(/^outputs\/[^/]+\.json$/),
+	}),
+	z.strictObject({
+		view: z.literal("timeline"),
+		runId: z.string().min(1).max(200),
+	}),
+]);
 
 export const AppRuntimeCodeSchema = z.object({
 	revisionId: z.string().uuid(),

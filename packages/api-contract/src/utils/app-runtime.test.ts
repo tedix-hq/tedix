@@ -133,6 +133,36 @@ describe("loader manifest", () => {
 describe("permission matrix", () => {
 	const grants = [{ slot: "opportunities", operations: ["outputs.read"] }];
 
+	it("allows skill evidence reads only through the named grant", () => {
+		const grants = [{ slot: "research", operations: ["skills.read"] }];
+		for (const role of ["use", "build", "owner"] as const) {
+			expect(
+				appRuntimePermission({
+					role,
+					operation: "skills.read",
+					grants,
+					slot: "research",
+				}),
+			).toEqual({ allowed: true });
+			expect(
+				appRuntimePermission({
+					role,
+					operation: "skills.read",
+					grants,
+					slot: "other",
+				}).allowed,
+			).toBe(false);
+			expect(
+				appRuntimePermission({
+					role,
+					operation: "skills.run",
+					grants,
+					slot: "research",
+				}).allowed,
+			).toBe(false);
+		}
+	});
+
 	it("lets use read a granted sheet and refuses writes", () => {
 		expect(
 			appRuntimePermission({
@@ -204,7 +234,7 @@ describe("guest access to a runtime app", () => {
 		expect(appRuntimeGuestRefusal([], new Map())).toBeNull();
 	});
 	it("refuses a connection or skill grant, whatever the slot holds", () => {
-		for (const operation of ["connections.call", "skills.run"])
+		for (const operation of ["connections.call", "skills.run", "skills.read"])
 			expect(
 				appRuntimeGuestRefusal(
 					[{ slot: "cards", operations: ["outputs.read", operation] }],

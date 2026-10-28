@@ -854,13 +854,42 @@ app's `resourceGrants` and no more than that person may do today. If they
 leave the organization, the app's own code still runs but every resource
 call is refused until someone saves the app again.
 
+### Read workflow results
+
+Bind a workspace slot to a Tedix `skill` resource and grant that slot
+`skills.read`. Server code can then read that skill's saved runs and evidence:
+
+```js
+const run = await this.env.TEDIX.skillsRead("research", {
+	view: "run",
+	runId,
+});
+const output = await this.env.TEDIX.skillsRead("research", {
+	view: "artifact",
+	runId,
+	path: "outputs/read.json",
+});
+```
+
+The other views are `artifacts` (metadata, with `limit` up to 200 and
+`offset`) and `timeline`. Artifact bodies must be under `outputs/` and no
+larger than 256 KiB. Run reads return status, dates, execution epoch and
+result, without workflow source or input parameters. Reads check the current
+organization, skill, member permissions and recorded source access; retired
+or revoked runs are unavailable. They never start or retry research.
+
+An app can build a compact report from these records and cache it in app
+storage. Recheck the run's access before serving cached evidence. A finished
+skill trigger can pass a run ID to a refresh method; read the saved run
+rather than trusting report content supplied by a caller.
+
 ### Roles, errors and limits
 
-| Role             | Allowed runtime operations                                                                     |
-| ---------------- | ---------------------------------------------------------------------------------------------- |
-| `owner`, `build` | `app.call`, `outputs.read`, `outputs.patch`, `outputs.write`, `connections.call`, `skills.run` |
-| `use`            | `app.call`, `outputs.read`                                                                     |
-| `viewer`         | None                                                                                           |
+| Role             | Allowed runtime operations                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------- |
+| `owner`, `build` | `app.call`, `outputs.read`, `outputs.patch`, `outputs.write`, `connections.call`, `skills.read`, `skills.run` |
+| `use`            | `app.call`, `outputs.read`, `skills.read`                                                                     |
+| `viewer`         | None                                                                                                          |
 
 `context` exposes presentation context. Every resource operation also requires
 a matching slot and operation in `resourceGrants`, plus current source access.
@@ -872,7 +901,7 @@ control. Do not put protected decisions behind an unrestricted app method.
 A "Can use" link lets people without a Tedix account open the app. That
 works only while every slot in `resourceGrants` is bound to an Output with
 no data from connected accounts, and no grant allows `connections.call` or
-`skills.run`. Tedix cannot check a guest against a provider's access list,
+`skills.read` or `skills.run`. Tedix cannot check a guest against a provider's access list,
 so otherwise the link does not open and the Share panel says which slot
 blocks it. Invite those people to the workspace instead.
 

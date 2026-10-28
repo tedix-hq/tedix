@@ -782,7 +782,11 @@ export function createOsAppRuntimeRouter() {
 			}).allowed
 		)
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
-		if (session.previewId && input.operation !== "outputs.read")
+		if (
+			session.previewId &&
+			input.operation !== "outputs.read" &&
+			input.operation !== "skills.read"
+		)
 			throw createError(
 				ErrorCodes.FORBIDDEN,
 				"Preview resources are read-only",
@@ -903,6 +907,11 @@ export function createOsAppRuntimeRouter() {
 			if (!result.ok)
 				throw createError(ErrorCodes.CONFLICT, "Output revision changed");
 			return JsonValueSchema.parse(result);
+		}
+		if (input.operation === "skills.read") {
+			const { readWorkspaceAppSkill } =
+				await import("../../services/os-app-skill-read");
+			return readWorkspaceAppSkill(acting, resource, input.args);
 		}
 		if (input.operation === "skills.run") {
 			if (resource.providerId !== "tedix" || resource.resourceType !== "skill")
