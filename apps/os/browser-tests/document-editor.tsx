@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -14,6 +15,7 @@ const params = new URLSearchParams(location.search);
 const theme = params.get("theme") ?? "light";
 const view = params.get("view") ?? "edit";
 const empty = params.has("empty");
+const file = params.has("file");
 document.documentElement.classList.toggle("dark", theme === "dark");
 document.documentElement.dataset.mode = theme;
 document.documentElement.dataset.theme = "tedix";
@@ -59,6 +61,15 @@ function initial(): DocumentContent {
 		kind: "document",
 		richText,
 		blocks: blocksFromRichText(richText),
+		// An uploaded file backs the document; the spec stubs its read.
+		...(file
+			? {
+					file: {
+						workspaceId: "00000001-0000-4000-8000-000000000001",
+						resourceId: "00000002-0000-4000-8000-000000000002",
+					},
+				}
+			: {}),
 	} as DocumentContent;
 }
 
@@ -85,4 +96,13 @@ function Fixture() {
 	);
 }
 
-createRoot(document.getElementById("root")!).render(<Fixture />);
+const client = new QueryClient({
+	defaultOptions: {
+		queries: { retry: false, refetchOnWindowFocus: false },
+	},
+});
+createRoot(document.getElementById("root")!).render(
+	<QueryClientProvider client={client}>
+		<Fixture />
+	</QueryClientProvider>,
+);
