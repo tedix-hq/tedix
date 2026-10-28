@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import { routeSandboxProxy } from "./sandbox-proxy-router";
 import { App } from "../../../plugins/tedix/skills/tedix-build-app/assets/sheet-review/server.js";
 import manifest from "../../../plugins/tedix/skills/tedix-build-app/assets/sheet-review/manifest.json";
 
@@ -9,6 +10,7 @@ const browser = await chromium.launch({ headless: true });
 try {
 	for (const width of [375, 1280]) {
 		const page = await browser.newPage({ viewport: { width, height: 812 } });
+		await routeSandboxProxy(page);
 		const calls: string[] = [];
 		let saved: unknown;
 		await page.route("**/api/rpc/osAppRuntime/*", async (route) => {

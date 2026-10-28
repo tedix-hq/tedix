@@ -1431,6 +1431,8 @@ export async function handleOsRequest(
 		}
 	}
 
+	const isSandboxProxy =
+		url.pathname === "/sandbox_proxy" || url.pathname === "/sandbox_proxy.html";
 	// A tenant document mounts only after its hostname has a session JWT minted
 	// for that exact Descope tenant. This is a routing hint, not authorization:
 	// apps/api still verifies signature, membership, and host context per call.
@@ -1438,6 +1440,9 @@ export async function handleOsRequest(
 		tenant.kind === "tenant" &&
 		hostTenantId &&
 		isDocumentNavigation(request) &&
+		// This static relay holds no tenant data. Guest apps need it before any
+		// account session; their data calls still require the share capability.
+		!isSandboxProxy &&
 		// The guest document is the one page a signed-out person may open; it
 		// holds nothing itself and every call it makes carries the share session.
 		url.pathname !== GUEST_DOCUMENT_PATH &&
@@ -1507,8 +1512,6 @@ export async function handleOsRequest(
 		manifest.headers.set("Content-Type", "application/manifest+json");
 		return withSecurityHeaders(manifest);
 	}
-	const isSandboxProxy =
-		url.pathname === "/sandbox_proxy" || url.pathname === "/sandbox_proxy.html";
 	// The shell document gets the shared WebMCP bridge tag appended into <head>
 	// on tenant hosts — after header stamping, which
 	// HTMLRewriter's transform preserves. The sandbox proxy is exempt: widget

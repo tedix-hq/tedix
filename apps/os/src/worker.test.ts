@@ -2154,23 +2154,39 @@ describe("Tedix OS origin router", () => {
 		}
 	});
 
-	it("allows only the sandbox proxy asset to frame on the same OS origin", async () => {
+	it("serves only the static sandbox proxy to signed-out iframe navigations", async () => {
 		for (const path of ["/sandbox_proxy", "/sandbox_proxy.html?csp=%7B%7D"]) {
 			const response = await handleOsRequest(
-				new Request(`https://tedix.os.tedix.dev${path}`),
-				assetsReturning("sandbox proxy"),
+				new Request(`https://acme.os.tedix.dev${path}`, {
+					headers: { Accept: "text/html", "Sec-Fetch-Dest": "iframe" },
+				}),
+				withApiService(assetsReturning("sandbox proxy")),
+				provisionedWithTenant,
 			);
+			expect(response.status).toBe(200);
+			expect(await response.text()).toBe("sandbox proxy");
+			expect(response.headers.get("Location")).toBeNull();
 			expect(response.headers.get("X-Frame-Options")).toBe("SAMEORIGIN");
 			expect(response.headers.get("Content-Security-Policy")).toBe(
 				"frame-ancestors 'self'",
 			);
 		}
 
-		const ordinaryAsset = await handleOsRequest(
-			new Request("https://tedix.os.tedix.dev/canvas"),
-			assetsReturning("shell"),
-		);
-		expect(ordinaryAsset.headers.get("X-Frame-Options")).toBe("DENY");
+		for (const path of [
+			"/canvas",
+			"/sandbox_proxy/other",
+			"/sandbox_proxy.html/other",
+		]) {
+			const ordinaryAsset = await handleOsRequest(
+				new Request(`https://acme.os.tedix.dev${path}`, {
+					headers: { Accept: "text/html", "Sec-Fetch-Dest": "iframe" },
+				}),
+				withApiService(assetsReturning("shell")),
+				provisionedWithTenant,
+			);
+			expect(ordinaryAsset.status).toBe(302);
+			expect(ordinaryAsset.headers.get("X-Frame-Options")).toBe("DENY");
+		}
 	});
 
 	it("preserves the upstream asset status and content type", async () => {

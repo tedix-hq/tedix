@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import { routeSandboxProxy } from "./sandbox-proxy-router";
 
 const requests: string[] = [];
 const outside = Bun.serve({
@@ -19,6 +20,7 @@ const url = `${server.origin}/browser-tests/app-runtime.html?escape&destination=
 async function openGuest(width: number) {
 	requests.length = 0;
 	const page = await browser.newPage({ viewport: { width, height: 812 } });
+	await routeSandboxProxy(page);
 	const counts = { api: 0 };
 	await page.route("**/api/rpc/**", (route) => {
 		counts.api++;
