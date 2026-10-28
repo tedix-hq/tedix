@@ -82,7 +82,7 @@ function MetricItem({
 				{value}
 			</Text>
 			{description ? (
-				<Text as="p" role="label" tone="secondary" className="m-0">
+				<Text as="dd" role="label" tone="secondary" className="m-0">
 					{description}
 				</Text>
 			) : null}

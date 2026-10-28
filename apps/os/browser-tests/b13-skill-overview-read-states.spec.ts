@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, webkit, type Browser } from "playwright";
 
 const cwd = new URL("../", import.meta.url).pathname;
 const evidence =
@@ -18,24 +18,26 @@ const probe = Bun.serve({
 });
 const port = probe.port!;
 probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--host",
-		"127.0.0.1",
-		"--port",
-		String(port),
-		"--strictPort",
-	],
-	{
-		cwd,
-		stdout: Bun.file(`${evidence}/server.stdout.log`),
-		stderr: Bun.file(`${evidence}/server.stderr.log`),
-		env: { ...process.env, VITE_LIVE_API: "0" },
-	},
-);
+const origin = process.env.B13_TEST_ORIGIN ?? `http://127.0.0.1:${port}`;
+const server = process.env.B13_TEST_ORIGIN
+	? undefined
+	: Bun.spawn(
+			[
+				"../../node_modules/.bin/vp",
+				"dev",
+				"--host",
+				"127.0.0.1",
+				"--port",
+				String(port),
+				"--strictPort",
+			],
+			{
+				cwd,
+				stdout: Bun.file(`${evidence}/server.stdout.log`),
+				stderr: Bun.file(`${evidence}/server.stderr.log`),
+				env: { ...process.env, VITE_LIVE_API: "0" },
+			},
+		);
 const entry = (id: string, title: string, feedback = false) => ({
 	id,
 	organizationId: "example",
@@ -92,7 +94,11 @@ const reliabilityFor = (skillId: string) => ({
 	toolCallCount: 0,
 	failedSteps: [],
 	warnings:
-		skillId === "alpha" ? ["Sample covers the last 100 runs only."] : [],
+		skillId === "alpha"
+			? [
+					"3 of 7 selected runs have no steps/** evidence; retry, rollback, tool-call, and failed-step counts are lower bounds.",
+				]
+			: [],
 });
 type Fixture = Window & {
 	overviewFixture: {
@@ -106,7 +112,7 @@ let browser: Browser | undefined;
 let ready = false;
 try {
 	for (let i = 0; i < 120; i++) {
-		if (server.exitCode !== null)
+		if (server && server.exitCode !== null)
 			throw new Error(`Server exited before readiness: ${server.exitCode}`);
 		try {
 			ready = (
@@ -119,9 +125,14 @@ try {
 		await Bun.sleep(250);
 	}
 	assert(ready, "Fixture server readiness timeout");
-	browser = await chromium.launch({ headless: true });
+	const engine = process.env.B13_BROWSER ?? "chromium";
+	browser = await (engine === "webkit" ? webkit : chromium).launch({
+		headless: true,
+		...(engine === "chrome" ? { channel: "chrome" } : {}),
+	});
 	for (const viewport of [
-		{ width: 390, height: 844 },
+		{ width: 375, height: 667 },
+		{ width: 768, height: 1024 },
 		{ width: 1280, height: 900 },
 	])
 		for (const theme of ["light", "dark"] as const) {
@@ -256,7 +267,17 @@ try {
 				.first()
 				.click();
 			await page.getByText("86%", { exact: true }).waitFor();
-			await page.getByText("Sample covers the last 100 runs only.").waitFor();
+			// Partial evidence reads as a plain sentence; counting rules stay
+			// behind the Technical details disclosure.
+			await page.getByText(/Some runs have incomplete records/).waitFor();
+			assert.equal(
+				await page.getByText(/steps\/\*\* evidence/).isVisible(),
+				false,
+			);
+			await page.getByRole("button", { name: "Technical details" }).click();
+			await page.getByText(/steps\/\*\* evidence/).waitFor();
+			await page.getByRole("button", { name: "Technical details" }).click();
+			await page.getByText(/steps\/\*\* evidence/).waitFor({ state: "hidden" });
 			await page.getByText("4 helpful · 1 unhelpful").waitFor();
 			await page.getByText("Runs unavailable", { exact: true }).waitFor();
 			// The other read recovers on its own retry.
@@ -308,9 +329,17 @@ try {
 				.getByText("Could not refresh runs", { exact: true })
 				.waitFor({ state: "hidden" });
 			// The Advanced source disclosure stays one tap away.
+			await page.evaluate(() => document.fonts.ready);
+			const summaryScreenshot = `${evidence}/${viewport.width}x${viewport.height}-${theme}-summary.png`;
+			await page.evaluate(() => window.scrollTo(0, 0));
+			await page.screenshot({ path: summaryScreenshot, fullPage: false });
+			await page.getByRole("button", { name: "Technical details" }).focus();
+			await page.keyboard.press("Enter");
+			await page.getByText(/steps\/\*\* evidence/).waitFor();
 			await page
 				.getByRole("button", { name: "Instructions and source" })
-				.click();
+				.focus();
+			await page.keyboard.press("Enter");
 			await page.getByText("references", { exact: true }).waitFor();
 			await page.getByText("SKILL.md", { exact: true }).first().waitFor();
 			await page.evaluate(() => document.fonts.ready);
@@ -332,6 +361,7 @@ try {
 				`Overflow ${JSON.stringify(measurement)}`,
 			);
 			const screenshot = `${evidence}/${viewport.width}x${viewport.height}-${theme}.png`;
+			await page.evaluate(() => window.scrollTo(0, 0));
 			const png = await page.screenshot({ path: screenshot, fullPage: false });
 			assert.equal(png.readUInt32BE(16), viewport.width);
 			assert.equal(png.readUInt32BE(20), viewport.height);
@@ -376,6 +406,8 @@ try {
 			]);
 			receipts.push({
 				...measurement,
+				engine,
+				summaryScreenshot,
 				screenshot,
 				screenshotDimensions: viewport,
 				reliabilityReads,
@@ -386,7 +418,7 @@ try {
 			});
 			await page.close();
 		}
-	console.log("Skill overview read states: four viewport/theme checks passed");
+	console.log("Skill overview read states: six viewport/theme checks passed");
 } catch (error) {
 	for (const context of browser?.contexts() ?? []) {
 		for (const page of context.pages()) {
@@ -400,8 +432,8 @@ try {
 	throw error;
 } finally {
 	await browser?.close();
-	server.kill();
-	const exitCode = await server.exited;
+	server?.kill();
+	const exitCode = await server?.exited;
 	await writeFile(
 		`${evidence}/receipt.json`,
 		JSON.stringify(

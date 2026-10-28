@@ -55,6 +55,32 @@ describe("Skill overview summary", () => {
 		expect(html).not.toContain('data-slot="card"');
 	});
 
+	it("explains incomplete evidence in plain words and keeps counting rules under Technical details", () => {
+		const html = renderToStaticMarkup(
+			<SkillOverviewSummary
+				description={null}
+				tags={[]}
+				reliability={read({
+					data: {
+						runCount: 10,
+						completedCount: 9,
+						successRate: 0.9,
+						averageDurationMs: null,
+						warnings: [
+							"3 of 10 selected runs have no steps/** evidence; retry, rollback, tool-call, and failed-step counts are lower bounds.",
+						],
+					},
+				})}
+				successCount={0}
+				failureCount={0}
+			/>,
+		);
+		expect(html).toContain("Some runs have incomplete records");
+		expect(html).toContain("counts shown may be incomplete");
+		expect(html).toContain("Technical details");
+		expect(html).toContain("steps/** evidence");
+	});
+
 	it("states unavailable evidence in place instead of a raw error alert", () => {
 		const html = renderToStaticMarkup(
 			<SkillOverviewSummary
