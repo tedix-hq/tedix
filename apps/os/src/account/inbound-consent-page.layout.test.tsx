@@ -11,6 +11,8 @@ import {
 
 const descopeMock = vi.hoisted(() => ({
 	userEmail: "member@example.test" as string | null,
+	roleNames: [] as string[],
+	me: vi.fn(),
 	selectTenant: vi.fn(),
 	myTenants: vi.fn(async (_ids: string[]) => ({
 		ok: true,
@@ -29,7 +31,9 @@ vi.mock("@descope/react-sdk/flows", () => ({
 	},
 	useDescope: () => descopeMock,
 	useUser: () => ({
-		user: descopeMock.userEmail ? { email: descopeMock.userEmail } : null,
+		user: descopeMock.userEmail
+			? { email: descopeMock.userEmail, roleNames: descopeMock.roleNames }
+			: null,
 		isUserLoading: false,
 	}),
 	useSession: () => ({
@@ -91,6 +95,12 @@ async function clickButton(label: string) {
 beforeEach(() => {
 	descopeMock.flowProps = null;
 	descopeMock.userEmail = "member@example.test";
+	descopeMock.roleNames = [];
+	descopeMock.me.mockReset();
+	descopeMock.me.mockResolvedValue({
+		ok: true,
+		data: { email: "member@example.test", roleNames: [] },
+	});
 	descopeMock.myTenants.mockClear();
 	globalThis.fetch = vi.fn(async () =>
 		Response.json({
@@ -167,6 +177,75 @@ afterEach(() => {
 });
 
 describe("InboundConsentPage layout", () => {
+	it.each([
+		{
+			cached: [],
+			fresh: ["platform-admin"],
+			email: "member@example.test",
+			visible: true,
+		},
+		{
+			cached: ["platform-admin"],
+			fresh: [],
+			email: "member@example.test",
+			visible: false,
+		},
+		{
+			cached: [],
+			fresh: ["owner", "admin"],
+			email: "member@example.test",
+			visible: false,
+		},
+		{
+			cached: [],
+			fresh: ["platform-admin"],
+			email: "other@example.test",
+			visible: false,
+		},
+	])(
+		"uses current matching global roles for platform consent ($visible)",
+		async ({ cached, fresh, email, visible }) => {
+			descopeMock.roleNames = cached;
+			descopeMock.me.mockResolvedValue({
+				ok: true,
+				data: {
+					email,
+					roleNames: fresh,
+					roleTenants: { org_fixture: { roleNames: ["platform-admin"] } },
+				},
+			});
+			await act(async () => renderConsentPage());
+			const update = descopeMock.flowProps?.onScreenUpdate as (
+				name: string,
+				context: Record<string, unknown>,
+				next: ReturnType<typeof vi.fn>,
+			) => boolean;
+			await act(async () => {
+				update(
+					"Consent Screen - Verified App",
+					{
+						data: {
+							inboundAppApproveScopes: [
+								{ id: "mcp:work.read", desc: "Read work" },
+								{ id: "platform:admin", desc: "Platform administration" },
+							],
+						},
+					},
+					vi.fn(),
+				);
+			});
+			const checkbox = [...container.querySelectorAll("label")]
+				.find((label) => label.textContent === "Platform administration")
+				?.querySelector('[role="checkbox"]');
+			expect(Boolean(checkbox)).toBe(visible);
+			if (visible) {
+				expect(checkbox?.getAttribute("aria-checked")).toBe("false");
+				await clickButton("All requested");
+				expect(checkbox?.getAttribute("aria-checked")).toBe("false");
+			}
+		},
+	);
+
 	it("describes an all-read request as the requested permissions", async () => {
 		window.history.replaceState({}, "", "/oauth/consent?mode=multi-org");
 		await act(async () => renderConsentPage());

@@ -499,8 +499,44 @@ function GroupedConsentScreen({
 	const platformPermission = state.scopes.find(
 		(scope) => scope.name === "platform:admin",
 	);
-	const platformEligible = user?.roleNames?.includes("platform-admin") === true;
+	const consentEmail = user?.email?.trim().toLowerCase() ?? "";
+	const [platformRole, setPlatformRole] = useState<{
+		email: string;
+		status: "checking" | "eligible" | "ineligible" | "unavailable";
+	}>({ email: "", status: "checking" });
+	const platformEligible =
+		platformRole.email === consentEmail && platformRole.status === "eligible";
+	const [roleReload, setRoleReload] = useState(0);
 	const [platformAdministration, setPlatformAdministration] = useState(false);
+	useEffect(() => {
+		let active = true;
+		setPlatformAdministration(false);
+		setPlatformRole({ email: consentEmail, status: "checking" });
+		void descope.me().then(
+			(result) => {
+				if (!active) return;
+				const matches =
+					Boolean(consentEmail) &&
+					result.data?.email?.trim().toLowerCase() === consentEmail;
+				setPlatformRole({
+					email: consentEmail,
+					status:
+						!result.ok || !matches
+							? "unavailable"
+							: result.data?.roleNames?.includes("platform-admin")
+								? "eligible"
+								: "ineligible",
+				});
+			},
+			() => {
+				if (active)
+					setPlatformRole({ email: consentEmail, status: "unavailable" });
+			},
+		);
+		return () => {
+			active = false;
+		};
+	}, [consentEmail, descope, roleReload]);
 	const [step, setStep] = useState<"permissions" | "organizations" | "review">(
 		"permissions",
 	);
@@ -728,6 +764,26 @@ function GroupedConsentScreen({
 							<Text role="body" tone="secondary" className="break-all">
 								Application ID: {clientId}
 							</Text>
+							{platformEligible ? (
+								<Text role="body" tone="secondary">
+									{platformPermission
+										? "This application requested platform administration."
+										: "This application did not request platform administration. Update its permissions before reconnecting."}
+								</Text>
+							) : null}
+							{platformRole.status === "unavailable" ? (
+								<div className="grid gap-2">
+									<Text role="body" tone="secondary">
+										Your current account permissions could not be verified.
+									</Text>
+									<Button
+										variant="outline"
+										onClick={() => setRoleReload((value) => value + 1)}
+									>
+										Retry permission check
+									</Button>
+								</div>
+							) : null}
 						</details>
 					) : null}
 					{user?.email ? (
