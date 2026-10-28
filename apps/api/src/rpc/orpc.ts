@@ -81,6 +81,7 @@ import {
 	assertFleetAuthorityAvailable,
 	FleetAuthorityUnavailableError,
 } from "../lib/fleet-authority";
+import { auditGatewayInputRejection } from "./gateway-input-validation";
 
 // `BaseContext` + `createContext` moved to ./context so the kernel Durable
 // Objects can build a request context without dragging this module's auth
@@ -2233,6 +2234,7 @@ export async function logProcedureCall(options: {
 			});
 		return result;
 	} catch (error) {
+		await auditGatewayInputRejection(context, path, error);
 		const duration = Date.now() - start;
 		const message = `[oRPC] ${route} - Failed in ${duration}ms:`;
 		const isClientError =
