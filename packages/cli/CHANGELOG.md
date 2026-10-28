@@ -3,6 +3,23 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.18.0 — 2026-10-28
+
+### Minor Changes
+
+- `tedix agent start` no longer creates an "External agent …" API key. A new agent gets its own M2M identity, limited to the MCP tools it may use, and that identity opens its sessions and runs its Work. Profiles that still carry an API key keep working in this release; the next minor release stops accepting them, so run `tedix agent start` again on each machine and revoke the old key.
+
+### Patch Changes
+
+- Notices from Home and delegated tedi runs reach the Claude or Codex session that started them.
+- Sessions keep their established profile workstream when they are regrouped. "Your week" is built from dated session activity with exact sources, not from unverified model claims.
+- Generated Code Mode arguments escape script-closing tags and Unicode line separators for Home reads, flows, skills, external-agent calls and result paging.
+- Concurrent CLI processes wait less for the credential lock, so credential writes no longer stall.
+- `tedix work --help` calls cases epics, matching Tedix OS. The `case-*` commands are unchanged.
+- Local executor briefs include matching approved lessons before launch, without relying on host hooks.
+- Owners can enable Tedix OS for an existing organization through the `complete_os_onboarding` tool in Code Mode with app-write scope; platform administration is no longer required. Active owner membership is still required.
+- Local hook processes share pre-tool lesson catalog reads for 30 seconds, reducing owner gateway traffic while keeping prompt-time lessons live.
+
 ## 0.17.12 — 2026-10-27
 
 ### Patch Changes
