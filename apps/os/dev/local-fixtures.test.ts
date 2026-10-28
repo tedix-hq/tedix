@@ -211,6 +211,11 @@ const CALLS = {
 	"tediUsage/getCallCosts": { tediId: IDS.tediMiles, period: "7d" },
 	"skills/listByOrg": { limit: 100, offset: 0, summary: true },
 	"skills/get": { id: IDS.skillRevenue },
+	"skills/improve": {
+		id: IDS.skillChurn,
+		lifecycleState: "active",
+		force: true,
+	},
 	"skills/getWorkflowReliability": { skillId: IDS.skillRevenue },
 	"skills/listWorkflowSchedules": { limit: 100 },
 	"skills/runWorkflowHistory": { limit: 50 },
@@ -2225,4 +2230,45 @@ it("keeps snoozed fixture cards out of the inbox until their wake time", () => {
 		vi.useRealTimers();
 		resetLocalFixtures();
 	}
+});
+
+it("turns a sample draft back on, resumes its schedule and resets cleanly", () => {
+	resetLocalFixtures();
+	expect(callLocalOk("skills/get", { id: IDS.skillChurn })).toMatchObject({
+		entry: { lifecycleState: "draft", revision: 3 },
+	});
+	expect(callLocalOk("skills/listWorkflowSchedules", {})).toMatchObject({
+		schedules: expect.arrayContaining([
+			expect.objectContaining({ skillId: IDS.skillChurn, enabled: false }),
+		]),
+	});
+	callLocalOk("skills/improve", {
+		id: IDS.skillChurn,
+		lifecycleState: "active",
+		force: true,
+		revisionReasoning: "Turn back on",
+	});
+	expect(callLocalOk("skills/get", { id: IDS.skillChurn })).toMatchObject({
+		entry: {
+			lifecycleState: "active",
+			revision: 4,
+			revisionReasoning: "Turn back on",
+		},
+	});
+	expect(
+		callLocalOk("skills/listByOrg", { lifecycleState: "active" }),
+	).toMatchObject({
+		entries: expect.arrayContaining([
+			expect.objectContaining({ id: IDS.skillChurn, lifecycleState: "active" }),
+		]),
+	});
+	expect(callLocalOk("skills/listWorkflowSchedules", {})).toMatchObject({
+		schedules: expect.arrayContaining([
+			expect.objectContaining({ skillId: IDS.skillChurn, enabled: true }),
+		]),
+	});
+	resetLocalFixtures();
+	expect(callLocalOk("skills/get", { id: IDS.skillChurn })).toMatchObject({
+		entry: { lifecycleState: "draft", revision: 3 },
+	});
 });

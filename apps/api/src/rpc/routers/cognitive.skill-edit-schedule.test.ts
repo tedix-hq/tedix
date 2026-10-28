@@ -1,7 +1,12 @@
+import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import type { SkillEntry } from "@tedix/db/schema/cognitive";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
+import { userContext, apiKeyContext } from "../test-context";
 
 /**
  * Editing a scheduled skill with skills.improve (improve_skills) creates a new
@@ -250,5 +255,165 @@ describe("skills.improve keeps a scheduled skill running", () => {
 		expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
 		expect(mocks.upsertSkillSchedule).not.toHaveBeenCalled();
 		expect(mocks.deleteSkillSchedule).not.toHaveBeenCalled();
+	});
+});
+
+function humanContext(role: string, status = "active") {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys = OFF");
+	sqlite.exec(schemaDdl(organizationMembers));
+	sqlite
+		.prepare(
+			"INSERT INTO organization_members (id, organization_id, user_id, descope_user_id, email, role, status) VALUES ('membership-1', ?, 'human-1', 'subject-1', 'person@example.test', ?, ?)",
+		)
+		.run(ORG_ID, role, status);
+	return {
+		sqlite,
+		context: userContext({
+			env: {
+				ENVIRONMENT: "test",
+				DB: createD1Facade(sqlite),
+			} as unknown as CloudflareEnv,
+			organizationId: ORG_ID,
+			sub: "subject-1",
+			permissions: ["tedis:update"],
+			roles: ["owner"],
+		}),
+	};
+}
+
+const REACTIVATE = {
+	id: "skill-1",
+	lifecycleState: "active" as const,
+	force: true,
+	revisionReasoning:
+		"Owner reviewed the repaired gateway and turned the skill back on.",
+};
+
+describe("skills.improve draft reactivation is a human owner/admin decision", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		useSkill(
+			skillFixture({
+				lifecycleState: "draft",
+				failureCount: 4,
+				files: {
+					"scripts/workflow.ts":
+						"export default { async run(event, step) { return { ok: true }; } };",
+				},
+			}),
+		);
+		mocks.getSkillSchedule.mockResolvedValue({
+			...STORED_SCHEDULE,
+			enabled: false,
+		});
+	});
+
+	it.each(["owner", "admin"])(
+		"allows an active %s and resumes the paused schedule",
+		async (role) => {
+			const h = humanContext(role);
+			try {
+				const client = createRouterClient(skillsContractRouter, {
+					context: h.context,
+				});
+				const { entry } = await client.improve(REACTIVATE);
+				expect(entry).toMatchObject({
+					lifecycleState: "active",
+					revision: 8,
+					failureCount: 4,
+				});
+				expect(mocks.updateSkillEntry).toHaveBeenCalledWith(
+					expect.anything(),
+					"skill-1",
+					expect.objectContaining({
+						lifecycleState: "active",
+						revisionReasoning: REACTIVATE.revisionReasoning,
+					}),
+					{ force: true, forceAuthority: { kind: "operator" } },
+				);
+				expect(mocks.upsertSkillSchedule).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({
+						enabled: true,
+						cron: STORED_SCHEDULE.cron,
+						nextFireAt: STORED_SCHEDULE.nextFireAt,
+					}),
+				);
+			} finally {
+				h.sqlite.close();
+			}
+		},
+	);
+
+	it.each([
+		["member", "active"],
+		["owner", "suspended"],
+	])(
+		"refuses persisted %s/%s despite owner token claims",
+		async (role, status) => {
+			const h = humanContext(role, status);
+			try {
+				const client = createRouterClient(skillsContractRouter, {
+					context: h.context,
+				});
+				await expect(client.improve(REACTIVATE)).rejects.toMatchObject({
+					code: "FORBIDDEN",
+				});
+				expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+				expect(mocks.upsertSkillSchedule).not.toHaveBeenCalled();
+			} finally {
+				h.sqlite.close();
+			}
+		},
+	);
+
+	it.each(["service-binding", "tedi", "apikey"] as const)(
+		"refuses %s even with force and the owning tedi",
+		async (authType) => {
+			const context =
+				authType === "apikey"
+					? apiKeyContext({ organizationId: ORG_ID, scopes: ["mcp:skills"] })
+					: { ...ownerContext(), authType };
+			const client = createRouterClient(skillsContractRouter, { context });
+			await expect(client.improve(REACTIVATE)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+			expect(mocks.upsertSkillSchedule).not.toHaveBeenCalled();
+		},
+	);
+
+	it("refuses agent activation without force too", async () => {
+		const client = createRouterClient(skillsContractRouter, {
+			context: ownerContext(),
+		});
+		await expect(
+			client.improve({ ...REACTIVATE, force: false }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+	});
+});
+
+describe("forwarded human identity cannot reactivate for an agent", () => {
+	it.each([
+		{ tediId: "tedi-owner" },
+		{ externalAgentPrincipalId: "external-agent" },
+	])("rejects %j", async (identity) => {
+		vi.clearAllMocks();
+		useSkill(skillFixture({ lifecycleState: "draft" }));
+		const h = humanContext("owner");
+		try {
+			const client = createRouterClient(skillsContractRouter, {
+				context: { ...h.context, ...identity },
+			});
+			await expect(client.improve(REACTIVATE)).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+			expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+			expect(mocks.upsertSkillSchedule).not.toHaveBeenCalled();
+		} finally {
+			h.sqlite.close();
+		}
 	});
 });

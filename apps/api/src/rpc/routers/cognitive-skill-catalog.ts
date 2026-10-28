@@ -51,6 +51,7 @@ import {
 	withPermission,
 } from "../orpc";
 import { requireOrgId } from "../org-scope";
+import { verifiedActiveUserMembership } from "./work-items-principal";
 import {
 	effectiveSkillPaceLayer,
 	isSkillContentMutation,
@@ -140,6 +141,31 @@ export const skillsImprove = authedSkills.improve
 		const orgId = requireOrgId(context);
 		const existing = await getSkillEntry(context.db, input.id, orgId);
 		if (!existing) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
+
+		if (
+			existing.lifecycleState === "draft" &&
+			(input.lifecycleState === "active" ||
+				input.lifecycleState === "proven" ||
+				input.lifecycleState === "crystallized")
+		) {
+			if (context.tediId || context.externalAgentPrincipalId) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Turning a draft skill back on requires a direct human decision",
+				);
+			}
+			const membership = await verifiedActiveUserMembership(
+				context,
+				orgId,
+				"owner or admin",
+			);
+			if (membership.role !== "owner" && membership.role !== "admin") {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only a signed-in owner or admin can turn a draft skill back on",
+				);
+			}
+		}
 
 		// Layer-scaled governance: record-layer (crystallized) skills are
 		// systems of record. Content/workflow mutations by agent-authenticated

@@ -12,6 +12,10 @@ import {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const calls = vi.hoisted(() => [] as Array<{ path: string; input: unknown }>);
+const authority = vi.hoisted(() => ({ role: "member" }));
+vi.mock("@/lib/use-os-preferences", () => ({
+	useOsOperationalContext: () => ({ data: { authority } }),
+}));
 vi.mock("@/lib/api", () => {
 	const client = (path: string[]): unknown =>
 		new Proxy(
@@ -75,6 +79,7 @@ afterEach(() => {
 	cleanups.splice(0).forEach((cleanup) => cleanup());
 	calls.length = 0;
 	canManage.value = true;
+	authority.role = "member";
 	document.body.replaceChildren();
 });
 
@@ -123,15 +128,74 @@ async function mount(element: ReactNode, seed: (client: QueryClient) => void) {
 
 const skill = {
 	entry: {
+		id: "skill-1",
+		organizationId: "org-1",
+		content: "# Customer export",
+		successCount: 1,
+		failureCount: 4,
+		lastUsedAt: null,
+		visibility: "org" as const,
+		paceLayer: "innovation" as const,
 		title: "Customer export",
 		folderPath: "operations",
 		revision: 3,
-		lifecycleState: "active",
+		lifecycleState: "active" as const,
 		files: { "scripts/workflow.ts": "export default {}" },
 	},
 };
 
 describe("native skill ownership", () => {
+	it.each(["owner", "admin"])(
+		"lets an %s turn a draft back on with one click",
+		async (role) => {
+			authority.role = role;
+			const { host, invalidated, click } = await mount(
+				<SkillDetailLayout />,
+				(client) =>
+					client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, {
+						entry: { ...skill.entry, lifecycleState: "draft" },
+					}),
+			);
+			expect(host.textContent).toContain("Turn back on");
+			await click("Turn back on");
+			expect(calls.filter((call) => call.path === "skills.improve")).toEqual([
+				{
+					path: "skills.improve",
+					input: {
+						id: "skill-1",
+						lifecycleState: "active",
+						force: true,
+						revisionReasoning:
+							"Owner or admin turned the skill back on from its Tedix OS page.",
+					},
+				},
+			]);
+			expect(invalidated).toContainEqual(q.osQueryKeys.skills());
+			expect(invalidated).toContainEqual(q.osQueryKeys.skillSchedules());
+		},
+	);
+
+	it.each(["member", "unknown"])(
+		"hides draft reactivation from %s",
+		async (role) => {
+			authority.role = role;
+			const { host } = await mount(<SkillDetailLayout />, (client) =>
+				client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, {
+					entry: { ...skill.entry, lifecycleState: "draft" },
+				}),
+			);
+			expect(host.textContent).not.toContain("Turn back on");
+		},
+	);
+
+	it("hides reactivation for an active skill", async () => {
+		authority.role = "owner";
+		const { host } = await mount(<SkillDetailLayout />, (client) =>
+			client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, skill),
+		);
+		expect(host.textContent).not.toContain("Turn back on");
+	});
+
 	it("keeps the detail frame visible while loading and when a skill is missing", async () => {
 		const loading = await mount(<SkillDetailLayout />, () => {});
 		expect(loading.host.querySelector('[data-slot="skeleton"]')).not.toBeNull();

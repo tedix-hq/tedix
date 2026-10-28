@@ -1366,6 +1366,7 @@ function installWorkViewFixtures(): void {
 let demoPackBuiltAt: number | null = null;
 
 export function resetLocalFixtures(): void {
+	localSkillReactivations.clear();
 	localSkillDrafts = seedSkillDrafts();
 	localSnoozes.clear();
 	runSteeringMessages.clear();
@@ -1806,6 +1807,23 @@ const SKILLS = [
 	),
 ];
 
+const localSkillReactivations = new Map<
+	string,
+	{ revision: number; revisionReasoning: string | null }
+>();
+
+function fixtureSkillEntry(entry: (typeof SKILLS)[number]) {
+	const reactivation = localSkillReactivations.get(entry.id);
+	return reactivation
+		? {
+				...entry,
+				...reactivation,
+				lifecycleState: "active" as const,
+				paceLayer: "differentiation" as const,
+			}
+		: entry;
+}
+
 /** The skills the revenue workspace's fixture schedule list starts with. */
 const FIXTURE_SCHEDULED_SKILLS = new Set([SKILL_REVENUE, SKILL_CHURN]);
 
@@ -2078,7 +2096,7 @@ const SCHEDULES = [
 		tediId: TEDI_MILES,
 		cron: "0 6 * * *",
 		params: {},
-		enabled: true,
+		enabled: false,
 		nextFireAt: "2026-08-13T06:00:00.000Z",
 		lastFireAt: T2,
 		lastRunId: RUN_CHURN_FAILED,
@@ -5671,15 +5689,38 @@ const handlers: Record<string, (input: never) => unknown> = {
 
 	// --- skills + workflows ---
 	"skills/listByOrg": (input: { lifecycleState?: string } | undefined) => {
-		const entries = [...SKILLS, ...localSkillDrafts].filter(
+		const entries = [
+			...SKILLS.map(fixtureSkillEntry),
+			...localSkillDrafts,
+		].filter(
 			(skill) =>
 				!input?.lifecycleState || skill.lifecycleState === input.lifecycleState,
 		);
 		return { entries, total: entries.length };
 	},
 	"skills/get": (input: { id: string }) => ({
-		entry: SKILLS.find((entry) => entry.id === input.id) ?? null,
+		entry:
+			SKILLS.map(fixtureSkillEntry).find((entry) => entry.id === input.id) ??
+			null,
 	}),
+	"skills/improve": (input: {
+		id: string;
+		lifecycleState?: string;
+		revisionReasoning?: string;
+	}) => {
+		const entry = SKILLS.find((entry) => entry.id === input.id);
+		if (!entry) throw new RpcError("NOT_FOUND", "Skill not found");
+		if (input.lifecycleState !== "active")
+			throw new RpcError(
+				"BAD_REQUEST",
+				"Sample data supports turning a skill back on only",
+			);
+		localSkillReactivations.set(entry.id, {
+			revision: fixtureSkillEntry(entry).revision + 1,
+			revisionReasoning: input.revisionReasoning ?? null,
+		});
+		return { entry: fixtureSkillEntry(entry) };
+	},
 	"skills/getWorkflowReliability": (input: {
 		skillId?: string;
 		slug?: string;
@@ -5727,7 +5768,11 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"skills/listWorkflowSchedules": () => ({
-		schedules: SCHEDULES,
+		schedules: SCHEDULES.map((schedule) => ({
+			...schedule,
+			enabled:
+				localSkillReactivations.has(schedule.skillId) || schedule.enabled,
+		})),
 		total: SCHEDULES.length,
 		offset: 0,
 		limit: 100,
