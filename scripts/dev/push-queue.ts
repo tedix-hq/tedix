@@ -45,6 +45,7 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { runCurrentQueue } from "./push-bootstrap";
+import { failedPushGate } from "./push-gate-failure";
 import {
 	finishLane,
 	laneUnchanged,
@@ -205,13 +206,6 @@ export function ticketKey(cwd: string): string {
 	return `${resolve(cwd)}|${workItem}`;
 }
 
-export function gateName(output: string): string {
-	const names = [...output.matchAll(/^✗\s+(.+?)(?:\s+\([^\n]*\))?$/gm)].map(
-		(match) => match[1]!.trim(),
-	);
-	return names.at(-1) ?? "pre-push gates";
-}
-
 const minutes = (ms: number) => `${Math.max(1, Math.round(ms / 60000))} min`;
 
 /**
@@ -363,7 +357,7 @@ function fetchAndRebase(expectedMain?: string): boolean {
 
 function pushOnce(dryRun: boolean): {
 	outcome: "pushed" | "main-moved" | "failed";
-	gate?: string;
+	gate?: string | null;
 } {
 	const args = [
 		"push",
@@ -378,7 +372,7 @@ function pushOnce(dryRun: boolean): {
 	// Gates or the remote said no. It was a race only if main moved past us.
 	git(["fetch", "--quiet", "origin", "main"]);
 	return git(["merge-base", "--is-ancestor", "origin/main", "HEAD"]).ok
-		? { outcome: "failed", gate: gateName(`${push.out}\n${push.err}`) }
+		? { outcome: "failed", gate: failedPushGate(`${push.out}\n${push.err}`) }
 		: { outcome: "main-moved" };
 }
 
@@ -595,6 +589,12 @@ async function main() {
 			process.exit(0);
 		}
 		if (outcome.outcome === "failed") {
+			if (outcome.gate === null) {
+				console.error(
+					"push: preflight dependencies missing; run bun install --frozen-lockfile and retry. Retry budget unchanged.",
+				);
+				process.exit(1);
+			}
 			recordRetry(retryFile, {
 				key,
 				gate: outcome.gate ?? "pre-push gates",

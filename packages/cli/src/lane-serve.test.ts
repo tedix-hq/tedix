@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
 	LaneCommitFetchError,
+	installLaneDependencies,
 	laneFailureSignature,
 	provisionLaneWorktree,
 	landedLaneCommits,
@@ -111,6 +112,8 @@ function fixture({
 		spawnPid: undefined as number | undefined,
 		telemetryOutcome: "succeeded" as "succeeded" | "stopped",
 		provisionError: undefined as Error | undefined,
+		installError: undefined as Error | undefined,
+		installed: [] as string[],
 		commits: [] as string[],
 		cleanups: 0,
 		proofError: undefined as Error | undefined,
@@ -142,6 +145,10 @@ function fixture({
 			return destination;
 		},
 		baseCommit: () => "a".repeat(40),
+		installDependencies: async (repo) => {
+			if (control.installError) throw control.installError;
+			control.installed.push(repo);
+		},
 		landedCommits: async () => {
 			if (control.proofError) throw control.proofError;
 			return control.commits;
@@ -158,15 +165,18 @@ function fixture({
 			control.cleanups++;
 			return true;
 		},
-		thread: async () => ({
-			thread: {
-				id: `33333333-3333-4333-8333-${String(++threadNumber).padStart(12, "0")}`,
-				cliVersion: "1.2.3",
-				path: "/fictional/transcript",
-			},
-			model: "test-model",
-			modelProvider: "test-provider",
-		}),
+		thread: async (repo, executor) => {
+			if (executor === "devin") expect(control.installed).toContain(repo);
+			return {
+				thread: {
+					id: `33333333-3333-4333-8333-${String(++threadNumber).padStart(12, "0")}`,
+					cliVersion: "1.2.3",
+					path: "/fictional/transcript",
+				},
+				model: "test-model",
+				modelProvider: "test-provider",
+			};
+		},
 		cli: async <T>(args: string[], env: NodeJS.ProcessEnv): Promise<T> => {
 			const verb = args[5]!;
 			const inputIndex = args.indexOf("--input");
@@ -503,7 +513,9 @@ describe("dispatcher admission", () => {
 		}
 	});
 	it("admits and settles Devin through the same dispatcher", async () => {
-		const { dispatcher, events, releases } = fixture({ executor: "devin" });
+		const { dispatcher, events, releases, control } = fixture({
+			executor: "devin",
+		});
 		await dispatcher.tick();
 		await until(() => releases.length === 2);
 		expect(
@@ -512,6 +524,17 @@ describe("dispatcher admission", () => {
 		for (const release of releases) release();
 		await dispatcher.drain();
 		expect(events.filter((event) => event.verb === "settle")).toHaveLength(2);
+		expect(control.installed).toHaveLength(2);
+	});
+	it("does not create a child or admit Work when Devin dependency installation fails", async () => {
+		const { dispatcher, events, releases, control } = fixture({
+			executor: "devin",
+		});
+		control.installError = new Error("Frozen lockfile install failed");
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(releases).toHaveLength(0);
+		expect(events.some((event) => event.verb === "start")).toBe(false);
 	});
 	it("leaves logged-out Devin work unclaimed for a later tick", async () => {
 		const { dispatcher, events, releases } = fixture({
@@ -1098,6 +1121,32 @@ describe("dispatcher admission", () => {
 		});
 		expect(saved.retryAt).toBeGreaterThan(Date.now());
 	});
+});
+
+it("installs worktree dependencies and rejects a changed frozen lockfile", async () => {
+	const repo = mkdtempSync(join(tmpdir(), "lane-install-test-"));
+	dirs.push(repo);
+	mkdirSync(join(repo, "dependency"));
+	writeFileSync(
+		join(repo, "dependency/package.json"),
+		JSON.stringify({ name: "fixture-dependency", version: "1.0.0" }),
+	);
+	const manifest = {
+		name: "fixture",
+		dependencies: { "fixture-dependency": "file:./dependency" },
+	};
+	writeFileSync(join(repo, "package.json"), JSON.stringify(manifest));
+	expect(spawnSync("bun", ["install"], { cwd: repo }).status).toBe(0);
+	rmSync(join(repo, "node_modules"), { recursive: true });
+	await installLaneDependencies(repo);
+	expect(
+		existsSync(join(repo, "node_modules/fixture-dependency/package.json")),
+	).toBe(true);
+	writeFileSync(
+		join(repo, "package.json"),
+		JSON.stringify({ ...manifest, dependencies: {} }),
+	);
+	await expect(installLaneDependencies(repo)).rejects.toThrow();
 });
 
 it("requires the owner's version-specific note for money or personal messaging", () => {
