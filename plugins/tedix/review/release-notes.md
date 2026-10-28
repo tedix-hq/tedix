@@ -1,3 +1,10 @@
+Tedix 0.2.9 — offer platform administration during OpenAI reconnect.
+
+The OpenAI connection explicitly requests Tedix's supported permissions,
+including platform administration. Eligible administrators must still select
+the separate, unchecked checkbox before granting it. Existing connections
+receive no additional access automatically.
+
 Tedix 0.2.8 — clearer descriptions.
 
 Updated plugin descriptions, keywords, and installation links to match Tedix: a

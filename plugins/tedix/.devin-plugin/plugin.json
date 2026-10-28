@@ -1,7 +1,7 @@
 {
 	"name": "tedix",
 	"displayName": "Tedix",
-	"version": "0.2.8",
+	"version": "0.2.9",
 	"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use.",
 	"shortDescription": "Shared work across assistants",
 	"logo": "assets/logo.png",

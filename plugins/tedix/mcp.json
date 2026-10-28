@@ -3,7 +3,50 @@
 	"mcpServers": {
 		"tedix": {
 			"type": "streamable-http",
-			"url": "https://connect.mcp.tedix.dev/mcp"
+			"url": "https://connect.mcp.tedix.dev/mcp",
+			"extensions": {
+				"com.openai": {
+					"auth": {
+						"type": "oauth",
+						"defaultScopes": [
+							"connections.admin",
+							"connections.execute",
+							"connections.read",
+							"mcp:apps.admin",
+							"mcp:apps.read",
+							"mcp:apps.write",
+							"mcp:catalog.admin",
+							"mcp:catalog.read",
+							"mcp:catalog.write",
+							"mcp:content.admin",
+							"mcp:content.read",
+							"mcp:content.write",
+							"mcp:memory.admin",
+							"mcp:memory.read",
+							"mcp:memory.write",
+							"mcp:messaging.admin",
+							"mcp:messaging.read",
+							"mcp:messaging.write",
+							"mcp:observe.admin",
+							"mcp:observe.read",
+							"mcp:observe.write",
+							"mcp:settings.admin",
+							"mcp:settings.read",
+							"mcp:settings.write",
+							"mcp:skills.admin",
+							"mcp:skills.read",
+							"mcp:skills.write",
+							"mcp:tedis.admin",
+							"mcp:tedis.read",
+							"mcp:tedis.write",
+							"mcp:work.admin",
+							"mcp:work.read",
+							"mcp:work.write",
+							"platform:admin"
+						]
+					}
+				}
+			}
 		}
 	}
 }

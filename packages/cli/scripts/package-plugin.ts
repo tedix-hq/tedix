@@ -227,6 +227,7 @@ export function packageFiles(
 		const mcp = readJson(root, "mcp.json");
 		const server = mcp.mcpServers.tedix;
 		server.type = "http";
+		delete server.extensions;
 		if (mcpUrl !== undefined) server.url = mcpUrl;
 		if (mcpBearerEnv !== undefined)
 			server.headers = { Authorization: `Bearer \${${mcpBearerEnv}}` };
