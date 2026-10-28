@@ -217,14 +217,14 @@ describe("filterInstalledApps", () => {
 
 describe("toolCountLabel", () => {
 	it("counts available and gated tools together", () => {
-		expect(toolCountLabel(readyResult)).toBe("3 tools");
-		expect(toolCountLabel(gatedResult)).toBe("2 tools · 1 gated");
+		expect(toolCountLabel(readyResult)).toBe("3 tools listed");
+		expect(toolCountLabel(gatedResult)).toBe("2 tools listed · 1 gated");
 	});
 
 	it("singularizes and preserves an unknown empty inventory", () => {
 		expect(
 			toolCountLabel({ ...readyResult, availableTools: ["one_tool"] }),
-		).toBe("1 tool");
+		).toBe("1 tool listed");
 		expect(toolCountLabel({ ...readyResult, availableTools: [] })).toBe(
 			"tool count unavailable",
 		);
@@ -300,7 +300,8 @@ describe("AppRowMain", () => {
 		);
 		expect(html).toContain("Setup needed");
 		expect(html).toContain('data-tone="warn"');
-		expect(html).toContain("2 tools · 1 gated");
+		expect(html).toContain("2 tools listed · 1 gated");
+		expect(html).not.toContain("gated listed");
 	});
 
 	it("keeps governance and inventory distinct from service checks", () => {

@@ -458,7 +458,8 @@ function CloudAppStorePage({
 						<>
 							Showing {apps.length ? search.offset + 1 : 0}–
 							{search.offset + apps.length} of{" "}
-							{(data?.total ?? 0).toLocaleString()} apps
+							{(data?.total ?? 0).toLocaleString()}{" "}
+							{data?.total === 1 ? "app" : "apps"}
 						</>
 					)}
 				</Text>
