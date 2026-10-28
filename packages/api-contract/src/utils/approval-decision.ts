@@ -198,7 +198,7 @@ export function approvalDecision(input: {
 			details: title?.detail ? [title.detail] : [],
 			whyNow: "The skill run was stopped before it started.",
 			ifApproved:
-				"The caller can retry this exact skill run once. Approval alone does not start it or activate the proposal.",
+				"Tedix starts this exact skill run once for the person who asked and records the result here. It does not activate the proposal.",
 			ifRejected: "The skill does not run.",
 			recommendation: "rejected",
 			reason:
@@ -222,7 +222,7 @@ export function approvalDecision(input: {
 			details: [...details, ...(tool ? [`Tool: ${tool}`] : [])],
 			whyNow: "The call was stopped before it ran.",
 			ifApproved:
-				"The caller can run this exact call once. Nothing else is allowed.",
+				"Tedix runs this exact call once for the person who asked and records the result here. Nothing else is allowed.",
 			ifRejected: "The call does not run.",
 			recommendation: "rejected",
 			reason: !title

@@ -103,6 +103,52 @@ describe("activity history", () => {
 		});
 	});
 
+	it("shows what happened after an approved gateway call ran", () => {
+		const parked = {
+			actionType: "mcp.tool_call",
+			description:
+				"Delete descope aih mcp client. Nothing has run yet; approving runs this exact call once.",
+		};
+		const [done, failed, waiting] = approvalHistoryEntries(
+			[
+				approval({
+					...parked,
+					payload: {
+						kind: "mcp_tool_call",
+						appSlug: "connect",
+						execution: { status: "executed", summary: "Client deleted" },
+					},
+				}),
+				approval({
+					...parked,
+					id: "2",
+					payload: {
+						kind: "mcp_tool_call",
+						appSlug: "connect",
+						execution: {
+							status: "failed",
+							error: "Tool is no longer available on example-unified",
+						},
+					},
+				}),
+				approval({
+					...parked,
+					id: "3",
+					payload: { kind: "mcp_tool_call", appSlug: "connect" },
+				}),
+			],
+			tediNames,
+		);
+		expect(done).toMatchObject({
+			status: { label: "Approved" },
+			how: "Done: Client deleted",
+		});
+		expect(failed?.how).toBe(
+			"Failed: Tool is no longer available on example-unified",
+		);
+		expect(waiting?.how).toBe("Decided by a person");
+	});
+
 	it("shows failed and blocked tool calls as actions", () => {
 		const base = {
 			timestamp: "2026-10-24T11:00:00.000Z",

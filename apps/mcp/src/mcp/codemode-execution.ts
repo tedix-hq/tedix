@@ -64,7 +64,7 @@ import {
 import {
 	enforceExpectedAnnotations,
 	callToolResultText,
-	isHomeApprovalCall,
+	isApprovedReplayCall,
 	requireDestructiveToolApproval,
 	stripDestructiveApprovalArgs,
 	withDestructiveApprovalSchema,
@@ -441,7 +441,7 @@ export function buildNamespaceGroups(
 						resultStrategy,
 						executionId: executionRefs.executionId,
 						ownerHostSession: executionRefs.ownerHostSession,
-						homeApprovedCall: isHomeApprovalCall(serverCtx, {
+						homeApprovedCall: isApprovedReplayCall(serverCtx, {
 							extra: approvalExtra,
 						}),
 					});

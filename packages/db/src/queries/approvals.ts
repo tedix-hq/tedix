@@ -645,6 +645,74 @@ export async function consumeOwnerToolApproval(
 	return rows.length === 1;
 }
 
+/** The recorded outcome of an approved gateway call the platform ran itself. */
+export interface OwnerToolApprovalExecution {
+	status: "running" | "executed" | "failed";
+	startedAt: string;
+	finishedAt?: string;
+	/** Plain-language result for people: "Client deleted", "Scope 'x' required". */
+	summary?: string;
+	error?: string;
+}
+
+/**
+ * Claim the one platform-side execution of an approved gateway call. Only an
+ * approved, unexpired, never-claimed request wins; a re-settle, a second
+ * approval path or a cancel race loses the update and never executes.
+ */
+export async function claimOwnerToolApprovalExecution(
+	db: DbClient,
+	input: { id: string; organizationId: string; now: string },
+): Promise<boolean> {
+	const execution: OwnerToolApprovalExecution = {
+		status: "running",
+		startedAt: input.now,
+	};
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(execution)}))`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "approved"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				gt(tediApprovalRequests.expiresAt, input.now),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') IS NOT NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution') IS NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length === 1;
+}
+
+/** Record how the claimed execution ended, on the request itself. */
+export async function recordOwnerToolApprovalExecution(
+	db: DbClient,
+	input: {
+		id: string;
+		organizationId: string;
+		execution: OwnerToolApprovalExecution;
+	},
+): Promise<void> {
+	await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(input.execution)}))`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+			),
+		);
+}
+
 /**
  * An approved Home write authorizes one execution per approved call and
  * credential path: the slot is "<user|tenant>_<args digest>". The tenant slot

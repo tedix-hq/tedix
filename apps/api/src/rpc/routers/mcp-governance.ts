@@ -27,7 +27,7 @@ import {
 	parseHomeToolWritePayload,
 } from "./kernel/write-executor";
 import { initiatingAgentMayStillAct } from "./kernel/write-approval-settlement";
-import { canonicalDigest } from "../../lib/blueprint-digest";
+import { canonicalDigest, canonicalJson } from "../../lib/blueprint-digest";
 import {
 	buildSurfaceUrl,
 	platformDomainForEnvironment,
@@ -122,6 +122,58 @@ async function skillForStart(
 
 function isSkillStart(target: Record<string, unknown>): boolean {
 	return target.transport === "rpc" && target.endpoint === "skills/runWorkflow";
+}
+
+/**
+ * The call an owner approval binds, independent of where it was mounted: the
+ * organization, the requester, the tool's own name, its target and the exact
+ * arguments. A `connect` session names `tedix_unified_tedix__x`; the same tool
+ * on the organization gateway is `tedix__x`, and a platform-side replay runs
+ * there. Only the gateway config hash is left out: it carries mount-time
+ * fields that differ between two otherwise identical calls.
+ */
+function ownerToolCallIdentity(input: {
+	organizationId: string;
+	userId: string;
+	toolId: string;
+	target: Record<string, unknown>;
+	args: Record<string, unknown>;
+}) {
+	return {
+		organizationId: input.organizationId,
+		userId: input.userId,
+		toolName: input.toolId.split("__").at(-1) ?? input.toolId,
+		// Every target binding the gateway or a workspace app recorded (endpoint,
+		// provider, resource and account hashes, revision) except the gateway
+		// config hash.
+		target: Object.fromEntries(
+			Object.entries(input.target).filter(([key]) => key !== "configHash"),
+		),
+		args: input.args,
+	};
+}
+
+function ownerToolCallFingerprint(
+	input: Parameters<typeof ownerToolCallIdentity>[0],
+): Promise<string> {
+	return canonicalDigest(ownerToolCallIdentity(input));
+}
+
+/** Which bindings a retry changed, for a refusal people can act on. */
+function ownerToolCallDifferences(
+	stored: ReturnType<typeof ownerToolCallIdentity>,
+	call: ReturnType<typeof ownerToolCallIdentity>,
+): string[] {
+	const differences: string[] = [];
+	if (stored.organizationId !== call.organizationId)
+		differences.push("organization");
+	if (stored.userId !== call.userId) differences.push("requester");
+	if (stored.toolName !== call.toolName) differences.push("tool");
+	if (canonicalJson(stored.target) !== canonicalJson(call.target))
+		differences.push("target");
+	if (canonicalJson(stored.args) !== canonicalJson(call.args))
+		differences.push("arguments");
+	return differences;
 }
 
 /** Plain-language card title; the tool slug stays in the payload. */
@@ -330,6 +382,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				target: input.target,
 				args: input.args,
 			});
+			const callIdentity = ownerToolCallIdentity(input);
+			const callFingerprint = await canonicalDigest(callIdentity);
 			const now = new Date().toISOString();
 			if (input.approvalRequestId) {
 				const approval = await getApprovalRequestById(
@@ -340,12 +394,44 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					!approval ||
 					approval.orgId !== input.organizationId ||
 					approval.actionType !== "mcp.tool_call" ||
-					approval.payload.fingerprint !== fingerprint
+					typeof approval.payload.fingerprint !== "string"
 				)
 					throw createError(
-						ErrorCodes.FORBIDDEN,
-						"Approval does not match this caller, target and arguments",
+						ErrorCodes.NOT_FOUND,
+						"Approval request not found in this organization",
 					);
+				// Rows parked before the mount-independent fingerprint existed carry
+				// the fields it is computed from, so they match the same way.
+				const stored = approval.payload as Record<string, unknown>;
+				const storedIdentity = ownerToolCallIdentity({
+					organizationId: approval.orgId,
+					userId:
+						typeof stored.initiatedByUserId === "string"
+							? stored.initiatedByUserId
+							: "",
+					toolId: typeof stored.toolId === "string" ? stored.toolId : "",
+					target:
+						stored.target && typeof stored.target === "object"
+							? (stored.target as Record<string, unknown>)
+							: {},
+					args:
+						stored.args && typeof stored.args === "object"
+							? (stored.args as Record<string, unknown>)
+							: {},
+				});
+				if (
+					approval.payload.fingerprint !== fingerprint &&
+					(await canonicalDigest(storedIdentity)) !== callFingerprint
+				) {
+					const differences = ownerToolCallDifferences(
+						storedIdentity,
+						callIdentity,
+					);
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						`Approval ${approval.id} is for a different call (${differences.join(", ") || "bindings"} differ); request a new approval`,
+					);
+				}
 				const approver = approval.resolvedBy
 					? await getMemberByUserId(
 							context.db,
@@ -360,13 +446,23 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					(await consumeOwnerToolApproval(context.db, {
 						id: approval.id,
 						organizationId: input.organizationId,
-						fingerprint,
+						fingerprint: approval.payload.fingerprint,
 						now,
 					}));
+				const execution = stored.execution as { status?: unknown } | undefined;
 				return {
 					approved: Boolean(approved),
 					approvalRequestId: approval.id,
-					status: approved ? "consumed" : approval.status,
+					status: approved
+						? "consumed"
+						: approval.status === "approved" &&
+							  (execution?.status === "executed" ||
+									execution?.status === "failed")
+							? execution.status
+							: approval.status === "approved" &&
+								  typeof stored.consumedAt === "string"
+								? "consumed"
+								: approval.status,
 					url: `${origin.replace(/\/+$/, "")}/work/approvals#${approval.id}`,
 				};
 			}
@@ -413,7 +509,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					orgId: input.organizationId,
 					tediId: anchor.id,
 					actionType: "mcp.tool_call",
-					description: `${title}. In ${app} for ${requestedFor} (${organizationName}). Nothing has run yet; approving allows one identical retry of this call.`,
+					description: `${title}. In ${app} for ${requestedFor} (${organizationName}). Nothing has run yet; approving runs this exact call once.`,
 					payload: {
 						kind: "mcp_tool_call",
 						initiatedByUserId: input.userId,

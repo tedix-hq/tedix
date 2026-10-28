@@ -775,19 +775,78 @@ export interface DestructiveApprovalOptions {
 	autoConfirmAgent?: boolean;
 }
 
-/** Park a user call in the canonical OS queue; approval permits one exact retry. */
+/**
+ * Whether this call is the platform's replay of an owner tool approval: the
+ * API runs the stored call once after approval, as the kernel, naming the
+ * requester as the acting user and the request in `_meta`. The receipt is
+ * then matched and consumed for exactly this tool and these arguments.
+ */
+export function isOwnerApprovalReplayCall(
+	agent: Pick<ApprovalContext, "app" | "callerIdentity">,
+	options?: Pick<DestructiveApprovalOptions, "extra">,
+): boolean {
+	return (
+		typeof options?.extra?._meta?.["com.tedix/approvalRequestId"] ===
+			"string" &&
+		agent.callerIdentity?.kernel === true &&
+		agent.callerIdentity.authType === "service" &&
+		!agent.callerIdentity.tediId &&
+		Boolean(agent.callerIdentity.userId) &&
+		Boolean(agent.app?.organizationId)
+	);
+}
+
+/** Whether governance matched an approval receipt that lets this call run as the kernel. */
+export function isApprovedReplayCall(
+	agent: Pick<ApprovalContext, "app" | "callerIdentity">,
+	options?: Pick<DestructiveApprovalOptions, "extra">,
+): boolean {
+	return (
+		isHomeApprovalCall(agent, options) ||
+		isOwnerApprovalReplayCall(agent, options)
+	);
+}
+
+const OWNER_APPROVAL_ERROR_CODES = new Set([
+	"FORBIDDEN",
+	"NOT_FOUND",
+	"BAD_REQUEST",
+]);
+
+/** The API's typed refusal, when it is one people can act on; otherwise null. */
+function ownerApprovalRefusal(error: unknown): string | null {
+	if (!error || typeof error !== "object") return null;
+	const { code, message } = error as { code?: unknown; message?: unknown };
+	return typeof code === "string" &&
+		OWNER_APPROVAL_ERROR_CODES.has(code) &&
+		typeof message === "string" &&
+		message.length > 0
+		? `${code}: ${message.slice(0, 300)}`
+		: null;
+}
+
+/**
+ * Park a user call in the canonical OS queue. Approval runs the stored call
+ * once (the API replays it as the kernel), or the requester may retry the
+ * identical call with the request id before that replay happens; either way
+ * the approval is consumed exactly once.
+ */
 async function ownerToolApproval(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
 	options?: DestructiveApprovalOptions,
 ): Promise<CallToolResult | null | undefined> {
 	if (
-		!callerIsUserPrincipalPath(agent) ||
+		!(
+			callerIsUserPrincipalPath(agent) ||
+			isOwnerApprovalReplayCall(agent, options)
+		) ||
 		!agent.callerIdentity?.userId ||
 		!agent.app?.organizationId ||
 		!agent.apiClient?.mcpGovernance?.requestOwnerToolApproval
 	)
 		return undefined;
+	const replay = isOwnerApprovalReplayCall(agent, options);
 	try {
 		const approvalRequestId =
 			options?.extra?._meta?.["com.tedix/approvalRequestId"];
@@ -813,13 +872,31 @@ async function ownerToolApproval(
 				tool,
 				"destructive_approved",
 				"owner_tool_approval",
-				{ approvalRequestId: approval.approvalRequestId },
+				{
+					approvalRequestId: approval.approvalRequestId,
+					...(replay
+						? {
+								actor: `kernel on behalf of user:${agent.callerIdentity.userId}`,
+								delegationMode: "kernel",
+								subjectUserId: agent.callerIdentity.userId,
+							}
+						: {}),
+				},
+				replay ? agent.callerIdentity.userId : undefined,
 			);
 			return null;
 		}
+		const used =
+			approval.status === "consumed" ||
+			approval.status === "executed" ||
+			approval.status === "failed";
 		return {
 			...approvalFailure(
-				`Human approval required. Request ${approval.approvalRequestId} (${approval.status}): ${approval.url}. Decide in Tedix OS, then retry the identical call with _meta {"com.tedix/approvalRequestId":"${approval.approvalRequestId}"}. No side effect was executed.`,
+				used
+					? `Request ${approval.approvalRequestId} was already used (${approval.status}); an approval runs once. See ${approval.url}. No side effect was executed.`
+					: replay
+						? `Request ${approval.approvalRequestId} is ${approval.status}, so the approved call did not run. No side effect was executed.`
+						: `Human approval required. Request ${approval.approvalRequestId} (${approval.status}): ${approval.url}. Approving in Tedix OS runs this exact call once. No side effect was executed.`,
 			),
 			_meta: { "com.tedix/approval": approval },
 		};
@@ -837,8 +914,11 @@ async function ownerToolApproval(
 			appSlug: agent.appSlug,
 			toolId: tool.toolId,
 		});
+		const refusal = ownerApprovalRefusal(error);
 		return approvalFailure(
-			"Owner tool approval is unavailable or does not match this call. No side effect was executed.",
+			refusal
+				? `Owner tool approval was refused (${refusal}). No side effect was executed.`
+				: "Owner tool approval is unavailable. No side effect was executed.",
 		);
 	}
 }
@@ -999,6 +1079,17 @@ export async function requireDestructiveToolApproval(
 		return approvalFailure(
 			"Home approval is unavailable or does not match this call. No side effect was executed.",
 		);
+	}
+	// The platform's replay of an owner tool approval: only the matched,
+	// consumed receipt lets it run; no policy or default may stand in.
+	if (isOwnerApprovalReplayCall(agent, options)) {
+		// null means approved and consumed; undefined means no API client.
+		const replay = await ownerToolApproval(agent, tool, options);
+		return replay === undefined
+			? approvalFailure(
+					"Owner tool approval is unavailable. No side effect was executed.",
+				)
+			: replay;
 	}
 	const isOwnedChannelBoundary = isTedixOwnedChannelPublishBoundary(
 		agent,

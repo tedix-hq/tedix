@@ -190,7 +190,7 @@ describe("owner gateway approvals", () => {
 			await client().requestOwnerToolApproval({ ...input, toolId, args });
 			const description = mocks.create.mock.calls[0]![1].description;
 			expect(description).toBe(
-				`${action}. In mail for Alex (Example Team). Nothing has run yet; approving allows one identical retry of this call.`,
+				`${action}. In mail for Alex (Example Team). Nothing has run yet; approving runs this exact call once.`,
 			);
 			expect(description).not.toContain("private-value");
 			expect(description).not.toContain("return 1");
@@ -288,18 +288,63 @@ describe("owner gateway approvals", () => {
 		},
 	);
 	it.each([
-		{ userId: "other-owner" },
-		{ appSlug: "other-app" },
-		{ toolId: "delete" },
-		{ target: { transport: "mcp", mcpToolName: "delete" } },
-		{ args: { body: "Changed content" } },
-		{ organizationId: "org-2" },
-	])("rejects changed approval bindings %j", async (patch) => {
+		[{ userId: "other-owner" }, /requester differ/],
+		[{ toolId: "delete" }, /tool differ/],
+		[{ target: { transport: "mcp", mcpToolName: "delete" } }, /target differ/],
+		[{ args: { body: "Changed content" } }, /arguments differ/],
+		[{ organizationId: "org-2" }, /./],
+	])("rejects changed approval bindings %j", async (patch, reason) => {
 		const retry = await seed();
 		await expect(
 			client().requestOwnerToolApproval({ ...retry, ...patch }),
-		).rejects.toThrow();
+		).rejects.toThrow(reason);
 		expect(mocks.consume).not.toHaveBeenCalled();
+	});
+	// The platform replays a `connect` approval on the organization gateway,
+	// where the same tool carries no mount prefix and a different config hash.
+	it.each([
+		{ appSlug: "example-unified", toolId: "send" },
+		{ appSlug: "example-unified", toolId: "mail__send" },
+		{ target: { ...input.target, configHash: "other" } },
+	])(
+		"consumes the same call reached through another mount %j",
+		async (patch) => {
+			const retry = await seed();
+			expect(
+				await client().requestOwnerToolApproval({ ...retry, ...patch }),
+			).toMatchObject({ approved: true, status: "consumed" });
+			expect(mocks.consume).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({
+					fingerprint: mocks.create.mock.calls[0]![1].payload.fingerprint,
+				}),
+			);
+		},
+	);
+	it("refuses a mount-prefixed name of a different tool", async () => {
+		const retry = await seed();
+		await expect(
+			client().requestOwnerToolApproval({ ...retry, toolId: "mail__delete" }),
+		).rejects.toThrow(/tool differ/);
+	});
+	it.each([
+		["consumed", { consumedAt: "2026-10-28T11:00:00.000Z" }],
+		["executed", { execution: { status: "executed", startedAt: "x" } }],
+		["failed", { execution: { status: "failed", startedAt: "x" } }],
+	])("reports an approval already used as %s", async (status, extra) => {
+		const retry = await seed();
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			payload: { ...row.payload, ...extra },
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		mocks.consume.mockResolvedValue(false);
+		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
+			approved: false,
+			status,
+		});
 	});
 	it("requires the approver to remain an active owner/admin", async () => {
 		const retry = await seed();

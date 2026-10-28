@@ -195,6 +195,123 @@ describe("effect-based gateway approval", () => {
 			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
 		).toHaveBeenCalled();
 	});
+	it("says when an approval was already used and explains a refusal", async () => {
+		const ctx = context();
+		vi.mocked(
+			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+		).mockResolvedValueOnce({
+			approved: false,
+			approvalRequestId: "approval-1",
+			status: "executed",
+			url: "https://os.example/work/approvals",
+		});
+		const retry = {
+			args: { operation: "DeleteAccessKey" },
+			extra: {
+				_meta: { ...extra._meta, "com.tedix/approvalRequestId": "approval-1" },
+			},
+		};
+		const used = await requireDestructiveToolApproval(
+			ctx,
+			descope,
+			descope.annotations,
+			retry,
+		);
+		expect(callToolResultText(used!)).toContain("already used (executed)");
+		vi.mocked(
+			ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+		).mockRejectedValueOnce(
+			Object.assign(
+				new Error(
+					"Approval approval-1 is for a different call (arguments differ)",
+				),
+				{ code: "FORBIDDEN" },
+			),
+		);
+		const refused = await requireDestructiveToolApproval(
+			ctx,
+			descope,
+			descope.annotations,
+			retry,
+		);
+		expect(callToolResultText(refused!)).toContain(
+			"FORBIDDEN: Approval approval-1 is for a different call (arguments differ)",
+		);
+	});
+	describe("platform replay of an owner approval", () => {
+		function replayContext(approved: boolean) {
+			const ctx = context();
+			(ctx as { callerIdentity: unknown }).callerIdentity = {
+				authType: "service",
+				kernel: true,
+				userId: "owner-1",
+			};
+			vi.mocked(
+				ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+			).mockResolvedValue({
+				approved,
+				approvalRequestId: "approval-1",
+				status: approved ? "consumed" : "expired",
+				url: "https://os.example/work/approvals",
+			});
+			return ctx;
+		}
+		const replay = {
+			args: { operation: "DeleteAccessKey" },
+			extra: { _meta: { "com.tedix/approvalRequestId": "approval-1" } },
+		};
+		it("consumes the approval for the requester and lets the call run", async () => {
+			const ctx = replayContext(true);
+			expect(
+				await requireDestructiveToolApproval(
+					ctx,
+					descope,
+					descope.annotations,
+					replay,
+				),
+			).toBeNull();
+			expect(
+				ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+			).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: "owner-1",
+					approvalRequestId: "approval-1",
+					args: { operation: "DeleteAccessKey" },
+				}),
+			);
+			expect(
+				ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
+			).not.toHaveBeenCalled();
+		});
+		it("never runs an expired, rejected or already used approval", async () => {
+			const ctx = replayContext(false);
+			const result = await requireDestructiveToolApproval(
+				ctx,
+				descope,
+				descope.annotations,
+				replay,
+			);
+			expect(result?.isError).toBe(true);
+			expect(callToolResultText(result!)).toContain("did not run");
+		});
+		it("takes no replay without the kernel marker or an acting user", async () => {
+			const ctx = replayContext(true);
+			(ctx as { callerIdentity: unknown }).callerIdentity = {
+				authType: "service",
+				userId: "owner-1",
+			};
+			const result = await requireDestructiveToolApproval(
+				ctx,
+				descope,
+				descope.annotations,
+				replay,
+			);
+			expect(result?.isError).toBe(true);
+			expect(
+				ctx.apiClient.mcpGovernance.requestOwnerToolApproval,
+			).not.toHaveBeenCalled();
+		});
+	});
 	describe("owner start of an active skill", () => {
 		function ownerStartContext(approved: boolean) {
 			const ctx = context();

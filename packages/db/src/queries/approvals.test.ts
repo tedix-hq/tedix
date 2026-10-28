@@ -14,6 +14,7 @@ import { sql } from "drizzle-orm";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
+	claimOwnerToolApprovalExecution,
 	consumeHomeToolApprovalCall,
 	consumeOwnerToolApproval,
 	createApprovalRequest,
@@ -22,9 +23,11 @@ import {
 	ensurePaymentBudgetOverrideRequest,
 	ensureProvisionalPromotionApprovalRequest,
 	findPendingOwnerToolApproval,
+	getApprovalRequestById,
 	listApprovalRequests,
 	listProvisionalOutcomes,
 	promoteProvisionalOutcome,
+	recordOwnerToolApprovalExecution,
 	rollbackProvisionalOutcome,
 	resolveApprovalRequest,
 } from "./approvals";
@@ -557,6 +560,90 @@ describe("exact owner tool approval consumption", () => {
 		).toBe(false);
 		expect(await consumeOwnerToolApproval(db, input)).toBe(true);
 		expect(await consumeOwnerToolApproval(db, input)).toBe(false);
+	});
+	it("claims the platform-side execution of an approved call once and records its end", async () => {
+		const { db } = setup();
+		const now = "2026-01-01T01:00:00.000Z";
+		const seed = async (id: string, expiresAt = "2099-01-02T00:00:00.000Z") =>
+			createApprovalRequest(db, {
+				id,
+				orgId: "org-1",
+				tediId: "tedi-1",
+				actionType: "mcp.tool_call",
+				description: "Delete a client",
+				payload: { kind: "mcp_tool_call", fingerprint: "exact-input" },
+				createdAt: "2026-01-01T00:00:00.000Z",
+				expiresAt,
+			});
+		await seed("pending-1");
+		expect(
+			await claimOwnerToolApprovalExecution(db, {
+				id: "pending-1",
+				organizationId: "org-1",
+				now,
+			}),
+		).toBe(false);
+		await seed("expired-1", "2026-01-01T00:30:00.000Z");
+		await resolveApprovalRequest(db, "expired-1", {
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		expect(
+			await claimOwnerToolApprovalExecution(db, {
+				id: "expired-1",
+				organizationId: "org-1",
+				now,
+			}),
+		).toBe(false);
+		await seed("approved-1");
+		await resolveApprovalRequest(db, "approved-1", {
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		const claim = { id: "approved-1", organizationId: "org-1", now };
+		expect(
+			await claimOwnerToolApprovalExecution(db, {
+				...claim,
+				organizationId: "other-org",
+			}),
+		).toBe(false);
+		expect(await claimOwnerToolApprovalExecution(db, claim)).toBe(true);
+		expect(await claimOwnerToolApprovalExecution(db, claim)).toBe(false);
+		// The claimed call is still consumable by the gateway hop that runs it.
+		expect(
+			await consumeOwnerToolApproval(db, {
+				...claim,
+				fingerprint: "exact-input",
+			}),
+		).toBe(true);
+		await recordOwnerToolApprovalExecution(db, {
+			id: "approved-1",
+			organizationId: "org-1",
+			execution: {
+				status: "executed",
+				startedAt: now,
+				finishedAt: "2026-01-01T01:00:01.000Z",
+				summary: "Client deleted",
+			},
+		});
+		const row = await getApprovalRequestById(db, "approved-1");
+		expect(row?.payload).toMatchObject({
+			kind: "mcp_tool_call",
+			consumedAt: now,
+			execution: { status: "executed", summary: "Client deleted" },
+		});
+		// A rejected request is never claimable.
+		await seed("rejected-1");
+		await resolveApprovalRequest(db, "rejected-1", {
+			status: "rejected",
+			resolvedBy: "owner-1",
+		});
+		expect(
+			await claimOwnerToolApprovalExecution(db, {
+				...claim,
+				id: "rejected-1",
+			}),
+		).toBe(false);
 	});
 });
 
