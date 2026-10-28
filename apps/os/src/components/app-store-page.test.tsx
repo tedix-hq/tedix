@@ -97,6 +97,8 @@ describe("App Store migration", () => {
 		expect(host.textContent).toContain("Browse and add");
 		expect(host.textContent).toContain("1 tool");
 		expect(host.textContent).not.toContain("1 tools");
+		expect(host.textContent).toContain("Showing 1–1 of 1 app");
+		expect(host.textContent).not.toContain("1 apps");
 		// The overview section lives behind the diagnostics disclosure.
 		const diagnostics = [...host.querySelectorAll<HTMLElement>("button")].find(
 			(button) => button.textContent?.trim() === "Catalog diagnostics",

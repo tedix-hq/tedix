@@ -176,15 +176,16 @@ export function filterInstalledApps(
 
 /**
  * Tool counts from the batch eligibility read (one call for every installed
- * app) — availableTools plus gated unavailableTools is the honest total.
+ * app) — availableTools plus gated unavailableTools is the honest total. An
+ * empty inventory is unknown, never a verified zero.
  */
 export function toolCountLabel(result: EligibilityResult): string {
 	const available = result.availableTools.length;
 	const gated = result.unavailableTools.length;
 	const total = available + gated;
 	if (total === 0) return "tool count unavailable";
-	const label = `${total} ${total === 1 ? "tool" : "tools"}`;
-	return gated > 0 ? `${label} · ${gated} gated` : label;
+	const listed = `${total} ${total === 1 ? "tool" : "tools"} listed`;
+	return gated > 0 ? `${listed} · ${gated} gated` : listed;
 }
 
 export function connectionTone(status: UserConnection["status"]): ChipTone {
@@ -348,9 +349,7 @@ export function AppRowMain({
 				) : null}
 			</span>
 			<Text as="span" role="caption" tone="secondary" truncate>
-				{eligibility
-					? `${toolCountLabel(eligibility.result)}${eligibility.result.availableTools.length + eligibility.result.unavailableTools.length > 0 ? " listed" : ""} · `
-					: null}
+				{eligibility ? `${toolCountLabel(eligibility.result)} · ` : null}
 				{app.slug} · {appMcpHost(app)}
 			</Text>
 			{app.description ? (
