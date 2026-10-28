@@ -43,6 +43,7 @@ import { SelectItem } from "@/components/kumo/select";
 import { KumoTabs } from "@/components/kumo/tabs";
 import { useSkillsWebMcpTools } from "@/components/skills-webmcp-tools";
 import { osApi } from "@/lib/api";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
 	osQueryKeys,
 	skillDetailQueryOptions,
@@ -83,6 +84,10 @@ export function SkillDetailLayout() {
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [folderDraft, setFolderDraft] = useState("");
 	const canRun = useCanManageTedis();
+	const context = useOsOperationalContext();
+	const role = context.data?.authority.role;
+	const canTurnBackOn =
+		skill?.lifecycleState === "draft" && (role === "owner" || role === "admin");
 	const activeTab =
 		["runs", "versions", "schedule"].find((tab) =>
 			pathname.endsWith(`/${tab}`),
@@ -130,6 +135,26 @@ export function SkillDetailLayout() {
 		},
 	});
 
+	const turnBackOn = useMutation({
+		mutationFn: () =>
+			osApi.skills.improve({
+				id: skillId,
+				lifecycleState: "active",
+				force: true,
+				revisionReasoning:
+					"Owner or admin turned the skill back on from its Tedix OS page.",
+			}),
+		onSuccess: () => {
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.skills() });
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.skillSchedules() });
+			queryClient.invalidateQueries({
+				queryKey: workflowDefinitionHealthQueryOptions(
+					WORKFLOW_DEFINITIONS_LIMIT,
+				).queryKey,
+			});
+		},
+	});
+
 	if (!skill)
 		return (
 			<Page width="lg">
@@ -163,8 +188,16 @@ export function SkillDetailLayout() {
 							) : null}
 						</PageMeta>
 					</PageHeading>
-					{executable || canRun ? (
+					{executable || canRun || canTurnBackOn ? (
 						<PageActions>
+							{canTurnBackOn ? (
+								<Button
+									disabled={turnBackOn.isPending}
+									onClick={() => turnBackOn.mutate()}
+								>
+									{turnBackOn.isPending ? "Turning back on…" : "Turn back on"}
+								</Button>
+							) : null}
 							{canRun ? (
 								<Button
 									variant="outline"
@@ -188,6 +221,13 @@ export function SkillDetailLayout() {
 						</PageActions>
 					) : null}
 				</PageHeader>
+				{turnBackOn.error ? (
+					<div role="alert">
+						<Text role="label" tone="error">
+							{turnBackOn.error.message}
+						</Text>
+					</div>
+				) : null}
 				<KumoTabs
 					aria-label="Skill detail sections"
 					variant="underline"

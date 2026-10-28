@@ -254,7 +254,9 @@ const SkillImproveInputSchema = z.object({
 	tags: z.union([z.array(z.string()), z.string()]).optional(),
 	audience: z.array(z.string()).optional(),
 	preconditions: SkillPreconditionsSchema.optional(),
-	lifecycleState: SkillLifecycleStateSchema.optional(),
+	lifecycleState: SkillLifecycleStateSchema.optional().describe(
+		"Target lifecycle state. Turning a draft back on requires a signed-in active organization owner or admin and restores its manifest schedule.",
+	),
 	paceLayer: SkillPaceLayerSchema.optional().describe(
 		"Manual pace-layer override. Auto-derived from lifecycle otherwise; requires force: true and human/operator authority, and is re-derived on the next lifecycle transition.",
 	),
