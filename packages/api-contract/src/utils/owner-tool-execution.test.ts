@@ -44,6 +44,17 @@ describe("owner tool execution record", () => {
 		expect(isRetryableOwnerToolExecution(failed({ retryable: false }))).toBe(
 			false,
 		);
+		// A gateway refusal before dispatch is retryable even when the recorder
+		// marked the row final.
+		expect(
+			isRetryableOwnerToolExecution(
+				failed({
+					retryable: false,
+					error:
+						"Tool rate limit exceeded for high_impact_write: … No side effect was executed for this call.",
+				}),
+			),
+		).toBe(true);
 		// A retry that failed on the platform's side again may be tried again.
 		expect(
 			isRetryableOwnerToolExecution(failed({ retryable: true, attempt: 2 })),
