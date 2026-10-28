@@ -7,7 +7,7 @@ import { CONNECT_PAYMENT_DENIED } from "./connect-payment-policy";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { tracing } from "cloudflare:workers";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
-import { isOrganizationMountNamespace } from "./aggregate-namespaces";
+import { resolveMultiOrgToolTarget } from "./multi-org-tool-target";
 import { contentFreeMcpException, createMcpLogger } from "../log";
 /**
  * Tool Execution Module
@@ -237,40 +237,17 @@ export async function executeTool(
 	}
 	const toolTypeId = tool.toolTypeId;
 	const toolConfig = tool.config;
-	if (
-		agent.appSlug === "connect" &&
-		agent.appMetadata?.mcpConfig?.multiOrgConsent === true
-	) {
-		const verified = agent.callerIdentity?.verifiedMultiOrgOrganizations;
-		if (agent.callerIdentity?.authType !== "oauth" || !verified?.length) {
-			throw new Error("A live multi-organization consent is required");
-		}
-		if (tool.toolId !== "code") {
-			const target = (toolConfig as Record<string, unknown> | null)
-				?._multiOrgOrganizationId;
-			const selected = verified.find((org) => org.organizationId === target);
-			const toolNamespace = tool.toolId.split("__", 1)[0] ?? "";
-			if (
-				!selected ||
-				!tool.toolId.includes("__") ||
-				!isOrganizationMountNamespace(
-					selected.gatewaySlug,
-					toolNamespace.replace(/[^a-zA-Z0-9_]/g, "_"),
-				)
-			) {
-				throw new Error("Tool is outside the selected organizations");
-			}
-			agent = {
-				...agent,
-				callerIdentity: {
-					...agent.callerIdentity,
-					organizationId: selected.organizationId,
-					// A Connect grant is human authority. A hosting-org tedi must
-					// not select credentials or audit identity in the target org.
-					tediId: undefined,
-				},
-			};
-		}
+	const selected = resolveMultiOrgToolTarget(agent, tool);
+	if (selected && agent.callerIdentity) {
+		agent = {
+			...agent,
+			callerIdentity: {
+				...agent.callerIdentity,
+				organizationId: selected.organizationId,
+				// A hosting-org tedi cannot select target-org credentials.
+				tediId: undefined,
+			},
+		};
 	}
 
 	if (!toolTypeId) {

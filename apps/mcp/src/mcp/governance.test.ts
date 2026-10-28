@@ -2257,3 +2257,152 @@ it.each(["*", "tool:example-unified:create_report"])(
 		expect(resolve).not.toHaveBeenCalled();
 	},
 );
+
+describe("Connect multi-org governance", () => {
+	function setup() {
+		const calls: {
+			path: string;
+			organizationId: string | null;
+			body: Record<string, unknown>;
+		}[] = [];
+		const fetch = vi.fn(async (request: Request) => {
+			const { json: body } = (await request.json()) as {
+				json: Record<string, unknown>;
+			};
+			calls.push({
+				path: new URL(request.url).pathname,
+				organizationId: request.headers.get("X-Tedix-Org-Id"),
+				body,
+			});
+			expect(request.headers.get("X-Tedix-Tedi-Id")).toBeNull();
+			return Response.json({
+				json: {
+					approved: false,
+					status: "pending",
+					approvalRequestId: "approval-target",
+					url: "https://target.os.example/work/approvals#approval-target",
+				},
+			});
+		});
+		const hostingApproval = vi.fn();
+		const agent = {
+			...approvalContext(vi.fn()),
+			appSlug: "connect",
+			app: { organizationId: "hosting" },
+			appMetadata: { mcpConfig: { multiOrgConsent: true } },
+			callerIdentity: {
+				authType: "oauth",
+				userId: "user-1",
+				organizationId: "hosting",
+				tediId: "hosting-tedi",
+				verifiedMultiOrgOrganizations: [
+					{
+						organizationId: "target",
+						gatewaySlug: "target-unified",
+						descopeTenantId: "tenant-target",
+					},
+				],
+			},
+			env: { API_SERVICE: { fetch } },
+			apiClient: {
+				mcpGovernance: { requestOwnerToolApproval: hostingApproval },
+			},
+		} as unknown as ServerContext;
+		const tool = {
+			toolId: "target_unified_sentry__execute_sentry_tool",
+			title: "Execute Sentry tool",
+			config: {
+				transport: "mcp",
+				mcpToolName: "execute_sentry_tool",
+				_multiOrgOrganizationId: "target",
+			},
+		};
+		return { agent, tool, calls, fetch, hostingApproval };
+	}
+	it.each(["whoami", "delete_project"])(
+		"parks generic inner %s in the verified target with a target gateway header",
+		async (name) => {
+			const { agent, tool, calls, hostingApproval } = setup();
+			const result = await requireDestructiveToolApproval(
+				agent,
+				tool,
+				{ destructiveHint: true, readOnlyHint: false },
+				{
+					args: { name, arguments: {}, readOnlyHint: true },
+					allowSyncMrtr: false,
+				},
+			);
+			expect(result?.isError).toBe(true);
+			expect(callToolResultText(result!)).toContain(
+				"https://target.os.example/work/approvals",
+			);
+			const approval = calls.find((call) =>
+				call.path.endsWith("/requestOwnerToolApproval"),
+			);
+			expect(approval).toMatchObject({
+				organizationId: "target",
+				body: { organizationId: "target", userId: "user-1", args: { name } },
+			});
+			expect(
+				calls.every(
+					(call) =>
+						call.organizationId === "target" &&
+						call.body.organizationId === "target",
+				),
+			).toBe(true);
+			expect(hostingApproval).not.toHaveBeenCalled();
+			expect(agent.app.organizationId).toBe("hosting");
+			expect(agent.callerIdentity?.tediId).toBe("hosting-tedi");
+		},
+	);
+	it.each(["missing", "other", "namespace", "no-consent", "not-oauth"])(
+		"rejects %s target before any governance lookup",
+		async (variant) => {
+			const { agent, tool, fetch, hostingApproval } = setup();
+			const deniedTool = { ...tool, config: { ...tool.config } };
+			if (variant === "missing")
+				delete (deniedTool.config as Record<string, unknown>)
+					._multiOrgOrganizationId;
+			if (variant === "other")
+				deniedTool.config._multiOrgOrganizationId = "other";
+			if (variant === "namespace")
+				deniedTool.toolId = "other_unified_sentry__execute_sentry_tool";
+			const caller = { ...agent.callerIdentity! };
+			if (variant === "no-consent") caller.verifiedMultiOrgOrganizations = [];
+			if (variant === "not-oauth") caller.authType = "service";
+			await expect(
+				requireDestructiveToolApproval(
+					{ ...agent, callerIdentity: caller },
+					deniedTool,
+					{ readOnlyHint: true },
+				),
+			).rejects.toThrow(/selected organizations|consent/);
+			expect(fetch).not.toHaveBeenCalled();
+			expect(hostingApproval).not.toHaveBeenCalled();
+		},
+	);
+	it("preserves the existing client and organization for single-org calls", async () => {
+		const { agent, tool, fetch, hostingApproval } = setup();
+		hostingApproval.mockResolvedValue({
+			approved: false,
+			status: "pending",
+			approvalRequestId: "single",
+			url: "https://hosting.os.example/work/approvals#single",
+		});
+		const result = await requireDestructiveToolApproval(
+			{
+				...agent,
+				appSlug: "single",
+				callerIdentity: { ...agent.callerIdentity!, tediId: undefined },
+			},
+			tool,
+			{ destructiveHint: true },
+			{ allowSyncMrtr: false },
+		);
+		expect(hostingApproval).toHaveBeenCalledWith(
+			expect.objectContaining({ organizationId: "hosting" }),
+		);
+		expect(callToolResultText(result!)).toContain("https://hosting.os.example");
+		expect(fetch).not.toHaveBeenCalled();
+	});
+});

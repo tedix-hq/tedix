@@ -1,3 +1,5 @@
+import { getApiClient } from "../lib/api-client";
+import { resolveMultiOrgToolTarget } from "./multi-org-tool-target";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { gateDecisionMetadata } from "./gate-decision";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
@@ -954,6 +956,27 @@ export async function requireDestructiveToolApproval(
 	annotations?: ToolAnnotations | null,
 	options?: DestructiveApprovalOptions,
 ): Promise<CallToolResult | null> {
+	const selected = resolveMultiOrgToolTarget(agent, tool);
+	if (selected) {
+		// Bind every governance read, receipt and API assertion to the same target.
+		agent = {
+			...agent,
+			app: agent.app
+				? { ...agent.app, organizationId: selected.organizationId }
+				: undefined,
+			callerIdentity: agent.callerIdentity
+				? {
+						...agent.callerIdentity,
+						organizationId: selected.organizationId,
+						tediId: undefined,
+					}
+				: undefined,
+			apiClient: getApiClient({
+				serviceFetch: agent.env?.API_SERVICE,
+				orgId: selected.organizationId,
+			}),
+		};
+	}
 	// Sensitive-data latch. Read once per call, only when a run is involved.
 	// Public egress is refused even on a Home approval replay: the person who
 	// approved the action may not have known the run had read sensitive data.
