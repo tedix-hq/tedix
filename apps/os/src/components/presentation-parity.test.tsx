@@ -16,6 +16,10 @@ const content = OsOutputContentSchema.parse({
 	slides: [],
 	deck: {
 		activeSlideId: "s",
+		theme: {
+			headingFont: "Space Grotesk, sans-serif",
+			bodyFont: "Inter, sans-serif",
+		},
 		slides: [
 			{
 				id: "s",
@@ -24,6 +28,13 @@ const content = OsOutputContentSchema.parse({
 				dotGridOpacity: 0.25,
 				insetSurface: {},
 				elements: [
+					{
+						...base,
+						id: "heading",
+						type: "title",
+						text: "Deck title",
+						style: { fontWeight: "light", letterSpacing: 2 },
+					},
 					{
 						...base,
 						id: "card",
@@ -120,6 +131,16 @@ it("renders every parity feature identically on the editable stage, viewer and t
 			}
 		}
 		const canvas = stage.container.querySelector(".slides-editor-stage")!;
+		const heading = canvas.querySelector<HTMLElement>(
+			'[data-slide-element="heading"]',
+		)!;
+		expect(heading.style.fontFamily).toBe('"Space Grotesk", sans-serif');
+		expect(heading.style.fontWeight).toBe("300");
+		expect(heading.style.letterSpacing).toContain("100cqw");
+		expect(
+			canvas.querySelector<HTMLElement>('[data-slide-element="bullet"]')!.style
+				.fontFamily,
+		).toBe("Inter, sans-serif");
 		expect(
 			canvas.querySelector('[data-slide-part="eyebrow"]')?.textContent,
 		).toBe("EYEBROW");

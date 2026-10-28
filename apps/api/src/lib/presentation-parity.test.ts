@@ -27,6 +27,10 @@ const content = OsOutputContentSchema.parse({
 	slides: [],
 	deck: {
 		activeSlideId: "slide",
+		theme: {
+			headingFont: "Space Grotesk, sans-serif",
+			bodyFont: "Inter, sans-serif",
+		},
 		slides: [
 			{
 				id: "slide",
@@ -38,8 +42,31 @@ const content = OsOutputContentSchema.parse({
 				elements: [
 					{
 						...base,
+						id: "heading",
+						type: "title",
+						text: "Deck title",
+					},
+					{
+						...base,
+						id: "light",
+						type: "text",
+						y: 240,
+						text: "Light spaced copy",
+						style: { fontWeight: "light", letterSpacing: 2 },
+					},
+					{
+						...base,
+						id: "mono",
+						type: "text",
+						y: 320,
+						text: "Override",
+						style: { fontFamily: "JetBrains Mono, monospace" },
+					},
+					{
+						...base,
 						id: "card",
 						type: "card",
+						y: 400,
 						props: {
 							eyebrow: "SECTION",
 							title: "**Card** title",
@@ -135,6 +162,14 @@ describe("slide parity exports", () => {
 			"object-position:20% 80%",
 			"inset:24px",
 			"Safe &lt;copy&gt;",
+			"font-family:Space Grotesk, sans-serif",
+			"font-family:Inter, sans-serif",
+			"font-family:JetBrains Mono, monospace",
+			"font-weight:300",
+			"letter-spacing:2px",
+			"family=Space+Grotesk",
+			"family=Inter",
+			"family=JetBrains+Mono",
 		])
 			expect(html).toContain(value);
 	});
@@ -168,13 +203,20 @@ describe("slide parity exports", () => {
 			'prst="ellipse"',
 			'prst="roundRect"',
 			"<a:gradFill",
-			'<a:latin typeface="Arial"/>',
+			'<a:latin typeface="Space Grotesk"/>',
+			'<a:latin typeface="Inter"/>',
+			'<a:latin typeface="Inter Light"/>',
+			'<a:latin typeface="JetBrains Mono"/>',
+			'spc="160"',
 			'r:embed="image1"',
 		])
 			expect(slide).toContain(value);
 		expect(slide).not.toContain("**Card**");
 		// The focal cover image exports a crop window shifted toward its focus.
 		expect(slide).toContain('<a:srcRect l="0" r="0" t="16000" b="4000"/>');
+		const theme = strFromU8(file["ppt/theme/theme1.xml"]!);
+		expect(theme).toContain('<a:majorFont><a:latin typeface="Space Grotesk"/>');
+		expect(theme).toContain('<a:minorFont><a:latin typeface="Inter"/>');
 		expect(
 			Object.keys(file).filter((name) => name.startsWith("ppt/media/")),
 		).toHaveLength(3);

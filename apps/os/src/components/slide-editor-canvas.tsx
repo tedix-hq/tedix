@@ -1,11 +1,13 @@
 import {
 	slideElementStyle,
 	slideElementGeometry,
+	slideThemeFontFamily,
 } from "@tedix/api-contract/utils/presentation-style";
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
 	OsPresentationElementType,
+	OsPresentationTheme,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { type Ref, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";
@@ -74,6 +76,7 @@ function SlideElementView({
 	selected,
 	cropping,
 	disabled,
+	theme,
 	onSelect,
 	onChange,
 	onGeometryCommit,
@@ -84,6 +87,7 @@ function SlideElementView({
 	/** Dragging moves the image inside its frame instead of moving the frame. */
 	cropping?: boolean;
 	disabled?: boolean;
+	theme?: OsPresentationTheme;
 	onSelect: () => void;
 	onChange: (next: OsPresentationElement) => void;
 	onGeometryCommit: (next: OsPresentationElement) => void;
@@ -170,7 +174,7 @@ function SlideElementView({
 			? { ...geometry, props: { ...geometry.props, focalPoint: cropFocal } }
 			: geometry,
 	);
-	useSlideElementFont(current.style.fontFamily);
+	useSlideElementFont(slideThemeFontFamily(current, theme));
 	// Card and box elements with structured props edit their text in the
 	// inspector instead; the rest take a plain textarea over the element.
 	const editable =
@@ -346,7 +350,7 @@ function SlideElementView({
 				data-cropping={cropping || undefined}
 				className={`${SLIDE_ELEMENT_CLASS} outline-none ${selected ? "ring-2 ring-kumo-focus ring-offset-2" : "focus-visible:ring-2 focus-visible:ring-kumo-focus"}`}
 				style={{
-					...slideElementStyle(current, "canvas", organization),
+					...slideElementStyle(current, "canvas", organization, theme),
 					cursor: cropping ? "move" : undefined,
 				}}
 				onFocus={(event) => {
@@ -464,6 +468,7 @@ export function SlideCanvas({
 	selectedElementId,
 	cropElementId,
 	disabled,
+	theme,
 	onSelect,
 	onChangeElement,
 	onGeometryCommit,
@@ -474,6 +479,7 @@ export function SlideCanvas({
 	/** The element whose image is being repositioned inside its frame. */
 	cropElementId?: string | null;
 	disabled?: boolean;
+	theme?: OsPresentationTheme;
 	onSelect: (id: string | null) => void;
 	onChangeElement: (next: OsPresentationElement) => void;
 	onGeometryCommit: (next: OsPresentationElement) => void;
@@ -500,6 +506,7 @@ export function SlideCanvas({
 					selected={element.id === selectedElementId}
 					cropping={element.id === cropElementId}
 					disabled={disabled}
+					theme={theme}
 					onSelect={() => onSelect(element.id)}
 					onChange={onChangeElement}
 					onGeometryCommit={onGeometryCommit}

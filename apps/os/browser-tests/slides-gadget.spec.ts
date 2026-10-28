@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import { initial } from "./slides-gadget-content";
+import { renderOsOutputHtml } from "../../api/src/lib/os-output-html";
+import { buildOsOutputOfficeExport } from "../../api/src/lib/os-output-office";
+import { unzipSync, strFromU8 } from "fflate";
 
 const server = await startFixtureServer("/browser-tests/slides-gadget.html");
 const browser = await chromium.launch();
@@ -29,6 +33,64 @@ async function slideBox(page: Page, selector: string) {
 }
 
 try {
+	const pptx = await buildOsOutputOfficeExport(
+		"pptx",
+		initial,
+		"Typography parity",
+	);
+	const parts = unzipSync(pptx);
+	const slideXml = strFromU8(parts["ppt/slides/slide1.xml"]!);
+	const themeXml = strFromU8(parts["ppt/theme/theme1.xml"]!);
+	assert.match(themeXml, /<a:majorFont><a:latin typeface="Space Grotesk"/);
+	assert.match(themeXml, /<a:minorFont><a:latin typeface="DM Sans"/);
+	assert.match(
+		slideXml,
+		/spc="-240"[^>]*>.*?<a:latin typeface="Space Grotesk Light"/,
+	);
+	assert.match(
+		slideXml,
+		/spc="112"[^>]*>.*?<a:latin typeface="DM Mono Medium"/,
+	);
+	assert.match(slideXml, /<a:latin typeface="DM Sans"/);
+	const printPage = await browser.newPage({
+		viewport: { width: 1200, height: 675 },
+	});
+	await printPage.setContent(
+		renderOsOutputHtml(
+			{ kind: "presentation", title: "Typography parity" },
+			{ content: initial, revision: 1, createdAt: "2026-01-01T00:00:00Z" },
+		),
+	);
+	const printHeading = printPage
+		.locator(".canvas-slide")
+		.first()
+		.locator(":scope > div")
+		.nth(1);
+	const printStyle = await printHeading.evaluate((node) => {
+		const css = getComputedStyle(node);
+		return {
+			family: css.fontFamily,
+			weight: css.fontWeight,
+			spacing: css.letterSpacing,
+		};
+	});
+	assert.match(printStyle.family, /Space Grotesk/);
+	assert.equal(printStyle.weight, "300");
+	assert.equal(printStyle.spacing, "-3px");
+	const pdf = await printPage.pdf({
+		printBackground: true,
+		preferCSSPageSize: true,
+	});
+	assert.equal(pdf.subarray(0, 4).toString(), "%PDF");
+	for (const font of ["SpaceGrotesk-Light", "DMSans", "DMMono-Medium"])
+		assert(pdf.includes(Buffer.from(font)), `PDF embeds ${font}`);
+	if (evidence) {
+		await writeFile(`${evidence}/themed.pptx`, pptx);
+		await writeFile(`${evidence}/themed.pdf`, pdf);
+		await printPage.screenshot({ path: `${evidence}/print.png` });
+	}
+	await printPage.close();
+	console.log("PASS same themed deck PDF and PPTX typography");
 	for (const width of [375, 1280]) {
 		for (const theme of ["light", "dark"] as const) {
 			const label = `${width}px ${theme}`;
@@ -46,6 +108,37 @@ try {
 			const controls = page.getByRole("group", { name: "Slide controls" });
 			await controls.waitFor();
 			const canvas = await slideBox(page, ".deck-read-canvas");
+			const typography = await page
+				.locator('.deck-read-canvas [data-slide-element="title"]')
+				.evaluate((node) => {
+					const css = getComputedStyle(node);
+					return {
+						family: css.fontFamily,
+						weight: css.fontWeight,
+						spacing: parseFloat(css.letterSpacing),
+						width: node.closest(".deck-read-canvas")!.getBoundingClientRect()
+							.width,
+					};
+				});
+			assert.match(typography.family, /Space Grotesk/);
+			assert.equal(typography.weight, "300");
+			assert(
+				Math.abs(typography.spacing - (-3 * typography.width) / 1200) < 0.02,
+				`${label}: scaled negative letter spacing`,
+			);
+			assert.match(
+				await page
+					.locator('.deck-read-canvas [data-slide-element="footer"]')
+					.evaluate((node) => getComputedStyle(node).fontFamily),
+				/DM Sans/,
+			);
+			assert.match(
+				await page
+					.locator('.deck-read-canvas [data-slide-element="eyebrow"]')
+					.evaluate((node) => getComputedStyle(node).fontFamily),
+				/DM Mono/,
+			);
+
 			const pill = (await controls.boundingBox())!;
 			assert(pill.y >= canvas.y + canvas.height, `${label}: pill under slide`);
 			assert(
@@ -214,6 +307,23 @@ try {
 				await inspector.getByText("Nothing selected").isVisible(),
 				`${label}: empty selection state`,
 			);
+			await inspector
+				.getByRole("combobox", { name: "Deck heading font", exact: true })
+				.click();
+			await page.getByRole("option", { name: "Inter", exact: true }).click();
+			assert.match(
+				await page
+					.locator('.slides-editor-stage [data-element="title"]')
+					.first()
+					.evaluate((node) => getComputedStyle(node).fontFamily),
+				/Inter/,
+			);
+			await inspector
+				.getByRole("combobox", { name: "Deck heading font", exact: true })
+				.click();
+			await page
+				.getByRole("option", { name: "Space Grotesk", exact: true })
+				.click();
 			await search.fill("bullet");
 			const rows = inspector.locator("[data-palette-component]");
 			assert.equal(await rows.count(), 1);

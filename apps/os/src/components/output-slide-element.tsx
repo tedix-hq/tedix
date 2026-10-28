@@ -1,6 +1,7 @@
 import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationTheme,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect } from "react";
 import { ensureSlideFontLoaded } from "@/lib/slide-fonts";
@@ -8,6 +9,7 @@ import {
 	slideBackgroundMarkup,
 	slideElementMarkup,
 	slideElementStyle,
+	slideThemeFontFamily,
 } from "@tedix/api-contract/utils/presentation-style";
 import { usePresentationAppearance } from "@/lib/presentation-appearance";
 
@@ -65,16 +67,18 @@ export function useSlideElementFont(fontFamily: string | undefined) {
  */
 export function ReadOnlyElement({
 	element,
+	theme,
 }: {
 	element: OsPresentationElement;
+	theme?: OsPresentationTheme;
 }) {
 	const organization = usePresentationAppearance();
-	useSlideElementFont(element.style.fontFamily);
+	useSlideElementFont(slideThemeFontFamily(element, theme));
 	return (
 		<div
 			className={SLIDE_ELEMENT_CLASS}
 			data-slide-element={element.id}
-			style={slideElementStyle(element, "canvas", organization)}
+			style={slideElementStyle(element, "canvas", organization, theme)}
 		>
 			<SlideElementContent element={element} />
 		</div>
@@ -84,9 +88,11 @@ export function ReadOnlyElement({
 export function ReadOnlySlide({
 	slide,
 	className,
+	theme,
 }: {
 	slide: OsPresentationCanvasSlide;
 	className: string;
+	theme?: OsPresentationTheme;
 }) {
 	const color = useSlideTextColor();
 	return (
@@ -100,7 +106,7 @@ export function ReadOnlySlide({
 		>
 			<SlideBackground slide={slide} />
 			{slide.elements.map((element) => (
-				<ReadOnlyElement key={element.id} element={element} />
+				<ReadOnlyElement key={element.id} element={element} theme={theme} />
 			))}
 		</div>
 	);

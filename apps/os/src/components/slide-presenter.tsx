@@ -178,7 +178,11 @@ export function SlidePresenter({
 						}}
 					>
 						{slide.elements.map((element) => (
-							<ReadOnlyElement key={element.id} element={element} />
+							<ReadOnlyElement
+								key={element.id}
+								element={element}
+								theme={deck.theme}
+							/>
 						))}
 					</div>
 				</div>

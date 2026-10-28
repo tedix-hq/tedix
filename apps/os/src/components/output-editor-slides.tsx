@@ -569,6 +569,7 @@ export function SlidesEditor({
 						selectedElementId={selectedElementId}
 						cropElementId={cropping ? selectedElementId : null}
 						disabled={disabled}
+						theme={deck.theme}
 						onSelect={(id) => {
 							// A press on the image being repositioned keeps that mode.
 							if (id !== selectedElementId) setCropping(false);
@@ -596,6 +597,8 @@ export function SlidesEditor({
 						cropping={cropping}
 						canMoveForward={activeSlide.elements.at(-1) !== selectedElement}
 						canMoveBackward={activeSlide.elements[0] !== selectedElement}
+						theme={deck.theme}
+						onChangeTheme={(theme) => commitDeck({ ...deck, theme })}
 						onChangeSlide={(next) => commitDeck(replaceActiveSlide(deck, next))}
 						onChangeElement={(next) => updateElement(next)}
 						onAction={runElementAction}

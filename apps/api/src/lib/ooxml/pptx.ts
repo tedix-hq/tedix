@@ -13,6 +13,7 @@ import type {
 	OsOutputContent,
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
+	OsPresentationTheme,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	createZip,
@@ -80,25 +81,44 @@ function srgb(color: string | undefined): string | undefined {
 }
 
 const WEIGHT_BOLD = new Set(["semibold", "bold"]);
+/**
+ * DrawingML has no numeric weight axis; Office names lighter and medium faces
+ * as typeface variants ("Inter Light"). Semibold and bold use the `b` flag.
+ */
+const WEIGHT_VARIANT: Record<string, string> = {
+	light: "Light",
+	medium: "Medium",
+};
 const TEXT_TYPES = new Set(["title", "subtitle", "text", "bullet", "label"]);
+
+/** First family of a CSS font stack, unquoted, for an OOXML typeface name. */
+function firstFontFamily(stack: string | undefined): string | undefined {
+	const family = stack
+		?.split(",")[0]
+		?.trim()
+		.replace(/^['"]|['"]$/g, "");
+	return family || undefined;
+}
 
 function runProperties(element: OsPresentationElement): string {
 	const style = element.style ?? {};
 	const size = fontSize(style.fontSize ?? DEFAULT_FONT_PX[element.type] ?? 18);
-	const bold = WEIGHT_BOLD.has(style.fontWeight ?? "normal") ? ' b="1"' : "";
+	const weight = style.fontWeight ?? "normal";
+	const bold = WEIGHT_BOLD.has(weight) ? ' b="1"' : "";
+	// spc is in hundredths of a point; one canvas pixel is 0.8pt.
+	const spacing =
+		style.letterSpacing === undefined
+			? ""
+			: ` spc="${Math.max(-400_000, Math.min(400_000, Math.round(style.letterSpacing * 80)))}"`;
 	const color = srgb(style.color);
 	const fill = color
 		? `<a:solidFill><a:srgbClr val="${color}"/></a:solidFill>`
 		: "";
-	const typeface = style.fontFamily
-		? `<a:latin typeface="${xmlEscape(
-				style.fontFamily
-					.split(",")[0]!
-					.trim()
-					.replace(/^['"]|['"]$/g, ""),
-			)}"/>`
-		: '<a:latin typeface="Arial"/>';
-	return `<a:rPr lang="en-US" sz="${size}"${bold} dirty="0">${fill}${typeface}</a:rPr>`;
+	const variant = WEIGHT_VARIANT[weight];
+	const typeface = `<a:latin typeface="${xmlEscape(
+		`${firstFontFamily(style.fontFamily) ?? "Arial"}${variant ? ` ${variant}` : ""}`,
+	)}"/>`;
+	return `<a:rPr lang="en-US" sz="${size}"${bold}${spacing} dirty="0">${fill}${typeface}</a:rPr>`;
 }
 
 function paragraphs(
@@ -334,28 +354,33 @@ function canvasFromOutline(
 	};
 }
 
-const THEME_XML =
-	`<a:theme xmlns:a="${DRAWING_NS}" name="Tedix"><a:themeElements>` +
-	'<a:clrScheme name="Tedix"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>' +
-	'<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>' +
-	'<a:dk2><a:srgbClr val="1F2933"/></a:dk2><a:lt2><a:srgbClr val="F5F7FA"/></a:lt2>' +
-	'<a:accent1><a:srgbClr val="2F6FED"/></a:accent1><a:accent2><a:srgbClr val="7A5AF8"/></a:accent2>' +
-	'<a:accent3><a:srgbClr val="16A394"/></a:accent3><a:accent4><a:srgbClr val="F79009"/></a:accent4>' +
-	'<a:accent5><a:srgbClr val="D92D20"/></a:accent5><a:accent6><a:srgbClr val="475467"/></a:accent6>' +
-	'<a:hlink><a:srgbClr val="2F6FED"/></a:hlink><a:folHlink><a:srgbClr val="7A5AF8"/></a:folHlink></a:clrScheme>' +
-	'<a:fontScheme name="Tedix"><a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>' +
-	'<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>' +
-	'<a:fmtScheme name="Tedix">' +
-	'<a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>' +
-	'<a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>' +
-	'<a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>' +
-	'<a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>' +
-	'<a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst>' +
-	"<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle>" +
-	"<a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>" +
-	'<a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>' +
-	'<a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst>' +
-	"</a:fmtScheme></a:themeElements></a:theme>";
+function themeXml(theme: OsPresentationTheme | undefined): string {
+	const heading = firstFontFamily(theme?.headingFont) ?? "Calibri Light";
+	const body = firstFontFamily(theme?.bodyFont) ?? "Calibri";
+	return (
+		`<a:theme xmlns:a="${DRAWING_NS}" name="Tedix"><a:themeElements>` +
+		'<a:clrScheme name="Tedix"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>' +
+		'<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>' +
+		'<a:dk2><a:srgbClr val="1F2933"/></a:dk2><a:lt2><a:srgbClr val="F5F7FA"/></a:lt2>' +
+		'<a:accent1><a:srgbClr val="2F6FED"/></a:accent1><a:accent2><a:srgbClr val="7A5AF8"/></a:accent2>' +
+		'<a:accent3><a:srgbClr val="16A394"/></a:accent3><a:accent4><a:srgbClr val="F79009"/></a:accent4>' +
+		'<a:accent5><a:srgbClr val="D92D20"/></a:accent5><a:accent6><a:srgbClr val="475467"/></a:accent6>' +
+		'<a:hlink><a:srgbClr val="2F6FED"/></a:hlink><a:folHlink><a:srgbClr val="7A5AF8"/></a:folHlink></a:clrScheme>' +
+		`<a:fontScheme name="Tedix"><a:majorFont><a:latin typeface="${xmlEscape(heading)}"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>` +
+		`<a:minorFont><a:latin typeface="${xmlEscape(body)}"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont></a:fontScheme>` +
+		'<a:fmtScheme name="Tedix">' +
+		'<a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>' +
+		'<a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst>' +
+		'<a:lnStyleLst><a:ln w="6350"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>' +
+		'<a:ln w="12700"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln>' +
+		'<a:ln w="19050"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:ln></a:lnStyleLst>' +
+		"<a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle><a:effectStyle><a:effectLst/></a:effectStyle>" +
+		"<a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst>" +
+		'<a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill>' +
+		'<a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst>' +
+		"</a:fmtScheme></a:themeElements></a:theme>"
+	);
+}
 
 const EMPTY_SP_TREE =
 	'<p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>' +
@@ -387,6 +412,7 @@ export async function buildPptx(
 	content: PresentationContent,
 	organization: PresentationAppearance = {},
 ): Promise<Uint8Array> {
+	const theme = content.deck?.theme;
 	const canvasSlides: OsPresentationCanvasSlide[] =
 		content.deck && content.deck.slides.length > 0
 			? content.deck.slides
@@ -399,7 +425,7 @@ export async function buildPptx(
 			: [canvasFromOutline({ title: "Untitled", bullets: [] }, 0)]
 	).map((slide) => ({
 		...slide,
-		elements: pptxSlideParts(slide, organization),
+		elements: pptxSlideParts(slide, organization, theme),
 	}));
 	const images = await collectPptxImages(slides);
 	const parts: ZipEntry[] = [
@@ -417,7 +443,7 @@ export async function buildPptx(
 				},
 			]),
 		),
-		xmlPart("ppt/theme/theme1.xml", THEME_XML),
+		xmlPart("ppt/theme/theme1.xml", themeXml(theme)),
 		xmlPart("ppt/slideMasters/slideMaster1.xml", SLIDE_MASTER_XML),
 		xmlPart(
 			"ppt/slideMasters/_rels/slideMaster1.xml.rels",
