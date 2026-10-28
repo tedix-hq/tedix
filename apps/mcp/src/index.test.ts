@@ -11,6 +11,7 @@ import {
 } from "./aggregate-activation-epoch";
 import worker from "./index";
 import { handleMcpRequest } from "./mcp-request";
+import { SIDEBAR_APP_WIDGET_DESCRIPTION } from "./mcp/sidebar-app";
 import { validateAuth } from "./auth-helpers";
 
 const { resolveGateway } = vi.hoisted(() => ({ resolveGateway: vi.fn() }));
@@ -1806,6 +1807,90 @@ it("returns the configured sidebar view from the actual get_info fast path", asy
 			},
 		});
 	} finally {
+		context.mockRestore();
+	}
+});
+
+it("describes the sidebar view when it is read through the organization gateway", async () => {
+	// Connect advertises the view under its own slug while the request is served
+	// by the organization gateway app, which carries no sidebar settings.
+	const factory = await import("./mcp/server-factory");
+	const cached = {
+		app: {
+			id: "fictional-gateway",
+			slug: "fictional-gateway",
+			name: "Tedix",
+			organizationId: "fictional-org",
+		},
+		metadata: {
+			mcpConfig: {
+				codeMode: true,
+				authMode: "authenticated",
+				widgetDomain: "https://widgets.example.test",
+			},
+		},
+		tools: [],
+		capabilities: {},
+		organizationId: "fictional-org",
+		catalogResources: [],
+		catalogResourceTemplates: [],
+		catalogPrompts: [],
+	} as unknown as CachedAppData;
+	const context = vi.spyOn(factory, "getAppContext").mockResolvedValue(cached);
+	const widgetFetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+		new Response("<!DOCTYPE html><html><body>Sidebar</body></html>", {
+			headers: { "Content-Type": "text/html" },
+		}),
+	);
+	const uri = "ui://widgets/mcp-app/fictional-connect/r/sidebar-app.html";
+	try {
+		const response = await handleMcpRequest(
+			new Request("http://localhost:3000/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"MCP-Protocol-Version": "2026-07-28",
+					Accept: "application/json, text/event-stream",
+					"Mcp-Method": "resources/read",
+					"Mcp-Name": uri,
+					"x-tedix-auth-type": "oauth",
+					"x-tedix-auth-user-id": "fictional-member",
+					"x-tedix-auth-org-id": "fictional-org",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "resources/read",
+					params: {
+						uri,
+						_meta: {
+							"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+							"io.modelcontextprotocol/clientCapabilities": {},
+						},
+					},
+				}),
+			}),
+			{ ...cached } as never,
+			createEnv({
+				MCP_UI_URL: "https://widgets.example.test",
+				API_SERVICE: {
+					fetch: vi.fn(async () => new Response("{}", { status: 404 })),
+				},
+			}),
+			{ waitUntil: () => {} } as unknown as ExecutionContext,
+		);
+		expect(response.status, await response.clone().text()).toBe(200);
+		const result = (
+			(await response.json()) as {
+				result: { contents: Array<{ _meta: Record<string, unknown> }> };
+			}
+		).result;
+		expect(result.contents[0]?._meta).toMatchObject({
+			"openai/widgetDomain": "https://widgets.example.test",
+			"openai/widgetDescription": SIDEBAR_APP_WIDGET_DESCRIPTION,
+		});
+	} finally {
+		widgetFetch.mockRestore();
 		context.mockRestore();
 	}
 });
