@@ -37,7 +37,7 @@ export const externalAgentPrincipals = sqliteTable(
 			.notNull()
 			.default("active"),
 		credentialBindingType: text("credential_binding_type", {
-			enum: ["api_key", "github_actions_oidc", "owner_user"],
+			enum: ["api_key", "github_actions_oidc", "owner_user", "aih_m2m"],
 		}).notNull(),
 		credentialBindingId: text("credential_binding_id").notNull(),
 		createdByType: text("created_by_type", {

@@ -24,6 +24,7 @@ import {
 	readExternalAgentCredential,
 	writeExternalAgentCredential,
 	removeExternalAgentSession,
+	type StoredAihClient,
 	type StoredExternalAgentProfile,
 	type StoredExternalAgentSession,
 	writeExternalAgentProfile,
@@ -179,10 +180,14 @@ const EXTERNAL_AGENT_AIH_SCOPES = new Set<string>([
 	PLATFORM_OPERATOR_SCOPE,
 ]);
 
-function resolveExternalAgentBootstrapScopes(requestedScopes: string[]): {
-	apiKeyScopes: string[];
-	aihScopes: string[];
-} {
+/**
+ * The MCP capability scopes a new principal is granted. `work:*` scopes used
+ * to narrow the former API binding key; they are still accepted so existing
+ * launchers keep working, but no API key exists any more to carry them.
+ */
+function resolveExternalAgentBootstrapScopes(
+	requestedScopes: string[],
+): string[] {
 	const requested = [...new Set(requestedScopes)];
 	const unsupported = requested.filter(
 		(scope) =>
@@ -193,16 +198,36 @@ function resolveExternalAgentBootstrapScopes(requestedScopes: string[]): {
 			`Unsupported external-agent scope${unsupported.length === 1 ? "" : "s"}: ${unsupported.join(", ")}`,
 		);
 	}
-	return {
-		apiKeyScopes: [
-			"work:read",
-			"work:write",
-			...requested.filter((scope) => scope.startsWith("work:")),
-		],
-		aihScopes: requested.filter((scope) =>
-			EXTERNAL_AGENT_AIH_SCOPES.has(scope),
-		),
-	};
+	return requested.filter((scope) => EXTERNAL_AGENT_AIH_SCOPES.has(scope));
+}
+
+/** Mint the short-lived exchange bearer with the principal's own AIH client. */
+async function mintAihClientToken(
+	client: StoredAihClient,
+	fetcher: FetchLike,
+	signal: AbortSignal,
+): Promise<string> {
+	const response = await fetcher(client.tokenUrl, {
+		signal,
+		method: "POST",
+		headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		body: new URLSearchParams({
+			grant_type: "client_credentials",
+			client_id: client.clientId,
+			client_secret: client.clientSecret,
+			resource: client.resource,
+		}).toString(),
+	});
+	const payload: unknown = await response.json().catch(() => undefined);
+	const token =
+		isRecord(payload) && typeof payload.access_token === "string"
+			? payload.access_token
+			: "";
+	if (!response.ok || !token)
+		throw new Error(
+			`External-agent identity token request failed (${response.status}). The principal's M2M client may have been revoked; an owner can run \`tedix agent start\` again to enroll this machine afresh.`,
+		);
+	return token;
 }
 
 function requiredString(
@@ -531,20 +556,32 @@ async function exchangeSessionRequest(
 ): Promise<ExternalAgentSessionExchangeOutput> {
 	const endpoint = new URL("/external-agents/session", profile.mcpUrl);
 	const source = profile.credentialSource ?? "stored";
-	const bootstrap =
-		source === "stored"
-			? profile.rawApiKey
-			: process.env.TEDIX_AGENT_KEY?.trim();
-	if (source !== "proxy" && (!bootstrap || bootstrap === "proxy-injected"))
-		throw new Error(
-			"External-agent bootstrap credential is unavailable. Restore TEDIX_AGENT_KEY for an env profile, or inspect the stored profile from the owner terminal.",
-		);
+	const fetcher = options.fetch ?? fetch;
+	let authHeaders: Record<string, string>;
+	if (source === "stored" && profile.aihClient) {
+		// The principal's own M2M client proves who is asking; the exchange
+		// answers with the session-bound credential the gateway actually honors.
+		authHeaders = {
+			Authorization: `Bearer ${await mintAihClientToken(profile.aihClient, fetcher, signal)}`,
+		};
+	} else {
+		// Legacy API-key binding, kept for profiles enrolled before 0.18.
+		const bootstrap =
+			source === "stored"
+				? profile.rawApiKey
+				: process.env.TEDIX_AGENT_KEY?.trim();
+		if (source !== "proxy" && (!bootstrap || bootstrap === "proxy-injected"))
+			throw new Error(
+				"External-agent bootstrap credential is unavailable. Restore TEDIX_AGENT_KEY for an env profile, or inspect the stored profile from the owner terminal.",
+			);
+		authHeaders = source === "proxy" ? {} : { "X-API-Key": bootstrap! };
+	}
 	const request: RequestInit = {
 		signal,
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			...(source === "proxy" ? {} : { "X-API-Key": bootstrap! }),
+			...authHeaders,
 		},
 		body: JSON.stringify({
 			organizationId: profile.organizationId,
@@ -556,7 +593,6 @@ async function exchangeSessionRequest(
 			clientName: `tedix-cli ${profile.key} ${tuple.harness}`,
 		}),
 	};
-	const fetcher = options.fetch ?? fetch;
 	let response: Response;
 	let payload: unknown;
 	let busyRetries = 0;
@@ -841,7 +877,7 @@ async function startExternalAgentSessionLocked(
 			throw new Error(
 				`External-agent principal "${profile.key}" already exists with scopes [${granted.join(", ")}]; ` +
 					`--agent-scopes [${requested.join(", ")}] cannot be applied to an existing principal. ` +
-					"Scopes are granted when the principal is bootstrapped. Rotate the principal, or change the scopes on its API key.",
+					"Scopes are granted when the principal is bootstrapped. Enroll a new principal with the scopes you need.",
 			);
 		}
 	}
@@ -891,41 +927,41 @@ async function startExternalAgentSessionLocked(
 				client: ownerClient,
 				listWorkspaces: options.listWorkspaces,
 			});
-			// API execution authority and MCP tool capabilities are different planes.
-			// The binding key may operate the external-agent session and Work attempt;
-			// it never receives platform authority. The issued AIH credential carries
-			// the independently selected, resource-bound MCP capabilities.
+			// The principal is bound to its own AIH M2M client, never to an API
+			// key. That client's token authorizes only the session exchange; the
+			// session credential the exchange issues carries the resource-bound
+			// MCP capabilities below and nothing wider.
 			const requestedScopes = [...new Set(options.scopes ?? [])];
 			const requested = resolveExternalAgentBootstrapScopes(requestedScopes);
 			const scopes =
-				requested.aihScopes.length > 0
-					? requested.aihScopes
+				requested.length > 0
+					? requested
 					: [...CAPABILITY_SCOPES, "connections.execute"];
-			const apiKeyScopes = requested.apiKeyScopes;
-			const createKeyInput = {
+			const createPrincipalInput = {
 				organizationId: organization.id,
-				name: `External agent ${agentKey}`,
-				description:
-					"Dedicated credential binding for gateway-verified external-agent sessions",
-				scopes: [...new Set(apiKeyScopes)],
-				environment: "live",
+				key: agentKey,
+				displayName,
+				credentialBindingType: "aih_m2m",
+				mcpServerUrl: organization.mcpUrl,
+				scopes,
+				metadata: { provisionedBy: "tedix-cli" },
 			};
-			// Issuing a credential is human-reserved, so a first bootstrap may park
-			// here. Resume the request the owner already decided rather than
+			// Enrolling an identity may be human-reserved, so a first bootstrap may
+			// park here. Resume the request the owner already decided rather than
 			// opening another one for the same key.
 			const parked = readBootstrapApproval(slot);
 			const resumeId =
 				parked &&
-				JSON.stringify(parked.input) === JSON.stringify(createKeyInput)
+				JSON.stringify(parked.input) === JSON.stringify(createPrincipalInput)
 					? parked.approvalRequestId
 					: undefined;
-			let createdKey: Record<string, unknown>;
+			let principal: Record<string, unknown>;
 			try {
-				createdKey = await callGatewayTool<Record<string, unknown>>(
+				principal = await callGatewayTool<Record<string, unknown>>(
 					ownerClient,
-					"organizations",
-					"create_api_key",
-					createKeyInput,
+					"external",
+					"create_external_agent_principal",
+					createPrincipalInput,
 					undefined,
 					resumeId,
 				);
@@ -935,59 +971,44 @@ async function startExternalAgentSessionLocked(
 				if (approval.status === "pending") {
 					writeBootstrapApproval(slot, {
 						approvalRequestId: approval.approvalRequestId,
-						input: createKeyInput,
+						input: createPrincipalInput,
 						requestedAt: new Date().toISOString(),
 					});
 					throw new Error(
-						`${BOOTSTRAP_AWAITING_APPROVAL} ${approval.approvalRequestId} for principal "${agentKey}": issuing its credential is human-reserved.${approval.url ? ` Decide at ${approval.url}.` : ""} The next \`tedix agent start\` for this harness resumes that request; no credential was issued.`,
+						`${BOOTSTRAP_AWAITING_APPROVAL} ${approval.approvalRequestId} for principal "${agentKey}": enrolling its identity is human-reserved.${approval.url ? ` Decide at ${approval.url}.` : ""} The next \`tedix agent start\` for this harness resumes that request; no identity was issued.`,
 					);
 				}
 				clearBootstrapApproval(slot);
 				throw new Error(
-					`Owner approval ${approval.approvalRequestId} for the "${agentKey}" credential is ${approval.status}; no credential was issued. Run \`tedix agent start\` again to request a fresh decision.`,
+					`Owner approval ${approval.approvalRequestId} for the "${agentKey}" identity is ${approval.status}; no identity was issued. Run \`tedix agent start\` again to request a fresh decision.`,
 				);
 			}
 			clearBootstrapApproval(slot);
-			const rawApiKey = requiredString(
-				createdKey.rawKey,
-				"raw API key",
-				"create_api_key",
-			);
-			const apiKey = isRecord(createdKey.apiKey) ? createdKey.apiKey : null;
-			const apiKeyId = requiredString(
-				apiKey?.id,
-				"API key id",
-				"create_api_key",
-			);
-			let principal: Record<string, unknown>;
-			try {
-				principal = await callGatewayTool<Record<string, unknown>>(
-					ownerClient,
-					"external",
+			const credential = isRecord(principal.credential)
+				? principal.credential
+				: null;
+			const aihClient: StoredAihClient = {
+				clientId: requiredString(
+					credential?.clientId,
+					"M2M client id",
 					"create_external_agent_principal",
-					{
-						organizationId: organization.id,
-						key: agentKey,
-						displayName,
-						credentialBindingType: "api_key",
-						credentialBindingId: apiKeyId,
-						metadata: { provisionedBy: "tedix-cli" },
-					},
-				);
-			} catch (error) {
-				await callGatewayTool(
-					ownerClient,
-					"organizations",
-					"revoke_api_key",
-					{
-						organizationId: organization.id,
-						keyId: apiKeyId,
-						reason: "External-agent principal bootstrap failed",
-					},
-					"Compensate a failed external-agent principal bootstrap",
-				).catch(() => undefined);
-				throw error;
-			}
+				),
+				clientSecret: requiredString(
+					credential?.clientSecret,
+					"M2M client secret",
+					"create_external_agent_principal",
+				),
+				tokenUrl: requiredString(
+					credential?.tokenUrl,
+					"M2M token URL",
+					"create_external_agent_principal",
+				),
+				resource: requiredString(
+					credential?.resource,
+					"M2M resource",
+					"create_external_agent_principal",
+				),
+			};
 			profile = {
 				organizationId: organization.id,
 				organizationAliases: organization.aliases,
@@ -998,8 +1019,8 @@ async function startExternalAgentSessionLocked(
 				),
 				key: agentKey,
 				displayName,
-				apiKeyId,
-				rawApiKey,
+				apiKeyId: "",
+				aihClient,
 				scopes,
 				mcpUrl: organization.mcpUrl,
 				createdAt: new Date().toISOString(),
@@ -1071,6 +1092,12 @@ export function externalAgentStatus(
 		currentSession: session ?? null,
 		sessionCount: Object.keys(profile.sessions).length,
 		credentialStored: true,
+		credentialKind: profile.aihClient
+			? "aih_m2m"
+			: profile.credentialSource === "proxy" ||
+				  profile.credentialSource === "env"
+				? "bootstrap_key"
+				: "api_key",
 	};
 }
 

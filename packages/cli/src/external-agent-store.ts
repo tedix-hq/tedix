@@ -36,17 +36,43 @@ export interface StoredExternalAgentProfile {
 	principalId: string;
 	key: string;
 	displayName: string;
+	/** Empty for an M2M-bound profile (no API key exists for it). */
 	apiKeyId: string;
 	/** Missing on legacy profiles means stored. Env/proxy secrets are never persisted. */
 	credentialSource?: "stored" | "env" | "proxy";
-	/** Secret returned once by the API. Required for stored profiles; never render. */
+	/**
+	 * Legacy binding: an API key returned once by the API. A stored profile
+	 * carries either this or `aihClient`; never render either.
+	 */
 	rawApiKey?: string;
+	/** The principal's own AIH M2M client; its token authorizes only the session exchange. */
+	aihClient?: StoredAihClient;
 	scopes: string[];
 	mcpUrl: string;
 	createdAt: string;
 	/** Set when the owner chose this name (first setup or `agent rename`). */
 	displayNameConfirmedAt?: string;
 	sessions: Record<string, StoredExternalAgentSession>;
+}
+
+export interface StoredAihClient {
+	clientId: string;
+	clientSecret: string;
+	tokenUrl: string;
+	resource: string;
+}
+
+function coerceAihClient(value: unknown): StoredAihClient | null {
+	if (!isRecord(value)) return null;
+	const fields = ["clientId", "clientSecret", "tokenUrl", "resource"] as const;
+	if (fields.some((field) => typeof value[field] !== "string" || !value[field]))
+		return null;
+	return {
+		clientId: value.clientId as string,
+		clientSecret: value.clientSecret as string,
+		tokenUrl: value.tokenUrl as string,
+		resource: value.resource as string,
+	};
 }
 
 interface CachedAgentCredential {
@@ -126,7 +152,12 @@ function coerceProfile(value: unknown): StoredExternalAgentProfile | null {
 	const credentialSource = value.credentialSource ?? "stored";
 	if (!["stored", "env", "proxy"].includes(String(credentialSource)))
 		return null;
-	if (credentialSource === "stored" && typeof value.rawApiKey !== "string")
+	const aihClient = coerceAihClient(value.aihClient);
+	if (
+		credentialSource === "stored" &&
+		typeof value.rawApiKey !== "string" &&
+		!aihClient
+	)
 		return null;
 	if (
 		!Array.isArray(value.scopes) ||
@@ -156,9 +187,10 @@ function coerceProfile(value: unknown): StoredExternalAgentProfile | null {
 		...(value.credentialSource
 			? { credentialSource: credentialSource as "stored" | "env" | "proxy" }
 			: {}),
-		...(credentialSource === "stored"
-			? { rawApiKey: value.rawApiKey as string }
+		...(credentialSource === "stored" && typeof value.rawApiKey === "string"
+			? { rawApiKey: value.rawApiKey }
 			: {}),
+		...(credentialSource === "stored" && aihClient ? { aihClient } : {}),
 		scopes: value.scopes as string[],
 		mcpUrl: value.mcpUrl as string,
 		createdAt: value.createdAt as string,
@@ -309,7 +341,10 @@ function sameProfileIdentity(
 			(key) =>
 				a[key as keyof StoredExternalAgentProfile] ===
 				b[key as keyof StoredExternalAgentProfile],
-		) && [...a.scopes].sort().join("\0") === [...b.scopes].sort().join("\0")
+		) &&
+		a.aihClient?.clientId === b.aihClient?.clientId &&
+		a.aihClient?.clientSecret === b.aihClient?.clientSecret &&
+		[...a.scopes].sort().join("\0") === [...b.scopes].sort().join("\0")
 	);
 }
 
@@ -545,6 +580,8 @@ function credentialBinding(
 				profile.principalId,
 				profile.apiKeyId,
 				profile.rawApiKey,
+				profile.aihClient?.clientId,
+				profile.aihClient?.clientSecret,
 				profile.credentialSource ?? "stored",
 				profile.mcpUrl,
 				[...profile.scopes].sort(),

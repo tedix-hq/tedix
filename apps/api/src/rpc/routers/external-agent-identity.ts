@@ -4,6 +4,7 @@ import { externalAgentIdentityContract } from "@tedix/api-contract/contracts/ext
 import { externalAgentScopeCeiling } from "@tedix/api-contract/schemas/external-agent-identity";
 import { parseTedixMcpAudience } from "@tedix/auth/aih-audiences";
 import {
+	aihClientCredentialsTokenUrl,
 	createDescopeMcpServerClient,
 	deleteDescopeMcpServerClient,
 	deleteDescopeMcpServerClients,
@@ -17,7 +18,7 @@ import {
 	DESCOPE_MANAGEMENT_BASE_URL,
 	extractJwtScopes,
 } from "@tedix/auth/types";
-import { decodeTokenUnsafe } from "@tedix/auth/jwt";
+import { decodeTokenUnsafe, validateToken } from "@tedix/auth/jwt";
 import { extractMcpApprovedScopeNames } from "../../services/descope-mcp-server-reconcile";
 import {
 	forgetMcpServerClients,
@@ -27,7 +28,6 @@ import {
 	rememberMcpServerClients,
 } from "../../lib/provider-facts-cache";
 import {
-	GITHUB_ACTIONS_OIDC_ISSUER,
 	exchangeGithubActionsWorkloadToken,
 	federatedWorkloadCredentialId,
 	workloadFederationConfig,
@@ -156,6 +156,36 @@ function requireGovernance(context: BaseContext) {
 		throw createError(ErrorCodes.FORBIDDEN, "Governance actor is unavailable");
 	}
 	return actor;
+}
+
+/** The AIH client an `aih_m2m` principal was bound to at bootstrap. */
+function m2mBinding(principal: {
+	credentialBindingType: string;
+	credentialBindingId: string;
+	metadata: Record<string, unknown>;
+}): { clientRecordId: string; clientId: string; mcpServerId: string } | null {
+	if (principal.credentialBindingType !== "aih_m2m") return null;
+	const clientId = principal.metadata.aihClientId;
+	const mcpServerId = principal.metadata.aihMcpServerId;
+	if (typeof clientId !== "string" || typeof mcpServerId !== "string")
+		return null;
+	return {
+		clientRecordId: principal.credentialBindingId,
+		clientId,
+		mcpServerId,
+	};
+}
+
+const M2M_BINDING_TAG = "external-agent-binding";
+
+async function sha256Hex(value: string): Promise<string> {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(value),
+	);
+	return Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
 }
 
 function workloadAllowedScopes(metadata: unknown): string[] {
@@ -407,8 +437,11 @@ const createPrincipal = authed.createPrincipal.handler(
 				`Principal keys starting with "${OWNER_HOST_PRINCIPAL_KEY_PREFIX}" are reserved for owner-host sessions`,
 			);
 		}
+		if (input.credentialBindingType === "aih_m2m")
+			return createM2mPrincipal(context, organizationId, actor, input);
+		const credentialBindingId = input.credentialBindingId ?? "";
 		if (input.credentialBindingType === "api_key") {
-			const apiKey = await getApiKeyById(context.db, input.credentialBindingId);
+			const apiKey = await getApiKeyById(context.db, credentialBindingId);
 			if (
 				!apiKey ||
 				apiKey.organizationId !== organizationId ||
@@ -420,7 +453,7 @@ const createPrincipal = authed.createPrincipal.handler(
 				);
 			}
 		} else if (
-			!input.credentialBindingId.startsWith("repo:") ||
+			!credentialBindingId.startsWith("repo:") ||
 			workloadAllowedScopes(input.metadata).length === 0
 		) {
 			throw createError(
@@ -435,7 +468,7 @@ const createPrincipal = authed.createPrincipal.handler(
 				key: input.key,
 				displayName: input.displayName,
 				credentialBindingType: input.credentialBindingType,
-				credentialBindingId: input.credentialBindingId,
+				credentialBindingId,
 				createdByType: actor.type === "api_key" ? "api_key" : "user",
 				createdById: actor.id,
 				metadata:
@@ -449,6 +482,108 @@ const createPrincipal = authed.createPrincipal.handler(
 		}
 	},
 );
+
+/**
+ * Bind a new principal to its own Descope AIH M2M client instead of an API
+ * key. The client is limited to the MCP server the agent will use and to the
+ * requested capability scopes, which also become the principal's ceiling. Its
+ * client-credentials token authorizes only the session exchange: the gateway
+ * never resolves it as a session, so it carries no tool or API authority.
+ */
+async function createM2mPrincipal(
+	context: BaseContext,
+	organizationId: string,
+	actor: { type: string; id: string },
+	input: {
+		key: string;
+		displayName: string;
+		mcpServerUrl?: string;
+		scopes?: string[];
+		metadata?: Record<string, unknown>;
+	},
+) {
+	if (!input.mcpServerUrl || !input.scopes?.length)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"An aih_m2m binding requires mcpServerUrl and scopes",
+		);
+	const aihEnv = requireAihEnv(context.env);
+	const { mcpServerId, mcpServerUrl } = await resolveMcpCredentialTarget(
+		context,
+		organizationId,
+		input.mcpServerUrl,
+	);
+	const mcpServer = await loadMcpServerRegistration(aihEnv, mcpServerId, {
+		fresh: true,
+	});
+	const scopes = resolveExternalAgentMcpClientScopes(
+		input.scopes,
+		mcpServer.approvedScopes,
+	);
+	const client = await createDescopeMcpServerClient(aihEnv, {
+		forceAddAllAuthorizationInfo: true,
+		mcpServerId,
+		name: `External agent ${input.displayName} (binding)`,
+		scopes,
+		tags: [
+			M2M_BINDING_TAG,
+			`external-agent-org:${organizationId}`,
+			`external-agent-principal-key:${input.key}`,
+		],
+	});
+	const issuer = descopeIssuer(
+		aihEnv.DESCOPE_PROJECT_ID,
+		DESCOPE_MANAGEMENT_BASE_URL,
+	);
+	try {
+		const principal = await createExternalAgentPrincipal(context.db, {
+			id: crypto.randomUUID(),
+			organizationId,
+			key: input.key,
+			displayName: input.displayName,
+			credentialBindingType: "aih_m2m",
+			credentialBindingId: client.id,
+			createdByType: actor.type === "api_key" ? "api_key" : "user",
+			createdById: actor.id,
+			metadata: {
+				...(input.metadata === undefined ? {} : toJsonRecord(input.metadata)),
+				allowedScopes: scopes,
+				aihClientId: client.clientId,
+				aihMcpServerId: mcpServerId,
+				aihMcpServerUrl: mcpServerUrl,
+			},
+			createdAt: new Date().toISOString(),
+		});
+		await bindPrincipalIdentity(context.db, {
+			organizationId,
+			principalType: "external_agent",
+			principalId: principal.id,
+			provider: "descope",
+			issuer,
+			subject: client.clientId,
+		});
+		return {
+			...principal,
+			credential: {
+				clientId: client.clientId,
+				clientSecret: client.clientSecret,
+				tokenUrl: aihClientCredentialsTokenUrl(aihEnv),
+				resource: mcpServerUrl,
+			},
+		};
+	} catch (error) {
+		await deleteDescopeMcpServerClient(aihEnv, {
+			id: client.id,
+			mcpServerId,
+		}).catch(() => undefined);
+		await revokePrincipalIdentity(context.db, {
+			provider: "descope",
+			issuer,
+			subject: client.clientId,
+		}).catch(() => undefined);
+		rethrowIdentityError(error);
+	}
+}
 
 const setPrincipalStatus = authed.setPrincipalStatus.handler(
 	async ({ input, context }) => {
@@ -473,11 +608,33 @@ const disablePrincipal = authed.disablePrincipal.handler(
 		requireGovernance(context);
 		try {
 			const params = { organizationId, principalId: input.principalId };
+			const principal = await getExternalAgentPrincipal(context.db, params);
 			await disableExternalAgentPrincipal(context.db, {
 				...params,
 				reason: input.reason,
 				now: new Date().toISOString(),
 			});
+			// An M2M-bound principal's exchange client must stop minting bearers
+			// the moment the principal is retired.
+			const binding = principal ? m2mBinding(principal) : null;
+			let bindingCleanupFailed = false;
+			if (binding) {
+				const aihEnv = requireAihEnv(context.env);
+				await deleteDescopeMcpServerClient(aihEnv, {
+					id: binding.clientRecordId,
+					mcpServerId: binding.mcpServerId,
+				}).catch(() => {
+					bindingCleanupFailed = true;
+				});
+				await revokePrincipalIdentity(context.db, {
+					provider: "descope",
+					issuer: descopeIssuer(
+						aihEnv.DESCOPE_PROJECT_ID,
+						DESCOPE_MANAGEMENT_BASE_URL,
+					),
+					subject: binding.clientId,
+				}).catch(() => undefined);
+			}
 			const pending = await listPendingExternalAgentProviderCleanup(
 				context.db,
 				params,
@@ -488,7 +645,7 @@ const disablePrincipal = authed.disablePrincipal.handler(
 				ids.push(row.clientRecordId);
 				groups.set(row.mcpServerId, ids);
 			}
-			let failed = false;
+			let failed = bindingCleanupFailed;
 			for (const [mcpServerId, ids] of groups) {
 				for (let i = 0; i < ids.length; i += 100) {
 					const chunk = ids.slice(i, i + 100);
@@ -713,6 +870,69 @@ const resolveOwnerHostSession = authed.resolveOwnerHostSession.handler(
 	},
 );
 
+interface VerifiedWorkloadAssertion {
+	issuer: string;
+	audience: string;
+	subject: string;
+	jti: string;
+	issuedAt: number;
+	expiresAt: number;
+}
+
+/**
+ * Accept the client-credentials token an `aih_m2m` principal minted with its
+ * own binding client. Only that client's token opens this principal's
+ * sessions; the token's scopes are not consulted because the principal's
+ * stored ceiling bounds the session credential, and the token itself never
+ * reaches the gateway as a session.
+ */
+async function verifyM2mBindingToken(
+	context: BaseContext,
+	token: string,
+	binding: { clientId: string },
+): Promise<VerifiedWorkloadAssertion> {
+	let payload;
+	try {
+		payload = await validateToken(token, {
+			projectId: context.env.DESCOPE_PROJECT_ID,
+			baseUrl: context.env.DESCOPE_BASE_URL,
+		});
+	} catch (error) {
+		throw new WorkloadIdentityError(
+			"External-agent binding token is invalid",
+			"invalid_token",
+			error,
+		);
+	}
+	if (!payload.client_id || payload.email)
+		throw new WorkloadIdentityError(
+			"External-agent binding token is not a client-credentials token",
+			"invalid_token",
+		);
+	if (payload.client_id !== binding.clientId)
+		throw new WorkloadIdentityError(
+			"Workload identity subject does not match the bound principal",
+			"subject_mismatch",
+		);
+	const now = Math.floor(Date.now() / 1_000);
+	const issued = decodeTokenUnsafe(token);
+	return {
+		// The SDK rewrites a validated issuer to the bare project id; keep the
+		// issuer as emitted so replay rows and audit metadata name the resource.
+		issuer: issued?.iss || payload.iss,
+		audience: Array.isArray(payload.aud)
+			? payload.aud.join(" ")
+			: (payload.aud ?? ""),
+		subject: payload.client_id,
+		jti:
+			typeof payload.jti === "string" && payload.jti
+				? payload.jti
+				: await sha256Hex(token),
+		issuedAt: typeof payload.iat === "number" ? payload.iat : now,
+		expiresAt: payload.exp,
+	};
+}
+
 const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 	async ({ input, context }) => {
 		const principal = await getExternalAgentPrincipalById(
@@ -729,9 +949,10 @@ const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 		if (input.organizationId !== organizationId) {
 			throw createError(ErrorCodes.FORBIDDEN, "Organization is out of scope");
 		}
+		const binding = m2mBinding(principal);
 		if (
 			principal.status !== "active" ||
-			principal.credentialBindingType !== "github_actions_oidc"
+			(principal.credentialBindingType !== "github_actions_oidc" && !binding)
 		) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
@@ -739,7 +960,7 @@ const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 			);
 		}
 
-		let verified;
+		let verified: VerifiedWorkloadAssertion;
 		let federation: FederatedWorkloadToken | undefined;
 		let scopes: string[];
 		try {
@@ -748,7 +969,13 @@ const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 				workloadAllowedScopes(principal.metadata),
 			);
 			const config = workloadFederationConfig(principal.metadata);
-			if (config) {
+			if (binding) {
+				verified = await verifyM2mBindingToken(
+					context,
+					input.subjectToken,
+					binding,
+				);
+			} else if (config) {
 				({ verified, federation } = await exchangeGithubActionsWorkloadToken(
 					input.subjectToken,
 					{
@@ -803,7 +1030,7 @@ const authorizeWorkloadSession = authed.authorizeWorkloadSession.handler(
 				metadata: {
 					...(input.metadata === undefined ? {} : toJsonRecord(input.metadata)),
 					workloadExchangeId: exchangeId,
-					workloadIssuer: GITHUB_ACTIONS_OIDC_ISSUER,
+					workloadIssuer: verified.issuer,
 					workloadSubject: verified.subject,
 				},
 				startedAt: now.toISOString(),

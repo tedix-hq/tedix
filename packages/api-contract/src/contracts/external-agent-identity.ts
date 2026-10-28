@@ -8,6 +8,7 @@ import {
 	ExternalAgentGovernedCredentialBindingTypeSchema,
 	ExternalAgentKnowledgeCheckpointSchema,
 	ExternalAgentKnowledgeDispositionSchema,
+	ExternalAgentM2mCredentialSchema,
 	ExternalAgentPrincipalSchema,
 	ExternalAgentPrincipalSummarySchema,
 	ExternalAgentPrincipalMetadataSchema,
@@ -122,20 +123,46 @@ export const externalAgentIdentityContract = oc
 				method: "POST",
 				path: "/principals",
 				summary: "Create a stable credential-bound external-agent principal",
+				description:
+					"An `aih_m2m` binding needs no credentialBindingId: the server mints a Descope AIH M2M client for the principal on `mcpServerUrl`, limited to `scopes`, and returns its secret once in `credential`. That client only authorizes the session exchange; it has no tool or API authority of its own.",
 				successStatus: 201,
 			})
 			.input(
-				z.object({
-					organizationId: OrganizationIdSchema,
-					key: z.string().min(1).max(120),
-					displayName: z.string().min(1).max(200),
-					credentialBindingType:
-						ExternalAgentGovernedCredentialBindingTypeSchema,
-					credentialBindingId: z.string().min(1).max(200),
-					metadata: ExternalAgentPrincipalMetadataSchema.optional(),
-				}),
+				z
+					.object({
+						organizationId: OrganizationIdSchema,
+						key: z.string().min(1).max(120),
+						displayName: z.string().min(1).max(200),
+						credentialBindingType:
+							ExternalAgentGovernedCredentialBindingTypeSchema,
+						credentialBindingId: z.string().min(1).max(200).optional(),
+						mcpServerUrl: z.url().optional(),
+						scopes: ExternalAgentScopesSchema.optional(),
+						metadata: ExternalAgentPrincipalMetadataSchema.optional(),
+					})
+					.superRefine((input, ctx) => {
+						if (input.credentialBindingType === "aih_m2m") {
+							if (!input.mcpServerUrl || !input.scopes)
+								ctx.addIssue({
+									code: "custom",
+									path: ["mcpServerUrl"],
+									message:
+										"An aih_m2m binding requires mcpServerUrl and scopes",
+								});
+						} else if (!input.credentialBindingId) {
+							ctx.addIssue({
+								code: "custom",
+								path: ["credentialBindingId"],
+								message: "credentialBindingId is required for this binding",
+							});
+						}
+					}),
 			)
-			.output(ExternalAgentPrincipalSchema),
+			.output(
+				ExternalAgentPrincipalSchema.extend({
+					credential: ExternalAgentM2mCredentialSchema.optional(),
+				}),
+			),
 
 		setPrincipalStatus: oc
 			.route({
@@ -236,7 +263,9 @@ export const externalAgentIdentityContract = oc
 				method: "POST",
 				path: "/principals/{principalId}/workload-sessions",
 				summary:
-					"Verify and consume a federated workload assertion before session issuance",
+					"Verify and consume a workload or M2M assertion before session issuance",
+				description:
+					"The bearer is a GitHub Actions OIDC token for a `github_actions_oidc` principal, or a Descope AIH client-credentials token minted by an `aih_m2m` principal's own client. Each assertion is consumed once.",
 			})
 			.input(
 				z
