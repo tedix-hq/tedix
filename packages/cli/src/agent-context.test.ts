@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -42,12 +48,13 @@ function fixture() {
 	const configDir = join(base, "config");
 	mkdirSync(cwd);
 	git(cwd, ["init", "-b", "main"]);
-	git(cwd, ["config", "user.name", "Context test"]);
-	git(cwd, ["config", "user.email", "context@example.invalid"]);
+	appendFileSync(
+		join(cwd, ".git", "config"),
+		'\n[user]\n\tname = Context test\n\temail = context@example.invalid\n[remote "origin"]\n\turl = https://example.invalid/repo.git\n',
+	);
 	writeFileSync(join(cwd, "README.md"), "fixture\n");
 	git(cwd, ["add", "."]);
 	git(cwd, ["commit", "-m", "fixture"]);
-	git(cwd, ["remote", "add", "origin", "https://example.invalid/repo.git"]);
 	const opts = { cwd, configDir, sessionId: null as string | null };
 	writeWorkspaceCredentials(
 		"tedix",

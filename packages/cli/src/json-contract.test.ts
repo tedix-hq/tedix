@@ -274,15 +274,20 @@ async function run(args: string[], stdin = "", fixtures = true) {
 			stderr: "pipe",
 		},
 	);
-	const [stdout, stderr, code] = await Promise.all([
-		new Response(child.stdout).text(),
-		new Response(child.stderr).text(),
-		child.exited,
-	]);
-	if (!fixtures)
-		expect(existsSync(join(config, "credentials.json"))).toBe(false);
-	rmSync(config, { recursive: true, force: true });
-	return { stdout, stderr, code };
+	try {
+		const [stdout, stderr, code] = await Promise.all([
+			new Response(child.stdout).text(),
+			new Response(child.stderr).text(),
+			child.exited,
+		]);
+		if (!fixtures)
+			expect(existsSync(join(config, "credentials.json"))).toBe(false);
+		return { stdout, stderr, code };
+	} finally {
+		child.kill();
+		await child.exited;
+		rmSync(config, { recursive: true, force: true });
+	}
 }
 
 describe("registry JSON contract", () => {
@@ -329,19 +334,19 @@ describe("registry JSON contract", () => {
 		});
 	});
 
-	test("JSON help and version remain single documents", async () => {
-		for (const args of [
-			["--help"],
-			["code", "--help"],
-			["learn"],
-			["learn", "--help"],
-			["--version"],
-		]) {
-			const result = await run([...args, "--json"]);
+	for (const args of [
+		["--help"],
+		["code", "--help"],
+		["learn"],
+		["learn", "--help"],
+		["--version"],
+	]) {
+		test(`JSON ${args.join(" ")} remains a single document`, async () => {
+			const result = await run([...args, "--json"], "", false);
 			expect(result.code, result.stderr).toBe(0);
 			expect(() => JSON.parse(result.stdout)).not.toThrow();
-		}
-	}, 15_000);
+		});
+	}
 
 	test("lane brief encodes its launcher text in JSON mode", async () => {
 		const brief = join(root, "brief.md");
@@ -358,28 +363,28 @@ describe("registry JSON contract", () => {
 		expect(JSON.parse(result.stdout)).toBe("Implement the fixture.\n");
 	}, 15_000);
 
-	test("silent hook protocols accept JSON mode without fabricating output", async () => {
-		for (const hook of [
-			"status",
-			"capture-stop",
-			"capture-reply",
-			"await-reply",
-			"await-draft",
-		]) {
+	for (const hook of [
+		"status",
+		"capture-stop",
+		"capture-reply",
+		"await-reply",
+		"await-draft",
+	]) {
+		test(`${hook} accepts JSON mode without fabricating output`, async () => {
 			const result = await run(["hooks", hook, "--json"], "{}");
 			expect(result, hook).toEqual({ stdout: "", stderr: "", code: 0 });
-		}
-	}, 15_000);
+		});
+	}
 
 	test("JSON failures keep stdout empty", async () => {
-		const result = await run(["unknown-command", "--json"]);
+		const result = await run(["unknown-command", "--json"], "", false);
 		expect(result.code).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(JSON.parse(result.stderr).error).toContain("Unknown command");
 	});
 
 	test("literal --json does not select machine mode", async () => {
-		const result = await run(["use", "--", "--json"]);
+		const result = await run(["use", "--", "--json"], "", false);
 		expect(result.code).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).not.toContain("--json is not supported");

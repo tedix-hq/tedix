@@ -500,10 +500,21 @@ export async function exportPortableTedi(options: {
 			join(payloadDir, "manifest.json"),
 			`${JSON.stringify(manifest, null, 2)}\n`,
 		);
-		await runGit(["-C", repoDir, "add", PORTABLE_DIR]);
 		await runGit([
 			"-C",
 			repoDir,
+			"-c",
+			"core.compression=1",
+			"add",
+			PORTABLE_DIR,
+		]);
+		await runGit([
+			"-C",
+			repoDir,
+			"-c",
+			"core.compression=1",
+			"-c",
+			"gc.auto=0",
 			"-c",
 			"user.name=Tedix Portable Export",
 			"-c",
@@ -515,22 +526,21 @@ export async function exportPortableTedi(options: {
 		await runGit(["-C", repoDir, "branch", "portable-export", "HEAD"]);
 		await runGit(["-C", repoDir, "switch", "portable-export"]);
 		await mkdir(dirname(outputPath), { recursive: true });
-		await runGit(["-C", repoDir, "bundle", "create", bundlePath, "--all"]);
+		await runGit([
+			"-C",
+			repoDir,
+			"-c",
+			"pack.compression=1",
+			"bundle",
+			"create",
+			bundlePath,
+			"--all",
+		]);
 		await runGit(["-C", repoDir, "bundle", "verify", bundlePath]);
-		await runGit(["clone", bundlePath, verificationDir]);
-		const bundleManifest = JSON.parse(
-			await readFile(
-				join(verificationDir, PORTABLE_DIR, "manifest.json"),
-				"utf8",
-			),
-		) as unknown;
-		const bundleFiles: Record<string, Uint8Array> = {};
-		for (const { path } of SECTIONS) {
-			bundleFiles[path] = await readFile(
-				join(verificationDir, PORTABLE_DIR, path),
-			);
-		}
-		await verifyPortableTediSnapshotFiles(bundleManifest, bundleFiles);
+		// Cloning verifies the pack and object graph. The payload bytes were already
+		// validated before Git stored them, so materializing and parsing them again
+		// would only duplicate work for large snapshots.
+		await runGit(["clone", "--no-checkout", bundlePath, verificationDir]);
 		await link(bundlePath, outputPath);
 		return {
 			bundlePath: outputPath,
