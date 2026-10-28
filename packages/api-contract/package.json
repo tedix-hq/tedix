@@ -305,6 +305,7 @@
 		"./utils/workbook-number-format": "./src/utils/workbook-number-format.ts",
 		"./utils/presentation-style": "./src/utils/presentation-style.ts",
 		"./utils/approval-policy": "./src/utils/approval-policy.ts",
+		"./utils/owner-tool-execution": "./src/utils/owner-tool-execution.ts",
 		"./utils/home-delegation-approval": "./src/utils/home-delegation-approval.ts",
 		"./utils/human-only-ask": "./src/utils/human-only-ask.ts",
 		"./utils/delegated-work-closeout": "./src/utils/delegated-work-closeout.ts",

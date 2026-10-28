@@ -86,7 +86,7 @@ try {
 					.getByRole("status")
 					.getByText(
 						outcome === "approved"
-							? /^Approved: .*The caller can now run it once\./
+							? /^Approved: .*It runs once now\./
 							: /^Rejected: .*Nothing ran\./,
 					)
 					.waitFor();

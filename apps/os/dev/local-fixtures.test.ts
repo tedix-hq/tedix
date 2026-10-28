@@ -369,6 +369,7 @@ const CALLS = {
 	"osApprovalRules/delete": { ruleId: "000000e1-0000-4000-8000-000000000001" },
 	"tediApprovals/getById": { id: IDS.approvalPending },
 	"tediApprovals/resolve": { id: IDS.approvalPending, status: "approved" },
+	"tediApprovals/retryExecution": { id: IDS.approvalPending },
 	"tediApprovals/clearExpired": {},
 	"webPush/getStatus": {},
 	"webPush/subscribe": {

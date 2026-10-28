@@ -26,6 +26,13 @@ export interface CodeModeCatalogTool {
 	annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
 	inputSchema?: { properties?: Record<string, unknown>; required?: string[] };
 	native?: { name: string };
+	/**
+	 * The gateway's own wire binding for the callable, whenever the catalog
+	 * reports one: the native tool name on that gateway and its endpoint. Set
+	 * regardless of native-transport eligibility, so an approved call stored by
+	 * its wire name can be matched to its live catalog entry.
+	 */
+	wire?: { name: string; endpoint: string | null };
 }
 
 interface CodeModeDiscoveryEntry {
@@ -157,6 +164,29 @@ export function codeModeCanonicalDescribeParams(
 	};
 }
 
+/**
+ * Find every catalog entry whose tool is `toolName`, with its wire binding, in
+ * one Code Mode call. A programmatic caller's `tools/list` on a Code Mode
+ * gateway is the compact surface (`code`, `ask`, ...), so a stored native tool
+ * can only be re-validated through the gateway's own catalog: search by the
+ * bare tool name, then describe each hit for its `native` descriptor.
+ */
+export function codeModeReplayLookupParams(
+	toolName: string,
+): Record<string, unknown> {
+	if (!/^[A-Za-z_]\w*$/.test(toolName))
+		throw new Error(`Invalid Code Mode tool name: ${toolName}`);
+	const search = `const page = await discover.search(${JSON.stringify({ query: toolName, limit: 25 })}); `;
+	const hits = `const hits = (Array.isArray(page) ? page : page.results ?? []).filter((hit) => hit.tool === ${JSON.stringify(toolName)} && typeof hit.callable === "string").slice(0, 8); `;
+	const describe = `const described = await Promise.all(hits.map((hit) => discover.describe({ callable: hit.callable }))); `;
+	return {
+		name: CODE_MODE_TOOL_NAME,
+		arguments: {
+			code: `async () => { ${search}${hits}${describe}return described.filter(Boolean).map((hit) => ({ callable: hit.callable, annotations: hit.annotations, _meta: hit._meta, native: hit.native })); }`,
+		},
+	};
+}
+
 /** Code Mode keeps an over-budget result and returns a handle to page it. */
 export function codeModeResultHandle(result: unknown): string | null {
 	let parsed: unknown;
@@ -281,6 +311,14 @@ export function parseCodeModeCatalogValue(
 				...(parameters ? { inputSchema: parameters } : {}),
 				...(native.success && native.data.eligible && native.data.authorized
 					? { native: { name: native.data.name } }
+					: {}),
+				...(native.success
+					? {
+							wire: {
+								name: native.data.name,
+								endpoint: native.data.endpoint || null,
+							},
+						}
 					: {}),
 			},
 		];

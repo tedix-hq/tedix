@@ -55,6 +55,7 @@ import {
 	resolveApprovalRequest,
 	rollbackProvisionalOutcome,
 } from "@tedix/db/queries/approvals";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type {
@@ -85,6 +86,7 @@ import {
 	userHoldsPermission,
 } from "../orpc";
 import { settleHomeToolWriteApproval } from "./kernel/write-approval-settlement";
+import { retryOwnerToolCallExecution } from "./kernel/owner-tool-approval-settlement";
 import { requireOrgId } from "../org-scope";
 import {
 	browserLoginSession,
@@ -1464,7 +1466,73 @@ const resolveProcedure = authedOs.resolve
 		const actor = observedLearningActor(context);
 		if (actor.actorType === "user" && actor.actorId)
 			await startIncrementalLessons(context.env, resolved.orgId, actor.actorId);
-		return normalizeApprovalRequest(resolved);
+		// An owner's parked tool call ran during the settle above; the person who
+		// approved it sees "Done" or "Failed" in this same response.
+		const settled =
+			resolved.actionType === "mcp.tool_call" && input.status === "approved"
+				? await getApprovalRequestById(context.db, resolved.id)
+				: undefined;
+		return normalizeApprovalRequest(settled ?? resolved);
+	});
+
+/**
+ * Try an approved owner tool call once more after a platform-side failure.
+ * The retry runs under the same rules as the approval itself: requester and
+ * approver are re-checked, the gateway re-matches the receipt, and it runs
+ * at most once more.
+ */
+const retryExecutionProcedure = authedOs.retryExecution
+	.use(AUTHZ.osApprove)
+	.handler(async ({ input, context }) => {
+		const orgId = getOrganizationId(context);
+		const existing = await getApprovalRequestById(context.db, input.id);
+		if (!existing) {
+			throw createError(ErrorCodes.NOT_FOUND, "Approval request not found");
+		}
+		if (orgId && existing.orgId !== orgId) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Access denied to this approval request",
+			);
+		}
+		const retriedBy = context.user?.sub;
+		if (!retriedBy)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only a signed-in owner or admin can try an approved call again",
+			);
+		const member = await getMemberByUserId(
+			context.db,
+			existing.orgId,
+			retriedBy,
+		);
+		if (
+			member?.status !== "active" ||
+			!["owner", "admin"].includes(member.role)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only an active owner or admin can try an approved call again",
+			);
+		const outcome = await retryOwnerToolCallExecution(context, {
+			approval: existing,
+			retriedBy,
+		});
+		const refusal: Partial<Record<typeof outcome, string>> = {
+			not_owner_tool_call:
+				"Only an approved tool call that the platform runs can be tried again",
+			not_failed: "This call did not fail, so there is nothing to try again",
+			not_retryable:
+				"This call was refused by its target or the target changed; request a new approval instead",
+			already_retried:
+				"This call was already tried again; it runs at most twice",
+			claim_lost:
+				"This call could not be claimed for a retry: it may have expired, been consumed, or be running now",
+		};
+		const message = refusal[outcome];
+		if (message) throw createError(ErrorCodes.BAD_REQUEST, message);
+		const updated = await getApprovalRequestById(context.db, existing.id);
+		return normalizeApprovalRequest(updated ?? existing);
 	});
 
 /**
@@ -1687,6 +1755,7 @@ export const tediApprovalsContractRouter = approvalsOs.router({
 	getProvenance: getProvenanceProcedure,
 	resolveReviewManifest: resolveReviewManifestProcedure,
 	resolve: resolveProcedure,
+	retryExecution: retryExecutionProcedure,
 	cancel: cancelProcedure,
 	clearExpired: clearExpiredProcedure,
 });

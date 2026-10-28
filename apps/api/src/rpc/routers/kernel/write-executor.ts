@@ -49,8 +49,11 @@ import {
 	requestFirstPartyMcp,
 } from "../../../lib/first-party-mcp";
 import {
+	CODE_MODE_TOOL_NAME,
 	codeModeCanonicalDescribeParams,
 	codeModeExecutionParams,
+	type CodeModeCatalogTool,
+	codeModeReplayLookupParams,
 	codeModeResultData,
 	type KernelWriteTransport,
 	parseCodeModeCatalog,
@@ -206,7 +209,16 @@ export function approvingUserId(
 
 export type KernelWriteExecutionResult =
 	| { ok: true; data: unknown }
-	| { ok: false; error: string };
+	| {
+			ok: false;
+			error: string;
+			/**
+			 * The call never reached its target because of the platform itself
+			 * (catalog lookup, transport), not because the target refused it or
+			 * changed; an owner may try the same approved call once more.
+			 */
+			retryable?: boolean;
+	  };
 
 /** Where an approved write's execution time went, filled as each step ends. */
 export type KernelWriteExecutorTimings = {
@@ -407,10 +419,16 @@ export interface OwnerToolCallReplay {
  * Execute the one gateway call an owner approved, exactly as stored. The
  * gateway re-checks the approval receipt for this exact call on the way
  * (`com.tedix/approvalRequestId`), the requester's and approver's membership,
- * and consumes the approval; here the tool is re-validated upstream first. A
- * `connect` request names a mount-prefixed tool; the organization gateway
- * serves the same tool under its own name, found by that name's source
- * suffix. Never throws.
+ * and consumes the approval; here the tool is re-validated upstream first.
+ *
+ * Re-validation reads the gateway's own catalog. A programmatic caller's
+ * `tools/list` on a Code Mode gateway is the compact surface, so the stored
+ * native tool is looked up through Code Mode discovery there and matched by
+ * the wire name the gateway reports (`native.name`): the same name for a call
+ * parked on that gateway, or its source-qualified suffix for a `connect`
+ * request replayed on the organization gateway. A gateway without Code Mode
+ * lists its whole catalog, where the stored name is matched directly.
+ * Never throws.
  */
 export async function executeApprovedOwnerToolCall(args: {
 	env: WriteExecutorEnv;
@@ -422,7 +440,11 @@ export async function executeApprovedOwnerToolCall(args: {
 	const timings = args.timings ?? {};
 	const since = (startedAt: number) => Date.now() - startedAt;
 	if (!env.MCP_SERVICE || !env.MCP_URL) {
-		return { ok: false, error: "MCP service binding is not configured" };
+		return {
+			ok: false,
+			error: "MCP service binding is not configured",
+			retryable: true,
+		};
 	}
 	try {
 		const host = mcpHost(env.MCP_URL, payload.appSlug);
@@ -433,14 +455,32 @@ export async function executeApprovedOwnerToolCall(args: {
 			payload.organizationId,
 			payload.initiatedByUserId,
 		);
+		let tool:
+			| { name: string; annotations?: McpTool["annotations"] }
+			| undefined = resolveReplayTool(listed.items, payload.toolId);
+		if (!tool && listed.items.some((t) => t.name === CODE_MODE_TOOL_NAME)) {
+			const catalog = parseCodeModeCatalog(
+				await mcpCall(
+					env,
+					host,
+					payload.organizationId,
+					"tools/call",
+					codeModeReplayLookupParams(replayToolBaseName(payload.toolId)),
+					payload.initiatedByUserId,
+				),
+			);
+			const entry = resolveReplayCatalogEntry(catalog, payload.toolId);
+			if (entry?.wire)
+				tool = { name: entry.wire.name, annotations: entry.annotations };
+		}
 		timings.revalidateMs = since(revalidateStartedAt);
-		const tool = resolveReplayTool(listed.items, payload.toolId);
 		if (!tool) {
 			return {
 				ok: false,
 				error: listed.truncated
 					? `Tool "${payload.toolId}" could not be verified on ${payload.appSlug}: its tool catalog exceeded the pagination bound`
 					: `Tool "${payload.toolId}" is no longer available on ${payload.appSlug}`,
+				retryable: true,
 			};
 		}
 		if (tool.annotations?.readOnlyHint === true) {
@@ -464,7 +504,11 @@ export async function executeApprovedOwnerToolCall(args: {
 		)) as ToolCallResult | null;
 		timings.callMs = since(callStartedAt);
 		if (!result) {
-			return { ok: false, error: "Provider tool call failed (transport)" };
+			return {
+				ok: false,
+				error: "Provider tool call failed (transport)",
+				retryable: true,
+			};
 		}
 		if (result.isError) {
 			return {
@@ -479,7 +523,11 @@ export async function executeApprovedOwnerToolCall(args: {
 		if (failure !== null) return { ok: false, error: boundedError(failure) };
 		return { ok: true, data };
 	} catch (error) {
-		return { ok: false, error: boundedError(errorMessage(error)) };
+		return {
+			ok: false,
+			error: boundedError(errorMessage(error)),
+			retryable: true,
+		};
 	}
 }
 
@@ -499,6 +547,28 @@ export function resolveReplayTool<T extends { name: string }>(
 			tool.name.includes("__") && storedToolId.endsWith(`_${tool.name}`),
 	);
 	return matches.length === 1 ? matches[0] : undefined;
+}
+
+/** The tool's own name behind every mount prefix: `a_b__tool` → `tool`. */
+export function replayToolBaseName(storedToolId: string): string {
+	const index = storedToolId.lastIndexOf("__");
+	return index === -1 ? storedToolId : storedToolId.slice(index + 2);
+}
+
+/**
+ * The one catalog entry whose gateway wire name is the stored tool, directly
+ * or by source-qualified suffix (see {@link resolveReplayTool}). The Code Mode
+ * namespace is not consulted: it is derived per gateway (`descope.` for a tool
+ * mounted as `tedix__`, `<org>_unified_tedix.` through `connect`), so only the
+ * wire binding identifies the tool across mounts.
+ */
+export function resolveReplayCatalogEntry<
+	T extends Pick<CodeModeCatalogTool, "wire">,
+>(entries: readonly T[], storedToolId: string): T | undefined {
+	const bound = entries.flatMap((entry) =>
+		entry.wire ? [{ name: entry.wire.name, entry }] : [],
+	);
+	return resolveReplayTool(bound, storedToolId)?.entry;
 }
 
 /**

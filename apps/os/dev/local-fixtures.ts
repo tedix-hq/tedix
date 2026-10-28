@@ -6786,6 +6786,25 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 		return approval;
 	},
+	// An approved owner tool call the platform failed to run is tried once
+	// more; fixture mode records the second attempt as done.
+	"tediApprovals/retryExecution": (input: { id: string }) => {
+		const approval = state.approvals.find((row) => row.id === input.id);
+		if (!approval)
+			throw new RpcError("NOT_FOUND", "Approval request not found");
+		approval.payload = {
+			...approval.payload,
+			execution: {
+				status: "executed",
+				startedAt: now(),
+				finishedAt: now(),
+				summary: "Done in fixture mode",
+				attempt: 2,
+				retriedBy: "dev-operator",
+			},
+		};
+		return approval;
+	},
 
 	// --- launcher / apps ---
 	// Fixture mode never provisions a real browser subscription.

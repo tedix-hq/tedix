@@ -6,6 +6,11 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
+import {
+	isRetryableOwnerToolExecution,
+	type OwnerToolExecutionRecord,
+	parseOwnerToolExecution,
+} from "@tedix/api-contract/utils/owner-tool-execution";
 import { useState } from "react";
 import {
 	type ApprovalCardData,
@@ -202,7 +207,7 @@ export function runtimeApprovalItem(
 		recommendation: decision.recommendation,
 		recommendationReason: decision.reason,
 		afterApprove: toolCall
-			? "The caller can now run it once."
+			? "It runs once now."
 			: payload.kind === "home_tool_write"
 				? "The change runs now."
 				: "The tedi continues.",
@@ -290,21 +295,46 @@ export type ApprovalOutcome = {
 	message: string;
 };
 
+/**
+ * What to tell the person who decided. An approved tool call ran during the
+ * decision, so its recorded result ("Done" / "Failed") replaces the promise;
+ * a failed platform-side run points at Activity, where it can be tried again.
+ */
 export function approvalOutcome(
 	row: readonly ApprovalListItem[],
 	status: "approved" | "rejected",
+	executions: readonly (OwnerToolExecutionRecord | null)[] = [],
 ): ApprovalOutcome {
 	const item = row[0]!;
 	const count = row.length;
 	const subject = count > 1 ? `${count} requests: ${item.title}` : item.title;
+	const base = { status, count, title: item.title };
+	if (status === "rejected")
+		return { ...base, message: `Rejected: ${subject}. Nothing ran.` };
+	const ran = executions.filter(
+		(execution): execution is OwnerToolExecutionRecord => execution !== null,
+	);
+	if (ran.length === 0)
+		return { ...base, message: `Approved: ${subject}. ${item.afterApprove}` };
+	const failed = ran.filter((execution) => execution.status === "failed");
+	if (failed.length === 0) {
+		const summary = count === 1 ? ran[0]?.summary : undefined;
+		return {
+			...base,
+			message: `Done: ${subject}.${summary ? ` ${summary}.` : ""}`,
+		};
+	}
+	const error = failed[0]?.error;
+	const retry = failed.some(isRetryableOwnerToolExecution)
+		? " Try again from Activity."
+		: " Request a new approval.";
 	return {
-		status,
-		count,
-		title: item.title,
-		message:
-			status === "approved"
-				? `Approved: ${subject}. ${item.afterApprove}`
-				: `Rejected: ${subject}. Nothing ran.`,
+		...base,
+		message: `Failed: ${
+			count > 1
+				? `${failed.length} of ${count} requests: ${item.title}`
+				: subject
+		}.${error ? ` ${error}.` : ""}${retry}`,
 	};
 }
 
@@ -482,9 +512,20 @@ export function useApprovalInbox({
 				? (row[0]?.recommendation ?? "rejected")
 				: choice;
 		let decided = 0;
+		// An approved tool call ran inside the decision; its result comes back
+		// on the resolved request.
+		const executions: (OwnerToolExecutionRecord | null)[] = [];
 		try {
 			for (const item of row) {
-				await decideOne(item, choice);
+				const settled = await decideOne(item, choice);
+				executions.push(
+					item.target.plane === "runtime"
+						? parseOwnerToolExecution(
+								(settled as { payload?: Record<string, unknown> } | null)
+									?.payload?.execution,
+							)
+						: null,
+				);
 				decided += 1;
 			}
 		} catch (failure) {
@@ -493,7 +534,9 @@ export function useApprovalInbox({
 			setPendingKeys((current) => current.filter((key) => !keys.includes(key)));
 		}
 		const result =
-			decided > 0 ? approvalOutcome(row.slice(0, decided), status) : null;
+			decided > 0
+				? approvalOutcome(row.slice(0, decided), status, executions)
+				: null;
 		if (result) setOutcome(result);
 		await refresh();
 		return result;
