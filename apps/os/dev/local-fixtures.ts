@@ -1379,6 +1379,7 @@ export function resetLocalFixtures(): void {
 	localCollaboratorLinks.clear();
 	localShareLinks.clear();
 	localCustomDomain = null;
+	localApiKeys = [...API_KEYS];
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
 	else installWorkViewFixtures();
 }
@@ -4095,11 +4096,18 @@ const apiKeyRow = (
 	updatedAt: T1,
 });
 
+// 60 keys: the admin page paginates at 25, so the ledger must span three
+// pages for the count, Next/Previous, and delete-refresh to be exercisable.
 const API_KEYS = [
 	apiKeyRow(1, "CI/CD Pipeline", { environment: "live", lastUsedAt: T4 }),
 	apiKeyRow(2, "Analytics export"),
 	apiKeyRow(3, "Legacy importer", { status: "revoked", revokedAt: T2 }),
+	...Array.from({ length: 57 }, (_, index) =>
+		apiKeyRow(index + 4, `Service key ${index + 4}`),
+	),
 ];
+
+let localApiKeys = [...API_KEYS];
 
 // --- MCP payment ledger fixtures (/admin/payments) ---
 
@@ -7645,10 +7653,28 @@ const handlers: Record<string, (input: never) => unknown> = {
 	}),
 	"organizations/listApiKeys": (
 		input: Pagination & { organizationId: string },
-	) => paginate(API_KEYS, input),
+	) => paginate(localApiKeys, input),
+	"organizations/deleteApiKey": (input: {
+		organizationId: string;
+		keyId: string;
+	}) => {
+		const index = localApiKeys.findIndex((key) => key.id === input.keyId);
+		if (input.organizationId !== ORG_ID || index < 0)
+			throw new RpcError("NOT_FOUND", "API key not found");
+		localApiKeys.splice(index, 1);
+		return { success: true as const };
+	},
 	// One key overdue for rotation so the admin banner has something to say.
 	"organizations/getExpiringKeys": () => ({
-		data: [{ ...API_KEYS[0]!, warningType: "rotation_overdue" as const }],
+		data:
+			localApiKeys.length === 0
+				? []
+				: [
+						{
+							...localApiKeys[0]!,
+							warningType: "rotation_overdue" as const,
+						},
+					],
 	}),
 	"connections/getConnectionsOverview": (
 		raw: Partial<ConnectionInventoryInput> | undefined,
@@ -10938,6 +10964,8 @@ export const LOCAL_FIXTURE_IDS = {
 	skillRunFailed: RUN_CHURN_FAILED,
 	appStorefront: APP_STOREFRONT,
 	approvalPending: fid("71", 1),
+	/** The "CI/CD Pipeline" API key, addressable on /admin/api-keys. */
+	apiKeyCicd: fid("96", 1),
 	/** The one settled MCP payment event, addressable as a receipt. */
 	paymentReceipt: MCP_PAYMENT_RECEIPT,
 	documentContent,

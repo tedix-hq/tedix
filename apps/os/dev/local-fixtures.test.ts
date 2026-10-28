@@ -441,6 +441,10 @@ const CALLS = {
 		limit: 25,
 		offset: 0,
 	},
+	"organizations/deleteApiKey": {
+		organizationId: IDS.orgId,
+		keyId: IDS.apiKeyCicd,
+	},
 	"organizations/getExpiringKeys": {
 		organizationId: IDS.orgId,
 		withinDays: 30,

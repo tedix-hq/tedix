@@ -6,8 +6,8 @@ import {
 	createApiKey as createApiKeyDb,
 	deleteApiKey as deleteApiKeyDb,
 	getApiKeyById,
-	getApiKeysByOrganization,
 	getExpiringKeys as getExpiringKeysDb,
+	listApiKeysPage,
 	revokeApiKey as revokeApiKeyDb,
 	rotateApiKey as rotateApiKeyDb,
 } from "@tedix/db/queries/api-keys";
@@ -37,7 +37,7 @@ export const listApiKeysContract = authedOrganizationsOs.listApiKeys
 			throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
 		}
 
-		const keys = await getApiKeysByOrganization(db, organizationId, {
+		const { data: keys, total } = await listApiKeysPage(db, organizationId, {
 			status: status as "active" | "revoked" | "expired" | undefined,
 			environment: environment as "test" | "live" | undefined,
 			limit,
@@ -133,17 +133,7 @@ export const listApiKeysContract = authedOrganizationsOs.listApiKeys
 			return null;
 		};
 
-		// Helper to validate UUID format
-		const isValidUuid = (id: string): boolean => {
-			const uuidRegex =
-				/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-			return uuidRegex.test(id);
-		};
-
-		// Filter out keys with invalid UUIDs (legacy keys with old ID format)
-		const validKeys = keys.filter((key) => isValidUuid(key.id));
-
-		const mappedKeys = validKeys.map((key) => ({
+		const mappedKeys = keys.map((key) => ({
 			id: key.id,
 			organizationId: key.organizationId,
 			name: key.name,
@@ -176,8 +166,8 @@ export const listApiKeysContract = authedOrganizationsOs.listApiKeys
 			pagination: {
 				limit,
 				offset,
-				total: mappedKeys.length, // Use filtered count for accurate pagination
-				hasMore: false, // Since we're filtering, pagination logic needs adjustment
+				total,
+				hasMore: offset + mappedKeys.length < total,
 			},
 		};
 	});

@@ -8,6 +8,7 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import type {
 	ApiKey,
 	ApiKeyEnvironment,
@@ -49,34 +50,66 @@ export async function getApiKeyByHash(
 }
 
 /**
- * Get all API keys for an organization
+ * Keys written before ids became UUIDs carry another id format. The list
+ * surface only admits rows in the stored UUID shape so `keyId` actions stay
+ * contract-valid, and the check must live in the shared WHERE — not a
+ * caller-side filter — so paged rows and `total` always agree. D1 rejects
+ * LIKE/GLOB patterns over 50 bytes, so the shape is spelled as short
+ * positional checks equivalent to the v1-v5 UUID pattern.
+ */
+const API_KEY_UUID_ID = and(
+	sql`lower(${apiKeys.id}) GLOB '????????-????-????-????-????????????'`,
+	sql`lower(${apiKeys.id}) NOT GLOB '*[^0-9a-f-]*'`,
+	sql`length(replace(${apiKeys.id}, '-', '')) = 32`,
+	sql`substr(lower(${apiKeys.id}), 15, 1) BETWEEN '1' AND '5'`,
+	sql`substr(lower(${apiKeys.id}), 20, 1) IN ('8', '9', 'a', 'b')`,
+);
+
+export interface ListApiKeysPageOptions {
+	status?: ApiKeyStatus;
+	environment?: ApiKeyEnvironment;
+	limit?: number;
+	offset?: number;
+}
+
+export interface ListApiKeysPageResult {
+	data: ApiKey[];
+	/** Exact `COUNT(*)` over the filtered set — never a page size. */
+	total: number;
+}
+
+/**
+ * One page of an organization's API keys with an exact count.
  *
  * @param db - Database client
  * @param organizationId - Organization ID
  * @param opts - Filter options
  */
-export async function getApiKeysByOrganization(
-	db: DbClient,
+export async function listApiKeysPage(
+	db: DbQueryClient,
 	organizationId: string,
-	opts?: {
-		status?: ApiKeyStatus;
-		environment?: ApiKeyEnvironment;
-		limit?: number;
-		offset?: number;
-	},
-): Promise<ApiKey[]> {
-	const conditions = [eq(apiKeys.organizationId, organizationId)];
-	if (opts?.status) conditions.push(eq(apiKeys.status, opts.status));
-	if (opts?.environment)
-		conditions.push(eq(apiKeys.environment, opts.environment));
-
-	return db
+	opts?: ListApiKeysPageOptions,
+): Promise<ListApiKeysPageResult> {
+	const where = and(
+		eq(apiKeys.organizationId, organizationId),
+		opts?.status ? eq(apiKeys.status, opts.status) : undefined,
+		opts?.environment ? eq(apiKeys.environment, opts.environment) : undefined,
+		API_KEY_UUID_ID,
+	);
+	const limit = opts?.limit ?? 50;
+	const offset = opts?.offset ?? 0;
+	const rows = await db
 		.select()
 		.from(apiKeys)
-		.where(and(...conditions))
-		.orderBy(sql`${apiKeys.createdAt} DESC`)
-		.limit(opts?.limit ?? 50)
-		.offset(opts?.offset ?? 0);
+		.where(where)
+		.orderBy(sql`${apiKeys.createdAt} DESC`, sql`${apiKeys.id} DESC`)
+		.limit(limit)
+		.offset(offset);
+	const [counted] = await db
+		.select({ total: sql<number>`count(*)` })
+		.from(apiKeys)
+		.where(where);
+	return { data: rows, total: Number(counted?.total ?? 0) };
 }
 
 // ============================================================================

@@ -8,6 +8,8 @@ import {
 	createApiKey,
 	getApiKeyByHash,
 	getApiKeyByPreviousHash,
+	listApiKeysPage,
+	revokeApiKey,
 	rotateApiKey,
 } from "./api-keys";
 
@@ -76,4 +78,76 @@ describe("API key purpose", () => {
 			).toMatchObject({ total: 0 });
 		},
 	);
+});
+
+describe("listApiKeysPage", () => {
+	const seedKeys = (count: number) =>
+		Promise.all(
+			Array.from({ length: count }, (_, index) =>
+				createApiKey(db, {
+					organizationId: ORG,
+					name: `Key ${index + 1}`,
+				}),
+			),
+		);
+
+	it("reports the exact filtered total, not the page size", async () => {
+		await seedKeys(60);
+		const first = await listApiKeysPage(db, ORG, { limit: 25, offset: 0 });
+		expect(first.total).toBe(60);
+		expect(first.data).toHaveLength(25);
+		const second = await listApiKeysPage(db, ORG, { limit: 25, offset: 25 });
+		expect(second.total).toBe(60);
+		expect(second.data).toHaveLength(25);
+		const last = await listApiKeysPage(db, ORG, { limit: 25, offset: 50 });
+		expect(last.data).toHaveLength(10);
+		const ids = new Set(
+			[...first.data, ...second.data, ...last.data].map((key) => key.id),
+		);
+		expect(ids.size).toBe(60);
+	});
+
+	it("excludes rows whose id is not in the stored UUID shape from page and total", async () => {
+		await seedKeys(2);
+		const legacyIds = [
+			"legacy-key-1",
+			"zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz",
+			"ffffffff-ffff-ffff-ffff-ffffffffffff",
+			"not-a-uuid-at-all",
+		];
+		for (const [index, id] of legacyIds.entries())
+			await db.insert(apiKeys).values({
+				id,
+				organizationId: ORG,
+				name: `Legacy ${index}`,
+				keyHash: `legacy-hash-${index}`,
+				keyPreview: "...legacy",
+			});
+		const page = await listApiKeysPage(db, ORG, { limit: 25, offset: 0 });
+		expect(page.total).toBe(2);
+		expect(page.data).toHaveLength(2);
+		for (const id of legacyIds)
+			expect(page.data.some((key) => key.id === id)).toBe(false);
+	});
+
+	it("counts only rows matching the status and environment filters", async () => {
+		const [{ apiKey: revoked }] = await Promise.all([
+			createApiKey(db, {
+				organizationId: ORG,
+				name: "Revoked",
+				environment: "live",
+			}),
+			createApiKey(db, { organizationId: ORG, name: "Active" }),
+		]);
+		await revokeApiKey(db, revoked.id);
+		const revokedPage = await listApiKeysPage(db, ORG, {
+			status: "revoked",
+		});
+		expect(revokedPage.total).toBe(1);
+		expect(revokedPage.data.map((key) => key.id)).toEqual([revoked.id]);
+		const livePage = await listApiKeysPage(db, ORG, {
+			environment: "live",
+		});
+		expect(livePage.total).toBe(1);
+	});
 });
