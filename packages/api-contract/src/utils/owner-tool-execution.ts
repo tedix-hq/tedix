@@ -59,7 +59,8 @@ export function parseOwnerToolExecution(
  * Errors that mean the platform never reached the target: the tool could not
  * be found in the gateway catalog, the gateway or the service binding was not
  * reachable, or the gateway refused before dispatch ("No side effect was
- * executed"). Used only for rows recorded before `retryable` was stored.
+ * executed"). Read on every failed row, so a refusal the recorder marked
+ * final is still recognised.
  */
 const PLATFORM_SIDE_ERROR =
 	/no longer available on|could not be verified on|\(transport\)|is not configured|No side effect was executed/;
@@ -96,8 +97,12 @@ export function isRetryableOwnerToolExecution(
 	if (execution.status === "running")
 		return isStaleOwnerToolRun(execution, now);
 	if (execution.status !== "failed") return false;
-	if (typeof execution.retryable === "boolean") return execution.retryable;
-	return PLATFORM_SIDE_ERROR.test(execution.error ?? "");
+	// A stored `retryable: false` is not final: a gateway refusal before
+	// dispatch is recognisable from its text whatever the recorder decided.
+	return (
+		execution.retryable === true ||
+		PLATFORM_SIDE_ERROR.test(execution.error ?? "")
+	);
 }
 
 /** What happened after approval, in words: "Done: …", "Failed: …", "Running now". */
