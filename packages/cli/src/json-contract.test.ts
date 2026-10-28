@@ -239,25 +239,47 @@ const examples: Record<string, string[]> = {
 	rollback: [],
 	help: [],
 };
-let root: string;
-let preload: string;
-beforeAll(() => {
-	root = mkdtempSync(join(tmpdir(), "tedix-json-contract-"));
-	preload = join(root, "preload.ts");
-	writeFileSync(
-		preload,
-		`import { join } from "node:path"; import { writeFileSync } from "node:fs"; await (${installTransportFixtures.toString()})(${JSON.stringify(import.meta.dir)});`,
-	);
+const root = mkdtempSync(join(tmpdir(), "tedix-json-contract-"));
+const preload = join(root, "preload.ts");
+const hookRunner = join(root, "hook-runner.ts");
+const cliRunner = join(root, "cli-runner.js");
+writeFileSync(
+	preload,
+	`import { join } from "node:path"; import { writeFileSync } from "node:fs"; await (${installTransportFixtures.toString()})(${JSON.stringify(import.meta.dir)});`,
+);
+writeFileSync(
+	hookRunner,
+	`import { runHooksCommand } from ${JSON.stringify(`${import.meta.dir}/hooks/command.ts`)};
+const args = process.argv.slice(2);
+if (args.shift() !== "hooks") throw new Error("Expected hooks command");
+const json = args.indexOf("--json");
+if (json >= 0) args.splice(json, 1);
+process.exit(await runHooksCommand(args));`,
+);
+beforeAll(async () => {
+	const build = await Bun.build({
+		entrypoints: [`${import.meta.dir}/index.ts`],
+		target: "bun",
+		minify: true,
+	});
+	if (!build.success || !build.outputs[0])
+		throw new Error("Could not build JSON contract CLI fixture");
+	await Bun.write(cliRunner, build.outputs[0]);
 });
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-async function run(args: string[], stdin = "", fixtures = true) {
+async function run(
+	args: string[],
+	stdin = "",
+	fixtures = true,
+	entrypoint?: string,
+) {
 	const config = mkdtempSync(join(root, "config-"));
 	const child = Bun.spawn(
 		[
 			process.execPath,
 			...(fixtures ? ["--preload", preload] : []),
-			`${import.meta.dir}/index.ts`,
+			entrypoint ?? `${import.meta.dir}/index.ts`,
 			...args,
 		],
 		{
@@ -334,17 +356,18 @@ describe("registry JSON contract", () => {
 		});
 	});
 
-	for (const args of [
-		["--help"],
-		["code", "--help"],
-		["learn"],
-		["learn", "--help"],
-		["--version"],
+	for (const argsGroup of [
+		[["--help"], ["code", "--help"], ["learn"]],
+		[["learn", "--help"], ["--version"]],
 	]) {
-		test(`JSON ${args.join(" ")} remains a single document`, async () => {
-			const result = await run([...args, "--json"], "", false);
-			expect(result.code, result.stderr).toBe(0);
-			expect(() => JSON.parse(result.stdout)).not.toThrow();
+		test("JSON help and version outputs remain single documents", async () => {
+			await Promise.all(
+				argsGroup.map(async (args) => {
+					const result = await run([...args, "--json"], "", false, cliRunner);
+					expect(result.code, result.stderr).toBe(0);
+					expect(() => JSON.parse(result.stdout)).not.toThrow();
+				}),
+			);
 		});
 	}
 
@@ -363,30 +386,36 @@ describe("registry JSON contract", () => {
 		expect(JSON.parse(result.stdout)).toBe("Implement the fixture.\n");
 	}, 15_000);
 
-	for (const hook of [
-		"status",
-		"capture-stop",
-		"capture-reply",
-		"await-reply",
-		"await-draft",
-	]) {
-		test(`${hook} accepts JSON mode without fabricating output`, async () => {
-			const result = await run(["hooks", hook, "--json"], "{}");
-			expect(result, hook).toEqual({ stdout: "", stderr: "", code: 0 });
-		});
-	}
-
-	test("JSON failures keep stdout empty", async () => {
-		const result = await run(["unknown-command", "--json"], "", false);
-		expect(result.code).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(JSON.parse(result.stderr).error).toContain("Unknown command");
+	test("silent hooks accept JSON mode without fabricating output", async () => {
+		await Promise.all(
+			[
+				"status",
+				"capture-stop",
+				"capture-reply",
+				"await-reply",
+				"await-draft",
+			].map(async (hook) => {
+				const result = await run(
+					["hooks", hook, "--json"],
+					"{}",
+					false,
+					hookRunner,
+				);
+				expect(result, hook).toEqual({ stdout: "", stderr: "", code: 0 });
+			}),
+		);
 	});
 
-	test("literal --json does not select machine mode", async () => {
-		const result = await run(["use", "--", "--json"], "", false);
-		expect(result.code).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).not.toContain("--json is not supported");
+	test("JSON errors stay on stderr and honor the literal separator", async () => {
+		const [failure, literal] = await Promise.all([
+			run(["unknown-command", "--json"], "", false, cliRunner),
+			run(["use", "--", "--json"], "", false, cliRunner),
+		]);
+		expect(failure.code).toBe(1);
+		expect(failure.stdout).toBe("");
+		expect(JSON.parse(failure.stderr).error).toContain("Unknown command");
+		expect(literal.code).toBe(1);
+		expect(literal.stdout).toBe("");
+		expect(literal.stderr).not.toContain("--json is not supported");
 	});
 });

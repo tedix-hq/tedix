@@ -719,6 +719,13 @@ function directoryBinding(
 export function resolveAgentContext(
 	options?: AgentContextOptions,
 ): AgentContextResult {
+	return resolveAgentContextWithRepo(options);
+}
+
+function resolveAgentContextWithRepo(
+	options?: AgentContextOptions,
+	knownRepo?: Repo,
+): AgentContextResult {
 	try {
 		const store = readStore(options);
 		const sessionId = chatIdentity(options);
@@ -731,7 +738,7 @@ export function resolveAgentContext(
 		);
 		let repo: Repo;
 		try {
-			repo = repoAt(options);
+			repo = knownRepo ?? repoAt(options);
 		} catch {
 			if (options?.allowDefault && recent.length) {
 				const call = recent[0]!;
@@ -1206,7 +1213,7 @@ export function changeAgentContext(
 		}
 		writeStore(store, options);
 	});
-	return resolveAgentContext(options);
+	return resolveAgentContextWithRepo(options, repo);
 }
 
 function writeStore(store: Store, options?: AgentContextOptions): void {

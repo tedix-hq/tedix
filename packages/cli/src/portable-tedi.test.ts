@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -57,13 +57,25 @@ async function sourceRepo(base: string, secretInHistory = false) {
 	return repo;
 }
 
-function mockSource(remote: string, factContent = "A remembered fact") {
+function mockSource(remote: string | null, factContent = "A remembered fact") {
+	const row = JSON.stringify({
+		id: "fact-one",
+		content: factContent,
+		factType: "fact",
+		confidence: 1,
+		accessCount: 0,
+		usageCount: 0,
+	});
 	return {
 		gitAccess: async () => ({
-			repoFound: true,
-			remote,
-			token: "test-token",
-			expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+			...(remote
+				? {
+						repoFound: true,
+						remote,
+						token: "test-token",
+						expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+					}
+				: { repoFound: false }),
 			snapshot: {
 				url: "https://api.tedix.dev/portable/tedis/a4d6765f-786b-446b-b9d1-3573b4330b9a/snapshot",
 				token: "test-snapshot-token",
@@ -92,14 +104,6 @@ function mockSource(remote: string, factContent = "A remembered fact") {
 			if (input.section !== "memoryFacts" || input.afterId) {
 				return { text: "", nextAfterId: null, rowCount: 0 };
 			}
-			const row = JSON.stringify({
-				id: "fact-one",
-				content: factContent,
-				factType: "fact",
-				confidence: 1,
-				accessCount: 0,
-				usageCount: 0,
-			});
 			return {
 				text: row,
 				nextAfterId: null,
@@ -288,21 +292,32 @@ describe("portable tedi Git bundle", () => {
 		}
 	});
 
-	test("accepts a validated snapshot blob larger than 16 MiB", async () => {
-		const base = await mkdtemp(join(tmpdir(), "tedix-portable-test-"));
-		try {
-			const source = await sourceRepo(base);
-			const outputPath = join(base, "large-snapshot.bundle");
+	describe("validated snapshot blob larger than 16 MiB", () => {
+		let base: string;
+		let outputPath: string;
+		let source: PortableTediSource;
+		beforeAll(async () => {
+			base = await mkdtemp(join(tmpdir(), "tedix-portable-test-"));
+			outputPath = join(base, "large-snapshot.bundle");
+			source = mockSource(
+				null,
+				"A".repeat(16 * 1024 * 1024 + 1),
+			) as PortableTediSource;
+		});
+		afterAll(async () => rm(base, { recursive: true, force: true }));
+
+		test("accepts the snapshot", async () => {
 			const result = await exportPortableTedi({
 				tediId,
 				outputPath,
-				source: mockSource(source, "A".repeat(17 * 1024 * 1024)),
+				source,
 			});
 			expect(result.snapshotRows).toBe(1);
+		});
+
+		test("produces complete history", () => {
 			expect(git("bundle", "verify", outputPath)).toContain("complete history");
-		} finally {
-			await rm(base, { recursive: true, force: true });
-		}
+		});
 	});
 
 	test("carries a memory row larger than a Code Mode result", async () => {

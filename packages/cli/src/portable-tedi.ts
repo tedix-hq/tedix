@@ -536,11 +536,10 @@ export async function exportPortableTedi(options: {
 			bundlePath,
 			"--all",
 		]);
-		await runGit(["-C", repoDir, "bundle", "verify", bundlePath]);
-		// Cloning verifies the pack and object graph. The payload bytes were already
-		// validated before Git stored them, so materializing and parsing them again
-		// would only duplicate work for large snapshots.
-		await runGit(["clone", "--no-checkout", bundlePath, verificationDir]);
+		await runGit(["init", "-b", "main", verificationDir]);
+		// Unbundling verifies and indexes the pack without the local clone protocol.
+		// The payload bytes were already validated before Git stored them.
+		await runGit(["-C", verificationDir, "bundle", "unbundle", bundlePath]);
 		await link(bundlePath, outputPath);
 		return {
 			bundlePath: outputPath,

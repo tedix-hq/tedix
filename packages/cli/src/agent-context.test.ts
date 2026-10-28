@@ -92,11 +92,12 @@ describe("local agent context", () => {
 			const contextOutputId = `20000000-0000-4000-8000-00000000000${n}`;
 			const chat = { ...opts, sessionId };
 			changeAgentContext("connect", { workspace: "tedix", projectId }, chat);
-			expect(resolveAgentContext(chat)).toMatchObject({
+			const resolved = resolveAgentContext(chat);
+			expect(resolved).toMatchObject({
 				projectId,
 				preferencesOutputId: preferenceId,
 			});
-			expect(resolveAgentContext(chat).contextOutputId).toBeUndefined();
+			expect(resolved.contextOutputId).toBeUndefined();
 			changeAgentContext(
 				"connect-output",
 				{ osWorkspaceId: workspaceId, contextOutputId },
