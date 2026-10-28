@@ -1800,36 +1800,45 @@ describe("parseOptions: --flag=value equals normalization (fix #2)", () => {
 	});
 
 	test("CLI errors use JSON only when requested before the literal separator", async () => {
-		for (const [args, json, message] of [
-			[["unknown-command", "--", "--json"], false, "Unknown command"],
-			[["unknown-command", "--json"], true, "Unknown command"],
-			[["auth", "status", "--json=true"], true, "Unexpected value for --json"],
-			[
-				["ask", "hello", "--no-poll=false"],
-				false,
-				"Unexpected value for --no-poll",
-			],
-		] as const) {
-			const child = Bun.spawn(
-				[process.execPath, `${import.meta.dir}/index.ts`, ...args],
-				{
-					stdout: "pipe",
-					stderr: "pipe",
-				},
-			);
-			const [stdout, stderr, code] = await Promise.all([
-				new Response(child.stdout).text(),
-				new Response(child.stderr).text(),
-				child.exited,
-			]);
-			expect(code).toBe(1);
-			expect(stdout).toBe("");
-			if (json) expect(JSON.parse(stderr).error).toContain(message);
-			else {
-				expect(stderr).toContain(message);
-				expect(stderr.trim().startsWith("{")).toBe(false);
-			}
-		}
+		await Promise.all(
+			(
+				[
+					[["unknown-command", "--", "--json"], false, "Unknown command"],
+					[["unknown-command", "--json"], true, "Unknown command"],
+					[
+						["auth", "status", "--json=true"],
+						true,
+						"Unexpected value for --json",
+					],
+					[
+						["ask", "hello", "--no-poll=false"],
+						false,
+						"Unexpected value for --no-poll",
+					],
+				] as const
+			).map(async ([args, json, message]) => {
+				const child = Bun.spawn(
+					[process.execPath, `${import.meta.dir}/index.ts`, ...args],
+					{
+						stdin: "ignore",
+						stdout: "pipe",
+						stderr: "pipe",
+					},
+				);
+				const [stdout, stderr, code] = await Promise.all([
+					new Response(child.stdout).text(),
+					new Response(child.stderr).text(),
+					child.exited,
+				]);
+				expect(code).toBe(1);
+				expect(stdout).toBe("");
+				if (json) expect(JSON.parse(stderr).error).toContain(message);
+				else {
+					expect(stderr).toContain(message);
+					expect(stderr.trim().startsWith("{")).toBe(false);
+				}
+			}),
+		);
 	});
 
 	test("--url=https://example.com sets url", () => {

@@ -170,6 +170,7 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 		],
 		{
 			cwd: dir,
+			sessionKey: "quiet-river",
 			heartbeatMs: 5,
 			report: async (value) => {
 				reports.push(value);
@@ -247,6 +248,7 @@ test("headless permission rejection fails the lane even when Devin exits zero", 
 			],
 			{
 				cwd: dir,
+				sessionKey: "quiet-river",
 				report: async (value) => {
 					reports.push(value);
 					return {};

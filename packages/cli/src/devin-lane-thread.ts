@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import { createInterface } from "node:readline";
 import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
@@ -168,6 +169,8 @@ export async function createDevinLaneThread(
 	} finally {
 		clearTimeout(timer);
 		lines.close();
+		child.stdin.end();
 		child.kill("SIGTERM");
+		if (child.exitCode === null) await once(child, "close");
 	}
 }

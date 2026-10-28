@@ -2,24 +2,16 @@
 import { isAbsolute } from "node:path";
 import { spawn } from "node:child_process";
 import { selfCommand } from "../shared";
-import { readAuthStatus } from "../auth-resolve";
-import { parseOptions } from "../options";
-import { runAgentStatus, STATUS_EVENT_LIMIT, statusLog } from "./agent-status";
-import { runAwaitDraft } from "./await-draft";
-import { runAwaitReply } from "./await-reply";
-import { runDecisionCapture } from "./decision-capture";
 import {
+	AGENT_IDENTITY_ENV,
+	CAPTURE_EVENT_LIMIT,
 	cliRead,
 	type HookDeps,
+	hostEvent,
 	type ReadJson,
 	PROFILE,
 	readBoundedStdin,
 } from "./hook-io";
-import { runPromptContext } from "./prompt-context";
-import { runSessionFeedback } from "./session-feedback";
-import { runRequestLedger } from "./request-ledger";
-import { runSituationalRecall } from "./situational-recall";
-import { runSessionStart } from "./session-start";
 import {
 	devinContextOutput,
 	devinHookEvent,
@@ -63,7 +55,7 @@ const EVENT_LIMITS: Record<string, number> = {
 	"capture-reply": 4_194_304,
 	"await-reply": 4_194_304,
 	"await-draft": 4_194_304,
-	status: STATUS_EVENT_LIMIT,
+	status: 8 * 1024 * 1024,
 };
 
 /** Local auth inspection must not wait for another CLI process to start. */
@@ -81,10 +73,15 @@ export const readHookCommand: ReadJson = async (
 		input === undefined &&
 		(options?.cwd === undefined || options.cwd === process.cwd()) &&
 		(!options?.env || options.env === process.env)
-	)
+	) {
+		const [{ readAuthStatus }, { parseOptions }] = await Promise.all([
+			import("../auth-resolve"),
+			import("../options"),
+		]);
 		return JSON.parse(
 			JSON.stringify(readAuthStatus(parseOptions(args).options)),
 		);
+	}
 	return cliRead(args, timeout, input, options);
 };
 
@@ -176,6 +173,30 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		},
 	};
 	if (name === "status") {
+		try {
+			const event = JSON.parse(stdin);
+			if (!event || typeof event.session_id !== "string") return 0;
+		} catch {
+			return 0;
+		}
+	}
+	if (
+		["capture-stop", "capture-reply", "await-reply", "await-draft"].includes(
+			name,
+		)
+	) {
+		const eventEnv = { ...env };
+		for (const key of AGENT_IDENTITY_ENV) delete eventEnv[key];
+		try {
+			hostEvent(stdin, eventEnv, CAPTURE_EVENT_LIMIT, {
+				requireIdentity: true,
+			});
+		} catch {
+			return 0;
+		}
+	}
+	if (name === "status") {
+		const { runAgentStatus, statusLog } = await import("./agent-status");
 		// Never disturb the host turn: no stdout or stderr, failures go to the local log.
 		try {
 			await runAgentStatus({ env, stdin, cwd });
@@ -188,6 +209,7 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		return 0;
 	}
 	if (name === "await-reply") {
+		const { runAwaitReply } = await import("./await-reply");
 		// asyncRewake: exit 2 wakes the session and shows stderr to the agent.
 		const result = await runAwaitReply(deps);
 		if (result.code === 2 && result.message) {
@@ -197,6 +219,7 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 		return 0;
 	}
 	if (name === "await-draft") {
+		const { runAwaitDraft } = await import("./await-draft");
 		// Codex Stop: JSON on stdout continues the turn; no output lets it end.
 		const continuation = await runAwaitDraft(deps);
 		if (continuation) console.log(continuation);
@@ -204,7 +227,6 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 	}
 	try {
 		if (name === "capture-stop") {
-			const { hostEvent } = await import("./hook-io");
 			const { harnessOf } = await import("./agent-status");
 			const { heartbeatLaneSession } = await import("../lane");
 			const { event, session } = hostEvent(deps.stdin, deps.env, limit);
@@ -214,16 +236,37 @@ export async function runHooksCommand(args: string[]): Promise<number> {
 					deps.env,
 				);
 		}
-		if (name === "situational-recall") await runSituationalRecall(deps);
-		else if (name === "session-start") await runSessionStart(deps);
-		else if (name === "prompt-context") await runPromptContext(deps);
-		else
+		if (name === "situational-recall") {
+			const { runSituationalRecall } = await import("./situational-recall");
+			await runSituationalRecall(deps);
+		} else if (name === "session-start") {
+			const { runSessionStart } = await import("./session-start");
+			await runSessionStart(deps);
+		} else if (name === "prompt-context") {
+			const { runPromptContext } = await import("./prompt-context");
+			await runPromptContext(deps);
+		} else {
 			// The request ledger rides on the same events and opt-in.
-			await Promise.all([
-				runDecisionCapture(name === "capture-stop" ? "stop" : "reply", deps),
-				runRequestLedger(name === "capture-stop" ? "turn" : "prompt", deps),
-				runSessionFeedback(name === "capture-stop" ? "turn" : "prompt", deps),
+			const [capture, ledger, feedback] = await Promise.all([
+				import("./decision-capture"),
+				import("./request-ledger"),
+				import("./session-feedback"),
 			]);
+			await Promise.all([
+				capture.runDecisionCapture(
+					name === "capture-stop" ? "stop" : "reply",
+					deps,
+				),
+				ledger.runRequestLedger(
+					name === "capture-stop" ? "turn" : "prompt",
+					deps,
+				),
+				feedback.runSessionFeedback(
+					name === "capture-stop" ? "turn" : "prompt",
+					deps,
+				),
+			]);
+		}
 	} catch {
 		if (name === "session-start")
 			console.error(
