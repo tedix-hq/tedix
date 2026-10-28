@@ -129,7 +129,17 @@ in the other.
 Run `tedix auth status` to check the selected workspace and granted scopes.
 That login authenticates the **owner**, not the agent. For continuing work under
 an attributable agent identity, use `tedix agent start --help`, then start an
-external-agent session from the owner's authorized workspace. The CLI reads the
+external-agent session from the owner's authorized workspace. Agents use the
+CLI or plugin sign-in plus a machine identity of their own: the first
+`tedix agent start` on a machine registers the agent and gives it an M2M client
+limited to the MCP tools it may use. No API key is created for an agent. The
+agent's own identity only opens its session; Work it starts, keeps alive,
+settles and completes runs under that session and under nothing wider. API keys
+remain for operations and CI jobs only. Profiles enrolled by CLI 0.17 or earlier
+still carry an API key; the 0.18 release keeps accepting them, and the release
+after it stops. Run `tedix agent start` once more on such a machine to move it
+to its own identity, then revoke the "External agent …" key in Settings.
+The CLI reads the
 harness session id (`CLAUDE_CODE_SESSION_ID` or the Codex chat id); set
 `--agent-harness` to select the matching native id when a launcher supplies
 another harness's environment too. An explicit `TEDIX_AGENT_SESSION` override
@@ -556,12 +566,12 @@ current schema before calling it. Bind the request to an open Work Item and
 its exact version, and name an independent organization owner or admin as
 the user approver. The requester and approver cannot represent the same person.
 
-| Action           | Proposal kind      | What approval carries out                                                                                  |
-| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `agent.create`   | `tedi`             | Creates a standard tedi using the installation's current defaults and limits.                              |
-| `agent.create`   | `external_agent`   | Registers an external agent against an existing active organization API key. It issues no credential.      |
-| `agent.connect`  | `connection`       | Creates a named organization account slot for an installed OAuth provider that supports multiple accounts. |
-| `resource.grant` | `connection_grant` | Applies the exact consumer policy to an existing organization account slot.                                |
+| Action           | Proposal kind      | What approval carries out                                                                                              |
+| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `agent.create`   | `tedi`             | Creates a standard tedi using the installation's current defaults and limits.                                          |
+| `agent.create`   | `external_agent`   | Registers an external agent against an existing machine identity (an M2M client or a CI key). It issues no credential. |
+| `agent.connect`  | `connection`       | Creates a named organization account slot for an installed OAuth provider that supports multiple accounts.             |
+| `resource.grant` | `connection_grant` | Applies the exact consumer policy to an existing organization account slot.                                            |
 
 Each proposal carries `ownerUserId`, `justification` and `dataSensitivity`
 (`public`, `internal`, `confidential` or `restricted`), plus an optional

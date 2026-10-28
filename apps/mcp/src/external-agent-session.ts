@@ -129,7 +129,10 @@ export async function handleExternalAgentSessionExchange(
 		: undefined;
 	if ((rawApiKey?.startsWith("sk_") ? 1 : 0) + (subjectToken ? 1 : 0) !== 1) {
 		return jsonResponse(
-			{ error: "Exactly one X-API-Key or Bearer workload token is required" },
+			{
+				error:
+					"Exactly one X-API-Key or Bearer identity token (M2M client or workload assertion) is required",
+			},
 			401,
 		);
 	}

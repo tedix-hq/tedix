@@ -89,12 +89,26 @@ export const ExternalAgentCredentialBindingTypeSchema = z.enum([
 	// human whose OAuth session the host uses. Only openOwnerHostSession creates
 	// these principals, and their sessions are never credit eligible.
 	"owner_user",
+	// A Descope AIH M2M client minted for the principal at bootstrap. Its
+	// client-credentials token authorizes only the session exchange; the
+	// per-session credential that exchange issues carries the MCP capabilities.
+	"aih_m2m",
 ]);
 /** Binding types an owner/admin may create directly through createPrincipal. */
 export const ExternalAgentGovernedCredentialBindingTypeSchema = z.enum([
 	"api_key",
 	"github_actions_oidc",
+	"aih_m2m",
 ]);
+/** Returned once by createPrincipal for an `aih_m2m` binding; never stored server-side. */
+export const ExternalAgentM2mCredentialSchema = z.object({
+	clientId: z.string().min(1),
+	clientSecret: z.string().min(1),
+	/** OAuth client-credentials endpoint that mints the exchange bearer. */
+	tokenUrl: z.url(),
+	/** The `resource` the exchange bearer must be minted for. */
+	resource: z.url(),
+});
 export const ExternalAgentIdentitySourceSchema = z.enum([
 	"native",
 	"explicit",

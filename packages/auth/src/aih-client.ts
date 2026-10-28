@@ -202,6 +202,13 @@ function descopeAihUrl(
 	return `${env.DESCOPE_BASE_URL ?? DESCOPE_AIH_BASE_URL}${path}`;
 }
 
+/** Public client-credentials endpoint where an AIH M2M client mints its own token. */
+export function aihClientCredentialsTokenUrl(
+	env: Pick<AihEnv, "DESCOPE_BASE_URL">,
+): string {
+	return descopeAihUrl(env, "/oauth2/v1/apps/token");
+}
+
 async function readDescopeErrorBody(response: Response): Promise<string> {
 	return response.text().catch(() => "(no body)");
 }

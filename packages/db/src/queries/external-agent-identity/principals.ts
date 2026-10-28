@@ -140,7 +140,11 @@ export async function createExternalAgentPrincipal(
 		organizationId: string;
 		key: string;
 		displayName: string;
-		credentialBindingType: "api_key" | "github_actions_oidc" | "owner_user";
+		credentialBindingType:
+			| "api_key"
+			| "github_actions_oidc"
+			| "owner_user"
+			| "aih_m2m";
 		credentialBindingId: string;
 		createdByType: "user" | "api_key" | "platform";
 		createdById: string;

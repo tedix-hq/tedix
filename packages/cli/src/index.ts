@@ -572,7 +572,9 @@ async function main() {
 					`  Activate it for subsequent calls: export TEDIX_EXTERNAL_AGENT=${started.profile.key}\n  (An agent shell that does not keep exports needs TEDIX_EXTERNAL_AGENT=${started.profile.key} before each \`tedix work\` command.)`,
 				);
 				console.log(
-					"  Dedicated credential saved with mode 0600 (secret redacted).",
+					started.profile.aihClient
+						? "  Agent identity (M2M client) saved with mode 0600 (secret redacted); no API key was created."
+						: "  Dedicated credential saved with mode 0600 (secret redacted).",
 				);
 			}
 			return;

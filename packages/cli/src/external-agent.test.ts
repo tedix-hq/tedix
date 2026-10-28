@@ -93,6 +93,37 @@ function exchangeResponse(): Response {
 	);
 }
 
+const M2M = {
+	clientId: "m2m-client-id",
+	clientSecret: "m2m-client-secret",
+	tokenUrl: "https://api.descope.com/oauth2/v1/apps/token",
+	resource: "https://tedix-unified.mcp.tedix.dev/mcp",
+};
+
+/** What create_external_agent_principal answers for an aih_m2m bootstrap. */
+function principalResult() {
+	return { result: { id: PRINCIPAL, credential: M2M } };
+}
+
+function tokenResponse(): Response {
+	return Response.json({
+		access_token: "m2m-exchange-bearer",
+		expires_in: 600,
+		token_type: "Bearer",
+	});
+}
+
+/** Serves the principal's own token mint, then the session exchange. */
+function m2mFetch(
+	exchange: (
+		url: string | URL | Request,
+		init?: RequestInit,
+	) => Response | Promise<Response> = () => exchangeResponse(),
+) {
+	return async (url: string | URL | Request, init?: RequestInit) =>
+		String(url) === M2M.tokenUrl ? tokenResponse() : exchange(url, init);
+}
+
 describe("external-agent CLI session", () => {
 	test("agent finish refuses ambiguous native sessions before writing", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
@@ -316,7 +347,7 @@ describe("external-agent CLI session", () => {
 				modelProvider: "openai",
 				modelId: "gpt-5.6",
 				modelVersion: "2026-07-22",
-				fetch: async () => exchangeResponse(),
+				fetch: m2mFetch(),
 			});
 			const before = externalAgentStatus("tedix");
 			let calls = 0;
@@ -412,25 +443,18 @@ describe("external-agent CLI session", () => {
 		const createClient = () => ({
 			runCode: async (source: string) => {
 				code.push(source);
-				if (source.includes("organizations.create_api_key")) {
+				if (source.includes("external.create_external_agent_principal")) {
 					if (!approved || !source.includes(approvalId))
 						throw new Error(
 							`Human approval required. Request ${approvalId} (pending): https://os.example/work/approvals#${approvalId}. Decide in Tedix OS, then retry the identical call with _meta {"com.tedix/approvalRequestId":"${approvalId}"}. No side effect was executed.`,
 						);
-					return {
-						result: {
-							rawKey: "sk_external_secret",
-							apiKey: { id: "22222222-2222-4222-8222-222222222222" },
-						},
-					};
+					return principalResult();
 				}
-				if (source.includes("external.create_external_agent_principal"))
-					return { result: { id: PRINCIPAL } };
 				return { result: { success: true } };
 			},
 			close: async () => {},
 		});
-		const fetcher = async (): Promise<Response> => exchangeResponse();
+		const fetcher = m2mFetch();
 		const start = () =>
 			startExternalAgentSession({
 				workspace: "tedix",
@@ -468,16 +492,12 @@ describe("external-agent CLI session", () => {
 			`External-agent bootstrap is waiting for owner approval ${approvalId}`,
 		);
 		expect(readBootstrapApproval("tedix")?.approvalRequestId).toBe(approvalId);
-		expect(
-			code.some((source) =>
-				source.includes("external.create_external_agent_principal"),
-			),
-		).toBe(false);
+		expect(readExternalAgentProfile("tedix")).toBeNull();
 
 		// Still pending: the same request is named, no second one is opened.
 		await expect(start()).rejects.toThrow("waiting for owner approval");
 		const retries = code.filter((source) =>
-			source.includes("organizations.create_api_key"),
+			source.includes("external.create_external_agent_principal"),
 		);
 		expect(retries).toHaveLength(2);
 		expect(retries[0]).not.toContain("com.tedix/approvalRequestId");
@@ -485,25 +505,32 @@ describe("external-agent CLI session", () => {
 		// inside it as `_meta`, which the gateway strips before fingerprinting.
 		// A second positional argument would be dropped and reopen a request.
 		const retryArgs = JSON.parse(
-			/create_api_key\((.*)\)$/s.exec(retries[1]!)![1]!,
+			/create_external_agent_principal\((.*)\)$/s.exec(retries[1]!)![1]!,
 		) as Record<string, unknown>;
 		expect(retryArgs._meta).toEqual({
 			"com.tedix/approvalRequestId": approvalId,
 		});
 		const { _meta: _resume, ...retryInput } = retryArgs;
 		expect(retryInput).toEqual(
-			JSON.parse(/create_api_key\((.*)\)$/s.exec(retries[0]!)![1]!),
+			JSON.parse(
+				/create_external_agent_principal\((.*)\)$/s.exec(retries[0]!)![1]!,
+			),
 		);
 
 		approved = true;
 		await start();
 		expect(readBootstrapApproval("tedix")).toBeNull();
-		expect(readExternalAgentProfile("tedix")?.apiKeyId).toBe(
-			"22222222-2222-4222-8222-222222222222",
+		expect(readExternalAgentProfile("tedix")?.aihClient?.clientId).toBe(
+			M2M.clientId,
 		);
 		expect(
-			code.filter((source) => source.includes("organizations.create_api_key")),
+			code.filter((source) =>
+				source.includes("external.create_external_agent_principal"),
+			),
 		).toHaveLength(3);
+		expect(code.some((source) => source.includes("create_api_key"))).toBe(
+			false,
+		);
 	});
 
 	test("drops a parked bootstrap approval the owner rejected", async () => {
@@ -515,7 +542,7 @@ describe("external-agent CLI session", () => {
 		let status = "pending";
 		const createClient = () => ({
 			runCode: async (source: string) => {
-				if (source.includes("organizations.create_api_key"))
+				if (source.includes("external.create_external_agent_principal"))
 					throw new Error(
 						`Human approval required. Request ${approvalId} (${status}): https://os.example/work/approvals#${approvalId}. Decide in Tedix OS, then retry the identical call with _meta {"com.tedix/approvalRequestId":"${approvalId}"}. No side effect was executed.`,
 					);
@@ -543,7 +570,7 @@ describe("external-agent CLI session", () => {
 				modelProvider: "anthropic",
 				modelId: "claude-fable-5-1",
 				modelVersion: "2026-10-01",
-				fetch: async () => exchangeResponse(),
+				fetch: m2mFetch(),
 				createClient,
 				listWorkspaces: async () => [
 					{
@@ -561,11 +588,11 @@ describe("external-agent CLI session", () => {
 		await expect(start()).rejects.toThrow(
 			`Owner approval ${approvalId} for the "local-`,
 		);
-		await expect(start()).rejects.toThrow("credential is rejected");
+		await expect(start()).rejects.toThrow("identity is rejected");
 		expect(readBootstrapApproval("tedix")).toBeNull();
 	});
 
-	test("bootstraps through Code Mode, exchanges only an X-API-Key, and reuses the profile without owner OAuth", async () => {
+	test("bootstraps through Code Mode with an M2M identity and no API key, and reuses the profile without owner OAuth", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
@@ -579,16 +606,16 @@ describe("external-agent CLI session", () => {
 		}) => ({
 			runCode: async (source: string) => {
 				code.push(source);
-				if (source.includes("organizations.create_api_key")) {
-					return {
-						result: {
-							rawKey: "sk_external_secret",
-							apiKey: { id: "22222222-2222-4222-8222-222222222222" },
-						},
-					};
-				}
 				if (source.includes("external.create_external_agent_principal")) {
-					return { result: { id: PRINCIPAL } };
+					const input = JSON.parse(
+						/create_external_agent_principal\((.*)\)$/s.exec(source)![1]!,
+					) as Record<string, unknown>;
+					expect(input.credentialBindingType).toBe("aih_m2m");
+					expect(input.credentialBindingId).toBeUndefined();
+					expect(input.mcpServerUrl).toBe(
+						"https://tedix-unified.mcp.tedix.dev/mcp",
+					);
+					return principalResult();
 				}
 				expect(headers.Authorization).toBe("Bearer short-lived-mcp-token");
 				expect(headers["X-API-Key"]).toBeUndefined();
@@ -596,15 +623,25 @@ describe("external-agent CLI session", () => {
 			},
 			close: async () => {},
 		});
+		const tokenRequests: string[] = [];
 		const fetcher = async (
-			_input: string | URL | Request,
+			input: string | URL | Request,
 			init?: RequestInit,
 		): Promise<Response> => {
 			const body = String(init?.body);
 			const headers = new Headers(init?.headers);
+			if (String(input) === M2M.tokenUrl) {
+				tokenRequests.push(body);
+				expect(new URLSearchParams(body).get("grant_type")).toBe(
+					"client_credentials",
+				);
+				expect(new URLSearchParams(body).get("resource")).toBe(M2M.resource);
+				return tokenResponse();
+			}
 			exchangeRequests.push({ body, headers });
-			expect(headers.get("X-API-Key")).toBe("sk_external_secret");
-			expect(body).not.toContain("sk_external_secret");
+			expect(headers.get("X-API-Key")).toBeNull();
+			expect(headers.get("Authorization")).toBe("Bearer m2m-exchange-bearer");
+			expect(body).not.toContain("m2m-client-secret");
 			return exchangeResponse();
 		};
 
@@ -643,14 +680,16 @@ describe("external-agent CLI session", () => {
 			],
 		});
 		expect(started.session.externalSessionKey).toBe("codex:session-1");
-		expect(
-			code.some((source) => source.includes("organizations.create_api_key")),
-		).toBe(true);
+		expect(code.some((source) => source.includes("create_api_key"))).toBe(
+			false,
+		);
 		expect(
 			code.some((source) =>
 				source.includes("external.create_external_agent_principal"),
 			),
 		).toBe(true);
+		expect(readExternalAgentProfile("tedix")?.apiKeyId).toBe("");
+		expect(externalAgentStatus("tedix").credentialKind).toBe("aih_m2m");
 
 		await startExternalAgentSession({
 			workspace: "tedix",
@@ -664,7 +703,9 @@ describe("external-agent CLI session", () => {
 			createClient,
 		});
 		expect(
-			code.filter((source) => source.includes("create_api_key")),
+			code.filter((source) =>
+				source.includes("external.create_external_agent_principal"),
+			),
 		).toHaveLength(1);
 
 		const auth = await resolveExternalAgentAuth({
@@ -700,10 +741,10 @@ describe("external-agent CLI session", () => {
 		).toBe(false);
 
 		const rendered = JSON.stringify(externalAgentStatus("tedix"));
-		expect(rendered).not.toContain("sk_external_secret");
+		expect(rendered).not.toContain("m2m-client-secret");
 		expect(
 			readFileSync(join(configDir, "external-agents.json"), "utf8"),
-		).toContain("sk_external_secret");
+		).toContain("m2m-client-secret");
 
 		await finishExternalAgentSession({
 			workspace: "tedix",
@@ -729,6 +770,11 @@ describe("external-agent CLI session", () => {
 		);
 		// Two explicit starts and one auth cache miss; reuse and teardown do not reissue.
 		expect(exchangeRequests).toHaveLength(3);
+		// Every exchange minted its own short-lived bearer; none was persisted.
+		expect(tokenRequests).toHaveLength(3);
+		expect(
+			readFileSync(join(configDir, "external-agents.json"), "utf8"),
+		).not.toContain("m2m-exchange-bearer");
 	});
 
 	test("retries issuance contention beyond the former fixed ceiling", async () => {
@@ -820,7 +866,7 @@ describe("external-agent CLI session", () => {
 			workItemId,
 			idempotencyKey: "finished-session-v1",
 			noHandoffReason: "All durable evidence is attached to the Work Item.",
-			fetch: async () => exchangeResponse(),
+			fetch: m2mFetch(),
 			attemptStore,
 			createClient: () => ({
 				runCode: async (source: string) => {
@@ -845,7 +891,7 @@ describe("external-agent CLI session", () => {
 		expect(externalAgentStatus("tedix").currentSession).toBeNull();
 	});
 
-	test("revokes the freshly created API key when principal creation fails", async () => {
+	test("stores nothing and issues no API key when principal creation fails", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
@@ -854,14 +900,6 @@ describe("external-agent CLI session", () => {
 		const createClient = () => ({
 			runCode: async (source: string) => {
 				code.push(source);
-				if (source.includes("organizations.create_api_key")) {
-					return {
-						result: {
-							rawKey: "sk_compensate",
-							apiKey: { id: "22222222-2222-4222-8222-222222222222" },
-						},
-					};
-				}
 				if (source.includes("external.create_external_agent_principal")) {
 					throw new Error("principal failed");
 				}
@@ -904,25 +942,16 @@ describe("external-agent CLI session", () => {
 				],
 			}),
 		).rejects.toThrow("principal failed");
-		expect(
-			code.some((source) => source.includes("organizations.revoke_api_key")),
-		).toBe(true);
+		expect(code.some((source) => source.includes("api_key"))).toBe(false);
+		expect(readExternalAgentProfile("tedix")).toBeNull();
 	});
 
 	function scopesBootstrapClient(code: string[]) {
 		return () => ({
 			runCode: async (source: string) => {
 				code.push(source);
-				if (source.includes("organizations.create_api_key")) {
-					return {
-						result: {
-							rawKey: "sk_external_secret",
-							apiKey: { id: "22222222-2222-4222-8222-222222222222" },
-						},
-					};
-				}
 				if (source.includes("external.create_external_agent_principal")) {
-					return { result: { id: PRINCIPAL } };
+					return principalResult();
 				}
 				return { result: { success: true } };
 			},
@@ -930,8 +959,10 @@ describe("external-agent CLI session", () => {
 		});
 	}
 
-	function extractCreateApiKeyScopes(code: string[]): unknown {
-		const source = code.find((s) => s.includes("organizations.create_api_key"));
+	function extractPrincipalScopes(code: string[]): unknown {
+		const source = code.find((s) =>
+			s.includes("external.create_external_agent_principal"),
+		);
 		const json = source?.slice(
 			source.indexOf("{"),
 			source.lastIndexOf("}") + 1,
@@ -996,7 +1027,7 @@ describe("external-agent CLI session", () => {
 				oauthBearer,
 				organization: mode === "explicit" ? "tedix" : undefined,
 				agentKey: "codex-connect",
-				fetch: async () => exchangeResponse(),
+				fetch: m2mFetch(),
 				listWorkspaces: async () => [
 					{
 						org: "55555555-5555-4555-8555-555555555555",
@@ -1017,7 +1048,9 @@ describe("external-agent CLI session", () => {
 			);
 			expect(started.profile.organizationId).toBe(ORG);
 			expect(
-				code.find((source) => source.includes("organizations.create_api_key")),
+				code.find((source) =>
+					source.includes("external.create_external_agent_principal"),
+				),
 			).toContain(`"organizationId":"${ORG}"`);
 			// A launched worker names its organization by slug, not UUID.
 			for (const organization of ["tedix", "org_tedix", ORG]) {
@@ -1025,7 +1058,7 @@ describe("external-agent CLI session", () => {
 					workspace: "connect",
 					selector: "codex-connect",
 					organization,
-					fetch: async () => exchangeResponse(),
+					fetch: m2mFetch(),
 				});
 				expect(auth.headers).toEqual({
 					Authorization: "Bearer short-lived-mcp-token",
@@ -1077,7 +1110,7 @@ describe("external-agent CLI session", () => {
 				oauthBearer,
 				organization: "tedix",
 				createClient: () => factory(),
-				fetch: async () => exchangeResponse(),
+				fetch: m2mFetch(),
 			});
 			expect(readExternalAgentProfile("connect")?.organizationAliases).toEqual([
 				"tedix",
@@ -1086,7 +1119,7 @@ describe("external-agent CLI session", () => {
 		},
 	);
 
-	test("separates the Work binding key from MCP capability scopes", async () => {
+	test("grants the default MCP capability scopes to the M2M identity", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
@@ -1096,13 +1129,13 @@ describe("external-agent CLI session", () => {
 		const started = await startExternalAgentSession({
 			...bootstrapBase,
 			agentKey: "codex-default",
-			fetch: async () => exchangeResponse(),
+			fetch: m2mFetch(),
 			createClient: scopesBootstrapClient(code),
 		});
 
-		expect(extractCreateApiKeyScopes(code)).toEqual([
-			"work:read",
-			"work:write",
+		expect(extractPrincipalScopes(code)).toEqual([
+			...CAPABILITY_SCOPES,
+			"connections.execute",
 		]);
 		expect(started.profile.scopes).toEqual([
 			...CAPABILITY_SCOPES,
@@ -1121,18 +1154,15 @@ describe("external-agent CLI session", () => {
 			...bootstrapBase,
 			agentKey: "codex-scoped",
 			scopes: ["mcp:tedis.read"],
-			fetch: async () => exchangeResponse(),
+			fetch: m2mFetch(),
 			createClient: scopesBootstrapClient(code),
 		});
 
-		expect(extractCreateApiKeyScopes(code)).toEqual([
-			"work:read",
-			"work:write",
-		]);
+		expect(extractPrincipalScopes(code)).toEqual(["mcp:tedis.read"]);
 		expect(started.profile.scopes).toEqual(["mcp:tedis.read"]);
 	});
 
-	test("grants explicitly requested operator scopes only to the AIH credential", async () => {
+	test("grants explicitly requested operator scopes and drops legacy work:* key scopes", async () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
@@ -1143,14 +1173,13 @@ describe("external-agent CLI session", () => {
 			...bootstrapBase,
 			agentKey: "codex-operator",
 			scopes: ["platform:admin", "connections.admin", "work:accept"],
-			fetch: async () => exchangeResponse(),
+			fetch: m2mFetch(),
 			createClient: scopesBootstrapClient(code),
 		});
 
-		expect(extractCreateApiKeyScopes(code)).toEqual([
-			"work:read",
-			"work:write",
-			"work:accept",
+		expect(extractPrincipalScopes(code)).toEqual([
+			"platform:admin",
+			"connections.admin",
 		]);
 		expect(started.profile.scopes).toEqual([
 			"platform:admin",
@@ -1169,7 +1198,7 @@ describe("external-agent CLI session", () => {
 				...bootstrapBase,
 				agentKey: "codex-invalid",
 				scopes: ["platform:godmode"],
-				fetch: async () => exchangeResponse(),
+				fetch: m2mFetch(),
 				createClient: scopesBootstrapClient([]),
 			}),
 		).rejects.toThrow("Unsupported external-agent scope: platform:godmode");
@@ -1189,7 +1218,7 @@ describe("external-agent CLI session", () => {
 		await startExternalAgentSession({
 			...bootstrapBase,
 			agentKey: "codex-fixed",
-			fetch: async () => exchangeResponse(),
+			fetch: m2mFetch(),
 			createClient: scopesBootstrapClient([]),
 		});
 
@@ -1198,7 +1227,7 @@ describe("external-agent CLI session", () => {
 				...bootstrapBase,
 				agentKey: "codex-fixed",
 				scopes: ["mcp:apps.admin", "work:accept"],
-				fetch: async () => exchangeResponse(),
+				fetch: m2mFetch(),
 				createClient: scopesBootstrapClient([]),
 			}),
 		).rejects.toThrow(/cannot be applied to an existing principal/);
@@ -1210,7 +1239,7 @@ describe("external-agent CLI session", () => {
 				...bootstrapBase,
 				agentKey: "codex-fixed",
 				scopes: [...CAPABILITY_SCOPES, "connections.execute"],
-				fetch: async () => exchangeResponse(),
+				fetch: m2mFetch(),
 				createClient: scopesBootstrapClient([]),
 			}),
 		).resolves.toBeDefined();
@@ -1223,7 +1252,6 @@ test.each(["same", "different"])(
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
 		process.env.TEDIX_CONFIG_DIR = configDir;
-		let createdKeys = 0;
 		let createdPrincipals = 0;
 		let exchanges = 0;
 		let announce!: () => void;
@@ -1256,26 +1284,17 @@ test.each(["same", "different"])(
 			],
 			createClient: () => ({
 				runCode: async (source: string) => {
-					if (source.includes("organizations.create_api_key")) {
-						createdKeys++;
-						announce();
-						await keyGate;
-						return {
-							result: {
-								rawKey: "fixture-secret",
-								apiKey: { id: "22222222-2222-4222-8222-222222222222" },
-							},
-						};
-					}
 					if (source.includes("external.create_external_agent_principal")) {
 						createdPrincipals++;
-						return { result: { id: PRINCIPAL } };
+						announce();
+						await keyGate;
+						return principalResult();
 					}
 					throw new Error("Unexpected gateway operation");
 				},
 				close: async () => {},
 			}),
-			fetch: async (_url: string | URL | Request, init?: RequestInit) => {
+			fetch: m2mFetch(async (_url, init) => {
 				exchanges++;
 				const input = JSON.parse(String(init?.body));
 				const data = (await exchangeResponse().json()) as {
@@ -1283,7 +1302,7 @@ test.each(["same", "different"])(
 				};
 				data.session.externalSessionKey = input.externalSessionKey;
 				return Response.json(data, { status: 201 });
-			},
+			}),
 		};
 		process.env.TEDIX_AGENT_SESSION = "codex:race-one";
 		const first = startExternalAgentSession({
@@ -1306,7 +1325,6 @@ test.each(["same", "different"])(
 			"fulfilled",
 			"fulfilled",
 		]);
-		expect(createdKeys).toBe(1);
 		expect(createdPrincipals).toBe(1);
 		expect(exchanges).toBe(2);
 		const stored = JSON.parse(
@@ -1345,15 +1363,8 @@ describe("one profile shared by parallel harness sessions", () => {
 		return () => ({
 			runCode: async (source: string) => {
 				code.push(source);
-				if (source.includes("organizations.create_api_key"))
-					return {
-						result: {
-							rawKey: "sk_external_secret",
-							apiKey: { id: "22222222-2222-4222-8222-222222222222" },
-						},
-					};
 				if (source.includes("external.create_external_agent_principal"))
-					return { result: { id: PRINCIPAL } };
+					return principalResult();
 				return { result: { success: true } };
 			},
 			close: async () => {},
@@ -1361,10 +1372,7 @@ describe("one profile shared by parallel harness sessions", () => {
 	}
 
 	// The server echoes the requested tuple, so each harness session keeps its key.
-	const echoExchange = async (
-		_url: string | URL | Request,
-		init?: RequestInit,
-	) => {
+	const echoExchange = m2mFetch(async (_url, init) => {
 		const body = JSON.parse(String(init?.body)) as Record<string, string>;
 		const response = (await exchangeResponse().json()) as {
 			session: Record<string, unknown>;
@@ -1386,7 +1394,7 @@ describe("one profile shared by parallel harness sessions", () => {
 			},
 			{ status: 201 },
 		);
-	};
+	});
 
 	test.each([
 		["codex", "CODEX_THREAD_ID"],
@@ -1867,7 +1875,7 @@ test("points an unconfirmed agent-named profile to agent rename, and stays quiet
 		modelProvider: "openai",
 		modelId: "gpt-5.6",
 		modelVersion: "2026-07-22",
-		fetch: async () => exchangeResponse(),
+		fetch: m2mFetch(),
 		notice: (message) => notices.push(message),
 	});
 	expect(notices).toEqual([
@@ -1895,7 +1903,7 @@ test("points an unconfirmed agent-named profile to agent rename, and stays quiet
 		modelProvider: "openai",
 		modelId: "gpt-5.6",
 		modelVersion: "2026-07-22",
-		fetch: async () => exchangeResponse(),
+		fetch: m2mFetch(),
 		notice: (message) => notices.push(message),
 	});
 	expect(notices).toEqual([]);
@@ -1961,7 +1969,7 @@ describe("cloud agent mint", () => {
 					if (tool === "external.create_external_agent_principal") {
 						if (failPrincipal)
 							throw new Error("provider echoed sk_mint_fixture");
-						return { result: { id: PRINCIPAL } };
+						return principalResult();
 					}
 					if (tool === "organizations.revoke_api_key" && failRevoke)
 						throw new Error("revoke failed sk_mint_fixture");
