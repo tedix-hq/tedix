@@ -622,6 +622,25 @@ describe("BlueprintsEmpty", () => {
 // ---------------------------------------------------------------------------
 
 describe("BlueprintsPage list", () => {
+	it("explains saved templates and a missing description in plain English", async () => {
+		const blueprint = blueprintFixture({ description: null });
+		blueprintsApi.list.mockResolvedValue({
+			items: [blueprint],
+			truncated: false,
+		});
+		blueprintsApi.get.mockResolvedValue({ blueprint, currentRevision: null });
+		const container = renderPage();
+		await flush();
+		expect(container.textContent).toContain(
+			"Workspace templates saved by your organization.",
+		);
+		click(findButton(container, "Reporting workspace"));
+		await flush();
+		expect(container.textContent).toContain(
+			"A template for creating a workspace.",
+		);
+	});
+
 	it("progressively discloses a long owned inventory", async () => {
 		blueprintsApi.list.mockResolvedValue({
 			items: Array.from({ length: 18 }, (_, index) =>
@@ -1232,6 +1251,7 @@ describe("instantiate", () => {
 		click(findButton(container, "Create workspace"));
 		await flush();
 		expect(container.textContent).toContain("Pinned skill revision moved");
+		expect(container.textContent).toContain("Couldn't create workspace");
 		expect(container.textContent).not.toContain("Created workspace");
 	});
 });
