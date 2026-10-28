@@ -1010,7 +1010,7 @@ function InstantiateForm({
 					</Text>
 				) : (
 					<Alert variant="destructive">
-						<AlertTitle>Instantiation failed</AlertTitle>
+						<AlertTitle>Couldn't create workspace</AlertTitle>
 						<AlertDescription>
 							{(instantiate.error as Error).message}
 						</AlertDescription>
@@ -1771,8 +1771,7 @@ function MyBlueprints({
 							tone="secondary"
 							className="m-0 mt-2 max-w-2xl leading-relaxed"
 						>
-							{selected.description ||
-								"A versioned starting point for creating a Tedix workspace."}
+							{selected.description || "A template for creating a workspace."}
 						</Text>
 					</div>
 				</div>
