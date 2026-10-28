@@ -35,6 +35,26 @@ afterEach(() => {
 	document.body.innerHTML = "";
 });
 
+/**
+ * A mutation's state change reaches the useSyncExternalStore listener through
+ * notifyManager's setTimeout(0) scheduler — a macrotask, not the microtask
+ * queue. Await the cache's dispatch event first, then yield one timer so the
+ * already-scheduled notification fires before this act scope ends. A fixed
+ * sleep races that timer and loses under load.
+ */
+const mutationDispatched = (
+	client: QueryClient,
+	action: "pending" | "success" | "error",
+) =>
+	new Promise<void>((resolve) => {
+		const unsubscribe = client.getMutationCache().subscribe((event) => {
+			if (event.type === "updated" && event.action.type === action) {
+				unsubscribe();
+				resolve();
+			}
+		});
+	});
+
 it("installs the defaults with one button, prevents duplicate clicks and refreshes the workspace domain", async () => {
 	let finish!: (value: { workspaceId: string }) => void;
 	mocks.install.mockImplementation(
@@ -61,9 +81,11 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 		(item) => item.textContent === "Set up Activity and Decisions",
 	)!;
 	expect(button.textContent).toBe("Set up Activity and Decisions");
+	const pending = mutationDispatched(client, "pending");
 	await act(async () => {
 		button.click();
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await pending;
+		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 	expect(mocks.install).toHaveBeenCalledExactlyOnceWith({});
 	expect(button.disabled).toBe(true);
@@ -72,9 +94,11 @@ it("installs the defaults with one button, prevents duplicate clicks and refresh
 		button.querySelector('[role="status"]')?.getAttribute("aria-label"),
 	).toBe("Loading");
 	expect(button.textContent).toBe("Setting up Activity and Decisions…");
+	const succeeded = mutationDispatched(client, "success");
 	await act(async () => {
 		finish({ workspaceId: "11111111-1111-4111-8111-111111111111" });
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await succeeded;
+		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 	expect(invalidate).toHaveBeenCalledWith({
 		queryKey: osQuery.osWorkspaces.key(),
@@ -101,9 +125,11 @@ it("shows an installation failure and leaves the button available for retry", as
 	const button = [...document.querySelectorAll("button")].find(
 		(item) => item.textContent === "Set up Activity and Decisions",
 	)!;
+	const failed = mutationDispatched(client, "error");
 	await act(async () => {
 		button.click();
-		await new Promise((resolve) => setTimeout(resolve, 10));
+		await failed;
+		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 	expect(document.querySelector('[role="alert"]')?.textContent).toContain(
 		"could not be set up",
