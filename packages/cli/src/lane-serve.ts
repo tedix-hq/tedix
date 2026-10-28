@@ -11,10 +11,11 @@ import {
 	realpathSync,
 	readdirSync,
 	renameSync,
+	statSync,
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import {
 	LaneDispatchPlanSchema,
 	type WorkItem,
@@ -418,6 +419,98 @@ export function retainedLaneWorktree(
 	return previous;
 }
 
+async function laneWorktreeInUse(destination: string): Promise<boolean> {
+	try {
+		const root = realpathSync(dirname(destination));
+		const options = {
+			encoding: "utf8" as const,
+			timeout: 5000,
+			maxBuffer: 16 * 1024 * 1024,
+		};
+		const [cwds, processes] = await Promise.all([
+			promisify(execFile)("lsof", ["-d", "cwd", "-Fn"], options),
+			promisify(execFile)("ps", ["-axo", "command="], options),
+		]);
+		if (!cwds.stdout) return true;
+		return (
+			cwds.stdout
+				.split("\n")
+				.some(
+					(line) => line === `n${root}` || line.startsWith(`n${root}${sep}`),
+				) ||
+			processes.stdout.includes(root) ||
+			processes.stdout.includes(dirname(destination))
+		);
+	} catch {
+		return true;
+	}
+}
+
+export async function cleanupLaneWorktree(
+	source: string,
+	destination: string,
+	inUse: (
+		destination: string,
+	) => boolean | Promise<boolean> = laneWorktreeInUse,
+): Promise<boolean> {
+	const run = async (repo: string, args: string[]) => {
+		try {
+			return await promisify(execFile)("git", ["-C", repo, ...args], {
+				encoding: "utf8",
+				timeout: 10_000,
+				maxBuffer: 16 * 1024 * 1024,
+			});
+		} catch {
+			return undefined;
+		}
+	};
+	const status = await run(destination, [
+		"status",
+		"--porcelain",
+		"-z",
+		"--untracked-files=all",
+		"--ignored=matching",
+		"--ignore-submodules=none",
+	]);
+	const head = await run(destination, ["rev-parse", "HEAD"]);
+	if (!status || !head) return false;
+	const changes = status.stdout
+		.split("\0")
+		.filter(
+			(line) =>
+				line &&
+				!(
+					line.startsWith("!! ") &&
+					/(?:^|\/)(?:node_modules|dist|build|out|coverage|storybook-static|\.cache|\.output|\.wrangler|\.cloudflare|\.astro|\.turbo|\.next|\.svelte-kit)\/|\.tsbuildinfo$/.test(
+						line.slice(3),
+					)
+				),
+		);
+	if (changes.length) return false;
+	if (
+		!(await run(source, [
+			"merge-base",
+			"--is-ancestor",
+			head.stdout.trim(),
+			"refs/remotes/origin/main",
+		]))
+	)
+		return false;
+	if (await inUse(destination)) return false;
+	try {
+		await promisify(execFile)(
+			"git",
+			["-C", source, "worktree", "remove", destination],
+			{
+				timeout: 30 * 60_000,
+			},
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 function gitOutput(repo: string, args: string[]): string {
 	const result = spawnSync("git", ["-C", repo, ...args], {
 		encoding: "utf8",
@@ -633,7 +726,7 @@ interface DispatcherDeps {
 	installDependencies: typeof installLaneDependencies;
 	baseCommit: (repo: string) => string;
 	landedCommits: typeof landedLaneCommits;
-	cleanup: (source: string, destination: string) => boolean;
+	cleanup: (source: string, destination: string) => boolean | Promise<boolean>;
 	gatewayCooldownUntil: typeof gatewayCooldownUntil;
 	recall: typeof prefixLaneBrief;
 }
@@ -665,26 +758,7 @@ const defaultDeps: DispatcherDeps = {
 					: createCodexLaneThread(cwd, "codex", model, resume),
 	launch: runLaneProcess,
 	darkWake: inDarkWake,
-	cleanup: (source, destination) => {
-		const run = (args: string[]) =>
-			spawnSync("git", args, { encoding: "utf8", timeout: 10_000 });
-		const status = run(["-C", destination, "status", "--porcelain"]);
-		const head = run(["-C", destination, "rev-parse", "HEAD"]);
-		if (status.status !== 0 || status.stdout.trim() || head.status !== 0)
-			return false;
-		if (
-			run([
-				"-C",
-				source,
-				"merge-base",
-				"--is-ancestor",
-				head.stdout.trim(),
-				"HEAD",
-			]).status !== 0
-		)
-			return false;
-		return run(["-C", source, "worktree", "remove", destination]).status === 0;
-	},
+	cleanup: cleanupLaneWorktree,
 	provision: provisionLaneWorktree,
 	installDependencies: installLaneDependencies,
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
@@ -694,6 +768,10 @@ const defaultDeps: DispatcherDeps = {
 
 export class LaneDispatcher {
 	private running = new Map<string, Promise<void>>();
+	private receipts = new Map<string, { stamp: string; row: Receipt }>();
+	private cleanupCursor = 0;
+	private cleanupAfter = new Map<string, number>();
+	private maintenance = new Map<string, Promise<void>>();
 	private queue = serialCalls();
 	private stopping = false;
 	private proposalsSweptAt = 0;
@@ -819,12 +897,20 @@ export class LaneDispatcher {
 		let offset = 0;
 		const retained = readdirSync(this.directory)
 			.filter((file) => file.endsWith(".json"))
-			.map(
-				(file) =>
-					JSON.parse(
-						readFileSync(join(this.directory, file), "utf8"),
-					) as Receipt,
-			);
+			.map((file) => {
+				const path = join(this.directory, file);
+				const stat = statSync(path);
+				const stamp = `${stat.mtimeMs}:${stat.size}`;
+				let cached = this.receipts.get(file);
+				if (cached?.stamp !== stamp) {
+					cached = {
+						stamp,
+						row: JSON.parse(readFileSync(path, "utf8")) as Receipt,
+					};
+					this.receipts.set(file, cached);
+				}
+				return cached.row;
+			});
 		for (const row of retained) {
 			if (
 				!this.running.has(row.itemId) &&
@@ -864,8 +950,6 @@ export class LaneDispatcher {
 			if (!this.running.has(row.itemId) && (!row.pid || !alive(row.pid))) {
 				if (["running", "admitted"].includes(row.phase) && row.attemptId)
 					await this.recoverOrphan(row);
-				if (row.phase === "settled" && row.repo && existsSync(row.repo))
-					this.cleanupWorktree(row);
 			}
 			if (
 				row.pendingObservation &&
@@ -967,7 +1051,16 @@ export class LaneDispatcher {
 					? (JSON.parse(readFileSync(this.path(item), "utf8")) as Receipt)
 					: undefined;
 				if (
+					previous?.phase === "settled" &&
+					previous.outcome === "failed" &&
+					previous.pendingCommitProof === undefined &&
+					!previous.pendingObservation
+				) {
+					previous.phase = "deferred";
+				}
+				if (
 					this.running.has(item.id) ||
+					this.maintenance.has(item.id) ||
 					(previous &&
 						(previous.held ||
 							(previous.attemptId && previous.phase !== "deferred") ||
@@ -993,6 +1086,22 @@ export class LaneDispatcher {
 			offset += page.data.length;
 			if (!page.data.length)
 				throw new Error("Dispatch pagination made no progress");
+		}
+		// One old checkout per pass, after pickup. Retained work is revisited
+		// every ten minutes rather than multiplying Git work by run history.
+		for (let n = 0; !this.maintenance.size && n < retained.length; n++) {
+			const row = retained[this.cleanupCursor++ % retained.length]!;
+			if (
+				!["settled", "deferred", "failed"].includes(row.phase) ||
+				this.running.has(row.itemId) ||
+				!row.repo ||
+				!existsSync(row.repo) ||
+				Date.now() < (this.cleanupAfter.get(row.repo) ?? 0)
+			)
+				continue;
+			this.cleanupAfter.set(row.repo, Date.now() + 600_000);
+			this.scheduleCleanup(row);
+			break;
 		}
 	}
 	/**
@@ -1505,19 +1614,41 @@ export class LaneDispatcher {
 								retryDeadlineAt,
 							);
 			}
-			this.cleanupWorktree(receipt);
+			this.scheduleCleanup(receipt);
 			this.save(path, receipt);
 		}
 	}
-	private cleanupWorktree(receipt: Receipt) {
+	private scheduleCleanup(receipt: Receipt) {
+		if (this.maintenance.size) return;
+		const task = this.cleanupWorktree(receipt)
+			.catch((error) =>
+				this.log("cleanup-deferred", receipt.itemId, String(error)),
+			)
+			.finally(() => this.maintenance.delete(receipt.itemId));
+		this.maintenance.set(receipt.itemId, task);
+	}
+	private async cleanupWorktree(receipt: Receipt) {
 		if (
-			receipt.outcome === "succeeded" &&
+			["settled", "deferred", "failed"].includes(receipt.phase) &&
+			receipt.admissionState !== "unknown" &&
 			receipt.pendingCommitProof === undefined &&
+			!receipt.pendingObservation &&
 			receipt.repo &&
+			resolve(receipt.repo).startsWith(resolve(this.directory, "runs") + sep) &&
 			(!receipt.pid || !alive(receipt.pid))
 		) {
-			if (!this.deps.cleanup(this.options.repo, receipt.repo))
-				this.log("worktree-retained", receipt.itemId, receipt.repo);
+			if (await this.deps.cleanup(this.options.repo, receipt.repo)) {
+				const run = dirname(receipt.repo);
+				if (
+					existsSync(run) &&
+					!readdirSync(run).some((name) => name.startsWith("repo"))
+				) {
+					const archive = join(this.directory, "archive");
+					mkdirSync(archive, { recursive: true, mode: 0o700 });
+					renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
+				}
+				this.log("worktree-cleaned", receipt.itemId, receipt.repo);
+			}
 		}
 	}
 	private async settle(receipt: Receipt) {
@@ -1680,7 +1811,7 @@ export class LaneDispatcher {
 			Date.parse(attempt.expiresAt) > Date.now()
 		) {
 			await this.settle(receipt);
-			this.cleanupWorktree(receipt);
+			this.scheduleCleanup(receipt);
 		} else
 			this.log(
 				"settlement-expired",
@@ -1690,6 +1821,7 @@ export class LaneDispatcher {
 	}
 	async drain() {
 		await Promise.all(this.running.values());
+		await Promise.all(this.maintenance.values());
 	}
 }
 
