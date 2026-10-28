@@ -62,13 +62,36 @@ const PLATFORM_SIDE_ERROR =
 	/no longer available on|could not be verified on|\(transport\)|is not configured/;
 
 /**
- * Whether a failed execution may be tried once more: the platform itself
- * failed, the target neither refused nor changed, and nobody retried yet.
+ * A run still marked running this long after it started never finished: the
+ * request that ran it was cut off. The gateway consumes the approval before
+ * it dispatches, so an unconsumed stale run had no effect.
+ */
+export const STALE_OWNER_TOOL_RUN_MS = 10 * 60 * 1000;
+
+export function isStaleOwnerToolRun(
+	execution: OwnerToolExecutionRecord | null | undefined,
+	now = Date.now(),
+): boolean {
+	if (execution?.status !== "running" || !execution.startedAt) return false;
+	const startedAt = Date.parse(execution.startedAt);
+	return (
+		Number.isFinite(startedAt) && now - startedAt > STALE_OWNER_TOOL_RUN_MS
+	);
+}
+
+/**
+ * Whether an execution may be tried once more: the platform itself failed
+ * (or the run never finished), the target neither refused nor changed, and
+ * no completed retry exists yet.
  */
 export function isRetryableOwnerToolExecution(
 	execution: OwnerToolExecutionRecord | null | undefined,
+	now = Date.now(),
 ): boolean {
-	if (!execution || execution.status !== "failed") return false;
+	if (!execution) return false;
+	if (execution.status === "running")
+		return isStaleOwnerToolRun(execution, now);
+	if (execution.status !== "failed") return false;
 	if (execution.attempt !== undefined) return false;
 	if (typeof execution.retryable === "boolean") return execution.retryable;
 	return PLATFORM_SIDE_ERROR.test(execution.error ?? "");
@@ -77,11 +100,14 @@ export function isRetryableOwnerToolExecution(
 /** What happened after approval, in words: "Done: …", "Failed: …", "Running now". */
 export function ownerToolExecutionOutcome(
 	execution: OwnerToolExecutionRecord | null | undefined,
+	now = Date.now(),
 ): string | null {
 	if (!execution) return null;
 	if (execution.status === "executed")
 		return `Done${execution.summary ? `: ${execution.summary}` : ""}`;
 	if (execution.status === "failed")
 		return `Failed${execution.error ? `: ${execution.error}` : ""}`;
-	return "Running now";
+	return isStaleOwnerToolRun(execution, now)
+		? "Did not finish: the run was cut off before it reached the target"
+		: "Running now";
 }

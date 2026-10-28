@@ -67,6 +67,19 @@ describe("owner tool execution record", () => {
 			),
 		).toBe(false);
 		expect(isRetryableOwnerToolExecution(null)).toBe(false);
+		// A run cut off before it finished is retryable once it is stale.
+		const now = Date.parse("2026-10-28T14:40:00.000Z");
+		const running = (startedAt: string) =>
+			parseOwnerToolExecution({ status: "running", startedAt, attempt: 2 });
+		expect(
+			isRetryableOwnerToolExecution(running("2026-10-28T14:22:08.160Z"), now),
+		).toBe(true);
+		expect(
+			isRetryableOwnerToolExecution(running("2026-10-28T14:35:00.000Z"), now),
+		).toBe(false);
+		expect(
+			ownerToolExecutionOutcome(running("2026-10-28T14:22:08.160Z"), now),
+		).toContain("Did not finish");
 	});
 
 	it("says what happened in words", () => {

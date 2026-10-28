@@ -367,6 +367,41 @@ describe("owner tool approval settlement", () => {
 });
 
 describe("owner tool approval retry", () => {
+	/** The retry's outcome, awaiting the claimed run the way the procedure does without `waitUntil`. */
+	const retry = async (
+		input: Parameters<typeof retryOwnerToolCallExecution>[1],
+	) => {
+		const outcome = await retryOwnerToolCallExecution(context, input);
+		return typeof outcome === "string" ? outcome : outcome.run;
+	};
+	it("treats a run cut off before the gateway consumed the approval as failed", async () => {
+		const stale = new Date(Date.now() - 11 * 60 * 1000).toISOString();
+		expect(
+			await retry({
+				approval: failed({
+					status: "running",
+					startedAt: stale,
+					attempt: 2,
+					retriedBy: "admin-1",
+				}),
+				retriedBy: "admin-2",
+			}),
+		).toBe("succeeded");
+		expect(mocks.reclaim).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ staleBefore: expect.any(String) }),
+		);
+		expect(
+			await retry({
+				approval: failed({
+					status: "running",
+					startedAt: new Date().toISOString(),
+				}),
+				retriedBy: "admin-2",
+			}),
+		).toBe("still_running");
+		expect(mocks.executor).toHaveBeenCalledTimes(1);
+	});
 	const failed = (
 		execution: Record<string, unknown> = {
 			status: "failed",
@@ -379,7 +414,7 @@ describe("owner tool approval retry", () => {
 
 	it("runs the stored call once more and records the second attempt", async () => {
 		expect(
-			await retryOwnerToolCallExecution(context, {
+			await retry({
 				approval: failed(),
 				retriedBy: "admin-2",
 			}),
@@ -431,7 +466,7 @@ describe("owner tool approval retry", () => {
 	it("re-checks requester and approver authority before the retry", async () => {
 		mocks.member.mockResolvedValueOnce({ role: "member", status: "active" });
 		expect(
-			await retryOwnerToolCallExecution(context, {
+			await retry({
 				approval: failed(),
 				retriedBy: "admin-2",
 			}),
@@ -440,7 +475,7 @@ describe("owner tool approval retry", () => {
 	});
 	it("refuses a second retry, a refusal by the target and a run that did not fail", async () => {
 		expect(
-			await retryOwnerToolCallExecution(context, {
+			await retry({
 				approval: failed({
 					status: "failed",
 					startedAt: "x",
@@ -452,7 +487,7 @@ describe("owner tool approval retry", () => {
 			}),
 		).toBe("already_retried");
 		expect(
-			await retryOwnerToolCallExecution(context, {
+			await retry({
 				approval: failed({
 					status: "failed",
 					startedAt: "x",
@@ -463,13 +498,13 @@ describe("owner tool approval retry", () => {
 			}),
 		).toBe("not_retryable");
 		expect(
-			await retryOwnerToolCallExecution(context, {
+			await retry({
 				approval: failed({ status: "executed", startedAt: "x" }),
 				retriedBy: "admin-2",
 			}),
 		).toBe("not_failed");
 		expect(
-			await retryOwnerToolCallExecution(context, {
+			await retry({
 				approval: approval({ status: "expired" }),
 				retriedBy: "admin-2",
 			}),
@@ -480,7 +515,7 @@ describe("owner tool approval retry", () => {
 	it("never runs when the retry claim is lost", async () => {
 		mocks.reclaim.mockResolvedValue(false);
 		expect(
-			await retryOwnerToolCallExecution(context, {
+			await retry({
 				approval: failed(),
 				retriedBy: "admin-2",
 			}),

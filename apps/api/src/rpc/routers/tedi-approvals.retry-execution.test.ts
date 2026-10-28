@@ -167,6 +167,34 @@ describe("tediApprovals.retryExecution", () => {
 		});
 	});
 
+	it("retries a run that never finished and leaves a fresh run alone", async () => {
+		const fixture = createFixture();
+		await seedFailedCall(fixture, {
+			status: "running",
+			startedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+			attempt: 2,
+			retriedBy: "admin-1",
+		});
+		const result = await client(fixture).retryExecution({ id: APPROVAL_ID });
+		expect(result.payload.execution).toMatchObject({
+			status: "executed",
+			attempt: 2,
+			retriedBy: "admin-2",
+		});
+		const fresh = createFixture();
+		await seedFailedCall(fresh, {
+			status: "running",
+			startedAt: new Date().toISOString(),
+		});
+		await expect(
+			client(fresh).retryExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("running now"),
+		});
+		expect(mocks.executor).toHaveBeenCalledTimes(1);
+	});
+
 	it("retries at most once", async () => {
 		const fixture = createFixture();
 		await seedFailedCall(fixture);
