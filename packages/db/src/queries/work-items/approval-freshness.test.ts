@@ -1,3 +1,4 @@
+import { organizationMembers } from "../../schema/organization-members";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
@@ -29,6 +30,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
 		schemaDdl(
+			organizationMembers,
 			workItems,
 			workEvents,
 			workAttempts,

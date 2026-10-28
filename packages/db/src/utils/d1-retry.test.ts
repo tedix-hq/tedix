@@ -10,6 +10,24 @@ describe("bounded D1 read recovery", () => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
 	});
+	it.each([
+		"D1_ERROR: internal error",
+		"D1_ERROR: reset because its code was updated",
+	])("recovers identity reads after %s", async (message) => {
+		const read = vi
+			.fn()
+			.mockRejectedValueOnce(
+				new Error("identity query", { cause: new Error(message) }),
+			)
+			.mockResolvedValueOnce({ organizationId: "fictional-org" });
+		await expect(
+			withTransientD1ReadRetry("auth.user_tenant_context", read, {
+				delayMs: 0,
+				timeoutMs: 5000,
+			}),
+		).resolves.toEqual({ organizationId: "fictional-org" });
+		expect(read).toHaveBeenCalledTimes(2);
+	});
 	it("retries D1 overload once and keeps persistent overload bounded", async () => {
 		vi.spyOn(console, "warn").mockImplementation(() => {});
 		const error = new Error("query redacted", {

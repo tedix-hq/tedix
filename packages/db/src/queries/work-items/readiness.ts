@@ -1,3 +1,4 @@
+import { ensureWorkRiskApproval } from "./approvals";
 import { and, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -300,6 +301,7 @@ export async function deriveWorkItemReadiness(
 ): Promise<WorkItemReadinessResult> {
 	const derivedAt = params.derivedAt ?? new Date().toISOString();
 	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	await ensureWorkRiskApproval(db, item, derivedAt);
 	const [
 		activeAttempt,
 		dependency,
