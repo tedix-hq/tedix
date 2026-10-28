@@ -121,7 +121,13 @@ afterEach(() => {
 });
 
 async function mount(
-	options: { page?: number; keys?: unknown[]; pendingContext?: boolean } = {},
+	options: {
+		page?: number;
+		keys?: unknown[];
+		total?: number;
+		pendingContext?: boolean;
+		onPageChange?: (page: number) => void;
+	} = {},
 ) {
 	const client = new QueryClient({
 		defaultOptions: {
@@ -148,7 +154,7 @@ async function mount(
 		{
 			data: options.keys ?? [KEY],
 			pagination: {
-				total: (options.keys ?? [KEY]).length,
+				total: options.total ?? (options.keys ?? [KEY]).length,
 				limit: q.API_KEYS_PAGE_SIZE,
 				offset: 0,
 			},
@@ -161,7 +167,10 @@ async function mount(
 	await act(async () =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<AdminApiKeysPage page={page} onPageChange={() => {}} />
+				<AdminApiKeysPage
+					page={page}
+					onPageChange={options.onPageChange ?? (() => {})}
+				/>
 			</QueryClientProvider>,
 		),
 	);
@@ -238,6 +247,28 @@ describe("API key operational ledger", () => {
 			keys: [{ ...KEY, name: "Page two key" }],
 		});
 		expect(page.host.textContent).toContain("Page two key");
+	});
+
+	it("shows the API total, not the page size, and Next changes the page", async () => {
+		const pages: number[] = [];
+		const keys = Array.from({ length: q.API_KEYS_PAGE_SIZE }, (_, index) => ({
+			...KEY,
+			id: `key-${index + 1}`,
+			name: `Key ${index + 1}`,
+		}));
+		const page = await mount({
+			keys,
+			total: 60,
+			onPageChange: (next) => pages.push(next),
+		});
+		expect(page.host.textContent).toContain("Keys (60)");
+		const next = [...page.host.querySelectorAll<HTMLElement>("button")].find(
+			(button) => button.getAttribute("aria-label") === "Next page",
+		)!;
+		expect(next).toBeDefined();
+		expect(next.hasAttribute("disabled")).toBe(false);
+		await page.click(next);
+		expect(pages).toEqual([2]);
 	});
 });
 
