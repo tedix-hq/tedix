@@ -5,24 +5,31 @@ import { startFixtureServer } from "./fixture-server";
 // The API keys page backed by the local fixture lane's 60-key ledger: the
 // section count is the API's total (25-row page ≠ 60-key organization),
 // Next/Previous walk the URL ?page= state, and a delete refetches the
-// smaller total. Owns its fixture server because the delete mutates shared
-// state other specs would see.
-const server = await startFixtureServer("/admin/api-keys", {
-	shared: false,
-});
+// smaller total. Each viewport/theme owns a fresh server because deletion
+// mutates the server's ledger across browser pages.
 
 async function atPage(page: Page, n: number) {
 	await page.waitForURL((url) => url.searchParams.get("page") === String(n), {
 		timeout: 10_000,
 	});
+	const firstKey =
+		n === 1 ? "CI/CD Pipeline" : `Service key ${(n - 1) * 25 + 1}`;
+	await page
+		.getByRole("button", {
+			name: `API key actions for ${firstKey}`,
+			exact: true,
+		})
+		.waitFor({ timeout: 10_000 });
 }
 
 let browser: Browser | undefined;
+let server: Awaited<ReturnType<typeof startFixtureServer>> | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
 	for (const width of [375, 1280] as const) {
 		for (const colorScheme of ["light", "dark"] as const) {
 			const label = `${width}-${colorScheme}`;
+			server = await startFixtureServer("/admin/api-keys", { shared: false });
 			const page = await browser.newPage({
 				viewport: { width, height: 900 },
 				colorScheme,
@@ -100,6 +107,8 @@ try {
 			);
 			assert.ok(overflow <= 1, `${label}: no horizontal overflow`);
 			await page.close();
+			await server.stop();
+			server = undefined;
 		}
 	}
 	console.log(
@@ -107,5 +116,5 @@ try {
 	);
 } finally {
 	await browser?.close();
-	await server.stop();
+	await server?.stop();
 }
