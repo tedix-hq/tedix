@@ -1518,19 +1518,26 @@ const retryExecutionProcedure = authedOs.retryExecution
 			approval: existing,
 			retriedBy,
 		});
-		const refusal: Partial<Record<typeof outcome, string>> = {
-			not_owner_tool_call:
-				"Only an approved tool call that the platform runs can be tried again",
-			not_failed: "This call did not fail, so there is nothing to try again",
-			not_retryable:
-				"This call was refused by its target or the target changed; request a new approval instead",
-			already_retried:
-				"This call was already tried again; it runs at most twice",
-			claim_lost:
-				"This call could not be claimed for a retry: it may have expired, been consumed, or be running now",
-		};
-		const message = refusal[outcome];
-		if (message) throw createError(ErrorCodes.BAD_REQUEST, message);
+		if (typeof outcome === "string") {
+			const refusal: Record<typeof outcome, string> = {
+				not_owner_tool_call:
+					"Only an approved tool call that the platform runs can be tried again",
+				not_failed: "This call did not fail, so there is nothing to try again",
+				still_running: "This call is running now; check back in a few minutes",
+				not_retryable:
+					"This call was refused by its target or the target changed; request a new approval instead",
+				already_retried:
+					"This call was already tried again; it runs at most twice",
+				claim_lost:
+					"This call could not be claimed for a retry: it may have expired, been consumed, or be running now",
+			};
+			throw createError(ErrorCodes.BAD_REQUEST, refusal[outcome]);
+		}
+		// The replay re-reads a gateway catalog and can outlast a client's
+		// timeout. Once claimed it finishes after this response; a client that
+		// waits sees "Running now" and the recorded result on its next read.
+		if (context.waitUntil) context.waitUntil(outcome.run);
+		else await outcome.run;
 		const updated = await getApprovalRequestById(context.db, existing.id);
 		return normalizeApprovalRequest(updated ?? existing);
 	});

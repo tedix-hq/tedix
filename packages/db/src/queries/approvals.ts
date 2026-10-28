@@ -665,12 +665,20 @@ export interface OwnerToolApprovalExecution {
 
 /**
  * Claim the single retry of a failed platform-side execution. Only an
- * approved, unexpired, unconsumed request whose first run failed and was never
- * retried wins; the losing side of any race never executes.
+ * approved, unexpired, unconsumed request wins, and only when its run failed
+ * and was never retried, or started before `staleBefore` and never finished
+ * (the request that ran it was cut off before the gateway consumed the
+ * approval, so nothing happened). The losing side of any race never executes.
  */
 export async function reclaimOwnerToolApprovalExecution(
 	db: DbClient,
-	input: { id: string; organizationId: string; now: string; retriedBy: string },
+	input: {
+		id: string;
+		organizationId: string;
+		now: string;
+		retriedBy: string;
+		staleBefore: string;
+	},
 ): Promise<boolean> {
 	const execution: OwnerToolApprovalExecution = {
 		status: "running",
@@ -690,8 +698,12 @@ export async function reclaimOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.status, "approved"),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 				gt(tediApprovalRequests.expiresAt, input.now),
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.attempt') IS NULL`,
+				sql`(
+					(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
+						AND json_extract(${tediApprovalRequests.payload}, '$.execution.attempt') IS NULL)
+					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
+						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
+				)`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
 			),
 		)

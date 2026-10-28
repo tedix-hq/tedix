@@ -15,7 +15,11 @@
  * never claimed, so it never runs.
  */
 
-import { isRetryableOwnerToolExecution } from "@tedix/api-contract/utils/owner-tool-execution";
+import {
+	isRetryableOwnerToolExecution,
+	isStaleOwnerToolRun,
+	STALE_OWNER_TOOL_RUN_MS,
+} from "@tedix/api-contract/utils/owner-tool-execution";
 import { recordApprovalExecutionReceipt } from "@tedix/db/queries/approval-simulations";
 import {
 	claimOwnerToolApprovalExecution,
@@ -364,6 +368,7 @@ export async function settleOwnerToolCallApproval(
 export type OwnerToolRetryRefusal =
 	| "not_owner_tool_call"
 	| "not_failed"
+	| "still_running"
 	| "not_retryable"
 	| "already_retried"
 	| "claim_lost";
@@ -372,8 +377,11 @@ export type OwnerToolRetryRefusal =
  * Try a failed platform-side execution once more, for an owner or admin. The
  * same re-check-then-run-once rules apply: the request must still be approved
  * and unexpired, requester and approver must still hold authority, and the
- * gateway re-matches and consumes the approval. Returns the run outcome, or
- * why the retry was refused without running anything.
+ * gateway re-matches and consumes the approval. A run that never finished
+ * (cut off before the gateway consumed the approval) counts as a failed run.
+ * Returns the claimed run, or why the retry was refused without running
+ * anything. The caller decides whether to await the run or let it finish
+ * after the response.
  */
 export async function retryOwnerToolCallExecution(
 	context: BaseContext,
@@ -381,28 +389,35 @@ export async function retryOwnerToolCallExecution(
 		approval: typeof tediApprovalRequests.$inferSelect;
 		retriedBy: string;
 	},
-): Promise<OwnerToolRunOutcome | OwnerToolRetryRefusal> {
+): Promise<{ run: Promise<OwnerToolRunOutcome> } | OwnerToolRetryRefusal> {
 	if (input.approval.actionType !== "mcp.tool_call")
 		return "not_owner_tool_call";
 	const payload = parseOwnerToolCallPayload(input.approval.payload);
 	if (!payload || input.approval.status !== "approved")
 		return "not_owner_tool_call";
 	const execution = payload.execution;
-	if (!execution || execution.status !== "failed") return "not_failed";
-	if (execution.attempt !== undefined) return "already_retried";
-	if (!isRetryableOwnerToolExecution(execution)) return "not_retryable";
-	const startedAt = nowIso();
+	if (!execution || execution.status === "executed") return "not_failed";
+	const now = Date.now();
+	if (execution.status === "running" && !isStaleOwnerToolRun(execution, now))
+		return "still_running";
+	if (execution.status === "failed" && execution.attempt !== undefined)
+		return "already_retried";
+	if (!isRetryableOwnerToolExecution(execution, now)) return "not_retryable";
+	const startedAt = new Date(now).toISOString();
 	const claimed = await reclaimOwnerToolApprovalExecution(context.db, {
 		id: input.approval.id,
 		organizationId: input.approval.orgId,
 		now: startedAt,
 		retriedBy: input.retriedBy,
+		staleBefore: new Date(now - STALE_OWNER_TOOL_RUN_MS).toISOString(),
 	});
 	if (!claimed) return "claim_lost";
-	return runOwnerToolCall(context, {
-		approval: input.approval,
-		payload,
-		startedAt,
-		retry: { retriedBy: input.retriedBy },
-	});
+	return {
+		run: runOwnerToolCall(context, {
+			approval: input.approval,
+			payload,
+			startedAt,
+			retry: { retriedBy: input.retriedBy },
+		}),
+	};
 }
