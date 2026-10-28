@@ -169,13 +169,15 @@ async function runOwnerToolCall(
 		approval: typeof tediApprovalRequests.$inferSelect;
 		payload: OwnerToolCallPayload;
 		startedAt: string;
-		retry?: { retriedBy: string };
+		retry?: { retriedBy: string; attempt: number };
 	},
 ): Promise<OwnerToolRunOutcome> {
 	const { approval, payload, startedAt } = input;
 	const organizationId = approval.orgId;
 	const attempt: Pick<OwnerToolApprovalExecution, "attempt" | "retriedBy"> =
-		input.retry ? { attempt: 2, retriedBy: input.retry.retriedBy } : {};
+		input.retry
+			? { attempt: input.retry.attempt, retriedBy: input.retry.retriedBy }
+			: {};
 
 	const finish = async (
 		execution: Omit<
@@ -370,7 +372,6 @@ export type OwnerToolRetryRefusal =
 	| "not_failed"
 	| "still_running"
 	| "not_retryable"
-	| "already_retried"
 	| "claim_lost";
 
 /**
@@ -400,15 +401,15 @@ export async function retryOwnerToolCallExecution(
 	const now = Date.now();
 	if (execution.status === "running" && !isStaleOwnerToolRun(execution, now))
 		return "still_running";
-	if (execution.status === "failed" && execution.attempt !== undefined)
-		return "already_retried";
 	if (!isRetryableOwnerToolExecution(execution, now)) return "not_retryable";
 	const startedAt = new Date(now).toISOString();
+	const attempt = (execution.attempt ?? 1) + 1;
 	const claimed = await reclaimOwnerToolApprovalExecution(context.db, {
 		id: input.approval.id,
 		organizationId: input.approval.orgId,
 		now: startedAt,
 		retriedBy: input.retriedBy,
+		attempt,
 		staleBefore: new Date(now - STALE_OWNER_TOOL_RUN_MS).toISOString(),
 	});
 	if (!claimed) return "claim_lost";
@@ -417,7 +418,7 @@ export async function retryOwnerToolCallExecution(
 			approval: input.approval,
 			payload,
 			startedAt,
-			retry: { retriedBy: input.retriedBy },
+			retry: { retriedBy: input.retriedBy, attempt },
 		}),
 	};
 }

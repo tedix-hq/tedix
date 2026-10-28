@@ -591,7 +591,7 @@ export const tediApprovalsContract = oc
 				path: "/{id}/retry-execution",
 				summary: "Try an approved call again",
 				description:
-					"Runs an approved gateway call (an owner's tool call parked for approval) once more after its first run failed on the platform's side, such as a tool lookup or transport error. Only an owner or admin may retry, only once per request, and only while the request is still approved and within its window. A call the target refused, a target that changed, or a run that already happened is not retried. The result is recorded on the request.",
+					"Runs an approved gateway call (an owner's tool call parked for approval) again after its last run failed on the platform's side, such as a tool lookup or transport error, or was cut off before it reached the target. Only an owner or admin may retry, only while the request is still approved, unconsumed and within its window. A call the target refused, a target that changed, or a run that already happened is not retried. The result is recorded on the request.",
 			})
 			.input(z.object({ id: z.uuid() }))
 			.output(ApprovalRequestSchema),

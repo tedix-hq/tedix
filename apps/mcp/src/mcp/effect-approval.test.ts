@@ -241,10 +241,12 @@ describe("effect-based gateway approval", () => {
 	describe("platform replay of an owner approval", () => {
 		function replayContext(approved: boolean) {
 			const ctx = context();
+			// The gateway binds a kernel caller to the requester's primary tedi.
 			(ctx as { callerIdentity: unknown }).callerIdentity = {
 				authType: "service",
 				kernel: true,
 				userId: "owner-1",
+				tediId: "tedi-primary-1",
 			};
 			vi.mocked(
 				ctx.apiClient.mcpGovernance.requestOwnerToolApproval,

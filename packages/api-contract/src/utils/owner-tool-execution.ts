@@ -16,8 +16,8 @@ export interface OwnerToolExecutionRecord {
 	 * the target refusing or changing; an owner may try the call once more.
 	 */
 	retryable?: boolean;
-	/** Set on the one retry an owner or admin started; absent on the first run. */
-	attempt?: 2;
+	/** 2 on the first retry an owner or admin started, and so on; absent on the first run. */
+	attempt?: number;
 	retriedBy?: string;
 }
 
@@ -46,7 +46,9 @@ export function parseOwnerToolExecution(
 		...(typeof value.retryable === "boolean"
 			? { retryable: value.retryable }
 			: {}),
-		...(value.attempt === 2 ? { attempt: 2 } : {}),
+		...(typeof value.attempt === "number" && value.attempt >= 2
+			? { attempt: value.attempt }
+			: {}),
 		...(typeof value.retriedBy === "string"
 			? { retriedBy: value.retriedBy }
 			: {}),
@@ -56,10 +58,11 @@ export function parseOwnerToolExecution(
 /**
  * Errors that mean the platform never reached the target: the tool could not
  * be found in the gateway catalog, the gateway or the service binding was not
- * reachable. Used only for rows recorded before `retryable` was stored.
+ * reachable, or the gateway refused before dispatch ("No side effect was
+ * executed"). Used only for rows recorded before `retryable` was stored.
  */
 const PLATFORM_SIDE_ERROR =
-	/no longer available on|could not be verified on|\(transport\)|is not configured/;
+	/no longer available on|could not be verified on|\(transport\)|is not configured|No side effect was executed/;
 
 /**
  * A run still marked running this long after it started never finished: the
@@ -80,9 +83,10 @@ export function isStaleOwnerToolRun(
 }
 
 /**
- * Whether an execution may be tried once more: the platform itself failed
- * (or the run never finished), the target neither refused nor changed, and
- * no completed retry exists yet.
+ * Whether an execution may be tried again: the platform itself failed (or
+ * the run never finished) and the target neither refused nor changed. Each
+ * retry takes an owner's click; the gateway's consumed receipt, not a count,
+ * is what keeps the call to one run.
  */
 export function isRetryableOwnerToolExecution(
 	execution: OwnerToolExecutionRecord | null | undefined,
@@ -92,7 +96,6 @@ export function isRetryableOwnerToolExecution(
 	if (execution.status === "running")
 		return isStaleOwnerToolRun(execution, now);
 	if (execution.status !== "failed") return false;
-	if (execution.attempt !== undefined) return false;
 	if (typeof execution.retryable === "boolean") return execution.retryable;
 	return PLATFORM_SIDE_ERROR.test(execution.error ?? "");
 }
