@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.18.1 — 2026-10-28
+
+### Patch Changes
+
+- Devin tasks started by `tedix lane serve` now get the project's dependencies installed before Devin starts, so they can run checks and push their finished work. If the pre-push checks crash because a module is missing, that no longer counts against the push retry limit.
+
 ## 0.18.0 — 2026-10-28
 
 ### Minor Changes
