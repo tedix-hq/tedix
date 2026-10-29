@@ -154,9 +154,10 @@ and durable answer settlement.
   If Codex queue withdrawal fails, the supervisor keeps a private receipt
   across retries and restarts and starts no headless turn. Delivery remains
   unconfirmed until the transcript shows the reply or withdrawal succeeds.
-  A checkout inside a macOS privacy-protected folder is rejected before any
-  filesystem or binding read, with the Full Disk Access requirement in the log.
-  It is never silently replaced with a different directory's binding.
+  Checkouts inside macOS privacy-protected folders get a bounded access check
+  before binding reads. Denied or unavailable checkouts are skipped and logged;
+  a deleted directory cannot block other sessions sharing the same login.
+  A checkout is never silently replaced with a different directory's binding.
   Context and auth inspection run locally using the CLI's existing readers;
   binding checks no longer start an `auth status` child inside a five-second
   deadline. Server reads keep their existing deadlines.
