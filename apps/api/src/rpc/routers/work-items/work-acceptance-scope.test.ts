@@ -16,12 +16,8 @@ describe("work acceptance scope", () => {
 		expect(hasWorkAcceptanceScope(scopeContext([]))).toBe(false);
 	});
 
-	// The whole point of a dedicated scope: acceptance is what makes a Work Item
-	// executable, so the DEFAULT agent credential must not carry it. `tedix agent
-	// start` grants platform:admin by default — if that were sufficient, every coding
-	// harness could make its own work executable the moment it was created, and
-	// the scope would be decorative.
-	it("does not accept platform:admin, the default agent scope", () => {
+	// Platform administration does not substitute for Work administration.
+	it("does not accept platform:admin alone", () => {
 		expect(hasWorkAcceptanceScope(scopeContext(["platform:admin"]))).toBe(
 			false,
 		);

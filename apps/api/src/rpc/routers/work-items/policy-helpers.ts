@@ -171,16 +171,26 @@ export async function workItemStewardActor(
  * Dedicated scope that lets a NON-HUMAN principal fix a Work Item's acceptance
  * contract. Modelled on EARNED_DELEGATION_GOVERN_SCOPE: ordinary agent and org
  * keys fail closed, and `platform:admin` alone is deliberately NOT sufficient — the
- * owner grants this explicitly (`tedix agent start --agent-scopes`) or an agent
- * cannot make its own work executable.
+ * MCP Work administration translates to this scope for machine credentials.
+ * Owner-host sessions retain the owner's verified MCP grant and agent identity.
  */
 export const WORK_ACCEPT_SCOPE = "work:accept";
 
 export function hasWorkAcceptanceScope(
-	context: Pick<BaseContext, "authType" | "apiKey" | "tediScopes">,
+	context: Pick<
+		BaseContext,
+		"authType" | "apiKey" | "tediScopes" | "ownerHostSessionId" | "user"
+	>,
 ): boolean {
-	// A human principal is authorized by membership, never by scope.
-	if (context.authType === "user") return false;
+	// The caller must resolve the owner-host session before using this grant.
+	// Ordinary human acceptance continues to use owner/admin membership.
+	if (context.authType === "user") {
+		return Boolean(
+			context.ownerHostSessionId &&
+			Array.isArray(context.user?.scopes) &&
+			context.user.scopes.includes("mcp:work.admin"),
+		);
+	}
 	const scopes = [
 		...(context.apiKey?.scopes ?? []),
 		...(context.tediScopes ?? []),
@@ -218,6 +228,13 @@ export async function workItemAcceptanceActor(
 				"Work Item acceptance",
 			),
 		};
+	}
+	if (context.ownerHostSessionId) {
+		await requireOwnerAdminWorkItemAuthor(
+			context,
+			orgId,
+			"Work Item acceptance",
+		);
 	}
 	if (!hasWorkAcceptanceScope(context)) {
 		throw createError(
