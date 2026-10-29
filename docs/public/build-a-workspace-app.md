@@ -130,7 +130,12 @@ Apps are what people open a workspace for, so the OS puts them first:
   "Automations".
 - Each card shows a small preview of the app, its name, its purpose and a
   status line, with an **Open app** button. Card review previews the next
-  open card; other apps show an app icon.
+  open card. Other apps can show a saved screenshot from their manifest's
+  `preview: {image, alt}`. Use a PNG, JPEG or WebP data URL of at most 100,000
+  characters and describe the picture in `alt`. Review the screenshot with
+  each app revision; it is visible to everyone who can read the app, so omit
+  private viewer-specific information. The overview never runs the app to
+  generate a preview. Apps without a preview use a compact card.
 - A workspace link with no workpiece or pane opens the first app in the
   Editor. An app whose `entry` is one of the workspace's outputs opens that
   output's editor instead. A link that names a workpiece or pane always
