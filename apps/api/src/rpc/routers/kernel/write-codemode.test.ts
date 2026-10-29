@@ -4,6 +4,7 @@ import {
 	codeModeDescribeParams,
 	codeModeDiscoveryParams,
 	codeModeExecutionParams,
+	codeModeReplayLookupParams,
 	codeModeResultHandle,
 	codeModeReadResultParams,
 	parseCodeModeCatalog,
@@ -18,6 +19,30 @@ async function runGenerated(params: Record<string, unknown>, discover: object) {
 }
 
 describe("write discovery contracts", () => {
+	it("finds a hyphenated provider tool using its projected catalog name", async () => {
+		const wire = { name: "notion__notion-update-page" };
+		const result = await runGenerated(
+			codeModeReplayLookupParams("notion-update-page"),
+			{
+				search: async (input: { query: string }) => {
+					expect(input.query).toBe("notion_update_page");
+					return {
+						results: [
+							{
+								tool: "notion_update_page",
+								callable: "notion.notion_update_page",
+							},
+						],
+					};
+				},
+				describe: async () => ({ callable: "notion.notion_update_page", wire }),
+			},
+		);
+		expect(parseCodeModeCatalogValue(result)).toMatchObject([
+			{ name: "notion.notion_update_page", wire: { ...wire, endpoint: null } },
+		]);
+		expect(() => codeModeReplayLookupParams('bad";call()')).toThrow();
+	});
 	it("keeps JavaScript delimiters and HTML tags as argument data", async () => {
 		const value =
 			'\"); throw new Error("injected"); // </script><script> & \\ \n\u2028\u2029';

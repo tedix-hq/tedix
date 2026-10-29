@@ -426,6 +426,7 @@ export function buildCatalogProvider(
 		let native: ReturnType<typeof describeNativeTool> | undefined;
 		const primaryEntry = {
 			...projection,
+			wire: { name: tool.toolId },
 			...(typeof toolOrganizationId === "string" && toolOrganizationId
 				? { organization: toolOrganizationId }
 				: {}),

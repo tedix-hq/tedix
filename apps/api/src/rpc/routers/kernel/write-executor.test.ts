@@ -1527,6 +1527,40 @@ describe("approved owner tool call replay", () => {
 		expect(timings.revalidateMs).toBeTypeOf("number");
 	});
 
+	it("replays a hyphenated connected tool only through its matching wire binding", async () => {
+		const service = codeModeGateway(
+			[
+				{
+					callable: "notion.notion_update_page",
+					annotations: { readOnlyHint: false },
+					wire: { name: "notion__notion-update-page" },
+				},
+			],
+			() => ({
+				jsonrpc: "2.0",
+				id: 1,
+				result: { structuredContent: { success: true } },
+			}),
+		);
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			payload: {
+				appSlug: "example-unified",
+				toolId: "example_unified_notion__notion-update-page",
+				args: { page_id: "page-1", command: "insert_content" },
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+			approvalRequestId: "approval-1",
+		});
+		expect(result).toEqual({ ok: true, data: { success: true } });
+		expect(service.calls.at(-1)?.params).toMatchObject({
+			name: "notion__notion-update-page",
+			arguments: { page_id: "page-1", command: "insert_content" },
+			_meta: { "com.tedix/approvalRequestId": "approval-1" },
+		});
+	});
+
 	it("reports an unresolvable tool as a retryable platform-side failure", async () => {
 		const service = codeModeGateway([], () => {
 			throw new Error("must not call");

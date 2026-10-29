@@ -53,6 +53,7 @@ export interface CatalogToolEntry {
 	_meta?: Record<string, unknown>;
 	outputSchema?: Record<string, unknown>;
 	schemaFreshness?: CatalogSchemaFreshness;
+	wire?: { name: string };
 	native?: NativeZ.infer<typeof McpNativeDescriptorSchema>;
 	equivalentTediOwners?: Array<{ namespace: string; callable: string }>;
 	/**
