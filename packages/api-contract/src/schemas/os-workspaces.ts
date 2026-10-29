@@ -492,6 +492,18 @@ export const PersonalReadConsentConfigSchema = z.strictObject({
 
 export const OsGadgetManifestSchema = z
 	.object({
+		preview: z
+			.strictObject({
+				image: z
+					.string()
+					.max(100_000)
+					.regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/),
+				alt: z.string().trim().min(1).max(240),
+			})
+			.optional()
+			.describe(
+				"Saved app screenshot shown on its workspace card. PNG, JPEG or WebP data URL, at most 100,000 characters; no remote image requests or app execution. Review with each app revision and exclude private viewer-specific data.",
+			),
 		navigation: z
 			.strictObject({
 				board: z.boolean().optional(),

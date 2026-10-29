@@ -1,5 +1,5 @@
 import "./workspace-app-cards.css";
-import { AppWindow, Cards } from "@phosphor-icons/react";
+import { Cards } from "@phosphor-icons/react";
 import type { CardReviewConfig } from "@tedix/api-contract/schemas/os-card-review";
 import type { OsGadget } from "@tedix/api-contract/schemas/os-workspaces";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -97,9 +97,16 @@ export function WorkspaceAppCard({
 			onOpen={onOpen}
 			resourceId={gadget.id}
 			preview={
-				<div className="workspace-app-preview h-full">
-					{config ? (
-						summary === null ? (
+				!config && manifest?.preview ? (
+					<img
+						src={manifest.preview.image}
+						alt={manifest.preview.alt}
+						className="h-full w-full object-cover object-top"
+						loading="lazy"
+					/>
+				) : config ? (
+					<div className="workspace-app-preview h-full">
+						{summary === null ? (
 							<Skeleton className="h-full w-full" />
 						) : summary.next ? (
 							<span className="workspace-app-preview-card" aria-hidden>
@@ -137,13 +144,9 @@ export function WorkspaceAppCard({
 									All caught up
 								</Text>
 							</span>
-						)
-					) : (
-						<span className="workspace-app-preview-empty" aria-hidden>
-							<AppWindow size={28} />
-						</span>
-					)}
-				</div>
+						)}
+					</div>
+				) : undefined
 			}
 		>
 			{purpose && (
