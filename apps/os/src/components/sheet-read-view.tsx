@@ -44,6 +44,7 @@ export function sheetCellPaint(cell: OsWorkbookCell | null | undefined) {
 	return {
 		background: format?.fillColor,
 		color: format?.textColor,
+		fontSize: format?.fontSize,
 		fontWeight: format?.bold ? 700 : undefined,
 		fontStyle: format?.italic ? "italic" : undefined,
 		textDecoration: decoration || undefined,

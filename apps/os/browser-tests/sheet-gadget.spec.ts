@@ -161,6 +161,43 @@ try {
 				await page.keyboard.press("Escape");
 				await dialog.waitFor({ state: "hidden" });
 
+				// Cell sizes use the shared Select and survive another cell
+				// selection. Options are chosen by keyboard: a pointer click on an
+				// item can race the popup's open-time measurement and land on a
+				// neighbour.
+				const textSize = page.getByRole("combobox", {
+					name: "Cell text size",
+				});
+				const sizeOption = (name: string) =>
+					page.getByRole("option", { name, exact: true });
+				await textSize.click();
+				await sizeOption("24 px").waitFor();
+				await page.keyboard.press("2");
+				await page.keyboard.press("Enter");
+				assert.equal(
+					await cell(page, 0, 0).evaluate(
+						(el) => getComputedStyle(el).fontSize,
+					),
+					"24px",
+					`${label}: cell text size applies`,
+				);
+				await cell(page, 0, 1).click();
+				assert.equal((await textSize.textContent())?.trim(), "Default");
+				await cell(page, 0, 0).click();
+				assert.equal((await textSize.textContent())?.trim(), "24 px");
+				await textSize.click();
+				await sizeOption("Default").waitFor();
+				await page.keyboard.press("d");
+				await page.keyboard.press("Enter");
+				assert.notEqual(
+					await cell(page, 0, 0).evaluate(
+						(el) => getComputedStyle(el).fontSize,
+					),
+					"24px",
+					`${label}: default size restores the theme`,
+				);
+				await noPageOverflow(page, label);
+
 				await page.screenshot({
 					path: `${evidence}/edit-${width}-${theme}.png`,
 				});

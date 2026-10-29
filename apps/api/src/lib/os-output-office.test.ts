@@ -260,6 +260,33 @@ describe("xlsx export", () => {
 		expect(styles.styleSheet.numFmts).toBeDefined();
 	});
 
+	it("exports distinct cell font sizes in points without shortening long text", async () => {
+		const content = structuredClone(workbookContent);
+		const rows = content.workbook!.sheets[0]!.rows;
+		rows[0]![0] = {
+			input: "x".repeat(8192),
+			value: "x".repeat(8192),
+			format: { fontSize: 24 },
+		};
+		rows[1]![0] = {
+			input: "Smaller",
+			value: "Smaller",
+			format: { fontSize: 16 },
+		};
+		const file = await buildOsOutputOfficeExport("xlsx", content, "Sizes");
+		const sheet = readPart(file, "xl/worksheets/sheet1.xml");
+		const styles = readPart(file, "xl/styles.xml").styleSheet;
+		const first = sheet.worksheet.sheetData.row[1].c[0];
+		const second = sheet.worksheet.sheetData.row[2].c[0];
+		const font = (cell: XmlNode) =>
+			styles.fonts.font[
+				Number(styles.cellXfs.xf[Number(cell["@s"])]["@fontId"])
+			];
+		expect(Number(font(first).sz["@val"])).toBe(18);
+		expect(Number(font(second).sz["@val"])).toBe(12);
+		expect(textOf(first.is.t)).toHaveLength(8192);
+	});
+
 	it("exports a flat sheet body that never grew a workbook", async () => {
 		const file = await buildOsOutputOfficeExport(
 			"xlsx",

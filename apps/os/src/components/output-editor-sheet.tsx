@@ -29,6 +29,7 @@ import type {
 	OsWorkbookCellFormat,
 	OsWorkbookSheet,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { OS_SHEET_CELL_MAX_LENGTH } from "@tedix/api-contract/schemas/os-workspaces";
 import {
 	type CSSProperties,
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -107,6 +108,7 @@ import {
 	sheetSelectionToPresence,
 } from "@/lib/sheet-grid";
 import { SheetNumberFormatToolbar } from "@/components/sheet-number-format-toolbar";
+import { SheetFontSizeControl } from "@/components/sheet-font-size-control";
 import { osSpreadsheetLocale } from "@/lib/format";
 import { SHEET_HISTORY } from "@/lib/output-history";
 import { useEditorHistory } from "@/lib/use-editor-history";
@@ -137,7 +139,7 @@ import {
 
 const SHEET_MAX_ROWS = 1000;
 const SHEET_MAX_COLUMNS = 64;
-const SHEET_CELL_MAX_LENGTH = 4000;
+const SHEET_CELL_MAX_LENGTH = OS_SHEET_CELL_MAX_LENGTH;
 const PAGE_ROWS = 20;
 
 type RenameTarget =
@@ -1030,6 +1032,11 @@ export function SheetEditor({
 				</EditorToolbarButton>
 				<EditorHistoryNotice notice={history.notice} />
 				<EditorToolbarDivider />
+				<SheetFontSizeControl
+					format={selectedCell.format}
+					disabled={disabled}
+					onChange={commitFormat}
+				/>
 				<EditorToolbarButton
 					label="Bold"
 					active={selectedCell.format?.bold}

@@ -296,6 +296,7 @@ function renderWorkbook(
 								const value = cell?.value ?? null;
 								const format = cell?.format;
 								const declarations = [
+									format?.fontSize ? `font-size:${format.fontSize}px` : "",
 									format?.bold ? "font-weight:700" : "",
 									format?.italic ? "font-style:italic" : "",
 									format?.underline ? "text-decoration:underline" : "",

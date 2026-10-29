@@ -18,6 +18,32 @@ import {
 
 const revisionMeta = { revision: 3, createdAt: "2026-08-13T00:00:00.000Z" };
 
+it("preserves cell font size in the rendered sheet export", () => {
+	const content = OsOutputContentSchema.parse({
+		kind: "sheet",
+		columns: ["Note"],
+		rows: [["Large"]],
+		workbook: {
+			activeSheetId: "one",
+			sheets: [
+				{
+					id: "one",
+					name: "Notes",
+					columns: [{ id: "a", label: "Note" }],
+					rows: [
+						[{ input: "Large", value: "Large", format: { fontSize: 24 } }],
+					],
+				},
+			],
+		},
+	});
+	const html = renderOsOutputHtml(
+		{ kind: "sheet", title: "Sizes" },
+		{ ...revisionMeta, content },
+	);
+	expect(html).toContain('style="font-size:24px"');
+});
+
 describe("export resource loading", () => {
 	it("allows CMS raster assets and font hosts, rejecting arbitrary hosts and paths", () => {
 		const allowed = (url: string) =>
