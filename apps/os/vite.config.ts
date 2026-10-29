@@ -128,6 +128,11 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 		},
 		server: {
 			port: 3010,
+			// Ignore file events during browser checks; watch:null also disables Vite's resolver cache.
+			watch:
+				process.env.TEDIX_BROWSER_FIXTURE === "1"
+					? { ignored: () => true }
+					: undefined,
 			allowedHosts: [
 				"localhost",
 				".localhost",
