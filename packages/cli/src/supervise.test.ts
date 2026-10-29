@@ -705,6 +705,35 @@ describe("tedix supervise", () => {
 			expect(retry.resumed).toEqual([]);
 		});
 
+		for (const kind of ["deleted", "file"] as const) {
+			test(`${kind} checkout cannot poison another session's grouped answer read`, async () => {
+				sessions([CLAUDE, "claude-code"], [CODEX, "codex"]);
+				const unavailable = join(config, "old-checkout");
+				mkdirSync(unavailable);
+				rmSync(unavailable, { recursive: true });
+				if (kind === "file") writeFileSync(unavailable, "not a directory");
+				writeFileSync(
+					join(config, "decision-capture", `${CLAUDE}.session.json`),
+					JSON.stringify({ host: "claude-code", cwd: unavailable }),
+				);
+				const run = drain([
+					answer(CLAUDE, "claude-code", 3 * 60 * 60 * 1000),
+					answer(
+						CODEX,
+						"codex",
+						60_000,
+						"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+					),
+				]);
+				expect(await run.runner.tick()).toBe(1);
+				expect(run.cwds.every(([, cwd]) => cwd === config)).toBe(true);
+				expect(run.resumed).toEqual([]);
+				expect(run.queued.map(([session]) => session)).toEqual([CODEX]);
+				expect(run.acks).toHaveLength(1);
+				expect(run.lines.some((line) => line.includes(unavailable))).toBe(true);
+			});
+		}
+
 		test("reads resolve from the session's checkout without changing this process's directory", async () => {
 			sessions([CLAUDE, "claude-code"]);
 			const home = process.cwd();

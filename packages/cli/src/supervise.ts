@@ -27,7 +27,13 @@
  * per answer. Activity goes to `~/.tedix/supervisor.log`.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -684,13 +690,20 @@ export class Supervisor {
 	 * Reads that resolve their context from the session's checkout, as in its
 	 * hooks. The read gets `cwd` instead of this process changing directory:
 	 * `process.chdir` round trips made `getcwd` fail with EINTR under launchd.
-	 * A checkout in a privacy-protected folder is never used (`privacyProtected`).
+	 * Check protected-folder access before inspecting the checkout itself.
 	 */
 	private reader(cwd: string): ReadJson {
-		// Test the path lexically before even existsSync: TCC can stall that read.
+		// Keep the bounded privacy check before filesystem reads: TCC can stall them.
 		const blocked = protectedResumeReason(cwd, this.deps.env);
 		return (args, timeoutMs, input) => {
 			if (blocked) return Promise.reject(new Error(blocked));
+			try {
+				if (!statSync(cwd).isDirectory()) throw new Error("not a directory");
+			} catch {
+				return Promise.reject(
+					new Error(`session checkout is missing or unavailable: ${cwd}`),
+				);
+			}
 			return this.deps.read(args, timeoutMs, input, {
 				cwd,
 				env: this.deps.env,
