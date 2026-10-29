@@ -220,6 +220,50 @@
 	}
 }
 
+.sheet-editor .output-editor-toolbar {
+	--sheet-toolbar-control-size: 32px;
+}
+
+.sheet-editor .output-editor-toolbar [data-kumo-component="Toolbar"] {
+	align-items: center;
+	padding: 4px;
+}
+
+/* Kumo's joined-control borders would duplicate the editor's group dividers. */
+.sheet-editor .output-editor-toolbar [data-kumo-component="Toolbar"] > * {
+	border-left-width: 0 !important;
+}
+
+.sheet-editor .output-editor-toolbar [data-history-notice]:empty {
+	display: none;
+}
+
+.sheet-editor
+	.output-editor-toolbar
+	:is(
+		button[data-toolbar-control="icon"],
+		[data-toolbar-control="color"],
+		[data-kumo-component="Select"][data-kumo-part="trigger"]
+	) {
+	height: var(--sheet-toolbar-control-size);
+	min-height: var(--sheet-toolbar-control-size);
+	flex-shrink: 0;
+}
+
+.sheet-editor
+	.output-editor-toolbar
+	:is(button[data-toolbar-control="icon"], [data-toolbar-control="color"]) {
+	width: var(--sheet-toolbar-control-size);
+	min-width: var(--sheet-toolbar-control-size);
+	padding: 0;
+}
+
+@media (max-width: 639px), (pointer: coarse) {
+	.sheet-editor .output-editor-toolbar {
+		--sheet-toolbar-control-size: 44px;
+	}
+}
+
 /*
  * A page on a desk, not a card in an app. The desk is the recessed ground the
  * page floats above; it carries the vertical air that used to be missing
