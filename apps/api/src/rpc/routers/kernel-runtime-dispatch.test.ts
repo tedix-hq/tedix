@@ -260,6 +260,58 @@ describe("kernel DO integration (enqueueMessage kernel path)", () => {
 		};
 	}
 
+	it("keeps signed-in certification on the original request instead of the synthetic DO context", async () => {
+		const db = createKernelRuntimeDb();
+		const context = createContext(db, { userSub: "owner" });
+		context.authType = "user";
+		context.userRole = "owner";
+		const processTurn = vi.fn(async (input: { runId: string }) =>
+			doTurnResult(input.runId),
+		);
+		(context.env as Record<string, unknown>).KERNEL = {
+			idFromName: vi.fn(() => "do-id"),
+			get: vi.fn(() => ({ processTurn })),
+		};
+		const inline = vi.fn(async () => ({
+			assistantContent: "INLINE",
+			route: {
+				routeKind: "answer_directly" as const,
+				rationale: "Direct reply",
+				risk: "low" as const,
+				confidence: 1,
+			},
+		}));
+		kernelRuntimeTestHooks.setKernelForTest(inline);
+		await createKernelRuntimeClient(context).enqueueMessage({
+			conversationId: "home:owner-cert",
+			content: "certify draft 5b032f59-8237-491a-ba45-96fbb10a6d7f",
+			idempotencyKey: "owner-cert-inline",
+		});
+		expect(processTurn).not.toHaveBeenCalled();
+		expect(inline).toHaveBeenCalled();
+	});
+
+	it("does not treat an agent's forwarded user id as a signed-in certification request", async () => {
+		const db = createKernelRuntimeDb();
+		const context = createContext(db, { userSub: "owner" });
+		const processTurn = vi.fn(async (input: { runId: string }) =>
+			doTurnResult(input.runId),
+		);
+		(context.env as Record<string, unknown>).KERNEL = {
+			idFromName: vi.fn(() => "do-id"),
+			get: vi.fn(() => ({ processTurn })),
+		};
+		const inline = vi.fn(async () => null);
+		kernelRuntimeTestHooks.setKernelForTest(inline);
+		await createKernelRuntimeClient(context).enqueueMessage({
+			conversationId: "home:agent-cert",
+			content: "certify draft 5b032f59-8237-491a-ba45-96fbb10a6d7f",
+			idempotencyKey: "agent-cert-do",
+		});
+		expect(processTurn).toHaveBeenCalledTimes(1);
+		expect(inline).not.toHaveBeenCalled();
+	});
+
 	it("routes kernel-eligible turns through KERNEL.processTurn and returns its result verbatim", async () => {
 		const db = createKernelRuntimeDb();
 		const context = createContext(db);
