@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.18.2 — 2026-10-29
+
+### Patch Changes
+
+- Local dispatchers check for ready work before cleaning up old runs. Cleanup preserves unfinished work, settled failures can retry without a Work edit, and checkout progress no longer overflows process buffers.
+- Devin lanes keep their dispatcher-provided Tedix CLI identity and leave the shared plugin sign-in unchanged when creating or resuming a session.
+- The supervisor can wake bound Devin and OpenCode Lead sessions, preserving their native session IDs and delivery receipts. It leaves busy sessions to their hooks, reads context and sign-in state locally, and reports checkouts blocked by macOS privacy protection.
+
 ## 0.18.1 — 2026-10-28
 
 ### Patch Changes
