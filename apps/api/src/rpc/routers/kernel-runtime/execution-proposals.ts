@@ -44,6 +44,7 @@ import {
 	runKernelTurnWork,
 } from "../kernel/turn-work";
 import { type KernelTurnWorkInput } from "../kernel/turn-work-context";
+import { parseSkillCertificationRequest } from "../kernel/direct-skill-certify";
 import { REPO_COMMIT_WRITE_KIND } from "@tedix/api-contract/schemas/repo-commit-write";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
 import { type VoiceSttEnv, resolveVoiceMessageContent } from "@tedix/voice/stt";
@@ -1212,7 +1213,15 @@ export const enqueueMessageRoute = authed.enqueueMessage
 					KERNEL?: DurableObjectNamespace<KernelDO>;
 				}
 			).KERNEL;
-			if (kernel) {
+			// The DO deliberately has no signed-in request context. Keep owner
+			// certification on this request rather than recreating a human there.
+			const ownerCertification =
+				context.authType === "user" &&
+				context.user?.sub &&
+				!context.tediId &&
+				!context.externalAgentPrincipalId &&
+				parseSkillCertificationRequest(turnContent) !== null;
+			if (kernel && !ownerCertification) {
 				let doTurn: Promise<KernelTurnWorkResult> | null = null;
 				try {
 					const stub = kernel.get(kernel.idFromName(organizationId));
