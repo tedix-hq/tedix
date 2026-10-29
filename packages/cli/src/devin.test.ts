@@ -1056,6 +1056,86 @@ test("unsupported Git filter driver names fail closed before verification", () =
 	expect(() => assertDevinProjectHooks(dir)).toThrow("Devin project hooks");
 });
 
+test.each([
+	["succeeded", false, false, 0, 1],
+	["failed", false, false, 1, 1],
+	["missing", false, false, 1, 0],
+	["succeeded", true, false, 1, 1],
+	["succeeded", false, true, 1, 0],
+] as const)(
+	"admitted Devin delivery: %s denied=%s wrongSession=%s",
+	async (outcome, denied, wrongSession, expectedExit, writes) => {
+		const dir = temporary();
+		const binary = fakeDevin(dir);
+		const note =
+			"The actual README paragraph.\nEvidence: https://example.invalid/readme";
+		const message =
+			outcome === "missing"
+				? "Could not post the requested result."
+				: `TEDIX_WORK_RESULT ${JSON.stringify({ outcome, note })}`;
+		let source = readFileSync(binary, "utf8").replace(
+			"console.log('Fake Devin completed the brief.');",
+			`console.log(${JSON.stringify(message)});`,
+		);
+		if (wrongSession)
+			source = source.replace(
+				"session_id:'quiet-river'",
+				"session_id:'other-river'",
+			);
+		writeFileSync(binary, source);
+		const brief = join(dir, "brief.txt");
+		writeFileSync(brief, "Read README and post the first paragraph.");
+		const notes: string[] = [];
+		let last: unknown;
+		const exit = await runLaneProcess(
+			[
+				"run",
+				"--executor",
+				"devin",
+				"--project",
+				"11111111-1111-4111-8111-111111111111",
+				"--work-item",
+				"22222222-2222-4222-8222-222222222222",
+				"--brief",
+				brief,
+				"--",
+				binary,
+			],
+			{
+				cwd: dir,
+				sessionKey: "quiet-river",
+				admitted: true,
+				deliverWorkNote: async (value) => {
+					notes.push(value);
+					if (denied) throw new Error("Work note authorization denied");
+				},
+				report: async (value) => {
+					last = value.telemetry;
+					return {};
+				},
+			},
+		);
+		expect(exit).toBe(expectedExit);
+		expect(notes).toEqual(writes ? [note] : []);
+		expect(last).toMatchObject({
+			outcome: expectedExit === 0 ? "succeeded" : "failed",
+		});
+		const invocation = JSON.parse(
+			readFileSync(join(dir, "invocation.json"), "utf8"),
+		);
+		const prompt = readFileSync(
+			invocation.args[invocation.args.indexOf("--prompt-file") + 1],
+			"utf8",
+		);
+		expect(prompt).toContain("Read README and post the first paragraph.");
+		expect(prompt).toContain("TEDIX_WORK_RESULT");
+		expect(invocation.config.permissions.deny).toContain("mcp__tedix__*");
+		directories.push(
+			dirname(invocation.args[invocation.args.indexOf("--export") + 1]),
+		);
+	},
+);
+
 test("private config keeps only the selected Devin org and refuses onboarding", () => {
 	const dir = temporary();
 	fakeDevin(dir);

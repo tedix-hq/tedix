@@ -19,6 +19,10 @@ import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
 import { writeDevinLaneConfig } from "./devin-config";
 import {
+	deliverDevinWorkResult,
+	devinWorkResultInstruction,
+} from "./devin-work-result";
+import {
 	assertDevinProjectHooks,
 	writeDevinGitIdentity,
 } from "./devin-lane-security";
@@ -93,6 +97,7 @@ async function runLaneProcessWithReporter(
 		detachedChild?: boolean;
 		/** The caller already holds an admitted Attempt for this Work. */
 		admitted?: boolean;
+		deliverWorkNote?: (note: string) => Promise<void>;
 		onSpawn?: (pid: number) => void;
 		onTelemetry?: (value: LaneObservation) => void;
 	} = {},
@@ -308,6 +313,12 @@ async function runLaneProcessWithReporter(
 	if (devin) {
 		writeDevinGitIdentity(join(dir, "gitconfig"), deps.cwd ?? process.cwd());
 		const config = join(dir, "devin", "config.json");
+		const prompt = join(dir, "devin-brief.txt");
+		writeFileSync(
+			prompt,
+			`${readFileSync(options.get("--brief")!, "utf8")}\n\n${devinWorkResultInstruction}\n`,
+			{ mode: 0o600 },
+		);
 		const workspace =
 			deps.childScope?.workspace ??
 			options.get("--workspace") ??
@@ -329,7 +340,7 @@ async function runLaneProcessWithReporter(
 			"-r",
 			sessionKey,
 			"--prompt-file",
-			options.get("--brief")!,
+			prompt,
 			"--respect-workspace-trust",
 			"false",
 			"--sandbox",
@@ -602,6 +613,21 @@ async function runLaneProcessWithReporter(
 		process.stderr.write(`Lane transcript: ${String(error)}\n`);
 	}
 	await heartbeat;
+	if (devin && exitCode === 0 && !signal && options.has("--work-item")) {
+		try {
+			if (!deps.admitted || !deps.sessionKey || !deps.deliverWorkNote)
+				throw new Error("Devin Work delivery requires its admitted dispatcher");
+			const result = await deliverDevinWorkResult(
+				telemetry.finalMessage,
+				deps.deliverWorkNote,
+			);
+			telemetry.finalMessage = result.note;
+			if (result.outcome !== "succeeded") exitCode = 1;
+		} catch (error) {
+			exitCode = 1;
+			telemetry.finalMessage = `Devin Work result delivery failed: ${String(error)}\n${telemetry.finalMessage}`;
+		}
+	}
 	if (streamFailureMessage && (streamError || exitCode !== 0))
 		telemetry.finalMessage = streamFailureMessage;
 	else if (exitCode !== 0 && devinStderr)

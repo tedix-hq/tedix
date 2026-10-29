@@ -111,6 +111,7 @@ function fixture({
 	const releases: Array<() => void> = [];
 	const control = {
 		spawnPid: undefined as number | undefined,
+		deliverNote: undefined as string | undefined,
 		telemetryOutcome: "succeeded" as "succeeded" | "stopped" | "failed",
 		exitCode: 0,
 		provisionError: undefined as Error | undefined,
@@ -308,6 +309,8 @@ function fixture({
 			expect(brief).toContain("Do not pass one -m per trailer");
 			if (control.spawnPid) deps?.onSpawn?.(control.spawnPid);
 			await new Promise<void>((done) => releases.push(done));
+			if (control.deliverNote)
+				await deps?.deliverWorkNote?.(control.deliverNote);
 			deps?.onTelemetry?.({
 				executor: nativeExecutor,
 				model: "test-model",
@@ -558,6 +561,53 @@ describe("dispatcher admission", () => {
 		expect(events.filter((event) => event.verb === "settle")).toHaveLength(2);
 		expect(control.installed).toHaveLength(2);
 	});
+	it("posts Devin notes only to the admitted Work using its own fenced identity", async () => {
+		const f = fixture({ executor: "devin" });
+		f.items.splice(1);
+		f.control.deliverNote = "Actual requested paragraph.";
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const comment = f.events.find((event) => event.verb === "comment")!;
+		expect(comment.args.slice(4)).toEqual([
+			"work",
+			"comment",
+			f.items[0]!.id,
+			"--body",
+			f.control.deliverNote,
+		]);
+		const admission = f.events.find(
+			(event) => event.verb === "start" && event.args[4] === "work",
+		)!;
+		expect(comment.env.TEDIX_AGENT_SESSION).toBe(
+			admission.env.TEDIX_AGENT_SESSION,
+		);
+		expect(comment.env.TEDIX_EXTERNAL_AGENT).toBe(
+			admission.env.TEDIX_EXTERNAL_AGENT,
+		);
+		expect(f.events.slice(0, f.events.indexOf(comment)).at(-1)?.verb).toBe(
+			"heartbeat",
+		);
+	});
+	it.each([
+		["failed", 0],
+		["succeeded", 1],
+	] as const)(
+		"does not settle success with telemetry %s and exit %s",
+		async (outcome, exit) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.telemetryOutcome = outcome;
+			f.control.exitCode = exit;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const args = f.events.find((event) => event.verb === "settle")!.args;
+			expect(args[args.indexOf("--outcome") + 1]).toBe("failed");
+		},
+	);
 	it("does not create a child or admit Work when Devin dependency installation fails", async () => {
 		const { dispatcher, events, releases, control } = fixture({
 			executor: "devin",
@@ -919,6 +969,7 @@ describe("dispatcher admission", () => {
 			const restarted = new LaneDispatcher(options, dir, {
 				darkWake: () => false,
 				available: () => true,
+				devinAvailable: () => true,
 				budgets: () => ({}),
 				cli: async <T>() =>
 					({ data: items, pagination: { hasMore: false } }) as T,
