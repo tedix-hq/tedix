@@ -14,6 +14,8 @@ import {
 	osShareLinkInvitees,
 	osShareLinks,
 	osShareSessions,
+	osShareSkillReadGrants,
+	type NewOsShareSkillReadGrantRow,
 } from "../schema/os-shares";
 import { getAffectedRows } from "../utils/d1-result";
 
@@ -26,6 +28,95 @@ export interface OsShareResourceScopeParams {
 	organizationId: string;
 	resourceType: OsShareLinkRow["resourceType"];
 	resourceId: string;
+}
+
+export async function getOsShareGrantApprover(
+	db: DbQueryClient,
+	organizationId: string,
+	userId: string,
+) {
+	const [row] = await db
+		.select()
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, organizationId),
+				eq(organizationMembers.userId, userId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+export async function getOsShareSkillReadGrant(
+	db: DbQueryClient,
+	params: OsShareLinkScopeParams & {
+		gadgetId: string;
+		revisionId: string;
+		slot: string;
+	},
+) {
+	const [row] = await db
+		.select()
+		.from(osShareSkillReadGrants)
+		.where(
+			and(
+				eq(osShareSkillReadGrants.organizationId, params.organizationId),
+				eq(osShareSkillReadGrants.shareLinkId, params.shareLinkId),
+				eq(osShareSkillReadGrants.gadgetId, params.gadgetId),
+				eq(osShareSkillReadGrants.revisionId, params.revisionId),
+				eq(osShareSkillReadGrants.slot, params.slot),
+				isNull(osShareSkillReadGrants.revokedAt),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+export async function setOsShareSkillReadGrants(
+	db: DbQueryClient,
+	scope: OsShareLinkScopeParams,
+	grants: readonly NewOsShareSkillReadGrantRow[],
+) {
+	if (
+		grants.some(
+			(grant) =>
+				grant.organizationId !== scope.organizationId ||
+				grant.shareLinkId !== scope.shareLinkId,
+		)
+	)
+		throw new Error("Share approval scope mismatch");
+	await db.batch([
+		db
+			.update(osShareSkillReadGrants)
+			.set({ revokedAt: new Date().toISOString() })
+			.where(
+				and(
+					eq(osShareSkillReadGrants.organizationId, scope.organizationId),
+					eq(osShareSkillReadGrants.shareLinkId, scope.shareLinkId),
+				),
+			),
+		...grants.map((grant) =>
+			db
+				.insert(osShareSkillReadGrants)
+				.values(grant)
+				.onConflictDoUpdate({
+					target: [
+						osShareSkillReadGrants.organizationId,
+						osShareSkillReadGrants.shareLinkId,
+						osShareSkillReadGrants.revisionId,
+						osShareSkillReadGrants.slot,
+					],
+					set: {
+						resourceId: grant.resourceId,
+						providerResourceId: grant.providerResourceId,
+						approvedByUserId: grant.approvedByUserId,
+						approvedAt: grant.approvedAt,
+						revokedAt: null,
+					},
+				}),
+		),
+	]);
 }
 
 export async function createOsShareLink(

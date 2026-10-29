@@ -554,6 +554,18 @@ export const osSharesContract = oc
 							role: OsShareRoleSchema.optional().describe(
 								"New authored role; outputs stay viewer, App and workspace links use or build",
 							),
+							guestSkillReadSlots: z
+								.array(
+									z
+										.string()
+										.regex(/^[a-z][a-z0-9_]*$/)
+										.max(120),
+								)
+								.max(25)
+								.optional()
+								.describe(
+									"Owner/admin approval for only these existing skills.read slots on this share and exact app revision. An empty list revokes previous approvals; changing app revisions or resource bindings requires approval again.",
+								),
 							access: OsShareAccessSchema.optional().describe(
 								"Who may open the link; tightening ends live sessions",
 							),

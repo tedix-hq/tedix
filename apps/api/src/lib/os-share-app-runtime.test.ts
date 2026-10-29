@@ -5,9 +5,19 @@ import {
 	verifyWorkspaceAppSession,
 } from "@tedix/auth/workspace-app-session";
 import { createDbClient } from "@tedix/db/client";
-import { createOsShareLink } from "@tedix/db/queries/os-shares";
+import {
+	createOsShareLink,
+	getScopedOsShareLink,
+	setOsShareSkillReadGrants,
+} from "@tedix/db/queries/os-shares";
+import {
+	approvedGuestSkillRead,
+	prepareGuestSkillReadGrants,
+} from "../services/os-share-skill-read-grants";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { organizations } from "@tedix/db/schema/organizations";
+import { auditEvents } from "@tedix/db/schema/audit-events";
+import { osSharesContractRouter } from "../rpc/routers/os-shares";
 import {
 	osWorkspaceAccessEdges,
 	osWorkspaceCollaborators,
@@ -18,6 +28,7 @@ import {
 	type NewOsShareLinkRow,
 	osShareLinks,
 	osShareSessions,
+	osShareSkillReadGrants,
 } from "@tedix/db/schema/os-shares";
 import {
 	osGadgetCode,
@@ -68,6 +79,7 @@ async function fixture() {
 	sqlite.exec(
 		schemaDdl(
 			organizations,
+			auditEvents,
 			organizationMembers,
 			osWorkspaces,
 			osGadgets,
@@ -79,6 +91,7 @@ async function fixture() {
 			osOutputRevisions,
 			osShareLinks,
 			osShareSessions,
+			osShareSkillReadGrants,
 			osWorkspaceAccessEdges,
 			osWorkspaceCollaborators,
 			osWorkspaceShareLinks,
@@ -207,6 +220,7 @@ async function seedLink(
 	const id = crypto.randomUUID();
 	await createOsShareLink(db, {
 		id,
+		publicId: id.replaceAll("-", "").slice(0, 22),
 		organizationId: "org-1",
 		resourceType: "gadget",
 		resourceId: gadgetId,
@@ -1002,5 +1016,243 @@ describe("guestAppRefusalForApp", () => {
 				currentRevisionId: null,
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("owner-approved guest skill reads", () => {
+	async function researchFixture() {
+		const f = await fixture();
+		await f.db.insert(organizationMembers).values({
+			id: "owner-member",
+			organizationId: "org-1",
+			userId: "user-1",
+			descopeUserId: "provider-owner",
+			email: "owner@example.test",
+			role: "owner",
+			status: "active",
+		});
+		await f.db
+			.update(osGadgetRevisions)
+			.set({
+				manifest: JSON.stringify({
+					entry: "tedix:runtime/v1",
+					capabilities: [],
+					resourceGrants: [{ slot: "research", operations: ["skills.read"] }],
+				}),
+			})
+			.where(eq(osGadgetRevisions.id, revisionId));
+		await f.db.insert(osWorkspaceResources).values({
+			id: "research-resource",
+			organizationId: "org-1",
+			workspaceId,
+			slot: "research",
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "skill",
+			providerResourceId: "fictional-skill",
+			name: "Research",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		const link = await seedLink(f.db);
+		const row = (await getScopedOsShareLink(f.db, {
+			organizationId: "org-1",
+			shareLinkId: link.id,
+		}))!;
+		const context = userContext({
+			env: f.env,
+			organizationId: "org-1",
+			userId: "user-1",
+			sub: "provider-owner",
+			permissions: ["settings:manage", "tedis:read"],
+			userRole: "owner",
+		});
+		const scope = {
+			organizationId: "org-1",
+			workspaceId,
+			gadgetId,
+			revisionId,
+			shareLinkId: link.id,
+		};
+		return { ...f, link, row, context, scope };
+	}
+
+	it("refuses without approval, opens only the approved share and delegates the existing skill read", async () => {
+		const f = await researchFixture();
+		const sessionToken = await redeem(f.db, f.link.token);
+		expect(
+			(
+				await handleGuestAppOpen(f.env, f.db, {
+					sessionToken,
+					guestName: "Maya",
+				})
+			).status,
+		).toBe(404);
+		const grants = await prepareGuestSkillReadGrants(f.context, f.row, [
+			"research",
+		]);
+		await setOsShareSkillReadGrants(f.db, f.scope, grants);
+		const opened = await handleGuestAppOpen(f.env, f.db, {
+			sessionToken,
+			guestName: "Maya",
+		});
+		expect(opened.status).toBe(200);
+		const body = (await opened.json()) as { session: string };
+		const signed = await verifyWorkspaceAppSession(key, body.session);
+		expect(signed.actorUserId).toBeUndefined();
+		expect(signed.principal.kind).toBe("share_session");
+		const reader = await import("../services/os-app-skill-read");
+		const read = vi
+			.spyOn(reader, "readWorkspaceAppSkill")
+			.mockResolvedValue({ count: 11 });
+		onTestFinished(() => read.mockRestore());
+		const internal = createRouterClient(createOsAppRuntimeRouter(), {
+			context: userContext({
+				env: f.env,
+				headers: { "X-Service-Binding": "true" },
+			}),
+		});
+		await expect(
+			internal.capability({
+				session: body.session,
+				operation: "skills.read",
+				slot: "research",
+				args: { view: "run", runId: revisionId },
+			}),
+		).resolves.toEqual({ count: 11 });
+		expect(read.mock.calls[0]?.[0].userId).toBe("user-1");
+		expect(read.mock.calls[0]?.[0].user?.sub).toBe("provider-owner");
+		expect(read.mock.calls[0]?.[1].providerResourceId).toBe("fictional-skill");
+		for (const input of [
+			{ operation: "skills.read" as const, slot: "other" },
+			{ operation: "skills.run" as const, slot: "research" },
+			{ operation: "connections.call" as const, slot: "research" },
+		])
+			await expect(
+				internal.capability({ session: body.session, ...input, args: {} }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(read).toHaveBeenCalledTimes(1);
+		read.mockRejectedValueOnce(new Error("Source access denied"));
+		await expect(
+			internal.capability({
+				session: body.session,
+				operation: "skills.read",
+				slot: "research",
+				args: {},
+			}),
+		).rejects.toThrow("Source access denied");
+		const other = await seedLink(f.db);
+		expect(
+			(
+				await handleGuestAppOpen(f.env, f.db, {
+					sessionToken: await redeem(f.db, other.token),
+					guestName: "Maya",
+				})
+			).status,
+		).toBe(404);
+		await setOsShareSkillReadGrants(f.db, f.scope, []);
+		await expect(
+			internal.capability({
+				session: body.session,
+				operation: "skills.read",
+				slot: "research",
+				args: {},
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			(
+				await handleGuestAppCall(f.env, f.db, {
+					sessionToken,
+					session: body.session,
+					method: "verdicts",
+				})
+			).status,
+		).toBe(404);
+	});
+
+	it.each([
+		"other organization",
+		"other app",
+		"other revision",
+		"resource rebound",
+		"approver removed",
+		"approver demoted",
+	])("invalidates approval after %s", async (change) => {
+		const f = await researchFixture();
+		await setOsShareSkillReadGrants(
+			f.db,
+			f.scope,
+			await prepareGuestSkillReadGrants(f.context, f.row, ["research"]),
+		);
+		const scope = { ...f.scope };
+		if (change === "other organization") scope.organizationId = "other-org";
+		if (change === "other app") scope.gadgetId = widgetGadgetId;
+		if (change === "other revision") scope.revisionId = widgetRevisionId;
+		if (change === "resource rebound")
+			await f.db
+				.update(osWorkspaceResources)
+				.set({ providerResourceId: "other-skill" })
+				.where(eq(osWorkspaceResources.id, "research-resource"));
+		if (change === "approver removed")
+			await f.db.update(organizationMembers).set({ status: "deactivated" });
+		if (change === "approver demoted")
+			await f.db.update(organizationMembers).set({ role: "member" });
+		expect(await approvedGuestSkillRead(f.db, scope, "research")).toBeNull();
+	});
+
+	it("rejects non-owner approval, non-read slots and other resource kinds", async () => {
+		const f = await researchFixture();
+		await expect(
+			prepareGuestSkillReadGrants(f.context, f.row, ["opportunities"]),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			prepareGuestSkillReadGrants(
+				f.context,
+				{ ...f.row, resourceType: "workspace" },
+				["research"],
+			),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await f.db.update(organizationMembers).set({ role: "member" });
+		await expect(
+			prepareGuestSkillReadGrants(f.context, f.row, ["research"]),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("records and withdraws approval through the owner share setting without changing app code", async () => {
+		const f = await researchFixture();
+		const owner = createRouterClient(osSharesContractRouter, {
+			context: f.context,
+		});
+		const listed = () =>
+			owner.shares.list({ resourceType: "gadget", resourceId: gadgetId });
+		expect((await listed()).guestRefusal).toMatchObject({
+			slot: "research",
+			reason: "connection_grant",
+		});
+		await owner.shares.update({
+			shareId: f.link.id,
+			guestSkillReadSlots: ["research"],
+		});
+		expect((await listed()).guestRefusal).toBeNull();
+		expect(
+			await approvedGuestSkillRead(f.db, f.scope, "research"),
+		).not.toBeNull();
+		expect(
+			(await f.db.select().from(osGadgets).where(eq(osGadgets.id, gadgetId)))[0]
+				?.currentRevisionId,
+		).toBe(revisionId);
+		expect(await f.db.select().from(osGadgetCode)).toMatchObject([
+			{ files: JSON.stringify(files) },
+		]);
+		await owner.shares.update({ shareId: f.link.id, guestSkillReadSlots: [] });
+		expect((await listed()).guestRefusal).toMatchObject({ slot: "research" });
+		const audits = await f.db.select().from(auditEvents);
+		expect(
+			audits.some(
+				(a) =>
+					a.action === "os.share_link.updated" &&
+					JSON.stringify(a).includes("guestSkillReadSlots"),
+			),
+		).toBe(true);
 	});
 });

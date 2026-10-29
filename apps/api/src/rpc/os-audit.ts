@@ -720,7 +720,10 @@ export const OS_SHARES_AUDIT: OsAuditRegistry = {
 		action: "os.share_link.updated",
 		resourceType: "os_share_link",
 		resourceId: ({ output }) => nestedId(output, "share"),
-		metadata: ({ output }) => ({
+		metadata: ({ input, output }) => ({
+			...(input.guestSkillReadSlots === undefined
+				? {}
+				: { guestSkillReadSlots: input.guestSkillReadSlots }),
 			sharedResourceType: fields(output.share).resourceType,
 			sharedResourceId: fields(output.share).resourceId,
 			role: fields(output.share).role,

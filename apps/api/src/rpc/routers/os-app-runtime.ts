@@ -702,16 +702,56 @@ export function createOsAppRuntimeRouter() {
 	async function guestCapability(
 		context: BaseContext,
 		session: Awaited<ReturnType<typeof verifyWorkspaceAppSession>>,
-		input: { operation: string; slot: string },
+		input: { operation: string; slot: string; args?: unknown },
 	) {
 		const db = queryDb(context);
 		const scope = await resolveGuestAppCapabilityScope(db, session);
 		if (!scope)
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
-		if (input.operation !== "outputs.read")
-			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
 		const code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
 		if (code.digest !== session.codeDigest)
+			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+		if (input.operation === "skills.read") {
+			const { approvedGuestSkillRead } =
+				await import("../../services/os-share-skill-read-grants");
+			const approved = await approvedGuestSkillRead(db, scope, input.slot);
+			if (
+				!approved ||
+				!appRuntimePermission({
+					role: "use",
+					grants: code.grants,
+					operation: "skills.read",
+					slot: input.slot,
+				}).allowed
+			)
+				throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
+			const { ROLE_PERMISSION_GRANTS } = await import("@tedix/auth/rbac");
+			const { readWorkspaceAppSkill } =
+				await import("../../services/os-app-skill-read");
+			const acting: BaseContext = {
+				...context,
+				organizationId: scope.organizationId,
+				authType: "user",
+				userRole: approved.member.role,
+				userId: approved.grant.approvedByUserId,
+				oidcScopes: undefined,
+				headers: new Headers(),
+				externalAgentPrincipalId: undefined,
+				user: {
+					sub: approved.member.descopeUserId,
+					permissions: [
+						...ROLE_PERMISSION_GRANTS[
+							approved.member.role as "owner" | "admin"
+						],
+					],
+					roles: [],
+					iss: "tedix:share-slot-approval",
+					exp: session.expiresAt,
+				},
+			};
+			return readWorkspaceAppSkill(acting, approved.resource, input.args);
+		}
+		if (input.operation !== "outputs.read")
 			throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
 		const read = await readGuestAppSlot(db, scope, code.grants, input.slot);
 		if (!read) throw createError(ErrorCodes.FORBIDDEN, "App capability denied");
