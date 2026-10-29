@@ -56,6 +56,33 @@ describe("Blueprint output slots", () => {
 });
 
 describe("Built-in app manifest settings", () => {
+	it("keeps a bounded inert screenshot and rejects remote or executable preview sources", () => {
+		const manifest = {
+			entry: "tedix:runtime/v1",
+			config: { version: 1 },
+			preview: {
+				image: "data:image/png;base64,iVBORw0KGgo=",
+				alt: "A list of opportunities awaiting review",
+			},
+		};
+		expect(OsGadgetManifestWriteSchema.parse(manifest).preview).toEqual(
+			manifest.preview,
+		);
+		for (const image of [
+			"https://example.com/tracker.png",
+			"data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=",
+			"data:text/html;base64,PHNjcmlwdD4=",
+			`data:image/png;base64,${"A".repeat(100_000)}`,
+		]) {
+			expect(
+				OsGadgetManifestWriteSchema.safeParse({
+					...manifest,
+					preview: { ...manifest.preview, image },
+				}).success,
+			).toBe(false);
+		}
+	});
+
 	it("preserves the Work start-app flag on a validated manifest revision", () => {
 		const manifest = OsGadgetManifestWriteSchema.parse({
 			entry: "tedix:app/decision-deck",
