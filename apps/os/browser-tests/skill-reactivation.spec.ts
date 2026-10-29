@@ -20,7 +20,8 @@ try {
 				colorScheme: theme,
 			});
 			let role = "owner";
-			let fail = false;
+			let fail: false | "permission" | "untested" = false;
+			const runs: Array<Record<string, unknown>> = [];
 			let lifecycleState = "draft";
 			const writes: unknown[] = [];
 			await page.route("**/api/rpc/**", async (route) => {
@@ -47,19 +48,40 @@ try {
 							files: { "scripts/workflow.ts": "export default {}" },
 						},
 					};
-				if (endpoint === "tedis/list") result = { data: [] };
+				if (endpoint === "tedis/list")
+					result = { data: [{ id: "fictional-tedi", name: "Night lead" }] };
+				if (endpoint === "skills/runWorkflow") {
+					runs.push(route.request().postDataJSON().json);
+					return route.fulfill({
+						status: 400,
+						contentType: "application/json",
+						body: JSON.stringify({
+							json: {
+								defined: false,
+								code: "BAD_REQUEST",
+								message: "Internal certification eval failure",
+							},
+						}),
+					});
+				}
 				if (endpoint === "skills/improve") {
 					writes.push(route.request().postDataJSON().json);
 					if (fail)
 						return route.fulfill({
-							status: 403,
+							status: fail === "untested" ? 400 : 403,
 							contentType: "application/json",
 							body: JSON.stringify({
 								json: {
 									defined: false,
-									code: "FORBIDDEN",
-									status: 403,
-									message: "Only an owner or admin can turn this skill back on",
+									code: fail === "untested" ? "BAD_REQUEST" : "FORBIDDEN",
+									message:
+										fail === "untested"
+											? "Promotion into differentiation requires a recorded passing certification eval for this skill revision"
+											: "Only an owner or admin can turn this skill back on",
+									data:
+										fail === "untested"
+											? { rule: "pace_layer_requires_eval" }
+											: undefined,
 								},
 							}),
 						});
@@ -100,11 +122,68 @@ try {
 			});
 			assert(await page.getByText("Active", { exact: true }).isVisible());
 			lifecycleState = "draft";
-			fail = true;
+			fail = "permission";
 			await page.reload();
 			await button.click();
 			await page.getByRole("alert").waitFor();
 			assert(await button.isEnabled(), "a refused request can be retried");
+			assert.match(
+				await page.getByRole("alert").innerText(),
+				/try again or ask an owner/,
+			);
+			fail = "untested";
+			await page.reload();
+			await button.click();
+			const recovery = page.getByRole("button", {
+				name: "Run a test first",
+				exact: true,
+			});
+			await recovery.waitFor();
+			assert.match(
+				await page.getByRole("alert").innerText(),
+				/This version hasn't passed a test run yet/,
+			);
+			assert.doesNotMatch(
+				await page.locator("body").innerText(),
+				/promotion|differentiation|certification|eval/i,
+			);
+			assert.equal(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth > innerWidth,
+				),
+				false,
+			);
+			await page.screenshot({
+				path: `${evidence}/${width}-${theme}-untested.png`,
+				fullPage: true,
+			});
+			await recovery.click();
+			const dialog = page.getByRole("dialog");
+			await dialog.getByRole("combobox", { name: "Run as" }).click();
+			await page.getByRole("option", { name: "Night lead" }).click();
+			await dialog
+				.getByRole("button", { name: "Run now", exact: true })
+				.click();
+			await dialog
+				.getByText(
+					"Couldn't start the test; check the selected tedi and try again.",
+				)
+				.waitFor();
+			assert.equal(runs.length, 1);
+			assert.equal(runs[0].skillId, "fictional-skill");
+			assert.equal(runs[0].tediId, "fictional-tedi");
+			assert.equal(runs[0].certification, true);
+			assert.equal(runs[0].expectedSkillRevision, 7);
+			assert.doesNotMatch(
+				await page.locator("body").innerText(),
+				/promotion|differentiation|certification|eval/i,
+			);
+			await dialog.getByRole("button", { name: "Cancel" }).click();
+			fail = false;
+			await button.click();
+			await page.getByText("Active", { exact: true }).waitFor();
+			assert.equal(await recovery.count(), 0);
+			lifecycleState = "draft";
 			role = "member";
 			await page.reload();
 			await page
@@ -117,7 +196,7 @@ try {
 			);
 			await page.close();
 			console.log(
-				`${width}/${theme}: one-click activation, refreshed state, refusal and member visibility passed`,
+				`${width}/${theme}: one-click activation, refreshed state, plain refusal, untested recovery, pinned test request and member visibility passed`,
 			);
 		}
 	}

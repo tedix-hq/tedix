@@ -81,6 +81,7 @@ export function SkillDetailLayout() {
 	const skill = detail.data?.entry;
 	const roster = useQuery(tediRosterQueryOptions(100));
 	const [dialogOpen, setDialogOpen] = useState(false);
+	const [testRun, setTestRun] = useState(false);
 	const [folderDialogOpen, setFolderDialogOpen] = useState(false);
 	const [folderDraft, setFolderDraft] = useState("");
 	const canRun = useCanManageTedis();
@@ -98,6 +99,9 @@ export function SkillDetailLayout() {
 		mutationFn: (input: { tediId: string; params: Record<string, unknown> }) =>
 			osApi.skills.runWorkflow({
 				skillId,
+				...(testRun
+					? { certification: true, expectedSkillRevision: skill?.revision }
+					: {}),
 				tediId: input.tediId,
 				params: input.params,
 				idempotencyKey: crypto.randomUUID(),
@@ -154,6 +158,10 @@ export function SkillDetailLayout() {
 			});
 		},
 	});
+
+	const needsTest =
+		(turnBackOn.error as { data?: { rule?: string } } | null)?.data?.rule ===
+		"pace_layer_requires_eval";
 
 	if (!skill)
 		return (
@@ -213,7 +221,10 @@ export function SkillDetailLayout() {
 								<Button
 									disabled={!canRun}
 									title={canRun ? undefined : TEDIS_MANAGE_DENIED_REASON}
-									onClick={() => setDialogOpen(true)}
+									onClick={() => {
+										setTestRun(false);
+										setDialogOpen(true);
+									}}
 								>
 									<Play size={15} /> Run now
 								</Button>
@@ -224,8 +235,21 @@ export function SkillDetailLayout() {
 				{turnBackOn.error ? (
 					<div role="alert">
 						<Text role="label" tone="error">
-							{turnBackOn.error.message}
+							{needsTest
+								? "This version hasn't passed a test run yet; run a test first, then turn it back on."
+								: "Couldn't turn this skill back on; try again or ask an owner for help."}
 						</Text>
+						{needsTest && executable && canRun && canTurnBackOn ? (
+							<Button
+								variant="outline"
+								onClick={() => {
+									setTestRun(true);
+									setDialogOpen(true);
+								}}
+							>
+								Run a test first
+							</Button>
+						) : null}
 					</div>
 				) : null}
 				<KumoTabs
@@ -341,7 +365,9 @@ export function SkillDetailLayout() {
 						{runNow.error ? (
 							<div role="alert">
 								<Text role="label" tone="error">
-									{(runNow.error as Error).message}
+									{testRun
+										? "Couldn't start the test; check the selected tedi and try again."
+										: runNow.error.message}
 								</Text>
 							</div>
 						) : null}
