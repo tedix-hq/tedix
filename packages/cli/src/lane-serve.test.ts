@@ -1522,6 +1522,32 @@ it("does not cut a stale run when origin cannot be fetched", () => {
 	expect(existsSync(destination)).toBe(false);
 }, 30_000);
 
+it("suppresses worktree checkout progress while provisioning", () => {
+	const { root, repo } = gitFixture(true);
+	const trace = join(root, "git-trace.json");
+	const previousTrace = process.env.GIT_TRACE2_EVENT;
+	process.env.GIT_TRACE2_EVENT = trace;
+	try {
+		provisionLaneWorktree(repo, join(root, "repo"));
+	} finally {
+		if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
+		else process.env.GIT_TRACE2_EVENT = previousTrace;
+	}
+	const events = readFileSync(trace, "utf8")
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line) as { event: string; argv?: string[] });
+	expect(
+		events.some(
+			(event) =>
+				event.event === "start" &&
+				event.argv?.includes("worktree") &&
+				event.argv.includes("add") &&
+				event.argv.includes("--quiet"),
+		),
+	).toBe(true);
+}, 30_000);
+
 it("preserves an orphan destination and provisions the retry path", () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
