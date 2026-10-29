@@ -23,11 +23,8 @@ import { LOCAL_SIGNING_GUIDE } from "./local-signing";
 import { laneChildEnv } from "./lane-child-env";
 
 /**
- * True for a path in a folder macOS privacy protection (TCC) guards. The
- * launchd supervisor has no access there: listing such a folder fails with
- * EINTR, which Bun retries until the read's deadline, so every delivery check
- * for a session checked out there timed out. Started elsewhere, the same read
- * resolves the session's default binding in well under a second.
+ * True for a path in a folder macOS privacy protection (TCC) guards.
+ * Whether the supervisor can read it depends on the user's access grant.
  */
 export function privacyProtected(
 	path: string,
@@ -46,10 +43,8 @@ export function privacyProtected(
 }
 
 /**
- * Why a headless resume in `cwd` cannot run, or undefined when it can. Codex
- * and Claude Code started there by the launchd supervisor fail with EINTR
- * ("Interrupted system call"), and no route around macOS privacy protection
- * reaches the checkout, so the resume is skipped with the grant that fixes it.
+ * Probe access in a bounded child process: Bun can retry denied filesystem
+ * reads indefinitely on macOS. Never reject a checkout solely by its folder.
  */
 export function protectedResumeReason(
 	cwd: string,
@@ -57,7 +52,13 @@ export function protectedResumeReason(
 	platform: NodeJS.Platform = process.platform,
 ): string | undefined {
 	if (!privacyProtected(cwd, env.HOME || homedir(), platform)) return undefined;
-	return `not resumed headless: ${cwd} is in a macOS privacy-protected folder the background supervisor cannot open; grant it in System Settings > Privacy & Security > Full Disk Access (add ${process.execPath}; ${LOCAL_SIGNING_GUIDE}), or keep the checkout outside Documents, Desktop and Downloads`;
+	const access = spawnSync("/bin/ls", ["-A", cwd], {
+		stdio: "ignore",
+		timeout: 2000,
+		killSignal: "SIGKILL",
+	});
+	if (access.status === 0) return undefined;
+	return `not resumed headless: could not read ${cwd}; check that the checkout exists and macOS permits access in System Settings > Privacy & Security > Full Disk Access (add ${process.execPath}; ${LOCAL_SIGNING_GUIDE}), or keep the checkout outside Documents, Desktop and Downloads`;
 }
 
 const RESUME_CONFIRM_MS = 60_000;

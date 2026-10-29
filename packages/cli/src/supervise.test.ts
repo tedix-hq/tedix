@@ -1184,7 +1184,7 @@ describe("explicit exact-chat Work pickup", () => {
 });
 
 describe("privacyProtected", () => {
-	test("names the macOS folders the launchd supervisor cannot read", () => {
+	test("names the macOS folders that need an access check", () => {
 		const home = "/Users/ada";
 		for (const path of [
 			"/Users/ada/Documents",
@@ -1207,7 +1207,7 @@ describe("privacyProtected", () => {
 });
 
 describe("protectedResumeReason", () => {
-	test("names the Full Disk Access grant for a protected checkout", () => {
+	test("allows readable protected checkouts and explains failed access", () => {
 		const env = { HOME: "/Users/ada" };
 		expect(
 			protectedResumeReason("/Users/ada/Documents/acme", env, "darwin"),
@@ -1218,13 +1218,22 @@ describe("protectedResumeReason", () => {
 		expect(
 			protectedResumeReason("/Users/ada/Documents/acme", env, "linux"),
 		).toBeUndefined();
+		const home = mkdtempSync(join(tmpdir(), "tedix-tcc-readable-"));
+		const cwd = join(home, "Documents", "acme");
+		mkdirSync(cwd, { recursive: true });
+		try {
+			expect(
+				protectedResumeReason(cwd, { HOME: home }, "darwin"),
+			).toBeUndefined();
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 
-	test("a protected checkout is not resumed headless", async () => {
+	test("an unreadable protected checkout is not resumed headless", async () => {
 		if (process.platform !== "darwin") return;
 		const home = mkdtempSync(join(tmpdir(), "tedix-tcc-"));
 		const cwd = join(home, "Documents", "acme");
-		mkdirSync(cwd, { recursive: true });
 		const env = { HOME: home, TEDIX_CONFIG_DIR: join(home, ".tedix") };
 		try {
 			expect(await codexDriver(env).resume("thread", "hi", cwd)).toBe(false);
