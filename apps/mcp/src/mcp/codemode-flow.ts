@@ -405,7 +405,7 @@ export function buildFlowProvider(
 			},
 			status: {
 				description:
-					"Compact lifecycle poll for a flow run: { status, output, error, durationMs }. Terminal: completed | failed | canceled.",
+					"Compact lifecycle poll for a flow run: { status, output, error, durationMs, skillId, skillRevision, workItemId }. Terminal: completed | failed | canceled.",
 				execute: async (rawInput: unknown) => {
 					const input = recordFrom(rawInput) ?? {};
 					const runId = typeof input.runId === "string" ? input.runId : "";
@@ -429,6 +429,11 @@ export function buildFlowProvider(
 								: typeof row?.state === "string"
 									? row.state
 									: null,
+						skillId: typeof row?.skillId === "string" ? row.skillId : null,
+						skillRevision:
+							typeof row?.skillRevision === "number" ? row.skillRevision : null,
+						workItemId:
+							typeof row?.workItemId === "string" ? row.workItemId : null,
 						output: row ? (row.result ?? row.output ?? null) : null,
 						error: row ? (row.error ?? null) : null,
 						durationMs:

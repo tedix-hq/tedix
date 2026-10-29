@@ -433,9 +433,10 @@ export async function workAccept(
  * Resolve every repeated `--commit <sha>` into the settlement metadata block.
  *
  * Under `decisions/minimal-gates-over-pre-proof.md` settling IS the
- * completion, and for coding work the commits on `main` are the ledger entry
- * — so the shas have to travel with the settlement rather than through a
- * separate evidence submission that nothing reads any more.
+ * completion, and for repository coding work the commits on `main` are the
+ * ledger entry — so the shas have to travel with the settlement rather than
+ * through a separate evidence submission. The local dispatcher separately
+ * recognizes Attempt-scoped evidence for versioned organization skill runs.
  *
  * Each value goes through `resolveCommitFlag`, which expands the short sha
  * `git push` prints and REFUSES one that names no object in this checkout.

@@ -518,9 +518,15 @@ holds that Work until its revision changes. The hold survives a restart. Edit
 the Work or fix the cause to release it.
 
 When a coding lane finishes, the dispatcher records the commits that already
-landed on `origin/main` with its settlement. Coding Work whose lane landed no
-commit settles as failed, even when the harness exited normally. A lane's own
-report is still not verification; the owning tedi or person completes Work.
+landed on `origin/main` with its settlement. Work accepted with
+`metadata.artifactKind` set to `skill_revision`, `metadata.artifactSkillId` set
+to the expected skill UUID and `metadata.artifactSkillRevision` set to the
+expected revision can instead submit `skill_revision` evidence for the held
+Attempt using `skill://runs/<runId>`. The dispatcher checks that the run
+completed for that active organization skill and records its pinned skill and
+revision. Coding Work with neither proof settles as failed, even when the
+harness exited normally. A lane's own report is still not verification; the
+owning tedi or person completes Work.
 
 If dispatchable Work waits while no dispatcher has admitted an Attempt for a
 while (45 minutes by default), the organization owner gets one attention item.

@@ -81,7 +81,7 @@ function fixture({
 } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-dispatch-test-"));
 	dirs.push(dir);
-	const items = [item(1), item(2), item(3)].map((row) => ({
+	const items: DispatchItem[] = [item(1), item(2), item(3)].map((row) => ({
 		...row,
 		metadata: {
 			executor:
@@ -122,6 +122,14 @@ function fixture({
 		cleanupWait: undefined as Promise<boolean> | undefined,
 		cleanupAfterPickup: [] as boolean[],
 		proofError: undefined as Error | undefined,
+		evidenceError: undefined as Error | undefined,
+		evidence: {
+			data: [] as Record<string, unknown>[],
+			nextCursor: null as unknown,
+		},
+		skillRun: {} as Record<string, unknown>,
+		skillRunError: undefined as Error | undefined,
+		skill: {} as Record<string, unknown>,
 		startError: refuse
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
 			: (undefined as Error | undefined),
@@ -205,9 +213,17 @@ function fixture({
 					comments: [],
 				};
 			else if (verb === "dispatch-attempts") response = control.history;
-			else if (verb === "readiness") response = control.readiness;
+			else if (verb === "evidence") {
+				if (control.evidenceError) throw control.evidenceError;
+				response = control.evidence;
+			} else if (verb === "status") {
+				if (control.skillRunError) throw control.skillRunError;
+				response = control.skillRun;
+			} else if (verb === "readiness") response = control.readiness;
 			else if (verb === "show" && args.includes("--file"))
 				response = { path: "SKILL.md", content: "Keep all evidence in OS." };
+			else if (verb === "show" && args[6] !== options.rules)
+				response = control.skill;
 			else if (verb === "show")
 				response = {
 					id: options.rules,
@@ -275,6 +291,12 @@ function fixture({
 			expect(brief).toContain("revision 7");
 			expect(brief).toContain("Keep all evidence in OS.");
 			expect(brief).toContain("already holds Attempt");
+			if (
+				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!
+					.metadata?.artifactKind === "skill_revision"
+			)
+				expect(brief).toContain("--evidence-kind skill_revision");
+			else expect(brief).not.toContain("--evidence-kind skill_revision");
 			// One trailer paragraph with this lane's exact ids, so the pre-push
 			// secret scan accepts the lane's commits.
 			expect(brief).toMatch(
@@ -945,6 +967,8 @@ describe("dispatcher admission", () => {
 				control.commits.length,
 			);
 			for (const sha of control.commits) expect(settlement).toContain(sha);
+			if (proof === "landed")
+				expect(events.some((event) => event.verb === "evidence")).toBe(false);
 			const receipt = JSON.parse(
 				readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
 			);
@@ -952,6 +976,247 @@ describe("dispatcher admission", () => {
 				expect(receipt.note).toContain("No landed commit SHA on origin/main");
 		},
 	);
+
+	it("settles coding Work from completed skill revision evidence attributed to its Attempt", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		items[0]!.metadata = {
+			...items[0]!.metadata,
+			artifactKind: "skill_revision",
+			artifactSkillId: "66666666-6666-4666-8666-666666666666",
+			artifactSkillRevision: 3,
+		};
+		const runId = "44444444-4444-4444-8444-444444444444";
+		control.evidence.data = [
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				attemptId: "fictional-attempt",
+				kind: "skill_revision",
+				uri: `skill://runs/${runId}`,
+			},
+		];
+		control.skillRun = {
+			runId,
+			status: "completed",
+			skillId: "66666666-6666-4666-8666-666666666666",
+			skillRevision: 3,
+			workItemId: null,
+		};
+		control.skill = {
+			id: "66666666-6666-4666-8666-666666666666",
+			lifecycleState: "active",
+			tediId: null,
+		};
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settlement = events.find((event) => event.verb === "settle")!;
+		expect(settlement.args[settlement.args.indexOf("--outcome") + 1]).toBe(
+			"succeeded",
+		);
+		expect(settlement.args).not.toContain("--commit");
+		expect(settlement.input).toMatchObject({
+			metadata: {
+				settlement: {
+					mode: "skill_revision",
+					evidenceId: "55555555-5555-4555-8555-555555555555",
+					evidenceUri: `skill://runs/${runId}`,
+					skillId: "66666666-6666-4666-8666-666666666666",
+					skillRevision: 3,
+					skillRunId: runId,
+				},
+			},
+		});
+	});
+
+	it("does not use skill revision evidence from another Attempt", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		items[0]!.metadata = {
+			...items[0]!.metadata,
+			artifactKind: "skill_revision",
+			artifactSkillId: "66666666-6666-4666-8666-666666666666",
+			artifactSkillRevision: 3,
+		};
+		control.evidence.data = [
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				attemptId: "another-attempt",
+				kind: "skill_revision",
+				uri: "skill://runs/44444444-4444-4444-8444-444444444444",
+			},
+		];
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settlement = events.find((event) => event.verb === "settle")!.args;
+		expect(settlement[settlement.indexOf("--outcome") + 1]).toBe("failed");
+		expect(events.some((event) => event.verb === "status")).toBe(false);
+	});
+
+	it("does not use a skill run linked to another Work Item", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		items[0]!.metadata = {
+			...items[0]!.metadata,
+			artifactKind: "skill_revision",
+			artifactSkillId: "66666666-6666-4666-8666-666666666666",
+			artifactSkillRevision: 3,
+		};
+		const runId = "44444444-4444-4444-8444-444444444444";
+		control.evidence.data = [
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				attemptId: "fictional-attempt",
+				kind: "skill_revision",
+				uri: `skill://runs/${runId}`,
+			},
+		];
+		control.skillRun = {
+			runId,
+			status: "completed",
+			skillId: "66666666-6666-4666-8666-666666666666",
+			skillRevision: 3,
+			workItemId: item(2).id,
+		};
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settlement = events.find((event) => event.verb === "settle")!.args;
+		expect(settlement[settlement.indexOf("--outcome") + 1]).toBe("failed");
+	});
+
+	it("does not settle from an ephemeral draft skill run", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		items[0]!.metadata = {
+			...items[0]!.metadata,
+			artifactKind: "skill_revision",
+			artifactSkillId: "66666666-6666-4666-8666-666666666666",
+			artifactSkillRevision: 3,
+		};
+		const runId = "44444444-4444-4444-8444-444444444444";
+		control.evidence.data = [
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				attemptId: "fictional-attempt",
+				kind: "skill_revision",
+				uri: `skill://runs/${runId}`,
+			},
+		];
+		control.skillRun = {
+			runId,
+			status: "completed",
+			skillId: "66666666-6666-4666-8666-666666666666",
+			skillRevision: 3,
+			workItemId: null,
+		};
+		control.skill = {
+			id: "66666666-6666-4666-8666-666666666666",
+			lifecycleState: "draft",
+			tediId: null,
+		};
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settlement = events.find((event) => event.verb === "settle")!.args;
+		expect(settlement[settlement.indexOf("--outcome") + 1]).toBe("failed");
+	});
+
+	it("does not settle from a different active organization skill", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		items[0]!.metadata = {
+			...items[0]!.metadata,
+			artifactKind: "skill_revision",
+			artifactSkillId: "77777777-7777-4777-8777-777777777777",
+			artifactSkillRevision: 3,
+		};
+		const runId = "44444444-4444-4444-8444-444444444444";
+		control.evidence.data = [
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				attemptId: "fictional-attempt",
+				kind: "skill_revision",
+				uri: `skill://runs/${runId}`,
+			},
+		];
+		control.skillRun = {
+			runId,
+			status: "completed",
+			skillId: "66666666-6666-4666-8666-666666666666",
+			skillRevision: 3,
+			workItemId: null,
+		};
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settlement = events.find((event) => event.verb === "settle")!.args;
+		expect(settlement[settlement.indexOf("--outcome") + 1]).toBe("failed");
+		expect(
+			events.some(
+				(event) => event.verb === "show" && event.args[6] !== options.rules,
+			),
+		).toBe(false);
+	});
+
+	it("rejects permanently missing skill-run evidence instead of retaining the Attempt", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		items[0]!.metadata = {
+			...items[0]!.metadata,
+			artifactKind: "skill_revision",
+			artifactSkillId: "66666666-6666-4666-8666-666666666666",
+			artifactSkillRevision: 3,
+		};
+		control.evidence.data = [
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				attemptId: "fictional-attempt",
+				kind: "skill_revision",
+				uri: "skill://runs/44444444-4444-4444-8444-444444444444",
+			},
+		];
+		control.skillRunError = new CliReadError("run not found", "NOT_FOUND", 404);
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settlement = events.find((event) => event.verb === "settle")!.args;
+		expect(settlement[settlement.indexOf("--outcome") + 1]).toBe("failed");
+	});
+
+	it("keeps landed-commit validation for coding Work without a skill artifact declaration", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		control.evidence.data = [
+			{
+				id: "55555555-5555-4555-8555-555555555555",
+				attemptId: "fictional-attempt",
+				kind: "skill_revision",
+				uri: "skill://runs/44444444-4444-4444-8444-444444444444",
+			},
+		];
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settlement = events.find((event) => event.verb === "settle")!.args;
+		expect(settlement[settlement.indexOf("--outcome") + 1]).toBe("failed");
+		expect(events.some((event) => event.verb === "evidence")).toBe(false);
+	});
 
 	it.each(["failed", "expired"])(
 		"holds lost admission responses until canonical history retires the Attempt as %s",

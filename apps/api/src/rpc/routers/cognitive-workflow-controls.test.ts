@@ -635,6 +635,7 @@ describe("skill run failure alert work item", () => {
 			client.runWorkflowStatus({ runId: RUN.id }),
 		).resolves.toMatchObject({
 			id: RUN.id,
+			skillRevision: RUN.skillRevision,
 		});
 		await Promise.allSettled(waitUntilPromises);
 

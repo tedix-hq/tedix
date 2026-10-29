@@ -81,7 +81,6 @@ type PublicSkillRun = Omit<
 	| "workflowSource"
 	| "workflowSourceHash"
 	| "skillDoc"
-	| "skillRevision"
 	| "skillSlug"
 	| "restartCommandId"
 	| "originTediRunId"
@@ -114,6 +113,7 @@ export function publicSkillRun(
 		restartRequestedAt: run.restartRequestedAt ?? null,
 		workflowRetiredAt: run.workflowRetiredAt ?? null,
 		status: run.status,
+		skillRevision: run.skillRevision ?? null,
 		params: run.params,
 		result: retired ? null : run.result,
 		error: run.error,

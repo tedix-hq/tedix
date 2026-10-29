@@ -456,6 +456,9 @@ describe("status projection", () => {
 					executionId: "exec-1",
 					result: {
 						status: "failed",
+						skillId: "11111111-1111-4111-8111-111111111111",
+						skillRevision: 3,
+						workItemId: null,
 						output: { result: "workflow-result", count: 2 },
 						error: { code: "GATEWAY_FAILED", message: "bounded diagnostic" },
 					},
@@ -466,6 +469,9 @@ describe("status projection", () => {
 		expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual({
 			runId: "run-1",
 			status: "failed",
+			skillId: "11111111-1111-4111-8111-111111111111",
+			skillRevision: 3,
+			workItemId: null,
 			result: { result: "workflow-result", count: 2 },
 			error: { code: "GATEWAY_FAILED", message: "bounded diagnostic" },
 		});

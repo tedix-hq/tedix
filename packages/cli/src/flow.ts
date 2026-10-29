@@ -638,6 +638,10 @@ async function statusFlow(ctx: FlowContext, runId: string): Promise<number> {
 			JSON.stringify({
 				runId,
 				status,
+				skillId: pickString(row, "skillId") ?? null,
+				skillRevision:
+					typeof row.skillRevision === "number" ? row.skillRevision : null,
+				workItemId: pickString(row, "workItemId") ?? null,
 				result: row.output ?? null,
 				error: row.error ?? null,
 			}),

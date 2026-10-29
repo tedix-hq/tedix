@@ -76,8 +76,10 @@ ids do not resolve publicly. Pull requests are currently disabled; see
   queue. Other delegation limits apply only where an organization policy turns
   them on.
 - An agent session's report of success is not verification. A coding lane
-  started by the local dispatcher without a commit on `main` settles as
-  failed, and Work is completed by its owning tedi or person.
+  started by the local dispatcher needs either a commit on `main` or verified
+  versioned skill-run evidence from its held Attempt when the accepted Work
+  declares that artifact. Without either it settles as failed, and Work is
+  completed by its owning tedi or person.
 - Local mode makes no model calls unless you add inference on your own
   Cloudflare account. It does not configure connectors or deploy anything.
 - The own-account deployment path has not been re-validated against the
