@@ -32,13 +32,7 @@ Site Builder are in `apps/cms/AGENTS.md`; the user guide is
   the compiled adapter; rollback refuses a bundle built for another adapter.
   Postgres/Hyperdrive is unsupported: it lacks cron, scheduled publishing,
   plugin cron, media providers, and sandboxed plugins.
-- **No D1 API token.** `apps/cms-runtime` and `apps/cms` reach platform D1
-  only through their D1 bindings. Cloudflare grants D1 token permissions per
-  account, not per database, so a D1 token cannot be limited to one tenant and
-  would also reach the platform database. `cms:database-architecture:validate`
-  fails if either Worker declares one. The retired per-tenant D1 databases
-  used `CLOUDFLARE_D1_API_TOKEN`; revoke that token rather than re-scoping it.
-  `CLOUDFLARE_R2_API_TOKEN` should carry R2 permissions only.
+- The old `CLOUDFLARE_D1_API_TOKEN` is retired and must not be re-created.
 - **Native bindings stay in the parent.** Worker Loader isolates cannot receive
   native R2, KV, Images, or AI Search bindings, so the parent serves `/_image`
   itself and injects narrow RPC facades (for example `TenantR2`, and a
