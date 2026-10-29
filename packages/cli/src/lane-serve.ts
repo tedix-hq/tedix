@@ -591,7 +591,14 @@ export function provisionLaneWorktree(
 		const recovery = mkdtempSync(`${destination}.orphan-`);
 		renameSync(destination, join(recovery, "repo"));
 	}
-	gitOutput(source, ["worktree", "add", "--detach", destination, head]);
+	gitOutput(source, [
+		"worktree",
+		"add",
+		"--quiet",
+		"--detach",
+		destination,
+		head,
+	]);
 	return destination;
 }
 
