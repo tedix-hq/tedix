@@ -80,6 +80,7 @@ export async function startFixtureServer(
 		],
 		{
 			cwd: new URL("../", import.meta.url).pathname,
+			env: { ...process.env, TEDIX_BROWSER_FIXTURE: "1" },
 			stdout,
 			stderr,
 			detached: true,
