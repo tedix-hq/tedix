@@ -43,6 +43,7 @@ interface CodeModeDiscoveryEntry {
 	annotations?: unknown;
 	parameters?: unknown;
 	native?: unknown;
+	wire?: unknown;
 }
 
 type ToolCallResult = {
@@ -174,15 +175,16 @@ export function codeModeCanonicalDescribeParams(
 export function codeModeReplayLookupParams(
 	toolName: string,
 ): Record<string, unknown> {
-	if (!/^[A-Za-z_]\w*$/.test(toolName))
+	if (!/^[A-Za-z_][\w-]*$/.test(toolName))
 		throw new Error(`Invalid Code Mode tool name: ${toolName}`);
-	const search = `const page = await discover.search(${JSON.stringify({ query: toolName, limit: 25 })}); `;
-	const hits = `const hits = (Array.isArray(page) ? page : page.results ?? []).filter((hit) => hit.tool === ${JSON.stringify(toolName)} && typeof hit.callable === "string").slice(0, 8); `;
+	const projectedName = toolName.replace(/-/g, "_");
+	const search = `const page = await discover.search(${JSON.stringify({ query: projectedName, limit: 25 })}); `;
+	const hits = `const hits = (Array.isArray(page) ? page : page.results ?? []).filter((hit) => hit.tool === ${JSON.stringify(projectedName)} && typeof hit.callable === "string").slice(0, 8); `;
 	const describe = `const described = await Promise.all(hits.map((hit) => discover.describe({ callable: hit.callable }))); `;
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
-			code: `async () => { ${search}${hits}${describe}return described.filter(Boolean).map((hit) => ({ callable: hit.callable, annotations: hit.annotations, _meta: hit._meta, native: hit.native })); }`,
+			code: `async () => { ${search}${hits}${describe}return described.filter(Boolean).map((hit) => ({ callable: hit.callable, annotations: hit.annotations, _meta: hit._meta, native: hit.native, wire: hit.wire })); }`,
 		},
 	};
 }
@@ -286,6 +288,7 @@ export function parseCodeModeCatalogValue(
 		const metadata = recordFrom(entry._meta);
 		const parameters = recordFrom(entry.parameters);
 		const native = McpNativeDescriptorSchema.safeParse(entry.native);
+		const wire = recordFrom(entry.wire);
 		return [
 			{
 				name: entry.callable,
@@ -319,7 +322,9 @@ export function parseCodeModeCatalogValue(
 								endpoint: native.data.endpoint || null,
 							},
 						}
-					: {}),
+					: typeof wire?.name === "string" && wire.name.length > 0
+						? { wire: { name: wire.name, endpoint: null } }
+						: {}),
 			},
 		];
 	});

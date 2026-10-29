@@ -276,6 +276,7 @@ export function projectCatalogMeta(
 	const { parameters, outputSchema, ...rest } = meta;
 	const {
 		native: _native,
+		wire: _wire,
 		schemaFreshness: _freshness,
 		_match,
 		...compact

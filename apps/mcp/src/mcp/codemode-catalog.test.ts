@@ -2425,7 +2425,7 @@ it("indexed native descriptors reject duplicate names and retain current caller 
 
 it("preserves bounded approval facts in compact discovery and exact describe", async () => {
 	const row = tool({
-		toolId: "notion__notion_update_page",
+		toolId: "notion__notion-update-page",
 		title: "Update Notion page",
 		toolTypeId: "mcp",
 		annotations: { readOnlyHint: false, destructiveHint: true },
@@ -2473,6 +2473,7 @@ it("preserves bounded approval facts in compact discovery and exact describe", a
 		callable: "notion.notion_update_page",
 	})) as Record<string, unknown>;
 	expect(described._meta).toEqual(expected);
+	expect(described.wire).toEqual({ name: "notion__notion-update-page" });
 });
 
 const compactDiscoveryConformance = [
