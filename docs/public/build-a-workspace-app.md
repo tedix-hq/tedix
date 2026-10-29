@@ -899,11 +899,18 @@ interaction access can invoke public methods; hiding a button is not access
 control. Do not put protected decisions behind an unrestricted app method.
 
 A "Can use" link lets people without a Tedix account open the app. That
-works only while every slot in `resourceGrants` is bound to an Output with
-no data from connected accounts, and no grant allows `connections.call` or
-`skills.read` or `skills.run`. Tedix cannot check a guest against a provider's access list,
-so otherwise the link does not open and the Share panel says which slot
-blocks it. Invite those people to the workspace instead.
+normally requires every slot in `resourceGrants` to be bound to an Output
+with no data from connected accounts. Grants for `connections.call`,
+`skills.read` and `skills.run` otherwise require sign-in.
+
+An organization owner or admin can approve an app's existing `skills.read`
+slot for one "Anyone with the link" use link by calling `osShares.shares.update`
+with `guestSkillReadSlots: ["research"]`. This uses the approving person's
+current access to read the bound skill's evidence. It grants no other slot,
+operation, app or link. The approval is pinned to the app revision and resource
+binding; changing either requires approval again. The approver must remain an
+active owner or admin, and source access is checked on every read. An empty
+`guestSkillReadSlots` list withdraws these approvals. App code stays unchanged.
 
 Calls accept at most 50 JSON arguments and 65,536 encoded bytes. Method names
 start with a letter, contain only letters and digits, and have at most 80

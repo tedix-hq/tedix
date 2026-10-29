@@ -43,6 +43,7 @@ import {
 	listOsOutputs,
 } from "@tedix/db/queries/os-workspaces/outputs";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
+import { approvedGuestSkillRead } from "../services/os-share-skill-read-grants";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type { OsShareLinkRow } from "@tedix/db/schema/os-shares";
@@ -314,14 +315,39 @@ function activeWorkspaceResources(db: DbQueryClient, scope: WorkspaceScope) {
  */
 export async function guestAppRefusal(
 	db: DbQueryClient,
-	scope: WorkspaceScope,
+	scope: WorkspaceScope & {
+		gadgetId?: string;
+		revisionId?: string;
+		shareLinkId?: string;
+	},
 	grants: ReadonlyArray<{ slot: string; operations: readonly string[] }>,
 	resources?: readonly OsWorkspaceResourceRow[],
 ): Promise<AppRuntimeGuestRefusal | null> {
 	if (grants.length === 0) return null;
 	const bound = resources ?? (await activeWorkspaceResources(db, scope));
 	const slots = new Map<string, AppRuntimeGuestSlot>();
+	const remaining = [];
 	for (const grant of grants) {
+		if (
+			scope.gadgetId &&
+			scope.revisionId &&
+			scope.shareLinkId &&
+			grant.operations.length === 1 &&
+			grant.operations[0] === "skills.read" &&
+			(await approvedGuestSkillRead(
+				db,
+				{
+					...scope,
+					gadgetId: scope.gadgetId,
+					revisionId: scope.revisionId,
+					shareLinkId: scope.shareLinkId,
+				},
+				grant.slot,
+				bound,
+			))
+		)
+			continue;
+		remaining.push(grant);
 		const resource = bound.find((row) => row.slot === grant.slot);
 		if (!resource) continue;
 		slots.set(
@@ -340,7 +366,7 @@ export async function guestAppRefusal(
 				: { kind: "other" },
 		);
 	}
-	return appRuntimeGuestRefusal(grants, slots);
+	return appRuntimeGuestRefusal(remaining, slots);
 }
 
 /** Whether a visitor without an account may run an app with this manifest. */

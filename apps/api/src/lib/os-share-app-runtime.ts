@@ -398,6 +398,7 @@ export async function guestAppRefusalForApp(
 		workspaceId: string;
 		currentRevisionId: string | null;
 	},
+	shareLinkIds: readonly string[] = [],
 ): Promise<OsShareGuestRefusal | null | undefined> {
 	if (!app.currentRevisionId) return undefined;
 	const revision = await getOsGadgetRevision(db, {
@@ -412,6 +413,16 @@ export async function guestAppRefusalForApp(
 		return { reason: "not_runtime_app" };
 	}
 	if (!isAppRuntimeManifest(manifest)) return { reason: "not_runtime_app" };
+	for (const shareLinkId of shareLinkIds) {
+		if (
+			!(await guestAppRefusal(
+				db,
+				{ ...app, gadgetId: app.id, revisionId: revision.id, shareLinkId },
+				manifest.resourceGrants ?? [],
+			))
+		)
+			return null;
+	}
 	return guestAppRefusal(db, app, manifest.resourceGrants ?? []);
 }
 

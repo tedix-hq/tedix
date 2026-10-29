@@ -14,6 +14,7 @@ import {
 	restrictOsShareLink,
 	revokeOsShareLink,
 	updateOsShareLinkSettings,
+	setOsShareSkillReadGrants,
 } from "@tedix/db/queries/os-shares";
 import { findTedixPersonByEmail } from "@tedix/db/queries/os-collaborators";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
@@ -488,10 +489,21 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 		await import("../../lib/os-share-app-runtime");
 	return {
 		items,
-		guestRefusal: await guestAppRefusalForApp(db, {
-			...resource,
-			workspaceId: resource.workspaceId,
-		}),
+		guestRefusal: await guestAppRefusalForApp(
+			db,
+			{
+				...resource,
+				workspaceId: resource.workspaceId,
+			},
+			rows
+				.filter(
+					(row) =>
+						!row.revokedAt &&
+						!row.disabledAt &&
+						(!row.expiresAt || Date.parse(row.expiresAt) > Date.now()),
+				)
+				.map((row) => row.id),
+		),
 	};
 });
 
@@ -614,6 +626,16 @@ const sharesUpdate = adminOs.shares.update.handler(
 				"This link was deleted. Make a new link instead.",
 			);
 		const role = input.role ?? current.role;
+		const guestGrants =
+			input.guestSkillReadSlots === undefined
+				? undefined
+				: await (
+						await import("../../services/os-share-skill-read-grants")
+					).prepareGuestSkillReadGrants(
+						context,
+						{ ...current, role, access: input.access ?? current.access },
+						input.guestSkillReadSlots,
+					);
 		if ((current.resourceType === "output") !== (role === "viewer"))
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -655,7 +677,14 @@ const sharesUpdate = adminOs.shares.update.handler(
 				ErrorCodes.BAD_REQUEST,
 				"This link was deleted. Make a new link instead.",
 			);
-		if (endSessions) await cutShareLinkAppSessions(context, db, result.share);
+		if (guestGrants !== undefined)
+			await setOsShareSkillReadGrants(
+				db,
+				{ organizationId, shareLinkId: current.id },
+				guestGrants,
+			);
+		if (endSessions || guestGrants !== undefined)
+			await cutShareLinkAppSessions(context, db, result.share);
 		return {
 			share: mapShareLink(
 				result.share,

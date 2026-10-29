@@ -219,3 +219,38 @@ export const osReviewFeedback = sqliteTable(
 );
 export type OsReviewBatchRow = typeof osReviewBatches.$inferSelect;
 export type OsReviewFeedbackRow = typeof osReviewFeedback.$inferSelect;
+
+/** Owner approval for one share, immutable app revision and bound skill slot. */
+export const osShareSkillReadGrants = sqliteTable(
+	"os_share_skill_read_grants",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		shareLinkId: text("share_link_id")
+			.notNull()
+			.references(() => osShareLinks.id, { onDelete: "cascade" }),
+		workspaceId: text("workspace_id").notNull(),
+		gadgetId: text("gadget_id").notNull(),
+		revisionId: text("revision_id").notNull(),
+		resourceId: text("resource_id").notNull(),
+		providerResourceId: text("provider_resource_id").notNull(),
+		slot: text("slot").notNull(),
+		approvedByUserId: text("approved_by_user_id").notNull(),
+		approvedAt: text("approved_at").notNull(),
+		revokedAt: text("revoked_at"),
+	},
+	(t) => [
+		uniqueIndex("os_share_skill_read_grants_slot_unique").on(
+			t.organizationId,
+			t.shareLinkId,
+			t.revisionId,
+			t.slot,
+		),
+	],
+);
+export type OsShareSkillReadGrantRow =
+	typeof osShareSkillReadGrants.$inferSelect;
+export type NewOsShareSkillReadGrantRow =
+	typeof osShareSkillReadGrants.$inferInsert;

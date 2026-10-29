@@ -1228,6 +1228,10 @@
 		{
 			"name": "20261028120000_share_link_disabled/migration.sql",
 			"sha256": "35ee59bfbb20668cc0bf127f04a9a76636507d8ff27286a68d7371efa707ead3"
+		},
+		{
+			"name": "20261029080223_share_skill_read_grants/migration.sql",
+			"sha256": "e4610dd07cc8857e7f46b4b76d341359ee635420de673ea34c30dd22b7a9307d"
 		}
 	]
 }
