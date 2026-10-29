@@ -7,6 +7,8 @@ const server = await startFixtureServer("/outputs");
 const browser = await chromium.launch({ headless: true });
 const evidence =
 	process.env.RESOURCE_LIBRARY_EVIDENCE_DIR ?? "/tmp/897af6b0-browser";
+const previewImage =
+	"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4YQAAAAASUVORK5CYII=";
 await mkdir(evidence, { recursive: true });
 try {
 	for (const width of [375, 1280])
@@ -25,6 +27,25 @@ try {
 				body.json.preferences.theme = theme;
 				await route.fulfill({ response, json: body });
 			});
+			let withPreview = true;
+			await page.route(
+				"**/api/rpc/osWorkspaces/gadgets/get*",
+				async (route) => {
+					const response = await route.fetch();
+					const body = await response.json();
+					const manifest = (body.json ?? body).currentRevision?.manifest;
+					if (manifest && withPreview)
+						manifest.preview = {
+							image: previewImage,
+							alt: "Saved app preview",
+						};
+					else if (manifest) {
+						delete manifest.preview;
+						manifest.description = "App without a saved preview";
+					}
+					await route.fulfill({ response, json: body });
+				},
+			);
 			for (const [surface, path] of [
 				["documents", "/outputs"],
 				[
@@ -93,13 +114,26 @@ try {
 						.count()) > 0,
 					`${surface} includes native files through the shared card`,
 				);
+				const preview = library.getByRole("img", { name: "Saved app preview" });
+				await preview.first().waitFor();
+				assert(
+					await preview.first().evaluate(async (el: HTMLImageElement) => {
+						await el.decode();
+						return el.complete && el.naturalWidth > 0 && el.naturalHeight > 0;
+					}),
+					`${surface} shows a decoded saved raster preview`,
+				);
 				assert.equal(
-					await library
-						.locator(".workspace-app-preview")
+					await preview
 						.first()
-						.evaluate((el) => getComputedStyle(el).display),
-					"flex",
+						.evaluate((el) => getComputedStyle(el).objectFit),
+					"cover",
 					"app preview styles load on both surfaces",
+				);
+				assert.equal(
+					await library.locator("[data-workspace-app] iframe").count(),
+					0,
+					"the library does not run an app to show its preview",
 				);
 				assert(
 					(await library.locator('[data-slot="output-grid-preview"]').count()) >
@@ -159,6 +193,22 @@ try {
 					await page.waitForURL((url) =>
 						url.pathname.startsWith("/workspace/"),
 					);
+				} else {
+					const appId = await preview
+						.first()
+						.locator("xpath=ancestor::*[@data-workspace-app]")
+						.getAttribute("data-workspace-app");
+					withPreview = false;
+					await page.reload();
+					const compact = library.locator(`[data-workspace-app="${appId}"]`);
+					await compact.waitFor();
+					await compact.getByText("App without a saved preview").waitFor();
+					assert.equal(
+						await compact.locator('[data-slot="output-grid-preview"]').count(),
+						0,
+						"an app without a saved screenshot has no empty preview panel",
+					);
+					await compact.getByRole("button", { name: /^Open / }).waitFor();
 				}
 				console.log(`Resource library passed: ${surface} ${width} ${theme}`);
 			}
