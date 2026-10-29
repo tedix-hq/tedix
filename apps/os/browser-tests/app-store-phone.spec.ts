@@ -35,6 +35,12 @@ try {
 				theme,
 			);
 			const page = await context.newPage();
+			await page.route("**/userSettings/getPreferences", async (route) => {
+				const response = await route.fetch();
+				const body = await response.json();
+				body.json.preferences.theme = theme;
+				await route.fulfill({ response, json: body });
+			});
 			await page.route("**/api/rpc/catalog/list", async (route) => {
 				const response = await route.fetch();
 				const body = (await response.text())
@@ -50,6 +56,10 @@ try {
 			);
 			const byline = card.locator('[data-slot="card-description"]');
 			await page.evaluate(() => document.fonts.ready);
+			await page.waitForFunction(
+				(expected) => document.documentElement.dataset.mode === expected,
+				theme,
+			);
 			assert.equal(
 				await page.evaluate(() => document.documentElement.dataset.mode),
 				theme,
