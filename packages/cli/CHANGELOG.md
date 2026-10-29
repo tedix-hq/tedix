@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.18.5 — 2026-10-29
+
+### Patch Changes
+
+- Devin lanes preserve the selected organization so tasks run instead of opening onboarding. Failed and expired tasks back off, and three identical failures hold that Work revision even after a dispatcher restart.
+- The supervisor skips unavailable session checkouts so a deleted directory cannot block answer delivery to other sessions.
+
 ## 0.18.4 — 2026-10-29
 
 ### Patch Changes
