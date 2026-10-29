@@ -27,6 +27,7 @@ import {
 	type CodexDriver,
 	codexDriver,
 	codexMessageReceived,
+	headlessLeadDriver,
 	privacyProtected,
 	protectedResumeReason,
 } from "./supervise-drivers";
@@ -426,8 +427,12 @@ describe("tedix supervise", () => {
 		function sessions(...entries: Array<[string, string]>): void {
 			for (const [session, host] of entries)
 				writeFileSync(
-					join(config, "decision-capture", `${session}.session.json`),
-					JSON.stringify({ host, cwd: config }),
+					join(
+						config,
+						"decision-capture",
+						`${session.toLowerCase()}.session.json`,
+					),
+					JSON.stringify({ host, cwd: config, nativeSession: session }),
 				);
 		}
 
@@ -439,12 +444,16 @@ describe("tedix supervise", () => {
 				received = true,
 				withdrawn = true,
 				undeliveredError,
+				ackError = false,
+				bound = true,
 			}: {
 				open?: boolean | undefined;
 				started?: boolean;
 				received?: boolean;
 				withdrawn?: boolean;
 				undeliveredError?: Error;
+				ackError?: boolean;
+				bound?: boolean;
 			} = {},
 		) {
 			const lines: string[] = [];
@@ -484,6 +493,10 @@ describe("tedix supervise", () => {
 				env: { TEDIX_CONFIG_DIR: config },
 				codex,
 				claude,
+				drivers: {
+					devin: headlessLeadDriver(claude),
+					opencode: headlessLeadDriver(claude),
+				},
 				now: () => clock,
 				sleep: async (ms) => {
 					clock += ms;
@@ -505,6 +518,7 @@ describe("tedix supervise", () => {
 					if (
 						args.some((arg) => arg.includes("ack_work_interaction_delivery"))
 					) {
+						if (ackError) throw new Error("fixture ack unavailable");
 						acks.push(workToolCall(args)!.input);
 						return { data: [] };
 					}
@@ -516,7 +530,8 @@ describe("tedix supervise", () => {
 						board.push(args);
 						return {};
 					}
-					if (args.includes("context")) return structuredClone(BINDING);
+					if (args.includes("context"))
+						return bound ? structuredClone(BINDING) : { status: "unbound" };
 					if (args.includes("auth")) return structuredClone(AUTH);
 					throw new Error(`unexpected read ${args.join(" ")}`);
 				},
@@ -532,6 +547,84 @@ describe("tedix supervise", () => {
 				finish: (ok: boolean) => finish(ok),
 			};
 		}
+
+		for (const [host, native] of [
+			["devin", "quiet-otter"],
+			["opencode", "ses_abcdef012345AbCdEf01234567"],
+		] as const) {
+			test(`${host} resumes its exact native session once even when ack fails and more answers arrive`, async () => {
+				sessions([native, host]);
+				const firstAnswer = answer(native.toLowerCase(), host, 60_000);
+				const first = drain([firstAnswer], { ackError: true });
+				expect(await first.runner.tick()).toBe(1);
+				expect(first.resumed[0]?.[0]).toBe(native);
+				expect(first.acks).toEqual([]);
+				const retry = drain([firstAnswer]);
+				expect(await retry.runner.tick()).toBe(0);
+				expect(retry.resumed).toEqual([]);
+				expect(retry.acks).toHaveLength(1);
+				const secondAnswer = answer(
+					native.toLowerCase(),
+					host,
+					1000,
+					"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+				);
+				const added = drain([firstAnswer, secondAnswer]);
+				expect(await added.runner.tick()).toBe(1);
+				expect(added.resumed).toHaveLength(1);
+				expect(added.acks.at(-1)?.responseIds).toEqual([
+					secondAnswer.responseId,
+				]);
+				added.finish(true);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				expect(added.acks.at(-1)?.acknowledged).toBe(true);
+			});
+
+			test(`${host} respects binding, busy sessions and failed confirmation`, async () => {
+				sessions([native, host]);
+				const answers = [answer(native.toLowerCase(), host, 60_000)];
+				const unbound = drain(answers, { bound: false });
+				expect(await unbound.runner.tick()).toBe(0);
+				expect(unbound.resumed).toEqual([]);
+				mkdirSync(join(config, "agent-status"), { recursive: true });
+				const status = join(
+					config,
+					"agent-status",
+					`${host}-${native.toLowerCase()}.json`,
+				);
+				writeFileSync(
+					status,
+					JSON.stringify({
+						state: "working",
+						updatedAt: new Date().toISOString(),
+					}),
+				);
+				const busy = drain(answers);
+				expect(await busy.runner.tick()).toBe(0);
+				expect(busy.resumed).toEqual([]);
+				rmSync(status);
+				const failed = drain(answers, { started: false });
+				expect(await failed.runner.tick()).toBe(0);
+				expect(failed.acks).toEqual([]);
+				const recovered = drain(answers);
+				expect(await recovered.runner.tick()).toBe(1);
+				expect(recovered.resumed[0]?.[0]).toBe(native);
+			});
+		}
+
+		test("a protected checkout is rejected before any binding or authentication read", async () => {
+			if (process.platform !== "darwin") return;
+			const cwd = join(process.env.HOME!, "Documents", "fixture");
+			writeFileSync(
+				join(config, "decision-capture", `${SESSION}.session.json`),
+				JSON.stringify({ host: "codex", cwd }),
+			);
+			const run = drain([answer(SESSION, "codex", 60_000)]);
+			expect(await run.runner.tick()).toBe(0);
+			expect(run.cwds).toEqual([]);
+			expect(run.lines.join("\n")).toContain("Full Disk Access");
+			expect(run.lines.join("\n")).not.toContain("deadline elapsed");
+		});
 
 		test("an uncertain Codex answer reuses its queue after restart until receipt is confirmed", async () => {
 			sessions([SESSION, "codex"]);
@@ -550,9 +643,14 @@ describe("tedix supervise", () => {
 			expect(confirmed.queued).toEqual([]);
 			expect(confirmed.resumed).toEqual([]);
 			expect(confirmed.acks).toHaveLength(1);
-			expect(readdirSync(join(config, "supervisor", "codex-queue"))).toEqual(
-				[],
-			);
+			const directory = join(config, "supervisor", "codex-queue");
+			const retained = readdirSync(directory);
+			expect(retained).toEqual([expect.stringMatching(/\.delivered\.json$/)]);
+			expect(peek(join(directory, retained[0]!))?.via).toBe("codex_queue");
+			const restarted = drain(answers);
+			expect(await restarted.runner.tick()).toBe(0);
+			expect(restarted.queued).toEqual([]);
+			expect(restarted.resumed).toEqual([]);
 		});
 
 		test("a retained Codex answer resumes only after withdrawal succeeds", async () => {
@@ -618,7 +716,7 @@ describe("tedix supervise", () => {
 			]);
 			expect(
 				run.cwds.filter(([, cwd]) => cwd === config).map(([word]) => word),
-			).toEqual(["setup", "-w", "-w"]);
+			).toEqual(["setup", "-w", "-w", "-w"]);
 		});
 
 		test("an unreadable answer list logs the read failure's reason once", async () => {
