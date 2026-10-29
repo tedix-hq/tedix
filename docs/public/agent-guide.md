@@ -772,15 +772,22 @@ completion evidence.
 
 The permission profile approves worktree file reads/writes, explicit development
 command prefixes (`bun run`, `bun test`, `tedix`, `rg`, `ls`, `cat`, `sed`), selected
-Git commands, `gh run list/view`, Tedix MCP tools and the documentation domains.
+Git commands, `gh run list/view` and the documentation domains.
 Sandboxing selects Devin's autonomous mode; the lane PreToolUse hook still rejects
 commands outside the explicit scope, including compound shell commands. Raw Git pushes, Tedix login, Wrangler deploy,
 `curl`, `wget`, `ssh`, `scp` and `env` are denied. Use guarded `bun run push`.
 Read/write denies protect credential stores, SSH keys, user configuration and
 dotenv files. The OS sandbox applies the read denies to exec processes too;
 indirect runtime reads cannot bypass them. This also prevents commands needing
-those credentials from reading them; use the configured MCP connection for
-Tedix access. The lane fails if the sandbox or permission hook fails.
+those credentials from reading them. Shared Tedix plugin MCP access is disabled
+before discovery, so it cannot refresh the owner's OAuth grant.
+For admitted Work, the runner asks Devin for a final `TEDIX_WORK_RESULT` JSON
+line containing `outcome` (`succeeded` or `failed`) and `note`. The dispatcher
+renews the exact Attempt and posts only that note to its admitted Work using
+the lane's existing identity. It exposes no credentials or arbitrary tool proxy.
+Missing or malformed results, incomplete outcomes, and delivery errors fail the
+run. A saved note records the agent's report; it does not prove that report correct.
+The lane also fails if the sandbox or permission hook fails.
 The runner supplies a temporary Git config containing only author name and email;
 credential helpers and owner config remain hidden.
 The user-level setup installs lifecycle hooks without the lane permission hook.

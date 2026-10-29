@@ -1550,6 +1550,21 @@ export class LaneDispatcher {
 					},
 					detachedChild: true,
 					admitted: true,
+					deliverWorkNote:
+						executor === "devin"
+							? async (note) => {
+									await this.call(
+										["work", "heartbeat", item.id],
+										receipt.session,
+										receipt.executorKey,
+									);
+									await this.call(
+										["work", "comment", item.id, "--body", note],
+										receipt.session,
+										receipt.executorKey,
+									);
+								}
+							: undefined,
 					report: (input, scope) =>
 						this.queue(() => reportLaneObservation(input, scope)).catch(
 							(error) => {
@@ -1580,7 +1595,7 @@ export class LaneDispatcher {
 				exit !== 0 &&
 				this.recordLimit(executor, receipt.telemetry?.finalMessage ?? "");
 			receipt.outcome =
-				receipt.telemetry?.outcome === "succeeded" || exit === 0
+				exit === 0 && receipt.telemetry?.outcome === "succeeded"
 					? "succeeded"
 					: "failed";
 			if (receipt.telemetry?.outcome === "stopped") receipt.interrupted = true;
