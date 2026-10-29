@@ -241,7 +241,7 @@ it("resumes interrupted native state, allocating fresh only when that rollout is
 	);
 });
 it("reaps only canonically expired dead runs before resuming their retained worktree", async () => {
-	const { dir, control, create, receiptPath } = fixture();
+	const { dir, control, create, receiptPath, retry } = fixture();
 	const repo = join(dir, "runs", "prior", "repo");
 	mkdirSync(repo, { recursive: true });
 	const session = "codex:33333333-3333-4333-8333-000000000001";
@@ -261,6 +261,13 @@ it("reaps only canonically expired dead runs before resuming their retained work
 		{ id: "prior-attempt", outcome: "expired", externalSessionKey: session },
 	];
 	const dispatcher = create();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(control.threads).toHaveLength(0);
+	expect(JSON.parse(readFileSync(receiptPath, "utf8")).retryAt).toBeGreaterThan(
+		Date.now(),
+	);
+	retry();
 	await dispatcher.tick();
 	await dispatcher.drain();
 	expect(control.threads[0]?.resume).toBe(session.slice("codex:".length));
