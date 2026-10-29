@@ -53,6 +53,7 @@ import {
 	type WriteExecutorEnv,
 } from "./write-executor";
 import type { KernelWriteProposal } from "./write-proposal";
+import { executeOwnerSkillCertification } from "./owner-skill-certification";
 
 // The executor leg of the approved-write layer is indirected for tests: the
 // real implementation makes the live MCP `tools/call`, so kernel-runtime tests
@@ -807,17 +808,19 @@ export async function settleHomeToolWriteApproval(
 
 		const executeStartedAt = Date.now();
 		const executorTimings: KernelWriteExecutorTimings = {};
-		const result = await activeKernelWriteExecutor({
-			env: context.env as unknown as WriteExecutorEnv,
-			payload,
-			approvalRequestId: input.approval.id,
-			approvedWorkResponderUserId:
-				input.approval.resolvedBy === "policy"
-					? (payload.initiatedByUserId ?? undefined)
-					: (input.approval.resolvedBy ?? undefined),
-			approvedByUserId,
-			timings: executorTimings,
-		}).catch((error) => ({
+		const result = await (async () =>
+			(await executeOwnerSkillCertification(context, payload)) ??
+			(await activeKernelWriteExecutor({
+				env: context.env as unknown as WriteExecutorEnv,
+				payload,
+				approvalRequestId: input.approval.id,
+				approvedWorkResponderUserId:
+					input.approval.resolvedBy === "policy"
+						? (payload.initiatedByUserId ?? undefined)
+						: (input.approval.resolvedBy ?? undefined),
+				approvedByUserId,
+				timings: executorTimings,
+			})))().catch((error) => ({
 			ok: false as const,
 			error: errorMessage(error),
 		}));

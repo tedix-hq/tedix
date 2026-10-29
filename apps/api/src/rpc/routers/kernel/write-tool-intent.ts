@@ -116,6 +116,8 @@ export interface SkillCertificationIntent {
 		skillId: string;
 		tediId: string;
 		certification: true;
+		expectedSkillRevision: number;
+		idempotencyKey: string;
 		confirmDestructive: true;
 		reason: string;
 		params?: Record<string, unknown>;
