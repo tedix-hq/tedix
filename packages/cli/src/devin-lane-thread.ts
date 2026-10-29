@@ -1,10 +1,14 @@
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 import { laneChildEnv } from "./lane-child-env";
 import { assertDevinProjectHooks } from "./devin-lane-security";
+import { writeDevinLaneConfig } from "./devin-config";
 
 export function devinAvailable(executable = "devin") {
 	const result = spawnSync(executable, ["auth", "status"], {
@@ -61,12 +65,15 @@ export async function createDevinLaneThread(
 		.match(/^devin (\d+\.\d+\.\d+\S*)\b/)?.[1];
 	if (release.status !== 0 || !version)
 		throw new Error("Devin CLI version unavailable; no model turn launched");
+	const configHome = mkdtempSync(join(tmpdir(), "tedix-devin-metadata-"));
+	const config = join(configHome, "devin/config.json");
+	writeDevinLaneConfig(config, cwd);
 	const child = spawn(
 		executable,
 		["acp", ...(model ? ["--model", model] : [])],
 		{
 			cwd,
-			env: laneChildEnv(),
+			env: { ...laneChildEnv(), XDG_CONFIG_HOME: configHome },
 			stdio: ["pipe", "pipe", "pipe"],
 		},
 	);
@@ -172,5 +179,6 @@ export async function createDevinLaneThread(
 		child.stdin.end();
 		child.kill("SIGTERM");
 		if (child.exitCode === null) await once(child, "close");
+		rmSync(configHome, { recursive: true, force: true });
 	}
 }

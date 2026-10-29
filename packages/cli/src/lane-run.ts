@@ -307,7 +307,7 @@ async function runLaneProcessWithReporter(
 		options.get("--transcript") ?? join(dir, "transcript.devin.atif.json");
 	if (devin) {
 		writeDevinGitIdentity(join(dir, "gitconfig"), deps.cwd ?? process.cwd());
-		const config = join(dir, "devin.json");
+		const config = join(dir, "devin", "config.json");
 		const workspace =
 			deps.childScope?.workspace ??
 			options.get("--workspace") ??
@@ -351,6 +351,7 @@ async function runLaneProcessWithReporter(
 					TEMP: sandboxTemp,
 					BUN_INSTALL_CACHE_DIR: join(sandboxTemp, "bun-cache"),
 					XDG_CACHE_HOME: join(sandboxTemp, "cache"),
+					XDG_CONFIG_HOME: dir,
 					GIT_CONFIG_GLOBAL: join(dir, "gitconfig"),
 					GIT_CONFIG_NOSYSTEM: "1",
 					TEDIX_AGENT_SESSION: `devin:${sessionKey}`,
@@ -637,7 +638,7 @@ async function runLaneProcessWithReporter(
 	}
 	if (devin && !options.has("--transcript")) {
 		rmSync(receipt, { force: true });
-		rmSync(join(dir, "devin.json"), { force: true });
+		rmSync(join(dir, "devin"), { recursive: true, force: true });
 		rmSync(join(dir, "gitconfig"), { force: true });
 		process.stderr.write(`Devin transcript retained at ${devinTranscript}\n`);
 	} else rmSync(dir, { recursive: true, force: true });
