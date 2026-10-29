@@ -3,10 +3,12 @@ import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { OutputContentView } from "../src/components/output-content";
 import { SheetEditor } from "../src/components/output-editor-sheet";
+import { CanvasWorkpieceTabs } from "../src/components/canvas-workpiece-tabs";
 import type { SheetContent } from "../src/lib/output-models";
 import "../src/styles.css";
 import "../src/components/output-editor.css";
 import "../src/components/output-detail.css";
+import "../src/components/canvas-page.css";
 
 const params = new URLSearchParams(location.search);
 const theme = params.get("theme") ?? "light";
@@ -109,6 +111,21 @@ function Fixture() {
 	);
 	return (
 		<main className="flex h-dvh min-w-0 flex-col bg-kumo-base text-kumo-default">
+			{params.has("workspace") && (
+				<div className="canvas-workpiece-bar">
+					<CanvasWorkpieceTabs
+						opened={[
+							{ type: "gadget", id: "review" },
+							{ type: "output", id: "sheet" },
+						]}
+						selectedKey="output:sheet"
+						gadgets={[{ id: "review", name: "Quarter review" }]}
+						outputs={[{ id: "sheet", title: "Quarter", kind: "sheet" }]}
+						onClose={() => {}}
+						onSelect={() => {}}
+					/>
+				</div>
+			)}
 			{mode === "view" ? (
 				<div className="min-h-0 flex-1 overflow-auto p-2">
 					<OutputContentView content={value as OsOutputContent} />

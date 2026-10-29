@@ -31,7 +31,7 @@ async function open(
 	const errors: string[] = [];
 	page.on("pageerror", (error) => errors.push(error.message));
 	await page.goto(
-		`${server.origin}/browser-tests/sheet-gadget.html?theme=${theme}&mode=${mode}&data=${data}`,
+		`${server.origin}/browser-tests/sheet-gadget.html?theme=${theme}&mode=${mode}&data=${data}&workspace=1`,
 	);
 	await page.evaluate(() => document.fonts.ready);
 	return { page, errors, label: `${width}px ${theme} ${mode} ${data}` };
@@ -57,6 +57,65 @@ try {
 				const { page, errors, label } = await open(width, theme, "edit");
 				await page.getByRole("grid", { name: "Spreadsheet grid" }).waitFor();
 				await noPageOverflow(page, label);
+				const toolbarGeometry = await page
+					.locator(".output-editor-toolbar")
+					.evaluate((toolbar) => {
+						const controls = [
+							...toolbar.querySelectorAll<HTMLElement>(
+								'button[data-toolbar-control="icon"], [data-toolbar-control="color"], [data-kumo-component="Select"][data-kumo-part="trigger"]',
+							),
+						];
+						return controls.map((control) => {
+							const box = control.getBoundingClientRect();
+							return {
+								name: control.getAttribute("aria-label") ?? control.title,
+								width: box.width,
+								height: box.height,
+								top: box.top,
+								select: control.getAttribute("role") === "combobox",
+							};
+						});
+					});
+				assert(
+					toolbarGeometry.length > 20,
+					`${label}: all toolbar sections measured`,
+				);
+				for (const control of toolbarGeometry) {
+					assert.equal(
+						control.height,
+						width < 640 ? 44 : 32,
+						`${label}: ${control.name} height`,
+					);
+					if (!control.select)
+						assert.equal(
+							control.width,
+							control.height,
+							`${label}: ${control.name} square target`,
+						);
+				}
+				assert.equal(
+					new Set(toolbarGeometry.map((control) => control.top)).size,
+					1,
+					`${label}: all controls align`,
+				);
+				const tabs = await page
+					.locator(".canvas-workpiece-tabs")
+					.evaluate((strip) => {
+						const first = strip
+							.querySelector('[role="tab"]')!
+							.getBoundingClientRect();
+						return {
+							left: strip.getBoundingClientRect().left,
+							first: first.left,
+						};
+					});
+				assert(
+					Math.abs(tabs.first - tabs.left) <= 1,
+					`${label}: workpieces start at the left edge ${JSON.stringify(tabs)}`,
+				);
+				await page.screenshot({
+					path: `${evidence}/sheet-toolbar-${width}-${theme}.png`,
+				});
 
 				// Cached values that were never computed still show on load.
 				assert.equal(
@@ -173,7 +232,18 @@ try {
 				await textSize.click();
 				await sizeOption("24 px").waitFor();
 				await page.keyboard.press("2");
+				await page.waitForFunction(
+					() => document.activeElement?.textContent === "24 px",
+				);
 				await page.keyboard.press("Enter");
+				await page.waitForFunction(
+					() =>
+						getComputedStyle(
+							document.querySelector(
+								'[data-cell-row="0"][data-cell-column="0"]',
+							)!,
+						).fontSize === "24px",
+				);
 				assert.equal(
 					await cell(page, 0, 0).evaluate(
 						(el) => getComputedStyle(el).fontSize,
@@ -188,7 +258,18 @@ try {
 				await textSize.click();
 				await sizeOption("Default").waitFor();
 				await page.keyboard.press("d");
+				await page.waitForFunction(
+					() => document.activeElement?.textContent === "Default",
+				);
 				await page.keyboard.press("Enter");
+				await page.waitForFunction(
+					() =>
+						getComputedStyle(
+							document.querySelector(
+								'[data-cell-row="0"][data-cell-column="0"]',
+							)!,
+						).fontSize !== "24px",
+				);
 				assert.notEqual(
 					await cell(page, 0, 0).evaluate(
 						(el) => getComputedStyle(el).fontSize,

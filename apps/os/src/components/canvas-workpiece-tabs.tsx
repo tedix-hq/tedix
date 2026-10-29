@@ -135,7 +135,7 @@ export function CanvasWorkpieceTabs({
 				if (doc && key !== selectedKey) onSelect(doc);
 			}}
 			data-focus-ring="inset"
-			className="canvas-workpiece-tabs flex-row"
+			className="canvas-workpiece-tabs data-[orientation=horizontal]:flex-row"
 		>
 			<TabsList
 				aria-label="Open workpieces"
