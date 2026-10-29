@@ -406,6 +406,8 @@ Only the exact `.env.example` and `.dev.vars.example` filenames are readable
 for repository checks; other environment variants and all environment-file writes
 remain denied. Temporary files and Bun caches stay under the lane's ignored
 `node_modules/.cache/tedix-devin` directory.
+Isolated configs retain only the existing Devin organization selection;
+if none is saved, dispatch stops before onboarding or a model turn.
 The read-only smoke uses the existing Tedix CLI login; Devin MCP authorization
 is a separate step.
 
@@ -504,10 +506,11 @@ coordinator reviews results and decides Work completion or retry.
 
 `--max` defaults to 5. One dispatcher per organization and executor runs on a
 machine; retained live process groups consume slots after restart. Completed
-receipts remain fenced. Admission failures retain their diagnostics and retry
-with exponential backoff starting at one minute, at most five times per
+receipts remain fenced. Admission failures and failed or expired executions retain
+their diagnostics and retry with exponential backoff starting at one minute, at most five times per
 30-minute window. A new Work revision or an elapsed window permits fresh
-admission checks. Before retrying, complete canonical Attempt history and current
+admission checks. Three identical failures hold that Work revision until it changes.
+Before retrying, complete canonical Attempt history and current
 readiness must exclude a live Attempt or a completed result for that revision.
 Unknown or truncated history holds admission; lease expiry alone cannot retire
 an Attempt. Existing failed receipts without an Attempt use the same recovery.
