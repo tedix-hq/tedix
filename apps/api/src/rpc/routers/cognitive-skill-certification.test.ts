@@ -21,6 +21,9 @@ vi.mock("@tedix/db/queries/tedis", async (load) => ({
 vi.mock("@tedix/db/queries/audit", () => ({
 	insertAuditEvent: mocks.insertAuditEvent,
 }));
+vi.mock("@tedix/db/queries/organization-members", () => ({
+	getMemberByUserId: vi.fn(async () => ({ status: "active", role: "owner" })),
+}));
 vi.mock("@tedix/db/queries/skill-runs", async (load) => ({
 	...(await load<typeof import("@tedix/db/queries/skill-runs")>()),
 	getSkillRun: mocks.getSkillRun,
@@ -33,6 +36,8 @@ vi.mock("../../kernel/runtime-submission-bridge", async (load) => ({
 	recordTediSubmissionStarted: mocks.recordTediSubmissionStarted,
 }));
 import { skillsRunWorkflow } from "./cognitive-skill-runs/run-start";
+import { executeOwnerSkillCertification } from "./kernel/owner-skill-certification";
+import type { HomeToolWritePayload } from "./kernel/write-executor";
 
 const input = {
 	skillId: "skill-1",
@@ -74,6 +79,45 @@ beforeEach(() => {
 	});
 });
 describe("certification run admission", () => {
+	it("dispatches a Home test through the unchanged native owner guard", async () => {
+		const context = {
+			authType: "user",
+			user: { sub: "owner-1" },
+			userRole: "owner",
+			organizationId: "org-1",
+			db: {},
+			env: { ENVIRONMENT: "development" },
+			headers: new Headers(),
+			url: new URL("https://api.test/rpc/skills"),
+			rateLimiter: { limit: async () => ({ success: true }) },
+		} as BaseContext;
+		const payload = {
+			toolName: "skills.run_workflow",
+			organizationId: "org-1",
+			initiatedByUserId: "owner-1",
+			args: { ...input, idempotencyKey: "home-test" },
+		} as unknown as HomeToolWritePayload;
+		expect(
+			await executeOwnerSkillCertification(context, payload),
+		).toMatchObject({ ok: true });
+		expect(mocks.callSkillRuntime).toHaveBeenCalledWith(
+			expect.anything(),
+			"/run",
+			expect.objectContaining({
+				certification: true,
+				createdBy: "user:owner-1",
+				skillRevision: 7,
+			}),
+		);
+		mocks.callSkillRuntime.mockClear();
+		await expect(
+			executeOwnerSkillCertification(context, {
+				...payload,
+				args: { ...payload.args, expectedSkillRevision: 6 },
+			}),
+		).rejects.toThrow();
+		expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
+	});
 	it.each(["owner", "admin"])(
 		"pins and audits a %s certification run",
 		async (userRole) => {
