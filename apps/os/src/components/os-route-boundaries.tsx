@@ -90,12 +90,12 @@ export function OsRoutePending({
 
 	return (
 		<main
-			className="min-h-dvh w-full bg-kumo-base text-kumo-default"
+			className="centered-state bg-kumo-base text-kumo-default"
 			aria-busy="true"
 			aria-live="polite"
 			role="status"
 		>
-			<Page width="lg" className="gap-8 sm:gap-12">
+			<div className="grid w-full max-w-md justify-items-center gap-6">
 				<strong className="font-mono type-tedix-body">Tedix</strong>
 				<div className="flex items-center gap-2 text-kumo-subtle type-tedix-body">
 					<Loader aria-hidden="true" />
@@ -111,7 +111,7 @@ export function OsRoutePending({
 						<Skeleton className="h-10 w-full rounded-full" />
 					</div>
 				</div>
-			</Page>
+			</div>
 		</main>
 	);
 }
