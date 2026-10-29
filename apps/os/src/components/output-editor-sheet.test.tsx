@@ -139,9 +139,8 @@ describe("SheetEditor", () => {
 			expect(picker, name).not.toBeNull();
 			expect(picker?.closest("label")?.textContent).toBe("");
 		}
-		// "Automatic" is the number-format Select's own value; nothing else in the
-		// row may contribute visible text.
-		expect(toolbar?.textContent).toBe("Automatic");
+		// Labelled Selects keep their values visible beside the icon controls.
+		expect(toolbar?.textContent).toBe("DefaultAutomatic");
 		// The 28x28 square sizing in `styles.css` keys off this attribute, and it
 		// must never reach a Kumo Select trigger (also a direct `button` child of
 		// the Toolbar) or the trigger collapses to a bare caret.

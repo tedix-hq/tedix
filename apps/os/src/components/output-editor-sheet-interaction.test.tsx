@@ -118,6 +118,16 @@ function mount(presence?: SheetEditorPresence, initial?: SheetContent) {
 }
 
 describe("SheetEditor interaction", () => {
+	it("saves cell text up to the shared 8192-character limit", () => {
+		const view = mount();
+		view.key(view.active(), "F2");
+		view.type("x".repeat(8193));
+		view.key(view.editor()!, "Enter");
+		expect(view.last().rows[0]?.[0]?.input).toHaveLength(8192);
+		expect(view.last().rows[0]?.[0]?.value).toHaveLength(8192);
+		view.cleanup();
+	});
+
 	it("is an accessible grid with one roving tab stop", () => {
 		const view = mount();
 		const grid = view.query('[role="grid"]');

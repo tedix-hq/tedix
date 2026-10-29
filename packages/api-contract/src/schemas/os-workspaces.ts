@@ -919,8 +919,10 @@ export const OsDocumentBlockSchema = z.discriminatedUnion("type", [
 	}),
 ]);
 
+export const OS_SHEET_CELL_MAX_LENGTH = 8_192;
+
 export const OsSheetCellSchema = z.union([
-	z.string().max(4_000),
+	z.string().max(OS_SHEET_CELL_MAX_LENGTH),
 	z.number(),
 	z.boolean(),
 	z.null(),
@@ -982,6 +984,13 @@ export const OsRichTextDocumentSchema = z.object({
 });
 
 export const OsWorkbookCellFormatSchema = z.object({
+	fontSize: z
+		.number()
+		.int()
+		.min(6)
+		.max(96)
+		.optional()
+		.describe("Cell font size in CSS pixels; omitted for the sheet default"),
 	bold: z
 		.boolean()
 		.optional()
@@ -1035,7 +1044,7 @@ export const OsWorkbookCellFormatSchema = z.object({
 
 export const OsWorkbookCellSchema = z.object({
 	/** User-authored literal or formula beginning with `=`. */
-	input: z.string().max(4_000).default(""),
+	input: z.string().max(OS_SHEET_CELL_MAX_LENGTH).default(""),
 	/** Deterministic cached display value; recalculated by editors after writes. */
 	value: OsSheetCellSchema.default(null),
 	format: OsWorkbookCellFormatSchema.optional().describe(

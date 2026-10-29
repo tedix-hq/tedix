@@ -93,6 +93,7 @@ class StyleTable {
 			format.wrap ?? false,
 			format.numberFormat ?? "",
 			format.decimals ?? null,
+			format.fontSize ?? null,
 		]);
 		const existing = this.interned.get(key);
 		if (existing !== undefined) return existing;
@@ -103,7 +104,7 @@ class StyleTable {
 			format.italic ? "<i/>" : "",
 			format.underline ? "<u/>" : "",
 			format.strike ? "<strike/>" : "",
-			'<sz val="11"/>',
+			`<sz val="${format.fontSize === undefined ? 11 : format.fontSize * 0.75}"/>`,
 			textArgb ? `<color rgb="${textArgb}"/>` : '<color theme="1"/>',
 			'<name val="Calibri"/>',
 		].join("");

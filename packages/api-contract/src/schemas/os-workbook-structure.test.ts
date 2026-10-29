@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { OsWorkbookSheetSchema } from "./os-workspaces";
+import {
+	OsWorkbookSheetSchema,
+	OsWorkbookCellSchema,
+	OsWorkbookCellFormatSchema,
+	OsSheetCellSchema,
+} from "./os-workspaces";
 
 const sheet = {
 	id: "sheet",
@@ -25,4 +30,28 @@ describe("workbook row heights", () => {
 			).toBe(false);
 		},
 	);
+});
+
+describe("workbook cell formats and text", () => {
+	it("keeps long text in both rich cells and their plain-value projection", () => {
+		const text = "x".repeat(8192);
+		expect(OsWorkbookCellSchema.parse({ input: text, value: text }).value).toBe(
+			text,
+		);
+		expect(OsSheetCellSchema.parse(text)).toBe(text);
+		expect(OsWorkbookCellSchema.safeParse({ input: `${text}x` }).success).toBe(
+			false,
+		);
+		expect(OsSheetCellSchema.safeParse(`${text}x`).success).toBe(false);
+	});
+	it("retains pixel font sizes and rejects sizes outside the supported range", () => {
+		for (const fontSize of [6, 17, 96])
+			expect(OsWorkbookCellFormatSchema.parse({ fontSize }).fontSize).toBe(
+				fontSize,
+			);
+		for (const fontSize of [5, 97, 12.5, "16"])
+			expect(OsWorkbookCellFormatSchema.safeParse({ fontSize }).success).toBe(
+				false,
+			);
+	});
 });
