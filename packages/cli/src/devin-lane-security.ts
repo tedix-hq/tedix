@@ -121,6 +121,10 @@ export function devinSecretPaths(env = process.env) {
 		"~/.docker/config.json",
 		"~/.pypirc",
 		"~/.local/share/devin/credentials.toml",
+		"~/.local/share/devin/mcp/oauth/**",
+		...(env.XDG_DATA_HOME
+			? [join(resolve(env.XDG_DATA_HOME), "devin/mcp/oauth/**")]
+			: []),
 	].flatMap((path) =>
 		path.startsWith("~/") ? [path, join(homedir(), path.slice(2))] : [path],
 	);
@@ -144,6 +148,8 @@ export function assertDevinProjectHooks(cwd: string) {
 	for (const path of [
 		".devin/config.json",
 		".devin/config.local.json",
+		".devin/mcp_config.json",
+		".devin/mcp_config.local.json",
 		".claude/settings.json",
 		".claude/settings.local.json",
 	]) {
@@ -162,6 +168,13 @@ export function assertDevinProjectHooks(cwd: string) {
 				(!isRecord(value.hooks) || Object.keys(value.hooks).length > 0))
 		)
 			throw new Error(blocked);
+		if (
+			value.mcpServers !== undefined &&
+			(!isRecord(value.mcpServers) || Object.keys(value.mcpServers).length > 0)
+		)
+			throw new Error(
+				"Devin lanes use the Tedix CLI; remove project MCP servers before retrying",
+			);
 	}
 	const gitOptions = [
 		"-c",

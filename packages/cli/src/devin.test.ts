@@ -64,6 +64,10 @@ if (args[0] === 'auth') { console.log('Not logged in'); process.exit(1); }
 if (args[0] === '--version') { console.log('devin 3000.11.92 (7f4e64980e22)'); process.exit(0); }
 if (args[0] === 'list') { console.log(JSON.stringify(fs.existsSync('persisted') ? [{id:'quiet-river'}] : [])); process.exit(0); }
 if (args[0] === 'acp') {
+ const configPath = process.env.XDG_CONFIG_HOME+'/devin/config.json';
+ const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+ const mcp = JSON.parse(fs.readFileSync(process.env.XDG_CONFIG_HOME+'/devin/mcp_config.json', 'utf8'));
+ fs.writeFileSync('acp-invocation.json',JSON.stringify({configPath,config,mcp}));
  require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   const m = JSON.parse(line);
   if (!['initialize','session/new'].includes(m.method)) process.exit(42);
@@ -74,6 +78,8 @@ if (args[0] === 'acp') {
 } else {
  fs.writeFileSync('persisted','quiet-river');
  const config = JSON.parse(fs.readFileSync(args[args.indexOf('--config')+1], 'utf8'));
+ const mcp = JSON.parse(fs.readFileSync(process.env.XDG_CONFIG_HOME+'/devin/mcp_config.json', 'utf8'));
+ fs.writeFileSync('mcp-invocation.json',JSON.stringify(mcp));
  fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION,tmpdir:process.env.TMPDIR,bunCache:process.env.BUN_INSTALL_CACHE_DIR}));
  fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'quiet-river',steps:[]}));
  console.log('Fake Devin completed the brief.');
@@ -107,6 +113,12 @@ test("ACP allocates a persisted native identity without any model prompt", async
 		model: "model-2026-10-01",
 		modelProvider: "devin",
 	});
+	const invocation = JSON.parse(
+		readFileSync(join(dir, "acp-invocation.json"), "utf8"),
+	);
+	expect(invocation.mcp.mcpServers.tedix.disabled).toBe(true);
+	expect(invocation.config.read_config_from.cloud).toBe(false);
+	expect(existsSync(invocation.configPath)).toBe(false);
 });
 
 for (const [before, after, error] of [
@@ -189,6 +201,12 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 		["-p", "-r", "quiet-river"].concat("--prompt-file"),
 	);
 	expect(invocation.config.read_config_from.claude).toBe(false);
+	expect(
+		JSON.parse(readFileSync(join(dir, "mcp-invocation.json"), "utf8"))
+			.mcpServers.tedix.disabled,
+	).toBe(true);
+	expect(invocation.config.permissions.allow).not.toContain("mcp__tedix__*");
+	expect(invocation.config.permissions.deny).toContain("mcp__tedix__*");
 	expect(invocation.inherited).toBeUndefined();
 	expect(invocation.root).toBe(dir);
 	expect(invocation.session).toBe("devin:quiet-river");
@@ -200,7 +218,7 @@ test("headless runner uses cwd, native resume, permission config, export and fin
 	expect(existsSync(`${brief}.devin.atif.json`)).toBe(false);
 	const exported = invocation.args[invocation.args.indexOf("--export") + 1];
 	expect(dirname(exported)).toBe(
-		dirname(invocation.args[invocation.args.indexOf("--config") + 1]),
+		dirname(dirname(invocation.args[invocation.args.indexOf("--config") + 1])),
 	);
 	expect(exported.startsWith(dir + "/")).toBe(false);
 	expect(existsSync(exported)).toBe(true);
@@ -472,6 +490,58 @@ test("exec environment cannot hide editor scripts or disable guarded push fences
 		).toBeDefined();
 	}
 });
+
+test("lane tools cannot read or write the shared Devin plugin OAuth store", () => {
+	const root = temporary();
+	const path = join(homedir(), ".local/share/devin/mcp/oauth/example.json");
+	const permissions = devinPermissionProfile(root).permissions;
+	for (const tool_name of ["read", "write", "edit"]) {
+		expect(
+			devinPermissionBlock(
+				JSON.stringify({ tool_name, tool_input: { path } }),
+				root,
+			),
+		).toBeDefined();
+	}
+	for (const operation of ["Read", "Write"]) {
+		expect(permissions.deny).toContain(
+			`${operation}(~/.local/share/devin/mcp/oauth/**)`,
+		);
+		expect(permissions.deny).toContain(
+			`${operation}(${homedir()}/.local/share/devin/mcp/oauth/**)`,
+		);
+	}
+	expect(
+		devinPermissionBlock(
+			JSON.stringify({
+				tool_name: "exec",
+				tool_input: { command: `cat ${path}` },
+			}),
+			root,
+		),
+	).toBeDefined();
+});
+
+for (const file of [
+	"config.json",
+	"config.local.json",
+	"mcp_config.json",
+	"mcp_config.local.json",
+]) {
+	test(`project ${file} cannot override lane MCP isolation`, () => {
+		const root = temporary();
+		mkdirSync(join(root, ".devin"));
+		writeFileSync(
+			join(root, ".devin", file),
+			JSON.stringify({
+				mcpServers: { tedix: { url: "https://example.invalid/mcp" } },
+			}),
+		);
+		expect(() => assertDevinProjectHooks(root)).toThrow(
+			"remove project MCP servers",
+		);
+	});
+}
 
 test("permission fence blocks traversal, symlinks, secrets and prohibited commands", () => {
 	const dir = temporary();

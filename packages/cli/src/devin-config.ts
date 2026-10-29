@@ -170,7 +170,14 @@ export function devinPermissionProfile(
 	const permissions = devinToolPermissions(cwd, session);
 	return {
 		attribution: false,
-		read_config_from: { claude: false },
+		read_config_from: {
+			claude: false,
+			cursor: false,
+			windsurf: false,
+			opencode: false,
+			zed: false,
+			cloud: false,
+		},
 		hooks: devinHooks(true),
 		sandbox: { excluded: { allow: [], ask: [], deny: ["Exec(**)"] } },
 		permissions: {
@@ -240,9 +247,9 @@ export function devinToolPermissions(
 			]),
 			"Fetch(https://docs.tedix.dev/*)",
 			"Fetch(https://docs.devin.ai/*)",
-			"mcp__tedix__*",
 		],
 		deny: [
+			"mcp__tedix__*",
 			...["curl", "wget", "ssh", "scp", "env"].map((tool) => `Exec(${tool})`),
 			"Exec(git push)",
 			"Exec(tedix login)",
@@ -278,6 +285,20 @@ export function writeDevinLaneConfig(
 	session?: { id: string; principalKey?: string },
 ) {
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	// Dedicated MCP files override plugin servers before discovery can refresh OAuth.
+	writeFileSync(
+		join(dirname(path), "mcp_config.json"),
+		JSON.stringify({
+			mcpServers: {
+				tedix: {
+					url: "https://connect.mcp.tedix.dev/mcp",
+					transport: "http",
+					disabled: true,
+				},
+			},
+		}) + "\n",
+		{ mode: 0o600, flag: "wx" },
+	);
 	writeFileSync(
 		path,
 		JSON.stringify(devinPermissionProfile(cwd, session), null, 2) + "\n",
