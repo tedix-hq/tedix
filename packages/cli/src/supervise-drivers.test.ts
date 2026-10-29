@@ -92,7 +92,21 @@ for (const [host, session, receipt] of hosts) {
 		expect(call.args).not.toContain("--continue");
 		expect(call.args).not.toContain("--auto");
 		expect(call.args).not.toContain("--permission-mode");
-		expect(call.args).not.toContain("--respect-workspace-trust");
+		if (host === "devin") {
+			expect(call.args).toEqual([
+				"-p",
+				"-r",
+				session,
+				"--respect-workspace-trust",
+				"false",
+				"--prompt-file",
+				join(directory, "supervisor", `devin-resume-${session}.txt`),
+				"--export",
+				join(directory, "supervisor", `devin-resume-${session}.jsonl`),
+			]);
+		} else {
+			expect(call.args).not.toContain("--respect-workspace-trust");
+		}
 		expect(call.inheritedIdentity).toBeUndefined();
 		expect(call.inheritedHost).toBeUndefined();
 	});

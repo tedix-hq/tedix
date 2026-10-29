@@ -139,7 +139,9 @@ and durable answer settlement.
   (`work interaction-undelivered`, recorded with `work interaction-ack`): a
   closed Claude Code session is resumed with `claude -p --resume`, never one
   open in a terminal; Codex reuses queue/resume. Devin resumes with
-  `devin -p -r <session> --prompt-file <file> --export <receipt>`; OpenCode
+  `devin -p -r <session> --respect-workspace-trust false --prompt-file <file> --export <receipt>`;
+  this supervisor resume bypasses the workspace trust check while keeping Devin's
+  permission and sandbox settings. It does not mark the workspace trusted. OpenCode
   uses `opencode run --session <session> --format json` with the answer on stdin.
   All four use shared delivery drivers, binding checks and once-only receipts.
   Busy sessions stay with their hooks. OpenCode's case-sensitive native ID is
