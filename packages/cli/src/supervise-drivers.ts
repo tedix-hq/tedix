@@ -361,7 +361,17 @@ function resumeCommand(
 			// Devin exports ATIF after the turn; it has no streaming JSON flag.
 			return {
 				command: "devin",
-				args: ["-p", "-r", session, "--prompt-file", input, "--export", output],
+				args: [
+					"-p",
+					"-r",
+					session,
+					"--respect-workspace-trust",
+					"false",
+					"--prompt-file",
+					input,
+					"--export",
+					output,
+				],
 				stdout: `${output}.log`,
 				timeoutMs: 15 * 60_000,
 			};
