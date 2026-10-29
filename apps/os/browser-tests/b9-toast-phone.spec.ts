@@ -189,6 +189,8 @@ try {
 				colorScheme: theme,
 			});
 			const page = await context.newPage();
+			// Install before the app starts timers so expiry and cleanup share a clock.
+			if (!lifetimeChecked) await page.clock.install();
 			await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
 
 			// Error: long title + long description with an unbroken URL.
@@ -219,7 +221,6 @@ try {
 			assertLayout(loading, size.phone, `${label} loading`);
 			if (!lifetimeChecked) {
 				// Kumo's default timeout is 5 s; success must expire, loading not.
-				await page.clock.install();
 				await raise(page, "Raise success", 2);
 				await page.clock.fastForward(5_001);
 				await expectCount(page, 1);
