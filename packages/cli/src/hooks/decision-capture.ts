@@ -807,7 +807,17 @@ export function recordLocalSession(
 	host: string,
 	cwd: string,
 ): void {
-	writeState(sessionPath(captureStatePath(env, session)), { host, cwd });
+	const nativeSession =
+		host === "opencode"
+			? env.OPENCODE_SESSION_ID
+			: host === "devin"
+				? env.DEVIN_SESSION_ID
+				: undefined;
+	writeState(sessionPath(captureStatePath(env, session)), {
+		host,
+		cwd,
+		...(nativeSession?.toLowerCase() === session ? { nativeSession } : {}),
+	});
 }
 
 /** Record answers as delivered (or acknowledged); false on any failure. */

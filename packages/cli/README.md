@@ -138,12 +138,26 @@ and durable answer settlement.
   also drains the user's own OS answers no hook delivered
   (`work interaction-undelivered`, recorded with `work interaction-ack`): a
   closed Claude Code session is resumed with `claude -p --resume`, never one
-  open in a terminal; Codex reuses queue/resume. An unavailable originating
+  open in a terminal; Codex reuses queue/resume. Devin resumes with
+  `devin -p -r <session> --prompt-file <file> --export <receipt>`; OpenCode
+  uses `opencode run --session <session> --format json` with the answer on stdin.
+  All four use shared delivery drivers, binding checks and once-only receipts.
+  Busy sessions stay with their hooks. OpenCode's case-sensitive native ID is
+  kept separately from its normalized chat key; older records need another
+  captured turn before they can resume safely. Devin confirms delivery from
+  its exported conversation after the turn; the other CLIs report a session
+  ID in their JSON stream. An unavailable originating
   chat leaves its answer undelivered; no other chat or new Work Item is chosen.
   Delegation remains an explicit `tedix work delegate` action.
   If Codex queue withdrawal fails, the supervisor keeps a private receipt
   across retries and restarts and starts no headless turn. Delivery remains
   unconfirmed until the transcript shows the reply or withdrawal succeeds.
+  A checkout inside a macOS privacy-protected folder is rejected before any
+  filesystem or binding read, with the Full Disk Access requirement in the log.
+  It is never silently replaced with a different directory's binding.
+  Context and auth inspection run locally using the CLI's existing readers;
+  binding checks no longer start an `auth status` child inside a five-second
+  deadline. Server reads keep their existing deadlines.
 
   Register accepted Work for an existing Codex chat with
   `tedix work handoff <id> --host codex --to codex:<chat-id> --launch`.

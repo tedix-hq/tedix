@@ -17,9 +17,10 @@ import { homedir } from "node:os";
 import { join, sep } from "node:path";
 import { Database } from "bun:sqlite";
 import { codexThreadPath } from "./codex-thread";
-import { peek } from "./hooks/decision-capture";
+import { peek, type DeliveryVia } from "./hooks/decision-capture";
 import { isoSeconds, type JsonObject } from "./hooks/hook-io";
 import { LOCAL_SIGNING_GUIDE } from "./local-signing";
+import { laneChildEnv } from "./lane-child-env";
 
 /**
  * True for a path in a folder macOS privacy protection (TCC) guards. The
@@ -63,6 +64,34 @@ const RESUME_CONFIRM_MS = 60_000;
 
 const LOG_LIMIT = 1024 * 1024;
 
+export type LeadHost = "claude-code" | "codex" | "devin" | "opencode";
+
+export interface LeadDelivery {
+	via?: DeliveryVia;
+	done?: Promise<boolean>;
+	reason?: string;
+}
+
+/** All supervisor deliveries use the same lifecycle, independent of the CLI. */
+export interface LeadDriver {
+	open?(session: string): boolean | undefined;
+	deliver(
+		session: string,
+		message: string,
+		cwd: string,
+		deliveryKey?: string,
+	): Promise<LeadDelivery>;
+}
+
+interface ResumeResult {
+	started: boolean;
+	done: Promise<boolean>;
+}
+
+interface ResumeDriver {
+	resume(session: string, message: string, cwd: string): Promise<ResumeResult>;
+}
+
 /** The Codex operations the supervisor needs; tests replace them with fakes. */
 export interface CodexDriver {
 	/** Refresh the canonical transcript before a delivery or retained-queue retry. */
@@ -84,22 +113,12 @@ export interface CodexDriver {
 }
 
 /** The Claude Code operations the supervisor needs; tests replace them with fakes. */
-export interface ClaudeDriver {
+export interface ClaudeDriver extends ResumeDriver {
 	/**
 	 * True when a Claude Code process has this session open (a terminal
 	 * window), false when none does, undefined when it cannot tell.
 	 */
 	open(session: string): boolean | undefined;
-	/**
-	 * Resume the session headless with the message in `cwd`. `started` is true
-	 * once Claude reports this same session ID; `done` settles with whether the
-	 * turn finished successfully.
-	 */
-	resume(
-		session: string,
-		message: string,
-		cwd: string,
-	): Promise<{ started: boolean; done: Promise<boolean> }>;
 }
 
 export const pause = (ms: number) =>
@@ -249,53 +268,8 @@ export function codexDriver(env: NodeJS.ProcessEnv): CodexDriver {
 			);
 		},
 		async resume(thread, message, cwd) {
-			const blocked = protectedResumeReason(cwd, env);
-			if (blocked) {
-				supervisorLog(env, `codex ${thread}: ${blocked}`);
-				return false;
-			}
-			const directory = join(configDir(env), "supervisor");
-			mkdirSync(directory, { recursive: true, mode: 0o700 });
-			const output = join(directory, `resume-${thread}.jsonl`);
-			const input = join(directory, `resume-${thread}.txt`);
-			writeFileSync(input, message, { mode: 0o600 });
-			writeFileSync(output, "", { mode: 0o600 });
-			const stdio = [
-				openSync(input, "r"),
-				openSync(output, "a"),
-				openSync(join(directory, "resume.err.log"), "a"),
-			];
-			const child = spawn(
-				"codex",
-				["exec", "--skip-git-repo-check", "--json", "resume", thread, "-"],
-				{
-					env,
-					cwd: existsSync(cwd) ? cwd : homedir(),
-					detached: true,
-					stdio,
-				},
-			);
-			child.unref();
-			for (const fd of stdio) closeSync(fd);
-			const deadline = Date.now() + RESUME_CONFIRM_MS;
-			while (Date.now() < deadline) {
-				const started = /"type":"thread\.started","thread_id":"([^"]+)"/.exec(
-					readFileSync(output, "utf8"),
-				);
-				if (started) {
-					if (started[1] === thread) return true;
-					// `exec resume` with an unknown ID silently starts a new session.
-					try {
-						process.kill(-child.pid!, "SIGTERM");
-					} catch {
-						// Already gone.
-					}
-					return false;
-				}
-				if (child.exitCode !== null) return false;
-				await pause(1000);
-			}
-			return false;
+			return (await resumeDriver("codex", env).resume(thread, message, cwd))
+				.started;
 		},
 	};
 }
@@ -343,27 +317,36 @@ export function claudeDriver(env: NodeJS.ProcessEnv): ClaudeDriver {
 			if ((ps.stdout ?? "").toLowerCase().includes(session)) return true;
 			return existsSync(registry) ? false : undefined;
 		},
-		async resume(session, message, cwd) {
-			const blocked = protectedResumeReason(cwd, env);
-			if (blocked) {
-				supervisorLog(env, `claude-code ${session}: ${blocked}`);
-				return { started: false, done: Promise.resolve(false) };
-			}
-			const directory = join(configDir(env), "supervisor");
-			mkdirSync(directory, { recursive: true, mode: 0o700 });
-			const output = join(directory, `claude-resume-${session}.jsonl`);
-			const input = join(directory, `claude-resume-${session}.txt`);
-			writeFileSync(input, message, { mode: 0o600 });
-			writeFileSync(output, "", { mode: 0o600 });
-			const stdio = [
-				openSync(input, "r"),
-				openSync(output, "a"),
-				openSync(join(directory, "resume.err.log"), "a"),
-			];
-			// The documented headless resume; the message arrives on stdin.
-			const child = spawn(
-				"claude",
-				[
+		resume: resumeDriver("claude-code", env).resume,
+	};
+}
+
+/** The only native launch differences: argv, prompt transport and receipt file. */
+function resumeCommand(
+	host: LeadHost,
+	session: string,
+	input: string,
+	output: string,
+) {
+	switch (host) {
+		case "codex":
+			return {
+				command: "codex",
+				args: [
+					"exec",
+					"--skip-git-repo-check",
+					"--json",
+					"resume",
+					session,
+					"-",
+				],
+				stdout: output,
+				timeoutMs: RESUME_CONFIRM_MS,
+			};
+		case "claude-code":
+			return {
+				command: "claude",
+				args: [
 					"-p",
 					"--resume",
 					session,
@@ -371,47 +354,139 @@ export function claudeDriver(env: NodeJS.ProcessEnv): ClaudeDriver {
 					"stream-json",
 					"--verbose",
 				],
-				{
-					cwd: existsSync(cwd) ? cwd : homedir(),
+				stdout: output,
+				timeoutMs: RESUME_CONFIRM_MS,
+			};
+		case "devin":
+			// Devin exports ATIF after the turn; it has no streaming JSON flag.
+			return {
+				command: "devin",
+				args: ["-p", "-r", session, "--prompt-file", input, "--export", output],
+				stdout: `${output}.log`,
+				timeoutMs: 15 * 60_000,
+			};
+		case "opencode":
+			return {
+				command: "opencode",
+				args: ["run", "--session", session, "--format", "json"],
+				stdout: output,
+				timeoutMs: RESUME_CONFIRM_MS,
+			};
+	}
+}
+
+/** Native JSON streams and Devin's ATIF export both carry a session identifier. */
+export function resumeReceipt(text: string): {
+	sessions: string[];
+	failed: boolean;
+} {
+	let rows: JsonObject[];
+	try {
+		rows = [JSON.parse(text)];
+	} catch {
+		rows = text.split("\n").flatMap((line) => {
+			try {
+				return [JSON.parse(line)];
+			} catch {
+				return [];
+			}
+		});
+	}
+	return {
+		sessions: rows.flatMap((row) => {
+			if (!row || typeof row !== "object") return [];
+			const id = row.thread_id ?? row.session_id ?? row.sessionID;
+			return typeof id === "string" ? [id] : [];
+		}),
+		failed: rows.some((row) => row?.type === "error" || row?.is_error === true),
+	};
+}
+
+export function resumeDriver(
+	host: LeadHost,
+	env: NodeJS.ProcessEnv,
+): ResumeDriver {
+	return {
+		async resume(session, message, cwd) {
+			const blocked = protectedResumeReason(cwd, env);
+			if (blocked) {
+				supervisorLog(env, `${host} ${session}: ${blocked}`);
+				return { started: false, done: Promise.resolve(false) };
+			}
+			const directory = join(configDir(env), "supervisor");
+			mkdirSync(directory, { recursive: true, mode: 0o700 });
+			const output = join(directory, `${host}-resume-${session}.jsonl`);
+			const input = join(directory, `${host}-resume-${session}.txt`);
+			writeFileSync(input, message, { mode: 0o600 });
+			writeFileSync(output, "", { mode: 0o600 });
+			const launch = resumeCommand(host, session, input, output);
+			const stdio = [
+				openSync(input, "r"),
+				openSync(launch.stdout, "w", 0o600),
+				openSync(join(directory, "resume.err.log"), "a", 0o600),
+			];
+			let child;
+			try {
+				child = spawn(launch.command, launch.args, {
+					env: laneChildEnv(env),
+					cwd,
 					detached: true,
 					stdio,
-					env: { ...env },
-				},
-			);
+				});
+			} finally {
+				for (const fd of stdio) closeSync(fd);
+			}
 			child.unref();
-			for (const fd of stdio) closeSync(fd);
+			const receipt = () => resumeReceipt(readFileSync(output, "utf8"));
+			let ended = false;
 			const done = new Promise<boolean>((resolve) => {
-				child.once("exit", (code) => resolve(code === 0));
-				child.once("error", () => resolve(false));
+				child.once("exit", (code) => {
+					ended = true;
+					resolve(code === 0 && !receipt().failed);
+				});
+				child.once("error", () => {
+					ended = true;
+					resolve(false);
+				});
 			});
 			const stop = () => {
 				try {
 					process.kill(-child.pid!, "SIGTERM");
 				} catch {
-					// Already gone.
+					/* Already gone. */
 				}
 			};
-			const deadline = Date.now() + RESUME_CONFIRM_MS;
+			const deadline = Date.now() + launch.timeoutMs;
 			while (Date.now() < deadline) {
-				for (const line of readFileSync(output, "utf8").split("\n")) {
-					let event: unknown;
-					try {
-						event = JSON.parse(line);
-					} catch {
-						continue;
-					}
-					const init = event as JsonObject;
-					if (init?.type !== "system" || init.subtype !== "init") continue;
-					if (init.session_id === session) return { started: true, done };
-					// Never let a run continue in another session.
+				const result = receipt();
+				if (result.failed || result.sessions.some((id) => id !== session)) {
 					stop();
 					return { started: false, done };
 				}
-				if (child.exitCode !== null) return { started: false, done };
-				await pause(1000);
+				if (result.sessions.includes(session)) return { started: true, done };
+				if (ended) return { started: false, done };
+				await pause(100);
 			}
 			stop();
 			return { started: false, done };
+		},
+	};
+}
+
+export function headlessLeadDriver(
+	driver: ResumeDriver,
+	open?: ClaudeDriver["open"],
+): LeadDriver {
+	return {
+		open,
+		async deliver(session, message, cwd) {
+			const run = await driver.resume(session, message, cwd);
+			return run.started
+				? { via: "supervisor_resume", done: run.done }
+				: {
+						reason:
+							"headless resume did not confirm this session; not delivered",
+					};
 		},
 	};
 }

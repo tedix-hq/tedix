@@ -1,6 +1,7 @@
 import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import { statusEnded } from "./hooks/agent-status";
 import {
 	autoDeliveryPath,
@@ -10,7 +11,7 @@ import {
 	sessionPath,
 } from "./hooks/decision-capture";
 import { type JsonObject, UUID } from "./hooks/hook-io";
-import { configDir } from "./supervise-drivers";
+import { configDir, type LeadHost } from "./supervise-drivers";
 
 /** Questions expire after a day; nothing older is worth a read. */
 const QUESTION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -96,7 +97,8 @@ export function waitingQuestions(
 
 export interface LocalSession {
 	session: string;
-	host: "claude-code" | "codex";
+	nativeSession: string;
+	host: LeadHost;
 	cwd: string;
 	/** Its agent-status record, when status reporting is on. */
 	status: JsonObject | undefined;
@@ -118,7 +120,7 @@ export function localSessions(
 	for (const name of names) {
 		if (!name.endsWith(".session.json")) continue;
 		const session = name.slice(0, -".session.json".length);
-		if (!UUID.test(session)) continue;
+		if (!isHostSessionId(session)) continue;
 		const path = sessionPath(captureStatePath(env, session));
 		try {
 			if (now - statSync(path).mtimeMs > QUESTION_MAX_AGE_MS) continue;
@@ -126,10 +128,25 @@ export function localSessions(
 			continue;
 		}
 		const record = peek(path);
-		if (record?.host === "devin") continue;
-		const host = record?.host === "codex" ? "codex" : "claude-code";
+		const host = record?.host;
+		if (
+			host !== "codex" &&
+			host !== "claude-code" &&
+			host !== "devin" &&
+			host !== "opencode"
+		)
+			continue;
+		const nativeSession = record?.nativeSession ?? session;
+		if (
+			!isHostSessionId(nativeSession) ||
+			nativeSession.toLowerCase() !== session
+		)
+			continue;
+		// OpenCode ids are case sensitive. Old folded records cannot safely resume.
+		if (host === "opencode" && !record?.nativeSession) continue;
 		found.push({
 			session,
+			nativeSession,
 			host,
 			cwd:
 				typeof record?.cwd === "string" && record.cwd ? record.cwd : homedir(),
@@ -143,6 +160,7 @@ export function localSessions(
 
 export type AnswerAction =
 	| { kind: "claude-resume" }
+	| { kind: "resume" }
 	| { kind: "codex" }
 	| { kind: "wait"; reason: string };
 
@@ -151,21 +169,21 @@ export type AnswerAction =
  * queue or resume Codex, or wait for the session's own hooks.
  */
 export function answerAction(input: {
-	host: "claude-code" | "codex";
+	host: LeadHost;
 	ageMs: number;
 	/** Claude Code only: whether a process has the session open. */
 	open: boolean | undefined;
 	/** Its status says it is running a turn right now. */
 	working: boolean;
 }): AnswerAction {
-	if (input.host === "codex")
-		return input.working
-			? {
-					kind: "wait",
-					reason:
-						"the Codex session is running a turn; its Stop hook delivers it",
-				}
-			: { kind: "codex" };
+	if (input.working)
+		return {
+			kind: "wait",
+			reason: "the session is running a turn; its hooks deliver it",
+		};
+	if (input.host === "devin" || input.host === "opencode")
+		return { kind: "resume" };
+	if (input.host === "codex") return { kind: "codex" };
 	if (input.open === undefined)
 		return {
 			kind: "wait",

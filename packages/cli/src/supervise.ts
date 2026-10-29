@@ -61,6 +61,8 @@ import {
 	recordDraftDelivered,
 } from "./hooks/decision-capture";
 import { AGENT_IDENTITY_ENV, cliRead, type ReadJson } from "./hooks/hook-io";
+import { readAuthStatus } from "./auth-resolve";
+import { parseOptions } from "./options";
 import {
 	claudeDriver,
 	type ClaudeDriver,
@@ -68,7 +70,12 @@ import {
 	type CodexDriver,
 	configDir,
 	pause,
-	privacyProtected,
+	protectedResumeReason,
+	headlessLeadDriver,
+	resumeDriver,
+	type LeadDriver,
+	type LeadDelivery,
+	type LeadHost,
 	supervisorLog,
 } from "./supervise-drivers";
 import { acquireLock, install, uninstall } from "./supervise-launch-agent";
@@ -95,12 +102,31 @@ const PRUNE_EVERY_MS = 60 * 60 * 1000;
 const DELIVERY_RETRY_MS = 10 * 60 * 1000;
 const BINDING_TTL_MS = 10 * 60 * 1000;
 
+/** Binding reads are local: avoid a full CLI child startup inside their 5 s budget. */
+export const supervisorRead: ReadJson = async (
+	args,
+	timeoutMs,
+	input,
+	options,
+) => {
+	if (
+		args.length === 5 &&
+		args[0] === "-w" &&
+		args.slice(2).join(" ") === "auth status --json"
+	)
+		return JSON.parse(
+			JSON.stringify(readAuthStatus(parseOptions(args).options)),
+		);
+	return cliRead(args, timeoutMs, input, options);
+};
+
 export interface SuperviseDeps {
 	env: NodeJS.ProcessEnv;
 	read: ReadJson;
 	codex: CodexDriver;
 	/** Defaults to the real `claude` CLI and its session registry. */
 	claude?: ClaudeDriver;
+	drivers?: Partial<Record<LeadHost, LeadDriver>>;
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
 	log?: (line: string) => void;
@@ -291,13 +317,23 @@ export class Supervisor {
 		let delivered = 0;
 		for (const local of localSessions(this.deps.env, now)) {
 			if (session && local.session !== session) continue;
-			if (local.host !== "codex") continue;
-			if (local.status?.state === "working") continue;
 			for (const entry of readDelegations(this.deps.env, local.session)) {
 				if (
 					!entry.launch ||
 					entry.deliveredAt ||
-					entry.to !== `codex:${local.session}`
+					entry.to?.toLowerCase() !== `${local.host}:${local.session}`
+				)
+					continue;
+				if (
+					this.resuming.has(local.session) ||
+					answerAction({
+						host: local.host,
+						ageMs: 0,
+						open: this.driver(local.host).open?.(local.nativeSession),
+						working:
+							local.status?.state === "working" &&
+							!statusEnded(local.status, now),
+					}).kind === "wait"
 				)
 					continue;
 				const key = `work:${local.session}:${entry.id}`;
@@ -316,15 +352,17 @@ export class Supervisor {
 					DETAIL_TIMEOUT_MS,
 				);
 				if (ready?.workItemId !== entry.id || ready.ready !== true) continue;
-				const message = `Explicit Tedix Work handoff ${entry.id} to codex:${local.session}. Read current context and readiness using tedix -w ${entry.workspace}. Establish your own verified Agent-Session and obtain fresh Work admission before executing. Preserve peer Attempts. This is new delegated Work, not an answer to a question. Return exact outcome evidence to this originating chat.`;
-				const outcome = await this.toCodex(
-					local.session,
-					message,
-					local.cwd,
-					undefined,
+				const message = `Explicit Tedix Work handoff ${entry.id} to ${local.host}:${local.nativeSession}. Read current context and readiness using tedix ${binding.command.join(" ")}. Establish your own verified Agent-Session and obtain fresh Work admission before executing. Preserve peer Attempts. This is new delegated Work, not an answer to a question. Return exact outcome evidence to this originating chat.`;
+				const outcome = await this.deliver(local, message, [
 					`${entry.orgId}:${entry.id}`,
-				);
-				if (outcome === "codex_queue" || outcome === "codex_resume") {
+				]);
+				if (outcome.via) {
+					if (outcome.done) {
+						this.resuming.add(local.session);
+						void outcome.done.finally(() =>
+							this.resuming.delete(local.session),
+						);
+					}
 					const current = readDelegations(this.deps.env, local.session).find(
 						(e) => e.id === entry.id,
 					);
@@ -340,7 +378,7 @@ export class Supervisor {
 					delivered++;
 				}
 				this.log(
-					`codex ${local.session}: Work ${entry.id} ${outcome}; launch is not execution completion`,
+					`${local.host} ${local.session}: Work ${entry.id} ${outcome.via ?? outcome.reason}; launch is not execution completion`,
 				);
 			}
 		}
@@ -546,13 +584,92 @@ export class Supervisor {
 	/** The last reason logged per answer, so each is logged once. */
 	private readonly noted = new Map<string, string>();
 	private readonly retryAt = new Map<string, number>();
-	/** Claude Code sessions with a headless resume still running. */
+	/** Sessions with a headless resume still running. */
 	private readonly resuming = new Set<string>();
-	private claudeDefault: ClaudeDriver | undefined;
+	private drivers: Record<LeadHost, LeadDriver> | undefined;
 
-	private get claude(): ClaudeDriver {
-		this.claudeDefault ??= this.deps.claude ?? claudeDriver(this.deps.env);
-		return this.claudeDefault;
+	private driver(host: LeadHost): LeadDriver {
+		if (!this.drivers) {
+			const claude = this.deps.claude ?? claudeDriver(this.deps.env);
+			this.drivers = {
+				"claude-code": headlessLeadDriver(claude, claude.open),
+				devin: headlessLeadDriver(resumeDriver("devin", this.deps.env)),
+				opencode: headlessLeadDriver(resumeDriver("opencode", this.deps.env)),
+				codex: {
+					deliver: async (session, message, cwd, deliveryKey) => {
+						const via = await this.toCodex(
+							session,
+							message,
+							cwd,
+							undefined,
+							deliveryKey,
+						);
+						return via === "codex_queue" || via === "codex_resume"
+							? { via }
+							: {
+									reason: `codex ${via}; queued reply not confirmed; retaining its receipt without another agent turn`,
+								};
+					},
+				},
+				...this.deps.drivers,
+			};
+		}
+		return this.drivers[host];
+	}
+
+	private deliveryPath(local: LocalSession, key: string): string {
+		const hash = createHash("sha256")
+			.update(`${local.host}:${local.session}:${key}`)
+			.digest("hex");
+		return join(
+			configDir(this.deps.env),
+			"supervisor",
+			"deliveries",
+			`${hash}.json`,
+		);
+	}
+
+	/** Keep confirmed deliveries across restart if the server acknowledgment failed. */
+	private async deliver(
+		local: LocalSession,
+		message: string,
+		keys: string[],
+	): Promise<LeadDelivery> {
+		const paths = keys.map((key) => this.deliveryPath(local, key));
+		const lock = beginFileLock(this.deliveryPath(local, "session-lock"));
+		try {
+			if (!lock.ready()) return { reason: "another delivery is in progress" };
+			if (paths.some((path) => existsSync(path)))
+				return {
+					reason: "a previous delivery is retained; no duplicate turn started",
+				};
+			mkdirSync(join(configDir(this.deps.env), "supervisor", "deliveries"), {
+				recursive: true,
+				mode: 0o700,
+			});
+			for (const path of paths)
+				writeFileSync(
+					path,
+					JSON.stringify({ session: local.nativeSession, state: "pending" }),
+					{ mode: 0o600 },
+				);
+			const run = await this.driver(local.host).deliver(
+				local.nativeSession,
+				message,
+				local.cwd,
+				keys.join(":"),
+			);
+			for (const path of paths) {
+				if (run.via)
+					writeFileSync(path, JSON.stringify({ via: run.via }), {
+						mode: 0o600,
+					});
+				else rmSync(path, { force: true });
+			}
+			return run;
+		} finally {
+			lock.release();
+		}
 	}
 
 	private note(answer: PendingAnswer, reason: string): void {
@@ -570,12 +687,15 @@ export class Supervisor {
 	 * A checkout in a privacy-protected folder is never used (`privacyProtected`).
 	 */
 	private reader(cwd: string): ReadJson {
-		const options =
-			existsSync(cwd) && !privacyProtected(cwd, this.deps.env.HOME || homedir())
-				? { cwd }
-				: {};
-		return (args, timeoutMs, input) =>
-			this.deps.read(args, timeoutMs, input, options);
+		// Test the path lexically before even existsSync: TCC can stall that read.
+		const blocked = protectedResumeReason(cwd, this.deps.env);
+		return (args, timeoutMs, input) => {
+			if (blocked) return Promise.reject(new Error(blocked));
+			return this.deps.read(args, timeoutMs, input, {
+				cwd,
+				env: this.deps.env,
+			});
+		};
 	}
 
 	private hookDeps(cwd: string) {
@@ -598,7 +718,7 @@ export class Supervisor {
 		try {
 			binding = await bindingFor(this.hookDeps(local.cwd), local.session);
 		} catch (error) {
-			const reason = `${local.host} ${local.session}: no usable binding for answer delivery: ${(error as Error).message?.slice(0, 200)}`;
+			const reason = `${local.host} ${local.session}: no usable binding for answer delivery: ${(error as Error).message?.slice(0, 600)}`;
 			if (this.noted.get(local.session) !== reason) {
 				this.noted.set(local.session, reason);
 				this.log(reason);
@@ -672,7 +792,7 @@ export class Supervisor {
 		answers: PendingAnswer[],
 		now: number,
 	): Promise<number> {
-		const ready = answers.filter(
+		let ready = answers.filter(
 			(answer) => (this.retryAt.get(answer.responseId) ?? 0) <= now,
 		);
 		for (const answer of answers)
@@ -689,15 +809,42 @@ export class Supervisor {
 				);
 			return 0;
 		}
+		const responseKey = (id: string) =>
+			`${binding.command.join(" ")}:${binding.user}:${id}`;
+		const fresh: PendingAnswer[] = [];
+		for (const answer of ready) {
+			if (answer.host && answer.host !== local.host) {
+				this.note(
+					answer,
+					"the originating host does not match this local session; left undelivered",
+				);
+				continue;
+			}
+			const path = this.deliveryPath(local, responseKey(answer.responseId));
+			const saved = peek(path);
+			if (saved?.via) {
+				await ackAnswers(
+					this.hookDeps(local.cwd),
+					binding,
+					[answer.responseId],
+					saved.via,
+					DETAIL_TIMEOUT_MS,
+				);
+			} else if (existsSync(path)) {
+				this.note(
+					answer,
+					"a previous delivery is unconfirmed; inspect the retained receipt before retrying",
+				);
+			} else fresh.push(answer);
+		}
+		ready = fresh;
+		if (!ready.length) return 0;
 		const working =
 			local.status?.state === "working" && !statusEnded(local.status, now);
 		const action = answerAction({
 			host: local.host,
 			ageMs: Math.max(...ready.map(age)),
-			open:
-				local.host === "claude-code"
-					? this.claude.open(local.session)
-					: undefined,
+			open: this.driver(local.host).open?.(local.nativeSession),
 			working,
 		});
 		if (action.kind === "wait") {
@@ -707,9 +854,16 @@ export class Supervisor {
 		const ids = ready.map((answer) => answer.responseId);
 		const message = answersMessage(ready);
 		const record = (via: DeliveryVia, acknowledged = false) =>
-			ackAnswers(this.deps, binding, ids, via, DETAIL_TIMEOUT_MS, {
-				acknowledged,
-			});
+			ackAnswers(
+				this.hookDeps(local.cwd),
+				binding,
+				ids,
+				via,
+				DETAIL_TIMEOUT_MS,
+				{
+					acknowledged,
+				},
+			);
 		const failed = (reason: string) => {
 			for (const answer of ready) {
 				this.retryAt.set(answer.responseId, now + DELIVERY_RETRY_MS);
@@ -717,48 +871,35 @@ export class Supervisor {
 			}
 			return 0;
 		};
-		if (action.kind === "codex") {
-			const outcome = await this.toCodex(local.session, message, local.cwd);
-			if (outcome !== "codex_queue" && outcome !== "codex_resume")
-				return failed(
-					outcome === "queue-failed"
-						? "codex queue failed; not delivered"
-						: outcome === "queue-pending"
-							? "queued reply not confirmed; retaining its receipt without another agent turn"
-							: "headless codex resume failed; not delivered",
-				);
-			const acked = await record(outcome);
-			for (const answer of ready)
-				this.note(
-					answer,
-					`delivered to the Codex session (${outcome === "codex_queue" ? "open window" : "headless resume"})${acked ? "" : "; recording it failed"}`,
-				);
-			return ready.length;
-		}
+
 		if (this.resuming.has(local.session)) {
 			for (const answer of ready)
 				this.note(answer, "a headless resume of this session is still running");
 			return 0;
 		}
-		const run = await this.claude.resume(local.session, message, local.cwd);
-		if (!run.started)
+		const run = await this.deliver(local, message, ids.map(responseKey));
+		if (!run.via)
 			return failed(
-				"claude -p --resume did not confirm this session; not delivered",
+				run.reason ??
+					"headless resume did not confirm this session; not delivered",
 			);
-		const acked = await record("supervisor_resume");
+		const via = run.via;
+		const acked = await record(via);
 		for (const answer of ready)
 			this.note(
 				answer,
-				`delivered by resuming the closed Claude Code session headless${acked ? "" : "; recording it failed"}`,
+				`delivered to the ${local.host} session (${via})${acked ? "" : "; recording it failed"}`,
 			);
-		this.resuming.add(local.session);
-		void run.done.then(async (ok) => {
-			this.resuming.delete(local.session);
-			if (ok) await record("supervisor_resume", true);
-			this.log(
-				`claude-code ${local.session}: headless turn on ${ids.length} answer${ids.length === 1 ? "" : "s"} ${ok ? "finished (acknowledged)" : "failed"}`,
-			);
-		});
+		if (run.done) {
+			this.resuming.add(local.session);
+			void run.done.then(async (ok) => {
+				this.resuming.delete(local.session);
+				if (ok) await record(via, true);
+				this.log(
+					`${local.host} ${local.session}: headless turn on ${ids.length} answers ${ok ? "finished (acknowledged)" : "failed"}`,
+				);
+			});
+		}
 		return ready.length;
 	}
 }
@@ -782,7 +923,9 @@ only logged.
 It also delivers your own Tedix OS answers that no hook delivered: a closed
 Claude Code session is resumed headless with claude -p --resume in its
 directory (a session open in a terminal never is; its hooks deliver there), a
-Codex session gets codex queue or codex exec resume. Missing or unavailable
+Codex session gets codex queue or codex exec resume. Devin uses devin -p -r
+and OpenCode uses opencode run --session, preserving the native session ID.
+Working sessions are left to their hooks. Missing or unavailable
 sessions leave the answer undelivered for its originating chat. The supervisor
 never creates a Work Item or chooses another chat; delegation remains explicit.
 Requires decision capture. Log: ~/.tedix/supervisor.log.`;
@@ -804,7 +947,10 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		return 1;
 	}
 	// Questions belong to the signed-in user, never an exported agent identity.
-	for (const key of AGENT_IDENTITY_ENV) delete env[key];
+	for (const key of AGENT_IDENTITY_ENV) {
+		delete env[key];
+		delete process.env[key];
+	}
 	const release = acquireLock(env);
 	if (!release) {
 		console.error("Another tedix supervise is already running.");
@@ -812,7 +958,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 	}
 	const supervisor = new Supervisor({
 		env,
-		read: cliRead,
+		read: supervisorRead,
 		codex: codexDriver(env),
 	});
 	try {
