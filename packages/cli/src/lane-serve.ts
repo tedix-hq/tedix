@@ -386,6 +386,10 @@ interface Receipt {
 	failureCommented?: boolean;
 	admissionFailure?: string;
 	admissionFailureSignature?: string;
+	runFailureSignature?: string;
+	runFailureCounted?: boolean;
+	runRetryAt?: number;
+	settlementRetries?: number;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
 	baseCommit?: string;
@@ -1006,7 +1010,7 @@ export class LaneDispatcher {
 				row.phase === "settling" &&
 				!this.running.has(row.itemId) &&
 				(!row.pid || !alive(row.pid)) &&
-				(row.retries ?? 0) < 5 &&
+				(row.settlementRetries ?? row.retries ?? 0) < 5 &&
 				Date.now() >= (row.retryAt ?? 0)
 			)
 				await this.recoverSettlement(row);
@@ -1181,6 +1185,7 @@ export class LaneDispatcher {
 			retryDeadlineAt,
 			failureCommented: previous?.failureCommented,
 			admissionFailure: previous?.admissionFailure ?? previous?.note,
+			runFailureSignature: previous?.runFailureSignature,
 			admissionState: previous?.admissionState ?? "not_sent",
 			identicalFailures: previous?.identicalFailures ?? 0,
 		};
@@ -1394,7 +1399,6 @@ export class LaneDispatcher {
 			receipt.admissionState = "admitted";
 			receipt.attemptId = started.attempt.id;
 			receipt.phase = "admitted";
-			receipt.retries = 0;
 			this.save(path, receipt);
 			if (started.workItem.version !== item.version)
 				throw new Error(
@@ -1833,7 +1837,10 @@ export class LaneDispatcher {
 			}
 			delete receipt.pendingCommitProof;
 		}
-		receipt.retries = (receipt.retries ?? 0) + 1;
+		await this.recordRunFailure(receipt);
+		receipt.settlementRetries = (receipt.settlementRetries ?? 0) + 1;
+		if (!receipt.runFailureCounted)
+			receipt.retries = (receipt.retries ?? 0) + 1;
 		receipt.retryAt = Date.now() + 60_000;
 		this.save(path, receipt);
 		try {
@@ -1871,12 +1878,49 @@ export class LaneDispatcher {
 				receipt.outcome === "expired" || receipt.retryable
 					? "deferred"
 					: "settled";
-			receipt.retryAt = Date.now() + 60_000;
+			if (receipt.runFailureCounted) receipt.retryAt = receipt.runRetryAt;
 			this.log("settled", receipt.itemId, receipt.outcome);
 		} catch (error) {
 			this.log("settlement-retained", receipt.itemId, String(error));
 		}
 		this.save(path, receipt);
+	}
+	private async recordRunFailure(receipt: Receipt) {
+		if (
+			receipt.runFailureCounted ||
+			!["failed", "expired"].includes(receipt.outcome ?? "")
+		)
+			return;
+		const signature = laneFailureSignature(receipt.note ?? receipt.outcome);
+		receipt.identicalFailures =
+			receipt.runFailureSignature === signature
+				? (receipt.identicalFailures ?? 0) + 1
+				: 1;
+		receipt.runFailureSignature = signature;
+		receipt.runFailureCounted = true;
+		receipt.retries = (receipt.retries ?? 0) + 1;
+		receipt.runRetryAt = Math.min(
+			Date.now() + 60_000 * 2 ** (receipt.retries - 1),
+			Math.max(receipt.retryDeadlineAt ?? 0, Date.now() + 60_000),
+		);
+		receipt.held = receipt.identicalFailures >= 3;
+		if (receipt.held && !receipt.failureCommented) {
+			receipt.failureCommented = true;
+			this.save(
+				this.path({ id: receipt.itemId, version: receipt.version }),
+				receipt,
+			);
+			try {
+				await this.call([
+					"work",
+					"comment",
+					receipt.itemId,
+					`Dispatcher execution held for Work revision ${receipt.version}: ${receipt.note}. Three identical failures; held until the Work revision changes.`,
+				]);
+			} catch (error) {
+				this.log("failure-comment-unconfirmed", receipt.itemId, String(error));
+			}
+		}
 	}
 	private async recoverOrphan(receipt: Receipt) {
 		const history = await this.call<{
@@ -1921,7 +1965,9 @@ export class LaneDispatcher {
 			return;
 		}
 		receipt.phase = "deferred";
-		receipt.retryAt = 0;
+		receipt.outcome = attempt.outcome;
+		await this.recordRunFailure(receipt);
+		receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
 		this.save(
 			this.path({ id: receipt.itemId, version: receipt.version }),
 			receipt,
@@ -1942,6 +1988,8 @@ export class LaneDispatcher {
 				"Retained settlement fence is unavailable; no write attempted",
 			);
 		if (attempt.outcome) {
+			await this.recordRunFailure(receipt);
+			receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
 			receipt.phase =
 				attempt.outcome === receipt.outcome
 					? attempt.outcome === "expired" || receipt.retryable

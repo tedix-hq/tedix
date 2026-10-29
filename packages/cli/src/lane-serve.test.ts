@@ -111,7 +111,8 @@ function fixture({
 	const releases: Array<() => void> = [];
 	const control = {
 		spawnPid: undefined as number | undefined,
-		telemetryOutcome: "succeeded" as "succeeded" | "stopped",
+		telemetryOutcome: "succeeded" as "succeeded" | "stopped" | "failed",
+		exitCode: 0,
 		provisionError: undefined as Error | undefined,
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
@@ -325,7 +326,7 @@ function fixture({
 				corrections: [],
 				source: "wrapper",
 			});
-			return 0;
+			return control.exitCode;
 		},
 	};
 	const restart = () => new LaneDispatcher(config, dir, deps);
@@ -2191,4 +2192,80 @@ it("keeps even an empty pending-proof marker fenced from retry and cleanup", asy
 	expect(releases).toHaveLength(0);
 	expect(control.cleanups).toBe(0);
 	expect(existsSync(repo)).toBe(true);
+});
+
+it.each(["failed", "stopped"] as const)(
+	"backs off and holds three identical admitted %s runs across restarts",
+	async (outcome) => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.telemetryOutcome = outcome;
+		f.control.exitCode = outcome === "failed" ? 1 : 0;
+		const path = join(f.dir, `${item().id}-2.json`);
+		for (let n = 1; n <= 3; n++) {
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			await until(() => f.releases.length === n);
+			f.releases[n - 1]!();
+			await dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.outcome).toBe(outcome === "stopped" ? "expired" : "failed");
+			expect(saved.retries).toBe(n);
+			expect(saved.identicalFailures).toBe(n);
+			expect(saved.held).toBe(n === 3);
+			expect(saved.retryAt - Date.now()).toBeGreaterThan(
+				60_000 * 2 ** (n - 1) - 2000,
+			);
+			const count = f.releases.length;
+			await dispatcher.tick();
+			await dispatcher.drain();
+			expect(f.releases).toHaveLength(count);
+			f.control.history.data = [
+				{
+					id: saved.attemptId,
+					externalSessionKey: saved.session,
+					outcome: saved.outcome,
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			saved.retryAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+		}
+		await f.restart().tick();
+		expect(f.releases).toHaveLength(3);
+		expect(f.events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	},
+);
+
+it("does not charge settlement retries as additional execution failures", async () => {
+	const f = fixture({ failSettle: true });
+	f.items.splice(1);
+	f.control.exitCode = 1;
+	f.control.telemetryOutcome = "failed";
+	await f.dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	f.releases[0]!();
+	await f.dispatcher.drain();
+	const path = join(f.dir, `${item().id}-2.json`);
+	const saved = JSON.parse(readFileSync(path, "utf8"));
+	f.control.history.data = [
+		{
+			id: saved.attemptId,
+			externalSessionKey: saved.session,
+			outcome: null,
+			expiresAt: new Date(Date.now() + 300000).toISOString(),
+		},
+	];
+	saved.retryAt = 0;
+	writeFileSync(path, JSON.stringify(saved));
+	await f.restart().tick();
+	const retained = JSON.parse(readFileSync(path, "utf8"));
+	expect(retained).toMatchObject({
+		phase: "settling",
+		retries: 1,
+		identicalFailures: 1,
+		settlementRetries: 2,
+		held: false,
+	});
+	expect(f.releases).toHaveLength(1);
 });

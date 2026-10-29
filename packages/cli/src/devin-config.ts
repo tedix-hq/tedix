@@ -285,6 +285,15 @@ export function writeDevinLaneConfig(
 	session?: { id: string; principalKey?: string },
 ) {
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	// Credentials live in XDG_DATA_HOME, but Devin also needs the saved org
+	// selection in its config or print mode enters onboarding and drops the brief.
+	const selected = objectField(
+		readConfig(join(devinConfigDirectory(), "config.json")).devin,
+	).org_id;
+	if (typeof selected !== "string" || !selected.trim())
+		throw new Error(
+			"Devin organization selection missing; select it in Devin before dispatch",
+		);
 	// Dedicated MCP files override plugin servers before discovery can refresh OAuth.
 	writeFileSync(
 		join(dirname(path), "mcp_config.json"),
@@ -301,7 +310,11 @@ export function writeDevinLaneConfig(
 	);
 	writeFileSync(
 		path,
-		JSON.stringify(devinPermissionProfile(cwd, session), null, 2) + "\n",
+		JSON.stringify(
+			{ ...devinPermissionProfile(cwd, session), devin: { org_id: selected } },
+			null,
+			2,
+		) + "\n",
 		{ mode: 0o600, flag: "wx" },
 	);
 }

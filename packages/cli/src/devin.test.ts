@@ -22,6 +22,7 @@ import {
 	devinCliCommand,
 	devinPermissionProfile,
 	setupDevin,
+	writeDevinLaneConfig,
 } from "./devin-config";
 import { createDevinLaneThread, devinAvailable } from "./devin-lane-thread";
 import { parseServeOptions } from "./lane-serve";
@@ -41,7 +42,10 @@ import { runSessionStart } from "./hooks/session-start";
 const directories: string[] = [];
 const originalPath = process.env.PATH;
 const originalConfigDir = process.env.TEDIX_CONFIG_DIR;
+const originalXdgConfig = process.env.XDG_CONFIG_HOME;
 afterEach(() => {
+	if (originalXdgConfig === undefined) delete process.env.XDG_CONFIG_HOME;
+	else process.env.XDG_CONFIG_HOME = originalXdgConfig;
 	process.env.PATH = originalPath;
 	if (originalConfigDir === undefined) delete process.env.TEDIX_CONFIG_DIR;
 	else process.env.TEDIX_CONFIG_DIR = originalConfigDir;
@@ -54,6 +58,15 @@ function temporary() {
 	return dir;
 }
 function fakeDevin(dir: string) {
+	process.env.XDG_CONFIG_HOME = join(dir, "user-config");
+	mkdirSync(join(process.env.XDG_CONFIG_HOME, "devin"), { recursive: true });
+	writeFileSync(
+		join(process.env.XDG_CONFIG_HOME, "devin/config.json"),
+		JSON.stringify({
+			devin: { org_id: "org_fixture" },
+			permissions: { allow: ["Exec(**)"] },
+		}),
+	);
 	const path = join(dir, "devin");
 	writeFileSync(
 		path,
@@ -66,6 +79,7 @@ if (args[0] === 'list') { console.log(JSON.stringify(fs.existsSync('persisted') 
 if (args[0] === 'acp') {
  const configPath = process.env.XDG_CONFIG_HOME+'/devin/config.json';
  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+ if (config.devin?.org_id !== 'org_fixture') { console.log("You're all set. Run devin to get started"); process.exit(0); }
  const mcp = JSON.parse(fs.readFileSync(process.env.XDG_CONFIG_HOME+'/devin/mcp_config.json', 'utf8'));
  fs.writeFileSync('acp-invocation.json',JSON.stringify({configPath,config,mcp}));
  require('node:readline').createInterface({input:process.stdin}).on('line', line => {
@@ -78,6 +92,7 @@ if (args[0] === 'acp') {
 } else {
  fs.writeFileSync('persisted','quiet-river');
  const config = JSON.parse(fs.readFileSync(args[args.indexOf('--config')+1], 'utf8'));
+ if (config.devin?.org_id !== 'org_fixture') { console.log("You're all set. Run devin to get started"); process.exit(0); }
  const mcp = JSON.parse(fs.readFileSync(process.env.XDG_CONFIG_HOME+'/devin/mcp_config.json', 'utf8'));
  fs.writeFileSync('mcp-invocation.json',JSON.stringify(mcp));
  fs.writeFileSync('invocation.json',JSON.stringify({args,cwd:process.cwd(),config,inherited:process.env.CLAUDE_CODE_SESSION_ID,root:process.env.TEDIX_DEVIN_LANE_ROOT,session:process.env.TEDIX_AGENT_SESSION,workspace:process.env.TEDIX_WORKSPACE,organization:process.env.TEDIX_ORGANIZATION,tmpdir:process.env.TMPDIR,bunCache:process.env.BUN_INSTALL_CACHE_DIR}));
@@ -1039,4 +1054,18 @@ test("unsupported Git filter driver names fail closed before verification", () =
 	const { dir, git } = gitFixture();
 	git("config", "filter.lane=unsafe.clean", "echo fictional-helper");
 	expect(() => assertDevinProjectHooks(dir)).toThrow("Devin project hooks");
+});
+
+test("private config keeps only the selected Devin org and refuses onboarding", () => {
+	const dir = temporary();
+	fakeDevin(dir);
+	const config = join(dir, "private/devin/config.json");
+	writeDevinLaneConfig(config, dir);
+	const value = JSON.parse(readFileSync(config, "utf8"));
+	expect(value.devin).toEqual({ org_id: "org_fixture" });
+	expect(value.permissions.allow).not.toContain("Exec(**)");
+	writeFileSync(join(process.env.XDG_CONFIG_HOME!, "devin/config.json"), "{}");
+	expect(() =>
+		writeDevinLaneConfig(join(dir, "missing/config.json"), dir),
+	).toThrow("organization selection missing");
 });
