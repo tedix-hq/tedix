@@ -335,9 +335,21 @@ export function continueProductSessionBroker(input: {
 <meta name="robots" content="noindex, nofollow">
 <meta http-equiv="refresh" content="0; url=${href}">
 <title>Signing in to Tedix</title>
+<style>
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+* { box-sizing: border-box; }
+body { margin: 0; background: light-dark(#fbfbfb, #171320); color: light-dark(#171717, #f5f3ff); }
+main { display: grid; min-height: 100dvh; grid-template-columns: minmax(0, 28rem); align-content: safe center; justify-content: center; justify-items: center; gap: 16px; padding: 24px; text-align: center; overflow-wrap: anywhere; }
+p { margin: 0; line-height: 1.5; }
+a { color: inherit; text-underline-offset: 3px; }
+</style>
 </head>
 <body>
-<p>Signing in&hellip; <a href="${href}">Continue</a> if you are not redirected.</p>
+<main>
+<strong>Tedix</strong>
+<p role="status">Signing in&hellip;</p>
+<p><a href="${href}">Continue</a> if you are not redirected.</p>
+</main>
 </body>
 </html>
 `;

@@ -664,13 +664,15 @@ a {
 .centered-state {
 	display: grid;
 	min-height: var(--viewport-tedix-height);
-	place-content: center;
+	grid-template-columns: minmax(0, 1fr);
+	align-content: safe center;
 	justify-items: center;
 	gap: 12px;
 	padding: 24px;
 	color: var(--muted-foreground);
 	font-size: var(--text-tedix-control);
 	text-align: center;
+	overflow-wrap: anywhere;
 	line-height: var(--text-tedix-control--line-height);
 }
 

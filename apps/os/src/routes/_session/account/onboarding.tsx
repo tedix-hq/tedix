@@ -42,11 +42,9 @@ function AccountOnboardingRoute() {
 
 	if (isLoading) {
 		return (
-			<main className="org-launcher">
-				<section className="org-launcher-card" aria-busy="true">
-					<TedixBrandMark />
-					<p>Preparing your workspace…</p>
-				</section>
+			<main className="centered-state" aria-busy="true" role="status">
+				<TedixBrandMark />
+				<p>Preparing your workspace…</p>
 			</main>
 		);
 	}
