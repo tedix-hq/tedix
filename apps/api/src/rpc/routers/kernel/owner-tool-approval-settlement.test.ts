@@ -107,6 +107,44 @@ beforeEach(() => {
 afterEach(() => setOwnerToolExecutorForTest(null));
 
 describe("owner tool approval settlement", () => {
+	it.each([
+		{ sub: "owner-1", scopes: [], allowed: false },
+		{ sub: "other-owner", scopes: ["connections.execute"], allowed: false },
+		{ sub: "owner-1", scopes: ["connections.read"], allowed: false },
+		{ sub: "owner-1", scopes: ["connections.execute"], allowed: true },
+	])(
+		"delegates only the requester's verified connection grant: $sub $scopes",
+		async ({ sub, scopes, allowed }) => {
+			const row = approval({
+				payload: {
+					...payload,
+					target: {
+						transport: "mcp",
+						providerId: "notion",
+						mcpToolName: "notion-update-page",
+					},
+				},
+			});
+			const result = await settleOwnerToolCallApproval(
+				{ ...context, user: { sub, scopes } } as BaseContext,
+				{ approval: row, status: "approved" },
+			);
+			expect(result).toBe(allowed ? "succeeded" : "failed");
+			if (allowed)
+				expect(mocks.executor).toHaveBeenCalledWith(
+					expect.objectContaining({ verifiedConnectionExecute: true }),
+				);
+			else {
+				expect(mocks.executor).not.toHaveBeenCalled();
+				expect(mocks.record).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({
+						execution: expect.objectContaining({ retryable: true }),
+					}),
+				);
+			}
+		},
+	);
 	it("runs the stored call once on approval and records the result on the request", async () => {
 		expect(
 			await settleOwnerToolCallApproval(context, {

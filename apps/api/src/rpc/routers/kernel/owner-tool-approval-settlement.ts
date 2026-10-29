@@ -296,6 +296,17 @@ async function runOwnerToolCall(
 			return fail("The approver is no longer an active owner or admin");
 		const organization = await getOrganizationById(context.db, organizationId);
 		if (!organization) return fail("Organization not found");
+		const verifiedConnectionExecute =
+			payload.target.transport === "mcp" &&
+			context.authType === "user" &&
+			context.user?.sub === payload.initiatedByUserId &&
+			Array.isArray(context.user.scopes) &&
+			context.user.scopes.includes("connections.execute");
+		if (payload.target.transport === "mcp" && !verifiedConnectionExecute)
+			return fail(
+				"The requester must retry with a verified connections.execute grant; no provider call was made",
+				true,
+			);
 		const timings: KernelWriteExecutorTimings = {};
 		const result = await activeOwnerToolExecutor({
 			env: context.env as unknown as WriteExecutorEnv,
@@ -312,6 +323,7 @@ async function runOwnerToolCall(
 				initiatedByUserId: payload.initiatedByUserId,
 			},
 			approvalRequestId: approval.id,
+			verifiedConnectionExecute,
 			timings,
 		});
 		if (result.ok)

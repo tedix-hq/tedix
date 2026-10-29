@@ -1563,6 +1563,7 @@ describe("approved owner tool call replay", () => {
 				initiatedByUserId: "owner-1",
 			},
 			approvalRequestId: "approval-1",
+			verifiedConnectionExecute: true,
 		});
 		expect(result).toEqual({ ok: true, data: { success: true } });
 		expect(service.calls.at(-1)?.params).toMatchObject({
@@ -1570,6 +1571,9 @@ describe("approved owner tool call replay", () => {
 			arguments: { page_id: "page-1", command: "insert_content" },
 			_meta: { "com.tedix/approvalRequestId": "approval-1" },
 		});
+		expect(service.calls.at(-1)?.headers.get("X-Tedix-Tedi-Scopes")).toBe(
+			"connections.execute",
+		);
 	});
 
 	it("refuses ambiguous connected tool bindings", () => {
