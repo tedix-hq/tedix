@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.18.4 — 2026-10-29
+
+### Patch Changes
+
+- Let the supervisor resume sessions in Documents and other protected macOS folders when access is granted. Check actual access with a short timeout instead of rejecting every protected path.
+
 ## 0.18.3 — 2026-10-29
 
 ### Patch Changes
