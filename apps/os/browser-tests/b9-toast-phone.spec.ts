@@ -160,13 +160,21 @@ async function focusClose(page: Page) {
 	assert(focused.focusVisible, "keyboard focus on close is visible");
 }
 
-async function expectCount(page: Page, count: number) {
-	await page.waitForFunction(
-		([selector, n]) =>
-			document.querySelectorAll(selector as string).length === n,
-		[toastSelector, count] as const,
-		{ timeout: 3000 },
-	);
+async function expectCount(page: Page, count: number, phase: string) {
+	try {
+		await page.waitForFunction(
+			([selector, n]) =>
+				document.querySelectorAll(selector as string).length === n,
+			[toastSelector, count] as const,
+			{ timeout: 3000 },
+		);
+	} catch (cause) {
+		const visible = await page.locator(toastSelector).allTextContents();
+		throw new Error(
+			`${phase}: expected ${count} toast(s), found ${JSON.stringify(visible)}`,
+			{ cause },
+		);
+	}
 }
 
 let browser: Browser | undefined;
@@ -201,7 +209,7 @@ try {
 			titleColors.set(label, error.titleColor);
 			await focusClose(page);
 			await page.keyboard.press("Enter");
-			await expectCount(page, 0);
+			await expectCount(page, 0, `${label} error closed with Enter`);
 
 			// Success: Escape on the focused toast dismisses it.
 			await raise(page, "Raise success", 1);
@@ -210,20 +218,25 @@ try {
 			await page.keyboard.press("F6");
 			await page.keyboard.press("Tab");
 			await page.keyboard.press("Escape");
-			await expectCount(page, 0);
+			await expectCount(page, 0, `${label} success closed with Escape`);
 
 			// Loading: same id twice stays one toast; close via keyboard.
 			await raise(page, "Raise loading", 1);
 			await page.getByRole("button", { name: "Raise loading" }).click();
 			await settle(page);
-			await expectCount(page, 1);
+			await expectCount(page, 1, `${label} duplicate loading stays one`);
 			const loading = await measure(page);
 			assertLayout(loading, size.phone, `${label} loading`);
 			if (!lifetimeChecked) {
 				// Kumo's default timeout is 5 s; success must expire, loading not.
 				await raise(page, "Raise success", 2);
-				await page.clock.fastForward(5_001);
-				await expectCount(page, 1);
+				// Preserve focus/resume timer order instead of simulating laptop wake.
+				await page.clock.runFor(5_001);
+				await expectCount(
+					page,
+					1,
+					`${label} success expires while loading persists`,
+				);
 				assert(
 					(await page.locator(toastSelector).innerText()).includes(
 						"Creating workspace",
@@ -235,12 +248,12 @@ try {
 			}
 			await focusClose(page);
 			await page.keyboard.press("Enter");
-			await expectCount(page, 0);
+			await expectCount(page, 0, `${label} loading closed with Enter`);
 
 			// Programmatic dismissal by notification id still works.
 			await raise(page, "Raise loading", 1);
 			await page.getByRole("button", { name: "Finish loading" }).click();
-			await expectCount(page, 0);
+			await expectCount(page, 0, `${label} loading dismissed by id`);
 
 			const announcer = await page
 				.locator("[data-os-toast-outlet] [role=region]")
