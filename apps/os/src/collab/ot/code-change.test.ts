@@ -438,10 +438,13 @@ describe("diffFiles", () => {
 	// shape, and the room was reset before it could answer the recovery offer.
 	it("diffs large, mostly different documents with bounded comparison work", () => {
 		const rng = makeRng(11);
-		const noise = (length: number) =>
-			Array.from({ length }, () =>
-				String.fromCharCode(65 + randomInt(rng, 58)),
-			).join("");
+		const noise = (length: number) => {
+			const bytes = new Uint8Array(length);
+			for (let i = 0; i < length; i++) {
+				bytes[i] = 65 + randomInt(rng, 58);
+			}
+			return new TextDecoder().decode(bytes);
+		};
 		const deck = (version: number, images: boolean) =>
 			JSON.stringify(
 				{
@@ -756,16 +759,13 @@ describe("validateCodeChangeSchema", () => {
 			/code change is too large/,
 		);
 
-		// A single section padded with empty lines is rejected on its separator count alone,
-		// before its lines are walked: the poisoned last line would otherwise report "contains a
-		// newline".
-		const padded: TextChange = [
-			[
-				0,
-				...Array.from({ length: MAX_CODE_CHANGE_SIZE + 1 }, () => ""),
-				"a\nb",
-			],
-		];
+		// A sparse section with an over-budget separator count is rejected before its lines are
+		// walked. The poisoned last line proves no payload is inspected, without making the fixture
+		// allocate millions of empty-string entries.
+		const paddedSection: [number, ...string[]] = [0];
+		paddedSection.length = MAX_CODE_CHANGE_SIZE + 3;
+		paddedSection[paddedSection.length - 1] = "a\nb";
+		const padded: TextChange = [paddedSection];
 		expect(() => validateCodeChangeSchema([["f", { edit: padded }]])).toThrow(
 			/code change is too large/,
 		);
