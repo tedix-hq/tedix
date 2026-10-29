@@ -354,6 +354,7 @@ export const SkillRunSchema = z.object({
 	restartRequestedAt: z.string().nullable().optional(),
 	workflowRetiredAt: z.string().nullable().optional(),
 	status: SkillRunStatusSchema,
+	skillRevision: z.number().int().positive().nullable().optional(),
 	params: z.record(z.string(), JsonValueSchema).nullable().optional(),
 	result: z.unknown().nullable().optional(),
 	error: z.string().nullable().optional(),

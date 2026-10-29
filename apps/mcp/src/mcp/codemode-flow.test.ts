@@ -161,6 +161,9 @@ function makeGroups(
 				overrides.status ??
 					(async () => ({
 						status: "completed",
+						skillId: "11111111-1111-4111-8111-111111111111",
+						skillRevision: 3,
+						workItemId: null,
 						result: { count: 3 },
 						durationMs: 1200,
 					})),
@@ -489,6 +492,9 @@ describe("flow.status", () => {
 		// to `output` and can never eat the envelope.
 		expect(status).toEqual({
 			status: "completed",
+			skillId: "11111111-1111-4111-8111-111111111111",
+			skillRevision: 3,
+			workItemId: null,
 			output: { count: 3 },
 			error: null,
 			durationMs: 1200,

@@ -134,6 +134,9 @@ describe("skill commands", () => {
 		expect(JSON.parse(String(stdout.mock.calls[0]?.[0]))).toEqual({
 			runId: "run-1",
 			status: "failed",
+			skillId: null,
+			skillRevision: null,
+			workItemId: null,
 			result: { result: "nested" },
 			error: { code: "GATEWAY_FAILED", message: "skill status diagnostic" },
 		});
