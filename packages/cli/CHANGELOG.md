@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.18.3 — 2026-10-29
+
+### Patch Changes
+
+- Local dispatchers can finish tasks that explicitly request a versioned organization skill result using evidence from that Attempt. Repository changes still require a landed commit.
+- Let the supervisor resume Devin without an interactive workspace trust prompt. This resume bypasses the trust check and keeps existing permissions and sandbox settings.
+
 ## 0.18.2 — 2026-10-29
 
 ### Patch Changes
