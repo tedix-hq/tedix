@@ -128,6 +128,7 @@ describe("owner tool approval settlement", () => {
 				payload: {
 					appSlug: "example-unified",
 					toolId: payload.toolId,
+					target: payload.target,
 					args: payload.args,
 					organizationId: "org-1",
 					initiatedByUserId: "owner-1",

@@ -306,6 +306,7 @@ async function runOwnerToolCall(
 					organizationSlug: organization.slug,
 				}),
 				toolId: payload.toolId,
+				target: payload.target,
 				args: payload.args,
 				organizationId,
 				initiatedByUserId: payload.initiatedByUserId,

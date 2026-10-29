@@ -1533,7 +1533,13 @@ describe("approved owner tool call replay", () => {
 				{
 					callable: "notion.notion_update_page",
 					annotations: { readOnlyHint: false },
-					wire: { name: "notion__notion-update-page" },
+					wire: { name: "notion-tedix__notion-update-page" },
+					_meta: {
+						"com.tedix/connectedTool": {
+							providerId: "notion",
+							toolName: "notion-update-page",
+						},
+					},
 				},
 			],
 			() => ({
@@ -1547,6 +1553,11 @@ describe("approved owner tool call replay", () => {
 			payload: {
 				appSlug: "example-unified",
 				toolId: "example_unified_notion__notion-update-page",
+				target: {
+					transport: "mcp",
+					providerId: "notion",
+					mcpToolName: "notion-update-page",
+				},
 				args: { page_id: "page-1", command: "insert_content" },
 				organizationId: "org-1",
 				initiatedByUserId: "owner-1",
@@ -1555,10 +1566,47 @@ describe("approved owner tool call replay", () => {
 		});
 		expect(result).toEqual({ ok: true, data: { success: true } });
 		expect(service.calls.at(-1)?.params).toMatchObject({
-			name: "notion__notion-update-page",
+			name: "notion-tedix__notion-update-page",
 			arguments: { page_id: "page-1", command: "insert_content" },
 			_meta: { "com.tedix/approvalRequestId": "approval-1" },
 		});
+	});
+
+	it("refuses ambiguous connected tool bindings", () => {
+		const entry = {
+			wire: { name: "notion-tedix__notion-update-page", endpoint: null },
+			_meta: {
+				"com.tedix/connectedTool": {
+					providerId: "notion",
+					toolName: "notion-update-page",
+				},
+			},
+		};
+		const target = {
+			transport: "mcp",
+			providerId: "notion",
+			mcpToolName: "notion-update-page",
+		};
+		expect(
+			resolveReplayCatalogEntry(
+				[
+					entry,
+					{
+						...entry,
+						wire: { ...entry.wire, name: "other__notion-update-page" },
+					},
+				],
+				"tedix_unified_notion__notion-update-page",
+				target,
+			),
+		).toBeUndefined();
+		expect(
+			resolveReplayCatalogEntry(
+				[entry],
+				"tedix_unified_notion__notion-update-page",
+				{ ...target, providerId: "other" },
+			),
+		).toBeUndefined();
 	});
 
 	it("reports an unresolvable tool as a retryable platform-side failure", async () => {

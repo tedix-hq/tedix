@@ -410,6 +410,7 @@ export interface OwnerToolCallReplay {
 	appSlug: string;
 	/** Native wire name of the tool on that gateway. */
 	toolId: string;
+	target?: Record<string, unknown>;
 	args: Record<string, unknown>;
 	organizationId: string;
 	initiatedByUserId: string;
@@ -469,7 +470,11 @@ export async function executeApprovedOwnerToolCall(args: {
 					payload.initiatedByUserId,
 				),
 			);
-			const entry = resolveReplayCatalogEntry(catalog, payload.toolId);
+			const entry = resolveReplayCatalogEntry(
+				catalog,
+				payload.toolId,
+				payload.target,
+			);
 			if (entry?.wire)
 				tool = { name: entry.wire.name, annotations: entry.annotations };
 		}
@@ -562,17 +567,43 @@ export function replayToolBaseName(storedToolId: string): string {
 /**
  * The one catalog entry whose gateway wire name is the stored tool, directly
  * or by source-qualified suffix (see {@link resolveReplayTool}). The Code Mode
- * namespace is not consulted: it is derived per gateway (`descope.` for a tool
- * mounted as `tedix__`, `<org>_unified_tedix.` through `connect`), so only the
- * wire binding identifies the tool across mounts.
+ * namespace is not consulted because it varies across mounts. For connected
+ * MCP tools whose mount names differ, require one provider-and-tool match;
+ * the gateway still checks the approved target and arguments before dispatch.
  */
 export function resolveReplayCatalogEntry<
-	T extends Pick<CodeModeCatalogTool, "wire">,
->(entries: readonly T[], storedToolId: string): T | undefined {
+	T extends Pick<CodeModeCatalogTool, "wire" | "_meta">,
+>(
+	entries: readonly T[],
+	storedToolId: string,
+	target?: Record<string, unknown>,
+): T | undefined {
 	const bound = entries.flatMap((entry) =>
 		entry.wire ? [{ name: entry.wire.name, entry }] : [],
 	);
-	return resolveReplayTool(bound, storedToolId)?.entry;
+	const exact = resolveReplayTool(bound, storedToolId)?.entry;
+	if (
+		exact ||
+		target?.transport !== "mcp" ||
+		typeof target.providerId !== "string" ||
+		typeof target.mcpToolName !== "string" ||
+		target.mcpToolName !== replayToolBaseName(storedToolId)
+	)
+		return exact;
+	const matches = entries.filter((entry) => {
+		const metadata = entry._meta?.["com.tedix/connectedTool"];
+		return (
+			entry.wire &&
+			replayToolBaseName(entry.wire.name) === target.mcpToolName &&
+			metadata &&
+			typeof metadata === "object" &&
+			"providerId" in metadata &&
+			"toolName" in metadata &&
+			metadata.providerId === target.providerId &&
+			metadata.toolName === target.mcpToolName
+		);
+	});
+	return matches.length === 1 ? matches[0] : undefined;
 }
 
 /**
