@@ -172,6 +172,60 @@ export function humanMcpGrantFailureResponse(
 	);
 }
 
+/** Recheck a queued request without replacing its already selected authority. */
+export function createHumanMcpAdmissionRevalidator(
+	payload: JWTPayload,
+	env: CloudflareEnv,
+	config: HumanMcpSelectionConfig,
+	selection: MultiOrgMcpSelection,
+): () => Promise<Response | null> {
+	const claims = structuredClone(payload);
+	const resource = { ...config };
+	const fingerprint = (value: MultiOrgMcpSelection) =>
+		JSON.stringify({
+			organizations: value.organizations.map((organization) => [
+				organization.organizationId,
+				organization.descopeTenantId,
+				organization.gatewaySlug,
+			]),
+			scopes: value.effectiveScopes
+				? [...new Set(value.effectiveScopes)].sort()
+				: null,
+		});
+	const original = fingerprint(selection);
+	const expired = () =>
+		typeof claims.exp !== "number" ||
+		!Number.isFinite(claims.exp) ||
+		claims.exp <= Date.now() / 1000;
+	const expiredResponse = () =>
+		Response.json(
+			{ error: "invalid_token", message: "Access token expired while queued." },
+			{
+				status: 401,
+				headers: {
+					"WWW-Authenticate": buildWwwAuthenticate(
+						new URL(resource.audience).hostname,
+						"invalid_token",
+						"Access token expired while queued.",
+					),
+				},
+			},
+		);
+	return async () => {
+		if (expired()) return expiredResponse();
+		const current = await resolveHumanMcpSelection(claims, env, resource);
+		if (expired()) return expiredResponse();
+		if (!current.ok) return humanMcpGrantFailureResponse(current);
+		if (fingerprint(current.selection) !== original)
+			return humanMcpGrantFailureResponse({
+				ok: false,
+				unavailable: false,
+				reason: "selection_changed_while_queued",
+			});
+		return null;
+	};
+}
+
 /** {@link validateHumanMcpSelection} with the denial reason kept. */
 export async function resolveHumanMcpSelection(
 	payload: JWTPayload,

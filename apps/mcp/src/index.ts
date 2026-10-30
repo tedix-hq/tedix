@@ -59,6 +59,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
+	createHumanMcpAdmissionRevalidator,
 	humanMcpGrantFailureResponse,
 	invalidateAihM2mClientScopeCache,
 	isTrustedBrowserBridge,
@@ -794,6 +795,7 @@ const worker = {
 		let earlyAuthMode: string | undefined;
 		let oauthJwtPayload: Record<string, unknown> | undefined;
 		let multiOrgSelection: MultiOrgMcpSelection | null = null;
+		let revalidateQueuedAccess: (() => Promise<Response | null>) | undefined;
 		// Content-free auth stage timing, logged once for a human principal:
 		// fixed stage names and durations only.
 		const authStages: Record<string, number> = {};
@@ -1160,6 +1162,16 @@ const worker = {
 						markAuth("grant");
 						if (!resolved.ok) return humanMcpGrantFailureResponse(resolved);
 						const selection = resolved.selection;
+						revalidateQueuedAccess = createHumanMcpAdmissionRevalidator(
+							authResult.payload,
+							env,
+							{
+								audience: expectedAudience,
+								mcpServerId,
+								multiOrganization: config?.multiOrgConsent === true,
+							},
+							selection,
+						);
 						// A refreshed provider token cannot exceed this installation's consent.
 						if (selection.effectiveScopes !== undefined)
 							authResult.scopes = selection.effectiveScopes;
@@ -1593,6 +1605,9 @@ const worker = {
 							env,
 							ctx,
 							multiOrgSelection,
+							undefined,
+							undefined,
+							revalidateQueuedAccess,
 						),
 						resolvedApp,
 						env,
@@ -1770,6 +1785,9 @@ const worker = {
 							env,
 							ctx,
 							multiOrgSelection,
+							undefined,
+							undefined,
+							revalidateQueuedAccess,
 						),
 						resolvedApp,
 						env,
@@ -1887,6 +1905,9 @@ const worker = {
 								env,
 								ctx,
 								multiOrgSelection,
+								undefined,
+								undefined,
+								revalidateQueuedAccess,
 							),
 							resolvedApp,
 							env,
