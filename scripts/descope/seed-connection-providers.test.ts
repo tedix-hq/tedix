@@ -1,42 +1,81 @@
+import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-
-describe("connection provider installation seeds", () => {
-	test("Google templates defer callback routing to the installation without changing OAuth settings", async () => {
-		const previousAssetsUrl = process.env.ASSETS_URL;
-		process.env.ASSETS_URL = "https://assets.installation.example";
-		try {
-			const { CONNECTION_PROVIDER_SEEDS } =
-				await import("./seed-connection-providers");
-			for (const id of [
-				"google-analytics",
-				"google-gmail",
-				"google-calendar",
-				"google-drive",
-				"google-sheets",
-				"google-chat",
-			]) {
-				const seed = CONNECTION_PROVIDER_SEEDS.find(
-					(provider) => provider.id === id,
-				);
-				expect(seed, id).toBeDefined();
-				const oauth = JSON.parse(JSON.stringify(seed!.oauthConfig));
-				expect(oauth).not.toHaveProperty("callbackDomain");
-				expect(oauth.authorizationUrl).toBe(
-					"https://accounts.google.com/o/oauth2/v2/auth",
-				);
-				expect(oauth.tokenUrl).toBe("https://oauth2.googleapis.com/token");
-				expect(oauth.pkce).toBe(true);
-				expect(oauth.accessType).toBe("offline");
-				expect(oauth.prompt).toEqual(["select_account", "consent"]);
-				expect(seed!.requiredScopes.length).toBeGreaterThan(0);
-				if (id !== "google-analytics") {
-					expect(oauth.authorizationUrlParams).toEqual(oauth.tokenUrlParams);
-					expect(oauth.authorizationUrlParams[0].key).toBe("resource");
-				}
-			}
-		} finally {
-			if (previousAssetsUrl === undefined) delete process.env.ASSETS_URL;
-			else process.env.ASSETS_URL = previousAssetsUrl;
-		}
+import {
+	parseProviderManifest,
+	planProviderReconciliation,
+} from "./seed-connection-providers";
+const manifest = {
+	version: 1,
+	providers: [
+		{
+			id: "example",
+			name: "Example",
+			description: "Fictional provider",
+			icon: "{ASSETS_URL}/example.png",
+			category: "development",
+			type: "oauth",
+			requiredScopes: ["read"],
+			supportedScopes: ["user"],
+			recommendedScope: "user",
+			oauthConfig: {
+				authorizationUrl: "https://auth.example/authorize",
+				tokenUrl: "https://auth.example/token",
+				pkce: true,
+			},
+		},
+	],
+};
+describe("installation-owned provider manifests", () => {
+	test("validates explicit manifests and expands only the configured assets origin", () => {
+		const providers = parseProviderManifest(
+			JSON.stringify(manifest),
+			"https://assets.example",
+		);
+		expect(providers[0]?.icon).toBe("https://assets.example/example.png");
+		expect(() => parseProviderManifest(JSON.stringify(manifest))).toThrow(
+			"ASSETS_URL",
+		);
+		expect(() =>
+			parseProviderManifest(
+				JSON.stringify({
+					...manifest,
+					providers: [manifest.providers[0], manifest.providers[0]],
+				}),
+				"https://assets.example",
+			),
+		).toThrow("unique");
+	});
+	test("compare-and-swap refuses concurrent provider edits and insert races", () => {
+		const db = new Database(":memory:");
+		db.exec(
+			"CREATE TABLE connection_providers (id TEXT PRIMARY KEY,name TEXT,description TEXT,icon TEXT,category TEXT,type TEXT,descope_app_id TEXT,descope_app_aliases TEXT,sort_order INTEGER,recommended_scope TEXT,supported_scopes TEXT,required_scopes TEXT,credential_profile TEXT,oauth_config TEXT,created_at TEXT,updated_at TEXT)",
+		);
+		const providers = parseProviderManifest(
+			JSON.stringify(manifest),
+			"https://assets.example",
+		);
+		const initial = planProviderReconciliation(providers, []);
+		const insert = initial.changes[0]!;
+		expect(db.query(insert.sql).all()).toEqual([{ id: "example" }]);
+		expect(db.query(insert.sql).all()).toEqual([]);
+		const rows = db
+			.query("SELECT * FROM connection_providers")
+			.all() as Parameters<typeof planProviderReconciliation>[1];
+		const update = planProviderReconciliation(
+			[{ ...providers[0]!, name: "New name" }],
+			rows,
+		);
+		expect(planProviderReconciliation(providers, rows).snapshot).not.toBe(
+			update.snapshot,
+		);
+		db.exec("UPDATE connection_providers SET name='Concurrent edit'");
+		expect(db.query(update.changes[0]!.sql).all()).toEqual([]);
+		const changed = db
+			.query("SELECT * FROM connection_providers")
+			.all() as Parameters<typeof planProviderReconciliation>[1];
+		expect(planProviderReconciliation(providers, changed).snapshot).not.toBe(
+			update.snapshot,
+		);
+		db.close();
 	});
 });

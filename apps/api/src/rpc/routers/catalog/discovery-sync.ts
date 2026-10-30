@@ -47,7 +47,10 @@ import {
 	syncLogSourceLabel,
 } from "./policy-quality";
 import { runClaudeRegistrySync } from "./install-scan";
-import { isSupportedCatalogR2Path } from "../../../lib/catalog-sync-source";
+import {
+	isSupportedCatalogR2Path,
+	loadCatalogMaintenancePolicy,
+} from "../../../lib/catalog-sync-source";
 import { getUpstreamProtocolUsageFromAE } from "../../../lib/analytics-engine-protocol";
 import { hasAEConfig } from "../../../lib/analytics-engine-query";
 
@@ -736,11 +739,16 @@ export const triggerSyncCatalog = fleetCatalogOs.triggerSync
 				message: "R2 sync type requires r2Path parameter",
 			};
 		}
-		if (syncType === "r2" && r2Path && !isSupportedCatalogR2Path(r2Path)) {
+		if (
+			syncType === "r2" &&
+			r2Path &&
+			!isSupportedCatalogR2Path(r2Path, await loadCatalogMaintenancePolicy(db))
+		) {
 			return {
 				success: false,
 				syncLogId: "",
-				message: "R2 sync supports only the Claude registry namespace.",
+				message:
+					"R2 sync source is not enabled by the published catalog policy.",
 			};
 		}
 		if (syncType === "upload" && !data) {

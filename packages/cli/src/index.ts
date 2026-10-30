@@ -111,7 +111,7 @@ import { runWorkflowCommand } from "./workflow";
 import { runFactoryCommand } from "./factory";
 import { resolvePublicCliWorkspace } from "./workspace-resolver";
 
-/** Parse `--org <tenant>` from argv for `tedix login` (`tedix` → `org_tedix`). */
+/** Read the exact `--org <tenant>` supplied to `tedix login`. */
 function readOrgFlag(argv: string[]): string | undefined {
 	const i = argv.indexOf("--org");
 	const v = i >= 0 ? argv[i + 1] : undefined;

@@ -7,6 +7,7 @@
 	"type": "module",
 	"exports": {
 		"./schemas/installation-trust": "./src/schemas/installation-trust.ts",
+		"./schemas/catalog-maintenance-policy": "./src/schemas/catalog-maintenance-policy.ts",
 		"./utils/tenant-policy-predicate": "./src/utils/tenant-policy-predicate.ts",
 		"./schemas/organization-domains": "./src/schemas/organization-domains.ts",
 		"./schemas/lane-execution": "./src/schemas/lane-execution.ts",

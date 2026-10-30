@@ -59,7 +59,10 @@ import {
 	getOrCreateCatalogVectorClient,
 } from "@tedix/db/vector/catalog";
 import { runCatalogSyncBatch } from "./catalog-sync-batch";
-import { isSupportedCatalogR2Path } from "../lib/catalog-sync-source";
+import {
+	catalogSourceForR2Path,
+	loadCatalogMaintenancePolicy,
+} from "../lib/catalog-sync-source";
 import {
 	type DetectedSource,
 	detectSourceFromFilename,
@@ -151,16 +154,6 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 	private readonly R2_BATCH_SIZE = 25;
 	private readonly CATALOG_ASSET_FETCH_TIMEOUT_MS = 10_000;
 
-	/**
-	 * Detect the sync source from an R2 path prefix.
-	 * e.g. "catalog/claude/" → "claude"
-	 */
-	private detectSourceFromR2Path(r2Path?: string): Source | null {
-		if (!r2Path) return null;
-		if (r2Path.includes("catalog/claude")) return "claude" as Source;
-		return null;
-	}
-
 	async run(
 		event: WorkflowEvent<CatalogSyncWorkflowParams>,
 		step: WorkflowStep,
@@ -180,13 +173,7 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 
 		const db = createDbClient(this.env.DB);
 
-		// Detect source early from R2 path so sync log has it from the start
-		const detectedSource = this.detectSourceFromR2Path(r2Path);
-		if (detectedSource) {
-			await updateAppCatalogSyncLog(db, syncLogId, {
-				source: detectedSource,
-			});
-		}
+		let detectedSource: Source | null = null;
 
 		// Track results across files (store minimal data, not full apps array)
 		let totalAppsDiscovered = 0;
@@ -199,6 +186,18 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 		const sourceAppIds: Map<Source, string[]> = new Map();
 
 		try {
+			const registrySource =
+				!searchOnly && r2Path
+					? catalogSourceForR2Path(
+							r2Path,
+							await loadCatalogMaintenancePolicy(db),
+						)
+					: undefined;
+			detectedSource = registrySource?.source ?? null;
+			if (detectedSource)
+				await updateAppCatalogSyncLog(db, syncLogId, {
+					source: detectedSource,
+				});
 			// Step 0: Capture catalog state before sync for changelog diff
 			const beforeStats = (await step.do(
 				"capture-before-stats",
@@ -225,15 +224,16 @@ export class CatalogSyncWorkflow extends WorkflowEntrypoint<
 					};
 				}
 
-				if (!isSupportedCatalogR2Path(r2Path)) {
+				if (!registrySource) {
 					await this.failSync(
 						db,
 						syncLogId,
-						"R2 sync supports only the Claude registry namespace.",
+						"R2 sync source is not enabled by the published catalog policy.",
 					);
 					return {
 						success: false,
-						error: "R2 sync supports only the Claude registry namespace.",
+						error:
+							"R2 sync source is not enabled by the published catalog policy.",
 						syncLogId,
 					};
 				}

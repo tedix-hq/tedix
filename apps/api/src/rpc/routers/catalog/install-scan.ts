@@ -1,5 +1,7 @@
 import type { InstallationTrustPolicy } from "@tedix/api-contract/schemas/installation-trust";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
+import { guardedFetch } from "@tedix/ssrf-guard";
+import { loadCatalogMaintenancePolicy } from "../../../lib/catalog-sync-source";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import { syncDeclaredConnectionScopes } from "../../../services/connection-scope-sync";
 import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connections";
@@ -1470,23 +1472,15 @@ export async function scanUpstreamCatalogAppNow(
 	};
 }
 
-export // =============================================================================
+// =============================================================================
 // CLAUDE REGISTRY SYNC
 // =============================================================================
 
-const CLAUDE_REGISTRY_BASE =
-	"https://api.anthropic.com/mcp-registry/v0/servers?version=latest&limit=100&visibility=commercial";
-
 /**
  * Fetch all servers from Claude MCP Registry with pagination.
  * The API uses `.metadata.nextCursor` for pagination (max 100 per page).
  */
-
-/**
- * Fetch all servers from Claude MCP Registry with pagination.
- * The API uses `.metadata.nextCursor` for pagination (max 100 per page).
- */
-export async function fetchClaudeRegistry(): Promise<{
+export async function fetchClaudeRegistry(endpoint: string): Promise<{
 	servers: unknown[];
 	error?: string;
 }> {
@@ -1495,10 +1489,13 @@ export async function fetchClaudeRegistry(): Promise<{
 	const maxPages = 10; // safety limit
 
 	for (let page = 0; page < maxPages; page++) {
-		const url = cursor
-			? `${CLAUDE_REGISTRY_BASE}&cursor=${encodeURIComponent(cursor)}`
-			: CLAUDE_REGISTRY_BASE;
-		const response = await fetch(url);
+		const url = new URL(endpoint);
+		if (cursor) url.searchParams.set("cursor", cursor);
+		const response = await guardedFetch(
+			url,
+			{ signal: AbortSignal.timeout(30_000) },
+			{ maxRedirects: 0 },
+		);
 		if (!response.ok) {
 			return {
 				servers: allServers,
@@ -1528,13 +1525,7 @@ export async function fetchClaudeRegistry(): Promise<{
  * Fetches Claude's public registry, saves to R2, and triggers a sync workflow.
  * Used by both `syncClaudeRegistry` and `triggerSync` (with source="claude").
  */
-
-export /**
- * Shared Claude MCP Registry sync logic.
- * Fetches Claude's public registry, saves to R2, and triggers a sync workflow.
- * Used by both `syncClaudeRegistry` and `triggerSync` (with source="claude").
- */
-async function runClaudeRegistrySync(
+export async function runClaudeRegistrySync(
 	db: Parameters<typeof createAppCatalogSyncLog>[0],
 	env: CloudflareEnv,
 ): Promise<{
@@ -1544,8 +1535,18 @@ async function runClaudeRegistrySync(
 	workflowInstanceId?: string;
 	message: string;
 }> {
-	// 1. Fetch Claude MCP Registry API (public, no auth, paginated)
-	const { servers, error } = await fetchClaudeRegistry();
+	const policy = await loadCatalogMaintenancePolicy(db);
+	const source = policy.sources.find(
+		(entry) => entry.adapter === "claude-registry",
+	);
+	if (!source)
+		return {
+			success: false,
+			serverCount: 0,
+			message: "Registry source is not enabled by the published catalog policy",
+		};
+	// Source endpoints come only from the published system policy.
+	const { servers, error } = await fetchClaudeRegistry(source.endpoint);
 	if (error && servers.length === 0) {
 		return {
 			success: false,
@@ -1566,7 +1567,7 @@ async function runClaudeRegistrySync(
 	}
 
 	// 2. Save to R2
-	const r2Key = "catalog/claude/registry_servers.json";
+	const r2Key = `${source.r2Prefix}/registry_servers.json`;
 	await env.R2_BUCKET.put(r2Key, JSON.stringify(registryData), {
 		httpMetadata: {
 			contentType: "application/json",
@@ -1585,7 +1586,7 @@ async function runClaudeRegistrySync(
 		startedAt: new Date().toISOString(),
 		status: "running",
 		details: {
-			r2Path: "catalog/claude/",
+			r2Path: `${source.r2Prefix}/`,
 			trigger: "sync-claude-registry",
 			serverCount,
 		},
@@ -1603,7 +1604,7 @@ async function runClaudeRegistrySync(
 		const instance = await workflow.create({
 			params: {
 				syncType: "r2" as const,
-				r2Path: "catalog/claude/",
+				r2Path: `${source.r2Prefix}/`,
 				syncLogId: syncLog.id,
 			},
 		});
