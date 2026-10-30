@@ -7,6 +7,42 @@ import * as z from "zod";
 import { JsonValueSchema } from "./common";
 import { TOOL_OPERATIONAL_RISK_TIER_VALUES } from "./tools";
 
+/** Identity of the vault selection, never the credential or its secret.
+ * An absent instance ID does not identify a stable external account. */
+export const SelectedConnectionCredentialSchema = z.discriminatedUnion(
+	"scope",
+	[
+		z
+			.object({
+				organizationId: z.string().min(1),
+				providerId: z.string().min(1),
+				scope: z.literal("tenant"),
+				connectionInstanceId: z.uuid().optional(),
+				accountRevisionDigest: z
+					.string()
+					.regex(/^[0-9a-f]{64}$/)
+					.optional(),
+			})
+			.strict(),
+		z
+			.object({
+				organizationId: z.string().min(1),
+				providerId: z.string().min(1),
+				scope: z.literal("user"),
+				userId: z.string().min(1),
+				connectionInstanceId: z.uuid().optional(),
+				accountRevisionDigest: z
+					.string()
+					.regex(/^[0-9a-f]{64}$/)
+					.optional(),
+			})
+			.strict(),
+	],
+);
+export type SelectedConnectionCredential = z.infer<
+	typeof SelectedConnectionCredentialSchema
+>;
+
 /** Null means whole account; an empty list denies all resources. */
 export const ConnectionAllowedResourcesSchema = z
 	.array(

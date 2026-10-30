@@ -12,6 +12,9 @@ import type { OsApprovalRule } from "@tedix/api-contract/contracts/os-approval-r
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import { type ReactNode, useState } from "react";
 import { isAutomaticApproval } from "@/components/activity-history";
+import { TenantToolPolicies } from "@/components/tenant-tool-policies";
+import { ProviderIdentityProfiles } from "@/components/provider-identity-profiles";
+import { LegacyActionGrants } from "@/components/legacy-action-grants";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
@@ -351,6 +354,9 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 				</ul>
 			)}
 
+			<LegacyActionGrants canChange={canChange} />
+			<TenantToolPolicies canChange={canChange} />
+			<ProviderIdentityProfiles canChange={canChange} />
 			<div className="grid gap-1 border-t border-kumo-hairline px-4 py-3">
 				<Text as="p" className="m-0" role="label" tone="secondary">
 					{canChange

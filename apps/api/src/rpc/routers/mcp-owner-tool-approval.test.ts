@@ -1,5 +1,6 @@
 import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { canonicalDigest } from "../../lib/blueprint-digest";
 import type { BaseContext } from "../orpc";
 const mocks = vi.hoisted(() => ({
 	member: vi.fn(),
@@ -11,6 +12,11 @@ const mocks = vi.hoisted(() => ({
 	pending: vi.fn(),
 	skill: vi.fn(),
 	skillBySlug: vi.fn(),
+	policyTool: vi.fn(),
+	policyRevisions: vi.fn(),
+	policyGenerations: vi.fn(),
+	policyFences: vi.fn(),
+	policyProfile: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
@@ -32,6 +38,17 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", async (load) => ({
 	...(await load<object>()),
 	getSkillEntry: mocks.skill,
 	getSkillEntryBySlug: mocks.skillBySlug,
+}));
+vi.mock("@tedix/db/queries/tools", async (load) => ({
+	...(await load<object>()),
+	getToolByIdForOrganization: mocks.policyTool,
+}));
+vi.mock("@tedix/db/queries/tenant-tool-policy", async (load) => ({
+	...(await load<object>()),
+	findTenantToolPolicyRevisions: mocks.policyRevisions,
+	findTenantToolPolicySubjectFences: mocks.policyFences,
+	getProviderIdentityProfile: mocks.policyProfile,
+	getTenantToolPolicyResourceGenerations: mocks.policyGenerations,
 }));
 import { mcpGovernanceContractRouter } from "./mcp-governance";
 const input = {
@@ -67,6 +84,11 @@ beforeEach(() => {
 	mocks.pending.mockResolvedValue(undefined);
 	mocks.skill.mockResolvedValue(activeSkill);
 	mocks.skillBySlug.mockResolvedValue(activeSkill);
+	mocks.policyTool.mockResolvedValue(undefined);
+	mocks.policyRevisions.mockResolvedValue([]);
+	mocks.policyGenerations.mockResolvedValue([]);
+	mocks.policyFences.mockResolvedValue([]);
+	mocks.policyProfile.mockResolvedValue(undefined);
 });
 const activeSkill = {
 	id: "skill-1",
@@ -324,6 +346,189 @@ describe("owner gateway approvals", () => {
 		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
 			approved: false,
 		});
+	});
+	it("does not consume an approval with an invalid policy binding", async () => {
+		const bound = {
+			...input,
+			target: { ...input.target, tenantPolicyBinding: {} },
+		};
+		const result = await client().requestOwnerToolApproval(bound);
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		await expect(
+			client().requestOwnerToolApproval({
+				...bound,
+				approvalRequestId: result.approvalRequestId,
+			}),
+		).rejects.toThrow(/policy binding is invalid/);
+		expect(mocks.consume).not.toHaveBeenCalled();
+	});
+	it("rechecks the owner-reviewed policy before consuming a replay", async () => {
+		const mount = {
+			version: 1 as const,
+			organizationId: "org-1",
+			rootAppId: "root",
+			mountAppIds: ["root", "source"],
+			sourceAppId: "source",
+			sourceToolRowId: "tool-row",
+			sourceToolId: "send",
+			mountedToolId: "mail__send",
+			transport: "mcp" as const,
+			upstreamOperation: "send",
+			endpointDigest: "a".repeat(64),
+			authBindingDigest: "a".repeat(64),
+			acceptsEmptyArguments: false,
+			providerId: "provider",
+			connectionInstanceId: "connection",
+			connectionScope: "tenant" as const,
+			requestedScopes: [],
+			effectiveToolDigest: "a".repeat(64),
+		};
+		const probeMount = {
+			...mount,
+			sourceToolRowId: "probe",
+			sourceToolId: "probe",
+			mountedToolId: "mail__probe",
+			upstreamOperation: "probe",
+			acceptsEmptyArguments: true,
+		};
+		const profile = {
+			version: 1 as const,
+			operation: "probe",
+			selectors: [["id"]],
+		};
+		const profileGenerations = await canonicalDigest({ mount: [], probe: [] });
+		const profileDigest = await canonicalDigest({
+			organizationId: "org-1",
+			mount,
+			probeMount,
+			profile,
+			safetyAttestation: "safe_empty_probe",
+			resourceGenerationDigest: profileGenerations,
+		});
+		mocks.policyProfile.mockResolvedValue({
+			id: "profile",
+			organizationId: "org-1",
+			mount,
+			probeMount,
+			profile,
+			safetyAttestation: "safe_empty_probe",
+			profileDigest,
+			resourceGenerationDigest: profileGenerations,
+			createdBy: "owner-1",
+			createdAt: "2026-01-01",
+			revokedAt: null,
+		});
+		const descriptor = {
+			kind: "profile" as const,
+			mount,
+			profileId: "profile",
+			profileDigest,
+			actorUserId: "owner-1",
+			accountRevisionDigest: "b".repeat(64),
+		};
+		const tool = { id: "tool-row", appId: "source", enabled: true, config: {} };
+		const predicate = {
+			version: 1,
+			schema: {
+				type: "object",
+				properties: { body: { type: "string" } },
+				required: ["body"],
+				additionalProperties: false,
+			},
+		};
+		const effect = {
+			disposition: "ask",
+			riskTier: "bounded_write",
+			blastRadius: "single_resource",
+		};
+		const policySet = {
+			evaluatorVersion: 1,
+			defaultDisposition: "ask",
+			rules: [{ id: "review", predicate, effect }],
+		};
+		const toolDigest = await canonicalDigest(tool);
+		const descriptorDigest = await canonicalDigest(descriptor);
+		const resourceGenerationDigest = await canonicalDigest([]);
+		const ruleDigest = await canonicalDigest({
+			organizationId: "org-1",
+			appId: "source",
+			rootAppId: "root",
+			mountedToolId: "mail__send",
+			toolRowId: "tool-row",
+			toolDigest,
+			mountDigest: descriptorDigest,
+			resourceGenerationDigest,
+			policySet,
+		});
+		const revision = {
+			id: "rev-1",
+			organizationId: "org-1",
+			appId: "source",
+			rootAppId: "root",
+			mountedToolId: "mail__send",
+			toolRowId: "tool-row",
+			toolDigest,
+			mountDigest: descriptorDigest,
+			resourceGenerationDigest,
+			mountDescriptor: descriptor,
+			ruleDigest,
+			predicate,
+			effect,
+			policySet,
+			revokedAt: null,
+		};
+		mocks.policyTool.mockResolvedValue(tool);
+		mocks.policyRevisions.mockResolvedValue([revision]);
+		const fences = [
+			{
+				subjectKey: JSON.stringify(["user", "owner-1"]),
+				sequence: 1,
+				policyId: "rev-1",
+				policyRowId: "rev-1",
+				revokedAt: null,
+			},
+		];
+		mocks.policyFences.mockResolvedValue(fences);
+		const compositeDigest = await canonicalDigest({
+			fences,
+			decisions: [{ revisionId: "rev-1", ruleDigest }],
+		});
+		const bound = {
+			...input,
+			target: {
+				...input.target,
+				tenantPolicyBinding: {
+					descriptor,
+					descriptorDigest,
+					revisionId: "rev-1",
+					ruleDigest: compositeDigest,
+				},
+			},
+		};
+		const created = await client().requestOwnerToolApproval(bound);
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		const retry = { ...bound, approvalRequestId: created.approvalRequestId };
+		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
+			approved: true,
+		});
+		mocks.consume.mockClear();
+		mocks.policyRevisions.mockResolvedValue([
+			{ ...revision, revokedAt: "2026-01-01" },
+		]);
+		await expect(client().requestOwnerToolApproval(retry)).rejects.toThrow(
+			/policy changed or was revoked/,
+		);
+		expect(mocks.consume).not.toHaveBeenCalled();
 	});
 	it.each(["pending", "rejected", "cancelled", "expired"])(
 		"does not execute a %s decision",

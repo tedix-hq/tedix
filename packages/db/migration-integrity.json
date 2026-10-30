@@ -1236,6 +1236,70 @@
 		{
 			"name": "20261030104351_dispatcher-health-reports/migration.sql",
 			"sha256": "294f726a631338908c3fc4b4d07ca77b177b99823eca5bea675db0113b2d8837"
+		},
+		{
+			"name": "20261030134410_tenant_tool_policy/migration.sql",
+			"sha256": "8a45dae7deeb050927610e9fafc6b08eb9deb977fc363e64273832fea27ec8f3"
+		},
+		{
+			"name": "20261030134941_tenant_tool_policy_preparations/migration.sql",
+			"sha256": "c578b5836a6fb86f709ae82b9d9207b43c360a016f5d2c586dec2bc06afa308a"
+		},
+		{
+			"name": "20261030135056_tenant_tool_policy_revision_order/migration.sql",
+			"sha256": "a926d83033c79980c45994fb735c00362d207b22452090279900f7ee26d193db"
+		},
+		{
+			"name": "20261030141320_tenant_policy_mount_fence/migration.sql",
+			"sha256": "1277c4c04f0f94bbff470544ae45242a255ffe1d209d512361dfaadc63dbb055"
+		},
+		{
+			"name": "20261030141838_tenant_policy_example_args/migration.sql",
+			"sha256": "bf02a1d613279fefe665eaf89b913c6f675956ed74f61071f3cf505b9264f2f7"
+		},
+		{
+			"name": "20261030142026_tenant_policy_dependency_generations/migration.sql",
+			"sha256": "1d8cdc9cd60695d5708f4e2ea88f490e4f68cc4ddc7fd30cc84009b9a7068762"
+		},
+		{
+			"name": "20261030142831_tenant_provider_identity_profiles/migration.sql",
+			"sha256": "1dde46db3c295a9c539b7fb25d87f4dcdad18418b38695d4dfd768229d5b89cb"
+		},
+		{
+			"name": "20261030143117_provider_probe_receipts/migration.sql",
+			"sha256": "6f9d9bc83ad20ac0f2eca3413e00e728552301b89f6731bcaab5d84086118042"
+		},
+		{
+			"name": "20261030143515_provider_probe_results/migration.sql",
+			"sha256": "6b4cce5bb8ec99bffa7dea8b2004d07e5b91b43986dcf7c849fc96f9ac5246e2"
+		},
+		{
+			"name": "20261030145134_machine_provider_probe_results/migration.sql",
+			"sha256": "ae30879b94e65fce632b536d17e6d6fc0a5034b1b8e9360913d7ab3609b04fd5"
+		},
+		{
+			"name": "20261030145536_machine_probe_authorizations/migration.sql",
+			"sha256": "c3fe8966be26c77695913da8707d49c17c606b1df9d38a7f6b5d7995d9383646"
+		},
+		{
+			"name": "20261030150910_tenant_policy_fence_source/migration.sql",
+			"sha256": "c8f5483c5bcf4434b764837bad1d1fb71afca89ee99e00bb04c6b9c65e179026"
+		},
+		{
+			"name": "20261030151109_tenant_policy_fence_operation/migration.sql",
+			"sha256": "75e3cbd2fc1331fe072fdaf299fa99f09729e8e3f79bcbcb44bc02bc70dc2137"
+		},
+		{
+			"name": "20261030163804_tenant_policy_subjects/migration.sql",
+			"sha256": "c4f9bff13fa198509eb948b7812fa8a7996ce1dcccc5d6c29da1a2f0e0423f41"
+		},
+		{
+			"name": "20261030164045_tenant_policy_subject_index/migration.sql",
+			"sha256": "bcbaeef91a48132609e081afc4a215784c6260844b565e6d8081fcb9de870777"
+		},
+		{
+			"name": "20261030164608_tenant_policy_unknown_recovery/migration.sql",
+			"sha256": "28e7f34b4f1250567fd40e51b56ec733ea66dff8754ef4a8eba71f8623b051c6"
 		}
 	]
 }

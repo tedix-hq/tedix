@@ -75,6 +75,42 @@ async function gate(ctx: ServerContext, tool: AppTool) {
 }
 
 describe("owner-declared safe action types", () => {
+	it("applies action-name opt-in to a machine write without binding a tool revision", async () => {
+		const tool = {
+			toolId: "prepare_machine_identity_probe",
+			actionType: "prepare_machine_proof",
+			writeCapability: "write",
+			config: {
+				transport: "rpc",
+				endpoint: "mcpGovernance/prepareMachineIdentityProbe",
+			},
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+			},
+			annotations: { readOnlyHint: false, destructiveHint: false },
+		} as unknown as AppTool;
+		const machine = (optedIn: string[]) => {
+			const ctx = context({ optedIn });
+			ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy = vi.fn(
+				async () => ({ requireExplicitApprovalPolicy: false }),
+			);
+			return {
+				...ctx,
+				callerIdentity: {
+					authType: "external_agent",
+					organizationId: "org-1",
+					externalAgentPrincipalId: "principal",
+					externalAgentSessionId: "session",
+					externalAgentClientRecordId: "client",
+				},
+			} as ServerContext;
+		};
+		expect(await gate(machine(["prepare_machine_proof"]), tool)).toBeNull();
+		expect((await gate(machine([]), tool))?.isError).toBe(true);
+	});
 	it("runs an opted-in action type without asking and names the setting", async () => {
 		const ctx = context({ optedIn: ["comment_on_issue"] });
 		expect(await gate(ctx, comment)).toBeNull();

@@ -11,6 +11,54 @@ import "@orpc/openapi/extensions/route";
 
 import { oc } from "@orpc/contract";
 import { baseErrors } from "../errors";
+import * as z from "zod";
+import {
+	CreateProviderIdentityProfileInputSchema,
+	PrepareProviderIdentityProfileInputSchema,
+	PrepareProviderIdentityProfileResponseSchema,
+	ProviderIdentityProfileSchema,
+} from "../schemas/provider-identity-profile";
+import {
+	ProbeProviderIdentityProfileInputSchema,
+	ProbeProviderIdentityProfileResponseSchema,
+	RedeemProviderIdentityProbeInputSchema,
+	RedeemProviderIdentityProbeResponseSchema,
+	RecordMachineProviderProbeInputSchema,
+	MachineProviderProbeListSchema,
+	PrepareMachineIdentityProbeInputSchema,
+	RedeemMachineIdentityProbeResponseSchema,
+} from "../schemas/provider-probe-receipt";
+import {
+	CreateTenantToolPolicyInputSchema,
+	PrepareTenantToolPolicyInputSchema,
+	PrepareTenantToolPolicyResponseSchema,
+	PrepareHybridTenantToolPolicyInputSchema,
+	PrepareHybridTenantToolPolicyResponseSchema,
+	PrepareMachineTenantToolPolicyInputSchema,
+	PrepareMachineTenantToolPolicyResponseSchema,
+	PrepareNativeRpcPolicyInputSchema,
+	PrepareNativeRpcPolicyResponseSchema,
+	MachinePolicyInventorySchema,
+	ResolveTenantToolPolicyInputSchema,
+	ResolveTenantToolPolicyResponseSchema,
+	ResolveTenantPolicyCandidateInputSchema,
+	ResolveTenantPolicySourceCandidateInputSchema,
+	ResolveTenantPolicyDiscoveryInputSchema,
+	ResolveTenantPolicyDiscoveryResponseSchema,
+	ResolveMachinePolicyCandidateInputSchema,
+	ResolveMachinePolicyDiscoveryInputSchema,
+	ResolveMachinePolicyCandidateResponseSchema,
+	ResolveNativeRpcPolicyCandidateResponseSchema,
+	ResolveMachinePolicyAnyRootInputSchema,
+	ResolveTenantPolicyPresenceInputSchema,
+	RequestMachineToolApprovalInputSchema,
+	RequestNativeMachineToolApprovalInputSchema,
+	PrepareOwnerPolicyReplayInputSchema,
+	PrepareOwnerPolicyReplayResponseSchema,
+	ResolveTenantPolicyCandidateResponseSchema,
+	TenantToolPolicySchema,
+	DeletedTenantPolicyFencesSchema,
+} from "../schemas/tenant-tool-policy";
 import {
 	ResolveHomeToolApprovalInputSchema,
 	ResolveHomeToolApprovalResponseSchema,
@@ -33,6 +81,7 @@ import {
 	ResolveActionTypeOptInInputSchema,
 	ResolveActionTypeOptInResponseSchema,
 	ListActionTypeOptInsResponseSchema,
+	LegacyActionTypeInventorySchema,
 	SetActionTypeOptInInputSchema,
 	SetActionTypeOptInResponseSchema,
 } from "../schemas/mcp-governance";
@@ -157,6 +206,13 @@ export const mcpGovernanceContract = oc
 					"Lists the declared tool action types an organization admin let run without an approval card, for example comment_on_issue.",
 			})
 			.output(ListActionTypeOptInsResponseSchema),
+		listLegacyActionTypeInventory: oc
+			.route({
+				method: "GET",
+				path: "/action-type-opt-ins/inventory",
+				summary: "Review legacy grants and declared source tools",
+			})
+			.output(LegacyActionTypeInventorySchema),
 		setActionTypeOptIn: oc
 			.route({
 				method: "POST",
@@ -167,6 +223,278 @@ export const mcpGovernanceContract = oc
 			})
 			.input(SetActionTypeOptInInputSchema)
 			.output(SetActionTypeOptInResponseSchema),
+		listTenantToolPolicies: oc
+			.route({
+				method: "GET",
+				path: "/tenant-tool-policies",
+				summary: "List tool policy revisions",
+			})
+			.output(z.object({ items: z.array(TenantToolPolicySchema) })),
+		listDeletedTenantPolicyFences: oc
+			.route({
+				method: "GET",
+				path: "/tenant-tool-policies/deleted",
+				summary: "List deleted rule revisions requiring review",
+			})
+			.output(DeletedTenantPolicyFencesSchema),
+		prepareTenantToolPolicy: oc
+			.route({
+				method: "POST",
+				path: "/tenant-tool-policies/prepare",
+				summary: "Prepare a tool policy for owner review",
+			})
+			.input(PrepareTenantToolPolicyInputSchema)
+			.output(PrepareTenantToolPolicyResponseSchema),
+		prepareHybridTenantToolPolicy: oc
+			.route({
+				method: "POST",
+				path: "/tenant-tool-policies/prepare-profile",
+				summary: "Prepare a profile-bound tool policy",
+			})
+			.input(PrepareHybridTenantToolPolicyInputSchema)
+			.output(PrepareHybridTenantToolPolicyResponseSchema),
+		prepareMachineTenantToolPolicy: oc
+			.route({
+				method: "POST",
+				path: "/tenant-tool-policies/prepare-machine",
+				summary: "Prepare an owner-reviewed machine tool policy",
+			})
+			.input(PrepareMachineTenantToolPolicyInputSchema)
+			.output(PrepareMachineTenantToolPolicyResponseSchema),
+		createTenantToolPolicy: oc
+			.route({
+				method: "POST",
+				path: "/tenant-tool-policies",
+				summary: "Create an owner-approved tool policy revision",
+			})
+			.input(CreateTenantToolPolicyInputSchema)
+			.output(z.object({ policy: TenantToolPolicySchema })),
+		revokeTenantToolPolicy: oc
+			.route({
+				method: "POST",
+				path: "/tenant-tool-policies/revoke",
+				summary: "Revoke a tool policy revision",
+			})
+			.input(z.object({ id: z.string().min(1) }))
+			.output(z.object({ policy: TenantToolPolicySchema })),
+		resolveTenantToolPolicy: oc
+			.route({
+				method: "POST",
+				path: "/resolve-tenant-tool-policy",
+				summary: "Resolve an owner-approved tool policy revision",
+				tags: ["internal"],
+			})
+			.input(ResolveTenantToolPolicyInputSchema)
+			.output(ResolveTenantToolPolicyResponseSchema),
+		resolveTenantPolicyCandidate: oc
+			.route({
+				method: "POST",
+				path: "/resolve-tenant-policy-candidate",
+				summary:
+					"Find a profile-bound policy candidate without authorizing execution",
+				tags: ["internal"],
+			})
+			.input(ResolveTenantPolicyCandidateInputSchema)
+			.output(ResolveTenantPolicyCandidateResponseSchema),
+		resolveTenantPolicySourceCandidate: oc
+			.route({
+				method: "POST",
+				path: "/resolve-tenant-policy-source-candidate",
+				summary:
+					"Find one unambiguous source policy candidate without authorizing execution",
+				tags: ["internal"],
+			})
+			.input(ResolveTenantPolicySourceCandidateInputSchema)
+			.output(ResolveTenantPolicyCandidateResponseSchema),
+		resolveTenantPolicyDiscovery: oc
+			.route({
+				method: "POST",
+				path: "/resolve-tenant-policy-discovery",
+				summary: "Describe whether a reviewed policy could apply",
+				tags: ["internal"],
+			})
+			.input(ResolveTenantPolicyDiscoveryInputSchema)
+			.output(ResolveTenantPolicyDiscoveryResponseSchema),
+		resolveMachinePolicyCandidate: oc
+			.route({
+				method: "POST",
+				path: "/resolve-machine-policy-candidate",
+				summary:
+					"Find a machine policy candidate without authorizing execution",
+				tags: ["internal"],
+			})
+			.input(ResolveMachinePolicyCandidateInputSchema)
+			.output(ResolveMachinePolicyCandidateResponseSchema),
+		resolveMachinePolicyAnyRoot: oc
+			.route({
+				method: "POST",
+				path: "/resolve-machine-policy-any-root",
+				summary: "Find one unambiguous machine policy by source",
+				tags: ["internal"],
+			})
+			.input(ResolveMachinePolicyAnyRootInputSchema)
+			.output(ResolveMachinePolicyCandidateResponseSchema),
+		resolveNativeRpcPolicyCandidate: oc
+			.route({
+				method: "POST",
+				path: "/resolve-native-rpc-policy-candidate",
+				summary: "Find a native RPC policy candidate",
+				tags: ["internal"],
+			})
+			.input(ResolveMachinePolicyCandidateInputSchema)
+			.output(ResolveNativeRpcPolicyCandidateResponseSchema),
+		resolveTenantPolicyPresence: oc
+			.route({
+				method: "POST",
+				path: "/resolve-tenant-policy-presence",
+				summary: "Check whether a policy fence may apply",
+				tags: ["internal"],
+			})
+			.input(ResolveTenantPolicyPresenceInputSchema)
+			.output(z.object({ fenced: z.boolean() })),
+		resolveMachinePolicyDiscovery: oc
+			.route({
+				method: "POST",
+				path: "/resolve-machine-policy-discovery",
+				summary: "Describe whether a reviewed machine policy could apply",
+				tags: ["internal"],
+			})
+			.input(ResolveMachinePolicyDiscoveryInputSchema)
+			.output(ResolveTenantPolicyDiscoveryResponseSchema),
+		prepareOwnerPolicyReplay: oc
+			.route({
+				method: "POST",
+				path: "/prepare-owner-policy-replay",
+				summary: "Prepare an exact approved owner replay",
+				tags: ["internal"],
+			})
+			.input(PrepareOwnerPolicyReplayInputSchema)
+			.output(PrepareOwnerPolicyReplayResponseSchema),
+		requestMachineToolApproval: oc
+			.route({
+				method: "POST",
+				path: "/request-machine-tool-approval",
+				summary: "Park or consume an exact machine tool approval",
+				tags: ["internal"],
+			})
+			.input(RequestMachineToolApprovalInputSchema)
+			.output(RequestOwnerToolApprovalResponseSchema),
+		requestNativeMachineToolApproval: oc
+			.route({
+				method: "POST",
+				path: "/request-native-machine-tool-approval",
+				summary: "Park or consume an exact native machine tool approval",
+				tags: ["internal"],
+			})
+			.input(RequestNativeMachineToolApprovalInputSchema)
+			.output(RequestOwnerToolApprovalResponseSchema),
+		prepareNativeRpcPolicy: oc
+			.route({
+				method: "POST",
+				path: "/tenant-tool-policies/prepare-native",
+				summary: "Prepare a native RPC policy for owner review",
+			})
+			.input(PrepareNativeRpcPolicyInputSchema)
+			.output(PrepareNativeRpcPolicyResponseSchema),
+		prepareProviderIdentityProfile: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles/prepare",
+				summary: "Prepare a provider identity profile for owner review",
+			})
+			.input(PrepareProviderIdentityProfileInputSchema)
+			.output(PrepareProviderIdentityProfileResponseSchema),
+		createProviderIdentityProfile: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles",
+				summary: "Record an owner-reviewed provider identity profile",
+			})
+			.input(CreateProviderIdentityProfileInputSchema)
+			.output(z.object({ profile: ProviderIdentityProfileSchema })),
+		listProviderIdentityProfiles: oc
+			.route({
+				method: "GET",
+				path: "/provider-identity-profiles",
+				summary: "List provider identity profiles",
+			})
+			.output(z.object({ items: z.array(ProviderIdentityProfileSchema) })),
+		revokeProviderIdentityProfile: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles/revoke",
+				summary: "Revoke a provider identity profile",
+			})
+			.input(z.object({ id: z.string().min(1) }))
+			.output(z.object({ profile: ProviderIdentityProfileSchema })),
+		resolveProviderIdentityProfile: oc
+			.route({
+				method: "POST",
+				path: "/resolve-provider-identity-profile",
+				summary: "Resolve an owner-reviewed provider identity profile",
+				tags: ["internal"],
+			})
+			.input(
+				z.object({ organizationId: z.string().min(1), id: z.string().min(1) }),
+			)
+			.output(z.object({ profile: ProviderIdentityProfileSchema.nullable() })),
+		probeProviderIdentityProfile: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles/probe",
+				summary: "Verify an owner-reviewed provider identity",
+			})
+			.input(ProbeProviderIdentityProfileInputSchema)
+			.output(ProbeProviderIdentityProfileResponseSchema),
+		redeemProviderIdentityProbe: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles/redeem-probe",
+				summary: "Redeem verified provider probe authority",
+				tags: ["internal"],
+			})
+			.input(RedeemProviderIdentityProbeInputSchema)
+			.output(RedeemProviderIdentityProbeResponseSchema),
+		recordMachineProviderProbe: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles/record-machine-probe",
+				summary: "Record verified machine probe",
+				tags: ["internal"],
+			})
+			.input(RecordMachineProviderProbeInputSchema)
+			.output(z.object({ receiptId: z.uuid() })),
+		listMachinePolicyInventory: oc
+			.route({
+				method: "GET",
+				path: "/tenant-tool-policies/machine-inventory",
+				summary: "List active machine sessions for owner review",
+			})
+			.output(MachinePolicyInventorySchema),
+		listMachineProviderProbes: oc
+			.route({
+				method: "GET",
+				path: "/provider-identity-profiles/machine-probes",
+				summary: "List machine proofs for owner review",
+			})
+			.output(MachineProviderProbeListSchema),
+		prepareMachineIdentityProbe: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles/prepare-machine-probe",
+				summary: "Prepare a machine identity proof",
+			})
+			.input(PrepareMachineIdentityProbeInputSchema)
+			.output(z.object({ receiptId: z.uuid() })),
+		redeemMachineIdentityProbe: oc
+			.route({
+				method: "POST",
+				path: "/provider-identity-profiles/redeem-machine-probe",
+				summary: "Redeem machine probe authority",
+				tags: ["internal"],
+			})
+			.input(RedeemProviderIdentityProbeInputSchema)
+			.output(RedeemMachineIdentityProbeResponseSchema),
 		latchRunSensitiveData: oc
 			.route({
 				method: "POST",

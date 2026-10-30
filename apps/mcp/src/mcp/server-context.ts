@@ -42,6 +42,8 @@ import type { McpApp, OpenAiWidgetCSP } from "./types";
  */
 export interface AppTool {
 	id: string;
+	/** Only populated by fresh server-side policy mount resolution. */
+	policyMountAppIds?: string[];
 	toolId: string;
 	title: string;
 	description: string | null;

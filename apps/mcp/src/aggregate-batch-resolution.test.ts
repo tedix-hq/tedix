@@ -1092,6 +1092,33 @@ describe("nested durable aggregate snapshots", () => {
 });
 
 describe("aggregate snapshot context", () => {
+	it("records the verified source path only during a fully fresh policy traversal", async () => {
+		installFixtures([
+			{ slug: "gateway", mcpConfig: { aggregateApps: [{ slug: "middle" }] } },
+			{ slug: "middle", mcpConfig: { aggregateApps: [{ slug: "leaf" }] } },
+			{
+				slug: "leaf",
+				tools: [{ ...tool("edit"), policyMountAppIds: ["spoofed"] }],
+			},
+		]);
+		const surface = await aggregateAndPrefixTools(
+			[{ slug: "gateway", prefix: "gateway", organizationMount: true }],
+			createEnv(),
+			new Set(),
+			createExecutionContext(),
+			"gateway",
+			{ value: "policy-test", cacheable: false },
+			false,
+			false,
+			true,
+		);
+		expect(surface.tools).toHaveLength(1);
+		expect(surface.tools[0]?.policyMountAppIds).toEqual([
+			"app-gateway",
+			"app-middle",
+			"app-leaf",
+		]);
+	});
 	it("separates organization mounts and legacy namespace projections", () => {
 		const entry = { slug: "alpha", prefix: "mount" };
 		const keys = [

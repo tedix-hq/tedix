@@ -32,6 +32,7 @@ import {
 	resolveAihM2mClientScopeContext,
 	resolveAihM2mTediOrganizationId,
 	resolveExternalAgentSessionAuth,
+	resolveFreshExternalAgentAihAuthority,
 	resolveHumanMcpSelection,
 	resolveMcpExpectedAudience,
 	resolveMcpTokenValidationAudience,
@@ -387,7 +388,7 @@ describe("native connected Notion call scope extraction", () => {
 		params: { name: notion.toolId, arguments: args },
 	});
 
-	it("uses the exact command arguments at the edge gate", async () => {
+	it("keeps the default edge scope until a tenant rule is verified", async () => {
 		expect(
 			await extractRequiredScopes(
 				request(
@@ -400,7 +401,7 @@ describe("native connected Notion call scope extraction", () => {
 				undefined,
 				[notion],
 			),
-		).toEqual(["connections.execute"]);
+		).toEqual(["connections.execute", "connections.admin"]);
 		expect(
 			await extractRequiredScopes(
 				request(
@@ -2139,6 +2140,76 @@ describe("intersectScopes", () => {
 		expect(
 			intersectScopes(["mcp:memory", "platform:admin"], ["mcp:memory"]),
 		).toEqual(["mcp:memory"]);
+	});
+});
+
+describe("resolveFreshExternalAgentAihAuthority", () => {
+	it("rechecks provider registration and session on every call and fails closed", async () => {
+		const identity = {
+			organizationId: "00000000-0000-4000-8000-000000000001",
+			principalId: "00000000-0000-4000-8000-000000000002",
+			sessionId: "00000000-0000-4000-8000-000000000003",
+			clientRecordId: "record",
+			clientId: "client",
+			mcpServerId: "server",
+		};
+		let scopes = ["connections.execute"];
+		let recordId = identity.clientRecordId;
+		let sessionActive = true;
+		const fetch = vi.fn(async (request: Request) => {
+			const body = request.url.includes("searchMcpClients")
+				? {
+						clients: [
+							{
+								id: recordId,
+								clientId: identity.clientId,
+								scopes,
+								tags: [
+									"external-agent",
+									`external-agent-org:${identity.organizationId}`,
+									`external-agent-principal:${identity.principalId}`,
+									`external-agent-session:${identity.sessionId}`,
+								],
+							},
+						],
+					}
+				: sessionActive
+					? {
+							principal: {
+								id: identity.principalId,
+								organizationId: identity.organizationId,
+								metadata: {},
+							},
+							session: { id: identity.sessionId },
+						}
+					: null;
+			return new Response(JSON.stringify({ json: body }), {
+				headers: { "Content-Type": "application/json" },
+			});
+		});
+		const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+		expect(await resolveFreshExternalAgentAihAuthority(env, identity)).toEqual({
+			scopes: ["connections.execute"],
+		});
+		scopes = [];
+		expect(await resolveFreshExternalAgentAihAuthority(env, identity)).toEqual({
+			scopes: [],
+		});
+		recordId = "different";
+		expect(
+			await resolveFreshExternalAgentAihAuthority(env, identity),
+		).toBeNull();
+		recordId = identity.clientRecordId;
+		sessionActive = false;
+		expect(
+			await resolveFreshExternalAgentAihAuthority(env, identity),
+		).toBeNull();
+		expect(
+			await resolveFreshExternalAgentAihAuthority(env, {
+				...identity,
+				mcpServerId: "",
+			}),
+		).toBeNull();
 	});
 });
 

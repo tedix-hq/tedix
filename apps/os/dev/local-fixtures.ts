@@ -1373,6 +1373,8 @@ export function resetLocalFixtures(): void {
 	localConnectTickets.clear();
 	localConnectionConsumerGrants.clear();
 	localConnectionResourceLimits.clear();
+	localPolicyRows = [];
+	localProfileRows = [];
 	resetAttentionFixtures();
 	state = seedState();
 	seq = 0;
@@ -5251,7 +5253,223 @@ const LOCAL_CASE_EDGES: Array<{
 	createdAt: string;
 }> = [];
 
+// Offline examples only: these rows do not authorize or contact a provider.
+const LOCAL_POLICY_UUID = "00000000-0000-4000-8000-000000000001";
+const LOCAL_POLICY_DIGEST = "a".repeat(64);
+const localPolicyExpiry = "2099-01-01T00:00:00.000Z";
+const localRawMount = {
+	version: 1 as const,
+	organizationId: "local-org",
+	rootAppId: "local-app",
+	mountAppIds: ["local-app"],
+	sourceAppId: "local-app",
+	sourceToolRowId: "local-tool",
+	sourceToolId: "edit",
+	mountedToolId: "edit",
+	transport: "mcp" as const,
+	upstreamOperation: "edit",
+	providerId: "sample",
+	connectionInstanceId: "local-account",
+	credentialScope: "tenant" as const,
+	requestedScopes: [],
+	effectiveToolDigest: LOCAL_POLICY_DIGEST,
+};
+const localProfileMount = {
+	version: 1 as const,
+	organizationId: "local-org",
+	rootAppId: "local-app",
+	mountAppIds: ["local-app"],
+	sourceAppId: "local-app",
+	sourceToolRowId: "local-tool",
+	sourceToolId: "edit",
+	mountedToolId: "edit",
+	transport: "mcp" as const,
+	upstreamOperation: "edit",
+	endpointDigest: LOCAL_POLICY_DIGEST,
+	effectiveToolDigest: LOCAL_POLICY_DIGEST,
+	authBindingDigest: LOCAL_POLICY_DIGEST,
+	acceptsEmptyArguments: true,
+	providerId: "sample",
+	connectionScope: "tenant" as const,
+	requestedScopes: [],
+};
+const localProbe = {
+	version: 1 as const,
+	operation: "identity",
+	selectors: [["id"]],
+};
+const localProfile = {
+	id: LOCAL_POLICY_UUID,
+	organizationId: "local-org",
+	mount: localProfileMount,
+	probeMount: {
+		...localProfileMount,
+		mountedToolId: "identity",
+		sourceToolId: "identity",
+		upstreamOperation: "identity",
+	},
+	profile: localProbe,
+	safetyAttestation: "safe_empty_probe" as const,
+	profileDigest: LOCAL_POLICY_DIGEST,
+	resourceGenerationDigest: LOCAL_POLICY_DIGEST,
+	createdBy: "local-owner",
+	createdAt: T0,
+	revokedAt: null as string | null,
+};
+const localPredicate = {
+	version: 1 as const,
+	schema: {
+		type: "object",
+		properties: {},
+		required: [],
+		additionalProperties: false,
+	},
+};
+const localEffect = {
+	disposition: "ask",
+	riskTier: "bounded_write",
+	blastRadius: "single_resource",
+};
+const localPolicySet = {
+	evaluatorVersion: 1,
+	defaultDisposition: "ask",
+	rules: [{ id: "local", predicate: localPredicate, effect: localEffect }],
+};
+const localPolicy = {
+	id: LOCAL_POLICY_UUID,
+	organizationId: "local-org",
+	appId: "local-app",
+	toolRowId: "local-tool",
+	toolDigest: LOCAL_POLICY_DIGEST,
+	ruleDigest: LOCAL_POLICY_DIGEST,
+	mountDescriptor: {
+		...localRawMount,
+		accountRevisionDigest: LOCAL_POLICY_DIGEST,
+	},
+	mountDigest: LOCAL_POLICY_DIGEST,
+	predicate: localPredicate,
+	effect: localEffect,
+	policySet: localPolicySet,
+	createdBy: "local-owner",
+	createdAt: T0,
+	revokedAt: null as string | null,
+};
+let localPolicyRows: (typeof localPolicy)[] = [];
+let localProfileRows: (typeof localProfile)[] = [];
+const localPreparation = (descriptor: unknown) => ({
+	preparationId: LOCAL_POLICY_UUID,
+	descriptor,
+	descriptorDigest: LOCAL_POLICY_DIGEST,
+	expiresAt: localPolicyExpiry,
+});
 const handlers: Record<string, (input: never) => unknown> = {
+	"mcpGovernance/listTenantToolPolicies": () => ({ items: localPolicyRows }),
+	"mcpGovernance/listDeletedTenantPolicyFences": () => ({ items: [] }),
+	"mcpGovernance/listLegacyActionTypeInventory": () => ({
+		grants: [],
+		tools: [],
+		truncated: false,
+	}),
+	"mcpGovernance/listMachinePolicyInventory": () => ({ items: [] }),
+	"mcpGovernance/listMachineProviderProbes": () => ({ items: [] }),
+	"mcpGovernance/listProviderIdentityProfiles": () => ({
+		items: localProfileRows,
+	}),
+	"mcpGovernance/prepareTenantToolPolicy": () =>
+		localPreparation({
+			...localRawMount,
+			accountRevisionDigest: LOCAL_POLICY_DIGEST,
+		}),
+	"mcpGovernance/prepareHybridTenantToolPolicy": () =>
+		localPreparation({
+			kind: "profile",
+			mount: localProfileMount,
+			profileId: LOCAL_POLICY_UUID,
+			profileDigest: LOCAL_POLICY_DIGEST,
+			actorUserId: "local-owner",
+			accountRevisionDigest: LOCAL_POLICY_DIGEST,
+		}),
+	"mcpGovernance/prepareMachineTenantToolPolicy": () =>
+		localPreparation({
+			kind: "machine",
+			mount: localProfileMount,
+			profileId: LOCAL_POLICY_UUID,
+			profileDigest: LOCAL_POLICY_DIGEST,
+			ownerUserId: "local-owner",
+			subject: {
+				scope: "principal",
+				principalId: "local-agent",
+				mcpServerId: "local-server",
+			},
+			credentialScope: "tenant",
+			accountRevisionDigest: LOCAL_POLICY_DIGEST,
+		}),
+	"mcpGovernance/prepareNativeRpcPolicy": () =>
+		localPreparation({
+			kind: "native_rpc",
+			mount: {
+				version: 1,
+				organizationId: "local-org",
+				rootAppId: "local-app",
+				mountAppIds: ["local-app"],
+				sourceAppId: "local-app",
+				sourceToolRowId: "local-tool",
+				sourceToolId: "edit",
+				mountedToolId: "edit",
+				transport: "rpc",
+				endpoint: "local/edit",
+				effectiveToolDigest: LOCAL_POLICY_DIGEST,
+			},
+			ownerUserId: "local-owner",
+			subject: {
+				scope: "principal",
+				principalId: "local-agent",
+				mcpServerId: "local-server",
+			},
+			reviewSessionId: "local-session",
+			reviewClientRecordId: "local-client",
+		}),
+	"mcpGovernance/createTenantToolPolicy": (input: {
+		policySet: typeof localPolicySet;
+	}) => {
+		const policy = {
+			...localPolicy,
+			policySet: input.policySet,
+			predicate: input.policySet.rules[0]!.predicate,
+			effect: input.policySet.rules[0]!.effect,
+		};
+		localPolicyRows = [policy];
+		return { policy };
+	},
+	"mcpGovernance/revokeTenantToolPolicy": () => {
+		const policy = { ...localPolicy, revokedAt: T0 };
+		localPolicyRows = [policy];
+		return { policy };
+	},
+	"mcpGovernance/prepareProviderIdentityProfile": () => ({
+		preparationId: LOCAL_POLICY_UUID,
+		mount: localProfile.mount,
+		probeMount: localProfile.probeMount,
+		profile: localProbe,
+		profileDigest: LOCAL_POLICY_DIGEST,
+		expiresAt: localPolicyExpiry,
+	}),
+	"mcpGovernance/createProviderIdentityProfile": () => {
+		localProfileRows = [localProfile];
+		return { profile: localProfile };
+	},
+	"mcpGovernance/revokeProviderIdentityProfile": () => {
+		const profile = { ...localProfile, revokedAt: T0 };
+		localProfileRows = [profile];
+		return { profile };
+	},
+	"mcpGovernance/probeProviderIdentityProfile": () => ({
+		resultReceiptId: LOCAL_POLICY_UUID,
+	}),
+	"mcpGovernance/setActionTypeOptIn": (input: {
+		actionType: string;
+		enabled: boolean;
+	}) => ({ actionType: input.actionType, enabled: input.enabled, optIn: null }),
 	"decisionGraph/getContext": (input: { cardId: string }) =>
 		decisionGraphFixture(input.cardId),
 	"attention/listDeckCards": () => ({

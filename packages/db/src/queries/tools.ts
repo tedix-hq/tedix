@@ -14,7 +14,7 @@ import {
 	EMPTY_TOOL_INPUT_SCHEMA,
 	withDerivedToolOperationalRiskPolicy,
 } from "@tedix/api-contract/schemas/tools";
-import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { apps } from "../schema/apps";
 import type { AppTool, NewAppTool } from "../schema/tools";
@@ -27,6 +27,34 @@ const D1_IN_LIST_CHUNK = 50;
 // ============================================================================
 // Read Operations
 // ============================================================================
+
+/** Tenant-owned source tools that declare an action class; this is not an authorization decision. */
+export async function listDeclaredActionToolsForOrganization(
+	db: DbClient,
+	organizationId: string,
+) {
+	return db
+		.select({
+			appId: sql<string>`${apps.id}`.as("inventory_app_id"),
+			appName: apps.name,
+			appSlug: apps.slug,
+			toolRowId: sql<string>`${appTools.id}`.as("inventory_tool_row_id"),
+			toolId: appTools.toolId,
+			title: appTools.title,
+			actionType: appTools.actionType,
+			enabled: appTools.enabled,
+		})
+		.from(appTools)
+		.innerJoin(apps, eq(apps.id, appTools.appId))
+		.where(
+			and(
+				eq(apps.organizationId, organizationId),
+				isNotNull(appTools.actionType),
+			),
+		)
+		.orderBy(asc(apps.slug), asc(appTools.toolId))
+		.limit(501);
+}
 
 /** Composer opt-in is stored in config; discovery grants no execution authority. */
 export async function listComposerToolsForOrganization(

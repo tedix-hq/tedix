@@ -82,9 +82,9 @@ describe("connected Notion page updates", () => {
 			args === undefined ? {} : { toolCall: { arguments: args } },
 		);
 
-	it("advertises an execute path while retaining the destructive annotation", () => {
+	it("requires admin scope without a resolved tenant rule", () => {
 		expect(notion.annotations.destructiveHint).toBe(true);
-		expect(required()).toEqual(["connections.execute"]);
+		expect(required()).toEqual(["connections.execute", "connections.admin"]);
 		expect(
 			isMcpToolVisibleToCaller(
 				notion,
@@ -95,7 +95,7 @@ describe("connected Notion page updates", () => {
 					scopes: ["connections.execute"],
 				},
 			),
-		).toBe(true);
+		).toBe(false);
 	});
 
 	it.each([
@@ -111,8 +111,19 @@ describe("connected Notion page updates", () => {
 			content_updates: [{ old_str: "old", new_str: "new" }],
 			allow_deleting_content: false,
 		},
-	])("permits a bounded safe command under execute: $command", (args) => {
-		expect(required(args)).toEqual(["connections.execute"]);
+	])("requires a verified rule for a bounded command: $command", (args) => {
+		expect(required(args)).toEqual([
+			"connections.execute",
+			"connections.admin",
+		]);
+		expect(
+			resolveMcpToolRequiredScopes(
+				notion,
+				"notion_tedix",
+				{},
+				{ toolCall: { arguments: args }, verifiedBoundedCall: true },
+			),
+		).toEqual(["connections.execute"]);
 	});
 
 	it.each([
@@ -193,7 +204,7 @@ describe("connected Notion page updates", () => {
 					},
 				},
 			),
-		).toEqual(["connections.execute", "connections.admin"]);
+		).toEqual(["connections.execute"]);
 	});
 });
 

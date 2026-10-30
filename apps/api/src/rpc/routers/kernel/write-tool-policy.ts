@@ -2,7 +2,6 @@ import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import {
 	humanReservedActionClasses,
 	builtinToolPolicyMetadata,
-	isSafeNotionPageUpdateCall,
 	isWorkItemPurposeRepairCall,
 	platformAutonomousOperation,
 	type KernelWriteRiskTier,
@@ -210,21 +209,12 @@ function classifyToolWriteRisk(
 	args?: unknown,
 ): KernelWriteRiskTier {
 	const policy = parseToolPolicyMetadata(tool._meta);
-	const connected = tool._meta?.["com.tedix/connectedTool"] as
-		| { providerId?: unknown; toolName?: unknown }
-		| undefined;
 	if (policy?.argumentPolicy === "work_item_purpose_repair")
 		return policy.riskTier === "bounded_write" &&
 			isWorkItemPurposeRepairCall(args)
 			? "low"
 			: "high";
-	if (policy?.argumentPolicy === "notion_page_update")
-		return policy.riskTier === "bounded_write" &&
-			connected?.providerId === "notion" &&
-			connected.toolName === "notion-update-page" &&
-			isSafeNotionPageUpdateCall(args)
-			? "low"
-			: "high";
+	if (policy?.argumentPolicy) return "high";
 	if (tool.annotations?.destructiveHint === true) return "high";
 	const name = tool.name.split(/[.:]/).at(-1)?.split("__").at(-1) ?? tool.name;
 	if (DESTRUCTIVE_VERB_RE.test(tool.name) && !builtinToolPolicyMetadata(name))

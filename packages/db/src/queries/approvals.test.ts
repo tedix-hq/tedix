@@ -632,6 +632,42 @@ describe("exact owner tool approval consumption", () => {
 			consumedAt: now,
 			execution: { status: "executed", summary: "Client deleted" },
 		});
+		const failure = {
+			status: "failed" as const,
+			startedAt: now,
+			error: "transport",
+			retryable: true,
+		};
+		expect(
+			await recordOwnerToolApprovalExecution(db, {
+				id: "approved-1",
+				organizationId: "org-1",
+				execution: failure,
+			}),
+		).toMatchObject({ retryable: false });
+		await seed("pre-send");
+		await resolveApprovalRequest(db, "pre-send", {
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		expect(
+			await recordOwnerToolApprovalExecution(db, {
+				id: "pre-send",
+				organizationId: "org-1",
+				execution: failure,
+			}),
+		).toMatchObject({ retryable: true });
+		expect(
+			await consumeOwnerToolApproval(db, {
+				id: "pre-send",
+				organizationId: "org-1",
+				fingerprint: "exact-input",
+				now,
+			}),
+		).toBe(true);
+		expect(
+			(await getApprovalRequestById(db, "pre-send"))?.payload,
+		).toMatchObject({ execution: { retryable: false } });
 		// A rejected request is never claimable.
 		await seed("rejected-1");
 		await resolveApprovalRequest(db, "rejected-1", {

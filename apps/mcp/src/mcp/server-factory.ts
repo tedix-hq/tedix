@@ -392,6 +392,8 @@ export function extractCallerIdentity(
 		externalAgentClientRecordId:
 			request.headers.get("x-tedix-auth-external-client-record-id") ??
 			undefined,
+		externalAgentMcpServerId:
+			request.headers.get("x-tedix-auth-external-mcp-server-id") ?? undefined,
 		externalAgentHarness:
 			request.headers.get("x-tedix-auth-external-harness") ?? undefined,
 		externalAgentModel:

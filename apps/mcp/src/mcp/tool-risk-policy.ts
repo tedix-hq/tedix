@@ -17,7 +17,7 @@ const log = createMcpLogger("mcp.tool_risk");
 export interface ToolRiskPolicy {
 	riskTier: ToolOperationalRiskTier;
 	blastRadius: ToolBlastRadius;
-	argumentPolicy?: "notion_page_update" | "work_item_purpose_repair";
+	argumentPolicy?: string;
 }
 
 export function resolveToolRiskPolicy(

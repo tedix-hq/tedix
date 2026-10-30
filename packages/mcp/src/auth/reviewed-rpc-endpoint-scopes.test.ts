@@ -11,7 +11,7 @@ import {
 } from "./tool-scopes";
 
 const VALID =
-	/^(platform:admin|mcp:(tedis|apps|memory|skills|content|catalog|observe|messaging|settings|work)\.(read|write|admin))$/;
+	/^(platform:admin|connections\.execute|mcp:(tedis|apps|memory|skills|content|catalog|observe|messaging|settings|work)\.(read|write|admin))$/;
 
 function resolve(
 	endpoint: string,
@@ -32,6 +32,13 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("requires connected execution authority for a machine identity probe", () => {
+		expect(
+			resolve("mcpGovernance/prepareMachineIdentityProbe", {
+				readOnlyHint: false,
+			}),
+		).toEqual(["connections.execute"]);
+	});
 	it("exposes image writes to app writers while the API checks each target", () => {
 		for (const action of [
 			"upload",

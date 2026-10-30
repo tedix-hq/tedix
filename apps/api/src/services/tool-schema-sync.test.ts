@@ -2283,7 +2283,7 @@ describe("oRPC tool projection sync", () => {
 		]);
 	});
 
-	it.each(["mcpCredentials", "mcpGovernance"])(
+	it.each(["mcpCredentials"])(
 		"never projects internal %s procedures as MCP tools",
 		async (router) => {
 			const { db } = makeDb([]);
@@ -2297,6 +2297,19 @@ describe("oRPC tool projection sync", () => {
 			expect(result.items).toEqual([]);
 		},
 	);
+
+	it("projects only the machine proof capability from MCP governance", async () => {
+		const { db } = makeDb([]);
+		const result = await runToolSchemaSync(db, {
+			mode: "projection",
+			apply: false,
+			router: "mcpGovernance",
+			includeInternal: true,
+		});
+		expect(result.items.map((item) => item.endpoint)).toEqual([
+			"mcpGovernance/prepareMachineIdentityProbe",
+		]);
+	});
 
 	it("drops the router suffix when the proc already names an object", async () => {
 		// `rotate_access_key` for router `tedis` previously generated

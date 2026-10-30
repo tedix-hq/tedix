@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./utils/tenant-policy-predicate": "./src/utils/tenant-policy-predicate.ts",
 		"./schemas/organization-domains": "./src/schemas/organization-domains.ts",
 		"./schemas/lane-execution": "./src/schemas/lane-execution.ts",
 		"./schemas/agent-requests": "./src/schemas/agent-requests.ts",
@@ -250,6 +251,9 @@
 		"./schemas/mcp-credentials": "./src/schemas/mcp-credentials.ts",
 		"./schemas/mcp-events": "./src/schemas/mcp-events.ts",
 		"./schemas/mcp-governance": "./src/schemas/mcp-governance.ts",
+		"./schemas/tenant-tool-policy": "./src/schemas/tenant-tool-policy.ts",
+		"./schemas/provider-identity-profile": "./src/schemas/provider-identity-profile.ts",
+		"./schemas/provider-probe-receipt": "./src/schemas/provider-probe-receipt.ts",
 		"./schemas/sensitive-data-latch": "./src/schemas/sensitive-data-latch.ts",
 		"./schemas/mcp-network-security": "./src/schemas/mcp-network-security.ts",
 		"./schemas/mcp-payments": "./src/schemas/mcp-payments.ts",

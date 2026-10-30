@@ -1,4 +1,13 @@
 import { gateDecisionMetadata } from "./gate-decision";
+import { resolveHumanPolicyReplay } from "./tenant-human-replay";
+import {
+	resolveNativePolicyCandidate,
+	tenantMachinePolicyFallbackBlocked,
+} from "./tenant-native-candidate";
+import {
+	resolveTenantProfileCandidate,
+	tenantProfileCandidateIsBounded,
+} from "./tenant-profile-candidate";
 import type { OwnerHostSession } from "./owner-host-session";
 import {
 	type CatalogToolAnnotations,
@@ -331,8 +340,49 @@ export function buildNamespaceGroups(
 				) {
 					throw new Error(CONNECT_PAYMENT_DENIED);
 				}
+				const candidate =
+					(await resolveTenantProfileCandidate(serverCtx, tool, toolArgs)) ??
+					(await resolveHumanPolicyReplay(
+						serverCtx,
+						tool,
+						toolArgs,
+						inlineExtra?._meta?.["com.tedix/approvalRequestId"] ??
+							executionRefs.approvalExtra?._meta?.[
+								"com.tedix/approvalRequestId"
+							],
+					).catch(() => null));
+				const nativeCandidate = await resolveNativePolicyCandidate(
+					serverCtx,
+					tool,
+					toolArgs,
+				).catch(() => null);
+				if (
+					!candidate &&
+					!nativeCandidate &&
+					(await tenantMachinePolicyFallbackBlocked(serverCtx, tool))
+				)
+					throw new Error(
+						"The organization's tool policy could not be verified; no action was executed.",
+					);
+				if (candidate?.effect.disposition === "deny")
+					throw new Error("The organization's tool policy denies this action.");
+				const bounded =
+					!!candidate && tenantProfileCandidateIsBounded(candidate, tool);
+				const effectiveCandidate =
+					candidate && !bounded && candidate.effect.disposition === "allow"
+						? {
+								...candidate,
+								effect: { ...candidate.effect, disposition: "ask" as const },
+							}
+						: candidate;
 				try {
-					assertCodeModeInnerToolAuthorized(serverCtx, tool, ns, toolArgs);
+					assertCodeModeInnerToolAuthorized(
+						serverCtx,
+						tool,
+						ns,
+						toolArgs,
+						bounded,
+					);
 				} catch (error) {
 					if (error instanceof CodeModeAuthorizationError) {
 						executionRefs.authorizationDenial ??= error;
@@ -404,6 +454,8 @@ export function buildNamespaceGroups(
 							serverCtx.callerIdentity?.authType === "tedi" ||
 							serverCtx.callerIdentity?.authType === "service",
 						args: toolArgs,
+						tenantPolicyCandidate: effectiveCandidate ?? undefined,
+						nativePolicyCandidate: nativeCandidate ?? undefined,
 						extra: approvalExtra,
 						requestBinding: executionRefs.approvalSource
 							? await sha256Hex(
@@ -441,6 +493,10 @@ export function buildNamespaceGroups(
 						resultStrategy,
 						executionId: executionRefs.executionId,
 						ownerHostSession: executionRefs.ownerHostSession,
+						...(nativeCandidate
+							? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
+							: {}),
+						...(candidate ? { expectedPolicyProbe: candidate.probe } : {}),
 						homeApprovedCall: isApprovedReplayCall(serverCtx, {
 							extra: approvalExtra,
 						}),

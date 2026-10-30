@@ -10,6 +10,7 @@
  * after this MCP gate.
  */
 export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
+	"mcpGovernance/prepareMachineIdentityProbe": "connections.execute",
 	"organizations/getCustomDomain": "mcp:apps.read",
 	"organizations/beginCustomDomain": "mcp:apps.write",
 	"organizations/verifyCustomDomain": "mcp:apps.write",

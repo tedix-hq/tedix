@@ -1,0 +1,1 @@
+ALTER TABLE `tenant_tool_policy_preparations` ADD `example_args_digest` text;

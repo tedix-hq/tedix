@@ -1,4 +1,10 @@
 import { getApiClient } from "../lib/api-client";
+import { getInternalApiClient } from "@tedix/api-client/internal";
+import { hasScope } from "@tedix/mcp-shared/auth/scopes";
+import { resolveFreshExternalAgentAihAuthority } from "../auth-helpers";
+import { prepareMachineProviderProof } from "./tenant-machine-probe";
+import type { resolveTenantProfileCandidate } from "./tenant-profile-candidate";
+import type { resolveNativePolicyCandidate } from "./tenant-native-candidate";
 import { resolveMultiOrgToolTarget } from "./multi-org-tool-target";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import { gateDecisionMetadata } from "./gate-decision";
@@ -10,7 +16,6 @@ import {
 	decideAutonomousAction,
 	humanReservedActionClasses,
 	isPlatformCriticalActionType,
-	isSafeNotionPageUpdateCall,
 	isWorkItemPurposeRepairCall,
 	platformAutonomousOperation,
 	type DelegationAutonomyPolicy,
@@ -765,6 +770,13 @@ export interface DestructiveApprovalOptions {
 	extra?: { _meta?: Record<string, unknown> };
 	/** Parsed tool arguments bound to this approval request. */
 	args?: Record<string, unknown>;
+	/** Server-resolved candidate, never MCP arguments or metadata. */
+	tenantPolicyCandidate?: NonNullable<
+		Awaited<ReturnType<typeof resolveTenantProfileCandidate>>
+	>;
+	nativePolicyCandidate?: NonNullable<
+		Awaited<ReturnType<typeof resolveNativePolicyCandidate>>
+	>;
 	/**
 	 * Allow synchronous MRTR. Code Mode enables it only before any dispatch,
 	 * when replaying the program cannot repeat a previous side effect.
@@ -866,6 +878,17 @@ async function ownerToolApproval(
 					mcpToolName: tool.config?.mcpToolName ?? null,
 					providerId: connectedProviderId(tool),
 					configHash: await sha256Hex(JSON.stringify(tool.config ?? {})),
+					...(options?.tenantPolicyCandidate
+						? {
+								tenantPolicyBinding: {
+									descriptor: options.tenantPolicyCandidate.descriptor,
+									descriptorDigest:
+										options.tenantPolicyCandidate.descriptorDigest,
+									revisionId: options.tenantPolicyCandidate.revisionId,
+									ruleDigest: options.tenantPolicyCandidate.ruleDigest,
+								},
+							}
+						: {}),
 				},
 				args: JSON.parse(JSON.stringify(options?.args ?? {})),
 				...(typeof approvalRequestId === "string" ? { approvalRequestId } : {}),
@@ -1108,6 +1131,19 @@ export async function requireDestructiveToolApproval(
 	// The platform's replay of an owner tool approval: only the matched,
 	// consumed receipt lets it run; no policy or default may stand in.
 	if (isOwnerApprovalReplayCall(agent, options)) {
+		const candidate = options?.tenantPolicyCandidate;
+		if (candidate?.descriptor.kind === "profile") {
+			const verify = candidate.probe.revalidate;
+			let consumed = false;
+			candidate.probe.revalidate = async () => {
+				if (consumed || !(await verify().catch(() => false))) return false;
+				const result = await ownerToolApproval(agent, tool, options);
+				if (result !== null) return false;
+				consumed = true;
+				return true;
+			};
+			return null;
+		}
 		// null means approved and consumed; undefined means no API client.
 		const replay = await ownerToolApproval(agent, tool, options);
 		return replay === undefined
@@ -1115,6 +1151,283 @@ export async function requireDestructiveToolApproval(
 					"Owner tool approval is unavailable. No side effect was executed.",
 				)
 			: replay;
+	}
+	if (options?.tenantPolicyCandidate?.effect.disposition === "deny")
+		return approvalFailure(
+			"The organization's tool policy denies this action.",
+		);
+	if (options?.nativePolicyCandidate?.effect.disposition === "deny")
+		return approvalFailure(
+			"The organization's tool policy denies this action.",
+		);
+	if (options?.nativePolicyCandidate?.effect.disposition === "ask") {
+		const candidate = options.nativePolicyCandidate;
+		const caller = agent.callerIdentity;
+		const declared = ToolActionTypeSchema.safeParse(tool.actionType);
+		if (
+			isTedixOwnedChannelPublishBoundary(agent, tool) ||
+			readApprovalPolicy(agent, tool) ||
+			humanReservedActionClasses(
+				`${agent.appSlug ?? ""}:${tool.toolId} ${tool.config?.endpoint ?? ""}`,
+			).length > 0 ||
+			(declared.success && isPlatformCriticalActionType(declared.data))
+		)
+			return approvalFailure(
+				"This action requires a separate platform approval path.",
+			);
+		const latched = await refuseAutoApprovalWhileLatched();
+		if (latched) return latched;
+		if (
+			caller?.authType !== "external_agent" ||
+			!agent.env?.API_SERVICE ||
+			!caller.organizationId ||
+			!caller.externalAgentPrincipalId ||
+			!caller.externalAgentSessionId ||
+			!caller.externalAgentClientRecordId ||
+			!caller.externalAgentMcpServerId ||
+			!caller.clientId
+		)
+			return approvalFailure("A verified machine session is required.");
+		const identity = {
+			organizationId: caller.organizationId,
+			principalId: caller.externalAgentPrincipalId,
+			sessionId: caller.externalAgentSessionId,
+			clientRecordId: caller.externalAgentClientRecordId,
+			clientId: caller.clientId,
+			mcpServerId: caller.externalAgentMcpServerId,
+		};
+		const approvalRequestId =
+			options.extra?._meta?.["com.tedix/approvalRequestId"];
+		const verify = candidate.revalidate;
+		const requestApproval = async (id?: string) => {
+			if (!(await verify())) throw new Error("Policy changed");
+			const authority = await resolveFreshExternalAgentAihAuthority(
+				agent.env!,
+				identity,
+			);
+			if (!authority) throw new Error("Machine authority changed");
+			if (!(await verify())) throw new Error("Policy or tool scope changed");
+			const client = getInternalApiClient(
+				{ API_SERVICE: agent.env!.API_SERVICE },
+				{
+					organizationId: identity.organizationId,
+					externalAgent: {
+						principalId: identity.principalId,
+						sessionId: identity.sessionId,
+						clientRecordId: identity.clientRecordId,
+					},
+					scopes: authority.scopes,
+				},
+			);
+			return client.mcpGovernance.requestNativeMachineToolApproval({
+				organizationId: identity.organizationId,
+				descriptor: candidate.descriptor,
+				descriptorDigest: candidate.descriptorDigest,
+				revisionId: candidate.revisionId,
+				ruleDigest: candidate.ruleDigest,
+				args: JSON.parse(JSON.stringify(options.args ?? {})),
+				...(id ? { approvalRequestId: id } : {}),
+			});
+		};
+		if (typeof approvalRequestId === "string") {
+			let consumed = false;
+			candidate.revalidate = async () => {
+				if (consumed || !(await verify().catch(() => false))) return false;
+				try {
+					const result = await requestApproval(approvalRequestId);
+					if (!result.approved) return false;
+					consumed = true;
+					return true;
+				} catch {
+					return false;
+				}
+			};
+			return null;
+		}
+		try {
+			const approval = await requestApproval();
+			return {
+				...approvalFailure(
+					`Human approval required. Request ${approval.approvalRequestId} (${approval.status}): ${approval.url}. After approval, retry this exact call in the same session.`,
+				),
+				_meta: { "com.tedix/approval": approval },
+			};
+		} catch {
+			return approvalFailure(
+				"Machine approval is unavailable or access changed. No side effect was executed.",
+			);
+		}
+	}
+	if (
+		options?.nativePolicyCandidate &&
+		(options.nativePolicyCandidate.effect.riskTier !== "bounded_write" ||
+			options.nativePolicyCandidate.effect.blastRadius !== "single_resource")
+	)
+		return approvalFailure(
+			"This native action requires separate human approval.",
+		);
+	if (options?.tenantPolicyCandidate?.effect.disposition === "ask") {
+		const candidate = options.tenantPolicyCandidate;
+		const caller = agent.callerIdentity;
+		if (
+			candidate.descriptor.kind === "machine" &&
+			caller?.authType === "external_agent"
+		) {
+			const declared = ToolActionTypeSchema.safeParse(tool.actionType);
+			const toolRisk = resolveToolRiskPolicy({
+				meta: tool.meta ?? null,
+			})?.riskTier;
+			const requiresAdmin =
+				candidate.effect.riskTier !== "bounded_write" ||
+				candidate.effect.blastRadius !== "single_resource" ||
+				toolRisk === "high_impact_write" ||
+				toolRisk === "external_side_effect";
+			if (
+				isTedixOwnedChannelPublishBoundary(agent, tool) ||
+				readApprovalPolicy(agent, tool) ||
+				humanReservedActionClasses(
+					`${agent.appSlug ?? ""}:${tool.toolId} ${tool.config?.endpoint ?? ""} ${tool.config?.mcpToolName ?? ""}`,
+				).length > 0 ||
+				(declared.success && isPlatformCriticalActionType(declared.data))
+			)
+				return approvalFailure(
+					"This action requires a separate platform approval path.",
+				);
+			const latched = await refuseAutoApprovalWhileLatched();
+			if (latched) return latched;
+			try {
+				if (
+					!agent.env?.API_SERVICE ||
+					!caller.organizationId ||
+					!caller.externalAgentPrincipalId ||
+					!caller.externalAgentSessionId ||
+					!caller.externalAgentClientRecordId ||
+					!caller.externalAgentMcpServerId ||
+					!caller.clientId ||
+					!agent.appId
+				)
+					throw new Error("Missing verified machine context");
+				const identity = {
+					organizationId: caller.organizationId,
+					principalId: caller.externalAgentPrincipalId,
+					sessionId: caller.externalAgentSessionId,
+					clientRecordId: caller.externalAgentClientRecordId,
+					clientId: caller.clientId,
+					mcpServerId: caller.externalAgentMcpServerId,
+				};
+				await prepareMachineProviderProof(
+					{
+						...agent,
+						appId: candidate.descriptor.mount.rootAppId,
+					} as ServerContext,
+					{
+						profileId: candidate.descriptor.profileId,
+						exampleArgs: options.args ?? {},
+					},
+					candidate.descriptor.accountRevisionDigest,
+				);
+				if (!(await candidate.probe.revalidate()))
+					throw new Error("Policy changed");
+				const authority = await resolveFreshExternalAgentAihAuthority(
+					agent.env,
+					identity,
+				);
+				if (
+					!authority ||
+					!hasScope(authority.scopes, "connections.execute") ||
+					(requiresAdmin && !hasScope(authority.scopes, "connections.admin"))
+				)
+					throw new Error("Machine authority changed");
+				const client = getInternalApiClient(
+					{ API_SERVICE: agent.env.API_SERVICE },
+					{
+						organizationId: identity.organizationId,
+						externalAgent: {
+							principalId: identity.principalId,
+							sessionId: identity.sessionId,
+							clientRecordId: identity.clientRecordId,
+						},
+						scopes: authority.scopes,
+					},
+				);
+				const approvalRequestId =
+					options.extra?._meta?.["com.tedix/approvalRequestId"];
+				if (typeof approvalRequestId === "string") {
+					const verify = candidate.probe.revalidate;
+					const descriptor = candidate.descriptor;
+					let consumed = false;
+					candidate.probe.revalidate = async () => {
+						if (consumed || !(await verify().catch(() => false))) return false;
+						try {
+							const freshAuthority =
+								await resolveFreshExternalAgentAihAuthority(
+									agent.env!,
+									identity,
+								);
+							if (
+								!freshAuthority ||
+								!hasScope(freshAuthority.scopes, "connections.execute") ||
+								(requiresAdmin &&
+									!hasScope(freshAuthority.scopes, "connections.admin")) ||
+								!(await verify())
+							)
+								return false;
+							const freshClient = getInternalApiClient(
+								{ API_SERVICE: agent.env!.API_SERVICE },
+								{
+									organizationId: identity.organizationId,
+									externalAgent: {
+										principalId: identity.principalId,
+										sessionId: identity.sessionId,
+										clientRecordId: identity.clientRecordId,
+									},
+									scopes: freshAuthority.scopes,
+								},
+							);
+							const result =
+								await freshClient.mcpGovernance.requestMachineToolApproval({
+									organizationId: identity.organizationId,
+									descriptor,
+									descriptorDigest: candidate.descriptorDigest,
+									revisionId: candidate.revisionId,
+									ruleDigest: candidate.ruleDigest,
+									args: JSON.parse(JSON.stringify(options.args ?? {})),
+									approvalRequestId,
+								});
+							if (!result.approved) return false;
+							consumed = true;
+							return true;
+						} catch {
+							return false;
+						}
+					};
+					return null;
+				}
+				const approval = await client.mcpGovernance.requestMachineToolApproval({
+					organizationId: identity.organizationId,
+					descriptor: candidate.descriptor,
+					descriptorDigest: candidate.descriptorDigest,
+					revisionId: candidate.revisionId,
+					ruleDigest: candidate.ruleDigest,
+					args: JSON.parse(JSON.stringify(options.args ?? {})),
+				});
+				if (approval.approved) return null;
+				return {
+					...approvalFailure(
+						`Human approval required. Request ${approval.approvalRequestId} (${approval.status}): ${approval.url}. After approval, retry this exact call in the same session.`,
+					),
+					_meta: { "com.tedix/approval": approval },
+				};
+			} catch {
+				return approvalFailure(
+					"Machine approval is unavailable or access changed. No side effect was executed.",
+				);
+			}
+		}
+		const decision = await ownerToolApproval(agent, tool, options);
+		return decision === undefined
+			? approvalFailure("Owner approval is required for this action.")
+			: decision;
 	}
 	const isOwnedChannelBoundary = isTedixOwnedChannelPublishBoundary(
 		agent,
@@ -1141,13 +1454,6 @@ export async function requireDestructiveToolApproval(
 		options.args.principalId ===
 			agent.callerIdentity.externalAgentPrincipalId &&
 		options.args.sessionId === agent.callerIdentity.externalAgentSessionId;
-	const boundedNotionUpdate =
-		policy?.riskTier === "bounded_write" &&
-		policy.argumentPolicy === "notion_page_update" &&
-		tool.config?.transport === "mcp" &&
-		connectedProviderId(tool) === "notion" &&
-		tool.config.mcpToolName === "notion-update-page" &&
-		isSafeNotionPageUpdateCall(options?.args);
 	// An owner/admin purpose repair is bounded; any other update stays unclassified.
 	const purposeRepairPolicy =
 		policy?.argumentPolicy === "work_item_purpose_repair";
@@ -1179,21 +1485,14 @@ export async function requireDestructiveToolApproval(
 		(certificationStart ? "bounded_write" : undefined) ??
 		(ownSessionEnd
 			? "bounded_write"
-			: sessionEnd ||
-				  (policy?.argumentPolicy === "notion_page_update" &&
-						!boundedNotionUpdate)
+			: sessionEnd || (policy?.argumentPolicy && !purposeRepairPolicy)
 				? "high_impact_write"
 				: purposeRepairPolicy
 					? boundedPurposeRepair
 						? "bounded_write"
 						: undefined
 					: policy?.riskTier);
-	if (
-		boundedNotionUpdate ||
-		ownSessionEnd ||
-		reviewedEffect ||
-		certificationStart
-	)
+	if (ownSessionEnd || reviewedEffect || certificationStart)
 		annotations = {
 			...annotations,
 			readOnlyHint: reviewedEffect === "read",
@@ -1215,11 +1514,54 @@ export async function requireDestructiveToolApproval(
 		humanReservedActionClasses(
 			`${tool.config?.endpoint ?? ""} ${tool.config?.mcpToolName ?? ""}`,
 		).length > 0;
+	const declaredActionType = ToolActionTypeSchema.safeParse(tool.actionType);
+	const tenantPolicy = options?.tenantPolicyCandidate;
+	const nativePolicy = options?.nativePolicyCandidate;
+	if (
+		nativePolicy?.effect.disposition === "allow" &&
+		nativePolicy.effect.riskTier === "bounded_write" &&
+		nativePolicy.effect.blastRadius === "single_resource" &&
+		!humanBoundary &&
+		!isOwnedChannelBoundary &&
+		!configuredApproval &&
+		!manifestProtectedEffect &&
+		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
+			.length === 0 &&
+		!(
+			declaredActionType.success &&
+			isPlatformCriticalActionType(declaredActionType.data)
+		)
+	) {
+		const latched = await refuseAutoApprovalWhileLatched();
+		if (latched) return latched;
+		if (!(await nativePolicy.revalidate().catch(() => false)))
+			return approvalFailure("The native tool policy changed.");
+		return null;
+	}
+	if (
+		tenantPolicy?.effect.disposition === "allow" &&
+		tenantPolicy.effect.riskTier === "bounded_write" &&
+		tenantPolicy.effect.blastRadius === "single_resource" &&
+		policy?.riskTier !== "high_impact_write" &&
+		policy?.riskTier !== "external_side_effect" &&
+		!isOwnedChannelBoundary &&
+		!configuredApproval &&
+		!manifestProtectedEffect &&
+		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
+			.length === 0 &&
+		!(
+			declaredActionType.success &&
+			isPlatformCriticalActionType(declaredActionType.data)
+		)
+	) {
+		const latched = await refuseAutoApprovalWhileLatched();
+		if (latched) return latched;
+		return null;
+	}
 	// A declared action type an organization admin opted in. An undeclared,
 	// destructive or platform-critical tool, an explicit tool policy and the
 	// owned publish boundary never take this path; external effects such as a
 	// comment on a provider's issue may, because that is what the admin chose.
-	const declaredActionType = ToolActionTypeSchema.safeParse(tool.actionType);
 	if (
 		declaredActionType.success &&
 		risk !== "read" &&
@@ -1703,6 +2045,7 @@ export async function requireDestructiveToolApproval(
 	if (
 		autonomy &&
 		autonomousDecision.autoApprove &&
+		!humanBoundary &&
 		!isOwnedChannelBoundary &&
 		annotations?.destructiveHint !== true &&
 		configuredApproval !== "always" &&

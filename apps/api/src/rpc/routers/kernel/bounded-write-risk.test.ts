@@ -61,7 +61,7 @@ describe("bounded Work and Notion write planning", () => {
 		])
 			expect(classifyWriteRisk(tool, args)).toBe("high");
 	});
-	it("classifies the exact Notion command after argument validation", () => {
+	it("keeps legacy argument metadata high risk without a resolved tenant rule", () => {
 		const tool = {
 			name: "notion_tedix.notion_update_page",
 			annotations: { destructiveHint: true },
@@ -82,7 +82,7 @@ describe("bounded Work and Notion write planning", () => {
 				command: "update_properties",
 				properties: { Status: "Done" },
 			}),
-		).toBe("low");
+		).toBe("high");
 		expect(
 			classifyWriteRisk(tool, {
 				page_id: "example",

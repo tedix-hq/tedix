@@ -25,6 +25,8 @@ export interface CallerIdentity {
 	externalAgentPrincipalId?: string;
 	externalAgentSessionId?: string;
 	externalAgentClientRecordId?: string;
+	/** Verified AIH resource from the authenticated ingress, absent for federation. */
+	externalAgentMcpServerId?: string;
 	externalAgentHarness?: string;
 	externalAgentModel?: string;
 	/**

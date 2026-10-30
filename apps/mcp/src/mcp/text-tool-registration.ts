@@ -1,4 +1,13 @@
 import { createMcpLogger } from "../log";
+import { resolveHumanPolicyReplay } from "./tenant-human-replay";
+import {
+	resolveNativePolicyCandidate,
+	tenantMachinePolicyFallbackBlocked,
+} from "./tenant-native-candidate";
+import {
+	resolveTenantProfileCandidate,
+	tenantProfileCandidateIsBounded,
+} from "./tenant-profile-candidate";
 import type { StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import {
 	parseAdapterScope,
@@ -125,15 +134,63 @@ export async function registerTextOnlyTool(
 
 	// Standard synchronous tool registration
 	const cb: ToolCallback = async (args, ctx) => {
-		// Scope gate first (mirrors the Code Mode inner-tool order): close the
-		// gap where code-built home__* tools, merged after enforceMcpAccess,
-		// reach the native dispatch with no request-level scope check.
-		const scopeDenial = enforceNativeToolScopeGate(agent, tool);
-		if (scopeDenial) return scopeDenial;
-
 		const extra = {
 			_meta: resolveToolRequestMeta(ctx.mcpReq?._meta, agent.requestMeta),
 		};
+		const candidate =
+			(await resolveTenantProfileCandidate(agent, tool, args)) ??
+			(await resolveHumanPolicyReplay(
+				agent,
+				tool,
+				args,
+				extra._meta?.["com.tedix/approvalRequestId"],
+			).catch(() => null));
+		const nativeCandidate = await resolveNativePolicyCandidate(
+			agent,
+			tool,
+			args,
+		).catch(() => null);
+		if (
+			!candidate &&
+			!nativeCandidate &&
+			(await tenantMachinePolicyFallbackBlocked(agent, tool))
+		)
+			return {
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: "The organization's tool policy could not be verified; no action was executed.",
+					},
+				],
+			};
+		if (candidate?.effect.disposition === "deny")
+			return {
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: "The organization's tool policy denies this action.",
+					},
+				],
+			};
+		const bounded =
+			!!candidate && tenantProfileCandidateIsBounded(candidate, tool);
+		const effectiveCandidate =
+			candidate && !bounded && candidate.effect.disposition === "allow"
+				? {
+						...candidate,
+						effect: { ...candidate.effect, disposition: "ask" as const },
+					}
+				: candidate;
+		// Scope gate first (mirrors the Code Mode inner-tool order): close the
+		// gap where code-built home__* tools, merged after enforceMcpAccess,
+		// reach the native dispatch with no request-level scope check.
+		const scopeDenial = enforceNativeToolScopeGate(agent, tool, {
+			args,
+			verifiedBoundedCall: bounded,
+		});
+		if (scopeDenial) return scopeDenial;
 
 		const annotationFailure = enforceExpectedAnnotations(
 			agent,
@@ -150,7 +207,12 @@ export async function registerTextOnlyTool(
 			agent,
 			tool,
 			annotations,
-			{ args, extra },
+			{
+				args,
+				extra,
+				tenantPolicyCandidate: effectiveCandidate ?? undefined,
+				nativePolicyCandidate: nativeCandidate ?? undefined,
+			},
 		);
 		if (approvalFailure) return approvalFailure;
 		const executionArgs = stripDestructiveApprovalArgs(tool, args);
@@ -168,6 +230,10 @@ export async function registerTextOnlyTool(
 			resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
 			clientSupportsTasks: clientSupportsTasks(extra?._meta),
 			homeApprovedCall: isApprovedReplayCall(agent, { extra }),
+			...(nativeCandidate
+				? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
+				: {}),
+			...(candidate ? { expectedPolicyProbe: candidate.probe } : {}),
 		});
 		if (result.isError) return result;
 		const settlement = await settleToolPayment(agent, payment.settlement);

@@ -5,6 +5,11 @@ import {
 	CollapsibleContent,
 } from "@/components/kumo/collapsible";
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
+import {
+	MachineApprovalReview,
+	machineApprovalData,
+	redactMachineApproval,
+} from "@/components/machine-approval-review";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -137,7 +142,9 @@ export function ApprovalManifestActions({
 											description: request.description,
 											canonicalInputHash: action.canonicalInputHash,
 											expiresAt: request.expiresAt,
-											payload: request.payload,
+											payload: machineApprovalData(request.payload)
+												? redactMachineApproval(request.payload)
+												: request.payload,
 											evidenceRefs: request.review.evidenceRefs,
 											timeout: request.review.timeout,
 											interaction: request.review.interaction,
@@ -153,6 +160,7 @@ export function ApprovalManifestActions({
 							<BrowserTakeoverLiveView approvalId={request.id} />
 						) : null}
 						<ApprovalProvenanceDisclosure approvalRequestId={request.id} />
+						<MachineApprovalReview payload={request.payload} />
 						<div
 							className="flex flex-wrap gap-2"
 							role="group"

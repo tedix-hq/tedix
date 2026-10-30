@@ -1527,54 +1527,58 @@ describe("approved owner tool call replay", () => {
 		expect(timings.revalidateMs).toBeTypeOf("number");
 	});
 
-	it("replays a hyphenated connected tool only through its matching wire binding", async () => {
-		const service = codeModeGateway(
-			[
-				{
-					callable: "notion.notion_update_page",
-					annotations: { readOnlyHint: false },
-					wire: { name: "notion-tedix__notion-update-page" },
-					_meta: {
-						"com.tedix/connectedTool": {
-							providerId: "notion",
-							toolName: "notion-update-page",
+	it.each([false, true])(
+		"replays a connected tool with only the verified admin grant: %s",
+		async (admin) => {
+			const service = codeModeGateway(
+				[
+					{
+						callable: "notion.notion_update_page",
+						annotations: { readOnlyHint: false },
+						wire: { name: "notion-tedix__notion-update-page" },
+						_meta: {
+							"com.tedix/connectedTool": {
+								providerId: "notion",
+								toolName: "notion-update-page",
+							},
 						},
 					},
+				],
+				() => ({
+					jsonrpc: "2.0",
+					id: 1,
+					result: { structuredContent: { success: true } },
+				}),
+			);
+			const result = await executeApprovedOwnerToolCall({
+				env: env(service),
+				payload: {
+					appSlug: "example-unified",
+					toolId: "example_unified_notion__notion-update-page",
+					target: {
+						transport: "mcp",
+						providerId: "notion",
+						mcpToolName: "notion-update-page",
+					},
+					args: { page_id: "page-1", command: "insert_content" },
+					organizationId: "org-1",
+					initiatedByUserId: "owner-1",
 				},
-			],
-			() => ({
-				jsonrpc: "2.0",
-				id: 1,
-				result: { structuredContent: { success: true } },
-			}),
-		);
-		const result = await executeApprovedOwnerToolCall({
-			env: env(service),
-			payload: {
-				appSlug: "example-unified",
-				toolId: "example_unified_notion__notion-update-page",
-				target: {
-					transport: "mcp",
-					providerId: "notion",
-					mcpToolName: "notion-update-page",
-				},
-				args: { page_id: "page-1", command: "insert_content" },
-				organizationId: "org-1",
-				initiatedByUserId: "owner-1",
-			},
-			approvalRequestId: "approval-1",
-			verifiedConnectionExecute: true,
-		});
-		expect(result).toEqual({ ok: true, data: { success: true } });
-		expect(service.calls.at(-1)?.params).toMatchObject({
-			name: "notion-tedix__notion-update-page",
-			arguments: { page_id: "page-1", command: "insert_content" },
-			_meta: { "com.tedix/approvalRequestId": "approval-1" },
-		});
-		expect(service.calls.at(-1)?.headers.get("X-Tedix-Tedi-Scopes")).toBe(
-			"connections.execute",
-		);
-	});
+				approvalRequestId: "approval-1",
+				verifiedConnectionExecute: true,
+				verifiedConnectionAdmin: admin,
+			});
+			expect(result).toEqual({ ok: true, data: { success: true } });
+			expect(service.calls.at(-1)?.params).toMatchObject({
+				name: "notion-tedix__notion-update-page",
+				arguments: { page_id: "page-1", command: "insert_content" },
+				_meta: { "com.tedix/approvalRequestId": "approval-1" },
+			});
+			expect(service.calls.at(-1)?.headers.get("X-Tedix-Tedi-Scopes")).toBe(
+				admin ? "connections.execute connections.admin" : "connections.execute",
+			);
+		},
+	);
 
 	it("refuses ambiguous connected tool bindings", () => {
 		const entry = {

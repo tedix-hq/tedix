@@ -156,6 +156,7 @@ export function resolveWireAnnotations(
 export function enforceNativeToolScopeGate(
 	agent: Pick<ServerContext, "appMetadata" | "callerIdentity">,
 	tool: AppTool,
+	options: { args?: unknown; verifiedBoundedCall?: boolean } = {},
 ): CallToolResult | null {
 	const source = (tool.meta as { source?: unknown } | null)?.source;
 	const config = tool.config as Record<string, unknown> | null | undefined;
@@ -175,7 +176,12 @@ export function enforceNativeToolScopeGate(
 				);
 	let decision: ReturnType<typeof evaluateMcpToolScopeAuthorization>;
 	try {
-		decision = evaluateMcpToolScopeAuthorization(agent, tool, namespace);
+		decision = evaluateMcpToolScopeAuthorization(agent, tool, namespace, {
+			...(options.args !== undefined
+				? { toolCall: { arguments: options.args } }
+				: {}),
+			verifiedBoundedCall: options.verifiedBoundedCall,
+		});
 	} catch (error) {
 		// `resolveMcpToolRequiredScopes` throws for a tool with no capability
 		// mapping. Mirror the Code Mode handling exactly (`codemode.ts`): an

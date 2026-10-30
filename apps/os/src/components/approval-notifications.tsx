@@ -11,6 +11,7 @@ import { useContext, useState } from "react";
 import { createPortal } from "react-dom";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
+import { MachineApprovalReview } from "@/components/machine-approval-review";
 import {
 	type ApprovalChoice,
 	type ApprovalListItem,
@@ -353,6 +354,13 @@ function ApprovalRow({
 					</dl>
 				</CollapsibleContent>
 			</Collapsible>
+			<MachineApprovalReview
+				payload={
+					item.raw && typeof item.raw === "object" && !Array.isArray(item.raw)
+						? (item.raw as Record<string, unknown>).payload
+						: null
+				}
+			/>
 			<div className="flex min-w-0 flex-wrap items-center gap-2 sm:pl-10">
 				<Button
 					disabled={busy}

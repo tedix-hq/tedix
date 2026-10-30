@@ -13,7 +13,11 @@ import {
 } from "vite-plus/test";
 import * as z from "zod";
 import { type ToolExecutionContext, ToolHandler } from "./handler";
-import { resetUpstreamEraCache } from "./upstream-mcp-client";
+import {
+	callUpstreamMcpTool,
+	prepareUpstreamIdentityProbe,
+	resetUpstreamEraCache,
+} from "./upstream-mcp-client";
 
 // End-to-end: ToolHandler's MCP transport against real in-process servers.
 // The proxied URL is external (no service binding), so every hop goes through
@@ -105,6 +109,92 @@ function probeRejectingV1(onProbe: () => Promise<Response>) {
 async function callEcho(msg: string) {
 	return new ToolHandler().execute({ msg }, upstreamCtx());
 }
+
+describe("reviewed upstream identity probes", () => {
+	beforeEach(() => resetUpstreamEraCache());
+	afterEach(() => vi.unstubAllGlobals());
+	it("probes before a write using the same authenticated transport and refuses changed identity", async () => {
+		let account = "account-a";
+		let writes = 0;
+		serveUpstream(async (request) => {
+			const server = new LegacyMcpServer({ name: "sample", version: "1" });
+			server.registerTool("identity", { inputSchema: {} }, async () => ({
+				content: [
+					{ type: "text", text: JSON.stringify({ account: { id: account } }) },
+				],
+			}));
+			server.registerTool("write", { inputSchema: {} }, async () => {
+				writes++;
+				return { content: [{ type: "text", text: "ok" }] };
+			});
+			const transport = new WebStandardStreamableHTTPServerTransport({
+				sessionIdGenerator: undefined,
+				enableJsonResponse: true,
+			});
+			await server.connect(transport);
+			return transport.handleRequest(request);
+		});
+		const base = {
+			url: UPSTREAM_URL,
+			fetcher: globalThis.fetch,
+			headers: { "X-Upstream-Key": "k_1" },
+			modernOnly: false,
+			signal: new AbortController().signal,
+			timeoutMs: 5000,
+		};
+		const profile = {
+			version: 1 as const,
+			operation: "identity",
+			selectors: [["account", "id"]],
+		};
+		const binding = "reviewed-org-and-tool";
+		const secret = "test-only-secret";
+		const expectedDigest = await prepareUpstreamIdentityProbe({
+			...base,
+			profile,
+			binding,
+			secret,
+		});
+		expect(expectedDigest).toMatch(/^[a-f0-9]{64}$/);
+		const call = {
+			...base,
+			toolName: "write",
+			args: {},
+			identityProbe: {
+				profile,
+				binding,
+				secret,
+				expectedDigest: expectedDigest!,
+				revalidate: async () => true,
+			},
+		};
+		expect(
+			await callUpstreamMcpTool({
+				...call,
+				identityProbe: {
+					...call.identityProbe,
+					assertions: [{ path: ["account", "id"], value: "wrong-org" }],
+				},
+			}),
+		).toMatchObject({ ok: false, status: 403 });
+		expect(writes).toBe(0);
+		expect((await callUpstreamMcpTool(call)).ok).toBe(true);
+		expect(writes).toBe(1);
+		account = "account-a";
+		call.identityProbe.revalidate = async () => false;
+		expect(await callUpstreamMcpTool(call)).toMatchObject({
+			ok: false,
+			status: 403,
+		});
+		expect(writes).toBe(1);
+		account = "account-b";
+		expect(await callUpstreamMcpTool(call)).toMatchObject({
+			ok: false,
+			status: 403,
+		});
+		expect(writes).toBe(1);
+	});
+});
 
 describe("MCP transport against real upstream servers", () => {
 	beforeEach(() => resetUpstreamEraCache());

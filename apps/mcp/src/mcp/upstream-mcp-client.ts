@@ -40,6 +40,12 @@ import {
 } from "@tedix/mcp-shared/protocol";
 import { googleProviderFailure, isGoogleMcp } from "./google-provider-error";
 import { setBoundedCacheEntry } from "../lib/bounded-cache";
+import { timingSafeEqual } from "@tedix/worker-kit/crypto";
+import {
+	providerIdentityDigest,
+	validProviderIdentityProbeProfile,
+	type ProviderIdentityProbeProfile,
+} from "./provider-identity-probe";
 
 export type UpstreamProtocolEra = "modern_2026" | "legacy_streamable_2025";
 
@@ -63,7 +69,18 @@ export interface UpstreamToolCall {
 	timeoutMs: number;
 	/** Recheck connection policy after an upstream pause, before any replay. */
 	reauthorize?: () => Promise<{ status: number; error: string } | undefined>;
+	/** Internal only: constructed from an owner-reviewed immutable profile. */
+	identityProbe?: {
+		profile: ProviderIdentityProbeProfile;
+		binding: string;
+		secret: string;
+		expectedDigest: string;
+		assertions?: Array<{ path: string[]; value: string }>;
+		revalidate: () => Promise<boolean>;
+	};
 }
+
+class IdentityProbeRejected extends Error {}
 
 export type UpstreamToolOutcome =
 	| {
@@ -266,6 +283,85 @@ export async function callUpstreamMcpTool(
 	}
 }
 
+/** Service-only preparation. The caller must first resolve and authorize an
+ * immutable owner-reviewed profile and server-owned mount and credentials. */
+export async function prepareUpstreamIdentityProbe(input: {
+	url: string;
+	fetcher: typeof globalThis.fetch;
+	headers: Record<string, string>;
+	modernOnly: boolean;
+	signal: AbortSignal;
+	timeoutMs: number;
+	profile: ProviderIdentityProbeProfile;
+	binding: string;
+	secret: string;
+	assertions?: Array<{ path: string[]; value: string }>;
+}): Promise<string | null> {
+	if (
+		!validProviderIdentityProbeProfile(input.profile) ||
+		!input.binding ||
+		!input.secret
+	)
+		return null;
+	const call: UpstreamToolCall = {
+		url: input.url,
+		fetcher: input.fetcher,
+		headers: input.headers,
+		modernOnly: input.modernOnly,
+		signal: input.signal,
+		timeoutMs: input.timeoutMs,
+		toolName: input.profile.operation,
+		args: {},
+	};
+	const options = { signal: input.signal, timeout: input.timeoutMs };
+	const prior = input.modernOnly
+		? FIRST_PARTY_MODERN
+		: rememberedEra(eraKey(input.url));
+	let client = newClient();
+	try {
+		try {
+			await client.connect(upstreamTransport(call), {
+				...options,
+				...(prior ? { prior } : {}),
+			});
+		} catch (error) {
+			if (prior || input.signal.aborted || !isProbeOutage(error)) return null;
+			await client.close().catch(() => {});
+			client = newClient();
+			await client.connect(upstreamTransport(call), {
+				...options,
+				prior: { kind: "legacy" },
+			});
+		}
+		const result = await client.callTool(
+			{ name: input.profile.operation, arguments: {} },
+			{
+				...options,
+				toolDefinition: {
+					name: input.profile.operation,
+					inputSchema: {
+						type: "object",
+						properties: {},
+						additionalProperties: false,
+					},
+				},
+				allowInputRequired: false,
+			},
+		);
+		return await providerIdentityDigest({
+			profile: input.profile,
+			binding: input.binding,
+			secret: input.secret,
+			result,
+			assertions: input.assertions,
+		});
+	} catch {
+		return null;
+	} finally {
+		await client.close().catch(() => {});
+	}
+}
+
 async function callUpstreamMcpToolOnce(
 	call: UpstreamToolCall,
 ): Promise<UpstreamToolOutcome> {
@@ -338,8 +434,48 @@ async function callUpstreamMcpToolOnce(
 				type: "object",
 			}) as Tool["inputSchema"],
 		};
-		const send = (extra?: Record<string, unknown>) =>
-			client.callTool(
+		const send = async (extra?: Record<string, unknown>) => {
+			if (call.identityProbe) {
+				const { profile, binding, secret, expectedDigest } = call.identityProbe;
+				if (
+					!validProviderIdentityProbeProfile(profile) ||
+					profile.operation === call.toolName ||
+					!/^[0-9a-f]{64}$/.test(expectedDigest)
+				)
+					throw new IdentityProbeRejected();
+				let probeResult: unknown;
+				try {
+					probeResult = await client.callTool(
+						{ name: profile.operation, arguments: {} },
+						{
+							...requestOptions,
+							toolDefinition: {
+								name: profile.operation,
+								inputSchema: {
+									type: "object",
+									properties: {},
+									additionalProperties: false,
+								},
+							},
+							allowInputRequired: false,
+						},
+					);
+				} catch {
+					throw new IdentityProbeRejected();
+				}
+				const actual = await providerIdentityDigest({
+					profile,
+					binding,
+					secret,
+					result: probeResult,
+					assertions: call.identityProbe.assertions,
+				});
+				if (!actual || !timingSafeEqual(actual, expectedDigest))
+					throw new IdentityProbeRejected();
+				if (!(await call.identityProbe.revalidate().catch(() => false)))
+					throw new IdentityProbeRejected();
+			}
+			return client.callTool(
 				{
 					name: call.toolName,
 					arguments: call.args,
@@ -348,6 +484,7 @@ async function callUpstreamMcpToolOnce(
 				},
 				{ ...requestOptions, toolDefinition, allowInputRequired: true },
 			) as Promise<Record<string, unknown>>;
+		};
 
 		let result: Record<string, unknown>;
 		try {
@@ -400,7 +537,11 @@ async function callUpstreamMcpToolOnce(
 						: {}),
 				});
 			} catch (error) {
-				if (error instanceof ProtocolError) throw error;
+				if (
+					error instanceof ProtocolError ||
+					error instanceof IdentityProbeRejected
+				)
+					throw error;
 				break;
 			}
 			inputRequired = readInputRequiredResult(result);
@@ -423,6 +564,12 @@ async function callUpstreamMcpToolOnce(
 		}
 		return { ok: true, era, result };
 	} catch (error) {
+		if (error instanceof IdentityProbeRejected)
+			return {
+				ok: false,
+				status: 403,
+				error: "Provider identity could not be verified for this operation",
+			};
 		// A JSON-RPC error answering tools/call says nothing about the era.
 		if (stage === "connect" || !(error instanceof ProtocolError)) {
 			upstreamEras.delete(key);

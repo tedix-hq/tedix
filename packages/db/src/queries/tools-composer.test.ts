@@ -5,7 +5,11 @@ import { apps } from "../schema/apps";
 import { appTools } from "../schema/tools";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { listComposerToolsForOrganization } from "./tools";
+import {
+	listComposerToolsForOrganization,
+	listDeclaredActionToolsForOrganization,
+} from "./tools";
+import { eq } from "drizzle-orm";
 
 it("offers only enabled, explicit composer tools from this tenant", async () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -58,6 +62,51 @@ it("offers only enabled, explicit composer tools from this tenant", async () => 
 				description: null,
 			},
 		]);
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("inventories declared action classes only in the selected tenant and reflects edits", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		sqlite.exec(schemaDdl(apps, appTools));
+		const db = createDbClient(createD1Facade(sqlite));
+		await db.insert(apps).values([
+			{ id: "one", organizationId: "org-one", name: "One", slug: "one" },
+			{ id: "two", organizationId: "org-two", name: "Two", slug: "two" },
+		]);
+		await db.insert(appTools).values([
+			{
+				id: "local",
+				appId: "one",
+				toolId: "comment",
+				title: "Comment",
+				toolTypeId: "rpc",
+				actionType: "comment_on_issue",
+			},
+			{
+				id: "foreign",
+				appId: "two",
+				toolId: "comment",
+				title: "Foreign",
+				toolTypeId: "rpc",
+				actionType: "comment_on_issue",
+			},
+		]);
+		expect(
+			await listDeclaredActionToolsForOrganization(db, "org-one"),
+		).toMatchObject([
+			{ appId: "one", toolRowId: "local", actionType: "comment_on_issue" },
+		]);
+		await db
+			.update(appTools)
+			.set({ actionType: "update_issue" })
+			.where(eq(appTools.id, "local"));
+		expect(
+			await listDeclaredActionToolsForOrganization(db, "org-one"),
+		).toMatchObject([{ actionType: "update_issue" }]);
 	} finally {
 		sqlite.close();
 	}

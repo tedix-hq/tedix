@@ -726,6 +726,61 @@ async function searchAihMcpServerClientsViaApi(
 	return result.clients ?? [];
 }
 
+/** Recheck an authenticated AIH machine against uncached provider and session state. */
+export async function resolveFreshExternalAgentAihAuthority(
+	env: CloudflareEnv,
+	identity: {
+		organizationId: string;
+		principalId: string;
+		sessionId: string;
+		clientRecordId: string;
+		clientId: string;
+		mcpServerId: string;
+	},
+): Promise<{ scopes: string[] } | null> {
+	if (
+		![
+			identity.organizationId,
+			identity.principalId,
+			identity.sessionId,
+			identity.clientRecordId,
+			identity.clientId,
+			identity.mcpServerId,
+		].every((value) => typeof value === "string" && value.length > 0)
+	)
+		return null;
+	try {
+		const clients = await searchAihMcpServerClientsViaApi(
+			env,
+			identity.mcpServerId,
+			identity.clientId,
+		);
+		const exact = clients.filter(
+			(client) =>
+				client.id === identity.clientRecordId &&
+				getMcpClientId(client) === identity.clientId,
+		);
+		if (exact.length !== 1) return null;
+		const client = normalizeAihM2mClientScopeContext(exact[0]!);
+		if (
+			!client?.externalAgent ||
+			client.externalAgent.organizationId !== identity.organizationId ||
+			client.externalAgent.principalId !== identity.principalId ||
+			client.externalAgent.sessionId !== identity.sessionId
+		)
+			return null;
+		const session = await resolveExternalAgentSessionAuth(
+			env,
+			client.externalAgent,
+			identity.clientRecordId,
+			client.scopes,
+		);
+		return { scopes: session.scopes };
+	} catch {
+		return null;
+	}
+}
+
 /**
  * Invalidate in-process AIH M2M client scope cache entries.
  * Returns the count of deleted entries.

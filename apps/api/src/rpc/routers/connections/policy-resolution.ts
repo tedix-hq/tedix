@@ -15,6 +15,8 @@ import {
 } from "../../../services/connection-resource-policy";
 import { assertOwnAccessForToolCall } from "../../../services/connection-access-check";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { SelectedConnectionCredential } from "@tedix/api-contract/schemas/connections";
+import { deriveHkdfHmacKey, hmacSha256 } from "@tedix/worker-kit/crypto";
 import {
 	IssuerPinDriftError,
 	assertPinnedIssuerMatches,
@@ -615,6 +617,7 @@ export async function resolveCredentialChain(
 	accessToken: string;
 	expiresAt?: number;
 	scopes?: string[];
+	selectedCredential: SelectedConnectionCredential;
 }> {
 	if (args.scope !== "user")
 		await assertOrganizationConnectionResourceArguments(
@@ -719,6 +722,12 @@ export async function resolveCredentialChain(
 					...args,
 					personalUserId: target.userId,
 				});
+			const previousPin = await getConnectionInstance(
+				context.db,
+				owner,
+				args.connectionInstanceId,
+				args.providerId,
+			);
 			const selected = await fetchNamedConnection(
 				context,
 				owner,
@@ -739,12 +748,67 @@ export async function resolveCredentialChain(
 					ErrorCodes.UNPROCESSABLE_CONTENT,
 					`Reconnect ${args.providerId} in Settings → Connections`,
 				);
-			if (selected)
+			if (selected) {
+				const pinned = await getConnectionInstance(
+					context.db,
+					owner,
+					args.connectionInstanceId,
+					args.providerId,
+				);
+				let accountRevisionDigest: string | undefined;
+				const masterKey = context.env.SECRETS_MASTER_KEY;
+				if (
+					masterKey &&
+					selected.id &&
+					selected.tokenSub &&
+					previousPin?.tokenSub === selected.tokenSub &&
+					previousPin.tokenIds.includes(selected.id) &&
+					pinned?.tokenSub === selected.tokenSub &&
+					pinned.tokenIds.includes(selected.id)
+				) {
+					const key = await deriveHkdfHmacKey(
+						masterKey,
+						"tedix:connection-account-revision:v1",
+					);
+					const bytes = await hmacSha256(
+						key,
+						JSON.stringify([
+							args.organizationId,
+							args.providerId,
+							target.kind,
+							target.kind === "user" ? target.userId : null,
+							args.connectionInstanceId,
+							selected.id,
+							selected.tokenSub,
+						]),
+					);
+					accountRevisionDigest = Array.from(bytes, (byte) =>
+						byte.toString(16).padStart(2, "0"),
+					).join("");
+				}
 				return {
 					accessToken: selected.accessToken,
 					expiresAt: selected.expiresAt,
 					scopes: selected.scopes,
+					selectedCredential:
+						target.kind === "user"
+							? {
+									organizationId: args.organizationId,
+									providerId: args.providerId,
+									scope: "user",
+									userId: target.userId,
+									connectionInstanceId: args.connectionInstanceId,
+									...(accountRevisionDigest ? { accountRevisionDigest } : {}),
+								}
+							: {
+									organizationId: args.organizationId,
+									providerId: args.providerId,
+									scope: "tenant",
+									connectionInstanceId: args.connectionInstanceId,
+									...(accountRevisionDigest ? { accountRevisionDigest } : {}),
+								},
 				};
+			}
 		}
 		throw createError(
 			ErrorCodes.NOT_FOUND,
@@ -754,7 +818,10 @@ export async function resolveCredentialChain(
 	let lookupFailure: ConnectionTokenLookupError | undefined;
 	const fetchTokenForProvider = async (
 		providerId: string,
-	): Promise<Awaited<ReturnType<typeof fetchConnectionToken>> | null> => {
+	): Promise<{
+		token: NonNullable<Awaited<ReturnType<typeof fetchConnectionToken>>>;
+		selectedCredential: SelectedConnectionCredential;
+	} | null> => {
 		let token: Awaited<ReturnType<typeof fetchConnectionToken>> | null = null;
 		if (args.scope !== "user" && providerId !== args.providerId)
 			await assertOrganizationConnectionResourceArguments(
@@ -812,16 +879,32 @@ export async function resolveCredentialChain(
 						? error
 						: new ConnectionTokenLookupError();
 			}
-			if (token) break;
+			if (token)
+				return {
+					token,
+					selectedCredential:
+						target.kind === "user"
+							? {
+									organizationId: args.organizationId,
+									providerId,
+									scope: "user",
+									userId: target.userId,
+								}
+							: {
+									organizationId: args.organizationId,
+									providerId,
+									scope: "tenant",
+								},
+				};
 		}
-		return token;
+		return null;
 	};
-	const token = await resolveTokenPreferringLabel({
+	const selected = await resolveTokenPreferringLabel({
 		providerId: args.providerId,
 		label: args.label,
 		fetchTokenForProvider,
 	});
-	if (!token) {
+	if (!selected) {
 		if (lookupFailure)
 			throw createError(ErrorCodes.SERVICE_UNAVAILABLE, lookupFailure.message);
 		throw createError(
@@ -834,6 +917,7 @@ export async function resolveCredentialChain(
 			}),
 		);
 	}
+	const { token, selectedCredential } = selected;
 	if (token.reconnectNeeded)
 		throw createError(
 			ErrorCodes.UNPROCESSABLE_CONTENT,
@@ -855,6 +939,7 @@ export async function resolveCredentialChain(
 		accessToken: token.accessToken,
 		expiresAt,
 		scopes: token.scopes ?? undefined,
+		selectedCredential,
 	};
 }
 

@@ -1,4 +1,6 @@
 import { isEphemeralSessionKey } from "@tedix/api-contract/utils/runtime-identity";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { matchesTenantPolicyCredential } from "./tenant-policy-credential";
 import {
 	DOCS_TOOL_SCOPES,
 	type DocsToolName,
@@ -110,7 +112,7 @@ async function verifiedDocsReadObservation(input: {
 	return receipt;
 }
 
-function resolveServiceBinding(
+export function resolveServiceBinding(
 	mcpServerUrl: string,
 	env: CloudflareEnv,
 ): Fetcher | null {
@@ -182,6 +184,34 @@ export async function executeMcpTransport(
 		? serviceBinding.fetch.bind(serviceBinding)
 		: globalThis.fetch.bind(globalThis);
 	const managedMcpUrl = isTedixManagedMcpUrl(mcpServerUrl);
+	if (
+		(ctx.prepareIdentityProbe || ctx.expectedPolicyProbe) &&
+		(serviceBinding ||
+			config.auth?.type !== "connection" ||
+			config.auth.clientCredentials?.tokenUrl ||
+			!ctx.env.PLATFORM_SERVICE_TOKEN)
+	)
+		return {
+			status: 403,
+			data: { error: "Identity probe unavailable for this connection" },
+		};
+	if (
+		ctx.expectedPolicyCredential &&
+		(serviceBinding ||
+			config.auth?.type !== "connection" ||
+			config.auth.clientCredentials?.tokenUrl)
+	)
+		return {
+			status: 403,
+			data: {
+				error:
+					"Policy credential verification is unavailable for this connection",
+			},
+		};
+	let verifiedPolicyToken: string | undefined;
+	let probeCredential:
+		| import("@tedix/api-contract/schemas/connections").SelectedConnectionCredential
+		| undefined;
 
 	if (!serviceBinding) {
 		// SSRF protection — service bindings are trusted Worker-to-Worker RPC
@@ -513,6 +543,47 @@ export async function executeMcpTransport(
 				};
 			}
 
+			if (ctx.expectedPolicyCredential) {
+				const expected = ctx.expectedPolicyCredential;
+				if (
+					!matchesTenantPolicyCredential(
+						expected,
+						credentialResult.selectedCredential,
+						expected.accountRevisionDigest ?? "",
+					)
+				)
+					return {
+						status: 403,
+						data: {
+							error: "Selected account no longer matches the reviewed policy",
+						},
+					};
+				verifiedPolicyToken = credentialResult.token;
+			}
+			if (ctx.prepareIdentityProbe || ctx.expectedPolicyProbe) {
+				if (!credentialResult.selectedCredential)
+					return {
+						status: 403,
+						data: { error: "Verified connection identity unavailable" },
+					};
+				if (
+					(ctx.prepareIdentityProbe?.requireTenantCredential ||
+						ctx.expectedPolicyProbe?.requireTenantCredential) &&
+					(credentialResult.selectedCredential.scope !== "tenant" ||
+						credentialResult.selectedCredential.organizationId !==
+							ctx.callerIdentity?.organizationId)
+				)
+					return {
+						status: 403,
+						data: {
+							error:
+								"Machine identity proof requires an organization credential",
+						},
+					};
+				probeCredential = credentialResult.selectedCredential;
+				if (ctx.expectedPolicyProbe)
+					verifiedPolicyToken = credentialResult.token;
+			}
 			let token = credentialResult.token;
 
 			if (config.auth.clientCredentials?.tokenUrl) {
@@ -592,6 +663,54 @@ export async function executeMcpTransport(
 	const timer = setTimeout(() => controller.abort(), timeout);
 
 	try {
+		if (ctx.prepareIdentityProbe) {
+			if (!probeCredential || !ctx.env.PLATFORM_SERVICE_TOKEN)
+				return {
+					status: 403,
+					data: { error: "Verified connection identity unavailable" },
+				};
+			if (!(await ctx.prepareIdentityProbe.revalidate()))
+				return {
+					status: 403,
+					data: { error: "Reviewed identity profile changed" },
+				};
+			const { prepareUpstreamIdentityProbe } =
+				await import("./upstream-mcp-client");
+			const digest = await prepareUpstreamIdentityProbe({
+				url: mcpServerUrl,
+				fetcher,
+				headers,
+				modernOnly: false,
+				signal: controller.signal,
+				timeoutMs: timeout,
+				profile: ctx.prepareIdentityProbe.profile,
+				binding: JSON.stringify([
+					ctx.prepareIdentityProbe.binding,
+					probeCredential,
+				]),
+				secret: ctx.env.PLATFORM_SERVICE_TOKEN,
+			});
+			return digest
+				? {
+						status: 200,
+						data: {
+							accountRevisionDigest: digest,
+							credentialSummary: {
+								scope: probeCredential.scope,
+								...(probeCredential.connectionInstanceId
+									? {
+											connectionInstanceId:
+												probeCredential.connectionInstanceId,
+										}
+									: {}),
+							},
+						},
+					}
+				: {
+						status: 403,
+						data: { error: "Provider identity could not be verified" },
+					};
+		}
 		// Durable turns acknowledge through the existing inject hook before the
 		// gateway deadline. Native Tasks polls top-level calls; nested Code Mode
 		// calls receive the stable pending receipt without holding the gateway.
@@ -670,11 +789,44 @@ export async function executeMcpTransport(
 			connectionAuth?.type === "connection"
 				? connectionAuth.connectionId
 				: undefined;
+		if (
+			ctx.expectedPolicyProbe &&
+			(!probeCredential ||
+				!verifiedPolicyToken ||
+				!ctx.env.PLATFORM_SERVICE_TOKEN)
+		)
+			return {
+				status: 403,
+				data: { error: "Verified provider identity unavailable" },
+			};
+		const providerArgsDigest = ctx.expectedPolicyProbe
+			? await sha256Hex(JSON.stringify(params))
+			: null;
 		const upstream = await callUpstreamMcpTool({
 			url: mcpServerUrl,
 			fetcher,
 			headers,
 			toolName: mcpToolName,
+			...(ctx.expectedPolicyProbe &&
+			probeCredential &&
+			ctx.env.PLATFORM_SERVICE_TOKEN
+				? {
+						identityProbe: {
+							profile: ctx.expectedPolicyProbe.profile,
+							binding: JSON.stringify([
+								ctx.expectedPolicyProbe.binding,
+								probeCredential,
+							]),
+							expectedDigest: ctx.expectedPolicyProbe.expectedDigest,
+							secret: ctx.env.PLATFORM_SERVICE_TOKEN,
+							revalidate: async () =>
+								!!providerArgsDigest &&
+								(await sha256Hex(JSON.stringify(params))) ===
+									providerArgsDigest &&
+								(await ctx.expectedPolicyProbe!.revalidate()),
+						},
+					}
+				: {}),
 			reauthorize: connectionId
 				? async () => {
 						const result = await credentials.fetchConnectionToken(
@@ -688,6 +840,32 @@ export async function executeMcpTransport(
 							connectionAuth?.credentialPreference,
 							params,
 						);
+						if (
+							ctx.expectedPolicyCredential &&
+							(!matchesTenantPolicyCredential(
+								ctx.expectedPolicyCredential,
+								result.selectedCredential,
+								ctx.expectedPolicyCredential.accountRevisionDigest ?? "",
+							) ||
+								result.token !== verifiedPolicyToken)
+						)
+							return {
+								status: 403,
+								error:
+									"Reviewed account or credential changed; the call was not replayed",
+							};
+						if (
+							ctx.expectedPolicyProbe &&
+							(result.token !== verifiedPolicyToken ||
+								JSON.stringify(result.selectedCredential) !==
+									JSON.stringify(probeCredential) ||
+								!(await ctx.expectedPolicyProbe.revalidate()))
+						)
+							return {
+								status: 403,
+								error:
+									"Reviewed identity or policy changed; the call was not replayed",
+							};
 						return result.token
 							? undefined
 							: {

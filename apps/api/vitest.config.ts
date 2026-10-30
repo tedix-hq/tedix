@@ -24,10 +24,10 @@ export default defineConfig({
 		maxWorkers: 1,
 		server: {
 			deps: {
-				// `agents` ships ESM that imports `cloudflare:workers` directly.
+				// These packages import `cloudflare:workers` directly.
 				// Externalized it reaches Node's resolver, which rejects the scheme
 				// before the alias above can apply; inlined it goes through Vite.
-				inline: ["agents"],
+				inline: ["agents", "@cloudflare/codemode"],
 			},
 		},
 	},

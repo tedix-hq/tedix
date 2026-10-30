@@ -4,6 +4,7 @@ import { useState } from "react";
 import * as z from "zod";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
+import { MachineApprovalReview } from "@/components/machine-approval-review";
 import { ApprovalManifestReview } from "@/components/approval-manifest";
 import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
 import {
@@ -390,6 +391,13 @@ function ApprovalCard({
 					</Badge>
 				) : null}
 			</div>
+			<MachineApprovalReview
+				payload={
+					item.raw && typeof item.raw === "object" && !Array.isArray(item.raw)
+						? (item.raw as Record<string, unknown>).payload
+						: null
+				}
+			/>
 			<Text as="p" className="m-0" role="body">
 				<span className="text-kumo-subtle">If you approve: </span>
 				{item.ifApproved}

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { apiKeys } from "../../schema/api-keys";
 import {
@@ -287,6 +287,29 @@ export async function listActiveExternalAgentMcpCredentials(
 			desc(externalAgentMcpCredentials.issuedAt),
 			desc(externalAgentMcpCredentials.id),
 		);
+}
+
+/** Bounded inventory candidates; callers must independently verify each session. */
+export async function listMachinePolicyInventoryCandidates(
+	db: DbClient,
+	input: { organizationId: string; now: string },
+) {
+	return db
+		.select({
+			principalId: externalAgentMcpCredentials.principalId,
+			sessionId: externalAgentMcpCredentials.sessionId,
+			clientRecordId: externalAgentMcpCredentials.clientRecordId,
+		})
+		.from(externalAgentMcpCredentials)
+		.where(
+			and(
+				eq(externalAgentMcpCredentials.organizationId, input.organizationId),
+				eq(externalAgentMcpCredentials.status, "active"),
+				gt(externalAgentMcpCredentials.expiresAt, input.now),
+			),
+		)
+		.orderBy(desc(externalAgentMcpCredentials.issuedAt))
+		.limit(100);
 }
 
 /** Tenant-scoped active credentials for governed retirement of one session. */

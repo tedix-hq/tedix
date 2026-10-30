@@ -1,0 +1,1 @@
+ALTER TABLE `tenant_tool_policy_mount_revisions` ADD `retired_unknown_sequence` integer;

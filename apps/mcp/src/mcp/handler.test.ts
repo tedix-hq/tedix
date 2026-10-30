@@ -7,6 +7,7 @@ describe("named account credential routing", () => {
 		"selects exact %s slots and observes rotation without stale token caching",
 		async (scope) => {
 			let token = "token-a";
+			let malformedReceipt = false;
 			const apiFetch = vi.fn(
 				async (input: RequestInfo | URL, init?: RequestInit) => {
 					const request =
@@ -19,7 +20,19 @@ describe("named account credential routing", () => {
 						userId: "alice",
 						scope,
 					});
-					return Response.json({ json: { accessToken: token } });
+					return Response.json({
+						json: {
+							accessToken: token,
+							selectedCredential: {
+								organizationId: "org",
+								providerId: "microsoft",
+								scope,
+								...(scope === "user" ? { userId: "alice" } : {}),
+								connectionInstanceId: body.json.connectionInstanceId,
+								...(malformedReceipt ? { accessToken: token } : {}),
+							},
+						},
+					});
 				},
 			);
 			const context = (id: string): ToolExecutionContext<ToolConfig> => ({
@@ -57,14 +70,23 @@ describe("named account credential routing", () => {
 					ctx: ToolExecutionContext<ToolConfig>,
 					provider: string,
 					scope: "tenant" | "user",
-				) => Promise<{ token: string | null }>;
+				) => Promise<{ token: string | null; selectedCredential?: unknown }>;
 			};
 			const a = "11111111-1111-4111-8111-111111111111";
 			const b = "22222222-2222-4222-8222-222222222222";
-			expect(
-				(await handler.fetchConnectionToken(context(a), "microsoft", scope))
-					.token,
-			).toBe("token-a");
+			const first = await handler.fetchConnectionToken(
+				context(a),
+				"microsoft",
+				scope,
+			);
+			expect(first.token).toBe("token-a");
+			expect(first.selectedCredential).toEqual({
+				organizationId: "org",
+				providerId: "microsoft",
+				scope,
+				...(scope === "user" ? { userId: "alice" } : {}),
+				connectionInstanceId: a,
+			});
 			token = "token-b";
 			expect(
 				(await handler.fetchConnectionToken(context(b), "microsoft", scope))
@@ -75,7 +97,12 @@ describe("named account credential routing", () => {
 				(await handler.fetchConnectionToken(context(a), "microsoft", scope))
 					.token,
 			).toBe("rotated-a");
-			expect(apiFetch).toHaveBeenCalledTimes(3);
+			malformedReceipt = true;
+			expect(
+				(await handler.fetchConnectionToken(context(a), "microsoft", scope))
+					.selectedCredential,
+			).toBeUndefined();
+			expect(apiFetch).toHaveBeenCalledTimes(4);
 			await expect(
 				handler.fetchConnectionToken(
 					context("forged-label"),
@@ -83,7 +110,7 @@ describe("named account credential routing", () => {
 					scope,
 				),
 			).rejects.toThrow("Invalid account binding");
-			expect(apiFetch).toHaveBeenCalledTimes(3);
+			expect(apiFetch).toHaveBeenCalledTimes(4);
 		},
 	);
 });
