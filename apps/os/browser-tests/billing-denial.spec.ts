@@ -71,6 +71,7 @@ await runShellSpec(async ({ origin, newPage, pageErrors }) => {
 				);
 			} finally {
 				release();
+				await page.unrouteAll({ behavior: "wait" });
 				await page.close();
 			}
 		}
