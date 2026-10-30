@@ -509,7 +509,10 @@ Both preserve the configured model and permissions. The existing lane wrapper
 reports telemetry; the dispatcher heartbeats and settles the exact Attempt with
 its result and parsed usage. After success it requests Work completion under
 the same session. A denied or interrupted completion stays in its receipt for
-up to five retries; it never relaunches the worker to close the item. The server
+five fast attempts, then reconciles every fifteen minutes after re-reading the
+same Work revision and original latest succeeded Attempt. Terminal Work clears
+the pending receipt; changed or unreadable authority stays retained. It never
+relaunches the worker to close the item. The server
 watcher detects stale lanes. Completion records the reported outcome; it does
 not independently verify the result.
 

@@ -814,6 +814,82 @@ describe("dispatcher admission", () => {
 		expect(releases).toHaveLength(1);
 	});
 
+	it.each([
+		"recovered",
+		"changed-version",
+		"different-attempt",
+		"missing-attempt",
+		"completed",
+		"cancelled",
+		"unreadable",
+	])("reconciles exhausted closure after restart: %s", async (state) => {
+		const { dispatcher, restart, items, control, events, releases, dir } =
+			fixture();
+		items.splice(1);
+		control.completeError = new Error("Completion unavailable");
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const path = join(dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		saved.completionRetries = 5;
+		saved.completionRetryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		control.completeError = undefined;
+		control.history.data = [
+			{
+				id: saved.attemptId,
+				externalSessionKey: saved.session,
+				outcome: "succeeded",
+			},
+		];
+		if (state === "changed-version") {
+			items[0]!.version++;
+			items[0]!.startAt = new Date(Date.now() + 60_000).toISOString();
+		}
+		if (state === "different-attempt")
+			control.history.data[0]!.id = "another-attempt";
+		if (state === "missing-attempt") control.history.data = [];
+		if (state === "completed" || state === "cancelled")
+			items[0]!.disposition = state;
+		if (state === "unreadable") items.splice(0);
+		const before = events.filter((e) => e.verb === "complete").length;
+		const resumed = restart();
+		await resumed.tick();
+		const recovered = JSON.parse(readFileSync(path, "utf8"));
+		expect(recovered.completionRetries).toBe(6);
+		expect(recovered.completionPending).toBe(
+			!["recovered", "completed", "cancelled"].includes(state),
+		);
+		expect(events.filter((e) => e.verb === "complete")).toHaveLength(
+			before + (state === "recovered" ? 1 : 0),
+		);
+		expect(
+			events.filter((e) => e.verb === "dispatch-get").at(-1)!.env
+				.TEDIX_AGENT_SESSION,
+		).toBe(saved.session);
+		expect(recovered.completionRetryAt).toBeGreaterThan(
+			Date.now() + 14 * 60_000,
+		);
+		const reads = events.length;
+		await resumed.tick();
+		expect(
+			events
+				.slice(reads)
+				.some((e) => e.verb === "complete" || e.verb === "dispatch-attempts"),
+		).toBe(false);
+		// An unclosed result does not occupy a worker slot or relaunch the old Work.
+		items.splice(0, items.length, item(2));
+		await resumed.tick();
+		await until(() => releases.length >= 2);
+		for (const release of releases.slice(1)) release();
+		await resumed.drain();
+		expect(
+			events.filter((e) => e.verb === "start" && e.args[6] === item().id),
+		).toHaveLength(1);
+	});
+
 	it("prefixes matching lessons before launching Codex without relying on hooks", async () => {
 		const { dispatcher, items, control, recalls, briefs, releases } = fixture();
 		items.splice(1);

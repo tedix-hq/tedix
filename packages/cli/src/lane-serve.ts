@@ -1029,7 +1029,6 @@ export class LaneDispatcher {
 			if (
 				row.completionPending &&
 				!this.running.has(row.itemId) &&
-				(row.completionRetries ?? 0) < 5 &&
 				Date.now() >= (row.completionRetryAt ?? 0)
 			)
 				await this.complete(row);
@@ -2025,17 +2024,62 @@ export class LaneDispatcher {
 	}
 	private async complete(receipt: Receipt) {
 		if (receipt.phase !== "settled" || receipt.outcome !== "succeeded") return;
+		const reconcile = (receipt.completionRetries ?? 0) >= 5;
 		receipt.completionRetries = (receipt.completionRetries ?? 0) + 1;
-		receipt.completionRetryAt = Date.now() + 60_000;
+		receipt.completionRetryAt =
+			Date.now() + (receipt.completionRetries >= 5 ? 15 * 60_000 : 60_000);
 		try {
-			await this.call(
-				["work", "complete", receipt.itemId],
-				receipt.session,
-				receipt.executorKey,
-			);
+			if (!receipt.session || !receipt.executorKey || !receipt.attemptId)
+				throw new Error(
+					"Completion retained: original executor identity is missing",
+				);
+			if (reconcile) {
+				const { workItem } = await this.call<{ workItem: DispatchItem }>(
+					["work", "dispatch-get", receipt.itemId, "--input", "{}"],
+					receipt.session,
+					receipt.executorKey,
+				);
+				if (!workItem || workItem.id !== receipt.itemId)
+					throw new Error("Completion reconciliation could not read its Work");
+				if (["completed", "cancelled"].includes(workItem.disposition)) {
+					receipt.completionPending = false;
+					this.log("completion-observed", receipt.itemId, workItem.disposition);
+				} else {
+					if (workItem.version !== receipt.version)
+						throw new Error("Completion retained: Work revision changed");
+					const history = await this.call<{ data: WorkAttempt[] }>(
+						[
+							"work",
+							"dispatch-attempts",
+							receipt.itemId,
+							"--input",
+							'{"limit":1}',
+						],
+						receipt.session,
+						receipt.executorKey,
+					);
+					const latest = history.data?.[0];
+					if (
+						!latest ||
+						latest.id !== receipt.attemptId ||
+						latest.externalSessionKey !== receipt.session ||
+						latest.outcome !== "succeeded"
+					)
+						throw new Error(
+							"Completion retained: original succeeded Attempt is no longer latest",
+						);
+				}
+			}
+			if (receipt.completionPending) {
+				await this.call(
+					["work", "complete", receipt.itemId],
+					receipt.session,
+					receipt.executorKey,
+				);
+				this.log("completed", receipt.itemId, "Work completion confirmed");
+			}
 			receipt.completionPending = false;
 			delete receipt.completionError;
-			this.log("completed", receipt.itemId, "Work completion confirmed");
 		} catch (error) {
 			receipt.completionError = String(error).slice(0, 600);
 			this.log("completion-retained", receipt.itemId, receipt.completionError);
