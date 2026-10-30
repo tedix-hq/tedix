@@ -1,7 +1,7 @@
 # OpenCode
 
-OpenCode has no plugin marketplace. It loads JavaScript plugins named in its
-configuration. Install Tedix from a checkout of this repository by adding the
+OpenCode loads the Tedix adapter directory named in its configuration.
+Install Tedix from a checkout of this repository by adding the
 plugin directory to `~/.config/opencode/opencode.json` (or `opencode.jsonc`):
 
 ```jsonc
@@ -9,6 +9,11 @@ plugin directory to `~/.config/opencode/opencode.json` (or `opencode.jsonc`):
 	"plugin": ["/absolute/path/to/tedix/plugins/tedix/.opencode-plugin"],
 }
 ```
+
+The generated `tedix-hq/tedix-plugins` repository contains the same adapter at
+`<checkout>/.opencode-plugin`. Keep its complete checkout so the adapter can read
+the root release manifest, MCP configuration and shared skills. Both distributions
+use the version in `plugin.json`; the OpenCode module has no separate version.
 
 The same entry works in OpenCode 1 (the `opencode` CLI, 1.18.29 or newer) and
 OpenCode 2 (including the macOS desktop app, which runs its own bundled

@@ -1,6 +1,6 @@
 {
 	"name": "tedix",
-	"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use.",
+	"description": "Tedix is a platform for agents, apps, and work. Give your team and AI agents a shared place for project information, tasks, apps, and results.",
 	"owner": {
 		"name": "Tedix"
 	},
@@ -8,7 +8,7 @@
 		{
 			"name": "tedix",
 			"source": "./plugins/tedix",
-			"description": "Bring your team’s tasks, knowledge, and working instructions into the AI assistant you already use."
+			"description": "Tedix is a platform for agents, apps, and work. Give your team and AI agents a shared place for project information, tasks, apps, and results."
 		}
 	]
 }

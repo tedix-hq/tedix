@@ -13,7 +13,7 @@ walkthrough for people is
 
 ## Use it
 
-- Devin CLI, Desktop and cloud: `devin plugins install tedix-hq/tedix#plugins/tedix -y`.
+- Devin CLI, Desktop and cloud: `devin plugins install tedix-hq/tedix-plugins -y`.
   See the [Devin guide](docs/devin.md) for MCP connection, local hooks and
   organization installation. Devin OAuth configuration is pending the CIMD lane.
 - Claude chat and Cowork: add a custom connector named **Tedix** with the URL
@@ -41,11 +41,16 @@ For Claude chat, Cowork and Claude Code, see the
 format from the same skills; `--local` adds opt-in context hooks. An explicit
 `--mcp-url` selects a self-hosted or local gateway without changing CLI bindings.
 
-Build a reproducible review ZIP from this source with Bun:
+Every host uses the name and version in `plugin.json`. After changing that
+manifest, regenerate the checked-in host manifests and build the needed ZIP:
 
 ```sh
+bun packages/cli/scripts/sync-plugin-manifests.ts
 bun packages/cli/scripts/package-plugin.ts /tmp/tedix-public.zip
 bun packages/cli/scripts/package-plugin.ts --local /tmp/tedix-local.zip
+bun packages/cli/scripts/package-plugin.ts --host claude /tmp/tedix-claude.zip
+bun packages/cli/scripts/package-plugin.ts --host devin /tmp/tedix-devin.zip
+bun packages/cli/scripts/package-plugin.ts --host opencode /tmp/tedix-opencode.zip
 ```
 
 For the default OpenAI artifact, root `plugin.json` owns the canonical `tedix` identity. The builder imports
@@ -61,12 +66,18 @@ artifact contains app registrations or credentials.
 The local hooks need Tedix CLI 0.8.17 or later.
 Building a ZIP does not install, submit or publish it.
 
-OpenAI supports MCP, skills and trusted local hooks in one plugin. Omitting
-hooks from the cloud artifact is a Tedix execution-environment choice, not an
-OpenAI prohibition: a web installation cannot supply the separately installed
-and authenticated Tedix CLI that runs the hooks. Review changed hook definitions
-in the local host before enabling them. No second plugin is needed; the only
-recorder is the opt-in decision-capture hook described in the Codex guide.
+OpenAI public submissions cannot contain lifecycle hooks or registered-app
+references. Submit the default ZIP to the existing marketplace plugin; keep
+`--local` packages for manually installed desktop integrations. Review changed
+hooks in the local host before enabling them.
+
+For a personal ChatGPT development plugin that already has an MCP app, build
+with `--host chatgpt-dev --app-id <existing-app-id>` and upload to that existing
+plugin. This variant shares the release version, skills and logos but references
+the existing app instead of creating another MCP connection. It is not a public
+submission package. Never check the app ID or generated bundle into source.
+Signing in, refreshing tools, uploading a package, and publishing are separate
+steps; a source change does not update an installed package automatically.
 
 Portable `mcp.json` uses the Agent Plugins `streamable-http` schema. The
 host-native `.mcp.json` declares the same remote server with type `http` and

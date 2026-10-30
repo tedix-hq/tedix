@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { EXPANDED_HOOK_BYTES, HOOK_BYTES } from "../src/hooks/prompt-context";
 import { pluginRepoFiles } from "./build-plugin-repo";
 import { devinHooksSchema } from "./devin-hooks";
+import { syncPluginManifests } from "./sync-plugin-manifests";
 import {
 	build,
 	HOOK_GUARD,
@@ -134,6 +135,56 @@ function withDirectory(run: (directory: string) => void): void {
 }
 
 describe("plugin packager", () => {
+	test("checked-in host manifests match the canonical release", () => {
+		expect(() => syncPluginManifests(ROOT, true)).not.toThrow();
+	});
+
+	test("native packages use the canonical version even when a host manifest drifts", () =>
+		withDirectory((directory) => {
+			cpSync(ROOT, directory, { recursive: true });
+			const path = join(directory, "plugin.json");
+			const canonical = JSON.parse(readFileSync(path, "utf8"));
+			canonical.version = "9.8.7";
+			writeFileSync(path, JSON.stringify(canonical));
+			expect(() => syncPluginManifests(directory, true)).toThrow(
+				/differs from plugin.json/,
+			);
+			for (const host of ["claude", "devin", "opencode"]) {
+				const files = packageFiles({ root: directory, host });
+				const manifest =
+					host === "opencode" ? "plugin.json" : `.${host}-plugin/plugin.json`;
+				expect(decode(files, manifest)).toMatchObject({
+					name: "tedix",
+					version: "9.8.7",
+				});
+			}
+		}));
+
+	test("development upload reuses one app without adding a second MCP connection", () => {
+		const appId = `asdk_app_${"a".repeat(32)}`;
+		const files = packageFiles({ host: "chatgpt-dev", appId });
+		const canonical = decode(packageFiles(), "plugin.json");
+		expect(decode(files, "plugin.json")).toMatchObject({
+			name: canonical.name,
+			version: canonical.version,
+		});
+		expect(decode(files, ".app.json")).toEqual({
+			apps: { tedix: { id: appId } },
+		});
+		expect(files.has("mcp.json")).toBe(false);
+		expect(files.has(".mcp.json")).toBe(false);
+		expect(decode(files, ".codex-plugin/plugin.json")).not.toHaveProperty(
+			"mcpServers",
+		);
+		expect(() => packageFiles({ appId })).toThrow(/--app-id/);
+		expect(() =>
+			packageFiles({ host: "chatgpt-dev", appId, local: true }),
+		).toThrow(/--app-id/);
+		for (const [path, contents] of packageFiles())
+			if (path.startsWith("skills/") || path.startsWith("assets/"))
+				expect(files.get(path)).toEqual(contents);
+	});
+
 	test("every host ships Workspace Output placement refusal rules", () => {
 		for (const host of ["openai", "claude"])
 			for (const local of [false, true]) {

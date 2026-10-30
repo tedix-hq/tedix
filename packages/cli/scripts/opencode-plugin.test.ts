@@ -73,6 +73,9 @@ const message = (sessionID = SESSION) => ({
 test("one default export serves OpenCode 1 server() and OpenCode 2 setup()", () => {
 	expect(Object.keys(module)).toEqual(["default"]);
 	expect(module.default.id).toBe("tedix");
+	expect(module.default.version).toBe(
+		JSON.parse(readFileSync(join(ROOT, "plugin.json"), "utf8")).version,
+	);
 	expect(typeof module.default.server).toBe("function");
 	expect(typeof module.default.setup).toBe("function");
 	// OpenCode 1 configurations written before the directory entry name tedix.js.
@@ -604,6 +607,8 @@ test("OpenCode 2 preserves unquoted colons and isolates malformed skill metadata
 	mkdirSync(join(skillsDirectory, "colons"), { recursive: true });
 	mkdirSync(join(skillsDirectory, "valid"), { recursive: true });
 	const pluginPath = join(pluginDirectory, "index.mjs");
+	for (const name of ["plugin.json", "mcp.json"])
+		writeFileSync(join(root, name), readFileSync(join(ROOT, name)));
 	writeFileSync(
 		pluginPath,
 		readFileSync(join(ROOT, ".opencode-plugin", "index.js"), "utf8"),

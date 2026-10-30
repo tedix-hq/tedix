@@ -12,7 +12,7 @@
    start a new **Work** chat.
 6. Say "Connect my Tedix account" and follow the prompts.
 
-ChatGPT on the web is not supported yet (see [below](#chatgpt-on-the-web)).
+For a personal cloud installation, see [ChatGPT on the web](#chatgpt-on-the-web).
 The plain-English version is at
 <https://docs.tedix.dev/learning-paths/first-plugin>.
 
@@ -26,8 +26,8 @@ The default cloud artifact omits local hooks and registered `.app.json`
 references. The local artifact adds opt-in hooks under the same plugin identity;
 each hook runs `tedix hooks <name>`, needs only the installed Tedix CLI, and
 exits silently when that CLI is missing.
-OpenAI allows a plugin to combine MCP, skills and trusted local hooks; a web
-installation cannot supply the local CLI.
+OpenAI public submission ZIPs cannot contain hooks or registered-app references.
+Trusted local hooks are a separate desktop installation option.
 
 The Tedix plugin packages shared skills, a remote Tedix Connect MCP
 server, and an optional local session preflight. Installation makes these
@@ -103,10 +103,17 @@ is a team distribution path, not publication to the universal plugin directory.
 
 ### ChatGPT on the web
 
-ChatGPT on the web is not supported yet. The Tedix plugin is not published in
-the ChatGPT plugin directory, and adding the Tedix Connect URL as a
-developer-mode custom connector is not a tested or documented path. Use the
-ChatGPT desktop app (ChatGPT Work) or Codex as described above.
+The public Tedix marketplace package must pass review and be published before
+people can install it from the public directory. A personal development plugin
+is a separate installation and does not update when a marketplace draft changes.
+
+For an existing personal Tedix plugin, build the development variant described
+in the [plugin README](../README.md#cloud-package-and-first-use), using that
+plugin's existing app ID, and select **Upload new version** on its listing.
+The generated package retains the canonical Tedix release version and reuses
+the app connection. Its `.app.json` reference is for this personal installation
+only; OpenAI rejects it in public submissions. Codex desktop may cache that same
+remote plugin locally; adding a second Git installation is not required.
 
 The OpenAI compatibility manifest is
 [`../.codex-plugin/plugin.json`](../.codex-plugin/plugin.json). It points to

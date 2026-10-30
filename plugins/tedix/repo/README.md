@@ -39,6 +39,21 @@ codex mcp login tedix
 gemini extensions install https://github.com/tedix-hq/tedix-plugins
 ```
 
+**Devin CLI, Desktop and cloud**
+
+```sh
+devin plugins install tedix-hq/tedix-plugins -y
+devin plugins info tedix
+```
+
+Complete the MCP sign-in in Devin. Each host keeps its own OAuth grant.
+
+**OpenCode 1 and 2**
+
+Add `<absolute-path-to-this-checkout>/.opencode-plugin` to the `plugin` list
+in your OpenCode configuration, restart, then run `opencode mcp auth tedix`.
+Keep the complete checkout: the adapter uses its shared `skills/` directory.
+
 **Skills only, for any agent that reads Agent Skills**
 
 ```sh
@@ -53,20 +68,24 @@ with OAuth the first time a skill needs it.
 
 ## What is included
 
-| Path                    | For                                          |
-| ----------------------- | -------------------------------------------- |
-| `skills/`               | Agent Skills shared by every host            |
-| `.mcp.json`             | The remote Tedix MCP server (HTTP)           |
-| `.claude-plugin/`       | Claude Code plugin and marketplace manifests |
-| `.codex-plugin/`        | Codex plugin manifest                        |
-| `.agents/plugins/`      | Codex marketplace manifest                   |
-| `gemini-extension.json` | Gemini CLI and Antigravity extension         |
-| `llms-install.md`       | Install steps for installer agents           |
-| `assets/`               | Icons and logos                              |
+| Path                      | For                                          |
+| ------------------------- | -------------------------------------------- |
+| `skills/`                 | Agent Skills shared by every host            |
+| `plugin.json`, `mcp.json` | Portable plugin identity and MCP connection  |
+| `.mcp.json`               | The remote Tedix MCP server (HTTP)           |
+| `.claude-plugin/`         | Claude Code plugin and marketplace manifests |
+| `.codex-plugin/`          | Codex plugin manifest                        |
+| `.agents/plugins/`        | Codex marketplace manifest                   |
+| `.devin-plugin/`          | Devin plugin manifest                        |
+| `.opencode-plugin/`       | OpenCode 1 and 2 adapter                     |
+| `gemini-extension.json`   | Gemini CLI and Antigravity extension         |
+| `llms-install.md`         | Install steps for installer agents           |
+| `assets/`                 | Icons and logos                              |
 
-This published plugin contains **no hooks**. Optional local session hooks
-(session context, decision capture, turn status) ship with the
+The Git package omits lifecycle hook manifests. Optional local session hooks
+(session context, decision capture, turn status) run in the
 [Tedix CLI](https://docs.tedix.dev/cli): `tedix setup agents`.
+The OpenCode adapter also calls those hooks when the CLI is installed.
 
 ## Connected actions and payments
 

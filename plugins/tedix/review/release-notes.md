@@ -1,3 +1,16 @@
+Tedix 0.2.12 — one release across agent hosts.
+
+Claude, Codex, Devin, OpenCode and the public plugin repository use the root
+manifest's Tedix identity, version and shared skills. Reproducible builds cover
+public submission, local hosts and an existing personal ChatGPT app. The public
+ZIP omits hooks and app references; the personal variant reuses its app's OAuth
+connection. Installing an update does not grant additional access.
+
+Tedix 0.2.11 — clearer listing text.
+
+The uploaded OpenAI draft updated the description and starter prompts to match
+Tedix: a platform for agents, apps, and work.
+
 Tedix 0.2.10 — request platform administration alongside default permissions.
 
 The OpenAI connection declares platform administration as a base scope in
