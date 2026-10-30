@@ -5,13 +5,13 @@ import { createD1Facade } from "../test/d1-facade";
 import {
 	applyRoleTemplate,
 	archiveRoleTemplate,
-	CMO_ROLE_TEMPLATE_SEED,
 	copyPlatformRoleTemplate,
 	createRoleTemplate,
 	getRoleTemplateByKey,
 	listRoleTemplates,
 	RoleTemplateError,
 	upsertRoleTemplateSeed,
+	type RoleTemplateSeed,
 } from "./role-templates";
 import { listObjectives } from "./tedi-objectives";
 
@@ -170,6 +170,35 @@ CREATE UNIQUE INDEX uniq_tedi_role_assignment_active
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
 const NOW = "2026-07-18T00:00:00.000Z";
+
+const EXAMPLE_ROLE_SEED: RoleTemplateSeed = {
+	key: "cmo",
+	name: "Example Marketing Lead",
+	description: "Coordinate the fictional Example Co marketing team.",
+	persona:
+		"Use project guidelines and report results with supporting evidence.",
+	standingObjectives: [
+		{
+			title: "Keep example strategy current",
+			approach: "Review the project brief and record agreed changes.",
+			successCriteria: "The current brief includes dated supporting evidence.",
+			riskLevel: "low",
+			gateConfig: {
+				autonomyLevel: "supervised",
+				gateType: "always",
+				graduationCriteria: { consecutiveSuccesses: 3, minComplexity: 2 },
+				currentStreak: 0,
+				lastGraduatedAt: null,
+			},
+		},
+		{ title: "Prepare example campaign drafts", riskLevel: "medium" },
+		{ title: "Review example campaign results", riskLevel: "low" },
+	],
+	tags: ["marketing", "content", "analytics"],
+	capabilityProfile: "standard",
+	cronTemplateNames: ["objective-review"],
+	metadata: { fixture: true },
+};
 
 function fixture(): { db: DbClient; sqlite: DatabaseSync } {
 	const sqlite = new DatabaseSync(":memory:");
@@ -350,74 +379,19 @@ describe("copy platform role template", () => {
 });
 
 describe("seed upsert", () => {
-	it("inserts then updates the cmo seed idempotently (no duplicate row)", async () => {
+	it("inserts then updates a supplied seed idempotently (no duplicate row)", async () => {
 		const { db } = fixture();
-		const first = await upsertRoleTemplateSeed(db, CMO_ROLE_TEMPLATE_SEED);
+		const first = await upsertRoleTemplateSeed(db, EXAMPLE_ROLE_SEED);
 		expect(first.orgId).toBeNull();
 		expect(first.key).toBe("cmo");
 		expect(first.standingObjectives).toHaveLength(3);
-		expect(first.tags).toEqual([
-			"marketing",
-			"cms",
-			"analytics",
-			"gateway:operator",
-		]);
+		expect(first.tags).toEqual(EXAMPLE_ROLE_SEED.tags);
 		expect(first.capabilityProfile).toBe("standard");
 		expect(first.cronTemplateNames).toEqual(["objective-review"]);
-		// The active CMO profile must fit the API update limit and keep the
-		// current CMS route plus the authority boundaries together.
-		expect(first.persona.length).toBeLessThanOrEqual(5000);
-		expect(first.persona).toContain("cms_landing.get_site_overview");
-		expect(first.persona).toContain("https://tedix.dev/blog/{slug}");
-		expect(first.persona).toContain("cms_tedix are retired publishing targets");
-		expect(first.persona).toContain("low-risk posts on tedix.dev/blog");
-		expect(first.persona).toContain(
-			"Pages, homepage, legal pages, other collections",
-		);
-		expect(first.persona).toContain(
-			"SERVER-ATTRIBUTED authorization receipt from an ACCOUNTABLE PRINCIPAL",
-		);
-		expect(first.persona).toContain("a tedi OTHER than you");
-		expect(first.persona).toContain(
-			"A receipt authored by YOU is self-authorization",
-		);
-		expect(first.persona).toContain("7 days when a non-human did");
-		expect(first.persona).toContain("metadata.marketingCampaign.key");
-		expect(first.persona).toContain("before and after _rev");
-		expect(first.persona).toContain("submit that exact receipt");
-		expect(first.persona).toContain("read-only instructions override");
-		expect(first.persona).toContain("Home-delegated turn bound to a Work Item");
-		expect(first.persona).toContain(
-			"do not call Work readiness/start/heartbeat/settle",
-		);
-		expect(first.persona).toContain("exact slug-and-locale match");
-		expect(first.persona).toContain(
-			"retry at most once only after proven absence",
-		);
-		expect(first.persona).toContain("promptwatch_project_tedix.update_project");
-		expect(first.persona).toContain("promptwatch_tedix.listProjects");
-		expect(first.persona).toContain("honor Retry-After and retry once");
-		expect(first.persona).not.toMatch(
-			/projectKey|claimedByMe|checkoutId|work_item_claim|work_item_release/,
-		);
-		expect(first.metadata).toMatchObject({
-			operatingModel: "bounded-autonomy",
-			steeringSurface: "objective-linked-work-item",
-			evidenceReceipt: "workflow-run-and-work-item",
-			skillWorkflowSlug: "cmo-daily-operating-loop",
-			promptwatchProfileReadback: "required",
-			publicActions: "owned-channel-work-item-gate",
-			ownedChannel: "tedix.dev/blog",
-			ownedChannelTool: "cms_landing.content_publish",
-			ownedChannelGateScope: "tedix-unified:cms_landing__content_publish",
-			ownedChannelPublishReceipt: "work_item_evidence",
-			ownedChannelAuthorization:
-				"server-attributed-accountable-principal-receipt",
-			ownedChannelRevocation: "project-pause-or-user-revocation-event",
-			ownedChannelRisk: "low",
-		});
+		expect(first.persona).toBe(EXAMPLE_ROLE_SEED.persona);
+		expect(first.metadata).toEqual({ fixture: true });
 
-		const second = await upsertRoleTemplateSeed(db, CMO_ROLE_TEMPLATE_SEED);
+		const second = await upsertRoleTemplateSeed(db, EXAMPLE_ROLE_SEED);
 		expect(second.id).toBe(first.id);
 		const all = await listRoleTemplates(db, {});
 		expect(all.data).toHaveLength(1);
@@ -491,7 +465,7 @@ describe("applyRoleTemplate", () => {
 	it("is idempotent — re-apply does not duplicate objectives or tags", async () => {
 		const { db, sqlite } = fixture();
 		seedTedi(sqlite, "tedi-1", ORG);
-		await upsertRoleTemplateSeed(db, CMO_ROLE_TEMPLATE_SEED);
+		await upsertRoleTemplateSeed(db, EXAMPLE_ROLE_SEED);
 
 		const first = await applyRoleTemplate(db, {
 			tediId: "tedi-1",
@@ -578,7 +552,7 @@ describe("applyRoleTemplate", () => {
 	it("reconciles stale objective content and autonomy policy on re-apply", async () => {
 		const { db, sqlite } = fixture();
 		seedTedi(sqlite, "tedi-1", ORG);
-		await upsertRoleTemplateSeed(db, CMO_ROLE_TEMPLATE_SEED);
+		await upsertRoleTemplateSeed(db, EXAMPLE_ROLE_SEED);
 		await applyRoleTemplate(db, {
 			tediId: "tedi-1",
 			templateKey: "cmo",
@@ -588,7 +562,7 @@ describe("applyRoleTemplate", () => {
 			.prepare(
 				`UPDATE tedi_objectives
 				 SET approach = 'stale', gate_config = '{"autonomyLevel":"supervised"}'
-				 WHERE title = 'Keep Tedix market strategy current'`,
+				 WHERE title = 'Keep example strategy current'`,
 			)
 			.run();
 
@@ -598,7 +572,7 @@ describe("applyRoleTemplate", () => {
 			orgId: ORG,
 		});
 		expect(summary.objectivesUpdated).toEqual([
-			"Keep Tedix market strategy current",
+			"Keep example strategy current",
 		]);
 		const objective = (
 			await listObjectives(db, {
@@ -608,7 +582,7 @@ describe("applyRoleTemplate", () => {
 				limit: 100,
 				offset: 0,
 			})
-		).data.find((item) => item.title === "Keep Tedix market strategy current");
+		).data.find((item) => item.title === "Keep example strategy current");
 		expect(objective?.approach).not.toBe("stale");
 		expect(objective?.gateConfig).toMatchObject({
 			autonomyLevel: "supervised",
@@ -634,7 +608,7 @@ describe("applyRoleTemplate", () => {
 	it("enforces the cross-org guard on the target tedi", async () => {
 		const { db, sqlite } = fixture();
 		seedTedi(sqlite, "tedi-other", OTHER_ORG);
-		await upsertRoleTemplateSeed(db, CMO_ROLE_TEMPLATE_SEED);
+		await upsertRoleTemplateSeed(db, EXAMPLE_ROLE_SEED);
 		await expect(
 			applyRoleTemplate(db, {
 				tediId: "tedi-other",

@@ -793,8 +793,8 @@ describe("Work item read-only ledgers", () => {
 
 	it("quiets long event principals while preserving short human labels", () => {
 		expect(workEventActorLabel("owner-1", "user")).toBe("user:owner-1");
-		expect(workEventActorLabel("U39z24M4F456C31EdxA3a39gsuLH", "user")).toBe(
-			"user:U39z24M4…",
+		expect(workEventActorLabel("U000000000000000000000000000", "user")).toBe(
+			"user:U0000000…",
 		);
 	});
 });

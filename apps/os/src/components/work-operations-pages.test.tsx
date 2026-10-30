@@ -1260,10 +1260,10 @@ describe("Request and case identity presentation", () => {
 		expect(html).toContain("Sample Owner");
 		expect(html).not.toContain("sample-owner");
 		const unknown = renderToStaticMarkup(
-			<OperationActor type="user" id="U39z24M4F456C31EdxA3a39gsuLH" />,
+			<OperationActor type="user" id="U000000000000000000000000000" />,
 		);
 		expect(unknown).toContain("Unknown person");
-		expect(unknown).not.toContain("U39z24M4");
+		expect(unknown).not.toContain("U0000000");
 	});
 	it("suppresses identical subtitles and uses linked Work as the canonical origin on mobile", () => {
 		const client = new QueryClient({

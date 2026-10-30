@@ -246,7 +246,7 @@ describe("workspace name derivation", () => {
 				resolveLoginWorkspaceName({
 					gatewayUrl: "https://acme-unified.mcp.tedix.dev/mcp",
 					isDefaultGateway: false,
-					tokenTenant: "T3DUKiQ8HF4eFUN4En0uc7SUr0EM",
+					tokenTenant: "T000000000000000000000000000",
 				}),
 			).toBe("acme");
 		});
@@ -265,9 +265,9 @@ describe("workspace name derivation", () => {
 			const name = resolveLoginWorkspaceName({
 				gatewayUrl: DEFAULT_GW,
 				isDefaultGateway: true,
-				tokenTenant: "T3DUKiQ8HF4eFUN4En0uc7SUr0EM",
+				tokenTenant: "T000000000000000000000000000",
 			});
-			expect(name).toBe("T3DUKiQ8HF4eFUN4En0uc7SUr0EM");
+			expect(name).toBe("T000000000000000000000000000");
 			expect(name).not.toBe("default");
 		});
 
