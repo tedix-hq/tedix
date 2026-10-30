@@ -174,109 +174,6 @@ describe("authorized bounded writes", () => {
 			),
 		).toBeNull();
 	});
-	it("limits the Notion opt-in to reviewed page edits", async () => {
-		const ctx = context();
-		Object.assign(ctx.callerIdentity!, { organizationId: "example-org" });
-		const resolveOptIn = vi.fn(async () => ({
-			approved: true,
-			grantId: "grant",
-		}));
-		Object.assign(ctx.apiClient.mcpGovernance, {
-			resolveActionTypeOptIn: resolveOptIn,
-			resolveAgentTransportPolicy: vi.fn(async () => ({})),
-		});
-		const safe = {
-			page_id: "example",
-			command: "update_properties",
-			properties: { Status: "Done" },
-		};
-		const dynamicNotion = { ...notion, meta: {} };
-		expect(
-			await requireDestructiveToolApproval(
-				ctx,
-				dynamicNotion,
-				{ destructiveHint: true },
-				{ args: safe },
-			),
-		).toBeNull();
-		expect(resolveOptIn).toHaveBeenCalledWith({
-			organizationId: "example-org",
-			actionType: "notion_page_update",
-		});
-		resolveOptIn.mockClear();
-		for (const args of [
-			{ page_id: "example", command: "replace_content", content: "Overwrite" },
-			{
-				page_id: "example",
-				command: "update_content",
-				content_updates: [{ old_str: "old", new_str: "" }],
-				allow_deleting_content: true,
-			},
-		]) {
-			const result = await requireDestructiveToolApproval(
-				ctx,
-				dynamicNotion,
-				{ destructiveHint: true },
-				{ args },
-			);
-			expect(result?.isError).toBe(true);
-		}
-		expect(resolveOptIn).not.toHaveBeenCalled();
-		const other = {
-			...notion,
-			actionType: "notion_page_update",
-			meta: {
-				"com.tedix/policy": {
-					riskTier: "bounded_write",
-					blastRadius: "single_resource",
-				},
-			},
-			config: {
-				...notion.config,
-				auth: { type: "connection", connectionId: "other" },
-			},
-		};
-		expect(
-			(await requireDestructiveToolApproval(ctx, other, {}, { args: safe }))
-				?.isError,
-		).toBe(true);
-		expect(resolveOptIn).not.toHaveBeenCalled();
-	});
-	it("does not use the Notion opt-in when the organization asks for review", async () => {
-		const ctx = context();
-		Object.assign(ctx.callerIdentity!, { organizationId: "example-org" });
-		const resolveOptIn = vi.fn(async () => ({
-			approved: true,
-			grantId: "grant",
-		}));
-		Object.assign(ctx.apiClient.mcpGovernance, {
-			resolveActionTypeOptIn: resolveOptIn,
-			resolveAgentTransportPolicy: vi.fn(async () => ({
-				autonomy: {
-					version: 1,
-					maxRisk: "medium",
-					askForClasses: [
-						"action_type:notion_page_update",
-						"tool:example:notion_update_page",
-					],
-				},
-			})),
-		});
-		const result = await requireDestructiveToolApproval(
-			ctx,
-			notion,
-			{ destructiveHint: true },
-			{
-				args: {
-					page_id: "example",
-					command: "insert_content",
-					content: "A note",
-				},
-			},
-		);
-		expect(result?.isError).toBe(true);
-		expect(resolveOptIn).not.toHaveBeenCalled();
-	});
 	it.each([
 		{ page_id: "example", command: "replace_content", content: "Overwrite" },
 		{
@@ -326,20 +223,12 @@ describe("authorized bounded writes", () => {
 		);
 		expect(result?.isError).toBe(true);
 	});
-	it("keeps an explicitly high-risk Notion tool gated", async () => {
+	it("leaves unreviewed Notion writes gated", async () => {
 		expect(
 			(
 				await requireDestructiveToolApproval(
 					context(),
-					{
-						...notion,
-						meta: {
-							"com.tedix/policy": {
-								riskTier: "high_impact_write",
-								blastRadius: "tenant",
-							},
-						},
-					},
+					{ ...notion, meta: {} },
 					{ destructiveHint: true },
 					{
 						args: {

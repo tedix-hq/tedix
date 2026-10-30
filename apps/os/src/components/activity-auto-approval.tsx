@@ -24,7 +24,6 @@ import {
 	plainToolTitle,
 } from "@/lib/approval-titles";
 import { osApi } from "@/lib/api";
-import { NotionAutoApproval } from "@/components/notion-auto-approval";
 import {
 	approvalHistoryQueryOptions,
 	approvalRulesQueryOptions,
@@ -324,8 +323,6 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 					</Text>
 				</PolicyRow>
 			</ul>
-
-			<NotionAutoApproval />
 
 			<h3 className={sectionHeading}>Saved rules</h3>
 			{rules.isPending ? (
