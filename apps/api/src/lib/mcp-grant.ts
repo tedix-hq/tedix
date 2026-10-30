@@ -49,6 +49,7 @@ export type HumanMcpGrantDecision =
 			allowed: true;
 			reason: "active";
 			organizations: SelectedMcpOrganization[];
+			effectiveScopes?: string[];
 	  }
 	| {
 			allowed: false;
@@ -495,11 +496,13 @@ async function verifyHumanMcpGrantStages(
 		clientId: input.clientId,
 	};
 	const grantKey = { ...key, revision: input.consentRevision };
-	// The ledger reads do not depend on the provider answers, so they run while
-	// Descope is asked. Every result is still judged after the provider checks,
-	// in the same order, and the active grant is re-read before allowing.
+	// Read the immutable grant before judging provider scopes: a refreshed JWT
+	// may contain more authority than this installation approved.
+	const activeRead = readGrantState("active", () =>
+		getMcpConsentGrant(db, grantKey),
+	);
 	const ledgerReads = Promise.all([
-		readGrantState("active", () => getMcpConsentGrant(db, grantKey)),
+		activeRead,
 		readGrantState("pending", () => getMcpConsentPending(db, grantKey)),
 		readGrantState("memberships", () =>
 			getMembershipsByDescopeTenants(
@@ -525,10 +528,29 @@ async function verifyHumanMcpGrantStages(
 		}),
 		() => ({ ok: false as const }),
 	);
+	let current: Awaited<ReturnType<typeof getMcpConsentGrant>> = null;
+	if (input.supportsConsentScopeCeiling) {
+		try {
+			current = await activeRead;
+		} catch {
+			return deny("provider_unavailable");
+		}
+	}
+	const ceiling =
+		input.supportsConsentScopeCeiling &&
+		current?.revision === input.consentRevision &&
+		sameCanonicalSet(current.selectedTenantIds, input.selectedTenantIds)
+			? current.approvedScopes
+			: null;
+	const effectiveScopes = ceiling
+		? input.tokenScopes.filter((scope) => ceiling.includes(scope))
+		: input.tokenScopes;
+	if (effectiveScopes.length === 0) return deny("scope_missing");
+	const effectiveInput = { ...input, tokenScopes: effectiveScopes };
 
 	// Platform administration is never served from kept facts: removing the
 	// provider role must end it on the next request.
-	const cacheable = !input.tokenScopes.includes("platform:admin");
+	const cacheable = !effectiveScopes.includes("platform:admin");
 	const factsKey = providerFactsKey(input, resource);
 	let facts = cacheable ? providerFactsCache.get(factsKey) : null;
 	if (facts) {
@@ -537,7 +559,7 @@ async function verifyHumanMcpGrantStages(
 		const loaded = await loadProviderFacts(
 			db,
 			env,
-			input,
+			effectiveInput,
 			resource,
 			mark,
 			deadline,
@@ -550,9 +572,9 @@ async function verifyHumanMcpGrantStages(
 	// request's own scopes are always judged against them here.
 	const { supportedScopes, consentScopes, platformAdmin } = facts;
 	if (
-		input.tokenScopes.some((scope) => !supportedScopes.has(scope)) ||
-		(input.tokenScopes.includes("platform:admin") && !platformAdmin) ||
-		!input.tokenScopes.every((scope) => consentScopes.has(scope))
+		effectiveScopes.some((scope) => !supportedScopes.has(scope)) ||
+		(effectiveScopes.includes("platform:admin") && !platformAdmin) ||
+		!effectiveScopes.every((scope) => consentScopes.has(scope))
 	)
 		return deny("scope_missing");
 	const appId = facts.appId;
@@ -567,6 +589,7 @@ async function verifyHumanMcpGrantStages(
 		ledger,
 		appId,
 		liveTenants,
+		effectiveScopes,
 		mark,
 		defer,
 	);
@@ -731,6 +754,7 @@ async function judgeLedger(
 	},
 	appId: string,
 	liveTenants: ReadonlySet<string>,
+	effectiveScopes: string[],
 	mark: (stage: string) => void,
 	defer?: (promise: Promise<unknown>) => void,
 ): Promise<HumanMcpGrantDecision> {
@@ -740,15 +764,26 @@ async function judgeLedger(
 		clientId: input.clientId,
 	};
 	const grantKey = { ...key, revision: input.consentRevision };
-	// Several installs of one OAuth client may each hold an active grant; the
-	// signed revision selects exactly one, whose authority must match exactly.
-	const matchesActive = (
+	// The revision and organizations identify one installation. Its original
+	// approval remains an immutable ceiling even when the issuer widens a JWT.
+	const matchesIdentity = (
 		grant: Awaited<ReturnType<typeof getMcpConsentGrant>>,
 	) =>
 		grant?.appId === appId &&
 		grant.revision === input.consentRevision &&
-		sameCanonicalSet(grant.selectedTenantIds, input.selectedTenantIds) &&
-		sameCanonicalSet(grant.approvedScopes, input.tokenScopes);
+		sameCanonicalSet(grant.selectedTenantIds, input.selectedTenantIds);
+	const active = matchesIdentity(ledger.current);
+	const approvedScopes =
+		active && input.supportsConsentScopeCeiling
+			? ledger.current!.approvedScopes
+			: input.tokenScopes;
+	const matchesActive = (
+		grant: Awaited<ReturnType<typeof getMcpConsentGrant>>,
+	) =>
+		matchesIdentity(grant) &&
+		sameCanonicalSet(grant!.approvedScopes, approvedScopes);
+	if (!active && !sameCanonicalSet(effectiveScopes, input.tokenScopes))
+		return deny("selection_replaced");
 	const pending = matchesActive(ledger.current) ? null : ledger.pending;
 	if (
 		!matchesActive(ledger.current) &&
@@ -775,7 +810,7 @@ async function judgeLedger(
 		const client = { mcpServerId: input.mcpServerId, clientId: input.clientId };
 		const verdict = evaluateInboundClientPolicy(
 			parseStoredInboundClientPolicy(row.inboundClientPolicyJson),
-			{ ...client, scopes: input.tokenScopes },
+			{ ...client, scopes: effectiveScopes },
 		);
 		await recordInboundClientVerdict(
 			db,
@@ -825,7 +860,12 @@ async function judgeLedger(
 		return deny("provider_unavailable");
 	}
 	mark("finalize");
-	return { allowed: true, reason: "active", organizations };
+	return {
+		allowed: true,
+		reason: "active",
+		organizations,
+		...(input.supportsConsentScopeCeiling ? { effectiveScopes } : {}),
+	};
 }
 
 /** Stored decisions are not issued tokens: report provider consent separately. */

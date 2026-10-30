@@ -40,6 +40,7 @@ import {
 } from "@tedix/auth/rbac";
 import { extractTediRuntimeApiScopes } from "@tedix/auth/tedi-identity";
 import {
+	extractJwtScopes,
 	extractTediJwtClaims,
 	getTenantId,
 	getTenantRoles,
@@ -482,16 +483,16 @@ async function authenticateForwardedMcpUserJwt(
 	// service-binding tool calls, which re-validate nothing.
 	// Local MCP validates the demo credential at loopback ingress. Its binding
 	// uses an internal URL, so retain the explicit local-runner flag here.
-	const payload =
-		resolveLocalDemoUser({
-			environment: context.env.ENVIRONMENT,
-			projectId: context.env.DESCOPE_PROJECT_ID,
-			token,
-			url: context.url,
-			enabled:
-				(context.env as CloudflareEnv & { TEDIX_LOCAL_DEMO_ENABLED?: string })
-					.TEDIX_LOCAL_DEMO_ENABLED === "true",
-		}) ?? decodeTokenUnsafe(token);
+	const localDemoUser = resolveLocalDemoUser({
+		environment: context.env.ENVIRONMENT,
+		projectId: context.env.DESCOPE_PROJECT_ID,
+		token,
+		url: context.url,
+		enabled:
+			(context.env as CloudflareEnv & { TEDIX_LOCAL_DEMO_ENABLED?: string })
+				.TEDIX_LOCAL_DEMO_ENABLED === "true",
+	});
+	const payload = localDemoUser ?? decodeTokenUnsafe(token);
 	if (!payload) {
 		throw createError(
 			ErrorCodes.UNAUTHORIZED,
@@ -511,22 +512,18 @@ async function authenticateForwardedMcpUserJwt(
 		);
 	}
 	context.user = payload;
-	// This header is produced only by the MCP Worker after it validates the
-	// user's OAuth grant, and arrives over a trusted service binding. Preserve
-	// the normal user principal while augmenting its capability scopes; do not
-	// place these scopes in tediScopes, which would misattribute the action to a
-	// worker. This lets a human platform operator use explicit cross-tenant
-	// control-plane tools through Code Mode.
-	const edgeScopes = (context.headers.get(MCP_EDGE_CALLER_SCOPES_HEADER) ?? "")
-		.split(/\s+/)
-		.filter(Boolean);
-	if (edgeScopes.length > 0) {
-		const tokenScopes = Array.isArray(context.user.scopes)
-			? context.user.scopes.filter(
-					(scope): scope is string => typeof scope === "string",
-				)
-			: [];
-		context.user.scopes = [...new Set([...tokenScopes, ...edgeScopes])];
+	// The trusted MCP binding carries the installation's consent ceiling.
+	// Keep the user identity, but do not let a widened refresh JWT restore
+	// scopes the edge removed. Normalize every scope claim read by API guards.
+	const edgeScopeHeader = context.headers.get(MCP_EDGE_CALLER_SCOPES_HEADER);
+	if (edgeScopeHeader !== null) {
+		const edgeScopes = new Set(edgeScopeHeader.split(/\s+/).filter(Boolean));
+		const scopes = localDemoUser
+			? [...edgeScopes]
+			: extractJwtScopes(payload).filter((scope) => edgeScopes.has(scope));
+		context.user.scopes = scopes;
+		context.user.scope = scopes.join(" ");
+		context.user.scp = scopes.join(" ");
 	}
 	context.authType = "user";
 	const [userId, targetOrg] = await Promise.all([
