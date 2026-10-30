@@ -1,4 +1,6 @@
 import { call, os } from "@orpc/server";
+import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
+import { extractJwtScopes, isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	afterEach,
 	beforeEach,
@@ -531,7 +533,11 @@ describe("forwarded MCP agentic-app user identity", () => {
 	const agenticIssuer =
 		"https://api.descope.com/v1/apps/agentic/P2fictional/RSapp1";
 
-	async function resolve(claims: Record<string, unknown>) {
+	async function resolve(
+		claims: Record<string, unknown>,
+		edgeScopes?: string,
+		trustedBinding = true,
+	) {
 		shareAuthMocks.resolvePrincipalIdentity.mockImplementation(
 			async (_db, identity: { issuer: string; subject: string }, options) =>
 				identity.issuer === projectIssuer &&
@@ -568,6 +574,9 @@ describe("forwarded MCP agentic-app user identity", () => {
 			}),
 			db: {},
 		} as unknown as BaseContext;
+		if (edgeScopes !== undefined)
+			context.headers.set("X-Tedix-Mcp-Caller-Scopes", edgeScopes);
+		if (!trustedBinding) context.headers.delete("X-Service-Binding");
 		await call(guarded, undefined, { context });
 		const [, identity] =
 			shareAuthMocks.resolvePrincipalIdentity.mock.calls.at(-1) ?? [];
@@ -595,6 +604,64 @@ describe("forwarded MCP agentic-app user identity", () => {
 		const { context, identity } = await resolve({ act: { sub: "TPAagent" } });
 		expect(identity).toMatchObject({ issuer: agenticIssuer });
 		expect(context?.userId).toBeUndefined();
+	});
+
+	it.each(["scope", "scp", "scopes", "all"])(
+		"keeps a widened 34-scope %s JWT below the 22-scope MCP consent ceiling",
+		async (claim) => {
+			const issued = [
+				...Object.keys(MCP_GRANULAR_CAPABILITY_SCOPES),
+				"connections.read",
+				"connections.execute",
+				"connections.admin",
+				"platform:admin",
+			];
+			const approved = issued.filter(
+				(scope) => !scope.endsWith(".admin") && scope !== "platform:admin",
+			);
+			const claims = {
+				...(claim === "scope" || claim === "all"
+					? { scope: issued.join(" ") }
+					: {}),
+				...(claim === "scp" || claim === "all"
+					? { scp: issued.join(" ") }
+					: {}),
+				...(claim === "scopes" || claim === "all" ? { scopes: issued } : {}),
+			};
+			expect(issued).toHaveLength(34);
+			expect(approved).toHaveLength(22);
+			const { context } = await resolve(claims, approved.join(" "));
+			expect(extractJwtScopes(context!.user!)).toEqual(approved);
+			expect(isPlatformPrincipal(context!)).toBe(false);
+			expect(context?.user?.scope).toBe(approved.join(" "));
+			expect(context?.user?.scp).toBe(approved.join(" "));
+			expect(context?.user?.scopes).toEqual(approved);
+		},
+	);
+
+	it("does not let the trusted MCP header add scopes absent from the JWT", async () => {
+		const { context } = await resolve(
+			{ scope: "mcp:work.read" },
+			"mcp:work.read platform:admin connections.admin",
+		);
+		expect(extractJwtScopes(context!.user!)).toEqual(["mcp:work.read"]);
+	});
+
+	it("keeps an explicit empty MCP ceiling empty", async () => {
+		const { context } = await resolve({ scope: "platform:admin" }, "");
+		expect(extractJwtScopes(context!.user!)).toEqual([]);
+	});
+
+	it("preserves legacy JWT scopes when the MCP header is absent", async () => {
+		const { context } = await resolve({ scope: "mcp:work.read" });
+		expect(extractJwtScopes(context!.user!)).toEqual(["mcp:work.read"]);
+	});
+
+	it("does not authenticate a public caller from MCP forwarding headers", async () => {
+		await expect(
+			resolve({ scope: "mcp:work.read" }, "platform:admin", false),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		expect(shareAuthMocks.resolvePrincipalIdentity).not.toHaveBeenCalled();
 	});
 
 	it.each([

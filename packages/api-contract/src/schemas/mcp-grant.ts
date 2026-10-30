@@ -42,6 +42,7 @@ export const VerifyHumanMcpGrantInputSchema = z.strictObject({
 	consentId: z.string().min(1).max(256),
 	consentRevision: z.uuid(),
 	tokenScopes: SelectedScopesSchema,
+	supportsConsentScopeCeiling: z.literal(true).optional(),
 });
 
 export type VerifyHumanMcpGrantInput = z.infer<
@@ -146,6 +147,7 @@ export type ListInboundClientInventoryResult = z.infer<
 
 export const VerifyHumanMcpGrantResultSchema = z.strictObject({
 	allowed: z.boolean(),
+	effectiveScopes: SelectedScopesSchema.optional(),
 	reason: z.enum([
 		"active",
 		"consent_missing",

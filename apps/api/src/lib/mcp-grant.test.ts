@@ -1,4 +1,8 @@
-import { StageHumanMcpConsentInputSchema } from "@tedix/api-contract/schemas/mcp-grant";
+import {
+	StageHumanMcpConsentInputSchema,
+	VerifyHumanMcpGrantInputSchema,
+	VerifyHumanMcpGrantResultSchema,
+} from "@tedix/api-contract/schemas/mcp-grant";
 import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
 import {
 	collectDescopeResourceScopes,
@@ -230,6 +234,207 @@ describe("verifyHumanMcpGrant", () => {
 			selectedTenantIds: tenantIds,
 			approvedScopes: input.tokenScopes,
 		});
+	});
+
+	it("caps a widened refresh JWT at its installation's 22 approved scopes", async () => {
+		const issued = [
+			...Object.keys(MCP_GRANULAR_CAPABILITY_SCOPES),
+			"connections.read",
+			"connections.execute",
+			"connections.admin",
+			"platform:admin",
+		];
+		const approved = issued.filter(
+			(scope) => !scope.endsWith(".admin") && scope !== "platform:admin",
+		);
+		expect(issued).toHaveLength(34);
+		expect(approved).toHaveLength(22);
+		const clientId = "https://assistant.example/oauth-client.json";
+		const clients = await mocks.searchDescopeMcpServerClients();
+		mocks.searchDescopeMcpServerClients.mockResolvedValue(
+			clients.map((client: Record<string, unknown>) => ({
+				...client,
+				clientId,
+			})),
+		);
+		const server = await mocks.loadDescopeMcpServer();
+		mocks.loadDescopeMcpServer.mockResolvedValue({
+			...server,
+			approvedScopes: {
+				connectionsScopes: issued.map((name) => ({ name })),
+			},
+		});
+		const resource = await mocks.getMcpConsentResource();
+		resource.metadata.mcpConfig.protectedResourceMetadata.scopes_supported =
+			issued;
+		mocks.getMcpConsentSelection.mockResolvedValue({
+			appId: "app-1",
+			revision: input.consentRevision,
+			status: "active",
+			selectedTenantIds: tenantIds,
+			approvedScopes: approved,
+		});
+		mocks.searchConsents.mockResolvedValue({
+			ok: true,
+			data: [
+				{
+					id: input.consentId,
+					appId: "app-1",
+					userId: input.descopeUserId,
+					scopes: approved,
+				},
+			],
+		});
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		const request = {
+			...input,
+			clientId,
+			tokenScopes: issued,
+			supportsConsentScopeCeiling: true as const,
+		};
+		const result = await verifyHumanMcpGrant({} as never, env, request);
+		expect(result).toMatchObject({ allowed: true, effectiveScopes: approved });
+		expect(
+			VerifyHumanMcpGrantResultSchema.parse(result).effectiveScopes,
+		).toEqual(approved);
+		await verifyHumanMcpGrant({} as never, env, request);
+		// Unapproved admin claims do not force the platform-admin provider path.
+		expect(mocks.loadByUserId).toHaveBeenCalledTimes(1);
+		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
+	});
+
+	it("keeps a narrowed token narrower than its saved grant", async () => {
+		const approved = ["mcp:apps.read", "mcp:work.read"];
+		const selection = await mocks.getMcpConsentSelection();
+		mocks.getMcpConsentSelection.mockResolvedValue({
+			...selection,
+			approvedScopes: approved,
+		});
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect(
+			await verifyHumanMcpGrant({} as never, env, {
+				...input,
+				supportsConsentScopeCeiling: true,
+			}),
+		).toMatchObject({ allowed: true, effectiveScopes: input.tokenScopes });
+	});
+
+	it("keeps exact scope matching for an edge that cannot enforce the ceiling", async () => {
+		const scopes = ["mcp:apps.read", "mcp:work.read"];
+		mocks.searchConsents.mockResolvedValue({
+			ok: true,
+			data: [
+				{
+					id: input.consentId,
+					appId: "app-1",
+					userId: input.descopeUserId,
+					scopes,
+				},
+			],
+		});
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect(
+			await verifyHumanMcpGrant({} as never, env, {
+				...input,
+				tokenScopes: scopes,
+			}),
+		).toMatchObject({ allowed: false, reason: "selection_replaced" });
+	});
+
+	it("does not activate a pending consent from a widened token", async () => {
+		mocks.getMcpConsentGrant.mockResolvedValue(null);
+		mocks.getMcpConsentPending.mockResolvedValue({
+			appId: "app-1",
+			revision: input.consentRevision,
+			expectedActiveRevision: "old",
+			selectedTenantIds: tenantIds,
+			approvedScopes: input.tokenScopes,
+			expiresAt: "2999-01-01T00:00:00.000Z",
+		});
+		const scopes = ["mcp:apps.read", "mcp:work.read"];
+		mocks.searchConsents.mockResolvedValue({
+			ok: true,
+			data: [
+				{
+					id: input.consentId,
+					appId: "app-1",
+					userId: input.descopeUserId,
+					scopes,
+				},
+			],
+		});
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect(
+			await verifyHumanMcpGrant({} as never, env, {
+				...input,
+				tokenScopes: scopes,
+				supportsConsentScopeCeiling: true,
+			}),
+		).toMatchObject({ allowed: false, reason: "selection_replaced" });
+		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
+	});
+
+	it.each(["revision", "organizations", "app", "revoke"])(
+		"does not bypass the %s fence when enforcing a scope ceiling",
+		async (failure) => {
+			if (failure === "app") {
+				const selection = await mocks.getMcpConsentSelection();
+				mocks.getMcpConsentSelection.mockResolvedValue({
+					...selection,
+					appId: "wrong-app",
+				});
+			}
+			if (failure === "revoke") {
+				const selection = await mocks.getMcpConsentSelection();
+				mocks.getMcpConsentSelection
+					.mockResolvedValueOnce(selection)
+					.mockResolvedValue(null);
+			}
+			const { verifyHumanMcpGrant } = await import("./mcp-grant");
+			expect(
+				await verifyHumanMcpGrant({} as never, env, {
+					...input,
+					...(failure === "revision"
+						? { consentRevision: "00000000-0000-4000-8000-000000000002" }
+						: {}),
+					...(failure === "organizations"
+						? { selectedTenantIds: [tenantIds[0]!] }
+						: {}),
+					supportsConsentScopeCeiling: true,
+				}),
+			).toMatchObject({ allowed: false, reason: "selection_replaced" });
+		},
+	);
+
+	it("fails closed when the active ceiling cannot be read", async () => {
+		mocks.getMcpConsentGrant.mockRejectedValue(new Error("ledger unavailable"));
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		expect(
+			await verifyHumanMcpGrant({} as never, env, {
+				...input,
+				supportsConsentScopeCeiling: true,
+			}),
+		).toMatchObject({ allowed: false, reason: "provider_unavailable" });
+		expect(mocks.searchConsents).not.toHaveBeenCalled();
+	});
+
+	it("requires explicit caller support before returning bounded authority", () => {
+		const { resourceUrl: _resourceUrl, ...request } = input;
+		expect(
+			VerifyHumanMcpGrantInputSchema.parse(request).supportsConsentScopeCeiling,
+		).toBeUndefined();
+		expect(
+			VerifyHumanMcpGrantInputSchema.parse({
+				...request,
+				supportsConsentScopeCeiling: true,
+			}).supportsConsentScopeCeiling,
+		).toBe(true);
+		expect(
+			VerifyHumanMcpGrantInputSchema.safeParse({
+				...request,
+				supportsConsentScopeCeiling: false,
+			}).success,
+		).toBe(false);
 	});
 
 	it("stages every non-empty read-only capability subset for a fictional non-admin member", async () => {
