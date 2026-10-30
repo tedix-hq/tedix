@@ -12,7 +12,7 @@ import {
 import worker from "./index";
 import { handleMcpRequest } from "./mcp-request";
 import { SIDEBAR_APP_WIDGET_DESCRIPTION } from "./mcp/sidebar-app";
-import { validateAuth } from "./auth-helpers";
+import { resolveHumanMcpSelection, validateAuth } from "./auth-helpers";
 
 const { resolveGateway } = vi.hoisted(() => ({ resolveGateway: vi.fn() }));
 vi.mock("./resolution", async (importOriginal) => ({
@@ -49,6 +49,90 @@ function createEnv(overrides: Record<string, unknown> = {}) {
 		...overrides,
 	} as unknown as CloudflareEnv;
 }
+
+describe("human MCP consent scope ceiling", () => {
+	it("denies an admin tool when the refreshed token exceeds the stored consent", async () => {
+		resolveGateway.mockResolvedValue({
+			app: {
+				id: "fixture-app",
+				slug: "fixture",
+				name: "Fixture",
+				organizationId: "fixture-org",
+			},
+			metadata: {
+				mcpConfig: {
+					authMode: "authenticated",
+					descopeResourceId: "fixture-resource",
+					toolScopes: { admin_only: ["platform:admin"] },
+				},
+			},
+			tools: [
+				{
+					id: "fixture-tool",
+					toolId: "admin_only",
+					enabled: true,
+					config: { transport: "rpc", endpoint: "fixture/admin" },
+				},
+			],
+		});
+		vi.mocked(validateAuth).mockResolvedValueOnce({
+			type: "oauth",
+			userId: "fixture-user",
+			organizationId: "fixture-tenant",
+			scopes: ["mcp:work.read", "platform:admin"],
+			payload: {
+				sub: "fixture-user",
+				dct: "fixture-tenant",
+				exp: 2000000000,
+				iss: "fixture-issuer",
+			},
+		});
+		vi.mocked(resolveHumanMcpSelection).mockResolvedValueOnce({
+			ok: true,
+			selection: {
+				effectiveScopes: ["mcp:work.read"],
+				organizations: [
+					{
+						organizationId: "fixture-org",
+						descopeTenantId: "fixture-tenant",
+						gatewaySlug: "fixture",
+					},
+				],
+			},
+		});
+		const response = await worker.fetch(
+			new Request("https://fixture.mcp.tedix.dev/mcp", {
+				method: "POST",
+				headers: {
+					Authorization: "Bearer fixture",
+					"Content-Type": "application/json",
+					"Mcp-Method": "tools/call",
+					"Mcp-Name": "admin_only",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: { name: "admin_only", arguments: {} },
+				}),
+			}),
+			createEnv({
+				ENVIRONMENT: "production",
+				DESCOPE_PROJECT_ID: "Pfixture",
+				MCP_URL: "https://mcp.tedix.dev",
+				API_SERVICE: {
+					fetch: async () =>
+						Response.json({ json: { descopeTenantId: "fixture-tenant" } }),
+				},
+			}),
+			{ waitUntil: vi.fn() } as unknown as ExecutionContext,
+		);
+		expect(response.status).toBe(403);
+		expect(await response.json()).toMatchObject({
+			error: "insufficient_scope",
+		});
+	});
+});
 
 describe("event extension discovery", () => {
 	it.each([

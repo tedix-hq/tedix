@@ -9,6 +9,10 @@ import type { AppTool, ServerContext } from "./server-context";
 import type { CatalogToolEntry } from "./codemode-catalog-entries";
 import {
 	buildNamespaceGroups,
+	buildLazyNamespaceGroups,
+	buildProviders,
+	legacyNamespaceAliases,
+	withLegacyNamespaceAliases,
 	type CodeModeExecutionRefs,
 } from "./codemode-execution";
 import { McpNativeDescriptorSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
@@ -208,5 +212,57 @@ describe("catalog projection reuse", () => {
 			groups.get("apps")!.schemas.read_item?.inputSchema.properties,
 		).toEqual(schema.properties);
 		expect(read).toHaveBeenCalledTimes(1);
+	});
+	it("enumerates 16k bindings and legacy aliases without building executable namespaces", () => {
+		const policyReads = new Map<string, number>();
+		const tools = Array.from({ length: 16_000 }, (_, i) => {
+			const namespace = `org_${i % 100}`;
+			const tool = {
+				...row(),
+				toolId: `${namespace}__read_${i}`,
+				config: {
+					transport: "rpc",
+					endpoint: "apps/get",
+					_aggregateNamespace: namespace,
+					_aggregateLegacyNamespace: `legacy_${i % 10}`,
+				},
+			} as AppTool;
+			Object.defineProperty(tool, "meta", {
+				get: () => {
+					policyReads.set(namespace, (policyReads.get(namespace) ?? 0) + 1);
+					return null;
+				},
+			});
+			return tool;
+		});
+		const ctx = context(tools[0]!);
+		ctx.loadedTools.clear();
+		for (const tool of tools) ctx.loadedTools.set(tool.toolId, tool);
+		const groups = buildLazyNamespaceGroups(
+			ctx,
+			undefined,
+			{} as CodeModeExecutionRefs,
+			new Set(),
+		);
+		const providers = withLegacyNamespaceAliases(
+			buildProviders(groups),
+			legacyNamespaceAliases(ctx, undefined, groups, new Set()),
+		);
+		expect(
+			providers.reduce(
+				(n, provider) => n + Object.keys(provider.fns).length,
+				0,
+			),
+		).toBe(32_000);
+		expect(policyReads.size).toBe(0);
+		const selected = providers.find((provider) => provider.name === "org_2")!;
+		expect(Object.entries(selected.fns)).toHaveLength(160);
+		// The error transport remains lazy too: SDK registration wraps only the
+		// selected provider, and the original namespace is built on first dispatch.
+		expect(policyReads.size).toBe(0);
+		const original = groups.get("org_2")!.fns.read_2;
+		expect(typeof original).toBe("function");
+		expect([...policyReads.keys()]).toEqual(["org_2"]);
+		expect(policyReads.get("org_2")).toBe(160);
 	});
 });

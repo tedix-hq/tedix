@@ -172,6 +172,7 @@ describe("multi-organization MCP consent", () => {
 			return Response.json({
 				json: {
 					allowed: true,
+					effectiveScopes: ["mcp:apps.read", "mcp:work.read"],
 					organizations: [
 						{
 							organizationId: "id-1",
@@ -304,6 +305,7 @@ describe("multi-organization MCP consent", () => {
 			Response.json({
 				json: {
 					allowed: true,
+					effectiveScopes: ["mcp:apps.read", "platform:admin"],
 					organizations: [
 						{
 							organizationId: "id-1",
@@ -363,6 +365,61 @@ describe("multi-organization MCP consent", () => {
 			validateHumanMcpSelection(admin, env, config),
 		).resolves.toBeNull();
 	});
+});
+
+describe("human MCP consent scope ceiling", () => {
+	it.each([
+		[["mcp:work.read"], true],
+		[["connections.admin"], false],
+		[[], false],
+		[undefined, false],
+	])(
+		"validates the verifier's effective scopes %j",
+		async (effectiveScopes, allowed) => {
+			const fetch = vi.fn(async (_request: Request) =>
+				Response.json({
+					json: {
+						allowed: true,
+						effectiveScopes,
+						organizations: [
+							{
+								organizationId: "fixture-org",
+								descopeTenantId: "fixture-tenant",
+								gatewaySlug: "fixture",
+							},
+						],
+					},
+				}),
+			);
+			const result = await resolveHumanMcpSelection(
+				{
+					sub: "fixture-user",
+					exp: 2000000000,
+					iss: "fixture-issuer",
+					azp: "fixture-client",
+					dci: "fixture-consent",
+					token_type: "access_token",
+					aud: "https://fixture.example/mcp",
+					tedixConsentRevision: "00000000-0000-4000-8000-000000000001",
+					tedixSelectedOrganizations: ["fixture-tenant"],
+					scope: "mcp:work.read platform:admin",
+				},
+				{ API_SERVICE: { fetch } } as unknown as CloudflareEnv,
+				{
+					audience: "https://fixture.example/mcp",
+					mcpServerId: "fixture-server",
+					multiOrganization: true,
+				},
+			);
+			expect(result.ok).toBe(allowed);
+			if (result.ok)
+				expect(result.selection.effectiveScopes).toEqual(["mcp:work.read"]);
+			const sent = await (fetch.mock.calls[0]![0] as Request).json();
+			expect(sent).toMatchObject({
+				json: { supportsConsentScopeCeiling: true },
+			});
+		},
+	);
 });
 
 describe("native connected Notion call scope extraction", () => {

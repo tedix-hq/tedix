@@ -107,6 +107,7 @@ export type AuthContext =
 	| DelegatedMcpContext;
 
 export interface MultiOrgMcpSelection {
+	effectiveScopes?: string[];
 	organizations: Array<{
 		organizationId: string;
 		descopeTenantId: string;
@@ -233,6 +234,7 @@ export async function resolveHumanMcpSelection(
 				consentId: dci,
 				consentRevision: tedixConsentRevision,
 				tokenScopes: scopes,
+				supportsConsentScopeCeiling: true,
 			}),
 		),
 	).catch(() => null);
@@ -250,7 +252,21 @@ export async function resolveHumanMcpSelection(
 		)
 	)
 		return invalid("selection_mismatch");
-	return { ok: true, selection: { organizations: decision.organizations } };
+	const effectiveScopes = decision.effectiveScopes;
+	if (effectiveScopes === undefined)
+		return { ok: false, unavailable: true, reason: "grant_check_failed" };
+	if (
+		effectiveScopes.length === 0 ||
+		effectiveScopes.some((scope) => !scopes.includes(scope))
+	)
+		return invalid("scope_missing");
+	return {
+		ok: true,
+		selection: {
+			organizations: decision.organizations,
+			effectiveScopes,
+		},
+	};
 }
 
 export function resolveMcpExpectedAudience(options: {

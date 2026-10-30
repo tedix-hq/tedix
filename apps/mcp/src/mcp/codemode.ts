@@ -26,7 +26,7 @@ import {
 import {
 	writeCodeModeLog,
 	type CodeModeExecutionRefs,
-	buildNamespaceGroups,
+	buildLazyNamespaceGroups,
 	runSerializedSideEffect,
 	buildRuntimeProvider,
 	withLegacyNamespaceAliases,
@@ -63,6 +63,7 @@ import {
 } from "./codemode-flow";
 import { UI_NAMESPACE, buildUiProvider } from "./codemode-ui";
 import { resolveLazyCatalogProvider } from "./codemode-catalog";
+import { extractCodeModeExecutionNamespacesFromCode } from "./code-mode-namespaces";
 import { configuredAggregateNamespaces } from "./aggregate-namespaces";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
 import { buildCompactTypes } from "@tedix/mcp-shared/compact-types";
@@ -240,7 +241,7 @@ export async function registerCodeModeTools(
 	// Build namespace groups from D1 tools. Every owner of an ambiguous
 	// projected key is quarantined; choosing one by insertion order would route
 	// a model call to the wrong installed app.
-	const namespaceGroups = buildNamespaceGroups(
+	const namespaceGroups = buildLazyNamespaceGroups(
 		serverCtx,
 		namespaceOverrides,
 		executionRefs,
@@ -635,10 +636,30 @@ export async function registerCodeModeTools(
 						span.setAttribute("tedix.trace_id", serverCtx.traceId);
 						span.setAttribute("tedix.app_id", serverCtx.appId);
 						span.setAttribute("tedix.execution_id", executionId);
+						const executionNamespaces =
+							extractCodeModeExecutionNamespacesFromCode(code);
+						const unknownNamespace =
+							executionNamespaces &&
+							[...executionNamespaces].some(
+								(name) =>
+									!allProviders.some((provider) => provider.name === name),
+							);
 						return runStatelessCodeMode({
 							code,
 							executor,
-							providers: allProviders,
+							providers:
+								executionNamespaces === null || unknownNamespace
+									? allProviders
+									: allProviders.filter(
+											(provider) =>
+												[
+													"discover",
+													CODEMODE_NAMESPACE,
+													UI_NAMESPACE,
+													FLOW_NAMESPACE,
+												].includes(provider.name) ||
+												executionNamespaces.has(provider.name),
+										),
 						});
 					},
 				);
