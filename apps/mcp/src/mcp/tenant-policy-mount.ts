@@ -2,6 +2,11 @@ import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { SelectedConnectionCredential } from "@tedix/api-contract/schemas/connections";
 import { aggregateAndPrefixTools } from "../aggregate-surface";
+import {
+	applyHostConnectionDefaultsToAggregateEntries,
+	withAggregateHostOrganization,
+} from "../aggregate-host-defaults";
+import { ensurePlatformOperatorAggregateApps } from "./platform-operator-aggregation";
 import { getApiClient } from "../lib/api-client";
 import type { AppTool } from "./server-context";
 
@@ -255,9 +260,51 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		true,
 	);
 	if (surface.degraded) return null;
-	const matches = surface.tools.filter(
+	let matches = surface.tools.filter(
 		(tool) => tool.toolId === input.mountedToolId,
 	);
+	if (matches.length === 0) {
+		// Direct gateways serve their own rows and aggregate entries without
+		// Connect's organization prefix. Rebuild that same server-owned layout.
+		const config = root.app.metadata?.mcpConfig;
+		const entries = applyHostConnectionDefaultsToAggregateEntries(
+			ensurePlatformOperatorAggregateApps(
+				root.app.slug,
+				withAggregateHostOrganization(
+					config?.aggregateApps ?? [],
+					root.app.organizationId,
+				),
+			),
+			config ?? null,
+		);
+		const direct = entries.length
+			? await aggregateAndPrefixTools(
+					entries,
+					input.env,
+					new Set([root.app.slug]),
+					input.ctx,
+					root.app.slug,
+					{ value: "tenant-policy-fresh", cacheable: false },
+					false,
+					false,
+					true,
+				)
+			: { tools: [], degraded: false };
+		if (direct.degraded) return null;
+		matches = [
+			...root.tools.map((tool) => ({
+				...tool,
+				config: { ...tool.config, _sourceAppId: input.rootAppId },
+				policyMountAppIds: [input.rootAppId],
+			})),
+			...direct.tools.map((tool) => ({
+				...tool,
+				policyMountAppIds: tool.policyMountAppIds
+					? [input.rootAppId, ...tool.policyMountAppIds]
+					: undefined,
+			})),
+		].filter((tool) => tool.toolId === input.mountedToolId);
+	}
 	if (matches.length !== 1) return null;
 	const tool = matches[0]!;
 	const mountAppIds = tool.policyMountAppIds;

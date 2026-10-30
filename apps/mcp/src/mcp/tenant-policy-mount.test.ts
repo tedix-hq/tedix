@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	prepareTenantPolicyMount,
+	resolveFreshPolicyMount,
 	prepareTenantIdentityProfileMount,
 	prepareTenantNativePolicyMount,
 	acceptsEmptyProfileArguments,
@@ -198,6 +199,77 @@ describe("tenant policy mount descriptor", () => {
 		});
 		sourceOrganization = "another-org";
 		expect(await prepareTenantPolicyMount(request)).toBeNull();
+	});
+
+	it("resolves the direct gateway layout with fresh host defaults and rejects degraded or ambiguous mounts", async () => {
+		let sourceOrganization = "org";
+		mocks.getApp.mockImplementation(async ({ appId }: { appId: string }) =>
+			appId === "root"
+				? {
+						app: {
+							id: "root",
+							slug: "gateway",
+							organizationId: "org",
+							metadata: {
+								mcpConfig: {
+									aggregateApps: [{ slug: "mounted", appId: "source" }],
+									connectionProviderId: "provider",
+									connectionScope: "tenant",
+								},
+							},
+						},
+						tools: [],
+					}
+				: {
+						app: { id: "source", organizationId: sourceOrganization },
+						tools: [{ id: "tool-row", toolId: "edit" }],
+					},
+		);
+		let degraded = false,
+			duplicate = false;
+		mocks.resolve.mockImplementation(async (entries) =>
+			entries[0]?.organizationMount
+				? { tools: [{ ...base, toolId: "gateway__mounted__edit" }] }
+				: {
+						degraded,
+						tools: Array(duplicate ? 2 : 1).fill({
+							...base,
+							policyMountAppIds: ["source"],
+						}),
+					},
+		);
+		const request = {
+			organizationId: "org",
+			rootAppId: "root",
+			mountedToolId: base.toolId,
+			env: {} as CloudflareEnv,
+		};
+		expect(await resolveFreshPolicyMount(request)).toMatchObject({
+			sourceAppId: "source",
+			sourceToolId: "edit",
+			mountAppIds: ["root", "source"],
+		});
+		expect(mocks.resolve.mock.lastCall?.[0]).toEqual([
+			expect.objectContaining({
+				slug: "mounted",
+				appId: "source",
+				hostOrganizationId: "org",
+				connectionProviderId: "provider",
+				connectionScope: "tenant",
+			}),
+		]);
+		expect(mocks.resolve.mock.lastCall?.[5]).toEqual({
+			value: "tenant-policy-fresh",
+			cacheable: false,
+		});
+		degraded = true;
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		degraded = false;
+		duplicate = true;
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		duplicate = false;
+		sourceOrganization = "other-org";
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
 	});
 
 	it("prepares only an enabled RPC mount from the selected organization", async () => {
