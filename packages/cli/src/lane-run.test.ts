@@ -8,6 +8,7 @@ import {
 	chmodSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { codeModeLiteral } from "@tedix/api-contract/utils/code-mode-literal";
 import { runLane } from "./lane";
@@ -44,6 +45,46 @@ function fixture() {
 	return { args, out };
 }
 describe("lane launcher", () => {
+	it("detached worker keeps writing after its runner parent is killed", async () => {
+		const { args, out } = fixture();
+		const progress = `${out}.progress`;
+		writeFileSync(
+			args.at(-1)!,
+			`const fs=require('node:fs'); const path=require('node:path'); fs.writeFileSync(${codeModeLiteral(out)},JSON.stringify({pid:process.pid,dir:path.dirname(process.env.TEDIX_LANE_TELEMETRY_PATH)})); let n=0; process.stdin.resume(); setInterval(()=>{fs.writeSync(1,'x'.repeat(16384));fs.writeSync(2,'y'.repeat(16384));fs.writeFileSync(${codeModeLiteral(progress)},String(++n));},10);`,
+		);
+		const parent = spawn(
+			process.execPath,
+			[
+				"-e",
+				`import {runLaneProcess} from ${codeModeLiteral(join(import.meta.dir, "lane-run.ts"))}; await runLaneProcess(${codeModeLiteral(args)},{detachedChild:true,forwardSignals:false,report:async()=>({})});`,
+			],
+			{ stdio: "ignore" },
+		);
+		let pid: number | undefined;
+		try {
+			for (let n = 0; n < 200 && !existsSync(progress); n++)
+				await Bun.sleep(10);
+			expect(existsSync(progress)).toBe(true);
+			const worker = JSON.parse(readFileSync(out, "utf8"));
+			pid = worker.pid;
+			dirs.push(worker.dir);
+			const before = Number(readFileSync(progress, "utf8"));
+			parent.kill("SIGKILL");
+			for (
+				let n = 0;
+				n < 200 && Number(readFileSync(progress, "utf8")) < before + 64;
+				n++
+			)
+				await Bun.sleep(10);
+			expect(Number(readFileSync(progress, "utf8"))).toBeGreaterThanOrEqual(
+				before + 64,
+			);
+			expect(() => process.kill(pid!, 0)).not.toThrow();
+		} finally {
+			parent.kill("SIGKILL");
+			if (pid) process.kill(-pid, "SIGTERM");
+		}
+	});
 	it.each([true, false])(
 		"signal forwarding can yield to dispatcher drain: %s",
 		async (forwardSignals) => {

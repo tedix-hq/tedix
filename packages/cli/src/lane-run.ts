@@ -33,6 +33,7 @@ import {
 import { laneChildEnv } from "./lane-child-env";
 import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
 import { parseLaneTranscript, type LaneObservation } from "./lane-telemetry";
+import { laneOutput } from "./lane-output";
 
 export const laneRunUsage = `tedix lane run --executor codex|claude-code|opencode|devin|tedi|skill --brief <file> --project <id>
   [--model <id>] [--reasoning <effort>] [--rate-scope <scope>] [--work-item <id>]
@@ -415,23 +416,31 @@ async function runLaneProcessWithReporter(
 			"--session",
 			sessionKey,
 		);
+	const stdout = deps.detachedChild
+		? laneOutput(join(dir, "stdout.log"), (chunk) => receiveStdout(chunk))
+		: undefined;
+	const stderr = deps.detachedChild
+		? laneOutput(join(dir, "stderr.log"), (chunk) => receiveStderr(chunk))
+		: undefined;
 	const child = spawn(command[0]!, command.slice(1), {
 		env,
 		cwd: deps.cwd,
 		detached: deps.detachedChild,
 		stdio: [
 			"pipe",
-			codexJson || claudeJson || opencode || devin ? "pipe" : "inherit",
-			"pipe",
+			stdout?.fd ??
+				(codexJson || claudeJson || opencode || devin ? "pipe" : "inherit"),
+			stderr?.fd ?? "pipe",
 		],
 	});
 	if (child.pid) deps.onSpawn?.(child.pid);
-	child.stderr?.on("data", (chunk) => {
+	function receiveStderr(chunk: Buffer) {
 		process.stderr.write(chunk);
 		devinStderr = (devinStderr + chunk.toString()).slice(-24000);
-	});
+	}
+	child.stderr?.on("data", receiveStderr);
 	child.stdin?.end(devin ? undefined : readFileSync(options.get("--brief")!));
-	child.stdout?.on("data", (chunk) => {
+	function receiveStdout(chunk: Buffer) {
 		process.stdout.write(chunk);
 		if (devin) {
 			telemetry.finalMessage = (
@@ -491,7 +500,8 @@ async function runLaneProcessWithReporter(
 				}
 			} catch {}
 		}
-	});
+	}
+	child.stdout?.on("data", receiveStdout);
 	let heartbeat: Promise<unknown> | undefined;
 	const timer = setInterval(() => {
 		if (heartbeat) return;
@@ -534,6 +544,8 @@ async function runLaneProcessWithReporter(
 		telemetry.finalMessage = String(error);
 	} finally {
 		clearInterval(timer);
+		stdout?.close();
+		stderr?.close();
 		process.off("SIGINT", interrupt);
 		process.off("SIGTERM", terminate);
 	}
