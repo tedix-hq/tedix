@@ -1,5 +1,11 @@
 import { afterEach, expect, it } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdtempSync,
+	mkdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readExecutorBudgets } from "./lane-budget";
@@ -45,6 +51,22 @@ it("reads native usage and explicit plan caps, omitting secrets and keeping abse
 	expect(budgets.opencode?.remainingPercent).toBeUndefined();
 	expect(JSON.stringify(budgets)).not.toContain("never-project-this");
 });
+it("terminates a stats probe that ignores SIGTERM and keeps its budget unknown", () => {
+	const dir = mkdtempSync(join(tmpdir(), "lane-budget-stall-"));
+	dirs.push(dir);
+	const executable = join(dir, "opencode");
+	writeFileSync(executable, "#!/bin/sh\ntrap '' TERM\nexec /bin/sleep 60\n");
+	chmodSync(executable, 0o755);
+	const startedAt = Date.now();
+	const budgets = readExecutorBudgets(defaultRoutingPolicy, {
+		PATH: dir,
+		CODEX_HOME: dir,
+		CLAUDE_CONFIG_DIR: dir,
+	});
+	expect(Date.now() - startedAt).toBeLessThan(10_000);
+	expect(budgets.opencode?.source).toBe("unknown");
+	expect(budgets.opencode?.remainingPercent).toBeUndefined();
+}, 15_000);
 it("uses an optional launcher-adjacent OpenCode default, with explicit policy taking precedence", () => {
 	const dir = mkdtempSync(join(tmpdir(), "lane-config-test-"));
 	dirs.push(dir);
