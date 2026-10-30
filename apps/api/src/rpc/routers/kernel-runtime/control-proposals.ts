@@ -1,3 +1,4 @@
+import { requireDelegatedChildTerminalReceipt } from "../kernel/delegation-recovery";
 import { findApprovalRule } from "../approval-rule-matcher";
 import { controlHomeRunSteering } from "./run-steering";
 import {
@@ -15,8 +16,6 @@ import { ExecutionRequirementSchema } from "@tedix/api-contract/schemas/executio
 import type { HomeRun } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	KERNEL_DELEGATE_ENQUEUE_BUDGET_MS,
-	disposeDelegationWorkItem,
-	isStaleDelegationDispatchRow,
 	releaseCanceledDelegationWorkItem,
 } from "../kernel/delegation-work-item";
 import {
@@ -181,85 +180,15 @@ async function retryDelegationWorkItem(
 			`Work item ${workItemId} not found`,
 		);
 	}
-	// SELF-HEAL a dispatch-orphaned attempt before the readiness guard.
-	//
-	// createDelegationWorkItem creates an attempt in-band before dispatching, so
-	// an evicted dispatch leaves active execution authority
-	// until a LAZY on-read reconcile happens to notice the run went silent. That
-	// is an unbounded window in which the operator cannot retry the very thing
-	// that just failed, and the previous behaviour was to refuse and tell them to
-	// go force the reconcile by hand. Seal it here instead: the evidence needed
-	// is the same evidence the reconcile would use.
-	//
-	// Safe to do inline because it is bounded on every axis that matters — only a
-	// run that is provably stale by isStaleDelegationDispatchRow, only the
-	// operator-initiated path (the automatic sweep selects `blocked` rows only,
-	// so it never reaches here), and the retry it unblocks is still capped by
-	// MAX_DELEGATION_RETRIES.
-	let retryTarget = workItem;
-	if (retryTarget.disposition === "accepted") {
-		const homeRunIdForSeal =
-			typeof nonNullRecord(retryTarget.metadata)?.homeRunId === "string"
-				? (nonNullRecord(retryTarget.metadata)?.homeRunId as string)
-				: null;
-		const childRunIdForSeal =
-			typeof nonNullRecord(retryTarget.metadata)?.childRunId === "string"
-				? (nonNullRecord(retryTarget.metadata)?.childRunId as string)
-				: null;
-		if (homeRunIdForSeal && childRunIdForSeal) {
-			const childRow = await getKernelRuntimeRun(context.db, {
-				id: childRunIdForSeal,
-				organizationId,
-			});
-			if (childRow && isStaleDelegationDispatchRow(childRow)) {
-				// The run row carries no delegationError (nothing ever failed it —
-				// it simply went silent), so derive the discrimination from how far
-				// the dispatch got, matching classifyDelegationFailureRecovery's own
-				// definitions: still `queued` past the timeout means the child never
-				// heard about the work at all, whereas `running` means it accepted
-				// and then published nothing.
-				const sealReason =
-					childRow.status === "queued"
-						? "dispatch_never_landed"
-						: "dispatch_timeout";
-				await disposeDelegationWorkItem(context, {
-					childRunId: childRunIdForSeal,
-					childRunStatus: "failed",
-					createdAt: nowIso(),
-					delegatedTediId:
-						childRow.delegatedTediId ?? retryTarget.accountableOwnerId ?? "",
-					delegationError: `${sealReason}: dispatch went silent past its timeout; sealed by operator retry`,
-					organizationId,
-					// A dispatch that never produced a first event has no proof by
-					// definition. `missing`, not `unknown`: we DID look, and the run
-					// row shows nothing was ever published.
-					proof: {
-						hasProof: false,
-						evidenceState: "missing",
-						terminalExecutionSucceeded: false,
-						repoCommitSha: null,
-						prRef: null,
-						artifactRefs: [],
-						rationaleRef: null,
-						transcript: null,
-					},
-					workItemId,
-				});
-				// Re-read the stable specification after sealing the attempt.
-				retryTarget =
-					(await getWorkItemById(context.db, workItemId)) ?? retryTarget;
-			}
-		}
-	}
 
-	if (retryTarget.disposition !== "accepted") {
+	if (workItem.disposition !== "accepted") {
 		// Only an accepted WorkSpec may admit a recovery attempt.
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			`Work item ${workItemId} is "${retryTarget.disposition}" — only accepted delegations can be retried`,
+			`Work item ${workItemId} is "${workItem.disposition}" — only accepted delegations can be retried`,
 		);
 	}
-	const metadata = nonNullRecord(retryTarget.metadata) ?? {};
+	const metadata = nonNullRecord(workItem.metadata) ?? {};
 	const attempts = await listWorkItemAttempts(context.db, {
 		orgId: organizationId,
 		workItemId,
@@ -289,7 +218,7 @@ async function retryDelegationWorkItem(
 				workItemId,
 				orgId: organizationId,
 				authorType: "system",
-				authorId: retryTarget.accountableOwnerId ?? null,
+				authorId: workItem.accountableOwnerId ?? null,
 				body: "Repeated tries did not finish this task. Please review what went wrong before trying again.",
 				metadata: toJsonRecord({
 					escalation: "operator",
@@ -323,8 +252,8 @@ async function retryDelegationWorkItem(
 
 	// (3) Resolve target tedi + the linked Home run (source of the work order).
 	const delegatedTediId =
-		(retryTarget.accountableOwnerType === "tedi"
-			? retryTarget.accountableOwnerId
+		(workItem.accountableOwnerType === "tedi"
+			? workItem.accountableOwnerId
 			: null) ??
 		(typeof metadata.delegatedTediId === "string"
 			? metadata.delegatedTediId
@@ -353,6 +282,11 @@ async function retryDelegationWorkItem(
 			`Linked Home run ${homeRunId} not found`,
 		);
 	}
+	await requireDelegatedChildTerminalReceipt(context, {
+		organizationId,
+		delegatedTediId,
+		childRunId: homeRun.childRunId,
+	});
 	const homeRunMetadata = nonNullRecord(homeRun.metadata) ?? {};
 	const delegationWorkOrder = recoverableDelegationWorkOrder(homeRunMetadata);
 	const recoveryExecutionRequirement = ExecutionRequirementSchema.safeParse(
@@ -376,7 +310,7 @@ async function retryDelegationWorkItem(
 	// (5) IDEMPOTENCY LATCH: admit one fenced retry attempt. A racing/repeat
 	// caller resumes the active attempt without double-dispatching.
 	const admission = await admitWorkAttempt(context.db, {
-		workItem: retryTarget,
+		workItem: workItem,
 		executor: { type: "tedi", id: delegatedTediId },
 		leaseTtlMs: WORK_ATTEMPT_ADMISSION_TTL_MS,
 		now: dispatchedAt,
@@ -402,7 +336,7 @@ async function retryDelegationWorkItem(
 			context: internalContext,
 			childRunId: childClientRequestId,
 			content: renderDelegationWorkOrderMessage({
-				fallbackContent: retryTarget.description ?? "",
+				fallbackContent: workItem.description ?? "",
 				fallbackWorkOrderId: `work-order:${workItemId}`,
 				label: "RECOVERY",
 				workOrder: delegationWorkOrder,

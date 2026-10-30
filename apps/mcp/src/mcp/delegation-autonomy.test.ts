@@ -32,6 +32,45 @@ function context(autonomy = true) {
 	} as unknown as Pick<ServerContext, "server">;
 }
 describe("tedi autonomous actions", () => {
+	it("does not create an approval receipt for an external-agent retry denial", async () => {
+		const requestOwnerToolApproval = vi.fn();
+		const base = context() as ServerContext;
+		const ctx = {
+			...base,
+			callerIdentity: {
+				authType: "external_agent",
+				userId: "owner",
+				externalAgentPrincipalId: "agent-1",
+				externalAgentSessionId: "session-1",
+			},
+			apiClient: {
+				...base.apiClient,
+				mcpGovernance: {
+					...base.apiClient.mcpGovernance,
+					requestOwnerToolApproval,
+				},
+			},
+		} as unknown as ServerContext;
+		const result = await requireDestructiveToolApproval(
+			ctx,
+			{
+				toolId: "retry_home_run",
+				title: "Retry Home run",
+				config: { transport: "rpc", endpoint: "kernelRuntime/retryRun" },
+			},
+			{ readOnlyHint: false, destructiveHint: false },
+			{
+				autoConfirmAgent: true,
+				args: { runId: "parent-1" },
+			},
+		);
+		expect(result?.isError).toBe(true);
+		expect(callToolResultText(result!)).toContain(
+			"Route this action through Home's approval flow",
+		);
+		expect(callToolResultText(result!)).not.toContain("Request ");
+		expect(requestOwnerToolApproval).not.toHaveBeenCalled();
+	});
 	it.each([undefined, "always"] as const)(
 		"loads org autonomy for a CLI Work admission while preserving policy=%s",
 		async (approvalPolicy) => {
