@@ -1,7 +1,26 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import { describe, expect, it } from "vite-plus/test";
 import { kernelGatewayMetadata } from "./gateway-attribution";
-import { azureGatewayByokHeaders, type KernelEnv, kernelModel } from "./llm";
+import {
+	azureGatewayByokHeaders,
+	type KernelEnv,
+	kernelModel as selectKernelModel,
+} from "./llm";
 
+const catalog = modelCatalogConfig(
+	[
+		"cloudflare/auto",
+		"azure-openai/gpt-6.1-sol",
+		"azure-openai/gpt-6-luna",
+		"azure-openai/gpt-5.6-luna",
+		"workers-ai/@cf/meta/llama-3.1-8b-instruct-fast",
+	].map((ref) => modelCatalogEntry(ref)),
+);
+const kernelModel = (...args: Parameters<typeof selectKernelModel>) =>
+	selectKernelModel(args[0], args[1], args[2], catalog);
 const AZURE_ENV = {
 	AZURE_OPENAI_RESOURCE: "tedix-resource",
 	AZURE_CHAT_DEPLOYMENT: "gpt-5.6-luna",
@@ -149,4 +168,31 @@ describe("kernelModel provider selection", () => {
 	it("still returns null when Azure is unconfigured and nothing is forced", () => {
 		expect(kernelModel({} as unknown as KernelEnv)).toBeNull();
 	});
+});
+
+it("does not execute registered refs without their publication snapshot or arbitrary Azure deployments", () => {
+	expect(selectKernelModel(AZURE_ENV)).toBeNull();
+	expect(
+		kernelModel(AZURE_ENV, { modelRef: "azure-openai/unregistered" }),
+	).toBeNull();
+});
+
+it("does not fall through an unsupported registered Cloudflare id to Azure", () => {
+	const config = modelCatalogConfig([
+		modelCatalogEntry("cloudflare/auto"),
+		modelCatalogEntry("azure-openai/gpt-5.6-luna"),
+	]);
+	config.entries[0] = {
+		...config.entries[0]!,
+		ref: "cloudflare/custom-router",
+		modelId: "custom-router",
+	};
+	expect(
+		selectKernelModel(
+			AZURE_ENV,
+			{ modelRef: "cloudflare/custom-router" },
+			undefined,
+			config,
+		),
+	).toBeNull();
 });

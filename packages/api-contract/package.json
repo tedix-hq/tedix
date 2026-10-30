@@ -360,7 +360,9 @@
 		"./utils/decision-card-preferences": "./src/utils/decision-card-preferences.ts",
 		"./assets/attention-app-views.v1.json": "./src/assets/attention-app-views.v1.json",
 		"./assets/attention-app-views.v2.json": "./src/assets/attention-app-views.v2.json",
-		"./assets/cli-native-endpoints.v1.json": "./src/assets/cli-native-endpoints.v1.json"
+		"./assets/cli-native-endpoints.v1.json": "./src/assets/cli-native-endpoints.v1.json",
+		"./schemas/model-catalog-config": "./src/schemas/model-catalog-config.ts",
+		"./test/model-catalog": "./src/test/model-catalog.ts"
 	},
 	"scripts": {
 		"clean": "true",

@@ -18,11 +18,11 @@ export async function runDecisionCardCopyModel(
 ): Promise<string | null> {
 	const deadline = Date.now() + options.timeoutMs;
 	try {
-		const [{ kernelModel }, { tracedAi }] = await Promise.all([
+		const [{ configuredKernelModel }, { tracedAi }] = await Promise.all([
 			import("../rpc/routers/kernel/llm"),
 			import("../lib/traced-ai"),
 		]);
-		const selected = kernelModel(
+		const selected = await configuredKernelModel(
 			context.env,
 			{ modelRef: options.model },
 			{

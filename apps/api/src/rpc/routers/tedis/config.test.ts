@@ -1,8 +1,21 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import { describe, expect, it } from "vite-plus/test";
 
-import { chatModelRefFromRuntimeOverrides } from "../../../lib/tedi-model-overrides";
+import { chatModelRefFromRuntimeOverrides as parseChatModelRef } from "../../../lib/tedi-model-overrides";
 import { TediModelPolicyResponseSchema } from "@tedix/api-contract/schemas/tedi";
 
+const catalog = [
+	"azure-openai/gpt-5.6-terra",
+	"azure-openai/gpt-6-luna",
+	"workers-ai/@cf/openai/gpt-oss-120b",
+	"cloudflare/auto",
+].map((ref) => modelCatalogEntry(ref));
+const chatModelRefFromRuntimeOverrides = (
+	value: Record<string, unknown> | null | undefined,
+) => parseChatModelRef(value, catalog);
 describe("model generation response contract", () => {
 	it("preserves explicit generation settings alongside a model override", () => {
 		const response = {

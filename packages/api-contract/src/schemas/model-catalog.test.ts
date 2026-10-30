@@ -1,8 +1,8 @@
+import { modelCatalogEntry } from "../test/model-catalog";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	adaptiveRoutingEligible,
 	buildModelRef,
-	COGNITION_MODEL_CATALOG,
 	findCatalogEntry,
 	isCatalogEntryResolvable,
 	isModelRefAllowed,
@@ -13,6 +13,20 @@ import {
 	sanitizeModelOverride,
 } from "./model-catalog";
 
+const TEST_CATALOG = [
+	modelCatalogEntry("azure-openai/gpt-5.6-terra", { lifecycle: "superseded" }),
+	modelCatalogEntry("azure-openai/gpt-5.6-sol"),
+	modelCatalogEntry("azure-openai/gpt-5.6-luna"),
+	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b"),
+	modelCatalogEntry("cloudflare/auto", {
+		label: "Auto",
+		governance: {
+			weightAccess: "mixed",
+			residencyControl: "router-selected",
+			routingMode: "adaptive",
+		},
+	}),
+];
 const AZURE_ONLY: ReadonlySet<ModelProviderId> = new Set(["azure-openai"]);
 
 describe("model-catalog ref parsing", () => {
@@ -49,6 +63,7 @@ describe("model-catalog allowlist gate", () => {
 	it("allows a catalog ref whose provider is available with no explicit allowlist", () => {
 		expect(
 			isModelRefAllowed("azure-openai/gpt-5.6-sol", {
+				catalog: TEST_CATALOG,
 				availableProviders: AZURE_ONLY,
 			}),
 		).toBe(true);
@@ -57,6 +72,7 @@ describe("model-catalog allowlist gate", () => {
 	it("rejects a ref whose provider is not wired in this environment", () => {
 		expect(
 			isModelRefAllowed("anthropic/claude-opus", {
+				catalog: TEST_CATALOG,
 				availableProviders: AZURE_ONLY,
 			}),
 		).toBe(false);
@@ -65,6 +81,7 @@ describe("model-catalog allowlist gate", () => {
 	it("rejects a ref absent from the catalog (typo'd deployment)", () => {
 		expect(
 			isModelRefAllowed("azure-openai/gpt-9-imaginary", {
+				catalog: TEST_CATALOG,
 				availableProviders: AZURE_ONLY,
 			}),
 		).toBe(false);
@@ -72,6 +89,7 @@ describe("model-catalog allowlist gate", () => {
 
 	it("honors an explicit allowlist subset", () => {
 		const opts = {
+			catalog: TEST_CATALOG,
 			availableProviders: AZURE_ONLY,
 			allowlist: ["azure-openai/gpt-5.6-luna"],
 		} as const;
@@ -85,7 +103,7 @@ describe("model-catalog override sanitization (runtime drop-the-override shape)"
 		expect(
 			sanitizeModelOverride(
 				{ modelRef: "azure-openai/gpt-5.6-terra" },
-				{ availableProviders: AZURE_ONLY },
+				{ catalog: TEST_CATALOG, availableProviders: AZURE_ONLY },
 			),
 		).toEqual({ modelRef: "azure-openai/gpt-5.6-terra" });
 	});
@@ -94,16 +112,19 @@ describe("model-catalog override sanitization (runtime drop-the-override shape)"
 		expect(
 			sanitizeModelOverride(
 				{ modelRef: "anthropic/claude-opus" },
-				{ availableProviders: AZURE_ONLY },
+				{ catalog: TEST_CATALOG, availableProviders: AZURE_ONLY },
 			),
 		).toBeNull();
 		expect(
-			sanitizeModelOverride(null, { availableProviders: AZURE_ONLY }),
+			sanitizeModelOverride(null, {
+				catalog: TEST_CATALOG,
+				availableProviders: AZURE_ONLY,
+			}),
 		).toBeNull();
 		expect(
 			sanitizeModelOverride(
 				{ modelRef: "not-a-ref" },
-				{ availableProviders: AZURE_ONLY },
+				{ catalog: TEST_CATALOG, availableProviders: AZURE_ONLY },
 			),
 		).toBeNull();
 	});
@@ -114,6 +135,7 @@ describe("model-catalog selection (default-preserving)", () => {
 		expect(
 			resolveModelSelection({
 				defaultRef: "azure-openai/gpt-5-1-preview",
+				catalog: TEST_CATALOG,
 				availableProviders: AZURE_ONLY,
 			}),
 		).toEqual({
@@ -128,6 +150,7 @@ describe("model-catalog selection (default-preserving)", () => {
 		// The env default is trusted config, not a catalog menu item.
 		const selection = resolveModelSelection({
 			defaultRef: "azure-openai/some-private-deployment",
+			catalog: TEST_CATALOG,
 			availableProviders: AZURE_ONLY,
 		});
 		expect(selection?.source).toBe("default");
@@ -139,6 +162,7 @@ describe("model-catalog selection (default-preserving)", () => {
 			resolveModelSelection({
 				defaultRef: "azure-openai/gpt-5-1-preview",
 				override: { modelRef: "azure-openai/gpt-5.6-sol" },
+				catalog: TEST_CATALOG,
 				availableProviders: AZURE_ONLY,
 			}),
 		).toEqual({
@@ -153,6 +177,7 @@ describe("model-catalog selection (default-preserving)", () => {
 		const selection = resolveModelSelection({
 			defaultRef: "azure-openai/gpt-5-1-preview",
 			override: { modelRef: "anthropic/claude-opus" },
+			catalog: TEST_CATALOG,
 			availableProviders: AZURE_ONLY,
 		});
 		expect(selection?.source).toBe("default");
@@ -163,6 +188,7 @@ describe("model-catalog selection (default-preserving)", () => {
 		expect(
 			resolveModelSelection({
 				defaultRef: "no-provider-deployment",
+				catalog: TEST_CATALOG,
 				availableProviders: AZURE_ONLY,
 			}),
 		).toBeNull();
@@ -171,8 +197,10 @@ describe("model-catalog selection (default-preserving)", () => {
 
 describe("catalog shape", () => {
 	it("uses concise display names without changing model identities", () => {
-		expect(findCatalogEntry("cloudflare/auto")?.label).toBe("Auto");
-		for (const entry of COGNITION_MODEL_CATALOG) {
+		expect(findCatalogEntry("cloudflare/auto", TEST_CATALOG)?.label).toBe(
+			"Auto",
+		);
+		for (const entry of TEST_CATALOG) {
 			expect(entry.label).not.toMatch(
 				/\(|\)|Router|CTO-class|Workers AI|Azure/,
 			);
@@ -181,38 +209,24 @@ describe("catalog shape", () => {
 	});
 
 	it("every entry has a self-consistent canonical ref", () => {
-		for (const entry of COGNITION_MODEL_CATALOG) {
+		for (const entry of TEST_CATALOG) {
 			expect(entry.ref).toBe(buildModelRef(entry.provider, entry.modelId));
-			expect(findCatalogEntry(entry.ref)).toBe(entry);
+			expect(findCatalogEntry(entry.ref, TEST_CATALOG)).toBe(entry);
 			expect(["active", "superseded"]).toContain(entry.lifecycle);
 			expect(entry.governance.routingMode).toMatch(/^(fixed|adaptive)$/);
 		}
 	});
 
-	it("offers deployed v6 models and keeps stored 5.6 pins resolvable", () => {
-		const active = COGNITION_MODEL_CATALOG.filter(
-			(entry) =>
-				entry.provider === "azure-openai" && entry.lifecycle === "active",
-		);
-		expect(active.map((entry) => entry.modelId)).toEqual([
-			"gpt-6.1-sol",
-			"gpt-6-luna",
-			"gpt-6-astra",
-		]);
-		for (const entry of active) expect(entry.imageInput).toBe("supported");
-		const old = findCatalogEntry("azure-openai/gpt-5.6-terra")!;
-		expect(old.lifecycle).toBe("superseded");
-		expect(
-			isCatalogEntryResolvable(old, { availableProviders: AZURE_ONLY }),
-		).toBe(true);
-	});
 	it("keeps a superseded entry resolvable for stored references", () => {
 		const entry = {
-			...COGNITION_MODEL_CATALOG[0]!,
+			...TEST_CATALOG[0]!,
 			lifecycle: "superseded" as const,
 		};
 		expect(
-			isCatalogEntryResolvable(entry, { availableProviders: AZURE_ONLY }),
+			isCatalogEntryResolvable(entry, {
+				catalog: TEST_CATALOG,
+				availableProviders: AZURE_ONLY,
+			}),
 		).toBe(true);
 	});
 });
@@ -257,7 +271,9 @@ describe("adaptive routing policy", () => {
 	});
 
 	it("catalogues cloudflare/auto with honest mixed governance metadata", () => {
-		expect(findCatalogEntry("cloudflare/auto")?.governance).toEqual({
+		expect(
+			findCatalogEntry("cloudflare/auto", TEST_CATALOG)?.governance,
+		).toEqual({
 			weightAccess: "mixed",
 			residencyControl: "router-selected",
 			routingMode: "adaptive",
@@ -268,32 +284,42 @@ describe("adaptive routing policy", () => {
 describe("model-catalog image-input capability (tri-state)", () => {
 	it("resolves a catalogued model's DECLARED value", () => {
 		// Azure gpt-5.6-* matches the runtime's own VISION_CHAT_DEPLOYMENT_PREFIXES.
-		expect(resolveModelImageInput("azure-openai/gpt-5.6-sol")).toBe(
-			"supported",
-		);
+		expect(
+			resolveModelImageInput("azure-openai/gpt-5.6-sol", TEST_CATALOG),
+		).toBe("supported");
 		// Workers AI turns flatten non-text parts to `[file]` before the call.
-		expect(resolveModelImageInput("workers-ai/@cf/openai/gpt-oss-120b")).toBe(
-			"unsupported",
-		);
+		expect(
+			resolveModelImageInput(
+				"workers-ai/@cf/openai/gpt-oss-120b",
+				TEST_CATALOG,
+			),
+		).toBe("unsupported");
 	});
 
 	it("resolves `unknown` for a ref the catalog does not describe", () => {
 		// A custom/org-configured deployment, a typo, and the (ungated) env
 		// default all land here. None of them may default to `supported`.
-		expect(resolveModelImageInput("azure-openai/some-private-deployment")).toBe(
+		expect(
+			resolveModelImageInput(
+				"azure-openai/some-private-deployment",
+				TEST_CATALOG,
+			),
+		).toBe("unknown");
+		expect(
+			resolveModelImageInput("azure-openai/gpt-9-imaginary", TEST_CATALOG),
+		).toBe("unknown");
+		expect(resolveModelImageInput("anthropic/claude-opus", TEST_CATALOG)).toBe(
 			"unknown",
 		);
-		expect(resolveModelImageInput("azure-openai/gpt-9-imaginary")).toBe(
-			"unknown",
-		);
-		expect(resolveModelImageInput("anthropic/claude-opus")).toBe("unknown");
-		expect(resolveModelImageInput("not-a-ref")).toBe("unknown");
-		expect(resolveModelImageInput("")).toBe("unknown");
+		expect(resolveModelImageInput("not-a-ref", TEST_CATALOG)).toBe("unknown");
+		expect(resolveModelImageInput("", TEST_CATALOG)).toBe("unknown");
 	});
 
 	it("declares a capability on EVERY catalog entry, per provider serving path", () => {
-		for (const entry of COGNITION_MODEL_CATALOG) {
-			expect(resolveModelImageInput(entry.ref)).toBe(entry.imageInput);
+		for (const entry of TEST_CATALOG) {
+			expect(resolveModelImageInput(entry.ref, TEST_CATALOG)).toBe(
+				entry.imageInput,
+			);
 			if (entry.provider === "workers-ai") {
 				// No `@cf/...` model can be handed an image on this adapter.
 				expect(entry.imageInput).toBe("unsupported");

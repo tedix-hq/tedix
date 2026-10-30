@@ -1,3 +1,4 @@
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import { getBillingEntitlement } from "@tedix/db/queries/billing/plans";
 import { getBillingBalanceSnapshot } from "@tedix/db/queries/billing/credits";
 import { preflightMonetaryInference } from "@tedix/db/queries/billing/monetary-inference";
@@ -142,11 +143,13 @@ export async function authorizeRuntimeBudget(input: {
 		throw new Error("AI Gateway policy attribution does not resolve in D1");
 	}
 	const aiGatewayPolicy = resolveAiGatewayAdmissionPolicy(policySources);
+	const catalog = await getModelCatalogConfig(input.db);
 	if (
 		!aiGatewayModelTierAllowed(
 			input.request.provider,
 			input.request.model,
 			aiGatewayPolicy,
+			catalog.entries,
 		)
 	) {
 		done("model_tier_not_allowed");

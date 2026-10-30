@@ -9,7 +9,6 @@ import * as z from "zod";
 import {
 	CLOUDFLARE_AUTO_MODEL_REF,
 	ModelRefSchema,
-	findCatalogEntry,
 	parseModelRef,
 } from "../schemas/model-catalog";
 
@@ -27,13 +26,11 @@ export const RunEvalInputSchema = z.object({
 	appSlug: z.string().min(1).describe("App slug to evaluate"),
 	model: ModelRefSchema.refine(
 		(ref) =>
-			!!findCatalogEntry(ref) &&
 			["cloudflare", "azure-openai", "workers-ai"].includes(
 				parseModelRef(ref)?.provider ?? "",
 			),
 		{
-			message:
-				"Evaluation requires a catalogued model supported by kernel transport",
+			message: "Evaluation requires a provider supported by kernel transport",
 		},
 	)
 		.default(CLOUDFLARE_AUTO_MODEL_REF)

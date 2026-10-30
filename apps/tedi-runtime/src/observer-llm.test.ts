@@ -1,6 +1,24 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("azure-openai/fixture"),
+	modelCatalogEntry("azure-openai/fixture-model"),
+	modelCatalogEntry("azure-openai/fixture-observer-default"),
+	modelCatalogEntry("azure-openai/gpt-5.6-terra", {}),
+	modelCatalogEntry("cloudflare/auto", {}),
+	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b", {
+		maxOutputTokens: 16000,
+	}),
+	modelCatalogEntry("azure-openai/fixture-observer", {}),
+]);
+const observerCompletion = (
+	opts: Parameters<typeof configured_observerCompletion>[0],
+) => configured_observerCompletion({ ...opts, modelCatalog: fixtureCatalog });
 import { privateInferenceOriginGuard } from "./runtime-inference-origin";
 import assert from "node:assert/strict";
-import { observerCompletion } from "./observer-llm";
+import { observerCompletion as configured_observerCompletion } from "./observer-llm";
 
 const controller = new AbortController();
 let fallbackCalls = 0;

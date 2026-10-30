@@ -1,8 +1,42 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("azure-openai/gpt-5.6-terra", {}),
+	modelCatalogEntry("azure-openai/gpt-6-luna", {}),
+	modelCatalogEntry("azure-openai/gpt-6.1-sol", {
+		reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+	}),
+	modelCatalogEntry("cloudflare/auto", {}),
+	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b", {
+		maxOutputTokens: 16000,
+	}),
+	modelCatalogEntry("azure-openai/default-chat", {}),
+]);
+const selectChatModelForTurn = (
+	...args: Parameters<typeof configured_selectChatModelForTurn>
+) => {
+	const values = [...args];
+	values[8] ??= fixtureCatalog;
+	return configured_selectChatModelForTurn(
+		...(values as Parameters<typeof configured_selectChatModelForTurn>),
+	);
+};
+const selectJudgeModelForTurn = (
+	...args: Parameters<typeof configured_selectJudgeModelForTurn>
+) => {
+	const values = [...args];
+	values[3] ??= fixtureCatalog;
+	return configured_selectJudgeModelForTurn(
+		...(values as Parameters<typeof configured_selectJudgeModelForTurn>),
+	);
+};
 import { privateInferenceOriginGuard } from "./runtime-inference-origin";
 import assert from "node:assert/strict";
 import {
-	selectChatModelForTurn,
-	selectJudgeModelForTurn,
+	selectChatModelForTurn as configured_selectChatModelForTurn,
+	selectJudgeModelForTurn as configured_selectJudgeModelForTurn,
 } from "./turn-model-selection";
 import type { AzureChatEnv } from "./llm";
 
@@ -438,4 +472,40 @@ for (const { primaryRef, fixed } of [
 }
 console.log(
 	"turn-model-selection fallback billing, identity and fixed-model fencing OK",
+);
+
+// No request can invent a deployment through an override or an environment default.
+assert.throws(
+	() =>
+		configured_selectChatModelForTurn(
+			azureEnv,
+			{ modelRef: "azure-openai/unregistered" },
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fixtureCatalog,
+		),
+	/not configured/,
+);
+assert.throws(
+	() =>
+		configured_selectChatModelForTurn(
+			{ ...azureEnv, AZURE_CHAT_DEPLOYMENT: "unregistered" },
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			fixtureCatalog,
+		),
+	/not configured/,
+);
+assert.throws(
+	() => configured_selectChatModelForTurn(azureEnv),
+	/not configured/,
 );

@@ -98,11 +98,7 @@ import {
 import { homeNarrationMetadata } from "./home-narration";
 import type { KernelResult, runKernel } from "./index";
 import { recordKernelTraceEvidence } from "./kernel-trace-recording";
-import {
-	KERNEL_ROUTE_MODEL_REF_DEFAULT,
-	type KernelEnv,
-	kernelModel,
-} from "./llm";
+import { configuredKernelRouteModel, type KernelEnv } from "./llm";
 import { nonNullRecord } from "./runtime-shared";
 import type { HomeToolWritePayload } from "./write-executor";
 import {
@@ -511,20 +507,10 @@ async function planAndParkKernelWriteProposal(
 			sessionKey: conversationId,
 			source: "kernel:write-proposal",
 		};
-		// Same measured first-round model as the route pass: on the role default
-		// (`cloudflare/auto`, Kimi) the selection and argument passes took 10–20 s
-		// each and a rename timed out at 200 s. Role default only when absent.
-		const writeModel =
-			kernelModel(
-				deps.env as unknown as KernelEnv,
-				{ modelRef: KERNEL_ROUTE_MODEL_REF_DEFAULT },
-				writeGatewayContext,
-			) ??
-			kernelModel(
-				deps.env as unknown as KernelEnv,
-				undefined,
-				writeGatewayContext,
-			);
+		const writeModel = await configuredKernelRouteModel(
+			deps.env as unknown as KernelEnv,
+			writeGatewayContext,
+		);
 		writeProposal = await deps
 			.writeProposalPlanner({
 				db: deps.db,

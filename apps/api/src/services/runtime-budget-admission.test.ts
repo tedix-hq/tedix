@@ -1,3 +1,7 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
@@ -6,6 +10,13 @@ const mocks = vi.hoisted(() => ({
 	resolveStripeEnvironment: vi.fn(() => "test"),
 }));
 
+vi.mock("@tedix/db/queries/model-catalog", () => ({
+	getModelCatalogConfig: async () =>
+		modelCatalogConfig([
+			modelCatalogEntry("workers-ai/test"),
+			modelCatalogEntry("azure-openai/gpt-5.6-sol", { tier: "balanced" }),
+		]),
+}));
 vi.mock("@tedix/db/queries/runtime-entitlements", () => ({
 	runtimeEntitlementIsActive: (entitlement: any, nowMs: number) =>
 		nowMs >= Date.parse(entitlement.effectivePeriod.startsAt) &&
@@ -294,4 +305,18 @@ it("passes the original execution guard and deadline through managed reservation
 		executionGuard: guard,
 		expiresAt: "2026-08-02T12:00:30.000Z",
 	});
+});
+
+it("refuses an unregistered model before reserving spend even without tier restrictions", async () => {
+	const result = await authorizeRuntimeBudget({
+		db: {} as never,
+		env: { TEDIX_BILLING_SETTLEMENT_MODE: "managed" },
+		request: { ...request("managed"), model: "unregistered" },
+		nowMs,
+	});
+	expect(result).toMatchObject({
+		allowed: false,
+		code: "model_tier_not_allowed",
+	});
+	expect(mocks.reserveBillingUsage).not.toHaveBeenCalled();
 });

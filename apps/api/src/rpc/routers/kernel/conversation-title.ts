@@ -70,11 +70,7 @@ import {
 	sanitizeConversationTitle,
 	stripConversationTitleContext,
 } from "./conversation-index";
-import {
-	KERNEL_ROUTE_MODEL_REF_DEFAULT,
-	type KernelEnv,
-	kernelModel,
-} from "./llm";
+import { configuredKernelRouteModel, type KernelEnv } from "./llm";
 import { insertKernelRuntimeEventWithStatus } from "./run-store";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
@@ -184,11 +180,7 @@ async function deriveConversationTitle(
 		: null;
 	const env = context.env as unknown as KernelEnv;
 	const model = gatewayContext
-		? (kernelModel(
-				env,
-				{ modelRef: KERNEL_ROUTE_MODEL_REF_DEFAULT },
-				gatewayContext,
-			) ?? kernelModel(env, undefined, gatewayContext))
+		? await configuredKernelRouteModel(env, gatewayContext)
 		: null;
 	let raw: string | undefined;
 	let finishReason: string | undefined;

@@ -33,7 +33,7 @@ import {
 	tediPlanningLabel,
 } from "../kernel/plan-dispatch";
 import type { KernelDO } from "../../../kernel/kernel-do";
-import { type KernelEnv, kernelModel } from "../kernel/llm";
+import { type KernelEnv, configuredKernelModel } from "../kernel/llm";
 import {
 	type KernelGovernancePolicy,
 	parseKernelGovernancePolicy,
@@ -920,7 +920,7 @@ export async function maybeBuildHomePlan(input: {
 					label: tediPlanningLabel(target),
 					slug: target.slug ?? null,
 				})),
-				model: kernelModel(
+				model: await configuredKernelModel(
 					input.context.env as unknown as KernelEnv,
 					undefined,
 					input.organizationId,

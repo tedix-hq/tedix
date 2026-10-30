@@ -1,3 +1,9 @@
+import { createDbClient } from "@tedix/db/client";
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import {
+	ModelCatalogConfigSchema,
+	type ModelCatalogConfig,
+} from "@tedix/api-contract/schemas/model-catalog-config";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 /** Native Pi facet for structurally blind, tool-free verification. Parent retains admission and the ledger. */
 import {
@@ -25,6 +31,7 @@ import { selectJudgeModelForTurn } from "./turn-model-selection";
 import type { AigMetadata, AzureChatEnv } from "./llm";
 
 export interface JudgeFacetState {
+	modelCatalog?: ModelCatalogConfig;
 	system: string | null;
 	sessionKey?: string | null;
 	runId?: string | null;
@@ -81,6 +88,7 @@ export class JudgeSessionFacet extends PiAgent<
 			this.env as unknown as AzureChatEnv,
 			this.state.aigMetadata ?? undefined,
 			this.facetBeforeDispatch(),
+			this.state.modelCatalog,
 		);
 		if (typeof selected.model === "string")
 			throw new Error("Native Pi requires a resolved governed model adapter");
@@ -128,13 +136,17 @@ export class JudgeSessionFacet extends PiAgent<
 		system: string;
 		aigMetadata: AigMetadata;
 	}): Promise<{ priorTurnCount: number }> {
+		const modelCatalog =
+			this.state.runId === input.runId && this.state.modelCatalog
+				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
+				: await getModelCatalogConfig(createDbClient(this.env.DB));
 		const selected = await this.prepareFacetRuntimeAdmission({
 			runId: input.runId,
 			sessionKey: input.sessionKey ?? "",
 			configuration: input,
 		});
 		if (selected) {
-			this.setState({ ...this.state, ...input });
+			this.setState({ ...this.state, ...input, modelCatalog });
 			return { priorTurnCount: this.state.turnCount };
 		}
 		const pending = await (
@@ -147,7 +159,7 @@ export class JudgeSessionFacet extends PiAgent<
 		)
 			throw new Error("Judge turn configuration denied while busy");
 		const priorTurnCount = this.state.turnCount;
-		this.setState({ ...this.state, ...input });
+		this.setState({ ...this.state, ...input, modelCatalog });
 		await this.configurePiTurn();
 		return { priorTurnCount };
 	}

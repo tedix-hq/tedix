@@ -56,7 +56,10 @@ import {
 	judgeGoalCondition,
 	runGoalLoop,
 } from "../rpc/routers/kernel/goal-loop";
-import { type KernelEnv, kernelModel } from "../rpc/routers/kernel/llm";
+import {
+	type KernelEnv,
+	configuredKernelModel,
+} from "../rpc/routers/kernel/llm";
 import { kernelRuntimeContractRouter } from "../rpc/routers/kernel-runtime";
 
 export interface KernelGoalLoopWorkflowParams {
@@ -177,10 +180,8 @@ export class KernelGoalLoopWorkflow extends WorkflowEntrypoint<
 		const runTurn = async (content: string): Promise<GoalLoopSettledTurn> => {
 			turnCounter += 1;
 			const turn = turnCounter;
-			const selected = kernelModel(
-				this.env,
-				undefined,
-				organizationId,
+			const selected = (
+				await configuredKernelModel(this.env, undefined, organizationId)
 			)?.pricingIdentity;
 			const rate = selected
 				? await resolveProviderModelRate(this.env, {

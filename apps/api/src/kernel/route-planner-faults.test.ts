@@ -1,3 +1,7 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 /** Inject faults at the real Azure gateway fetch boundary. Explicit provider
  * selection stays fixed across failures, bounded retries, stream cuts and recovery. */
 
@@ -242,9 +246,16 @@ afterEach(() => {
 
 describe("planKernelRoute — selected provider faults", () => {
 	const select = (env: KernelEnv) => {
-		const model = kernelModel(env, {
-			modelRef: `azure-openai/${AZURE_DEPLOYMENT}`,
-		});
+		const model = kernelModel(
+			env,
+			{
+				modelRef: `azure-openai/${AZURE_DEPLOYMENT}`,
+			},
+			undefined,
+			modelCatalogConfig([
+				modelCatalogEntry(`azure-openai/${AZURE_DEPLOYMENT}`),
+			]),
+		);
 		if (!model) throw new Error("Expected explicit Azure model");
 		return model;
 	};

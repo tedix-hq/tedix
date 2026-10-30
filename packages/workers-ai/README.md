@@ -14,7 +14,7 @@ Runtime-neutral: nothing here branches on which app is calling.
 | `@tedix/workers-ai/gateway-transport` | Binding-vs-HTTPS AI Gateway resolution for one provider on one gateway                  |
 | `@tedix/workers-ai/transport`         | `callWorkersAi` — OpenAI-shaped chat over the gateway, falling back to `env.AI`         |
 | `@tedix/workers-ai/model`             | `workersAiModel` — a `LanguageModelV2` for `generateText`/`generateObject`/`streamText` |
-| `@tedix/workers-ai/model-select`      | `selectWorkersAiModel`, `DEFAULT_WORKERS_AI_MODEL` (ref → model id)                     |
+| `@tedix/workers-ai/model-select`      | `selectWorkersAiModel` (configured ref → model id)                                      |
 | `@tedix/workers-ai/breaker`           | `createProviderBreaker` — per-isolate primary-provider cooldown                         |
 
 No barrel; import the exact leaf.

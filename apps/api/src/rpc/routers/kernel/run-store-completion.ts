@@ -18,7 +18,7 @@ import {
 import { delegatedStopFromSummary } from "./delegated-stop";
 import { type DelegationAttemptResult } from "./delegation-work-item";
 import { homeNarrationMetadata } from "./home-narration";
-import { type KernelEnv, kernelModel } from "./llm";
+import { type KernelEnv, configuredKernelModel } from "./llm";
 import {
 	DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
 	errorMessage,
@@ -71,7 +71,7 @@ async function readAndSynthesizeChildRunResult(
 	try {
 		const fullResult = await readChildRunFullResult(context, input);
 		if (!fullResult) return null;
-		const model = kernelModel(
+		const model = await configuredKernelModel(
 			context.env as unknown as KernelEnv,
 			undefined,
 			input.organizationId,

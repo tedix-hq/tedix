@@ -1,9 +1,13 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { DbClient } from "@tedix/db/client";
 import { getRuntimeProfileById } from "@tedix/db/queries/control-plane/definitions";
 import type { RuntimeProfileConfig } from "@tedix/db/schema/control-plane";
 import {
-	chatModelRefFromRuntimeOverrides,
+	chatModelRefFromRuntimeOverrides as parseChatModelRef,
 	rawChatModelOverride,
 	tediChatTurnModel,
 } from "./tedi-model-overrides";
@@ -12,6 +16,15 @@ vi.mock("@tedix/db/queries/control-plane/definitions", () => ({
 	getRuntimeProfileById: vi.fn(),
 }));
 
+const catalog = ["azure-openai/gpt-6.1-sol", "azure-openai/gpt-6-luna"].map(
+	(ref) => modelCatalogEntry(ref),
+);
+const chatModelRefFromRuntimeOverrides = (
+	value: Record<string, unknown> | null | undefined,
+) => parseChatModelRef(value, catalog);
+vi.mock("@tedix/db/queries/model-catalog", () => ({
+	getModelCatalogConfig: async () => modelCatalogConfig(catalog),
+}));
 const db = {} as DbClient;
 const profileId = "profile-example";
 const pin = "azure-openai/gpt-6.1-sol";
@@ -68,6 +81,7 @@ describe("tediChatTurnModel", () => {
 		expect(chatModelRefFromRuntimeOverrides(runtimeOverrides)).toBe(pin);
 		expect(
 			await tediChatTurnModel(db, {
+				organizationId: "org-example",
 				runtimeProfileId: profileId,
 				runtimeOverrides,
 			}),
@@ -88,6 +102,7 @@ describe("tediChatTurnModel", () => {
 		expect(chatModelRefFromRuntimeOverrides(runtimeOverrides)).toBeNull();
 		expect(
 			await tediChatTurnModel(db, {
+				organizationId: "org-example",
 				runtimeProfileId: profileId,
 				runtimeOverrides,
 			}),
@@ -101,6 +116,7 @@ describe("tediChatTurnModel", () => {
 			getProfile.mockResolvedValue(null);
 			expect(
 				await tediChatTurnModel(db, {
+					organizationId: "org-example",
 					runtimeProfileId: profileId,
 					runtimeOverrides: overrides(primary),
 				}),
@@ -116,6 +132,7 @@ describe("tediChatTurnModel", () => {
 		async (primary) => {
 			expect(
 				await tediChatTurnModel(db, {
+					organizationId: "org-example",
 					runtimeProfileId: null,
 					runtimeOverrides: overrides(primary),
 				}),
@@ -138,6 +155,7 @@ describe("tediChatTurnModel", () => {
 			getProfile.mockResolvedValue(profile(config));
 			expect(
 				await tediChatTurnModel(db, {
+					organizationId: "org-example",
 					runtimeProfileId: profileId,
 					runtimeOverrides: null,
 				}),
@@ -152,6 +170,7 @@ describe("tediChatTurnModel", () => {
 		);
 		expect(
 			await tediChatTurnModel(db, {
+				organizationId: "org-example",
 				runtimeProfileId: profileId,
 				runtimeOverrides: null,
 			}),
@@ -177,6 +196,7 @@ describe("tediChatTurnModel", () => {
 			for (const runtimeOverrides of [overrides(pin), null]) {
 				expect(
 					await tediChatTurnModel(db, {
+						organizationId: "org-example",
 						runtimeProfileId: profileId,
 						runtimeOverrides,
 					}),
@@ -200,6 +220,7 @@ describe("tediChatTurnModel", () => {
 			);
 			expect(
 				await tediChatTurnModel(db, {
+					organizationId: "org-example",
 					runtimeProfileId: profileId,
 					runtimeOverrides: null,
 				}),
@@ -222,6 +243,7 @@ describe("tediChatTurnModel", () => {
 		);
 		expect(
 			await tediChatTurnModel(db, {
+				organizationId: "org-example",
 				runtimeProfileId: profileId,
 				runtimeOverrides: null,
 			}),
@@ -236,6 +258,7 @@ describe("tediChatTurnModel", () => {
 			getProfile.mockRejectedValue(error);
 			await expect(
 				tediChatTurnModel(db, {
+					organizationId: "org-example",
 					runtimeProfileId: profileId,
 					runtimeOverrides: overrides(primary),
 				}),
@@ -277,4 +300,30 @@ describe("rawChatModelOverride", () => {
 			expect(getProfile).not.toHaveBeenCalled();
 		},
 	);
+});
+
+it("does not borrow another organization's profile model or generation", async () => {
+	getProfile.mockResolvedValue({
+		...profile({
+			modelPolicy: {
+				chatModelRef: fallback,
+				generation: { chat: chatGeneration },
+			},
+		}),
+		organizationId: "org-other",
+	});
+	expect(
+		await tediChatTurnModel(db, {
+			organizationId: "org-example",
+			runtimeProfileId: profileId,
+			runtimeOverrides: {},
+		}),
+	).toBeNull();
+	expect(
+		await tediChatTurnModel(db, {
+			organizationId: "org-example",
+			runtimeProfileId: profileId,
+			runtimeOverrides: overrides(pin),
+		}),
+	).toEqual({ modelRef: pin });
 });

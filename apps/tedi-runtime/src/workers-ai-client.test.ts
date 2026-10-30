@@ -1,3 +1,7 @@
+import {
+	modelCatalogConfig,
+	modelCatalogEntry,
+} from "@tedix/api-contract/test/model-catalog";
 import assert from "node:assert/strict";
 import { callWorkersAi } from "@tedix/workers-ai/transport";
 import { verifyRuntimeInferenceOrigin } from "@tedix/auth/runtime-inference-origin";
@@ -242,6 +246,7 @@ for (const route of ["run", "binding", "https", "auto"] as const) {
 		signal: controller.signal,
 	};
 	const observerOptions = {
+		modelCatalog: modelCatalogConfig([modelCatalogEntry("cloudflare/auto")]),
 		env: env as never,
 		modelRef: "cloudflare/auto",
 		beforeDispatch: fixtureGuard(),

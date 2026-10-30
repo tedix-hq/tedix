@@ -483,14 +483,14 @@ assert.equal(
 );
 assert.equal(
 	await configuredReasoning({ maxOutputTokensOverride: 1500 }, "gpt-6-luna"),
-	"none",
+	null,
 );
 assert.equal(
 	await configuredReasoning({
 		maxOutputTokensOverride: 1500,
 		modelRefOverride: "azure-openai/gpt-6-luna",
 	}),
-	"none",
+	null,
 );
 assert.equal(await configuredReasoning({}), null);
 

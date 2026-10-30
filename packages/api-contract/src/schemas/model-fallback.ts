@@ -1,14 +1,8 @@
 import * as z from "zod";
-import { findCatalogEntry } from "./model-catalog";
+import { ModelRefSchema } from "./model-catalog";
 import platformDefault from "../assets/model-fallback.v1.json";
 
-const modelRef = z.string().refine((ref) => {
-	const entry = findCatalogEntry(ref);
-	return (
-		entry &&
-		["azure-openai", "workers-ai", "cloudflare"].includes(entry.provider)
-	);
-}, "Unknown or unsupported fallback model reference");
+const modelRef = ModelRefSchema;
 export const ModelFallbackPolicySchema = z
 	.object({
 		version: z.literal(1),

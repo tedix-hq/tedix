@@ -22,6 +22,7 @@ import {
 	AGENT_RUNTIME_AVAILABLE_PROVIDERS,
 	buildModelRef,
 	type ModelOverride,
+	type ModelCatalogEntry,
 	resolveModelSelection,
 } from "@tedix/api-contract/schemas/model-catalog";
 import type { TedixMcpRuntimeBinding } from "@tedix/mcp-client-core/runtime";
@@ -82,6 +83,7 @@ export function aiGatewayRequestSignal(
 export function selectAzureDeployment(
 	env: Pick<AzureChatEnv, "AZURE_CHAT_DEPLOYMENT">,
 	override?: ModelOverride | { modelRef?: unknown } | null,
+	catalog: readonly ModelCatalogEntry[] = [],
 ): string {
 	// BYTE-FOR-BYTE default: with no override, return the env deployment verbatim
 	// — NO parse/trim round-trip through the catalog. `parseModelRef` trims the
@@ -93,6 +95,7 @@ export function selectAzureDeployment(
 		defaultRef: buildModelRef("azure-openai", env.AZURE_CHAT_DEPLOYMENT),
 		override,
 		availableProviders: AGENT_RUNTIME_AVAILABLE_PROVIDERS,
+		catalog,
 	});
 	// Only a VALID, allowlisted Azure override may change the deployment. Every
 	// other outcome (rejected override → `source: "default"`, or a non-azure

@@ -1,4 +1,7 @@
-import { findCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
+import {
+	findCatalogEntry,
+	type ModelCatalogEntry,
+} from "@tedix/api-contract/schemas/model-catalog";
 import {
 	ModelGenerationSettingsSchema,
 	type ModelGenerationSettings,
@@ -22,22 +25,27 @@ export function configureFacetGeneration(
 	);
 }
 
-/** Azure GPT-6.1 Sol rejects explicit none (verified through Gateway BYOK).
- * Astra has the same documented restriction. Other models keep their behavior.
- */
-export function supportsReasoningNone(modelRef: string): boolean {
-	return !/^azure-openai\/gpt-(?:6\.1-sol|6-astra)(?:$|-)/i.test(modelRef);
+/** Reasoning options come from the admitted model catalog. */
+export function supportsReasoningNone(
+	modelRef: string,
+	entries: readonly ModelCatalogEntry[] = [],
+): boolean {
+	const entry = findCatalogEntry(modelRef, entries);
+	return (
+		entry?.reasoning === false ||
+		entry?.reasoningEfforts?.includes("none") === true
+	);
 }
 
 /** Resolve against the selected model.
- * Unknown output capacity is not permission to increase it. Verified GPT-5.6/6
- * limits: https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/reasoning.
+ * Unknown output capacity is not permission to increase it.
  * This response allowance does not change the separate input compaction policy.
  */
 export function resolveFacetGeneration(
 	model: { provider: "azure-openai" | "workers-ai"; model: string },
 	profile: ModelGenerationSettings = {},
 	override: ModelGenerationSettings = {},
+	entries: readonly ModelCatalogEntry[] = [],
 ) {
 	const requested = ModelGenerationSettingsSchema.parse({
 		...profile,
@@ -45,26 +53,25 @@ export function resolveFacetGeneration(
 	});
 	const maxOutputTokens =
 		requested.maxOutputTokens ?? FACET_GENERATION_SETTINGS.maxOutputTokens;
+	const ref =
+		model.model === "cloudflare/auto"
+			? model.model
+			: `${model.provider}/${model.model}`;
+	const catalog = findCatalogEntry(ref, entries);
 	const outputLimit =
-		model.provider === "azure-openai" &&
-		/^(?:gpt-5\.6-(?:terra|sol|luna)|gpt-6-(?:astra|sol|luna)|gpt-6\.1-sol)$/.test(
-			model.model,
-		)
-			? 128_000
-			: FACET_GENERATION_SETTINGS.maxOutputTokens;
+		catalog?.maxOutputTokens ?? FACET_GENERATION_SETTINGS.maxOutputTokens;
 	if (maxOutputTokens > outputLimit)
 		throw new Error(
 			`Output allowance exceeds the configured ${outputLimit}-token limit of ${model.provider}/${model.model}`,
 		);
 	if (
 		requested.reasoningEffort === "none" &&
-		!supportsReasoningNone(`${model.provider}/${model.model}`)
+		!supportsReasoningNone(ref, entries)
 	) {
 		throw new Error(
 			`Reasoning effort none is unsupported on ${model.provider}/${model.model}`,
 		);
 	}
-	const catalog = findCatalogEntry(`${model.provider}/${model.model}`);
 	const isAuto = model.model === "cloudflare/auto";
 	const supportsReasoning =
 		isAuto ||
@@ -82,8 +89,18 @@ export function resolveFacetGeneration(
 			`Explicit reasoning effort is unsupported on ${model.provider}/${model.model}`,
 		);
 	}
+	if (
+		requested.reasoningEffort &&
+		catalog?.reasoningEfforts &&
+		!catalog.reasoningEfforts.includes(requested.reasoningEffort)
+	)
+		throw new Error(`Reasoning effort is unsupported on ${ref}`);
 	const reasoningEffort = supportsReasoning
-		? (requested.reasoningEffort ?? "medium")
+		? (requested.reasoningEffort ??
+			(catalog?.reasoningEfforts?.includes("medium")
+				? "medium"
+				: catalog?.reasoningEfforts?.[0]) ??
+			"medium")
 		: null;
 	return {
 		requested,

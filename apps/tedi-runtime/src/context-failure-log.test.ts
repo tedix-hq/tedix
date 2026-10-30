@@ -1,3 +1,16 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("workers-ai/@cf/meta/llama-3.1-8b-instruct", {
+		maxOutputTokens: 16000,
+	}),
+	modelCatalogEntry("cloudflare/auto", {}),
+]);
+const observerCompletion = (
+	opts: Parameters<typeof configured_observerCompletion>[0],
+) => configured_observerCompletion({ ...opts, modelCatalog: fixtureCatalog });
 import { privateInferenceOriginGuard } from "./runtime-inference-origin";
 import assert from "node:assert/strict";
 import { composeCognitiveAddenda } from "./cognitive-addenda";
@@ -5,7 +18,7 @@ import {
 	logTediContextFailure,
 	logTediSourceFailure,
 } from "./context-failure-log";
-import { observerCompletion } from "./observer-llm";
+import { observerCompletion as configured_observerCompletion } from "./observer-llm";
 
 const secret = "prompt, memory, skill and credential: private-value";
 const failure = new Error(secret, { cause: new TypeError(secret) });

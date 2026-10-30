@@ -1,3 +1,7 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { planKernelRoute } from "./route-planner";
@@ -34,7 +38,11 @@ import {
 	usingWorkersAiGateway,
 	type WorkersAiTransportEnv,
 } from "@tedix/workers-ai/transport";
-import { kernelModel, kernelGatewayFetch, type KernelEnv } from "./llm";
+import {
+	kernelModel as selectKernelModel,
+	kernelGatewayFetch,
+	type KernelEnv,
+} from "./llm";
 import { kernelWorkersAiClient } from "./workers-ai-client";
 
 function chatResponse(): Response {
@@ -59,6 +67,13 @@ function bindingEnv(extra: Partial<WorkersAiTransportEnv> = {}) {
 	return { env, bindingFetch };
 }
 
+const catalog = modelCatalogConfig(
+	["cloudflare/auto", "azure-openai/gpt-5.6-luna"].map((ref) =>
+		modelCatalogEntry(ref),
+	),
+);
+const kernelModel = (...args: Parameters<typeof selectKernelModel>) =>
+	selectKernelModel(args[0], args[1], args[2], catalog);
 describe("Workers AI over the AI Gateway binding transport", () => {
 	it("is configured with no token at all", () => {
 		const { env } = bindingEnv();

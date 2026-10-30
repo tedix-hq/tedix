@@ -7,7 +7,10 @@ import {
 	type CmsEditorProposalOutput,
 } from "@tedix/api-contract/schemas/cms-editor-proposals";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { kernelModel, type KernelEnv } from "../rpc/routers/kernel/llm";
+import {
+	configuredKernelModel,
+	type KernelEnv,
+} from "../rpc/routers/kernel/llm";
 import { kernelSpanContext } from "../rpc/routers/kernel/gateway-attribution";
 import { tracedAi, objectSpanTelemetry } from "../lib/traced-ai";
 
@@ -79,7 +82,7 @@ export async function proposeCmsEditorDraft(
 		sessionKey: input.draft.invocationId,
 		source: "cms_editor_proposal",
 	};
-	const selected = kernelModel(env, undefined, attribution);
+	const selected = await configuredKernelModel(env, undefined, attribution);
 	if (!selected) throw new Error("CMS editing model is unavailable");
 	const generated = await tracedAi.generateObject({
 		model: selected.model,

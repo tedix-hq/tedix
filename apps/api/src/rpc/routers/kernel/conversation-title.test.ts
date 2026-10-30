@@ -24,9 +24,20 @@ vi.mock("./llm", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("./llm")>();
 	return {
 		...actual,
-		kernelModel: (...args: Parameters<typeof actual.kernelModel>) => {
-			kernelModelCalls.push(args);
-			return actual.kernelModel(...args);
+		configuredKernelRouteModel: async (
+			env: Parameters<typeof actual.kernelModel>[0],
+			context: Parameters<typeof actual.kernelModel>[2],
+		) => {
+			const { modelCatalogEntry, modelCatalogConfig } =
+				await import("@tedix/api-contract/test/model-catalog");
+			const modelRef = "azure-openai/sample-route";
+			kernelModelCalls.push([env, { modelRef }, context]);
+			return actual.kernelModel(
+				env,
+				{ modelRef },
+				context,
+				modelCatalogConfig([modelCatalogEntry(modelRef)]),
+			);
 		},
 	};
 });
@@ -44,7 +55,7 @@ import {
 	KERNEL_AUTO_TITLE_SOURCE,
 	sanitizeConversationTitle,
 } from "./conversation-index";
-import { KERNEL_ROUTE_MODEL_REF_DEFAULT } from "./llm";
+const KERNEL_ROUTE_MODEL_REF_DEFAULT = "azure-openai/sample-route";
 
 // ---------------------------------------------------------------------------
 // pure helpers

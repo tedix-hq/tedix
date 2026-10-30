@@ -1,3 +1,9 @@
+import { createDbClient } from "@tedix/db/client";
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import {
+	ModelCatalogConfigSchema,
+	type ModelCatalogConfig,
+} from "@tedix/api-contract/schemas/model-catalog-config";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 /** Native Pi facet for structurally blind, tool-free verification. Parent retains admission and the ledger. */
 import {
@@ -26,6 +32,7 @@ import type { AigMetadata, AzureChatEnv } from "./llm";
 import type { FacetTurnUsage } from "./step-telemetry";
 
 export interface SynthesisFacetState {
+	modelCatalog?: ModelCatalogConfig;
 	system: string | null;
 	sessionKey?: string | null;
 	modelRef: string | null;
@@ -88,6 +95,9 @@ export class SynthesisSessionFacet extends PiAgent<
 			undefined,
 			undefined,
 			this.facetBeforeDispatch(),
+			undefined,
+			undefined,
+			this.state.modelCatalog,
 		);
 		if (typeof selected.model === "string")
 			throw new Error("Native Pi requires a resolved governed model adapter");
@@ -136,13 +146,17 @@ export class SynthesisSessionFacet extends PiAgent<
 		modelRef: string | null;
 		aigMetadata: AigMetadata;
 	}): Promise<void> {
+		const modelCatalog =
+			this.state.runId === input.runId && this.state.modelCatalog
+				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
+				: await getModelCatalogConfig(createDbClient(this.env.DB));
 		const selected = await this.prepareFacetRuntimeAdmission({
 			runId: input.runId,
 			sessionKey: input.sessionKey ?? "",
 			configuration: input,
 		});
 		if (selected) {
-			this.setState({ ...this.state, ...input });
+			this.setState({ ...this.state, ...input, modelCatalog });
 			return;
 		}
 		const pending = await (
@@ -154,7 +168,7 @@ export class SynthesisSessionFacet extends PiAgent<
 			(await (await this.nativePiSession()).busy())
 		)
 			throw new Error("Synthesis turn configuration denied while busy");
-		this.setState({ ...this.state, ...input });
+		this.setState({ ...this.state, ...input, modelCatalog });
 		await this.configurePiTurn();
 	}
 	async runSynthesisTurn(input: {
