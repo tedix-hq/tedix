@@ -41,7 +41,7 @@ For Claude chat, Cowork and Claude Code, see the
 format from the same skills; `--local` adds opt-in context hooks. An explicit
 `--mcp-url` selects a self-hosted or local gateway without changing CLI bindings.
 
-Every host uses the name and version in `plugin.json`. After changing that
+Every host uses the release version in `plugin.json`. After changing that
 manifest, regenerate the checked-in host manifests and build the needed ZIP:
 
 ```sh
@@ -72,8 +72,10 @@ references. Submit the default ZIP to the existing marketplace plugin; keep
 hooks in the local host before enabling them.
 
 For a personal ChatGPT development plugin that already has an MCP app, build
-with `--host chatgpt-dev --app-id <existing-app-id>` and upload to that existing
-plugin. This variant shares the release version, skills and logos but references
+with `--host chatgpt-dev --app-id <existing-app-id> --plugin-name <existing-name>`
+and upload to that existing plugin. ChatGPT requires its assigned internal name
+to remain unchanged; the displayed name stays Tedix. This variant shares the
+release version, skills and logos but references
 the existing app instead of creating another MCP connection. It is not a public
 submission package. Never check the app ID or generated bundle into source.
 Signing in, refreshing tools, uploading a package, and publishing are separate

@@ -63,6 +63,7 @@ export interface PackageOptions {
 	mcpUrl?: string;
 	mcpBearerEnv?: string;
 	appId?: string;
+	pluginName?: string;
 }
 
 function isLoopbackAddress(hostname: string): boolean {
@@ -208,6 +209,7 @@ export function packageFiles(
 		mcpUrl,
 		mcpBearerEnv,
 		appId,
+		pluginName,
 	} = options;
 	if (!["openai", "claude", "devin", "opencode", "chatgpt-dev"].includes(host))
 		throw new Error(
@@ -218,8 +220,16 @@ export function packageFiles(
 			throw new Error(
 				"--app-id requires an existing app ID and cannot combine with --local",
 			);
-	} else if (appId !== undefined)
-		throw new Error("--app-id requires --host chatgpt-dev");
+		if (
+			!pluginName ||
+			!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(pluginName) ||
+			pluginName.length > 64
+		)
+			throw new Error(
+				"--plugin-name must match the existing development plugin's name",
+			);
+	} else if (appId !== undefined || pluginName !== undefined)
+		throw new Error("--app-id and --plugin-name require --host chatgpt-dev");
 	if (mcpUrl !== undefined) validateMcpUrl(mcpUrl, { local });
 	if (
 		mcpBearerEnv !== undefined &&
@@ -278,12 +288,14 @@ export function packageFiles(
 	const paths = ["mcp.json", ...skillPaths(root), ...assets];
 	if (host === "chatgpt-dev") {
 		// Reuse the installed app's OAuth grant; never create a second connector.
+		manifest.name = pluginName;
 		extension.apps = "./.app.json";
 		// Review cases belong to a declared MCP server, not a registered app reference.
 		delete extension.review;
 		paths.splice(0, 1);
 		files.set(".app.json", json({ apps: { [manifest.name]: { id: appId } } }));
 		const compatibility = hostManifest(root, "codex");
+		compatibility.name = pluginName;
 		delete compatibility.hooks;
 		delete compatibility.mcpServers;
 		delete compatibility.extensions["com.openai"].review;
@@ -406,11 +418,12 @@ if (import.meta.main) {
 			"mcp-url": { type: "string" },
 			"mcp-bearer-env": { type: "string" },
 			"app-id": { type: "string" },
+			"plugin-name": { type: "string" },
 		},
 	});
 	if (positionals.length !== 1) {
 		console.error(
-			"Usage: bun packages/cli/scripts/package-plugin.ts [--local] [--host openai|claude|devin|opencode|chatgpt-dev] [--app-id <existing app>] [--mcp-url <url>] [--mcp-bearer-env <NAME>] <new.zip>",
+			"Usage: bun packages/cli/scripts/package-plugin.ts [--local] [--host openai|claude|devin|opencode|chatgpt-dev] [--app-id <existing app> --plugin-name <existing plugin>] [--mcp-url <url>] [--mcp-bearer-env <NAME>] <new.zip>",
 		);
 		process.exit(2);
 	}
@@ -420,6 +433,7 @@ if (import.meta.main) {
 		mcpUrl: values["mcp-url"],
 		mcpBearerEnv: values["mcp-bearer-env"],
 		appId: values["app-id"],
+		pluginName: values["plugin-name"],
 	});
 	console.log(positionals[0]);
 }
