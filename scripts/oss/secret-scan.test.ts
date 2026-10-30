@@ -702,6 +702,52 @@ describe("public secret scan", () => {
 		).toEqual([]);
 	});
 
+	test("accepts the exact Codex owner-host key without accepting invented suffixes", () => {
+		const prefix =
+			"fix: a\n\nWork-Item: 11111111-1111-4111-8111-111111111111\nAgent-Session: ";
+		const native = "codex:01a105c7-a9ae-7440-9449-a37e588b09a6";
+		expect(trailerFindings(`${prefix}${native}:owner-host`)).toEqual([]);
+		for (const suffix of [
+			":owner",
+			":owner-host:extra",
+			":owner-host-review",
+			":review",
+			"-owner-host",
+		])
+			expect(trailerFindings(`${prefix}${native}${suffix}`)).toEqual([4]);
+		expect(trailerFindings(`${prefix}codex:not-a-chat-id:owner-host`)).toEqual([
+			4,
+		]);
+		expect(
+			trailerFindings(
+				`${prefix}${native}:owner-host\nAgent-Session: ${native}:owner-host`,
+			),
+		).toEqual([5]);
+		expect(
+			trailerFindings(`fix: a\n\nAgent-Session: ${native}:owner-host`),
+		).toEqual([3]);
+		expect(
+			trailerFindings(
+				`fix: a\n\nWork-Item: 11111111-1111-4111-8111-111111111111\n\nAgent-Session: ${native}:owner-host`,
+			),
+		).toEqual([3]);
+	});
+
+	test("scans a commit carrying the admitted Codex owner-host key", () => {
+		const privateRulesPath = placeholderRules();
+		const root = fixture({ "src/index.ts": "export {};\n" });
+		const base = commitFixture(root, "Ada Codex|ada@acme.dev", "chore: base");
+		setOriginMain(root, base);
+		const head = commitFixture(
+			root,
+			"Ada Codex|ada@acme.dev",
+			"fix: a\n\nWork-Item: 11111111-1111-4111-8111-111111111111\nAgent-Session: codex:01a105c7-a9ae-7440-9449-a37e588b09a6:owner-host",
+		);
+		expect(scanCommits(root, [{ base, head }], { privateRulesPath })).toEqual(
+			[],
+		);
+	});
+
 	// The Agent-Session forms the lane dispatchers (`tedix lane serve`) recorded
 	// on 25 October 2026, one per executor, with the attribution lines their
 	// harnesses append to the same paragraph.
