@@ -1793,8 +1793,8 @@ describe("oRPC tool projection sync", () => {
 	});
 
 	it("projects stable role-template tool ids with the right annotations", async () => {
-		// Reusable role primitive: 3 verb-first tools. The router key is camelCase
-		// (roleTemplates), so all three need id overrides. create=write, list=read,
+		// The router key is camelCase (roleTemplates), so tools need id overrides.
+		// create and copy=write, list=read,
 		// apply=destructive (overwrites persona/profile + seeds objectives → trips
 		// the destructive approval gate for interactive callers).
 		const { db, inserts } = makeDb([]);
@@ -1804,6 +1804,7 @@ describe("oRPC tool projection sync", () => {
 			endpoints: [
 				"roleTemplates/create",
 				"roleTemplates/list",
+				"roleTemplates/copyPlatform",
 				"roleTemplates/apply",
 			],
 		});
@@ -1815,6 +1816,7 @@ describe("oRPC tool projection sync", () => {
 			new Map([
 				["roleTemplates/create", "create_role_template"],
 				["roleTemplates/list", "list_role_templates"],
+				["roleTemplates/copyPlatform", "copy_platform_role_template"],
 				["roleTemplates/apply", "apply_role_template"],
 			]),
 		);
@@ -1825,6 +1827,11 @@ describe("oRPC tool projection sync", () => {
 		});
 		expect(byToolId2.get("list_role_templates")?.annotations).toMatchObject({
 			readOnlyHint: true,
+		});
+		expect(
+			byToolId2.get("copy_platform_role_template")?.annotations,
+		).toMatchObject({
+			readOnlyHint: false,
 		});
 		expect(byToolId2.get("apply_role_template")?.annotations).toMatchObject({
 			readOnlyHint: false,

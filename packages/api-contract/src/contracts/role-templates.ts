@@ -162,6 +162,22 @@ export const roleTemplatesContract = oc
 				}),
 			),
 
+		copyPlatform: oc
+			.route({
+				method: "POST",
+				path: "/copy-platform",
+				summary: "Copy a platform role template into your organization",
+				description:
+					"Copy an active platform role template into the caller's organization without modifying the source or an existing organization template. Requires an organization owner or admin.",
+			})
+			.input(
+				z.object({
+					organizationId: OrganizationIdInputSchema,
+					sourceTemplateId: z.uuid(),
+				}),
+			)
+			.output(RoleTemplateSchema),
+
 		apply: oc
 			.route({
 				method: "POST",

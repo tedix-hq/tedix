@@ -6,6 +6,7 @@ import {
 	applyRoleTemplate,
 	archiveRoleTemplate,
 	CMO_ROLE_TEMPLATE_SEED,
+	copyPlatformRoleTemplate,
 	createRoleTemplate,
 	getRoleTemplateByKey,
 	listRoleTemplates,
@@ -257,6 +258,94 @@ describe("role templates CRUD", () => {
 		expect(
 			(await listRoleTemplates(db, { orgId: ORG, includeArchived: true })).data,
 		).toHaveLength(1);
+	});
+});
+
+describe("copy platform role template", () => {
+	it("copies an exact large platform snapshot without replacing an organization override", async () => {
+		const { db } = fixture();
+		const source = await createRoleTemplate(db, {
+			key: "example",
+			name: "Example",
+			persona: "x".repeat(22000),
+			standingObjectives: [{ title: "Objective", approach: "Approach" }],
+			tags: ["sample"],
+			metadata: { example: ["one", "two"] },
+			createdAt: NOW,
+		});
+		const copy = await copyPlatformRoleTemplate(db, {
+			sourceId: source.id,
+			orgId: ORG,
+			now: NOW,
+		});
+		expect(copy).toMatchObject({
+			orgId: ORG,
+			key: source.key,
+			name: source.name,
+			persona: source.persona,
+			standingObjectives: source.standingObjectives,
+			tags: source.tags,
+			metadata: source.metadata,
+			capabilityProfile: source.capabilityProfile,
+			cronTemplateNames: source.cronTemplateNames,
+		});
+		expect(
+			await copyPlatformRoleTemplate(db, {
+				sourceId: source.id,
+				orgId: ORG,
+				now: NOW,
+			}),
+		).toBeUndefined();
+		expect(
+			await getRoleTemplateByKey(db, { key: source.key, orgId: ORG }),
+		).toEqual(copy);
+		expect(
+			await getRoleTemplateByKey(db, { key: source.key, orgId: null }),
+		).toEqual(source);
+	});
+
+	it("does not copy archived or organization-owned templates", async () => {
+		const { db } = fixture();
+		const source = await createRoleTemplate(db, {
+			key: "example",
+			name: "Example",
+			persona: "test",
+			orgId: OTHER_ORG,
+		});
+		expect(
+			await copyPlatformRoleTemplate(db, { sourceId: source.id, orgId: ORG }),
+		).toBeUndefined();
+		const platform = await createRoleTemplate(db, {
+			key: "archived",
+			name: "Archived",
+			persona: "test",
+		});
+		await archiveRoleTemplate(db, platform.id, NOW);
+		expect(
+			await copyPlatformRoleTemplate(db, { sourceId: platform.id, orgId: ORG }),
+		).toBeUndefined();
+	});
+
+	it("preserves an archived organization override", async () => {
+		const { db } = fixture();
+		const platform = await createRoleTemplate(db, {
+			key: "example",
+			name: "Platform",
+			persona: "platform",
+		});
+		const override = await createRoleTemplate(db, {
+			orgId: ORG,
+			key: "example",
+			name: "Organization",
+			persona: "organization",
+		});
+		const archived = await archiveRoleTemplate(db, override.id, NOW);
+		expect(
+			await copyPlatformRoleTemplate(db, { sourceId: platform.id, orgId: ORG }),
+		).toBeUndefined();
+		expect(
+			await getRoleTemplateByKey(db, { key: "example", orgId: ORG }),
+		).toEqual(archived);
 	});
 });
 

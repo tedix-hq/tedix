@@ -1019,6 +1019,7 @@ export const AGENT_TURN_TRIAGE_KIND_OVERRIDES: Record<
 export const ROLE_TEMPLATE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"roleTemplates/create": "create_role_template",
 	"roleTemplates/list": "list_role_templates",
+	"roleTemplates/copyPlatform": "copy_platform_role_template",
 	"roleTemplates/apply": "apply_role_template",
 };
 
@@ -1028,6 +1029,7 @@ export const ROLE_TEMPLATE_KIND_OVERRIDES: Record<
 > = {
 	"roleTemplates/create": "write",
 	"roleTemplates/list": "read",
+	"roleTemplates/copyPlatform": "write",
 	// apply overwrites a tedi's persona + capability profile and seeds
 	// objectives — a significant provisioning mutation, so `destructive` trips
 	// the destructive-tool approval gate for interactive MCP callers (the

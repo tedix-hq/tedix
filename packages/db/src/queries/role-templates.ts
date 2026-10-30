@@ -22,7 +22,7 @@
 
 import { DEFAULT_STANDING_OBJECTIVE_GATE_CONFIG } from "@tedix/api-contract/contracts/tedi-objectives";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type NewRoleTemplate,
@@ -129,6 +129,49 @@ export async function getRoleTemplateById(
 		.select()
 		.from(roleTemplates)
 		.where(eq(roleTemplates.id, id));
+	return rows[0];
+}
+
+/** Copy one current platform blueprint into an organization without overwriting
+ * an existing (including archived) organization template. The single statement
+ * copies the same source revision across all fields, even for large personas. */
+export async function copyPlatformRoleTemplate(
+	db: DbClient,
+	params: { sourceId: string; orgId: string; now?: string },
+): Promise<RoleTemplate | undefined> {
+	const id = crypto.randomUUID();
+	const now = params.now ?? new Date().toISOString();
+	const rows = await db
+		.insert(roleTemplates)
+		.select(
+			db
+				.select({
+					id: sql<string>`${id}`.as("id"),
+					orgId: sql<string>`${params.orgId}`.as("org_id"),
+					key: roleTemplates.key,
+					name: roleTemplates.name,
+					description: roleTemplates.description,
+					persona: roleTemplates.persona,
+					standingObjectives: roleTemplates.standingObjectives,
+					tags: roleTemplates.tags,
+					capabilityProfile: roleTemplates.capabilityProfile,
+					cronTemplateNames: roleTemplates.cronTemplateNames,
+					metadata: roleTemplates.metadata,
+					createdAt: sql<string>`${now}`.as("created_at"),
+					updatedAt: sql<string | null>`null`.as("updated_at"),
+					archivedAt: sql<string | null>`null`.as("archived_at"),
+				})
+				.from(roleTemplates)
+				.where(
+					and(
+						eq(roleTemplates.id, params.sourceId),
+						isNull(roleTemplates.orgId),
+						isNull(roleTemplates.archivedAt),
+					),
+				),
+		)
+		.onConflictDoNothing()
+		.returning();
 	return rows[0];
 }
 

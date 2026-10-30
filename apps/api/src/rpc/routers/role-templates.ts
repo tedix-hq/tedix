@@ -19,13 +19,14 @@ import { implement } from "@orpc/server";
 import { roleTemplatesContract } from "@tedix/api-contract/contracts/role-templates";
 import {
 	applyRoleTemplate,
+	copyPlatformRoleTemplate,
 	createRoleTemplate,
 	getRoleTemplateByKey,
 	listRoleTemplates,
 	RoleTemplateError,
 } from "@tedix/db/queries/role-templates";
 import { toJsonRecord } from "@tedix/db/utils/json";
-import { requireOrgIdOrInput } from "../org-scope";
+import { requireOrgId, requireOrgIdOrInput } from "../org-scope";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -111,6 +112,38 @@ const listProcedure = authOs.list
 		};
 	});
 
+const copyPlatformProcedure = authOs.copyPlatform
+	.use(AUTHZ.delegationGovern)
+	.handler(async ({ input, context }) => {
+		if (
+			context.authType !== "user" ||
+			(context.userRole !== "owner" && context.userRole !== "admin")
+		) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Copying a role template requires an organization owner or admin",
+			);
+		}
+		const orgId = requireOrgId(context);
+		if (input.organizationId && input.organizationId !== orgId) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Organization access denied for this resource",
+			);
+		}
+		const result = await copyPlatformRoleTemplate(context.db, {
+			sourceId: input.sourceTemplateId,
+			orgId,
+		});
+		if (!result) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"The platform template is unavailable or an organization template already exists",
+			);
+		}
+		return result;
+	});
+
 const applyProcedure = authOs.apply
 	.use(AUTHZ.delegationGovern)
 	.handler(async ({ input, context }) => {
@@ -135,5 +168,6 @@ const applyProcedure = authOs.apply
 export const roleTemplatesContractRouter = roleTemplatesOs.router({
 	create: createProcedure,
 	list: skipOutputValidation(listProcedure),
+	copyPlatform: skipOutputValidation(copyPlatformProcedure),
 	apply: applyProcedure,
 });
