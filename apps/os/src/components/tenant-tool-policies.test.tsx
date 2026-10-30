@@ -39,8 +39,8 @@ import {
 describe("tenant tool policies", () => {
 	it("explains when saved rules can apply and retains other safeguards", () => {
 		const markup = renderToStaticMarkup(<TenantToolPolicies canChange />);
-		expect(markup).toContain("Review tool");
-		expect(markup).toContain("A saved rule can apply to matching calls");
+		expect(markup).toContain("Add rule");
+		expect(markup).toContain("Rules for connected apps");
 		expect(markup).toContain("Permissions and other safeguards still apply");
 		expect(markup).not.toContain("not yet active in tool execution");
 	});
@@ -48,7 +48,7 @@ describe("tenant tool policies", () => {
 		const markup = renderToStaticMarkup(
 			<TenantToolPolicies canChange={false} />,
 		);
-		expect(markup).not.toContain("Review tool");
+		expect(markup).not.toContain("Add rule");
 	});
 	it("labels machine choices and reports loading, empty and error states", () => {
 		const base = {
