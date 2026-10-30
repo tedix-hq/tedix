@@ -95,6 +95,8 @@ async function runLaneProcessWithReporter(
 		cwd?: string;
 		childScope?: { workspace: string; organization: string };
 		detachedChild?: boolean;
+		/** A dispatcher drains its children and owns process shutdown itself. */
+		forwardSignals?: boolean;
 		/** The caller already holds an admitted Attempt for this Work. */
 		admitted?: boolean;
 		deliverWorkNote?: (note: string) => Promise<void>;
@@ -514,8 +516,10 @@ async function runLaneProcessWithReporter(
 	};
 	const interrupt = () => forward("SIGINT"),
 		terminate = () => forward("SIGTERM");
-	process.on("SIGINT", interrupt);
-	process.on("SIGTERM", terminate);
+	if (deps.forwardSignals !== false) {
+		process.on("SIGINT", interrupt);
+		process.on("SIGTERM", terminate);
+	}
 	let exitCode: number, signal: NodeJS.Signals | null;
 	try {
 		[exitCode, signal] = await new Promise<[number, NodeJS.Signals | null]>(
