@@ -301,14 +301,14 @@ describe("unattendedRun", () => {
 	test("claude -p and codex exec are unattended; interactive runs are not", () => {
 		const dir = mkdtempSync(join(tmpdir(), "tedix-unattended-"));
 		try {
-			const rollout = (source: unknown) => {
+			const rollout = (source: unknown, originator = "codex_exec") => {
 				const path = join(
 					dir,
 					`rollout-${JSON.stringify(source).length}.jsonl`,
 				);
 				writeFileSync(
 					path,
-					`${JSON.stringify({ type: "session_meta", payload: { id: "x", originator: "codex_exec", source, base_instructions: { text: "y".repeat(20_000) } } })}\n{"type":"event"}\n`,
+					`${JSON.stringify({ type: "session_meta", payload: { id: "x", originator, source, base_instructions: { text: "y".repeat(20_000) } } })}\n{"type":"event"}\n`,
 				);
 				return path;
 			};
@@ -343,6 +343,10 @@ describe("unattendedRun", () => {
 			).toBe(true);
 			expect(unattendedRun(codex(rollout("exec")), {})).toBe(true);
 			expect(unattendedRun(codex(rollout("cli")), {})).toBe(false);
+			expect(unattendedRun(codex(rollout("vscode")), {})).toBe(false);
+			expect(
+				unattendedRun(codex(rollout("vscode", "tedix-lane-dispatcher")), {}),
+			).toBe(true);
 			// A Codex side thread names no transcript, or its parent's rollout.
 			expect(unattendedRun(codex(null), {})).toBe(true);
 			expect(

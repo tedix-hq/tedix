@@ -173,38 +173,47 @@ async function run(
 }
 
 describe("tedix hooks await-draft", () => {
-	test("codex exec skips without reads, sleeps or a continuation", async () => {
-		const transcript = join(config, `rollout-${SESSION}.jsonl`);
-		writeFileSync(
-			transcript,
-			`${JSON.stringify({ type: "session_meta", payload: { id: SESSION, source: "exec", originator: "codex_exec" } })}\n`,
-		);
-		const result = await run([], {
-			event: { ...CODEX_STOP, transcript_path: transcript },
-		});
-		expect(result.output).toBeUndefined();
-		expect(result.totalReads).toBe(0);
-		expect(result.elapsed).toBe(0);
-		expect(result.drafted).toEqual([]);
-	});
-
-	test("interactive Codex waits for a question only up to the default cap or override", async () => {
-		const transcript = join(config, `rollout-${SESSION}.jsonl`);
-		writeFileSync(
-			transcript,
-			`${JSON.stringify({ type: "session_meta", payload: { id: SESSION, source: "cli" } })}\n`,
-		);
-		for (const maxMs of [undefined, 2000]) {
+	test.each([
+		{ source: "exec", originator: "codex_exec" },
+		{ source: "vscode", originator: "tedix-lane-dispatcher" },
+	])(
+		"unattended Codex $originator skips reads, sleeps and continuation",
+		async ({ source, originator }) => {
+			const transcript = join(config, `rollout-${SESSION}.jsonl`);
+			writeFileSync(
+				transcript,
+				`${JSON.stringify({ type: "session_meta", payload: { id: SESSION, source, originator } })}\n`,
+			);
 			const result = await run([], {
 				event: { ...CODEX_STOP, transcript_path: transcript },
-				onSleep: () => {},
-				maxMs,
 			});
 			expect(result.output).toBeUndefined();
-			expect(result.totalReads).toBe(2);
-			expect(result.elapsed).toBe(maxMs ?? 90_000);
-		}
-	});
+			expect(result.totalReads).toBe(0);
+			expect(result.elapsed).toBe(0);
+			expect(result.drafted).toEqual([]);
+		},
+	);
+
+	test.each(["cli", "vscode"])(
+		"interactive Codex %s waits only up to the default cap or override",
+		async (source) => {
+			const transcript = join(config, `rollout-${SESSION}.jsonl`);
+			writeFileSync(
+				transcript,
+				`${JSON.stringify({ type: "session_meta", payload: { id: SESSION, source } })}\n`,
+			);
+			for (const maxMs of [undefined, 2000]) {
+				const result = await run([], {
+					event: { ...CODEX_STOP, transcript_path: transcript },
+					onSleep: () => {},
+					maxMs,
+				});
+				expect(result.output).toBeUndefined();
+				expect(result.totalReads).toBe(2);
+				expect(result.elapsed).toBe(maxMs ?? 90_000);
+			}
+		},
+	);
 
 	test("continues the turn with answers the user gave in Tedix OS to earlier questions", async () => {
 		const { output } = await run([], {
