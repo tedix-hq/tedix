@@ -7,8 +7,10 @@ import {
 	acceptsEmptyProfileArguments,
 	tenantPolicyLogicalToolDigest,
 	tenantPolicyCrossMountDigest,
+	tenantPolicyEffectiveToolDigest,
 	tenantPolicyMountDescriptor,
 } from "./tenant-policy-mount";
+import { buildHomeSurfaceTools } from "./home-surface-tools";
 import type { AppTool } from "./server-context";
 
 const mocks = vi.hoisted(() => ({ resolve: vi.fn(), getApp: vi.fn() }));
@@ -233,6 +235,87 @@ describe("tenant policy mount descriptor", () => {
 		});
 		sourceOrganization = "another-org";
 		expect(await prepareTenantPolicyMount(request)).toBeNull();
+	});
+
+	it("resolves the canonical generated Home tool without inventing a stored row", async () => {
+		const ask = buildHomeSurfaceTools().find((tool) => tool.toolId === "ask")!;
+		mocks.getApp.mockResolvedValue({
+			app: {
+				id: "root",
+				slug: "gateway",
+				organizationId: "org",
+				metadata: { mcpConfig: { aggregateApps: [{ slug: "mounted" }] } },
+			},
+			tools: [],
+		});
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+		const request = {
+			organizationId: "org",
+			rootAppId: "root",
+			mountedToolId: "ask",
+			env: {} as CloudflareEnv,
+		};
+		expect(await resolveFreshPolicyMount(request)).toMatchObject({
+			tool: ask,
+			sourceAppId: "root",
+			sourceToolId: "ask",
+			mountAppIds: ["root"],
+			sourceKind: "home-surface",
+		});
+		expect(await prepareTenantNativePolicyMount(request)).toMatchObject({
+			descriptor: {
+				sourceToolRowId: ask.id,
+				effectiveToolDigest: await tenantPolicyEffectiveToolDigest(ask),
+			},
+		});
+	});
+
+	it("rechecks generated Home exposure and refuses stored-row shadows", async () => {
+		const ask = buildHomeSurfaceTools().find((tool) => tool.toolId === "ask")!;
+		const root = {
+			id: "root",
+			slug: "gateway",
+			organizationId: "org",
+			metadata: { mcpConfig: { aggregateApps: [{ slug: "mounted" }] } },
+		};
+		const request = {
+			organizationId: "org",
+			rootAppId: "root",
+			mountedToolId: "ask",
+			env: {} as CloudflareEnv,
+		};
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+		mocks.getApp.mockResolvedValue({ app: root, tools: [] });
+		expect(await resolveFreshPolicyMount(request)).not.toBeNull();
+		mocks.getApp.mockResolvedValue({
+			app: { ...root, metadata: { mcpConfig: { aggregateApps: [] } } },
+			tools: [],
+		});
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.getApp.mockResolvedValue({
+			app: { ...root, metadata: { mcpConfig: { aggregateApps: [] } } },
+			tools: [ask],
+		});
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.getApp.mockResolvedValue({
+			app: { ...root, organizationId: "another-org" },
+			tools: [],
+		});
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.getApp.mockResolvedValue({ app: null, tools: [] });
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		for (const stored of [
+			{ ...ask, id: "stored-row" },
+			{ ...ask, toolId: "stored_name" },
+			ask,
+		]) {
+			mocks.getApp.mockResolvedValue({ app: root, tools: [stored] });
+			expect(await resolveFreshPolicyMount(request)).toBeNull();
+		}
+		mocks.getApp.mockRejectedValue(new Error("fresh root unavailable"));
+		await expect(resolveFreshPolicyMount(request)).rejects.toThrow(
+			"fresh root unavailable",
+		);
 	});
 
 	it("resolves the direct gateway layout with fresh host defaults and rejects degraded or ambiguous mounts", async () => {

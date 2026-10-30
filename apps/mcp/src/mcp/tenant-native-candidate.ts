@@ -12,6 +12,8 @@ import {
 	tenantPolicyEffectiveToolDigest,
 } from "./tenant-policy-mount";
 import type { AppTool, ServerContext } from "./server-context";
+import { buildHomeSurfaceTools } from "./home-surface-tools";
+import { shouldExposeHomeSurface } from "./home-surface";
 
 /** Missing or invalid rules cannot fall through to older autonomy grants. */
 export async function tenantMachinePolicyFallbackBlocked(
@@ -19,6 +21,8 @@ export async function tenantMachinePolicyFallbackBlocked(
 	tool: AppTool,
 ): Promise<boolean> {
 	const caller = agent.callerIdentity;
+	const homeTools = buildHomeSurfaceTools();
+	const generatedHomeId = homeTools.some((home) => home.id === tool.id);
 	if (
 		(caller?.authType !== "external_agent" &&
 			caller?.authType !== "oauth" &&
@@ -27,7 +31,9 @@ export async function tenantMachinePolicyFallbackBlocked(
 				caller.kernel === true &&
 				caller.userId
 			)) ||
-		(tool.config?.transport !== "mcp" && tool.config?.transport !== "rpc")
+		(tool.config?.transport !== "mcp" &&
+			tool.config?.transport !== "rpc" &&
+			!generatedHomeId)
 	)
 		return false;
 	if (caller.authType !== "external_agent" && tool.config?.transport !== "mcp")
@@ -63,8 +69,25 @@ export async function tenantMachinePolicyFallbackBlocked(
 		let sourceAppId = fresh?.sourceAppId;
 		let sourceToolId = fresh?.sourceToolId;
 		if (fresh && fresh.tool.id !== tool.id) return true;
+		if (generatedHomeId && fresh?.sourceKind !== "home-surface") return true;
+		if (
+			fresh?.sourceKind === "home-surface" &&
+			(await tenantPolicyEffectiveToolDigest(fresh.tool)) !==
+				(await tenantPolicyEffectiveToolDigest(tool))
+		)
+			return true;
 		if (!sourceAppId) {
 			const source = await client.apps.getByIdWithTools({ appId: rootAppId });
+			// A rejected or revoked generated mount must not become a stored-row fallback.
+			if (
+				source.app &&
+				shouldExposeHomeSurface({
+					appSlug: source.app.slug,
+					metadata: source.app.metadata,
+				}) &&
+				homeTools.some((home) => home.toolId === tool.toolId)
+			)
+				return true;
 			const row = source.tools.find(
 				(item) => item.id === tool.id && item.toolId === tool.toolId,
 			);

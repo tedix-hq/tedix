@@ -9,6 +9,8 @@ import {
 import { ensurePlatformOperatorAggregateApps } from "./platform-operator-aggregation";
 import { getApiClient } from "../lib/api-client";
 import type { AppTool } from "./server-context";
+import { buildHomeSurfaceTools } from "./home-surface-tools";
+import { shouldExposeHomeSurface } from "./home-surface";
 
 /** A server-produced description; it conveys no authority by itself. */
 export interface TenantPolicyMountDescriptor {
@@ -241,6 +243,31 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 	const root = await client.apps.getByIdWithTools({ appId: input.rootAppId });
 	if (!root.app || root.app.organizationId !== input.organizationId)
 		return null;
+	const homeTools = buildHomeSurfaceTools();
+	if (
+		shouldExposeHomeSurface({
+			appSlug: root.app.slug,
+			metadata: root.app.metadata,
+		})
+	) {
+		const home = homeTools.find((tool) => tool.toolId === input.mountedToolId);
+		if (home) {
+			if (
+				root.tools.some(
+					(tool) => tool.id === home.id || tool.toolId === home.toolId,
+				)
+			)
+				return null;
+			// The definition is code-owned; provenance must not alter its config digest.
+			return {
+				tool: home,
+				sourceAppId: input.rootAppId,
+				sourceToolId: home.toolId,
+				mountAppIds: [input.rootAppId],
+				sourceKind: "home-surface" as const,
+			};
+		}
+	}
 	const surface = await aggregateAndPrefixTools(
 		[
 			{
@@ -335,10 +362,17 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		!source.app ||
 		source.app.organizationId !== input.organizationId ||
 		!sourceTool ||
-		!sourceTool.toolId
+		!sourceTool.toolId ||
+		homeTools.some((home) => home.id === sourceTool.id)
 	)
 		return null;
-	return { tool, sourceAppId, sourceToolId: sourceTool.toolId, mountAppIds };
+	return {
+		tool,
+		sourceAppId,
+		sourceToolId: sourceTool.toolId,
+		mountAppIds,
+		sourceKind: "app-tool" as const,
+	};
 }
 
 export async function prepareTenantPolicyMount(
