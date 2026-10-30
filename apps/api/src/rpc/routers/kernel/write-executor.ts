@@ -260,6 +260,7 @@ async function mcpCall(
 	approvedFactoryRequestId?: string,
 	approvedHomeUserId?: string,
 	verifiedConnectionExecute?: boolean,
+	verifiedConnectionAdmin?: boolean,
 ): Promise<unknown | null> {
 	if (!env.MCP_SERVICE || !env.MCP_URL) return null;
 	const service = env.MCP_SERVICE;
@@ -276,7 +277,11 @@ async function mcpCall(
 					// Tenant control-plane audit marker → "kernel" actor in apps/mcp.
 					"X-Tedix-Kernel": "true",
 					...(verifiedConnectionExecute
-						? { "X-Tedix-Tedi-Scopes": "connections.execute" }
+						? {
+								"X-Tedix-Tedi-Scopes": verifiedConnectionAdmin
+									? "connections.execute connections.admin"
+									: "connections.execute",
+							}
 						: {}),
 					...(approvedFactoryRequestId
 						? { "X-Tedix-Approved-Factory-Request": approvedFactoryRequestId }
@@ -440,6 +445,7 @@ export async function executeApprovedOwnerToolCall(args: {
 	payload: OwnerToolCallReplay;
 	approvalRequestId: string;
 	verifiedConnectionExecute?: boolean;
+	verifiedConnectionAdmin?: boolean;
 	timings?: KernelWriteExecutorTimings;
 }): Promise<KernelWriteExecutionResult> {
 	const { env, payload } = args;
@@ -515,6 +521,7 @@ export async function executeApprovedOwnerToolCall(args: {
 			undefined,
 			undefined,
 			args.verifiedConnectionExecute,
+			args.verifiedConnectionAdmin,
 		)) as ToolCallResult | null;
 		timings.callMs = since(callStartedAt);
 		if (!result) {

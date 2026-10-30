@@ -1,7 +1,11 @@
 import { summarizeRpcErrorResponse } from "./handler-log-redaction";
 import { readToolConfigExtension } from "./tool-config-extensions";
 import { buildConnectionSetupUrl } from "@tedix/api-contract/utils/connection-capabilities";
-import type { ConnectionCapability } from "@tedix/api-contract/schemas/connections";
+import {
+	SelectedConnectionCredentialSchema,
+	type SelectedConnectionCredential,
+	type ConnectionCapability,
+} from "@tedix/api-contract/schemas/connections";
 import { type ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { exchangeClientCredentials } from "@tedix/mcp-shared/auth/client-credentials";
 import { delegatedMachineScopes } from "@tedix/mcp-shared/auth/scopes";
@@ -43,8 +47,9 @@ type CredentialPreference = "user-first" | "tenant-first";
  * message — a 403/500 masked as "credential not found" sends operators to
  * Settings > Connections to fix something that isn't broken there.
  */
-interface CredentialFetchResult {
+export interface CredentialFetchResult {
 	token: string | null;
+	selectedCredential?: SelectedConnectionCredential;
 	status?: number;
 	detail?: string;
 }
@@ -567,7 +572,15 @@ export async function fetchTediConnectionToken(
 			isRecord(data) && typeof data.accessToken === "string"
 				? data.accessToken
 				: null;
-		return { token: accessToken };
+		const selection = SelectedConnectionCredentialSchema.safeParse(
+			isRecord(data) ? data.selectedCredential : undefined,
+		);
+		return {
+			token: accessToken,
+			...(selection.success && accessToken
+				? { selectedCredential: selection.data }
+				: {}),
+		};
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
 		log.error("Connection token lookup threw", {
@@ -671,7 +684,15 @@ export async function fetchOrgConnectionToken(
 			isRecord(data) && typeof data.accessToken === "string"
 				? data.accessToken
 				: null;
-		return { token: accessToken };
+		const selection = SelectedConnectionCredentialSchema.safeParse(
+			isRecord(data) ? data.selectedCredential : undefined,
+		);
+		return {
+			token: accessToken,
+			...(selection.success && accessToken
+				? { selectedCredential: selection.data }
+				: {}),
+		};
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
 		log.error("Organization connection token lookup threw", {

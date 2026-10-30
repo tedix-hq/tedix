@@ -5,6 +5,10 @@ import {
 } from "@/components/work-read-region";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { DeckCardSkeleton } from "@/components/deck-progress";
+import {
+	MachineApprovalReview,
+	machineApprovalData,
+} from "@/components/machine-approval-review";
 import { useContext } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@/components/kumo/link";
@@ -105,6 +109,17 @@ export function ApprovalDecisionCard({
 			learningClientEventId: `approval:${id}:${feedback.action === "reject" ? "rejected" : "approved"}`,
 		};
 	};
+	if (machineApprovalData(approval.payload))
+		return (
+			<>
+				{notice}
+				<section aria-label="Machine approval">
+					<h3>Review machine action</h3>
+					<MachineApprovalReview payload={approval.payload} />
+					<Link href="/work/approvals">Review and decide in Approvals</Link>
+				</section>
+			</>
+		);
 	return (
 		<>
 			{notice}

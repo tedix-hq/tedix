@@ -310,6 +310,152 @@ const worker = {
 			return handleExternalAgentSessionExchange(request, env);
 		}
 
+		if (
+			request.method === "POST" &&
+			url.pathname === "/_internal/tenant-tool-policy/probe-machine"
+		) {
+			if (!isServiceBinding(request.headers))
+				return Response.json({ error: "Forbidden" }, { status: 403 });
+			try {
+				const body = (await request.json()) as Record<string, unknown>;
+				if (
+					typeof body.organizationId !== "string" ||
+					!body.organizationId ||
+					typeof body.receiptId !== "string" ||
+					!body.receiptId ||
+					!body.exampleArgs ||
+					typeof body.exampleArgs !== "object" ||
+					Array.isArray(body.exampleArgs)
+				)
+					return Response.json(
+						{ error: "Invalid probe request" },
+						{ status: 400 },
+					);
+				const { redeemAndPrepareMachineProviderProof } =
+					await import("./mcp/tenant-machine-probe");
+				const result = await redeemAndPrepareMachineProviderProof({
+					organizationId: body.organizationId,
+					receiptId: body.receiptId,
+					exampleArgs: body.exampleArgs as Record<string, unknown>,
+					env,
+				});
+				return Response.json(result);
+			} catch {
+				return Response.json(
+					{ error: "Identity proof unavailable" },
+					{ status: 503 },
+				);
+			}
+		}
+
+		if (
+			request.method === "POST" &&
+			url.pathname === "/_internal/tenant-tool-policy/probe-profile"
+		) {
+			if (!isServiceBinding(request.headers))
+				return Response.json({ error: "Forbidden" }, { status: 403 });
+			try {
+				const body = (await request.json()) as Record<string, unknown>;
+				if (
+					typeof body.organizationId !== "string" ||
+					!body.organizationId ||
+					typeof body.receiptId !== "string" ||
+					!body.receiptId ||
+					!body.exampleArgs ||
+					typeof body.exampleArgs !== "object" ||
+					Array.isArray(body.exampleArgs)
+				)
+					return Response.json(
+						{ error: "Invalid probe request" },
+						{ status: 400 },
+					);
+				const { probeReviewedProviderIdentity } =
+					await import("./mcp/tenant-profile-probe");
+				let credentialSummary:
+					| { scope: "user" | "tenant"; connectionInstanceId?: string }
+					| undefined;
+				const digest = await probeReviewedProviderIdentity({
+					onCredentialSummary: (summary) => {
+						credentialSummary = summary;
+					},
+					organizationId: body.organizationId,
+					receiptId: body.receiptId,
+					exampleArgs: body.exampleArgs as Record<string, unknown>,
+					env,
+					ctx,
+				});
+				return digest
+					? Response.json({
+							accountRevisionDigest: digest,
+							...(credentialSummary ? { credentialSummary } : {}),
+						})
+					: Response.json(
+							{ error: "Identity proof unavailable" },
+							{ status: 403 },
+						);
+			} catch {
+				return Response.json(
+					{ error: "Identity proof unavailable" },
+					{ status: 503 },
+				);
+			}
+		}
+
+		// An owner-facing API asks the internal gateway to resolve a fresh mount.
+		// The descriptor is evidence for a policy revision, never an approval itself.
+		if (
+			request.method === "POST" &&
+			(url.pathname === "/_internal/tenant-tool-policy/prepare" ||
+				url.pathname === "/_internal/tenant-tool-policy/prepare-profile" ||
+				url.pathname === "/_internal/tenant-tool-policy/prepare-native")
+		) {
+			if (!isServiceBinding(request.headers))
+				return Response.json({ error: "Forbidden" }, { status: 403 });
+			try {
+				const body = (await request.json()) as Record<string, unknown>;
+				if (
+					typeof body.organizationId !== "string" ||
+					!body.organizationId ||
+					typeof body.rootAppId !== "string" ||
+					!body.rootAppId ||
+					typeof body.mountedToolId !== "string" ||
+					!body.mountedToolId
+				)
+					return Response.json(
+						{ error: "Invalid mount selection" },
+						{ status: 400 },
+					);
+				const {
+					prepareTenantPolicyMount,
+					prepareTenantIdentityProfileMount,
+					prepareTenantNativePolicyMount,
+				} = await import("./mcp/tenant-policy-mount");
+				const prepare = url.pathname.endsWith("/prepare-native")
+					? prepareTenantNativePolicyMount
+					: url.pathname.endsWith("/prepare-profile")
+						? prepareTenantIdentityProfileMount
+						: prepareTenantPolicyMount;
+				const result = await prepare({
+					organizationId: body.organizationId,
+					rootAppId: body.rootAppId,
+					mountedToolId: body.mountedToolId,
+					env,
+					ctx,
+				});
+				return result
+					? Response.json(result)
+					: Response.json(
+							{ error: "Mount cannot be verified" },
+							{ status: 404 },
+						);
+			} catch {
+				return Response.json(
+					{ error: "Mount verification unavailable" },
+					{ status: 503 },
+				);
+			}
+		}
+
 		// Internal service-binding-only route: best-effort scope cache invalidation.
 		// Called by apps/api after syncTediAihClientForAssignment succeeds.
 		if (
@@ -1115,6 +1261,9 @@ const worker = {
 								"x-tedix-auth-external-client-record-id",
 								aihM2mClient.clientRecordId,
 							);
+							if (jwtPayload.tedixWorkloadFederation !== true && mcpServerId) {
+								headers.set("x-tedix-auth-external-mcp-server-id", mcpServerId);
+							}
 							headers.set(
 								"x-tedix-auth-external-harness",
 								externalAgent.session.harness,
@@ -1277,6 +1426,25 @@ const worker = {
 				);
 			}
 
+			// Rate limit
+			const rateLimit = await checkMcpRequestRateLimit(
+				env,
+				app.id,
+				request.headers,
+				clientIp,
+			);
+			if (!rateLimit.allowed) {
+				await recordMcpAccessDenial({
+					request,
+					resolvedApp,
+					env,
+					ctx,
+					reason: "rate_limited",
+					httpStatus: 429,
+				});
+				return mcpRateLimitResponse(rateLimit);
+			}
+
 			if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
 				const accessError = await enforceMcpAccess({
 					request,
@@ -1298,25 +1466,6 @@ const worker = {
 					});
 					return accessError.response;
 				}
-			}
-
-			// Rate limit
-			const rateLimit = await checkMcpRequestRateLimit(
-				env,
-				app.id,
-				request.headers,
-				clientIp,
-			);
-			if (!rateLimit.allowed) {
-				await recordMcpAccessDenial({
-					request,
-					resolvedApp,
-					env,
-					ctx,
-					reason: "rate_limited",
-					httpStatus: 429,
-				});
-				return mcpRateLimitResponse(rateLimit);
 			}
 
 			// Resolve tediId for human callers (no tediId in JWT, org known from app).
@@ -1559,6 +1708,24 @@ const worker = {
 						catalogPrompts: fullResult.catalogPrompts ?? [],
 					};
 
+					const rateLimit = await checkMcpRequestRateLimit(
+						env,
+						resolvedApp.app.id,
+						request.headers,
+						clientIp,
+					);
+					if (!rateLimit.allowed) {
+						await recordMcpAccessDenial({
+							request,
+							resolvedApp,
+							env,
+							ctx,
+							reason: "rate_limited",
+							httpStatus: 429,
+						});
+						return mcpRateLimitResponse(rateLimit);
+					}
+
 					const accessError = await enforceMcpAccess({
 						request,
 						hostname,
@@ -1578,24 +1745,6 @@ const worker = {
 							httpStatus: accessError.response.status,
 						});
 						return accessError.response;
-					}
-
-					const rateLimit = await checkMcpRequestRateLimit(
-						env,
-						resolvedApp.app.id,
-						request.headers,
-						clientIp,
-					);
-					if (!rateLimit.allowed) {
-						await recordMcpAccessDenial({
-							request,
-							resolvedApp,
-							env,
-							ctx,
-							reason: "rate_limited",
-							httpStatus: 429,
-						});
-						return mcpRateLimitResponse(rateLimit);
 					}
 
 					const originError = validateMcpOrigin(request, env, resolvedApp);
@@ -1676,6 +1825,24 @@ const worker = {
 							tools: result.tools ?? [],
 						};
 
+						const rateLimit = await checkMcpRequestRateLimit(
+							env,
+							result.app.id,
+							request.headers,
+							clientIp,
+						);
+						if (!rateLimit.allowed) {
+							await recordMcpAccessDenial({
+								request,
+								resolvedApp,
+								env,
+								ctx,
+								reason: "rate_limited",
+								httpStatus: 429,
+							});
+							return mcpRateLimitResponse(rateLimit);
+						}
+
 						const accessError = await enforceMcpAccess({
 							request,
 							hostname,
@@ -1695,24 +1862,6 @@ const worker = {
 								httpStatus: accessError.response.status,
 							});
 							return accessError.response;
-						}
-
-						const rateLimit = await checkMcpRequestRateLimit(
-							env,
-							result.app.id,
-							request.headers,
-							clientIp,
-						);
-						if (!rateLimit.allowed) {
-							await recordMcpAccessDenial({
-								request,
-								resolvedApp,
-								env,
-								ctx,
-								reason: "rate_limited",
-								httpStatus: 429,
-							});
-							return mcpRateLimitResponse(rateLimit);
 						}
 
 						const originError = validateMcpOrigin(request, env, resolvedApp);

@@ -1,4 +1,5 @@
 import type { OwnerHostSession } from "./owner-host-session";
+import type { SelectedConnectionCredential } from "@tedix/api-contract/schemas/connections";
 import {
 	hasNoFundsRestriction,
 	isToolDeniedForConnection,
@@ -205,6 +206,10 @@ export async function executeTool(
 		ownerHostSession?: OwnerHostSession;
 		/** The Home approval receipt for this exact call was verified. */
 		homeApprovedCall?: boolean;
+		/** Only from a verified server-side policy decision. */
+		expectedPolicyCredential?: SelectedConnectionCredential;
+		expectedPolicyProbe?: ToolExecutionContext<ToolConfig>["expectedPolicyProbe"];
+		expectedNativePolicyRevalidate?: () => Promise<boolean>;
 	},
 ): Promise<{
 	content: Array<{ type: "text"; text: string }>;
@@ -267,6 +272,9 @@ export async function executeTool(
 				args,
 				undefined,
 				options.clientSupportsTasks,
+				options.expectedPolicyCredential,
+				options.expectedPolicyProbe,
+				options.expectedNativePolicyRevalidate,
 			),
 		);
 	}
@@ -310,6 +318,9 @@ export async function executeTool(
 					args,
 					options.executionId,
 					options.clientSupportsTasks,
+					options.expectedPolicyCredential,
+					options.expectedPolicyProbe,
+					options.expectedNativePolicyRevalidate,
 				),
 		);
 		const errorMessage = result.isError
@@ -444,6 +455,9 @@ async function executeWithHandler(
 	args: Record<string, unknown>,
 	executionId?: string,
 	clientSupportsTasks?: boolean,
+	expectedPolicyCredential?: SelectedConnectionCredential,
+	expectedPolicyProbe?: ToolExecutionContext<ToolConfig>["expectedPolicyProbe"],
+	expectedNativePolicyRevalidate?: () => Promise<boolean>,
 ): Promise<{
 	content: Array<{ type: "text"; text: string }>;
 	structuredContent: unknown;
@@ -536,6 +550,9 @@ async function executeWithHandler(
 	if (
 		asyncTaskRequested &&
 		clientSupportsTasks === true &&
+		!expectedPolicyCredential &&
+		!expectedPolicyProbe &&
+		!expectedNativePolicyRevalidate &&
 		!executionId &&
 		genericTaskOrgId &&
 		!destructiveAsyncBlocked &&
@@ -677,6 +694,9 @@ async function executeWithHandler(
 		| undefined;
 
 	const ctx: ToolExecutionContext<ToolConfig> = {
+		expectedPolicyCredential,
+		expectedPolicyProbe,
+		expectedNativePolicyRevalidate,
 		noFunds: hasNoFundsRestriction(agent),
 		appId: agent.appId,
 		app: agent.app,

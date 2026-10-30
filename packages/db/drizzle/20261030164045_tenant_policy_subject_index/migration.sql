@@ -1,0 +1,1 @@
+CREATE INDEX `tenant_tool_policy_subject_revision_lookup_idx` ON `tenant_tool_policy_mount_revisions` (`organization_id`,`root_app_id`,`mounted_tool_id`,`subject_key`,`sequence`);

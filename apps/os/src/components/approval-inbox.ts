@@ -7,6 +7,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import {
+	machineApprovalData,
+	redactMachineApproval,
+} from "@/components/machine-approval-review";
+import {
 	isRetryableOwnerToolExecution,
 	type OwnerToolExecutionRecord,
 	parseOwnerToolExecution,
@@ -206,15 +210,21 @@ export function runtimeApprovalItem(
 		ifRejected: decision.ifRejected,
 		recommendation: decision.recommendation,
 		recommendationReason: decision.reason,
-		afterApprove: toolCall
-			? "It runs once now."
-			: payload.kind === "home_tool_write"
-				? "The change runs now."
-				: "The tedi continues.",
+		afterApprove:
+			payload.kind === "mcp_machine_tool_call"
+				? "The same machine session must retry this call."
+				: toolCall
+					? "It runs once now."
+					: payload.kind === "home_tool_write"
+						? "The change runs now."
+						: "The tedi continues.",
 		technical: approval.description,
 		raw: {
 			description: approval.description,
-			payload: approval.payload,
+			payload:
+				payload.kind === "mcp_machine_tool_call"
+					? redactMachineApproval(approval.payload)
+					: approval.payload,
 			evidence: approval.review.evidenceRefs,
 		},
 		conversationId: payloadText(payload, "conversationId"),
@@ -260,6 +270,14 @@ export function collapseIdenticalItems(
 ): ApprovalListItem[][] {
 	const rows = new Map<string, ApprovalListItem[]>();
 	for (const item of items) {
+		const raw =
+			item.raw && typeof item.raw === "object" && !Array.isArray(item.raw)
+				? (item.raw as Record<string, unknown>)
+				: null;
+		if (machineApprovalData(raw?.payload)) {
+			rows.set(`machine:${item.key}`, [item]);
+			continue;
+		}
 		const key = [
 			item.tedi?.id ?? "",
 			item.kind,

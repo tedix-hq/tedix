@@ -25,6 +25,7 @@ import {
 	CreateProviderFromMcpOutputSchema,
 	RecordProviderRegistrationInputSchema,
 	RecordProviderRegistrationOutputSchema,
+	SelectedConnectionCredentialSchema,
 	UserConnectionSchema,
 } from "../schemas/connections";
 import {
@@ -437,6 +438,7 @@ export const connectionsContract = oc
 					expiresAt: z.number().optional(),
 					/** OAuth scopes granted */
 					scopes: z.array(z.string()).optional(),
+					selectedCredential: SelectedConnectionCredentialSchema.optional(),
 				}),
 			),
 
@@ -500,6 +502,7 @@ export const connectionsContract = oc
 					accessToken: z.string(),
 					expiresAt: z.number().optional(),
 					scopes: z.array(z.string()).optional(),
+					selectedCredential: SelectedConnectionCredentialSchema.optional(),
 				}),
 			),
 

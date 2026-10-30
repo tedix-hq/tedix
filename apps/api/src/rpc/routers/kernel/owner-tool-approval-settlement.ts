@@ -189,17 +189,20 @@ async function runOwnerToolCall(
 			| { outcome: "failed"; error: string },
 	): Promise<OwnerToolRunOutcome> => {
 		const finishedAt = nowIso();
-		const record: OwnerToolApprovalExecution = {
+		let record: OwnerToolApprovalExecution = {
 			...execution,
 			...attempt,
 			startedAt,
 			finishedAt,
 		};
-		await recordOwnerToolApprovalExecution(context.db, {
+		const recorded = await recordOwnerToolApprovalExecution(context.db, {
 			id: approval.id,
 			organizationId,
 			execution: record,
 		});
+		if (!recorded)
+			throw new Error("Approval execution outcome could not be recorded");
+		record = recorded;
 		const canonicalInputHash = `sha256:${await canonicalDigest({
 			appSlug: payload.appSlug,
 			toolId: payload.toolId,
@@ -302,6 +305,10 @@ async function runOwnerToolCall(
 			context.user?.sub === payload.initiatedByUserId &&
 			Array.isArray(context.user.scopes) &&
 			context.user.scopes.includes("connections.execute");
+		const verifiedConnectionAdmin =
+			verifiedConnectionExecute &&
+			Array.isArray(context.user?.scopes) &&
+			context.user.scopes.includes("connections.admin");
 		if (payload.target.transport === "mcp" && !verifiedConnectionExecute)
 			return fail(
 				"The requester must retry with a verified connections.execute grant; no provider call was made",
@@ -324,6 +331,7 @@ async function runOwnerToolCall(
 			},
 			approvalRequestId: approval.id,
 			verifiedConnectionExecute,
+			verifiedConnectionAdmin,
 			timings,
 		});
 		if (result.ok)

@@ -1,4 +1,3 @@
-import { isSafeNotionPageUpdateCall } from "@tedix/api-contract/utils/approval-policy";
 import {
 	DOMAINLESS_WORKSTATION_TOOL_NAMES,
 	isAdminAccessLevelOverrideTool,
@@ -7,9 +6,10 @@ import {
 } from "@tedix/api-contract/schemas/mcp-capability-scopes";
 import { REVIEWED_RPC_ENDPOINT_SCOPES } from "./reviewed-rpc-endpoint-scopes";
 import { hasScope, toolToScope } from "./scopes";
-import type {
-	ToolAnnotations,
-	ToolWriteCapability,
+import {
+	parseToolPolicyMetadata,
+	type ToolAnnotations,
+	type ToolWriteCapability,
 } from "@tedix/api-contract/schemas/tools";
 
 const CAPABILITY_FAMILY_SCOPE_RE =
@@ -581,6 +581,7 @@ const TEDI_WORK_BOARD_OBSERVE_TOOL_NAMES = new Set([
 export type ToolAuthShape = {
 	annotations?: ToolAnnotations | null;
 	config?: Record<string, unknown> | null;
+	meta?: Record<string, unknown> | null;
 	/**
 	 * The DECLARED capability. Read alongside `annotations`, never instead of
 	 * it, because the row shape this exists for carries a declaration and NO
@@ -862,6 +863,8 @@ export function resolveMcpToolRequiredScopes(
 	options: {
 		fallbackOnAuthenticatedAuthMode?: boolean;
 		toolCall?: { arguments: unknown };
+		/** Trusted server-side policy evaluation; never accepted from MCP input. */
+		verifiedBoundedCall?: boolean;
 	} = {},
 ): string[] {
 	const durableCodeBinding =
@@ -901,18 +904,11 @@ export function resolveMcpToolRequiredScopes(
 	}
 
 	if (isConnectedTool(tool)) {
-		// Notion exposes several commands through one destructive-annotated tool.
-		// Discovery shows its least-privileged executable path; each call is
-		// classified again from the exact arguments before any upstream dispatch.
-		if (
-			connectedProviderId(tool) === "notion" &&
-			sanitizeToolName(rawToolName(tool.toolId)) === "notion_update_page"
-		) {
-			return !options.toolCall ||
-				isSafeNotionPageUpdateCall(options.toolCall.arguments)
-				? ["connections.execute"]
-				: ["connections.execute", "connections.admin"];
-		}
+		const risk = parseToolPolicyMetadata(tool.meta)?.riskTier;
+		if (risk === "high_impact_write" || risk === "external_side_effect")
+			return ["connections.execute", "connections.admin"];
+		if (options.toolCall && options.verifiedBoundedCall === true)
+			return ["connections.execute"];
 		if (isDangerousTool(tool))
 			return ["connections.execute", "connections.admin"];
 		// Upstream hints and the column derived from them cannot independently

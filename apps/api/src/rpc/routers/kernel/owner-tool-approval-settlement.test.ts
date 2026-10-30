@@ -96,7 +96,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.claim.mockResolvedValue(true);
 	mocks.reclaim.mockResolvedValue(true);
-	mocks.record.mockResolvedValue(undefined);
+	mocks.record.mockImplementation(async (_db, input) => input.execution);
 	mocks.receipt.mockResolvedValue({});
 	mocks.audit.mockResolvedValue(undefined);
 	mocks.member.mockResolvedValue({ role: "owner", status: "active" });
@@ -111,10 +111,21 @@ describe("owner tool approval settlement", () => {
 		{ sub: "owner-1", scopes: [], allowed: false },
 		{ sub: "other-owner", scopes: ["connections.execute"], allowed: false },
 		{ sub: "owner-1", scopes: ["connections.read"], allowed: false },
-		{ sub: "owner-1", scopes: ["connections.execute"], allowed: true },
+		{
+			sub: "owner-1",
+			scopes: ["connections.execute"],
+			allowed: true,
+			admin: false,
+		},
+		{
+			sub: "owner-1",
+			scopes: ["connections.execute", "connections.admin"],
+			allowed: true,
+			admin: true,
+		},
 	])(
 		"delegates only the requester's verified connection grant: $sub $scopes",
-		async ({ sub, scopes, allowed }) => {
+		async ({ sub, scopes, allowed, admin }) => {
 			const row = approval({
 				payload: {
 					...payload,
@@ -132,7 +143,10 @@ describe("owner tool approval settlement", () => {
 			expect(result).toBe(allowed ? "succeeded" : "failed");
 			if (allowed)
 				expect(mocks.executor).toHaveBeenCalledWith(
-					expect.objectContaining({ verifiedConnectionExecute: true }),
+					expect.objectContaining({
+						verifiedConnectionExecute: true,
+						verifiedConnectionAdmin: admin,
+					}),
 				);
 			else {
 				expect(mocks.executor).not.toHaveBeenCalled();
@@ -400,6 +414,27 @@ describe("owner tool approval settlement", () => {
 					status: "failed",
 					retryable: false,
 				}),
+			}),
+		);
+	});
+	it("records an ambiguous consumed transport failure as non-retryable", async () => {
+		mocks.executor.mockResolvedValueOnce({
+			ok: false,
+			error: "transport failed",
+			retryable: true,
+		});
+		mocks.record.mockImplementationOnce(async (_db, input) => ({
+			...input.execution,
+			retryable: false,
+		}));
+		await settleOwnerToolCallApproval(context, {
+			approval: approval(),
+			status: "approved",
+		});
+		expect(mocks.receipt).toHaveBeenLastCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				observedError: expect.objectContaining({ retryable: false }),
 			}),
 		);
 	});

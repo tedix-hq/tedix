@@ -5,6 +5,8 @@ import { buildStructuredContent, buildTextContent } from "./handler-content";
 import { readToolConfigExtension } from "./tool-config-extensions";
 import { OWNER_HOST_SESSION_HEADER } from "@tedix/api-contract/contracts/external-agent-identity";
 import type { AppCapabilities } from "@tedix/api-contract/schemas/app";
+import type { SelectedConnectionCredential } from "@tedix/api-contract/schemas/connections";
+import type { ProviderIdentityProbeProfile } from "./provider-identity-probe";
 import {
 	CatalogueTransportConfigSchema,
 	CatalogueSearchInputSchema,
@@ -93,6 +95,25 @@ const log = createMcpLogger("mcp.tool_handler");
  * Context passed to the handler during tool execution
  */
 export interface ToolExecutionContext<TConfig = unknown> {
+	/** Internal preparation only, after loading an owner-reviewed profile. */
+	prepareIdentityProbe?: {
+		profile: ProviderIdentityProbeProfile;
+		binding: string;
+		revalidate: () => Promise<boolean>;
+		requireTenantCredential?: boolean;
+	};
+	/** Internal owner-reviewed policy probe, never read from request metadata. */
+	expectedPolicyProbe?: {
+		profile: ProviderIdentityProbeProfile;
+		binding: string;
+		expectedDigest: string;
+		revalidate: () => Promise<boolean>;
+		requireTenantCredential?: boolean;
+	};
+	/** Internal policy evidence, never populated from arguments or request metadata. */
+	expectedPolicyCredential?: SelectedConnectionCredential;
+	/** A server-derived native rule, rechecked immediately before dispatch. */
+	expectedNativePolicyRevalidate?: () => Promise<boolean>;
 	/** Server-derived connection restriction; never read from tool arguments. */
 	noFunds?: boolean;
 	/** App ID */
@@ -336,6 +357,17 @@ export class ToolHandler {
 		}
 		const endpoint = config.endpoint;
 		const transport = config.transport ?? "rpc";
+		if (
+			(ctx.expectedPolicyCredential || ctx.expectedPolicyProbe) &&
+			transport !== "mcp"
+		)
+			return {
+				status: 403,
+				data: {
+					error:
+						"Policy credential verification is unavailable for this transport",
+				},
+			};
 		if (ctx.callerIdentity?.tediId) {
 			const denial = tediToolCeilingDenial(
 				ctx.callerIdentity.mcpEndpoints,
@@ -803,6 +835,15 @@ export class ToolHandler {
 				ctx.callerIdentity.externalAgentSessionId;
 			headers["X-Tedix-External-Agent-Client-Record-Id"] =
 				ctx.callerIdentity.externalAgentClientRecordId;
+			if (
+				ctx.callerIdentity.clientId &&
+				ctx.callerIdentity.externalAgentMcpServerId
+			) {
+				headers["X-Tedix-External-Agent-OAuth-Client-Id"] =
+					ctx.callerIdentity.clientId;
+				headers["X-Tedix-External-Agent-Mcp-Server-Id"] =
+					ctx.callerIdentity.externalAgentMcpServerId;
+			}
 		}
 		if (
 			useServiceBinding &&
@@ -922,6 +963,18 @@ export class ToolHandler {
 				].join(" ");
 		}
 
+		if (ctx.expectedNativePolicyRevalidate) {
+			const boundParams = JSON.stringify(params);
+			if (
+				transport !== "rpc" ||
+				!(await ctx.expectedNativePolicyRevalidate().catch(() => false)) ||
+				JSON.stringify(params) !== boundParams
+			)
+				return {
+					status: 403,
+					data: { error: "Native tool policy or arguments changed" },
+				};
+		}
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), timeout);
 

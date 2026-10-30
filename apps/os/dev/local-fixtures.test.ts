@@ -191,6 +191,85 @@ const portableBlueprintExport = {
 };
 
 const CALLS = {
+	"mcpGovernance/listTenantToolPolicies": {},
+	"mcpGovernance/listDeletedTenantPolicyFences": {},
+	"mcpGovernance/listLegacyActionTypeInventory": {},
+	"mcpGovernance/listMachinePolicyInventory": {},
+	"mcpGovernance/listMachineProviderProbes": {},
+	"mcpGovernance/listProviderIdentityProfiles": {},
+	"mcpGovernance/prepareTenantToolPolicy": {
+		rootAppId: "local-app",
+		mountedToolId: "edit",
+		exampleArgs: {},
+	},
+	"mcpGovernance/prepareHybridTenantToolPolicy": {
+		profileId: "local-profile",
+		resultReceiptId: "00000000-0000-4000-8000-000000000001",
+		exampleArgs: {},
+	},
+	"mcpGovernance/prepareMachineTenantToolPolicy": {
+		profileId: "local-profile",
+		resultReceiptId: "00000000-0000-4000-8000-000000000001",
+		subjectScope: "principal",
+		exampleArgs: {},
+	},
+	"mcpGovernance/prepareNativeRpcPolicy": {
+		rootAppId: "local-app",
+		mountedToolId: "edit",
+		principalId: "agent",
+		sessionId: "session",
+		clientRecordId: "client",
+		exampleArgs: {},
+	},
+	"mcpGovernance/createTenantToolPolicy": {
+		preparationId: "00000000-0000-4000-8000-000000000001",
+		expectedDescriptorDigest: "digest",
+		exampleArgs: {},
+		policySet: {
+			evaluatorVersion: 1,
+			defaultDisposition: "ask",
+			rules: [
+				{
+					id: "local",
+					predicate: {
+						version: 1,
+						schema: {
+							type: "object",
+							properties: {},
+							required: [],
+							additionalProperties: false,
+						},
+					},
+					effect: {
+						disposition: "ask",
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
+			],
+		},
+	},
+	"mcpGovernance/revokeTenantToolPolicy": { id: "local-rule" },
+	"mcpGovernance/prepareProviderIdentityProfile": {
+		rootAppId: "local-app",
+		mountedToolId: "edit",
+		probeMountedToolId: "identity",
+		selectors: [["id"]],
+	},
+	"mcpGovernance/createProviderIdentityProfile": {
+		preparationId: "00000000-0000-4000-8000-000000000001",
+		expectedProfileDigest: "a".repeat(64),
+		safetyAttestation: "safe_empty_probe",
+	},
+	"mcpGovernance/revokeProviderIdentityProfile": { id: "local-profile" },
+	"mcpGovernance/probeProviderIdentityProfile": {
+		profileId: "local-profile",
+		exampleArgs: {},
+	},
+	"mcpGovernance/setActionTypeOptIn": {
+		actionType: "comment_on_issue",
+		enabled: false,
+	},
 	"decisionGraph/getContext": {
 		cardId: "d5000000-0000-4000-8000-000000000001",
 		maxHops: 4,

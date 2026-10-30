@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `tenant_tool_policies_revision_order_idx` ON `tenant_tool_policies` (`organization_id`,`app_id`,`tool_row_id`,`created_at`);

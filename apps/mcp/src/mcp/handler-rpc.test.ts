@@ -86,6 +86,33 @@ describe("browser RPC timeout", () => {
 	});
 });
 
+describe("native policy dispatch guard", () => {
+	it("does not send when approval verification fails and cannot send twice", async () => {
+		const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
+		const verify = vi
+			.fn()
+			.mockResolvedValueOnce(false)
+			.mockResolvedValueOnce(true)
+			.mockResolvedValue(false);
+		const context = {
+			...ctx({ transport: "rpc", endpoint: "examples/read" }),
+			env: {
+				ENVIRONMENT: "test",
+				API_URL: "https://api.example.test",
+				API_SERVICE: { fetch: apiFetch },
+			} as unknown as CloudflareEnv,
+			expectedNativePolicyRevalidate: verify,
+		};
+		const handler = new ToolHandler();
+		expect((await handler.execute({ id: "one" }, context)).status).toBe(403);
+		expect(apiFetch).not.toHaveBeenCalled();
+		expect((await handler.execute({ id: "one" }, context)).status).toBe(200);
+		expect(apiFetch).toHaveBeenCalledOnce();
+		expect((await handler.execute({ id: "one" }, context)).status).toBe(403);
+		expect(apiFetch).toHaveBeenCalledOnce();
+	});
+});
+
 describe("catalog snapshot import timeout", () => {
 	it("outlasts the inline browser capture", () => {
 		expect(
@@ -957,6 +984,12 @@ describe("ToolHandler RPC transport logging", () => {
 				expect(headers.get("X-Tedix-External-Agent-Client-Record-Id")).toBe(
 					clientRecordId,
 				);
+				expect(headers.get("X-Tedix-External-Agent-OAuth-Client-Id")).toBe(
+					"oauth-client-1",
+				);
+				expect(headers.get("X-Tedix-External-Agent-Mcp-Server-Id")).toBe(
+					"mcp-server-1",
+				);
 				expect(headers.get("X-Tedix-Tedi-Id")).toBeNull();
 				return Response.json({ json: { ok: true } });
 			},
@@ -976,6 +1009,8 @@ describe("ToolHandler RPC transport logging", () => {
 					externalAgentPrincipalId: principalId,
 					externalAgentSessionId: sessionId,
 					externalAgentClientRecordId: clientRecordId,
+					clientId: "oauth-client-1",
+					externalAgentMcpServerId: "mcp-server-1",
 					organizationId: "org_1",
 				},
 			},

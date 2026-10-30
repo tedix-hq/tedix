@@ -7,6 +7,7 @@ import {
 	resolveCodeModeInnerToolScopes,
 } from "./codemode-auth";
 import type { AppTool, ServerContext } from "./server-context";
+import { tenantProfileCandidateIsBounded } from "./tenant-profile-candidate";
 import { isMcpToolVisibleToCaller } from "@tedix/mcp-shared/auth/tool-scopes";
 
 function tool(overrides: Partial<AppTool>): AppTool {
@@ -142,17 +143,63 @@ describe("Code Mode connected Notion command authorization", () => {
 	});
 	const standardTedi = ctx({}, ["connections.execute"]);
 
-	it("is discoverable to a standard tedi and dispatches a bounded edit", () => {
+	it("requires a verified tenant rule for a bounded edit", () => {
 		expect(
 			evaluateMcpToolScopeAuthorization(standardTedi, notion, "notion_tedix"),
-		).toEqual({ authorized: true });
+		).toMatchObject({ authorized: false });
 		expect(() =>
-			assertCodeModeInnerToolAuthorized(standardTedi, notion, "notion_tedix", {
-				page_id: "page",
-				command: "update_properties",
-				properties: { Name: "Updated" },
-			}),
+			assertCodeModeInnerToolAuthorized(
+				standardTedi,
+				notion,
+				"notion_tedix",
+				{
+					page_id: "page",
+					command: "update_properties",
+					properties: { Name: "Updated" },
+				},
+				true,
+			),
 		).not.toThrow();
+	});
+	it("does not grant execute-only access when the reviewed tool is high impact", () => {
+		const high = {
+			...notion,
+			writeCapability: "write",
+			annotations: { destructiveHint: false },
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "high_impact_write",
+					blastRadius: "tenant",
+				},
+			},
+		} as AppTool;
+		const candidate = {
+			effect: {
+				disposition: "allow",
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+		};
+		const bounded = tenantProfileCandidateIsBounded(candidate as never, high);
+		expect(bounded).toBe(false);
+		expect(() =>
+			assertCodeModeInnerToolAuthorized(
+				standardTedi,
+				high,
+				"notion_tedix",
+				{ page_id: "page" },
+				bounded,
+			),
+		).toThrow(/connections.admin/);
+		expect(() =>
+			assertCodeModeInnerToolAuthorized(
+				standardTedi,
+				high,
+				"notion_tedix",
+				{ page_id: "page" },
+				true,
+			),
+		).toThrow(/connections.admin/);
 	});
 
 	it.each([

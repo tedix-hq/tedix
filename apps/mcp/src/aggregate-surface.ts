@@ -130,12 +130,16 @@ export async function aggregateAndPrefixTools(
 	cacheSnapshot = true,
 	// Set for nested graphs of a transient root; see rememberAggregateSurface.
 	retainNested = false,
+	// Only a fully uncached traversal can produce policy provenance.
+	capturePolicyMountPath = false,
 ): Promise<AggregatedMcpSurface> {
 	// Worker versions do not change D1 tool contracts. Reuse durable snapshots
 	// across deploys; projection activation still fences changed tool schemas.
 	const activationState =
 		activation ?? (await readAggregateActivationEpoch(env));
 	const activationEpoch = activationState.value;
+	if (capturePolicyMountPath && activationState.cacheable)
+		throw new Error("Policy mount provenance requires a fresh traversal");
 	const cacheKey = aggregateSurfaceCacheKey(
 		entries,
 		undefined,
@@ -152,6 +156,8 @@ export async function aggregateAndPrefixTools(
 			activationEpoch,
 			false,
 			ctx,
+			false,
+			capturePolicyMountPath,
 		);
 	}
 	const retain = visited.size === 0 || retainNested;
@@ -366,6 +372,7 @@ async function aggregateAndPrefixToolsUncached(
 	cacheable = true,
 	ctx?: ExecutionContext,
 	retainNested = false,
+	capturePolicyMountPath = false,
 ): Promise<AggregatedMcpSurface> {
 	// Per-stage timing: aggregate hydration is the dominant Code Mode cold-start
 	// cost (live D1/service-binding fan-out across the aggregate apps). Time each
@@ -610,8 +617,19 @@ async function aggregateAndPrefixToolsUncached(
 					{ value: activationEpoch, cacheable },
 					true,
 					retainNested,
+					capturePolicyMountPath,
 				);
 			};
+			const prefixPolicyPath = (tools: InternalAppTool[]) =>
+				capturePolicyMountPath
+					? tools.map((tool) => ({
+							...tool,
+							policyMountAppIds:
+								sourceAppId && tool.policyMountAppIds
+									? [sourceAppId, ...tool.policyMountAppIds]
+									: undefined,
+						}))
+					: tools;
 
 			// D1 path: app has native tools stored in D1. A zero-tool proxy may
 			// still expose the catalog resources/prompts inherited from its base app;
@@ -658,6 +676,9 @@ async function aggregateAndPrefixToolsUncached(
 					);
 					return {
 						...tool,
+						...(capturePolicyMountPath
+							? { policyMountAppIds: sourceAppId ? [sourceAppId] : undefined }
+							: {}),
 						toolId: `${prefix}__${tool.toolId}`,
 						title: `${prefix}__${tool.title}`,
 						config: {
@@ -702,7 +723,7 @@ async function aggregateAndPrefixToolsUncached(
 						: null;
 
 				return {
-					tools: [...d1Tools, ...(nestedSurface?.tools ?? [])],
+					tools: [...d1Tools, ...prefixPolicyPath(nestedSurface?.tools ?? [])],
 					resources: [
 						...appCatalogResources.map((resource) => ({
 							...resource,
@@ -772,6 +793,7 @@ async function aggregateAndPrefixToolsUncached(
 				const nested = await loadNestedSurface();
 				return {
 					...nested,
+					tools: prefixPolicyPath(nested.tools),
 					toolScopes: { ...entryToolScopes, ...nested.toolScopes },
 				};
 			}

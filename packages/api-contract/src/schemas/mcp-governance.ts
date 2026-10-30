@@ -92,6 +92,22 @@ export const ActionTypeOptInSchema = z.object({
 export const ListActionTypeOptInsResponseSchema = z.object({
 	data: z.array(ActionTypeOptInSchema),
 });
+export const LegacyActionTypeInventorySchema = z.object({
+	grants: z.array(ActionTypeOptInSchema),
+	tools: z.array(
+		z.object({
+			appId: z.string(),
+			appName: z.string(),
+			appSlug: z.string(),
+			toolRowId: z.string(),
+			toolId: z.string(),
+			title: z.string(),
+			actionType: z.string(),
+			enabled: z.boolean().nullable(),
+		}),
+	),
+	truncated: z.boolean(),
+});
 export const SetActionTypeOptInInputSchema = z.object({
 	actionType: ToolActionTypeSchema.describe(
 		"Declared tool action type, for example comment_on_issue.",

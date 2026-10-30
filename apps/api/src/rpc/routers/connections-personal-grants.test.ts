@@ -125,6 +125,134 @@ afterEach(() => {
 	vi.mocked(getSkillRun).mockReset();
 });
 
+describe("credential selection identity", () => {
+	it.each([
+		{
+			preference: "user-first" as const,
+			expected: { scope: "user", userId: "owner-sub" },
+		},
+		{ preference: "tenant-first" as const, expected: { scope: "tenant" } },
+	])(
+		"records the actual hybrid winner for $preference",
+		async ({ preference, expected }) => {
+			const f = fixture();
+			f.context.tediId = undefined;
+			const result = await resolveCredentialChain(f.context, {
+				...f.args,
+				scope: "hybrid",
+				preference,
+				callerUserId: "owner-sub",
+			});
+			expect(result.selectedCredential).toEqual({
+				organizationId: "org-1",
+				providerId: "example",
+				...expected,
+			});
+			expect(JSON.stringify(result.selectedCredential)).not.toContain("opaque");
+			expect(result.selectedCredential).not.toHaveProperty(
+				"connectionInstanceId",
+			);
+		},
+	);
+
+	it("records the fallback target after the first hybrid credential is absent", async () => {
+		const f = fixture();
+		f.context.tediId = undefined;
+		f.fetch.mockResolvedValueOnce(
+			Response.json({ errorCode: "missing" }, { status: 404 }),
+		);
+		const result = await resolveCredentialChain(f.context, {
+			...f.args,
+			scope: "hybrid",
+			preference: "user-first",
+			callerUserId: "owner-sub",
+		});
+		expect(result.selectedCredential).toEqual({
+			organizationId: "org-1",
+			providerId: "example",
+			scope: "tenant",
+		});
+	});
+
+	it("records the verified named account without exposing its vault ID or subject", async () => {
+		const f = fixture("tenant");
+		f.context.tediId = undefined;
+		f.context.env.SECRETS_MASTER_KEY = "test-key-not-production";
+		f.sqlite
+			.prepare(
+				"INSERT INTO connection_instances(id,owner_user_id,organization_id,provider_id,label,token_ids,token_sub,created_at,updated_at) VALUES(?,'owner-sub','org-1','example','Example',?,?,'2026-01-01','2026-01-01')",
+			)
+			.run(instanceId, JSON.stringify(["vault-grant"]), "provider-subject");
+		let grant = "vault-grant";
+		let subject = "provider-subject";
+		f.fetch.mockImplementation(async () =>
+			Response.json({
+				token: {
+					id: grant,
+					accessToken: "opaque",
+					appId: "example",
+					tenantId: "tenant-1",
+					externalIdentifier: `tedix_${instanceId}`,
+					tokenSub: subject,
+				},
+			}),
+		);
+		const result = await resolveCredentialChain(f.context, {
+			...f.args,
+			connectionInstanceId: instanceId,
+		});
+		expect(result.selectedCredential).toEqual({
+			organizationId: "org-1",
+			providerId: "example",
+			scope: "tenant",
+			connectionInstanceId: instanceId,
+			accountRevisionDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+		});
+		expect(JSON.stringify(result.selectedCredential)).not.toMatch(
+			/opaque|vault-grant|provider-subject/,
+		);
+		grant = "rotated-grant";
+		const rotated = await resolveCredentialChain(f.context, {
+			...f.args,
+			connectionInstanceId: instanceId,
+		});
+		expect(rotated.selectedCredential.accountRevisionDigest).toBeUndefined();
+		const repinned = await resolveCredentialChain(f.context, {
+			...f.args,
+			connectionInstanceId: instanceId,
+		});
+		expect(repinned.selectedCredential.accountRevisionDigest).toMatch(
+			/^[0-9a-f]{64}$/,
+		);
+		expect(repinned.selectedCredential.accountRevisionDigest).not.toBe(
+			result.selectedCredential.accountRevisionDigest,
+		);
+		f.context.env.SECRETS_MASTER_KEY = "";
+		const noKey = await resolveCredentialChain(f.context, {
+			...f.args,
+			connectionInstanceId: instanceId,
+		});
+		expect(noKey.selectedCredential.accountRevisionDigest).toBeUndefined();
+		subject = "different-account";
+		await expect(
+			resolveCredentialChain(f.context, {
+				...f.args,
+				connectionInstanceId: instanceId,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		f.context.env.SECRETS_MASTER_KEY = "test-key-not-production";
+		subject = "";
+		f.sqlite
+			.prepare("UPDATE connection_instances SET token_sub = NULL WHERE id = ?")
+			.run(instanceId);
+		const noSubject = await resolveCredentialChain(f.context, {
+			...f.args,
+			connectionInstanceId: instanceId,
+		});
+		expect(noSubject.selectedCredential.accountRevisionDigest).toBeUndefined();
+	});
+});
+
 describe.each(["user", "tenant"] as const)(
 	"%s connection access requests",
 	(scope) => {

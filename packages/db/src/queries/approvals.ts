@@ -628,7 +628,7 @@ export async function consumeOwnerToolApproval(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now})`,
+			payload: sql`CASE WHEN json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed' THEN json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}, '$.execution.retryable', json('false')) ELSE json_set(${tediApprovalRequests.payload}, '$.consumedAt', ${input.now}) END`,
 		})
 		.where(
 			and(
@@ -756,11 +756,11 @@ export async function recordOwnerToolApprovalExecution(
 		organizationId: string;
 		execution: OwnerToolApprovalExecution;
 	},
-): Promise<void> {
-	await db
+): Promise<OwnerToolApprovalExecution | null> {
+	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(input.execution)}))`,
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(CASE WHEN json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NOT NULL THEN json_set(${JSON.stringify(input.execution)}, '$.retryable', json('false')) ELSE ${JSON.stringify(input.execution)} END))`,
 		})
 		.where(
 			and(
@@ -768,7 +768,12 @@ export async function recordOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 			),
-		);
+		)
+		.returning({ payload: tediApprovalRequests.payload });
+	const execution = rows[0]?.payload.execution;
+	return execution && typeof execution === "object" && !Array.isArray(execution)
+		? (execution as unknown as OwnerToolApprovalExecution)
+		: null;
 }
 
 /**

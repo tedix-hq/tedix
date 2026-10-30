@@ -274,9 +274,28 @@ export async function enforceMcpAccess(params: {
 		enforcePolicies ||
 		tools.some((tool) => tool.authRequired)
 	) {
-		const requiredScopes = enforcePolicies
+		let requiredScopes = enforcePolicies
 			? await extractPolicyRequiredScopes(request, mcpConfig)
 			: await extractRequiredScopes(request, toolScopes, tools, mcpConfig);
+		if (
+			!enforcePolicies &&
+			requiredScopes?.length === 2 &&
+			requiredScopes.includes("connections.execute") &&
+			requiredScopes.includes("connections.admin")
+		) {
+			const { isTenantPolicyEdgeAdmission } =
+				await import("./mcp/tenant-edge-policy");
+			if (
+				await isTenantPolicyEdgeAdmission({
+					request,
+					app: resolvedApp,
+					env,
+					multiOrgSelection,
+					toolScopes,
+				})
+			)
+				requiredScopes = ["connections.execute"];
+		}
 		if (requiredScopes && requiredScopes.length > 0) {
 			const authType = request.headers.get("x-tedix-auth-type");
 			if (!authType) {

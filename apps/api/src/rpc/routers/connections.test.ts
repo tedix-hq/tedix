@@ -1467,8 +1467,43 @@ describe("credential resolution provider failures", () => {
 						label: "primary",
 					},
 				),
-			).resolves.toMatchObject({ accessToken: "opaque" });
+			).resolves.toMatchObject({
+				accessToken: "opaque",
+				selectedCredential: {
+					organizationId: "org-1",
+					providerId: "cloudflare",
+					scope: "tenant",
+				},
+			});
 			expect(calls).toBeGreaterThan(1);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it("records the actual labeled provider rather than the requested default", async () => {
+		const spy = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(Response.json({ token: { accessToken: "opaque" } }));
+		try {
+			const result = await resolveCredentialChain(
+				{
+					db: makeTestDb(),
+					env: { DESCOPE_PROJECT_ID: "P1", DESCOPE_MANAGEMENT_KEY: "K1" },
+				} as never,
+				{
+					organizationId: "org-1",
+					descopeTenantId: "tenant-1",
+					providerId: "cloudflare",
+					scope: "tenant",
+					label: "project",
+				},
+			);
+			expect(result.selectedCredential).toEqual({
+				organizationId: "org-1",
+				providerId: "cloudflare-project",
+				scope: "tenant",
+			});
 		} finally {
 			spy.mockRestore();
 		}

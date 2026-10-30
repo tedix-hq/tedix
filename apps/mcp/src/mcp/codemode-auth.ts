@@ -38,6 +38,7 @@ export function resolveCodeModeInnerToolScopes(
 	namespace: string,
 	mcpConfig: Record<string, unknown> | undefined,
 	toolCall?: { arguments: unknown },
+	verifiedBoundedCall?: boolean,
 ): string[] {
 	const effect =
 		tool.config?.transport === "mcp"
@@ -65,6 +66,7 @@ export function resolveCodeModeInnerToolScopes(
 	return resolveMcpToolRequiredScopes(effectTool, namespace, mcpConfig, {
 		fallbackOnAuthenticatedAuthMode: true,
 		toolCall,
+		verifiedBoundedCall,
 	});
 }
 
@@ -101,6 +103,7 @@ export function evaluateMcpToolScopeAuthorization(
 	options: {
 		requiredScopes?: readonly string[];
 		toolCall?: { arguments: unknown };
+		verifiedBoundedCall?: boolean;
 	} = {},
 ): McpToolScopeDecision {
 	if (
@@ -139,6 +142,7 @@ export function evaluateMcpToolScopeAuthorization(
 				namespace,
 				mcpConfig,
 				options.toolCall,
+				options.verifiedBoundedCall,
 			);
 	if (requiredScopes.length === 0) return { authorized: true };
 
@@ -244,12 +248,13 @@ export function assertCodeModeInnerToolAuthorized(
 	tool: ToolAuthShape,
 	namespace: string,
 	callArguments?: unknown,
+	verifiedBoundedCall?: boolean,
 ): void {
 	const decision = evaluateMcpToolScopeAuthorization(
 		serverCtx,
 		tool,
 		namespace,
-		{ toolCall: { arguments: callArguments } },
+		{ toolCall: { arguments: callArguments }, verifiedBoundedCall },
 	);
 	if (decision.authorized) return;
 

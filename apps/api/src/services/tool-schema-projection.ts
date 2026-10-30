@@ -693,8 +693,8 @@ export function targetColumns(
  * service-binding-only edge-resolution surface for `tedix-os`, while
  * `tenantBehavioralEvals` is an API-only authoring and execution surface.
  * `mcpCredentials` returns bearer credentials only to the authenticated tedi;
- * `mcpGovernance` is service-binding-only. These routes remain registered in
- * ROUTERS for contract/router parity without becoming MCP tools.
+ * `mcpGovernance` stays internal except for its machine-initiated proof tool.
+ * Other routes remain registered for contract/router parity.
  */
 const UNPROJECTABLE_ROUTERS = new Set([
 	// Browser credentials and human-admin console grants are not MCP tools.
@@ -724,8 +724,11 @@ const UNPROJECTABLE_ENDPOINTS = new Set([
 	"mcpEvents/recordWebhookDelivery",
 ]);
 
-function isProjectableRouter(router: string): boolean {
-	return !UNPROJECTABLE_ROUTERS.has(router);
+function isProjectableEndpoint(endpoint: ResolvedContractEndpoint): boolean {
+	return (
+		!UNPROJECTABLE_ROUTERS.has(endpoint.router) ||
+		endpointPathOf(endpoint) === "mcpGovernance/prepareMachineIdentityProbe"
+	);
 }
 
 export function endpointPathOf(endpoint: ResolvedContractEndpoint): string {
@@ -765,7 +768,7 @@ export function projectionCandidates(
 		}
 		return candidates.filter(
 			(endpoint) =>
-				isProjectableRouter(endpoint.router) &&
+				isProjectableEndpoint(endpoint) &&
 				!UNPROJECTABLE_ENDPOINTS.has(endpointPathOf(endpoint)) &&
 				(endpoint.router !== "externalAgentIdentity" ||
 					EXTERNAL_AGENT_MCP_ENDPOINTS.has(
@@ -780,7 +783,7 @@ export function projectionCandidates(
 		includeInternal: options.includeInternal !== false,
 	}).filter(
 		(endpoint) =>
-			isProjectableRouter(endpoint.router) &&
+			isProjectableEndpoint(endpoint) &&
 			!UNPROJECTABLE_ENDPOINTS.has(endpointPathOf(endpoint)) &&
 			(endpoint.router !== "externalAgentIdentity" ||
 				EXTERNAL_AGENT_MCP_ENDPOINTS.has(

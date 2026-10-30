@@ -1,4 +1,5 @@
 import { type ServerContext } from "./server-context";
+import { tenantProfileDiscoveryPotential } from "./tenant-profile-candidate";
 import { cachedCatalogProjection } from "./catalog-projection";
 import {
 	writeCodeModeLog,
@@ -509,6 +510,32 @@ export function buildCatalogProvider(
 	const namespaceSummary = canonicalNamespaces
 		.map((ns) => `${ns} (${Object.keys(catalog[ns] ?? {}).length} tools)`)
 		.join(", ");
+	const annotateConditionalAccess = async (row: unknown) => {
+		if (
+			!isRecord(row) ||
+			row.authorized !== false ||
+			typeof row.callable !== "string"
+		)
+			return;
+		const dot = row.callable.indexOf(".");
+		const entry =
+			catalog[row.callable.slice(0, dot)]?.[row.callable.slice(dot + 1)];
+		const wire = entry?.wire?.name;
+		const tool = wire ? serverCtx.loadedTools.get(wire) : undefined;
+		if (!tool || !(await tenantProfileDiscoveryPotential(serverCtx, tool)))
+			return;
+		row.authorized = true;
+		row.requiredScopes = ["connections.execute"];
+		delete row.missingScopes;
+		row.authorizationCondition =
+			"The organization's policy is checked against each call and its connected account.";
+	};
+	const annotateDiscovery = async <T extends { results: unknown[] }>(
+		result: T,
+	): Promise<T> => {
+		await Promise.all(result.results.map(annotateConditionalAccess));
+		return result;
+	};
 
 	return {
 		name: "discover",
@@ -575,23 +602,28 @@ export function buildCatalogProvider(
 							]),
 					);
 					if (!q)
-						return paginateCatalog(
-							searchCatalog,
-							limit,
-							offset,
-							includeParameters,
-							includeOutputSchema,
-							{
-								freshness: freshnessMeta,
-								...(namespaceFilter
-									? {
-											discovery: { namespace: namespaceFilter, mode: "browse" },
-										}
-									: {}),
-							},
-							Boolean(namespaceFilter),
-							preferredTediNamespace,
-							includeMetadata,
+						return annotateDiscovery(
+							paginateCatalog(
+								searchCatalog,
+								limit,
+								offset,
+								includeParameters,
+								includeOutputSchema,
+								{
+									freshness: freshnessMeta,
+									...(namespaceFilter
+										? {
+												discovery: {
+													namespace: namespaceFilter,
+													mode: "browse",
+												},
+											}
+										: {}),
+								},
+								Boolean(namespaceFilter),
+								preferredTediNamespace,
+								includeMetadata,
+							),
 						);
 
 					const rankedByCallable = new Map<string, CatalogPageEntry>();
@@ -720,29 +752,31 @@ export function buildCatalogProvider(
 							? rankDiscovery
 							: undefined,
 					);
-					return paginateCatalogEntries(
-						currentOrganizationFirst(
-							reranked.entries,
-							namespaceOrganizations,
-							currentCatalogOrganizationId(serverCtx),
-						),
-						limit,
-						offset,
-						includeParameters,
-						includeOutputSchema,
-						{
-							freshness: freshnessMeta,
-							discovery: {
-								query: q,
-								terms,
-								mode: rankedEntries.length > 0 ? "ranked" : "empty",
-								order: reranked.usedJev ? "jev" : "lexical",
-								...(namespaceFilter ? { namespace: namespaceFilter } : {}),
-								nearestNamespaces: nearestCatalogNamespaces(q, catalog),
-								suggestedQueries: suggestedCatalogQueries(terms, catalog),
+					return annotateDiscovery(
+						paginateCatalogEntries(
+							currentOrganizationFirst(
+								reranked.entries,
+								namespaceOrganizations,
+								currentCatalogOrganizationId(serverCtx),
+							),
+							limit,
+							offset,
+							includeParameters,
+							includeOutputSchema,
+							{
+								freshness: freshnessMeta,
+								discovery: {
+									query: q,
+									terms,
+									mode: rankedEntries.length > 0 ? "ranked" : "empty",
+									order: reranked.usedJev ? "jev" : "lexical",
+									...(namespaceFilter ? { namespace: namespaceFilter } : {}),
+									nearestNamespaces: nearestCatalogNamespaces(q, catalog),
+									suggestedQueries: suggestedCatalogQueries(terms, catalog),
+								},
 							},
-						},
-						includeMetadata,
+							includeMetadata,
+						),
 					);
 				},
 			},
@@ -816,6 +850,7 @@ export function buildCatalogProvider(
 						record?.includeOutputSchema === true,
 						true,
 					);
+					await annotateConditionalAccess(described);
 					const envelopeKeys = resultEnvelopeKeys(meta);
 					return envelopeKeys && isRecord(described)
 						? { ...described, resultEnvelopeKeys: envelopeKeys }

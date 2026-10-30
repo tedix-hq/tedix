@@ -59,6 +59,100 @@ const notion = {
 };
 
 describe("authorized bounded writes", () => {
+	it("allows a reviewed bounded call despite an upstream destructive hint, but preserves higher-impact floors", async () => {
+		const candidate = {
+			descriptor: { kind: "profile" },
+			effect: {
+				disposition: "allow",
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+		};
+		const tool = {
+			toolId: "example_edit",
+			title: "Edit",
+			config: {
+				transport: "mcp",
+				mcpToolName: "edit",
+				auth: { type: "connection", connectionId: "provider" },
+			},
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+				},
+			},
+		};
+		expect(
+			await requireDestructiveToolApproval(
+				context(),
+				tool,
+				{ destructiveHint: true },
+				{ tenantPolicyCandidate: candidate as never },
+			),
+		).toBeNull();
+		for (const riskTier of ["high_impact_write", "external_side_effect"]) {
+			const highRisk = {
+				...tool,
+				meta: {
+					"com.tedix/policy": {
+						riskTier,
+						blastRadius:
+							riskTier === "high_impact_write" ? "tenant" : "external_system",
+					},
+				},
+			};
+			expect(
+				(
+					await requireDestructiveToolApproval(
+						context(),
+						highRisk,
+						{ destructiveHint: true },
+						{ tenantPolicyCandidate: candidate as never },
+					)
+				)?.isError,
+			).toBe(true);
+		}
+	});
+	it("does not let legacy autonomy waive a high-impact human boundary", async () => {
+		const base = context();
+		const agent = {
+			...base,
+			apiClient: {
+				mcpGovernance: {
+					resolveAgentTransportPolicy: vi.fn(async () => ({
+						autonomy: { version: 1, maxRisk: "high" },
+					})),
+					resolveToolApprovalGrant: vi.fn(async () => ({
+						approved: false,
+						grantId: null,
+					})),
+				},
+			},
+		} as unknown as ServerContext;
+		const tool = {
+			toolId: "example_edit",
+			title: "Edit",
+			config: {
+				transport: "mcp",
+				mcpToolName: "edit",
+				auth: { type: "connection", connectionId: "provider" },
+			},
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "high_impact_write",
+					blastRadius: "tenant",
+				},
+			},
+		};
+		const result = await requireDestructiveToolApproval(
+			agent,
+			tool,
+			{ destructiveHint: false },
+			{ args: {} },
+		);
+		expect(result?.isError).toBe(true);
+	});
 	it("lets a signed-in human answer a Home approval on a task-capable CLI", async () => {
 		const ctx = context("oauth");
 		expect(
@@ -164,16 +258,19 @@ describe("authorized bounded writes", () => {
 			command: "insert_content",
 			content: "Close-out note",
 		},
-	])("permits reviewed Notion page edits: %j", async (args) => {
-		expect(
-			await requireDestructiveToolApproval(
-				context(),
-				notion,
-				{ destructiveHint: true },
-				{ args },
-			),
-		).toBeNull();
-	});
+	])(
+		"requires approval for legacy argument metadata without an active tenant rule: %j",
+		async (args) => {
+			expect(
+				await requireDestructiveToolApproval(
+					context(),
+					notion,
+					{ destructiveHint: true },
+					{ args },
+				),
+			).toMatchObject({ isError: true });
+		},
+	);
 	it.each([
 		{ page_id: "example", command: "replace_content", content: "Overwrite" },
 		{
@@ -240,5 +337,74 @@ describe("authorized bounded writes", () => {
 				)
 			)?.isError,
 		).toBe(true);
+	});
+	it("does not bypass a separately configured platform approval", async () => {
+		const ctx = context();
+		const candidate = {
+			descriptor: { kind: "machine" },
+			effect: {
+				disposition: "ask",
+				riskTier: "high_impact_write",
+				blastRadius: "external_system",
+			},
+		};
+		const result = await requireDestructiveToolApproval(
+			ctx,
+			{
+				toolId: "edit",
+				title: "Edit",
+				config: { transport: "mcp", approvalPolicy: "always" },
+			},
+			{ destructiveHint: true },
+			{ tenantPolicyCandidate: candidate as never },
+		);
+		expect(result?.isError).toBe(true);
+		expect(callToolResultText(result!)).toContain("separate platform approval");
+	});
+	it("consumes a policy-bound replay only at the first verified provider send", async () => {
+		const consume = vi
+			.fn()
+			.mockResolvedValue({ approved: true, approvalRequestId: "approval" });
+		const ctx = {
+			...context(),
+			callerIdentity: {
+				authType: "service",
+				kernel: true,
+				userId: "owner",
+				organizationId: "example-org",
+			},
+			apiClient: { mcpGovernance: { requestOwnerToolApproval: consume } },
+		} as unknown as ServerContext;
+		const verify = vi.fn().mockResolvedValueOnce(false).mockResolvedValue(true);
+		const candidate = {
+			descriptor: { kind: "profile" },
+			descriptorDigest: "digest",
+			revisionId: "revision",
+			ruleDigest: "rule",
+			effect: {
+				disposition: "ask",
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+			probe: { revalidate: verify },
+		};
+		const result = await requireDestructiveToolApproval(
+			ctx,
+			{ toolId: "edit", title: "Edit", config: { transport: "mcp" } },
+			null,
+			{
+				args: {},
+				extra: { _meta: { "com.tedix/approvalRequestId": "approval" } },
+				tenantPolicyCandidate: candidate as never,
+			},
+		);
+		expect(result).toBeNull();
+		expect(consume).not.toHaveBeenCalled();
+		expect(await candidate.probe.revalidate()).toBe(false);
+		expect(consume).not.toHaveBeenCalled();
+		expect(await candidate.probe.revalidate()).toBe(true);
+		expect(consume).toHaveBeenCalledOnce();
+		expect(await candidate.probe.revalidate()).toBe(false);
+		expect(consume).toHaveBeenCalledOnce();
 	});
 });
