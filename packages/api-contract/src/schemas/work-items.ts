@@ -509,6 +509,14 @@ export const WorkAttemptSchema = z.object({
 	metadata: JsonRecordSchema,
 });
 
+export const WorkAttemptSummarySchema = z.object({
+	attemptId: z.uuid(),
+	runtimeState: WorkAttemptStatusSchema,
+	outcome: WorkAttemptOutcomeSchema.nullable(),
+	finishedAt: z.iso.datetime().nullable(),
+	workItemVersion: z.number().int().nullable(),
+});
+
 export const WorkEvidenceDispositionSchema = z.enum([
 	"pending",
 	"accepted",

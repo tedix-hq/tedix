@@ -19,6 +19,7 @@ function item(overrides: Partial<WorkItem> = {}): WorkItem {
 		id: "33333333-3333-4333-8333-333333333333",
 		orgId: "44444444-4444-4444-8444-444444444444",
 		disposition: "accepted",
+		workKind: "coding",
 		title: "Fence the provider registration cache",
 		description: "Keep stale loads from refilling scopes.",
 		...overrides,
@@ -64,6 +65,10 @@ describe("canCompleteOwnSucceededAttempt", () => {
 			{ metadata: { settlement: { mode: "commit", commitSha: "abc" } } },
 		],
 		["a tedi attempt", { executorType: "tedi" }],
+		[
+			"an earlier Work revision",
+			{ metadata: { dispatchVersion: 1, settlement: { commitSha: SHA } } },
+		],
 	])("refuses %s", async (_label, overrides) => {
 		attempts.list.mockResolvedValue({
 			data: [attempt(overrides)],
@@ -79,6 +84,22 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		await expect(allowed(item(), null)).resolves.toBe(false);
 		attempts.list.mockResolvedValue({ data: [], nextCursor: null });
 		await expect(allowed()).resolves.toBe(false);
+	});
+
+	it("allows its own succeeded research without inventing a code commit", async () => {
+		attempts.list.mockResolvedValue({
+			data: [attempt({ metadata: {} })],
+			nextCursor: null,
+		});
+		await expect(allowed(item({ workKind: "research" }))).resolves.toBe(true);
+		attempts.list.mockResolvedValue({
+			data: [attempt({ metadata: {}, executorSessionId: "other" })],
+			nextCursor: null,
+		});
+		await expect(allowed(item({ workKind: "research" }))).resolves.toBe(false);
+		await expect(
+			allowed(item({ workKind: "research", title: "Send a customer email" })),
+		).resolves.toBe(false);
 	});
 
 	it.each([

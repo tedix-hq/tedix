@@ -70,7 +70,8 @@ const OWNER_COMPLETION_CLASSES = new Set([
 /**
  * Whether an external agent may complete this Work Item itself: it is
  * accepted, its latest Attempt is this agent's own (same principal and
- * verified session) and settled succeeded with a commit as evidence, and it is
+ * verified session) and settled succeeded (a commit is required outside
+ * research), and it is
  * not credentials, payment or external-messaging work. Owner completion stays
  * available either way.
  */
@@ -101,8 +102,10 @@ export async function canCompleteOwnSucceededAttempt(
 		latest.executorId === actor.id &&
 		latest.executorSessionId === actor.sessionId &&
 		latest.outcome === "succeeded" &&
-		typeof commitSha === "string" &&
-		/^[a-f\d]{40}$/i.test(commitSha),
+		(latest.metadata?.dispatchVersion === undefined ||
+			latest.metadata.dispatchVersion === item.version) &&
+		(item.workKind === "research" ||
+			(typeof commitSha === "string" && /^[a-f\d]{40}$/i.test(commitSha))),
 	);
 }
 
@@ -162,7 +165,7 @@ export async function workItemStewardActor(
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		action === "completion" && actor.type === "external_agent"
-			? "Work Item completion requires its owner or steward; an agent may complete only an accepted item whose latest Attempt is its own, settled succeeded with a commit, and not credentials, payment or messaging work"
+			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (a commit is required outside research), and not credentials, payment or messaging work"
 			: `Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
 	);
 }

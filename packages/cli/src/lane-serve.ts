@@ -410,6 +410,10 @@ interface Receipt {
 	pendingObservation?: Record<string, unknown>;
 	reportRetryAt?: number;
 	reportRetries?: number;
+	completionPending?: boolean;
+	completionRetries?: number;
+	completionRetryAt?: number;
+	completionError?: string;
 }
 const alive = (pid: number) => {
 	try {
@@ -1024,6 +1028,13 @@ export class LaneDispatcher {
 				Date.now() >= (row.retryAt ?? 0)
 			)
 				await this.recoverSettlement(row);
+			if (
+				row.completionPending &&
+				!this.running.has(row.itemId) &&
+				(row.completionRetries ?? 0) < 5 &&
+				Date.now() >= (row.completionRetryAt ?? 0)
+			)
+				await this.complete(row);
 		}
 		const orphaned = retained.filter(
 			(row) => row.pid && alive(row.pid) && !this.running.has(row.itemId),
@@ -2004,10 +2015,37 @@ export class LaneDispatcher {
 					: "settled";
 			if (receipt.runFailureCounted) receipt.retryAt = receipt.runRetryAt;
 			this.log("settled", receipt.itemId, receipt.outcome);
+			if (receipt.outcome === "succeeded") {
+				receipt.completionPending = true;
+				this.save(path, receipt);
+				await this.complete(receipt);
+			}
 		} catch (error) {
 			this.log("settlement-retained", receipt.itemId, String(error));
 		}
 		this.save(path, receipt);
+	}
+	private async complete(receipt: Receipt) {
+		if (receipt.phase !== "settled" || receipt.outcome !== "succeeded") return;
+		receipt.completionRetries = (receipt.completionRetries ?? 0) + 1;
+		receipt.completionRetryAt = Date.now() + 60_000;
+		try {
+			await this.call(
+				["work", "complete", receipt.itemId],
+				receipt.session,
+				receipt.executorKey,
+			);
+			receipt.completionPending = false;
+			delete receipt.completionError;
+			this.log("completed", receipt.itemId, "Work completion confirmed");
+		} catch (error) {
+			receipt.completionError = String(error).slice(0, 600);
+			this.log("completion-retained", receipt.itemId, receipt.completionError);
+		}
+		this.save(
+			join(this.directory, `${receipt.itemId}-${receipt.version}.json`),
+			receipt,
+		);
 	}
 	private async recordRunFailure(receipt: Receipt) {
 		if (

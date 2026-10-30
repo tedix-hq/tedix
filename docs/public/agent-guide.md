@@ -525,8 +525,10 @@ expected revision can instead submit `skill_revision` evidence for the held
 Attempt using `skill://runs/<runId>`. The dispatcher checks that the run
 completed for that active organization skill and records its pinned skill and
 revision. Coding Work with neither proof settles as failed, even when the
-harness exited normally. A lane's own report is still not verification; the
-owning tedi or person completes Work.
+harness exited normally. After success the dispatcher requests Work completion
+under its original session, retaining any denied or interrupted request for
+bounded retry. Owner-only actions remain with the owner. A lane's report and
+Work completion do not independently verify the result.
 
 If dispatchable Work waits while no dispatcher has admitted an Attempt for a
 while (45 minutes by default), the organization owner gets one attention item.

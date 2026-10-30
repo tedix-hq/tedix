@@ -136,6 +136,7 @@ function fixture({
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
 			: (undefined as Error | undefined),
 		readiness: { ready: true, reasons: [] as Array<{ detail: string }> },
+		completeError: undefined as Error | undefined,
 		cooldownUntil: 0,
 		cooldownWorkspaces: [] as Array<string | undefined>,
 		recall: "",
@@ -246,6 +247,8 @@ function fixture({
 				};
 			} else if (verb === "settle" && failSettle)
 				throw new Error("Transient settlement failure");
+			else if (verb === "complete" && control.completeError)
+				throw control.completeError;
 			else response = {};
 			return response as T;
 		},
@@ -779,6 +782,38 @@ describe("dispatcher admission", () => {
 		releases[2]!();
 		await dispatcher.drain();
 	});
+	it("completes a successful result under its original session and retains a denied completion for retry", async () => {
+		const { dispatcher, items, control, events, releases, dir } = fixture();
+		items.splice(1);
+		control.completeError = new Error("Completion unavailable");
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const path = join(dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved).toMatchObject({
+			phase: "settled",
+			outcome: "succeeded",
+			completionPending: true,
+			completionRetries: 1,
+		});
+		const complete = events.find((e) => e.verb === "complete")!;
+		const settle = events.find((e) => e.verb === "settle")!;
+		expect(complete.env.TEDIX_AGENT_SESSION).toBe(
+			settle.env.TEDIX_AGENT_SESSION,
+		);
+		expect(events.indexOf(complete)).toBeGreaterThan(events.indexOf(settle));
+		control.completeError = undefined;
+		saved.completionRetryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		await dispatcher.tick();
+		expect(JSON.parse(readFileSync(path, "utf8")).completionPending).toBe(
+			false,
+		);
+		expect(releases).toHaveLength(1);
+	});
+
 	it("prefixes matching lessons before launching Codex without relying on hooks", async () => {
 		const { dispatcher, items, control, recalls, briefs, releases } = fixture();
 		items.splice(1);

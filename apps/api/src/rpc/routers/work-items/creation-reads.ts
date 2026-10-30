@@ -23,7 +23,10 @@ import {
 	tombstoneMissingSources,
 } from "@tedix/db/queries/work-item-sources";
 import { listWorkActivity } from "@tedix/db/queries/work-items/activity";
-import { listLiveWorkAttemptHolders } from "@tedix/db/queries/work-items/attempts";
+import {
+	listLiveWorkAttemptHolders,
+	listLatestWorkAttemptSummaries,
+} from "@tedix/db/queries/work-items/attempts";
 import { listWorkItemComments } from "@tedix/db/queries/work-items/comments";
 import {
 	createWorkItem,
@@ -203,11 +206,18 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 	// see listLiveWorkAttemptHolders for why a join here is a D1 hazard. A row
 	// with no live Attempt gets an explicit null so "nobody holds this" is
 	// distinguishable from "this server does not report holders".
-	const holders = await listLiveWorkAttemptHolders(context.db, { orgId });
+	const [holders, latest] = await Promise.all([
+		listLiveWorkAttemptHolders(context.db, { orgId }),
+		listLatestWorkAttemptSummaries(context.db, {
+			orgId,
+			workItemIds: data.map((item) => item.id),
+		}),
+	]);
 	return {
 		data: data.map((item) => ({
 			...item,
 			activeAttempt: holders.get(String(item.id)) ?? null,
+			latestAttempt: latest.get(item.id) ?? null,
 		})),
 		pagination: {
 			limit,
