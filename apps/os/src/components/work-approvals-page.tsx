@@ -63,7 +63,6 @@ import {
 	workItemReadinessQueryOptions,
 	workSchedulerQueryOptions,
 } from "@/lib/os-query-options";
-import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import {
@@ -118,7 +117,7 @@ export function WorkApprovalsPage() {
 		<Page width="lg">
 			<WorkPageHeader
 				title="Approvals"
-				description={WORK_COUNT_DEFINITIONS.approvals}
+				description="Review requests, manage what can run automatically, and see past decisions."
 			/>
 			<Tabs
 				className="gap-0"
@@ -127,7 +126,7 @@ export function WorkApprovalsPage() {
 			>
 				<TabsList aria-label="Approvals" className="-mx-1" variant="line">
 					<TabsTrigger className="px-2!" value="needs-you">
-						Needs you
+						Needs review
 						{waiting > 0 ? (
 							<Badge className="ml-1.5 tabular-nums" variant="secondary">
 								{waiting}
@@ -135,7 +134,7 @@ export function WorkApprovalsPage() {
 						) : null}
 					</TabsTrigger>
 					<TabsTrigger className="px-2!" value="auto">
-						Auto-approved
+						Automatic rules
 					</TabsTrigger>
 					<TabsTrigger className="px-2!" value="history">
 						History
@@ -146,14 +145,9 @@ export function WorkApprovalsPage() {
 				</TabsContent>
 				<TabsContent className="pt-2" value="auto">
 					<Text as="p" className="m-0 pb-1" role="body" tone="secondary">
-						Low-risk actions inside your organization run without asking. They
-						are listed here so you can check them.
+						Choose what can run without asking each time. Existing permissions
+						and safeguards still apply.
 					</Text>
-					<ActivityHistory
-						canRetry={inbox.canDecide}
-						only="automatic"
-						tediNames={inbox.tediNames}
-					/>
 					<ActivityAutoApproval canChange={inbox.canDecide} />
 				</TabsContent>
 				<TabsContent className="pt-2" value="history">
@@ -184,7 +178,7 @@ function NeedsYou({
 	workStartPending: readonly WorkStartRow[];
 }) {
 	const rows = collapseIdenticalItems(inbox.items);
-	const lowRisk = inbox.items.filter(
+	const recommended = inbox.items.filter(
 		(item) => item.recommendation === "approved",
 	);
 	const [confirmBulk, setConfirmBulk] = useState(false);
@@ -223,8 +217,8 @@ function NeedsYou({
 				/>
 			) : total === 0 ? (
 				<WorkEmpty
-					title="Nothing needs you"
-					description="When a tedi or agent needs your OK to change, send or pay for something, it waits here."
+					title="You're all caught up"
+					description="When an agent needs your approval, the request will appear here."
 				/>
 			) : (
 				<>
@@ -237,7 +231,7 @@ function NeedsYou({
 						>
 							{total} waiting · soonest to expire first
 						</Text>
-						{lowRisk.length > 1 ? (
+						{recommended.length > 1 ? (
 							confirmBulk ? (
 								<div className="flex flex-wrap items-center gap-2">
 									<Button
@@ -245,11 +239,11 @@ function NeedsYou({
 										icon={<Check size={14} />}
 										onClick={async () => {
 											setConfirmBulk(false);
-											await decide(lowRisk, "approved");
+											await decide(recommended, "approved");
 										}}
 										size="sm"
 									>
-										Approve these {lowRisk.length}
+										Approve these {recommended.length}
 									</Button>
 									<Button
 										onClick={() => setConfirmBulk(false)}
@@ -266,15 +260,15 @@ function NeedsYou({
 									size="sm"
 									variant="secondary"
 								>
-									Approve {lowRisk.length} low-risk
+									Approve {recommended.length} recommended
 								</Button>
 							)
 						) : null}
 					</div>
 					{confirmBulk ? (
 						<Text as="p" className="m-0" role="label" tone="secondary">
-							Tedix rates these as low risk:{" "}
-							{lowRisk
+							Recommended for approval. Check each request before approving:{" "}
+							{recommended
 								.map((item) => sanitizeUntrustedText(item.title))
 								.join("; ")}
 							.

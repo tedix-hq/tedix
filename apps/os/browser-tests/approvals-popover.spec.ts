@@ -175,7 +175,12 @@ try {
 				const emptyPanel = page.locator("[data-approvals-popover]");
 				await emptyPanel.getByRole("tab", { name: "Auto-approval" }).click();
 				await emptyPanel.getByText("No saved rules", { exact: true }).waitFor();
-				await emptyPanel.getByText("Reading data", { exact: true }).waitFor();
+				await emptyPanel
+					.getByRole("button", { name: "How approvals work" })
+					.click();
+				await emptyPanel
+					.getByText("Reading information", { exact: true })
+					.waitFor();
 				await fits(page, width);
 				await capture(page, `activity-auto-empty-${width}-${theme}`);
 				await emptyPanel.getByRole("tab", { name: "History" }).click();
@@ -242,13 +247,15 @@ try {
 				await fits(page, width);
 				await capture(page, `activity-review-${width}-${theme}`);
 
-				// Auto-approval: the policy in plain words, what it covered, saved rules.
+				// Automatic rules and their explanation are separate from history.
 				await activity.getByRole("tab", { name: "Auto-approval" }).click();
-				await activity.getByText("Reading data", { exact: true }).waitFor();
-				await activity.getByText("Deleting data", { exact: true }).waitFor();
 				await activity
-					.getByText("Create work items", { exact: true })
+					.getByRole("button", { name: "How approvals work" })
+					.click();
+				await activity
+					.getByText("Reading information", { exact: true })
 					.waitFor();
+				await activity.getByText("Deleting data", { exact: true }).waitFor();
 				await activity
 					.getByText("Always approve: Add note in Example Crm", { exact: true })
 					.waitFor();
@@ -293,7 +300,7 @@ try {
 					})
 					.click();
 				await activity
-					.getByText("Off: this action asks a person again.", {
+					.getByText("Off: this rule won't approve requests.", {
 						exact: false,
 					})
 					.waitFor();

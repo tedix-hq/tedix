@@ -63,6 +63,32 @@ function request(index: number, expiresInHours: number) {
 
 async function seed(page: Page) {
 	const decided = new Set<string>();
+	await page.route(
+		"**/api/rpc/mcpGovernance/listProviderIdentityProfiles**",
+		async (route) => {
+			await route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					json: {
+						items: [
+							{
+								id: "example-profile",
+								revokedAt: null,
+								mount: {
+									providerId: "example",
+									mountedToolId: "edit_page",
+									rootAppId: "example-app",
+									connectionScope: "tenant",
+								},
+								profile: { operation: "identity", selectors: [["id"]] },
+							},
+						],
+					},
+				}),
+			});
+		},
+	);
 	const rows = [
 		...Array.from({ length: WAITING }, (_, index) => request(index, 1 + index)),
 		request(WAITING, -30),
@@ -223,6 +249,64 @@ try {
 					await page.screenshot({
 						path: `${evidenceDir}/${engine.name()}-${width}-${theme}-approved.png`,
 					});
+				await page.getByRole("tab", { name: "Automatic rules" }).click();
+				await page
+					.getByRole("button", { name: "Add rule", exact: true })
+					.click();
+				const ruleSheet = page.getByRole("dialog", { name: "Add a rule" });
+				const ruleApp = ruleSheet.getByRole("combobox", {
+					name: "App",
+					exact: true,
+				});
+				await ruleApp.click();
+				await page
+					.getByRole("option", { name: "Storefront", exact: true })
+					.click();
+				assert.match(await ruleApp.innerText(), /Storefront/);
+				await ruleSheet.getByRole("button", { name: "Add field" }).click();
+				await ruleSheet
+					.getByRole("textbox", { name: "Field 1 name" })
+					.fill("page_id");
+				await ruleSheet
+					.getByRole("textbox", { name: "Field 1 value" })
+					.fill("example");
+				assert.equal(
+					await ruleSheet
+						.getByRole("button", { name: "Review action" })
+						.isDisabled(),
+					true,
+				);
+				const check = ruleSheet.getByRole("combobox", {
+					name: "Account check",
+				});
+				await check.click();
+				await page
+					.getByRole("option", { name: "example: edit_page", exact: true })
+					.click();
+				assert.match(await check.innerText(), /example: edit_page/);
+				if (evidenceDir)
+					await page.screenshot({
+						path: `${evidenceDir}/${engine.name()}-${width}-${theme}-rule.png`,
+					});
+				await page.keyboard.press("Escape");
+				await ruleSheet.waitFor({ state: "hidden" });
+				await page.getByRole("button", { name: "Add account check" }).click();
+				const accountSheet = page.getByRole("dialog", {
+					name: "Add account check",
+				});
+				const accountApp = accountSheet.getByRole("combobox", {
+					name: "Profile app",
+				});
+				await accountApp.click();
+				await page
+					.getByRole("option", { name: "Storefront", exact: true })
+					.click();
+				assert.match(await accountApp.innerText(), /Storefront/);
+				await accountSheet
+					.getByRole("textbox", { name: "Fields that identify the account" })
+					.waitFor();
+				await page.keyboard.press("Escape");
+				await accountSheet.waitFor({ state: "hidden" });
 				await page.close();
 			}
 	}

@@ -115,7 +115,7 @@ export function approvalHistoryEntries(
 			: automatic
 				? /^auto-approved by rule\b/i.test(approval.resolution ?? "")
 					? "A saved rule approved it"
-					: "Low risk, approved by your policy"
+					: "Approved automatically"
 				: approval.status === "expired"
 					? "No one answered in time, so it did not run"
 					: approval.status === "approved" || approval.status === "rejected"
@@ -206,8 +206,8 @@ const EMPTY_COPY: Record<HistoryFilter, { title: string; body: string }> = {
 		body: "Tool calls agents make in your apps appear here once they run.",
 	},
 	automatic: {
-		title: "Nothing ran automatically",
-		body: "Low-risk changes your policy or a saved rule approved appear here.",
+		title: "No automatic approvals yet",
+		body: "Actions approved automatically appear here.",
 	},
 };
 

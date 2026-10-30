@@ -1,5 +1,6 @@
 import {
 	BookOpen,
+	CaretRight,
 	Lightning,
 	ListChecks,
 	ShieldCheck,
@@ -17,6 +18,11 @@ import { ProviderIdentityProfiles } from "@/components/provider-identity-profile
 import { LegacyActionGrants } from "@/components/legacy-action-grants";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
 import { Switch } from "@/components/kumo/switch";
@@ -27,11 +33,7 @@ import {
 	plainToolTitle,
 } from "@/lib/approval-titles";
 import { osApi } from "@/lib/api";
-import {
-	approvalHistoryQueryOptions,
-	approvalRulesQueryOptions,
-	osQueryKeys,
-} from "@/lib/os-query-options";
+import { approvalRulesQueryOptions, osQueryKeys } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 
@@ -195,8 +197,8 @@ function SavedRuleRow({
 			</div>
 			<Text as="span" role="label" tone="secondary">
 				{rule.enabled
-					? "This action runs without asking."
-					: "Off: this action asks a person again."}{" "}
+					? "On: this rule can approve matching requests."
+					: "Off: this rule won't approve requests."}{" "}
 				Added{" "}
 				<time dateTime={rule.createdAt} title={absoluteTime(rule.createdAt)}>
 					{relativeTime(rule.createdAt)}
@@ -258,76 +260,10 @@ const sectionHeading =
 
 export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 	const rules = useQuery(approvalRulesQueryOptions());
-	const history = useQuery(approvalHistoryQueryOptions());
-	const covered = automaticCoverage(history.data?.data ?? []);
 	const savedRules = rules.data?.items ?? [];
 	return (
 		<div className="grid min-w-0">
-			<h3 className={sectionHeading}>How actions are approved</h3>
-			<ul aria-label="Approval policy" className="m-0 grid list-none p-0">
-				<PolicyRow
-					icon={<BookOpen size={14} />}
-					mode="Always automatic"
-					title="Reading data"
-					tone="success"
-				>
-					<Text as="p" className="m-0" role="label" tone="secondary">
-						Searching, listing and reading never ask. Every read is still
-						logged.
-					</Text>
-				</PolicyRow>
-				<PolicyRow
-					icon={<Lightning size={14} />}
-					mode="Automatic, logged"
-					title="Small, low-risk changes"
-					tone="secondary"
-				>
-					<Text as="p" className="m-0" role="label" tone="secondary">
-						Low-risk changes in apps your organization trusts run without asking
-						and show in History as auto-approved.
-					</Text>
-					{history.isPending ? null : covered.length > 0 ? (
-						<>
-							<Text as="p" className="m-0" role="label" tone="secondary">
-								Recently covered:
-							</Text>
-							<Chips
-								items={covered.map(({ label, count }) =>
-									count > 1 ? `${label} ×${count}` : label,
-								)}
-							/>
-						</>
-					) : (
-						<Text as="p" className="m-0" role="label" tone="secondary">
-							Nothing was approved this way recently.
-						</Text>
-					)}
-				</PolicyRow>
-				<PolicyRow
-					icon={<UserCircleCheck size={14} />}
-					mode="Asks a person"
-					title="Deleting, sending or paying"
-					tone="warning"
-				>
-					<Text as="p" className="m-0" role="label" tone="secondary">
-						These never run on their own, not even with a saved rule:
-					</Text>
-					<Chips items={personOnlyClasses()} />
-				</PolicyRow>
-				<PolicyRow
-					icon={<ShieldCheck size={14} />}
-					mode="Asks a person"
-					title="Everything else"
-					tone="warning"
-				>
-					<Text as="p" className="m-0" role="label" tone="secondary">
-						Changes that are not low risk, or in apps nobody has trusted yet,
-						wait in Needs review.
-					</Text>
-				</PolicyRow>
-			</ul>
-
-			<h3 className={sectionHeading}>Saved rules</h3>
+			<h3 className={sectionHeading}>Saved approvals</h3>
 			{rules.isPending ? (
 				<Text className="m-0 px-4 py-3" role="label" tone="secondary">
 					Loading saved rules…
@@ -354,13 +290,86 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 				</ul>
 			)}
 
-			<LegacyActionGrants canChange={canChange} />
 			<TenantToolPolicies canChange={canChange} />
 			<ProviderIdentityProfiles canChange={canChange} />
+			<Collapsible className="border-t border-kumo-hairline px-2 py-2">
+				<CollapsibleTrigger className="group/disclosure">
+					<CaretRight
+						aria-hidden
+						size={12}
+						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+					/>
+					How approvals work
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<ul
+						aria-label="How approvals work"
+						className="m-0 grid list-none p-0"
+					>
+						<PolicyRow
+							icon={<BookOpen size={14} />}
+							mode="Usually automatic"
+							title="Reading information"
+							tone="success"
+						>
+							<Text as="p" className="m-0" role="label" tone="secondary">
+								Reads usually run without asking, when the agent has access.
+								Connection permissions and other safeguards still apply.
+							</Text>
+						</PolicyRow>
+						<PolicyRow
+							icon={<Lightning size={14} />}
+							mode="May run automatically"
+							title="Small changes"
+							tone="secondary"
+						>
+							<Text as="p" className="m-0" role="label" tone="secondary">
+								Some changes can run without asking when a rule and the required
+								permissions allow them. See History for what happened.
+							</Text>
+						</PolicyRow>
+						<PolicyRow
+							icon={<UserCircleCheck size={14} />}
+							mode="Needs a person"
+							title="Sensitive actions"
+							tone="warning"
+						>
+							<Text as="p" className="m-0" role="label" tone="secondary">
+								These actions require a person to approve them:
+							</Text>
+							<Chips items={personOnlyClasses()} />
+						</PolicyRow>
+						<PolicyRow
+							icon={<ShieldCheck size={14} />}
+							mode="Needs review"
+							title="Other changes"
+							tone="warning"
+						>
+							<Text as="p" className="m-0" role="label" tone="secondary">
+								Some other changes need a decision. Access and other checks can
+								also prevent an action from running.
+							</Text>
+						</PolicyRow>
+					</ul>
+				</CollapsibleContent>
+			</Collapsible>
+			<Collapsible className="border-t border-kumo-hairline px-2 py-2">
+				<CollapsibleTrigger className="group/disclosure">
+					<CaretRight
+						aria-hidden
+						size={12}
+						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
+					/>
+					Older action approvals
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<LegacyActionGrants canChange={canChange} />
+				</CollapsibleContent>
+			</Collapsible>
 			<div className="grid gap-1 border-t border-kumo-hairline px-4 py-3">
 				<Text as="p" className="m-0" role="label" tone="secondary">
 					{canChange
-						? "Add a rule from any decision card. Turn a rule off to delete it."
+						? "You can also save an approval from a decision card. Turn a saved approval off before deleting it."
 						: "Owners and admins with approval rights can change these. You can see them."}
 				</Text>
 				<Link className="type-tedix-label" href="/team">

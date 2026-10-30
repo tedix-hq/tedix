@@ -44,6 +44,39 @@ const h = vi.hoisted(() => ({
 		},
 	},
 }));
+vi.mock("@/components/kumo/checkbox", async () => {
+	const React = await import("react");
+	return {
+		Checkbox: ({ label, checked, onCheckedChange }: any) =>
+			React.createElement(
+				"label",
+				null,
+				React.createElement("input", {
+					type: "checkbox",
+					checked,
+					onChange: (event: any) => onCheckedChange(event.target.checked),
+				}),
+				label,
+			),
+	};
+});
+vi.mock("@/components/kumo/sheet", async () => {
+	const React = await import("react");
+	const passthrough = ({ children }: any) =>
+		React.createElement("div", null, children);
+	const Context = React.createContext(false);
+	return {
+		Sheet: ({ open, children }: any) =>
+			React.createElement(Context.Provider, { value: open }, children),
+		SheetContent: ({ children }: any) =>
+			React.useContext(Context)
+				? React.createElement("div", null, children)
+				: null,
+		SheetDescription: passthrough,
+		SheetHeader: passthrough,
+		SheetTitle: passthrough,
+	};
+});
 vi.mock("@/components/kumo/select", async () => {
 	const React = await import("react");
 	return {
@@ -63,8 +96,9 @@ vi.mock("@/components/kumo/select", async () => {
 vi.mock("@/components/kumo/switch", async () => {
 	const React = await import("react");
 	return {
-		Switch: ({ checked, onCheckedChange }: any) =>
+		Switch: ({ checked, onCheckedChange, ...props }: any) =>
 			React.createElement("input", {
+				...props,
 				type: "checkbox",
 				checked,
 				onChange: (e: any) => onCheckedChange(e.target.checked),
@@ -297,7 +331,7 @@ async function reviewProfile(node: HTMLElement) {
 		[...entry.options].some((option) => option.value === "old-profile"),
 	)!;
 	change(select, "old-profile");
-	click(node, "Verify account and review tool");
+	click(node, "Verify account and review action");
 	await flush();
 }
 
@@ -305,13 +339,37 @@ describe("policy owner interaction", () => {
 	it("explains that saved rules can apply while other safeguards remain", async () => {
 		const node = mount(<TenantToolPolicies canChange />);
 		await flush();
-		expect(node.textContent).toContain(
-			"A saved rule can apply to matching calls",
-		);
+		expect(node.textContent).toContain("Rules for connected apps");
+		expect(node.textContent).toContain("current status unknown");
+		expect(node.textContent).toContain("This list includes older records");
 		expect(node.textContent).toContain(
 			"Permissions and other safeguards still apply",
 		);
 		expect(node.textContent).not.toContain("not yet active in tool execution");
+	});
+	it("builds an exact text request and rejects incomplete or duplicate fields", async () => {
+		const node = mount(<TenantToolPolicies canChange />);
+		await flush();
+		click(node, "Add rule");
+		click(node, "Add field");
+		expect(node.textContent).toContain(
+			"Give each field a different, non-empty name",
+		);
+		change(node.querySelector('[aria-label="Field 1 name"]')!, "resource");
+		change(node.querySelector('[aria-label="Field 1 value"]')!, "example");
+		click(node, "Add field");
+		change(node.querySelector('[aria-label="Field 2 name"]')!, "resource");
+		expect(node.textContent).toContain(
+			"Give each field a different, non-empty name",
+		);
+		const remove = [...node.querySelectorAll("button")].filter(
+			(button) => button.textContent?.trim() === "Remove field",
+		);
+		act(() => remove[1]!.click());
+		await reviewProfile(node);
+		expect(h.probeAccount).toHaveBeenCalledWith(
+			expect.objectContaining({ exampleArgs: { resource: "example" } }),
+		);
 	});
 	it("requires a fresh review to replace a deleted revision", async () => {
 		h.prepareRule.mockResolvedValue({
@@ -343,10 +401,10 @@ describe("policy owner interaction", () => {
 		h.saveRule.mockResolvedValue({});
 		const node = mount(<TenantToolPolicies canChange />);
 		await flush();
-		expect(node.textContent).toContain("The prior subject is unknown");
+		expect(node.textContent).toContain("The prior person or agent is unknown");
 		const cards = [...node.querySelectorAll("div")].filter(
 			(item) =>
-				item.textContent?.includes("The prior subject is unknown") &&
+				item.textContent?.includes("The prior person or agent is unknown") &&
 				item.querySelector("button"),
 		);
 		const card = cards.at(-1)!;
@@ -383,8 +441,9 @@ describe("policy owner interaction", () => {
 			const card = [...node.querySelectorAll("div")]
 				.filter(
 					(item) =>
-						item.textContent?.includes("The prior subject is unknown") &&
-						item.querySelector("button"),
+						item.textContent?.includes(
+							"The prior person or agent is unknown",
+						) && item.querySelector("button"),
 				)
 				.at(-1)!;
 			click(card, "Review a new rule for this tool");
@@ -436,9 +495,9 @@ describe("policy owner interaction", () => {
 		);
 		const node = mount(<TenantToolPolicies canChange />);
 		await flush();
-		click(node, "Edit revision");
+		click(node, "Edit rule");
 		expect(node.textContent).toContain(
-			"Saving creates a replacement only if this revision is still current",
+			"Saving replaces the rule only if it is still current",
 		);
 		await reviewProfile(node);
 		click(node, "Save rule");
@@ -488,8 +547,15 @@ describe("policy owner interaction", () => {
 		h.revokeRule.mockRejectedValueOnce(new Error("Cannot revoke rule"));
 		const node = mount(<TenantToolPolicies canChange />);
 		await flush();
+		click(node, "Add rule");
 		change(node.querySelector("select")!, "root");
 		change(node.querySelector("#policy-mounted-tool")!, "write");
+		act(() =>
+			[...node.querySelectorAll("label")]
+				.find((label) => label.textContent?.includes("Enter request as JSON"))!
+				.querySelector("input")!
+				.click(),
+		);
 		change(
 			node.querySelector("#policy-example")!,
 			JSON.stringify({
@@ -499,6 +565,8 @@ describe("policy owner interaction", () => {
 		);
 		await reviewProfile(node);
 		expect(node.textContent).toContain("Unlisted fields are rejected");
+		expect(node.textContent).toContain("deny takes priority, then ask");
+		expect(node.textContent).not.toContain("first matching rule");
 		const textField = [...node.querySelectorAll("fieldset")].find(
 			(f) => f.querySelector("legend")?.textContent === "resource.text",
 		)!;
@@ -555,11 +623,12 @@ describe("policy owner interaction", () => {
 		});
 		const node = mount(<TenantToolPolicies canChange />);
 		await flush();
+		click(node, "Add rule");
 		const select = [...node.querySelectorAll("select")].find((entry) =>
 			[...entry.options].some((option) => option.value === "old-profile"),
 		)!;
 		change(select, "old-profile");
-		click(node, "Verify account and review tool");
+		click(node, "Verify account and review action");
 		await flush();
 		expect(node.textContent).toContain(
 			"The verified connection is your personal connection",
@@ -581,20 +650,23 @@ describe("policy owner interaction", () => {
 		h.revokeProfile.mockResolvedValue({});
 		const node = mount(<ProviderIdentityProfiles canChange />);
 		await flush();
+		click(node, "Add account check");
 		change(node.querySelector("select")!, "root");
 		change(node.querySelector("#identity-write-tool")!, "write");
 		change(node.querySelector("#identity-probe-tool")!, "identity");
 		change(node.querySelector("#identity-paths")!, "id");
-		click(node, "Review identity profile");
+		click(node, "Review account check");
 		await flush();
 		const save = [...node.querySelectorAll("button")].find(
 			(el) => el.textContent?.trim() === "Save reviewed profile",
 		)!;
 		expect(save.disabled).toBe(true);
+		const attestation = node.querySelector(
+			'input[aria-label="I reviewed this exact check and it is safe to run with no arguments"]',
+		);
+		expect(attestation).not.toBeNull();
 		act(() =>
-			node
-				.querySelector('input[type="checkbox"]')!
-				.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+			attestation!.dispatchEvent(new MouseEvent("click", { bubbles: true })),
 		);
 		expect(save.disabled).toBe(false);
 		click(node, "Save reviewed profile");
