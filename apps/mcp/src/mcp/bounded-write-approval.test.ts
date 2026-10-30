@@ -190,10 +190,11 @@ describe("authorized bounded writes", () => {
 			command: "update_properties",
 			properties: { Status: "Done" },
 		};
+		const dynamicNotion = { ...notion, meta: {} };
 		expect(
 			await requireDestructiveToolApproval(
 				ctx,
-				notion,
+				dynamicNotion,
 				{ destructiveHint: true },
 				{ args: safe },
 			),
@@ -214,7 +215,7 @@ describe("authorized bounded writes", () => {
 		]) {
 			const result = await requireDestructiveToolApproval(
 				ctx,
-				notion,
+				dynamicNotion,
 				{ destructiveHint: true },
 				{ args },
 			);
@@ -325,12 +326,20 @@ describe("authorized bounded writes", () => {
 		);
 		expect(result?.isError).toBe(true);
 	});
-	it("leaves unreviewed Notion writes gated", async () => {
+	it("keeps an explicitly high-risk Notion tool gated", async () => {
 		expect(
 			(
 				await requireDestructiveToolApproval(
 					context(),
-					{ ...notion, meta: {} },
+					{
+						...notion,
+						meta: {
+							"com.tedix/policy": {
+								riskTier: "high_impact_write",
+								blastRadius: "tenant",
+							},
+						},
+					},
 					{ destructiveHint: true },
 					{
 						args: {

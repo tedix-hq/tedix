@@ -370,6 +370,11 @@ const CALLS = {
 	},
 	"organizationPurpose/getOwnerBrief": { outcomeWindowDays: 7 },
 	"tediApprovals/list": { status: "pending", limit: 50 },
+	"mcpGovernance/listActionTypeOptIns": {},
+	"mcpGovernance/setActionTypeOptIn": {
+		actionType: "notion_page_update",
+		enabled: true,
+	},
 	"osApprovalRules/list": {},
 	"osApprovalRules/setEnabled": {
 		ruleId: "000000e1-0000-4000-8000-000000000001",

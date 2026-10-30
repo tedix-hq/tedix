@@ -35,6 +35,26 @@ export function resolveToolRiskPolicy(
 		: null;
 }
 
+/** Dynamic connected tools may not have existed when the policy migration ran. */
+export function resolveConnectedToolRiskPolicy(
+	tool: Pick<AppTool, "toolId" | "config" | "meta">,
+): ToolRiskPolicy | null {
+	const policy = resolveToolRiskPolicy(tool);
+	if (policy || (tool.meta && Object.hasOwn(tool.meta, "com.tedix/policy")))
+		return policy;
+	if (
+		tool.config?.transport === "mcp" &&
+		connectedProviderId(tool) === "notion" &&
+		tool.config.mcpToolName === "notion-update-page"
+	)
+		return {
+			riskTier: "bounded_write",
+			blastRadius: "single_resource",
+			argumentPolicy: "notion_page_update",
+		};
+	return null;
+}
+
 /** The bounded approval facts shared by native and Code Mode discovery. */
 export function toolApprovalMetadata(
 	tool: Pick<AppTool, "toolId" | "config" | "meta">,
@@ -52,7 +72,7 @@ export function toolApprovalMetadata(
 			: undefined;
 	const policy = effect
 		? { riskTier: effect, blastRadius: "single_resource" }
-		: resolveToolRiskPolicy(tool);
+		: resolveConnectedToolRiskPolicy(tool);
 	return {
 		...(policy ? { "com.tedix/policy": policy } : {}),
 		...(providerId &&
