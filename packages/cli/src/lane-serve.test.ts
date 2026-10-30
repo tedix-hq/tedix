@@ -893,6 +893,80 @@ describe("dispatcher admission", () => {
 		).toHaveLength(1);
 	});
 
+	it.each(["lost-admission", "expired-settlement"])(
+		"fresh admission follows retained %s without reviving its expired lease",
+		async (state) => {
+			const { dispatcher, restart, items, control, events, releases, dir } =
+				fixture();
+			items.splice(1);
+			let now = Date.now();
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			try {
+				const session = "codex:33333333-3333-4333-8333-000000000099";
+				const path = join(dir, `${item().id}-2.json`);
+				writeFileSync(
+					path,
+					JSON.stringify({
+						itemId: item().id,
+						version: 2,
+						phase: state === "lost-admission" ? "preparing" : "settling",
+						admissionState: state === "lost-admission" ? "unknown" : "admitted",
+						attemptId: state === "lost-admission" ? undefined : "old-attempt",
+						session,
+						executorKey: "local-acme",
+						outcome: state === "lost-admission" ? undefined : "succeeded",
+						retries: state === "lost-admission" ? 0 : 5,
+						settlementRetries: state === "lost-admission" ? undefined : 5,
+						retryAt: 0,
+						retryDeadlineAt: now + 30 * 60_000,
+						note: "Retained result",
+						telemetry: { finalMessage: "Retained result" },
+					}),
+				);
+				control.history.data = [
+					{
+						id: "old-attempt",
+						externalSessionKey: session,
+						outcome: null,
+						expiresAt: new Date(now - 1).toISOString(),
+						metadata: { dispatchVersion: 2 },
+					},
+				];
+				await dispatcher.tick();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved).toMatchObject({
+					phase: "deferred",
+					outcome: "expired",
+					attemptId: "old-attempt",
+					retries: 1,
+				});
+				expect(
+					events.filter((e) => e.verb === "start" || e.verb === "settle"),
+				).toHaveLength(0);
+				if (state === "expired-settlement")
+					expect(saved.settlementRetries).toBe(5);
+				now = saved.retryAt + 1;
+				const resumed = restart();
+				await resumed.tick();
+				await until(() => releases.length === 1);
+				releases[0]!();
+				await resumed.drain();
+				expect(
+					events.filter((e) => e.verb === "start" && e.input),
+				).toHaveLength(1);
+				expect(JSON.parse(readFileSync(path, "utf8")).attemptId).not.toBe(
+					"old-attempt",
+				);
+				expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+					outcome: "succeeded",
+					completionPending: false,
+				});
+			} finally {
+				clock.mockRestore();
+			}
+		},
+	);
+
 	it("settles result notes starting with a bullet through the real option parser", async () => {
 		const { dispatcher, items, control, events, releases } = fixture();
 		items.splice(1);
@@ -1571,7 +1645,8 @@ describe("dispatcher admission", () => {
 			phase: "settling",
 			attemptId: "fictional-attempt",
 			outcome: "succeeded",
-			retries: 1,
+			retries: 0,
+			settlementRetries: 1,
 		});
 		expect(saved.retryAt).toBeGreaterThan(Date.now());
 	});
