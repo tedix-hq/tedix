@@ -11,6 +11,11 @@ import { Button } from "@/components/kumo/button";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Checkbox } from "@/components/kumo/checkbox";
 import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
+import {
 	Card,
 	CardContent,
 	CardHeader,
@@ -757,34 +762,36 @@ function GroupedConsentScreen({
 								: "This application will have only the access shown below."}
 					</Text>
 					{clientId ? (
-						<details>
-							<summary className="cursor-pointer text-kumo-subtle">
+						<Collapsible>
+							<CollapsibleDefaultTrigger>
 								Application details
-							</summary>
-							<Text role="body" tone="secondary" className="break-all">
-								Application ID: {clientId}
-							</Text>
-							{platformEligible ? (
-								<Text role="body" tone="secondary">
-									{platformPermission
-										? "This application requested platform administration."
-										: "This application did not request platform administration. Update its permissions before reconnecting."}
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent keepMounted>
+								<Text role="body" tone="secondary" className="break-all">
+									Application ID: {clientId}
 								</Text>
-							) : null}
-							{platformRole.status === "unavailable" ? (
-								<div className="grid gap-2">
+								{platformEligible ? (
 									<Text role="body" tone="secondary">
-										Your current account permissions could not be verified.
+										{platformPermission
+											? "This application requested platform administration."
+											: "This application did not request platform administration. Update its permissions before reconnecting."}
 									</Text>
-									<Button
-										variant="outline"
-										onClick={() => setRoleReload((value) => value + 1)}
-									>
-										Retry permission check
-									</Button>
-								</div>
-							) : null}
-						</details>
+								) : null}
+								{platformRole.status === "unavailable" ? (
+									<div className="grid gap-2">
+										<Text role="body" tone="secondary">
+											Your current account permissions could not be verified.
+										</Text>
+										<Button
+											variant="outline"
+											onClick={() => setRoleReload((value) => value + 1)}
+										>
+											Retry permission check
+										</Button>
+									</div>
+								) : null}
+							</CollapsibleDefaultContent>
+						</Collapsible>
 					) : null}
 					{user?.email ? (
 						<Text role="body" tone="secondary">
