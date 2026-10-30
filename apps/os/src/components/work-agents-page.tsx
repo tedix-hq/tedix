@@ -324,7 +324,7 @@ function AgentSessionRow({
 					{brief.split("\n").find((line) => line.trim()) || "Brief unavailable"}
 				</Text>
 				<Text as="span" role="label" tone="secondary">
-					Last activity{" "}
+					Last report{" "}
 					<time
 						dateTime={session.lastEventAt}
 						title={absoluteTime(session.lastEventAt)}

@@ -16,14 +16,14 @@ try {
 		await page.goto(`${server.origin}/work/capacity`);
 		const section = page.getByRole("region", { name: "Local lanes" });
 		await section.getByText("Unknown · stale", { exact: true }).waitFor();
-		for (const state of ["Working", "Idle", "Unknown · stale"])
+		for (const state of ["Slots in use", "Idle", "Unknown · stale"])
 			assert.equal(
 				await section.locator(`[data-lane-state="${state}"]`).count(),
 				1,
 			);
 		assert.match(
 			await section.innerText(),
-			/Waiting for approval \(2 occurrences\)/,
+			/Recent skipped work: Waiting for approval \(2 occurrences\)/,
 		);
 		assert.match(await section.innerText(), /Last admission: Not observed/);
 		assert.ok(

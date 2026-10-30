@@ -159,8 +159,9 @@ function claudeBackgroundSession(
  * True for a run nobody is attending, so no question can be put to a person:
  * `claude -p` and the Agent SDK (CLAUDE_CODE_SESSION_ATTENDED=0, except a
  * background session), and `codex exec`, whose rollout transcript opens with
- * session_meta `"source":"exec"` (Codex hooks carry no environment or payload
- * flag for it), and Codex side threads (`codexSideThread`).
+ * session_meta `"source":"exec"`. Dispatcher-created threads retain their
+ * `tedix-lane-dispatcher` originator when resumed through exec, and Codex side
+ * threads are also unattended (`codexSideThread`).
  */
 export function unattendedRun(
 	event: JsonObject,
@@ -197,7 +198,9 @@ export function unattendedRun(
 	}
 	const first = head.split("\n", 1)[0] ?? "";
 	return (
-		first.includes('"type":"session_meta"') && /"source":"exec"/.test(first)
+		first.includes('"type":"session_meta"') &&
+		(/"source":"exec"/.test(first) ||
+			/"originator":"tedix-lane-dispatcher"/.test(first))
 	);
 }
 

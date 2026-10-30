@@ -64,7 +64,7 @@ export function DispatcherLaneHealth() {
 						: !lane.running
 							? "Stopped"
 							: lane.slotsInUse > 0
-								? "Working"
+								? "Slots in use"
 								: "Idle";
 					return (
 						<Card

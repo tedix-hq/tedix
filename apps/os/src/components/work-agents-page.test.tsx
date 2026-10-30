@@ -149,7 +149,7 @@ describe("Agents board", () => {
 		expect(html).toContain("Local · OpenCode");
 		expect(html).toContain("test-model");
 		expect(html).toContain("Make the widget readable");
-		expect(html).toContain("Last activity");
+		expect(html).toContain("Last report");
 		expect(html).toContain('data-agent-state="working"');
 		const host = document.createElement("div");
 		document.body.append(host);
@@ -180,7 +180,7 @@ describe("Agents board", () => {
 			const idle = host.querySelector('[data-agent-state="idle"]');
 			expect(idle).not.toBeNull();
 			expect(idle?.textContent).not.toContain("Running");
-			expect(idle?.textContent).toContain("Last activity");
+			expect(idle?.textContent).toContain("Last report");
 		} finally {
 			await act(async () => root.unmount());
 			host.remove();
