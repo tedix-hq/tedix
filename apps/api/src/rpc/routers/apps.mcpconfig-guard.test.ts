@@ -9,6 +9,7 @@ import type { BaseContext } from "../orpc";
 // paths never reach the db, so those tests are mock-agnostic.
 const mocks = vi.hoisted(() => ({
 	getAppById: vi.fn(),
+	isAggregateSourceAllowed: vi.fn(),
 	getAppBySlug: vi.fn(),
 	getOrganizationById: vi.fn(),
 }));
@@ -18,6 +19,7 @@ vi.mock("@tedix/db/queries/app-records", async (importOriginal) => {
 	return {
 		...actual,
 		getAppById: mocks.getAppById,
+		isAggregateSourceAllowed: mocks.isAggregateSourceAllowed,
 	};
 });
 
@@ -52,6 +54,7 @@ const platformCtx = (): BaseContext =>
 
 beforeEach(() => {
 	mocks.getAppById.mockReset();
+	mocks.isAggregateSourceAllowed.mockReset().mockResolvedValue(false);
 	mocks.getAppBySlug.mockReset();
 	mocks.getOrganizationById.mockReset();
 });
@@ -99,7 +102,8 @@ describe("assertTenantMcpConfigAllowed", () => {
 		expect(mocks.getOrganizationById).not.toHaveBeenCalled();
 	});
 
-	it("allows aggregateApps that reference a tedix platform app", async () => {
+	it("allows aggregateApps covered by an installation or provider grant", async () => {
+		mocks.isAggregateSourceAllowed.mockResolvedValue(true);
 		mocks.getAppBySlug.mockResolvedValue({
 			id: "app-fc",
 			slug: "firecrawl-tedix",

@@ -412,3 +412,39 @@ describe("policy revision activation", () => {
 		},
 	);
 });
+
+describe("policy pack publication ownership", () => {
+	it("keeps organization packs owned and reserves ownerless system packs for platform administrators", async () => {
+		const { client, context, sqlite } = setup();
+		const input = {
+			name: "Trust",
+			slug: "sample-trust",
+			definition: {},
+			target: "shared" as const,
+		};
+		await expect(
+			client.createPolicyPack({ ...input, scope: "system" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(sqlite.prepare("SELECT count(*) n FROM policy_packs").get()).toEqual(
+			{ n: 0 },
+		);
+		const own = await client.createPolicyPack({
+			...input,
+			scope: "organization",
+		});
+		expect(own.organizationId).toBe("org-1");
+		context.user!.scope = "platform:admin";
+		const system = await client.createPolicyPack({
+			...input,
+			slug: "installation-policy",
+			scope: "system",
+		});
+		expect(system).toMatchObject({
+			scope: "system",
+			organizationId: null,
+			target: "shared",
+			publishedBy: "user-1",
+		});
+		expect(system.publishedAt).toBeTruthy();
+	});
+});

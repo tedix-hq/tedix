@@ -478,14 +478,15 @@ const createPolicyPackProcedure = authedOs.createPolicyPack
 				"Cannot create policy pack attributed to another organization",
 			);
 		}
+		const scope = resolveCreateScope(context, input.scope);
 		const pack = await createPolicyPack(context.db, {
 			name: input.name,
 			slug: input.slug,
 			description: input.description ?? null,
-			scope: resolveCreateScope(context, input.scope),
+			scope,
 			target: input.target ?? "shared",
 			definition: input.definition as PolicyPackDefinition,
-			organizationId: input.organizationId ?? orgId,
+			organizationId: scope === "system" ? null : orgId,
 			publishedBy: publishedBy(context),
 			changeSummary: "Initial revision",
 		});

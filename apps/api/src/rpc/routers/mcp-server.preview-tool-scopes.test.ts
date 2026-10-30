@@ -19,6 +19,7 @@ import type { BaseContext } from "../orpc";
 
 const mocks = vi.hoisted(() => ({
 	getAppById: vi.fn(),
+	getAggregateAllowedSourceOrganizationIds: vi.fn(),
 	listPreviewSourceAppsBySlugs: vi.fn(),
 	listToolsForScopePreviewByAppIds: vi.fn(),
 }));
@@ -27,7 +28,12 @@ vi.mock("@tedix/db/queries/app-records", async (importOriginal) => {
 	const actual = await importOriginal<Record<string, unknown>>();
 	// `getAppMetadataJson` stays REAL: the legacy JSON-string metadata path it
 	// implements is part of what this endpoint has to read correctly.
-	return { ...actual, getAppById: mocks.getAppById };
+	return {
+		...actual,
+		getAppById: mocks.getAppById,
+		getAggregateAllowedSourceOrganizationIds:
+			mocks.getAggregateAllowedSourceOrganizationIds,
+	};
 });
 
 vi.mock("@tedix/db/queries/apps", async (importOriginal) => {
@@ -144,6 +150,7 @@ function stubApp(metadata: unknown, tools: ToolOverrides[]) {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.getAggregateAllowedSourceOrganizationIds.mockResolvedValue(new Set());
 	mocks.listPreviewSourceAppsBySlugs.mockResolvedValue([]);
 });
 
@@ -424,6 +431,9 @@ describe("aggregate scope preview", () => {
 	});
 
 	it("prefers the tenant's own slug and skips foreign, missing, and cyclic sources", async () => {
+		mocks.getAggregateAllowedSourceOrganizationIds.mockResolvedValue(
+			new Set(["publisher-org"]),
+		);
 		stubApp(
 			{
 				mcpConfig: {
@@ -458,9 +468,9 @@ describe("aggregate scope preview", () => {
 			{
 				id: "cloud-app",
 				slug: "cloud",
-				organizationId: "tedix-org",
-				sourceOrgSlug: "tedix",
-				sourceOrgTenantId: "org_tedix",
+				organizationId: "publisher-org",
+				sourceOrgSlug: "publisher",
+				sourceOrgTenantId: "tenant-publisher",
 				metadata: null,
 			},
 			{

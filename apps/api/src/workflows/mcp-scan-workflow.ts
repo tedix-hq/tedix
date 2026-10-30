@@ -17,6 +17,7 @@
  * @see apps/api/src/lib/mcp-client.ts for the direct MCP client
  */
 
+import { getInstallationTrustPolicy } from "@tedix/db/queries/installation-trust";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	WorkflowEntrypoint,
@@ -67,8 +68,9 @@ import {
 	upsertCatalogApp,
 } from "@tedix/db/vector/catalog";
 import {
-	isTedixControlMcpEndpoint,
-	isTedixTenantMcpEndpoint,
+	getManagedCatalogScanEndpoint,
+	catalogScanSnapshotHeaders,
+	createManagedCatalogScanFetch,
 	resolveTedixInternalScanHeaders,
 } from "../lib/catalog-internal-scan";
 import { connectMcpServer, type McpSkillManifest } from "../lib/mcp-client";
@@ -126,28 +128,6 @@ interface AppScanInfo {
 	supportsPrompts?: boolean | null;
 	supportsSampling?: boolean | null;
 	supportsRoots?: boolean | null;
-}
-
-function internalScanHeaders(
-	app: AppScanInfo,
-	env: CloudflareEnv,
-): Record<string, string> | undefined {
-	const token = (env as CloudflareEnv & { PLATFORM_SERVICE_TOKEN?: string })
-		.PLATFORM_SERVICE_TOKEN;
-	const headers = resolveTedixInternalScanHeaders({
-		endpoint: app.mcpEndpointNormalized,
-		platformServiceToken: token,
-	});
-	if (
-		!headers &&
-		!token &&
-		isTedixControlMcpEndpoint(app.mcpEndpointNormalized)
-	) {
-		console.warn(
-			`[MCP Scan] Tedix control-plane scan requested for ${app.name}, but PLATFORM_SERVICE_TOKEN is not configured`,
-		);
-	}
-	return headers;
 }
 
 type ScanTool = NonNullable<McpScanResult["tools"]>[number];
@@ -911,11 +891,13 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 		try {
 			// Resolve auth headers: prefer fresh vault token over static snapshot
 			let authHeaders: Record<string, string> | undefined;
+			let resolvedVaultHeaders = false;
 
 			if (app.scanConnectionId && app.scanOrganizationId) {
 				// Vault-based resolution: Descope user credential → tenant credential
 				try {
 					authHeaders = await this.resolveVaultToken(app);
+					resolvedVaultHeaders = !!authHeaders;
 					if (authHeaders) {
 						console.log(
 							`[MCP Scan] Resolved fresh token for ${app.name} via vault (${app.scanConnectionId})`,
@@ -939,7 +921,10 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 						app.id,
 						app.scanAuthHeaders,
 					);
-					authHeaders = JSON.parse(decrypted) as Record<string, string>;
+					authHeaders = catalogScanSnapshotHeaders(
+						JSON.parse(decrypted) as Record<string, string>,
+						this.env.PLATFORM_SERVICE_TOKEN,
+					);
 				} catch (e) {
 					console.warn(
 						`[MCP Scan] Failed to decrypt auth headers for ${app.name}`,
@@ -948,15 +933,25 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				}
 			}
 
-			// First-party Tedix MCP references, such as CMS, are scanned with
-			// platform service auth from Worker secrets instead of persisting tokens in D1.
+			const installationTrust = await getInstallationTrustPolicy(
+				createDbClient(this.env.DB),
+			);
+			const managedEndpoint = getManagedCatalogScanEndpoint(
+				endpoint,
+				installationTrust,
+			);
 			if (!authHeaders) {
-				authHeaders = internalScanHeaders(app, this.env);
+				authHeaders = resolveTedixInternalScanHeaders({
+					endpoint,
+					platformServiceToken: this.env.PLATFORM_SERVICE_TOKEN,
+					policy: installationTrust,
+				});
 			}
-
-			// Use direct MCP client
-			const internalTenantFetch = isTedixTenantMcpEndpoint(endpoint)
-				? this.env.MCP_SERVICE.fetch.bind(this.env.MCP_SERVICE)
+			const internalTenantFetch = managedEndpoint
+				? createManagedCatalogScanFetch(managedEndpoint, {
+						mcp: this.env.MCP_SERVICE,
+						cms: this.env.CMS,
+					})
 				: undefined;
 			const result = await connectMcpServer(endpoint, {
 				timeout,
@@ -965,7 +960,7 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 			});
 
 			// If vault resolution succeeded, refresh the encrypted snapshot so it stays warm
-			if (authHeaders && app.scanConnectionId && this.env.SECRETS_MASTER_KEY) {
+			if (resolvedVaultHeaders && authHeaders && this.env.SECRETS_MASTER_KEY) {
 				try {
 					const { encryptCatalogAppSecret } =
 						await import("@tedix/db/utils/secrets-encryption");

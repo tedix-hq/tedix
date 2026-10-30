@@ -540,6 +540,10 @@ describe("aggregate entry resolution is batched", () => {
 			expect(toolIds).toContain(`${entry}__${entry}_list`);
 		}
 		expect(singleResolveSlugs("failopen-host").sort()).toEqual([...entries]);
+		for (const [request] of getBySlugWithTools.mock.calls) {
+			if (entries.includes(request.slug))
+				expect(request.hostOrganizationId).toBe("org-failopen-host");
+		}
 	});
 
 	it("logs a content-free cause chain when a source app cannot resolve", async () => {
@@ -636,12 +640,12 @@ describe("aggregate entry resolution is batched", () => {
 		expect(singleResolveSlugs("missing-host")).toEqual([]);
 	});
 
-	it("does not re-request entries already warm in the per-slug cache", async () => {
+	it("does not share a warm source cache across host organizations", async () => {
 		const entries = ["warm-a", "warm-b"];
 		installFixtures(hostWith("warm-host", entries));
 
-		// Two different hosts aggregating the same entries: the second rebuild has
-		// a different aggregate cache key but the same warm per-slug entries.
+		// These fixtures belong to different organizations, so each must resolve
+		// its own permitted surface even when source slugs are identical.
 		await serveAndCaptureTools("warm-host");
 		expect(getBySlugsWithTools).toHaveBeenCalledTimes(1);
 
@@ -651,9 +655,8 @@ describe("aggregate entry resolution is batched", () => {
 		]);
 		await serveAndCaptureTools("warm-host-2");
 
-		// Still one batched call in total — the L1 per-slug cache absorbed the rest,
-		// and nothing fell back to per-entry resolution either.
-		expect(getBySlugsWithTools).toHaveBeenCalledTimes(1);
+		// A distinct organization must not inherit the first host's authority.
+		expect(getBySlugsWithTools).toHaveBeenCalledTimes(2);
 		expect(singleResolveSlugs("warm-host", "warm-host-2")).toEqual([]);
 	});
 
@@ -969,6 +972,13 @@ describe("aggregate entries link by stable app id", () => {
 			{ slug: "shared-name", appId: BASE_ID, hostOrganizationId: "org-sample" },
 		]);
 		expect(new Set([bySlug, byId, otherHost]).size).toBe(3);
+		const hostedSlug = aggregateSurfaceCacheKey([
+			{ slug: "shared-name", hostOrganizationId: "org-acme" },
+		]);
+		const otherHostedSlug = aggregateSurfaceCacheKey([
+			{ slug: "shared-name", hostOrganizationId: "org-sample" },
+		]);
+		expect(new Set([bySlug, hostedSlug, otherHostedSlug]).size).toBe(3);
 	});
 });
 

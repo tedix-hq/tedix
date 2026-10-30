@@ -3,6 +3,7 @@ import { afterEach, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { apps } from "../schema/apps";
 import { appTools } from "../schema/tools";
+import { policyPacks } from "../schema/control-plane";
 import { organizations } from "../schema/organizations";
 import { connectionInstances } from "../schema/connection-instances";
 import { providerInstallations } from "../schema/provider-installations";
@@ -38,6 +39,7 @@ async function fixture() {
 			organizations,
 			connectionInstances,
 			providerInstallations,
+			policyPacks,
 			skillEntries,
 		),
 	);
@@ -160,6 +162,29 @@ it("resolves shared source tools through the aggregate ownership rule and refuse
 		.insert(organizations)
 		.values({ id: "platform", name: "Platform", slug: "tedix" });
 	await db.update(apps).set({ organizationId: "platform" });
+	await db.insert(policyPacks).values({
+		id: "trust",
+		name: "Trust",
+		slug: "installation-trust",
+		scope: "system",
+		organizationId: null,
+		target: "shared",
+		status: "active",
+		version: 1,
+		publishedAt: "2026-01-01T00:00:00.000Z",
+		publishedBy: "operator",
+		definition: {
+			installationTrust: {
+				version: 1,
+				aggregate: {
+					sharedSourceOrganizationIds: ["platform"],
+					aggregateHostOrganizationIds: [],
+				},
+				catalogScan: { endpoints: [] },
+			},
+		},
+	});
+
 	expect(
 		(
 			await getAggregateConnectionSourceTool(db, {

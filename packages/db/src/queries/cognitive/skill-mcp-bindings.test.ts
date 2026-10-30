@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { apps } from "../../schema/apps";
 import { skillEntries } from "../../schema/cognitive";
+import { policyPacks } from "../../schema/control-plane";
 import { organizations } from "../../schema/organizations";
 import { providerInstallations } from "../../schema/provider-installations";
 import { appTools } from "../../schema/tools";
@@ -31,8 +32,30 @@ function realDb() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
-		schemaDdl(apps, skillEntries, organizations, providerInstallations),
+		schemaDdl(
+			apps,
+			skillEntries,
+			organizations,
+			providerInstallations,
+			policyPacks,
+		),
 	);
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs (id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES ('trust', 'Trust', 'installation-trust', 'system', 'shared', 'active', 1, '2026-01-01T00:00:00.000Z', 'operator', ?)",
+		)
+		.run(
+			JSON.stringify({
+				installationTrust: {
+					version: 1,
+					aggregate: {
+						sharedSourceOrganizationIds: [PLATFORM_ORG],
+						aggregateHostOrganizationIds: [PLATFORM_ORG],
+					},
+					catalogScan: { endpoints: [] },
+				},
+			}),
+		);
 	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
 }
 

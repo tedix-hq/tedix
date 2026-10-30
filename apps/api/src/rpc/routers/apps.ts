@@ -43,6 +43,7 @@ import {
 	getAppBySlugWithTools,
 	getAppMetadataJson,
 	getAppsBySlugsWithTools,
+	isAggregateSourceAllowed,
 	updateApp,
 } from "@tedix/db/queries/app-records";
 import { listAppSecrets } from "@tedix/db/queries/app-secrets";
@@ -418,11 +419,13 @@ export async function assertTenantMcpConfigAllowed(
 		}
 		if (sourceApp.organizationId === callerOrgId) continue;
 
-		const sourceOrg = await getOrganizationById(db, sourceApp.organizationId);
-		// Tedix Cloud's own tenant key; an own-account installation never matches this branch.
-		const isTedixPlatformOrg =
-			sourceOrg?.slug === "tedix" || sourceOrg?.descopeTenantId === "org_tedix";
-		if (!isTedixPlatformOrg) {
+		if (
+			!(await isAggregateSourceAllowed(
+				db,
+				callerOrgId,
+				sourceApp.organizationId,
+			))
+		) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
 				`aggregateApps cannot reference app "${appId ?? slug}" outside your organization.`,
@@ -1352,6 +1355,19 @@ export const getByDomainProcedure = mcpAppsOs.getByDomain.handler(
 	},
 );
 
+function hasUnscopedAppDiscoveryAuthority(context: BaseContext): boolean {
+	return (
+		isPlatformPrincipal(context) ||
+		(context.authType === "service-binding" &&
+			!context.user &&
+			!context.descopeUserId &&
+			!context.gatewayEndUserId &&
+			!context.tediId &&
+			!context.externalAgentPrincipalId &&
+			!context.exchangedToken)
+	);
+}
+
 /**
  * Get app with tools by slug (for MCP server tool loading)
  */
@@ -1360,10 +1376,16 @@ export const getBySlugWithToolsProcedure = mcpAppsOs.getBySlugWithTools.handler(
 		const { db } = context;
 		const { slug, endpointPrefixes, toolIds } = input;
 
-		const result = await getAppBySlugWithTools(db, slug, {
-			endpointPrefixes,
-			toolIds,
-		});
+		const hostOrganizationId = hasUnscopedAppDiscoveryAuthority(context)
+			? input.hostOrganizationId
+			: requireOrgId(context);
+		const result = hostOrganizationId
+			? (
+					await getAppsBySlugsWithTools(db, [
+						{ slug, endpointPrefixes, toolIds, hostOrganizationId },
+					])
+				)[0]
+			: await getAppBySlugWithTools(db, slug, { endpointPrefixes, toolIds });
 
 		if (!result) {
 			return { app: null, tools: [] };
@@ -1409,7 +1431,13 @@ export const getBySlugsWithToolsProcedure =
 	mcpAppsOs.getBySlugsWithTools.handler(async ({ input, context }) => {
 		const { db } = context;
 
-		const surfaces = await getAppsBySlugsWithTools(db, input.apps);
+		const requests = hasUnscopedAppDiscoveryAuthority(context)
+			? input.apps
+			: input.apps.map((request) => ({
+					...request,
+					hostOrganizationId: requireOrgId(context),
+				}));
+		const surfaces = await getAppsBySlugsWithTools(db, requests);
 
 		// Positionally parallel to input.apps — an absent index is impossible, so a
 		// caller can always tell "no tools" from "not resolved".

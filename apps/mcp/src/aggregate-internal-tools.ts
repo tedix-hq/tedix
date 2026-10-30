@@ -53,7 +53,9 @@ type AggregateSourceRef = {
 function aggregateSourceKey(ref: AggregateSourceRef): string {
 	return ref.appId
 		? `id:${ref.appId}@${ref.hostOrganizationId ?? ""}`
-		: ref.slug;
+		: ref.hostOrganizationId
+			? `slug:${ref.slug}@${ref.hostOrganizationId}`
+			: ref.slug;
 }
 
 /**
@@ -257,6 +259,9 @@ export async function resolveUpstreamToolsInternally(
 							.then(({ results }) => results[0] ?? { app: null, tools: [] })
 					: client.apps.getBySlugWithTools({
 							slug: upstreamSlug,
+							...(source.hostOrganizationId
+								? { hostOrganizationId: source.hostOrganizationId }
+								: {}),
 							...selectionInput,
 						}),
 				upstreamSlug,

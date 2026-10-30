@@ -122,9 +122,7 @@ export function aggregateSurfaceCacheKey(
 			// An id-linked entry resolves by id under its host's ownership rule, so
 			// it must never share a snapshot with a slug-keyed entry of that name.
 			appId: entry.appId ?? null,
-			hostOrganizationId: entry.appId
-				? (entry.hostOrganizationId ?? null)
-				: null,
+			hostOrganizationId: entry.hostOrganizationId ?? null,
 			organizationId: entry.organizationId ?? null,
 			prefix: entry.prefix ?? null,
 			organizationMount: entry.organizationMount ?? false,

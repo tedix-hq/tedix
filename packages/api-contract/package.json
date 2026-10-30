@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/installation-trust": "./src/schemas/installation-trust.ts",
 		"./utils/tenant-policy-predicate": "./src/utils/tenant-policy-predicate.ts",
 		"./schemas/organization-domains": "./src/schemas/organization-domains.ts",
 		"./schemas/lane-execution": "./src/schemas/lane-execution.ts",

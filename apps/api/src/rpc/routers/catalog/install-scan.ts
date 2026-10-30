@@ -1,3 +1,4 @@
+import type { InstallationTrustPolicy } from "@tedix/api-contract/schemas/installation-trust";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import { syncDeclaredConnectionScopes } from "../../../services/connection-scope-sync";
@@ -14,10 +15,6 @@ import type {
 } from "@tedix/api-contract/schemas/catalog";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import type { McpConfig } from "@tedix/db/schema/apps";
-import {
-	type ServiceBindingFetcher,
-	serviceBindingFetchFn,
-} from "../../../lib/mcp-client";
 import { auditActor, emitAuditEvent } from "../../audit-helpers";
 import {
 	createAppCatalogSyncLog,
@@ -43,7 +40,13 @@ import {
 	resolveDriftReport,
 	saveDriftReport,
 } from "@tedix/db/queries/catalog/drift-reports";
-import { resolveTedixInternalScanHeaders as resolveFirstPartyScanHeaders } from "../../../lib/catalog-internal-scan";
+import {
+	getManagedCatalogScanEndpoint,
+	catalogScanSnapshotHeaders,
+	createManagedCatalogScanFetch,
+	resolveTedixInternalScanHeaders as resolveFirstPartyScanHeaders,
+} from "../../../lib/catalog-internal-scan";
+import { getInstallationTrustPolicy } from "@tedix/db/queries/installation-trust";
 import {
 	syncCatalogMcpPrompts,
 	syncCatalogMcpResourceTemplates,
@@ -1081,57 +1084,50 @@ function propagationChangedAppIds(
  * and inherit through aggregateApps.
  */
 
-export function isCmsControlMcpEndpoint(
-	endpoint: string | null | undefined,
-): boolean {
-	if (!endpoint) return false;
-	try {
-		const url = new URL(endpoint);
-		return (
-			url.protocol === "https:" &&
-			url.hostname === "builder.tedix.dev" &&
-			url.pathname.replace(/\/+$/, "") === "/mcp"
-		);
-	} catch {
-		return false;
-	}
-}
-
-export function resolveTedixInternalScanHeaders(
+export async function resolveTedixInternalScanHeaders(
 	catalogApp: CatalogAppRecord,
-	env: CloudflareEnv,
+	context: BaseContext,
 	endpointOverride?: string | null,
-): Record<string, string> | undefined {
+	installationTrust?: InstallationTrustPolicy | null,
+): Promise<Record<string, string> | undefined> {
 	const endpoint =
 		endpointOverride ?? catalogApp.mcpEndpointNormalized ?? catalogApp.baseUrl;
-	const token = (
-		env as CloudflareEnv & {
-			PLATFORM_SERVICE_TOKEN?: string;
-		}
-	).PLATFORM_SERVICE_TOKEN;
 	return resolveFirstPartyScanHeaders({
 		endpoint,
-		platformServiceToken: token,
+		platformServiceToken: context.env.PLATFORM_SERVICE_TOKEN,
+		policy:
+			installationTrust === undefined
+				? await getInstallationTrustPolicy(context.db)
+				: installationTrust,
 	});
 }
 
-export function resolveCatalogScanFetchFn(
+export async function resolveCatalogScanFetchFn(
 	context: BaseContext,
 	endpoint: string,
-): ((url: string, init?: RequestInit) => Promise<Response>) | undefined {
-	if (!isCmsControlMcpEndpoint(endpoint)) return undefined;
-	const fetcher = (
-		context.env as CloudflareEnv & {
-			CMS?: ServiceBindingFetcher;
-		}
-	).CMS;
-	return fetcher ? serviceBindingFetchFn(fetcher) : undefined;
+	installationTrust?: InstallationTrustPolicy | null,
+): Promise<
+	((url: string, init?: RequestInit) => Promise<Response>) | undefined
+> {
+	const grant = getManagedCatalogScanEndpoint(
+		endpoint,
+		installationTrust === undefined
+			? await getInstallationTrustPolicy(context.db)
+			: installationTrust,
+	);
+	return grant
+		? createManagedCatalogScanFetch(grant, {
+				mcp: context.env.MCP_SERVICE,
+				cms: context.env.CMS,
+			})
+		: undefined;
 }
 
 export async function resolveCatalogScanHeaders(
 	context: BaseContext,
 	catalogApp: CatalogAppRecord,
 	endpointOverride?: string | null,
+	installationTrust?: InstallationTrustPolicy | null,
 ): Promise<Record<string, string> | undefined> {
 	const { db } = context;
 	let lookupFailure: ConnectionTokenLookupError | undefined;
@@ -1220,7 +1216,11 @@ export async function resolveCatalogScanHeaders(
 				catalogApp.id,
 				catalogApp.scanAuthHeaders,
 			);
-			return JSON.parse(decrypted) as Record<string, string>;
+			const headers = catalogScanSnapshotHeaders(
+				JSON.parse(decrypted) as Record<string, string>,
+				context.env.PLATFORM_SERVICE_TOKEN,
+			);
+			if (headers) return headers;
 		} catch (error) {
 			console.warn(
 				`[Catalog] Failed to decrypt scan auth headers for ${catalogApp.slug ?? catalogApp.id}`,
@@ -1228,10 +1228,11 @@ export async function resolveCatalogScanHeaders(
 			);
 		}
 	}
-	const internalHeaders = resolveTedixInternalScanHeaders(
+	const internalHeaders = await resolveTedixInternalScanHeaders(
 		catalogApp,
-		context.env,
+		context,
 		endpointOverride,
+		installationTrust,
 	);
 	if (internalHeaders) return internalHeaders;
 	if (lookupFailure)
@@ -1259,15 +1260,21 @@ export async function scanUpstreamCatalogAppNow(
 		await import("@tedix/db/queries/catalog/health-history");
 	const { updateCatalogAppScanAuth } =
 		await import("@tedix/db/queries/catalog/get-app");
+	const installationTrust = await getInstallationTrustPolicy(db);
 	const headers = await resolveCatalogScanHeaders(
 		context,
 		catalogApp,
 		mcpServerUrl,
+		installationTrust,
 	);
 	const result = await connectMcpServer(mcpServerUrl, {
 		timeout: 30000,
 		headers,
-		fetchFn: resolveCatalogScanFetchFn(context, mcpServerUrl),
+		fetchFn: await resolveCatalogScanFetchFn(
+			context,
+			mcpServerUrl,
+			installationTrust,
+		),
 	});
 	const now = new Date().toISOString();
 	const serverInfo = result.serverInfo;
