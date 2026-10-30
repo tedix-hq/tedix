@@ -32,6 +32,7 @@ import {
 	mountedAppToolScopes,
 	organizationAppNamespace,
 	organizationMountToolScopes,
+	isOrganizationMountNamespace,
 } from "./mcp/aggregate-namespaces";
 import { ensurePlatformOperatorAggregateApps } from "./mcp/platform-operator-aggregation";
 
@@ -132,6 +133,7 @@ export async function aggregateAndPrefixTools(
 	retainNested = false,
 	// Only a fully uncached traversal can produce policy provenance.
 	capturePolicyMountPath = false,
+	policyToolId?: string,
 ): Promise<AggregatedMcpSurface> {
 	// Worker versions do not change D1 tool contracts. Reuse durable snapshots
 	// across deploys; projection activation still fences changed tool schemas.
@@ -140,6 +142,26 @@ export async function aggregateAndPrefixTools(
 	const activationEpoch = activationState.value;
 	if (capturePolicyMountPath && activationState.cacheable)
 		throw new Error("Policy mount provenance requires a fresh traversal");
+	if (policyToolId && (!capturePolicyMountPath || activationState.cacheable))
+		throw new Error(
+			"Targeted policy lookup requires a fresh provenance traversal",
+		);
+	if (policyToolId) {
+		const separator = policyToolId.indexOf("__");
+		const prefix = policyToolId.slice(0, separator);
+		entries =
+			separator < 0
+				? []
+				: entries.filter(
+						(entry) =>
+							(entry.prefix ?? entry.slug) === prefix ||
+							(entry.organizationMount &&
+								isOrganizationMountNamespace(
+									entry.prefix ?? entry.slug,
+									prefix.replace(/[^a-zA-Z0-9_]/g, "_"),
+								)),
+					);
+	}
 	const cacheKey = aggregateSurfaceCacheKey(
 		entries,
 		undefined,
@@ -158,6 +180,7 @@ export async function aggregateAndPrefixTools(
 			ctx,
 			false,
 			capturePolicyMountPath,
+			policyToolId,
 		);
 	}
 	const retain = visited.size === 0 || retainNested;
@@ -373,6 +396,7 @@ async function aggregateAndPrefixToolsUncached(
 	ctx?: ExecutionContext,
 	retainNested = false,
 	capturePolicyMountPath = false,
+	policyToolId?: string,
 ): Promise<AggregatedMcpSurface> {
 	// Per-stage timing: aggregate hydration is the dominant Code Mode cold-start
 	// cost (live D1/service-binding fan-out across the aggregate apps). Time each
@@ -618,6 +642,7 @@ async function aggregateAndPrefixToolsUncached(
 					true,
 					retainNested,
 					capturePolicyMountPath,
+					policyToolId,
 				);
 			};
 			const prefixPolicyPath = (tools: InternalAppTool[]) =>
