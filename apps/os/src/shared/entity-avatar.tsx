@@ -6,8 +6,8 @@ import {
 	entityAvatarIndex,
 	entityGlyph,
 	entityInitials,
-} from "@/lib/entity-avatar";
-import { cn } from "@/lib/utils";
+} from "@/shared/entity-avatar-utils";
+import { cn } from "@/components/kumo/cn";
 
 export function EntityAvatar({
 	id,

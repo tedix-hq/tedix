@@ -1,6 +1,6 @@
 import { SectionTitle } from "@/components/kumo/page";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import {
 	Archive,
 	ArrowCounterClockwise,

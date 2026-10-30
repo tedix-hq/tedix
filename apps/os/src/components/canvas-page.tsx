@@ -1,4 +1,4 @@
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import "./canvas-page.css";
 import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";

@@ -1,4 +1,4 @@
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { osApi } from "@/lib/api";
 import { myWorkspacesDirectoryQueryOptions } from "@/lib/os-query-options";
 import { useWorkspaceDirectory } from "@/lib/workspace-switcher";

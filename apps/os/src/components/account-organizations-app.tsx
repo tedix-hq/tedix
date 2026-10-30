@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { OrganizationLogoUpload } from "@/components/organization-profile-form";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import {

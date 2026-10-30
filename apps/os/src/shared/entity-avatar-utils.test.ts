@@ -6,7 +6,7 @@ import {
 	entityAvatarIndex,
 	entityGlyph,
 	entityInitials,
-} from "./entity-avatar";
+} from "./entity-avatar-utils";
 
 describe("entity placeholders", () => {
 	it.each([

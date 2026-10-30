@@ -1,4 +1,4 @@
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import {
 	AppWindow,
 	GearSix,

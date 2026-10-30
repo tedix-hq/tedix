@@ -2,7 +2,7 @@ import type { CollabParticipant } from "@/collab/presence";
 import { Avatar, AvatarFallback } from "@/components/kumo/avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { Popover, PopoverContent } from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { sentenceCase } from "@/lib/format";

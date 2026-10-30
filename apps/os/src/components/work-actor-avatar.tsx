@@ -1,4 +1,4 @@
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { createContext, useContext } from "react";
 import type { WorkActorReference } from "@tedix/api-contract/schemas/os-work-actor";
 import { HarnessMark } from "@/assets/harness-marks";

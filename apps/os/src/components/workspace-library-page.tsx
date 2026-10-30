@@ -1,6 +1,6 @@
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import { WorkspaceListRow } from "./workspace-list-row";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import {
 	Archive,
 	Clock,

@@ -6,7 +6,7 @@ import {
 	type OsWorkspace,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useRef, useState } from "react";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";

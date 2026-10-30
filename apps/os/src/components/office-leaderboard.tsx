@@ -3,7 +3,7 @@ import type { GetAgentReplyDraftLeaderboardResultSchema } from "@tedix/api-contr
 import { TEDI_CAREER_STAGES } from "@tedix/api-contract/schemas/earned-delegation";
 import type * as z from "zod";
 import { useState } from "react";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import {
 	PageSection,

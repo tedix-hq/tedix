@@ -1,10 +1,10 @@
 import { createRoot } from "react-dom/client";
-import { EntityAvatar } from "../src/components/entity-avatar";
+import { EntityAvatar } from "../src/shared/entity-avatar";
 import { WorkActorAvatar } from "../src/components/work-actor-avatar";
 import {
 	ENTITY_AVATAR_PALETTE,
 	entityAvatarIndex,
-} from "../src/lib/entity-avatar";
+} from "../src/shared/entity-avatar-utils";
 import "../src/styles.css";
 
 const ids = ENTITY_AVATAR_PALETTE.map((_, index) => {
