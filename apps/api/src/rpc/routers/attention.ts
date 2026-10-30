@@ -1,5 +1,7 @@
 import { call, implement } from "@orpc/server";
 import { attentionContract } from "@tedix/api-contract/contracts/attention";
+import { getOrganizationProfile } from "@tedix/db/queries/organizations";
+import { getOrganizationDomain } from "@tedix/db/queries/organization-domains";
 import { requireOrgId } from "../org-scope";
 import { recordObservedLearningInteraction } from "../../services/learning-interaction-recorder";
 import {
@@ -25,6 +27,28 @@ import {
 const os = implement(attentionContract).$context<BaseContext>();
 const authenticated = os.use(withAuth);
 const read = authenticated.use(AUTHZ.messagingRead);
+async function attentionOsOrigin(
+	context: BaseContext,
+): Promise<string | undefined> {
+	const organizationId = requireOrgId(context);
+	const [organization, domain] = await Promise.all([
+		getOrganizationProfile(context.db, organizationId),
+		getOrganizationDomain(context.db, organizationId),
+	]);
+	if (domain?.status === "active" && domain.providerHostnameId)
+		return `https://${domain.hostname}`;
+	if (!organization || !/^[a-z0-9][a-z0-9-]*$/.test(organization.slug))
+		return undefined;
+	try {
+		const origin = new URL(context.env.OS_URL);
+		if (origin.protocol !== "https:" || origin.username || origin.password)
+			return undefined;
+		origin.hostname = `${organization.slug}.${origin.hostname}`;
+		return origin.origin;
+	} catch {
+		return undefined;
+	}
+}
 const write = authenticated.use(
 	withAuthorization(
 		{
@@ -49,6 +73,7 @@ export const attentionContractRouter = os.router({
 			projection.cards.slice(0, input.limit),
 			projection.model,
 		);
+		const osOrigin = await attentionOsOrigin(context);
 		const cards = visible.map((card, index) =>
 			deckDisplayCard(
 				card,
@@ -56,6 +81,7 @@ export const attentionContractRouter = os.router({
 				{
 					gadgetId: input.gadgetId,
 					timeZone: input.timeZone,
+					osOrigin,
 				},
 				projection.config.routing,
 			),
@@ -80,7 +106,10 @@ export const attentionContractRouter = os.router({
 		const { feedDisplayCard, attentionMarkdown } =
 			await import("@tedix/api-contract/utils/attention-app-view");
 		const projection = await loadForYouProjection(context, input);
-		const cards = projection.items.map(feedDisplayCard);
+		const osOrigin = await attentionOsOrigin(context);
+		const cards = projection.items.map((item) =>
+			feedDisplayCard(item, osOrigin),
+		);
 		return {
 			cards,
 			needsYou: cards.filter(

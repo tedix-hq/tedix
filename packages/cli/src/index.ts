@@ -863,9 +863,7 @@ async function main() {
 	}
 	if (command === "login") {
 		requireHumanLogin();
-		const rawOrg = readOrgFlag(process.argv);
-		// Tedix Cloud's own tenant key; an own-account installation never matches this branch.
-		const tenant = rawOrg === "tedix" ? "org_tedix" : rawOrg;
+		const tenant = readOrgFlag(process.argv);
 		// Ordinary first-run login goes directly to the organization's own OAuth
 		// resource. No platform-wide operator grant is required first.
 		let orgSlugArg = options.prompt?.trim();

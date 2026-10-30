@@ -653,12 +653,8 @@ export class WorkspaceOAuthProvider implements OAuthClientProvider {
 				this.#loginCommand(scope),
 			);
 		}
-		// Tedix Cloud's own tenant key; an own-account installation never matches this branch.
 		if (this.#options.tenant) {
-			authorizationUrl.searchParams.set(
-				"tenant",
-				this.#options.tenant === "tedix" ? "org_tedix" : this.#options.tenant,
-			);
+			authorizationUrl.searchParams.set("tenant", this.#options.tenant);
 			authorizationUrl.searchParams.set("prompt", "consent");
 		}
 		if (isMultiOrganizationMcpUrl(this.#options.mcpUrl)) {
