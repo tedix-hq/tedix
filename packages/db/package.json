@@ -8,6 +8,7 @@
 	"exports": {
 		"./queries/control-plane/system-policy": "./src/queries/control-plane/system-policy.ts",
 		"./queries/installation-trust": "./src/queries/installation-trust.ts",
+		"./queries/site-routing": "./src/queries/site-routing.ts",
 		"./queries/organization-domains": "./src/queries/organization-domains.ts",
 		"./queries/web-push": "./src/queries/web-push.ts",
 		"./queries/work-items/decision-action-recheck": "./src/queries/work-items/decision-action-recheck.ts",

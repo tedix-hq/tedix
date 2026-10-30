@@ -1,3 +1,6 @@
+vi.mock("@tedix/db/queries/site-routing", () => ({
+	getSiteRoutingPolicy: vi.fn(async () => null),
+}));
 import { env as workerEnv } from "cloudflare:workers";
 import {
 	afterEach,
@@ -1726,47 +1729,38 @@ describe("sitemap canonical paths", () => {
 			),
 		);
 	});
-	test("only the Tedix landing tenant restores archived trailing-slash canonicals", () => {
-		const domains = { MARKETING_DOMAINS: "tedix.dev,www.tedix.dev" };
-		const workshop = {
-			slug: "workshop",
+	test("uses explicit site slash configuration before template defaults", () => {
+		const domains = { MARKETING_DOMAINS: "landing.example" };
+		const marketing = {
 			templateSlug: "marketing",
-			publicSiteUrl: "https://workshop.cms.tedix.dev",
+			publicSiteUrl: "https://landing.example",
 		};
 		const blog = {
-			slug: "blog",
 			templateSlug: "tedix",
-			publicSiteUrl: "https://blog.example.com",
+			publicSiteUrl: "https://blog.example",
 		};
-		const landing = {
-			slug: "tedix-landing",
-			templateSlug: "marketing",
-			publicSiteUrl: "https://tedix.dev",
-		};
-		expect(sitemapUsesTrailingSlash(workshop, domains)).toBe(false);
+		expect(sitemapUsesTrailingSlash(marketing, domains)).toBe(false);
 		expect(sitemapUsesTrailingSlash(blog, domains)).toBe(true);
-		expect(sitemapUsesTrailingSlash(landing, domains)).toBe(true);
-		expect(
-			sitemapUsesTrailingSlash({ ...landing, slug: "other" }, domains),
-		).toBe(false);
-		expect(
-			canonicalizeSitemapUrls(xml, sitemapUsesTrailingSlash(landing, domains)),
-		).toContain('href="https://tedix.dev/es/"');
 		expect(
 			sitemapUsesTrailingSlash(
-				{
-					slug: "other",
-					templateSlug: "tedix",
-					publicSiteUrl: "https://tedix.dev",
-				},
+				{ ...marketing, sitemapTrailingSlash: true },
+				domains,
+			),
+		).toBe(true);
+		expect(
+			sitemapUsesTrailingSlash(
+				{ ...blog, sitemapTrailingSlash: false },
 				domains,
 			),
 		).toBe(false);
 		expect(
 			canonicalizeSitemapUrls(
-				"<urlset><url><loc>https://workshop.cms.tedix.dev/features</loc></url></urlset>",
-				sitemapUsesTrailingSlash(workshop, domains),
+				xml,
+				sitemapUsesTrailingSlash(
+					{ ...marketing, sitemapTrailingSlash: true },
+					domains,
+				),
 			),
-		).toContain("<loc>https://workshop.cms.tedix.dev/features</loc>");
+		).toContain('href="https://tedix.dev/es/"');
 	});
 });

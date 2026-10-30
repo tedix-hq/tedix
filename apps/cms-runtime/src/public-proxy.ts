@@ -149,6 +149,7 @@ export interface OrgInfo {
 	/** Per-org default locale; tenant middleware redirects root-locale paths
 	 * to `/{locale}/...` when this is set to a non-default locale. */
 	defaultLocale: string | null;
+	sitemapTrailingSlash?: boolean;
 }
 
 const orgCache = new Map<string, { info: OrgInfo | null; expiresAt: number }>();
@@ -215,18 +216,7 @@ function isPublicInfrastructurePath(pathname: string): boolean {
 	);
 }
 
-/**
- * Emdash (0.31.x) emits sitemap URLs without a trailing slash while every page
- * it renders declares the trailing-slash form as its canonical. Search Console
- * then reads the whole sitemap as non-canonical — blog.tedix.dev sat at 13
- * submitted / 0 indexed and reported "Page with redirect" against exactly these
- * URLs. Normalise the sitemap to the canonical form the pages advertise.
- *
- * Marketing-template CMS tenants use slashless canonical paths, except for
- * tedix-landing on tedix.dev, whose archived landing pages use trailing slashes.
- * Only extensionless paths are touched, so `/rss.xml` and asset URLs are left
- * alone, and only inside a sitemap document.
- */
+/** Match sitemap paths to each site's canonical slash convention. */
 export function canonicalizeSitemapUrls(
 	xml: string,
 	trailingSlash = true,
@@ -266,13 +256,17 @@ export function canonicalizeSitemapUrls(
 		);
 }
 
-/** The archived Tedix site is the one exception to marketing's slashless URLs. */
+/** A site can explicitly retain its established canonical URL convention. */
 export function sitemapUsesTrailingSlash(
-	site: Pick<OrgInfo, "slug" | "templateSlug" | "publicSiteUrl">,
+	site: Pick<
+		OrgInfo,
+		"templateSlug" | "publicSiteUrl" | "sitemapTrailingSlash"
+	>,
 	env: Pick<MarketingEnv, "MARKETING_DOMAINS">,
 ): boolean {
 	const hostname = new URL(site.publicSiteUrl).hostname;
-	if (site.slug === "tedix-landing" && hostname === "tedix.dev") return true;
+	if (typeof site.sitemapTrailingSlash === "boolean")
+		return site.sitemapTrailingSlash;
 	return site.templateSlug !== "marketing" && !isMarketingHost(hostname, env);
 }
 
@@ -873,6 +867,10 @@ export async function lookupOrg(
 		publicSiteUrl,
 		publicPathPrefix,
 		webMcpToolPacks,
+		sitemapTrailingSlash:
+			typeof blogConfig.sitemapTrailingSlash === "boolean"
+				? blogConfig.sitemapTrailingSlash
+				: undefined,
 		defaultLocale:
 			typeof blogConfig.defaultLocale === "string"
 				? blogConfig.defaultLocale
