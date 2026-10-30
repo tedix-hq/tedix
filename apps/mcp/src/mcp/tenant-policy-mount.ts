@@ -364,6 +364,7 @@ export async function prepareTenantPolicyMount(
 export function acceptsEmptyProfileArguments(schema: unknown): boolean {
 	if (!isRecord(schema) || schema.type !== "object") return false;
 	const known = new Set([
+		"$schema",
 		"type",
 		"properties",
 		"required",
@@ -374,6 +375,11 @@ export function acceptsEmptyProfileArguments(schema: unknown): boolean {
 		"maxProperties",
 	]);
 	if (Object.keys(schema).some((key) => !known.has(key))) return false;
+	if (
+		schema.$schema !== undefined &&
+		schema.$schema !== "https://json-schema.org/draft/2020-12/schema"
+	)
+		return false;
 	if (schema.properties !== undefined && !isRecord(schema.properties))
 		return false;
 	if (
