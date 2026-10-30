@@ -107,6 +107,40 @@ describe("tenant policy mount descriptor", () => {
 			}),
 		).toBe(true);
 		expect(
+			acceptsEmptyProfileArguments({
+				$schema: "https://json-schema.org/draft/2020-12/schema",
+				type: "object",
+				properties: {
+					instructions_version: { type: "string" },
+					telemetry: {
+						type: "object",
+						properties: { intent: { type: "string" } },
+					},
+				},
+				additionalProperties: false,
+			}),
+		).toBe(true);
+		expect(
+			acceptsEmptyProfileArguments({
+				$schema: "https://example.invalid/unknown-dialect",
+				type: "object",
+			}),
+		).toBe(false);
+		expect(
+			acceptsEmptyProfileArguments({
+				$schema: "https://json-schema.org/draft/2020-12/schema",
+				type: "object",
+				minProperties: 1,
+			}),
+		).toBe(false);
+		expect(
+			acceptsEmptyProfileArguments({
+				$schema: "https://json-schema.org/draft/2020-12/schema",
+				type: "object",
+				not: {},
+			}),
+		).toBe(false);
+		expect(
 			acceptsEmptyProfileArguments({ type: "object", required: ["x"] }),
 		).toBe(false);
 		expect(acceptsEmptyProfileArguments({ type: "object", not: {} })).toBe(
