@@ -19,11 +19,9 @@ export function attachmentType(file: File): TediMessageAttachment["type"] {
 /**
  * Declared image-input capability of the model this composer would send to.
  *
- * The projection row wins (it is the org's own evaluated catalog), the static
- * catalog answers a ref the projection did not list, and anything else — no
- * selection yet, a custom or org-configured deployment, the deliberately
- * ungated env default — is `unknown`. `unknown` is never collapsed into a
- * verdict here; that is the whole point of the tri-state.
+ * The organization's evaluated catalog row declares image support. A ref not
+ * listed in that projection, or no selection yet, is `unknown`. Never infer
+ * image support from a model's name or collapse `unknown` into a verdict.
  */
 export function selectedModelImageInput(
 	models: readonly ModelCatalogModel[],

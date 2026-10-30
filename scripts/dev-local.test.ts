@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { DEFAULT_WORKERS_AI_MODEL } from "../packages/workers-ai/src/model-select";
-import { findCatalogEntry } from "../packages/api-contract/src/schemas/model-catalog";
+import { parseModelRef } from "../packages/api-contract/src/schemas/model-catalog";
 import {
 	existsSync,
 	mkdtempSync,
@@ -25,6 +24,8 @@ import {
 } from "./dev/ports";
 
 const repoRoot = resolve(import.meta.dir, "..");
+// The isolated local launcher has an explicit bootstrap model, not a managed registry default.
+const LOCAL_WORKERS_AI_BOOTSTRAP_MODEL = "@cf/openai/gpt-oss-120b";
 
 /** Every `apps/<dir>` that ships a package.json, with its scripts block. */
 function appScripts(): Array<[string, Record<string, string>]> {
@@ -512,18 +513,21 @@ describe("local Wrangler config", () => {
 				for (const candidate of [config, actualConfig]) {
 					expect(candidate.vars).toHaveProperty(
 						"KERNEL_WORKERS_AI_MODEL",
-						DEFAULT_WORKERS_AI_MODEL,
+						LOCAL_WORKERS_AI_BOOTSTRAP_MODEL,
 					);
 					expect(candidate.vars).not.toHaveProperty("KERNEL_FORCE_WORKERS_AI");
 					const vars = candidate.vars as Record<string, string>;
 					expect(vars.KERNEL_MODEL_REF).toBe(
-						`workers-ai/${DEFAULT_WORKERS_AI_MODEL}`,
+						`workers-ai/${LOCAL_WORKERS_AI_BOOTSTRAP_MODEL}`,
 					);
-					expect(findCatalogEntry(vars.KERNEL_MODEL_REF!)).toBeDefined();
+					expect(parseModelRef(vars.KERNEL_MODEL_REF!)).toEqual({
+						provider: "workers-ai",
+						modelId: LOCAL_WORKERS_AI_BOOTSTRAP_MODEL,
+					});
 				}
 				expect(config.vars).toMatchObject({
 					KERNEL_EXECUTE: "true",
-					KERNEL_MODEL_REF: `workers-ai/${DEFAULT_WORKERS_AI_MODEL}`,
+					KERNEL_MODEL_REF: `workers-ai/${LOCAL_WORKERS_AI_BOOTSTRAP_MODEL}`,
 					AI_GATEWAY_ACCOUNT_ID: "00000000000000000000000000000000",
 					AI_GATEWAY_LLM_ID: gateway || "default",
 					AI_GATEWAY_BINDING_PROVIDERS: "",

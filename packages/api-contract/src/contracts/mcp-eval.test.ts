@@ -6,18 +6,18 @@ describe("MCP evaluation model selection", () => {
 			"cloudflare/auto",
 		);
 	});
-	it("preserves canonical explicit fixed selections and rejects legacy or invalid refs", () => {
-		for (const model of [
-			"azure-openai/gpt-5.6-terra",
-			"workers-ai/@cf/openai/gpt-oss-120b",
-		])
+	it("preserves custom refs for supported evaluation transports before registry admission", () => {
+		for (const model of ["azure-openai/sample-eval", "workers-ai/sample-eval"])
 			expect(RunEvalInputSchema.parse({ appSlug: "tedix", model }).model).toBe(
 				model,
 			);
+	});
+	it("rejects malformed refs and providers unsupported by evaluation transport", () => {
 		for (const model of [
-			"gpt-5.6-terra",
-			"workers-ai/not-real",
-			"openai/not-real",
+			"sample-eval",
+			"workers-ai/",
+			"unknown/sample-eval",
+			"openai/sample-eval",
 		])
 			expect(
 				RunEvalInputSchema.safeParse({ appSlug: "tedix", model }).success,

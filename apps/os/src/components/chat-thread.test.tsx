@@ -1969,9 +1969,9 @@ describe("selectedModelImageInput", () => {
 		).toBe("unsupported");
 	});
 
-	it("falls back to the static catalog for a ref the projection did not list", () => {
-		expect(selectedModelImageInput([], VISION_REF)).toBe("supported");
-		expect(selectedModelImageInput([], TEXT_ONLY_REF)).toBe("unsupported");
+	it("does not infer image support for a ref absent from the projection", () => {
+		expect(selectedModelImageInput([], VISION_REF)).toBe("unknown");
+		expect(selectedModelImageInput([], TEXT_ONLY_REF)).toBe("unknown");
 	});
 
 	it("is unknown for a custom/uncatalogued deployment and for no selection", () => {
@@ -2019,8 +2019,12 @@ describe("imageAttachmentRefusal", () => {
 
 	it("names the model in all three verdicts an operator can act on", () => {
 		const custom = "azure-openai/acme-private-gpt";
+		const models = [
+			catalogModel(VISION_REF, "supported"),
+			catalogModel(TEXT_ONLY_REF, "unsupported"),
+		];
 		const verdicts = [VISION_REF, TEXT_ONLY_REF, custom].map((ref) =>
-			imageAttachmentRefusal(selectedModelImageInput([], ref), ref),
+			imageAttachmentRefusal(selectedModelImageInput(models, ref), ref),
 		);
 		expect(verdicts[0]).toBeNull();
 		expect(verdicts[1]).toContain(TEXT_ONLY_REF);

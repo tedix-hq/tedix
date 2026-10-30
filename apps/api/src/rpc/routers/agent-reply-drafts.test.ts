@@ -15,6 +15,10 @@ import { memoryFacts } from "@tedix/db/schema/memory-graph";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { DecisionLearningConfigSchema } from "@tedix/api-contract/schemas/decision-learning";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
+import {
+	modelCatalogConfig,
+	modelCatalogEntry,
+} from "@tedix/api-contract/test/model-catalog";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import type { AgentTurnTriagePolicyInput } from "@tedix/api-contract/schemas/agent-turn-triage";
@@ -27,7 +31,7 @@ import {
 } from "@tedix/db/schema/earned-delegation";
 import { skillEntries } from "@tedix/db/schema/cognitive";
 import { chatDispatchIdempotency } from "@tedix/db/schema/cognitive-runtime";
-import { runtimeProfiles } from "@tedix/db/schema/control-plane";
+import { policyPacks, runtimeProfiles } from "@tedix/db/schema/control-plane";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { apps } from "@tedix/db/schema/apps";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -142,6 +146,7 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 			chatDispatchIdempotency,
 			skillEntries,
 			runtimeProfiles,
+			policyPacks,
 			entrustableActivities,
 			competencyObservations,
 			tediRoleAssignments,
@@ -150,6 +155,17 @@ function fixture(options: { waitUntil?: boolean } = {}) {
 	sqlite
 		.prepare("INSERT INTO organizations (id,name,slug) VALUES (?,?,?)")
 		.run(ORG_ID, "Fictional Harbor", "fictional-harbor");
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES ('registry','Registry','model-catalog','system','shared','active',1,'2026-01-01T00:00:00Z','operator',?)",
+		)
+		.run(
+			JSON.stringify({
+				modelCatalog: modelCatalogConfig([
+					modelCatalogEntry("azure-openai/gpt-6-luna"),
+				]),
+			}),
+		);
 	sqlite
 		.prepare(
 			"INSERT INTO work_items (id,org_id,title,created_at) VALUES (?,?,?,?)",
