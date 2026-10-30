@@ -40,6 +40,7 @@ const api = vi.hoisted(() => ({
 	listWorkItems: vi.fn(),
 	listReadinessProjection: vi.fn(),
 	getControlTower: vi.fn(),
+	listDispatcherHealth: vi.fn(),
 	getReadiness: vi.fn(),
 	listAttempts: vi.fn(),
 	listEvidence: vi.fn(),
@@ -107,6 +108,7 @@ vi.mock("@/lib/api", () => ({
 			listRelations: api.listRelations,
 		},
 		workFleet: { getControlTower: api.getControlTower },
+		dispatcherHealth: { list: api.listDispatcherHealth },
 		projects: { getPortfolio: api.getProjectPortfolio },
 		workflows: { listDefinitionHealth: api.listDefinitionHealth },
 		catalog: {
@@ -264,6 +266,10 @@ beforeEach(() => {
 		attention: { actions: [] },
 	});
 	api.listRelations.mockResolvedValue({ relations: [], truncated: false });
+	api.listDispatcherHealth.mockResolvedValue({
+		reportedAt: "2026-10-03T09:30:00.000Z",
+		data: [],
+	});
 	api.getProjectPortfolio.mockResolvedValue({ data: [] });
 	api.listSkillRuns.mockResolvedValue({ runs: [] });
 	api.getWorkItem.mockResolvedValue({

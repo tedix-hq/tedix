@@ -294,6 +294,7 @@ const CALLS = {
 	"audit/search": { limit: 100 },
 	"workItems/list": { limit: 50 },
 	"workItems/listCases": {},
+	"dispatcherHealth/list": {},
 	"workItems/listResourcePools": {},
 	"workItems/listBudgetEnvelopes": {},
 	"workItems/getById": { id: "00000070-0000-4000-8000-000000000001" },

@@ -105,6 +105,7 @@ import {
 	workBudgetEnvelopesQueryOptions,
 	workCaseListQueryOptions,
 	workFleetQueryOptions,
+	dispatcherHealthQueryOptions,
 	workNeedsYouInteractionsQueryOptions,
 	workPendingApprovalsQueryOptions,
 	workResourcePoolsQueryOptions,
@@ -782,6 +783,7 @@ export function prefetchWorkNeedsYouRoute(queryClient: QueryClient) {
 
 export async function prefetchWorkCapacityRoute(queryClient: QueryClient) {
 	await Promise.allSettled([
+		queryClient.ensureQueryData(dispatcherHealthQueryOptions()),
 		queryClient.ensureQueryData(workResourcePoolsQueryOptions()),
 		queryClient.ensureQueryData(workBudgetEnvelopesQueryOptions()),
 	]);

@@ -5319,6 +5319,27 @@ const handlers: Record<string, (input: never) => unknown> = {
 		LOCAL_CASE_EDGES.push(row);
 		return row;
 	},
+	"dispatcherHealth/list": () => ({
+		reportedAt: new Date().toISOString(),
+		data: ["codex", "opencode", "devin"].map((executor, index) => ({
+			reporterId: "workstation",
+			lane: executor,
+			executor,
+			running: true,
+			observedAt: new Date(
+				Date.now() - (index === 2 ? 600_000 : 10_000),
+			).toISOString(),
+			reportedAt: new Date().toISOString(),
+			lastAdmissionAt: null,
+			slotsInUse: index === 0 ? 1 : 0,
+			slotsTotal: 3,
+			topReason:
+				index === 1 ? { reason: "Waiting for approval", count: 2 } : null,
+			ageSeconds: index === 2 ? 600 : 10,
+			staleAfterSeconds: 300,
+			stale: index === 2,
+		})),
+	}),
 	"workItems/listResourcePools": (input: {
 		resourceKey?: string;
 		saturatedOnly?: boolean;
