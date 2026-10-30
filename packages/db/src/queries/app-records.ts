@@ -11,6 +11,8 @@ import {
 	getConnectionInstance,
 	getOrganizationConnectionAllowedResources,
 } from "./connection-instances";
+import type { InstallationTrustPolicy } from "@tedix/api-contract/schemas/installation-trust";
+import { getInstallationTrustPolicy } from "./installation-trust";
 import type { AppCapabilities } from "@tedix/api-contract/schemas/app";
 import type { WidgetConfig } from "@tedix/api-contract/schemas/widget";
 import {
@@ -574,9 +576,9 @@ function loadAppBySlugWithTools(
 /**
  * One aggregate entry to resolve. `appId`, when present, wins over `slug`: the
  * entry resolves by its stable id and `slug` is only the display/fallback name
- * stored beside it. An id entry also names `hostOrganizationId` — the
- * organization of the app whose `aggregateApps` holds the entry — so the id
- * cannot reach an app the aggregate ownership rule refuses (see
+ * stored beside it. `hostOrganizationId` names the organization of the app
+ * whose `aggregateApps` holds the entry. Both id and legacy slug entries
+ * must pass the aggregate ownership rule when a host is supplied (see
  * {@link aggregateSourceAllowed}).
  */
 export type AppSurfaceRequest = {
@@ -585,88 +587,74 @@ export type AppSurfaceRequest = {
 	hostOrganizationId?: string;
 } & ToolSelectionOptions;
 
-type AggregateOwnershipOrg = {
-	id: string;
-	slug: string;
-	descopeTenantId: string | null;
-};
-
-/** Tedix Cloud's own tenant key; an own-account installation never matches it. */
-function isTedixPlatformOrganization(
-	org: AggregateOwnershipOrg | undefined,
-): boolean {
-	return org?.slug === "tedix" || org?.descopeTenantId === "org_tedix";
-}
-
-/**
- * The aggregate ownership rule, applied to an id-linked entry.
- *
- * A host may aggregate its own organization's apps or the Tedix platform
- * organization's shared apps — the rule `assertTenantMcpConfigAllowed` enforces
- * when a tenant writes `aggregateApps` and `previewSourceAllowed` applies to the
- * scope preview. A host in the platform organization is written only by platform
- * principals, which that write rule leaves unrestricted. A provider
- * organization's app also reaches a customer organization it holds an active
- * provider installation for — the explicit cross-tenant grant.
- */
+/** Cross-organization aggregate access needs an installation or provider grant. */
 function aggregateSourceAllowed(
 	hostOrganizationId: string,
 	sourceOrganizationId: string,
-	orgById: Map<string, AggregateOwnershipOrg>,
+	trust: InstallationTrustPolicy | null,
 	providerGrants: ReadonlySet<string>,
 ): boolean {
 	return (
 		sourceOrganizationId === hostOrganizationId ||
 		providerGrants.has(`${sourceOrganizationId}:${hostOrganizationId}`) ||
-		isTedixPlatformOrganization(orgById.get(sourceOrganizationId)) ||
-		isTedixPlatformOrganization(orgById.get(hostOrganizationId))
+		trust?.aggregate.sharedSourceOrganizationIds.includes(
+			sourceOrganizationId,
+		) === true ||
+		trust?.aggregate.aggregateHostOrganizationIds.includes(
+			hostOrganizationId,
+		) === true
 	);
 }
 
-/**
- * {@link aggregateSourceAllowed} for one host → source link, so a check outside
- * the gateway (skill manifest authorization) follows the same links the
- * gateway serves.
- */
+/** Read aggregate authority once for a batch of source organizations. */
+export async function getAggregateAllowedSourceOrganizationIds(
+	db: DbClient,
+	hostOrganizationId: string,
+	sourceOrganizationIds: string[],
+): Promise<Set<string>> {
+	const allowed = new Set<string>();
+	const foreign = [...new Set(sourceOrganizationIds)].filter((id) => {
+		if (id !== hostOrganizationId) return true;
+		allowed.add(id);
+		return false;
+	});
+	if (foreign.length === 0) return allowed;
+	const trust = await getInstallationTrustPolicy(db);
+	const remaining = foreign.filter((id) => {
+		if (!aggregateSourceAllowed(hostOrganizationId, id, trust, new Set()))
+			return true;
+		allowed.add(id);
+		return false;
+	});
+	for (const ids of chunked(remaining, APP_SURFACE_ID_CHUNK)) {
+		const grants = await db
+			.select({
+				sourceOrganizationId: providerInstallations.providerOrganizationId,
+			})
+			.from(providerInstallations)
+			.where(
+				and(
+					eq(providerInstallations.status, "active"),
+					eq(providerInstallations.customerOrganizationId, hostOrganizationId),
+					inArray(providerInstallations.providerOrganizationId, ids),
+				),
+			);
+		for (const grant of grants) allowed.add(grant.sourceOrganizationId);
+	}
+	return allowed;
+}
+
+/** The same ownership rule used by app writes, discovery, preview and skill binding. */
 export async function isAggregateSourceAllowed(
 	db: DbClient,
 	hostOrganizationId: string,
 	sourceOrganizationId: string,
 ): Promise<boolean> {
-	if (sourceOrganizationId === hostOrganizationId) return true;
-	const orgIds = [hostOrganizationId, sourceOrganizationId];
-	const [rows, grants] = await db.batch([
-		db
-			.select({
-				id: organizations.id,
-				slug: organizations.slug,
-				descopeTenantId: organizations.descopeTenantId,
-			})
-			.from(organizations)
-			.where(inArray(organizations.id, orgIds)),
-		db
-			.select({ id: providerInstallations.id })
-			.from(providerInstallations)
-			.where(
-				and(
-					eq(providerInstallations.status, "active"),
-					eq(
-						providerInstallations.providerOrganizationId,
-						sourceOrganizationId,
-					),
-					eq(providerInstallations.customerOrganizationId, hostOrganizationId),
-				),
-			)
-			.limit(1),
-	]);
-	return aggregateSourceAllowed(
-		hostOrganizationId,
-		sourceOrganizationId,
-		new Map(rows.map((row) => [row.id, row])),
-		new Set(
-			grants.length ? [`${sourceOrganizationId}:${hostOrganizationId}`] : [],
-		),
-	);
+	return (
+		await getAggregateAllowedSourceOrganizationIds(db, hostOrganizationId, [
+			sourceOrganizationId,
+		])
+	).has(sourceOrganizationId);
 }
 
 /** Result element of {@link getAppsBySlugsWithTools}; `null` = slug not found. */
@@ -757,43 +745,41 @@ export async function getAppsBySlugsWithTools(
 			const appBySlug = new Map(slugRows.map((app) => [app.slug, app]));
 			const appById = new Map(idRows.map((app) => [app.id, app]));
 
-			// Ownership facts for every id entry whose target sits outside its host.
+			const requestedApp = (request: AppSurfaceRequest) =>
+				request.appId
+					? appById.get(request.appId)
+					: (slugRows.find(
+							(app) =>
+								app.slug === request.slug &&
+								app.organizationId === request.hostOrganizationId,
+						) ?? appBySlug.get(request.slug));
+
+			// Ownership facts for every source whose target sits outside its host.
 			const orgIds = new Set<string>();
 			for (const request of requests) {
-				const target = request.appId ? appById.get(request.appId) : undefined;
+				const target = requestedApp(request);
 				if (!target || !request.hostOrganizationId) continue;
 				if (target.organizationId === request.hostOrganizationId) continue;
 				orgIds.add(target.organizationId);
 				orgIds.add(request.hostOrganizationId);
 			}
-			const orgById = new Map<string, AggregateOwnershipOrg>();
+			const trust = orgIds.size ? await getInstallationTrustPolicy(db) : null;
 			const providerGrants = new Set<string>();
 			for (const chunk of chunked([...orgIds], APP_SURFACE_ID_CHUNK)) {
-				const [rows, grants] = await db.batch([
-					db
-						.select({
-							id: organizations.id,
-							slug: organizations.slug,
-							descopeTenantId: organizations.descopeTenantId,
-						})
-						.from(organizations)
-						.where(inArray(organizations.id, chunk)),
-					db
-						.select({
-							providerOrganizationId:
-								providerInstallations.providerOrganizationId,
-							customerOrganizationId:
-								providerInstallations.customerOrganizationId,
-						})
-						.from(providerInstallations)
-						.where(
-							and(
-								eq(providerInstallations.status, "active"),
-								inArray(providerInstallations.providerOrganizationId, chunk),
-							),
+				const grants = await db
+					.select({
+						providerOrganizationId:
+							providerInstallations.providerOrganizationId,
+						customerOrganizationId:
+							providerInstallations.customerOrganizationId,
+					})
+					.from(providerInstallations)
+					.where(
+						and(
+							eq(providerInstallations.status, "active"),
+							inArray(providerInstallations.providerOrganizationId, chunk),
 						),
-				]);
-				for (const row of rows) orgById.set(row.id, row);
+					);
 				for (const row of grants) {
 					if (!orgIds.has(row.customerOrganizationId)) continue;
 					providerGrants.add(
@@ -806,13 +792,13 @@ export async function getAppsBySlugsWithTools(
 			// whose target the ownership rule refuses, is unresolved (`null`) —
 			// never silently re-resolved by its slug.
 			const resolvedApps = requests.map((request) => {
-				if (!request.appId) return appBySlug.get(request.slug) ?? null;
-				const target = appById.get(request.appId);
-				if (!target || !request.hostOrganizationId) return null;
+				const target = requestedApp(request);
+				if (!target) return null;
+				if (!request.hostOrganizationId) return request.appId ? null : target;
 				return aggregateSourceAllowed(
 					request.hostOrganizationId,
 					target.organizationId,
-					orgById,
+					trust,
 					providerGrants,
 				)
 					? target

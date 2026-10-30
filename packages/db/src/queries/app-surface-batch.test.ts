@@ -11,11 +11,13 @@ import {
 	appCatalogMcpPrompts,
 } from "../schema/catalog";
 import { appToolCspDomains } from "../schema/configuration";
+import { policyPacks } from "../schema/control-plane";
 import { organizations } from "../schema/organizations";
 import { providerInstallations } from "../schema/provider-installations";
 import { appTools } from "../schema/tools";
 import { createD1Facade } from "../test/d1-facade";
 import {
+	getAggregateAllowedSourceOrganizationIds,
 	getAppByIdWithToolsForOrganization,
 	getAppBySlugWithTools,
 	getAppsBySlugsWithTools,
@@ -54,6 +56,7 @@ const DDL = [
 	apps,
 	organizations,
 	providerInstallations,
+	policyPacks,
 ]
 	.map((table) => ddlFor(table as SQLiteTable))
 	.join("\n");
@@ -375,8 +378,8 @@ describe("getAppsBySlugsWithTools", () => {
 /**
  * Aggregate entries that carry a stable `appId` resolve by id, so renaming an
  * app's slug cannot break the link — but an id must never reach an app the
- * aggregate ownership rule refuses: the host's own organization or the Tedix
- * platform organization only (unless the host is the platform organization).
+ * aggregate ownership rule refuses: the host's own organization or an explicit
+ * installation/provider grant.
  */
 describe("getAppsBySlugsWithTools with id-linked entries", () => {
 	const PROXY_ID = "3f1c2a4e-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
@@ -456,6 +459,22 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 			"2026-07-31",
 			"2026-07-31",
 		);
+		fixture.sqlite
+			.prepare(
+				"INSERT INTO policy_packs (id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES ('trust', 'Trust', 'installation-trust', 'system', 'shared', 'active', 1, '2026-01-01T00:00:00.000Z', 'operator', ?)",
+			)
+			.run(
+				JSON.stringify({
+					installationTrust: {
+						version: 1,
+						aggregate: {
+							sharedSourceOrganizationIds: ["org-platform"],
+							aggregateHostOrganizationIds: ["org-platform"],
+						},
+						catalogScan: { endpoints: [] },
+					},
+				}),
+			);
 		return fixture;
 	}
 
@@ -481,6 +500,36 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 		]);
 		expect(legacy?.app.id).toBe(BASE_ID);
 		expect(linked?.app.id).toBe(PROXY_ID);
+	});
+
+	it("applies the same authority to legacy slug links with a host", async () => {
+		const { client, sqlite } = ownershipDb();
+		const requests = [
+			{ slug: "sample-private", hostOrganizationId: "org-acme" },
+			{ slug: "sample-private", hostOrganizationId: "org-sample" },
+			{ slug: "crm", hostOrganizationId: "org-acme" },
+		];
+		let surfaces = await getAppsBySlugsWithTools(client, requests);
+		expect(surfaces.map((row) => row?.app.id ?? null)).toEqual([
+			null,
+			FOREIGN_ID,
+			BASE_ID,
+		]);
+		sqlite.exec("DELETE FROM policy_packs");
+		surfaces = await getAppsBySlugsWithTools(client, requests);
+		expect(surfaces.map((row) => row?.app.id ?? null)).toEqual([
+			null,
+			FOREIGN_ID,
+			null,
+		]);
+		sqlite
+			.prepare(
+				"INSERT INTO provider_installations (id,provider_organization_id,customer_organization_id,status) VALUES ('provider-grant','org-sample','org-acme','active')",
+			)
+			.run();
+		expect(
+			(await getAppsBySlugsWithTools(client, [requests[0]!]))[0]?.app.id,
+		).toBe(FOREIGN_ID);
 	});
 
 	it("refuses an id naming another organization's app, without falling back to the slug", async () => {
@@ -523,6 +572,47 @@ describe("getAppsBySlugsWithTools with id-linked entries", () => {
 			{ slug: "x", appId: FOREIGN_ID, hostOrganizationId: "org-platform" },
 		]);
 		expect(foreign?.app.id).toBe(FOREIGN_ID);
+	});
+
+	it("refuses unconfigured names even when an organization matches an old platform name", async () => {
+		const { client, sqlite } = ownershipDb();
+		sqlite.exec("DELETE FROM policy_packs");
+		expect(
+			await getAppsBySlugsWithTools(client, [
+				{ slug: "crm", appId: BASE_ID, hostOrganizationId: "org-acme" },
+				{
+					slug: "sample-private",
+					appId: FOREIGN_ID,
+					hostOrganizationId: "org-platform",
+				},
+			]),
+		).toEqual([null, null]);
+	});
+
+	it("batches source authority without trusting names or exceeding D1 limits", async () => {
+		const { client, sqlite, statements } = ownershipDb();
+		const sources = [
+			"org-acme",
+			"org-platform",
+			...Array.from({ length: 110 }, (_, i) => `org-unrelated-${i}`),
+		];
+		expect(
+			await getAggregateAllowedSourceOrganizationIds(
+				client,
+				"org-acme",
+				sources,
+			),
+		).toEqual(new Set(["org-acme", "org-platform"]));
+		for (const sql of statements())
+			expect((sql.match(/\?/g) ?? []).length).toBeLessThanOrEqual(100);
+		sqlite.exec("DELETE FROM policy_packs");
+		expect(
+			await getAggregateAllowedSourceOrganizationIds(
+				client,
+				"org-acme",
+				sources,
+			),
+		).toEqual(new Set(["org-acme"]));
 	});
 
 	it("keeps id reads within D1's bound-parameter cap", async () => {

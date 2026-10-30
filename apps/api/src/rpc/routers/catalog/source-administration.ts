@@ -51,7 +51,12 @@ import {
 } from "../../../lib/mcp-subscriptions";
 import { requireCatalogOperatorAccess } from "../catalog-operator-access";
 import { resolveDriftReport } from "@tedix/db/queries/catalog/drift-reports";
-import { resolveTedixInternalScanHeaders as resolveFirstPartyScanHeaders } from "../../../lib/catalog-internal-scan";
+import {
+	getManagedCatalogScanEndpoint,
+	createManagedCatalogScanFetch,
+	resolveTedixInternalScanHeaders as resolveFirstPartyScanHeaders,
+} from "../../../lib/catalog-internal-scan";
+import { getInstallationTrustPolicy } from "@tedix/db/queries/installation-trust";
 import { syncCatalogAppFromStore } from "@tedix/db/queries/catalog/upsert-sync";
 import {
 	createCatalogVectorClient,
@@ -514,7 +519,9 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 
 		// Resolve auth headers from Descope AIH Token Vault if connectionId provided.
 		// Resolution chain: caller user credential → tenant credential.
+		const installationTrust = await getInstallationTrustPolicy(context.db);
 		const firstPartyAuthHeaders = resolveFirstPartyScanHeaders({
+			policy: installationTrust,
 			endpoint: mcpEndpointUrl,
 			platformServiceToken: (
 				context.env as CloudflareEnv & {
@@ -592,40 +599,16 @@ export const createFromEndpointCatalog = fleetCatalogOs.createFromEndpoint
 			}
 		}
 
-		// 1. Connect to the MCP server and discover capabilities
-		// For internal *.mcp.tedix.dev URLs, use the MCP_SERVICE
-		// service binding to avoid Cloudflare HTTP 522 errors (same-account loopback).
-		// The service binding is called with MCP_URL as the base, and the original
-		// hostname is forwarded via X-Tedix-Host for slug-based routing.
-		const isInternalMcpUrl = (() => {
-			try {
-				const { hostname } = new URL(mcpEndpointUrl);
-				return /^[^.]+\.mcp\.tedix\.dev$/.test(hostname);
-			} catch {
-				return false;
-			}
-		})();
-		let fetchFn:
-			| ((url: string, init?: RequestInit) => Promise<Response>)
-			| undefined;
-		if (isInternalMcpUrl && context.env.MCP_SERVICE && context.env.MCP_URL) {
-			const mcpHost = new URL(mcpEndpointUrl).hostname;
-			const mcpService = context.env.MCP_SERVICE;
-			fetchFn = (url: string, init?: RequestInit) => {
-				// Preserve the path/query from the client request but use the service base
-				const reqUrl = new URL(url);
-				const svcUrl = new URL(context.env.MCP_URL!);
-				svcUrl.pathname = reqUrl.pathname;
-				svcUrl.search = reqUrl.search;
-				return mcpService.fetch(svcUrl.toString(), {
-					...init,
-					headers: {
-						...(init?.headers as Record<string, string> | undefined),
-						"X-Tedix-Host": mcpHost,
-					},
-				});
-			};
-		}
+		const managedEndpoint = getManagedCatalogScanEndpoint(
+			mcpEndpointUrl,
+			installationTrust,
+		);
+		const fetchFn = managedEndpoint
+			? createManagedCatalogScanFetch(managedEndpoint, {
+					mcp: context.env.MCP_SERVICE,
+					cms: context.env.CMS,
+				})
+			: undefined;
 		const connectionResult = await connectMcpServer(mcpEndpointUrl, {
 			timeout: 30000,
 			fetchFn,

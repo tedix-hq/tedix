@@ -37,7 +37,11 @@ import {
 	toDescopeConnectionScopes,
 } from "@tedix/api-contract/utils/mcp-scope-catalog";
 import type { DbClient } from "@tedix/db/client";
-import { getAppMetadataJson, updateApp } from "@tedix/db/queries/app-records";
+import {
+	getAppMetadataJson,
+	getAggregateAllowedSourceOrganizationIds,
+	updateApp,
+} from "@tedix/db/queries/app-records";
 import {
 	listPreviewSourceAppsByIds,
 	listPreviewSourceAppsBySlugs,
@@ -133,18 +137,6 @@ function previewSlug(slug: string): string {
 	return slug.toLowerCase();
 }
 
-function previewSourceAllowed(
-	rootOrganizationId: string,
-	source: PreviewSourceAppRow,
-): boolean {
-	// The root tenant may reference its own apps or Tedix Cloud's shared apps.
-	return (
-		source.organizationId === rootOrganizationId ||
-		source.sourceOrgSlug === "tedix" ||
-		source.sourceOrgTenantId === "org_tedix"
-	);
-}
-
 function getAggregateApps(
 	mcpConfig: McpConfig | null | undefined,
 ): AggregateEntry[] {
@@ -213,6 +205,13 @@ async function loadPreviewGraph(
 				addCandidate(`id:${row.id}`, row);
 			}
 		}
+		const allowedOrganizations = await getAggregateAllowedSourceOrganizationIds(
+			db,
+			root.organizationId,
+			[...candidatesByRef.values()].flatMap((rows) =>
+				rows.map((row) => row.organizationId),
+			),
+		);
 		for (const ref of refs) {
 			const candidates = candidatesByRef.get(ref) ?? [];
 			// Slugs can repeat across organizations. Prefer the caller's own app;
@@ -220,9 +219,7 @@ async function loadPreviewGraph(
 			// An id names exactly one row, which must pass the same boundary.
 			const source =
 				candidates.find((row) => row.organizationId === root.organizationId) ??
-				candidates.find((row) =>
-					previewSourceAllowed(root.organizationId, row),
-				);
+				candidates.find((row) => allowedOrganizations.has(row.organizationId));
 			if (!source) {
 				unavailable.set(
 					ref,

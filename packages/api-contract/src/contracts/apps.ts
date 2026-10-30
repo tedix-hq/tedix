@@ -392,6 +392,7 @@ export const appsContract = oc
 			})
 			.input(
 				SlugParamSchema.extend({
+					hostOrganizationId: z.string().min(1).optional(),
 					endpointPrefixes: z
 						.array(z.string().min(1))
 						.optional()
@@ -424,8 +425,9 @@ export const appsContract = oc
 		 * its slug, so renaming an app's slug cannot break the link. An id entry
 		 * must name `hostOrganizationId` (the organization of the app whose
 		 * `aggregateApps` holds the entry); the target is returned only when it
-		 * belongs to that organization or to the Tedix platform organization, or
-		 * when the host itself is the platform organization. Otherwise `app: null`.
+		 * belongs to that organization or has an explicit installation/provider
+		 * grant. Ordinary callers are bound to their active organization even
+		 * when they omit or change the supplied host. Otherwise `app: null`.
 		 */
 		getBySlugsWithTools: oc
 			.route({

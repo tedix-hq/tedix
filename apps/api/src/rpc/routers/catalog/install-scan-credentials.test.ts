@@ -6,6 +6,9 @@ import {
 import { decryptCatalogAppSecret } from "@tedix/db/utils/secrets-encryption";
 import { resolveTedixInternalScanHeaders } from "../../../lib/catalog-internal-scan";
 import { resolveCatalogScanHeaders } from "./install-scan";
+vi.mock("@tedix/db/queries/installation-trust", () => ({
+	getInstallationTrustPolicy: async () => null,
+}));
 vi.mock("@tedix/auth/client", () => ({ getManagementClient: () => ({}) }));
 vi.mock("@tedix/auth/connections", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/auth/connections")>()),
@@ -21,7 +24,8 @@ vi.mock("@tedix/db/queries/organization-members", () => ({
 vi.mock("@tedix/db/utils/secrets-encryption", () => ({
 	decryptCatalogAppSecret: vi.fn(),
 }));
-vi.mock("../../../lib/catalog-internal-scan", () => ({
+vi.mock("../../../lib/catalog-internal-scan", async (original) => ({
+	...(await original<typeof import("../../../lib/catalog-internal-scan")>()),
 	resolveTedixInternalScanHeaders: vi.fn(),
 }));
 const context = {
@@ -84,4 +88,25 @@ describe("catalog scan credential fallback", () => {
 			} as never),
 		).toBeUndefined();
 	});
+});
+
+it("does not revive a stored Worker bearer after installation trust is revoked", async () => {
+	vi.mocked(decryptCatalogAppSecret).mockResolvedValue(
+		JSON.stringify({ authorization: "Bearer platform-token" }),
+	);
+	const revokedContext = {
+		db: {},
+		env: {
+			SECRETS_MASTER_KEY: "test",
+			PLATFORM_SERVICE_TOKEN: "platform-token",
+		},
+	} as never;
+	expect(
+		await resolveCatalogScanHeaders(
+			revokedContext,
+			{ id: "app", scanAuthHeaders: "encrypted" } as never,
+			"https://changed.example/mcp",
+			null,
+		),
+	).toBeUndefined();
 });

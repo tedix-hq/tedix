@@ -181,13 +181,9 @@ export async function prefetchAggregateEntries(
 		if (cacheable && internalToolInFlight.has(cacheKey)) continue;
 		wanted.set(cacheKey, {
 			slug: entry.slug,
-			...(entry.appId
-				? {
-						appId: entry.appId,
-						...(entry.hostOrganizationId
-							? { hostOrganizationId: entry.hostOrganizationId }
-							: {}),
-					}
+			...(entry.appId ? { appId: entry.appId } : {}),
+			...(entry.hostOrganizationId
+				? { hostOrganizationId: entry.hostOrganizationId }
 				: {}),
 			...selection,
 			cacheable,
