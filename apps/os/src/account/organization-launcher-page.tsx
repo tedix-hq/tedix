@@ -32,7 +32,7 @@ import {
 	resolveOsPlatformDomain,
 } from "@/account/launcher-routing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card } from "@/components/kumo/card";

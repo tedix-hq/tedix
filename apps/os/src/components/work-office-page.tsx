@@ -8,7 +8,7 @@ import {
 } from "@/lib/work-interaction-display";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import {
 	Collapsible,
 	CollapsibleContent,

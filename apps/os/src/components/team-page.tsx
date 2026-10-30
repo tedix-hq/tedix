@@ -1,7 +1,7 @@
 import "./tedis.css";
 import { TediSetupChip } from "@/components/tedi-setup";
 import { tediDescription } from "@/lib/tedi-description";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import {
 	ArrowRight,
 	CaretDown,

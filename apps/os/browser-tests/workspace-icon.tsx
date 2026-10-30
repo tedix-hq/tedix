@@ -4,7 +4,7 @@ import {
 	useQuery,
 } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
-import { EntityAvatar } from "../src/components/entity-avatar";
+import { EntityAvatar } from "../src/shared/entity-avatar";
 import { KumoLinkProvider } from "../src/components/kumo/link-provider";
 import { WorkspaceIconField } from "../src/components/workspace-icon-field";
 import { osQuery } from "../src/lib/os-query-options";

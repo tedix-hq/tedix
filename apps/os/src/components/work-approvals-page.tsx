@@ -12,7 +12,7 @@ import {
 	useApprovalInbox,
 } from "@/components/approval-inbox";
 import { BrowserTakeoverLiveView } from "@/components/browser-takeover-live-view";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";

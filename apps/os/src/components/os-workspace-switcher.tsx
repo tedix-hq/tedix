@@ -20,7 +20,7 @@ import {
 	DropdownMenuList,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 
 /** Above this many organizations the menu gets a search field. */

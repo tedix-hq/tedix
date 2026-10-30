@@ -18,7 +18,7 @@ import {
 	groupApprovalItems,
 	useApprovalInbox,
 } from "@/components/approval-inbox";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {

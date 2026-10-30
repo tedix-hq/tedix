@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { EntityAvatar } from "@/components/entity-avatar";
+import { EntityAvatar } from "@/shared/entity-avatar";
 import { type AppIconSource, appIconCandidates } from "@/lib/app-icon";
 import { cn } from "@/lib/utils";
 
