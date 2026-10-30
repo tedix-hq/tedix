@@ -1567,6 +1567,7 @@ export class LaneDispatcher {
 							]!,
 					},
 					detachedChild: true,
+					forwardSignals: false,
 					admitted: true,
 					deliverWorkNote:
 						executor === "devin"

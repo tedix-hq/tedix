@@ -310,6 +310,7 @@ function fixture({
 				),
 			);
 			expect(brief).toContain("Do not pass one -m per trailer");
+			expect(deps?.forwardSignals).toBe(false);
 			if (control.spawnPid) deps?.onSpawn?.(control.spawnPid);
 			await new Promise<void>((done) => releases.push(done));
 			if (control.deliverNote)

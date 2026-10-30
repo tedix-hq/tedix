@@ -44,6 +44,42 @@ function fixture() {
 	return { args, out };
 }
 describe("lane launcher", () => {
+	it.each([true, false])(
+		"signal forwarding can yield to dispatcher drain: %s",
+		async (forwardSignals) => {
+			const { args, out } = fixture();
+			const release = `${out}.release`;
+			writeFileSync(
+				args.at(-1)!,
+				`const fs=require('node:fs'); process.stdin.resume(); fs.writeFileSync(${codeModeLiteral(out)},'{}'); setInterval(()=>{if(fs.existsSync(${codeModeLiteral(release)}))process.exit(0)},5);`,
+			);
+			const previous = new Set(process.listeners("SIGTERM"));
+			let draining = false;
+			const stop = () => {
+				draining = true;
+			};
+			process.on("SIGTERM", stop);
+			try {
+				const run = runLaneProcess(args, {
+					forwardSignals,
+					report: async () => ({}),
+				});
+				for (let n = 0; n < 200 && !existsSync(out); n++)
+					await new Promise((done) => setTimeout(done, 5));
+				expect(existsSync(out)).toBe(true);
+				for (const listener of process.listeners("SIGTERM"))
+					if (!previous.has(listener)) listener.call(process, "SIGTERM");
+				expect(draining).toBe(true);
+				if (!forwardSignals) writeFileSync(release, "done");
+				const result = await run;
+				if (forwardSignals) expect(result).not.toBe(0);
+				else expect(result).toBe(0);
+			} finally {
+				process.off("SIGTERM", stop);
+			}
+		},
+	);
+
 	it("keeps the Work title in every report and child hook despite wrapper preambles", async () => {
 		const { args, out } = fixture();
 		writeFileSync(
