@@ -1111,6 +1111,56 @@ export function buildWorkAttemptSettlementMetadata(params: {
 	} as Record<string, JsonValue>;
 }
 
+export async function listLatestWorkAttemptSummaries(
+	db: DbQueryClient,
+	params: { orgId: string; workItemIds: string[] },
+) {
+	const summaries = new Map<
+		string,
+		{
+			attemptId: string;
+			runtimeState: WorkAttemptRuntimeState;
+			outcome: WorkAttemptOutcome | null;
+			finishedAt: string | null;
+			workItemVersion: number | null;
+		}
+	>();
+	const ids = [...new Set(params.workItemIds)];
+	for (let offset = 0; offset < ids.length; offset += 50) {
+		const rows = await db
+			.select({
+				workItemId: workAttempts.workItemId,
+				attemptId: workAttempts.id,
+				runtimeState: workAttempts.runtimeState,
+				outcome: workAttempts.outcome,
+				finishedAt: workAttempts.finishedAt,
+				workItemVersion: sql<
+					number | null
+				>`json_extract(${workAttempts.metadata}, '$.dispatchVersion')`,
+			})
+			.from(workAttempts)
+			.where(
+				and(
+					eq(workAttempts.orgId, params.orgId),
+					// bound-params: at most 50 Work ids plus the organization.
+					inArray(workAttempts.workItemId, ids.slice(offset, offset + 50)),
+					sql`${workAttempts.id} = (SELECT latest.id FROM work_attempts latest
+				WHERE latest.org_id = ${workAttempts.orgId}
+				AND latest.work_item_id = ${workAttempts.workItemId}
+				ORDER BY latest.started_at DESC, latest.id DESC LIMIT 1)`,
+				),
+			);
+		for (const { workItemId, ...row } of rows)
+			summaries.set(workItemId, {
+				...row,
+				workItemVersion: Number.isInteger(row.workItemVersion)
+					? row.workItemVersion
+					: null,
+			});
+	}
+	return summaries;
+}
+
 export async function listWorkItemAttempts(
 	db: DbQueryClient,
 	params: {

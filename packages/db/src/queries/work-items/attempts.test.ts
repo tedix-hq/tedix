@@ -4,6 +4,7 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
 	buildWorkAttemptSettlementMetadata,
+	listLatestWorkAttemptSummaries,
 	recordWorkAttemptRepository,
 } from "./attempts";
 
@@ -41,6 +42,37 @@ function fixture() {
 		);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
+
+describe("latest Work Attempt summaries", () => {
+	it("returns the newest canonical result without crossing organizations or requested Work", async () => {
+		const { sqlite, db } = fixture();
+		sqlite.exec(`INSERT INTO work_attempts
+			(id,work_item_id,org_id,executor_type,executor_id,runtime_state,outcome,attempt_number,started_at,heartbeat_at,finished_at,metadata)
+			VALUES ('new','${IDS.workItemId}','org','tedi','worker','finished','succeeded',2,'2026-10-02','2026-10-02','2026-10-02','{"dispatchVersion":7}'),
+			('foreign','${IDS.workItemId}','other','tedi','worker','failed','failed',3,'2026-10-03','2026-10-03','2026-10-03','{}');`);
+		const rows = await listLatestWorkAttemptSummaries(db, {
+			orgId: "org",
+			workItemIds: [IDS.workItemId, "absent"],
+		});
+		expect(rows.size).toBe(1);
+		expect(rows.get(IDS.workItemId)).toEqual({
+			attemptId: "new",
+			runtimeState: "finished",
+			outcome: "succeeded",
+			finishedAt: "2026-10-02",
+			workItemVersion: 7,
+		});
+		expect(
+			(
+				await listLatestWorkAttemptSummaries(db, {
+					orgId: "org",
+					workItemIds: [],
+				})
+			).size,
+		).toBe(0);
+		sqlite.close();
+	});
+});
 
 const repository = {
 	version: 1 as const,

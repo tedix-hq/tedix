@@ -502,8 +502,11 @@ expose its PID/session record, version and model through metadata-only control
 requests before admission. Unsupported CLI versions fail before a model turn.
 Both preserve the configured model and permissions. The existing lane wrapper
 reports telemetry; the dispatcher heartbeats and settles the exact Attempt with
-its result and parsed usage. The server watcher detects stale lanes; the native
-coordinator reviews results and decides Work completion or retry.
+its result and parsed usage. After success it requests Work completion under
+the same session. A denied or interrupted completion stays in its receipt for
+up to five retries; it never relaunches the worker to close the item. The server
+watcher detects stale lanes. Completion records the reported outcome; it does
+not independently verify the result.
 
 `--max` defaults to 5. One dispatcher per organization and executor runs on a
 machine; retained live process groups consume slots after restart. Completed

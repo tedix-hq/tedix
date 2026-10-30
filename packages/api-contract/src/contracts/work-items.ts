@@ -61,6 +61,7 @@ import {
 	WorkGraphHealthReportSchema,
 	WorkGraphStewardOutcomeSchema,
 	WorkAttemptSchema,
+	WorkAttemptSummarySchema,
 	WorkAttemptRepositoryRequestSchema,
 	WorkAttemptRepositorySchema,
 	WorkAttemptRepositoryLifecycleSchema,
@@ -118,6 +119,11 @@ const JsonRecordSchema = z.record(z.string(), z.unknown());
  * an older server.
  */
 export const WorkItemListRowSchema = WorkItemSchema.extend({
+	latestAttempt: WorkAttemptSummarySchema.nullable()
+		.optional()
+		.describe(
+			"Latest canonical Attempt summary. Null means no Attempt; absent means the server does not report it. A succeeded Attempt is not Work completion.",
+		),
 	activeAttempt: z
 		.object({
 			attemptId: z.string(),
