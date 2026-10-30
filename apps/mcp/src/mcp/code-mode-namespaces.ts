@@ -257,6 +257,7 @@ function balancedArgument(code: string, from: number): string | null {
 
 export function extractCodeModeProviderNamespacesFromCode(
 	code: string,
+	includeDiscoveryTargets = true,
 ): Set<string> | null {
 	// Discovery normally needs the whole catalog. When every `discover` call in
 	// the program names its target with a JSON literal (describe("ns.tool"),
@@ -271,7 +272,9 @@ export function extractCodeModeProviderNamespacesFromCode(
 		hasOpaqueNamespaceCalls(masked, CODEMODE_BUILTIN_GLOBALS)
 	)
 		return null;
-	const discoveryNamespaces = literalDiscoveryNamespaces(code, masked);
+	const discoveryNamespaces = includeDiscoveryTargets
+		? literalDiscoveryNamespaces(code, masked)
+		: new Set<string>();
 	if (discoveryNamespaces === null) return null;
 	const namespaces = new Set<string>();
 	const callPattern =
@@ -309,4 +312,16 @@ export function extractCodeModeProviderNamespacesFromCode(
 		}
 	}
 	return namespaces;
+}
+
+/** Discovery reads catalog rows; it does not need every executable SDK binding. */
+export function extractCodeModeExecutionNamespacesFromCode(
+	code: string,
+): Set<string> | null {
+	const { masked } = maskCodeModeLiterals(code, true);
+	// Keep every binding when execution can select a namespace indirectly, or
+	// when flow chooses a runner at runtime. This is an allocation optimization,
+	// never an authorization boundary.
+	if (/\b(?:globalThis|eval|Function)\b|\bflow\b/.test(masked)) return null;
+	return extractCodeModeProviderNamespacesFromCode(code, false);
 }

@@ -287,6 +287,64 @@ function emitCodeModeAuthorizationDenied(
 	);
 }
 
+/** Enumerating names must not allocate executable closures for the full catalog. */
+function lazyRecord<T>(
+	names: string[],
+	read: (name: string) => T,
+): Record<string, T> {
+	const known = new Set(names);
+	return new Proxy(Object.create(null) as Record<string, T>, {
+		ownKeys: () => names,
+		getOwnPropertyDescriptor: (_, name) =>
+			typeof name === "string" && known.has(name)
+				? { configurable: true, enumerable: true }
+				: undefined,
+		get: (_, name) =>
+			typeof name === "string" && known.has(name) ? read(name) : undefined,
+	});
+}
+
+export function buildLazyNamespaceGroups(
+	serverCtx: ServerContext,
+	namespaceOverrides: Record<string, string> | undefined,
+	executionRefs: CodeModeExecutionRefs,
+	collisionKeys: ReadonlySet<string>,
+): Map<string, NamespaceGroup> {
+	const names = new Map<string, string[]>();
+	for (const [toolId, tool] of serverCtx.loadedTools) {
+		const { namespace, safeName, ownerKey } = projectedToolIdentity(
+			toolId,
+			tool,
+			namespaceOverrides,
+		);
+		if (collisionKeys.has(ownerKey)) continue;
+		if (!names.has(namespace)) names.set(namespace, []);
+		names.get(namespace)!.push(safeName);
+	}
+	return new Map(
+		[...names].map(([namespace]) => {
+			let group: NamespaceGroup | undefined;
+			const load = () =>
+				(group ??= buildNamespaceGroups(
+					serverCtx,
+					namespaceOverrides,
+					executionRefs,
+					collisionKeys,
+					new Set([namespace]),
+				).get(namespace)!);
+			return [
+				namespace,
+				{
+					fns: lazyRecord(names.get(namespace)!, (name) => load().fns[name]!),
+					get schemas() {
+						return load().schemas;
+					},
+				},
+			];
+		}),
+	);
+}
+
 export function buildNamespaceGroups(
 	serverCtx: ServerContext,
 	namespaceOverrides: Record<string, string> | undefined,
@@ -294,6 +352,7 @@ export function buildNamespaceGroups(
 	collisionKeys: ReadonlySet<string> = new Set(
 		codeModeCollisionOwners(serverCtx, namespaceOverrides).keys(),
 	),
+	namespaceFilter?: ReadonlySet<string>,
 ): Map<string, NamespaceGroup> {
 	const groups = new Map<string, NamespaceGroup>();
 	const toolOwners = new Map<string, string>();
@@ -304,6 +363,7 @@ export function buildNamespaceGroups(
 			safeName,
 			ownerKey,
 		} = projectedToolIdentity(toolId, tool, namespaceOverrides);
+		if (namespaceFilter && !namespaceFilter.has(ns)) continue;
 		if (collisionKeys.has(ownerKey)) continue;
 		toolOwners.set(ownerKey, toolId);
 
@@ -774,7 +834,7 @@ export function legacyNamespaceAliases(
 ): Map<string, Record<string, NamespaceGroup["fns"][string]>> {
 	const candidates = new Map<
 		string,
-		Map<string, Array<NamespaceGroup["fns"][string]>>
+		Map<string, Array<{ namespace: string; name: string }>>
 	>();
 	for (const [toolId, tool] of serverCtx.loadedTools) {
 		const legacy = tool.config?._aggregateLegacyNamespace;
@@ -785,11 +845,19 @@ export function legacyNamespaceAliases(
 			namespaceOverrides,
 		);
 		const legacyNamespace = legacy.replace(/[^a-zA-Z0-9_]/g, "_");
-		const fn = namespaceGroups.get(namespace)?.fns[safeName];
-		if (!fn || collisionKeys.has(ownerKey) || legacyNamespace === namespace)
+		const fns = namespaceGroups.get(namespace)?.fns;
+		if (
+			!fns ||
+			!Object.hasOwn(fns, safeName) ||
+			collisionKeys.has(ownerKey) ||
+			legacyNamespace === namespace
+		)
 			continue;
 		const names = candidates.get(legacyNamespace) ?? new Map();
-		names.set(safeName, [...(names.get(safeName) ?? []), fn]);
+		names.set(safeName, [
+			...(names.get(safeName) ?? []),
+			{ namespace, name: safeName },
+		]);
 		candidates.set(legacyNamespace, names);
 	}
 	const aliases = new Map<
@@ -798,13 +866,20 @@ export function legacyNamespaceAliases(
 	>();
 	for (const [legacyNamespace, names] of candidates) {
 		const own = namespaceGroups.get(legacyNamespace)?.fns ?? {};
-		const fns: Record<string, NamespaceGroup["fns"][string]> = {};
-		for (const [name, owners] of names) {
-			if (owners.length === 1 && !Object.hasOwn(own, name)) {
-				fns[name] = owners[0]!;
-			}
-		}
-		if (Object.keys(fns).length > 0) aliases.set(legacyNamespace, fns);
+		const available = [...names].filter(
+			([name, owners]) => owners.length === 1 && !Object.hasOwn(own, name),
+		);
+		if (available.length > 0)
+			aliases.set(
+				legacyNamespace,
+				lazyRecord(
+					available.map(([name]) => name),
+					(name) => {
+						const owner = names.get(name)![0]!;
+						return namespaceGroups.get(owner.namespace)!.fns[owner.name]!;
+					},
+				),
+			);
 	}
 	return aliases;
 }
@@ -818,7 +893,13 @@ export function withLegacyNamespaceAliases(
 		return extra
 			? {
 					...provider,
-					fns: { ...(extra as ResolvedProvider["fns"]), ...provider.fns },
+					fns: lazyRecord(
+						[...new Set([...Object.keys(extra), ...Object.keys(provider.fns)])],
+						(name) =>
+							Object.hasOwn(provider.fns, name)
+								? provider.fns[name]!
+								: (extra[name] as ResolvedProvider["fns"][string]),
+					),
 				}
 			: provider;
 	});
@@ -837,33 +918,28 @@ function withInnerErrorTransport(provider: ResolvedProvider): ResolvedProvider {
 	const names = Object.keys(provider.fns);
 	return {
 		...provider,
-		fns: Object.fromEntries(
-			names.map((name) => [
-				name,
-				async (...args: unknown[]) => {
-					try {
-						return await provider.fns[name]!(...args);
-					} catch (error) {
-						const detail = error as { code?: unknown; status?: unknown } | null;
-						if (
-							error instanceof Error &&
-							(typeof detail?.code === "string" ||
-								typeof detail?.status === "number")
-						) {
-							throw new Error(
-								INNER_ERROR_PREFIX +
-									JSON.stringify({
-										message: error.message,
-										code: detail.code,
-										status: detail.status,
-									}),
-							);
-						}
-						throw error;
-					}
-				},
-			]),
-		),
+		fns: lazyRecord(names, (name) => async (...args: unknown[]) => {
+			try {
+				return await provider.fns[name]!(...args);
+			} catch (error) {
+				const detail = error as { code?: unknown; status?: unknown } | null;
+				if (
+					error instanceof Error &&
+					(typeof detail?.code === "string" ||
+						typeof detail?.status === "number")
+				) {
+					throw new Error(
+						INNER_ERROR_PREFIX +
+							JSON.stringify({
+								message: error.message,
+								code: detail.code,
+								status: detail.status,
+							}),
+					);
+				}
+				throw error;
+			}
+		}),
 		prelude: [
 			provider.prelude,
 			`

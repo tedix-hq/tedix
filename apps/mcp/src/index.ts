@@ -1160,6 +1160,9 @@ const worker = {
 						markAuth("grant");
 						if (!resolved.ok) return humanMcpGrantFailureResponse(resolved);
 						const selection = resolved.selection;
+						// A refreshed provider token cannot exceed this installation's consent.
+						if (selection.effectiveScopes !== undefined)
+							authResult.scopes = selection.effectiveScopes;
 						if (config?.multiOrgConsent === true) multiOrgSelection = selection;
 						else if (
 							selection.organizations.length !== 1 ||
