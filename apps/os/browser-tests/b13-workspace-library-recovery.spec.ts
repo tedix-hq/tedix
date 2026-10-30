@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 
-const directory =
-	"/Users/aaron/.claude/jobs/dd60d3ff/tmp/b13-workspace-library-recovery";
-await mkdir(directory, { recursive: true });
+const directory = await mkdtemp(
+	join(tmpdir(), "tedix-workspace-library-recovery-"),
+);
 const probe = Bun.serve({
 	port: 0,
 	hostname: "127.0.0.1",

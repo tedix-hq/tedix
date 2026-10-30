@@ -15,7 +15,7 @@ describe("buildOperatorConsentHeader", () => {
 		const header = buildOperatorConsentHeader({
 			skillRunId: "run-1",
 			skillId: "skill-1",
-			skillRunCreatedBy: "user:U39z24M4F456C31EdxA3a39gsuLH",
+			skillRunCreatedBy: "user:U000000000000000000000000000",
 		});
 		expect(header).not.toBeNull();
 		const envelope = JSON.parse(header!) as Record<string, unknown>;
@@ -23,7 +23,7 @@ describe("buildOperatorConsentHeader", () => {
 			v: 1,
 			runId: "run-1",
 			skillId: "skill-1",
-			createdBy: "user:U39z24M4F456C31EdxA3a39gsuLH",
+			createdBy: "user:U000000000000000000000000000",
 			attestedBy: "tedix-mcp-gateway",
 		});
 	});

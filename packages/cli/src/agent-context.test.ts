@@ -35,9 +35,9 @@ afterAll(() => {
 		process.env.CLAUDE_CODE_SESSION_ID = hostClaudeSession;
 });
 
-const PROJECT = "b63b48b5-3c12-49b4-b508-d7a407676c12";
-const WORK = "4faadb1d-dfb5-4930-84d4-39bda2160c46";
-const OTHER_WORK = "ac651d65-a993-4e57-aa05-d4c45c78cfda";
+const PROJECT = "5eed0001-0000-4000-8000-000000000001";
+const WORK = "5eed0002-0000-4000-8000-000000000002";
+const OTHER_WORK = "5eed0003-0000-4000-8000-000000000003";
 function git(cwd: string, args: string[]): string {
 	return execFileSync("git", args, {
 		cwd,
