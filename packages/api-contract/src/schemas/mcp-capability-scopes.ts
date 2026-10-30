@@ -461,6 +461,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// (list=read, create=write, apply=write via ACCESS_LEVEL_OVERRIDES).
 	create_role_template: "mcp:tedis",
 	list_role_templates: "mcp:tedis",
+	copy_platform_role_template: "mcp:tedis",
 	apply_role_template: "mcp:tedis",
 	apply_skill_proposal: "mcp:skills",
 	approve_skill_workflow: "mcp:skills",
