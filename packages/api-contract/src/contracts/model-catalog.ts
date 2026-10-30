@@ -16,7 +16,7 @@ import { ModelProviderIdSchema } from "../schemas/model-catalog";
  * tool), and MCP itself — reads this, not a hand-maintained list.
  *
  * It is a PROJECTION over the canonical owners, never a second source of truth:
- * the cognition catalog (`COGNITION_MODEL_CATALOG`), the entitlement admission
+ * the trusted model catalog, the entitlement admission
  * helpers (`getRuntimeEntitlement` / `runtimeEntitlementIsActive`), the AI
  * Gateway admission policy (`resolveAiGatewayAdmissionPolicy`), the tedi's
  * runtime overrides / runtime profile, and the Agent runtime's provider set.

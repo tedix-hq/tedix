@@ -26,7 +26,7 @@ import {
 	getTediRuntimeGovernance,
 } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
-import { selectAzureDeployment } from "./ai-sdk-adapter";
+import { parseModelRef } from "@tedix/api-contract/schemas/model-catalog";
 import { TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION } from "./artifacts-contract";
 import type { ArtifactsPushReceipt } from "./artifacts-git";
 import type { HttpPlatformClient } from "./brain/platform-client";
@@ -935,10 +935,12 @@ export const runtimeParentTurns = {
 	observerDeploymentForTurn(this: RuntimeParentTurnsHost): string {
 		const override = this.modelOverrideForSurface("observer");
 		if (!override) return this.env.AZURE_OBSERVER_DEPLOYMENT;
-		return selectAzureDeployment(
-			{ AZURE_CHAT_DEPLOYMENT: this.env.AZURE_OBSERVER_DEPLOYMENT },
-			override,
-		);
+		// Preserve the requested identity; observerCompletion validates it against
+		// the trusted catalog at its asynchronous dispatch boundary.
+		const selected = parseModelRef(override.modelRef);
+		return selected?.provider === "azure-openai"
+			? selected.modelId
+			: this.env.AZURE_OBSERVER_DEPLOYMENT;
 	},
 	/**
 	 * Resolve this tedi's per-role model policy from the control plane

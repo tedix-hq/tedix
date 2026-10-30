@@ -28,8 +28,7 @@ vi.mock("../../../lib/traced-ai", () => ({
 
 const mockKernelModel = vi.fn();
 vi.mock("./llm", () => ({
-	KERNEL_ROUTE_MODEL_REF_DEFAULT: "azure-openai/gpt-6.1-sol",
-	kernelModel: (...args: unknown[]) => mockKernelModel(...args),
+	configuredKernelRouteModel: (...args: unknown[]) => mockKernelModel(...args),
 }));
 
 import type { TediSessionMessage } from "@tedix/tedi-session/session-harness";
@@ -74,10 +73,10 @@ describe("historySummaryOutputTokens", () => {
 });
 
 describe("createKernelHistorySummarizer", () => {
-	it("returns undefined when no model is available", () => {
+	it("returns undefined when no model is available", async () => {
 		resetMocks();
 		mockKernelModel.mockReturnValue(null);
-		expect(createKernelHistorySummarizer({}, GATEWAY)).toBeUndefined();
+		expect(await createKernelHistorySummarizer({}, GATEWAY)).toBeUndefined();
 		expect(mockGenerateText).not.toHaveBeenCalled();
 	});
 
@@ -93,7 +92,7 @@ describe("createKernelHistorySummarizer", () => {
 		});
 		mockGenerateText.mockResolvedValue({ text: "## Goal\nfine" });
 
-		const summarize = createKernelHistorySummarizer({}, GATEWAY);
+		const summarize = await createKernelHistorySummarizer({}, GATEWAY);
 		await summarize?.({
 			systemPrompt: "SYSTEM",
 			transcript: '<transcript untrusted="true"></transcript>',
@@ -103,7 +102,7 @@ describe("createKernelHistorySummarizer", () => {
 
 		// Cost attribution (AI Gateway metadata, built inside kernelModel) and
 		// span attribution must name the same surface.
-		expect(mockKernelModel.mock.calls[0]?.[2]).toMatchObject({
+		expect(mockKernelModel.mock.calls[0]?.[1]).toMatchObject({
 			organizationId: "org-summarize",
 			source: HISTORY_SUMMARY_SOURCE,
 		});
@@ -143,7 +142,7 @@ describe("createKernelHistorySummarizer", () => {
 			}),
 		);
 
-		const summarize = createKernelHistorySummarizer({}, GATEWAY);
+		const summarize = await createKernelHistorySummarizer({}, GATEWAY);
 		await expect(
 			summarize?.({
 				systemPrompt: "SYSTEM",
@@ -177,7 +176,7 @@ describe("createKernelHistorySummarizer", () => {
 		});
 		mockGenerateText.mockResolvedValue({ text: "   " });
 
-		const summarize = createKernelHistorySummarizer({}, GATEWAY);
+		const summarize = await createKernelHistorySummarizer({}, GATEWAY);
 		await expect(
 			summarize?.({
 				systemPrompt: "SYSTEM",
@@ -204,7 +203,7 @@ describe("compaction through the production summarizer", () => {
 			text: "## Goal\nreconcile the ledger",
 		});
 
-		const summarize = createKernelHistorySummarizer({}, GATEWAY);
+		const summarize = await createKernelHistorySummarizer({}, GATEWAY);
 		expect(summarize).toBeDefined();
 		const result = await compactKernelHistory(transcript(10), {
 			...BUDGET,
@@ -235,7 +234,7 @@ describe("compaction through the production summarizer", () => {
 		});
 		mockGenerateText.mockRejectedValue(new Error("gateway timeout"));
 
-		const summarize = createKernelHistorySummarizer({}, GATEWAY);
+		const summarize = await createKernelHistorySummarizer({}, GATEWAY);
 		const result = await compactKernelHistory(transcript(10), {
 			...BUDGET,
 			...(summarize ? { summarize } : {}),
@@ -252,7 +251,7 @@ describe("compaction through the production summarizer", () => {
 		resetMocks();
 		mockKernelModel.mockReturnValue(null);
 
-		const summarize = createKernelHistorySummarizer({}, GATEWAY);
+		const summarize = await createKernelHistorySummarizer({}, GATEWAY);
 		const result = await compactKernelHistory(transcript(10), {
 			...BUDGET,
 			...(summarize ? { summarize } : {}),

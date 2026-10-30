@@ -1,3 +1,4 @@
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 /**
  * Blueprint dependency preflight: read-only resolution of one pinned blueprint
  * revision's typed requirements against the CALLER's organization.
@@ -398,7 +399,10 @@ async function resolveRuntimeDecision(input: {
 		};
 	}
 	const entry = parseModelRef(chatModelRef)
-		? findCatalogEntry(chatModelRef)
+		? findCatalogEntry(
+				chatModelRef,
+				(await getModelCatalogConfig(input.db)).entries,
+			)
 		: undefined;
 	if (!entry) {
 		// Unknown stays unknown: an off-catalog ref is not evidence of either

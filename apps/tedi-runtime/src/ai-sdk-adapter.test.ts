@@ -1,3 +1,20 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("azure-openai/gpt-5.6-terra", {}),
+	modelCatalogEntry("cloudflare/auto", {}),
+]);
+const selectAzureDeployment = (
+	...args: Parameters<typeof configured_selectAzureDeployment>
+) => {
+	const values = [...args];
+	values[2] ??= fixtureCatalog.entries;
+	return configured_selectAzureDeployment(
+		...(values as Parameters<typeof configured_selectAzureDeployment>),
+	);
+};
 import { privateInferenceOriginGuard } from "./runtime-inference-origin";
 /**
  * Standalone assertions for `selectAzureDeployment` — the shared-catalog
@@ -21,7 +38,7 @@ import {
 	azureGatewayRequest,
 	DEFAULT_AI_REQUEST_TIMEOUT_MS,
 	resolveAiRequestTimeoutMs,
-	selectAzureDeployment,
+	selectAzureDeployment as configured_selectAzureDeployment,
 } from "./ai-sdk-adapter";
 import { aigMetadataHeader } from "./llm";
 

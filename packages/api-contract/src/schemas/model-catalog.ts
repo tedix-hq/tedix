@@ -1,28 +1,4 @@
-/**
- * Shared cognition-layer provider / model catalog + per-turn override contract.
- *
- * BOTH cognition bodies resolve their LLM straight from worker env today: the
- * isolate (`apps/tedi-runtime/src/ai-sdk-adapter.ts → azureModel`) and the
- * kernel route planner (`apps/api/src/rpc/routers/kernel/llm.ts → kernelModel`)
- * each read `AZURE_*` and build an Azure provider. This module is the small,
- * SECRET-FREE seam they share: it SELECTS and VALIDATES which provider/model a
- * turn runs on; it never stores credentials (those stay in the environment).
- *
- * Design goals (all additive — the default path is byte-for-byte today's Azure
- * deployment):
- *
- *   1. A canonical `provider/model-id` model-ref shared by Agent-runtime and
- *      kernel model selection.
- *   2. A per-turn {@link ModelOverride} contract a caller MAY pass to pick a
- *      different catalog model — validated against an allowlist + the set of
- *      providers actually wired in this environment.
- *   3. {@link sanitizeModelOverride} applies provider-available and
- *      allow-predicate gates so an override that names an unconfigured provider
- *      or disallowed model degrades to `null` (caller falls back to its default)
- *      instead of pointing at a model the environment can't serve.
- *   4. {@link resolveModelSelection} returns the effective selection; with no
- *      override it returns the default ref unchanged.
- */
+/** Shared model references, configured catalog entries, and selection policy. */
 
 import * as z from "zod";
 
@@ -56,7 +32,7 @@ export type ModelProviderId = z.infer<typeof ModelProviderIdSchema>;
 /** Separator between the provider and model-id segments of a model-ref. */
 export const MODEL_REF_SEPARATOR = "/";
 
-/** Platform default for adaptive, policy-compatible inference. */
+/** Protocol identity for Cloudflare adaptive routing. */
 export const CLOUDFLARE_AUTO_MODEL_REF = "cloudflare/auto";
 
 export interface ParsedModelRef {
@@ -161,235 +137,78 @@ export type ModelGovernance = z.infer<typeof ModelGovernanceSchema>;
  * Minimal catalog entry. This is only the cognition-layer selection surface:
  * the canonical ref plus the flags a planner/router needs to pick sensibly.
  */
-export interface ModelCatalogEntry {
-	ref: string;
-	provider: ModelProviderId;
-	modelId: string;
-	label: string;
-	reasoning: boolean;
-	tier: "economy" | "balanced" | "frontier";
-	/**
-	 * Declared image-input capability. This is a claim about the SERVING PATH,
-	 * not about the model's weights: a model that accepts images upstream but
-	 * whose adapter here drops file parts is `unsupported`, because an image
-	 * attached to that turn never reaches it.
-	 */
-	imageInput: ModelImageInputSupport;
-	/** Typed sovereignty/reproducibility facts used by policy before execution. */
-	governance: ModelGovernance;
-	/**
-	 * `active` refs may be offered for new selections. `superseded` refs remain
-	 * resolvable for existing stored selections but must not appear in pickers or
-	 * seed a new default.
-	 */
-	lifecycle: ModelCatalogLifecycle;
-}
+export const ModelCatalogEntrySchema = z
+	.strictObject({
+		ref: ModelRefSchema,
+		provider: ModelProviderIdSchema,
+		modelId: z.string().trim().min(1).max(300),
+		label: z.string().trim().min(1).max(200),
+		reasoning: z.boolean(),
+		tier: z.enum(["economy", "balanced", "frontier"]),
+		imageInput: ModelImageInputSupportSchema,
+		governance: ModelGovernanceSchema,
+		lifecycle: ModelCatalogLifecycleSchema,
+		maxOutputTokens: z.number().int().positive().max(128_000).optional(),
+		reasoningEfforts: z
+			.array(z.enum(["none", "low", "medium", "high", "xhigh", "max"]))
+			.min(1)
+			.optional(),
+	})
+	.superRefine((entry, ctx) => {
+		if (entry.ref !== buildModelRef(entry.provider, entry.modelId))
+			ctx.addIssue({
+				code: "custom",
+				message: "Model ref must match its provider and model id",
+				path: ["ref"],
+			});
+		if (entry.provider === "cloudflare" && entry.modelId !== "auto")
+			ctx.addIssue({
+				code: "custom",
+				message: "Cloudflare routing requires the auto protocol model",
+				path: ["modelId"],
+			});
+		if (entry.provider === "workers-ai" && entry.imageInput === "supported")
+			ctx.addIssue({
+				code: "custom",
+				message: "Workers AI adapter does not carry image input",
+				path: ["imageInput"],
+			});
+	});
+export type ModelCatalogEntry = z.infer<typeof ModelCatalogEntrySchema>;
 
-function azureEntry(
-	modelId: string,
-	label: string,
-	reasoning: boolean,
-	tier: ModelCatalogEntry["tier"],
-	imageInput: ModelImageInputSupport,
-	lifecycle: ModelCatalogLifecycle,
-): ModelCatalogEntry {
-	return {
-		ref: buildModelRef("azure-openai", modelId),
-		provider: "azure-openai",
-		modelId,
-		label,
-		reasoning,
-		tier,
-		imageInput,
-		governance: {
-			weightAccess: "closed-weights",
-			residencyControl: "customer-provider",
-			routingMode: "fixed",
-		},
-		lifecycle,
-	};
-}
-
-/**
- * Workers AI entries are `unsupported` for image input WITHOUT exception, and
- * that is an adapter fact rather than a per-model guess: `toWorkersAiMessages`
- * (`@tedix/workers-ai/model`, now the single implementation — both app copies
- * are gone) flattens a user turn's content to text and renders every non-text
- * part as the literal `[file]`, so no image reaches ANY `@cf/...` model on this
- * path.
- */
-function workersAiEntry(
-	modelId: string,
-	label: string,
-	reasoning: boolean,
-	tier: ModelCatalogEntry["tier"],
-	lifecycle: ModelCatalogLifecycle,
-): ModelCatalogEntry {
-	return {
-		ref: buildModelRef("workers-ai", modelId),
-		provider: "workers-ai",
-		modelId,
-		label,
-		reasoning,
-		tier,
-		imageInput: "unsupported",
-		governance: {
-			weightAccess: "open-weights",
-			residencyControl: "cloudflare-network",
-			routingMode: "fixed",
-		},
-		lifecycle,
-	};
-}
-
-function cloudflareAutoEntry(): ModelCatalogEntry {
-	return {
-		ref: buildModelRef("cloudflare", "auto"),
-		provider: "cloudflare",
-		modelId: "auto",
-		label: "Auto",
-		reasoning: true,
-		tier: "balanced",
-		imageInput: "supported",
-		governance: {
-			weightAccess: "mixed",
-			residencyControl: "router-selected",
-			routingMode: "adaptive",
-		},
-		lifecycle: "active",
-	};
-}
-
-/**
- * The cognition-layer catalog. Azure deployment ids MUST match the Azure
- * resource's actual deployment names. The DEFAULT selection is never one of
- * these by id — it is whatever
- * `AZURE_CHAT_DEPLOYMENT` env names — so this list is the menu of EXPLICIT
- * overrides a caller may opt into, not a replacement for the env default.
- */
-export const COGNITION_MODEL_CATALOG: readonly ModelCatalogEntry[] = [
-	// Deployment names verified in the Tedix Azure resource. Stored 5.6 pins
-	// remain resolvable; superseded entries cannot be chosen for new work.
-	azureEntry(
-		"gpt-6.1-sol",
-		"GPT-6.1 Sol",
-		true,
-		"balanced",
-		"supported",
-		"active",
-	),
-	azureEntry(
-		"gpt-6-luna",
-		"GPT-6 Luna",
-		true,
-		"economy",
-		"supported",
-		"active",
-	),
-	azureEntry(
-		"gpt-6-astra",
-		"GPT-6 Astra",
-		true,
-		"frontier",
-		"supported",
-		"active",
-	),
-	azureEntry(
-		"gpt-6-sol",
-		"GPT-6 Sol",
-		true,
-		"balanced",
-		"supported",
-		"superseded",
-	),
-	azureEntry(
-		"gpt-5.6-sol",
-		"GPT-5.6 Sol",
-		true,
-		"frontier",
-		"supported",
-		"superseded",
-	),
-	azureEntry(
-		"gpt-5.6-terra",
-		"GPT-5.6 Terra",
-		true,
-		"balanced",
-		"supported",
-		"superseded",
-	),
-	azureEntry(
-		"gpt-5.6-luna",
-		"GPT-5.6 Luna",
-		true,
-		"economy",
-		"supported",
-		"superseded",
-	),
-	// Cloudflare Workers AI (billed to Cloudflare credits). Full-power → cheapest.
-	// All verified live through the AI Gateway; ids are current (non-deprecated).
-	// Ordering follows an internal tool-calling bench (compliance with tools
-	// present, multi-step round-trip, JSON mode, empty-turn rate); the small
-	// llama entries are safe only on the tool-free routing path.
-	workersAiEntry(
-		"@cf/openai/gpt-oss-120b",
-		"GPT-OSS 120B",
-		true,
-		"balanced",
-		"active",
-	),
-	workersAiEntry(
-		"@cf/moonshotai/kimi-k2.6",
-		"Kimi K2.6",
-		true,
-		"frontier",
-		"active",
-	),
-	workersAiEntry(
-		"@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-		"Llama 3.3 70B",
-		true,
-		"balanced",
-		"active",
-	),
-	workersAiEntry(
-		"@cf/meta/llama-3.1-8b-instruct-fast",
-		"Llama 3.1 8B Fast",
-		false,
-		"economy",
-		"active",
-	),
-	workersAiEntry(
-		"@cf/meta/llama-3.2-3b-instruct",
-		"Llama 3.2 3B",
-		false,
-		"economy",
-		"active",
-	),
-	workersAiEntry(
-		"@cf/qwen/qwen2.5-coder-32b-instruct",
-		"Qwen2.5 Coder 32B",
-		false,
-		"balanced",
-		"active",
-	),
-	cloudflareAutoEntry(),
-];
+export const ModelCatalogEntriesSchema = z
+	.array(ModelCatalogEntrySchema)
+	.min(1)
+	.max(256)
+	.superRefine((entries, ctx) => {
+		const refs = new Set<string>();
+		for (const [index, entry] of entries.entries()) {
+			if (refs.has(entry.ref))
+				ctx.addIssue({
+					code: "custom",
+					message: "Duplicate model ref",
+					path: [index, "ref"],
+				});
+			refs.add(entry.ref);
+		}
+	});
 
 /** Find a catalog entry by its canonical ref. */
-export function findCatalogEntry(ref: string): ModelCatalogEntry | undefined {
-	return COGNITION_MODEL_CATALOG.find((entry) => entry.ref === ref);
+export function findCatalogEntry(
+	ref: string,
+	catalog: readonly ModelCatalogEntry[] = [],
+): ModelCatalogEntry | undefined {
+	return catalog.find((entry) => entry.ref === ref);
 }
 
-/**
- * Declared image-input capability for a ref. A ref the catalog does not
- * describe — a typo, a retired deployment, a custom/org-configured model, or
- * the env default deployment (which is deliberately NOT allowlist-gated, see
- * {@link resolveModelSelection}) — resolves `unknown`, never a defaulted
- * `supported`. A caller MUST NOT collapse `unknown` into either verdict.
+/** Declared capability in the supplied catalog. Unconfigured refs resolve
+ * `unknown`; callers must never interpret that as image support.
  */
-export function resolveModelImageInput(ref: string): ModelImageInputSupport {
-	return findCatalogEntry(ref)?.imageInput ?? "unknown";
+export function resolveModelImageInput(
+	ref: string,
+	catalog: readonly ModelCatalogEntry[] = [],
+): ModelImageInputSupport {
+	return findCatalogEntry(ref, catalog)?.imageInput ?? "unknown";
 }
 
 /**
@@ -451,6 +270,8 @@ export function adaptiveRoutingEligible(
 }
 
 export interface ModelAllowlistOptions {
+	/** Validated server-owned catalog snapshot for this operation. */
+	catalog?: readonly ModelCatalogEntry[];
 	/**
 	 * Providers actually wired in THIS environment (have credentials in env).
 	 * A ref naming a provider outside this set is rejected — the catalog selects,
@@ -489,7 +310,7 @@ export function isModelRefAllowed(
 ): boolean {
 	const parsed = parseModelRef(ref);
 	if (!parsed) return false;
-	const entry = findCatalogEntry(ref);
+	const entry = findCatalogEntry(ref, opts.catalog);
 	if (!entry || entry.provider !== parsed.provider) return false;
 	return isCatalogEntryResolvable(entry, opts);
 }

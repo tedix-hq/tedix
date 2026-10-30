@@ -73,6 +73,7 @@ export default defineConfig({
 	],
 	test: {
 		include: ["test/**/*.workerd.test.ts"],
+		setupFiles: ["./test/pi-runtime/model-catalog-setup.ts"],
 		exclude: ["test/app-runtime/**"],
 		testTimeout: 15_000,
 		// workerd cannot read Vitest's on-disk module cache (default since 5.0.4).

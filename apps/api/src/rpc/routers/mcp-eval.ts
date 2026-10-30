@@ -1,3 +1,5 @@
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import { findCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
 /**
  * MCP Eval Router
  *
@@ -29,6 +31,12 @@ export const mcpEvalContractRouter = mcpEvalOs.router({
 		.handler(async ({ input, context }) => {
 			const { appSlug, model, customTests } = input;
 			const { db, env } = context;
+			const catalog = await getModelCatalogConfig(db);
+			if (!findCatalogEntry(model, catalog.entries))
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Eval model is not configured",
+				);
 
 			if (!env.MCP_EVAL_WORKFLOW) {
 				throw createError(

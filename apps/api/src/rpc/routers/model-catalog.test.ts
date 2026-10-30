@@ -1,3 +1,7 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 /**
  * The model catalog is a PROJECTION: these assert it against a real D1 facade
  * and, where a claim is about the enforcer, against the enforcer itself
@@ -13,10 +17,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
-import {
-	COGNITION_MODEL_CATALOG,
-	findCatalogEntry,
-} from "@tedix/api-contract/schemas/model-catalog";
+import { findCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
 import { createDbClient } from "@tedix/db/client";
 import {
 	billingAccounts,
@@ -24,6 +25,7 @@ import {
 	billingPlanVersions,
 	organizations,
 	runtimeProfiles,
+	policyPacks,
 	tedis,
 } from "@tedix/db/schema";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -37,6 +39,19 @@ import { wiredProviders } from "../../services/model-catalog-projection";
 import type { BaseContext } from "../orpc";
 import { modelCatalogContractRouter } from "./model-catalog";
 
+const catalog = [
+	modelCatalogEntry("azure-openai/sample-economy", {
+		tier: "economy",
+		reasoning: false,
+	}),
+	modelCatalogEntry("azure-openai/sample-balanced", {
+		tier: "balanced",
+		lifecycle: "superseded",
+	}),
+	modelCatalogEntry("azure-openai/sample-frontier", { tier: "frontier" }),
+	modelCatalogEntry("workers-ai/@cf/sample/model", { tier: "economy" }),
+	modelCatalogEntry("cloudflare/auto", { label: "Auto" }),
+];
 let sqlite: DatabaseSync;
 
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -56,7 +71,7 @@ const FULL_ENV = {
 	AI_GATEWAY_LLM_ID: "gw",
 	CF_AI_GATEWAY_TOKEN: "token",
 	AZURE_OPENAI_RESOURCE: "tedix-resource",
-	AZURE_CHAT_DEPLOYMENT: "gpt-5.6-luna",
+	AZURE_CHAT_DEPLOYMENT: "sample-economy",
 } as unknown as CloudflareEnv;
 
 function context(
@@ -209,11 +224,17 @@ beforeEach(() => {
 			organizations,
 			tedis,
 			runtimeProfiles,
+			policyPacks,
 			billingAccounts,
 			billingInferencePolicies,
 			billingPlanVersions,
 		),
 	);
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES ('registry','Registry','model-catalog','system','shared','active',1,'2026-01-01T00:00:00Z','operator',?)",
+		)
+		.run(JSON.stringify({ modelCatalog: modelCatalogConfig(catalog) }));
 });
 
 describe("modelCatalog.list — authz", () => {
@@ -223,7 +244,7 @@ describe("modelCatalog.list — authz", () => {
 		const result = await client(ORG, { permissions: ["os:read"] }).list({
 			includeDenied: true,
 		});
-		expect(result.models).toHaveLength(COGNITION_MODEL_CATALOG.length);
+		expect(result.models).toHaveLength(catalog.length);
 		expect(
 			result.models.every(
 				(model) =>
@@ -269,7 +290,7 @@ describe("modelCatalog.list — entitlement gate", () => {
 		seedOrganization(ORG);
 		const result = await client(ORG).list({ includeDenied: true });
 		// The list is FULL and explained — never an empty list with no reason.
-		expect(result.models).toHaveLength(COGNITION_MODEL_CATALOG.length);
+		expect(result.models).toHaveLength(catalog.length);
 		expect(result.models.every((model) => !model.allowed)).toBe(true);
 		expect(
 			result.models.every(
@@ -335,7 +356,7 @@ describe("modelCatalog.list — tier policy matches the enforcer", () => {
 			tedi,
 		});
 		for (const model of result.models) {
-			const entry = findCatalogEntry(model.ref);
+			const entry = findCatalogEntry(model.ref, catalog);
 			expect(entry).toBeDefined();
 			const tierChecksPass = model.checks
 				.filter(
@@ -345,7 +366,12 @@ describe("modelCatalog.list — tier policy matches the enforcer", () => {
 				)
 				.every((check) => check.verdict !== "deny");
 			expect(tierChecksPass).toBe(
-				aiGatewayModelTierAllowed(model.provider, model.modelId, policy),
+				aiGatewayModelTierAllowed(
+					model.provider,
+					model.modelId,
+					policy,
+					catalog,
+				),
 			);
 		}
 	});
@@ -420,13 +446,13 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 		seedRuntimeProfile({
 			id: PROFILE,
 			organizationId: ORG,
-			config: { modelPolicy: { chatModelRef: "azure-openai/gpt-5.6-terra" } },
+			config: { modelPolicy: { chatModelRef: "azure-openai/sample-frontier" } },
 		});
 		seedTedi({
 			id: TEDI,
 			organizationId: ORG,
 			runtimeProfileId: PROFILE,
-			runtimeOverrides: modelOverride("azure-openai/gpt-5.6-sol"),
+			runtimeOverrides: modelOverride("azure-openai/sample-balanced"),
 		});
 		const result = await client(ORG).list({
 			tediId: TEDI,
@@ -439,17 +465,17 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			);
 		expect(byKind("tedi_explicit")).toMatchObject({
 			status: "set",
-			modelRef: "azure-openai/gpt-5.6-sol",
+			modelRef: "azure-openai/sample-balanced",
 			scope: "tedi",
 		});
 		expect(byKind("tedi_inherited")).toMatchObject({
 			status: "set",
-			modelRef: "azure-openai/gpt-5.6-terra",
+			modelRef: "azure-openai/sample-frontier",
 		});
 		expect(byKind("tedi_inherited")?.detail).toContain("OVERRIDDEN");
 		expect(result.routing).toMatchObject({
 			slot: "chat",
-			modelRef: "azure-openai/gpt-5.6-sol",
+			modelRef: "azure-openai/sample-balanced",
 			selectedBy: "tedi_explicit",
 			allowed: true,
 			selectable: false,
@@ -464,9 +490,9 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			organizationId: ORG,
 			config: {
 				modelPolicy: {
-					chatModelRef: "azure-openai/gpt-5.6-terra",
-					cronModelRef: "azure-openai/gpt-5.6-luna",
-					observerModelRef: "azure-openai/gpt-5.6-luna",
+					chatModelRef: "azure-openai/sample-frontier",
+					cronModelRef: "azure-openai/sample-economy",
+					observerModelRef: "azure-openai/sample-economy",
 				},
 			},
 		});
@@ -476,7 +502,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			includeDenied: true,
 		});
 		expect(result.routing).toMatchObject({
-			modelRef: "azure-openai/gpt-5.6-terra",
+			modelRef: "azure-openai/sample-frontier",
 			selectedBy: "tedi_inherited",
 		});
 		const utility = result.selections.filter(
@@ -531,7 +557,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 		seedTedi({
 			id: TEDI,
 			organizationId: ORG,
-			runtimeOverrides: modelOverride("azure-openai-responses/gpt-5.6-sol"),
+			runtimeOverrides: modelOverride("azure-openai-responses/sample-balanced"),
 		});
 		const result = await client(ORG).list({
 			tediId: TEDI,
@@ -553,7 +579,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			organizationId: OTHER_ORG,
 			// A system SCOPE is not proof of ownerlessness — this row has an owner.
 			scope: "system",
-			config: { modelPolicy: { chatModelRef: "azure-openai/gpt-5.6-sol" } },
+			config: { modelPolicy: { chatModelRef: "azure-openai/sample-balanced" } },
 		});
 		seedTedi({ id: TEDI, organizationId: ORG, runtimeProfileId: PROFILE });
 		const result = await client(ORG).list({
@@ -576,7 +602,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			id: PROFILE,
 			organizationId: null,
 			scope: "system",
-			config: { modelPolicy: { chatModelRef: "azure-openai/gpt-5.6-sol" } },
+			config: { modelPolicy: { chatModelRef: "azure-openai/sample-balanced" } },
 		});
 		seedTedi({ id: TEDI, organizationId: ORG, runtimeProfileId: PROFILE });
 		const result = await client(ORG).list({
@@ -584,7 +610,7 @@ describe("modelCatalog.list — selection kinds are distinguished", () => {
 			includeDenied: true,
 		});
 		expect(result.routing).toMatchObject({
-			modelRef: "azure-openai/gpt-5.6-sol",
+			modelRef: "azure-openai/sample-balanced",
 			selectedBy: "tedi_inherited",
 		});
 	});
@@ -648,6 +674,45 @@ describe("modelCatalog.list — includeDenied", () => {
 		const result = await client(ORG).list({ includeDenied: false });
 		expect(result.models.length).toBeGreaterThan(0);
 		expect(result.models.every((model) => model.allowed)).toBe(true);
-		expect(result.models.length).toBeLessThan(COGNITION_MODEL_CATALOG.length);
+		expect(result.models.length).toBeLessThan(catalog.length);
 	});
+});
+
+it("ignores tenant registry metadata and tenant-owned system lookalikes", async () => {
+	seedOrganization(ORG, {
+		modelCatalog: {
+			entries: [{ ref: "azure-openai/tenant-spoof", tier: "economy" }],
+		},
+	});
+	seedPlanAndAccount(ORG);
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,organization_id,published_at,published_by,definition) VALUES ('spoof','Spoof','model-catalog','system','shared','active',99,?,'2026-01-01T00:00:00Z','tenant',?)",
+		)
+		.run(
+			ORG,
+			JSON.stringify({
+				modelCatalog: modelCatalogConfig([
+					modelCatalogEntry("azure-openai/tenant-spoof", { tier: "economy" }),
+				]),
+			}),
+		);
+	const result = await client(ORG).list({ includeDenied: true });
+	expect(result.models.map((row) => row.ref)).toEqual(
+		catalog.map((row) => row.ref),
+	);
+	expect(
+		result.models.some((row) => row.ref === "azure-openai/tenant-spoof"),
+	).toBe(false);
+});
+
+it("does not revive an older registry when the new system head is malformed", async () => {
+	seedOrganization(ORG);
+	seedPlanAndAccount(ORG);
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES ('revoked','Revoked','model-catalog','system','shared','active',2,'2026-01-02T00:00:00Z','operator','{}')",
+		)
+		.run();
+	await expect(client(ORG).list({ includeDenied: true })).rejects.toThrow();
 });

@@ -1,7 +1,29 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("azure-openai/gpt-5.6-luna", {}),
+	modelCatalogEntry("azure-openai/gpt-5.6-terra", {}),
+	modelCatalogEntry("azure-openai/gpt-6-luna", {}),
+	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b", {
+		maxOutputTokens: 16000,
+	}),
+	modelCatalogEntry("cloudflare/auto", {}),
+]);
+const selectAzureDeployment = (
+	...args: Parameters<typeof configured_selectAzureDeployment>
+) => {
+	const values = [...args];
+	values[2] ??= fixtureCatalog.entries;
+	return configured_selectAzureDeployment(
+		...(values as Parameters<typeof configured_selectAzureDeployment>),
+	);
+};
 /** Standalone assertions for canonical per-surface model policy resolution. */
 import assert from "node:assert/strict";
 import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
-import { selectAzureDeployment } from "./ai-sdk-adapter";
+import { selectAzureDeployment as configured_selectAzureDeployment } from "./ai-sdk-adapter";
 import {
 	DEFAULT_TEDI_MODEL_POLICY,
 	modelOverrideForSurface,

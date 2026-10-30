@@ -14,7 +14,7 @@ import {
 	transitionKernelRuntimeRunStatus,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { settleKernelSubmission } from "../../../kernel/runtime-submission-bridge";
-import { type KernelEnv, kernelModel } from "./llm";
+import { type KernelEnv, configuredKernelModel } from "./llm";
 import {
 	DELEGATION_SYNTHESIS_SYSTEM_PROMPT,
 	nonNullRecord,
@@ -395,7 +395,7 @@ export async function runInboxWakeIntercept(
 					transcriptBlocks,
 				);
 
-				const model = kernelModel(
+				const model = await configuredKernelModel(
 					deps.env as unknown as KernelEnv,
 					undefined,
 					organizationId,

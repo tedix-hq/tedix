@@ -1,3 +1,4 @@
+import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
 /**
  * Per-turn model selection + the final-step stop rule.
  *
@@ -28,11 +29,12 @@ import {
 import type { ProviderBeforeDispatch } from "@tedix/workers-ai/gateway-transport";
 import {
 	findCatalogEntry,
+	sanitizeModelOverride,
+	AGENT_RUNTIME_AVAILABLE_PROVIDERS,
 	type AdaptiveRoutingContext,
 	type ModelOverride,
 } from "@tedix/api-contract/schemas/model-catalog";
 import {
-	DEFAULT_WORKERS_AI_MODEL,
 	CLOUDFLARE_AUTO_MODEL_REF,
 	cloudflareAutoRouterEligible,
 	cloudflareAutoRouterModel,
@@ -64,12 +66,30 @@ export function selectChatModelForTurn(
 	beforeDispatch?: ProviderBeforeDispatch,
 	promptCacheKey?: string | null,
 	fallback?: Pick<ModelFallbackOptions<object>, "load" | "record">,
+	catalog?: ModelCatalogConfig,
 ): { model: LanguageModel; identity: SelectedConversationModelIdentity } {
-	const deployment = selectAzureDeployment(env, modelOverride);
-	const overrideRef =
-		modelOverride && typeof modelOverride === "object"
-			? (modelOverride as { modelRef?: unknown }).modelRef
-			: undefined;
+	const sanitized = sanitizeModelOverride(modelOverride, {
+		availableProviders: AGENT_RUNTIME_AVAILABLE_PROVIDERS,
+		catalog: catalog?.entries,
+	});
+	const deployment = selectAzureDeployment(env, sanitized, catalog?.entries);
+	const overrideRef = sanitized?.modelRef;
+	if (
+		overrideRef?.startsWith("cloudflare/") &&
+		overrideRef !== CLOUDFLARE_AUTO_MODEL_REF
+	)
+		throw new Error("Cloudflare model requires the Auto Router adapter");
+	if (modelOverride?.modelRef && !sanitized)
+		throw new Error(
+			"Requested model is not configured or its provider is unavailable",
+		);
+	if (
+		!overrideRef &&
+		!findCatalogEntry(`azure-openai/${deployment}`, catalog?.entries)
+	)
+		throw new Error(
+			"Default model is not configured in the trusted model catalog",
+		);
 	// Only an explicit governed Workers AI selection chooses that provider.
 	const useWorkersAI =
 		typeof overrideRef === "string" && overrideRef.startsWith("workers-ai/");
@@ -86,8 +106,11 @@ export function selectChatModelForTurn(
 	);
 	// Per-role model id from the turn override; falls back to the env default.
 	const workersAiId = selectWorkersAiModel(
-		env.TEDI_WORKERS_AI_MODEL || DEFAULT_WORKERS_AI_MODEL,
+		env.TEDI_WORKERS_AI_MODEL ||
+			catalog?.defaults?.workersAiModelRef?.slice("workers-ai/".length) ||
+			"",
 		typeof overrideRef === "string" ? overrideRef : null,
+		catalog?.entries,
 	);
 	const model = useAuto
 		? cloudflareAutoRouterModel(
@@ -138,6 +161,7 @@ export function selectChatModelForTurn(
 			primaryRef,
 			load: fallback.load,
 			resolve: (modelRef) => {
+				if (!findCatalogEntry(modelRef, catalog?.entries)) return null;
 				const candidate = selectChatModelForTurn(
 					env,
 					{ modelRef },
@@ -146,6 +170,8 @@ export function selectChatModelForTurn(
 					adaptiveRouting,
 					beforeDispatch,
 					promptCacheKey,
+					undefined,
+					catalog,
 				).model;
 				return typeof candidate === "string"
 					? null
@@ -153,7 +179,7 @@ export function selectChatModelForTurn(
 			},
 			record: async (step) => {
 				await fallback.record(step);
-				const next = findCatalogEntry(step.to)!;
+				const next = findCatalogEntry(step.to, catalog?.entries)!;
 				Object.assign(identity, {
 					provider:
 						next.provider === "cloudflare" ? "workers-ai" : next.provider,
@@ -177,6 +203,7 @@ export function selectJudgeModelForTurn(
 	env: AzureChatEnv,
 	metadata?: AigMetadata,
 	beforeDispatch?: ProviderBeforeDispatch,
+	catalog?: ModelCatalogConfig,
 ) {
 	const pinnedRef = env.TEDI_JUDGE_MODEL_REF?.trim();
 	if (!pinnedRef || pinnedRef === CLOUDFLARE_AUTO_MODEL_REF)
@@ -187,8 +214,11 @@ export function selectJudgeModelForTurn(
 			undefined,
 			undefined,
 			beforeDispatch,
+			undefined,
+			undefined,
+			catalog,
 		);
-	const pinned = findCatalogEntry(pinnedRef);
+	const pinned = findCatalogEntry(pinnedRef, catalog?.entries);
 	if (!pinned) {
 		throw new Error(`Invalid TEDI_JUDGE_MODEL_REF: ${pinnedRef}`);
 	}

@@ -1,3 +1,9 @@
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import {
+	CLOUDFLARE_AUTO_MODEL_REF,
+	findCatalogEntry,
+	type ModelCatalogEntry,
+} from "@tedix/api-contract/schemas/model-catalog";
 /**
  * Tedis Router — Config sync, runtime projection
  */
@@ -17,7 +23,6 @@ import {
 	listUsageEvents,
 	updateTediHeartbeat,
 } from "@tedix/db/queries/tedis";
-import { CLOUDFLARE_AUTO_MODEL_REF } from "@tedix/api-contract/schemas/model-catalog";
 import { ModelGenerationPolicySchema } from "@tedix/api-contract/schemas/model-generation";
 import type { ModelPolicy } from "@tedix/db/schema/control-plane";
 import { resolveWorkspaceFiles } from "@tedix/context-core/tedi-workspace";
@@ -87,9 +92,14 @@ export const syncConfig = authedTedisOs.syncConfig
 // MODEL POLICY (per-role chat model selection)
 // =============================================================================
 
-/** Non-empty string, else `null` — the shape the runtime consumes. */
-function policyRefOrNull(value: unknown): string | null {
-	return typeof value === "string" && value.length > 0 ? value : null;
+/** Only published catalog refs can steer the runtime. */
+function policyRefOrNull(
+	value: unknown,
+	catalog: readonly ModelCatalogEntry[],
+): string | null {
+	return typeof value === "string" && findCatalogEntry(value, catalog)
+		? value
+		: null;
 }
 
 /**
@@ -112,26 +122,37 @@ export const getModelPolicy = authedTedisOs.getModelPolicy
 	.handler(async ({ input, context }) => {
 		const tedi = await requireTediAccess(context, input.tediId);
 
-		const overrideRef = chatModelRefFromRuntimeOverrides(tedi.runtimeOverrides);
+		const catalog = await getModelCatalogConfig(context.db);
+		const overrideRef = chatModelRefFromRuntimeOverrides(
+			tedi.runtimeOverrides,
+			catalog.entries,
+		);
+		const defaultRef = policyRefOrNull(
+			CLOUDFLARE_AUTO_MODEL_REF,
+			catalog.entries,
+		);
 		const runtimeProfile = tedi.runtimeProfileId
 			? await getRuntimeProfileById(context.db, tedi.runtimeProfileId)
 			: null;
-		const modelPolicy = runtimeProfile?.config?.modelPolicy as
-			| ModelPolicy
-			| undefined;
+		const modelPolicy =
+			runtimeProfile &&
+			(runtimeProfile.organizationId === null ||
+				runtimeProfile.organizationId === tedi.organizationId)
+				? (runtimeProfile.config?.modelPolicy as ModelPolicy | undefined)
+				: undefined;
 		return {
 			chatModelRef:
 				overrideRef ??
-				policyRefOrNull(modelPolicy?.chatModelRef) ??
-				CLOUDFLARE_AUTO_MODEL_REF,
+				policyRefOrNull(modelPolicy?.chatModelRef, catalog.entries) ??
+				defaultRef,
 			cronModelRef:
 				overrideRef ??
-				policyRefOrNull(modelPolicy?.cronModelRef) ??
-				CLOUDFLARE_AUTO_MODEL_REF,
+				policyRefOrNull(modelPolicy?.cronModelRef, catalog.entries) ??
+				defaultRef,
 			observerModelRef:
 				overrideRef ??
-				policyRefOrNull(modelPolicy?.observerModelRef) ??
-				CLOUDFLARE_AUTO_MODEL_REF,
+				policyRefOrNull(modelPolicy?.observerModelRef, catalog.entries) ??
+				defaultRef,
 			...(modelPolicy?.generation === undefined
 				? {}
 				: {
@@ -143,7 +164,8 @@ export const getModelPolicy = authedTedisOs.getModelPolicy
 				? {}
 				: {
 						synthesisModelRef:
-							overrideRef ?? policyRefOrNull(modelPolicy.synthesisModelRef),
+							overrideRef ??
+							policyRefOrNull(modelPolicy.synthesisModelRef, catalog.entries),
 					}),
 		};
 	});

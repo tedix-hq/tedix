@@ -1,3 +1,4 @@
+import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { ModelGenerationPolicy } from "@tedix/api-contract/schemas/model-generation";
 import { sql } from "drizzle-orm";
@@ -98,6 +99,8 @@ export interface RuntimeProfileConfig {
 }
 
 export interface PolicyPackDefinition {
+	/** Ownerless system/shared publication only; tenant policies cannot define model authority. */
+	modelCatalog?: ModelCatalogConfig;
 	[key: string]: JsonValue | undefined;
 	missionPolicy?: JsonValue;
 	governancePolicy?: JsonValue;

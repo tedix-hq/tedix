@@ -1,3 +1,4 @@
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 /**
  * Per-tedi chat-model override normalization.
  *
@@ -14,6 +15,7 @@ import {
 	TurnModelSelectionSchema,
 } from "@tedix/api-contract/schemas/automation-events";
 import {
+	type ModelCatalogEntry,
 	findCatalogEntry,
 	parseModelRef,
 } from "@tedix/api-contract/schemas/model-catalog";
@@ -32,6 +34,7 @@ import type { Tedi } from "@tedix/db/schema/tedis";
  */
 export function chatModelRefFromRuntimeOverrides(
 	runtimeOverrides: Record<string, unknown> | null | undefined,
+	catalog: readonly ModelCatalogEntry[] = [],
 ): string | null {
 	const primary = (
 		runtimeOverrides as {
@@ -42,7 +45,7 @@ export function chatModelRefFromRuntimeOverrides(
 	const slash = primary.indexOf("/");
 	if (slash <= 0 || slash === primary.length - 1) return null;
 	if (!parseModelRef(primary)) return null;
-	if (!findCatalogEntry(primary)) return null;
+	if (!findCatalogEntry(primary, catalog)) return null;
 	return primary;
 }
 
@@ -72,18 +75,24 @@ export function rawChatModelOverride(
  */
 export async function tediChatTurnModel(
 	db: DbClient,
-	tedi: Pick<Tedi, "runtimeOverrides" | "runtimeProfileId">,
+	tedi: Pick<Tedi, "runtimeOverrides" | "runtimeProfileId" | "organizationId">,
 ): Promise<TurnModelSelection | null> {
+	const catalog = await getModelCatalogConfig(db);
 	const profile = tedi.runtimeProfileId
 		? await getRuntimeProfileById(db, tedi.runtimeProfileId)
 		: null;
-	const policy = profile?.config?.modelPolicy as ModelPolicy | undefined;
+	const policy =
+		profile &&
+		(profile.organizationId === null ||
+			profile.organizationId === tedi.organizationId)
+			? (profile.config?.modelPolicy as ModelPolicy | undefined)
+			: undefined;
 	const modelRef =
-		chatModelRefFromRuntimeOverrides(tedi.runtimeOverrides) ??
+		chatModelRefFromRuntimeOverrides(tedi.runtimeOverrides, catalog.entries) ??
 		(typeof policy?.chatModelRef === "string" && policy.chatModelRef
 			? policy.chatModelRef
 			: null);
-	if (!modelRef) return null;
+	if (!modelRef || !findCatalogEntry(modelRef, catalog.entries)) return null;
 	const parsed = TurnModelSelectionSchema.safeParse({
 		modelRef,
 		generation: policy?.generation?.chat,

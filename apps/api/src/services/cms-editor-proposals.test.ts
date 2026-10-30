@@ -5,7 +5,9 @@ vi.mock("../lib/traced-ai", () => ({
 	tracedAi: { generateObject: mocks.generate },
 	objectSpanTelemetry: () => ({ functionId: "cms.editor_proposal" }),
 }));
-vi.mock("../rpc/routers/kernel/llm", () => ({ kernelModel: mocks.model }));
+vi.mock("../rpc/routers/kernel/llm", () => ({
+	configuredKernelModel: mocks.model,
+}));
 const input = {
 	siteId: "11111111-1111-4111-8111-111111111111",
 	action: "rewrite" as const,

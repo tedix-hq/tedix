@@ -1,4 +1,8 @@
-import { findCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
+import {
+	findCatalogEntry,
+	CLOUDFLARE_AUTO_MODEL_REF,
+	type ModelCatalogEntry,
+} from "@tedix/api-contract/schemas/model-catalog";
 import type { AiGatewayAdmissionPolicy } from "@tedix/api-contract/schemas/tedi";
 
 export interface EffectiveAiGatewayAdmissionPolicy {
@@ -35,17 +39,21 @@ export function resolveAiGatewayAdmissionPolicy(input: {
 	return { organization: input.organization, tedi: input.tedi };
 }
 
-/** Every configured scope must allow the selected catalog tier. */
+/** Registered models must satisfy every configured scope's tier policy. */
 export function aiGatewayModelTierAllowed(
 	provider: string,
 	model: string,
 	policy: EffectiveAiGatewayAdmissionPolicy,
+	catalog: readonly ModelCatalogEntry[] = [],
 ): boolean {
 	const constrained = [policy.organization, policy.tedi].filter(
 		(scope) => scope?.allowedModelTiers !== undefined,
 	);
-	if (constrained.length === 0) return true;
-	const entry = findCatalogEntry(`${provider}/${model}`);
+	const ref =
+		provider === "workers-ai" && model === CLOUDFLARE_AUTO_MODEL_REF
+			? model
+			: `${provider}/${model}`;
+	const entry = findCatalogEntry(ref, catalog);
 	if (!entry) return false;
 	return constrained.every((scope) =>
 		scope?.allowedModelTiers?.includes(entry.tier),

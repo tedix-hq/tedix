@@ -4,6 +4,7 @@ import {
 	adaptiveRoutingEligible,
 	CLOUDFLARE_AUTO_MODEL_REF,
 	findCatalogEntry,
+	type ModelCatalogEntry,
 	type AdaptiveRoutingContext,
 	parseModelRef,
 } from "@tedix/api-contract/schemas/model-catalog";
@@ -16,13 +17,6 @@ import {
 import { autoRouterSdkStream } from "./auto-router-stream";
 import { authorizedProviderDispatch, type WorkersAiClient } from "./transport";
 
-/**
- * Default model: in an agentic bench (tool compliance, multi-step round-trip,
- * JSON mode, zero empty turns) gpt-oss-120b passed every case with cheaper
- * output than llama-3.3-70b, which failed multi-step tool loops and produced
- * rogue-tool/empty turns.
- */
-export const DEFAULT_WORKERS_AI_MODEL = "@cf/openai/gpt-oss-120b";
 export { CLOUDFLARE_AUTO_MODEL_REF };
 export const CLOUDFLARE_AUTO_PROVIDER_METADATA_KEY = "cloudflareAutoRouter";
 
@@ -70,10 +64,14 @@ export function cloudflareAutoRouterReceipt(
 export function selectWorkersAiModel(
 	defaultModel: string,
 	modelRef?: string | null,
+	catalog: readonly ModelCatalogEntry[] = [],
 ): string {
 	if (!modelRef) return defaultModel;
 	const parsed = parseModelRef(modelRef);
-	if (parsed?.provider === "workers-ai" && findCatalogEntry(modelRef)) {
+	if (
+		parsed?.provider === "workers-ai" &&
+		findCatalogEntry(modelRef, catalog)
+	) {
 		return parsed.modelId;
 	}
 	return defaultModel;

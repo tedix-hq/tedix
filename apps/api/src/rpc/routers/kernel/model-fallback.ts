@@ -1,22 +1,24 @@
+import {
+	validateCatalogFallback,
+	type ModelCatalogConfig,
+} from "@tedix/api-contract/schemas/model-catalog-config";
 import { createDbClient } from "@tedix/db/client";
 import { getOrganizationModelFallback } from "@tedix/db/queries/model-fallback";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { insertKernelRuntimeEventIfAbsent } from "@tedix/db/queries/kernel-runtime-events";
-import {
-	ModelFallbackPolicySchema,
-	PLATFORM_MODEL_FALLBACK,
-	type ModelFallbackStep,
-} from "@tedix/api-contract/schemas/model-fallback";
+import { type ModelFallbackStep } from "@tedix/api-contract/schemas/model-fallback";
 export function kernelFallbackHooks(
 	binding: D1Database,
 	scope: { organizationId: string; runId: string },
+	catalog: ModelCatalogConfig,
 ) {
 	const db = () => createDbClient(binding);
 	return {
 		load: async () =>
-			ModelFallbackPolicySchema.parse(
+			validateCatalogFallback(
 				(await getOrganizationModelFallback(db(), scope.organizationId)) ??
-					PLATFORM_MODEL_FALLBACK,
+					catalog.fallback,
+				catalog.entries,
 			),
 		record: async (step: ModelFallbackStep) => {
 			const client = db();

@@ -1,3 +1,6 @@
+import { createDbClient } from "@tedix/db/client";
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
 import { regionalAzureGatewayUrl } from "@tedix/workers-ai/gateway-transport";
 import { withModelFallback } from "@tedix/workers-ai/model-fallback";
 import { kernelFallbackHooks } from "./model-fallback";
@@ -5,8 +8,7 @@ import {
 	azureExecutionIdentity,
 	type ProviderExecutionIdentity,
 } from "@tedix/api-contract/schemas/provider-execution";
-/** Generative kernel selection defaults to Auto Router. Explicit fixed models
- * retain their provider; incomplete configuration fails closed. */
+/** Kernel selections require a published model entry and a configured provider. */
 
 import { createAzure } from "@ai-sdk/azure";
 import { isLocalDemoProject, isLoopbackUrl } from "@tedix/auth/local-demo";
@@ -22,7 +24,6 @@ import { resolveAiGatewayTransport } from "@tedix/workers-ai/gateway-transport";
 import { workersAiModel } from "@tedix/workers-ai/model";
 import {
 	cloudflareAutoRouterModel,
-	DEFAULT_WORKERS_AI_MODEL,
 	selectWorkersAiModel,
 } from "@tedix/workers-ai/model-select";
 import { usingWorkersAiGateway } from "@tedix/workers-ai/transport";
@@ -46,30 +47,35 @@ import {
 	kernelWorkersAiClient,
 } from "./workers-ai-client";
 
-/**
- * Providers the kernel route planner can serve. Like the isolate, the kernel
- * only builds an Azure provider from env, so `azure-openai` is the sole wired
- * provider; the shared catalog rejects any other before it can steer selection.
- */
+/** Fixed Workers AI selection uses its own adapter branch below. */
 const KERNEL_AVAILABLE_PROVIDERS: ReadonlySet<ModelProviderId> = new Set([
 	"azure-openai",
 	"cloudflare",
 ]);
 
-/**
- * All-optional Azure chat config the Kernel reads defensively off the
- * worker env. Matches the env names the isolate uses
- * (`apps/tedi-runtime/src/llm.ts` → `AzureChatEnv`) but every field is optional
- * here so a missing secret degrades to `null` instead of a type error.
- */
-/**
- * Default for bounded Home routing and write-argument planning. Execution,
- * approval and schema validation remain deterministic runtime checks.
- * A per-turn `modelRef` wins; if this deployment is not configured, routing
- * falls back to the role default. Re-measure changes with
- * scripts/eval/chat-latency.mjs.
- */
-export const KERNEL_ROUTE_MODEL_REF_DEFAULT = "azure-openai/gpt-6-luna";
+/** Load one immutable publication before the synchronous provider adapter is selected. */
+export async function configuredKernelModel(
+	env: KernelEnv,
+	override?: ModelOverride | { modelRef?: unknown } | null,
+	context?: KernelGatewayContext | string,
+) {
+	if (!env.DB) return null;
+	const config = await getModelCatalogConfig(createDbClient(env.DB));
+	return kernelModel(env, override, context, config);
+}
+
+export async function configuredKernelRouteModel(
+	env: KernelEnv,
+	context?: KernelGatewayContext | string,
+) {
+	if (!env.DB) return null;
+	const config = await getModelCatalogConfig(createDbClient(env.DB));
+	const ref = config.defaults?.kernelRouteModelRef;
+	return (
+		(ref ? kernelModel(env, { modelRef: ref }, context, config) : null) ??
+		kernelModel(env, undefined, context, config)
+	);
+}
 
 export interface KernelEnv {
 	MCP_SERVICE?: CloudflareEnv["MCP_SERVICE"];
@@ -113,18 +119,9 @@ export interface KernelEnv {
 	TEDIX_LOCAL_INFERENCE_PROXY_URL?: string;
 	TEDIX_LOCAL_DEMO_ENABLED?: string;
 	DESCOPE_PROJECT_ID?: string;
-	/**
-	 * Workers AI binding (token-free — authenticated by the Worker itself). Used as
-	 * the route-decision FALLBACK when the Azure provider is unavailable, so a
-	 * kernel turn routes via a Cloudflare-native model instead of hanging on a dead
-	 * provider. Routed through the AI Gateway (gateway option) for observability.
-	 */
+	/** Authenticated Workers AI binding used by the provider transport. */
 	AI?: Ai;
-	/**
-	 * Workers AI model id for the explicit Workers AI route. Default:
-	 * `DEFAULT_WORKERS_AI_MODEL` from `@tedix/workers-ai/model-select`. Override
-	 * to swap models without a code change.
-	 */
+	/** Explicit Workers AI model ID; otherwise use the published installation default. */
 	KERNEL_WORKERS_AI_MODEL?: string;
 	/** Explicit provider/model ref; absent selects cloudflare/auto. */
 	KERNEL_MODEL_REF?: string;
@@ -376,12 +373,20 @@ export function kernelModel(
 	env: KernelEnv,
 	override?: ModelOverride | { modelRef?: unknown } | null,
 	gatewayContext?: KernelGatewayContext | string,
+	catalog?: ModelCatalogConfig,
 ): SelectedKernelModel | null {
-	const selected = selectKernelModel(env, override, gatewayContext);
+	const selected = selectKernelModel(
+		env,
+		override,
+		gatewayContext,
+		undefined,
+		catalog,
+	);
 	if (
 		!selected ||
 		typeof selected.model === "string" ||
 		!env.DB ||
+		!catalog ||
 		typeof gatewayContext !== "object" ||
 		!gatewayContext?.runId ||
 		!gatewayContext.organizationId
@@ -391,19 +396,35 @@ export function kernelModel(
 		typeof override?.modelRef === "string"
 			? override.modelRef
 			: env.KERNEL_MODEL_REF?.trim() || CLOUDFLARE_AUTO_MODEL_REF;
-	const hooks = kernelFallbackHooks(env.DB, {
-		organizationId: gatewayContext.organizationId,
-		runId: gatewayContext.runId,
-	});
+	const hooks = kernelFallbackHooks(
+		env.DB,
+		{
+			organizationId: gatewayContext.organizationId,
+			runId: gatewayContext.runId,
+		},
+		catalog,
+	);
 	selected.forRouteOperation = () => {
-		const route = selectKernelModel(env, override, gatewayContext);
+		const route = selectKernelModel(
+			env,
+			override,
+			gatewayContext,
+			undefined,
+			catalog,
+		);
 		if (!route) throw new Error("Kernel model became unavailable");
 		route.retryModel = async () => {
 			const policy = await hooks.load();
 			if (policy.maxTransitions < 1) return null;
 			for (const ref of policy.ladder[primaryRef] ?? []) {
 				if (ref === primaryRef) continue;
-				const next = selectKernelModel(env, { modelRef: ref }, gatewayContext);
+				const next = selectKernelModel(
+					env,
+					{ modelRef: ref },
+					gatewayContext,
+					undefined,
+					catalog,
+				);
 				if (!next) continue;
 				await hooks.record({
 					from: primaryRef,
@@ -422,16 +443,21 @@ export function kernelModel(
 		wrapLanguageModel({ model: selected.model, middleware: [] }),
 		{
 			primaryRef,
-			...kernelFallbackHooks(env.DB, {
-				organizationId: gatewayContext.organizationId,
-				runId: gatewayContext.runId,
-			}),
+			...kernelFallbackHooks(
+				env.DB,
+				{
+					organizationId: gatewayContext.organizationId,
+					runId: gatewayContext.runId,
+				},
+				catalog,
+			),
 			resolve: (modelRef) => {
 				const candidate = selectKernelModel(
 					env,
 					{ modelRef },
 					gatewayContext,
 					selected.attempts,
+					catalog,
 				);
 				return candidate && typeof candidate.model !== "string"
 					? wrapLanguageModel({ model: candidate.model, middleware: [] })
@@ -447,10 +473,11 @@ function selectKernelModel(
 	override?: ModelOverride | { modelRef?: unknown } | null,
 	gatewayContext?: KernelGatewayContext | string,
 	executionAttempts?: SelectedKernelModel["attempts"],
+	catalog?: ModelCatalogConfig,
 ): SelectedKernelModel | null {
 	const operationContext = gatewayContext;
 	const forOperation = () => {
-		const operation = kernelModel(env, override, operationContext);
+		const operation = kernelModel(env, override, operationContext, catalog);
 		if (!operation) throw new Error("Kernel model became unavailable");
 		return operation;
 	};
@@ -464,19 +491,29 @@ function selectKernelModel(
 	const effectiveOverride = override ?? {
 		modelRef: env.KERNEL_MODEL_REF?.trim() || CLOUDFLARE_AUTO_MODEL_REF,
 	};
+	const registered =
+		typeof effectiveOverride.modelRef === "string"
+			? findCatalogEntry(effectiveOverride.modelRef, catalog?.entries)
+			: undefined;
+	if (
+		!registered ||
+		!["azure-openai", "workers-ai", "cloudflare"].includes(registered.provider)
+	)
+		return null;
 	// Explicit fixed provider choices are preserved; failures do not change authority.
 	if (
 		typeof effectiveOverride.modelRef === "string" &&
 		effectiveOverride.modelRef.startsWith("workers-ai/")
 	) {
-		if (!findCatalogEntry(effectiveOverride.modelRef))
-			throw new Error(`Invalid kernel model: ${effectiveOverride.modelRef}`);
 		const workersAiEnv = env as KernelWorkersAiEnv;
 		if (workersAiEnv.AI || usingWorkersAiGateway(workersAiEnv)) {
-			const modelId = resolveKernelWorkersAiModel({
-				...env,
-				KERNEL_MODEL_REF: effectiveOverride.modelRef,
-			});
+			const modelId = resolveKernelWorkersAiModel(
+				{
+					...env,
+					KERNEL_MODEL_REF: effectiveOverride.modelRef,
+				},
+				catalog,
+			);
 			return {
 				model: observeKernelModel(
 					workersAiModel(
@@ -539,6 +576,7 @@ function selectKernelModel(
 		}
 		return null;
 	}
+	if (registered.provider !== "azure-openai") return null;
 	const gatewayFetch = kernelGatewayFetch(env, gatewayContext);
 	if (!gatewayFetch) return null;
 
@@ -548,19 +586,13 @@ function selectKernelModel(
 	const envDeployment = env.AZURE_CHAT_DEPLOYMENT?.trim();
 	if (!envDeployment) return null;
 
-	// BYTE-FOR-BYTE default: with no override, use `envDeployment` verbatim (the
-	// legacy path's `env.AZURE_CHAT_DEPLOYMENT?.trim()`), bypassing the catalog
-	// parse/trim round-trip. Only a VALID, allowlisted Azure override may change
-	// it; a rejected override (→ `source: "default"`) or a non-azure provider
-	// falls back to `envDeployment` unchanged.
-	// With no explicit per-turn override, fall back to the per-role
-	// `KERNEL_MODEL_REF` (a workers-ai ref is rejected here → env deployment).
 	let deployment = envDeployment;
 	if (effectiveOverride) {
 		const selection = resolveModelSelection({
 			defaultRef: buildModelRef("azure-openai", envDeployment),
 			override: effectiveOverride,
 			availableProviders: KERNEL_AVAILABLE_PROVIDERS,
+			catalog: catalog?.entries,
 		});
 		if (
 			selection?.source === "override" &&
@@ -632,18 +664,16 @@ function selectKernelModel(
 	};
 }
 
-/**
- * Resolve the Workers AI model id for the kernel's Workers AI route path. A
- * valid `workers-ai/<slug>` `KERNEL_MODEL_REF` (the per-role slot) selects that
- * model id; anything else falls back to `KERNEL_WORKERS_AI_MODEL` and finally
- * the shipped default. The provider CHOICE (Azure vs Workers AI) is owned by the
- * explicit model ref — this helper only selects the Workers AI model ID.
- */
-export function resolveKernelWorkersAiModel(env: KernelEnv): string {
-	// Env-reading wrapper only; the ref→id rule itself (and the shipped default)
-	// belongs to `@tedix/workers-ai/model-select`.
+/** Resolve a registered Workers AI ref using the installation default when needed. */
+export function resolveKernelWorkersAiModel(
+	env: KernelEnv,
+	catalog?: ModelCatalogConfig,
+): string {
 	return selectWorkersAiModel(
-		env.KERNEL_WORKERS_AI_MODEL?.trim() || DEFAULT_WORKERS_AI_MODEL,
+		env.KERNEL_WORKERS_AI_MODEL?.trim() ||
+			catalog?.defaults?.workersAiModelRef?.slice("workers-ai/".length) ||
+			"",
 		env.KERNEL_MODEL_REF,
+		catalog?.entries,
 	);
 }

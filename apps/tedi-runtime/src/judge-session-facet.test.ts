@@ -1,3 +1,32 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("cloudflare/auto", {}),
+	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b", {
+		maxOutputTokens: 16000,
+	}),
+	modelCatalogEntry("workers-ai/arbitrary", { maxOutputTokens: 16000 }),
+]);
+const selectChatModelForTurn = (
+	...args: Parameters<typeof configured_selectChatModelForTurn>
+) => {
+	const values = [...args];
+	values[8] ??= fixtureCatalog;
+	return configured_selectChatModelForTurn(
+		...(values as Parameters<typeof configured_selectChatModelForTurn>),
+	);
+};
+const selectJudgeModelForTurn = (
+	...args: Parameters<typeof configured_selectJudgeModelForTurn>
+) => {
+	const values = [...args];
+	values[3] ??= fixtureCatalog;
+	return configured_selectJudgeModelForTurn(
+		...(values as Parameters<typeof configured_selectJudgeModelForTurn>),
+	);
+};
 /**
  * Structural guard for the facet-per-conversation judge turn.
  *
@@ -17,8 +46,8 @@ import { facetRunnerProbe, facetWorkflowTurnProbe } from "../test/tedi-do";
 import * as runtimeWorker from "./index";
 import { JudgeSessionFacet } from "./judge-session-facet";
 import {
-	selectChatModelForTurn,
-	selectJudgeModelForTurn,
+	selectChatModelForTurn as configured_selectChatModelForTurn,
+	selectJudgeModelForTurn as configured_selectJudgeModelForTurn,
 } from "./turn-model-selection";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 

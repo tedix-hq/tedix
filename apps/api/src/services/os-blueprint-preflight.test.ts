@@ -1,4 +1,7 @@
-import { COGNITION_MODEL_CATALOG } from "@tedix/api-contract/schemas/model-catalog";
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import type {
 	OsBlueprintDefinition,
 	OsBlueprintRequirements,
@@ -74,12 +77,17 @@ const OTHER_ORG = "org-elsewhere";
 const NOW = "2026-10-25T12:00:00.000Z";
 const WORKFLOW = "export default async function run() {}";
 const SKILL_ID = "skill-digest";
-const economy = COGNITION_MODEL_CATALOG.find(
-	(entry) => entry.tier === "economy" && !entry.reasoning,
-)!;
-const frontier = COGNITION_MODEL_CATALOG.find(
-	(entry) => entry.tier === "frontier" && entry.reasoning,
-)!;
+const economy = modelCatalogEntry("azure-openai/sample-economy", {
+	tier: "economy",
+	reasoning: false,
+});
+const frontier = modelCatalogEntry("azure-openai/sample-frontier", {
+	tier: "frontier",
+	reasoning: true,
+});
+vi.mock("@tedix/db/queries/model-catalog", () => ({
+	getModelCatalogConfig: async () => modelCatalogConfig([economy, frontier]),
+}));
 
 function requirements(
 	overrides: Partial<OsBlueprintRequirements> = {},

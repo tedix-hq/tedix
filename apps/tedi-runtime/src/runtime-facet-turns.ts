@@ -103,7 +103,6 @@ import {
 	recordQueuedChatTurn,
 	settledChatTurnReceipt,
 } from "./durable-messages-send";
-import { supportsReasoningNone } from "./facet-generation-settings";
 import {
 	type FacetHistoryInput,
 	hydrateFacetHistory,
@@ -1663,19 +1662,8 @@ export const runtimeFacetTurns = {
 				}),
 				maxSteps: input.maxSteps,
 				maxOutputTokens: input.maxOutputTokensOverride,
-				// An explicit user choice wins. Otherwise a surface that caps output
-				// is declaring a short utility turn; use "none" only when supported.
-				// With neither override, the profile/model default stands.
-				reasoning:
-					input.reasoningEffortOverride ??
-					(input.maxOutputTokensOverride &&
-					supportsReasoningNone(
-						input.modelRefOverride ??
-							this.modelOverrideForTurn()?.modelRef ??
-							`azure-openai/${this.env.AZURE_CHAT_DEPLOYMENT}`,
-					)
-						? "none"
-						: null),
+				// The facet applies short-turn defaults against its admitted catalog.
+				reasoning: input.reasoningEffortOverride ?? null,
 				modelRef:
 					input.modelRefOverride ??
 					this.modelOverrideForTurn()?.modelRef ??

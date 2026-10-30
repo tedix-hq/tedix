@@ -33,11 +33,7 @@ import {
 	type KernelGatewayContext,
 	kernelSpanContext,
 } from "./gateway-attribution";
-import {
-	type KernelEnv,
-	KERNEL_ROUTE_MODEL_REF_DEFAULT,
-	kernelModel,
-} from "./llm";
+import { type KernelEnv, configuredKernelRouteModel } from "./llm";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 
 /**
@@ -73,24 +69,15 @@ export function historySummaryOutputTokens(maxChars: number): number {
  * available — in which case the caller passes nothing and compaction keeps its
  * pre-existing extractive behavior exactly.
  */
-export function createKernelHistorySummarizer(
+export async function createKernelHistorySummarizer(
 	env: KernelEnv,
 	context?: KernelGatewayContext,
-): HistorySummarizer | undefined {
+): Promise<HistorySummarizer | undefined> {
 	const gatewayContext: KernelGatewayContext = {
 		...context,
 		source: HISTORY_SUMMARY_SOURCE,
 	};
-	// The route model writes the summary as plain text. On `cloudflare/auto`
-	// (Kimi K2.7) every live fold came back with the output budget spent on
-	// reasoning and no text, so the checkpoint fell back to the extractive
-	// digest each time (Work c7693b36). Role default only when it is absent.
-	const model =
-		kernelModel(
-			env,
-			{ modelRef: KERNEL_ROUTE_MODEL_REF_DEFAULT },
-			gatewayContext,
-		) ?? kernelModel(env, undefined, gatewayContext);
+	const model = await configuredKernelRouteModel(env, gatewayContext);
 	if (!model) return undefined;
 
 	return async ({ systemPrompt, transcript, maxChars }) => {

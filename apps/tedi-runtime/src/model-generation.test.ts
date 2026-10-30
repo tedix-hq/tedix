@@ -1,3 +1,20 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("azure-openai/gpt-5.6-terra"),
+	modelCatalogEntry("cloudflare/auto", {}),
+]);
+const resolveFacetGeneration = (
+	...args: Parameters<typeof configured_resolveFacetGeneration>
+) => {
+	const values = [...args];
+	values[3] ??= fixtureCatalog.entries;
+	return configured_resolveFacetGeneration(
+		...(values as Parameters<typeof configured_resolveFacetGeneration>),
+	);
+};
 import { privateInferenceOriginGuard } from "./runtime-inference-origin";
 /** Provider and Computer SDK imports require workerd; test:provider executes this script. */
 import assert from "node:assert/strict";
@@ -16,7 +33,7 @@ import { createWorkApprovalAiTools } from "./work-approval-tools";
 import { describeFacetTools } from "./facet-tool-descriptors";
 import { azureModel as nativeAzureModel } from "./ai-sdk-adapter";
 import type { AzureChatEnv } from "./llm";
-import { resolveFacetGeneration } from "./facet-generation-settings";
+import { resolveFacetGeneration as configured_resolveFacetGeneration } from "./facet-generation-settings";
 import {
 	assertModelRequestSettings,
 	modelRequestTelemetry,

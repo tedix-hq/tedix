@@ -1,3 +1,4 @@
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 /**
  * Model-catalog projection service: read the CANONICAL inputs, hand them to the
  * pure engine, and shape the selections.
@@ -20,9 +21,9 @@
 
 import {
 	AGENT_RUNTIME_AVAILABLE_PROVIDERS,
-	buildModelRef,
+	type ModelCatalogEntry,
+	findCatalogEntry,
 	CLOUDFLARE_AUTO_MODEL_REF,
-	COGNITION_MODEL_CATALOG,
 	type ModelProviderId,
 } from "@tedix/api-contract/schemas/model-catalog";
 import {
@@ -67,7 +68,7 @@ export interface ModelCatalogEnv {
 
 /**
  * Which providers the SERVING Worker can actually reach, derived from presence
- * checks only. The Azure predicate mirrors `kernelModel()`'s own bail-outs
+ * checks only. The Azure predicate mirrors `configuredKernelModel()`'s own bail-outs
  * (authenticated gateway BYOK + a resource/base URL + a deployment); Workers AI
  * needs only the `AI` binding. `google-vertex` / `anthropic` / `openai` are
  * declared in the provider enum but wired nowhere, so they are never present.
@@ -178,7 +179,8 @@ export async function buildModelCatalogProjection(
 	input: ModelCatalogProjectionInput,
 ): Promise<ModelCatalogProjection> {
 	const nowMs = input.nowMs ?? Date.now();
-	const [entitlement, policySources] = await Promise.all([
+	const [catalog, entitlement, policySources] = await Promise.all([
+		getModelCatalogConfig(input.db),
 		getRuntimeEntitlement(input.db, input.organizationId),
 		getEffectiveInferencePolicies(
 			input.db,
@@ -191,7 +193,7 @@ export async function buildModelCatalogProjection(
 		: {};
 
 	const wired = wiredProviders(input.env);
-	const evaluated = evaluateModelCatalog(COGNITION_MODEL_CATALOG, {
+	const evaluated = evaluateModelCatalog(catalog.entries, {
 		wiredProviders: wired,
 		entitlement: entitlementInput(entitlement, nowMs),
 		orgAllowedTiers: allowedTiers(policy.organization),
@@ -213,6 +215,7 @@ export async function buildModelCatalogProjection(
 		env: input.env,
 		tedi: input.tedi,
 		models: evaluated,
+		catalog: catalog.entries,
 	});
 
 	return {
@@ -230,17 +233,19 @@ async function buildSelections(args: {
 	env: ModelCatalogEnv;
 	tedi: Tedi | null;
 	models: readonly ModelCatalogModel[];
+	catalog: readonly ModelCatalogEntry[];
 }): Promise<ModelCatalogSelection[]> {
 	const selections: ModelCatalogSelection[] = [];
 
 	// ── org default ──────────────────────────────────────────────────────────
 	// The platform default is deployment-scoped, not an organization setting.
-	const orgDefaultRef = CLOUDFLARE_AUTO_MODEL_REF;
+	const orgDefaultRef =
+		findCatalogEntry(CLOUDFLARE_AUTO_MODEL_REF, args.catalog)?.ref ?? null;
 	selections.push({
 		kind: "org_default",
 		slot: "chat",
 		scope: "deployment",
-		status: "set",
+		status: orgDefaultRef ? "set" : "unset",
 		modelRef: orgDefaultRef,
 		source: MODEL_CATALOG_SOURCES.orgDefault,
 		detail:
@@ -272,6 +277,7 @@ async function buildSelections(args: {
 	// ── tedi explicit ────────────────────────────────────────────────────────
 	const explicitRef = chatModelRefFromRuntimeOverrides(
 		args.tedi.runtimeOverrides,
+		args.catalog,
 	);
 	const rawOverride = rawChatModelOverride(args.tedi.runtimeOverrides);
 	selections.push({
@@ -293,8 +299,8 @@ async function buildSelections(args: {
 	const modelPolicy = await resolveProfileModelPolicy(args.db, args.tedi);
 	const inheritedRef =
 		modelPolicy.authorized && modelPolicy.resolved
-			? (policyRef(modelPolicy.policy?.chatModelRef) ??
-				CLOUDFLARE_AUTO_MODEL_REF)
+			? (policyRef(modelPolicy.policy?.chatModelRef, args.catalog) ??
+				orgDefaultRef)
 			: null;
 	selections.push({
 		kind: "tedi_inherited",
@@ -312,8 +318,8 @@ async function buildSelections(args: {
 	const cronRef =
 		explicitRef ??
 		(modelPolicy.authorized && modelPolicy.resolved
-			? (policyRef(modelPolicy.policy?.cronModelRef) ??
-				CLOUDFLARE_AUTO_MODEL_REF)
+			? (policyRef(modelPolicy.policy?.cronModelRef, args.catalog) ??
+				orgDefaultRef)
 			: null);
 	selections.push({
 		kind: "utility",
@@ -335,8 +341,8 @@ async function buildSelections(args: {
 	const observerRef =
 		explicitRef ??
 		(modelPolicy.authorized && modelPolicy.resolved
-			? (policyRef(modelPolicy.policy?.observerModelRef) ??
-				CLOUDFLARE_AUTO_MODEL_REF)
+			? (policyRef(modelPolicy.policy?.observerModelRef, args.catalog) ??
+				orgDefaultRef)
 			: null);
 	selections.push({
 		kind: "utility",
@@ -354,9 +360,14 @@ async function buildSelections(args: {
 	return selections;
 }
 
-/** Non-empty string, else `null` — the shape the runtime consumes. */
-function policyRef(value: unknown): string | null {
-	return typeof value === "string" && value.length > 0 ? value : null;
+/** Only published catalog refs can steer the runtime. */
+function policyRef(
+	value: unknown,
+	catalog: readonly ModelCatalogEntry[],
+): string | null {
+	return typeof value === "string" && findCatalogEntry(value, catalog)
+		? value
+		: null;
 }
 
 /**

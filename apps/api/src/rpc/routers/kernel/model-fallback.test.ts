@@ -1,3 +1,7 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
@@ -12,6 +16,13 @@ import {
 import { kernelFallbackHooks } from "./model-fallback";
 import { PLATFORM_MODEL_FALLBACK } from "@tedix/api-contract/schemas/model-fallback";
 
+const catalog = modelCatalogConfig(
+	[
+		"cloudflare/auto",
+		"azure-openai/gpt-6-luna",
+		"azure-openai/gpt-6.1-sol",
+	].map((ref) => modelCatalogEntry(ref)),
+);
 const step = {
 	from: "cloudflare/auto",
 	to: "azure-openai/gpt-6-luna",
@@ -51,10 +62,14 @@ describe("kernel fallback ledger boundary", () => {
 				conversationId: "fictional-conversation",
 				status: "running",
 			});
-			const hooks = kernelFallbackHooks(binding, {
-				organizationId: "fictional-a",
-				runId: "fictional-run",
-			});
+			const hooks = kernelFallbackHooks(
+				binding,
+				{
+					organizationId: "fictional-a",
+					runId: "fictional-run",
+				},
+				catalog,
+			);
 			expect(await hooks.load()).toEqual(PLATFORM_MODEL_FALLBACK);
 			await hooks.record(step);
 			const events = await db.select().from(kernelRuntimeEvents);
@@ -66,21 +81,41 @@ describe("kernel fallback ledger boundary", () => {
 				kind: "step.retry",
 				payload: { operation: "model_fallback", ...step },
 			});
-			const other = kernelFallbackHooks(binding, {
-				organizationId: "fictional-b",
-				runId: "fictional-run",
-			});
+			const other = kernelFallbackHooks(
+				binding,
+				{
+					organizationId: "fictional-b",
+					runId: "fictional-run",
+				},
+				catalog,
+			);
 			expect((await other.load()).maxTransitions).toBe(0);
 			await expect(other.record(step)).rejects.toThrow("unavailable");
 			await expect(
-				kernelFallbackHooks(binding, {
-					organizationId: "fictional-a",
-					runId: "missing",
-				}).record(step),
+				kernelFallbackHooks(
+					binding,
+					{
+						organizationId: "fictional-a",
+						runId: "missing",
+					},
+					catalog,
+				).record(step),
 			).rejects.toThrow("unavailable");
 			await db.update(kernelRuntimeRuns).set({ status: "canceled" });
 			await expect(hooks.record(step)).rejects.toThrow("unavailable");
 			expect(await db.select().from(kernelRuntimeEvents)).toHaveLength(1);
+			sqlite
+				.prepare("UPDATE organizations SET metadata=? WHERE id='fictional-a'")
+				.run(
+					JSON.stringify({
+						modelFallback: {
+							version: 1,
+							maxTransitions: 1,
+							ladder: { "cloudflare/auto": ["azure-openai/not-registered"] },
+						},
+					}),
+				);
+			await expect(hooks.load()).rejects.toThrow("not configured");
 		} finally {
 			sqlite.close();
 		}
@@ -126,6 +161,7 @@ it("selects the organization's next configured route model and records it before
 			},
 			null,
 			{ organizationId: "fictional-org", runId: "fictional-run" },
+			catalog,
 		);
 		const route = selected?.forRouteOperation?.();
 		const next = await route?.retryModel?.();

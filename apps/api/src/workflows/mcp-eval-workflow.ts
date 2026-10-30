@@ -1,5 +1,5 @@
 import { generateText, jsonSchema, stepCountIs } from "ai";
-import { kernelModel } from "../rpc/routers/kernel/llm";
+import { configuredKernelModel } from "../rpc/routers/kernel/llm";
 
 /**
  * McpEvalWorkflow - Async LLM-powered MCP tool routing evaluation
@@ -83,7 +83,7 @@ async function callLlmWithTools(
 	// with no orgId (which the tedi_call_costs org_id trigger now rejects).
 	organizationId: string,
 ): Promise<{ calledTools: string[]; error?: string }> {
-	const selected = kernelModel(
+	const selected = await configuredKernelModel(
 		env,
 		{ modelRef: model },
 		{ organizationId, source: "evaluation" },

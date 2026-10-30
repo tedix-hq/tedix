@@ -1,10 +1,48 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("azure-openai/gpt-6-sol"),
+	modelCatalogEntry("workers-ai/@cf/meta/llama-3.2-3b-instruct", {
+		reasoning: false,
+	}),
+	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b"),
+	modelCatalogEntry("azure-openai/gpt-5.6-terra"),
+	modelCatalogEntry("azure-openai/gpt-6.1-sol", {
+		reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+	}),
+	modelCatalogEntry("azure-openai/gpt-6-astra", {
+		reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+	}),
+	modelCatalogEntry("azure-openai/gpt-6-luna", {}),
+	modelCatalogEntry("cloudflare/auto", {}),
+]);
+const resolveFacetGeneration = (
+	...args: Parameters<typeof configured_resolveFacetGeneration>
+) => {
+	const values = [...args];
+	values[3] ??= fixtureCatalog.entries;
+	return configured_resolveFacetGeneration(
+		...(values as Parameters<typeof configured_resolveFacetGeneration>),
+	);
+};
+const supportsReasoningNone = (
+	...args: Parameters<typeof configured_supportsReasoningNone>
+) => {
+	const values = [...args];
+	values[1] ??= fixtureCatalog.entries;
+	return configured_supportsReasoningNone(
+		...(values as Parameters<typeof configured_supportsReasoningNone>),
+	);
+};
 import assert from "node:assert/strict";
 import { ModelGenerationPolicySchema } from "@tedix/api-contract/schemas/model-generation";
 import {
 	configureFacetGeneration,
 	FACET_GENERATION_SETTINGS,
-	resolveFacetGeneration,
-	supportsReasoningNone,
+	resolveFacetGeneration as configured_resolveFacetGeneration,
+	supportsReasoningNone as configured_supportsReasoningNone,
 } from "./facet-generation-settings";
 import { generationForSurface, normalizeModelPolicy } from "./model-policy";
 

@@ -1,9 +1,12 @@
+import { createDbClient } from "@tedix/db/client";
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import { findCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
+import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
 /** Observer inference follows the configured provider and propagates failures. */
 
 import {
 	cloudflareAutoRouterModel,
 	CLOUDFLARE_AUTO_MODEL_REF,
-	DEFAULT_WORKERS_AI_MODEL,
 } from "@tedix/workers-ai/model-select";
 import { callWorkersAi } from "@tedix/workers-ai/transport";
 import {
@@ -13,7 +16,8 @@ import {
 } from "./llm";
 import { workersAiClient, type WorkersAiRuntimeEnv } from "./workers-ai-client";
 
-export type ObserverEnv = ObserverCallOptions["env"] & WorkersAiRuntimeEnv;
+export type ObserverEnv = ObserverCallOptions["env"] &
+	WorkersAiRuntimeEnv & { DB?: D1Database };
 
 export interface ConfiguredObserverCallOptions extends Omit<
 	ObserverCallOptions,
@@ -21,6 +25,7 @@ export interface ConfiguredObserverCallOptions extends Omit<
 > {
 	env: ObserverEnv;
 	modelRef?: string | null;
+	modelCatalog?: ModelCatalogConfig;
 }
 
 async function observerViaAutoRouter(
@@ -59,7 +64,7 @@ async function observerViaWorkersAi(
 ): Promise<string> {
 	const modelId = opts.modelRef?.startsWith("workers-ai/")
 		? opts.modelRef.slice("workers-ai/".length)
-		: opts.env.TEDI_WORKERS_AI_MODEL?.trim() || DEFAULT_WORKERS_AI_MODEL;
+		: opts.env.TEDI_WORKERS_AI_MODEL?.trim() || "";
 	const result = await callWorkersAi(
 		workersAiClient(opts.env, opts.beforeDispatch),
 		modelId,
@@ -79,6 +84,24 @@ export async function observerCompletion(
 	opts: ConfiguredObserverCallOptions,
 ): Promise<string> {
 	opts.signal?.throwIfAborted();
+	const catalog =
+		opts.modelCatalog ??
+		(opts.env.DB
+			? await getModelCatalogConfig(createDbClient(opts.env.DB))
+			: undefined);
+	const ref =
+		opts.modelRef ??
+		`azure-openai/${opts.deployment || opts.env.AZURE_OBSERVER_DEPLOYMENT}`;
+	const entry = findCatalogEntry(ref, catalog?.entries);
+	if (
+		!entry ||
+		!["azure-openai", "workers-ai", "cloudflare"].includes(entry.provider)
+	)
+		throw new Error(
+			"Observer model is not configured in the trusted model catalog",
+		);
+	if (entry.provider === "azure-openai")
+		opts = { ...opts, deployment: entry.modelId };
 	try {
 		// No ref = the observer's env default Azure deployment (the runtime's
 		// model policy resolves `cloudflare/auto` to no ref for this surface).

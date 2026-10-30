@@ -1,3 +1,9 @@
+import { createDbClient } from "@tedix/db/client";
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
+import {
+	ModelCatalogConfigSchema,
+	type ModelCatalogConfig,
+} from "@tedix/api-contract/schemas/model-catalog-config";
 import { assistantMessageText } from "./facet-submission-result";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -66,6 +72,7 @@ import { PiTurnAccounting } from "./pi-turn-accounting";
 import {
 	configureFacetGeneration,
 	resolveFacetGeneration,
+	supportsReasoningNone,
 } from "./facet-generation-settings";
 import { type FacetToolDescriptor } from "./facet-tool-descriptors";
 import {
@@ -104,6 +111,7 @@ import {
 } from "./delegation-budget";
 
 export interface ConversationFacetState {
+	modelCatalog?: ModelCatalogConfig;
 	delegationBudget?: DelegatedTurnBudget;
 	/** Authenticated parent-stamped transport identity; never a model/tool authority grant. */
 	turnMetadata?: Record<string, unknown> | null;
@@ -474,7 +482,11 @@ export class ConversationFacet extends PiAgent<
 			this.state.promptCacheKey,
 			{
 				load: () =>
-					loadTediModelFallback(this.env.DB, this.state.aigMetadata?.tediId),
+					loadTediModelFallback(
+						this.env.DB,
+						this.state.aigMetadata?.tediId,
+						this.state.modelCatalog,
+					),
 				record: async (step) => {
 					await (
 						await this.parent()
@@ -496,6 +508,7 @@ export class ConversationFacet extends PiAgent<
 					});
 				},
 			},
+			this.state.modelCatalog,
 		);
 		return {
 			model: selected.model as TedixSdkModel,
@@ -528,6 +541,9 @@ export class ConversationFacet extends PiAgent<
 					undefined,
 					undefined,
 					this.facetBeforeDispatch(),
+					undefined,
+					undefined,
+					this.state.modelCatalog,
 				).model as TedixSdkModel,
 		});
 		return summarizeContextEntries(
@@ -587,10 +603,19 @@ export class ConversationFacet extends PiAgent<
 							...(this.state.maxOutputTokens == null
 								? {}
 								: { maxOutputTokens: this.state.maxOutputTokens }),
-							...(this.state.reasoning == null
-								? {}
-								: { reasoningEffort: this.state.reasoning }),
+							...(this.state.reasoning != null
+								? { reasoningEffort: this.state.reasoning }
+								: this.state.maxOutputTokens != null &&
+									  supportsReasoningNone(
+											selected.identity.model === "cloudflare/auto"
+												? "cloudflare/auto"
+												: `${selected.identity.provider}/${selected.identity.model}`,
+											this.state.modelCatalog?.entries,
+									  )
+									? { reasoningEffort: "none" as const }
+									: {}),
 						},
+						this.state.modelCatalog?.entries,
 					);
 					const translated = piToSdkPrompt(augmentedMessages);
 					await this.imageBridge().expand(
@@ -1368,6 +1393,10 @@ export class ConversationFacet extends PiAgent<
 	private async configureConversationTurn(
 		input: ConversationTurnConfiguration,
 	): Promise<number> {
+		const modelCatalog =
+			this.state.runId === input.runId && this.state.modelCatalog
+				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
+				: await getModelCatalogConfig(createDbClient(this.env.DB));
 		const prior = this.state.turnCount;
 		const gate = new DelegationBudgetGate(this.ctx.storage);
 		await gate.enroll(input.runId, input.delegationBudget);
@@ -1413,6 +1442,7 @@ export class ConversationFacet extends PiAgent<
 		this.setState({
 			...this.state,
 			...input,
+			modelCatalog,
 			stableSystemPrefix,
 			promptCacheKey: cacheIdentity
 				? await promptCacheKey(cacheIdentity)

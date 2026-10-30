@@ -3,7 +3,9 @@ const mocks = vi.hoisted(() => ({
 	select: vi.fn(),
 	generate: vi.fn(),
 }));
-vi.mock("../rpc/routers/kernel/llm", () => ({ kernelModel: mocks.select }));
+vi.mock("../rpc/routers/kernel/llm", () => ({
+	configuredKernelModel: mocks.select,
+}));
 vi.mock("../lib/traced-ai", () => ({
 	tracedAi: { generateText: mocks.generate },
 }));

@@ -1,3 +1,4 @@
+import { modelCatalogEntry } from "@tedix/api-contract/test/model-catalog";
 import {
 	generateObject,
 	generateText,
@@ -10,10 +11,12 @@ import {
 	CLOUDFLARE_AUTO_MODEL_REF,
 	cloudflareAutoRouterEligible,
 	cloudflareAutoRouterModel,
-	DEFAULT_WORKERS_AI_MODEL,
-	selectWorkersAiModel,
+	selectWorkersAiModel as selectConfiguredWorkersAiModel,
 } from "./model-select";
 
+const entries = [modelCatalogEntry("workers-ai/@cf/example/configured")];
+const selectWorkersAiModel = (value: string, ref?: string | null) =>
+	selectConfiguredWorkersAiModel(value, ref, entries);
 const DEFAULT = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 describe("Auto Router structured output contract", () => {
@@ -208,8 +211,8 @@ describe("selectWorkersAiModel", () => {
 
 	it("selects the model id from a valid workers-ai catalog ref", () => {
 		expect(
-			selectWorkersAiModel(DEFAULT, "workers-ai/@cf/openai/gpt-oss-120b"),
-		).toBe("@cf/openai/gpt-oss-120b");
+			selectWorkersAiModel(DEFAULT, "workers-ai/@cf/example/configured"),
+		).toBe("@cf/example/configured");
 	});
 
 	it("ignores a non-workers-ai provider ref", () => {
@@ -229,13 +232,6 @@ describe("selectWorkersAiModel", () => {
 		);
 		expect(selectWorkersAiModel(DEFAULT, "workers-ai/")).toBe(DEFAULT);
 	});
-
-	it("ships a default that is itself a catalog model", () => {
-		expect(DEFAULT_WORKERS_AI_MODEL).toBe("@cf/openai/gpt-oss-120b");
-		expect(
-			selectWorkersAiModel("unused", `workers-ai/${DEFAULT_WORKERS_AI_MODEL}`),
-		).toBe(DEFAULT_WORKERS_AI_MODEL);
-	});
 });
 
 describe("Cloudflare Auto Router eligibility", () => {
@@ -252,7 +248,7 @@ describe("Cloudflare Auto Router eligibility", () => {
 		).toBe(true);
 		expect(
 			cloudflareAutoRouterEligible(
-				"workers-ai/@cf/openai/gpt-oss-120b",
+				"workers-ai/@cf/example/configured",
 				eligible,
 			),
 		).toBe(false);

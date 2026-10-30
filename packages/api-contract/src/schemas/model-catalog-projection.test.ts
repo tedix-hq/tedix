@@ -1,7 +1,7 @@
+import { modelCatalogEntry } from "../test/model-catalog";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	AGENT_RUNTIME_AVAILABLE_PROVIDERS,
-	COGNITION_MODEL_CATALOG,
 	type ModelCatalogEntry,
 	type ModelProviderId,
 } from "./model-catalog";
@@ -15,16 +15,27 @@ import {
 	ORG_TIER_UNSETTABLE_NOTE,
 } from "./model-catalog-projection";
 
+const TEST_CATALOG = [
+	modelCatalogEntry("azure-openai/example-frontier", { tier: "frontier" }),
+	modelCatalogEntry("workers-ai/@cf/example/economy", { tier: "economy" }),
+	modelCatalogEntry("cloudflare/auto", {
+		governance: {
+			weightAccess: "mixed",
+			residencyControl: "router-selected",
+			routingMode: "adaptive",
+		},
+	}),
+];
 const ALL_PROVIDERS: ReadonlySet<ModelProviderId> = new Set([
 	"azure-openai",
 	"workers-ai",
 	"cloudflare",
 ]);
 
-const AZURE_FRONTIER = COGNITION_MODEL_CATALOG.find(
+const AZURE_FRONTIER = TEST_CATALOG.find(
 	(entry) => entry.provider === "azure-openai" && entry.tier === "frontier",
 ) as ModelCatalogEntry;
-const WORKERS_ECONOMY = COGNITION_MODEL_CATALOG.find(
+const WORKERS_ECONOMY = TEST_CATALOG.find(
 	(entry) => entry.provider === "workers-ai" && entry.tier === "economy",
 ) as ModelCatalogEntry;
 
@@ -55,13 +66,13 @@ function check(
 
 describe("model-catalog projection — shape guarantees", () => {
 	it("returns every catalog entry with a non-empty ordered filter chain", () => {
-		const models = evaluateModelCatalog(COGNITION_MODEL_CATALOG, input());
-		expect(models).toHaveLength(COGNITION_MODEL_CATALOG.length);
+		const models = evaluateModelCatalog(TEST_CATALOG, input());
+		expect(models).toHaveLength(TEST_CATALOG.length);
 		for (const model of models) {
 			expect(ModelCatalogModelSchema.parse(model)).toBeTruthy();
 			expect(model.lifecycle).toBe(
-				COGNITION_MODEL_CATALOG.find((entry) => entry.ref === model.ref)
-					?.lifecycle ?? "active",
+				TEST_CATALOG.find((entry) => entry.ref === model.ref)?.lifecycle ??
+					"active",
 			);
 			expect(model.selectable).toBe(model.lifecycle === "active");
 			expect(model.checks.map((entry) => entry.filter)).toEqual([
@@ -116,7 +127,7 @@ describe("model-catalog projection — shape guarantees", () => {
 
 	it("every denied model carries the deciding filter, reason and input", () => {
 		const models = evaluateModelCatalog(
-			COGNITION_MODEL_CATALOG,
+			TEST_CATALOG,
 			input({ orgAllowedTiers: ["frontier"] }),
 		);
 		const denied = models.filter((model) => !model.allowed);
@@ -164,7 +175,7 @@ describe("model-catalog projection — provider wiring", () => {
 
 	it("denies every model when nothing is wired, with an explanation on each", () => {
 		const models = evaluateModelCatalog(
-			COGNITION_MODEL_CATALOG,
+			TEST_CATALOG,
 			input({ wiredProviders: new Set() }),
 		);
 		expect(models.every((model) => !model.allowed)).toBe(true);
@@ -179,10 +190,7 @@ describe("model-catalog projection — provider wiring", () => {
 
 describe("model-catalog projection — provider health is unknown, never allow", () => {
 	it("reports `unknown` with `configured: false` on every entry", () => {
-		for (const model of evaluateModelCatalog(
-			COGNITION_MODEL_CATALOG,
-			input(),
-		)) {
+		for (const model of evaluateModelCatalog(TEST_CATALOG, input())) {
 			const health = check(model.checks, "provider_health");
 			expect(health?.verdict).toBe("unknown");
 			expect(health?.reason).toBe("provider_health_not_observed");
@@ -199,7 +207,7 @@ describe("model-catalog projection — provider health is unknown, never allow",
 describe("model-catalog projection — entitlement", () => {
 	it("denies EVERY model with the admission code when no entitlement is configured", () => {
 		const models = evaluateModelCatalog(
-			COGNITION_MODEL_CATALOG,
+			TEST_CATALOG,
 			input({
 				entitlement: {
 					configured: false,
@@ -209,7 +217,7 @@ describe("model-catalog projection — entitlement", () => {
 				},
 			}),
 		);
-		expect(models).toHaveLength(COGNITION_MODEL_CATALOG.length);
+		expect(models).toHaveLength(TEST_CATALOG.length);
 		expect(
 			models.every(
 				(model) => model.deniedBy?.reason === "entitlement_not_configured",
@@ -365,7 +373,7 @@ describe("model-catalog projection — caller authority", () => {
 describe("model-catalog projection — no secret can cross the boundary", () => {
 	it("projects provider wiring as ids only; no check input carries a value beyond ids/tiers/refs", () => {
 		const models = evaluateModelCatalog(
-			COGNITION_MODEL_CATALOG,
+			TEST_CATALOG,
 			input({
 				tedi: {
 					allowedTiers: ["balanced"],
@@ -374,9 +382,9 @@ describe("model-catalog projection — no secret can cross the boundary", () => 
 			}),
 		);
 		const knownValues = new Set<string>([
-			...COGNITION_MODEL_CATALOG.map((entry) => entry.ref),
-			...COGNITION_MODEL_CATALOG.map((entry) => entry.provider),
-			...COGNITION_MODEL_CATALOG.map((entry) => entry.tier),
+			...TEST_CATALOG.map((entry) => entry.ref),
+			...TEST_CATALOG.map((entry) => entry.provider),
+			...TEST_CATALOG.map((entry) => entry.tier),
 			"trial",
 			"active",
 			"suspended",
@@ -396,9 +404,9 @@ describe("model-catalog projection — no secret can cross the boundary", () => 
 
 describe("model-catalog projection — declared image-input capability", () => {
 	it("carries each entry's declared value through to the projection", () => {
-		const models = evaluateModelCatalog(COGNITION_MODEL_CATALOG, input());
+		const models = evaluateModelCatalog(TEST_CATALOG, input());
 		for (const [index, model] of models.entries()) {
-			expect(model.imageInput).toBe(COGNITION_MODEL_CATALOG[index]?.imageInput);
+			expect(model.imageInput).toBe(TEST_CATALOG[index]?.imageInput);
 		}
 		const azure = models.find((model) => model.ref === AZURE_FRONTIER.ref);
 		expect(azure?.imageInput).toBe("supported");

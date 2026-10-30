@@ -1,12 +1,15 @@
-import { getTediRuntimeGovernance } from "@tedix/db/queries/tedi-runtime-bootstrap";
+import { createDbClient } from "@tedix/db/client";
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
-	ModelFallbackPolicySchema,
-	PLATFORM_MODEL_FALLBACK,
-} from "@tedix/api-contract/schemas/model-fallback";
+	validateCatalogFallback,
+	type ModelCatalogConfig,
+} from "@tedix/api-contract/schemas/model-catalog-config";
+import { getTediRuntimeGovernance } from "@tedix/db/queries/tedi-runtime-bootstrap";
 
 export async function loadTediModelFallback(
 	db: D1Database,
 	tediId: string | undefined,
+	catalog?: ModelCatalogConfig,
 ) {
 	if (!tediId) throw new Error("Model fallback requires a tedi identity");
 	const row = await getTediRuntimeGovernance(db, tediId);
@@ -15,7 +18,9 @@ export async function loadTediModelFallback(
 		typeof row.organizationMetadata === "string"
 			? JSON.parse(row.organizationMetadata)
 			: row.organizationMetadata;
-	return ModelFallbackPolicySchema.parse(
-		metadata?.modelFallback ?? PLATFORM_MODEL_FALLBACK,
+	const config = catalog ?? (await getModelCatalogConfig(createDbClient(db)));
+	return validateCatalogFallback(
+		metadata?.modelFallback ?? config.fallback,
+		config.entries,
 	);
 }

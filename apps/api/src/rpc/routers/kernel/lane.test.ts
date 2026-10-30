@@ -1,5 +1,20 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
 import { describe, expect, it } from "vite-plus/test";
-import { kernelModel, kernelServesWorkersAiLane, type KernelEnv } from "./llm";
+import {
+	kernelModel as selectKernelModel,
+	kernelServesWorkersAiLane,
+	type KernelEnv,
+} from "./llm";
+const catalog = modelCatalogConfig(
+	["cloudflare/auto", "workers-ai/@cf/meta/llama-3.1-8b-instruct-fast"].map(
+		(ref) => modelCatalogEntry(ref),
+	),
+);
+const kernelModel = (...args: Parameters<typeof selectKernelModel>) =>
+	selectKernelModel(args[0], args[1], args[2], catalog);
 const env = {
 	AI_GATEWAY_ACCOUNT_ID: "account",
 	AI_GATEWAY_LLM_ID: "gateway",

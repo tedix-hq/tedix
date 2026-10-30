@@ -1,3 +1,26 @@
+import {
+	modelCatalogEntry,
+	modelCatalogConfig,
+} from "@tedix/api-contract/test/model-catalog";
+const fixtureCatalog = modelCatalogConfig([
+	modelCatalogEntry("azure-openai/gpt-6-astra", {
+		reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+	}),
+	modelCatalogEntry("azure-openai/gpt-6-luna", {}),
+	modelCatalogEntry("workers-ai/@cf/openai/gpt-oss-120b", {
+		maxOutputTokens: 16000,
+	}),
+	modelCatalogEntry("cloudflare/auto", {}),
+]);
+const selectChatModelForTurn = (
+	...args: Parameters<typeof configured_selectChatModelForTurn>
+) => {
+	const values = [...args];
+	values[8] ??= fixtureCatalog;
+	return configured_selectChatModelForTurn(
+		...(values as Parameters<typeof configured_selectChatModelForTurn>),
+	);
+};
 /**
  * Structural guard for lean workflow synthesis (`workflow:synth:*`).
  *
@@ -10,7 +33,7 @@ import { facetRunnerProbe, facetWorkflowTurnProbe } from "../test/tedi-do";
 import * as runtimeWorker from "./index";
 import { ConversationFacet } from "./conversation-facet";
 import { SynthesisSessionFacet } from "./synthesis-session-facet";
-import { selectChatModelForTurn } from "./turn-model-selection";
+import { selectChatModelForTurn as configured_selectChatModelForTurn } from "./turn-model-selection";
 
 // The real native Worker suite covers submission, durable accounting and tools.
 // Keep the shared selector contract and parent routing guards here.

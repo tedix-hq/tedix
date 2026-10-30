@@ -14,7 +14,7 @@ import type { KernelExecutionAttempt } from "./gateway-attribution";
  * answer. Wires the leaf
  * modules together:
  *
- *   kernelModel(env)        — fail-soft Azure chat model (null when unconfigured)
+ *   await configuredKernelModel(env)        — fail-soft Azure chat model (null when unconfigured)
  *   assembleHomeContext(db, …)  — cheap, single-indexed D1 org snapshot
  *
  * Compaction is checked per step, not per turn. `runKernel` owns the pass loop:
@@ -47,10 +47,7 @@ import type {
 	RelevanceRecallSource,
 	StoredRelevanceRecall,
 } from "../../../kernel/relevance-recall-store";
-import {
-	KERNEL_ROUTE_MODEL_REF_DEFAULT,
-	kernelServesWorkersAiLane,
-} from "./llm";
+import { configuredKernelRouteModel, kernelServesWorkersAiLane } from "./llm";
 import type { DbClient } from "@tedix/db/client";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
@@ -111,7 +108,7 @@ import {
 } from "./grounded-roster";
 import { createKernelHistorySummarizer } from "./history-summarizer";
 import type { KernelEnv } from "./llm";
-import { kernelModel } from "./llm";
+import { configuredKernelModel } from "./llm";
 import type {
 	KernelRouteHedge,
 	PlanKernelRouteArgs,
@@ -617,12 +614,9 @@ export async function runKernel(args: {
 	};
 	// First-round model: the per-turn override, else the measured route-pass
 	// default, else the role default when that model is not configured here.
-	const model =
-		kernelModel(
-			env,
-			{ modelRef: modelRef ?? KERNEL_ROUTE_MODEL_REF_DEFAULT },
-			routeGatewayContext,
-		) ?? (modelRef ? null : kernelModel(env, undefined, routeGatewayContext));
+	const model = modelRef
+		? await configuredKernelModel(env, { modelRef }, routeGatewayContext)
+		: await configuredKernelRouteModel(env, routeGatewayContext);
 	// The selected model is the only inference path for this turn.
 	if (!model) {
 		console.warn(
@@ -656,7 +650,10 @@ export async function runKernel(args: {
 	// model call instead of the mechanical extractive digest. Built here because
 	// this is where the kernel's model plumbing lives. `undefined` when no model
 	// is configured — assembly then behaves exactly as it did before.
-	const summarizeHistory = createKernelHistorySummarizer(env, gatewayContext);
+	const summarizeHistory = await createKernelHistorySummarizer(
+		env,
+		gatewayContext,
+	);
 	const candidateRanker = createJevContextRanker(
 		db,
 		env,

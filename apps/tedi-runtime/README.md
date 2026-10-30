@@ -237,3 +237,51 @@ request-context logs that Workers Logs samples away under load. Builders and slo
     AND timestamp > now() - INTERVAL '7' DAY
   GROUP BY tedi_id, session_hash
   ```
+
+## Configure available models
+
+Before enabling inference, publish a system policy with slug `model-catalog`,
+`scope: system`, `target: shared`, no organization owner, and active publication
+metadata. Only the platform administrator may publish this policy. Its definition
+contains `modelCatalog`, validated by `ModelCatalogConfigSchema`:
+
+```json
+{
+	"modelCatalog": {
+		"version": 1,
+		"entries": [
+			{
+				"ref": "azure-openai/example-chat",
+				"provider": "azure-openai",
+				"modelId": "example-chat",
+				"label": "Example chat",
+				"reasoning": true,
+				"tier": "balanced",
+				"imageInput": "supported",
+				"governance": {
+					"weightAccess": "closed-weights",
+					"residencyControl": "customer-provider",
+					"routingMode": "fixed"
+				},
+				"lifecycle": "active",
+				"maxOutputTokens": 16000,
+				"reasoningEfforts": ["low", "medium", "high"]
+			}
+		],
+		"fallback": { "version": 1, "maxTransitions": 0, "ladder": {} },
+		"defaults": { "kernelRouteModelRef": "azure-openai/example-chat" }
+	}
+}
+```
+
+Configure provider credentials separately in your deployment. Environment model
+names must also appear in this catalog. Fallback targets and optional Workers AI
+defaults must reference entries in the same policy. Organization fallback settings
+can select these entries but cannot create models or change their tiers.
+
+New turns load the latest published policy. A missing, revoked, malformed, or
+ambiguous newest version blocks selection rather than restoring an older version
+or a compiled model list. An admitted run retains its validated catalog snapshot
+across restarts; provider dispatch still performs current admission checks.
+Bootstrap this policy in your own database before switching inference to this
+version. This source checkout contains no Tedix Cloud model deployment list.
