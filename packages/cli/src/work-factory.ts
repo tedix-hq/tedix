@@ -49,6 +49,14 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		tool: "report_work_agent_session_status",
 		write: true,
 	},
+	"dispatcher-health-list": {
+		tool: "list_dispatcher_health",
+		write: false,
+	},
+	"dispatcher-health-record": {
+		tool: "report_dispatcher_health",
+		write: true,
+	},
 	"case-list": {
 		tool: "list_work_cases",
 		write: false,

@@ -161,6 +161,11 @@ and durable answer settlement.
   Context and auth inspection run locally using the CLI's existing readers;
   binding checks no longer start an `auth status` child inside a five-second
   deadline. Server reads keep their existing deadlines.
+  Every two minutes the same supervisor reads each local dispatcher's bounded
+  health descriptor, recent log tail and active receipts, then publishes its
+  running state, last admission, occupied slots and top repeated problem to
+  Tedix. It never starts, stops or restarts a dispatcher. Reports become stale
+  after five minutes when the Mac or supervisor is unavailable.
 
   Register accepted Work for an existing Codex chat with
   `tedix work handoff <id> --host codex --to codex:<chat-id> --launch`.
@@ -544,6 +549,8 @@ reinstalling. No credentials or launcher identity are written into the plist.
 provide full native records for this dispatcher. `work start` and `work settle`
 accept `--input '{"metadata":{...}}'` for bounded execution receipts, while their
 normal identity and Attempt fences remain mandatory.
+`work dispatcher-health-list` reads the current organization-scoped reports;
+`dispatcher-health-record --input <json>` is the supervisor's reporting path.
 
 ### Commit handoff (experimental)
 

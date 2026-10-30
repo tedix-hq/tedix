@@ -202,6 +202,14 @@ export default {
 			];
 		});
 		const notes = [];
+		const laneHealth = await step.do("lane-health", async () =>
+			checked(await api.list_dispatcher_health({})),
+		);
+		for (const lane of laneHealth.data) {
+			notes.push(
+				`Lane ${lane.executor}: ${lane.stale ? "stale report" : lane.running ? "running" : "stopped"}; slots ${lane.slotsInUse}/${lane.slotsTotal}; last admission ${lane.lastAdmissionAt ?? "none"}${lane.topReason ? `; repeated ${lane.topReason.count}x: ${lane.topReason.reason}` : ""}.`,
+			);
+		}
 		let active = 0;
 		let reviews = 0;
 		const held = new Set();

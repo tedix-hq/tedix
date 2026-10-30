@@ -149,6 +149,8 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	label_agent_reply: "agentTurnTriage/labelReply",
 	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
 	report_work_agent_session_status: "workAgentSessions/report",
+	report_dispatcher_health: "dispatcherHealth/report",
+	list_dispatcher_health: "dispatcherHealth/list",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",

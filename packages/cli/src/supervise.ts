@@ -92,6 +92,7 @@ import {
 	localSessions,
 	waitingQuestions,
 } from "./supervise-questions";
+import { collectDispatcherHealth } from "./dispatcher-health";
 
 export const SUPERVISE_INTERVAL_MS = 30_000;
 /** After `await-draft` gave up, with a minute of grace for its last read. */
@@ -103,6 +104,7 @@ const DETAIL_TIMEOUT_MS = 15_000;
 /** Recheck a question without a deliverable draft at most this often. */
 const RECHECK_MAX_MS = 10 * 60 * 1000;
 const PRUNE_EVERY_MS = 60 * 60 * 1000;
+export const HEALTH_REPORT_INTERVAL_MS = 2 * 60 * 1000;
 
 /** A failed delivery is retried after this long. */
 const DELIVERY_RETRY_MS = 10 * 60 * 1000;
@@ -143,6 +145,7 @@ export class Supervisor {
 	private readonly recheck = new Map<string, { at: number; delay: number }>();
 	private readonly logged = new Set<string>();
 	private prunedAt = Number.NEGATIVE_INFINITY;
+	private healthReportedAt = Number.NEGATIVE_INFINITY;
 
 	constructor(private readonly deps: SuperviseDeps) {}
 
@@ -207,6 +210,34 @@ export class Supervisor {
 		} catch (error) {
 			this.log(
 				`answer delivery failed: ${(error as Error).message?.slice(0, 200)}`,
+			);
+		}
+		if (now - this.healthReportedAt >= HEALTH_REPORT_INTERVAL_MS) {
+			this.healthReportedAt = now;
+			await Promise.all(
+				collectDispatcherHealth(this.deps.env, now).map(
+					async ({ workspace, organization, ...report }) => {
+						try {
+							await this.deps.read(
+								[
+									"--workspace",
+									workspace,
+									"--organization",
+									organization,
+									"work",
+									"dispatcher-health-record",
+									"--input",
+									JSON.stringify(report),
+								],
+								DETAIL_TIMEOUT_MS,
+							);
+						} catch (error) {
+							this.log(
+								`dispatcher ${report.executor} health report failed: ${(error as Error).message?.slice(0, 200)}`,
+							);
+						}
+					},
+				),
 			);
 		}
 		return delivered;

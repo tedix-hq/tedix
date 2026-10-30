@@ -5,7 +5,9 @@ import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	DISPATCHER_HEALTH_SCHEMA,
 	listDispatcherHealthOrgs,
+	listDispatcherHealthReports,
 	readDispatcherActivity,
+	upsertDispatcherHealthReport,
 } from "./dispatcher-health";
 
 const T0 = "2026-10-21T20:00:00.000Z";
@@ -69,6 +71,55 @@ function seed() {
 }
 
 describe("dispatcher health queries", () => {
+	it("keeps one current report per organization, reporter, executor, and lane", async () => {
+		const sqlite = seed();
+		sqlite.exec(
+			"INSERT INTO organizations(id,name,slug) VALUES('other','Other','other')",
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const base = {
+			orgId: "busy",
+			reporterId: "mac-studio",
+			executor: "codex",
+			lane: "primary",
+			running: true,
+			observedAt: T0,
+			reportedAt: T0,
+			lastAdmissionAt: null,
+			slotsInUse: 1,
+			slotsTotal: 2,
+			topReason: null,
+			topReasonCount: null,
+		};
+		await upsertDispatcherHealthReport(db, base);
+		await upsertDispatcherHealthReport(db, {
+			...base,
+			running: false,
+			observedAt: T1,
+			reportedAt: T1,
+			slotsInUse: 0,
+			topReason: "session label clash",
+			topReasonCount: 4,
+		});
+		await upsertDispatcherHealthReport(db, {
+			...base,
+			orgId: "other",
+			reporterId: "other-host",
+		});
+
+		expect(await listDispatcherHealthReports(db, "busy")).toEqual([
+			expect.objectContaining({
+				reporterId: "mac-studio",
+				running: false,
+				observedAt: T1,
+				reportedAt: T1,
+				topReason: "session label clash",
+				topReasonCount: 4,
+			}),
+		]);
+		expect(await listDispatcherHealthReports(db, "other")).toHaveLength(1);
+	});
+
 	it("lists only orgs with dispatchable Work and reports exact facts", async () => {
 		const sqlite = seed();
 		const db = createDbQueryClient(createD1Facade(sqlite));

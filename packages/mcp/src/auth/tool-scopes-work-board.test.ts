@@ -286,7 +286,7 @@ describe("work board scope resolution", () => {
 		expect(resolve("list_work_resource_pools")).toEqual(["mcp:settings.read"]);
 	});
 
-	it("keeps canonical attempt, evidence, event, and steward verbs on the collaboration scope", () => {
+	it("keeps canonical execution and dispatcher health verbs on the collaboration scope", () => {
 		for (const [tool, scope] of [
 			["start_work_attempt", "mcp:work.write"],
 			["heartbeat_work_attempt", "mcp:work.write"],
@@ -297,9 +297,22 @@ describe("work board scope resolution", () => {
 			["list_work_evidence", "mcp:work.read"],
 			["list_work_events", "mcp:work.read"],
 			["run_work_graph_steward", "mcp:work.write"],
+			["list_dispatcher_health", "mcp:work.read"],
 		] as const) {
 			expect(resolve(tool)).toEqual([scope]);
 		}
+		const report = {
+			toolId: "tedix__report_dispatcher_health",
+			authRequired: true,
+			annotations: { readOnlyHint: false },
+		};
+		expect(
+			resolveMcpToolRequiredScopes(
+				report,
+				inferToolNamespace(report.toolId),
+				tenantAggregateConfig,
+			),
+		).toEqual(["mcp:work.write"]);
 	});
 
 	it("keeps the canonical tool-schema-sync board ids on the collaboration scope", () => {

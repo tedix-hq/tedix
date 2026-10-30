@@ -166,6 +166,7 @@ export * from "./control-plane-history";
 export * from "./cron-executions";
 export * from "./platform-cron-executions";
 export * from "./d1-retention";
+export * from "./dispatcher-health";
 export * from "./earned-delegation";
 // Harness versioning + trace bundles + eval ledger (harness-evolution substrate)
 export type {

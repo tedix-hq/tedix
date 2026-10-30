@@ -284,7 +284,8 @@ trusting a filtered page as a whole-ledger answer.
 Factory controls (--input accepts inline JSON or @path):
   agent-turn-triage|agent-reply-label|agent-reply-draft-request|agent-session-report
   case-list|get|create|stage|close|attach|dependency-add (epics; the API calls them cases)
-  milestone-list|create|update|attach|dependency-add · health-list|record
+	  milestone-list|create|update|attach|dependency-add · health-list|record
+	  dispatcher-health-list|record
   approval-list|approval-audit-list|approval-propose|approval-decide (admission authority)
   interaction-list|interaction-outbox-list|interaction-audit-list|interaction-get|interaction-create|interaction-respond|interaction-cancel
   interaction-respond <id> --input '{…}' [--no-deliver] (closing a status update, not answering an ask:

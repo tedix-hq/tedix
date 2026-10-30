@@ -11,6 +11,8 @@
 		"decisionGraph/listAgentDecisions",
 		"decisionGraph/recordAgentDecision",
 		"decisionGraph/recordAgentDecisionOutcome",
+		"dispatcherHealth/list",
+		"dispatcherHealth/report",
 		"projects/addMilestoneDependency",
 		"projects/attachMilestoneWorkItem",
 		"projects/createMilestone",

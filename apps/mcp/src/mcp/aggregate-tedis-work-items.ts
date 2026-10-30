@@ -1,5 +1,6 @@
 // Artifact-neutral Work factory tools plus graph and source reads.
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
+import { dispatcherHealthContract } from "@tedix/api-contract/contracts/dispatcher-health";
 import type { ToolInputJsonSchema } from "@tedix/api-contract/schemas/tools";
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
@@ -93,6 +94,12 @@ const LIST_EVIDENCE_SCHEMA = zodToToolInputJsonSchema(
 const LIST_EVENTS_SCHEMA = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.listEvents),
 );
+const REPORT_DISPATCHER_HEALTH_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(dispatcherHealthContract.report),
+);
+const LIST_DISPATCHER_HEALTH_SCHEMA = zodToToolInputJsonSchema(
+	procedureInputSchema(dispatcherHealthContract.list),
+);
 
 const WORK_ITEM_RELATION_SCHEMA: ToolInputJsonSchema = {
 	type: "object",
@@ -148,6 +155,26 @@ const RECONCILE_SOURCES_SCHEMA: ToolInputJsonSchema = zodToToolInputJsonSchema(
 	procedureInputSchema(workItemsContract.reconcileWorkItemSources),
 );
 export const WORK_ITEM_TOOLS: TediToolSpec[] = [
+	{
+		name: "report_dispatcher_health",
+		remoteName: "report_dispatcher_health",
+		description:
+			"Replace this organization's current sanitized health report for one local dispatcher lane.",
+		inputSchema: REPORT_DISPATCHER_HEALTH_SCHEMA,
+		annotations: MUTATING,
+		rpcEndpoint: "dispatcherHealth/report",
+		includeTediIdParam: false,
+	},
+	{
+		name: "list_dispatcher_health",
+		remoteName: "list_dispatcher_health",
+		description:
+			"List current local dispatcher lane health for this organization, including server report age and staleness.",
+		inputSchema: LIST_DISPATCHER_HEALTH_SCHEMA,
+		annotations: READ_ONLY,
+		rpcEndpoint: "dispatcherHealth/list",
+		includeTediIdParam: false,
+	},
 	{
 		name: "work_items_list",
 		remoteName: "work_items_list",

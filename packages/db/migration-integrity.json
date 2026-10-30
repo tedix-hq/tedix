@@ -1232,6 +1232,10 @@
 		{
 			"name": "20261029080223_share_skill_read_grants/migration.sql",
 			"sha256": "e4610dd07cc8857e7f46b4b76d341359ee635420de673ea34c30dd22b7a9307d"
+		},
+		{
+			"name": "20261030104351_dispatcher-health-reports/migration.sql",
+			"sha256": "294f726a631338908c3fc4b4d07ca77b177b99823eca5bea675db0113b2d8837"
 		}
 	]
 }

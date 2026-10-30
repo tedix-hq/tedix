@@ -180,6 +180,9 @@ export const apiRouter = {
 	workItems: lazyRouter(() =>
 		import("./work-items").then((m) => m.workItemsContractRouter),
 	),
+	dispatcherHealth: lazyRouter(() =>
+		import("./dispatcher-health").then((m) => m.dispatcherHealthContractRouter),
+	),
 	repositoryObserver: lazyRouter(() =>
 		import("./repository-observer").then(
 			(m) => m.repositoryObserverContractRouter,

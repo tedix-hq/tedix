@@ -559,9 +559,11 @@ const TEDI_WORK_ITEM_TOOL_NAME_RE = /(^|_)work_items?(_|$)/;
 const TEDI_WORK_BOARD_TOOL_NAMES = new Set([
 	"complete_work_item",
 	"heartbeat_work_attempt",
+	"list_dispatcher_health",
 	"list_work_attempts",
 	"list_work_events",
 	"list_work_evidence",
+	"report_dispatcher_health",
 	"run_work_graph_steward",
 	"settle_work_attempt",
 	"start_work_attempt",
