@@ -32,6 +32,7 @@ import {
 } from "./lane-serve";
 import { laneServicePlist } from "./lane-service";
 import { laneChildEnv } from "./lane-child-env";
+import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -114,6 +115,7 @@ function fixture({
 		deliverNote: undefined as string | undefined,
 		telemetryOutcome: "succeeded" as "succeeded" | "stopped" | "failed",
 		exitCode: 0,
+		finalMessage: "Result recorded in OS.",
 		provisionError: undefined as Error | undefined,
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
@@ -325,7 +327,7 @@ function fixture({
 				heartbeatAt: "2026-10-01T00:00:01.000Z",
 				finishedAt: "2026-10-01T00:00:01.000Z",
 				outcome: control.telemetryOutcome,
-				finalMessage: "Result recorded in OS.",
+				finalMessage: control.finalMessage,
 				tools: {},
 				usage: { input: 100, cached: 40, output: 30, reasoning: 10 },
 				shas: [],
@@ -889,6 +891,20 @@ describe("dispatcher admission", () => {
 		expect(
 			events.filter((e) => e.verb === "start" && e.args[6] === item().id),
 		).toHaveLength(1);
+	});
+
+	it("settles result notes starting with a bullet through the real option parser", async () => {
+		const { dispatcher, items, control, events, releases } = fixture();
+		items.splice(1);
+		control.finalMessage = "- SHA256: digest\n- Work result recorded";
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const settle = events.find((event) => event.verb === "settle")!;
+		expect(parseOptions(settle.args).options.workNote).toBe(
+			`Result:\n${control.finalMessage}`,
+		);
 	});
 
 	it("prefixes matching lessons before launching Codex without relying on hooks", async () => {

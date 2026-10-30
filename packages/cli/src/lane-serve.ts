@@ -1985,7 +1985,7 @@ export class LaneDispatcher {
 					"--outcome",
 					receipt.outcome!,
 					"--note",
-					receipt.note!,
+					`Result:\n${receipt.note!}`,
 					...(receipt.commits ?? []).flatMap((sha) => ["--commit", sha]),
 					"--input",
 					JSON.stringify({
