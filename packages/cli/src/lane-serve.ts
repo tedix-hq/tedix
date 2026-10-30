@@ -1,4 +1,5 @@
 import { withoutNegatedClauses } from "@tedix/api-contract/utils/work-instructions";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type * as z from "zod";
 import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
@@ -84,6 +85,14 @@ export type DispatchItem = Pick<
 	| "accountableOwnerId"
 > & { activeAttempt?: unknown; riskLevel?: WorkItem["riskLevel"] };
 
+function leaseMayBeLive(attempt: unknown): boolean {
+	const expiry =
+		isRecord(attempt) && typeof attempt.expiresAt === "string"
+			? Date.parse(attempt.expiresAt)
+			: NaN;
+	return !Number.isFinite(expiry) || expiry > Date.now();
+}
+
 export function dispatchSkip(
 	item: DispatchItem,
 	comments: Pick<WorkItemComment, "authorType" | "authorId" | "body">[] = [],
@@ -107,7 +116,8 @@ export function dispatchSkip(
 	}
 	if (item.startAt && Date.parse(item.startAt) > Date.now())
 		return `Work is scheduled for ${item.startAt}`;
-	if (item.activeAttempt) return "Work already has a live Attempt";
+	if (item.activeAttempt && leaseMayBeLive(item.activeAttempt))
+		return "Work already has a live Attempt";
 	const text = `${item.title}\n${item.description ?? ""}`;
 	const reserved = laneReservedActions(text);
 	if (!reserved.length) return;
@@ -959,6 +969,16 @@ export class LaneDispatcher {
 			});
 		for (const row of retained) {
 			if (
+				row.admissionState === "unknown" &&
+				!row.attemptId &&
+				row.session &&
+				row.executorKey &&
+				!this.running.has(row.itemId)
+			) {
+				await this.recoverOrphan(row);
+				continue;
+			}
+			if (
 				!this.running.has(row.itemId) &&
 				row.pid &&
 				alive(row.pid) &&
@@ -1022,7 +1042,6 @@ export class LaneDispatcher {
 				row.phase === "settling" &&
 				!this.running.has(row.itemId) &&
 				(!row.pid || !alive(row.pid)) &&
-				(row.settlementRetries ?? row.retries ?? 0) < 5 &&
 				Date.now() >= (row.retryAt ?? 0)
 			)
 				await this.recoverSettlement(row);
@@ -1272,8 +1291,15 @@ export class LaneDispatcher {
 			if (
 				history.data.some(
 					(attempt) =>
-						!attempt.outcome ||
-						(attempt.metadata?.dispatchVersion === item.version &&
+						(!attempt.outcome &&
+							!(
+								previous?.attemptId === attempt.id &&
+								attempt.externalSessionKey === previous.session &&
+								attempt.metadata?.dispatchVersion === item.version &&
+								!leaseMayBeLive(attempt)
+							)) ||
+						(attempt.outcome &&
+							attempt.metadata?.dispatchVersion === item.version &&
 							attempt.outcome !== "failed" &&
 							attempt.outcome !== "expired"),
 				)
@@ -1972,9 +1998,8 @@ export class LaneDispatcher {
 		}
 		await this.recordRunFailure(receipt);
 		receipt.settlementRetries = (receipt.settlementRetries ?? 0) + 1;
-		if (!receipt.runFailureCounted)
-			receipt.retries = (receipt.retries ?? 0) + 1;
-		receipt.retryAt = Date.now() + 60_000;
+		receipt.retryAt =
+			Date.now() + (receipt.settlementRetries >= 5 ? 15 * 60_000 : 60_000);
 		this.save(path, receipt);
 		try {
 			await this.call(
@@ -2138,7 +2163,12 @@ export class LaneDispatcher {
 			"--input",
 			JSON.stringify({ limit: 100 }),
 		]);
-		const attempt = history.data.find((row) => row.id === receipt.attemptId);
+		const attempt = history.data.find((row) =>
+			receipt.attemptId
+				? row.id === receipt.attemptId
+				: row.externalSessionKey === receipt.session &&
+					row.metadata?.dispatchVersion === receipt.version,
+		);
 		if (
 			!attempt ||
 			history.nextCursor !== null ||
@@ -2151,15 +2181,21 @@ export class LaneDispatcher {
 			);
 			return;
 		}
+		if (!receipt.attemptId) {
+			receipt.attemptId = attempt.id;
+			receipt.admissionState = "admitted";
+			receipt.phase = "admitted";
+			this.save(
+				this.path({ id: receipt.itemId, version: receipt.version }),
+				receipt,
+			);
+		}
 		if (!attempt.outcome) {
 			if (!attempt.expiresAt || Date.parse(attempt.expiresAt) > Date.now())
 				return;
 			receipt.outcome = "expired";
 			receipt.note =
 				"Dispatcher process interrupted; resume retained native state after fresh admission";
-			receipt.phase = "settling";
-			await this.settle(receipt);
-			return;
 		} else if (!["failed", "expired"].includes(attempt.outcome)) {
 			receipt.outcome = attempt.outcome;
 			receipt.phase = "settled";
@@ -2170,7 +2206,7 @@ export class LaneDispatcher {
 			return;
 		}
 		receipt.phase = "deferred";
-		receipt.outcome = attempt.outcome;
+		receipt.outcome = attempt.outcome ?? "expired";
 		await this.recordRunFailure(receipt);
 		receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
 		this.save(
@@ -2192,12 +2228,39 @@ export class LaneDispatcher {
 			throw new Error(
 				"Retained settlement fence is unavailable; no write attempted",
 			);
+		if (
+			attempt.outcome === "expired" ||
+			(!attempt.outcome &&
+				attempt.expiresAt &&
+				Date.parse(attempt.expiresAt) <= Date.now())
+		) {
+			// Older successful receipts mixed delivery attempts into execution retries.
+			if (receipt.outcome === "succeeded" && !receipt.runFailureCounted)
+				receipt.retries = Math.max(
+					0,
+					(receipt.retries ?? 0) - (receipt.settlementRetries ?? 0),
+				);
+			receipt.outcome = "expired";
+			receipt.phase = "deferred";
+			await this.recordRunFailure(receipt);
+			receipt.retryAt = receipt.runRetryAt;
+			this.save(
+				this.path({ id: receipt.itemId, version: receipt.version }),
+				receipt,
+			);
+			this.log(
+				"settlement-expired",
+				receipt.itemId,
+				"Canonical lease elapsed; result retained, fresh admission required",
+			);
+			return;
+		}
 		if (attempt.outcome) {
 			await this.recordRunFailure(receipt);
 			receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
 			receipt.phase =
 				attempt.outcome === receipt.outcome
-					? attempt.outcome === "expired" || receipt.retryable
+					? receipt.retryable
 						? "deferred"
 						: "settled"
 					: "failed";
