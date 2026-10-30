@@ -102,7 +102,27 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		).resolves.toBe(false);
 	});
 
+	it("does not turn a research prohibition into a reserved action", async () => {
+		attempts.list.mockResolvedValue({
+			data: [attempt({ metadata: {} })],
+			nextCursor: null,
+		});
+		await expect(
+			allowed(
+				item({
+					workKind: "research",
+					title: "Verify recovery pickup",
+					description:
+						"Read the assigned Work and post a timestamped comment. No code edits, deployment, sign-in or consent.",
+				}),
+			),
+		).resolves.toBe(true);
+	});
+
 	it.each([
+		"Do not wait — rotate the provider API key",
+		"No need to ask, send a customer email",
+		"No credential changes. Pay the supplier invoice.",
 		"Rotate the provider API key and paste the new credentials",
 		"Pay the supplier invoice by bank transfer",
 		"Send the weekly summary email to every customer",
