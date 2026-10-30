@@ -32,8 +32,9 @@ export function DispatcherLaneHealth() {
 			<div>
 				<h2 className="type-tedix-section">Local lanes</h2>
 				<Text tone="secondary">
-					Supervisor observations refresh every 30 seconds. A running dispatcher
-					does not prove work is progressing.
+					This view checks for new observations every 30 seconds. Use the
+					observation time to check freshness. A running dispatcher does not
+					prove work is progressing.
 				</Text>
 			</div>
 			{health.isError ? (
@@ -108,7 +109,7 @@ export function DispatcherLaneHealth() {
 								</Text>
 								<Text className="break-words">
 									{lane.topReason
-										? `${lane.topReason.reason} (${lane.topReason.count} occurrences)`
+										? `Recent skipped work: ${lane.topReason.reason} (${lane.topReason.count} occurrences)`
 										: "No repeated skip or failure reported."}
 								</Text>
 							</CardContent>
