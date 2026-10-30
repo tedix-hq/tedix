@@ -492,6 +492,18 @@ describe("route-planner SYSTEM_PROMPT — owned-write delegation guidance", asyn
 	});
 });
 
+// This suite isolates turn orchestration; model publication IO is supplied
+// explicitly while the real synchronous provider selector remains in use.
+vi.mock("@tedix/db/queries/model-catalog", async () => {
+	const { modelCatalogConfig, modelCatalogEntry } =
+		await import("@tedix/api-contract/test/model-catalog");
+	return {
+		getModelCatalogConfig: vi.fn(async () =>
+			modelCatalogConfig([modelCatalogEntry("workers-ai/@cf/example/route")]),
+		),
+	};
+});
+
 vi.mock("./context-assembly", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./context-assembly")>()),
 	assembleHomeContext: vi.fn(),
@@ -580,8 +592,9 @@ describe("final operator intent boundary", () => {
 			const result = await runKernel({
 				db: {} as never,
 				env: {
+					DB: {} as D1Database,
 					AI: {},
-					KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+					KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 				} as never,
 				organizationId: "org",
 				content: "Acknowledge only. Do not delegate or create work.",
@@ -654,8 +667,9 @@ it("delivers the answer without exposing the planner's technical explanation", a
 	const result = await runKernel({
 		db: {} as never,
 		env: {
+			DB: {} as D1Database,
 			AI: {},
-			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+			KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 		} as never,
 		organizationId: "org",
 		content: "Draft a short welcome here in chat.",
@@ -702,8 +716,9 @@ it.each([
 		const result = await runKernel({
 			db: {} as never,
 			env: {
+				DB: {} as D1Database,
 				AI: {},
-				KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+				KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 			} as never,
 			organizationId: "org",
 			content,
@@ -776,8 +791,9 @@ it.each([
 		const result = await runKernel({
 			db: {} as never,
 			env: {
+				DB: {} as D1Database,
 				AI: {},
-				KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+				KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 			} as never,
 			organizationId: "org",
 			content,
@@ -820,8 +836,9 @@ it("assembles the full context for a create when the apps cannot be read", async
 	const result = await runKernel({
 		db: {} as never,
 		env: {
+			DB: {} as D1Database,
 			AI: {},
-			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+			KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 		} as never,
 		organizationId: "org",
 		content: "Write a short document about Blue Harbor Bakery",
@@ -861,8 +878,9 @@ it("routes a card verdict follow-up to the card an earlier answer showed", async
 	const result = await runKernel({
 		db: {} as never,
 		env: {
+			DB: {} as D1Database,
 			AI: {},
-			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+			KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 		} as never,
 		organizationId: "org",
 		content:
@@ -913,8 +931,9 @@ it("carries the previous article URL into a tldr delegation", async () => {
 	const result = await runKernel({
 		db: {} as never,
 		env: {
+			DB: {} as D1Database,
 			AI: {},
-			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+			KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 		} as never,
 		organizationId: "org",
 		content: "tldr",
@@ -965,8 +984,9 @@ it("grounds internal Work creation in the current org gateway without changing m
 	const result = await runKernel({
 		db: {} as never,
 		env: {
+			DB: {} as D1Database,
 			AI: {},
-			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+			KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 		} as never,
 		organizationId: "org-member",
 		descopeUserId: "member-1",

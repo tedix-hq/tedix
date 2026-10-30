@@ -21,6 +21,18 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { KernelContext } from "./context-assembly";
 import type { KernelRouteDecision } from "./route-schema";
 
+// This suite isolates turn orchestration; model publication IO is supplied
+// explicitly while the real synchronous provider selector remains in use.
+vi.mock("@tedix/db/queries/model-catalog", async () => {
+	const { modelCatalogConfig, modelCatalogEntry } =
+		await import("@tedix/api-contract/test/model-catalog");
+	return {
+		getModelCatalogConfig: vi.fn(async () =>
+			modelCatalogConfig([modelCatalogEntry("workers-ai/@cf/example/route")]),
+		),
+	};
+});
+
 vi.mock("./context-assembly", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("./context-assembly")>();
 	return { ...actual, assembleHomeContext: vi.fn() };
@@ -105,11 +117,11 @@ function call(index: number) {
 async function run(args?: { abortSignal?: AbortSignal }) {
 	return runKernel({
 		db: {} as never,
-		// `env.AI` alone keeps the kernel active (Workers AI lane); no Azure
-		// configuration means no model, so no summarizer is wired either.
+		// The synthetic catalog and AI binding select the Workers AI lane.
 		env: {
+			DB: {} as D1Database,
 			AI: {},
-			KERNEL_MODEL_REF: "workers-ai/@cf/openai/gpt-oss-120b",
+			KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
 		} as never,
 		organizationId: "org-step",
 		conversationId: "home:step",
