@@ -107,6 +107,7 @@ export function readExecutorBudgets(
 				env: { ...laneChildEnv(env), OPENCODE_DISABLE_AUTOUPDATE: "true" },
 				encoding: "utf8",
 				timeout: 5000,
+				killSignal: "SIGKILL",
 				maxBuffer: 128 * 1024,
 			});
 			const cost =
