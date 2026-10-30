@@ -287,12 +287,6 @@ type LocalState = {
 	featuredBlueprintIds: string[];
 	/** Saved auto-approval rules: one that is off, so it can be turned on or deleted. */
 	approvalRules: OsApprovalRule[];
-	actionTypeOptIns: {
-		grantId: string;
-		actionType: string;
-		reason: string | null;
-		createdAt: string;
-	}[];
 	conversations: (HomeConversation & { hidden?: boolean })[];
 	messages: HomeMessage[];
 	homeRuns: HomeRun[];
@@ -924,7 +918,6 @@ const seedState = (): LocalState => ({
 			resultRevision: null,
 		},
 	],
-	actionTypeOptIns: [],
 	approvalRules: [
 		{
 			id: fid("e1", 1),
@@ -6803,36 +6796,6 @@ const handlers: Record<string, (input: never) => unknown> = {
 			cleared += 1;
 		}
 		return { cleared };
-	},
-	"mcpGovernance/listActionTypeOptIns": () => ({
-		data: state.actionTypeOptIns,
-	}),
-	"mcpGovernance/setActionTypeOptIn": (input: {
-		actionType: string;
-		enabled: boolean;
-	}) => {
-		let optIn = state.actionTypeOptIns.find(
-			(row) => row.actionType === input.actionType,
-		);
-		if (input.enabled && !optIn) {
-			optIn = {
-				grantId: fid("e2", 1),
-				actionType: input.actionType,
-				reason: "set by local owner",
-				createdAt: now(),
-			};
-			state.actionTypeOptIns.push(optIn);
-		} else if (!input.enabled) {
-			state.actionTypeOptIns = state.actionTypeOptIns.filter(
-				(row) => row.actionType !== input.actionType,
-			);
-			optIn = undefined;
-		}
-		return {
-			actionType: input.actionType,
-			enabled: input.enabled,
-			optIn: optIn ?? null,
-		};
 	},
 	"osApprovalRules/list": () => ({ items: state.approvalRules }),
 	"osApprovalRules/setEnabled": (input: {

@@ -1,9 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	enforceToolRiskRateLimit,
-	resolveConnectedToolRiskPolicy,
 	resolveToolRiskPolicy,
-	toolApprovalMetadata,
 	toolRiskAuditMetadata,
 } from "./tool-risk-policy";
 
@@ -32,49 +30,6 @@ function context(limit: ReturnType<typeof vi.fn>) {
 }
 
 describe("tool risk policy", () => {
-	it("classifies an unconfigured Notion update and preserves explicit policy", () => {
-		const connected = {
-			toolId: "notion_update_page",
-			config: {
-				transport: "mcp",
-				mcpToolName: "notion-update-page",
-				auth: { type: "connection", connectionId: "notion" },
-			},
-			meta: {},
-		} as const;
-		const expected = {
-			riskTier: "bounded_write",
-			blastRadius: "single_resource",
-			argumentPolicy: "notion_page_update",
-		};
-		expect(resolveConnectedToolRiskPolicy(connected)).toEqual(expected);
-		expect(toolApprovalMetadata(connected)["com.tedix/policy"]).toEqual(
-			expected,
-		);
-		expect(
-			resolveConnectedToolRiskPolicy({
-				...connected,
-				config: {
-					...connected.config,
-					auth: { type: "connection", connectionId: "other" },
-				},
-			}),
-		).toBeNull();
-		expect(
-			resolveConnectedToolRiskPolicy({
-				...connected,
-				meta: {
-					"com.tedix/policy": {
-						riskTier: "high_impact_write",
-						blastRadius: "tenant",
-					},
-				},
-			}),
-		).toEqual({
-			riskTier: "high_impact_write",
-			blastRadius: "tenant",
-		});
-	});
 	it("reads the canonical D1-backed policy metadata", () => {
 		expect(
 			resolveToolRiskPolicy(tool("bounded_write", "single_resource")),
