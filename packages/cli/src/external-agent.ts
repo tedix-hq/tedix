@@ -12,7 +12,11 @@ import {
 } from "@tedix/mcp-shared/auth/scopes";
 import { type AvailableWorkspace, listAvailableWorkspaces } from "./account";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
-import type { WorkspaceCredential } from "./credential-store";
+import {
+	readWorkspaceCredentials,
+	type WorkspaceCredential,
+} from "./credential-store";
+import { decodeJwtPayload } from "./jwt-payload";
 import {
 	clearBootstrapApproval,
 	externalAgentProfileSlot,
@@ -501,13 +505,41 @@ export function externalAgentNamesOrganization(
 }
 
 function profileNamesOrganization(
-	profile: StoredExternalAgentProfile,
+	profile: Pick<
+		StoredExternalAgentProfile,
+		"organizationId" | "organizationAliases"
+	>,
 	organization: string,
 ): boolean {
 	return (
 		organization === profile.organizationId ||
 		(profile.organizationAliases ?? []).includes(organization)
 	);
+}
+
+/** Select only a name that both identifies the agent and the Connect login selected. */
+export function externalAgentContextOrganization(
+	profile: Pick<
+		StoredExternalAgentProfile,
+		"organizationId" | "organizationAliases"
+	>,
+	credential: WorkspaceCredential | null,
+): string | undefined {
+	if (!credential?.mcpUrl || !isMultiOrganizationMcpUrl(credential.mcpUrl))
+		return undefined;
+	const selected = decodeJwtPayload(
+		credential.oauthTokens?.access_token ?? "",
+	)?.tedixSelectedOrganizations;
+	if (!Array.isArray(selected)) return undefined;
+	const matches = [
+		...new Set(
+			selected.filter(
+				(id): id is string =>
+					typeof id === "string" && profileNamesOrganization(profile, id),
+			),
+		),
+	];
+	return matches.length === 1 ? matches[0] : undefined;
 }
 
 function storedSession(
@@ -1182,6 +1214,10 @@ export async function resolveExternalAgentAuth(options: {
 		credentialProvider,
 		discardCredential: () => discardExternalAgentCredential(slot),
 		mcpUrl: profile.mcpUrl,
+		organization: externalAgentContextOrganization(
+			profile,
+			readWorkspaceCredentials(options.workspace),
+		),
 		source: `external-agent:${profile.key}:${session.id}`,
 	};
 }

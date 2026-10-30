@@ -46,6 +46,8 @@ export interface AuthResolution {
 	discardCredential?: () => void;
 	headers: Record<string, string>;
 	mcpUrl?: string;
+	/** Organization pinned by a verified external-agent profile. */
+	organization?: string;
 	oauthProvider?: OAuthClientProvider;
 	source: string;
 }

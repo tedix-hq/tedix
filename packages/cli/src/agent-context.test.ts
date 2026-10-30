@@ -17,7 +17,11 @@ import {
 	resolveAgentContext,
 	runAgentContext,
 } from "./agent-context";
-import { writeWorkspaceCredentials } from "./credential-store";
+import {
+	readWorkspaceCredentials,
+	writeWorkspaceCredentials,
+} from "./credential-store";
+import { externalAgentContextOrganization } from "./external-agent";
 import { setProcessTableReader } from "./host-ancestry";
 
 // These tests drive chat identity explicitly; a host session id from the
@@ -587,15 +591,20 @@ test("host environment resolves identity and conflicting host identifiers are re
 test("a Codex lane under a Claude launcher uses its own chat only with process-tree proof", () => {
 	const { opts } = fixture();
 	bind(opts);
-	const saved = ["CODEX_THREAD_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDE_PID"].map(
-		(key) => [key, process.env[key]] as const,
-	);
+	const saved = [
+		"CODEX_THREAD_ID",
+		"CODEX_SESSION_ID",
+		"CLAUDE_CODE_SESSION_ID",
+		"CLAUDE_PID",
+	].map((key) => [key, process.env[key]] as const);
 	const own = "01a15b44-7c35-7210-b6c5-763a1ed4511c";
 	const automatic = { cwd: opts.cwd, configDir: opts.configDir };
 	try {
 		process.env.CODEX_THREAD_ID = own;
+		process.env.CODEX_SESSION_ID = own;
 		process.env.CLAUDE_CODE_SESSION_ID = "0b1e8c2a-3f4d-4e5f-8a6b-7c8d9e0f1a2b";
 		process.env.CLAUDE_PID = "900";
+		setProcessTableReader(() => []);
 		expect(resolveAgentContext(automatic).status).toBe("invalid");
 		setProcessTableReader(() => [
 			{ pid: process.pid, ppid: 801, command: "tedix" },
@@ -825,11 +834,15 @@ describe("shared Connect context targets", () => {
 		);
 		const sessionId = "11111111-1111-4111-8111-111111111111";
 		const environmentOrganization = "org_tedix";
+		const pinnedOrganization = externalAgentContextOrganization(
+			{ organizationId: "fictional-id", organizationAliases: ["org_tedix"] },
+			readWorkspaceCredentials("connect", opts),
+		);
 		const target = resolveOrganizationTarget({
 			url: "https://tedix-unified.mcp.tedix.dev/mcp",
 			command: "work",
 			workspace: "connect",
-			environmentOrganization,
+			organization: pinnedOrganization,
 			externalAgent: true,
 		});
 		expect(target.headers).toEqual({});
