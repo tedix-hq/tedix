@@ -5,23 +5,7 @@
  * sync).
  */
 
-const ACTIVE_PROVIDER_CATALOG_SLUGS = [
-	"cloudflare",
-	"cms",
-	"descope",
-	"firecrawl",
-	"github",
-	"google-calendar",
-	"google-chat",
-	"google-drive",
-	"google-gmail",
-	"neo4j-aura-mcp",
-	"notion",
-	"peec",
-	"promptwatch",
-	"tavily",
-	"todoist",
-] as const;
+import { loadCatalogMaintenancePolicy } from "../lib/catalog-sync-source";
 
 // Bounded-concurrent batches sustain roughly 33 scans/minute in production.
 // Admit the contract maximum of 200 rows per hourly workflow so a cold fleet
@@ -92,9 +76,10 @@ export async function runActiveProviderScanAndDrift(
 		await import("@tedix/db/queries/catalog/health-metrics");
 	const db = createDbClient(env.DB);
 	try {
+		const policy = await loadCatalogMaintenancePolicy(db);
 		const activeProviders = await listActiveProviderCatalogApps(
 			db,
-			ACTIVE_PROVIDER_CATALOG_SLUGS,
+			policy.frequentProviderSlugs,
 		);
 
 		if (activeProviders.length > 0) {
