@@ -271,12 +271,14 @@ describe("headless attention view adaptation", () => {
 		});
 	});
 	it("renders bounded Markdown and rejects unsafe source links", () => {
-		const view = deckDisplayCard(raw(), 0);
+		const view = deckDisplayCard(raw(), 0, {
+			osOrigin: "https://orchard.os.example.test",
+		});
 		expect(attentionMarkdown([view], false)).toContain(
 			"Some sources could not be read",
 		);
 		expect(attentionMarkdown([view], true)).toContain(
-			"https://tedix.os.tedix.dev/work?view=deck#card=",
+			"https://orchard.os.example.test/work?view=deck#card=",
 		);
 		expect(attentionMarkdown([view], true).split("\n")[0]).not.toContain(id);
 		expect(attentionMarkdown([view], true)).toContain(
@@ -288,7 +290,18 @@ describe("headless attention view adaptation", () => {
 			"//example.test",
 			"http://example.test",
 		])
-			expect(attentionSource(source)).toBe("https://tedix.os.tedix.dev/work");
+			expect(attentionSource(source)).toBe("/work");
+		expect(
+			attentionSource("/work?view=deck", "https://orchard.os.example.test"),
+		).toBe("https://orchard.os.example.test/work?view=deck");
+		for (const source of [
+			"/\\example.test",
+			"/\n/example.test",
+			"https://user:password@example.test",
+		])
+			expect(attentionSource(source, "https://orchard.os.example.test")).toBe(
+				"https://orchard.os.example.test/work",
+			);
 	});
 });
 it("renders governed approval cards with OS fallback and no refused inline action", () => {

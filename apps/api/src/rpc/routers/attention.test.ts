@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
 	getInteraction: vi.fn(),
 	retireReviews: vi.fn(),
 	actor: vi.fn(),
+	organization: vi.fn(),
+	domain: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/organizations", () => ({
+	getOrganizationProfile: mocks.organization,
+}));
+vi.mock("@tedix/db/queries/organization-domains", () => ({
+	getOrganizationDomain: mocks.domain,
 }));
 vi.mock("@tedix/db/queries/work-items/interactions", () => ({
 	getWorkInteraction: mocks.getInteraction,
@@ -134,6 +142,11 @@ function client(
 }
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.organization.mockResolvedValue({
+		id: "fictional-orchard",
+		slug: "orchard",
+	});
+	mocks.domain.mockResolvedValue(null);
 	mocks.prepareFaces.mockImplementation(async (_context, cards) => cards);
 	mocks.loadDeckProjection.mockResolvedValue({
 		cards: [],
@@ -862,6 +875,15 @@ it("show_feed separates Needs you from Updates without creating actions", async 
 	expect(view.needsYou.map((c) => c.id)).toEqual(["needs"]);
 	expect(view.updates.map((c) => c.id)).toEqual(["sample"]);
 	expect(view.cards.every((c) => !c.actions.length)).toBe(true);
+	expect(view.cards[0]?.source).toBe("https://orchard.os.example.test/work");
+	mocks.domain.mockResolvedValue({
+		status: "active",
+		providerHostnameId: "verified-domain",
+		hostname: "work.example.test",
+	});
+	expect((await client().showFeed({})).cards[0]?.source).toBe(
+		"https://work.example.test/work",
+	);
 });
 
 it("lets an agent dismiss an effect-free facts review without a human inbox or answer", async () => {

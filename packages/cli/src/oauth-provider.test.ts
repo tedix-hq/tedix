@@ -389,26 +389,31 @@ describe("WorkspaceOAuthProvider", () => {
 		expect(provider.clientMetadata.logo_uri).toBe(TEDIX_OAUTH_LOGO_URI);
 	});
 
-	test("keeps OAuth state stable for one transaction and rotates after callback", async () => {
-		const observedStates: string[] = [];
-		const provider = new WorkspaceOAuthProvider({
-			mcpUrl: MCP_URL,
-			captureCallback: async (_url, state) => {
-				observedStates.push(state);
-				return new URLSearchParams({ code: "authorization-code", state });
-			},
-		});
+	test.each(["org_acme", "tedix"])(
+		"keeps OAuth state and exact tenant %s stable for one transaction",
+		async (tenant) => {
+			const observedStates: string[] = [];
+			const provider = new WorkspaceOAuthProvider({
+				mcpUrl: MCP_URL,
+				tenant,
+				captureCallback: async (url, state) => {
+					expect(new URL(url).searchParams.get("tenant")).toBe(tenant);
+					observedStates.push(state);
+					return new URLSearchParams({ code: "authorization-code", state });
+				},
+			});
 
-		const first = provider.state();
-		expect(provider.state()).toBe(first);
-		await provider.redirectToAuthorization(
-			new URL(`${ISSUER}/authorize?state=${first}`),
-		);
-		await provider.waitForCallback();
+			const first = provider.state();
+			expect(provider.state()).toBe(first);
+			await provider.redirectToAuthorization(
+				new URL(`${ISSUER}/authorize?state=${first}`),
+			);
+			await provider.waitForCallback();
 
-		expect(observedStates).toEqual([first]);
-		expect(provider.state()).not.toBe(first);
-	});
+			expect(observedStates).toEqual([first]);
+			expect(provider.state()).not.toBe(first);
+		},
+	);
 
 	test("reuses one loopback capture when the SDK repeats the redirect", async () => {
 		let captures = 0;

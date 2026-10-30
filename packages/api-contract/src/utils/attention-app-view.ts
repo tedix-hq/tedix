@@ -25,7 +25,6 @@ import {
 	type DeckRoutingPolicy,
 } from "../schemas/os-decision-deck";
 
-const OS = "https://tedix.os.tedix.dev";
 function checkedCopy(value: unknown) {
 	const copy = DecisionCardPresentationSchema.safeParse(value).data;
 	return copy?.version === 2 &&
@@ -34,23 +33,33 @@ function checkedCopy(value: unknown) {
 		? copy
 		: null;
 }
-export function attentionSource(source: string): string {
-	if (containsCardSecret(source)) return `${OS}/work`;
-	if (source.startsWith("/") && !source.startsWith("//"))
-		return `${OS}${source}`;
+export function attentionSource(source: string, osOrigin?: string): string {
+	let origin: string | undefined;
+	try {
+		const url = new URL(osOrigin ?? "");
+		if (url.protocol === "https:" && !url.username && !url.password)
+			origin = url.origin;
+	} catch {
+		// Without a configured origin, retain a same-site relative link.
+	}
+	const fallback = `${origin ?? ""}/work`;
+	if (containsCardSecret(source)) return fallback;
+	if (/^\/(?!\/)/.test(source) && !/[\\\u0000-\u0020]/.test(source))
+		return `${origin ?? ""}${source}`;
 	try {
 		const url = new URL(source);
-		if (url.protocol === "https:") return url.href;
+		if (url.protocol === "https:" && !url.username && !url.password)
+			return url.href;
 	} catch {
 		/* Opaque evidence references are displayed in the OS. */
 	}
-	return `${OS}/work`;
+	return fallback;
 }
 
 export function deckDisplayCard(
 	card: DeckCard,
 	index: number,
-	input: { gadgetId?: string; timeZone?: string } = {},
+	input: { gadgetId?: string; timeZone?: string; osOrigin?: string } = {},
 	routing?: DeckRoutingPolicy,
 ): AttentionDisplayCard {
 	const request = card.interaction?.request;
@@ -133,7 +142,7 @@ export function deckDisplayCard(
 		...(card.handled ? { handled: true } : {}),
 		...(card.expired ? { expired: true } : {}),
 		draftedNotSent: card.draftedNotSent ?? false,
-		source: attentionSource(card.source),
+		source: attentionSource(card.source, input.osOrigin),
 		draft: containsCardSecret(draft) ? null : draft,
 		recipient: outbound?.recipient ?? null,
 		subject: outbound?.subject ?? null,
@@ -344,6 +353,7 @@ export function deckDisplayCard(
 
 export function feedDisplayCard(
 	item: z.infer<typeof ForYouProjectionSchema>["items"][number],
+	osOrigin?: string,
 ): AttentionDisplayCard {
 	const personal = item.personalAgentContribution;
 	const copy = checkedCopy(item.presentation);
@@ -367,7 +377,7 @@ export function feedDisplayCard(
 			: item.actor,
 		evidenceUrl: personal?.evidenceUrl ?? null,
 		dueAt: item.dueAt,
-		source: attentionSource(item.source),
+		source: attentionSource(item.source, osOrigin),
 		draft: item.decision?.preview?.body ?? null,
 		recipient: null,
 		subject: null,
