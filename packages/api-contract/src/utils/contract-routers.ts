@@ -38,6 +38,7 @@ import { contentContract } from "../contracts/content";
 import { controlPlaneContract } from "../contracts/control-plane";
 import { descopeAihContract } from "../contracts/descope-aih";
 import { directoryContract } from "../contracts/directory";
+import { dispatcherHealthContract } from "../contracts/dispatcher-health";
 import { docsContract } from "../contracts/docs";
 import { earnedDelegationContract } from "../contracts/earned-delegation";
 import { externalAgentIdentityContract } from "../contracts/external-agent-identity";
@@ -147,6 +148,7 @@ export const ROUTERS: Record<string, unknown> = {
 	cognitiveRuntime: cognitiveRuntimeContract,
 	descopeAih: descopeAihContract,
 	directory: directoryContract,
+	dispatcherHealth: dispatcherHealthContract,
 	docs: docsContract,
 	flywheelHealth: flywheelHealthContract,
 	graphRetrievalBenchmarks: graphRetrievalBenchmarksContract,

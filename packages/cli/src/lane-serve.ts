@@ -67,6 +67,7 @@ import {
 	readLoginRecovery,
 	saveLoginRecovery,
 } from "./login-recovery";
+import { writeDispatcherHealthSource } from "./dispatcher-health";
 
 type WorkAttempt = z.infer<typeof WorkAttemptSchema>;
 
@@ -2238,6 +2239,7 @@ export async function runLaneServe(args: string[]): Promise<number> {
 			"A dispatcher for this organization and executor is already running",
 		);
 	}
+	writeDispatcherHealthSource(directory, options);
 	const dispatcher = new LaneDispatcher(options, directory);
 	let stopping = false;
 	const stop = () => {

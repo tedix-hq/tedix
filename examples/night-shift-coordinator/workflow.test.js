@@ -52,6 +52,7 @@ function fixture() {
 		return value;
 	}
 	const api = {
+		list_dispatcher_health: async () => ({ reportedAt: AT, data: [] }),
 		list_projects: async () => ({
 			data: [{ id: "labelled-project", metadata: { labels: ["night-shift"] } }],
 			pagination: { hasMore: false },
@@ -205,6 +206,31 @@ describe("native night coordination", () => {
 		expect(f.items.get("low").startAt).toBeNull();
 		expect([...f.outputs.values()][0].title).toBe("Night log 2026-10-18");
 		expect(f.reason).not.toHaveBeenCalled();
+	});
+	test("records current local lane health in the night log", async () => {
+		const f = fixture();
+		f.api.list_dispatcher_health = async () => ({
+			reportedAt: AT,
+			data: [
+				{
+					executor: "devin",
+					running: true,
+					stale: false,
+					slotsInUse: 2,
+					slotsTotal: 3,
+					lastAdmissionAt: "2026-10-17T21:55:00.000Z",
+					topReason: { reason: "Session label clash", count: 4 },
+				},
+			],
+		});
+		await f.run();
+		expect(
+			[...f.outputs.values()][0].currentRevision.content.blocks.some(
+				(block) =>
+					block.text ===
+					"Lane devin: running; slots 2/3; last admission 2026-10-17T21:55:00.000Z; repeated 4x: Session label clash.",
+			),
+		).toBe(true);
 	});
 	test("rebriefs an expired lane once, retaining original brief and a fresh version", async () => {
 		const f = fixture();

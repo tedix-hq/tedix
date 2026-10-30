@@ -1,18 +1,74 @@
 /**
- * Dispatcher health facts: whether Work waits for a lane while the two signs of
- * a working dispatcher (a Work Attempt admission, a request-tracker action)
- * have both gone quiet. Read-only; the alarm job in apps/api acts on them.
+ * Current lane reports from local supervisors, plus inferred alarm facts about
+ * Work waiting while admissions or request-tracker activity have gone quiet.
  *
  * Runs every platform tick, so every read is an index seek per organization:
  * newest rows come from (org_id, started_at) and (organization_id, updated_at)
  * with ORDER BY ... DESC LIMIT 1, never a max() over a whole table.
  */
 
-import { sql, type SQL } from "drizzle-orm";
+import { asc, eq, sql, type SQL } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import {
+	dispatcherHealthReports,
+	type DispatcherHealthReportRow,
+	type NewDispatcherHealthReportRow,
+} from "../../schema/dispatcher-health";
 
 /** `metadata.schema` of the "dispatcher stalled" attention item. */
 export const DISPATCHER_HEALTH_SCHEMA = "tedix.dispatcher-health.v1";
+
+export type UpsertDispatcherHealthReportParams = Omit<
+	NewDispatcherHealthReportRow,
+	"orgId"
+> & { orgId: string };
+
+/** Replace one reporter's current snapshot for one executor lane. */
+export async function upsertDispatcherHealthReport(
+	db: DbQueryClient,
+	params: UpsertDispatcherHealthReportParams,
+): Promise<DispatcherHealthReportRow> {
+	const [row] = await db
+		.insert(dispatcherHealthReports)
+		.values(params)
+		.onConflictDoUpdate({
+			target: [
+				dispatcherHealthReports.orgId,
+				dispatcherHealthReports.reporterId,
+				dispatcherHealthReports.executor,
+				dispatcherHealthReports.lane,
+			],
+			set: {
+				running: params.running,
+				observedAt: params.observedAt,
+				reportedAt: params.reportedAt,
+				lastAdmissionAt: params.lastAdmissionAt ?? null,
+				slotsInUse: params.slotsInUse,
+				slotsTotal: params.slotsTotal,
+				topReason: params.topReason ?? null,
+				topReasonCount: params.topReasonCount ?? null,
+			},
+		})
+		.returning();
+	if (!row) throw new Error("Dispatcher health report upsert returned no row");
+	return row;
+}
+
+/** Current dispatcher lane reports for exactly one organization. */
+export function listDispatcherHealthReports(
+	db: DbQueryClient,
+	orgId: string,
+): Promise<DispatcherHealthReportRow[]> {
+	return db
+		.select()
+		.from(dispatcherHealthReports)
+		.where(eq(dispatcherHealthReports.orgId, orgId))
+		.orderBy(
+			asc(dispatcherHealthReports.executor),
+			asc(dispatcherHealthReports.lane),
+			asc(dispatcherHealthReports.reporterId),
+		);
+}
 
 /**
  * The organization's newest active policy pack enables the request tracker.

@@ -20,6 +20,7 @@ capabilities:
         list_work_item_attempts,
         list_attempt_projection,
         list_ready_work,
+        list_dispatcher_health,
         update_work_item_specification,
         complete_work_item,
         add_comment,
@@ -52,6 +53,8 @@ to follow ready selections across projects. It must honor planned start times,
 retain telemetry and reuse a dead lane's own worktree on retry. Run the host as
 an operating-system service so ending a chat cannot stop it. A machine that is
 off or asleep cannot execute local agents; server coordination remains durable.
+Each cycle reads the supervisor's current lane reports. Stale reports stay
+visible as stale rather than proving that a lane is running.
 
 The server watcher records heartbeat loss and expires the old Attempt. This
 workflow then reviews its terminal result with the platform's tool-free

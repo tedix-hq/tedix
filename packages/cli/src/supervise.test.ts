@@ -38,6 +38,7 @@ import {
 	systemLaunchctl,
 } from "./supervise-launch-agent";
 import { answerAction, OPEN_SESSION_GRACE_MS } from "./supervise-questions";
+import { writeDispatcherHealthSource } from "./dispatcher-health";
 
 const SESSION = "01a11c83-81a9-7a32-9332-21edc1832f00";
 const REQUEST = "99999999-9999-4999-8999-999999999999";
@@ -145,6 +146,7 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 	const lines: string[] = [];
 	let reads = 0;
 	const drafted: Array<[string, JsonObject]> = [];
+	const health: JsonObject[] = [];
 	const codex: CodexDriver = {
 		queue: async (thread, message) => {
 			seen.queued.push([thread, message]);
@@ -171,6 +173,12 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 		log: (line) => lines.push(line),
 		read: async (args) => {
 			reads++;
+			if (args.includes("dispatcher-health-record")) {
+				health.push(
+					JSON.parse(args[args.indexOf("--input") + 1]!) as JsonObject,
+				);
+				return health.at(-1)!;
+			}
 			if (args.some((arg) => arg.includes("get_work_interaction"))) {
 				const next = details.shift();
 				if (next === undefined) throw new Error("no detail");
@@ -186,8 +194,48 @@ function supervisor(details: unknown[], fake: Partial<Fake> = {}) {
 			throw new Error(`unexpected read ${args.join(" ")}`);
 		},
 	});
-	return { runner, seen, lines, drafted, reads: () => reads };
+	return {
+		runner,
+		seen,
+		lines,
+		drafted,
+		health,
+		reads: () => reads,
+		advance: (ms: number) => {
+			clock += ms;
+		},
+	};
 }
+
+describe("dispatcher health publication", () => {
+	test("reports each local lane at most once per two-minute interval", async () => {
+		const directory = join(config, "dispatchers", "fixture-lane");
+		mkdirSync(directory, { recursive: true });
+		writeDispatcherHealthSource(
+			directory,
+			{
+				scope: ["--workspace", "fixture", "--organization", "org_fixture"],
+				executor: "opencode",
+				max: 4,
+			},
+			process.pid,
+		);
+		const run = supervisor([]);
+		await run.runner.tick();
+		await run.runner.tick();
+		expect(run.health).toHaveLength(1);
+		expect(run.health[0]).toMatchObject({
+			executor: "opencode",
+			lane: "fixture-lane",
+			running: true,
+			slotsInUse: 0,
+			slotsTotal: 4,
+		});
+		run.advance(2 * 60 * 1000);
+		await run.runner.tick();
+		expect(run.health).toHaveLength(2);
+	});
+});
 
 describe("existing-chat handoff delivery", () => {
 	test("a confirmed handoff is not queued again after restart", async () => {

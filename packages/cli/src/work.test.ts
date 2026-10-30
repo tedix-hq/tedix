@@ -52,6 +52,8 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	label_agent_reply: "agentTurnTriage/labelReply",
 	request_agent_reply_draft: "agentTurnTriage/requestReplyDraft",
 	report_work_agent_session_status: "workAgentSessions/report",
+	report_dispatcher_health: "dispatcherHealth/report",
+	list_dispatcher_health: "dispatcherHealth/list",
 	list_work_item_cli_rows: "workItems/listCliProjection",
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
@@ -1240,6 +1242,17 @@ describe("artifact-neutral factory control verbs", () => {
 		}
 	});
 
+	test("routes dispatcher health reports and reads through Work", async () => {
+		for (const [verb, callable] of [
+			["dispatcher-health-list", "work.list_dispatcher_health"],
+			["dispatcher-health-record", "work.report_dispatcher_health"],
+		] as const) {
+			const { ctx, sources } = makeContext({ input: "{}" });
+			expect(await runWork(verb, ctx)).toBe(0);
+			expect(sources[0]).toContain(callable);
+		}
+	});
+
 	test("interaction-respond --no-deliver marks the answer as needing no delivery", async () => {
 		const input = {
 			expectedRequestVersion: 2,
@@ -1271,6 +1284,7 @@ describe("artifact-neutral factory control verbs", () => {
 			"case-close",
 			"milestone-create",
 			"health-record",
+			"dispatcher-health-record",
 			"approval-decide",
 			"approval-audit-list",
 			"interaction-respond",
@@ -3836,7 +3850,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(69);
+		expect(covered).toHaveLength(71);
 	});
 });
 

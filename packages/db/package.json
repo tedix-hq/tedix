@@ -178,6 +178,7 @@
 		"./schema/os-workspaces": "./src/schema/os-workspaces.ts",
 		"./schema/provider-installations": "./src/schema/provider-installations.ts",
 		"./schema/platform-cron-executions": "./src/schema/platform-cron-executions.ts",
+		"./schema/dispatcher-health": "./src/schema/dispatcher-health.ts",
 		"./schema/tedi-secrets": "./src/schema/tedi-secrets.ts",
 		"./schema/organizations": "./src/schema/organizations.ts",
 		"./schema/oidc-sessions": "./src/schema/oidc-sessions.ts",
