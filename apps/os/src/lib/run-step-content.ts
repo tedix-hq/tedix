@@ -4,7 +4,7 @@ export function stepTitle(event: SkillWorkflowTimelineEvent) {
 	if (event.method === "run_tedi_turn") return "Ask an assistant";
 	if (event.method === "messages_read" || event.method === "read_messages")
 		return "Read assistant replies";
-	if (event.kind === "step") return "Workflow task";
+	if (event.kind === "step") return readableField(event.name);
 	if (event.kind === "sleep" || event.kind === "wait")
 		return "Waiting for a reply";
 	if (event.kind === "network") return "Web request";
@@ -68,4 +68,48 @@ export function stepConversation(...values: unknown[]) {
 export function readableField(key: string) {
 	const text = key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ");
 	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Numeric identifiers are not dates unless their field supplies that meaning. */
+export function stepTimestamp(value: unknown, field?: string): string | null {
+	if (
+		typeof value === "string" &&
+		/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+			value,
+		)
+	)
+		return Number.isNaN(Date.parse(value)) ? null : value;
+	if (
+		!field ||
+		!/^(?:timestamp|time|clock|(?:created|updated|started|ended|completed|finished|recorded|saved|expires)[_-]?(?:at|time))$/i.test(
+			field,
+		)
+	)
+		return null;
+	const numeric =
+		typeof value === "number"
+			? value
+			: typeof value === "string" && /^\d{10,13}$/.test(value)
+				? Number(value)
+				: NaN;
+	const ms = numeric < 100_000_000_000 ? numeric * 1000 : numeric;
+	return ms >= Date.UTC(2000, 0, 1) && ms < Date.UTC(2100, 0, 1)
+		? new Date(ms).toISOString()
+		: null;
+}
+
+export function recordingNote(warning: string): string {
+	const count = /^(\d+) /.exec(warning)?.[1];
+	if (
+		count &&
+		/artifact body\/bodies.*(?:inspection limit|inspection budget)/.test(
+			warning,
+		)
+	)
+		return `${count} saved records were not loaded because this page reached its loading limit. Select a step to load its saved result separately.`;
+	if (count && /artifact body\/bodies were missing/.test(warning))
+		return `${count} saved records could not be found. Some step details may be unavailable.`;
+	if (count && /artifact body\/bodies were unavailable/.test(warning))
+		return `${count} saved records could not be loaded because their storage is unavailable.`;
+	return "Some saved details could not be read. Open recording details for the original message.";
 }

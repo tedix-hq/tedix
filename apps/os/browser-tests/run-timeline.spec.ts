@@ -62,11 +62,34 @@ try {
 					const response = await route.fetch();
 					const body = await response.json();
 					Object.assign(body.json.run, { startedAt, completedAt });
+					body.json.warnings = [
+						"70 R2 artifact body/bodies were omitted after the 128-read inspection limit was reached.",
+					];
 					return route.fulfill({ response, json: body });
 				}
 				if (url.pathname.endsWith("/skills/getRunArtifact")) {
 					artifactReads++;
 					const input = route.request().postDataJSON().json;
+					if (input.path === timeline.events[1]!.path) {
+						const response = await route.fetch();
+						const body = await response.json();
+						body.json.content = JSON.stringify({
+							response: {
+								createdAt: 1793178000000,
+								id: 1793178000000,
+								data: {
+									web: [
+										{
+											title: "A useful product question",
+											url: "https://example.com/a/very/long/thread?source=search",
+											description: "Saved search excerpt",
+										},
+									],
+								},
+							},
+						});
+						return route.fulfill({ response, json: body });
+					}
 					if (input.path === timeline.events[246]!.path) {
 						const response = await route.fetch();
 						const body = await response.json();
@@ -154,6 +177,21 @@ try {
 			const chart = page.locator("[data-run-timeline]");
 			await chart.waitFor();
 			await page.evaluate(() => document.fonts.ready);
+			await page
+				.getByText(
+					/70 saved records were not loaded because this page reached its loading limit/,
+				)
+				.waitFor();
+			assert.equal(
+				await page
+					.getByText(
+						"70 R2 artifact body/bodies were omitted after the 128-read inspection limit was reached.",
+						{ exact: true },
+					)
+					.isVisible(),
+				false,
+				"raw recording message stays collapsed",
+			);
 			assert.equal(await page.locator("html").getAttribute("data-mode"), theme);
 			assert.equal(
 				await chart.locator("[data-timeline-event]").count(),
@@ -282,6 +320,74 @@ try {
 				0,
 			);
 			assert.equal(artifactReads, 5, "only selected receipts are read");
+			await page.keyboard.press("Escape");
+			await chart.getByRole("textbox", { name: "Find a step" }).fill("s");
+			const matches = chart.locator('[aria-label="Matching steps"]');
+			for (const button of [
+				matches.getByRole("button").first(),
+				matches.getByRole("button").last(),
+			]) {
+				await button.focus();
+				await button.scrollIntoViewIfNeeded();
+				assert(
+					await button.evaluate((element) => {
+						const box = element.getBoundingClientRect();
+						const container = element.parentElement!.getBoundingClientRect();
+						return (
+							box.left >= container.left + 4 &&
+							box.right <= container.right - 4 &&
+							box.top >= container.top + 3 &&
+							box.bottom <= container.bottom - 3
+						);
+					}),
+					`${label}: search option border and focus ring fit inside scroll area`,
+				);
+			}
+			if (evidenceDir)
+				await page.screenshot({ path: `${evidenceDir}/search-${label}.png` });
+			await chart.getByRole("textbox", { name: "Find a step" }).fill("");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[1]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.locator('time[datetime="2026-10-28T09:00:00.000Z"]')
+				.waitFor();
+			await drawer.getByText("1793178000000", { exact: true }).waitFor();
+			await drawer
+				.getByRole("button", { name: "A useful product question", exact: true })
+				.click();
+			assert.equal(
+				await drawer
+					.getByRole("link", { name: /https:\/\/example.com/ })
+					.getAttribute("href"),
+				"https://example.com/a/very/long/thread?source=search",
+			);
+			await drawer.getByText("Saved search excerpt", { exact: true }).waitFor();
+			await drawer
+				.getByRole("button", { name: "Technical details", exact: true })
+				.click();
+			await drawer.locator("pre").waitFor();
+			await drawer.evaluate(async (element) => {
+				await Promise.all(
+					element
+						.getAnimations({ subtree: true })
+						.filter((animation) =>
+							Number.isFinite(animation.effect?.getComputedTiming().endTime),
+						)
+						.map((animation) => animation.finished.catch(() => {})),
+				);
+			});
+			assert(
+				await drawer.evaluate(
+					(element) => element.scrollWidth <= element.clientWidth,
+				),
+				`${label}: expanded sheet has no horizontal overflow`,
+			);
+			if (evidenceDir)
+				await page.screenshot({
+					path: `${evidenceDir}/formatted-details-${label}.png`,
+				});
 			await page.keyboard.press("Escape");
 			await page
 				.getByRole("button", { name: "Step list and evidence", exact: true })
