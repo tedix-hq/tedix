@@ -20,7 +20,12 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MCP_URL = "https://connect.mcp.tedix.dev/mcp";
+const MANIFEST = JSON.parse(
+	readFileSync(new URL("../plugin.json", import.meta.url), "utf8"),
+);
+const MCP_URL = JSON.parse(
+	readFileSync(new URL("../mcp.json", import.meta.url), "utf8"),
+).mcpServers.tedix.url;
 const OAUTH_CLIENT_ID =
 	"https://os.tedix.dev/.well-known/oauth-client/opencode.json";
 /** The client's only registered redirect; OpenCode 2 otherwise picks a random port. */
@@ -650,4 +655,4 @@ async function setup(ctx) {
 	};
 }
 
-export default { id: "tedix", setup, server };
+export default { id: MANIFEST.name, version: MANIFEST.version, setup, server };

@@ -1,8 +1,8 @@
 /**
  * Build the public tedix-hq/tedix-plugins tree from plugins/tedix: one
  * repository, one plugin at its root, a manifest per host sharing the same
- * skills and remote MCP server. It ships no hooks; those stay in the CLI's
- * local install. A new host is one more manifest written here.
+ * skills and remote MCP server. Lifecycle hook manifests stay in local builds;
+ * the OpenCode adapter runs optional hooks through the installed Tedix CLI.
  *
  *   bun packages/cli/scripts/build-plugin-repo.ts <empty-or-existing-dir>
  */
@@ -15,26 +15,36 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { packageFiles, ROOT } from "./package-plugin";
+import { hostManifest } from "./plugin-manifest";
 
 export const PLUGIN_REPOSITORY = "https://github.com/tedix-hq/tedix-plugins";
 const MARKETPLACE = "tedix-plugins";
 
 const json = (value: unknown) => `${JSON.stringify(value, null, "\t")}\n`;
-const readJson = (path: string) =>
-	JSON.parse(readFileSync(join(ROOT, path), "utf8"));
-
 export function pluginRepoFiles(): Map<string, string | Uint8Array> {
-	const files = new Map<string, string | Uint8Array>(
-		packageFiles({ host: "claude" }),
+	const portable = packageFiles();
+	const files = new Map<string, string | Uint8Array>([
+		...packageFiles({ host: "claude" }),
+		...packageFiles({ host: "devin" }),
+		...packageFiles({ host: "opencode" }),
+		...portable,
+	]);
+	const canonical = JSON.parse(
+		new TextDecoder().decode(portable.get("plugin.json")),
 	);
-	const claude = readJson(".claude-plugin/plugin.json");
-	const codex = readJson(".codex-plugin/plugin.json");
+	const claude = hostManifest(ROOT, "claude");
+	const codex = hostManifest(ROOT, "codex");
+	const devin = hostManifest(ROOT, "devin");
 	delete claude.hooks;
 	delete codex.hooks;
-	if (claude.version !== codex.version)
-		throw new Error(
-			`Claude ${claude.version} and Codex ${codex.version} manifests disagree`,
-		);
+	files.set(
+		"plugin.json",
+		json({ ...canonical, repository: PLUGIN_REPOSITORY }),
+	);
+	files.set(
+		".devin-plugin/plugin.json",
+		json({ ...devin, repository: PLUGIN_REPOSITORY }),
+	);
 	files.set(
 		".claude-plugin/plugin.json",
 		json({ ...claude, repository: PLUGIN_REPOSITORY }),

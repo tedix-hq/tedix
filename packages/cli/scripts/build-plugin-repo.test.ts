@@ -22,6 +22,10 @@ describe("public plugin repository", () => {
 
 	test("ships one plugin for every host and no hooks", () => {
 		for (const path of [
+			"plugin.json",
+			"mcp.json",
+			".devin-plugin/plugin.json",
+			".opencode-plugin/index.js",
 			".claude-plugin/plugin.json",
 			".claude-plugin/marketplace.json",
 			".codex-plugin/plugin.json",
@@ -53,6 +57,17 @@ describe("public plugin repository", () => {
 		expect(claude.repository).toBe(PLUGIN_REPOSITORY);
 		expect(claude.privacyPolicyUrl).toBe("https://tedix.dev/privacy/");
 		expect(codex.repository).toBe(PLUGIN_REPOSITORY);
+		const canonical = JSON.parse(text(files.get("plugin.json")));
+		for (const path of [
+			".claude-plugin/plugin.json",
+			".codex-plugin/plugin.json",
+			".devin-plugin/plugin.json",
+			"gemini-extension.json",
+		])
+			expect(JSON.parse(text(files.get(path)))).toMatchObject({
+				name: canonical.name,
+				version: canonical.version,
+			});
 	});
 
 	test("Gemini extension points at the same remote MCP server", () => {

@@ -1,9 +1,9 @@
 # Devin
 
-Install in your personal Devin scope from the source repository:
+Install in your personal Devin scope from the official plugin repository:
 
 ```sh
-devin plugins install tedix-hq/tedix#plugins/tedix -y
+devin plugins install tedix-hq/tedix-plugins -y
 devin plugins info tedix
 devin mcp login tedix
 ```

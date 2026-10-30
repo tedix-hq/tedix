@@ -4,8 +4,7 @@
  * in the installed Tedix CLI (`tedix hooks ...`). Every hook command first
  * checks for the CLI, so a host without it runs each hook as a silent no-op.
  *
- *   bun packages/cli/scripts/package-plugin.ts [--local] [--host openai|claude]
- *     [--mcp-url <url>] [--mcp-bearer-env <NAME>] <new.zip>
+ *   bun packages/cli/scripts/package-plugin.ts [options] <new.zip>
  */
 import {
 	closeSync,
@@ -18,6 +17,7 @@ import {
 } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
+import { hostManifest } from "./plugin-manifest";
 
 export const ROOT = resolve(import.meta.dir, "../../../plugins/tedix");
 const ASSETS = ["icon.png", "icon-dark.png", "logo.png", "logo-dark.png"];
@@ -62,6 +62,7 @@ export interface PackageOptions {
 	host?: string;
 	mcpUrl?: string;
 	mcpBearerEnv?: string;
+	appId?: string;
 }
 
 function isLoopbackAddress(hostname: string): boolean {
@@ -206,9 +207,19 @@ export function packageFiles(
 		host = "openai",
 		mcpUrl,
 		mcpBearerEnv,
+		appId,
 	} = options;
-	if (host !== "openai" && host !== "claude")
-		throw new Error("Host must be openai or claude");
+	if (!["openai", "claude", "devin", "opencode", "chatgpt-dev"].includes(host))
+		throw new Error(
+			"Host must be openai, claude, devin, opencode or chatgpt-dev",
+		);
+	if (host === "chatgpt-dev") {
+		if (!appId || !/^asdk_app_[a-f0-9]{32}$/.test(appId) || local)
+			throw new Error(
+				"--app-id requires an existing app ID and cannot combine with --local",
+			);
+	} else if (appId !== undefined)
+		throw new Error("--app-id requires --host chatgpt-dev");
 	if (mcpUrl !== undefined) validateMcpUrl(mcpUrl, { local });
 	if (
 		mcpBearerEnv !== undefined &&
@@ -231,7 +242,7 @@ export function packageFiles(
 		if (mcpUrl !== undefined) server.url = mcpUrl;
 		if (mcpBearerEnv !== undefined)
 			server.headers = { Authorization: `Bearer \${${mcpBearerEnv}}` };
-		const manifest = readJson(root, ".claude-plugin/plugin.json");
+		const manifest = hostManifest(root, "claude");
 		delete manifest.hooks;
 		files.set(".claude-plugin/plugin.json", json(manifest));
 		files.set(".mcp.json", json({ mcpServers: mcp.mcpServers }));
@@ -241,16 +252,41 @@ export function packageFiles(
 	}
 	if (mcpUrl !== undefined)
 		throw new Error("MCP URL overrides currently apply only to --host claude");
+	if (host === "devin" || host === "opencode") {
+		addFiles(root, files, [
+			"plugin.json",
+			"mcp.json",
+			...skillPaths(root),
+			...assets,
+		]);
+		if (host === "devin") {
+			files.set(".devin-plugin/plugin.json", json(hostManifest(root, "devin")));
+			if (local) addFiles(root, files, ["hooks.json"]);
+		} else addFiles(root, files, [".opencode-plugin/index.js"]);
+		return files;
+	}
 	const manifest = readJson(root, "plugin.json");
 	const extension = manifest.extensions["com.openai"];
 	// Host packages use hooks/hooks.json discovery; cloud packages omit hooks.
 	delete extension.hooks;
+	delete extension.apps;
 	extension.review.test_cases = readJson(root, "review/cases.json");
 	extension.publication.release_notes = readFileSync(
 		join(root, "review/release-notes.md"),
 		"utf8",
 	).trim();
 	const paths = ["mcp.json", ...skillPaths(root), ...assets];
+	if (host === "chatgpt-dev") {
+		// Reuse the installed app's OAuth grant; never create a second connector.
+		extension.apps = "./.app.json";
+		paths.splice(0, 1);
+		files.set(".app.json", json({ apps: { [manifest.name]: { id: appId } } }));
+		const compatibility = hostManifest(root, "codex");
+		delete compatibility.hooks;
+		delete compatibility.mcpServers;
+		compatibility.apps = extension.apps;
+		files.set(".codex-plugin/plugin.json", json(compatibility));
+	}
 	if (local) {
 		extension.publication.release_notes =
 			extension.publication.release_notes.replace(
@@ -258,7 +294,7 @@ export function packageFiles(
 				"This local artifact includes opt-in context hooks, opt-in decision capture and an opt-in turn-status reporter, run by the installed Tedix CLI, and contains no credentials or copied tokens.",
 			);
 		paths.push(".mcp.json");
-		const claude = readJson(root, ".claude-plugin/plugin.json");
+		const claude = hostManifest(root, "claude");
 		delete claude.hooks;
 		files.set(".claude-plugin/plugin.json", json(claude));
 		files.set("hooks/hooks.json", json(localHooks(root, "openai")));
@@ -366,11 +402,12 @@ if (import.meta.main) {
 			host: { type: "string", default: "openai" },
 			"mcp-url": { type: "string" },
 			"mcp-bearer-env": { type: "string" },
+			"app-id": { type: "string" },
 		},
 	});
 	if (positionals.length !== 1) {
 		console.error(
-			"Usage: bun packages/cli/scripts/package-plugin.ts [--local] [--host openai|claude] [--mcp-url <url>] [--mcp-bearer-env <NAME>] <new.zip>",
+			"Usage: bun packages/cli/scripts/package-plugin.ts [--local] [--host openai|claude|devin|opencode|chatgpt-dev] [--app-id <existing app>] [--mcp-url <url>] [--mcp-bearer-env <NAME>] <new.zip>",
 		);
 		process.exit(2);
 	}
@@ -379,6 +416,7 @@ if (import.meta.main) {
 		host: values.host,
 		mcpUrl: values["mcp-url"],
 		mcpBearerEnv: values["mcp-bearer-env"],
+		appId: values["app-id"],
 	});
 	console.log(positionals[0]);
 }
