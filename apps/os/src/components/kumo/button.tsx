@@ -319,7 +319,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 					nativeButton={_nativeButton ?? render.type === "button"}
 					disabled={disabled}
 					aria-disabled={disabled || undefined}
-					aria-label={accessibleName}
+					aria-label={isIconSize(size) ? accessibleName : props["aria-label"]}
 					aria-busy={loading || undefined}
 					className={buttonVariants({
 						className: cn(render.props.className, className),
