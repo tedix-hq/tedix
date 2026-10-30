@@ -162,14 +162,15 @@ describe("plugin packager", () => {
 
 	test("development upload reuses one app without adding a second MCP connection", () => {
 		const appId = `asdk_app_${"a".repeat(32)}`;
-		const files = packageFiles({ host: "chatgpt-dev", appId });
+		const pluginName = "dev-fixture";
+		const files = packageFiles({ host: "chatgpt-dev", appId, pluginName });
 		const canonical = decode(packageFiles(), "plugin.json");
 		expect(decode(files, "plugin.json")).toMatchObject({
-			name: canonical.name,
+			name: pluginName,
 			version: canonical.version,
 		});
 		expect(decode(files, ".app.json")).toEqual({
-			apps: { tedix: { id: appId } },
+			apps: { [pluginName]: { id: appId } },
 		});
 		expect(files.has("mcp.json")).toBe(false);
 		expect(files.has(".mcp.json")).toBe(false);
@@ -183,6 +184,9 @@ describe("plugin packager", () => {
 			"mcpServers",
 		);
 		expect(() => packageFiles({ appId })).toThrow(/--app-id/);
+		expect(() => packageFiles({ host: "chatgpt-dev", appId })).toThrow(
+			/--plugin-name/,
+		);
 		expect(() =>
 			packageFiles({ host: "chatgpt-dev", appId, local: true }),
 		).toThrow(/--app-id/);
