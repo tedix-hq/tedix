@@ -32,6 +32,11 @@ import type { AuthResolution, CliOptions } from "./shared";
 import { externalAgentSessionWorkspaces } from "./external-agent-store";
 import { resolveAgentSession } from "./work-identity";
 import { sessionWorkspaceDrift } from "./workspace-binding";
+import {
+	confirmStoredAccess,
+	loginRecoveryKey,
+	type LoginVerification,
+} from "./login-recovery";
 
 export const RAW_API_KEY_MESSAGE =
 	"TEDIX_MCP_API_KEY must be a Tedix Unified MCP JWT credential, not a Tedix sk_* API key.";
@@ -91,6 +96,9 @@ export async function resolveStoredLoginAuth(
 		credential?: ReturnType<typeof readWorkspaceCredentials>;
 		consentPrompt?: boolean;
 		refreshSession?: typeof renewStoredSession;
+		verifyAccess?: (
+			credential: NonNullable<ReturnType<typeof readWorkspaceCredentials>>,
+		) => Promise<LoginVerification>;
 	} = {},
 ): Promise<{
 	auth: AuthResolution | null;
@@ -163,6 +171,59 @@ export async function resolveStoredLoginAuth(
 			};
 		}
 		if (outcome === "uncertain") {
+			const current = readWorkspaceCredentials(workspace) ?? cred;
+			if (
+				current.loginId === cred.loginId &&
+				current.mcpUrl === mcpUrl &&
+				current.org === cred.org
+			) {
+				if (!sessionNeedsRefresh(current)) {
+					oauthProvider.reloadCredential(current);
+					return {
+						auth: {
+							headers: {},
+							mcpUrl,
+							oauthProvider,
+							source: `stored-login:${workspace}`,
+						},
+					};
+				}
+				const verification = await confirmStoredAccess(
+					workspace,
+					current,
+					options.verifyAccess,
+				);
+				const latest = readWorkspaceCredentials(workspace);
+				if (
+					(!latest && options.credential === undefined) ||
+					(latest &&
+						loginRecoveryKey(workspace, latest) !==
+							loginRecoveryKey(workspace, current))
+				) {
+					return {
+						auth: null,
+						loginError: `Stored login for workspace "${workspace}" changed during verification. Retry using the current login.`,
+					};
+				}
+				if (verification === "usable") {
+					// Only use the confirmed access token. Its refresh token stays fenced,
+					// including in the transport's normal unauthorized recovery path.
+					return {
+						auth: {
+							headers: {
+								Authorization: `Bearer ${current.oauthTokens!.access_token}`,
+							},
+							mcpUrl,
+							source: `stored-login:${workspace}`,
+						},
+					};
+				}
+				if (verification === "unknown")
+					return {
+						auth: null,
+						loginError: `Stored login renewal for workspace "${workspace}" is uncertain. Access-token verification is temporarily unavailable; retry after one minute. Its refresh token will not be retried because it may already have rotated.`,
+					};
+			}
 			return {
 				auth: null,
 				loginError: `Stored login renewal for workspace "${workspace}" has an uncertain result. Its refresh token will not be retried because it may already have rotated. Run \`tedix login --workspace ${workspace}\` to re-authenticate.`,
