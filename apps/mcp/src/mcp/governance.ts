@@ -1215,6 +1215,20 @@ export async function requireDestructiveToolApproval(
 		humanReservedActionClasses(
 			`${tool.config?.endpoint ?? ""} ${tool.config?.mcpToolName ?? ""}`,
 		).length > 0;
+	// This opt-in applies only after the provider and arguments have passed the
+	// bounded Notion classifier. A declared action type alone cannot use it.
+	if (
+		boundedNotionUpdate &&
+		!humanBoundary &&
+		!isOwnedChannelBoundary &&
+		!configuredApproval &&
+		!manifestProtectedEffect
+	) {
+		const latched = await refuseAutoApprovalWhileLatched();
+		if (latched) return latched;
+		if (await resolveActionTypeOptIn(agent, tool, "notion_page_update"))
+			return null;
+	}
 	// A declared action type an organization admin opted in. An undeclared,
 	// destructive or platform-critical tool, an explicit tool policy and the
 	// owned publish boundary never take this path; external effects such as a
@@ -1222,6 +1236,7 @@ export async function requireDestructiveToolApproval(
 	const declaredActionType = ToolActionTypeSchema.safeParse(tool.actionType);
 	if (
 		declaredActionType.success &&
+		declaredActionType.data !== "notion_page_update" &&
 		risk !== "read" &&
 		annotations?.readOnlyHint !== true &&
 		!isPlatformCriticalActionType(declaredActionType.data) &&
