@@ -43,6 +43,7 @@ export interface LauncherWorkspace {
 	organizationId: string;
 	name: string;
 	slug: string;
+	logoUrl?: string | null;
 	/** `org.provisionComplete`; false workspaces render disabled, never routed. */
 	provisioned: boolean;
 	canEnableOs?: boolean;
@@ -272,6 +273,7 @@ export function buildLauncherWorkspacesFromDirectory(
 		organizationId: record.org.organizationId,
 		name: record.org.name,
 		slug: record.org.slug,
+		logoUrl: record.org.logoUrl,
 		provisioned: record.org.provisionComplete,
 		canEnableOs: record.org.canEnableOs,
 		surfaces: record.org.provisionComplete
