@@ -570,7 +570,7 @@ const TRAILER_LINE = /^(Work-Item|Agent-Session):\s*(.*)$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // OpenCode generates ses_ + 12 lowercase hex characters + 14 base62 characters.
 const HARNESS_SESSION =
-	/^(?:[a-z][a-z0-9-]*:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|devin:[a-z]+-[a-z]+|opencode:ses_[0-9a-f]{12}[0-9A-Za-z]{14})$/;
+	/^(?:[a-z][a-z0-9-]*:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|codex:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:owner-host|devin:[a-z]+-[a-z]+|opencode:ses_[0-9a-f]{12}[0-9A-Za-z]{14})$/;
 
 /**
  * Maintainer trailers are optional, but public history keeps them forever, so
