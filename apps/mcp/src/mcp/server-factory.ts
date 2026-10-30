@@ -1,3 +1,4 @@
+import type { CatalogRequestLifetime } from "../catalog-admission";
 /**
  * Stateless MCP Server Factory
  *
@@ -925,6 +926,7 @@ export async function buildMcpServer(
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
 	connectionAppSlug?: string,
 	clientAppsSupported = false,
+	lifetime?: CatalogRequestLifetime,
 ): Promise<McpServer> {
 	const startTime = Date.now();
 
@@ -970,6 +972,8 @@ export async function buildMcpServer(
 			},
 		},
 	});
+
+	lifetime?.attach(server);
 
 	// Build per-request context — closures capture this, not cached data
 	const serverCtx = buildServerContext(
