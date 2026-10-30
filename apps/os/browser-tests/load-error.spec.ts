@@ -98,7 +98,9 @@ try {
 				await page.screenshot({
 					path: `${evidence}/accounts-${width}-${theme}.png`,
 				});
-				await composition.getByText("Details", { exact: true }).focus();
+				await composition
+					.getByRole("button", { name: "Details", exact: true })
+					.focus();
 				await page.keyboard.press("Enter");
 				assert.ok(
 					(await composition.innerText()).includes(

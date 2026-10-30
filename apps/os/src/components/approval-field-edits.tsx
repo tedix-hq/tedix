@@ -1,4 +1,3 @@
-import { CaretRight } from "@phosphor-icons/react";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import type { ApprovalEditableField } from "@tedix/api-contract/schemas/approval-edits";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -12,8 +11,8 @@ import { useContext, useId, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
@@ -146,15 +145,10 @@ export function ApprovalFieldEdits({
 
 	return (
 		<Collapsible data-approval-field-edits>
-			<CollapsibleTrigger className="group/disclosure">
-				<CaretRight
-					size={14}
-					aria-hidden
-					className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-				/>
+			<CollapsibleDefaultTrigger className="group/disclosure">
 				Change before approving
-			</CollapsibleTrigger>
-			<CollapsibleContent>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent>
 				<form
 					className="grid gap-4 pt-2"
 					onSubmit={(event) => {
@@ -249,7 +243,7 @@ export function ApprovalFieldEdits({
 						{saving ? "Approving…" : "Approve with changes"}
 					</Button>
 				</form>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

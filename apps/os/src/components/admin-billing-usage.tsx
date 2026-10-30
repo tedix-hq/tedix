@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 /**
  * Billing usage overview — the hero stats row of /admin/billing.
@@ -188,15 +187,10 @@ export function BillingUsageOverview({
 			)}
 			<BillingRunCosts organizationId={organizationId} />
 			<Collapsible className="space-y-4">
-				<CollapsibleTrigger className="group/disclosure">
-					<CaretRight
-						size={14}
-						aria-hidden
-						className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-					/>
+				<CollapsibleDefaultTrigger className="group/disclosure">
 					Advanced usage and billing details
-				</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<div className="space-y-8">
 						{overview.credits?.billingMode === "monetary" && (
 							<Text tone="secondary">
@@ -414,22 +408,17 @@ export function BillingUsageOverview({
 								charges.
 							</Text>
 							<Collapsible>
-								<CollapsibleTrigger className="group/disclosure">
-									<CaretRight
-										size={14}
-										aria-hidden
-										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-									/>
+								<CollapsibleDefaultTrigger className="group/disclosure">
 									Technical details
-								</CollapsibleTrigger>
-								<CollapsibleContent keepMounted>
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent keepMounted>
 									<Text tone="secondary">
 										{formatTokens(usageQuery.data.totals.sourceRetiredRowCount)}{" "}
 										retained records whose original source is no longer present.
 										Only the current reviewed version contributes; original
 										usage is counted once.
 									</Text>
-								</CollapsibleContent>
+								</CollapsibleDefaultContent>
 							</Collapsible>
 						</CardContent>
 					</Card>
@@ -498,7 +487,7 @@ export function BillingUsageOverview({
 							</Text>
 						</CardContent>
 					</Card>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 			<Suspense
 				fallback={

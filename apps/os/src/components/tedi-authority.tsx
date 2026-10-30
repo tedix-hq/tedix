@@ -1,7 +1,7 @@
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Progress } from "@/components/kumo/progress";
 import { ShieldCheck } from "@phosphor-icons/react";
@@ -279,8 +279,10 @@ export function EntrustmentRow({ entrustment }: { entrustment: Entrustment }) {
 					: "none"}
 			</Text>
 			<Collapsible>
-				<CollapsibleTrigger>Exact authority scope</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				<CollapsibleDefaultTrigger>
+					Exact authority scope
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<dl className="m-0 mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
 						<dt>
 							<Text as="span" role="label" tone="secondary">
@@ -325,7 +327,7 @@ export function EntrustmentRow({ entrustment }: { entrustment: Entrustment }) {
 							</Text>
 						</dd>
 					</dl>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</Surface>
 	);
@@ -384,8 +386,10 @@ export function DelegationYieldPanel({
 			</Text>
 			{delegationYield.limitations.length > 0 && (
 				<Collapsible>
-					<CollapsibleTrigger>Metric limitations</CollapsibleTrigger>
-					<CollapsibleContent keepMounted>
+					<CollapsibleDefaultTrigger>
+						Metric limitations
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
 						<ul className="m-0 mt-1.5 list-disc pl-4">
 							{delegationYield.limitations.map((limitation) => (
 								<Text as="li" role="label" tone="secondary" key={limitation}>
@@ -393,7 +397,7 @@ export function DelegationYieldPanel({
 								</Text>
 							))}
 						</ul>
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 		</Surface>
@@ -541,11 +545,11 @@ export function EarnedAuthorityPanel({
 			{profile.roleHistory.length > 1 && (
 				<Surface className="px-3 py-2">
 					<Collapsible>
-						<CollapsibleTrigger>
+						<CollapsibleDefaultTrigger>
 							{formatCount(profile.roleHistory.length)} role assignments on
 							record
-						</CollapsibleTrigger>
-						<CollapsibleContent keepMounted>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
 							<ul className="m-0 mt-2 grid list-none gap-1 border-kumo-hairline border-t p-0 pt-2">
 								{profile.roleHistory.map((role) => (
 									<Text as="li" role="label" tone="secondary" key={role.id}>
@@ -562,7 +566,7 @@ export function EarnedAuthorityPanel({
 									</Text>
 								))}
 							</ul>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				</Surface>
 			)}

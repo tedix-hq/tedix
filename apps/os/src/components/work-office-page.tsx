@@ -11,8 +11,8 @@ import { useEffect, useRef } from "react";
 import { EntityAvatar } from "@/shared/entity-avatar";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Badge } from "@/components/kumo/badge";
 import {
@@ -889,13 +889,13 @@ export function OfficeApp() {
 				<TodayTiles since={since} />
 			</div>
 			<Collapsible>
-				<CollapsibleTrigger>Decision context</CollapsibleTrigger>
-				<CollapsibleContent>
+				<CollapsibleDefaultTrigger>Decision context</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<div className="grid gap-5">
 						<DeckAttentionMetrics />
 						<WeeklyDecisionDigest />
 					</div>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 			<Knocks since={since} />
 			<OfficeLeaderboard />

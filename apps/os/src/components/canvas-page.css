@@ -1165,11 +1165,6 @@
 	min-height: 0;
 	flex: 1;
 }
-.canvas-account-connections > summary {
-	cursor: pointer;
-	padding-block: 12px;
-	color: var(--text-color-kumo-subtle);
-}
 @media (max-width: 639px) {
 	.canvas-code-workbench {
 		grid-template-columns: minmax(0, 1fr);

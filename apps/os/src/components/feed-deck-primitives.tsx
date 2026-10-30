@@ -27,8 +27,8 @@ import { resolveWorkContributor } from "@/lib/work-actor";
 import { Card } from "@/components/kumo/card";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
@@ -80,17 +80,10 @@ export function FeedDeckDisclosure({
 			open={open}
 			onOpenChange={onOpenChange}
 		>
-			<CollapsibleTrigger>
-				<CaretRightIcon
-					size={12}
-					className="fd-disclosure-chevron"
-					aria-hidden="true"
-				/>
-				{title}
-			</CollapsibleTrigger>
-			<CollapsibleContent keepMounted={keepMounted}>
+			<CollapsibleDefaultTrigger>{title}</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent keepMounted={keepMounted}>
 				{children}
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

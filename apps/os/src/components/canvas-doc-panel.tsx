@@ -806,7 +806,7 @@ export function CanvasDocPanel({
 								: undefined
 						}
 						variant={unsynced ? "warning" : "info"}
-						title={`${revisionLabel ?? "No canonical revision"}. Changes sync with connected editors. Save version records them in version history.`}
+						title={`${revisionLabel ?? "No saved version"} · Changes sync automatically.`}
 					>
 						{isGadget ? "Draft · Syncing…" : documentSaveStatus}
 					</Badge>

@@ -27,6 +27,15 @@ describe("Kumo Button adapter", () => {
 		expect(icon).toContain('aria-label="Refresh usage"');
 		expect(icon).toContain('data-icon-only="true"');
 		expect(icon).toContain('data-slot="button"');
+		for (const render of [undefined, <a href="/inspect" />]) {
+			const titled = renderToStaticMarkup(
+				<Button title="Inspect item" size="icon-sm" render={render}>
+					<svg aria-hidden />
+				</Button>,
+			);
+			expect(titled).toContain('aria-label="Inspect item"');
+			expect(titled).not.toContain('title="Inspect item"');
+		}
 
 		const link = renderToStaticMarkup(
 			<Button render={<a href="/settings" />} size="xs">

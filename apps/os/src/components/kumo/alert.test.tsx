@@ -52,12 +52,15 @@ describe("load errors", () => {
 		expect(
 			host.querySelector('[data-slot="load-error-help"]')?.textContent,
 		).toBe("This is taking longer than usual. Try again in a moment.");
-		const details = host.querySelector("details");
-		expect(details?.open).toBe(false);
+		const trigger = host.querySelector('[data-kumo-part="default-trigger"]');
+		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+		const details = host.querySelector("[hidden]");
 		expect(details?.textContent).toContain("Database temporarily unavailable");
 		expect(details?.textContent).toContain("Trace ID: fictional-trace");
-		expect(host.querySelector("button")?.type).toBe("button");
-		expect(host.querySelector("button")?.textContent).toBe("Retry");
+		const retry = [...host.querySelectorAll("button")].find(
+			(button) => button.textContent === "Retry",
+		);
+		expect(retry?.type).toBe("button");
 	});
 
 	it.each(["FORBIDDEN", "UNAUTHORIZED", "NOT_FOUND"])(
@@ -68,7 +71,9 @@ describe("load errors", () => {
 				<LoadError error={{ code }} onRetry={() => {}} />,
 			);
 			expect(host.querySelector("button")?.textContent).toBe("Retry");
-			expect(host.querySelector("details")).toBeNull();
+			expect(
+				host.querySelector('[data-kumo-part="default-trigger"]'),
+			).toBeNull();
 		},
 	);
 

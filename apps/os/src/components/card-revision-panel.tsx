@@ -14,13 +14,12 @@ import {
 	proposalRevisionBody,
 } from "@/lib/card-revision-diff";
 import { DecisionContextSection } from "@/components/decision-context-rail";
-import { CaretRight } from "@phosphor-icons/react";
 
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import { Input } from "@/components/kumo/input";
@@ -543,15 +542,10 @@ export function CardRevisionPanel({
 
 			{previous && current && reviewed && (
 				<Collapsible>
-					<CollapsibleTrigger className="group/disclosure w-full px-0">
+					<CollapsibleDefaultTrigger className="group/disclosure w-full px-0">
 						What changed
-						<CaretRight
-							size={14}
-							aria-hidden
-							className="ml-auto shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-						/>
-					</CollapsibleTrigger>
-					<CollapsibleContent keepMounted>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
 						{reviewed.summary && <p className="py-2">{reviewed.summary}</p>}
 						<Button
 							variant="ghost"
@@ -656,7 +650,7 @@ export function CardRevisionPanel({
 								})}
 							</ol>
 						) : null}
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 			{current &&
@@ -739,15 +733,10 @@ export function CardRevisionPanel({
 					defaultOpen
 				>
 					<Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
-						<CollapsibleTrigger className="group/disclosure w-full px-0">
+						<CollapsibleDefaultTrigger className="group/disclosure w-full px-0">
 							Version history
-							<CaretRight
-								size={14}
-								aria-hidden
-								className="ml-auto shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-							/>
-						</CollapsibleTrigger>
-						<CollapsibleContent keepMounted>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
 							{left && right && (
 								<div className="grid min-w-0 gap-3 pt-3">
 									<div className="grid grid-cols-2 gap-2">
@@ -876,7 +865,7 @@ export function CardRevisionPanel({
 									</article>
 								))}
 							</div>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 					{history.hasNextPage && (
 						<Button

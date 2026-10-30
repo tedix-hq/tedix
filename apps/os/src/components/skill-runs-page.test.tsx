@@ -108,11 +108,10 @@ describe("skill run history", () => {
 		expect(node.textContent).toContain("History read failed");
 		expect(node.textContent).not.toContain("No runs to show");
 		read.mockResolvedValueOnce({ runs: [run] });
-		await act(async () =>
-			node
-				.querySelector<HTMLButtonElement>("button:not([aria-pressed])")!
-				.click(),
-		);
+		const retry = [...node.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Retry",
+		)!;
+		await act(async () => retry.click());
 		await act(async () => {
 			await new Promise((done) => setTimeout(done, 20));
 		});

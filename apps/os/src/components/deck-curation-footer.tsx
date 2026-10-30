@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { osApi } from "@/lib/api";
 import { osQuery } from "@/lib/os-query-options";
@@ -44,28 +49,28 @@ export function DeckCurationFooter() {
 				</div>
 			)}
 			{data.rules.length > 0 && (
-				<details>
-					<summary>
-						<Text role="label" tone="secondary">
-							{`${copy.rules} (${data.rules.length})`}
-						</Text>
-					</summary>
-					<ul className="grid gap-1">
-						{data.rules.map((rule) => (
-							<li key={rule.id} className="flex items-center gap-2">
-								<Text>{rule.sentence}</Text>
-								<Button
-									size="xs"
-									variant="ghost"
-									disabled={remove.isPending}
-									onClick={() => remove.mutate(rule.id)}
-								>
-									{copy.remove}
-								</Button>
-							</li>
-						))}
-					</ul>
-				</details>
+				<Collapsible>
+					<CollapsibleDefaultTrigger>
+						{`${copy.rules} (${data.rules.length})`}
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
+						<ul className="grid gap-1">
+							{data.rules.map((rule) => (
+								<li key={rule.id} className="flex items-center gap-2">
+									<Text>{rule.sentence}</Text>
+									<Button
+										size="xs"
+										variant="ghost"
+										disabled={remove.isPending}
+										onClick={() => remove.mutate(rule.id)}
+									>
+										{copy.remove}
+									</Button>
+								</li>
+							))}
+						</ul>
+					</CollapsibleDefaultContent>
+				</Collapsible>
 			)}
 		</footer>
 	);

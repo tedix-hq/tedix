@@ -13,8 +13,8 @@ import { Code, Globe, Stack, Wrench } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -517,12 +517,12 @@ function CloudAppStorePage({
 				) : null}
 			</PageSection>
 			<Collapsible>
-				<CollapsibleTrigger className="-ms-2 w-fit text-kumo-subtle">
+				<CollapsibleDefaultTrigger className="-ms-2 w-fit text-kumo-subtle">
 					Catalog diagnostics
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<CatalogDiagnostics />
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</Page>
 	);

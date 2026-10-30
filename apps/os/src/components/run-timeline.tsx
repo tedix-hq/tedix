@@ -1,4 +1,3 @@
-import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type {
 	SkillWorkflowRunTimeline,
@@ -23,8 +22,8 @@ import {
 } from "@/lib/run-step-content";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import {
@@ -192,17 +191,16 @@ export function RunTimelineChart({
 			)}
 			{timeline.warnings.length > 0 && (
 				<Collapsible>
-					<CollapsibleTrigger>
-						<CaretDown size={14} />
+					<CollapsibleDefaultTrigger>
 						Recording details ({timeline.warnings.length})
-					</CollapsibleTrigger>
-					<CollapsibleContent>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
 						<ul className="list-disc pl-5 wrap-anywhere">
 							{timeline.warnings.map((warning, index) => (
 								<li key={`${index}:${warning}`}>{warning}</li>
 							))}
 						</ul>
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 			<div className="flex flex-wrap gap-4" aria-label="Timeline legend">
@@ -430,8 +428,8 @@ function RunTimelineStep({
 			</MetricGrid>
 			{typeof instructions === "string" && (
 				<Collapsible>
-					<CollapsibleTrigger>What was asked</CollapsibleTrigger>
-					<CollapsibleContent>
+					<CollapsibleDefaultTrigger>What was asked</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
 						<RunStepResult value={instructions} />
 						{request.truncated === true && (
 							<Text as="p" tone="secondary">
@@ -439,7 +437,7 @@ function RunTimelineStep({
 								contain more.
 							</Text>
 						)}
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 			{receipt.isPending && <Skeleton className="h-20" />}
@@ -510,16 +508,9 @@ function RunTimelineStep({
 					above.
 				</Text>
 			)}
-			<Collapsible className="min-w-0 rounded-lg border border-kumo-line bg-kumo-fill p-2">
-				<CollapsibleTrigger className="group w-full">
-					<CaretRight
-						aria-hidden
-						size={16}
-						className="transition-transform group-data-[panel-open]:rotate-90"
-					/>
-					Technical details
-				</CollapsibleTrigger>
-				<CollapsibleContent className="grid min-w-0 gap-4 px-2 pt-3 pb-2">
+			<Collapsible className="min-w-0">
+				<CollapsibleDefaultTrigger>Technical details</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<Text as="p" tone="secondary" className="m-0">
 						Original identifiers and saved response for troubleshooting.
 					</Text>
@@ -564,7 +555,7 @@ function RunTimelineStep({
 							<CodeBlock code={sample} lang="json" />
 						</div>
 					)}
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</div>
 	);

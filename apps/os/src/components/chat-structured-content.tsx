@@ -1,12 +1,12 @@
-import { CaretRight, Check, Copy, WarningCircle } from "@phosphor-icons/react";
+import { Check, Copy, WarningCircle } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { Button } from "@/components/kumo/button";
 import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { toast } from "@/components/kumo/toast";
@@ -85,16 +85,11 @@ export function JsonDetails({
 	const size = payload.complete ? jsonSizeLabel(payload.value) : null;
 	return (
 		<Collapsible defaultOpen={defaultOpen} data-slot="chat-json-details">
-			<CollapsibleTrigger className="group/disclosure -ml-2">
-				<CaretRight
-					size={14}
-					aria-hidden
-					className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-				/>
+			<CollapsibleDefaultTrigger className="group/disclosure -ml-2">
 				{label}
 				{size ? <span className="text-kumo-subtle">· {size}</span> : null}
-			</CollapsibleTrigger>
-			<CollapsibleContent keepMounted>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent keepMounted>
 				<div className="mt-1 flex min-w-0 flex-col gap-1">
 					<div className="flex flex-wrap items-center justify-end gap-1">
 						{!payload.complete ? (
@@ -122,7 +117,7 @@ export function JsonDetails({
 						<CodeBlock code={shown} lang="json" />
 					</div>
 				</div>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

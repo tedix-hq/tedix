@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import {
@@ -426,15 +425,10 @@ export function OutboundStyleProfile() {
 						{query.data?.approvals.length ? (
 							query.data.approvals.map((approval, index) => (
 								<Collapsible key={approval.id}>
-									<CollapsibleTrigger className="group/disclosure">
-										<CaretRight
-											size={14}
-											aria-hidden
-											className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-										/>
+									<CollapsibleDefaultTrigger className="group/disclosure">
 										{query.data.lessons[index]}
-									</CollapsibleTrigger>
-									<CollapsibleContent keepMounted>
+									</CollapsibleDefaultTrigger>
+									<CollapsibleDefaultContent keepMounted>
 										<Text as="p" role="body">
 											{approval.after}
 										</Text>
@@ -443,7 +437,7 @@ export function OutboundStyleProfile() {
 												Before: {approval.before}
 											</Text>
 										) : null}
-									</CollapsibleContent>
+									</CollapsibleDefaultContent>
 								</Collapsible>
 							))
 						) : !query.data?.decisionCount ? (

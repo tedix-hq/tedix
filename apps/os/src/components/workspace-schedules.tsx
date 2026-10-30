@@ -1,4 +1,4 @@
-import { CaretRight, Clock, LinkBreak, Plus } from "@phosphor-icons/react";
+import { Clock, LinkBreak, Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	OsWorkspaceSchedule,
@@ -8,8 +8,8 @@ import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
@@ -174,19 +174,14 @@ function WorkspaceScheduleRow({
 						className="text-kumo-subtle type-tedix-control"
 						data-schedule-last-run-details
 					>
-						<CollapsibleTrigger className="group/disclosure -mx-2">
-							<CaretRight
-								size={14}
-								aria-hidden
-								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-							/>
+						<CollapsibleDefaultTrigger className="group/disclosure -mx-2">
 							Technical details
-						</CollapsibleTrigger>
-						<CollapsibleContent keepMounted>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
 							<p className="m-0 whitespace-pre-wrap wrap-anywhere">
 								{failure.details}
 							</p>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				)}
 				{next && (

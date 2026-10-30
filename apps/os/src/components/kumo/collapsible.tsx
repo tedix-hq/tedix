@@ -47,4 +47,40 @@ function CollapsibleContent({
 	);
 }
 
-export { Collapsible, CollapsibleContent, CollapsibleTrigger };
+function CollapsibleDefaultTrigger({
+	className,
+	...props
+}: ComponentProps<typeof KumoCollapsible.DefaultTrigger>) {
+	return (
+		<KumoCollapsible.DefaultTrigger
+			className={cn(
+				"min-h-8 max-w-full rounded-md px-2 py-1 text-left type-tedix-control hover:bg-kumo-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-kumo-focus max-sm:min-h-11 coarse:min-h-11 [&>span:first-child]:min-w-0 [&>span:first-child]:wrap-anywhere motion-reduce:[&_svg]:transition-none",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+function CollapsibleDefaultContent({
+	className,
+	...props
+}: ComponentProps<typeof KumoCollapsible.DefaultPanel>) {
+	return (
+		<KumoCollapsible.DefaultPanel
+			className={cn(
+				"min-w-0 overflow-clip [overflow-clip-margin:0.25rem] duration-tedix-standard ease-tedix-standard motion-reduce:transition-none [&>div]:min-w-0",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
+export {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+};

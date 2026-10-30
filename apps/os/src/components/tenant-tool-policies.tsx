@@ -8,11 +8,13 @@ import {
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import { Checkbox } from "@/components/kumo/checkbox";
+import { CodeBlock } from "@/components/kumo/code";
 import { Input } from "@/components/kumo/input";
+import { Label } from "@/components/kumo/label";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
 } from "@/components/kumo/collapsible";
 import {
 	Sheet,
@@ -158,37 +160,26 @@ export function ExampleRuleFields({
 				return (
 					<fieldset key={key}>
 						<legend>{childPath.join(".")}</legend>
-						<label>
-							<input
-								type="checkbox"
-								checked={choice.enabled}
-								onChange={(event) => update({ enabled: event.target.checked })}
-							/>{" "}
-							Allow this field
-						</label>
+						<Checkbox
+							label="Allow this field"
+							checked={choice.enabled}
+							onCheckedChange={(checked) => update({ enabled: checked })}
+						/>
 						{choice.enabled ? (
 							<>
-								<label>
-									<input
-										type="checkbox"
-										checked={choice.required}
-										onChange={(event) =>
-											update({ required: event.target.checked })
-										}
-									/>{" "}
-									Required
-								</label>
+								<Checkbox
+									label="Required"
+									checked={choice.required}
+									onCheckedChange={(checked) => update({ required: checked })}
+								/>
 								{typeof child === "string" ? (
-									<label>
-										<input
-											type="checkbox"
-											checked={choice.anyNonBlank}
-											onChange={(event) =>
-												update({ anyNonBlank: event.target.checked })
-											}
-										/>{" "}
-										Allow any non-blank text
-									</label>
+									<Checkbox
+										label="Allow any non-blank text"
+										checked={choice.anyNonBlank}
+										onCheckedChange={(checked) =>
+											update({ anyNonBlank: checked })
+										}
+									/>
 								) : null}
 								<Text as="p" role="label">
 									Example: {JSON.stringify(child)}
@@ -223,9 +214,18 @@ export function MachineInventoryPicker({
 	onChange: (value: string) => void;
 	onRefresh: () => void;
 }) {
+	const choices = items.map((item) => ({
+		value: JSON.stringify([
+			item.principalId,
+			item.sessionId,
+			item.clientRecordId,
+			item.mcpServerId,
+		]),
+		label: `${item.principalName} · session ${item.sessionId} · client ${item.clientRecordId}`,
+	}));
 	return (
 		<>
-			<label htmlFor="native-machine-session">Active machine session</label>
+			<Label htmlFor="native-machine-session">Active machine session</Label>
 			{loading ? (
 				<Text as="p" role="label">
 					Loading active machines…
@@ -242,28 +242,24 @@ export function MachineInventoryPicker({
 					registrations.
 				</Text>
 			) : null}
-			<select
-				id="native-machine-session"
+			<Select
 				value={value}
-				onChange={(event) => onChange(event.target.value)}
+				items={choices}
+				onValueChange={(next) => onChange(next ?? "")}
 				disabled={loading || error}
 			>
-				<option value="">Choose a machine session</option>
-				{items.map((item) => {
-					const key = JSON.stringify([
-						item.principalId,
-						item.sessionId,
-						item.clientRecordId,
-						item.mcpServerId,
-					]);
-					return (
-						<option key={key} value={key}>
-							{item.principalName} · session {item.sessionId} · client{" "}
-							{item.clientRecordId}
-						</option>
-					);
-				})}
-			</select>
+				<SelectTrigger id="native-machine-session" className="w-full min-w-0">
+					<SelectValue placeholder="Choose a machine session" />
+				</SelectTrigger>
+				<SelectContent>
+					<SelectItem value="">Choose a machine session</SelectItem>
+					{choices.map((choice) => (
+						<SelectItem key={choice.value} value={choice.value}>
+							{choice.label}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
 			<Button variant="ghost" size="sm" onClick={onRefresh}>
 				Refresh machine sessions
 			</Button>
@@ -660,33 +656,42 @@ export function TenantToolPolicies({ canChange }: { canChange: boolean }) {
 									? ` · Agent${rule.mountDescriptor.subject.scope === "session" ? " · This session" : " · Verified sessions"}`
 									: ""}
 							</Text>
-							<details>
-								<summary>View conditions and connection</summary>
-								<Text as="p" role="label" tone="secondary">
-									Rule ID: {rule.id}. Reviewed identity:{" "}
-									{rule.mountDescriptor && "kind" in rule.mountDescriptor
-										? rule.mountDescriptor.kind === "profile"
-											? rule.mountDescriptor.actorUserId
-											: rule.mountDescriptor.subject.principalId
-										: "Unknown"}
-									.
-								</Text>
-								<Text as="p" role="label" tone="secondary">
-									Operation:{" "}
-									{mount &&
-										("upstreamOperation" in mount
-											? mount.upstreamOperation
-											: mount.endpoint)}
-									. Connection:{" "}
-									{mount && "connectionInstanceId" in mount
-										? (mount.connectionInstanceId ?? "verified account")
-										: "Internal RPC"}
-									.
-								</Text>
-								<pre className="whitespace-pre-wrap break-words">
-									{JSON.stringify(rule.policySet ?? rule.predicate, null, 2)}
-								</pre>
-							</details>
+							<Collapsible>
+								<CollapsibleDefaultTrigger>
+									View conditions and connection
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent>
+									<Text as="p" role="label" tone="secondary">
+										Rule ID: {rule.id}. Reviewed identity:{" "}
+										{rule.mountDescriptor && "kind" in rule.mountDescriptor
+											? rule.mountDescriptor.kind === "profile"
+												? rule.mountDescriptor.actorUserId
+												: rule.mountDescriptor.subject.principalId
+											: "Unknown"}
+										.
+									</Text>
+									<Text as="p" role="label" tone="secondary">
+										Operation:{" "}
+										{mount &&
+											("upstreamOperation" in mount
+												? mount.upstreamOperation
+												: mount.endpoint)}
+										. Connection:{" "}
+										{mount && "connectionInstanceId" in mount
+											? (mount.connectionInstanceId ?? "verified account")
+											: "Internal RPC"}
+										.
+									</Text>
+									<CodeBlock
+										code={JSON.stringify(
+											rule.policySet ?? rule.predicate,
+											null,
+											2,
+										)}
+										lang="json"
+									/>
+								</CollapsibleDefaultContent>
+							</Collapsible>
 							{canChange &&
 							rule.policySet &&
 							mount &&
@@ -1149,8 +1154,10 @@ export function TenantToolPolicies({ canChange }: { canChange: boolean }) {
 									</>
 								) : null}
 								<Collapsible defaultOpen={nativeRule || !!machineProofId}>
-									<CollapsibleTrigger>For agent accounts</CollapsibleTrigger>
-									<CollapsibleContent className="grid gap-3">
+									<CollapsibleDefaultTrigger>
+										For agent accounts
+									</CollapsibleDefaultTrigger>
+									<CollapsibleDefaultContent className="grid gap-3">
 										<Checkbox
 											label="Review an internal action for an agent"
 											checked={nativeRule}
@@ -1251,7 +1258,7 @@ export function TenantToolPolicies({ canChange }: { canChange: boolean }) {
 												</Text>
 											</>
 										) : null}
-									</CollapsibleContent>
+									</CollapsibleDefaultContent>
 								</Collapsible>
 								<Button
 									size="sm"
@@ -1420,12 +1427,17 @@ export function TenantToolPolicies({ canChange }: { canChange: boolean }) {
 															choices={fieldChoices}
 															onChange={setFieldChoices}
 														/>
-														<details>
-															<summary>Review rule conditions</summary>
-															<pre className="whitespace-pre-wrap break-words">
-																{JSON.stringify(rulePreview, null, 2)}
-															</pre>
-														</details>
+														<Collapsible>
+															<CollapsibleDefaultTrigger>
+																Review rule conditions
+															</CollapsibleDefaultTrigger>
+															<CollapsibleDefaultContent>
+																<CodeBlock
+																	code={JSON.stringify(rulePreview, null, 2)}
+																	lang="json"
+																/>
+															</CollapsibleDefaultContent>
+														</Collapsible>
 													</>
 												)}
 											</>

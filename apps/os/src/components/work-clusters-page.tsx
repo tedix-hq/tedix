@@ -19,8 +19,8 @@ import {
 } from "@/components/kumo/card";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
@@ -102,8 +102,10 @@ export function WorkClustersPage() {
 						/>
 					)}
 					<Collapsible>
-						<CollapsibleTrigger>Advanced: tedi UUID</CollapsibleTrigger>
-						<CollapsibleContent>
+						<CollapsibleDefaultTrigger>
+							Advanced: tedi UUID
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
 							<form
 								className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
 								onSubmit={(event) => {
@@ -124,7 +126,7 @@ export function WorkClustersPage() {
 									Plan waves
 								</Button>
 							</form>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				</CardContent>
 			</Card>

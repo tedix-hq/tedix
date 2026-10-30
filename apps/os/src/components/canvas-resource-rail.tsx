@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import type {
@@ -380,48 +385,50 @@ export function CanvasResourceRail({
 								</>
 							)}
 							{outputs.data && earlierIterations.length > 0 && (
-								<details className="grid gap-3">
-									<summary className="cursor-pointer text-kumo-subtle type-tedix-control">
+								<Collapsible className="grid gap-3">
+									<CollapsibleDefaultTrigger>
 										Previous drafts ({earlierIterations.length})
-									</summary>
-									<ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
-										{visibleHistory.map((item) => (
-											<li key={item.output.id}>
-												<DocButton
-													item={item}
-													selected={
-														selectedDoc?.type === "output" &&
-														selectedDoc.id === item.output.id
-													}
-													onSelect={() => onSelectOutput(item.output.id)}
-												>
-													<span className="min-w-0 flex-1 truncate">
-														{item.output.title}
-													</span>
-													<Badge
-														className="shrink-0"
-														data-kind={item.output.kind}
-														variant="secondary"
+									</CollapsibleDefaultTrigger>
+									<CollapsibleDefaultContent keepMounted>
+										<ul className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3">
+											{visibleHistory.map((item) => (
+												<li key={item.output.id}>
+													<DocButton
+														item={item}
+														selected={
+															selectedDoc?.type === "output" &&
+															selectedDoc.id === item.output.id
+														}
+														onSelect={() => onSelectOutput(item.output.id)}
 													>
-														{fileLabel(item)}
-													</Badge>
-												</DocButton>
-											</li>
-										))}
-									</ul>
-									{earlierIterations.length > 5 ? (
-										<Button
-											className="justify-start"
-											size="sm"
-											variant="ghost"
-											onClick={() => setShowHistory((value) => !value)}
-										>
-											{showHistory
-												? "Show fewer drafts"
-												: `Show ${earlierIterations.length - 5} more drafts`}
-										</Button>
-									) : null}
-								</details>
+														<span className="min-w-0 flex-1 truncate">
+															{item.output.title}
+														</span>
+														<Badge
+															className="shrink-0"
+															data-kind={item.output.kind}
+															variant="secondary"
+														>
+															{fileLabel(item)}
+														</Badge>
+													</DocButton>
+												</li>
+											))}
+										</ul>
+										{earlierIterations.length > 5 ? (
+											<Button
+												className="justify-start"
+												size="sm"
+												variant="ghost"
+												onClick={() => setShowHistory((value) => !value)}
+											>
+												{showHistory
+													? "Show fewer drafts"
+													: `Show ${earlierIterations.length - 5} more drafts`}
+											</Button>
+										) : null}
+									</CollapsibleDefaultContent>
+								</Collapsible>
 							)}
 							{outputs.data && references.length > 0 && (
 								<>

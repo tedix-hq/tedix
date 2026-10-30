@@ -1,4 +1,4 @@
-import { CaretDown, Graph } from "@phosphor-icons/react";
+import { Graph } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { LoadError } from "@/components/kumo/alert";
@@ -6,8 +6,8 @@ import { Badge } from "@/components/kumo/badge";
 
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	Empty,
@@ -385,15 +385,10 @@ export function KnowledgeMap({ layout }: { layout: KnowledgeLayout }) {
 				</svg>
 			</Surface>
 			<Collapsible>
-				<CollapsibleTrigger className="min-h-11">
-					<CaretDown
-						aria-hidden="true"
-						size={16}
-						className="[[data-panel-open]_&]:rotate-180"
-					/>
+				<CollapsibleDefaultTrigger className="min-h-11">
 					Map details (text)
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<div
 						role="region"
 						aria-label="Knowledge map text"
@@ -454,7 +449,7 @@ export function KnowledgeMap({ layout }: { layout: KnowledgeLayout }) {
 							</Text>
 						)}
 					</div>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</div>
 	);

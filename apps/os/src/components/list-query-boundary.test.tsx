@@ -59,7 +59,11 @@ describe("operational list read boundary", () => {
 			);
 			expect(container.textContent).toContain("Cached app");
 			expect(state.refetch).not.toHaveBeenCalled();
-			await act(async () => container.querySelector("button")!.click());
+			const retry = Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent === "Retry",
+			);
+			expect(retry).toBeTruthy();
+			await act(async () => retry!.click());
 			expect(state.refetch).toHaveBeenCalledOnce();
 			await act(async () =>
 				root.render(
@@ -69,7 +73,10 @@ describe("operational list read boundary", () => {
 					/>,
 				),
 			);
-			expect(container.querySelector("button")!.disabled).toBe(true);
+			const retrying = Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent?.includes("Trying again"),
+			);
+			expect(retrying?.disabled).toBe(true);
 			expect(container.textContent).toContain("Trying again");
 		} finally {
 			await act(async () => root.unmount());

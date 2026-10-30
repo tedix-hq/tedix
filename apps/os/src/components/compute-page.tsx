@@ -21,6 +21,8 @@ import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	Collection,
@@ -654,47 +656,51 @@ export function ComputePage() {
 			</PageSection>
 
 			<Collapsible className="space-y-4">
-				<CollapsibleTrigger>Advanced usage diagnostics</CollapsibleTrigger>
-				<CollapsibleContent keepMounted className="space-y-6">
-					{posture.data && <LimitsSection posture={posture.data} />}
+				<CollapsibleDefaultTrigger>
+					Advanced usage diagnostics
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
+					<div className="space-y-6">
+						{posture.data && <LimitsSection posture={posture.data} />}
 
-					<PageSection>
-						<BillingSectionHeader
-							title="Routing and models"
-							description="Selected model, allowed catalog, observed providers, and fallback."
-						/>
-						<Collection
-							aria-label="Routing and model status"
-							className="[&>li]:min-w-0"
-						>
-							{posture.data && (
-								<li>
-									<RoutingCard posture={posture.data} embedded />
-								</li>
-							)}
-							<li>
-								<ModelCatalogSection embedded />
-							</li>
-						</Collection>
-					</PageSection>
-
-					<PageSection>
-						<BillingSectionHeader
-							title="Admission health"
-							description="Credential evidence, provider visibility, and D1 policy ceilings."
-						/>
-						{posture.data && (
+						<PageSection>
+							<BillingSectionHeader
+								title="Routing and models"
+								description="Selected model, allowed catalog, observed providers, and fallback."
+							/>
 							<Collection
-								aria-label="Admission health status"
+								aria-label="Routing and model status"
 								className="[&>li]:min-w-0"
 							>
+								{posture.data && (
+									<li>
+										<RoutingCard posture={posture.data} embedded />
+									</li>
+								)}
 								<li>
-									<HealthCard posture={posture.data} embedded />
+									<ModelCatalogSection embedded />
 								</li>
 							</Collection>
-						)}
-					</PageSection>
-				</CollapsibleContent>
+						</PageSection>
+
+						<PageSection>
+							<BillingSectionHeader
+								title="Admission health"
+								description="Credential evidence, provider visibility, and D1 policy ceilings."
+							/>
+							{posture.data && (
+								<Collection
+									aria-label="Admission health status"
+									className="[&>li]:min-w-0"
+								>
+									<li>
+										<HealthCard posture={posture.data} embedded />
+									</li>
+								</Collection>
+							)}
+						</PageSection>
+					</div>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</Page>
 	);

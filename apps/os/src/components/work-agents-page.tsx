@@ -35,8 +35,8 @@ import { Badge } from "@/components/kumo/badge";
 import { Link } from "@/components/kumo/link";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	Collection,
@@ -352,10 +352,10 @@ function AgentSessionRow({
 						<Text role="body">What we learned: {lane.lesson}</Text>
 					) : null}
 					<Collapsible>
-						<CollapsibleTrigger>
+						<CollapsibleDefaultTrigger>
 							Result and execution details
-						</CollapsibleTrigger>
-						<CollapsibleContent>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
 							<div className="space-y-2 py-2">
 								<Text role="body">
 									Asked: {lane.brief || "Brief unavailable"}
@@ -398,7 +398,7 @@ function AgentSessionRow({
 									invoices.
 								</Text>
 							</div>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				</div>
 			) : null}
@@ -493,10 +493,10 @@ export function WorkAgentsBoard({
 					) : null}
 					{group.idle.length ? (
 						<Collapsible>
-							<CollapsibleTrigger>
+							<CollapsibleDefaultTrigger>
 								{ATTENTION_COPY.inactive} ({group.idle.length})
-							</CollapsibleTrigger>
-							<CollapsibleContent>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
 								<Collection aria-label={`${group.title} idle sessions`}>
 									{group.idle.map((session) => (
 										<AgentSessionRow
@@ -506,7 +506,7 @@ export function WorkAgentsBoard({
 										/>
 									))}
 								</Collection>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					) : null}
 				</PageSection>
@@ -638,10 +638,10 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 				</div>
 			)}
 			<Collapsible>
-				<CollapsibleTrigger>Decision context</CollapsibleTrigger>
-				<CollapsibleContent>
+				<CollapsibleDefaultTrigger>Decision context</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<DeckAttentionMetrics />
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</div>
 	);

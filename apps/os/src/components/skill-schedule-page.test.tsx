@@ -191,7 +191,9 @@ describe("manifest skill schedule clocks", () => {
 		const { node } = await mount();
 		expect(node.textContent).toContain("Schedules unavailable");
 		expect(node.textContent).not.toContain("declares no schedules");
-		const retry = node.querySelector("button")!;
+		const retry = [...node.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Retry",
+		)!;
 		let resolve!: (data: { schedules: SkillSchedule[] }) => void;
 		mocks.read.mockReturnValueOnce(
 			new Promise((done) => {

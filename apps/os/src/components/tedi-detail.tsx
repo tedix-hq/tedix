@@ -1,8 +1,8 @@
 import "./tedis.css";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { TediSetupChecklist } from "@/components/tedi-setup";
 import { TediRecoveryDiagnostic } from "@/components/tedi-recovery-diagnostic";
@@ -137,10 +137,10 @@ export function TediDetailHeader({
 					</PageMeta>
 					{summary && (
 						<Collapsible>
-							<CollapsibleTrigger className="-ml-2">
+							<CollapsibleDefaultTrigger className="-ml-2">
 								Activity and authority
-							</CollapsibleTrigger>
-							<CollapsibleContent keepMounted className="p-1 -m-1">
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent keepMounted className="p-1 -m-1">
 								<PageMeta className="mt-0 gap-x-3">
 									<li>
 										Authority{" "}
@@ -162,7 +162,7 @@ export function TediDetailHeader({
 										</li>
 									)}
 								</PageMeta>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					)}
 				</PageHeading>
@@ -321,13 +321,15 @@ export function TediOverview({ tediId }: { tediId: string }) {
 				<TediWiringView tedi={tediQuery.data} setup={setupQuery.data} />
 			)}
 			<Collapsible>
-				<CollapsibleTrigger>Technical details</CollapsibleTrigger>
-				<CollapsibleContent className="grid gap-4 p-1 -m-1">
-					<Text role="label" tone="secondary" className="break-all">
-						Tedi ID: {tediId}
-					</Text>
-					<TediRecoveryDiagnostic tediId={tediId} />
-				</CollapsibleContent>
+				<CollapsibleDefaultTrigger>Technical details</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
+					<div className="grid gap-4 p-1 -m-1">
+						<Text role="label" tone="secondary" className="break-all">
+							Tedi ID: {tediId}
+						</Text>
+						<TediRecoveryDiagnostic tediId={tediId} />
+					</div>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</div>
 	);

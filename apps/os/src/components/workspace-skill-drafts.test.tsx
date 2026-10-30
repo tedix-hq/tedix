@@ -267,9 +267,9 @@ describe("workspace skill draft safety and usability", () => {
 		fill("Draft skill instructions", receipt().proposal.content);
 		fill("Draft automation source", "export default { run() { return 2; } };");
 		fill("Draft change reason", receipt().proposal.reason);
-		const changes = [...document.querySelectorAll("summary")].find((item) =>
-			item.textContent?.includes("Review changes"),
-		);
+		const changes = [
+			...document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
+		].find((item) => item.textContent?.includes("Review changes"));
 		if (!changes) throw new Error("Missing reviewable source diff");
 		await click(changes);
 		const preview = [

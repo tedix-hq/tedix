@@ -1,7 +1,7 @@
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	createContext,
@@ -480,9 +480,11 @@ export function DecisionContextSection({
 								onOpenChange={(open) => rail.openSection(open ? id : undefined)}
 							>
 								<h3 className="type-tedix-section">
-									<CollapsibleTrigger>{title}</CollapsibleTrigger>
+									<CollapsibleDefaultTrigger>{title}</CollapsibleDefaultTrigger>
 								</h3>
-								<CollapsibleContent>{children}</CollapsibleContent>
+								<CollapsibleDefaultContent>
+									{children}
+								</CollapsibleDefaultContent>
 							</Collapsible>
 						) : (
 							<>

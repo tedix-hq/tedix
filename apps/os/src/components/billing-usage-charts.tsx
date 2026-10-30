@@ -1,10 +1,10 @@
 import { formatCount } from "@/lib/format";
 import { BillingSectionHeader } from "@/components/billing-section-header";
-import { CaretRight } from "@phosphor-icons/react";
+
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { OS_COPY } from "@/shared/os-copy";
 import type { OrgUsageOutput } from "@tedix/api-contract/contracts/org-usage";
@@ -68,17 +68,12 @@ function ChartDataTable({
 }) {
 	return (
 		<Collapsible className="mt-4">
-			<CollapsibleTrigger className="group/disclosure">
-				<CaretRight
-					size={14}
-					aria-hidden
-					className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-				/>
+			<CollapsibleDefaultTrigger className="group/disclosure">
 				<Text as="span" weight="medium">
 					View exact data
 				</Text>
-			</CollapsibleTrigger>
-			<CollapsibleContent keepMounted>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent keepMounted>
 				<div className="mt-3">
 					<Table scrollLabel={`${label} exact data`}>
 						<TableHeader>
@@ -101,7 +96,7 @@ function ChartDataTable({
 						</TableBody>
 					</Table>
 				</div>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

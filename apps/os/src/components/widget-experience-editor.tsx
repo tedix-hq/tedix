@@ -32,8 +32,8 @@ import {
 import { Surface } from "@/components/kumo/surface";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
@@ -578,39 +578,43 @@ export function ExperienceEditor({
 							/>
 						</Group>
 						<Collapsible>
-							<CollapsibleTrigger>Advanced appearance</CollapsibleTrigger>
-							<CollapsibleContent className="grid gap-4 pt-4 sm:grid-cols-2">
-								{field("assistantLogoUrl", "Assistant logo URL")}
-								{field("launcherIconUrl", "Chat button image URL")}
-								{field("assistantLogoUrlDark", "Assistant logo URL · dark")}
-								{field("launcherIconUrlDark", "Chat button image URL · dark")}
-								{color("accentColorDark", "Dark brand color")}
-								{(
-									[
-										["horizontalOffset", "Distance from side (px)", 22],
-										["bottomOffset", "Distance from bottom (px)", 22],
-										["zIndex", "Stacking order", 2147483000],
-									] as const
-								).map(([key, label, fallback]) => (
-									<div key={key} className="grid gap-1">
-										<Label htmlFor={`${ids}-${key}`}>{label}</Label>
-										<Input
-											id={`${ids}-${key}`}
-											type="number"
-											aria-label={label}
-											value={draft[key] ?? fallback}
-											onChange={(event) =>
-												edit(
-													key,
-													event.target.value === ""
-														? Number.NaN
-														: Number(event.target.value),
-												)
-											}
-										/>
-									</div>
-								))}
-							</CollapsibleContent>
+							<CollapsibleDefaultTrigger>
+								Advanced appearance
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
+								<div className="grid gap-4 pt-4 sm:grid-cols-2">
+									{field("assistantLogoUrl", "Assistant logo URL")}
+									{field("launcherIconUrl", "Chat button image URL")}
+									{field("assistantLogoUrlDark", "Assistant logo URL · dark")}
+									{field("launcherIconUrlDark", "Chat button image URL · dark")}
+									{color("accentColorDark", "Dark brand color")}
+									{(
+										[
+											["horizontalOffset", "Distance from side (px)", 22],
+											["bottomOffset", "Distance from bottom (px)", 22],
+											["zIndex", "Stacking order", 2147483000],
+										] as const
+									).map(([key, label, fallback]) => (
+										<div key={key} className="grid gap-1">
+											<Label htmlFor={`${ids}-${key}`}>{label}</Label>
+											<Input
+												id={`${ids}-${key}`}
+												type="number"
+												aria-label={label}
+												value={draft[key] ?? fallback}
+												onChange={(event) =>
+													edit(
+														key,
+														event.target.value === ""
+															? Number.NaN
+															: Number(event.target.value),
+													)
+												}
+											/>
+										</div>
+									))}
+								</div>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 						<Group title="Welcome">
 							<div className="grid gap-2">

@@ -5,8 +5,8 @@ import { Alert, AlertDescription } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
@@ -44,8 +44,8 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 	});
 	return (
 		<Collapsible>
-			<CollapsibleTrigger>Edit task details</CollapsibleTrigger>
-			<CollapsibleContent>
+			<CollapsibleDefaultTrigger>Edit task details</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent>
 				<form
 					className="grid gap-3 py-3"
 					onSubmit={(event) => {
@@ -120,7 +120,7 @@ export function WorkItemSpecificationEditor({ item }: { item: WorkItem }) {
 						{save.isPending ? "Saving…" : "Save task details"}
 					</Button>
 				</form>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

@@ -1,6 +1,5 @@
 import {
 	ArrowSquareOut,
-	CaretRight,
 	DotsThree,
 	Eye,
 	EyeSlash,
@@ -30,8 +29,8 @@ import { Card, CardContent } from "@/components/kumo/card";
 import { cn } from "@/components/kumo/cn";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
@@ -874,15 +873,10 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 						/>
 					</dl>
 					<Collapsible>
-						<CollapsibleTrigger className="group/disclosure -ml-2">
-							<CaretRight
-								size={14}
-								aria-hidden
-								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-							/>
+						<CollapsibleDefaultTrigger className="group/disclosure -ml-2">
 							What these states mean
-						</CollapsibleTrigger>
-						<CollapsibleContent>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
 							<dl className="m-0 grid gap-2 pt-2">
 								<LifecycleExplanation label="Installation">
 									The app record belongs to this organization. Installing it
@@ -907,7 +901,7 @@ export function AppLifecyclePanel({ app }: { app: App }) {
 									Counted from live discovery, not a stored list.
 								</LifecycleExplanation>
 							</dl>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 					<div
 						className="flex flex-wrap items-center gap-2"

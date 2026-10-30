@@ -42,8 +42,8 @@ import { DetailUnavailable } from "@/components/detail-unavailable";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { ClipboardText } from "@/components/kumo/clipboard-text";
 import {
@@ -648,13 +648,13 @@ function WorkItemMobileList({
 										{item.title}
 									</span>
 								</Link>
-								<CollapsibleTrigger className="shrink-0 px-1 type-tedix-label">
+								<CollapsibleDefaultTrigger className="shrink-0 px-1 type-tedix-label">
 									Full title
-								</CollapsibleTrigger>
+								</CollapsibleDefaultTrigger>
 							</div>
-							<CollapsibleContent className="wrap-anywhere pb-1 text-kumo-subtle type-tedix-label">
+							<CollapsibleDefaultContent className="wrap-anywhere pb-1 text-kumo-subtle type-tedix-label">
 								{item.title}
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 						<div className="flex min-h-7 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pb-1">
 							{showDisposition ? (
@@ -1845,8 +1845,8 @@ export function WorkAttemptActivity({
 					"Activity time not recorded"
 				)}
 			</Text>
-			<CollapsibleTrigger>Session details</CollapsibleTrigger>
-			<CollapsibleContent keepMounted>
+			<CollapsibleDefaultTrigger>Session details</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent keepMounted>
 				<Text
 					as="span"
 					role="label"
@@ -1856,7 +1856,7 @@ export function WorkAttemptActivity({
 				>
 					{session ? workAttemptSessionLabel(session) : "Session not recorded"}
 				</Text>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }
@@ -2193,43 +2193,47 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 				textToCopy={`${window.location.origin}/work/items/${item.id}`}
 			/>
 			<Collapsible>
-				<CollapsibleTrigger>{OS_COPY.work.technicalDetails}</CollapsibleTrigger>
-				<CollapsibleContent className="grid gap-4 pt-4">
-					<ClipboardText size="sm" text={item.id} textToCopy={item.id} />
-					<WorkItemReadOnlyLedgers
-						workItemId={item.id}
-						acceptanceContract={item.acceptanceContract}
-						attempts={attempts.data?.data ?? []}
-						attemptsError={attempts.error}
-						attemptControls={
-							<PageControls
-								hasPrevious={attemptPaging.hasPrevious}
-								hasNext={Boolean(attempts.data?.nextCursor)}
-								onPrevious={attemptPaging.reset}
-								onBack={attemptPaging.previous}
-								onNext={() => {
-									if (attempts.data?.nextCursor)
-										attemptPaging.next(attempts.data.nextCursor);
-								}}
-							/>
-						}
-						evidence={evidence.data?.data ?? []}
-						evidenceError={evidence.error}
-						evidenceControls={
-							<PageControls
-								hasPrevious={evidencePaging.hasPrevious}
-								hasNext={Boolean(evidence.data?.nextCursor)}
-								onPrevious={evidencePaging.reset}
-								onBack={evidencePaging.previous}
-								onNext={() => {
-									if (evidence.data?.nextCursor)
-										evidencePaging.next(evidence.data.nextCursor);
-								}}
-							/>
-						}
-						events={events.data?.events ?? []}
-					/>
-				</CollapsibleContent>
+				<CollapsibleDefaultTrigger>
+					{OS_COPY.work.technicalDetails}
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
+					<div className="grid gap-4 pt-4">
+						<ClipboardText size="sm" text={item.id} textToCopy={item.id} />
+						<WorkItemReadOnlyLedgers
+							workItemId={item.id}
+							acceptanceContract={item.acceptanceContract}
+							attempts={attempts.data?.data ?? []}
+							attemptsError={attempts.error}
+							attemptControls={
+								<PageControls
+									hasPrevious={attemptPaging.hasPrevious}
+									hasNext={Boolean(attempts.data?.nextCursor)}
+									onPrevious={attemptPaging.reset}
+									onBack={attemptPaging.previous}
+									onNext={() => {
+										if (attempts.data?.nextCursor)
+											attemptPaging.next(attempts.data.nextCursor);
+									}}
+								/>
+							}
+							evidence={evidence.data?.data ?? []}
+							evidenceError={evidence.error}
+							evidenceControls={
+								<PageControls
+									hasPrevious={evidencePaging.hasPrevious}
+									hasNext={Boolean(evidence.data?.nextCursor)}
+									onPrevious={evidencePaging.reset}
+									onBack={evidencePaging.previous}
+									onNext={() => {
+										if (evidence.data?.nextCursor)
+											evidencePaging.next(evidence.data.nextCursor);
+									}}
+								/>
+							}
+							events={events.data?.events ?? []}
+						/>
+					</div>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</WorkItemInspectorPage>
 	);

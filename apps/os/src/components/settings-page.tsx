@@ -10,7 +10,6 @@ import type {
 import type { AiGatewayAdmissionPolicy } from "@tedix/api-contract/schemas/tedi";
 import { resolveOsTenant } from "@/shared/os-tenant";
 import {
-	CaretRight,
 	Desktop,
 	Eye,
 	Globe,
@@ -36,8 +35,8 @@ import { Button } from "@/components/kumo/button";
 import { CodeInline } from "@/components/kumo/code";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { SettingsRow, SettingsRows } from "@/components/settings-row";
 import { OsRouterLink } from "@/components/kumo/link-provider";
@@ -380,15 +379,10 @@ function AuthorityDescription({ authority }: { authority: OsCallerAuthority }) {
 			<span>{authoritySummary(authority)}</span>
 			{details.length > 0 && (
 				<Collapsible>
-					<CollapsibleTrigger className="group/disclosure -mx-2 w-fit px-2">
-						<CaretRight
-							aria-hidden
-							className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-							size={12}
-						/>
+					<CollapsibleDefaultTrigger className="group/disclosure -mx-2 w-fit px-2">
 						Technical details
-					</CollapsibleTrigger>
-					<CollapsibleContent>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
 						<dl className="m-0 mt-1 grid gap-2">
 							{details.map(([label, value]) => (
 								<div className="grid gap-0.5" key={label}>
@@ -399,7 +393,7 @@ function AuthorityDescription({ authority }: { authority: OsCallerAuthority }) {
 								</div>
 							))}
 						</dl>
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 		</div>

@@ -1,9 +1,8 @@
-import { CaretRight } from "@phosphor-icons/react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { recordingNote } from "@/lib/run-step-content";
@@ -23,22 +22,17 @@ export function RunRecordingNotes({ warnings }: { warnings: string[] }) {
 					This notice is about the saved records. The run’s status is shown
 					above.
 				</Text>
-				<Collapsible className="min-w-0 rounded-lg border border-kumo-line bg-kumo-base p-2">
-					<CollapsibleTrigger className="group w-full">
-						<CaretRight
-							aria-hidden
-							size={16}
-							className="transition-transform group-data-[panel-open]:rotate-90"
-						/>
+				<Collapsible className="min-w-0">
+					<CollapsibleDefaultTrigger>
 						Recording details
-					</CollapsibleTrigger>
-					<CollapsibleContent>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
 						<ul className="m-0 grid list-disc gap-2 px-4 py-3 pl-7 wrap-anywhere">
 							{warnings.map((warning, index) => (
 								<li key={`${index}:${warning}`}>{warning}</li>
 							))}
 						</ul>
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			</AlertDescription>
 		</Alert>

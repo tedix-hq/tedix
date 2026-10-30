@@ -6,8 +6,8 @@ import { Link } from "@/components/kumo/link";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	PageSection,
@@ -169,14 +169,14 @@ function SetupGroups({ groups }: { groups: TediSetup["items"][] }) {
 							/>
 						))}
 						<Collapsible>
-							<CollapsibleTrigger>
+							<CollapsibleDefaultTrigger>
 								View {items.length}{" "}
 								{items.length === 1 ? "requirement" : "requirements"} in
 								diagnostics
-							</CollapsibleTrigger>
-							<CollapsibleContent>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
 								<SetupItems items={items} />
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					</li>
 				);
@@ -211,13 +211,13 @@ export function SetupChecklist({ setup }: { setup: TediSetup }) {
 					<SetupGroups groups={groups.slice(0, 3)} />
 					{groups.length > 3 && (
 						<Collapsible>
-							<CollapsibleTrigger>
+							<CollapsibleDefaultTrigger>
 								{groups.length - 3} more setup{" "}
 								{groups.length === 4 ? "group" : "groups"}
-							</CollapsibleTrigger>
-							<CollapsibleContent>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
 								<SetupGroups groups={groups.slice(3)} />
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					)}
 				</>
@@ -226,13 +226,13 @@ export function SetupChecklist({ setup }: { setup: TediSetup }) {
 			)}
 			{ready.length > 0 && (
 				<Collapsible>
-					<CollapsibleTrigger>
+					<CollapsibleDefaultTrigger>
 						{ready.length} ready{" "}
 						{ready.length === 1 ? "requirement" : "requirements"}
-					</CollapsibleTrigger>
-					<CollapsibleContent>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
 						<SetupItems items={ready} />
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 			<Text role="label" tone="secondary">

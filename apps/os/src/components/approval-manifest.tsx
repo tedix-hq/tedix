@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { ApprovalDecisionCopy } from "@/components/approval-decision-copy";
 import {
@@ -94,20 +93,15 @@ export function ApprovalManifestActions({
 						) : null}
 						{action.vetoCascadeApprovalRequestIds.length > 0 ? (
 							<Collapsible>
-								<CollapsibleTrigger className="group/disclosure">
-									<CaretRight
-										size={14}
-										aria-hidden
-										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-									/>
+								<CollapsibleDefaultTrigger className="group/disclosure">
 									Veto also cancels{" "}
 									{action.vetoCascadeApprovalRequestIds.length} pending
 									dependent{" "}
 									{action.vetoCascadeApprovalRequestIds.length === 1
 										? "request"
 										: "requests"}
-								</CollapsibleTrigger>
-								<CollapsibleContent keepMounted>
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent keepMounted>
 									<ul>
 										{action.vetoCascadeApprovalRequestIds.map((id) => (
 											<li key={id} className="break-all">
@@ -115,19 +109,14 @@ export function ApprovalManifestActions({
 											</li>
 										))}
 									</ul>
-								</CollapsibleContent>
+								</CollapsibleDefaultContent>
 							</Collapsible>
 						) : null}
 						<Collapsible>
-							<CollapsibleTrigger className="group/disclosure">
-								<CaretRight
-									size={14}
-									aria-hidden
-									className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-								/>
+							<CollapsibleDefaultTrigger className="group/disclosure">
 								Exact input, evidence and identity
-							</CollapsibleTrigger>
-							<CollapsibleContent keepMounted>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent keepMounted>
 								<CodeBlock
 									lang="json"
 									showCopyButton
@@ -154,7 +143,7 @@ export function ApprovalManifestActions({
 										2,
 									)}
 								/>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 						{request.actionType === "browser.live_view_takeover" ? (
 							<BrowserTakeoverLiveView approvalId={request.id} />

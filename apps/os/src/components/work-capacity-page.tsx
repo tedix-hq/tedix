@@ -21,7 +21,8 @@ import {
 import {
 	Collapsible,
 	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
@@ -612,16 +613,16 @@ export function WorkCapacityPage({
 															{availableMicros <= 0 ? "Exhausted" : "Available"}
 														</Badge>
 														<Collapsible>
-															<CollapsibleTrigger>
+															<CollapsibleDefaultTrigger>
 																Budget details
-															</CollapsibleTrigger>
-															<CollapsibleContent>
+															</CollapsibleDefaultTrigger>
+															<CollapsibleDefaultContent>
 																<Text as="span" role="label" tone="secondary">
 																	{committedMicros} committed ·{" "}
 																	{availableMicros} available (micros) · version{" "}
 																	{envelope.version}
 																</Text>
-															</CollapsibleContent>
+															</CollapsibleDefaultContent>
 														</Collapsible>
 													</div>
 													<Button

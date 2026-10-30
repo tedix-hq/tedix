@@ -32,6 +32,8 @@ import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
 import {
@@ -1484,19 +1486,14 @@ export function ApprovalCard({
 					{approval.detail && approval.args === undefined ? (
 						approval.detailDisclosure ? (
 							<Collapsible>
-								<CollapsibleTrigger className="group/disclosure">
-									<CaretRight
-										size={14}
-										aria-hidden
-										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-									/>
+								<CollapsibleDefaultTrigger className="group/disclosure">
 									Details
-								</CollapsibleTrigger>
-								<CollapsibleContent keepMounted>
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent keepMounted>
 									<pre className="whitespace-pre-wrap break-words text-sm">
 										{sanitizeUntrustedText(approval.detail)}
 									</pre>
-								</CollapsibleContent>
+								</CollapsibleDefaultContent>
 							</Collapsible>
 						) : (
 							<Text as="p" role="body" className="break-words">

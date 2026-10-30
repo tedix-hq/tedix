@@ -1,5 +1,4 @@
 import {
-	CaretDown,
 	CaretRight,
 	DownloadSimple,
 	Play,
@@ -35,8 +34,8 @@ import { Button } from "@/components/kumo/button";
 import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Empty } from "@/components/kumo/empty";
 import { FormField } from "@/components/kumo/forms/form-field";
@@ -277,17 +276,12 @@ function Disclosure({
 }) {
 	return (
 		<Collapsible>
-			<CollapsibleTrigger className="group/disclosure -ml-2">
-				<CaretDown
-					size={12}
-					aria-hidden
-					className="transition-transform group-data-[panel-open]/disclosure:rotate-180"
-				/>
+			<CollapsibleDefaultTrigger className="group/disclosure -ml-2">
 				{label}
-			</CollapsibleTrigger>
-			<CollapsibleContent className="min-w-0 pt-2">
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent className="min-w-0 pt-2">
 				{children}
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

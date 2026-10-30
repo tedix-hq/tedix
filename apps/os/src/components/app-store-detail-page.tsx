@@ -26,8 +26,8 @@ import { Card } from "@/components/kumo/card";
 import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	Collection,
@@ -124,16 +124,16 @@ export function CatalogToolList({
 					) : null}
 					{tool.inputSchema ? (
 						<Collapsible className="min-w-0 text-xs">
-							<CollapsibleTrigger className="cursor-pointer text-kumo-subtle hover:text-kumo-default">
+							<CollapsibleDefaultTrigger className="cursor-pointer text-kumo-subtle hover:text-kumo-default">
 								Input schema
-							</CollapsibleTrigger>
-							<CollapsibleContent className="min-w-0 max-w-full">
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent className="min-w-0 max-w-full">
 								<CodeBlock
 									className="mt-1 max-h-48 w-full min-w-0 max-w-full overflow-auto"
 									code={JSON.stringify(tool.inputSchema, null, 2)}
 									lang="json"
 								/>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					) : null}
 				</li>

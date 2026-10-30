@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import {
 	useMutation,
@@ -165,14 +170,18 @@ export function CalendarPreview({
 							{plan.conflicts.length} conflicts prevent safe calendar changes.
 							Check account permissions or existing blockers, then refresh this
 							preview.
-							<details>
-								<summary>Technical details</summary>
-								<ul>
-									{plan.conflicts.map((conflict, index) => (
-										<li key={index}>{conflict}</li>
-									))}
-								</ul>
-							</details>
+							<Collapsible>
+								<CollapsibleDefaultTrigger>
+									Technical details
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent keepMounted>
+									<ul>
+										{plan.conflicts.map((conflict, index) => (
+											<li key={index}>{conflict}</li>
+										))}
+									</ul>
+								</CollapsibleDefaultContent>
+							</Collapsible>
 						</AlertDescription>
 					</Alert>
 				)}

@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { ArrowRight, ShieldCheck } from "@phosphor-icons/react";
@@ -168,22 +167,17 @@ function SharedGadgetCard({
 				)}
 				{role === "build" && manifest && (
 					<Collapsible>
-						<CollapsibleTrigger className="group/disclosure">
-							<CaretRight
-								size={14}
-								aria-hidden
-								className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-							/>
+						<CollapsibleDefaultTrigger className="group/disclosure">
 							Shared source manifest
-						</CollapsibleTrigger>
-						<CollapsibleContent keepMounted>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
 							<CodeBlock
 								className="max-h-72 overflow-auto"
 								code={JSON.stringify(manifest, null, 2)}
 								lang="json"
 								showCopyButton
 							/>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				)}
 			</CardContent>

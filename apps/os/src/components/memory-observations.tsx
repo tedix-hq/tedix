@@ -3,8 +3,8 @@ import type { Fact } from "@tedix/api-contract/schemas/memory-graph";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { useOsFormattingPreferences } from "@/lib/format";
@@ -33,8 +33,10 @@ export function ObservationEvidence({ fact }: { fact: Fact }) {
 			</div>
 			<Text className="whitespace-pre-wrap wrap-anywhere">{fact.content}</Text>
 			<Collapsible>
-				<CollapsibleTrigger>Sources and refresh trace</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				<CollapsibleDefaultTrigger>
+					Sources and refresh trace
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<div className="grid gap-2 py-2 wrap-anywhere">
 						<Text>
 							First seen:{" "}
@@ -73,7 +75,7 @@ export function ObservationEvidence({ fact }: { fact: Fact }) {
 							</Text>
 						)}
 					</div>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</article>
 	);

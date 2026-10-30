@@ -1493,11 +1493,13 @@ function WaitingList({
 				Inspect all cards
 			</Button>
 			{waiting.map((item) => (
-				<button
+				<Button
 					key={item.key}
 					type="button"
+					variant="outline"
+					multiline
 					onClick={() => onOpen(item.key)}
-					className="flex w-full min-w-0 flex-col gap-1 rounded-2xl border border-kumo-line bg-kumo-elevated p-4 text-left transition-colors hover:bg-kumo-tint"
+					className="w-full min-w-0 flex-col items-stretch gap-1 p-4 text-left whitespace-normal"
 				>
 					<span className="flex min-w-0 items-baseline justify-between gap-2">
 						<Text
@@ -1525,7 +1527,7 @@ function WaitingList({
 							{OS_COPY.feed.waiting}: {item.timing}
 						</Text>
 					)}
-				</button>
+				</Button>
 			))}
 		</section>
 	);

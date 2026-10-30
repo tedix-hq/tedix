@@ -124,7 +124,7 @@ describe("RunErrorAlert", () => {
 		const trigger = host.querySelector("button");
 		expect(trigger?.textContent).toBe("Details");
 		expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-		const panel = host.querySelector("pre")?.parentElement;
+		const panel = host.querySelector("pre")?.closest("[hidden]");
 		expect(panel?.querySelector("pre")?.textContent).toBe(error);
 		expect(panel?.hasAttribute("hidden")).toBe(true);
 	});

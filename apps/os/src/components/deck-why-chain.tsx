@@ -7,8 +7,8 @@ import type {
 } from "@tedix/api-contract/schemas/decision-graph";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
@@ -90,10 +90,10 @@ export function DeckWhyChain({ cardId }: { cardId: string }) {
 		);
 	return (
 		<Collapsible key={cardId} className="min-w-0">
-			<CollapsibleTrigger className="max-w-full whitespace-normal break-words px-0 type-tedix-label">
+			<CollapsibleDefaultTrigger className="max-w-full whitespace-normal break-words px-0 type-tedix-label">
 				{explanation}
-			</CollapsibleTrigger>
-			<CollapsibleContent>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent>
 				<ol
 					aria-label="Decision chain"
 					className="grid min-w-0 gap-2 py-2 pl-4"
@@ -113,7 +113,7 @@ export function DeckWhyChain({ cardId }: { cardId: string }) {
 						</li>
 					))}
 				</ol>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

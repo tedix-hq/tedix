@@ -22,8 +22,8 @@ import {
 } from "@/components/kumo/card";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/kumo/empty";
 import { Input } from "@/components/kumo/input";
@@ -306,29 +306,31 @@ function InstallationAccess({
 					onChange={(ids) => setDeniedText(ids.join("\n"))}
 				/>
 				<Collapsible>
-					<CollapsibleTrigger>
+					<CollapsibleDefaultTrigger>
 						Advanced: manage stable user IDs
-					</CollapsibleTrigger>
-					<CollapsibleContent className="grid gap-2 pt-2">
-						<p>
-							For people not yet identified by your application. Excluded people
-							cannot use the assistant, even if included above.
-						</p>
-						<Label htmlFor={`${id}-included`}>Included IDs</Label>
-						<Textarea
-							id={`${id}-included`}
-							aria-label="Advanced included user IDs"
-							value={allowedText}
-							onChange={(event) => setAllowedText(event.target.value)}
-						/>
-						<Label htmlFor={`${id}-excluded`}>Excluded IDs</Label>
-						<Textarea
-							id={`${id}-excluded`}
-							aria-label="Advanced excluded user IDs"
-							value={deniedText}
-							onChange={(event) => setDeniedText(event.target.value)}
-						/>
-					</CollapsibleContent>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
+						<div className="grid gap-2 pt-2">
+							<p>
+								For people not yet identified by your application. Excluded
+								people cannot use the assistant, even if included above.
+							</p>
+							<Label htmlFor={`${id}-included`}>Included IDs</Label>
+							<Textarea
+								id={`${id}-included`}
+								aria-label="Advanced included user IDs"
+								value={allowedText}
+								onChange={(event) => setAllowedText(event.target.value)}
+							/>
+							<Label htmlFor={`${id}-excluded`}>Excluded IDs</Label>
+							<Textarea
+								id={`${id}-excluded`}
+								aria-label="Advanced excluded user IDs"
+								value={deniedText}
+								onChange={(event) => setDeniedText(event.target.value)}
+							/>
+						</div>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 				<section aria-label="Draft audience preview" className="grid gap-2">
 					<h3 className="font-medium">Preview before saving</h3>
@@ -367,27 +369,31 @@ function InstallationAccess({
 						people above to find other customers.
 					</p>
 					<Collapsible>
-						<CollapsibleTrigger>View matching people</CollapsibleTrigger>
-						<CollapsibleContent className="grid gap-1 pt-2">
-							{users.map((user) => (
-								<p key={user.hostUserId}>
-									{user.name || user.email || `User ${user.hostUserId}`} ·{" "}
-									{evaluateEmbeddedWidgetAccess(
-										{
-											...row,
-											policy: {
-												...draft,
-												allowedUserIds: parseIds(allowedText),
-												deniedUserIds: parseIds(deniedText),
+						<CollapsibleDefaultTrigger>
+							View matching people
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
+							<div className="grid gap-1 pt-2">
+								{users.map((user) => (
+									<p key={user.hostUserId}>
+										{user.name || user.email || `User ${user.hostUserId}`} ·{" "}
+										{evaluateEmbeddedWidgetAccess(
+											{
+												...row,
+												policy: {
+													...draft,
+													allowedUserIds: parseIds(allowedText),
+													deniedUserIds: parseIds(deniedText),
+												},
 											},
-										},
-										user.hostUserId,
-									).allowed
-										? "Allowed"
-										: "Not allowed"}
-								</p>
-							))}
-						</CollapsibleContent>
+											user.hostUserId,
+										).allowed
+											? "Allowed"
+											: "Not allowed"}
+									</p>
+								))}
+							</div>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				</section>
 
