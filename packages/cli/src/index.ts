@@ -1136,7 +1136,7 @@ async function main() {
 		const organizationContext = resolveOrganizationTarget({
 			url: options.url,
 			command,
-			organization: options.organization,
+			organization: options.organization ?? auth.organization,
 			workspace: workspaceName,
 			externalAgent: auth.source.startsWith("external-agent:"),
 			accessToken:
@@ -1151,6 +1151,11 @@ async function main() {
 			discoveryCache: fileDiscoveryCache(),
 		});
 		options.organization = organizationContext.organization;
+		const canRecordScope =
+			Boolean(options.organization) ||
+			!isMultiOrganizationMcpUrl(
+				readWorkspaceCredentials(workspaceName)?.mcpUrl ?? options.url,
+			);
 		if (options.thread || command === "threads") {
 			const threadOptions = {
 				organizationId: await resolveThreadOrganizationId(client),
@@ -1241,11 +1246,7 @@ async function main() {
 					json: options.json,
 				}),
 			);
-			if (
-				!normalized.failures &&
-				!normalized.truncated &&
-				(options.organization || !isMultiOrganizationMcpUrl(options.url))
-			) {
+			if (!normalized.failures && !normalized.truncated && canRecordScope) {
 				recordSessionScope({
 					workspace: workspaceName,
 					organization: options.organization,
@@ -1436,12 +1437,14 @@ async function main() {
 			// Typed Work calls use the authenticated gateway's configured native
 			// catalog. The selected organization headers are already attached.
 			process.exitCode = await runWork(options.prompt?.trim() ?? "", {
-				recordScope: (scope) =>
-					recordSessionScope({
-						workspace: workspaceName,
-						organization: options.organization,
-						...scope,
-					}),
+				recordScope: (scope) => {
+					if (canRecordScope)
+						recordSessionScope({
+							workspace: workspaceName,
+							organization: options.organization,
+							...scope,
+						});
+				},
 				client,
 				color,
 				json: options.json,
@@ -1545,7 +1548,7 @@ async function main() {
 					...(options.offset ? { offset: options.offset } : {}),
 				},
 			});
-			if (process.exitCode === 0)
+			if (process.exitCode === 0 && canRecordScope)
 				recordSessionScope({
 					workspace: workspaceName,
 					organization: options.organization,

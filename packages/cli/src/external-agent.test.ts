@@ -6,6 +6,7 @@ import { CAPABILITY_SCOPES } from "@tedix/mcp-shared/auth/scopes";
 import {
 	mintExternalAgent,
 	defaultLocalPrincipal,
+	externalAgentContextOrganization,
 	externalAgentStatus,
 	finishExternalAgentSession,
 	renameExternalAgentPrincipal,
@@ -59,6 +60,45 @@ afterEach(() => {
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;
 	}
+});
+
+test("external agent context uses only the selected name of its pinned organization", () => {
+	const profile = {
+		organizationId: "org-id",
+		organizationAliases: ["org_alias"],
+	};
+	const credential = (
+		selected: string[],
+		mcpUrl = "https://connect.mcp.tedix.dev/mcp",
+	) => ({
+		loginId: "fixture",
+		mcpUrl,
+		oauthTokens: {
+			access_token: `x.${Buffer.from(JSON.stringify({ tedixSelectedOrganizations: selected })).toString("base64url")}.x`,
+			token_type: "Bearer",
+		},
+	});
+	expect(
+		externalAgentContextOrganization(
+			profile,
+			credential(["org_alias", "other"]),
+		),
+	).toBe("org_alias");
+	expect(
+		externalAgentContextOrganization(profile, credential(["other"])),
+	).toBeUndefined();
+	expect(
+		externalAgentContextOrganization(
+			profile,
+			credential(["org_alias", "org-id"]),
+		),
+	).toBeUndefined();
+	expect(
+		externalAgentContextOrganization(
+			profile,
+			credential(["org_alias"], "https://example.invalid/mcp"),
+		),
+	).toBeUndefined();
 });
 
 function exchangeResponse(): Response {
@@ -1762,6 +1802,8 @@ describe("one profile shared by parallel harness sessions", () => {
 			Object.keys(readExternalAgentProfile("connect")!.sessions),
 		).toContain(session);
 		delete process.env.TEDIX_AGENT_SESSION;
+		delete process.env.CODEX_SESSION_ID;
+		delete process.env.CODEX_THREAD_ID;
 		process.env.CLAUDE_CODE_SESSION_ID = session.slice("claude-code:".length);
 		expect(resolveAgentSession()?.session).toBe(successor);
 		expect(externalAgentStatus("connect").key).toBe(own.key);
