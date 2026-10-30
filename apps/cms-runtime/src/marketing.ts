@@ -1,3 +1,6 @@
+import type { SiteRoutingPolicy } from "@tedix/api-contract/schemas/site-routing";
+import { createDbClient } from "@tedix/db/client";
+import { getSiteRoutingPolicy } from "@tedix/db/queries/site-routing";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	serializeException,
@@ -224,6 +227,7 @@ async function contact(request: Request, env: MarketingEnv): Promise<Response> {
 }
 
 export interface MarketingEnv {
+	PLATFORM_DB: D1Database;
 	API_SERVICE?: Fetcher;
 	API_URL: string;
 	SESSION: KVNamespace;
@@ -261,134 +265,78 @@ Preferred-Languages: en, de
 Policy: https://github.com/tedix-hq/tedix/blob/main/SECURITY.md
 `;
 
-/**
- * blog.tedix.dev was folded into tedix.dev/blog. Posts that moved
- * keep their slug; retired posts point at their closest moved post, and every
- * other path lands on the index. Frozen: nothing publishes on the old host.
- * Unmapped `/_emdash/*` still reaches the old tenant while it is active.
- */
-const LEGACY_BLOG_HOST = "blog.tedix.dev";
-const RETIRED_BLOG_FAVICON_PATH = "/_tedix/retired-media/blog-favicon.ico";
-const RETIRED_BLOG_FAVICON_SHA256 =
-	"45ceb0cbbed0426333f7bdd77df942d1bd4cd7a257467a1de0980d132d256262";
-// Outside the old tenant's bundle prefix, which site deprovision deletes.
-const RETIRED_BLOG_FAVICON_KEY = `retired-media/blog.tedix.dev/${RETIRED_BLOG_FAVICON_SHA256}.ico`;
-
-/** Exact public paths from the preserved old-blog media inventory. */
-const LEGACY_BLOG_MEDIA_TARGETS: Record<string, string> = {
-	"/_emdash/api/media/file/01KT568RETPJQQ0DM7YXE62BKB.png":
-		"/_emdash/api/media/file/01M3HVQ56JFTGGEMT9DWJDBKDY.png",
-	"/_emdash/api/media/file/01KT568R52PCBPNDCGWPC0DCAN.png":
-		"/_emdash/api/media/file/01M3HVQEFF0NTV62Y7ZDJ41XG4.png",
-	"/_emdash/api/media/file/01KT568NFTMTTWEH9TRH8PQYJ5.png":
-		"/_emdash/api/media/file/01M3HVQRGJGJF3BESR0J7R08ST.png",
-	"/_emdash/api/media/file/01KT568BQTDFCNNSEN1VMWEJG6.png":
-		"/_emdash/api/media/file/01M3HVQY8HW7XC122QVNZ1Z53Y.png",
-	"/_emdash/api/media/file/brand/default-og.png":
-		"/_emdash/api/media/file/01M2Y7CVAQSA2VFR24PBEXQ8VW.png",
-	"/_emdash/api/media/file/brand/logo.png":
-		"/_emdash/api/media/file/01M2Y7CMEYFS5XYSJG1CYQ71N3.png",
-	"/_emdash/api/media/file/brand/favicon.ico": RETIRED_BLOG_FAVICON_PATH,
-	"/_emdash/api/media/file/posts/how-to-make-your-mcp-app-discoverable/1777633015682.png":
-		"/_emdash/api/media/file/01M3HVR6WN0YKVNFHWMS1NHF2B.png",
-	"/_emdash/api/media/file/posts/chatgpt-app-discoverability-guide/1777633011723.png":
-		"/_emdash/api/media/file/01M3HNKSHSB2R32QPEYK4691N3.png",
-	"/_emdash/api/media/file/posts/mechanics-of-selling-in-chatgpt/1777633007880.png":
-		"/_emdash/api/media/file/01M3HNKK9WF5N37CH2GWCTSFVM.png",
-	"/_emdash/api/media/file/posts/agentic-commerce/1777633001593.png":
-		"/_emdash/api/media/file/01M3HNKC1R1BKMYP2HJBRZCZY7.png",
-	"/_emdash/api/media/file/posts/how-brands-can-sell-in-chatgpt/1777632998022.png":
-		"/_emdash/api/media/file/01M3HNK5EXQ3MJZKW6W9MPQJSD.png",
-	"/_emdash/api/media/file/posts/lead-generation-ai-chats/1777632994219.png":
-		"/_emdash/api/media/file/01M3HNJX4ASC79FXZJ57J84JN4.png",
-	"/_emdash/api/media/file/posts/mcp-as-a-service-explained-why-model-context-protocol-matters-for-enterprise-ai/1777632989839.png":
-		"/_emdash/api/media/file/01M3HNJMTVRSHC13AF4K88DVF8.png",
-	"/_emdash/api/media/file/posts/autonomous-ai-agents-architecture-memory-and-skill-learning/1777632983781.png":
-		"/_emdash/api/media/file/01M3HVRG9KXQPG1BZMJDYZQ6CT.png",
-	"/_emdash/api/media/file/posts/crewai-vs-tedix-vs-langgraph-ai-agent-platform-comparison-2026/1777632979667.png":
-		"/_emdash/api/media/file/01M3HVRTRY8APG5N0XV36GS565.png",
-};
-
-function legacyBlogMediaRedirect(request: Request, url: URL): Response | null {
-	if (
-		url.hostname !== LEGACY_BLOG_HOST ||
-		(request.method !== "GET" && request.method !== "HEAD")
-	)
-		return null;
-	const target = LEGACY_BLOG_MEDIA_TARGETS[url.pathname];
-	if (!target) return null;
+function legacyBlogMediaRedirect(
+	request: Request,
+	url: URL,
+	policy: SiteRoutingPolicy | null,
+): Response | null {
+	if (request.method !== "GET" && request.method !== "HEAD") return null;
+	const route = policy?.legacyBlogs.find(
+		(entry) => entry.sourceHost === url.hostname,
+	);
+	const target =
+		route && Object.hasOwn(route.mediaTargets, url.pathname)
+			? route.mediaTargets[url.pathname]
+			: undefined;
+	if (!route || !target) return null;
 	return new Response(null, {
 		status: 301,
 		headers: {
-			Location: `https://tedix.dev${target}`,
+			Location: `${route.targetOrigin}${target}`,
 			"Cache-Control": "public, max-age=86400",
 		},
 	});
 }
 
-async function retiredBlogFaviconResponse(
+async function retainedMediaResponse(
 	request: Request,
 	env: MarketingEnv,
+	policy: SiteRoutingPolicy | null,
 ): Promise<Response | null> {
 	const url = new URL(request.url);
-	if (
-		url.hostname !== "tedix.dev" ||
-		url.pathname !== RETIRED_BLOG_FAVICON_PATH
-	)
-		return null;
+	const media = policy?.retainedMedia.find(
+		(entry) => entry.host === url.hostname && entry.path === url.pathname,
+	);
+	if (!media) return null;
 	if (request.method !== "GET" && request.method !== "HEAD")
 		return new Response("Method Not Allowed", {
 			status: 405,
 			headers: { Allow: "GET, HEAD" },
 		});
-	const object = await env.TENANT_BUNDLES.get(RETIRED_BLOG_FAVICON_KEY);
+	const object = await env.TENANT_BUNDLES.get(media.key);
 	if (!object) return new Response("Media unavailable", { status: 503 });
 	const bytes = await object.arrayBuffer();
-	if ((await sha256Hex(bytes)) !== RETIRED_BLOG_FAVICON_SHA256)
+	if ((await sha256Hex(bytes)) !== media.sha256)
 		return new Response("Media integrity check failed", { status: 503 });
 	return new Response(request.method === "HEAD" ? null : bytes, {
 		headers: {
-			"Content-Type": "image/x-icon",
+			"Content-Type": media.contentType,
 			"Content-Length": String(bytes.byteLength),
 			"Cache-Control": "public, max-age=31536000, immutable",
 			"X-Content-Type-Options": "nosniff",
 		},
 	});
 }
-const LEGACY_BLOG_POSTS: Record<string, string> = {
-	"autonomous-ai-agents-architecture-memory-and-skill-learning":
-		"autonomous-ai-agents-architecture-memory-and-skill-learning",
-	"how-to-make-your-mcp-app-discoverable":
-		"how-to-make-your-mcp-app-discoverable",
-	"mcp-tools-the-api-for-ai-agents": "mcp-tools-the-api-for-ai-agents",
-	"crewai-vs-tedix-vs-langgraph-ai-agent-platform-comparison-2026":
-		"crewai-vs-tedix-vs-langgraph-ai-agent-platform-comparison-2026",
-	"introducing-emdash-cms-for-tedix": "introducing-emdash-cms-for-tedix",
-	"chatgpt-app-discoverability-guide": "how-to-make-your-mcp-app-discoverable",
-	"mcp-as-a-service-explained-why-model-context-protocol-matters-for-enterprise-ai":
-		"mcp-tools-the-api-for-ai-agents",
-	"meet-your-tedi-autonomous-digital-workers":
-		"autonomous-ai-agents-architecture-memory-and-skill-learning",
-	"what-makes-a-tedix-digital-worker-durable":
-		"autonomous-ai-agents-architecture-memory-and-skill-learning",
-	"workflow-automation-vs-durable-digital-workers":
-		"autonomous-ai-agents-architecture-memory-and-skill-learning",
-};
 
-export function legacyBlogRedirect(url: URL): Response | null {
-	if (url.hostname !== LEGACY_BLOG_HOST || url.pathname.startsWith("/_emdash/"))
-		return null;
+export function legacyBlogRedirect(
+	url: URL,
+	policy: SiteRoutingPolicy | null,
+): Response | null {
+	const route = policy?.legacyBlogs.find(
+		(entry) => entry.sourceHost === url.hostname,
+	);
+	if (!route || url.pathname.startsWith("/_emdash/")) return null;
 	const slug = url.pathname.match(/^\/posts\/([^/]+)\/?$/)?.[1];
 	const target =
 		url.pathname === "/rss.xml"
-			? "/rss.xml"
-			: slug && LEGACY_BLOG_POSTS[slug]
-				? `/blog/${LEGACY_BLOG_POSTS[slug]}`
-				: "/blog";
+			? route.feedPath
+			: slug && Object.hasOwn(route.postTargets, slug)
+				? `${route.indexPath}/${route.postTargets[slug]}`
+				: route.indexPath;
 	return new Response(null, {
 		status: 301,
 		headers: {
-			Location: `https://tedix.dev${target}`,
+			Location: `${route.targetOrigin}${target}`,
 			"Cache-Control": "public, max-age=86400",
 		},
 	});
@@ -410,11 +358,12 @@ export async function marketingResponse(
 		env.CLI_DOWNLOAD_HOST,
 	);
 	if (download) return download;
-	const retainedMedia = await retiredBlogFaviconResponse(request, env);
+	const routing = await getSiteRoutingPolicy(createDbClient(env.PLATFORM_DB));
+	const retainedMedia = await retainedMediaResponse(request, env, routing);
 	if (retainedMedia) return retainedMedia;
-	const legacyMedia = legacyBlogMediaRedirect(request, url);
+	const legacyMedia = legacyBlogMediaRedirect(request, url, routing);
 	if (legacyMedia) return legacyMedia;
-	const legacyBlog = legacyBlogRedirect(url);
+	const legacyBlog = legacyBlogRedirect(url, routing);
 	if (legacyBlog) return legacyBlog;
 	const path = url.pathname.replace(/\/+$/, "") || "/";
 	const isMarketingTenantOrigin =

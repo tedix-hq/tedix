@@ -1,3 +1,6 @@
+vi.mock("@tedix/db/queries/site-routing", () => ({
+	getSiteRoutingPolicy: vi.fn(async () => null),
+}));
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({

@@ -1,13 +1,19 @@
+import { SiteRoutingDefinitionSchema } from "@tedix/api-contract/schemas/site-routing";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
 	getBySlug: vi.fn(),
 	create: vi.fn(),
+	routing: vi.fn(),
 }));
 vi.mock("./marketing-api", () => ({
 	getCatalogClient: () => ({ catalog: mocks }),
 	getOrganizationServiceClient: () => ({ workItems: { create: mocks.create } }),
 }));
+vi.mock("@tedix/db/queries/site-routing", () => ({
+	getSiteRoutingPolicy: mocks.routing,
+}));
+vi.mock("@tedix/db/client", () => ({ createDbClient: vi.fn(() => ({})) }));
 import {
 	isMarketingContactPath,
 	marketingResponse,
@@ -19,7 +25,36 @@ const env = {
 	MARKETING_DOMAINS: "landing.tedix.dev",
 	CLI_DOWNLOAD_HOST: "downloads.tedix.dev",
 } as MarketingEnv;
-beforeEach(() => vi.clearAllMocks());
+const routing = {
+	version: 1,
+	legacyBlogs: [
+		{
+			sourceHost: "old.example",
+			targetOrigin: "https://new.example",
+			indexPath: "/journal",
+			feedPath: "/rss.xml",
+			postTargets: { article: "article", retired: "article" },
+			mediaTargets: {
+				"/_emdash/api/media/file/old.png": "/_emdash/api/media/file/new.png",
+				"/_emdash/api/media/file/icon.ico": "/retained/icon.ico",
+			},
+		},
+	],
+	retainedMedia: [
+		{
+			host: "new.example",
+			path: "/retained/icon.ico",
+			key: "retired-media/sample/icon.ico",
+			sha256:
+				"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+			contentType: "image/x-icon",
+		},
+	],
+};
+beforeEach(() => {
+	vi.clearAllMocks();
+	mocks.routing.mockResolvedValue(routing);
+});
 describe("path-mounted CMS image variants", () => {
 	it("prefixes generated image URLs without rewriting other hosts or double-prefixing", () => {
 		const html =
@@ -332,141 +367,125 @@ describe("public marketing adapters", () => {
 		expect(mocks.create).not.toHaveBeenCalled();
 	});
 	it.each([
-		[
-			"/posts/mcp-tools-the-api-for-ai-agents/",
-			"https://tedix.dev/blog/mcp-tools-the-api-for-ai-agents",
-		],
-		[
-			"/posts/chatgpt-app-discoverability-guide/",
-			"https://tedix.dev/blog/how-to-make-your-mcp-app-discoverable",
-		],
-		["/posts/agentic-commerce/", "https://tedix.dev/blog"],
-		["/category/ai-commerce/", "https://tedix.dev/blog"],
-		["/", "https://tedix.dev/blog"],
-		["/rss.xml", "https://tedix.dev/rss.xml"],
-	])("folds blog.tedix.dev%s into tedix.dev", async (path, target) => {
-		const r = await marketingResponse(
-			new Request("https://blog.tedix.dev" + path),
-			env,
-		);
-		expect(r?.status).toBe(301);
-		expect(r?.headers.get("Location")).toBe(target);
-	});
-	it.each([
-		[
-			"/_emdash/api/media/file/01KT568RETPJQQ0DM7YXE62BKB.png",
-			"/_emdash/api/media/file/01M3HVQ56JFTGGEMT9DWJDBKDY.png",
-		],
-		[
-			"/_emdash/api/media/file/01KT568R52PCBPNDCGWPC0DCAN.png",
-			"/_emdash/api/media/file/01M3HVQEFF0NTV62Y7ZDJ41XG4.png",
-		],
-		[
-			"/_emdash/api/media/file/01KT568NFTMTTWEH9TRH8PQYJ5.png",
-			"/_emdash/api/media/file/01M3HVQRGJGJF3BESR0J7R08ST.png",
-		],
-		[
-			"/_emdash/api/media/file/01KT568BQTDFCNNSEN1VMWEJG6.png",
-			"/_emdash/api/media/file/01M3HVQY8HW7XC122QVNZ1Z53Y.png",
-		],
-		[
-			"/_emdash/api/media/file/brand/default-og.png",
-			"/_emdash/api/media/file/01M2Y7CVAQSA2VFR24PBEXQ8VW.png",
-		],
-		[
-			"/_emdash/api/media/file/brand/logo.png",
-			"/_emdash/api/media/file/01M2Y7CMEYFS5XYSJG1CYQ71N3.png",
-		],
-		[
-			"/_emdash/api/media/file/brand/favicon.ico",
-			"/_tedix/retired-media/blog-favicon.ico",
-		],
-		[
-			"/_emdash/api/media/file/posts/how-to-make-your-mcp-app-discoverable/1777633015682.png",
-			"/_emdash/api/media/file/01M3HVR6WN0YKVNFHWMS1NHF2B.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/chatgpt-app-discoverability-guide/1777633011723.png",
-			"/_emdash/api/media/file/01M3HNKSHSB2R32QPEYK4691N3.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/mechanics-of-selling-in-chatgpt/1777633007880.png",
-			"/_emdash/api/media/file/01M3HNKK9WF5N37CH2GWCTSFVM.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/agentic-commerce/1777633001593.png",
-			"/_emdash/api/media/file/01M3HNKC1R1BKMYP2HJBRZCZY7.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/how-brands-can-sell-in-chatgpt/1777632998022.png",
-			"/_emdash/api/media/file/01M3HNK5EXQ3MJZKW6W9MPQJSD.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/lead-generation-ai-chats/1777632994219.png",
-			"/_emdash/api/media/file/01M3HNJX4ASC79FXZJ57J84JN4.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/mcp-as-a-service-explained-why-model-context-protocol-matters-for-enterprise-ai/1777632989839.png",
-			"/_emdash/api/media/file/01M3HNJMTVRSHC13AF4K88DVF8.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/autonomous-ai-agents-architecture-memory-and-skill-learning/1777632983781.png",
-			"/_emdash/api/media/file/01M3HVRG9KXQPG1BZMJDYZQ6CT.png",
-		],
-		[
-			"/_emdash/api/media/file/posts/crewai-vs-tedix-vs-langgraph-ai-agent-platform-comparison-2026/1777632979667.png",
-			"/_emdash/api/media/file/01M3HVRTRY8APG5N0XV36GS565.png",
-		],
+		["/posts/article/", "/journal/article"],
+		["/posts/retired?source=old", "/journal/article"],
+		["/posts/unknown/", "/journal"],
+		["/posts/toString", "/journal"],
+		["/posts/__proto__", "/journal"],
+		["/category/sample/", "/journal"],
+		["/", "/journal"],
+		["/rss.xml?source=old", "/rss.xml"],
 	])(
-		"redirects preserved media %s to its retained bytes",
+		"redirects configured blog path %s without forwarding the old query",
 		async (path, target) => {
 			const response = await marketingResponse(
-				new Request(`https://blog.tedix.dev${path}`),
+				new Request(`https://old.example${path}`),
 				env,
 			);
 			expect(response?.status).toBe(301);
 			expect(response?.headers.get("Location")).toBe(
-				`https://tedix.dev${target}`,
+				`https://new.example${target}`,
 			);
 		},
 	);
-	it("fails closed when the retained favicon bytes are missing or altered", async () => {
+	it.each(["GET", "HEAD"])(
+		"redirects only inventoried media for %s",
+		async (method) => {
+			const response = await marketingResponse(
+				new Request(
+					"https://old.example/_emdash/api/media/file/old.png?download=1",
+					{ method },
+				),
+				env,
+			);
+			expect(response?.status).toBe(301);
+			expect(response?.headers.get("Location")).toBe(
+				"https://new.example/_emdash/api/media/file/new.png",
+			);
+		},
+	);
+	it("preserves legacy blog redirect methods and leaves excluded media methods untouched", async () => {
+		expect(
+			(
+				await marketingResponse(
+					new Request("https://old.example/posts/article", { method: "POST" }),
+					env,
+				)
+			)?.status,
+		).toBe(301);
+		expect(
+			await marketingResponse(
+				new Request("https://old.example/_emdash/api/media/file/old.png", {
+					method: "POST",
+				}),
+				env,
+			),
+		).toBeNull();
+	});
+	it.each(["/_emdash/admin/", "/_emdash/api/media/file/unlisted.png"])(
+		"leaves excluded path %s to tenant routing",
+		async (path) => {
+			expect(
+				await marketingResponse(new Request(`https://old.example${path}`), env),
+			).toBeNull();
+		},
+	);
+	it("does not invent routing when the installation policy is absent", async () => {
+		mocks.routing.mockResolvedValue(null);
+		expect(
+			await marketingResponse(
+				new Request("https://old.example/posts/article"),
+				env,
+			),
+		).toBeNull();
+		expect(
+			await marketingResponse(
+				new Request("https://new.example/retained/icon.ico"),
+				env,
+			),
+		).toBeNull();
+	});
+	it("fails closed when retained bytes are missing or altered", async () => {
 		const get = vi
 			.fn()
 			.mockResolvedValueOnce(null)
 			.mockResolvedValueOnce({
 				arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
 			});
-		const faviconEnv = {
+		const request = new Request("https://new.example/retained/icon.ico");
+		const retainedEnv = {
 			...env,
 			TENANT_BUNDLES: { get } as unknown as R2Bucket,
 		};
-		const request = new Request(
-			"https://tedix.dev/_tedix/retired-media/blog-favicon.ico",
-		);
-		expect((await marketingResponse(request, faviconEnv))?.status).toBe(503);
-		expect((await marketingResponse(request, faviconEnv))?.status).toBe(503);
-		expect(get).toHaveBeenCalledWith(
-			expect.stringMatching(
-				/^retired-media\/blog\.tedix\.dev\/[a-f0-9]{64}\.ico$/,
-			),
-		);
+		expect((await marketingResponse(request, retainedEnv))?.status).toBe(503);
+		expect((await marketingResponse(request, retainedEnv))?.status).toBe(503);
+		expect(get).toHaveBeenCalledWith("retired-media/sample/icon.ico");
 	});
-	it("leaves old admin and unlisted media to tenant routing", async () => {
-		expect(
-			await marketingResponse(
-				new Request("https://blog.tedix.dev/_emdash/admin/"),
-				env,
-			),
-		).toBeNull();
-		expect(
-			await marketingResponse(
-				new Request(
-					"https://blog.tedix.dev/_emdash/api/media/file/not-in-the-inventory.png",
-				),
-				env,
-			),
-		).toBeNull();
+	it.each(["GET", "HEAD"])(
+		"serves verified retained bytes for %s",
+		async (method) => {
+			const get = vi.fn().mockResolvedValue({
+				arrayBuffer: async () => new TextEncoder().encode("abc").buffer,
+			});
+			const response = await marketingResponse(
+				new Request("https://new.example/retained/icon.ico", { method }),
+				{ ...env, TENANT_BUNDLES: { get } as unknown as R2Bucket },
+			);
+			expect(response?.status).toBe(200);
+			expect(response?.headers.get("Content-Length")).toBe("3");
+			expect(response?.headers.get("X-Content-Type-Options")).toBe("nosniff");
+			expect(await response?.text()).toBe(method === "HEAD" ? "" : "abc");
+		},
+	);
+	it("rejects unsupported retained-media methods before reading storage", async () => {
+		const get = vi.fn();
+		const response = await marketingResponse(
+			new Request("https://new.example/retained/icon.ico", { method: "POST" }),
+			{ ...env, TENANT_BUNDLES: { get } as unknown as R2Bucket },
+		);
+		expect(response?.status).toBe(405);
+		expect(response?.headers.get("Allow")).toBe("GET, HEAD");
+		expect(get).not.toHaveBeenCalled();
 	});
 	it("serves /blog from the marketing tenant instead of redirecting", async () => {
 		expect(
@@ -503,4 +522,59 @@ describe("public marketing adapters", () => {
 			).toBeNull();
 		},
 	);
+});
+
+describe("site routing publication validation", () => {
+	it("rejects unsafe destinations and retained storage paths", () => {
+		expect(
+			SiteRoutingDefinitionSchema.safeParse({ siteRouting: routing }).success,
+		).toBe(true);
+		for (const targetOrigin of [
+			"http://new.example",
+			"https://user:password@new.example",
+			"https://new.example/path",
+			"https://new.example?query=1",
+		]) {
+			expect(
+				SiteRoutingDefinitionSchema.safeParse({
+					siteRouting: {
+						...routing,
+						legacyBlogs: [{ ...routing.legacyBlogs[0], targetOrigin }],
+					},
+				}).success,
+			).toBe(false);
+		}
+		for (const key of [
+			"tenant-bundles/site/main.js",
+			"retired-media/../main.js",
+			"retired-media/sample/../../main.js",
+		]) {
+			expect(
+				SiteRoutingDefinitionSchema.safeParse({
+					siteRouting: {
+						...routing,
+						retainedMedia: [{ ...routing.retainedMedia[0], key }],
+					},
+				}).success,
+			).toBe(false);
+		}
+		expect(
+			SiteRoutingDefinitionSchema.safeParse({
+				siteRouting: {
+					...routing,
+					retainedMedia: [
+						{ ...routing.retainedMedia[0], path: "//other.example/icon.ico" },
+					],
+				},
+			}).success,
+		).toBe(false);
+		expect(
+			SiteRoutingDefinitionSchema.safeParse({
+				siteRouting: {
+					...routing,
+					legacyBlogs: [routing.legacyBlogs[0], routing.legacyBlogs[0]],
+				},
+			}).success,
+		).toBe(false);
+	});
 });
