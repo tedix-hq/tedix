@@ -37,6 +37,7 @@ export interface DispatcherHealthSource {
 	slotsTotal: number;
 	pid: number;
 	startedAt: string;
+	lastAdmissionAt?: string;
 }
 
 export interface LocalDispatcherHealth {
@@ -70,6 +71,7 @@ export function writeDispatcherHealthSource(
 	startedAt = new Date().toISOString(),
 ): void {
 	const path = join(directory, SOURCE_FILE);
+	const previous = readSource(path);
 	const source: DispatcherHealthSource = {
 		version: 1,
 		workspace: selector(options.scope, "--workspace"),
@@ -79,8 +81,51 @@ export function writeDispatcherHealthSource(
 		pid,
 		startedAt,
 	};
+	if (
+		previous?.workspace === source.workspace &&
+		previous.organization === source.organization &&
+		previous.executor === source.executor &&
+		previous.lastAdmissionAt
+	)
+		source.lastAdmissionAt = previous.lastAdmissionAt;
 	writeFileSync(`${path}.tmp`, JSON.stringify(source), { mode: 0o600 });
 	renameSync(`${path}.tmp`, path);
+}
+
+function readSource(path: string): DispatcherHealthSource | undefined {
+	try {
+		const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+		return validSource(value) ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function recordDispatcherAdmission(
+	directory: string,
+	at: string,
+	pid = process.pid,
+): void {
+	const path = join(directory, SOURCE_FILE);
+	const source = readSource(path);
+	if (!source || source.pid !== pid || !Number.isFinite(Date.parse(at))) return;
+	if (
+		source.lastAdmissionAt &&
+		Date.parse(source.lastAdmissionAt) >= Date.parse(at)
+	)
+		return;
+	try {
+		writeFileSync(
+			`${path}.tmp`,
+			JSON.stringify({ ...source, lastAdmissionAt: at }),
+			{
+				mode: 0o600,
+			},
+		);
+		renameSync(`${path}.tmp`, path);
+	} catch {
+		// An observation failure must not interrupt an admitted worker.
+	}
 }
 
 function processAlive(pid: number): boolean {
@@ -109,7 +154,10 @@ function validSource(value: unknown): value is DispatcherHealthSource {
 		Number.isSafeInteger(row.pid) &&
 		Number(row.pid) > 0 &&
 		typeof row.startedAt === "string" &&
-		Number.isFinite(Date.parse(row.startedAt))
+		Number.isFinite(Date.parse(row.startedAt)) &&
+		(row.lastAdmissionAt === undefined ||
+			(typeof row.lastAdmissionAt === "string" &&
+				Number.isFinite(Date.parse(row.lastAdmissionAt))))
 	);
 }
 
@@ -223,10 +271,8 @@ export function collectDispatcherHealth(
 	for (const name of readdirSync(root)) {
 		const directory = join(root, name);
 		try {
-			const source = JSON.parse(
-				readFileSync(join(directory, SOURCE_FILE), "utf8"),
-			) as unknown;
-			if (!validSource(source)) continue;
+			const source = readSource(join(directory, SOURCE_FILE));
+			if (!source) continue;
 			const running = processAlive(source.pid);
 			const log = logHealth(directory, now);
 			reports.push({
@@ -237,7 +283,13 @@ export function collectDispatcherHealth(
 				lane: basename(directory),
 				running,
 				observedAt,
-				lastAdmissionAt: log.lastAdmissionAt,
+				lastAdmissionAt:
+					!log.lastAdmissionAt ||
+					(source.lastAdmissionAt &&
+						Date.parse(source.lastAdmissionAt) >
+							Date.parse(log.lastAdmissionAt))
+						? (source.lastAdmissionAt ?? null)
+						: log.lastAdmissionAt,
 				slotsInUse: running
 					? Math.min(source.slotsTotal, activeSlots(directory))
 					: 0,

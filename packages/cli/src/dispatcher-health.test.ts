@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	collectDispatcherHealth,
+	recordDispatcherAdmission,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 
@@ -110,6 +111,48 @@ describe("local dispatcher health", () => {
 			slotsInUse: 0,
 			slotsTotal: 2,
 		});
+	});
+
+	test("preserves a real admission through log rotation and dispatcher restart", () => {
+		const { root, directory } = lane();
+		const options = {
+			scope: ["--workspace", "connect", "--organization", "org_tedix"],
+			executor: "codex",
+			max: 2,
+		};
+		writeDispatcherHealthSource(directory, options);
+		const at = "2026-10-30T10:00:00.000Z";
+		recordDispatcherAdmission(directory, at);
+		writeFileSync(join(directory, "dispatcher.log"), "x".repeat(300_000));
+		writeDispatcherHealthSource(directory, options, process.pid + 1);
+		const [report] = collectDispatcherHealth({ TEDIX_CONFIG_DIR: root });
+		expect(report?.lastAdmissionAt).toBe(at);
+		recordDispatcherAdmission(directory, "2026-10-30T11:00:00.000Z");
+		expect(
+			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.lastAdmissionAt,
+		).toBe(at);
+		writeDispatcherHealthSource(directory, { ...options, executor: "devin" });
+		expect(
+			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.lastAdmissionAt,
+		).toBeNull();
+	});
+
+	test("uses the newest persisted or log admission without moving backwards", () => {
+		const { root, directory } = lane();
+		writeDispatcherHealthSource(directory, {
+			scope: ["--workspace", "connect", "--organization", "org_tedix"],
+			executor: "codex",
+			max: 2,
+		});
+		recordDispatcherAdmission(directory, "2026-10-30T10:00:00.000Z");
+		recordDispatcherAdmission(directory, "2026-10-30T09:00:00.000Z");
+		writeFileSync(
+			join(directory, "dispatcher.log"),
+			JSON.stringify({ at: "2026-10-30T11:00:00.000Z", event: "admitted" }),
+		);
+		expect(
+			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.lastAdmissionAt,
+		).toBe("2026-10-30T11:00:00.000Z");
 	});
 
 	test("ignores malformed and pre-descriptor lane directories", () => {

@@ -65,7 +65,10 @@ import {
 	readLoginRecovery,
 	saveLoginRecovery,
 } from "./login-recovery";
-import { writeDispatcherHealthSource } from "./dispatcher-health";
+import {
+	recordDispatcherAdmission,
+	writeDispatcherHealthSource,
+} from "./dispatcher-health";
 
 type WorkAttempt = z.infer<typeof WorkAttemptSchema>;
 
@@ -879,8 +882,10 @@ export class LaneDispatcher {
 		return Boolean(next);
 	}
 	private log(event: string, itemId?: string, reason?: string) {
+		const at = new Date().toISOString();
+		if (event === "admitted") recordDispatcherAdmission(this.directory, at);
 		const line = JSON.stringify({
-			at: new Date().toISOString(),
+			at,
 			event,
 			itemId,
 			reason,
