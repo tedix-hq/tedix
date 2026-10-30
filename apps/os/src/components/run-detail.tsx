@@ -10,7 +10,7 @@ import type { SkillWorkflowStep } from "@tedix/api-contract/contracts/cognitive"
 import { useEffect, useRef, useState } from "react";
 import { RunStatusChip } from "@/components/activity-runs";
 import { DetailUnavailable } from "@/components/detail-unavailable";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { Alert, AlertDescription } from "@/components/kumo/alert";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -56,6 +56,7 @@ import {
 } from "@/components/run-detail-sections";
 import { useRunWebMcpTools } from "@/components/run-webmcp-tools";
 import { RunTimeline } from "@/components/run-timeline";
+import { RunRecordingNotes } from "@/components/run-recording-notes";
 import { readableField } from "@/lib/run-step-content";
 import { osApi } from "@/lib/api";
 import { useOsFormattingPreferences } from "@/lib/format";
@@ -457,27 +458,7 @@ export function RunDetailPage() {
 						/>
 					)}
 
-					{inspect.data.warnings.length > 0 && (
-						<Alert variant="warning">
-							<AlertTitle>Run notes</AlertTitle>
-							<AlertDescription>
-								<Text as="p">
-									Some records need attention. Select a step to load its saved
-									result, or open the recording details below.
-								</Text>
-								<Collapsible>
-									<CollapsibleTrigger>Recording details</CollapsibleTrigger>
-									<CollapsibleContent>
-										<ul className="m-0 list-disc pl-4">
-											{inspect.data.warnings.map((warning) => (
-												<li key={warning}>{warning}</li>
-											))}
-										</ul>
-									</CollapsibleContent>
-								</Collapsible>
-							</AlertDescription>
-						</Alert>
-					)}
+					<RunRecordingNotes warnings={inspect.data.warnings} />
 
 					<RunTimeline runId={runId} />
 					<Collapsible>

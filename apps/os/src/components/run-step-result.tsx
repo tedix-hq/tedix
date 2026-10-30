@@ -1,7 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { CaretRight } from "@phosphor-icons/react";
+import { safeMarkdownHref } from "@tedix/chat-transport/markdown";
 import { useState } from "react";
 import { Alert, AlertDescription, LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
+import { CodeBlock } from "@/components/kumo/code";
+import { Link } from "@/components/kumo/link";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -10,14 +14,22 @@ import {
 import { Text } from "@/components/kumo/text";
 import { osQuery } from "@/lib/os-query-options";
 import { outputSample } from "@/lib/run-timeline";
-import { readableField, readableStepResult } from "@/lib/run-step-content";
+import {
+	readableField,
+	readableStepResult,
+	stepRecord,
+	stepTimestamp,
+} from "@/lib/run-step-content";
+import { absoluteTime } from "@/lib/time";
 
 export function RunStepResult({
 	value,
 	depth = 0,
+	field,
 }: {
 	value: unknown;
 	depth?: number;
+	field?: string;
 }) {
 	const result = readableStepResult(value);
 	if (result == null)
@@ -26,27 +38,80 @@ export function RunStepResult({
 				Not recorded
 			</Text>
 		);
-	if (typeof result !== "object" || depth >= 4)
+	const timestamp = stepTimestamp(result, field);
+	if (timestamp)
+		return <time dateTime={timestamp}>{absoluteTime(timestamp)}</time>;
+	if (typeof result === "string") {
+		const href = safeMarkdownHref(result);
+		if (href)
+			return (
+				<Link
+					href={href}
+					target="_blank"
+					rel="noopener noreferrer"
+					className="wrap-anywhere"
+				>
+					{result}
+					<Link.ExternalIcon />
+				</Link>
+			);
+		const fence = /^```([\w-]*)\n([\s\S]*?)\n```\s*$/.exec(result.trim());
+		if (fence)
+			return (
+				<CodeBlock
+					code={fence[2]!}
+					lang={fence[1] || "text"}
+					className="min-w-0 max-w-full"
+				/>
+			);
+	}
+	if (typeof result === "object" && depth >= 6)
+		return (
+			<CodeBlock
+				code={outputSample(result) ?? ""}
+				lang="json"
+				className="min-w-0 max-w-full"
+			/>
+		);
+	if (typeof result !== "object")
 		return (
 			<Text as="p" className="m-0 whitespace-pre-wrap wrap-anywhere">
-				{outputSample(result)}
+				{typeof result === "boolean"
+					? result
+						? "Yes"
+						: "No"
+					: outputSample(result)}
 			</Text>
 		);
 	if (Array.isArray(result))
 		return (
 			<div className="grid gap-3">
 				{result.slice(0, 50).map((item, index) => (
-					<Collapsible key={index}>
-						<CollapsibleTrigger>Item {index + 1}</CollapsibleTrigger>
-						<CollapsibleContent>
+					<Collapsible
+						key={index}
+						className="min-w-0 rounded-lg border border-kumo-line bg-kumo-base p-2"
+					>
+						<CollapsibleTrigger className="group w-full min-w-0">
+							<CaretRight
+								aria-hidden
+								size={16}
+								className="shrink-0 transition-transform group-data-[panel-open]:rotate-90"
+							/>
+							<span className="min-w-0 wrap-anywhere">
+								{typeof stepRecord(item).title === "string"
+									? String(stepRecord(item).title)
+									: `Item ${index + 1}`}
+							</span>
+						</CollapsibleTrigger>
+						<CollapsibleContent className="px-2 pt-3 pb-2">
 							<RunStepResult value={item} depth={depth + 1} />
 						</CollapsibleContent>
 					</Collapsible>
 				))}
 				{result.length > 50 && (
 					<Text as="p" tone="secondary">
-						Showing the first 50 items. The technical record contains the full
-						saved result.
+						Showing the first 50 items. Technical details includes a sample of
+						the original response.
 					</Text>
 				)}
 			</div>
@@ -64,7 +129,7 @@ export function RunStepResult({
 							{readableField(key)}
 						</Text>
 						<dd className="m-0 mt-1">
-							<RunStepResult value={entry} depth={depth + 1} />
+							<RunStepResult value={entry} depth={depth + 1} field={key} />
 						</dd>
 					</div>
 				))}

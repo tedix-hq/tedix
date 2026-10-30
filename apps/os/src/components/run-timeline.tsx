@@ -1,4 +1,4 @@
-import { CaretDown } from "@phosphor-icons/react";
+import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import type {
 	SkillWorkflowRunTimeline,
@@ -9,6 +9,7 @@ import { Alert, AlertDescription, LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Badge } from "@/components/kumo/badge";
 import { Input } from "@/components/kumo/input";
+import { CodeBlock, CodeInline } from "@/components/kumo/code";
 import {
 	RunStepConversation,
 	RunStepResult,
@@ -135,7 +136,10 @@ export function RunTimelineChart({
 				/>
 			</label>
 			{search.trim() && (
-				<div className="flex max-h-56 flex-wrap gap-2 overflow-y-auto">
+				<div
+					aria-label="Matching steps"
+					className="flex max-h-56 min-w-0 flex-wrap gap-2 overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-2"
+				>
 					{timeline.events
 						.filter((event) =>
 							`${event.name} ${event.method ?? ""} ${event.lane}`
@@ -146,6 +150,7 @@ export function RunTimelineChart({
 							<Button
 								key={event.id}
 								variant="outline"
+								className="max-w-full shrink-0"
 								onClick={() => select(event)}
 								multiline
 							>
@@ -480,9 +485,12 @@ function RunTimelineStep({
 					) : (
 						<div
 							data-output-sample
-							className="max-h-[32rem] overflow-y-auto rounded-lg border border-kumo-line p-4"
+							className="min-w-0 rounded-lg border border-kumo-line bg-kumo-base p-4"
 						>
-							<RunStepResult value={result} />
+							<RunStepResult
+								value={result}
+								field={event.name === "clock" ? "timestamp" : undefined}
+							/>
 						</div>
 					)
 				) : (
@@ -502,21 +510,59 @@ function RunTimelineStep({
 					above.
 				</Text>
 			)}
-			<Collapsible>
-				<CollapsibleTrigger>Technical details</CollapsibleTrigger>
-				<CollapsibleContent>
-					<Text as="p" role="label" className="wrap-anywhere">
-						{event.name} · {event.lane} · call {event.count}
-						{event.attempt ? ` · attempt ${event.attempt}` : ""}
-						{event.httpStatus ? ` · HTTP ${event.httpStatus}` : ""}
+			<Collapsible className="min-w-0 rounded-lg border border-kumo-line bg-kumo-fill p-2">
+				<CollapsibleTrigger className="group w-full">
+					<CaretRight
+						aria-hidden
+						size={16}
+						className="transition-transform group-data-[panel-open]:rotate-90"
+					/>
+					Technical details
+				</CollapsibleTrigger>
+				<CollapsibleContent className="grid min-w-0 gap-4 px-2 pt-3 pb-2">
+					<Text as="p" tone="secondary" className="m-0">
+						Original identifiers and saved response for troubleshooting.
 					</Text>
-					<Text as="p" tone="secondary" className="wrap-anywhere">
-						Saved record: {event.path}
-					</Text>
+					<dl className="m-0 grid min-w-0 gap-3">
+						<div>
+							<Text as="dt" role="label">
+								Step
+							</Text>
+							<dd className="m-0 mt-1 wrap-anywhere">
+								<CodeInline>{event.name}</CodeInline>
+							</dd>
+						</div>
+						<div>
+							<Text as="dt" role="label">
+								Tool or lane
+							</Text>
+							<dd className="m-0 mt-1 wrap-anywhere">
+								<CodeInline>{event.lane}</CodeInline>
+							</dd>
+						</div>
+						<div>
+							<Text as="dt" role="label">
+								Call and attempt
+							</Text>
+							<dd className="m-0 mt-1">
+								Call {event.count}
+								{event.attempt ? ` · attempt ${event.attempt}` : ""}
+								{event.httpStatus ? ` · HTTP ${event.httpStatus}` : ""}
+							</dd>
+						</div>
+						<div>
+							<Text as="dt" role="label">
+								Saved record
+							</Text>
+							<dd className="m-0 mt-1 wrap-anywhere">
+								<CodeInline>{event.path}</CodeInline>
+							</dd>
+						</div>
+					</dl>
 					{sample && (
-						<pre className="max-h-80 overflow-auto whitespace-pre-wrap wrap-anywhere">
-							{sample}
-						</pre>
+						<div className="min-w-0 max-w-full max-h-96 overflow-auto p-1">
+							<CodeBlock code={sample} lang="json" />
+						</div>
 					)}
 				</CollapsibleContent>
 			</Collapsible>

@@ -1,7 +1,47 @@
 import { describe, expect, it } from "vite-plus/test";
-import { readableStepResult, stepConversation } from "./run-step-content";
+import {
+	readableStepResult,
+	stepConversation,
+	stepTimestamp,
+	recordingNote,
+} from "./run-step-content";
 
 describe("readable saved step results", () => {
+	it("formats explicit timestamps without treating identifiers or durations as dates", () => {
+		const ms = Date.parse("2026-10-28T09:00:00.000Z");
+		expect(stepTimestamp(ms, "timestamp")).toBe("2026-10-28T09:00:00.000Z");
+		expect(stepTimestamp(String(ms / 1000), "created_at")).toBe(
+			"2026-10-28T09:00:00.000Z",
+		);
+		expect(stepTimestamp("2026-10-28T09:00:00+01:00")).toBe(
+			"2026-10-28T09:00:00+01:00",
+		);
+		for (const field of [undefined, "id", "durationMs", "position"])
+			expect(stepTimestamp(ms, field)).toBeNull();
+		expect(stepTimestamp(965, "time")).toBeNull();
+		expect(stepTimestamp("not a date", "timestamp")).toBeNull();
+		expect(stepTimestamp(Infinity, "timestamp")).toBeNull();
+	});
+	it("distinguishes loading limits, missing records and unknown recording warnings", () => {
+		expect(
+			recordingNote(
+				"70 R2 artifact body/bodies were omitted after the 128-read inspection limit was reached.",
+			),
+		).toContain(
+			"70 saved records were not loaded because this page reached its loading limit",
+		);
+		expect(
+			recordingNote("2 referenced artifact body/bodies were missing in R2."),
+		).toContain("could not be found");
+		expect(
+			recordingNote(
+				"1 R2 artifact body/bodies were unavailable because SKILL_ARTIFACTS is not configured.",
+			),
+		).toContain("storage is unavailable");
+		expect(recordingNote("Unexpected record shape")).toContain(
+			"original message",
+		);
+	});
 	it("decodes the saved assistant reply through task and JSON envelopes", () => {
 		expect(
 			readableStepResult({
