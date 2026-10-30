@@ -1092,6 +1092,58 @@ describe("nested durable aggregate snapshots", () => {
 });
 
 describe("aggregate snapshot context", () => {
+	it("fresh policy lookup loads only the requested branch and preserves its source path", async () => {
+		installFixtures([
+			{
+				slug: "gateway",
+				mcpConfig: {
+					aggregateApps: [{ slug: "middle" }, { slug: "unrelated" }],
+				},
+			},
+			{ slug: "middle", mcpConfig: { aggregateApps: [{ slug: "leaf" }] } },
+			{ slug: "leaf", tools: [tool("edit")] },
+			{ slug: "unrelated", tools: [tool("other")] },
+		]);
+		const surface = await aggregateAndPrefixTools(
+			[{ slug: "gateway", prefix: "gateway", organizationMount: true }],
+			createEnv(),
+			new Set(),
+			createExecutionContext(),
+			"gateway",
+			{ value: "policy-test", cacheable: false },
+			false,
+			false,
+			true,
+			"gateway_middle__edit",
+		);
+		expect(surface.tools).toHaveLength(1);
+		expect(surface.tools[0]?.policyMountAppIds).toEqual([
+			"app-gateway",
+			"app-middle",
+			"app-leaf",
+		]);
+		const requested = [
+			...getBySlugWithTools.mock.calls.map(([input]) => input.slug),
+			...getBySlugsWithTools.mock.calls.flatMap(([input]) =>
+				input.apps.map((app: { slug: string }) => app.slug),
+			),
+		];
+		expect(requested).not.toContain("unrelated");
+		await expect(
+			aggregateAndPrefixTools(
+				[],
+				createEnv(),
+				new Set(),
+				undefined,
+				undefined,
+				{ value: "cached", cacheable: true },
+				true,
+				false,
+				true,
+				"gateway_middle__edit",
+			),
+		).rejects.toThrow("fresh traversal");
+	});
 	it("records the verified source path only during a fully fresh policy traversal", async () => {
 		installFixtures([
 			{ slug: "gateway", mcpConfig: { aggregateApps: [{ slug: "middle" }] } },

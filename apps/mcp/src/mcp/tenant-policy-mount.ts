@@ -258,6 +258,7 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		false,
 		false,
 		true,
+		input.mountedToolId,
 	);
 	if (surface.degraded) return null;
 	let matches = surface.tools.filter(
@@ -288,6 +289,7 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 					false,
 					false,
 					true,
+					input.mountedToolId,
 				)
 			: { tools: [], degraded: false };
 		if (direct.degraded) return null;
