@@ -279,11 +279,14 @@ export function packageFiles(
 	if (host === "chatgpt-dev") {
 		// Reuse the installed app's OAuth grant; never create a second connector.
 		extension.apps = "./.app.json";
+		// Review cases belong to a declared MCP server, not a registered app reference.
+		delete extension.review;
 		paths.splice(0, 1);
 		files.set(".app.json", json({ apps: { [manifest.name]: { id: appId } } }));
 		const compatibility = hostManifest(root, "codex");
 		delete compatibility.hooks;
 		delete compatibility.mcpServers;
+		delete compatibility.extensions["com.openai"].review;
 		compatibility.apps = extension.apps;
 		files.set(".codex-plugin/plugin.json", json(compatibility));
 	}

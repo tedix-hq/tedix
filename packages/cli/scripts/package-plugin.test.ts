@@ -173,6 +173,12 @@ describe("plugin packager", () => {
 		});
 		expect(files.has("mcp.json")).toBe(false);
 		expect(files.has(".mcp.json")).toBe(false);
+		expect(
+			decode(files, "plugin.json").extensions["com.openai"],
+		).not.toHaveProperty("review");
+		expect(
+			canonical.extensions["com.openai"].review.test_cases.positive,
+		).toHaveLength(5);
 		expect(decode(files, ".codex-plugin/plugin.json")).not.toHaveProperty(
 			"mcpServers",
 		);
