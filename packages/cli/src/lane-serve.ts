@@ -423,6 +423,15 @@ interface Receipt {
 	completionRetryAt?: number;
 	completionError?: string;
 }
+function nativePreparationTimedOut(receipt: Receipt): boolean {
+	return (
+		!receipt.session &&
+		!receipt.attemptId &&
+		receipt.admissionState !== "unknown" &&
+		receipt.admissionState !== "rejected" &&
+		receipt.note === "TimeoutError: The operation timed out."
+	);
+}
 const alive = (pid: number) => {
 	try {
 		process.kill(-pid, 0);
@@ -1125,6 +1134,11 @@ export class LaneDispatcher {
 					? (JSON.parse(readFileSync(this.path(item), "utf8")) as Receipt)
 					: undefined;
 				if (
+					previous?.phase === "deferred" &&
+					nativePreparationTimedOut(previous)
+				)
+					previous.held = false;
+				if (
 					previous?.phase === "settled" &&
 					previous.outcome === "failed" &&
 					previous.pendingCommitProof === undefined &&
@@ -1685,7 +1699,9 @@ export class LaneDispatcher {
 				// A bootstrap parked on an owner decision changes outcome without a
 				// new Work revision, so it defers instead of holding.
 				receipt.held =
-					receipt.identicalFailures >= 3 && !awaitsOwnerApproval(error);
+					receipt.identicalFailures >= 3 &&
+					!awaitsOwnerApproval(error) &&
+					!nativePreparationTimedOut(receipt);
 			}
 			this.log("skipped-or-failed", candidate.id, receipt.note);
 			if (!admitted && receipt.held && !receipt.failureCommented) {
