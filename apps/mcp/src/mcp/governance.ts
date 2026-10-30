@@ -53,7 +53,7 @@ import {
 import { isTedixManagedMcpUrl } from "./managed-mcp-auth";
 import type { AppTool, ServerContext } from "./server-context";
 import {
-	resolveToolRiskPolicy,
+	resolveConnectedToolRiskPolicy,
 	toolRiskAuditMetadata,
 } from "./tool-risk-policy";
 import { emitMcpAuditEvent, type McpEvent } from "./utils/analytics";
@@ -1120,7 +1120,11 @@ export async function requireDestructiveToolApproval(
 		agent,
 		tool,
 	);
-	const policy = resolveToolRiskPolicy({ meta: tool.meta ?? null });
+	const policy = resolveConnectedToolRiskPolicy({
+		...tool,
+		config: tool.config ?? null,
+		meta: tool.meta ?? null,
+	});
 	// Persisted operator tools can predate policy metadata. Bind this built-in
 	// classification to the RPC route and verified identity, never request metadata.
 	const sessionEnd =
