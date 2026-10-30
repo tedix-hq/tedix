@@ -31,6 +31,7 @@ import { Collection, Page } from "@/components/kumo/page";
 import { SelectItem } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
+import { DispatcherLaneHealth } from "./dispatcher-lane-health";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import { absoluteTime } from "@/lib/time";
 import {
@@ -337,6 +338,7 @@ export function WorkCapacityPage({
 						: "Change settings"}{" "}
 				</Button>
 			</div>
+			{view === "resources" ? <DispatcherLaneHealth /> : null}
 			<Collapsible open={poolFormOpen || budgetFormOpen}>
 				<CollapsibleContent keepMounted>
 					<div className="grid gap-3 lg:grid-cols-2">

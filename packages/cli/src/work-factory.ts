@@ -8,7 +8,7 @@ import type { WorkContext } from "./work";
 
 interface StructuredFactoryVerb {
 	tool: string;
-	namespace?: "projects" | "work" | "agent";
+	namespace?: "projects" | "work" | "agent" | "dispatcher";
 	write: boolean;
 	pathField?: string;
 	defaultInput?: (ctx: WorkContext) => Record<string, unknown>;
@@ -51,10 +51,12 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 	},
 	"dispatcher-health-list": {
 		tool: "list_dispatcher_health",
+		namespace: "dispatcher",
 		write: false,
 	},
 	"dispatcher-health-record": {
 		tool: "report_dispatcher_health",
+		namespace: "dispatcher",
 		write: true,
 	},
 	"case-list": {

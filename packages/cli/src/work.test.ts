@@ -1242,10 +1242,10 @@ describe("artifact-neutral factory control verbs", () => {
 		}
 	});
 
-	test("routes dispatcher health reports and reads through Work", async () => {
+	test("routes dispatcher health through its deployed namespace", async () => {
 		for (const [verb, callable] of [
-			["dispatcher-health-list", "work.list_dispatcher_health"],
-			["dispatcher-health-record", "work.report_dispatcher_health"],
+			["dispatcher-health-list", "dispatcher.list_dispatcher_health"],
+			["dispatcher-health-record", "dispatcher.report_dispatcher_health"],
 		] as const) {
 			const { ctx, sources } = makeContext({ input: "{}" });
 			expect(await runWork(verb, ctx)).toBe(0);
