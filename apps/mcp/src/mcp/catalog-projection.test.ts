@@ -7,6 +7,7 @@ import {
 } from "./codemode-catalog";
 import type { AppTool, ServerContext } from "./server-context";
 import type { CatalogToolEntry } from "./codemode-catalog-entries";
+import * as scopeAuthorization from "./codemode-auth";
 import {
 	buildNamespaceGroups,
 	buildLazyNamespaceGroups,
@@ -147,6 +148,66 @@ describe("catalog projection reuse", () => {
 			native: { authorized: false },
 		});
 	});
+	it("shares own enumerable getter functions while retaining private lazy caller decisions", () => {
+		const source = row();
+		const properties = vi.spyOn(Object, "defineProperties");
+		const authorize = vi.spyOn(
+			scopeAuthorization,
+			"evaluateMcpToolScopeAuthorization",
+		);
+		try {
+			buildCatalogProvider(
+				context(copyCatalogTool(source), ["mcp:apps.read"]),
+				undefined,
+			);
+			buildCatalogProvider(context(copyCatalogTool(source), []), undefined);
+			const entries = properties.mock.calls
+				.filter(
+					([, descriptors]) =>
+						descriptors.authorized?.get && descriptors.native?.get,
+				)
+				.map(([entry]) => entry as CatalogToolEntry);
+			expect(entries).toHaveLength(2);
+			expect(authorize).not.toHaveBeenCalled();
+			const [granted, denied] = entries;
+			for (const key of [
+				"native",
+				"authorized",
+				"requiredScopes",
+				"missingScopes",
+				"scopeMappingMissing",
+			]) {
+				const first = Object.getOwnPropertyDescriptor(granted, key)!;
+				const second = Object.getOwnPropertyDescriptor(denied, key)!;
+				expect(first.enumerable).toBe(true);
+				expect(first.configurable).toBe(true);
+				expect(first.get).toBe(second.get);
+			}
+			const deniedWire = JSON.parse(JSON.stringify(denied));
+			const grantedWire = JSON.parse(JSON.stringify(granted));
+			expect(deniedWire).toMatchObject({
+				authorized: false,
+				missingScopes: ["mcp:apps.read"],
+				native: { authorized: false },
+			});
+			expect(grantedWire).toMatchObject({
+				authorized: true,
+				native: { authorized: true },
+			});
+			expect(JSON.parse(JSON.stringify(denied))).toEqual(deniedWire);
+			expect(
+				Object.getOwnPropertySymbols(granted).every(
+					(symbol) =>
+						!Object.getOwnPropertyDescriptor(granted, symbol)?.enumerable,
+				),
+			).toBe(true);
+			expect(grantedWire).not.toHaveProperty("serverCtx");
+		} finally {
+			properties.mockRestore();
+			authorize.mockRestore();
+		}
+	});
+
 	it("defers catalog construction until discovery and matches every discovery method", async () => {
 		const ctx = context(copyCatalogTool(row()), ["mcp:apps.read"]);
 		const values = vi.spyOn(ctx.loadedTools, "values");
@@ -264,5 +325,52 @@ describe("catalog projection reuse", () => {
 		expect(typeof original).toBe("function");
 		expect([...policyReads.keys()]).toEqual(["org_2"]);
 		expect(policyReads.get("org_2")).toBe(160);
+	});
+	it("defers error preludes and preserves ambiguous and shadowed legacy aliases", () => {
+		const make = (namespace: string, name: string) =>
+			({
+				...row(),
+				toolId: `${namespace}__${name}`,
+				config: {
+					transport: "rpc",
+					endpoint: "apps/get",
+					_aggregateNamespace: namespace,
+					_aggregateLegacyNamespace: "legacy",
+				},
+			}) as AppTool;
+		const tools = [
+			make("a", "ambiguous"),
+			make("b", "ambiguous"),
+			make("a", "shadowed"),
+			make("legacy", "shadowed"),
+			make("a", "unique"),
+		];
+		const ctx = context(tools[0]!);
+		ctx.loadedTools.clear();
+		for (const tool of tools) ctx.loadedTools.set(tool.toolId, tool);
+		const groups = buildLazyNamespaceGroups(
+			ctx,
+			undefined,
+			{} as CodeModeExecutionRefs,
+			new Set(),
+		);
+		const stringify = vi.spyOn(JSON, "stringify");
+		try {
+			const providers = withLegacyNamespaceAliases(
+				buildProviders(groups),
+				legacyNamespaceAliases(ctx, undefined, groups, new Set()),
+			);
+			expect(stringify).not.toHaveBeenCalled();
+			const legacy = providers.find((provider) => provider.name === "legacy")!;
+			expect(Object.keys(legacy.fns).sort()).toEqual(["shadowed", "unique"]);
+			expect(legacy.prelude).toContain('"shadowed"');
+			expect(stringify).toHaveBeenCalled();
+			expect(
+				legacyNamespaceAliases(ctx, undefined, groups, new Set()).get("legacy")
+					?.unique,
+			).toBe(groups.get("a")!.fns.unique);
+		} finally {
+			stringify.mockRestore();
+		}
 	});
 });

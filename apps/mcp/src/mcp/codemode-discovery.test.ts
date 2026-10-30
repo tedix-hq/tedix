@@ -360,4 +360,19 @@ describe("Code Mode discovery helpers", () => {
 			),
 		).toBe("unknown is not defined");
 	});
+	it("loads callable suggestions only for matching missing-tool errors", () => {
+		let reads = 0;
+		const callables = () => {
+			reads++;
+			return ["skills.list_skills"];
+		};
+		expect(enrichToolNotFoundError("Execution timed out", callables)).toBe(
+			"Execution timed out",
+		);
+		expect(reads).toBe(0);
+		expect(
+			enrichToolNotFoundError('Tool "list_skils" not found', callables),
+		).toContain("skills.list_skills");
+		expect(reads).toBe(1);
+	});
 });

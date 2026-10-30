@@ -293,17 +293,6 @@ export async function registerCodeModeTools(
 		})),
 	);
 
-	// Build tool providers per namespace
-	const toolProviders = withLegacyNamespaceAliases(
-		buildProviders(namespaceGroups),
-		legacyNamespaceAliases(
-			serverCtx,
-			namespaceOverrides,
-			namespaceGroups,
-			collisionKeys,
-		),
-	);
-
 	// Potential namespaces from aggregate config vs bindings actually mounted.
 	// The difference supports discovery guidance, but does not identify why a
 	// namespace is absent (for example, explicit filters or resolution failure).
@@ -344,36 +333,58 @@ export async function registerCodeModeTools(
 		}),
 	);
 
-	// All providers: catalog + built-ins + per-namespace tool providers
-	const providersWithoutPrelude: ResolvedProvider[] = [
-		resolvedCatalog,
-		resolvedRuntimeProvider,
-		resolvedUiProvider,
-		resolvedFlowProvider,
-		...toolProviders,
-	];
-	// Namespace bindings are block-scoped constants in the sandbox, so
-	// `globalThis[ns]` would otherwise be undefined even for a mounted namespace.
-	const allProviders: ResolvedProvider[] = [
-		{
-			...resolvedCatalog,
-			prelude: [
-				resolvedCatalog.prelude,
-				namespaceGlobalsPrelude(
-					providersWithoutPrelude.map((provider) => provider.name),
-				),
-			]
-				.filter(Boolean)
-				.join("\n"),
-		},
-		...providersWithoutPrelude.slice(1),
-	];
+	let executionProviders: ResolvedProvider[] | undefined;
+	const getExecutionProviders = (): ResolvedProvider[] => {
+		if (executionProviders) return executionProviders;
+		executionProviders = buildExecutionProviders();
+		return executionProviders;
+	};
+	const buildExecutionProviders = (
+		builtinsOnly = false,
+	): ResolvedProvider[] => {
+		const toolProviders = builtinsOnly
+			? []
+			: withLegacyNamespaceAliases(
+					buildProviders(namespaceGroups),
+					legacyNamespaceAliases(
+						serverCtx,
+						namespaceOverrides,
+						namespaceGroups,
+						collisionKeys,
+					),
+				);
 
-	// Full callable inventory ("ns.tool_name") — fuels tool-not-found
-	// suggestions on execution errors. Never shipped in the description.
-	const allCallables: string[] = allProviders.flatMap((provider) =>
-		Object.keys(provider.fns).map((toolName) => `${provider.name}.${toolName}`),
-	);
+		const providersWithoutPrelude: ResolvedProvider[] = [
+			resolvedCatalog,
+			resolvedRuntimeProvider,
+			resolvedUiProvider,
+			resolvedFlowProvider,
+			...toolProviders,
+		];
+		// Namespace bindings are block-scoped constants in the sandbox, so
+		// `globalThis[ns]` would otherwise be undefined even for a mounted namespace.
+		return [
+			{
+				...resolvedCatalog,
+				prelude: [
+					resolvedCatalog.prelude,
+					namespaceGlobalsPrelude(
+						providersWithoutPrelude.map((provider) => provider.name),
+					),
+				]
+					.filter(Boolean)
+					.join("\n"),
+			},
+			...providersWithoutPrelude.slice(1),
+		];
+	};
+	let callableInventory: string[] | undefined;
+	const getAllCallables = () =>
+		(callableInventory ??= getExecutionProviders().flatMap((provider) =>
+			Object.keys(provider.fns).map(
+				(toolName) => `${provider.name}.${toolName}`,
+			),
+		));
 
 	// Namespace summary for the tool description, largest first.
 	const namespaceSummaryEntries: Array<readonly [string, number]> = [
@@ -638,6 +649,18 @@ export async function registerCodeModeTools(
 						span.setAttribute("tedix.execution_id", executionId);
 						const executionNamespaces =
 							extractCodeModeExecutionNamespacesFromCode(code);
+						const builtins = new Set([
+							"discover",
+							CODEMODE_NAMESPACE,
+							UI_NAMESPACE,
+							FLOW_NAMESPACE,
+						]);
+						const builtinsOnly =
+							executionNamespaces !== null &&
+							[...executionNamespaces].every((name) => builtins.has(name));
+						const allProviders = builtinsOnly
+							? buildExecutionProviders(true)
+							: getExecutionProviders();
 						const unknownNamespace =
 							executionNamespaces &&
 							[...executionNamespaces].some(
@@ -693,7 +716,7 @@ export async function registerCodeModeTools(
 					const enrichedError = enrichUnmountedNamespaceError(
 						enrichToolNotFoundError(
 							stripUpstreamCodeFailurePrefix(result.error),
-							allCallables,
+							getAllCallables,
 						),
 						knownAggregateNamespaces,
 						mountedNamespaces,
@@ -847,7 +870,7 @@ export async function registerCodeModeTools(
 				const enrichedError = enrichUnmountedNamespaceError(
 					enrichToolNotFoundError(
 						stripUpstreamCodeFailurePrefix(rawError),
-						allCallables,
+						getAllCallables,
 					),
 					knownAggregateNamespaces,
 					mountedNamespaces,

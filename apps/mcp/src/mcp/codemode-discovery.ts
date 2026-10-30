@@ -850,12 +850,15 @@ const TOOL_NOT_FOUND_PATTERN = /Tool "([^"]+)" not found/;
  */
 export function enrichToolNotFoundError(
 	error: string,
-	callables: readonly string[],
+	callables: readonly string[] | (() => readonly string[]),
 ): string {
 	const match = error.match(TOOL_NOT_FOUND_PATTERN);
 	if (!match?.[1]) return error;
 	const missed = match[1];
-	const closest = findClosestCallables(missed, callables);
+	const closest = findClosestCallables(
+		missed,
+		typeof callables === "function" ? callables() : callables,
+	);
 	const suggestions =
 		closest.length > 0 ? ` Closest callables: ${closest.join(", ")}.` : "";
 	return `${error}.${suggestions} Run discover.search({ query: "${missed.replace(/_/g, " ")}" }) and call the returned callable exactly.`;

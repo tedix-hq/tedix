@@ -1,3 +1,5 @@
+import { createMcpServer } from "@tedix/mcp-shared/server";
+import { mountMcp } from "@tedix/mcp-shared/transport";
 import {
 	CatalogueDescribeInputJsonSchema,
 	CatalogueSearchInputJsonSchema,
@@ -1977,4 +1979,39 @@ it("describes the sidebar view when it is read through the organization gateway"
 		widgetFetch.mockRestore();
 		context.mockRestore();
 	}
+});
+
+describe("stateless GET without catalog hydration", () => {
+	it.each([undefined, "2025-11-25", "2026-07-28"])(
+		"preserves the transport405 for protocol %s",
+		async (version) => {
+			const request = new Request(
+				"https://fixture.mcp.test/mcp?codemode=false",
+				{
+					headers: version ? { "MCP-Protocol-Version": version } : {},
+				},
+			);
+			const resolved = {
+				app: { id: "fixture-get", slug: "fixture-get", name: "Fixture" },
+				metadata: { mcpConfig: { codeMode: true } },
+				get tools() {
+					throw new Error("GET must not hydrate tools");
+				},
+			};
+			const response = await handleMcpRequest(
+				request,
+				resolved as never,
+				createEnv(),
+				{ waitUntil: vi.fn() } as unknown as ExecutionContext,
+			);
+			const reference = await mountMcp(
+				createMcpServer({ name: "Fixture", version: "1.0.0" }),
+				request,
+				{ cors: { origin: new URL(request.url).origin } },
+			);
+			expect(response.status).toBe(405);
+			expect(await response.text()).toBe(await reference.text());
+			expect([...response.headers]).toEqual([...reference.headers]);
+		},
+	);
 });

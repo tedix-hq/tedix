@@ -201,6 +201,30 @@ describe("aggregate snapshot memory", () => {
 		expect(r2Object?.customMetadata?.generation).toBe(generation);
 	});
 
+	it("shares nine cold loads and promotes original R2 bytes without reserialization", async () => {
+		await load();
+		aggregateSurfaceCache.clear();
+		colo.store.clear();
+		r2.bucket.get.mockClear();
+		const stored = [...r2.objects.values()][0]!;
+		stored.body = `  ${stored.body}\n`;
+		const stringify = vi.spyOn(JSON, "stringify");
+		const results = await Promise.all(Array.from({ length: 9 }, load));
+		expect(results.every((surface) => surface === results[0])).toBe(true);
+		expect(r2.bucket.get).toHaveBeenCalledTimes(1);
+		expect(
+			stringify.mock.calls.filter(([value]) => value === results[0]),
+		).toHaveLength(0);
+		const promoted = [...colo.store.values()][0]!;
+		expect(promoted.body).toBe(stored.body);
+		const headers = new Headers(promoted.headers);
+		expect(headers.get("X-Tedix-Aggregate-Generation")).toBe(
+			stored.customMetadata?.generation,
+		);
+		expect(headers.get("Cache-Control")).toBe("max-age=600");
+		expect(headers.get("X-Tedix-Aggregate-Cached-At")).toBe(String(Date.now()));
+	});
+
 	it.each(["l2", "r2"])(
 		"reuses %s after a Worker deploy without live fan-out",
 		async (tier) => {

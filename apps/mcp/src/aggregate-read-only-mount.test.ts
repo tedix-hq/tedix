@@ -108,7 +108,11 @@ function appResponse(
 
 async function mountedToolIds(hostSlug: string) {
 	const response = await worker.fetch(
-		new Request(`https://${hostSlug}.mcp.tedix.tech/mcp`),
+		new Request(`https://${hostSlug}.mcp.tedix.tech/mcp`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+		}),
 		createEnv(),
 		createExecutionContext(),
 	);
@@ -199,7 +203,11 @@ describe("read-only aggregate mounting", () => {
 		);
 
 		await worker.fetch(
-			new Request("https://gateway-prompts.mcp.tedix.tech/mcp"),
+			new Request("https://gateway-prompts.mcp.tedix.tech/mcp", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+			}),
 			createEnv(),
 			createExecutionContext(),
 		);

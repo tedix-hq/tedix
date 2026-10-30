@@ -940,9 +940,10 @@ function withInnerErrorTransport(provider: ResolvedProvider): ResolvedProvider {
 				throw error;
 			}
 		}),
-		prelude: [
-			provider.prelude,
-			`
+		get prelude() {
+			return [
+				provider.prelude,
+				`
     for (const name of ${JSON.stringify(names)}) {
       const call = ${provider.name}[name];
       Object.defineProperty(${provider.name}, name, { value: async (...args) => {
@@ -954,9 +955,10 @@ function withInnerErrorTransport(provider: ResolvedProvider): ResolvedProvider {
         }
       } });
     }`,
-		]
-			.filter(Boolean)
-			.join("\n"),
+			]
+				.filter(Boolean)
+				.join("\n");
+		},
 	};
 }
 

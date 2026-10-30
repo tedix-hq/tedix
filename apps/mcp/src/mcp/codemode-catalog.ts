@@ -305,6 +305,108 @@ export function resolveLazyCatalogProvider(
 	};
 }
 
+type CatalogAuthorization =
+	| { authorized: true }
+	| {
+			authorized: false;
+			requiredScopes: string[];
+			missingScopes: string[];
+			scopeMappingMissing?: true;
+	  };
+
+type CallerCatalogState = {
+	serverCtx: ServerContext;
+	tool: Parameters<ReturnType<typeof createNativeDescriptorLookup>>[0];
+	namespace: string;
+	describeNativeTool: ReturnType<typeof createNativeDescriptorLookup>;
+	native?: ReturnType<ReturnType<typeof createNativeDescriptorLookup>>;
+	authorization?: CatalogAuthorization;
+};
+const CALLER_CATALOG_STATE = Symbol("callerCatalogState");
+type CallerCatalogEntry = CatalogToolEntry & {
+	[CALLER_CATALOG_STATE]: CallerCatalogState;
+};
+
+function catalogAuthorization(state: CallerCatalogState): CatalogAuthorization {
+	if (state.authorization) return state.authorization;
+	try {
+		const decision = evaluateMcpToolScopeAuthorization(
+			state.serverCtx,
+			state.tool,
+			state.namespace,
+		);
+		state.authorization = decision.authorized
+			? { authorized: true }
+			: {
+					authorized: false,
+					requiredScopes: decision.requiredScopes,
+					missingScopes: decision.missingScopes,
+				};
+	} catch (error) {
+		if (
+			!(error instanceof Error) ||
+			!error.message.startsWith("Missing MCP capability mapping for tool:")
+		)
+			throw error;
+		// Unclassified rows remain discoverable but never executable.
+		state.authorization = {
+			authorized: false,
+			requiredScopes: [],
+			missingScopes: [],
+			scopeMappingMissing: true,
+		};
+	}
+	return state.authorization;
+}
+
+// Own enumerable getters preserve wire shapes while sharing functions across
+// catalog rows. Caller decisions live only on each request's private row.
+const CALLER_CATALOG_PROPERTIES = {
+	native: {
+		enumerable: true,
+		configurable: true,
+		get(this: CallerCatalogEntry) {
+			const state = this[CALLER_CATALOG_STATE];
+			return (
+				(state.native ??= state.describeNativeTool(state.tool)) ?? undefined
+			);
+		},
+	},
+	authorized: {
+		enumerable: true,
+		configurable: true,
+		get(this: CallerCatalogEntry) {
+			return catalogAuthorization(this[CALLER_CATALOG_STATE]).authorized;
+		},
+	},
+	requiredScopes: {
+		enumerable: true,
+		configurable: true,
+		get(this: CallerCatalogEntry) {
+			const decision = catalogAuthorization(this[CALLER_CATALOG_STATE]);
+			return "requiredScopes" in decision ? decision.requiredScopes : undefined;
+		},
+	},
+	missingScopes: {
+		enumerable: true,
+		configurable: true,
+		get(this: CallerCatalogEntry) {
+			const decision = catalogAuthorization(this[CALLER_CATALOG_STATE]);
+			return "missingScopes" in decision ? decision.missingScopes : undefined;
+		},
+	},
+	scopeMappingMissing: {
+		enumerable: true,
+		configurable: true,
+		get(this: CallerCatalogEntry) {
+			const decision = catalogAuthorization(this[CALLER_CATALOG_STATE]);
+			return "scopeMappingMissing" in decision
+				? decision.scopeMappingMissing
+				: undefined;
+		},
+	},
+} satisfies PropertyDescriptorMap;
+
 export function buildCatalogProvider(
 	serverCtx: ServerContext,
 	namespaceOverrides: Record<string, string> | undefined,
@@ -356,52 +458,6 @@ export function buildCatalogProvider(
 		if (typeof toolOrganizationId === "string" && toolOrganizationId) {
 			namespaceOrganizations.set(ns, toolOrganizationId);
 		}
-		// Caller-relative authorization on every row through the same seam the
-		// dispatch gates use — agents learn "discoverable but not executable"
-		// from discovery instead of from a failed call.
-		let authz:
-			| undefined
-			| { authorized: true }
-			| {
-					authorized: false;
-					requiredScopes: string[];
-					missingScopes: string[];
-					scopeMappingMissing?: true;
-			  };
-		const authorization = () => {
-			if (authz) return authz;
-			try {
-				const authzDecision = evaluateMcpToolScopeAuthorization(
-					serverCtx,
-					tool,
-					ns,
-				);
-				authz = authzDecision.authorized
-					? { authorized: true }
-					: {
-							authorized: false,
-							requiredScopes: authzDecision.requiredScopes,
-							missingScopes: authzDecision.missingScopes,
-						};
-			} catch (error) {
-				if (
-					!(error instanceof Error) ||
-					!error.message.startsWith("Missing MCP capability mapping for tool:")
-				) {
-					throw error;
-				}
-				// A single unclassified tool is a configuration defect, not a reason to
-				// take down discovery and every unrelated Code Mode call. Keep it visible
-				// but fail closed until its capability policy is declared.
-				authz = {
-					authorized: false,
-					requiredScopes: [],
-					missingScopes: [],
-					scopeMappingMissing: true,
-				};
-			}
-			return authz;
-		};
 		const projection = cachedCatalogProjection(tool, ns, safeName, () => {
 			const paymentPolicy = getToolPaymentPolicy(tool);
 			// Declared write capability folded onto the catalog's annotations, so
@@ -424,37 +480,22 @@ export function buildCatalogProvider(
 				schemaFreshness: schemaFreshnessFromTool(tool),
 			});
 		});
-		let native: ReturnType<typeof describeNativeTool> | undefined;
 		const primaryEntry = {
 			...projection,
 			wire: { name: tool.toolId },
 			...(typeof toolOrganizationId === "string" && toolOrganizationId
 				? { organization: toolOrganizationId }
 				: {}),
-			// Compact discovery never needs a native descriptor for every row.
-			get native() {
-				return (native ??= describeNativeTool(tool)) ?? undefined;
-			},
-			get authorized() {
-				return authorization().authorized;
-			},
-			get requiredScopes() {
-				const decision = authorization();
-				return "requiredScopes" in decision
-					? decision.requiredScopes
-					: undefined;
-			},
-			get missingScopes() {
-				const decision = authorization();
-				return "missingScopes" in decision ? decision.missingScopes : undefined;
-			},
-			get scopeMappingMissing() {
-				const decision = authorization();
-				return "scopeMappingMissing" in decision
-					? decision.scopeMappingMissing
-					: undefined;
-			},
 		};
+		Object.defineProperty(primaryEntry, CALLER_CATALOG_STATE, {
+			value: {
+				serverCtx,
+				tool,
+				namespace: ns,
+				describeNativeTool,
+			} satisfies CallerCatalogState,
+		});
+		Object.defineProperties(primaryEntry, CALLER_CATALOG_PROPERTIES);
 		catalog[ns][safeName] = primaryEntry;
 	}
 
