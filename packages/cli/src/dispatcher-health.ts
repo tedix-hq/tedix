@@ -38,6 +38,7 @@ export interface DispatcherHealthSource {
 	pid: number;
 	startedAt: string;
 	lastAdmissionAt?: string;
+	preparingSlots?: number;
 }
 
 export interface LocalDispatcherHealth {
@@ -80,6 +81,7 @@ export function writeDispatcherHealthSource(
 		slotsTotal: options.max,
 		pid,
 		startedAt,
+		preparingSlots: 0,
 	};
 	if (
 		previous?.workspace === source.workspace &&
@@ -128,6 +130,33 @@ export function recordDispatcherAdmission(
 	}
 }
 
+export function recordDispatcherPreparing(
+	directory: string,
+	count: number,
+	pid = process.pid,
+): void {
+	const path = join(directory, SOURCE_FILE);
+	const source = readSource(path);
+	if (
+		!source ||
+		source.pid !== pid ||
+		!Number.isInteger(count) ||
+		count < 0 ||
+		count > source.slotsTotal
+	)
+		return;
+	try {
+		writeFileSync(
+			`${path}.tmp`,
+			JSON.stringify({ ...source, preparingSlots: count }),
+			{ mode: 0o600 },
+		);
+		renameSync(`${path}.tmp`, path);
+	} catch {
+		// Health publication must not interrupt preparation or admission.
+	}
+}
+
 function processAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -157,7 +186,11 @@ function validSource(value: unknown): value is DispatcherHealthSource {
 		Number.isFinite(Date.parse(row.startedAt)) &&
 		(row.lastAdmissionAt === undefined ||
 			(typeof row.lastAdmissionAt === "string" &&
-				Number.isFinite(Date.parse(row.lastAdmissionAt))))
+				Number.isFinite(Date.parse(row.lastAdmissionAt)))) &&
+		(row.preparingSlots === undefined ||
+			(Number.isInteger(row.preparingSlots) &&
+				Number(row.preparingSlots) >= 0 &&
+				Number(row.preparingSlots) <= Number(row.slotsTotal)))
 	);
 }
 
@@ -291,7 +324,10 @@ export function collectDispatcherHealth(
 						? (source.lastAdmissionAt ?? null)
 						: log.lastAdmissionAt,
 				slotsInUse: running
-					? Math.min(source.slotsTotal, activeSlots(directory))
+					? Math.min(
+							source.slotsTotal,
+							activeSlots(directory) + (source.preparingSlots ?? 0),
+						)
 					: 0,
 				slotsTotal: source.slotsTotal,
 				topReason: log.topReason,

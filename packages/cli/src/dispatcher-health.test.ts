@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	collectDispatcherHealth,
 	recordDispatcherAdmission,
+	recordDispatcherPreparing,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 
@@ -153,6 +154,28 @@ describe("local dispatcher health", () => {
 		expect(
 			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.lastAdmissionAt,
 		).toBe("2026-10-30T11:00:00.000Z");
+	});
+
+	test("resets preparation on restart and rejects updates from a different process", () => {
+		const { root, directory } = lane();
+		const options = {
+			scope: ["--workspace", "connect", "--organization", "org_tedix"],
+			executor: "codex",
+			max: 3,
+		};
+		writeDispatcherHealthSource(directory, options);
+		recordDispatcherPreparing(directory, 2);
+		expect(
+			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.slotsInUse,
+		).toBe(2);
+		recordDispatcherPreparing(directory, 3, process.pid + 1);
+		expect(
+			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.slotsInUse,
+		).toBe(2);
+		writeDispatcherHealthSource(directory, options);
+		expect(
+			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.slotsInUse,
+		).toBe(0);
 	});
 
 	test("ignores malformed and pre-descriptor lane directories", () => {

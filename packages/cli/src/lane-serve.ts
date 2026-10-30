@@ -67,6 +67,7 @@ import {
 } from "./login-recovery";
 import {
 	recordDispatcherAdmission,
+	recordDispatcherPreparing,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 
@@ -835,6 +836,7 @@ const defaultDeps: DispatcherDeps = {
 
 export class LaneDispatcher {
 	private running = new Map<string, Promise<void>>();
+	private preparing = new Set<string>();
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private cleanupCursor = 0;
 	private cleanupAfter = new Map<string, number>();
@@ -901,6 +903,10 @@ export class LaneDispatcher {
 	private save(path: string, receipt: Receipt) {
 		writeFileSync(`${path}.tmp`, JSON.stringify(receipt), { mode: 0o600 });
 		renameSync(`${path}.tmp`, path);
+	}
+	private finishPreparation(itemId: string) {
+		if (this.preparing.delete(itemId))
+			recordDispatcherPreparing(this.directory, this.preparing.size);
 	}
 	private call<T = unknown>(
 		args: string[],
@@ -1255,6 +1261,8 @@ export class LaneDispatcher {
 		let leaseTimer: ReturnType<typeof setInterval> | undefined;
 		let killTimer: ReturnType<typeof setTimeout> | undefined;
 		try {
+			this.preparing.add(candidate.id);
+			recordDispatcherPreparing(this.directory, this.preparing.size);
 			const detail = await this.call<{
 				workItem: DispatchItem;
 				comments: WorkItemComment[];
@@ -1466,6 +1474,7 @@ export class LaneDispatcher {
 			receipt.attemptId = started.attempt.id;
 			receipt.phase = "admitted";
 			this.save(path, receipt);
+			this.finishPreparation(candidate.id);
 			if (started.workItem.version !== item.version)
 				throw new Error(
 					"Work changed during admission; no model turn launched",
@@ -1729,6 +1738,7 @@ export class LaneDispatcher {
 				}
 			}
 		} finally {
+			this.finishPreparation(candidate.id);
 			if (timer) clearInterval(timer);
 			if (leaseTimer) clearInterval(leaseTimer);
 			if (killTimer) clearTimeout(killTimer);
