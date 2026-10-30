@@ -188,7 +188,7 @@ try {
 				false,
 			);
 			await checkDisclosure(
-				page.getByText("What changed", { exact: true }),
+				page.getByRole("button", { name: "What changed", exact: true }),
 				width,
 			);
 			const credential = page.getByRole("region", {
@@ -250,7 +250,7 @@ try {
 			await page.getByRole("button", { name: "Versions", exact: true }).click();
 			await page.getByRole("button", { name: "Keep", exact: true }).click();
 			await checkDisclosure(
-				page.getByText("Version history", { exact: true }),
+				page.getByRole("button", { name: "Version history", exact: true }),
 				width,
 			);
 			await page
