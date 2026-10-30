@@ -587,7 +587,10 @@ export async function runWorkIphone(
 				await page.getByRole("tab", { name: "History" }).click();
 				await targets(
 					"/work/approvals",
-					page.locator("summary", { hasText: "Receipts for past decisions" }),
+					page.getByRole("button", {
+						name: "Receipts for past decisions",
+						exact: true,
+					}),
 					"past decisions",
 				);
 
