@@ -909,7 +909,7 @@ describe("dispatcher admission", () => {
 					JSON.stringify({
 						itemId: item().id,
 						version: 2,
-						phase: state === "lost-admission" ? "preparing" : "settling",
+						phase: state === "lost-admission" ? "preparing" : "failed",
 						admissionState: state === "lost-admission" ? "unknown" : "admitted",
 						attemptId: state === "lost-admission" ? undefined : "old-attempt",
 						session,

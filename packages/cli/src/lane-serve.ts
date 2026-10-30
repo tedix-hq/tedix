@@ -1039,7 +1039,10 @@ export class LaneDispatcher {
 				);
 			}
 			if (
-				row.phase === "settling" &&
+				(row.phase === "settling" ||
+					(row.phase === "failed" &&
+						row.outcome === "succeeded" &&
+						!!row.attemptId)) &&
 				!this.running.has(row.itemId) &&
 				(!row.pid || !alive(row.pid)) &&
 				Date.now() >= (row.retryAt ?? 0)
@@ -2216,6 +2219,7 @@ export class LaneDispatcher {
 		this.log("interruption-recovered", receipt.itemId, receipt.session);
 	}
 	private async recoverSettlement(receipt: Receipt) {
+		if (receipt.phase === "failed") receipt.retryAt = Date.now() + 15 * 60_000;
 		const history = await this.call<{ data: WorkAttempt[] }>([
 			"work",
 			"dispatch-attempts",
