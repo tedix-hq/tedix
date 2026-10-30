@@ -1,3 +1,9 @@
+import {
+	modelCatalogConfig,
+	modelCatalogEntry,
+} from "@tedix/api-contract/test/model-catalog";
+import { policyPacks } from "@tedix/db/schema/control-plane";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import * as calendarAccounts from "../../services/calendar-coordinator/credentials";
 import * as namedVault from "./connections/policy-resolution";
 /**
@@ -438,8 +444,32 @@ describe("blueprint dependency preflight", () => {
 		return blueprint.id;
 	}
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		c = clients();
+		await c.env.DB.exec(schemaDdl(policyPacks));
+		await createDbQueryClient(c.env.DB)
+			.insert(policyPacks)
+			.values({
+				id: "00000000-0000-4000-8000-000000000088",
+				name: "Example model catalog",
+				slug: "model-catalog",
+				scope: "system",
+				target: "shared",
+				status: "active",
+				version: 1,
+				publishedAt: "2026-01-01T00:00:00Z",
+				publishedBy: "example-admin",
+				definition: {
+					modelCatalog: modelCatalogConfig([
+						modelCatalogEntry("azure-openai/example-balanced", {
+							tier: "balanced",
+						}),
+						modelCatalogEntry("azure-openai/example-frontier", {
+							tier: "frontier",
+						}),
+					]),
+				},
+			});
 		mocks.getSkillEntryBySlug.mockReset();
 		mocks.getPolicyPackBySlugForOrganization.mockReset();
 		mocks.getRuntimeProfileById.mockReset();
@@ -648,7 +678,9 @@ describe("blueprint dependency preflight", () => {
 			slug: "balanced",
 			status: "active",
 			version: 3,
-			config: { modelPolicy: { chatModelRef: "azure-openai/gpt-5.6-terra" } },
+			config: {
+				modelPolicy: { chatModelRef: "azure-openai/example-balanced" },
+			},
 		});
 		const tooLow = await c.org1.blueprints.preflight({
 			blueprintId,
@@ -657,7 +689,7 @@ describe("blueprint dependency preflight", () => {
 		expect(tooLow.preflight.decisions[0]).toMatchObject({
 			kind: "model",
 			verdict: "incompatible",
-			resolvedPin: { id: "azure-openai/gpt-5.6-terra", revision: 3 },
+			resolvedPin: { id: "azure-openai/example-balanced", revision: 3 },
 		});
 
 		mocks.getRuntimeProfileById.mockResolvedValue({
@@ -665,7 +697,9 @@ describe("blueprint dependency preflight", () => {
 			slug: "frontier",
 			status: "active",
 			version: 3,
-			config: { modelPolicy: { chatModelRef: "azure-openai/gpt-5.6-sol" } },
+			config: {
+				modelPolicy: { chatModelRef: "azure-openai/example-frontier" },
+			},
 		});
 		const satisfied = await c.org1.blueprints.preflight({
 			blueprintId,
@@ -732,7 +766,9 @@ describe("blueprint dependency preflight", () => {
 			slug: "frontier",
 			status: "active",
 			version: 3,
-			config: { modelPolicy: { chatModelRef: "azure-openai/gpt-5.6-sol" } },
+			config: {
+				modelPolicy: { chatModelRef: "azure-openai/example-frontier" },
+			},
 		});
 		const ready = await c.org1.blueprints.preflight({ blueprintId });
 		expect(ready.preflight.status).toBe("ready");
