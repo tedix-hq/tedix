@@ -15,10 +15,19 @@
  * (which throws when the insert returns no row) is never reached.
  */
 
+import { DatabaseSync } from "node:sqlite";
 import type { BodyExecutionResult } from "@tedix/api-contract/schemas/body-certification";
+import {
+	modelCatalogConfig,
+	modelCatalogEntry,
+} from "@tedix/api-contract/test/model-catalog";
 import type { HarnessSubjectTraceBundle } from "@tedix/api-contract/schemas/harness-version";
 import type { KernelRuntimeEvent } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { DbClient } from "@tedix/db/client";
+import { policyPacks } from "@tedix/db/schema/control-plane";
+import { organizations } from "@tedix/db/schema/organizations";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { callWorkersAi } from "@tedix/workers-ai/transport";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
@@ -2787,11 +2796,25 @@ describe("runKernelTurnWork inbox-wake synthesis", () => {
 		};
 	}
 
-	// Env with the three vars kernelModel() requires for a non-null model
-	// (authenticated AI Gateway + Azure resource + deployment). The
-	// model object is built but never hits the network — `generateText` is mocked.
+	// The serving worker needs a published catalog and provider wiring.
+	// `generateText` is mocked, so selecting the model makes no network call.
 	function synthEnabledEnvWithModel(): CloudflareEnv {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(schemaDdl(organizations, policyPacks));
+		sqlite
+			.prepare(
+				"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES ('registry','Registry','model-catalog','system','shared','active',1,'2026-01-01T00:00:00Z','operator',?)",
+			)
+			.run(
+				JSON.stringify({
+					modelCatalog: modelCatalogConfig([
+						modelCatalogEntry("cloudflare/auto"),
+						modelCatalogEntry("azure-openai/gpt-test"),
+					]),
+				}),
+			);
 		return {
+			DB: createD1Facade(sqlite),
 			AZURE_OPENAI_BASE_URL: "https://test.openai.azure.com",
 			AZURE_CHAT_DEPLOYMENT: "gpt-test",
 			AI_GATEWAY_ACCOUNT_ID: "account",

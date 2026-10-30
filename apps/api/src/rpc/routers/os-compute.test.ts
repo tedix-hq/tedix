@@ -17,6 +17,10 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
+import {
+	modelCatalogConfig,
+	modelCatalogEntry,
+} from "@tedix/api-contract/test/model-catalog";
 import { createDbClient } from "@tedix/db/client";
 import {
 	billingAccounts,
@@ -28,6 +32,7 @@ import {
 	billingUsageReservations,
 	opsAlertState,
 	organizations,
+	policyPacks,
 	tediCallCosts,
 	tedis,
 } from "@tedix/db/schema";
@@ -196,8 +201,21 @@ beforeEach(() => {
 			billingUsagePeriods,
 			billingUsageReservations,
 			opsAlertState,
+			policyPacks,
 		),
 	);
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES ('registry','Registry','model-catalog','system','shared','active',1,'2026-01-01T00:00:00Z','operator',?)",
+		)
+		.run(
+			JSON.stringify({
+				modelCatalog: modelCatalogConfig([
+					modelCatalogEntry("cloudflare/auto"),
+					modelCatalogEntry("azure-openai/gpt-5.6-luna"),
+				]),
+			}),
+		);
 });
 
 // ---------------------------------------------------------------------------
