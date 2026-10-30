@@ -3,9 +3,14 @@ import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
 export function initialLaneDispatch(
 	executor: unknown,
 ): LaneDispatchPlan | undefined {
-	return ["codex", "claude-code", "devin", "tedi", "human"].includes(
-		String(executor),
-	)
+	return [
+		"codex",
+		"claude-code",
+		"opencode",
+		"devin",
+		"tedi",
+		"human",
+	].includes(String(executor))
 		? { state: "ready" }
 		: undefined;
 }
