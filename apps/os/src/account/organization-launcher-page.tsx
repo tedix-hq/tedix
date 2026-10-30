@@ -2,7 +2,6 @@ import {
 	ArrowRight,
 	Article,
 	Browser,
-	Buildings,
 	CaretDown,
 	Check,
 	Copy,
@@ -33,6 +32,7 @@ import {
 	resolveOsPlatformDomain,
 } from "@/account/launcher-routing";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { EntityAvatar } from "@/components/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card } from "@/components/kumo/card";
@@ -677,12 +677,13 @@ function WorkspaceRow({
 	);
 	const identity = (
 		<>
-			<span
-				className="grid size-8 shrink-0 place-items-center rounded-md bg-kumo-fill text-kumo-brand"
-				aria-hidden="true"
-			>
-				<Buildings size={18} />
-			</span>
+			<EntityAvatar
+				id={workspace.organizationId}
+				image={workspace.logoUrl}
+				name={workspace.name}
+				kind="workspace"
+				className="size-8 shrink-0 rounded-md"
+			/>
 			<span className="grid min-w-0 flex-1 gap-0.5 text-left">
 				<Text as="span" role="body" weight="medium" truncate>
 					{workspace.name}
@@ -697,7 +698,7 @@ function WorkspaceRow({
 		<div
 			className={`${WORKSPACE_ROW} ${
 				disabled
-					? "bg-kumo-tint opacity-70"
+					? "bg-kumo-tint opacity-70 max-[460px]:flex-wrap"
 					: "bg-kumo-base focus-within:bg-kumo-tint hover:bg-kumo-tint"
 			}`}
 			aria-disabled={disabled || undefined}
@@ -719,7 +720,7 @@ function WorkspaceRow({
 					<ArrowRight size={16} aria-hidden="true" />
 				</Button>
 			) : (
-				<div className="flex min-w-0 flex-1 items-center gap-3 px-2 py-1.5">
+				<div className="flex min-w-0 flex-1 items-center gap-3 px-2 py-1.5 max-[460px]:basis-full">
 					{identity}
 				</div>
 			)}

@@ -234,6 +234,28 @@ describe("directory-backed returnTo authorization", () => {
 });
 
 describe("launcher workspace projection", () => {
+	it.each(["https://example.test/logo.png", null, undefined])(
+		"preserves directory logo %s without enabling an unprovisioned org",
+		(logoUrl) => {
+			const [workspace] = buildLauncherWorkspacesFromDirectory([
+				{
+					org: {
+						organizationId: "1",
+						name: "Acme",
+						slug: "acme",
+						logoUrl,
+						descopeTenantId: null,
+						provisionComplete: false,
+					},
+					surfaces: [],
+				},
+			]);
+			expect(workspace?.logoUrl).toBe(logoUrl);
+			expect(workspace?.provisioned).toBe(false);
+			expect(workspace?.surfaces).toEqual([]);
+		},
+	);
+
 	it("maps provisioned surfaces to route-out and MCP-copy entries", () => {
 		const records: DirectoryWorkspaceRecord[] = [
 			{
