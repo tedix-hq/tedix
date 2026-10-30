@@ -117,6 +117,7 @@ function fixture({
 		exitCode: 0,
 		finalMessage: "Result recorded in OS.",
 		provisionError: undefined as Error | undefined,
+		threadError: undefined as Error | undefined,
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
 		commits: [] as string[],
@@ -188,6 +189,7 @@ function fixture({
 			return control.cleanupWait ?? control.cleanupResult;
 		},
 		thread: async (repo, executor) => {
+			if (control.threadError) throw control.threadError;
 			if (executor === "devin") expect(control.installed).toContain(repo);
 			return {
 				thread: {
@@ -1058,6 +1060,35 @@ describe("dispatcher admission", () => {
 		}
 		expect(JSON.parse(readFileSync(path, "utf8")).held).toBe(true);
 		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	});
+	it("retries native preparation timeouts after restart, including a legacy held receipt", async () => {
+		const { dispatcher, restart, dir, items, events, control, releases } =
+			fixture();
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		control.threadError = new DOMException(
+			"The operation timed out.",
+			"TimeoutError",
+		);
+		for (let n = 1; n <= 3; n++) {
+			await dispatcher.tick();
+			await dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.held).toBe(false);
+			expect(saved.attemptId).toBeUndefined();
+			expect(saved.retryAt).toBeGreaterThan(Date.now());
+			saved.retryAt = 0;
+			saved.held = n === 3;
+			writeFileSync(path, JSON.stringify(saved));
+		}
+		control.threadError = undefined;
+		const recovered = restart();
+		await recovered.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await recovered.drain();
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
+		expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe("succeeded");
 	});
 	it("defers without holding while the executor bootstrap waits for an owner approval", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
