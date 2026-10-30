@@ -1,7 +1,7 @@
 import { writeWorkspaceCredentials } from "./credential-store";
 import { parseOptions } from "./options";
 import { validatedLoginTenant } from "./oauth-tenant";
-import { afterEach, describe, expect, test, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test, spyOn } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -181,6 +181,18 @@ describe("client rotation", () => {
 });
 
 describe("stored login renewal", () => {
+	let dir: string;
+	let previous: string | undefined;
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "tedix-auth-renewal-"));
+		previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = dir;
+	});
+	afterEach(() => {
+		if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+		else process.env.TEDIX_CONFIG_DIR = previous;
+		rmSync(dir, { recursive: true, force: true });
+	});
 	test("fails fast instead of entering interactive OAuth after refresh failure", async () => {
 		const result = await resolveStoredLoginAuth("tedix", {
 			credential: {
@@ -279,6 +291,7 @@ describe("stored login renewal", () => {
 					oauthClientInformation: { client_id: TEDIX_OAUTH_CLIENT_ID },
 				},
 				refreshSession: async () => outcome,
+				verifyAccess: async () => "rejected",
 			});
 			expect(result.auth, outcome).toBeNull();
 			if (outcome === "deferred-dark-wake") {

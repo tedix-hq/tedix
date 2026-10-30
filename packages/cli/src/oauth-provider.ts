@@ -1000,6 +1000,11 @@ export async function refreshStoredSession(
 	let outcome = "failed" as SessionRefreshOutcome;
 	let phase: "lock" | "dark-wake" | "sent" | "received" | "saved" = "lock";
 	let correlationId: string | undefined;
+	let failure:
+		| "timeout"
+		| "connection-not-opened"
+		| "exchange-error"
+		| undefined;
 	let expectedCredential: WorkspaceCredential | undefined;
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	const finish = (value: SessionRefreshOutcome) => {
@@ -1048,6 +1053,9 @@ export async function refreshStoredSession(
 			else
 				upstreamSignal?.addEventListener("abort", forwardAbort, { once: true });
 			try {
+				// Request preparation can exhaust the deadline before the POST starts.
+				// An already-aborted request cannot consume a token and must not fence it.
+				controller.signal.throwIfAborted();
 				const body = init?.body;
 				if (
 					body instanceof URLSearchParams &&
@@ -1200,6 +1208,11 @@ export async function refreshStoredSession(
 		return finish("refreshed");
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
+		failure = /timed out|timeout|abort/i.test(detail)
+			? "timeout"
+			: connectionNeverOpened(error)
+				? "connection-not-opened"
+				: "exchange-error";
 		if (REFRESH_FAMILY_INVALIDATED.test(detail)) {
 			if (workspace && expectedCredential) {
 				try {
@@ -1241,9 +1254,16 @@ export async function refreshStoredSession(
 			lockWaitMs,
 			elapsedMs: Date.now() - started,
 			correlationId,
+			failure,
 			caller: process.env.TEDIX_RENEWAL_CALLER,
 		};
-		if (phase !== "lock" || outcome !== "not-needed") journalRenewal(entry);
+		// An inherited fence is already recorded by the original exchange. Do not
+		// bury that cause under thousands of identical observations.
+		if (
+			phase !== "lock" ||
+			(outcome !== "not-needed" && outcome !== "uncertain")
+		)
+			journalRenewal(entry);
 		if (process.env.TEDIX_DEBUG)
 			console.error("[tedix] OAuth refresh", JSON.stringify(entry));
 	}
@@ -1315,6 +1335,22 @@ export async function renewStoredSession(
 	provider.reloadCredential(stored ?? undefined);
 	if (!stored) return "unavailable";
 	if (stored.oauthRefreshInvalidated) return "invalidated";
+	if (stored.oauthRefreshPending) {
+		// Pending can belong to a live sibling. Wait for its save before deciding
+		// the rotation was lost; do not launch another renewer just to read a fence.
+		const lock = await acquireCredentialLock(workspace);
+		if (!lock) return "failed";
+		try {
+			const current = readWorkspaceCredentials(workspace);
+			provider.reloadCredential(current ?? undefined);
+			if (!current) return "unavailable";
+			if (current.oauthRefreshInvalidated) return "invalidated";
+			if (current.oauthRefreshPending) return "uncertain";
+			if (!sessionNeedsRefresh(current)) return "not-needed";
+		} finally {
+			lock.release();
+		}
+	}
 	if (!sessionNeedsRefresh(stored)) return "not-needed";
 	const [command, prefix] = options.command ?? selfCommand();
 	const windows = process.platform === "win32";

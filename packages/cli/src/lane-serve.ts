@@ -60,6 +60,13 @@ import { fileGatewayCooldown } from "./gateway-cooldown";
 import { installLaneService } from "./lane-service";
 import { CliReadError, readJsonChild } from "./hooks/hook-io";
 import { prefixLaneBrief } from "./lane";
+import { acquireCredentialLock } from "./credential-lock";
+import {
+	confirmStoredAccess,
+	loginRecoveryKey,
+	readLoginRecovery,
+	saveLoginRecovery,
+} from "./login-recovery";
 
 type WorkAttempt = z.infer<typeof WorkAttemptSchema>;
 
@@ -763,9 +770,11 @@ interface DispatcherDeps {
 	cleanup: (source: string, destination: string) => boolean | Promise<boolean>;
 	gatewayCooldownUntil: typeof gatewayCooldownUntil;
 	recall: typeof prefixLaneBrief;
+	confirmLogin: typeof confirmStoredAccess;
 }
 const defaultDeps: DispatcherDeps = {
 	cli,
+	confirmLogin: confirmStoredAccess,
 	gatewayCooldownUntil,
 	devinAvailable,
 	available: (executor) =>
@@ -900,6 +909,7 @@ export class LaneDispatcher {
 			this.log("deferred", undefined, "Stopping or macOS dark wake");
 			return;
 		}
+		if (await this.holdForLogin()) return;
 		// A read started now only queues behind the machine-wide gateway
 		// cooldown, and each queued read joins the burst that renews it.
 		const cooldownUntil = this.cooldownUntil();
@@ -1682,6 +1692,105 @@ export class LaneDispatcher {
 			this.scheduleCleanup(receipt);
 			this.save(path, receipt);
 		}
+	}
+	private async holdForLogin(): Promise<boolean> {
+		const at = this.options.scope.indexOf("--workspace");
+		const workspace =
+			at < 0 ? getCurrentWorkspace() : this.options.scope[at + 1];
+		if (!workspace) return false;
+		const credential = readWorkspaceCredentials(workspace);
+		if (
+			!credential ||
+			(!credential.oauthRefreshPending && !credential.oauthRefreshInvalidated)
+		)
+			return false;
+		const status = credential.oauthRefreshInvalidated
+			? "rejected"
+			: await this.deps.confirmLogin(workspace, credential);
+		if (status === "usable") return false;
+		if (status === "unknown") return true;
+		const key = loginRecoveryKey(workspace, credential);
+		const latest = readWorkspaceCredentials(workspace);
+		if (!latest || loginRecoveryKey(workspace, latest) !== key) return true;
+		const lock = await acquireCredentialLock(`login-recovery:${key}`);
+		if (!lock) return true;
+		try {
+			const state = readLoginRecovery(key) ?? { status, checkedAt: Date.now() };
+			if (state.decision?.requestId) return true;
+			if (Date.now() < (state.notifyAfter ?? 0)) return true;
+			state.notifyAfter = Date.now() + 60_000;
+			saveLoginRecovery(key, state);
+			if (!state.decision) {
+				const receipts = readdirSync(this.directory)
+					.filter((file) => file.endsWith(".json"))
+					.map(
+						(file) =>
+							JSON.parse(
+								readFileSync(join(this.directory, file), "utf8"),
+							) as Receipt,
+					);
+				const reporter =
+					receipts.find(
+						(row) =>
+							row.session &&
+							row.executorKey &&
+							row.attemptId &&
+							row.phase === "running",
+					) ??
+					receipts.find(
+						(row) => row.session && row.executorKey && row.attemptId,
+					);
+				if (!reporter?.session || !reporter.executorKey) {
+					this.log(
+						"login-blocked",
+						undefined,
+						`Run tedix login --workspace ${workspace}; no admitted reporting session is available for a Decision`,
+					);
+					return true;
+				}
+				// Keep the same creator/session and content after an uncertain response:
+				// the existing Interaction deduplication then returns the same Decision.
+				state.decision = {
+					session: reporter.session,
+					executorKey: reporter.executorKey,
+					workItemId: reporter.itemId,
+				};
+				saveLoginRecovery(key, state);
+			}
+			const decision = state.decision;
+			const request = await this.call<{ id: string }>(
+				[
+					"work",
+					"interaction-create",
+					"--input",
+					JSON.stringify({
+						workItemId: decision.workItemId,
+						kind: "input",
+						subject: `Sign in to Tedix (${workspace})`,
+						prompt: `The stored login could not be renewed and its access token was rejected. Run tedix login --workspace ${workspace} in your terminal. Local lanes are paused until a new login is saved.`,
+						reason:
+							"Only you can complete sign-in and consent; local lanes cannot continue with this login.",
+						notificationReason: "failure",
+						requestedFrom: { type: "user", id: credential.loginId },
+						metadata: { source: "stored-login-renewal", renewalKey: key },
+					}),
+				],
+				decision.session,
+				decision.executorKey,
+			);
+			if (typeof request.id !== "string")
+				throw new Error("Login Decision returned no request id");
+			decision.requestId = request.id;
+			saveLoginRecovery(key, state);
+			this.log(
+				"login-blocked",
+				decision.workItemId,
+				`Sign-in Decision ${request.id}; lanes paused until the login changes`,
+			);
+		} finally {
+			lock.release();
+		}
+		return true;
 	}
 	private scheduleCleanup(receipt: Receipt) {
 		if (this.maintenance.size) return;
