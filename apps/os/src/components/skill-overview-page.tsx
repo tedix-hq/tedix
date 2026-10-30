@@ -129,7 +129,7 @@ function EvidenceRetry({ query }: { query: SkillReliabilityRead }) {
 		<Button
 			variant="outline"
 			size="sm"
-			className="mt-2 w-fit"
+			className="w-fit"
 			disabled={query.isFetching}
 			onClick={() => void query.refetch()}
 		>
@@ -140,8 +140,8 @@ function EvidenceRetry({ query }: { query: SkillReliabilityRead }) {
 
 function EvidenceWarnings({ warnings }: { warnings: string[] }) {
 	return (
-		<>
-			<span className="block">
+		<div className="grid gap-2">
+			<span>
 				Some runs have incomplete records, so the counts shown may be
 				incomplete.
 			</span>
@@ -157,7 +157,7 @@ function EvidenceWarnings({ warnings }: { warnings: string[] }) {
 					</ul>
 				</CollapsibleDefaultContent>
 			</Collapsible>
-		</>
+		</div>
 	);
 }
 
@@ -218,39 +218,44 @@ export function SkillOverviewSummary({
 					}
 					description={
 						coldError ? (
-							<>
-								Run evidence could not be loaded. Recent runs are listed below.
+							<div className="grid justify-items-start gap-2">
+								<span>
+									Run evidence could not be loaded. Recent runs are listed
+									below.
+								</span>
 								<EvidenceRetry query={reliability} />
-							</>
+							</div>
 						) : reliability.isPending ? (
 							"Run evidence is being read."
 						) : (
-							<>
-								{evidence && evidence.runCount > 0 ? (
-									<>
-										{formatCount(evidence.completedCount)} of{" "}
-										{formatCount(evidence.runCount)} sampled runs completed
-										{evidence.averageDurationMs
-											? ` · typically ${formatDurationMs(evidence.averageDurationMs)}`
-											: ""}
-										.
-									</>
-								) : (
-									"Appears after observed execution."
-								)}
+							<div className="grid gap-2">
+								<span>
+									{evidence && evidence.runCount > 0 ? (
+										<>
+											{formatCount(evidence.completedCount)} of{" "}
+											{formatCount(evidence.runCount)} sampled runs completed
+											{evidence.averageDurationMs
+												? ` · typically ${formatDurationMs(evidence.averageDurationMs)}`
+												: ""}
+											.
+										</>
+									) : (
+										"Appears after observed execution."
+									)}
+								</span>
 								{evidence?.warnings.length ? (
 									<EvidenceWarnings warnings={evidence.warnings} />
 								) : null}
 								{refreshError ? (
-									<>
-										<span className="block" role="status">
+									<div className="grid justify-items-start gap-2">
+										<span role="status">
 											Could not refresh run evidence; the figures shown may be
 											out of date.
 										</span>
 										<EvidenceRetry query={reliability} />
-									</>
+									</div>
 								) : null}
-							</>
+							</div>
 						)
 					}
 				/>

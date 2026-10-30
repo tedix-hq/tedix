@@ -171,7 +171,7 @@ export function BillingCreditWallet({
 					/>
 				</MetricGrid>
 				{monetary && credits && (
-					<div className="space-y-2">
+					<div className="grid min-w-0 gap-2">
 						<Text>
 							Plan includes {label(credits.includedMicros)} (
 							{worth(credits.includedMicros)}) each month.

@@ -1252,7 +1252,7 @@ export function SitesPage() {
 										as="li"
 										key={site.id}
 										tier="panel"
-										className="min-w-0 space-y-3 p-4"
+										className="grid min-w-0 gap-3 p-4"
 									>
 										<Text
 											as="h3"

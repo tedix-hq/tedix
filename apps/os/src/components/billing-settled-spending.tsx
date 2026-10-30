@@ -33,7 +33,7 @@ export function SettledSpendingRows({
 	data: BillingInferenceSpending;
 }) {
 	return (
-		<div className="space-y-3">
+		<div className="grid min-w-0 gap-3">
 			<BillingSectionHeader title="Settled usage credits by run" />
 			<Text tone="secondary">
 				Last 30 days · {data.rows.length} monetary receipts shown. These are

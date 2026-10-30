@@ -56,7 +56,7 @@ export function BillingRunCosts({
 				}
 			/>
 			{expanded && (
-				<CardContent className="space-y-3">
+				<CardContent className="grid min-w-0 gap-3">
 					<BillingSettledSpending />
 					{ledger.isPending ? (
 						<Skeleton className="h-24" aria-label="Loading recorded costs" />

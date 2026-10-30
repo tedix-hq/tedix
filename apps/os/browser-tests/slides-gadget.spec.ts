@@ -77,6 +77,12 @@ try {
 	assert.match(printStyle.family, /Space Grotesk/);
 	assert.equal(printStyle.weight, "300");
 	assert.equal(printStyle.spacing, "-3px");
+	await printPage.evaluate(async () => {
+		document.body.getBoundingClientRect();
+		await document.fonts.ready;
+		if ([...document.fonts].some((font) => font.status === "error"))
+			throw new Error("Export font failed");
+	});
 	const pdf = await printPage.pdf({
 		printBackground: true,
 		preferCSSPageSize: true,

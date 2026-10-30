@@ -72,6 +72,50 @@ try {
 				);
 			}
 			assert.ok(await badge.isVisible());
+			for (const state of ["cold", "stale"]) {
+				const example = page.locator(`[data-evidence-state="${state}"]`);
+				const retry = example.getByRole("button", {
+					name: "Retry",
+					exact: true,
+				});
+				await retry.waitFor();
+				const spacing = await retry.evaluate((button) => {
+					const message = button.previousElementSibling!;
+					const action = button.getBoundingClientRect();
+					const text = message.getBoundingClientRect();
+					return {
+						gap: action.top - text.bottom,
+						left: action.left - text.left,
+						width: action.width,
+					};
+				});
+				assert.ok(
+					spacing.gap >= 7.5,
+					`${width}/${theme}/${state}: Retry needs a separate row with an 8px gap`,
+				);
+				assert.ok(
+					Math.abs(spacing.left) <= 1,
+					`${width}/${theme}/${state}: Retry aligns with its message`,
+				);
+				assert.ok(
+					spacing.width < 160,
+					`${width}/${theme}/${state}: Retry stays compact`,
+				);
+			}
+			const warningGap = await page
+				.locator('[data-evidence-state="stale"]')
+				.getByRole("button", { name: "Technical details", exact: true })
+				.evaluate((button) => {
+					const disclosure = button.parentElement!;
+					return (
+						disclosure.getBoundingClientRect().top -
+						disclosure.previousElementSibling!.getBoundingClientRect().bottom
+					);
+				});
+			assert.ok(
+				warningGap >= 7.5,
+				`${width}/${theme}: warning and disclosure have an 8px gap`,
+			);
 			await page.screenshot({
 				path: `${evidence}/${width}-${theme}.png`,
 				fullPage: true,

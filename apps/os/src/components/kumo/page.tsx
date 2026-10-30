@@ -197,7 +197,7 @@ function PageSection({ className, ...props }: ComponentProps<"section">) {
 	return (
 		<section
 			data-slot="page-section"
-			className={cn("min-w-0 space-y-3", className)}
+			className={cn("grid min-w-0 grid-cols-1 gap-3", className)}
 			{...props}
 		/>
 	);
@@ -326,7 +326,7 @@ function SettingsSection({ className, ...props }: ComponentProps<"section">) {
 		<section
 			data-slot="settings-section"
 			className={cn(
-				"min-w-0 space-y-4 border-kumo-line border-b pb-6 last:border-b-0 last:pb-1",
+				"grid min-w-0 grid-cols-1 gap-4 border-kumo-line border-b pb-6 last:border-b-0 last:pb-1",
 				className,
 			)}
 			{...props}

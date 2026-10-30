@@ -150,7 +150,7 @@ export function BillingInferenceCapacitySection() {
 				<div
 					className={showDailyCapacity ? "grid gap-4 sm:grid-cols-2" : "hidden"}
 				>
-					<Surface className="space-y-3 p-4">
+					<Surface className="grid min-w-0 gap-3 p-4">
 						<div className="flex items-center gap-2">
 							<Text
 								as="span"
@@ -409,7 +409,7 @@ export function BillingInferenceCapacitySection() {
 				</Surface>
 
 				{showDailyCapacity && overflow.length > 0 && (
-					<div className="space-y-2">
+					<div className="grid min-w-0 gap-2">
 						<Text weight="medium">Per-tedi overflow today</Text>
 						{overflow.map((row) => (
 							<Surface

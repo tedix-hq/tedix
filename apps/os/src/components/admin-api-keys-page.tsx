@@ -1014,7 +1014,7 @@ function CreateKeyDialog({
 
 				<div className="space-y-4">
 					{reviewing ? (
-						<Surface className="space-y-3 p-4">
+						<Surface className="grid min-w-0 gap-3 p-4">
 							<Text weight="medium">Review token summary</Text>
 							<Text>Name: {values.name}</Text>
 							<Text>Environment: {values.environment}</Text>

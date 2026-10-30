@@ -390,7 +390,7 @@ export function BillingUsageOverview({
 						<CardHeader>
 							<CardTitle>Reviewed provider estimates</CardTitle>
 						</CardHeader>
-						<CardContent className="space-y-2">
+						<CardContent className="grid min-w-0 gap-2">
 							<Text role="metric">
 								{formatCost(
 									usageQuery.data.totals.reviewedEstimateMicros / 1_000_000,
@@ -426,7 +426,7 @@ export function BillingUsageOverview({
 						<CardHeader>
 							<CardTitle>Reconciled workstation cost</CardTitle>
 						</CardHeader>
-						<CardContent className="space-y-2">
+						<CardContent className="grid min-w-0 gap-2">
 							<Text role="metric">
 								{overview.workstationCostCoverage.knownAttributedCostMicros ===
 								null
@@ -509,7 +509,7 @@ export function BillingUsageOverview({
 
 function PlanFact({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="space-y-0.5">
+		<div className="grid min-w-0 gap-0.5">
 			<Text role="label" tone="secondary">
 				{label}
 			</Text>
