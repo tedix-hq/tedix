@@ -1,6 +1,5 @@
 import {
 	BookOpen,
-	CaretRight,
 	Lightning,
 	ListChecks,
 	ShieldCheck,
@@ -20,8 +19,8 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
 } from "@/components/kumo/collapsible";
 import { Empty } from "@/components/kumo/empty";
 import { Link } from "@/components/kumo/link";
@@ -293,15 +292,10 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 			<TenantToolPolicies canChange={canChange} />
 			<ProviderIdentityProfiles canChange={canChange} />
 			<Collapsible className="border-t border-kumo-hairline px-2 py-2">
-				<CollapsibleTrigger className="group/disclosure">
-					<CaretRight
-						aria-hidden
-						size={12}
-						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-					/>
+				<CollapsibleDefaultTrigger>
 					How approvals work
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<ul
 						aria-label="How approvals work"
 						className="m-0 grid list-none p-0"
@@ -351,20 +345,15 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 							</Text>
 						</PolicyRow>
 					</ul>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 			<Collapsible className="border-t border-kumo-hairline px-2 py-2">
-				<CollapsibleTrigger className="group/disclosure">
-					<CaretRight
-						aria-hidden
-						size={12}
-						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-					/>
+				<CollapsibleDefaultTrigger>
 					Older action approvals
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<LegacyActionGrants canChange={canChange} />
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 			<div className="grid gap-1 border-t border-kumo-hairline px-4 py-3">
 				<Text as="p" className="m-0" role="label" tone="secondary">
