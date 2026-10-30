@@ -64,6 +64,23 @@ describe("Kumo Button adapter", () => {
 		expect(loading).toContain('role="status"');
 	});
 
+	it("keeps visible text as a rendered link's name when its tooltip adds guidance", () => {
+		const props = {
+			render: <a href="/settings" />,
+			title: "Manage your organization's preferences",
+		};
+		const link = renderToStaticMarkup(<Button {...props}>Settings</Button>);
+		expect(link).toContain(">Settings</a>");
+		expect(link).not.toContain("aria-label=");
+		expect(link).toMatch(/aria-describedby="[^"]+"/);
+		const named = renderToStaticMarkup(
+			<Button {...props} aria-label="Open settings">
+				Settings
+			</Button>,
+		);
+		expect(named).toContain('aria-label="Open settings"');
+	});
+
 	it("centres icon buttons as Kumo squares at every size", () => {
 		for (const size of ["icon-xs", "icon-sm", "icon", "icon-lg"] as const) {
 			const html = renderToStaticMarkup(
