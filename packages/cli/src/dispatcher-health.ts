@@ -18,11 +18,13 @@ const LOG_TAIL_BYTES = 256 * 1024;
 const REASON_WINDOW_MS = 30 * 60 * 1000;
 const REASON_EVENTS = new Set([
 	"accept-failed",
+	"completion-retained",
 	"failed",
 	"heartbeat-failed",
 	"login-blocked",
 	"orphan-held",
 	"settlement-retained",
+	"telemetry-retained",
 	"skipped",
 	"skipped-or-failed",
 ]);

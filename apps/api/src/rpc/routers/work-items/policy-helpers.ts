@@ -8,6 +8,7 @@ import {
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
+import { withoutNegatedClauses } from "@tedix/api-contract/utils/work-instructions";
 import { requireOrgId } from "../../org-scope";
 import {
 	type BaseContext,
@@ -82,7 +83,7 @@ export async function canCompleteOwnSucceededAttempt(
 ): Promise<boolean> {
 	if (item.disposition !== "accepted" || !actor.sessionId) return false;
 	const reserved = humanReservedActionClasses(
-		`${item.title}\n${item.description ?? ""}`,
+		withoutNegatedClauses(`${item.title}\n${item.description ?? ""}`),
 	);
 	if (reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id))) return false;
 	const { data } = await listWorkItemAttempts(context.db, {

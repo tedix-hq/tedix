@@ -1,3 +1,4 @@
+import { withoutNegatedClauses } from "@tedix/api-contract/utils/work-instructions";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 
 /**
@@ -24,55 +25,9 @@ export function laneReservedActions(text: string): string[] {
 	];
 }
 
-/**
- * Text with its negated clauses removed: "never X", "do not X", "no X, Y or
- * Z." Urgency idioms ("do not wait —", "no need to ask,", "without delay,")
- * negate only themselves, so the instruction after them survives.
- */
-export function withoutNegatedClauses(text: string): string {
-	return plainText(text)
-		.replace(urgencyIdiom, " ")
-		.replace(negatedClause, " ")
-		.replace(negatedList, " ");
-}
-
-/**
- * Compatibility-folded text with zero-width characters removed, so look-alike
- * letters, full-width forms and invisible joins cannot hide a verb.
- */
-function plainText(text: string): string {
-	return text
-		.normalize("NFKC")
-		.replace(/[​-‍⁠﻿­]/g, "")
-		.replace(/[  -   　]/g, " ")
-		.replace(/[‐-―−]/g, (dash) => (dash === "—" || dash === "―" ? " — " : "-"));
-}
-
 /** An instruction to the executor to perform consent, MFA or a sign-in step. */
 export const userPresenceStep =
 	/\b(?:complete|approve|grant|give|pass|perform|finish|enter|type|paste|accept|click|solve|scan|tap|confirm|answer|redo|re-do|do|go[ \t]+through|click[ \t]+through)\s+(?:(?:the|an?|your|my|their|its|our)\s+)?(?:oauth\s+|login\s+|sign[- ]?in\s+|verification\s+|sms\s+|e-?mail\s+|authenticator\s+|security\s+|device\s+|consent\s+|mfa\s+|2fa\s+)?(?:mfa|2fa|otp|totp|consent|passkey|password|captcha|qr[ -]?code|touch[ -]?id|face[ -]?id|security[ \t]+key|authenticator|login|sign[- ]?in|oauth(?:[ \t]+(?:flow|dance|screen|prompt))?|consent[ \t]+(?:screen|prompt|dialog)|verification[ \t]+code|sms[ \t]+code|e-?mail[ \t]+code|device|push[ \t]+notification)\b|\b(?:enter|type|paste|read[ \t]+out|answer)[ \t]+(?:the[ \t]+)?(?:\w+[ \t]+)?code\b(?![ \t]+(?:path|base|review|change|style|owner|block|sample|snippet|point))|\buse[ \t]+(?:the|your|my|an?)?[ \t]*(?:passkey|touch[ -]?id|face[ -]?id|security[ \t]+key|authenticator)\b(?![ \t]+(?:mock|stub|fake|test|fixture|component|module|class))|\bclick[ \t]+(?:on[ \t]+)?(?:["'“]?)(?:allow|approve|accept|authori[sz]e|continue[ \t]+with[ \t]+google|sign[ \t]+in[ \t]+with)\b|\bconsent[ \t]+to\b(?![^.;!?\n]*\b(?:checkbox|label|form|page|component|copy|text|ui|string|wording)\b)|(?:^|[.;!\n][ \t]*)(?:please[ \t]+)?(?:log|sign)[ -]?(?:in|on)[ \t]*(?:[.!;\n]|$)/i;
-
-// "Do not wait —", "don't hesitate,", "no need to ask;", "without delay:",
-// "not a drill:", "it is not optional —". The negation covers only the idiom.
-const negation = String.raw`\b(?:never|do not|don't|does not|doesn't|must not|cannot|can't|won't|without|not|nicht|ohne)\b`;
-const urgencyIdiom = new RegExp(
-	String.raw`(?:${negation}|\b(?:no|kein(?:e|en)?)\b)[ \t]+(?:(?:even|further|a|an|the|any|more|longer)[ \t]+){0,2}(?:(?:forget|hesitate|fail|wait|bother|need|neglect)[ \t]+to\b|(?:wait(?:ing)?|hesitat\w*|delay\w*|stall\w*|paus\w*|ask\w*|forget\w*|worr\w*|bother\w*|hold[ \t]+(?:back|off)|stop\w*|drill|optional|negotiable|now|say[ \t]+no|questions?[ \t]+asked|discussion|excuses?|confirmation|approval[ \t]+needed|need[ \t]+to[ \t]+(?:ask|wait|check|confirm)|(?:[\w-]+[ \t]+)?(?:needed|required|necessary)|rush|hurry|just|merely|only|simply|zögern|warten|fragen|(?:r[üu]ck)?frage|verz[öo]gerung)\b(?:[ \t]+(?:for|on|about|with|um|auf|zu)\b)?[^,;:.!?\n—]*[,;:—]?)`,
-	"gi",
-);
-
-const negatedClause = new RegExp(
-	String.raw`(?:${negation}|\b(?:niemals|nie|kein(?:e|en|er|es)?)\b)[^.;!?\n]*`,
-	"gi",
-);
-
-// "No submission, external sending, consent, payment or publication." A list
-// of at least two short items, or one item that "is authorised" or names
-// "changes", is a prohibition; "No rush, pay the invoice" stays an instruction.
-const listItem = String.raw`[\w/'’-]+(?:[ \t]+[\w/'’-]+){0,6}`;
-const negatedList = new RegExp(
-	String.raw`\bno[ \t]+(?!(?:problem|problems|worries|rush|hurry|need|doubt|wait|way|matter|pressure|question|questions|one|longer|more)\b)(?:${listItem}(?:[ \t]*(?:,|\bor\b|\band\b|\bnor\b)[ \t]*${listItem})+|${listItem}[ \t]+(?:is|are)[ \t]+(?:authori[sz]ed|allowed|permitted|needed|required)|(?:[\w/'’-]+[ \t]+){0,3}(?:changes?|writes?|edits?|effects?))(?=[ \t]*(?:[.;!?\n]|$))`,
-	"gi",
-);
 
 const anyWords = String.raw`(?:[\w'’-]+[ \t]+){0,3}`;
 const inSentence = String.raw`[^.;!?\n]`;

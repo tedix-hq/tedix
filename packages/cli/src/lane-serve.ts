@@ -1,3 +1,4 @@
+import { withoutNegatedClauses } from "@tedix/api-contract/utils/work-instructions";
 import type * as z from "zod";
 import { execFile, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
@@ -23,11 +24,7 @@ import {
 	type WorkAttemptSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
-import {
-	laneReservedActions,
-	userPresenceStep,
-	withoutNegatedClauses,
-} from "./lane-reserved-actions";
+import { laneReservedActions, userPresenceStep } from "./lane-reserved-actions";
 import { readExecutorBudgets } from "./lane-budget";
 import {
 	localExecutors,
