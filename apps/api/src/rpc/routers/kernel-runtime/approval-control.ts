@@ -1,3 +1,4 @@
+import { requireDelegatedChildTerminalReceipt } from "../kernel/delegation-recovery";
 import {
 	workstationDispatchIdentity,
 	inspectWorkstationDispatchAdmission,
@@ -1138,6 +1139,12 @@ async function retryKernelRunCore(
 		stringFromPayload(delegationWorkOrder.workItemId) ??
 		stringFromPayload(existingMetadata.workItemId) ??
 		stringFromPayload(nonNullRecord(existingRun.runtimeMetadata)?.workItemId);
+
+	await requireDelegatedChildTerminalReceipt(context, {
+		organizationId,
+		delegatedTediId,
+		childRunId: existingRun.childRunId,
+	});
 
 	// Extract the original source content from the work order (used as the
 	// dispatch message body, same as respondKernelDelegationRecommendationApprovalCore).

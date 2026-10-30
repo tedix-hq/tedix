@@ -20,7 +20,6 @@ import { type BaseContext } from "../../orpc";
 import { readSingleChildRunSummary } from "./child-run-reads";
 import { stalledChildRunStatus } from "./child-run-stall";
 import {
-	disposeDelegationWorkItem,
 	disposeTerminalDirectDelegationWorkItem,
 	isStaleDelegationDispatchRow,
 	recordDelegationWorkItemHeartbeat,
@@ -218,6 +217,15 @@ export async function reconcileHomeRunRowsFromChildStatus(
 					? await stopCanceledParentChildIfLive(context, row)
 					: null;
 			if (!childRunStatus) {
+				// Home timeout is not a child terminal receipt or Attempt settlement.
+				const failure = nonNullRecord(
+					nonNullRecord(row.metadata)?.delegationFailure,
+				);
+				if (
+					failure?.childStillRunning === true ||
+					failure?.reason === "dispatch_failed"
+				)
+					return canceledStopRow ?? row;
 				if (isTerminalHomeRunStatus(row.status as TediRunStatus)) {
 					const outputMessageId = asyncCompletionAssistantMessageId(row.id);
 					if (row.outputMessageId !== outputMessageId) {
@@ -312,16 +320,10 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				}
 				if (!isStaleDelegationDispatchRow(row)) return canceledStopRow ?? row;
 				const failedAt = nowIso();
-				// Two very different failures reach this point, and reporting them
-				// with one message sends operators after the wrong system. If the
-				// dispatch ledger holds a row for this run whose `run_id` was never
-				// mapped, the inject never landed and the child never heard about the
-				// work at all — blaming it for "publishing no events" is false, and it
-				// sends operators to debug the child runtime. A mapped `run_id` with no events is the real child-silent
-				// case. When no ledger row is found we report the child-silent timeout.
+				// An unassigned mapping describes the observed handoff, not a cancellation.
 				const dispatchNeverLanded = await didDispatchNeverLand(context, row);
 				const error = dispatchNeverLanded
-					? "Delegated child dispatch never reached the target runtime: the work order was accepted by Home but no child run was ever assigned"
+					? "Delegated child dispatch timed out with no assigned child run observed; execution has not been ruled out"
 					: "Delegated child dispatch timed out before the child runtime published events";
 				const progress = homeRunProgress({
 					eventCount: 0,
@@ -332,14 +334,15 @@ export async function reconcileHomeRunRowsFromChildStatus(
 					...nonNullRecord(row.metadata),
 					childConversationId: row.childConversationId ?? null,
 					childRunId: row.childRunId,
-					childRunLatestEventAt: failedAt,
-					childRunLatestEventKind: "run.failed",
-					childRunPreview: preview,
-					childRunStatus: "failed",
+					childRunLatestEventAt: null,
+					childRunLatestEventKind: null,
+					childRunPreview: null,
+					childRunStatus: "unknown",
 					delegatedTediId: row.delegatedTediId,
 					delegationFailure: buildDelegationFailureEnvelope({
 						reason: "dispatch_failed",
 						error,
+						childStillRunning: true,
 					}),
 					idempotencyKey: row.id,
 					progress,
@@ -356,35 +359,6 @@ export async function reconcileHomeRunRowsFromChildStatus(
 					organizationId: row.organizationId,
 					runId: row.id,
 				});
-				// Step 5 — stale/timeout: a no-events child must also TERMINATE the
-				// Work Item (release the lease as blocked) rather than leave it claimed
-				// forever. Fail-soft via disposeDelegationWorkItem (attempt settlement
-				// returns null if already disposed). Mapped through the same terminal
-				// disposer with a failed status + dispatch_timeout blocker note.
-				const staleWorkItemId = await resolveDelegationWorkItemId(context, row);
-				if (staleWorkItemId) {
-					await disposeDelegationWorkItem(context, {
-						childRunId: row.childRunId,
-						childRunStatus: "failed",
-						createdAt: failedAt,
-						delegatedTediId: row.delegatedTediId,
-						delegationError: `${
-							dispatchNeverLanded ? "dispatch_never_landed" : "dispatch_timeout"
-						}: ${error}`,
-						organizationId: row.organizationId,
-						proof: {
-							hasProof: false,
-							evidenceState: "missing",
-							terminalExecutionSucceeded: false,
-							repoCommitSha: null,
-							prRef: null,
-							artifactRefs: [],
-							rationaleRef: null,
-							transcript: null,
-						},
-						workItemId: staleWorkItemId,
-					});
-				}
 				return {
 					...row,
 					status: "failed",
@@ -632,19 +606,7 @@ async function settleTerminalHomeRunSubmission(
 	});
 }
 
-/**
- * Did the delegated dispatch ever reach the target runtime?
- *
- * `chat_dispatch_idempotency` is written before the inject is attempted and
- * patched with the runtime-assigned `run_id` once the child accepts. A row that
- * still has a NULL `run_id` therefore proves the accept never happened — the
- * signature of an isolate eviction that killed the dispatch mid-flight. Distinguishing this from a child that accepted and then
- * went quiet is the difference between "re-dispatch the work order" and
- * "investigate the tedi runtime".
- *
- * Fail-safe: any lookup miss or error returns false, keeping the historical
- * child-silent wording rather than asserting something we cannot prove.
- */
+/** Whether the dispatch ledger still has an unassigned mapping. Not a stop receipt. */
 async function didDispatchNeverLand(
 	context: BaseContext,
 	row: KernelRuntimeRun,

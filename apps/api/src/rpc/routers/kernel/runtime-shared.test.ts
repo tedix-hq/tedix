@@ -116,6 +116,23 @@ describe("withTimeout", () => {
 			withTimeout(new Promise(() => {}), 10, "slow"),
 		).rejects.toThrow("slow timed out after 10ms");
 	});
+
+	it("leaves the dispatched child executable after the parent stops waiting", async () => {
+		let startChild!: () => void;
+		let childExecuted = false;
+		const queuedChild = new Promise<void>((resolve) => {
+			startChild = resolve;
+		}).then(() => {
+			childExecuted = true;
+		});
+		await expect(withTimeout(queuedChild, 1, "parent")).rejects.toThrow(
+			"timed out",
+		);
+		expect(childExecuted).toBe(false);
+		startChild();
+		await queuedChild;
+		expect(childExecuted).toBe(true);
+	});
 });
 
 describe("D1 fail-soft classifiers", () => {
@@ -436,6 +453,16 @@ describe("buildDelegationFailureEnvelope", () => {
 		});
 		expect(envelope.retryable).toBe(false);
 		expect(envelope.childStillRunning).toBe(false);
+	});
+
+	it("withholds retry advice while the child may still execute", () => {
+		expect(
+			buildDelegationFailureEnvelope({
+				reason: "dispatch_failed",
+				error: "timeout",
+				childStillRunning: true,
+			}).retryable,
+		).toBe(false);
 	});
 
 	it("carries childStillRunning when the caller reports a live child", () => {

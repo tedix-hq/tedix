@@ -12,6 +12,7 @@ import {
 
 import {
 	ORG_ID,
+	childRuntimeEvent,
 	NATIVE_EXECUTION_REQUIREMENT,
 	type KernelRuntimeRunRow,
 	type WorkItemRow,
@@ -2385,6 +2386,22 @@ describe("home approved-write layer (v1)", () => {
 				...previousRun.runtimeMetadata,
 				childRunId: previousChildRunId,
 			};
+			const attemptsBeforeRetry = structuredClone(db.workAttemptRows);
+			await expect(
+				client.retryDelegation({ workItemId: workItemId! }),
+			).rejects.toThrow(/original delegated child may still execute/);
+			expect(db.workAttemptRows).toEqual(attemptsBeforeRetry);
+			expect(delegateRunner).toHaveBeenCalledTimes(1);
+			db.runtimeEvents.push(
+				childRuntimeEvent({
+					id: "original-child-terminal",
+					createdAt: oldTerminalAt,
+					kind: "run.completed",
+					runId: previousChildRunId,
+					tediId: "tedi-cpo",
+					payload: { status: "completed" },
+				}),
+			);
 			const recovery = await client.retryDelegation({
 				workItemId: workItemId!,
 			});
@@ -2542,6 +2559,17 @@ describe("home approved-write layer (v1)", () => {
 			db.workAttemptRows[0]!.runtimeState = "failed";
 			db.workAttemptRows[0]!.finishedAt = new Date().toISOString();
 			db.workAttemptRows[0]!.outcome = "failed";
+			db.runtimeEvents.push(
+				childRuntimeEvent({
+					id: "original-held-child-terminal",
+					createdAt: new Date().toISOString(),
+					kind: "run.failed",
+					runId: db.runs.find((run) => run.id === "home-deleg-held-approve-1")!
+						.childRunId!,
+					tediId: "tedi-cto-agent",
+					payload: { status: "failed" },
+				}),
+			);
 			await client.retryDelegation({ workItemId: db.workItemRows[0]!.id });
 			expect(delegateRunner).toHaveBeenCalledTimes(2);
 			expect(db.workAttemptRows).toHaveLength(2);

@@ -19,6 +19,7 @@ import { settleHomeToolWriteApproval } from "./kernel/write-approval-settlement"
 
 import {
 	ORG_ID,
+	childRuntimeEvent,
 	NATIVE_EXECUTION_REQUIREMENT,
 	type WorkItemRow,
 	type WorkAttemptRow,
@@ -31,6 +32,24 @@ import {
 	createContext,
 	createKernelRuntimeClient,
 } from "./__tests__/kernel-runtime-db";
+
+function recordOriginalChildStop(
+	db: ReturnType<typeof createKernelRuntimeDb>,
+	runId: string,
+) {
+	const run = db.runs.find((row) => row.id === runId)!;
+	run.childRunId ??= `child-${runId}`;
+	db.runtimeEvents.push(
+		childRuntimeEvent({
+			id: `terminal-${runId}`,
+			createdAt: "2026-06-20T08:01:00.000Z",
+			kind: "run.failed",
+			runId: run.childRunId,
+			tediId: run.delegatedTediId!,
+			payload: { status: "failed" },
+		}),
+	);
+}
 
 vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => {
 	const original =
@@ -576,6 +595,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 		);
 		kernelRuntimeTestHooks.setDelegateRunnerForTest(delegateRunner);
 
+		recordOriginalChildStop(db, failedRunId);
 		const result = await client.retryRun({ runId: failedRunId });
 
 		// The returned run is a new run (different id from the failed one).
@@ -668,6 +688,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 			})),
 		);
 
+		recordOriginalChildStop(db, "retry-stopped-1");
 		const result = await client.retryRun({ runId: "retry-stopped-1" });
 		expect(result.newRunId).not.toBe("retry-stopped-1");
 		expect(result.run.status).toBe("queued");
@@ -710,6 +731,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 		}));
 		kernelRuntimeTestHooks.setDelegateRunnerForTest(delegateRunner);
 
+		recordOriginalChildStop(db, failedRunId);
 		const result = await client.retryRun({ runId: failedRunId });
 
 		expect(delegateRunner).toHaveBeenCalledWith(
@@ -850,6 +872,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 			status: "failed" as const,
 		}));
 
+		recordOriginalChildStop(db, failedRunId);
 		const result = await client.retryRun({ runId: failedRunId });
 
 		// New run exists but is itself failed (dispatch could not reach the target).
@@ -909,6 +932,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 			}),
 		);
 
+		recordOriginalChildStop(db, failedRunId);
 		const result = await client.retryRun({ runId: failedRunId });
 
 		expect(result.run.status).toBe("queued");
@@ -966,6 +990,7 @@ describe("enqueueMessage routing composition (needs × capability)", () => {
 			}),
 		);
 
+		recordOriginalChildStop(db, failedRunId);
 		const result = await client.retryRun({ runId: failedRunId });
 
 		expect(result.run.status).toBe("queued");

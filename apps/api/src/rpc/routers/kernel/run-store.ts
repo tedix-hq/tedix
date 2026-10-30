@@ -733,6 +733,8 @@ export async function recordHomeDelegationDispatchFailure(
 ): Promise<void> {
 	const failedAt = input.failedAt ?? nowIso();
 	const reason = input.reason ?? "dispatch_failed";
+	// A transport failure does not revoke a dispatch already accepted by the child.
+	const childMayExecute = reason === "dispatch_failed";
 	const progress = homeRunProgress({
 		eventCount: 0,
 		status: "failed",
@@ -742,14 +744,15 @@ export async function recordHomeDelegationDispatchFailure(
 		...input.existingMetadata,
 		childConversationId: input.childConversationId ?? null,
 		childRunId: input.childRunId,
-		childRunLatestEventAt: failedAt,
-		childRunLatestEventKind: "run.failed",
-		childRunPreview: preview,
-		childRunStatus: "failed",
+		childRunLatestEventAt: childMayExecute ? null : failedAt,
+		childRunLatestEventKind: childMayExecute ? null : "run.failed",
+		childRunPreview: childMayExecute ? null : preview,
+		childRunStatus: childMayExecute ? "unknown" : "failed",
 		delegatedTediId: input.delegatedTediId,
 		delegationFailure: buildDelegationFailureEnvelope({
 			reason,
 			error: input.error,
+			childStillRunning: childMayExecute,
 		}),
 		idempotencyKey: input.runId,
 		progress,

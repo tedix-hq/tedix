@@ -174,14 +174,14 @@ describe("kernel runtime router: delegation", () => {
 				label: "Failed",
 			},
 			metadata: {
-				childRunStatus: "failed",
+				childRunStatus: "queued",
 				delegationFailure: {
 					ok: false,
 					status: "failed",
 					reason: "dispatch_failed",
 					error: "isolate dispatch unavailable",
-					retryable: true,
-					childStillRunning: false,
+					retryable: false,
+					childStillRunning: true,
 				},
 			},
 		});
@@ -229,14 +229,14 @@ describe("kernel runtime router: delegation", () => {
 			delegatedTediId: "tedi-cpo",
 			metadata: {
 				metadata: {
-					childRunStatus: "failed",
+					childRunStatus: "queued",
 					delegationFailure: {
 						ok: false,
 						status: "failed",
 						reason: "dispatch_failed",
 						error: "isolate dispatch unavailable",
-						retryable: true,
-						childStillRunning: false,
+						retryable: false,
+						childStillRunning: true,
 					},
 				},
 			},
@@ -286,6 +286,7 @@ describe("kernel runtime router: delegation", () => {
 			updatedAt: "2000-01-01T00:00:00.000Z",
 		});
 
+		const attemptsBeforeTimeout = structuredClone(db.workAttemptRows);
 		const runSet = await client.readRunSet({
 			conversationId: "home:test",
 			limit: 10,
@@ -300,19 +301,26 @@ describe("kernel runtime router: delegation", () => {
 				label: "Failed",
 			},
 			metadata: {
-				childRunStatus: "failed",
+				childRunStatus: "queued",
 				delegationFailure: {
 					ok: false,
 					status: "failed",
 					reason: "dispatch_failed",
 					error:
 						"Delegated child dispatch timed out before the child runtime published events",
-					retryable: true,
-					childStillRunning: false,
+					retryable: false,
+					childStillRunning: true,
 				},
 				source: "kernelRuntime.delegateDispatch",
 			},
 		});
+
+		expect(db.workAttemptRows).toEqual(attemptsBeforeTimeout);
+		await client.readRunSet({ conversationId: "home:test", limit: 10 });
+		expect(db.workAttemptRows).toEqual(attemptsBeforeTimeout);
+		await expect(client.retryRun({ runId: result.run.id })).rejects.toThrow(
+			/original delegated child may still execute/,
+		);
 
 		const messages = await client.readMessages({
 			conversationId: "home:test",
@@ -335,15 +343,15 @@ describe("kernel runtime router: delegation", () => {
 			delegatedTediId: "tedi-cpo",
 			metadata: {
 				metadata: {
-					childRunStatus: "failed",
+					childRunStatus: "queued",
 					delegationFailure: {
 						ok: false,
 						status: "failed",
 						reason: "dispatch_failed",
 						error:
 							"Delegated child dispatch timed out before the child runtime published events",
-						retryable: true,
-						childStillRunning: false,
+						retryable: false,
+						childStillRunning: true,
 					},
 				},
 			},

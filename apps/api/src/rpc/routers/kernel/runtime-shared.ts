@@ -43,7 +43,7 @@ export interface DelegationFailureEnvelope {
 	 * runtime needs a wake (or operator attention) first, not a blind retry.
 	 */
 	retryable: boolean;
-	/** True when the child may still be executing despite the parent settling (not the case for dispatch-time failures). */
+	/** True when the child may still execute despite the parent settling. */
 	childStillRunning: boolean;
 }
 
@@ -57,7 +57,7 @@ export function buildDelegationFailureEnvelope(input: {
 		status: "failed",
 		reason: input.reason,
 		error: input.error,
-		retryable: input.reason === "dispatch_failed",
+		retryable: input.reason === "dispatch_failed" && !input.childStillRunning,
 		childStillRunning: input.childStillRunning ?? false,
 	};
 }
