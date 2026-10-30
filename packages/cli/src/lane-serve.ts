@@ -1025,7 +1025,9 @@ export class LaneDispatcher {
 					(attempt.outcome ||
 						(attempt.expiresAt && Date.parse(attempt.expiresAt) <= Date.now()))
 				) {
-					if (reapLaneProcess(row.pid, row.session, row.processIdentity))
+					if (
+						reapLaneProcess(row.pid, row.session, row.processIdentity, row.repo)
+					)
 						this.log(
 							"orphan-stopped",
 							row.itemId,
@@ -1657,6 +1659,7 @@ export class LaneDispatcher {
 						receipt.processIdentity = laneProcessIdentity(
 							pid,
 							receipt.session!,
+							repo,
 						);
 						receipt.phase = "running";
 						this.save(path, receipt);
