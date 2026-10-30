@@ -201,7 +201,7 @@ export function RolePermissionsMatrix() {
 							key={role}
 							render={<section />}
 							aria-label={`${details.label} role`}
-							className="min-w-0 p-4 space-y-3"
+							className="grid min-w-0 gap-3 p-4"
 						>
 							<Badge variant={ROLE_BADGE_VARIANTS[role]}>{details.label}</Badge>
 							<Text tone="secondary">{details.description}</Text>
@@ -241,7 +241,7 @@ export function CapabilityScopeReference() {
 										sticky="left"
 										className="whitespace-nowrap align-top"
 									>
-										<div className="space-y-1">
+										<div className="grid min-w-0 gap-1">
 											<Text weight="medium">{meta.label}</Text>
 											<Text as="code" role="label" tone="secondary">
 												{scope}
@@ -273,7 +273,7 @@ export function CapabilityScopeReference() {
 							key={scope}
 							render={<section />}
 							aria-label={scope}
-							className="min-w-0 p-4 space-y-2"
+							className="grid min-w-0 gap-2 p-4"
 						>
 							<Text weight="medium">{meta.label}</Text>
 							<Text

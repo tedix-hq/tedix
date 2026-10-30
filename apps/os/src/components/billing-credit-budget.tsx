@@ -50,7 +50,7 @@ export function BillingCreditBudget({
 	return (
 		<SettingsSection id="credit-budget">
 			<BillingSectionHeader title="Monthly credit spending cap" />
-			<SettingsSectionContent className="space-y-3">
+			<SettingsSectionContent className="grid min-w-0 gap-3">
 				<Text tone="secondary">
 					Pause new model calls when recorded spending and running-work
 					reservations reach this cap. Your funded wallet remains a separate

@@ -19,6 +19,7 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardHeader,
 	CardTitle,
@@ -376,20 +377,22 @@ export function CanvasProposals({
 			)}
 			{items.map((proposal, index) => (
 				<Card key={proposal.id}>
-					<CardHeader className="flex-row items-center justify-between gap-2">
+					<CardHeader>
 						<CardTitle>Suggested change {index + 1}</CardTitle>
-						<Badge
-							variant={proposal.status === "merged" ? "success" : "secondary"}
-						>
-							{
+						<CardAction>
+							<Badge
+								variant={proposal.status === "merged" ? "success" : "secondary"}
+							>
 								{
-									open: "Needs review",
-									accepted: "Approved · not applied",
-									merged: "Applied",
-									rejected: "Rejected",
-								}[proposal.status]
-							}
-						</Badge>
+									{
+										open: "Needs review",
+										accepted: "Approved · not applied",
+										merged: "Applied",
+										rejected: "Rejected",
+									}[proposal.status]
+								}
+							</Badge>
+						</CardAction>
 					</CardHeader>
 					<CardContent className="grid gap-2">
 						<Text as="p" role="label" tone="secondary" className="m-0">

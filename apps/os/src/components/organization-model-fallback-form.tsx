@@ -82,7 +82,7 @@ export function OrganizationModelFallbackForm({
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<SettingsSectionContent className="space-y-4">
+			<SettingsSectionContent className="grid min-w-0 gap-4">
 				{catalog.isError && (
 					<LoadError
 						title="Model availability could not be loaded"
@@ -124,7 +124,7 @@ export function OrganizationModelFallbackForm({
 					never replayed.
 				</Text>
 				{models.map((primary) => (
-					<div key={primary.ref} className="space-y-2">
+					<div key={primary.ref} className="grid min-w-0 gap-2">
 						<Text as="strong" role="body">
 							{primary.label}
 						</Text>
@@ -191,6 +191,7 @@ export function OrganizationModelFallbackForm({
 							</div>
 						))}
 						<Button
+							className="justify-self-start"
 							variant="secondary"
 							disabled={
 								save.isPending || (policy.ladder[primary.ref]?.length ?? 0) >= 5

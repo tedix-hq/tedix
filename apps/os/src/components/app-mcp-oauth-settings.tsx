@@ -443,7 +443,7 @@ export function McpOAuthSettings({
 
 					<Surface className="p-4">
 						<div className="flex items-start justify-between gap-3">
-							<div className="space-y-1">
+							<div className="grid min-w-0 gap-1">
 								<Text as="p" role="body" weight="medium" className="m-0">
 									Eligible capability profiles
 								</Text>
@@ -467,7 +467,7 @@ export function McpOAuthSettings({
 										key={profile}
 										className="flex items-center justify-between gap-4 p-3"
 									>
-										<div className="min-w-0 flex-1 space-y-1">
+										<div className="grid min-w-0 flex-1 gap-1">
 											<Text as="p" role="body" weight="medium" className="m-0">
 												{profile}
 											</Text>
@@ -535,7 +535,7 @@ export function McpOAuthSettings({
 					/>
 					<div className="space-y-4">
 						<div className="flex items-center justify-between">
-							<div className="space-y-1">
+							<div className="grid min-w-0 gap-1">
 								<Text as="p" role="body" weight="medium" className="m-0">
 									Registration Status
 								</Text>

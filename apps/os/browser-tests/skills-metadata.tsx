@@ -5,6 +5,7 @@ import type {
 } from "@tedix/api-contract/contracts/cognitive";
 import type { WorkflowDefinition } from "@tedix/api-contract/contracts/workflows";
 import { SkillRow, WorkflowRow } from "../src/components/skills-page";
+import { SkillOverviewSummary } from "../src/components/skill-overview-page";
 import { Collection, Page, PageSection } from "../src/components/kumo/page";
 import "../src/styles.css";
 
@@ -77,5 +78,32 @@ createRoot(document.getElementById("root")!).render(
 				<WorkflowRow definition={definition} schedules={[schedule]} />
 			</Collection>
 		</PageSection>
+		{["cold", "stale"].map((state) => (
+			<div key={state} data-evidence-state={state}>
+				<SkillOverviewSummary
+					description={null}
+					tags={[]}
+					successCount={0}
+					failureCount={0}
+					reliability={{
+						isPending: false,
+						isError: true,
+						isFetching: false,
+						error: new Error("Fixture evidence unavailable"),
+						refetch: async () => {},
+						data:
+							state === "stale"
+								? {
+										runCount: 10,
+										completedCount: 9,
+										successRate: 0.9,
+										averageDurationMs: 1200,
+										warnings: ["Sample is partial."],
+									}
+								: undefined,
+					}}
+				/>
+			</div>
+		))}
 	</Page>,
 );

@@ -334,7 +334,7 @@ function AgentSessionRow({
 				</Text>
 			</div>
 			{lane ? (
-				<div className="mt-2 space-y-2">
+				<div className="mt-2 grid gap-2">
 					{lane.usage || lane.estimatedCostUsd !== null || lane.outcome ? (
 						<Text role="label" tone="secondary">
 							{lane.outcome ?? STATE_BADGE[state].label} ·{" "}
@@ -356,7 +356,7 @@ function AgentSessionRow({
 							Result and execution details
 						</CollapsibleDefaultTrigger>
 						<CollapsibleDefaultContent>
-							<div className="space-y-2 py-2">
+							<div className="grid gap-2 py-2">
 								<Text role="body">
 									Asked: {lane.brief || "Brief unavailable"}
 								</Text>
@@ -459,7 +459,7 @@ export function WorkAgentsBoard({
 	}
 	return (
 		<>
-			<div aria-label="Today’s delegation totals" className="space-y-1">
+			<div aria-label="Today’s delegation totals" className="grid gap-1">
 				<Text role="body" tone="strong">
 					Today: {formatCount(totals.lanes)} lanes ·{" "}
 					{formatCount(totals.tokens)} measured tokens · {cost(totals.cost)}{" "}

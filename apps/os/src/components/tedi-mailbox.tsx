@@ -509,7 +509,7 @@ export function SenderPolicyCard({
 						save.mutate({ tediId, addressId: address.id, routingPolicy });
 					}}
 				>
-					<div className="space-y-1">
+					<div className="grid min-w-0 gap-1">
 						<Label htmlFor="mailbox-trusted-senders">Trusted senders</Label>
 						<Textarea
 							id="mailbox-trusted-senders"

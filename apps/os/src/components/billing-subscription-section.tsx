@@ -327,7 +327,7 @@ export function BillingDocumentsSection() {
 				<Surface className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
 					<div className="flex items-start gap-3">
 						<FileText className="mt-0.5 size-5 shrink-0" aria-hidden />
-						<div className="space-y-1">
+						<div className="grid min-w-0 gap-1">
 							<Text weight="medium">Billing history</Text>
 							<Text tone="secondary">
 								{hasStripeCustomer

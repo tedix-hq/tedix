@@ -237,7 +237,7 @@ export function SsoSection({
 					<>
 						<Surface className="p-4">
 							<div className="flex items-start justify-between gap-4">
-								<div className="space-y-1">
+								<div className="grid min-w-0 gap-1">
 									<Text weight="medium">Configure your identity provider</Text>
 									<Text tone="secondary">
 										Opens a one-time link (valid 1 hour) where your IT admin can

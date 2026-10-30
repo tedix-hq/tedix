@@ -26,7 +26,7 @@ export function RequestFilingReview({
 		<section
 			id="attention-unfiled"
 			aria-label="Automatic filing"
-			className="space-y-3"
+			className="grid min-w-0 gap-3"
 		>
 			<Text as="h2" role="section">
 				Automatic filing

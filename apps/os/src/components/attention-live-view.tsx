@@ -535,7 +535,7 @@ export function AttentionBoard({
 				<CardHeader>
 					<CardTitle>{ATTENTION_COPY.stalled}</CardTitle>
 				</CardHeader>
-				<CardContent className="space-y-3">
+				<CardContent className="grid min-w-0 gap-3">
 					{(data.stalls ?? []).slice(0, 10).map((stall) => (
 						<div key={stall.scopeId} className="min-w-0 space-y-1 break-words">
 							<Link href={stall.href}>

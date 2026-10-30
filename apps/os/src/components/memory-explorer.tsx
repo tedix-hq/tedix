@@ -393,7 +393,7 @@ export function KnowledgeMap({ layout }: { layout: KnowledgeLayout }) {
 						role="region"
 						aria-label="Knowledge map text"
 						tabIndex={0}
-						className="max-h-96 space-y-3 overflow-y-auto rounded-md px-2 pb-2 wrap-anywhere focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:ring-inset"
+						className="grid max-h-96 min-w-0 gap-3 overflow-y-auto rounded-md px-2 pb-2 wrap-anywhere focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:ring-inset"
 					>
 						<Text as="p" role="label" tone="secondary" className="m-0">
 							Only nodes and relationships in this snapshot are listed. IDs

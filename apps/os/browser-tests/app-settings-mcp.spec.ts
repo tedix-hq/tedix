@@ -33,7 +33,7 @@ try {
 					body.json.app.metadata = {
 						mcpConfig: {
 							serverName: SERVER_NAME,
-							authMode: "public",
+							authMode: "authenticated",
 							toolTimeout: 30000,
 						},
 					};
@@ -82,6 +82,42 @@ try {
 				box.x >= -1 && box.x + box.width <= geometry.clientWidth + 1,
 				`${label}: server name stays inside the viewport ${JSON.stringify(box)}`,
 			);
+			for (const title of [
+				"Eligible capability profiles",
+				"Registration Status",
+			]) {
+				const heading = page.getByText(title, { exact: true });
+				await heading.waitFor();
+				const gap = await heading.evaluate(
+					(node) =>
+						node.nextElementSibling!.getBoundingClientRect().top -
+						node.getBoundingClientRect().bottom,
+				);
+				assert(
+					gap >= 3,
+					`${label}: ${title} description has a visible gap (${gap})`,
+				);
+			}
+			const profiles = page.getByRole("switch", {
+				name: /capability profile$/,
+			});
+			assert(
+				(await profiles.count()) > 0,
+				`${label}: capability profiles rendered`,
+			);
+			for (const profile of await profiles.all()) {
+				const gap = await profile.evaluate((node) => {
+					const text = node.previousElementSibling!;
+					return (
+						text.children[1].getBoundingClientRect().top -
+						text.children[0].getBoundingClientRect().bottom
+					);
+				});
+				assert(
+					gap >= 3,
+					`${label}: capability name and permissions have a visible gap (${gap})`,
+				);
+			}
 			// Drop route handlers first: a request still in flight must not
 			// reach route.fetch() after the context is gone.
 			await page.unrouteAll({ behavior: "ignoreErrors" });

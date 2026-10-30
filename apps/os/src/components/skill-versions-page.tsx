@@ -6,6 +6,7 @@ import { Button } from "@/components/kumo/button";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import {
 	PageSection,
+	SectionActions,
 	SectionHeader,
 	SectionHeading,
 	SectionTitle,
@@ -136,45 +137,47 @@ export function SkillVersionsPage() {
 												) : null}
 											</span>
 										</TableCell>
-										<TableCell className="min-w-0 whitespace-normal align-top space-y-1 [overflow-wrap:anywhere]">
-											<Text as="span" role="label" tone="secondary">
-												Observed {formatCount(revision.observedRunCount)} times
-												· {formatCount(revision.completedCount)} completed ·{" "}
-												{formatCount(revision.failedCount)} failed ·{" "}
-												{formatCount(revision.canceledCount)} canceled
-												{revision.lastObservedAt ? (
-													<>
-														{" "}
-														· last{" "}
-														<time
-															dateTime={revision.lastObservedAt}
-															title={absoluteTime(revision.lastObservedAt)}
-														>
-															{relativeTime(revision.lastObservedAt)}
-														</time>
-													</>
-												) : null}
-											</Text>
-											{current && detail.data?.entry?.revisionReasoning ? (
-												<Text role="label" className="m-0">
-													<strong>What changed: </strong>
-													{detail.data.entry.revisionReasoning}
+										<TableCell className="min-w-0 whitespace-normal align-top [overflow-wrap:anywhere]">
+											<Collapsible className="grid min-w-0 gap-3">
+												<Text as="p" role="label" tone="secondary">
+													Observed {formatCount(revision.observedRunCount)}{" "}
+													times · {formatCount(revision.completedCount)}{" "}
+													completed · {formatCount(revision.failedCount)} failed
+													· {formatCount(revision.canceledCount)} canceled
+													{revision.lastObservedAt ? (
+														<>
+															{" "}
+															· last{" "}
+															<time
+																dateTime={revision.lastObservedAt}
+																title={absoluteTime(revision.lastObservedAt)}
+															>
+																{relativeTime(revision.lastObservedAt)}
+															</time>
+														</>
+													) : null}
 												</Text>
-											) : null}
-											{!current &&
-											canVerifyCurrent &&
-											detail.data?.entry &&
-											revision.revision != null ? (
-												<SkillRollbackButton
-													baseline={detail.data.entry}
-													runId={revision.runId}
-													revision={revision.revision}
-												/>
-											) : null}
-											<Collapsible>
-												<CollapsibleDefaultTrigger>
-													Technical evidence
-												</CollapsibleDefaultTrigger>
+												{current && detail.data?.entry?.revisionReasoning ? (
+													<Text role="label" className="m-0">
+														<strong>What changed: </strong>
+														{detail.data.entry.revisionReasoning}
+													</Text>
+												) : null}
+												<SectionActions>
+													{!current &&
+													canVerifyCurrent &&
+													detail.data?.entry &&
+													revision.revision != null ? (
+														<SkillRollbackButton
+															baseline={detail.data.entry}
+															runId={revision.runId}
+															revision={revision.revision}
+														/>
+													) : null}
+													<CollapsibleDefaultTrigger>
+														Technical evidence
+													</CollapsibleDefaultTrigger>
+												</SectionActions>
 												<CollapsibleDefaultContent>
 													<div className="grid min-w-0 gap-1 pb-2 [overflow-wrap:anywhere]">
 														{[

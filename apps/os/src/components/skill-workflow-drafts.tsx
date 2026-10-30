@@ -19,6 +19,13 @@ import {
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
+	Card,
+	CardAction,
+	CardContent,
+	CardDescription,
+	CardHeader,
+} from "@/components/kumo/card";
+import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
@@ -225,12 +232,12 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 	const executable = Boolean(baseline?.files?.[WORKFLOW_FILE]);
 	if (!canManage || !baseline || !executable) return null;
 	return (
-		<section
-			className="grid gap-3 rounded border p-3"
+		<Card
+			role="region"
 			aria-labelledby="skill-workflow-drafts-title"
 			data-skill-workflow-drafts
 		>
-			<div className="flex flex-wrap items-center justify-between gap-2">
+			<CardHeader>
 				<Text
 					as="h3"
 					id="skill-workflow-drafts-title"
@@ -239,68 +246,71 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 				>
 					Drafts
 				</Text>
-				<Button
-					size="sm"
-					variant="outline"
-					className="min-h-11 sm:min-h-8"
-					onClick={() =>
-						setSeed({
-							content: baseline.content,
-							workflow: baseline.files?.[WORKFLOW_FILE] ?? "",
-							reason: "",
-						})
-					}
-				>
-					New draft
-				</Button>
-			</div>
-			<Text role="label" tone="secondary" className="m-0">
-				A draft is tested with a dry run that does not change the live skill or
-				its schedule. A draft whose test passed can be switched on; the live
-				version moves to revision {baseline.revision + 1}.
-			</Text>
-			{drafts.isError ? (
-				<LoadError
-					title="Drafts could not be read"
-					error={drafts.error}
-					onRetry={() => void drafts.refetch()}
-					retrying={drafts.isFetching}
-				/>
-			) : null}
-			{activated ? (
-				<Alert variant="info">
-					<AlertTitle>
-						Switched on: revision {activated.revision} is live
-					</AlertTitle>
-					<AlertDescription>
-						Draft {activated.title} is archived. The previous version stays in
-						the list below so you can roll back.
-					</AlertDescription>
-				</Alert>
-			) : null}
-			{drafts.data?.length === 0 ? (
-				<Text role="label" tone="secondary" className="m-0">
-					No drafts yet.
-				</Text>
-			) : null}
-			{drafts.data?.map((draft) => (
-				<SkillWorkflowDraftRow
-					key={draft.id}
-					draft={draft}
-					baseline={baseline}
-					onActivated={(revision) =>
-						setActivated({ revision, title: draft.title })
-					}
-				/>
-			))}
-			{seed ? (
-				<SkillWorkflowDraftDialog
-					baseline={baseline}
-					seed={seed}
-					close={() => setSeed(null)}
-				/>
-			) : null}
-		</section>
+				<CardDescription>
+					Test a draft without changing the live skill or schedule. After it
+					passes, you can switch it on as revision {baseline.revision + 1}.
+				</CardDescription>
+				<CardAction>
+					<Button
+						size="sm"
+						variant="outline"
+						className="min-h-11 sm:min-h-8"
+						onClick={() =>
+							setSeed({
+								content: baseline.content,
+								workflow: baseline.files?.[WORKFLOW_FILE] ?? "",
+								reason: "",
+							})
+						}
+					>
+						New draft
+					</Button>
+				</CardAction>
+			</CardHeader>
+			<CardContent className="grid gap-3">
+				{drafts.isError ? (
+					<LoadError
+						title="Drafts could not be read"
+						error={drafts.error}
+						onRetry={() => void drafts.refetch()}
+						retrying={drafts.isFetching}
+					/>
+				) : null}
+				{activated ? (
+					<Alert variant="info">
+						<AlertTitle>
+							Switched on: revision {activated.revision} is live
+						</AlertTitle>
+						<AlertDescription>
+							Draft {activated.title} is archived. The previous version stays in
+							the list below so you can roll back.
+						</AlertDescription>
+					</Alert>
+				) : null}
+				{drafts.data?.length === 0 ? (
+					<Text role="label" tone="secondary" className="m-0">
+						No drafts yet.
+					</Text>
+				) : null}
+				{drafts.data?.map((draft) => (
+					<SkillWorkflowDraftRow
+						key={draft.id}
+						draft={draft}
+						baseline={baseline}
+						onActivated={(revision) =>
+							setActivated({ revision, title: draft.title })
+						}
+					/>
+				))}
+				{seed ? (
+					<SkillWorkflowDraftDialog
+						baseline={baseline}
+						seed={seed}
+						close={() => setSeed(null)}
+					/>
+				) : null}
+			</CardContent>
+		</Card>
 	);
 }
 
@@ -503,7 +513,8 @@ export function SkillRollbackButton({
 			<Button
 				size="sm"
 				variant="outline"
-				className="min-h-11 w-fit sm:min-h-8"
+				multiline
+				className="w-fit max-w-full whitespace-normal text-left"
 				disabled={load.isPending}
 				onClick={() => load.mutate()}
 			>
