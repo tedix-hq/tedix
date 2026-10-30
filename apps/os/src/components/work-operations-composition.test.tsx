@@ -515,7 +515,7 @@ describe("Work interactions", () => {
 		expect(page.host.textContent).toContain("Answer");
 		expect(
 			page.host
-				.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+				.querySelector('[data-kumo-part="default-trigger"]')
 				?.getAttribute("aria-expanded"),
 		).toBe("false");
 	});
@@ -550,11 +550,11 @@ describe("Work interactions", () => {
 		expect(page.host.textContent).toContain("Can we refund within 30 days?");
 		expect(
 			page.host
-				.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+				.querySelector('[data-kumo-part="default-trigger"]')
 				?.getAttribute("aria-expanded"),
 		).toBe("false");
 		expect(
-			page.host.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+			page.host.querySelector('[data-kumo-part="default-trigger"]')
 				?.textContent,
 		).toBe("Why am I seeing this?");
 		await page.submit("Answer");

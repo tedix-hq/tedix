@@ -1,4 +1,5 @@
 import { resolveOsTenant } from "@/shared/os-tenant";
+import { Button } from "@/components/kumo/button";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import {
@@ -94,9 +95,9 @@ function BrokerSessionBoundary({
 				<TedixBrandMark />
 				<p>We couldn't verify your Tedix session.</p>
 				<p>This does not mean your session expired or your access changed.</p>
-				<button type="button" onClick={retryStatus}>
+				<Button type="button" variant="outline" onClick={retryStatus}>
 					Try again
-				</button>
+				</Button>
 			</main>
 		);
 	}

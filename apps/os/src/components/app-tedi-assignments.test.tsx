@@ -205,12 +205,19 @@ describe("AppTediAssignments", () => {
 			expect(view.host.textContent).toContain(
 				"Assignments could not be loaded",
 			);
-			expect(view.host.querySelector("details")?.textContent).toContain(
-				"Assignments offline",
-			);
 		});
+		const assignmentError = [
+			...view.host.querySelectorAll<HTMLElement>('[data-slot="load-error"]'),
+		].find((element) =>
+			element.textContent?.includes("Assignments could not be loaded"),
+		)!;
+		const details = button(assignmentError, "Details");
+		expect(details.getAttribute("aria-expanded")).toBe("false");
+		await act(async () => details.click());
+		expect(details.getAttribute("aria-expanded")).toBe("true");
+		expect(assignmentError.textContent).toContain("Assignments offline");
 		expect(button(view.host, "Assign tedi").disabled).toBe(true);
-		await act(async () => button(view.host, "Retry").click());
+		await act(async () => button(assignmentError, "Retry").click());
 		await settles(() =>
 			expect(view.host.textContent).toContain(
 				"No tedis assigned to this app yet.",

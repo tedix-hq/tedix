@@ -13,8 +13,8 @@ import {
 } from "@/components/kumo/page";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { ListSkeleton } from "@/components/list-skeleton";
 import {
@@ -172,61 +172,55 @@ export function SkillVersionsPage() {
 												/>
 											) : null}
 											<Collapsible>
-												<CollapsibleTrigger
-													render={
-														<Button
-															size="sm"
-															variant="ghost"
-															className="min-h-11 w-fit min-w-11 px-2 sm:min-h-8"
-														/>
-													}
-												>
+												<CollapsibleDefaultTrigger>
 													Technical evidence
-												</CollapsibleTrigger>
-												<CollapsibleContent className="grid min-w-0 gap-1 pb-2 [overflow-wrap:anywhere]">
-													{[
-														[
-															"Automation SHA-256",
-															revision.workflowSourceSha256 ?? "not recorded",
-														],
-														[
-															"SKILL.md SHA-256",
-															revision.skillDocSha256 ?? "not recorded",
-														],
-														[
-															"Worker",
-															`${revision.workerVersionTag ?? revision.workerVersionId ?? "legacy / not recorded"} · compatibility ${revision.executionCompatibilityHash ?? "not recorded"}`,
-														],
-														[
-															"Runtime variants",
-															`${revision.runtimeVariants.length} · drift ${revision.runtimeDriftBlocked ? "blocked" : revision.runtimeDriftObserved ? "observed" : "not observed"}`,
-														],
-													].map(([label, value]) => (
-														<Text
-															as="span"
-															role="label"
-															tone="secondary"
-															key={label}
-														>
-															{label}: {value}
-														</Text>
-													))}
-													{revision.runtimeVariants.map((variant) => (
-														<Text
-															as="span"
-															role="label"
-															tone="secondary"
-															key={`${variant.runId}:${variant.executionEpoch}:${variant.manifestPath}`}
-														>
-															{variant.observation} · epoch{" "}
-															{variant.executionEpoch} · {variant.manifestPath}{" "}
-															·{" "}
-															{variant.workerVersionTag ??
-																variant.workerVersionId ??
-																"worker unknown"}
-														</Text>
-													))}
-												</CollapsibleContent>
+												</CollapsibleDefaultTrigger>
+												<CollapsibleDefaultContent>
+													<div className="grid min-w-0 gap-1 pb-2 [overflow-wrap:anywhere]">
+														{[
+															[
+																"Automation SHA-256",
+																revision.workflowSourceSha256 ?? "not recorded",
+															],
+															[
+																"SKILL.md SHA-256",
+																revision.skillDocSha256 ?? "not recorded",
+															],
+															[
+																"Worker",
+																`${revision.workerVersionTag ?? revision.workerVersionId ?? "legacy / not recorded"} · compatibility ${revision.executionCompatibilityHash ?? "not recorded"}`,
+															],
+															[
+																"Runtime variants",
+																`${revision.runtimeVariants.length} · drift ${revision.runtimeDriftBlocked ? "blocked" : revision.runtimeDriftObserved ? "observed" : "not observed"}`,
+															],
+														].map(([label, value]) => (
+															<Text
+																as="span"
+																role="label"
+																tone="secondary"
+																key={label}
+															>
+																{label}: {value}
+															</Text>
+														))}
+														{revision.runtimeVariants.map((variant) => (
+															<Text
+																as="span"
+																role="label"
+																tone="secondary"
+																key={`${variant.runId}:${variant.executionEpoch}:${variant.manifestPath}`}
+															>
+																{variant.observation} · epoch{" "}
+																{variant.executionEpoch} ·{" "}
+																{variant.manifestPath} ·{" "}
+																{variant.workerVersionTag ??
+																	variant.workerVersionId ??
+																	"worker unknown"}
+															</Text>
+														))}
+													</div>
+												</CollapsibleDefaultContent>
 											</Collapsible>
 										</TableCell>
 									</TableRow>

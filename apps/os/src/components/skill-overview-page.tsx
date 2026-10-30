@@ -1,4 +1,3 @@
-import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link as RouterLink, useParams } from "@tanstack/react-router";
 import { DetailUnavailable } from "@/components/detail-unavailable";
@@ -15,8 +14,8 @@ import { ListQueryBoundary } from "@/components/list-query-boundary";
 import { SkillRunTable } from "@/components/skill-runs-page";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
@@ -90,14 +89,14 @@ export function SkillOverviewPage() {
 				{runs.data ? <SkillRunTable runs={recentRuns} /> : null}
 			</PageSection>
 			<Collapsible>
-				<CollapsibleTrigger
-					render={<Button variant="ghost" className="w-fit px-0" />}
-				>
-					<CaretDown size={14} /> Instructions and source
-				</CollapsibleTrigger>
-				<CollapsibleContent className="grid gap-4 pt-3">
-					<SkillBundleTree content={skill.content} files={skill.files} />
-				</CollapsibleContent>
+				<CollapsibleDefaultTrigger>
+					Instructions and source
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
+					<div className="grid gap-4 pt-3">
+						<SkillBundleTree content={skill.content} files={skill.files} />
+					</div>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</PageSection>
 	);
@@ -147,21 +146,16 @@ function EvidenceWarnings({ warnings }: { warnings: string[] }) {
 				incomplete.
 			</span>
 			<Collapsible className="text-kumo-subtle type-tedix-control">
-				<CollapsibleTrigger className="group/disclosure -mx-2 w-fit px-2">
-					<CaretRight
-						aria-hidden
-						size={12}
-						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-					/>
+				<CollapsibleDefaultTrigger className="group/disclosure -mx-2 w-fit px-2">
 					Technical details
-				</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<ul className="m-0 mt-1 grid list-disc gap-1 pl-4">
 						{warnings.map((warning) => (
 							<li key={warning}>{warning}</li>
 						))}
 					</ul>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</>
 	);

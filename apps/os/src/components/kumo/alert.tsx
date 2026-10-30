@@ -4,6 +4,11 @@ import type { ComponentProps, ReactNode } from "react";
 import { errorMessage, orpcErrorCode } from "../../lib/orpc-error";
 import { Button } from "./button";
 import { cn } from "../../lib/utils";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "./collapsible";
 
 type AlertVariant = "default" | "destructive" | "info" | "warning";
 
@@ -155,16 +160,16 @@ function LoadError({
 							"Try again in a moment."}
 					</div>
 					{(message || details || typeof trace === "string") && (
-						<details className="mt-2 text-kumo-subtle type-tedix-caption">
-							<summary className="w-fit cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2">
-								Details
-							</summary>
-							<div className="mt-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
-								{message && <div>{message}</div>}
-								{details}
-								{typeof trace === "string" && <div>Trace ID: {trace}</div>}
-							</div>
-						</details>
+						<Collapsible className="mt-2 text-kumo-subtle type-tedix-caption">
+							<CollapsibleDefaultTrigger>Details</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent keepMounted>
+								<div className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+									{message && <div>{message}</div>}
+									{details}
+									{typeof trace === "string" && <div>Trace ID: {trace}</div>}
+								</div>
+							</CollapsibleDefaultContent>
+						</Collapsible>
 					)}
 				</div>
 				{onRetry && (

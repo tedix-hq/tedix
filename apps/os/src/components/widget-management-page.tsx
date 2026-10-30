@@ -15,8 +15,8 @@ import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	Card,
@@ -231,8 +231,8 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 						config={config}
 					/>
 					<Collapsible>
-						<CollapsibleTrigger>Advanced</CollapsibleTrigger>
-						<CollapsibleContent>
+						<CollapsibleDefaultTrigger>Advanced</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
 							<Card>
 								<CardHeader>
 									<CardTitle>Tenant route profiles</CardTitle>
@@ -247,7 +247,7 @@ function WidgetManagementBody({ organizationId }: { organizationId: string }) {
 									/>
 								</CardContent>
 							</Card>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				</TabsContent>
 				<TabsContent value="customers" className="grid gap-8">

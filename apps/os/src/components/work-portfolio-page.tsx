@@ -12,8 +12,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import {
@@ -697,10 +697,12 @@ function ProjectStatusGroup({
 	if (collapsed && !forceOpen)
 		return (
 			<Collapsible data-project-group={label.toLowerCase()}>
-				<CollapsibleTrigger className="-ml-2">{heading}</CollapsibleTrigger>
-				<CollapsibleContent>
+				<CollapsibleDefaultTrigger className="-ml-2">
+					{heading}
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<div className="pt-2">{list}</div>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		);
 	return (

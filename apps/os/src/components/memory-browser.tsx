@@ -1,8 +1,8 @@
 import type { AgentLessonEntry } from "@tedix/api-contract/schemas/agent-session-lessons";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "./kumo/collapsible";
 import { useQuery } from "@tanstack/react-query";
 import type { ComponentType, ReactNode } from "react";
@@ -142,12 +142,14 @@ function FactDetails({ fact }: { fact: Fact }) {
 			</Text>
 			{fact.metadata && !consolidated && (
 				<Collapsible>
-					<CollapsibleTrigger>Additional source data</CollapsibleTrigger>
-					<CollapsibleContent keepMounted>
+					<CollapsibleDefaultTrigger>
+						Additional source data
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
 						<pre className="whitespace-pre-wrap wrap-anywhere type-tedix-caption">
 							{JSON.stringify(fact.metadata, null, 2)}
 						</pre>
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 		</div>
@@ -159,8 +161,10 @@ export function MemoryRuleDetails({ lesson }: { lesson: AgentLessonEntry }) {
 		<div className="grid gap-4">
 			<Text className="whitespace-pre-wrap wrap-anywhere">{lesson.text}</Text>
 			<Collapsible>
-				<CollapsibleTrigger className="min-h-11">Evidence</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				<CollapsibleDefaultTrigger className="min-h-11">
+					Evidence
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<div className="grid gap-3 pt-2">
 						{lesson.evidence?.sources.length ? (
 							lesson.evidence.sources.map((source) => (
@@ -192,7 +196,7 @@ export function MemoryRuleDetails({ lesson }: { lesson: AgentLessonEntry }) {
 								: "No decision history recorded."}
 						</Text>
 					</div>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</div>
 	);

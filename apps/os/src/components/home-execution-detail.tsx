@@ -1,11 +1,10 @@
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
 import {
-	CaretDown,
 	CaretRight,
 	CheckCircle,
 	Clock,
@@ -187,17 +186,12 @@ function Disclosure({
 }) {
 	return (
 		<Collapsible defaultOpen={defaultOpen}>
-			<CollapsibleTrigger className="group/disclosure">
-				<CaretDown
-					size={14}
-					aria-hidden
-					className="transition-transform group-data-[panel-open]/disclosure:rotate-180"
-				/>
+			<CollapsibleDefaultTrigger className="group/disclosure">
 				{label}
-			</CollapsibleTrigger>
-			<CollapsibleContent className="min-w-0 pt-3">
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent className="min-w-0 pt-3">
 				{children}
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

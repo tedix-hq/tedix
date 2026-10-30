@@ -289,15 +289,19 @@ describe("calendar discovery recovery", () => {
 			});
 		},
 	);
-	it("retries a cold calendars error independently and respects disabled on every control", async () => {
+	it("retries a cold calendars error independently and disables actions while keeping error details available", async () => {
 		await mounted(async ({ node, select, render, onSelect }) => {
 			mocks.listCalendars.mockRejectedValueOnce(new Error("calendar offline"));
 			await select();
 			expect(button(node, "Retry")).toBeTruthy();
 			await render({ disabled: true });
+			expect(button(node, "Retry").disabled).toBe(true);
 			expect(
-				Array.from(node.querySelectorAll("button")).every((b) => b.disabled),
+				Array.from(node.querySelectorAll("button"))
+					.filter((control) => control.textContent !== "Details")
+					.every((control) => control.disabled),
 			).toBe(true);
+			expect(button(node, "Details").disabled).toBe(false);
 			await render();
 			await act(async () => {
 				button(node, "Retry").click();

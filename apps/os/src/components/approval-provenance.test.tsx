@@ -115,9 +115,7 @@ async function mount(history = false) {
 }
 async function open() {
 	await act(async () => {
-		const disclosure = host.querySelector("details")!;
-		disclosure.open = true;
-		disclosure.dispatchEvent(new Event("toggle"));
+		host.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click();
 	});
 }
 function button(label: string) {
@@ -146,9 +144,7 @@ describe("read-only runtime approval history", () => {
 		expect(host.textContent).not.toContain("Choose approval");
 		expect(host.textContent).not.toContain("Choose veto");
 		await act(async () => {
-			const disclosure = host.querySelectorAll("details")[1]!;
-			disclosure.open = true;
-			disclosure.dispatchEvent(new Event("toggle"));
+			button("Predictions and observed execution").click();
 		});
 		await vi.waitFor(() =>
 			expect(host.textContent).toContain("Observed execution: succeeded"),

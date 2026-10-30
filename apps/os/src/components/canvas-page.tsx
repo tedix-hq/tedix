@@ -71,6 +71,11 @@ import {
 	EmptyTitle,
 } from "@/components/kumo/empty";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import { Breadcrumbs } from "@/components/kumo/breadcrumbs";
 import {
 	Dialog,
@@ -355,7 +360,7 @@ function WorkspaceConnectionsBody({
 	gadgetId?: string;
 }) {
 	const [appsOpen, setAppsOpen] = useState(false);
-	const appsRef = useRef<HTMLDetailsElement>(null);
+	const appsRef = useRef<HTMLDivElement>(null);
 	const openConnectedApps = () => {
 		setAppsOpen(true);
 		// After the list has opened, so there is room to scroll it into view.
@@ -375,21 +380,22 @@ function WorkspaceConnectionsBody({
 				</Suspense>
 			) : null}
 			<WorkspaceResourcesPanel workspaceId={workspaceId} />
-			<details
-				ref={appsRef}
-				className="canvas-account-connections"
-				open={appsOpen}
-				onToggle={(event) => setAppsOpen(event.currentTarget.open)}
-			>
-				<summary>Manage connected apps</summary>
-				<Text as="p" role="body" tone="secondary">
-					Connect an app here, then attach the resources you need above.
-				</Text>
-				<ConnectionsPanel
-					catalogAction
-					contextNote={workspaceConnectionContext(documentType)}
-				/>
-			</details>
+			<div ref={appsRef} className="canvas-account-connections">
+				<Collapsible open={appsOpen} onOpenChange={setAppsOpen}>
+					<CollapsibleDefaultTrigger>
+						Manage connected apps
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
+						<Text as="p" role="body" tone="secondary">
+							Connect an app here, then attach the resources you need above.
+						</Text>
+						<ConnectionsPanel
+							catalogAction
+							contextNote={workspaceConnectionContext(documentType)}
+						/>
+					</CollapsibleDefaultContent>
+				</Collapsible>
+			</div>
 		</>
 	);
 }

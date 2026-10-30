@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { CaretRight } from "@phosphor-icons/react";
 import { safeMarkdownHref } from "@tedix/chat-transport/markdown";
 import { useState } from "react";
 import { Alert, AlertDescription, LoadError } from "@/components/kumo/alert";
@@ -8,8 +7,8 @@ import { CodeBlock } from "@/components/kumo/code";
 import { Link } from "@/components/kumo/link";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { osQuery } from "@/lib/os-query-options";
@@ -87,25 +86,17 @@ export function RunStepResult({
 		return (
 			<div className="grid gap-3">
 				{result.slice(0, 50).map((item, index) => (
-					<Collapsible
-						key={index}
-						className="min-w-0 rounded-lg border border-kumo-line bg-kumo-base p-2"
-					>
-						<CollapsibleTrigger className="group w-full min-w-0">
-							<CaretRight
-								aria-hidden
-								size={16}
-								className="shrink-0 transition-transform group-data-[panel-open]:rotate-90"
-							/>
+					<Collapsible key={index} className="min-w-0">
+						<CollapsibleDefaultTrigger className="w-full justify-between">
 							<span className="min-w-0 wrap-anywhere">
 								{typeof stepRecord(item).title === "string"
 									? String(stepRecord(item).title)
 									: `Item ${index + 1}`}
 							</span>
-						</CollapsibleTrigger>
-						<CollapsibleContent className="px-2 pt-3 pb-2">
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
 							<RunStepResult value={item} depth={depth + 1} />
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				))}
 				{result.length > 50 && (

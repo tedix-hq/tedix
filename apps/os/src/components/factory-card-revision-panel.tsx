@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { useEffect, useState, useContext, useRef } from "react";
 import { DecisionAttentionContext } from "./decision-attention-context";
@@ -209,15 +208,10 @@ export function FactoryCardRevisionPanel({
 			)}
 			{previous && current && (
 				<Collapsible>
-					<CollapsibleTrigger className="group/disclosure">
-						<CaretRight
-							size={14}
-							aria-hidden
-							className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-						/>
+					<CollapsibleDefaultTrigger className="group/disclosure">
 						What changed
-					</CollapsibleTrigger>
-					<CollapsibleContent keepMounted>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
 						<p className="whitespace-pre-wrap break-words">
 							{cardRevisionDiff(previous.body, current.body).map(
 								([kind, text], index) =>
@@ -237,19 +231,14 @@ export function FactoryCardRevisionPanel({
 									),
 							)}
 						</p>
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 			<Collapsible>
-				<CollapsibleTrigger className="group/disclosure">
-					<CaretRight
-						size={14}
-						aria-hidden
-						className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-					/>
+				<CollapsibleDefaultTrigger className="group/disclosure">
 					Version history
-				</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<div className="grid gap-4 pt-3">
 						{versions.map((version) => (
 							<article key={version.revision} className="grid gap-2">
@@ -281,7 +270,7 @@ export function FactoryCardRevisionPanel({
 							Load older versions
 						</Button>
 					)}
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 			{(mutate.error || history.error) && (
 				<p role="alert">{(mutate.error || history.error)?.message}</p>

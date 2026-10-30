@@ -35,7 +35,7 @@ describe("ConversationUsageLine", () => {
 		);
 		const html = render({ chargedMicros: 1_250_000, chargeCount: 4 });
 		expect(html).toContain("€1.25 used in this conversation");
-		expect(html).toContain("Usage that is still settling");
+		expect(html).toContain("pending usage appears once settled");
 	});
 
 	it("keeps sub-cent charges visible rather than rounding them to zero", () => {

@@ -9,7 +9,7 @@
  * overview (`AppOverviewPage`) still serves every other app.
  */
 
-import { AppWindow, CaretRight } from "@phosphor-icons/react";
+import { AppWindow } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link as RouterLink, useParams } from "@tanstack/react-router";
 import type { App, AppListItem } from "@tedix/api-contract/schemas/app";
@@ -20,8 +20,8 @@ import { ClipboardText } from "@/components/kumo/clipboard-text";
 import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { IconFrame } from "@/components/kumo/icon-frame";
 import { Link } from "@/components/kumo/link";
@@ -661,15 +661,10 @@ function AdvancedSection({
 	const authMode = app.metadata?.mcpConfig?.authMode;
 	return (
 		<Collapsible data-gateway-advanced="">
-			<CollapsibleTrigger className="group/disclosure -ml-2">
-				<CaretRight
-					size={14}
-					aria-hidden
-					className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-				/>
+			<CollapsibleDefaultTrigger className="group/disclosure -ml-2">
 				Advanced
-			</CollapsibleTrigger>
-			<CollapsibleContent>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent>
 				<div className="grid gap-4 pt-3">
 					<Text as="p" role="body" tone="secondary" className="m-0 max-w-2xl">
 						Technically this is an MCP server (Model Context Protocol, the open
@@ -723,7 +718,7 @@ function AdvancedSection({
 						</Button>
 					</div>
 				</div>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

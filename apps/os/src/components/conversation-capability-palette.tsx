@@ -1,7 +1,7 @@
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Paperclip, PuzzlePiece, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -338,8 +338,10 @@ export function ConversationCapabilityPalette({
 											</Badge>
 										</div>
 										<Collapsible>
-											<CollapsibleTrigger>Details</CollapsibleTrigger>
-											<CollapsibleContent>
+											<CollapsibleDefaultTrigger>
+												Details
+											</CollapsibleDefaultTrigger>
+											<CollapsibleDefaultContent>
 												<Text
 													role="caption"
 													tone="mono-secondary"
@@ -347,7 +349,7 @@ export function ConversationCapabilityPalette({
 												>
 													{pin.replayName} · sha256:{pin.revision.digest}
 												</Text>
-											</CollapsibleContent>
+											</CollapsibleDefaultContent>
 										</Collapsible>
 										<Text role="caption" tone="secondary">
 											Attached by {pin.whyPresent.type} {pin.whyPresent.actorId}

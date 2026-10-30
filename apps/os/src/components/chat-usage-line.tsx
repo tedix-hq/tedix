@@ -41,7 +41,7 @@ export function ConversationUsageLine({
 			role="label"
 			tone="secondary"
 			className="chat-usage-line mx-auto w-full max-w-3xl px-4 pt-1.5 text-right tabular-nums"
-			title="Settled credit charges for this conversation. Usage that is still settling is added once it settles."
+			title="Completed charges; pending usage appears once settled."
 		>
 			{conversationUsageText(charges.data.chargedMicros)}
 		</Text>

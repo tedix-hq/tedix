@@ -19,8 +19,8 @@ import {
 } from "@/components/kumo/card";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
@@ -157,10 +157,10 @@ export function WorkAdmissionPage() {
 				/>
 			) : null}
 			<Collapsible>
-				<CollapsibleTrigger>
+				<CollapsibleDefaultTrigger>
 					Advanced: IDs and specification JSON
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<Card>
 						<CardHeader>
 							<CardTitle>Admission specification</CardTitle>
@@ -241,7 +241,7 @@ export function WorkAdmissionPage() {
 							<MutationError error={replace.error} />
 						</CardContent>
 					</Card>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 			{readiness.data ? (
 				<Card>

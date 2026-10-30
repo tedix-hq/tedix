@@ -166,7 +166,10 @@ describe("skill versions", () => {
 			sampledRunCount: 4,
 			mayBeTruncated: false,
 		});
-		await act(async () => node.querySelector("button")!.click());
+		const retry = [...node.querySelectorAll("button")].find(
+			(button) => button.textContent?.trim() === "Retry",
+		)!;
+		await act(async () => retry.click());
 		await act(async () => {
 			await new Promise((done) => setTimeout(done, 20));
 		});

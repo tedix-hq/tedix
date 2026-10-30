@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
@@ -20,12 +25,14 @@ type TerminalStatus = Exclude<ApprovalRequest["status"], "pending">;
 export function ApprovalProvenanceHistory() {
 	const [open, setOpen] = useState(false);
 	return (
-		<details onToggle={(event) => setOpen(event.currentTarget.open)}>
-			<summary className="tap-target-y cursor-pointer">
+		<Collapsible open={open} onOpenChange={setOpen}>
+			<CollapsibleDefaultTrigger>
 				Receipts for past decisions
-			</summary>
-			{open ? <ApprovalHistoryRequests /> : null}
-		</details>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent keepMounted>
+				{open ? <ApprovalHistoryRequests /> : null}
+			</CollapsibleDefaultContent>
+		</Collapsible>
 	);
 }
 
@@ -138,14 +145,16 @@ export function ApprovalProvenanceDisclosure({
 }) {
 	const [open, setOpen] = useState(false);
 	return (
-		<details onToggle={(event) => setOpen(event.currentTarget.open)}>
-			<summary className="cursor-pointer">
+		<Collapsible open={open} onOpenChange={setOpen}>
+			<CollapsibleDefaultTrigger>
 				Predictions and observed execution
-			</summary>
-			{open ? (
-				<ApprovalProvenanceDetails approvalRequestId={approvalRequestId} />
-			) : null}
-		</details>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent keepMounted>
+				{open ? (
+					<ApprovalProvenanceDetails approvalRequestId={approvalRequestId} />
+				) : null}
+			</CollapsibleDefaultContent>
+		</Collapsible>
 	);
 }
 

@@ -10,11 +10,13 @@ import {
 	cloneElement,
 	forwardRef,
 	isValidElement,
+	useId,
 	type ReactElement,
 	type ReactNode,
 	type Ref,
 } from "react";
 import { cn } from "../../lib/utils";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 
 type ButtonVariant =
 	| "default"
@@ -234,6 +236,39 @@ type ButtonProps =
 	| (ButtonBaseProps &
 			IconButtonAccessibleName & { multiline?: never; size: IconButtonSize });
 
+function ButtonTooltip({
+	children,
+	disabled,
+	title,
+}: {
+	children: ReactElement<{ "aria-describedby"?: string }>;
+	disabled?: boolean;
+	title?: ReactNode;
+}) {
+	const tooltipId = useId();
+	if (title == null || title === false || title === "") return children;
+	const description = [children.props["aria-describedby"], tooltipId]
+		.filter(Boolean)
+		.join(" ");
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				aria-describedby={description}
+				render={
+					disabled ? (
+						<span className="inline-flex" />
+					) : (
+						cloneElement(children, { "aria-describedby": description })
+					)
+				}
+			>
+				{disabled ? children : undefined}
+			</TooltipTrigger>
+			<TooltipContent id={tooltipId}>{title}</TooltipContent>
+		</Tooltip>
+	);
+}
+
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 	{
 		children,
@@ -263,6 +298,12 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 	) {
 		size = "icon";
 	}
+	const accessibleName =
+		props["aria-label"] ??
+		(typeof title === "string" || typeof title === "number"
+			? String(title)
+			: undefined) ??
+		(isIconSize(size) && typeof children === "string" ? children : undefined);
 	if (render) {
 		const disabled = loading || props.disabled;
 		const renderElement = disabled
@@ -270,41 +311,35 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 			: render;
 
 		return (
-			<ButtonPrimitive
-				{...props}
-				ref={ref as Ref<HTMLElement>}
-				render={renderElement}
-				nativeButton={_nativeButton ?? render.type === "button"}
-				disabled={disabled}
-				aria-disabled={disabled || undefined}
-				aria-busy={loading || undefined}
-				className={buttonVariants({
-					className: cn(render.props.className, className),
-					multiline,
-					size,
-					variant,
-				})}
-				data-icon-only={isIconSize(size) || undefined}
-				data-kumo-component="LinkButton"
-				data-slot="button"
-				style={tedixEmphasisStyle(variant, style)}
-				title={typeof title === "string" ? title : undefined}
-			>
-				{loading ? <Loader aria-label="Loading" size={14} /> : icon}
-				{children ?? render.props.children}
-			</ButtonPrimitive>
+			<ButtonTooltip title={title} disabled={disabled}>
+				<ButtonPrimitive
+					{...props}
+					ref={ref as Ref<HTMLElement>}
+					render={renderElement}
+					nativeButton={_nativeButton ?? render.type === "button"}
+					disabled={disabled}
+					aria-disabled={disabled || undefined}
+					aria-label={accessibleName}
+					aria-busy={loading || undefined}
+					className={buttonVariants({
+						className: cn(render.props.className, className),
+						multiline,
+						size,
+						variant,
+					})}
+					data-icon-only={isIconSize(size) || undefined}
+					data-kumo-component="LinkButton"
+					data-slot="button"
+					style={tedixEmphasisStyle(variant, style)}
+				>
+					{loading ? <Loader aria-label="Loading" size={14} /> : icon}
+					{children ?? render.props.children}
+				</ButtonPrimitive>
+			</ButtonTooltip>
 		);
 	}
 
 	const shape = isIconSize(size) ? "square" : "base";
-	const accessibleName =
-		props["aria-label"] ??
-		(typeof title === "string" ? title : undefined) ??
-		(shape === "square" && typeof children === "string" ? children : undefined);
-	const tooltipTitle =
-		typeof title === "string" || typeof title === "number"
-			? String(title)
-			: undefined;
 	if (
 		import.meta.env.DEV &&
 		shape === "square" &&
@@ -318,57 +353,59 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 
 	if (shape === "square") {
 		return (
-			<KumoButton
-				{...props}
-				ref={ref}
-				aria-label={accessibleName as string}
-				className={cn(
-					COARSE_TOUCH_TARGET,
-					PRODUCT_SIZE_CLASS[size],
-					ICON_BUTTON_CLASS,
-					variant === "ghost" &&
-						"focus-visible:bg-kumo-tint not-disabled:active:bg-kumo-tint",
-					className,
-				)}
-				data-icon-only="true"
-				data-slot="button"
-				icon={icon}
-				loading={loading}
-				shape="square"
-				size={SIZE_MAP[size]}
-				style={tedixEmphasisStyle(variant, style)}
-				title={tooltipTitle}
-				variant={VARIANT_MAP[variant]}
-			>
-				{children}
-			</KumoButton>
+			<ButtonTooltip title={title} disabled={loading || props.disabled}>
+				<KumoButton
+					{...props}
+					ref={ref}
+					aria-label={accessibleName as string}
+					className={cn(
+						COARSE_TOUCH_TARGET,
+						PRODUCT_SIZE_CLASS[size],
+						ICON_BUTTON_CLASS,
+						variant === "ghost" &&
+							"focus-visible:bg-kumo-tint not-disabled:active:bg-kumo-tint",
+						className,
+					)}
+					data-icon-only="true"
+					data-slot="button"
+					icon={icon}
+					loading={loading}
+					shape="square"
+					size={SIZE_MAP[size]}
+					style={tedixEmphasisStyle(variant, style)}
+					variant={VARIANT_MAP[variant]}
+				>
+					{children}
+				</KumoButton>
+			</ButtonTooltip>
 		);
 	}
 
 	return (
-		<KumoButton
-			{...props}
-			ref={ref}
-			aria-label={accessibleName}
-			className={cn(
-				COARSE_TOUCH_TARGET,
-				!multiline && PRODUCT_SIZE_CLASS[size],
-				textSizeClass(size),
-				variant === "link" && LINK_CLASS,
-				multiline && MULTILINE_HEIGHT,
-				className,
-			)}
-			data-slot="button"
-			icon={icon}
-			loading={loading}
-			shape="base"
-			size={SIZE_MAP[size]}
-			style={tedixEmphasisStyle(variant, style)}
-			title={tooltipTitle}
-			variant={VARIANT_MAP[variant]}
-		>
-			{children}
-		</KumoButton>
+		<ButtonTooltip title={title} disabled={loading || props.disabled}>
+			<KumoButton
+				{...props}
+				ref={ref}
+				aria-label={accessibleName}
+				className={cn(
+					COARSE_TOUCH_TARGET,
+					!multiline && PRODUCT_SIZE_CLASS[size],
+					textSizeClass(size),
+					variant === "link" && LINK_CLASS,
+					multiline && MULTILINE_HEIGHT,
+					className,
+				)}
+				data-slot="button"
+				icon={icon}
+				loading={loading}
+				shape="base"
+				size={SIZE_MAP[size]}
+				style={tedixEmphasisStyle(variant, style)}
+				variant={VARIANT_MAP[variant]}
+			>
+				{children}
+			</KumoButton>
+		</ButtonTooltip>
 	);
 });
 

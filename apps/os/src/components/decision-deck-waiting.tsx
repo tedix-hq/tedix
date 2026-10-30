@@ -1,4 +1,5 @@
 import { Badge } from "@/components/kumo/badge";
+import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { relativeTime, shortDeadline } from "@/lib/time";
@@ -36,10 +37,12 @@ export function DeckWaitingList({
 					row.project === "Unfiled" ? null : projectLabel(row.project);
 				return (
 					<li key={row.id}>
-						<button
+						<Button
 							type="button"
+							variant="outline"
+							multiline
 							onClick={() => onOpen(row.id)}
-							className="flex w-full min-w-0 flex-col gap-1 rounded-2xl border border-kumo-line bg-kumo-elevated p-4 text-left transition-colors hover:bg-kumo-tint"
+							className="w-full min-w-0 flex-col items-stretch gap-1 p-4 text-left whitespace-normal"
 						>
 							<span className="flex min-w-0 items-baseline justify-between gap-2">
 								<Text
@@ -87,7 +90,7 @@ export function DeckWaitingList({
 									</Text>
 								</span>
 							)}
-						</button>
+						</Button>
 					</li>
 				);
 			})}

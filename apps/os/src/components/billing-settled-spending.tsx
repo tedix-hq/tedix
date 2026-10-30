@@ -1,10 +1,10 @@
 import { BillingSectionHeader } from "@/components/billing-section-header";
 import { Link } from "@/components/kumo/link";
-import { CaretRight } from "@phosphor-icons/react";
+
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import type { BillingInferenceSpending } from "@tedix/api-contract/schemas/billing-spending";
 import { useQuery } from "@tanstack/react-query";
@@ -71,15 +71,10 @@ export function SettledSpendingRows({
 										"Charges without a linked run"
 									)}
 									<Collapsible className="mt-2">
-										<CollapsibleTrigger className="group/disclosure">
-											<CaretRight
-												size={14}
-												aria-hidden
-												className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-											/>
+										<CollapsibleDefaultTrigger className="group/disclosure">
 											{group.calls.length} call receipts
-										</CollapsibleTrigger>
-										<CollapsibleContent keepMounted>
+										</CollapsibleDefaultTrigger>
+										<CollapsibleDefaultContent keepMounted>
 											{group.calls.map((call) => (
 												<div
 													key={call.id}
@@ -101,7 +96,7 @@ export function SettledSpendingRows({
 													price {call.rateVersionId ?? "unavailable"}
 												</div>
 											))}
-										</CollapsibleContent>
+										</CollapsibleDefaultContent>
 									</Collapsible>
 								</TableCell>
 								<TableCell>

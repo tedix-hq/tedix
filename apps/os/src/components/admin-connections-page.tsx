@@ -36,8 +36,8 @@ import {
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	Empty,
@@ -908,12 +908,14 @@ export function AdminConnectionsPage({
 					)}
 					{pendingConnect?.requestedScopes?.length ? (
 						<Collapsible>
-							<CollapsibleTrigger className="w-fit">Details</CollapsibleTrigger>
-							<CollapsibleContent>
+							<CollapsibleDefaultTrigger className="w-fit">
+								Details
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
 								<Text role="label" tone="secondary" className="pt-2">
 									OAuth scopes: {pendingConnect.requestedScopes.join(", ")}
 								</Text>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					) : null}
 					{!canConfirmConnect && (

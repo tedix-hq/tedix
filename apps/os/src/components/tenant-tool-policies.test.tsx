@@ -1,3 +1,5 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -75,6 +77,7 @@ describe("tenant tool policies", () => {
 		const markup = renderToStaticMarkup(
 			<MachineInventoryPicker
 				{...base}
+				value={JSON.stringify(["p", "s", "c", "server"])}
 				loading={false}
 				error={false}
 				items={[
@@ -89,7 +92,66 @@ describe("tenant tool policies", () => {
 			/>,
 		);
 		expect(markup).toContain('for="native-machine-session"');
+		expect(markup).toContain('id="native-machine-session"');
+		expect(markup).toContain('role="combobox"');
 		expect(markup).toContain("Research agent");
 		expect(markup).toContain("Refresh machine sessions");
+	});
+	it("selects the exact machine registration and disables selection while unavailable", async () => {
+		(
+			globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT = true;
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		const onChange = vi.fn();
+		const props = {
+			items: [
+				{
+					principalId: "p",
+					principalName: "Research agent",
+					sessionId: "s",
+					clientRecordId: "c",
+					mcpServerId: "server",
+				},
+			],
+			value: "",
+			onChange,
+			onRefresh: vi.fn(),
+		};
+		try {
+			await act(async () =>
+				root.render(
+					<MachineInventoryPicker {...props} loading={false} error={false} />,
+				),
+			);
+			const trigger =
+				container.querySelector<HTMLButtonElement>("[role=combobox]")!;
+			expect(trigger.disabled).toBe(false);
+			await act(async () => trigger.click());
+			const option = [
+				...document.querySelectorAll<HTMLElement>("[role=option]"),
+			].find((item) => item.textContent?.includes("Research agent"));
+			expect(option).toBeTruthy();
+			await act(async () => option!.click());
+			expect(onChange).toHaveBeenCalledWith(
+				JSON.stringify(["p", "s", "c", "server"]),
+			);
+			for (const state of [
+				{ loading: true, error: false },
+				{ loading: false, error: true },
+			]) {
+				await act(async () =>
+					root.render(<MachineInventoryPicker {...props} {...state} />),
+				);
+				expect(
+					container.querySelector<HTMLButtonElement>("[role=combobox]")!
+						.disabled,
+				).toBe(true);
+			}
+		} finally {
+			await act(async () => root.unmount());
+			container.remove();
+		}
 	});
 });

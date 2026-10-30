@@ -477,13 +477,6 @@
 		stroke-dashoffset: 0;
 	}
 }
-.fd-disclosure-chevron {
-	transition: rotate var(--fd-press-duration);
-}
-.fd-disclosure [aria-expanded="true"] .fd-disclosure-chevron {
-	rotate: 90deg;
-}
-
 .fd-work-home {
 	max-width: 64rem;
 }

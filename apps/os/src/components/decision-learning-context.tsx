@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { createContext } from "react";
 import type { scoreLearning } from "@tedix/api-contract/utils/decision-learning";
@@ -36,19 +35,14 @@ export function DecisionLearningWhy({
 			)}
 			{evidence.length > 0 && (
 				<Collapsible>
-					<CollapsibleTrigger className="group/disclosure">
-						<CaretRight
-							size={14}
-							aria-hidden
-							className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-						/>
+					<CollapsibleDefaultTrigger className="group/disclosure">
 						{copy.evidence}
-					</CollapsibleTrigger>
-					<CollapsibleContent keepMounted>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
 						<Text role="label" className="break-all font-mono">
 							{evidence.join(" · ")}
 						</Text>
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 		</div>

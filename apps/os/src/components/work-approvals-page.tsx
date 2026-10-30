@@ -1,4 +1,4 @@
-import { CaretRight, ChatCircle, Check, Pulse, X } from "@phosphor-icons/react";
+import { ChatCircle, Check, Pulse, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import * as z from "zod";
@@ -22,8 +22,8 @@ import { Button } from "@/components/kumo/button";
 import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { DateTimePicker } from "@/components/kumo/date-picker";
 import { FormField } from "@/components/kumo/forms/form-field";
@@ -435,15 +435,10 @@ function ApprovalCard({
 				) : null}
 			</div>
 			<Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
-				<CollapsibleTrigger className="group/disclosure -mx-2 w-fit px-2 text-kumo-subtle">
-					<CaretRight
-						aria-hidden
-						className="transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-						size={12}
-					/>
+				<CollapsibleDefaultTrigger className="group/disclosure -mx-2 w-fit px-2 text-kumo-subtle">
 					Details
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<dl className="m-0 mt-2 grid gap-2 type-tedix-label">
 						{[
 							["What it does", item.what],
@@ -485,7 +480,7 @@ function ApprovalCard({
 							)}
 						</div>
 					) : null}
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</Surface>
 	);
@@ -676,10 +671,10 @@ function WorkStartCards({ rows }: { rows: readonly WorkStartRow[] }) {
 							</Button>
 						</div>
 						<Collapsible>
-							<CollapsibleTrigger className="-mx-2 w-fit px-2 text-kumo-subtle">
+							<CollapsibleDefaultTrigger className="-mx-2 w-fit px-2 text-kumo-subtle">
 								Details
-							</CollapsibleTrigger>
-							<CollapsibleContent>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
 								<CodeBlock
 									className="mt-2 max-h-64 overflow-auto"
 									code={JSON.stringify(
@@ -694,7 +689,7 @@ function WorkStartCards({ rows }: { rows: readonly WorkStartRow[] }) {
 									lang="json"
 									showCopyButton
 								/>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					</Surface>
 				))}

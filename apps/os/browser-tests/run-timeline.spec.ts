@@ -364,9 +364,46 @@ try {
 				"https://example.com/a/very/long/thread?source=search",
 			);
 			await drawer.getByText("Saved search excerpt", { exact: true }).waitFor();
+			await page.emulateMedia({ reducedMotion: "reduce" });
 			await drawer
 				.getByRole("button", { name: "Technical details", exact: true })
 				.click();
+			const technicalTrigger = drawer.getByRole("button", {
+				name: "Technical details",
+				exact: true,
+			});
+			assert.equal(
+				await technicalTrigger.getAttribute("data-kumo-part"),
+				"default-trigger",
+			);
+			assert.equal(await technicalTrigger.locator("svg").count(), 1);
+			assert(
+				await technicalTrigger
+					.locator("svg")
+					.evaluate(
+						(element) =>
+							parseFloat(getComputedStyle(element).transitionDuration) <=
+							0.00001,
+					),
+				"disclosure caret respects reduced motion",
+			);
+			assert(
+				await technicalTrigger.evaluate((element) => {
+					const id = element.getAttribute("aria-controls");
+					return Boolean(id && document.getElementById(id));
+				}),
+				"disclosure controls the actual mounted panel",
+			);
+			await technicalTrigger.press("Enter");
+			assert.equal(
+				await technicalTrigger.getAttribute("aria-expanded"),
+				"false",
+			);
+			await technicalTrigger.press("Enter");
+			assert.equal(
+				await technicalTrigger.getAttribute("aria-expanded"),
+				"true",
+			);
 			await drawer.locator("pre").waitFor();
 			await drawer.evaluate(async (element) => {
 				await Promise.all(

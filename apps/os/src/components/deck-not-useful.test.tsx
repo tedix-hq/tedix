@@ -151,7 +151,16 @@ describe("DeckCurationFooter", () => {
 		expect(host.querySelector('[role="alert"]')?.textContent).toContain(
 			"has not run for over 2 h",
 		);
-		await act(async () => buttons()[0]!.click());
+		const rules = buttons().find((button) =>
+			button.textContent?.includes("Learned rules"),
+		)!;
+		expect(rules.getAttribute("aria-expanded")).toBe("false");
+		await act(async () => rules.click());
+		expect(rules.getAttribute("aria-expanded")).toBe("true");
+		const removeRule = buttons().find(
+			(button) => button.textContent?.trim() === "Remove",
+		)!;
+		await act(async () => removeRule.click());
 		expect(api.removeDeckRule).toHaveBeenCalledWith({ ruleId: "rule-1" });
 	});
 });

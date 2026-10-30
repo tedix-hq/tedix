@@ -1,4 +1,4 @@
-import { Brain, CaretDown, Package } from "@phosphor-icons/react";
+import { Brain, Package } from "@phosphor-icons/react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import type {
 	SkillRun,
@@ -19,10 +19,11 @@ import {
 	AlertTitle,
 } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
+import { CodeBlock } from "@/components/kumo/code";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Empty } from "@/components/kumo/empty";
 import { IconFrame } from "@/components/kumo/icon-frame";
@@ -197,15 +198,12 @@ export function RunErrorAlert({ error }: { error: string }) {
 			</AlertDescription>
 			{error !== summary && (
 				<Collapsible>
-					<CollapsibleTrigger className="-mx-2 w-fit">
-						<CaretDown size={14} aria-hidden />
+					<CollapsibleDefaultTrigger className="-mx-2 w-fit">
 						Details
-					</CollapsibleTrigger>
-					<CollapsibleContent keepMounted>
-						<pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
-							{error}
-						</pre>
-					</CollapsibleContent>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
+						<CodeBlock code={error} lang="text" />
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
 		</Alert>
@@ -449,11 +447,10 @@ export function RunTechnicalSection({
 	return (
 		<PageSection>
 			<Collapsible>
-				<CollapsibleTrigger className="-mx-2 w-fit">
-					<CaretDown size={14} aria-hidden />
+				<CollapsibleDefaultTrigger className="-mx-2 w-fit">
 					Technical details
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<div className="grid gap-2 pt-2">
 						<Text as="p" role="label" tone="secondary" className="m-0">
 							Execution details, the last status check, and whether this run
@@ -480,7 +477,7 @@ export function RunTechnicalSection({
 							</Text>
 						)}
 					</div>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</PageSection>
 	);

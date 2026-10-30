@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -290,20 +289,15 @@ export function WorkstationInspectionPanel({
 					)}
 					{!selected.data.binary ? (
 						<Collapsible className="mt-2">
-							<CollapsibleTrigger className="group/disclosure">
-								<CaretRight
-									size={14}
-									aria-hidden
-									className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-								/>
+							<CollapsibleDefaultTrigger className="group/disclosure">
 								Raw fallback
-							</CollapsibleTrigger>
-							<CollapsibleContent keepMounted>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent keepMounted>
 								<pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs">
 									{decodeWorkstationInspectionText(selected.data.dataBase64) ??
 										"Content is not valid UTF-8."}
 								</pre>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					) : null}
 				</div>

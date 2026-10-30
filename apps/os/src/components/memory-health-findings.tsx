@@ -1,7 +1,7 @@
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "./kumo/collapsible";
 import { Info } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -253,10 +253,10 @@ function SampleGroup({ samples }: { samples: MemoryHealthFindingSample[] }) {
 				{samples[0]!.text}
 			</Text>
 			<Collapsible>
-				<CollapsibleTrigger className="min-h-11">
+				<CollapsibleDefaultTrigger className="min-h-11">
 					{samples.length} sources
-				</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<ul className="m-0 list-none divide-y divide-kumo-hairline p-0">
 						{samples.map((sample) => (
 							<li key={sample.factId} className="grid gap-1 py-2">
@@ -273,7 +273,7 @@ function SampleGroup({ samples }: { samples: MemoryHealthFindingSample[] }) {
 							</li>
 						))}
 					</ul>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</li>
 	);

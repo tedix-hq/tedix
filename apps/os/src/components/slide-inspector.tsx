@@ -1,7 +1,6 @@
 import {
 	ArrowDown,
 	ArrowUp,
-	CaretRight,
 	Copy,
 	Crop,
 	CursorClick,
@@ -18,8 +17,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Switch } from "@/components/kumo/switch";
@@ -635,15 +634,10 @@ export function SlideInspector({
 						onOpenChange={setPaletteOpen}
 						className="slide-inspector-section"
 					>
-						<CollapsibleTrigger className="slide-inspector-heading slide-inspector-toggle w-full">
-							<CaretRight
-								size={11}
-								className="slide-inspector-caret"
-								data-open={paletteOpen || undefined}
-							/>
+						<CollapsibleDefaultTrigger className="slide-inspector-heading slide-inspector-toggle w-full">
 							Add component
-						</CollapsibleTrigger>
-						<CollapsibleContent>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
 							<div className="pt-1">
 								<SlideComponentPalette
 									disabled={disabled}
@@ -651,7 +645,7 @@ export function SlideInspector({
 									onUploadImage={onUploadImage}
 								/>
 							</div>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				) : null}
 				{element ? null : slideSection}
@@ -716,15 +710,10 @@ export function SlideInspector({
 							/>
 						)}
 						<Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-							<CollapsibleTrigger className="w-full">
-								<CaretRight
-									size={11}
-									className="slide-inspector-caret"
-									data-open={advancedOpen || undefined}
-								/>
+							<CollapsibleDefaultTrigger className="w-full">
 								Advanced
-							</CollapsibleTrigger>
-							<CollapsibleContent>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent>
 								<div className="grid grid-cols-2 gap-2 pt-2">
 									{fields.advanced.map((field) => (
 										<InspectorField
@@ -736,7 +725,7 @@ export function SlideInspector({
 										/>
 									))}
 								</div>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 					</section>
 				) : (

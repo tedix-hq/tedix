@@ -65,16 +65,18 @@ export function CardReviewBrowser({
 				</dl>
 			) : (
 				cards.map((item) => (
-					<button
+					<Button
 						key={item.key}
 						type="button"
+						variant="outline"
+						multiline
 						onClick={() => setSelected(item.key)}
-						className="min-w-0 rounded-2xl border border-kumo-line p-4 text-left break-words"
+						className="w-full min-w-0 flex-col items-stretch gap-1 p-4 text-left break-words whitespace-normal"
 					>
 						#{item.number} · {isOpen(item) ? "Open" : "Decided"} ·{" "}
 						{item.sourceLabel} · {item.sheetTitle}
-						<div>{item.action || item.why || item.sourceText}</div>
-					</button>
+						<span>{item.action || item.why || item.sourceText}</span>
+					</Button>
 				))
 			)}
 		</section>

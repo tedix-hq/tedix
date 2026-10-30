@@ -5,7 +5,7 @@
  */
 
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
-import { ArrowSquareOut, CaretDown } from "@phosphor-icons/react";
+import { ArrowSquareOut } from "@phosphor-icons/react";
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
@@ -18,8 +18,8 @@ import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 
 interface AdminPortalSectionProps {
@@ -88,19 +88,12 @@ export function AdminPortalSection({
 				</div>
 
 				<Collapsible open={isOpen} onOpenChange={setIsOpen}>
-					<CollapsibleTrigger
-						render={
-							<Button variant="ghost" className="w-full justify-between p-4" />
-						}
-					>
+					<CollapsibleDefaultTrigger>
 						{/* Button already forces type-tedix-body !font-medium at this
 						size, so the span's own type utilities were dead. */}
 						<span>Embed administration portal (advanced)</span>
-						<CaretDown
-							className={`h-4 w-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
-						/>
-					</CollapsibleTrigger>
-					<CollapsibleContent>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
 						{descopeTenantId ? (
 							<Surface tier="panel" className="mt-4 overflow-hidden">
 								<iframe
@@ -118,7 +111,7 @@ export function AdminPortalSection({
 								</EmptyDescription>
 							</Empty>
 						)}
-					</CollapsibleContent>
+					</CollapsibleDefaultContent>
 				</Collapsible>
 			</SettingsSectionContent>
 		</SettingsSection>

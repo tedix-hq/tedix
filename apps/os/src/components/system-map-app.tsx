@@ -5,8 +5,8 @@ import { LoadError } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import {
@@ -118,15 +118,15 @@ function TediRow({ tedi, map }: { tedi: SystemMapNode; map: SystemMap }) {
 	return (
 		<li className="px-2 py-1" data-testid="system-map-tedi">
 			<Collapsible>
-				<CollapsibleTrigger className="w-full justify-between">
+				<CollapsibleDefaultTrigger className="w-full justify-between">
 					<span className="font-medium text-kumo-default">{tedi.label}</span>
 					<span className="text-kumo-subtle">
 						{skills.length} {skills.length === 1 ? "skill" : "skills"} ·{" "}
 						{connectionCount}{" "}
 						{connectionCount === 1 ? "connection" : "connections"}
 					</span>
-				</CollapsibleTrigger>
-				<CollapsibleContent>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent>
 					<div className="grid gap-3 px-2 py-3">
 						<Link href={nodeHref(tedi)}>Open {tedi.label}</Link>
 						{skills.length === 0 ? (
@@ -177,7 +177,7 @@ function TediRow({ tedi, map }: { tedi: SystemMapNode; map: SystemMap }) {
 							</div>
 						)}
 					</div>
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</li>
 	);

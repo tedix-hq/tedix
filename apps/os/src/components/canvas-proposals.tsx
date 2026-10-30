@@ -1,8 +1,7 @@
-import { CaretRight } from "@phosphor-icons/react";
 import {
 	Collapsible,
-	CollapsibleTrigger,
-	CollapsibleContent,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import type {
 	OsCollaborationDocumentType,
@@ -215,15 +214,10 @@ export function ProposalDiff({
 				</Text>
 			)}
 			<Collapsible className="type-tedix-control">
-				<CollapsibleTrigger className="group/disclosure">
-					<CaretRight
-						size={14}
-						aria-hidden
-						className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-					/>
+				<CollapsibleDefaultTrigger className="group/disclosure">
 					Compare changes
-				</CollapsibleTrigger>
-				<CollapsibleContent keepMounted>
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
 					<div
 						aria-label="Proposed change"
 						className="max-h-80 overflow-auto rounded-lg border border-kumo-line bg-kumo-base font-mono text-xs leading-5"
@@ -237,7 +231,7 @@ export function ProposalDiff({
 							{`Show ${collapsed.hiddenLines} more lines`}
 						</Button>
 					)}
-				</CollapsibleContent>
+				</CollapsibleDefaultContent>
 			</Collapsible>
 		</div>
 	);
@@ -404,15 +398,10 @@ export function CanvasProposals({
 								` · applied as version ${proposal.resultRevision}`}
 						</Text>
 						<Collapsible className="text-kumo-subtle type-tedix-control">
-							<CollapsibleTrigger className="group/disclosure">
-								<CaretRight
-									size={14}
-									aria-hidden
-									className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-								/>
+							<CollapsibleDefaultTrigger className="group/disclosure">
 								Technical details
-							</CollapsibleTrigger>
-							<CollapsibleContent keepMounted>
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent keepMounted>
 								<dl className="mt-2 grid gap-1 break-all">
 									<dt>Source</dt>
 									<dd className="m-0">
@@ -423,7 +412,7 @@ export function CanvasProposals({
 									<dt>Preview number</dt>
 									<dd className="m-0">{proposal.sequence}</dd>
 								</dl>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 						{baseText === null ? (
 							/*
@@ -433,22 +422,17 @@ export function CanvasProposals({
 							 * truncated — the copy button is how an operator gets it out.
 							 */
 							<Collapsible className="type-tedix-control">
-								<CollapsibleTrigger className="group/disclosure">
-									<CaretRight
-										size={14}
-										aria-hidden
-										className="shrink-0 transition-transform group-data-[panel-open]/disclosure:rotate-90 motion-reduce:transition-none"
-									/>
+								<CollapsibleDefaultTrigger className="group/disclosure">
 									View suggested content
-								</CollapsibleTrigger>
-								<CollapsibleContent keepMounted>
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent keepMounted>
 									<CodeBlock
 										className="max-h-56 overflow-auto"
 										code={previewText(proposal)}
 										lang="json"
 										showCopyButton
 									/>
-								</CollapsibleContent>
+								</CollapsibleDefaultContent>
 							</Collapsible>
 						) : (
 							<ProposalDiff

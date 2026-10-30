@@ -5,7 +5,6 @@ import { useStore } from "@tanstack/react-form";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	ArrowsClockwise,
-	CaretDown,
 	ChatCircle,
 	CheckCircle,
 	RocketLaunch,
@@ -28,8 +27,8 @@ import {
 } from "@/components/kumo/card";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
@@ -1001,15 +1000,12 @@ export function CreateTediPage({
 						) : null}
 
 						<Collapsible open={advanced} onOpenChange={onAdvancedChange}>
-							<CollapsibleTrigger className="flex min-h-9 w-full items-center gap-2 rounded-lg border border-kumo-line px-3 py-2 text-left hover:bg-kumo-tint coarse:min-h-11">
+							<CollapsibleDefaultTrigger className="flex min-h-9 w-full items-center gap-2 rounded-lg border border-kumo-line px-3 py-2 text-left hover:bg-kumo-tint coarse:min-h-11">
 								<Text as="span" role="body" weight="medium">
 									Advanced options
 								</Text>
-								<CaretDown
-									className={`ml-auto h-4 w-4 text-kumo-subtle transition-transform ${advanced ? "rotate-180" : "rotate-0"}`}
-								/>
-							</CollapsibleTrigger>
-							<CollapsibleContent className="pt-4">
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent className="pt-4">
 								<div className="space-y-4">
 									<Textarea
 										label="Personality"
@@ -1057,7 +1053,7 @@ export function CreateTediPage({
 										</KumoSelect>
 									</div>
 								</div>
-							</CollapsibleContent>
+							</CollapsibleDefaultContent>
 						</Collapsible>
 
 						<section

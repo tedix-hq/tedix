@@ -25,8 +25,8 @@ import {
 import { Button } from "@/components/kumo/button";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import {
 	Card,
@@ -462,14 +462,18 @@ export function RunDetailPage() {
 
 					<RunTimeline runId={runId} />
 					<Collapsible>
-						<CollapsibleTrigger>Step list and evidence</CollapsibleTrigger>
-						<CollapsibleContent className="grid gap-6">
-							<RunEvidenceSections
-								inspection={inspect.data}
-								artifacts={artifacts}
-								rationale={rationale}
-							/>
-						</CollapsibleContent>
+						<CollapsibleDefaultTrigger>
+							Step list and evidence
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
+							<div className="grid gap-6">
+								<RunEvidenceSections
+									inspection={inspect.data}
+									artifacts={artifacts}
+									rationale={rationale}
+								/>
+							</div>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 					<RunCostsSection run={run} costs={costs} />
 					<RunTechnicalSection run={run} definitionHealth={definitionHealth} />

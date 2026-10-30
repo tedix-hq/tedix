@@ -2042,10 +2042,14 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain("Weekly report");
 		expect(container.querySelector("[data-connections-panel]")).not.toBeNull();
 		const accountConnections = container.querySelector(
-			"details.canvas-account-connections",
+			".canvas-account-connections",
 		);
 		expect(accountConnections).not.toBeNull();
-		expect(accountConnections?.hasAttribute("open")).toBe(false);
+		expect(
+			accountConnections
+				?.querySelector("button")
+				?.getAttribute("aria-expanded"),
+		).toBe("false");
 		expect(accountConnections?.textContent).toContain(
 			"then attach the resources you need",
 		);
@@ -2351,10 +2355,14 @@ describe("CanvasPage listing", () => {
 			).not.toBeNull(),
 		);
 		const accountConnections = container.querySelector(
-			"details.canvas-account-connections",
+			".canvas-account-connections",
 		);
 		expect(accountConnections).not.toBeNull();
-		expect(accountConnections?.hasAttribute("open")).toBe(false);
+		expect(
+			accountConnections
+				?.querySelector("button")
+				?.getAttribute("aria-expanded"),
+		).toBe("false");
 		expect(accountConnections?.textContent).toContain(
 			"then attach the resources you need",
 		);
@@ -2367,7 +2375,11 @@ describe("CanvasPage listing", () => {
 			).toContain("This app uses no external resources."),
 		);
 		click(findButton(container, "Connect an app"));
-		expect(accountConnections?.hasAttribute("open")).toBe(true);
+		expect(
+			accountConnections
+				?.querySelector("button")
+				?.getAttribute("aria-expanded"),
+		).toBe("true");
 		expect(
 			container.querySelector(
 				'.canvas-secondary-view > [data-slot="section-header"]',

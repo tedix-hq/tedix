@@ -1,6 +1,13 @@
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import { useCallback, useEffect, useState } from "react";
 import type { OsReviewFeedback } from "@tedix/api-contract/contracts/os-shares";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
+import { useOsFormattingPreferences } from "@/lib/format";
+import { absoluteTime, relativeTime } from "@/lib/time";
 
 type Round = { id: string; title: string; createdAt: string };
 
@@ -16,6 +23,7 @@ const DECISION_LABEL: Record<OsReviewFeedback["decision"], string> = {
  * round exists, so an owner who never sent one sees no empty state.
  */
 export function ReviewFeedbackSummary({ shareId }: { shareId: string }) {
+	useOsFormattingPreferences();
 	const [titles, setTitles] = useState<Record<string, string>>({});
 	const [rows, setRows] = useState<OsReviewFeedback[] | null>(null);
 	const [rounds, setRounds] = useState<Round[]>([]);
@@ -68,9 +76,7 @@ export function ReviewFeedbackSummary({ shareId }: { shareId: string }) {
 								value: round.id,
 								label: (
 									<span title={round.title}>
-										{index === 0
-											? "Latest"
-											: new Date(round.createdAt).toLocaleDateString()}
+										{index === 0 ? "Latest" : relativeTime(round.createdAt)}
 									</span>
 								),
 							}))}
@@ -84,17 +90,22 @@ export function ReviewFeedbackSummary({ shareId }: { shareId: string }) {
 				</p>
 			) : (
 				rows.map((row) => (
-					<details key={`${row.cardId}:${row.reviewerId}`} className="text-sm">
-						<summary className="cursor-pointer">
+					<Collapsible
+						key={`${row.cardId}:${row.reviewerId}`}
+						className="text-sm"
+					>
+						<CollapsibleDefaultTrigger>
 							{titles[row.cardId]} · {DECISION_LABEL[row.decision]} ·{" "}
-							{new Date(row.updatedAt).toLocaleString()}
-						</summary>
-						<p className="whitespace-pre-wrap">{row.reason}</p>
-						<p className="whitespace-pre-wrap">{row.editedReply}</p>
-						<small className="text-kumo-subtle">
-							Reviewer ID: {row.reviewerId}
-						</small>
-					</details>
+							{absoluteTime(row.updatedAt)}
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
+							<p className="whitespace-pre-wrap">{row.reason}</p>
+							<p className="whitespace-pre-wrap">{row.editedReply}</p>
+							<small className="text-kumo-subtle">
+								Reviewer ID: {row.reviewerId}
+							</small>
+						</CollapsibleDefaultContent>
+					</Collapsible>
 				))
 			)}
 		</div>

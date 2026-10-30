@@ -23,6 +23,8 @@ import {
 	Collapsible,
 	CollapsibleContent,
 	CollapsibleTrigger,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import { Collection, PageSection } from "@/components/kumo/page";
@@ -313,20 +315,13 @@ export function AccountList(props: AccountListProps) {
 			{available.length > 0 && (
 				<PageSection aria-label="Available to connect">
 					<Collapsible open={availableOpen} onOpenChange={setShowAvailable}>
-						<CollapsibleTrigger className="-ms-2">
-							<CaretDown
-								aria-hidden
-								className={cn(
-									"size-3.5 transition-transform motion-reduce:transition-none",
-									!availableOpen && "-rotate-90",
-								)}
-							/>
+						<CollapsibleDefaultTrigger className="-ms-2">
 							Available to connect
 							<span className="text-kumo-subtle tabular-nums">
 								{available.length}
 							</span>
-						</CollapsibleTrigger>
-						<CollapsibleContent>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
 							<Collection aria-label="Available to connect" className="mt-2">
 								{available.map((group) => (
 									<AvailableRow
@@ -336,7 +331,7 @@ export function AccountList(props: AccountListProps) {
 									/>
 								))}
 							</Collection>
-						</CollapsibleContent>
+						</CollapsibleDefaultContent>
 					</Collapsible>
 				</PageSection>
 			)}
@@ -724,17 +719,10 @@ function MoreDetails({
 	];
 	return (
 		<Collapsible open={open} onOpenChange={setOpen}>
-			<CollapsibleTrigger className="-ms-2 w-fit">
-				<CaretDown
-					aria-hidden
-					className={cn(
-						"size-3.5 transition-transform motion-reduce:transition-none",
-						!open && "-rotate-90",
-					)}
-				/>
+			<CollapsibleDefaultTrigger className="-ms-2 w-fit">
 				Details
-			</CollapsibleTrigger>
-			<CollapsibleContent>
+			</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent>
 				<div className="grid gap-4 pt-2">
 					<ConnectionToolSummary
 						providerName={name}
@@ -1012,7 +1000,7 @@ function MoreDetails({
 						)}
 					</dl>
 				</div>
-			</CollapsibleContent>
+			</CollapsibleDefaultContent>
 		</Collapsible>
 	);
 }

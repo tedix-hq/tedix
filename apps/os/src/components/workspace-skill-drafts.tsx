@@ -1,3 +1,8 @@
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SkillEntry } from "@tedix/api-contract/schemas/cognitive";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
@@ -22,6 +27,7 @@ import {
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { Input } from "@/components/kumo/input";
+import { CodeBlock } from "@/components/kumo/code";
 import { SectionEyebrow } from "@/components/section-eyebrow";
 import { SkillWorkflowDraftDialog } from "@/components/skill-workflow-drafts";
 import { osApi } from "@/lib/api";
@@ -365,16 +371,20 @@ function WorkspaceSkillDraftEditor({
 								onChange={(event) => setReason(event.target.value)}
 							/>
 						</label>
-						<details>
-							<summary>Review changes from version {source.revision}</summary>
-							<DraftDiff base={source.content} next={content} />
-							{source.files?.["scripts/workflow.ts"] !== undefined && (
-								<DraftDiff
-									base={source.files["scripts/workflow.ts"]}
-									next={workflow}
-								/>
-							)}
-						</details>
+						<Collapsible>
+							<CollapsibleDefaultTrigger>
+								Review changes from version {source.revision}
+							</CollapsibleDefaultTrigger>
+							<CollapsibleDefaultContent keepMounted>
+								<DraftDiff base={source.content} next={content} />
+								{source.files?.["scripts/workflow.ts"] !== undefined && (
+									<DraftDiff
+										base={source.files["scripts/workflow.ts"]}
+										next={workflow}
+									/>
+								)}
+							</CollapsibleDefaultContent>
+						</Collapsible>
 						{propose.isError && (
 							<div role="alert" className="grid gap-1">
 								<Text role="label" tone="error" className="m-0">
@@ -446,12 +456,9 @@ export function workspaceSkillDraftDiff(base: string, next: string): string {
 
 function DraftDiff({ base, next }: { base: string; next: string }) {
 	return (
-		<pre
-			className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded border p-3 text-xs"
-			aria-label="Draft changes"
-		>
-			{workspaceSkillDraftDiff(base, next)}
-		</pre>
+		<div className="max-h-72 min-w-0 overflow-auto" aria-label="Draft changes">
+			<CodeBlock code={workspaceSkillDraftDiff(base, next)} lang="diff" />
+		</div>
 	);
 }
 
@@ -527,12 +534,14 @@ function WorkspaceSkillDraftReviewBody(target: {
 			<Text>{proposal.reason}</Text>
 			<Text role="label">Receipt: {proposal.id}</Text>
 			<DraftDiff base={proposal.baseContent} next={proposal.content} />
-			<details>
-				<summary>Full proposed instructions</summary>
-				<pre className="whitespace-pre-wrap break-words text-xs">
-					{proposal.content}
-				</pre>
-			</details>
+			<Collapsible>
+				<CollapsibleDefaultTrigger>
+					Full proposed instructions
+				</CollapsibleDefaultTrigger>
+				<CollapsibleDefaultContent keepMounted>
+					<CodeBlock code={proposal.content} lang="markdown" />
+				</CollapsibleDefaultContent>
+			</Collapsible>
 			{proposal.files?.["scripts/workflow.ts"] !== undefined && (
 				<>
 					<Text role="label">Automation changes</Text>
@@ -540,12 +549,17 @@ function WorkspaceSkillDraftReviewBody(target: {
 						base={proposal.baseFiles?.["scripts/workflow.ts"] ?? ""}
 						next={proposal.files["scripts/workflow.ts"]}
 					/>
-					<details>
-						<summary>Full proposed automation</summary>
-						<pre className="whitespace-pre-wrap break-words text-xs">
-							{proposal.files["scripts/workflow.ts"]}
-						</pre>
-					</details>
+					<Collapsible>
+						<CollapsibleDefaultTrigger>
+							Full proposed automation
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
+							<CodeBlock
+								code={proposal.files["scripts/workflow.ts"]}
+								lang="typescript"
+							/>
+						</CollapsibleDefaultContent>
+					</Collapsible>
 				</>
 			)}
 			{detail.data?.canWithdraw && (
@@ -720,48 +734,52 @@ export function WorkspaceSkillDraftPanel({
 				</div>
 			))}
 			{canManage && (
-				<details>
-					<summary>Link an existing skill</summary>
-					<div className="mt-2 grid gap-2">
-						<Input
-							aria-label="Find existing skill"
-							placeholder="Find a skill by name or slug"
-							value={search}
-							onChange={(event) => {
-								setSearch(event.target.value);
-								setSkillId("");
-							}}
-						/>
-						<Select
-							value={skillId}
-							onValueChange={(value) => value && setSkillId(value)}
-						>
-							<SelectTrigger aria-label="Existing workspace skill">
-								<SelectValue placeholder="Choose an existing skill" />
-							</SelectTrigger>
-							<SelectContent>
-								{available.map((skill) => (
-									<SelectItem key={skill.id} value={skill.id}>
-										{skill.title} · {skill.slug} · v{skill.revision}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<Button
-							size="sm"
-							variant="outline"
-							disabled={!skillId || attach.isPending}
-							onClick={() => attach.mutate()}
-						>
-							Link selected skill
-						</Button>
-						{attach.isError && (
-							<Text role="label" tone="error">
-								{attach.error.message}
-							</Text>
-						)}
-					</div>
-				</details>
+				<Collapsible>
+					<CollapsibleDefaultTrigger>
+						Link an existing skill
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
+						<div className="mt-2 grid gap-2">
+							<Input
+								aria-label="Find existing skill"
+								placeholder="Find a skill by name or slug"
+								value={search}
+								onChange={(event) => {
+									setSearch(event.target.value);
+									setSkillId("");
+								}}
+							/>
+							<Select
+								value={skillId}
+								onValueChange={(value) => value && setSkillId(value)}
+							>
+								<SelectTrigger aria-label="Existing workspace skill">
+									<SelectValue placeholder="Choose an existing skill" />
+								</SelectTrigger>
+								<SelectContent>
+									{available.map((skill) => (
+										<SelectItem key={skill.id} value={skill.id}>
+											{skill.title} · {skill.slug} · v{skill.revision}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Button
+								size="sm"
+								variant="outline"
+								disabled={!skillId || attach.isPending}
+								onClick={() => attach.mutate()}
+							>
+								Link selected skill
+							</Button>
+							{attach.isError && (
+								<Text role="label" tone="error">
+									{attach.error.message}
+								</Text>
+							)}
+						</div>
+					</CollapsibleDefaultContent>
+				</Collapsible>
 			)}
 		</section>
 	);

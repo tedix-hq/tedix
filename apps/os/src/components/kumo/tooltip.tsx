@@ -45,9 +45,10 @@ function TooltipContent({
 				className="isolate z-(--tedix-layer-tooltip) max-w-[var(--available-width)]"
 			>
 				<TooltipPrimitive.Popup
+					role="tooltip"
 					data-kumo-component="Tooltip"
 					className={cn(
-						"flex max-w-xs origin-[var(--transform-origin)] flex-col rounded-md bg-kumo-base px-2.5 py-1.5 text-kumo-default type-tedix-control shadow-tedix-floating outline outline-kumo-fill",
+						"flex w-max max-w-[min(20rem,calc(100vw-2rem),var(--available-width))] origin-[var(--transform-origin)] flex-col whitespace-normal rounded-md bg-kumo-base px-2.5 py-1.5 text-left text-kumo-default type-tedix-control shadow-tedix-floating outline outline-kumo-fill wrap-anywhere",
 						"transition-[transform,scale,opacity] duration-tedix-standard ease-tedix-standard motion-reduce:transition-none data-ending-style:scale-90 data-starting-style:scale-90 data-ending-style:opacity-0 data-starting-style:opacity-0 data-[instant]:duration-0",
 						className,
 					)}

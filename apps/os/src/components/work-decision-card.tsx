@@ -24,8 +24,8 @@ import {
 } from "@/components/decision-learning-context";
 import {
 	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
 } from "@/components/kumo/collapsible";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { errorMessage, orpcErrorCode } from "@/lib/orpc-error";
@@ -1072,9 +1072,11 @@ export function WorkDecisionCard({
 																	: stakes!;
 												return (
 													<li key={item} data-context-item={item}>
-														<button
+														<Button
 															type="button"
-															className="fd-context-item"
+															variant="ghost"
+															multiline
+															className="fd-context-item grid max-w-full justify-start whitespace-normal"
 															aria-expanded={
 																item === "source"
 																	? detailsOpen
@@ -1105,7 +1107,7 @@ export function WorkDecisionCard({
 																	{absoluteTime(dueAt!)}
 																</span>
 															)}
-														</button>
+														</Button>
 													</li>
 												);
 											})}
@@ -1573,17 +1575,17 @@ export function WorkDecisionCard({
 											open={whyOpen}
 											onOpenChange={setWhyOpen}
 										>
-											<CollapsibleTrigger>
+											<CollapsibleDefaultTrigger>
 												{decisionText("Why am I seeing this?")}
-											</CollapsibleTrigger>
+											</CollapsibleDefaultTrigger>
 											{whyTarget &&
 												createPortal(
-													<CollapsibleContent className="pt-3 text-kumo-subtle">
+													<CollapsibleDefaultContent className="text-kumo-subtle">
 														{why}
 														{learnedWhy && (
 															<DecisionLearningWhy explanation={learnedWhy} />
 														)}
-													</CollapsibleContent>,
+													</CollapsibleDefaultContent>,
 													whyTarget,
 												)}
 										</Collapsible>

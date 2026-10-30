@@ -1478,14 +1478,6 @@
 	border-top: 1px solid var(--color-kumo-line);
 }
 
-.slide-inspector-caret {
-	transition: transform 160ms ease;
-}
-
-.slide-inspector-caret[data-open] {
-	transform: rotate(90deg);
-}
-
 .slide-inspector-code {
 	font-family: ui-monospace, monospace;
 	font-size: 12px;

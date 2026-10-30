@@ -461,7 +461,7 @@ describe("Decision-capture questions", () => {
 			"Claude Code",
 		);
 		expect(
-			container.querySelector('[data-kumo-component="CollapsibleTrigger"]')
+			container.querySelector('[data-kumo-part="default-trigger"]')
 				?.textContent,
 		).toBe("Why am I seeing this?");
 		expect(text).not.toContain("Question from");

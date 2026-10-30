@@ -628,7 +628,9 @@ describe("TediAuthority", () => {
 						resolve = done;
 					}),
 			);
-			const retry = container.querySelector("button");
+			const retry = Array.from(container.querySelectorAll("button")).find(
+				(button) => button.textContent === "Retry",
+			);
 			expect(retry?.textContent).toBe("Retry");
 			act(() => retry?.click());
 			await flush();
