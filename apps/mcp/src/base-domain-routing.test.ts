@@ -197,7 +197,11 @@ describe("base MCP domain routing", () => {
 
 		const env = createEnv();
 		const response = await worker.fetch(
-			new Request("https://mcp.tedix.tech/mcp"),
+			new Request("https://mcp.tedix.tech/mcp", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+			}),
 			env,
 			createExecutionContext(),
 		);

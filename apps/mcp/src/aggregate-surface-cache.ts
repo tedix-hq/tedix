@@ -199,6 +199,7 @@ type AggregateTierReadOptions = {
 	 * object also discards every revision-owned catalog projection.
 	 */
 	reuse?: AggregateSurfaceCacheEntry;
+	promoteToL2?: boolean;
 };
 const AGGREGATE_CACHED_AT_HEADER = "X-Tedix-Aggregate-Cached-At";
 const AGGREGATE_GENERATION_HEADER = "X-Tedix-Aggregate-Generation";
@@ -364,7 +365,9 @@ export async function readAggregateL2(
 }
 export async function writeAggregateL2(
 	cacheKey: string,
-	snapshot: SerializedAggregateSnapshot,
+	snapshot: Omit<SerializedAggregateSnapshot, "body"> & {
+		body: string | ReadableStream<Uint8Array>;
+	},
 ): Promise<void> {
 	try {
 		if (typeof caches === "undefined" || !caches.default) return;
@@ -460,7 +463,12 @@ export async function readAggregateR2(
 	options: AggregateTierReadOptions = {},
 ): Promise<AggregateL2Read | null> {
 	let abandoned = false;
+	let promotionBody: ReadableStream<Uint8Array> | undefined;
 	try {
+		const promoteToL2 =
+			options.promoteToL2 &&
+			typeof caches !== "undefined" &&
+			Boolean(caches.default);
 		if (!("AGGREGATE_CACHE" in env) || !env.AGGREGATE_CACHE) return null;
 		const bucket = env.AGGREGATE_CACHE;
 		// Budgeted (get + body read together): this read also backs the
@@ -472,12 +480,30 @@ export async function readAggregateR2(
 			(async () => {
 				const obj = await bucket.get(aggregateR2Key(cacheKey));
 				if (!obj) return null;
+				const canPromote =
+					promoteToL2 &&
+					obj.body &&
+					obj.customMetadata?.generation &&
+					Number.isFinite(Number(obj.customMetadata?.cachedAt));
+				if (
+					canPromote &&
+					options.reuse?.generation === obj.customMetadata?.generation
+				)
+					promotionBody = obj.body;
 				return readSnapshotBody(
 					{
 						cachedAt: obj.customMetadata?.cachedAt,
 						generation: obj.customMetadata?.generation,
-						json: () => obj.json(),
-						cancel: () => obj.body?.cancel(),
+						json: () => {
+							if (!canPromote) return obj.json();
+							const [parseBody, cacheBody] = obj.body.tee();
+							promotionBody = cacheBody;
+							return new Response(parseBody).json();
+						},
+						cancel: () =>
+							promotionBody === obj.body && !abandoned
+								? undefined
+								: obj.body?.cancel(),
 					},
 					options.reuse,
 					() => abandoned,
@@ -491,8 +517,28 @@ export async function readAggregateR2(
 		// allowExpired: stale-beats-degraded fallback — when a cold rebuild comes
 		// back degraded (e.g. the API service binding is mid-deploy), an old full
 		// surface is far better than a fresh 3-namespace toy surface.
-		return toTierRead(read, AGGREGATE_R2_HARD_TTL_MS, options.allowExpired);
+		const result = toTierRead(
+			read,
+			AGGREGATE_R2_HARD_TTL_MS,
+			options.allowExpired,
+		);
+		if (result && promoteToL2) {
+			// Keep the original bytes: stringifying each parsed org graph again
+			// overlaps another full snapshot with all the cold R2 reads.
+			await writeAggregateL2(
+				cacheKey,
+				promotionBody && result.generation
+					? {
+							body: promotionBody,
+							generation: result.generation,
+							cachedAt: Date.now(),
+						}
+					: serializeAggregateSnapshot(result.surface),
+			);
+		} else if (promotionBody) cancelSnapshotBody(() => promotionBody?.cancel());
+		return result;
 	} catch (error) {
+		if (promotionBody) cancelSnapshotBody(() => promotionBody?.cancel());
 		// A budget trip already emitted its structured diagnosis line.
 		if (!(error instanceof StepBudgetExceededError)) {
 			log.warn("Aggregate cache read failed", {

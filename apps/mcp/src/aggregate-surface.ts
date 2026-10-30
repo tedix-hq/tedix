@@ -252,14 +252,13 @@ export async function aggregateAndPrefixTools(
 		}
 		// L3 (durable, global across colos) before the expensive live rebuild.
 		const l3 = cacheSnapshot
-			? await readAggregateR2(env, cacheKey, { reuse: cached })
+			? await readAggregateR2(env, cacheKey, {
+					reuse: cached,
+					promoteToL2: true,
+				})
 			: null;
 		if (l3) {
 			rememberAggregateSurface(cacheKey, l3.surface, retain, l3.generation);
-			// Promote R2 → this colo's L2 so subsequent local reads stay warm. The
-			// promoted copy counts as fresh, which also keeps every isolate in the
-			// colo from rebuilding a key that only R2 still holds.
-			await writeAggregateL2(cacheKey, serializeAggregateSnapshot(l3.surface));
 			if (l3.stale) {
 				console.log(
 					JSON.stringify({ _cm: "aggregate", event: "r2_stale_revalidate" }),

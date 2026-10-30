@@ -266,6 +266,20 @@ export async function handleMcpRequest(
 			connectionAppSlug,
 		);
 	}
+	if (request.method === "GET") {
+		const allowedOrigins = getAllowedMcpOrigins(request, env, resolvedApp);
+		const origin =
+			normalizeOrigin(request.headers.get("Origin") ?? "") ??
+			allowedOrigins[0] ??
+			new URL(request.url).origin;
+		// GET cannot open a stateless stream. Preserve the transport response
+		// without hydrating the catalog; events and org-target checks ran above.
+		return mountMcp(
+			createMcpServer(resolvedMcpServerInfo(resolvedApp)),
+			request,
+			{ route: "/mcp", cors: { origin } },
+		);
+	}
 	// Discovery must describe the same verified organization gateway as execution.
 	// Answering on the Connect host before routing hides the selected Home Tasks
 	// extension and bypasses target validation for compact protocol requests.

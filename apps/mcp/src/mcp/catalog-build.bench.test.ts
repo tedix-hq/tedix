@@ -3,6 +3,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { it, expect, vi } from "vite-plus/test";
 import { buildMcpServer, type CachedAppData } from "./server-factory";
 import type { AppTool } from "./server-context";
+import * as executionBindings from "./codemode-execution";
 
 vi.mock("../lib/api-client", () => ({ getApiClient: () => ({}) }));
 
@@ -77,79 +78,126 @@ it("keeps discovery SDK bindings bounded on a 15,922-tool aggregate", async () =
 				logs: [],
 			};
 		});
-	const samples = [];
-	const sampleCount = process.env.TEDIX_CATALOG_BENCH ? 6 : 1;
-	for (let i = 0; i < sampleCount; i++) {
-		const start = process.cpuUsage();
-		const wall = performance.now();
-		const server = await buildMcpServer(
-			data,
-			{ authType: "oauth", scopes: ["mcp:apps.read"] },
-			{ LOADER: {}, ENVIRONMENT: "test" } as CloudflareEnv,
-			{ waitUntil: () => {} } as unknown as ExecutionContext,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			"code",
+	const aliases = vi.spyOn(executionBindings, "legacyNamespaceAliases");
+	const samples: Array<{
+		wave: number;
+		buildCpuMs: number;
+		requestCpuMs: number;
+		wallMs: number;
+		heapAfterBuild: number;
+		heapAfterDiscovery: number;
+	}> = [];
+	const waves: Array<{
+		wave: number;
+		cpuMs: number;
+		wallMs: number;
+		heapBefore: number;
+		heapAfter: number;
+	}> = [];
+	const sampleCount = process.env.TEDIX_CATALOG_BENCH ? 6 : 2;
+	for (let wave = 0; wave < sampleCount; wave++) {
+		const gc = (globalThis as { gc?: () => void }).gc;
+		gc?.();
+		const waveCpu = process.cpuUsage();
+		const waveStart = performance.now();
+		const heapBefore = process.memoryUsage().heapUsed;
+		await Promise.all(
+			Array.from({ length: 9 }, async () => {
+				const start = process.cpuUsage();
+				const wall = performance.now();
+				const server = await buildMcpServer(
+					data,
+					{ authType: "oauth", scopes: ["mcp:apps.read"] },
+					{ LOADER: {}, ENVIRONMENT: "test" } as CloudflareEnv,
+					{ waitUntil: () => {} } as unknown as ExecutionContext,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					"code",
+				);
+				const buildCpu = process.cpuUsage(start);
+				const heapAfterBuild = process.memoryUsage().heapUsed;
+				const [client, transport] = InMemoryTransport.createLinkedPair();
+				let id = 0;
+				const request = async (
+					method: string,
+					params: Record<string, unknown>,
+				) => {
+					const response = new Promise<{
+						error?: unknown;
+						result?: { isError?: boolean };
+					}>((resolve) => {
+						client.onmessage = (message) => resolve(message as never);
+					});
+					await client.send({
+						jsonrpc: "2.0",
+						id: ++id,
+						method,
+						params,
+					} as never);
+					return response;
+				};
+				try {
+					await server.connect(transport);
+					expect(
+						(
+							await request("initialize", {
+								protocolVersion: "2025-11-25",
+								capabilities: {},
+								clientInfo: { name: "bench", version: "1" },
+							})
+						).error,
+					).toBeUndefined();
+					await client.send({
+						jsonrpc: "2.0",
+						method: "notifications/initialized",
+					} as never);
+					const called = await request("tools/call", {
+						name: "code",
+						arguments: {
+							code: 'async () => await discover.search({query:"read_item_500",limit:3})',
+						},
+					});
+					expect(called.error).toBeUndefined();
+					expect(called.result?.isError).not.toBe(true);
+					const cpu = process.cpuUsage(start);
+					samples.push({
+						wave,
+						heapAfterBuild,
+						heapAfterDiscovery: process.memoryUsage().heapUsed,
+						buildCpuMs: (buildCpu.user + buildCpu.system) / 1000,
+						requestCpuMs: (cpu.user + cpu.system) / 1000,
+						wallMs: performance.now() - wall,
+					});
+				} finally {
+					await server.close();
+					await client.close();
+				}
+			}),
 		);
-		const buildCpu = process.cpuUsage(start);
-		const [client, transport] = InMemoryTransport.createLinkedPair();
-		let id = 0;
-		const request = async (method: string, params: Record<string, unknown>) => {
-			const response = new Promise<{
-				error?: unknown;
-				result?: { isError?: boolean };
-			}>((resolve) => {
-				client.onmessage = (message) => resolve(message as never);
-			});
-			await client.send({
-				jsonrpc: "2.0",
-				id: ++id,
-				method,
-				params,
-			} as never);
-			return response;
-		};
-		try {
-			await server.connect(transport);
-			expect(
-				(
-					await request("initialize", {
-						protocolVersion: "2025-11-25",
-						capabilities: {},
-						clientInfo: { name: "bench", version: "1" },
-					})
-				).error,
-			).toBeUndefined();
-			await client.send({
-				jsonrpc: "2.0",
-				method: "notifications/initialized",
-			} as never);
-			const called = await request("tools/call", {
-				name: "code",
-				arguments: {
-					code: 'async () => await discover.search({query:"read_item_500",limit:3})',
-				},
-			});
-			expect(called.error).toBeUndefined();
-			expect(called.result?.isError).not.toBe(true);
-			const cpu = process.cpuUsage(start);
-			samples.push({
-				buildCpuMs: (buildCpu.user + buildCpu.system) / 1000,
-				requestCpuMs: (cpu.user + cpu.system) / 1000,
-				wallMs: performance.now() - wall,
-			});
-		} finally {
-			await server.close();
-			await client.close();
-		}
+		const usedCpu = process.cpuUsage(waveCpu);
+		execute.mockClear();
+		gc?.();
+		waves.push({
+			wave,
+			cpuMs: (usedCpu.user + usedCpu.system) / 1000,
+			wallMs: performance.now() - waveStart,
+			heapBefore,
+			heapAfter: process.memoryUsage().heapUsed,
+		});
 	}
+	expect(aliases).not.toHaveBeenCalled();
+	aliases.mockRestore();
 	console.log(
 		"CATALOG_BENCH",
-		JSON.stringify({ toolCount: tools.length, samples }),
+		JSON.stringify({ toolCount: tools.length, concurrency: 9, waves, samples }),
 	);
+	if (process.env.TEDIX_CATALOG_BENCH)
+		process.stdout.write(
+			`CATALOG_BENCH ${JSON.stringify({ toolCount: tools.length, concurrency: 9, forcedGc: typeof (globalThis as { gc?: unknown }).gc === "function", waves, samples })}\n`,
+		);
 	execute.mockRestore();
-	expect(samples).toHaveLength(sampleCount);
+	expect(samples).toHaveLength(sampleCount * 9);
 }, 60_000);

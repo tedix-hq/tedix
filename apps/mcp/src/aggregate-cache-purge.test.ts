@@ -225,7 +225,11 @@ function installGenerationFixtures(toolId: () => string) {
 
 async function listGenerationTools(env: CloudflareEnv) {
 	await worker.fetch(
-		new Request("https://generation-host.mcp.tedix.tech/mcp"),
+		new Request("https://generation-host.mcp.tedix.tech/mcp", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+		}),
 		env,
 		createExecutionContext(),
 	);
