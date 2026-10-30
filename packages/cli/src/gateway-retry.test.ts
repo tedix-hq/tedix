@@ -96,10 +96,11 @@ describe("retryRateLimitedPosts", () => {
 		}
 	});
 
-	test("resends a POST refused before dispatch because access could not be checked", async () => {
+	test("resends a POST refused before dispatch by access checks or catalog admission", async () => {
 		for (const error of [
 			"human_mcp_grant_unavailable",
 			"external_agent_validation_unavailable",
+			"mcp_catalog_busy",
 		]) {
 			const { wrapped, sent, waits } = harness([
 				unavailable(error, "5"),
@@ -122,18 +123,25 @@ describe("retryRateLimitedPosts", () => {
 		expect(sent).toHaveLength(2);
 	});
 
-	test("does not resend other 503s or a 503 without a usable Retry-After", async () => {
+	test("does not resend other failures or a 503 without a usable Retry-After", async () => {
 		for (const response of [
 			unavailable("tool_backend_unavailable", "5"),
 			unavailable("human_mcp_grant_unavailable"),
+			unavailable("mcp_catalog_busy"),
+			unavailable("mcp_catalog_busy_suffix", "1"),
+			Response.json(
+				{ error: "mcp_catalog_busy" },
+				{ status: 403, headers: { "Retry-After": "1" } },
+			),
 			new Response("unavailable", {
 				status: 503,
 				headers: { "Retry-After": "5" },
 			}),
 		]) {
+			const expectedStatus = response.status;
 			const { wrapped, sent } = harness([response]);
 			expect((await wrapped("https://gateway.example/mcp", post)).status).toBe(
-				503,
+				expectedStatus,
 			);
 			expect(sent).toHaveLength(1);
 		}

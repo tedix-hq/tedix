@@ -32,12 +32,13 @@ function abortableSleep(ms: number, signal?: AbortSignal | null) {
 }
 
 /**
- * 503 refusals the gateway answers while checking access, before any tool is
+ * 503 refusals from access checks or catalog admission, before any tool is
  * dispatched. They are as safe to resend as a 429.
  */
 const PRE_DISPATCH_UNAVAILABLE = new Set([
 	"human_mcp_grant_unavailable",
 	"external_agent_validation_unavailable",
+	"mcp_catalog_busy",
 ]);
 
 async function isPreDispatchUnavailable(response: Response) {
@@ -77,7 +78,7 @@ function retryAfterSeconds(
 
 /**
  * Resend a gateway POST that was refused with HTTP 429 and a `Retry-After`,
- * or with a 503 because access could not be checked right now.
+ * or with a 503 because access checks or catalog admission are unavailable.
  *
  * The gateway answers both before the call is dispatched, so no tool ran and
  * resending the same body is safe for reads and writes alike. Each wait
