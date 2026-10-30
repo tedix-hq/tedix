@@ -68,7 +68,10 @@ try {
 		path: `${output}/work-resilience-degraded.png`,
 		fullPage: true,
 	});
-	await page.locator('[data-slot="load-error"] summary').click();
+	await page
+		.locator('[data-slot="load-error"]')
+		.getByRole("button", { name: "Details", exact: true })
+		.click();
 	await page
 		.getByText("Support reference: 11111111-1111-4111-8111-111111111111", {
 			exact: true,
