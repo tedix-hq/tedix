@@ -5,6 +5,7 @@ import {
 	executorBackoff,
 	parseBudgetSignal,
 	resumeThenFresh,
+	LocalExecutorCapacityError,
 } from "./lane-routing";
 
 const available = {
@@ -81,6 +82,51 @@ describe("local capability routing", () => {
 			),
 		).toThrow("No eligible");
 	});
+	it("types only known active capacity pauses without relaxing the route", () => {
+		const now = 1_000_000;
+		for (const budget of [
+			{
+				observedAt: now,
+				source: "native" as const,
+				remainingPercent: 10,
+				resetAt: now + 1000,
+			},
+			{ observedAt: 1, source: "error" as const, backoffUntil: now + 1000 },
+		]) {
+			expect(() =>
+				routeLocalWork(
+					{ executor: "codex" },
+					defaultRoutingPolicy,
+					available,
+					{ codex: budget },
+					now,
+				),
+			).toThrow(LocalExecutorCapacityError);
+			try {
+				routeLocalWork(
+					{ executor: "codex" },
+					defaultRoutingPolicy,
+					{ ...available, codex: false },
+					{ codex: budget },
+					now,
+				);
+				throw new Error("Unavailable executor unexpectedly admitted");
+			} catch (error) {
+				expect(error).not.toBeInstanceOf(LocalExecutorCapacityError);
+				expect(String(error)).toContain("No eligible local executor");
+			}
+		}
+		expect(() =>
+			routeLocalWork(
+				{ executor: "unknown" },
+				defaultRoutingPolicy,
+				available,
+				{},
+				now,
+			),
+		).not.toThrow(LocalExecutorCapacityError);
+	});
+
 	it("ignores expired native readings but preserves an explicit cooldown", () => {
 		expect(
 			routeLocalWork(

@@ -178,6 +178,10 @@ export function executorBackoff(
 		backoffUntil: Math.max(previous?.backoffUntil ?? 0, now + duration),
 	};
 }
+export class LocalExecutorCapacityError extends Error {
+	override name = "LocalExecutorCapacityError";
+}
+
 export function routeLocalWork(
 	work: { executor: string; tags?: string[]; size?: string; risk?: string },
 	policy: RoutingPolicy,
@@ -196,21 +200,27 @@ export function routeLocalWork(
 		work.executor === "any-local"
 			? rule.routes
 			: [{ executor: executorSchema.parse(work.executor), model: undefined }];
+	let capacityPaused = false;
 	for (const route of routes) {
 		const budget = budgets[route.executor];
 		const fresh =
 			budget &&
 			(now - budget.observedAt <= policy.signalMaxAgeMs ||
 				(budget.resetAt ?? 0) > now);
-		if (!available[route.executor] || (budget?.backoffUntil ?? 0) > now)
+		if (!available[route.executor]) continue;
+		if ((budget?.backoffUntil ?? 0) > now) {
+			capacityPaused = true;
 			continue;
+		}
 		if (
 			fresh &&
 			(budget.resetAt === undefined || budget.resetAt > now) &&
 			budget.remainingPercent !== undefined &&
 			budget.remainingPercent <= policy.nearLimitPercent
-		)
+		) {
+			capacityPaused = true;
 			continue;
+		}
 		return {
 			...route,
 			model:
@@ -222,9 +232,10 @@ export function routeLocalWork(
 			rule: rule.name,
 		};
 	}
-	throw new Error(
-		`No eligible local executor for ${rule.name}; assignments and capability requirements retained`,
-	);
+	const message = `No eligible local executor for ${rule.name}; assignments and capability requirements retained`;
+	throw capacityPaused
+		? new LocalExecutorCapacityError(message)
+		: new Error(message);
 }
 export function isMissingNativeState(error: unknown) {
 	return /(?:session|thread|rollout).*(?:not found|missing|does not exist)|no (?:session|thread|rollout).*found/i.test(

@@ -1208,6 +1208,90 @@ describe("dispatcher admission", () => {
 			2,
 		);
 	});
+	it.each(["quota", "backoff"])(
+		"resumes after three routing %s pauses when capacity returns",
+		async (pause) => {
+			const { restart, deps, items, events, releases, dir } = fixture();
+			items.splice(1);
+			let now = Date.now();
+			const capacityUntil = now + 60 * 60_000;
+			let capacityReturned = false;
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			deps.budgets = () => ({
+				codex: {
+					observedAt: now,
+					source: "native",
+					remainingPercent: capacityReturned
+						? 90
+						: pause === "quota"
+							? 10
+							: undefined,
+					resetAt: capacityUntil,
+					backoffUntil:
+						pause === "backoff" && !capacityReturned
+							? capacityUntil
+							: undefined,
+				},
+			});
+			const path = join(dir, `${item().id}-2.json`);
+			const dispatcher = restart();
+			try {
+				for (let n = 1; n <= 3; n++) {
+					await dispatcher.tick();
+					await dispatcher.drain();
+					const saved = JSON.parse(readFileSync(path, "utf8"));
+					expect(saved.phase).toBe("deferred");
+					expect(saved.held).toBe(false);
+					expect(saved.retryAt - now).toBe(60_000 * 2 ** (n - 1));
+					expect(
+						events.some((event) =>
+							["start", "heartbeat", "settle"].includes(event.verb),
+						),
+					).toBe(false);
+					now = saved.retryAt + 1;
+				}
+				capacityReturned = true;
+				if (pause === "backoff") now = capacityUntil + 1;
+				await dispatcher.tick();
+				await until(() => releases.length === 1);
+				releases[0]!();
+				await dispatcher.drain();
+				expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe(
+					"succeeded",
+				);
+			} finally {
+				clock.mockRestore();
+			}
+		},
+	);
+
+	it("keeps unavailable-only routing failures held after three checks", async () => {
+		const { restart, deps, items, events, dir } = fixture();
+		items.splice(1);
+		deps.available = () => false;
+		let now = Date.now();
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		const dispatcher = restart();
+		const path = join(dir, `${item().id}-2.json`);
+		try {
+			for (let n = 1; n <= 3; n++) {
+				await dispatcher.tick();
+				await dispatcher.drain();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved.identicalFailures).toBe(n);
+				expect(saved.held).toBe(n === 3);
+				now = saved.retryAt + 1;
+			}
+			expect(
+				events.some((event) =>
+					["start", "heartbeat", "settle"].includes(event.verb),
+				),
+			).toBe(false);
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
 	it("holds matching failures despite changing request diagnostics", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
 		items.splice(1);
