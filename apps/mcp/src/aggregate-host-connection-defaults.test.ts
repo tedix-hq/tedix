@@ -909,6 +909,81 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
 
+	it("returns cross-organization Connect metadata without hydrating provider registries", async () => {
+		const host = {
+			slug: "connect",
+			mcpConfig: {
+				codeMode: true,
+				multiOrgConsent: true,
+				sidebarApp: {
+					title: "Sample",
+					tabs: [{ id: "deck", label: "Deck", tool: "show_deck" }],
+				},
+			},
+		};
+		const selection = {
+			organizations: [
+				{
+					organizationId: "sample-org-one",
+					descopeTenantId: "sample-tenant-one",
+					gatewaySlug: "sample-one-unified",
+				},
+				{
+					organizationId: "sample-org-two",
+					descopeTenantId: "sample-tenant-two",
+					gatewaySlug: "sample-two-unified",
+				},
+			],
+		};
+		const response = await handleMcpRequest(
+			new Request("https://connect.mcp.example/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-tedix-auth-type": "oauth",
+					"x-tedix-auth-user-id": "sample-user",
+					"x-tedix-auth-org-id": "sample-hosting-org",
+					"x-tedix-auth-scopes": "mcp:work.read",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: { name: "get_info", arguments: {} },
+				}),
+			}),
+			{
+				...appResponse(host),
+				metadata: {
+					mcpConfig: host.mcpConfig,
+					capabilities: { cart: { enabled: true } },
+				},
+			} as unknown as Parameters<typeof handleMcpRequest>[1],
+			createEnv(),
+			createExecutionContext(),
+			selection,
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			result: { structuredContent: Record<string, unknown> };
+		};
+		expect(body.result.structuredContent).toMatchObject({
+			capabilities: { cart: { enabled: true } },
+			nativeContext: null,
+			nativeCatalog: { status: "unavailable", search: null, describe: null },
+			sidebarApp: {
+				...host.mcpConfig.sidebarApp,
+				accountId: "sample-user",
+				organizations: [
+					{ id: "sample-org-one", label: "sample-one" },
+					{ id: "sample-org-two", label: "sample-two" },
+				],
+			},
+		});
+		expect(getBySlugWithTools).not.toHaveBeenCalled();
+		expect(buildMcpServer).not.toHaveBeenCalled();
+	});
+
 	it("includes the selected aggregate registry in get_info native metadata", async () => {
 		const host = {
 			slug: "sample-info-host",

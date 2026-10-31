@@ -356,13 +356,19 @@ export async function handleMcpRequest(
 			: null;
 	// Code Mode names its namespaces in the program; a direct call names them in
 	// the tool name or its catalog arguments. Only these are hydrated.
+	// Cross-org Connect metadata uses verified selection, not a native registry.
+	// Explicit organization targets already routed to their gateway above.
 	const aggregateNamespaces =
-		requestedCodeModeNamespaces ??
-		directToolCallNamespaces(
-			requestedToolName,
-			requestedToolName ? await extractDirectToolCallArguments(request) : {},
-			cachedData.tools,
-		);
+		requestedToolName === "get_info" && multiOrgResource
+			? new Set<string>()
+			: (requestedCodeModeNamespaces ??
+				directToolCallNamespaces(
+					requestedToolName,
+					requestedToolName
+						? await extractDirectToolCallArguments(request)
+						: {},
+					cachedData.tools,
+				));
 	// A programmatic direct call to a first-class home/kernel surface tool — e.g. a
 	// skill-runtime goal-loop calling `ask` through the env.MCP bridge —
 	// does not need the aggregate-app fan-out (the home surface is mounted
