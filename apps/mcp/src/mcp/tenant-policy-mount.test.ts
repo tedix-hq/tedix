@@ -348,6 +348,105 @@ describe("tenant policy mount descriptor", () => {
 		).toBeNull();
 	});
 
+	it("rejects every Home collision in real hydrated and unhydrated tedi projections", async () => {
+		const env = { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv;
+		const entry = { slug: "ceo", namespace: "home" };
+		const active = {
+			slug: "ceo",
+			id: "tedi-id",
+			organizationId: "org",
+			runtimeKind: "agent" as const,
+			runtimeState: "active",
+			status: "active",
+		};
+		const homeIds = new Set(buildHomeSurfaceTools().map((tool) => tool.toolId));
+		const unhydrated = buildAggregateTediTools([entry], env);
+		const hydrated = buildAggregateTediTools(
+			[
+				{
+					...entry,
+					tediId: active.id,
+					organizationId: "org",
+					runtimeKind: "agent",
+				},
+			],
+			env,
+		);
+		const unhydratedIds = new Set(unhydrated.map((tool) => tool.toolId));
+		const foreignHydrated = buildAggregateTediTools(
+			[
+				{
+					...entry,
+					tediId: active.id,
+					organizationId: "another-org",
+					runtimeKind: "agent",
+				},
+			],
+			env,
+		);
+		const hydratedOnlyCollisions = hydrated.filter(
+			(tool) => homeIds.has(tool.toolId) && !unhydratedIds.has(tool.toolId),
+		);
+		expect(hydratedOnlyCollisions.map((tool) => tool.toolId)).toContain(
+			"home__complete_work_item",
+		);
+		mocks.getApp.mockResolvedValue({
+			app: {
+				id: "root",
+				slug: "gateway",
+				organizationId: "org",
+				metadata: { mcpConfig: { aggregateTedis: [entry] } },
+			},
+			tools: [],
+		});
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+		for (const [rows, served] of [
+			[[active], hydrated],
+			[[], unhydrated],
+			[[{ ...active, organizationId: "another-org" }], foreignHydrated],
+		] as const) {
+			mocks.listRuntimeMetaBySlugs.mockResolvedValue({ data: rows });
+			const intersections = served.filter((tool) => homeIds.has(tool.toolId));
+			expect(intersections.length).toBeGreaterThan(0);
+			for (const tool of intersections) {
+				expect(
+					await resolveFreshPolicyMount({
+						organizationId: "org",
+						rootAppId: "root",
+						mountedToolId: tool.toolId,
+						env,
+					}),
+				).toBeNull();
+			}
+		}
+		for (const rows of [
+			[],
+			[{ ...active, organizationId: "another-org" }],
+			[{ ...active, status: "paused" }],
+		]) {
+			mocks.listRuntimeMetaBySlugs.mockResolvedValue({ data: rows });
+			expect(
+				await resolveFreshPolicyMount({
+					organizationId: "org",
+					rootAppId: "root",
+					mountedToolId: "home__complete_work_item",
+					env,
+				}),
+			).toBeNull();
+		}
+		mocks.listRuntimeMetaBySlugs.mockRejectedValueOnce(
+			new Error("unavailable"),
+		);
+		await expect(
+			resolveFreshPolicyMount({
+				organizationId: "org",
+				rootAppId: "root",
+				mountedToolId: "home__complete_work_item",
+				env,
+			}),
+		).rejects.toThrow("unavailable");
+	});
+
 	it("rechecks generated Home exposure and refuses stored-row shadows", async () => {
 		const ask = buildHomeSurfaceTools().find((tool) => tool.toolId === "ask")!;
 		const root = {
@@ -521,6 +620,72 @@ describe("tenant policy mount descriptor", () => {
 			],
 		});
 		expect(await resolveFreshPolicyMount(request)).toBeNull();
+	});
+
+	it("rejects an unresolved tedi alias that collides with an active tedi mount", async () => {
+		const env = { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv;
+		const entries = [
+			{ slug: "ceo", namespace: "team", surface: "collaboration" as const },
+			{ slug: "cto", namespace: "team", surface: "collaboration" as const },
+		] as const;
+		const active = {
+			slug: "ceo",
+			id: "ceo-id",
+			organizationId: "org",
+			runtimeKind: "agent" as const,
+			runtimeState: "active",
+			status: "active",
+		};
+		const foreign = {
+			...active,
+			slug: "cto",
+			id: "foreign-id",
+			organizationId: "other-org",
+		};
+		mocks.getApp.mockResolvedValue({
+			app: {
+				id: "root",
+				slug: "gateway",
+				organizationId: "org",
+				metadata: { mcpConfig: { aggregateTedis: entries } },
+			},
+			tools: [],
+		});
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+		for (const rows of [[active], [active, foreign]]) {
+			const liveEntries = [
+				{
+					...entries[0],
+					tediId: active.id,
+					organizationId: active.organizationId,
+					runtimeKind: "agent" as const,
+				},
+				...(rows.length === 1
+					? [entries[1]!]
+					: [
+							{
+								...entries[1],
+								tediId: foreign.id,
+								organizationId: foreign.organizationId,
+								runtimeKind: "agent" as const,
+							},
+						]),
+			];
+			expect(
+				buildAggregateTediTools(liveEntries, env).filter(
+					(tool) => tool.toolId === "team__ask",
+				),
+			).toHaveLength(2);
+			mocks.listRuntimeMetaBySlugs.mockResolvedValue({ data: rows });
+			expect(
+				await resolveFreshPolicyMount({
+					organizationId: "org",
+					rootAppId: "root",
+					mountedToolId: "team__ask",
+					env,
+				}),
+			).toBeNull();
+		}
 	});
 
 	it("resolves the direct gateway layout with fresh host defaults and rejects degraded or ambiguous mounts", async () => {

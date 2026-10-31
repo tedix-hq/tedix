@@ -258,6 +258,7 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 	const aggregateTedis = root.app.metadata?.mcpConfig?.aggregateTedis;
 	let aggregateTediTools: AppTool[] | undefined;
 	let aggregateTediClaimed = false;
+	let aggregateTediUnresolved = false;
 	if (Array.isArray(aggregateTedis)) {
 		const entries = aggregateTedis.filter(
 			(entry): entry is AggregateTediEntry =>
@@ -290,6 +291,9 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 							!["error", "paused", "provisioning"].includes(row.status ?? ""),
 					)
 					.map((row) => [row.slug, row] as const),
+			);
+			aggregateTediUnresolved = candidates.some(
+				(entry) => !activeBySlug.has(entry.slug),
 			);
 			aggregateTediTools = buildAggregateTediTools(
 				candidates.flatMap((entry) => {
@@ -379,6 +383,8 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		if (
 			matches.length !== 0 ||
 			aggregateTediClaimed ||
+			aggregateTediUnresolved ||
+			(aggregateTediTools?.length ?? 0) !== 0 ||
 			root.tools.some(
 				(stored) => stored.id === home.id || stored.toolId === home.toolId,
 			)
@@ -393,7 +399,12 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		};
 	}
 	if (aggregateTediTools) {
-		if (aggregateTediTools.length !== 1 || matches.length !== 0) return null;
+		if (
+			aggregateTediUnresolved ||
+			aggregateTediTools.length !== 1 ||
+			matches.length !== 0
+		)
+			return null;
 		const tool = aggregateTediTools[0]!;
 		if (
 			root.tools.some(
