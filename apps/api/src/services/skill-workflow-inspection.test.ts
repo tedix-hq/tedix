@@ -143,6 +143,60 @@ describe("skill workflow inspection", () => {
 		).toBe(true);
 	});
 
+	it("projects only explicit bounded author metadata from the fenced attempt", () => {
+		const authorMetadata = {
+			purpose: "Summarize the recorded brief",
+			inputs: [
+				{
+					name: "brief",
+					source: "artifacts/brief.json",
+					sourceRevision: "sha256:abc123",
+				},
+				{ source: "event.payload" },
+			],
+			usedNext: ["publish"],
+		};
+		const parsed = parseSkillWorkflowRecords([
+			artifact("epochs/4/steps/x:summarize/3/attempts/2.json", {
+				executionEpoch: 99,
+				attempt: 99,
+				status: "succeeded",
+				sensitiveOutput: false,
+				authorMetadata,
+			}),
+			artifact("epochs/4/steps/x:nested/1/attempts/1.json", {
+				status: "succeeded",
+				config: { authorMetadata },
+			}),
+			artifact("epochs/4/steps/x:secret/1/attempts/1.json", {
+				status: "succeeded",
+				sensitiveOutput: true,
+				authorMetadata,
+			}),
+			artifact("steps/x:historical/1/attempts/1.json", {
+				status: "succeeded",
+			}),
+		]);
+
+		const historical = parsed.steps.find((step) => step.name === "historical");
+		expect(historical).toMatchObject({ executionEpoch: 0 });
+		expect(historical).not.toHaveProperty("authorMetadata");
+		const summarize = parsed.steps.find((step) => step.name === "summarize");
+		expect(summarize).toMatchObject({
+			executionEpoch: 4,
+			count: 3,
+			attempt: 2,
+			authorMetadata,
+		});
+		expect(
+			parsed.steps.find((step) => step.name === "nested"),
+		).not.toHaveProperty("authorMetadata");
+		expect(
+			parsed.steps.find((step) => step.name === "secret"),
+		).not.toHaveProperty("authorMetadata");
+		expect(SkillWorkflowStepSchema.safeParse(summarize).success).toBe(true);
+	});
+
 	it("does not label in-flight evidence as successful", () => {
 		const parsed = parseSkillWorkflowRecords([
 			artifact(

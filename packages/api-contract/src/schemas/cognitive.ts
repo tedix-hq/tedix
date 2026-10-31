@@ -561,6 +561,36 @@ export const SkillWorkflowConnectionRecoverySchema = z
 	})
 	.strict();
 
+export const SkillWorkflowStepAuthorMetadataSchema = z
+	.object({
+		purpose: z.string().min(1).max(500).optional(),
+		inputs: z
+			.array(
+				z
+					.object({
+						name: z.string().min(1).max(200).optional(),
+						source: z.string().min(1).max(500),
+						sourceRevision: z.string().min(1).max(200).optional(),
+					})
+					.strict(),
+			)
+			.min(1)
+			.max(20)
+			.optional(),
+		usedNext: z.array(z.string().min(1).max(200)).min(1).max(20).optional(),
+	})
+	.strict()
+	.refine(
+		(value) =>
+			value.purpose !== undefined ||
+			value.inputs !== undefined ||
+			value.usedNext !== undefined,
+		{ message: "At least one author metadata field is required" },
+	);
+export type SkillWorkflowStepAuthorMetadata = z.infer<
+	typeof SkillWorkflowStepAuthorMetadataSchema
+>;
+
 export const SkillWorkflowStepSchema = z.object({
 	path: z.string(),
 	name: z.string(),
@@ -588,6 +618,7 @@ export const SkillWorkflowStepSchema = z.object({
 	sensitiveOutput: z.boolean().nullable().optional(),
 	outputArtifactPath: z.string().nullable().optional(),
 	error: z.unknown().nullable().optional(),
+	authorMetadata: SkillWorkflowStepAuthorMetadataSchema.optional(),
 	provenance: z.literal("step_artifact"),
 	mimeType: z.string(),
 	sizeBytes: z.number().int().min(0),
