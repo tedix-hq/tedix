@@ -197,8 +197,6 @@ try {
 				colorScheme: theme,
 			});
 			const page = await context.newPage();
-			// Install before the app starts timers so expiry and cleanup share a clock.
-			if (!lifetimeChecked) await page.clock.install();
 			await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
 
 			// Error: long title + long description with an unbroken URL.
@@ -230,8 +228,7 @@ try {
 			if (!lifetimeChecked) {
 				// Kumo's default timeout is 5 s; success must expire, loading not.
 				await raise(page, "Raise success", 2);
-				// Preserve focus/resume timer order instead of simulating laptop wake.
-				await page.clock.runFor(5_001);
+				await page.waitForTimeout(5_001);
 				await expectCount(
 					page,
 					1,
@@ -243,7 +240,6 @@ try {
 					),
 					"loading toast persists past the default timeout",
 				);
-				await page.clock.resume();
 				lifetimeChecked = true;
 			}
 			await focusClose(page);
