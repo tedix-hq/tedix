@@ -28,7 +28,6 @@ const WINDOW_MS = 120_000;
 const DEBOUNCE_MS = 30_000;
 const MAX_REPLAY_WINDOWS = 10;
 const MAX_WAKE_AGE_MS = 15 * 60_000;
-const COALESCE_ACTIVE_RUN_MS = 5 * 60_000;
 export const MAX_COMMITMENT_CHANGES_PER_RUN = 25;
 const RUN_BUDGET_MS = 40_000;
 const DELIVERY_TIMEOUT_MS = 15_000;
@@ -218,11 +217,11 @@ export async function dispatchCommitmentWakes(
 					}),
 				);
 				const activeRunId = started?.runId;
+				// Only terminal evidence releases a prior wake; its age does not prove
+				// it stopped. Orphan reconciliation owns genuinely abandoned runs.
 				if (
 					started?.organizationId === first.orgId &&
 					activeRunId &&
-					Date.parse(started.createdAt) >
-						Math.max(scheduledTime, Date.now()) - COALESCE_ACTIVE_RUN_MS &&
 					activeRunId !==
 						buildRuntimeRunId({
 							tediId: first.tediId,
