@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { CaretUpDown, Check } from "@phosphor-icons/react";
+import type { ReactElement, ReactNode } from "react";
+import { CaretUpDown, GearSix, Plus, X } from "@phosphor-icons/react";
 import type {
 	DirectorySurface,
 	DirectoryWorkspaceRecord,
@@ -8,20 +8,28 @@ import {
 	findWorkspaceSurface,
 	useSurfaceSwitch,
 } from "@/lib/workspace-switcher";
-import { Badge } from "@/components/kumo/badge";
+import { OsRouterLink } from "@/components/kumo/link-provider";
 import { Button } from "@/components/kumo/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuEmpty,
+	DropdownMenuFilterClear,
 	DropdownMenuFilterInput,
 	DropdownMenuFilterProvider,
+	DropdownMenuGroup,
 	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuLinkItem,
 	DropdownMenuList,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
+import { useQuery } from "@tanstack/react-query";
 import { EntityAvatar } from "@/shared/entity-avatar";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
+import { canAccessAdminSection } from "@/components/admin-layout";
+import { operationalContextQueryOptions } from "@/lib/os-query-options";
 
 /** Above this many organizations the menu gets a search field. */
 const SEARCH_AFTER = 6;
@@ -34,15 +42,30 @@ const SEARCH_AFTER = 6;
 export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 	const { tenant, ...directory } = useOsWorkspaceDirectory();
 	const surfaceSwitch = useSurfaceSwitch({});
+	const context = useQuery({
+		...operationalContextQueryOptions(),
+		enabled: tenant.kind === "tenant",
+	});
+	const canManageSettings = context.data?.authority
+		? canAccessAdminSection(context.data.authority)
+		: false;
 
 	if (tenant.kind !== "tenant") return children;
 
 	return (
 		<OrganizationSwitcherMenu
+			createLink={
+				<OsRouterLink to="/account/onboarding" search={{ new: true }} />
+			}
 			currentSlug={tenant.slug}
 			isError={directory.query.isError}
 			isLoading={directory.query.isLoading}
 			onSwitch={surfaceSwitch.switchTo}
+			settingsLink={
+				canManageSettings ? (
+					<OsRouterLink to="/admin/organization" />
+				) : undefined
+			}
 			workspaces={directory.workspaces}
 		>
 			{children}
@@ -53,17 +76,23 @@ export function OsWorkspaceSwitcher({ children }: { children?: ReactNode }) {
 /**
  * One compact row per organization, the current one first with a check.
  * Choosing a row opens that organization's OS; an organization whose CMS is
- * provisioned also gets a trailing "CMS" item on the same row.
+ * provisioned also gets a trailing "CMS" item inside the same highlighted row.
+ * A labelled group, the filter field's own list, and a settings/create footer
+ * are all shipped Kumo menu parts.
  */
 export function OrganizationSwitcherMenu({
 	children,
+	createLink,
 	currentSlug,
 	isError,
 	isLoading,
 	onSwitch,
+	settingsLink,
 	workspaces,
 }: {
 	children?: ReactNode;
+	/** Render element for the footer's create action (a link), when the caller may create organizations. */
+	createLink?: ReactElement;
 	currentSlug: string;
 	isError: boolean;
 	isLoading: boolean;
@@ -71,6 +100,8 @@ export function OrganizationSwitcherMenu({
 		workspace: DirectoryWorkspaceRecord,
 		surface: DirectorySurface,
 	) => unknown;
+	/** Render element for the footer's settings link, when the caller may manage this organization. */
+	settingsLink?: ReactElement;
 	workspaces: readonly DirectoryWorkspaceRecord[];
 }) {
 	const ordered = [
@@ -87,34 +118,62 @@ export function OrganizationSwitcherMenu({
 				className="flex w-72 max-w-[calc(100vw-1rem)] flex-col gap-1 overflow-hidden"
 			>
 				{searchable ? (
-					<DropdownMenuFilterInput
-						aria-label="Search organizations"
-						placeholder="Search organizations…"
-					/>
+					<div className="flex items-center gap-1 rounded-md bg-kumo-base px-2 ring ring-kumo-line focus-within:ring-kumo-brand">
+						<DropdownMenuFilterInput
+							aria-label="Search organizations"
+							className="bg-transparent px-0 ring-0 focus-visible:ring-0"
+							placeholder="Search organizations…"
+						/>
+						<DropdownMenuFilterClear aria-label="Clear organization search">
+							<X aria-hidden="true" size={12} weight="bold" />
+						</DropdownMenuFilterClear>
+					</div>
 				) : null}
 				<DropdownMenuList className="max-h-[min(20rem,50dvh)] min-h-0 overflow-y-auto overscroll-contain">
-					{isLoading ? (
-						<DropdownMenuItem disabled>Loading organizations…</DropdownMenuItem>
+					<DropdownMenuGroup>
+						<DropdownMenuLabel>Organizations</DropdownMenuLabel>
+						{isLoading ? (
+							<DropdownMenuItem disabled>
+								Loading organizations…
+							</DropdownMenuItem>
+						) : null}
+						{isError ? (
+							<DropdownMenuItem disabled>
+								Organizations unavailable
+							</DropdownMenuItem>
+						) : null}
+						{ordered.map((workspace) => (
+							<OrganizationRow
+								isCurrent={workspace.org.slug === currentSlug}
+								key={workspace.org.organizationId}
+								onSwitch={onSwitch}
+								workspace={workspace}
+							/>
+						))}
+					</DropdownMenuGroup>
+					{searchable ? (
+						<DropdownMenuEmpty className="px-2 py-1.5 text-kumo-subtle type-tedix-control">
+							No organizations match
+						</DropdownMenuEmpty>
 					) : null}
-					{isError ? (
-						<DropdownMenuItem disabled>
-							Organizations unavailable
-						</DropdownMenuItem>
+					{settingsLink || createLink ? (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuGroup>
+								{settingsLink ? (
+									<DropdownMenuLinkItem icon={GearSix} render={settingsLink}>
+										Organization settings
+									</DropdownMenuLinkItem>
+								) : null}
+								{createLink ? (
+									<DropdownMenuLinkItem icon={Plus} render={createLink}>
+										Create organization
+									</DropdownMenuLinkItem>
+								) : null}
+							</DropdownMenuGroup>
+						</>
 					) : null}
-					{ordered.map((workspace) => (
-						<OrganizationRow
-							isCurrent={workspace.org.slug === currentSlug}
-							key={workspace.org.organizationId}
-							onSwitch={onSwitch}
-							workspace={workspace}
-						/>
-					))}
 				</DropdownMenuList>
-				{searchable ? (
-					<DropdownMenuEmpty className="px-2 py-1.5 text-kumo-subtle type-tedix-control">
-						No organizations match
-					</DropdownMenuEmpty>
-				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -166,15 +225,19 @@ function OrganizationRow({
 	const os = findWorkspaceSurface(workspace, "os");
 	const cms = findWorkspaceSurface(workspace, "cms");
 	return (
-		<div className="flex min-w-0 items-center gap-1" data-org-row={org.slug}>
+		<div
+			className="flex min-w-0 items-stretch rounded-md transition-colors has-[data-highlighted]:bg-kumo-tint"
+			data-org-row={org.slug}
+		>
 			<DropdownMenuItem
 				aria-current={isCurrent ? "true" : undefined}
-				className="min-w-0 flex-1"
+				className="min-w-0 flex-1 data-[highlighted]:bg-transparent"
 				disabled={!isCurrent && (settingUp || !os?.provisioned)}
 				label={org.name}
 				onClick={() => {
 					if (!isCurrent) onSwitch(workspace, "os");
 				}}
+				selected={isCurrent}
 			>
 				<EntityAvatar
 					id={org.organizationId}
@@ -191,18 +254,15 @@ function OrganizationRow({
 						Setting up
 					</span>
 				) : null}
-				{isCurrent ? (
-					<Check aria-label="Current organization" size={14} />
-				) : null}
 			</DropdownMenuItem>
 			{!settingUp && cms?.provisioned ? (
 				<DropdownMenuItem
 					aria-label={`Open ${org.name} CMS`}
-					className="shrink-0 px-1.5"
+					className="shrink-0 px-2 text-kumo-subtle data-[highlighted]:bg-transparent data-[highlighted]:text-kumo-default data-[highlighted]:ring-1 data-[highlighted]:ring-inset data-[highlighted]:ring-kumo-line"
 					label={org.name}
 					onClick={() => onSwitch(workspace, "cms")}
 				>
-					<Badge variant="outline">CMS</Badge>
+					CMS
 				</DropdownMenuItem>
 			) : null}
 		</div>

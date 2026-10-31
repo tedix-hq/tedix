@@ -26,6 +26,12 @@ const NAMES = [
 	"Lantern Books",
 ];
 
+const LOGO_SVG =
+	"data:image/svg+xml," +
+	encodeURIComponent(
+		'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="6" fill="#e8622c"/><text x="12" y="16" font-size="11" font-family="sans-serif" font-weight="700" text-anchor="middle" fill="#fff">HK</text></svg>',
+	);
+
 const workspaces: DirectoryWorkspaceRecord[] = NAMES.map((name, index) => {
 	const slug = name.split(" ")[0]!.toLowerCase();
 	const provisionComplete = name !== "Lantern Books";
@@ -33,7 +39,7 @@ const workspaces: DirectoryWorkspaceRecord[] = NAMES.map((name, index) => {
 	return {
 		org: {
 			descopeTenantId: provisionComplete ? `org_${slug}` : null,
-			logoUrl: null,
+			logoUrl: name === "Harbor Kitchen" ? LOGO_SVG : null,
 			name,
 			organizationId: `0f0f0f0f-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
 			provisionComplete,
@@ -64,12 +70,14 @@ const switches: string[] = [];
 createRoot(document.getElementById("root")!).render(
 	<div className="h-dvh w-64 max-w-full bg-kumo-base p-2 text-kumo-default">
 		<OrganizationSwitcherMenu
+			createLink={<a href="/account/onboarding?new=1" />}
 			currentSlug="harbor"
 			isError={false}
 			isLoading={false}
 			onSwitch={(workspace, surface) =>
 				switches.push(`${workspace.org.slug}:${surface}`)
 			}
+			settingsLink={<a href="/admin/organization" />}
 			workspaces={workspaces}
 		>
 			<span className="truncate font-semibold">Harbor Kitchen</span>

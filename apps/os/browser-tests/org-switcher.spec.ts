@@ -129,6 +129,48 @@ try {
 							path: `${evidenceDir}/org-switcher-${engine.name()}-${width}-${theme}.png`,
 						});
 
+					// Kumo chrome: group label, footer actions, no trigger tooltip
+					// while the menu is open.
+					assert.equal(
+						await trigger.getAttribute("title"),
+						null,
+						`${label}: no tooltip over the open menu`,
+					);
+					await menu.getByText("Organizations", { exact: true }).waitFor();
+					assert.equal(
+						await menu.locator('a[href="/admin/organization"]').textContent(),
+						"Organization settings",
+						`${label}: settings footer`,
+					);
+					assert.equal(
+						await menu
+							.locator('a[href="/account/onboarding?new=1"]')
+							.textContent(),
+						"Create organization",
+						`${label}: create footer`,
+					);
+					const logoAvatar = menu.locator(
+						'[data-org-row="harbor"] [data-entity-kind="workspace"]',
+					);
+					assert.equal(
+						await logoAvatar.locator("img").count(),
+						1,
+						`${label}: the org logo renders`,
+					);
+					const letterAvatar = menu.locator(
+						'[data-org-row="birch"] [data-entity-kind="workspace"]',
+					);
+					assert.equal(
+						await letterAvatar.locator("img").count(),
+						0,
+						`${label}: no logo means initials`,
+					);
+					assert.match(
+						(await letterAvatar.textContent()) ?? "",
+						/BS/,
+						`${label}: initials avatar`,
+					);
+
 					// The CMS chip opens that org's CMS; the row opens its OS.
 					await menu
 						.getByRole("menuitem", { name: "Open Dune Freight CMS" })
@@ -168,6 +210,29 @@ try {
 						"juniper:os",
 						`${label}: Enter opens the highlighted org's OS`,
 					);
+					await menu.waitFor({ state: "hidden" });
+
+					// The clear button restores the full list in place.
+					await trigger.focus();
+					await page.keyboard.press("Enter");
+					await menu.waitFor();
+					await page.keyboard.type("juni");
+					await page.waitForFunction(
+						() =>
+							document.querySelectorAll(
+								'[role="menu"] [data-org-row]:has([role="menuitem"])',
+							).length === 1,
+					);
+					await page.getByLabel("Clear organization search").click();
+					await page.waitForFunction(
+						() =>
+							document.querySelectorAll(
+								'[role="menu"] [data-org-row]:has([role="menuitem"])',
+							).length === 12,
+						undefined,
+						{ timeout: 5000 },
+					);
+					await page.keyboard.press("Escape");
 					await menu.waitFor({ state: "hidden" });
 
 					// Arrow keys walk the rows; Escape closes back to the trigger.
