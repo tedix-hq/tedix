@@ -679,6 +679,8 @@ describe("directToolCallNamespaces", () => {
 			directToolCallNamespaces("run_stored_code", {}, rootTools),
 		).toBeNull();
 		expect(directToolCallNamespaces("code", {}, rootTools)).toBeNull();
+		expect(directToolCallNamespaces("get_info", {}, [])).toBeNull();
+		expect(directToolCallNamespaces("get_info", {}, rootTools)).toBeNull();
 		expect(directToolCallNamespaces(undefined, {}, rootTools)).toBeNull();
 	});
 

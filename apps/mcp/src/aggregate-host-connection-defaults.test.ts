@@ -53,6 +53,7 @@ vi.mock("./mcp/server-factory", async (importOriginal) => {
 import { aggregateSurfaceCacheKey } from "./aggregate-surface-cache";
 import { applyHostConnectionDefaultsToAggregateEntries } from "./aggregate-host-defaults";
 import worker from "./index";
+import { handleMcpRequest } from "./mcp-request";
 
 describe("aggregate surface cache fingerprint", () => {
 	it("isolates account slots in durable aggregate snapshots", () => {
@@ -908,7 +909,70 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
 
-	it("answers single-item batch get_info without hydrating the aggregate surface", async () => {
+	it("includes the selected aggregate registry in get_info native metadata", async () => {
+		const host = {
+			slug: "sample-info-host",
+			mcpConfig: {
+				codeMode: true,
+				aggregateApps: [{ slug: "sample-info-provider" }],
+			},
+		};
+		const providerTool = connectionTool("list_records", "sample-provider");
+		installFixtures([
+			host,
+			{
+				slug: "sample-info-provider",
+				tools: [
+					{
+						...providerTool,
+						config: { ...providerTool.config, nativeDirect: true },
+					},
+				],
+			},
+		]);
+		const response = await handleMcpRequest(
+			new Request("https://sample-info-host.mcp.example/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-tedix-auth-type": "oauth",
+					"x-tedix-auth-user-id": "sample-user",
+					"x-tedix-auth-org-id": "org-sample-info-host",
+					"x-tedix-auth-scopes": "platform:admin",
+				},
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: { name: "get_info", arguments: {} },
+				}),
+			}),
+			{
+				...appResponse(host),
+				metadata: { mcpConfig: host.mcpConfig },
+			} as unknown as Parameters<typeof handleMcpRequest>[1],
+			createEnv(),
+			createExecutionContext(),
+		);
+		expect(response.status).toBe(200);
+		const body = (await response.json()) as {
+			result: {
+				structuredContent: {
+					nativeContext: { nativeTransportAvailable: boolean };
+				};
+			};
+		};
+		// This single-organization native eligibility is not Connect's cross-org context.
+		expect(
+			body.result.structuredContent.nativeContext.nativeTransportAvailable,
+		).toBe(true);
+		expect(getBySlugWithTools).toHaveBeenCalledWith(
+			expect.objectContaining({ slug: "sample-info-provider" }),
+		);
+		expect(buildMcpServer).not.toHaveBeenCalled();
+	});
+
+	it("answers single-item batch get_info without building a full execution server", async () => {
 		installFixtures([
 			{
 				slug: "code-mode-host-info",

@@ -25,7 +25,7 @@ export function directToolCallNamespaces(
 		config?: Record<string, unknown> | null;
 	}>,
 ): Set<string> | null {
-	if (!toolName || toolName === "code") return null;
+	if (!toolName || toolName === "code" || toolName === "get_info") return null;
 	const root = rootTools.find((tool) => tool.toolId === toolName);
 	if (root) {
 		const transport = root.config?.transport ?? "rpc";
