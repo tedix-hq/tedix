@@ -569,13 +569,11 @@ try {
 			await drawer
 				.getByText("Recorded final response", { exact: true })
 				.waitFor();
-			await drawer.getByText(/Tool completed/).waitFor();
+			await drawer.getByText(/Search.*completed/).waitFor();
 			await drawer
-				.getByText(/Only part of the linked task activity is shown/)
+				.getByText(/Only part of the assistant activity is shown/)
 				.waitFor();
-			await drawer
-				.getByText(/Only part of the linked task result was recorded/)
-				.waitFor();
+			await drawer.getByText(/Only part of the answer was saved/).waitFor();
 			assert.equal(activityReads, 1);
 			await page.keyboard.press("Escape");
 			await chart
@@ -583,7 +581,7 @@ try {
 				.focus();
 			await page.keyboard.press("Enter");
 			await drawer
-				.getByText("Linked task activity is withheld.", { exact: true })
+				.getByText("Assistant activity is withheld.", { exact: true })
 				.waitFor();
 			assert.equal(
 				activityReads,
@@ -601,7 +599,7 @@ try {
 				.focus();
 			await page.keyboard.press("Enter");
 			await drawer
-				.getByText("Linked task activity unavailable", { exact: true })
+				.getByText("Assistant activity unavailable", { exact: true })
 				.waitFor();
 			await page.keyboard.press("Escape");
 			await chart
@@ -609,11 +607,11 @@ try {
 				.focus();
 			await page.keyboard.press("Enter");
 			await drawer
-				.getByText(/Linked task activity is unavailable. No verified link/)
+				.getByText("Activity unavailable for this older run.", { exact: true })
 				.waitFor();
 			await page.keyboard.press("Escape");
 			for (const [index, message] of [
-				[11, "Linked task activity is withheld."],
+				[11, "Assistant activity is withheld."],
 				[12, "Parent step details could not be verified."],
 				[13, "Parent step details unavailable"],
 			] as const) {

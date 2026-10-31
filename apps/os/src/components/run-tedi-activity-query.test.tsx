@@ -32,7 +32,7 @@ describe("linked task access", () => {
 						id: "event",
 						kind: "tool.completed",
 						createdAt: "2026-01-01",
-						toolName: "private tool",
+						toolName: "private_tool",
 					},
 				],
 				finalResult: { status: "available", content: "private final" },
@@ -65,15 +65,15 @@ describe("linked task access", () => {
 			);
 			await flush();
 			expect(host.textContent).toContain("private final");
-			expect(host.textContent).toContain("private tool");
+			expect(host.textContent).toContain("Private tool");
 			deny = true;
 			await act(async () => {
 				await client.invalidateQueries({ queryKey: ["activity"] });
 			});
 			await flush();
 			expect(host.textContent).not.toContain("private final");
-			expect(host.textContent).not.toContain("private tool");
-			expect(host.textContent).toContain("Linked task activity unavailable");
+			expect(host.textContent).not.toContain("Private tool");
+			expect(host.textContent).toContain("Assistant activity unavailable");
 		} finally {
 			act(() => root.unmount());
 			host.remove();

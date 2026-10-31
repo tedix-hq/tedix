@@ -28,12 +28,13 @@ describe("linked tedi activity", () => {
 			/>,
 		);
 		expect(html).toContain("linked assistant task");
-		expect(html).toContain("Tool completed");
+		expect(html).toContain("Search");
+		expect(html).toContain("completed");
+		expect(html).toContain("Assistant activity");
+		expect(html).toContain("Answer");
 		expect(html).toContain("Found results");
-		expect(html).toContain("Only part of the linked task activity is shown");
-		expect(html).toContain(
-			"Only part of the linked task result was recorded here",
-		);
+		expect(html).toContain("Only part of the assistant activity is shown");
+		expect(html).toContain("Only part of the answer was saved");
 	});
 	it("keeps redacted or unavailable activity hidden even if a payload is supplied", () => {
 		for (const status of ["redacted", "unavailable"] as const) {
@@ -86,7 +87,7 @@ describe("linked tedi activity", () => {
 				}}
 			/>,
 		);
-		expect(html).toContain("The linked task result is withheld");
+		expect(html).toContain("The answer is withheld");
 		expect(html).not.toContain("hidden final");
 	});
 	it("withholds a purported final result when the run has not completed", () => {
@@ -109,5 +110,51 @@ describe("linked tedi activity", () => {
 			expect(html).not.toContain("not a terminal result");
 			expect(html).toContain("No final result is available");
 		}
+	});
+	it("uses plain tool labels and does not expose opaque tool identifiers", () => {
+		const opaque = "11111111-1111-4111-8111-111111111111";
+		const html = renderToStaticMarkup(
+			<LinkedTediActivityDetails
+				activity={{
+					status: "available",
+					activitySource: "linked_tedi_run",
+					actions: [
+						{
+							id: "a",
+							kind: "tool.started",
+							createdAt: "2026-01-01",
+							toolName: "sample.get_saved_workflow",
+						},
+						{
+							id: "b",
+							kind: "tool.failed",
+							createdAt: "2026-01-01",
+							toolName: opaque,
+						},
+					],
+					finalResult: { status: "unavailable" },
+					truncated: false,
+				}}
+			/>,
+		);
+		expect(html).toContain("Get saved workflow");
+		expect(html).toContain("Tool");
+		expect(html).not.toContain(opaque);
+	});
+	it("describes missing verified historic linkage without displaying its raw reason", () => {
+		const html = renderToStaticMarkup(
+			<LinkedTediActivityDetails
+				activity={{
+					status: "unavailable",
+					reason:
+						"No verified historical link: 11111111-1111-4111-8111-111111111111",
+					actions: [],
+					finalResult: { status: "unavailable" },
+					truncated: false,
+				}}
+			/>,
+		);
+		expect(html).toContain("Activity unavailable for this older run");
+		expect(html).not.toContain("11111111-1111-4111-8111-111111111111");
 	});
 });

@@ -4,9 +4,20 @@ import type { z } from "zod";
 import { LoadError } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
 import { RunStepResult } from "@/components/run-step-result";
+import { plainToolTitle } from "@/lib/approval-titles";
 import { osQuery } from "@/lib/os-query-options";
 
 type Activity = z.infer<typeof SkillWorkflowStepTediActivitySchema>;
+
+function activityToolLabel(name: string | undefined) {
+	if (
+		!name ||
+		!/^[a-z][a-z0-9_.-]{0,99}$/i.test(name) ||
+		/[0-9a-f]{8}-[0-9a-f-]{27}|[0-9a-f]{16,}/i.test(name)
+	)
+		return "Tool";
+	return plainToolTitle(name);
+}
 
 export function LinkedTediActivity({
 	runId,
@@ -31,19 +42,19 @@ export function LinkedTediActivity({
 	if (typeof attempt !== "number")
 		return (
 			<Text as="p" tone="secondary">
-				Linked task activity is unavailable for this historical receipt.
+				Activity unavailable for this older run.
 			</Text>
 		);
 	if (activity.isPending || activity.isFetching)
 		return (
 			<Text as="p" tone="secondary">
-				Loading linked task activity…
+				Loading assistant activity…
 			</Text>
 		);
 	if (activity.isError)
 		return (
 			<LoadError
-				title="Linked task activity unavailable"
+				title="Assistant activity unavailable"
 				error={activity.error}
 				onRetry={() => activity.refetch()}
 				retrying={activity.isFetching}
@@ -60,7 +71,7 @@ export function LinkedTediActivityDetails({
 	if (activity.status === "redacted")
 		return (
 			<Text as="p" tone="secondary">
-				Linked task activity is withheld.
+				Assistant activity is withheld.
 			</Text>
 		);
 	if (
@@ -69,11 +80,16 @@ export function LinkedTediActivityDetails({
 	)
 		return (
 			<Text as="p" tone="secondary">
-				Linked task activity is unavailable. {activity.reason}
+				{/historical|no verified/i.test(activity.reason ?? "")
+					? "Activity unavailable for this older run."
+					: "Assistant activity is unavailable."}
 			</Text>
 		);
 	return (
 		<div className="grid gap-3">
+			<Text as="h4" role="label" weight="medium">
+				Assistant activity
+			</Text>
 			<Text as="p" tone="secondary">
 				Recorded activity from the linked assistant task; it may also be
 				referenced by other calls.
@@ -87,10 +103,10 @@ export function LinkedTediActivityDetails({
 				<ul className="m-0 grid gap-2 pl-5">
 					{activity.actions.slice(0, 50).map((action) => (
 						<li key={action.id}>
-							{action.kind
-								.replace("tool.", "Tool ")
-								.replace("subagent.", "Delegation ")}
-							{action.toolName ? ` · ${action.toolName}` : ""}
+							{action.kind.startsWith("tool.")
+								? activityToolLabel(action.toolName)
+								: "Delegation"}
+							{` · ${action.kind.split(".")[1]}`}
 						</li>
 					))}
 				</ul>
@@ -101,15 +117,15 @@ export function LinkedTediActivityDetails({
 			)}
 			{(activity.truncated || activity.actions.length > 50) && (
 				<Text as="p" tone="secondary">
-					Only part of the linked task activity is shown.
+					Only part of the assistant activity is shown.
 				</Text>
 			)}
 			<Text as="h4" role="label" weight="medium">
-				Linked task result
+				Answer
 			</Text>
 			{activity.finalResult.status === "redacted" ? (
 				<Text as="p" tone="secondary">
-					The linked task result is withheld.
+					The answer is withheld.
 				</Text>
 			) : activity.runStatus === "completed" &&
 			  activity.finalResult.status === "available" &&
@@ -118,7 +134,7 @@ export function LinkedTediActivityDetails({
 					<RunStepResult value={activity.finalResult.content} />
 					{activity.finalResult.truncated && (
 						<Text as="p" tone="secondary">
-							Only part of the linked task result was recorded here.
+							Only part of the answer was saved.
 						</Text>
 					)}
 				</>
