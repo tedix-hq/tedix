@@ -192,6 +192,10 @@ describe("durable kernel turn lifecycle", () => {
 		const pending: Promise<unknown>[] = [];
 		const end = vi.fn(async () => {});
 		const cancelSchedule = vi.fn(async () => {});
+		let resolveWatchdog: (id: string) => void = () => {};
+		const watchdogArmed = new Promise<string>((resolve) => {
+			resolveWatchdog = resolve;
+		});
 		const fake = {
 			state: { organizationId: null, activeTurn: null },
 			env: { KERNEL_ASYNC_PLANNER: "true" },
@@ -200,6 +204,7 @@ describe("durable kernel turn lifecycle", () => {
 				states.push(state);
 			},
 			abortIfStaleCode: vi.fn(),
+			armTurnWatchdog: vi.fn(() => watchdogArmed),
 			startIngressRecall: () => undefined,
 			readPreviousRelevanceRecall: async () => null,
 			readPersistedHistoryCheckpoint: async () => null,
@@ -231,29 +236,46 @@ describe("durable kernel turn lifecycle", () => {
 			this: typeof fake,
 			input: TurnInput,
 		) => Promise<unknown>;
-		await process.call(fake, input);
+		const processing = process.call(fake, input);
+		await vi.waitFor(() =>
+			expect(fake.armTurnWatchdog).toHaveBeenCalledWith(input),
+		);
+		expect(fake.schedule).not.toHaveBeenCalled();
+		resolveWatchdog("watchdog");
+		await processing;
 		expect(states[0]).toMatchObject({ organizationId: "org-1" });
-		expect(fake.schedule).toHaveBeenCalledWith(0, "runPlannerStep", input);
+		expect(fake.afterTurnMaintenance).toHaveBeenCalledWith("org-1");
+		const plannerInput = {
+			...input,
+			ingressWatchdogId: "watchdog",
+		};
+		expect(fake.schedule).toHaveBeenCalledWith(
+			0,
+			"runPlannerStep",
+			plannerInput,
+		);
+		expect(fake.armTurnWatchdog.mock.invocationCallOrder[0]).toBeLessThan(
+			fake.schedule.mock.invocationCallOrder[0]!,
+		);
+		expect(fake.afterTurnMaintenance.mock.invocationCallOrder[0]).toBeLessThan(
+			fake.schedule.mock.invocationCallOrder[0]!,
+		);
 		lifecycleWork.mockRejectedValueOnce(new Error("turn failure"));
 		const run = KernelDOv4.prototype.runPlannerStep as unknown as (
 			this: typeof fake,
 			input: TurnInput,
 		) => Promise<unknown>;
-		await expect(run.call(fake, input)).rejects.toThrow("turn failure");
+		await expect(run.call(fake, plannerInput)).rejects.toThrow("turn failure");
 		expect(end).toHaveBeenCalledOnce();
-		expect(fake.schedule).toHaveBeenCalledWith(240, "failStuckTurn", {
-			runId: "run-1",
-			organizationId: "org-1",
-			conversationId: "home:main",
-		});
+		expect(fake.armTurnWatchdog).toHaveBeenCalledOnce();
 		expect(cancelSchedule).not.toHaveBeenCalled();
 		expect(fake.turnAbortControllers.size).toBe(0);
 		lifecycleWork.mockResolvedValueOnce({ status: "completed" });
-		await expect(run.call(fake, input)).resolves.toEqual({
+		await expect(run.call(fake, plannerInput)).resolves.toEqual({
 			status: "completed",
 		});
 		await Promise.all(pending);
-		expect(fake.afterTurnMaintenance).toHaveBeenCalledWith("org-1");
+		expect(fake.afterTurnMaintenance).toHaveBeenCalledTimes(2);
 		expect(fake.onTurnEnded).toHaveBeenCalledWith("home:main");
 		expect(end).toHaveBeenCalledTimes(2);
 		expect(cancelSchedule).toHaveBeenCalledOnce();
