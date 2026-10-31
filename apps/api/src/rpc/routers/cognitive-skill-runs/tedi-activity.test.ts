@@ -66,7 +66,7 @@ function client(patch: Partial<BaseContext> = {}) {
 
 async function reference(patch: Record<string, unknown> = {}, secret = token) {
 	const payload = SkillWorkflowTediTaskSigningPayloadSchema.parse({
-		schemaVersion: 1,
+		schemaVersion: 2,
 		organizationId: "org-1",
 		workflowRunId: "workflow-1",
 		executionEpoch: 2,
@@ -179,6 +179,7 @@ describe("workflow step canonical tedi activity", () => {
 		const result = await client()(input);
 		expect(result).toMatchObject({
 			status: "available",
+			activitySource: "linked_tedi_run",
 			runStatus: "completed",
 			finalResult: {
 				status: "available",
@@ -243,6 +244,12 @@ describe("workflow step canonical tedi activity", () => {
 		receipt.tediTaskReference = await reference({}, "tenant-controlled-key");
 		expect((await client()(input)).status).toBe("unavailable");
 		expect(mocks.tediForOrg).not.toHaveBeenCalled();
+		expect(mocks.events).not.toHaveBeenCalled();
+	});
+
+	it("rejects v1 signatures that did not verify workflow task origin", async () => {
+		receipt.tediTaskReference = { ...(await reference()), schemaVersion: 1 };
+		expect((await client()(input)).status).toBe("unavailable");
 		expect(mocks.events).not.toHaveBeenCalled();
 	});
 

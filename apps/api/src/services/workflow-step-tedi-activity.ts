@@ -265,6 +265,9 @@ export async function readWorkflowStepTediActivity(
 	}
 	return {
 		status: "available",
+		activitySource: "linked_tedi_run",
+		reason:
+			"Activity and results belong to the linked tedi run, which can be reused by later calls in this workflow.",
 		task: { id: ref.taskId, tediId: ref.tediId, runId: ref.runId },
 		runStatus:
 			!truncated ||

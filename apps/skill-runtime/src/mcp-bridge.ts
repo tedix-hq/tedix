@@ -16,6 +16,7 @@
  */
 
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { buildRuntimeRunId } from "@tedix/api-contract/utils/runtime-identity";
 import {
 	SkillWorkflowTediTaskSigningPayloadSchema,
 	WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT,
@@ -63,6 +64,7 @@ import {
 } from "./mcp-response-reader";
 import {
 	buildWorkflowMcpCallIdentity,
+	scopedWorkflowTediClientKey,
 	isWorkflowMcpCallContext,
 	type WorkflowMcpCallContext,
 } from "./workflow-identity";
@@ -391,51 +393,63 @@ export async function callMcpTool(
 ): Promise<unknown> {
 	try {
 		let tediTaskReference: SkillWorkflowTediTaskReference | undefined;
-		const value = await executeMcpTool(env, props, request, async (result) => {
-			if (request.namespace !== "tedi" || request.method !== "run_tedi_turn")
-				return;
-			const task = recordedTediTask(result, props.tediId);
-			if (!task) return;
-			const identity = await buildWorkflowMcpCallIdentity({
-				runId: props.runId,
-				executionEpoch: props.executionEpoch,
-				namespace: request.namespace,
-				method: request.method,
-				context: request.workflow,
-			});
-			const payload = SkillWorkflowTediTaskSigningPayloadSchema.parse({
-				schemaVersion: 1,
-				organizationId: props.orgId,
-				workflowRunId: props.runId,
-				executionEpoch: props.executionEpoch,
-				stepId: identity.stepId,
-				callId: identity.callId,
-				stepName: request.workflow.stepName,
-				stepCount: request.workflow.stepCount,
-				receiptStepCount:
-					request.receiptStepCount ?? request.workflow.stepCount,
-				attempt: request.workflow.attempt,
-				phase: request.workflow.phase,
-				ordinal: request.workflow.ordinal,
-				...task,
-				tediId: props.tediId,
-				sensitiveOutput: request.sensitiveOutput === true,
-			});
-			const signature = await hmacSha256(
-				await deriveHkdfHmacKey(
-					props.serviceToken,
-					WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT,
-				),
-				JSON.stringify(payload),
-			);
-			tediTaskReference = {
-				...payload,
-				signature: Array.from(signature, (byte) =>
-					byte.toString(16).padStart(2, "0"),
-				).join(""),
-			};
-			onTaskReference?.(tediTaskReference);
-		});
+		const value = await executeMcpTool(
+			env,
+			props,
+			request,
+			async (result, expectedRunId) => {
+				if (request.namespace !== "tedi" || request.method !== "run_tedi_turn")
+					return;
+				const task = recordedTediTask(result, props.tediId);
+				const carriesTask =
+					isRecord(result) &&
+					("task" in result || "taskId" in result || "run_id" in result);
+				if (!task && !carriesTask) return;
+				if (!task || !expectedRunId || task.runId !== expectedRunId)
+					throw new Error(
+						"WORKFLOW_TEDI_TASK_ORIGIN_MISMATCH: returned task does not belong to this workflow dispatch",
+					);
+				const identity = await buildWorkflowMcpCallIdentity({
+					runId: props.runId,
+					executionEpoch: props.executionEpoch,
+					namespace: request.namespace,
+					method: request.method,
+					context: request.workflow,
+				});
+				const payload = SkillWorkflowTediTaskSigningPayloadSchema.parse({
+					schemaVersion: 2,
+					organizationId: props.orgId,
+					workflowRunId: props.runId,
+					executionEpoch: props.executionEpoch,
+					stepId: identity.stepId,
+					callId: identity.callId,
+					stepName: request.workflow.stepName,
+					stepCount: request.workflow.stepCount,
+					receiptStepCount:
+						request.receiptStepCount ?? request.workflow.stepCount,
+					attempt: request.workflow.attempt,
+					phase: request.workflow.phase,
+					ordinal: request.workflow.ordinal,
+					...task,
+					tediId: props.tediId,
+					sensitiveOutput: request.sensitiveOutput === true,
+				});
+				const signature = await hmacSha256(
+					await deriveHkdfHmacKey(
+						props.serviceToken,
+						WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT,
+					),
+					JSON.stringify(payload),
+				);
+				tediTaskReference = {
+					...payload,
+					signature: Array.from(signature, (byte) =>
+						byte.toString(16).padStart(2, "0"),
+					).join(""),
+				};
+				onTaskReference?.(tediTaskReference);
+			},
+		);
 		rememberReachedTool(props, `${request.namespace}.${request.method}`);
 		return {
 			__tedixMcpResult: true,
@@ -456,7 +470,7 @@ async function executeMcpTool(
 	env: McpBridgeEnv,
 	props: McpBridgeProps,
 	request: McpCallRequest,
-	recordTask: (result: unknown) => Promise<void>,
+	recordTask: (result: unknown, expectedRunId?: string) => Promise<void>,
 ): Promise<unknown> {
 	const { namespace, method, args, workflow } = request;
 	const connectionBinding = request.connectionBinding
@@ -495,17 +509,37 @@ async function executeMcpTool(
 		method,
 		context: workflow,
 	});
+	let clientRequestId =
+		method === "run_tedi_turn" && isRecord(args)
+			? typeof args.client_request_id === "string" &&
+				args.client_request_id.trim()
+				? args.client_request_id
+				: identity.idempotencyKey
+			: undefined;
+	if (namespace === "tedi" && clientRequestId)
+		clientRequestId = await scopedWorkflowTediClientKey({
+			organizationId: props.orgId,
+			runId: props.runId,
+			executionEpoch: props.executionEpoch,
+			tediId: props.tediId,
+			clientKey: clientRequestId,
+			secret: props.serviceToken,
+		});
+	const expectedTediRunId =
+		namespace === "tedi" && clientRequestId
+			? buildRuntimeRunId({
+					tediId: props.tediId,
+					turnKey: clientRequestId,
+					surface: "mcp",
+				})
+			: undefined;
 	const authoritativeArgs = injectWorkflowToolIdentity(
 		namespace,
 		method,
 		method === "run_tedi_turn" && isRecord(args)
 			? {
 					...args,
-					client_request_id:
-						typeof args.client_request_id === "string" &&
-						args.client_request_id.trim()
-							? args.client_request_id
-							: identity.idempotencyKey,
+					client_request_id: clientRequestId,
 				}
 			: args,
 		props.tediId,
@@ -655,7 +689,7 @@ async function executeMcpTool(
 		name: string,
 		targetUrl?: string,
 	) => {
-		await recordTask({ taskId });
+		await recordTask({ taskId }, expectedTediRunId);
 		const outcome = await pollMcpTask({
 			taskId,
 			request: async (method, taskParams) => {
@@ -891,7 +925,7 @@ async function executeMcpTool(
 			if (id) return await awaitTaskToTerminal(id, name);
 		}
 		const unwrapped = unwrapJsonRpcToolResult(body, name);
-		await recordTask(unwrapped);
+		await recordTask(unwrapped, expectedTediRunId);
 		// Pending tedi turn → await its run task (its completed result inlines
 		// the assistant content); settled turns fall through unchanged.
 		const pendingId = pendingTurnTaskId(result, unwrapped);
@@ -958,7 +992,7 @@ async function executeMcpTool(
 		const codeModeResult = stripCodeModeExecutionEnvelope(
 			unwrapJsonRpcToolResult(body, `${codeModeNamespace}.${method}`),
 		);
-		await recordTask(codeModeResult);
+		await recordTask(codeModeResult, expectedTediRunId);
 		// Code Mode preserves the inner tool's task linkage. Mirror the direct
 		// path's task semantics and poll on the same aggregate that created it so
 		// `run_tedi_turn` yields the completed assistant outcome, not merely a
