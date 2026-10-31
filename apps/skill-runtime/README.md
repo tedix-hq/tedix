@@ -301,14 +301,27 @@ dispatch-shim version, Loader config hash, tenant CPU/subrequest limits, and
 Each execution epoch seals `epochs/{epoch}/runtime-pin.json` before tenant code
 runs. `loaderConfigHash` selects an exact immutable Loader config, while
 `executionCompatibilityHash` covers the tenant-visible source, manifest,
-routing, runtime modules, flags, limits, and bridge-semantics version. A normal
-deploy or credential rotation can therefore select a fresh Loader and record
+routing, runtime modules, flags, limits, bridge-semantics version, and the
+service-token version used to derive native tedi task identities. A normal
+deploy can therefore select a fresh Loader and record
 `epochs/{epoch}/runtime-compatible/{loaderConfigHash}.json` without killing the
 run. A changed execution surface records
 `epochs/{epoch}/runtime-drift/{loaderConfigHash}.json` and fails closed with
 `WORKFLOW_RUNTIME_DRIFT_BLOCKED`; use a deliberate native restart to open a new
 epoch. Pins created before the compatibility hash existed remain fail-closed
 across their first Loader change.
+
+Pins created before the service-token fence use the earlier execution hash.
+A `network: false` pin may resume after a deploy only when the current one-way
+secret versions reconstruct the exact Loader hash sealed by the original pin.
+This preserves same-token tedi polling and non-tedi workflows without accepting
+a changed credential. Legacy `network: true` pins stay blocked because their
+Loader hash did not cover every outbound credential and configuration value. A
+rotated service token cannot be recovered from any legacy pin: the old pin
+contains no independent token version, so the factory blocks before loading
+tenant code. Do not automatically restart that run into a new epoch; first
+reconcile any previously dispatched tedi task, because a restart uses a new
+epoch identity and could otherwise duplicate unreconciled work.
 
 There is no native `continueAsNew()` method on the Workflow binding used by the
 runtime. A workload approaching its step budget should complete with a compact

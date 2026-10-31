@@ -21,11 +21,15 @@ export async function buildWorkflowExecutionCompatibility(input: {
 	serviceToken: string;
 }): Promise<{
 	executionCompatibilityHash: string;
+	legacyExecutionCompatibilityHash: string;
 	serviceTokenVersion: string;
 }> {
 	const serviceTokenVersion = await sha256Hex(input.serviceToken);
 	return {
 		serviceTokenVersion,
+		legacyExecutionCompatibilityHash: await sha256Hex(
+			canonicalWorkflowRuntimeJson(input.surface),
+		),
 		executionCompatibilityHash: await sha256Hex(
 			canonicalWorkflowRuntimeJson({
 				surface: input.surface,
@@ -33,4 +37,19 @@ export async function buildWorkflowExecutionCompatibility(input: {
 			}),
 		),
 	};
+}
+
+export function buildWorkflowLoaderConfigHash(input: {
+	executionCompatibilityHash: string;
+	deployment: {
+		workerVersionId: string;
+		workerVersionTag: string;
+		workerVersionTimestamp: string;
+	};
+	secretVersions: {
+		serviceToken: string;
+		outboundCredential: string | null;
+	};
+}): Promise<string> {
+	return sha256Hex(canonicalWorkflowRuntimeJson(input));
 }
