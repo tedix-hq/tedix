@@ -607,7 +607,9 @@ try {
 				.focus();
 			await page.keyboard.press("Enter");
 			await drawer
-				.getByText("Activity unavailable for this older run.", { exact: true })
+				.getByText("Assistant activity is unavailable for this step.", {
+					exact: true,
+				})
 				.waitFor();
 			await page.keyboard.press("Escape");
 			for (const [index, message] of [

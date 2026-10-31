@@ -154,7 +154,7 @@ describe("linked tedi activity", () => {
 				}}
 			/>,
 		);
-		expect(html).toContain("Activity unavailable for this older run");
+		expect(html).toContain("Assistant activity is unavailable for this step");
 		expect(html).not.toContain("11111111-1111-4111-8111-111111111111");
 	});
 });
