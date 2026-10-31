@@ -14,6 +14,7 @@ import {
 	RunStepResult,
 } from "@/components/run-step-result";
 import {
+	hasRedaction,
 	readableField,
 	readableStepResult,
 	stepConversation,
@@ -360,7 +361,25 @@ function RunTimelineStep({
 }) {
 	const receipt = useQuery(workflowRunArtifactQueryOptions(runId, event.path));
 	const record = parseRunReceipt(receipt.data?.content);
-	const sensitive = record.sensitiveOutput === true;
+	const request = stepRecord(record.request);
+	const response = stepRecord(record.response);
+	const metadataMatchesAttempt =
+		event.kind === "step" &&
+		typeof event.attempt === "number" &&
+		event.path.startsWith(`epochs/${event.executionEpoch}/steps/`) &&
+		event.path.endsWith(`/${event.count}/attempts/${event.attempt}.json`) &&
+		record.kind === "workflow_step_attempt" &&
+		record.executionEpoch === event.executionEpoch &&
+		record.attempt === event.attempt &&
+		stepRecord(record.step).count === event.count;
+	const authorMetadata = metadataMatchesAttempt
+		? stepRecord(record.authorMetadata)
+		: {};
+	const sensitive =
+		record.sensitiveOutput === true ||
+		hasRedaction(request) ||
+		hasRedaction(response) ||
+		hasRedaction(authorMetadata);
 	const outputPath =
 		typeof record.outputArtifactPath === "string"
 			? record.outputArtifactPath
@@ -370,16 +389,23 @@ function RunTimelineStep({
 		enabled: Boolean(outputPath) && !sensitive,
 	});
 	const outputRecord = parseRunReceipt(output.data?.content);
+	const outputHidden =
+		sensitive ||
+		outputRecord.sensitiveOutput === true ||
+		hasRedaction(outputRecord.value);
 	// Output paths can be reused by retries; do not attribute a later attempt's value to this receipt.
-	const mismatched =
+	const mismatched = Boolean(
 		output.data &&
-		((outputRecord.stepCount !== undefined &&
-			outputRecord.stepCount !== event.count) ||
-			(event.attempt !== undefined &&
-				outputRecord.attempt !== undefined &&
-				outputRecord.attempt !== event.attempt));
+		(typeof event.attempt !== "number" ||
+			typeof outputRecord.stepCount !== "number" ||
+			typeof outputRecord.attempt !== "number" ||
+			typeof outputRecord.executionEpoch !== "number" ||
+			outputRecord.stepCount !== event.count ||
+			outputRecord.attempt !== event.attempt ||
+			outputRecord.executionEpoch !== event.executionEpoch),
+	);
 	const value =
-		sensitive || mismatched
+		outputHidden || mismatched
 			? null
 			: outputPath
 				? outputRecord.value
@@ -388,10 +414,16 @@ function RunTimelineStep({
 	const result = readableStepResult(value);
 	const awaitingAnswer = stepRecord(result).pending === true;
 	const reference =
-		sensitive || mismatched ? null : stepConversation(value, record);
-	const request = stepRecord(record.request);
-	const instructions = sensitive ? null : stepRecord(request.value).text;
-	const error = outputSample(record.error);
+		outputHidden || mismatched ? null : stepConversation(value, record);
+	const requestValue = sensitive ? null : (request.value ?? request.preview);
+	const requestSample = outputSample(requestValue);
+	const requestFull =
+		requestValue == null
+			? null
+			: typeof requestValue === "string"
+				? requestValue
+				: JSON.stringify(requestValue, null, 2);
+	const error = sensitive ? null : outputSample(record.error);
 	return (
 		<div className="grid min-w-0 gap-5 p-4 pt-0 sm:p-6 sm:pt-0">
 			<div className="flex flex-wrap items-center gap-3">
@@ -426,11 +458,94 @@ function RunTimelineStep({
 					value={event.endedAt ? absoluteTime(event.endedAt) : "Not recorded"}
 				/>
 			</MetricGrid>
-			{typeof instructions === "string" && (
+			{!receipt.isPending && !receipt.isError && !sensitive && (
+				<div className="grid gap-3">
+					<section>
+						<Text as="h3" role="label" weight="medium">
+							Purpose
+						</Text>
+						{typeof authorMetadata.purpose === "string" ? (
+							<>
+								<Text as="p" tone="secondary">
+									Declared by the workflow author
+								</Text>
+								<RunStepResult value={authorMetadata.purpose} />
+							</>
+						) : (
+							<Text as="p" tone="secondary">
+								Not recorded
+							</Text>
+						)}
+					</section>
+					<section>
+						<Text as="h3" role="label" weight="medium">
+							Input sources
+						</Text>
+						{Array.isArray(authorMetadata.inputs) &&
+						authorMetadata.inputs.length > 0 ? (
+							<>
+								<Text as="p" tone="secondary">
+									Sources declared by the workflow author
+								</Text>
+								<RunStepResult value={authorMetadata.inputs} />
+							</>
+						) : (
+							<Text as="p" tone="secondary">
+								Not recorded
+							</Text>
+						)}
+					</section>
+					<section>
+						<Text as="h3" role="label" weight="medium">
+							Activity
+						</Text>
+						<Text as="p" tone="secondary">
+							{event.kind === "mcp" || event.kind === "network"
+								? "A call was recorded for this step."
+								: "No separate activity is recorded in this receipt."}
+						</Text>
+					</section>
+					<section>
+						<Text as="h3" role="label" weight="medium">
+							Used next
+						</Text>
+						{authorMetadata.usedNext != null ? (
+							<>
+								<Text as="p" tone="secondary">
+									Declared by the workflow author
+								</Text>
+								<RunStepResult value={authorMetadata.usedNext} />
+							</>
+						) : (
+							<Text as="p" tone="secondary">
+								Not recorded
+							</Text>
+						)}
+					</section>
+				</div>
+			)}
+			{requestSample !== null && (
 				<Collapsible>
-					<CollapsibleDefaultTrigger>What was asked</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultTrigger>
+						Recorded inputs and instructions
+					</CollapsibleDefaultTrigger>
 					<CollapsibleDefaultContent>
-						<RunStepResult value={instructions} />
+						<RunStepResult value={requestValue} />
+						{requestFull && requestFull.length > 4000 && (
+							<Collapsible>
+								<CollapsibleDefaultTrigger>
+									Show more saved input
+								</CollapsibleDefaultTrigger>
+								<CollapsibleDefaultContent>
+									<CodeBlock code={requestFull.slice(0, 64000)} lang="json" />
+									{requestFull.length > 64000 && (
+										<Text as="p" tone="secondary">
+											Only the first 64,000 characters are shown.
+										</Text>
+									)}
+								</CollapsibleDefaultContent>
+							</Collapsible>
+						)}
 						{request.truncated === true && (
 							<Text as="p" tone="secondary">
 								Only part of the request was saved here. The conversation may
@@ -439,6 +554,13 @@ function RunTimelineStep({
 						)}
 					</CollapsibleDefaultContent>
 				</Collapsible>
+			)}
+			{!receipt.isPending && !receipt.isError && requestSample === null && (
+				<Text as="p" tone="secondary">
+					{sensitive
+						? "Recorded input is hidden."
+						: "No input or instructions were recorded for this step."}
+				</Text>
 			)}
 			{receipt.isPending && <Skeleton className="h-20" />}
 			{receipt.isError && (
@@ -456,11 +578,14 @@ function RunTimelineStep({
 					</AlertDescription>
 				</Alert>
 			)}
-			{!error && event.outcome === "failure" && (
-				<Text as="p" tone="secondary">
-					No error detail was recorded in this receipt.
-				</Text>
-			)}
+			{!error &&
+				!receipt.isPending &&
+				!receipt.isError &&
+				event.outcome === "failure" && (
+					<Text as="p" tone="secondary">
+						No error detail was recorded in this receipt.
+					</Text>
+				)}
 			<div className="grid min-w-0 gap-2">
 				<Text as="h3" role="label" weight="medium">
 					What came back
@@ -474,11 +599,13 @@ function RunTimelineStep({
 						retrying={output.isFetching}
 					/>
 				)}
-				{sample ? (
+				{receipt.isPending ||
+				(outputPath && output.isFetching) ||
+				receipt.isError ||
+				(outputPath && output.isError) ? null : sample !== null ? (
 					awaitingAnswer ? (
 						<Text as="p" tone="secondary">
-							The request was accepted, but its answer arrived separately. This
-							record is not the final reply.
+							The request was accepted. This record is not the final reply.
 						</Text>
 					) : (
 						<div
@@ -489,25 +616,35 @@ function RunTimelineStep({
 								value={result}
 								field={event.name === "clock" ? "timestamp" : undefined}
 							/>
+							{response.truncated === true && (
+								<Text as="p" tone="secondary">
+									Only part of the response was recorded.
+								</Text>
+							)}
 						</div>
 					)
 				) : (
 					<Text as="p" tone="secondary">
-						{sensitive
+						{outputHidden
 							? "Sensitive output is hidden."
 							: mismatched
-								? "The saved output belongs to another attempt."
+								? "The saved output cannot be matched to this attempt and execution."
 								: "No result was saved for this step."}
 					</Text>
 				)}
 			</div>
 			{reference && <RunStepConversation reference={reference} />}
-			{!reference && !sensitive && !mismatched && event.kind === "step" && (
-				<Text as="p" tone="secondary">
-					No conversation was linked to this task. Its saved result is shown
-					above.
-				</Text>
-			)}
+			{!reference &&
+				!outputHidden &&
+				!mismatched &&
+				!receipt.isPending &&
+				!receipt.isError &&
+				event.kind === "step" && (
+					<Text as="p" tone="secondary">
+						No conversation was linked to this task. Its saved result is shown
+						above.
+					</Text>
+				)}
 			<Collapsible className="min-w-0">
 				<CollapsibleDefaultTrigger>Technical details</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent>

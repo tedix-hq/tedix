@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	hasRedaction,
 	readableStepResult,
 	stepConversation,
 	stepTimestamp,
@@ -7,6 +8,12 @@ import {
 } from "./run-step-content";
 
 describe("readable saved step results", () => {
+	it("detects nested redaction in arrays and objects", () => {
+		expect(hasRedaction({ value: [{ payload: { redacted: true } }] })).toBe(
+			true,
+		);
+		expect(hasRedaction({ value: [{ redacted: false }] })).toBe(false);
+	});
 	it("formats explicit timestamps without treating identifiers or durations as dates", () => {
 		const ms = Date.parse("2026-10-28T09:00:00.000Z");
 		expect(stepTimestamp(ms, "timestamp")).toBe("2026-10-28T09:00:00.000Z");
@@ -84,7 +91,10 @@ describe("readable saved step results", () => {
 				request: { value: { session_key: "recorded-session" } },
 				response: { value: { task: { id: `tedi:${id}:${id}:mcp:judge` } } },
 			}),
-		).toEqual({ tediId: id, conversationId: "recorded-session" });
+		).toBeNull();
+		expect(
+			stepConversation({ session_key: "opaque", runId: `${id}:mcp:judge` }),
+		).toBeNull();
 		expect(stepConversation({ task: { id: "unrelated-task" } })).toBeNull();
 	});
 });
