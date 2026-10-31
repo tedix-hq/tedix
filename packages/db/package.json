@@ -462,7 +462,9 @@
 		"./schema/calendar-coordinator": "./src/schema/calendar-coordinator.ts",
 		"./queries/calendar-coordinator": "./src/queries/calendar-coordinator.ts",
 		"./queries/decision-learning": "./src/queries/decision-learning.ts",
-		"./queries/model-catalog": "./src/queries/model-catalog.ts"
+		"./queries/model-catalog": "./src/queries/model-catalog.ts",
+		"./queries/agent-turn-defaults": "./src/queries/agent-turn-defaults.ts",
+		"./queries/work-onboarding": "./src/queries/work-onboarding.ts"
 	},
 	"scripts": {
 		"clean": "true",
