@@ -140,7 +140,7 @@ describe("activity history", () => {
 			tediNames,
 		);
 		expect(done).toMatchObject({
-			status: { label: "Approved" },
+			status: { label: "Done" },
 			how: "Done: Client deleted",
 		});
 		expect(failed?.how).toBe(

@@ -218,6 +218,7 @@ export type KernelWriteExecutionResult =
 			 * changed; an owner may try the same approved call once more.
 			 */
 			retryable?: boolean;
+			rateLimitRetryAfterSeconds?: number;
 	  };
 
 /** Where an approved write's execution time went, filled as each step ends. */
@@ -238,6 +239,7 @@ interface McpTool {
 }
 
 type ToolCallResult = {
+	_meta?: Record<string, unknown>;
 	structuredContent?: unknown;
 	content?: unknown;
 	isError?: boolean;
@@ -533,9 +535,19 @@ export async function executeApprovedOwnerToolCall(args: {
 		}
 		if (result.isError) {
 			const text = mcpContentText(result.content);
+			const security = result._meta?.["com.tedix/security"] as
+				| { denialReason?: string; rateLimit?: { retryAfterSeconds?: number } }
+				| undefined;
+			const wait =
+				security?.denialReason === "tool_rate_limited"
+					? security.rateLimit?.retryAfterSeconds
+					: undefined;
 			return {
 				ok: false,
 				error: boundedError(text ?? result.content ?? result),
+				...(typeof wait === "number" && Number.isFinite(wait) && wait > 0
+					? { rateLimitRetryAfterSeconds: wait }
+					: {}),
 				// The gateway's own refusals (approval match, rate limiter) end with
 				// this sentence: the approval stays unconsumed and nothing ran.
 				...(text && /No side effect was executed/.test(text)

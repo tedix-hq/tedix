@@ -562,7 +562,9 @@ export async function settleHomeToolWriteApproval(
 		holdAfterSettle?: (work: Promise<void>) => void;
 	},
 	admittedMetadata?: Record<string, unknown>,
-): Promise<"succeeded" | "failed" | "closed" | "unknown" | "not_applicable"> {
+): Promise<
+	"succeeded" | "failed" | "queued" | "closed" | "unknown" | "not_applicable"
+> {
 	// repo_commit_write payloads execute in the tedi DO, never through the MCP
 	// executor on this path. The API approval row is the exactly-once latch; once
 	// it resolves, trigger the owning DO to drain its local changeset ledger.

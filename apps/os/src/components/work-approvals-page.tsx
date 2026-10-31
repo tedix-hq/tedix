@@ -201,6 +201,12 @@ function NeedsYou({
 	}
 	return (
 		<div className="grid gap-4 pb-24 md:pb-8">
+			<ActivityHistory
+				attentionOnly
+				only="approvals"
+				canRetry={inbox.canDecide}
+				tediNames={inbox.tediNames}
+			/>
 			{inbox.error ? (
 				<Text as="p" className="m-0" role="body" tone="error">
 					The decision could not be saved:{" "}

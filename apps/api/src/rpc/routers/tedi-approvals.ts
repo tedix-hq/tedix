@@ -876,6 +876,7 @@ const listApprovalsProcedure = authedOs.list
 			tediId: input?.tediId,
 			status: input?.status,
 			actionType: input?.actionType,
+			executionAttentionOnly: input?.executionAttentionOnly,
 			limit,
 			offset,
 		});

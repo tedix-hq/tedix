@@ -102,6 +102,19 @@ describe("owner tool execution record", () => {
 		).toContain("Did not finish");
 	});
 
+	it("keeps queued work automatic and describes the wait", () => {
+		const execution = parseOwnerToolExecution({
+			status: "queued",
+			startedAt: "2026-10-31T12:00:00.000Z",
+			nextAttemptAt: "2026-10-31T12:01:00.000Z",
+		});
+		expect(execution?.nextAttemptAt).toBe("2026-10-31T12:01:00.000Z");
+		expect(isRetryableOwnerToolExecution(execution)).toBe(false);
+		expect(ownerToolExecutionOutcome(execution)).toContain(
+			"Tedix will retry automatically",
+		);
+	});
+
 	it("says what happened in words", () => {
 		expect(
 			ownerToolExecutionOutcome(

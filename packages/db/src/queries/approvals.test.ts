@@ -25,6 +25,8 @@ import {
 	findPendingOwnerToolApproval,
 	getApprovalRequestById,
 	listApprovalRequests,
+	listDueOwnerToolApprovals,
+	reclaimOwnerToolApprovalExecution,
 	listProvisionalOutcomes,
 	promoteProvisionalOutcome,
 	recordOwnerToolApprovalExecution,
@@ -650,6 +652,11 @@ describe("exact owner tool approval consumption", () => {
 			status: "approved",
 			resolvedBy: "owner-1",
 		});
+		await claimOwnerToolApprovalExecution(db, {
+			id: "pre-send",
+			organizationId: "org-1",
+			now,
+		});
 		expect(
 			await recordOwnerToolApprovalExecution(db, {
 				id: "pre-send",
@@ -775,4 +782,87 @@ describe("pending owner tool approval lookup", () => {
 		});
 		expect(await findPendingOwnerToolApproval(db, input)).toBeUndefined();
 	});
+});
+
+it("claims queued calls only when due, recovers a cut-off run, and rejects an old completion", async () => {
+	const { db } = setup();
+	const now = "2026-10-31T12:00:00.000Z";
+	await createApprovalRequest(db, {
+		id: "queued-1",
+		orgId: "org-1",
+		tediId: "anchor",
+		actionType: "mcp.tool_call",
+		description: "Delete a skill",
+		payload: {
+			kind: "mcp_tool_call",
+			fingerprint: "fp",
+			execution: {
+				status: "queued",
+				startedAt: now,
+				nextAttemptAt: "2026-10-31T12:01:00.000Z",
+			},
+		},
+		createdAt: now,
+		expiresAt: "2026-11-01T12:00:00.000Z",
+	});
+	await resolveApprovalRequest(db, "queued-1", {
+		status: "approved",
+		resolvedBy: "owner",
+	});
+	const claim = {
+		id: "queued-1",
+		organizationId: "org-1",
+		now,
+		retriedBy: "approval-queue",
+		attempt: 2,
+		staleBefore: "2026-10-31T11:50:00.000Z",
+	};
+	expect(await listDueOwnerToolApprovals(db, now)).toHaveLength(0);
+	expect(await reclaimOwnerToolApprovalExecution(db, claim)).toBe(false);
+	const due = "2026-10-31T12:02:00.000Z";
+	expect(await listDueOwnerToolApprovals(db, due)).toHaveLength(1);
+	expect(
+		await reclaimOwnerToolApprovalExecution(db, {
+			...claim,
+			organizationId: "org-2",
+			now: due,
+		}),
+	).toBe(false);
+	expect(
+		await reclaimOwnerToolApprovalExecution(db, { ...claim, now: due }),
+	).toBe(true);
+	expect(
+		await reclaimOwnerToolApprovalExecution(db, { ...claim, now: due }),
+	).toBe(false);
+	expect(await listDueOwnerToolApprovals(db, due)).toHaveLength(0);
+	expect(
+		await recordOwnerToolApprovalExecution(db, {
+			id: "queued-1",
+			organizationId: "org-1",
+			execution: { status: "failed", startedAt: now },
+		}),
+	).toBeNull();
+	expect(
+		await listDueOwnerToolApprovals(db, "2026-10-31T12:13:00.000Z"),
+	).toHaveLength(1);
+	expect(
+		await reclaimOwnerToolApprovalExecution(db, {
+			...claim,
+			now: "2026-11-02T12:00:00.000Z",
+			staleBefore: "2026-11-02T11:50:00.000Z",
+		}),
+	).toBe(false);
+	const attention = await listApprovalRequests(db, {
+		orgId: "org-1",
+		executionAttentionOnly: true,
+	});
+	expect(attention.total).toBe(1);
+	expect(
+		(
+			await listApprovalRequests(db, {
+				orgId: "org-2",
+				executionAttentionOnly: true,
+			})
+		).total,
+	).toBe(0);
 });

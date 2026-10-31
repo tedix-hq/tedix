@@ -5,7 +5,8 @@
  * and by Activity.
  */
 export interface OwnerToolExecutionRecord {
-	status: "running" | "executed" | "failed";
+	status: "queued" | "running" | "executed" | "failed";
+	nextAttemptAt?: string;
 	startedAt?: string;
 	finishedAt?: string;
 	/** Plain-language result for people: "Client deleted", "Scope 'x' required". */
@@ -31,10 +32,18 @@ export function parseOwnerToolExecution(
 ): OwnerToolExecutionRecord | null {
 	if (!isRecord(value)) return null;
 	const { status } = value;
-	if (status !== "running" && status !== "executed" && status !== "failed")
+	if (
+		status !== "queued" &&
+		status !== "running" &&
+		status !== "executed" &&
+		status !== "failed"
+	)
 		return null;
 	return {
 		status,
+		...(typeof value.nextAttemptAt === "string"
+			? { nextAttemptAt: value.nextAttemptAt }
+			: {}),
 		...(typeof value.startedAt === "string"
 			? { startedAt: value.startedAt }
 			: {}),
@@ -111,6 +120,8 @@ export function ownerToolExecutionOutcome(
 	now = Date.now(),
 ): string | null {
 	if (!execution) return null;
+	if (execution.status === "queued")
+		return "Queued: waiting for the tool limit; Tedix will retry automatically";
 	if (execution.status === "executed")
 		return `Done${execution.summary ? `: ${execution.summary}` : ""}`;
 	if (execution.status === "failed")

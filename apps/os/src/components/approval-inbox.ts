@@ -335,6 +335,14 @@ export function approvalOutcome(
 	if (ran.length === 0)
 		return { ...base, message: `Approved: ${subject}. ${item.afterApprove}` };
 	const failed = ran.filter((execution) => execution.status === "failed");
+	if (
+		failed.length === 0 &&
+		ran.some((execution) => execution.status !== "executed")
+	)
+		return {
+			...base,
+			message: `Approved: ${subject}. Queued or running; Tedix will retry tool limits automatically.`,
+		};
 	if (failed.length === 0) {
 		const summary = count === 1 ? ran[0]?.summary : undefined;
 		return {
