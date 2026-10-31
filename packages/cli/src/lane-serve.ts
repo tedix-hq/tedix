@@ -427,6 +427,16 @@ interface Receipt {
 	completionRetryAt?: number;
 	completionError?: string;
 }
+function retainsInterruptedWork(receipt: Receipt): boolean {
+	return (
+		receipt.phase === "deferred" &&
+		receipt.outcome === "expired" &&
+		receipt.admissionState === "admitted" &&
+		!!receipt.attemptId &&
+		!!receipt.session &&
+		!!receipt.repo
+	);
+}
 function nativePreparationTimedOut(receipt: Receipt): boolean {
 	return (
 		!receipt.session &&
@@ -1240,6 +1250,15 @@ export class LaneDispatcher {
 	}
 	private async execute(candidate: DispatchItem, previous?: Receipt) {
 		const path = this.path(candidate);
+		const interrupted =
+			previous &&
+			previous.itemId === candidate.id &&
+			previous.version === candidate.version &&
+			retainsInterruptedWork(previous) &&
+			previous.repo &&
+			resolve(previous.repo).startsWith(resolve(this.directory, "runs") + sep)
+				? previous
+				: undefined;
 		const inRetryWindow = Date.now() < (previous?.retryDeadlineAt ?? 0);
 		const retryDeadlineAt = inRetryWindow
 			? previous!.retryDeadlineAt!
@@ -1760,6 +1779,18 @@ export class LaneDispatcher {
 								Date.now() + 60_000 * 2 ** (receipt.retries - 1),
 								retryDeadlineAt,
 							);
+				if (!admissionSent && interrupted) {
+					// Keep correlation only; a fresh admission still owns the next lease and PID.
+					Object.assign(receipt, {
+						repo: interrupted.repo,
+						baseCommit: interrupted.baseCommit,
+						session: interrupted.session,
+						executorKey: interrupted.executorKey,
+						attemptId: interrupted.attemptId,
+						processIdentity: interrupted.processIdentity,
+						outcome: "expired",
+					});
+				}
 			}
 			this.scheduleCleanup(receipt);
 			this.save(path, receipt);
@@ -1876,6 +1907,7 @@ export class LaneDispatcher {
 	private async cleanupWorktree(receipt: Receipt) {
 		if (
 			["settled", "deferred", "failed"].includes(receipt.phase) &&
+			!retainsInterruptedWork(receipt) &&
 			receipt.admissionState !== "unknown" &&
 			receipt.pendingCommitProof === undefined &&
 			!receipt.pendingObservation &&
