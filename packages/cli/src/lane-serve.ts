@@ -2555,33 +2555,41 @@ export async function runLaneServe(args: string[]): Promise<number> {
 		key,
 	);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
-	const locks = (
-		options.executor === "any-local"
-			? [...localExecutors, "any-local"]
-			: [options.executor]
-	).map((executor) => {
-		const executorKey = createHash("sha256")
-			.update(`${org}:${executor}`)
-			.digest("hex")
-			.slice(0, 16);
-		return beginFileLock(join(directory, "..", executorKey, "lock"));
-	});
-	if (!locks.every((lock) => lock.ready())) {
-		for (const lock of locks) lock.release();
-		throw new Error(
-			"A dispatcher for this organization and executor is already running",
-		);
-	}
-	writeDispatcherHealthSource(directory, options);
-	const dispatcher = new LaneDispatcher(options, directory);
+	const locks: ReturnType<typeof beginFileLock>[] = [];
+	let dispatcher: LaneDispatcher | undefined;
 	let stopping = false;
 	const stop = () => {
 		stopping = true;
-		dispatcher.stop();
+		dispatcher?.stop();
 	};
 	process.on("SIGTERM", stop);
 	process.on("SIGINT", stop);
 	try {
+		const waiting = new Set<number>();
+		// Acquire in the same order so overlapping any-local runners cannot deadlock.
+		for (const executor of options.executor === "any-local"
+			? [...localExecutors, "any-local"]
+			: [options.executor]) {
+			const executorKey = createHash("sha256")
+				.update(`${org}:${executor}`)
+				.digest("hex")
+				.slice(0, 16);
+			const lock = beginFileLock(join(directory, "..", executorKey, "lock"));
+			locks.push(lock);
+			while (!stopping && !lock.ready()) {
+				for (const pid of lock.blockingPids()) {
+					if (waiting.has(pid)) continue;
+					waiting.add(pid);
+					process.stderr.write(
+						`Dispatcher waiting for ${pid} to finish draining\n`,
+					);
+				}
+				await new Promise<void>((done) => setTimeout(done, 250));
+			}
+			if (stopping) return 0;
+		}
+		writeDispatcherHealthSource(directory, options);
+		dispatcher = new LaneDispatcher(options, directory);
 		if (options.executor === "any-local")
 			mergeDispatcherReceipts(
 				directory,
@@ -2603,9 +2611,8 @@ export async function runLaneServe(args: string[]): Promise<number> {
 				process.stderr.write(`Dispatcher deferred: ${String(error)}\n`);
 			}
 			if (options.once || stopping) break;
-			await new Promise<void>((done) =>
-				setTimeout(done, dispatcher.nextTickDelayMs()),
-			);
+			const delay = dispatcher.nextTickDelayMs();
+			await new Promise<void>((done) => setTimeout(done, delay));
 		} while (!stopping);
 		await dispatcher.drain();
 		return 0;

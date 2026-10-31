@@ -224,11 +224,13 @@ describe("local file-lock bakery protocol", () => {
 		const lock = beginFileLock(f.locks);
 		try {
 			expect(lock.ready()).toBe(false);
+			expect(lock.blockingPids()).toEqual([peer.process.pid!]);
 			expect(
 				JSON.parse(readFileSync(join(f.locks, "choosing.json"), "utf8")).ticket,
 			).toBe(0);
 			await peer.call("peer", { name: "choosing.json", ticket: 2 });
 			expect(lock.ready()).toBe(true);
+			expect(lock.blockingPids()).toEqual([]);
 		} finally {
 			lock.release();
 		}
