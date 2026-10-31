@@ -14,8 +14,8 @@ import {
  * Aggregate namespaces a direct (non-`code`) tools/call needs, or null for the
  * full catalog. A root-app API (rpc) tool needs none; the native catalog
  * search/describe tools need only the namespace they name; a prefixed aggregate
- * tool (`ns__tool`) needs its own namespace. Anything else keeps the full
- * catalog.
+ * tool (`ns__tool`) needs its own namespace. An unknown unprefixed name cannot
+ * identify an aggregate tool, so it needs no aggregate catalog.
  */
 export function directToolCallNamespaces(
 	toolName: string | undefined,
@@ -45,7 +45,7 @@ export function directToolCallNamespaces(
 	const separator = toolName.indexOf("__");
 	return separator > 0
 		? new Set([toolName.slice(0, separator).replace(/[^a-zA-Z0-9_]/g, "_")])
-		: null;
+		: new Set();
 }
 
 export function filterAggregateAppsForCodeNamespaces(
