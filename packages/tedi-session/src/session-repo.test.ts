@@ -51,8 +51,13 @@ interface FakeRow {
 	model_id: string | null;
 }
 
-function createFakeSql(): { sql: SessionRepoSql; rows: FakeRow[] } {
+function createFakeSql(): {
+	sql: SessionRepoSql;
+	rows: FakeRow[];
+	queries: string[];
+} {
 	const rows: FakeRow[] = [];
+	const queries: string[] = [];
 	// Track which phase-2 columns have been "added" so a re-ALTER throws like
 	// SQLite's "duplicate column name" — proving the repo's idempotent try/catch.
 	const addedColumns = new Set<string>();
@@ -61,6 +66,7 @@ function createFakeSql(): { sql: SessionRepoSql; rows: FakeRow[] } {
 		...values: (string | number | boolean | null)[]
 	): T[] => {
 		const text = strings.join("?").replace(/\s+/g, " ").trim();
+		queries.push(text);
 
 		if (
 			text.startsWith("CREATE TABLE") ||
@@ -134,18 +140,77 @@ function createFakeSql(): { sql: SessionRepoSql; rows: FakeRow[] } {
 			return (text.includes("RETURNING id") ? [{ id }] : []) as T[];
 		}
 
-		// Phase-2: sessions with a compaction marker.
+		// Phase-2: bounded compaction presence probe.
 		if (
 			text.startsWith(
-				"SELECT DISTINCT session_key FROM session_entries WHERE type = 'compaction'",
+				"SELECT 1 AS has_compaction FROM session_entries WHERE type = 'compaction' LIMIT 1",
 			)
 		) {
-			const keys = [
-				...new Set(
-					rows.filter((r) => r.type === "compaction").map((r) => r.session_key),
-				),
-			];
-			return keys.map((session_key) => ({ session_key })) as T[];
+			return (
+				rows.some((r) => r.type === "compaction") ? [{ has_compaction: 1 }] : []
+			) as T[];
+		}
+
+		// Phase-2: SQL-projected recent window. The production query keeps the
+		// compaction overlay in SQLite and returns only the configured LIMIT.
+		if (text.startsWith("WITH latest_compactions AS")) {
+			const limit = values[0] as number;
+			const latestBySession = new Map<string, FakeRow>();
+			for (const row of rows) {
+				if (row.type !== "compaction") continue;
+				const current = latestBySession.get(row.session_key);
+				if (
+					!current ||
+					row.ts > current.ts ||
+					(row.ts === current.ts && row.id > current.id)
+				) {
+					latestBySession.set(row.session_key, row);
+				}
+			}
+			const projected: Array<{
+				session_key: string;
+				role: string;
+				content: string;
+				ts: number;
+				model_provider: string | null;
+				model_id: string | null;
+			}> = [];
+			for (const row of rows) {
+				if (row.type !== "message") continue;
+				const latest = latestBySession.get(row.session_key);
+				const firstKept = latest
+					? rows.find(
+							(candidate) =>
+								candidate.id === latest.first_kept_entry_id &&
+								candidate.session_key === latest.session_key &&
+								candidate.type === "message",
+						)
+					: undefined;
+				if (
+					latest &&
+					!(firstKept ? row.ts >= firstKept.ts : row.ts > latest.ts)
+				) {
+					continue;
+				}
+				projected.push({ ...row });
+			}
+			for (const latest of latestBySession.values()) {
+				const firstKept = rows.find(
+					(candidate) =>
+						candidate.id === latest.first_kept_entry_id &&
+						candidate.session_key === latest.session_key &&
+						candidate.type === "message",
+				);
+				projected.push({
+					session_key: latest.session_key,
+					role: "assistant",
+					content: latest.content,
+					ts: firstKept ? firstKept.ts - 1 : latest.ts,
+					model_provider: null,
+					model_id: null,
+				});
+			}
+			return projected.sort((a, b) => b.ts - a.ts).slice(0, limit) as T[];
 		}
 
 		// Phase-2: full-column read (all sessions or one), ts-ascending.
@@ -227,7 +292,7 @@ function createFakeSql(): { sql: SessionRepoSql; rows: FakeRow[] } {
 
 		throw new Error(`fake sql: unhandled statement: ${text}`);
 	}) as SessionRepoSql;
-	return { sql, rows };
+	return { sql, rows, queries };
 }
 
 function durableState(
@@ -972,6 +1037,61 @@ function msg(
 	assert.ok(
 		!projected.some((t) => t.content.startsWith("turn-1-")),
 		"the oldest pre-cut turn is summarized out of the projected view",
+	);
+}
+
+// ── Repo: compacted recent reads stay SQL-bounded across all sessions ─────────
+{
+	const { sql, queries } = createFakeSql();
+	const repo = new TediSessionRepo({
+		sql,
+		readDurable: noDurable,
+		maxRecentTurns: 4,
+		keepRecentTokens: 8,
+	});
+	for (let i = 1; i <= 30; i++) {
+		repo.appendTurn({
+			role: i % 2 ? "user" : "assistant",
+			content: `compacted-${i}-${"x".repeat(1_000)}`,
+			sessionKey: "chat:compacted",
+			ts: i,
+		});
+	}
+	await repo.compactSession("chat:compacted", async () => "BOUNDED-SUMMARY");
+	for (let i = 31; i <= 40; i++) {
+		repo.appendTurn({
+			role: i % 2 ? "user" : "assistant",
+			content: `other-${i}`,
+			sessionKey: "chat:other",
+			ts: i,
+		});
+	}
+
+	const queryStart = queries.length;
+	const recent = repo.listTurns();
+	const readQueries = queries.slice(queryStart);
+	assert.equal(
+		recent.length,
+		4,
+		"projected read returns only the configured cap",
+	);
+	assert.deepEqual(
+		recent.map((turn) => turn.content),
+		["other-37", "other-38", "other-39", "other-40"],
+		"the bounded projection keeps the globally newest turns",
+	);
+	assert.ok(
+		readQueries.some((query) => query.startsWith("WITH latest_compactions AS")),
+		"compacted reads project and limit inside SQL",
+	);
+	assert.ok(
+		!readQueries.some(
+			(query) =>
+				query.startsWith(
+					"SELECT id, session_key, parent_id, type, role, content, ts, first_kept_entry_id, tokens_before, model_provider, model_id FROM session_entries",
+				) && !query.includes("WHERE session_key = ?"),
+		),
+		"recent reads never materialize every session entry",
 	);
 }
 
