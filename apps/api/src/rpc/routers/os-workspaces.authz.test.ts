@@ -1,3 +1,5 @@
+import blueprint from "../../../../os/dev/demo-pack/work-blueprint.json";
+import { policyPacks } from "@tedix/db/schema/control-plane";
 /**
  * Role-matrix authorization for the Tedix OS workspace surface: every
  * procedure group rides its least-privilege os:* verb (os:read, os:author,
@@ -37,6 +39,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(
 		schemaDdl(
+			policyPacks,
 			osWorkspaces,
 			osGadgets,
 			osGadgetRevisions,
@@ -55,6 +58,13 @@ function createEnv(): CloudflareEnv {
 		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'First Org');
 	`);
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES('example-onboarding','Example','work-onboarding','system','shared','active',1,'2026-01-01T00:00:00Z','example-admin',?)",
+		)
+		.run(
+			JSON.stringify({ workOnboarding: { version: 1, definition: blueprint } }),
+		);
 	return {
 		ENVIRONMENT: "test",
 		API_URL: "https://api.tedix.test",

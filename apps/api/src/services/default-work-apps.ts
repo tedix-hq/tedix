@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/server";
 import {
 	OsBlueprintDefinitionSchema,
 	OsGadgetManifestSchema,
@@ -44,9 +45,13 @@ export async function installDefaultWorkApps(
 	if (roles.has("feed") && roles.has("deck"))
 		return { workspaceId: installed[0]!.gadget.workspaceId };
 
-	const definition = OsBlueprintDefinitionSchema.parse(
-		(await getWorkOnboarding(db)).definition,
-	);
+	const configured = await getWorkOnboarding(db).catch((cause: unknown) => {
+		throw new ORPCError("SERVICE_UNAVAILABLE", {
+			message: "Work app defaults are not configured for this installation",
+			cause,
+		});
+	});
+	const definition = OsBlueprintDefinitionSchema.parse(configured.definition);
 	definition.gadgets = definition.gadgets.filter(
 		(app) => !roles.has(app.manifest.navigation?.work),
 	);

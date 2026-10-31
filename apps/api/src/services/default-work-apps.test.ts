@@ -247,7 +247,7 @@ it("requires published configuration for a new install but preserves an existing
 	).toEqual(before);
 	await expect(
 		installDefaultWorkApps(db, "cedar-studio", owner),
-	).rejects.toThrow();
+	).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
 	expect(
 		sqlite
 			.prepare(
