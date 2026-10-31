@@ -262,8 +262,10 @@ async function runOwnerToolCall(
 				toolId: payload.toolId,
 				approvedBy: approval.resolvedBy,
 				...attempt,
-				...(record.summary ? { summary: record.summary } : {}),
-				...(record.error ? { error: record.error } : {}),
+				...(record.summary
+					? { summary: ownerToolExecutionSummary(payload.toolId, null) }
+					: {}),
+				...(record.error ? { error: "Approved tool execution failed" } : {}),
 			}),
 		}).catch((error) => {
 			console.warn("[approvals] owner tool call audit failed", {

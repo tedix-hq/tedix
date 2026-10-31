@@ -1,3 +1,8 @@
+import {
+	approvalPayloadForViewer,
+	canReadApprovalResult,
+	approvalReceiptForViewer,
+} from "../../services/approval-result-privacy";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { disposableCleanupApprover } from "../../services/disposable-cleanup-approval";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
@@ -150,8 +155,23 @@ function parseApprovalPayload(value: unknown): Record<string, JsonValue> {
 	return parsed.data;
 }
 
-function normalizeApprovalRequest(row: DbApprovalRequest): ApprovalRequest {
-	const payload = parseApprovalPayload(row.payload);
+function normalizeApprovalRequest(
+	row: DbApprovalRequest,
+	context: BaseContext,
+): ApprovalRequest {
+	return normalizeCanonicalApprovalRequest(
+		row,
+		approvalPayloadForViewer(context, {
+			...row,
+			payload: parseApprovalPayload(row.payload),
+		}),
+	);
+}
+
+function normalizeCanonicalApprovalRequest(
+	row: DbApprovalRequest,
+	payload = parseApprovalPayload(row.payload),
+): ApprovalRequest {
 	return {
 		id: row.id,
 		tediId: row.tediId,
@@ -334,6 +354,7 @@ export async function buildApprovalReviewManifest(
 	context: BaseContext,
 	organizationId: string,
 	approvalRequestIds: string[],
+	projectForViewer = true,
 ): Promise<ApprovalReviewManifest> {
 	const uniqueIds = [...new Set(approvalRequestIds)];
 	if (uniqueIds.length !== approvalRequestIds.length)
@@ -400,7 +421,7 @@ export async function buildApprovalReviewManifest(
 					? ("requested" as const)
 					: ("hard_dependency_component" as const),
 				canonicalInputHash: await approvalInputHash(approval),
-				approval: normalizeApprovalRequest(approval),
+				approval: normalizeCanonicalApprovalRequest(approval),
 				dependencies: edges
 					.filter((edge) => edge.dependentApprovalRequestId === approval.id)
 					.map((edge) => ({
@@ -421,7 +442,12 @@ export async function buildApprovalReviewManifest(
 	return {
 		manifestHash: `sha256:${await canonicalDigest(snapshot)}`,
 		generatedAt: new Date().toISOString(),
-		actions,
+		actions: projectForViewer
+			? actions.map((action, index) => ({
+					...action,
+					approval: normalizeApprovalRequest(approvals[index]!, context),
+				}))
+			: actions,
 	};
 }
 
@@ -606,7 +632,7 @@ const requestProvisionalOutcomePromotionProcedure =
 					},
 				});
 			}
-			return normalizeApprovalRequest(ensured.request);
+			return normalizeApprovalRequest(ensured.request, context);
 		});
 
 const promoteProvisionalOutcomeProcedure = authedOs.promoteProvisionalOutcome
@@ -809,7 +835,7 @@ const createApprovalProcedure = approvalsOs.create
 				ttlHours: input.ttlHours,
 			},
 		});
-		return normalizeApprovalRequest(request);
+		return normalizeApprovalRequest(request, context);
 	});
 
 /**
@@ -855,7 +881,7 @@ const listApprovalsProcedure = authedOs.list
 		});
 
 		return {
-			data: data.map(normalizeApprovalRequest),
+			data: data.map((row) => normalizeApprovalRequest(row, context)),
 			pagination: {
 				limit,
 				offset,
@@ -886,7 +912,7 @@ const getByIdProcedure = authedOs.getById
 			);
 		}
 
-		return normalizeApprovalRequest(request);
+		return normalizeApprovalRequest(request, context);
 	});
 
 const getProvenanceProcedure = authedOs.getProvenance
@@ -899,6 +925,16 @@ const getProvenanceProcedure = authedOs.getProvenance
 		if (!(await hasApprovalProvenanceRequest(context.db, scope))) {
 			throw createError(ErrorCodes.NOT_FOUND, "Approval request not found");
 		}
+		const request = await getApprovalRequestById(
+			context.db,
+			input.approvalRequestId,
+		);
+		if (request && request.orgId !== context.organizationId)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Access denied to this approval request",
+			);
+		const mayReadResult = canReadApprovalResult(context, request);
 		const [simulations, executionReceipts] = await Promise.all([
 			listApprovalSimulationPage(context.db, scope, input.simulations),
 			listApprovalExecutionReceiptPage(
@@ -913,7 +949,7 @@ const getProvenanceProcedure = authedOs.getProvenance
 			executionReceipts: {
 				...executionReceipts,
 				records: executionReceipts.records.map((receipt) => ({
-					...receipt,
+					...approvalReceiptForViewer(receipt, mayReadResult),
 					evidenceKind: "execution_receipt",
 				})),
 			},
@@ -938,6 +974,7 @@ const resolveReviewManifestProcedure = authedOs.resolveReviewManifest
 			context,
 			organizationId,
 			input.approvalRequestIds,
+			false,
 		);
 		if (manifest.manifestHash !== input.expectedManifestHash) {
 			throw createError(
@@ -1351,7 +1388,9 @@ const resolveProcedure = authedOs.resolve
 
 		assertApprovalStillPending(existing);
 
-		const recommendation = approvalDecision(normalizeApprovalRequest(existing));
+		const recommendation = approvalDecision(
+			normalizeCanonicalApprovalRequest(existing),
+		);
 		if (
 			input.delegateRecommendation &&
 			input.status !== recommendation.recommendation
@@ -1472,7 +1511,7 @@ const resolveProcedure = authedOs.resolve
 			resolved.actionType === "mcp.tool_call" && input.status === "approved"
 				? await getApprovalRequestById(context.db, resolved.id)
 				: undefined;
-		return normalizeApprovalRequest(settled ?? resolved);
+		return normalizeApprovalRequest(settled ?? resolved, context);
 	});
 
 /**
@@ -1537,7 +1576,7 @@ const retryExecutionProcedure = authedOs.retryExecution
 		if (context.waitUntil) context.waitUntil(outcome.run);
 		else await outcome.run;
 		const updated = await getApprovalRequestById(context.db, existing.id);
-		return normalizeApprovalRequest(updated ?? existing);
+		return normalizeApprovalRequest(updated ?? existing, context);
 	});
 
 /**
@@ -1627,7 +1666,7 @@ const cancelProcedure = tediOs.cancel.handler(async ({ input, context }) => {
 		status: "cancelled",
 	});
 
-	return normalizeApprovalRequest(cancelled);
+	return normalizeApprovalRequest(cancelled, context);
 });
 
 /** An expired request was never approved; this only takes it off the list. */
