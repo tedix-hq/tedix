@@ -655,7 +655,7 @@ function RunTimelineStep({
 			{!receipt.isPending && !receipt.isError && !sensitive && (
 				<section>
 					<Text as="h3" role="label" weight="medium">
-						Used next
+						Planned next steps
 					</Text>
 					{declaredNext.length > 0 ? (
 						<ul className="m-0 grid gap-2 pl-5">
