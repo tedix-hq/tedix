@@ -39,6 +39,52 @@ describe("local capability routing", () => {
 		expect(route.executor).toBe("codex");
 		expect(route.rule).toBe("hard");
 	});
+	it.each([
+		["codex", 10],
+		["codex", 0],
+		["any-local", 10],
+		["any-local", 0],
+	] as const)(
+		"keeps Codex eligible for %s at %i reported allowance",
+		(executor, remainingPercent) => {
+			const now = 1_000_000;
+			const budget = {
+				observedAt: now,
+				source: "native" as const,
+				remainingPercent,
+				resetAt: now + 5000,
+			};
+			expect(
+				routeLocalWork(
+					{ executor },
+					defaultRoutingPolicy,
+					available,
+					{ codex: budget },
+					now,
+				).executor,
+			).toBe("codex");
+			expect(budget.remainingPercent).toBe(remainingPercent);
+			expect(() =>
+				routeLocalWork(
+					{ executor: "codex" },
+					defaultRoutingPolicy,
+					available,
+					{ codex: { ...budget, backoffUntil: now + 5000 } },
+					now,
+				),
+			).toThrow(LocalExecutorCapacityError);
+			expect(
+				routeLocalWork(
+					{ executor: "any-local" },
+					defaultRoutingPolicy,
+					available,
+					{ codex: { ...budget, backoffUntil: now + 5000 } },
+					now,
+				).executor,
+			).not.toBe("codex");
+		},
+	);
+
 	it("falls back on near limits, cooldown and unavailable backends", () => {
 		const now = Date.now();
 		expect(
@@ -49,14 +95,14 @@ describe("local capability routing", () => {
 				{
 					codex: {
 						observedAt: now,
-						source: "native",
-						remainingPercent: 2,
-						resetAt: now + 5000,
+						source: "error",
+						backoffUntil: now + 5000,
 					},
 					"claude-code": {
 						observedAt: now,
-						source: "error",
-						backoffUntil: now + 5000,
+						source: "native",
+						remainingPercent: 2,
+						resetAt: now + 5000,
 					},
 				},
 				now,
@@ -84,30 +130,40 @@ describe("local capability routing", () => {
 	});
 	it("types only known active capacity pauses without relaxing the route", () => {
 		const now = 1_000_000;
-		for (const budget of [
+		for (const { executor, budget } of [
 			{
-				observedAt: now,
-				source: "native" as const,
-				remainingPercent: 10,
-				resetAt: now + 1000,
+				executor: "claude-code",
+				budget: {
+					observedAt: now,
+					source: "native" as const,
+					remainingPercent: 10,
+					resetAt: now + 1000,
+				},
 			},
-			{ observedAt: 1, source: "error" as const, backoffUntil: now + 1000 },
+			{
+				executor: "codex",
+				budget: {
+					observedAt: 1,
+					source: "error" as const,
+					backoffUntil: now + 1000,
+				},
+			},
 		]) {
 			expect(() =>
 				routeLocalWork(
-					{ executor: "codex" },
+					{ executor },
 					defaultRoutingPolicy,
 					available,
-					{ codex: budget },
+					{ [executor]: budget },
 					now,
 				),
 			).toThrow(LocalExecutorCapacityError);
 			try {
 				routeLocalWork(
-					{ executor: "codex" },
+					{ executor },
 					defaultRoutingPolicy,
-					{ ...available, codex: false },
-					{ codex: budget },
+					{ ...available, [executor]: false },
+					{ [executor]: budget },
 					now,
 				);
 				throw new Error("Unavailable executor unexpectedly admitted");

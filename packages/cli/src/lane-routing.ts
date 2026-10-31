@@ -212,7 +212,9 @@ export function routeLocalWork(
 			capacityPaused = true;
 			continue;
 		}
+		// Codex's included allowance excludes backup credits; actual refusals use backoff.
 		if (
+			route.executor !== "codex" &&
 			fresh &&
 			(budget.resetAt === undefined || budget.resetAt > now) &&
 			budget.remainingPercent !== undefined &&
