@@ -19,6 +19,15 @@ Object.assign(timeline.events[1]!, {
 	kind: "step",
 	path: "epochs/0/steps/search/2/attempts/1.json",
 });
+for (const index of [7, 8, 9, 10, 11, 12, 13]) {
+	Object.assign(timeline.events[index]!, {
+		kind: "mcp",
+		name: "review",
+		namespace: "tedi",
+		method: "run_tedi_turn",
+		path: `epochs/0/steps/review/${index + 1}/attempts/1/calls/run/1.json`,
+	});
+}
 const server = await startFixtureServer(path);
 const evidenceDir = process.env.RUN_TIMELINE_EVIDENCE_DIR;
 if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
@@ -36,6 +45,12 @@ try {
 			let partial = false;
 			let unavailable = false;
 			let artifactReads = 0;
+			let activityReads = 0;
+			let parentReads = 0;
+			let releaseParent: (() => void) | undefined;
+			const parentGate = new Promise<void>((resolve) => {
+				releaseParent = resolve;
+			});
 			await page.route("**/*", async (route) => {
 				const url = new URL(route.request().url());
 				if (url.origin !== server.origin) return route.abort("blockedbyclient");
@@ -71,9 +86,114 @@ try {
 					];
 					return route.fulfill({ response, json: body });
 				}
+				if (url.pathname.endsWith("/skills/getWorkflowStepTediActivity")) {
+					activityReads++;
+					const input = route.request().postDataJSON().json;
+					assert.equal(input.runId, runId);
+					assert.equal(input.executionEpoch, 0);
+					assert.equal(input.attempt, 1);
+					if (input.path === timeline.events[9]!.path)
+						return route.fulfill({
+							status: 403,
+							json: { json: { message: "Not authorized" } },
+						});
+					return route.fulfill({
+						json: {
+							json:
+								input.path === timeline.events[10]!.path
+									? {
+											status: "unavailable",
+											reason: "No verified link",
+											actions: [],
+											finalResult: { status: "unavailable" },
+											truncated: false,
+										}
+									: {
+											status: "available",
+											activitySource: "linked_tedi_run",
+											runStatus: "completed",
+											actions: [
+												{
+													id: "a",
+													kind: "tool.completed",
+													createdAt: startedAt,
+													toolName: "search",
+												},
+											],
+											finalResult: {
+												status: "available",
+												content: "Recorded final response",
+												truncated: true,
+											},
+											truncated: true,
+										},
+						},
+					});
+				}
 				if (url.pathname.endsWith("/skills/getRunArtifact")) {
 					artifactReads++;
 					const input = route.request().postDataJSON().json;
+					const parentMatch =
+						/^epochs\/0\/steps\/review\/(\d+)\/attempts\/1\.json$/.exec(
+							input.path,
+						);
+					if (parentMatch) {
+						parentReads++;
+						assert.equal(
+							input.runId,
+							runId,
+							"parent receipt stays in the selected run",
+						);
+						const count = Number(parentMatch[1]);
+						if (count === 8) await parentGate;
+						if (count === 14)
+							return route.fulfill({
+								status: 403,
+								json: { json: { message: "Not authorized" } },
+							});
+						const response = await route.fetch();
+						const body = await response.json();
+						body.json.content = JSON.stringify({
+							kind: "workflow_step_attempt",
+							executionEpoch: count === 13 ? 1 : 0,
+							attempt: 1,
+							step: { id: "parent-step", name: "review", count },
+							sensitiveOutput: count === 12,
+							authorMetadata: {
+								purpose: "Parent declared purpose",
+								inputs: [
+									{ name: "Setup", source: "Settings", sourceRevision: 35 },
+								],
+								usedNext: "Screen",
+							},
+						});
+						return route.fulfill({ response, json: body });
+					}
+					if (
+						[7, 8, 9, 10, 11, 12, 13].some(
+							(index) => input.path === timeline.events[index]!.path,
+						)
+					) {
+						const response = await route.fetch();
+						const body = await response.json();
+						const index = [7, 8, 9, 10, 11, 12, 13].find(
+							(candidate) => input.path === timeline.events[candidate]!.path,
+						)!;
+						body.json.content = JSON.stringify({
+							kind: "workflow_mcp_call",
+							executionEpoch: 0,
+							attempt: 1,
+							phase: "run",
+							ordinal: 1,
+							namespace: "tedi",
+							method: "run_tedi_turn",
+							step: { id: "parent-step", name: "review", count: index + 1 },
+							request: { value: { text: "guarded child input" } },
+							response:
+								index === 8 ? { redacted: true } : { value: { pending: true } },
+						});
+						return route.fulfill({ response, json: body });
+					}
 					if (input.path === timeline.events[1]!.path) {
 						const response = await route.fetch();
 						const body = await response.json();
@@ -420,6 +540,102 @@ try {
 				0,
 			);
 			await page.keyboard.press("Escape");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[7]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.getByText("Loading parent step details…", { exact: true })
+				.waitFor();
+			assert.equal(
+				await drawer
+					.getByText(/guarded child input|Parent declared purpose/)
+					.count(),
+				0,
+			);
+			assert.equal(
+				activityReads,
+				0,
+				"child activity waits for parent verification",
+			);
+			releaseParent!();
+			await drawer.getByText("Step purpose", { exact: true }).waitFor();
+			await drawer
+				.getByText("Parent declared purpose", { exact: true })
+				.waitFor();
+			await drawer
+				.getByText("Setup — Settings · version 35", { exact: true })
+				.waitFor();
+			await drawer
+				.getByText("Recorded final response", { exact: true })
+				.waitFor();
+			await drawer.getByText(/Tool completed/).waitFor();
+			await drawer
+				.getByText(/Only part of the linked task activity is shown/)
+				.waitFor();
+			await drawer
+				.getByText(/Only part of the linked task result was recorded/)
+				.waitFor();
+			assert.equal(activityReads, 1);
+			await page.keyboard.press("Escape");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[8]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.getByText("Linked task activity is withheld.", { exact: true })
+				.waitFor();
+			assert.equal(
+				activityReads,
+				1,
+				"redacted receipt does not fetch activity",
+			);
+			assert.equal(
+				parentReads,
+				1,
+				"redacted child does not fetch parent metadata",
+			);
+			await page.keyboard.press("Escape");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[9]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.getByText("Linked task activity unavailable", { exact: true })
+				.waitFor();
+			await page.keyboard.press("Escape");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[10]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.getByText(/Linked task activity is unavailable. No verified link/)
+				.waitFor();
+			await page.keyboard.press("Escape");
+			for (const [index, message] of [
+				[11, "Linked task activity is withheld."],
+				[12, "Parent step details could not be verified."],
+				[13, "Parent step details unavailable"],
+			] as const) {
+				const readsBefore = activityReads;
+				await chart
+					.locator(`[data-timeline-event="${timeline.events[index]!.id}"]`)
+					.focus();
+				await page.keyboard.press("Enter");
+				await drawer.getByText(message, { exact: true }).waitFor();
+				assert.equal(
+					await drawer
+						.getByText(/guarded child input|Parent declared purpose/)
+						.count(),
+					0,
+				);
+				assert.equal(
+					activityReads,
+					readsBefore,
+					"unverified or redacted parent must not fetch linked activity",
+				);
+				await page.keyboard.press("Escape");
+			}
 			await chart.getByRole("textbox", { name: "Find a step" }).fill("s");
 			const matches = chart.locator('[aria-label="Matching steps"]');
 			for (const button of [
@@ -454,8 +670,14 @@ try {
 				.waitFor();
 			await drawer.getByText("Screen results", { exact: true }).waitFor();
 			await drawer
-				.getByText("Settings · version 35", { exact: true })
+				.getByText("Settings — Setup · version 35", { exact: true })
 				.waitFor();
+			assert.equal(
+				await drawer
+					.getByText(/No conversation was linked to this task/)
+					.count(),
+				0,
+			);
 			const order = await drawer.evaluate((element) =>
 				Array.from(element.querySelectorAll("h3, button"))
 					.map((node) => node.textContent?.trim())
