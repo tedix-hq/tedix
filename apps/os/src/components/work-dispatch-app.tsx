@@ -81,7 +81,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 	const viewer = useQuery(userProfileQueryOptions());
 	const parsed = WorkExecutorSchema.safeParse(item.metadata?.executor);
 	const executor = parsed.success ? parsed.data : "human";
-	const localExecutor = isSessionHost(executor);
+	const localExecutor = !["human", "tedi"].includes(executor);
 	const editable =
 		item.accountableOwnerType === "user" &&
 		viewer.data?.id === item.accountableOwnerId &&
@@ -96,13 +96,24 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 			input: { id: item.id, limit: 1 },
 		}),
 		enabled: localExecutor || canStart,
-		refetchInterval: localExecutor ? 10_000 : false,
-	});
-	const readiness = useQuery({
-		...workItemReadinessQueryOptions(item.id),
-		enabled: starting,
+		refetchInterval:
+			localExecutor && item.disposition === "accepted" ? 10_000 : false,
 	});
 	const latest = attempts.data?.data[0];
+	const queued =
+		localExecutor &&
+		item.disposition === "accepted" &&
+		attempts.isSuccess &&
+		!latest &&
+		item.metadata?.laneDispatch &&
+		typeof item.metadata.laneDispatch === "object" &&
+		"state" in item.metadata.laneDispatch &&
+		item.metadata.laneDispatch.state === "ready";
+	const readiness = useQuery({
+		...workItemReadinessQueryOptions(item.id),
+		enabled: starting || Boolean(queued),
+		refetchInterval: queued ? 10_000 : false,
+	});
 	const active =
 		latest &&
 		["queued", "running", "waiting", "retrying"].includes(latest.runtimeState);
@@ -153,7 +164,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 								Boolean(active)
 							}
 							onClick={() => {
-								setHost(localExecutor ? executor : "codex");
+								setHost(isSessionHost(executor) ? executor : "codex");
 								setBrief(item.description ?? "");
 								setStarting(true);
 							}}
@@ -248,12 +259,22 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 								? ` · Last update ${absoluteTime(latest.heartbeatAt)}`
 								: ""}
 						</Text>
-					) : localExecutor &&
-					  item.metadata?.laneDispatch &&
-					  typeof item.metadata.laneDispatch === "object" &&
-					  "state" in item.metadata.laneDispatch &&
-					  item.metadata.laneDispatch.state === "ready" ? (
-						<Text tone="secondary">Waiting for a connected Mac.</Text>
+					) : queued ? (
+						<div className="grid gap-2">
+							<Text tone="secondary">Queued for {labels[executor]}.</Text>
+							{!starting && readiness.data && !readiness.isError
+								? readiness.data.reasons.map((reason, index) => (
+										<Text key={`${reason.code}:${index}`} tone="secondary">
+											{reason.detail}
+										</Text>
+									))
+								: null}
+							{!starting && (readiness.isPending || readiness.isError) ? (
+								<Text tone="secondary">Waiting reason is unavailable.</Text>
+							) : null}
+						</div>
+					) : attempts.isPending ? (
+						<Text tone="secondary">Checking session status.</Text>
 					) : null}
 					{attempts.isError ? (
 						<Text tone="error">
