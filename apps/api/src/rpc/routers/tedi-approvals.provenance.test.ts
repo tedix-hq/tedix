@@ -4,6 +4,7 @@ import type { BaseContext } from "../orpc";
 
 const mocks = vi.hoisted(() => ({
 	hasRequest: vi.fn(),
+	request: vi.fn(),
 	simulations: vi.fn(),
 	receipts: vi.fn(),
 	recordSimulation: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock("@tedix/db/queries/approval-simulations", async (importOriginal) => ({
 vi.mock("@tedix/db/queries/approvals", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/approvals")>()),
 	resolveApprovalRequest: mocks.resolve,
+	getApprovalRequestById: mocks.request,
 }));
 vi.mock("./kernel/write-approval-settlement", () => ({
 	settleHomeToolWriteApproval: mocks.settle,
@@ -94,6 +96,7 @@ function client(
 beforeEach(() => {
 	for (const mock of Object.values(mocks)) mock.mockReset();
 	mocks.hasRequest.mockResolvedValue(true);
+	mocks.request.mockResolvedValue(undefined);
 	mocks.simulations.mockResolvedValue({
 		records: [prediction],
 		nextCursor: null,
@@ -112,6 +115,7 @@ describe("approval provenance inspection", () => {
 		expect(result.simulations.records[0]).toEqual(prediction);
 		expect(result.executionReceipts.records[0]).toEqual({
 			...receipt,
+			observedResult: { redacted: true },
 			evidenceKind: "execution_receipt",
 		});
 		for (const mock of [
@@ -197,7 +201,10 @@ describe("approval provenance inspection", () => {
 		expect(result.simulations.records).toEqual([]);
 		expect(result.executionReceipts.records[0]).toMatchObject({
 			outcome: "failed",
-			observedError: error,
+			observedError: {
+				code: "result_redacted",
+				message: "Execution details are available to the requester",
+			},
 			observedResult: null,
 		});
 	});

@@ -492,7 +492,7 @@ export const listApprovalsRoute = authed.listApprovals
 			limit,
 		});
 		return {
-			approvals: rows.map(normalizeApprovalRequest),
+			approvals: rows.map((row) => normalizeApprovalRequest(row, context)),
 			nextCursor: nextCursor(rows, limit),
 		};
 	});

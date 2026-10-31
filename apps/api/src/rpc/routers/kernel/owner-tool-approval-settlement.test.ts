@@ -604,3 +604,36 @@ describe("owner tool approval retry", () => {
 		expect(mocks.record).not.toHaveBeenCalled();
 	});
 });
+
+it.each([true, false])(
+	"keeps provider result echoes out of shared audit metadata (success=%s)",
+	async (ok) => {
+		mocks.executor.mockResolvedValue(
+			ok
+				? {
+						ok: true,
+						data: {
+							message: "private-result-marker",
+							token: "private-result-marker",
+						},
+					}
+				: { ok: false, error: "private-result-marker", retryable: true },
+		);
+		await settleOwnerToolCallApproval(context, {
+			approval: approval(),
+			status: "approved",
+		});
+		expect(mocks.audit).toHaveBeenCalledOnce();
+		expect(JSON.stringify(mocks.audit.mock.calls[0]?.[1])).not.toContain(
+			"private-result-marker",
+		);
+		expect(mocks.audit.mock.calls[0]?.[1]).toMatchObject({
+			resourceId: approval().id,
+			metadata: { toolId: payload.toolId },
+		});
+		// Private receipt data remains available through the requester-bound read.
+		expect(JSON.stringify(mocks.receipt.mock.calls[0]?.[1])).toContain(
+			"private-result-marker",
+		);
+	},
+);

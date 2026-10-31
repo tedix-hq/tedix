@@ -1,3 +1,4 @@
+import { approvalPayloadForViewer } from "../../../services/approval-result-privacy";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	type BaseContext,
@@ -497,8 +498,9 @@ export function normalizeApprovalStatus(
 
 export function normalizeApprovalRequest(
 	row: TediApprovalRequestRow,
+	context: BaseContext,
 ): TediRuntimeApprovalRequest {
-	const payload = nonNullRecord(row.payload) ?? {};
+	const payload = approvalPayloadForViewer(context, row);
 	const title =
 		stringFromPayload(payload.title) ??
 		stringFromPayload(payload.name) ??

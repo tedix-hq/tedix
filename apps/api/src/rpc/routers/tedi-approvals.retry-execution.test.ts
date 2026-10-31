@@ -159,7 +159,7 @@ describe("tediApprovals.retryExecution", () => {
 			status: "executed",
 			attempt: 2,
 			retriedBy: "admin-2",
-			summary: "Delete descope aih mcp client",
+			summary: "Execution details are available to the requester",
 		});
 		expect(await storedExecution(fixture)).toMatchObject({
 			status: "executed",
