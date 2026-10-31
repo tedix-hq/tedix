@@ -28,6 +28,7 @@ const harness = vi.hoisted(() => ({
 	runWorkflow: vi.fn(),
 	proposeWorkflowImprovement: vi.fn(),
 	activateWorkflowImprovement: vi.fn(),
+	rejectWorkshop: vi.fn(),
 	tedisList: vi.fn(),
 }));
 
@@ -44,6 +45,7 @@ vi.mock("@/lib/api", () => ({
 			runWorkflow: harness.runWorkflow,
 			proposeWorkflowImprovement: harness.proposeWorkflowImprovement,
 			activateWorkflowImprovement: harness.activateWorkflowImprovement,
+			rejectWorkshop: harness.rejectWorkshop,
 			listWorkflowRevisions: vi.fn(),
 		},
 		tedis: { list: harness.tedisList },
@@ -246,7 +248,7 @@ describe("certification verdicts in plain English", () => {
 	});
 	it("explains a missing or failed certification result", () => {
 		expect(describeCertification(fullRun({ result: {} })).detail).toContain(
-			"{ certification: { passed: true } }",
+			"did not return a passing test result",
 		);
 		expect(
 			describeCertification(
@@ -304,6 +306,75 @@ describe("drafts on the versions page", () => {
 		await mount(<SkillWorkflowDrafts skillId={baseline.id} />);
 		expect(document.querySelector("[data-skill-workflow-drafts]")).toBeNull();
 		expect(harness.listByOrg).not.toHaveBeenCalled();
+	});
+
+	it("groups adoption from structured data and keeps abandoned copies collapsed", async () => {
+		harness.listByOrg.mockResolvedValue({
+			entries: [
+				draft,
+				{
+					...draft,
+					id: "adopted",
+					title: "Old adopted copy",
+					lifecycleState: "archived",
+					revisionReasoning: "Unrelated text which must not determine adoption",
+					improvementAdoption: {
+						activatedIntoRevision: 3,
+						certificationRunId: "passed-run",
+						adoptedAt: "2026-10-26T10:00:00Z",
+						reason: "Reduce duplicate requests",
+					},
+				},
+				{
+					...draft,
+					id: "rejected",
+					title: "Rejected copy",
+					lifecycleState: "archived",
+					revisionReasoning:
+						"Activated into canonical skill research-skill revision 99.",
+				},
+			],
+			total: 3,
+		});
+		await mount(<SkillWorkflowDrafts skillId={baseline.id} />);
+		expect(harness.listByOrg).toHaveBeenCalledWith(
+			expect.objectContaining({ improvementsOf: baseline.id, offset: 0 }),
+		);
+		expect(document.body.textContent).toContain("Adopted (1)");
+		expect(document.body.textContent).toContain("Adopted as revision 3");
+		expect(document.body.textContent).toContain("Reduce duplicate requests");
+		expect(document.body.textContent).toContain("View passed test run");
+		expect(document.body.textContent).toContain("Waiting for review (1)");
+		expect(document.body.textContent).not.toContain("Rejected copy");
+		await click(button("Rejected or abandoned (1)"));
+		expect(document.body.textContent).toContain("Rejected copy");
+		expect(document.body.textContent).not.toContain("Adopted as revision 99");
+	});
+
+	it("rejects a waiting proposal through the existing review API", async () => {
+		harness.rejectWorkshop.mockResolvedValue({
+			entry: { ...draft, lifecycleState: "archived" },
+		});
+		await mount(<SkillWorkflowDrafts skillId={baseline.id} />);
+		await click(button("Reject draft"));
+		expect(harness.rejectWorkshop).toHaveBeenCalledWith(
+			expect.objectContaining({ id: draft.id, reason: expect.any(String) }),
+		);
+	});
+
+	it("can load history beyond the first page of this skill's improvements", async () => {
+		harness.listByOrg.mockImplementation(async ({ offset }) => ({
+			entries: offset
+				? [{ ...draft, id: "later-copy", title: "Later proposal" }]
+				: [draft],
+			total: 2,
+		}));
+		await mount(<SkillWorkflowDrafts skillId={baseline.id} />);
+		await click(button("Show more improvements"));
+		expect(document.body.textContent).toContain("Later proposal");
+		expect(harness.listByOrg).toHaveBeenCalledWith(
+			expect.objectContaining({ improvementsOf: baseline.id, offset: 1 }),
+		);
 	});
 
 	it("tests a draft with a certification run and switches it on after a pass", async () => {

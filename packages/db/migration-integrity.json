@@ -1300,6 +1300,10 @@
 		{
 			"name": "20261030164608_tenant_policy_unknown_recovery/migration.sql",
 			"sha256": "28e7f34b4f1250567fd40e51b56ec733ea66dff8754ef4a8eba71f8623b051c6"
+		},
+		{
+			"name": "20261031192409_skill_improvement_adoption/migration.sql",
+			"sha256": "c499f0f0a4629f77e6ba86d622f5bc1119a915844134423a71769506069362b9"
 		}
 	]
 }

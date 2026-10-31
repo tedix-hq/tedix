@@ -590,6 +590,7 @@ export function SkillsPage({
 		...skillCatalogQueryOptions({
 			...input,
 			excludeArchived: !search.showArchived,
+			excludeImprovements: true,
 		}),
 		enabled: search.section === "skills",
 	});
@@ -599,6 +600,7 @@ export function SkillsPage({
 			offset: 0,
 			query: input.query,
 			lifecycleState: "archived",
+			excludeImprovements: true,
 		}),
 		enabled: search.section === "skills",
 	});

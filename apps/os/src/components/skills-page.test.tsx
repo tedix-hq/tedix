@@ -588,7 +588,13 @@ describe("SkillsPage", () => {
 		const container = renderSkillsPage({ onSearchChange });
 		await flush();
 		expect(skillsApi.listByOrg).toHaveBeenCalledWith(
-			{ limit: 20, offset: 0, summary: true, excludeArchived: true },
+			{
+				limit: 20,
+				offset: 0,
+				summary: true,
+				excludeArchived: true,
+				excludeImprovements: true,
+			},
 			expect.anything(),
 		);
 		expect(container.querySelector('[aria-label="4 results"]')).not.toBeNull();
@@ -630,6 +636,7 @@ describe("SkillsPage", () => {
 				offset: 20,
 				summary: true,
 				excludeArchived: false,
+				excludeImprovements: true,
 				query: "improvement",
 			},
 			expect.anything(),

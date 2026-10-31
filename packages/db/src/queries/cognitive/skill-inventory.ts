@@ -30,6 +30,8 @@ export async function listAllSkillsForOrg(
 		domainId?: string;
 		lifecycleState?: SkillLifecycleState;
 		excludeArchived?: boolean;
+		excludeImprovements?: boolean;
+		improvementsOf?: string;
 		limit?: number;
 		offset?: number;
 		query?: string;
@@ -40,6 +42,18 @@ export async function listAllSkillsForOrg(
 	},
 ): Promise<{ entries: SkillEntry[]; total: number }> {
 	const conditions = [eq(skillEntries.organizationId, orgId)];
+	const improvementTag = sql`EXISTS (SELECT 1 FROM json_each(${skillEntries.tags}) WHERE value = 'workflow-improvement')`;
+	if (options?.excludeImprovements) {
+		conditions.push(
+			sql`(${skillEntries.sourceSkillId} IS NULL OR NOT ${improvementTag})`,
+		);
+	}
+	if (options?.improvementsOf) {
+		conditions.push(
+			eq(skillEntries.sourceSkillId, options.improvementsOf),
+			improvementTag,
+		);
+	}
 	if (options?.excludeArchived) {
 		conditions.push(
 			or(

@@ -924,6 +924,16 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 					appId: z.string().optional(),
 					domain: z.string().optional().describe("Filter by domain name"),
 					tediId: z.string().optional().describe("Filter by tedi ID"),
+					excludeImprovements: z
+						.boolean()
+						.optional()
+						.describe(
+							"Exclude workflow improvement copies before counting and paginating",
+						),
+					improvementsOf: z
+						.string()
+						.optional()
+						.describe("Only workflow improvements of this canonical skill"),
 					excludeArchived: z
 						.boolean()
 						.optional()

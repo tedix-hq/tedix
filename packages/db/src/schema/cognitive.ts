@@ -200,6 +200,13 @@ export const skillEntries = sqliteTable(
 			{ onDelete: "set null" },
 		),
 		sourceRevision: integer("source_revision"),
+		// Kept on the proposal so its runs remain linked to the adopted revision.
+		improvementAdoption: text("improvement_adoption", { mode: "json" }).$type<{
+			activatedIntoRevision: number;
+			certificationRunId: string | null;
+			adoptedAt: string | null;
+			reason: string | null;
+		}>(),
 
 		visibility: text("visibility", {
 			enum: ["private", "shared", "org"],

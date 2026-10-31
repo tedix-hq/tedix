@@ -533,6 +533,8 @@ export const skillsListByOrg = authedSkills.listByOrg
 			appId: input.appId,
 			lifecycleState: input.lifecycleState,
 			excludeArchived: input.excludeArchived,
+			excludeImprovements: input.excludeImprovements,
+			improvementsOf: input.improvementsOf,
 			query: input.query,
 			folderPath: input.folderPath,
 			recursive: input.recursive,
