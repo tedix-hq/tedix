@@ -591,7 +591,7 @@ describe("dispatcher admission", () => {
 	});
 	it("closes retained Work while another native worker runs without retrying optional telemetry", async () => {
 		const f = fixture();
-		f.items.splice(1);
+		const retained = f.items.splice(1)[0]!;
 		const path = join(f.dir, `${item(2).id}-2.json`);
 		writeFileSync(
 			path,
@@ -611,6 +611,14 @@ describe("dispatcher admission", () => {
 		try {
 			await f.dispatcher.tick();
 			await until(() => f.releases.length === 1);
+			f.items.push(retained);
+			f.control.history.data = [
+				{
+					id: "retained-attempt",
+					externalSessionKey: "codex:retained-session",
+					outcome: "succeeded",
+				},
+			];
 			await f.dispatcher.tick();
 			const completion = f.events.find(
 				(event) => event.verb === "complete" && event.args[6] === item(2).id,
