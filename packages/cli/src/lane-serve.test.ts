@@ -78,6 +78,7 @@ function fixture({
 	executor = "codex" as ServeOptions["executor"],
 	coordinated = false,
 	acceptProposed = false,
+	max = options.max,
 	proposed = [] as DispatchItem[],
 } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-dispatch-test-"));
@@ -149,7 +150,7 @@ function fixture({
 		},
 	};
 	let threadNumber = 0;
-	const config = { ...options, executor, coordinated, acceptProposed };
+	const config = { ...options, executor, coordinated, acceptProposed, max };
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		darkWake: () => dark,
 		gatewayCooldownUntil: (workspace) => {
@@ -362,6 +363,154 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher admission", () => {
+	it("admits fresh Work before a stalled historical read without replaying an unknown admission", async () => {
+		const f = fixture();
+		f.items.splice(2);
+		const old = f.items[0]!;
+		writeFileSync(
+			join(f.dir, `${old.id}-2.json`),
+			JSON.stringify({
+				itemId: old.id,
+				version: 2,
+				phase: "deferred",
+				admissionState: "unknown",
+				session: "codex:old-session",
+				executorKey: "old-executor",
+			}),
+		);
+		let releaseHistory!: () => void;
+		const history = new Promise<void>((resolve) => {
+			releaseHistory = resolve;
+		});
+		let historicalReads = 0;
+		const cli = f.deps.cli!;
+		f.deps.cli = async (args, ...rest) => {
+			if (args[5] === "dispatch-attempts" && args[6] === old.id) {
+				historicalReads++;
+				await history;
+				return { data: [], nextCursor: "unavailable-history" } as never;
+			}
+			return cli(args, ...rest);
+		};
+		const dispatcher = f.restart();
+		const tick = dispatcher.tick();
+		try {
+			await until(() => f.releases.length === 1);
+			expect(
+				f.events
+					.filter((event) => event.verb === "start" && event.input)
+					.map((event) => event.args[6]),
+			).toEqual([f.items[1]!.id]);
+			expect(historicalReads).toBe(0);
+			await dispatcher.tick();
+			expect(historicalReads).toBe(0);
+		} finally {
+			releaseHistory();
+			await tick;
+			await until(() => f.releases.length === 1);
+			for (const release of f.releases) release();
+			await dispatcher.drain();
+		}
+	});
+	it("revisits one historical receipt per idle pass without starving later receipts", async () => {
+		const f = fixture();
+		f.items.splice(0);
+		for (let n = 1; n <= 3; n++) {
+			writeFileSync(
+				join(f.dir, `${item(n).id}-2.json`),
+				JSON.stringify({
+					itemId: item(n).id,
+					version: 2,
+					phase: "deferred",
+					admissionState: "unknown",
+					session: `codex:retained-${n}`,
+					executorKey: "retained-executor",
+				}),
+			);
+		}
+		for (let n = 0; n < 4; n++) await f.dispatcher.tick();
+		const reads = f.events
+			.filter((event) => event.verb === "dispatch-attempts")
+			.map((event) => event.args[6]);
+		expect(reads).toHaveLength(4);
+		expect(reads.slice(0, 3).sort()).toEqual([
+			item(1).id,
+			item(2).id,
+			item(3).id,
+		]);
+		expect(reads[3]).toBe(reads[0]);
+		expect(
+			f.events.filter((event) => event.verb === "start" && event.input),
+		).toHaveLength(0);
+	});
+	it.each(["succeeded", "failed", "unknown admission"])(
+		"does not reserve an unrelated reused PID for settled %s except uncertain admission",
+		async (state) => {
+			const child = spawn(
+				process.execPath,
+				["-e", "setTimeout(() => {}, 30000)"],
+				{ detached: true, stdio: "ignore" },
+			);
+			await once(child, "spawn");
+			const f = fixture({ max: 1 });
+			f.items.splice(0, 1);
+			writeFileSync(
+				join(f.dir, `${item(1).id}-2.json`),
+				JSON.stringify({
+					itemId: item(1).id,
+					version: 2,
+					phase: "settled",
+					outcome: state === "unknown admission" ? "succeeded" : state,
+					admissionState:
+						state === "unknown admission" ? "unknown" : "admitted",
+					pid: child.pid,
+					processIdentity: "previous-process-birth",
+					session: "codex:previous-session",
+					attemptId: "previous-attempt",
+					executorKey: "previous-executor",
+					completionPending: state === "succeeded",
+				}),
+			);
+			const signals = spyOn(process, "kill");
+			try {
+				await f.dispatcher.tick();
+				if (state !== "unknown admission")
+					await until(() => f.releases.length === 1);
+				expect(f.releases).toHaveLength(state === "unknown admission" ? 0 : 1);
+				expect(
+					f.events.filter(
+						(event) =>
+							event.verb === "dispatch-attempts" &&
+							event.args[6] === item(1).id,
+					),
+				).toHaveLength(state === "unknown admission" ? 1 : 0);
+				if (state === "succeeded") {
+					for (const release of f.releases) release();
+					await f.dispatcher.drain();
+					f.items.splice(0);
+					await f.dispatcher.tick();
+					expect(
+						f.events.filter(
+							(event) =>
+								event.verb === "complete" && event.args[6] === item(1).id,
+						),
+					).toHaveLength(1);
+				}
+				expect(
+					signals.mock.calls.filter(
+						([pid, signal]) => Math.abs(pid) === child.pid && signal !== 0,
+					),
+				).toHaveLength(0);
+			} finally {
+				signals.mockRestore();
+				for (const release of f.releases) release();
+				await f.dispatcher.drain();
+				const exited = once(child, "exit");
+				process.kill(-child.pid!, "SIGTERM");
+				await exited;
+			}
+		},
+	);
 	it.each(["late timer", "lease expiry", "stopped telemetry"])(
 		"records the child outcome after %s",
 		async (scenario) => {
@@ -691,6 +840,7 @@ describe("dispatcher admission", () => {
 		});
 		await dispatcher.tick();
 		await until(() => releases.length === 2);
+		await dispatcher.tick();
 		for (const release of releases) release();
 		await dispatcher.drain();
 		const accepts = events.filter((e) => e.verb === "accept");
@@ -725,36 +875,66 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 		expect(events.filter((e) => e.verb === "settle")).toHaveLength(2);
 	});
-	it("counts a retained live process group against capacity after restart", async () => {
-		const child = spawn(
-			process.execPath,
-			["-e", "setTimeout(() => {}, 30000)"],
-			{ detached: true, stdio: "ignore" },
-		);
-		await once(child, "spawn");
-		const { dispatcher, dir, releases } = fixture();
-		writeFileSync(
-			join(dir, `${item(1).id}-2.json`),
-			JSON.stringify({
-				itemId: item(1).id,
-				version: 2,
-				phase: "running",
-				pid: child.pid,
-			}),
-		);
-		try {
-			await dispatcher.tick();
-			await until(() => releases.length === 1);
-			await dispatcher.tick();
-			expect(releases).toHaveLength(1);
-			releases[0]!();
-			await dispatcher.drain();
-		} finally {
-			const exited = once(child, "exit");
-			process.kill(-child.pid!, "SIGTERM");
-			await exited;
-		}
-	});
+	it.each([1, 2])(
+		"counts a retained live process group against capacity %i after restart",
+		async (max) => {
+			const child = spawn(
+				process.execPath,
+				["-e", "setTimeout(() => {}, 30000)"],
+				{ detached: true, stdio: "ignore" },
+			);
+			await once(child, "spawn");
+			const { restart, deps, dir, releases, events } = fixture({ max });
+			const history = [
+				{
+					id: "retained-attempt",
+					externalSessionKey: "codex:retained",
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300000).toISOString(),
+				},
+			];
+			const cli = deps.cli!;
+			deps.cli = async (args, ...rest) => {
+				const response = await cli(args, ...rest);
+				return args[5] === "dispatch-attempts" && args[6] === item(1).id
+					? ({ data: history, nextCursor: null } as never)
+					: (response as never);
+			};
+			const dispatcher = restart();
+			writeFileSync(
+				join(dir, `${item(1).id}-2.json`),
+				JSON.stringify({
+					itemId: item(1).id,
+					version: 2,
+					phase: "running",
+					pid: child.pid,
+					processIdentity: "deliberately-foreign",
+					session: "codex:retained",
+					attemptId: "retained-attempt",
+				}),
+			);
+			try {
+				await dispatcher.tick();
+				if (max === 2) await until(() => releases.length === 1);
+				expect(events[0]!.verb).toBe("dispatch-attempts");
+				await dispatcher.tick();
+				expect(releases).toHaveLength(max - 1);
+				expect(
+					events.filter(
+						(event) =>
+							event.verb === "dispatch-attempts" &&
+							event.args[6] === item(1).id,
+					),
+				).toHaveLength(2);
+				for (const release of releases) release();
+				await dispatcher.drain();
+			} finally {
+				const exited = once(child, "exit");
+				process.kill(-child.pid!, "SIGTERM");
+				await exited;
+			}
+		},
+	);
 	it("runs at most N, claims the native child before launch and persists settlement", async () => {
 		const { dispatcher, events, releases, dir } = fixture();
 		await dispatcher.tick();
@@ -1345,7 +1525,7 @@ describe("dispatcher admission", () => {
 		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
 		expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe("succeeded");
 	});
-	it("defers without holding while the executor bootstrap waits for an owner approval", async () => {
+	it("keeps an uncertain bootstrap admission fenced without holding while owner approval is pending", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
 		items.splice(1);
 		const path = join(dir, `${item().id}-2.json`);
@@ -1356,7 +1536,8 @@ describe("dispatcher admission", () => {
 			await dispatcher.tick();
 			await dispatcher.drain();
 			const saved = JSON.parse(readFileSync(path, "utf8"));
-			expect(saved.identicalFailures).toBe(n);
+			expect(saved.identicalFailures).toBe(1);
+			expect(saved.admissionState).toBe("unknown");
 			expect(saved.held).toBe(false);
 			expect(saved.phase).toBe("deferred");
 			saved.retryAt = 0;
@@ -1799,8 +1980,13 @@ describe("dispatcher admission", () => {
 			// Lease expiry alone is insufficient; the server must retire the Attempt.
 			control.history.data[0]!.outcome = outcome;
 			const saved = JSON.parse(readFileSync(path, "utf8"));
+			control.history.data[0]!.externalSessionKey = saved.session;
 			saved.retryAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
+			await dispatcher.tick();
+			const recovered = JSON.parse(readFileSync(path, "utf8"));
+			recovered.retryAt = 0;
+			writeFileSync(path, JSON.stringify(recovered));
 			await dispatcher.tick();
 			await until(() => releases.length === 1);
 			releases[0]!();

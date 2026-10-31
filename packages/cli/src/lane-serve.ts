@@ -20,6 +20,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
 	LaneDispatchPlanSchema,
+	WorkAttemptOutcomeSchema,
 	type WorkItem,
 	type WorkItemComment,
 	type WorkAttemptSchema,
@@ -427,6 +428,13 @@ interface Receipt {
 	completionRetries?: number;
 	completionRetryAt?: number;
 	completionError?: string;
+}
+function hasSettledOutcome(receipt: Receipt): boolean {
+	return (
+		receipt.phase === "settled" &&
+		receipt.admissionState !== "unknown" &&
+		WorkAttemptOutcomeSchema.safeParse(receipt.outcome).success
+	);
 }
 function retainsInterruptedWork(receipt: Receipt): boolean {
 	return (
@@ -850,6 +858,7 @@ export class LaneDispatcher {
 	private preparing = new Set<string>();
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private cleanupCursor = 0;
+	private reconciliationCursor = 0;
 	private cleanupAfter = new Map<string, number>();
 	private maintenance = new Map<string, Promise<void>>();
 	private queue = serialCalls();
@@ -999,8 +1008,11 @@ export class LaneDispatcher {
 				return cached.row;
 			});
 		for (const row of retained) {
+			if (hasSettledOutcome(row)) continue;
 			if (
 				row.admissionState === "unknown" &&
+				row.pid &&
+				alive(row.pid) &&
 				!row.attemptId &&
 				row.session &&
 				row.executorKey &&
@@ -1046,59 +1058,14 @@ export class LaneDispatcher {
 						);
 				}
 			}
-			if (!this.running.has(row.itemId) && (!row.pid || !alive(row.pid))) {
-				if (["running", "admitted"].includes(row.phase) && row.attemptId)
-					await this.recoverOrphan(row);
-			}
-			if (
-				row.pendingObservation &&
-				!this.running.has(row.itemId) &&
-				(row.reportRetries ?? 0) < 5 &&
-				Date.now() >= (row.reportRetryAt ?? 0)
-			) {
-				row.reportRetries = (row.reportRetries ?? 0) + 1;
-				row.reportRetryAt = Date.now() + 60_000;
-				try {
-					await this.queue(() =>
-						reportLaneObservation(row.pendingObservation!, this.options.scope),
-					);
-					delete row.pendingObservation;
-				} catch (error) {
-					this.log("telemetry-retained", row.itemId, String(error));
-				}
-				this.save(
-					join(this.directory, `${row.itemId}-${row.version}.json`),
-					row,
-				);
-			}
-			if (
-				(row.phase === "settling" ||
-					(row.phase === "failed" &&
-						row.outcome === "succeeded" &&
-						!!row.attemptId)) &&
-				!this.running.has(row.itemId) &&
-				(!row.pid || !alive(row.pid)) &&
-				Date.now() >= (row.retryAt ?? 0)
-			)
-				await this.recoverSettlement(row);
-			if (
-				row.completionPending &&
-				!this.running.has(row.itemId) &&
-				Date.now() >= (row.completionRetryAt ?? 0)
-			)
-				await this.complete(row);
 		}
 		const orphaned = retained.filter(
-			(row) => row.pid && alive(row.pid) && !this.running.has(row.itemId),
+			(row) =>
+				!hasSettledOutcome(row) &&
+				row.pid &&
+				alive(row.pid) &&
+				!this.running.has(row.itemId),
 		).length;
-		if (
-			this.options.acceptProposed &&
-			this.options.project &&
-			Date.now() - this.proposalsSweptAt >= PROPOSAL_SWEEP_INTERVAL_MS
-		) {
-			this.proposalsSweptAt = Date.now();
-			await this.acceptProposedWork();
-		}
 		while (!this.stopping && this.running.size + orphaned < this.options.max) {
 			const page = await this.call<{
 				data: DispatchItem[];
@@ -1174,7 +1141,8 @@ export class LaneDispatcher {
 					this.running.has(item.id) ||
 					this.maintenance.has(item.id) ||
 					(previous &&
-						(previous.held ||
+						(previous.admissionState === "unknown" ||
+							previous.held ||
 							(previous.attemptId && previous.phase !== "deferred") ||
 							!["deferred", "failed", "preparing"].includes(previous.phase) ||
 							(previous.pid && alive(previous.pid)) ||
@@ -1199,6 +1167,25 @@ export class LaneDispatcher {
 			if (!page.data.length)
 				throw new Error("Dispatch pagination made no progress");
 		}
+		// Historical delivery must not queue ahead of admission or lease renewal.
+		// Live orphan fences above remain synchronous even while Work is running.
+		if (!this.running.size && !this.preparing.size) {
+			for (let n = 0; n < retained.length; n++) {
+				const row = retained[this.reconciliationCursor++ % retained.length]!;
+				if (!hasSettledOutcome(row) && row.pid && alive(row.pid)) continue;
+				if (await this.reconcileRetained(row)) break;
+			}
+		}
+		if (
+			!this.preparing.size &&
+			this.options.acceptProposed &&
+			this.options.project &&
+			Date.now() - this.proposalsSweptAt >= PROPOSAL_SWEEP_INTERVAL_MS
+		) {
+			this.proposalsSweptAt = Date.now();
+			await this.acceptProposedWork();
+		}
+
 		// One old checkout per pass, after pickup. Retained work is revisited
 		// every ten minutes rather than multiplying Git work by run history.
 		for (let n = 0; !this.maintenance.size && n < retained.length; n++) {
@@ -1216,6 +1203,67 @@ export class LaneDispatcher {
 			break;
 		}
 	}
+	private async reconcileRetained(row: Receipt): Promise<boolean> {
+		if (this.running.has(row.itemId) || this.maintenance.has(row.itemId))
+			return false;
+		if (
+			row.admissionState === "unknown" &&
+			!row.attemptId &&
+			row.session &&
+			row.executorKey
+		) {
+			await this.recoverOrphan(row);
+			return true;
+		}
+
+		if (!this.running.has(row.itemId) && (!row.pid || !alive(row.pid))) {
+			if (["running", "admitted"].includes(row.phase) && row.attemptId) {
+				await this.recoverOrphan(row);
+				return true;
+			}
+		}
+		if (
+			row.pendingObservation &&
+			!this.running.has(row.itemId) &&
+			(row.reportRetries ?? 0) < 5 &&
+			Date.now() >= (row.reportRetryAt ?? 0)
+		) {
+			row.reportRetries = (row.reportRetries ?? 0) + 1;
+			row.reportRetryAt = Date.now() + 60_000;
+			try {
+				await this.queue(() =>
+					reportLaneObservation(row.pendingObservation!, this.options.scope),
+				);
+				delete row.pendingObservation;
+			} catch (error) {
+				this.log("telemetry-retained", row.itemId, String(error));
+			}
+			this.save(join(this.directory, `${row.itemId}-${row.version}.json`), row);
+			return true;
+		}
+		if (
+			(row.phase === "settling" ||
+				(row.phase === "failed" &&
+					row.outcome === "succeeded" &&
+					!!row.attemptId)) &&
+			!this.running.has(row.itemId) &&
+			(!row.pid || !alive(row.pid)) &&
+			Date.now() >= (row.retryAt ?? 0)
+		) {
+			await this.recoverSettlement(row);
+			return true;
+		}
+		if (
+			row.completionPending &&
+			!this.running.has(row.itemId) &&
+			Date.now() >= (row.completionRetryAt ?? 0)
+		) {
+			await this.complete(row);
+			return true;
+		}
+		return false;
+	}
+
 	/**
 	 * Proposed Work in the pinned project that a shift assigned to this executor
 	 * and gave a `## Done when` section is accepted with that text as its

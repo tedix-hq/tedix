@@ -71,15 +71,19 @@ async function render({
 	disposition = "accepted",
 	executor = "claude-code",
 	readiness = ready,
+	attemptStatus = "success",
 }: {
 	owner?: boolean;
 	active?: boolean;
 	disposition?: string;
 	executor?: string;
 	readiness?: WorkItemReadiness;
+	attemptStatus?: "success" | "pending" | "error";
 } = {}) {
 	const client = new QueryClient({
-		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+		defaultOptions: {
+			queries: { retry: false, retryOnMount: false, staleTime: Infinity },
+		},
 	});
 	client.setQueryData(userProfileQueryOptions().queryKey, {
 		id: "owner",
@@ -102,6 +106,22 @@ async function render({
 			nextCursor: null,
 		} as never,
 	);
+	if (attemptStatus !== "success") {
+		const key = osQuery.workItems.listAttempts.queryOptions({
+			input: { id, limit: 1 },
+		}).queryKey;
+		client.removeQueries({ queryKey: key, exact: true });
+		if (attemptStatus === "error") {
+			client
+				.getQueryCache()
+				.build(client, { queryKey: key })
+				.setState({
+					status: "error",
+					error: new Error("Unavailable"),
+					fetchStatus: "idle",
+				});
+		}
+	}
 	client.setQueryData(workItemReadinessQueryOptions(id).queryKey, readiness);
 	const item = {
 		id,
@@ -127,7 +147,7 @@ async function render({
 		container.remove();
 		client.clear();
 	};
-	return container;
+	return Object.assign(container, { queryClient: client });
 }
 
 const button = (container: HTMLElement, label: string) =>
@@ -140,6 +160,79 @@ async function open(container: HTMLElement) {
 }
 
 describe("Start session", () => {
+	it.each(["human", "tedi"])(
+		"keeps non-owner %s Work free of disabled session status",
+		async (executor) => {
+			const container = await render({
+				owner: false,
+				executor,
+				attemptStatus: "pending",
+			});
+			expect(container.textContent).not.toContain("Checking session status");
+			expect(container.textContent).not.toContain("Queued for");
+			for (const queryKey of [
+				osQuery.workItems.listAttempts.queryOptions({ input: { id, limit: 1 } })
+					.queryKey,
+				workItemReadinessQueryOptions(id).queryKey,
+			]) {
+				const query = container.queryClient
+					.getQueryCache()
+					.find({ queryKey, exact: true });
+				expect(query?.isActive()).toBe(false);
+				expect(query?.state.fetchStatus).toBe("idle");
+			}
+		},
+	);
+
+	it.each(["completed", "cancelled", "proposed"])(
+		"does not label %s Work as queued",
+		async (disposition) => {
+			const container = await render({ disposition });
+			expect(container.textContent).not.toContain("Queued for");
+			expect(container.textContent).not.toContain(
+				"Waiting for a connected Mac",
+			);
+		},
+	);
+	it.each(["pending", "error"] as const)(
+		"keeps %s Attempt status unknown",
+		async (attemptStatus) => {
+			const container = await render({ attemptStatus });
+			expect(container.textContent).not.toContain("Queued for");
+			expect(container.textContent).toContain(
+				attemptStatus === "pending"
+					? "Checking session status"
+					: "Session status is unavailable",
+			);
+		},
+	);
+	it("shows OpenCode's Attempt for another owner's Work", async () => {
+		const container = await render({
+			owner: false,
+			executor: "opencode",
+			active: true,
+		});
+		expect(container.textContent).toContain("Attempt 00000002 · running");
+		expect(container.textContent).not.toContain("Queued for");
+	});
+	it("shows the observed readiness blocker beside queued Work", async () => {
+		const approval = {
+			...ready,
+			ready: false,
+			reasons: [
+				{ code: "approval_blocked", detail: "Missing approval risk:high" },
+			],
+		} as WorkItemReadiness;
+		const container = await render({
+			owner: false,
+			executor: "opencode",
+			readiness: approval,
+		});
+		expect(container.textContent).toContain("Queued for OpenCode.");
+		expect(container.textContent).toContain("Missing approval risk:high");
+		expect(container.textContent).not.toContain("Start session");
+	});
+
 	it.each(["claude-code", "devin"])(
 		"offers the owner a start action for accepted %s Work",
 		async (executor) => {
@@ -147,7 +240,7 @@ describe("Start session", () => {
 			const start = button(container, "Start session");
 			expect(start).toBeDefined();
 			expect(start?.hasAttribute("disabled")).toBe(false);
-			expect(container.textContent).toContain("Waiting for a connected Mac.");
+			expect(container.textContent).toContain("Queued for");
 		},
 	);
 	it("offers accepted human Work a fresh Codex session", async () => {
