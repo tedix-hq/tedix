@@ -540,6 +540,11 @@ export const pendingApprovalsQueryOptions = () =>
 export const approvalHistoryQueryOptions = () =>
 	osQuery.tediApprovals.list.queryOptions({ input: { limit: 50 } });
 
+export const approvalExecutionAttentionQueryOptions = (offset = 0) =>
+	osQuery.tediApprovals.list.queryOptions({
+		input: { executionAttentionOnly: true, limit: 50, offset },
+	});
+
 /** The organization's saved auto-approval rules, newest first. */
 export const approvalRulesQueryOptions = () =>
 	osQuery.osApprovalRules.list.queryOptions();

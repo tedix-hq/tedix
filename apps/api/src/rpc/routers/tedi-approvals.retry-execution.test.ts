@@ -8,7 +8,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
-import { createApprovalRequest } from "@tedix/db/queries/approvals";
+import {
+	createApprovalRequest,
+	consumeOwnerToolApproval,
+	getApprovalRequestById,
+	listDueOwnerToolApprovals,
+} from "@tedix/db/queries/approvals";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -46,7 +51,11 @@ vi.mock("@tedix/db/queries/organizations", async (load) => ({
 	getOrganizationById: mocks.getOrganizationById,
 }));
 
-import { setOwnerToolExecutorForTest } from "./kernel/owner-tool-approval-settlement";
+import {
+	runQueuedOwnerToolApprovals,
+	settleOwnerToolCallApproval,
+	setOwnerToolExecutorForTest,
+} from "./kernel/owner-tool-approval-settlement";
 import { tediApprovalsContractRouter } from "./tedi-approvals";
 
 const APPROVAL_ID = "11111111-1111-4111-8111-111111111111";
@@ -270,3 +279,154 @@ describe("tediApprovals.retryExecution", () => {
 		expect(mocks.executor).not.toHaveBeenCalled();
 	});
 });
+
+describe("approved burst queue", () => {
+	it("runs all 31 calls at five per window, without a manual retry or duplicate effect", async () => {
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-10-31T12:00:00.000Z"));
+			const fixture = createFixture();
+			const context = userContext({
+				db: fixture.db,
+				env: fixture.env,
+				organizationId: "org-1",
+			});
+			const effects = new Set<string>();
+			let window = Date.now(),
+				used = 0;
+			mocks.executor.mockImplementation(
+				async ({ approvalRequestId }: { approvalRequestId: string }) => {
+					if (Date.now() - window >= 60_000) {
+						window = Date.now();
+						used = 0;
+					}
+					if (used >= 5)
+						return {
+							ok: false,
+							error: "Tool rate limit exceeded. No side effect was executed.",
+							retryable: true,
+							rateLimitRetryAfterSeconds: 60,
+						};
+					used++;
+					const consumed = await consumeOwnerToolApproval(fixture.db, {
+						id: approvalRequestId,
+						organizationId: "org-1",
+						fingerprint: approvalRequestId,
+						now: new Date().toISOString(),
+					});
+					expect(consumed).toBe(true);
+					expect(effects.has(approvalRequestId)).toBe(false);
+					effects.add(approvalRequestId);
+					return { ok: true, data: { success: true } };
+				},
+			);
+			const rows = [];
+			for (let i = 0; i < 31; i++) {
+				const id = `burst-${i}`;
+				await createApprovalRequest(fixture.db, {
+					id,
+					orgId: "org-1",
+					tediId: "anchor",
+					actionType: "mcp.tool_call",
+					description: "Delete a skill",
+					payload: {
+						kind: "mcp_tool_call",
+						initiatedByUserId: "owner-1",
+						appSlug: "example-unified",
+						toolId: "delete_skills",
+						target: { transport: "rpc", endpoint: "skills/delete" },
+						args: { id },
+						fingerprint: id,
+					},
+					createdAt: new Date().toISOString(),
+					expiresAt: FUTURE,
+				});
+				await fixture.db
+					.update(tediApprovalRequests)
+					.set({ status: "approved", resolvedBy: "user:owner-1" })
+					.where(eq(tediApprovalRequests.id, id));
+				rows.push((await getApprovalRequestById(fixture.db, id))!);
+			}
+			const outcomes = await Promise.all(
+				rows.map((approval) =>
+					settleOwnerToolCallApproval(context, {
+						approval,
+						status: "approved",
+					}),
+				),
+			);
+			expect(outcomes.filter((x) => x === "succeeded")).toHaveLength(5);
+			expect(outcomes.filter((x) => x === "queued")).toHaveLength(26);
+			expect(
+				await listDueOwnerToolApprovals(fixture.db, new Date().toISOString()),
+			).toHaveLength(0);
+			for (let minute = 1; minute <= 6; minute++) {
+				vi.setSystemTime(new Date(Date.now() + 120_000));
+				// Competing cron deliveries use the same persisted claim.
+				await Promise.all([
+					runQueuedOwnerToolApprovals(context),
+					runQueuedOwnerToolApprovals(context),
+				]);
+			}
+			expect(effects.size).toBe(31);
+			for (const row of rows)
+				expect(
+					(await getApprovalRequestById(fixture.db, row.id))?.payload.execution,
+				).toMatchObject({ status: "executed" });
+			expect(await runQueuedOwnerToolApprovals(context)).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+});
+
+it.each(["expired", "revoked", "target failure", "consumed"])(
+	"stops queued execution safely after %s",
+	async (reason) => {
+		const fixture = createFixture();
+		await seedFailedCall(
+			fixture,
+			{
+				status: "queued",
+				startedAt: "2026-10-31T10:00:00.000Z",
+				nextAttemptAt: "2026-10-31T10:01:00.000Z",
+			},
+			reason === "expired" ? { expiresAt: "2026-10-31T10:01:00.000Z" } : {},
+		);
+		const context = userContext({
+			db: fixture.db,
+			env: fixture.env,
+			organizationId: "org-1",
+		});
+		if (reason === "revoked")
+			mocks.getMemberByUserId.mockResolvedValue({
+				status: "inactive",
+				role: "owner",
+			});
+		if (reason === "target failure")
+			mocks.executor.mockResolvedValue({
+				ok: false,
+				error: "The target refused this call",
+			});
+		if (reason === "consumed")
+			await consumeOwnerToolApproval(fixture.db, {
+				id: APPROVAL_ID,
+				organizationId: "org-1",
+				fingerprint: "fp-1",
+				now: "2026-10-31T10:02:00.000Z",
+			});
+		await runQueuedOwnerToolApprovals(context);
+		if (reason === "consumed")
+			expect(await storedExecution(fixture)).toMatchObject({
+				status: "queued",
+			});
+		else
+			expect(await storedExecution(fixture)).toMatchObject({
+				status: "failed",
+				retryable: false,
+			});
+		expect(mocks.executor).toHaveBeenCalledTimes(
+			reason === "target failure" ? 1 : 0,
+		);
+	},
+);

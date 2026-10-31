@@ -5,6 +5,7 @@
  * Used by the approval flow and the Tedix OS Work management UI.
  */
 
+import { STALE_OWNER_TOOL_RUN_MS } from "@tedix/api-contract/utils/owner-tool-execution";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	recordCardCreationEdges,
@@ -53,6 +54,7 @@ export interface ListApprovalRequestsOptions {
 	tediId?: string;
 	status?: ApprovalStatus;
 	actionType?: string;
+	executionAttentionOnly?: boolean;
 	limit?: number;
 	offset?: number;
 }
@@ -125,6 +127,13 @@ export async function listApprovalRequests(
 	}
 	if (options.actionType) {
 		conditions.push(eq(tediApprovalRequests.actionType, options.actionType));
+	}
+	if (options.executionAttentionOnly) {
+		conditions.push(
+			eq(tediApprovalRequests.status, "approved"),
+			eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') IN ('queued', 'running', 'failed')`,
+		);
 	}
 	if (options.viewerUserId) {
 		if (!orgId) return { data: [], total: 0 };
@@ -647,7 +656,8 @@ export async function consumeOwnerToolApproval(
 
 /** The recorded outcome of an approved gateway call the platform ran itself. */
 export interface OwnerToolApprovalExecution {
-	status: "running" | "executed" | "failed";
+	status: "queued" | "running" | "executed" | "failed";
+	nextAttemptAt?: string;
 	startedAt: string;
 	finishedAt?: string;
 	/** Plain-language result for people: "Client deleted", "Scope 'x' required". */
@@ -692,7 +702,8 @@ export async function reclaimOwnerToolApprovalExecution(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(execution)}))`,
+			// Retain the deferral marker so a cut-off automatic retry can be recovered.
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(json_set(${JSON.stringify(execution)}, '$.nextAttemptAt', json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt'))))`,
 		})
 		.where(
 			and(
@@ -703,6 +714,8 @@ export async function reclaimOwnerToolApprovalExecution(
 				gt(tediApprovalRequests.expiresAt, input.now),
 				sql`(
 					json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
+					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'queued'
+						AND json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${input.now})
 					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
 				)`,
@@ -767,6 +780,7 @@ export async function recordOwnerToolApprovalExecution(
 				eq(tediApprovalRequests.id, input.id),
 				eq(tediApprovalRequests.orgId, input.organizationId),
 				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') = ${input.execution.startedAt}`,
 			),
 		)
 		.returning({ payload: tediApprovalRequests.payload });
@@ -820,4 +834,30 @@ export async function getApprovalAnchor(
 		)
 		.limit(1);
 	return row;
+}
+
+/** Installation sweep: only explicitly deferred, unconsumed approved calls. */
+export async function listDueOwnerToolApprovals(
+	db: DbClient,
+	now: string,
+	limit = 100,
+) {
+	return db
+		.select()
+		.from(tediApprovalRequests)
+		.where(
+			and(
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				eq(tediApprovalRequests.status, "approved"),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
+				sql`(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'queued' OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running' AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${now}`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+			),
+		)
+		.orderBy(
+			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt')`,
+			tediApprovalRequests.id,
+		)
+		.limit(limit);
 }

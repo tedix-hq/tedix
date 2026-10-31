@@ -93,7 +93,10 @@ Pending, rejected, cancelled, expired and consumed requests never dispatch.
 Approving runs the stored call once before its 24-hour expiry; a run the
 platform itself failed (tool lookup, transport, a cut-off run) can be tried
 again by an owner or admin while the approval is unconsumed
-(`tediApprovals.retryExecution`, "Try again" in Activity).
+(`tediApprovals.retryExecution`, "Retry" in Approvals). A gateway tool-limit
+refusal queues the unconsumed call for automatic retry after its stated wait;
+the existing two-minute approval sweep resumes it while approval remains valid.
+Approvals shows queued, running and failed calls on its default tab.
 The approval fingerprint includes the app revision, slot, live resource,
 account grant, tool configuration and provider arguments; changing any of these
 requires a new approval.

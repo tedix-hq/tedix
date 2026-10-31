@@ -425,6 +425,7 @@ export const tediApprovalsContract = oc
 							.enum(["pending", "approved", "rejected", "cancelled", "expired"])
 							.optional(),
 						actionType: z.string().optional(),
+						executionAttentionOnly: z.boolean().optional(),
 						decidableOnly: z
 							.boolean()
 							.optional()

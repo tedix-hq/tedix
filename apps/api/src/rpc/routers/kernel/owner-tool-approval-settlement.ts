@@ -23,6 +23,7 @@ import {
 import { recordApprovalExecutionReceipt } from "@tedix/db/queries/approval-simulations";
 import {
 	claimOwnerToolApprovalExecution,
+	listDueOwnerToolApprovals,
 	type OwnerToolApprovalExecution,
 	reclaimOwnerToolApprovalExecution,
 	recordOwnerToolApprovalExecution,
@@ -100,7 +101,8 @@ export function parseOwnerToolCallPayload(
 		args,
 		fingerprint,
 		...(isRecord(execution) &&
-		(execution.status === "running" ||
+		(execution.status === "queued" ||
+			execution.status === "running" ||
 			execution.status === "executed" ||
 			execution.status === "failed") &&
 		typeof execution.startedAt === "string"
@@ -157,7 +159,7 @@ async function activeOwnerOrAdmin(
 	);
 }
 
-type OwnerToolRunOutcome = "succeeded" | "failed";
+type OwnerToolRunOutcome = "succeeded" | "failed" | "queued";
 
 /**
  * One claimed run of the stored call: apply-time access checks, the gateway
@@ -282,6 +284,10 @@ async function runOwnerToolCall(
 		);
 
 	try {
+		if (Date.parse(approval.expiresAt) <= Date.now())
+			return fail(
+				"The approval expired before the call could run. Request a new approval.",
+			);
 		// Apply-time access: the requester still holds the authority that parked
 		// the call, and the person who approved it still may approve. The
 		// gateway repeats both checks when it consumes the approval.
@@ -344,6 +350,25 @@ async function runOwnerToolCall(
 				},
 				{ outcome: "succeeded", data: result.data },
 			);
+		// Only the gateway's pre-dispatch rate refusal is safe to redrive automatically.
+		const rateWait = result.rateLimitRetryAfterSeconds;
+		if (rateWait) {
+			const nextAttemptAt = new Date(
+				Date.now() + rateWait * 1000,
+			).toISOString();
+			if (Date.parse(nextAttemptAt) >= Date.parse(approval.expiresAt))
+				return fail(
+					"The tool limit could not clear before this approval expires. Request a new approval.",
+				);
+			const queued = await recordOwnerToolApprovalExecution(context.db, {
+				id: approval.id,
+				organizationId,
+				execution: { status: "queued", startedAt, nextAttemptAt, ...attempt },
+			});
+			if (!queued)
+				throw new Error("Approval queue position could not be recorded");
+			return "queued";
+		}
 		return fail(result.error.slice(0, 500), result.retryable === true);
 	} catch (error) {
 		const message = errorMessage(error);
@@ -366,7 +391,7 @@ export async function settleOwnerToolCallApproval(
 		approval: typeof tediApprovalRequests.$inferSelect;
 		status: "approved" | "rejected" | "cancelled";
 	},
-): Promise<"succeeded" | "failed" | "unknown" | "not_applicable"> {
+): Promise<OwnerToolRunOutcome | "unknown" | "not_applicable"> {
 	if (input.approval.actionType !== "mcp.tool_call") return "not_applicable";
 	const payload = parseOwnerToolCallPayload(input.approval.payload);
 	if (!payload || input.status !== "approved") return "not_applicable";
@@ -375,7 +400,9 @@ export async function settleOwnerToolCallApproval(
 			? "succeeded"
 			: payload.execution.status === "failed"
 				? "failed"
-				: "unknown";
+				: payload.execution.status === "queued"
+					? "queued"
+					: "unknown";
 	const startedAt = nowIso();
 	const claimed = await claimOwnerToolApprovalExecution(context.db, {
 		id: input.approval.id,
@@ -444,4 +471,48 @@ export async function retryOwnerToolCallExecution(
 			retry: { retriedBy: input.retriedBy, attempt },
 		}),
 	};
+}
+
+/** Reuses the stored call and gateway fences; never manufactures a connection grant. */
+export async function runQueuedOwnerToolApprovals(context: BaseContext) {
+	const rows = await listDueOwnerToolApprovals(context.db, nowIso());
+	let executed = 0;
+	for (const approval of rows) {
+		const payload = parseOwnerToolCallPayload(approval.payload);
+		if (!payload?.execution) continue;
+		if (Date.parse(approval.expiresAt) <= Date.now()) {
+			await recordOwnerToolApprovalExecution(context.db, {
+				id: approval.id,
+				organizationId: approval.orgId,
+				execution: {
+					status: "failed",
+					startedAt: payload.execution.startedAt,
+					finishedAt: nowIso(),
+					error:
+						"The approval expired while waiting for the tool limit. Request a new approval.",
+					retryable: false,
+				},
+			});
+			continue;
+		}
+		const startedAt = nowIso();
+		const attempt = (payload.execution.attempt ?? 1) + 1;
+		const claimed = await reclaimOwnerToolApprovalExecution(context.db, {
+			id: approval.id,
+			organizationId: approval.orgId,
+			now: startedAt,
+			retriedBy: "approval-queue",
+			attempt,
+			staleBefore: new Date(Date.now() - STALE_OWNER_TOOL_RUN_MS).toISOString(),
+		});
+		if (!claimed) continue;
+		await runOwnerToolCall(context, {
+			approval,
+			payload,
+			startedAt,
+			retry: { retriedBy: "approval-queue", attempt },
+		});
+		executed++;
+	}
+	return executed;
 }

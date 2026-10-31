@@ -1640,6 +1640,50 @@ describe("approved owner tool call replay", () => {
 		});
 	});
 
+	it.each([true, false])(
+		"defers only a structured gateway rate refusal: %s",
+		async (structured) => {
+			const service = codeModeGateway([liveEntry], () => ({
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					isError: true,
+					content: [
+						{
+							type: "text",
+							text: "Tool rate limit exceeded. No side effect was executed.",
+						},
+					],
+					...(structured
+						? {
+								_meta: {
+									"com.tedix/security": {
+										denialReason: "tool_rate_limited",
+										rateLimit: { retryAfterSeconds: 60 },
+									},
+								},
+							}
+						: {}),
+				},
+			}));
+			const result = await executeApprovedOwnerToolCall({
+				env: env(service),
+				payload: {
+					appSlug: "example-unified",
+					toolId: "tedix__delete_descope_aih_mcp_client",
+					args: {},
+					organizationId: "org-1",
+					initiatedByUserId: "owner-1",
+				},
+				approvalRequestId: "approval-1",
+			});
+			expect(result.ok).toBe(false);
+			expect(result).toHaveProperty("retryable", true);
+			if (structured)
+				expect(result).toHaveProperty("rateLimitRetryAfterSeconds", 60);
+			else expect(result).not.toHaveProperty("rateLimitRetryAfterSeconds");
+		},
+	);
 	it("keeps a target refusal final", async () => {
 		const service = codeModeGateway([liveEntry], () => ({
 			jsonrpc: "2.0",

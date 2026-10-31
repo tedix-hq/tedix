@@ -21,6 +21,7 @@ import { osApi } from "@/lib/api";
 import { appLabel, plainApprovalTitle } from "@/lib/approval-titles";
 import {
 	approvalHistoryQueryOptions,
+	approvalExecutionAttentionQueryOptions,
 	osQueryKeys,
 	recentToolActivityQueryOptions,
 } from "@/lib/os-query-options";
@@ -47,7 +48,15 @@ export type HistoryEntry = {
 	href: { label: string; to: string } | null;
 	/** An approved call the platform failed to run; an owner may try it once more. */
 	retry?: { approvalId: string };
+	needsAttention?: boolean;
 };
+
+const EXECUTION_STATUS = {
+	queued: { label: "Queued", tone: "warning" },
+	running: { label: "Running", tone: "warning" },
+	executed: { label: "Done", tone: "success" },
+	failed: { label: "Failed", tone: "error" },
+} as const;
 
 const HISTORY_FILTERS: readonly { value: HistoryFilter; label: string }[] = [
 	{ value: "all", label: "All" },
@@ -127,9 +136,13 @@ export function approvalHistoryEntries(
 			{
 				key: `approval:${approval.id}`,
 				filter: automatic ? "automatic" : "approvals",
-				status: automatic
-					? { label: "Auto-approved", tone: "outline" }
-					: APPROVAL_STATUS[approval.status],
+				needsAttention:
+					executionRecord != null && executionRecord.status !== "executed",
+				status: executionRecord
+					? EXECUTION_STATUS[executionRecord.status]
+					: automatic
+						? { label: "Auto-approved", tone: "outline" }
+						: APPROVAL_STATUS[approval.status],
 				title: plainApprovalTitle(
 					approval.review.summary || approval.description,
 					payload,
@@ -215,36 +228,61 @@ export function ActivityHistory({
 	tediNames,
 	only,
 	canRetry = false,
+	attentionOnly = false,
 }: {
 	tediNames: Record<string, string>;
 	/** Show one kind of entry and no filter control. */
 	only?: Exclude<HistoryFilter, "all">;
 	/** The signed-in person may try a failed approved call again (owner or admin). */
 	canRetry?: boolean;
+	attentionOnly?: boolean;
 }) {
 	const [chosen, setFilter] = useState<HistoryFilter>("all");
 	const filter = only ?? chosen;
-	const approvals = useQuery(approvalHistoryQueryOptions());
+	const [offset, setOffset] = useState(0);
+	const approvals = useQuery({
+		...(attentionOnly
+			? approvalExecutionAttentionQueryOptions(offset)
+			: approvalHistoryQueryOptions()),
+		refetchInterval: 15_000,
+	});
 	// Tool activity needs analytics access; without it History still shows
 	// every decision.
 	const actions = useQuery({
 		...recentToolActivityQueryOptions(),
 		retry: false,
+		enabled: !attentionOnly,
 	});
-	const entries = filterHistory(
+	const history = filterHistory(
 		[
 			...approvalHistoryEntries(approvals.data?.data ?? [], tediNames),
 			...actionHistoryEntries(actions.data?.items ?? []),
 		],
-		filter,
+		attentionOnly ? "all" : filter,
 	);
+	const entries = attentionOnly
+		? history.filter((entry) => entry.needsAttention)
+		: history;
 	const loading =
 		approvals.isPending || (filter === "actions" && actions.isPending);
 	const actionsHidden = actions.isError && filter !== "approvals";
+	if (
+		attentionOnly &&
+		!approvals.isPending &&
+		!approvals.isError &&
+		offset === 0 &&
+		entries.length === 0
+	)
+		return null;
 	return (
 		<div className="grid min-w-0">
+			{attentionOnly ? (
+				<Text as="h2" className="m-0 px-4 pt-3" role="label" tone="strong">
+					Approved calls waiting or failed
+				</Text>
+			) : null}
 			<div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 pb-2 pt-3">
-				{only ? null : (
+				{only || attentionOnly ? null : (
 					<SegmentedControl
 						ariaLabel="Show in history"
 						className="sm:w-fit"
@@ -264,7 +302,7 @@ export function ActivityHistory({
 					{loading ? "Loading…" : `${entries.length} shown`}
 				</Text>
 			</div>
-			{approvals.isError && actions.isError ? (
+			{approvals.isError && (attentionOnly || actions.isError) ? (
 				<Text className="m-0 px-4 py-6" role="label" tone="error">
 					History could not be loaded. Reload and try again.
 				</Text>
@@ -293,6 +331,22 @@ export function ActivityHistory({
 					))}
 				</ol>
 			)}
+			{attentionOnly && (offset > 0 || approvals.data?.pagination.hasMore) ? (
+				<div className="flex gap-2 px-4 py-2">
+					<Button
+						disabled={offset === 0}
+						onClick={() => setOffset(Math.max(0, offset - 50))}
+					>
+						Previous
+					</Button>
+					<Button
+						disabled={!approvals.data?.pagination.hasMore}
+						onClick={() => setOffset(offset + 50)}
+					>
+						Next
+					</Button>
+				</div>
+			) : null}
 			{actionsHidden ? (
 				<Text className="m-0 px-4 pb-3" role="label" tone="secondary">
 					Tool actions are hidden: your role cannot read app activity.
@@ -358,7 +412,7 @@ function HistoryRow({
 						size="sm"
 						variant="secondary"
 					>
-						{retry.isPending ? "Trying again…" : "Try again"}
+						{retry.isPending ? "Retrying…" : "Retry"}
 					</Button>
 					{retry.isError ? (
 						<Text as="span" className="min-w-0" role="label" tone="error">

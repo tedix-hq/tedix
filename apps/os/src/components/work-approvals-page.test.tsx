@@ -7,6 +7,7 @@ import {
 } from "@/components/approval-inbox";
 import {
 	operationalContextQueryOptions,
+	approvalExecutionAttentionQueryOptions,
 	pendingApprovalsQueryOptions,
 	pendingHomeDelegationsQueryOptions,
 	tediNamesQueryOptions,
@@ -59,7 +60,7 @@ function runtimeRequest(index: number, expiresInHours: number) {
 	};
 }
 
-function renderPage(requests: unknown[]) {
+function renderPage(requests: unknown[], executions: unknown[] = []) {
 	const client = new QueryClient();
 	client.setQueryData<unknown>(operationalContextQueryOptions().queryKey, {
 		authority: { role: "owner", permissions: ["os:approve"] },
@@ -82,6 +83,18 @@ function renderPage(requests: unknown[]) {
 	client.setQueryData<unknown>(tediNamesQueryOptions().queryKey, {
 		data: [{ id: "example-tedi", name: "Example tedi" }],
 	});
+	client.setQueryData<unknown>(
+		approvalExecutionAttentionQueryOptions().queryKey,
+		{
+			data: executions,
+			pagination: {
+				limit: 50,
+				offset: 0,
+				total: executions.length,
+				hasMore: false,
+			},
+		},
+	);
 	const html = renderToStaticMarkup(
 		<QueryClientProvider client={client}>
 			<WorkApprovalsPage />
@@ -209,4 +222,45 @@ describe("approvalOutcome", () => {
 			"Failed: Delete descope aih mcp client. insufficient_scope: platform:admin. Request a new approval.",
 		);
 	});
+});
+
+it("shows an approved failure with Retry on the default tab, and a queued call without Retry", () => {
+	const base = {
+		...runtimeRequest(1, 20),
+		status: "approved",
+		actionType: "mcp.tool_call",
+	};
+	const html = renderPage(
+		[],
+		[
+			{
+				...base,
+				id: "failed-call",
+				payload: {
+					kind: "mcp_tool_call",
+					execution: {
+						status: "failed",
+						error: "The connection is unavailable",
+						retryable: true,
+					},
+				},
+			},
+			{
+				...base,
+				id: "queued-call",
+				payload: {
+					kind: "mcp_tool_call",
+					execution: {
+						status: "queued",
+						nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+					},
+				},
+			},
+		],
+	);
+	expect(html).toContain(">Failed<");
+	expect(html).toContain("The connection is unavailable");
+	expect(html.match(/>Retry</g)).toHaveLength(1);
+	expect(html).toContain(">Queued<");
+	expect(html).toContain("Tedix will retry automatically");
 });
