@@ -235,6 +235,35 @@ for the identity check above. Target settings come only from the manifest.
 Provisioning creates resources, not a complete running installation; it does
 not deploy Workers or replace the remaining bootstrap and identity setup.
 
+## Defaults stored in D1
+
+Before enabling agent-turn triage or setting up Work apps for new organizations,
+an installation administrator must publish these defaults in D1's `policy_packs`:
+
+| Slug                  | Definition field    | Public validator                                                                 |
+| --------------------- | ------------------- | -------------------------------------------------------------------------------- |
+| `agent-turn-defaults` | `agentTurnDefaults` | `AgentTurnDefaultsSchema` from `@tedix/api-contract/schemas/agent-turn-defaults` |
+| `work-onboarding`     | `workOnboarding`    | `WorkOnboardingSchema` from `@tedix/api-contract/schemas/work-onboarding`        |
+
+Each publication needs `scope: "system"`, `organizationId: null` (no tenant
+owner), `target: "shared"`, `status: "active"`, and valid `publishedAt` and
+`publishedBy` fields. Validate the complete definition before publishing. Work
+onboarding currently requires `definition.requirements: null`.
+
+Tedix checks the highest version and its publication details on each operation.
+A missing, invalid, unpublished, or inactive head does not restore an older
+version or compiled defaults. Without valid configuration, triage cannot
+auto-answer questions and new Work app installation cannot proceed.
+
+Keep your chosen values in your installation's own configuration repository.
+Publishing defaults does not overwrite existing user policies, organization
+career ladders, or installed Work apps and their pinned blueprint copies.
+Configure reply-drafting career defaults separately in the stored
+`reply_drafting` activity's `rubric.careerLadder` and `rubric.initialRole`.
+An organization's own activity takes precedence; its retired or invalid latest
+revision does not fall back to the installation activity. Runtime processing
+never creates a replacement ladder from product source.
+
 ## Backup, restore, and upgrade
 
 `@tedix/installation-manifest/lifecycle` implements the manifest's lifecycle
