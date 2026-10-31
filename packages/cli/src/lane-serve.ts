@@ -34,6 +34,7 @@ import {
 	executorBackoff,
 	resumeThenFresh,
 	isMissingNativeState,
+	LocalExecutorCapacityError,
 	type LocalExecutor,
 	type ExecutorBudgets,
 	type RoutingPolicy,
@@ -1736,6 +1737,7 @@ export class LaneDispatcher {
 				// new Work revision, so it defers instead of holding.
 				receipt.held =
 					receipt.identicalFailures >= 3 &&
+					!(error instanceof LocalExecutorCapacityError) &&
 					!awaitsOwnerApproval(error) &&
 					!nativePreparationTimedOut(receipt);
 			}
