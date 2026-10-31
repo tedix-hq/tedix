@@ -9,6 +9,11 @@ import {
 import { ensurePlatformOperatorAggregateApps } from "./platform-operator-aggregation";
 import { getApiClient } from "../lib/api-client";
 import type { AppTool } from "./server-context";
+import {
+	buildAggregateTediTools,
+	sanitizeTediNamespace,
+	type AggregateTediEntry,
+} from "./aggregate-tedis";
 import { buildHomeSurfaceTools } from "./home-surface-tools";
 import { shouldExposeHomeSurface } from "./home-surface";
 
@@ -266,6 +271,71 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 				mountAppIds: [input.rootAppId],
 				sourceKind: "home-surface" as const,
 			};
+		}
+	}
+	const aggregateTedis = root.app.metadata?.mcpConfig?.aggregateTedis;
+	if (Array.isArray(aggregateTedis)) {
+		const entries = aggregateTedis.filter(
+			(entry): entry is AggregateTediEntry =>
+				isRecord(entry) &&
+				typeof entry.slug === "string" &&
+				entry.slug.length > 0,
+		);
+		const candidates = entries.filter((entry) =>
+			input.mountedToolId.startsWith(`${sanitizeTediNamespace(entry)}__`),
+		);
+		const slugs = [...new Set(candidates.map((entry) => entry.slug))];
+		if (slugs.length > 0) {
+			const runtimeClient = getApiClient({
+				serviceFetch: input.env.API_SERVICE,
+				orgId: "system",
+			});
+			const runtimeRows = await runtimeClient.tedis.listRuntimeMetaBySlugs({
+				slugs,
+			});
+			const activeBySlug = new Map(
+				runtimeRows.data
+					.filter(
+						(row) =>
+							row.organizationId === input.organizationId &&
+							row.runtimeKind === "agent" &&
+							row.runtimeState !== "archived" &&
+							!["error", "paused", "provisioning"].includes(row.status ?? ""),
+					)
+					.map((row) => [row.slug, row] as const),
+			);
+			const tools = buildAggregateTediTools(
+				candidates.flatMap((entry) => {
+					const row = activeBySlug.get(entry.slug);
+					return row
+						? [
+								{
+									...entry,
+									tediId: row.id,
+									organizationId: row.organizationId,
+									runtimeKind: "agent" as const,
+								},
+							]
+						: [];
+				}),
+				input.env,
+			).filter((tool) => tool.toolId === input.mountedToolId);
+			if (tools.length === 1) {
+				const tool = tools[0]!;
+				if (
+					root.tools.some(
+						(stored) => stored.id === tool.id || stored.toolId === tool.toolId,
+					)
+				)
+					return null;
+				return {
+					tool,
+					sourceAppId: input.rootAppId,
+					sourceToolId: tool.toolId,
+					mountAppIds: [input.rootAppId],
+					sourceKind: "aggregate-tedi" as const,
+				};
+			}
 		}
 	}
 	const surface = await aggregateAndPrefixTools(
