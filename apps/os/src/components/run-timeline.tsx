@@ -663,7 +663,7 @@ export function RunTimelineStep({
 						Activity
 					</Text>
 					<Text as="p" tone="secondary">
-						Linked task activity is withheld.
+						Assistant activity is withheld.
 					</Text>
 				</section>
 			)}
