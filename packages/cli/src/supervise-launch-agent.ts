@@ -17,7 +17,7 @@ import {
 	LAUNCH_AGENT_LABEL,
 	pause,
 } from "./supervise-drivers";
-import { adoptLaneLaunchAgents } from "./supervise-lanes";
+import { adoptRunnerLaunchAgents } from "./supervise-runners";
 
 /** One supervisor per user: a PID file, taken over when its owner is gone. */
 export function acquireLock(env: NodeJS.ProcessEnv): (() => void) | undefined {
@@ -181,14 +181,14 @@ export async function install(env: NodeJS.ProcessEnv): Promise<number> {
 	console.log(
 		`Installed ${path}; the supervisor runs now and at every login. Remove it with tedix supervise uninstall.`,
 	);
-	const lanes = adoptLaneLaunchAgents(env, systemLaunchctl(), (args) =>
+	const runners = adoptRunnerLaunchAgents(env, systemLaunchctl(), (args) =>
 		parseServeOptions(args, {}),
 	);
-	for (const lane of lanes.adopted)
+	for (const runner of runners.adopted)
 		console.log(
-			`Adopted the ${lane.executor} dispatcher: the supervisor runs it now; its own LaunchAgent is removed.`,
+			`Adopted the ${runner.executor} dispatcher: the supervisor runs it now; its own LaunchAgent is removed.`,
 		);
-	for (const reason of lanes.skipped)
+	for (const reason of runners.skipped)
 		console.log(`Left a LaunchAgent alone (${reason}).`);
 	const hint = localSigningHint(command);
 	if (hint) console.log(hint);

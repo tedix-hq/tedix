@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 import type { ServeOptions } from "./lane-serve";
 import {
-	LANES_FILE,
-	laneDutyFromServeOptions,
-	laneKey,
-	writeLaneDuty,
-} from "./supervise-lanes";
+	RUNNERS_FILE,
+	runnerDutyFromServeOptions,
+	runnerKey,
+	writeRunnerDuty,
+} from "./supervise-runners";
 import { LAUNCH_AGENT_LABEL } from "./supervise-drivers";
 
 /** True when the supervisor LaunchAgent is loaded; undefined off macOS. */
@@ -29,8 +29,8 @@ export function installLaneService(
 	env: NodeJS.ProcessEnv = process.env,
 	loaded: boolean | undefined = supervisorLoaded(),
 ): number {
-	const duty = laneDutyFromServeOptions(options);
-	const { replaced } = writeLaneDuty(env, duty);
+	const duty = runnerDutyFromServeOptions(options);
+	const { replaced } = writeRunnerDuty(env, duty);
 	const supervisor =
 		loaded === undefined
 			? "run tedix supervise under your service manager"
@@ -41,8 +41,8 @@ export function installLaneService(
 		JSON.stringify({
 			installed: true,
 			replaced,
-			file: LANES_FILE,
-			lane: laneKey(duty),
+			file: RUNNERS_FILE,
+			lane: runnerKey(duty),
 			duty,
 			supervisor,
 		}),

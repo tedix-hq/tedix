@@ -555,7 +555,7 @@ red minutes, the queue per executor and what runs next. Counts, cadence and
 executors change through `improve_skills` on that skill, never through code.
 
 The machine only executes: one `tedix lane serve --executor <name> --project
-<lane project> --coordinated --accept-proposed` per executor, each a duty the
+<lane project> --coordinated --accept-proposed` per executor, each a runner the
 Tedix supervisor starts and keeps running (`tedix lane serve --install`), with
 `--max` caps that fit the machine. A tedi's manifest cannot accept Work,
 so a fix or scout item the shift files stays proposed until the dispatcher for

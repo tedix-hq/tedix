@@ -31,10 +31,10 @@ import {
 	type ServeOptions,
 } from "./lane-serve";
 import {
-	laneDutyFromPlist,
-	laneDutyFromServeOptions,
-	laneServeArgs,
-} from "./supervise-lanes";
+	runnerDutyFromPlist,
+	runnerDutyFromServeOptions,
+	runnerServeArgs,
+} from "./supervise-runners";
 import { writeDispatcherHealthSource } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
 import { parseOptions } from "./options";
@@ -2567,7 +2567,7 @@ it("validates concurrency and pins selectors without persisting inherited identi
 		expect(() => parseServeOptions([...args, "--max", n], env)).toThrow(
 			"integer",
 		);
-	const duty = laneDutyFromServeOptions(
+	const duty = runnerDutyFromServeOptions(
 		parseServeOptions([...args, "--repo", "/repo/a&b", "--max", "3"], env),
 	);
 	expect(duty).toMatchObject({
@@ -2580,10 +2580,10 @@ it("validates concurrency and pins selectors without persisting inherited identi
 		enabled: true,
 	});
 	// A duty round-trips through the arguments the supervisor starts it with.
-	const served = laneServeArgs(duty);
+	const served = runnerServeArgs(duty);
 	expect(served.slice(4, 6)).toEqual(["lane", "serve"]);
 	expect(
-		laneDutyFromServeOptions(
+		runnerDutyFromServeOptions(
 			parseServeOptions([...served.slice(0, 4), ...served.slice(6)], {}),
 		),
 	).toEqual(duty);
@@ -2608,7 +2608,7 @@ it("validates concurrency and pins selectors without persisting inherited identi
 			"",
 		)}</array><key>EnvironmentVariables</key><dict><key>TEDIX_MCP_BEARER_TOKEN</key><string>secret</string></dict></dict></plist>`;
 	expect(
-		laneDutyFromPlist(plist, (served) => parseServeOptions(served, {})),
+		runnerDutyFromPlist(plist, (served) => parseServeOptions(served, {})),
 	).toMatchObject({
 		organization: "org_acme",
 		repo: "/repo/a&b",
@@ -2616,7 +2616,7 @@ it("validates concurrency and pins selectors without persisting inherited identi
 		project: projectId,
 	});
 	expect(
-		laneDutyFromPlist("<plist><dict></dict></plist>", (served) =>
+		runnerDutyFromPlist("<plist><dict></dict></plist>", (served) =>
 			parseServeOptions(served, {}),
 		),
 	).toBeUndefined();
