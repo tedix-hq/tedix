@@ -25,6 +25,11 @@ import { getOsSurface } from "@/lib/os-navigation";
 import type { ComponentType, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { SkillBundleImportDialog } from "@/components/skill-bundle-import-dialog";
 import { useCanManageTedis } from "@/lib/tedi-permissions";
 import { SearchInput } from "@/components/kumo/search-input";
@@ -42,10 +47,6 @@ import {
 	PageSection,
 	PageTitle,
 	PageToolbar,
-	SectionDescription,
-	SectionHeader,
-	SectionHeading,
-	SectionTitle,
 } from "@/components/kumo/page";
 import {
 	Empty,
@@ -413,36 +414,68 @@ export function SkillCatalogTree({
 	tediNames: Record<string, string>;
 }) {
 	const root = useMemo(() => buildSkillCatalogTree(entries), [entries]);
-	const renderNode = (node: SkillCatalogNode, depth: number): ReactNode => (
-		<section key={node.path ?? "root"} data-folder-path={node.path ?? ""}>
-			{node.path ? (
-				<SectionHeader className={depth > 1 ? "pl-6" : undefined}>
-					<SectionHeading>
-						<SectionTitle className="flex items-center gap-2 type-tedix-body">
-							<FolderOpen size={16} aria-hidden /> {humanize(node.name)}
-						</SectionTitle>
-						<SectionDescription>{node.path}</SectionDescription>
-					</SectionHeading>
-				</SectionHeader>
-			) : null}
-			{node.skills.length > 0 ? (
-				<Collection className={node.path ? "ml-6" : undefined}>
-					{node.skills.map((skill) => (
-						<SkillRow
-							key={skill.id}
-							skill={skill}
-							executable={
-								executableResolved ? executableIds.has(skill.id) : undefined
-							}
-							tediNames={tediNames}
-						/>
-					))}
-				</Collection>
-			) : null}
-			{node.children.map((child) => renderNode(child, depth + 1))}
-		</section>
+	const [closedFolders, setClosedFolders] = useState<ReadonlySet<string>>(
+		() => new Set(),
 	);
-	return <>{renderNode(root, 0)}</>;
+	const countSkills = (node: SkillCatalogNode): number =>
+		node.skills.length +
+		node.children.reduce((sum, child) => sum + countSkills(child), 0);
+	const renderNode = (node: SkillCatalogNode): ReactNode => {
+		const content = (
+			<div className="grid min-w-0 gap-tedix-section">
+				{node.skills.length > 0 ? (
+					<Collection>
+						{node.skills.map((skill) => (
+							<SkillRow
+								key={skill.id}
+								skill={skill}
+								executable={
+									executableResolved ? executableIds.has(skill.id) : undefined
+								}
+								tediNames={tediNames}
+							/>
+						))}
+					</Collection>
+				) : null}
+				{node.children.map(renderNode)}
+			</div>
+		);
+		if (!node.path) return content;
+		const path = node.path;
+		const open = !closedFolders.has(path);
+		const count = countSkills(node);
+		return (
+			<Collapsible
+				key={path}
+				data-folder-path={path}
+				className="grid min-w-0 gap-3"
+				open={open}
+				onOpenChange={(nextOpen) => {
+					setClosedFolders((previous) => {
+						const next = new Set(previous);
+						if (nextOpen) next.delete(path);
+						else next.add(path);
+						return next;
+					});
+				}}
+			>
+				<CollapsibleTrigger className="w-full gap-2 text-kumo-default">
+					<CaretRight
+						size={16}
+						aria-hidden
+						className={open ? "rotate-90 shrink-0" : "shrink-0"}
+					/>
+					<FolderOpen size={16} aria-hidden className="shrink-0" />
+					<span className="min-w-0 wrap-anywhere">{humanize(node.name)}</span>
+					<span className="ms-auto shrink-0 text-kumo-subtle type-tedix-label tabular-nums">
+						{formatCount(count)} {count === 1 ? "skill" : "skills"}
+					</span>
+				</CollapsibleTrigger>
+				<CollapsibleContent>{content}</CollapsibleContent>
+			</Collapsible>
+		);
+	};
+	return renderNode(root);
 }
 
 export function WorkflowRow({

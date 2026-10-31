@@ -533,6 +533,53 @@ describe("skill catalog hierarchy", () => {
 		expect(markup).toContain('data-folder-path="operations/reports"');
 		expect(markup).toContain("Weekly digest");
 		expect(markup).toContain("Executable");
+		expect(markup).toContain('aria-expanded="true"');
+		expect(markup).toContain("1 skill");
+		expect(markup).not.toContain(">operations/reports<");
+		expect(markup).not.toContain("ml-6");
+	});
+
+	it("keeps each folder's closed state when search temporarily removes it", () => {
+		const node = document.createElement("div");
+		document.body.append(node);
+		const root = createRoot(node);
+		cleanups.push(() => {
+			act(() => root.unmount());
+			node.remove();
+		});
+		const entries = [
+			baseSkill,
+			{
+				...baseSkill,
+				id: "grouped",
+				folderPath: "reports",
+				title: "Monthly report",
+			},
+		];
+		const render = (rows: SkillEntry[]) =>
+			act(() =>
+				root.render(
+					<SkillCatalogTree
+						entries={rows}
+						executableIds={new Set()}
+						executableResolved
+						tediNames={{}}
+					/>,
+				),
+			);
+		render(entries);
+		const toggle = () => node.querySelector<HTMLButtonElement>("button")!;
+		expect(toggle().textContent).toBe("reports1 skill");
+		expect(toggle().getAttribute("aria-expanded")).toBe("true");
+		act(() => toggle().click());
+		expect(toggle().getAttribute("aria-expanded")).toBe("false");
+		render([baseSkill]);
+		expect(node.querySelector("button")).toBeNull();
+		render(entries);
+		expect(toggle().getAttribute("aria-expanded")).toBe("false");
+		act(() => toggle().click());
+		expect(toggle().getAttribute("aria-expanded")).toBe("true");
+		expect(node.textContent).toContain("Monthly report");
 	});
 });
 
