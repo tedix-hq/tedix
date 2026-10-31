@@ -93,6 +93,7 @@ import {
 	waitingQuestions,
 } from "./supervise-questions";
 import { collectDispatcherHealth } from "./dispatcher-health";
+import { LeadDuty, type LeadRun } from "./supervise-lead";
 
 export const SUPERVISE_INTERVAL_MS = 30_000;
 /** After `await-draft` gave up, with a minute of grace for its last read. */
@@ -135,6 +136,7 @@ export interface SuperviseDeps {
 	/** Defaults to the real `claude` CLI and its session registry. */
 	claude?: ClaudeDriver;
 	drivers?: Partial<Record<LeadHost, LeadDriver>>;
+	leadRun?: LeadRun;
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
 	log?: (line: string) => void;
@@ -147,7 +149,10 @@ export class Supervisor {
 	private prunedAt = Number.NEGATIVE_INFINITY;
 	private healthReportedAt = Number.NEGATIVE_INFINITY;
 
-	constructor(private readonly deps: SuperviseDeps) {}
+	private readonly lead: LeadDuty;
+	constructor(private readonly deps: SuperviseDeps) {
+		this.lead = new LeadDuty({ ...deps, run: deps.leadRun });
+	}
 
 	private log(line: string): void {
 		(this.deps.log ?? ((l) => supervisorLog(this.deps.env, l)))(line);
@@ -159,9 +164,13 @@ export class Supervisor {
 
 	/** Questions read and failed reads in the last pass. */
 	lastPass = { checked: 0, failed: 0 };
+	get leadFailed(): boolean {
+		return this.lead.failed;
+	}
 
 	/** Returns the number of drafts delivered in this pass. */
-	async tick(): Promise<number> {
+	async tick(waitForLead = false): Promise<number> {
+		const lead = this.lead.tick(waitForLead);
 		let delivered = 0;
 		this.lastPass = { checked: 0, failed: 0 };
 		const now = this.now();
@@ -240,6 +249,7 @@ export class Supervisor {
 				),
 			);
 		}
+		await lead;
 		return delivered;
 	}
 
@@ -972,7 +982,10 @@ and OpenCode uses opencode run --session, preserving the native session ID.
 Working sessions are left to their hooks. Missing or unavailable
 sessions leave the answer undelivered for its originating chat. The supervisor
 never creates a Work Item or chooses another chat; delegation remains explicit.
-Requires decision capture. Log: ~/.tedix/supervisor.log.`;
+Enable the optional Lead duty in ~/.tedix/supervisor-lead.json with document
+references and existing executor sessions in fallback order. It defaults to
+20 minutes; --once waits for a due pass. See the CLI guide for configuration.
+Requires decision capture for answer delivery. Log: ~/.tedix/supervisor.log.`;
 
 export async function runSuperviseCommand(args: string[]): Promise<number> {
 	const [first] = args;
@@ -1007,12 +1020,12 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 	});
 	try {
 		if (once) {
-			const delivered = await supervisor.tick();
+			const delivered = await supervisor.tick(true);
 			const { checked, failed } = supervisor.lastPass;
 			console.log(
 				`Checked ${checked} waiting question${checked === 1 ? "" : "s"} (${failed} failed); ${delivered} draft${delivered === 1 ? "" : "s"} delivered. Log: ${join(configDir(env), "supervisor.log")}`,
 			);
-			return 0;
+			return supervisor.leadFailed ? 1 : 0;
 		}
 		supervisorLog(env, `supervisor started (pid ${process.pid})`);
 		let stopped = false;

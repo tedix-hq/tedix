@@ -2677,6 +2677,30 @@ describe("one-shot slash-command prompts", () => {
 });
 
 describe("localCommandArgs", () => {
+	test("supervisor accepts explicit organization and workspace selectors", () => {
+		expect(
+			localCommandArgs([
+				"--organization",
+				"org_fixture",
+				"--workspace",
+				"connect",
+				"supervise",
+				"--once",
+			]),
+		).toEqual(["supervise", "--once"]);
+		expect(
+			localCommandArgs([
+				"supervise",
+				"--once",
+				"--organization=org_fixture",
+				"-w",
+				"connect",
+			]),
+		).toEqual(["supervise", "--once"]);
+		expect(() => localCommandArgs(["supervise", "--organization"])).toThrow(
+			"--organization requires an organization name",
+		);
+	});
 	test("ignores workspace selectors before and after every local command", () => {
 		for (const command of ["setup", "hooks", "learn", "dev", "supervise"]) {
 			for (const selector of [

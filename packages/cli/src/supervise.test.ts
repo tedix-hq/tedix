@@ -22,6 +22,12 @@ import {
 import type { JsonObject } from "./hooks/hook-io";
 import { CODEX_IDLE_MS, Supervisor } from "./supervise";
 import {
+	LeadDuty,
+	leadCommand,
+	leadRunner,
+	type LeadRun,
+} from "./supervise-lead";
+import {
 	claudeDriver,
 	type ClaudeDriver,
 	type CodexDriver,
@@ -1349,4 +1355,314 @@ describe("localSigningHint", () => {
 		expect(localSigningHint("/bin/tedix", signed, "darwin")).toBeUndefined();
 		expect(localSigningHint("/bin/tedix", none, "linux")).toBeUndefined();
 	});
+});
+
+describe("Lead duty", () => {
+	const leadConfig = (extra = {}) => ({
+		enabled: true,
+		workspace: "fixture",
+		organization: "org_fixture",
+		cwd: "/tmp",
+		playbook: "os://fixture/playbook",
+		status: "os://fixture/status",
+		executors: [
+			{ executor: "devin", session: "lead-fixture" },
+			{ executor: "codex", session: SESSION },
+			{ executor: "claude-code", session: REQUEST },
+		],
+		...extra,
+	});
+	function setup(run: LeadRun, extra = {}) {
+		writeFileSync(
+			join(config, "supervisor-lead.json"),
+			JSON.stringify(leadConfig(extra)),
+		);
+		let now = Date.now();
+		const health: JsonObject[] = [];
+		const lines: string[] = [];
+		const deps = {
+			env: { TEDIX_CONFIG_DIR: config },
+			run,
+			now: () => now,
+			log: (line: string) => lines.push(line),
+			read: async (args: string[]) => {
+				expect(args.slice(0, 4)).toEqual([
+					"--workspace",
+					"fixture",
+					"--organization",
+					"org_fixture",
+				]);
+				const report = JSON.parse(args.at(-1)!);
+				health.push(report);
+				return report;
+			},
+		};
+		return {
+			duty: new LeadDuty(deps),
+			restart: () => new LeadDuty(deps),
+			advance: (ms: number) => {
+				now += ms;
+			},
+			health,
+			lines,
+		};
+	}
+	test("default 20-minute cadence survives restart and fires at the boundary", async () => {
+		let calls = 0;
+		const f = setup(async () => {
+			calls++;
+			return true;
+		});
+		await f.duty.tick(true);
+		f.advance(20 * 60_000 - 1);
+		await f.restart().tick(true);
+		expect(calls).toBe(1);
+		f.advance(1);
+		await f.restart().tick(true);
+		expect(calls).toBe(2);
+	});
+	test("configured cadence also backs off after all executors fail", async () => {
+		let calls = 0;
+		const f = setup(
+			async () => {
+				calls++;
+				return false;
+			},
+			{ intervalMinutes: 3 },
+		);
+		await f.duty.tick(true);
+		expect(calls).toBe(3);
+		expect(f.duty.failed).toBe(true);
+		f.advance(179_999);
+		await f.duty.tick(true);
+		expect(calls).toBe(3);
+		f.advance(1);
+		await f.duty.tick(true);
+		expect(calls).toBe(6);
+	});
+	test("single flight across ticks and supervisor instances, even when overdue", async () => {
+		let finish!: (ok: boolean) => void;
+		let calls = 0;
+		const f = setup(async () => {
+			calls++;
+			return await new Promise<boolean>((resolve) => {
+				finish = resolve;
+			});
+		});
+		await f.duty.tick();
+		f.advance(40 * 60_000);
+		await f.duty.tick();
+		await f.restart().tick(true);
+		expect(calls).toBe(1);
+		finish(true);
+		await f.duty.tick(true);
+	});
+	test("a retained live child blocks a pass after supervisor restart", async () => {
+		let calls = 0;
+		const f = setup(async () => {
+			calls++;
+			return true;
+		});
+		mkdirSync(join(config, "supervisor"), { recursive: true });
+		writeFileSync(
+			join(config, "supervisor", "lead-state.json"),
+			JSON.stringify({ startedAt: 0, pid: process.pid }),
+		);
+		await f.duty.tick(true);
+		expect(calls).toBe(0);
+	});
+	test("fallback waits for failure, follows order, stops at success and reports it", async () => {
+		const calls: string[] = [];
+		let fail!: (ok: boolean) => void;
+		const f = setup(async (options, executor, prompt) => {
+			expect(options.intervalMinutes).toBe(20);
+			expect(prompt).toContain(options.playbook);
+			expect(prompt).toContain(options.status);
+			calls.push(executor.executor);
+			return executor.executor === "devin"
+				? await new Promise<boolean>((resolve) => {
+						fail = resolve;
+					})
+				: true;
+		});
+		await f.duty.tick();
+		expect(calls).toEqual(["devin"]);
+		fail(false);
+		await f.duty.tick(true);
+		expect(calls).toEqual(["devin", "codex"]);
+		expect(f.lines.join("\n")).toContain("fallback to codex");
+		expect(f.health.map((r) => r.executor)).toEqual(["devin", "codex"]);
+		expect(f.health[1]?.topReason.reason).toContain(
+			"after fallback from devin",
+		);
+		expect(f.health[1]?.lane).toBe("supervisor-lead");
+		expect(f.duty.failed).toBe(false);
+	});
+	test("launch errors fall back", async () => {
+		const calls: string[] = [];
+		const f = setup(async (_, executor) => {
+			calls.push(executor.executor);
+			if (executor.executor === "devin") throw new Error("not logged in");
+			return true;
+		});
+		await f.duty.tick(true);
+		expect(calls).toEqual(["devin", "codex"]);
+	});
+	test("disabled and invalid configurations launch nothing", async () => {
+		let calls = 0;
+		const f = setup(
+			async () => {
+				calls++;
+				return true;
+			},
+			{ enabled: false },
+		);
+		await f.duty.tick(true);
+		writeFileSync(
+			join(config, "supervisor-lead.json"),
+			JSON.stringify(leadConfig({ intervalMinutes: 0 })),
+		);
+		await f.duty.tick(true);
+		expect(calls).toBe(0);
+	});
+});
+
+describe("Lead executor process", () => {
+	const options = {
+		enabled: true as const,
+		intervalMinutes: 20,
+		workspace: "fixture",
+		organization: "org_fixture",
+		cwd: "/tmp",
+		playbook: "fixture",
+		status: "fixture",
+		executors: [],
+	};
+	test("uses explicit conversations for every harness without changing permissions", () => {
+		expect(
+			leadCommand({ executor: "devin", session: SESSION }, "in", "out").args,
+		).toEqual([
+			"--cloud",
+			"-r",
+			SESSION,
+			"-p",
+			"--prompt-file",
+			"in",
+			"--export",
+			"out",
+		]);
+		expect(
+			leadCommand({ executor: "codex", session: SESSION }, "in", "out").args,
+		).toContain("resume");
+		expect(
+			leadCommand({ executor: "claude-code", session: SESSION }, "in", "out")
+				.args,
+		).toContain("--resume");
+		expect(
+			leadCommand({ executor: "opencode", session: "ses_Fixture" }, "in", "out")
+				.args,
+		).toEqual(["run", "--session", "ses_Fixture", "--format", "json"]);
+	});
+	for (const mode of [
+		"success",
+		"nonzero",
+		"error",
+		"wrong-session",
+		"no-receipt",
+		"turn-failed",
+	]) {
+		test(`requires exact-session receipt and successful exit: ${mode}`, async () => {
+			const bin = join(config, "bin");
+			mkdirSync(bin);
+			writeFileSync(
+				join(bin, "codex"),
+				`#!${process.execPath}\n${mode === "no-receipt" ? "" : `console.log(JSON.stringify({type:'thread.started',thread_id:'${mode === "wrong-session" ? REQUEST : SESSION}'}));`}\n${mode === "error" ? "console.log(JSON.stringify({type:'error'}));" : ""}\n${mode === "turn-failed" ? "console.log(JSON.stringify({type:'turn.failed'}));" : ""}\nprocess.exit(${mode === "nonzero" ? 1 : 0});`,
+				{ mode: 0o700 },
+			);
+			let pid = 0;
+			const ok = await leadRunner({ PATH: bin, TEDIX_CONFIG_DIR: config })(
+				options,
+				{ executor: "codex", session: SESSION },
+				"one pass",
+				(value) => {
+					pid = value;
+				},
+			);
+			expect(pid).toBeGreaterThan(0);
+			expect(ok).toBe(mode === "success");
+		});
+	}
+	test("missing executable fails without hanging", async () => {
+		expect(
+			await leadRunner({ PATH: "/nonexistent", TEDIX_CONFIG_DIR: config })(
+				options,
+				{ executor: "codex", session: SESSION },
+				"one pass",
+				() => {},
+			),
+		).toBe(false);
+	});
+	test("supervisor --once waits for the Lead duty while regular ticks stay responsive", async () => {
+		writeFileSync(
+			join(config, "supervisor-lead.json"),
+			JSON.stringify({
+				...options,
+				executors: [{ executor: "codex", session: SESSION }],
+			}),
+		);
+		let finish!: (ok: boolean) => void;
+		const runner = new Supervisor({
+			env: { TEDIX_CONFIG_DIR: config },
+			codex: {} as CodexDriver,
+			read: async () => ({}),
+			leadRun: async () =>
+				await new Promise<boolean>((resolve) => {
+					finish = resolve;
+				}),
+			log: () => {},
+		});
+		await runner.tick();
+		let finished = false;
+		const once = runner.tick(true).then(() => {
+			finished = true;
+		});
+		await Promise.resolve();
+		expect(finished).toBe(false);
+		finish(true);
+		await once;
+		expect(finished).toBe(true);
+	});
+});
+
+test("a failed health write never falls back after a successful Lead pass", async () => {
+	writeFileSync(
+		join(config, "supervisor-lead.json"),
+		JSON.stringify({
+			enabled: true,
+			workspace: "fixture",
+			organization: "org_fixture",
+			cwd: "/tmp",
+			playbook: "fixture",
+			status: "fixture",
+			executors: [
+				{ executor: "codex", session: SESSION },
+				{ executor: "claude-code", session: REQUEST },
+			],
+		}),
+	);
+	let calls = 0;
+	const duty = new LeadDuty({
+		env: { TEDIX_CONFIG_DIR: config },
+		run: async () => {
+			calls++;
+			return true;
+		},
+		read: async () => {
+			throw new Error("offline");
+		},
+		log: () => {},
+	});
+	await duty.tick(true);
+	expect(calls).toBe(1);
+	expect(duty.failed).toBe(false);
 });
