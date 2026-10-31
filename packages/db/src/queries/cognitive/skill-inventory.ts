@@ -8,6 +8,7 @@ import {
 	isNotNull,
 	ne,
 	notExists,
+	or,
 	type SQL,
 	sql,
 } from "drizzle-orm";
@@ -28,6 +29,7 @@ export async function listAllSkillsForOrg(
 		appId?: string;
 		domainId?: string;
 		lifecycleState?: SkillLifecycleState;
+		excludeArchived?: boolean;
 		limit?: number;
 		offset?: number;
 		query?: string;
@@ -38,6 +40,14 @@ export async function listAllSkillsForOrg(
 	},
 ): Promise<{ entries: SkillEntry[]; total: number }> {
 	const conditions = [eq(skillEntries.organizationId, orgId)];
+	if (options?.excludeArchived) {
+		conditions.push(
+			or(
+				isNull(skillEntries.lifecycleState),
+				ne(skillEntries.lifecycleState, "archived"),
+			)!,
+		);
+	}
 	if (options?.visibility) {
 		conditions.push(eq(skillEntries.visibility, options.visibility));
 	}
@@ -64,6 +74,9 @@ export async function listAllSkillsForOrg(
 							eq(override.organizationId, orgId),
 							eq(override.tediId, options.tediId),
 							eq(override.supersedesId, skillEntries.id),
+							options.excludeArchived
+								? ne(override.lifecycleState, "archived")
+								: undefined,
 							options.lifecycleState
 								? eq(override.lifecycleState, options.lifecycleState)
 								: ne(override.lifecycleState, "draft"),

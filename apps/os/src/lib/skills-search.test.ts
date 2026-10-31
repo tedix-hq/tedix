@@ -10,19 +10,28 @@ describe("validateSkillsSearch", () => {
 			section: "skills",
 			q: "",
 			page: 1,
+			showArchived: false,
 		});
 		expect(
 			validate({ section: "removed" as "skills", page: 0 } as Parameters<
 				typeof validate
 			>[0]),
-		).toEqual({ section: "skills", q: "", page: 1 });
+		).toEqual({ section: "skills", q: "", page: 1, showArchived: false });
 	});
 
 	it("preserves valid shareable state", () => {
 		expect(
-			validate({ section: "workflows", q: "deploy", page: 3 } as Parameters<
-				typeof validate
-			>[0]),
-		).toEqual({ section: "workflows", q: "deploy", page: 3 });
+			validate({
+				section: "workflows",
+				q: "deploy",
+				page: 3,
+				showArchived: true,
+			} as Parameters<typeof validate>[0]),
+		).toEqual({
+			section: "workflows",
+			q: "deploy",
+			page: 3,
+			showArchived: true,
+		});
 	});
 });

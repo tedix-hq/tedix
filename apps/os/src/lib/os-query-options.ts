@@ -420,7 +420,15 @@ function normalizePagedSearch(input: number | PagedSearchInput) {
 	return typeof input === "number" ? { limit: input, offset: 0 } : input;
 }
 
-export const skillCatalogQueryOptions = (input: number | PagedSearchInput) =>
+export const skillCatalogQueryOptions = (
+	input:
+		| number
+		| (PagedSearchInput &
+				Pick<
+					ClientInput<typeof osApi.skills.listByOrg>,
+					"excludeArchived" | "lifecycleState"
+				>),
+) =>
 	osQuery.skills.listByOrg.queryOptions({
 		input: { ...normalizePagedSearch(input), summary: true },
 	});

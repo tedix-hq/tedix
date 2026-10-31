@@ -659,7 +659,23 @@ export async function prefetchSkillsRoute(
 	};
 	const reads =
 		search.section === "skills"
-			? [queryClient.ensureQueryData(skillCatalogQueryOptions(input))]
+			? [
+					queryClient.ensureQueryData(
+						skillCatalogQueryOptions({
+							...input,
+							query: search.q.trim() || undefined,
+							excludeArchived: !search.showArchived,
+						}),
+					),
+					queryClient.ensureQueryData(
+						skillCatalogQueryOptions({
+							limit: 0,
+							offset: 0,
+							query: search.q.trim() || undefined,
+							lifecycleState: "archived",
+						}),
+					),
+				]
 			: search.section === "triggers"
 				? [queryClient.ensureQueryData(skillSchedulesQueryOptions(input))]
 				: [queryClient.ensureQueryData(workflowDefinitionsQueryOptions(input))];

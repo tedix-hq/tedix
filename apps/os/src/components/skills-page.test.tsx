@@ -578,6 +578,74 @@ afterEach(() => {
 });
 
 describe("SkillsPage", () => {
+	it("requests non-archived skills by default and resets pagination on the URL toggle", async () => {
+		skillsApi.listByOrg.mockImplementation(async (input) =>
+			input.lifecycleState === "archived"
+				? { entries: [], total: 44 }
+				: { entries: [baseSkill], total: 4 },
+		);
+		const onSearchChange = vi.fn();
+		const container = renderSkillsPage({ onSearchChange });
+		await flush();
+		expect(skillsApi.listByOrg).toHaveBeenCalledWith(
+			{ limit: 20, offset: 0, summary: true, excludeArchived: true },
+			expect.anything(),
+		);
+		expect(container.querySelector('[aria-label="4 results"]')).not.toBeNull();
+		const toggle = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "Show archived (44)",
+		)!;
+		expect(toggle.getAttribute("aria-pressed")).toBe("false");
+		await act(async () => toggle.click());
+		expect(onSearchChange).toHaveBeenCalledWith({
+			showArchived: true,
+			page: 1,
+		});
+	});
+
+	it("includes archived search matches and their count when enabled", async () => {
+		const archived = {
+			...baseSkill,
+			title: "Digest improvement",
+			lifecycleState: "archived",
+		};
+		skillsApi.listByOrg.mockImplementation(async (input) => ({
+			entries: input.lifecycleState ? [] : [archived],
+			total: 1,
+		}));
+		const onSearchChange = vi.fn();
+		const container = renderSkillsPage({
+			search: {
+				section: "skills",
+				q: "improvement",
+				page: 2,
+				showArchived: true,
+			},
+			onSearchChange,
+		});
+		await flush();
+		expect(skillsApi.listByOrg).toHaveBeenCalledWith(
+			{
+				limit: 20,
+				offset: 20,
+				summary: true,
+				excludeArchived: false,
+				query: "improvement",
+			},
+			expect.anything(),
+		);
+		expect(container.textContent).toContain("Digest improvement");
+		expect(container.querySelector('[aria-label="1 results"]')).not.toBeNull();
+		const toggle = [...container.querySelectorAll("button")].find(
+			(button) => button.textContent === "Hide archived (1)",
+		)!;
+		await act(async () => toggle.click());
+		expect(onSearchChange).toHaveBeenCalledWith({
+			showArchived: false,
+			page: 1,
+		});
+	});
+
 	it("groups server result count and search in a Kumo toolbar", async () => {
 		skillsApi.listByOrg.mockResolvedValue({ entries: [baseSkill], total: 21 });
 		const onSearchChange = vi.fn();
@@ -636,7 +704,12 @@ describe("SkillsPage", () => {
 			health: [{ ...dynamicHealth, latestRun: null }],
 		});
 		const container = renderSkillsPage({
-			search: { section: "triggers", q: "digest", page: 1 },
+			search: {
+				section: "triggers",
+				q: "digest",
+				page: 1,
+				showArchived: false,
+			},
 		});
 		await flush();
 		expect(skillsApi.listByOrg).not.toHaveBeenCalled();
@@ -651,7 +724,7 @@ describe("SkillsPage", () => {
 
 	it("shows the honest trigger empty state when no schedules exist", async () => {
 		const container = renderSkillsPage({
-			search: { section: "triggers", q: "", page: 1 },
+			search: { section: "triggers", q: "", page: 1, showArchived: false },
 		});
 		await flush();
 		expect(container.textContent).toContain("No ambient triggers yet");
@@ -675,7 +748,7 @@ describe("SkillsPage", () => {
 		});
 
 		const container = renderSkillsPage({
-			search: { section: "workflows", q: "", page: 2 },
+			search: { section: "workflows", q: "", page: 2, showArchived: false },
 		});
 		await flush();
 

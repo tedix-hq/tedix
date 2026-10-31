@@ -366,7 +366,7 @@ type RunNowInput = {
 };
 
 export function TriggersPanel({
-	search = { section: "triggers", q: "", page: 1 },
+	search = { section: "triggers", q: "", page: 1, showArchived: false },
 	onPageChange = () => undefined,
 }: {
 	search?: SkillsSearch;
