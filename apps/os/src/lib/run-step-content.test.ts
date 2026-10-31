@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
+import type { SkillWorkflowTimelineEvent } from "@tedix/api-contract/schemas/cognitive";
 import {
 	hasRedaction,
+	matchedParentStep,
+	parentStepCoordinates,
+	presentStepResult,
 	readableStepResult,
 	stepConversation,
 	stepTimestamp,
@@ -8,6 +12,91 @@ import {
 } from "./run-step-content";
 
 describe("readable saved step results", () => {
+	it("matches immutable parent and child coordinates without crossing attempts or tools", () => {
+		const event = {
+			kind: "mcp",
+			path: "epochs/2/steps/x:review/4/attempts/3/calls/run/1.json",
+			executionEpoch: 2,
+			attempt: 3,
+			phase: "run",
+			name: "review",
+			count: 7,
+			namespace: "tedi",
+			method: "run_tedi_turn",
+		} as SkillWorkflowTimelineEvent;
+		const parent = {
+			kind: "workflow_step_attempt",
+			executionEpoch: 2,
+			attempt: 3,
+			step: { id: "same", name: "review", count: 4 },
+			sensitiveOutput: false,
+		};
+		const child = {
+			kind: "workflow_mcp_call",
+			executionEpoch: 2,
+			attempt: 3,
+			phase: "run",
+			ordinal: 1,
+			step: { id: "same", name: "review", count: 7 },
+			namespace: "tedi",
+			method: "run_tedi_turn",
+		};
+		expect(parentStepCoordinates(event)?.path).toBe(
+			"epochs/2/steps/x:review/4/attempts/3.json",
+		);
+		expect(matchedParentStep(event, child, parent)).toBe(true);
+		expect(matchedParentStep(event, child, { ...parent, attempt: 2 })).toBe(
+			false,
+		);
+		expect(
+			matchedParentStep(event, child, { ...parent, executionEpoch: 1 }),
+		).toBe(false);
+		expect(
+			matchedParentStep(
+				event,
+				{ ...child, step: { ...child.step, id: "other" } },
+				parent,
+			),
+		).toBe(false);
+		expect(
+			matchedParentStep(event, { ...child, method: "other" }, parent),
+		).toBe(false);
+		expect(parentStepCoordinates({ ...event, attempt: 4 })).toBeNull();
+	});
+	it("keeps substantive search results visible and moves only envelope bookkeeping and recognized suggestions", () => {
+		const web = [{ title: "Question", url: "https://example.com" }];
+		const tools = [
+			{
+				provider: "example",
+				capability: "search",
+				description: "Search provider",
+			},
+		];
+		const result = presentStepResult({
+			success: true,
+			data: { web, tools },
+			id: "internal",
+			creditsUsed: 3,
+			agent_hints: ["hint"],
+		});
+		expect(result.content).toEqual({ success: true, data: { web } });
+		expect(result.technical).toEqual({
+			id: "internal",
+			creditsUsed: 3,
+			agent_hints: ["hint"],
+			suggestedTools: tools,
+		});
+		const distinct = {
+			data: {
+				web,
+				tools: [{ provider: "x", capability: "y", result: "substantive" }],
+			},
+		};
+		expect(presentStepResult(distinct).content).toEqual(distinct);
+		expect(presentStepResult({ id: "meaningful" }).content).toEqual({
+			id: "meaningful",
+		});
+	});
 	it("detects nested redaction in arrays and objects", () => {
 		expect(hasRedaction({ value: [{ payload: { redacted: true } }] })).toBe(
 			true,

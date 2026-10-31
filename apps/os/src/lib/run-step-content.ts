@@ -25,6 +25,79 @@ export function hasRedaction(value: unknown, depth = 0): boolean {
 	return Object.values(value).some((child) => hasRedaction(child, depth + 1));
 }
 
+/** Only canonical epoch/attempt call paths can identify an immutable parent. */
+export function parentStepCoordinates(event: SkillWorkflowTimelineEvent) {
+	if (event.kind !== "mcp" && event.kind !== "network") return null;
+	const match =
+		/^(epochs\/(0|[1-9]\d*)\/steps\/([^/]+)\/([1-9]\d*)\/attempts\/([1-9]\d*))\/(calls|network)\/(run|rollback)\/([1-9]\d*)\.json$/.exec(
+			event.path,
+		);
+	if (
+		!match ||
+		Number(match[2]) !== event.executionEpoch ||
+		Number(match[5]) !== event.attempt ||
+		(event.kind === "mcp" ? match[6] !== "calls" : match[6] !== "network") ||
+		(event.phase && event.phase !== match[7])
+	)
+		return null;
+	try {
+		const encoded = match[3]!;
+		const name = decodeURIComponent(
+			encoded.startsWith("x:") ? encoded.slice(2) : encoded,
+		);
+		if (name !== event.name) return null;
+		return {
+			path: `${match[1]}.json`,
+			name,
+			stepCount: Number(match[4]),
+			attempt: Number(match[5]),
+			phase: match[7],
+			ordinal: Number(match[8]),
+		};
+	} catch {
+		return null;
+	}
+}
+
+/** Match both saved receipts before exposing author-declared parent metadata. */
+export function matchedParentStep(
+	event: SkillWorkflowTimelineEvent,
+	child: Record<string, unknown>,
+	parent: Record<string, unknown>,
+) {
+	const coordinates = parentStepCoordinates(event);
+	if (!coordinates) return false;
+	const childStep = stepRecord(child.step);
+	const parentStep = stepRecord(parent.step);
+	return (
+		parent.kind === "workflow_step_attempt" &&
+		parent.executionEpoch === event.executionEpoch &&
+		parent.attempt === coordinates.attempt &&
+		parentStep.name === coordinates.name &&
+		parentStep.count === coordinates.stepCount &&
+		child.kind ===
+			(event.kind === "mcp" ? "workflow_mcp_call" : "workflow_network_call") &&
+		child.executionEpoch === event.executionEpoch &&
+		child.attempt === coordinates.attempt &&
+		child.phase === coordinates.phase &&
+		child.ordinal === coordinates.ordinal &&
+		childStep.name === coordinates.name &&
+		childStep.count === event.count &&
+		(typeof childStep.id !== "string" ||
+			typeof parentStep.id !== "string" ||
+			childStep.id === parentStep.id) &&
+		(event.kind === "mcp"
+			? typeof event.namespace === "string" &&
+				child.namespace === event.namespace &&
+				typeof event.method === "string" &&
+				child.method === event.method
+			: typeof event.host === "string" &&
+				child.host === event.host &&
+				typeof event.method === "string" &&
+				child.method === event.method)
+	);
+}
+
 /** Unwrap transport envelopes, retaining the assistant's recorded answer. */
 export function readableStepResult(value: unknown, depth = 0): unknown {
 	if (depth >= 8) return value;
@@ -51,6 +124,63 @@ export function readableStepResult(value: unknown, depth = 0): unknown {
 	if ("value" in record && ("ok" in record || "truncated" in record))
 		return readableStepResult(record.value, depth + 1);
 	return value;
+}
+
+/** Separate result-envelope bookkeeping without hiding distinct result data. */
+export function presentStepResult(value: unknown): {
+	content: unknown;
+	technical: Record<string, unknown>;
+} {
+	const record = stepRecord(value);
+	const data = stepRecord(record.data);
+	const hasResultList =
+		Array.isArray(data.web) ||
+		Array.isArray(record.web) ||
+		Array.isArray(record.results);
+	if (!hasResultList) return { content: value, technical: {} };
+	const content = { ...record };
+	const technical: Record<string, unknown> = {};
+	for (const key of ["id", "agentHints", "agent_hints", "creditsUsed"]) {
+		if (key === "id" && typeof record.success !== "boolean") continue;
+		if (key in content) {
+			technical[key] = content[key];
+			delete content[key];
+		}
+	}
+	const results = Array.isArray(data.web)
+		? data.web
+		: Array.isArray(record.web)
+			? record.web
+			: record.results;
+	if (
+		Array.isArray(record.tools) &&
+		JSON.stringify(record.tools) === JSON.stringify(results)
+	) {
+		technical.tools = record.tools;
+		delete content.tools;
+	}
+	if (
+		Array.isArray(data.web) &&
+		Array.isArray(data.tools) &&
+		data.tools.every((item) => {
+			const suggestion = stepRecord(item);
+			return (
+				typeof suggestion.provider === "string" &&
+				typeof suggestion.capability === "string" &&
+				(suggestion.description === undefined ||
+					typeof suggestion.description === "string") &&
+				Object.keys(suggestion).every((key) =>
+					["provider", "capability", "description"].includes(key),
+				)
+			);
+		})
+	) {
+		technical.suggestedTools = data.tools;
+		const visibleData = { ...data };
+		delete visibleData.tools;
+		content.data = visibleData;
+	}
+	return { content, technical };
 }
 
 export function stepConversation(...values: unknown[]) {

@@ -13,8 +13,12 @@ import {
 	RunStepConversation,
 	RunStepResult,
 } from "@/components/run-step-result";
+import { LinkedTediActivity } from "@/components/run-tedi-activity";
 import {
 	hasRedaction,
+	matchedParentStep,
+	parentStepCoordinates,
+	presentStepResult,
 	readableField,
 	readableStepResult,
 	stepConversation,
@@ -356,17 +360,64 @@ function isReferenceCoordinate(value: string) {
 	return /(?:[0-9a-f]{8}-[0-9a-f-]{27}|:\/\/|^[^ ]+[:/][^ ]+$)/i.test(value);
 }
 
-function RunTimelineStep({
+export function RunTimelineStep({
 	runId,
 	event,
 }: {
 	runId: string;
 	event: SkillWorkflowTimelineEvent;
 }) {
-	const receipt = useQuery(workflowRunArtifactQueryOptions(runId, event.path));
+	const receipt = useQuery({
+		...workflowRunArtifactQueryOptions(runId, event.path),
+		staleTime: 0,
+		refetchOnMount: "always",
+		retry: false,
+	});
 	const record = parseRunReceipt(receipt.data?.content);
 	const request = stepRecord(record.request);
 	const response = stepRecord(record.response);
+	const parentCoordinates = parentStepCoordinates(event);
+	const requiresParent =
+		(event.kind === "mcp" || event.kind === "network") &&
+		event.path.startsWith("epochs/");
+	const childSensitive =
+		record.sensitiveOutput === true ||
+		hasRedaction(request) ||
+		hasRedaction(response) ||
+		hasRedaction(record.authorMetadata);
+	const parentReceipt = useQuery({
+		...workflowRunArtifactQueryOptions(runId, parentCoordinates?.path ?? ""),
+		enabled:
+			Boolean(parentCoordinates) &&
+			!childSensitive &&
+			!receipt.isPending &&
+			!receipt.isError &&
+			!receipt.isFetching,
+		retry: false,
+		staleTime: 0,
+		refetchOnMount: "always",
+	});
+	const parentRecord = parseRunReceipt(parentReceipt.data?.content);
+	const parentSensitive = Boolean(
+		parentCoordinates &&
+		parentReceipt.data &&
+		!parentReceipt.isError &&
+		!parentReceipt.isFetching &&
+		(parentRecord.sensitiveOutput === true ||
+			stepRecord(parentRecord.config).sensitive === "output" ||
+			hasRedaction(parentRecord)),
+	);
+	const parentVerified = Boolean(
+		parentCoordinates &&
+		parentReceipt.data &&
+		!parentReceipt.isError &&
+		!parentReceipt.isFetching &&
+		typeof parentRecord.sensitiveOutput === "boolean" &&
+		matchedParentStep(event, record, parentRecord),
+	);
+	const parentUnavailable = Boolean(
+		requiresParent && !childSensitive && !parentSensitive && !parentVerified,
+	);
 	const metadataMatchesAttempt =
 		event.kind === "step" &&
 		typeof event.attempt === "number" &&
@@ -378,7 +429,9 @@ function RunTimelineStep({
 		stepRecord(record.step).count === event.count;
 	const authorMetadata = metadataMatchesAttempt
 		? stepRecord(record.authorMetadata)
-		: {};
+		: parentVerified && !parentSensitive
+			? stepRecord(parentRecord.authorMetadata)
+			: {};
 	const declaredInputs = Array.isArray(authorMetadata.inputs)
 		? authorMetadata.inputs
 				.map(stepRecord)
@@ -392,21 +445,24 @@ function RunTimelineStep({
 				? (authorMetadata.usedNext as string[])
 				: [];
 	const sensitive =
-		record.sensitiveOutput === true ||
-		hasRedaction(request) ||
-		hasRedaction(response) ||
-		hasRedaction(authorMetadata);
+		childSensitive || parentSensitive || hasRedaction(authorMetadata);
+	const restricted =
+		sensitive || parentUnavailable || receipt.isError || receipt.isFetching;
 	const outputPath =
 		typeof record.outputArtifactPath === "string"
 			? record.outputArtifactPath
 			: "";
 	const output = useQuery({
 		...workflowRunArtifactQueryOptions(runId, outputPath),
-		enabled: Boolean(outputPath) && !sensitive,
+		enabled: Boolean(outputPath) && !restricted,
+		staleTime: 0,
+		refetchOnMount: "always",
+		retry: false,
 	});
 	const outputRecord = parseRunReceipt(output.data?.content);
 	const outputHidden =
-		sensitive ||
+		restricted ||
+		(Boolean(outputPath) && (output.isFetching || output.isError)) ||
 		outputRecord.sensitiveOutput === true ||
 		hasRedaction(outputRecord.value);
 	// Output paths can be reused by retries; do not attribute a later attempt's value to this receipt.
@@ -428,10 +484,15 @@ function RunTimelineStep({
 				: (record.response ?? record.output ?? record.value);
 	const sample = outputSample(value);
 	const result = readableStepResult(value);
+	const presentedResult = presentStepResult(result);
 	const awaitingAnswer = stepRecord(result).pending === true;
+	const isTediMethod = event.kind === "mcp" && event.method === "run_tedi_turn";
+	const isTediCall = isTediMethod && event.namespace === "tedi";
 	const reference =
-		outputHidden || mismatched ? null : stepConversation(value, record);
-	const requestValue = sensitive ? null : (request.value ?? request.preview);
+		outputHidden || mismatched || isTediMethod
+			? null
+			: stepConversation(value, record);
+	const requestValue = restricted ? null : (request.value ?? request.preview);
 	const requestSample = outputSample(requestValue);
 	const requestFull =
 		requestValue == null
@@ -439,7 +500,7 @@ function RunTimelineStep({
 			: typeof requestValue === "string"
 				? requestValue
 				: JSON.stringify(requestValue, null, 2);
-	const error = sensitive ? null : outputSample(record.error);
+	const error = restricted ? null : outputSample(record.error);
 	return (
 		<div className="grid min-w-0 gap-5 p-4 pt-0 sm:p-6 sm:pt-0">
 			<div className="flex flex-wrap items-center gap-3">
@@ -474,18 +535,19 @@ function RunTimelineStep({
 					value={event.endedAt ? absoluteTime(event.endedAt) : "Not recorded"}
 				/>
 			</MetricGrid>
-			{!receipt.isPending && !receipt.isError && !sensitive && (
+			{!receipt.isPending && !receipt.isError && !restricted && (
 				<div className="grid gap-3">
 					{(typeof authorMetadata.purpose === "string" ||
 						declaredInputs.length > 0 ||
 						declaredNext.length > 0) && (
 						<Text as="p" tone="secondary">
-							Purpose, sources and next use are declared by the workflow author.
+							Purpose, sources and planned next steps are declared by the
+							workflow author.
 						</Text>
 					)}
 					<section>
 						<Text as="h3" role="label" weight="medium">
-							Purpose
+							{parentCoordinates ? "Step purpose" : "Purpose"}
 						</Text>
 						{typeof authorMetadata.purpose === "string" ? (
 							<RunStepResult value={authorMetadata.purpose} />
@@ -497,7 +559,7 @@ function RunTimelineStep({
 					</section>
 					<section>
 						<Text as="h3" role="label" weight="medium">
-							Input sources
+							{parentCoordinates ? "Step input sources" : "Input sources"}
 						</Text>
 						{declaredInputs.length > 0 ? (
 							<ul className="m-0 grid gap-2 pl-5">
@@ -513,6 +575,9 @@ function RunTimelineStep({
 									return (
 										<li key={index}>
 											{label}
+											{source !== label &&
+												!isReferenceCoordinate(source) &&
+												` — ${source}`}
 											{(typeof input.sourceRevision === "number" ||
 												typeof input.sourceRevision === "string") &&
 												(typeof input.sourceRevision === "string" &&
@@ -562,14 +627,17 @@ function RunTimelineStep({
 					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
-			{!receipt.isPending && !receipt.isError && requestSample === null && (
-				<Text as="p" tone="secondary">
-					{sensitive
-						? "Recorded input is hidden."
-						: "No input or instructions were recorded for this step."}
-				</Text>
-			)}
-			{!receipt.isPending && !receipt.isError && !sensitive && (
+			{!receipt.isPending &&
+				!receipt.isError &&
+				!parentUnavailable &&
+				requestSample === null && (
+					<Text as="p" tone="secondary">
+						{sensitive
+							? "Recorded input is hidden."
+							: "No input or instructions were recorded for this step."}
+					</Text>
+				)}
+			{!receipt.isPending && !receipt.isError && !restricted && (
 				<section>
 					<Text as="h3" role="label" weight="medium">
 						Activity
@@ -577,11 +645,49 @@ function RunTimelineStep({
 					<Text as="p" tone="secondary">
 						{event.kind === "mcp" || event.kind === "network"
 							? "A call was recorded for this step."
-							: "No separate activity is recorded in this receipt."}
+							: "No additional activity was recorded."}
+					</Text>
+					{isTediCall && (
+						<LinkedTediActivity
+							runId={runId}
+							executionEpoch={event.executionEpoch}
+							path={event.path}
+							attempt={event.attempt}
+						/>
+					)}
+				</section>
+			)}
+			{!receipt.isPending && !receipt.isError && sensitive && isTediCall && (
+				<section>
+					<Text as="h3" role="label" weight="medium">
+						Activity
+					</Text>
+					<Text as="p" tone="secondary">
+						Linked task activity is withheld.
 					</Text>
 				</section>
 			)}
 			{receipt.isPending && <Skeleton className="h-20" />}
+			{parentUnavailable && parentReceipt.isFetching && (
+				<Text as="p" tone="secondary">
+					Loading parent step details…
+				</Text>
+			)}
+			{parentUnavailable && parentReceipt.isError && (
+				<LoadError
+					title="Parent step details unavailable"
+					error={parentReceipt.error}
+					onRetry={() => parentReceipt.refetch()}
+					retrying={parentReceipt.isFetching}
+				/>
+			)}
+			{parentUnavailable &&
+				!parentReceipt.isFetching &&
+				!parentReceipt.isError && (
+					<Text as="p" tone="secondary">
+						Parent step details could not be verified.
+					</Text>
+				)}
 			{receipt.isError && (
 				<LoadError
 					title="Step details unavailable"
@@ -600,6 +706,7 @@ function RunTimelineStep({
 			{!error &&
 				!receipt.isPending &&
 				!receipt.isError &&
+				!restricted &&
 				event.outcome === "failure" && (
 					<Text as="p" tone="secondary">
 						No error detail was recorded in this receipt.
@@ -619,6 +726,7 @@ function RunTimelineStep({
 					/>
 				)}
 				{receipt.isPending ||
+				parentUnavailable ||
 				(outputPath && output.isFetching) ||
 				receipt.isError ||
 				(outputPath && output.isError) ? null : sample !== null ? (
@@ -632,7 +740,7 @@ function RunTimelineStep({
 							className="min-w-0 rounded-lg border border-kumo-line bg-kumo-base p-4"
 						>
 							<RunStepResult
-								value={result}
+								value={presentedResult.content}
 								field={event.name === "clock" ? "timestamp" : undefined}
 							/>
 							{response.truncated === true && (
@@ -652,10 +760,12 @@ function RunTimelineStep({
 					</Text>
 				)}
 			</div>
-			{!receipt.isPending && !receipt.isError && !sensitive && (
+			{!receipt.isPending && !receipt.isError && !restricted && (
 				<section>
 					<Text as="h3" role="label" weight="medium">
-						Planned next steps
+						{parentCoordinates
+							? "Step planned next steps"
+							: "Planned next steps"}
 					</Text>
 					{declaredNext.length > 0 ? (
 						<ul className="m-0 grid gap-2 pl-5">
@@ -675,25 +785,22 @@ function RunTimelineStep({
 				</section>
 			)}
 			{reference && <RunStepConversation reference={reference} />}
-			{!reference &&
-				!outputHidden &&
-				!mismatched &&
-				!receipt.isPending &&
-				!receipt.isError &&
-				event.kind === "step" && (
-					<Text as="p" tone="secondary">
-						No conversation was linked to this task. Its saved result is shown
-						above.
-					</Text>
-				)}
 			<Collapsible className="min-w-0">
 				<CollapsibleDefaultTrigger>Technical details</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent>
 					<Text as="p" tone="secondary" className="m-0">
 						Original identifiers and saved response for troubleshooting.
 					</Text>
+					{!outputHidden &&
+						!mismatched &&
+						Object.keys(presentedResult.technical).length > 0 && (
+							<CodeBlock
+								code={outputSample(presentedResult.technical) ?? ""}
+								lang="json"
+							/>
+						)}
 					{(declaredInputs.length > 0 || declaredNext.length > 0) &&
-						!sensitive && (
+						!restricted && (
 							<CodeBlock
 								code={JSON.stringify(
 									{ inputs: declaredInputs, usedNext: declaredNext },
