@@ -478,7 +478,7 @@ describe("dispatcher admission", () => {
 			);
 			await once(child, "spawn");
 			const f = fixture({ max: 1 });
-			f.items.splice(0, 1);
+			if (state !== "succeeded") f.items.splice(0, 1);
 			writeFileSync(
 				join(f.dir, `${item(1).id}-2.json`),
 				JSON.stringify({
@@ -512,7 +512,15 @@ describe("dispatcher admission", () => {
 				if (state === "succeeded") {
 					for (const release of f.releases) release();
 					await f.dispatcher.drain();
-					f.items.splice(0);
+					f.items.splice(1);
+					f.control.history.data = [
+						{
+							id: "previous-attempt",
+							externalSessionKey: "codex:previous-session",
+							outcome: "succeeded",
+							metadata: { dispatchVersion: 2 },
+						},
+					];
 					await f.dispatcher.tick();
 					expect(
 						f.events.filter(
@@ -1016,6 +1024,13 @@ describe("dispatcher admission", () => {
 		);
 		expect(events.indexOf(complete)).toBeGreaterThan(events.indexOf(settle));
 		control.completeError = undefined;
+		control.history.data = [
+			{
+				id: saved.attemptId,
+				externalSessionKey: saved.session,
+				outcome: "succeeded",
+			},
+		];
 		saved.completionRetryAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
 		await dispatcher.tick();
@@ -1025,6 +1040,94 @@ describe("dispatcher admission", () => {
 		expect(releases).toHaveLength(1);
 	});
 
+	it.each(["settling", "admitted"])(
+		"closes a recovered %s success after a lost settlement reply without rerunning",
+		async (phase) => {
+			const f = fixture({ failSettle: true });
+			f.items.splice(1);
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const path = join(f.dir, `${item().id}-2.json`);
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			saved.phase = phase;
+			saved.retryAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+			f.control.history.data = [
+				{
+					id: saved.attemptId,
+					externalSessionKey: saved.session,
+					outcome: "succeeded",
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			await f.restart().tick();
+			expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+				phase: "settled",
+				outcome: "succeeded",
+				completionPending: false,
+			});
+			const completions = f.events.filter((event) => event.verb === "complete");
+			expect(completions).toHaveLength(1);
+			expect(completions[0]!.env.TEDIX_AGENT_SESSION).toBe(saved.session);
+			expect(completions[0]!.env.TEDIX_EXTERNAL_AGENT).toBe(saved.executorKey);
+			expect(f.releases).toHaveLength(1);
+			expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(
+				1,
+			);
+		},
+	);
+	it.each(["changed-version", "newer-attempt"])(
+		"keeps recovered closure fenced across retries after %s",
+		async (state) => {
+			const f = fixture();
+			f.items.splice(1);
+			const path = join(f.dir, `${item().id}-2.json`);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "settling",
+					outcome: "succeeded",
+					admissionState: "admitted",
+					attemptId: "old-attempt",
+					session: "codex:old-session",
+					executorKey: "old-executor",
+				}),
+			);
+			f.control.history.data = [
+				{
+					id: "old-attempt",
+					externalSessionKey: "codex:old-session",
+					outcome: "succeeded",
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			if (state === "changed-version") {
+				f.items[0]!.version = 3;
+				f.items[0]!.startAt = new Date(Date.now() + 60_000).toISOString();
+			} else
+				f.control.history.data.unshift({
+					id: "new-attempt",
+					externalSessionKey: "codex:new-session",
+					outcome: "succeeded",
+				});
+			const resumed = f.restart();
+			for (let n = 0; n < 2; n++) {
+				await resumed.tick();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved.completionPending).toBe(true);
+				expect(
+					f.events.filter((event) => event.verb === "complete"),
+				).toHaveLength(0);
+				saved.completionRetryAt = 0;
+				writeFileSync(path, JSON.stringify(saved));
+			}
+			expect(f.releases).toHaveLength(0);
+		},
+	);
 	it.each([
 		"recovered",
 		"changed-version",
@@ -2789,6 +2892,71 @@ it("backs off retained cleanup and archives only removed run metadata", async ()
 		readFileSync(join(dir, "archive", archived[0]!, "last.txt"), "utf8"),
 	).toBe("Result in OS");
 });
+
+it.each(["admitted", "unknown"])(
+	"retries the same terminal failed Work with a foreign PID only when admission is %s",
+	async (admissionState) => {
+		const child = spawn(
+			process.execPath,
+			["-e", "setTimeout(() => {}, 30000)"],
+			{ detached: true, stdio: "ignore" },
+		);
+		await once(child, "spawn");
+		const f = fixture({ max: 1 });
+		f.items.splice(1);
+		const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(join(repo, "checkpoint.txt"), "retain failed work");
+		f.control.provisionError = new Error(
+			"Retained failed checkout must be reused",
+		);
+		writeFileSync(
+			join(f.dir, `${item().id}-2.json`),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "settled",
+				outcome: "failed",
+				admissionState,
+				attemptId: "old-attempt",
+				session: "codex:old-session",
+				pid: child.pid,
+				processIdentity: "old-process-identity",
+				repo,
+			}),
+		);
+		f.control.history.data = [
+			{
+				id: "old-attempt",
+				externalSessionKey: "codex:old-session",
+				outcome: "failed",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		const signals = spyOn(process, "kill");
+		try {
+			await f.dispatcher.tick();
+			if (admissionState === "admitted")
+				await until(() => f.releases.length === 1);
+			expect(f.releases).toHaveLength(admissionState === "admitted" ? 1 : 0);
+			expect(readFileSync(join(repo, "checkpoint.txt"), "utf8")).toBe(
+				"retain failed work",
+			);
+			expect(
+				signals.mock.calls.filter(
+					([pid, signal]) => Math.abs(pid) === child.pid && signal !== 0,
+				),
+			).toHaveLength(0);
+		} finally {
+			signals.mockRestore();
+			for (const release of f.releases) release();
+			await f.dispatcher.drain();
+			const exited = once(child, "exit");
+			process.kill(-child.pid!, "SIGTERM");
+			await exited;
+		}
+	},
+);
 
 it.each(["succeeded", "failed"])(
 	"only retries settled failures on the same revision: %s",

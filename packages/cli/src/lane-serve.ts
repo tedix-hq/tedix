@@ -490,7 +490,7 @@ export function retainedLaneWorktree(
 				existsSync(row.repo),
 		)
 		.sort((a, b) => b.version - a.version)[0];
-	if (previous?.pid && alive(previous.pid))
+	if (previous?.pid && alive(previous.pid) && !hasSettledOutcome(previous))
 		throw new Error(
 			"The previous lane process group is still alive; its worktree cannot be reused",
 		);
@@ -1125,6 +1125,7 @@ export class LaneDispatcher {
 				const previous = existsSync(this.path(item))
 					? (JSON.parse(readFileSync(this.path(item), "utf8")) as Receipt)
 					: undefined;
+				const previousProcessFinished = previous && hasSettledOutcome(previous);
 				if (
 					previous?.phase === "deferred" &&
 					nativePreparationTimedOut(previous)
@@ -1146,7 +1147,9 @@ export class LaneDispatcher {
 							previous.held ||
 							(previous.attemptId && previous.phase !== "deferred") ||
 							!["deferred", "failed", "preparing"].includes(previous.phase) ||
-							(previous.pid && alive(previous.pid)) ||
+							(previous.pid &&
+								alive(previous.pid) &&
+								!previousProcessFinished) ||
 							Date.now() < (previous.retryAt ?? 0) ||
 							((previous.retries ?? 0) >= 5 &&
 								Date.now() < (previous.retryDeadlineAt ?? 0))))
@@ -2159,8 +2162,6 @@ export class LaneDispatcher {
 			if (receipt.runFailureCounted) receipt.retryAt = receipt.runRetryAt;
 			this.log("settled", receipt.itemId, receipt.outcome);
 			if (receipt.outcome === "succeeded") {
-				receipt.completionPending = true;
-				this.save(path, receipt);
 				await this.complete(receipt);
 			}
 		} catch (error) {
@@ -2168,12 +2169,20 @@ export class LaneDispatcher {
 		}
 		this.save(path, receipt);
 	}
-	private async complete(receipt: Receipt) {
+	private async complete(receipt: Receipt, recovered = false) {
 		if (receipt.phase !== "settled" || receipt.outcome !== "succeeded") return;
-		const reconcile = (receipt.completionRetries ?? 0) >= 5;
+		const reconcile =
+			recovered ||
+			receipt.completionPending === true ||
+			(receipt.completionRetries ?? 0) >= 5;
+		receipt.completionPending = true;
 		receipt.completionRetries = (receipt.completionRetries ?? 0) + 1;
 		receipt.completionRetryAt =
 			Date.now() + (receipt.completionRetries >= 5 ? 15 * 60_000 : 60_000);
+		this.save(
+			this.path({ id: receipt.itemId, version: receipt.version }),
+			receipt,
+		);
 		try {
 			if (!receipt.session || !receipt.executorKey || !receipt.attemptId)
 				throw new Error(
@@ -2323,6 +2332,7 @@ export class LaneDispatcher {
 				this.path({ id: receipt.itemId, version: receipt.version }),
 				receipt,
 			);
+			await this.complete(receipt, true);
 			return;
 		}
 		receipt.phase = "deferred";
@@ -2390,6 +2400,7 @@ export class LaneDispatcher {
 				receipt,
 			);
 			this.log("settlement-reconciled", receipt.itemId, attempt.outcome);
+			await this.complete(receipt, true);
 		} else if (
 			attempt.expiresAt &&
 			Date.parse(attempt.expiresAt) > Date.now()
