@@ -12,26 +12,26 @@ import { join } from "node:path";
 import { installLaneService } from "./lane-service";
 import { parseServeOptions } from "./lane-serve";
 import {
-	adoptLaneLaunchAgents,
-	LANE_RESTART_BASE_MS,
-	LANE_RESTART_MAX_MS,
-	LANES_FILE,
-	type LaneChild,
-	LaneDuties,
-	type LaneDuty,
-	laneKey,
-	readLaneDuties,
-	removeLaneDuty,
-	writeLaneDuty,
-} from "./supervise-lanes";
+	adoptRunnerLaunchAgents,
+	RUNNER_RESTART_BASE_MS,
+	RUNNER_RESTART_MAX_MS,
+	RUNNERS_FILE,
+	type RunnerChild,
+	RunnerDuties,
+	type RunnerDuty,
+	runnerKey,
+	readRunnerDuties,
+	removeRunnerDuty,
+	writeRunnerDuty,
+} from "./supervise-runners";
 
 const PROJECT = "66666666-6666-4666-8666-666666666666";
-const lane = (extra: Partial<LaneDuty> = {}): LaneDuty => ({
+const runner = (extra: Partial<RunnerDuty> = {}): RunnerDuty => ({
 	workspace: "fixture",
 	organization: "org_fixture",
 	executor: "codex",
 	max: 4,
-	rules: "lane-rules",
+	rules: "runner-rules",
 	repo: "/repo/fixture",
 	coordinated: false,
 	acceptProposed: false,
@@ -41,35 +41,37 @@ const lane = (extra: Partial<LaneDuty> = {}): LaneDuty => ({
 
 let config: string;
 beforeEach(() => {
-	config = mkdtempSync(join(tmpdir(), "tedix-lanes-"));
+	config = mkdtempSync(join(tmpdir(), "tedix-runners-"));
 });
 afterEach(() => rmSync(config, { recursive: true, force: true }));
 
-describe("the lanes file", () => {
+describe("the runners file", () => {
 	test("upserts by organization and executor and removes by key", () => {
 		const env = { TEDIX_CONFIG_DIR: config };
-		expect(readLaneDuties(env)).toEqual([]);
-		expect(writeLaneDuty(env, lane())).toEqual({ replaced: false });
-		expect(writeLaneDuty(env, lane({ max: 2 }))).toEqual({ replaced: true });
-		expect(writeLaneDuty(env, lane({ executor: "devin" }))).toEqual({
+		expect(readRunnerDuties(env)).toEqual([]);
+		expect(writeRunnerDuty(env, runner())).toEqual({ replaced: false });
+		expect(writeRunnerDuty(env, runner({ max: 2 }))).toEqual({
+			replaced: true,
+		});
+		expect(writeRunnerDuty(env, runner({ executor: "devin" }))).toEqual({
 			replaced: false,
 		});
-		expect(readLaneDuties(env).map((l) => [l.executor, l.max])).toEqual([
+		expect(readRunnerDuties(env).map((l) => [l.executor, l.max])).toEqual([
 			["codex", 2],
 			["devin", 4],
 		]);
-		expect(removeLaneDuty(env, laneKey(lane()))).toBe(true);
-		expect(removeLaneDuty(env, laneKey(lane()))).toBe(false);
-		expect(readLaneDuties(env).map((l) => l.executor)).toEqual(["devin"]);
+		expect(removeRunnerDuty(env, runnerKey(runner()))).toBe(true);
+		expect(removeRunnerDuty(env, runnerKey(runner()))).toBe(false);
+		expect(readRunnerDuties(env).map((l) => l.executor)).toEqual(["devin"]);
 	});
 
 	test("rejects a relative repo and an unknown executor instead of guessing", () => {
 		const env = { TEDIX_CONFIG_DIR: config };
 		writeFileSync(
-			join(config, LANES_FILE),
-			JSON.stringify({ version: 1, lanes: [lane({ repo: "relative" })] }),
+			join(config, RUNNERS_FILE),
+			JSON.stringify({ version: 1, runners: [runner({ repo: "relative" })] }),
 		);
-		expect(() => readLaneDuties(env)).toThrow("absolute");
+		expect(() => readRunnerDuties(env)).toThrow("absolute");
 	});
 
 	test("lane serve --install writes a duty and says what the supervisor will do", () => {
@@ -106,8 +108,8 @@ describe("the lanes file", () => {
 		const printed = JSON.parse(lines[0]!);
 		expect(printed.installed).toBe(true);
 		expect(printed.supervisor).toContain("tedix supervise install");
-		expect(readLaneDuties(env)).toEqual([
-			lane({
+		expect(readRunnerDuties(env)).toEqual([
+			runner({
 				executor: "opencode",
 				max: 3,
 				rules: PROJECT,
@@ -143,7 +145,7 @@ describe("adopting the old per-dispatcher LaunchAgents", () => {
 				"--max",
 				"4",
 				"--rules",
-				"lane-rules",
+				"runner-rules",
 				"--repo",
 				"/repo/fixture",
 			]),
@@ -158,7 +160,7 @@ describe("adopting the old per-dispatcher LaunchAgents", () => {
 		);
 		writeFileSync(join(agents, "dev.tedix.supervisor.plist"), plist([]));
 		const calls: string[][] = [];
-		const result = adoptLaneLaunchAgents(
+		const result = adoptRunnerLaunchAgents(
 			{ TEDIX_CONFIG_DIR: config },
 			(args) => {
 				calls.push(args);
@@ -167,7 +169,7 @@ describe("adopting the old per-dispatcher LaunchAgents", () => {
 			(args) => parseServeOptions(args, {}),
 			{ home, domain: "gui/501" },
 		);
-		expect(result.adopted).toEqual([lane()]);
+		expect(result.adopted).toEqual([runner()]);
 		expect(result.skipped).toEqual([
 			"dev.tedix.lane-serve.bbbb.plist: not a lane serve agent",
 		]);
@@ -179,19 +181,19 @@ describe("adopting the old per-dispatcher LaunchAgents", () => {
 			true,
 		);
 		expect(existsSync(join(agents, "dev.tedix.supervisor.plist"))).toBe(true);
-		expect(readLaneDuties({ TEDIX_CONFIG_DIR: config })).toEqual([lane()]);
+		expect(readRunnerDuties({ TEDIX_CONFIG_DIR: config })).toEqual([runner()]);
 	});
 });
 
 describe("running the dispatchers", () => {
-	type Fake = LaneChild & { args: string[]; exit: (code: number) => void };
+	type Fake = RunnerChild & { args: string[]; exit: (code: number) => void };
 	function setup() {
 		const env = { TEDIX_CONFIG_DIR: config };
 		let now = 1_000_000;
 		let nextPid = 100;
 		const spawned: Fake[] = [];
 		const lines: string[] = [];
-		const duties = new LaneDuties({
+		const duties = new RunnerDuties({
 			env,
 			now: () => now,
 			log: (line) => lines.push(line),
@@ -211,10 +213,10 @@ describe("running the dispatchers", () => {
 				return child;
 			},
 		});
-		const write = (lanes: LaneDuty[]) =>
+		const write = (runners: RunnerDuty[]) =>
 			writeFileSync(
-				join(config, LANES_FILE),
-				JSON.stringify({ version: 1, lanes }),
+				join(config, RUNNERS_FILE),
+				JSON.stringify({ version: 1, runners }),
 			);
 		return {
 			env,
@@ -225,14 +227,14 @@ describe("running the dispatchers", () => {
 			advance: (ms: number) => {
 				now += ms;
 			},
-			childFile: (l: LaneDuty) =>
-				join(config, "dispatchers", laneKey(l), "supervisor-child.json"),
+			childFile: (l: RunnerDuty) =>
+				join(config, "dispatchers", runnerKey(l), "supervisor-child.json"),
 		};
 	}
 
-	test("starts each enabled lane once with the lane serve arguments and records its pid", () => {
+	test("starts each enabled runner once with the lane serve arguments and records its pid", () => {
 		const f = setup();
-		f.write([lane(), lane({ executor: "devin", max: 2, enabled: false })]);
+		f.write([runner(), runner({ executor: "devin", max: 2, enabled: false })]);
 		f.duties.tick();
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(1);
@@ -248,47 +250,49 @@ describe("running the dispatchers", () => {
 			"--max",
 			"4",
 			"--rules",
-			"lane-rules",
+			"runner-rules",
 			"--repo",
 			"/repo/fixture",
 		]);
-		expect(JSON.parse(readFileSync(f.childFile(lane()), "utf8")).pid).toBe(100);
+		expect(JSON.parse(readFileSync(f.childFile(runner()), "utf8")).pid).toBe(
+			100,
+		);
 		expect(f.duties.status()).toEqual([
-			{ key: laneKey(lane()), executor: "codex", pid: 100 },
+			{ key: runnerKey(runner()), executor: "codex", pid: 100 },
 		]);
 		expect(f.lines[0]).toContain("codex started (pid 100, 4 slots)");
 	});
 
-	test("restarts an exited lane after a doubling backoff that is capped", () => {
+	test("restarts an exited runner after a doubling backoff that is capped", () => {
 		const f = setup();
-		f.write([lane()]);
+		f.write([runner()]);
 		f.duties.tick();
 		f.spawned[0]!.exit(1);
 		expect(f.lines.at(-1)).toContain("codex exited (code 1); restart in 60s");
-		expect(existsSync(f.childFile(lane()))).toBe(false);
+		expect(existsSync(f.childFile(runner()))).toBe(false);
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(1);
-		f.advance(LANE_RESTART_BASE_MS);
+		f.advance(RUNNER_RESTART_BASE_MS);
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(2);
 		f.spawned[1]!.exit(1);
 		expect(f.lines.at(-1)).toContain("restart in 120s");
 		for (let i = 0; i < 3; i++) {
-			f.advance(LANE_RESTART_MAX_MS);
+			f.advance(RUNNER_RESTART_MAX_MS);
 			f.duties.tick();
 			f.spawned.at(-1)!.exit(1);
 		}
 		expect(f.lines.at(-1)).toContain(
-			`restart in ${LANE_RESTART_MAX_MS / 1000}s`,
+			`restart in ${RUNNER_RESTART_MAX_MS / 1000}s`,
 		);
 	});
 
-	test("stops a lane removed from the file and stops all of them with the supervisor", () => {
+	test("stops a runner removed from the file and stops all of them with the supervisor", () => {
 		const f = setup();
-		f.write([lane(), lane({ executor: "devin" })]);
+		f.write([runner(), runner({ executor: "devin" })]);
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(2);
-		f.write([lane({ executor: "devin" })]);
+		f.write([runner({ executor: "devin" })]);
 		f.duties.tick();
 		expect(f.lines.at(-1)).toContain("codex removed from");
 		expect(f.duties.status().map((s) => s.executor)).toEqual(["devin"]);
@@ -299,12 +303,12 @@ describe("running the dispatchers", () => {
 
 	test("adopts a child that outlived the previous supervisor instead of starting a second one", () => {
 		const f = setup();
-		f.write([lane()]);
-		mkdirSync(join(config, "dispatchers", laneKey(lane())), {
+		f.write([runner()]);
+		mkdirSync(join(config, "dispatchers", runnerKey(runner())), {
 			recursive: true,
 		});
 		writeFileSync(
-			f.childFile(lane()),
+			f.childFile(runner()),
 			JSON.stringify({ pid: process.pid, startedAt: 1 }),
 		);
 		f.duties.tick();
@@ -313,11 +317,11 @@ describe("running the dispatchers", () => {
 		expect(f.duties.status()[0]!.pid).toBe(process.pid);
 	});
 
-	test("an unreadable lanes file is logged once and leaves running lanes alone", () => {
+	test("an unreadable runners file is logged once and leaves running runners alone", () => {
 		const f = setup();
-		f.write([lane()]);
+		f.write([runner()]);
 		f.duties.tick();
-		writeFileSync(join(config, LANES_FILE), "{not json");
+		writeFileSync(join(config, RUNNERS_FILE), "{not json");
 		f.duties.tick();
 		f.duties.tick();
 		expect(f.lines.filter((l) => l.includes("not read"))).toHaveLength(1);

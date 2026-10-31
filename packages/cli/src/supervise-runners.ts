@@ -19,11 +19,13 @@ import { selfCommand } from "./shared";
 import { alive, configDir, supervisorLog } from "./supervise-drivers";
 
 /**
- * Lane dispatchers as duties of the one supervisor.
+ * Runners as duties of the one supervisor. A runner is the process on this
+ * machine that picks up accepted Work for one executor and carries it out
+ * (`tedix lane serve`).
  *
  * `tedix lane serve --install` used to write one macOS LaunchAgent per
  * executor. Each ran on its own clock with its own restart policy and nothing
- * noticed when one dropped out. Now `~/.tedix/supervisor-lanes.json` lists the
+ * noticed when one dropped out. Now `~/.tedix/supervisor-runners.json` lists the
  * dispatchers, and the supervisor starts each as a child, restarts it with a
  * backoff when it exits, stops it when it leaves the list, and adopts a child
  * that outlived a crashed supervisor instead of starting a second one. The
@@ -31,16 +33,16 @@ import { alive, configDir, supervisorLog } from "./supervise-drivers";
  * reads the same way as before.
  */
 
-export const LANES_FILE = "supervisor-lanes.json";
+export const RUNNERS_FILE = "supervisor-runners.json";
 const CHILD_FILE = "supervisor-child.json";
 /** A dispatcher that exits is restarted after this long, doubling per exit. */
-export const LANE_RESTART_BASE_MS = 60_000;
-export const LANE_RESTART_MAX_MS = 15 * 60_000;
+export const RUNNER_RESTART_BASE_MS = 60_000;
+export const RUNNER_RESTART_MAX_MS = 15 * 60_000;
 /** Exits older than this no longer lengthen the backoff. */
 const EXIT_WINDOW_MS = 60 * 60_000;
 
 const text = z.string().trim().min(1);
-const laneSchema = z.object({
+const runnerSchema = z.object({
 	workspace: text,
 	organization: text,
 	executor: z.enum(["codex", "claude-code", "opencode", "devin", "any-local"]),
@@ -55,13 +57,13 @@ const laneSchema = z.object({
 });
 const fileSchema = z.object({
 	version: z.literal(1),
-	lanes: z.array(laneSchema),
+	runners: z.array(runnerSchema),
 });
-export type LaneDuty = z.infer<typeof laneSchema>;
+export type RunnerDuty = z.infer<typeof runnerSchema>;
 
 /** The parsed `lane serve` options this module needs; `lane-serve.ts` owns the parser. */
 export interface ServeLike {
-	executor: LaneDuty["executor"];
+	executor: RunnerDuty["executor"];
 	coordinated: boolean;
 	acceptProposed: boolean;
 	max: number;
@@ -75,49 +77,54 @@ export type ParseServe = (args: string[]) => ServeLike;
 export type RunLaunchctl = (args: string[]) => { status: number };
 
 /** The dispatcher directory name and the former LaunchAgent label suffix. */
-export function laneKey(lane: Pick<LaneDuty, "organization" | "executor">) {
+export function runnerKey(
+	runner: Pick<RunnerDuty, "organization" | "executor">,
+) {
 	return createHash("sha256")
-		.update(`${lane.organization}:${lane.executor}`)
+		.update(`${runner.organization}:${runner.executor}`)
 		.digest("hex")
 		.slice(0, 16);
 }
 
-export function laneLogPath(env: NodeJS.ProcessEnv, lane: LaneDuty): string {
-	return join(configDir(env), `dev.tedix.lane-serve.${laneKey(lane)}.log`);
+export function runnerLogPath(
+	env: NodeJS.ProcessEnv,
+	runner: RunnerDuty,
+): string {
+	return join(configDir(env), `dev.tedix.lane-serve.${runnerKey(runner)}.log`);
 }
 
 /** The `tedix` arguments that run this dispatcher in the foreground. */
-export function laneServeArgs(lane: LaneDuty): string[] {
+export function runnerServeArgs(runner: RunnerDuty): string[] {
 	return [
 		"--organization",
-		lane.organization,
+		runner.organization,
 		"--workspace",
-		lane.workspace,
+		runner.workspace,
 		"lane",
 		"serve",
 		"--executor",
-		lane.executor,
+		runner.executor,
 		"--max",
-		String(lane.max),
+		String(runner.max),
 		"--rules",
-		lane.rules,
+		runner.rules,
 		"--repo",
-		lane.repo,
-		...(lane.project ? ["--project", lane.project] : []),
-		...(lane.routingConfig ? ["--routing-config", lane.routingConfig] : []),
-		...(lane.coordinated ? ["--coordinated"] : []),
-		...(lane.acceptProposed ? ["--accept-proposed"] : []),
+		runner.repo,
+		...(runner.project ? ["--project", runner.project] : []),
+		...(runner.routingConfig ? ["--routing-config", runner.routingConfig] : []),
+		...(runner.coordinated ? ["--coordinated"] : []),
+		...(runner.acceptProposed ? ["--accept-proposed"] : []),
 	];
 }
 
-export function laneDutyFromServeOptions(options: ServeLike): LaneDuty {
+export function runnerDutyFromServeOptions(options: ServeLike): RunnerDuty {
 	const selector = (name: string) => {
 		const index = options.scope.indexOf(name);
 		if (index < 0 || !options.scope[index + 1])
 			throw new Error(`lane serve --install needs ${name}`);
 		return options.scope[index + 1]!;
 	};
-	return laneSchema.parse({
+	return runnerSchema.parse({
 		workspace: selector("--workspace"),
 		organization: selector("--organization"),
 		executor: options.executor,
@@ -132,47 +139,50 @@ export function laneDutyFromServeOptions(options: ServeLike): LaneDuty {
 	});
 }
 
-function lanesPath(env: NodeJS.ProcessEnv): string {
-	return join(configDir(env), LANES_FILE);
+function runnersPath(env: NodeJS.ProcessEnv): string {
+	return join(configDir(env), RUNNERS_FILE);
 }
 
-/** Throws when the file exists but does not parse: a typo must not silently stop every lane. */
-export function readLaneDuties(env: NodeJS.ProcessEnv): LaneDuty[] {
-	const path = lanesPath(env);
+/** Throws when the file exists but does not parse: a typo must not silently stop every runner. */
+export function readRunnerDuties(env: NodeJS.ProcessEnv): RunnerDuty[] {
+	const path = runnersPath(env);
 	if (!existsSync(path)) return [];
-	return fileSchema.parse(JSON.parse(readFileSync(path, "utf8"))).lanes;
+	return fileSchema.parse(JSON.parse(readFileSync(path, "utf8"))).runners;
 }
 
-function writeLaneDuties(env: NodeJS.ProcessEnv, lanes: LaneDuty[]): void {
-	const path = lanesPath(env);
+function writeRunnerDuties(
+	env: NodeJS.ProcessEnv,
+	runners: RunnerDuty[],
+): void {
+	const path = runnersPath(env);
 	mkdirSync(configDir(env), { recursive: true, mode: 0o700 });
 	writeFileSync(
 		`${path}.tmp`,
-		`${JSON.stringify({ version: 1, lanes }, null, "\t")}\n`,
+		`${JSON.stringify({ version: 1, runners }, null, "\t")}\n`,
 		{ mode: 0o600 },
 	);
 	renameSync(`${path}.tmp`, path);
 }
 
 /** Adds or replaces the dispatcher for the duty's organization and executor. */
-export function writeLaneDuty(
+export function writeRunnerDuty(
 	env: NodeJS.ProcessEnv,
-	lane: LaneDuty,
+	runner: RunnerDuty,
 ): { replaced: boolean } {
-	const lanes = readLaneDuties(env);
-	const key = laneKey(lane);
-	const index = lanes.findIndex((entry) => laneKey(entry) === key);
-	if (index >= 0) lanes[index] = lane;
-	else lanes.push(lane);
-	writeLaneDuties(env, lanes);
+	const runners = readRunnerDuties(env);
+	const key = runnerKey(runner);
+	const index = runners.findIndex((entry) => runnerKey(entry) === key);
+	if (index >= 0) runners[index] = runner;
+	else runners.push(runner);
+	writeRunnerDuties(env, runners);
 	return { replaced: index >= 0 };
 }
 
-export function removeLaneDuty(env: NodeJS.ProcessEnv, key: string): boolean {
-	const lanes = readLaneDuties(env);
-	const kept = lanes.filter((entry) => laneKey(entry) !== key);
-	if (kept.length === lanes.length) return false;
-	writeLaneDuties(env, kept);
+export function removeRunnerDuty(env: NodeJS.ProcessEnv, key: string): boolean {
+	const runners = readRunnerDuties(env);
+	const kept = runners.filter((entry) => runnerKey(entry) !== key);
+	if (kept.length === runners.length) return false;
+	writeRunnerDuties(env, kept);
 	return true;
 }
 
@@ -181,10 +191,10 @@ export function removeLaneDuty(env: NodeJS.ProcessEnv, key: string): boolean {
  * the `<string>` entries of its ProgramArguments. Returns undefined when the
  * file is not such an agent.
  */
-export function laneDutyFromPlist(
+export function runnerDutyFromPlist(
 	xml: string,
 	parse: ParseServe,
-): LaneDuty | undefined {
+): RunnerDuty | undefined {
 	const block =
 		/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(xml);
 	if (!block) return undefined;
@@ -204,17 +214,17 @@ export function laneDutyFromPlist(
 			(arg) => arg !== "--install",
 		),
 	);
-	return laneDutyFromServeOptions(options);
+	return runnerDutyFromServeOptions(options);
 }
 
-export const LANE_AGENT_PREFIX = "dev.tedix.lane-serve.";
+export const RUNNER_AGENT_PREFIX = "dev.tedix.lane-serve.";
 
 /**
- * Moves every `dev.tedix.lane-serve.*` LaunchAgent into the lanes file,
+ * Moves every `dev.tedix.lane-serve.*` LaunchAgent into the runners file,
  * unloads it and removes its plist. The supervisor starts the dispatcher
- * on its next tick, so the lane is back within a minute.
+ * on its next tick, so the runner is back within a minute.
  */
-export function adoptLaneLaunchAgents(
+export function adoptRunnerLaunchAgents(
 	env: NodeJS.ProcessEnv,
 	run: RunLaunchctl,
 	parse: ParseServe,
@@ -222,46 +232,46 @@ export function adoptLaneLaunchAgents(
 		home = homedir(),
 		domain = `gui/${process.getuid?.() ?? 0}`,
 	}: { home?: string; domain?: string } = {},
-): { adopted: LaneDuty[]; skipped: string[] } {
+): { adopted: RunnerDuty[]; skipped: string[] } {
 	const folder = join(home, "Library", "LaunchAgents");
-	const adopted: LaneDuty[] = [];
+	const adopted: RunnerDuty[] = [];
 	const skipped: string[] = [];
 	if (!existsSync(folder)) return { adopted, skipped };
 	for (const name of readdirSync(folder).sort()) {
-		if (!name.startsWith(LANE_AGENT_PREFIX) || !name.endsWith(".plist"))
+		if (!name.startsWith(RUNNER_AGENT_PREFIX) || !name.endsWith(".plist"))
 			continue;
 		const path = join(folder, name);
-		let lane: LaneDuty | undefined;
+		let runner: RunnerDuty | undefined;
 		try {
-			lane = laneDutyFromPlist(readFileSync(path, "utf8"), parse);
+			runner = runnerDutyFromPlist(readFileSync(path, "utf8"), parse);
 		} catch (error) {
 			skipped.push(`${name}: ${(error as Error).message}`);
 			continue;
 		}
-		if (!lane) {
+		if (!runner) {
 			skipped.push(`${name}: not a lane serve agent`);
 			continue;
 		}
-		writeLaneDuty(env, lane);
+		writeRunnerDuty(env, runner);
 		run(["bootout", `${domain}/${name.slice(0, -".plist".length)}`]);
 		rmSync(path, { force: true });
-		adopted.push(lane);
+		adopted.push(runner);
 	}
 	return { adopted, skipped };
 }
 
-export interface LaneChild {
+export interface RunnerChild {
 	pid: number;
 	onExit(listener: (code: number | null) => void): void;
 	stop(signal: NodeJS.Signals): void;
 }
-export type SpawnLane = (
+export type SpawnRunner = (
 	command: string,
 	args: string[],
 	options: { cwd: string; env: NodeJS.ProcessEnv; log: string },
-) => LaneChild;
+) => RunnerChild;
 
-export const spawnLane: SpawnLane = (command, args, { cwd, env, log }) => {
+export const spawnRunner: SpawnRunner = (command, args, { cwd, env, log }) => {
 	mkdirSync(join(log, ".."), { recursive: true, mode: 0o700 });
 	const fd = openSync(log, "a", 0o600);
 	let child;
@@ -293,105 +303,111 @@ export const spawnLane: SpawnLane = (command, args, { cwd, env, log }) => {
 };
 
 interface Running {
-	lane: LaneDuty;
+	runner: RunnerDuty;
 	pid: number;
 	startedAt: number;
 	/** Set for children this supervisor spawned; an adopted child is only watched by pid. */
-	child?: LaneChild;
+	child?: RunnerChild;
 }
 
-export interface LaneDutiesDeps {
+export interface RunnerDutiesDeps {
 	env: NodeJS.ProcessEnv;
 	now?: () => number;
 	log?: (line: string) => void;
-	spawn?: SpawnLane;
+	spawn?: SpawnRunner;
 	/** The `tedix` program; defaults to this CLI. */
 	program?: () => [string, string[]];
 }
 
 /** Keeps the configured dispatchers running; one instance per supervisor. */
-export class LaneDuties {
+export class RunnerDuties {
 	private readonly running = new Map<string, Running>();
 	private readonly exits = new Map<string, number[]>();
 	private readonly restartAt = new Map<string, number>();
 	private configError: string | undefined;
 
-	constructor(private readonly deps: LaneDutiesDeps) {}
+	constructor(private readonly deps: RunnerDutiesDeps) {}
 
 	private log(line: string) {
 		(this.deps.log ?? ((l) => supervisorLog(this.deps.env, l)))(
-			`lanes: ${line}`,
+			`runners: ${line}`,
 		);
 	}
 	private now() {
 		return (this.deps.now ?? Date.now)();
 	}
-	private directory(lane: LaneDuty) {
-		return join(configDir(this.deps.env), "dispatchers", laneKey(lane));
+	private directory(runner: RunnerDuty) {
+		return join(configDir(this.deps.env), "dispatchers", runnerKey(runner));
 	}
-	private childPath(lane: LaneDuty) {
-		return join(this.directory(lane), CHILD_FILE);
+	private childPath(runner: RunnerDuty) {
+		return join(this.directory(runner), CHILD_FILE);
 	}
 
-	/** What the supervisor believes is running, for `tedix supervise lanes`. */
+	/** What the supervisor believes is running, for `tedix supervise runners`. */
 	status(): { key: string; executor: string; pid: number | null }[] {
 		return [...this.running].map(([key, entry]) => ({
 			key,
-			executor: entry.lane.executor,
+			executor: entry.runner.executor,
 			pid: entry.pid,
 		}));
 	}
 
 	/** Starts missing dispatchers, notes exits, stops removed ones. */
 	tick(): void {
-		let lanes: LaneDuty[];
+		let runners: RunnerDuty[];
 		try {
-			lanes = readLaneDuties(this.deps.env);
+			runners = readRunnerDuties(this.deps.env);
 			this.configError = undefined;
 		} catch (error) {
 			const message = (error as Error).message?.split("\n")[0] ?? "invalid";
 			if (this.configError !== message)
-				this.log(`${LANES_FILE} not read, lanes left as they are: ${message}`);
+				this.log(
+					`${RUNNERS_FILE} not read, runners left as they are: ${message}`,
+				);
 			this.configError = message;
 			return;
 		}
 		const wanted = new Map(
-			lanes.filter((lane) => lane.enabled).map((lane) => [laneKey(lane), lane]),
+			runners
+				.filter((runner) => runner.enabled)
+				.map((runner) => [runnerKey(runner), runner]),
 		);
 		for (const [key, entry] of this.running) {
 			if (wanted.has(key)) continue;
-			this.log(`${entry.lane.executor} removed from ${LANES_FILE}; stopping`);
+			this.log(
+				`${entry.runner.executor} removed from ${RUNNERS_FILE}; stopping`,
+			);
 			this.stopOne(key, entry);
 		}
 		const now = this.now();
-		for (const [key, lane] of wanted) {
+		for (const [key, runner] of wanted) {
 			const entry = this.running.get(key);
 			if (entry) {
 				if (entry.child || alive(entry.pid)) continue;
 				// An adopted child ended; nobody told us, so note it here.
 				this.running.delete(key);
-				this.noteExit(key, lane, null, now);
+				this.noteExit(key, runner, null, now);
 			}
 			if (!this.running.has(key)) {
-				const adopted = this.adopt(key, lane, now);
+				const adopted = this.adopt(key, runner, now);
 				if (adopted) continue;
 				const due = this.restartAt.get(key) ?? 0;
 				if (due > now) continue;
-				this.start(key, lane, now);
+				this.start(key, runner, now);
 			}
 		}
 	}
 
-	private adopt(key: string, lane: LaneDuty, now: number): boolean {
+	private adopt(key: string, runner: RunnerDuty, now: number): boolean {
 		try {
-			const state = JSON.parse(readFileSync(this.childPath(lane), "utf8"));
+			const state = JSON.parse(readFileSync(this.childPath(runner), "utf8"));
 			if (
 				Number.isSafeInteger(state.pid) &&
 				state.pid > 0 &&
 				alive(state.pid)
 			) {
-				this.running.set(key, { lane, pid: state.pid, startedAt: now });
-				this.log(`${lane.executor} adopted (pid ${state.pid})`);
+				this.running.set(key, { runner, pid: state.pid, startedAt: now });
+				this.log(`${runner.executor} adopted (pid ${state.pid})`);
 				return true;
 			}
 		} catch {
@@ -400,14 +416,14 @@ export class LaneDuties {
 		return false;
 	}
 
-	private start(key: string, lane: LaneDuty, now: number): void {
+	private start(key: string, runner: RunnerDuty, now: number): void {
 		const [command, prefix] = (this.deps.program ?? selfCommand)();
-		const log = laneLogPath(this.deps.env, lane);
-		let child: LaneChild;
+		const log = runnerLogPath(this.deps.env, runner);
+		let child: RunnerChild;
 		try {
-			child = (this.deps.spawn ?? spawnLane)(
+			child = (this.deps.spawn ?? spawnRunner)(
 				command,
-				[...prefix, ...laneServeArgs(lane)],
+				[...prefix, ...runnerServeArgs(runner)],
 				{
 					cwd: homedir(),
 					env: laneChildEnv(this.deps.env),
@@ -415,41 +431,43 @@ export class LaneDuties {
 				},
 			);
 		} catch (error) {
-			this.noteExit(key, lane, null, now);
+			this.noteExit(key, runner, null, now);
 			this.log(
-				`${lane.executor} could not start: ${(error as Error).message?.slice(0, 200)}`,
+				`${runner.executor} could not start: ${(error as Error).message?.slice(0, 200)}`,
 			);
 			return;
 		}
 		if (!child.pid) {
-			this.noteExit(key, lane, null, now);
-			this.log(`${lane.executor} could not start: no pid`);
+			this.noteExit(key, runner, null, now);
+			this.log(`${runner.executor} could not start: no pid`);
 			return;
 		}
-		const entry: Running = { lane, pid: child.pid, startedAt: now, child };
+		const entry: Running = { runner, pid: child.pid, startedAt: now, child };
 		this.running.set(key, entry);
 		try {
-			mkdirSync(this.directory(lane), { recursive: true, mode: 0o700 });
+			mkdirSync(this.directory(runner), { recursive: true, mode: 0o700 });
 			writeFileSync(
-				this.childPath(lane),
+				this.childPath(runner),
 				JSON.stringify({ pid: child.pid, startedAt: now }),
 				{ mode: 0o600 },
 			);
 		} catch {
 			/* The child runs; the record only helps a later supervisor adopt it. */
 		}
-		this.log(`${lane.executor} started (pid ${child.pid}, ${lane.max} slots)`);
+		this.log(
+			`${runner.executor} started (pid ${child.pid}, ${runner.max} slots)`,
+		);
 		child.onExit((code) => {
 			if (this.running.get(key) !== entry) return;
 			this.running.delete(key);
-			rmSync(this.childPath(lane), { force: true });
-			this.noteExit(key, lane, code, this.now());
+			rmSync(this.childPath(runner), { force: true });
+			this.noteExit(key, runner, code, this.now());
 		});
 	}
 
 	private noteExit(
 		key: string,
-		lane: LaneDuty,
+		runner: RunnerDuty,
 		code: number | null,
 		now: number,
 	) {
@@ -459,12 +477,12 @@ export class LaneDuties {
 		recent.push(now);
 		this.exits.set(key, recent);
 		const delay = Math.min(
-			LANE_RESTART_BASE_MS * 2 ** (recent.length - 1),
-			LANE_RESTART_MAX_MS,
+			RUNNER_RESTART_BASE_MS * 2 ** (recent.length - 1),
+			RUNNER_RESTART_MAX_MS,
 		);
 		this.restartAt.set(key, now + delay);
 		this.log(
-			`${lane.executor} exited (${code === null ? "no exit code" : `code ${code}`}); restart in ${Math.round(delay / 1000)}s`,
+			`${runner.executor} exited (${code === null ? "no exit code" : `code ${code}`}); restart in ${Math.round(delay / 1000)}s`,
 		);
 	}
 
@@ -478,13 +496,13 @@ export class LaneDuties {
 				/* Already gone. */
 			}
 		}
-		rmSync(this.childPath(entry.lane), { force: true });
+		rmSync(this.childPath(entry.runner), { force: true });
 	}
 
 	/** Stops every dispatcher this supervisor runs; called when the supervisor exits. */
 	stop(): void {
 		for (const [key, entry] of [...this.running]) {
-			this.log(`${entry.lane.executor} stopping with the supervisor`);
+			this.log(`${entry.runner.executor} stopping with the supervisor`);
 			this.stopOne(key, entry);
 		}
 	}
