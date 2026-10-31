@@ -34,7 +34,9 @@ import { alive, configDir, supervisorLog } from "./supervise-drivers";
  */
 
 export const RUNNERS_FILE = "supervisor-runners.json";
-const CHILD_FILE = "supervisor-child.json";
+/** Child records live beside the supervisor's own state, never in a runner's
+ * directory: the runner treats every `.json` there as a Work receipt. */
+export const RUNNER_RECORDS_DIR = ["supervisor", "runners"] as const;
 /** A dispatcher that exits is restarted after this long, doubling per exit. */
 export const RUNNER_RESTART_BASE_MS = 60_000;
 export const RUNNER_RESTART_MAX_MS = 15 * 60_000;
@@ -336,11 +338,12 @@ export class RunnerDuties {
 	private now() {
 		return (this.deps.now ?? Date.now)();
 	}
-	private directory(runner: RunnerDuty) {
-		return join(configDir(this.deps.env), "dispatchers", runnerKey(runner));
-	}
 	private childPath(runner: RunnerDuty) {
-		return join(this.directory(runner), CHILD_FILE);
+		return join(
+			configDir(this.deps.env),
+			...RUNNER_RECORDS_DIR,
+			`${runnerKey(runner)}.json`,
+		);
 	}
 
 	/** What the supervisor believes is running, for `tedix supervise runners`. */
@@ -445,7 +448,10 @@ export class RunnerDuties {
 		const entry: Running = { runner, pid: child.pid, startedAt: now, child };
 		this.running.set(key, entry);
 		try {
-			mkdirSync(this.directory(runner), { recursive: true, mode: 0o700 });
+			mkdirSync(join(configDir(this.deps.env), ...RUNNER_RECORDS_DIR), {
+				recursive: true,
+				mode: 0o700,
+			});
 			writeFileSync(
 				this.childPath(runner),
 				JSON.stringify({ pid: child.pid, startedAt: now }),

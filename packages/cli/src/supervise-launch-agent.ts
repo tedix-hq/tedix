@@ -186,7 +186,7 @@ export async function install(env: NodeJS.ProcessEnv): Promise<number> {
 	);
 	for (const runner of runners.adopted)
 		console.log(
-			`Adopted the ${runner.executor} dispatcher: the supervisor runs it now; its own LaunchAgent is removed.`,
+			`Adopted the ${runner.executor} runner: the supervisor runs it now; its own LaunchAgent is removed.`,
 		);
 	for (const reason of runners.skipped)
 		console.log(`Left a LaunchAgent alone (${reason}).`);

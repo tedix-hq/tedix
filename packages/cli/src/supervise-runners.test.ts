@@ -228,7 +228,7 @@ describe("running the dispatchers", () => {
 				now += ms;
 			},
 			childFile: (l: RunnerDuty) =>
-				join(config, "dispatchers", runnerKey(l), "supervisor-child.json"),
+				join(config, "supervisor", "runners", `${runnerKey(l)}.json`),
 		};
 	}
 
@@ -304,9 +304,7 @@ describe("running the dispatchers", () => {
 	test("adopts a child that outlived the previous supervisor instead of starting a second one", () => {
 		const f = setup();
 		f.write([runner()]);
-		mkdirSync(join(config, "dispatchers", runnerKey(runner())), {
-			recursive: true,
-		});
+		mkdirSync(join(config, "supervisor", "runners"), { recursive: true });
 		writeFileSync(
 			f.childFile(runner()),
 			JSON.stringify({ pid: process.pid, startedAt: 1 }),
