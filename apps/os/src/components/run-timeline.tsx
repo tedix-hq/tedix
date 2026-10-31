@@ -352,6 +352,10 @@ export function RunTimelineChart({
 	);
 }
 
+function isReferenceCoordinate(value: string) {
+	return /(?:[0-9a-f]{8}-[0-9a-f-]{27}|:\/\/|^[^ ]+[:/][^ ]+$)/i.test(value);
+}
+
 function RunTimelineStep({
 	runId,
 	event,
@@ -375,6 +379,18 @@ function RunTimelineStep({
 	const authorMetadata = metadataMatchesAttempt
 		? stepRecord(record.authorMetadata)
 		: {};
+	const declaredInputs = Array.isArray(authorMetadata.inputs)
+		? authorMetadata.inputs
+				.map(stepRecord)
+				.filter((input) => typeof input.source === "string")
+		: [];
+	const declaredNext =
+		typeof authorMetadata.usedNext === "string"
+			? [authorMetadata.usedNext]
+			: Array.isArray(authorMetadata.usedNext) &&
+				  authorMetadata.usedNext.every((item) => typeof item === "string")
+				? (authorMetadata.usedNext as string[])
+				: [];
 	const sensitive =
 		record.sensitiveOutput === true ||
 		hasRedaction(request) ||
@@ -460,17 +476,19 @@ function RunTimelineStep({
 			</MetricGrid>
 			{!receipt.isPending && !receipt.isError && !sensitive && (
 				<div className="grid gap-3">
+					{(typeof authorMetadata.purpose === "string" ||
+						declaredInputs.length > 0 ||
+						declaredNext.length > 0) && (
+						<Text as="p" tone="secondary">
+							Purpose, sources and next use are declared by the workflow author.
+						</Text>
+					)}
 					<section>
 						<Text as="h3" role="label" weight="medium">
 							Purpose
 						</Text>
 						{typeof authorMetadata.purpose === "string" ? (
-							<>
-								<Text as="p" tone="secondary">
-									Declared by the workflow author
-								</Text>
-								<RunStepResult value={authorMetadata.purpose} />
-							</>
+							<RunStepResult value={authorMetadata.purpose} />
 						) : (
 							<Text as="p" tone="secondary">
 								Not recorded
@@ -481,41 +499,30 @@ function RunTimelineStep({
 						<Text as="h3" role="label" weight="medium">
 							Input sources
 						</Text>
-						{Array.isArray(authorMetadata.inputs) &&
-						authorMetadata.inputs.length > 0 ? (
-							<>
-								<Text as="p" tone="secondary">
-									Sources declared by the workflow author
-								</Text>
-								<RunStepResult value={authorMetadata.inputs} />
-							</>
-						) : (
-							<Text as="p" tone="secondary">
-								Not recorded
-							</Text>
-						)}
-					</section>
-					<section>
-						<Text as="h3" role="label" weight="medium">
-							Activity
-						</Text>
-						<Text as="p" tone="secondary">
-							{event.kind === "mcp" || event.kind === "network"
-								? "A call was recorded for this step."
-								: "No separate activity is recorded in this receipt."}
-						</Text>
-					</section>
-					<section>
-						<Text as="h3" role="label" weight="medium">
-							Used next
-						</Text>
-						{authorMetadata.usedNext != null ? (
-							<>
-								<Text as="p" tone="secondary">
-									Declared by the workflow author
-								</Text>
-								<RunStepResult value={authorMetadata.usedNext} />
-							</>
+						{declaredInputs.length > 0 ? (
+							<ul className="m-0 grid gap-2 pl-5">
+								{declaredInputs.map((input, index) => {
+									const source = input.source as string;
+									const candidate =
+										typeof input.name === "string" && input.name.trim()
+											? input.name
+											: source;
+									const label = isReferenceCoordinate(candidate)
+										? "Source reference"
+										: candidate;
+									return (
+										<li key={index}>
+											{label}
+											{(typeof input.sourceRevision === "number" ||
+												typeof input.sourceRevision === "string") &&
+												(typeof input.sourceRevision === "string" &&
+												isReferenceCoordinate(input.sourceRevision)
+													? " · version recorded"
+													: ` · version ${input.sourceRevision}`)}
+										</li>
+									);
+								})}
+							</ul>
 						) : (
 							<Text as="p" tone="secondary">
 								Not recorded
@@ -562,6 +569,18 @@ function RunTimelineStep({
 						: "No input or instructions were recorded for this step."}
 				</Text>
 			)}
+			{!receipt.isPending && !receipt.isError && !sensitive && (
+				<section>
+					<Text as="h3" role="label" weight="medium">
+						Activity
+					</Text>
+					<Text as="p" tone="secondary">
+						{event.kind === "mcp" || event.kind === "network"
+							? "A call was recorded for this step."
+							: "No separate activity is recorded in this receipt."}
+					</Text>
+				</section>
+			)}
 			{receipt.isPending && <Skeleton className="h-20" />}
 			{receipt.isError && (
 				<LoadError
@@ -588,7 +607,7 @@ function RunTimelineStep({
 				)}
 			<div className="grid min-w-0 gap-2">
 				<Text as="h3" role="label" weight="medium">
-					What came back
+					Result
 				</Text>
 				{output.isFetching && <Skeleton className="h-20" />}
 				{output.isError && (
@@ -633,6 +652,28 @@ function RunTimelineStep({
 					</Text>
 				)}
 			</div>
+			{!receipt.isPending && !receipt.isError && !sensitive && (
+				<section>
+					<Text as="h3" role="label" weight="medium">
+						Used next
+					</Text>
+					{declaredNext.length > 0 ? (
+						<ul className="m-0 grid gap-2 pl-5">
+							{declaredNext.map((entry, index) => (
+								<li key={index}>
+									{isReferenceCoordinate(entry)
+										? "Recorded reference (see technical details)"
+										: entry}
+								</li>
+							))}
+						</ul>
+					) : (
+						<Text as="p" tone="secondary">
+							Not recorded
+						</Text>
+					)}
+				</section>
+			)}
 			{reference && <RunStepConversation reference={reference} />}
 			{!reference &&
 				!outputHidden &&
@@ -651,6 +692,17 @@ function RunTimelineStep({
 					<Text as="p" tone="secondary" className="m-0">
 						Original identifiers and saved response for troubleshooting.
 					</Text>
+					{(declaredInputs.length > 0 || declaredNext.length > 0) &&
+						!sensitive && (
+							<CodeBlock
+								code={JSON.stringify(
+									{ inputs: declaredInputs, usedNext: declaredNext },
+									null,
+									2,
+								)}
+								lang="json"
+							/>
+						)}
 					<dl className="m-0 grid min-w-0 gap-3">
 						<div>
 							<Text as="dt" role="label">
