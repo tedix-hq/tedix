@@ -665,6 +665,7 @@ export async function prefetchSkillsRoute(
 							...input,
 							query: search.q.trim() || undefined,
 							excludeArchived: !search.showArchived,
+							excludeImprovements: true,
 						}),
 					),
 					queryClient.ensureQueryData(
@@ -673,6 +674,7 @@ export async function prefetchSkillsRoute(
 							offset: 0,
 							query: search.q.trim() || undefined,
 							lifecycleState: "archived",
+							excludeImprovements: true,
 						}),
 					),
 				]

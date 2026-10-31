@@ -33,7 +33,9 @@ try {
 						'[aria-labelledby="skill-versions-title"]',
 					);
 					const drafts = page.locator("[data-skill-workflow-drafts]");
-					await drafts.getByText("No drafts yet.", { exact: true }).waitFor();
+					await drafts
+						.getByText("No improvements yet.", { exact: true })
+						.waitFor();
 					await page.evaluate(() => document.fonts.ready);
 					const summary = await bounds(
 						versions.getByText("Based on", { exact: false }),
@@ -49,7 +51,7 @@ try {
 						`${label}: drafts and history gap`,
 					);
 					const title = await bounds(
-						drafts.getByRole("heading", { name: "Drafts", exact: true }),
+						drafts.getByRole("heading", { name: "Improvements", exact: true }),
 					);
 					assert(title.x - card.x >= 15, `${label}: card horizontal padding`);
 					assert(title.y - card.y >= 15, `${label}: card vertical padding`);

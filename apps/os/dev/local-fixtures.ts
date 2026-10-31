@@ -1884,16 +1884,7 @@ const runtimeProvenanceNulls = {
 
 const LOCAL_WORKFLOW_SOURCE =
 	"export default {\n\tasync run(step, params) {\n\t\tconst orders = await step.call('storefront.list_orders', params);\n\t\treturn { published: true, certification: { passed: true }, orders };\n\t},\n};\n";
-type LocalSkillDraft = Omit<
-	(typeof SKILLS)[number],
-	"files" | "sourceSkillId" | "sourceRevision" | "revisionReasoning" | "tags"
-> & {
-	files: Record<string, string> | null;
-	sourceSkillId: string | null;
-	sourceRevision: number | null;
-	revisionReasoning: string | null;
-	tags: string[] | null;
-};
+type LocalSkillDraft = SkillEntry;
 const seedSkillDrafts = (): LocalSkillDraft[] => [
 	{
 		...SKILLS[0]!,
@@ -5952,6 +5943,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 			| {
 					lifecycleState?: string;
 					excludeArchived?: boolean;
+					excludeImprovements?: boolean;
+					improvementsOf?: string;
 					query?: string;
 					limit?: number;
 					offset?: number;
@@ -5968,6 +5961,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 				(!input?.lifecycleState ||
 					skill.lifecycleState === input.lifecycleState) &&
 				(!input?.excludeArchived || skill.lifecycleState !== "archived") &&
+				(!input?.excludeImprovements ||
+					!(
+						skill.sourceSkillId && skill.tags?.includes("workflow-improvement")
+					)) &&
+				(!input?.improvementsOf ||
+					(skill.sourceSkillId === input.improvementsOf &&
+						skill.tags?.includes("workflow-improvement"))) &&
 				(!query ||
 					[skill.title, skill.slug, skill.description, skill.folderPath].some(
 						(value) => value?.toLowerCase().includes(query),
@@ -6501,9 +6501,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 			(entry) => entry.id === proposal.sourceSkillId,
 		);
 		if (!baseline) throw new RpcError("NOT_FOUND", "Baseline skill not found");
-		localSkillDrafts = localSkillDrafts.filter(
-			(draft) => draft.id !== input.id,
-		);
+		proposal.lifecycleState = "archived";
+		proposal.improvementAdoption = {
+			activatedIntoRevision: baseline.revision + 1,
+			certificationRunId: run.id,
+			adoptedAt: new Date().toISOString(),
+			reason: input.reason,
+		};
 		return {
 			baseline: {
 				...baseline,
@@ -6524,6 +6528,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 				certificationPassed: true,
 			},
 		};
+	},
+	"skills/rejectWorkshop": (input: { id: string; reason: string }) => {
+		const proposal = localSkillDrafts.find((draft) => draft.id === input.id);
+		if (!proposal) throw new RpcError("NOT_FOUND", "Skill not found");
+		proposal.lifecycleState = "archived";
+		proposal.revisionReasoning = input.reason;
+		return { entry: proposal };
 	},
 	"skills/restartWorkflow": (input: { runId: string; restartId: string }) => {
 		const run = findSkillRun(input.runId);

@@ -24,7 +24,7 @@ describe("skill inventory search", () => {
 				failure_count INTEGER NOT NULL DEFAULT 0, last_used_at TEXT,
 				avg_duration_ms INTEGER, revision INTEGER NOT NULL DEFAULT 1,
 				revision_reasoning TEXT, supersedes_id TEXT, source_skill_id TEXT,
-				source_revision INTEGER, visibility TEXT NOT NULL DEFAULT 'private',
+				source_revision INTEGER, improvement_adoption TEXT, visibility TEXT NOT NULL DEFAULT 'private',
 				agent_skills_format TEXT, r2_path TEXT, app_id TEXT, tool_ids TEXT, mcp_app_bindings TEXT,
 				summary TEXT, tags TEXT, audience TEXT, preconditions TEXT,
 				lifecycle_state TEXT DEFAULT 'draft', review_flagged_at TEXT,
@@ -72,6 +72,46 @@ describe("skill inventory search", () => {
 
 		expect(result.total).toBe(1);
 		expect(result.entries.map((entry) => entry.id)).toEqual(["skill-1"]);
+	});
+
+	it("excludes only improvement copies before counts, search and pagination", async () => {
+		sqlite.exec(`UPDATE skill_entries SET source_skill_id = 'skill-1', tags = '["workflow-improvement"]', lifecycle_state = 'archived' WHERE id = 'skill-5';
+		 UPDATE skill_entries SET source_skill_id = 'skill-1', tags = '["workflow-improvement"]' WHERE id = 'skill-4';
+		 UPDATE skill_entries SET tags = '["workflow-improvement"]' WHERE id = 'skill-2';`);
+		const page = await listAllSkillsForOrg(db, "org-1", {
+			excludeImprovements: true,
+			limit: 1,
+			offset: 1,
+		});
+		expect(page.total).toBe(2);
+		expect(page.entries.map((entry) => entry.id)).toEqual(["skill-2"]);
+		expect(
+			(
+				await listAllSkillsForOrg(db, "org-1", {
+					excludeImprovements: true,
+					lifecycleState: "archived",
+				})
+			).total,
+		).toBe(0);
+		expect(
+			(
+				await listAllSkillsForOrg(db, "org-1", {
+					excludeImprovements: true,
+					query: "override",
+				})
+			).total,
+		).toBe(0);
+		const history = await listAllSkillsForOrg(db, "org-1", {
+			improvementsOf: "skill-1",
+		});
+		expect(history.entries.map((entry) => entry.id).sort()).toEqual([
+			"skill-4",
+			"skill-5",
+		]);
+		expect(
+			(await listAllSkillsForOrg(db, "org-2", { improvementsOf: "skill-1" }))
+				.total,
+		).toBe(0);
 	});
 
 	it("excludes archived skills before pagination and counts, preserving other states", async () => {

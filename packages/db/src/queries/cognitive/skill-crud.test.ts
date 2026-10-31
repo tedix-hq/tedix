@@ -13,7 +13,7 @@ it("revalidates tenant, readability, and lifecycle for rankable IDs on D1", asyn
 				failure_count INTEGER NOT NULL DEFAULT 0, last_used_at TEXT,
 				avg_duration_ms INTEGER, revision INTEGER NOT NULL DEFAULT 1,
 				revision_reasoning TEXT, supersedes_id TEXT, source_skill_id TEXT,
-				source_revision INTEGER, visibility TEXT NOT NULL DEFAULT 'private',
+				source_revision INTEGER, improvement_adoption TEXT, visibility TEXT NOT NULL DEFAULT 'private',
 				agent_skills_format TEXT, r2_path TEXT, app_id TEXT, tool_ids TEXT, mcp_app_bindings TEXT,
 				summary TEXT, tags TEXT, audience TEXT, preconditions TEXT,
 				lifecycle_state TEXT DEFAULT 'draft', review_flagged_at TEXT,

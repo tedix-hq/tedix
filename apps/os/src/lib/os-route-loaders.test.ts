@@ -787,6 +787,7 @@ describe("list-route prefetchers", () => {
 				query: "weekly",
 				summary: true,
 				excludeArchived: true,
+				excludeImprovements: true,
 			},
 			expect.anything(),
 		);
@@ -797,6 +798,7 @@ describe("list-route prefetchers", () => {
 				query: "weekly",
 				summary: true,
 				lifecycleState: "archived",
+				excludeImprovements: true,
 			},
 			expect.anything(),
 		);
@@ -813,6 +815,7 @@ describe("list-route prefetchers", () => {
 				query: "weekly",
 				summary: true,
 				excludeArchived: false,
+				excludeImprovements: true,
 			},
 			expect.anything(),
 		);

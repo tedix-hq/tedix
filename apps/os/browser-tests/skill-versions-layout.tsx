@@ -26,6 +26,7 @@ import {
 	skillDetailQueryOptions,
 	skillRevisionsQueryOptions,
 	skillWorkflowDraftsQueryOptions,
+	skillRunsQueryOptions,
 } from "../src/lib/os-query-options";
 import "../src/styles.css";
 
@@ -57,9 +58,46 @@ client.setQueryData(operationalContextQueryOptions().queryKey, {
 	authority: { permissions: ["tedis:update"] },
 	organization: { id: "fictional-org" },
 });
-client.setQueryData(skillWorkflowDraftsQueryOptions().queryKey, {
-	entries: [],
-	total: 0,
+const showImprovements = new URLSearchParams(location.search).has(
+	"improvements",
+);
+const proposal = {
+	...baseline,
+	id: "waiting-copy",
+	title: "Clearer source review",
+	lifecycleState: "draft",
+	sourceSkillId: skillId,
+	sourceRevision: 3,
+	tags: ["workflow-improvement"],
+};
+const improvements = showImprovements
+	? [
+			proposal,
+			{
+				...proposal,
+				id: "adopted-copy",
+				lifecycleState: "archived",
+				improvementAdoption: {
+					activatedIntoRevision: 3,
+					certificationRunId: "passed-test",
+					adoptedAt: "2026-10-30T10:00:00Z",
+					reason: "Skip duplicate source requests",
+				},
+			},
+			{
+				...proposal,
+				id: "rejected-copy",
+				title: "Abandoned wider search",
+				lifecycleState: "archived",
+			},
+		]
+	: [];
+client.setQueryData(skillWorkflowDraftsQueryOptions(skillId).queryKey, {
+	pages: [{ entries: improvements, total: improvements.length }],
+	pageParams: [0],
+});
+client.setQueryData(skillRunsQueryOptions(proposal.id, undefined, 5).queryKey, {
+	runs: [],
 });
 const revisions: SkillWorkflowRevision[] = [3, 2, 1].map((revision) => ({
 	skillId,

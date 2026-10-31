@@ -2,7 +2,18 @@
 // console. Every step calls the same API procedures the MCP tools use
 // (skills.proposeWorkflowImprovement, skills.runWorkflow with certification,
 // skills.activateWorkflowImprovement); nothing here decides on its own.
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useInfiniteQuery,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import {
+	Collapsible,
+	CollapsibleDefaultTrigger,
+	CollapsibleDefaultContent,
+} from "@/components/kumo/collapsible";
 import type {
 	SkillEntry,
 	SkillRun,
@@ -57,9 +68,8 @@ import {
 } from "@/lib/os-query-options";
 import { hasActiveSkillRun } from "@/lib/skill-runs-search";
 import { useCanManageTedis } from "@/lib/tedi-permissions";
-import { relativeTime } from "@/lib/time";
+import { absoluteTime, relativeTime } from "@/lib/time";
 
-export const WORKFLOW_IMPROVEMENT_TAG = "workflow-improvement";
 const WORKFLOW_FILE = "scripts/workflow.ts";
 const TERMINAL = new Set(["completed", "failed", "canceled"]);
 
@@ -196,16 +206,16 @@ export function describeCertification(
 		return {
 			state: "passed",
 			title: "Test passed",
-			detail: `${toolCalls.length === 0 ? "No call" : `${toolCalls.length} call${toolCalls.length === 1 ? "" : "s"}, none`} failed and the workflow reported certification passed. You can switch this draft on.`,
+			detail: `${toolCalls.length === 0 ? "No call" : `${toolCalls.length} call${toolCalls.length === 1 ? "" : "s"}, none`} failed and the workflow reported that the test passed. You can switch this draft on.`,
 		};
 	return {
 		state: "blocked",
 		title: certification
 			? "Test finished without passing"
-			: "Test finished without a certification result",
+			: "Test finished without a test result",
 		detail: certification
-			? "The workflow reported certification as not passed. Read the run, fix the draft and test again."
-			: "A test run must return { certification: { passed: true } } from the workflow. This one returned nothing Tedix can check.",
+			? "The workflow reported the test as not passed. Read the run, fix the draft and test again."
+			: "The workflow did not return a passing test result. Update the draft to report whether its checks passed, then test again.",
 	};
 }
 
@@ -213,16 +223,38 @@ export function describeCertification(
 export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 	const canManage = useCanManageTedis();
 	const detail = useQuery(skillDetailQueryOptions(skillId));
-	const drafts = useQuery({
-		...skillWorkflowDraftsQueryOptions(),
+	const options = skillWorkflowDraftsQueryOptions(skillId);
+	const drafts = useInfiniteQuery({
+		queryKey: options.queryKey,
+		queryFn: ({ pageParam }) =>
+			osApi.skills.listByOrg({
+				improvementsOf: skillId,
+				limit: 100,
+				offset: pageParam,
+			}),
+		initialPageParam: 0,
+		getNextPageParam: (last, pages) => {
+			const loaded = pages.reduce((n, page) => n + page.entries.length, 0);
+			return last.entries.length > 0 && loaded < last.total
+				? loaded
+				: undefined;
+		},
 		enabled: canManage,
-		select: (data) =>
-			data.entries.filter(
-				(entry) =>
-					entry.sourceSkillId === skillId &&
-					entry.tags?.includes(WORKFLOW_IMPROVEMENT_TAG),
-			),
 	});
+	const entries = drafts.data?.pages.flatMap((page) => page.entries) ?? [];
+	const adopted = entries
+		.filter((entry) => entry.improvementAdoption)
+		.sort(
+			(a, b) =>
+				b.improvementAdoption!.activatedIntoRevision -
+				a.improvementAdoption!.activatedIntoRevision,
+		);
+	const waiting = entries.filter(
+		(entry) => !entry.improvementAdoption && entry.lifecycleState === "draft",
+	);
+	const abandoned = entries.filter(
+		(entry) => !entry.improvementAdoption && entry.lifecycleState !== "draft",
+	);
 	const [seed, setSeed] = useState<DraftSeed | null>(null);
 	const [activated, setActivated] = useState<{
 		revision: number;
@@ -244,7 +276,7 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 					weight="semibold"
 					className="m-0"
 				>
-					Drafts
+					Improvements
 				</Text>
 				<CardDescription>
 					Test a draft without changing the live skill or schedule. After it
@@ -287,12 +319,21 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 						</AlertDescription>
 					</Alert>
 				) : null}
-				{drafts.data?.length === 0 ? (
+				{drafts.isSuccess && entries.length === 0 ? (
 					<Text role="label" tone="secondary" className="m-0">
-						No drafts yet.
+						No improvements yet.
 					</Text>
 				) : null}
-				{drafts.data?.map((draft) => (
+				<Text as="h4" weight="semibold" className="m-0">
+					Adopted ({adopted.length})
+				</Text>
+				{adopted.map((entry) => (
+					<ImprovementHistoryRow key={entry.id} entry={entry} />
+				))}
+				<Text as="h4" weight="semibold" className="m-0">
+					Waiting for review ({waiting.length})
+				</Text>
+				{waiting.map((draft) => (
 					<SkillWorkflowDraftRow
 						key={draft.id}
 						draft={draft}
@@ -302,6 +343,27 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 						}
 					/>
 				))}
+				<Collapsible>
+					<CollapsibleDefaultTrigger>
+						Rejected or abandoned ({abandoned.length})
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
+						<div className="grid gap-3">
+							{abandoned.map((entry) => (
+								<ImprovementHistoryRow key={entry.id} entry={entry} />
+							))}
+						</div>
+					</CollapsibleDefaultContent>
+				</Collapsible>
+				{drafts.hasNextPage ? (
+					<Button
+						variant="outline"
+						disabled={drafts.isFetchingNextPage}
+						onClick={() => void drafts.fetchNextPage()}
+					>
+						Show more improvements
+					</Button>
+				) : null}
 				{seed ? (
 					<SkillWorkflowDraftDialog
 						baseline={baseline}
@@ -311,6 +373,52 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 				) : null}
 			</CardContent>
 		</Card>
+	);
+}
+
+function ImprovementHistoryRow({ entry }: { entry: SkillEntry }) {
+	const adoption = entry.improvementAdoption;
+	return (
+		<div className="grid gap-2 rounded border p-3 [overflow-wrap:anywhere]">
+			<Text as="strong" role="body">
+				{adoption
+					? `Adopted as revision ${adoption.activatedIntoRevision}`
+					: entry.title}
+			</Text>
+			{adoption?.adoptedAt ? (
+				<Text role="label" tone="secondary" className="m-0">
+					Adopted{" "}
+					<time
+						dateTime={adoption.adoptedAt}
+						title={absoluteTime(adoption.adoptedAt)}
+					>
+						{relativeTime(adoption.adoptedAt)}
+					</time>
+				</Text>
+			) : null}
+			<Text role="label" className="m-0">
+				{adoption?.reason ??
+					entry.summary ??
+					entry.description ??
+					"No reason recorded."}
+			</Text>
+			{adoption?.certificationRunId ? (
+				<Link
+					to="/work/runs/$runId"
+					params={{ runId: adoption.certificationRunId }}
+					className="underline"
+				>
+					View passed test run
+				</Link>
+			) : null}
+			<Link
+				to="/skills/$skillId/runs"
+				params={{ skillId: entry.id }}
+				className="underline"
+			>
+				View test runs
+			</Link>
+		</div>
 	);
 }
 
@@ -387,7 +495,15 @@ function SkillWorkflowDraftRow({
 			return refresh();
 		},
 	});
-	const busy = test.isPending || activate.isPending;
+	const reject = useMutation({
+		mutationFn: () =>
+			osApi.skills.rejectWorkshop({
+				id: draft.id,
+				reason: "Rejected from the skill improvements review",
+			}),
+		onSuccess: refresh,
+	});
+	const busy = test.isPending || activate.isPending || reject.isPending;
 	const alertVariant =
 		verdict.state === "passed"
 			? "info"
@@ -443,6 +559,27 @@ function SkillWorkflowDraftRow({
 					))}
 				</Text>
 			) : null}
+			<Link
+				to="/skills/$skillId/runs"
+				params={{ skillId: draft.id }}
+				className="underline"
+			>
+				View test runs
+			</Link>
+			{reject.isError ? (
+				<Text role="label" tone="error">
+					Could not reject: {errorMessage(reject.error)}
+				</Text>
+			) : null}
+			<Button
+				size="sm"
+				variant="outline"
+				className="min-h-11 sm:min-h-8 justify-self-start"
+				disabled={busy || verdict.state === "running"}
+				onClick={() => reject.mutate()}
+			>
+				{reject.isPending ? "Rejecting…" : "Reject draft"}
+			</Button>
 			{!stale && !activate.isSuccess ? (
 				<div className="flex flex-wrap gap-2">
 					<Button

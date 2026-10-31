@@ -208,6 +208,15 @@ export const SkillEntrySchema = z.object({
 	supersedesId: z.string().nullable().optional(),
 	sourceSkillId: z.string().nullable().optional(),
 	sourceRevision: z.number().nullable().optional(),
+	improvementAdoption: z
+		.object({
+			activatedIntoRevision: z.number().int().positive(),
+			certificationRunId: z.string().nullable(),
+			adoptedAt: z.string().nullable(),
+			reason: z.string().nullable(),
+		})
+		.nullable()
+		.optional(),
 	visibility: CognitiveVisibilitySchema,
 	agentSkillsFormat: z.string().nullable().optional(),
 	r2Path: z.string().nullable().optional(),

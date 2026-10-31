@@ -325,6 +325,10 @@ const CALLS = {
 		certificationRunId: IDS.skillRunCompleted,
 		reason: "Local sample activation",
 	},
+	"skills/rejectWorkshop": {
+		id: "0000005d-0000-4000-8000-000000000001",
+		reason: "Local sample rejection",
+	},
 	"skills/restartWorkflow": {
 		runId: IDS.skillRunFailed,
 		restartId: "restart-test-epoch-0",

@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
 	deleteRunArtifacts: vi.fn(),
 	getOrganizationById: vi.fn(),
 	getSkillEntry: vi.fn(),
+	updateSkillEntry: vi.fn(),
+	validateSkillInput: vi.fn(),
+	syncSkillScheduleProjection: vi.fn(),
 	getSkillRun: vi.fn(),
 	listWorkItems: vi.fn(),
 	listSkillRunsForOrg: vi.fn(),
@@ -88,6 +91,21 @@ vi.mock("@tedix/db/queries/cognitive/skill-crud", async (importOriginal) => ({
 		typeof import("@tedix/db/queries/cognitive/skill-crud")
 	>()),
 	getSkillEntry: mocks.getSkillEntry,
+	updateSkillEntry: mocks.updateSkillEntry,
+}));
+
+vi.mock(
+	"@tedix/db/queries/cognitive/skill-validation",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("@tedix/db/queries/cognitive/skill-validation")
+		>()),
+		validateSkillInput: mocks.validateSkillInput,
+	}),
+);
+vi.mock("./cognitive-skill-shared", async (importOriginal) => ({
+	...(await importOriginal<typeof import("./cognitive-skill-shared")>()),
+	syncSkillScheduleProjection: mocks.syncSkillScheduleProjection,
 }));
 
 vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
@@ -280,6 +298,61 @@ describe("workflow improvement activation", () => {
 			code: "BAD_REQUEST",
 			message: expect.stringContaining("certification.passed=true"),
 		});
+	});
+
+	it("persists the adopted revision, passed run, time and reason on the archived copy", async () => {
+		const rows: Record<string, Record<string, unknown>> = {
+			[proposal.id]: {
+				...proposal,
+				revision: 1,
+				content: "# Candidate",
+				files: { "scripts/workflow.ts": "export default {}" },
+				tags: [
+					"workflow-improvement",
+					"baseline-run:observed-run",
+					"baseline-workflow:observed-hash",
+				],
+			},
+			[baseline.id]: { ...baseline, content: "# Baseline", tags: [] },
+		};
+		mocks.getSkillEntry.mockImplementation(
+			async (_db, id: string) => rows[id] ?? null,
+		);
+		mocks.updateSkillEntry.mockImplementation(
+			async (_db, id: string, updates) => {
+				rows[id] = { ...rows[id], ...updates };
+			},
+		);
+		mocks.getSkillRun.mockResolvedValue({
+			...RUN,
+			skillId: proposal.id,
+			status: "completed",
+			result: { certification: { passed: true } },
+		});
+		mocks.validateSkillInput.mockResolvedValue({
+			valid: true,
+			errors: [],
+			warnings: [],
+		});
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+		const result = await client.activateWorkflowImprovement({
+			id: proposal.id,
+			certificationRunId: RUN.id,
+			reason: "Avoid duplicate requests",
+		});
+		expect(result.baseline.revision).toBe(2);
+		expect(result.proposal.lifecycleState).toBe("archived");
+		expect(result.proposal.improvementAdoption).toEqual({
+			activatedIntoRevision: 2,
+			certificationRunId: RUN.id,
+			adoptedAt: expect.any(String),
+			reason: "Avoid duplicate requests",
+		});
+		expect(
+			Number.isNaN(Date.parse(result.proposal.improvementAdoption!.adoptedAt!)),
+		).toBe(false);
 	});
 
 	it("still refuses when the baseline moved after the proposal", async () => {

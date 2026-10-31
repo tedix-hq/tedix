@@ -46,7 +46,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 			revision_reasoning TEXT,
 			supersedes_id TEXT,
 			source_skill_id TEXT,
-			source_revision INTEGER,
+			source_revision INTEGER, improvement_adoption TEXT,
 			visibility TEXT NOT NULL DEFAULT 'private',
 			agent_skills_format TEXT,
 			r2_path TEXT,

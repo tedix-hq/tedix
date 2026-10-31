@@ -726,6 +726,12 @@ export const skillsActivateWorkflowImprovement =
 			await syncSkillScheduleProjection(context, activatedBaseline, schedule);
 			await updateSkillEntry(context.db, proposal.id, {
 				lifecycleState: "archived",
+				improvementAdoption: {
+					activatedIntoRevision: activatedBaseline.revision,
+					certificationRunId: certificationRun.id,
+					adoptedAt: new Date().toISOString(),
+					reason: input.reason,
+				},
 				revision: proposal.revision + 1,
 				revisionReasoning: appendRevisionReasoning(
 					proposal,

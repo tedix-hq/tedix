@@ -426,7 +426,7 @@ export const skillCatalogQueryOptions = (
 		| (PagedSearchInput &
 				Pick<
 					ClientInput<typeof osApi.skills.listByOrg>,
-					"excludeArchived" | "lifecycleState"
+					"excludeArchived" | "excludeImprovements" | "lifecycleState"
 				>),
 ) =>
 	osQuery.skills.listByOrg.queryOptions({
@@ -455,10 +455,10 @@ export const skillRevisionsQueryOptions = (skillId: string) =>
 		input: { skillId, limit: 100 },
 	});
 
-/** Draft revisions of one skill's automation, proposed for test and activation. */
-export const skillWorkflowDraftsQueryOptions = () =>
+/** Improvement proposals and adoption history scoped to one skill. */
+export const skillWorkflowDraftsQueryOptions = (skillId: string) =>
 	osQuery.skills.listByOrg.queryOptions({
-		input: { lifecycleState: "draft", limit: 100, offset: 0 },
+		input: { improvementsOf: skillId, limit: 100, offset: 0 },
 	});
 
 export const skillRunStatusQueryOptions = (runId: string) =>

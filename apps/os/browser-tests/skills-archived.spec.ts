@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { runShellSpec } from "./shell-harness";
 
 // Match the crowded-library story with fictional skills and organizations.
-const entries = Array.from({ length: 48 }, (_, index) => ({
+const canonical = Array.from({ length: 48 }, (_, index) => ({
 	id: `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
 	organizationId: "fictional-org",
 	tediId: null,
 	title:
-		index < 4 ? `Current skill ${index + 1}` : `Old improvement ${index - 3}`,
+		index < 4 ? `Current skill ${index + 1}` : `Archived skill ${index - 3}`,
 	slug: `skill-${index}`,
 	content: "# Example",
 	description: null,
@@ -19,6 +19,18 @@ const entries = Array.from({ length: 48 }, (_, index) => ({
 	lifecycleState:
 		index < 4 ? ["draft", "active", "proven", "stale"][index] : "archived",
 }));
+
+const entries = [
+	...canonical,
+	...Array.from({ length: 44 }, (_, i) => ({
+		...canonical[0],
+		id: `10000000-0000-4000-8000-${String(100 + i).padStart(12, "0")}`,
+		title: `Hidden improvement ${i}`,
+		sourceSkillId: canonical[0].id,
+		tags: ["workflow-improvement"],
+		lifecycleState: i % 2 ? "archived" : "draft",
+	})),
+];
 
 await runShellSpec(async ({ origin, newPage, capture, pageErrors }) => {
 	for (const width of [390, 1280]) {
@@ -41,6 +53,13 @@ await runShellSpec(async ({ origin, newPage, capture, pageErrors }) => {
 						: (request.postDataJSON()?.json ?? {});
 				const matches = entries.filter(
 					(entry) =>
+						(!input.excludeImprovements ||
+							!(
+								"sourceSkillId" in entry &&
+								entry.sourceSkillId &&
+								"tags" in entry &&
+								entry.tags?.includes("workflow-improvement")
+							)) &&
 						(!input.excludeArchived || entry.lifecycleState !== "archived") &&
 						(!input.lifecycleState ||
 							entry.lifecycleState === input.lifecycleState) &&
@@ -88,7 +107,7 @@ await runShellSpec(async ({ origin, newPage, capture, pageErrors }) => {
 				.waitFor();
 			await page
 				.getByRole("searchbox", { name: "Search skills", exact: true })
-				.fill("Old improvement");
+				.fill("Archived skill");
 			await page.getByLabel("44 results", { exact: true }).waitFor();
 			assert.equal(await rows.count(), 20);
 			await capture(page, `skills-archived-search-${width}-${theme}`);
@@ -107,6 +126,11 @@ await runShellSpec(async ({ origin, newPage, capture, pageErrors }) => {
 				.click();
 			await page.getByLabel("44 results", { exact: true }).waitFor();
 			assert.equal(await rows.count(), 20);
+			await page
+				.getByRole("searchbox", { name: "Search skills", exact: true })
+				.fill("Hidden improvement");
+			await page.getByLabel("0 results", { exact: true }).waitFor();
+			assert.equal(await rows.count(), 0);
 			await page.close();
 			console.log(
 				`${width}/${theme}: default, URL toggle/reload, counts, search and page reset passed`,
