@@ -42,7 +42,7 @@ export function LinkedTediActivity({
 	if (typeof attempt !== "number")
 		return (
 			<Text as="p" tone="secondary">
-				Activity unavailable for this older run.
+				Assistant activity is unavailable for this step.
 			</Text>
 		);
 	if (activity.isPending || activity.isFetching)
@@ -80,9 +80,7 @@ export function LinkedTediActivityDetails({
 	)
 		return (
 			<Text as="p" tone="secondary">
-				{/historical|no verified/i.test(activity.reason ?? "")
-					? "Activity unavailable for this older run."
-					: "Assistant activity is unavailable."}
+				Assistant activity is unavailable for this step.
 			</Text>
 		);
 	return (
