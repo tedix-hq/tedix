@@ -10,6 +10,7 @@ import {
 	runTimelineArtifactFixture,
 } from "./run-timeline-fixture";
 import type { AttentionLayout } from "@tedix/api-contract/schemas/attention-layout";
+import type { SkillEntry } from "@tedix/api-contract/contracts/cognitive";
 import type {
 	OsShareInvitee,
 	OsShareLink,
@@ -5946,15 +5947,40 @@ const handlers: Record<string, (input: never) => unknown> = {
 	},
 
 	// --- skills + workflows ---
-	"skills/listByOrg": (input: { lifecycleState?: string } | undefined) => {
-		const entries = [
+	"skills/listByOrg": (
+		input:
+			| {
+					lifecycleState?: string;
+					excludeArchived?: boolean;
+					query?: string;
+					limit?: number;
+					offset?: number;
+			  }
+			| undefined,
+	) => {
+		const query = input?.query?.trim().toLowerCase();
+		const catalog: SkillEntry[] = [
 			...SKILLS.map(fixtureSkillEntry),
 			...localSkillDrafts,
-		].filter(
+		];
+		const entries = catalog.filter(
 			(skill) =>
-				!input?.lifecycleState || skill.lifecycleState === input.lifecycleState,
+				(!input?.lifecycleState ||
+					skill.lifecycleState === input.lifecycleState) &&
+				(!input?.excludeArchived || skill.lifecycleState !== "archived") &&
+				(!query ||
+					[skill.title, skill.slug, skill.description, skill.folderPath].some(
+						(value) => value?.toLowerCase().includes(query),
+					)),
 		);
-		return { entries, total: entries.length };
+		const offset = input?.offset ?? 0;
+		return {
+			entries: entries.slice(
+				offset,
+				offset + Math.min(input?.limit ?? 50, 200),
+			),
+			total: entries.length,
+		};
 	},
 	"skills/get": (input: { id: string }) => ({
 		entry:

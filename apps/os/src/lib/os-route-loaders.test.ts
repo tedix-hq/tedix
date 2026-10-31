@@ -761,6 +761,7 @@ describe("list-route prefetchers", () => {
 			section: "triggers",
 			q: "weekly",
 			page: 2,
+			showArchived: false,
 		});
 
 		expect(api.listSchedules).toHaveBeenCalledWith(
@@ -769,6 +770,52 @@ describe("list-route prefetchers", () => {
 		);
 		expect(api.listSkills).not.toHaveBeenCalled();
 		expect(api.listDefinitionHealth).not.toHaveBeenCalled();
+	});
+
+	it("prefetches the same archive filters, trimmed search and page as SkillsPage", async () => {
+		const queryClient = client();
+		await prefetchSkillsRoute(queryClient, {
+			section: "skills",
+			q: " weekly ",
+			page: 2,
+			showArchived: false,
+		});
+		expect(api.listSkills).toHaveBeenCalledWith(
+			{
+				limit: 20,
+				offset: 20,
+				query: "weekly",
+				summary: true,
+				excludeArchived: true,
+			},
+			expect.anything(),
+		);
+		expect(api.listSkills).toHaveBeenCalledWith(
+			{
+				limit: 0,
+				offset: 0,
+				query: "weekly",
+				summary: true,
+				lifecycleState: "archived",
+			},
+			expect.anything(),
+		);
+		await prefetchSkillsRoute(queryClient, {
+			section: "skills",
+			q: "weekly",
+			page: 1,
+			showArchived: true,
+		});
+		expect(api.listSkills).toHaveBeenCalledWith(
+			{
+				limit: 20,
+				offset: 0,
+				query: "weekly",
+				summary: true,
+				excludeArchived: false,
+			},
+			expect.anything(),
+		);
 	});
 
 	it("requires an authoritative UUID skill detail before warming its lazy siblings", async () => {

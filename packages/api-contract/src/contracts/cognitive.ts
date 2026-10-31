@@ -924,6 +924,10 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 					appId: z.string().optional(),
 					domain: z.string().optional().describe("Filter by domain name"),
 					tediId: z.string().optional().describe("Filter by tedi ID"),
+					excludeArchived: z
+						.boolean()
+						.optional()
+						.describe("Exclude archived skills before counting and paginating"),
 					lifecycleState: SkillLifecycleStateSchema.optional().describe(
 						"Filter by lifecycle state",
 					),

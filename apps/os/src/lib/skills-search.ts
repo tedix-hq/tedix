@@ -16,6 +16,7 @@ export const skillsSearchSchema = z.object({
 	section: z.catch(z.enum(SKILLS_SECTION_IDS), "skills"),
 	q: z.catch(z.string().check(z.maxLength(120)), ""),
 	page: z.catch(z.int().check(z.minimum(1)), 1),
+	showArchived: z.catch(z.boolean(), false),
 });
 
 export type SkillsSearch = z.infer<typeof skillsSearchSchema>;
@@ -25,6 +26,7 @@ export function validateSkillsSearch(
 		section?: SkillsSection;
 		q?: string;
 		page?: number;
+		showArchived?: boolean;
 	} & SearchSchemaInput,
 ): SkillsSearch {
 	return skillsSearchSchema.parse(search);

@@ -74,6 +74,53 @@ describe("skill inventory search", () => {
 		expect(result.entries.map((entry) => entry.id)).toEqual(["skill-1"]);
 	});
 
+	it("excludes archived skills before pagination and counts, preserving other states", async () => {
+		sqlite.exec(`UPDATE skill_entries SET lifecycle_state = 'archived' WHERE id IN ('skill-5', 'skill-3');
+			UPDATE skill_entries SET lifecycle_state = NULL WHERE id = 'skill-2';
+			UPDATE skill_entries SET lifecycle_state = 'draft' WHERE id = 'skill-4';`);
+		const first = await listAllSkillsForOrg(db, "org-1", {
+			excludeArchived: true,
+			limit: 2,
+		});
+		expect(first.total).toBe(3);
+		expect(first.entries.map((entry) => entry.id)).toEqual([
+			"skill-1",
+			"skill-2",
+		]);
+		const second = await listAllSkillsForOrg(db, "org-1", {
+			excludeArchived: true,
+			limit: 2,
+			offset: 2,
+		});
+		expect(second.total).toBe(3);
+		expect(second.entries.map((entry) => entry.id)).toEqual(["skill-4"]);
+		expect(
+			(await listAllSkillsForOrg(db, "org-1", { excludeArchived: false }))
+				.total,
+		).toBe(4);
+		const archived = await listAllSkillsForOrg(db, "org-1", {
+			lifecycleState: "archived",
+			limit: 0,
+		});
+		expect(archived).toEqual({ entries: [], total: 1 });
+		expect(
+			(
+				await listAllSkillsForOrg(db, "org-1", {
+					excludeArchived: true,
+					query: "Tedi override",
+				})
+			).total,
+		).toBe(0);
+		const searched = await listAllSkillsForOrg(db, "org-1", {
+			query: "Override",
+		});
+		expect(searched.entries.map((entry) => entry.id)).toEqual([
+			"skill-5",
+			"skill-4",
+		]);
+		expect(searched.total).toBe(2);
+	});
+
 	it("searches only executable workflow skills within the tenant", async () => {
 		const result = await listExecutableSkillWorkflowsForOrg(db, "org-1", {
 			query: "digest",

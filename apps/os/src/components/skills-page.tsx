@@ -569,7 +569,7 @@ export function WorkflowsEmpty() {
 // ---------------------------------------------------------------------------
 
 export function SkillsPage({
-	search = { section: "skills", q: "", page: 1 },
+	search = { section: "skills", q: "", page: 1, showArchived: false },
 	onSearchChange = () => undefined,
 }: {
 	search?: SkillsSearch;
@@ -587,7 +587,19 @@ export function SkillsPage({
 	};
 
 	const skills = useQuery({
-		...skillCatalogQueryOptions(input),
+		...skillCatalogQueryOptions({
+			...input,
+			excludeArchived: !search.showArchived,
+		}),
+		enabled: search.section === "skills",
+	});
+	const archived = useQuery({
+		...skillCatalogQueryOptions({
+			limit: 0,
+			offset: 0,
+			query: input.query,
+			lifecycleState: "archived",
+		}),
 		enabled: search.section === "skills",
 	});
 	const linkageDefinitions = useQuery({
@@ -692,6 +704,20 @@ export function SkillsPage({
 						}
 					/>
 				</PageToolbar>
+				{search.section === "skills" ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						className="justify-self-start"
+						aria-pressed={search.showArchived}
+						onClick={() =>
+							onSearchChange({ showArchived: !search.showArchived, page: 1 })
+						}
+					>
+						{search.showArchived ? "Hide archived" : "Show archived"}
+						{archived.data ? ` (${archived.data.total})` : ""}
+					</Button>
+				) : null}
 			</div>
 
 			{search.section === "skills" ? (
