@@ -73,13 +73,30 @@ capabilities:
 */
 export default {
 	async run(event, step, env) {
-		const tools = await step.do("list", { timeout: "60 seconds" }, () =>
-			env.MCP.app_config.list_app_tools({ limit: 200 }),
+		const tools = await step.do(
+			"list",
+			{
+				timeout: "60 seconds",
+				tedix: {
+					purpose: "Count the tools available to this organization.",
+					inputs: [{ name: "run request", source: "event.payload" }],
+				},
+			},
+			() => env.MCP.app_config.list_app_tools({ limit: 200 }),
 		);
 		return { count: tools.length };
 	},
 };
 ```
+
+The optional `tedix` block records the workflow author's declaration on that
+step receipt. `purpose` is a short public description. `inputs` contains
+explicit source references with an optional `name` and `sourceRevision`.
+`usedNext` can list later step names that use the result. Do not add a source
+revision unless the workflow has the exact value; Tedix does not infer missing
+sources, revisions, actions, or private reasoning. This metadata is removed
+before the native step runs and is not exposed for a step marked with sensitive
+output.
 
 The header is only for one-off `flow run` files; a recorded skill declares
 its manifest in SKILL.md frontmatter and needs no header. Never write a
