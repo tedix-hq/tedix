@@ -466,7 +466,7 @@ try {
 							"Recorded inputs and instructions",
 							"Activity",
 							"Result",
-							"Used next",
+							"Planned next steps",
 						].includes(text ?? ""),
 					),
 			);
@@ -476,7 +476,7 @@ try {
 				"Recorded inputs and instructions",
 				"Activity",
 				"Result",
-				"Used next",
+				"Planned next steps",
 			]);
 			await drawer
 				.getByRole("button", { name: "Recorded inputs and instructions" })
