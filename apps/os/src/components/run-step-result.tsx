@@ -37,6 +37,12 @@ export function RunStepResult({
 				Not recorded
 			</Text>
 		);
+	if (result === "")
+		return (
+			<Text as="p" tone="secondary">
+				Empty text
+			</Text>
+		);
 	const timestamp = stepTimestamp(result, field);
 	if (timestamp)
 		return <time dateTime={timestamp}>{absoluteTime(timestamp)}</time>;
@@ -124,6 +130,14 @@ export function RunStepResult({
 						</dd>
 					</div>
 				))}
+			{Object.keys(result).length > 30 && (
+				<div>
+					<Text as="dt" role="label">
+						More fields
+					</Text>
+					<dd className="m-0">Showing the first 30 fields.</dd>
+				</div>
+			)}
 		</dl>
 	);
 }
@@ -153,8 +167,7 @@ export function RunStepConversation({
 			{open && (
 				<>
 					<Text as="p" tone="secondary">
-						The saved request, replies and tool messages. This opens history
-						only; it does not send a message.
+						Conversation history · may include other turns
 					</Text>
 					{conversation.isPending && <Text as="p">Loading conversation…</Text>}
 					{conversation.isError && (

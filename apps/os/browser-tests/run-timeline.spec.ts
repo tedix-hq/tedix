@@ -15,6 +15,10 @@ const timeline = runTimelineFixture({
 	completedAt,
 	executionEpoch: 0,
 });
+Object.assign(timeline.events[1]!, {
+	kind: "step",
+	path: "epochs/0/steps/search/2/attempts/1.json",
+});
 const server = await startFixtureServer(path);
 const evidenceDir = process.env.RUN_TIMELINE_EVIDENCE_DIR;
 if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
@@ -74,6 +78,25 @@ try {
 						const response = await route.fetch();
 						const body = await response.json();
 						body.json.content = JSON.stringify({
+							kind: "workflow_step_attempt",
+							executionEpoch: 0,
+							attempt: 1,
+							step: { count: 2 },
+							authorMetadata: {
+								purpose: "Find buying questions",
+								inputs: [
+									{ name: "Settings", source: "Setup", sourceRevision: 35 },
+								],
+								usedNext: "Screen results",
+							},
+							request: {
+								value: {
+									query: "example buying question",
+									limit: 10,
+									text: `${"x".repeat(4500)} END-OF-INSTRUCTION`,
+								},
+								truncated: false,
+							},
 							response: {
 								createdAt: 1793178000000,
 								id: 1793178000000,
@@ -131,6 +154,43 @@ try {
 							outputArtifactPath: "outputs/private.json",
 							response: "must stay hidden",
 						});
+						return route.fulfill({ response, json: body });
+					}
+					if (input.path === timeline.events[4]!.path) {
+						const response = await route.fetch();
+						const body = await response.json();
+						body.json.content = JSON.stringify({
+							request: { redacted: true, value: { query: "hidden query" } },
+							response: "hidden response",
+							error: "hidden error",
+						});
+						return route.fulfill({ response, json: body });
+					}
+					if (input.path === timeline.events[6]!.path) {
+						const response = await route.fetch();
+						const body = await response.json();
+						body.json.content = JSON.stringify({
+							request: { value: { text: "concealed instruction" } },
+							response: { redacted: true, value: "concealed response" },
+						});
+						return route.fulfill({ response, json: body });
+					}
+					if (
+						input.path === timeline.events[5]!.path ||
+						input.path === "outputs/foreign.json"
+					) {
+						const response = await route.fetch();
+						const body = await response.json();
+						body.json.content = JSON.stringify(
+							input.path === "outputs/foreign.json"
+								? {
+										stepCount: timeline.events[5]!.count,
+										attempt: timeline.events[5]!.attempt,
+										executionEpoch: 999,
+										value: "another execution",
+									}
+								: { outputArtifactPath: "outputs/foreign.json" },
+						);
 						return route.fulfill({ response, json: body });
 					}
 					assert.notEqual(
@@ -321,6 +381,45 @@ try {
 			);
 			assert.equal(artifactReads, 5, "only selected receipts are read");
 			await page.keyboard.press("Escape");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[4]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.getByText("Sensitive output is hidden.", { exact: true })
+				.waitFor();
+			assert.equal(
+				await drawer
+					.getByText(/hidden query|hidden response|hidden error/)
+					.count(),
+				0,
+			);
+			await page.keyboard.press("Escape");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[5]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.getByText(
+					"The saved output cannot be matched to this attempt and execution.",
+				)
+				.waitFor();
+			assert.equal(await drawer.getByText("another execution").count(), 0);
+			await page.keyboard.press("Escape");
+			await chart
+				.locator(`[data-timeline-event="${timeline.events[6]!.id}"]`)
+				.focus();
+			await page.keyboard.press("Enter");
+			await drawer
+				.getByText("Sensitive output is hidden.", { exact: true })
+				.waitFor();
+			assert.equal(
+				await drawer
+					.getByText(/concealed instruction|concealed response/)
+					.count(),
+				0,
+			);
+			await page.keyboard.press("Escape");
 			await chart.getByRole("textbox", { name: "Find a step" }).fill("s");
 			const matches = chart.locator('[aria-label="Matching steps"]');
 			for (const button of [
@@ -350,6 +449,24 @@ try {
 				.locator(`[data-timeline-event="${timeline.events[1]!.id}"]`)
 				.focus();
 			await page.keyboard.press("Enter");
+			await drawer
+				.getByText("Find buying questions", { exact: true })
+				.waitFor();
+			await drawer.getByText("Screen results", { exact: true }).waitFor();
+			await drawer.getByRole("button", { name: "Item 1", exact: true }).click();
+			await drawer.getByText("Setup", { exact: true }).waitFor();
+			await drawer.getByText("35", { exact: true }).waitFor();
+			await drawer
+				.getByRole("button", { name: "Recorded inputs and instructions" })
+				.click();
+			await drawer.getByText(/example buying question/).waitFor();
+			await drawer
+				.getByRole("button", { name: "Show more saved input" })
+				.click();
+			await drawer.getByText(/END-OF-INSTRUCTION/).waitFor();
+			await drawer
+				.getByRole("button", { name: "Show more saved input" })
+				.click();
 			await drawer
 				.locator('time[datetime="2026-10-28T09:00:00.000Z"]')
 				.waitFor();

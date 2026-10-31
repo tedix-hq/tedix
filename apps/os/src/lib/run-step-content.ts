@@ -17,6 +17,14 @@ export function stepRecord(value: unknown): Record<string, unknown> {
 		: {};
 }
 
+/** A redaction marker anywhere in a snapshot makes that snapshot unsafe to render. */
+export function hasRedaction(value: unknown, depth = 0): boolean {
+	if (value === null || typeof value !== "object") return false;
+	if (depth >= 12) return true;
+	if (stepRecord(value).redacted === true) return true;
+	return Object.values(value).some((child) => hasRedaction(child, depth + 1));
+}
+
 /** Unwrap transport envelopes, retaining the assistant's recorded answer. */
 export function readableStepResult(value: unknown, depth = 0): unknown {
 	if (depth >= 8) return value;
@@ -46,23 +54,35 @@ export function readableStepResult(value: unknown, depth = 0): unknown {
 }
 
 export function stepConversation(...values: unknown[]) {
-	let conversationId: string | undefined;
-	let tediId: string | undefined;
-	const visit = (value: unknown, depth: number) => {
-		if (depth > 7) return;
+	const visit = (
+		value: unknown,
+		depth: number,
+	): { tediId: string; conversationId: string } | null => {
+		if (depth > 7) return null;
 		const r = stepRecord(value);
-		if (typeof r.conversationId === "string")
-			conversationId ??= r.conversationId;
-		if (typeof r.session_key === "string") conversationId ??= r.session_key;
-		if (typeof r.tediId === "string") tediId ??= r.tediId;
+		const conversationId = r.conversationId;
 		const runId = r.runId ?? r.run_id ?? stepRecord(r.task).id;
-		if (typeof runId === "string")
-			tediId ??= /^(?:tedi:)?([0-9a-f]{8}-[0-9a-f-]{27}):/i.exec(runId)?.[1];
-		for (const key of ["value", "response", "request", "task"])
-			if (key in r) visit(r[key], depth + 1);
+		const tediId =
+			typeof r.tediId === "string"
+				? r.tediId
+				: typeof runId === "string"
+					? /^(?:tedi:)?([0-9a-f]{8}-[0-9a-f-]{27}):/i.exec(runId)?.[1]
+					: undefined;
+		if (typeof conversationId === "string" && tediId)
+			return { tediId, conversationId };
+		for (const key of ["value", "response", "request", "task"]) {
+			if (key in r) {
+				const found = visit(r[key], depth + 1);
+				if (found) return found;
+			}
+		}
+		return null;
 	};
-	values.forEach((value) => visit(value, 0));
-	return tediId && conversationId ? { tediId, conversationId } : null;
+	for (const value of values) {
+		const found = visit(value, 0);
+		if (found) return found;
+	}
+	return null;
 }
 
 export function readableField(key: string) {
