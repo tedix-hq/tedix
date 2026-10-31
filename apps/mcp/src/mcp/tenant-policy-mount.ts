@@ -249,31 +249,15 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 	if (!root.app || root.app.organizationId !== input.organizationId)
 		return null;
 	const homeTools = buildHomeSurfaceTools();
-	if (
-		shouldExposeHomeSurface({
-			appSlug: root.app.slug,
-			metadata: root.app.metadata,
-		})
-	) {
-		const home = homeTools.find((tool) => tool.toolId === input.mountedToolId);
-		if (home) {
-			if (
-				root.tools.some(
-					(tool) => tool.id === home.id || tool.toolId === home.toolId,
-				)
-			)
-				return null;
-			// The definition is code-owned; provenance must not alter its config digest.
-			return {
-				tool: home,
-				sourceAppId: input.rootAppId,
-				sourceToolId: home.toolId,
-				mountAppIds: [input.rootAppId],
-				sourceKind: "home-surface" as const,
-			};
-		}
-	}
+	const home = shouldExposeHomeSurface({
+		appSlug: root.app.slug,
+		metadata: root.app.metadata,
+	})
+		? homeTools.find((tool) => tool.toolId === input.mountedToolId)
+		: undefined;
 	const aggregateTedis = root.app.metadata?.mcpConfig?.aggregateTedis;
+	let aggregateTediTools: AppTool[] | undefined;
+	let aggregateTediClaimed = false;
 	if (Array.isArray(aggregateTedis)) {
 		const entries = aggregateTedis.filter(
 			(entry): entry is AggregateTediEntry =>
@@ -283,6 +267,9 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		);
 		const candidates = entries.filter((entry) =>
 			input.mountedToolId.startsWith(`${sanitizeTediNamespace(entry)}__`),
+		);
+		aggregateTediClaimed = buildAggregateTediTools(candidates, input.env).some(
+			(tool) => tool.toolId === input.mountedToolId,
 		);
 		const slugs = [...new Set(candidates.map((entry) => entry.slug))];
 		if (slugs.length > 0) {
@@ -304,7 +291,7 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 					)
 					.map((row) => [row.slug, row] as const),
 			);
-			const tools = buildAggregateTediTools(
+			aggregateTediTools = buildAggregateTediTools(
 				candidates.flatMap((entry) => {
 					const row = activeBySlug.get(entry.slug);
 					return row
@@ -320,22 +307,6 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 				}),
 				input.env,
 			).filter((tool) => tool.toolId === input.mountedToolId);
-			if (tools.length === 1) {
-				const tool = tools[0]!;
-				if (
-					root.tools.some(
-						(stored) => stored.id === tool.id || stored.toolId === tool.toolId,
-					)
-				)
-					return null;
-				return {
-					tool,
-					sourceAppId: input.rootAppId,
-					sourceToolId: tool.toolId,
-					mountAppIds: [input.rootAppId],
-					sourceKind: "aggregate-tedi" as const,
-				};
-			}
 		}
 	}
 	const surface = await aggregateAndPrefixTools(
@@ -403,6 +374,40 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 					: undefined,
 			})),
 		].filter((tool) => tool.toolId === input.mountedToolId);
+	}
+	if (home) {
+		if (
+			matches.length !== 0 ||
+			aggregateTediClaimed ||
+			root.tools.some(
+				(stored) => stored.id === home.id || stored.toolId === home.toolId,
+			)
+		)
+			return null;
+		return {
+			tool: home,
+			sourceAppId: input.rootAppId,
+			sourceToolId: home.toolId,
+			mountAppIds: [input.rootAppId],
+			sourceKind: "home-surface" as const,
+		};
+	}
+	if (aggregateTediTools) {
+		if (aggregateTediTools.length !== 1 || matches.length !== 0) return null;
+		const tool = aggregateTediTools[0]!;
+		if (
+			root.tools.some(
+				(stored) => stored.id === tool.id || stored.toolId === tool.toolId,
+			)
+		)
+			return null;
+		return {
+			tool,
+			sourceAppId: input.rootAppId,
+			sourceToolId: tool.toolId,
+			mountAppIds: [input.rootAppId],
+			sourceKind: "aggregate-tedi" as const,
+		};
 	}
 	if (matches.length !== 1) return null;
 	const tool = matches[0]!;

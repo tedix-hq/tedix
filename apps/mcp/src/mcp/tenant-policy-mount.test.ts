@@ -278,6 +278,76 @@ describe("tenant policy mount descriptor", () => {
 		});
 	});
 
+	it("rejects a generated Home tool that collides with an aggregate tedi", async () => {
+		const home = buildHomeSurfaceTools().find(
+			(tool) => tool.toolId === "home__respond_home_approval",
+		)!;
+		mocks.getApp.mockResolvedValue({
+			app: {
+				id: "root",
+				slug: "gateway",
+				organizationId: "org",
+				metadata: {
+					mcpConfig: {
+						aggregateApps: [{ slug: "mounted" }],
+						aggregateTedis: [{ slug: "ceo", namespace: "home" }],
+					},
+				},
+			},
+			tools: [],
+		});
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
+			data: [
+				{
+					slug: "ceo",
+					id: "tedi-id",
+					organizationId: "org",
+					runtimeKind: "agent",
+					runtimeState: "active",
+					status: "active",
+				},
+			],
+		});
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+		expect(
+			await resolveFreshPolicyMount({
+				organizationId: "org",
+				rootAppId: "root",
+				mountedToolId: home.toolId,
+				env: { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv,
+			}),
+		).toBeNull();
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({ data: [] });
+		expect(
+			await resolveFreshPolicyMount({
+				organizationId: "org",
+				rootAppId: "root",
+				mountedToolId: home.toolId,
+				env: { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv,
+			}),
+		).toBeNull();
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
+			data: [
+				{
+					slug: "ceo",
+					id: "foreign-tedi",
+					organizationId: "another-org",
+					runtimeKind: "agent",
+					runtimeState: "active",
+					status: "active",
+				},
+			],
+		});
+		expect(
+			await resolveFreshPolicyMount({
+				organizationId: "org",
+				rootAppId: "root",
+				mountedToolId: home.toolId,
+				env: { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv,
+			}),
+		).toBeNull();
+	});
+
 	it("rechecks generated Home exposure and refuses stored-row shadows", async () => {
 		const ask = buildHomeSurfaceTools().find((tool) => tool.toolId === "ask")!;
 		const root = {
@@ -344,7 +414,12 @@ describe("tenant policy mount descriptor", () => {
 			id: "root",
 			slug: "gateway",
 			organizationId: "org",
-			metadata: { mcpConfig: { aggregateTedis: [entry] } },
+			metadata: {
+				mcpConfig: {
+					aggregateApps: [{ slug: "mounted" }],
+					aggregateTedis: [entry],
+				},
+			},
 		};
 		mocks.getApp.mockResolvedValue({ app: root, tools: [] });
 		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
@@ -380,6 +455,59 @@ describe("tenant policy mount descriptor", () => {
 			},
 		});
 
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: true });
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.resolve.mockResolvedValue({ tools: [generated], degraded: false });
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.resolve.mockImplementation(async (entries) =>
+			entries[0]?.organizationMount
+				? { tools: [], degraded: false }
+				: { tools: [generated], degraded: false },
+		);
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({ data: [] });
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
+			data: [
+				{
+					slug: "ceo",
+					id: "tedi-id",
+					organizationId: "org",
+					runtimeKind: "agent",
+					runtimeState: "active",
+					status: "paused",
+				},
+			],
+		});
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.getApp.mockResolvedValue({
+			app: {
+				...root,
+				metadata: {
+					mcpConfig: {
+						aggregateApps: [{ slug: "mounted" }],
+						aggregateTedis: [entry, { ...entry }],
+					},
+				},
+			},
+			tools: [],
+		});
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
+			data: [
+				{
+					slug: "ceo",
+					id: "tedi-id",
+					organizationId: "org",
+					runtimeKind: "agent",
+					runtimeState: "active",
+					status: "active",
+				},
+			],
+		});
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		mocks.getApp.mockResolvedValue({ app: root, tools: [] });
 		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
 			data: [
 				{
