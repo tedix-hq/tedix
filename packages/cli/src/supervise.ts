@@ -30,6 +30,7 @@ import { createHash } from "node:crypto";
 import {
 	existsSync,
 	mkdirSync,
+	readFileSync,
 	rmSync,
 	statSync,
 	writeFileSync,
@@ -73,6 +74,7 @@ import {
 	claudeDriver,
 	type ClaudeDriver,
 	codexDriver,
+	alive,
 	type CodexDriver,
 	configDir,
 	pause,
@@ -93,6 +95,12 @@ import {
 	waitingQuestions,
 } from "./supervise-questions";
 import { collectDispatcherHealth } from "./dispatcher-health";
+import {
+	LANES_FILE,
+	LaneDuties,
+	laneKey,
+	readLaneDuties,
+} from "./supervise-lanes";
 import { LeadDuty, type LeadRun } from "./supervise-lead";
 
 export const SUPERVISE_INTERVAL_MS = 30_000;
@@ -137,6 +145,8 @@ export interface SuperviseDeps {
 	claude?: ClaudeDriver;
 	drivers?: Partial<Record<LeadHost, LeadDriver>>;
 	leadRun?: LeadRun;
+	/** Set by the long-running command only; `--once` never starts dispatchers. */
+	lanes?: LaneDuties;
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
 	log?: (line: string) => void;
@@ -170,6 +180,13 @@ export class Supervisor {
 
 	/** Returns the number of drafts delivered in this pass. */
 	async tick(waitForLead = false): Promise<number> {
+		try {
+			this.deps.lanes?.tick();
+		} catch (error) {
+			this.log(
+				`lanes: tick failed: ${(error as Error).message?.slice(0, 200)}`,
+			);
+		}
 		const lead = this.lead.tick(waitForLead);
 		let delivered = 0;
 		this.lastPass = { checked: 0, failed: 0 };
@@ -964,6 +981,7 @@ export const superviseUsage = `Deliver late tedi auto replies and your undeliver
   tedix supervise --once      Run one check and exit
   tedix supervise install     Run it at login as a user LaunchAgent (macOS)
   tedix supervise uninstall   Stop it and remove the LaunchAgent
+  tedix supervise lanes       List the lane dispatchers it runs
 
 A Codex session's await-draft hook waits 5 minutes for a tedi auto reply. When
 one arrives later for a Codex chat still waiting on its question, the
@@ -985,6 +1003,10 @@ never creates a Work Item or chooses another chat; delegation remains explicit.
 Enable the optional Lead duty in ~/.tedix/supervisor-lead.json with document
 references and existing executor sessions in fallback order. It defaults to
 20 minutes; --once waits for a due pass. See the CLI guide for configuration.
+The supervisor also runs every lane dispatcher listed in
+~/.tedix/supervisor-lanes.json (written by tedix lane serve --install) as a
+child it restarts and stops; tedix supervise lanes lists them. install adopts
+dispatchers that still run as their own LaunchAgents.
 Requires decision capture for answer delivery. Log: ~/.tedix/supervisor.log.`;
 
 export async function runSuperviseCommand(args: string[]): Promise<number> {
@@ -996,6 +1018,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 	const env = { ...process.env };
 	if (first === "install" && args.length === 1) return install(env);
 	if (first === "uninstall" && args.length === 1) return uninstall();
+	if (first === "lanes" && args.length === 1) return listLanes(env);
 	const once = first === "--once" && args.length === 1;
 	if (args.length && !once) {
 		console.error(
@@ -1013,10 +1036,12 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		console.error("Another tedix supervise is already running.");
 		return once ? 0 : 1;
 	}
+	const lanes = once ? undefined : new LaneDuties({ env });
 	const supervisor = new Supervisor({
 		env,
 		read: supervisorRead,
 		codex: codexDriver(env),
+		lanes,
 	});
 	try {
 		if (once) {
@@ -1043,9 +1068,53 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 			)
 				await pause(1000);
 		}
+		lanes?.stop();
 		supervisorLog(env, "supervisor stopped");
 		return 0;
 	} finally {
 		release();
 	}
+}
+
+/** `tedix supervise lanes`: the configured dispatchers and whether each runs. */
+export function listLanes(env: NodeJS.ProcessEnv): number {
+	let lanes;
+	try {
+		lanes = readLaneDuties(env);
+	} catch (error) {
+		console.error(
+			`${join(configDir(env), LANES_FILE)} could not be read: ${(error as Error).message}`,
+		);
+		return 1;
+	}
+	const rows = lanes.map((lane) => {
+		const directory = join(configDir(env), "dispatchers", laneKey(lane));
+		let pid: number | null = null;
+		try {
+			const child = JSON.parse(
+				readFileSync(join(directory, "supervisor-child.json"), "utf8"),
+			);
+			if (Number.isSafeInteger(child.pid) && alive(child.pid)) pid = child.pid;
+		} catch {
+			/* Not running under the supervisor. */
+		}
+		return {
+			lane: laneKey(lane),
+			executor: lane.executor,
+			organization: lane.organization,
+			slots: lane.max,
+			enabled: lane.enabled,
+			running: pid !== null,
+			pid,
+			log: join(configDir(env), `dev.tedix.lane-serve.${laneKey(lane)}.log`),
+		};
+	});
+	console.log(
+		JSON.stringify(
+			{ file: join(configDir(env), LANES_FILE), lanes: rows },
+			null,
+			2,
+		),
+	);
+	return 0;
 }

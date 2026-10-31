@@ -137,6 +137,18 @@ headless resume in a privacy-protected folder (Documents, Desktop, Downloads)
 and logs why; [Full Disk Access for the supervisor](./supervisor-full-disk-access.md)
 lifts that.
 
+The supervisor also runs your local Work dispatchers. `tedix lane serve
+--install` no longer creates a background service of its own; it adds the
+dispatcher to `~/.tedix/supervisor-lanes.json`, and the supervisor starts it
+within a minute, restarts it when it exits (waiting a minute, then longer
+after repeated exits, at most 15 minutes), stops it when you remove it from
+the file, and leaves a dispatcher alone that is still running from before a
+supervisor restart. One `tedix supervise install` is the only background
+service you need on a machine; it also takes over dispatchers that were
+installed as their own services earlier and removes those. `tedix supervise
+lanes` lists the dispatchers with their state, process id and log file. Each
+dispatcher keeps its own log at `~/.tedix/dev.tedix.lane-serve.<id>.log`.
+
 To run a recurring Lead pass, create `~/.tedix/supervisor-lead.json` with
 `enabled: true`, `workspace`, `organization`, an absolute `cwd`, `playbook`
 and `status` document references, and an `executors` array in fallback order,
