@@ -72,11 +72,9 @@ import type { RuntimeRunSteeringInput } from "@tedix/api-contract/schemas/kernel
 
 /**
  * Durable per-turn watchdog bound. The kernel's per-LLM-pass abort guards (llm-guard.ts withIdleAbort /
- * AbortSignal.timeout, ~70s) are in-isolate timers: when a reasoning-model provider stall opens a connection and then
- * emitting no bytes) parks the inline `await runKernelTurnWork` and the DO is then hibernated/evicted/redeployed before
- * the 70s timer fires, the timer dies with the isolate — nothing aborts, nothing settles, and the run sits silently
- * `running` until the 15-min crash sweep mislabels it "DO eviction". This DO alarm survives isolate death (durable
- * schedule) and force-fails the still-running turn with a clear "Model unavailable" signal. Set well above the
+ * AbortSignal.timeout, ~70s) are in-isolate timers: a lost planner handoff or a provider stall followed by
+ * hibernation/eviction can leave nothing alive to settle the run. This DO alarm survives isolate death and force-fails
+ * the still-running turn. Set well above the
  * worst-case healthy turn (route ≤70s + read-loop ≤80s ≈ 150s) so a legitimately slow turn is never clipped, and well
  * under the 15-min lease so the operator learns fast.
  */
@@ -84,7 +82,11 @@ const KERNEL_TURN_WATCHDOG_SECONDS = 240;
 /** A person tapping confirm in the chat; well inside the turn watchdog. */
 const HOME_PAGE_TOOL_CONFIRM_TIMEOUT_MS = 120_000;
 const KERNEL_TURN_STUCK_DETAIL =
-	"No response from the language model within the timeout — the model (AI Gateway / Azure) appears to be unavailable. Your message is saved; please try again shortly.";
+	"Home could not continue this turn before the timeout. Your message is saved; please try again shortly.";
+
+type KernelPlannerStepInput = KernelTurnWorkInput & {
+	ingressWatchdogId?: string;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Inbox-wake constants — phase-1 (dark, additive, flag-gated)
@@ -507,6 +509,16 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// the DO's eager module graph. Ids only: canonical D1 still hydrates and authorizes every candidate before prompt
 		// assembly.
 		const relevanceCandidates = this.startIngressRecall(input);
+		// Persist recovery before any context read or planner handoff can strand the
+		// already-admitted run. The scheduled planner carries this exact watchdog so
+		// it does not arm a second one.
+		const [watchdogId] = await Promise.all([
+			this.armTurnWatchdog(input),
+			this.afterTurnMaintenance(input.organizationId),
+		]);
+		const plannerInput: KernelPlannerStepInput = watchdogId
+			? { ...input, ingressWatchdogId: watchdogId }
+			: input;
 		// Non-blocking planner (flag-gated, default off — see `kernelAsyncPlannerEnabled`): schedule the planner off this RPC
 		// so the DO thread is freed immediately and concurrent same-org Home turns interleave instead of serializing behind
 		// one planner pass. The work runs in `runPlannerStep` via the alarm (which fires because `alarm()` now calls
@@ -515,12 +527,32 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		// turn is an LLM route now (no fast-path short-circuit), so all turns are eligible for off-thread dispatch when the
 		// flag is on.
 		if (kernelAsyncPlannerEnabled(this.env)) {
-			await this.schedule(0, "runPlannerStep", input);
+			await this.schedule(0, "runPlannerStep", plannerInput);
 			return {
 				[KERNEL_ASYNC_DISPATCH_MARKER]: true,
 			} as unknown as KernelTurnWorkResult;
 		}
-		return this.runPlannerStep(input, relevanceCandidates, enteredAtMs);
+		return this.runPlannerStep(plannerInput, relevanceCandidates, enteredAtMs);
+	}
+
+	private async armTurnWatchdog(
+		input: KernelTurnWorkInput,
+	): Promise<string | undefined> {
+		try {
+			return (
+				await this.schedule(KERNEL_TURN_WATCHDOG_SECONDS, "failStuckTurn", {
+					runId: input.runId,
+					organizationId: input.organizationId,
+					conversationId: input.conversationId,
+				})
+			)?.id;
+		} catch (error) {
+			console.warn(
+				"[kernel] stall-watchdog arm failed (turn proceeds; reconcile is the fallback)",
+				kernelErrorMessage(error),
+			);
+			return undefined;
+		}
 	}
 
 	/**
@@ -685,7 +717,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 	 * name. The body is identical to the former inline `processTurn` — only the call site moved.
 	 */
 	async runPlannerStep(
-		input: KernelTurnWorkInput,
+		input: KernelPlannerStepInput,
 		/** Ingress-started recall from `processTurn`; absent on the scheduled
 		 * (async-planner / alarm) path, where assembly starts its own. */
 		relevanceCandidates?: Promise<AgentMemoryCandidate[]>,
@@ -693,6 +725,13 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 		enteredAtMs?: number,
 	): Promise<KernelTurnWorkResult> {
 		this.setState({ ...this.state, organizationId: input.organizationId });
+		let watchdogId = input.ingressWatchdogId;
+		if (!watchdogId) {
+			[watchdogId] = await Promise.all([
+				this.armTurnWatchdog(input),
+				this.afterTurnMaintenance(input.organizationId),
+			]);
+		}
 		// The scheduled (alarm) path has no ingress recall: start one here so its
 		// late result still lands in storage for the conversation's next turn.
 		const candidatesInFlight =
@@ -722,24 +761,6 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				? input.runRowMetadata.redriveCount
 				: 0,
 		);
-		// Arm the durable stall watchdog (fail-soft): a DO alarm that fires even if this isolate is evicted mid-turn while
-		// parked on a hung provider fetch — the case the in-isolate per-pass abort guards cannot cover. Cancelled in
-		// `finally` on normal completion; if it still fires, `failStuckTurn`'s CAS no-ops a turn that already settled.
-		let watchdogId: string | undefined;
-		try {
-			watchdogId = (
-				await this.schedule(KERNEL_TURN_WATCHDOG_SECONDS, "failStuckTurn", {
-					runId: input.runId,
-					organizationId: input.organizationId,
-					conversationId: input.conversationId,
-				})
-			)?.id;
-		} catch (error) {
-			console.warn(
-				"[kernel] stall-watchdog arm failed (turn proceeds; reconcile is the fallback)",
-				kernelErrorMessage(error),
-			);
-		}
 		// Per-turn abort controller (docs/engineering/cognition/kernel-execution-model.md "Operator cancel"): registered
 		// before the turn body runs so a `cancelTurn(runId)` RPC landing concurrently (this DO is single-threaded, but the
 		// RPC and this method interleave at `await` points) can always find it. `plannerAbortSignal` is threaded into
@@ -762,6 +783,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				}
 			}
 		};
+		const { ingressWatchdogId: _ingressWatchdogId, ...turnInput } = input;
 		try {
 			const result = await (
 				await loadTurnWork()
@@ -843,7 +865,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 					contextCache: getKernelContextCache(),
 					stageTimings,
 				},
-				input,
+				turnInput,
 			);
 			// Reconciliation scheduling must not delay the turn response.
 			this.ctx.waitUntil(this.afterTurnMaintenance(input.organizationId));
@@ -1003,11 +1025,9 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 
 	/**
 	 * Durable stall watchdog (DO-alarm callback, looked up by name). Force-fails a kernel turn that is still active past
-	 * {@link KERNEL_TURN_WATCHDOG_SECONDS} — the provider-stall-then-isolate-eviction class that the in-isolate per-pass
+	 * {@link KERNEL_TURN_WATCHDOG_SECONDS} — including a lost planner handoff or an isolate eviction that the in-isolate
 	 * abort guards cannot cover (they die with the isolate). Status-guarded so it never touches a turn that already
-	 * settled (a watchdog/completion race) and never terminalizes a parked `requires_approval` turn. Writes a clear "Model
-	 * unavailable" signal (not the generic crash-sweep "DO eviction") so the operator can tell a provider outage from a
-	 * deploy. Fail-soft throughout.
+	 * settled (a watchdog/completion race) and never terminalizes a parked `requires_approval` turn. Fail-soft throughout.
 	 */
 	async failStuckTurn(payload: {
 		runId?: string;
@@ -1037,9 +1057,7 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				outcome: "failed",
 				error: KERNEL_TURN_STUCK_DETAIL,
 			});
-			console.warn(
-				`[kernel] stall-watchdog failed a stuck turn (model unavailable) run=${runId}`,
-			);
+			console.warn(`[kernel] stall-watchdog failed a stuck turn run=${runId}`);
 		} catch (error) {
 			console.warn(
 				"[kernel] failStuckTurn error",
