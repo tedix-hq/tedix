@@ -496,14 +496,17 @@ async function verifyHumanMcpGrantStages(
 		clientId: input.clientId,
 	};
 	const grantKey = { ...key, revision: input.consentRevision };
-	// Read the immutable grant before judging provider scopes: a refreshed JWT
-	// may contain more authority than this installation approved.
+	// Read the immutable approval before judging provider scopes: even the first
+	// issued JWT may contain more authority than this installation approved.
 	const activeRead = readGrantState("active", () =>
 		getMcpConsentGrant(db, grantKey),
 	);
+	const pendingRead = readGrantState("pending", () =>
+		getMcpConsentPending(db, grantKey),
+	);
 	const ledgerReads = Promise.all([
 		activeRead,
-		readGrantState("pending", () => getMcpConsentPending(db, grantKey)),
+		pendingRead,
 		readGrantState("memberships", () =>
 			getMembershipsByDescopeTenants(
 				db,
@@ -529,18 +532,26 @@ async function verifyHumanMcpGrantStages(
 		() => ({ ok: false as const }),
 	);
 	let current: Awaited<ReturnType<typeof getMcpConsentGrant>> = null;
+	let pending: Awaited<ReturnType<typeof getMcpConsentPending>> = null;
 	if (input.supportsConsentScopeCeiling) {
 		try {
-			current = await activeRead;
+			[current, pending] = await Promise.all([activeRead, pendingRead]);
 		} catch {
 			return deny("provider_unavailable");
 		}
 	}
-	const ceiling =
-		input.supportsConsentScopeCeiling &&
+	const approval =
 		current?.revision === input.consentRevision &&
 		sameCanonicalSet(current.selectedTenantIds, input.selectedTenantIds)
-			? current.approvedScopes
+			? current
+			: pending?.revision === input.consentRevision &&
+				  pending.expiresAt > new Date().toISOString() &&
+				  sameCanonicalSet(pending.selectedTenantIds, input.selectedTenantIds)
+				? pending
+				: null;
+	const ceiling =
+		input.supportsConsentScopeCeiling && approval
+			? [...approval.approvedScopes]
 			: null;
 	const effectiveScopes = ceiling
 		? input.tokenScopes.filter((scope) => ceiling.includes(scope))
@@ -590,6 +601,7 @@ async function verifyHumanMcpGrantStages(
 		appId,
 		liveTenants,
 		effectiveScopes,
+		ceiling,
 		mark,
 		defer,
 	);
@@ -755,6 +767,7 @@ async function judgeLedger(
 	appId: string,
 	liveTenants: ReadonlySet<string>,
 	effectiveScopes: string[],
+	ceiling: readonly string[] | null,
 	mark: (stage: string) => void,
 	defer?: (promise: Promise<unknown>) => void,
 ): Promise<HumanMcpGrantDecision> {
@@ -772,26 +785,21 @@ async function judgeLedger(
 		grant?.appId === appId &&
 		grant.revision === input.consentRevision &&
 		sameCanonicalSet(grant.selectedTenantIds, input.selectedTenantIds);
-	const active = matchesIdentity(ledger.current);
-	const approvedScopes =
-		active && input.supportsConsentScopeCeiling
-			? ledger.current!.approvedScopes
-			: input.tokenScopes;
+	const approvedScopes = ceiling ? [...ceiling] : input.tokenScopes;
 	const matchesActive = (
 		grant: Awaited<ReturnType<typeof getMcpConsentGrant>>,
 	) =>
 		matchesIdentity(grant) &&
 		sameCanonicalSet(grant!.approvedScopes, approvedScopes);
-	if (!active && !sameCanonicalSet(effectiveScopes, input.tokenScopes))
-		return deny("selection_replaced");
 	const pending = matchesActive(ledger.current) ? null : ledger.pending;
 	if (
 		!matchesActive(ledger.current) &&
 		(!pending ||
+			pending.revision !== input.consentRevision ||
 			pending.appId !== appId ||
 			pending.expiresAt <= new Date().toISOString() ||
 			!sameCanonicalSet(pending.selectedTenantIds, input.selectedTenantIds) ||
-			!sameCanonicalSet(pending.approvedScopes, input.tokenScopes))
+			!sameCanonicalSet(pending.approvedScopes, approvedScopes))
 	) {
 		return deny("selection_replaced");
 	}
@@ -842,7 +850,7 @@ async function judgeLedger(
 				revision: input.consentRevision,
 				expectedActiveRevision: pending.expectedActiveRevision,
 				selectedTenantIds: input.selectedTenantIds,
-				approvedScopes: input.tokenScopes,
+				approvedScopes,
 			});
 		}
 		// A concurrent request may already have activated this revision, or a
