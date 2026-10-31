@@ -2145,6 +2145,99 @@ const legacyRuntimePin = {
 		},
 	},
 };
+// Older sealed pins can have valid hashes but no complete deployment tuple.
+// Direct identity checks need only the hashes; reconstructing a legacy Loader
+// must not guess the missing or malformed deployment field.
+for (const field of [
+	"workerVersionId",
+	"workerVersionTag",
+	"workerVersionTimestamp",
+] as const) {
+	for (const malformed of [undefined, 17] as const) {
+		const runId = `run-incomplete-pin-${field}-${malformed === undefined ? "missing" : "malformed"}`;
+		const legacyHash =
+			originalCredentialCompatibility.legacyExecutionCompatibilityHash;
+		const incomplete = {
+			...legacyRuntimePin,
+			provenance: {
+				...legacyRuntimePin.provenance,
+				runtime: {
+					...legacyRuntimePin.provenance.runtime,
+					[field]: malformed,
+					executionCompatibilityHash: legacyHash,
+					loaderConfigHash: "e".repeat(64),
+				},
+			},
+		};
+		await recordArtifactOnceForRun(immutableArtifactDb, runId, {
+			path: "epochs/0/runtime-pin.json",
+			value: incomplete,
+		});
+		const direct = {
+			...legacyRuntimePin,
+			provenance: {
+				...legacyRuntimePin.provenance,
+				runtime: {
+					...legacyRuntimePin.provenance.runtime,
+					executionCompatibilityHash: legacyHash,
+					loaderConfigHash: "e".repeat(64),
+				},
+			},
+		};
+		await assertWorkflowExecutionEpochRuntimePin({
+			db: immutableArtifactDb,
+			runId,
+			pin: direct,
+		});
+		await assertWorkflowExecutionEpochRuntimePin({
+			db: immutableArtifactDb,
+			runId,
+			pin: {
+				...direct,
+				provenance: {
+					...direct.provenance,
+					runtime: {
+						...direct.provenance.runtime,
+						loaderConfigHash: "f".repeat(64),
+					},
+				},
+			},
+		});
+		const changed = {
+			...legacyRuntimePin,
+			provenance: {
+				...legacyRuntimePin.provenance,
+				runtime: {
+					...legacyRuntimePin.provenance.runtime,
+					executionCompatibilityHash:
+						originalCredentialCompatibility.executionCompatibilityHash,
+					loaderConfigHash: "c".repeat(64),
+				},
+			},
+		};
+		await assert.rejects(
+			assertWorkflowExecutionEpochRuntimePin({
+				db: immutableArtifactDb,
+				runId,
+				pin: changed,
+				legacyCompatibility: {
+					executionCompatibilityHash: legacyHash,
+					secretVersions: originalSecretVersions,
+				},
+			}),
+			/WORKFLOW_RUNTIME_DRIFT_BLOCKED/,
+		);
+		// Network workflows omit legacy compatibility and must remain blocked.
+		await assert.rejects(
+			assertWorkflowExecutionEpochRuntimePin({
+				db: immutableArtifactDb,
+				runId,
+				pin: changed,
+			}),
+			/WORKFLOW_RUNTIME_DRIFT_BLOCKED/,
+		);
+	}
+}
 await assertWorkflowExecutionEpochRuntimePin({
 	db: immutableArtifactDb,
 	runId: "run-legacy-runtime-pin",
@@ -2176,6 +2269,36 @@ const resumedLegacyRuntimePin = {
 await assertWorkflowExecutionEpochRuntimePin({
 	db: immutableArtifactDb,
 	runId: "run-legacy-runtime-pin",
+	pin: resumedLegacyRuntimePin,
+	legacyCompatibility: {
+		executionCompatibilityHash:
+			originalCredentialCompatibility.legacyExecutionCompatibilityHash,
+		secretVersions: originalSecretVersions,
+	},
+});
+const emptyTagDeployment = { ...legacyPinnedDeployment, workerVersionTag: "" };
+await recordArtifactOnceForRun(immutableArtifactDb, "run-legacy-empty-tag", {
+	path: "epochs/0/runtime-pin.json",
+	value: {
+		...legacyRuntimePin,
+		provenance: {
+			...legacyRuntimePin.provenance,
+			runtime: {
+				...legacyRuntimePin.provenance.runtime,
+				...emptyTagDeployment,
+				loaderConfigHash: await buildWorkflowLoaderConfigHash({
+					executionCompatibilityHash:
+						originalCredentialCompatibility.legacyExecutionCompatibilityHash,
+					deployment: emptyTagDeployment,
+					secretVersions: originalSecretVersions,
+				}),
+			},
+		},
+	},
+});
+await assertWorkflowExecutionEpochRuntimePin({
+	db: immutableArtifactDb,
+	runId: "run-legacy-empty-tag",
 	pin: resumedLegacyRuntimePin,
 	legacyCompatibility: {
 		executionCompatibilityHash:
