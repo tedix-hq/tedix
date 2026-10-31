@@ -23,10 +23,7 @@ import {
 } from "@tedix/db/queries/apps";
 import { projectCatalogToolsFromBaseApp } from "@tedix/db/queries/catalog/mcp-tools";
 import { publishMcpListChangedEvents } from "../lib/mcp-subscriptions";
-import {
-	type GoogleDiscoveryImportResult,
-	runGoogleDiscoveryToolImport,
-} from "../services/google-discovery-tool-import";
+import { runGoogleDiscoveryToolImport } from "../services/google-discovery-tool-import";
 import { executeOpenApiToolImport } from "../services/openapi-tool-import";
 
 export type OpenApiSyncWorkflowInput = Partial<OpenApiImportInput> & {
@@ -71,7 +68,7 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 	) {
 		const db = createDbClient(this.env.DB);
 		const payload = event.payload ?? {};
-		return step.do("sync openapi app tools", async () => {
+		const appIds = await step.do("plan openapi app sync", async () => {
 			const appIds = payload.appIds
 				? payload.appIds
 				: payload.appId
@@ -83,10 +80,14 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 							})
 						).map((app) => app.id);
 
-			const results = [];
-			const projections = [];
-			for (const appId of appIds) {
-				try {
+			return [...new Set(appIds)];
+		});
+		const results: OpenApiImportResult[] = [];
+		const projections = [];
+		for (const [index, appId] of appIds.entries()) {
+			let result: OpenApiImportResult | undefined;
+			try {
+				result = await step.do(`import openapi app ${index}`, async () => {
 					const appMetadata = await getAppMetadataById(db, appId);
 					const mcpConfig = parseMetadata(appMetadata).mcpConfig;
 					const useGoogleDiscovery =
@@ -96,7 +97,7 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 							typeof mcpConfig.googleDiscoverySync === "object" &&
 							(mcpConfig.googleDiscoverySync as { enabled?: unknown })
 								.enabled === true);
-					const result = useGoogleDiscovery
+					return useGoogleDiscovery
 						? ((await runGoogleDiscoveryToolImport(db, {
 								appId,
 								dryRun: payload.dryRun ?? false,
@@ -115,18 +116,17 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 											dryRun: payload.dryRun ?? false,
 										},
 							);
-					results.push(result);
+				});
+				if (!result.dryRun) {
+					const projection = await step.do(`project openapi app ${index}`, () =>
+						projectLinkedOpenApiCatalogSnapshot(db, appId),
+					);
+					if (projection) projections.push(projection);
 
-					if (!result.dryRun) {
-						const projection = await projectLinkedOpenApiCatalogSnapshot(
-							db,
-							appId,
-						);
-						if (projection) projections.push(projection);
-
-						// Applied app_tools rewrites change tools/list and the derived
-						// ui:// widget resources for live MCP subscribers.
-						if (result.created + result.updated + result.deleted > 0) {
+					// Applied app_tools rewrites change tools/list and the derived
+					// ui:// widget resources for live MCP subscribers.
+					if (result.created + result.updated + result.deleted > 0) {
+						await step.do(`notify openapi app ${index}`, async () => {
 							const app = await getAppById(db, appId);
 							if (!app)
 								throw new Error(`Imported app ${appId} no longer exists`);
@@ -146,50 +146,66 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 									"notifications/resources/list_changed",
 								],
 							);
-						}
+						});
 					}
-				} catch (error) {
-					results.push({
-						appId,
-						dryRun: payload.dryRun ?? false,
-						totalOperations: 0,
-						planned: 0,
-						created: 0,
-						updated: 0,
-						deleted: 0,
-						inSync: 0,
-						skipped: 0,
-						failed: 1,
-						items: [
-							{
-								toolId: "*",
-								operationId: null,
-								method: "*",
-								path: "*",
-								status: "failed",
-								message: error instanceof Error ? error.message : String(error),
-							},
-						],
-					} satisfies OpenApiImportResult | GoogleDiscoveryImportResult);
 				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				result = await step.do(
+					`record failed openapi app ${index}`,
+					async () =>
+						({
+							appId,
+							dryRun: payload.dryRun ?? false,
+							totalOperations: 0,
+							planned: 0,
+							created: 0,
+							updated: 0,
+							deleted: 0,
+							inSync: 0,
+							skipped: 0,
+							...result,
+							failed: (result?.failed ?? 0) + 1,
+							items: [
+								...(result?.items ?? []),
+								{
+									toolId: "*",
+									operationId: null,
+									method: "*",
+									path: "*",
+									status: "failed",
+									message,
+								},
+							],
+						}) satisfies OpenApiImportResult,
+				);
 			}
-			return {
-				apps: results.length,
-				created: results.reduce((sum, result) => sum + result.created, 0),
-				updated: results.reduce((sum, result) => sum + result.updated, 0),
-				deleted: results.reduce((sum, result) => sum + result.deleted, 0),
-				inSync: results.reduce((sum, result) => sum + result.inSync, 0),
-				failed: results.reduce((sum, result) => sum + result.failed, 0),
-				projections: projections.map((projection) => ({
-					catalogAppId: projection.catalogAppId,
-					sourceAppId: projection.sourceAppId,
-					activeTools: projection.activeTools,
-					added: projection.added,
-					updated: projection.updated,
-					removed: projection.removed,
-				})),
-				results,
-			};
-		});
+			results.push(result);
+		}
+		const failedApps = results.filter((result) => result.failed > 0).length;
+		return {
+			status:
+				failedApps === 0
+					? "succeeded"
+					: failedApps === results.length
+						? "failed"
+						: "partial",
+			failedApps,
+			apps: results.length,
+			created: results.reduce((sum, result) => sum + result.created, 0),
+			updated: results.reduce((sum, result) => sum + result.updated, 0),
+			deleted: results.reduce((sum, result) => sum + result.deleted, 0),
+			inSync: results.reduce((sum, result) => sum + result.inSync, 0),
+			failed: results.reduce((sum, result) => sum + result.failed, 0),
+			projections: projections.map((projection) => ({
+				catalogAppId: projection.catalogAppId,
+				sourceAppId: projection.sourceAppId,
+				activeTools: projection.activeTools,
+				added: projection.added,
+				updated: projection.updated,
+				removed: projection.removed,
+			})),
+			results,
+		};
 	}
 }
