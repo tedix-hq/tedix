@@ -519,6 +519,32 @@ relaunches the worker to close the item. The server
 watcher detects stale lanes. Completion records the reported outcome; it does
 not independently verify the result.
 
+For a human dependency, native sessions can append one `TEDIX_LANE_RESULT`
+JSON line with `outcome: "waiting_on_user"`, the existing `interactionId`,
+observed `requestVersion`, `orgId` and recipient `userId`. Both structured
+outcomes also require the exact `workItemId`, `workVersion`, `contractVersion`
+and accepted `outcomeText` supplied in the brief. A wait cancels only the
+Attempt, leaves Work open and retains the same request across runner restarts
+and Work edits. It creates no new question. Missing, forbidden, expired,
+cancelled or partial response reads keep the hold. A resolving answer, input
+or accepted handoff from the exact human permits fresh admission and another
+assessment; it grants no provider consent or permission. A declined handoff
+does not release the hold.
+
+For an already satisfied CI recovery, use `outcome: "already_satisfied"` with
+the full existing fix `commitSha`, `runId`, `workflowName`, `minimumCommit`
+and `rootCause`. This mode requires GitHub CLI read access to the checkout's
+origin. The accepted outcome must name that workflow and minimum commit.
+The dispatcher checks the latest workflow run on main is successful and
+contains both the fix and minimum commit, and that its commit is on
+`origin/main`. Settlement records `verified_existing` evidence rather than
+claiming the old fix as a new commit. Work and the original live Attempt are
+rechecked before settlement; completion uses the existing recovery fences.
+Unavailable proof stays retained. Ordinary coding success still requires
+new landed commits or the declared completed skill revision. Devin's
+structured Work delivery remains separate; these lines must be carried in
+its delivered note and do not replace its success/failure envelope.
+
 `--max` defaults to 5. One dispatcher per organization and executor runs on a
 machine; retained live process groups consume slots after restart. Completed
 receipts remain fenced. Admission failures and failed or expired executions retain

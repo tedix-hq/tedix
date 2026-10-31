@@ -42,6 +42,7 @@ import { laneChildEnv } from "./lane-child-env";
 import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
 import { beginFileLock } from "./local-file-lock";
+import { LaneOutcomeReadError } from "./lane-result";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
@@ -3556,4 +3557,251 @@ it("does not charge settlement retries as additional execution failures", async 
 		held: false,
 	});
 	expect(f.releases).toHaveLength(1);
+});
+
+describe("structured dispatcher outcomes", () => {
+	const interactionId = "55555555-5555-4555-8555-555555555555";
+	const orgId = "66666666-6666-4666-8666-666666666666";
+	const common = () => ({
+		workItemId: item().id,
+		workVersion: 2,
+		contractVersion: 1,
+		outcomeText: item().acceptanceContract!.doneLooksLike,
+	});
+	const waiting = () => ({
+		...common(),
+		outcome: "waiting_on_user",
+		interactionId,
+		requestVersion: 1,
+		orgId,
+		userId: "fictional-owner",
+	});
+	const existing = () => ({
+		...common(),
+		outcome: "already_satisfied",
+		commitSha: "b".repeat(40),
+		runId: 123,
+		workflowName: "Full suite hourly",
+		minimumCommit: "abcdef1",
+		rootCause: "Fixture parity mismatch",
+	});
+	function liveFence(f: ReturnType<typeof fixture>) {
+		const saved = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		f.control.history.data = [
+			{
+				id: saved.attemptId,
+				externalSessionKey: saved.session,
+				outcome: null,
+				expiresAt: new Date(Date.now() + 300000).toISOString(),
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		return saved;
+	}
+	it("retains one human request across ticks, restart and Work edits while fresh Work advances", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		Object.assign(f.items[0]!, { workKind: "coding", orgId });
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(waiting())}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const path = join(f.dir, `${item().id}-2.json`);
+		expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+			phase: "settled",
+			outcome: "cancelled",
+			laneResult: waiting(),
+		});
+		expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(0);
+		expect(
+			f.events.filter((e) => e.verb === "settle")[0]!.input?.metadata,
+		).toMatchObject({ laneResult: waiting() });
+		const cli = f.deps.cli!;
+		f.deps.cli = async <T>(
+			args: string[],
+			env: NodeJS.ProcessEnv,
+		): Promise<T> => {
+			if (args[5] === "interaction-get")
+				throw new CliReadError("Owner only", "FORBIDDEN");
+			return cli<T>(args, env);
+		};
+		f.items[0]!.version = 3;
+		f.items.push(item(2));
+		f.control.history.data = [];
+		f.control.finalMessage = "Fresh result recorded";
+		const restarted = f.restart();
+		await restarted.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await restarted.drain();
+		await restarted.tick();
+		await restarted.drain();
+		expect(
+			f.events.filter(
+				(e) =>
+					e.verb === "start" && e.args[4] === "work" && e.args[6] === item().id,
+			),
+		).toHaveLength(1);
+		expect(
+			f.events.some((e) => e.verb === "complete" && e.args[6] === item(2).id),
+		).toBe(true);
+		expect(
+			f.events.some((e) =>
+				["interaction-create", "interaction-respond"].includes(e.verb),
+			),
+		).toBe(false);
+	});
+	it("consumes a resolving human response once, then uses fresh admission on the same Work revision", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		Object.assign(f.items[0]!, { workKind: "coding", orgId });
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(waiting())}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = {
+			dispatchVersion: 2,
+			laneResult: waiting(),
+		};
+		const at = "2026-10-31T12:00:00.000Z";
+		const responseId = "77777777-7777-4777-8777-777777777777";
+		const cli = f.deps.cli!;
+		f.deps.cli = async <T>(
+			args: string[],
+			env: NodeJS.ProcessEnv,
+		): Promise<T> => {
+			if (args[5] !== "interaction-get") return cli<T>(args, env);
+			return {
+				request: {
+					id: interactionId,
+					orgId,
+					workItemId: item().id,
+					caseId: null,
+					projectId: null,
+					kind: "question",
+					subject: "Confirm controls",
+					prompt: "Confirm controls",
+					requestedFromType: "user",
+					requestedFromId: "fictional-owner",
+					creatorType: "user",
+					creatorId: "requester",
+					creatorSessionId: null,
+					state: "resolved",
+					requestedAt: at,
+					dueAt: null,
+					expiresAt: null,
+					resolvedAt: at,
+					version: 2,
+					metadata: {},
+				},
+				effectiveState: "resolved",
+				canRespond: false,
+				canCancel: false,
+				responses: {
+					data: [
+						{
+							id: responseId,
+							requestId: interactionId,
+							responseKind: "answer",
+							body: "Controls confirmed",
+							artifactRef: null,
+							artifactVersion: null,
+							artifactDigest: null,
+							resolvesRequest: true,
+							respondedByType: "user",
+							respondedById: "fictional-owner",
+							respondedBySessionId: null,
+							respondedAt: at,
+							metadata: {},
+						},
+					],
+					hasMore: false,
+					nextCursor: null,
+				},
+			} as T;
+		};
+		f.control.finalMessage = "Fresh verification and follow-up change";
+		f.control.commits = ["b".repeat(40)];
+		const resumed = f.restart();
+		await resumed.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await resumed.drain();
+		await resumed.tick();
+		await resumed.drain();
+		const starts = f.events.filter(
+			(e) => e.verb === "start" && e.args[4] === "work",
+		);
+		expect(starts).toHaveLength(2);
+		expect(starts[1]!.env.TEDIX_AGENT_SESSION).not.toBe(
+			starts[0]!.env.TEDIX_AGENT_SESSION,
+		);
+		expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+		expect(f.releases).toHaveLength(2);
+	});
+	it.each(["verified", "unavailable", "stale-session", "stale-version"])(
+		"fences preexisting completion: %s",
+		async (mode) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.workKind = "coding";
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(existing())}`;
+			f.deps.verifyExisting = () => {
+				if (mode === "unavailable")
+					throw new LaneOutcomeReadError("Provider unavailable");
+				return {
+					mode: "verified_existing",
+					commitSha: "b".repeat(40),
+					runId: 123,
+					runAttempt: 1,
+					runCommitSha: "c".repeat(40),
+					evidenceUri: "https://github.com/example/project/actions/runs/123",
+					rootCause: "Fixture parity mismatch",
+				};
+			};
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			liveFence(f);
+			if (mode === "stale-session")
+				f.control.history.data[0]!.externalSessionKey = "codex:foreign";
+			if (mode === "stale-version") f.items[0] = { ...f.items[0]!, version: 3 };
+			f.releases[0]!();
+			await dispatcher.drain();
+			const settlements = f.events.filter((e) => e.verb === "settle");
+			if (mode === "verified") {
+				expect(settlements).toHaveLength(1);
+				expect(settlements[0]!.args).not.toContain("--commit");
+				expect(settlements[0]!.input?.metadata).toMatchObject({
+					settlement: { mode: "verified_existing", commitSha: "b".repeat(40) },
+				});
+				// Completion rechecks the exact succeeded Attempt through the existing recovery path.
+				expect(
+					JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
+						.completionPending,
+				).toBe(true);
+				f.control.history.data[0]!.outcome = "succeeded";
+				const path = join(f.dir, `${item().id}-2.json`);
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				saved.completionRetryAt = 0;
+				writeFileSync(path, JSON.stringify(saved));
+				await f.restart().tick();
+				expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+			} else {
+				expect(settlements).toHaveLength(0);
+				expect(
+					JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
+						.pendingCommitProof,
+				).toBeDefined();
+			}
+			expect(f.releases).toHaveLength(1);
+		},
+	);
 });
