@@ -305,7 +305,7 @@ try {
 			await first.focus();
 			await page.keyboard.press("Enter");
 			const drawer = page.getByRole("dialog");
-			await drawer.getByText("What came back", { exact: true }).waitFor();
+			await drawer.getByText("Result", { exact: true }).waitFor();
 			await drawer.getByRole("button", { name: "Item 1", exact: true }).click();
 			await drawer.getByText("paid", { exact: true }).waitFor();
 			assert.equal(
@@ -453,9 +453,31 @@ try {
 				.getByText("Find buying questions", { exact: true })
 				.waitFor();
 			await drawer.getByText("Screen results", { exact: true }).waitFor();
-			await drawer.getByRole("button", { name: "Item 1", exact: true }).click();
-			await drawer.getByText("Setup", { exact: true }).waitFor();
-			await drawer.getByText("35", { exact: true }).waitFor();
+			await drawer
+				.getByText("Settings · version 35", { exact: true })
+				.waitFor();
+			const order = await drawer.evaluate((element) =>
+				Array.from(element.querySelectorAll("h3, button"))
+					.map((node) => node.textContent?.trim())
+					.filter((text) =>
+						[
+							"Purpose",
+							"Input sources",
+							"Recorded inputs and instructions",
+							"Activity",
+							"Result",
+							"Used next",
+						].includes(text ?? ""),
+					),
+			);
+			assert.deepEqual(order, [
+				"Purpose",
+				"Input sources",
+				"Recorded inputs and instructions",
+				"Activity",
+				"Result",
+				"Used next",
+			]);
 			await drawer
 				.getByRole("button", { name: "Recorded inputs and instructions" })
 				.click();
@@ -521,7 +543,7 @@ try {
 				await technicalTrigger.getAttribute("aria-expanded"),
 				"true",
 			);
-			await drawer.locator("pre").waitFor();
+			await drawer.locator("pre").last().waitFor();
 			await drawer.evaluate(async (element) => {
 				await Promise.all(
 					element
