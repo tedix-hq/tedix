@@ -69,7 +69,7 @@ import {
 import { assertWorkflowExecutionEpochRuntimePin } from "./workflow-runtime-pin";
 import {
 	buildWorkflowExecutionCompatibility,
-	canonicalWorkflowRuntimeJson,
+	buildWorkflowLoaderConfigHash,
 } from "./workflow-runtime-compatibility";
 
 interface SkillWorkflowEnv {
@@ -238,35 +238,38 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 			// This hash owns whether an already-started execution epoch can safely
 			// resume. Service-token rotation changes the native tedi task key, so it
 			// must fail closed before tenant code can repeat a dispatch.
-			const { executionCompatibilityHash, serviceTokenVersion } =
-				await buildWorkflowExecutionCompatibility({
-					serviceToken: env.PLATFORM_SERVICE_TOKEN,
-					surface: {
-						source: { workflowSha256, skillDocSha256 },
-						manifest,
-						factory,
-						routing: {
-							namespaceToSlug,
-							aggregateGateway,
-							evidenceNamespaceToSlug,
-						},
-						mcpBaseHost,
-						platformEvidenceManifest: PLATFORM_EVIDENCE_MANIFEST,
-						runtimeSurface: {
-							bridgeCompatibilityVersion: WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
-							dispatchShimVersion: DISPATCH_SHIM_VERSION,
-							compatibilityDate: COMPATIBILITY_DATE,
-							compatibilityFlags: TENANT_COMPATIBILITY_FLAGS,
-							dynamicWorkflowsVersion: DYNAMIC_WORKFLOWS_VERSION,
-							tenantLimits: TENANT_WORKER_LIMITS,
-							modules: {
-								dispatchShimSha256,
-								workflowContextSha256,
-								workflowFetchGateSha256,
-							},
+			const {
+				executionCompatibilityHash,
+				legacyExecutionCompatibilityHash,
+				serviceTokenVersion,
+			} = await buildWorkflowExecutionCompatibility({
+				serviceToken: env.PLATFORM_SERVICE_TOKEN,
+				surface: {
+					source: { workflowSha256, skillDocSha256 },
+					manifest,
+					factory,
+					routing: {
+						namespaceToSlug,
+						aggregateGateway,
+						evidenceNamespaceToSlug,
+					},
+					mcpBaseHost,
+					platformEvidenceManifest: PLATFORM_EVIDENCE_MANIFEST,
+					runtimeSurface: {
+						bridgeCompatibilityVersion: WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
+						dispatchShimVersion: DISPATCH_SHIM_VERSION,
+						compatibilityDate: COMPATIBILITY_DATE,
+						compatibilityFlags: TENANT_COMPATIBILITY_FLAGS,
+						dynamicWorkflowsVersion: DYNAMIC_WORKFLOWS_VERSION,
+						tenantLimits: TENANT_WORKER_LIMITS,
+						modules: {
+							dispatchShimSha256,
+							workflowContextSha256,
+							workflowFetchGateSha256,
 						},
 					},
-				});
+				},
+			});
 			const runtimeProvenance = {
 				workerVersionId: env.WORKER_VERSION.id,
 				workerVersionTag: env.WORKER_VERSION.tag,
@@ -286,22 +289,21 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 			// to identical WorkerCode/config. Deployment and credential versions
 			// therefore select a fresh immutable Loader even when the separately
 			// computed execution surface remains compatible with an in-flight epoch.
-			const loaderConfigHash = await sha256Hex(
-				canonicalWorkflowRuntimeJson({
-					executionCompatibilityHash,
-					deployment: {
-						workerVersionId: runtimeProvenance.workerVersionId,
-						workerVersionTag: runtimeProvenance.workerVersionTag,
-						workerVersionTimestamp: runtimeProvenance.workerVersionTimestamp,
-					},
-					// One-way versions ensure secret rotation selects a new Loader id.
-					// The raw credentials never enter the digest payload or artifacts.
-					secretVersions: {
-						serviceToken: serviceTokenVersion,
-						outboundCredential: outboundCredentialVersion,
-					},
-				}),
-			);
+			const secretVersions = {
+				serviceToken: serviceTokenVersion,
+				outboundCredential: outboundCredentialVersion,
+			};
+			const loaderConfigHash = await buildWorkflowLoaderConfigHash({
+				executionCompatibilityHash,
+				deployment: {
+					workerVersionId: runtimeProvenance.workerVersionId,
+					workerVersionTag: runtimeProvenance.workerVersionTag,
+					workerVersionTimestamp: runtimeProvenance.workerVersionTimestamp,
+				},
+				// One-way versions ensure secret rotation selects a new Loader id.
+				// The raw credentials never enter the digest payload or artifacts.
+				secretVersions,
+			});
 			const provenance = {
 				source: {
 					workflowSha256,
@@ -319,6 +321,14 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 						executionEpoch: snapshot.executionEpoch,
 						provenance,
 					},
+					...(manifest.network
+						? {}
+						: {
+								legacyCompatibility: {
+									executionCompatibilityHash: legacyExecutionCompatibilityHash,
+									secretVersions,
+								},
+							}),
 				}),
 			);
 			console.log(

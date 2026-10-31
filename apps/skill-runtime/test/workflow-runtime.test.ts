@@ -30,7 +30,10 @@ import {
 	tenantWorkflowModuleSource,
 	WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
 } from "../src/runner";
-import { DYNAMIC_WORKFLOWS_VERSION } from "../src/runner-context";
+import {
+	DYNAMIC_WORKFLOWS_VERSION,
+	type SkillRuntimeExportFactories,
+} from "../src/runner-context";
 import {
 	FACTORY_WORK_DEFAULTS_SOURCE,
 	MCP_COMPLETION_FAILURE_INSPECTOR_SOURCE,
@@ -83,7 +86,11 @@ import {
 } from "../src/workflow-restart";
 import { isWorkflowRetirementError } from "../src/workflow-retirement";
 import { assertWorkflowExecutionEpochRuntimePin } from "../src/workflow-runtime-pin";
-import { buildWorkflowExecutionCompatibility } from "../src/workflow-runtime-compatibility";
+import {
+	buildWorkflowExecutionCompatibility,
+	buildWorkflowLoaderConfigHash,
+	canonicalWorkflowRuntimeJson,
+} from "../src/workflow-runtime-compatibility";
 import {
 	workflowSubmissionHasAbortIntent,
 	workflowSubmissionOutcomeMatches,
@@ -351,9 +358,18 @@ const { mock } = await import("bun:test");
 mock.module("cloudflare:workers", () => ({
 	WorkerEntrypoint: class {},
 }));
+type CapturedSkillWorkflowFactory = (input: {
+	env: unknown;
+	metadata: unknown;
+	ctx: { exports: unknown };
+}) => Promise<unknown>;
+let capturedSkillWorkflowFactory: CapturedSkillWorkflowFactory | null = null;
 mock.module("@cloudflare/dynamic-workflows", () => ({
 	DynamicWorkflowBinding: class {},
-	createDynamicWorkflowEntrypoint: () => class {},
+	createDynamicWorkflowEntrypoint: (factory: CapturedSkillWorkflowFactory) => {
+		capturedSkillWorkflowFactory = factory;
+		return class {};
+	},
 	wrapWorkflowBinding: (binding: unknown) => binding,
 }));
 const {
@@ -361,6 +377,11 @@ const {
 	workflowControlRestartConflict,
 	workflowControlRetiredConflict,
 } = await import("../src/control-admission");
+await import("../src/skill-workflow");
+if (!capturedSkillWorkflowFactory) {
+	throw new Error("SkillWorkflow factory was not registered");
+}
+const skillWorkflowFactory = capturedSkillWorkflowFactory;
 const { reconcileWorkflowAbortIntent } = await import("../src/reconciler");
 
 const abortSubmission = {
@@ -2074,10 +2095,299 @@ assert.notEqual(
 	rotatedCredentialCompatibility.serviceTokenVersion,
 	originalCredentialCompatibility.serviceTokenVersion,
 );
+assert.equal(
+	originalCredentialCompatibility.legacyExecutionCompatibilityHash,
+	await sha256Hex(canonicalWorkflowRuntimeJson(compatibilitySurface)),
+);
+assert.equal(
+	rotatedCredentialCompatibility.legacyExecutionCompatibilityHash,
+	originalCredentialCompatibility.legacyExecutionCompatibilityHash,
+);
 assert.doesNotMatch(
 	JSON.stringify(originalCredentialCompatibility),
 	/original-service-token/,
 );
+
+const legacyPinnedDeployment = {
+	workerVersionId: "worker-legacy",
+	workerVersionTag: "production",
+	workerVersionTimestamp: "2026-07-12T00:00:00.000Z",
+};
+const originalSecretVersions = {
+	serviceToken: originalCredentialCompatibility.serviceTokenVersion,
+	outboundCredential: null,
+};
+const legacyLoaderConfigHash = await buildWorkflowLoaderConfigHash({
+	executionCompatibilityHash:
+		originalCredentialCompatibility.legacyExecutionCompatibilityHash,
+	deployment: legacyPinnedDeployment,
+	secretVersions: originalSecretVersions,
+});
+const legacyRuntimePin = {
+	executionEpoch: 0,
+	provenance: {
+		source: {
+			workflowSha256: "1".repeat(64),
+			skillDocSha256: "2".repeat(64),
+			skillRevision: 7,
+			skillSlug: "legacy-runtime-pin-proof",
+		},
+		runtime: {
+			...legacyPinnedDeployment,
+			executionCompatibilityHash:
+				originalCredentialCompatibility.legacyExecutionCompatibilityHash,
+			dispatchShimVersion: "v1",
+			compatibilityDate: "2026-06-11",
+			dynamicWorkflowsVersion: "0.1.1",
+			loaderConfigHash: legacyLoaderConfigHash,
+			tenantCpuMs: 60_000,
+			tenantSubRequests: 1_000,
+		},
+	},
+};
+await assertWorkflowExecutionEpochRuntimePin({
+	db: immutableArtifactDb,
+	runId: "run-legacy-runtime-pin",
+	pin: legacyRuntimePin,
+});
+const resumedLegacyRuntimePin = {
+	...legacyRuntimePin,
+	provenance: {
+		...legacyRuntimePin.provenance,
+		runtime: {
+			...legacyRuntimePin.provenance.runtime,
+			workerVersionId: "worker-current",
+			workerVersionTimestamp: "2026-07-13T00:00:00.000Z",
+			executionCompatibilityHash:
+				originalCredentialCompatibility.executionCompatibilityHash,
+			loaderConfigHash: await buildWorkflowLoaderConfigHash({
+				executionCompatibilityHash:
+					originalCredentialCompatibility.executionCompatibilityHash,
+				deployment: {
+					workerVersionId: "worker-current",
+					workerVersionTag: "production",
+					workerVersionTimestamp: "2026-07-13T00:00:00.000Z",
+				},
+				secretVersions: originalSecretVersions,
+			}),
+		},
+	},
+};
+await assertWorkflowExecutionEpochRuntimePin({
+	db: immutableArtifactDb,
+	runId: "run-legacy-runtime-pin",
+	pin: resumedLegacyRuntimePin,
+	legacyCompatibility: {
+		executionCompatibilityHash:
+			originalCredentialCompatibility.legacyExecutionCompatibilityHash,
+		secretVersions: originalSecretVersions,
+	},
+});
+const rotatedSecretVersions = {
+	serviceToken: rotatedCredentialCompatibility.serviceTokenVersion,
+	outboundCredential: null,
+};
+await assert.rejects(
+	assertWorkflowExecutionEpochRuntimePin({
+		db: immutableArtifactDb,
+		runId: "run-legacy-runtime-pin",
+		pin: {
+			...resumedLegacyRuntimePin,
+			provenance: {
+				...resumedLegacyRuntimePin.provenance,
+				runtime: {
+					...resumedLegacyRuntimePin.provenance.runtime,
+					executionCompatibilityHash:
+						rotatedCredentialCompatibility.executionCompatibilityHash,
+					loaderConfigHash: await buildWorkflowLoaderConfigHash({
+						executionCompatibilityHash:
+							rotatedCredentialCompatibility.executionCompatibilityHash,
+						deployment: {
+							workerVersionId: "worker-rotated",
+							workerVersionTag: "production",
+							workerVersionTimestamp: "2026-07-14T00:00:00.000Z",
+						},
+						secretVersions: rotatedSecretVersions,
+					}),
+				},
+			},
+		},
+		legacyCompatibility: {
+			executionCompatibilityHash:
+				rotatedCredentialCompatibility.legacyExecutionCompatibilityHash,
+			secretVersions: rotatedSecretVersions,
+		},
+	}),
+	/WORKFLOW_RUNTIME_DRIFT_BLOCKED/,
+);
+
+// Exercise the real static factory twice. A rotated token must fail at the
+// runtime pin before the Loader can compile tenant code or expose a dispatcher.
+{
+	const factorySqlite = new Database(":memory:");
+	factorySqlite.exec(`
+		CREATE TABLE skill_runs (
+			id TEXT PRIMARY KEY NOT NULL,
+			skill_id TEXT NOT NULL,
+			tedi_id TEXT NOT NULL,
+			organization_id TEXT NOT NULL,
+			params TEXT,
+			execution_epoch INTEGER NOT NULL DEFAULT 0,
+			runtime_environment TEXT NOT NULL,
+			workflow_retired_at TEXT,
+			error TEXT,
+			started_at TEXT NOT NULL,
+			skill_slug TEXT,
+			skill_revision INTEGER,
+			workflow_source TEXT,
+			skill_doc TEXT,
+			capability_manifest TEXT,
+			resource_access_envelope TEXT,
+			created_by TEXT,
+			work_item_id TEXT,
+			origin_tedi_run_id TEXT,
+			certification INTEGER DEFAULT 0
+		);
+		CREATE TABLE skill_run_artifacts (
+			id TEXT PRIMARY KEY NOT NULL,
+			run_id TEXT NOT NULL,
+			path TEXT NOT NULL,
+			mime_type TEXT NOT NULL DEFAULT 'application/json',
+			size_bytes INTEGER NOT NULL DEFAULT 0,
+			content_inline TEXT,
+			content_r2_key TEXT,
+			sha256 TEXT,
+			attempt INTEGER NOT NULL DEFAULT 1,
+			outcome TEXT NOT NULL DEFAULT 'success',
+			created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(run_id, path)
+		);
+		CREATE TABLE tedis (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL,
+			slug TEXT NOT NULL
+		);
+		CREATE TABLE apps (
+			id TEXT PRIMARY KEY,
+			organization_id TEXT NOT NULL,
+			slug TEXT NOT NULL,
+			metadata TEXT
+		);
+	`);
+	const pinnedManifest = {
+		mcp: {},
+		network: false,
+		rationale: { mode: "off" },
+		expectedAnnotations: { destructive: false, readOnly: false },
+		grounding: { required: false, minCausalScore: 1, enforce: "warn" },
+		schedule: null,
+		reliability: null,
+		reason: { enabled: false, maxCalls: null },
+	};
+	factorySqlite
+		.prepare(
+			`INSERT INTO skill_runs (
+				id, skill_id, tedi_id, organization_id, params, execution_epoch,
+				runtime_environment, started_at, skill_slug, skill_revision,
+				workflow_source, skill_doc, capability_manifest
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		)
+		.run(
+			"run-factory-token-rotation",
+			"skill-1",
+			"tedi-1",
+			"org-1",
+			"{}",
+			0,
+			"production",
+			"2026-07-12T00:00:00.000Z",
+			"factory-token-rotation",
+			1,
+			"export default { async run() { return null; } };",
+			"---",
+			JSON.stringify(pinnedManifest),
+		);
+	factorySqlite
+		.prepare(
+			`INSERT INTO skill_run_artifacts (
+				id, run_id, path, size_bytes, content_inline, sha256
+			) VALUES (?, ?, 'factory/context.json', 4, 'null', ?)`,
+		)
+		.run(
+			"factory-context-pin",
+			"run-factory-token-rotation",
+			await sha256Hex("null"),
+		);
+	factorySqlite
+		.prepare("INSERT INTO tedis VALUES (?, ?, ?)")
+		.run("tedi-1", "org-1", "operator");
+	factorySqlite
+		.prepare("INSERT INTO apps VALUES (?, ?, ?, ?)")
+		.run("firecrawl", "org-1", "firecrawl", null);
+	factorySqlite.prepare("INSERT INTO apps VALUES (?, ?, ?, ?)").run(
+		"aggregate",
+		"org-1",
+		"org-unified",
+		JSON.stringify({
+			mcpConfig: {
+				authMode: "authenticated",
+				codeMode: true,
+				aggregateApps: [{ slug: "tedix" }],
+				aggregateTedis: [{ slug: "operator", namespace: "operator" }],
+			},
+		}),
+	);
+	const factoryDb = sqliteD1(factorySqlite);
+	let loaderCalls = 0;
+	const loader = {
+		get(_key: string, getCode: () => unknown) {
+			loaderCalls++;
+			getCode();
+			return {
+				getEntrypoint: () => ({ run: async () => null }),
+			};
+		},
+	} as unknown as WorkerLoader;
+	const bridgeFactories = new Proxy(
+		{},
+		{ get: () => () => ({}) },
+	) as SkillRuntimeExportFactories;
+	const factoryInput = (serviceToken: string, workerVersionId: string) => ({
+		env: {
+			LOADER: loader,
+			DB: factoryDb,
+			SKILL_ARTIFACTS: {} as R2Bucket,
+			VIDEO_BUCKET: {} as R2Bucket,
+			MCP_SERVICE: {} as Fetcher,
+			PLATFORM_SERVICE_TOKEN: serviceToken,
+			WORKER_VERSION: {
+				id: workerVersionId,
+				tag: "production",
+				timestamp: "2026-07-12T00:00:00.000Z",
+			},
+			ENVIRONMENT: "production" as const,
+		},
+		metadata: {
+			skillId: "skill-1",
+			tediId: "tedi-1",
+			orgId: "org-1",
+			runId: "run-factory-token-rotation",
+		},
+		ctx: { exports: bridgeFactories },
+	});
+	await skillWorkflowFactory(
+		factoryInput("original-service-token", "worker-original"),
+	);
+	assert.equal(loaderCalls, 1);
+	await assert.rejects(
+		skillWorkflowFactory(
+			factoryInput("rotated-service-token", "worker-rotated"),
+		),
+		/WORKFLOW_RUNTIME_DRIFT_BLOCKED/,
+	);
+	assert.equal(loaderCalls, 1);
+	factorySqlite.close();
+}
 
 const runtimePin = {
 	executionEpoch: 0,

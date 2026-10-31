@@ -1,5 +1,6 @@
 import { recordArtifactOnceForRun } from "./artifact-immutability";
 import { getSkillRunArtifactInlineContent } from "./db";
+import { buildWorkflowLoaderConfigHash } from "./workflow-runtime-compatibility";
 
 export interface WorkflowRuntimePin {
 	executionEpoch: number;
@@ -30,6 +31,9 @@ interface StoredRuntimePin {
 		runtime?: {
 			loaderConfigHash?: unknown;
 			executionCompatibilityHash?: unknown;
+			workerVersionId?: unknown;
+			workerVersionTag?: unknown;
+			workerVersionTimestamp?: unknown;
 		};
 	};
 }
@@ -37,6 +41,11 @@ interface StoredRuntimePin {
 interface StoredRuntimeIdentity {
 	loaderConfigHash: string;
 	executionCompatibilityHash: string;
+	deployment: {
+		workerVersionId: string;
+		workerVersionTag: string;
+		workerVersionTimestamp: string;
+	};
 }
 
 function runtimePinPath(executionEpoch: number): string {
@@ -62,15 +71,27 @@ async function readPinnedRuntimeIdentity(
 		const loaderConfigHash = parsed.provenance?.runtime?.loaderConfigHash;
 		const executionCompatibilityHash =
 			parsed.provenance?.runtime?.executionCompatibilityHash;
+		const workerVersionId = parsed.provenance?.runtime?.workerVersionId;
+		const workerVersionTag = parsed.provenance?.runtime?.workerVersionTag;
+		const workerVersionTimestamp =
+			parsed.provenance?.runtime?.workerVersionTimestamp;
 		if (
 			typeof loaderConfigHash === "string" &&
 			loaderConfigHash.length > 0 &&
 			typeof executionCompatibilityHash === "string" &&
-			executionCompatibilityHash.length > 0
+			executionCompatibilityHash.length > 0 &&
+			typeof workerVersionId === "string" &&
+			typeof workerVersionTag === "string" &&
+			typeof workerVersionTimestamp === "string"
 		) {
 			return {
 				loaderConfigHash,
 				executionCompatibilityHash,
+				deployment: {
+					workerVersionId,
+					workerVersionTag,
+					workerVersionTimestamp,
+				},
 			};
 		}
 	} catch {
@@ -94,6 +115,13 @@ export async function assertWorkflowExecutionEpochRuntimePin(input: {
 	db: D1Database;
 	runId: string;
 	pin: WorkflowRuntimePin;
+	legacyCompatibility?: {
+		executionCompatibilityHash: string;
+		secretVersions: {
+			serviceToken: string;
+			outboundCredential: string | null;
+		};
+	};
 }): Promise<void> {
 	const path = runtimePinPath(input.pin.executionEpoch);
 	await recordArtifactOnceForRun(input.db, input.runId, {
@@ -107,14 +135,31 @@ export async function assertWorkflowExecutionEpochRuntimePin(input: {
 
 	const observedExecutionCompatibilityHash =
 		input.pin.provenance.runtime.executionCompatibilityHash;
-	if (
+	let compatibilityPolicy: "compatible" | "legacy-compatible" | null =
 		pinned.executionCompatibilityHash === observedExecutionCompatibilityHash
+			? "compatible"
+			: null;
+	if (
+		!compatibilityPolicy &&
+		input.legacyCompatibility?.executionCompatibilityHash ===
+			pinned.executionCompatibilityHash
 	) {
+		const reconstructedPinnedLoaderConfigHash =
+			await buildWorkflowLoaderConfigHash({
+				executionCompatibilityHash: pinned.executionCompatibilityHash,
+				deployment: pinned.deployment,
+				secretVersions: input.legacyCompatibility.secretVersions,
+			});
+		if (reconstructedPinnedLoaderConfigHash === pinned.loaderConfigHash) {
+			compatibilityPolicy = "legacy-compatible";
+		}
+	}
+	if (compatibilityPolicy) {
 		await recordArtifactOnceForRun(input.db, input.runId, {
 			path: `epochs/${input.pin.executionEpoch}/runtime-compatible/${observedLoaderConfigHash}.json`,
 			value: {
 				...input.pin,
-				policy: "compatible",
+				policy: compatibilityPolicy,
 				pinnedLoaderConfigHash: pinned.loaderConfigHash,
 				pinnedExecutionCompatibilityHash: pinned.executionCompatibilityHash,
 			},
