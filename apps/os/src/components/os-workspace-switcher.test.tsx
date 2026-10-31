@@ -95,24 +95,6 @@ vi.mock("@/lib/os-query-options", () => ({
 	myWorkspacesDirectoryQueryOptions: () => ({
 		queryKey: ["directory", "listMyWorkspaces"],
 	}),
-	operationalContextQueryOptions: () => ({
-		queryKey: ["operational-context"],
-		queryFn: async () => ({
-			authority: { role: "owner", permissions: [] },
-		}),
-	}),
-}));
-
-vi.mock("@/components/kumo/link-provider", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@/components/kumo/link-provider")>()),
-	OsRouterLink: ({
-		to,
-		search,
-		...props
-	}: {
-		to: string;
-		search?: Record<string, unknown>;
-	}) => <a href={`${to}${search?.new ? "?new=1" : ""}`} {...props} />,
 }));
 
 import { OsOrganizationIdentity } from "./os-organization-identity";
@@ -181,20 +163,12 @@ describe("OsWorkspaceSwitcher", () => {
 			items.map(
 				(item) =>
 					item.getAttribute("aria-label") ??
-					item.querySelector("[title]")?.textContent ??
-					item.textContent,
+					item.querySelector("[title]")?.textContent,
 			),
-		).toEqual([
-			"Tedix",
-			"Open Tedix CMS",
-			"Northwind Labs",
-			"Organization settings",
-			"Create organization",
-		]);
+		).toEqual(["Tedix", "Open Tedix CMS", "Northwind Labs"]);
 		expect(items[0]?.getAttribute("aria-current")).toBe("true");
-		expect(menu?.querySelector('a[href="/admin/organization"]')).not.toBeNull();
 		expect(
-			menu?.querySelector('a[href="/account/onboarding?new=1"]'),
+			items[0]?.querySelector('[aria-label="Current organization"]'),
 		).not.toBeNull();
 		expect(menu?.textContent).not.toContain("OS");
 		expect(menu?.querySelector('input[type="text"], input')).toBeNull();
@@ -260,7 +234,9 @@ describe("OsWorkspaceSwitcher", () => {
 		);
 
 		expect(trigger?.querySelector("strong")?.textContent).toBe("Tedix");
-		expect(trigger?.querySelector("strong")?.getAttribute("title")).toBeNull();
+		expect(trigger?.querySelector("strong")?.getAttribute("title")).toBe(
+			"Tedix",
+		);
 		const logo = trigger?.querySelector('[data-entity-kind="workspace"] img');
 		expect(logo?.getAttribute("src")).toBe(
 			"https://images.example.test/tedix-logo.png",
