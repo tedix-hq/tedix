@@ -214,6 +214,7 @@ export async function dispatchDueSkillSchedules(
 				throw new Error("scheduled skill or owning tedi no longer matches");
 			}
 			if (
+				skill.tags?.includes("workflow-improvement") ||
 				!["active", "proven", "crystallized"].includes(
 					skill.lifecycleState ?? "",
 				)
@@ -224,7 +225,8 @@ export async function dispatchDueSkillSchedules(
 					scheduleId: schedule.id,
 					skillId: skill.id,
 					status: "suppressed",
-					error: "Skill is not active; schedule paused until activation",
+					error:
+						"Skill is inactive or an improvement proposal; schedule paused",
 				});
 				continue;
 			}

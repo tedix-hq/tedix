@@ -23,6 +23,7 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
         CREATE TABLE policy_packs (id TEXT PRIMARY KEY, organization_id TEXT, definition TEXT);
         INSERT INTO tedis VALUES ('tedi-1', 'org-1', 'policy-1');
         INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false},"record":{"evalRequired":false}}}');
+        CREATE TABLE skill_schedules (id TEXT PRIMARY KEY, skill_id TEXT, organization_id TEXT, enabled INTEGER, updated_at TEXT);
         CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT, skill_id TEXT, skill_revision INTEGER, status TEXT, result TEXT);
         CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT);
 		CREATE TABLE skill_entries (
@@ -160,12 +161,13 @@ function fixture(options?: { onPrepare?: (query: string) => void }) {
 	const skillRow = (id: string) =>
 		sqlite
 			.prepare(
-				`SELECT lifecycle_state as lifecycleState, revision,
+				`SELECT content, lifecycle_state as lifecycleState, revision,
 					revision_reasoning as revisionReasoning,
 					pace_layer as paceLayer
 				 FROM skill_entries WHERE id = ?`,
 			)
 			.get(id) as {
+			content: string;
 			lifecycleState: string;
 			revision: number;
 			revisionReasoning: string | null;
@@ -571,6 +573,74 @@ describe("assertSkillLifecycleTransition via updateSkillEntry", () => {
 			},
 		);
 		expect(skillRow("skill-1").lifecycleState).toBe("active");
+	});
+
+	it("archives the manifest and timer together and keeps restore paused", async () => {
+		const { db, sqlite, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "skill-1", lifecycleState: "active" });
+		const content =
+			'---\nname: nightly\ncapabilities:\n  schedule:\n    cron: "0 8 * * *"\n---\n# Keep this body\n';
+		sqlite
+			.prepare("UPDATE skill_entries SET content = ? WHERE id = 'skill-1'")
+			.run(content);
+		sqlite.exec(
+			"INSERT INTO skill_schedules VALUES ('timer', 'skill-1', 'org-1', 1, null)",
+		);
+		await updateSkillEntry(db, "skill-1", {
+			lifecycleState: "archived",
+			revision: 2,
+		});
+		expect(skillRow("skill-1")).toMatchObject({
+			lifecycleState: "archived",
+			revision: 2,
+		});
+		expect(skillRow("skill-1").content).toContain("enabled: false");
+		expect(skillRow("skill-1").content).toContain("---\n# Keep this body\n");
+		expect(sqlite.prepare("SELECT enabled FROM skill_schedules").get()).toEqual(
+			{ enabled: 0 },
+		);
+		await updateSkillEntry(db, "skill-1", { lifecycleState: "draft" });
+		expect(skillRow("skill-1").content).toContain("enabled: false");
+		expect(sqlite.prepare("SELECT enabled FROM skill_schedules").get()).toEqual(
+			{ enabled: 0 },
+		);
+	});
+
+	it("rolls back the archive revision when pausing its timer fails", async () => {
+		const { db, sqlite, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "skill-1", lifecycleState: "active" });
+		sqlite.exec(`
+			INSERT INTO skill_schedules VALUES ('timer', 'skill-1', 'org-1', 1, null);
+			CREATE TRIGGER refuse_pause BEFORE UPDATE ON skill_schedules BEGIN SELECT RAISE(ABORT, 'pause failed'); END;
+		`);
+		await expect(
+			updateSkillEntry(db, "skill-1", {
+				lifecycleState: "archived",
+				revision: 2,
+			}),
+		).rejects.toThrow();
+		expect(skillRow("skill-1")).toMatchObject({
+			lifecycleState: "active",
+			revision: 1,
+		});
+	});
+
+	it("does not archive or pause a skill outside the requested organization", async () => {
+		const { db, sqlite, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "skill-1", lifecycleState: "active" });
+		sqlite.exec(
+			"INSERT INTO skill_schedules VALUES ('timer', 'skill-1', 'org-1', 1, null)",
+		);
+		await updateSkillEntry(
+			db,
+			"skill-1",
+			{ lifecycleState: "archived" },
+			{ organizationId: "other-org" },
+		);
+		expect(skillRow("skill-1").lifecycleState).toBe("active");
+		expect(sqlite.prepare("SELECT enabled FROM skill_schedules").get()).toEqual(
+			{ enabled: 1 },
+		);
 	});
 
 	it("force demotion/archival needs no authority (only promotions are gated)", async () => {

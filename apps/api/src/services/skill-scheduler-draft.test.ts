@@ -13,9 +13,14 @@ vi.mock("@tedix/db/queries/skill-schedules", async (load) => ({
 	...mocks,
 }));
 import { dispatchDueSkillSchedules } from "./skill-scheduler";
-it.each(["draft", "stale", "archived"])(
-	"pauses a stored %s timer without dispatching a run",
-	async (lifecycleState) => {
+it.each([
+	{ lifecycleState: "draft", tags: null },
+	{ lifecycleState: "stale", tags: null },
+	{ lifecycleState: "archived", tags: null },
+	{ lifecycleState: "active", tags: ["workflow-improvement"] },
+])(
+	"pauses a stored $lifecycleState timer ($tags) without dispatching a run",
+	async ({ lifecycleState, tags }) => {
 		mocks.listDueSkillSchedules.mockResolvedValue([
 			{ id: "timer", skillId: "skill", tediId: "tedi", organizationId: "org" },
 		]);
@@ -23,6 +28,7 @@ it.each(["draft", "stale", "archived"])(
 			id: "skill",
 			tediId: "tedi",
 			lifecycleState,
+			tags,
 		});
 		const fetch = vi.fn();
 		const result = await dispatchDueSkillSchedules(

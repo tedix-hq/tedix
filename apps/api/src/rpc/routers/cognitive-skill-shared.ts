@@ -24,6 +24,7 @@ import { getOrCreateDomain } from "@tedix/db/queries/memory-graph/domains";
 import {
 	deleteSkillSchedule,
 	getSkillSchedule,
+	pauseSkillSchedule,
 	upsertSkillSchedule,
 } from "@tedix/db/queries/skill-schedules";
 import type { SkillEntry, SkillSchedule } from "@tedix/db/schema/cognitive";
@@ -279,9 +280,12 @@ function skillKeepsSchedule(
 	hasStoredSchedule: boolean,
 ): schedule is SkillSchedulePolicy {
 	if (!schedule) return false;
-	if (entry.lifecycleState === "stale" || entry.lifecycleState === "archived") {
+	if (entry.lifecycleState === "archived") return hasStoredSchedule;
+	if (
+		entry.lifecycleState === "stale" ||
+		entry.tags?.includes("workflow-improvement")
+	)
 		return false;
-	}
 	return entry.lifecycleState !== "draft" || hasStoredSchedule;
 }
 
@@ -290,6 +294,10 @@ export async function syncSkillScheduleProjection(
 	entry: SkillEntry,
 	schedule: SkillSchedulePolicy | null,
 ): Promise<void> {
+	if (entry.lifecycleState === "archived") {
+		await pauseSkillSchedule(context.db, entry.id, entry.organizationId);
+		return;
+	}
 	const existing = schedule
 		? await getSkillSchedule(context.db, entry.id)
 		: undefined;
@@ -311,7 +319,9 @@ export async function syncSkillScheduleProjection(
 		tediId: entry.tediId,
 		cron: schedule.cron,
 		params: toJsonRecord(schedule.params),
-		enabled: schedule.enabled && entry.lifecycleState !== "draft",
+		enabled:
+			schedule.enabled &&
+			!["draft", "archived"].includes(entry.lifecycleState ?? ""),
 		nextFireAt,
 	});
 }
@@ -342,7 +352,9 @@ export function expectedSkillScheduleProjection(
 		tediId: entry.tediId,
 		cron: schedule.cron,
 		params: schedule.params,
-		enabled: schedule.enabled && entry.lifecycleState !== "draft",
+		enabled:
+			schedule.enabled &&
+			!["draft", "archived"].includes(entry.lifecycleState ?? ""),
 	};
 }
 

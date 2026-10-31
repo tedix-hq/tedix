@@ -281,6 +281,13 @@ describe("recordSkillRunOutcome", () => {
 				'---\nname: nightly\ncapabilities:\n  schedule:\n    cron: "0 2 * * *"\n---\n# Skill',
 		});
 		insertSkill({ id: "skill-2", lifecycleState: "draft" });
+		insertSkill({ id: "proposal", lifecycleState: "draft" });
+		sqlite.exec(
+			`UPDATE skill_entries SET content = (SELECT content FROM skill_entries WHERE id = 'skill-1'), tags = '["workflow-improvement"]', source_skill_id = 'skill-1' WHERE id = 'proposal'`,
+		);
+		insertRun({ id: "proposal-run", skillId: "proposal", status: "completed" });
+		await recordSkillRunOutcome(db, "proposal-run");
+		expect(skillRow("proposal").lifecycleState).toBe("active");
 		insertRun({ id: "run-1", skillId: "skill-1", status: "completed" });
 		insertRun({ id: "run-2", skillId: "skill-2", status: "completed" });
 
@@ -294,7 +301,7 @@ describe("recordSkillRunOutcome", () => {
 				"SELECT skill_id as skillId, tedi_id as tediId, cron, enabled FROM skill_schedules",
 			)
 			.all();
-		// Only the skill whose manifest declares a schedule gets a row.
+		// Certification of an improvement copy leaves cadence on the canonical skill.
 		expect(schedules).toEqual([
 			{ skillId: "skill-1", tediId: "tedi-1", cron: "0 2 * * *", enabled: 1 },
 		]);
