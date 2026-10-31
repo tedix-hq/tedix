@@ -1,7 +1,3 @@
-import {
-	hydratedCatalogAdmission,
-	type CatalogRequestLifetime,
-} from "./catalog-admission";
 /**
  * The MCP request path: authenticated `/mcp` requests, primary tedi
  * resolution and aggregate runtime-kind hydration. The Worker entry in
@@ -189,7 +185,6 @@ export async function handleMcpRequest(
 		Boolean((env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS),
 	// Server-owned ingress identity: organization selection must not lift its restrictions.
 	connectionAppSlug = resolvedApp.app.slug,
-	revalidateQueuedAccess?: () => Promise<Response | null>,
 ): Promise<Response> {
 	const eventResponse = await maybeHandleInteractionEvents(
 		request,
@@ -269,7 +264,6 @@ export async function handleMcpRequest(
 			undefined,
 			interactionEventsEnabled,
 			connectionAppSlug,
-			revalidateQueuedAccess,
 		);
 	}
 	if (request.method === "GET") {
@@ -297,63 +291,6 @@ export async function handleMcpRequest(
 		connectionAppSlug,
 	);
 	if (compactResponse) return compactResponse;
-	const config = resolvedApp.metadata?.mcpConfig;
-	const expensive =
-		config?.codeMode === true &&
-		(multiOrgResource ||
-			(Array.isArray(config.aggregateApps) &&
-				config.aggregateApps.length > 0) ||
-			(Array.isArray(config.aggregateTedis) &&
-				config.aggregateTedis.length > 0));
-	const hydrate = (lifetime?: CatalogRequestLifetime) =>
-		handleHydratedMcpRequest(
-			request,
-			resolvedApp,
-			env,
-			ctx,
-			multiOrgSelection,
-			interactionEventsEnabled,
-			connectionAppSlug,
-			lifetime,
-		);
-	if (!expensive) return hydrate();
-	return hydratedCatalogAdmission.run(request, async (lifetime, queued) => {
-		if (
-			queued &&
-			callerIdentity?.authType === "oauth" &&
-			callerIdentity.userId &&
-			!revalidateQueuedAccess
-		) {
-			return Response.json(
-				{ error: "mcp_access_revalidation_required" },
-				{
-					status: 503,
-					headers: { "Retry-After": "1", "Cache-Control": "private, no-store" },
-				},
-			);
-		}
-		if (queued && revalidateQueuedAccess) {
-			const denied = await revalidateQueuedAccess();
-			if (denied) return denied;
-		}
-		return hydrate(lifetime);
-	});
-}
-
-async function handleHydratedMcpRequest(
-	request: Request,
-	resolvedApp: ResolvedApp,
-	env: CloudflareEnv,
-	ctx: ExecutionContext,
-	multiOrgSelection: MultiOrgMcpSelection | null | undefined,
-	interactionEventsEnabled: boolean,
-	connectionAppSlug: string,
-	lifetime?: CatalogRequestLifetime,
-): Promise<Response> {
-	const callerIdentity = extractCallerIdentity(request);
-	const multiOrgResource =
-		resolvedApp.app.slug === "connect" &&
-		resolvedApp.metadata?.mcpConfig?.multiOrgConsent === true;
 	// Use let — tool merging below builds a per-request copy without mutating the cache.
 	let cachedData = await getAppContext(
 		resolvedApp.app.id,
@@ -738,7 +675,6 @@ async function handleHydratedMcpRequest(
 		requestedCodeModeNamespaces,
 		connectionAppSlug,
 		clientAppsSupported,
-		lifetime,
 	);
 	const directoryReadHandler = (
 		server as unknown as {
