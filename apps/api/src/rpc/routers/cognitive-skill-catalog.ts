@@ -35,7 +35,10 @@ import {
 } from "@tedix/db/queries/cognitive/skill-validation";
 import { getOrCreateDomain } from "@tedix/db/queries/memory-graph/domains";
 import { sweepExpiredDraftSkills } from "@tedix/db/queries/skill-lifecycle";
-import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
+import {
+	disableSkillScheduleInContent,
+	getSkillSchedule,
+} from "@tedix/db/queries/skill-schedules";
 import { recordSkillUsageEvent } from "@tedix/db/queries/skill-usage";
 import { getTediOrganizationId } from "@tedix/db/queries/tedis";
 import type { SkillEntry } from "@tedix/db/schema/cognitive";
@@ -263,7 +266,16 @@ export const skillsImprove = authedSkills.improve
 		// Resolve appId (from appId or appSlug). Falls back to existing.appId for toolSlug scope.
 		const resolvedAppId = await resolveAppId(context, input);
 		const scopeAppId = resolvedAppId ?? existing.appId ?? null;
-		const effectiveContent = input.content ?? existing.content;
+		const restoring =
+			existing.lifecycleState === "archived" &&
+			input.lifecycleState !== undefined &&
+			input.lifecycleState !== "archived";
+		// Older archives can still declare an enabled schedule after their timer is repaired.
+		const effectiveContent =
+			restoring &&
+			(input.content === undefined || input.content === existing.content)
+				? disableSkillScheduleInContent(existing.content)
+				: (input.content ?? existing.content);
 		// The would-be owner: an attach-only tediId in THIS call must count, or
 		// attaching an owner and declaring a schedule in one improve is a
 		// chicken-and-egg rejection (observed live: the combined call 400'd on
@@ -378,7 +390,9 @@ export const skillsImprove = authedSkills.improve
 			{
 				...(input.slug !== undefined ? { slug: input.slug } : {}),
 				...(input.title !== undefined ? { title: input.title } : {}),
-				...(input.content !== undefined ? { content: input.content } : {}),
+				...(input.content !== undefined || restoring
+					? { content: effectiveContent }
+					: {}),
 				...(input.files !== undefined ? { files: input.files } : {}),
 				...(input.description !== undefined
 					? { description: input.description }

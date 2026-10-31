@@ -448,9 +448,14 @@ describe("forwarded human identity cannot reactivate for an agent", () => {
 });
 
 describe("archive persistence through skill actions", () => {
-	it.each(["improve", "rejectWorkshop"] as const)(
-		"%s persists the pause in the archive revision",
-		async (action) => {
+	it.each([
+		{ action: "improve", legacy: false },
+		{ action: "rejectWorkshop", legacy: false },
+		{ action: "improve", legacy: true },
+		{ action: "rejectWorkshop", legacy: true },
+	])(
+		"$action persists the pause and keeps restore paused (legacy manifest: $legacy)",
+		async ({ action, legacy }) => {
 			vi.clearAllMocks();
 			const h = humanContext("owner");
 			try {
@@ -508,9 +513,16 @@ describe("archive persistence through skill actions", () => {
 				expect(
 					h.sqlite.prepare("SELECT enabled FROM skill_schedules").get(),
 				).toEqual({ enabled: 0 });
+				if (legacy)
+					h.sqlite
+						.prepare(
+							"UPDATE skill_entries SET content = ? WHERE id = 'skill-1'",
+						)
+						.run(SCHEDULED_DOC);
 				await client.improve({
 					id: "skill-1",
 					lifecycleState: "active",
+					...(legacy ? { content: SCHEDULED_DOC } : {}),
 					force: true,
 					validate: "skip",
 				});
