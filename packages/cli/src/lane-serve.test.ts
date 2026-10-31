@@ -345,6 +345,7 @@ function fixture({
 	return {
 		dispatcher,
 		restart,
+		deps,
 		dir,
 		events,
 		releases,
@@ -968,6 +969,173 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+
+	it.each(["dispatch-get", "agent-start"])(
+		"retains interrupted checkout correlation after %s fails",
+		async (failure) => {
+			const { restart, deps, items, control, events, releases, dir } =
+				fixture();
+			items.splice(1);
+			let now = Date.now();
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			const path = join(dir, `${item().id}-2.json`);
+			const repo = join(dir, "runs", `${item().id}-2`, "repo");
+			mkdirSync(repo, { recursive: true });
+			const checkpoint = join(repo, "checkpoint.txt");
+			writeFileSync(checkpoint, "unfinished work");
+			const previous = {
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				outcome: "expired",
+				admissionState: "admitted",
+				attemptId: "old-attempt",
+				repo,
+				baseCommit: "b".repeat(40),
+				session: "codex:33333333-3333-4333-8333-000000000099",
+				executorKey: "local-acme",
+				pid: 2_000_000_000,
+				processIdentity: "v2:old-process",
+			};
+			writeFileSync(path, JSON.stringify(previous));
+			control.history.data = [
+				{
+					id: previous.attemptId,
+					externalSessionKey: previous.session,
+					outcome: "expired",
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			control.cleanupRemoves = true;
+			const cli = deps.cli!;
+			deps.cli = async (args, env) => {
+				if (
+					(failure === "dispatch-get" && args[5] === "dispatch-get") ||
+					(failure === "agent-start" &&
+						args[4] === "agent" &&
+						args[5] === "start")
+				)
+					throw new Error("Tedix CLI read deadline elapsed");
+				return cli(args, env);
+			};
+			const provision = spyOn(deps, "provision");
+			const thread = spyOn(deps, "thread");
+			try {
+				const interrupted = restart();
+				await interrupted.tick();
+				await interrupted.drain();
+				const saved = JSON.parse(readFileSync(path, "utf8"));
+				expect(saved).toMatchObject({
+					phase: "deferred",
+					outcome: "expired",
+					repo,
+					session: previous.session,
+					attemptId: previous.attemptId,
+					processIdentity: previous.processIdentity,
+				});
+				expect(saved.pid).toBeUndefined();
+				expect(control.cleanups).toBe(0);
+				await interrupted.tick();
+				await interrupted.drain();
+				expect(readFileSync(checkpoint, "utf8")).toBe("unfinished work");
+				expect(control.cleanups).toBe(0);
+				expect(
+					events.some((entry) =>
+						["start", "heartbeat", "settle"].includes(entry.verb),
+					),
+				).toBe(false);
+				deps.cli = cli;
+				now = saved.retryAt + 1;
+				const resumed = restart();
+				await resumed.tick();
+				await until(() => releases.length === 1);
+				expect(provision).not.toHaveBeenCalled();
+				expect(thread.mock.calls.at(-1)![0]).toBe(repo);
+				expect(thread.mock.calls.at(-1)![3]).toBe(
+					previous.session.slice("codex:".length),
+				);
+				releases[0]!();
+				await resumed.drain();
+				expect(JSON.parse(readFileSync(path, "utf8")).attemptId).toBe(
+					"fictional-attempt",
+				);
+			} finally {
+				clock.mockRestore();
+			}
+		},
+	);
+
+	it.each([
+		"sent-unknown",
+		"sent-rejected",
+		"different-work",
+		"different-version",
+		"outside-runs",
+		"not-interrupted",
+	])("does not restore old admission correlation for %s", async (state) => {
+		const { restart, deps, items, control, events, dir } = fixture({
+			refuse: state === "sent-rejected",
+		});
+		items.splice(1);
+		const sent = state.startsWith("sent-");
+		const path = join(dir, `${item().id}-2.json`);
+		const repo =
+			state === "outside-runs"
+				? join(dir, "elsewhere")
+				: join(dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		const previous = {
+			itemId: state === "different-work" ? item(2).id : item().id,
+			version: state === "different-version" ? 3 : 2,
+			phase: "deferred",
+			outcome: state === "not-interrupted" ? "failed" : "expired",
+			admissionState: "admitted",
+			attemptId: "old-attempt",
+			repo,
+			session: "codex:33333333-3333-4333-8333-000000000099",
+			executorKey: "local-acme",
+			processIdentity: "v2:old-process",
+		};
+		writeFileSync(path, JSON.stringify(previous));
+		control.history.data = [
+			{
+				id: previous.attemptId,
+				externalSessionKey: previous.session,
+				outcome: "expired",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		if (state === "sent-unknown")
+			control.startError = new Error("Tedix CLI read deadline elapsed");
+		if (!sent) {
+			const cli = deps.cli!;
+			deps.cli = async (args, env) => {
+				if (args[5] === "dispatch-get")
+					throw new Error("Tedix CLI read deadline elapsed");
+				return cli(args, env);
+			};
+		}
+		const dispatcher = restart();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved.attemptId).toBeUndefined();
+		expect(saved.processIdentity).toBeUndefined();
+		expect(saved.pid).toBeUndefined();
+		expect(saved.outcome).toBe("failed");
+		expect(
+			events.some((entry) => ["heartbeat", "settle"].includes(entry.verb)),
+		).toBe(false);
+		if (sent) {
+			expect(saved.session).not.toBe(previous.session);
+			expect(saved.admissionState).toBe(
+				state === "sent-unknown" ? "unknown" : "rejected",
+			);
+		} else {
+			expect(saved.session).toBeUndefined();
+			expect(saved.repo).toBeUndefined();
+		}
+	});
 
 	it("settles result notes starting with a bullet through the real option parser", async () => {
 		const { dispatcher, items, control, events, releases } = fixture();
