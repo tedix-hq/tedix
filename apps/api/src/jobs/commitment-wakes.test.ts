@@ -946,8 +946,7 @@ describe("commitment wake coalescing", () => {
 		{ tediId: "worker-2" },
 		{ conversationId: "orion:another-session" },
 		{ runId: null },
-		{ createdAt: new Date(now - 5 * 60_000).toISOString() },
-	])("does not defer for unrelated or stale activity %j", async (override) => {
+	])("does not defer for unrelated activity %j", async (override) => {
 		const f = await setup();
 		await f.db.insert(tediRuntimeEvents).values({ ...f.started, ...override });
 		expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
@@ -956,6 +955,35 @@ describe("commitment wake coalescing", () => {
 		});
 		expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(through);
 	});
+
+	it.each([5 * 60_000, 30 * 60_000, 2 * 24 * 60 * 60_000])(
+		"defers behind an unresolved wake %i ms old until it settles",
+		async (age) => {
+			const f = await setup();
+			await f.db.insert(tediRuntimeEvents).values({
+				...f.started,
+				createdAt: new Date(now - age).toISOString(),
+			});
+			expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+				deferred: 1,
+				dispatched: 0,
+			});
+			expect(f.fetch).not.toHaveBeenCalled();
+			expect(await lastCommitmentWakeCheckpoint(f.db)).toBe(after);
+			expect(await getCommitmentWakeCursor(f.db, after)).toBeNull();
+			await f.db.insert(tediRuntimeEvents).values({
+				...f.started,
+				id: "reconciled-end",
+				kind: "run.failed",
+				createdAt: new Date(now).toISOString(),
+			});
+			expect(await dispatchCommitmentWakes(f.env, now)).toMatchObject({
+				deferred: 0,
+				dispatched: 1,
+			});
+			expect(f.fetch).toHaveBeenCalledOnce();
+		},
+	);
 
 	it.each([
 		{ organizationId: "org-2" },
