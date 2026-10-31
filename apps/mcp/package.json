@@ -39,6 +39,7 @@
 		"@tedix/worker-kit": "workspace:*",
 		"@x402/core": "catalog:",
 		"@x402/evm": "catalog:",
+		"acorn": "8.18.0",
 		"drizzle-orm": "catalog:",
 		"hono": "catalog:",
 		"pdf-lib": "^1.17.1",

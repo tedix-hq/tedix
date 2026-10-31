@@ -1,4 +1,5 @@
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { parse, type Expression } from "acorn";
 
 const CODEMODE_BUILTIN_GLOBALS = new Set([
 	"Array",
@@ -181,6 +182,55 @@ function referencedCodeModeNamespaces(code: string): Set<string> {
 	return namespaces;
 }
 
+/** Read constant syntax only; evaluating even one expression could run caller code. */
+function discoveryLiteralValue(node: Expression, depth = 0): unknown {
+	if (depth > 32) throw new Error("Discovery literal is too deeply nested");
+	if (node.type === "Literal") {
+		if (
+			node.value === null ||
+			["string", "number", "boolean"].includes(typeof node.value)
+		)
+			return node.value;
+	} else if (node.type === "ObjectExpression") {
+		const value: Record<string, unknown> = Object.create(null);
+		for (const property of node.properties) {
+			if (
+				property.type !== "Property" ||
+				property.kind !== "init" ||
+				property.computed ||
+				property.method ||
+				property.shorthand
+			)
+				throw new Error("Discovery property is not constant");
+			const key =
+				property.key.type === "Identifier"
+					? property.key.name
+					: property.key.type === "Literal" &&
+						  typeof property.key.value === "string"
+						? property.key.value
+						: null;
+			if (key === null || key === "__proto__" || Object.hasOwn(value, key))
+				throw new Error("Discovery property is ambiguous");
+			value[key] = discoveryLiteralValue(property.value, depth + 1);
+		}
+		return value;
+	} else if (node.type === "ArrayExpression") {
+		return node.elements.map((element) => {
+			if (!element || element.type === "SpreadElement")
+				throw new Error("Discovery array is not constant");
+			return discoveryLiteralValue(element, depth + 1);
+		});
+	} else if (
+		node.type === "UnaryExpression" &&
+		(node.operator === "-" || node.operator === "+") &&
+		node.argument.type === "Literal" &&
+		typeof node.argument.value === "number"
+	) {
+		return node.operator === "-" ? -node.argument.value : node.argument.value;
+	}
+	throw new Error("Discovery argument is not constant");
+}
+
 /**
  * Namespaces named by the program's `discover` calls, or null when any call
  * cannot be bounded statically. A program without discovery yields an empty set.
@@ -198,7 +248,14 @@ function literalDiscoveryNamespaces(
 		if (argument === null) return null;
 		let input: unknown;
 		try {
-			input = JSON.parse(argument);
+			const program = parse(`(${argument}\n)`, { ecmaVersion: "latest" });
+			const statement = program.body[0];
+			if (
+				program.body.length !== 1 ||
+				statement?.type !== "ExpressionStatement"
+			)
+				return null;
+			input = discoveryLiteralValue(statement.expression);
 		} catch {
 			return null;
 		}

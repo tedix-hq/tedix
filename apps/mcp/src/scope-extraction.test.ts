@@ -678,10 +678,27 @@ describe("directToolCallNamespaces", () => {
 		expect(
 			directToolCallNamespaces("run_stored_code", {}, rootTools),
 		).toBeNull();
-		expect(directToolCallNamespaces("unprefixed", {}, rootTools)).toBeNull();
 		expect(directToolCallNamespaces("code", {}, rootTools)).toBeNull();
 		expect(directToolCallNamespaces(undefined, {}, rootTools)).toBeNull();
 	});
+
+	it.each(["unprefixed", "bootstrap", "missing_tool"])(
+		"does not hydrate aggregates for the unknown direct tool %s",
+		(name) => {
+			expect(directToolCallNamespaces(name, {}, rootTools)).toEqual(new Set());
+		},
+	);
+
+	it.each(["code", "rest", "mcp"])(
+		"keeps the full catalog for a configured root %s transport",
+		(transport) => {
+			expect(
+				directToolCallNamespaces("root_tool", {}, [
+					{ toolId: "root_tool", config: { transport } },
+				]),
+			).toBeNull();
+		},
+	);
 
 	it("hydrates a prefixed aggregate tool's own namespace", () => {
 		expect(
