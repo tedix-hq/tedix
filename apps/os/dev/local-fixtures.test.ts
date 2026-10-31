@@ -307,6 +307,12 @@ const CALLS = {
 	"skills/listWorkflowRetryCandidates": {},
 	"skills/inspectWorkflowRun": { runId: IDS.skillRunFailed },
 	"skills/getWorkflowRunTimeline": { runId: IDS.skillRunFailed },
+	"skills/getWorkflowStepTediActivity": {
+		runId: IDS.skillRunFailed,
+		executionEpoch: 0,
+		path: "calls/storefront/list_orders/4.json",
+		attempt: 1,
+	},
 	"skills/getRunArtifact": {
 		runId: IDS.skillRunFailed,
 		path: "calls/storefront/list_orders/4.json",
@@ -1078,6 +1084,32 @@ describe("local fixtures parse through the contract output schemas", () => {
 
 	it("covers every registered handler with a contract-parse case", () => {
 		expect(Object.keys(CALLS).sort()).toEqual([...LOCAL_RPC_PROCEDURES].sort());
+	});
+
+	it("does not invent linked tedi activity for a sample run", () => {
+		const input = CALLS["skills/getWorkflowStepTediActivity"];
+		const result = handleLocalRpc(
+			"/api/rpc/skills/getWorkflowStepTediActivity",
+			"POST",
+			{ json: input },
+		);
+		expect(result).toEqual({
+			status: 200,
+			body: {
+				json: {
+					status: "unavailable",
+					actions: [],
+					finalResult: { status: "unavailable" },
+					truncated: false,
+				},
+			},
+		});
+		const missing = handleLocalRpc(
+			"/api/rpc/skills/getWorkflowStepTediActivity",
+			"POST",
+			{ json: { ...input, runId: "missing-run" } },
+		);
+		expect(missing?.status).toBe(404);
 	});
 
 	for (const [key, input] of Object.entries(CALLS)) {
