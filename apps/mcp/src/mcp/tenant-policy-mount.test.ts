@@ -11,14 +11,22 @@ import {
 	tenantPolicyMountDescriptor,
 } from "./tenant-policy-mount";
 import { buildHomeSurfaceTools } from "./home-surface-tools";
+import { buildAggregateTediTools } from "./aggregate-tedis";
 import type { AppTool } from "./server-context";
 
-const mocks = vi.hoisted(() => ({ resolve: vi.fn(), getApp: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	resolve: vi.fn(),
+	getApp: vi.fn(),
+	listRuntimeMetaBySlugs: vi.fn(),
+}));
 vi.mock("../aggregate-surface", () => ({
 	aggregateAndPrefixTools: mocks.resolve,
 }));
 vi.mock("../lib/api-client", () => ({
-	getApiClient: () => ({ apps: { getByIdWithTools: mocks.getApp } }),
+	getApiClient: () => ({
+		apps: { getByIdWithTools: mocks.getApp },
+		tedis: { listRuntimeMetaBySlugs: mocks.listRuntimeMetaBySlugs },
+	}),
 }));
 
 const instance = "00000000-0000-4000-8000-000000000001";
@@ -316,6 +324,75 @@ describe("tenant policy mount descriptor", () => {
 		await expect(resolveFreshPolicyMount(request)).rejects.toThrow(
 			"fresh root unavailable",
 		);
+	});
+
+	it("rebuilds an aggregate tedi mount from the active organization tedi", async () => {
+		const entry = { slug: "ceo", namespace: "ceo" };
+		const env = { MCP_URL: "https://mcp.tedix.dev" } as CloudflareEnv;
+		const generated = buildAggregateTediTools(
+			[
+				{
+					...entry,
+					tediId: "tedi-id",
+					organizationId: "org",
+					runtimeKind: "agent",
+				},
+			],
+			env,
+		).find((tool) => tool.toolId === "ceo__work_item_get")!;
+		const root = {
+			id: "root",
+			slug: "gateway",
+			organizationId: "org",
+			metadata: { mcpConfig: { aggregateTedis: [entry] } },
+		};
+		mocks.getApp.mockResolvedValue({ app: root, tools: [] });
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
+			data: [
+				{
+					slug: "ceo",
+					id: "tedi-id",
+					organizationId: "org",
+					runtimeKind: "agent",
+					runtimeState: "active",
+					status: "active",
+				},
+			],
+		});
+		mocks.resolve.mockResolvedValue({ tools: [], degraded: false });
+		const request = {
+			organizationId: "org",
+			rootAppId: "root",
+			mountedToolId: generated.toolId,
+			env,
+		};
+		expect(await resolveFreshPolicyMount(request)).toMatchObject({
+			tool: generated,
+			sourceAppId: "root",
+			sourceToolId: generated.toolId,
+			mountAppIds: ["root"],
+			sourceKind: "aggregate-tedi",
+		});
+		expect(await prepareTenantNativePolicyMount(request)).toMatchObject({
+			descriptor: {
+				sourceToolRowId: generated.id,
+				effectiveToolDigest: await tenantPolicyEffectiveToolDigest(generated),
+			},
+		});
+
+		mocks.listRuntimeMetaBySlugs.mockResolvedValue({
+			data: [
+				{
+					slug: "ceo",
+					id: "tedi-id",
+					organizationId: "another-org",
+					runtimeKind: "agent",
+					runtimeState: "active",
+					status: "active",
+				},
+			],
+		});
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
 	});
 
 	it("resolves the direct gateway layout with fresh host defaults and rejects degraded or ambiguous mounts", async () => {
