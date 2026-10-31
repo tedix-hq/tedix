@@ -167,7 +167,7 @@ export function DispatcherLaneHealth() {
 										</Text>
 										{lane.topReason ? (
 											<details className="min-w-0 break-words">
-												<summary className="cursor-pointer">
+												<summary className="min-h-11 cursor-pointer py-2">
 													Last reported skip reason:{" "}
 													{skipReasonSummary(lane.topReason.reason)} ·{" "}
 													{lane.topReason.count} observations
@@ -187,7 +187,7 @@ export function DispatcherLaneHealth() {
 				);
 				return historical ? (
 					<details key="historical" className="grid gap-3">
-						<summary className="cursor-pointer">
+						<summary className="min-h-11 cursor-pointer py-2">
 							Historical lane observations ({lanes.length})
 						</summary>
 						{cards}

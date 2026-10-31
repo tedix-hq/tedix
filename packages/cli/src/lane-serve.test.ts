@@ -31,6 +31,7 @@ import {
 	type ServeOptions,
 } from "./lane-serve";
 import { laneServicePlist } from "./lane-service";
+import { writeDispatcherHealthSource } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
 import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
@@ -363,6 +364,30 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher admission", () => {
+	it("does not count dispatcher health metadata as a worker in a one-slot lane", async () => {
+		const parent = spawn(
+			process.execPath,
+			["-e", "setTimeout(() => {}, 30000)"],
+			{ detached: true, stdio: "ignore" },
+		);
+		await once(parent, "spawn");
+		const f = fixture({ max: 1 });
+		f.items.splice(1);
+		writeDispatcherHealthSource(f.dir, { ...options, max: 1 }, parent.pid);
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			expect(
+				f.events.filter((event) => event.verb === "start" && event.input),
+			).toHaveLength(1);
+		} finally {
+			for (const release of f.releases) release();
+			await f.dispatcher.drain();
+			const exited = once(parent, "exit");
+			process.kill(-parent.pid!, "SIGTERM");
+			await exited;
+		}
+	});
 	it("admits fresh Work before a stalled historical read without replaying an unknown admission", async () => {
 		const f = fixture();
 		f.items.splice(2);

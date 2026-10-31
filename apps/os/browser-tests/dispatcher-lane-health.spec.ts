@@ -42,6 +42,14 @@ try {
 		await skip.click();
 		assert.match(await section.innerText(), /Waiting for approval/);
 		assert.match(await section.innerText(), /Last admission: Not observed/);
+		for (const summary of await section.locator("summary").all()) {
+			const bounds = await summary.boundingBox();
+			assert.ok(
+				bounds && bounds.height >= 44,
+				"Lane disclosures need a 44px touch target",
+			);
+		}
+
 		assert.ok(
 			await page.evaluate(
 				() => document.documentElement.scrollWidth <= innerWidth,

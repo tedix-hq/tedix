@@ -1006,7 +1006,8 @@ export class LaneDispatcher {
 					this.receipts.set(file, cached);
 				}
 				return cached.row;
-			});
+			})
+			.filter((row) => typeof row.itemId === "string" && row.itemId.length > 0);
 		for (const row of retained) {
 			if (hasSettledOutcome(row)) continue;
 			if (

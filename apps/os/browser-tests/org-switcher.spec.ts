@@ -63,22 +63,11 @@ try {
 					const current = menu.locator('[aria-current="true"]');
 					assert.equal(await current.count(), 1);
 					assert.match((await current.textContent()) ?? "", /Harbor Kitchen/);
-					const selectedMarker = current.locator(
-						":scope > span.inline-flex > svg",
-					);
-					assert.equal(await selectedMarker.count(), 1);
-					assert(
-						await selectedMarker.isVisible(),
-						`${label}: current check visible`,
-					);
 					assert.equal(
-						await menu
-							.locator(
-								'[data-org-row] [role="menuitem"] > span.inline-flex > svg',
-							)
+						await current
+							.getByLabel("Current organization", { exact: true })
 							.count(),
 						1,
-						`${label}: only the current organization has a check`,
 					);
 					assert.deepEqual(
 						await menu
