@@ -483,6 +483,18 @@ export function RunTimelineStep({
 				? outputRecord.value
 				: (record.response ?? record.output ?? record.value);
 	const sample = outputSample(value);
+	const resultEnvelope = stepRecord(value);
+	const previewOnly =
+		resultEnvelope.truncated === true &&
+		!("value" in resultEnvelope) &&
+		typeof resultEnvelope.preview === "string";
+	const preview = previewOnly ? (resultEnvelope.preview as string) : null;
+	const technicalSample =
+		preview === null
+			? sample
+			: preview.length > 64_000
+				? `${preview.slice(0, 64_000)}\n… Saved preview shortened for display.`
+				: preview;
 	const result = readableStepResult(value);
 	const presentedResult = presentStepResult(result);
 	const awaitingAnswer = stepRecord(result).pending === true;
@@ -739,13 +751,18 @@ export function RunTimelineStep({
 							data-output-sample
 							className="min-w-0 rounded-lg border border-kumo-line bg-kumo-base p-4"
 						>
-							<RunStepResult
-								value={presentedResult.content}
-								field={event.name === "clock" ? "timestamp" : undefined}
-							/>
-							{response.truncated === true && (
+							{!previewOnly && (
+								<RunStepResult
+									value={presentedResult.content}
+									field={event.name === "clock" ? "timestamp" : undefined}
+								/>
+							)}
+							{(response.truncated === true ||
+								resultEnvelope.truncated === true) && (
 								<Text as="p" tone="secondary">
-									Only part of the response was recorded.
+									{previewOnly
+										? "Only part of the result was recorded. The saved preview is in Technical details."
+										: "Only part of the response was recorded."}
 								</Text>
 							)}
 						</div>
@@ -846,9 +863,9 @@ export function RunTimelineStep({
 							</dd>
 						</div>
 					</dl>
-					{sample && (
+					{technicalSample && (
 						<div className="min-w-0 max-w-full max-h-96 overflow-auto p-1">
-							<CodeBlock code={sample} lang="json" />
+							<CodeBlock code={technicalSample} lang="json" />
 						</div>
 					)}
 				</CollapsibleDefaultContent>

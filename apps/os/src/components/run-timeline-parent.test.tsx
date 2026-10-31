@@ -112,6 +112,92 @@ async function mount() {
 	await flush();
 }
 describe("parent step receipt access", () => {
+	it("labels a partial result and keeps its raw preview in technical details", async () => {
+		const preview = `${"x".repeat(8000)} preview-end`;
+		const partial = {
+			...child,
+			response: { truncated: true, preview },
+		};
+		let denied = false;
+		reads.artifact.mockImplementation(async (path: string) => {
+			if (denied && path === childPath) throw new Error("Access denied");
+			return { content: JSON.stringify(path === childPath ? partial : parent) };
+		});
+		await mount();
+		expect(host.textContent).toContain("Only part of the result was recorded");
+		expect(host.textContent).not.toContain("preview-end");
+		const button = Array.from(host.querySelectorAll("button")).find((item) =>
+			item.textContent?.includes("Technical details"),
+		);
+		expect(button).toBeDefined();
+		await act(async () => button!.click());
+		expect(host.textContent).toContain(preview);
+		denied = true;
+		await act(async () => {
+			await client.invalidateQueries({
+				queryKey: ["artifact", "run", childPath],
+			});
+		});
+		await flush();
+		expect(host.textContent).not.toContain("preview-end");
+	});
+	it("limits an oversized saved preview and labels the display limit", async () => {
+		const partial = {
+			...child,
+			response: {
+				truncated: true,
+				preview: `${"x".repeat(64_001)} hidden-tail`,
+			},
+		};
+		reads.artifact.mockImplementation(async (path: string) => ({
+			content: JSON.stringify(path === childPath ? partial : parent),
+		}));
+		await mount();
+		const button = Array.from(host.querySelectorAll("button")).find((item) =>
+			item.textContent?.includes("Technical details"),
+		);
+		await act(async () => button!.click());
+		expect(host.textContent).toContain("Saved preview shortened for display.");
+		expect(host.textContent).not.toContain("hidden-tail");
+	});
+	it.each([
+		[
+			{ truncated: true, value: { answer: "clipped answer" } },
+			"clipped answer",
+			true,
+		],
+		[{ truncated: false, value: "plain answer" }, "plain answer", false],
+	] as const)(
+		"renders a recorded value without inventing totals",
+		async (response, answer, truncated) => {
+			reads.artifact.mockImplementation(async (path: string) => ({
+				content: JSON.stringify(
+					path === childPath ? { ...child, response } : parent,
+				),
+			}));
+			await mount();
+			expect(host.textContent).toContain(answer);
+			expect(
+				host.textContent?.includes("Only part of the response was recorded."),
+			).toBe(truncated);
+			expect(host.textContent).not.toContain("total results");
+		},
+	);
+	it("keeps a redacted partial preview hidden", async () => {
+		const partial = {
+			...child,
+			response: { truncated: true, preview: "secret preview", redacted: true },
+		};
+		reads.artifact.mockImplementation(async (path: string) => ({
+			content: JSON.stringify(path === childPath ? partial : parent),
+		}));
+		await mount();
+		const button = Array.from(host.querySelectorAll("button")).find((item) =>
+			item.textContent?.includes("Technical details"),
+		);
+		await act(async () => button!.click());
+		expect(host.textContent).not.toContain("secret preview");
+	});
 	it("withholds child activity while the parent is loading", async () => {
 		let resolveParent: ((value: unknown) => void) | undefined;
 		reads.artifact.mockImplementation((path: string) =>
