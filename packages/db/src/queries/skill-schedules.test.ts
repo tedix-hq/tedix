@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
@@ -5,6 +6,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { getGovernedLearningScheduleStates } from "./flywheel/cron-executions";
 import {
 	listSkillSchedulesPage,
+	listDueSkillSchedules,
 	getSkillSchedule,
 	pauseSkillSchedule,
 	insertActivatedSkillSchedule,
@@ -26,7 +28,8 @@ describe("skill schedule budget state", () => {
 				tedi_id TEXT,
 				slug TEXT,
 				title TEXT,
-				description TEXT
+				description TEXT,
+				lifecycle_state TEXT DEFAULT 'active'
 			);
 			CREATE TABLE skill_schedules (
 				id TEXT PRIMARY KEY,
@@ -76,12 +79,68 @@ describe("skill schedule budget state", () => {
 		expect((await getSkillSchedule(db, "skill-1"))?.enabled).toBe(false);
 		await insertActivatedSkillSchedule(db, {
 			id: "skill-1",
+			tags: null,
 			organizationId: "org-1",
 			tediId: "tedi-1",
 			content:
 				'---\ncapabilities:\n  schedule:\n    cron: "0 * * * *"\n    enabled: true\n---',
 		});
 		expect((await getSkillSchedule(db, "skill-1"))?.enabled).toBe(true);
+	});
+
+	it("excludes an archived enabled timer before applying the due limit", async () => {
+		sqlite.exec(`
+			UPDATE skill_entries SET lifecycle_state = 'archived';
+			INSERT INTO skill_entries (id, organization_id) VALUES ('live', 'org-2');
+			INSERT INTO skill_schedules (id, organization_id, skill_id, tedi_id, cron, params, enabled, next_fire_at)
+			VALUES ('live-timer', 'org-2', 'live', 'tedi-2', '0 8 * * *', '{}', 1, '2026-07-25T05:00:00.000Z');
+		`);
+		expect(
+			(await listDueSkillSchedules(db, "2026-07-26T00:00:00.000Z", 1)).map(
+				(row) => row.id,
+			),
+		).toEqual(["live-timer"]);
+	});
+
+	it("fixes archived enabled timers across organizations and reports an idempotent count", () => {
+		sqlite.exec(`
+			UPDATE skill_entries SET lifecycle_state = 'archived';
+			INSERT INTO skill_entries (id, organization_id, lifecycle_state) VALUES ('archived-2', 'org-2', 'archived'), ('live', 'org-2', 'active');
+			INSERT INTO skill_schedules (id, organization_id, skill_id, tedi_id, cron, params, enabled, next_fire_at) VALUES
+			('timer-2', 'org-2', 'archived-2', 'tedi-2', '0 8 * * *', '{}', 1, '2026-07-25T05:00:00.000Z'),
+			('paused', 'org-2', 'archived-2', 'tedi-2', '0 8 * * *', '{}', 0, '2026-07-25T05:00:00.000Z'),
+			('live', 'org-2', 'live', 'tedi-2', '0 8 * * *', '{}', 1, '2026-07-25T05:00:00.000Z');
+		`);
+		const repair = readFileSync(
+			new URL(
+				"../../../../scripts/skills/pause-archived-schedules.sql",
+				import.meta.url,
+			),
+			"utf8",
+		);
+		const [update, report] = repair.split(";").filter((part) => part.trim());
+		sqlite.exec(update!);
+		expect(sqlite.prepare(report!).get()).toEqual({ paused_count: 2 });
+		expect(
+			sqlite
+				.prepare("SELECT enabled FROM skill_schedules WHERE id = 'live'")
+				.get(),
+		).toEqual({ enabled: 1 });
+		sqlite.exec(update!);
+		expect(sqlite.prepare(report!).get()).toEqual({ paused_count: 0 });
+	});
+
+	it("does not schedule an activated improvement copy", async () => {
+		const inserted = await insertActivatedSkillSchedule(db, {
+			id: "proposal",
+			organizationId: "org-1",
+			tediId: "tedi-1",
+			tags: ["workflow-improvement"],
+			content:
+				'---\ncapabilities:\n  schedule:\n    cron: "0 8 * * *"\n---\n# Proposal',
+		});
+		expect(inserted).toBe(false);
+		expect(await getSkillSchedule(db, "proposal")).toBeUndefined();
 	});
 
 	it("searches canonical skill metadata and reports an accurate page total", async () => {

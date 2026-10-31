@@ -1,6 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
-import type { SkillEntry } from "@tedix/db/schema/cognitive";
+import {
+	type SkillEntry,
+	skillEntries,
+	skillSchedules,
+} from "@tedix/db/schema/cognitive";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
@@ -18,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 	getSkillEntry: vi.fn(),
 	updateSkillEntry: vi.fn(),
 	deleteSkillSchedule: vi.fn(),
+	pauseSkillSchedule: vi.fn(),
 	getSkillSchedule: vi.fn(),
 	upsertSkillSchedule: vi.fn(),
 }));
@@ -35,6 +40,7 @@ vi.mock("@tedix/db/queries/skill-schedules", async (importOriginal) => ({
 		typeof import("@tedix/db/queries/skill-schedules")
 	>()),
 	deleteSkillSchedule: mocks.deleteSkillSchedule,
+	pauseSkillSchedule: mocks.pauseSkillSchedule,
 	getSkillSchedule: mocks.getSkillSchedule,
 	upsertSkillSchedule: mocks.upsertSkillSchedule,
 }));
@@ -145,6 +151,29 @@ describe("skills.improve keeps a scheduled skill running", () => {
 		mocks.upsertSkillSchedule.mockResolvedValue(STORED_SCHEDULE);
 		mocks.deleteSkillSchedule.mockResolvedValue(undefined);
 	});
+
+	it.each(["draft", "active", "proven"] as const)(
+		"keeps a %s improvement copy off the schedule",
+		async (lifecycleState) => {
+			const { syncSkillScheduleProjection } =
+				await import("./cognitive-skill-shared");
+			await syncSkillScheduleProjection(
+				ownerContext(),
+				skillFixture({
+					lifecycleState,
+					tags: ["workflow-improvement"],
+					sourceSkillId: "canonical",
+				}),
+				{
+					cron: "0 2 * * *",
+					params: {},
+					enabled: true,
+					executionKind: "deterministic",
+				},
+			);
+			expect(mocks.upsertSkillSchedule).not.toHaveBeenCalled();
+		},
+	);
 
 	it.each(["active", "proven"] as const)(
 		"an edit of a %s skill stays %s, bumps the revision and keeps the schedule",
@@ -416,4 +445,86 @@ describe("forwarded human identity cannot reactivate for an agent", () => {
 			h.sqlite.close();
 		}
 	});
+});
+
+describe("archive persistence through skill actions", () => {
+	it.each(["improve", "rejectWorkshop"] as const)(
+		"%s persists the pause in the archive revision",
+		async (action) => {
+			vi.clearAllMocks();
+			const h = humanContext("owner");
+			try {
+				h.sqlite.exec(schemaDdl(skillEntries));
+				h.sqlite.exec(schemaDdl(skillSchedules));
+				h.sqlite.exec(`
+					CREATE TABLE tedis (id TEXT PRIMARY KEY, organization_id TEXT, policy_pack_id TEXT);
+					CREATE TABLE policy_packs (id TEXT PRIMARY KEY, organization_id TEXT, definition TEXT);
+					CREATE TABLE skill_runs (id TEXT PRIMARY KEY, organization_id TEXT, skill_id TEXT, skill_revision INTEGER, status TEXT, result TEXT);
+					CREATE TABLE skill_run_artifacts (id TEXT PRIMARY KEY, run_id TEXT, path TEXT, outcome TEXT);
+					INSERT INTO tedis VALUES ('tedi-owner', 'org-1', 'policy-1');
+					INSERT INTO policy_packs VALUES ('policy-1', 'org-1', '{"paceLayerPolicy":{"differentiation":{"evalRequired":false}}}');
+				`);
+				await h.context.db
+					.insert(skillEntries)
+					.values(skillFixture({ lifecycleState: "active" }));
+				await h.context.db
+					.insert(skillSchedules)
+					.values({ ...STORED_SCHEDULE, organizationId: ORG_ID });
+				const crud = await vi.importActual<
+					typeof import("@tedix/db/queries/cognitive/skill-crud")
+				>("@tedix/db/queries/cognitive/skill-crud");
+				mocks.getSkillEntry.mockImplementation(crud.getSkillEntry);
+				mocks.updateSkillEntry.mockImplementation(crud.updateSkillEntry);
+				const schedules = await vi.importActual<
+					typeof import("@tedix/db/queries/skill-schedules")
+				>("@tedix/db/queries/skill-schedules");
+				mocks.getSkillSchedule.mockImplementation(schedules.getSkillSchedule);
+				mocks.upsertSkillSchedule.mockImplementation(
+					schedules.upsertSkillSchedule,
+				);
+				mocks.pauseSkillSchedule.mockImplementation(
+					schedules.pauseSkillSchedule,
+				);
+				const client = createRouterClient(skillsContractRouter, {
+					context: h.context,
+				});
+				if (action === "improve")
+					await client.improve({
+						id: "skill-1",
+						lifecycleState: "archived",
+						validate: "skip",
+					});
+				else
+					await client.rejectWorkshop({
+						id: "skill-1",
+						reason: "Keep the canonical skill",
+					});
+				const entry = await crud.getSkillEntry(h.context.db, "skill-1", ORG_ID);
+				expect(entry).toMatchObject({
+					lifecycleState: "archived",
+					revision: 8,
+				});
+				expect(entry?.content).toContain("enabled: false");
+				expect(
+					h.sqlite.prepare("SELECT enabled FROM skill_schedules").get(),
+				).toEqual({ enabled: 0 });
+				await client.improve({
+					id: "skill-1",
+					lifecycleState: "active",
+					force: true,
+					validate: "skip",
+				});
+				expect(
+					(await crud.getSkillEntry(h.context.db, "skill-1", ORG_ID))
+						?.lifecycleState,
+				).toBe("active");
+				expect(
+					(await schedules.getSkillSchedule(h.context.db, "skill-1", ORG_ID))
+						?.enabled,
+				).toBe(false);
+			} finally {
+				h.sqlite.close();
+			}
+		},
+	);
 });

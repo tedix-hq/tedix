@@ -1,10 +1,11 @@
-import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, isNull, ne, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type CognitiveVisibility,
 	type NewSkillEntry,
 	type SkillEntry,
 	skillEntries,
+	skillSchedules,
 } from "../../schema/cognitive";
 import { getAffectedRows } from "../../utils/d1-result";
 import {
@@ -19,6 +20,7 @@ import {
 	SkillLifecycleTransitionError,
 	SkillPaceLayerOverrideError,
 } from "../skill-lifecycle";
+import { disableSkillScheduleInContent } from "../skill-schedules";
 import { resolveSkillMcpAppBindings } from "./skill-mcp-bindings";
 import { slugify } from "./skill-validation";
 
@@ -378,11 +380,46 @@ export async function updateSkillEntry(
 			};
 		}
 	}
-	const applied = await db
+	const now = new Date().toISOString();
+	if (updates.lifecycleState === "archived") {
+		const current = await getSkillEntry(db, id, options?.organizationId);
+		if (!current) return;
+		patch = {
+			...patch,
+			content: disableSkillScheduleInContent(
+				updates.content ?? current.content,
+			),
+			revision: updates.revision ?? current.revision + 1,
+		};
+		writeWhere = and(writeWhere, eq(skillEntries.revision, current.revision))!;
+	}
+	const write = db
 		.update(skillEntries)
-		.set({ ...patch, updatedAt: new Date().toISOString() })
+		.set({ ...patch, updatedAt: now })
 		.where(writeWhere)
 		.returning({ id: skillEntries.id });
+	let applied;
+	if (updates.lifecycleState === "archived") {
+		const archivedSkill = db
+			.select({ id: skillEntries.id })
+			.from(skillEntries)
+			.where(
+				and(
+					scopedWhere,
+					eq(skillEntries.lifecycleState, "archived"),
+					eq(skillEntries.organizationId, skillSchedules.organizationId),
+				),
+			);
+		[applied] = await db.batch([
+			write,
+			db
+				.update(skillSchedules)
+				.set({ enabled: false, updatedAt: now })
+				.where(and(eq(skillSchedules.skillId, id), exists(archivedSkill))),
+		]);
+	} else {
+		applied = await write;
+	}
 	if (writeWhere !== scopedWhere && applied.length === 0)
 		throw new SkillLifecycleTransitionError(
 			"Skill changed or its eval policy no longer admits promotion; re-read and evaluate the current revision",

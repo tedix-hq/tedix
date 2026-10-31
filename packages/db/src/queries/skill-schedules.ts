@@ -4,6 +4,7 @@ import {
 	validateSkillSchedulePolicy,
 } from "@tedix/api-contract/utils/skill-schedule";
 import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { parseDocument } from "yaml";
 import type { DbClient } from "../client";
 import {
 	type SkillEntry,
@@ -12,6 +13,23 @@ import {
 	skillSchedules,
 } from "../schema/cognitive";
 import { toJsonRecord } from "../utils/json";
+
+/** Persist the pause in the manifest so restoring a skill cannot resume it. */
+export function disableSkillScheduleInContent(content: string): string {
+	const match = /^(---\r?\n)([\s\S]*?)(\r?\n---(?:\r?\n|$))/.exec(content);
+	if (!match) return content;
+	const doc = parseDocument(match[2]!);
+	if (doc.errors.length) throw new Error("Skill frontmatter is invalid");
+	if (!doc.hasIn(["capabilities", "schedule", "cron"])) return content;
+	doc.setIn(["capabilities", "schedule", "enabled"], false);
+	const newline = match[1]!.includes("\r\n") ? "\r\n" : "\n";
+	return (
+		match[1] +
+		doc.toString().trimEnd().replace(/\n/g, newline) +
+		match[3] +
+		content.slice(match[0].length)
+	);
+}
 
 export async function upsertSkillSchedule(
 	db: DbClient,
@@ -69,10 +87,14 @@ export async function upsertSkillSchedule(
  */
 export async function insertActivatedSkillSchedule(
 	db: DbClient,
-	entry: Pick<SkillEntry, "id" | "organizationId" | "tediId" | "content">,
+	entry: Pick<
+		SkillEntry,
+		"id" | "organizationId" | "tediId" | "content" | "tags"
+	>,
 	now: number = Date.now(),
 ): Promise<boolean> {
-	if (!entry.tediId) return false;
+	if (!entry.tediId || entry.tags?.includes("workflow-improvement"))
+		return false;
 	const { schedule, issues } = validateSkillSchedulePolicy(entry.content ?? "");
 	if (!schedule || issues.length > 0) return false;
 	const timestamp = new Date(now).toISOString();
@@ -158,6 +180,7 @@ export async function listDueSkillSchedules(
 			and(
 				eq(skillSchedules.enabled, true),
 				lte(skillSchedules.nextFireAt, now),
+				sql`exists (select 1 from ${skillEntries} where ${skillEntries.id} = ${skillSchedules.skillId} and ${skillEntries.organizationId} = ${skillSchedules.organizationId} and coalesce(${skillEntries.lifecycleState}, 'draft') <> 'archived')`,
 			),
 		)
 		.orderBy(asc(skillSchedules.nextFireAt))
