@@ -96,6 +96,7 @@ import {
 } from "./supervise-questions";
 import { collectDispatcherHealth } from "./dispatcher-health";
 import {
+	RUNNER_RECORDS_DIR,
 	RUNNERS_FILE,
 	RunnerDuties,
 	runnerKey,
@@ -1088,11 +1089,17 @@ export function listRunners(env: NodeJS.ProcessEnv): number {
 		return 1;
 	}
 	const rows = runners.map((runner) => {
-		const directory = join(configDir(env), "dispatchers", runnerKey(runner));
 		let pid: number | null = null;
 		try {
 			const child = JSON.parse(
-				readFileSync(join(directory, "supervisor-child.json"), "utf8"),
+				readFileSync(
+					join(
+						configDir(env),
+						...RUNNER_RECORDS_DIR,
+						`${runnerKey(runner)}.json`,
+					),
+					"utf8",
+				),
 			);
 			if (Number.isSafeInteger(child.pid) && alive(child.pid)) pid = child.pid;
 		} catch {
