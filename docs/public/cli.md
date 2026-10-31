@@ -137,6 +137,23 @@ headless resume in a privacy-protected folder (Documents, Desktop, Downloads)
 and logs why; [Full Disk Access for the supervisor](./supervisor-full-disk-access.md)
 lifts that.
 
+To run a recurring Lead pass, create `~/.tedix/supervisor-lead.json` with
+`enabled: true`, `workspace`, `organization`, an absolute `cwd`, `playbook`
+and `status` document references, and an `executors` array in fallback order,
+such as `[{"executor":"devin","session":"your-conversation"},{"executor":"codex","session":"your-thread-id"}]`.
+Each entry names an existing conversation; supported executors are `devin`
+(cloud), `codex`, `claude-code` and `opencode`. Set `intervalMinutes` to change
+the default 20-minute cadence. The existing supervisor clock runs one pass,
+waits for its result, and tries the next executor if it fails or cannot sign
+in; it never signs in for you. It keeps handling replies while the pass runs,
+prevents overlapping passes, and remembers the last start across restarts.
+`tedix supervise --once` waits for a due Lead pass and exits with an error if
+every executor fails. The executor used
+and any fallback appear in `supervisor.log` and dispatcher health under
+`supervisor-lead`. A finished pass means the executor exited successfully;
+review its recorded result to assess its judgement. Set `enabled: false` to
+disable the duty.
+
 To hand accepted Work to an existing Codex chat, run
 `tedix work handoff <id> --host codex --to codex:<chat-id> --launch`. The chat
 must be bound to the same profile, organization and Work project; the

@@ -201,8 +201,13 @@ export function localCommandArgs(argv: string[]): string[] {
 	let commandIndex = 0;
 	while (commandIndex < argv.length) {
 		const arg = argv[commandIndex]!;
-		if (arg === "-w" || arg === "--workspace") commandIndex += 2;
-		else if (arg.startsWith("--workspace=")) commandIndex++;
+		if (arg === "-w" || arg === "--workspace" || arg === "--organization")
+			commandIndex += 2;
+		else if (
+			arg.startsWith("--workspace=") ||
+			arg.startsWith("--organization=")
+		)
+			commandIndex++;
 		else break;
 	}
 	if (!LOCAL_COMMANDS.includes(argv[commandIndex] ?? "")) return argv;
@@ -220,7 +225,18 @@ export function localCommandArgs(argv: string[]): string[] {
 	let positionalOnly = false;
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]!;
-		if (!positionalOnly && (arg === "-w" || arg === "--workspace")) {
+		if (
+			!positionalOnly &&
+			argv[commandIndex] === "supervise" &&
+			(arg === "--organization" || arg.startsWith("--organization="))
+		) {
+			const value =
+				arg === "--organization"
+					? argv[++i]
+					: arg.slice("--organization=".length);
+			if (!value || value.startsWith("-"))
+				throw new Error("--organization requires an organization name");
+		} else if (!positionalOnly && (arg === "-w" || arg === "--workspace")) {
 			if (!argv[i + 1] || argv[i + 1]!.startsWith("-"))
 				throw new Error(`${arg} requires a workspace name`);
 			workspace = argv[++i];
