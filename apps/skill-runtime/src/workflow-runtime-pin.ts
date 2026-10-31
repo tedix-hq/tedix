@@ -45,7 +45,7 @@ interface StoredRuntimeIdentity {
 		workerVersionId: string;
 		workerVersionTag: string;
 		workerVersionTimestamp: string;
-	};
+	} | null;
 }
 
 function runtimePinPath(executionEpoch: number): string {
@@ -79,19 +79,17 @@ async function readPinnedRuntimeIdentity(
 			typeof loaderConfigHash === "string" &&
 			loaderConfigHash.length > 0 &&
 			typeof executionCompatibilityHash === "string" &&
-			executionCompatibilityHash.length > 0 &&
-			typeof workerVersionId === "string" &&
-			typeof workerVersionTag === "string" &&
-			typeof workerVersionTimestamp === "string"
+			executionCompatibilityHash.length > 0
 		) {
 			return {
 				loaderConfigHash,
 				executionCompatibilityHash,
-				deployment: {
-					workerVersionId,
-					workerVersionTag,
-					workerVersionTimestamp,
-				},
+				deployment:
+					typeof workerVersionId === "string" &&
+					typeof workerVersionTag === "string" &&
+					typeof workerVersionTimestamp === "string"
+						? { workerVersionId, workerVersionTag, workerVersionTimestamp }
+						: null,
 			};
 		}
 	} catch {
@@ -141,6 +139,7 @@ export async function assertWorkflowExecutionEpochRuntimePin(input: {
 			: null;
 	if (
 		!compatibilityPolicy &&
+		pinned.deployment !== null &&
 		input.legacyCompatibility?.executionCompatibilityHash ===
 			pinned.executionCompatibilityHash
 	) {
