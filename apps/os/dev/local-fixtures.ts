@@ -6122,6 +6122,15 @@ const handlers: Record<string, (input: never) => unknown> = {
 			executionEpoch: run.executionEpoch,
 		});
 	},
+	"skills/getWorkflowStepTediActivity": (input: { runId: string }) => {
+		findSkillRun(input.runId);
+		return {
+			status: "unavailable" as const,
+			actions: [],
+			finalResult: { status: "unavailable" as const },
+			truncated: false,
+		};
+	},
 	"skills/getRunArtifact": (input: { runId: string; path: string }) => {
 		findSkillRun(input.runId);
 		return runTimelineArtifactFixture(input.path);
