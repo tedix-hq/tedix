@@ -470,7 +470,23 @@ function readLaneReceipts(
 			}
 			const row: unknown = JSON.parse(readFileSync(path, "utf8"));
 			const named = /^([0-9a-f-]{36})-(\d+)\.json$/.exec(file);
-			if (isRecord(row) && !named && row.itemId === undefined) continue;
+			if (
+				isRecord(row) &&
+				!named &&
+				row.itemId === undefined &&
+				![
+					"phase",
+					"pid",
+					"session",
+					"executorKey",
+					"attemptId",
+					"processIdentity",
+					"repo",
+					"admissionState",
+					"outcome",
+				].some((key) => key in row)
+			)
+				continue;
 			if (
 				!isRecord(row) ||
 				typeof row.itemId !== "string" ||
