@@ -6,34 +6,25 @@
  */
 
 import {
-	CompetencyCareerLadderSchema,
 	TEDI_CAREER_STAGES,
 	type TediCareerStage,
 } from "@tedix/api-contract/schemas/earned-delegation";
 import type { DbClient } from "@tedix/db/client";
 import {
 	applyReplyDraftCareerChange,
-	ensureReplyDraftingActivity,
 	ensureReplyDraftRole,
 	evaluateCareerLadder,
 	getReplyDraftingActivity,
 	loadReplyDraftCareers,
 	type ReplyDraftCareerState,
-	type ReplyDraftingSeed,
 	readReplyDraftingConfig,
 	recordReplyDraftObservations,
 	stoodStreakDays,
 } from "@tedix/db/queries/earned-delegation/reply-draft-career";
 import {
 	listUnrecordedReplyDraftOutcomes,
-	type SettledReplyDraftOutcome,
+	listReplyDraftOutcomeOrganizations,
 } from "@tedix/db/queries/work-items/reply-drafts";
-import seedAsset from "./reply-draft-career-ladder.json";
-
-const SEED: ReplyDraftingSeed = {
-	ladder: CompetencyCareerLadderSchema.parse(seedAsset.ladder),
-	initialRole: seedAsset.initialRole,
-};
 /** Drafts older than this are never backfilled. */
 const BACKFILL_DAYS = 30;
 const MAX_OUTCOMES_PER_TICK = 500;
@@ -57,29 +48,26 @@ export async function settleReplyDraftCareers(
 	now = new Date(),
 ): Promise<Record<string, number>> {
 	const nowIso = now.toISOString();
-	const outcomes = await listUnrecordedReplyDraftOutcomes(db, {
-		since: minutesAgo(now, BACKFILL_DAYS * 1_440),
-		settledBefore: minutesAgo(now, SEED.ladder.autoSettleMinutes),
-		limit: MAX_OUTCOMES_PER_TICK,
-	});
-	const byOrg = new Map<string, SettledReplyDraftOutcome[]>();
-	for (const outcome of outcomes) {
-		const list = byOrg.get(outcome.orgId) ?? [];
-		list.push(outcome);
-		byOrg.set(outcome.orgId, list);
-	}
+	const organizationIds = await listReplyDraftOutcomeOrganizations(
+		db,
+		minutesAgo(now, BACKFILL_DAYS * 1_440),
+	);
+	let remaining = MAX_OUTCOMES_PER_TICK;
 	let recorded = 0;
 	let promoted = 0;
 	let demoted = 0;
-	for (const [organizationId, orgOutcomes] of byOrg) {
-		const activity = await ensureReplyDraftingActivity(
-			db,
-			organizationId,
-			SEED,
-			nowIso,
-		);
-		const config = readReplyDraftingConfig(activity);
-		if (!config) continue;
+	for (const organizationId of organizationIds) {
+		if (remaining <= 0) break;
+		const activity = await getReplyDraftingActivity(db, organizationId);
+		const config = activity ? readReplyDraftingConfig(activity) : null;
+		if (!activity || !config) continue;
+		const orgOutcomes = await listUnrecordedReplyDraftOutcomes(db, {
+			orgId: organizationId,
+			since: minutesAgo(now, BACKFILL_DAYS * 1_440),
+			settledBefore: minutesAgo(now, config.ladder.autoSettleMinutes),
+			limit: remaining,
+		});
+		remaining -= orgOutcomes.length;
 		recorded += await recordReplyDraftObservations(db, {
 			activity,
 			outcomes: orgOutcomes,
@@ -131,7 +119,7 @@ export async function settleReplyDraftCareers(
 			if (applied && evaluation.change.kind === "demote") demoted++;
 		}
 	}
-	return { recorded, promoted, demoted, organizations: byOrg.size };
+	return { recorded, promoted, demoted, organizations: organizationIds.length };
 }
 
 export interface ReplyDraftLevel {

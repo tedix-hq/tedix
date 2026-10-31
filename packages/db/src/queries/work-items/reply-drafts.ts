@@ -25,7 +25,7 @@ import {
 	DECISION_SOURCE_CHANGED,
 } from "./decision-sources";
 import { recordPersistedCardResolutionEdges } from "../decision-graph-writers";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkInteractionDeliveryVia,
@@ -788,7 +788,26 @@ export function replyDraftObservationKey(draftId: string): string {
 	return `reply-draft:${draftId}`;
 }
 
+/** Organizations with recent drafts, before applying their individual settlement policies. */
+export async function listReplyDraftOutcomeOrganizations(
+	db: DbQueryClient,
+	since: string,
+) {
+	const rows = await db
+		.selectDistinct({ orgId: workInteractionReplyDrafts.orgId })
+		.from(workInteractionReplyDrafts)
+		.where(
+			and(
+				gte(workInteractionReplyDrafts.createdAt, since),
+				sql`NOT EXISTS (SELECT 1 FROM competency_observations c WHERE c.organization_id = ${workInteractionReplyDrafts.orgId} AND c.client_observation_id = 'reply-draft:' || ${workInteractionReplyDrafts.id})`,
+			),
+		)
+		.orderBy(asc(workInteractionReplyDrafts.orgId));
+	return rows.map((row) => row.orgId);
+}
+
 export interface ListUnrecordedReplyDraftOutcomesParams {
+	orgId?: string;
 	/** Drafts created at or after this instant. */
 	since: string;
 	/** An auto draft with no override created at or before this instant stood. */
@@ -848,7 +867,7 @@ export async function listUnrecordedReplyDraftOutcomes(
 					WHEN o.delivery IS NOT 'auto' AND o.outcome IN ('edited', 'replaced') THEN 'corrected'
 				END AS verdict
 			FROM (
-${draftOutcomes({ since: p.since })}
+${draftOutcomes({ since: p.since, orgId: p.orgId })}
 			) o
 			WHERE EXISTS (
 				SELECT 1 FROM tedis t

@@ -18,7 +18,7 @@ import {
 	type TediCareerStage,
 } from "@tedix/api-contract/schemas/earned-delegation";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	competencyObservations,
@@ -50,7 +50,7 @@ export interface ReplyDraftingSeed {
 	initialRole: { key: string; name: string };
 }
 
-/** The org's `reply_drafting` activity, else the platform one. */
+/** The newest org revision wins; a retired head never falls back to platform defaults. */
 export async function getReplyDraftingActivity(
 	db: DbClient,
 	organizationId: string,
@@ -61,17 +61,18 @@ export async function getReplyDraftingActivity(
 		.where(
 			and(
 				eq(entrustableActivities.key, REPLY_DRAFTING_ACTIVITY_KEY),
-				eq(entrustableActivities.status, "active"),
 				or(
 					eq(entrustableActivities.organizationId, organizationId),
 					isNull(entrustableActivities.organizationId),
 				),
 			),
 		)
-		.limit(2);
-	return (
-		rows.find((row) => row.organizationId === organizationId) ?? rows[0] ?? null
-	);
+		.orderBy(
+			sql`CASE WHEN ${entrustableActivities.organizationId} = ${organizationId} THEN 0 ELSE 1 END`,
+			desc(entrustableActivities.version),
+		)
+		.limit(1);
+	return rows[0]?.status === "active" ? rows[0] : null;
 }
 
 /** Creates the platform activity from `seed` when no head exists. */

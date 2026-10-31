@@ -7,8 +7,8 @@
  * that question's `urgentWhen.gte` threshold; otherwise it can wait (`later`).
  *
  * The question set is configuration, not code: a stored policy row wins, and
- * a missing row falls back to the versioned default asset shipped with the
- * API. Nothing about the triaged text is persisted.
+ * a missing row uses validated installation defaults published in D1.
+ * Nothing about the triaged text is persisted.
  */
 
 import * as z from "zod";
@@ -370,13 +370,13 @@ const policyFields = {
 		"Per-class earned delivery; rejection or correction resets unchanged approvals. Existing autoSend and delivery gates still apply.",
 	),
 	deliveryGate: AgentReplyDeliveryGatePolicySchema.optional().describe(
-		"Clef checks every auto-send candidate must pass; absent, the shipped default gate applies",
+		"Clef checks every auto-send candidate must pass; absent, the published installation default gate applies",
 	),
 	fyi: AgentTurnFyiPolicySchema.default(DEFAULT_AGENT_TURN_FYI).describe(
 		"Turns that ask the user for nothing: closed as acknowledged by default",
 	),
 	steering: AgentTurnSteeringPolicySchema.optional().describe(
-		"The wrong-turn check and its steering replies; absent, the shipped default applies",
+		"The wrong-turn check and its steering replies; absent, the published installation default applies",
 	),
 };
 

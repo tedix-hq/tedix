@@ -13,8 +13,8 @@ import { organizationModelEnv } from "../../services/unrouted-model-egress";
  * The question set is configuration: a stored `user_configs` row in namespace
  * `work.turn-triage` keyed by the credential-resolved organization (the same
  * per-user-per-tenant shape and revision CAS as `user-settings.ts`) wins, and a
- * missing or unparseable row falls back to the versioned default asset
- * `agent-turn-triage-defaults.json`.
+ * missing row uses the current published installation defaults from D1.
+ * Invalid configuration never auto-answers a question.
  *
  * Reply drafting (`requestReplyDraft`, `proposeReplyDraft`,
  * `getReplyDraftAcceptance`): the target user of a quiet (`later`, no urgent
@@ -32,8 +32,7 @@ import { organizationModelEnv } from "../../services/unrouted-model-egress";
  * response metadata, which is what acceptance is measured from); `auto`
  * drafts may be sent without review under the policy's `autoSend` guardrails
  * and its Clef `deliveryGate` (`services/reply-draft-gate.ts`).
- * The drafting prompt is the versioned `replyDraft` block of the defaults
- * asset.
+ * The drafting prompt is the versioned `replyDraft` block of the D1 publication.
  */
 
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
@@ -45,16 +44,13 @@ import {
 import { ORPCError, implement } from "@orpc/server";
 import { agentTurnTriageContract } from "@tedix/api-contract/contracts/agent-turn-triage";
 import {
-	AGENT_REPLY_LABELS,
 	AGENT_REPLY_STEER_TURN_TYPE,
-	type AgentReplyDeliveryGatePolicy,
 	type AgentReplyDeliveryGateResult,
 	type AgentReplyDraftDelivery,
 	type AgentReplyDraftIneligibleReason,
 	type AgentReplyLabel,
 	type AgentTurnAttention,
 	type AgentTurnAttentionKind,
-	AgentTurnAttentionKindSchema,
 	type AgentTurnTriagePolicy,
 	type AgentTurnTriagePolicyState,
 	AgentTurnTriagePolicySchema,
@@ -97,7 +93,6 @@ import {
 } from "@tedix/db/queries/work-items/reply-drafts";
 import { getCaptureHealth } from "@tedix/db/queries/work-items/capture-health";
 import type { WorkItem } from "@tedix/db/schema/work-items";
-import * as z from "zod";
 import { type ClefQuestion, runClef } from "../../lib/clef";
 import { publishMcpInteractionResponse } from "../../lib/mcp-subscriptions";
 import { readReplyDraftLevels } from "../../services/reply-draft-career";
@@ -120,7 +115,8 @@ import {
 	withAuth,
 	withAuthorization,
 } from "../orpc";
-import defaultsAsset from "./agent-turn-triage-defaults.json";
+import type { AgentTurnDefaults } from "@tedix/api-contract/schemas/agent-turn-defaults";
+import { getAgentTurnDefaults } from "@tedix/db/queries/agent-turn-defaults";
 import { verifiedActiveWorkActor } from "./work-items-principal";
 import { rethrowWorkControlError } from "./work-items/policy-helpers";
 
@@ -143,64 +139,13 @@ const draftWriteOs = os.use(withAuth).use(
 
 export const AGENT_TURN_TRIAGE_NAMESPACE = "work.turn-triage";
 
-const DefaultsAssetSchema = z.object({
-	assetVersion: z.number().int().min(1),
-	policy: AgentTurnTriagePolicySchema,
-	replyLabel: z.object({
-		instructions: z.string().min(1),
-		criteria: z.record(z.enum(AGENT_REPLY_LABELS), z.string().min(1)),
-	}),
-	replyDraft: z.object({
-		promptVersion: z.number().int().min(1),
-		lines: z.array(z.string()).min(1),
-	}),
-	attention: z.object({
-		ask: z.object({
-			id: z.string().regex(/^[A-Za-z0-9_.-]+$/),
-			instructions: z.string().min(1),
-			needsYouWhen: z.object({ gte: z.number().min(0).max(1) }),
-			noAskPatterns: z.array(z.string().min(1)),
-		}),
-		turnKind: z.record(AgentTurnAttentionKindSchema, z.string().min(1)),
-		need: z.object({
-			maxChars: z.number().int().min(20).max(240),
-			lines: z.array(z.string()).min(1),
-		}),
-	}),
-});
-
-/**
- * Parsed once per isolate (the router module is lazy). A malformed asset is a
- * build defect and must fail loudly rather than triage with a partial set.
- */
-const DEFAULTS = DefaultsAssetSchema.parse(defaultsAsset);
-for (const label of AGENT_REPLY_LABELS) {
-	if (!DEFAULTS.replyLabel.criteria[label]) {
-		throw new Error(`agent-turn-triage defaults: missing reply class ${label}`);
-	}
-}
-export const DEFAULT_AGENT_TURN_TRIAGE_POLICY: AgentTurnTriagePolicy =
-	DEFAULTS.policy;
-if (!DEFAULTS.policy.deliveryGate) {
-	throw new Error("agent-turn-triage defaults: missing policy.deliveryGate");
-}
-/** The gate for stored policies that predate `deliveryGate`. */
-export const DEFAULT_AGENT_REPLY_DELIVERY_GATE: AgentReplyDeliveryGatePolicy =
-	DEFAULTS.policy.deliveryGate;
-
-if (!DEFAULTS.policy.steering) {
-	throw new Error("agent-turn-triage defaults: missing policy.steering");
-}
-/** The wrong-turn check for stored policies that predate `steering`. */
-export const DEFAULT_AGENT_TURN_STEERING: AgentTurnSteeringPolicy =
-	DEFAULTS.policy.steering;
-
 /** The policy's wrong-turn check, or null when it is off. */
 function steeringOf(
 	policy: AgentTurnTriagePolicy,
+	defaults: AgentTurnDefaults,
 ): AgentTurnSteeringPolicy | null {
-	const steering = policy.steering ?? DEFAULT_AGENT_TURN_STEERING;
-	return steering.enabled ? steering : null;
+	const steering = policy.steering ?? defaults.policy.steering;
+	return steering?.enabled ? steering : null;
 }
 
 /**
@@ -224,7 +169,7 @@ async function policyUserId(
 async function readPolicyState(
 	context: BaseContext,
 	organizationId: string,
-): Promise<AgentTurnTriagePolicyState> {
+): Promise<AgentTurnTriagePolicyState & { defaults: AgentTurnDefaults }> {
 	return readPolicyStateFor(
 		context,
 		await policyUserId(context, organizationId),
@@ -237,7 +182,8 @@ async function readPolicyStateFor(
 	context: Pick<BaseContext, "db">,
 	userId: string | null,
 	organizationId: string,
-): Promise<AgentTurnTriagePolicyState> {
+): Promise<AgentTurnTriagePolicyState & { defaults: AgentTurnDefaults }> {
+	const defaults = await getAgentTurnDefaults(context.db);
 	const row = userId
 		? await getUserConfig(context.db, {
 				userId,
@@ -245,17 +191,23 @@ async function readPolicyStateFor(
 				key: organizationId,
 			})
 		: null;
-	const parsed = row ? AgentTurnTriagePolicySchema.safeParse(row.value) : null;
-	if (!row || !parsed?.success) {
+	if (!row) {
 		return {
-			policy: DEFAULT_AGENT_TURN_TRIAGE_POLICY,
+			policy: defaults.policy,
+			defaults,
 			source: "default",
-			revision: row?.revision ?? 0,
-			updatedAt: row?.updatedAt ?? null,
+			revision: 0,
+			updatedAt: null,
 		};
 	}
+	const parsed = AgentTurnTriagePolicySchema.safeParse(row.value);
+	if (!parsed.success)
+		throw new ORPCError("SERVICE_UNAVAILABLE", {
+			message: "Stored triage policy is invalid",
+		});
 	return {
 		policy: parsed.data,
+		defaults,
 		source: "stored",
 		revision: row.revision,
 		updatedAt: row.updatedAt ?? null,
@@ -266,17 +218,18 @@ async function readPolicyStateFor(
 export function scoreTriage(
 	policy: AgentTurnTriagePolicy,
 	labels: Record<string, number>,
+	defaults: AgentTurnDefaults,
 ): Pick<TriageResult, "urgency" | "urgentLabels"> {
 	const urgentLabels = policy.questions
 		.filter((question) => (labels[question.id] ?? 0) >= question.urgentWhen.gte)
 		.map((question) => question.id);
 	// An off-track turn is steered by its drafting tedi, not escalated.
-	const steering = steeringOf(policy);
+	const steering = steeringOf(policy, defaults);
 	if (steering && (labels[steering.id] ?? 0) >= steering.steerWhen.gte)
 		return { urgency: "later", urgentLabels: [] };
-	const asks = labels[ATTENTION.ask.id];
+	const asks = labels[defaults.attention.ask.id];
 	// A turn that asks the user for nothing is an update: never urgent.
-	if (asks !== undefined && attentionKindOf(asks) === "fyi")
+	if (asks !== undefined && attentionKindOf(asks, defaults) === "fyi")
 		return { urgency: "later", urgentLabels: [] };
 	return { urgency: urgentLabels.length > 0 ? "now" : "later", urgentLabels };
 }
@@ -286,10 +239,11 @@ export function scoreTriage(
  * (reported as the `asks_user` label, never a policy question) and judged
  * again by `retriageQuestions` for turns captured before it existed.
  */
-const ATTENTION = DEFAULTS.attention;
-
-export function attentionKindOf(asks: number): AgentTurnAttentionKind {
-	return asks >= ATTENTION.ask.needsYouWhen.gte ? "needs_you" : "fyi";
+export function attentionKindOf(
+	asks: number,
+	defaults: AgentTurnDefaults,
+): AgentTurnAttentionKind {
+	return asks >= defaults.attention.ask.needsYouWhen.gte ? "needs_you" : "fyi";
 }
 
 /** One label's probability as triage recorded it on a captured question. */
@@ -301,17 +255,16 @@ function recordedLabel(metadata: unknown, id: string): number | null {
 	return typeof p === "number" && p >= 0 && p <= 1 ? p : null;
 }
 
-const NO_ASK = ATTENTION.ask.noAskPatterns.map(
-	(pattern) => new RegExp(pattern, "iu"),
-);
-
 /**
  * Cheap deterministic pre-check: the turn says in so many words that nothing
  * is needed from the user ("nothing for you to do", "no action needed",
  * "waiting on the deploy"; EN/DE/ES) and does not end on a question. Such a
  * turn is an update whatever the model says.
  */
-export function saysNothingNeeded(text: string): boolean {
+export function saysNothingNeeded(
+	text: string,
+	defaults: AgentTurnDefaults,
+): boolean {
 	const lines = text
 		.split(/\r?\n/)
 		.map((line) => line.trim())
@@ -319,12 +272,17 @@ export function saysNothingNeeded(text: string): boolean {
 	const last = lines.at(-1) ?? "";
 	if (/\?["')\]]*\s*$/.test(last)) return false;
 	const plain = text.replace(/[*_`]/g, "").replace(/[’‘]/g, "'");
-	return NO_ASK.some((pattern) => pattern.test(plain));
+	return defaults.attention.ask.noAskPatterns.some((pattern) =>
+		new RegExp(pattern, "iu").test(plain),
+	);
 }
 
 /** The ask probability triage recorded on a captured question, if any. */
-export function recordedAskProbability(metadata: unknown): number | null {
-	return recordedLabel(metadata, ATTENTION.ask.id);
+export function recordedAskProbability(
+	metadata: unknown,
+	defaults: AgentTurnDefaults,
+): number | null {
+	return recordedLabel(metadata, defaults.attention.ask.id);
 }
 
 /** Whether triage judged a captured question's turn off track. */
@@ -349,8 +307,10 @@ export async function steeringVerdict(
 		InteractionRow,
 		"id" | "orgId" | "targetType" | "targetId" | "createdAt" | "metadata"
 	>,
+	defaults: AgentTurnDefaults,
 ): Promise<"none" | "steer" | "escalate"> {
-	if (!isOffTrack(steeringOf(policy), request.metadata)) return "none";
+	if (!isOffTrack(steeringOf(policy, defaults), request.metadata))
+		return "none";
 	const metadata = request.metadata as Record<string, unknown>;
 	if (
 		request.targetType !== "user" ||
@@ -369,9 +329,12 @@ export async function steeringVerdict(
 	return previous === AGENT_REPLY_STEER_TURN_TYPE ? "escalate" : "steer";
 }
 
-function askedAttention(metadata: unknown): AgentTurnAttentionKind | null {
-	const asks = recordedAskProbability(metadata);
-	return asks === null ? null : attentionKindOf(asks);
+function askedAttention(
+	metadata: unknown,
+	defaults: AgentTurnDefaults,
+): AgentTurnAttentionKind | null {
+	const asks = recordedAskProbability(metadata, defaults);
+	return asks === null ? null : attentionKindOf(asks, defaults);
 }
 
 /** The first line of a model's answer as one plain sentence, or null. */
@@ -396,27 +359,31 @@ export function cleanNeed(
 async function judgeAsk(
 	env: BaseContext["env"],
 	text: string,
+	defaults: AgentTurnDefaults,
 ): Promise<number | null> {
 	const result = await runClef(env, {
-		modelId: DEFAULTS.policy.model,
+		modelId: defaults.policy.model,
 		state: { agent_message: text },
 		questions: {
-			[ATTENTION.ask.id]: {
+			[defaults.attention.ask.id]: {
 				type: "noul",
-				instructions: ATTENTION.ask.instructions,
+				instructions: defaults.attention.ask.instructions,
 			},
 		},
 		surface: "agent-turn-attention",
 	});
-	const answer = result.ok ? result.answers[ATTENTION.ask.id] : undefined;
+	const answer = result.ok
+		? result.answers[defaults.attention.ask.id]
+		: undefined;
 	return answer?.type === "noul" ? answer.noul : null;
 }
 
 async function writeNeed(
 	env: BaseContext["env"],
 	text: string,
+	defaults: AgentTurnDefaults,
 ): Promise<string | null> {
-	const prompt = ATTENTION.need.lines
+	const prompt = defaults.attention.need.lines
 		.join("\n")
 		.replace(
 			"{{prompt}}",
@@ -427,7 +394,7 @@ async function writeNeed(
 		timeoutMs: 10_000,
 		surface: "agent-turn-need",
 	});
-	return cleanNeed(answer, ATTENTION.need.maxChars);
+	return cleanNeed(answer, defaults.attention.need.maxChars);
 }
 
 /**
@@ -438,17 +405,23 @@ async function writeNeed(
 export async function decideAgentTurnAttention(
 	env: BaseContext["env"],
 	params: { prompt: string; metadata: unknown },
+	defaults: AgentTurnDefaults,
 	options: { rejudge?: boolean } = {},
 ): Promise<AgentTurnAttention | null> {
-	const asks = saysNothingNeeded(params.prompt)
+	const asks = saysNothingNeeded(params.prompt, defaults)
 		? 0
-		: ((options.rejudge ? null : recordedAskProbability(params.metadata)) ??
-			(await judgeAsk(env, params.prompt)));
+		: ((options.rejudge
+				? null
+				: recordedAskProbability(params.metadata, defaults)) ??
+			(await judgeAsk(env, params.prompt, defaults)));
 	if (asks === null) return null;
-	const kind = attentionKindOf(asks);
+	const kind = attentionKindOf(asks, defaults);
 	return {
 		kind,
-		need: kind === "needs_you" ? await writeNeed(env, params.prompt) : null,
+		need:
+			kind === "needs_you"
+				? await writeNeed(env, params.prompt, defaults)
+				: null,
 		asks,
 		decidedAt: new Date().toISOString(),
 	};
@@ -476,11 +449,16 @@ export async function annotateAgentTurnAttention(
 	row: InteractionRow,
 ): Promise<AgentTurnAttention | null> {
 	if (!isCapturedQuestion(row)) return null;
-	const { policy } = await readPolicyStateFor(context, row.targetId, row.orgId);
-	const steering = steeringOf(policy);
+	const { policy, defaults } = await readPolicyStateFor(
+		context,
+		row.targetId,
+		row.orgId,
+	);
+	const steering = steeringOf(policy, defaults);
 	// Steered once and still off track: the user steps in.
 	const attention: AgentTurnAttention | null =
-		steering && (await steeringVerdict(context, policy, row)) === "escalate"
+		steering &&
+		(await steeringVerdict(context, policy, row, defaults)) === "escalate"
 			? {
 					kind: "needs_you",
 					need: cleanNeed(
@@ -491,14 +469,15 @@ export async function annotateAgentTurnAttention(
 								160,
 							),
 						),
-						ATTENTION.need.maxChars,
+						defaults.attention.need.maxChars,
 					),
-					asks: recordedAskProbability(row.metadata),
+					asks: recordedAskProbability(row.metadata, defaults),
 					decidedAt: new Date().toISOString(),
 				}
 			: await decideAgentTurnAttention(
 					organizationModelEnv(context.env, context.db, row.orgId),
 					row,
+					defaults,
 				);
 	if (attention)
 		await setWorkInteractionAttention(context.db, {
@@ -511,7 +490,7 @@ export async function annotateAgentTurnAttention(
 
 const triage = readOs.triage.handler(async ({ input, context }) => {
 	const organizationId = requireOrgId(context);
-	const { policy } = await readPolicyState(context, organizationId);
+	const { policy, defaults } = await readPolicyState(context, organizationId);
 	const unavailable = (latencyMs: number): TriageResult => ({
 		status: "unavailable",
 		urgency: "later",
@@ -530,11 +509,11 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 			instructions: question.instructions,
 		};
 	}
-	questions[ATTENTION.ask.id] ??= {
+	questions[defaults.attention.ask.id] ??= {
 		type: "noul",
-		instructions: ATTENTION.ask.instructions,
+		instructions: defaults.attention.ask.instructions,
 	};
-	const steering = steeringOf(policy);
+	const steering = steeringOf(policy, defaults);
 	if (steering)
 		questions[steering.id] ??= {
 			type: "noul",
@@ -555,12 +534,18 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 	for (const [id, answer] of Object.entries(result.answers)) {
 		if (answer.type === "noul") labels[id] = answer.noul;
 	}
-	if (saysNothingNeeded(input.text)) labels[ATTENTION.ask.id] = 0;
+	if (saysNothingNeeded(input.text, defaults))
+		labels[defaults.attention.ask.id] = 0;
 	return {
 		status: "ok",
-		...scoreTriage(policy, labels),
-		...(labels[ATTENTION.ask.id] !== undefined
-			? { attentionKind: attentionKindOf(labels[ATTENTION.ask.id]!) }
+		...scoreTriage(policy, labels, defaults),
+		...(labels[defaults.attention.ask.id] !== undefined
+			? {
+					attentionKind: attentionKindOf(
+						labels[defaults.attention.ask.id]!,
+						defaults,
+					),
+				}
 			: {}),
 		labels,
 		model: policy.model,
@@ -571,7 +556,7 @@ const triage = readOs.triage.handler(async ({ input, context }) => {
 
 const labelReply = readOs.labelReply.handler(async ({ input, context }) => {
 	const organizationId = requireOrgId(context);
-	const { policy } = await readPolicyState(context, organizationId);
+	const { policy, defaults } = await readPolicyState(context, organizationId);
 	const result = await runClef(
 		organizationModelEnv(context.env, context.db, organizationId),
 		{
@@ -583,8 +568,8 @@ const labelReply = readOs.labelReply.handler(async ({ input, context }) => {
 			questions: {
 				reply_class: {
 					type: "choice",
-					instructions: DEFAULTS.replyLabel.instructions,
-					criteria: DEFAULTS.replyLabel.criteria,
+					instructions: defaults.replyLabel.instructions,
+					criteria: defaults.replyLabel.criteria,
 				},
 			},
 			surface: "agent-reply-label",
@@ -607,9 +592,13 @@ const labelReply = readOs.labelReply.handler(async ({ input, context }) => {
 	};
 });
 
-const getPolicy = readOs.getPolicy.handler(async ({ context }) =>
-	readPolicyState(context, requireOrgId(context)),
-);
+const getPolicy = readOs.getPolicy.handler(async ({ context }) => {
+	const { defaults: _defaults, ...state } = await readPolicyState(
+		context,
+		requireOrgId(context),
+	);
+	return state;
+});
 
 const updatePolicy = writeOs.updatePolicy.handler(
 	async ({ input, context }) => {
@@ -653,7 +642,6 @@ const updatePolicy = writeOs.updatePolicy.handler(
 );
 
 export const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
-export const REPLY_DRAFT_PROMPT_VERSION = DEFAULTS.replyDraft.promptVersion;
 const REPLY_DRAFT_SOURCE = "reply-draft";
 const PROMPT_TEXT_LIMIT = 8_000;
 const PEER_SESSION_LIMIT = 10;
@@ -737,9 +725,13 @@ const TRIAGE_FYI_BODY =
  * labels whatever the other labels said, so they are read again here: a
  * flagged turn keeps its draft. A turn without a recorded ask is not FYI.
  */
-function isFyiTurn(policy: AgentTurnTriagePolicy, metadata: unknown): boolean {
-	const asks = recordedAskProbability(metadata);
-	if (asks === null || attentionKindOf(asks) !== "fyi") return false;
+function isFyiTurn(
+	policy: AgentTurnTriagePolicy,
+	metadata: unknown,
+	defaults: AgentTurnDefaults,
+): boolean {
+	const asks = recordedAskProbability(metadata, defaults);
+	if (asks === null || attentionKindOf(asks, defaults) !== "fyi") return false;
 	return policy.questions.every(
 		(question) =>
 			(recordedLabel(metadata, question.id) ?? 0) < question.urgentWhen.gte,
@@ -880,26 +872,29 @@ export function renderReplyDraftBoard(params: {
 	return lines.join("\n");
 }
 
-/** Render the versioned drafting prompt from the defaults asset. */
-export function renderReplyDraftPrompt(params: {
-	request: Pick<
-		InteractionRow,
-		"id" | "subject" | "prompt" | "workItemId" | "projectId"
-	>;
-	sessions: ReadonlyArray<{ label: string; state: string; summary: string }>;
-	skillSlug?: string;
-	/** The drafting skill's body, read server-side; absent when unavailable. */
-	skillContent?: string | null;
-	/** The rendered board block ({@link renderReplyDraftBoard}). */
-	board?: string;
-	turnTypeChoices?: readonly string[];
-	/** The user's past replies block; placed at `{{examples}}`, else after the sessions. */
-	examples?: string;
-	/** Whether the turn asks the user for something; omitted when not judged. */
-	attention?: AgentTurnAttentionKind | null;
-	/** The steering instruction of an off-track turn; replaces the turn kind. */
-	steer?: string | null;
-}): string {
+/** Render one immutable published drafting-prompt snapshot. */
+export function renderReplyDraftPrompt(
+	defaults: AgentTurnDefaults,
+	params: {
+		request: Pick<
+			InteractionRow,
+			"id" | "subject" | "prompt" | "workItemId" | "projectId"
+		>;
+		sessions: ReadonlyArray<{ label: string; state: string; summary: string }>;
+		skillSlug?: string;
+		/** The drafting skill's body, read server-side; absent when unavailable. */
+		skillContent?: string | null;
+		/** The rendered board block ({@link renderReplyDraftBoard}). */
+		board?: string;
+		turnTypeChoices?: readonly string[];
+		/** The user's past replies block; placed at `{{examples}}`, else after the sessions. */
+		examples?: string;
+		/** Whether the turn asks the user for something; omitted when not judged. */
+		attention?: AgentTurnAttentionKind | null;
+		/** The steering instruction of an off-track turn; replaces the turn kind. */
+		steer?: string | null;
+	},
+): string {
 	const prompt =
 		params.request.prompt.length > PROMPT_TEXT_LIMIT
 			? `${params.request.prompt.slice(0, PROMPT_TEXT_LIMIT)}\n[truncated]`
@@ -925,13 +920,13 @@ export function renderReplyDraftPrompt(params: {
 		skill: renderSkillBlock(params.skillSlug, params.skillContent),
 		turnKind:
 			params.steer ??
-			(params.attention ? ATTENTION.turnKind[params.attention] : ""),
+			(params.attention ? defaults.attention.turnKind[params.attention] : ""),
 		turnTypeChoices: params.turnTypeChoices?.length
 			? params.turnTypeChoices.join(", ")
 			: "a short label you choose, such as approval, continue, status, correction",
 	};
 	const examples = params.examples ?? "";
-	const lines = DEFAULTS.replyDraft.lines;
+	const lines = defaults.replyDraft.lines;
 	const placed = lines.some((line) => line.includes("{{examples}}"));
 	const anchor = placed
 		? -1
@@ -1292,6 +1287,7 @@ export async function decideReplyDraftDelivery(
 	context: Pick<BaseContext, "db" | "env">,
 	params: {
 		policy: AgentTurnTriagePolicy;
+		defaults: AgentTurnDefaults;
 		reversible: boolean;
 		body: string;
 		request: InteractionRow;
@@ -1374,7 +1370,8 @@ export async function decideReplyDraftDelivery(
 	});
 	if (consecutive >= autoSend.maxConsecutive) return review;
 	const fullGate =
-		params.policy.deliveryGate ?? DEFAULT_AGENT_REPLY_DELIVERY_GATE;
+		params.policy.deliveryGate ?? params.defaults.policy.deliveryGate;
+	if (!fullGate) return review;
 	const skips = params.steering?.gateSkips ?? [];
 	const questions = fullGate.questions.filter(
 		(question) => !skips.includes(question.id),
@@ -1411,14 +1408,18 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 		const observedAt = new Date().toISOString();
 		const questionReason = replyDraftQuestionIneligibility(request, observedAt);
 		if (questionReason) return { status: "ineligible", reason: questionReason };
-		const { policy } = await readPolicyStateFor(context, actor.id, orgId);
-		const steer = await steeringVerdict(context, policy, request);
+		const { policy, defaults } = await readPolicyStateFor(
+			context,
+			actor.id,
+			orgId,
+		);
+		const steer = await steeringVerdict(context, policy, request, defaults);
 		// A turn that asks nothing and is on track is acknowledged, not drafted:
 		// a drafted "carry on" would wake the session for another empty turn.
 		if (
 			policy.fyi.autoAcknowledge &&
 			steer === "none" &&
-			isFyiTurn(policy, request.metadata)
+			isFyiTurn(policy, request.metadata, defaults)
 		) {
 			if (await acknowledgeFyiQuestion(context, actor, request, observedAt))
 				return { status: "acknowledged" };
@@ -1499,7 +1500,7 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				}),
 				readDraftPreferences(context.db, orgId, actor.id),
 			]);
-			const source = `${REPLY_DRAFT_SOURCE}:v${REPLY_DRAFT_PROMPT_VERSION}`;
+			const source = `${REPLY_DRAFT_SOURCE}:v${defaults.replyDraft.promptVersion}`;
 			console.log("reply-draft route", {
 				requestId: request.id,
 				attempt: next.attempt,
@@ -1517,7 +1518,7 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 				organizationId: orgId,
 				tediId: owner.tediId ?? tediId,
 				...(turnModel ? { turnModel } : {}),
-				content: renderReplyDraftPrompt({
+				content: renderReplyDraftPrompt(defaults, {
 					request,
 					sessions,
 					skillSlug: policy.drafting.skillSlug,
@@ -1525,8 +1526,8 @@ const requestReplyDraft = draftWriteOs.requestReplyDraft.handler(
 					board,
 					turnTypeChoices: policy.turnTypeChoices,
 					examples: [examples, preferences].filter(Boolean).join("\n"),
-					attention: askedAttention(request.metadata),
-					steer: steer === "steer" ? steeringOf(policy)?.draft : null,
+					attention: askedAttention(request.metadata, defaults),
+					steer: steer === "steer" ? steeringOf(policy, defaults)?.draft : null,
 				}),
 				// One drafting turn per attempt: the dispatch ledger makes
 				// redelivery and repeat requests of the same attempt no-ops.
@@ -1580,7 +1581,7 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 		const request = await requireInteraction(context, orgId, input.requestId);
 		const targetUserId =
 			request.targetType === "user" ? request.targetId : null;
-		const [{ policy }, dispatches, existing] = await Promise.all([
+		const [{ policy, defaults }, dispatches, existing] = await Promise.all([
 			readPolicyStateFor(context, targetUserId, orgId),
 			replyDraftDispatches(context, request.id),
 			getLatestReplyDraft(context.db, { orgId, interactionId: request.id }),
@@ -1616,10 +1617,11 @@ const proposeReplyDraft = draftWriteOs.proposeReplyDraft.handler(
 			);
 		}
 		// An off-track turn's draft is a steering reply, whatever label it chose.
-		const steering = steeringOf(policy);
+		const steering = steeringOf(policy, defaults);
 		const steered = isOffTrack(steering, request.metadata);
 		const { delivery, gate } = await decideReplyDraftDelivery(context, {
 			policy,
+			defaults,
 			reversible: input.reversible,
 			body: input.body,
 			request,
@@ -1887,6 +1889,7 @@ const retriageQuestions = retriageOs.retriageQuestions.handler(
 				ErrorCodes.FORBIDDEN,
 				"Re-triaging questions requires a person's identity",
 			);
+		const defaults = await getAgentTurnDefaults(context.db);
 		const page = await listWorkInteractionInbox(context.db, {
 			orgId,
 			states: ["open"],
@@ -1914,6 +1917,7 @@ const retriageQuestions = retriageOs.retriageQuestions.handler(
 						const attention = await decideAgentTurnAttention(
 							organizationModelEnv(context.env, context.db, orgId),
 							request,
+							defaults,
 							{ rejudge: true },
 						);
 						let expired = false;

@@ -1,3 +1,4 @@
+import { entrustableActivities } from "../../schema/earned-delegation";
 import type { DatabaseSync } from "node:sqlite";
 import type { CompetencyCareerLadder } from "@tedix/api-contract/schemas/earned-delegation";
 import { describe, expect, it } from "vite-plus/test";
@@ -14,6 +15,7 @@ import {
 	ensureReplyDraftingActivity,
 	ensureReplyDraftRole,
 	evaluateCareerLadder,
+	getReplyDraftingActivity,
 	loadReplyDraftCareers,
 	readReplyDraftingConfig,
 	recordReplyDraftObservations,
@@ -235,4 +237,51 @@ describe("reply-draft career ladder", () => {
 			},
 		]);
 	});
+});
+
+it("does not resurrect older or platform policy behind a retired or malformed organization head", async () => {
+	const { db, sqlite } = seed();
+	const platform = await ensureReplyDraftingActivity(db, "org", SEED, NOW);
+	await db.insert(entrustableActivities).values({
+		...platform,
+		id: "tenant-ladder-v1",
+		organizationId: "org",
+		version: 1,
+	});
+	await db.insert(entrustableActivities).values({
+		...platform,
+		id: "tenant-ladder-v2",
+		organizationId: "org",
+		version: 2,
+		status: "retired",
+	});
+	expect(await getReplyDraftingActivity(db, "org")).toBeNull();
+	sqlite.exec(
+		"UPDATE entrustable_activities SET status='retired' WHERE id='tenant-ladder-v1'",
+	);
+	await db.insert(entrustableActivities).values({
+		...platform,
+		id: "tenant-ladder-v3",
+		organizationId: "org",
+		version: 3,
+		status: "active",
+		rubric: {},
+	});
+	const malformed = await getReplyDraftingActivity(db, "org");
+	expect(malformed?.id).toBe("tenant-ladder-v3");
+	expect(readReplyDraftingConfig(malformed!)).toBeNull();
+	expect((await getReplyDraftingActivity(db, "other-org"))?.id).toBe(
+		platform.id,
+	);
+});
+it("does not resurrect an older platform policy behind its retired head", async () => {
+	const { db } = seed();
+	const platform = await ensureReplyDraftingActivity(db, "org", SEED, NOW);
+	await db.insert(entrustableActivities).values({
+		...platform,
+		id: "platform-ladder-v2",
+		version: 2,
+		status: "retired",
+	});
+	expect(await getReplyDraftingActivity(db, "org")).toBeNull();
 });

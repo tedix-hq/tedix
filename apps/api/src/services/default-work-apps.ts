@@ -11,7 +11,7 @@ import {
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type { OsCreatedByKind } from "@tedix/api-contract/schemas/os-workspaces";
 import { canonicalDigest } from "../lib/blueprint-digest";
-import definitionData from "./default-work-blueprint.json";
+import { getWorkOnboarding } from "@tedix/db/queries/work-onboarding";
 
 /** Install a tenant-owned, pinned blueprint using the ordinary atomic install path. */
 export async function installDefaultWorkApps(
@@ -44,7 +44,9 @@ export async function installDefaultWorkApps(
 	if (roles.has("feed") && roles.has("deck"))
 		return { workspaceId: installed[0]!.gadget.workspaceId };
 
-	const definition = OsBlueprintDefinitionSchema.parse(definitionData);
+	const definition = OsBlueprintDefinitionSchema.parse(
+		(await getWorkOnboarding(db)).definition,
+	);
 	definition.gadgets = definition.gadgets.filter(
 		(app) => !roles.has(app.manifest.navigation?.work),
 	);
