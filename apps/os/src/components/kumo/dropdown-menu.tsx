@@ -63,6 +63,22 @@ const DropdownMenuFilterInput = React.forwardRef<
 	);
 });
 
+const DropdownMenuFilterClear = React.forwardRef<
+	HTMLButtonElement,
+	React.ComponentPropsWithoutRef<typeof MenuPrimitive.Clear>
+>(function DropdownMenuFilterClear({ className, ...props }, ref) {
+	return (
+		<MenuPrimitive.Clear
+			ref={ref}
+			className={cn(
+				"grid size-5 shrink-0 place-items-center rounded text-kumo-subtle transition-colors hover:bg-kumo-tint hover:text-kumo-default focus-visible:outline-2 focus-visible:outline-kumo-brand",
+				className,
+			)}
+			{...props}
+		/>
+	);
+});
+
 // The 44px floor is a pointer-capability question: a touch laptop above `sm`
 // still needs it, a narrow desktop window does not.
 const COARSE_MENU_ITEM =
@@ -129,6 +145,7 @@ export {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuEmpty,
+	DropdownMenuFilterClear,
 	DropdownMenuFilterInput,
 	DropdownMenuFilterProvider,
 	DropdownMenuGroup,
