@@ -83,6 +83,7 @@ import {
 } from "../src/workflow-restart";
 import { isWorkflowRetirementError } from "../src/workflow-retirement";
 import { assertWorkflowExecutionEpochRuntimePin } from "../src/workflow-runtime-pin";
+import { buildWorkflowExecutionCompatibility } from "../src/workflow-runtime-compatibility";
 import {
 	workflowSubmissionHasAbortIntent,
 	workflowSubmissionOutcomeMatches,
@@ -2042,6 +2043,42 @@ for (const scenario of [
 	}
 }
 
+const compatibilitySurface = {
+	source: { workflowSha256: "1".repeat(64) },
+	runtimeSurface: { bridgeCompatibilityVersion: "v1" },
+};
+const originalCredentialCompatibility =
+	await buildWorkflowExecutionCompatibility({
+		surface: compatibilitySurface,
+		serviceToken: "original-service-token",
+	});
+const replayedCredentialCompatibility =
+	await buildWorkflowExecutionCompatibility({
+		surface: compatibilitySurface,
+		serviceToken: "original-service-token",
+	});
+const rotatedCredentialCompatibility =
+	await buildWorkflowExecutionCompatibility({
+		surface: compatibilitySurface,
+		serviceToken: "rotated-service-token",
+	});
+assert.deepEqual(
+	replayedCredentialCompatibility,
+	originalCredentialCompatibility,
+);
+assert.notEqual(
+	rotatedCredentialCompatibility.executionCompatibilityHash,
+	originalCredentialCompatibility.executionCompatibilityHash,
+);
+assert.notEqual(
+	rotatedCredentialCompatibility.serviceTokenVersion,
+	originalCredentialCompatibility.serviceTokenVersion,
+);
+assert.doesNotMatch(
+	JSON.stringify(originalCredentialCompatibility),
+	/original-service-token/,
+);
+
 const runtimePin = {
 	executionEpoch: 0,
 	provenance: {
@@ -2055,7 +2092,8 @@ const runtimePin = {
 			workerVersionId: "worker-v1",
 			workerVersionTag: "production",
 			workerVersionTimestamp: "2026-07-13T00:00:00.000Z",
-			executionCompatibilityHash: "c".repeat(64),
+			executionCompatibilityHash:
+				originalCredentialCompatibility.executionCompatibilityHash,
 			dispatchShimVersion: "v1",
 			compatibilityDate: "2026-06-11",
 			dynamicWorkflowsVersion: "0.1.1",
@@ -2076,8 +2114,8 @@ await assertWorkflowExecutionEpochRuntimePin({
 	runId: "run-1",
 	pin: runtimePin,
 });
-// A deploy or credential rotation selects a fresh immutable Loader config, but
-// the same tenant-visible execution surface may safely resume the epoch.
+// A deploy can select a fresh immutable Loader config while the same execution
+// surface and credential safely resume the epoch.
 await assertWorkflowExecutionEpochRuntimePin({
 	db: immutableArtifactDb,
 	runId: "run-1",
@@ -2104,7 +2142,8 @@ await assert.rejects(
 				runtime: {
 					...runtimePin.provenance.runtime,
 					workerVersionId: "worker-v3",
-					executionCompatibilityHash: "e".repeat(64),
+					executionCompatibilityHash:
+						rotatedCredentialCompatibility.executionCompatibilityHash,
 					loaderConfigHash: "d".repeat(64),
 				},
 			},
@@ -2180,7 +2219,8 @@ await assertWorkflowExecutionEpochRuntimePin({
 			runtime: {
 				...runtimePin.provenance.runtime,
 				workerVersionId: "worker-v3",
-				executionCompatibilityHash: "e".repeat(64),
+				executionCompatibilityHash:
+					rotatedCredentialCompatibility.executionCompatibilityHash,
 				loaderConfigHash: "d".repeat(64),
 			},
 		},
