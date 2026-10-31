@@ -105,7 +105,9 @@ export async function readJsonRpcEnvelope(
 				if (done) break;
 				received += value.byteLength;
 				if (received > maxBytes) {
-					await reader.cancel();
+					// Cancelling a cloned (teed) branch can wait for the original
+					// body, which remains unread until routing finishes.
+					void reader.cancel().catch(() => {});
 					return { tooLarge: true };
 				}
 				chunks.push(value);
