@@ -1,8 +1,42 @@
 import { WORKFLOW_PLATFORM_MCP_METHODS } from "@tedix/api-contract/utils/skill-manifest";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	bindModernMcpRequest,
 	MCP_TASKS_EXTENSION,
 } from "@tedix/mcp-shared/protocol";
+
+/** Only the reserved, identity-injected tedi dispatch may supply a run link.
+ * Legacy messages-send receipts return run_id; direct native Tasks use bare
+ * run ids, while the aggregate namespaces them. Never derive a conversation.
+ */
+export function recordedTediTask(
+	result: unknown,
+	tediId: string,
+): {
+	taskId: string;
+	runId: string;
+} | null {
+	if (!isRecord(result)) return null;
+	const task = isRecord(result.task) ? result.task : null;
+	const taskId = task?.id ?? result.taskId ?? result.run_id;
+	if (
+		typeof taskId !== "string" ||
+		!taskId.trim() ||
+		taskId.length > 512 ||
+		taskId !== taskId.trim()
+	)
+		return null;
+	if (taskId.startsWith("tedi:")) {
+		const prefix = `tedi:${tediId}:`;
+		if (!taskId.startsWith(prefix) || taskId.length === prefix.length)
+			return null;
+		const runId = taskId.slice(prefix.length);
+		if (result.run_id !== undefined && result.run_id !== runId) return null;
+		return { taskId, runId };
+	}
+	if (result.run_id !== undefined && result.run_id !== taskId) return null;
+	return { taskId, runId: taskId };
+}
 
 /**
  * Namespaces whose tools live on the aggregate server, not on a per-app

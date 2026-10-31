@@ -12,6 +12,7 @@ import {
 	injectWorkflowToolIdentity,
 	needsAggregateCredentialRecovery,
 	requiresAggregateCodeMode,
+	recordedTediTask,
 	resolveCodeModeNamespace,
 	resolveMcpTarget,
 	selectMcpToolNameFromList,
@@ -916,6 +917,34 @@ assert.equal(
 		"ask",
 	),
 	"not json data: intact",
+);
+
+assert.deepEqual(
+	recordedTediTask({ task: { id: "tedi:tedi-1:run:with:colons" } }, "tedi-1"),
+	{ taskId: "tedi:tedi-1:run:with:colons", runId: "run:with:colons" },
+);
+assert.deepEqual(recordedTediTask({ run_id: "legacy-run" }, "tedi-1"), {
+	taskId: "legacy-run",
+	runId: "legacy-run",
+});
+assert.equal(recordedTediTask({ conversationId: "not-a-run" }, "tedi-1"), null);
+assert.equal(
+	recordedTediTask({ task: { id: "tedi:other-tedi:run" } }, "tedi-1"),
+	null,
+);
+assert.equal(recordedTediTask({ taskId: "tedi:tedi-1:" }, "tedi-1"), null);
+assert.equal(recordedTediTask({ run_id: " ".repeat(5) }, "tedi-1"), null);
+assert.equal(recordedTediTask({ run_id: "x".repeat(513) }, "tedi-1"), null);
+assert.equal(
+	recordedTediTask(
+		{ task: { id: "tedi:tedi-1:run-1" }, run_id: "other-run" },
+		"tedi-1",
+	),
+	null,
+);
+assert.equal(
+	recordedTediTask({ taskId: "run-1", run_id: "other-run" }, "tedi-1"),
+	null,
 );
 
 console.log(

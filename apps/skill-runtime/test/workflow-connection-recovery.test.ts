@@ -430,4 +430,78 @@ await assert.rejects(
 		executionEpoch: 4,
 	}),
 );
+for (const sensitiveOutput of [false, true]) {
+	for (const failed of [false, true]) {
+		const artifacts = new Map<string, Record<string, unknown>>();
+		const taskReference = { signature: "host-signed", runId: "canonical-run" };
+		const env = {
+			__ARTIFACT_BRIDGE__: {
+				record: async ({
+					path,
+					value,
+				}: {
+					path: string;
+					value: Record<string, unknown>;
+				}) => {
+					artifacts.set(path, value);
+				},
+			},
+			__MCP_BRIDGE__: {
+				call: async (request: Record<string, unknown>) => {
+					assert.equal(request.sensitiveOutput, sensitiveOutput);
+					assert.equal(request.receiptStepCount, 4);
+					if (failed)
+						return {
+							__tedixMcpFailure: true,
+							tediTaskReference: taskReference,
+							error: {
+								message:
+									"MCP_TASK_FAILED: reviewer task canonical-run failed: test failure",
+							},
+						};
+					return {
+						__tedixMcpResult: true,
+						value: { assistant: { content: "recorded reply" } },
+						tediTaskReference: taskReference,
+					};
+				},
+			},
+		};
+		const native = {
+			do: async (
+				name: string,
+				config: unknown,
+				fn: (ctx: unknown) => Promise<unknown>,
+			) => fn({ step: { name, count: 4 }, attempt: 2, config: {} }),
+		};
+		const step = runtime.wrapStep(
+			native,
+			env,
+			runtime.makeTimeline(),
+			runContext,
+		);
+		const mcp = runtime.buildMcpProxy(env, runContext);
+		const invoke = () =>
+			step.do("review", sensitiveOutput ? { sensitive: "output" } : {}, () =>
+				mcp.tedi.run_tedi_turn({ text: "Review" }),
+			);
+		if (failed) await assert.rejects(invoke());
+		else
+			assert.deepEqual(await invoke(), {
+				assistant: { content: "recorded reply" },
+			});
+		const call = artifacts.get(
+			"epochs/3/steps/x:review/4/attempts/2/calls/run/1.json",
+		)!;
+		assert.ok(call);
+		assert.equal(call.status, failed ? "failed" : "succeeded");
+		if (failed) assert.equal(call.retryable, false);
+		assert.deepEqual(
+			call.tediTaskReference,
+			sensitiveOutput ? undefined : taskReference,
+		);
+		if (sensitiveOutput)
+			assert.equal(JSON.stringify(call).includes("recorded reply"), false);
+	}
+}
 console.log("durable connection recovery tests passed");

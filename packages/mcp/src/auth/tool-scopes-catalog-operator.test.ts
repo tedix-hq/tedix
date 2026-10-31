@@ -91,6 +91,12 @@ describe("catalog operator scope resolution", () => {
 	it("maps verb-first skills-router tools to their reviewed tiers", () => {
 		for (const [name, endpoint, annotations, scope] of [
 			["get_skills", "skills/get", { readOnlyHint: true }, "mcp:skills.read"],
+			[
+				"get_workflow_step_tedi_activity",
+				"skills/getWorkflowStepTediActivity",
+				{ readOnlyHint: true },
+				"mcp:skills.read",
+			],
 			["usage_skills", "skills/usage", {}, "mcp:skills.read"],
 			["improve_skills", "skills/improve", {}, "mcp:skills.write"],
 			["move_skills", "skills/move", {}, "mcp:skills.write"],

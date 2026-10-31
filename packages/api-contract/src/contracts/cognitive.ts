@@ -40,6 +40,7 @@ import {
 	SkillWorkflowReliabilitySchema,
 	SkillWorkflowRevisionSchema,
 	SkillWorkflowStepSchema,
+	SkillWorkflowStepTediActivitySchema,
 	SkillWorkflowToolCallSchema,
 	WorkspaceSkillDraftTargetSchema,
 	WorkspaceSkillDraftGrantReadInputSchema,
@@ -1804,6 +1805,25 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 		})
 		.input(z.object({ runId: z.string(), tediId: z.string().optional() }))
 		.output(SkillWorkflowRunTimelineSchema),
+
+	getWorkflowStepTediActivity: oc
+		.route({
+			method: "GET",
+			path: "/skills/get-workflow-step-tedi-activity",
+			tags: ["cognitive"],
+			summary:
+				"Read canonical tedi activity linked to one workflow call receipt",
+		})
+		.input(
+			z.object({
+				runId: z.string().min(1),
+				tediId: z.string().optional(),
+				executionEpoch: z.number().int().nonnegative(),
+				path: z.string().min(1).max(2048),
+				attempt: z.number().int().positive(),
+			}),
+		)
+		.output(SkillWorkflowStepTediActivitySchema),
 
 	inspectWorkflowRun: oc
 		.route({

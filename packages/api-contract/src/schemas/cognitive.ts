@@ -538,7 +538,70 @@ export const SkillMoveToTediResultSchema = z.object({
 });
 export type SkillMoveToTediResult = z.infer<typeof SkillMoveToTediResultSchema>;
 
-/** Agent-readable projection of one durable Cloudflare Workflow step record. */
+export const WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT = "workflow-tedi-task:v1";
+export const SkillWorkflowTediTaskReferenceSchema = z
+	.object({
+		schemaVersion: z.literal(1),
+		organizationId: z.string().min(1).max(512),
+		workflowRunId: z.string().min(1).max(512),
+		executionEpoch: z.number().int().nonnegative(),
+		stepId: z.string().min(1).max(512),
+		stepName: z.string().min(1).max(512),
+		stepCount: z.number().int().positive(),
+		receiptStepCount: z.number().int().positive(),
+		attempt: z.number().int().positive(),
+		phase: z.enum(["run", "rollback"]),
+		ordinal: z.number().int().positive(),
+		callId: z.string().min(1).max(512),
+		taskId: z.string().min(1).max(512),
+		tediId: z.string().min(1).max(512),
+		runId: z.string().min(1).max(512),
+		signature: z.string().regex(/^[0-9a-f]{64}$/),
+		sensitiveOutput: z.boolean(),
+	})
+	.strict();
+export const SkillWorkflowTediTaskSigningPayloadSchema =
+	SkillWorkflowTediTaskReferenceSchema.omit({ signature: true });
+export type SkillWorkflowTediTaskReference = z.infer<
+	typeof SkillWorkflowTediTaskReferenceSchema
+>;
+
+export const SkillWorkflowStepTediActivitySchema = z.object({
+	status: z.enum(["available", "unavailable", "redacted"]),
+	reason: z.string().optional(),
+	task: z
+		.object({ id: z.string(), tediId: z.string(), runId: z.string() })
+		.optional(),
+	runStatus: z
+		.enum(["working", "input_required", "completed", "failed", "cancelled"])
+		.optional(),
+	actions: z.array(
+		z.object({
+			id: z.string(),
+			kind: z.enum([
+				"tool.started",
+				"tool.completed",
+				"tool.failed",
+				"subagent.started",
+				"subagent.completed",
+				"subagent.failed",
+			]),
+			createdAt: z.string(),
+			toolCallId: z.string().optional(),
+			toolName: z.string().optional(),
+			childRunId: z.string().optional(),
+			targetTediId: z.string().optional(),
+		}),
+	),
+	finalResult: z.object({
+		status: z.enum(["available", "unavailable", "redacted"]),
+		messageId: z.string().optional(),
+		content: z.string().optional(),
+		truncated: z.boolean().optional(),
+	}),
+	truncated: z.boolean(),
+});
+
 export const SkillWorkflowConnectionRecoverySchema = z
 	.object({
 		schemaVersion: z.literal(1),

@@ -375,12 +375,15 @@ function buildMcpProxy(env, runContext) {
                   : boundedEvidenceValue(requestArgs),
               };
               await persistArtifact(env, { path, value: started, outcome: "pending", attempt: active.attempt });
+              let tediTaskReference;
               try {
                 const bridgeResult = await observeRpcCall(bridge.call({
                   namespace,
                   method,
                   args: requestArgs,
                   workflow,
+                  sensitiveOutput: active.sensitiveEvidence,
+                  receiptStepCount: active.nativeStepCount || active.stepCount,
                   ...(active.continuationBinding ? { connectionBinding: active.continuationBinding.recovery } : {}),
                 }), namespace + "." + method);
                 if (bridgeResult && bridgeResult.__tedixConnectionRequired === true) {
@@ -395,6 +398,10 @@ function buildMcpProxy(env, runContext) {
                     active.connectionRequired = { error, recovery, namespace, method, requestDigest };
                   }
                   throw error;
+                }
+                if (bridgeResult && (bridgeResult.__tedixMcpResult === true || bridgeResult.__tedixMcpFailure === true)) {
+                  tediTaskReference = bridgeResult.tediTaskReference;
+                  if (bridgeResult.__tedixMcpFailure === true) throw createWorkflowError(bridgeResult.error.message);
                 }
                 const result = bridgeResult && bridgeResult.__tedixMcpResult === true ? bridgeResult.value : bridgeResult;
                 const reportedFailure = workflowMcpCompletionFailure(result);
@@ -419,6 +426,7 @@ function buildMcpProxy(env, runContext) {
                     status: "succeeded",
                     completedAt: workflowIsoNow(),
                     durationMs: workflowNowMs() - t0,
+                    ...(!active.sensitiveEvidence && tediTaskReference ? { tediTaskReference } : {}),
                     // Bounded response snapshot — same evidence budget as request.
                     response: active.sensitiveEvidence
                       ? redactedMcpEvidence()
@@ -436,6 +444,7 @@ function buildMcpProxy(env, runContext) {
                     status: "failed",
                     completedAt: workflowIsoNow(),
                     durationMs: workflowNowMs() - t0,
+                    ...(!active.sensitiveEvidence && tediTaskReference ? { tediTaskReference } : {}),
                     refused: testWorkflowRegex(new RegExp(${JSON.stringify(WORKFLOW_TOOL_REFUSAL_PATTERN)}, "i"), error && error.message ? workflowString(error.message) : workflowString(error)),
                     error: active.sensitiveEvidence
                       ? redactedErrorSnapshot()

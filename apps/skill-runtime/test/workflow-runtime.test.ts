@@ -698,7 +698,7 @@ assert.equal(
 	runtimePackage.dependencies?.["@cloudflare/dynamic-workflows"],
 	`^${DYNAMIC_WORKFLOWS_VERSION}`,
 );
-assert.equal(WORKFLOW_BRIDGE_COMPATIBILITY_VERSION, "v7-compact-run-timeline");
+assert.equal(WORKFLOW_BRIDGE_COMPATIBILITY_VERSION, "v8-step-receipt-metadata");
 const bunLock = await Bun.file(
 	new URL("../../../bun.lock", import.meta.url),
 ).text();
