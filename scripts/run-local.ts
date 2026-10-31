@@ -455,6 +455,13 @@ async function main(): Promise<void> {
 	}
 	console.log("→ Applying isolated local database migrations");
 	await run("bun", ["run", "dev:local:seed"], false, localEnvironment);
+	console.log("→ Configuring the isolated local installation");
+	await run(
+		"bun",
+		["scripts/local-installation-seed.ts"],
+		false,
+		localEnvironment,
+	);
 	if (options.demo) {
 		console.log("→ Seeding the optional deterministic demo workspace and tedi");
 		await run("bun", ["run", "dev:local:demo-seed"], false, localEnvironment);
