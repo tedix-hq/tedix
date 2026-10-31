@@ -364,6 +364,82 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher admission", () => {
+	it.each([
+		"{",
+		"null",
+		'{"itemId":null}',
+		...[
+			{ pid: "unknown" },
+			{ session: 123 },
+			{ phase: ["running"] },
+			{ admissionState: ["unknown"] },
+			{ itemId: item(2).id },
+			{ version: 3 },
+		].map((fields) =>
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "running",
+				...fields,
+			}),
+		),
+	])(
+		"holds unknown capacity for an invalid receipt without replaying admission: %s",
+		async (contents) => {
+			const f = fixture();
+			const path = join(f.dir, `${item().id}-2.json`);
+			writeFileSync(path, contents);
+			await f.dispatcher.tick();
+			await f.dispatcher.tick();
+			expect(f.releases).toHaveLength(0);
+			expect(f.events.some((event) => event.verb === "start")).toBe(false);
+			expect(readFileSync(path, "utf8")).toBe(contents);
+			expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+				"capacity is unknown",
+			);
+			expect(() => retainedLaneWorktree(f.dir, item().id, [])).toThrow(
+				"capacity is unknown",
+			);
+		},
+	);
+	it("keeps an already running worker's result while corrupt ownership holds new admission", async () => {
+		const f = fixture({ max: 1 });
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		const path = join(f.dir, `${item(2).id}-2.json`);
+		writeFileSync(path, "null");
+		await f.dispatcher.tick();
+		expect(f.releases).toHaveLength(1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		expect(f.events.filter((event) => event.verb === "settle")).toHaveLength(1);
+		expect(f.events.filter((event) => event.verb === "complete")).toHaveLength(
+			1,
+		);
+		expect(readFileSync(path, "utf8")).toBe("null");
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item(2).id,
+				version: 2,
+				phase: "deferred",
+				admissionState: "not_sent",
+			}),
+		);
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await f.dispatcher.drain();
+	});
+	it("ignores health metadata by filename even when it is null", async () => {
+		const f = fixture({ max: 1 });
+		f.items.splice(1);
+		writeFileSync(join(f.dir, "health-source.json"), "null");
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+	});
 	it("does not count dispatcher health metadata as a worker in a one-slot lane", async () => {
 		const parent = spawn(
 			process.execPath,
@@ -1468,77 +1544,73 @@ describe("dispatcher admission", () => {
 		},
 	);
 
-	it.each([
-		"sent-unknown",
-		"sent-rejected",
-		"different-work",
-		"different-version",
-		"outside-runs",
-		"not-interrupted",
-	])("does not restore old admission correlation for %s", async (state) => {
-		const { restart, deps, items, control, events, dir } = fixture({
-			refuse: state === "sent-rejected",
-		});
-		items.splice(1);
-		const sent = state.startsWith("sent-");
-		const path = join(dir, `${item().id}-2.json`);
-		const repo =
-			state === "outside-runs"
-				? join(dir, "elsewhere")
-				: join(dir, "runs", `${item().id}-2`, "repo");
-		mkdirSync(repo, { recursive: true });
-		const previous = {
-			itemId: state === "different-work" ? item(2).id : item().id,
-			version: state === "different-version" ? 3 : 2,
-			phase: "deferred",
-			outcome: state === "not-interrupted" ? "failed" : "expired",
-			admissionState: "admitted",
-			attemptId: "old-attempt",
-			repo,
-			session: "codex:33333333-3333-4333-8333-000000000099",
-			executorKey: "local-acme",
-			processIdentity: "v2:old-process",
-		};
-		writeFileSync(path, JSON.stringify(previous));
-		control.history.data = [
-			{
-				id: previous.attemptId,
-				externalSessionKey: previous.session,
-				outcome: "expired",
-				metadata: { dispatchVersion: 2 },
-			},
-		];
-		if (state === "sent-unknown")
-			control.startError = new Error("Tedix CLI read deadline elapsed");
-		if (!sent) {
-			const cli = deps.cli!;
-			deps.cli = async (args, env) => {
-				if (args[5] === "dispatch-get")
-					throw new Error("Tedix CLI read deadline elapsed");
-				return cli(args, env);
+	it.each(["sent-unknown", "sent-rejected", "outside-runs", "not-interrupted"])(
+		"does not restore old admission correlation for %s",
+		async (state) => {
+			const { restart, deps, items, control, events, dir } = fixture({
+				refuse: state === "sent-rejected",
+			});
+			items.splice(1);
+			const sent = state.startsWith("sent-");
+			const path = join(dir, `${item().id}-2.json`);
+			const repo =
+				state === "outside-runs"
+					? join(dir, "elsewhere")
+					: join(dir, "runs", `${item().id}-2`, "repo");
+			mkdirSync(repo, { recursive: true });
+			const previous = {
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				outcome: state === "not-interrupted" ? "failed" : "expired",
+				admissionState: "admitted",
+				attemptId: "old-attempt",
+				repo,
+				session: "codex:33333333-3333-4333-8333-000000000099",
+				executorKey: "local-acme",
+				processIdentity: "v2:old-process",
 			};
-		}
-		const dispatcher = restart();
-		await dispatcher.tick();
-		await dispatcher.drain();
-		const saved = JSON.parse(readFileSync(path, "utf8"));
-		expect(saved.attemptId).toBeUndefined();
-		expect(saved.processIdentity).toBeUndefined();
-		expect(saved.pid).toBeUndefined();
-		expect(saved.outcome).toBe("failed");
-		expect(
-			events.some((entry) => ["heartbeat", "settle"].includes(entry.verb)),
-		).toBe(false);
-		if (sent) {
-			expect(saved.session).not.toBe(previous.session);
-			expect(saved.admissionState).toBe(
-				state === "sent-unknown" ? "unknown" : "rejected",
-			);
-		} else {
-			expect(saved.session).toBeUndefined();
-			expect(saved.repo).toBeUndefined();
-		}
-	});
+			writeFileSync(path, JSON.stringify(previous));
+			control.history.data = [
+				{
+					id: previous.attemptId,
+					externalSessionKey: previous.session,
+					outcome: "expired",
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			if (state === "sent-unknown")
+				control.startError = new Error("Tedix CLI read deadline elapsed");
+			if (!sent) {
+				const cli = deps.cli!;
+				deps.cli = async (args, env) => {
+					if (args[5] === "dispatch-get")
+						throw new Error("Tedix CLI read deadline elapsed");
+					return cli(args, env);
+				};
+			}
+			const dispatcher = restart();
+			await dispatcher.tick();
+			await dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.attemptId).toBeUndefined();
+			expect(saved.processIdentity).toBeUndefined();
+			expect(saved.pid).toBeUndefined();
+			expect(saved.outcome).toBe("failed");
+			expect(
+				events.some((entry) => ["heartbeat", "settle"].includes(entry.verb)),
+			).toBe(false);
+			if (sent) {
+				expect(saved.session).not.toBe(previous.session);
+				expect(saved.admissionState).toBe(
+					state === "sent-unknown" ? "unknown" : "rejected",
+				);
+			} else {
+				expect(saved.session).toBeUndefined();
+				expect(saved.repo).toBeUndefined();
+			}
+		},
+	);
 
 	it("settles result notes starting with a bullet through the real option parser", async () => {
 		const { dispatcher, items, control, events, releases } = fixture();

@@ -450,6 +450,72 @@ interface Receipt {
 	completionRetryAt?: number;
 	completionError?: string;
 }
+class LaneReceiptReadError extends Error {}
+
+function readLaneReceipts(
+	directory: string,
+	cache = new Map<string, { stamp: string; row: Receipt }>(),
+): Receipt[] {
+	const receipts: Receipt[] = [];
+	for (const file of readdirSync(directory)) {
+		if (!file.endsWith(".json") || file === "health-source.json") continue;
+		try {
+			const path = join(directory, file);
+			const stat = statSync(path);
+			const stamp = `${stat.mtimeMs}:${stat.size}`;
+			const cached = cache.get(file);
+			if (cached?.stamp === stamp) {
+				receipts.push(cached.row);
+				continue;
+			}
+			const row: unknown = JSON.parse(readFileSync(path, "utf8"));
+			const named = /^([0-9a-f-]{36})-(\d+)\.json$/.exec(file);
+			if (isRecord(row) && !named && row.itemId === undefined) continue;
+			if (
+				!isRecord(row) ||
+				typeof row.itemId !== "string" ||
+				!UUID_RE.test(row.itemId) ||
+				!Number.isSafeInteger(row.version) ||
+				Number(row.version) < 1 ||
+				(named &&
+					(named[1] !== row.itemId || Number(named[2]) !== row.version)) ||
+				typeof row.phase !== "string" ||
+				![
+					"preparing",
+					"deferred",
+					"admitted",
+					"running",
+					"settling",
+					"settled",
+					"failed",
+				].includes(row.phase) ||
+				(row.pid !== undefined &&
+					(!Number.isSafeInteger(row.pid) || Number(row.pid) <= 0)) ||
+				["session", "executorKey", "attemptId", "processIdentity", "repo"].some(
+					(key) =>
+						row[key] !== undefined &&
+						(typeof row[key] !== "string" || !row[key]),
+				) ||
+				(row.admissionState !== undefined &&
+					(typeof row.admissionState !== "string" ||
+						!["not_sent", "unknown", "rejected", "admitted"].includes(
+							row.admissionState,
+						))) ||
+				(row.outcome !== undefined &&
+					!WorkAttemptOutcomeSchema.safeParse(row.outcome).success)
+			)
+				throw new Error("Invalid receipt ownership fields");
+			const receipt = row as unknown as Receipt;
+			cache.set(file, { stamp, row: receipt });
+			receipts.push(receipt);
+		} catch {
+			throw new LaneReceiptReadError(
+				`Dispatcher receipt ${file} is unreadable or has invalid ownership fields; capacity is unknown. New admissions are held. Inspect and restore the original receipt before resuming; do not delete it or assume its worker stopped.`,
+			);
+		}
+	}
+	return receipts;
+}
 function hasSettledOutcome(receipt: Receipt): boolean {
 	return (
 		receipt.phase === "settled" &&
@@ -495,12 +561,7 @@ export function retainedLaneWorktree(
 			.filter((row) => row.outcome === "failed" || row.outcome === "expired")
 			.map((row) => row.id),
 	);
-	const receipts = readdirSync(directory)
-		.filter((file) => file.endsWith(".json"))
-		.map(
-			(file) =>
-				JSON.parse(readFileSync(join(directory, file), "utf8")) as Receipt,
-		);
+	const receipts = readLaneReceipts(directory);
 	const previous = receipts
 		.filter(
 			(row) =>
@@ -1014,23 +1075,14 @@ export class LaneDispatcher {
 		}
 		this.saveBudgets();
 		let offset = 0;
-		const retained = readdirSync(this.directory)
-			.filter((file) => file.endsWith(".json"))
-			.map((file) => {
-				const path = join(this.directory, file);
-				const stat = statSync(path);
-				const stamp = `${stat.mtimeMs}:${stat.size}`;
-				let cached = this.receipts.get(file);
-				if (cached?.stamp !== stamp) {
-					cached = {
-						stamp,
-						row: JSON.parse(readFileSync(path, "utf8")) as Receipt,
-					};
-					this.receipts.set(file, cached);
-				}
-				return cached.row;
-			})
-			.filter((row) => typeof row.itemId === "string" && row.itemId.length > 0);
+		let retained: Receipt[];
+		try {
+			retained = readLaneReceipts(this.directory, this.receipts);
+		} catch (error) {
+			if (!(error instanceof LaneReceiptReadError)) throw error;
+			this.log("skipped-or-failed", undefined, error.message);
+			return;
+		}
 		for (const row of retained) {
 			if (hasSettledOutcome(row)) continue;
 			if (
@@ -1906,14 +1958,14 @@ export class LaneDispatcher {
 			state.notifyAfter = Date.now() + 60_000;
 			saveLoginRecovery(key, state);
 			if (!state.decision) {
-				const receipts = readdirSync(this.directory)
-					.filter((file) => file.endsWith(".json"))
-					.map(
-						(file) =>
-							JSON.parse(
-								readFileSync(join(this.directory, file), "utf8"),
-							) as Receipt,
-					);
+				let receipts: Receipt[];
+				try {
+					receipts = readLaneReceipts(this.directory, this.receipts);
+				} catch (error) {
+					if (!(error instanceof LaneReceiptReadError)) throw error;
+					this.log("login-blocked", undefined, error.message);
+					return true;
+				}
 				const reporter =
 					receipts.find(
 						(row) =>
