@@ -445,6 +445,7 @@ describe("aggregate tedis", () => {
 
 		for (const name of [
 			"inspect_skill_workflow_run",
+			"get_workflow_step_tedi_activity",
 			"list_skill_workflow_steps",
 			"list_skill_workflow_tool_calls",
 			"list_skill_workflow_revisions",
@@ -493,6 +494,22 @@ describe("aggregate tedis", () => {
 			expect(byName(name)?.inputSchema.properties).toHaveProperty("reason");
 		}
 		expect(byName("inspect_skill_workflow_run")?.outputSchema).toBeTruthy();
+		expect(
+			byName("get_workflow_step_tedi_activity")?.outputSchema,
+		).toBeTruthy();
+		expect(byName("get_workflow_step_tedi_activity")?.config).toMatchObject({
+			endpoint: "skills/getWorkflowStepTediActivity",
+			allowExplicitTediId: false,
+			staticParams: { tediId: "cto-id" },
+		});
+		expect(
+			byName("get_workflow_step_tedi_activity")?.inputSchema.required,
+		).toEqual(
+			expect.arrayContaining(["runId", "executionEpoch", "path", "attempt"]),
+		);
+		expect(
+			byName("get_workflow_step_tedi_activity")?.inputSchema.properties,
+		).not.toHaveProperty("tediId");
 		expect(byName("record_artifact")?.outputSchema).toBeTruthy();
 		expect(byName("record_artifact")?.config).toMatchObject({
 			allowExplicitTediId: false,

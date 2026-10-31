@@ -526,6 +526,9 @@ export const SKILL_WORKFLOW_OUTPUT_SCHEMAS: Record<
 	"skills/inspectWorkflowRun": zodToStructuredOutputJsonSchema(
 		procedureOutputSchema(skillsContract.inspectWorkflowRun),
 	),
+	"skills/getWorkflowStepTediActivity": zodToStructuredOutputJsonSchema(
+		procedureOutputSchema(skillsContract.getWorkflowStepTediActivity),
+	),
 	"skills/listWorkflowSteps": zodToStructuredOutputJsonSchema(
 		procedureOutputSchema(skillsContract.listWorkflowSteps),
 	),
@@ -818,6 +821,19 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		inputSchema: SKILL_WORKFLOW_INSPECT_SCHEMA,
 		annotations: READ_ONLY,
 		rpcEndpoint: "skills/inspectWorkflowRun",
+	},
+	{
+		name: "get_workflow_step_tedi_activity",
+		remoteName: "get_workflow_step_tedi_activity",
+		description:
+			"Read recorded tedi actions and final result for one exact workflow call receipt. Requires a verified canonical task link; historical unlinked activity is unavailable.",
+		inputSchema: withoutTediId(
+			zodToToolInputJsonSchema(
+				procedureInputSchema(skillsContract.getWorkflowStepTediActivity),
+			),
+		),
+		annotations: READ_ONLY,
+		rpcEndpoint: "skills/getWorkflowStepTediActivity",
 	},
 	{
 		name: "list_skill_workflow_steps",

@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { mock, test } from "bun:test";
 import type { CapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
+import {
+	SkillWorkflowTediTaskReferenceSchema,
+	SkillWorkflowTediTaskSigningPayloadSchema,
+	WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT,
+} from "@tedix/api-contract/schemas/cognitive";
+import { deriveHkdfHmacKey, hmacSha256 } from "@tedix/worker-kit/crypto";
 
 mock.module("cloudflare:workers", () => ({
 	WorkerEntrypoint: class {},
 }));
 
-const { callMcpTool } = await import("../src/mcp-bridge");
+const { callMcpTool, McpBridge } = await import("../src/mcp-bridge");
 
 /**
  * A skill workflow's long tedi turn (a ~20k-character judge prompt) outlives
@@ -364,4 +370,156 @@ test("workflow retries retain turn identity while different batches get distinct
 	}
 	assert.equal(ids[0], ids[1]);
 	assert.notEqual(ids[0], ids[2]);
+});
+
+for (const pending of [false, true]) {
+	test(`reserved tedi dispatch signs its ${pending ? "polled task" : "legacy run"} reference before returning the result`, async () => {
+		const runId = "native:run-1";
+		const taskId = pending ? `tedi:tedi-1:${runId}` : runId;
+		const calls: string[] = [];
+		const env = {
+			MCP_SERVICE: {
+				fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+					const body = (await new Request(input, init).json()) as {
+						id: string;
+						method: string;
+						params: { name?: string; taskId?: string };
+					};
+					calls.push(body.method);
+					if (body.method === "tasks/get") {
+						assert.equal(body.params.taskId, taskId);
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							result: {
+								taskId,
+								status: "completed",
+								result: { assistant: { content: "Canonical reply" } },
+							},
+						});
+					}
+					assert.equal(body.params.name, "code");
+					const accepted = pending
+						? {
+								ok: true,
+								accepted: true,
+								pending: true,
+								task: { id: taskId, pollWith: "tasks/get" },
+							}
+						: {
+								ok: true,
+								run_id: runId,
+								assistant: { content: "Canonical reply" },
+							};
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { structuredContent: accepted },
+					});
+				},
+			},
+		} as unknown as Parameters<typeof callMcpTool>[0];
+		const result = (await callMcpTool(
+			env,
+			{
+				...props,
+				tediNamespace: "reviewer",
+				manifest: { ...manifest, mcp: { tedi: ["run_tedi_turn"] } },
+			},
+			{
+				namespace: "tedi",
+				method: "run_tedi_turn",
+				args: { text: "Review", session_key: "session" },
+				workflow: { ...workflow, attempt: 3 },
+				sensitiveOutput: false,
+			},
+		)) as {
+			value: { assistant: { content: string } };
+			tediTaskReference: unknown;
+		};
+		assert.equal(result.value.assistant.content, "Canonical reply");
+		const ref = SkillWorkflowTediTaskReferenceSchema.parse(
+			result.tediTaskReference,
+		);
+		assert.equal(ref.workflowRunId, props.runId);
+		assert.equal(ref.organizationId, props.orgId);
+		assert.equal(ref.executionEpoch, props.executionEpoch);
+		assert.equal(ref.stepName, workflow.stepName);
+		assert.equal(ref.attempt, 3);
+		assert.equal(ref.taskId, taskId);
+		assert.equal(ref.runId, runId);
+		assert.equal(ref.sensitiveOutput, false);
+		const { signature, ...unsigned } = ref;
+		const digest = await hmacSha256(
+			await deriveHkdfHmacKey(
+				props.serviceToken,
+				WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT,
+			),
+			JSON.stringify(SkillWorkflowTediTaskSigningPayloadSchema.parse(unsigned)),
+		);
+		assert.equal(
+			signature,
+			Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+		);
+		assert.equal(calls.filter((method) => method === "tools/call").length, 1);
+		assert.equal(
+			calls.filter((method) => method === "tasks/get").length,
+			pending ? 1 : 0,
+		);
+	});
+}
+
+test("the RPC bridge retains a signed accepted task when the canonical tedi run fails", async () => {
+	const taskId = "tedi:tedi-1:failed-run";
+	const env = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const body = (await new Request(input, init).json()) as {
+					id: string;
+					method: string;
+				};
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					result:
+						body.method === "tasks/get"
+							? { taskId, status: "failed", error: { message: "test failure" } }
+							: {
+									structuredContent: {
+										ok: true,
+										accepted: true,
+										pending: true,
+										task: { id: taskId, pollWith: "tasks/get" },
+									},
+								},
+				});
+			},
+		},
+	};
+	const bridge = Object.assign(new McpBridge(), {
+		env,
+		ctx: {
+			props: {
+				...props,
+				tediNamespace: "reviewer",
+				manifest: { ...manifest, mcp: { tedi: ["run_tedi_turn"] } },
+			},
+		},
+	});
+	const outcome = (await bridge.call({
+		namespace: "tedi",
+		method: "run_tedi_turn",
+		workflow,
+		args: { text: "Review" },
+	})) as {
+		__tedixMcpFailure: boolean;
+		error: { message: string };
+		tediTaskReference: unknown;
+	};
+	assert.equal(outcome.__tedixMcpFailure, true);
+	assert.match(outcome.error.message, /MCP_TASK_FAILED/);
+	assert.equal(
+		SkillWorkflowTediTaskReferenceSchema.parse(outcome.tediTaskReference).runId,
+		"failed-run",
+	);
 });

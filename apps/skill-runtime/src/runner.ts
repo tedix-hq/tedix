@@ -111,13 +111,13 @@ export function skillRuntimeStubKey(
 
 // Bump when DISPATCH_SHIM source changes so cached isolates from a previous
 // deploy don't shadow updated routing logic.
-export const DISPATCH_SHIM_VERSION = "v51-step-author-metadata";
+export const DISPATCH_SHIM_VERSION = "v52-step-receipt-metadata";
 
 // Bump when loader-side bridges or host orchestration change the observable
 // semantics of an already-started execution epoch. Exact tenant module sources
 // are hashed separately; this covers the TypeScript bridge implementations
 // that cannot be introspected from a deployed Worker at runtime.
-export const WORKFLOW_BRIDGE_COMPATIBILITY_VERSION = "v7-compact-run-timeline";
+export const WORKFLOW_BRIDGE_COMPATIBILITY_VERSION = "v8-step-receipt-metadata";
 
 function createMcpBridgeProps(
 	input: LoadSkillRuntimeInput,
