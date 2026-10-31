@@ -1,3 +1,5 @@
+import blueprint from "../../../os/dev/demo-pack/work-blueprint.json";
+import { policyPacks } from "@tedix/db/schema/control-plane";
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
@@ -33,6 +35,7 @@ function fixture() {
 	);
 	sqlite.exec(
 		schemaDdl(
+			policyPacks,
 			osWorkspaces,
 			osGadgets,
 			osGadgetRevisions,
@@ -40,6 +43,13 @@ function fixture() {
 			osBlueprintRevisions,
 		),
 	);
+	sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,name,slug,scope,target,status,version,published_at,published_by,definition) VALUES('example-onboarding','Example','work-onboarding','system','shared','active',1,'2026-01-01T00:00:00Z','example-admin',?)",
+		)
+		.run(
+			JSON.stringify({ workOnboarding: { version: 1, definition: blueprint } }),
+		);
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
 }
 const owner = { kind: "user" as const, id: "pine-owner" };
@@ -220,4 +230,30 @@ describe("default Work blueprint installation", () => {
 			sqlite.close();
 		}
 	});
+});
+
+it("requires published configuration for a new install but preserves an existing pinned installation after revocation", async () => {
+	const { db, sqlite } = fixture();
+	const first = await installDefaultWorkApps(db, "pine-studio", owner);
+	const before = sqlite
+		.prepare("SELECT manifest FROM os_gadget_revisions ORDER BY id")
+		.all();
+	sqlite.exec("UPDATE policy_packs SET status='archived'");
+	expect(await installDefaultWorkApps(db, "pine-studio", owner)).toEqual(first);
+	expect(
+		sqlite
+			.prepare("SELECT manifest FROM os_gadget_revisions ORDER BY id")
+			.all(),
+	).toEqual(before);
+	await expect(
+		installDefaultWorkApps(db, "cedar-studio", owner),
+	).rejects.toThrow();
+	expect(
+		sqlite
+			.prepare(
+				"SELECT count(*) AS n FROM os_workspaces WHERE organization_id='cedar-studio'",
+			)
+			.get(),
+	).toEqual({ n: 0 });
+	sqlite.close();
 });

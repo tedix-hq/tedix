@@ -1,3 +1,14 @@
+import { getAgentTurnDefaults } from "@tedix/db/queries/agent-turn-defaults";
+import testDefaults from "./agent-turn-triage.test-fixture";
+import { AgentTurnDefaultsSchema } from "@tedix/api-contract/schemas/agent-turn-defaults";
+const TEST_DEFAULTS = AgentTurnDefaultsSchema.parse(testDefaults);
+const DEFAULT_AGENT_TURN_TRIAGE_POLICY = TEST_DEFAULTS.policy;
+const DEFAULT_AGENT_TURN_STEERING = TEST_DEFAULTS.policy.steering;
+vi.mock("@tedix/db/queries/agent-turn-defaults", () => ({
+	getAgentTurnDefaults: vi.fn(async () =>
+		AgentTurnDefaultsSchema.parse(testDefaults),
+	),
+}));
 vi.mock("@tedix/db/queries/data-residency", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
 	getOrganizationResidencyPolicy: vi.fn().mockResolvedValue(null),
@@ -20,8 +31,6 @@ import type { BaseContext } from "../orpc";
 import {
 	AGENT_TURN_TRIAGE_NAMESPACE,
 	agentTurnTriageContractRouter,
-	DEFAULT_AGENT_TURN_STEERING,
-	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
 	saysNothingNeeded,
 } from "./agent-turn-triage";
 
@@ -114,7 +123,7 @@ describe("saysNothingNeeded", () => {
 		"Todo está en main. No necesitas hacer nada por ahora.",
 		"Esperando al despliegue; no se requiere ninguna acción.",
 	])("reads %j as an update", (text) => {
-		expect(saysNothingNeeded(text)).toBe(true);
+		expect(saysNothingNeeded(text, TEST_DEFAULTS)).toBe(true);
 	});
 
 	it.each([
@@ -125,7 +134,7 @@ describe("saysNothingNeeded", () => {
 		"Waiting for your approval before I publish the release.",
 		"I am waiting on you to rotate the API key.",
 	])("keeps %j as an ask", (text) => {
-		expect(saysNothingNeeded(text)).toBe(false);
+		expect(saysNothingNeeded(text, TEST_DEFAULTS)).toBe(false);
 	});
 });
 
@@ -190,9 +199,7 @@ describe("triage", () => {
 				),
 				asks_user: {
 					type: "noul",
-					instructions: expect.stringMatching(
-						/^Does this turn ask the user for a decision, fact, approval or action only they can give\? Answer no when/,
-					),
+					instructions: TEST_DEFAULTS.attention.ask.instructions,
 				},
 				off_track: {
 					type: "noul",
@@ -573,4 +580,15 @@ describe("policy", () => {
 			}),
 		).rejects.toThrow();
 	});
+});
+
+it("does not answer or classify when installation configuration is unavailable", async () => {
+	const { env } = createEnv(async () => noulAnswers({}));
+	vi.mocked(getAgentTurnDefaults).mockRejectedValueOnce(
+		new Error("Installation configuration unavailable"),
+	);
+	await expect(
+		client(userContext(env)).triage({ text: "No action needed" }),
+	).rejects.toThrow("Installation configuration unavailable");
+	expect(env.AI.run).not.toHaveBeenCalled();
 });

@@ -1,3 +1,13 @@
+import { getAgentTurnDefaults } from "@tedix/db/queries/agent-turn-defaults";
+import testDefaults from "./agent-turn-triage.test-fixture";
+import { AgentTurnDefaultsSchema } from "@tedix/api-contract/schemas/agent-turn-defaults";
+const TEST_DEFAULTS = AgentTurnDefaultsSchema.parse(testDefaults);
+const DEFAULT_AGENT_TURN_TRIAGE_POLICY = TEST_DEFAULTS.policy;
+vi.mock("@tedix/db/queries/agent-turn-defaults", () => ({
+	getAgentTurnDefaults: vi.fn(async () =>
+		AgentTurnDefaultsSchema.parse(testDefaults),
+	),
+}));
 vi.mock("@tedix/db/queries/data-residency", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
 	getOrganizationResidencyPolicy: vi.fn().mockResolvedValue(null),
@@ -52,7 +62,6 @@ import type { BaseContext } from "../orpc";
 import {
 	agentTurnTriageContractRouter,
 	annotateAgentTurnAttention,
-	DEFAULT_AGENT_TURN_TRIAGE_POLICY,
 	nextReplyDraftAttempt,
 	REPLY_DRAFT_OWNER_TIMEOUT_S,
 	REPLY_DRAFT_ROUTE_THRESHOLD,
@@ -1912,4 +1921,30 @@ describe("wrong-turn steering", () => {
 			f.target.requestReplyDraft({ requestId: other }),
 		).resolves.toEqual({ status: "queued" });
 	});
+});
+
+it("never auto-acknowledges or dispatches a captured turn without installation configuration", async () => {
+	const f = fixture();
+	await f.configure();
+	const requestId = f.question({
+		...QUIET,
+		triage: { ...QUIET.triage, labels: { asks_user: 0.01 } },
+	});
+	vi.mocked(getAgentTurnDefaults).mockRejectedValueOnce(
+		new Error("Installation configuration unavailable"),
+	);
+	await expect(f.target.requestReplyDraft({ requestId })).rejects.toThrow(
+		"Installation configuration unavailable",
+	);
+	expect(f.send).not.toHaveBeenCalled();
+	expect(
+		f.sqlite
+			.prepare("SELECT status FROM work_interactions WHERE id=?")
+			.get(requestId),
+	).toEqual({ status: "open" });
+	expect(
+		f.sqlite
+			.prepare("SELECT count(*) AS n FROM work_interaction_responses")
+			.get(),
+	).toEqual({ n: 0 });
 });

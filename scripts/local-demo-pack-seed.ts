@@ -27,7 +27,7 @@ import opportunityCardsApp from "../apps/os/dev/demo-pack/opportunity-cards-app.
 import opportunityCardsManifest from "../apps/os/dev/demo-pack/opportunity-cards-manifest.json";
 import cards from "../apps/os/dev/demo-pack/cards.json";
 import memoryFacts from "../apps/os/dev/demo-pack/memory-facts.json";
-import blueprint from "../apps/api/src/services/default-work-blueprint.json";
+import blueprint from "../apps/os/dev/demo-pack/work-blueprint.json";
 
 const ORG = "00000000-0000-4000-8000-000000000001";
 const USER = "00000000-0000-4000-8000-000000000002";
