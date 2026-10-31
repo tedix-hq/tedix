@@ -137,6 +137,40 @@ describe("native rule candidate", () => {
 		mocks.presence.mockRejectedValue(new Error("unavailable"));
 		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
 	});
+	it("rejects stale or shadowed aggregate tedi mounts", async () => {
+		const aggregateTool = {
+			...tool,
+			id: "tedi:ceo:work_item_get",
+			meta: { source: "aggregateTedis" },
+			config: { transport: "rpc", _aggregateTediId: "old-tedi" },
+		} as AppTool;
+		mocks.toolDigest.mockImplementation(async (value: AppTool) =>
+			JSON.stringify(value.config),
+		);
+		mocks.fresh.mockResolvedValue({
+			sourceAppId: "root",
+			sourceToolId: aggregateTool.toolId,
+			sourceKind: "aggregate-tedi",
+			tool: {
+				...aggregateTool,
+				config: { transport: "rpc", _aggregateTediId: "new-tedi" },
+			},
+		});
+		expect(await tenantMachinePolicyFallbackBlocked(agent, aggregateTool)).toBe(
+			true,
+		);
+		expect(mocks.presence).not.toHaveBeenCalled();
+
+		mocks.fresh.mockResolvedValue(null);
+		mocks.app.mockResolvedValue({
+			app: { id: "root", organizationId: "org" },
+			tools: [aggregateTool],
+		});
+		expect(await tenantMachinePolicyFallbackBlocked(agent, aggregateTool)).toBe(
+			true,
+		);
+		expect(mocks.presence).not.toHaveBeenCalled();
+	});
 	it.each([
 		{ authType: "oauth", userId: "owner", organizationId: "org" },
 		{

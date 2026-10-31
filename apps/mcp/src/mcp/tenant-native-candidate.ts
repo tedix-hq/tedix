@@ -23,6 +23,8 @@ export async function tenantMachinePolicyFallbackBlocked(
 	const caller = agent.callerIdentity;
 	const homeTools = buildHomeSurfaceTools();
 	const generatedHomeId = homeTools.some((home) => home.id === tool.id);
+	const generatedAggregateTedi =
+		tool.meta?.source === "aggregateTedis" && tool.id.startsWith("tedi:");
 	if (
 		(caller?.authType !== "external_agent" &&
 			caller?.authType !== "oauth" &&
@@ -70,14 +72,18 @@ export async function tenantMachinePolicyFallbackBlocked(
 		let sourceToolId = fresh?.sourceToolId;
 		if (fresh && fresh.tool.id !== tool.id) return true;
 		if (generatedHomeId && fresh?.sourceKind !== "home-surface") return true;
+		if (generatedAggregateTedi && fresh?.sourceKind !== "aggregate-tedi")
+			return true;
 		if (
-			fresh?.sourceKind === "home-surface" &&
+			(fresh?.sourceKind === "home-surface" ||
+				fresh?.sourceKind === "aggregate-tedi") &&
 			(await tenantPolicyEffectiveToolDigest(fresh.tool)) !==
 				(await tenantPolicyEffectiveToolDigest(tool))
 		)
 			return true;
 		if (!sourceAppId) {
 			const source = await client.apps.getByIdWithTools({ appId: rootAppId });
+			if (generatedAggregateTedi) return true;
 			// A rejected or revoked generated mount must not become a stored-row fallback.
 			if (
 				source.app &&
