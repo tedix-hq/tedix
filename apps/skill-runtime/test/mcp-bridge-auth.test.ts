@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { mock, spyOn, test } from "bun:test";
 import type { CapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 import { awaitReasonTurn } from "../src/reason-core";
+import { buildRuntimeRunId } from "@tedix/api-contract/utils/runtime-identity";
+
+function nativeRunForProgram(program: string) {
+	const key = program.match(/"client_request_id":"(wftedi_[0-9a-f]{64})"/)?.[1];
+	assert.ok(key);
+	return buildRuntimeRunId({ tediId: "tedi-1", turnKey: key, surface: "mcp" });
+}
 
 mock.module("cloudflare:workers", () => ({
 	WorkerEntrypoint: class {},
@@ -702,6 +709,9 @@ test("reasoning unwraps real MCP bridge receipts while retaining the synthesis r
 					params: { arguments: { code: string } };
 				};
 				programs.push(body.params.arguments.code);
+				pending.run_id = settled.run_id = nativeRunForProgram(
+					body.params.arguments.code,
+				);
 				return Response.json({
 					jsonrpc: "2.0",
 					id: "reply",
@@ -751,12 +761,12 @@ test("reasoning unwraps real MCP bridge receipts while retaining the synthesis r
 	assert.deepEqual(result, settled);
 	assert.equal(programs.length, 2);
 	assert.equal(programs[0], programs[1]);
-	assert.match(programs[0]!, /"client_request_id":"reason:stable"/);
+	assert.match(programs[0]!, /"client_request_id":"wftedi_[0-9a-f]{64}"/);
 });
 
 test("slow synthesis recovers after the bridge's first task wait expires", async () => {
 	const sessionKey = "workflow:synth:slow";
-	const taskId = "tedi:tedi-1:slow-synthesis";
+	let taskId = "";
 	const programs: string[] = [];
 	const taskReads: string[] = [];
 	let elapsed = 0;
@@ -770,6 +780,7 @@ test("slow synthesis recovers after the bridge's first task wait expires", async
 				};
 				if (body.method === "tools/call") {
 					programs.push(body.params.arguments.code);
+					taskId = `tedi:tedi-1:${nativeRunForProgram(body.params.arguments.code)}`;
 					return Response.json({
 						jsonrpc: "2.0",
 						id: "dispatch",
@@ -851,7 +862,7 @@ test("slow synthesis recovers after the bridge's first task wait expires", async
 		});
 		assert.equal(programs.length, 2);
 		assert.equal(programs[0], programs[1]);
-		assert.match(programs[0]!, /"client_request_id":"reason:stable-slow"/);
+		assert.match(programs[0]!, /"client_request_id":"wftedi_[0-9a-f]{64}"/);
 		assert.match(programs[0]!, /"session_key":"workflow:synth:slow"/);
 		assert.deepEqual(taskReads, [taskId, taskId]);
 		assert.equal(elapsed, 182_500);

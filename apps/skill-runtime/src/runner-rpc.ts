@@ -237,7 +237,7 @@ function errorSnapshot(error) {
 
 function permanentBridgeError(error) {
   const message = error && error.message ? workflowString(error.message) : workflowString(error);
-  if (testWorkflowRegex(/CAPABILITY_NOT_DECLARED|ANNOTATION_VIOLATION|MCP_INPUT_REQUIRED|MCP_TASK_(?:FAILED|CANCELLED):|MCP_UPSTREAM_RESPONSE_TOO_LARGE|WORKFLOW_CALL_CONTEXT_INVALID|MCP_TARGET_UNRESOLVED|MCP_BRIDGE_MISSING|(?:^|:\\s)(?:BAD_REQUEST|NOT_FOUND):|Input validation failed|unauthorized|forbidden|AUTH_/i, message)) {
+  if (testWorkflowRegex(/CAPABILITY_NOT_DECLARED|ANNOTATION_VIOLATION|MCP_INPUT_REQUIRED|MCP_TASK_(?:FAILED|CANCELLED):|MCP_UPSTREAM_RESPONSE_TOO_LARGE|WORKFLOW_CALL_CONTEXT_INVALID|WORKFLOW_TEDI_TASK_ORIGIN_MISMATCH|MCP_TARGET_UNRESOLVED|MCP_BRIDGE_MISSING|(?:^|:\\s)(?:BAD_REQUEST|NOT_FOUND):|Input validation failed|unauthorized|forbidden|AUTH_/i, message)) {
     return true;
   }
   const statusMatch = matchWorkflowString(message, /MCP upstream returned\\s+(\\d{3})/i);

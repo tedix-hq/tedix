@@ -8,7 +8,38 @@
  * before any async work begins, which keeps parallel calls deterministic.
  */
 
-import { sha256Hex } from "@tedix/worker-kit/crypto";
+import {
+	deriveHkdfHmacKey,
+	hmacSha256,
+	sha256Hex,
+} from "@tedix/worker-kit/crypto";
+
+/** Explicit keys may poll the same task from later steps, but never another
+ * workflow or epoch. The host secret prevents pre-seeding the native run ID.
+ */
+export async function scopedWorkflowTediClientKey(input: {
+	organizationId: string;
+	runId: string;
+	executionEpoch: number;
+	tediId: string;
+	clientKey: string;
+	secret: string;
+}): Promise<string> {
+	const digest = await hmacSha256(
+		await deriveHkdfHmacKey(input.secret, "workflow-tedi-client-key:v1"),
+		JSON.stringify([
+			input.organizationId,
+			input.runId,
+			input.executionEpoch,
+			input.tediId,
+			input.clientKey,
+		]),
+	);
+	return (
+		"wftedi_" +
+		Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("")
+	);
+}
 
 export interface WorkflowMcpCallContext {
 	stepName: string;

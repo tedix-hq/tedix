@@ -1083,7 +1083,7 @@ assert.ok(
 	),
 );
 // A shim change must select a fresh Loader id, or cached isolates shadow it.
-assert.equal(DISPATCH_SHIM_VERSION, "v52-step-receipt-metadata");
+assert.equal(DISPATCH_SHIM_VERSION, "v53-workflow-tedi-origin");
 
 // --- research cache: pure path scoping + freshness --------------------------
 {

@@ -538,10 +538,10 @@ export const SkillMoveToTediResultSchema = z.object({
 });
 export type SkillMoveToTediResult = z.infer<typeof SkillMoveToTediResultSchema>;
 
-export const WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT = "workflow-tedi-task:v1";
+export const WORKFLOW_TEDI_TASK_SIGNATURE_CONTEXT = "workflow-tedi-task:v2";
 export const SkillWorkflowTediTaskReferenceSchema = z
 	.object({
-		schemaVersion: z.literal(1),
+		schemaVersion: z.literal(2),
 		organizationId: z.string().min(1).max(512),
 		workflowRunId: z.string().min(1).max(512),
 		executionEpoch: z.number().int().nonnegative(),
@@ -568,6 +568,7 @@ export type SkillWorkflowTediTaskReference = z.infer<
 
 export const SkillWorkflowStepTediActivitySchema = z.object({
 	status: z.enum(["available", "unavailable", "redacted"]),
+	activitySource: z.literal("linked_tedi_run").optional(),
 	reason: z.string().optional(),
 	task: z
 		.object({ id: z.string(), tediId: z.string(), runId: z.string() })

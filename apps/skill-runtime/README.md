@@ -128,6 +128,14 @@ over loopback RPC) and are re-exported for class-name resolution:
   `await` cannot let capability work outlive the native callback. An
   unobserved rejected operation fails the step; an explicitly awaited or
   handled rejection retains normal Promise semantics.
+  For reserved `tedi.run_tedi_turn` calls, the host namespaces an explicit
+  `client_request_id` by organization, workflow, execution epoch and tedi.
+  Reusing the same author key in a later step polls the same native task;
+  another workflow or epoch gets a different native key. The bridge checks
+  the returned native run ID before polling or signing a v2 task link.
+  `skills.getWorkflowStepTediActivity` reports that linked run's recorded
+  events and final message, including when an earlier task is reused.
+  Unsigned and v1 historical links remain unavailable.
 - `OutboundProxy` (`outbound-proxy.ts`) — the `globalOutbound` for skills that
   declare `capabilities.network: true`. A platform prelude first replaces and
   locks tenant `globalThis.fetch`, allowing it only while the shared native
