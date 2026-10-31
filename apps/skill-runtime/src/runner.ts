@@ -111,7 +111,7 @@ export function skillRuntimeStubKey(
 
 // Bump when DISPATCH_SHIM source changes so cached isolates from a previous
 // deploy don't shadow updated routing logic.
-export const DISPATCH_SHIM_VERSION = "v50-compact-run-timeline";
+export const DISPATCH_SHIM_VERSION = "v51-step-author-metadata";
 
 // Bump when loader-side bridges or host orchestration change the observable
 // semantics of an already-started execution epoch. Exact tenant module sources

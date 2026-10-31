@@ -8,6 +8,88 @@ export const RUNNER_STEPS_SOURCE = `function configSnapshot(config) {
   }
 }
 
+function boundedAuthorString(value, field, maximum) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maximum) {
+    throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: " + field + " must be a non-empty string of at most " + maximum + " characters");
+  }
+  return value;
+}
+
+function authorStepMetadata(value) {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: tedix must be an object");
+  }
+  const metadata = {};
+  let fields = 0;
+  for (const key of workflowObjectKeys(value)) {
+    if (key === "purpose") {
+      metadata.purpose = boundedAuthorString(value.purpose, "purpose", 500);
+    } else if (key === "inputs") {
+      if (!Array.isArray(value.inputs) || value.inputs.length === 0 || value.inputs.length > 20) {
+        throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: inputs must contain 1-20 explicit source references");
+      }
+      metadata.inputs = [];
+      for (let index = 0; index < value.inputs.length; index++) {
+        const input = value.inputs[index];
+        if (input == null || typeof input !== "object" || Array.isArray(input)) {
+          throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: each input must be an object");
+        }
+        const reference = {};
+        for (const inputKey of workflowObjectKeys(input)) {
+          if (inputKey === "name") {
+            reference.name = boundedAuthorString(input.name, "inputs.name", 200);
+          } else if (inputKey === "source") {
+            reference.source = boundedAuthorString(input.source, "inputs.source", 500);
+          } else if (inputKey === "sourceRevision") {
+            reference.sourceRevision = boundedAuthorString(input.sourceRevision, "inputs.sourceRevision", 200);
+          } else {
+            throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: unsupported input field " + inputKey);
+          }
+        }
+        if (!reference.source) {
+          throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: each input requires source");
+        }
+        pushWorkflowArray(metadata.inputs, reference);
+      }
+    } else if (key === "usedNext") {
+      if (!Array.isArray(value.usedNext) || value.usedNext.length === 0 || value.usedNext.length > 20) {
+        throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: usedNext must contain 1-20 explicit step names");
+      }
+      metadata.usedNext = [];
+      for (let index = 0; index < value.usedNext.length; index++) {
+        pushWorkflowArray(metadata.usedNext, boundedAuthorString(value.usedNext[index], "usedNext", 200));
+      }
+    } else {
+      throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: unsupported tedix field " + key);
+    }
+    fields++;
+  }
+  if (fields === 0) {
+    throw createWorkflowTypeError("WORKFLOW_INVALID_STEP_METADATA: tedix must record at least one field");
+  }
+  return metadata;
+}
+
+function splitStepConfig(config) {
+  if (config == null || typeof config !== "object") {
+    return { authorMetadata: null, nativeConfig: config };
+  }
+  const nativeConfig = {};
+  let metadataValue;
+  let hasMetadata = false;
+  for (const key of workflowOwnKeys(config)) {
+    if (key === "tedix") {
+      metadataValue = config[key];
+      hasMetadata = true;
+    } else {
+      nativeConfig[key] = config[key];
+    }
+  }
+  return hasMetadata
+    ? { authorMetadata: authorStepMetadata(metadataValue), nativeConfig }
+    : { authorMetadata: null, nativeConfig: config };
+}
+
 function attemptPath(executionEpoch, stepPathSegment, stepCount, attempt) {
   return "epochs/" + executionEpoch + "/steps/" + stepPathSegment + "/" + stepCount
     + "/attempts/" + attempt + ".json";
@@ -29,7 +111,9 @@ function wrapStep(step, env, timeline, runContext) {
   wrapped.do = async (name, configOrFn, fnOrRollback, maybeRollback) => {
 	const encodedStepName = encodeWorkflowPathSegment(name);
     const hasConfig = typeof configOrFn !== "function";
-    const config = hasConfig ? configOrFn : undefined;
+	const splitConfig = splitStepConfig(hasConfig ? configOrFn : undefined);
+	const config = splitConfig.nativeConfig;
+	const authorMetadata = splitConfig.authorMetadata;
 	const declaredSensitiveOutput = workflowBoolean(
 		config && config.sensitive === "output",
 	);
@@ -72,6 +156,7 @@ function wrapStep(step, env, timeline, runContext) {
         status: "started",
         startedAt,
         sensitiveOutput,
+		...(authorMetadata && !sensitiveOutput ? { authorMetadata } : {}),
       };
       timeline.push({
         kind: "step.do",
@@ -138,6 +223,7 @@ function wrapStep(step, env, timeline, runContext) {
             path: "outputs/" + encodedStepName + ".json",
             value: {
               value: output,
+			  executionEpoch: runContext.executionEpoch,
               durationMs,
               stepCount: ctx.step.count,
               attempt: ctx.attempt,
@@ -370,6 +456,7 @@ function wrapStep(step, env, timeline, runContext) {
         path: "outputs/" + encodedStepName + ".error.json",
         value: {
           error: failure.error,
+		  executionEpoch: runContext.executionEpoch,
           durationMs: failure.durationMs,
           stepCount: failure.count,
           attempt: failure.attempt,

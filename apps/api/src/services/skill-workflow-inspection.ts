@@ -1,4 +1,7 @@
-import { SkillWorkflowConnectionRecoverySchema } from "@tedix/api-contract/schemas/cognitive";
+import {
+	SkillWorkflowConnectionRecoverySchema,
+	SkillWorkflowStepAuthorMetadataSchema,
+} from "@tedix/api-contract/schemas/cognitive";
 import type {
 	SkillRunCostSummary,
 	SkillWorkflowArtifactSummary,
@@ -256,6 +259,24 @@ function recordUnknown(value: unknown, keys: string[]): unknown {
 	return null;
 }
 
+function workflowAuthorMetadata(
+	data: unknown,
+	sensitiveOutput: boolean | null,
+) {
+	if (
+		sensitiveOutput === true ||
+		!data ||
+		typeof data !== "object" ||
+		Array.isArray(data)
+	) {
+		return undefined;
+	}
+	const parsed = SkillWorkflowStepAuthorMetadataSchema.safeParse(
+		(data as Record<string, unknown>).authorMetadata,
+	);
+	return parsed.success ? parsed.data : undefined;
+}
+
 function workflowRecordStatus(data: unknown): SkillWorkflowStep["status"] {
 	const raw = recordValue(data, ["status", "outcome"]);
 	if (!raw) return null;
@@ -352,6 +373,10 @@ export function parseSkillWorkflowRecords(
 		const leaf = segments.at(-1) ?? "";
 		const parsedData = parseJson(content);
 		const status = workflowRecordStatus(parsedData);
+		const sensitiveOutput = booleanValue(
+			recordUnknown(parsedData, ["sensitiveOutput"]),
+		);
+		const authorMetadata = workflowAuthorMetadata(parsedData, sensitiveOutput);
 		const base = {
 			path: artifact.path,
 			name,
@@ -367,11 +392,10 @@ export function parseSkillWorkflowRecords(
 				recordUnknown(parsedData, ["durationMs"]),
 			),
 			retryable: workflowRetryable(parsedData),
-			sensitiveOutput: booleanValue(
-				recordUnknown(parsedData, ["sensitiveOutput"]),
-			),
+			sensitiveOutput,
 			outputArtifactPath: recordValue(parsedData, ["outputArtifactPath"]),
 			error: recordUnknown(parsedData, ["error"]),
+			...(authorMetadata ? { authorMetadata } : {}),
 			...(SkillWorkflowConnectionRecoverySchema.safeParse(
 				recordUnknown(parsedData, ["connectionRecovery"]),
 			).success

@@ -47,6 +47,8 @@ const gateFactory = new Function(
 
 function harness() {
 	const rows = new Map<string, ReturnType<typeof compactTimelineReceipt>>();
+	const artifacts = new Map<string, unknown>();
+	const nativeConfigs: unknown[] = [];
 	let failStore = false;
 	let fetches = 0;
 	let attempt = 1;
@@ -57,6 +59,7 @@ function harness() {
 					throw new Error("store unavailable");
 				const compact = compactTimelineReceipt(input);
 				if (compact) rows.set(input.path, JSON.parse(JSON.stringify(compact)));
+				artifacts.set(input.path, JSON.parse(JSON.stringify(input.value)));
 			},
 		},
 		__MCP_BRIDGE__: {
@@ -69,8 +72,19 @@ function harness() {
 	const run = { runId: "run", executionEpoch: 2 };
 	const mcp = runtime.buildMcpProxy(env, run);
 	const native = {
-		do: async (name: string, fn: (ctx: unknown) => unknown) =>
-			fn({ step: { name, count: 1 }, attempt, config: {} }),
+		do: async (
+			name: string,
+			configOrFn: unknown,
+			maybeFn?: (ctx: unknown) => unknown,
+		) => {
+			const config = typeof configOrFn === "function" ? {} : (configOrFn ?? {});
+			const fn =
+				typeof configOrFn === "function"
+					? (configOrFn as (ctx: unknown) => unknown)
+					: maybeFn!;
+			nativeConfigs.push(config);
+			return fn({ step: { name, count: 1 }, attempt, config });
+		},
 		sleep: async () => {},
 		sleepUntil: async () => {},
 		waitForEvent: async () => ({ payload: "secret event" }),
@@ -98,6 +112,8 @@ function harness() {
 	);
 	return {
 		rows,
+		artifacts,
+		nativeConfigs,
 		step,
 		mcp,
 		fetch,
@@ -179,5 +195,97 @@ describe("compact workflow recording", () => {
 		const steps = [...h.rows.values()].filter((row) => row?.kind === "step");
 		expect(steps.map((row) => row?.attempt)).toEqual([1, 2]);
 		expect(steps.map((row) => row?.outcome)).toEqual(["failure", "success"]);
+	});
+
+	test("records bounded author lineage without forwarding it to the engine", async () => {
+		const h = harness();
+		await h.step.do(
+			"summarize",
+			{
+				timeout: "1 minute",
+				tedix: {
+					purpose: "Summarize the explicitly recorded source",
+					inputs: [
+						{
+							name: "brief",
+							source: "artifacts/brief.json",
+							sourceRevision: "sha256:abc123",
+						},
+						{ source: "event.payload" },
+					],
+					usedNext: ["publish"],
+				},
+			},
+			async () => ({ summary: "public" }),
+		);
+
+		expect(h.nativeConfigs[0]).toEqual({ timeout: "1 minute" });
+		expect(
+			h.artifacts.get("epochs/2/steps/x:summarize/1/attempts/1.json"),
+		).toMatchObject({
+			executionEpoch: 2,
+			attempt: 1,
+			authorMetadata: {
+				purpose: "Summarize the explicitly recorded source",
+				inputs: [
+					{
+						name: "brief",
+						source: "artifacts/brief.json",
+						sourceRevision: "sha256:abc123",
+					},
+					{ source: "event.payload" },
+				],
+				usedNext: ["publish"],
+			},
+		});
+		expect(h.artifacts.get("outputs/x:summarize.json")).toMatchObject({
+			executionEpoch: 2,
+			stepCount: 1,
+			attempt: 1,
+		});
+		await expect(
+			h.step.do(
+				"fail",
+				{ tedix: { purpose: "Record a failed attempt" } },
+				async () => {
+					throw new Error("failed");
+				},
+			),
+		).rejects.toThrow("failed");
+		expect(h.artifacts.get("outputs/x:fail.error.json")).toMatchObject({
+			executionEpoch: 2,
+			stepCount: 1,
+			attempt: 1,
+		});
+	});
+
+	test("omits author metadata from sensitive receipts and rejects invalid metadata", async () => {
+		const h = harness();
+		await h.step.do(
+			"secret",
+			{
+				sensitive: "output",
+				tedix: {
+					purpose: "must-not-persist",
+					inputs: [{ source: "must-not-persist" }],
+				},
+			},
+			async () => "secret output",
+		);
+		const receipt = h.artifacts.get(
+			"epochs/2/steps/x:secret/1/attempts/1.json",
+		);
+		expect(receipt).not.toHaveProperty("authorMetadata");
+		expect(JSON.stringify(receipt)).not.toContain("must-not-persist");
+		expect(h.nativeConfigs[0]).toEqual({ sensitive: "output" });
+
+		await expect(
+			h.step.do(
+				"invalid",
+				{ tedix: { inputs: [{ source: "source", inferredRevision: "no" }] } },
+				async () => null,
+			),
+		).rejects.toThrow("WORKFLOW_INVALID_STEP_METADATA");
+		expect(h.nativeConfigs).toHaveLength(1);
 	});
 });
