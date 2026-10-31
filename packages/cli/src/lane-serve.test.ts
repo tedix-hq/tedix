@@ -402,6 +402,27 @@ describe("dispatcher admission", () => {
 			);
 		},
 	);
+	it("holds a legacy ownership receipt whose itemId is missing", async () => {
+		const f = fixture({ max: 1 });
+		const path = join(f.dir, "old.json");
+		const contents = JSON.stringify({
+			version: 2,
+			phase: "running",
+			pid: process.pid,
+			session: "codex:legacy",
+			attemptId: "legacy-attempt",
+		});
+		writeFileSync(path, contents);
+		await f.dispatcher.tick();
+		expect(f.events.some((event) => event.verb === "dispatch-list")).toBe(
+			false,
+		);
+		expect(f.releases).toHaveLength(0);
+		expect(readFileSync(path, "utf8")).toBe(contents);
+		expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+			"capacity is unknown",
+		);
+	});
 	it("keeps an already running worker's result while corrupt ownership holds new admission", async () => {
 		const f = fixture({ max: 1 });
 		await f.dispatcher.tick();
