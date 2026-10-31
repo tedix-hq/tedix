@@ -67,6 +67,10 @@ import {
 	recordWorkflowExecutionEpochStarted,
 } from "./workflow-restart";
 import { assertWorkflowExecutionEpochRuntimePin } from "./workflow-runtime-pin";
+import {
+	buildWorkflowExecutionCompatibility,
+	canonicalWorkflowRuntimeJson,
+} from "./workflow-runtime-compatibility";
 
 interface SkillWorkflowEnv {
 	LOADER: WorkerLoader;
@@ -92,22 +96,6 @@ interface SkillDispatcherMetadata {
 	tediId: string;
 	orgId: string;
 	runId: string;
-}
-
-function canonicalJson(value: unknown): string {
-	const normalize = (current: unknown): unknown => {
-		if (Array.isArray(current)) return current.map(normalize);
-		if (current && typeof current === "object") {
-			return Object.fromEntries(
-				Object.entries(current as Record<string, unknown>)
-					.filter(([, item]) => item !== undefined)
-					.sort(([left], [right]) => left.localeCompare(right))
-					.map(([key, item]) => [key, normalize(item)]),
-			);
-		}
-		return current;
-	};
-	return JSON.stringify(normalize(value));
 }
 
 function normalizeWorkflowResult(value: unknown): unknown {
@@ -248,37 +236,37 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 				? new URL(env.MCP_URL).hostname
 				: "mcp.tedix.dev";
 			// This hash owns whether an already-started execution epoch can safely
-			// resume. It covers every tenant-visible Loader/runtime surface while
-			// deliberately excluding deploy identity and credential rotation.
-			// Those still select a new immutable Loader config below, but they do
-			// not change workflow semantics by themselves.
-			const executionCompatibilityHash = await sha256Hex(
-				canonicalJson({
-					source: { workflowSha256, skillDocSha256 },
-					manifest,
-					factory,
-					routing: {
-						namespaceToSlug,
-						aggregateGateway,
-						evidenceNamespaceToSlug,
-					},
-					mcpBaseHost,
-					platformEvidenceManifest: PLATFORM_EVIDENCE_MANIFEST,
-					runtimeSurface: {
-						bridgeCompatibilityVersion: WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
-						dispatchShimVersion: DISPATCH_SHIM_VERSION,
-						compatibilityDate: COMPATIBILITY_DATE,
-						compatibilityFlags: TENANT_COMPATIBILITY_FLAGS,
-						dynamicWorkflowsVersion: DYNAMIC_WORKFLOWS_VERSION,
-						tenantLimits: TENANT_WORKER_LIMITS,
-						modules: {
-							dispatchShimSha256,
-							workflowContextSha256,
-							workflowFetchGateSha256,
+			// resume. Service-token rotation changes the native tedi task key, so it
+			// must fail closed before tenant code can repeat a dispatch.
+			const { executionCompatibilityHash, serviceTokenVersion } =
+				await buildWorkflowExecutionCompatibility({
+					serviceToken: env.PLATFORM_SERVICE_TOKEN,
+					surface: {
+						source: { workflowSha256, skillDocSha256 },
+						manifest,
+						factory,
+						routing: {
+							namespaceToSlug,
+							aggregateGateway,
+							evidenceNamespaceToSlug,
+						},
+						mcpBaseHost,
+						platformEvidenceManifest: PLATFORM_EVIDENCE_MANIFEST,
+						runtimeSurface: {
+							bridgeCompatibilityVersion: WORKFLOW_BRIDGE_COMPATIBILITY_VERSION,
+							dispatchShimVersion: DISPATCH_SHIM_VERSION,
+							compatibilityDate: COMPATIBILITY_DATE,
+							compatibilityFlags: TENANT_COMPATIBILITY_FLAGS,
+							dynamicWorkflowsVersion: DYNAMIC_WORKFLOWS_VERSION,
+							tenantLimits: TENANT_WORKER_LIMITS,
+							modules: {
+								dispatchShimSha256,
+								workflowContextSha256,
+								workflowFetchGateSha256,
+							},
 						},
 					},
-				}),
-			);
+				});
 			const runtimeProvenance = {
 				workerVersionId: env.WORKER_VERSION.id,
 				workerVersionTag: env.WORKER_VERSION.tag,
@@ -290,19 +278,16 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 				tenantCpuMs: TENANT_WORKER_LIMITS.cpuMs,
 				tenantSubRequests: TENANT_WORKER_LIMITS.subRequests,
 			};
-			const [serviceTokenVersion, outboundCredentialVersion] =
-				await Promise.all([
-					sha256Hex(env.PLATFORM_SERVICE_TOKEN),
-					manifest.network && env.GEMINI_API_KEY
-						? sha256Hex(env.GEMINI_API_KEY)
-						: null,
-				]);
+			const outboundCredentialVersion =
+				manifest.network && env.GEMINI_API_KEY
+					? await sha256Hex(env.GEMINI_API_KEY)
+					: null;
 			// Worker Loader ids are cache hints, but a given id must always resolve
 			// to identical WorkerCode/config. Deployment and credential versions
 			// therefore select a fresh immutable Loader even when the separately
 			// computed execution surface remains compatible with an in-flight epoch.
 			const loaderConfigHash = await sha256Hex(
-				canonicalJson({
+				canonicalWorkflowRuntimeJson({
 					executionCompatibilityHash,
 					deployment: {
 						workerVersionId: runtimeProvenance.workerVersionId,
