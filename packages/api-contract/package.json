@@ -362,7 +362,10 @@
 		"./assets/attention-app-views.v2.json": "./src/assets/attention-app-views.v2.json",
 		"./assets/cli-native-endpoints.v1.json": "./src/assets/cli-native-endpoints.v1.json",
 		"./schemas/model-catalog-config": "./src/schemas/model-catalog-config.ts",
-		"./test/model-catalog": "./src/test/model-catalog.ts"
+		"./test/model-catalog": "./src/test/model-catalog.ts",
+		"./schemas/agent-turn-defaults": "./src/schemas/agent-turn-defaults.ts",
+		"./schemas/work-onboarding": "./src/schemas/work-onboarding.ts",
+		"./test/agent-turn-defaults": "./src/test/agent-turn-defaults.ts"
 	},
 	"scripts": {
 		"clean": "true",
