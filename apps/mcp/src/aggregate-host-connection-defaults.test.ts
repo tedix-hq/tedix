@@ -258,7 +258,6 @@ async function serveAndCaptureTools(hostSlug: string) {
 		createExecutionContext(),
 	);
 	expect(response.status).toBe(200);
-	await response.text();
 	expect(buildMcpServer).toHaveBeenCalledOnce();
 	const cachedData = (buildMcpServer.mock.calls[0] as unknown[])[0] as {
 		tools: Array<{
@@ -309,7 +308,7 @@ async function postMcp(
 		"name" in envelope.params
 			? String(envelope.params.name)
 			: "";
-	const response = await worker.fetch(
+	return worker.fetch(
 		new Request(`https://${hostSlug}.mcp.tedix.tech/mcp`, {
 			method: "POST",
 			headers: {
@@ -324,7 +323,6 @@ async function postMcp(
 		createEnv(),
 		createExecutionContext(),
 	);
-	return new Response(await response.arrayBuffer(), response);
 }
 
 describe("applyHostConnectionDefaultsToAggregateEntries (unit)", () => {
@@ -436,12 +434,11 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		vi.clearAllMocks();
 		getByDomain.mockResolvedValue({ app: null });
 		getBySlugWithTools.mockResolvedValue({ app: null, tools: [] });
-		mountMcp.mockImplementation(
-			async () =>
-				new Response(JSON.stringify({ ok: true }), {
-					status: 200,
-					headers: { "Content-Type": "application/json" },
-				}),
+		mountMcp.mockResolvedValue(
+			new Response(JSON.stringify({ ok: true }), {
+				status: 200,
+				headers: { "Content-Type": "application/json" },
+			}),
 		);
 		buildMcpServer.mockResolvedValue({} as unknown);
 	});
@@ -742,7 +739,6 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 				expect(buildMcpServer).not.toHaveBeenCalled();
 				return;
 			}
-			await response.text();
 			expect(buildMcpServer).toHaveBeenCalledOnce();
 			expect((buildMcpServer.mock.calls[0] as unknown[])[13]).toBe(true);
 		},
