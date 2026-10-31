@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { createHash } from "node:crypto";
 import {
 	existsSync,
 	mkdirSync,
@@ -24,6 +25,7 @@ import {
 	retainedLaneWorktree,
 	dispatchSkip,
 	parseServeOptions,
+	runLaneServe,
 	proposedAcceptance,
 	serialCalls,
 	cooldownGraceMs,
@@ -39,6 +41,7 @@ import { writeDispatcherHealthSource } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
 import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
+import { beginFileLock } from "./local-file-lock";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
@@ -366,6 +369,102 @@ async function until(test: () => boolean) {
 		await new Promise((done) => setTimeout(done, 2));
 	expect(test()).toBe(true);
 }
+
+describe("dispatcher lock handoff", () => {
+	function handoff(executor = "codex") {
+		const directory = mkdtempSync(join(tmpdir(), "lane-handoff-"));
+		dirs.push(directory);
+		const previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = directory;
+		const lockDirectory = (name: string) =>
+			join(
+				directory,
+				"dispatchers",
+				createHash("sha256")
+					.update(`org_acme:${name}`)
+					.digest("hex")
+					.slice(0, 16),
+				"lock",
+			);
+		const predecessor = beginFileLock(lockDirectory("codex"));
+		const tick = spyOn(LaneDispatcher.prototype, "tick").mockResolvedValue();
+		const stderr = spyOn(process.stderr, "write").mockReturnValue(true);
+		const signals = [
+			process.listenerCount("SIGTERM"),
+			process.listenerCount("SIGINT"),
+		] as const;
+		const running = runLaneServe([
+			"--executor",
+			executor,
+			"--once",
+			...options.scope,
+		]);
+		return {
+			predecessor,
+			tick,
+			stderr,
+			running,
+			lockDirectory,
+			async cleanup() {
+				predecessor.release();
+				await running.catch(() => {});
+				tick.mockRestore();
+				stderr.mockRestore();
+				if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+				else process.env.TEDIX_CONFIG_DIR = previous;
+				expect(process.listenerCount("SIGTERM")).toBe(signals[0]);
+				expect(process.listenerCount("SIGINT")).toBe(signals[1]);
+			},
+		};
+	}
+	it("waits through multiple polls, logs once, and takes over after the predecessor drains", async () => {
+		const f = handoff();
+		try {
+			await new Promise((done) => setTimeout(done, 550));
+			expect(f.tick).not.toHaveBeenCalled();
+			expect(f.stderr.mock.calls.map(([line]) => line)).toEqual([
+				`Dispatcher waiting for ${process.pid} to finish draining\n`,
+			]);
+			expect(readdirSync(f.lockDirectory("codex"))).toHaveLength(2);
+			f.predecessor.release();
+			expect(await f.running).toBe(0);
+			expect(f.tick).toHaveBeenCalledTimes(1);
+			expect(readdirSync(f.lockDirectory("codex"))).toEqual([]);
+		} finally {
+			await f.cleanup();
+		}
+	});
+	for (const signal of ["SIGTERM", "SIGINT"] as const) {
+		it(`releases a waiting any-local runner on ${signal} without touching its predecessor`, async () => {
+			const f = handoff("any-local");
+			try {
+				process.emit(signal, signal);
+				expect(await f.running).toBe(0);
+				expect(f.tick).not.toHaveBeenCalled();
+				expect(f.predecessor.ready()).toBe(true);
+				expect(readdirSync(f.lockDirectory("codex"))).toHaveLength(1);
+			} finally {
+				await f.cleanup();
+			}
+		});
+	}
+	it("releases earlier any-local claims when a later lock is corrupt", async () => {
+		const f = handoff("any-local");
+		const corrupt = f.lockDirectory("any-local");
+		mkdirSync(corrupt, { recursive: true });
+		writeFileSync(join(corrupt, "bad.json"), "{");
+		try {
+			f.predecessor.release();
+			await expect(f.running).rejects.toThrow();
+			for (const executor of ["codex", "claude-code", "opencode", "devin"])
+				expect(readdirSync(f.lockDirectory(executor))).toEqual([]);
+			expect(readdirSync(corrupt)).toEqual(["bad.json"]);
+			expect(f.tick).not.toHaveBeenCalled();
+		} finally {
+			await f.cleanup();
+		}
+	});
+});
 
 describe("dispatcher admission", () => {
 	it.each([

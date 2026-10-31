@@ -33,6 +33,7 @@ function alive(pid: number): boolean {
  */
 export function beginFileLock(directory: string): {
 	ready: () => boolean;
+	blockingPids: () => number[];
 	release: () => void;
 } {
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -89,17 +90,18 @@ export function beginFileLock(directory: string): {
 		const ticket =
 			Math.max(0, ...claims().map(({ claim }) => claim.ticket)) + 1;
 		publish(ticket);
+		const blockers = () =>
+			claims().filter(
+				({ name, claim }) =>
+					name !== `${id}.json` &&
+					(claim.ticket === 0 ||
+						claim.ticket < ticket ||
+						(claim.ticket === ticket && name < `${id}.json`)),
+			);
 		return {
 			release,
-			ready: () =>
-				!released &&
-				claims().every(
-					({ name, claim }) =>
-						name === `${id}.json` ||
-						(claim.ticket !== 0 &&
-							(claim.ticket > ticket ||
-								(claim.ticket === ticket && name > `${id}.json`))),
-				),
+			ready: () => !released && blockers().length === 0,
+			blockingPids: () => blockers().map(({ claim }) => claim.pid),
 		};
 	} catch (error) {
 		release();
