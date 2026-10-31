@@ -44,6 +44,7 @@ import type {
 	TediArtifactRow,
 	TediRuntimeEventRow,
 } from "@tedix/db/queries/kernel-runtime-events";
+import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import {
 	type KernelRuntimeRun,
 	getKernelRuntimeRun,
@@ -184,6 +185,90 @@ export function operatorSlashCommandRefusal(command: string): string {
 	return `"/${command}" is an operator command, not a message. It was NOT sent to Home, because routing it as a message would create a new work item from the command text instead of running it. Run \`${runWith}\` instead, or remove the leading "/" if you really meant to send this as a message.`;
 }
 
+function homeAttachmentOwner(run: KernelRuntimeRun): string | undefined {
+	const redriveInput = nonNullRecord(nonNullRecord(run.metadata)?.redriveInput);
+	const descopeUserId = stringFromPayload(redriveInput?.descopeUserId);
+	if (descopeUserId) return `user:${descopeUserId}`;
+	const externalAgentPrincipalId = stringFromPayload(
+		redriveInput?.externalAgentPrincipalId,
+	);
+	return externalAgentPrincipalId
+		? `external-agent:${externalAgentPrincipalId}`
+		: undefined;
+}
+
+export async function prepareDelegatedHomeAttachmentHandoff(input: {
+	db: BaseContext["db"];
+	bucket: R2Bucket;
+	organizationId: string;
+	homeRunId?: string;
+	content: string;
+	attachments?: HomeMessage["attachments"];
+}): Promise<{
+	content: string;
+	attachments: HomeMessage["attachments"];
+	sourceRunId?: string;
+}> {
+	let attachments = input.attachments?.length ? input.attachments : undefined;
+	let sourceRunId = attachments?.length ? input.homeRunId : undefined;
+	const parent = input.homeRunId
+		? await getKernelRuntimeRun(input.db, {
+				id: input.homeRunId,
+				organizationId: input.organizationId,
+			})
+		: undefined;
+
+	if (!attachments?.length && parent) {
+		attachments = readPayloadAttachments(
+			nonNullRecord(nonNullRecord(parent.metadata)?.redriveInput),
+		);
+		if (attachments?.length) sourceRunId = parent.id;
+	}
+
+	if (!attachments?.length && parent) {
+		const owner = homeAttachmentOwner(parent);
+		if (owner) {
+			const events = await listKernelRuntimeEvents(input.db, {
+				organizationId: input.organizationId,
+				conversationId: parent.conversationId,
+				kind: "message.received",
+				order: "desc",
+				limit: 20,
+			});
+			for (const event of events) {
+				const candidate = readPayloadAttachments(nonNullRecord(event.payload));
+				if (!candidate?.length || !event.runId) continue;
+				const source = await getKernelRuntimeRun(input.db, {
+					id: event.runId,
+					organizationId: input.organizationId,
+				});
+				if (
+					source?.conversationId !== parent.conversationId ||
+					homeAttachmentOwner(source) !== owner
+				)
+					continue;
+				attachments = candidate;
+				sourceRunId = source.id;
+				break;
+			}
+		}
+	}
+
+	const resolved = await resolveHomeAttachments(
+		input.bucket,
+		input.organizationId,
+		attachments,
+	);
+	const forwarded = resolved?.filter(
+		(attachment) => attachment.type !== "file",
+	);
+	return {
+		content: homeAttachmentContent(input.content, resolved).text,
+		attachments: forwarded?.length ? forwarded : undefined,
+		...(sourceRunId ? { sourceRunId } : {}),
+	};
+}
+
 const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	context,
 	childRunId,
@@ -193,8 +278,8 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	metadata,
 }) => {
 	const organizationId = requireOrgId(context);
-	// Approval/retry dispatches may happen in a later request. Recover the
-	// original handles from the parent rather than silently losing its files.
+	// Keep delayed dispatches and same-owner follow-ups attached to the exact
+	// Home source run rather than exposing a private attachment reader.
 	const homeRunId = stringFromPayload(metadata.homeRunId);
 	const order = nonNullRecord(metadata.delegationWorkOrder);
 	const originalTargets = await resolveDelegationWorkContext(
@@ -231,32 +316,23 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 	if (originalTargets.length) {
 		metadata = { ...metadata, originalTargetWorkItems: originalTargets };
 	}
-	if (attachments === undefined && homeRunId) {
-		const parent = await getKernelRuntimeRun(context.db, {
-			id: homeRunId,
-			organizationId,
-		});
-		attachments = readPayloadAttachments(
-			nonNullRecord(nonNullRecord(parent?.metadata)?.redriveInput),
-		);
-	}
-	const resolvedAttachments = await resolveHomeAttachments(
-		context.env.TEDI_R2_BUCKET,
+	const attachmentHandoff = await prepareDelegatedHomeAttachmentHandoff({
+		db: context.db,
+		bucket: context.env.TEDI_R2_BUCKET,
 		organizationId,
+		homeRunId,
+		content,
 		attachments,
-	);
-	const attachmentContent = homeAttachmentContent(content, resolvedAttachments);
+	});
 	const client = createRouterClient(cognitiveRuntimeContractRouter, {
 		context,
 	});
 	const result = await client.enqueueMessage({
 		tediId: delegateToTediId,
-		content: attachmentContent.text,
+		content: attachmentHandoff.content,
 		conversationId: delegationSessionKey(childRunId),
 		idempotencyKey: childRunId,
-		attachments: resolvedAttachments?.filter(
-			(attachment) => attachment.type !== "file",
-		),
+		attachments: attachmentHandoff.attachments,
 		// Home supervises every delegation via run-set reconciliation (terminal
 		// events), never the inline reply — so dispatch async. For an isolate
 		// target this makes the body accept + queue the turn, lifting the inject
@@ -269,6 +345,9 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 		// this reaches MAX_DELEGATION_DEPTH (decisions/agentic-kernel-architecture.md).
 		metadata: {
 			...metadata,
+			...(attachmentHandoff.sourceRunId
+				? { homeAttachmentSourceRunId: attachmentHandoff.sourceRunId }
+				: {}),
 			dispatchMode: "async",
 			delegationDepth:
 				(typeof (

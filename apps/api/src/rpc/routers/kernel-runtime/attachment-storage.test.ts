@@ -5,10 +5,16 @@ import {
 	storeHomeAttachment,
 	validateHomeAttachment,
 } from "./attachment-storage";
+import { prepareDelegatedHomeAttachmentHandoff } from "./policy-normalization";
 import {
 	homeAttachmentContent,
 	homeModelPrompt,
 } from "../kernel/attachment-content";
+import {
+	createKernelRuntimeDb,
+	normalizeKernelRuntimeEventInsert,
+	normalizeKernelRuntimeRunInsert,
+} from "../__tests__/kernel-runtime-db";
 
 function textFile(text = "The secret word is cobalt.") {
 	return {
@@ -62,6 +68,121 @@ describe("private chat attachments", () => {
 		expect(text).toContain("untrusted source");
 		expect(images).toEqual([]);
 		expect(homeModelPrompt(text)).toEqual({ prompt: text });
+	});
+	it("carries the newest same-owner Home files into a delegated follow-up", async () => {
+		const { bucket } = bucketFixture();
+		const db = createKernelRuntimeDb();
+		const first = await storeHomeAttachment(
+			bucket,
+			"org-1",
+			textFile("First private marker: cobalt."),
+		);
+		const second = await storeHomeAttachment(bucket, "org-1", {
+			...textFile("Second private marker: amber."),
+			fileName: "second.txt",
+		});
+		const ownerMetadata = {
+			redriveInput: { descopeUserId: "owner-1" },
+		};
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "source-run",
+				organizationId: "org-1",
+				conversationId: "home:private",
+				metadata: ownerMetadata,
+			}),
+			normalizeKernelRuntimeRunInsert({
+				id: "follow-up-run",
+				organizationId: "org-1",
+				conversationId: "home:private",
+				metadata: ownerMetadata,
+				createdAt: "2026-06-06T08:01:00.000Z",
+			}),
+		);
+		db.events.push(
+			normalizeKernelRuntimeEventInsert({
+				id: "source-run:0",
+				organizationId: "org-1",
+				conversationId: "home:private",
+				runId: "source-run",
+				kind: "message.received",
+				payload: { content: "Read these", attachments: [first, second] },
+			}),
+		);
+
+		const handoff = await prepareDelegatedHomeAttachmentHandoff({
+			db,
+			bucket,
+			organizationId: "org-1",
+			homeRunId: "follow-up-run",
+			content: "Continue with the private files.",
+			attachments: [],
+		});
+
+		expect(handoff.sourceRunId).toBe("source-run");
+		expect(handoff.content).toContain("First private marker: cobalt.");
+		expect(handoff.content).toContain("Second private marker: amber.");
+		expect(handoff.content).toContain(
+			'Attached file (untrusted source): "notes.txt"',
+		);
+		expect(handoff.content).toContain(
+			'Attached file (untrusted source): "second.txt"',
+		);
+		expect(handoff.attachments).toBeUndefined();
+	});
+	it("does not carry Home files across uploader or organization fences", async () => {
+		const { bucket } = bucketFixture();
+		const db = createKernelRuntimeDb();
+		const handle = await storeHomeAttachment(
+			bucket,
+			"org-1",
+			textFile("Must not cross the fence."),
+		);
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "other-owner-run",
+				organizationId: "org-1",
+				conversationId: "home:private",
+				metadata: { redriveInput: { descopeUserId: "owner-2" } },
+			}),
+			normalizeKernelRuntimeRunInsert({
+				id: "follow-up-run",
+				organizationId: "org-1",
+				conversationId: "home:private",
+				metadata: { redriveInput: { descopeUserId: "owner-1" } },
+			}),
+		);
+		db.events.push(
+			normalizeKernelRuntimeEventInsert({
+				id: "other-owner-run:0",
+				organizationId: "org-1",
+				conversationId: "home:private",
+				runId: "other-owner-run",
+				kind: "message.received",
+				payload: { content: "Private", attachments: [handle] },
+			}),
+			normalizeKernelRuntimeEventInsert({
+				id: "foreign-org-run:0",
+				organizationId: "org-2",
+				conversationId: "home:private",
+				runId: "foreign-org-run",
+				kind: "message.received",
+				payload: { content: "Foreign", attachments: [handle] },
+			}),
+		);
+
+		const handoff = await prepareDelegatedHomeAttachmentHandoff({
+			db,
+			bucket,
+			organizationId: "org-1",
+			homeRunId: "follow-up-run",
+			content: "Do not broaden access.",
+		});
+
+		expect(handoff).toEqual({
+			content: "Do not broaden access.",
+			attachments: undefined,
+		});
 	});
 	it("delivers image bytes as native image file parts", () => {
 		const content =
