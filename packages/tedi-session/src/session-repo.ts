@@ -546,8 +546,7 @@ export class TediSessionRepo implements SessionHarnessBackend {
 		// exact phase-1 read (same statement, same `selectRecentWindow`), so
 		// phase-1 behaviour — and `mergeDurableAndCache` ts-boundary semantics — is
 		// byte-for-byte preserved whenever nothing has been compacted.
-		const compactedKeys = this.sessionsWithCompaction();
-		if (compactedKeys.size === 0) {
+		if (!this.hasCompaction()) {
 			const rowsDesc = this.sql<SessionEntryRow>`
 				SELECT session_key, role, content, ts, model_provider, model_id
 				FROM session_entries
@@ -557,16 +556,18 @@ export class TediSessionRepo implements SessionHarnessBackend {
 			`;
 			return selectRecentWindow(rowsDesc, this.maxRecentTurns);
 		}
-		return this.listTurnsProjected(compactedKeys);
+		return this.listTurnsProjected();
 	}
 
-	/** Set of session keys that have at least one `compaction` entry. Empty ⇒
-	 * the phase-1 fast path in `listTurns` (no projection needed). */
-	private sessionsWithCompaction(): Set<string> {
-		const rows = this.sql<{ session_key: string }>`
-			SELECT DISTINCT session_key FROM session_entries WHERE type = 'compaction'
+	/** Bounded probe for the phase-1 fast path in `listTurns`. */
+	private hasCompaction(): boolean {
+		const rows = this.sql<{ has_compaction: number }>`
+			SELECT 1 AS has_compaction
+			FROM session_entries
+			WHERE type = 'compaction'
+			LIMIT 1
 		`;
-		return new Set(rows.map((r) => r.session_key));
+		return rows.length > 0;
 	}
 
 	/**
@@ -576,61 +577,90 @@ export class TediSessionRepo implements SessionHarnessBackend {
 	 * combined stream is then ts-ordered and bounded to `maxRecentTurns`, matching
 	 * the phase-1 window contract `mergeDurableAndCache` relies on.
 	 */
-	private listTurnsProjected(compactedKeys: Set<string>): TediSessionTurn[] {
-		const all = this.readAllEntries();
-		const bySession = new Map<string, SessionEntry[]>();
-		for (const e of all) {
-			const list = bySession.get(e.sessionKey) ?? [];
-			list.push(e);
-			bySession.set(e.sessionKey, list);
-		}
-		const turns: TediSessionTurn[] = [];
-		for (const [key, entries] of bySession) {
-			if (compactedKeys.has(key)) {
-				for (const ctx of projectBranch(entries)) {
-					turns.push({
-						role: ctx.role,
-						content: ctx.content,
-						sessionKey: key,
-						ts: ctx.ts,
-					});
-				}
-			} else {
-				for (const e of entries) {
-					if (e.type === "message") {
-						turns.push({
-							role: e.role,
-							content: e.content,
-							sessionKey: key,
-							ts: e.ts,
-							...(e.modelIdentity ? { modelIdentity: e.modelIdentity } : {}),
-						});
-					}
-				}
-			}
-		}
-		turns.sort((a, b) => a.ts - b.ts);
-		return turns.length > this.maxRecentTurns
-			? turns.slice(turns.length - this.maxRecentTurns)
-			: turns;
+	private listTurnsProjected(): TediSessionTurn[] {
+		const rowsDesc = this.sql<SessionEntryRow>`
+			WITH latest_compactions AS (
+				SELECT
+					compaction.session_key AS compacted_session_key,
+					compaction.content AS summary_content,
+					compaction.ts AS compaction_ts,
+					first_kept.ts AS first_kept_ts
+				FROM session_entries AS compaction
+				LEFT JOIN session_entries AS first_kept
+					ON first_kept.id = compaction.first_kept_entry_id
+					AND first_kept.session_key = compaction.session_key
+					AND first_kept.type = 'message'
+				WHERE compaction.type = 'compaction'
+					AND NOT EXISTS (
+						SELECT 1
+						FROM session_entries AS newer_compaction
+						WHERE newer_compaction.session_key = compaction.session_key
+							AND newer_compaction.type = 'compaction'
+							AND (
+								newer_compaction.ts > compaction.ts
+								OR (
+									newer_compaction.ts = compaction.ts
+									AND newer_compaction.id > compaction.id
+								)
+							)
+					)
+			),
+			projected_turns AS (
+				SELECT
+					message.session_key AS projected_session_key,
+					message.role AS projected_role,
+					message.content AS projected_content,
+					message.ts AS projected_ts,
+					message.model_provider AS projected_model_provider,
+					message.model_id AS projected_model_id
+				FROM session_entries AS message
+				LEFT JOIN latest_compactions AS latest
+					ON latest.compacted_session_key = message.session_key
+				WHERE message.type = 'message'
+					AND (
+						latest.compacted_session_key IS NULL
+						OR (
+							latest.first_kept_ts IS NOT NULL
+							AND message.ts >= latest.first_kept_ts
+						)
+						OR (
+							latest.first_kept_ts IS NULL
+							AND message.ts > latest.compaction_ts
+						)
+					)
+				UNION ALL
+				SELECT
+					latest.compacted_session_key AS projected_session_key,
+					'assistant' AS projected_role,
+					latest.summary_content AS projected_content,
+					COALESCE(latest.first_kept_ts - 1, latest.compaction_ts) AS projected_ts,
+					NULL AS projected_model_provider,
+					NULL AS projected_model_id
+				FROM latest_compactions AS latest
+			)
+			SELECT
+				projected_session_key AS session_key,
+				projected_role AS role,
+				projected_content AS content,
+				projected_ts AS ts,
+				projected_model_provider AS model_provider,
+				projected_model_id AS model_id
+			FROM projected_turns
+			ORDER BY projected_ts DESC
+			LIMIT ${this.maxRecentTurns}
+		`;
+		return selectRecentWindow(rowsDesc, this.maxRecentTurns);
 	}
 
-	/** Read all entries (full phase-2 column set), ts-ascending then id-stable. */
-	private readAllEntries(sessionKey?: string): SessionEntry[] {
-		const rows = sessionKey
-			? this.sql<FullEntryRow>`
-				SELECT id, session_key, parent_id, type, role, content, ts,
-					first_kept_entry_id, tokens_before, model_provider, model_id
-				FROM session_entries
-				WHERE session_key = ${sessionKey}
-				ORDER BY ts ASC
-			`
-			: this.sql<FullEntryRow>`
-				SELECT id, session_key, parent_id, type, role, content, ts,
-					first_kept_entry_id, tokens_before, model_provider, model_id
-				FROM session_entries
-				ORDER BY ts ASC
-			`;
+	/** Read one session's full branch, ts-ascending then id-stable. */
+	private readAllEntries(sessionKey: string): SessionEntry[] {
+		const rows = this.sql<FullEntryRow>`
+			SELECT id, session_key, parent_id, type, role, content, ts,
+				first_kept_entry_id, tokens_before, model_provider, model_id
+			FROM session_entries
+			WHERE session_key = ${sessionKey}
+			ORDER BY ts ASC
+		`;
 		return rows.map(rowToEntry);
 	}
 
