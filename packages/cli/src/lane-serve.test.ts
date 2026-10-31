@@ -427,14 +427,109 @@ describe("dispatcher admission", () => {
 					.map((event) => event.args[6]),
 			).toEqual([f.items[1]!.id]);
 			expect(historicalReads).toBe(0);
-			await dispatcher.tick();
-			expect(historicalReads).toBe(0);
+			const recovery = dispatcher.tick();
+			await until(() => historicalReads === 1);
+			expect(f.releases).toHaveLength(1);
+			releaseHistory();
+			await recovery;
 		} finally {
 			releaseHistory();
 			await tick;
 			await until(() => f.releases.length === 1);
 			for (const release of f.releases) release();
 			await dispatcher.drain();
+		}
+	});
+	it("prioritizes the real heartbeat over queued pickup reads", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		let heartbeat!: () => void;
+		const intervals = spyOn(globalThis, "setInterval").mockImplementation(((
+			callback: () => void,
+			ms: number,
+		) => {
+			if (ms === 60_000) heartbeat = callback;
+			return setTimeout(() => {}, 60_000);
+		}) as typeof setInterval);
+		let release!: () => void;
+		let blocked = false;
+		let blockNext = false;
+		const cli = f.deps.cli!;
+		f.deps.cli = async (args, ...rest) => {
+			if (args[5] === "dispatch-list" && blockNext && !blocked) {
+				blocked = true;
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+			}
+			return cli(args, ...rest);
+		};
+		const dispatcher = f.restart();
+		try {
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+
+			blockNext = true;
+			const first = dispatcher.tick();
+			await until(() => Boolean(release));
+			const offset = f.events.length;
+			const second = dispatcher.tick();
+			heartbeat();
+			release();
+			await Promise.all([first, second]);
+			expect(
+				f.events
+					.slice(offset)
+					.filter((event) =>
+						["dispatch-list", "heartbeat"].includes(event.verb),
+					)
+					.map((event) => event.verb),
+			).toEqual(["dispatch-list", "heartbeat", "dispatch-list"]);
+		} finally {
+			release?.();
+			for (const done of f.releases) done();
+			await dispatcher.drain();
+			intervals.mockRestore();
+		}
+	});
+	it("closes retained Work while another native worker runs without retrying optional telemetry", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const path = join(f.dir, `${item(2).id}-2.json`);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item(2).id,
+				version: 2,
+				phase: "settled",
+				outcome: "succeeded",
+				admissionState: "admitted",
+				attemptId: "retained-attempt",
+				session: "codex:retained-session",
+				executorKey: "retained-executor",
+				completionPending: true,
+				pendingObservation: { state: "idle" },
+			}),
+		);
+		try {
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			await f.dispatcher.tick();
+			const completion = f.events.find(
+				(event) => event.verb === "complete" && event.args[6] === item(2).id,
+			);
+			expect(completion?.env.TEDIX_AGENT_SESSION).toBe(
+				"codex:retained-session",
+			);
+			expect(completion?.env.TEDIX_EXTERNAL_AGENT).toBe("retained-executor");
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.completionPending).toBe(false);
+			expect(saved.pendingObservation).toEqual({ state: "idle" });
+			expect(saved.reportRetries).toBeUndefined();
+			expect(f.releases).toHaveLength(1);
+		} finally {
+			for (const release of f.releases) release();
+			await f.dispatcher.drain();
 		}
 	});
 	it("revisits one historical receipt per idle pass without starving later receipts", async () => {
@@ -2391,6 +2486,39 @@ it("validates concurrency and pins selectors without persisting inherited identi
 		}),
 	).toEqual(env);
 });
+it("runs due heartbeats before queued normal calls without overlapping the current call", async () => {
+	const queue = serialCalls();
+	const events: string[] = [];
+	let release!: () => void;
+	const first = queue(async () => {
+		events.push("current");
+		await new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		events.push("finished");
+	});
+	await until(() => Boolean(release));
+	const normal = queue(async () => {
+		events.push("normal");
+	});
+	const heartbeat = queue(async () => {
+		events.push("heartbeat");
+	}, true);
+	const nextHeartbeat = queue(async () => {
+		events.push("next-heartbeat");
+	}, true);
+	expect(events).toEqual(["current"]);
+	release();
+	await Promise.all([first, normal, heartbeat, nextHeartbeat]);
+	expect(events).toEqual([
+		"current",
+		"finished",
+		"heartbeat",
+		"next-heartbeat",
+		"normal",
+	]);
+});
+
 it("serializes calls and releases the queue after an error", async () => {
 	const queue = serialCalls();
 	const events: string[] = [];

@@ -291,12 +291,33 @@ export function parseServeOptions(
 }
 
 export function serialCalls() {
-	let tail: Promise<unknown> = Promise.resolve();
-	return <T>(operation: () => Promise<T>): Promise<T> => {
-		const next = tail.then(operation);
-		tail = next.catch(() => {});
-		return next;
+	const pending: Array<{ heartbeat: boolean; run: () => Promise<void> }> = [];
+	let draining = false;
+	const drain = async () => {
+		while (pending.length) {
+			const urgent = pending.findIndex((entry) => entry.heartbeat);
+			const [next] = pending.splice(urgent < 0 ? 0 : urgent, 1);
+			await next!.run();
+		}
+		draining = false;
 	};
+	return <T>(operation: () => Promise<T>, heartbeat = false): Promise<T> =>
+		new Promise<T>((resolve, reject) => {
+			pending.push({
+				heartbeat,
+				run: async () => {
+					try {
+						resolve(await operation());
+					} catch (error) {
+						reject(error);
+					}
+				},
+			});
+			if (!draining) {
+				draining = true;
+				void Promise.resolve().then(drain);
+			}
+		});
 }
 
 /** Time one dispatcher read gets for its own gateway requests. */
@@ -938,10 +959,12 @@ export class LaneDispatcher {
 			...(session ? { TEDIX_AGENT_SESSION: session } : {}),
 			...(executorKey ? { TEDIX_EXTERNAL_AGENT: executorKey } : {}),
 		};
-		return this.queue(() =>
-			this.deps.cli<T>([...this.options.scope, ...args], env, undefined, () =>
-				this.cooldownUntil(),
-			),
+		return this.queue(
+			() =>
+				this.deps.cli<T>([...this.options.scope, ...args], env, undefined, () =>
+					this.cooldownUntil(),
+				),
+			args[0] === "work" && args[1] === "heartbeat",
 		);
 	}
 	private cooldownUntil() {
@@ -1173,11 +1196,11 @@ export class LaneDispatcher {
 		}
 		// Historical delivery must not queue ahead of admission or lease renewal.
 		// Live orphan fences above remain synchronous even while Work is running.
-		if (!this.running.size && !this.preparing.size) {
+		if (!this.preparing.size) {
 			for (let n = 0; n < retained.length; n++) {
 				const row = retained[this.reconciliationCursor++ % retained.length]!;
 				if (!hasSettledOutcome(row) && row.pid && alive(row.pid)) continue;
-				if (await this.reconcileRetained(row)) break;
+				if (await this.reconcileRetained(row, this.running.size > 0)) break;
 			}
 		}
 		if (
@@ -1207,7 +1230,10 @@ export class LaneDispatcher {
 			break;
 		}
 	}
-	private async reconcileRetained(row: Receipt): Promise<boolean> {
+	private async reconcileRetained(
+		row: Receipt,
+		essentialOnly = false,
+	): Promise<boolean> {
 		if (this.running.has(row.itemId) || this.maintenance.has(row.itemId))
 			return false;
 		if (
@@ -1226,25 +1252,7 @@ export class LaneDispatcher {
 				return true;
 			}
 		}
-		if (
-			row.pendingObservation &&
-			!this.running.has(row.itemId) &&
-			(row.reportRetries ?? 0) < 5 &&
-			Date.now() >= (row.reportRetryAt ?? 0)
-		) {
-			row.reportRetries = (row.reportRetries ?? 0) + 1;
-			row.reportRetryAt = Date.now() + 60_000;
-			try {
-				await this.queue(() =>
-					reportLaneObservation(row.pendingObservation!, this.options.scope),
-				);
-				delete row.pendingObservation;
-			} catch (error) {
-				this.log("telemetry-retained", row.itemId, String(error));
-			}
-			this.save(join(this.directory, `${row.itemId}-${row.version}.json`), row);
-			return true;
-		}
+
 		if (
 			(row.phase === "settling" ||
 				(row.phase === "failed" &&
@@ -1263,6 +1271,26 @@ export class LaneDispatcher {
 			Date.now() >= (row.completionRetryAt ?? 0)
 		) {
 			await this.complete(row);
+			return true;
+		}
+		if (
+			!essentialOnly &&
+			row.pendingObservation &&
+			!this.running.has(row.itemId) &&
+			(row.reportRetries ?? 0) < 5 &&
+			Date.now() >= (row.reportRetryAt ?? 0)
+		) {
+			row.reportRetries = (row.reportRetries ?? 0) + 1;
+			row.reportRetryAt = Date.now() + 60_000;
+			try {
+				await this.queue(() =>
+					reportLaneObservation(row.pendingObservation!, this.options.scope),
+				);
+				delete row.pendingObservation;
+			} catch (error) {
+				this.log("telemetry-retained", row.itemId, String(error));
+			}
+			this.save(join(this.directory, `${row.itemId}-${row.version}.json`), row);
 			return true;
 		}
 		return false;
