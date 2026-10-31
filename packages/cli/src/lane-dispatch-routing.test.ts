@@ -163,13 +163,14 @@ function fixture() {
 	};
 	return { dir, item, control, create, receiptPath, retry };
 }
-it("routes an any-local Work around exhausted agents and launches native OpenCode after admission", async () => {
+it("routes an any-local Work around a Codex cooldown and Claude allowance reserve and launches native OpenCode after admission", async () => {
 	const { control, create } = fixture();
 	for (const executor of ["codex", "claude-code"] as const)
 		control.budgets[executor] = {
 			source: "native",
 			observedAt: Date.now(),
 			remainingPercent: 1,
+			...(executor === "codex" ? { backoffUntil: Date.now() + 60_000 } : {}),
 		};
 	const dispatcher = create();
 	await dispatcher.tick();

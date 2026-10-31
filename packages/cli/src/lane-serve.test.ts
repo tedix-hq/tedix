@@ -1211,14 +1211,17 @@ describe("dispatcher admission", () => {
 	it.each(["quota", "backoff"])(
 		"resumes after three routing %s pauses when capacity returns",
 		async (pause) => {
-			const { restart, deps, items, events, releases, dir } = fixture();
+			const executor = pause === "quota" ? "claude-code" : "codex";
+			const { restart, deps, items, events, releases, dir } = fixture({
+				executor,
+			});
 			items.splice(1);
 			let now = Date.now();
 			const capacityUntil = now + 60 * 60_000;
 			let capacityReturned = false;
 			const clock = spyOn(Date, "now").mockImplementation(() => now);
 			deps.budgets = () => ({
-				codex: {
+				[executor]: {
 					observedAt: now,
 					source: "native",
 					remainingPercent: capacityReturned
