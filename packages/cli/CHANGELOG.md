@@ -3,6 +3,23 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.0 — 2026-10-31
+
+### Minor Changes
+
+- One background service per machine. `tedix supervise` now runs your runners, the processes that pick up accepted Work for one executor each (Codex, Claude Code, OpenCode or Devin). `tedix lane serve --install` records the runner in `~/.tedix/supervisor-runners.json` instead of creating a service of its own; the supervisor starts it, restarts it after an exit with a growing wait of at most 15 minutes, stops it when you remove it, and leaves one alone that is still running from before a supervisor restart. `tedix supervise install` takes over runners installed as their own services and removes those. `tedix supervise runners` lists them with state, process id and log.
+- The supervisor can run a recurring Lead pass: every 20 minutes by default it continues one of the conversations named in `~/.tedix/supervisor-lead.json`, trying the next executor when one fails or cannot sign in, never overlapping passes. The executor used and any fallback appear in `supervisor.log` and in dispatcher health.
+
+### Patch Changes
+
+- Runners keep working through local limits: known quota pauses and backoffs retry on a bounded schedule instead of holding Work for good; native-session preparation and session-start timeouts do the same; Codex can route with low or zero reported allowance so backup credits are used.
+- Runner results are safer: Devin result notes travel through the admitted dispatcher without credentials; an incomplete result or a delivery error counts as failure, not success; detached worker output lives in private temporary files so a crash cannot close it; result notes starting with a dash survive settlement; an OpenCode stats probe that ignores its timeout is terminated.
+- Lost replies are recovered: a successful settlement whose reply was lost is closed after checking the Work's current revision and latest Attempt; a lost admission response is recovered from its exact session; expired results need fresh admission instead of staying stuck.
+- Health and occupancy are honest: each runner's running state, last admission, occupied slots and repeated failure reason are published through `tedix supervise`; last admissions survive restarts and log rotation; preparation counts as occupancy; the dispatcher parent and settled receipts with reused process ids no longer consume slots; retained completion and telemetry failures appear in health.
+- Shutdown and restarts are cleaner: the dispatcher drains workers without forwarding termination to them; expired native workers are recovered after their launcher replaced itself; an interrupted task keeps its checkout across retries; dispatcher-created Codex sessions resumed headless do not wait for an interactive reply.
+- Sign-in: a saved access token is confirmed after an uncertain renewal without replaying a rotated refresh token; a newer saved login is adopted; rejected access pauses local runners with one sign-in Decision. `tedix login` passes the organization identifier unchanged.
+- Smaller fixes: temporary catalog admission refusals are retried before any tool runs; Connect agent Work context stays bound to the selected organization; Work completion is requested after a successful settlement and retried when denied; older receipt filenames are validated and unreadable ownership data is reported; health reports go through the deployed dispatcher namespace.
+
 ## 0.18.5 — 2026-10-29
 
 ### Patch Changes
