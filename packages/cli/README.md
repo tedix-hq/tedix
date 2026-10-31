@@ -437,7 +437,10 @@ workspace and organization are pinned explicitly. Rules default to the organizat
 `lane-rules` skill; `--rules` selects another skill by UUID or slug. Set the executor on a Work
 item or post it through the Work workspace app (`tedix:app/work`, config
 `{"version":1,"projectId":"<project-uuid>"}`). Posting and acceptance remain
-separate actions.
+separate actions. `--install` records the dispatcher in
+`~/.tedix/supervisor-lanes.json`; `tedix supervise` (`supervise-lanes.ts`)
+starts it as a child, restarts it with a backoff and adopts a child that
+outlived a supervisor restart, so the supervisor is the one LaunchAgent.
 
 `--routing-config <file>` (or `TEDIX_LANE_ROUTING_CONFIG`) selects a versioned JSON
 policy. Start from `src/lane-routing-default.json`; rules match `metadata.tags`,

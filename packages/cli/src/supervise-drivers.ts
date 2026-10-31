@@ -122,6 +122,9 @@ export interface ClaudeDriver extends ResumeDriver {
 	open(session: string): boolean | undefined;
 }
 
+/** The one background service the Tedix CLI installs per user. */
+export const LAUNCH_AGENT_LABEL = "dev.tedix.supervisor";
+
 export const pause = (ms: number) =>
 	new Promise<void>((done) => setTimeout(done, ms));
 

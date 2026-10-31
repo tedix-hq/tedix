@@ -30,7 +30,11 @@ import {
 	type DispatchItem,
 	type ServeOptions,
 } from "./lane-serve";
-import { laneServicePlist } from "./lane-service";
+import {
+	laneDutyFromPlist,
+	laneDutyFromServeOptions,
+	laneServeArgs,
+} from "./supervise-lanes";
 import { writeDispatcherHealthSource } from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
 import { parseOptions } from "./options";
@@ -2563,22 +2567,59 @@ it("validates concurrency and pins selectors without persisting inherited identi
 		expect(() => parseServeOptions([...args, "--max", n], env)).toThrow(
 			"integer",
 		);
-	const plist = laneServicePlist(
-		["/bin/tedix", ...args, "--repo", "/repo/a&b"],
-		"dev.tedix.test",
-		{
-			...env,
-			PATH: "/bin",
-			TEDIX_MCP_BEARER_TOKEN: "secret",
-			TEDIX_AGENT_SESSION: "parent",
-		},
-		"/fictional/home",
+	const duty = laneDutyFromServeOptions(
+		parseServeOptions([...args, "--repo", "/repo/a&b", "--max", "3"], env),
 	);
-	expect(plist).toContain("a&amp;b");
-	expect(plist).toContain("KeepAlive");
-	expect(plist).toContain("WorkingDirectory");
-	expect(plist).not.toContain("secret");
-	expect(plist).not.toContain("parent");
+	expect(duty).toMatchObject({
+		workspace: "acme",
+		organization: "org_acme",
+		executor: "codex",
+		max: 3,
+		rules: projectId,
+		repo: "/repo/a&b",
+		enabled: true,
+	});
+	// A duty round-trips through the arguments the supervisor starts it with.
+	const served = laneServeArgs(duty);
+	expect(served.slice(4, 6)).toEqual(["lane", "serve"]);
+	expect(
+		laneDutyFromServeOptions(
+			parseServeOptions([...served.slice(0, 4), ...served.slice(6)], {}),
+		),
+	).toEqual(duty);
+	// A dispatcher installed as its own LaunchAgent before is read back as a duty.
+	const plist = `<plist><dict><key>ProgramArguments</key><array>${[
+		"/bin/tedix",
+		"--organization",
+		"org_acme",
+		"--workspace",
+		"acme",
+		"lane",
+		"serve",
+		...args,
+		"--repo",
+		"/repo/a&amp;b",
+		"--accept-proposed",
+		"--project",
+		projectId,
+	]
+		.map((arg) => `<string>${arg}</string>`)
+		.join(
+			"",
+		)}</array><key>EnvironmentVariables</key><dict><key>TEDIX_MCP_BEARER_TOKEN</key><string>secret</string></dict></dict></plist>`;
+	expect(
+		laneDutyFromPlist(plist, (served) => parseServeOptions(served, {})),
+	).toMatchObject({
+		organization: "org_acme",
+		repo: "/repo/a&b",
+		acceptProposed: true,
+		project: projectId,
+	});
+	expect(
+		laneDutyFromPlist("<plist><dict></dict></plist>", (served) =>
+			parseServeOptions(served, {}),
+		),
+	).toBeUndefined();
 	expect(
 		laneChildEnv({
 			...env,
