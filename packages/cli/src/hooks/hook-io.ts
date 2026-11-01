@@ -5,15 +5,16 @@
  */
 import { spawn } from "node:child_process";
 import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
+import { McpNativeContextSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
 import { closeSync, openSync, readSync, realpathSync } from "node:fs";
 import { basename, isAbsolute } from "node:path";
 import { resolveAgentContext } from "../agent-context";
 import { selfCommand } from "../shared";
+import { unwrapToolResult } from "../home-payload";
 
 export const PROFILE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const UUID = /^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$/;
-export const ORGANIZATION_PROBE =
-	"async () => { const r = await codemode.__runtime(); return {organizationId:r.organizationId}; }";
+export const ORGANIZATION_PROBE = '{"name":"get_info","arguments":{}}';
 
 export type JsonObject = Record<string, any>;
 
@@ -35,6 +36,26 @@ export type ReadJson = (
 	input?: string,
 	options?: ReadOptions,
 ) => Promise<JsonObject>;
+
+/** Read authenticated context through the caller's already-selected gateway. */
+export async function readOrganizationContext(
+	read: ReadJson,
+	command: string[],
+	timeoutMs: number,
+): Promise<{ organizationId: string }> {
+	const info = unwrapToolResult(
+		await read(
+			[...command, "mcp", "call", "tools/call", "--params", ORGANIZATION_PROBE],
+			timeoutMs,
+		),
+		"get_info",
+	);
+	if (!isObject(info)) throw new Error("missing live organization");
+	const context = McpNativeContextSchema.parse(info.nativeContext);
+	if (!UUID.test(context.organizationId))
+		throw new Error("missing live organization");
+	return { organizationId: context.organizationId };
+}
 
 export interface ReadOptions {
 	/**

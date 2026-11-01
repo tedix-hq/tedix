@@ -10,6 +10,19 @@ import { runSessionStart } from "./session-start";
 const WORK_ID = "ac651d65-a993-4e57-aa05-d4c45c78cfda";
 const ORG_ID = "11111111-1111-4111-8111-111111111111";
 const OBJECTIVE_ID = "22222222-2222-4222-8222-222222222222";
+const organizationInfo = (organizationId: string) => ({
+	structuredContent: {
+		nativeContext: {
+			version: 1,
+			surface: "mcp-gateway",
+			appId: "fixture",
+			appSlug: "fixture",
+			organizationId,
+			actor: { authType: "oauth" },
+			nativeTransportAvailable: true,
+		},
+	},
+});
 const AUTH = {
 	wouldUse: "stored-login",
 	workspace: "tedix",
@@ -173,11 +186,13 @@ describe("tedix hooks session-start", () => {
 			const { output, calls } = await run([
 				binding,
 				auth,
-				{ organizationId: org },
+				organizationInfo(org),
 				item,
 				{ data: [] },
 			]);
 			expect(calls[2]!.slice(2, 4)).toEqual(["--organization", "org_target"]);
+			expect(calls[2]).toContain("tools/call");
+			expect(calls[2]).not.toContain("code");
 			expect(calls[3]!.slice(2, 4)).toEqual(["--organization", "org_target"]);
 			if (actual === org) expect(output).toContain("Scoped task");
 			else {
@@ -215,11 +230,7 @@ describe("tedix hooks session-start", () => {
 				grantedScopes: ["mcp:work.read"],
 			},
 		};
-		const success = await run([
-			binding,
-			auth,
-			{ organizationId: "11111111-1111-4111-8111-111111111111" },
-		]);
+		const success = await run([binding, auth, organizationInfo(ORG_ID)]);
 		expect(success.output).not.toContain("no longer selected");
 		expect(success.calls[2]!.slice(2, 4)).toEqual(["--organization", "orchid"]);
 		const denied = await run([binding, auth, new Error("FORBIDDEN")]);

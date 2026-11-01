@@ -71,7 +71,7 @@ import {
 	insideRoot,
 	isObject,
 	isoSeconds,
-	ORGANIZATION_PROBE,
+	readOrganizationContext,
 	PROFILE,
 	UUID,
 } from "./hook-io";
@@ -944,10 +944,8 @@ export async function runPromptContext(deps: HookDeps): Promise<void> {
 				probe = async () => {
 					const runtime = await trace(
 						"organization",
-						read([...command, "code", ORGANIZATION_PROBE], PROBE_MS),
+						readOrganizationContext(read, command, PROBE_MS),
 					);
-					if (!UUID.test(String(runtime.organizationId ?? "")))
-						throw new Error("missing live organization");
 					binding.credentialOrganizationId = runtime.organizationId;
 					writeCache(
 						env,

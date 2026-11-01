@@ -26,7 +26,7 @@ import {
 	hostEvent,
 	isObject,
 	isoSeconds,
-	ORGANIZATION_PROBE,
+	readOrganizationContext,
 	PROFILE,
 	UUID,
 } from "./hook-io";
@@ -231,12 +231,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 			}
 			command.push("--organization", binding.organization);
 			try {
-				const runtime = await read(
-					[...command, "code", ORGANIZATION_PROBE],
-					8000,
-				);
-				if (!UUID.test(String(runtime.organizationId ?? "")))
-					throw new Error("missing live organization");
+				const runtime = await readOrganizationContext(read, command, 8000);
 				binding.credentialOrganizationId = runtime.organizationId;
 			} catch {
 				send(

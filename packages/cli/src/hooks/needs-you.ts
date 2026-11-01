@@ -7,8 +7,7 @@ import { cacheDir } from "./context-cache";
 import { contextHash } from "./context-delivery";
 import { redact } from "./decision-capture";
 import {
-	ORGANIZATION_PROBE,
-	UUID,
+	readOrganizationContext,
 	type HookDeps,
 	type JsonObject,
 } from "./hook-io";
@@ -40,11 +39,7 @@ export async function needsYou(
 	if (requested && ![requested, `org_${requested}`].includes(binding.org))
 		return undefined;
 	try {
-		const runtime = await deps.read(
-			[...command, "code", ORGANIZATION_PROBE],
-			3000,
-		);
-		if (!UUID.test(String(runtime.organizationId ?? ""))) return undefined;
+		const runtime = await readOrganizationContext(deps.read, command, 3000);
 		let origin = deps.env.TEDIX_OS_URL;
 		if (!origin) {
 			const discovery = await deps.read(
