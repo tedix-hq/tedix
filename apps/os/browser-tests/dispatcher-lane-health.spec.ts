@@ -409,7 +409,7 @@ try {
 		assert.equal(await page.locator("[data-lane-state]").count(), 0);
 		await page.close();
 	}
-	for (const width of [375, 1280]) {
+	for (const width of [375, 1048, 1280]) {
 		for (const executors of [
 			["tenant.builder", "review-pool", "night-check"],
 			["custom-service"],
@@ -419,6 +419,8 @@ try {
 			const current = "11111111-1111-4111-8111-111111111111";
 			const second = "22222222-2222-4222-8222-222222222222";
 			const completed = "33333333-3333-4333-8333-333333333333";
+			const workTitle =
+				"Build the guide with a detailed tenant-configured task title that stays readable without making every lane row expand";
 			await page.route("**/dispatcherHealth/list**", (route) => {
 				const at = new Date().toISOString();
 				const future = new Date(Date.now() + 60_000).toISOString();
@@ -460,7 +462,7 @@ try {
 											: [
 													{
 														id: current,
-														title: "Build the guide",
+														title: workTitle,
 														phase: "working",
 													},
 													{
@@ -506,7 +508,7 @@ try {
 			assert.match(await row.innerText(), /Last completed/);
 			assert.equal(
 				await row
-					.getByRole("link", { name: "Build the guide", exact: true })
+					.getByRole("link", { name: workTitle, exact: true })
 					.getAttribute("href"),
 				`/work/items/${current}`,
 			);
@@ -515,6 +517,24 @@ try {
 					.getByRole("link", { name: "Publish the guide", exact: true })
 					.getAttribute("href"),
 				`/work/items/${completed}`,
+			);
+			const task = row.getByRole("link", { name: workTitle, exact: true });
+			assert.equal(await task.getAttribute("title"), workTitle);
+			const text = await task
+				.locator('[data-slot="text"]')
+				.evaluate((text) => ({
+					width: text.clientWidth,
+					scroll: text.scrollWidth,
+					height: text.getBoundingClientRect().height,
+					lineHeight: Number.parseFloat(getComputedStyle(text).lineHeight),
+				}));
+			assert.ok(
+				text.width > 0 && text.scroll > text.width,
+				"Long Work titles truncate within the lane column",
+			);
+			assert.ok(
+				text.height <= text.lineHeight + 1,
+				"A long title stays on one line",
 			);
 			if (executors.length > 1)
 				assert.equal(
@@ -545,7 +565,7 @@ try {
 				.waitFor();
 			assert.equal(
 				await section
-					.getByRole("link", { name: "Build the guide", exact: true })
+					.getByRole("link", { name: workTitle, exact: true })
 					.count(),
 				0,
 			);
