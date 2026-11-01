@@ -37,8 +37,8 @@ export async function summarizeContextEntries(
 ): Promise<string | null> {
 	if (entries.length === 0) return null;
 	const transcript = entries
+		.filter((entry) => entry.content.trim().length > 0)
 		.map((e) => `${e.role}:\n${e.content}`)
-		.filter((line) => line.trim().length > 0)
 		.join("\n\n");
 	if (!transcript.trim()) return null;
 
