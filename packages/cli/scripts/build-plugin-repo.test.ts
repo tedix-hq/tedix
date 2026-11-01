@@ -35,6 +35,10 @@ describe("public plugin repository", () => {
 			"llms-install.md",
 			"gemini-extension.json",
 			"LICENSE",
+			"SECURITY.md",
+			".github/workflows/validate.yml",
+			".github/workflows/scorecard.yml",
+			".github/scripts/validate.mjs",
 		])
 			expect(files.has(path)).toBe(true);
 		expect([...files.keys()].some((path) => path.startsWith("hooks/"))).toBe(

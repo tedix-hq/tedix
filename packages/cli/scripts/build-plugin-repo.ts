@@ -21,6 +21,15 @@ export const PLUGIN_REPOSITORY = "https://github.com/tedix-hq/tedix-plugins";
 const MARKETPLACE = "tedix-plugins";
 
 const json = (value: unknown) => `${JSON.stringify(value, null, "\t")}\n`;
+
+function repoOnlyFiles(root: string, prefix = ""): string[] {
+	return readdirSync(join(root, prefix), { withFileTypes: true })
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.flatMap((entry) => {
+			const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+			return entry.isDirectory() ? repoOnlyFiles(root, path) : [path];
+		});
+}
 export function pluginRepoFiles(): Map<string, string | Uint8Array> {
 	const portable = packageFiles();
 	const files = new Map<string, string | Uint8Array>([
@@ -93,11 +102,10 @@ export function pluginRepoFiles(): Map<string, string | Uint8Array> {
 			mcpServers: { tedix: { httpUrl: mcp.mcpServers.tedix.url } },
 		}),
 	);
-	files.set("README.md", readFileSync(join(ROOT, "repo/README.md"), "utf8"));
-	files.set(
-		"llms-install.md",
-		readFileSync(join(ROOT, "repo/llms-install.md"), "utf8"),
-	);
+	// Repository-only files (README, install guide, security policy, CI) live
+	// under repo/ and never enter a host package.
+	for (const path of repoOnlyFiles(join(ROOT, "repo")))
+		files.set(path, readFileSync(join(ROOT, "repo", path), "utf8"));
 	files.set("LICENSE", readFileSync(resolve(ROOT, "../../LICENSE"), "utf8"));
 	for (const path of files.keys()) {
 		if (path.startsWith("hooks/"))
