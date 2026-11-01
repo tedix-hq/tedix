@@ -37,6 +37,7 @@ import {
 	McpNativeBootstrapSchema,
 	McpNativeDescriptorSchema,
 	McpNativeContextSchema,
+	MCP_NATIVE_CATALOG_META_KEY,
 } from "@tedix/api-contract/schemas/mcp-native-transport";
 import { shouldBypassCodeModeForCaller } from "../caller-identity";
 import { evaluateMcpToolScopeAuthorization } from "../codemode-auth";
@@ -98,6 +99,23 @@ export function isConfiguredCatalogTool(
 	} catch {
 		return false;
 	}
+}
+
+/** The server owns this capability marker; tenant metadata cannot supply it. */
+export function nativeCatalogToolMeta(
+	tool: AppTool,
+	mcpConfig: Record<string, unknown> | undefined,
+): NonNullable<AppTool["meta"]> {
+	const meta = { ...tool.meta };
+	delete meta[MCP_NATIVE_CATALOG_META_KEY];
+	if (isConfiguredCatalogTool(tool, mcpConfig)) {
+		meta[MCP_NATIVE_CATALOG_META_KEY] = {
+			version: 1,
+			bootstrapTool: "get_info",
+			endpoint: CatalogueTransportConfigSchema.parse(tool.config).endpoint,
+		};
+	}
+	return meta;
 }
 
 const writeWidgetTelemetry = createTelemetryWriter("mcp.widget.analytics");

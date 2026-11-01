@@ -1,5 +1,16 @@
 import * as z from "zod";
 
+export const MCP_NATIVE_CATALOG_META_KEY = "com.tedix/nativeCatalog";
+
+/** Advertises bootstrap discovery, never permission to call the catalog. */
+export const McpNativeCatalogCapabilitySchema = z
+	.object({
+		version: z.literal(1),
+		bootstrapTool: z.literal("get_info"),
+		endpoint: z.enum(["catalog/search", "catalog/describe"]),
+	})
+	.strict();
+
 const boundedIdentity = z.string().min(1).max(256);
 
 /** Authenticated request context, never a token or an authorization grant. */

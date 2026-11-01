@@ -1053,6 +1053,17 @@ describe("configured native catalog registration", () => {
 				(tool) => tool.name,
 			),
 		).toContain("find_tools");
+		expect(
+			(
+				listed.result as { tools: { name: string; _meta?: unknown }[] }
+			).tools.find((tool) => tool.name === "find_tools")?._meta,
+		).toMatchObject({
+			"com.tedix/nativeCatalog": {
+				version: 1,
+				bootstrapTool: "get_info",
+				endpoint: "catalog/search",
+			},
+		});
 		const called = await client.request("tools/call", {
 			name: "find_tools",
 			arguments: { query: "" },
@@ -1227,10 +1238,28 @@ it("keeps interleaved factory-built caller catalogs isolated on the shared handl
 import {
 	buildNativeBootstrap,
 	isConfiguredCatalogTool,
+	nativeCatalogToolMeta,
 } from "./registration/bootstrap";
 import { McpNativeBootstrapSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
 
 describe("native request-private bootstrap", () => {
+	it("does not accept tenant-authored capability markers on unrelated tools", () => {
+		const marker = {
+			version: 1,
+			bootstrapTool: "get_info",
+			endpoint: "catalog/search",
+		};
+		const tool = catalogRow({
+			config: { transport: "rpc", endpoint: "apps/get" },
+			meta: { retained: true, "com.tedix/nativeCatalog": marker },
+		});
+		expect(
+			nativeCatalogToolMeta(tool, {
+				toolScopes: { find_tools: ["mcp:catalog.read"] },
+			}),
+		).toEqual({ retained: true });
+		expect(tool.meta).toHaveProperty("com.tedix/nativeCatalog", marker);
+	});
 	const rows = () => [
 		catalogRow({
 			config: {

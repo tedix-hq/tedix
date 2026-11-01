@@ -1,3 +1,8 @@
+import {
+	McpNativeBootstrapSchema,
+	McpNativeCatalogCapabilitySchema,
+	MCP_NATIVE_CATALOG_META_KEY,
+} from "@tedix/api-contract/schemas/mcp-native-transport";
 import { structuredResultIdentity } from "@tedix/mcp-shared/result-identity";
 import {
 	READ_COLLECTIONS_META_KEY,
@@ -814,7 +819,7 @@ export class TedixMcpRuntime {
 				function: {
 					name: "tedix_mcp_search_tools",
 					description:
-						"Convenience wrapper around discover.search in Tedix Unified Code Mode. Results are metadata only and include callable strings such as cms_tedix.content_list; they are not directly executable objects.",
+						"Search the current authorized Tedix tool catalog. Results are metadata only and include callable strings such as cms_tedix.content_list; they are not directly executable objects.",
 					parameters: {
 						type: "object",
 						properties: {
@@ -1963,12 +1968,56 @@ export class TedixMcpRuntime {
 				? Math.max(1, Math.min(25, Math.floor(args.limit)))
 				: 10;
 		const includeParameters = Boolean(args.includeParameters);
-		return await this.callCode(
-			`async () => await discover.search(${jsonArg({
-				query,
-				limit,
-				includeParameters,
-			})})`,
+		const input = { query, limit, includeParameters };
+		const serverId = this.selectCodeServer();
+		const hasBootstrap = this.manager
+			.listTools(serverId)
+			.some(
+				(tool) =>
+					tool.name === "get_info" ||
+					McpNativeCatalogCapabilitySchema.safeParse(
+						tool.meta?.[MCP_NATIVE_CATALOG_META_KEY],
+					).success,
+			);
+		if (hasBootstrap) {
+			const options = { signal, onTaskInputRequired: resolver ?? null };
+			// Resolve against this request's credentials, never a cached authorization.
+			const info = unwrapCallToolResult(
+				await this.manager.callTool(serverId, "get_info", {}, options),
+				"get_info",
+			) as Record<string, unknown> | null;
+			const bootstrap = McpNativeBootstrapSchema.parse({
+				nativeContext: info?.nativeContext,
+				nativeCatalog: info?.nativeCatalog,
+			});
+			if (bootstrap.nativeCatalog.status === "usable") {
+				const search = bootstrap.nativeCatalog.search!;
+				if (
+					search.endpoint !== "catalog/search" ||
+					bootstrap.nativeCatalog.describe?.endpoint !== "catalog/describe"
+				)
+					throw new Error("Native discovery endpoint mismatch");
+				const result = unwrapCallToolResult(
+					await this.manager.callTool(
+						serverId,
+						search.name,
+						{ ...input, includeMetadata: false },
+						options,
+					),
+					search.name,
+				);
+				this.toolCallLog.push({
+					name: search.name,
+					args: input,
+					ok: true,
+					serverId,
+				});
+				return { result };
+			}
+		}
+		return await this.callCodeOnServer(
+			serverId,
+			`async () => await discover.search(${jsonArg(input)})`,
 			signal,
 			undefined,
 			resolver,

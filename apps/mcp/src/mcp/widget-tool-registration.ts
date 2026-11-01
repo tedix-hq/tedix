@@ -1,4 +1,5 @@
 import { createMcpLogger } from "../log";
+import { nativeCatalogToolMeta } from "./registration/bootstrap";
 import { isToolDeniedForConnection } from "./no-funds-policy";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import {
@@ -152,7 +153,7 @@ export async function registerDynamicTool(
 		authRequired: tool.authRequired ?? false,
 		icons: tool.icons ?? null,
 		executionTaskSupport: tool.executionTaskSupport ?? null,
-		meta: tool.meta ?? null,
+		meta: nativeCatalogToolMeta(tool, agent.appMetadata?.mcpConfig),
 		schemaDialect: tool.schemaDialect ?? null,
 		schemaSource: tool.schemaSource ?? null,
 		schemaSourceRef: tool.schemaSourceRef ?? null,
