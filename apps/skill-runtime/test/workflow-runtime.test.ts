@@ -24,6 +24,7 @@ import {
 } from "../src/db";
 import {
 	assertTenantRuntimeImports,
+	loadSkillRuntime,
 	DISPATCH_SHIM,
 	skillRuntimeStubKey,
 	TENANT_COMPATIBILITY_FLAGS,
@@ -737,6 +738,49 @@ assert.notEqual(
 	skillRuntimeStubKey(loaderIdentity),
 	skillRuntimeStubKey({ ...loaderIdentity, loaderConfigHash: "b".repeat(64) }),
 );
+{
+	const keys: string[] = [];
+	const factories: unknown[] = [];
+	const runner = { run: async () => "fixture" };
+	const loader = {
+		get(key: string, factory: unknown) {
+			keys.push(key);
+			factories.push(factory);
+			return { getEntrypoint: () => runner };
+		},
+	};
+	for (const runId of [loaderIdentity.runId, "other-fictional-run"]) {
+		const input = { ...loaderIdentity, runId, code: "export default {};" };
+		assert.equal(
+			loadSkillRuntime(
+				{ LOADER: loader } as never,
+				input as never,
+				{} as never,
+			),
+			runner,
+		);
+		assert.equal(keys.at(-1), skillRuntimeStubKey(input));
+	}
+	assert.notEqual(keys[0], keys[1]);
+	assert.equal(factories.length, 2);
+	assert.ok(factories.every((factory) => typeof factory === "function"));
+	const failure = new Error("fixture-loader-failure");
+	assert.throws(
+		() =>
+			loadSkillRuntime(
+				{
+					LOADER: {
+						get() {
+							throw failure;
+						},
+					},
+				} as never,
+				{ ...loaderIdentity, code: "export default {};" } as never,
+				{} as never,
+			),
+		(error) => error === failure,
+	);
+}
 assert.doesNotThrow(() =>
 	assertTenantRuntimeImports(
 		'import { NonRetryableError } from "cloudflare:workflows"; export default {};',

@@ -22,6 +22,7 @@
  */
 
 import type { WorkflowRunner } from "@cloudflare/dynamic-workflows";
+import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { parse as parseModuleSyntax } from "es-module-lexer/js";
 import { transform } from "sucrase";
 import { PLATFORM_EVIDENCE_MANIFEST } from "./evidence-core";
@@ -164,7 +165,10 @@ export function loadSkillRuntime(
 	assertTenantRuntimeImports(compiledJs);
 	const tenantWorkflowJs = tenantWorkflowModuleSource(compiledJs);
 
-	const stub = env.LOADER.get(skillRuntimeStubKey(input), () => {
+	const stub = withDynamicWorkerLoaderDiagnostics(env.LOADER, {
+		surface: "skill_workflow_runtime",
+		reason: "skill_workflow_run",
+	}).get(skillRuntimeStubKey(input), () => {
 		// All bindings passed across the loader boundary are loopback RPC stubs
 		// or plain non-secret values. The tenant never receives service bindings,
 		// platform bearer tokens, D1, R2, or API fetchers.

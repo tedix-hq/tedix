@@ -51,7 +51,10 @@ export type DynamicWorkerLoaderHost =
 				| "cms_tenant_fetch"
 				| "cms_tenant_scheduled";
 	  }
-	| { surface: "cms_tenant_plugin"; reason: "cms_tenant_plugin_invocation" };
+	| { surface: "cms_tenant_plugin"; reason: "cms_tenant_plugin_invocation" }
+	| { surface: "skill_workflow_runtime"; reason: "skill_workflow_run" }
+	| { surface: "workspace_app_runtime"; reason: "workspace_app_invocation" }
+	| { surface: "workspace_app_validation"; reason: "workspace_app_validation" };
 
 function capturedHost(
 	host: ModelAuthoredLoaderHost | undefined,
@@ -108,7 +111,13 @@ function capturedDiagnosticHost(
 					reason === "cms_tenant_fetch" ||
 					reason === "cms_tenant_scheduled")) ||
 			(surface === "cms_tenant_plugin" &&
-				reason === "cms_tenant_plugin_invocation")
+				reason === "cms_tenant_plugin_invocation") ||
+			(surface === "skill_workflow_runtime" &&
+				reason === "skill_workflow_run") ||
+			(surface === "workspace_app_runtime" &&
+				reason === "workspace_app_invocation") ||
+			(surface === "workspace_app_validation" &&
+				reason === "workspace_app_validation")
 		)
 			return { surface, reason } as DynamicWorkerLoaderHost;
 	} catch {

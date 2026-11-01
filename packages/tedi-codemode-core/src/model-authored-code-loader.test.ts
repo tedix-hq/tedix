@@ -405,6 +405,9 @@ const diagnosticPairs = [
 	{ surface: "cms_tenant_runtime", reason: "cms_tenant_fetch" },
 	{ surface: "cms_tenant_runtime", reason: "cms_tenant_scheduled" },
 	{ surface: "cms_tenant_plugin", reason: "cms_tenant_plugin_invocation" },
+	{ surface: "skill_workflow_runtime", reason: "skill_workflow_run" },
+	{ surface: "workspace_app_runtime", reason: "workspace_app_invocation" },
+	{ surface: "workspace_app_validation", reason: "workspace_app_validation" },
 ] as const;
 
 describe("diagnostic-only native loader boundary", () => {
