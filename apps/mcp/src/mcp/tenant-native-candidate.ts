@@ -82,9 +82,7 @@ export async function tenantMachinePolicyFallbackBlocked(
 		)
 			return true;
 		if (!sourceAppId) {
-			const source = await client.apps.getPolicyMountMetadata({
-				appId: rootAppId,
-			});
+			const source = await client.apps.getByIdWithTools({ appId: rootAppId });
 			if (generatedAggregateTedi) return true;
 			// A rejected or revoked generated mount must not become a stored-row fallback.
 			if (
