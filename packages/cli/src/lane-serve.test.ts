@@ -693,6 +693,95 @@ describe("dispatcher admission", () => {
 			intervals.mockRestore();
 		}
 	});
+	it("runs settlement and completion before queued background reads", async () => {
+		const f = fixture();
+		const cli = f.deps.cli!;
+		let release!: () => void;
+		let blocked = false;
+		f.deps.cli = async (args, ...rest) => {
+			if (!blocked) {
+				blocked = true;
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+			}
+			return cli(args, ...rest);
+		};
+		const dispatcher = f.restart();
+		const read = [
+			"work",
+			"dispatch-list",
+			"--input",
+			'{"dispatchReadyOnly":true}',
+		];
+		const current = dispatcher["call"](read);
+		await until(() => Boolean(release));
+		const background = dispatcher["call"](read);
+		const settle = dispatcher["call"](["work", "settle", item().id]);
+		const complete = dispatcher["call"](["work", "complete", item().id]);
+		const heartbeat = dispatcher["call"](["work", "heartbeat", item().id]);
+		release();
+		await Promise.all([current, background, settle, complete, heartbeat]);
+		expect(f.events.map((event) => event.verb)).toEqual([
+			"dispatch-list",
+			"settle",
+			"complete",
+			"heartbeat",
+			"dispatch-list",
+		]);
+	});
+	it("delivers a final report before queued background reads", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const order: string[] = [];
+		f.deps.observe = async () => {
+			order.push("final-report");
+			return {};
+		};
+		const launch = f.deps.launch!;
+		let report: NonNullable<Parameters<typeof launch>[1]>["report"];
+		f.deps.launch = (args, deps) => {
+			report = deps?.report;
+			return launch(args, deps);
+		};
+		let release!: () => void;
+		let block = false;
+		const cli = f.deps.cli!;
+		f.deps.cli = async (args, ...rest) => {
+			if (block) {
+				block = false;
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+			}
+			order.push(args[5]!);
+			return cli(args, ...rest);
+		};
+		const dispatcher = f.restart();
+		try {
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			order.length = 0;
+			block = true;
+			const read = [
+				"work",
+				"dispatch-list",
+				"--input",
+				'{"dispatchReadyOnly":true}',
+			];
+			const current = dispatcher["call"](read);
+			await until(() => Boolean(release));
+			const background = dispatcher["call"](read);
+			const finished = report!({ state: "done" }, options.scope);
+			release();
+			await Promise.all([current, background, finished]);
+			expect(order).toEqual(["dispatch-list", "final-report", "dispatch-list"]);
+		} finally {
+			release?.();
+			for (const done of f.releases) done();
+			await dispatcher.drain();
+		}
+	});
 	it("closes retained Work while another native worker runs without retrying optional telemetry", async () => {
 		const f = fixture();
 		const retained = f.items.splice(1)[0]!;

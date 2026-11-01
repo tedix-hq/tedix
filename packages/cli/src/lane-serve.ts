@@ -300,20 +300,20 @@ export function parseServeOptions(
 }
 
 export function serialCalls() {
-	const pending: Array<{ heartbeat: boolean; run: () => Promise<void> }> = [];
+	const pending: Array<{ critical: boolean; run: () => Promise<void> }> = [];
 	let draining = false;
 	const drain = async () => {
 		while (pending.length) {
-			const urgent = pending.findIndex((entry) => entry.heartbeat);
+			const urgent = pending.findIndex((entry) => entry.critical);
 			const [next] = pending.splice(urgent < 0 ? 0 : urgent, 1);
 			await next!.run();
 		}
 		draining = false;
 	};
-	return <T>(operation: () => Promise<T>, heartbeat = false): Promise<T> =>
+	return <T>(operation: () => Promise<T>, critical = false): Promise<T> =>
 		new Promise<T>((resolve, reject) => {
 			pending.push({
-				heartbeat,
+				critical,
 				run: async () => {
 					try {
 						resolve(await operation());
@@ -911,6 +911,7 @@ export async function installLaneDependencies(repo: string) {
 
 interface DispatcherDeps {
 	cli: typeof cli;
+	observe: typeof reportLaneObservation;
 	devinAvailable: typeof devinAvailable;
 	available: (executor: LocalExecutor) => boolean;
 	budgets: typeof readExecutorBudgets;
@@ -938,6 +939,7 @@ interface DispatcherDeps {
 }
 const defaultDeps: DispatcherDeps = {
 	cli,
+	observe: reportLaneObservation,
 	confirmLogin: confirmStoredAccess,
 	gatewayCooldownUntil,
 	devinAvailable,
@@ -1064,7 +1066,8 @@ export class LaneDispatcher {
 				this.deps.cli<T>([...this.options.scope, ...args], env, undefined, () =>
 					this.cooldownUntil(),
 				),
-			args[0] === "work" && args[1] === "heartbeat",
+			args[0] === "work" &&
+				["heartbeat", "settle", "complete"].includes(args[1] ?? ""),
 		);
 	}
 	private cooldownUntil() {
@@ -1445,7 +1448,7 @@ export class LaneDispatcher {
 			row.reportRetryAt = Date.now() + 60_000;
 			try {
 				await this.queue(() =>
-					reportLaneObservation(row.pendingObservation!, this.options.scope),
+					this.deps.observe(row.pendingObservation!, this.options.scope),
 				);
 				delete row.pendingObservation;
 			} catch (error) {
@@ -1914,16 +1917,17 @@ export class LaneDispatcher {
 								}
 							: undefined,
 					report: (input, scope) =>
-						this.queue(() => reportLaneObservation(input, scope)).catch(
-							(error) => {
-								if (input.state !== "working") {
-									receipt.pendingObservation = input;
-									receipt.reportRetryAt = Date.now() + 60_000;
-									this.save(path, receipt);
-								}
-								throw error;
-							},
-						),
+						this.queue(
+							() => this.deps.observe(input, scope),
+							input.state !== "working",
+						).catch((error) => {
+							if (input.state !== "working") {
+								receipt.pendingObservation = input;
+								receipt.reportRetryAt = Date.now() + 60_000;
+								this.save(path, receipt);
+							}
+							throw error;
+						}),
 					onSpawn: (pid) => {
 						receipt.pid = pid;
 						receipt.processIdentity = laneProcessIdentity(
