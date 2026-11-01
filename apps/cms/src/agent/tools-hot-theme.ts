@@ -1,6 +1,9 @@
 import type { McpServer } from "@tedix/mcp-shared/server";
 import * as z from "zod";
-import { readThemeArtifactFile } from "./artifact-source-read";
+import {
+	readThemeArtifactFile,
+	readThemeArtifactHead,
+} from "./artifact-source-read";
 import { isPathEditable } from "./constraints";
 import {
 	HOT_THEME_PUBLIC_PATH,
@@ -487,11 +490,40 @@ export function registerHotThemeTools(
 	);
 
 	server.registerTool(
+		"read_theme_artifact_head",
+		{
+			title: "Read Current Theme Artifact Branch",
+			description:
+				"Read the current main commit in this tenant's Artifacts theme repository without starting the Site Builder sandbox or creating credentials. Compare it with theme_list_versions before editing; commits ahead of the active version may contain unpublished work. This does not inspect or replace sandbox drafts.",
+			inputSchema: schema(z.object({})),
+			outputSchema: schema(
+				z.object({
+					branch: z.literal("main"),
+					sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
+				}),
+			),
+			annotations: { readOnlyHint: true },
+		},
+		async () => {
+			if (!ctx.artifacts)
+				return forbidden("CMS Artifacts binding is not configured");
+			const output = await readThemeArtifactHead({
+				orgSlug: ctx.orgSlug,
+				artifacts: ctx.artifacts,
+			});
+			return {
+				content: [{ type: "text" as const, text: JSON.stringify(output) }],
+				structuredContent: output,
+			};
+		},
+	);
+
+	server.registerTool(
 		"read_theme_artifact_file",
 		{
 			title: "Read Theme Artifact File",
 			description:
-				"Read one editable text file from an exact commit in this tenant's Artifacts theme repo without changing the Site Builder sandbox. The short-lived read token stays server-side.",
+				"Read one editable text file from an exact commit in this tenant's Artifacts theme repo through the native binding, without starting the Site Builder sandbox or creating credentials.",
 			inputSchema: schema(
 				z.object({
 					sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),

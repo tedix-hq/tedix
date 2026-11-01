@@ -293,6 +293,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	deprovision_site: "mcp:content",
 	repair_cms_media: "mcp:content",
 	provision_theme_artifact_repo: "mcp:content",
+	read_theme_artifact_head: "mcp:content",
 	read_theme_artifact_file: "mcp:content",
 	checkout_theme_artifact_source: "mcp:content",
 	commit_theme_artifact_files: "mcp:content",

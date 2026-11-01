@@ -255,7 +255,7 @@ export function registerDeployTools(
 				"build → snapshot → dispatch upload → version finalize, with per-step retries. " +
 				"Poll theme_deploy_status with the jobId to see progress and the final URL. " +
 				"Pass sourceCommit to build the editable theme from that commit of the tenant's Artifacts theme repo " +
-				"(the builder workspace is overwritten with it and the bundle records the commit); " +
+				"(a private build workspace preserves authoring drafts, and the bundle records the commit); " +
 				"without it the builder's current workspace is built only when no prior Artifacts-backed bundle exists.",
 			inputSchema: schema(
 				z.object({
