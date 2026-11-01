@@ -16,7 +16,6 @@ import {
 	AppListItemSchema,
 	AppSchema,
 	AppWithToolsSchema,
-	AppPolicyMountMetadataSchema,
 	CreateAppConfigVersionInputSchema,
 	CreateAppInputSchema,
 	McpConfigSchema,
@@ -486,16 +485,6 @@ export const appsContract = oc
 				}),
 			),
 
-		getPolicyMountMetadata: oc
-			.route({
-				method: "GET",
-				path: "/{appId}/policy-mount-metadata",
-				tags: ["internal"],
-				summary: "Get fresh mount ownership and enabled tool identities",
-			})
-			.input(AppIdParamSchema)
-			.output(AppPolicyMountMetadataSchema),
-
 		/**
 		 * Get app with tools by ID
 		 * GET /apps/{appId}/with-tools
@@ -508,13 +497,9 @@ export const appsContract = oc
 				tags: ["internal"],
 				summary: "Get app with tools by ID",
 				description:
-					"Get app data with enabled tools, optionally narrowed by tool ID",
+					"Get full app data including all configured tools by app ID",
 			})
-			.input(
-				AppIdParamSchema.extend({
-					toolIds: z.array(z.string().min(1)).min(1).max(50).optional(),
-				}),
-			)
+			.input(AppIdParamSchema)
 			.output(AppWithToolsSchema),
 
 		/**

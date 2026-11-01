@@ -1325,17 +1325,6 @@ export const AppWithToolsSchema = z.object({
 });
 export type AppWithTools = z.infer<typeof AppWithToolsSchema>;
 
-/** Fresh mount ownership and enabled row identities, without tool schemas. */
-export const AppPolicyMountMetadataSchema = z.object({
-	app: AppSchema.pick({
-		id: true,
-		slug: true,
-		organizationId: true,
-		metadata: true,
-	}).nullable(),
-	tools: z.array(AppToolSchema.pick({ id: true, toolId: true })),
-});
-
 /**
  * Domain lookup response
  */

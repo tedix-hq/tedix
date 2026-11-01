@@ -399,36 +399,6 @@ export async function getAppByIdForOrganization(
 	return db.query.apps.findFirst({ where: { id, organizationId } });
 }
 
-/** Ownership and row identity checks must not hydrate input/output schemas. */
-export async function getAppPolicyMountMetadataForOrganization(
-	db: DbClient,
-	id: string,
-	organizationId: string,
-) {
-	const [app] = await db
-		.select({
-			id: apps.id,
-			slug: apps.slug,
-			organizationId: apps.organizationId,
-			metadata: apps.metadata,
-		})
-		.from(apps)
-		.where(and(eq(apps.id, id), eq(apps.organizationId, organizationId)))
-		.limit(1);
-	if (!app) return null;
-	const rows = await db
-		.select({
-			id: appTools.id,
-			toolId: appTools.toolId,
-			config: appTools.config,
-		})
-		.from(appTools)
-		.where(and(eq(appTools.appId, id), eq(appTools.enabled, true)))
-		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
-	const tools = await filterAppConnectionResourceTools(db, app, rows);
-	return { app, tools: tools.map(({ id, toolId }) => ({ id, toolId })) };
-}
-
 /**
  * Get an organization-owned app by ID with enabled tools (and tool type
  * metadata). The app ownership predicate is evaluated before any child rows
@@ -438,7 +408,6 @@ export async function getAppByIdWithToolsForOrganization(
 	db: DbClient,
 	id: string,
 	organizationId: string,
-	options?: ToolSelectionOptions,
 ) {
 	const appRows = await db
 		.select()
@@ -451,9 +420,7 @@ export async function getAppByIdWithToolsForOrganization(
 	const tools = await db
 		.select()
 		.from(appTools)
-		.where(
-			and(eq(appTools.appId, id), ...buildToolSelectionConditions(options)),
-		)
+		.where(and(eq(appTools.appId, id), eq(appTools.enabled, true)))
 		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
 
 	const toolCsp = await getAppSurfaceCspDomains(
