@@ -12,6 +12,8 @@ try {
 	browser = await chromium.launch({ headless: true });
 	for (const width of [375, 1280]) {
 		const page = await browser.newPage({ viewport: { width, height: 900 } });
+		// An unset target opens the current month; keep October selectable year-round.
+		await page.clock.setFixedTime(new Date("2026-10-15T12:00:00Z"));
 		await page.goto(`${server.origin}/work?app=portfolio`);
 		await page.getByRole("heading", { name: "Projects", level: 1 }).waitFor();
 		const rows = page.locator("[data-project-row]");
