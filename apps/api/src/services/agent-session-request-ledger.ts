@@ -14,6 +14,7 @@ import { assertModelEgressAllowed } from "./unrouted-model-egress";
 
 import {
 	isScheduledLedgerPrompt,
+	hasPotentialLessonRecovery,
 	type LedgerRowRef,
 	type LedgerLesson,
 	type LedgerLessonSource,
@@ -64,11 +65,28 @@ import {
 	resolveAiGatewayTransport,
 } from "@tedix/workers-ai/gateway-transport";
 import { type DistillEnv, runDistillModel } from "./lesson-distiller";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 
 const LEDGER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MODEL_TIMEOUT_MS = 15_000;
 export const LEDGER_REFLECTOR_MODEL = "gpt-6-astra";
 export const LEDGER_SILENCE_TURNS = 5;
+const writeInferenceDiagnostic = createTelemetryWriter(
+	"agent-session-request-ledger",
+);
+
+function recordSkippedInference(
+	surface: "agent-session-request-reflector" | "agent-session-lesson-reflector",
+	reason: "no_active_rows" | "no_recovery_evidence",
+) {
+	writeInferenceDiagnostic(() =>
+		console.info({
+			event: "agent_session.inference_skipped",
+			surface,
+			reason,
+		}),
+	);
+}
 
 type LedgerEnv = DistillEnv &
 	AiGatewayTransportEnv & {
@@ -204,7 +222,11 @@ export interface LedgerModel {
 	) => Promise<void>;
 }
 
-export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
+export interface LedgerProcessingModel extends LedgerModel {
+	extractObligations: NonNullable<LedgerModel["extractObligations"]>;
+}
+
+export function workersAiLedgerModel(env: LedgerEnv): LedgerProcessingModel {
 	const model: LedgerModel = (system, prompt, surface) =>
 		surface === "agent-session-request-reflector" ||
 		surface === "agent-session-request-intake" ||
@@ -218,7 +240,11 @@ export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 					maxTokens: 2500,
 					timeoutMs: MODEL_TIMEOUT_MS,
 				});
-	model.extractObligations = (rows, turn, userMessage) =>
+	const extractObligations: LedgerProcessingModel["extractObligations"] = (
+		rows,
+		turn,
+		userMessage,
+	) =>
 		model(
 			REQUEST_INTAKE_SYSTEM_PROMPT,
 			requestIntakeInput(turn, rows, userMessage),
@@ -242,7 +268,7 @@ export function workersAiLedgerModel(env: LedgerEnv): LedgerModel {
 			"agent-session-lesson-reflector",
 		);
 	model.routeProjects = true;
-	return model;
+	return Object.assign(model, { extractObligations });
 }
 
 interface SessionScope {
@@ -439,7 +465,7 @@ export async function observeAgentSessionRequests(
 
 export async function reflectAgentSessionRequests(
 	db: DbQueryClient,
-	model: LedgerModel,
+	model: LedgerProcessingModel,
 	input: SessionScope & {
 		sourceEventId?: string;
 		turn: string;
@@ -515,33 +541,40 @@ export async function reflectAgentSessionRequests(
 			activity: input.activity,
 		},
 	];
+	const canReflectLessons = hasPotentialLessonRecovery(lessonSources);
+	if (model.reflectLessons && !canReflectLessons)
+		recordSkippedInference(
+			"agent-session-lesson-reflector",
+			"no_recovery_evidence",
+		);
+	const skipStatusReflection = active.length === 0;
+	if (skipStatusReflection)
+		recordSkippedInference("agent-session-request-reflector", "no_active_rows");
 	const lessonsPending =
-		model.reflectLessons &&
-		lessonSources.some((event) =>
-			/^(?:Failed|Error|Denied)\b/im.test(event.activity ?? ""),
-		)
+		model.reflectLessons && canReflectLessons
 			? model.reflectLessons(lessonSources)
 			: Promise.resolve(undefined);
 	const [raw, intakeRaw, lessonRaw] = await Promise.all([
-		model(
-			REQUEST_REFLECTOR_SYSTEM_PROMPT,
-			requestReflectorInput(
-				input.turn,
-				prompt.slice(0, active.length),
-				input.activity ?? "",
-				prompt.slice(active.length),
-				userMessage ?? "",
-				[...scopes]
-					.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
-					.join("\n\n"),
-			),
-			"agent-session-request-reflector",
-		),
-		model.extractObligations?.(prompt, input.turn, userMessage ?? ""),
+		skipStatusReflection
+			? Promise.resolve('{"updates":[]}')
+			: model(
+					REQUEST_REFLECTOR_SYSTEM_PROMPT,
+					requestReflectorInput(
+						input.turn,
+						prompt.slice(0, active.length),
+						input.activity ?? "",
+						prompt.slice(active.length),
+						userMessage ?? "",
+						[...scopes]
+							.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
+							.join("\n\n"),
+					),
+					"agent-session-request-reflector",
+				),
+		model.extractObligations(prompt, input.turn, userMessage ?? ""),
 		lessonsPending,
 	]);
-	if (model.extractObligations && !hasLedgerIntake(intakeRaw ?? null))
-		return { status: "unavailable" };
+	if (!hasLedgerIntake(intakeRaw)) return { status: "unavailable" };
 	// Evidence may come from the turn or from its activity (a tool result).
 	const reflected = parseReflectedUpdates(raw, openRefs, source);
 	if (!reflected) return { status: "unavailable" };
@@ -586,10 +619,7 @@ export async function reflectAgentSessionRequests(
 		})),
 	];
 	const mentioned = parseLedgerMentions(raw, openRefs, currentSource);
-	const newRows = parseReflectedNewRows(
-		model.extractObligations ? (intakeRaw ?? null) : raw,
-		model.extractObligations ? input.turn : currentSource,
-	);
+	const newRows = parseReflectedNewRows(intakeRaw, input.turn);
 	const changeById = new Map(changes.map((change) => [change.id, change]));
 	const lanes = parseLedgerLanes(raw, openRefs, currentSource);
 	for (const [ref, row] of byRef) {
@@ -768,7 +798,7 @@ export const EVENTS_PER_PASS = 4;
  */
 export async function processAgentSessionEvents(
 	db: DbQueryClient,
-	model: LedgerModel,
+	model: LedgerProcessingModel,
 	owner: { organizationId: string; userId: string },
 	options: {
 		limit?: number;

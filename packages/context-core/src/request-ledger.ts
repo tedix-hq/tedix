@@ -238,6 +238,34 @@ export interface LedgerLessonSource {
 	activity: string | null;
 }
 
+const LESSON_SUCCESS_PATTERN = String.raw`succeed\w*|success\w*|passed|saved|fixed|resolved|commit\w*|[0-9a-f]{7,40}`;
+const LESSON_SUCCESS_QUOTE = new RegExp(
+	`\\b(${LESSON_SUCCESS_PATTERN})\\b`,
+	"i",
+);
+const LESSON_POSSIBLE_SUCCESS = new RegExp(LESSON_SUCCESS_PATTERN, "i");
+
+/** A conservative preflight: accepted quotes can be substrings of normalized sources. */
+export function hasPotentialLessonRecovery(
+	sources: readonly LedgerLessonSource[],
+): boolean {
+	let failureSeen = false;
+	for (const source of sources) {
+		failureSeen ||= (source.activity ?? "")
+			.split("\n")
+			.some((line) => /^(?:Failed|Error|Denied)\b/i.test(line));
+		// Include the whole failure event: a later quote can occur in that same event.
+		if (
+			failureSeen &&
+			LESSON_POSSIBLE_SUCCESS.test(
+				squash(`${source.activity ?? ""}\n${source.body}`),
+			)
+		)
+			return true;
+	}
+	return false;
+}
+
 export function parseReflectedLessons(
 	raw: string | null,
 	turn: string,
@@ -283,9 +311,7 @@ export function parseReflectedLessons(
 			seen.has(key) ||
 			failureIndex < 0 ||
 			fixIndex < 0 ||
-			!/\b(succeed\w*|success\w*|passed|saved|fixed|resolved|commit\w*|[0-9a-f]{7,40})\b/i.test(
-				fix,
-			) ||
+			!LESSON_SUCCESS_QUOTE.test(fix) ||
 			/\b(?:will|would|should|plan to|try to|not yet|not|never)\b/i.test(fix) ||
 			squash(failure) === squash(fix)
 		)
