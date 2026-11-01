@@ -30,6 +30,8 @@ export interface CmsDeployWorkflowParams {
 	 * instead of trusting the disposable container's current contents.
 	 */
 	sourceCommit?: string;
+	/** Server-selected at admission; absent on older workflows, which keep their original disk. */
+	sourceSandbox?: "isolated";
 	nextBundleVersion: number;
 	expectedActiveVersion: number | null;
 }
@@ -112,6 +114,7 @@ export async function startCmsDeployWorkflow(input: {
 			orgSlug: input.orgSlug,
 			summary: input.summary,
 			sourceCommit: input.sourceCommit,
+			...(input.sourceCommit ? { sourceSandbox: "isolated" as const } : {}),
 			nextBundleVersion: generation.nextVersion,
 			expectedActiveVersion: generation.activeVersion,
 		};

@@ -26,6 +26,8 @@ import {
 	readThemeArtifactRepoSeedStatus,
 	startThemeArtifactRepoCommit,
 	startThemeArtifactRepoSeed,
+	isIsolatedThemeArtifactCommit,
+	themeArtifactCommitSandbox,
 } from "./theme-artifacts";
 import {
 	schema,
@@ -728,10 +730,19 @@ export function registerHotThemeTools(
 			const receipt = await updateStoredJobReceipt<ThemeArtifactSeedOutput>(
 				ctx.storage,
 				cmsThemeArtifactCommitStatusKey(ctx.orgSlug, args.jobId),
-				async () =>
-					themeArtifactSeedOutput(
-						await readThemeArtifactRepoCommitStatus(ctx.sandbox, args.jobId),
-					),
+				async (previous) => {
+					if (
+						isIsolatedThemeArtifactCommit(args.jobId) &&
+						(!previous || previous.jobId !== args.jobId)
+					)
+						throw new Error("CMS artifact commit job receipt was not found");
+					return themeArtifactSeedOutput(
+						await readThemeArtifactRepoCommitStatus(
+							themeArtifactCommitSandbox(ctx, args.jobId),
+							args.jobId,
+						),
+					);
+				},
 			);
 			const { seed, ...rest } = receipt;
 			const output = { ...rest, result: seed };

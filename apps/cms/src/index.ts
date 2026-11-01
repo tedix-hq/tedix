@@ -617,6 +617,8 @@ async function buildSiteBuilderContext(
 		get sandbox() {
 			return getRequestSandbox();
 		},
+		artifactCommitSandbox: (jobId) =>
+			getSiteBuilderSandbox(env, orgSlug, { kind: "artifact-commit", jobId }),
 		prepareAuthoringWorkspace: async () => {
 			const sandbox = getRequestSandbox();
 			const state = await sandbox.getAuthoringWorkspaceState();

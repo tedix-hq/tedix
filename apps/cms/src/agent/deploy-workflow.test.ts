@@ -102,6 +102,53 @@ function workflowFixture(siteId?: string) {
 }
 
 describe("DeployWorkflow exact-site lifecycle", () => {
+	it.each([
+		{ sourceCommit: "a".repeat(40), sourceSandbox: "isolated", isolated: true },
+		{ sourceCommit: "a".repeat(40), isolated: false },
+		{ isolated: false },
+	])(
+		"keeps the admitted execution disk stable for %j",
+		async ({ isolated, ...source }) => {
+			const { workflow, event, env } = workflowFixture("site-original");
+			Object.assign(event.payload, source);
+			vi.mocked(getSiteBuilderSandbox).mockClear();
+			vi.mocked(getSiteBuilderSandbox).mockReturnValue({
+				pathExists: async () => {
+					throw new Error("stop at selected disk");
+				},
+			} as never);
+			vi.mocked(withExactCmsSiteRestorePermit).mockImplementation(
+				async (_db, _site, operation) => operation(),
+			);
+			const step = {
+				do: async (
+					name: string,
+					_config: unknown,
+					callback: () => Promise<unknown>,
+				) => {
+					if (name === "preflight") return { digest: "pinned", fileCount: 1 };
+					if (name === "build-theme")
+						return {
+							workspace: "/attempt",
+							stagingAttemptId: "a1",
+							sourceDigest: "pinned",
+						};
+					if (name === "snapshot-theme") return callback();
+					throw new Error(`Unexpected step ${name}`);
+				},
+			};
+			await expect(workflow.run(event as never, step as never)).rejects.toThrow(
+				"stop at selected disk",
+			);
+			expect(getSiteBuilderSandbox).toHaveBeenCalledOnce();
+			expect(getSiteBuilderSandbox).toHaveBeenCalledWith(
+				env,
+				"acme",
+				isolated ? { kind: "deploy", jobId: event.instanceId } : undefined,
+			);
+		},
+	);
+
 	it("fails a legacy slug-only replay before writing even the queued receipt", async () => {
 		const { workflow, event, put } = workflowFixture();
 		const step = { do: vi.fn() };

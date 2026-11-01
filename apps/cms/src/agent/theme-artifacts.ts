@@ -174,7 +174,22 @@ export interface ThemeArtifactSeedCancelSnapshot extends ThemeArtifactSeedSnapsh
 export type ThemeArtifactSeedContext = {
 	orgSlug: string;
 	sandbox: SandboxArtifactSeedClient;
+	artifactCommitSandbox?: (jobId: string) => SandboxArtifactSeedClient;
 };
+
+export function isIsolatedThemeArtifactCommit(jobId: string): boolean {
+	return /^tac-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(jobId);
+}
+
+export function themeArtifactCommitSandbox(
+	ctx: ThemeArtifactSeedContext,
+	jobId: string,
+): SandboxArtifactSeedClient {
+	if (!isIsolatedThemeArtifactCommit(jobId)) return ctx.sandbox;
+	if (!ctx.artifactCommitSandbox)
+		throw new Error("Isolated CMS artifact execution is unavailable");
+	return ctx.artifactCommitSandbox(jobId);
+}
 
 function shellSingleQuote(value: string): string {
 	return `'${value.replace(/'/g, "'\\''")}'`;
@@ -406,7 +421,8 @@ export async function startThemeArtifactRepoCommit(
 			throw new Error(`Invalid CMS theme artifact path "${file.path}"`);
 		}
 	}
-	const jobId = themeArtifactSeedJobId();
+	const jobId = `tac-${crypto.randomUUID()}`;
+	const sandbox = themeArtifactCommitSandbox(ctx, jobId);
 	const base = `/tmp/tedix-theme-artifact-commit-${safeId(ctx.orgSlug)}-${jobId}-${crypto.randomUUID()}`;
 	const scriptPath = `${base}.sh`;
 	const tokenPath = `${base}.token`;
@@ -423,16 +439,16 @@ export async function startThemeArtifactRepoCommit(
 		tokenPath,
 	});
 	await Promise.all([
-		ctx.sandbox.writeFile(scriptPath, script),
-		ctx.sandbox.writeFile(tokenPath, input.token),
-		ctx.sandbox.writeFile(remotePath, input.remote),
-		ctx.sandbox.writeFile(messagePath, input.message),
+		sandbox.writeFile(scriptPath, script),
+		sandbox.writeFile(tokenPath, input.token),
+		sandbox.writeFile(remotePath, input.remote),
+		sandbox.writeFile(messagePath, input.message),
 		...input.files.map((file, index) =>
-			ctx.sandbox.writeFile(filePaths[index]!, file.content),
+			sandbox.writeFile(filePaths[index]!, file.content),
 		),
 	]);
 	const process = await startCmsJob(
-		ctx.sandbox,
+		sandbox,
 		`theme-commit:${jobId}`,
 		[
 			"bash",

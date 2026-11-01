@@ -321,6 +321,7 @@ export interface DeployStatus {
 
 export interface SiteBuilderToolContext {
 	prepareAuthoringWorkspace?: () => Promise<void>;
+	artifactCommitSandbox?: (jobId: string) => CmsSandbox;
 	orgSlug: string;
 	recordMcpAuditEvent?: (input: {
 		durationMs: number;

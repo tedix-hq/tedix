@@ -30,6 +30,7 @@ vi.mock("./build-runner", async (original) => ({
 vi.mock("./theme-artifacts", async (original) => ({
 	...(await original<object>()),
 	readThemeArtifactRepoSeedStatus: mocks.read,
+	readThemeArtifactRepoCommitStatus: mocks.read,
 	cancelThemeArtifactRepoSeed: mocks.cancel,
 }));
 import { buildSiteBuilderMcpServer } from "./tools";
@@ -98,14 +99,17 @@ function setup(initial: Record<string, unknown> | null) {
 		}),
 		put,
 	};
+	const artifactCommitSandbox = vi.fn(() => ({}));
 	buildSiteBuilderMcpServer({
 		orgSlug: "acme",
 		templateSlug: "tedix",
 		storage,
 		sandbox: {},
+		artifactCommitSandbox,
 	} as unknown as SiteBuilderToolContext);
 	return {
 		put,
+		artifactCommitSandbox,
 		stored: () => value,
 		raceWith: (winner: Record<string, unknown>) => {
 			race = () => {
@@ -119,6 +123,33 @@ function setup(initial: Record<string, unknown> | null) {
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.handlers.clear();
+});
+
+it("refuses unknown isolated commit status before obtaining a container", async () => {
+	const f = setup(null);
+	await expect(
+		mocks.handlers.get("theme_artifact_commit_status")!({
+			jobId: "tac-00000000-0000-4000-8000-000000000000",
+		}),
+	).rejects.toThrow("job receipt was not found");
+	expect(f.artifactCommitSandbox).not.toHaveBeenCalled();
+	expect(mocks.read).not.toHaveBeenCalled();
+});
+
+it("polls only the admitted isolated job and preserves its terminal receipt", async () => {
+	const jobId = "tac-00000000-0000-4000-8000-000000000000";
+	const f = setup({ ...running, jobId });
+	mocks.read.mockResolvedValue({
+		...terminal,
+		jobId,
+		startedAt: Date.parse(terminal.startedAt),
+	});
+	const result = await mocks.handlers.get("theme_artifact_commit_status")!({
+		jobId,
+	});
+	expect(result.structuredContent).toMatchObject({ jobId, status: "complete" });
+	expect(f.artifactCommitSandbox).toHaveBeenCalledWith(jobId);
+	expect(f.artifactCommitSandbox).toHaveBeenCalledOnce();
 });
 
 it("allows a native container cold start beyond the short probe timeout", async () => {
