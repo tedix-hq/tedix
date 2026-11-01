@@ -1,11 +1,5 @@
 import { execFileSync } from "node:child_process";
-import {
-	appendFileSync,
-	mkdtempSync,
-	mkdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -46,19 +40,19 @@ function git(cwd: string, args: string[]): string {
 		stdio: ["ignore", "pipe", "pipe"],
 	}).trim();
 }
-function fixture() {
+function fixture(commit = false) {
 	const base = mkdtempSync(join(tmpdir(), "tedix-context-"));
 	const cwd = join(base, "repo");
 	const configDir = join(base, "config");
-	mkdirSync(cwd);
-	git(cwd, ["init", "-b", "main"]);
-	appendFileSync(
+	mkdirSync(join(cwd, ".git", "objects"), { recursive: true });
+	mkdirSync(join(cwd, ".git", "refs", "heads"), { recursive: true });
+	writeFileSync(join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n");
+	writeFileSync(
 		join(cwd, ".git", "config"),
-		'\n[user]\n\tname = Context test\n\temail = context@example.invalid\n[remote "origin"]\n\turl = https://example.invalid/repo.git\n',
+		'[core]\n\trepositoryformatversion = 0\n\tbare = false\n[user]\n\tname = Context test\n\temail = context@example.invalid\n[remote "origin"]\n\turl = https://example.invalid/repo.git\n',
 	);
 	writeFileSync(join(cwd, "README.md"), "fixture\n");
-	git(cwd, ["add", "."]);
-	git(cwd, ["commit", "-m", "fixture"]);
+	if (commit) git(cwd, ["commit", "--allow-empty", "-m", "fixture"]);
 	const opts = { cwd, configDir, sessionId: null as string | null };
 	writeWorkspaceCredentials(
 		"tedix",
@@ -336,7 +330,7 @@ describe("local agent context", () => {
 	});
 
 	test("worktrees recover their existing marker without restoring any executor state", () => {
-		const { base, opts } = fixture();
+		const { base, opts } = fixture(true);
 		bind(opts);
 		const worktree = join(base, "worktree");
 		git(opts.cwd, ["worktree", "add", "-b", "codex/work-test", worktree]);
@@ -406,7 +400,7 @@ describe("local agent context", () => {
 	});
 
 	test("other repositories do not inherit a binding and detached selections are rejected", () => {
-		const { opts } = fixture();
+		const { opts } = fixture(true);
 		bind(opts);
 		const other = fixture();
 		expect(
@@ -435,7 +429,7 @@ describe("local agent context", () => {
 		).toThrow("duplicate");
 	});
 	test("shared Output is checkout scoped, preserves Work and can be disconnected", () => {
-		const { base, opts } = fixture();
+		const { base, opts } = fixture(true);
 		bind(opts);
 		changeAgentContext("select", { workItemId: WORK }, opts);
 		const osWorkspaceId = "11111111-1111-4111-8111-111111111111";

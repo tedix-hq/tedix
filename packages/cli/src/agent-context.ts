@@ -170,6 +170,67 @@ function git(cwd: string, args: string[]): string {
 		timeout: 2000,
 	}).trim();
 }
+function gitOrigin(cwd: string): string {
+	try {
+		return git(cwd, ["remote", "get-url", "origin"]);
+	} catch {
+		/* Missing origin is checked against any binding. */
+		return "";
+	}
+}
+/**
+ * `remote get-url origin` without a subprocess: the repository config value
+ * when no include, URL rewrite, injected or outer-scope remote config can
+ * change Git's answer; otherwise the Git command itself.
+ */
+function remoteOrigin(cwd: string, commonDir: string): string {
+	const paths = [join(commonDir, "config")];
+	const noSystem = process.env.GIT_CONFIG_NOSYSTEM;
+	if (!noSystem || /^(?:0|false|no|off)$/i.test(noSystem))
+		paths.push(process.env.GIT_CONFIG_SYSTEM ?? "/etc/gitconfig");
+	const home = process.env.HOME;
+	if (process.env.GIT_CONFIG_GLOBAL) paths.push(process.env.GIT_CONFIG_GLOBAL);
+	else if (home) paths.push(join(home, ".gitconfig"));
+	if (process.env.XDG_CONFIG_HOME)
+		paths.push(join(process.env.XDG_CONFIG_HOME, "git", "config"));
+	else if (home) paths.push(join(home, ".config", "git", "config"));
+	const texts = paths.map((path) => {
+		try {
+			return readFileSync(path, "utf8");
+		} catch {
+			return "";
+		}
+	});
+	if (
+		process.env.GIT_CONFIG_COUNT ||
+		process.env.GIT_CONFIG_PARAMETERS ||
+		process.env.GIT_CONFIG ||
+		texts.some(
+			(text, index) =>
+				/include|insteadof/i.test(text) ||
+				(index === 0 && /worktreeconfig/i.test(text)) ||
+				(index > 0 && /^\s*\[\s*remote(?:\.|\s|")/im.test(text)),
+		)
+	)
+		return gitOrigin(cwd);
+	let found = false;
+	const urls: string[] = [];
+	for (const match of texts[0]!.matchAll(/^\s*\[([^\]]+)\]([^[]*)/gm)) {
+		const header = (match[1] ?? "").trim();
+		const modern = /^[rR][eE][mM][oO][tT][eE]\s+"([^"]+)"$/.exec(header);
+		const isOrigin = modern
+			? modern[1] === "origin"
+			: /^remote\.origin$/i.test(header);
+		if (!isOrigin) continue;
+		found = true;
+		for (const url of (match[2] ?? "").matchAll(/^\s*url\s*=(.*)$/gim))
+			urls.push((url[1] ?? "").trim());
+	}
+	if (!found) return "";
+	if (!urls.length || urls.some((value) => !value || /["\\#;]/.test(value)))
+		return gitOrigin(cwd);
+	return urls.at(-1)!;
+}
 function repoAt(options?: AgentContextOptions): Repo {
 	const cwd = resolve(options?.cwd ?? process.cwd());
 	const [rootValue, commonDirValue, gitDirValue] = git(cwd, [
@@ -185,16 +246,10 @@ function repoAt(options?: AgentContextOptions): Repo {
 	const branch = head.startsWith("ref: refs/heads/")
 		? head.slice("ref: refs/heads/".length)
 		: "";
-	let origin = "";
-	try {
-		origin = git(root, ["remote", "get-url", "origin"]);
-	} catch {
-		/* Missing origin is checked against any binding. */
-	}
 	return {
 		root,
 		commonDir: realpathSync(resolve(cwd, commonDirValue)),
-		origin,
+		origin: remoteOrigin(cwd, resolve(cwd, commonDirValue)),
 		branch,
 	};
 }
@@ -905,18 +960,25 @@ export function changeAgentContext(
 	},
 	options?: AgentContextOptions,
 ): AgentContextResult {
+	let repo: Repo | undefined;
+	let repositoryError: unknown;
+	try {
+		repo = repoAt(options);
+	} catch (error) {
+		repositoryError = error;
+	}
 	if (
-		(action === "enable-decision-capture" ||
-			action === "disable-decision-capture") &&
-		!insideBoundRepository(options)
-	)
-		return changeDefaultCapture(
-			action === "enable-decision-capture",
-			input.projectId,
-			input.organizationWide === true,
-			options,
-		);
-	const repo = repoAt(options);
+		action === "enable-decision-capture" ||
+		action === "disable-decision-capture"
+	) {
+		if (!repo || !insideBoundRepository(repo, options))
+			return changeDefaultCapture(
+				action === "enable-decision-capture",
+				input.projectId,
+				input.organizationWide === true,
+				options,
+			);
+	} else if (!repo) throw repositoryError;
 	const sessionId = chatIdentity(options);
 	const directory = credentialDirectory(options);
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -1230,9 +1292,11 @@ function writeStore(store: Store, options?: AgentContextOptions): void {
 	}
 }
 
-function insideBoundRepository(options?: AgentContextOptions): boolean {
+function insideBoundRepository(
+	repo: Repo,
+	options?: AgentContextOptions,
+): boolean {
 	try {
-		const repo = repoAt(options);
 		return readStore(options).repositories.some(
 			(row) => row.commonDir === repo.commonDir,
 		);
