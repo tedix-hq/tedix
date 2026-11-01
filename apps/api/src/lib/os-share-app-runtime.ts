@@ -40,10 +40,8 @@ import type {
 } from "@tedix/db/schema/os-shares";
 import type { OsShareGuestRefusal } from "@tedix/api-contract/contracts/os-shares";
 import { z } from "zod";
-import {
-	loadAppRuntimeRevision,
-	runAppRuntimeCall,
-} from "../services/os-app-runtime-code";
+import { loadAppRuntimeRevision } from "../services/os-app-runtime-code";
+import { runInteractiveAppCall } from "../services/os-app-triggers";
 import {
 	effectiveRole,
 	guestAppRefusal,
@@ -308,6 +306,7 @@ export async function handleGuestAppCall(
 	env: GuestEnv,
 	db: DbQueryClient,
 	body: unknown,
+	waitUntil?: (work: Promise<unknown>) => void,
 ): Promise<Response> {
 	const scope = await resolveGuestAppScope(
 		db,
@@ -357,27 +356,32 @@ export async function handleGuestAppCall(
 			(await guestAppRefusal(db, scope, code.grants))
 		)
 			return notFound();
-		const result = await runAppRuntimeCall(env, db, {
-			organizationId: scope.organizationId,
-			workspaceId: scope.workspaceId,
-			gadgetId: scope.gadgetId,
-			revisionId: scope.revisionId,
-			code,
-			role: GUEST_ROLE,
-			session: input.data.session,
-			method: input.data.method,
-			args: input.data.args,
-			createdBy: {
-				kind: "service",
-				id: `${SHARE_SESSION_PRINCIPAL_KIND}:${scope.shareSessionId}`,
+		const result = await runInteractiveAppCall(
+			env,
+			db,
+			{
+				organizationId: scope.organizationId,
+				workspaceId: scope.workspaceId,
+				gadgetId: scope.gadgetId,
+				revisionId: scope.revisionId,
+				code,
+				role: GUEST_ROLE,
+				session: input.data.session,
+				method: input.data.method,
+				args: input.data.args,
+				createdBy: {
+					kind: "service",
+					id: `${SHARE_SESSION_PRINCIPAL_KIND}:${scope.shareSessionId}`,
+				},
+				policy: {
+					shareLinkId: scope.shareLinkId,
+					shareSessionId: scope.shareSessionId,
+					guestName: session.guestName,
+					guestIdentity: "self_reported",
+				},
 			},
-			policy: {
-				shareLinkId: scope.shareLinkId,
-				shareSessionId: scope.shareSessionId,
-				guestName: session.guestName,
-				guestIdentity: "self_reported",
-			},
-		});
+			waitUntil,
+		);
 		return noStoreJson({ result });
 	} catch {
 		return notFound();

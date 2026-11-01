@@ -1103,6 +1103,45 @@ describe("app chat drafts", () => {
 		};
 		return { ...f, collaboration, input };
 	}
+	it("never emits owner interaction triggers from a draft preview", async () => {
+		const f = await chatFixture();
+		const { proposal } = await f.client.proposeEdit(f.input);
+		const content = proposal.content as {
+			manifest: { config?: Record<string, unknown> };
+			files: Record<string, string>;
+		};
+		await f.db
+			.update(osCollaborationProposals)
+			.set({
+				content: JSON.stringify({
+					...content,
+					manifest: {
+						...content.manifest,
+						config: {
+							...content.manifest.config,
+							version: 1,
+							triggers: [
+								{
+									id: "saved",
+									kind: "interaction",
+									methods: ["count"],
+									method: "sync",
+								},
+							],
+						},
+					},
+				}),
+			})
+			.where(eq(osCollaborationProposals.id, proposal.id));
+		const { session } = await f.client.draft({
+			...scope,
+			proposalId: proposal.id,
+		});
+		await f.client.call({ ...scope, session, method: "count", args: [] });
+		expect(f.fetch).toHaveBeenCalledTimes(1);
+		expect(await f.db.select().from(osGadgetExecutions)).toHaveLength(1);
+	});
+
 	it("reads mainline files, proposes without changing them, and dispatches the proposal files", async () => {
 		const f = await chatFixture();
 		const { proposal } = await f.client.proposeEdit(f.input);

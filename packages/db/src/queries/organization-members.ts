@@ -8,6 +8,7 @@
 
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
 import { apps } from "../schema/apps";
 import type {
 	MemberRole,
@@ -64,6 +65,28 @@ export async function getMemberByUserId(
 	return db.query.organizationMembers.findFirst({
 		where: { organizationId, descopeUserId },
 	});
+}
+
+/** Minimal live membership check for resource-bound app actions. */
+export async function getMemberAccessByUserId(
+	db: DbQueryClient,
+	organizationId: string,
+	descopeUserId: string,
+) {
+	const rows = await db
+		.select({
+			role: organizationMembers.role,
+			status: organizationMembers.status,
+		})
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, organizationId),
+				eq(organizationMembers.descopeUserId, descopeUserId),
+			),
+		)
+		.limit(1);
+	return rows[0];
 }
 
 /**

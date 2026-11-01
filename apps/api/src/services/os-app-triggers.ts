@@ -1,6 +1,6 @@
 /**
- * Triggers for workspace apps: a schedule, a signed webhook or a finished
- * skill run calls a named method of a runtime app without anyone clicking.
+ * Triggers for workspace apps: interactions, schedules, signed webhooks and
+ * finished skill runs call a named method with its own execution receipt.
  *
  * Triggers are data in the app's manifest (`config.triggers`). Each event runs
  * through the same host call as a click (`runAppRuntimeCall`), so it lands in
@@ -26,8 +26,11 @@ import {
 import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import { ROLE_PERMISSION_GRANTS, type Role } from "@tedix/auth/rbac";
-import { createDbClient } from "@tedix/db/client";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import {
+	createDbQueryClient,
+	type DbQueryClient,
+} from "@tedix/db/query-client";
+import { getMemberAccessByUserId } from "@tedix/db/queries/organization-members";
 import { getOsGadgetExecution } from "@tedix/db/queries/os-workspaces/executions";
 import {
 	getOsGadget,
@@ -51,7 +54,7 @@ export const APP_TRIGGER_WEBHOOK_SKEW_SECONDS = 300;
 const APP_LIMIT = 200;
 const WEBHOOK_BODY_LIMIT = 60_000;
 
-type Db = ReturnType<typeof createDbClient>;
+type Db = DbQueryClient;
 
 export interface TriggeredApp {
 	organizationId: string;
@@ -155,7 +158,7 @@ export async function fireAppTrigger(
 	const code = await loadAppRuntimeRevision(db, app, app.revisionId);
 	const member =
 		app.createdByKind === "user"
-			? await getMemberByUserId(db, app.organizationId, app.createdById)
+			? await getMemberAccessByUserId(db, app.organizationId, app.createdById)
 			: undefined;
 	const actor = member?.status === "active" ? member : undefined;
 	const role = actor ? "build" : "use";
@@ -210,6 +213,82 @@ export type AppTriggerScanResult = {
 	failed: number;
 };
 
+/** Complete the caller's durable save before starting owner-authorized follow-up work. */
+export async function runInteractiveAppCall(
+	env: Pick<
+		CloudflareEnv,
+		"TEDI_SERVICE" | "ENVIRONMENT" | "SECRETS_MASTER_KEY"
+	>,
+	db: Db,
+	input: Parameters<typeof runAppRuntimeCall>[2],
+	waitUntil?: (work: Promise<unknown>) => void,
+): Promise<JsonValue> {
+	const callId = input.executionId ?? crypto.randomUUID();
+	const result = await runAppRuntimeCall(env, db, {
+		...input,
+		executionId: callId,
+	});
+	const triggers = (input.code.config.triggers ?? []).filter(
+		(trigger) =>
+			trigger.kind === "interaction" && trigger.methods.includes(input.method),
+	);
+	if (triggers.length === 0) return result;
+	const work = (async () => {
+		const [gadget, revision, workspace] = await Promise.all([
+			getOsGadget(db, input),
+			getOsGadgetRevision(db, input),
+			getOsWorkspace(db, input),
+		]);
+		if (
+			gadget?.status !== "active" ||
+			workspace?.status !== "active" ||
+			gadget.workspaceId !== input.workspaceId ||
+			gadget.currentRevisionId !== input.revisionId ||
+			revision?.gadgetId !== input.gadgetId
+		)
+			return;
+		for (const trigger of triggers) {
+			const executionId = await appTriggerExecutionId([
+				input.gadgetId,
+				trigger.id,
+				"interaction",
+				callId,
+			]);
+			await fireAppTrigger(
+				env,
+				db,
+				{
+					organizationId: input.organizationId,
+					workspaceId: input.workspaceId,
+					gadgetId: input.gadgetId,
+					revisionId: input.revisionId,
+					revisionCreatedAt: revision.createdAt,
+					createdByKind: revision.createdByKind,
+					createdById: revision.createdById,
+				},
+				trigger,
+				{
+					trigger: trigger.id,
+					kind: "interaction",
+					firedAt: new Date().toISOString(),
+					callId,
+					method: input.method,
+				},
+				executionId,
+			);
+		}
+	})().catch(() => {
+		// The original save stays successful; an app's durable pending queue can retry.
+		console.warn("app.interaction.failed", {
+			gadgetId: input.gadgetId,
+			callId,
+		});
+	});
+	if (waitUntil) waitUntil(work);
+	else await work;
+	return result;
+}
+
 /**
  * One platform tick: run every schedule trigger with a fire time in the last
  * two minutes and every skill trigger whose skill finished a run since its
@@ -222,6 +301,7 @@ export async function dispatchDueAppTriggers(
 	>,
 	scheduledTime: number,
 ): Promise<AppTriggerScanResult> {
+	const { createDbClient } = await import("@tedix/db/client");
 	const db = createDbClient(env.DB);
 	const rows = await listTriggeredRuntimeApps(db, { limit: APP_LIMIT });
 	const result: AppTriggerScanResult = {
@@ -356,7 +436,7 @@ export async function handleAppTriggerWebhook(
 		triggerId,
 	}).then((secret) => hmacHex(secret, `${timestamp}.${body}`));
 	if (!timingSafeEqual(signature, `sha256=${expected}`)) return denied();
-	const db = createDbClient(c.env.DB);
+	const db = createDbQueryClient(c.env.DB);
 	const gadget = await getOsGadget(db, { organizationId, gadgetId });
 	const revision = gadget?.currentRevisionId
 		? await getOsGadgetRevision(db, {

@@ -155,6 +155,7 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			c.env,
 			createDbQueryClient(c.env.DB),
 			await c.req.json().catch(() => null),
+			(work) => c.executionCtx.waitUntil(work),
 		);
 	});
 	// authz: public — same share session token; reads only granted, sourceless Outputs.

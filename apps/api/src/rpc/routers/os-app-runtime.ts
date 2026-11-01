@@ -678,18 +678,26 @@ export function createOsAppRuntimeRouter() {
 	});
 	const call = read.call.handler(async ({ context, input }) => {
 		const { scope, session, code } = await openedSession(context, input);
-		const result = await runAppRuntimeCall(context.env, queryDb(context), {
-			organizationId: scope.organizationId,
-			workspaceId: scope.workspaceId,
-			gadgetId: scope.gadgetId,
-			revisionId: session.revisionId,
-			code,
-			role: scope.role,
-			session: input.session,
-			method: input.method,
-			args: input.args,
-			createdBy: scope.principal,
-		});
+		const run = session.previewId
+			? runAppRuntimeCall
+			: (await import("../../services/os-app-triggers")).runInteractiveAppCall;
+		const result = await run(
+			context.env,
+			queryDb(context),
+			{
+				organizationId: scope.organizationId,
+				workspaceId: scope.workspaceId,
+				gadgetId: scope.gadgetId,
+				revisionId: session.revisionId,
+				code,
+				role: scope.role,
+				session: input.session,
+				method: input.method,
+				args: input.args,
+				createdBy: scope.principal,
+			},
+			context.waitUntil,
+		);
 		return { result };
 	});
 	/**
