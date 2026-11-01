@@ -76,9 +76,9 @@ export function DispatcherLaneHealth() {
 			<div>
 				<h2 className="type-tedix-section">Local lanes</h2>
 				<Text tone="secondary">
-					This view checks for new observations every 30 seconds. Use the
-					observation time to check freshness. A running dispatcher does not
-					prove work is progressing.
+					Checks for new reports every 30 seconds. A running runner does not
+					prove a task is progressing. Lead reports describe the last pass, not
+					whether another pass is running now.
 				</Text>
 			</div>
 			{health.isError ? (
@@ -112,77 +112,121 @@ export function DispatcherLaneHealth() {
 					) ?? [];
 				if (!lanes.length) return null;
 				const cards = (
-					<div className="grid gap-3 lg:grid-cols-3">
-						{lanes.map((lane) => {
-							const stale = historical;
-							const state = stale
-								? "Unknown · stale"
-								: !lane.running
-									? "Stopped"
-									: lane.slotsInUse > 0
-										? "Slots in use"
-										: "Idle";
-							return (
-								<Card
-									key={`${lane.reporterId}:${lane.lane}`}
-									data-lane-state={state}
+					<div className="grid gap-4">
+						{[...new Set(lanes.map((lane) => lane.reporterId))].map(
+							(machine) => (
+								<section
+									key={machine}
+									aria-label={`Machine ${machine}`}
+									className="grid min-w-0 gap-3"
 								>
-									<CardHeader>
-										<CardTitle className="flex flex-wrap items-center justify-between gap-2">
-											{lane.executor}
-											<Badge
-												variant={
-													stale || !lane.running ? "warning" : "secondary"
-												}
-											>
-												{state}
-											</Badge>
-										</CardTitle>
-										<CardDescription className="break-all">
-											Lane {lane.lane} · Reporter {lane.reporterId}
-										</CardDescription>
-									</CardHeader>
-									<CardContent className="grid gap-2">
-										<Text>
-											{lane.slotsInUse} / {lane.slotsTotal} slots in use
-											{stale ? " at last observation" : ""}
-										</Text>
-										<Text tone="secondary">
-											Observed{" "}
-											<time
-												dateTime={lane.observedAt}
-												title={absoluteTime(lane.observedAt)}
-											>
-												{relativeTime(lane.observedAt, new Date(now))}
-											</time>
-										</Text>
-										<Text tone="secondary">
-											Received {absoluteTime(lane.reportedAt)}
-										</Text>
-										<Text tone="secondary">
-											Last admission:{" "}
-											{lane.lastAdmissionAt
-												? absoluteTime(lane.lastAdmissionAt)
-												: "Not observed"}
-										</Text>
-										{lane.topReason ? (
-											<details className="min-w-0 break-words">
-												<summary className="min-h-11 cursor-pointer py-2">
-													Last reported skip reason:{" "}
-													{skipReasonSummary(lane.topReason.reason)} ·{" "}
-													{lane.topReason.count} observations
-												</summary>
-												<Text className="break-words">
-													{lane.topReason.reason}
-												</Text>
-											</details>
-										) : (
-											<Text>No repeated skip or failure reported.</Text>
-										)}
-									</CardContent>
-								</Card>
-							);
-						})}
+									<h3 className="type-tedix-section break-all">{machine}</h3>
+									<div className="grid gap-3 lg:grid-cols-3">
+										{lanes
+											.filter((lane) => lane.reporterId === machine)
+											.map((lane) => {
+												const stale = historical;
+												const lead = lane.lane === "supervisor-lead";
+												const state = stale
+													? "Unknown · stale"
+													: lead
+														? "Last pass reported"
+														: !lane.running
+															? "Stopped"
+															: lane.slotsInUse > 0
+																? "Slots in use"
+																: "Idle";
+												return (
+													<Card
+														key={`${lane.reporterId}:${lane.lane}`}
+														data-lane-state={state}
+													>
+														<CardHeader>
+															<CardTitle className="flex flex-wrap items-center justify-between gap-2">
+																{lead
+																	? `Lead · ${lane.executor}`
+																	: lane.executor}
+																<Badge
+																	variant={
+																		stale || !lane.running
+																			? "warning"
+																			: "secondary"
+																	}
+																>
+																	{state}
+																</Badge>
+															</CardTitle>
+															<CardDescription className="break-all">
+																{lead
+																	? "Periodic Lead check"
+																	: `Runner: ${lane.lane}`}
+															</CardDescription>
+														</CardHeader>
+														<CardContent className="grid gap-2">
+															{lead ? (
+																<Text>Current pass: Not reported</Text>
+															) : (
+																<Text>
+																	{lane.slotsInUse} / {lane.slotsTotal} slots in
+																	use
+																	{stale ? " at last observation" : ""}
+																</Text>
+															)}
+															<Text tone="secondary">
+																Observed{" "}
+																<time
+																	dateTime={lane.observedAt}
+																	title={absoluteTime(lane.observedAt)}
+																>
+																	{relativeTime(lane.observedAt, new Date(now))}
+																</time>
+															</Text>
+															<Text tone="secondary">
+																Received {absoluteTime(lane.reportedAt)}
+															</Text>
+															<Text tone="secondary">
+																Last task picked up:{" "}
+																{lane.lastAdmissionAt
+																	? absoluteTime(lane.lastAdmissionAt)
+																	: "Not observed"}
+															</Text>
+															{lane.topReason ? (
+																<details className="min-w-0 break-words">
+																	<summary className="min-h-11 cursor-pointer py-2">
+																		{lead
+																			? "Last pass result"
+																			: "Most reported problem (30 min)"}
+																		:{" "}
+																		{lead
+																			? lane.topReason.reason
+																			: skipReasonSummary(
+																					lane.topReason.reason,
+																				)}
+																		{!lead &&
+																			` · ${lane.topReason.count} observations`}
+																	</summary>
+																	<Text className="break-words">
+																		{lane.topReason.reason}
+																	</Text>
+																</details>
+															) : (
+																<Text>
+																	{lead
+																		? "Last pass result: Not reported"
+																		: "No repeated problem reported in the last 30 minutes."}
+																</Text>
+															)}
+															<Text tone="secondary">
+																Restart history: Not reported
+															</Text>
+														</CardContent>
+													</Card>
+												);
+											})}
+									</div>
+								</section>
+							),
+						)}
 					</div>
 				);
 				return historical ? (

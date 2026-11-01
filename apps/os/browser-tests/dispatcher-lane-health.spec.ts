@@ -34,14 +34,17 @@ try {
 				1,
 			);
 		const skip = section.getByText(
-			"Last reported skip reason: Approval required · 2 observations",
+			"Most reported problem (30 min): Approval required · 2 observations",
 			{
 				exact: true,
 			},
 		);
 		await skip.click();
 		assert.match(await section.innerText(), /Waiting for approval/);
-		assert.match(await section.innerText(), /Last admission: Not observed/);
+		assert.match(
+			await section.innerText(),
+			/Last task picked up: Not observed/,
+		);
 		for (const summary of await section.locator("summary").all()) {
 			const bounds = await summary.boundingBox();
 			assert.ok(
@@ -112,7 +115,7 @@ try {
 	await reasonPage.goto(`${server.origin}/work/capacity`);
 	for (const [raw, friendly] of reasons) {
 		const summary = reasonPage.getByText(
-			`Last reported skip reason: ${friendly} · 15 observations`,
+			`Most reported problem (30 min): ${friendly} · 15 observations`,
 			{ exact: true },
 		);
 		await summary.waitFor();
@@ -122,6 +125,79 @@ try {
 		assert.ok((await detail.innerText()).includes(raw));
 	}
 	await reasonPage.close();
+	for (const width of [375, 1280]) {
+		const page = await browser.newPage({ viewport: { width, height: 900 } });
+		await page.route("**/dispatcherHealth/list**", (route) => {
+			const at = new Date().toISOString();
+			return route.fulfill({
+				status: 200,
+				contentType: "application/json",
+				body: JSON.stringify({
+					json: {
+						reportedAt: at,
+						data: [
+							{
+								reporterId: "fixture-mac",
+								executor: "codex",
+								lane: "supervisor-lead",
+								running: true,
+								observedAt: at,
+								reportedAt: at,
+								lastAdmissionAt: null,
+								slotsInUse: 0,
+								slotsTotal: 1,
+								topReason: { reason: "codex pass finished", count: 1 },
+								ageSeconds: 0,
+								staleAfterSeconds: 90,
+								stale: false,
+							},
+							{
+								reporterId: "fixture-mac",
+								executor: "opencode",
+								lane: "opencode",
+								running: true,
+								observedAt: at,
+								reportedAt: at,
+								lastAdmissionAt: null,
+								slotsInUse: 0,
+								slotsTotal: 1,
+								topReason: null,
+								ageSeconds: 0,
+								staleAfterSeconds: 90,
+								stale: false,
+							},
+						],
+					},
+				}),
+			});
+		});
+		await page.goto(`${server.origin}/work/capacity`);
+		const machine = page.getByRole("region", {
+			name: "Machine fixture-mac",
+			exact: true,
+		});
+		await machine.getByText("Last pass reported", { exact: true }).waitFor();
+		assert.equal(await machine.count(), 1);
+		const lead = machine.locator('[data-lane-state="Last pass reported"]');
+		assert.match(await lead.innerText(), /Lead · codex/);
+		assert.match(await lead.innerText(), /Current pass: Not reported/);
+		assert.match(
+			await lead.innerText(),
+			/Last pass result: codex pass finished/,
+		);
+		assert.doesNotMatch(
+			await lead.innerText(),
+			/slots in use|Idle|observations/,
+		);
+		assert.equal(await machine.getByText("Idle", { exact: true }).count(), 1);
+		assert.ok(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth,
+			),
+		);
+		await machine.screenshot({ path: `${evidence}/machine-${width}.png` });
+		await page.close();
+	}
 	const stalePage = await browser.newPage();
 	let fresh = false;
 	let observationTime = "";
