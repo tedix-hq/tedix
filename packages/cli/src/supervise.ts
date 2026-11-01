@@ -103,6 +103,8 @@ import {
 	readRunnerDuties,
 } from "./supervise-runners";
 import { LeadDuty, type LeadRun } from "./supervise-lead";
+import { readDutyStatuses } from "./supervise-duty-status";
+import { laneProcessIdentity } from "./lane-process-recovery";
 
 export const SUPERVISE_INTERVAL_MS = 30_000;
 /** After `await-draft` gave up, with a minute of grace for its last read. */
@@ -1101,7 +1103,13 @@ export function listRunners(env: NodeJS.ProcessEnv): number {
 					"utf8",
 				),
 			);
-			if (Number.isSafeInteger(child.pid) && alive(child.pid)) pid = child.pid;
+			if (
+				Number.isSafeInteger(child.pid) &&
+				typeof child.identity === "string" &&
+				laneProcessIdentity(child.pid, runner.organization, homedir()) ===
+					child.identity
+			)
+				pid = child.pid;
 		} catch {
 			/* Not running under the supervisor. */
 		}
@@ -1121,7 +1129,11 @@ export function listRunners(env: NodeJS.ProcessEnv): number {
 	});
 	console.log(
 		JSON.stringify(
-			{ file: join(configDir(env), RUNNERS_FILE), runners: rows },
+			{
+				file: join(configDir(env), RUNNERS_FILE),
+				runners: rows,
+				duties: readDutyStatuses(env),
+			},
 			null,
 			2,
 		),

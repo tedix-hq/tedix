@@ -8,12 +8,17 @@ import {
 	renameSync,
 	writeFileSync,
 } from "node:fs";
-import { hostname } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import type { ReadJson } from "./hooks/hook-io";
 import { laneChildEnv } from "./lane-child-env";
 import { beginFileLock } from "./local-file-lock";
+import {
+	recordDutyStatus,
+	type SupervisorDutyStatus,
+} from "./supervise-duty-status";
+import { laneProcessIdentity } from "./lane-process-recovery";
+import { dispatcherReporterId } from "./dispatcher-health";
 import {
 	alive,
 	configDir,
@@ -44,6 +49,7 @@ export type LeadRun = (
 	executor: Executor,
 	prompt: string,
 	onSpawn: (pid: number) => void,
+	onExit?: (code: number | null) => void,
 ) => Promise<boolean>;
 
 export function leadCommand(
@@ -101,7 +107,7 @@ export function leadCommand(
 
 /** Wait for process exit, not just a session-start receipt, before falling back. */
 export function leadRunner(env: NodeJS.ProcessEnv): LeadRun {
-	return async (config, executor, prompt, onSpawn) => {
+	return async (config, executor, prompt, onSpawn, onExit) => {
 		if (protectedResumeReason(config.cwd, env)) return false;
 		const directory = join(configDir(env), "supervisor", "lead");
 		mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -155,6 +161,7 @@ export function leadRunner(env: NodeJS.ProcessEnv): LeadRun {
 			});
 			child.once("close", (code) => {
 				clear();
+				onExit?.(code);
 				let receipt;
 				try {
 					const content = readFileSync(output, "utf8");
@@ -234,6 +241,24 @@ export class LeadDuty {
 		const value = JSON.parse(readFileSync(path, "utf8"));
 		if (value.enabled === false) return;
 		const config = configSchema.parse(value);
+		const record = (update: Partial<SupervisorDutyStatus>) => {
+			try {
+				recordDutyStatus(
+					this.deps.env,
+					{
+						id: `lead:${config.organization}:${config.workspace}`,
+						kind: "task",
+						workspace: config.workspace,
+						organization: config.organization,
+						executor: update.lastExecutor ?? config.executors[0]!.executor,
+					},
+					update,
+					this.now(),
+				);
+			} catch {
+				this.log("duty status could not be saved");
+			}
+		};
 		const lock = beginFileLock(join(root, "supervisor", "lead-lock"));
 		try {
 			if (!lock.ready()) return;
@@ -242,18 +267,50 @@ export class LeadDuty {
 				? JSON.parse(readFileSync(statePath, "utf8"))
 				: {};
 			// A child can outlive a crashed supervisor. Never launch over it, even when overdue.
-			if (Number.isSafeInteger(state.pid) && state.pid > 0 && alive(state.pid))
+			if (
+				Number.isSafeInteger(state.pid) &&
+				state.pid > 0 &&
+				alive(state.pid)
+			) {
+				const verified =
+					typeof state.session === "string" &&
+					typeof state.identity === "string" &&
+					laneProcessIdentity(state.pid, state.session, config.cwd) ===
+						state.identity;
+				record({
+					state: verified ? "running" : "unknown",
+					lastProblem: verified
+						? null
+						: "Retained Lead process identity is unverified; no second pass launched",
+				});
 				return;
+			}
 			const now = this.now();
 			if (
 				typeof state.startedAt === "number" &&
 				now - state.startedAt < config.intervalMinutes * 60_000
-			)
+			) {
+				record({
+					state: "waiting",
+					retryAt: new Date(
+						state.startedAt + config.intervalMinutes * 60_000,
+					).toISOString(),
+				});
 				return;
+			}
+			let activeSession: string | undefined;
 			const save = (pid: number | null) => {
 				writeFileSync(
 					`${statePath}.tmp`,
-					JSON.stringify({ startedAt: now, pid }),
+					JSON.stringify({
+						startedAt: now,
+						pid,
+						session: activeSession,
+						identity:
+							pid && activeSession
+								? laneProcessIdentity(pid, activeSession, config.cwd)
+								: undefined,
+					}),
 					{ mode: 0o600 },
 				);
 				renameSync(`${statePath}.tmp`, statePath);
@@ -262,21 +319,45 @@ export class LeadDuty {
 			this.failed = false;
 			const prompt = `Run exactly one Lead pass. Read the Lead playbook at ${config.playbook} and the current status document at ${config.status}, using Tedix --workspace ${config.workspace} --organization ${config.organization}. Follow the playbook's judgement loop once and record the result in that status document and relevant Tedix Work comments. Re-read current Work and admission before execution; preserve dispatcher-owned Attempts. Do not create a scheduler, sleep for another pass, or change this duty's configuration. Human consent, MFA and required user presence remain with the human. Stop after this pass.`;
 			for (const [index, executor] of config.executors.entries()) {
+				activeSession = `${executor.executor}:${executor.session}`;
+				record({
+					state: "running",
+					lastRunAt: new Date(this.now()).toISOString(),
+					lastExecutor: executor.executor,
+					retryAt: null,
+					lastProblem: null,
+				});
 				this.log(
 					`${index ? "fallback to" : "starting"} ${executor.executor} session ${executor.session}`,
 				);
 				let ok = false;
+				let exitCode: number | null = null;
 				try {
 					ok = await (this.deps.run ?? leadRunner(this.deps.env))(
 						config,
 						executor,
 						prompt,
 						save,
+						(code) => {
+							exitCode = code;
+						},
 					);
 				} catch {
 					this.log(`${executor.executor} launch or receipt failed`);
 				}
 				save(null);
+				record({
+					state: ok ? "waiting" : "failed",
+					lastExitAt: new Date(this.now()).toISOString(),
+					lastExitCode: exitCode,
+					lastExecutor: executor.executor,
+					retryAt: new Date(
+						now + config.intervalMinutes * 60_000,
+					).toISOString(),
+					lastProblem: ok
+						? null
+						: "Lead pass failed; inspecting the retained output may be needed",
+				});
 				const reason = `${executor.executor} ${ok ? "pass finished" : "pass failed"}${
 					index
 						? ` after fallback from ${config.executors
@@ -297,7 +378,7 @@ export class LeadDuty {
 							"dispatcher-health-record",
 							"--input",
 							JSON.stringify({
-								reporterId: hostname().slice(0, 128),
+								reporterId: dispatcherReporterId(this.deps.env),
 								executor: executor.executor,
 								lane: "supervisor-lead",
 								running: true,

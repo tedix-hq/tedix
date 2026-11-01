@@ -286,6 +286,17 @@ function activeSlots(directory: string): number {
 	return count;
 }
 
+export function dispatcherReporterId(env: NodeJS.ProcessEnv): string {
+	const root = join(
+		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
+		"dispatchers",
+	);
+	return createHash("sha256")
+		.update(`${hostname()}:${root}`)
+		.digest("hex")
+		.slice(0, 32);
+}
+
 export function collectDispatcherHealth(
 	env: NodeJS.ProcessEnv,
 	now = Date.now(),
@@ -295,10 +306,7 @@ export function collectDispatcherHealth(
 		"dispatchers",
 	);
 	if (!existsSync(root)) return [];
-	const reporterId = createHash("sha256")
-		.update(`${hostname()}:${root}`)
-		.digest("hex")
-		.slice(0, 32);
+	const reporterId = dispatcherReporterId(env);
 	const observedAt = new Date(now).toISOString();
 	const reports: LocalDispatcherHealth[] = [];
 	for (const name of readdirSync(root)) {

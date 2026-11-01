@@ -150,6 +150,7 @@ service you need on a machine; it also takes over runners that were installed
 as their own services earlier and removes those. `tedix supervise runners`
 lists the runners with their state, process id and log file. Each runner
 keeps its own log at `~/.tedix/dev.tedix.lane-serve.<id>.log`.
+The same command includes saved duty status from `~/.tedix/supervisor-duties-status.json`: last start and exit, exit code when observed, executor, retry time and recent exits. This history survives supervisor restarts. A retained process whose identity cannot be verified stays unknown; the supervisor neither adopts nor stops it by its process number alone.
 After a reinstall, a new runner checks every 250 ms for its predecessor's lock to clear and logs one waiting notice per process while the predecessor finishes active Work.
 
 To run a recurring Lead pass, create `~/.tedix/supervisor-lead.json` with

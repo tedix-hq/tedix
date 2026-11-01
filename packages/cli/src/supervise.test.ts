@@ -21,6 +21,7 @@ import {
 } from "./hooks/decision-capture";
 import type { JsonObject } from "./hooks/hook-io";
 import { CODEX_IDLE_MS, Supervisor } from "./supervise";
+import { readDutyStatuses } from "./supervise-duty-status";
 import {
 	LeadDuty,
 	leadCommand,
@@ -1497,6 +1498,13 @@ describe("Lead duty", () => {
 		);
 		expect(f.health[1]?.lane).toBe("supervisor-lead");
 		expect(f.duty.failed).toBe(false);
+		expect(readDutyStatuses({ TEDIX_CONFIG_DIR: config })[0]).toMatchObject({
+			kind: "task",
+			state: "waiting",
+			lastExecutor: "codex",
+			lastExitCode: null,
+			lastProblem: null,
+		});
 	});
 	test("launch errors fall back", async () => {
 		const calls: string[] = [];
