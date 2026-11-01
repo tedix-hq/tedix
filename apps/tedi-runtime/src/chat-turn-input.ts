@@ -50,6 +50,12 @@ export interface ChatTurnParams {
 	workItemId?: string;
 	/** Parent Home run that owns this delegated turn, when present. */
 	homeRunId?: string;
+	/**
+	 * Trusted skill-run identity for AI Gateway cost attribution. This is set
+	 * only from the authenticated MCP workflow provenance header; the tedi run
+	 * id remains the durable execution and idempotency identity.
+	 */
+	gatewayAttributionRunId?: string;
 	delegationBudget?: import("./delegation-budget").DelegatedTurnBudget;
 	/** Enforced execution surface selected by the Kernel work order. */
 	executionSurface?: ExecutionSurface;

@@ -995,6 +995,8 @@ export const runtimeFacetTurns = {
 			runId: string;
 			traceId?: string;
 			workItemId?: string;
+			/** Trusted skill-run id for gateway cost attribution only. */
+			gatewayAttributionRunId?: string;
 			homeRunId?: string;
 			personalRequest?: boolean;
 			executionSurface?: ExecutionSurface;
@@ -1297,6 +1299,8 @@ export const runtimeFacetTurns = {
 			 * rows carry a purpose-linked id instead of the `system:mcp` fallback,
 			 * so run purpose stays recoverable. */
 			workItemId?: string;
+			/** Trusted skill-run id for gateway cost attribution only. */
+			gatewayAttributionRunId?: string;
 			/** Budget lane. Authenticated cron turns are background; user/Home work is operator. */
 			admissionClass?: "background" | "governed_learning" | "operator";
 			/**
@@ -1408,7 +1412,7 @@ export const runtimeFacetTurns = {
 						),
 				adaptiveRouting,
 				aigMetadata: this.tediAigMetadata(source, {
-					runId: input.runId,
+					runId: input.gatewayAttributionRunId ?? input.runId,
 					sessionKey: input.sessionKey,
 					...(input.workItemId ? { workItemId: input.workItemId } : {}),
 				}),
@@ -1873,6 +1877,7 @@ export const runtimeFacetTurns = {
 			 * learning_mode); absent ⇒ derived from the resolved user text. */
 			learningMode?: AdaptiveLearningMode;
 			callerTrust?: CallerTrustTier;
+			gatewayAttributionRunId?: string;
 		},
 	): Promise<{
 		ok: true;
@@ -1979,6 +1984,7 @@ export const runtimeFacetTurns = {
 							input.noFunds || input.evaluation ? "disabled" : learningMode,
 						evaluation: input.evaluation,
 						callerTrust: input.callerTrust,
+						gatewayAttributionRunId: input.gatewayAttributionRunId,
 						noFunds: input.noFunds,
 					},
 					// Same explicit binding as the async-inject dispatch: the binding
@@ -2514,6 +2520,9 @@ export const runtimeFacetTurns = {
 				guardedUserText,
 				...(input.imageRefs?.length ? { imageRefs: input.imageRefs } : {}),
 				...(input.workItemId ? { workItemId: input.workItemId } : {}),
+				...(input.gatewayAttributionRunId
+					? { gatewayAttributionRunId: input.gatewayAttributionRunId }
+					: {}),
 				// (c) TIMEOUT: a cron cognitive cycle runs as ONE durable Workflow step
 				// bounded by Cloudflare's 10-minute wall clock. The interactive step
 				// ceiling (40) let the heavy consolidation / grounding-review Code Mode
