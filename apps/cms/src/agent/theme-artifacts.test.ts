@@ -95,19 +95,62 @@ import {
 	startThemeArtifactRepoCommit,
 	readThemeArtifactRepoSeedStatus,
 	cancelThemeArtifactRepoSeed,
+	themeArtifactCommitSandbox,
 	type ThemeArtifactSeedContext,
 } from "./theme-artifacts";
 function context(f: ReturnType<typeof fixture>) {
 	const writeFile = vi.fn(async () => undefined);
+	const ctx = {
+		orgSlug: "acme",
+		sandbox: { ...f.sandbox, writeFile },
+		artifactCommitSandbox: () => ctx.sandbox,
+	};
 	return {
-		ctx: {
-			orgSlug: "acme",
-			sandbox: { ...f.sandbox, writeFile },
-		} as unknown as ThemeArtifactSeedContext,
+		ctx: ctx as unknown as ThemeArtifactSeedContext,
 		writeFile,
 	};
 }
 describe("CMS native artifact seed", () => {
+	it("launches and polls an artifact commit on its exact isolated job without accessing authoring", async () => {
+		const f = fixture();
+		const isolated = {
+			...f.sandbox,
+			writeFile: vi.fn(async (_path: string, _content: string) => undefined),
+		};
+		const select = vi.fn(() => isolated);
+		const ctx = {
+			orgSlug: "acme",
+			artifactCommitSandbox: select,
+			get sandbox(): never {
+				throw new Error("authoring must not be accessed");
+			},
+		};
+		const launch = await startThemeArtifactRepoCommit(ctx, {
+			branch: "main",
+			expectedHead: "a".repeat(40),
+			files: [{ path: "src/components/Hero.astro", content: "<h1>New</h1>" }],
+			message: "Update theme",
+			remote: "https://example.test/repo",
+			token: "private",
+		});
+		expect(launch.jobId).toMatch(/^tac-[a-f0-9-]{36}$/);
+		expect(select).toHaveBeenCalledWith(launch.jobId);
+		expect(f.launchCmsJob).toHaveBeenCalledOnce();
+		expect(themeArtifactCommitSandbox(ctx, launch.jobId)).toBe(isolated);
+		expect(select).toHaveBeenLastCalledWith(launch.jobId);
+		expect(
+			isolated.writeFile.mock.calls.every(([path]) =>
+				String(path).startsWith("/tmp/"),
+			),
+		).toBe(true);
+	});
+
+	it("keeps old commit jobs on their original disk", () => {
+		const f = fixture();
+		const { ctx } = context(f);
+		expect(themeArtifactCommitSandbox(ctx, "tas-old-job")).toBe(ctx.sandbox);
+	});
+
 	it("keeps tokens and remote credentials out of argv", async () => {
 		const f = fixture();
 		const { ctx, writeFile } = context(f);

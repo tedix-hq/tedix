@@ -3,6 +3,7 @@ import {
 	prepareAuthoringWorkspace,
 	type AuthoringWorkspaceInput,
 } from "../agent/authoring-workspace";
+import { siteBuilderSandboxTenantLabel } from "../sandbox";
 import {
 	DirectoryBackup,
 	type DirectoryBackupGatewayBinding,
@@ -56,7 +57,9 @@ export class SiteBuilderSandboxRuntime extends NativeContainerSandbox<SiteBuilde
 			instance: "standard-1",
 			enableInternet: true,
 			labels: {
-				orgSlug: this.ctx.id.name ?? this.ctx.id.toString(),
+				orgSlug: siteBuilderSandboxTenantLabel(
+					this.ctx.id.name ?? this.ctx.id.toString(),
+				),
 				platform: "tedix-site-builder",
 				env: this.env.ENVIRONMENT ?? "production",
 			},

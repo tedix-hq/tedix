@@ -306,6 +306,17 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 		} = event.payload;
 		const jobId = event.instanceId;
 		const env = this.env;
+		// The admitted payload fixes the execution disk across retries and code rollouts.
+		// Older workflows retain their original authoring disk; only newly admitted
+		// immutable-source jobs use a separate server-bound container.
+		const getExecutionSandbox = () =>
+			getSiteBuilderSandbox(
+				env,
+				orgSlug,
+				sourceCommit && event.payload.sourceSandbox === "isolated"
+					? { kind: "deploy", jobId }
+					: undefined,
+			);
 		// Workflow.restart() retains its original payload. Legacy slug-only jobs
 		// must not bind to a different site that later reuses the slug.
 		if (!siteId || !Number.isSafeInteger(restoreEpoch) || restoreEpoch < 0) {
@@ -465,7 +476,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 				"preflight",
 				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "2 minutes" },
 				async () => {
-					const sandbox = getSiteBuilderSandbox(env, orgSlug);
+					const sandbox = getExecutionSandbox();
 					const prepared = await createSourceWorkspace(sandbox);
 					try {
 						const editableSource = await digestEditableThemeSource(
@@ -503,7 +514,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 			await record("build-and-snapshot", "running", "Building Astro bundle");
 			const buildAttempt = async () => {
 				const preparationStartedAt = Date.now();
-				const sandbox = getSiteBuilderSandbox(env, orgSlug);
+				const sandbox = getExecutionSandbox();
 				const attempt = await createSourceWorkspace(sandbox);
 				const attemptWorkspace = attempt.path;
 				try {
@@ -756,7 +767,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 					timeout: `${SNAPSHOT_WORKFLOW_TIMEOUT_MINUTES} minutes`,
 				},
 				async () => {
-					const sandbox = getSiteBuilderSandbox(env, orgSlug);
+					const sandbox = getExecutionSandbox();
 					let currentBuild = built;
 					if (
 						!(await sandbox.pathExists(
@@ -927,7 +938,7 @@ export class DeployWorkflow extends WorkflowEntrypoint<
 				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "1 minute" },
 				async () => {
 					try {
-						const sandbox = getSiteBuilderSandbox(env, orgSlug);
+						const sandbox = getExecutionSandbox();
 						const paths = new Set([built.workspace, snapshot.workspace]);
 						const outcomes = await Promise.allSettled(
 							[...paths].map((path) =>
