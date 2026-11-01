@@ -158,7 +158,7 @@ describe("Production ConversationFacet on native Pi", () => {
 			requestId: null,
 		});
 	});
-	it("honors the configured ceiling and persists a tools-off final report", async () => {
+	it("reuses the owned tools-off answer at the configured ceiling, including replay", async () => {
 		const agent = await fixture(crypto.randomUUID());
 		await agent.setup("tool");
 		await agent.enableFacetTool();
@@ -167,16 +167,42 @@ describe("Production ConversationFacet on native Pi", () => {
 		expect(turn.result.assistantText).toContain("Partial results above");
 		const view = await inspect(agent);
 		expect(view.stats).toMatchObject({
-			requests: 2,
+			requests: 1,
 			effects: 0,
-			reservations: 2,
-			receipts: 2,
+			reservations: 1,
+			receipts: 1,
 		});
-		expect(view.stats.toolChoices).toEqual([
-			{ type: "none" },
-			{ type: "none" },
-		]);
+		expect(view.stats.toolChoices).toEqual([{ type: "none" }]);
+		expect(turn.result.assistantText).toContain("owned answer 1");
+		const replay = await agent.turn("ceiling", { maxSteps: 1 });
+		expect(replay.result).toEqual(turn.result);
+		expect((await inspect(agent)).stats.requests).toBe(1);
+		const next = await agent.turn("next-ceiling", { maxSteps: 1 });
+		expect(next.result.assistantText).toContain("owned answer 2");
+		expect((await inspect(agent)).stats.requests).toBe(2);
 	});
+	it("compares tools-off text with the owned-answer whitespace normalization", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.setup("padded");
+		const turn = await agent.turn("padded", { maxSteps: 1 });
+		expect(turn.result.assistantText).toContain("owned answer 1");
+		expect((await inspect(agent)).stats.requests).toBe(1);
+	});
+	it.each(["empty", "truncated"] as const)(
+		"retains the salvage report when the tools-off response is %s",
+		async (mode) => {
+			const agent = await fixture(crypto.randomUUID());
+			await agent.setup(mode);
+			const turn = await agent.turn("salvage", { maxSteps: 1 });
+			expect(turn.result.assistantText).toContain("owned answer 2");
+			expect((await inspect(agent)).stats).toMatchObject({
+				requests: 2,
+				reservations: 2,
+				receipts: 2,
+				effects: 0,
+			});
+		},
+	);
 	it("closes a spent delegated tool budget with one tool-free answer and no extra effect, including replay", async () => {
 		const name = crypto.randomUUID();
 		const agent = await fixture(name);

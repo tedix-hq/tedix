@@ -10,13 +10,12 @@ import { finalStepToolChoice } from "./turn-model-selection";
  *    turn is bounded only by wall clock and the daily budget. A ceiling exists
  *    only when governance (an explicit per-tedi `maxIterationsPerTask` or
  *    the cron/wake caps) stamps a positive integer.
- * 2. **Every early stop ends with a tools-off final report.** When a turn is
- *    stopped by any budget reason, the runtime runs exactly one more model
- *    call with tools disabled and a synthetic instruction, so a turn that
- *    burned its rounds on tool calls still settles with salvageable text
- *    (what was done, what remains, the next step) instead of a bare
- *    "[Turn stopped early]" marker. That call runs outside every ceiling that
- *    triggered it.
+ * 2. **Every early stop ends with a tools-off final report.** A step-ceiling
+ *    stop reuses an owned, completed tools-off answer when its receipt proves
+ *    it already exists. Otherwise the runtime runs one more model call with
+ *    tools disabled and a synthetic instruction, so a turn that burned its
+ *    rounds on tool calls still settles with salvageable text. This extra
+ *    call runs outside the triggering ceiling. The stop notice remains.
  */
 
 /** A stamped positive integer is a ceiling; anything else is "no step stop". */

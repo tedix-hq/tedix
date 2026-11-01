@@ -280,7 +280,14 @@ export interface ConversationStats {
 	effects: number;
 	reservations: number;
 	receipts: number;
-	mode: "text" | "tool" | "stall" | "overflow";
+	mode:
+		| "text"
+		| "tool"
+		| "stall"
+		| "overflow"
+		| "empty"
+		| "truncated"
+		| "padded";
 	cancelled: boolean;
 	prompts: unknown[];
 	toolChoices: unknown[];
@@ -652,19 +659,27 @@ export class PiConversationFixture extends ProductionConversationFacet {
 									toolName: "fixture_effect",
 									input: "{}",
 								});
-							else {
+							else if (stats.mode !== "empty" || request !== 1) {
 								controller.enqueue({ type: "text-start", id: "text" });
 								controller.enqueue({
 									type: "text-delta",
 									id: "text",
-									delta: `owned answer ${request}`,
+									delta:
+										stats.mode === "padded"
+											? `  owned answer ${request}\n `
+											: `owned answer ${request}`,
 								});
 								controller.enqueue({ type: "text-end", id: "text" });
 							}
 							controller.enqueue({
 								type: "finish",
 								finishReason: {
-									unified: tool ? "tool-calls" : "stop",
+									unified:
+										stats.mode === "truncated" && request === 1
+											? "length"
+											: tool
+												? "tool-calls"
+												: "stop",
 									raw: tool ? "tool-calls" : "stop",
 								},
 								usage: {
