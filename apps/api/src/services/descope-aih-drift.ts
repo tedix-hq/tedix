@@ -232,7 +232,7 @@ function sessionSettingsEnabled(server: DescopeServer): boolean {
  * without interpreting disabled resource settings as effective lifetimes.
  */
 function sessionLifetimes(
-	server: DescopeServer,
+	server: Pick<DescopeServer, "sessionSettings">,
 ): Record<string, string | number> {
 	return Object.fromEntries(
 		Object.entries(asRecord(asRecord(server).sessionSettings))
@@ -704,24 +704,40 @@ export function buildDescopeAihDriftReport(
 			});
 		}
 
-		const sessionOverrideException = snapshot.d1Apps.some(
-			(app) =>
-				app.descopeResourceId === server.id &&
-				stringOrNull(
-					normalizeMcpConfig(app.metadata).sessionSettingsExceptionDecisionId,
-				) !== null,
-		);
-		if (sessionSettingsEnabled(server) && !sessionOverrideException) {
+		for (const app of snapshot.d1Apps) {
+			if (app.descopeResourceId !== server.id) continue;
+			const declaration = asRecord(
+				normalizeMcpConfig(app.metadata).sessionSettings,
+			);
+			if (typeof declaration.enabled !== "boolean") continue;
+			const expected: Record<string, string | number | boolean> = {
+				enabled: declaration.enabled,
+				...sessionLifetimes({ sessionSettings: declaration }),
+			};
+			const actual = asRecord(server.sessionSettings);
+			// Disabled overrides retain stale values that are not effective settings.
+			const fields = expected.enabled ? Object.keys(expected) : ["enabled"];
+			const mismatches = fields.filter((field) =>
+				field === "enabled"
+					? expected.enabled !== sessionSettingsEnabled(server)
+					: expected[field] !== actual[field],
+			);
+			if (mismatches.length === 0) continue;
 			issue(report, {
 				severity: "warning",
-				code: "mcp_server_session_override",
+				code: "mcp_server_session_settings_drift",
 				resourceType: "mcp_server",
 				resourceId: server.id,
 				resourceName: server.name,
-				message: `Descope MCP server ${server.name} overrides project session settings without a recorded exception. Select According to project settings on the MCP Server entry.`,
+				message: `Descope MCP server ${server.name} session settings differ from D1 app ${app.slug}. Review the declared configuration before changing templates or lifetimes.`,
 				details: {
-					sessionSettingsEnabled: true,
-					sessionLifetimes: sessionLifetimes(server),
+					appId: app.id,
+					mismatches,
+					expected,
+					actual: {
+						enabled: sessionSettingsEnabled(server),
+						...(sessionSettingsEnabled(server) ? sessionLifetimes(server) : {}),
+					},
 				},
 			});
 		}

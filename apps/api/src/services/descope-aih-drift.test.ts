@@ -3,35 +3,64 @@ import { buildDescopeAihDriftReport } from "./descope-aih-drift";
 
 describe("buildDescopeAihDriftReport", () => {
 	it.each([
-		{ enabled: true, decisionId: undefined, matchingEntry: true, drift: true },
-		{ enabled: true, decisionId: "   ", matchingEntry: true, drift: true },
+		{ enabled: true, expected: undefined, matchingEntry: true, drift: false },
 		{
 			enabled: false,
-			decisionId: undefined,
+			expected: undefined,
 			matchingEntry: true,
 			drift: false,
 		},
 		{
 			enabled: undefined,
-			decisionId: undefined,
+			expected: { enabled: false },
 			matchingEntry: true,
 			drift: false,
 		},
 		{
 			enabled: true,
-			decisionId: "decision-1",
+			expected: { enabled: true, sessionTokenExpiration: 600 },
 			matchingEntry: true,
 			drift: false,
 		},
 		{
 			enabled: true,
-			decisionId: "decision-1",
-			matchingEntry: false,
+			expected: { enabled: false },
+			matchingEntry: true,
 			drift: true,
 		},
+		{
+			enabled: true,
+			expected: { enabled: true, sessionTokenExpiration: 3600 },
+			matchingEntry: true,
+			drift: true,
+		},
+		{
+			enabled: true,
+			expected: { enabled: true, userTemplateId: "other-template" },
+			matchingEntry: true,
+			drift: true,
+		},
+		{
+			enabled: false,
+			expected: { enabled: true, sessionTokenExpiration: 600 },
+			matchingEntry: true,
+			drift: true,
+		},
+		{
+			enabled: false,
+			expected: { enabled: false, sessionTokenExpiration: 3600 },
+			matchingEntry: true,
+			drift: false,
+		},
+		{
+			enabled: true,
+			expected: { enabled: false },
+			matchingEntry: false,
+			drift: false,
+		},
 	])(
-		"audits custom session settings: %j",
-		({ enabled, decisionId, matchingEntry, drift }) => {
+		"compares declared session settings: %j",
+		({ enabled, expected, matchingEntry, drift }) => {
 			const report = buildDescopeAihDriftReport({
 				checkedAt: "2026-11-01T00:00:00.000Z",
 				projectId: "project",
@@ -65,13 +94,16 @@ describe("buildDescopeAihDriftReport", () => {
 						codeMode: true,
 						connectionProviderId: null,
 						metadata: {
-							mcpConfig: { sessionSettingsExceptionDecisionId: decisionId },
+							mcpConfig: {
+								sessionSettings: expected,
+								sessionSettingsExceptionDecisionId: "legacy-decision",
+							},
 						},
 					},
 				],
 			});
 			const issues = report.issues.filter(
-				(entry) => entry.code === "mcp_server_session_override",
+				(entry) => entry.code === "mcp_server_session_settings_drift",
 			);
 			expect(issues).toHaveLength(drift ? 1 : 0);
 			if (drift) {
@@ -80,16 +112,16 @@ describe("buildDescopeAihDriftReport", () => {
 					resourceType: "mcp_server",
 					resourceId: "gateway",
 					details: {
-						sessionSettingsEnabled: true,
-						sessionLifetimes: {
-							sessionTokenExpiration: 600,
-							keySessionTokenExpiration: 600,
-							refreshTokenExpiration: 520,
-							refreshTokenExpirationUnit: "weeks",
-						},
+						expected,
+						actual: { enabled: enabled === true },
 					},
 				});
 			}
+			expect(
+				report.issues.some(
+					(entry) => entry.code === "mcp_server_session_override",
+				),
+			).toBe(false);
 			expect(report.mcpServers[0]?.sessionSettingsEnabled).toBe(
 				enabled === true,
 			);
@@ -637,7 +669,6 @@ describe("buildDescopeAihDriftReport", () => {
 				"broad_untagged_mcp_clients",
 				"mcp_server_login_flow_repeats_tenant_selection",
 				"mcp_server_cli_cimd_unavailable",
-				"mcp_server_session_override",
 				"connection_provider_missing",
 				"connection_provider_registry_missing",
 				"connection_provider_dcr_drift",

@@ -385,22 +385,28 @@ is their reproducible record, so read it before and after changing them.
 | Renewal               | CLI     | `refreshStoredSession` (`packages/cli/src/oauth-provider.ts`): 120 seconds before expiry, under the workspace lock, repeating the exact granted scope; a wider scope, resource, tenant or organization set is refused     |
 | Logout                | CLI     | `logoutWorkspace` (`packages/cli/src/oauth-revoke.ts`) revokes the refresh token at the `revocation_endpoint` recorded at login (RFC 7009), then removes the local login                                                  |
 
-Organization gateway MCP Server entries must inherit project session settings
-(`sessionSettings.enabled: false`) unless a decision record names the exception,
-the exact MCP Server entry, and its intended lifetimes. Record that decision ID
-in the matching D1 app's `metadata.mcpConfig.sessionSettingsExceptionDecisionId`;
-an exception for one entry does not cover another. No exceptions are established
-by this rule. The drift audit reports enabled custom settings without that
-reference as `mcp_server_session_override`, including the provider's lifetime
-field names and units. Disabled settings may retain old values; these are not
-effective lifetimes. Tedix does not change session settings during registration,
-reconciliation, or audit.
+Organization gateway MCP Server entries should share the project session
+configuration. Custom settings alone are not drift and need no exception record:
+Descope groups JWT templates and token lifetimes under the same switch. Before
+changing it, compare the actual templates and issued user and machine tokens;
+a template's name does not establish its claims or compatibility.
+
+An app can declare its expected provider settings in
+`metadata.mcpConfig.sessionSettings`, including an explicit `enabled` boolean.
+The drift audit compares that declaration's fields and provider units with the
+matching MCP Server entry and reports differences as
+`mcp_server_session_settings_drift`. Without a declaration, settings are recorded
+as observations, not judged against an invented policy. With `enabled: false`,
+only inheritance is checked: retained override values are not effective settings.
+The audit never changes provider settings. Registration forwards supplied settings;
+reconciliation preserves them.
 
 Private ops runbook reference: to restore inheritance, open the **MCP Server
 entry → Session Management → According to project settings** in Descope; changing
 **Project settings** does not disable an entry's custom override. Keep the
-project defaults and any exception decision in the private ops runbook, then
-check the next audit.
+shared defaults in the private ops runbook, then check the next audit. Existing
+clients and grants can retain their own settings; verify freshly issued tokens
+and live access rather than treating the server configuration as issuance proof.
 
 A console change is complete when the next audit shows it. A wildcard (`*`) CIMD
 domain policy is never written by Tedix and survives reconciliation, so the
