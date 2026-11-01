@@ -1,6 +1,6 @@
 import { SectionTitle } from "@/components/kumo/page";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link } from "@/components/kumo/link";
 import type {
 	DispatcherHealthReport,
 	SupervisorActivity,
@@ -191,11 +191,14 @@ export function DispatcherLaneHealth() {
 function WorkLink({ work }: { work: { id: string; title?: string } }) {
 	return (
 		<Link
-			to="/work/items/$workItemId"
-			params={{ workItemId: work.id }}
-			className="break-words underline"
+			href={`/work/items/${work.id}`}
+			variant="record"
+			title={work.title ?? "Open task"}
+			className="min-w-0 max-w-full"
 		>
-			{work.title ?? "Open task"}
+			<Text as="span" truncate>
+				{work.title ?? "Open task"}
+			</Text>
 		</Link>
 	);
 }
@@ -203,14 +206,16 @@ function WorkLink({ work }: { work: { id: string; title?: string } }) {
 function WorkActivity({
 	activity,
 	stale,
+	now,
 }: {
 	activity?: SupervisorActivity;
 	stale: boolean;
+	now: number;
 }) {
 	if (stale) return <Text>Task activity unknown</Text>;
 	if (!activity) return <Text>Task activity not reported</Text>;
 	return (
-		<div className="grid gap-2">
+		<div className="grid min-w-0 grid-cols-1 gap-2">
 			{activity.current.length ? (
 				activity.current.map((work) => (
 					<div key={work.id}>
@@ -235,8 +240,14 @@ function WorkActivity({
 					<>
 						<WorkLink work={activity.lastCompleted} />
 						<Text>
-							<time dateTime={activity.lastCompleted.completedAt}>
-								{absoluteTime(activity.lastCompleted.completedAt)}
+							<time
+								dateTime={activity.lastCompleted.completedAt}
+								title={absoluteTime(activity.lastCompleted.completedAt)}
+							>
+								{relativeTime(
+									activity.lastCompleted.completedAt,
+									new Date(now),
+								)}
 							</time>
 						</Text>
 					</>
@@ -301,7 +312,12 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 				<span className="font-medium">
 					{lead ? `Scheduled check · ${lane.executor}` : lane.executor}
 				</span>
-				<Text tone="secondary" className="break-all">
+				<Text
+					role="caption"
+					tone="secondary"
+					truncate
+					title={lead ? "Scheduled task" : `Runner: ${lane.lane}`}
+				>
 					{lead ? "Scheduled task" : `Runner: ${lane.lane}`}
 				</Text>
 			</TableCell>
@@ -323,7 +339,7 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 				label="Work"
 				className="whitespace-normal break-words align-top"
 			>
-				<WorkActivity activity={activity} stale={stale} />
+				<WorkActivity activity={activity} stale={stale} now={now} />
 			</TableCell>
 			<TableCell label="Last observed" className="whitespace-normal align-top">
 				<time dateTime={observedAt} title={absoluteTime(observedAt)}>
