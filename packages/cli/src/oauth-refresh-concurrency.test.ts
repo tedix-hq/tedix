@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { isolateRenewalTests } from "./renewal-test-env";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,8 @@ import {
 	writeWorkspaceCredentials,
 	type WorkspaceCredential,
 } from "./credential-store";
+
+isolateRenewalTests();
 
 const providerModule = new URL("./oauth-provider.ts", import.meta.url).pathname;
 const storeModule = new URL("./credential-store.ts", import.meta.url).pathname;

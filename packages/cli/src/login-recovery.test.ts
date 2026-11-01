@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { hostname, tmpdir } from "node:os";
+import { beforeEach, expect, test } from "bun:test";
+import { isolateRenewalTests } from "./renewal-test-env";
+import { readFileSync, writeFileSync } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import {
 	confirmStoredAccess,
@@ -22,17 +23,11 @@ import {
 } from "./oauth-provider";
 import { LaneDispatcher, type ServeOptions } from "./lane-serve";
 
+isolateRenewalTests();
+
 let dir: string;
-let previous: string | undefined;
 beforeEach(() => {
-	dir = mkdtempSync(join(tmpdir(), "tedix-login-recovery-"));
-	previous = process.env.TEDIX_CONFIG_DIR;
-	process.env.TEDIX_CONFIG_DIR = dir;
-});
-afterEach(() => {
-	if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
-	else process.env.TEDIX_CONFIG_DIR = previous;
-	rmSync(dir, { recursive: true, force: true });
+	dir = process.env.TEDIX_CONFIG_DIR!;
 });
 const login = (): WorkspaceCredential => ({
 	loginId: "fixture-owner",

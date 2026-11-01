@@ -1,5 +1,6 @@
 import * as credentialLocks from "./credential-lock";
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { isolateRenewalTests } from "./renewal-test-env";
+import { describe, expect, spyOn, test } from "bun:test";
 import { auth } from "@modelcontextprotocol/client";
 import { TedixHomeClient } from "./home-client";
 import { mkdtempSync } from "node:fs";
@@ -38,6 +39,8 @@ import {
 	HUMAN_CONNECT_CONSENT_SCOPES,
 	selectConsentPreset,
 } from "@tedix/mcp-shared/auth/consent-scopes";
+
+isolateRenewalTests();
 
 const jwt = (claims: object) =>
 	`header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
@@ -1866,17 +1869,6 @@ describe("renewal applies login grant invariants", () => {
 			saved: readWorkspaceCredentials("renewal"),
 		};
 	};
-	let previousConfigDir: string | undefined;
-	beforeEach(() => {
-		previousConfigDir = process.env.TEDIX_CONFIG_DIR;
-		process.env.TEDIX_CONFIG_DIR = mkdtempSync(
-			join(tmpdir(), "tedix-renewal-"),
-		);
-	});
-	afterEach(() => {
-		if (previousConfigDir === undefined) delete process.env.TEDIX_CONFIG_DIR;
-		else process.env.TEDIX_CONFIG_DIR = previousConfigDir;
-	});
 	const connectClaims = {
 		aud: TEDIX_CONNECT_MCP_URL,
 		token_type: "access_token",
