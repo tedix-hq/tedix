@@ -13,6 +13,8 @@
 		"agent-bootstrap.test.ts",
 		"bump.ts",
 		"bump.test.ts",
+		"billing-catalog.test.ts",
+		"../apps/api/scripts/billing/reconcile-stripe.ts",
 		"ci/browser-evidence.test.ts",
 		"ci/upload-artifact.mjs",
 		"ci/upload-artifact.test.ts",

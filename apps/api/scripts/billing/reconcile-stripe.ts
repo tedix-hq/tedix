@@ -5,10 +5,10 @@
  * Dry-run (default), from apps/api with STRIPE_TEST_SECRET_KEY (or
  * STRIPE_SECRET_KEY with --live) set in the environment, lists the prices an
  * apply would create:
- *   bun run scripts/billing/reconcile-stripe.ts
+ *   bun run scripts/billing/reconcile-stripe.ts --catalog /private/billing.json
  *
  * Apply missing resources/configuration:
- *   bun run scripts/billing/reconcile-stripe.ts --apply
+ *   bun run scripts/billing/reconcile-stripe.ts --catalog /private/billing.json --apply
  *
  * Installation coordinates come from the environment: STRIPE_EXPECTED_ACCOUNT_ID
  * (the Stripe account the projection must live in), TEDIX_API_URL (webhook
@@ -20,6 +20,10 @@
  */
 
 import Stripe from "stripe";
+import { loadBillingCatalog } from "./stripe-catalog";
+
+// Validate the complete operator-owned projection before credentials or network.
+const catalogConfig = loadBillingCatalog(process.argv.slice(2), process.env);
 
 const stripeEnvironment = process.argv.includes("--live") ? "live" : "test";
 const secretKey =
@@ -54,18 +58,17 @@ function requiredEnv(name: string): string {
 const apiUrl = requiredEnv("TEDIX_API_URL");
 const webhookUrl = `${apiUrl}/webhooks/stripe${stripeEnvironment === "test" ? "/test" : ""}`;
 const osUrl = requiredEnv("TEDIX_OS_URL");
-const meterEventName = "token_usage";
+const meterEventName = catalogConfig.meter.eventName;
 const expectedStripeAccountId = requiredEnv("STRIPE_EXPECTED_ACCOUNT_ID");
-const catalogVersion = 4;
-const planCurrency = "eur";
+const catalogVersion = catalogConfig.catalogVersion;
+const planCurrency = catalogConfig.currency;
 const managedMetadata = {
 	tedix_managed: "true",
 	tedix_catalog_version: String(catalogVersion),
 };
-// Metered overage is sold only by a plan that prices it; no v4 plan does yet.
 const overageLookupKey = `tedix_token_overage_v${catalogVersion}`;
-const overageUnitAmount = 2;
-const overageNickname = "Tedix token overage - €0.02/1K tokens";
+const overageUnitAmount = catalogConfig.overage.unitAmount;
+const overageNickname = catalogConfig.overage.nickname;
 const overageMetadata = { ...managedMetadata, tedix_usage: "token_overage" };
 const missingPrices: string[] = [];
 const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] =
@@ -79,55 +82,13 @@ const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] =
 		"invoice.payment_failed",
 	];
 
-// Annual = 10 months. Amounts are tax-exclusive euro cents.
-const plans = [
-	{
-		key: "growth",
-		name: "Tedix Growth",
-		monthlyAmount: 20_000,
-		annualAmount: 200_000,
-	},
-	{
-		key: "business",
-		name: "Tedix Business",
-		monthlyAmount: 50_000,
-		annualAmount: 500_000,
-	},
-	{
-		key: "enterprise",
-		name: "Tedix Enterprise",
-		monthlyAmount: 100_000,
-		annualAmount: 1_000_000,
-	},
-] as const;
-
-// Same round numbers as the retired USD packs, in euro cents.
-const inferenceCapacityPacks = [
-	{ key: "daily_1m", name: "Tedix 1M Daily Inference Boost", unitAmount: 500 },
-	{
-		key: "daily_5m",
-		name: "Tedix 5M Daily Inference Boost",
-		unitAmount: 2_500,
-	},
-	{
-		key: "daily_10m",
-		name: "Tedix 10M Daily Inference Boost",
-		unitAmount: 5_000,
-	},
-	{
-		key: "daily_25m",
-		name: "Tedix 25M Daily Inference Boost",
-		unitAmount: 12_500,
-	},
-	{
-		key: "daily_50m",
-		name: "Tedix 50M Daily Inference Boost",
-		unitAmount: 25_000,
-	},
-].map((pack) => ({
-	...pack,
-	lookupKey: `tedix_inference_capacity_${pack.key}_v2`,
-}));
+const plans = catalogConfig.plans;
+const inferenceCapacityPacks = catalogConfig.inferenceCapacity.packs.map(
+	(pack) => ({
+		...pack,
+		lookupKey: `tedix_inference_capacity_${pack.key}_v${catalogConfig.inferenceCapacity.lookupVersion}`,
+	}),
+);
 
 async function ensureMeter(): Promise<Stripe.Billing.Meter> {
 	const meters = await stripe.billing.meters
@@ -138,7 +99,7 @@ async function ensureMeter(): Promise<Stripe.Billing.Meter> {
 	if (!apply) throw new Error(`Missing Stripe meter: ${meterEventName}`);
 	return stripe.billing.meters.create(
 		{
-			display_name: "Tedix Token Usage",
+			display_name: catalogConfig.meter.displayName,
 			event_name: meterEventName,
 			default_aggregation: { formula: "sum" },
 			customer_mapping: {
@@ -147,7 +108,9 @@ async function ensureMeter(): Promise<Stripe.Billing.Meter> {
 			},
 			value_settings: { event_payload_key: "value" },
 		},
-		{ idempotencyKey: `tedix:billing:v${catalogVersion}:meter:token_usage` },
+		{
+			idempotencyKey: `tedix:billing:v${catalogVersion}:meter:${meterEventName}`,
+		},
 	);
 }
 
@@ -161,7 +124,8 @@ async function ensureProduct(
 	const existing = products.find(
 		(product) =>
 			product.metadata.tedix_plan_key === key ||
-			(key === "token_overage" && product.name === "Tedix Token Overage"),
+			(key === "token_overage" &&
+				product.name === catalogConfig.overage.productName),
 	);
 	if (existing) {
 		if (existing.name !== name || existing.metadata.tedix_managed !== "true") {
@@ -219,7 +183,7 @@ async function ensureLicensedPrice(input: {
 			unit_amount: input.unitAmount,
 			recurring: { interval: input.interval, usage_type: "licensed" },
 			lookup_key: lookupKey,
-			nickname: `Tedix ${input.planKey} ${input.interval}`,
+			nickname: `${catalogConfig.priceLabel} ${input.planKey} ${input.interval}`,
 			metadata: {
 				...managedMetadata,
 				tedix_plan_key: input.planKey,
@@ -265,7 +229,7 @@ async function ensureInferenceCapacityPrice(input: {
 			currency: planCurrency,
 			unit_amount: input.unitAmount,
 			lookup_key: input.lookupKey,
-			nickname: `Tedix inference capacity ${input.packKey}`,
+			nickname: `${catalogConfig.priceLabel} inference capacity ${input.packKey}`,
 			metadata: {
 				...managedMetadata,
 				tedix_inference_capacity_pack_key: input.packKey,
@@ -292,7 +256,7 @@ async function ensureOveragePrice(
 			price.unit_amount === overageUnitAmount &&
 			price.recurring?.usage_type === "metered" &&
 			price.recurring.meter === meterId &&
-			price.transform_quantity?.divide_by === 1_000 &&
+			price.transform_quantity?.divide_by === catalogConfig.overage.divideBy &&
 			price.transform_quantity.round === "up",
 	);
 	if (!existing) {
@@ -311,7 +275,10 @@ async function ensureOveragePrice(
 					meter: meterId,
 					usage_type: "metered",
 				},
-				transform_quantity: { divide_by: 1_000, round: "up" },
+				transform_quantity: {
+					divide_by: catalogConfig.overage.divideBy,
+					round: "up",
+				},
 				nickname: overageNickname,
 				lookup_key: overageLookupKey,
 				metadata: overageMetadata,
@@ -356,7 +323,7 @@ async function ensureWebhook(): Promise<Stripe.WebhookEndpoint> {
 	return stripe.webhookEndpoints.update(existing.id, {
 		enabled_events: [
 			...new Set([...existing.enabled_events, ...requiredWebhookEvents]),
-		],
+		] as Stripe.WebhookEndpointUpdateParams.EnabledEvent[],
 	});
 }
 
@@ -365,15 +332,15 @@ async function ensurePortalConfiguration(): Promise<Stripe.BillingPortal.Configu
 		.list({ limit: 100 })
 		.autoPagingToArray({ limit: 10_000 });
 	const existing = configurations.find(
-		(configuration) => configuration.metadata.tedix_managed === "true",
+		(configuration) => configuration.metadata?.tedix_managed === "true",
 	);
 	const params: Stripe.BillingPortal.ConfigurationCreateParams = {
-		name: "Tedix Billing Portal",
+		name: catalogConfig.portal.name,
 		default_return_url: osUrl,
 		business_profile: {
-			headline: "Manage your Tedix subscription",
-			privacy_policy_url: "https://tedix.dev/privacy",
-			terms_of_service_url: "https://tedix.dev/terms",
+			headline: catalogConfig.portal.headline,
+			privacy_policy_url: catalogConfig.portal.privacyPolicyUrl,
+			terms_of_service_url: catalogConfig.portal.termsOfServiceUrl,
 		},
 		features: {
 			customer_update: {
@@ -413,7 +380,7 @@ async function ensurePortalConfiguration(): Promise<Stripe.BillingPortal.Configu
 }
 
 async function main() {
-	const account = await stripe.accounts.retrieve();
+	const account = await stripe.accounts.retrieveCurrent();
 	if (account.id !== expectedStripeAccountId) {
 		throw new Error(
 			`Refusing to reconcile Stripe account ${account.id}; expected ${expectedStripeAccountId}`,
@@ -422,7 +389,7 @@ async function main() {
 	const meter = await ensureMeter();
 	const overageProduct = await ensureProduct(
 		"token_overage",
-		"Tedix Token Overage",
+		catalogConfig.overage.productName,
 	);
 	const overagePrice = await ensureOveragePrice(overageProduct.id, meter.id);
 	const catalog = [];

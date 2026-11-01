@@ -44,8 +44,18 @@ matching `TEDIX_STRIPE_MODE`) needs an active EUR price for each key:
   `tedix_inference_capacity_daily_25m_v2`,
   `tedix_inference_capacity_daily_50m_v2`.
 
-`apps/api/scripts/billing/reconcile-stripe.ts --apply` creates every one of
-these prices; without `--apply` it lists the missing ones. The overage price is metered only for
+The reconciler requires an operator-owned JSON catalog: run
+`apps/api/scripts/billing/reconcile-stripe.ts --catalog /private/billing.json`
+to audit, adding `--apply` only when you intend to create or reconcile provider
+resources. `STRIPE_BILLING_CATALOG_FILE` can supply the path instead. Missing or
+invalid configuration fails before provider access; no commercial catalog is
+bundled. Keep managed prices and product names in private operations or export
+them from your billing configuration. The strict schema lives in
+`apps/api/scripts/billing/stripe-catalog.ts`; the catalog's versions and lookup
+keys must match the installation's runtime billing contract. Moving the catalog
+does not change existing products, prices, or subscriptions.
+
+The overage price is metered only for
 organizations whose owner or admin has turned overage on with a monthly cap;
 see [Usage limits and overage](./self-hosted-boundary.md#usage-limits-and-overage).
 
