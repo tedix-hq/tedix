@@ -112,6 +112,37 @@ it("rechecks eligibility at claim time if an operator restarted after discovery"
 	expect(await claimOrphanWorkflowCleanup(db, item, now)).toBe(false);
 });
 
+it("does not let old unconfirmed batches starve never-attempted orphans", async () => {
+	const { db, event } = await fixture();
+	for (let i = 0; i < 24; i++) {
+		await db.insert(tediRuntimeEvents).values({
+			...event,
+			id: `later-${String(i).padStart(2, "0")}`,
+			runId: `tedi-1:mcp:later-${i}`,
+			createdAt: "2026-10-31T11:30:00Z",
+		});
+	}
+	const first = await listPendingOrphanWorkflowCleanups(db, now);
+	expect(first).toHaveLength(20);
+	for (const item of first)
+		expect(await claimOrphanWorkflowCleanup(db, item, now)).toBe(true);
+	const waiting = await listPendingOrphanWorkflowCleanups(db, now);
+	expect(waiting).toHaveLength(5);
+	const afterCooldown = await listPendingOrphanWorkflowCleanups(
+		db,
+		new Date(now.getTime() + 11 * 60_000),
+	);
+	expect(afterCooldown).toHaveLength(20);
+	expect(afterCooldown.slice(0, 5)).toEqual(waiting);
+	expect(
+		afterCooldown
+			.slice(5)
+			.every((item) =>
+				first.some((old) => old.terminalEventId === item.terminalEventId),
+			),
+	).toBe(true);
+});
+
 it("does not age unconfirmed cleanup out of its durable queue", async () => {
 	const { db, event } = await fixture();
 	await db
