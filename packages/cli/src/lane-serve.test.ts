@@ -830,6 +830,41 @@ describe("dispatcher admission", () => {
 			await f.dispatcher.drain();
 		}
 	});
+	it("closes a queued legacy success through its original fence without rerunning it", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const path = join(f.dir, `${item().id}-2.json`);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "settled",
+				outcome: "succeeded",
+				admissionState: "admitted",
+				attemptId: "retained-attempt",
+				session: "codex:retained-session",
+				executorKey: "retained-executor",
+			}),
+		);
+		f.control.history.data = [
+			{
+				id: "retained-attempt",
+				externalSessionKey: "codex:retained-session",
+				outcome: "succeeded",
+			},
+		];
+		await f.dispatcher.tick();
+		await f.dispatcher.tick();
+		await f.dispatcher.drain();
+		expect(f.releases).toHaveLength(0);
+		const completed = f.events.find((event) => event.verb === "complete");
+		expect(completed?.env.TEDIX_AGENT_SESSION).toBe("codex:retained-session");
+		expect(completed?.env.TEDIX_EXTERNAL_AGENT).toBe("retained-executor");
+		expect(JSON.parse(readFileSync(path, "utf8")).completionPending).toBe(
+			false,
+		);
+	});
 	it("revisits one historical receipt per idle pass without starving later receipts", async () => {
 		const f = fixture();
 		f.items.splice(0);
@@ -2132,7 +2167,7 @@ describe("dispatcher admission", () => {
 		},
 	);
 	it.each(["admission", "provision"])(
-		"holds three identical %s failures across restarts until revision changes",
+		"holds three identical %s failures across restarts within the retry window",
 		async (stage) => {
 			const { dispatcher, dir, items, events, control, releases } = fixture({
 				refuse: stage === "admission",
@@ -2150,7 +2185,7 @@ describe("dispatcher admission", () => {
 					n === 3 ? 1 : 0,
 				);
 				saved.retryAt = 0;
-				saved.retryDeadlineAt = 0;
+				saved.retryDeadlineAt = n === 3 ? Date.now() + 60_000 : 0;
 				writeFileSync(path, JSON.stringify(saved));
 			}
 			const count = events.length;
@@ -2552,6 +2587,81 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
 	});
+	it.each([true, false])(
+		"rechecks expired admission holds with current readiness=%s",
+		async (ready) => {
+			const { dispatcher, dir, items, control, releases, events } = fixture();
+			items.splice(1);
+			const path = join(dir, `${item().id}-2.json`);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "deferred",
+					outcome: "failed",
+					admissionState: "rejected",
+					admissionFailure:
+						"The organization's tool policy could not be verified",
+					held: true,
+					identicalFailures: 3,
+					retries: 3,
+					retryAt: Date.now() - 1,
+					retryDeadlineAt: Date.now() - 1,
+				}),
+			);
+			control.readiness = {
+				ready,
+				reasons: ready
+					? []
+					: [{ detail: "approval_blocked: Missing approval risk:high" }],
+			};
+			await dispatcher.tick();
+			if (ready) {
+				await until(() => releases.length === 1);
+				releases[0]!();
+			}
+			await dispatcher.drain();
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				ready ? 1 : 0,
+			);
+			expect(JSON.parse(readFileSync(path, "utf8")).held).not.toBe(true);
+		},
+	);
+	it.each([
+		{ retryDeadlineAt: Date.now() + 60_000 },
+		{ admissionState: "unknown" },
+		{
+			attemptId: "retained-attempt",
+			session: "codex:retained",
+			executorKey: "retained",
+		},
+	])(
+		"preserves admission holds with a live or unknown fence or unexpired window: %j",
+		async (fence) => {
+			const { dispatcher, dir, items, events, releases } = fixture();
+			items.splice(1);
+			writeFileSync(
+				join(dir, `${item().id}-2.json`),
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "deferred",
+					admissionState: "rejected",
+					admissionFailure: "Earlier admission failed",
+					held: true,
+					retryDeadlineAt: Date.now() - 1,
+					...fence,
+				}),
+			);
+			await dispatcher.tick();
+			await dispatcher.drain();
+			expect(releases).toHaveLength(0);
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				0,
+			);
+		},
+	);
 	it("allows a changed Work revision without waiting for the old revision's retry deadline", async () => {
 		const { dispatcher, items, control, releases } = fixture({ refuse: true });
 		items.splice(1);
