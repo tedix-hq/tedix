@@ -130,7 +130,7 @@ const actRules: Record<string, RegExp[]> = {
 		/\bimpersonat\w*/i,
 	],
 	public_publish: [
-		/(?<!\b(?:can|could|may|might)[ \t]+)\bpublish(?:es|ing)?\b(?!-|[ \t]+(?:(?:the|a|an|one|its|this)[ \t]+)?(?:workspace[ \t]+output|output|feed|today|internal|draft|findings[ \t]+in[ \t]+os))/i,
+		/(?<!\b(?:can|could|may|might)[ \t]+)\bpublish(?:es|ing)?\b(?!-|[ \t]+boundar(?:y|ies)\b|[ \t]+(?:(?:the|a|an|one|its|this)[ \t]+)?(?:workspace[ \t]+output|output|feed|today|internal|draft|findings[ \t]+in[ \t]+os))/i,
 		/\b(?:is|are|gets?|be|been|was|were)[ \t]+published\b(?![ \t]+(?:to|in|as|on)[ \t]+(?:the[ \t]+)?(?:workspace|output|feed|os|tedix|today)\b)/i,
 		/\b(?:npm|bun|pnpm|yarn|cargo|gh|changeset)[ \t]+(?:publish|release[ \t]+create)\b/i,
 		/\bpost[ \t]+(?:\w+[ \t]+){0,4}(?:public|publicly|social|linked[ \t]*in|reddit|tweet|blog|hacker[ \t]*news)\b/i,

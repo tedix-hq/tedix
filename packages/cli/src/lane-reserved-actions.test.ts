@@ -41,6 +41,7 @@ describe("laneReservedActions", () => {
 		"Done when the tests are green and the Output is published to the workspace.",
 		"Post the findings in Tedix OS and share the Output link on the Work Item.",
 		"Call Hans's helper function from the router; invite flow tests pass.",
+		"Replace hard-coded publish boundary app names with data. Read the publish boundary from a declared database field; identical decisions in tests.",
 	])(
 		"lets a lane take code or research work that only mentions a reserved subject: %s",
 		(text) => {

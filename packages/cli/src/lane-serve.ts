@@ -1273,6 +1273,14 @@ export class LaneDispatcher {
 				const previous = existsSync(this.path(item))
 					? (JSON.parse(readFileSync(this.path(item), "utf8")) as Receipt)
 					: undefined;
+				if (
+					previous?.phase === "settled" &&
+					previous.outcome === "succeeded" &&
+					previous.completionPending === undefined
+				) {
+					previous.completionPending = true;
+					this.save(this.path(item), previous);
+				}
 				const previousProcessFinished =
 					previous &&
 					(hasSettledOutcome(previous) ||
@@ -1284,6 +1292,21 @@ export class LaneDispatcher {
 					nativePreparationTimedOut(previous)
 				)
 					previous.held = false;
+				if (
+					previous?.phase === "deferred" &&
+					previous.held &&
+					previous.admissionFailure &&
+					previous.admissionState !== "unknown" &&
+					!previous.attemptId &&
+					(!previous.pid || !alive(previous.pid)) &&
+					previous.retryDeadlineAt !== undefined &&
+					Date.now() >= previous.retryDeadlineAt
+				) {
+					// Admission facts can change without a Work revision. A new
+					// retry window still checks readiness and obtains a fresh fence.
+					previous.held = false;
+					previous.identicalFailures = 0;
+				}
 				if (
 					previous?.phase === "settled" &&
 					previous.outcome === "failed" &&
@@ -2025,7 +2048,7 @@ export class LaneDispatcher {
 						"work",
 						"comment",
 						candidate.id,
-						`Dispatcher admission held for Work revision ${candidate.version}: ${receipt.note}. Three identical failures; held until the Work revision changes. No execution launched.`,
+						`Dispatcher admission held for Work revision ${candidate.version}: ${receipt.note}. Three identical failures; held until the retry window expires or the Work revision changes. No execution launched.`,
 					]);
 				} catch (commentError) {
 					this.log(
