@@ -938,6 +938,77 @@ describe("ToolHandler MCP transport", () => {
 		},
 	);
 
+	it.each(["confirmed", "old-mount", "stripped", "wrong-tedi"])(
+		"observes effective instruction transport: %s",
+		async (kind) => {
+			const runtime =
+				kind === "old-mount"
+					? undefined
+					: {
+							version: 1,
+							runtimeSource: "runtime-fixture",
+							environment: "test",
+							tediId: kind === "wrong-tedi" ? "other-tedi" : "cto_tedi_1",
+							evaluationInstructionsPresent: kind !== "stripped",
+							evaluationInstructions: kind !== "stripped",
+						};
+			const payload = {
+				ok: true,
+				source: "effective_evaluation_instructions",
+				content: "private fixture",
+				evaluationReadBoundary: runtime,
+			};
+			const ctx = mcpCtx(
+				{
+					transport: "mcp",
+					mcpServerUrl: "https://cto.tedi.tedix.dev/mcp",
+					mcpToolName: "artifact_read_file",
+					_aggregateTediId: "cto_tedi_1",
+					_aggregateTediOrgId: "org_1",
+				},
+				{ content: [{ type: "text", text: JSON.stringify(payload) }] },
+			);
+			ctx.env.GIT_SHA = "gateway-fixture";
+			ctx.toolInputSchema = {
+				type: "object",
+				properties: {
+					path: { type: "string" },
+					evaluationInstructions: { type: "boolean" },
+				},
+			};
+			const result = await new ToolHandler().execute(
+				{ path: "AGENTS.md", evaluationInstructions: true },
+				ctx,
+			);
+			expect(result.status).toBe(kind === "confirmed" ? 200 : 502);
+			expect(result.data).toMatchObject({
+				evaluationTransportReceipt: {
+					gatewaySource: "gateway-fixture",
+					environment: "test",
+					toolId: ctx.toolId,
+					toolInputSchemaSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+					configuredTarget: {
+						origin: "https://cto.tedi.tedix.dev",
+						path: "/mcp",
+					},
+					transport: "TEDI_SERVICE",
+					evaluationInstructions: true,
+					runtime: runtime ?? null,
+				},
+			});
+			if (kind !== "confirmed")
+				expect(JSON.stringify(result.data)).not.toContain("private fixture");
+			const calls = vi.mocked(ctx.env.TEDI_SERVICE!.fetch).mock.calls;
+			const request = calls
+				.map(([, init]) => JSON.parse(String(init?.body)))
+				.find((body) => body.method === "tools/call");
+			expect(request.params.arguments).toEqual({
+				path: "AGENTS.md",
+				evaluationInstructions: true,
+			});
+		},
+	);
+
 	it("returns an ephemeral receipt without claiming a ledger-backed task", async () => {
 		const ctx = mcpCtx({
 			transport: "mcp",

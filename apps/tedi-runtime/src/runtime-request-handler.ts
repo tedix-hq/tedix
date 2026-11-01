@@ -1,6 +1,7 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { memoryDiagnostics } from "./runtime-diagnostics";
 import { admitEvaluation } from "./evaluation-context";
+import { readWithEvaluationBoundary } from "./evaluation-read-boundary";
 import { RuntimeRunSteeringInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { PolicyCronReconcileReceipt } from "./runtime-cron";
 import { type ProxyToolOutput, resolveProvider } from "@cloudflare/codemode";
@@ -2039,7 +2040,17 @@ export async function handleRuntimeRequest(
 				repoCommitStatus: async (input) => host.repoCommitStatusTool(input),
 				repoCommitDrain: async (input) => host.repoCommitDrainTool(input),
 				listArtifactFiles: async (input) => host.listArtifactFilesTool(input),
-				readArtifactFile: async (input) => host.readArtifactFileTool(input),
+				readArtifactFile: async (input) =>
+					readWithEvaluationBoundary({
+						args: input,
+						read: () => host.readArtifactFileTool(input),
+						identity: {
+							runtimeSource: String(host.env.GIT_SHA || "unknown"),
+							environment: String(host.env.ENVIRONMENT || "unknown"),
+							tediId: host.state.tediId || "",
+							slug: host.state.slug || host.name || "",
+						},
+					}),
 				writeArtifactFile: async (input) =>
 					host.writeArtifactFileTool(input, mcpComputer.turnContext?.runId),
 				computerTools: host.workstationAiTool(
