@@ -225,6 +225,7 @@ export interface LedgerModel {
 
 export interface LedgerProcessingModel extends LedgerModel {
 	extractObligations: NonNullable<LedgerModel["extractObligations"]>;
+	reflectLessons: NonNullable<LedgerModel["reflectLessons"]>;
 }
 
 export function workersAiLedgerModel(
@@ -265,14 +266,14 @@ export function workersAiLedgerModel(
 			requestReplyReflectorInput(message, rows, previousTurn ?? ""),
 			"agent-session-request-reflector",
 		);
-	model.reflectLessons = (sources) =>
+	const reflectLessons: LedgerProcessingModel["reflectLessons"] = (sources) =>
 		model(
 			SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
 			JSON.stringify(sources),
 			"agent-session-lesson-reflector",
 		);
 	model.routeProjects = true;
-	return Object.assign(model, { extractObligations });
+	return Object.assign(model, { extractObligations, reflectLessons });
 }
 
 interface SessionScope {
@@ -546,7 +547,7 @@ export async function reflectAgentSessionRequests(
 		},
 	];
 	const canReflectLessons = hasPotentialLessonRecovery(lessonSources);
-	if (model.reflectLessons && !canReflectLessons)
+	if (!canReflectLessons)
 		recordSkippedInference(
 			"agent-session-lesson-reflector",
 			"no_recovery_evidence",
@@ -554,10 +555,9 @@ export async function reflectAgentSessionRequests(
 	const skipStatusReflection = active.length === 0;
 	if (skipStatusReflection)
 		recordSkippedInference("agent-session-request-reflector", "no_active_rows");
-	const lessonsPending =
-		model.reflectLessons && canReflectLessons
-			? model.reflectLessons(lessonSources)
-			: Promise.resolve(undefined);
+	const lessonsPending = canReflectLessons
+		? model.reflectLessons(lessonSources)
+		: Promise.resolve('{"lessons":[]}');
 	const [raw, intakeRaw, lessonRaw] = await Promise.all([
 		skipStatusReflection
 			? Promise.resolve('{"updates":[]}')
@@ -701,11 +701,11 @@ export async function reflectAgentSessionRequests(
 	).length;
 	if (lessonRaw === null)
 		throw new Error("Session lesson reflection unavailable");
-	if (lessonRaw !== undefined && !Array.isArray(JSON.parse(lessonRaw).lessons))
+	if (!Array.isArray(JSON.parse(lessonRaw).lessons))
 		throw new Error("Session lesson reflection malformed");
 	await model.learn?.(
 		parseReflectedLessons(
-			lessonRaw ?? raw,
+			lessonRaw,
 			input.turn,
 			input.activity ?? "",
 			lessonSources,

@@ -159,6 +159,7 @@ function scripted(...replies: Array<string | null>) {
 	};
 	// Each fixture supplies one event's decisions; expose intake through its own pass.
 	const model: LedgerProcessingModel = Object.assign(base, {
+		reflectLessons: async () => '{"lessons":[]}',
 		extractObligations: async (
 			known: Parameters<LedgerProcessingModel["extractObligations"]>[0],
 			turn: string,
@@ -677,7 +678,10 @@ it("does not let an overlapping pass overtake a message still being analysed", a
 	};
 	const first = processAgentSessionEvents(
 		db,
-		Object.assign(model, { extractObligations: async () => '{"new":[]}' }),
+		Object.assign(model, {
+			extractObligations: async () => '{"new":[]}',
+			reflectLessons: async () => '{"lessons":[]}',
+		}),
 		owner,
 		{ limit: 1 },
 	);
@@ -2003,6 +2007,7 @@ describe("deterministic ledger inference skips", () => {
 			});
 			const model: LedgerProcessingModel = Object.assign(status, {
 				extractObligations: async () => '{"new":[]}',
+				reflectLessons: async () => '{"lessons":[]}',
 			});
 			model.extractObligations = vi.fn(async () =>
 				JSON.stringify({
@@ -2045,6 +2050,7 @@ describe("deterministic ledger inference skips", () => {
 		const status = vi.fn(async () => '{"updates":[]}');
 		const model: LedgerProcessingModel = Object.assign(status, {
 			extractObligations: async () => '{"new":[]}',
+			reflectLessons: async () => '{"lessons":[]}',
 		});
 		model.extractObligations = vi.fn(async () => '{"new":[]}');
 		await reflectAgentSessionRequests(db, model, input);
@@ -2081,6 +2087,7 @@ describe("deterministic ledger inference skips", () => {
 		});
 		const model: LedgerProcessingModel = Object.assign(status, {
 			extractObligations: async () => '{"new":[]}',
+			reflectLessons: async () => '{"lessons":[]}',
 		});
 		model.extractObligations = async () => '{"new":[]}';
 		await reflectAgentSessionRequests(db, model, input);
@@ -2093,6 +2100,7 @@ describe("deterministic ledger inference skips", () => {
 		const status = vi.fn(async () => '{"updates":[]}');
 		const model: LedgerProcessingModel = Object.assign(status, {
 			extractObligations: async () => '{"new":[]}',
+			reflectLessons: async () => '{"lessons":[]}',
 		});
 		model.extractObligations = async () => null;
 		expect((await reflectAgentSessionRequests(db, model, input)).status).toBe(
@@ -2107,7 +2115,10 @@ describe("deterministic ledger inference skips", () => {
 			const db = fixture();
 			const model: LedgerProcessingModel = Object.assign(
 				async () => '{"updates":[]}',
-				{ extractObligations: async () => '{"new":[]}' },
+				{
+					extractObligations: async () => '{"new":[]}',
+					reflectLessons: async () => '{"lessons":[]}',
+				},
 			);
 			model.extractObligations = async () => '{"new":[]}';
 			model.reflectLessons = async () => '{"lessons":[]}';
@@ -2138,3 +2149,65 @@ describe("deterministic ledger inference skips", () => {
 		}
 	});
 });
+
+it.each([false, true])(
+	"ignores status-pass new rows and lessons; recovery eligible %s",
+	async (eligible) => {
+		const db = fixture();
+		await observe(
+			db,
+			scripted('{"requests":[{"kind":"request","text":"Repair the upload"}]}')
+				.model,
+			"Repair the upload",
+		);
+		const failure = "Failed upload: payload exceeds inline limit";
+		const fix = "Native uploader saved successfully";
+		const turn = eligible
+			? `${fix}. I will deliver a final report.`
+			: "The upload remains pending.";
+		const lesson = {
+			rule: "Inline uploads fail → use the native uploader. Why: the inline limit.",
+			failure,
+			fix,
+		};
+		const status = vi.fn(async () =>
+			JSON.stringify({
+				updates: [],
+				new: [
+					{
+						kind: "promise",
+						text: "Deliver a final report",
+						evidence: "I will deliver a final report.",
+					},
+				],
+				lessons: [lesson],
+			}),
+		);
+		const intake = vi.fn(async () => '{"new":[]}');
+		const lessons = vi.fn(async () => '{"lessons":[]}');
+		const learn = vi.fn(async () => {});
+		const model: LedgerProcessingModel = Object.assign(status, {
+			extractObligations: intake,
+			reflectLessons: lessons,
+			learn,
+		});
+		const result = await reflectAgentSessionRequests(db, model, {
+			...SCOPE,
+			sourceEventId: "current",
+			turn,
+			activity: failure,
+			repository: "example/app",
+			sourceAt: "2026-10-06T10:02:00.000Z",
+			now: T0,
+		});
+		expect(result.status).toBe("reflected");
+		expect(status).toHaveBeenCalledTimes(1);
+		expect(intake).toHaveBeenCalledTimes(1);
+		expect(lessons).toHaveBeenCalledTimes(eligible ? 1 : 0);
+		expect(learn).toHaveBeenCalledWith(
+			[],
+			expect.objectContaining({ organizationId: SCOPE.organizationId }),
+		);
+		expect(await rows(db)).toHaveLength(1);
+	},
+);
