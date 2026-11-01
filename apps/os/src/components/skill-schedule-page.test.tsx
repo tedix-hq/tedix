@@ -226,6 +226,30 @@ describe("manifest skill schedule clocks", () => {
 		expect(node.textContent).toContain("Showing previously loaded schedules");
 		expect(node.textContent).toContain("Next run in 1h");
 	});
+	it("heads each row with the cadence in words, keeping the raw cron alongside", async () => {
+		const { node } = await mount([schedule()]);
+		expect(node.textContent).toContain("daily at 1 PM");
+		expect(node.textContent).toContain("0 13 * * *");
+	});
+	it("reports a failed schedule write once at section level", async () => {
+		mocks.update.mockRejectedValue(new Error("forbidden"));
+		const rows = [schedule(), schedule({ id: "second", cron: "0 9 1,15 * *" })];
+		mocks.read.mockResolvedValue({
+			schedules: rows,
+			total: rows.length,
+			offset: 0,
+			limit: 200,
+			nextOffset: null,
+		});
+		const { node } = await mount(rows);
+		const toggle = [...node.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Turn off"),
+		)!;
+		await act(async () => toggle.click());
+		await flush();
+		expect(node.querySelectorAll('[role="alert"]')).toHaveLength(1);
+		expect(node.textContent).toContain("forbidden");
+	});
 	it("turns a schedule off through skills.updateSchedule and confirms it", async () => {
 		mocks.update.mockResolvedValue({
 			skillId: "alpha",
