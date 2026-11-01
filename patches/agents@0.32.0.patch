@@ -1,8 +1,8 @@
-diff --git a/dist/agent-routing-CDbpVjYq.d.ts b/dist/agent-routing-CDbpVjYq.d.ts
-index 65ef603f8ae0090f5d79d17f38a59d1b6f2a5d74..3ab27849360cc3a1ba8f06da7bb229c384860cb0 100644
---- a/dist/agent-routing-CDbpVjYq.d.ts
-+++ b/dist/agent-routing-CDbpVjYq.d.ts
-@@ -5094,6 +5094,11 @@ declare class Agent<
+diff --git a/dist/agent-routing-vVMA7m8Y.d.ts b/dist/agent-routing-vVMA7m8Y.d.ts
+index 01c1a64..0d99f0a 100644
+--- a/dist/agent-routing-vVMA7m8Y.d.ts
++++ b/dist/agent-routing-vVMA7m8Y.d.ts
+@@ -4574,6 +4574,11 @@ declare class Agent<
      target: LifecycleRouteAddress | undefined,
      envelope: LifecycleRouteEnvelope
    ): Promise<unknown>;
@@ -15,7 +15,7 @@ index 65ef603f8ae0090f5d79d17f38a59d1b6f2a5d74..3ab27849360cc3a1ba8f06da7bb229c3
    /**
     * Clean root-owned bookkeeping for a sub-tree of facets. This
 diff --git a/dist/lifecycle-v1rKHV2C.js b/dist/lifecycle-v1rKHV2C.js
-index e5f9d561159e8516aa2c3422a125add0f6726fad..5aba07aa05a8f1cabb9f7b4c9ac5d4a6f5dafa3f 100644
+index e5f9d56..5aba07a 100644
 --- a/dist/lifecycle-v1rKHV2C.js
 +++ b/dist/lifecycle-v1rKHV2C.js
 @@ -554,7 +554,7 @@ var JobDriver = class {
@@ -83,19 +83,19 @@ index e5f9d561159e8516aa2c3422a125add0f6726fad..5aba07aa05a8f1cabb9f7b4c9ac5d4a6
  
  //# sourceMappingURL=lifecycle-v1rKHV2C.js.map
 \ No newline at end of file
-diff --git a/dist/src-DfLzdwlK.js b/dist/src-DfLzdwlK.js
-index 0d5bb27da19d42eefdb13c15f2933d473802cb10..1b40b5ad776f44f0c05ca08a6f751863df8079d2 100644
---- a/dist/src-DfLzdwlK.js
-+++ b/dist/src-DfLzdwlK.js
-@@ -13,7 +13,7 @@ import { n as withInvocationScope, r as writeSpanAttributes, t as tracer } from
+diff --git a/dist/src-DoGNJ4Ud.js b/dist/src-DoGNJ4Ud.js
+index 62b311f..a4783aa 100644
+--- a/dist/src-DoGNJ4Ud.js
++++ b/dist/src-DoGNJ4Ud.js
+@@ -12,7 +12,7 @@ import { i as writeSpanAttributes, n as tracer, r as withInvocationScope } from
  import { parseSubAgentPath } from "./sub-routing.js";
- import { a as getConnectionFlag, c as isConnectionReadonly, d as setConnectionProtocolEnabled, f as setConnectionReadonly, i as ensureConnectionWrapped, l as registerInternalConnectionKeys, o as getConnectionRawState, s as isConnectionProtocolEnabled, t as WebSockets, u as setConnectionFlag } from "./websockets-CyoeosdO.js";
+ import { a as getConnectionFlag, c as isConnectionReadonly, d as setConnectionProtocolEnabled, f as setConnectionReadonly, i as ensureConnectionWrapped, l as registerInternalConnectionKeys, o as getConnectionRawState, s as isConnectionProtocolEnabled, t as WebSockets, u as setConnectionFlag } from "./websockets-C6SJtWCJ.js";
  import { t as LifecycleCapability } from "./capability-DBAKc6UZ.js";
 -import { a as abortWithoutAlarmRetry, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-v1rKHV2C.js";
 +import { a as abortWithoutAlarmRetry, s as setLifecycleAlarmTransport, i as setLifecycleRouteTransport, n as setLifecycleEventSink, r as setLifecycleHostInvoker, t as Lifecycle } from "./lifecycle-v1rKHV2C.js";
  import { isErrorRetryable, tryN, validateRetryOptions } from "./retries.js";
  import { SqlError } from "./sql-error.js";
- import { a as ensureMcpServerTable, d as DisposableStore, i as normalizeServerId, l as RPC_DO_PREFIX, o as MCPConnectionState, t as MCPClientManager } from "./client-BnYbNT3z.js";
+ import { t as browserCapabilityId } from "./capability-id-B3J8Nok_.js";
 @@ -380,6 +380,37 @@ var DynamicAgentsInternal = class extends LifecycleCapability {
  			execRawSql: (sql) => void host.ctx.storage.sql.exec(sql)
  		});
@@ -170,7 +170,7 @@ index 0d5bb27da19d42eefdb13c15f2933d473802cb10..1b40b5ad776f44f0c05ca08a6f751863
  		setLifecycleRouteTransport(this.lifecycle, {
  			get source() {
  				return routeHost._lifecycleRouteAddress();
-@@ -2658,6 +2711,45 @@ var Agent = class Agent extends DurableObject {
+@@ -2673,6 +2726,45 @@ var Agent = class Agent extends DurableObject {
  		await this.__unsafe_ensureInitialized();
  		return this._dynamicAgents.routeLifecycle(target, envelope);
  	}

@@ -1,0 +1,333 @@
+diff --git a/package.json b/package.json
+index 3c79c54..6ed4f48 100644
+--- a/package.json
++++ b/package.json
+@@ -30,7 +30,7 @@
+     "emdash": ">=0.11.0",
+     "react": "^18.0.0 || ^19.0.0",
+     "@phosphor-icons/react": "^2.1.10",
+-    "@cloudflare/kumo": "2.6.0"
++    "@cloudflare/kumo": "^2.6.0"
+   },
+   "devDependencies": {
+     "@testing-library/react": "^16.3.0",
+diff --git a/src/admin.tsx b/src/admin.tsx
+index 127bc13..afda631 100644
+--- a/src/admin.tsx
++++ b/src/admin.tsx
+@@ -553,7 +553,7 @@ function FormEditor({
+ 						notifyEmails: [],
+ 						digestEnabled: false,
+ 						digestHour: 9,
+-						retentionDays: 0,
++						retentionDays: 30,
+ 						spamProtection: "honeypot",
+ 						submitLabel: "Submit",
+ 						...settings,
+@@ -688,7 +688,7 @@ function FormEditor({
+ 					<Input
+ 						label="Retention (days, 0 = forever)"
+ 						type="number"
+-						value={String(settings.retentionDays ?? 0)}
++						value={String(settings.retentionDays ?? 30)}
+ 						onChange={(e) =>
+ 							setSettings((s) => ({
+ 								...s,
+@@ -696,6 +696,19 @@ function FormEditor({
+ 							}))
+ 						}
+ 					/>
++					<Input
++						label="Hourly submissions per visitor (0 = off)"
++						type="number"
++						min={0}
++						max={1000}
++						value={String(settings.rateLimitPerHour ?? 0)}
++						onChange={(e) => setSettings((s) => ({ ...s, rateLimitPerHour: Number(e.target.value) || 0 }))}
++					/>
++					<Input
++						label="Spam keywords (comma-separated)"
++						value={(settings.spamKeywords ?? []).join(", ")}
++						onChange={(e) => setSettings((s) => ({ ...s, spamKeywords: e.target.value.split(",").map((keyword) => keyword.trim()).filter(Boolean) }))}
++					/>
+ 					<div className="col-span-2">
+ 						<Input
+ 							label="Redirect URL (optional)"
+diff --git a/src/astro/FormEmbed.astro b/src/astro/FormEmbed.astro
+index f123f2e..5afbe3a 100644
+--- a/src/astro/FormEmbed.astro
++++ b/src/astro/FormEmbed.astro
+@@ -182,7 +182,7 @@ function fieldId(name: string): string {
+ 									type="checkbox"
+ 									id={fieldId(field.name)}
+ 									name={field.name}
+-									value={field.defaultValue || "1"}
++									value={field.defaultValue || "true"}
+ 									required={field.required}
+ 								/>{" "}
+ 								{field.label}
+diff --git a/src/handlers/cron.ts b/src/handlers/cron.ts
+index bc9cd59..f47775b 100644
+--- a/src/handlers/cron.ts
++++ b/src/handlers/cron.ts
+@@ -24,6 +24,13 @@ function submissions(ctx: PluginContext): StorageCollection<Submission> {
+  * Weekly cleanup: delete submissions past retention period.
+  */
+ export async function handleCleanup(ctx: PluginContext) {
++	const hour = Math.floor(Date.now() / 3600000);
++	for (const { key, value } of await ctx.kv.list("state:forms:rate:")) {
++		if (value && typeof value === "object" && "hour" in value && typeof value.hour === "number" && value.hour < hour - 24) {
++			await ctx.kv.delete(key);
++		}
++	}
++
+ 	let formsCursor: string | undefined;
+ 
+ 	do {
+@@ -122,6 +129,7 @@ export async function handleDigest(formId: string, ctx: PluginContext) {
+ 	const recent = await submissions(ctx).query({
+ 		where: {
+ 			formId,
++			status: { in: ["new", "read"] },
+ 			createdAt: { gte: since.toISOString() },
+ 		},
+ 		orderBy: { createdAt: "desc" },
+diff --git a/src/handlers/forms.ts b/src/handlers/forms.ts
+index bbea84e..aea5c88 100644
+--- a/src/handlers/forms.ts
++++ b/src/handlers/forms.ts
+@@ -39,10 +39,11 @@ function withoutWebhookUrl(form: FormDefinition): FormDefinition {
+ 	return { ...form, settings };
+ }
+ 
+-export async function formsListHandler(ctx: RouteContext) {
++export async function formsListHandler(ctx: RouteContext<{ cursor?: string }>) {
+ 	const result = await forms(ctx).query({
+ 		orderBy: { createdAt: "desc" },
+ 		limit: 100,
++		cursor: ctx.input?.cursor,
+ 	});
+ 
+ 	// No user (token without a bound user) is treated like a non-admin.
+@@ -89,8 +90,10 @@ export async function formsCreateHandler(ctx: RouteContext<FormCreateInput>) {
+ 			digestHour: input.settings.digestHour ?? 9,
+ 			autoresponder: input.settings.autoresponder,
+ 			webhookUrl: input.settings.webhookUrl || undefined,
+-			retentionDays: input.settings.retentionDays ?? 0,
++			retentionDays: input.settings.retentionDays ?? 30,
+ 			spamProtection: input.settings.spamProtection ?? "honeypot",
++			rateLimitPerHour: input.settings.rateLimitPerHour,
++			spamKeywords: input.settings.spamKeywords,
+ 			submitLabel: input.settings.submitLabel ?? "Submit",
+ 			nextLabel: input.settings.nextLabel,
+ 			prevLabel: input.settings.prevLabel,
+diff --git a/src/handlers/submit.ts b/src/handlers/submit.ts
+index b978501..406a5ff 100644
+--- a/src/handlers/submit.ts
++++ b/src/handlers/submit.ts
+@@ -123,6 +123,29 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+ 		return { success: false, errors: result.errors };
+ 	}
+ 
++	// Parent supplies a tenant-scoped HMAC pseudonym, overwriting spoofed headers.
++	// It is only used for the rate bucket and never persisted in submissions.
++	const rateLimit = settings.rateLimitPerHour ?? 0;
++	if (rateLimit > 0) {
++		const pseudonym = ctx.request.headers.get("X-Tedix-Lead-IP-Hash");
++		if (!pseudonym || !/^h1:[0-9a-f]{32}$/.test(pseudonym)) {
++			throw new PluginRouteError("RATE_IDENTITY_UNAVAILABLE", "Form temporarily unavailable", 503);
++		}
++		const hour = Math.floor(Date.now() / 3600000);
++		const key = `state:forms:rate:${formId}:${pseudonym}`;
++		let accepted = false;
++		for (let attempt = 0; attempt < 8; attempt++) {
++			const current = await ctx.kv.getVersioned<{ hour: number; count: number }>(key);
++			const count = current?.value.hour === hour ? current.value.count : 0;
++			if (count >= rateLimit) throw new PluginRouteError("RATE_LIMITED", "Rate limit exceeded", 429);
++			const write = await ctx.kv.compareAndSet(key, current?.revision ?? null, { hour, count: count + 1 });
++			if (write.applied) { accepted = true; break; }
++		}
++		if (!accepted) throw new PluginRouteError("RATE_LIMITED", "Please try again", 429);
++	}
++	const message = typeof result.data.message === "string" ? result.data.message.toLowerCase() : "";
++	const spam = (settings.spamKeywords ?? []).some((keyword) => message.includes(keyword.toLowerCase()));
++
+ 	// 4. Upload files
+ 	const files: SubmissionFile[] = [];
+ 	const pending = allFields.flatMap((field) => {
+@@ -199,11 +222,11 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+ 		formId,
+ 		data: result.data,
+ 		files: files.length > 0 ? files : undefined,
+-		status: "new",
++		status: spam ? "archived" : "new",
+ 		starred: false,
+ 		createdAt: new Date().toISOString(),
+ 		meta: {
+-			ip: ctx.requestMeta.ip,
++			ip: null, // Keep the request IP for Turnstile only; do not retain it with submissions.
+ 			userAgent: ctx.requestMeta.userAgent,
+ 			referer: ctx.requestMeta.referer,
+ 			country: ctx.requestMeta.geo?.country ?? null,
+@@ -233,7 +256,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+ 		submitterEmail && z.email().safeParse(submitterEmail).success ? submitterEmail : undefined;
+ 
+ 	// 7. Immediate email notifications (not digest)
+-	if (settings.notifyEmails.length > 0 && !settings.digestEnabled && ctx.email) {
++	if (!spam && settings.notifyEmails.length > 0 && !settings.digestEnabled && ctx.email) {
+ 		const text = formatSubmissionText(form, result.data, files);
+ 		for (const email of settings.notifyEmails) {
+ 			await ctx.email
+@@ -254,7 +277,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+ 	}
+ 
+ 	// 8. Autoresponder
+-	if (settings.autoresponder && ctx.email && submitterEmail) {
++	if (!spam && settings.autoresponder && ctx.email && submitterEmail) {
+ 		await ctx.email
+ 			.send({
+ 				to: submitterEmail,
+@@ -279,7 +302,7 @@ export async function submitHandler(ctx: RouteContext<SubmitInput>) {
+ 	// Redirects are detected by comparing the final URL, NOT by `response.redirected`: plugin HTTP access
+ 	// follows redirects itself with `redirect: "manual"` so it can strip credentials on a cross-origin hop,
+ 	// so the response it hands back always reports `redirected: false` however many hops it took.
+-	if (settings.webhookUrl && ctx.http) {
++	if (!spam && settings.webhookUrl && ctx.http) {
+ 		const payload = formatWebhookPayload(form, submissionId, result.data, files);
+ 		const { http, log } = ctx;
+ 		const url = settings.webhookUrl;
+diff --git a/src/index.ts b/src/index.ts
+index 00e69b5..289e86b 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -43,6 +43,7 @@ import {
+ 	definitionSchema,
+ 	exportSchema,
+ 	formCreateSchema,
++	formsListSchema,
+ 	formDeleteSchema,
+ 	formDuplicateSchema,
+ 	formUpdateSchema,
+@@ -137,18 +138,20 @@ export function createPlugin(_options: FormsPluginOptions = {}): ResolvedPlugin
+ 			},
+ 
+ 			// --- Admin routes (require auth) ---
+-			// Reads are open to editors (plugins:read). Routes without a
+-			// `permission` fall back to plugins:manage, so writes stay admin-only.
++			// Form and submission routes stay admin-only (plugins:manage).
+ 
+ 			"forms/list": {
+-				permission: "plugins:read",
++				permission: "plugins:manage",
++				input: formsListSchema,
+ 				handler: formsListHandler,
+ 			},
+ 			"forms/create": {
++				permission: "plugins:manage",
+ 				input: formCreateSchema,
+ 				handler: formsCreateHandler,
+ 			},
+ 			"forms/update": {
++				permission: "plugins:manage",
+ 				input: formUpdateSchema,
+ 				handler: formsUpdateHandler,
+ 			},
+@@ -162,12 +165,12 @@ export function createPlugin(_options: FormsPluginOptions = {}): ResolvedPlugin
+ 			},
+ 
+ 			"submissions/list": {
+-				permission: "plugins:read",
++				permission: "plugins:manage",
+ 				input: submissionsListSchema,
+ 				handler: submissionsListHandler,
+ 			},
+ 			"submissions/get": {
+-				permission: "plugins:read",
++				permission: "plugins:manage",
+ 				input: submissionGetSchema,
+ 				handler: submissionGetHandler,
+ 			},
+@@ -197,6 +200,16 @@ export function createPlugin(_options: FormsPluginOptions = {}): ResolvedPlugin
+ 			},
+ 		},
+ 
++		mcp: {
++			tools: {
++				list_forms: { description: "List configured Forms with a pagination cursor.", route: "forms/list", input: formsListSchema },
++				create_form: { description: "Create an explicitly requested native form definition.", route: "forms/create", input: formCreateSchema },
++				update_form: { description: "Update native form fields, notifications, retention or status.", route: "forms/update", input: formUpdateSchema, destructive: true },
++				list_submissions: { description: "Read a bounded page of private form submissions.", route: "submissions/list", input: submissionsListSchema },
++				get_submission: { description: "Read one private form submission by ID.", route: "submissions/get", input: submissionGetSchema },
++			},
++		},
++
+ 		admin: {
+ 			settingsSchema: {
+ 				turnstileSiteKey: { type: "string", label: "Turnstile Site Key" },
+diff --git a/src/schemas.ts b/src/schemas.ts
+index 078e22c..553b38b 100644
+--- a/src/schemas.ts
++++ b/src/schemas.ts
+@@ -9,6 +9,7 @@ const HTTP_SCHEME_RE = /^https?:\/\//i;
+ 
+ /** Validates that a URL string uses http or https scheme. Rejects javascript:/data: URI XSS vectors. */
+ const httpUrl = z.url().refine((url) => HTTP_SCHEME_RE.test(url), "URL must use http or https");
++
+ const isoDateTime = z.iso.datetime().or(z.iso.datetime({ precision: -1 }));
+ 
+ // ─── Field Schemas ───────────────────────────────────────────────
+@@ -105,6 +106,8 @@ const formSettingsShape = {
+ 	webhookUrl: httpUrl.optional().or(z.literal("")),
+ 	retentionDays: z.number().int().min(0),
+ 	spamProtection: z.enum(["none", "honeypot", "turnstile"]),
++	rateLimitPerHour: z.number().int().min(0).max(1000).optional(),
++	spamKeywords: z.array(z.string().min(1).max(200)).max(100).optional(),
+ 	submitLabel: z.string().min(1),
+ 	nextLabel: z.string().optional(),
+ 	prevLabel: z.string().optional(),
+@@ -119,7 +122,7 @@ const formSettingsSchema = z.object({
+ 	notifyEmails: formSettingsShape.notifyEmails.default([]),
+ 	digestEnabled: formSettingsShape.digestEnabled.default(false),
+ 	digestHour: formSettingsShape.digestHour.default(9),
+-	retentionDays: formSettingsShape.retentionDays.default(0),
++	retentionDays: formSettingsShape.retentionDays.default(30),
+ 	spamProtection: formSettingsShape.spamProtection.default("honeypot"),
+ 	submitLabel: formSettingsShape.submitLabel.default("Submit"),
+ });
+@@ -170,6 +173,8 @@ export const formDuplicateSchema = z.object({
+ 		.optional(),
+ });
+ 
++export const formsListSchema = z.object({ cursor: z.string().optional() }).default({});
++
+ export const definitionSchema = z.object({
+ 	id: z.string().min(1),
+ });
+diff --git a/src/types.ts b/src/types.ts
+index 6de927a..7314c6e 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -46,6 +46,10 @@ export interface FormSettings {
+ 	retentionDays: number;
+ 	/** Spam protection strategy */
+ 	spamProtection: "none" | "honeypot" | "turnstile";
++	/** Hourly submissions per parent-issued IP pseudonym; 0 disables. */
++	rateLimitPerHour?: number;
++	/** Messages matching a keyword are archived and do not send notifications. */
++	spamKeywords?: string[];
+ 	/** Submit button text */
+ 	submitLabel: string;
+ 	/** Label for Next button on multi-page forms */
+diff --git a/src/validation.ts b/src/validation.ts
+index 26f2564..08e04e3 100644
+--- a/src/validation.ts
++++ b/src/validation.ts
+@@ -58,7 +58,7 @@ export function validateSubmission(
+ 		const isEmpty = value === undefined || value === null || value === "";
+ 
+ 		// Required check
+-		if (field.required && isEmpty) {
++		if (field.required && (isEmpty || (field.type === "checkbox" && ![true, "true", "on", "1"].includes(value as string | boolean)))) {
+ 			errors.push({ field: field.name, message: `${field.label} is required` });
+ 			continue;
+ 		}

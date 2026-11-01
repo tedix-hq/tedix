@@ -60,11 +60,11 @@
 		"@tedix/worker-kit": "workspace:*",
 		"@tedix/workers-ai": "workspace:*",
 		"@types/node": "catalog:",
-		"acorn": "8.18.0",
+		"acorn": "8.19.0",
 		"agents": "catalog:",
 		"ai": "catalog:",
 		"hono": "catalog:",
-		"stripe": "^23.0.1",
+		"stripe": "^23.1.0",
 		"yaml": "^2.9.1",
 		"zod": "catalog:"
 	},

@@ -310,7 +310,7 @@ function tenantMcpFailure(
 // Emdash REST `{ success: true, data }` envelope with zero semantic loss.
 //
 // Content writes were re-verified against the PATCHED Emdash 1.3.1 build
-// (root patches/emdash@1.3.1.patch): each native tool resolves the entry with
+// (the root Emdash patch): each native tool resolves the entry with
 // the same handleContentGet call, applies the same ownership permission,
 // claims the entry lock the same way (emdash #3059), invalidates the same
 // route-cache tags through `unwrapAndInvalidate` (emdash #3127), and returns

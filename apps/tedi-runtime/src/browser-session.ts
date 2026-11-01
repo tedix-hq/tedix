@@ -31,25 +31,36 @@ import {
 export const BROWSER_RESTARTED_NOTE =
 	"Browser was restarted; re-login may be needed (earlier tabs, cookies and logins are gone).";
 
+/** Opening words of the restart notice the SDK's browserTool adds to a run. */
+export const SDK_RESTARTED_NOTICE = "The browser was restarted";
+
 /** Heading of the usage note prepended to browser_execute's description. */
-export const BROWSER_EXECUTE_USAGE_HEADING =
-	"## Tedix browser usage (verified calls: use them directly, without codemode.search, codemode.describe or cdp.spec())";
+export const BROWSER_EXECUTE_USAGE_HEADING = "## Tedix browser usage";
+
+const PREFER_QUICK_ACTIONS =
+	"- To read a page, prefer the one-shot tools: browser_markdown({ url }) for its text, browser_extract({ url, prompt, schema }) for structured fields, browser_links({ url }) for its links, browser_scrape({ url, selectors }) for elements by CSS selector. Use browser_execute only to click, type, follow a multi-step flow or keep a session.";
 
 /**
- * The exact connector calls browser_execute supports, checked against the
- * agents/browser `cdp` connector, so the model does not guess CDP method
- * names or spend calls on discovery.
+ * Tedix rules for browser_execute. Persistent mode adds only the Tedix
+ * parts: the SDK's own description documents its `browser` global. Dynamic
+ * mode lists the exact `cdp` connector calls, so the model does not guess
+ * CDP method names or spend calls on discovery.
  */
 export function browserExecuteUsage(mode: TediBrowserSession["mode"]): string {
-	const persistent = mode === "persistent";
+	if (mode === "persistent") {
+		return [
+			BROWSER_EXECUTE_USAGE_HEADING,
+			PREFER_QUICK_ACTIONS,
+			'- For a page behind a sign-in, open its login page with browser_execute, then call request_browser_takeover({ reason: "login", note }) and continue only after get_browser_takeover_status reports approved. Never type credentials.',
+			"- Call browser_session_close when the task is done.",
+		].join("\n");
+	}
 	return [
-		BROWSER_EXECUTE_USAGE_HEADING,
-		"- To read a page, prefer the one-shot tools: browser_markdown({ url }) for its text, browser_extract({ url, prompt, schema }) for structured fields, browser_links({ url }) for its links, browser_scrape({ url, selectors }) for elements by CSS selector. Use browser_execute only to click, type, follow a multi-step flow or keep a session.",
+		`${BROWSER_EXECUTE_USAGE_HEADING} (verified calls: use them directly, without codemode.search, codemode.describe or cdp.spec())`,
+		PREFER_QUICK_ACTIONS,
 		"- browser_execute runs one async arrow function, async () => { ... }, that returns a small JSON value. Its only browser global is cdp, with exactly these calls: cdp.send({ method, params, sessionId }) and cdp.attachToTarget({ targetId }), which returns { sessionId }. Method names are standard CDP: Target.createTarget, Page.navigate, Runtime.evaluate. There is no cdp.navigate, cdp.click, page or document object: click, type and read inside the page with Runtime.evaluate and params { expression, returnByValue: true, awaitPromise: true }; the value is at result.value.",
-		persistent
-			? '- Do a whole flow (open, click, read) in one browser_execute run. The browser and your tab persist between runs; a later run can pass sessionId: "active" for that tab.'
-			: "- Do a whole flow (open, click, read) in one browser_execute run: the browser closes when the run ends unless that run calls cdp.startSession().",
-		`- For a page behind a sign-in, open its login page with browser_execute${persistent ? "" : " and call cdp.startSession() in that run"}, then call request_browser_takeover({ reason: "login", note }) and continue only after get_browser_takeover_status reports approved. Never type credentials.`,
+		"- Do a whole flow (open, click, read) in one browser_execute run: the browser closes when the run ends unless that run calls cdp.startSession().",
+		'- For a page behind a sign-in, open its login page with browser_execute and call cdp.startSession() in that run, then call request_browser_takeover({ reason: "login", note }) and continue only after get_browser_takeover_status reports approved. Never type credentials.',
 		"- Call browser_session_close when the task is done.",
 		"",
 		"Example: open a page, click the first navigation link by CSS selector, read the new page's title and text.",
@@ -363,7 +374,6 @@ export function createTediBrowserSession(
 	const execute = (options.persistentTool ?? browserTool)({
 		browser,
 		loader: options.loader,
-		ctx: options.ctx,
 	});
 	const tools: ToolSet = {
 		...createQuickActionTools({ browser: options.browser, maxChars: 0 }),
@@ -395,8 +405,10 @@ export function createTediBrowserSession(
 				});
 				try {
 					const output = await execute.execute(input, toolOptions);
-					if (!output.restarted && !resolved.restarted) return output;
-					if (output.restarted) {
+					const sdkRestarted =
+						output.notice?.includes(SDK_RESTARTED_NOTICE) === true;
+					if (!sdkRestarted && !resolved.restarted) return output;
+					if (sdkRestarted) {
 						active = await browser.resolve();
 						await markers.put(lastSessionKey, active.sessionId);
 						if (active.sessionId !== resolved.sessionId) {
@@ -417,7 +429,6 @@ export function createTediBrowserSession(
 					}
 					return {
 						...output,
-						restarted: true as const,
 						notice: output.notice
 							? `${BROWSER_RESTARTED_NOTE} ${output.notice}`
 							: BROWSER_RESTARTED_NOTE,
