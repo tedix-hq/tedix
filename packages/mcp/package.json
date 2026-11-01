@@ -16,6 +16,7 @@
 		"./auth/tool-scopes": "./src/auth/tool-scopes.ts",
 		"./auth/types": "./src/auth/types.ts",
 		"./bounded-list": "./src/bounded-list.ts",
+		"./catalog-projection": "./src/catalog-projection.ts",
 		"./codemode": "./src/codemode.ts",
 		"./compact-types": "./src/compact-types.ts",
 		"./elicitation-fill": "./src/elicitation-fill.ts",
