@@ -25,7 +25,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
 	LaneDispatchPlanSchema,
@@ -2080,17 +2080,16 @@ export class LaneDispatcher {
 		const status = credential.oauthRefreshInvalidated
 			? "rejected"
 			: await this.deps.confirmLogin(workspace, credential);
-		if (status === "usable") return false;
-		if (status === "unknown") return true;
+		const held = status !== "usable";
 		const key = loginRecoveryKey(workspace, credential);
 		const latest = readWorkspaceCredentials(workspace);
-		if (!latest || loginRecoveryKey(workspace, latest) !== key) return true;
+		if (!latest || loginRecoveryKey(workspace, latest) !== key) return held;
 		const lock = await acquireCredentialLock(`login-recovery:${key}`);
-		if (!lock) return true;
+		if (!lock) return held;
 		try {
 			const state = readLoginRecovery(key) ?? { status, checkedAt: Date.now() };
-			if (state.decision?.requestId) return true;
-			if (Date.now() < (state.notifyAfter ?? 0)) return true;
+			if (state.decision?.requestId) return held;
+			if (Date.now() < (state.notifyAfter ?? 0)) return held;
 			state.notifyAfter = Date.now() + 60_000;
 			saveLoginRecovery(key, state);
 			if (!state.decision) {
@@ -2100,7 +2099,7 @@ export class LaneDispatcher {
 				} catch (error) {
 					if (!(error instanceof LaneReceiptReadError)) throw error;
 					this.log("login-blocked", undefined, error.message);
-					return true;
+					return held;
 				}
 				const reporter =
 					receipts.find(
@@ -2119,7 +2118,7 @@ export class LaneDispatcher {
 						undefined,
 						`Run tedix login --workspace ${workspace}; no admitted reporting session is available for a Decision`,
 					);
-					return true;
+					return held;
 				}
 				// Keep the same creator/session and content after an uncertain response:
 				// the existing Interaction deduplication then returns the same Decision.
@@ -2139,10 +2138,10 @@ export class LaneDispatcher {
 					JSON.stringify({
 						workItemId: decision.workItemId,
 						kind: "input",
-						subject: `Sign in to Tedix (${workspace})`,
-						prompt: `The stored login could not be renewed and its access token was rejected. Run tedix login --workspace ${workspace} in your terminal. Local lanes are paused until a new login is saved.`,
+						subject: `Sign in again on ${hostname()}`,
+						prompt: `The stored login could not be renewed safely. Its current session token can still be used until it expires, but its refresh token will not be sent again. Run tedix login --workspace ${workspace} in your terminal on ${hostname()}.`,
 						reason:
-							"Only you can complete sign-in and consent; local lanes cannot continue with this login.",
+							"Only you can complete sign-in and consent to keep this machine connected.",
 						notificationReason: "failure",
 						requestedFrom: { type: "user", id: credential.loginId },
 						metadata: { source: "stored-login-renewal", renewalKey: key },
@@ -2158,12 +2157,12 @@ export class LaneDispatcher {
 			this.log(
 				"login-blocked",
 				decision.workItemId,
-				`Sign-in Decision ${request.id}; lanes paused until the login changes`,
+				`Sign-in Decision ${request.id}; renewal blocked until the login changes`,
 			);
 		} finally {
 			lock.release();
 		}
-		return true;
+		return held;
 	}
 	private scheduleCleanup(receipt: Receipt) {
 		if (this.maintenance.size) return;

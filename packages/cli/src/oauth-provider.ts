@@ -12,6 +12,11 @@ import {
 	validatedLoginTenant,
 } from "./oauth-tenant";
 import { CLI_VERSION, selfCommand } from "./shared";
+import {
+	redactValue,
+	scrubKnownSecrets,
+	scrubText,
+} from "@tedix/context-core/trace-safety";
 import { decodeUnverifiedJwtClaims } from "@tedix/auth/web";
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, renameSync, statSync } from "node:fs";
@@ -996,10 +1001,17 @@ export async function refreshStoredSession(
 	let outcome = "failed" as SessionRefreshOutcome;
 	let phase: "lock" | "dark-wake" | "sent" | "received" | "saved" = "lock";
 	let correlationId: string | undefined;
+	let httpStatus: number | undefined;
+	let oauthError: string | undefined;
+	let responsePreview: string | undefined;
+	let retryableResponse = false;
+	let terminalResponse = false;
 	let failure:
 		| "timeout"
 		| "connection-not-opened"
 		| "exchange-error"
+		| "retryable-response"
+		| "oauth-error"
 		| undefined;
 	let expectedCredential: WorkspaceCredential | undefined;
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1111,6 +1123,62 @@ export async function refreshStoredSession(
 					response.headers.get("x-request-id");
 				if (requestId && /^[a-zA-Z0-9._:-]{1,128}$/.test(requestId))
 					correlationId = requestId;
+				if (
+					body instanceof URLSearchParams &&
+					body.get("grant_type") === "refresh_token"
+				) {
+					httpStatus = response.status;
+					retryableResponse = response.status >= 500 || response.status === 429;
+					// Inspect before the SDK turns a non-OAuth reply into server_error.
+					// A complete error response is different from a lost rotation reply.
+					const raw = await response.clone().text();
+					let parsed: unknown;
+					try {
+						parsed = JSON.parse(raw);
+					} catch {}
+					if (
+						parsed &&
+						typeof parsed === "object" &&
+						"error" in parsed &&
+						typeof parsed.error === "string" &&
+						/^[a-zA-Z0-9_]{1,64}$/.test(parsed.error)
+					)
+						oauthError = parsed.error;
+					// Descope can also report family invalidation in its native error shape.
+					const invalidatedFamily =
+						parsed &&
+						typeof parsed === "object" &&
+						"errorCode" in parsed &&
+						parsed.errorCode === "E064006";
+					terminalResponse =
+						!retryableResponse &&
+						response.status >= 400 &&
+						response.status < 500 &&
+						(!!oauthError || !!invalidatedFamily);
+					const tokenResponse =
+						parsed && typeof parsed === "object" && "access_token" in parsed;
+					retryableResponse ||=
+						!terminalResponse && !oauthError && !tokenResponse;
+					if (!oauthError && (!response.ok || retryableResponse)) {
+						const secrets = [
+							refreshToken,
+							tokens?.access_token ?? "",
+							"client_secret" in clientInformation
+								? (clientInformation.client_secret ?? "")
+								: "",
+						];
+						const redacted =
+							parsed === undefined
+								? scrubText(scrubKnownSecrets(raw, secrets))
+								: JSON.stringify(redactValue(parsed, secrets));
+						responsePreview = new TextDecoder().decode(
+							Buffer.from(redacted).subarray(0, 120),
+							{ stream: true },
+						);
+					}
+					if (retryableResponse)
+						throw new Error("Retryable OAuth exchange response");
+				}
 				return response;
 			} finally {
 				upstreamSignal?.removeEventListener("abort", forwardAbort);
@@ -1204,17 +1272,49 @@ export async function refreshStoredSession(
 		return finish("refreshed");
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
-		failure = /timed out|timeout|abort/i.test(detail)
-			? "timeout"
-			: connectionNeverOpened(error)
-				? "connection-not-opened"
-				: "exchange-error";
-		if (REFRESH_FAMILY_INVALIDATED.test(detail)) {
+		failure = retryableResponse
+			? "retryable-response"
+			: terminalResponse
+				? "oauth-error"
+				: /timed out|timeout|abort/i.test(detail)
+					? "timeout"
+					: connectionNeverOpened(error)
+						? "connection-not-opened"
+						: "exchange-error";
+		if (
+			retryableResponse &&
+			workspace &&
+			expectedCredential?.oauthRefreshPending
+		) {
+			const retryable = {
+				...expectedCredential,
+				oauthRefreshPending: undefined,
+			};
+			try {
+				writeWorkspaceCredentials(
+					workspace,
+					retryable,
+					undefined,
+					expectedCredential,
+				);
+				expectedCredential = retryable;
+			} catch {
+				return finish("failed");
+			}
+		}
+		if (
+			terminalResponse ||
+			(!retryableResponse && REFRESH_FAMILY_INVALIDATED.test(detail))
+		) {
 			if (workspace && expectedCredential) {
 				try {
 					writeWorkspaceCredentials(
 						workspace,
-						{ ...expectedCredential, oauthRefreshInvalidated: true },
+						{
+							...expectedCredential,
+							oauthRefreshPending: undefined,
+							oauthRefreshInvalidated: true,
+						},
 						undefined,
 						expectedCredential,
 					);
@@ -1227,8 +1327,7 @@ export async function refreshStoredSession(
 			// hangs until the 300s callback deadline and then reports a timeout —
 			// telling the operator nothing about what actually happened.
 			console.error(
-				"[tedix] Stored session could not be renewed: the refresh-token family was invalidated, " +
-					"usually because another Tedix process rotated the same credential. Run `tedix login` to recover.",
+				"[tedix] Stored session could not be renewed: the authorization server rejected the refresh token. Run `tedix login` to recover.",
 			);
 			return finish("invalidated");
 		}
@@ -1251,6 +1350,9 @@ export async function refreshStoredSession(
 			elapsedMs: Date.now() - started,
 			correlationId,
 			failure,
+			httpStatus,
+			oauthError,
+			responsePreview,
 			caller: process.env.TEDIX_RENEWAL_CALLER,
 		};
 		// An inherited fence is already recorded by the original exchange. Do not

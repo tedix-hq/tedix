@@ -17,6 +17,7 @@ import {
 import {
 	RENEWAL_HANDOFF_ENV,
 	renewStoredSession,
+	refreshStoredSession,
 	WorkspaceOAuthProvider,
 } from "./oauth-provider";
 
@@ -256,4 +257,152 @@ process.stdout.write("unavailable\\n");`,
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
+});
+
+for (const [status, body, oauthError, terminal] of [
+	[503, "<html>upstream unavailable</html>", undefined, false],
+	[500, '{"error":"invalid_grant"}', "invalid_grant", false],
+	[
+		429,
+		'{"error":"temporarily_unavailable"}',
+		"temporarily_unavailable",
+		false,
+	],
+	[429, "rate limited", undefined, false],
+	[400, "<html>bad gateway</html>", undefined, false],
+	[200, "{", undefined, false],
+	[200, '{"message":"upstream unavailable"}', undefined, false],
+	[400, '{"message":"upstream unavailable"}', undefined, false],
+	[400, '{"error":"invalid_grant"}', "invalid_grant", true],
+	[403, '{"error":"access_denied"}', "access_denied", true],
+] as const) {
+	test(`renewal classifies HTTP ${status}: ${body}`, async () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-renewal-response-"));
+		const previous = process.env.TEDIX_CONFIG_DIR;
+		process.env.TEDIX_CONFIG_DIR = dir;
+		try {
+			const base = "https://auth.fixture.example";
+			storeExpiredLogin(base, "refresh-0");
+			const provider = new WorkspaceOAuthProvider({
+				workspace: WORKSPACE,
+				mcpUrl: `${base}/mcp`,
+			});
+			let posts = 0;
+			const fetchFn = async (_input: unknown, init?: RequestInit) => {
+				posts++;
+				expect((init?.body as URLSearchParams).get("refresh_token")).toBe(
+					"refresh-0",
+				);
+				if (posts === 1) return new Response(body, { status });
+				return Response.json({
+					access_token: jwt({
+						sub: "user-1",
+						exp: Math.floor(Date.now() / 1000) + 600,
+					}),
+					token_type: "Bearer",
+					refresh_token: "refresh-1",
+					expires_in: 600,
+				});
+			};
+			expect(
+				await refreshStoredSession(provider, {
+					fetchFn,
+					isDarkWake: () => false,
+				}),
+			).toBe(terminal ? "invalidated" : "failed");
+			const stored = readWorkspaceCredentials(WORKSPACE)!;
+			expect(stored.oauthRefreshPending).toBeUndefined();
+			expect(stored.oauthRefreshInvalidated).toBe(terminal ? true : undefined);
+			const entry = JSON.parse(
+				readFileSync(join(dir, "renewals.log"), "utf8").trim(),
+			);
+			expect(entry.httpStatus).toBe(status);
+			expect(entry.oauthError).toBe(oauthError);
+			expect(entry.failure).toBe(
+				terminal ? "oauth-error" : "retryable-response",
+			);
+			if (!oauthError) expect(entry.responsePreview).toBe(body);
+			expect(
+				await refreshStoredSession(provider, {
+					fetchFn,
+					isDarkWake: () => false,
+				}),
+			).toBe(terminal ? "invalidated" : "refreshed");
+			expect(posts).toBe(terminal ? 1 : 2);
+			if (!terminal)
+				expect(
+					readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
+				).toBe("refresh-1");
+		} finally {
+			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+			else process.env.TEDIX_CONFIG_DIR = previous;
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+}
+
+test("renewal journal redacts before truncating unexpected replies to 120 bytes", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "tedix-renewal-redaction-"));
+	const previous = process.env.TEDIX_CONFIG_DIR;
+	process.env.TEDIX_CONFIG_DIR = dir;
+	try {
+		const base = "https://auth.fixture.example";
+		storeExpiredLogin(base, "refresh-0");
+		const stored = readWorkspaceCredentials(WORKSPACE)!;
+		const provider = new WorkspaceOAuthProvider({
+			workspace: WORKSPACE,
+			mcpUrl: `${base}/mcp`,
+		});
+		const body = `refresh-0 ${stored.oauthTokens!.access_token} Bearer secret-value ${"é".repeat(150)}`;
+		expect(
+			await refreshStoredSession(provider, {
+				isDarkWake: () => false,
+				fetchFn: async () => new Response(body, { status: 502 }),
+			}),
+		).toBe("failed");
+		const journal = readFileSync(join(dir, "renewals.log"), "utf8");
+		expect(journal).not.toContain("refresh-0");
+		expect(journal).not.toContain(stored.oauthTokens!.access_token);
+		expect(journal).not.toContain("secret-value");
+		expect(
+			Buffer.byteLength(JSON.parse(journal).responsePreview),
+		).toBeLessThanOrEqual(120);
+	} finally {
+		if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+		else process.env.TEDIX_CONFIG_DIR = previous;
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("a new login saved during a transient response is never overwritten", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "tedix-renewal-replacement-"));
+	const previous = process.env.TEDIX_CONFIG_DIR;
+	process.env.TEDIX_CONFIG_DIR = dir;
+	try {
+		const base = "https://auth.fixture.example";
+		storeExpiredLogin(base, "refresh-0");
+		const provider = new WorkspaceOAuthProvider({
+			workspace: WORKSPACE,
+			mcpUrl: `${base}/mcp`,
+		});
+		expect(
+			await refreshStoredSession(provider, {
+				isDarkWake: () => false,
+				fetchFn: async () => {
+					storeExpiredLogin(base, "new-human-grant");
+					return new Response("unavailable", { status: 503 });
+				},
+			}),
+		).toBe("failed");
+		expect(
+			readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
+		).toBe("new-human-grant");
+		expect(
+			readWorkspaceCredentials(WORKSPACE)?.oauthRefreshPending,
+		).toBeUndefined();
+	} finally {
+		if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
+		else process.env.TEDIX_CONFIG_DIR = previous;
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
