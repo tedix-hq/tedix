@@ -34,7 +34,7 @@ function fixture(configured = true) {
 		version: 1,
 		projectId: "22222222-2222-4222-8222-222222222222",
 		startAt: null,
-		acceptanceContract: null,
+		acceptanceContract: { version: 1, doneLooksLike: "Record findings" },
 		metadata: { executor: "any-local" },
 		accountableOwnerType: null,
 		accountableOwnerId: null,
@@ -147,7 +147,7 @@ function fixture(configured = true) {
 						: control.exit
 							? "failed"
 							: "succeeded",
-					finalMessage: control.message,
+					finalMessage: `${control.message}\nTEDIX_LANE_RESULT ${JSON.stringify({ outcome: "completed", workItemId: item.id, workVersion: item.version, contractVersion: item.acceptanceContract!.version, outcomeText: item.acceptanceContract!.doneLooksLike })}`,
 					tools: {},
 					usage: null,
 					shas: [],

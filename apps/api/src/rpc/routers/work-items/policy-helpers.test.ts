@@ -91,6 +91,58 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		await expect(allowed()).resolves.toBe(false);
 	});
 
+	it.each(["completed", "already_satisfied"])(
+		"requires an exact %s declaration for a dispatcher Attempt",
+		async (outcome) => {
+			const work = item({
+				version: 2,
+				acceptanceContract: {
+					version: 1,
+					doneLooksLike: "The entire accepted result is verified.",
+				},
+			});
+			const result = {
+				outcome,
+				workItemId: work.id,
+				workVersion: 2,
+				contractVersion: 1,
+				outcomeText: work.acceptanceContract!.doneLooksLike,
+			};
+			for (const laneResult of [
+				undefined,
+				{ ...result, outcome: "incomplete" },
+				{ ...result, workItemId: "other" },
+				{ ...result, workVersion: 1 },
+				{ ...result, contractVersion: 2 },
+				{ ...result, outcomeText: "Only a subtask was done" },
+			]) {
+				attempts.list.mockResolvedValue({
+					data: [
+						attempt({
+							metadata: {
+								dispatchVersion: 2,
+								laneResult,
+								settlement: { commitSha: SHA },
+							},
+						}),
+					],
+				});
+				await expect(allowed(work)).resolves.toBe(false);
+			}
+			attempts.list.mockResolvedValue({
+				data: [
+					attempt({
+						metadata: {
+							dispatchVersion: 2,
+							laneResult: result,
+							settlement: { commitSha: SHA },
+						},
+					}),
+				],
+			});
+			await expect(allowed(work)).resolves.toBe(true);
+		},
+	);
 	it("refuses an item that is not accepted, or a caller without a session", async () => {
 		await expect(allowed(item({ disposition: "proposed" }))).resolves.toBe(
 			false,

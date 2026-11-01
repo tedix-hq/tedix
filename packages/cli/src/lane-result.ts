@@ -11,6 +11,15 @@ const fence = {
 export const LaneResultSchema = z.discriminatedUnion("outcome", [
 	z.strictObject({
 		...fence,
+		outcome: z.literal("completed"),
+	}),
+	z.strictObject({
+		...fence,
+		outcome: z.literal("incomplete"),
+		remaining: z.string().min(1).max(1800),
+	}),
+	z.strictObject({
+		...fence,
 		outcome: z.literal("waiting_on_user"),
 		interactionId: z.uuid(),
 		requestVersion: z.number().int().positive(),
