@@ -898,6 +898,46 @@ describe("ToolHandler MCP transport", () => {
 		},
 	);
 
+	it.each([
+		{ policy: "isolated-evaluation-v1", reviewedAgentsSha256: "a".repeat(64) },
+		null,
+		{ policy: "forged" },
+	])(
+		"routes evaluation through native admission instead of inject: %j",
+		async (evaluation) => {
+			const ctx = mcpCtx({
+				transport: "mcp",
+				mcpServerUrl: "https://cto.tedi.tedix.dev/mcp",
+				mcpToolName: "run_tedi_turn",
+				_aggregateTediId: "cto_tedi_1",
+				_aggregateTediOrgId: "org_1",
+			});
+			const input = { session_key: "s", text: "review", evaluation };
+			ctx.callerIdentity = {
+				...ctx.callerIdentity!,
+				skillRunId: "workflow-run-1",
+				skillId: "skill-1",
+				workflowExecutionEpoch: 2,
+			};
+			const result = await new ToolHandler().execute(input, ctx);
+			expect(result.status).toBe(200);
+			const calls = vi.mocked(ctx.env.TEDI_SERVICE!.fetch).mock.calls;
+			expect(calls.length).toBeGreaterThan(0);
+			for (const [url, init] of calls) {
+				expect(String(url)).toBe("https://cto.tedi.tedix.dev/mcp");
+				const headers = new Headers(init?.headers);
+				expect(headers.get("X-Tedix-Skill-Run-Id")).toBe("workflow-run-1");
+				expect(headers.get("X-Tedix-Skill-Id")).toBe("skill-1");
+				expect(headers.get("X-Tedix-Workflow-Execution-Epoch")).toBe("2");
+			}
+			const request = calls
+				.map(([, init]) => JSON.parse(String(init?.body)))
+				.find((body) => body.method === "tools/call");
+			expect(request.params.name).toBe("run_tedi_turn");
+			expect(request.params.arguments).toEqual(input);
+		},
+	);
+
 	it("returns an ephemeral receipt without claiming a ledger-backed task", async () => {
 		const ctx = mcpCtx({
 			transport: "mcp",
