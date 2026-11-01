@@ -396,6 +396,16 @@ function receiptActivity(
 				retryAt: retry > now ? new Date(retry).toISOString() : null,
 			});
 	}
+	const phases = { working: 0, starting: 1, finishing: 2 };
+	current.sort((a, b) => phases[a.phase] - phases[b.phase]);
+	const reasons = {
+		reply: 0,
+		confirmation: 1,
+		completion: 2,
+		retry: 3,
+		held: 4,
+	};
+	waiting.sort((a, b) => reasons[a.reason] - reasons[b.reason]);
 	const last = source.lastCompleted;
 	return {
 		slots,
