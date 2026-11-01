@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	anonymousPageRequest,
 	cachedTenantPage,
@@ -9,6 +9,8 @@ import {
 	PAGE_CACHE_STATUS_HEADER,
 	type PageCacheIdentity,
 } from "./tenant-page-cache";
+
+afterEach(() => vi.restoreAllMocks());
 
 const identity: PageCacheIdentity = {
 	siteId: "site-a",
@@ -303,4 +305,221 @@ describe("cachedTenantPage on the workerd Cache API", () => {
 		expect(await hit.text()).toBe("page 1");
 		expect(renders).toBe(1);
 	});
+});
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((yes, no) => {
+		resolve = yes;
+		reject = no;
+	});
+	return { promise, resolve, reject };
+}
+
+function startRefresh(
+	cache: MemoryCache,
+	key: Request,
+	render: () => Promise<Response>,
+	now = 61_000,
+) {
+	const background: Promise<unknown>[] = [];
+	const response = cachedTenantPage({
+		cache: cache as unknown as Cache,
+		key,
+		templateSlug: "marketing",
+		render,
+		now: () => now,
+		waitUntil: (promise) => background.push(promise),
+	});
+	return { response, background, finish: () => Promise.all(background) };
+}
+
+async function staleFixture(name: string) {
+	const cache = new MemoryCache();
+	const key = new Request(
+		`https://fictional.example/_tedix/page-cache/${name}`,
+	);
+	await (await serve(cache, key, async () => html("stale"), 0)).response.text();
+	return { cache, key };
+}
+
+describe("request-owned stale refresh reservations", () => {
+	it("returns independent stale responses without sharing render I/O or waitUntil", async () => {
+		const { cache, key } = await staleFixture("concurrent");
+		const rendered = deferred<Response>();
+		let renders = 0;
+		const render = () => {
+			renders++;
+			return rendered.promise;
+		};
+		const first = startRefresh(cache, key, render);
+		expect(await (await first.response).text()).toBe("stale");
+		const others = Array.from({ length: 12 }, () =>
+			startRefresh(cache, key, render),
+		);
+		for (const next of others) {
+			expect(await (await next.response).text()).toBe("stale");
+			expect(next.background).toHaveLength(0);
+		}
+		expect(renders).toBe(1);
+		rendered.resolve(html("fresh"));
+		await first.finish();
+		expect(
+			await (await serve(cache, key, render, 62_000)).response.text(),
+		).toBe("fresh");
+	});
+
+	it("holds ownership through the actual cache write", async () => {
+		const { cache, key } = await staleFixture("pending-write");
+		const writeStarted = deferred<void>();
+		const write = deferred<void>();
+		const put = cache.put.bind(cache);
+		cache.put = async (request, response) => {
+			writeStarted.resolve();
+			await write.promise;
+			await put(request, response);
+		};
+		let renders = 0;
+		const render = async () => {
+			renders++;
+			return html("fresh");
+		};
+		const first = startRefresh(cache, key, render);
+		await (await first.response).text();
+		await writeStarted.promise;
+		const next = startRefresh(cache, key, render);
+		expect(await (await next.response).text()).toBe("stale");
+		expect(next.background).toHaveLength(0);
+		expect(renders).toBe(1);
+		write.resolve();
+		await first.finish();
+	});
+
+	it("releases failed writes and synchronous render failures for a later retry", async () => {
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		const { cache, key } = await staleFixture("write-failure");
+		const write = deferred<void>();
+		const put = cache.put.bind(cache);
+		cache.put = async () => write.promise;
+		const first = startRefresh(cache, key, async () => html("fresh"));
+		await (await first.response).text();
+		const skipped = startRefresh(cache, key, async () => html("unexpected"));
+		await (await skipped.response).text();
+		expect(skipped.background).toHaveLength(0);
+		write.reject(new Error("fictional-cache-write-failure"));
+		await first.finish();
+		expect(info).toHaveBeenCalledWith({
+			event: "cms.page_cache.refresh_coalesced",
+			outcome: "failed",
+			coalescedRequests: 1,
+		});
+		expect(error).toHaveBeenCalledWith(
+			"[cms-runtime] page cache store failed",
+			expect.any(Error),
+		);
+		cache.put = put;
+		const failed = startRefresh(cache, key, () => {
+			throw new Error("fictional-render-failure");
+		});
+		expect(await (await failed.response).text()).toBe("stale");
+		await failed.finish();
+		expect(error).toHaveBeenCalledWith(
+			"[cms-runtime] page cache refresh failed",
+			expect.any(Error),
+		);
+		await (
+			await serve(cache, key, async () => html("recovered"), 62_000)
+		).response.text();
+		expect(
+			await (
+				await serve(cache, key, async () => html("unexpected"), 63_000)
+			).response.text(),
+		).toBe("recovered");
+	});
+
+	it("expires hung owners without letting old cleanup remove a newer owner", async () => {
+		const { cache, key } = await staleFixture("expiry");
+		const firstRender = deferred<Response>();
+		const secondRender = deferred<Response>();
+		const first = startRefresh(cache, key, () => firstRender.promise);
+		await (await first.response).text();
+		const second = startRefresh(
+			cache,
+			key,
+			() => secondRender.promise,
+			121_001,
+		);
+		await (await second.response).text();
+		expect(second.background).toHaveLength(1);
+		firstRender.resolve(html("uncacheable", { "Set-Cookie": "s=1" }));
+		await first.finish();
+		const third = startRefresh(
+			cache,
+			key,
+			async () => html("unexpected"),
+			121_002,
+		);
+		await (await third.response).text();
+		expect(third.background).toHaveLength(0);
+		secondRender.resolve(html("fresh"));
+		await second.finish();
+	});
+
+	it("keeps distinct tenant fences independent", async () => {
+		const firstFixture = await staleFixture("tenant-a-restore-1");
+		const secondFixture = await staleFixture("tenant-b-restore-2");
+		const render = deferred<Response>();
+		const first = startRefresh(
+			firstFixture.cache,
+			firstFixture.key,
+			() => render.promise,
+		);
+		const second = startRefresh(
+			secondFixture.cache,
+			secondFixture.key,
+			async () => html("other tenant"),
+		);
+		await (await first.response).text();
+		await (await second.response).text();
+		expect(first.background).toHaveLength(1);
+		expect(second.background.length).toBeGreaterThan(0);
+		await second.finish();
+		render.resolve(html("first tenant"));
+		await first.finish();
+	});
+});
+
+it("bounds reservation state without evicting active owners at capacity", async () => {
+	const gate = deferred<void>();
+	const owners: ReturnType<typeof startRefresh>[] = [];
+	const fixtures = await Promise.all(
+		Array.from({ length: 257 }, (_, i) => staleFixture(`capacity-${i}`)),
+	);
+	const render = () => gate.promise.then(() => html("fresh"));
+	try {
+		for (const { cache, key } of fixtures) {
+			const owner = startRefresh(cache, key, render, 1_000_000);
+			owners.push(owner);
+			await (await owner.response).text();
+		}
+		const first = fixtures[0]!;
+		const stillOwned = startRefresh(first.cache, first.key, render, 1_000_001);
+		await (await stillOwned.response).text();
+		expect(stillOwned.background).toHaveLength(0);
+		const overflow = fixtures[256]!;
+		const fallback = startRefresh(
+			overflow.cache,
+			overflow.key,
+			render,
+			1_000_001,
+		);
+		owners.push(fallback);
+		await (await fallback.response).text();
+		expect(fallback.background).toHaveLength(1);
+	} finally {
+		gate.resolve();
+		await Promise.all(owners.map((owner) => owner.finish()));
+	}
 });

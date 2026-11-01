@@ -174,7 +174,7 @@ assert.ok(
 // ── isolate env map ───────────────────────────────────────────────────
 
 const factoryStart = runtimeSource.indexOf(
-	"const handle = withDynamicWorkerLoaderDiagnostics(env.LOADER, {",
+	"const handle = withDynamicWorkerLoaderDiagnostics(env.LOADER, loaderHost).get(",
 );
 const factoryEnd = runtimeSource.indexOf(
 	"return handle.getEntrypoint();",

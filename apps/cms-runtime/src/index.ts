@@ -22,7 +22,10 @@ import {
 } from "./marketing";
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
-import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
+import {
+	recordDynamicWorkerLoaderFactory,
+	withDynamicWorkerLoaderDiagnostics,
+} from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { fixedSiteCronPauseDecision } from "./cms-site-cron-pause";
 import {
 	readSiteDrillIdentity,
@@ -1035,6 +1038,7 @@ export function getTenantEntrypoint(
 		slug: string;
 		restoreEpoch: number;
 		spans: ParentSpans;
+		invocation: "fetch" | "scheduled";
 	},
 	loaderKey?: string,
 ): Fetcher {
@@ -1054,10 +1058,14 @@ export function getTenantEntrypoint(
 			.CMS_PLUGIN_CANARY_SITE_ID,
 		org.siteId,
 	);
-	const handle = withDynamicWorkerLoaderDiagnostics(env.LOADER, {
+	const loaderHost = {
 		surface: "cms_tenant_runtime",
-		reason: "cms_tenant_bundle_lookup",
-	}).get(
+		reason:
+			args.invocation === "scheduled"
+				? "cms_tenant_scheduled"
+				: "cms_tenant_fetch",
+	} as const;
+	const handle = withDynamicWorkerLoaderDiagnostics(env.LOADER, loaderHost).get(
 		`${
 			loaderKey ??
 			tenantLoaderRecovery.snapshot(
@@ -1065,6 +1073,7 @@ export function getTenantEntrypoint(
 			).key
 		}@plugin-host:${pluginCanaryEnabled ? "canary" : "off"}`,
 		async () => {
+			recordDynamicWorkerLoaderFactory(loaderHost);
 			const { mainModule, modules } = await span(
 				spans,
 				"loader.factory.modules",
@@ -1771,6 +1780,7 @@ async function fetchCmsSite(
 					})
 				: undefined;
 		const tenantEntrypointArgs = {
+			invocation: "fetch" as const,
 			accountId,
 			r2Token,
 			bundle,
@@ -2213,6 +2223,7 @@ export default {
 					{ siteId: org.siteId, slug, restoreEpoch },
 					async () => {
 						const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
+							invocation: "scheduled",
 							accountId,
 							r2Token,
 							bundle,

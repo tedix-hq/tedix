@@ -44,7 +44,13 @@ export type DynamicWorkerLoaderHost =
 			surface: "tedi_workspace_shell";
 			reason: "tedi_workspace_shell_invocation";
 	  }
-	| { surface: "cms_tenant_runtime"; reason: "cms_tenant_bundle_lookup" }
+	| {
+			surface: "cms_tenant_runtime";
+			reason:
+				| "cms_tenant_bundle_lookup"
+				| "cms_tenant_fetch"
+				| "cms_tenant_scheduled";
+	  }
 	| { surface: "cms_tenant_plugin"; reason: "cms_tenant_plugin_invocation" };
 
 function capturedHost(
@@ -98,7 +104,9 @@ function capturedDiagnosticHost(
 			(surface === "tedi_workspace_shell" &&
 				reason === "tedi_workspace_shell_invocation") ||
 			(surface === "cms_tenant_runtime" &&
-				reason === "cms_tenant_bundle_lookup") ||
+				(reason === "cms_tenant_bundle_lookup" ||
+					reason === "cms_tenant_fetch" ||
+					reason === "cms_tenant_scheduled")) ||
 			(surface === "cms_tenant_plugin" &&
 				reason === "cms_tenant_plugin_invocation")
 		)
@@ -130,6 +138,26 @@ function emitLoaderCall(
 		);
 	} catch {
 		/* A log sink cannot change the native result or error. */
+	}
+}
+
+/** Counts lazy factory callbacks, not provider creations or billable identities. */
+export function recordDynamicWorkerLoaderFactory(
+	host: DynamicWorkerLoaderHost,
+): void {
+	const fixed = capturedDiagnosticHost(host);
+	if (!fixed) return;
+	try {
+		console.log(
+			JSON.stringify({
+				event: "tedix.dynamic_worker.loader_factory",
+				version: 1,
+				surface: fixed.surface,
+				reason: fixed.reason,
+			}),
+		);
+	} catch {
+		/* Factory diagnostics cannot change the native callback result. */
 	}
 }
 
