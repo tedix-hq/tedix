@@ -38,8 +38,7 @@ these services: simple Home answers need no delegation or MCP tool call.
 ## Platform building blocks
 
 - **Workers** provide global request handling and control-plane services.
-- **Durable Objects** coordinate long-lived tedi identity and stateful
-  sessions.
+- **Durable Objects** coordinate tedi identity and stateful sessions.
 - **D1** stores canonical relational configuration, ledgers, and audit data.
 - **R2** stores larger immutable artifacts and published assets.
 - **Workflows** run durable multi-step operations with retries.
