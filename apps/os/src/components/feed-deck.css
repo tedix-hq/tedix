@@ -1086,16 +1086,6 @@
 	gap: 0.25rem;
 	position: static;
 }
-.fd-work-navigation a {
-	min-height: 2rem;
-	padding: 0.25rem 0.75rem;
-	border: 0;
-	border-radius: var(--radius);
-	font-size: 0.8125rem;
-}
-.fd-work-navigation a[aria-current="page"] {
-	background: var(--color-kumo-tint);
-}
 .fd-work-toolbar-slot {
 	min-width: 0;
 	flex: 1;
