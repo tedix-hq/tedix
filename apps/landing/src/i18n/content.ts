@@ -41,6 +41,8 @@ const englishContent = {
 		toggleTheme: "Toggle theme",
 		openMenu: "Open menu",
 		languageLabel: "Language",
+		primaryNavLabel: "Main navigation",
+		menuLabel: "Menu",
 	},
 	footer: {
 		tagline: "A platform for agents, apps, and work.",
@@ -355,6 +357,8 @@ const germanContent = {
 		toggleTheme: "Design umschalten",
 		openMenu: "Menü öffnen",
 		languageLabel: "Sprache",
+		primaryNavLabel: "Hauptnavigation",
+		menuLabel: "Menü",
 	},
 	footer: {
 		tagline: "Eine Plattform für Agenten, Apps und Arbeit.",
@@ -665,6 +669,8 @@ const spanishContent = {
 		toggleTheme: "Cambiar tema",
 		openMenu: "Abrir menú",
 		languageLabel: "Idioma",
+		primaryNavLabel: "Navegación principal",
+		menuLabel: "Menú",
 	},
 	footer: {
 		tagline: "Una plataforma para agentes, apps y trabajo.",

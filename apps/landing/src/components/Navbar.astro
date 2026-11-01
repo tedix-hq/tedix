@@ -57,6 +57,7 @@ const ghostSm = buttonVariants({ variant: "ghost", className: "text-sm" });
   <nav
     data-navbar
     data-scrolled="false"
+    aria-label={content.primaryNavLabel}
     class="relative flex w-full max-w-4xl items-center justify-between rounded-full border border-border bg-background/80 px-3 py-3 shadow-md backdrop-blur-xl transition-all duration-300 ease-in-out sm:px-5 lg:px-6 [&[data-scrolled='true']]:max-w-[1280px] [&[data-scrolled='true']]:border-primary/20 [&[data-scrolled='true']]:shadow-lg"
   >
     {/* Logo */}
@@ -147,6 +148,7 @@ const ghostSm = buttonVariants({ variant: "ghost", className: "text-sm" });
         variant="ghost" shape="square" className="lg:hidden"
         aria-label={content.openMenu}
         aria-expanded="false"
+        aria-controls="landing-mobile-menu"
       >
         <div class="relative h-5 w-5">
           {/* Menu icon */}
@@ -173,159 +175,257 @@ const ghostSm = buttonVariants({ variant: "ghost", className: "text-sm" });
     </div>
   </nav>
 
-  {/* Mobile Menu Dropdown */}
-  <div
+  {/* Mobile Menu — disclosure navigation: the trigger button owns
+      aria-expanded/aria-controls; the panel is a labelled nav landmark whose
+      links keep plain link semantics (not a dialog, not a role=menu). */}
+  <nav
+    id="landing-mobile-menu"
     data-mobile-menu
     data-open="false"
+    inert
+    aria-label={content.menuLabel}
     class="absolute top-full right-4 mt-2 w-[min(calc(100vw-2rem),22rem)] overflow-hidden rounded-2xl border border-border bg-background/95 shadow-xl backdrop-blur-xl transition-all duration-300 ease-in-out lg:hidden [&[data-open='false']]:max-h-0 [&[data-open='false']]:opacity-0 [&[data-open='false']]:-translate-y-2 [&[data-open='false']]:pointer-events-none [&[data-open='true']]:max-h-[560px] [&[data-open='true']]:opacity-100 [&[data-open='true']]:translate-y-0"
   >
-    <div class="flex flex-col gap-1 p-4">
+    <ul class="flex flex-col gap-1 p-4">
       {NAV_LINKS.map((link) => (
-        <a
-          href={link.href}
-          class="rounded-xl px-4 py-3 font-medium text-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:bg-amber-400/10 dark:hover:text-amber-400"
-        >
-          {link.label}
-        </a>
+        <li>
+          <a
+            href={link.href}
+            class="block rounded-xl px-4 py-3 font-medium text-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:bg-amber-400/10 dark:hover:text-amber-400"
+          >
+            {link.label}
+          </a>
+        </li>
       ))}
-      <hr class="my-2 border-border" />
-      <Button
-        type="button"
-        data-theme-toggle
-        variant="ghost" className="w-full justify-between"
-      >
-        <span>{content.toggleTheme}</span>
-        <span class="inline-flex items-center justify-center">
-          <svg {...svgAttrs} class="hidden dark:block h-5 w-5" aria-hidden="true">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2" />
-            <path d="M12 20v2" />
-            <path d="m4.93 4.93 1.41 1.41" />
-            <path d="m17.66 17.66 1.41 1.41" />
-            <path d="M2 12h2" />
-            <path d="M20 12h2" />
-            <path d="m6.34 17.66-1.41 1.41" />
-            <path d="m19.07 4.93-1.41 1.41" />
-          </svg>
-          <svg {...svgAttrs} class="block dark:hidden h-5 w-5" aria-hidden="true">
-            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
-          </svg>
-        </span>
-      </Button>
-      <hr class="my-2 border-border" />
-      <details class="group px-1 py-1" data-language-menu>
-        <summary
-          class="flex cursor-pointer list-none items-center justify-between rounded-xl bg-muted/60 px-4 py-3 font-semibold text-foreground transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden"
-          aria-label={content.languageLabel}
+      <li aria-hidden="true" class="my-1 border-t border-border"></li>
+      <li>
+        <Button
+          type="button"
+          data-theme-toggle
+          variant="ghost" className="w-full justify-between"
         >
-          <span>{content.languageLabel}</span>
-          <span class="inline-flex items-center gap-2 text-sm text-muted-foreground">
-            {locale.toUpperCase()}
-            <svg {...svgAttrs} class="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true">
-              <path d="m6 9 6 6 6-6" />
+          <span>{content.toggleTheme}</span>
+          <span class="inline-flex items-center justify-center">
+            <svg {...svgAttrs} class="hidden dark:block h-5 w-5" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2" />
+              <path d="M12 20v2" />
+              <path d="m4.93 4.93 1.41 1.41" />
+              <path d="m17.66 17.66 1.41 1.41" />
+              <path d="M2 12h2" />
+              <path d="M20 12h2" />
+              <path d="m6.34 17.66-1.41 1.41" />
+              <path d="m19.07 4.93-1.41 1.41" />
+            </svg>
+            <svg {...svgAttrs} class="block dark:hidden h-5 w-5" aria-hidden="true">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
             </svg>
           </span>
-        </summary>
-        <div class="mt-2 grid gap-1 rounded-xl border border-border bg-background/80 p-1.5">
-          {languageLinks.map((link) => (
-            <a
-              href={link.href}
-              class={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${link.isCurrent ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
-              aria-current={link.isCurrent ? "page" : undefined}
-              title={link.label}
-            >
-              <span>{link.label}</span>
-              <span class="text-[10px] uppercase opacity-70">{link.code}</span>
-            </a>
-          ))}
-        </div>
-      </details>
-      <hr class="my-2 border-border" />
-      <a
-        href={PRODUCT_AUTH_URL}
-        class="rounded-xl px-4 py-3 font-medium text-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:bg-amber-400/10 dark:hover:text-amber-400"
-      >
-        {content.login}
-      </a>
-    </div>
-  </div>
+        </Button>
+      </li>
+      <li aria-hidden="true" class="my-1 border-t border-border"></li>
+      <li>
+        <details class="group px-1 py-1" data-language-menu>
+          <summary
+            class="flex cursor-pointer list-none items-center justify-between rounded-xl bg-muted/60 px-4 py-3 font-semibold text-foreground transition-colors hover:bg-muted [&::-webkit-details-marker]:hidden"
+            aria-label={content.languageLabel}
+          >
+            <span>{content.languageLabel}</span>
+            <span class="inline-flex items-center gap-2 text-sm text-muted-foreground">
+              {locale.toUpperCase()}
+              <svg {...svgAttrs} class="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </summary>
+          <div class="mt-2 grid gap-1 rounded-xl border border-border bg-background/80 p-1.5">
+            {languageLinks.map((link) => (
+              <a
+                href={link.href}
+                class={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${link.isCurrent ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+                aria-current={link.isCurrent ? "page" : undefined}
+                title={link.label}
+              >
+                <span>{link.label}</span>
+                <span class="text-[10px] uppercase opacity-70">{link.code}</span>
+              </a>
+            ))}
+          </div>
+        </details>
+      </li>
+      <li aria-hidden="true" class="my-1 border-t border-border"></li>
+      <li>
+        <a
+          href={PRODUCT_AUTH_URL}
+          class="block rounded-xl px-4 py-3 font-medium text-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-600 dark:hover:bg-amber-400/10 dark:hover:text-amber-400"
+        >
+          {content.login}
+        </a>
+      </li>
+    </ul>
+  </nav>
 </div>
 
 <script>
-  // Navbar interactivity — uses astro:page-load for View Transitions compatibility
-  function initNavbar() {
-    const nav = document.querySelector('[data-navbar]') as HTMLElement;
-    const menuBtn = document.querySelector('[data-menu-btn]') as HTMLElement;
-    const mobileMenu = document.querySelector('[data-mobile-menu]') as HTMLElement;
-    const navContainer = document.querySelector('[data-nav-container]') as HTMLElement;
-    if (!nav || !menuBtn || !mobileMenu) return;
+  // Navbar interactivity. Persistent listeners are delegated at document level so
+  // they attach once and keep working across View Transition swaps; astro:page-load
+  // only re-syncs state for the freshly-rendered markup.
+  const navParts = () => ({
+    nav: document.querySelector<HTMLElement>('[data-navbar]'),
+    menuBtn: document.querySelector<HTMLElement>('[data-menu-btn]'),
+    mobileMenu: document.querySelector<HTMLElement>('[data-mobile-menu]'),
+    navContainer: document.querySelector<HTMLElement>('[data-nav-container]'),
+  });
 
-    const resetIcons = () => {
-      const menuIcon = menuBtn.querySelector('[data-icon="menu"]') as SVGElement;
-      const closeIcon = menuBtn.querySelector('[data-icon="close"]') as SVGElement;
-      if (!menuIcon || !closeIcon) return;
-      menuIcon.classList.remove('rotate-90', 'scale-0', 'opacity-0');
+  const setMenuIcons = (menuBtn: HTMLElement, open: boolean) => {
+    const menuIcon = menuBtn.querySelector('[data-icon="menu"]');
+    const closeIcon = menuBtn.querySelector('[data-icon="close"]');
+    if (!menuIcon || !closeIcon) return;
+    if (open) {
+      menuIcon.classList.add('rotate-90', 'scale-0', 'opacity-0');
+      menuIcon.classList.remove('rotate-0', 'scale-100', 'opacity-100');
+      closeIcon.classList.add('rotate-0', 'scale-100', 'opacity-100');
+      closeIcon.classList.remove('-rotate-90', 'scale-0', 'opacity-0');
+    } else {
       menuIcon.classList.add('rotate-0', 'scale-100', 'opacity-100');
-      closeIcon.classList.remove('rotate-0', 'scale-100', 'opacity-100');
+      menuIcon.classList.remove('rotate-90', 'scale-0', 'opacity-0');
       closeIcon.classList.add('-rotate-90', 'scale-0', 'opacity-0');
-    };
+      closeIcon.classList.remove('rotate-0', 'scale-100', 'opacity-100');
+    }
+  };
 
-    const closeMenu = () => {
-      mobileMenu.dataset.open = 'false';
-      menuBtn.setAttribute('aria-expanded', 'false');
-      document.body.style.overflow = '';
-      resetIcons();
-    };
+  // The mobile panel is a dropdown, not a modal — it never locks body scroll.
+  // closeMobileMenu still clears a stale overflow so a route or breakpoint
+  // change can never leave the page unscrollable.
+  const closeMobileMenu = ({ restoreFocus = false } = {}) => {
+    const { menuBtn, mobileMenu } = navParts();
+    if (!menuBtn || !mobileMenu || mobileMenu.dataset.open !== 'true') return;
+    const focusWasInside = mobileMenu.contains(document.activeElement);
+    mobileMenu.dataset.open = 'false';
+    mobileMenu.setAttribute('inert', '');
+    menuBtn.setAttribute('aria-expanded', 'false');
+    document.body.style.overflow = '';
+    setMenuIcons(menuBtn, false);
+    mobileMenu
+      .querySelector('details[data-language-menu][open]')
+      ?.removeAttribute('open');
+    if (restoreFocus || focusWasInside) menuBtn.focus();
+  };
 
-    // Scroll detection
-    window.addEventListener('scroll', () => {
-      nav.dataset.scrolled = String(window.scrollY > 20);
-    }, { passive: true });
+  const openMobileMenu = () => {
+    const { menuBtn, mobileMenu } = navParts();
+    if (!menuBtn || !mobileMenu) return;
+    mobileMenu.dataset.open = 'true';
+    mobileMenu.removeAttribute('inert');
+    menuBtn.setAttribute('aria-expanded', 'true');
+    setMenuIcons(menuBtn, true);
+  };
 
-    // Mobile menu toggle
-    menuBtn.addEventListener('click', () => {
-      const isOpen = mobileMenu.dataset.open === 'true';
-      if (isOpen) {
-        closeMenu();
-      } else {
-        mobileMenu.dataset.open = 'true';
-        menuBtn.setAttribute('aria-expanded', 'true');
-        document.body.style.overflow = 'hidden';
-        const menuIcon = menuBtn.querySelector('[data-icon="menu"]') as SVGElement;
-        const closeIcon = menuBtn.querySelector('[data-icon="close"]') as SVGElement;
-        if (menuIcon && closeIcon) {
-          menuIcon.classList.add('rotate-90', 'scale-0', 'opacity-0');
-          menuIcon.classList.remove('rotate-0', 'scale-100', 'opacity-100');
-          closeIcon.classList.add('rotate-0', 'scale-100', 'opacity-100');
-          closeIcon.classList.remove('-rotate-90', 'scale-0', 'opacity-0');
-        }
-      }
-    });
+  const toggleTheme = () => {
+    const isDark = document.documentElement.classList.toggle('dark');
+    const theme = isDark ? 'dark' : 'light';
+    document.documentElement.dataset.mode = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem('theme', theme);
+    document
+      .querySelectorAll('[data-theme-toggle]')
+      .forEach((toggle) => toggle.setAttribute('aria-pressed', String(isDark)));
+  };
 
-    // Close on outside click
-    document.addEventListener('mousedown', (e) => {
-      if (mobileMenu.dataset.open === 'true' && navContainer && !navContainer.contains(e.target as Node)) {
-        closeMenu();
-      }
-    });
-
-    // Close on link click
-    mobileMenu.querySelectorAll('a').forEach(link => {
-      link.addEventListener('click', closeMenu);
-    });
-
-    // Theme toggle
-    document.querySelectorAll('[data-theme-toggle]').forEach(btn => {
-      btn.setAttribute('aria-pressed', String(document.documentElement.classList.contains('dark')));
-      btn.addEventListener('click', () => {
-        const isDark = document.documentElement.classList.toggle('dark');
-        const theme = isDark ? 'dark' : 'light';
-        document.documentElement.dataset.mode = theme;
-        document.documentElement.style.colorScheme = theme;
-        localStorage.setItem('theme', theme);
-        document.querySelectorAll('[data-theme-toggle]').forEach(toggle => toggle.setAttribute('aria-pressed', String(isDark)));
+  // Escape closes the innermost open layer first: an expanded language
+  // disclosure, then the mobile menu. Focus returns to the control that owns
+  // whatever closed — but only when focus was inside it, so Escape never
+  // hijacks focus from elsewhere on the page.
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    const { menuBtn, mobileMenu } = navParts();
+    const openDetails = [
+      ...document.querySelectorAll('details[data-language-menu][open]'),
+    ];
+    const details =
+      (mobileMenu?.dataset.open === 'true'
+        ? openDetails.find((d) => mobileMenu.contains(d))
+        : undefined) ??
+      openDetails.find(
+        (d) => d instanceof HTMLElement && d.offsetParent !== null,
+      );
+    if (details) {
+      const focusWasInside = details.contains(document.activeElement);
+      details.removeAttribute('open');
+      const summary = details.querySelector('summary');
+      if (focusWasInside && summary instanceof HTMLElement) summary.focus();
+      return;
+    }
+    if (mobileMenu?.dataset.open === 'true') {
+      closeMobileMenu({
+        restoreFocus:
+          mobileMenu.contains(document.activeElement) ||
+          document.activeElement === menuBtn,
       });
-    });
+    }
+  });
+
+  // Outside press dismisses the mobile menu and any open language disclosure.
+  document.addEventListener('pointerdown', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const { navContainer, mobileMenu } = navParts();
+    if (
+      mobileMenu?.dataset.open === 'true' &&
+      navContainer &&
+      !navContainer.contains(target)
+    ) {
+      closeMobileMenu();
+    }
+    document
+      .querySelectorAll('details[data-language-menu][open]')
+      .forEach((details) => {
+        if (!details.contains(target)) details.removeAttribute('open');
+      });
+  });
+
+  document.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('[data-menu-btn]')) {
+      const { mobileMenu } = navParts();
+      if (mobileMenu?.dataset.open === 'true') {
+        closeMobileMenu();
+      } else {
+        openMobileMenu();
+      }
+      return;
+    }
+    if (target.closest('[data-theme-toggle]')) {
+      toggleTheme();
+      return;
+    }
+    if (target.closest('[data-mobile-menu] a[href]')) closeMobileMenu();
+  });
+
+  const syncScrolled = () => {
+    const { nav } = navParts();
+    if (nav) nav.dataset.scrolled = String(window.scrollY > 20);
+  };
+  window.addEventListener('scroll', syncScrolled, { passive: true });
+
+  // Crossing the lg breakpoint mid-session dismisses the menu and restores any
+  // stale body overflow, matching the lg:hidden styles.
+  window
+    .matchMedia('(min-width: 1024px)')
+    .addEventListener('change', () => closeMobileMenu());
+
+  function initNavbar() {
+    syncScrolled();
+    document.body.style.overflow = '';
+    const { mobileMenu } = navParts();
+    if (mobileMenu && mobileMenu.dataset.open !== 'true') {
+      mobileMenu.setAttribute('inert', '');
+    }
+    const isDark = document.documentElement.classList.contains('dark');
+    document
+      .querySelectorAll('[data-theme-toggle]')
+      .forEach((toggle) => toggle.setAttribute('aria-pressed', String(isDark)));
   }
 
   // Run on initial load AND after View Transition navigation
