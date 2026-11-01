@@ -4,14 +4,16 @@ import { defineConfig, lazyPlugins } from "vite-plus";
 
 // @emdash-cms/cloudflare/db/do-sql pulls EmDashConfigurationError from the root
 // `emdash` package, whose dist chunk statically imports these Astro-only virtual
-// modules. This Worker never reaches that code; without the aliases the build
-// fails to resolve them.
+// modules, and @emdash-cms/cloudflare/sandbox lazily imports emdash/middleware.
+// This Worker never reaches that code; without the aliases the build fails to
+// resolve them.
 export const emdashVirtualStubs = Object.fromEntries(
 	[
 		"virtual:emdash/config",
 		"virtual:emdash/seed",
 		"virtual:emdash/dialect",
 		"astro:content",
+		"emdash/middleware",
 	].map((specifier) => [
 		specifier,
 		path.resolve(__dirname, "src/emdash-virtual-stubs.ts"),
