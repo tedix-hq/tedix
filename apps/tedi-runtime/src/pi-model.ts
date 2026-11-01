@@ -58,6 +58,11 @@ export type TedixPiProviderOptions<R> = {
 		context: TranscriptContext,
 		options: SimpleStreamOptions,
 	): Promise<TedixPiDispatch<R>>;
+	/** Awaited at the final SDK input boundary; a rejection prevents inference. */
+	beforeDispatch?(
+		call: LanguageModelV2CallOptions,
+		receipt: R | undefined,
+	): Promise<void>;
 	/** Called once after dispatch, also on cancellation/error; must persist an idempotent usage receipt. */
 	settled?(
 		receipt: R | undefined,
@@ -496,6 +501,9 @@ export function createTedixPiProvider<R>(
 					...prepared.callOptions,
 					abortSignal: sdkAbort.signal,
 				};
+				options.signal?.throwIfAborted();
+				sdkAbort.signal.throwIfAborted();
+				await config.beforeDispatch?.(call, receipt);
 				options.signal?.throwIfAborted();
 				sdkAbort.signal.throwIfAborted();
 				dispatched = true;

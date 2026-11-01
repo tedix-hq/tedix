@@ -1265,6 +1265,17 @@ import {
 	SynthesisSessionFacet,
 	type SynthesisParentPort,
 } from "../../src/synthesis-session-facet";
+import {
+	evaluationSystem,
+	evaluationSessionKey,
+	type EvaluationAdmission,
+} from "../../src/evaluation-context";
+import {
+	recordEvaluationEvidence,
+	recordEvaluationOutcome,
+} from "../../src/evaluation-evidence";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 export interface ToolFreeStats {
 	requests: number;
 	reservations: string[];
@@ -1298,8 +1309,50 @@ const toolFreeLimits = {
 function toolFreeParent(
 	storage: DurableObjectStorage,
 	budget: DoInferenceBudgetStore,
-): JudgeParentPort {
+): JudgeParentPort & SynthesisParentPort {
 	return {
+		recordEvaluationContext: async (input) => {
+			await storage.put("evaluation:attempted-prompt", input.prompt);
+			const pinned = await storage.get<{
+				admission: EvaluationAdmission;
+				text: string;
+			}>("evaluation:pinned");
+			const recorded = await recordEvaluationEvidence(input, {
+				tediId: "tool-free-tedi",
+				slug: "fixture",
+				admitted: pinned?.admission,
+				userText: pinned?.text,
+				platform: {
+					recordArtifact: async (artifact) => {
+						if (await storage.get("evaluation:fail-artifact"))
+							throw new Error("evaluation artifact unavailable");
+						await storage.put("evaluation:artifact", artifact);
+					},
+					recordRuntimeEvent: async (event) => {
+						if (await storage.get("evaluation:fail-event"))
+							throw new Error("evaluation event unavailable");
+						await storage.put("evaluation:event", event);
+					},
+				},
+			});
+			await storage.put(
+				`evaluation-context:${input.runId}:${input.providerAttempt.attemptId}`,
+				{
+					...recorded,
+					conversationId: `fixture:${input.sessionKey}`,
+				},
+			);
+		},
+		recordEvaluationModelReceipt: async (input) =>
+			recordEvaluationOutcome(input, {
+				storage,
+				tediId: "tool-free-tedi",
+				platform: {
+					recordRuntimeEvent: async (event) => {
+						await storage.put("evaluation:receipt", event);
+					},
+				},
+			}),
 		assertChatTurnActive: async (runId) => {
 			if (await storage.get("tool-free:cancel:" + runId))
 				throw new Error("tool-free authority cancelled");
@@ -1439,6 +1492,50 @@ export class PiJudgeFixture extends JudgeSessionFacet {
 	}
 }
 export class PiSynthesisFixture extends SynthesisSessionFacet {
+	async evaluation(runId: string, failure?: "artifact" | "event") {
+		const agents = "Keep customer information private.";
+		const admission: EvaluationAdmission = {
+			policy: "isolated-evaluation-v1",
+			reviewedAgentsSha256: await sha256Hex(agents),
+			agents,
+			workflowRunId: "workflow-1",
+			skillId: "skill-1",
+			skillRevision: 3,
+			workflowSourceSha256: "a".repeat(64),
+			workItemId: "work-1",
+			workAttemptId: "attempt-1",
+			executionEpoch: 0,
+		};
+		const text = "Judge only this blinded input.";
+		await this.ctx.storage.put("evaluation:pinned", { admission, text });
+		if (failure) await this.ctx.storage.put(`evaluation:fail-${failure}`, true);
+		await this.configureSynthesisTurn({
+			runId,
+			sessionKey: evaluationSessionKey(runId),
+			system: evaluationSystem(admission),
+			evaluation: admission,
+			modelRef: "workers-ai/@cf/synthesis-model",
+			aigMetadata: { orgId: "tool-free-org", tediId: "tool-free-tedi" },
+		});
+		let error: string | null = null;
+		try {
+			await this.runSynthesisTurn({ text: wrapUntrustedInput(text, "mcp") });
+		} catch (caught) {
+			error = String(caught);
+		}
+		return JSON.stringify({
+			error,
+			attemptedPrompt: await this.ctx.storage.get(
+				"evaluation:attempted-prompt",
+			),
+			stats: await toolFreeStats(this.ctx.storage),
+			artifact: await this.ctx.storage.get<{ content: string }>(
+				"evaluation:artifact",
+			),
+			event: await this.ctx.storage.get("evaluation:event"),
+			receipt: await this.ctx.storage.get("evaluation:receipt"),
+		});
+	}
 	protected override async facetAdmissionCustody(
 		_runId: string,
 		_sessionKey: string,

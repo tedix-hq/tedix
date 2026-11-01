@@ -5,6 +5,9 @@ import {
 	type ModelCatalogConfig,
 } from "@tedix/api-contract/schemas/model-catalog-config";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { EvaluationAdmission } from "./evaluation-context";
+import type { ModelGenerationSettings } from "@tedix/api-contract/schemas/model-generation";
+import { resolveFacetGeneration } from "./facet-generation-settings";
 /** Native Pi facet for structurally blind, tool-free verification. Parent retains admission and the ledger. */
 import {
 	defineExtension,
@@ -32,6 +35,8 @@ import type { AigMetadata, AzureChatEnv } from "./llm";
 import type { FacetTurnUsage } from "./step-telemetry";
 
 export interface SynthesisFacetState {
+	generation?: ModelGenerationSettings;
+	evaluation?: EvaluationAdmission;
 	modelCatalog?: ModelCatalogConfig;
 	system: string | null;
 	sessionKey?: string | null;
@@ -57,7 +62,11 @@ const TOOL_FREE_EXTENSION = defineExtension({
 
 export type SynthesisParentPort = Pick<
 	import("./do").AgentTediDO,
-	"assertChatTurnActive" | "reservePiStep" | "recordPiStep"
+	| "assertChatTurnActive"
+	| "reservePiStep"
+	| "recordPiStep"
+	| "recordEvaluationContext"
+	| "recordEvaluationModelReceipt"
 >;
 
 export class SynthesisSessionFacet extends PiAgent<
@@ -86,7 +95,7 @@ export class SynthesisSessionFacet extends PiAgent<
 	}
 	protected selected(): {
 		model: TedixSdkModel;
-		identity: TediSessionModelIdentity;
+		identity: ReturnType<typeof selectChatModelForTurn>["identity"];
 	} {
 		const selected = selectChatModelForTurn(
 			this.env as unknown as AzureChatEnv,
@@ -105,6 +114,41 @@ export class SynthesisSessionFacet extends PiAgent<
 	}
 	protected override projection(): PiApplicationProjection {
 		const models = createToolFreePiModels({
+			afterDispatch: async (outcome) => {
+				if (this.state.evaluation)
+					await (await this.parent()).recordEvaluationModelReceipt(outcome);
+			},
+			callOptions: () =>
+				this.state.evaluation
+					? resolveFacetGeneration(
+							this.selected().identity,
+							this.state.generation,
+							{},
+							this.state.modelCatalog?.entries,
+						).turnConfig
+					: {},
+			beforeDispatch: async (call, providerAttempt) => {
+				if (!this.state.evaluation) return;
+				if (this.state.turnCount !== 0)
+					throw new Error("Evaluation cannot reuse previous Pi history");
+				await (
+					await this.parent()
+				).recordEvaluationContext({
+					runId: this.state.runId!,
+					sessionKey: this.state.sessionKey!,
+					admission: this.state.evaluation,
+					providerAttempt,
+					prompt: call.prompt,
+					tools: call.tools,
+					toolChoice: call.toolChoice,
+					generation: {
+						maxOutputTokens: call.maxOutputTokens,
+						temperature: call.temperature,
+						providerOptions: call.providerOptions,
+					},
+					model: this.selected().identity,
+				});
+			},
 			runId: () => this.state.runId,
 			selected: () => this.selected(),
 			accounting: this.accounting,
@@ -140,6 +184,8 @@ export class SynthesisSessionFacet extends PiAgent<
 		return { compaction: { enabled: false }, stream: { maxRetries: 0 } };
 	}
 	async configureSynthesisTurn(input: {
+		generation?: ModelGenerationSettings;
+		evaluation?: EvaluationAdmission;
 		runId: string;
 		sessionKey?: string;
 		system: string;

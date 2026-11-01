@@ -17,6 +17,7 @@ function fixture(
 		changeRun?: boolean;
 		governedReceipt?: boolean;
 		denied?: boolean;
+		audit?: (call: LanguageModelV2CallOptions) => Promise<void>;
 	} = {},
 ) {
 	let runId: string | undefined = options.missingRun ? undefined : "run-1";
@@ -62,6 +63,7 @@ function fixture(
 		},
 	};
 	const models = createToolFreePiModels({
+		beforeDispatch: options.audit,
 		runId: () => runId,
 		selected: () => ({ model: sdk, identity }),
 		...(options.governedReceipt
@@ -170,6 +172,33 @@ async function run(
 	]);
 	assert.deepEqual(f.usage, [
 		{ inputTokens: 12, outputTokens: 4, totalTokens: 16 },
+	]);
+}
+{
+	const observed: LanguageModelV2CallOptions[] = [];
+	const f = fixture({
+		audit: async (call) => {
+			observed.push({ ...call, prompt: structuredClone(call.prompt) });
+		},
+	});
+	const answer = await run(f);
+	assert.equal(answer.stopReason, "stop");
+	assert.deepEqual(observed[0]?.prompt, f.dispatched()?.prompt);
+	assert.deepEqual(observed[0]?.tools, []);
+	assert.deepEqual(observed[0]?.toolChoice, { type: "none" });
+}
+{
+	const f = fixture({
+		audit: async () => {
+			throw new Error("evidence storage unavailable");
+		},
+	});
+	const answer = await run(f);
+	assert.equal(answer.stopReason, "error");
+	assert.match(answer.errorMessage ?? "", /evidence storage unavailable/);
+	assert.equal(f.dispatched(), undefined);
+	assert.deepEqual(f.usage, [
+		{ inputTokens: 0, outputTokens: 0, totalTokens: 0 },
 	]);
 }
 console.log("tool-free-pi-provider OK");
