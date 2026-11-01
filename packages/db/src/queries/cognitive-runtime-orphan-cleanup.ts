@@ -38,7 +38,10 @@ function candidates(now: Date, terminalEventId?: string, limit = 20) {
    WHERE newer.organization_id = e.organization_id AND newer.tedi_id = e.tedi_id
    AND newer.run_id = e.run_id AND newer.created_at >= e.created_at
    AND newer.kind IN ('run.started', 'run.completed', 'run.canceled'))
- ORDER BY e.created_at, e.id LIMIT ${Math.min(Math.max(limit, 1), 20)}`;
+ ORDER BY COALESCE((SELECT MAX(prior.timestamp) FROM audit_events prior
+   WHERE prior.organization_id = e.organization_id AND prior.resource_type = ${RESOURCE}
+   AND prior.resource_id = e.id AND prior.action = ${ATTEMPT_ACTION}), 0),
+ e.created_at, e.id LIMIT ${Math.min(Math.max(limit, 1), 20)}`;
 }
 
 /** Fleet maintenance uses existing sweep terminal rows as its durable queue. */
