@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import {
 	Table,
 	TableBody,
@@ -25,7 +26,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface ToolsTableProps {
@@ -101,6 +102,139 @@ function getSuccessBadge(
 	};
 }
 
+function hasToolDetails(tool: ToolRow): boolean {
+	return (
+		Boolean(tool.exampleInput) ||
+		Boolean(tool.exampleOutput) ||
+		Boolean(tool.inputSchema)
+	);
+}
+
+function ToolFlags({
+	tool,
+	fallback = null,
+}: {
+	tool: ToolRow;
+	fallback?: ReactNode;
+}) {
+	const hasReadOnly = Boolean(tool.annotations?.readOnlyHint);
+	const hasDestructive = Boolean(tool.annotations?.destructiveHint);
+	if (!hasReadOnly && !hasDestructive) return fallback;
+	return (
+		<div className="flex flex-wrap gap-2">
+			{hasReadOnly && (
+				<Badge variant="secondary" className="text-[10px]">
+					read-only
+				</Badge>
+			)}
+			{hasDestructive && (
+				<Badge variant="destructive" className="text-[10px]">
+					destructive
+				</Badge>
+			)}
+		</div>
+	);
+}
+
+function ToolTestBadge({ tool }: { tool: ToolRow }) {
+	const successRatePercent =
+		tool.testSuccessRate !== null ? tool.testSuccessRate * 100 : null;
+	const hasBeenTested = (tool.testCount ?? 0) > 0;
+	const badge = getSuccessBadge(successRatePercent, hasBeenTested);
+	return <Badge variant={badge.variant}>{badge.label}</Badge>;
+}
+
+function ToolDetails({ tool }: { tool: ToolRow }) {
+	return (
+		<div className="grid gap-4 md:grid-cols-2">
+			{tool.exampleInput && (
+				<div>
+					<p className="mb-2 font-medium text-muted-foreground text-xs">
+						Example Input
+					</p>
+					<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
+						{JSON.stringify(tool.exampleInput, null, 2)}
+					</pre>
+				</div>
+			)}
+			{!!tool.exampleOutput && (
+				<div>
+					<p className="mb-2 font-medium text-muted-foreground text-xs">
+						Example Output
+					</p>
+					<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
+						{typeof tool.exampleOutput === "string"
+							? tool.exampleOutput
+							: JSON.stringify(tool.exampleOutput, null, 2)}
+					</pre>
+				</div>
+			)}
+			{tool.inputSchema && (
+				<div className="md:col-span-2">
+					<p className="mb-2 font-medium text-muted-foreground text-xs">
+						Input Schema
+					</p>
+					<pre className="max-h-56 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
+						{JSON.stringify(tool.inputSchema, null, 2)}
+					</pre>
+				</div>
+			)}
+		</div>
+	);
+}
+
+function ToolCard({
+	tool,
+	expanded,
+	onToggle,
+}: {
+	tool: ToolRow;
+	expanded: boolean;
+	onToggle: () => void;
+}) {
+	const detailsId = `tool-details-${tool.id}`;
+	const hasDetails = hasToolDetails(tool);
+	return (
+		<li className="rounded-lg border border-border/50 p-3">
+			<div className="flex items-start justify-between gap-3">
+				<code className="break-all font-mono font-semibold text-foreground text-sm">
+					{tool.toolName}
+				</code>
+				<ToolFlags tool={tool} />
+			</div>
+			<span className="mt-1.5 line-clamp-3 block text-muted-foreground text-sm">
+				{tool.description ?? "No description provided"}
+			</span>
+			<div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-muted-foreground text-xs">
+				<ToolTestBadge tool={tool} />
+				{tool.avgLatencyMs !== null && (
+					<span>Latency {formatLatency(tool.avgLatencyMs)}</span>
+				)}
+				<span>Tested {formatRelativeTime(tool.lastTestedAt)}</span>
+			</div>
+			{hasDetails && (
+				<>
+					<Button
+						variant="outline"
+						size="sm"
+						className="mt-3 w-full"
+						aria-expanded={expanded}
+						aria-controls={detailsId}
+						onClick={onToggle}
+					>
+						{expanded ? "Hide details" : "Details"}
+					</Button>
+					{expanded && (
+						<div id={detailsId} className="mt-3">
+							<ToolDetails tool={tool} />
+						</div>
+					)}
+				</>
+			)}
+		</li>
+	);
+}
+
 export default function ToolsTable({
 	tools: initialTools,
 	toolsUrl,
@@ -173,41 +307,23 @@ export default function ToolsTable({
 				columnHelper.display({
 					id: "flags",
 					header: "Flags",
-					cell: ({ row }) => {
-						const tool = row.original;
-						const hasReadOnly = Boolean(tool.annotations?.readOnlyHint);
-						const hasDestructive = Boolean(tool.annotations?.destructiveHint);
-						if (!hasReadOnly && !hasDestructive) {
-							return <span className="text-muted-foreground text-xs">—</span>;
-						}
-						return (
-							<div className="flex flex-wrap gap-2">
-								{hasReadOnly && (
-									<Badge variant="secondary" className="text-[10px]">
-										read-only
-									</Badge>
-								)}
-								{hasDestructive && (
-									<Badge variant="destructive" className="text-[10px]">
-										destructive
-									</Badge>
-								)}
-							</div>
-						);
-					},
+					cell: ({ row }) => (
+						<ToolFlags
+							tool={row.original}
+							fallback={
+								<span className="text-muted-foreground text-xs">—</span>
+							}
+						/>
+					),
 				}),
 				columnHelper.display({
 					id: "test",
 					header: "Test",
 					cell: ({ row }) => {
 						const tool = row.original;
-						const successRatePercent =
-							tool.testSuccessRate !== null ? tool.testSuccessRate * 100 : null;
-						const hasBeenTested = (tool.testCount ?? 0) > 0;
-						const badge = getSuccessBadge(successRatePercent, hasBeenTested);
 						return (
 							<div className="flex flex-col gap-1">
-								<Badge variant={badge.variant}>{badge.label}</Badge>
+								<ToolTestBadge tool={tool} />
 								{tool.avgLatencyMs !== null && (
 									<span className="text-muted-foreground text-xs">
 										Latency {formatLatency(tool.avgLatencyMs)}
@@ -231,12 +347,8 @@ export default function ToolsTable({
 					cell: ({ row }) => {
 						const tool = row.original;
 						const isExpanded = expandedRowId === tool.id;
-						const hasDetails =
-							Boolean(tool.exampleInput) ||
-							Boolean(tool.exampleOutput) ||
-							Boolean(tool.inputSchema);
 
-						if (!hasDetails)
+						if (!hasToolDetails(tool))
 							return <span className="text-muted-foreground text-xs">—</span>;
 
 						return (
@@ -262,6 +374,9 @@ export default function ToolsTable({
 		state: { sorting },
 		onSortingChange: setSorting,
 	});
+
+	const visibleRows = table.getRowModel().rows.slice(0, visibleCount);
+	const sortValue = `${sorting[0]?.id ?? "toolName"}:${sorting[0]?.desc ? "desc" : "asc"}`;
 
 	return (
 		<Card className="min-w-0">
@@ -321,9 +436,39 @@ export default function ToolsTable({
 							Destructive
 						</label>
 					</div>
+					<div className="md:hidden">
+						<label htmlFor="tools-sort" className="sr-only">
+							Sort tools
+						</label>
+						<Select
+							id="tools-sort"
+							aria-label="Sort tools"
+							value={sortValue}
+							onValueChange={(value) => {
+								if (!value) return;
+								const [id, dir] = value.split(":");
+								setSorting([{ id, desc: dir === "desc" }]);
+							}}
+						>
+							<Select.Option value="toolName:asc">Name A-Z</Select.Option>
+							<Select.Option value="toolName:desc">Name Z-A</Select.Option>
+							<Select.Option value="description:asc">
+								Description A-Z
+							</Select.Option>
+							<Select.Option value="description:desc">
+								Description Z-A
+							</Select.Option>
+							<Select.Option value="lastTestedAt:desc">
+								Recently tested
+							</Select.Option>
+							<Select.Option value="lastTestedAt:asc">
+								Least recently tested
+							</Select.Option>
+						</Select>
+					</div>
 				</div>
 
-				<div className="max-w-full overflow-x-auto rounded-lg border border-border/50">
+				<div className="hidden max-w-full overflow-x-auto rounded-lg border border-border/50 md:block">
 					<Table className="min-w-[760px] table-fixed">
 						<TableHeader className="bg-muted/40">
 							{table.getHeaderGroups().map((headerGroup) => (
@@ -365,10 +510,17 @@ export default function ToolsTable({
 							))}
 						</TableHeader>
 						<TableBody>
-							{table
-								.getRowModel()
-								.rows.slice(0, visibleCount)
-								.map((row) => (
+							{visibleRows.length === 0 ? (
+								<TableRow>
+									<TableCell
+										colSpan={table.getAllColumns().length}
+										className="py-6 text-center text-muted-foreground"
+									>
+										No tools match the current filters.
+									</TableCell>
+								</TableRow>
+							) : (
+								visibleRows.map((row) => (
 									<Fragment key={row.id}>
 										<TableRow key={row.id} className="border-border/40">
 											{row.getAllCells().map((cell) => (
@@ -396,61 +548,38 @@ export default function ToolsTable({
 													colSpan={table.getAllColumns().length}
 													className="p-4"
 												>
-													<div className="grid gap-4 md:grid-cols-2">
-														{row.original.exampleInput && (
-															<div>
-																<p className="mb-2 font-medium text-muted-foreground text-xs">
-																	Example Input
-																</p>
-																<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
-																	{JSON.stringify(
-																		row.original.exampleInput,
-																		null,
-																		2,
-																	)}
-																</pre>
-															</div>
-														)}
-														{!!row.original.exampleOutput && (
-															<div>
-																<p className="mb-2 font-medium text-muted-foreground text-xs">
-																	Example Output
-																</p>
-																<pre className="max-h-40 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
-																	{typeof row.original.exampleOutput ===
-																	"string"
-																		? row.original.exampleOutput
-																		: JSON.stringify(
-																				row.original.exampleOutput,
-																				null,
-																				2,
-																			)}
-																</pre>
-															</div>
-														)}
-														{row.original.inputSchema && (
-															<div className="md:col-span-2">
-																<p className="mb-2 font-medium text-muted-foreground text-xs">
-																	Input Schema
-																</p>
-																<pre className="max-h-56 overflow-x-auto rounded-lg border border-border/60 bg-background p-3 text-xs">
-																	{JSON.stringify(
-																		row.original.inputSchema,
-																		null,
-																		2,
-																	)}
-																</pre>
-															</div>
-														)}
-													</div>
+													<ToolDetails tool={row.original} />
 												</TableCell>
 											</TableRow>
 										)}
 									</Fragment>
-								))}
+								))
+							)}
 						</TableBody>
 					</Table>
 				</div>
+
+				{/* Compact list below md; the 760px table stays desktop-only. */}
+				<ul className="space-y-2 md:hidden">
+					{visibleRows.length === 0 ? (
+						<li className="rounded-lg border border-border/50 px-3 py-6 text-center text-muted-foreground text-sm">
+							No tools match the current filters.
+						</li>
+					) : (
+						visibleRows.map((row) => (
+							<ToolCard
+								key={row.id}
+								tool={row.original}
+								expanded={expandedRowId === row.original.id}
+								onToggle={() =>
+									setExpandedRowId(
+										expandedRowId === row.original.id ? null : row.original.id,
+									)
+								}
+							/>
+						))
+					)}
+				</ul>
 				{filteredTools.length > visibleCount && (
 					<Button
 						variant="outline"

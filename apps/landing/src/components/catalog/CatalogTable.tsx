@@ -24,6 +24,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { Tabs } from "@/components/ui/tabs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	CATEGORY_COLORS,
@@ -863,27 +864,35 @@ function CatalogTableInner({
 					</Select>
 				</div>
 
-				{/* View toggle */}
-				<div className="flex items-center gap-1">
-					<Button
-						variant={viewMode === "grid" ? "secondary" : "ghost"}
-						shape="square"
-						onClick={() => setViewMode("grid")}
-						aria-pressed={viewMode === "grid"}
-						aria-label="Grid view"
-					>
-						<GridIcon className="h-4 w-4" />
-					</Button>
-					<Button
-						variant={viewMode === "table" ? "secondary" : "ghost"}
-						shape="square"
-						onClick={() => setViewMode("table")}
-						aria-pressed={viewMode === "table"}
-						aria-label="Table view"
-					>
-						<ListIcon className="h-4 w-4" />
-					</Button>
-				</div>
+				{/* View selection */}
+				<Tabs
+					aria-label="Catalog view"
+					variant="segmented"
+					tabs={[
+						{
+							value: "grid",
+							label: (
+								<span className="inline-flex items-center gap-1.5">
+									<GridIcon className="h-4 w-4" aria-hidden />
+									Grid
+								</span>
+							),
+						},
+						{
+							value: "table",
+							label: (
+								<span className="inline-flex items-center gap-1.5">
+									<ListIcon className="h-4 w-4" aria-hidden />
+									Table
+								</span>
+							),
+						},
+					]}
+					value={viewMode}
+					onValueChange={(value) =>
+						setViewMode(value === "table" ? "table" : "grid")
+					}
+				/>
 			</div>
 
 			{/* Active filters summary */}
