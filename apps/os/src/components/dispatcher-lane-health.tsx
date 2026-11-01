@@ -3,12 +3,13 @@ import type { DispatcherHealthReport } from "@tedix/api-contract/schemas/dispatc
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/kumo/badge";
 import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "@/components/kumo/card";
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/kumo/table";
 import { Text } from "@/components/kumo/text";
 import {
 	WorkEmpty,
@@ -17,6 +18,7 @@ import {
 } from "./work-surface-primitives";
 import { dispatcherHealthQueryOptions } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
+import { OS_COPY } from "@/shared/os-copy";
 
 function skipReasonSummary(reason: string): string {
 	if (
@@ -77,8 +79,8 @@ export function DispatcherLaneHealth() {
 				<h2 className="type-tedix-section">Local lanes</h2>
 				<Text tone="secondary">
 					Checks for new reports every 30 seconds. A running runner does not
-					prove a task is progressing. Lead reports describe the last pass, not
-					whether another pass is running now.
+					prove a task is progressing. Runner and Lead states reflect their
+					latest reports; older reports leave their current state unknown.
 				</Text>
 			</div>
 			{health.isError ? (
@@ -106,187 +108,208 @@ export function DispatcherLaneHealth() {
 				</Text>
 			) : null}
 			{[false, true].map((historical) => {
-				const lanes =
-					health.data?.data.filter(
-						(lane) => isStaleReport(lane, now) === historical,
-					) ?? [];
-				if (!lanes.length) return null;
-				const cards = (
-					<div className="grid gap-4">
-						{[...new Set(lanes.map((lane) => lane.reporterId))].map(
-							(machine) => (
-								<section
-									key={machine}
-									aria-label={`Machine ${machine}`}
-									className="grid min-w-0 gap-3"
+				const machines = [
+					...new Set(health.data?.data.map((lane) => lane.reporterId)),
+				].filter(
+					(machine) =>
+						health.data?.data
+							.filter((lane) => lane.reporterId === machine)
+							.every((lane) => isStaleReport(lane, now)) === historical,
+				);
+				if (!machines.length) return null;
+				const tables = (
+					<div className="grid min-w-0 gap-4">
+						{machines.map((machine) => (
+							<section
+								key={machine}
+								aria-label={`Machine ${machine}`}
+								className="grid min-w-0 gap-2"
+							>
+								<h3 className="type-tedix-section break-all">{machine}</h3>
+								<Table
+									aria-label={`Duties on ${machine}`}
+									mobileLayout="stacked"
+									className="w-full table-fixed"
 								>
-									<h3 className="type-tedix-section break-all">{machine}</h3>
-									<div className="grid gap-3 lg:grid-cols-3">
-										{lanes
+									<TableHeader>
+										<TableRow>
+											{OS_COPY.supervisorDutyColumns.map((label) => (
+												<TableHead key={label} scope="col">
+													{label}
+												</TableHead>
+											))}
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{health.data?.data
 											.filter((lane) => lane.reporterId === machine)
-											.map((lane) => {
-												const stale = historical;
-												const lead = lane.lane === "supervisor-lead";
-												const observedAt =
-													lane.duty?.observedAt ?? lane.observedAt;
-												const state = stale
-													? "Unknown · stale"
-													: lane.duty
-														? {
-																running: lead ? "Lead running" : "Running",
-																waiting: lead
-																	? "Waiting for next check"
-																	: "Restart scheduled",
-																stopped: "Stopped",
-																failed: "Needs attention",
-																unknown: "Unknown",
-															}[lane.duty.state]
-														: lead
-															? "Last pass reported"
-															: !lane.running
-																? "Stopped"
-																: lane.slotsInUse > 0
-																	? "Slots in use"
-																	: "Idle";
-												return (
-													<Card
-														key={`${lane.reporterId}:${lane.lane}`}
-														data-lane-state={state}
-													>
-														<CardHeader>
-															<CardTitle className="flex flex-wrap items-center justify-between gap-2">
-																{lead
-																	? `Lead · ${lane.executor}`
-																	: lane.executor}
-																<Badge
-																	variant={
-																		stale || !lane.running
-																			? "warning"
-																			: "secondary"
-																	}
-																>
-																	{state}
-																</Badge>
-															</CardTitle>
-															<CardDescription className="break-all">
-																{lead
-																	? "Periodic Lead check"
-																	: `Runner: ${lane.lane}`}
-															</CardDescription>
-														</CardHeader>
-														<CardContent className="grid gap-2">
-															{lead ? (
-																<Text>
-																	Current pass:{" "}
-																	{lane.duty ? state : "Not reported"}
-																</Text>
-															) : (
-																<Text>
-																	{lane.slotsInUse} / {lane.slotsTotal} slots in
-																	use
-																	{stale ? " at last observation" : ""}
-																</Text>
-															)}
-															<Text tone="secondary">
-																Observed{" "}
-																<time
-																	dateTime={observedAt}
-																	title={absoluteTime(observedAt)}
-																>
-																	{relativeTime(observedAt, new Date(now))}
-																</time>
-															</Text>
-															<Text tone="secondary">
-																Received {absoluteTime(lane.reportedAt)}
-															</Text>
-															<Text tone="secondary">
-																Last task picked up:{" "}
-																{lane.lastAdmissionAt
-																	? absoluteTime(lane.lastAdmissionAt)
-																	: "Not observed"}
-															</Text>
-															{lane.topReason ? (
-																<details className="min-w-0 break-words">
-																	<summary className="min-h-11 cursor-pointer py-2">
-																		{lead
-																			? "Last pass result"
-																			: "Most reported problem (30 min)"}
-																		:{" "}
-																		{lead
-																			? lane.topReason.reason
-																			: skipReasonSummary(
-																					lane.topReason.reason,
-																				)}
-																		{!lead &&
-																			` · ${lane.topReason.count} observations`}
-																	</summary>
-																	<Text className="break-words">
-																		{lane.topReason.reason}
-																	</Text>
-																</details>
-															) : (
-																<Text>
-																	{lead
-																		? "Last pass result: Not reported"
-																		: "No repeated problem reported in the last 30 minutes."}
-																</Text>
-															)}
-															{lane.duty ? (
-																<div className="grid gap-2">
-																	<Text>
-																		Last started:{" "}
-																		{lane.duty.lastRunAt
-																			? absoluteTime(lane.duty.lastRunAt)
-																			: "Not observed"}
-																	</Text>
-																	<Text>
-																		Last exit:{" "}
-																		{lane.duty.lastExitAt
-																			? `${absoluteTime(lane.duty.lastExitAt)} · code ${lane.duty.lastExitCode ?? "unavailable"}`
-																			: "Not observed"}
-																	</Text>
-																	<Text>
-																		Recorded restarts (last hour):{" "}
-																		{lane.duty.restartsLastHour}
-																	</Text>
-																	{lane.duty.retryAt ? (
-																		<Text>
-																			Next {lead ? "check" : "retry"}:{" "}
-																			{absoluteTime(lane.duty.retryAt)}
-																		</Text>
-																	) : null}
-																	{lane.duty.lastProblem ? (
-																		<Text className="break-words">
-																			Last problem: {lane.duty.lastProblem}
-																		</Text>
-																	) : null}
-																</div>
-															) : (
-																<Text tone="secondary">
-																	Restart history: Not reported
-																</Text>
-															)}
-														</CardContent>
-													</Card>
-												);
-											})}
-									</div>
-								</section>
-							),
-						)}
+											.map((lane) => (
+												<DutyRow key={lane.lane} lane={lane} now={now} />
+											))}
+									</TableBody>
+								</Table>
+							</section>
+						))}
 					</div>
 				);
 				return historical ? (
-					<details key="historical" className="grid gap-3">
+					<details key="historical" className="min-w-0">
 						<summary className="min-h-11 cursor-pointer py-2">
-							Historical lane observations ({lanes.length})
+							Historical machines ({machines.length})
 						</summary>
-						{cards}
+						{tables}
 					</details>
 				) : (
-					<div key="current">{cards}</div>
+					<div key="current" className="min-w-0">
+						{tables}
+					</div>
 				);
 			})}
 		</section>
+	);
+}
+
+function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
+	const stale = isStaleReport(lane, now);
+	const lead = lane.lane === "supervisor-lead";
+	const duty = lane.duty;
+	const observedAt = duty?.observedAt ?? lane.observedAt;
+	const state = stale
+		? "Unknown · stale"
+		: duty
+			? {
+					running: lead ? "Lead running" : "Running",
+					waiting: lead ? "Waiting for next check" : "Restart scheduled",
+					stopped: "Stopped",
+					failed: "Needs attention",
+					unknown: "Unknown",
+				}[duty.state]
+			: lead
+				? "Last pass reported"
+				: !lane.running
+					? "Stopped"
+					: lane.slotsInUse > 0
+						? "Slots in use"
+						: "Idle";
+	return (
+		<TableRow data-lane-state={state}>
+			<TableCell
+				label="Duty"
+				className="whitespace-normal break-words align-top"
+			>
+				<span className="font-medium">
+					{lead ? `Lead · ${lane.executor}` : lane.executor}
+				</span>
+				<Text tone="secondary" className="break-all">
+					{lead ? "Periodic Lead check" : `Runner: ${lane.lane}`}
+				</Text>
+			</TableCell>
+			<TableCell label="State" className="whitespace-normal align-top">
+				<Badge
+					variant={
+						stale ||
+						(duty
+							? ["failed", "stopped", "unknown"].includes(duty.state)
+							: !lane.running)
+							? "warning"
+							: "secondary"
+					}
+				>
+					{state}
+				</Badge>
+			</TableCell>
+			<TableCell label="Last observed" className="whitespace-normal align-top">
+				<time dateTime={observedAt} title={absoluteTime(observedAt)}>
+					{relativeTime(observedAt, new Date(now))}
+				</time>
+				{stale ? <Text tone="secondary">Historical report</Text> : null}
+			</TableCell>
+			<TableCell
+				label="Problem"
+				className="whitespace-normal break-words align-top"
+			>
+				<Text>
+					{stale
+						? "Current problem unknown"
+						: (duty?.lastProblem ?? "Not reported")}
+				</Text>
+				<details className="min-w-0 break-words">
+					<summary className="min-h-11 cursor-pointer py-2">
+						History and details
+					</summary>
+					<div className="grid gap-2">
+						{stale ? (
+							<Text>
+								Historical lane observation. Current state is unknown.
+							</Text>
+						) : null}
+						{lead ? (
+							<Text>Current pass: {duty ? state : "Not reported"}</Text>
+						) : (
+							<Text>
+								{lane.slotsInUse} / {lane.slotsTotal} slots in use
+								{stale ? " at last observation" : ""}
+							</Text>
+						)}
+						<Text tone="secondary">
+							Received {absoluteTime(lane.reportedAt)}
+						</Text>
+						<Text>
+							Last task picked up:{" "}
+							{lane.lastAdmissionAt
+								? absoluteTime(lane.lastAdmissionAt)
+								: "Not observed"}
+						</Text>
+						{lane.topReason ? (
+							<div>
+								<Text>
+									{lead ? "Last pass result" : "Most reported problem (30 min)"}
+									:{" "}
+									{lead
+										? lane.topReason.reason
+										: skipReasonSummary(lane.topReason.reason)}
+									{!lead && ` · ${lane.topReason.count} observations`}
+								</Text>
+								{!lead ? <Text>{lane.topReason.reason}</Text> : null}
+							</div>
+						) : (
+							<Text>
+								{lead
+									? "Last pass result: Not reported"
+									: "No repeated problem reported in the last 30 minutes."}
+							</Text>
+						)}
+						{duty ? (
+							<>
+								<Text>
+									Last started:{" "}
+									{duty.lastRunAt
+										? absoluteTime(duty.lastRunAt)
+										: "Not observed"}
+								</Text>
+								<Text>
+									Last exit:{" "}
+									{duty.lastExitAt
+										? `${absoluteTime(duty.lastExitAt)} · code ${duty.lastExitCode ?? "unavailable"}`
+										: "Not observed"}
+								</Text>
+								<Text>
+									Recorded restarts (last hour): {duty.restartsLastHour}
+								</Text>
+								<Text>
+									Next {lead ? "check" : "retry"}:{" "}
+									{duty.retryAt ? absoluteTime(duty.retryAt) : "Not reported"}
+								</Text>
+								{duty.lastProblem ? (
+									<Text>Last problem: {duty.lastProblem}</Text>
+								) : null}
+							</>
+						) : (
+							<Text tone="secondary">Restart history: Not reported</Text>
+						)}
+					</div>
+				</details>
+			</TableCell>
+		</TableRow>
 	);
 }
