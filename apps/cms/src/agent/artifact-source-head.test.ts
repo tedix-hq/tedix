@@ -5,13 +5,21 @@ import { readThemeArtifactHead } from "./artifact-source-read";
 const COMMIT = "a".repeat(40);
 
 function fixture(
-	options: { hashes?: string[]; missing?: boolean; fail?: boolean } = {},
+	options: {
+		hashes?: readonly string[];
+		missing?: boolean;
+		fail?: boolean;
+		code?: string;
+	} = {},
 ) {
 	const dispose = vi.fn();
 	const repo = {
 		[Symbol.dispose]: dispose,
 		log: vi.fn(async () => {
-			if (options.fail) throw new Error("private provider detail");
+			if (options.fail)
+				throw Object.assign(new Error("private provider detail"), {
+					code: options.code,
+				});
 			return (options.hashes ?? [COMMIT]).map((hash) => ({
 				hash,
 				message: "private draft message",
@@ -40,7 +48,7 @@ describe("native theme main-branch read", () => {
 		expect(await f.read()).toEqual({ branch: "main", sourceCommit: COMMIT });
 		expect(f.get).toHaveBeenCalledWith("cms-theme-acme");
 		expect(f.repo.log).toHaveBeenCalledWith({
-			ref: "refs/heads/main",
+			ref: "main",
 			limit: 1,
 			offset: 0,
 		});
@@ -63,4 +71,29 @@ describe("native theme main-branch read", () => {
 		expect(f.repo.createToken).not.toHaveBeenCalled();
 		expect(f.dispose).toHaveBeenCalledOnce();
 	});
+
+	it.each([
+		[{ hashes: [] }, "main_validation: main_not_found"],
+		[{ hashes: ["invalid"] }, "main_validation: invalid_main_history"],
+		[{ missing: true }, "commit_verification: provider_failure"],
+		[{ fail: true, code: "INVALID_INPUT" }, "main_history: INVALID_INPUT"],
+		[
+			{ fail: true, code: "private secret code" },
+			"main_history: provider_failure",
+		],
+	] as const)(
+		"reports only a safe stage and known code for %j",
+		async (options, diagnostic) => {
+			const f = fixture(options);
+			let message = "";
+			try {
+				await f.read();
+			} catch (error) {
+				message = (error as Error).message;
+			}
+			expect(message).toContain(diagnostic);
+			expect(message).not.toContain("private");
+			expect(f.repo.createToken).not.toHaveBeenCalled();
+		},
+	);
 });
