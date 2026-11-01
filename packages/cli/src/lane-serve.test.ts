@@ -3039,6 +3039,37 @@ it("runs due heartbeats before queued normal calls without overlapping the curre
 	]);
 });
 
+it("admits a queued read during a continuing stream of urgent renewals", async () => {
+	const queue = serialCalls();
+	const events: string[] = [];
+	let release!: () => void;
+	const current = queue(
+		() =>
+			new Promise<void>((resolve) => {
+				release = resolve;
+			}),
+	);
+	await until(() => Boolean(release));
+	const read = queue(async () => {
+		events.push("read");
+	});
+	const renewals: Promise<void>[] = [];
+	const renew = () => {
+		renewals.push(
+			queue(async () => {
+				events.push("renew");
+				if (renewals.length < 12) renew();
+			}, true),
+		);
+	};
+	renew();
+	release();
+	await read;
+	expect(events.slice(0, 4)).toEqual(["renew", "renew", "renew", "read"]);
+	await until(() => events.length === 13);
+	await Promise.all([current, ...renewals]);
+});
+
 it("serializes calls and releases the queue after an error", async () => {
 	const queue = serialCalls();
 	const events: string[] = [];
