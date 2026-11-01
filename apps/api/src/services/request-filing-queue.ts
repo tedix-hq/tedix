@@ -65,6 +65,7 @@ export async function processRequestFilingQueue(
 		return { state: "permission_denied" as const };
 	const model = workersAiLedgerModel(
 		organizationModelEnv(env, db, owner.organizationId),
+		owner.organizationId,
 	);
 	model.chooseProject = requestFilingFitModel(
 		db,

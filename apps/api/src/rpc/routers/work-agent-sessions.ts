@@ -529,6 +529,7 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 			return result;
 		const model = workersAiLedgerModel(
 			organizationModelEnv(context.env, context.db, requireOrgId(context)),
+			owner.organizationId,
 		);
 		const { enqueueRequestFiling } =
 			await import("../../services/request-filing-queue");

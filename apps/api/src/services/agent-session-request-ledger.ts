@@ -95,6 +95,7 @@ type LedgerEnv = DistillEnv &
 
 async function reflectWithGateway(
 	env: LedgerEnv,
+	organizationId: string,
 	system: string,
 	prompt: string,
 	surface: string,
@@ -120,7 +121,7 @@ async function reflectWithGateway(
 					"content-type": "application/json",
 					"cf-aig-authorization": `Bearer ${transport.authorization}`,
 					"cf-aig-no-wholesale": "true",
-					"cf-aig-metadata": JSON.stringify({ surface }),
+					"cf-aig-metadata": JSON.stringify({ surface, orgId: organizationId }),
 				},
 				body: JSON.stringify({
 					model: LEDGER_REFLECTOR_MODEL,
@@ -226,13 +227,16 @@ export interface LedgerProcessingModel extends LedgerModel {
 	extractObligations: NonNullable<LedgerModel["extractObligations"]>;
 }
 
-export function workersAiLedgerModel(env: LedgerEnv): LedgerProcessingModel {
+export function workersAiLedgerModel(
+	env: LedgerEnv,
+	organizationId: string,
+): LedgerProcessingModel {
 	const model: LedgerModel = (system, prompt, surface) =>
 		surface === "agent-session-request-reflector" ||
 		surface === "agent-session-request-intake" ||
 		surface === "agent-session-project-routing" ||
 		surface === "agent-session-lesson-reflector"
-			? reflectWithGateway(env, system, prompt, surface)
+			? reflectWithGateway(env, organizationId, system, prompt, surface)
 			: runDistillModel(env, prompt, {
 					model: LEDGER_MODEL,
 					system,

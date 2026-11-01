@@ -885,12 +885,15 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 			],
 		}),
 	);
-	const model = workersAiLedgerModel({
-		AI: { run, fetch } as unknown as Ai,
-		AI_GATEWAY_LLM_ID: "example-gateway",
-		AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
-		AZURE_OPENAI_RESOURCE: "example-resource",
-	});
+	const model = workersAiLedgerModel(
+		{
+			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_LLM_ID: "example-gateway",
+			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
+			AZURE_OPENAI_RESOURCE: "example-resource",
+		},
+		SCOPE.organizationId,
+	);
 	expect(
 		await model("system", "prompt", "agent-session-request-observer"),
 	).toBe('{"requests":[]}');
@@ -982,6 +985,17 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 		model("system", "portfolio", "agent-session-project-routing"),
 	).rejects.toThrow("Request filing model exceeded its 24-second deadline");
 	expect(run).toHaveBeenCalledTimes(1);
+	for (const [, request] of fetch.mock.calls) {
+		const metadata = JSON.parse(request.headers["cf-aig-metadata"]);
+		expect(Object.keys(metadata).sort()).toEqual(["orgId", "surface"]);
+		expect(metadata.orgId).toBe(SCOPE.organizationId);
+		expect([
+			"agent-session-request-reflector",
+			"agent-session-request-intake",
+			"agent-session-project-routing",
+			"agent-session-lesson-reflector",
+		]).toContain(metadata.surface);
+	}
 });
 
 it("ages only after five distinct silent turns, resets on mention, and protects running lanes", async () => {
