@@ -1,4 +1,5 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { readEvaluationInstructions } from "./evaluation-context";
 import {
 	callRpc,
 	RpcCallError,
@@ -166,6 +167,7 @@ export const runtimeRepository = {
 		input: {
 			path?: string;
 			maxChars?: number;
+			evaluationInstructions?: boolean;
 		},
 	): Promise<unknown> {
 		await this.ensureIdentity();
@@ -176,6 +178,23 @@ export const runtimeRepository = {
 			ARTIFACT_READ_MAX_CHARS,
 			ARTIFACT_READ_MAX_CHARS,
 		);
+		if (input.evaluationInstructions) {
+			if (input.path !== "AGENTS.md")
+				throw new Error(
+					"Evaluation instruction reads are restricted to AGENTS.md",
+				);
+			const instructions = await readEvaluationInstructions(this.env, tediId);
+			return {
+				ok: true,
+				source: "effective_evaluation_instructions",
+				tediId,
+				path: "AGENTS.md",
+				...instructions,
+				content: instructions.content.slice(0, maxChars),
+				chars: instructions.content.length,
+				truncated: instructions.content.length > maxChars,
+			};
+		}
 		// A run artifact the ledger recorded (`workstation_process/<id>/stdout.log`,
 		// `deliverable/report.md`, or its artifact id) lives in R2, not in the git
 		// repo; resolve it through the artifact index first and fall back to the
@@ -378,6 +397,7 @@ export const runtimeRepository = {
 					"Read one UTF-8 text file from your canonical Cloudflare Artifacts repo, for example SOUL.md, AGENTS.md, TOOLS.md, or memory/MEMORY.md. Also resolves a run artifact recorded in the ledger by its name (workstation_process/<id>/stdout.log, deliverable/<file>) or artifact id, reading its stored body.",
 				inputSchema: z.object({
 					path: z.string().min(1),
+					evaluationInstructions: z.boolean().optional(),
 					maxChars: z
 						.number()
 						.int()

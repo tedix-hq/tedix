@@ -387,6 +387,7 @@ export interface RuntimeRequestHost {
 	readArtifactFileTool: (input: {
 		path?: string;
 		maxChars?: number;
+		evaluationInstructions?: boolean;
 	}) => Promise<unknown>;
 	writeArtifactFileTool: (
 		input: { path?: string; content?: string; message?: string },

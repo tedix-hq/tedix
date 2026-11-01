@@ -2833,6 +2833,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private async readArtifactFileTool(input: {
 		path?: string;
 		maxChars?: number;
+		evaluationInstructions?: boolean;
 	}): Promise<unknown> {
 		return runtimeRepository.readArtifactFileTool.call(
 			this.repositoryHost(),

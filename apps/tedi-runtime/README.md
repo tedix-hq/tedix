@@ -6,7 +6,16 @@ The Agent runtime — the default tedi body. Every tedi is served here.
 
 An owner/admin certification run can request a tool-free evaluation with auditable
 model input. The canonical workflow run must carry a Work Item, a live Attempt,
-a pinned skill revision and source hash, and these run parameters:
+a pinned skill revision and source hash.
+
+Before admission, read `artifact_read_file` with `path: "AGENTS.md"` and
+`evaluationInstructions: true`. This explicit mode reads the same effective
+organization instructions as evaluation admission, including the runtime's
+migration fallback. Review the complete returned text, require `truncated: false`,
+and pin its `sha256`. Other paths are refused in this mode. Ordinary file reads
+keep their existing repository semantics.
+
+Use these run parameters:
 
 ```json
 {

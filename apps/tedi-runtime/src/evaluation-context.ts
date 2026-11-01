@@ -118,25 +118,49 @@ export async function admitEvaluation(input: {
 			"Evaluation workflow provenance does not match its canonical admission",
 		);
 	await assertEvaluationWork(input.env, input.orgId, admission);
+	const instructions = await readEvaluationInstructions(
+		input.env,
+		input.tediId,
+	);
+	if (instructions.sha256 !== admission.reviewedAgentsSha256)
+		throw new Error(
+			"Evaluation organization instructions differ from the reviewed digest",
+		);
+	return { ...admission, agents: instructions.content };
+}
+
+/** Preflight and admission use the same effective identity source and bytes. */
+export async function readEvaluationInstructions(
+	env: Cloudflare.Env,
+	tediId: string,
+) {
 	const identity = await readIdentityFilesWithDiagnostics({
-		bucket: input.env.TEDI_STORAGE,
-		tediId: input.tediId,
+		bucket: env.TEDI_STORAGE,
+		tediId,
 		files: ["AGENTS.md"],
-		artifacts: input.env.ARTIFACTS,
-		artifactsAccountId: input.env.CF_ACCOUNT_ID,
+		artifacts: env.ARTIFACTS,
+		artifactsAccountId: env.CF_ACCOUNT_ID,
 		artifactsNamespace: TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION,
 	});
 	const agents = identity.files.find((file) =>
 		file.key.endsWith("AGENTS.md"),
 	)?.text;
-	if (
-		agents === undefined ||
-		(await sha256Hex(agents)) !== admission.reviewedAgentsSha256
-	)
+	if (agents === undefined)
 		throw new Error(
-			"Evaluation organization instructions are missing or differ from the reviewed digest",
+			"Effective evaluation organization instructions are unavailable",
 		);
-	return { ...admission, agents };
+	const source = identity.diagnostics.files.find(
+		(file) => file.path === "AGENTS.md",
+	);
+	return {
+		content: agents,
+		sha256: await sha256Hex(agents),
+		provenance: {
+			backend: source?.source ?? "missing",
+			key: source?.key ?? null,
+		},
+		runtimeSource: env.GIT_SHA ?? null,
+	};
 }
 
 export async function assertEvaluationWork(
