@@ -806,7 +806,7 @@ it("claims queued calls only when due, recovers a cut-off run, and rejects an ol
 			},
 		},
 		createdAt: now,
-		expiresAt: "2026-11-01T12:00:00.000Z",
+		expiresAt: "2099-11-01T12:00:00.000Z",
 	});
 	await resolveApprovalRequest(db, "queued-1", {
 		status: "approved",
@@ -851,8 +851,8 @@ it("claims queued calls only when due, recovers a cut-off run, and rejects an ol
 	expect(
 		await reclaimOwnerToolApprovalExecution(db, {
 			...claim,
-			now: "2026-11-02T12:00:00.000Z",
-			staleBefore: "2026-11-02T11:50:00.000Z",
+			now: "2099-11-02T12:00:00.000Z",
+			staleBefore: "2099-11-02T11:50:00.000Z",
 		}),
 	).toBe(false);
 	const attention = await listApprovalRequests(db, {
