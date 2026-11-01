@@ -1,9 +1,13 @@
 import { describe, expect, it, vi } from "vite-plus/test";
+import * as eventQueries from "@tedix/db/queries/kernel-runtime-events";
 import {
 	augmentTreeWithFanoutChildren,
 	buildFanoutChildNodes,
 } from "./kernel/child-run-delegated-result";
-import { readSingleChildRunSummary } from "./kernel/child-run-reads";
+import {
+	readSingleChildRunSummary,
+	readSingleChildRunObservation,
+} from "./kernel/child-run-reads";
 import {
 	explicitDelegationNeedsEmbodiedSurface,
 	kernelRuntimeTestHooks,
@@ -964,6 +968,69 @@ describe("readSingleChildRunSummary", () => {
 			runId: CHILD_RUN_ID,
 		});
 		expect(summary).toBeNull();
+	});
+
+	it("distinguishes an unavailable child ledger from a healthy empty ledger", async () => {
+		const db = createKernelRuntimeDb();
+		const context = createContext(db);
+		const ref = {
+			organizationId: ORG_ID,
+			tediId: TEDI_ID,
+			runId: CHILD_RUN_ID,
+		};
+		expect(await readSingleChildRunObservation(context, ref)).toEqual({
+			summary: null,
+			readAvailable: true,
+		});
+		db.controls.childRuntimeSelectError = new Error(
+			"D1_ERROR: Failed to parse body as JSON, got: Error: Network connection lost.",
+		);
+		expect(await readSingleChildRunObservation(context, ref)).toEqual({
+			summary: null,
+			readAvailable: false,
+		});
+	});
+
+	it("does not infer missing workstation events during a mapping outage, but preserves a primary terminal receipt", async () => {
+		const db = createKernelRuntimeDb();
+		const context = createContext(db);
+		const ref = {
+			organizationId: ORG_ID,
+			tediId: TEDI_ID,
+			runId: CHILD_RUN_ID,
+		};
+		const mapping = vi
+			.spyOn(eventQueries, "getChatDispatchMappingByIdempotencyKey")
+			.mockRejectedValue(
+				new Error(
+					"D1_ERROR: Failed to parse body as JSON, got: Error: Network connection lost.",
+				),
+			);
+		try {
+			expect(await readSingleChildRunObservation(context, ref)).toEqual({
+				summary: null,
+				readAvailable: false,
+			});
+			db.runtimeEvents.push(
+				childRuntimeEvent({
+					id: "primary-failed",
+					kind: "run.failed",
+					runId: CHILD_RUN_ID,
+					tediId: TEDI_ID,
+				}),
+			);
+			expect(await readSingleChildRunObservation(context, ref)).toMatchObject({
+				summary: { childRunStatus: "failed" },
+				readAvailable: true,
+			});
+		} finally {
+			mapping.mockRestore();
+		}
+		db.runtimeEvents.length = 0;
+		expect(await readSingleChildRunObservation(context, ref)).toEqual({
+			summary: null,
+			readAvailable: true,
+		});
 	});
 });
 

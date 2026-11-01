@@ -9,7 +9,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { sql } from "drizzle-orm";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
@@ -787,6 +787,9 @@ describe("pending owner tool approval lookup", () => {
 it("claims queued calls only when due, recovers a cut-off run, and rejects an old completion", async () => {
 	const { db } = setup();
 	const now = "2026-10-31T12:00:00.000Z";
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(new Date(now));
+	onTestFinished(() => vi.useRealTimers());
 	await createApprovalRequest(db, {
 		id: "queued-1",
 		orgId: "org-1",

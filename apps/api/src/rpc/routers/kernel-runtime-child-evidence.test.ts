@@ -226,6 +226,16 @@ describe("kernel runtime router: child-evidence", () => {
 		db.controls.childRuntimeSelectError = new Error(
 			"D1_ERROR: Failed to parse body as JSON, got: Error: Network connection lost.",
 		);
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "parent-flaky-events",
+				organizationId: ORG_ID,
+				conversationId: "home:test",
+				status: "running",
+				delegatedTediId: "tedi-cpo",
+				childRunId: "child-run-flaky-events",
+			}),
+		);
 		db.artifacts.push({
 			conversationId: "agent:main:main",
 			createdAt: "2026-06-06T08:01:00.000Z",
@@ -252,7 +262,9 @@ describe("kernel runtime router: child-evidence", () => {
 			delegatedTediId: "tedi-cpo",
 			status: "queued",
 			latestEventAt: null,
+			storeHealthy: false,
 		});
+		expect(result.evidence.populated).toBeUndefined();
 		expect(result.evidence.events).toEqual([]);
 		expect(result.evidence.artifacts.map((artifact) => artifact.id)).toEqual([
 			"artifact-flaky-events",

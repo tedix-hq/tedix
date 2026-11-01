@@ -341,8 +341,8 @@ async function reconcileStaleSubmissions(
 					// so the run row is consistent with the submission settle that follows. For delegation parents, re-check current
 					// child evidence before crashing. Fresh activity keeps a waiting parent alive; substantive completion settles the
 					// parent completed instead of failing (the firecrawl pattern: child completes at t0, parent crash-fails at t0+18m
-					// because the DO was evicted with the run still running). Fail-soft: any error in the re-check falls back to the
-					// original crash-fail behavior.
+					// because the DO was evicted with the run still running). An unavailable
+					// child ledger defers crash-failure until its execution can be observed.
 					const isCrashTerminalization =
 						submissionBridge.kernelRunStatusToSubmissionOutcome(
 							runRow.status,
@@ -357,13 +357,14 @@ async function reconcileStaleSubmissions(
 							childRunId.length > 0
 						) {
 							try {
-								const childSummary = await (
+								const { summary: childSummary, readAvailable } = await (
 									await loadKernelChildRunReads()
-								).readSingleChildRunSummary(context, {
+								).readSingleChildRunObservation(context, {
 									organizationId,
 									tediId: delegatedTediId,
 									runId: childRunId,
 								});
+								if (!readAvailable && !submission.abortRequestedAt) continue;
 								// Native command waits publish real observations without completing the child. Recheck freshness under the same
 								// terminal/abort precedence before declaring its parent dead.
 								if (
@@ -417,12 +418,13 @@ async function reconcileStaleSubmissions(
 								}
 							} catch (selfHealError) {
 								console.warn(
-									"[kernel] crash self-heal child re-check failed — falling back to crash-fail",
+									"[kernel] crash self-heal child re-check unavailable",
 									{
 										runId: submission.runId,
 										exception: safeExceptionTopology(selfHealError),
 									},
 								);
+								if (!submission.abortRequestedAt) continue;
 							}
 						}
 						// Pre-side-effect crash → re-drive instead of sealing failed. The inline kernel routing turn is wrap-or-lose on a

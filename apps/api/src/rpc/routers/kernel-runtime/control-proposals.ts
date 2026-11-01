@@ -533,11 +533,14 @@ async function cancelKernelRunCore(
 		reason: input.reason ?? null,
 	});
 	if (existingRun.childRunId && existingRun.delegatedTediId) {
-		const childRunStatuses = await withTimeout(
+		const { childRunStatuses, unavailableChildRunKeys } = await withTimeout(
 			readChildRunStatusesForRunRows(context, [existingRun]),
 			3_000,
 			"Child status before cancel",
-		).catch(() => new Map<string, Record<string, unknown>>());
+		).catch(() => ({
+			childRunStatuses: new Map<string, Record<string, unknown>>(),
+			unavailableChildRunKeys: new Set<string>(),
+		}));
 		const childRunStatus = childRunStatuses.get(
 			childRunStatusKey(existingRun.delegatedTediId, existingRun.childRunId),
 		);
@@ -552,6 +555,7 @@ async function cancelKernelRunCore(
 		) {
 			const [reconciledRow = existingRun] =
 				await reconcileHomeRunRowsFromChildStatus(context, {
+					unavailableChildRunKeys,
 					childRunStatuses,
 					rows: [existingRun],
 				});

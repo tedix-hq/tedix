@@ -74,14 +74,16 @@ async function withTransientD1Retry<T>(read: () => Promise<T>): Promise<T> {
 async function readMappedWorkstationRunIds(
 	context: BaseContext,
 	ref: { runId: string; tediId: string },
-): Promise<string[]> {
+): Promise<{ runIds: string[]; readAvailable: boolean }> {
 	try {
 		const mapping = await withTransientD1Retry(() =>
 			getChatDispatchMappingByIdempotencyKey(context.db, ref.runId),
 		);
 		const mappedRunId = mapping?.runId;
-		if (!mappedRunId || mappedRunId === ref.runId) return [];
-		return [mappedRunId];
+		return {
+			runIds: mappedRunId && mappedRunId !== ref.runId ? [mappedRunId] : [],
+			readAvailable: true,
+		};
 	} catch (error) {
 		// Fail-soft: a transport flake on the OPTIONAL workstation mapping must
 		// not sink the whole evidence read — the primary childRunId query still
@@ -92,7 +94,7 @@ async function readMappedWorkstationRunIds(
 			runId: ref.runId,
 			tediId: ref.tediId,
 		});
-		return [];
+		return { runIds: [], readAvailable: false };
 	}
 }
 
@@ -103,14 +105,17 @@ async function resolveObservedChildRunIds(
 		runId: string;
 		tediId: string;
 	},
-): Promise<string[]> {
+): Promise<{ observedRunIds: string[]; mappingReadAvailable: boolean }> {
 	const ids = [ref.runId];
+	let mappingReadAvailable = true;
 	if (ref.includeMappedWorkstationRun) {
-		for (const mappedRunId of await readMappedWorkstationRunIds(context, ref)) {
+		const mapping = await readMappedWorkstationRunIds(context, ref);
+		mappingReadAvailable = mapping.readAvailable;
+		for (const mappedRunId of mapping.runIds) {
 			if (!ids.includes(mappedRunId)) ids.push(mappedRunId);
 		}
 	}
-	return ids;
+	return { observedRunIds: ids, mappingReadAvailable };
 }
 
 export async function readChildRunEvidenceRows(
@@ -127,11 +132,12 @@ export async function readChildRunEvidenceRows(
 		tediId: string;
 	},
 ): Promise<ChildRunEvidenceRows & { eventReadAvailable: boolean }> {
-	const observedRunIds = await resolveObservedChildRunIds(context, {
-		includeMappedWorkstationRun: input.includeMappedWorkstationRun,
-		runId: input.runId,
-		tediId: input.tediId,
-	});
+	const { observedRunIds, mappingReadAvailable } =
+		await resolveObservedChildRunIds(context, {
+			includeMappedWorkstationRun: input.includeMappedWorkstationRun,
+			runId: input.runId,
+			tediId: input.tediId,
+		});
 	let eventReadAvailable = true;
 	const readEventRows = (async () => {
 		try {
@@ -268,7 +274,16 @@ export async function readChildRunEvidenceRows(
 		artifactRows,
 		eventRows: mergedEventRows,
 		observedRunIds,
-		eventReadAvailable,
+		// A primary terminal receipt remains authoritative without its optional mapping.
+		eventReadAvailable:
+			eventReadAvailable &&
+			(mappingReadAvailable ||
+				eventRows.some(
+					(row) =>
+						row.kind === "run.completed" ||
+						row.kind === "run.failed" ||
+						row.kind === "run.canceled",
+				)),
 	};
 }
 
@@ -276,38 +291,56 @@ export async function readChildRunEvidenceRows(
  * Read and summarize the child runtime events for a single delegation child run.
  * Returns the `summarizeChildRuntimeEvents` summary (which includes
  * `childRunStatus`, `childRunPreview`, etc.) or null when no events exist or the
- * read fails. Used by the crash-lease sweep in `reconcileStaleSubmissions` to
- * identify fresh child activity and substantive completion before crash-failing
- * a silent delegation parent. The sweep supplies its organization constraint.
+ * read fails. Mutation-owning callers use readSingleChildRunObservation to
+ * distinguish unavailable evidence from a confirmed empty ledger.
  */
 export async function readSingleChildRunSummary(
 	context: BaseContext,
 	ref: { organizationId?: string; tediId: string; runId: string },
 ): Promise<Record<string, unknown> | null> {
+	return (await readSingleChildRunObservation(context, ref)).summary;
+}
+
+/** Availability and summary from the same bounded child ledger read. */
+export async function readSingleChildRunObservation(
+	context: BaseContext,
+	ref: { organizationId?: string; tediId: string; runId: string },
+): Promise<{
+	summary: Record<string, unknown> | null;
+	readAvailable: boolean;
+}> {
 	try {
-		const { eventRows } = await readChildRunEvidenceRows(context, {
-			artifactLimit: 0,
-			eventLimit: 25,
-			// Include the mapped workstation run. A workstation child's
-			// `...:workstation:...` run-id carries no events itself — they live under
-			// the mapped run-id (chatDispatchIdempotency). Without this the
-			// crash-lease self-heal is blind to workstation delegations (the exact
-			// firecrawl/750ee463 cohort) and falls through to crash-fail. Mirrors
-			// the on-read reconciler (readChildRunStatusesForRunRows, which passes
-			// the run's workstationDispatch flag) so the sweep recovers BOTH paths.
-			includeMappedWorkstationRun: true,
-			organizationId: ref.organizationId,
-			runId: ref.runId,
-			tediId: ref.tediId,
-		});
-		return summarizeChildRuntimeEvents(eventRows);
+		const { eventRows, eventReadAvailable } = await readChildRunEvidenceRows(
+			context,
+			{
+				artifactLimit: 0,
+				eventLimit: 25,
+				// Include the mapped workstation run. A workstation child's
+				// `...:workstation:...` run-id carries no events itself — they live under
+				// the mapped run-id (chatDispatchIdempotency). Without this the
+				// crash-lease self-heal is blind to workstation delegations (the exact
+				// firecrawl/750ee463 cohort) and falls through to crash-fail. Mirrors
+				// the on-read reconciler (readChildRunStatusesForRunRows, which passes
+				// the run's workstationDispatch flag) so the sweep recovers BOTH paths.
+				includeMappedWorkstationRun: true,
+				organizationId: ref.organizationId,
+				runId: ref.runId,
+				tediId: ref.tediId,
+			},
+		);
+		return {
+			summary: eventReadAvailable
+				? summarizeChildRuntimeEvents(eventRows)
+				: null,
+			readAvailable: eventReadAvailable,
+		};
 	} catch (error) {
 		console.warn("[kernelRuntime] readSingleChildRunSummary failed", {
 			exception: safeExceptionTopology(error),
 			runId: ref.runId,
 			tediId: ref.tediId,
 		});
-		return null;
+		return { summary: null, readAvailable: false };
 	}
 }
 

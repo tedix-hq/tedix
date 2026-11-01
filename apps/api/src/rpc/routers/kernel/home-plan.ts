@@ -138,7 +138,10 @@ export function workItemStatusFromPlanAssignmentStatus(
 export async function readChildRunStatusesForRunRows(
 	context: BaseContext,
 	rows: Array<typeof kernelRuntimeRuns.$inferSelect>,
-): Promise<Map<string, Record<string, unknown>>> {
+): Promise<{
+	childRunStatuses: Map<string, Record<string, unknown>>;
+	unavailableChildRunKeys: Set<string>;
+}> {
 	const refs = new Map<
 		string,
 		{
@@ -196,17 +199,25 @@ export async function readChildRunStatusesForRunRows(
 		}
 	}
 	const statuses = new Map<string, Record<string, unknown>>();
+	const unavailableChildRunKeys = new Set<string>();
 	await Promise.all(
 		[...refs.entries()].map(async ([key, ref]) => {
 			try {
-				const { eventRows: childRows, observedRunIds } =
-					await readChildRunEvidenceRows(context, {
-						artifactLimit: 0,
-						eventLimit: 25,
-						includeMappedWorkstationRun: ref.workstationDispatch,
-						runId: ref.runId,
-						tediId: ref.tediId,
-					});
+				const {
+					eventRows: childRows,
+					observedRunIds,
+					eventReadAvailable,
+				} = await readChildRunEvidenceRows(context, {
+					artifactLimit: 0,
+					eventLimit: 25,
+					includeMappedWorkstationRun: ref.workstationDispatch,
+					runId: ref.runId,
+					tediId: ref.tediId,
+				});
+				if (!eventReadAvailable) {
+					unavailableChildRunKeys.add(key);
+					return;
+				}
 				const status = summarizeChildRuntimeEvents(childRows, {
 					verifyCommand: ref.verifyCommand ?? null,
 				});
@@ -217,6 +228,7 @@ export async function readChildRunStatusesForRunRows(
 					});
 				}
 			} catch (error) {
+				unavailableChildRunKeys.add(key);
 				console.warn("[kernelRuntime] child run-set status read failed", {
 					exception: safeExceptionTopology(error),
 					runId: ref.runId,
@@ -225,7 +237,7 @@ export async function readChildRunStatusesForRunRows(
 			}
 		}),
 	);
-	return statuses;
+	return { childRunStatuses: statuses, unavailableChildRunKeys };
 }
 
 /**
@@ -240,7 +252,10 @@ export async function readTerminalChildOutcomesForParents(
 	context: BaseContext,
 	rows: Array<typeof kernelRuntimeRuns.$inferSelect>,
 ): Promise<Map<string, "failed" | "canceled">> {
-	const statuses = await readChildRunStatusesForRunRows(context, rows);
+	const { childRunStatuses: statuses } = await readChildRunStatusesForRunRows(
+		context,
+		rows,
+	);
 	const out = new Map<string, "failed" | "canceled">();
 	for (const row of rows) {
 		if (!row.delegatedTediId || !row.childRunId) continue;

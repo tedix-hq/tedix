@@ -929,24 +929,26 @@ export const readRunSetRoute = authed.readRunSet
 			}
 			throw error;
 		}
-		const [childRunStatuses, approvalMirrorRows] = await Promise.all([
-			readChildRunStatusesForRunRows(context, rows),
-			listActiveKernelApprovalMirrors(context.db, {
-				organizationId,
-				parentConversationId: input.conversationId,
-				limit: 100,
-			}).catch((error) => {
-				// Rebuildable rendering projection: never let its absence or a
-				// transient read failure take down the canonical Home run-set.
-				console.warn("[kernelRuntime] approval-mirror read failed", {
+		const [{ childRunStatuses, unavailableChildRunKeys }, approvalMirrorRows] =
+			await Promise.all([
+				readChildRunStatusesForRunRows(context, rows),
+				listActiveKernelApprovalMirrors(context.db, {
 					organizationId,
-					conversationId: input.conversationId,
-					error: errorMessage(error),
-				});
-				return undefined;
-			}),
-		]);
+					parentConversationId: input.conversationId,
+					limit: 100,
+				}).catch((error) => {
+					// Rebuildable rendering projection: never let its absence or a
+					// transient read failure take down the canonical Home run-set.
+					console.warn("[kernelRuntime] approval-mirror read failed", {
+						organizationId,
+						conversationId: input.conversationId,
+						error: errorMessage(error),
+					});
+					return undefined;
+				}),
+			]);
 		const reconciledRows = await reconcileHomeRunRowsFromChildStatus(context, {
+			unavailableChildRunKeys,
 			childRunStatuses,
 			rows,
 		});
@@ -1183,9 +1185,7 @@ export const readChildRunEvidenceRoute = authed.readChildRunEvidence
 		} catch {
 			// Fail-soft: leave dispatched undefined rather than blocking the read.
 		}
-		let evidenceRows: ChildRunEvidenceRows;
-		// T1.5: track whether the evidence store was reachable.
-		let storeHealthy = true;
+		let evidenceRows: ChildRunEvidenceRows & { eventReadAvailable: boolean };
 		try {
 			evidenceRows = await readChildRunEvidenceRows(context, {
 				artifactLimit,
@@ -1208,12 +1208,13 @@ export const readChildRunEvidenceRoute = authed.readChildRunEvidence
 					artifactRows: [],
 					eventRows: [],
 					observedRunIds: [input.childRunId],
+					eventReadAvailable: false,
 				};
-				storeHealthy = false;
 			} else {
 				throw error;
 			}
 		}
+		const storeHealthy = evidenceRows.eventReadAvailable;
 		const { artifactRows, eventRows, observedRunIds } = evidenceRows;
 		const summary = summarizeChildRuntimeEvents(eventRows);
 		const status = childRunStatusFromSummary(summary);
@@ -1223,7 +1224,11 @@ export const readChildRunEvidenceRoute = authed.readChildRunEvidence
 				| undefined) ?? null;
 		const knownDispatched = Boolean(dispatched);
 		const populated: boolean | undefined =
-			eventRows.length > 0 ? true : knownDispatched ? false : undefined;
+			eventRows.length > 0
+				? true
+				: storeHealthy && knownDispatched
+					? false
+					: undefined;
 		const workItemId =
 			stringFromPayload(nonNullRecord(dispatched?.metadata)?.workItemId) ??
 			stringFromPayload(
@@ -1298,7 +1303,7 @@ export const readChildRunTreeRoute = authed.readChildRunTree
 			}
 			throw error;
 		}
-		const childRunStatuses = await readChildRunStatusesForRunRows(
+		const { childRunStatuses } = await readChildRunStatusesForRunRows(
 			context,
 			rows,
 		);
@@ -1385,12 +1390,12 @@ export const readRunRoute = authed.readRun
 			organizationId,
 			required: "read",
 		});
-		const childRunStatuses = await readChildRunStatusesForRunRows(context, [
-			row,
-		]);
+		const { childRunStatuses, unavailableChildRunKeys } =
+			await readChildRunStatusesForRunRows(context, [row]);
 		const [reconciledRow = row] = await reconcileHomeRunRowsFromChildStatus(
 			context,
 			{
+				unavailableChildRunKeys,
 				childRunStatuses,
 				rows: [row],
 			},
