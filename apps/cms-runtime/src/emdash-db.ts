@@ -199,6 +199,60 @@ export function digestCmsRecoverySqlite(
  * through the platform API; dropping tables individually violates foreign keys. */
 export class EmDashDB extends EmdashSqlDB {
 	private databasePermits = new PublicRestorePermits();
+	/** A public page is cached under the revision its request read before
+	 * querying this object. Until a read follows a rotation, no cache entry can
+	 * hold content older than the next write, so that write needs no rotation. */
+	private pageCacheRotated = false;
+	private pageCacheReadSinceRotation = false;
+
+	private pageCacheEffect(
+		{ sql, params }: DoQueryStatement,
+		result: DoQueryResult | undefined,
+	): "read" | "bookkeeping" | "content" {
+		if (sql.includes(";")) return "content";
+		if (PLAIN_SELECT_PATTERN.test(sql)) return "read";
+		const normalized = sql
+			.replaceAll('"', "")
+			.replaceAll("`", "")
+			.replace(/\s+/g, " ")
+			.trim()
+			.toLowerCase();
+		const targets = Array.from(
+			normalized.matchAll(WRITE_TARGET_PATTERN),
+			(match) => match[1]!,
+		);
+		if (targets.length === 0) {
+			if (normalized.startsWith("with ")) return "read";
+			// Plugin storage indexes do not alter public content.
+			return /^create (?:unique )?index if not exists u?idx_plugin_[a-z0-9_-]+ on _plugin_storage\s*\(/.test(
+				normalized,
+			) || /^drop index if exists u?idx_plugin_[a-z0-9_-]+$/.test(normalized)
+				? "bookkeeping"
+				: "content";
+		}
+		// changes() excludes trigger writes, including INSTEAD OF triggers on
+		// views. Unknown SQL and failed batches invalidate.
+		if (
+			result?.changes === 0 &&
+			this.ctx.storage.sql
+				.exec(
+					"SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND lower(tbl_name) = ? LIMIT 1",
+					targets[0],
+				)
+				.toArray().length === 0
+		)
+			return "bookkeeping";
+		if (targets.every((table) => PAGE_CACHE_BOOKKEEPING_TABLES.has(table)))
+			return "bookkeeping";
+		if (
+			params?.length === 5 &&
+			params[0] === "system:scheduler:last_completed_at" &&
+			normalized ===
+				"insert into options (name, value, revision) values (?, ?, ?) on conflict (name) do update set value = ?, revision = ?"
+		)
+			return "bookkeeping";
+		return "content";
+	}
 
 	private async withPageCacheInvalidation<
 		T extends DoQueryResult | DoQueryResult[],
@@ -213,66 +267,25 @@ export class EmDashDB extends EmdashSqlDB {
 			results = Array.isArray(result) ? result : [result];
 			return result;
 		} finally {
+			const effects = statements.map((statement, index) =>
+				this.pageCacheEffect(statement, results?.[index]),
+			);
+			if (effects.includes("read")) this.pageCacheReadSinceRotation = true;
 			if (
-				statements.some(({ sql, params }, index) => {
-					if (sql.includes(";")) return true;
-					if (PLAIN_SELECT_PATTERN.test(sql)) return false;
-					// Native maintenance does not alter public content.
-					const normalized = sql
-						.replaceAll('"', "")
-						.replaceAll("`", "")
-						.replace(/\s+/g, " ")
-						.trim()
-						.toLowerCase();
-					if (results?.[index]?.changes === 0) {
-						const target = sql.match(
-							/^\s*(?:insert\s+into|update|delete\s+from)\s+(?:"([a-z_][a-z0-9_]*)"|`([a-z_][a-z0-9_]*)`|([a-z_][a-z0-9_]*))(?=\s|\()/i,
-						);
-						const table = (
-							target?.[1] ??
-							target?.[2] ??
-							target?.[3]
-						)?.toLowerCase();
-						// changes() excludes trigger writes, including INSTEAD OF
-						// triggers on views. Unknown SQL and failed batches invalidate.
-						if (
-							table &&
-							this.ctx.storage.sql
-								.exec(
-									"SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND lower(tbl_name) = ? LIMIT 1",
-									table,
-								)
-								.toArray().length === 0
-						)
-							return false;
-					}
-					if (
-						/^(?:insert into|update|delete from) (?:_emdash_404_log|_emdash_cron_tasks|_plugin_indexes)\b/.test(
-							normalized,
-						)
-					)
-						return false;
-					if (
-						/^create (?:unique )?index if not exists u?idx_plugin_[a-z0-9_-]+ on _plugin_storage\s*\(/.test(
-							normalized,
-						) ||
-						/^drop index if exists u?idx_plugin_[a-z0-9_-]+$/.test(normalized)
-					)
-						return false;
-					if (
-						params?.length === 5 &&
-						params[0] === "system:scheduler:last_completed_at" &&
-						normalized ===
-							"insert into options (name, value, revision) values (?, ?, ?) on conflict (name) do update set value = ?, revision = ?"
-					)
-						return false;
-					return true;
-				})
+				effects.includes("content") &&
+				(!this.pageCacheRotated || this.pageCacheReadSinceRotation)
 			) {
-				await rotateCmsSitePageCacheRevision(
-					createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
-					{ ...identity, revision: crypto.randomUUID() },
-				);
+				this.pageCacheRotated = true;
+				this.pageCacheReadSinceRotation = false;
+				try {
+					await rotateCmsSitePageCacheRevision(
+						createDbQueryClient(this.siteDrillEnv().PLATFORM_DB),
+						{ ...identity, revision: crypto.randomUUID() },
+					);
+				} catch (error) {
+					this.pageCacheRotated = false;
+					throw error;
+				}
 				console.info("[cms-runtime] page cache revision advanced", {
 					tenant: identity.slug,
 					statements: statements.map(({ sql, params }) => ({
@@ -1092,6 +1105,45 @@ export interface EmDashDBStub {
 }
 
 export const PLAIN_SELECT_PATTERN = /^\s*select\b/i;
+const WRITE_TARGET_PATTERN =
+	/\b(?:insert(?: or [a-z]+)? into|(?<!do )update(?: or [a-z]+)?|delete from) ([a-z_][a-z0-9_]*)/g;
+/** Emdash tables that hold scheduler, lock, log, auth, transfer, and media
+ * usage index state. Writing them never changes a rendered public page. */
+const PAGE_CACHE_BOOKKEEPING_TABLES = new Set([
+	"_emdash_404_log",
+	"_emdash_api_tokens",
+	"_emdash_authorization_codes",
+	"_emdash_cron_tasks",
+	"_emdash_device_codes",
+	"_emdash_entry_locks",
+	"_emdash_media_upload_attempts",
+	"_emdash_media_usage",
+	"_emdash_media_usage_activation",
+	"_emdash_media_usage_cleanup",
+	"_emdash_media_usage_cleanup_fence",
+	"_emdash_media_usage_collection_deletions",
+	"_emdash_media_usage_generation_writes",
+	"_emdash_media_usage_index_status",
+	"_emdash_media_usage_reconciliations",
+	"_emdash_media_usage_sources",
+	"_emdash_media_usage_work",
+	"_emdash_migrations",
+	"_emdash_oauth_clients",
+	"_emdash_oauth_tokens",
+	"_emdash_rate_limits",
+	"_emdash_redirect_write_lock",
+	"_emdash_revision_prune_queue",
+	"_emdash_transfer_approvals",
+	"_emdash_transfer_identity_map",
+	"_emdash_transfer_media_blobs",
+	"_emdash_transfer_operations",
+	"_emdash_transfer_package_index",
+	"_emdash_transfer_staged_files",
+	"_plugin_indexes",
+	"audit_logs",
+	"auth_challenges",
+	"auth_tokens",
+]);
 const TENANT_DB_PRIMARY_TABLE_PATTERN =
 	/\b(?:from|join|into|update)\s+["`]?([a-z_][a-z0-9_]*)["`]?/i;
 
