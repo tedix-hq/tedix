@@ -79,6 +79,7 @@ import {
 					principalType: "service",
 					scopes: ["tedi:admin"],
 				}),
+				"X-Tedix-Skill-Run-Id": "skill-run-1",
 			},
 			body: JSON.stringify({
 				jsonrpc: "2.0",
@@ -106,6 +107,7 @@ import {
 	assert.equal(mcp.status, 200, await mcp.clone().text());
 	assert.equal(durable[1]?.text, "hello from mcp");
 	assert.equal(durable[1]?.traceId, "trace-2");
+	assert.equal(durable[1]?.gatewayAttributionRunId, "skill-run-1");
 }
 
 // --- 1 + 4: the durable turn records its context before dispatch, carries

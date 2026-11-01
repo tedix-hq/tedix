@@ -3805,6 +3805,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		 * rows carry a purpose-linked id instead of the `system:mcp` fallback,
 		 * so run purpose stays recoverable. */
 		workItemId?: string;
+		/** Trusted skill-run id for gateway cost attribution only. */
+		gatewayAttributionRunId?: string;
 		/** Budget lane. Authenticated cron turns are background; user/Home work is operator. */
 		admissionClass?: "background" | "governed_learning" | "operator";
 		/**
@@ -3901,6 +3903,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		text: string;
 		traceId?: string;
 		clientRequestId: string;
+		gatewayAttributionRunId?: string;
 		attachments?: AudioAttachment[];
 		/** Explicit caller override (sync-inject threads the payload's
 		 * learning_mode); absent ⇒ derived from the resolved user text. */

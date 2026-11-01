@@ -121,6 +121,7 @@ import { DoInferenceBudgetStore } from "./inference-budget-store-do";
 import { trustedInstructionOriginForInject } from "./inference-guardrails";
 import { buildRunId, buildWorkflowInstanceId } from "./ledger-mirror";
 import { recordDirectMcpAuditEvent } from "./mcp-audit";
+import { skillWorkflowRunId } from "./mcp-authorization";
 import { callerTrustTierForRequest } from "./mcp-caller-trust";
 import type { AgentMcpRuntime } from "./mcp-client-runtime";
 import type { CronToolInput } from "./mcp-mount";
@@ -1986,12 +1987,14 @@ export async function handleRuntimeRequest(
 								env: host.env,
 							})
 						: undefined;
+					const gatewayAttributionRunId = skillWorkflowRunId(request);
 					const turnInput = {
 						evaluation,
 						sessionKey: session_key,
 						text,
 						traceId: trace_id,
 						clientRequestId: client_request_id,
+						...(gatewayAttributionRunId ? { gatewayAttributionRunId } : {}),
 						attachments: sanitizeChatAttachments(attachments),
 						callerTrust: callerTrustTierForRequest(request.headers),
 						noFunds: request.headers.get("X-Tedix-No-Funds") === "true",

@@ -174,6 +174,18 @@ for (const stream of [false, true]) {
 	);
 }
 {
+	const probe = facetRunnerProbe();
+	await probe.agent.runConversationFacetTurn({
+		...facetInput,
+		gatewayAttributionRunId: "skill-run-1",
+	});
+	assert.deepEqual(
+		(probe.configs[0]!.aigMetadata as { correlation: unknown }).correlation,
+		{ runId: "skill-run-1", sessionKey: "main" },
+		"gateway attribution keeps the joinable skill run id",
+	);
+}
+{
 	// Ordinary server-classified chat, delegated-agent, and background lanes may
 	// use the adaptive default; tool authority remains independently enforced.
 	const eligible = facetRunnerProbe();
