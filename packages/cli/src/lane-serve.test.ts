@@ -1778,6 +1778,12 @@ describe("dispatcher admission", () => {
 		]);
 		expect(briefs[0]).toStartWith(control.recall);
 		expect(briefs[0]).toContain("Your exclusive source worktree is");
+		expect(briefs[0]).toContain(
+			"Do not emit TEDIX_LANE_RESULT for an ordinary research result",
+		);
+		expect(briefs[0]).not.toContain(
+			"If no new source change is needed, append exactly one TEDIX_LANE_RESULT",
+		);
 		releases[0]!();
 		await dispatcher.drain();
 	});
