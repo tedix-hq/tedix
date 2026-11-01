@@ -20,7 +20,10 @@ import {
 	osWorkspaceCollaborators,
 	osWorkspaceShareLinks,
 } from "@tedix/db/schema/os-collaborators";
-import { verifyWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
+import {
+	mintWorkspaceAppSession,
+	verifyWorkspaceAppSession,
+} from "@tedix/auth/workspace-app-session";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { userContext } from "../rpc/test-context";
@@ -30,7 +33,9 @@ import {
 	appTriggerWebhookSecret,
 	dispatchDueAppTriggers,
 	handleAppTriggerWebhook,
+	runInteractiveAppCall,
 } from "./os-app-triggers";
+import { loadAppRuntimeRevision } from "./os-app-runtime-code";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const gadgetId = "22222222-2222-4222-8222-222222222222";
@@ -50,7 +55,9 @@ const triggers = [
 	{ id: "scouted", kind: "skill", slot: "scout", method: "review" },
 ];
 
-async function fixture(options: { author?: string } = {}) {
+async function fixture(
+	options: { author?: string; triggers?: unknown[] } = {},
+) {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF");
@@ -108,7 +115,7 @@ async function fixture(options: { author?: string } = {}) {
 		manifest: JSON.stringify({
 			entry: "tedix:runtime/v1",
 			capabilities: [],
-			config: { version: 1, triggers },
+			config: { version: 1, triggers: options.triggers ?? triggers },
 			resourceGrants: [{ slot: "sheet", operations: ["outputs.patch"] }],
 		}),
 		createdByKind: "user",
@@ -149,7 +156,171 @@ async function fixture(options: { author?: string } = {}) {
 	return { db, env, fetch, calls };
 }
 
+const interaction = {
+	id: "saved",
+	kind: "interaction",
+	methods: ["save", "reset"],
+	method: "sync",
+};
+
+async function interactiveInput(
+	f: Awaited<ReturnType<typeof fixture>>,
+	method = "save",
+) {
+	const code = await loadAppRuntimeRevision(
+		f.db,
+		{ organizationId: "org-1", gadgetId },
+		revisionId,
+	);
+	const session = await mintWorkspaceAppSession(key, {
+		organizationId: "org-1",
+		workspaceId,
+		gadgetId,
+		revisionId,
+		revision: 1,
+		principal: { kind: "user", id: "reviewer" },
+		role: "use",
+		grants: code.grants,
+		config: code.config,
+		codeDigest: code.digest,
+	});
+	return {
+		organizationId: "org-1",
+		workspaceId,
+		gadgetId,
+		revisionId,
+		code,
+		role: "use" as const,
+		session: session.token,
+		method,
+		args: ["private user input"],
+		createdBy: { kind: "user" as const, id: "reviewer" },
+	};
+}
+
 describe("workspace app triggers", () => {
+	it("starts an owner-authorized interaction immediately without delaying the saved response", async () => {
+		const f = await fixture({ triggers: [interaction] });
+		let release!: () => void;
+		let started!: () => void;
+		const blocked = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const reached = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		onTestFinished(() => release());
+		f.fetch.mockImplementation(async (request) => {
+			const body = (await request.clone().json()) as { method: string };
+			if (body.method === "sync") {
+				started();
+				await blocked;
+			}
+			return Response.json({ ok: true });
+		});
+		const pending: Promise<unknown>[] = [];
+		expect(
+			await runInteractiveAppCall(f.env, f.db, await interactiveInput(f), (p) =>
+				pending.push(p),
+			),
+		).toEqual({ ok: true });
+		expect(pending).toHaveLength(1);
+		await reached;
+		const calls = await f.calls();
+		expect(calls[0]!.session.role).toBe("use");
+		expect(calls[1]).toMatchObject({
+			method: "sync",
+			args: [
+				{ kind: "interaction", method: "save", callId: expect.any(String) },
+			],
+			session: {
+				role: "build",
+				actorUserId: "user-1",
+				principal: { kind: "app_trigger" },
+				grants: [{ slot: "sheet", operations: ["outputs.patch"] }],
+			},
+		});
+		expect(JSON.stringify(calls[1]!.args)).not.toContain("private user input");
+		release();
+		await Promise.all(pending);
+		const runs = await f.db.select().from(osGadgetExecutions);
+		expect(runs).toHaveLength(2);
+		expect(runs.every((r) => r.status === "completed")).toBe(true);
+	});
+
+	it("does not emit an interaction after a failed user call", async () => {
+		const f = await fixture({ triggers: [interaction] });
+		f.fetch.mockResolvedValue(new Response(null, { status: 500 }));
+		const pending = vi.fn();
+		await expect(
+			runInteractiveAppCall(f.env, f.db, await interactiveInput(f), pending),
+		).rejects.toThrow();
+		expect(pending).not.toHaveBeenCalled();
+		expect(f.fetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("keeps a successful save successful when its follow-up fails", async () => {
+		const f = await fixture({ triggers: [interaction] });
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		onTestFinished(() => warning.mockRestore());
+		f.fetch.mockImplementation(async (request) => {
+			const body = (await request.clone().json()) as { method: string };
+			return body.method === "sync"
+				? new Response(null, { status: 500 })
+				: Response.json({ ok: true });
+		});
+		expect(
+			await runInteractiveAppCall(f.env, f.db, await interactiveInput(f)),
+		).toEqual({ ok: true });
+		const runs = await f.db.select().from(osGadgetExecutions);
+		expect(runs.filter((r) => r.status === "completed")).toHaveLength(1);
+		expect(runs.filter((r) => r.status === "failed")).toHaveLength(1);
+		expect(warning).toHaveBeenCalledOnce();
+	});
+
+	it("does not run owner follow-ups for unnamed methods or a platform tick", async () => {
+		const f = await fixture({ triggers: [interaction] });
+		const pending = vi.fn();
+		await runInteractiveAppCall(
+			f.env,
+			f.db,
+			await interactiveInput(f, "ratings"),
+			pending,
+		);
+		expect(pending).not.toHaveBeenCalled();
+		expect(f.fetch).toHaveBeenCalledTimes(1);
+		expect(await dispatchDueAppTriggers(f.env, nineUtc)).toMatchObject({
+			ran: 0,
+			failed: 0,
+		});
+	});
+
+	it.each(["revision", "workspace", "tenant"])(
+		"refuses a changed or mismatched %s before owner follow-up",
+		async (kind) => {
+			const f = await fixture({ triggers: [interaction] });
+			const input = await interactiveInput(f);
+			if (kind === "revision")
+				await f.db
+					.update(osGadgets)
+					.set({ currentRevisionId: null })
+					.where(eq(osGadgets.id, gadgetId));
+			if (kind === "workspace")
+				input.workspaceId = "44444444-4444-4444-8444-444444444444";
+			if (kind === "tenant") input.organizationId = "other-org";
+			await runInteractiveAppCall(f.env, f.db, input);
+			expect(f.fetch).toHaveBeenCalledTimes(1);
+		},
+	);
+
+	it("cannot borrow grants from a departed author after an interaction", async () => {
+		const f = await fixture({ author: "user-gone", triggers: [interaction] });
+		await runInteractiveAppCall(f.env, f.db, await interactiveInput(f));
+		const calls = await f.calls();
+		expect(calls[1]!.session).toMatchObject({ role: "use", grants: [] });
+		expect(calls[1]!.session.actorUserId).toBeUndefined();
+	});
+
 	it("runs a schedule once per fire time, as the revision author with the app's grants", async () => {
 		const f = await fixture();
 		expect(await dispatchDueAppTriggers(f.env, nineUtc)).toMatchObject({

@@ -1,11 +1,15 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
+import { createDbQueryClient } from "../query-client";
 import { organizationMembers } from "../schema/organization-members";
 import { organizations } from "../schema/organizations";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
-import { getMembershipsByDescopeTenants } from "./organization-members";
+import {
+	getMemberAccessByUserId,
+	getMembershipsByDescopeTenants,
+} from "./organization-members";
 
 const NOW = "2026-10-06T00:00:00.000Z";
 
@@ -56,6 +60,21 @@ async function setup() {
 }
 
 describe("getMembershipsByDescopeTenants", () => {
+	it("resolves the exact organization and subject with a relation-free client", async () => {
+		const db = await setup();
+		const query = createDbQueryClient(db.$client);
+		expect(await getMemberAccessByUserId(query, "org-a", "U1")).toMatchObject({
+			role: "member",
+			status: "active",
+		});
+		expect(await getMemberAccessByUserId(query, "org-b", "U1")).toMatchObject({
+			role: "member",
+			status: "deactivated",
+		});
+		expect(
+			await getMemberAccessByUserId(query, "org-other", "U1"),
+		).toBeUndefined();
+	});
 	it("returns the user's rows for selected live tenants in one query", async () => {
 		const db = await setup();
 

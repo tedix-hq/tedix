@@ -821,7 +821,7 @@ Output's content. Connection calls support reviewed resource-bound reads;
 provider permission and approval rules still apply. No network or ambient
 Cloudflare bindings are inherited. Do not retain a capability after its call.
 
-### Run app methods on a schedule, webhook or skill result
+### Run app methods after an interaction, schedule, webhook or skill result
 
 An app method can also run without anyone clicking. List the triggers in
 the manifest's `config.triggers`; each one names an `id`, the `method` to
@@ -829,12 +829,18 @@ call and optional leading `args`:
 
 ```json
 "triggers": [
+	{ "id": "save-follow-up", "kind": "interaction", "methods": ["save", "reset"], "method": "sync" },
 	{ "id": "morning", "kind": "schedule", "cron": "0 7 * * 1-5", "method": "sweep" },
 	{ "id": "inbound", "kind": "webhook", "method": "receive" },
 	{ "id": "scouted", "kind": "skill", "slot": "scout", "method": "review" }
 ]
 ```
 
+- `interaction` starts immediately after a named live app method succeeds.
+  The original save returns without waiting for this background work. Preview
+  calls and other triggers do not start interaction triggers. Use this for
+  copying saved app data to a granted resource without giving guests edit access.
+  Keep pending work in app storage and add a schedule for recovery if needed.
 - `schedule` runs at each time of a five-field UTC cron. Times are checked
   every two minutes, so a cron that fires more often runs at most once per
   check.
@@ -849,7 +855,8 @@ call and optional leading `args`:
   It runs once for the newest finished run at each two-minute check.
 
 The method receives the trigger's `args`, then one event object:
-`{trigger, kind, firedAt}` plus `body` for a webhook and `run` (`id`,
+`{trigger, kind, firedAt}` plus `callId` and `method` for an interaction,
+`body` for a webhook and `run` (`id`,
 `status`, `cards`, `summary`, `error`) for a skill. Each event runs once.
 Every run appears in the app's Runs, as an app call made by
 `app-trigger:<id>`.

@@ -72,7 +72,7 @@ const files = {
 	"client.js": "export default function mount() {}",
 };
 
-async function fixture() {
+async function fixture(options: { triggers?: unknown[] } = {}) {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF");
@@ -139,7 +139,11 @@ async function fixture() {
 			manifest: JSON.stringify({
 				entry: "tedix:runtime/v1",
 				capabilities: [],
-				config: { version: 1, settings: { reviewer: "Maya" } },
+				config: {
+					version: 1,
+					settings: { reviewer: "Maya" },
+					triggers: options.triggers,
+				},
 				resourceGrants: [
 					{ slot: "opportunities", operations: ["outputs.read"] },
 				],
@@ -298,6 +302,68 @@ describe("share-link guests on a runtime app", () => {
 			gadgetId,
 		});
 		expect(session.actorUserId).toBeUndefined();
+	});
+
+	it("starts a configured follow-up after a real guest call without changing guest authority", async () => {
+		const { db, env, fetch } = await fixture({
+			triggers: [
+				{
+					id: "saved",
+					kind: "interaction",
+					methods: ["verdicts"],
+					method: "sync",
+				},
+			],
+		});
+		await db.insert(organizationMembers).values({
+			id: "author",
+			organizationId: "org-1",
+			descopeUserId: "user-1",
+			email: "author@example.test",
+			status: "active",
+			role: "member",
+		});
+		const link = await seedLink(db);
+		const sessionToken = await redeem(db, link.token);
+		const opened = (await (
+			await handleGuestAppOpen(env, db, { sessionToken, guestName: "Maya" })
+		).json()) as { session: string };
+		const pending: Promise<unknown>[] = [];
+		const response = await handleGuestAppCall(
+			env,
+			db,
+			{ sessionToken, session: opened.session, method: "verdicts", args: [] },
+			(p) => pending.push(p),
+		);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ result: [] });
+		await Promise.all(pending);
+		expect(fetch).toHaveBeenCalledTimes(2);
+		const calls = await Promise.all(
+			fetch.mock.calls.map(async ([request]) => {
+				const body = (await request.clone().json()) as {
+					session: string;
+					method: string;
+				};
+				return {
+					method: body.method,
+					session: await verifyWorkspaceAppSession(key, body.session),
+				};
+			}),
+		);
+		expect(calls[0]).toMatchObject({
+			method: "verdicts",
+			session: { role: "use", principal: { kind: "share_session" } },
+		});
+		expect(calls[0]!.session.actorUserId).toBeUndefined();
+		expect(calls[1]).toMatchObject({
+			method: "sync",
+			session: {
+				role: "build",
+				actorUserId: "user-1",
+				principal: { kind: "app_trigger" },
+			},
+		});
 	});
 
 	it("runs server calls as the share session and records them", async () => {

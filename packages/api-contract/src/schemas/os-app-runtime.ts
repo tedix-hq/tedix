@@ -121,6 +121,17 @@ export const AppRuntimeTriggerSchema = z.discriminatedUnion("kind", [
 		...appRuntimeTriggerBase,
 	}),
 	z.strictObject({
+		kind: z.literal("interaction"),
+		methods: z
+			.array(AppRuntimeMethodSchema)
+			.min(1)
+			.max(20)
+			.describe(
+				"Successful live app methods that immediately start this background trigger; previews and triggers do not emit interactions",
+			),
+		...appRuntimeTriggerBase,
+	}),
+	z.strictObject({
 		kind: z.literal("skill"),
 		slot: z
 			.string()
@@ -159,7 +170,9 @@ export const AppRuntimeConfigSchema = z.strictObject({
 			"trigger ids must be unique",
 		)
 		.optional()
-		.describe("Schedules, webhooks and skill results that run an app method"),
+		.describe(
+			"Interactions, schedules, webhooks and skill results that run an app method",
+		),
 });
 export type AppRuntimeConfig = z.infer<typeof AppRuntimeConfigSchema>;
 
