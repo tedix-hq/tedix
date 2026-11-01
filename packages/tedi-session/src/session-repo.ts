@@ -579,7 +579,7 @@ export class TediSessionRepo implements SessionHarnessBackend {
 	 */
 	private listTurnsProjected(): TediSessionTurn[] {
 		const rowsDesc = this.sql<SessionEntryRow>`
-			WITH latest_compactions AS (
+			WITH latest_compactions AS MATERIALIZED (
 				SELECT
 					compaction.session_key AS compacted_session_key,
 					compaction.content AS summary_content,
