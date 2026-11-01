@@ -1,5 +1,8 @@
 import type { ConnectionProviderTemplate } from "@tedix/api-contract/schemas/connection-provider-templates";
-import type { DescopeAihDriftReport } from "@tedix/api-contract/schemas/descope-aih";
+import type {
+	DescopeAihDriftReport,
+	McpServerRecord,
+} from "@tedix/api-contract/schemas/descope-aih";
 import {
 	reconcileConnectionScopeMappings,
 	connectionScopeMappingValues,
@@ -43,6 +46,7 @@ type DescopeServer = {
 		disableApprovedScopesAsDefault?: boolean | null;
 	} | null;
 	approvedScopes?: Record<string, unknown> | null;
+	sessionSettings?: McpServerRecord["sessionSettings"];
 };
 
 type DescopeClient = {
@@ -697,6 +701,28 @@ export function buildDescopeAihDriftReport(
 				resourceId: server.id,
 				resourceName: server.name,
 				message: `Descope MCP server ${server.name} is not referenced by a D1 app or tedi row.`,
+			});
+		}
+
+		const sessionOverrideException = snapshot.d1Apps.some(
+			(app) =>
+				app.descopeResourceId === server.id &&
+				stringOrNull(
+					normalizeMcpConfig(app.metadata).sessionSettingsExceptionDecisionId,
+				) !== null,
+		);
+		if (sessionSettingsEnabled(server) && !sessionOverrideException) {
+			issue(report, {
+				severity: "warning",
+				code: "mcp_server_session_override",
+				resourceType: "mcp_server",
+				resourceId: server.id,
+				resourceName: server.name,
+				message: `Descope MCP server ${server.name} overrides project session settings without a recorded exception. Select According to project settings on the MCP Server entry.`,
+				details: {
+					sessionSettingsEnabled: true,
+					sessionLifetimes: sessionLifetimes(server),
+				},
 			});
 		}
 
