@@ -342,6 +342,7 @@
 		"./queries/external-agent-identity/sessions": "./src/queries/external-agent-identity/sessions.ts",
 		"./queries/external-agent-identity/workload-tokens": "./src/queries/external-agent-identity/workload-tokens.ts",
 		"./queries/cognitive-runtime": "./src/queries/cognitive-runtime.ts",
+		"./queries/cognitive-runtime-orphan-cleanup": "./src/queries/cognitive-runtime-orphan-cleanup.ts",
 		"./queries/artifact-policy/contributions": "./src/queries/artifact-policy/contributions.ts",
 		"./queries/artifact-policy/releases": "./src/queries/artifact-policy/releases.ts",
 		"./queries/organizations": "./src/queries/organizations.ts",
