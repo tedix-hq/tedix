@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	acceptedDoneEvidence,
+	hasPotentialLessonRecovery,
 	isScheduledLedgerPrompt,
 	parseObservedRequests,
 	parseReflectedMerges,
@@ -474,4 +475,60 @@ it("preserves ideas and issues as distinct ledger kinds", () => {
 		new Set(),
 	);
 	expect(parsed?.requests.map((row) => row.kind)).toEqual(["idea", "issue"]);
+});
+
+describe("lesson recovery inference eligibility", () => {
+	const failure = {
+		id: "failure",
+		body: "The upload remains pending",
+		activity: "Failed upload: payload exceeds inline limit",
+	};
+	it("skips failure-only windows, missing failures, and success preceding a later failure", () => {
+		const success = {
+			id: "fix",
+			body: "Native uploader saved successfully",
+			activity: null,
+		};
+		expect(hasPotentialLessonRecovery([failure])).toBe(false);
+		expect(hasPotentialLessonRecovery([success])).toBe(false);
+		expect(hasPotentialLessonRecovery([success, failure])).toBe(false);
+		expect(
+			hasPotentialLessonRecovery([
+				failure,
+				{ id: "later", body: "Waiting for the next attempt", activity: null },
+			]),
+		).toBe(false);
+	});
+
+	it.each([
+		"Native uploader saved successfully",
+		"Upload operation fixed in commit abc1234",
+		"Native uploader passed validation",
+		"The upload succeeded after changing the payload",
+		"The upload was resolved after reducing the payload",
+		"Native uploader saved the document",
+	])("retains every accepted recovery quote: %s", (fix) => {
+		const sources = [failure, { id: "fix", body: fix, activity: null }];
+		const raw = JSON.stringify({
+			lessons: [
+				{
+					rule: "Inline uploads fail → use the native uploader. Why: the inline limit.",
+					failure: failure.activity,
+					fix,
+				},
+			],
+		});
+		expect(parseReflectedLessons(raw, fix, "", sources)).toHaveLength(1);
+		expect(hasPotentialLessonRecovery(sources)).toBe(true);
+	});
+
+	it("retains same-event recovery, normalized formatting, substrings and untruncated tails", () => {
+		for (const body of [
+			"Upload was **saved** successfully",
+			"Upload was suc*cessful after retry",
+			"Unsuccessful upload still has a possible success substring",
+			`${"Pending work. ".repeat(20_000)}Upload saved successfully`,
+		])
+			expect(hasPotentialLessonRecovery([{ ...failure, body }])).toBe(true);
+	});
 });

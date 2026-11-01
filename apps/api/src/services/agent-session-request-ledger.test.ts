@@ -25,12 +25,14 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	acceptAgentSessionEvents,
 	type LedgerModel,
+	type LedgerProcessingModel,
 	LEDGER_SILENCE_TURNS,
 	workersAiLedgerModel,
 	observeAgentSessionRequests,
 	processAgentSessionEvents,
 	reflectAgentSessionRequests,
 } from "./agent-session-request-ledger";
+import { requestIntakeInput } from "@tedix/context-core/request-ledger";
 
 const SCOPE = {
 	organizationId: "org-example",
@@ -148,10 +150,32 @@ function fixture() {
 /** A model that answers with fixed JSON and records what it was asked. */
 function scripted(...replies: Array<string | null>) {
 	const prompts: string[] = [];
-	const model: LedgerModel = async (_system, prompt) => {
+	let reflected: string | null | undefined;
+	const base: LedgerModel = async (_system, prompt, surface) => {
 		prompts.push(prompt);
-		return replies.shift() ?? null;
+		const reply = replies.shift() ?? null;
+		if (surface === "agent-session-request-reflector") reflected = reply;
+		return reply;
 	};
+	// Each fixture supplies one event's decisions; expose intake through its own pass.
+	const model: LedgerProcessingModel = Object.assign(base, {
+		extractObligations: async (
+			known: Parameters<LedgerProcessingModel["extractObligations"]>[0],
+			turn: string,
+			message: string,
+		) => {
+			prompts.push(requestIntakeInput(turn, known, message));
+			const reply =
+				reflected === undefined ? (replies.shift() ?? null) : reflected;
+			reflected = undefined;
+			if (reply === null) return null;
+			try {
+				return JSON.stringify({ new: JSON.parse(reply).new ?? [] });
+			} catch {
+				return reply;
+			}
+		},
+	});
 	model.verify = async (checks) => new Set(checks.map(({ ref }) => ref));
 	return { model, prompts };
 }
@@ -299,7 +323,7 @@ describe("request ledger reflector", () => {
 
 	function reflect(
 		db: ReturnType<typeof fixture>,
-		model: LedgerModel,
+		model: LedgerProcessingModel,
 		turn: string,
 		activity: string | null = null,
 	) {
@@ -493,7 +517,7 @@ describe("agent asks and semantic support", () => {
 	const input = { ...SCOPE, sourceAt: T0, now: T0, repository: "example/app" };
 	const reflect = (
 		db: ReturnType<typeof fixture>,
-		model: LedgerModel,
+		model: LedgerProcessingModel,
 		turn: string,
 	) =>
 		reflectAgentSessionRequests(db, model, { ...input, turn, activity: null });
@@ -651,7 +675,12 @@ it("does not let an overlapping pass overtake a message still being analysed", a
 			requests: [{ kind: "request", text: "Fix the login page" }],
 		});
 	};
-	const first = processAgentSessionEvents(db, model, owner, { limit: 1 });
+	const first = processAgentSessionEvents(
+		db,
+		Object.assign(model, { extractObligations: async () => '{"new":[]}' }),
+		owner,
+		{ limit: 1 },
+	);
 	await ready;
 	expect(await processAgentSessionEvents(db, scripted(null).model, owner)).toBe(
 		0,
@@ -1465,7 +1494,7 @@ it("keeps quoted mention evidence through silence so a later turn can recover cl
 	);
 	const evidence = "The widget is now called App (4f2a9c1).";
 	let tick = 0;
-	const reflect = (model: LedgerModel, turn: string) => {
+	const reflect = (model: LedgerProcessingModel, turn: string) => {
 		const at = new Date(Date.parse(T0) + ++tick * 60000).toISOString();
 		return reflectAgentSessionRequests(db, model, {
 			...SCOPE,
@@ -1927,4 +1956,171 @@ it("deduplicates OpenCode ledger events without merging another harness", async 
 			.map((row) => row.harness)
 			.sort(),
 	).toEqual(["codex", "opencode"]);
+});
+
+describe("deterministic ledger inference skips", () => {
+	const input = {
+		...SCOPE,
+		turn: "I will deliver the final cost report.",
+		activity: null,
+		repository: "example/app",
+		sourceAt: "2026-10-06T10:02:00.000Z",
+		now: T0,
+	};
+
+	it.each([false, true])(
+		"skips status work with no active rows while retaining intake (done rows %s)",
+		async (doneRows) => {
+			const db = fixture();
+			if (doneRows) {
+				await observe(
+					db,
+					scripted('{"requests":[{"kind":"request","text":"Repair the CLI"}]}')
+						.model,
+					"Repair the CLI",
+				);
+				await db
+					.update(agentSessionRequests)
+					.set({ status: "done" })
+					.where(eq(agentSessionRequests.organizationId, SCOPE.organizationId));
+			}
+			const status = vi.fn(async () => {
+				throw new Error("status inference has no work");
+			});
+			const model: LedgerProcessingModel = Object.assign(status, {
+				extractObligations: async () => '{"new":[]}',
+			});
+			model.extractObligations = vi.fn(async () =>
+				JSON.stringify({
+					new: [
+						{
+							kind: "promise",
+							text: "Deliver the final cost report",
+							evidence: input.turn,
+						},
+					],
+				}),
+			);
+			model.reflectLessons = vi.fn(async () => {
+				throw new Error("no recovery evidence");
+			});
+			const result = await reflectAgentSessionRequests(db, model, input);
+			expect(result.status).toBe("reflected");
+			expect(status).not.toHaveBeenCalled();
+			expect(model.reflectLessons).not.toHaveBeenCalled();
+			expect(model.extractObligations).toHaveBeenCalledTimes(1);
+			expect(await rows(db)).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						kind: "promise",
+						text: "Deliver the final cost report",
+					}),
+				]),
+			);
+		},
+	);
+
+	it("still reflects active rows", async () => {
+		const db = fixture();
+		await observe(
+			db,
+			scripted('{"requests":[{"kind":"request","text":"Repair the CLI"}]}')
+				.model,
+			"Repair the CLI",
+		);
+		const status = vi.fn(async () => '{"updates":[]}');
+		const model: LedgerProcessingModel = Object.assign(status, {
+			extractObligations: async () => '{"new":[]}',
+		});
+		model.extractObligations = vi.fn(async () => '{"new":[]}');
+		await reflectAgentSessionRequests(db, model, input);
+		expect(status).toHaveBeenCalledTimes(1);
+	});
+
+	it("skips after all active rows are settled by their linked completed Work", async () => {
+		const db = fixture();
+		const workId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		await db.insert(workItems).values({
+			id: workId,
+			orgId: SCOPE.organizationId,
+			title: "Fictional delivered result",
+			disposition: "completed",
+			projectId: "project-orchid",
+			createdAt: T0,
+		});
+		await db.insert(agentSessionRequests).values({
+			...SCOPE,
+			id: "linked",
+			projectId: "project-orchid",
+			kind: "request",
+			text: "Deliver the requested result",
+			status: "open",
+			evidence: `Work=${workId}`,
+			sourceAt: T0,
+			sourceKey: "linked",
+			statusChangedAt: T0,
+			createdAt: T0,
+			updatedAt: T0,
+		});
+		const status = vi.fn(async () => {
+			throw new Error("already completed");
+		});
+		const model: LedgerProcessingModel = Object.assign(status, {
+			extractObligations: async () => '{"new":[]}',
+		});
+		model.extractObligations = async () => '{"new":[]}';
+		await reflectAgentSessionRequests(db, model, input);
+		expect(status).not.toHaveBeenCalled();
+		expect((await rows(db))[0]?.status).toBe("done");
+	});
+
+	it("keeps intake failure retryable even when status reflection is skipped", async () => {
+		const db = fixture();
+		const status = vi.fn(async () => '{"updates":[]}');
+		const model: LedgerProcessingModel = Object.assign(status, {
+			extractObligations: async () => '{"new":[]}',
+		});
+		model.extractObligations = async () => null;
+		expect((await reflectAgentSessionRequests(db, model, input)).status).toBe(
+			"unavailable",
+		);
+		expect(status).not.toHaveBeenCalled();
+	});
+
+	it("records value-free skips even when optional telemetry fails", async () => {
+		const info = vi.spyOn(console, "info").mockImplementation(() => {});
+		try {
+			const db = fixture();
+			const model: LedgerProcessingModel = Object.assign(
+				async () => '{"updates":[]}',
+				{ extractObligations: async () => '{"new":[]}' },
+			);
+			model.extractObligations = async () => '{"new":[]}';
+			model.reflectLessons = async () => '{"lessons":[]}';
+			await reflectAgentSessionRequests(db, model, {
+				...input,
+				activity: "Failed upload: payload exceeds inline limit",
+			});
+			expect(info.mock.calls.map(([entry]) => entry)).toEqual([
+				{
+					event: "agent_session.inference_skipped",
+					surface: "agent-session-lesson-reflector",
+					reason: "no_recovery_evidence",
+				},
+				{
+					event: "agent_session.inference_skipped",
+					surface: "agent-session-request-reflector",
+					reason: "no_active_rows",
+				},
+			]);
+			info.mockImplementation(() => {
+				throw new Error("optional sink unavailable");
+			});
+			expect((await reflectAgentSessionRequests(db, model, input)).status).toBe(
+				"reflected",
+			);
+		} finally {
+			info.mockRestore();
+		}
+	});
 });
