@@ -111,6 +111,11 @@ export async function confirmStoredAccess(
 			return "unknown";
 		const state = readLoginRecovery(key);
 		const now = Date.now();
+		if (
+			credential.accessTokenExpiresAtSeconds &&
+			credential.accessTokenExpiresAtSeconds * 1000 <= now
+		)
+			return "rejected";
 		const usableUntil = Math.min(
 			(state?.checkedAt ?? 0) + 30_000,
 			credential.accessTokenExpiresAtSeconds

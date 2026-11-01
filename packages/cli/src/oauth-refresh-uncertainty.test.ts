@@ -54,7 +54,7 @@ test("a stale metadata save cannot restore a superseded refresh token", async ()
 	}
 });
 
-for (const failure of ["timeout", "body", "killed", "save"] as const) {
+for (const failure of ["timeout", "body-timeout", "killed", "save"] as const) {
 	test(`a ${failure} after rotation cannot replay the consumed token`, async () => {
 		const dir = mkdtempSync(join(tmpdir(), "tedix-uncertain-refresh-"));
 		let requests = 0;
@@ -89,11 +89,20 @@ for (const failure of ["timeout", "body", "killed", "save"] as const) {
 				}
 				requested();
 				if (failure === "timeout") await released;
+				if (failure === "body-timeout")
+					return new Response(
+						new ReadableStream({
+							async start(controller) {
+								controller.enqueue(
+									new TextEncoder().encode('{"access_token":'),
+								);
+								await released;
+								controller.close();
+							},
+						}),
+						{ headers: { "content-type": "application/json" } },
+					);
 				if (failure === "killed") await Bun.sleep(300);
-				if (failure === "body")
-					return new Response("{", {
-						headers: { "content-type": "application/json" },
-					});
 				return Response.json({
 					access_token: "new-access",
 					refresh_token: "new-refresh",

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	confirmStoredAccess,
@@ -268,9 +268,15 @@ test("an expired preflight deadline cannot fence a refresh POST that was never s
 	).toBeUndefined();
 });
 
-test.each([false, true])(
-	"dispatchers keep one sign-in Decision across restart and new login (lost reply: %s)",
-	async (lostReply) => {
+test.each([
+	[false, "rejected"],
+	[true, "rejected"],
+	[false, "usable"],
+	[true, "usable"],
+	[false, "unknown"],
+] as const)(
+	"dispatchers keep one sign-in Decision across restart and new login (lost reply: %s, access: %s)",
+	async (lostReply, access) => {
 		const credential = login();
 		writeWorkspaceCredentials("fixture", credential);
 		const options: ServeOptions = {
@@ -299,7 +305,7 @@ test.each([false, true])(
 		const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 			darkWake: () => false,
 			confirmLogin: (workspace, cred) =>
-				confirmStoredAccess(workspace, cred, async () => "rejected"),
+				confirmStoredAccess(workspace, cred, async () => access),
 			budgets: () => ({}),
 			available: () => false,
 			gatewayCooldownUntil: () => 0,
@@ -316,6 +322,9 @@ test.each([false, true])(
 					expect(env.TEDIX_AGENT_SESSION).toBe(receipt.session);
 					expect(env.TEDIX_EXTERNAL_AGENT).toBe(receipt.executorKey);
 					const input = JSON.parse(args[args.indexOf("--input") + 1]!);
+					expect(input.subject).toBe(`Sign in again on ${hostname()}`);
+					expect(input.prompt.match(/tedix login/g)).toHaveLength(1);
+					expect(input.prompt).toContain("tedix login --workspace fixture");
 					expect(input.requestedFrom).toEqual({
 						type: "user",
 						id: "fixture-owner",
@@ -338,7 +347,8 @@ test.each([false, true])(
 			).toHaveLength(1);
 		await new LaneDispatcher(options, dir, deps).tick();
 		expect(decisions).toBe(1);
-		expect(reads).toBe(0);
+		if (access === "usable") expect(reads).toBeGreaterThan(0);
+		else expect(reads).toBe(0);
 		if (lostReply) {
 			const key = loginRecoveryKey("fixture", credential);
 			const state = readLoginRecovery(key)!;
@@ -358,3 +368,19 @@ test.each([false, true])(
 		expect(decisions).toBe(lostReply ? 2 : 1);
 	},
 );
+
+test("an uncertain login stops using its access token at expiry without replaying refresh", async () => {
+	const credential = {
+		...login(),
+		accessTokenExpiresAtSeconds: Math.floor(Date.now() / 1000) - 1,
+	};
+	writeWorkspaceCredentials("fixture", credential);
+	const result = await resolveStoredLoginAuth("fixture", {
+		verifyAccess: async () => {
+			throw new Error("expired access must not be probed");
+		},
+	});
+	expect(result.auth).toBeNull();
+	expect(result.loginError).toContain("tedix login --workspace fixture");
+	expect(readWorkspaceCredentials("fixture")?.oauthRefreshPending).toBe(true);
+});
