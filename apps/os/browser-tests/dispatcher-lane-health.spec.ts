@@ -16,18 +16,26 @@ try {
 		await page.goto(`${server.origin}/work/capacity`);
 		const section = page.getByRole("region", { name: "Local lanes" });
 		await section.getByText("Slots in use", { exact: true }).waitFor();
-		const historical = section.locator("details").filter({
-			has: page.locator("summary", {
-				hasText: "Historical lane observations (1)",
-			}),
-		});
-		assert.equal(await historical.getAttribute("open"), null);
 		assert.equal(
-			await section.getByText("Unknown · stale", { exact: true }).isVisible(),
-			false,
+			await section
+				.getByText("Historical machines (1)", { exact: true })
+				.count(),
+			0,
 		);
-		await historical.locator("summary").first().click();
+		assert.equal(await section.getByRole("table").count(), 1);
+		assert.equal(await section.locator("tbody > tr").count(), 3);
 		await section.getByText("Unknown · stale", { exact: true }).waitFor();
+		for (const machine of await section.getByRole("region").all()) {
+			assert.equal(await machine.getByRole("table").count(), 1);
+			assert.deepEqual(
+				await machine.getByRole("columnheader").allTextContents(),
+				["Duty", "State", "Last observed", "Problem"],
+			);
+		}
+		for (const summary of await section
+			.locator("[data-lane-state] summary")
+			.all())
+			await summary.click();
 		for (const state of ["Slots in use", "Idle", "Unknown · stale"])
 			assert.equal(
 				await section.locator(`[data-lane-state="${state}"]`).count(),
@@ -39,7 +47,7 @@ try {
 				exact: true,
 			},
 		);
-		await skip.click();
+		await skip.waitFor();
 		assert.match(await section.innerText(), /Waiting for approval/);
 		assert.match(
 			await section.innerText(),
@@ -58,7 +66,9 @@ try {
 				() => document.documentElement.scrollWidth <= innerWidth,
 			),
 		);
-		await section.screenshot({ path: `${evidence}/lanes-${width}.png` });
+		await section.screenshot({
+			path: `${evidence}/table-preview-lanes-${width}.png`,
+		});
 		await page.close();
 	}
 	const reasons = [
@@ -118,10 +128,10 @@ try {
 			`Most reported problem (30 min): ${friendly} · 15 observations`,
 			{ exact: true },
 		);
-		await summary.waitFor();
-		const detail = summary.locator("..");
+		const detail = reasonPage.locator("details").filter({ has: summary });
 		assert.equal(await detail.getAttribute("open"), null);
-		await summary.click();
+		await detail.locator("summary").click();
+		await summary.waitFor();
 		assert.ok((await detail.innerText()).includes(raw));
 	}
 	await reasonPage.close();
@@ -204,6 +214,10 @@ try {
 		});
 		await machine.getByText("Last pass reported", { exact: true }).waitFor();
 		assert.equal(await machine.count(), 1);
+		assert.equal(await machine.getByRole("table").count(), 1);
+		assert.equal(await machine.locator("tbody > tr").count(), 2);
+		for (const summary of await machine.locator("summary").all())
+			await summary.click();
 		const lead = machine.locator('[data-lane-state="Last pass reported"]');
 		assert.match(await lead.innerText(), /Lead · codex/);
 		assert.match(await lead.innerText(), /Current pass: Not reported/);
@@ -221,13 +235,43 @@ try {
 				() => document.documentElement.scrollWidth <= innerWidth,
 			),
 		);
-		await machine.screenshot({ path: `${evidence}/machine-${width}.png` });
+		await machine.screenshot({
+			path: `${evidence}/table-preview-machine-${width}.png`,
+		});
 		includeDuty = true;
 		await page.reload();
 		await machine
 			.getByText("Waiting for next check", { exact: true })
 			.waitFor();
 		await machine.getByText("Restart scheduled", { exact: true }).waitFor();
+		const runner = machine.locator('[data-lane-state="Restart scheduled"]');
+		assert.equal(
+			await runner
+				.getByRole("cell")
+				.nth(3)
+				.getByText("Runner exited with code 7", { exact: true })
+				.isVisible(),
+			true,
+		);
+		const leadProblem = machine
+			.locator('[data-lane-state="Waiting for next check"]')
+			.getByRole("cell")
+			.nth(3);
+		assert.equal(
+			await leadProblem.getByText("Not reported", { exact: true }).isVisible(),
+			true,
+		);
+		assert.equal(
+			await leadProblem
+				.getByText("Last pass result: codex pass finished", { exact: true })
+				.isVisible(),
+			false,
+		);
+		await machine.screenshot({
+			path: `${evidence}/table-preview-compact-${width}.png`,
+		});
+		for (const summary of await machine.locator("summary").all())
+			await summary.click();
 		assert.match(
 			await machine.innerText(),
 			/Recorded restarts \(last hour\): 3/,
@@ -246,7 +290,9 @@ try {
 				() => document.documentElement.scrollWidth <= innerWidth,
 			),
 		);
-		await machine.screenshot({ path: `${evidence}/duties-${width}.png` });
+		await machine.screenshot({
+			path: `${evidence}/table-preview-duties-${width}.png`,
+		});
 		await page.close();
 	}
 	const stalePage = await browser.newPage();
@@ -290,9 +336,11 @@ try {
 		{ exact: true },
 	);
 	await unknown.waitFor();
-	await stalePage
-		.getByText("Historical lane observations (1)", { exact: true })
-		.click();
+	assert.equal(
+		await stalePage.getByText("Unknown · stale", { exact: true }).isVisible(),
+		false,
+	);
+	await stalePage.getByText("Historical machines (1)", { exact: true }).click();
 	await stalePage.getByText("Unknown · stale", { exact: true }).waitFor();
 	assert.equal(
 		await stalePage.locator("[data-lane-state] time").getAttribute("datetime"),
@@ -303,9 +351,7 @@ try {
 	await stalePage.getByText("Idle", { exact: true }).waitFor();
 	assert.equal(await unknown.count(), 0);
 	assert.equal(
-		await stalePage
-			.getByText("Historical lane observations (1)", { exact: true })
-			.count(),
+		await stalePage.getByText("Historical report", { exact: true }).count(),
 		0,
 	);
 	assert.equal(
