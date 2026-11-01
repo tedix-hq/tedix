@@ -5,7 +5,6 @@ import {
 	adaptVfsToWorkspaceFs,
 	restoreWorkspaceFile,
 	writeReversibleWorkspaceFile,
-	type WorkspaceVfsStorage,
 	type R2IdentityMountBucket,
 	type TediComputerExecution,
 } from "./workspace-fs";
@@ -23,28 +22,25 @@ type ComputerWorkspaceEnv = {
 
 /** One SQLite filesystem per immutable conversation or delegated execution. */
 export class TediComputerWorkspaceDO extends DurableObject<ComputerWorkspaceEnv> {
-	private readonly workspace = createTediWorkspaceVfs(
-		this.ctx.storage as unknown as WorkspaceVfsStorage,
-		{
-			execution: {
-				ctx: this.ctx,
-				loader: this.env.LOADER,
-				workspace: {
-					binding: "TEDI_COMPUTER_WORKSPACE",
-					id: this.ctx.id.toString(),
-				},
-			},
-			identityMount: async () => {
-				const identity =
-					await this.ctx.storage.get<ComputerWorkspaceIdentity>("identity");
-				if (!identity)
-					throw new Error("Computer workspace identity is not initialized");
-				return this.env.TEDI_STORAGE
-					? { bucket: this.env.TEDI_STORAGE, prefix: `${identity.tediId}/` }
-					: null;
+	private readonly workspace = createTediWorkspaceVfs(this.ctx.storage, {
+		execution: {
+			ctx: this.ctx,
+			loader: this.env.LOADER,
+			workspace: {
+				binding: "TEDI_COMPUTER_WORKSPACE",
+				id: this.ctx.id.toString(),
 			},
 		},
-	);
+		identityMount: async () => {
+			const identity =
+				await this.ctx.storage.get<ComputerWorkspaceIdentity>("identity");
+			if (!identity)
+				throw new Error("Computer workspace identity is not initialized");
+			return this.env.TEDI_STORAGE
+				? { bucket: this.env.TEDI_STORAGE, prefix: `${identity.tediId}/` }
+				: null;
+		},
+	});
 
 	async initialize(identity: ComputerWorkspaceIdentity): Promise<void> {
 		if (!identity.ownerId || !identity.tediId || !identity.scope)
