@@ -1948,6 +1948,57 @@ describe("kernel enqueue flow", () => {
 		resetLocalFixtures();
 	});
 
+	it("resolves the running delegation's exact conversation and workspace", async () => {
+		const input = {
+			conversationId: IDS.conversationDelegation,
+			includeArchived: true,
+			limit: 1,
+		};
+		await expectInputAcceptedByContract(
+			"kernelRuntime/listConversations",
+			input,
+		);
+		const result = callLocalOk("kernelRuntime/listConversations", input);
+		expect(result).toMatchObject({
+			conversations: [
+				{ id: IDS.conversationDelegation, workspaceId: IDS.workspaceRevenue },
+			],
+			nextCursor: null,
+		});
+		const runs = callLocalOk("kernelRuntime/readRunSet", {
+			conversationId: IDS.conversationDelegation,
+		});
+		expect(runs).toMatchObject({
+			runSet: { activeRunIds: [IDS.homeRunDelegating] },
+		});
+	});
+
+	it("does not replace missing, hidden or differently scoped exact lookups with another chat", () => {
+		for (const input of [
+			{ conversationId: "home:missing" },
+			{
+				conversationId: IDS.conversationDelegation,
+				workspaceId: IDS.workspaceSupport,
+			},
+			{
+				conversationId: IDS.conversationDelegation,
+				organizationId: "other-org",
+			},
+		])
+			expect(
+				callLocalOk("kernelRuntime/listConversations", input),
+			).toMatchObject({ conversations: [] });
+		callLocalOk("kernelRuntime/deleteConversation", {
+			conversationId: IDS.conversationDelegation,
+		});
+		expect(
+			callLocalOk("kernelRuntime/listConversations", {
+				conversationId: IDS.conversationDelegation,
+				includeArchived: true,
+			}),
+		).toMatchObject({ conversations: [] });
+	});
+
 	it("appends the user message plus a canned assistant reply and returns the enqueue shape", async () => {
 		const before = callLocalOk("kernelRuntime/readMessages", {
 			conversationId: IDS.conversationHome,
