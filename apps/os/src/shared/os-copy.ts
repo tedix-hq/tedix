@@ -24,7 +24,13 @@ export function navigationDescription(
 
 /** Generic OS wording. Names and tenant-specific content come from records. */
 const ENGLISH_COPY = {
-	supervisorDutyColumns: ["Duty", "State", "Last observed", "Problem"],
+	supervisorDutyColumns: [
+		"Duty",
+		"State",
+		"Work",
+		"Last observed",
+		"Next step",
+	],
 	cardRevisionChips: {
 		plan: ["Fewer steps", "Name owners", "Add dates"],
 		email: ["Shorter", "Warmer", "More concrete"],

@@ -6,6 +6,8 @@ import { recordDutyStatus } from "./supervise-duty-status";
 import {
 	collectDispatcherHealth,
 	recordDispatcherAdmission,
+	recordDispatcherCompletion,
+	recordDispatcherNextCheck,
 	recordDispatcherPreparing,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
@@ -31,7 +33,7 @@ describe("local dispatcher health", () => {
 		const now = Date.now();
 		writeDispatcherHealthSource(directory, {
 			scope: ["--workspace", "fixture", "--organization", "org_fixture"],
-			executor: "codex",
+			executor: "fixture-runner",
 			max: 2,
 		});
 		const identity = {
@@ -39,7 +41,7 @@ describe("local dispatcher health", () => {
 			kind: "service" as const,
 			workspace: "fixture",
 			organization: "org_fixture",
-			executor: "codex",
+			executor: "fixture-runner",
 		};
 		recordDutyStatus(
 			env,
@@ -61,9 +63,9 @@ describe("local dispatcher health", () => {
 			state: "waiting",
 			restartsLastHour: 0,
 		});
-		expect(
-			reports.find((row) => row.lane === "supervisor-lead")?.duty?.state,
-		).toBe("running");
+		expect(reports.find((row) => row.duty?.id === "lead")?.duty?.state).toBe(
+			"running",
+		);
 	});
 	test.each(["skipped", "completion-retained", "telemetry-retained"])(
 		"collects repeated %s reasons",
@@ -72,8 +74,8 @@ describe("local dispatcher health", () => {
 			writeDispatcherHealthSource(
 				directory,
 				{
-					scope: ["--workspace", "connect", "--organization", "org_tedix"],
-					executor: "devin",
+					scope: ["--workspace", "connect", "--organization", "org_example"],
+					executor: "alternate-runner",
 					max: 3,
 				},
 				process.pid,
@@ -116,8 +118,8 @@ describe("local dispatcher health", () => {
 			).toEqual([
 				expect.objectContaining({
 					workspace: "connect",
-					organization: "org_tedix",
-					executor: "devin",
+					organization: "org_example",
+					executor: "alternate-runner",
 					lane: "lane-key",
 					running: true,
 					lastAdmissionAt: "2026-10-30T10:00:00.000Z",
@@ -137,8 +139,8 @@ describe("local dispatcher health", () => {
 		writeDispatcherHealthSource(
 			directory,
 			{
-				scope: ["--workspace", "connect", "--organization", "org_tedix"],
-				executor: "codex",
+				scope: ["--workspace", "connect", "--organization", "org_example"],
+				executor: "fixture-runner",
 				max: 2,
 			},
 			2_147_483_647,
@@ -158,8 +160,8 @@ describe("local dispatcher health", () => {
 	test("preserves a real admission through log rotation and dispatcher restart", () => {
 		const { root, directory } = lane();
 		const options = {
-			scope: ["--workspace", "connect", "--organization", "org_tedix"],
-			executor: "codex",
+			scope: ["--workspace", "connect", "--organization", "org_example"],
+			executor: "fixture-runner",
 			max: 2,
 		};
 		writeDispatcherHealthSource(directory, options);
@@ -173,7 +175,10 @@ describe("local dispatcher health", () => {
 		expect(
 			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.lastAdmissionAt,
 		).toBe(at);
-		writeDispatcherHealthSource(directory, { ...options, executor: "devin" });
+		writeDispatcherHealthSource(directory, {
+			...options,
+			executor: "alternate-runner",
+		});
 		expect(
 			collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })[0]?.lastAdmissionAt,
 		).toBeNull();
@@ -182,8 +187,8 @@ describe("local dispatcher health", () => {
 	test("uses the newest persisted or log admission without moving backwards", () => {
 		const { root, directory } = lane();
 		writeDispatcherHealthSource(directory, {
-			scope: ["--workspace", "connect", "--organization", "org_tedix"],
-			executor: "codex",
+			scope: ["--workspace", "connect", "--organization", "org_example"],
+			executor: "fixture-runner",
 			max: 2,
 		});
 		recordDispatcherAdmission(directory, "2026-10-30T10:00:00.000Z");
@@ -200,8 +205,8 @@ describe("local dispatcher health", () => {
 	test("resets preparation on restart and rejects updates from a different process", () => {
 		const { root, directory } = lane();
 		const options = {
-			scope: ["--workspace", "connect", "--organization", "org_tedix"],
-			executor: "codex",
+			scope: ["--workspace", "connect", "--organization", "org_example"],
+			executor: "fixture-runner",
 			max: 3,
 		};
 		writeDispatcherHealthSource(directory, options);
@@ -223,5 +228,106 @@ describe("local dispatcher health", () => {
 		const { root, directory } = lane();
 		writeFileSync(join(directory, "health-source.json"), "not json");
 		expect(collectDispatcherHealth({ TEDIX_CONFIG_DIR: root })).toEqual([]);
+	});
+});
+
+describe("generic task activity", () => {
+	const one = "11111111-1111-4111-8111-111111111111";
+	const two = "22222222-2222-4222-8222-222222222222";
+	const three = "33333333-3333-4333-8333-333333333333";
+	function fixture() {
+		const { root, directory } = lane();
+		const env = { TEDIX_CONFIG_DIR: root };
+		const options = {
+			scope: ["--workspace", "example", "--organization", "org_example"],
+			executor: "custom.build-agent",
+			max: 4,
+		};
+		writeDispatcherHealthSource(directory, options);
+		recordDutyStatus(
+			env,
+			{
+				id: "lane-key",
+				kind: "service",
+				workspace: "example",
+				organization: "org_example",
+				executor: options.executor,
+			},
+			{ state: "running" },
+			Date.now(),
+		);
+		const activity = () => collectDispatcherHealth(env)[0]!.duty!.activity!;
+		const receipt = (id: string, version: number, row: object) =>
+			writeFileSync(
+				join(directory, `${id}-${version}.json`),
+				JSON.stringify(row),
+			);
+		return { root, directory, env, options, activity, receipt };
+	}
+	test("reports concurrent work, exact waits and the latest receipt version without provider switches", () => {
+		const f = fixture();
+		f.receipt(one, 1, { phase: "running", pid: process.pid });
+		f.receipt(one, 2, {
+			phase: "settled",
+			outcome: "succeeded",
+			completionPending: false,
+		});
+		f.receipt(two, 1, { phase: "running", pid: process.pid });
+		f.receipt(three, 1, {
+			phase: "deferred",
+			admissionState: "unknown",
+			retryAt: Date.now() + 60_000,
+		});
+		expect(f.activity().current).toEqual([{ id: two, phase: "working" }]);
+		expect(f.activity().waiting).toMatchObject([
+			{ id: three, reason: "confirmation" },
+		]);
+		expect(f.activity().lastCompleted).toBeNull();
+		f.receipt(one, 3, { phase: "settling", pid: 2_000_000_000 });
+		expect(f.activity().currentCount).toBe(2);
+		expect(f.activity().current).toContainEqual({
+			id: one,
+			phase: "finishing",
+		});
+	});
+	test("keeps a confirmed completion across restart and never replaces it with older observations", () => {
+		const f = fixture();
+		const latest = "2026-11-01T10:00:00.000Z";
+		recordDispatcherCompletion(f.directory, one, latest);
+		recordDispatcherCompletion(f.directory, two, "2026-10-30T10:00:00.000Z");
+		recordDispatcherNextCheck(f.directory, "2026-11-01T11:00:00.000Z");
+		expect(f.activity().lastCompleted).toEqual({
+			id: one,
+			completedAt: latest,
+		});
+		expect(f.activity().nextCheckAt).toBe("2026-11-01T11:00:00.000Z");
+		writeDispatcherHealthSource(f.directory, f.options);
+		expect(f.activity().lastCompleted?.id).toBe(one);
+		expect(f.activity().nextCheckAt).toBeNull();
+		writeDispatcherHealthSource(f.directory, {
+			...f.options,
+			scope: ["--workspace", "example", "--organization", "org_other"],
+		});
+		expect(collectDispatcherHealth(f.env)[0]?.duty).toBeUndefined();
+	});
+	test("keeps configured scheduled duties distinct", () => {
+		const f = fixture();
+		for (const id of ["daily-review", "custom-maintenance"])
+			recordDutyStatus(
+				f.env,
+				{
+					id,
+					kind: "task",
+					workspace: "example",
+					organization: "org_example",
+					executor: "tenant.runner",
+				},
+				{ state: "waiting" },
+				Date.now(),
+			);
+		const tasks = collectDispatcherHealth(f.env).filter(
+			(r) => r.duty?.kind === "task",
+		);
+		expect(new Set(tasks.map((r) => r.lane)).size).toBe(2);
 	});
 });

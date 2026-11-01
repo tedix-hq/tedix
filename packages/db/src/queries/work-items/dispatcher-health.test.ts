@@ -6,6 +6,7 @@ import {
 	DISPATCHER_HEALTH_SCHEMA,
 	listDispatcherHealthOrgs,
 	listDispatcherHealthReports,
+	listDispatcherWorkReferences,
 	readDispatcherActivity,
 	upsertDispatcherHealthReport,
 } from "./dispatcher-health";
@@ -314,4 +315,29 @@ describe("dispatcher health queries", () => {
 			lastTrackerActionAt: null,
 		});
 	});
+});
+
+it("resolves reported Work only within the requested tenant and chunks large reference sets", async () => {
+	const sqlite = seed();
+	try {
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		expect(
+			await listDispatcherWorkReferences(db, "idle", ["ready", "ready2"]),
+		).toEqual([]);
+		const refs = await listDispatcherWorkReferences(db, "busy", [
+			"ready",
+			"ready",
+			...Array.from({ length: 110 }, (_, i) => `missing-${i}`),
+		]);
+		expect(refs).toEqual([
+			{
+				id: "ready",
+				title: "Ready",
+				disposition: "accepted",
+				completedAt: null,
+			},
+		]);
+	} finally {
+		sqlite.close();
+	}
 });

@@ -1,5 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import type { DispatcherHealthReport } from "@tedix/api-contract/schemas/dispatcher-health";
+import { Link } from "@tanstack/react-router";
+import type {
+	DispatcherHealthReport,
+	SupervisorActivity,
+} from "@tedix/api-contract/schemas/dispatcher-health";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/kumo/badge";
 import {
@@ -78,9 +82,8 @@ export function DispatcherLaneHealth() {
 			<div>
 				<h2 className="type-tedix-section">Local lanes</h2>
 				<Text tone="secondary">
-					Checks for new reports every 30 seconds. A running runner does not
-					prove a task is progressing. Runner and Lead states reflect their
-					latest reports; older reports leave their current state unknown.
+					Checks for new reports every 30 seconds. Shows reported tasks and
+					confirmed completions. Older reports leave current activity unknown.
 				</Text>
 			</div>
 			{health.isError ? (
@@ -169,28 +172,110 @@ export function DispatcherLaneHealth() {
 	);
 }
 
+function WorkLink({ work }: { work: { id: string; title?: string } }) {
+	return (
+		<Link
+			to="/work/items/$workItemId"
+			params={{ workItemId: work.id }}
+			className="break-words underline"
+		>
+			{work.title ?? "Open task"}
+		</Link>
+	);
+}
+
+function WorkActivity({
+	activity,
+	stale,
+}: {
+	activity?: SupervisorActivity;
+	stale: boolean;
+}) {
+	if (stale) return <Text>Task activity unknown</Text>;
+	if (!activity) return <Text>Task activity not reported</Text>;
+	return (
+		<div className="grid gap-2">
+			{activity.current.length ? (
+				activity.current.map((work) => (
+					<div key={work.id}>
+						<WorkLink work={work} />
+					</div>
+				))
+			) : (
+				<Text>
+					{activity.currentCount
+						? "Task details unavailable"
+						: "No active task reported"}
+				</Text>
+			)}
+			{activity.currentCount > activity.current.length ? (
+				<Text tone="secondary">
+					{activity.currentCount - activity.current.length} more tasks reported
+				</Text>
+			) : null}
+			<div>
+				<Text tone="secondary">Last completed</Text>
+				{activity.lastCompleted ? (
+					<>
+						<WorkLink work={activity.lastCompleted} />
+						<Text>
+							<time dateTime={activity.lastCompleted.completedAt}>
+								{absoluteTime(activity.lastCompleted.completedAt)}
+							</time>
+						</Text>
+					</>
+				) : (
+					<Text>Not reported</Text>
+				)}
+			</div>
+		</div>
+	);
+}
+
+const WAIT_LABELS = {
+	retry: "Retry scheduled",
+	confirmation: "Checking admission",
+	reply: "Waiting for a reply",
+	completion: "Confirming completion",
+	held: "Held for review",
+};
+
 function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 	const stale = isStaleReport(lane, now);
-	const lead = lane.lane === "supervisor-lead";
 	const duty = lane.duty;
+	const lead =
+		duty?.kind === "task" || (!duty && lane.lane === "supervisor-lead");
+	const activity = duty?.activity;
+	const taskState = activity?.current.some((work) => work.phase === "working")
+		? "Working"
+		: activity?.current.some((work) => work.phase === "finishing")
+			? "Finishing"
+			: activity?.current.length
+				? "Starting"
+				: activity?.currentCount
+					? "Activity unknown"
+					: "Ready";
+	const nextAt = duty?.retryAt ?? (lane.running ? activity?.nextCheckAt : null);
 	const observedAt = duty?.observedAt ?? lane.observedAt;
 	const state = stale
 		? "Unknown · stale"
-		: duty
-			? {
-					running: lead ? "Lead running" : "Running",
-					waiting: lead ? "Waiting for next check" : "Restart scheduled",
-					stopped: "Stopped",
-					failed: "Needs attention",
-					unknown: "Unknown",
-				}[duty.state]
-			: lead
-				? "Last pass reported"
-				: !lane.running
-					? "Stopped"
-					: lane.slotsInUse > 0
-						? "Slots in use"
-						: "Idle";
+		: duty?.kind === "service" && duty.state === "running" && !lane.running
+			? "Stopped"
+			: duty
+				? {
+						running: lead ? "Check running" : activity ? taskState : "Running",
+						waiting: lead ? "Waiting for next check" : "Restart scheduled",
+						stopped: "Stopped",
+						failed: "Needs attention",
+						unknown: "Unknown",
+					}[duty.state]
+				: lead
+					? "Last pass reported"
+					: !lane.running
+						? "Stopped"
+						: lane.slotsInUse > 0
+							? "Slots in use"
+							: "Idle";
 	return (
 		<TableRow data-lane-state={state}>
 			<TableCell
@@ -198,10 +283,10 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 				className="whitespace-normal break-words align-top"
 			>
 				<span className="font-medium">
-					{lead ? `Lead · ${lane.executor}` : lane.executor}
+					{lead ? `Scheduled check · ${lane.executor}` : lane.executor}
 				</span>
 				<Text tone="secondary" className="break-all">
-					{lead ? "Periodic Lead check" : `Runner: ${lane.lane}`}
+					{lead ? "Scheduled task" : `Runner: ${lane.lane}`}
 				</Text>
 			</TableCell>
 			<TableCell label="State" className="whitespace-normal align-top">
@@ -218,6 +303,12 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 					{state}
 				</Badge>
 			</TableCell>
+			<TableCell
+				label="Work"
+				className="whitespace-normal break-words align-top"
+			>
+				<WorkActivity activity={activity} stale={stale} />
+			</TableCell>
 			<TableCell label="Last observed" className="whitespace-normal align-top">
 				<time dateTime={observedAt} title={absoluteTime(observedAt)}>
 					{relativeTime(observedAt, new Date(now))}
@@ -225,14 +316,43 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 				{stale ? <Text tone="secondary">Historical report</Text> : null}
 			</TableCell>
 			<TableCell
-				label="Problem"
+				label="Next step"
 				className="whitespace-normal break-words align-top"
 			>
-				<Text>
-					{stale
-						? "Current problem unknown"
-						: (duty?.lastProblem ?? "Not reported")}
-				</Text>
+				{stale || duty?.lastProblem ? (
+					<Text>{stale ? "Current problem unknown" : duty?.lastProblem}</Text>
+				) : null}
+				{!stale ? (
+					<div className="grid gap-2">
+						{activity?.waiting.map((work) => (
+							<div key={work.id}>
+								<WorkLink work={work} />
+								<Text>{WAIT_LABELS[work.reason]}</Text>
+								{work.retryAt ? (
+									<Text>
+										{Date.parse(work.retryAt) <= now
+											? "Retry or check due"
+											: "Scheduled"}
+										:{" "}
+										<time dateTime={work.retryAt}>
+											{absoluteTime(work.retryAt)}
+										</time>
+									</Text>
+								) : null}
+							</div>
+						))}
+						<Text>
+							{nextAt ? (
+								<>
+									{Date.parse(nextAt) <= now ? "Check due" : "Next check"}:{" "}
+									<time dateTime={nextAt}>{absoluteTime(nextAt)}</time>
+								</>
+							) : (
+								"Next check not reported"
+							)}
+						</Text>
+					</div>
+				) : null}
 				<details className="min-w-0 break-words">
 					<summary className="min-h-11 cursor-pointer py-2">
 						History and details

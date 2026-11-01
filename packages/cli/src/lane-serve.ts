@@ -78,6 +78,8 @@ import {
 } from "./login-recovery";
 import {
 	recordDispatcherAdmission,
+	recordDispatcherCompletion,
+	recordDispatcherNextCheck,
 	recordDispatcherPreparing,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
@@ -2466,7 +2468,9 @@ export class LaneDispatcher {
 					"Completion retained: original executor identity is missing",
 				);
 			if (reconcile) {
-				const { workItem } = await this.call<{ workItem: DispatchItem }>(
+				const { workItem } = await this.call<{
+					workItem: DispatchItem & { completedAt?: string | null };
+				}>(
 					["work", "dispatch-get", receipt.itemId, "--input", "{}"],
 					receipt.session,
 					receipt.executorKey,
@@ -2475,6 +2479,12 @@ export class LaneDispatcher {
 					throw new Error("Completion reconciliation could not read its Work");
 				if (["completed", "cancelled"].includes(workItem.disposition)) {
 					receipt.completionPending = false;
+					if (workItem.disposition === "completed" && workItem.completedAt)
+						recordDispatcherCompletion(
+							this.directory,
+							receipt.itemId,
+							workItem.completedAt,
+						);
 					this.log("completion-observed", receipt.itemId, workItem.disposition);
 				} else {
 					if (workItem.version !== receipt.version)
@@ -2503,11 +2513,25 @@ export class LaneDispatcher {
 				}
 			}
 			if (receipt.completionPending) {
-				await this.call(
+				const completed = await this.call<{
+					id: string;
+					disposition: string;
+					completedAt?: string | null;
+				}>(
 					["work", "complete", receipt.itemId],
 					receipt.session,
 					receipt.executorKey,
 				);
+				if (
+					completed?.id === receipt.itemId &&
+					completed.disposition === "completed" &&
+					completed.completedAt
+				)
+					recordDispatcherCompletion(
+						this.directory,
+						receipt.itemId,
+						completed.completedAt,
+					);
 				this.log("completed", receipt.itemId, "Work completion confirmed");
 			}
 			receipt.completionPending = false;
@@ -2793,6 +2817,10 @@ export async function runLaneServe(args: string[]): Promise<number> {
 			}
 			if (options.once || stopping) break;
 			const delay = dispatcher.nextTickDelayMs();
+			recordDispatcherNextCheck(
+				directory,
+				new Date(Date.now() + delay).toISOString(),
+			);
 			await new Promise<void>((done) => setTimeout(done, delay));
 		} while (!stopping);
 		await dispatcher.drain();

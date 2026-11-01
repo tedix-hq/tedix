@@ -29,7 +29,7 @@ try {
 			assert.equal(await machine.getByRole("table").count(), 1);
 			assert.deepEqual(
 				await machine.getByRole("columnheader").allTextContents(),
-				["Duty", "State", "Last observed", "Problem"],
+				["Duty", "State", "Work", "Last observed", "Next step"],
 			);
 		}
 		for (const summary of await section
@@ -105,7 +105,7 @@ try {
 					reportedAt: at,
 					data: reasons.map(([reason], index) => ({
 						reporterId: `fixture-${index}`,
-						executor: "codex",
+						executor: "custom-review",
 						lane: `lane-${index}`,
 						running: true,
 						observedAt: at,
@@ -148,7 +148,7 @@ try {
 				lastRunAt: at,
 				lastExitAt: at,
 				lastExitCode: 0,
-				lastExecutor: "codex",
+				lastExecutor: "custom-review",
 				restartsLastHour: 0,
 				retryAt: at,
 				lastProblem: null,
@@ -162,7 +162,7 @@ try {
 						data: [
 							{
 								reporterId: "fixture-mac",
-								executor: "codex",
+								executor: "custom-review",
 								lane: "supervisor-lead",
 								running: true,
 								observedAt: at,
@@ -170,7 +170,7 @@ try {
 								lastAdmissionAt: null,
 								slotsInUse: 0,
 								slotsTotal: 1,
-								topReason: { reason: "codex pass finished", count: 1 },
+								topReason: { reason: "custom-review pass finished", count: 1 },
 								duty: includeDuty ? duty : undefined,
 								ageSeconds: 0,
 								staleAfterSeconds: 90,
@@ -178,19 +178,19 @@ try {
 							},
 							{
 								reporterId: "fixture-mac",
-								executor: "opencode",
+								executor: "custom-build",
 								duty: includeDuty
 									? {
 											...duty,
-											id: "opencode",
+											id: "custom-build",
 											kind: "service",
-											lastExecutor: "opencode",
+											lastExecutor: "custom-build",
 											restartsLastHour: 3,
 											lastExitCode: 7,
 											lastProblem: "Runner exited with code 7",
 										}
 									: undefined,
-								lane: "opencode",
+								lane: "custom-build",
 								running: true,
 								observedAt: at,
 								reportedAt: at,
@@ -219,11 +219,11 @@ try {
 		for (const summary of await machine.locator("summary").all())
 			await summary.click();
 		const lead = machine.locator('[data-lane-state="Last pass reported"]');
-		assert.match(await lead.innerText(), /Lead · codex/);
+		assert.match(await lead.innerText(), /Scheduled check · custom-review/);
 		assert.match(await lead.innerText(), /Current pass: Not reported/);
 		assert.match(
 			await lead.innerText(),
-			/Last pass result: codex pass finished/,
+			/Last pass result: custom-review pass finished/,
 		);
 		assert.doesNotMatch(
 			await lead.innerText(),
@@ -248,7 +248,7 @@ try {
 		assert.equal(
 			await runner
 				.getByRole("cell")
-				.nth(3)
+				.nth(4)
 				.getByText("Runner exited with code 7", { exact: true })
 				.isVisible(),
 			true,
@@ -256,14 +256,13 @@ try {
 		const leadProblem = machine
 			.locator('[data-lane-state="Waiting for next check"]')
 			.getByRole("cell")
-			.nth(3);
-		assert.equal(
-			await leadProblem.getByText("Not reported", { exact: true }).isVisible(),
-			true,
-		);
+			.nth(4);
+		assert.match(await leadProblem.innerText(), /Check due|Next check/);
 		assert.equal(
 			await leadProblem
-				.getByText("Last pass result: codex pass finished", { exact: true })
+				.getByText("Last pass result: custom-review pass finished", {
+					exact: true,
+				})
 				.isVisible(),
 			false,
 		);
@@ -312,8 +311,8 @@ try {
 					data: [
 						{
 							reporterId: "fixture-restored",
-							executor: "codex",
-							lane: "codex",
+							executor: "custom-review",
+							lane: "custom-review",
 							running: true,
 							observedAt: observationTime,
 							reportedAt: at,
@@ -384,6 +383,155 @@ try {
 			.waitFor();
 		assert.equal(await page.locator("[data-lane-state]").count(), 0);
 		await page.close();
+	}
+	for (const width of [375, 1280]) {
+		for (const executors of [
+			["tenant.builder", "review-pool", "night-check"],
+			["custom-service"],
+		]) {
+			const page = await browser.newPage({ viewport: { width, height: 900 } });
+			let stale = false;
+			const current = "11111111-1111-4111-8111-111111111111";
+			const second = "22222222-2222-4222-8222-222222222222";
+			const completed = "33333333-3333-4333-8333-333333333333";
+			await page.route("**/dispatcherHealth/list**", (route) => {
+				const at = new Date().toISOString();
+				const future = new Date(Date.now() + 60_000).toISOString();
+				return route.fulfill({
+					status: 200,
+					contentType: "application/json",
+					body: JSON.stringify({
+						json: {
+							reportedAt: at,
+							data: executors.map((executor, index) => ({
+								reporterId: `configured-${executors.length}`,
+								executor,
+								lane: `service-${index}`,
+								running: index < 2,
+								observedAt: at,
+								reportedAt: at,
+								lastAdmissionAt: at,
+								slotsInUse: index ? 0 : 2,
+								slotsTotal: 8,
+								topReason: null,
+								stale,
+								ageSeconds: stale ? 600 : 0,
+								staleAfterSeconds: 300,
+								duty: {
+									id: `configured-${index}`,
+									kind: "service",
+									state: "running",
+									observedAt: at,
+									lastRunAt: at,
+									lastExitAt: null,
+									lastExitCode: null,
+									lastExecutor: executor,
+									restartsLastHour: 0,
+									retryAt: null,
+									lastProblem: null,
+									activity: {
+										current: index
+											? []
+											: [
+													{
+														id: current,
+														title: "Build the guide",
+														phase: "working",
+													},
+													{
+														id: second,
+														title: "Review changes",
+														phase: "working",
+													},
+												],
+										currentCount: index ? 0 : 5,
+										waiting: index
+											? []
+											: [
+													{
+														id: second,
+														title: "Review changes",
+														reason: "retry",
+														retryAt: future,
+													},
+												],
+										nextCheckAt: future,
+										lastCompleted: {
+											id: completed,
+											title: "Publish the guide",
+											completedAt: at,
+										},
+									},
+								},
+							})),
+						},
+					}),
+				});
+			});
+			await page.goto(`${server.origin}/work/capacity`);
+			const section = page.getByRole("region", { name: "Local lanes" });
+			await section.getByText("Working", { exact: true }).waitFor();
+			assert.equal(
+				await section.locator("tbody > tr").count(),
+				executors.length,
+			);
+			const row = section.locator("tbody > tr").first();
+			assert.match(await row.innerText(), /3 more tasks reported/);
+			assert.match(await row.innerText(), /Retry scheduled/);
+			assert.match(await row.innerText(), /Last completed/);
+			assert.equal(
+				await row
+					.getByRole("link", { name: "Build the guide", exact: true })
+					.getAttribute("href"),
+				`/work/items/${current}`,
+			);
+			assert.equal(
+				await row
+					.getByRole("link", { name: "Publish the guide", exact: true })
+					.getAttribute("href"),
+				`/work/items/${completed}`,
+			);
+			if (executors.length > 1)
+				assert.equal(
+					await section.getByText("Ready", { exact: true }).count(),
+					Math.min(1, executors.length - 1),
+				);
+			if (executors.length > 2)
+				assert.equal(
+					await section.getByText("Stopped", { exact: true }).count(),
+					1,
+				);
+			assert.ok(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+			);
+			await section.screenshot({
+				path: `${evidence}/activity-${executors.length}-${width}.png`,
+			});
+			stale = true;
+			await page.reload();
+			await section
+				.getByText("Historical machines (1)", { exact: true })
+				.click();
+			await section
+				.getByText("Unknown · stale", { exact: true })
+				.first()
+				.waitFor();
+			assert.equal(
+				await section
+					.getByRole("link", { name: "Build the guide", exact: true })
+					.count(),
+				0,
+			);
+			assert.equal(
+				await section
+					.getByRole("link", { name: "Publish the guide", exact: true })
+					.count(),
+				0,
+			);
+			await page.close();
+		}
 	}
 	console.log(
 		"PASS: local lane states, stale reports, empty/error states, phone and desktop",
