@@ -33,7 +33,10 @@ const EMAIL_TESTS = [
 	"test/email-header-parsing.test.ts",
 	"test/email-sender-policy.test.ts",
 ];
-const PROVIDER_TESTS = ["test/pi-runtime/submissions.workerd.test.ts"];
+const PROVIDER_TESTS = [
+	"test/pi-runtime/submissions.workerd.test.ts",
+	"test/session-repo-cost.workerd.test.ts",
+];
 
 function scriptTests(): string[] {
 	return readdirSync(join(workspace, "src"))
