@@ -290,6 +290,31 @@ describe("generic task activity", () => {
 			phase: "finishing",
 		});
 	});
+	test("keeps working tasks and admission waits visible ahead of retained completion and held rows", () => {
+		const f = fixture();
+		for (let n = 1; n <= 4; n++) {
+			f.receipt(`00000000-0000-4000-8000-00000000000${n}`, 1, {
+				phase: "settled",
+				outcome: "succeeded",
+				completionPending: true,
+			});
+			f.receipt(`10000000-0000-4000-8000-00000000000${n}`, 1, {
+				phase: "deferred",
+				held: true,
+			});
+		}
+		f.receipt(two, 1, { phase: "running", pid: process.pid });
+		f.receipt(three, 1, { phase: "preparing", admissionState: "unknown" });
+		const activity = f.activity();
+		expect(activity.current[0]).toEqual({ id: two, phase: "working" });
+		expect(activity.current[1]).toEqual({ id: three, phase: "starting" });
+		expect(activity.currentCount).toBe(6);
+		expect(activity.waiting[0]).toMatchObject({
+			id: three,
+			reason: "confirmation",
+		});
+		expect(activity.waiting).toHaveLength(3);
+	});
 	test("keeps a confirmed completion across restart and never replaces it with older observations", () => {
 		const f = fixture();
 		const latest = "2026-11-01T10:00:00.000Z";
