@@ -12,26 +12,48 @@ export async function readThemeArtifactHead(input: {
 	orgSlug: string;
 	artifacts: ArtifactsBinding;
 }): Promise<{ branch: "main"; sourceCommit: string }> {
+	let stage = "repository_lookup";
+	let reason = "provider_failure";
 	try {
 		using repo = await input.artifacts.get(
 			themeArtifactRepoName(input.orgSlug),
 		);
+		stage = "main_history";
 		const commits = await repo.log({
-			ref: "refs/heads/main",
+			ref: "main",
 			limit: 1,
 			offset: 0,
 		});
+		stage = "main_validation";
 		const sourceCommit = commits[0]?.hash;
 		if (
 			commits.length !== 1 ||
 			!sourceCommit ||
 			!/^[a-f0-9]{40}$/.test(sourceCommit)
-		)
+		) {
+			reason = commits.length === 0 ? "main_not_found" : "invalid_main_history";
 			throw new Error("Artifacts main branch unavailable");
+		}
+		stage = "commit_verification";
 		await readThemeArtifactTree(repo, sourceCommit);
 		return { branch: "main", sourceCommit };
-	} catch {
-		throw new Error("Unable to read the current Artifacts theme branch");
+	} catch (error) {
+		const code =
+			error && typeof error === "object" && "code" in error ? error.code : null;
+		if (
+			typeof code === "string" &&
+			[
+				"NOT_FOUND",
+				"INVALID_INPUT",
+				"UPSTREAM_UNAVAILABLE",
+				"MEMORY_LIMIT",
+				"INTERNAL_ERROR",
+			].includes(code)
+		)
+			reason = code;
+		throw new Error(
+			`Unable to read the current Artifacts theme branch (${stage}: ${reason})`,
+		);
 	}
 }
 
