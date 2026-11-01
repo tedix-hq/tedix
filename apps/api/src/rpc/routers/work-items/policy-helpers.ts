@@ -98,6 +98,19 @@ export async function canCompleteOwnSucceededAttempt(
 		settlement && typeof settlement === "object" && !Array.isArray(settlement)
 			? settlement.commitSha
 			: undefined;
+	const result = latest?.metadata?.laneResult;
+	const declaredCompletion =
+		result &&
+		typeof result === "object" &&
+		!Array.isArray(result) &&
+		(result.outcome === "completed" ||
+			result.outcome === "already_satisfied") &&
+		typeof result.contractVersion === "number" &&
+		result.workItemId === item.id &&
+		result.workVersion === item.version &&
+		result.contractVersion === item.acceptanceContract?.version &&
+		result.outcomeText ===
+			(item.acceptanceContract?.doneLooksLike ?? item.title);
 	return Boolean(
 		latest &&
 		latest.executorType === "external_agent" &&
@@ -105,7 +118,8 @@ export async function canCompleteOwnSucceededAttempt(
 		latest.executorSessionId === actor.sessionId &&
 		latest.outcome === "succeeded" &&
 		(latest.metadata?.dispatchVersion === undefined ||
-			latest.metadata.dispatchVersion === item.version) &&
+			(latest.metadata.dispatchVersion === item.version &&
+				declaredCompletion)) &&
 		(item.workKind !== "coding" ||
 			(typeof commitSha === "string" && /^[a-f\d]{40}$/i.test(commitSha))),
 	);
@@ -167,7 +181,7 @@ export async function workItemStewardActor(
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		action === "completion" && actor.type === "external_agent"
-			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires a commit), and not accepted credentials, payment or messaging actions"
+			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires a commit; dispatched Work requires its full outcome declaration), and not accepted credentials, payment or messaging actions"
 			: `Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
 	);
 }

@@ -79,6 +79,13 @@ const options: ServeOptions = {
 	once: true,
 	install: false,
 };
+const completedResult = (work = item()) => ({
+	outcome: "completed" as const,
+	workItemId: work.id,
+	workVersion: work.version,
+	contractVersion: work.acceptanceContract!.version,
+	outcomeText: work.acceptanceContract?.doneLooksLike ?? work.title,
+});
 function fixture({
 	refuse = false,
 	dark = false,
@@ -126,6 +133,7 @@ function fixture({
 		telemetryOutcome: "succeeded" as "succeeded" | "stopped" | "failed",
 		exitCode: 0,
 		finalMessage: "Result recorded in OS.",
+		declareCompleted: true,
 		provisionError: undefined as Error | undefined,
 		threadError: undefined as Error | undefined,
 		installError: undefined as Error | undefined,
@@ -326,6 +334,9 @@ function fixture({
 			expect(brief).toContain("Do not pass one -m per trailer");
 			expect(deps?.forwardSignals).toBe(false);
 			if (control.spawnPid) deps?.onSpawn?.(control.spawnPid);
+			const completed = completedResult(
+				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!,
+			);
 			await new Promise<void>((done) => releases.push(done));
 			if (control.deliverNote)
 				await deps?.deliverWorkNote?.(control.deliverNote);
@@ -339,7 +350,11 @@ function fixture({
 				heartbeatAt: "2026-10-01T00:00:01.000Z",
 				finishedAt: "2026-10-01T00:00:01.000Z",
 				outcome: control.telemetryOutcome,
-				finalMessage: control.finalMessage,
+				finalMessage:
+					control.declareCompleted &&
+					!control.finalMessage.includes("TEDIX_LANE_RESULT")
+						? `${control.finalMessage}\nTEDIX_LANE_RESULT ${JSON.stringify(completed)}`
+						: control.finalMessage,
 				tools: {},
 				usage: { input: 100, cached: 40, output: 30, reasoning: 10 },
 				shas: [],
@@ -798,6 +813,7 @@ describe("dispatcher admission", () => {
 				session: "codex:retained-session",
 				executorKey: "retained-executor",
 				completionPending: true,
+				laneResult: completedResult(item(2)),
 				pendingObservation: { state: "idle" },
 			}),
 		);
@@ -830,7 +846,7 @@ describe("dispatcher admission", () => {
 			await f.dispatcher.drain();
 		}
 	});
-	it("closes a queued legacy success through its original fence without rerunning it", async () => {
+	it("retains an undeclared legacy success instead of inferring completion", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		const path = join(f.dir, `${item().id}-2.json`);
@@ -859,8 +875,7 @@ describe("dispatcher admission", () => {
 		await f.dispatcher.drain();
 		expect(f.releases).toHaveLength(0);
 		const completed = f.events.find((event) => event.verb === "complete");
-		expect(completed?.env.TEDIX_AGENT_SESSION).toBe("codex:retained-session");
-		expect(completed?.env.TEDIX_EXTERNAL_AGENT).toBe("retained-executor");
+		expect(completed).toBeUndefined();
 		expect(JSON.parse(readFileSync(path, "utf8")).completionPending).toBe(
 			false,
 		);
@@ -922,6 +937,7 @@ describe("dispatcher admission", () => {
 					attemptId: "previous-attempt",
 					executorKey: "previous-executor",
 					completionPending: state === "succeeded",
+					laneResult: completedResult(item(1)),
 				}),
 			);
 			const signals = spyOn(process, "kill");
@@ -1523,6 +1539,7 @@ describe("dispatcher admission", () => {
 					attemptId: "old-attempt",
 					session: "codex:old-session",
 					executorKey: "old-executor",
+					laneResult: completedResult(),
 				}),
 			);
 			f.control.history.data = [
@@ -1869,6 +1886,62 @@ describe("dispatcher admission", () => {
 		},
 	);
 
+	it.each([
+		"The command failed immediately with Installed build changed.",
+		"Recovery remains unverified.",
+		"Certification remains incomplete; endpoint reviews remain.",
+	])(
+		"does not infer completion from a successful process exit: %s",
+		async (message) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.declareCompleted = false;
+			f.control.finalMessage = message;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+		},
+	);
+	it("keeps an explicitly incomplete coding result open despite its landed commit", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		f.control.commits = ["a".repeat(40)];
+		f.control.finalMessage = `Partial result\nTEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), outcome: "incomplete", remaining: "Live acceptance remains unverified" })}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(settle.args).toContain("a".repeat(40));
+		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+	});
+	it.each([
+		{ workItemId: item(2).id },
+		{ workVersion: 3 },
+		{ contractVersion: 2 },
+		{ outcomeText: "An earlier accepted outcome" },
+	])(
+		"rejects a stale or foreign completion declaration: %j",
+		async (mismatch) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(), ...mismatch })}`;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+			expect(f.events.find((event) => event.verb === "settle")!.args).toContain(
+				"failed",
+			);
+		},
+	);
 	it("settles result notes starting with a bullet through the real option parser", async () => {
 		const { dispatcher, items, control, events, releases } = fixture();
 		items.splice(1);
@@ -1879,7 +1952,7 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 		const settle = events.find((event) => event.verb === "settle")!;
 		expect(parseOptions(settle.args).options.workNote).toBe(
-			`Result:\n${control.finalMessage}`,
+			`Result:\n${control.finalMessage}\nTEDIX_LANE_RESULT ${JSON.stringify(completedResult())}`,
 		);
 	});
 
@@ -1903,7 +1976,7 @@ describe("dispatcher admission", () => {
 		expect(briefs[0]).toStartWith(control.recall);
 		expect(briefs[0]).toContain("Your exclusive source worktree is");
 		expect(briefs[0]).toContain(
-			"Do not emit TEDIX_LANE_RESULT for an ordinary research result",
+			"Add outcome=completed only when the entire accepted outcome happened",
 		);
 		expect(briefs[0]).not.toContain(
 			"If no new source change is needed, append exactly one TEDIX_LANE_RESULT",
@@ -2122,7 +2195,7 @@ describe("dispatcher admission", () => {
 				phase: "settling",
 				outcome: "succeeded",
 				attemptId: "fictional-attempt",
-				pendingCommitProof: "Result recorded in OS.",
+				pendingCommitProof: `Result recorded in OS.\nTEDIX_LANE_RESULT ${JSON.stringify(completedResult())}`,
 			});
 			expect(events.filter((e) => e.verb === "settle")).toHaveLength(0);
 			expect(control.cleanups).toBe(0);
@@ -4023,6 +4096,7 @@ it("publishes only canonical completed Work, never a cancelled succeeded receipt
 		session: "fixture:retained-session",
 		executorKey: "fixture-agent",
 		completionPending: true,
+		laneResult: completedResult(item(1)),
 	};
 	Object.assign(f.items[0]!, { disposition: "cancelled", completedAt: null });
 	await f.dispatcher["complete"]({ ...receipt }, true);

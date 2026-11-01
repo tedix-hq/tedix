@@ -563,7 +563,7 @@ not independently verify the result.
 
 For a human dependency, native sessions can append one `TEDIX_LANE_RESULT`
 JSON line with `outcome: "waiting_on_user"`, the existing `interactionId`,
-observed `requestVersion`, `orgId` and recipient `userId`. Both structured
+observed `requestVersion`, `orgId` and recipient `userId`. Structured
 outcomes also require the exact `workItemId`, `workVersion`, `contractVersion`
 and accepted `outcomeText` supplied in the brief. A wait cancels only the
 Attempt, leaves Work open and retains the same request across runner restarts
@@ -572,6 +572,13 @@ cancelled or partial response reads keep the hold. A resolving answer, input
 or accepted handoff from the exact human permits fresh admission and another
 assessment; it grants no provider consent or permission. A declined handoff
 does not release the hold.
+
+Every dispatched final answer ends with one `TEDIX_LANE_RESULT` JSON line using
+the Work, version, contract and accepted-outcome fields supplied in its brief.
+Use `outcome: "completed"` only when the entire accepted outcome happened.
+Otherwise use `outcome: "incomplete"` with `remaining` explaining what is unmet.
+A successful process exit or landed partial commit does not complete Work.
+Legacy results without that declaration remain open for verification.
 
 For an already satisfied CI recovery, use `outcome: "already_satisfied"` with
 the full existing fix `commitSha`, `runId`, `workflowName`, `minimumCommit`

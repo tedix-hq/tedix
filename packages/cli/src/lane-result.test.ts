@@ -73,6 +73,24 @@ function interaction() {
 }
 
 describe("structured lane results", () => {
+	it("distinguishes complete and incomplete accepted outcomes", () => {
+		const { interactionId, requestVersion, orgId, userId, ...base } = wait;
+		expect(
+			parseLaneResult(
+				`TEDIX_LANE_RESULT ${JSON.stringify({ ...base, outcome: "completed" })}`,
+			)?.outcome,
+		).toBe("completed");
+		expect(
+			parseLaneResult(
+				`TEDIX_LANE_RESULT ${JSON.stringify({ ...base, outcome: "incomplete", remaining: "Live verification remains" })}`,
+			)?.outcome,
+		).toBe("incomplete");
+		expect(() =>
+			parseLaneResult(
+				`TEDIX_LANE_RESULT ${JSON.stringify({ ...base, outcome: "incomplete" })}`,
+			),
+		).toThrow();
+	});
 	it("ignores prose and accepts exactly one strict, bounded result", () => {
 		expect(parseLaneResult("Still waiting on you")).toBeUndefined();
 		const line = `TEDIX_LANE_RESULT ${JSON.stringify(wait)}`;

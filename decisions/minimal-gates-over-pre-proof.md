@@ -53,6 +53,10 @@ claim's truth.
    record; it does not need an artificial code commit. An agent can close only
    its own latest succeeded Attempt. Credential, payment and external-message
    actions in the title or accepted outcome remain owner-controlled.
+   A dispatcher records an explicit declaration of the accepted outcome, rather
+   than treating a successful process exit or partial commit as that outcome.
+   Partial, missing and stale declarations leave Work open; this adds no review
+   or evidence-count requirement to completion.
 6. **Settled means done.** A Work Item is accepted with a plain-language "done
    looks like"; an Attempt settles with an outcome, a summary, and its commit
    shas; completion carries no evidence count and no review requirement. Legacy
