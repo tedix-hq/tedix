@@ -270,7 +270,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 	const hasWorkRead = Array.isArray(scopes) && scopes.includes("mcp:work.read");
 	if (stopEvent && !workId) return;
 	const lines = [
-		`Tedix read-only preflight: source=${sourceEvent}; observed=${observedAt}; CLI profile ${workspace}; credential kind ${source}; Work read scope ${hasWorkRead ? "present" : "unverified"}. This does not grant Work execution authority.`,
+		`Tedix read-only preflight: source=${sourceEvent}; observed=${observedAt}; CLI profile ${workspace}; credential kind ${source}; Work read scope ${hasWorkRead ? "present" : "unverified"}. This does not select the execution surface or grant Work execution authority. Prefer authenticated MCP for remote operations when identity and scopes support them; use CLI for local integration or CLI-managed Attempt state.`,
 		"Checkpoint: use tedix-session-guide at a material milestone or completion claim; compare Work, commits and the named live result. Guardian: tedix-guardian-session for explicit oversight.",
 	];
 	if (bound) {
@@ -282,7 +282,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 		);
 		if (!workId)
 			lines.push(
-				`No selected Work. Before you change files for a user-authorized repo task, claim its Work Item: find it (tedix work find "<words>" -w ${workspace}) or create it (tedix work create "<title>" --kind coding --project ${binding.projectId ?? "<project>"} -w ${workspace}), then tedix work start <id> -w ${workspace}. Every commit carries Work-Item: <id>; the pre-push gate rejects a commit without it. This hook only reads; do not re-ask permission for that task. Ask only for an ambiguous target or reserved decision.`,
+				`No selected Work. Before you change files for a user-authorized repo task, find its matching Work Item in project ${binding.projectId ?? "<project>"} and obtain an admitted Attempt under your verified executor identity. Use scoped MCP tools or a compatible CLI workflow; a checkout does not require CLI. Follow tedix-session-guide for acceptance, admission and commit attribution. Do not mix MCP/CLI Attempt state without verified session and fence compatibility. Every commit carries Work-Item: <id>; the pre-push gate rejects a commit without it. This hook only reads; do not re-ask permission for that task. Ask only for an ambiguous target or reserved decision.`,
 			);
 	}
 

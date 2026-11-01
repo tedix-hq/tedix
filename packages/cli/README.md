@@ -46,6 +46,29 @@ one-shot command mode (`tedix ask "..."`, `tedix status`, `tedix approve
 with slash-command completion, multiline composition, live activity panels,
 and durable answer settlement.
 
+## MCP connection or CLI?
+
+Prefer the authenticated Tedix MCP connection for remote operations, including
+Work reads and engineering coordination, when it supports the required executor
+identity and scopes. A source checkout or saved CLI profile does not select the
+surface. Packaged skills supply instructions; local hooks supply lifecycle
+integration; neither proves a working MCP connection or an admitted Attempt.
+
+| Operation                                                                     | Surface and dependency                                                                                                                                                                     |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Work discovery, comments, readiness, start, heartbeat, settlement, completion | MCP tools or CLI wrappers, subject to the actual identity, scopes and admission.                                                                                                           |
+| Local plugin setup, hooks, directory bindings, supervisor/dispatcher          | The existing local integration uses the CLI and local files/processes. A remote MCP call alone cannot operate this machinery.                                                              |
+| File edits, tests and Git                                                     | Host local tools; not inherently the Tedix CLI.                                                                                                                                            |
+| CLI-managed Attempt continuation                                              | The CLI retains its fence in `work-attempt-store.ts`. MCP start does not populate that store. Cross-surface continuation is unverified unless session and fence compatibility are checked. |
+| Commit attribution                                                            | Match the Work and admitted executor session to repository policy. `work trailers` is the CLI helper; do not assume an owner-host MCP session satisfies machine-identity certification.    |
+
+The presence of a write tool is not a successful engineering run. Check the
+chosen connection's executor identity, admission and commit-attribution support
+before editing. Keep lifecycle calls on the admitted identity and compatible
+surface; never manually reconstruct the CLI Attempt cache or switch surfaces
+to evade a denied scope. Honor explicit operation-specific policy and report
+the exact unsupported requirement when a compatible CLI workflow is needed.
+
 ## Features
 
 - **Agent-host setup** (`agent-host-setup.ts`) — `tedix setup agents` installs
@@ -63,7 +86,8 @@ and durable answer settlement.
   session and again only on change. Unchanged sources stay silent.
   Each turn also shows up to three accepted Work items without a live Attempt,
   assigned to this harness
-  or without an executor in the bound project, with `tedix work start` commands.
+  or without an executor in the bound project, with Work IDs to inspect through
+  the MCP connection or a compatible CLI workflow.
   These suggestions use a 30-second cache; unavailable or expired reads are
   omitted. A suggestion still needs fresh admission before execution. Local
   session receipts contain only hashes; clear/compact resets delivery. Updated

@@ -58,10 +58,23 @@ It does not enumerate private oRPC procedures or authenticated MCP tools.
 
 ## First Cloud connection
 
-An agent reaches a Tedix organization in one of two ways. The first needs no
-CLI and is the default for Claude, Claude Code, Codex and the ChatGPT desktop
-app. The second is for a local coding harness that needs hooks or repository
-policy.
+An agent reaches a Tedix organization through an authenticated MCP connection
+or the CLI. Prefer MCP for remote operations, including Work reads and
+engineering coordination, when it supports the required executor identity and
+scopes. A source checkout or saved CLI profile does not require choosing CLI.
+Use the CLI for local hooks, directory bindings, supervisor/dispatcher operations
+and workflows that depend on CLI-managed credentials or Attempt state. Local
+file edits, tests and Git use the host's tools, not necessarily the Tedix CLI.
+Honor explicit operation-specific policy.
+
+Packaged skills are instructions, an MCP connection provides remote tools, and
+hooks integrate local host events. Installing one does not prove that the others
+work. Before editing, verify executor identity, obtain an admitted Attempt and
+check repository commit attribution. Keep Attempt calls on the admitted identity
+and compatible surface. MCP start does not populate the CLI's local Attempt
+cache; do not mix their state without verified session and fence compatibility
+or rebuild that cache by hand. A denied scope requires the normal access path,
+not a different surface to evade the denial.
 
 ### Through the host's plugin or connector
 
@@ -111,8 +124,8 @@ owner.
 
 ### Through the CLI
 
-For a local coding harness that needs the opt-in session hooks or a
-repository's Tedix policy, install the [CLI](./cli.md) and run `tedix login`.
+For local integration or an explicitly CLI-dependent operation, install the
+[CLI](./cli.md). The human runs `tedix login`.
 The command opens the Tedix consent screen in a browser. Pause while the owner
 signs in, accepts any invitation or consent request, and creates or selects an
 organization in the organization picker (`tedix login ORG_SLUG` preselects

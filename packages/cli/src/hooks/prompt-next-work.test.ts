@@ -72,7 +72,9 @@ test("board priorities exclude other harnesses, projects, selected and running W
 		.split("\n")
 		.filter((line) => line.startsWith("Next for you:"));
 	expect(lines).toHaveLength(3);
-	expect(lines[0]).toContain(`(00000001) — \`tedix work start ${id(1)}\``);
+	expect(lines[0]).toContain(`(${id(1)}) — inspect via MCP or compatible CLI`);
+	expect(lines[0]).toContain("fresh admission required");
+	expect(lines.join("\n")).not.toContain("tedix work start");
 	expect(lines[0]).toContain('"Fictional priority"');
 	expect(
 		render({ ...binding, credentialOrganizationId: id(9) }, data, now),

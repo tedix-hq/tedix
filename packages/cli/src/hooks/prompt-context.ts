@@ -803,7 +803,7 @@ function compose(
 			)
 				continue;
 			lines.push(
-				`Next for you: ${JSON.stringify(item.title.replace(/[\r\n]/g, " ").slice(0, 160))} (${item.id.slice(0, 8)}) — \`tedix work start ${item.id}\``,
+				`Next for you: ${JSON.stringify(item.title.replace(/[\r\n]/g, " ").slice(0, 160))} (${item.id}) — inspect via MCP or compatible CLI; fresh admission required.`,
 			);
 		}
 	}
