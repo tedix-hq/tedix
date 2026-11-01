@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { waitForFixtureServer } from "../dev/fixture-server-readiness";
 import { chromium, type Page } from "playwright";
+import { withInteractionProfile } from "./interaction-profile";
 
 /*
  * Workspace Work pane in the zero-account fixture lanes. In the classic
@@ -122,11 +123,17 @@ for (const lane of lanes) {
 					fullPage: true,
 				});
 				// Removing a linked project asks first and names what it hides.
-				await page.getByRole("button", { name: "Manage projects" }).click();
-				await page
-					.getByRole("button", { name: /^Remove / })
-					.first()
-					.click();
+				await withInteractionProfile(
+					browser,
+					`manage-remove-${lane.name}-${width}-${theme}`,
+					async () => {
+						await page.getByRole("button", { name: "Manage projects" }).click();
+						await page
+							.getByRole("button", { name: /^Remove / })
+							.first()
+							.click();
+					},
+				);
 				const confirm = page.getByRole("alertdialog");
 				await confirm.waitFor();
 				assert.match(
