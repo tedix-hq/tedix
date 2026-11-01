@@ -28,6 +28,13 @@ export function runtimeErrorWorkflowResult(
 		message !==
 			"Interrupted tool effects require reconciliation before recovery" &&
 		message !== "Paid inference requires private native origin capture" &&
+		message !==
+			"Requested model is not configured or its provider is unavailable" &&
+		message !==
+			"Default model is not configured in the trusted model catalog" &&
+		message !== "Pending Think submission prevents Pi transcript migration" &&
+		message !==
+			"Pending Think facet receipt requires reconciliation before Pi migration" &&
 		!message.startsWith(MODEL_TURN_FAILED_PREFIX) &&
 		!message.startsWith("Delegation preflight failed: ") &&
 		!message.startsWith("capability tool unavailable: ") &&

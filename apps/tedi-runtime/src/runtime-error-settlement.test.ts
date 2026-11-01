@@ -9,7 +9,15 @@ import {
 	isTerminalFailureWorkflowResult,
 } from "./runtime-error-settlement";
 
+const configurationAndMigrationFences = [
+	"Requested model is not configured or its provider is unavailable",
+	"Default model is not configured in the trusted model catalog",
+	"Pending Think submission prevents Pi transcript migration",
+	"Pending Think facet receipt requires reconciliation before Pi migration",
+] as const;
+
 for (const message of [
+	...configurationAndMigrationFences,
 	"delegated_work_authority_lost: run=run-1 attempt=attempt-1 work=work-1",
 	"cron_tool_failure",
 	"Model turn failed: Inference admission service temporarily unavailable: Database temporarily unavailable; retry shortly",
@@ -66,6 +74,12 @@ for (const message of [
 	"Durable Object reset because its code was updated",
 	"429 no_capacity",
 	"fetch failed",
+	"Error code: 503 service unavailable",
+	"Requested model provider is temporarily unavailable",
+	...configurationAndMigrationFences.flatMap((message) => [
+		`wrapped ${message}`,
+		`${message}; retry shortly`,
+	]),
 ]) {
 	assert.equal(
 		runtimeErrorWorkflowResult(new Error(message)),
@@ -177,9 +191,22 @@ mock.module("agents", () => ({
 mock.module("agents/workflows", () => ({ AgentWorkflow: class {} }));
 const { ChatTurnWorkflow } = await import("./chat-turn-workflow");
 
-for (const boundary of ["facet", "observation", "capability", "gap"] as const) {
+for (const boundary of [
+	"facet",
+	"observation",
+	"capability",
+	"gap",
+	"transient-model",
+	...configurationAndMigrationFences,
+] as const) {
 	for (const terminal of [true, false]) {
-		if (!terminal && (boundary === "capability" || boundary === "gap"))
+		if (terminal && boundary === "transient-model") continue;
+		if (
+			!terminal &&
+			boundary !== "facet" &&
+			boundary !== "observation" &&
+			boundary !== "transient-model"
+		)
 			continue;
 		let facetCalls = 0;
 		let observations = 0;
@@ -193,15 +220,19 @@ for (const boundary of ["facet", "observation", "capability", "gap"] as const) {
 			},
 			async settleWorkflowSuccess() {},
 		});
-		const error = new Error(
-			boundary === "capability"
-				? "capability tool unavailable: web_search; return to Home for rerouting"
-				: boundary === "gap"
-					? "capability gap: web.search; return to Home for rerouting"
-					: terminal
-						? "delegated_work_authority_lost: run=run-1 attempt=attempt-1 work=work-1"
-						: "fetch failed",
-		);
+		let message: string = boundary;
+		if (boundary === "transient-model")
+			message = "Requested model provider is temporarily unavailable";
+		else if (boundary === "capability")
+			message =
+				"capability tool unavailable: web_search; return to Home for rerouting";
+		else if (boundary === "gap")
+			message = "capability gap: web.search; return to Home for rerouting";
+		else if (boundary === "facet" || boundary === "observation")
+			message = terminal
+				? "delegated_work_authority_lost: run=run-1 attempt=attempt-1 work=work-1"
+				: "fetch failed";
+		const error = new Error(message);
 		const instance = Object.create(ChatTurnWorkflow.prototype) as InstanceType<
 			typeof ChatTurnWorkflow
 		>;
@@ -222,7 +253,7 @@ for (const boundary of ["facet", "observation", "capability", "gap"] as const) {
 								missingCapabilities: boundary === "gap" ? ["web.search"] : [],
 							},
 						});
-					if (boundary === "facet" && facetCalls === 1) throw error;
+					if (boundary !== "observation" && facetCalls === 1) throw error;
 					return boundary === "observation" && facetCalls === 1
 						? {
 								text: "",
