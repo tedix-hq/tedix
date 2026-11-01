@@ -1,5 +1,6 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { memoryDiagnostics } from "./runtime-diagnostics";
+import { admitEvaluation } from "./evaluation-context";
 import { RuntimeRunSteeringInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { PolicyCronReconcileReceipt } from "./runtime-cron";
 import { type ProxyToolOutput, resolveProvider } from "@cloudflare/codemode";
@@ -1970,8 +1971,21 @@ export async function handleRuntimeRequest(
 					trace_id,
 					client_request_id,
 					attachments,
+					evaluation: requestedEvaluation,
 				}) => {
+					if (requestedEvaluation && attachments?.length)
+						throw new Error("Evaluation accepts explicit text only");
+					const evaluation = requestedEvaluation
+						? await admitEvaluation({
+								request,
+								evaluation: requestedEvaluation,
+								orgId: host.state.orgId,
+								tediId: host.state.tediId,
+								env: host.env,
+							})
+						: undefined;
 					const turnInput = {
+						evaluation,
 						sessionKey: session_key,
 						text,
 						traceId: trace_id,

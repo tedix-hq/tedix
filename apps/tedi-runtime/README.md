@@ -2,6 +2,43 @@
 
 The Agent runtime — the default tedi body. Every tedi is served here.
 
+## Isolated workflow evaluations
+
+An owner/admin certification run can request a tool-free evaluation with auditable
+model input. The canonical workflow run must carry a Work Item, a live Attempt,
+a pinned skill revision and source hash, and these run parameters:
+
+```json
+{
+	"evaluationAdmission": {
+		"policy": "isolated-evaluation-v1",
+		"reviewedAgentsSha256": "<SHA-256 of the reviewed AGENTS.md bytes>",
+		"skillRevision": 1,
+		"workAttemptId": "<owned Attempt UUID>",
+		"workExternalSessionKey": "<existing external session key, if applicable>"
+	}
+}
+```
+
+Within that workflow, call `run_tedi_turn` with `evaluation` containing the same
+`policy` and `reviewedAgentsSha256`. The service-authenticated workflow identity
+is checked against its canonical run; a conversation prefix grants no evaluation
+authority. Missing or changed organization instructions reject admission. Review
+AGENTS.md for case labels and other held-out information before supplying its hash.
+The runtime preserves that exact reviewed block and the platform safety prompt,
+excludes other identity files and learned context, and uses a fresh tool-free Pi
+facet with compaction disabled. Evaluation uses the tedi's chat model policy.
+
+Follow the returned `session_key`, which the runtime derives from the child run.
+Before each model call, an immutable private `evaluation-context.json` artifact
+records the final SDK prompt, empty tools, component hashes, workflow pins and
+provider-attempt identity. An evidence-write failure prevents the model call.
+Read the artifact named by its `context.injected` event through the existing
+authorized `artifact_read_file` path, verify its digest, and compare its actual
+input with the intended blinded case. The matching provider receipt is recorded
+after dispatch. A queued turn or a prepared context record alone does not prove
+that the model ran or that the supplied case was blind.
+
 ## Overview
 
 `tedix-tedi-runtime` is a Cloudflare Worker that hosts `AgentTediDO`, a

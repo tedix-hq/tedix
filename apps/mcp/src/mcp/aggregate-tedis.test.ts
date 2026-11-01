@@ -5,6 +5,7 @@ import {
 	skillsContract,
 } from "@tedix/api-contract/contracts/cognitive";
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
+import { EvaluationRequestSchema } from "@tedix/api-contract/schemas/evaluation-context";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import { describe, expect, it } from "vite-plus/test";
 import { hydrateAggregateRuntimeKinds } from "../mcp-request";
@@ -145,6 +146,9 @@ describe("aggregate tedis", () => {
 
 		const send = tools.find(
 			(tool) => tool.toolId === "acme_tedi__run_tedi_turn",
+		);
+		expect(send?.inputSchema.properties?.evaluation).toEqual(
+			zodToToolInputJsonSchema(EvaluationRequestSchema),
 		);
 		expect(send?.config).toMatchObject({
 			transport: "mcp",

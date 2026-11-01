@@ -5,6 +5,17 @@ import type { PiTurnAccounting, PiProviderAttempt } from "./pi-turn-accounting";
 import { TEDI_CONTEXT_WINDOW_TOKENS } from "./model-input-budget";
 
 export interface ToolFreePiProviderHost {
+	afterDispatch?(
+		outcome: import("./evaluation-evidence").EvaluationOutcome,
+	): Promise<void>;
+	callOptions?(): Omit<
+		import("@ai-sdk/provider").LanguageModelV2CallOptions,
+		"prompt" | "abortSignal"
+	>;
+	beforeDispatch?(
+		call: import("@ai-sdk/provider").LanguageModelV2CallOptions,
+		attempt: PiProviderAttempt,
+	): Promise<void>;
 	runId(): string | null | undefined;
 	assertDispatch?(): Promise<void>;
 	receiptOperation?(): string | undefined;
@@ -44,6 +55,13 @@ export function createToolFreePiModels(host: ToolFreePiProviderHost) {
 			providerAttempt: PiProviderAttempt;
 			operationId?: string;
 		}>({
+			beforeDispatch: async (call, receipt) => {
+				if (host.beforeDispatch) {
+					if (!receipt)
+						throw new Error("Tool-free dispatch has no attempt receipt");
+					await host.beforeDispatch(call, receipt.providerAttempt);
+				}
+			},
 			catalog: () => [toolFreePiModel(host.selected().identity)],
 			resolveModel: (model) => {
 				const selected = host.selected();
@@ -69,7 +87,11 @@ export function createToolFreePiModels(host: ToolFreePiProviderHost) {
 						stepNumber,
 						operationId: host.receiptOperation?.(),
 					},
-					callOptions: { toolChoice: { type: "none" }, tools: [] },
+					callOptions: {
+						...host.callOptions?.(),
+						toolChoice: { type: "none" },
+						tools: [],
+					},
 				};
 			},
 			settled: async (receipt, message, measurement) => {
@@ -97,6 +119,14 @@ export function createToolFreePiModels(host: ToolFreePiProviderHost) {
 					[],
 					receipt.providerAttempt,
 				);
+				if (measurement.dispatched)
+					await host.afterDispatch?.({
+						providerAttempt: receipt.providerAttempt,
+						usage,
+						finishReason: message.stopReason,
+						responseId: message.responseId ?? null,
+						responseModel: message.responseModel ?? null,
+					});
 			},
 		}),
 	);

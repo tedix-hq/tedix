@@ -343,6 +343,31 @@ test("opaque provider continuity survives durable serialization and replay", asy
 	}
 });
 
+test("cancellation while persisting context prevents provider dispatch", async () => {
+	const abort = new AbortController();
+	let calls = 0;
+	let dispatched: boolean | undefined;
+	const output = await createTedixPiProvider({
+		catalog: () => [model],
+		resolveModel: () =>
+			v2([finish], () => {
+				calls++;
+			}),
+		prepare: async () => ({ receipt: "owned-attempt" }),
+		beforeDispatch: async () => {
+			abort.abort();
+		},
+		settled: async (_receipt, _message, measurement) => {
+			dispatched = measurement.dispatched;
+		},
+	})
+		.streamSimple(model, context, { signal: abort.signal })
+		.result();
+	assert.equal(calls, 0);
+	assert.equal(dispatched, false);
+	assert.equal(output.stopReason, "aborted");
+});
+
 test("usage settlement failure fences success before terminal delivery", async () => {
 	const output = await createTedixPiProvider({
 		catalog: () => [model],

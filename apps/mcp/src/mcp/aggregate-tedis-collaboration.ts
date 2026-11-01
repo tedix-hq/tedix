@@ -2,6 +2,7 @@
 // plus the session messaging, approvals, and cron specs shared with the
 // full surface.
 import { learningFeedbackContract } from "@tedix/api-contract/contracts/learning-feedback";
+import { EvaluationRequestSchema } from "@tedix/api-contract/schemas/evaluation-context";
 import {
 	AnalyzeRecurringLearningIssuesInputSchema,
 	ListLearningImprovementProposalsInputSchema,
@@ -127,6 +128,7 @@ const MESSAGE_ATTACHMENT_SCHEMA: ToolInputJsonSchema = {
 const MESSAGES_SEND_SCHEMA: ToolInputJsonSchema = {
 	type: "object",
 	properties: {
+		evaluation: zodToToolInputJsonSchema(EvaluationRequestSchema),
 		session_key: { type: "string" },
 		text: { type: "string" },
 		client_request_id: { type: "string" },

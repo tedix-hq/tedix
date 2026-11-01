@@ -1,4 +1,11 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import {
+	recordEvaluationEvidence,
+	recordEvaluationOutcome,
+	type EvaluationOutcome,
+	type EvaluationDispatchEvidence,
+} from "./evaluation-evidence";
+import { assertEvaluationWorkflow } from "./evaluation-context";
 import { recordMaintenanceScheduleError } from "./runtime-diagnostics";
 import { createObjectStoreTools } from "./object-store-tools";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
@@ -3435,6 +3442,50 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		);
 	}
 
+	async recordEvaluationContext(
+		input: EvaluationDispatchEvidence,
+	): Promise<void> {
+		await this.assertChatTurnActive(input.runId);
+		const dispatch = await this.ctx.storage.get<{ params: ChatTurnParams }>(
+			`runtime-admission-workflow:${input.runId}`,
+		);
+		const platform = await this.getPlatformClient();
+		if (!platform) throw new Error("Evaluation evidence store is unavailable");
+		if (!dispatch?.params.evaluation)
+			throw new Error("Evaluation admission is missing");
+		await assertEvaluationWorkflow(
+			this.env,
+			this.state.orgId,
+			this.state.tediId,
+			dispatch.params.evaluation,
+		);
+		const attestation = await recordEvaluationEvidence(input, {
+			tediId: this.state.tediId,
+			slug: this.state.slug,
+			admitted: dispatch?.params.evaluation,
+			userText: dispatch?.params.userText,
+			runtimeSource: this.env.GIT_SHA,
+			platform,
+		});
+		await this.ctx.storage.put(
+			`evaluation-context:${input.runId}:${input.providerAttempt.attemptId}`,
+			{
+				...attestation,
+				conversationId: dispatch.params.conversationId,
+			},
+		);
+	}
+
+	async recordEvaluationModelReceipt(input: EvaluationOutcome): Promise<void> {
+		const platform = await this.getPlatformClient();
+		if (!platform) throw new Error("Evaluation receipt store is unavailable");
+		await recordEvaluationOutcome(input, {
+			storage: this.ctx.storage,
+			platform,
+			tediId: this.state.tediId,
+		});
+	}
+
 	async recordFacetModelStep(input: {
 		payload: StepTelemetryPayload;
 		runId: string;
@@ -3578,6 +3629,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	private async runSynthesisFacetTurn(input: {
+		evaluation?: import("./evaluation-context").EvaluationAdmission;
 		sessionKey: string;
 		guardedUserText: string;
 		runId: string;
@@ -3832,6 +3884,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		);
 	}
 	private async runDurableChatTurn(input: {
+		evaluation?: import("./evaluation-context").EvaluationAdmission;
 		noFunds?: boolean;
 		sessionKey: string;
 		text: string;

@@ -1,5 +1,11 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { operatorRecordTools } from "./operator-record-tools";
+import {
+	evaluationSystem,
+	evaluationSessionKey,
+	type EvaluationAdmission,
+} from "./evaluation-context";
 import { hasOperatorRecordPlan } from "@tedix/api-contract/schemas/operator-records";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 import { type ExecutionSurface } from "@tedix/api-contract/schemas/execution-evidence";
@@ -566,6 +572,7 @@ export const runtimeFacetTurns = {
 	async runSynthesisFacetTurn(
 		this: RuntimeFacetTurnsHost,
 		input: {
+			evaluation?: EvaluationAdmission;
 			sessionKey: string;
 			guardedUserText: string;
 			runId: string;
@@ -579,27 +586,39 @@ export const runtimeFacetTurns = {
 		await this.acceptRuntimeTurn(input.runId, input.sessionKey, input, true);
 		// One facet per run keeps synthesis self-contained even if a producer
 		// accidentally reuses its session key. No harness-history hydration occurs.
-		const facetName = `synth_${hashAnalyticsLabel(
-			`${input.sessionKey}:${input.runId}`,
-		)}`;
-		const system =
-			`${this.state.systemPrompt}\n\n` +
-			"Tool-free workflow synthesis: use only the supplied message. " +
-			"Do not request tools, memory, or missing context. Return the requested " +
-			"bounded synthesis directly.";
+		const facetName = input.evaluation
+			? `eval_${await sha256Hex(input.runId)}`
+			: `synth_${hashAnalyticsLabel(`${input.sessionKey}:${input.runId}`)}`;
+		const system = input.evaluation
+			? evaluationSystem(input.evaluation)
+			: `${this.state.systemPrompt}\n\n` +
+				"Tool-free workflow synthesis: use only the supplied message. " +
+				"Do not request tools, memory, or missing context. Return the requested " +
+				"bounded synthesis directly.";
 		const t0 = Date.now();
 		try {
 			const facet = await this.subAgent(SynthesisSessionFacet, facetName);
 			const source = inferenceSource(input.sessionKey, "mcp");
 			this.admitInferenceTurn(input.runId, [system, input.guardedUserText]);
 			await facet.configureSynthesisTurn({
+				evaluation: input.evaluation,
+				...(input.evaluation
+					? {
+							generation: generationForSurface(
+								this.runtimeConfigCache.modelPolicy,
+								"chat",
+							),
+						}
+					: {}),
 				runId: input.runId,
 				sessionKey: input.sessionKey,
 				aigMetadata: this.tediAigMetadata(source, {
 					runId: input.runId,
 					sessionKey: input.sessionKey,
 				}),
-				modelRef: this.modelOverrideForSurface("synthesis")?.modelRef ?? null,
+				modelRef:
+					this.modelOverrideForSurface(input.evaluation ? "chat" : "synthesis")
+						?.modelRef ?? null,
 				system,
 			});
 			const result = await facet.runSynthesisTurn({
@@ -1843,6 +1862,7 @@ export const runtimeFacetTurns = {
 	async runDurableChatTurn(
 		this: RuntimeFacetTurnsHost,
 		input: {
+			evaluation?: import("./evaluation-context").EvaluationAdmission;
 			noFunds?: boolean;
 			sessionKey: string;
 			text: string;
@@ -1864,7 +1884,11 @@ export const runtimeFacetTurns = {
 	}> {
 		await this.ensureIdentity();
 		const { tediId, slug } = this.state;
-		const sessionKey = input.sessionKey;
+		if (input.evaluation && input.noFunds)
+			throw new Error("Evaluation inference requires available funds");
+		const sessionKey = input.evaluation
+			? evaluationSessionKey(buildRunId(tediId, input.clientRequestId, "mcp"))
+			: input.sessionKey;
 		this.logDanglingTurnIfAny(sessionKey, "runDurableChatTurn");
 		const runId = buildRunId(tediId, input.clientRequestId, "mcp");
 		return this.imageCleanupJournal().withRun(runId, async () => {
@@ -1951,7 +1975,9 @@ export const runtimeFacetTurns = {
 						runId,
 						traceId: input.traceId,
 						clientRequestId: input.clientRequestId,
-						learningMode: input.noFunds ? "disabled" : learningMode,
+						learningMode:
+							input.noFunds || input.evaluation ? "disabled" : learningMode,
+						evaluation: input.evaluation,
 						callerTrust: input.callerTrust,
 						noFunds: input.noFunds,
 					},
@@ -2397,8 +2423,9 @@ export const runtimeFacetTurns = {
 			};
 		}
 
-		if (isWorkflowSynthesisSession(input.sessionKey)) {
+		if (input.evaluation || isWorkflowSynthesisSession(input.sessionKey)) {
 			const synthesis = await this.runSynthesisFacetTurn({
+				evaluation: input.evaluation,
 				sessionKey: input.sessionKey,
 				guardedUserText: wrapUntrustedInput(input.userText, "mcp"),
 				runId: input.runId,

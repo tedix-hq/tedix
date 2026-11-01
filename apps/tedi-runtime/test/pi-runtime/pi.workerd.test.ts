@@ -522,6 +522,39 @@ it("maps Tedix Azure overflow to native compaction rather than transient retries
 });
 
 describe("Production tool-free facets on native Pi", () => {
+	for (const failure of [undefined, "artifact", "event"] as const) {
+		it(`isolated evaluation captures exact native dispatch and rejects ${failure ?? "no"} storage failure`, async () => {
+			const bindings = env as unknown as {
+				PI_SYNTHESIS: DurableObjectNamespace<
+					import("./worker").PiSynthesisFixture
+				>;
+			};
+			const agent = await getAgentByName(
+				bindings.PI_SYNTHESIS,
+				crypto.randomUUID(),
+			);
+			const outcome = JSON.parse(
+				await agent.evaluation("evaluation-run", failure),
+			);
+			expect(outcome.stats.requests, JSON.stringify(outcome)).toBe(
+				failure ? 0 : 1,
+			);
+			if (failure) {
+				expect(outcome.receipt).toBeUndefined();
+				return;
+			}
+			const capture = JSON.parse(outcome.artifact!.content);
+			expect(capture.finalInput.prompt).toEqual(outcome.stats.prompts[0]);
+			expect(capture.finalInput.tools).toEqual([]);
+			expect(outcome.stats.tools).toEqual([[]]);
+			expect(capture.manifest.historyMessages).toBe(0);
+			expect(outcome.receipt).toMatchObject({
+				payload: { dispatched: true, providerAttempt: capture.providerAttempt },
+			});
+			const reused = JSON.parse(await agent.evaluation("other-evaluation-run"));
+			expect(reused.stats.requests).toBe(1);
+		});
+	}
 	for (const kind of ["judge", "synthesis"] as const) {
 		it(
 			kind +
