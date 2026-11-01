@@ -867,18 +867,18 @@ function CatalogTableInner({
 				<div className="flex items-center gap-1">
 					<Button
 						variant={viewMode === "grid" ? "secondary" : "ghost"}
-						size="sm"
+						shape="square"
 						onClick={() => setViewMode("grid")}
-						className="px-2"
+						aria-pressed={viewMode === "grid"}
 						aria-label="Grid view"
 					>
 						<GridIcon className="h-4 w-4" />
 					</Button>
 					<Button
 						variant={viewMode === "table" ? "secondary" : "ghost"}
-						size="sm"
+						shape="square"
 						onClick={() => setViewMode("table")}
-						className="px-2"
+						aria-pressed={viewMode === "table"}
 						aria-label="Table view"
 					>
 						<ListIcon className="h-4 w-4" />

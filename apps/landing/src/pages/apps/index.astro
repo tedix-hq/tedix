@@ -4,7 +4,7 @@ import CatalogTable from "../../components/catalog/CatalogTable.tsx";
 import { getCatalogClient } from "../../lib/api";
 import type { CatalogAppListItem } from "@tedix/api-contract/schemas/catalog";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -286,7 +286,7 @@ Astro.response.headers.set(
 							placeholder="Search AI apps, MCP servers, or integrations"
 							className="h-12 flex-1 text-base"
 						/>
-						<button type="submit" class={buttonVariants()}>Search</button>
+						<Button type="submit" >Search</Button>
 					</form>
 
 					<div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

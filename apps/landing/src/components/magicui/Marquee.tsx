@@ -1,4 +1,4 @@
-import { Children, Fragment, type ComponentPropsWithoutRef } from "react";
+import { Children, type ComponentPropsWithoutRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface MarqueeProps extends ComponentPropsWithoutRef<"div"> {
@@ -25,18 +25,25 @@ export function Marquee({
 	const renderCycle = (cycleKey: string) => (
 		<div
 			aria-hidden={cycleKey === "duplicate" ? true : undefined}
-			className={cn("flex shrink-0 justify-around gap-[--gap]", {
-				"flex-row pr-[--gap]": !vertical,
-				"flex-col pb-[--gap]": vertical,
+			className={cn("flex shrink-0 gap-(--gap)", {
+				"flex-row pr-(--gap)": !vertical,
+				"flex-col pb-(--gap)": vertical,
 			})}
 		>
-			{Array.from({ length: cycleCount }).map((_, repeatIndex) =>
-				childArray.map((child, childIndex) => (
-					<Fragment key={`${cycleKey}-${repeatIndex}-${childIndex}`}>
-						{child}
-					</Fragment>
-				)),
-			)}
+			{Array.from({ length: cycleCount }).map((_, repeatIndex) => (
+				<div
+					key={repeatIndex}
+					aria-hidden={
+						repeatIndex > 0 || cycleKey === "duplicate" ? true : undefined
+					}
+					className={cn(
+						"flex shrink-0 gap-(--gap)",
+						vertical ? "flex-col" : "flex-row",
+					)}
+				>
+					{childArray}
+				</div>
+			))}
 		</div>
 	);
 

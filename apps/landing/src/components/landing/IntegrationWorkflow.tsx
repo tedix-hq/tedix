@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import type { CSSProperties } from "react";
-import { Marquee } from "../magicui/Marquee";
+import { LogoMarquee } from "./LogoMarquee";
 
 type FlowItem = {
 	label: string;
@@ -92,7 +92,7 @@ const logos = [
 	{ src: "/images/apps/intercom.svg", alt: "Intercom" },
 	{ src: "/images/apps/calendly.svg", alt: "Calendly" },
 	{ src: "/images/apps/stripe.svg", alt: "Stripe" },
-	{ src: "/images/apps/shopify.svg", alt: "Shopify" },
+	{ src: "/images/apps/shopify-monochrome.svg", alt: "Shopify" },
 	{ src: "/images/apps/klarna.svg", alt: "Klarna" },
 ];
 
@@ -416,31 +416,8 @@ function CapabilityRail() {
 
 function LogoBelt() {
 	return (
-		<div className="relative mx-auto mt-8 max-w-5xl opacity-70">
-			<Marquee
-				pauseOnHover
-				className="[--duration:32s] [--gap:2rem] py-0"
-				repeat={3}
-			>
-				{logos.map((logo) => (
-					<div
-						key={logo.alt}
-						className="flex shrink-0 flex-col items-center gap-1"
-					>
-						<div className="flex h-9 w-9 items-center justify-center">
-							<img
-								src={logo.src}
-								alt={logo.alt}
-								className="max-h-6 max-w-7 object-contain opacity-55 grayscale transition-all hover:opacity-100 hover:grayscale-0"
-								loading="lazy"
-							/>
-						</div>
-						<span className="text-[10px] font-medium text-muted-foreground/55">
-							{logo.alt}
-						</span>
-					</div>
-				))}
-			</Marquee>
+		<div className="relative mx-auto mt-8 max-w-5xl">
+			<LogoMarquee logos={logos} />
 			<div className="pointer-events-none absolute inset-y-0 left-0 w-28 bg-gradient-to-r from-background to-transparent" />
 			<div className="pointer-events-none absolute inset-y-0 right-0 w-28 bg-gradient-to-l from-background to-transparent" />
 		</div>

@@ -241,7 +241,8 @@ const shouldLoadGa = deploymentEnv === "production" && Boolean(gaMeasurementId);
 		)}
 
 		<!-- Theme Script (runs before render to prevent flash) -->
-		<script is:inline>
+		<script is:inline data-astro-rerun>
+			(() => {
 			const getTheme = () => {
 				if (typeof localStorage !== "undefined" && localStorage.getItem("theme")) {
 					return localStorage.getItem("theme");
@@ -252,9 +253,10 @@ const shouldLoadGa = deploymentEnv === "production" && Boolean(gaMeasurementId);
 				return "light";
 			};
 			const theme = getTheme();
-			if (theme === "dark") {
-				document.documentElement.classList.add("dark");
-			}
+			document.documentElement.classList.toggle("dark", theme === "dark");
+			document.documentElement.dataset.mode = theme;
+			document.documentElement.style.colorScheme = theme;
+			})();
 		</script>
 	</head>
 	<body class="font-sans antialiased min-h-screen flex flex-col">
