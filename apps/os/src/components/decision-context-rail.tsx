@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import {
 	Collapsible,
 	CollapsibleDefaultTrigger,
@@ -435,7 +436,9 @@ export function DecisionContextSection({
 	if (!rail)
 		return (
 			<section>
-				<h3 className="type-tedix-section">{title}</h3>
+				<Text as="h3" role="section" weight="semibold" tone="strong">
+					{title}
+				</Text>
 				{children}
 			</section>
 		);
@@ -479,16 +482,18 @@ export function DecisionContextSection({
 								open={rail.activeSection === id}
 								onOpenChange={(open) => rail.openSection(open ? id : undefined)}
 							>
-								<h3 className="type-tedix-section">
+								<Text as="h3" role="section" weight="semibold" tone="strong">
 									<CollapsibleDefaultTrigger>{title}</CollapsibleDefaultTrigger>
-								</h3>
+								</Text>
 								<CollapsibleDefaultContent>
 									{children}
 								</CollapsibleDefaultContent>
 							</Collapsible>
 						) : (
 							<>
-								<h3 className="type-tedix-section">{title}</h3>
+								<Text as="h3" role="section" weight="semibold" tone="strong">
+									{title}
+								</Text>
 								{children}
 							</>
 						)}

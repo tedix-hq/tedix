@@ -235,7 +235,7 @@ export function ConnectionConsumerGrantsEditor({
 			{save.isSuccess ? <p role="status">Who can use this was saved.</p> : null}
 			<Button
 				size="sm"
-				className="w-fit max-sm:min-h-11"
+				className="w-fit"
 				disabled={disabled}
 				onClick={() =>
 					save.mutate({

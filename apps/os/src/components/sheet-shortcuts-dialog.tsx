@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import {
 	Dialog,
 	DialogContent,
@@ -78,9 +79,9 @@ export function SheetShortcutsDialog({
 				<div className="grid max-h-[60vh] gap-4 overflow-y-auto pb-1">
 					{SHEET_SHORTCUTS.map((section) => (
 						<section key={section.group} className="grid gap-1.5">
-							<h3 className="text-kumo-subtle type-tedix-label">
+							<Text as="h3" role="label" tone="secondary">
 								{section.group}
-							</h3>
+							</Text>
 							<dl className="grid gap-1">
 								{section.items.map(({ label, keys }) => (
 									<div

@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	DEFAULT_ORGANIZATION_OS_THEME,
@@ -122,7 +123,6 @@ function ThemePreview({
 		</Surface>
 	);
 }
-
 export function OrganizationAppearanceForm({
 	organizationId,
 	initialTheme,
@@ -136,7 +136,6 @@ export function OrganizationAppearanceForm({
 	);
 	const [saved, setSaved] = useState(false);
 	const validation = OrganizationOsThemeSchema.safeParse(theme);
-
 	const save = useMutation({
 		mutationFn: (next: OrganizationOsTheme | null) =>
 			osApi.organizations.update({
@@ -156,7 +155,6 @@ export function OrganizationAppearanceForm({
 			setSaved(true);
 		},
 	});
-
 	const patchPalette = (
 		mode: "light" | "dark",
 		patch: Partial<OsThemePalette>,
@@ -165,7 +163,6 @@ export function OrganizationAppearanceForm({
 			...current,
 			[mode]: { ...current[mode], ...patch },
 		}));
-
 	return (
 		<SettingsSection>
 			<SectionHeader>
@@ -193,9 +190,14 @@ export function OrganizationAppearanceForm({
 				<div className="grid gap-4 lg:grid-cols-2">
 					{(["light", "dark"] as const).map((mode) => (
 						<Surface key={mode} tier="panel" className="p-3">
-							<h3 className="mb-1 font-medium type-tedix-body capitalize">
+							<Text
+								as="h3"
+								role="body"
+								weight="medium"
+								className="mb-1 capitalize"
+							>
 								{mode} theme
-							</h3>
+							</Text>
 							<PaletteField
 								label="Accent"
 								value={theme[mode].accent}

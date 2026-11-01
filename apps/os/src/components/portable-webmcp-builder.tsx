@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import { Checkbox } from "@/components/kumo/checkbox";
 import type { PortableWebMcpProfile } from "@tedix/api-contract/schemas/portable-webmcp";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -128,12 +129,15 @@ export function PortableWebMcpBuilder({
 			aria-labelledby="portable-webmcp-heading"
 		>
 			<div>
-				<h3
+				<Text
+					as="h3"
+					role="section"
+					weight="semibold"
+					tone="strong"
 					id="portable-webmcp-heading"
-					className="font-medium text-kumo-strong"
 				>
 					Portable Layer 2 routes
-				</h3>
+				</Text>
 				<p className="text-kumo-subtle">
 					Build route tools from the installation’s admitted read-only catalog.
 					Each tenant publishes and rolls back independently.

@@ -1508,7 +1508,7 @@ export function ApprovalCard({
 													size="icon-sm"
 													aria-label={OS_COPY.approvalCard.policyDetails}
 													render={<button data-slot="approval-reason-code" />}
-													className="coarse:min-h-11 coarse:min-w-11 ml-1 inline-flex items-center justify-center align-[-2px] text-kumo-subtle hover:text-kumo-default"
+													className="ml-1 inline-flex items-center justify-center align-[-2px] text-kumo-subtle hover:text-kumo-default"
 												/>
 											}
 										>

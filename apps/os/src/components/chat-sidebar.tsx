@@ -396,7 +396,7 @@ export function ConversationRow({
 					render={
 						<Button
 							aria-current={active ? "true" : undefined}
-							className="min-h-11 w-full min-w-0 flex-col items-stretch gap-1 rounded-lg bg-transparent px-4 py-3 pr-16 text-left hover:bg-transparent focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:ring-inset"
+							className="w-full min-w-0 flex-col items-stretch gap-1 rounded-lg bg-transparent px-4 py-3 pr-16 text-left hover:bg-transparent focus-visible:ring-2 focus-visible:ring-kumo-focus focus-visible:ring-inset"
 							multiline
 							onClick={() => onSelect?.(conversation.id)}
 							variant="ghost"
@@ -506,13 +506,10 @@ export function ConversationSearchEmpty({
 		</Empty>
 	);
 }
-
 // ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
-
 const CONVERSATIONS_PAGE_LIMIT = 50;
-
 export function conversationListInput({
 	workspaceId,
 	includeArchived = false,
@@ -532,7 +529,6 @@ export function conversationListInput({
 		search: search?.trim() || undefined,
 	};
 }
-
 /**
  * One cache contract for every conversation-list reader. TanStack Query does
  * not permit a finite query and an infinite query to share a key: the former
@@ -569,7 +565,6 @@ export function conversationListQueryOptions(
 			lastPage.nextCursor ?? undefined,
 	};
 }
-
 export function ChatSidebar({
 	activeConversationId,
 	onSelect,
@@ -601,11 +596,9 @@ export function ChatSidebar({
 		const timeout = window.setTimeout(() => setDebouncedSearch(search), 250);
 		return () => window.clearTimeout(timeout);
 	}, [search]);
-
 	const conversations = useInfiniteQuery(
 		conversationListQueryOptions(workspaceId, showArchived, normalizedSearch),
 	);
-
 	const sorted = useMemo(() => {
 		const byId = new Map<string, HomeConversation>();
 		for (const page of conversations.data?.pages ?? []) {
@@ -616,7 +609,6 @@ export function ChatSidebar({
 		return sortConversations([...byId.values()]);
 	}, [conversations.data]);
 	const grouped = useMemo(() => groupConversationsByRecency(sorted), [sorted]);
-
 	const invalidate = () =>
 		Promise.all([
 			queryClient.invalidateQueries({
@@ -626,7 +618,6 @@ export function ChatSidebar({
 				queryKey: homeConversationsQueryKey(workspaceId, true),
 			}),
 		]);
-
 	/**
 	 * The ONE optimistic write in this app, and it is scoped deliberately.
 	 *
@@ -654,10 +645,8 @@ export function ChatSidebar({
 			showArchived,
 			normalizedSearch,
 		);
-
 	const rollbackOptimistic = (context: OptimisticConversationContext) =>
 		rollbackOptimisticConversationPatch(queryClient, context);
-
 	const rename = useMutation({
 		mutationFn: (input: { conversationId: string; title: string }) =>
 			osApi.kernelRuntime.renameConversation(input),
@@ -682,7 +671,6 @@ export function ChatSidebar({
 				rename.mutate({ conversationId: renameTarget.id, title: value.title });
 		},
 	});
-
 	const pin = useMutation({
 		mutationFn: (input: { conversationId: string; pinned: boolean }) =>
 			osApi.kernelRuntime.pinConversation(input),
@@ -696,7 +684,6 @@ export function ChatSidebar({
 		},
 		onSettled: invalidate,
 	});
-
 	const remove = useMutation({
 		mutationFn: (input: { conversationId: string }) =>
 			osApi.kernelRuntime.deleteConversation(input),
@@ -706,7 +693,6 @@ export function ChatSidebar({
 		},
 		onSettled: invalidate,
 	});
-
 	const archive = useMutation({
 		mutationFn: (input: { conversationId: string; archived: boolean }) =>
 			osApi.kernelRuntime.archiveConversation(input),
@@ -720,7 +706,6 @@ export function ChatSidebar({
 		},
 		onSettled: invalidate,
 	});
-
 	const renderMenu = (conversation: HomeConversation) => {
 		const actions = conversationMenuActions(conversation);
 		return (
@@ -1150,7 +1135,8 @@ export function ChatConversationHeader({
 						<Input
 							aria-label="Conversation title"
 							autoFocus
-							className="h-7 min-w-0 flex-1"
+							className="min-w-0 flex-1"
+							size="sm"
 							maxLength={200}
 							onChange={(event) => setTitleInput(event.target.value)}
 							onKeyDown={(event) => {

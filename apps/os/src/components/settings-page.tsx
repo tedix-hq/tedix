@@ -706,7 +706,6 @@ export function SettingsPage({
 								>
 									<SegmentedControl<OsUserPreferences["theme"]>
 										ariaLabel="Appearance"
-										className="p-1"
 										compact
 										onValueChange={(theme) => patch({ theme })}
 										options={THEME_OPTIONS}
@@ -720,7 +719,6 @@ export function SettingsPage({
 								>
 									<SegmentedControl<OsUserPreferences["density"]>
 										ariaLabel="Density"
-										className="p-1"
 										compact
 										onValueChange={(density) => patch({ density })}
 										options={DENSITY_OPTIONS}
@@ -736,7 +734,6 @@ export function SettingsPage({
 										OsUserPreferences["accessibility"]["motion"]
 									>
 										ariaLabel="Motion"
-										className="p-1"
 										compact
 										onValueChange={(motion) =>
 											patch({
@@ -756,7 +753,6 @@ export function SettingsPage({
 										OsUserPreferences["accessibility"]["contrast"]
 									>
 										ariaLabel="Contrast"
-										className="p-1"
 										compact
 										onValueChange={(contrast) =>
 											patch({

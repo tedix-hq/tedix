@@ -1,3 +1,4 @@
+import { SectionTitle } from "@/components/kumo/page";
 import {
 	Collapsible,
 	CollapsibleDefaultTrigger,
@@ -177,7 +178,7 @@ export function CanvasResourceRail({
 			<div className="canvas-resource-library">
 				<header className="canvas-resource-library-header">
 					<div className="grid gap-3">
-						<h2 className="type-tedix-section">{OS_COPY.workspace.overview}</h2>
+						<SectionTitle>{OS_COPY.workspace.overview}</SectionTitle>
 						<p className="type-tedix-body">
 							{shownGadgets.length > 0
 								? "Open an app to work through this workspace, or a file to read or edit it. Use the conversation to ask for changes."

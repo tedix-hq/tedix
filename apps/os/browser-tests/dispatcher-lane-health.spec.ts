@@ -32,8 +32,20 @@ try {
 				["Duty", "State", "Work", "Last observed", "Next step"],
 			);
 		}
+		const history = section
+			.getByRole("button", { name: "History and details", exact: true })
+			.first();
+		await history.focus();
+		await page.keyboard.press("Enter");
+		assert.equal(await history.getAttribute("aria-expanded"), "true");
+		await page.keyboard.press("Space");
+		assert.equal(await history.getAttribute("aria-expanded"), "false");
+		assert.equal(
+			await history.evaluate((button) => button === document.activeElement),
+			true,
+		);
 		for (const summary of await section
-			.locator("[data-lane-state] summary")
+			.getByRole("button", { name: "History and details", exact: true })
 			.all())
 			await summary.click();
 		for (const state of ["Slots in use", "Idle", "Unknown · stale"])
@@ -53,11 +65,13 @@ try {
 			await section.innerText(),
 			/Last task picked up: Not observed/,
 		);
-		for (const summary of await section.locator("summary").all()) {
+		for (const summary of await section
+			.getByRole("button", { name: "History and details", exact: true })
+			.all()) {
 			const bounds = await summary.boundingBox();
 			assert.ok(
-				bounds && bounds.height >= 44,
-				"Lane disclosures need a 44px touch target",
+				bounds && bounds.height >= (width < 640 ? 44 : 32),
+				"Lane disclosures use the shared desktop and phone touch targets",
 			);
 		}
 
@@ -128,9 +142,16 @@ try {
 			`Most reported problem (30 min): ${friendly} · 15 observations`,
 			{ exact: true },
 		);
-		const detail = reasonPage.locator("details").filter({ has: summary });
-		assert.equal(await detail.getAttribute("open"), null);
-		await detail.locator("summary").click();
+		const detail = reasonPage
+			.locator("[data-lane-details]")
+			.filter({ has: summary });
+		assert.equal(
+			await detail.getByRole("button").getAttribute("aria-expanded"),
+			"false",
+		);
+		await detail
+			.getByRole("button", { name: "History and details", exact: true })
+			.click();
 		await summary.waitFor();
 		assert.ok((await detail.innerText()).includes(raw));
 	}
@@ -216,7 +237,9 @@ try {
 		assert.equal(await machine.count(), 1);
 		assert.equal(await machine.getByRole("table").count(), 1);
 		assert.equal(await machine.locator("tbody > tr").count(), 2);
-		for (const summary of await machine.locator("summary").all())
+		for (const summary of await machine
+			.getByRole("button", { name: "History and details", exact: true })
+			.all())
 			await summary.click();
 		const lead = machine.locator('[data-lane-state="Last pass reported"]');
 		assert.match(await lead.innerText(), /Scheduled check · custom-review/);
@@ -269,7 +292,9 @@ try {
 		await machine.screenshot({
 			path: `${evidence}/table-preview-compact-${width}.png`,
 		});
-		for (const summary of await machine.locator("summary").all())
+		for (const summary of await machine
+			.getByRole("button", { name: "History and details", exact: true })
+			.all())
 			await summary.click();
 		assert.match(
 			await machine.innerText(),

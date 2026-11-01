@@ -53,7 +53,7 @@ export function capabilityTab(
 export const CAPABILITY_NAV_CLASSNAME =
 	"flex min-w-0 max-w-full items-start gap-1 border-kumo-line border-b";
 export const CAPABILITY_NAV_VIEWPORT_CLASSNAME =
-	"min-w-0 flex-1 scroll-px-3 overflow-x-auto overscroll-x-contain";
+	"min-w-0 flex-1 scroll-px-3 scroll-smooth overflow-x-auto overscroll-x-contain motion-reduce:scroll-auto";
 export const CAPABILITY_NAV_TRACK_CLASSNAME =
 	"flex w-max min-w-full items-center gap-1 pb-3";
 export const CAPABILITY_NAV_EDGE_TOLERANCE = 12;
@@ -144,7 +144,7 @@ export function CapabilityNavigation({ active }: { active: CapabilityView }) {
 		const viewport = viewportRef.current;
 		if (!viewport) return;
 		viewport.scrollBy({
-			behavior: "smooth",
+			behavior: "auto",
 			left: direction * Math.max(viewport.clientWidth * 0.75, 160),
 		});
 	};
@@ -209,7 +209,7 @@ export function CapabilityNavigation({ active }: { active: CapabilityView }) {
 				<nav
 					aria-label={tab === "apps" ? "Apps views" : "Account owners"}
 					data-capability-subnav=""
-					className="flex min-w-0 flex-wrap items-center gap-1"
+					className="flex min-w-0 items-center gap-1 overflow-x-auto overscroll-x-contain py-1"
 				>
 					{views.map((view) => (
 						<Link

@@ -333,7 +333,9 @@ function InstallationAccess({
 					</CollapsibleDefaultContent>
 				</Collapsible>
 				<section aria-label="Draft audience preview" className="grid gap-2">
-					<h3 className="font-medium">Preview before saving</h3>
+					<Text as="h3" role="section" weight="semibold" tone="strong">
+						Preview before saving
+					</Text>
 					{contacts.isError && (
 						<LoadError
 							title="Contact preview is unavailable"

@@ -817,7 +817,6 @@ function PaymentEventsTable({
 							type="button"
 							variant="outline"
 							size="sm"
-							className="max-sm:min-h-11"
 							onClick={() =>
 								setVisibleCount((count) => count + PAYMENT_EVENTS_PAGE_SIZE)
 							}

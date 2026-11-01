@@ -85,7 +85,15 @@ export function ProviderIdentityProfiles({
 			className="grid gap-3 border-t border-kumo-hairline px-4 py-3"
 			aria-label="Account checks"
 		>
-			<h3 className="m-0 font-semibold">Account checks</h3>
+			<Text
+				as="h3"
+				role="section"
+				weight="semibold"
+				tone="strong"
+				className="m-0"
+			>
+				Account checks
+			</Text>
 			<Text as="p" role="label" tone="secondary">
 				Define how to identify the account a connection uses. Saving a check
 				does not run it or enable automatic approval.

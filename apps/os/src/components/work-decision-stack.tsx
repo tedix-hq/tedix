@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
 import {
 	WorkReadNotice,
@@ -114,7 +115,9 @@ export function ApprovalDecisionCard({
 			<>
 				{notice}
 				<section aria-label="Machine approval">
-					<h3>Review machine action</h3>
+					<Text as="h3" role="section" weight="semibold" tone="strong">
+						Review machine action
+					</Text>
 					<MachineApprovalReview payload={approval.payload} />
 					<Link href="/work/approvals">Review and decide in Approvals</Link>
 				</section>

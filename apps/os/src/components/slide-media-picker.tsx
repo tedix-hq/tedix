@@ -92,7 +92,7 @@ function WorkspaceImageRow({
 				size="sm"
 				multiline
 				disabled={disabled}
-				className="h-auto w-full justify-start gap-2 px-2 py-2 text-left"
+				className="w-full justify-start gap-2 px-2 py-2 text-left"
 				aria-label={`Use workspace image ${resource.name}`}
 				onClick={() => void pick()}
 			>
