@@ -10,20 +10,33 @@ const route = vi.hoisted(() => ({
 	defaultView: "deck" as "deck" | "feed",
 	withCount: false,
 	count: { count: 0, pending: false, failed: false },
+	withAgents: false,
 }));
 
 vi.mock("@/lib/use-work-apps", () => ({
 	useWorkApps: () => ({
-		apps: ["deck", "feed"].map((role) => ({
-			role,
-			gadget: { workspaceId: "cedar-workspace" },
-			manifest: {
-				navigation: { workDefault: role === route.defaultView },
-				...(route.withCount && role === "deck"
-					? { config: { version: 1 } }
-					: {}),
-			},
-		})),
+		apps: [
+			...["deck", "feed"].map((role) => ({
+				role,
+				gadget: { workspaceId: "cedar-workspace" },
+				manifest: {
+					navigation: { workDefault: role === route.defaultView },
+					...(route.withCount && role === "deck"
+						? { config: { version: 1 } }
+						: {}),
+				},
+			})),
+			...(route.withAgents
+				? ["office", "agents"].map((name, i) => ({
+						role: null,
+						gadget: {
+							id: `11111111-1111-4111-8111-${String(i).padStart(12, "0")}`,
+							workspaceId: "cedar-workspace",
+						},
+						manifest: { entry: `tedix:app/${name}`, config: { version: 1 } },
+					}))
+				: []),
+		],
 	}),
 }));
 
@@ -152,5 +165,35 @@ it("shows known Deck counts including zero and leaves unknown counts empty", () 
 	} finally {
 		route.withCount = false;
 		route.count = { count: 0, pending: false, failed: false };
+	}
+});
+
+it("unifies only the selected Agents area and keeps the primary navigation separate", () => {
+	route.withAgents = true;
+	try {
+		for (const [pathname, search, label] of [
+			["/work", { app: "office" }, "For you"],
+			["/work", { app: "11111111-1111-4111-8111-000000000001" }, "Sessions"],
+			["/work/capacity", { view: "budgets" }, "Capacity"],
+		] as const) {
+			const doc = renderShell(pathname, search);
+			const nav = doc.querySelector('nav[aria-label="Agents"]');
+			expect(
+				[...nav!.querySelectorAll("a")].map((link) => link.textContent),
+			).toEqual(["For you", "Sessions", "Capacity"]);
+			expect(nav!.querySelector('[aria-current="page"]')?.textContent).toBe(
+				label,
+			);
+			expect(
+				doc.querySelector('button[aria-label="More views: Agents"]'),
+			).not.toBeNull();
+		}
+		expect(
+			renderShell("/work", { view: "feed" }).querySelector(
+				'nav[aria-label="Agents"]',
+			),
+		).toBeNull();
+	} finally {
+		route.withAgents = false;
 	}
 });

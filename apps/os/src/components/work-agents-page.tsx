@@ -13,10 +13,7 @@ import {
 	inactiveSessionLabel,
 } from "@tedix/api-contract/utils/attention-copy";
 import { useQuery } from "@tanstack/react-query";
-import {
-	WorkAgentSessionHarnessSchema,
-	WorkAgentSessionEffectiveStateSchema,
-} from "@tedix/api-contract/schemas/work-agent-sessions";
+import { WorkAgentSessionEffectiveStateSchema } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type {
 	ListWorkAgentSessionsResultSchema,
 	WorkProjectContributorStateSchema,
@@ -279,10 +276,12 @@ function AgentSessionRow({
 						id: ownerId,
 						harness: lane?.executor ?? session.harness,
 					}}
-					name={AGENT_HARNESS_LABEL[session.harness] ?? "Agent"}
+					name={AGENT_HARNESS_LABEL[session.harness] ?? session.harness}
 				/>
 				<Badge variant="outline">
-					{AGENT_HARNESS_LABEL[lane?.executor ?? session.harness] ?? "Agent"}
+					{AGENT_HARNESS_LABEL[lane?.executor ?? session.harness] ??
+						lane?.executor ??
+						session.harness}
 				</Badge>
 				<AgentStateBadge
 					state={state}
@@ -451,7 +450,7 @@ export function WorkAgentsBoard({
 								'{"enabled": true, "profile": "<CLI profile>", "organization": "<org>"}'
 							}
 						</code>{" "}
-						and restart your Claude Code or Codex sessions.
+						and restart the sessions you want to report.
 					</>
 				}
 			/>
@@ -515,6 +514,15 @@ export function WorkAgentsBoard({
 	);
 }
 
+export function sessionHarnesses(
+	sessions: readonly { harness: string }[],
+	configured?: readonly string[],
+): string[] {
+	return configured
+		? [...configured]
+		: [...new Set(sessions.map((row) => row.harness))].sort();
+}
+
 export function AgentsApp({ config }: { config: AgentsConfig }) {
 	const [project, setProject] = useState("all");
 	const [state, setState] = useState("all");
@@ -533,6 +541,14 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 			),
 		[projects.data],
 	);
+	const scoped =
+		query.data &&
+		filterAgentSessions(query.data, config, {
+			project,
+			state: "all",
+			harness: "all",
+		});
+	const harnesses = sessionHarnesses(scoped?.sessions ?? [], config.harnesses);
 	const data =
 		query.data &&
 		filterAgentSessions(query.data, config, { project, state, harness });
@@ -540,9 +556,9 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 		<div className="grid min-w-0 gap-4" data-workspace-app-entry="agents">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Agents</PageTitle>
+					<PageTitle>Sessions</PageTitle>
 					<PageDescription>
-						Session status and activity by project.
+						See which sessions are working, waiting or need your help.
 					</PageDescription>
 				</PageHeading>
 			</PageHeader>
@@ -609,13 +625,11 @@ export function AgentsApp({ config }: { config: AgentsConfig }) {
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="all">All configured harnesses</SelectItem>
-						{(config.harnesses ?? WorkAgentSessionHarnessSchema.options).map(
-							(value) => (
-								<SelectItem key={value} value={value}>
-									{AGENT_HARNESS_LABEL[value] ?? value}
-								</SelectItem>
-							),
-						)}
+						{harnesses.map((value) => (
+							<SelectItem key={value} value={value}>
+								{AGENT_HARNESS_LABEL[value] ?? value}
+							</SelectItem>
+						))}
 					</SelectContent>
 				</Select>
 			</PageToolbar>

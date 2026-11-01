@@ -292,3 +292,16 @@ it("names Feed and Deck with one hidden page heading before app content", () => 
 	}
 	expect(render({ app: "office" }).querySelector("h1")).toBeNull();
 });
+
+it("opens an available Work app by exact gadget id without mounting the other apps", () => {
+	const doc = render({ app: "22222222-2222-4222-8222-000000000003" });
+	expect(doc.querySelectorAll("article")).toHaveLength(1);
+	expect(doc.querySelector("article")?.getAttribute("data-entry")).toBe(
+		"tedix:app/agents",
+	);
+	expect(
+		render({ app: "77777777-7777-4777-8777-777777777777" }).querySelector(
+			"article",
+		),
+	).toBeNull();
+});

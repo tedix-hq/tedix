@@ -10,7 +10,7 @@ import { Text } from "@/components/kumo/text";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { useDeckCount } from "@/lib/use-deck-count";
 import {
-	WORK_APP_ENTRIES,
+	selectedWorkApp,
 	type WorkFeedFilter,
 	type WorkHomeSearch,
 } from "@/lib/work-home-search";
@@ -33,7 +33,7 @@ export function WorkHome({
 		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
 		(pending ? undefined : apps.find((app) => app.role === "feed"));
 	const selected = search.app
-		? apps.find((app) => app.manifest.entry === WORK_APP_ENTRIES[search.app!])
+		? selectedWorkApp(apps, search.app)
 		: search.view
 			? apps.find((app) => app.role === search.view)
 			: defaultApp;

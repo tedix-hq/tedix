@@ -15,11 +15,21 @@ export const WORK_APP_ENTRIES = {
 	office: "tedix:app/office",
 	outbound: "tedix:app/outbound-review",
 } as const;
-type WorkAppName = keyof typeof WORK_APP_ENTRIES;
+const appId =
+	/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+
+export function selectedWorkApp<
+	T extends { gadget: { id: string }; manifest: { entry?: string } },
+>(apps: readonly T[], selected: string): T | undefined {
+	const entry = WORK_APP_ENTRIES[selected as keyof typeof WORK_APP_ENTRIES];
+	return entry
+		? apps.find((app) => app.manifest.entry === entry)
+		: apps.find((app) => app.gadget.id === selected);
+}
 export type WorkHomeSearch = {
 	view?: "feed" | "deck";
 	filter?: WorkFeedFilter;
-	app?: WorkAppName;
+	app?: string;
 	project?: string;
 	day?: string;
 	source?: string;
@@ -51,8 +61,8 @@ export function workHomeSearch(
 			? { filter: filter as WorkFeedFilter }
 			: {}),
 		...(typeof search.app === "string" &&
-		Object.hasOwn(WORK_APP_ENTRIES, search.app)
-			? { app: search.app as WorkAppName }
+		(Object.hasOwn(WORK_APP_ENTRIES, search.app) || appId.test(search.app))
+			? { app: search.app }
 			: {}),
 	};
 }

@@ -17,6 +17,8 @@ import { OS_COPY } from "@/shared/os-copy";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { todayShortcut } from "@/lib/today-digest";
 import { WorkMoreViewsMenu } from "@/components/work-more-views-menu";
+import { WorkAgentNavigation } from "@/components/work-agent-navigation";
+import { workAgentNavigation } from "@/lib/work-agent-navigation";
 // The shell's own bar (.fd-work-bar, .fd-work-navigation) is styled here. A
 // Work page that loads no Feed or Deck component (Approvals, opened directly)
 // otherwise rendered the bar unstyled: three stacked links over the content.
@@ -31,6 +33,12 @@ const WorkWebMcpTools = lazy(() =>
 export function WorkShell() {
 	const { apps } = useWorkApps();
 	const navigate = useNavigate();
+	const location = useRouterState({ select: ({ location }) => location });
+	const agentNavigation = workAgentNavigation(
+		apps,
+		location.pathname,
+		location.search as Record<string, unknown>,
+	);
 	const [toolbarTarget, setToolbarTarget] = useState<HTMLDivElement | null>(
 		null,
 	);
@@ -82,6 +90,9 @@ export function WorkShell() {
 				<Suspense fallback={null}>
 					<WorkWebMcpTools />
 				</Suspense>
+				{agentNavigation.active && (
+					<WorkAgentNavigation tabs={agentNavigation.tabs} />
+				)}
 				<DeckRemainingContext.Provider value={setRemaining}>
 					<Outlet />
 				</DeckRemainingContext.Provider>
@@ -127,7 +138,7 @@ export function WorkShell() {
 									</span>
 								)}
 						</Link>
-						<WorkMoreViewsMenu />
+						<WorkMoreViewsMenu agentNavigation={agentNavigation} />
 					</nav>
 					{(feed || deck) && (
 						<div ref={setToolbarTarget} className="fd-work-toolbar-slot" />

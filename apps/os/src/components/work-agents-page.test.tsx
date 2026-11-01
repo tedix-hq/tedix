@@ -16,7 +16,11 @@ import {
 	projectListQueryOptions,
 	workAgentSessionsQueryOptions,
 } from "@/lib/os-query-options";
-import { AgentStateBadge, filterAgentSessions } from "./work-agents-page";
+import {
+	AgentStateBadge,
+	filterAgentSessions,
+	sessionHarnesses,
+} from "./work-agents-page";
 
 const NOW = Date.parse("2026-06-15T12:34:00.000Z");
 const ago = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();
@@ -192,7 +196,7 @@ describe("Agents board", () => {
 		]);
 		const app = doc.querySelector('[data-workspace-app-entry="agents"]')!;
 		expect(app.firstElementChild?.querySelector("h1")?.textContent).toBe(
-			"Agents",
+			"Sessions",
 		);
 		expect(app.querySelector("[data-agent-state]")).not.toBeNull();
 		const context = [...app.querySelectorAll("button")].find(
@@ -393,4 +397,36 @@ it("can explicitly show ended sessions through its configured state scope", asyn
 	);
 	expect(doc.body.textContent).toContain("Finished local lane");
 	expect(doc.querySelector('li[data-agent-state="ended"]')).not.toBeNull();
+});
+
+it("offers configured harnesses or actual scoped observations, including unfamiliar names", () => {
+	expect(
+		sessionHarnesses([
+			{ harness: "tenant.builder" },
+			{ harness: "review-pool" },
+			{ harness: "tenant.builder" },
+		]),
+	).toEqual(["review-pool", "tenant.builder"]);
+	expect(sessionHarnesses([{ harness: "other" }], ["configured-only"])).toEqual(
+		["configured-only"],
+	);
+	expect(sessionHarnesses([])).toEqual([]);
+	const scoped = filterAgentSessions(
+		{
+			sessions: [
+				session(1, "working", "Allowed", PROJECT_A),
+				session(2, "working", "Other project", PROJECT_B),
+			],
+			counts: {
+				working: 2,
+				needs_you: 0,
+				error: 0,
+				done: 0,
+				idle: 0,
+				ended: 0,
+			},
+		},
+		{ version: 1, projectId: PROJECT_A },
+	);
+	expect(sessionHarnesses(scoped.sessions)).toEqual(["claude-code"]);
 });

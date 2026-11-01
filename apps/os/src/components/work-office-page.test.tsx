@@ -20,6 +20,7 @@ import {
 	userProfileQueryOptions,
 	workInteractionDetailQueryOptions,
 	workOfficeKnocksQueryOptions,
+	workAgentSessionsQueryOptions,
 	workUrgentInteractionsQueryOptions,
 } from "@/lib/os-query-options";
 import { OfficeApp } from "./work-office-page";
@@ -102,7 +103,7 @@ describe("Office ledger rendering", () => {
 		const doc = renderOffice(client);
 		const app = doc.querySelector('[data-workspace-app-entry="office"]')!;
 		expect(app.firstElementChild?.querySelector("h1")?.textContent).toBe(
-			"Office",
+			"For you",
 		);
 		const activity = app.querySelector("#office-activity-title")!;
 		const today = app.querySelector('[aria-label="Loading today"]')!;
@@ -181,6 +182,44 @@ describe("Office ledger rendering", () => {
 		expect(doc.querySelector("svg rect:last-child title")?.textContent).toBe(
 			"2 knocks, this hour",
 		);
+		client.clear();
+	});
+	it("summarizes actual reported harnesses without inventing provider rows", () => {
+		const client = seeded();
+		client.setQueryData(workOfficeKnocksQueryOptions().queryKey, { data: [] });
+		client.setQueryData(workAgentSessionsQueryOptions().queryKey, {
+			sessions: [
+				{
+					harness: "tenant.builder",
+					sessionKey: "build",
+					effectiveState: "working",
+					lastEventAt: FIXTURE_NOW.toISOString(),
+				},
+				{
+					harness: "review-pool",
+					sessionKey: "review",
+					effectiveState: "idle",
+					lastEventAt: new Date(
+						FIXTURE_NOW.getTime() - 60 * 60_000,
+					).toISOString(),
+				},
+			],
+		});
+		const activity = renderOffice(client).querySelector(
+			'[aria-labelledby="office-activity-title"]',
+		)!;
+		expect(activity.textContent).toContain("tenant.builder");
+		expect(activity.textContent).toContain("review-pool");
+		for (const unreported of ["Claude Code", "Codex", "Devin"])
+			expect(activity.textContent).not.toContain(unreported);
+		client.setQueryData(workAgentSessionsQueryOptions().queryKey, {
+			sessions: [],
+		});
+		expect(
+			renderOffice(client).querySelector(
+				'[aria-labelledby="office-activity-title"]',
+			)?.textContent,
+		).toContain("No session activity reported");
 		client.clear();
 	});
 });
