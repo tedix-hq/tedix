@@ -86,7 +86,7 @@ export async function callMcpCredentialApi<T>(input: {
 				"X-Service-Binding": "true",
 				"X-Tedix-Tedi-Id": input.tediId,
 				...(input.organizationId
-					? { "X-Tedix-Org-Id": input.organizationId }
+					? { "X-Tedix-Organization-Id": input.organizationId }
 					: {}),
 			},
 			signal: input.signal,

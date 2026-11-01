@@ -112,19 +112,14 @@ function compactPageContext(value: unknown) {
 
 const TERMINAL = new Set(["completed", "failed", "canceled"]);
 
-function isWrittenAnswer(message: HomeMessage): boolean {
-	return (
-		message.role === "assistant" &&
-		message.metadata?.homeNarration === undefined &&
-		Boolean(message.content.trim())
-	);
-}
-
 function answerFor(run: HomeRun, messages: HomeMessage[]): string {
-	const answers = messages.filter(isWrittenAnswer);
 	const answer =
-		answers.find((message) => message.id === run.outputMessageId) ??
-		answers.filter((message) => message.runId === run.id).at(-1);
+		messages.find((message) => message.id === run.outputMessageId) ??
+		messages
+			.filter(
+				(message) => message.role === "assistant" && message.runId === run.id,
+			)
+			.at(-1);
 	return answer?.content.trim() ?? "";
 }
 
@@ -160,7 +155,6 @@ export async function runQuickChatHomeTurn(
 		conversationId: string;
 		text: string;
 		pageContext?: unknown;
-		workspaceContext?: EnqueueHomeMessageInput["workspaceContext"];
 		/** The model the chat's picker shows; Home answers with it. */
 		modelRef?: string;
 		signal?: AbortSignal;
@@ -185,25 +179,14 @@ export async function runQuickChatHomeTurn(
 			content: homeTurnContent(input.text, input.pageContext),
 			idempotencyKey: deps.randomUuid(),
 			...(input.modelRef ? { modelRef: input.modelRef } : {}),
-			...(input.workspaceContext
-				? { workspaceContext: input.workspaceContext }
-				: {}),
 			...(pageTools.length ? { pageTools } : {}),
 		},
 		{ signal: input.signal },
 	);
 	if (output.status === "failed" || output.run.status === "failed")
-		throw new Error(
-			(output.assistantMessage && isWrittenAnswer(output.assistantMessage)
-				? output.assistantMessage.content.trim()
-				: output.error) || "Home could not answer this message.",
-		);
+		throw new Error(output.error ?? "Home could not answer this message.");
 	const run = output.run;
-	if (
-		run.status === "completed" &&
-		output.assistantMessage &&
-		isWrittenAnswer(output.assistantMessage)
-	)
+	if (TERMINAL.has(run.status) && output.assistantMessage?.content.trim())
 		return { text: output.assistantMessage.content.trim() };
 	if (output.status === "needs_delegation" && !TERMINAL.has(run.status))
 		return {
@@ -277,12 +260,14 @@ async function followRun(
 		} else await deps.sleep(POLL_MS, input.signal);
 		run = (await deps.readRun({ runId: run.id })).run;
 	}
-	if (run.status === "canceled")
-		throw new Error("This Home turn was cancelled.");
+	if (run.status !== "completed")
+		throw new Error(
+			run.status === "canceled"
+				? "This Home turn was cancelled."
+				: "Home could not answer this message.",
+		);
 	const { messages } = await deps.readMessages({ conversationId, limit: 20 });
 	const text = answerFor(run, messages);
-	if (run.status !== "completed")
-		throw new Error(text || "Home could not answer this message.");
 	if (!text) throw new Error("Home finished without an answer.");
 	return { text };
 }
@@ -308,7 +293,10 @@ export async function readQuickChatHomeOpenTurn(
 	const asked = messages.filter((message) => message.role === "user").at(-1);
 	if (!asked?.runId) return null;
 	const answered = messages.some(
-		(message) => isWrittenAnswer(message) && message.runId === asked.runId,
+		(message) =>
+			message.role === "assistant" &&
+			message.runId === asked.runId &&
+			message.content.trim(),
 	);
 	if (answered) return null;
 	const { run } = await deps.readRun({ runId: asked.runId });
@@ -353,8 +341,7 @@ export async function readQuickChatHomeTranscript(
 		limit: 100,
 	});
 	return messages.flatMap((message) =>
-		(message.role === "user" ||
-			(message.role === "assistant" && isWrittenAnswer(message))) &&
+		(message.role === "user" || message.role === "assistant") &&
 		message.content.trim()
 			? [
 					{

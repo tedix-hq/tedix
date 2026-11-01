@@ -133,8 +133,7 @@ assert.equal(assignedServersRequest.init?.method, "POST");
 const assignedHeaders = new Headers(assignedServersRequest.init?.headers);
 assert.equal(assignedHeaders.get("X-Service-Binding"), "true");
 assert.equal(assignedHeaders.get("X-Tedix-Tedi-Id"), "tedi-1");
-assert.equal(assignedHeaders.get("X-Tedix-Org-Id"), "org-1");
-assert.equal(assignedHeaders.has("X-Tedix-Organization-Id"), false);
+assert.equal(assignedHeaders.get("X-Tedix-Organization-Id"), "org-1");
 assert.equal(assignedHeaders.has("Authorization"), false);
 assert.deepEqual(JSON.parse(String(assignedServersRequest.init?.body)), {
 	json: { tediId: "tedi-1" },
@@ -156,7 +155,6 @@ await callMcpCredentialApi({
 });
 
 const credentialsHeaders = new Headers(credentialsRequest?.init?.headers);
-assert.equal(credentialsHeaders.has("X-Tedix-Org-Id"), false);
 assert.equal(credentialsHeaders.has("X-Tedix-Organization-Id"), false);
 assert.equal(credentialsHeaders.has("Authorization"), false);
 

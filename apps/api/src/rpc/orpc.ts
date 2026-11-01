@@ -244,10 +244,6 @@ export const withTediAuth = base.middleware(async ({ context, next }) => {
 	// Service Binding detection
 	if (isServiceBinding(context.headers)) {
 		context.authType = "service-binding";
-		if (!context.organizationId) {
-			context.organizationId =
-				await resolveServiceBindingOrganizationId(context);
-		}
 		return next({ context });
 	}
 
