@@ -1,3 +1,4 @@
+import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { type ServerContext } from "./server-context";
 import { tenantProfileDiscoveryPotential } from "./tenant-profile-candidate";
 import { cachedCatalogProjection } from "./catalog-projection";
@@ -56,7 +57,6 @@ import {
 	paginateCatalogEntries,
 	suggestedCatalogQueries,
 	editDistance,
-	projectCatalogMeta,
 } from "./codemode-discovery";
 import {
 	type DiscoveryRanker,

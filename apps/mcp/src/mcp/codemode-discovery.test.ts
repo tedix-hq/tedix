@@ -1,3 +1,4 @@
+import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { describe, expect, it } from "vite-plus/test";
 import type {
 	CatalogToolEntry,
@@ -12,7 +13,6 @@ import {
 	normalizeSearchTerms,
 	paginateCatalog,
 	paginateCatalogEntries,
-	projectCatalogMeta,
 	scoreCatalogSearch,
 	suggestedCatalogQueries,
 } from "./codemode-discovery";

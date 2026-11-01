@@ -3,34 +3,17 @@ import { MCP_NATIVE_CATALOG_META_KEY } from "@tedix/api-contract/schemas/mcp-nat
 import { TedixMcpRuntime } from "./runtime";
 import type { McpToolInfo } from "./types";
 
-function bootstrap(name = "find_tools") {
-	const descriptor = (name: string, endpoint: string) => ({
-		name,
-		toolRowId: `row-${name}`,
-		endpoint,
-		eligible: true,
-		authorized: true,
-		schemaFreshness: {
-			source: null,
-			sourceRef: null,
-			sourceHash: null,
-			syncedAt: null,
-		},
-	});
+function searchTool(
+	name = "search_native_tools",
+): Pick<McpToolInfo, "name" | "meta"> {
 	return {
-		nativeContext: {
-			version: 1,
-			surface: "mcp-gateway",
-			appId: "fictional-app",
-			appSlug: "fictional",
-			organizationId: "fictional-org",
-			actor: { authType: "tedi" },
-			nativeTransportAvailable: true,
-		},
-		nativeCatalog: {
-			status: "usable",
-			search: descriptor(name, "catalog/search"),
-			describe: descriptor("describe_tool", "catalog/describe"),
+		name,
+		meta: {
+			[MCP_NATIVE_CATALOG_META_KEY]: {
+				version: 1,
+				bootstrapTool: "get_info",
+				endpoint: "catalog/search",
+			},
 		},
 	};
 }
@@ -46,7 +29,7 @@ function fixture(
 	reply: (call: Call) => unknown | Promise<unknown>,
 	tools: Pick<McpToolInfo, "name" | "meta">[] = [
 		{ name: "code" },
-		{ name: "get_info" },
+		searchTool(),
 	],
 ) {
 	const calls: Call[] = [];
@@ -87,34 +70,140 @@ function fixture(
 }
 
 describe("native runtime tool search", () => {
-	it("discovers the bootstrap from a marked catalog tool when get_info is unlisted", async () => {
-		const f = fixture(
-			({ name }) => ({
-				structuredContent:
-					name === "get_info"
-						? bootstrap("search_native_tools")
-						: { results: [] },
+	it("matches the legacy array using the actual native envelope, preserving denied and skill rows", async () => {
+		const rows = [
+			{
+				callable: "docs.read",
+				authorized: true,
+			},
+			{
+				callable: "docs.write",
+				authorized: false,
+				missingScopes: ["docs:write"],
+			},
+			{
+				kind: "skill",
+				uri: "skill://example/SKILL.md",
+				load: 'skills.get({ slug: "example" })',
+			},
+		];
+		const native = fixture(() => ({
+			structuredContent: {
+				results: rows.map((row) => ({
+					...row,
+					schemaFreshness: {},
+					wire: {},
+					native: {},
+					_match: {},
+				})),
+				namespaces: { docs: {} },
+				meta: { pagination: { total: 3 } },
+				appCapabilities: {},
+				_detailTemplate: "catalog detail",
+			},
+			content: [{ type: "text", text: "Structured content takes precedence" }],
+		}));
+		const legacy = fixture(
+			() => ({
+				structuredContent: { executionId: "exec", result: rows },
 				content: [],
 			}),
-			[
-				{ name: "code" },
-				{
-					name: "search_native_tools",
-					meta: {
-						[MCP_NATIVE_CATALOG_META_KEY]: {
-							version: 1,
-							bootstrapTool: "get_info",
-							endpoint: "catalog/search",
-						},
-					},
-				},
-			],
+			[{ name: "code" }],
 		);
-		expect(await f.search()).toEqual({ results: [] });
-		expect(f.calls.map(({ name }) => name)).toEqual([
-			"get_info",
+		expect(
+			await native.search({
+				query: " read records ",
+				limit: 99,
+				includeParameters: true,
+			}),
+		).toEqual(await legacy.search());
+		expect(await native.search()).toEqual(rows);
+		expect(native.calls.map(({ name }) => name)).toEqual([
+			"search_native_tools",
 			"search_native_tools",
 		]);
+		expect(
+			native.calls.every(({ server }) => server === "fictional-unified"),
+		).toBe(true);
+		expect(native.calls[0]?.args).toEqual({
+			query: "read records",
+			limit: 25,
+			includeParameters: true,
+			includeMetadata: false,
+		});
+		expect(native.calls[0]?.options.signal).toBeInstanceOf(AbortSignal);
+		expect(native.calls[0]?.options.onTaskInputRequired).toBeTypeOf("function");
+		expect(native.events.map(({ kind }) => kind)).toEqual([
+			"tool.started",
+			"tool.completed",
+			"tool.started",
+			"tool.completed",
+		]);
+		expect(
+			native.events.every(
+				({ payload }) => payload.name === "tedix_mcp_search_tools",
+			),
+		).toBe(true);
+	});
+
+	it("uses current inventory names on the same server without a bootstrap request", async () => {
+		const tools = [{ name: "code" }, searchTool("find_1")];
+		const f = fixture(
+			() => ({ structuredContent: { results: [] }, content: [] }),
+			tools,
+		);
+		await f.search();
+		tools[1] = searchTool("find_2");
+		await f.search();
+		expect(f.calls.map(({ name }) => name)).toEqual(["find_1", "find_2"]);
+	});
+
+	it("applies compact descriptions and explicit schema selection to verbose native rows", async () => {
+		const f = fixture(() => ({
+			structuredContent: {
+				results: [
+					{
+						callable: "docs.read",
+						description: `${"word ".repeat(100)}\n\nPaid tool: use credits`,
+						parameters: { type: "object" },
+						outputSchema: { type: "string" },
+						annotations: { readOnlyHint: true },
+						_meta: { source: "docs" },
+					},
+				],
+			},
+			content: [],
+		}));
+		const compact = (await f.search()) as Record<string, unknown>[];
+		expect(compact[0]).toMatchObject({
+			descriptionTruncated: true,
+			annotations: { readOnlyHint: true },
+			_meta: { source: "docs" },
+		});
+		expect(compact[0]?.description).toContain("Paid tool: use credits");
+		expect(compact[0]?.parameters).toBeUndefined();
+		expect(compact[0]?.outputSchema).toBeUndefined();
+		const withParameters = (await f.search({
+			query: "read",
+			includeParameters: true,
+		})) as Record<string, unknown>[];
+		expect(withParameters[0]?.parameters).toEqual({ type: "object" });
+		expect(withParameters[0]?.outputSchema).toBeUndefined();
+	});
+
+	it("keeps unmarked providers on Code Mode even if they advertise get_info", async () => {
+		const f = fixture(
+			({ name }) => {
+				if (name !== "code") throw new Error("Unsupported tool");
+				return {
+					structuredContent: { executionId: "exec", result: [] },
+					content: [],
+				};
+			},
+			[{ name: "code" }, { name: "get_info" }],
+		);
+		expect(await f.search()).toEqual([]);
+		expect(f.calls.map(({ name }) => name)).toEqual(["code"]);
 	});
 
 	it.each([
@@ -122,152 +211,65 @@ describe("native runtime tool search", () => {
 		{ version: 1, bootstrapTool: "run_code", endpoint: "catalog/search" },
 		{ version: 1, bootstrapTool: "get_info", endpoint: "workItems/create" },
 	])(
-		"does not probe a bootstrap advertised by an unsupported marker %j",
+		"refuses an unsupported marker %j without dispatch or Code Mode fallback",
 		async (marker) => {
-			const f = fixture(
-				() => ({
-					structuredContent: { executionId: "exec", result: { results: [] } },
-					content: [],
-				}),
-				[
-					{ name: "code" },
-					{
-						name: "search_native_tools",
-						meta: { [MCP_NATIVE_CATALOG_META_KEY]: marker },
-					},
-				],
-			);
-			expect(await f.search()).toEqual({ results: [] });
-			expect(f.calls.map(({ name }) => name)).toEqual(["code"]);
-		},
-	);
-
-	it("keeps code-only providers working without probing an unsupported bootstrap", async () => {
-		const f = fixture(
-			({ name }) => {
-				if (name !== "code") throw new Error("Unsupported tool");
-				return {
-					structuredContent: { executionId: "exec", result: { results: [] } },
-					content: [],
-				};
-			},
-			[{ name: "code" }],
-		);
-		expect(await f.search()).toEqual({ results: [] });
-		expect(f.calls.map(({ name }) => name)).toEqual(["code"]);
-	});
-
-	it("uses fresh same-server descriptors and keeps search results and ledger events", async () => {
-		let revision = 0;
-		const result = {
-			results: [{ callable: "docs.read", authorized: true }],
-			meta: {},
-		};
-		const f = fixture(({ name }) => ({
-			structuredContent:
-				name === "get_info" ? bootstrap(`find_${++revision}`) : result,
-			content: [],
-		}));
-		for (let i = 0; i < 2; i++)
-			expect(
-				await f.search({
-					query: " read records ",
-					limit: 99,
-					includeParameters: true,
-				}),
-			).toEqual(result);
-		expect(f.calls.map(({ name }) => name)).toEqual([
-			"get_info",
-			"find_1",
-			"get_info",
-			"find_2",
-		]);
-		expect(f.calls.every(({ server }) => server === "fictional-unified")).toBe(
-			true,
-		);
-		expect(f.calls[1]?.args).toEqual({
-			query: "read records",
-			limit: 25,
-			includeParameters: true,
-			includeMetadata: false,
-		});
-		expect(f.calls[0]?.options.signal).toBe(f.calls[1]?.options.signal);
-		expect(f.calls[0]?.options.onTaskInputRequired).toBe(
-			f.calls[1]?.options.onTaskInputRequired,
-		);
-		expect(f.events.map(({ kind }) => kind)).toEqual([
-			"tool.started",
-			"tool.completed",
-			"tool.started",
-			"tool.completed",
-		]);
-		expect(
-			f.events.every(
-				({ payload }) => payload.name === "tedix_mcp_search_tools",
-			),
-		).toBe(true);
-	});
-
-	it("uses Code Mode on the same server only for an explicitly unavailable catalog", async () => {
-		const f = fixture(({ name }) => ({
-			structuredContent:
-				name === "get_info"
-					? {
-							nativeContext: null,
-							nativeCatalog: {
-								status: "unavailable",
-								search: null,
-								describe: null,
-							},
-						}
-					: { executionId: "exec", result: { results: [] } },
-			content: [],
-		}));
-		expect(await f.search()).toEqual({ results: [] });
-		expect(f.calls.map(({ name }) => name)).toEqual(["get_info", "code"]);
-		expect(f.calls.every(({ server }) => server === "fictional-unified")).toBe(
-			true,
-		);
-	});
-
-	it.each(["get_info", "find_tools"])(
-		"does not retry %s authorization refusal through Code Mode",
-		async (denied) => {
-			const f = fixture(({ name }) =>
-				name === denied
-					? {
-							isError: true,
-							content: [{ type: "text", text: "Permission denied" }],
-						}
-					: { structuredContent: bootstrap(), content: [] },
-			);
-			await expect(f.search()).rejects.toThrow("Permission denied");
-			expect(f.calls.some(({ name }) => name === "code")).toBe(false);
-			expect(f.events.at(-1)?.kind).toBe("tool.failed");
-		},
-	);
-
-	it.each(["malformed", "endpoint", "unauthorized"])(
-		"rejects a %s native bootstrap without execution",
-		async (kind) => {
-			const info = bootstrap();
-			if (kind === "endpoint")
-				info.nativeCatalog.search.endpoint = "workItems/create";
-			if (kind === "unauthorized") info.nativeCatalog.search.authorized = false;
-			const f = fixture(() => ({
-				structuredContent: kind === "malformed" ? {} : info,
-				content: [],
-			}));
+			const f = fixture(() => {
+				throw new Error("Unexpected dispatch");
+			}, [
+				{ name: "code" },
+				{ name: "find", meta: { [MCP_NATIVE_CATALOG_META_KEY]: marker } },
+			]);
 			await expect(f.search()).rejects.toThrow();
-			expect(f.calls.map(({ name }) => name)).toEqual(["get_info"]);
+			expect(f.calls).toEqual([]);
+		},
+	);
+
+	it.each([
+		{ tools: [searchTool("find_1"), searchTool("find_2")] },
+		{ tools: [searchTool("find"), { name: "find" }] },
+	])(
+		"refuses ambiguous advertised routes without dispatch",
+		async ({ tools }) => {
+			const f = fixture(() => {
+				throw new Error("Unexpected dispatch");
+			}, [{ name: "code" }, ...tools]);
+			await expect(f.search()).rejects.toThrow("ambiguous");
+			expect(f.calls).toEqual([]);
+		},
+	);
+
+	it("rechecks authorization at dispatch after a previously permitted search", async () => {
+		let authorized = true;
+		const f = fixture(() =>
+			authorized
+				? { structuredContent: { results: [] }, content: [] }
+				: {
+						isError: true,
+						content: [{ type: "text", text: "Permission revoked" }],
+					},
+		);
+		await f.search();
+		authorized = false;
+		await expect(f.search()).rejects.toThrow("Permission revoked");
+		expect(f.calls.map(({ name }) => name)).toEqual([
+			"search_native_tools",
+			"search_native_tools",
+		]);
+		expect(f.events.at(-1)?.kind).toBe("tool.failed");
+	});
+
+	it.each([{}, { results: "invalid" }, { results: ["invalid"] }])(
+		"refuses malformed native output %j without Code Mode fallback",
+		async (value) => {
+			const f = fixture(() => ({ structuredContent: value, content: [] }));
+			await expect(f.search()).rejects.toThrow();
+			expect(f.calls.map(({ name }) => name)).toEqual(["search_native_tools"]);
 		},
 	);
 
 	it("propagates cancellation without a Code Mode fallback", async () => {
 		const abort = new AbortController();
-		const f = fixture(({ name, options }) => {
-			if (name === "get_info")
-				return { structuredContent: bootstrap(), content: [] };
+		const f = fixture(({ options }) => {
 			abort.abort(new Error("Search canceled"));
 			options.signal?.throwIfAborted();
 		});
@@ -278,16 +280,23 @@ describe("native runtime tool search", () => {
 				{ signal: abort.signal },
 			),
 		).rejects.toThrow("Search canceled");
-		expect(f.calls.map(({ name }) => name)).toEqual(["get_info", "find_tools"]);
+		expect(f.calls.map(({ name }) => name)).toEqual(["search_native_tools"]);
 	});
 
-	it("keeps authored JavaScript on the isolated Code Mode path", async () => {
+	it("keeps authored JavaScript results and isolated dispatch unchanged", async () => {
+		const result = {
+			results: [{ arbitrary: true }],
+			namespaces: { keep: true },
+		};
 		const f = fixture(() => ({
-			structuredContent: { executionId: "exec", result: 7 },
+			structuredContent: { executionId: "exec", result },
 			content: [],
 		}));
-		const code = "async () => { globalThis.privateState = true; return 7; }";
-		expect(await f.runtime.executeTool("tedix_mcp_code", { code })).toBe(7);
+		const code =
+			"async () => { globalThis.privateState = true; return { results: [] }; }";
+		expect(await f.runtime.executeTool("tedix_mcp_code", { code })).toEqual(
+			result,
+		);
 		expect(f.calls.map(({ name, args }) => ({ name, args }))).toEqual([
 			{ name: "code", args: { code } },
 		]);

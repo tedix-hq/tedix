@@ -1,5 +1,6 @@
+import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
-	McpNativeBootstrapSchema,
 	McpNativeCatalogCapabilitySchema,
 	MCP_NATIVE_CATALOG_META_KEY,
 } from "@tedix/api-contract/schemas/mcp-native-transport";
@@ -1970,50 +1971,51 @@ export class TedixMcpRuntime {
 		const includeParameters = Boolean(args.includeParameters);
 		const input = { query, limit, includeParameters };
 		const serverId = this.selectCodeServer();
-		const hasBootstrap = this.manager
-			.listTools(serverId)
-			.some(
-				(tool) =>
-					tool.name === "get_info" ||
-					McpNativeCatalogCapabilitySchema.safeParse(
-						tool.meta?.[MCP_NATIVE_CATALOG_META_KEY],
-					).success,
+		const tools = this.manager.listTools(serverId);
+		const searches = tools.filter((tool) => {
+			const marker = tool.meta?.[MCP_NATIVE_CATALOG_META_KEY];
+			if (marker === undefined) return false;
+			return (
+				McpNativeCatalogCapabilitySchema.parse(marker).endpoint ===
+				"catalog/search"
 			);
-		if (hasBootstrap) {
+		});
+		const search = searches[0];
+		if (
+			searches.length > 1 ||
+			(search && tools.filter((tool) => tool.name === search.name).length !== 1)
+		)
+			throw new Error("Native discovery tool is ambiguous");
+		if (search) {
 			const options = { signal, onTaskInputRequired: resolver ?? null };
-			// Resolve against this request's credentials, never a cached authorization.
-			const info = unwrapCallToolResult(
-				await this.manager.callTool(serverId, "get_info", {}, options),
-				"get_info",
-			) as Record<string, unknown> | null;
-			const bootstrap = McpNativeBootstrapSchema.parse({
-				nativeContext: info?.nativeContext,
-				nativeCatalog: info?.nativeCatalog,
-			});
-			if (bootstrap.nativeCatalog.status === "usable") {
-				const search = bootstrap.nativeCatalog.search!;
-				if (
-					search.endpoint !== "catalog/search" ||
-					bootstrap.nativeCatalog.describe?.endpoint !== "catalog/describe"
-				)
-					throw new Error("Native discovery endpoint mismatch");
-				const result = unwrapCallToolResult(
-					await this.manager.callTool(
-						serverId,
-						search.name,
-						{ ...input, includeMetadata: false },
-						options,
-					),
-					search.name,
-				);
-				this.toolCallLog.push({
-					name: search.name,
-					args: input,
-					ok: true,
+			// Inventory selects the wire name; dispatch checks fresh caller authorization.
+			const result = unwrapCallToolResult(
+				await this.manager.callTool(
 					serverId,
-				});
-				return { result };
-			}
+					search.name,
+					{ ...input, includeMetadata: false },
+					options,
+				),
+				search.name,
+			);
+			if (
+				!isRecord(result) ||
+				!Array.isArray(result.results) ||
+				!result.results.every(isRecord)
+			)
+				throw new Error("Native discovery returned invalid results");
+			const rows = result.results.map((row) =>
+				projectCatalogMeta(row, includeParameters, false),
+			);
+			this.toolCallLog.push({
+				name: search.name,
+				args: input,
+				ok: true,
+				serverId,
+			});
+			return {
+				result: rows,
+			};
 		}
 		return await this.callCodeOnServer(
 			serverId,
