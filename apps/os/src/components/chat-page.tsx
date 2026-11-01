@@ -4,6 +4,7 @@ import type { HomeConversation } from "@tedix/api-contract/schemas/kernel-runtim
 import {
 	useInfiniteQuery,
 	useMutation,
+	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -18,11 +19,12 @@ import {
 import { ChatThread } from "@/components/chat-thread";
 import { useChatWebMcpTools } from "@/components/chat-webmcp-tools";
 import { Button } from "@/components/kumo/button";
+import { LoadError } from "@/components/kumo/alert";
 import { Page } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
 import type { ChatSearch } from "@/lib/canvas-search";
-import { osQueryKeys } from "@/lib/os-query-options";
+import { osQuery, osQueryKeys } from "@/lib/os-query-options";
 
 /** Workspace names are capped at 120 characters by the contract. */
 const WORKSPACE_NAME_MAX_CHARS = 120;
@@ -122,6 +124,19 @@ export function ChatPage() {
 	const [detailsOpen, setDetailsOpen] = useState(false);
 	const selectionGeneration = useRef(0);
 	const generation = selectionGeneration.current;
+	const conversationLookup = useQuery({
+		...osQuery.kernelRuntime.listConversations.queryOptions({
+			input: {
+				conversationId: activeConversationId ?? "",
+				includeArchived: true,
+				limit: 1,
+			},
+		}),
+		enabled: activeConversationId !== null,
+	});
+	const activeConversation = conversationLookup.data?.conversations.find(
+		(conversation) => conversation.id === activeConversationId,
+	);
 
 	const selectConversation = (conversationId: string | null) => {
 		selectionGeneration.current += 1;
@@ -195,40 +210,57 @@ export function ChatPage() {
 							}}
 						/>
 					</div>
-					<ChatThread
-						key={newConversationKey}
-						detailsOpen={detailsOpen}
-						detailsActions={
-							activeConversationId ? (
-								<SaveAsWorkspaceButton conversationId={activeConversationId} />
-							) : null
-						}
-						recoverPendingSend={newConversationKey === 0}
-						conversationId={activeConversationId}
-						onConversationCreated={(conversationId, workspaceId) => {
-							queryClient.invalidateQueries({
-								queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
-							});
-							// A pending send may finish after the user has selected New.
-							if (generation !== selectionGeneration.current) return;
-							// Only a conversation that already belongs to a workspace opens
-							// there. `pane` must not travel: it would pin an explicit pane.
-							if (workspaceId) {
-								void navigate({
-									to: "/workspace/$workspaceId",
-									params: { workspaceId },
-									search: { conversation: conversationId },
-								});
-								return;
+					{activeConversationId && conversationLookup.isPending ? (
+						<Text as="p" role="caption" aria-live="polite">
+							Loading conversation…
+						</Text>
+					) : activeConversationId &&
+					  (conversationLookup.isError || !activeConversation) ? (
+						<LoadError
+							title="This conversation couldn't be loaded"
+							error={conversationLookup.error}
+							help="It may have been removed, or you may no longer have access."
+							onRetry={() => conversationLookup.refetch()}
+						/>
+					) : (
+						<ChatThread
+							key={newConversationKey}
+							detailsOpen={detailsOpen}
+							detailsActions={
+								activeConversationId ? (
+									<SaveAsWorkspaceButton
+										conversationId={activeConversationId}
+									/>
+								) : null
 							}
-							setSelection({ conversationId });
-							void navigate({
-								to: "/chat",
-								search: { conversation: conversationId },
-								replace: true,
-							});
-						}}
-					/>
+							recoverPendingSend={newConversationKey === 0}
+							conversationId={activeConversationId}
+							workspaceId={activeConversation?.workspaceId ?? undefined}
+							onConversationCreated={(conversationId, workspaceId) => {
+								queryClient.invalidateQueries({
+									queryKey: CHAT_CONVERSATIONS_QUERY_KEY,
+								});
+								// A pending send may finish after the user has selected New.
+								if (generation !== selectionGeneration.current) return;
+								// Only a conversation that already belongs to a workspace opens
+								// there. `pane` must not travel: it would pin an explicit pane.
+								if (workspaceId) {
+									void navigate({
+										to: "/workspace/$workspaceId",
+										params: { workspaceId },
+										search: { conversation: conversationId },
+									});
+									return;
+								}
+								setSelection({ conversationId });
+								void navigate({
+									to: "/chat",
+									search: { conversation: conversationId },
+									replace: true,
+								});
+							}}
+						/>
+					)}
 				</div>
 			</Page>
 		</ChatExecutionDetailsProvider>

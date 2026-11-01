@@ -39,10 +39,30 @@ export function deriveDelegationCapabilityPlan(input: {
 	const content = withoutQuotedCommitSubjects(
 		delegationRequestContent(input.content),
 	);
+	const urls = [...new Set(content.match(/https?:\/\/[^\s<>"`]+/gi) ?? [])]
+		.map((url) => url.replace(/[),.;!?]+$/, ""))
+		.filter((url) => URL.canParse(url));
+	const outputReferences = urls.flatMap((url) => {
+		const parsed = new URL(url);
+		const direct = parsed.pathname.match(
+			/^\/outputs\/([a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i,
+		)?.[1];
+		const workpiece = /^\/workspace\/[a-f\d-]{36}$/i.test(parsed.pathname)
+			? parsed.searchParams
+					.get("workpiece")
+					?.match(/^output:([a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})$/i)?.[1]
+			: undefined;
+		const outputId = direct ?? workpiece;
+		return outputId ? [{ url, outputId }] : [];
+	});
+	const outputRead =
+		outputReferences.length > 0 ||
+		route.plannedToolIds.some((id) => id.endsWith(".get_os_output"));
 	if (
 		route.risk === "low" &&
 		requirement.surface === "native" &&
-		route.plannedToolIds.includes("read_operator_records")
+		route.plannedToolIds.includes("read_operator_records") &&
+		!outputRead
 	) {
 		return {
 			version: "delegation-capabilities.v1",
@@ -61,19 +81,15 @@ export function deriveDelegationCapabilityPlan(input: {
 	const capabilities: string[] = [];
 	const tools = new Set<string>();
 	const missingCapabilities: string[] = [];
-	const urls = [...new Set(content.match(/https?:\/\/[^\s<>"`]+/gi) ?? [])]
-		.map((url) => url.replace(/[),.;!?]+$/, ""))
-		.filter((url) => URL.canParse(url));
-	const outputUrls = urls.filter((url) =>
-		/^\/outputs\/([a-f\d-]{36})$/i.test(new URL(url).pathname),
-	);
-	const outputRead =
-		outputUrls.length > 0 ||
-		route.plannedToolIds.some((id) => id.endsWith(".get_os_output"));
+	const outputUrls = outputReferences.map((reference) => reference.url);
 	const outputIds = outputRead
 		? [
 				...new Set(
-					content.match(/\b[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\b/gi) ?? [],
+					outputReferences.length
+						? outputReferences.map((reference) => reference.outputId)
+						: (content.match(
+								/\b[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\b/gi,
+							) ?? []),
 				),
 			]
 		: [];

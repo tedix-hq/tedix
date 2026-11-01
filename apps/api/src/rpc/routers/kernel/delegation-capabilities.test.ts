@@ -458,6 +458,29 @@ describe("request-derived capability plans", () => {
 			"11111111-1111-4111-8111-111111111111",
 		]);
 	});
+	it.each(["output:", "output%3A"])(
+		"reads a workspace output link without granting its workspace id: %s",
+		(prefix) => {
+			const result = order(
+				`Read-only: read https://example.com/workspace/22222222-2222-4222-8222-222222222222?workpiece=${prefix}11111111-1111-4111-8111-111111111111&pane=workpiece`,
+				["read_operator_records", "acme_os.get_os_output"],
+			);
+			expect(result.capabilityPlan).toMatchObject({
+				requiredCapabilities: ["output.read"],
+				allowedToolIds: ["acme_os.get_os_output"],
+				outputIds: ["11111111-1111-4111-8111-111111111111"],
+				missingCapabilities: [],
+			});
+		},
+	);
+	it("does not trap an output link in the operator-records-only plan", () => {
+		const result = order(
+			"Read https://example.com/workspace/22222222-2222-4222-8222-222222222222?workpiece=output%3A11111111-1111-4111-8111-111111111111",
+			["read_operator_records"],
+		);
+		expect(result.capabilityPlan).toBeUndefined();
+		expect(result.capabilityPlanDecision?.reason).toContain("output.read");
+	});
 	it("derives workstation execution tools for a repository change requiring native Git", () => {
 		const content = "Fix the repository and git push the change";
 		expect(deriveExecutionRequirement(content, route).surface).toBe(
