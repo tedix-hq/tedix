@@ -180,6 +180,7 @@ describe("tenant AI Search restore permit", () => {
 		const fence = { ...identity, generation: "g1", captureId: "c1" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		await reservationExpiry();
 		await expect(instance.items.delete("item-1")).rejects.toBeInstanceOf(
 			CmsRestoreFenceUnavailableError,
 		);
@@ -192,9 +193,9 @@ describe("tenant AI Search restore permit", () => {
 		expect(service.remove).not.toHaveBeenCalled();
 		expect(service.update).not.toHaveBeenCalled();
 		expect(service.create).not.toHaveBeenCalled();
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
 		finish({ id: "item-1" });
 		await expect(pending).resolves.toEqual({ id: "item-1" });
-		await reservationExpiry();
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 		await expect(instance.items.delete("item-1")).rejects.toBeInstanceOf(

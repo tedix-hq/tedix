@@ -22,14 +22,12 @@ const permit = {
 
 function fixture(
 	clock?: ConstructorParameters<typeof PublicRestorePermits>[1],
-	verifyReuse = false,
 ) {
 	const queries = {
 		enter: vi.fn().mockResolvedValue(true),
 		leave: vi.fn().mockResolvedValue(true),
-		reuse: vi.fn().mockResolvedValue(true),
 	};
-	const pool = new PublicRestorePermits(queries, clock, verifyReuse);
+	const pool = new PublicRestorePermits(queries, clock);
 	const tasks: Promise<unknown>[] = [];
 	const forRequest = () => pool.forRequest((task) => tasks.push(task));
 	return { queries, forRequest, tasks };
@@ -52,7 +50,6 @@ describe("public restore reservations", () => {
 		});
 		await nested.leave(db, permit);
 		expect(queries.enter).toHaveBeenCalledTimes(2);
-		expect(queries.reuse).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 	});
@@ -79,7 +76,6 @@ describe("public restore reservations", () => {
 		if (!result.admitted) throw new Error("expected admission");
 		expect((await result.value.arrayBuffer()).byteLength).toBe(100);
 		expect(queries.enter).toHaveBeenCalledOnce();
-		expect(queries.reuse).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 		expect(queries.leave).toHaveBeenCalledOnce();
@@ -169,7 +165,6 @@ describe("public restore reservations", () => {
 		}
 		expect(authenticate).toHaveBeenCalledTimes(2);
 		expect(queries.enter).toHaveBeenCalledOnce();
-		expect(queries.reuse).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 	});
@@ -199,32 +194,33 @@ describe("public restore reservations", () => {
 		expect(queries.leave).toHaveBeenCalledTimes(2);
 	});
 
-	it.each([false, new Error("D1 unavailable")])(
-		"fails closed when a verified reuse check returns %s",
-		async (failure) => {
-			const { queries, forRequest, tasks } = fixture(undefined, true);
-			const first = forRequest();
-			await first.enter(db, permit);
-			await first.leave(db, permit);
-			if (failure instanceof Error) queries.reuse.mockRejectedValue(failure);
-			else queries.reuse.mockResolvedValue(failure);
-			const run = vi.fn(async () => new Response("should not serve"));
-			const result = withCmsRestoreResponsePermit(
-				db,
-				identity,
-				run,
-				queries,
-				forRequest(),
+	it("admits 100 nested borrowers with one INSERT, no re-check and one DELETE", async () => {
+		const { queries, forRequest, tasks } = fixture();
+		const nested = { ...permit, kind: "nested" as const };
+		for (let i = 0; i < 100; i++) {
+			const request = forRequest();
+			expect(await request.enter(db, { ...nested, permitId: `n-${i}` })).toBe(
+				true,
 			);
-			if (failure instanceof Error)
-				await expect(result).rejects.toThrow("fence unavailable");
-			else expect(await result).toEqual({ admitted: false });
-			expect(run).not.toHaveBeenCalled();
-			await vi.advanceTimersByTimeAsync(10_000);
-			await Promise.all(tasks);
-			expect(queries.leave).toHaveBeenCalledOnce();
-		},
-	);
+			await request.leave(db, nested);
+			// The durable row admits later borrowers; the ledger is not consulted.
+			queries.enter.mockResolvedValue(false);
+		}
+		expect(queries.enter).toHaveBeenCalledExactlyOnceWith(db, {
+			...nested,
+			permitId: "n-0",
+		});
+		expect(queries.leave).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(10_000);
+		await Promise.all(tasks);
+		expect(queries.leave).toHaveBeenCalledExactlyOnceWith(db, {
+			...nested,
+			permitId: "n-0",
+		});
+		expect(await forRequest().enter(db, { ...nested, permitId: "late" })).toBe(
+			false,
+		);
+	});
 
 	it("reports an idle cleanup failure and removes the reservation from reuse", async () => {
 		const { queries, forRequest, tasks } = fixture();
@@ -316,7 +312,6 @@ describe("public restore reservations", () => {
 			await request.leave(db, permit);
 		}
 		expect(queries.enter).toHaveBeenCalledTimes(4);
-		expect(queries.reuse).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(10_000);
 		await Promise.all(tasks);
 	});
