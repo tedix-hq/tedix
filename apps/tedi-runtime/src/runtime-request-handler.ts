@@ -134,7 +134,7 @@ import { repositoryModeForMetadata } from "./runtime-tool-guidance";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { capabilityPlanForMetadata } from "./delegation-capabilities";
 import { delegationBudgetForMetadata } from "./delegation-budget";
-import { terminateWorkflow } from "./workflow-cancellation";
+import { settledWorkflow, terminateWorkflow } from "./workflow-cancellation";
 import { WorkflowImageCleanup } from "./workflow-image-cleanup";
 import { type WorkflowImageRef } from "./workflow-image-handoff";
 import { type WorkflowDispatchContext } from "./workflow-start-watchdog";
@@ -1172,18 +1172,26 @@ export async function handleRuntimeRequest(
 			nativeTools: Object.keys(host.getTools(OPERATOR_COMPUTER_SCOPE)),
 		});
 	}
-	if (url.pathname === "/__internal/cancel") {
+	if (
+		url.pathname === "/__internal/cancel" ||
+		url.pathname === "/__internal/cleanup-orphan"
+	) {
 		// Cancel a delegated CHAT_TURN_WORKFLOW instance by its clientRequestId.
 		// The kernel cascade derives the workflow ID exactly like async inject. A terminal run is a
 		// no-op success. Returns { success, workflowInstanceId }.
 		if (request.method !== "POST") {
 			return new Response("Method Not Allowed", { status: 405 });
 		}
-		let cancelPayload: { client_request_id?: string; run_id?: string };
+		let cancelPayload: {
+			client_request_id?: string;
+			run_id?: string;
+			orphaned_before?: string;
+		};
 		try {
 			cancelPayload = (await request.json()) as {
 				client_request_id?: string;
 				run_id?: string;
+				orphaned_before?: string;
 			};
 		} catch {
 			return Response.json(
@@ -1219,6 +1227,43 @@ export async function handleRuntimeRequest(
 		const cancelRunId =
 			(cancelPayload.run_id ?? "").trim() ||
 			buildRunId(host.state.tediId, cancelClientRequestId, "mcp");
+		if (url.pathname === "/__internal/cleanup-orphan") {
+			const cutoff = Date.parse(cancelPayload.orphaned_before ?? "");
+			if (
+				!Number.isFinite(cutoff) ||
+				cancelPayload.run_id !==
+					buildRunId(host.state.tediId, cancelClientRequestId, "mcp")
+			) {
+				return Response.json(
+					{ success: false, error: "invalid_orphan_identity" },
+					{ status: 400 },
+				);
+			}
+			const settled = await settledWorkflow(
+				host.env.CHAT_TURN_WORKFLOW,
+				cancelWorkflowInstanceId,
+			);
+			if (settled)
+				return Response.json({
+					success: true,
+					detail: settled,
+					workflowInstanceId: cancelWorkflowInstanceId,
+				});
+			const dispatch = await host.ctx.storage.get<WorkflowDispatchContext>(
+				`wfctx:${cancelWorkflowInstanceId}`,
+			);
+			if (
+				!dispatch ||
+				dispatch.runId !== cancelRunId ||
+				!Number.isFinite(dispatch.admittedAt) ||
+				dispatch.admittedAt > cutoff
+			) {
+				return Response.json(
+					{ success: false, error: "orphan_dispatch_unverified" },
+					{ status: 409 },
+				);
+			}
+		}
 		try {
 			await host.recordWorkflowCancellation(cancelRunId);
 		} catch (e) {
