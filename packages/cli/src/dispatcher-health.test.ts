@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { recordDutyStatus } from "./supervise-duty-status";
 import {
 	collectDispatcherHealth,
 	recordDispatcherAdmission,
@@ -24,6 +25,46 @@ function lane() {
 }
 
 describe("local dispatcher health", () => {
+	test("joins same-machine duty history without inventing native slot observations", () => {
+		const { root, directory } = lane();
+		const env = { TEDIX_CONFIG_DIR: root };
+		const now = Date.now();
+		writeDispatcherHealthSource(directory, {
+			scope: ["--workspace", "fixture", "--organization", "org_fixture"],
+			executor: "codex",
+			max: 2,
+		});
+		const identity = {
+			id: "lane-key",
+			kind: "service" as const,
+			workspace: "fixture",
+			organization: "org_fixture",
+			executor: "codex",
+		};
+		recordDutyStatus(
+			env,
+			identity,
+			{ state: "waiting", lastExitCode: 7, lastProblem: "Runner exited" },
+			now,
+		);
+		recordDutyStatus(
+			env,
+			{ ...identity, id: "lead", kind: "task" },
+			{ state: "running" },
+			now,
+		);
+		const reports = collectDispatcherHealth(env, now);
+		expect(reports).toHaveLength(2);
+		expect(reports[0]?.reporterId).toBe(reports[1]?.reporterId);
+		expect(reports.find((row) => row.lane === "lane-key")?.duty).toMatchObject({
+			lastExitCode: 7,
+			state: "waiting",
+			restartsLastHour: 0,
+		});
+		expect(
+			reports.find((row) => row.lane === "supervisor-lead")?.duty?.state,
+		).toBe("running");
+	});
 	test.each(["skipped", "completion-retained", "telemetry-retained"])(
 		"collects repeated %s reasons",
 		(event) => {

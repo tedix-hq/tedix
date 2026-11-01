@@ -47,6 +47,7 @@ export async function upsertDispatcherHealthReport(
 				slotsTotal: params.slotsTotal,
 				topReason: params.topReason ?? null,
 				topReasonCount: params.topReasonCount ?? null,
+				duty: params.duty ?? null,
 			},
 		})
 		.returning();

@@ -127,8 +127,22 @@ try {
 	await reasonPage.close();
 	for (const width of [375, 1280]) {
 		const page = await browser.newPage({ viewport: { width, height: 900 } });
+		let includeDuty = false;
 		await page.route("**/dispatcherHealth/list**", (route) => {
 			const at = new Date().toISOString();
+			const duty = {
+				id: "fixture",
+				kind: "task",
+				state: "waiting",
+				observedAt: at,
+				lastRunAt: at,
+				lastExitAt: at,
+				lastExitCode: 0,
+				lastExecutor: "codex",
+				restartsLastHour: 0,
+				retryAt: at,
+				lastProblem: null,
+			};
 			return route.fulfill({
 				status: 200,
 				contentType: "application/json",
@@ -147,6 +161,7 @@ try {
 								slotsInUse: 0,
 								slotsTotal: 1,
 								topReason: { reason: "codex pass finished", count: 1 },
+								duty: includeDuty ? duty : undefined,
 								ageSeconds: 0,
 								staleAfterSeconds: 90,
 								stale: false,
@@ -154,6 +169,17 @@ try {
 							{
 								reporterId: "fixture-mac",
 								executor: "opencode",
+								duty: includeDuty
+									? {
+											...duty,
+											id: "opencode",
+											kind: "service",
+											lastExecutor: "opencode",
+											restartsLastHour: 3,
+											lastExitCode: 7,
+											lastProblem: "Runner exited with code 7",
+										}
+									: undefined,
 								lane: "opencode",
 								running: true,
 								observedAt: at,
@@ -196,6 +222,31 @@ try {
 			),
 		);
 		await machine.screenshot({ path: `${evidence}/machine-${width}.png` });
+		includeDuty = true;
+		await page.reload();
+		await machine
+			.getByText("Waiting for next check", { exact: true })
+			.waitFor();
+		await machine.getByText("Restart scheduled", { exact: true }).waitFor();
+		assert.match(
+			await machine.innerText(),
+			/Recorded restarts \(last hour\): 3/,
+		);
+		assert.match(
+			await machine.innerText(),
+			/Last problem: Runner exited with code 7/,
+		);
+		assert.match(await machine.innerText(), /code 0/);
+		assert.doesNotMatch(
+			await machine.innerText(),
+			/Restart history: Not reported|Current pass: Not reported/,
+		);
+		assert.ok(
+			await page.evaluate(
+				() => document.documentElement.scrollWidth <= innerWidth,
+			),
+		);
+		await machine.screenshot({ path: `${evidence}/duties-${width}.png` });
 		await page.close();
 	}
 	const stalePage = await browser.newPage();
