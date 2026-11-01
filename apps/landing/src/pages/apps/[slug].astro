@@ -9,7 +9,7 @@ import { getCatalogClient } from "../../lib/api";
 import ToolsTable from "../../components/catalog/ToolsTable.tsx";
 import type { CatalogAppDetail, CatalogAppListItem } from "@tedix/api-contract/schemas/catalog";
 import { Badge, badgeVariants } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, LinkButton, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Empty } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
@@ -740,12 +740,12 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 								className="h-12 pl-10"
 							/>
 						</div>
-						<button
+						<Button
 							type="submit"
-							class={buttonVariants({ size: "lg" })}
+							size="lg"
 						>
 							Search
-						</button>
+						</Button>
 					</form>
 				</div>
 
@@ -937,11 +937,11 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 						{(chatGptUrl || claudeListing?.storeUrl || app.mcpEndpointUrl || app.baseUrl) && (
 						<div class="flex flex-wrap gap-3">
 							{chatGptUrl && (
-								<a
+								<LinkButton
 									href={chatGptUrl}
 									target="_blank"
 									rel="noopener noreferrer"
-									class={buttonVariants({ size: "lg" })}
+									size="lg"
 								>
 									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
@@ -949,7 +949,7 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 										<line x1="10" y1="14" x2="21" y2="3"></line>
 									</svg>
 									Open in ChatGPT
-								</a>
+								</LinkButton>
 							)}
 							{claudeListing?.storeUrl && (
 								<a
@@ -967,11 +967,11 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 								</a>
 							)}
 							{!chatGptUrl && !claudeListing?.storeUrl && app.mcpEndpointUrl && (
-								<a
+								<LinkButton
 									href={app.mcpEndpointUrl}
 									target="_blank"
 									rel="noopener noreferrer"
-									class={buttonVariants({ size: "lg" })}
+									size="lg"
 								>
 									<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 										<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
@@ -979,7 +979,7 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 										<line x1="12" y1="22.08" x2="12" y2="12"></line>
 									</svg>
 									Connect
-								</a>
+								</LinkButton>
 							)}
 							{app.baseUrl && (
 								<a
@@ -1425,7 +1425,7 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 												href={link}
 											target="_blank"
 											rel="noopener noreferrer"
-											class={buttonVariants({ variant: "ghost", size: "sm", className: "p-0" })}
+											class={buttonVariants({ variant: "ghost", shape: "square" })}
 											aria-label={`${socialLabel} for ${app.name}`}
 											title={link}
 											>

@@ -7,16 +7,14 @@ import integrationLayer from "../../public/images/ai-integration-layer.png";
 import geoTedix from "../../public/images/geo-tedix.png";
 import soloFounder from "../../public/images/solo-founder.png";
 import mimextrade from "../../public/images/mimextrade.png";
-import { buttonVariants } from "@/components/ui/button";
+import { LinkButton, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { BorderBeam } from "./magicui/BorderBeam.tsx";
 import { Particles } from "./magicui/Particles.tsx";
 import { BlurFade } from "./magicui/BlurFade.tsx";
 import { AnimatedGradientText } from "./magicui/AnimatedGradientText.tsx";
-import { Marquee } from "./magicui/Marquee.tsx";
-import { NumberTicker } from "./magicui/NumberTicker.tsx";
-import { ShimmerButton } from "./magicui/ShimmerButton.tsx";
+import { LogoMarquee } from "./landing/LogoMarquee";
 import { TextAnimate } from "./magicui/TextAnimate.tsx";
 import { HeroBrain } from "./landing/HeroBrain.tsx";
 import { OperationalTimeline } from "./landing/OperationalTimeline.tsx";
@@ -119,40 +117,17 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
         <BlurFade client:only="react" delay={0.6} direction="up">
           <div class="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
             <div class="cta-pulse-ring w-full sm:w-fit">
-              <a href={primaryHeroHref} class="block w-full sm:w-auto">
-                <ShimmerButton client:only="react" shimmerColor="#c084fc" shimmerSize="0.08em" background="linear-gradient(135deg, #7c3aed, #c026d3, #ea580c)" borderRadius="9999px" className="w-full px-6 py-3 text-base font-semibold shadow-lg shadow-violet-500/25 sm:w-auto sm:px-8">
+              <LinkButton href={primaryHeroHref} size="lg" className="w-full sm:w-auto">
                   {t.hero.primaryCta}
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2 h-4 w-4 transition-transform group-hover:translate-x-0.5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                </ShimmerButton>
-              </a>
+              </LinkButton>
             </div>
-            <a href={secondaryHeroHref} class="inline-flex items-center justify-center rounded-full border border-border bg-background/60 px-8 py-3 text-base font-semibold text-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-muted dark:border-white/15 dark:bg-white/5 dark:text-white dark:hover:bg-white/10">
+            <a href={secondaryHeroHref} class={buttonVariants({ variant: "outline", size: "lg" })}>
               {t.hero.secondaryCta}
             </a>
           </div>
         </BlurFade>
 
-        <!-- Trust signals -->
-        <BlurFade client:only="react" delay={0.75} direction="up">
-          <div class="mt-12 flex flex-wrap items-center gap-x-7 gap-y-3">
-            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-400"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              <span>{t.hero.trustSignals[0]}</span>
-            </div>
-            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-fuchsia-400"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9Z"/><path d="m3 9 2.45-4.9A2 2 0 0 1 7.24 3h9.52a2 2 0 0 1 1.8 1.1L21 9"/><path d="M12 3v6"/></svg>
-              <span>{t.hero.trustSignals[1]}</span>
-            </div>
-            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-orange-400"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-              <span>{t.hero.trustSignals[2]}</span>
-            </div>
-            <div class="flex items-center gap-2 text-muted-foreground text-sm dark:text-white/55">
-              <span class="text-base">&#127465;&#127466;</span>
-              <span>{t.hero.trustSignals[3]}</span>
-            </div>
-          </div>
-        </BlurFade>
       </div>
     </div>
 
@@ -379,34 +354,25 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
           {!isEuroLabsResearch && <div class="mt-10 rounded-2xl border border-border/50 bg-card/30 px-8 py-8 dark:border-white/[0.06] dark:bg-white/[0.02]">
             <p class="mb-6 text-xs font-semibold text-orange-500 uppercase tracking-wider dark:text-orange-400">{t.useCases.brandsLabel}</p>
             <div class="relative mb-8">
-              <Marquee client:idle pauseOnHover className="[--duration:35s] [--gap:3rem]">
-                {[
-                  { src: "/images/apps/klarna.svg", alt: "Klarna" },
-                  { src: "/images/apps/instacart.svg", alt: "Instacart" },
-                  { src: "/images/apps/stripe.svg", alt: "Stripe" },
-                  { src: "/images/apps/walmart.svg", alt: "Walmart" },
-                  { src: "/images/apps/canva.svg", alt: "Canva" },
-                  { src: "/images/apps/expedia.svg", alt: "Expedia" },
-                  { src: "/images/apps/photoshop.svg", alt: "Photoshop" },
-                  { src: "/images/apps/shopify.svg", alt: "Shopify" },
-                ].map((logo) => (
-                  <div key={logo.alt} class="flex shrink-0 flex-col items-center gap-1.5">
-                    <div class="flex h-10 w-10 items-center justify-center">
-                      <img src={logo.src} alt={logo.alt} class="max-h-8 max-w-[32px] object-contain opacity-60 grayscale transition-all hover:opacity-100 hover:grayscale-0 dark:invert" loading="lazy" />
-                    </div>
-                    <span class="text-[10px] font-medium text-muted-foreground/60">{logo.alt}</span>
-                  </div>
-                ))}
-              </Marquee>
+              <LogoMarquee client:idle logos={[
+                { src: "/images/apps/klarna.svg", alt: "Klarna" },
+                { src: "/images/apps/instacart.svg", alt: "Instacart" },
+                { src: "/images/apps/stripe.svg", alt: "Stripe" },
+                { src: "/images/apps/walmart.svg", alt: "Walmart" },
+                { src: "/images/apps/canva.svg", alt: "Canva" },
+                { src: "/images/apps/expedia.svg", alt: "Expedia", lightSurface: true },
+                { src: "/images/apps/photoshop.svg", alt: "Photoshop", preserveDetails: true },
+                { src: "/images/apps/shopify-monochrome.svg", alt: "Shopify" },
+              ]} />
               <div class="pointer-events-none absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-muted/40 to-transparent dark:from-[#0c0a09]"></div>
               <div class="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-muted/40 to-transparent dark:from-[#0c0a09]"></div>
             </div>
             <div class="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
               <span class="font-bold font-display text-lg text-foreground/70 dark:text-white/70">{t.useCases.whereCompany}</span>
-              <a href={PRODUCT_AUTH_URL} class="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-orange-500 to-fuchsia-500 px-5 py-2 text-sm font-bold text-white transition-all hover:from-orange-400 hover:to-fuchsia-400">
+              <LinkButton href={PRODUCT_AUTH_URL}>
                 {t.useCases.getYourTedi}
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-              </a>
+              </LinkButton>
             </div>
           </div>}
         </div>
@@ -814,88 +780,26 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
 
 
   <!-- ═══════════════════════════════════════════
-       SECTION 7 — STATS BAR
-       ═══════════════════════════════════════════ -->
-  <section class="border-border/30 border-y bg-muted/20 pt-8 pb-16 dark:bg-muted/5">
-    <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-12 md:gap-20">
-        <div class="text-center">
-          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
-            <NumberTicker client:only="react" value={476} className="text-foreground" />
-          </div>
-          <p class="mt-1 text-muted-foreground text-sm">{t.stats[0]}</p>
-        </div>
-        <div class="text-center">
-          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
-            <NumberTicker client:only="react" value={14} className="text-foreground" />
-          </div>
-          <p class="mt-1 text-muted-foreground text-sm">{t.stats[1]}</p>
-        </div>
-        <div class="text-center">
-          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
-            <NumberTicker client:only="react" value={278} className="text-foreground" />
-          </div>
-          <p class="mt-1 text-muted-foreground text-sm">{t.stats[2]}</p>
-        </div>
-        <div class="text-center">
-          <div class="font-bold font-display text-4xl tracking-tight md:text-5xl">
-            <NumberTicker client:only="react" value={5} className="text-foreground" />
-          </div>
-          <p class="mt-1 text-muted-foreground text-sm">{t.stats[3]}</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ═══════════════════════════════════════════
        SECTION 8 — BACKED BY (Social Proof)
        ═══════════════════════════════════════════ -->
   <section class="pt-8 pb-16 md:pt-10 md:pb-20 dark:bg-muted/5">
     <div class="landing-section-frame mx-auto px-4 sm:px-6 lg:px-8">
       <div class="mx-auto max-w-6xl">
         <p class="mb-8 text-center font-medium text-muted-foreground/60 text-xs uppercase tracking-[0.2em]">{t.backedBy.eyebrow}</p>
-        <div class="flex flex-wrap items-center justify-center gap-x-10 gap-y-8">
-          <!-- BMWK -->
-          <a href="https://www.bundeswirtschaftsministerium.de/Navigation/EN/Home/home.html" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
-            <img src="/images/backed/bmwk.svg" alt="BMWK" class="h-10 w-auto object-contain dark:brightness-150 dark:opacity-80" loading="lazy" />
-            <span class="font-bold font-display text-sm text-foreground/80">BMWK</span>
-            <span class="text-[10px] text-muted-foreground">{t.backedBy.bmwk}</span>
-          </a>
-          <!-- AI NATION -->
-          <a href="https://www.ai-nation.de/" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
-            <img src="/images/backed/ai-nation.svg" alt="AI Nation" class="h-10 w-auto object-contain dark:brightness-0 dark:invert dark:opacity-90" loading="lazy" />
-            <span class="font-bold font-display text-sm text-foreground/80">AI NATION</span>
-            <span class="text-[10px] text-muted-foreground">{t.backedBy.aiNation}</span>
-          </a>
-          <!-- Munich Ecosystem -->
-          <a href="https://www.munich-ecosystem.de/" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
-            <img src="/images/backed/munich-ecosystem.svg" alt="Munich Innovation Ecosystem" class="h-10 w-auto object-contain dark:brightness-150 dark:opacity-80" loading="lazy" />
-            <span class="font-bold font-display text-sm text-foreground/80">Munich Innovation Ecosystem</span>
-            <span class="text-[10px] text-muted-foreground">{t.backedBy.munich}</span>
-          </a>
-          <!-- Reaktor Berlin -->
-          <a href="https://reaktor.berlin/" target="_blank" rel="noopener" class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
-            <img src="/images/backed/reaktor-berlin.svg" alt="Reaktor Berlin" class="h-10 w-auto object-contain dark:brightness-0 dark:invert dark:opacity-90" loading="lazy" />
-            <span class="font-bold font-display text-sm text-foreground/80">Reaktor Berlin</span>
-            <span class="text-[10px] text-muted-foreground">{t.backedBy.reaktor}</span>
-          </a>
-          <!-- YLAI + YTILI — U.S. State Dept. -->
-          <div class="group flex flex-col items-center gap-2 transition-opacity hover:opacity-80">
-            <div class="flex items-center gap-3">
-              <a href="https://www.state.gov/" target="_blank" rel="noopener" title="U.S. Department of State">
-                <img src="/images/backed/state-dept-seal.svg" alt="U.S. Department of State" class="h-10 w-10 object-contain dark:brightness-150 dark:opacity-80" loading="lazy" />
-              </a>
-              <span class="text-2xl leading-none select-none">🇺🇸</span>
-              <a href="https://ylai.state.gov/" target="_blank" rel="noopener" title="Young Leaders of the Americas Initiative">
-                <img src="/images/ylai-logo.png" alt="YLAI" class="h-9 w-auto object-contain max-w-[140px] dark:opacity-90" loading="lazy" />
-              </a>
-              <a href="https://www.ytili.org/" target="_blank" rel="noopener" title="Young Transatlantic Innovation Leaders Initiative">
-                <img src="/images/backed/ytili-logo.png" alt="YTILI" class="h-10 w-auto object-contain max-w-[90px] dark:brightness-150 dark:opacity-80" loading="lazy" />
-              </a>
-            </div>
-            <span class="font-bold font-display text-sm text-foreground/80">YLAI &amp; YTILI</span>
-            <span class="text-[10px] text-muted-foreground">{t.backedBy.state}</span>
-          </div>
+        <div class="mx-auto grid max-w-5xl grid-cols-2 gap-4 sm:flex sm:flex-wrap sm:items-center sm:justify-center sm:gap-6" data-backed-logos>
+          {[
+            { href: "https://www.bundeswirtschaftsministerium.de/Navigation/EN/Home/home.html", src: "/images/backed/bmwk.svg", alt: "Federal Ministry for Economic Affairs and Energy" },
+            { href: "https://www.ai-nation.de/", src: "/images/backed/ai-nation.svg", alt: "AI NATION" },
+            { href: "https://www.munich-ecosystem.de/", src: "/images/backed/munich-ecosystem.svg", alt: "Munich Innovation Ecosystem" },
+            { href: "https://reaktor.berlin/", src: "/images/backed/reaktor-berlin.svg", alt: "Reaktor Berlin" },
+            { href: "https://www.state.gov/", src: "/images/backed/state-dept-seal.svg", alt: "U.S. Department of State" },
+            { href: "https://ylai.state.gov/", src: "/images/ylai-logo.png", alt: "Young Leaders of the Americas Initiative (YLAI)" },
+            { href: "https://www.ytili.org/", src: "/images/backed/ytili-logo.png", alt: "Young Transatlantic Innovation Leaders Initiative (YTILI)" },
+          ].map((logo) => (
+            <a href={logo.href} target="_blank" rel="noopener noreferrer" title={logo.alt} class="flex h-28 w-full items-center justify-center rounded-xl border border-border bg-white p-4 transition-shadow hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-kumo-brand last:col-span-2 last:w-[calc(50%_-_0.5rem)] last:justify-self-center sm:w-52 sm:p-5 sm:last:w-52 dark:border-white/15">
+              <img src={logo.src} alt={logo.alt} class="max-h-20 w-auto max-w-full object-contain" loading="lazy" />
+            </a>
+          ))}
         </div>
       </div>
     </div>
@@ -1008,17 +912,6 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
             <p class="mb-8 max-w-sm text-base font-medium leading-relaxed text-white/72 md:text-lg">
               {t.cta.demoDescription}
             </p>
-            <div class="cta-pulse-ring w-fit">
-              <a
-                href={t.cta.demoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="cta-demo-button inline-flex w-fit items-center gap-2 rounded-lg bg-white px-5 py-3 font-bold text-slate-950 shadow-[0_14px_34px_rgba(0,0,0,0.18)] transition-transform hover:-translate-y-0.5 hover:bg-white/92"
-              >
-                <span class="relative z-10">{t.cta.demoCta}</span>
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="relative z-10"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-              </a>
-            </div>
           </div>
           <img src="/images/tedi-astronaut-waving.png" alt="" class="pointer-events-none absolute right-3 bottom-0 z-0 hidden h-[56%] max-h-[300px] object-contain opacity-90 drop-shadow-[0_28px_45px_rgba(15,0,55,0.45)] md:block lg:right-8 lg:h-[68%] xl:h-[72%]" loading="lazy" />
         </div>
@@ -1058,12 +951,10 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
             </div>
 
             <div class="cta-pulse-ring w-fit lg:mx-auto">
-              <a href={PRODUCT_AUTH_URL}>
-                <ShimmerButton client:idle shimmerColor="#e879f9" shimmerSize="0.1em" background="linear-gradient(135deg, #7c3aed, #c026d3, #ea580c)" borderRadius="9999px" className="px-9 py-4 text-base font-bold shadow-[0_0_40px_rgba(192,38,211,0.3)] md:px-10 md:text-lg">
+              <LinkButton href={PRODUCT_AUTH_URL} size="lg">
                   {t.cta.primary}
                   <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2 h-5 w-5"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-                </ShimmerButton>
-              </a>
+              </LinkButton>
             </div>
 
             <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-white/35 text-sm lg:justify-center">
@@ -1164,20 +1055,6 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
     display: block;
   }
 }
-.cta-demo-button {
-  position: relative;
-  overflow: hidden;
-}
-.cta-demo-button::before {
-  content: "";
-  position: absolute;
-  inset: -45%;
-  z-index: 0;
-  pointer-events: none;
-  background: linear-gradient(90deg, transparent 35%, rgba(255,255,255,0.9) 50%, transparent 65%);
-  transform: translateX(-130%) rotate(12deg);
-  animation: demoButtonShimmer 3s ease-in-out infinite;
-}
 
 @keyframes ctaCardLightPrimary {
   0%   { opacity: 0.92; transform: rotate(-58deg); }
@@ -1207,12 +1084,6 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
   0%, 83% { opacity: 0; transform: rotate(144deg) translateX(36px); }
   91%     { opacity: 0.78; }
   100%    { opacity: 0; transform: rotate(144deg) translateX(-46px); }
-}
-@keyframes demoButtonShimmer {
-  0%   { transform: translateX(-130%) rotate(12deg); opacity: 0; }
-  18%  { opacity: 0.7; }
-  52%  { transform: translateX(130%) rotate(12deg); opacity: 0; }
-  100% { transform: translateX(130%) rotate(12deg); opacity: 0; }
 }
 
 @keyframes challengeTitleIn {
@@ -1246,7 +1117,6 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
 @media (prefers-reduced-motion: reduce) {
   .cta-flow-card::before,
   .cta-flow-bridge,
-  .cta-demo-button::before,
   .cta-pulse-ring {
     animation: none;
   }

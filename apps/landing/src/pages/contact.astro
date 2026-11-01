@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -40,9 +40,9 @@ export const prerender = true;
 				</div>
 
 				<div class="mt-8 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-					<button type="submit" class={buttonVariants({ size: "lg" })}>
+					<Button type="submit" size="lg">
 						Share the process
-					</button>
+					</Button>
 					<p id="form-status" class="text-muted-foreground text-sm" role="status" aria-live="polite">
 						We typically respond within 24 hours.
 					</p>
