@@ -173,6 +173,7 @@ test("fast local checks retain source safety and owner types while CI retains ev
 		"generated Worker types are current",
 		"D1 schema, history, chain, destructive-DDL",
 		"widget build",
+		"cms-runtime build",
 		"CMS Tedix starter template build",
 		"license map, dependency licenses and patch notices",
 		"migration gates for a changed migration",
