@@ -1015,6 +1015,7 @@ const pageDescription =
 		display: grid;
 		grid-template-columns: 2.8rem minmax(0, 1fr) 2.8rem;
 		align-items: center;
+		justify-items: center;
 		gap: 1rem;
 	}
 
@@ -1032,22 +1033,19 @@ const pageDescription =
 		backdrop-filter: blur(18px);
 	}
 
-	.som-controls button:hover {
+	.som-controls button:not(:disabled):hover {
 		border-color: var(--som-line-strong);
 		background: rgba(255, 255, 255, 0.1);
 	}
 
-	.som-progress {
-		height: 0.36rem;
-		overflow: hidden;
-		border-radius: 999px;
-		background: rgba(255, 255, 255, 0.12);
+	.som-controls button:disabled {
+		opacity: 0.35;
+		cursor: default;
 	}
 
-	.som-progress div {
-		height: 100%;
-		border-radius: inherit;
-		background: linear-gradient(90deg, var(--som-lime), var(--som-sky));
+	.som-controls button:focus-visible {
+		outline: 2px solid var(--som-sky);
+		outline-offset: 2px;
 	}
 
 	@media (max-aspect-ratio: 4 / 3) and (min-width: 901px) {
