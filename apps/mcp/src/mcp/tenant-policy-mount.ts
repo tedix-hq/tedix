@@ -245,7 +245,9 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		serviceFetch: input.env.API_SERVICE,
 		orgId: input.organizationId,
 	});
-	const root = await client.apps.getByIdWithTools({ appId: input.rootAppId });
+	const root = await client.apps.getPolicyMountMetadata({
+		appId: input.rootAppId,
+	});
 	if (!root.app || root.app.organizationId !== input.organizationId)
 		return null;
 	const homeTools = buildHomeSurfaceTools();
@@ -365,8 +367,16 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 				)
 			: { tools: [], degraded: false };
 		if (direct.degraded) return null;
+		const ownRows = root.tools.some(
+			(tool) => tool.toolId === input.mountedToolId,
+		)
+			? await client.apps.getByIdWithTools({
+					appId: input.rootAppId,
+					toolIds: [input.mountedToolId],
+				})
+			: { tools: [] };
 		matches = [
-			...root.tools.map((tool) => ({
+			...ownRows.tools.map((tool) => ({
 				...tool,
 				config: { ...tool.config, _sourceAppId: input.rootAppId },
 				policyMountAppIds: [input.rootAppId],
@@ -433,7 +443,9 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 	)
 		return null;
 	const mountedApps = await Promise.all(
-		mountAppIds.map((appId) => client.apps.getByIdWithTools({ appId })),
+		[...new Set(mountAppIds)].map((appId) =>
+			client.apps.getPolicyMountMetadata({ appId }),
+		),
 	);
 	if (
 		mountedApps.some(
@@ -442,7 +454,8 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		)
 	)
 		return null;
-	const source = await client.apps.getByIdWithTools({ appId: sourceAppId });
+	const source = mountedApps.find((result) => result.app?.id === sourceAppId);
+	if (!source) return null;
 	const sourceTool = source.tools.find((row) => row.id === tool.id);
 	if (
 		!source.app ||
