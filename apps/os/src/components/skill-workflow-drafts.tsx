@@ -286,7 +286,6 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 					<Button
 						size="sm"
 						variant="outline"
-						className="min-h-11 sm:min-h-8"
 						onClick={() =>
 							setSeed({
 								content: baseline.content,
@@ -574,7 +573,7 @@ function SkillWorkflowDraftRow({
 			<Button
 				size="sm"
 				variant="outline"
-				className="min-h-11 sm:min-h-8 justify-self-start"
+				className="justify-self-start"
 				disabled={busy || verdict.state === "running"}
 				onClick={() => reject.mutate()}
 			>
@@ -585,7 +584,6 @@ function SkillWorkflowDraftRow({
 					<Button
 						size="sm"
 						variant="outline"
-						className="min-h-11 sm:min-h-8"
 						disabled={busy || verdict.state === "running"}
 						onClick={() => test.mutate()}
 					>
@@ -597,7 +595,6 @@ function SkillWorkflowDraftRow({
 					</Button>
 					<Button
 						size="sm"
-						className="min-h-11 sm:min-h-8"
 						disabled={busy || verdict.state !== "passed"}
 						onClick={() => activate.mutate()}
 					>

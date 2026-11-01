@@ -15,7 +15,7 @@ try {
 		await page.goto(`${server.origin}/work?app=office`);
 		const nav = page.getByRole("navigation", { name: "Agents", exact: true });
 		await page.locator('[data-workspace-app-entry="office"]').waitFor();
-		assert.deepEqual(await nav.getByRole("link").allTextContents(), [
+		assert.deepEqual(await nav.getByRole("tab").allTextContents(), [
 			"For you",
 			"Sessions",
 			"Capacity",
@@ -24,17 +24,39 @@ try {
 			await nav.locator('[aria-current="page"]').innerText(),
 			"For you",
 		);
-		for (const link of await nav.getByRole("link").all()) {
+		for (const link of await nav.getByRole("tab").all()) {
 			const bounds = await link.boundingBox();
 			assert.ok(
-				bounds && bounds.height >= 44,
-				"Tab links need a 44px touch target",
+				bounds && bounds.height >= (width < 640 ? 44 : 36),
+				"Tabs need the shared desktop height and 44px phone target",
 			);
 		}
 		await page.screenshot({
 			path: `${evidence}/agents-tabs-for-you-${width}.png`,
 		});
-		await nav.getByRole("link", { name: "Sessions", exact: true }).click();
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		assert.equal(
+			await nav
+				.getByRole("tablist")
+				.evaluate((list) => getComputedStyle(list).scrollBehavior),
+			"auto",
+		);
+		const firstTab = nav.getByRole("tab", { name: "For you", exact: true });
+		await firstTab.focus();
+		await page.keyboard.press("ArrowRight");
+		assert.equal(
+			await nav
+				.getByRole("tab", { name: "Sessions", exact: true })
+				.evaluate((tab) => tab === document.activeElement),
+			true,
+		);
+		assert.equal(
+			await nav
+				.getByRole("tab", { name: "Sessions", exact: true })
+				.evaluate((tab) => tab.tagName),
+			"A",
+		);
+		await page.keyboard.press("Enter");
 		await page.locator('[data-workspace-app-entry="agents"]').waitFor();
 		assert.equal(
 			await page.locator('[data-workspace-app-entry="office"]').count(),
@@ -52,7 +74,7 @@ try {
 		await page.screenshot({
 			path: `${evidence}/agents-tabs-sessions-${width}.png`,
 		});
-		await nav.getByRole("link", { name: "Capacity", exact: true }).click();
+		await nav.getByRole("tab", { name: "Capacity", exact: true }).click();
 		await page
 			.getByRole("region", { name: "Local lanes", exact: true })
 			.waitFor();
@@ -114,7 +136,7 @@ try {
 		exact: true,
 	});
 	await restrictedNav.waitFor();
-	assert.deepEqual(await restrictedNav.getByRole("link").allTextContents(), [
+	assert.deepEqual(await restrictedNav.getByRole("tab").allTextContents(), [
 		"Capacity",
 	]);
 	await unavailable.goto(`${server.origin}/work?app=agents`);

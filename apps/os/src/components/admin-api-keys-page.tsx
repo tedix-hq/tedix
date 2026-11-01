@@ -261,7 +261,6 @@ function ApiKeyActionsMenu({
 				render={
 					<Button
 						aria-label={`API key actions for ${name}`}
-						className="max-sm:min-h-11 max-sm:min-w-11"
 						size="icon-sm"
 						variant="ghost"
 					/>
@@ -739,7 +738,6 @@ function AdminApiKeysBody({
 								render={
 									<Button
 										aria-label="Refresh API keys"
-										className="max-sm:min-h-11 max-sm:min-w-11"
 										disabled={listQuery.isFetching}
 										onClick={() => void listQuery.refetch()}
 										size="icon-sm"
@@ -756,7 +754,6 @@ function AdminApiKeysBody({
 							<TooltipContent>Refresh</TooltipContent>
 						</Tooltip>
 						<Button
-							className="max-sm:min-h-11"
 							onClick={() => {
 								setInitialDraft(null);
 								setShowCreate(true);

@@ -266,7 +266,6 @@ export function MachineInventoryPicker({
 		</>
 	);
 }
-
 /** Owner-authored tool rules are reviewed against a gateway-prepared identity. */
 export function TenantToolPolicies({ canChange }: { canChange: boolean }) {
 	const client = useQueryClient();
@@ -455,7 +454,6 @@ export function TenantToolPolicies({ canChange }: { canChange: boolean }) {
 	const selectedSubjectRevision = matchingSubjectRevisions.find(
 		(rule) => rule.id === unknownSubjectRevision,
 	);
-
 	const refresh = () =>
 		Promise.all([
 			client.invalidateQueries({
@@ -598,7 +596,15 @@ export function TenantToolPolicies({ canChange }: { canChange: boolean }) {
 			className="grid gap-3 border-t border-kumo-hairline px-4 py-3"
 			aria-label="Rules for connected apps"
 		>
-			<h3 className="m-0 font-semibold">Rules for connected apps</h3>
+			<Text
+				as="h3"
+				role="section"
+				weight="semibold"
+				tone="strong"
+				className="m-0"
+			>
+				Rules for connected apps
+			</Text>
 			<Text as="p" role="label" tone="secondary">
 				Rules apply to matching requests from the reviewed person or agent, for
 				one app, action and connection. Permissions and other safeguards still

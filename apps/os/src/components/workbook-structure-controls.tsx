@@ -104,7 +104,7 @@ export function WorkbookStructureControls({
 						aria-label="Rows and columns"
 						title="Rows and columns"
 						data-toolbar-control="menu"
-						className="shrink-0 gap-0.5 px-1.5 max-sm:min-h-11"
+						className="shrink-0 gap-0.5 px-1.5"
 					/>
 				}
 			>

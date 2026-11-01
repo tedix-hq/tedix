@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
@@ -83,7 +84,9 @@ export function CardRescorePanel({
 	return (
 		<section aria-label="Re-score cards" className="grid min-w-0 gap-3">
 			<div className="flex flex-wrap items-center justify-between gap-2">
-				<h3>Re-score cards</h3>
+				<Text as="h3" role="section" weight="semibold" tone="strong">
+					Re-score cards
+				</Text>
 				<Button variant="ghost" disabled={pending} onClick={onBack}>
 					Back to all cards
 				</Button>

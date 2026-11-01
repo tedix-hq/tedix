@@ -35,7 +35,7 @@ function KumoTabs({
 		const list = groupRef.current?.querySelector('[role="tablist"]');
 		if (!list) return;
 		list.scrollBy({
-			behavior: "smooth",
+			behavior: "auto",
 			left: direction * Math.max(list.clientWidth * 0.75, 160),
 		});
 	};
@@ -57,7 +57,7 @@ function KumoTabs({
 				variant={variant}
 				listClassName={cn(
 					variant === "underline" &&
-						"box-content h-9 w-full gap-0 border-kumo-hairline border-b pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+						"box-content h-9 w-full scroll-smooth motion-reduce:scroll-auto gap-0 border-kumo-hairline border-b pb-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
 					listClassName,
 				)}
 				indicatorClassName={cn(
@@ -143,7 +143,7 @@ function TabsList({
 		const element = listRef.current;
 		if (!element) return;
 		element.scrollBy({
-			behavior: "smooth",
+			behavior: "auto",
 			left: direction * Math.max(element.clientWidth * 0.75, 160),
 		});
 	};
@@ -157,7 +157,7 @@ function TabsList({
 				data-overflow-start={overflow.canScrollStart ? "" : undefined}
 				data-overflow-end={overflow.canScrollEnd ? "" : undefined}
 				className={cn(
-					"group/tabs-list relative isolate flex w-fit max-w-full min-w-0 scroll-px-(--scroll-fade-width) items-stretch overflow-x-auto overflow-y-hidden overscroll-x-contain [--scroll-fade-width:3rem] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+					"group/tabs-list scroll-smooth motion-reduce:scroll-auto relative isolate flex w-fit max-w-full min-w-0 scroll-px-(--scroll-fade-width) items-stretch overflow-x-auto overflow-y-hidden overscroll-x-contain [--scroll-fade-width:3rem] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
 					"data-[variant=filter]:h-8 data-[variant=filter]:gap-1 data-[variant=filter]:bg-transparent max-sm:data-[variant=filter]:h-11 coarse:data-[variant=filter]:h-11",
 					"data-[variant=line]:box-content data-[variant=line]:h-9 data-[variant=line]:w-full data-[variant=line]:gap-0 data-[variant=line]:border-kumo-hairline data-[variant=line]:border-b max-sm:data-[variant=line]:h-11 coarse:data-[variant=line]:h-11",
 					"group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",

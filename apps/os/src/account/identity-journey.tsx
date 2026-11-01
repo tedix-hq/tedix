@@ -1,3 +1,4 @@
+import { PageTitle } from "@/components/kumo/page";
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
@@ -49,9 +50,7 @@ export function IdentityJourneyFrame({
 						<TedixBrandMark />
 					</div>
 					{eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
-					<h1 className="text-balance font-semibold type-tedix-title">
-						{title}
-					</h1>
+					<PageTitle>{title}</PageTitle>
 					<Text role="body" tone="secondary" className="mt-2">
 						{description}
 					</Text>
@@ -89,7 +88,7 @@ export function IdentityJourneyFrame({
 				<section className="product-login-panel" aria-label={title}>
 					<TedixBrandLogo />
 					{eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
-					<h1 className="type-tedix-title">{title}</h1>
+					<PageTitle>{title}</PageTitle>
 					<p className="type-tedix-body">{description}</p>
 					{children}
 					{status ? <p aria-live="polite">{status}</p> : null}

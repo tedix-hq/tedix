@@ -363,7 +363,7 @@ export function ChatStarterPrompts({
 					size="sm"
 					variant="outline"
 					multiline
-					className="h-auto w-full justify-start gap-3 px-3 py-2 text-left font-normal!"
+					className="w-full justify-start gap-3 px-3 py-2 text-left font-normal!"
 					onClick={() => onChoose(starter.prompt)}
 				>
 					<starter.icon size={18} aria-hidden="true" className="shrink-0" />

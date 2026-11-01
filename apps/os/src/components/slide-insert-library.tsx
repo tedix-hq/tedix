@@ -245,7 +245,7 @@ function ComponentRow({
 				variant="ghost"
 				size="sm"
 				multiline
-				className="h-auto w-full justify-start gap-2 px-2 py-2 text-left"
+				className="w-full justify-start gap-2 px-2 py-2 text-left"
 				data-slide-component={component.type}
 				aria-label={`Insert ${component.name}: ${component.description}`}
 				onClick={() => onInsert(component.type)}

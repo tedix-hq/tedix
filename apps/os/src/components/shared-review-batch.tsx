@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import {
 	ArrowLeft,
 	ArrowRight,
@@ -464,9 +465,15 @@ function ReviewApp({
 			<header className="grid shrink-0 gap-2 rounded-xl border border-kumo-line bg-kumo-elevated p-3 sm:p-4">
 				<div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
 					<div className="min-w-0">
-						<h2 className="m-0 text-base font-semibold text-kumo-strong sm:text-lg">
+						<Text
+							as="h2"
+							role="dialog"
+							weight="semibold"
+							tone="strong"
+							className="m-0"
+						>
 							{batch.title}
-						</h2>
+						</Text>
 						<p className="m-0 text-sm text-kumo-subtle max-sm:text-xs">
 							Your feedback is saved for the team under your name. Nothing is
 							posted anywhere and the source research stays unchanged.
@@ -546,7 +553,7 @@ function ReviewApp({
 										tabIndex={active ? 0 : -1}
 										onClick={() => choose(card.id)}
 										className={cn(
-											"grid h-auto w-full justify-stretch gap-1.5 border px-3 py-2.5 text-left font-normal",
+											"grid w-full justify-stretch gap-1.5 border px-3 py-2.5 text-left font-normal",
 											active
 												? "border-kumo-brand bg-kumo-tint"
 												: "border-transparent",
@@ -729,12 +736,16 @@ function CardDetail({
 
 			<div className="grid flex-1 content-start gap-5 p-4 sm:p-5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
 				<header className="grid gap-2">
-					<h3
+					<Text
+						as="h3"
+						role="section"
+						weight="semibold"
+						tone="strong"
 						id={`review-card-${card.id}`}
-						className="m-0 text-lg font-semibold text-kumo-strong"
+						className="m-0"
 					>
 						{card.title}
-					</h3>
+					</Text>
 					<div className="flex flex-wrap items-center gap-1.5">
 						{recommendation.recommendation && (
 							<Badge

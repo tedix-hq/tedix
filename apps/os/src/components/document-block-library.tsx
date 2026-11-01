@@ -270,7 +270,7 @@ export function DocumentBlockRow({
 			role={role}
 			aria-selected={role === "option" ? Boolean(active) : undefined}
 			tabIndex={role === "option" ? -1 : undefined}
-			className="document-block-row h-auto w-full justify-start gap-2.5 px-2 py-1.5 text-left"
+			className="document-block-row w-full justify-start gap-2.5 px-2 py-1.5 text-left"
 			data-document-block={block.id}
 			data-active={active || undefined}
 			aria-label={`${block.name}: ${block.description}`}

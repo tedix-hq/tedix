@@ -400,9 +400,9 @@ export function KnowledgeMap({ layout }: { layout: KnowledgeLayout }) {
 							distinguish nodes with the same name.
 						</Text>
 						<div className="space-y-1">
-							<h3 className="m-0 text-sm font-medium text-kumo-default">
+							<Text as="h3" role="label" weight="medium" className="m-0">
 								Nodes
-							</h3>
+							</Text>
 							<ul
 								aria-label="Map nodes"
 								className="m-0 list-none space-y-2 p-0"
@@ -417,9 +417,9 @@ export function KnowledgeMap({ layout }: { layout: KnowledgeLayout }) {
 							</ul>
 						</div>
 						<div className="space-y-1">
-							<h3 className="m-0 text-sm font-medium text-kumo-default">
+							<Text as="h3" role="label" weight="medium" className="m-0">
 								Relationships
-							</h3>
+							</Text>
 							{layout.edges.length > 0 ? (
 								<ul
 									aria-label="Map relationships"

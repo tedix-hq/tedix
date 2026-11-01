@@ -1,3 +1,4 @@
+import { PageTitle } from "@/components/kumo/page";
 import {
 	ArrowRight,
 	Article,
@@ -73,14 +74,6 @@ import { TedixBrandMark } from "@/shared/tedix-brand";
  */
 const LAUNCHER_PANEL =
 	"flex w-full flex-col gap-4 p-5 sm:p-8 max-md:min-h-dvh max-md:rounded-none max-md:border-0";
-
-/**
- * The same treatment `PageHeading` gives an in-shell route title. These
- * surfaces render outside the shell, so they compose the class directly rather
- * than mounting a `Page` lane they have no header/actions for.
- */
-const PANEL_TITLE =
-	"text-balance font-semibold text-xl leading-tight sm:text-2xl";
 
 /** Divided-collection row rhythm, shared by the enabled and provisioning rows. */
 const WORKSPACE_ROW =
@@ -270,7 +263,7 @@ export function OrganizationOnboardingFormView({
 						>
 							<Check size={24} weight="bold" />
 						</span>
-						<h1 className={PANEL_TITLE}>Your workspace is ready</h1>
+						<PageTitle>Your workspace is ready</PageTitle>
 						<Link className="break-all font-mono" href={successUrl}>
 							{displayHost(successUrl)}
 						</Link>
@@ -291,9 +284,9 @@ export function OrganizationOnboardingFormView({
 						? "START YOUR LOCAL TEDIX OS"
 						: "WELCOME TO TEDIX OS"}
 				</p>
-				<h1 className={PANEL_TITLE}>
+				<PageTitle>
 					{localEvaluation ? "Name your OS" : "Create your workspace"}
-				</h1>
+				</PageTitle>
 				<Text role="control" tone="secondary">
 					{localEvaluation
 						? "Start with an empty, durable workspace on this machine. Choose its name and local address."
@@ -910,9 +903,9 @@ export function OrganizationLauncherContent({
 					</div>
 					<div className="flex flex-col items-start justify-between gap-5 md:flex-row md:items-end">
 						<div className="min-w-0">
-							<h1 className={PANEL_TITLE}>
+							<PageTitle>
 								{localEvaluation ? "Open your local OS" : "Workspaces"}
-							</h1>
+							</PageTitle>
 							<Text role="control" tone="secondary">
 								{localEvaluation
 									? "Your local OS data stays on this machine."

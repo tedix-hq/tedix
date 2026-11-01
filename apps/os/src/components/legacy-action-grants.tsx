@@ -31,7 +31,9 @@ export function LegacyActionGrants({ canChange }: { canChange: boolean }) {
 			className="grid gap-3 border-t border-kumo-hairline px-4 py-3"
 			aria-label="Legacy action grants"
 		>
-			<h3>Legacy action grants</h3>
+			<Text as="h3" role="section" weight="semibold" tone="strong">
+				Legacy action grants
+			</Text>
 			<Text as="p" role="label" tone="secondary">
 				These older grants apply to an action class, including tools that later
 				declare that class. Review the source tools below and create exact tool

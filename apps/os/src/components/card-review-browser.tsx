@@ -1,3 +1,4 @@
+import { Text } from "@/components/kumo/text";
 import { useState } from "react";
 import { isOpen, type ReviewCard } from "@tedix/api-contract/utils/card-review";
 import { Button } from "./kumo/button";
@@ -30,7 +31,9 @@ export function CardReviewBrowser({
 			className="flex min-w-0 flex-col gap-3"
 		>
 			<div className="flex flex-wrap items-center justify-between gap-2">
-				<h3>{card ? `Card #${card.number}` : "All cards · read only"}</h3>
+				<Text as="h3" role="section" weight="semibold" tone="strong">
+					{card ? `Card #${card.number}` : "All cards · read only"}
+				</Text>
 				<Button
 					size="sm"
 					variant="ghost"

@@ -1,3 +1,4 @@
+import { SectionTitle } from "@/components/kumo/page";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
@@ -44,7 +45,7 @@ export function OrganizationDomainApp({
 	const error = change.error ?? domain.error;
 	return (
 		<section className="min-w-0 space-y-4" aria-label="Organization domain">
-			<h2 className="font-semibold">Share domain</h2>
+			<SectionTitle>Share domain</SectionTitle>
 			<p>
 				Use your own hostname for this organization's share links. Add the DNS
 				records below, then verify the domain.

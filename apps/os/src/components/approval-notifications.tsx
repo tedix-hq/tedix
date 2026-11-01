@@ -137,7 +137,7 @@ export function ApprovalNotifications({
 						</div>
 						<TabsList
 							aria-label="Approvals sections"
-							className="-mx-1 !h-9 border-b-0"
+							className="-mx-1 border-b-0"
 							variant="line"
 						>
 							<TabsTrigger className="px-2!" value="review">

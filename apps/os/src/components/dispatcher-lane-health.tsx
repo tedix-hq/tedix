@@ -1,3 +1,4 @@
+import { SectionTitle } from "@/components/kumo/page";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type {
@@ -6,6 +7,11 @@ import type {
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/kumo/badge";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "@/components/kumo/collapsible";
 import {
 	Table,
 	TableBody,
@@ -80,7 +86,7 @@ export function DispatcherLaneHealth() {
 	return (
 		<section aria-label="Local lanes" className="grid gap-3">
 			<div>
-				<h2 className="type-tedix-section">Local lanes</h2>
+				<SectionTitle>Local lanes</SectionTitle>
 				<Text tone="secondary">
 					Checks for new reports every 30 seconds. Shows reported tasks and
 					confirmed completions. Older reports leave current activity unknown.
@@ -128,7 +134,15 @@ export function DispatcherLaneHealth() {
 								aria-label={`Machine ${machine}`}
 								className="grid min-w-0 gap-2"
 							>
-								<h3 className="type-tedix-section break-all">{machine}</h3>
+								<Text
+									as="h3"
+									role="section"
+									weight="semibold"
+									tone="strong"
+									className="break-all"
+								>
+									{machine}
+								</Text>
 								<Table
 									aria-label={`Duties on ${machine}`}
 									mobileLayout="stacked"
@@ -156,12 +170,14 @@ export function DispatcherLaneHealth() {
 					</div>
 				);
 				return historical ? (
-					<details key="historical" className="min-w-0">
-						<summary className="min-h-11 cursor-pointer py-2">
+					<Collapsible key="historical" className="min-w-0">
+						<CollapsibleDefaultTrigger>
 							Historical machines ({machines.length})
-						</summary>
-						{tables}
-					</details>
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
+							{tables}
+						</CollapsibleDefaultContent>
+					</Collapsible>
 				) : (
 					<div key="current" className="min-w-0">
 						{tables}
@@ -353,82 +369,86 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 						</Text>
 					</div>
 				) : null}
-				<details className="min-w-0 break-words">
-					<summary className="min-h-11 cursor-pointer py-2">
+				<Collapsible className="min-w-0 break-words" data-lane-details>
+					<CollapsibleDefaultTrigger>
 						History and details
-					</summary>
-					<div className="grid gap-2">
-						{stale ? (
-							<Text>
-								Historical lane observation. Current state is unknown.
-							</Text>
-						) : null}
-						{lead ? (
-							<Text>Current pass: {duty ? state : "Not reported"}</Text>
-						) : (
-							<Text>
-								{lane.slotsInUse} / {lane.slotsTotal} slots in use
-								{stale ? " at last observation" : ""}
-							</Text>
-						)}
-						<Text tone="secondary">
-							Received {absoluteTime(lane.reportedAt)}
-						</Text>
-						<Text>
-							Last task picked up:{" "}
-							{lane.lastAdmissionAt
-								? absoluteTime(lane.lastAdmissionAt)
-								: "Not observed"}
-						</Text>
-						{lane.topReason ? (
-							<div>
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent keepMounted>
+						<div className="grid gap-2">
+							{stale ? (
 								<Text>
-									{lead ? "Last pass result" : "Most reported problem (30 min)"}
-									:{" "}
+									Historical lane observation. Current state is unknown.
+								</Text>
+							) : null}
+							{lead ? (
+								<Text>Current pass: {duty ? state : "Not reported"}</Text>
+							) : (
+								<Text>
+									{lane.slotsInUse} / {lane.slotsTotal} slots in use
+									{stale ? " at last observation" : ""}
+								</Text>
+							)}
+							<Text tone="secondary">
+								Received {absoluteTime(lane.reportedAt)}
+							</Text>
+							<Text>
+								Last task picked up:{" "}
+								{lane.lastAdmissionAt
+									? absoluteTime(lane.lastAdmissionAt)
+									: "Not observed"}
+							</Text>
+							{lane.topReason ? (
+								<div>
+									<Text>
+										{lead
+											? "Last pass result"
+											: "Most reported problem (30 min)"}
+										:{" "}
+										{lead
+											? lane.topReason.reason
+											: skipReasonSummary(lane.topReason.reason)}
+										{!lead && ` · ${lane.topReason.count} observations`}
+									</Text>
+									{!lead ? <Text>{lane.topReason.reason}</Text> : null}
+								</div>
+							) : (
+								<Text>
 									{lead
-										? lane.topReason.reason
-										: skipReasonSummary(lane.topReason.reason)}
-									{!lead && ` · ${lane.topReason.count} observations`}
+										? "Last pass result: Not reported"
+										: "No repeated problem reported in the last 30 minutes."}
 								</Text>
-								{!lead ? <Text>{lane.topReason.reason}</Text> : null}
-							</div>
-						) : (
-							<Text>
-								{lead
-									? "Last pass result: Not reported"
-									: "No repeated problem reported in the last 30 minutes."}
-							</Text>
-						)}
-						{duty ? (
-							<>
-								<Text>
-									Last started:{" "}
-									{duty.lastRunAt
-										? absoluteTime(duty.lastRunAt)
-										: "Not observed"}
-								</Text>
-								<Text>
-									Last exit:{" "}
-									{duty.lastExitAt
-										? `${absoluteTime(duty.lastExitAt)} · code ${duty.lastExitCode ?? "unavailable"}`
-										: "Not observed"}
-								</Text>
-								<Text>
-									Recorded restarts (last hour): {duty.restartsLastHour}
-								</Text>
-								<Text>
-									Next {lead ? "check" : "retry"}:{" "}
-									{duty.retryAt ? absoluteTime(duty.retryAt) : "Not reported"}
-								</Text>
-								{duty.lastProblem ? (
-									<Text>Last problem: {duty.lastProblem}</Text>
-								) : null}
-							</>
-						) : (
-							<Text tone="secondary">Restart history: Not reported</Text>
-						)}
-					</div>
-				</details>
+							)}
+							{duty ? (
+								<>
+									<Text>
+										Last started:{" "}
+										{duty.lastRunAt
+											? absoluteTime(duty.lastRunAt)
+											: "Not observed"}
+									</Text>
+									<Text>
+										Last exit:{" "}
+										{duty.lastExitAt
+											? `${absoluteTime(duty.lastExitAt)} · code ${duty.lastExitCode ?? "unavailable"}`
+											: "Not observed"}
+									</Text>
+									<Text>
+										Recorded restarts (last hour): {duty.restartsLastHour}
+									</Text>
+									<Text>
+										Next {lead ? "check" : "retry"}:{" "}
+										{duty.retryAt ? absoluteTime(duty.retryAt) : "Not reported"}
+									</Text>
+									{duty.lastProblem ? (
+										<Text>Last problem: {duty.lastProblem}</Text>
+									) : null}
+								</>
+							) : (
+								<Text tone="secondary">Restart history: Not reported</Text>
+							)}
+						</div>
+					</CollapsibleDefaultContent>
+				</Collapsible>
 			</TableCell>
 		</TableRow>
 	);

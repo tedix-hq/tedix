@@ -398,7 +398,7 @@ function PrimaryAction({
 		<Button
 			size="sm"
 			variant={status.kind === "available" ? "outline" : "default"}
-			className="shrink-0 max-sm:min-h-11"
+			className="shrink-0"
 			disabled={!allowed || props.isConnecting}
 			title={allowed ? undefined : props.deniedReason(row)}
 			onClick={() =>
@@ -528,7 +528,6 @@ function AccountLine({
 					variant={
 						status.kind === "connected" || unchecked ? "outline" : "default"
 					}
-					className="max-sm:min-h-11"
 					aria-label={`${reconnect ? "Reconnect" : "Connect"} ${name} ${label}`}
 					disabled={!allowed || props.isConnecting}
 					title={allowed ? undefined : props.deniedReason(row)}
@@ -541,7 +540,7 @@ function AccountLine({
 				<Button
 					size="sm"
 					variant="ghost"
-					className="text-kumo-danger max-sm:min-h-11"
+					className="text-kumo-danger"
 					aria-label={`Disconnect ${name} ${label}`}
 					disabled={
 						!allowed ||
@@ -615,7 +614,7 @@ function AccountDetails({
 					variant="ghost"
 					size="sm"
 					// Pull the ghost padding back so the icon sits on the text edge.
-					className="-ms-2 w-fit max-sm:min-h-11"
+					className="-ms-2 w-fit"
 					disabled={props.isConnecting}
 					onClick={() => props.onAdd(provider)}
 				>
@@ -753,7 +752,6 @@ function MoreDetails({
 								<Button
 									size="sm"
 									variant="outline"
-									className="max-sm:min-h-11"
 									loading={props.isChecking}
 									disabled={props.isChecking}
 									onClick={props.onCheck}
@@ -812,7 +810,6 @@ function MoreDetails({
 											key={row.connectionInstanceId}
 											size="sm"
 											variant="outline"
-											className="max-sm:min-h-11"
 											disabled={!props.canManage(row)}
 											onClick={() => props.onRename(row)}
 										>
@@ -857,7 +854,6 @@ function MoreDetails({
 												<Button
 													size="sm"
 													variant="outline"
-													className="max-sm:min-h-11"
 													disabled={!manageable || props.isSettingAccessCheck}
 													title={
 														manageable ? undefined : props.deniedReason(row)
@@ -877,7 +873,6 @@ function MoreDetails({
 													<Button
 														size="sm"
 														variant="ghost"
-														className="max-sm:min-h-11"
 														disabled={!manageable || props.isSettingAccessCheck}
 														onClick={() => props.onSetAccessCheck?.(row, null)}
 													>
@@ -909,7 +904,6 @@ function MoreDetails({
 														key={reference.appId}
 														size="sm"
 														variant="outline"
-														className="max-sm:min-h-11"
 														disabled={
 															props.isBinding ||
 															row.accountState !== "present" ||
@@ -973,9 +967,10 @@ function MoreDetails({
 										{slugs.map((slug) => (
 											<Button
 												key={slug}
+												multiline
 												size="sm"
 												variant="outline"
-												className="max-w-full whitespace-normal [overflow-wrap:anywhere] max-sm:min-h-11"
+												className="max-w-full whitespace-normal [overflow-wrap:anywhere]"
 												loading={
 													health?.status === "checking" &&
 													health.appSlug === slug
