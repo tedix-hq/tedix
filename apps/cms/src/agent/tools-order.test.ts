@@ -32,6 +32,7 @@ it("preserves CMS tool registration order", () => {
 		  "list_hot_theme_revisions",
 		  "rollback_hot_theme",
 		  "provision_theme_artifact_repo",
+		  "read_theme_artifact_head",
 		  "read_theme_artifact_file",
 		  "checkout_theme_artifact_source",
 		  "commit_theme_artifact_files",

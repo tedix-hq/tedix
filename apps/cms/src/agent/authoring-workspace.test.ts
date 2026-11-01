@@ -180,6 +180,7 @@ describe("authoring workspace restart hydration", () => {
 			expect(AUTHORING_TOOLS.has(tool)).toBe(true);
 		for (const tool of [
 			"theme_workspace_status",
+			"read_theme_artifact_head",
 			"theme_deploy",
 			"content_update",
 		])

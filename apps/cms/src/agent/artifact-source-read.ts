@@ -7,6 +7,34 @@ import {
 	readThemeArtifactBlob,
 } from "./theme-artifacts";
 
+/** Read the current branch through the native binding, without starting a container. */
+export async function readThemeArtifactHead(input: {
+	orgSlug: string;
+	artifacts: ArtifactsBinding;
+}): Promise<{ branch: "main"; sourceCommit: string }> {
+	try {
+		using repo = await input.artifacts.get(
+			themeArtifactRepoName(input.orgSlug),
+		);
+		const commits = await repo.log({
+			ref: "refs/heads/main",
+			limit: 1,
+			offset: 0,
+		});
+		const sourceCommit = commits[0]?.hash;
+		if (
+			commits.length !== 1 ||
+			!sourceCommit ||
+			!/^[a-f0-9]{40}$/.test(sourceCommit)
+		)
+			throw new Error("Artifacts main branch unavailable");
+		await readThemeArtifactTree(repo, sourceCommit);
+		return { branch: "main", sourceCommit };
+	} catch {
+		throw new Error("Unable to read the current Artifacts theme branch");
+	}
+}
+
 export async function readThemeArtifactFile(input: {
 	orgSlug: string;
 	templateSlug: string;

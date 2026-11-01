@@ -46,6 +46,7 @@ Exposed via `buildSiteBuilderMcpServer` (`src/agent/tools.ts`), grouped by area:
 - **Hot theme** — read/write the live-preview "hot theme" revision, list
   revisions, roll back.
 - **Theme artifacts** — provision an artifact repo, check/cancel seed status,
+  read the current main commit without starting a sandbox or creating credentials,
   load exact source into the disposable sandbox, commit editable files with an
   expected-head check, and read commit status.
 - **Template sync** — resync a theme from the template, diff sandbox vs
