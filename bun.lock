@@ -998,10 +998,10 @@
     "dompurify": "3.4.17",
     "fast-uri": "4.2.3",
     "ip-address": "10.7.5",
-    "qs": "6.16.1",
-    "seroval": "1.6.12",
+    "qs": "6.17.1",
+    "seroval": "1.7.6",
     "sharp": "0.35.5",
-    "systeminformation": "5.33.16",
+    "systeminformation": "5.33.19",
     "undici@^7": {
       ".": "7.30.1",
     },
@@ -3803,7 +3803,7 @@
 
     "puppeteer-core": ["puppeteer-core@25.16.0", "", { "dependencies": { "@puppeteer/browsers": "3.2.6", "chromium-bidi": "157.0.8090-0", "devtools-protocol": "0.0.1704951", "typed-query-selector": "^2.12.3", "webdriver-bidi-protocol": "1.0.1", "ws": "^8.22.0" } }, "sha512-VA5Pf54N8shfopNkZZXCdiiwfnnY8ZJYAMqFQRhlH5mGUhfwf53Ar770GPtdpTDLUqvQeYpIBtC9/G2Jij2IJw=="],
 
-    "qs": ["qs@6.16.1", "", { "dependencies": { "es-define-property": "^1.0.1", "side-channel": "^1.1.1" } }, "sha512-5Px6J7rfHBAGUhNQ3es4YzcOdBBw0SDcVtThJml4RdnKw4tKs2epA0kPZ+K8X+WiHktT93RHVcQ/3ym5aTCgtg=="],
+    "qs": ["qs@6.17.1", "", { "dependencies": { "es-define-property": "^1.0.1", "side-channel": "^1.1.1" } }, "sha512-jd3COkaKVgGUW+ZHyEHCG9bH7RoaaiWuMgzsIBjUMVjLAaWGWpoUAVwljVvBHxRu/2qEHnadLGZrkutYUBPQJA=="],
 
     "queue-microtask": ["queue-microtask@1.2.3", "", {}, "sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A=="],
 
@@ -3925,7 +3925,7 @@
 
     "send": ["send@1.2.1", "", { "dependencies": { "debug": "^4.4.3", "encodeurl": "^2.0.0", "escape-html": "^1.0.3", "etag": "^1.8.1", "fresh": "^2.0.0", "http-errors": "^2.0.1", "mime-types": "^3.0.2", "ms": "^2.1.3", "on-finished": "^2.4.1", "range-parser": "^1.2.1", "statuses": "^2.0.2" } }, "sha512-1gnZf7DFcoIcajTjTwjwuDjzuz4PPcY2StKPlsGAQ1+YH20IRVrBaXSWmdjowTJ6u8Rc01PoYOGHXfP1mYcZNQ=="],
 
-    "seroval": ["seroval@1.6.12", "", {}, "sha512-CqbIVfk/7GL3ITwZI55lcPbpQbjHZ2DD5cUj4iH7E9YsCfHNJV1mx7yNp86Z84w5IpmkZZS/2s5vPOWmVWSdQg=="],
+    "seroval": ["seroval@1.7.6", "", {}, "sha512-oKNe6A8I3lSA5J0xg9xsrWCWDpET6CFhCMVuIsCmqrjNpBXzQXDAAQI5UfuC4Ner4DIR+VAtSw7TC0AmRMqFFQ=="],
 
     "seroval-plugins": ["seroval-plugins@1.6.8", "", { "peerDependencies": { "seroval": "^1.0" } }, "sha512-N7mWAMydj89EnYTHtRpS3LBrAz3J9O6oVrqpuXuvlAHfAUG8WEKqtbAd7SBiJNY5NfCAFhSdyAh7wI4Shjqy4g=="],
 
@@ -4049,7 +4049,7 @@
 
     "svgo": ["svgo@4.1.0", "", { "dependencies": { "commander": "^11.1.0", "css-select": "^6.0.0", "css-tree": "^3.0.1", "css-what": "^7.0.0", "csso": "^5.0.5", "picocolors": "^1.1.1", "sax": "1.6.1" }, "bin": { "svgo": "bin/svgo.js" } }, "sha512-bkxnTg1kSU0guhIBmibA6UUhrQmPVA1XsQLN+ylCd+UWzbnLkySOcXpyk1mrl05f+pcaCx2eHb+sp6BgMZWX+Q=="],
 
-    "systeminformation": ["systeminformation@5.33.16", "", { "os": "!aix", "bin": { "systeminformation": "lib/cli.js" } }, "sha512-R+Lh69IJXfJj6bfyH1In5cIR9FTr4hBS39YvlZHZjsK1p9cuELPq7hplZZIb56ZESMMb+DzdKqqE6Iomi01Mvg=="],
+    "systeminformation": ["systeminformation@5.33.19", "", { "os": "!aix", "bin": { "systeminformation": "lib/cli.js" } }, "sha512-Zm7wGeCG7PqfvzegMJIzrxICopWqYCeLATVmvxOOci1isLcNVKgY4Fr0hhYQzvc7cgtK3377jQVChTFAnznOiA=="],
 
     "tabbable": ["tabbable@6.5.0", "", {}, "sha512-wieBHXygIm7OyQOu5hQlkk62/WyCFYGlWg7L6/ZCUZwx0o398Zkn4pVmMyfYhfMG8kGrj/Krt8eIk6UKC6VzwA=="],
 
