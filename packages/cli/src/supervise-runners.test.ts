@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installLaneService } from "./lane-service";
 import { parseServeOptions } from "./lane-serve";
+import { readDutyStatuses } from "./supervise-duty-status";
 import {
 	adoptRunnerLaunchAgents,
 	RUNNER_RESTART_BASE_MS,
@@ -187,7 +188,7 @@ describe("adopting the old per-dispatcher LaunchAgents", () => {
 
 describe("running the dispatchers", () => {
 	type Fake = RunnerChild & { args: string[]; exit: (code: number) => void };
-	function setup() {
+	function setup(identity = (_pid: number) => "fixture-process-identity") {
 		const env = { TEDIX_CONFIG_DIR: config };
 		let now = 1_000_000;
 		let nextPid = 100;
@@ -195,6 +196,7 @@ describe("running the dispatchers", () => {
 		const lines: string[] = [];
 		const duties = new RunnerDuties({
 			env,
+			identity,
 			now: () => now,
 			log: (line) => lines.push(line),
 			program: () => ["/bin/tedix", []],
@@ -307,12 +309,64 @@ describe("running the dispatchers", () => {
 		mkdirSync(join(config, "supervisor", "runners"), { recursive: true });
 		writeFileSync(
 			f.childFile(runner()),
-			JSON.stringify({ pid: process.pid, startedAt: 1 }),
+			JSON.stringify({
+				pid: process.pid,
+				startedAt: 1,
+				identity: "fixture-process-identity",
+			}),
 		);
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(0);
 		expect(f.lines[0]).toContain(`codex adopted (pid ${process.pid})`);
 		expect(f.duties.status()[0]!.pid).toBe(process.pid);
+	});
+
+	test("a live legacy or reused PID is held as unknown, never adopted or stopped", () => {
+		for (const identity of [undefined, "old-process-identity"]) {
+			const f = setup();
+			f.write([runner()]);
+			mkdirSync(join(config, "supervisor", "runners"), { recursive: true });
+			writeFileSync(
+				f.childFile(runner()),
+				JSON.stringify({ pid: process.pid, startedAt: 1, identity }),
+			);
+			f.duties.tick();
+			expect(f.spawned).toHaveLength(0);
+			expect(f.duties.status()).toEqual([]);
+			expect(readDutyStatuses(f.env)[0]?.state).toBe("unknown");
+			f.duties.stop();
+			expect(existsSync(f.childFile(runner()))).toBe(true);
+		}
+	});
+
+	test("exit, retry and last start persist across a supervisor restart", () => {
+		const f = setup();
+		f.write([runner()]);
+		f.duties.tick();
+		f.spawned[0]!.exit(7);
+		const exited = readDutyStatuses(f.env)[0]!;
+		expect(exited).toMatchObject({
+			state: "waiting",
+			lastExitCode: 7,
+			lastExecutor: "codex",
+			exits: [1_000_000],
+			restarts: [],
+		});
+		expect(exited.lastExitAt).not.toBeNull();
+		expect(exited.lastRunAt).not.toBeNull();
+		let starts = 0;
+		const restarted = new RunnerDuties({
+			env: f.env,
+			now: () => 1_000_001,
+			log: () => {},
+			spawn: () => {
+				starts++;
+				throw new Error("unexpected start");
+			},
+		});
+		restarted.tick();
+		expect(starts).toBe(0);
+		expect(readDutyStatuses(f.env)[0]?.retryAt).toBe(exited.retryAt);
 	});
 
 	test("an unreadable runners file is logged once and leaves running runners alone", () => {

@@ -17,6 +17,12 @@ import { z } from "zod";
 import { laneChildEnv } from "./lane-child-env";
 import { selfCommand } from "./shared";
 import { alive, configDir, supervisorLog } from "./supervise-drivers";
+import {
+	readDutyStatuses,
+	recordDutyStatus,
+	type SupervisorDutyStatus,
+} from "./supervise-duty-status";
+import { laneProcessIdentity } from "./lane-process-recovery";
 
 /**
  * Runners as duties of the one supervisor. A runner is the process on this
@@ -308,6 +314,7 @@ interface Running {
 	runner: RunnerDuty;
 	pid: number;
 	startedAt: number;
+	identity?: string;
 	/** Set for children this supervisor spawned; an adopted child is only watched by pid. */
 	child?: RunnerChild;
 }
@@ -317,6 +324,7 @@ export interface RunnerDutiesDeps {
 	now?: () => number;
 	log?: (line: string) => void;
 	spawn?: SpawnRunner;
+	identity?: typeof laneProcessIdentity;
 	/** The `tedix` program; defaults to this CLI. */
 	program?: () => [string, string[]];
 }
@@ -328,7 +336,48 @@ export class RunnerDuties {
 	private readonly restartAt = new Map<string, number>();
 	private configError: string | undefined;
 
-	constructor(private readonly deps: RunnerDutiesDeps) {}
+	constructor(private readonly deps: RunnerDutiesDeps) {
+		try {
+			for (const row of readDutyStatuses(deps.env)) {
+				if (row.kind !== "service") continue;
+				this.exits.set(row.id, row.exits);
+				if (row.retryAt) this.restartAt.set(row.id, Date.parse(row.retryAt));
+			}
+		} catch {
+			this.log("saved duty status unavailable; restart history is unknown");
+		}
+	}
+
+	private record(
+		runner: RunnerDuty,
+		update: Partial<SupervisorDutyStatus>,
+		now = this.now(),
+	) {
+		try {
+			recordDutyStatus(
+				this.deps.env,
+				{
+					id: runnerKey(runner),
+					kind: "service",
+					workspace: runner.workspace,
+					organization: runner.organization,
+					executor: runner.executor,
+				},
+				update,
+				now,
+			);
+		} catch {
+			this.log(`${runner.executor} duty status could not be saved`);
+		}
+	}
+
+	private identity(pid: number, runner: RunnerDuty) {
+		return (this.deps.identity ?? laneProcessIdentity)(
+			pid,
+			runner.organization,
+			homedir(),
+		);
+	}
 
 	private log(line: string) {
 		(this.deps.log ?? ((l) => supervisorLog(this.deps.env, l)))(
@@ -383,10 +432,23 @@ export class RunnerDuties {
 			this.stopOne(key, entry);
 		}
 		const now = this.now();
+		for (const runner of runners.filter((row) => !row.enabled))
+			this.record(
+				runner,
+				{ state: "stopped", retryAt: null, lastProblem: "Runner disabled" },
+				now,
+			);
 		for (const [key, runner] of wanted) {
 			const entry = this.running.get(key);
 			if (entry) {
-				if (entry.child || alive(entry.pid)) continue;
+				if (
+					entry.child ||
+					(entry.identity &&
+						this.identity(entry.pid, runner) === entry.identity)
+				) {
+					this.record(runner, { state: "running" }, now);
+					continue;
+				}
 				// An adopted child ended; nobody told us, so note it here.
 				this.running.delete(key);
 				this.noteExit(key, runner, null, now);
@@ -395,7 +457,14 @@ export class RunnerDuties {
 				const adopted = this.adopt(key, runner, now);
 				if (adopted) continue;
 				const due = this.restartAt.get(key) ?? 0;
-				if (due > now) continue;
+				if (due > now) {
+					this.record(
+						runner,
+						{ state: "waiting", retryAt: new Date(due).toISOString() },
+						now,
+					);
+					continue;
+				}
 				this.start(key, runner, now);
 			}
 		}
@@ -409,7 +478,41 @@ export class RunnerDuties {
 				state.pid > 0 &&
 				alive(state.pid)
 			) {
-				this.running.set(key, { runner, pid: state.pid, startedAt: now });
+				const identity = this.identity(state.pid, runner);
+				if (
+					!state.identity ||
+					identity !== state.identity ||
+					!Number.isFinite(state.startedAt) ||
+					state.startedAt <= 0
+				) {
+					this.record(
+						runner,
+						{
+							state: "unknown",
+							lastProblem:
+								"A retained process is alive but its identity could not be verified; waiting for it to exit",
+						},
+						now,
+					);
+					return true;
+				}
+				this.running.set(key, {
+					runner,
+					pid: state.pid,
+					startedAt: state.startedAt,
+					identity,
+				});
+				this.record(
+					runner,
+					{
+						state: "running",
+						lastRunAt: new Date(state.startedAt).toISOString(),
+						lastExecutor: runner.executor,
+						retryAt: null,
+						lastProblem: null,
+					},
+					now,
+				);
 				this.log(`${runner.executor} adopted (pid ${state.pid})`);
 				return true;
 			}
@@ -445,7 +548,13 @@ export class RunnerDuties {
 			this.log(`${runner.executor} could not start: no pid`);
 			return;
 		}
-		const entry: Running = { runner, pid: child.pid, startedAt: now, child };
+		const entry: Running = {
+			runner,
+			pid: child.pid,
+			startedAt: now,
+			child,
+			identity: this.identity(child.pid, runner),
+		};
 		this.running.set(key, entry);
 		try {
 			mkdirSync(join(configDir(this.deps.env), ...RUNNER_RECORDS_DIR), {
@@ -454,7 +563,11 @@ export class RunnerDuties {
 			});
 			writeFileSync(
 				this.childPath(runner),
-				JSON.stringify({ pid: child.pid, startedAt: now }),
+				JSON.stringify({
+					pid: child.pid,
+					startedAt: now,
+					identity: entry.identity,
+				}),
 				{ mode: 0o600 },
 			);
 		} catch {
@@ -462,6 +575,17 @@ export class RunnerDuties {
 		}
 		this.log(
 			`${runner.executor} started (pid ${child.pid}, ${runner.max} slots)`,
+		);
+		this.record(
+			runner,
+			{
+				state: "running",
+				lastRunAt: new Date(now).toISOString(),
+				lastExecutor: runner.executor,
+				retryAt: null,
+				lastProblem: null,
+			},
+			now,
 		);
 		child.onExit((code) => {
 			if (this.running.get(key) !== entry) return;
@@ -487,6 +611,21 @@ export class RunnerDuties {
 			RUNNER_RESTART_MAX_MS,
 		);
 		this.restartAt.set(key, now + delay);
+		this.record(
+			runner,
+			{
+				state: "waiting",
+				lastExitAt: new Date(now).toISOString(),
+				lastExitCode: code,
+				exits: recent,
+				retryAt: new Date(now + delay).toISOString(),
+				lastProblem:
+					code === null
+						? "Runner exited; exit code unavailable"
+						: `Runner exited with code ${code}`,
+			},
+			now,
+		);
 		this.log(
 			`${runner.executor} exited (${code === null ? "no exit code" : `code ${code}`}); restart in ${Math.round(delay / 1000)}s`,
 		);
@@ -495,7 +634,10 @@ export class RunnerDuties {
 	private stopOne(key: string, entry: Running) {
 		this.running.delete(key);
 		if (entry.child) entry.child.stop("SIGTERM");
-		else {
+		else if (
+			entry.identity &&
+			this.identity(entry.pid, entry.runner) === entry.identity
+		) {
 			try {
 				process.kill(entry.pid, "SIGTERM");
 			} catch {
@@ -503,6 +645,10 @@ export class RunnerDuties {
 			}
 		}
 		rmSync(this.childPath(entry.runner), { force: true });
+		this.record(entry.runner, {
+			state: "unknown",
+			lastProblem: "Stop requested; active Work may still be draining",
+		});
 	}
 
 	/** Stops every dispatcher this supervisor runs; called when the supervisor exits. */
