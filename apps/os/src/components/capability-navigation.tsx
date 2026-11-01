@@ -209,7 +209,7 @@ export function CapabilityNavigation({ active }: { active: CapabilityView }) {
 				<nav
 					aria-label={tab === "apps" ? "Apps views" : "Account owners"}
 					data-capability-subnav=""
-					className="flex min-w-0 items-center gap-1 overflow-x-auto overscroll-x-contain py-1"
+					className="-mx-1 flex min-w-0 scroll-px-1 items-center gap-1 overflow-x-auto overscroll-x-contain p-1"
 				>
 					{views.map((view) => (
 						<Link
