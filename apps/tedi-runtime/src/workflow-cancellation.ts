@@ -6,6 +6,29 @@ const terminal = new Set(["complete", "errored", "terminated"]);
 const missing = (error: unknown) =>
 	error instanceof Error && error.message.includes("(instance.not_found)");
 
+/** Read-only proof: an unknown status or lookup error must never authorize cleanup. */
+export async function settledWorkflow(binding: Binding, id: string) {
+	try {
+		const status = (await (await binding.get(id)).status()).status;
+		if (terminal.has(status)) return "already_settled";
+		if (
+			![
+				"running",
+				"queued",
+				"waiting",
+				"waitingForSleep",
+				"paused",
+				"waitingForPause",
+			].includes(status)
+		)
+			throw new Error("unverified_workflow_status");
+		return null;
+	} catch (error) {
+		if (missing(error)) return "not_found";
+		throw error;
+	}
+}
+
 /** The caller persists cancel intent first, including cancellation before admission. */
 export async function terminateWorkflow(binding: Binding, id: string) {
 	try {

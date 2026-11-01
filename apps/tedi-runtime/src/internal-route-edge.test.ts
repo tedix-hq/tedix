@@ -15,6 +15,7 @@ const INTERNAL_ROUTES = [
 	"/__internal/chat/stream",
 	"/__internal/chat/warm",
 	"/__internal/cancel",
+	"/__internal/cleanup-orphan",
 	"/__internal/page-tool/result",
 	"/__internal/messages/read",
 	"/__internal/review-capabilities",
