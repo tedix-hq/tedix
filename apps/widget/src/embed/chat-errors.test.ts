@@ -127,6 +127,41 @@ describe("userFacingChatError", () => {
 			);
 		}
 	});
+
+	it("uses safe Home-only status copy without exposing the private error", () => {
+		for (const code of [
+			"home_turn_failed",
+			"home_delegation_unconfirmed",
+		] as const) {
+			const error = Object.assign(
+				new Error("Private diagnostic: secret child runtime id"),
+				{ code },
+			);
+			expect(classifyChatError(error)).toBe(code);
+			for (const t of [en, es, buildTranslate(deCatalog, enCatalog)]) {
+				expect(userFacingChatError(error, t)).toContain("Chat");
+				expect(userFacingChatError(error, t)).not.toContain("secret");
+			}
+		}
+		expect(
+			userFacingChatError(
+				Object.assign(new Error("secret details"), {
+					code: "unrecognized_host_failure",
+				}),
+				en,
+			),
+		).toBe("I couldn't complete the request. Try again.");
+	});
+
+	it("keeps existing billing guidance for a tagged Home error", () => {
+		expect(
+			classifyChatError(
+				Object.assign(new Error("inference_capacity_exhausted"), {
+					code: "home_turn_failed",
+				}),
+			),
+		).toBe("inference_capacity_exhausted");
+	});
 });
 
 it("describes a deployment interruption without claiming completion or replay", () => {

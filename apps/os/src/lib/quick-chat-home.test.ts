@@ -270,7 +270,11 @@ describe("Home quick-chat turns", () => {
 		).resolves.toEqual({ runId: "run-1", status: "running" });
 		await expect(
 			readQuickChatHomeOpenTurn(deps({}, [run("failed")], [asked]), "c-1"),
-		).resolves.toEqual({ runId: "run-1", status: "failed" });
+		).resolves.toEqual({
+			runId: "run-1",
+			status: "failed",
+			failureCode: "home_turn_failed",
+		});
 		// Answered: nothing to pick up.
 		const answered = deps(
 			{},
@@ -388,6 +392,71 @@ describe("Home quick-chat turns", () => {
 				{ conversationId: "c-1", text: "Read the sheet" },
 			),
 		).rejects.toThrow("The sheet read failed: organization scope is required.");
+	});
+
+	it("classifies canonical unconfirmed dispatch without requiring an assistant failure row", async () => {
+		const failed = run("failed", {
+			metadata: {
+				delegationFailure: {
+					ok: false,
+					status: "failed",
+					reason: "dispatch_failed",
+					childStillRunning: true,
+					error: "Private diagnostic with child ids",
+				},
+			},
+		});
+		await expect(
+			runQuickChatHomeTurn(deps({}, [failed]), {
+				conversationId: "c-1",
+				text: "Read the sheet",
+			}),
+		).rejects.toMatchObject({ code: "home_delegation_unconfirmed" });
+		await expect(
+			resumeQuickChatHomeTurn(deps({}, [failed]), {
+				conversationId: "c-1",
+				runId: "run-1",
+			}),
+		).rejects.toMatchObject({ code: "home_delegation_unconfirmed" });
+		await expect(
+			runQuickChatHomeTurn(
+				deps({
+					status: "failed",
+					run: failed,
+					error: "Private dispatch details",
+				}),
+				{ conversationId: "c-1", text: "Read the sheet" },
+			),
+		).rejects.toMatchObject({
+			code: "home_delegation_unconfirmed",
+			message: "Private dispatch details",
+		});
+		await expect(
+			readQuickChatHomeOpenTurn(
+				deps(
+					{},
+					[failed],
+					[message("user", "Read the sheet", { runId: "run-1" })],
+				),
+				"c-1",
+			),
+		).resolves.toEqual({
+			runId: "run-1",
+			status: "failed",
+			failureCode: "home_delegation_unconfirmed",
+		});
+	});
+
+	it("does not infer possible execution from an unstructured error string", async () => {
+		const failed = run("failed", {
+			metadata: { error: "dispatch_failed; childStillRunning true" },
+		});
+		await expect(
+			resumeQuickChatHomeTurn(deps({}, [failed]), {
+				conversationId: "c-1",
+				runId: "run-1",
+			}),
+		).rejects.toMatchObject({ code: "home_turn_failed" });
 	});
 
 	it("uses the final delegated answer instead of a narration-only output pointer", async () => {

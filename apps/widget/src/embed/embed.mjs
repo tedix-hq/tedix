@@ -2987,8 +2987,16 @@ import {
 			let outcome = "succeeded";
 			let streamed = "";
 			try {
-				if (turn.status !== "running")
-					throw new Error("Home could not answer this message.");
+				if (turn.status !== "running") {
+					const failure = new Error("Home could not answer this message.");
+					if (
+						["home_turn_failed", "home_delegation_unconfirmed"].includes(
+							turn.failureCode,
+						)
+					)
+						failure.code = turn.failureCode;
+					throw failure;
+				}
 				const result = await homeTarget.resume({
 					conversationId: resumedConversationId,
 					runId: turn.runId,

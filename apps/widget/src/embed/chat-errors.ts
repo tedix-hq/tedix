@@ -25,6 +25,8 @@ export type ChatErrorCode =
 	| "session_expired"
 	| "stream_ended_before_completion"
 	| "stream_unavailable"
+	| "home_turn_failed"
+	| "home_delegation_unconfirmed"
 	| "runtime_error";
 
 interface ChatErrorRule {
@@ -46,6 +48,16 @@ const FALLBACK: ChatErrorRule = {
 	pattern: null,
 	copy: "error_generic",
 };
+
+/** OS Home supplies only these safe status codes; raw error text stays private. */
+const HOME_FAILURE_RULES: readonly ChatErrorRule[] = [
+	{ code: "home_turn_failed", pattern: null, copy: "error_home_turn_failed" },
+	{
+		code: "home_delegation_unconfirmed",
+		pattern: null,
+		copy: "error_home_delegation_unconfirmed",
+	},
+];
 
 /**
  * Message-matched rules, most specific first.
@@ -97,8 +109,13 @@ function errorMessage(error: unknown): string {
 function matchChatError(error: unknown): ChatErrorRule {
 	if (isAbort(error)) return ABORTED;
 	const message = errorMessage(error);
+	const code =
+		error && typeof error === "object"
+			? (error as { code?: unknown }).code
+			: undefined;
 	return (
 		MESSAGE_RULES.find((rule) => rule.pattern?.test(message) === true) ??
+		HOME_FAILURE_RULES.find((rule) => rule.code === code) ??
 		FALLBACK
 	);
 }

@@ -44,6 +44,8 @@
 	"error_capacity_retry_now": "{{assistant}} has capacity again. You can try again now.",
 	"error_capacity_retry_seconds": "{{assistant}} has no capacity available right now. Try again in {{seconds}} seconds.",
 	"error_generic": "I couldn't complete the request. Try again.",
+	"error_home_delegation_unconfirmed": "The assistant did not confirm it started. It may still be running. Open Chat to check before trying again.",
+	"error_home_turn_failed": "The request failed. Open Chat for details before trying again.",
 	"error_request_stopped": "Request stopped.",
 	"error_service_update": "The connection was interrupted by a service update. The request could not be completed.",
 	"expand": "Expand",

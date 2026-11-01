@@ -893,6 +893,122 @@ describe("opening target", () => {
 			throw noTedi();
 		});
 
+	const unconfirmedCopy =
+		"The assistant did not confirm it started. It may still be running. Open Chat to check before trying again.";
+	const failedCopy =
+		"The request failed. Open Chat for details before trying again.";
+
+	it.each(["home_turn_failed", "home_delegation_unconfirmed"] as const)(
+		"shows safe %s guidance and restores the initial Home draft",
+		async (code) => {
+			const w = await bootWidget({
+				options: {
+					session: noTediSession(),
+					home: {
+						label: "Home",
+						turn: vi.fn(async () => {
+							throw Object.assign(new Error("Private child runtime details"), {
+								code,
+							});
+						}),
+					},
+				},
+			});
+			await w.open();
+			await w.say("Read the saved versions");
+			await settle();
+			expect(w.messages().at(-1)).toEqual([
+				"assistant",
+				code === "home_delegation_unconfirmed" ? unconfirmedCopy : failedCopy,
+			]);
+			expect(w.input().value).toBe("Read the saved versions");
+			expect(w.detailsOf("answer-failed")).toContainEqual(
+				expect.objectContaining({ code }),
+			);
+			expect(w.eventNames()).not.toContain("answer-completed");
+			expect(w.send().dataset.state).toBeUndefined();
+		},
+	);
+
+	it("preserves safe failure status when a resumed Home run fails", async () => {
+		const w = await bootWidget({
+			before: rememberedHomeThread,
+			options: {
+				session: noTediSession(),
+				home: {
+					...home(),
+					transcript: vi.fn(async () => [
+						{ role: "user", content: "Read versions" },
+					]),
+					openTurn: vi.fn(async () => ({ runId: "run-1", status: "running" })),
+					resume: vi.fn(async () => {
+						throw Object.assign(new Error("Private dispatch detail"), {
+							code: "home_delegation_unconfirmed",
+						});
+					}),
+				},
+			},
+		});
+		await w.open();
+		await settle();
+		expect(w.messages().at(-1)).toEqual([
+			"assistant",
+			`${unconfirmedCopy}Retry`,
+		]);
+		expect(w.detailsOf("answer-failed")).toContainEqual(
+			expect.objectContaining({ code: "home_delegation_unconfirmed" }),
+		);
+		expect(w.eventNames()).not.toContain("answer-completed");
+	});
+
+	it.each([
+		"home_turn_failed",
+		"home_delegation_unconfirmed",
+		"unknown_private_code",
+	])(
+		"restores an already-failed Home run with whitelisted %s status only",
+		async (failureCode) => {
+			const resume = vi.fn();
+			const w = await bootWidget({
+				before: rememberedHomeThread,
+				options: {
+					session: noTediSession(),
+					home: {
+						...home(),
+						transcript: vi.fn(async () => [
+							{ role: "user", content: "Read versions" },
+						]),
+						openTurn: vi.fn(async () => ({
+							runId: "run-1",
+							status: "failed",
+							failureCode,
+						})),
+						resume,
+					},
+				},
+			});
+			await w.open();
+			await settle();
+			const copy =
+				failureCode === "home_turn_failed"
+					? failedCopy
+					: failureCode === "home_delegation_unconfirmed"
+						? unconfirmedCopy
+						: "I couldn't complete the request. Try again.";
+			expect(w.messages().at(-1)).toEqual(["assistant", `${copy}Retry`]);
+			expect(resume).not.toHaveBeenCalled();
+			expect(w.detailsOf("answer-failed")).toContainEqual(
+				expect.objectContaining({
+					code:
+						failureCode === "unknown_private_code"
+							? "runtime_error"
+							: failureCode,
+				}),
+			);
+			expect(w.eventNames()).not.toContain("answer-completed");
+		},
+	);
+
 	it("picks a Home turn back up after a reload: thinking again, then the answer", async () => {
 		let answer!: (text: string) => void;
 		const resume = vi.fn(
