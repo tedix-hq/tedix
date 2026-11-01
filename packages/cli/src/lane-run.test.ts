@@ -227,6 +227,24 @@ describe("lane launcher", () => {
 		expect(existsSync(out)).toBe(true);
 		expect(reports.at(-1)!.state).toBe("done");
 	});
+	it("starts an admitted child without waiting for a pending activity report", async () => {
+		const { args, out } = fixture();
+		let spawned = false;
+		const run = runLaneProcess(args, {
+			admitted: true,
+			heartbeatMs: 10,
+			onSpawn: () => {
+				spawned = true;
+			},
+			report: async (input) => {
+				if (input.state === "working" && !spawned) return new Promise(() => {});
+				return {};
+			},
+		});
+		expect(await run).toBe(0);
+		expect(spawned).toBe(true);
+		expect(existsSync(out)).toBe(true);
+	});
 	it("retains a complete idempotent observation when settlement fails, then replays that same lane", async () => {
 		const { args, out } = fixture();
 		let calls = 0;

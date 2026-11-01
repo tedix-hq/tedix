@@ -293,17 +293,9 @@ async function runLaneProcessWithReporter(
 	if ((!command.length && !devin && !opencode) || !options.has("--brief"))
 		throw new Error(laneRunUsage);
 	LaneTelemetryInputSchema.parse(telemetry);
-	try {
-		await report(sessionKey, telemetry);
-	} catch (error) {
-		// Observation grants no authority. Once a dispatcher holds the Attempt, a
-		// slow gateway must not fail it before the child starts; every heartbeat
-		// resends the full observation.
-		if (!deps.admitted) throw error;
-		process.stderr.write(
-			`Lane registration deferred to the next heartbeat: ${String(error)}\n`,
-		);
-	}
+	// An admitted Attempt already records the running Work. Optional telemetry
+	// must not delay its child; heartbeats and the final report carry it later.
+	if (!deps.admitted) await report(sessionKey, telemetry);
 	const dir = mkdtempSync(join(tmpdir(), "tedix-lane-"));
 	const receipt = join(dir, "telemetry.json");
 	const sandboxTemp = join(
