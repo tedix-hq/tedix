@@ -305,9 +305,17 @@ export function serialCalls() {
 	const pending: Array<{ critical: boolean; run: () => Promise<void> }> = [];
 	let draining = false;
 	const drain = async () => {
+		let urgentBurst = 0;
 		while (pending.length) {
 			const urgent = pending.findIndex((entry) => entry.critical);
-			const [next] = pending.splice(urgent < 0 ? 0 : urgent, 1);
+			const normal = pending.findIndex((entry) => !entry.critical);
+			// Prioritize leases without letting steady renewals starve admission.
+			const index =
+				urgent >= 0 && (urgentBurst < 3 || normal < 0)
+					? urgent
+					: Math.max(normal, 0);
+			const [next] = pending.splice(index, 1);
+			urgentBurst = next!.critical ? urgentBurst + 1 : 0;
 			await next!.run();
 		}
 		draining = false;
