@@ -217,7 +217,7 @@ function OfficeHeader({ since }: { since: string }) {
 	return (
 		<PageHeader>
 			<PageHeading>
-				<PageTitle>Office</PageTitle>
+				<PageTitle>For you</PageTitle>
 				<PageDescription className="text-kumo-default type-tedix-dialog">
 					{knocks.isError ||
 					totals.acceptance.isError ||
@@ -598,12 +598,6 @@ export function knocksPerHour(requestedAt: string[], now: number): number[] {
 	return hours;
 }
 
-const HARNESS_LABELS = {
-	"claude-code": "Claude Code",
-	codex: "Codex",
-	devin: "Devin",
-};
-
 type SeenSession = { harness: string; key: string; at: string };
 
 /**
@@ -670,15 +664,15 @@ function Activity() {
 			})),
 		...sessionsFromKnocks(knocks.data?.data ?? []),
 	];
-	const harnesses = (["claude-code", "codex", "devin"] as const).map(
-		(harness) => ({
+	const harnesses = [...new Set(seen.map((entry) => entry.harness))]
+		.sort()
+		.map((harness) => ({
 			harness,
 			...sessionActivity(
 				seen.filter((entry) => entry.harness === harness),
 				now,
 			),
-		}),
-	);
+		}));
 	const hours = knocksPerHour(
 		(knocks.data?.data ?? []).map((row) => row.request.requestedAt),
 		now,
@@ -733,10 +727,12 @@ function Activity() {
 						<OfficeReadError resource="sessions" error={sessions.error} />
 					) : sessions.isPending ? (
 						<Skeleton className="h-4 w-48" aria-label="Loading sessions" />
+					) : !harnesses.length ? (
+						<Text tone="secondary">No session activity reported</Text>
 					) : (
 						harnesses.map(({ harness, active, idle }) => (
 							<Text key={harness} as="span" role="body">
-								{HARNESS_LABELS[harness]}{" "}
+								{harness}{" "}
 								<Text as="span" role="body" tone="strong" weight="semibold">
 									{active}
 								</Text>{" "}

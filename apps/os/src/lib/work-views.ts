@@ -96,7 +96,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	{
 		id: "agents",
 		label: "Agents",
-		description: "Coding sessions running on your machines right now.",
+		description: "Your requests, agent sessions and available capacity.",
 		group: "operations",
 		to: "/work",
 		search: { app: "agents" },

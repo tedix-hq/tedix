@@ -74,14 +74,17 @@ describe("Work more-views menu", () => {
 		route.pathname = view.to;
 		route.search = { ...view.search, source: "review" };
 		const { trigger, menu } = await openMenu();
-		expect(trigger.textContent).toBe(view.label);
-		expect(trigger.getAttribute("aria-label")).toBe(
-			`More views: ${view.label}`,
-		);
+		const label = ["office", "capacity"].includes(view.id)
+			? "Agents"
+			: view.label;
+		expect(trigger.textContent).toBe(label);
+		expect(trigger.getAttribute("aria-label")).toBe(`More views: ${label}`);
 		expect(trigger.getAttribute("data-active")).toBe("true");
 		const current = menu.querySelectorAll('[aria-current="page"]');
 		expect(current).toHaveLength(1);
-		expect(current[0]!.getAttribute("data-work-view")).toBe(view.id);
+		expect(current[0]!.getAttribute("data-work-view")).toBe(
+			["office", "capacity"].includes(view.id) ? "agents" : view.id,
+		);
 	});
 
 	it.each(["/work/cases/", "/work/cases/cedar-case"])(
@@ -101,7 +104,7 @@ describe("Work more-views menu", () => {
 	it("matches an app before leftover feed filters", async () => {
 		route.search = { app: "office", view: "feed", filter: "history" };
 		const { trigger } = await openMenu();
-		expect(trigger.textContent).toBe("Office");
+		expect(trigger.textContent).toBe("Agents");
 	});
 
 	it.each(["/work", "/work/cases-other", "/work/items/cedar-item"])(
@@ -134,15 +137,19 @@ describe("Work more-views menu", () => {
 		expect(document.querySelector('[role="tablist"]')).toBeNull();
 	});
 
-	it("lists every registered Work view with its description, grouped", async () => {
+	it("groups registered Work views and combines the three Agents destinations", async () => {
 		const { menu } = await openMenu();
 		const items = [
 			...menu.querySelectorAll<HTMLAnchorElement>('a[role="menuitem"]'),
 		];
 		expect(items.map((item) => item.getAttribute("href"))).toEqual(
-			WORK_VIEWS.map(workViewHref),
+			WORK_VIEWS.filter(
+				(view) => !["office", "capacity"].includes(view.id),
+			).map(workViewHref),
 		);
-		for (const [index, view] of WORK_VIEWS.entries()) {
+		for (const [index, view] of WORK_VIEWS.filter(
+			(view) => !["office", "capacity"].includes(view.id),
+		).entries()) {
 			expect(items[index]!.textContent).toContain(view.label);
 			expect(items[index]!.textContent).toContain(view.description);
 		}

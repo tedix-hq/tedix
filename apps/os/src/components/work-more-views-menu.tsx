@@ -16,7 +16,8 @@ import { OsRouterLink } from "@/components/kumo/link-provider";
 import { WORK_VIEWS, workViewsByGroup, type WorkView } from "@/lib/work-views";
 import { OS_COPY } from "@/shared/os-copy";
 
-function viewLink(view: WorkView) {
+function viewLink(view: WorkView, agentHref: string) {
+	if (view.id === "agents") return <OsRouterLink to={agentHref} />;
 	return view.to === "/work" ? (
 		<OsRouterLink to={view.to} search={view.search} />
 	) : (
@@ -29,9 +30,13 @@ function viewLink(view: WorkView) {
  * only primary views; this menu sits at the end of their row and never grows
  * into a tab bar.
  */
-export function WorkMoreViewsMenu() {
+export function WorkMoreViewsMenu({
+	agentNavigation,
+}: {
+	agentNavigation?: { active: boolean; href: string };
+}) {
 	const label = OS_COPY.workHome.moreViews;
-	const activeView = useRouterState({
+	const selectedView = useRouterState({
 		select: ({ location }) => {
 			const pathname = location.pathname.replace(/\/$/, "");
 			const search = location.search as Record<string, unknown>;
@@ -46,7 +51,18 @@ export function WorkMoreViewsMenu() {
 			);
 		},
 	});
-	const groups = workViewsByGroup();
+	const agents = WORK_VIEWS.find((view) => view.id === "agents")!;
+	const activeView =
+		agentNavigation?.active ||
+		["office", "capacity"].includes(selectedView?.id ?? "")
+			? agents
+			: selectedView;
+	const groups = workViewsByGroup().map((group) => ({
+		...group,
+		views: group.views.filter(
+			(view) => !["office", "capacity"].includes(view.id),
+		),
+	}));
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -83,7 +99,10 @@ export function WorkMoreViewsMenu() {
 									key={view.id}
 									data-work-view={view.id}
 									aria-current={activeView?.id === view.id ? "page" : undefined}
-									render={viewLink(view)}
+									render={viewLink(
+										view,
+										agentNavigation?.href ?? "/work?app=agents",
+									)}
 									className="items-start py-2 aria-[current=page]:bg-kumo-tint"
 								>
 									<span className="grid min-w-0 gap-0.5">
