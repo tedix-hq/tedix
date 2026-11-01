@@ -44,6 +44,8 @@
 	"error_capacity_retry_now": "{{assistant}} vuelve a tener capacidad. Puedes intentarlo de nuevo ahora.",
 	"error_capacity_retry_seconds": "{{assistant}} no tiene capacidad disponible en este momento. Inténtalo de nuevo en {{seconds}} segundos.",
 	"error_generic": "No pude completar la consulta. Inténtalo de nuevo.",
+	"error_home_delegation_unconfirmed": "El asistente no confirmó que haya empezado. Puede que siga en curso. Abre Chat para comprobarlo antes de volver a intentarlo.",
+	"error_home_turn_failed": "La solicitud falló. Abre Chat para ver los detalles antes de volver a intentarlo.",
 	"error_request_stopped": "Solicitud detenida.",
 	"error_service_update": "Una actualización del servicio interrumpió la conexión. No se pudo completar la solicitud.",
 	"expand": "Ampliar",

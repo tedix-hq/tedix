@@ -44,6 +44,8 @@
 	"error_capacity_retry_now": "{{assistant}} hat wieder Kapazität. Sie können es jetzt noch einmal versuchen.",
 	"error_capacity_retry_seconds": "{{assistant}} hat derzeit keine Kapazität verfügbar. Versuchen Sie es in {{seconds}} Sekunden noch einmal.",
 	"error_generic": "Ich konnte die Anfrage nicht ausführen. Versuchen Sie es erneut.",
+	"error_home_delegation_unconfirmed": "Der Assistent hat den Start nicht bestätigt. Die Anfrage läuft möglicherweise noch. Öffnen Sie Chat zur Prüfung, bevor Sie es erneut versuchen.",
+	"error_home_turn_failed": "Die Anfrage ist fehlgeschlagen. Öffnen Sie Chat für Details, bevor Sie es erneut versuchen.",
 	"error_request_stopped": "Anfrage gestoppt.",
 	"error_service_update": "Die Verbindung wurde durch ein Service-Update unterbrochen. Die Anfrage konnte nicht abgeschlossen werden.",
 	"expand": "Erweitern",

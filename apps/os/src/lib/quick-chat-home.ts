@@ -112,6 +112,33 @@ function compactPageContext(value: unknown) {
 
 const TERMINAL = new Set(["completed", "failed", "canceled"]);
 
+type HomeTurnFailureCode = "home_turn_failed" | "home_delegation_unconfirmed";
+
+function homeTurnFailureCode(run: HomeRun): HomeTurnFailureCode {
+	const raw = run.metadata?.delegationFailure;
+	const failure =
+		raw && typeof raw === "object" && !Array.isArray(raw)
+			? (raw as Record<string, unknown>)
+			: null;
+	if (
+		failure?.ok === false &&
+		failure.status === "failed" &&
+		failure.reason === "dispatch_failed" &&
+		failure.childStillRunning === true
+	)
+		return "home_delegation_unconfirmed";
+	return "home_turn_failed";
+}
+
+class QuickChatHomeTurnError extends Error {
+	readonly code: HomeTurnFailureCode;
+	constructor(message: string, run: HomeRun) {
+		super(message);
+		this.name = "QuickChatHomeTurnError";
+		this.code = homeTurnFailureCode(run);
+	}
+}
+
 function isWrittenAnswer(message: HomeMessage): boolean {
 	return (
 		message.role === "assistant" &&
@@ -193,10 +220,11 @@ export async function runQuickChatHomeTurn(
 		{ signal: input.signal },
 	);
 	if (output.status === "failed" || output.run.status === "failed")
-		throw new Error(
+		throw new QuickChatHomeTurnError(
 			(output.assistantMessage && isWrittenAnswer(output.assistantMessage)
 				? output.assistantMessage.content.trim()
 				: output.error) || "Home could not answer this message.",
+			output.run,
 		);
 	const run = output.run;
 	if (
@@ -282,8 +310,12 @@ async function followRun(
 	const { messages } = await deps.readMessages({ conversationId, limit: 20 });
 	const text = answerFor(run, messages);
 	if (run.status !== "completed")
-		throw new Error(text || "Home could not answer this message.");
-	if (!text) throw new Error("Home finished without an answer.");
+		throw new QuickChatHomeTurnError(
+			text || "Home could not answer this message.",
+			run,
+		);
+	if (!text)
+		throw new QuickChatHomeTurnError("Home finished without an answer.", run);
 	return { text };
 }
 
@@ -291,6 +323,7 @@ async function followRun(
 export interface QuickChatHomeOpenTurn {
 	runId: string;
 	status: "running" | "failed";
+	failureCode?: HomeTurnFailureCode;
 }
 
 /**
@@ -315,6 +348,9 @@ export async function readQuickChatHomeOpenTurn(
 	return {
 		runId: run.id,
 		status: TERMINAL.has(run.status) ? "failed" : "running",
+		...(TERMINAL.has(run.status)
+			? { failureCode: homeTurnFailureCode(run) }
+			: {}),
 	};
 }
 
