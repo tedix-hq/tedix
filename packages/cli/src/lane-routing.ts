@@ -1,7 +1,6 @@
 import * as z from "zod";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import defaults from "./lane-routing-default.json";
 
 export const localExecutors = [
 	"codex",
@@ -22,14 +21,12 @@ export const routingPolicySchema = z.strictObject({
 				tags: z.array(z.string()),
 				sizes: z.array(z.string()),
 				risks: z.array(z.string()),
-				routes: z
-					.array(
-						z.strictObject({
-							executor: executorSchema,
-							model: z.string().min(1).optional(),
-						}),
-					)
-					.min(1),
+				routes: z.array(
+					z.strictObject({
+						executor: executorSchema,
+						model: z.string().min(1).optional(),
+					}),
+				),
 			}),
 		)
 		.min(1),
@@ -40,7 +37,13 @@ export const routingPolicySchema = z.strictObject({
 		.optional(),
 });
 export type RoutingPolicy = z.infer<typeof routingPolicySchema>;
-export const defaultRoutingPolicy = routingPolicySchema.parse(defaults);
+export const defaultRoutingPolicy: RoutingPolicy = {
+	version: 1,
+	nearLimitPercent: 10,
+	signalMaxAgeMs: 300_000,
+	rules: [{ name: "unconfigured", tags: [], sizes: [], risks: [], routes: [] }],
+	budgetFiles: {},
+};
 export function readRoutingPolicy(
 	path?: string,
 	env = process.env,
@@ -200,6 +203,10 @@ export function routeLocalWork(
 		work.executor === "any-local"
 			? rule.routes
 			: [{ executor: executorSchema.parse(work.executor), model: undefined }];
+	if (routes.length === 0)
+		throw new Error(
+			`No routes configured for ${rule.name}; use --routing-config or TEDIX_LANE_ROUTING_CONFIG to choose executors and models`,
+		);
 	let capacityPaused = false;
 	for (const route of routes) {
 		const budget = budgets[route.executor];
