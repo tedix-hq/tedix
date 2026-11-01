@@ -760,6 +760,28 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	]);
 	expect(await revision()).toBe(before);
 	await stub.query(
+		"CREATE TABLE _emdash_media_usage_reconciliations (collection_id TEXT PRIMARY KEY, state TEXT, next_attempt_at TEXT, lease_expires_at TEXT, updated_at TEXT)",
+	);
+	await stub.query(
+		"CREATE TABLE _emdash_media_usage_work (collection_id TEXT, content_id TEXT, state TEXT, lease_token TEXT, updated_at TEXT)",
+	);
+	await stub.query(
+		"INSERT INTO _emdash_media_usage_work (collection_id, content_id, state) VALUES ('c', 'e', 'pending')",
+	);
+	await stub.queryWithRestorePermit(
+		identity,
+		"WITH pending_candidates AS (SELECT * FROM _emdash_media_usage_reconciliations WHERE state = 'pending' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT ?), retry_candidates AS (SELECT * FROM _emdash_media_usage_reconciliations WHERE state = 'retry' AND next_attempt_at <= ? ORDER BY next_attempt_at LIMIT ?), leased_candidates AS (SELECT * FROM _emdash_media_usage_reconciliations WHERE state = 'leased' AND lease_expires_at <= ? ORDER BY lease_expires_at LIMIT ?), candidates AS (SELECT * FROM pending_candidates UNION ALL SELECT * FROM retry_candidates UNION ALL SELECT * FROM leased_candidates) SELECT * FROM candidates LIMIT ?",
+		["now", 10, "now", 10, "now", 10, 10],
+	);
+	expect(
+		await stub.queryWithRestorePermit(
+			identity,
+			"WITH due AS (SELECT collection_id, content_id FROM _emdash_media_usage_work WHERE state = 'pending' LIMIT ?) UPDATE _emdash_media_usage_work SET state = 'leased', lease_token = ?, updated_at = ? WHERE EXISTS (SELECT 1 FROM due WHERE due.content_id = _emdash_media_usage_work.content_id)",
+			[10, "lease", "now"],
+		),
+	).toMatchObject({ changes: 1 });
+	expect(await revision()).toBe(before);
+	await stub.query(
 		"CREATE TABLE _plugin_storage (plugin_id TEXT, collection TEXT, data TEXT)",
 	);
 	await stub.query(
@@ -802,6 +824,19 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	]);
 	const afterSettings = await revision();
 	expect(afterSettings).not.toBe(before);
+	// Nothing read the site since that rotation, so no cached page can be
+	// older than these writes: one rotation covers the whole burst.
+	await stub.queryWithRestorePermit(
+		identity,
+		"INSERT INTO content (title) VALUES (?)",
+		["Published"],
+	);
+	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: "UPDATE content SET title = ?", params: ["Burst"] },
+		{ sql: "INSERT INTO content (title) VALUES (?)", params: ["Burst"] },
+	]);
+	expect(await revision()).toBe(afterSettings);
+	await stub.queryWithRestorePermit(identity, "SELECT * FROM content");
 	await stub.queryWithRestorePermit(
 		identity,
 		"INSERT INTO content (title) VALUES (?)",
@@ -813,6 +848,7 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	await stub.query(
 		"CREATE TRIGGER edit_content INSTEAD OF UPDATE ON editable_content BEGIN UPDATE content SET title = NEW.title WHERE id = OLD.id; END",
 	);
+	await stub.queryWithRestorePermit(identity, "SELECT * FROM content");
 	expect(
 		await stub.queryWithRestorePermit(
 			identity,
@@ -821,6 +857,7 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	).toMatchObject({ changes: 0 });
 	const triggered = await revision();
 	expect(triggered).not.toBe(published);
+	await stub.queryWithRestorePermit(identity, "SELECT * FROM content");
 	await stub.queryWithRestorePermit(
 		identity,
 		"WITH errors AS (SELECT * FROM _emdash_404_log) UPDATE content SET title = ? WHERE EXISTS (SELECT 1 FROM errors)",
@@ -829,11 +866,13 @@ test("page-cache revision changes on tenant writes but not reads", async () => {
 	const contextualWrite = await revision();
 	expect(contextualWrite).not.toBe(triggered);
 	await stub.batchQueryWithRestorePermit(identity, [
+		{ sql: "SELECT * FROM content" },
 		{ sql: "UPDATE _emdash_404_log SET hits = hits + 1 WHERE id = 1" },
 		{ sql: "UPDATE content SET title = ?", params: ["Republished"] },
 	]);
 	expect(await revision()).not.toBe(contextualWrite);
 	const beforePluginWrite = await revision();
+	await stub.queryWithRestorePermit(identity, "SELECT * FROM content");
 	await stub.batchQueryWithRestorePermit(identity, [
 		{ sql: indexSql },
 		indexRow,
