@@ -2,6 +2,7 @@ import { DynamicWorkerExecutor } from "@cloudflare/codemode";
 import { afterEach, describe, expect, test, vi } from "vite-plus/test";
 import {
 	MODEL_AUTHORED_CODE_FLAG,
+	recordDynamicWorkerLoaderFactory,
 	withDynamicWorkerLoaderDiagnostics,
 	withModelAuthoredCodeIsolation,
 } from "./model-authored-code-loader";
@@ -401,6 +402,8 @@ const diagnosticPairs = [
 		reason: "tedi_workspace_shell_invocation",
 	},
 	{ surface: "cms_tenant_runtime", reason: "cms_tenant_bundle_lookup" },
+	{ surface: "cms_tenant_runtime", reason: "cms_tenant_fetch" },
+	{ surface: "cms_tenant_runtime", reason: "cms_tenant_scheduled" },
 	{ surface: "cms_tenant_plugin", reason: "cms_tenant_plugin_invocation" },
 ] as const;
 
@@ -648,4 +651,66 @@ test("get-only SDK loader remains get-only and later async callback failure is n
 	expect(
 		log.mock.calls.map(([value]) => JSON.parse(String(value)).phase),
 	).toEqual(["attempted", "returned"]);
+});
+
+describe("lazy factory callback diagnostics", () => {
+	test("emits only bounded trusted labels and tolerates a throwing sink", () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		recordDynamicWorkerLoaderFactory({
+			surface: "cms_tenant_runtime",
+			reason: "cms_tenant_fetch",
+		});
+		recordDynamicWorkerLoaderFactory({
+			surface: "cms_tenant_runtime",
+			reason: "cms_tenant_scheduled",
+		});
+		expect(log.mock.calls.map(([line]) => JSON.parse(String(line)))).toEqual([
+			{
+				event: "tedix.dynamic_worker.loader_factory",
+				version: 1,
+				surface: "cms_tenant_runtime",
+				reason: "cms_tenant_fetch",
+			},
+			{
+				event: "tedix.dynamic_worker.loader_factory",
+				version: 1,
+				surface: "cms_tenant_runtime",
+				reason: "cms_tenant_scheduled",
+			},
+		]);
+		log.mockImplementation(() => {
+			throw new Error("sink unavailable");
+		});
+		expect(() =>
+			recordDynamicWorkerLoaderFactory({
+				surface: "cms_tenant_runtime",
+				reason: "cms_tenant_fetch",
+			}),
+		).not.toThrow();
+	});
+
+	test("rejects tenant-supplied labels and tolerates throwing accessors", () => {
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		let accessed = false;
+		for (const host of [
+			{ surface: "cms_tenant_runtime", reason: "fictional tenant" },
+			{
+				surface: "cms_tenant_runtime",
+				reason: "cms_tenant_fetch",
+				tenant: "fictional",
+			},
+			{
+				get surface() {
+					accessed = true;
+					throw new Error("untrusted accessor");
+				},
+				reason: "cms_tenant_fetch",
+			},
+		])
+			recordDynamicWorkerLoaderFactory(
+				host as Parameters<typeof recordDynamicWorkerLoaderFactory>[0],
+			);
+		expect(accessed).toBe(true);
+		expect(log).not.toHaveBeenCalled();
+	});
 });

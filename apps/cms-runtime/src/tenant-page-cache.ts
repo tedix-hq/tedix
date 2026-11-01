@@ -1,5 +1,6 @@
 import { publicAssetCacheEligible } from "./tenant-public-cache";
 import { EDGE_CACHE_EXCLUDED_PREFIXES } from "./edge-cache-headers";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 
 /**
  * Parent-side cache for anonymous tenant HTML pages.
@@ -23,6 +24,38 @@ export const MARKETING_PAGE_CACHE_CONTROL =
 const CACHED_AT_HEADER = "X-Tedix-Page-Cached-At";
 const FRESH_FOR_HEADER = "X-Tedix-Page-Fresh-For";
 export const PAGE_CACHE_STATUS_HEADER = "X-Tedix-Page-Cache";
+
+const REFRESH_RESERVATION_MS = 60_000;
+const MAX_REFRESH_RESERVATIONS = 256;
+interface RefreshReservation {
+	expiresAt: number;
+	coalescedRequests: number;
+}
+// Only scalar coordination metadata crosses requests, never refresh I/O or responses.
+const refreshReservations = new Map<string, RefreshReservation>();
+const writeRefreshDiagnostic = createTelemetryWriter("cms.page_cache.refresh");
+
+function reserveRefresh(
+	key: string,
+	now: number,
+): RefreshReservation | undefined {
+	for (const [reservedKey, reservation] of refreshReservations) {
+		if (reservation.expiresAt <= now) refreshReservations.delete(reservedKey);
+	}
+	const active = refreshReservations.get(key);
+	if (active) {
+		active.coalescedRequests++;
+		return;
+	}
+	const reservation = {
+		expiresAt: now + REFRESH_RESERVATION_MS,
+		coalescedRequests: 0,
+	};
+	// At capacity, retain the old refresh behavior without evicting active owners.
+	if (refreshReservations.size < MAX_REFRESH_RESERVATIONS)
+		refreshReservations.set(key, reservation);
+	return reservation;
+}
 
 export interface PageCacheIdentity {
 	siteId: string;
@@ -198,32 +231,41 @@ export async function cachedTenantPage(args: {
 	now?: () => number;
 }): Promise<Response> {
 	const now = args.now ?? Date.now;
-	const store = async (rendered: Response): Promise<Response> => {
+	const store = async (rendered: Response) => {
 		const policy = pageCachePolicy(rendered, args.templateSlug);
 		const headers = new Headers(rendered.headers);
 		headers.set(PAGE_CACHE_STATUS_HEADER, policy ? "MISS" : "BYPASS");
 		if (!policy || !rendered.body)
-			return new Response(rendered.body, {
-				status: rendered.status,
-				statusText: rendered.statusText,
-				headers,
-			});
+			return {
+				response: new Response(rendered.body, {
+					status: rendered.status,
+					statusText: rendered.statusText,
+					headers,
+				}),
+				stored: undefined,
+			};
 		const [client, stored] = rendered.body.tee();
-		args.waitUntil(
-			args.cache
-				.put(
-					args.key,
-					pageCacheEntry(
-						new Response(stored, { status: 200, headers: rendered.headers }),
-						policy,
-						now(),
-					),
-				)
-				.catch((error) =>
-					console.error("[cms-runtime] page cache store failed", error),
+		const pending = args.cache
+			.put(
+				args.key,
+				pageCacheEntry(
+					new Response(stored, { status: 200, headers: rendered.headers }),
+					policy,
+					now(),
 				),
-		);
-		return new Response(client, { status: 200, headers });
+			)
+			.then(
+				() => true,
+				(error) => {
+					console.error("[cms-runtime] page cache store failed", error);
+					return false;
+				},
+			);
+		args.waitUntil(pending);
+		return {
+			response: new Response(client, { status: 200, headers }),
+			stored: pending,
+		};
 	};
 
 	let cached: Response | undefined;
@@ -234,19 +276,40 @@ export async function cachedTenantPage(args: {
 	}
 	if (cached) {
 		const hit = pageCacheHit(cached, now());
-		if (!hit.fresh)
-			args.waitUntil(
-				args
-					.render()
-					.then(async (rendered) => {
-						const response = await store(rendered);
-						await response.body?.cancel();
-					})
-					.catch((error) =>
-						console.error("[cms-runtime] page cache refresh failed", error),
-					),
-			);
+		if (!hit.fresh) {
+			const key = args.key.url;
+			const reservation = reserveRefresh(key, now());
+			if (reservation)
+				args.waitUntil(
+					(async () => {
+						let outcome: "completed" | "failed" = "failed";
+						try {
+							const { response, stored } = await store(await args.render());
+							const [cancelled, written] = await Promise.allSettled([
+								Promise.resolve().then(() => response.body?.cancel()),
+								stored,
+							]);
+							if (cancelled.status === "rejected") throw cancelled.reason;
+							if (written.status === "fulfilled" && written.value !== false)
+								outcome = "completed";
+						} catch (error) {
+							console.error("[cms-runtime] page cache refresh failed", error);
+						} finally {
+							if (refreshReservations.get(key) === reservation)
+								refreshReservations.delete(key);
+							if (reservation.coalescedRequests > 0)
+								writeRefreshDiagnostic(() =>
+									console.info({
+										event: "cms.page_cache.refresh_coalesced",
+										outcome,
+										coalescedRequests: reservation.coalescedRequests,
+									}),
+								);
+						}
+					})(),
+				);
+		}
 		return hit.response;
 	}
-	return store(await args.render());
+	return (await store(await args.render())).response;
 }

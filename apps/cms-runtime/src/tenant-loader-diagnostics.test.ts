@@ -6,6 +6,7 @@ import { tenantRuntimeCacheKey } from "./tenant-cache-key";
 afterEach(() => vi.restoreAllMocks());
 
 const args = {
+	invocation: "fetch",
 	accountId: "fictional-account",
 	r2Token: "fictional-private-token",
 	internalAuthToken: "fictional-private-auth",
@@ -47,7 +48,7 @@ function event(phase: string) {
 		event: "tedix.dynamic_worker.loader_call",
 		version: 1,
 		surface: "cms_tenant_runtime",
-		reason: "cms_tenant_bundle_lookup",
+		reason: "cms_tenant_fetch",
 		method: "get",
 		identity: "named",
 		phase,
@@ -131,4 +132,56 @@ describe("CMS tenant production Loader boundary", () => {
 			]);
 		},
 	);
+});
+
+test("attributes fetch and scheduled callers separately without changing named identity", async () => {
+	const log = vi.spyOn(console, "log").mockImplementation(() => {});
+	const names: string[] = [];
+	const factories: (() => Promise<unknown>)[] = [];
+	const env = {
+		LOADER: {
+			get(name: string, factory: () => Promise<unknown>) {
+				names.push(name);
+				factories.push(factory);
+				return { getEntrypoint: () => ({}) };
+			},
+		},
+	} as unknown as Parameters<typeof getTenantEntrypoint>[0];
+	getTenantEntrypoint(env, {} as ExecutionContext, {
+		...args,
+		invocation: "fetch",
+	});
+	getTenantEntrypoint(env, {} as ExecutionContext, {
+		...args,
+		invocation: "scheduled",
+	});
+	expect(names[0]).toBe(names[1]);
+	expect(
+		log.mock.calls.map(([line]) => JSON.parse(String(line)).reason),
+	).toEqual([
+		"cms_tenant_fetch",
+		"cms_tenant_fetch",
+		"cms_tenant_scheduled",
+		"cms_tenant_scheduled",
+	]);
+	// Missing bundle storage stops this fixture after the owning lazy callback begins.
+	await expect(factories[0]!()).rejects.toBeDefined();
+	await expect(factories[1]!()).rejects.toBeDefined();
+	const callbacks = log.mock.calls
+		.map(([line]) => JSON.parse(String(line)))
+		.filter((entry) => entry.event === "tedix.dynamic_worker.loader_factory");
+	expect(callbacks).toEqual([
+		{
+			event: "tedix.dynamic_worker.loader_factory",
+			version: 1,
+			surface: "cms_tenant_runtime",
+			reason: "cms_tenant_fetch",
+		},
+		{
+			event: "tedix.dynamic_worker.loader_factory",
+			version: 1,
+			surface: "cms_tenant_runtime",
+			reason: "cms_tenant_scheduled",
+		},
+	]);
 });
