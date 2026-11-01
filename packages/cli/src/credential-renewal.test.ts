@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { isolateRenewalTests } from "./renewal-test-env";
 import { spawn } from "node:child_process";
 import {
 	existsSync,
@@ -20,6 +21,8 @@ import {
 	refreshStoredSession,
 	WorkspaceOAuthProvider,
 } from "./oauth-provider";
+
+isolateRenewalTests();
 
 const CLI = fileURLToPath(new URL("./index.ts", import.meta.url));
 const WORKSPACE = "acme";

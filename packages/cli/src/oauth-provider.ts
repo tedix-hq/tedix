@@ -1343,7 +1343,7 @@ export async function refreshStoredSession(
 			version: CLI_VERSION,
 			pid: process.pid,
 			ppid: process.ppid,
-			workspace: workspace ?? null,
+			workspace: workspace ?? (process.env.NODE_ENV === "test" ? "test" : null),
 			result: outcome,
 			phase,
 			lockWaitMs,
