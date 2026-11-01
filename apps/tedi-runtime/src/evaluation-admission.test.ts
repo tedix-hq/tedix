@@ -117,7 +117,53 @@ for (const change of [
 	await assert.rejects(admitEvaluation({ ...input, ...change }));
 currentAgents = "Unreviewed held-out decision";
 await assert.rejects(admitEvaluation(input), /reviewed digest/);
+await assert.rejects(
+	assertEvaluationWorkflow(env, "org-1", "tedi-1", admitted),
+	/reviewed digest/,
+);
 currentAgents = agents;
+// A lease valid before backend I/O must be checked again after that I/O.
+const expiringDuringRead = {
+	...env,
+	TEDI_STORAGE: {
+		get: async () => {
+			sqlite.exec("UPDATE work_attempts SET expires_at='2000-01-01'");
+			return { text: async () => agents };
+		},
+	},
+} as unknown as Cloudflare.Env;
+for (const invoke of [
+	() => admitEvaluation({ ...input, env: expiringDuringRead }),
+	() =>
+		assertEvaluationWorkflow(expiringDuringRead, "org-1", "tedi-1", admitted),
+]) {
+	sqlite.exec("UPDATE work_attempts SET expires_at='2999-01-01'");
+	await assert.rejects(invoke());
+}
+sqlite.exec("UPDATE work_attempts SET expires_at='2999-01-01'");
+for (const mutation of [
+	"UPDATE skill_runs SET status='canceled'",
+	"UPDATE skill_runs SET execution_epoch=1",
+]) {
+	const changedDuringRead = {
+		...env,
+		TEDI_STORAGE: {
+			get: async () => {
+				sqlite.exec(mutation);
+				return { text: async () => agents };
+			},
+		},
+	} as unknown as Cloudflare.Env;
+	for (const invoke of [
+		() => admitEvaluation({ ...input, env: changedDuringRead }),
+		() =>
+			assertEvaluationWorkflow(changedDuringRead, "org-1", "tedi-1", admitted),
+	]) {
+		sqlite.exec("UPDATE skill_runs SET status='running', execution_epoch=0");
+		await assert.rejects(invoke(), /certified/);
+	}
+}
+sqlite.exec("UPDATE skill_runs SET status='running', execution_epoch=0");
 for (const [mutation, restore] of [
 	[
 		"UPDATE skill_runs SET certification=0",

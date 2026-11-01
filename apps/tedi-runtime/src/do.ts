@@ -5,7 +5,10 @@ import {
 	type EvaluationOutcome,
 	type EvaluationDispatchEvidence,
 } from "./evaluation-evidence";
-import { assertEvaluationWorkflow } from "./evaluation-context";
+import {
+	assertEvaluationAuthority,
+	assertEvaluationWorkflow,
+} from "./evaluation-context";
 import { recordMaintenanceScheduleError } from "./runtime-diagnostics";
 import { createObjectStoreTools } from "./object-store-tools";
 import { PageToolBroker } from "@tedix/chat-transport/page-tool-broker";
@@ -3454,7 +3457,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		if (!platform) throw new Error("Evaluation evidence store is unavailable");
 		if (!dispatch?.params.evaluation)
 			throw new Error("Evaluation admission is missing");
-		await assertEvaluationWorkflow(
+		const instructionsObservation = await assertEvaluationWorkflow(
 			this.env,
 			this.state.orgId,
 			this.state.tediId,
@@ -3466,6 +3469,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			admitted: dispatch?.params.evaluation,
 			userText: dispatch?.params.userText,
 			runtimeSource: this.env.GIT_SHA,
+			instructionsObservation,
 			platform,
 		});
 		await this.ctx.storage.put(
@@ -3474,6 +3478,12 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				...attestation,
 				conversationId: dispatch.params.conversationId,
 			},
+		);
+		await assertEvaluationAuthority(
+			this.env,
+			this.state.orgId,
+			this.state.tediId,
+			dispatch.params.evaluation,
 		);
 	}
 
