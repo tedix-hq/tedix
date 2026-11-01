@@ -27,6 +27,7 @@ const dutySchema = z.object({
 	exits: z.array(z.number().finite()),
 	retryAt: timestamp.nullable(),
 	lastProblem: z.string().max(500).nullable(),
+	problemSince: timestamp.nullable().optional(),
 });
 const fileSchema = z.object({
 	version: z.literal(1),
@@ -56,6 +57,10 @@ export function recordDutyStatus(
 	const duties = readDutyStatuses(env);
 	const index = duties.findIndex((duty) => duty.id === identity.id);
 	const previous = duties[index];
+	const problem =
+		update.lastProblem === undefined
+			? previous?.lastProblem
+			: update.lastProblem;
 	const recent = (values: number[]) =>
 		values.filter((at) => at <= now && now - at < 3_600_000).slice(-1000);
 	const restarts = [...(update.restarts ?? previous?.restarts ?? [])];
@@ -78,6 +83,11 @@ export function recordDutyStatus(
 		...identity,
 		...update,
 		observedAt: new Date(now).toISOString(),
+		problemSince: problem
+			? previous?.lastProblem
+				? (previous.problemSince ?? previous.observedAt)
+				: new Date(now).toISOString()
+			: null,
 		restarts: recent(restarts),
 		exits: recent(update.exits ?? previous?.exits ?? []),
 	});
