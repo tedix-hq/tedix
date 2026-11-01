@@ -714,7 +714,13 @@ export async function executeMcpTransport(
 		// Durable turns acknowledge through the existing inject hook before the
 		// gateway deadline. Native Tasks polls top-level calls; nested Code Mode
 		// calls receive the stable pending receipt without holding the gateway.
-		if (usesInternalTediServiceBinding && mcpToolName === "run_tedi_turn") {
+		// Evaluation admission is enforced by the native MCP tool, not inject.
+		// Even malformed evaluation requests must reach that validation boundary.
+		if (
+			usesInternalTediServiceBinding &&
+			mcpToolName === "run_tedi_turn" &&
+			!Object.hasOwn(params, "evaluation")
+		) {
 			const injectUrl = new URL(mcpServerUrl);
 			injectUrl.pathname = "/hooks/inject";
 			injectUrl.search = "";
