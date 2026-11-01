@@ -1,13 +1,16 @@
 name: OSV-Scanner
 
-# Known-vulnerability scan of bun.lock (OSV-Scanner reads it natively). Results
-# go to Security > Code scanning next to CodeQL; findings do not fail the run.
+# Known-vulnerability scan of every bun.lock: the workspace and the six CMS
+# template scaffolds tenant sites are built from (OSV-Scanner reads them
+# natively). Results go to Security > Code scanning next to CodeQL; findings
+# do not fail the run.
 on:
   push:
     branches:
       - main
     paths:
       - bun.lock
+      - apps/cms/templates/*/bun.lock
       - .github/workflows/osv-scanner.yml
   schedule:
     - cron: "41 4 * * 1"
@@ -34,13 +37,19 @@ jobs:
 
       # Exits 1 when vulnerabilities are found; the SARIF check below still
       # fails the job when the scan itself broke and wrote nothing.
-      - name: Scan bun.lock
+      - name: Scan every bun.lock
         id: scan
         continue-on-error: true
         uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
         with:
           scan-args: |-
             --lockfile=bun.lock
+            --lockfile=apps/cms/templates/blog/bun.lock
+            --lockfile=apps/cms/templates/marketing/bun.lock
+            --lockfile=apps/cms/templates/native-marketing/bun.lock
+            --lockfile=apps/cms/templates/portfolio/bun.lock
+            --lockfile=apps/cms/templates/starter/bun.lock
+            --lockfile=apps/cms/templates/tedix/bun.lock
             --format=sarif
             --output-file=results.sarif
 
