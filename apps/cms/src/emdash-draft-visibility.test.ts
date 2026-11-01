@@ -25,7 +25,7 @@ vi.mock("virtual:emdash/seed", () => ({
 
 // Exercise the compiled runtime shipped in both tenant starters.
 // @ts-expect-error Emdash does not publish declarations for its internal chunk.
-import { n as TedixEmDashRuntime } from "../templates/tedix/node_modules/emdash/dist/emdash-runtime-DwezbIqQ.mjs";
+import { n as TedixEmDashRuntime } from "../templates/tedix/node_modules/emdash/dist/emdash-runtime-C8T-pZpS.mjs";
 describe("Emdash draft visibility", () => {
 	const EmDashRuntime = TedixEmDashRuntime;
 	type Runtime = InstanceType<typeof TedixEmDashRuntime>;

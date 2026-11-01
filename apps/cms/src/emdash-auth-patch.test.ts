@@ -88,12 +88,14 @@ async function provisionFirstExternalUser(providerRole: number) {
 		"createKyselyAdapter",
 		"ulid",
 		"MW_CACHE_HEADERS",
+		"resolveSessionUser",
 		`${middleware.slice(handlerStart, handlerEnd)}\nreturn handleExternalAuth;`,
 	) as (
 		provider: Authenticate,
 		adapterFactory: AdapterFactory,
 		ulid: () => string,
 		cacheHeaders: Record<string, string>,
+		resolveSessionUser: () => Promise<undefined>,
 	) => (
 		context: {
 			locals: { emdash: { db: typeof db }; user?: ProvisionedUser };
@@ -109,6 +111,7 @@ async function provisionFirstExternalUser(providerRole: number) {
 		createKyselyAdapter,
 		() => "first-user-id",
 		{ "Cache-Control": "private, no-store" },
+		async () => undefined,
 	);
 	const context = {
 		locals: { emdash: { db } } as {

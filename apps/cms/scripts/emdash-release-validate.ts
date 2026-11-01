@@ -13,6 +13,7 @@ const MARKETING_TEMPLATE_PACKAGE = "apps/cms/templates/marketing/package.json";
 const MARKETING_TEMPLATE_SEED = "apps/cms/templates/marketing/seed/seed.json";
 const CMS_RUNTIME_PACKAGE = "apps/cms-runtime/package.json";
 const CMS_RUNTIME_ENTRY = "apps/cms-runtime/src/index.ts";
+const CMS_RUNTIME_MEDIA = "apps/cms-runtime/src/tenant-media.ts";
 const TEMPLATE_CONTENT_URL = "apps/cms/templates/tedix/src/lib/content-url.ts";
 const TEMPLATE_ASTRO_CONFIG = "apps/cms/templates/tedix/astro.config.mjs";
 const MARKETING_ASTRO_CONFIG = "apps/cms/templates/marketing/astro.config.mjs";
@@ -137,6 +138,7 @@ const [
 	templateDoSqlAdapter,
 	marketingDoSqlAdapter,
 	cmsRuntimeEntry,
+	cmsRuntimeMedia,
 	networkPluginRuntimes,
 	lockfile,
 ] = await Promise.all([
@@ -166,6 +168,7 @@ const [
 	read(TEMPLATE_DO_SQL_ADAPTER),
 	read(MARKETING_DO_SQL_ADAPTER),
 	read(CMS_RUNTIME_ENTRY),
+	read(CMS_RUNTIME_MEDIA),
 	Promise.all(NETWORK_PLUGIN_RUNTIMES.map(read)),
 	read("bun.lock"),
 ]);
@@ -308,8 +311,8 @@ const checks: Check[] = [
 	{
 		name: "image transforms inherit upstream quality defaults",
 		ok:
-			cmsRuntimeEntry.includes("resolveTransformQuality") &&
-			cmsRuntimeEntry.includes("effectiveQuality !== undefined"),
+			cmsRuntimeMedia.includes("resolveTransformQuality") &&
+			cmsRuntimeMedia.includes("effectiveQuality !== undefined"),
 		detail:
 			"the parent /_image endpoint should use Emdash's format-aware transform quality resolver.",
 	},

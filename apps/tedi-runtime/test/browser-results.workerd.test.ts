@@ -6,6 +6,7 @@ import { Lifecycle } from "agents/lifecycle";
 import { expect, it } from "vite-plus/test";
 import { z } from "zod";
 import {
+	BROWSER_RESTARTED_NOTE,
 	createTediBrowser,
 	createTediBrowserSession,
 	browserSessionRuntimeEvent,
@@ -244,7 +245,6 @@ it("reuses the Lifecycle-installed named browser across turns and restarts after
 				{} as never,
 			) as Promise<{
 				result: { tabs: string[]; cookies: string[] };
-				restarted?: true;
 				notice?: string;
 			}>;
 		const first = await exec(turn(), "write");
@@ -254,15 +254,14 @@ it("reuses the Lifecycle-installed named browser across turns and restarts after
 			cookies: ["signed-in"],
 		});
 		expect(second.result).toEqual(first.result);
-		expect(second.restarted).toBeUndefined();
+		expect(second.notice).toBeUndefined();
 		expect(created).toBe(1);
 		// Forced expiry: the provider has reclaimed the browser.
 		alive.clear();
 		const session = turn();
 		const third = await exec(session);
 		expect(third.result).toEqual({ tabs: [], cookies: [] });
-		expect(third.restarted).toBe(true);
-		expect(third.notice).toContain("restarted");
+		expect(third.notice).toContain(BROWSER_RESTARTED_NOTE);
 		expect(events.map((event) => event.kind)).toEqual([
 			"opened",
 			"reused",
@@ -275,7 +274,7 @@ it("reuses the Lifecycle-installed named browser across turns and restarts after
 		const model = await session.tools.browser_execute!.toModelOutput!({
 			output: third,
 		} as never);
-		expect(JSON.stringify(model)).toContain('"restarted":true');
+		expect(JSON.stringify(model)).toContain(BROWSER_RESTARTED_NOTE);
 		expect(JSON.stringify(model)).not.toMatch(/session-[12]|devtools|liveView/);
 		expect(
 			budget.persistentMinutes(new Date(Date.now() + 600_000)).minutes,
@@ -283,7 +282,7 @@ it("reuses the Lifecycle-installed named browser across turns and restarts after
 		// A renamed policy still governs the same installed Browser.
 		policy.name = "next-task";
 		policy.keepAliveMs = 60_000;
-		expect((await exec(turn())).restarted).toBe(true);
+		expect((await exec(turn())).notice).toContain(BROWSER_RESTARTED_NOTE);
 		expect(keepAlives).toEqual(["300000", "300000", "60000"]);
 	});
 });

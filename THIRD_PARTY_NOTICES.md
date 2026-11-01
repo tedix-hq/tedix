@@ -6,7 +6,7 @@ as "a patch to <package> <version>" (`bun run oss:check` enforces it).
 
 ## cloudflare-agents-facet-lifecycle-alarm-transport
 
-Includes a patch to agents 0.30.1 that routes private facet Lifecycle alarms through registered parent-owned native jobs while preserving original facet class and path identity, Copyright (c) 2025 Cloudflare, Inc., under the MIT License.
+Includes a patch to agents 0.32.0 that routes private facet Lifecycle alarms through registered parent-owned native jobs while preserving original facet class and path identity, Copyright (c) 2025 Cloudflare, Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/cloudflare-agents-MIT.txt`)
 
@@ -30,19 +30,19 @@ License: MIT (`apps/cms/templates/blog/LICENSE`)
 
 ## emdash-cloudflare-collection-deletion-guard
 
-Includes a patch to @emdash-cms/cloudflare 1.3.1 that guards collection deletion and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to @emdash-cms/cloudflare 1.4.0 that guards collection deletion and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 ## emdash-core-collection-deletion-guard
 
-Includes a patch to emdash 1.3.1 that preserves guarded collection deletion, import fencing, the Durable Object transaction bypass, external provider roles for first users, native atomic menu replacement, and normalized content validation on publish and revision restore, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to emdash 1.4.0 that preserves guarded collection deletion, import fencing, the Durable Object transaction bypass, external provider roles for first users, native atomic menu replacement, and normalized content validation on publish and revision restore, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 
 ## emdash-forms-submission-privacy-and-retention
 
-Includes a patch to @emdash-cms/plugin-forms 0.2.11 that excludes raw visitor IPs from stored submissions and defaults new forms to 30-day retention, Copyright 2026 Cloudflare Inc., under the MIT License.
+Includes a patch to @emdash-cms/plugin-forms 0.2.12 that excludes raw visitor IPs from stored submissions, defaults new forms to 30-day retention, keeps form and submission routes admin-only and widens the Kumo peer range, Copyright 2026 Cloudflare Inc., under the MIT License.
 
 License: MIT (`LICENSES/third-party/emdash-cloudflare-MIT.txt`)
 

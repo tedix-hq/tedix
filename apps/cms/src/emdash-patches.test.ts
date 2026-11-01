@@ -9,12 +9,22 @@ const read = (path: string) =>
 	readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
 
 const sections = (patch: string) => patch.split(/^(?=diff --git )/m).slice(1);
+const patches = JSON.parse(read("package.json")).patchedDependencies as Record<
+	string,
+	string
+>;
+const patchFor = (name: string) => {
+	const entry = Object.entries(patches).find(([key]) =>
+		key.startsWith(`${name}@`),
+	);
+	if (!entry) throw new Error(`no root patch for ${name}`);
+	return entry[1].replace(/^patches\//, "");
+};
+const cloudflarePatch = patchFor("@emdash-cms/cloudflare");
+const emdashPatch = patchFor("emdash");
 
 describe("starter Emdash patches", () => {
-	for (const name of [
-		"@emdash-cms/cloudflare@1.3.1.patch",
-		"emdash@1.3.1.patch",
-	]) {
+	for (const name of [cloudflarePatch, emdashPatch]) {
 		it(`tedix starter copies patches/${name} byte for byte`, () => {
 			expect(read(`apps/cms/templates/tedix/patches/${name}`)).toBe(
 				read(`patches/${name}`),
@@ -23,10 +33,9 @@ describe("starter Emdash patches", () => {
 	}
 
 	it("marketing starter copies the cloudflare patch byte for byte", () => {
-		const name = "@emdash-cms/cloudflare@1.3.1.patch";
-		expect(read(`apps/cms/templates/marketing/patches/${name}`)).toBe(
-			read(`patches/${name}`),
-		);
+		expect(
+			read(`apps/cms/templates/marketing/patches/${cloudflarePatch}`),
+		).toBe(read(`patches/${cloudflarePatch}`));
 	});
 
 	// Marketing adds one hunk of its own: it drops Emdash's deferred
@@ -35,9 +44,9 @@ describe("starter Emdash patches", () => {
 	// bundle. Every root hunk must still be present unchanged.
 	it("marketing starter emdash patch contains every root hunk", () => {
 		const marketing = new Set(
-			sections(read("apps/cms/templates/marketing/patches/emdash@1.3.1.patch")),
+			sections(read(`apps/cms/templates/marketing/patches/${emdashPatch}`)),
 		);
-		for (const section of sections(read("patches/emdash@1.3.1.patch"))) {
+		for (const section of sections(read(`patches/${emdashPatch}`))) {
 			expect(marketing.has(section)).toBe(true);
 		}
 	});

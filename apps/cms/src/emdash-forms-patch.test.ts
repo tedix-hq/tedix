@@ -81,7 +81,7 @@ describe.each(starters)(
 			);
 			const { code } = await transform(source, { filename: "FormEmbed.astro" });
 			expect(code).toContain(
-				'$$addAttribute(form.settings.submitLabel, "data-submit-label")',
+				'$$addAttribute(form.settings.submitLabel || "Submit", "data-submit-label")',
 			);
 		});
 
@@ -224,14 +224,17 @@ describe.each(starters)(
 );
 
 it("ships the same Forms patch to both standalone starters", () => {
-	const patch = (slug: string) =>
-		readFileSync(
-			new URL(
-				`../templates/${slug}/patches/@emdash-cms/plugin-forms@0.2.11.patch`,
-				import.meta.url,
-			),
-			"utf8",
-		);
+	const patch = (slug: string) => {
+		const url = (path: string) =>
+			new URL(`../templates/${slug}/${path}`, import.meta.url);
+		const { patchedDependencies } = JSON.parse(
+			readFileSync(url("package.json"), "utf8"),
+		) as { patchedDependencies: Record<string, string> };
+		const [, path] = Object.entries(patchedDependencies).find(([key]) =>
+			key.startsWith("@emdash-cms/plugin-forms@"),
+		)!;
+		return readFileSync(url(path), "utf8");
+	};
 	expect(patch("tedix")).toBe(patch("marketing"));
 });
 

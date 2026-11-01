@@ -10,6 +10,7 @@ import {
 	BROWSER_EXECUTE_USAGE_HEADING,
 	BROWSER_RESTARTED_NOTE,
 	type BrowserLaunchMarkerStore,
+	SDK_RESTARTED_NOTICE,
 	type BrowserSessionLifecycleEvent,
 	browserSessionRuntimeEvent,
 	browserSessionSignature,
@@ -91,7 +92,7 @@ const mockBrowserTool = ((options: { browser: unknown }) => ({
 		return {
 			result: resolved.sessionId,
 			...(previous !== undefined && previous !== resolved.sessionId
-				? { restarted: true as const }
+				? { notice: `${SDK_RESTARTED_NOTICE} before this run.` }
 				: {}),
 		};
 	},
@@ -123,7 +124,9 @@ const execute = async (session: ReturnType<typeof turn>) =>
 	(await session.tools.browser_execute!.execute!(
 		{ code: "1" } as never,
 		{} as never,
-	)) as { result: string; restarted?: true; notice?: string };
+	)) as { result: string; notice?: string };
+const restarted = (output: { notice?: string }) =>
+	output.notice?.startsWith(BROWSER_RESTARTED_NOTE) === true;
 
 const kinds = (events: BrowserSessionLifecycleEvent[]) =>
 	events.map((event) => event.kind);
@@ -140,7 +143,6 @@ const kinds = (events: BrowserSessionLifecycleEvent[]) =>
 	const second = await execute(turn(store, run, { events }));
 	assert.equal(first.result, "session-1");
 	assert.equal(second.result, "session-1");
-	assert.equal(second.restarted, undefined);
 	assert.equal(second.notice, undefined);
 	assert.equal(run.created(), 1);
 	assert.deepEqual(kinds(events), ["opened", "reused"]);
@@ -165,8 +167,7 @@ const kinds = (events: BrowserSessionLifecycleEvent[]) =>
 	run.alive.clear();
 	const result = await execute(turn(store, run, { events }));
 	assert.equal(result.result, "session-2");
-	assert.equal(result.restarted, true);
-	assert.ok(result.notice?.startsWith(BROWSER_RESTARTED_NOTE));
+	assert.ok(restarted(result));
 	assert.deepEqual(kinds(events), ["restarted"]);
 }
 
@@ -203,7 +204,7 @@ const allowHttpbin = [
 		turn(store, run, { events: changed, hostnamePolicies: narrowed }),
 	);
 	assert.equal(result.result, "session-3");
-	assert.equal(result.restarted, true);
+	assert.ok(restarted(result));
 	assert.deepEqual(run.launches.at(-1), {
 		guardrails: { allowedDomains: ["httpbin.org"] },
 	});
@@ -348,7 +349,7 @@ assert.equal(
 	assert.equal(gateCleared, 1);
 	assert.equal(run.alive.size, 0);
 	const next = await execute(session);
-	assert.equal(next.restarted, true);
+	assert.ok(restarted(next));
 	assert.deepEqual(kinds(events), ["opened", "closed", "restarted"]);
 	const status = await tools.browser_session_status!.execute!({}, {} as never);
 	assert.deepEqual(status, {
@@ -391,8 +392,9 @@ assert.equal(
 	assert.equal(closed.kind, "browser.session.closed");
 }
 
-// browser_execute's description leads with the verified usage note in both
-// session modes, keeping the SDK's own description after it.
+// browser_execute's description leads with the Tedix usage note in both
+// session modes, keeping the SDK's own description after it. Dynamic mode
+// also lists the exact connector calls.
 {
 	const store = memoryStore();
 	const run = fakeBrowserRun();
@@ -417,12 +419,6 @@ assert.equal(
 	for (const description of [persistent, dynamic]) {
 		assert.ok(description.startsWith(BROWSER_EXECUTE_USAGE_HEADING));
 		for (const call of [
-			"cdp.send({ method, params, sessionId })",
-			"cdp.attachToTarget({ targetId })",
-			'method: "Target.createTarget"',
-			'method: "Page.navigate"',
-			'method: "Runtime.evaluate"',
-			"document.querySelector('nav a[href]')",
 			"browser_markdown({ url })",
 			"browser_extract({ url, prompt, schema })",
 			'request_browser_takeover({ reason: "login", note })',
@@ -431,8 +427,18 @@ assert.equal(
 			assert.ok(description.includes(call), call);
 		}
 	}
+	for (const call of [
+		"cdp.send({ method, params, sessionId })",
+		"cdp.attachToTarget({ targetId })",
+		'method: "Target.createTarget"',
+		'method: "Page.navigate"',
+		'method: "Runtime.evaluate"',
+		"document.querySelector('nav a[href]')",
+	]) {
+		assert.ok(dynamic.includes(call), call);
+	}
 	assert.ok(persistent.endsWith("\n\nbrowser"));
-	assert.ok(persistent.includes('sessionId: "active"'));
+	assert.ok(!persistent.includes("cdp.send"));
 	assert.ok(dynamic.includes("cdp.startSession()"));
 	assert.ok(dynamic.includes("## Available connectors"));
 }
