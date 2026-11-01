@@ -60,6 +60,7 @@ for (const context of [
 	undefined,
 	{ runId: "another-run", admittedAt: cutoff - 1 },
 	{ runId, admittedAt: cutoff + 1 },
+	{ runId, admittedAt: cutoff },
 	{ runId, admittedAt: NaN },
 ]) {
 	const result = await probe({ context });
