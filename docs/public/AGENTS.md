@@ -23,9 +23,12 @@ and `docs/public/release-status.md` for what is available today.
 
 ## Before you edit
 
-- Find the related Tedix Work Item and claim it with `tedix work start <id>`.
-  Post progress, blockers, and results there. Never invent an item or agent
-  identity. File follow-ups as Work Items, not GitHub issues or pull requests.
+- Before editing, find the matching Tedix Work Item and obtain an admitted
+  Attempt under this session's verified executor identity. Use the authenticated
+  MCP connection or a compatible CLI workflow; `tedix work start <id>` is the
+  CLI example, not a requirement to choose that surface. Post progress, blockers,
+  and results there. Never invent identity or inherit another session's Attempt.
+  File follow-ups as Work Items, not GitHub issues or pull requests.
 - Run `git worktree list`. Reuse your own worktree or create one under
   `.worktrees/` or a harness-managed location. Never use another session's
   checkout or create a sibling clone. Keep unrelated work intact.
@@ -35,6 +38,23 @@ and `docs/public/release-status.md` for what is available today.
 - Before each patch, re-read the exact lines it replaces. Do not copy context
   from memory or an earlier edit: a formatter may have changed it. Keep
   Markdown line breaks as the file has them.
+
+## Choose tools for the task
+
+Prefer the authenticated Tedix MCP connection for remote Tedix operations,
+including Work reads and engineering coordination, when it supports the required
+executor identity and scopes. A source checkout or an available CLI profile does
+not select the execution surface. See the packaged `tedix-session-guide` skill
+and its Work lifecycle reference for identity, admission and settlement.
+
+Use the Tedix CLI for local installation, hooks, directory bindings,
+supervisor/dispatcher operations, or workflows that depend on CLI-managed
+credentials and Attempt state. Local file edits, tests and Git use local tools;
+they do not inherently require the Tedix CLI. Keep Attempt lifecycle operations
+on the admitted identity and compatible surface; do not switch between MCP and
+CLI unless their session and fence handling are verified compatible. Never
+reconstruct a CLI Attempt cache by hand. A denied scope needs the normal access
+path, not a different surface to evade the denial.
 
 ## Explain things plainly
 
@@ -136,8 +156,9 @@ worktrees; `--apply` removes only merged, clean, idle ones.
 ## Use live services only when authorized
 
 A checkout gives no access to a live organization. For authorized live work,
-read `docs/public/agent-guide.md`, check `tedix auth status`, and discover the
-exact tool and input schema before calling it. Sign-in, consent, MFA, and
+read `docs/public/agent-guide.md`, verify the connection's account, organization
+and scopes (CLI example: `tedix -w <profile> auth status`), and discover the exact
+tool and input schema before calling it. Sign-in, consent, MFA, and
 required human presence belong to the person. Other approvals go to the
 designated approver.
 

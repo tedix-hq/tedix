@@ -253,6 +253,70 @@ describe("plugin packager", () => {
 		}
 	});
 
+	test("repository instructions and their public mirror use task-based routing", () => {
+		const root = readFileSync(join(ROOT, "../../AGENTS.md"), "utf8");
+		const published = readFileSync(
+			join(ROOT, "../../docs/public/AGENTS.md"),
+			"utf8",
+		);
+		expect(published.slice(published.indexOf("# Working on Tedix"))).toBe(root);
+		const text = root.replace(/\s+/g, " ");
+		expect(text).toContain(
+			"Prefer the authenticated Tedix MCP connection for remote Tedix operations",
+		);
+		expect(text).toContain(
+			"CLI example, not a requirement to choose that surface",
+		);
+		expect(text).toContain(
+			"obtain an admitted Attempt under this session's verified executor identity",
+		);
+	});
+
+	test("every host ships task-based MCP routing and compatible Attempt safeguards", () => {
+		const artifacts = [pluginRepoFiles()];
+		for (const host of ["openai", "claude"])
+			for (const local of [false, true])
+				artifacts.push(packageFiles({ host, local }));
+		const lifecyclePaths = [
+			"skills/tedix-resume-work/references/work-lifecycle.md",
+			"skills/tedix-session-guide/references/work-lifecycle.md",
+			"skills/tedix-guardian-session/references/work-lifecycle.md",
+		];
+		for (const files of artifacts) {
+			const text = (path: string) =>
+				new TextDecoder().decode(files.get(path)).replace(/\s+/g, " ");
+			const guide = text("skills/tedix-session-guide/SKILL.md");
+			expect(guide).toContain("“check work items” uses MCP even in a checkout");
+			expect(guide).toContain("“inspect the local supervisor” uses the CLI");
+			expect(guide).toContain(
+				"Before engineering mutations, verify executor identity and obtain an admitted Attempt",
+			);
+			expect(guide).toContain(
+				"Do not mix MCP-managed and CLI-managed Attempt state unless session and fence handling are verified compatible",
+			);
+			expect(guide).not.toContain(
+				"Tedix repository engineering uses the installed CLI",
+			);
+			const lifecycles = lifecyclePaths.map(text);
+			expect(new Set(lifecycles).size).toBe(1);
+			for (const lifecycle of lifecycles) {
+				expect(lifecycle).toContain(
+					"MCP start does not populate the CLI Attempt store",
+				);
+				expect(lifecycle).toContain("never reconstruct that store manually");
+				expect(lifecycle).toContain(
+					"Only a successful start grants execution authority",
+				);
+				expect(lifecycle).toContain(
+					"Stop Attempt-owned writes if its lease expires or ownership changes",
+				);
+				expect(lifecycle).toContain(
+					"never substitute an owner-host session for a different machine executor",
+				);
+			}
+		}
+	});
+
 	test("rejects symlinked skill files and directories", () =>
 		withDirectory((directory) => {
 			cpSync(ROOT, directory, { recursive: true });

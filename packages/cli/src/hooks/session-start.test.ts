@@ -438,10 +438,23 @@ describe("tedix hooks session-start", () => {
 		});
 		const text = context(output);
 		expect(text).toContain(
-			"Before you change files for a user-authorized repo task, claim its Work Item",
+			"Before you change files for a user-authorized repo task, find its matching Work Item in project project-id",
 		);
-		expect(text).toContain("--project project-id -w tedix");
-		expect(text).toContain("tedix work start <id> -w tedix");
+		expect(text).toContain(
+			"obtain an admitted Attempt under your verified executor identity",
+		);
+		expect(text).toContain("Use scoped MCP tools or a compatible CLI workflow");
+		expect(text).toContain("a checkout does not require CLI");
+		expect(text).toContain(
+			"Do not mix MCP/CLI Attempt state without verified session and fence compatibility",
+		);
+		expect(text).toContain(
+			"This does not select the execution surface or grant Work execution authority",
+		);
+		expect(text).toContain(
+			"use CLI for local integration or CLI-managed Attempt state",
+		);
+		expect(text).not.toContain("tedix work start <id>");
 		expect(text).toContain("the pre-push gate rejects a commit without it");
 		expect(text).toContain("do not re-ask permission for that task");
 		expect(text).toContain("ambiguous target or reserved decision");
