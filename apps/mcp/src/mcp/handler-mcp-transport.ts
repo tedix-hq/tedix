@@ -1031,6 +1031,54 @@ export async function executeMcpTransport(
 			}
 		}
 
+		if (
+			usesInternalTediServiceBinding &&
+			mcpToolName === "artifact_read_file" &&
+			params.evaluationInstructions === true
+		) {
+			const expectedTediId = readToolConfigExtension(
+				config,
+				"_aggregateTediId",
+			);
+			const boundary =
+				isRecord(data) && isRecord(data.evaluationReadBoundary)
+					? data.evaluationReadBoundary
+					: null;
+			const evaluationTransportReceipt = {
+				version: 1,
+				gatewaySource: String(ctx.env.GIT_SHA || "unknown"),
+				environment: String(ctx.env.ENVIRONMENT || "unknown"),
+				toolId: ctx.toolId,
+				toolInputSchemaSha256: await sha256Hex(
+					JSON.stringify(ctx.toolInputSchema ?? null),
+				),
+				configuredTarget: {
+					origin: new URL(mcpServerUrl).origin,
+					path: new URL(mcpServerUrl).pathname,
+				},
+				transport: "TEDI_SERVICE",
+				evaluationInstructions: true,
+				runtime: boundary,
+			};
+			if (
+				!isRecord(data) ||
+				data.source !== "effective_evaluation_instructions" ||
+				boundary?.evaluationInstructionsPresent !== true ||
+				boundary?.evaluationInstructions !== true ||
+				(typeof expectedTediId === "string" &&
+					boundary?.tediId !== expectedTediId)
+			)
+				return {
+					status: 502,
+					data: {
+						ok: false,
+						error: "Evaluation instruction read boundary was not confirmed",
+						evaluationTransportReceipt,
+					},
+				};
+			data = { ...data, evaluationTransportReceipt };
+		}
+
 		// Aggregate tedi tools (e.g. `cto.run_tedi_turn`) emit a tedi-run task
 		// linkage (`task: { id: runId, pollWith: "tasks/get" }`). A bare tedi-run
 		// id is indistinguishable from a kernel run at the aggregate, so namespace
