@@ -351,6 +351,17 @@ describe("plugin KV restore permits", () => {
 			};
 			expect(await closeCmsRestoreFence(platformDb, fence)).toBe(true);
 			expect(await releaseCmsRestoreFence(platformDb, fence)).toBe(false);
+			finish({ rows: [] });
+			await expect(pending).resolves.toBeUndefined();
+			// The shared row drains once its reuse window expires.
+			await vi.waitFor(
+				async () =>
+					expect(
+						(await getCmsRestoreFenceState(platformDb, fence)).inFlight,
+					).toBe(0),
+				{ timeout: 15_000 },
+			);
+			expect(await releaseCmsRestoreFence(platformDb, fence)).toBe(true);
 			for (const operation of [
 				() => bridge.kvSet("key", "denied"),
 				() => bridge.kvCompareAndSet("key", null, "denied"),
@@ -362,16 +373,6 @@ describe("plugin KV restore permits", () => {
 				);
 			}
 			expect(query).toHaveBeenCalledTimes(1);
-			finish({ rows: [] });
-			await expect(pending).resolves.toBeUndefined();
-			await vi.waitFor(
-				async () =>
-					expect(
-						(await getCmsRestoreFenceState(platformDb, fence)).inFlight,
-					).toBe(0),
-				{ timeout: 15_000 },
-			);
-			expect(await releaseCmsRestoreFence(platformDb, fence)).toBe(true);
 			const other = {
 				...scope,
 				tenantSlug: `other-${scope.tenantSlug}`,

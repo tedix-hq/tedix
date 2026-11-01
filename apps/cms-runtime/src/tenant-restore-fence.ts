@@ -97,9 +97,9 @@ export async function withCmsRestorePermit<T>(
 
 /** Storage, session and egress operations borrow the shared nested reservation
  * held by the site's database object instead of writing their own D1 row. The
- * object re-checks admission for every borrower and keeps the row until the
- * callback settles, so a restore, pause or deprovision drains it exactly as it
- * drains an exact permit. Any coordinator failure is a closed fence. */
+ * object keeps the row until the reservation expires and every callback
+ * settles, so a restore, pause or deprovision drains it exactly as it drains
+ * an exact permit. Any coordinator failure is a closed fence. */
 export async function withSharedCmsRestorePermit<T>(
 	namespace: DurableObjectNamespace,
 	identity: CmsRestoreFenceIdentity,

@@ -214,11 +214,16 @@ describe("nested tenant storage restore permits", () => {
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		// The live row still admits borrowers without a ledger read; the close
+		// waits for it to expire instead.
+		await expect(entrypoint.query("SELECT 1")).resolves.toMatchObject({
+			rows: [{ "1": 1 }],
+		});
+		await reservationExpiry();
 		await expect(entrypoint.query("SELECT 1")).rejects.toThrow(
 			"fence unavailable",
 		);
 		expect(query).not.toHaveBeenCalled();
-		await reservationExpiry();
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 	}, 20_000);
 
@@ -242,6 +247,8 @@ describe("nested tenant storage restore permits", () => {
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		await reservationExpiry();
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 		await expect(
 			entrypoint.query("UPDATE content SET title = 'closed'"),
 		).rejects.toThrow("fence unavailable");
@@ -340,13 +347,16 @@ describe("nested tenant storage restore permits", () => {
 		const fence = { ...identity, generation: "g1", captureId: "c1" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		await reservationExpiry();
+		// The expired reservation no longer admits; the running borrower keeps the row.
 		await expect(
 			entrypoint.executeCollectionDeletionGuard(input),
 		).rejects.toBeInstanceOf(CmsRestoreFenceUnavailableError);
 		expect(executeCollectionDeletionGuard).toHaveBeenCalledTimes(1);
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
 		finish({ outcome: "fenced" });
 		await expect(pending).resolves.toEqual({ outcome: "fenced" });
-		await reservationExpiry();
 		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(true);
 		await expect(entrypoint.query("SELECT 1")).rejects.toThrow(
@@ -517,7 +527,7 @@ describe("nested tenant storage restore permits", () => {
 		expect(await permitIds(identity.siteId)).toEqual([]);
 	}, 20_000);
 
-	test("a restore waits for every in-flight borrower of a shared row and refuses new ones", async () => {
+	test("a restore waits for every borrower of a shared row and refuses new ones after expiry", async () => {
 		const identity = await site();
 		const finishers: Array<() => void> = [];
 		const put = vi.fn(
@@ -536,18 +546,26 @@ describe("nested tenant storage restore permits", () => {
 		const fence = { ...identity, generation: "g1", captureId: "c1" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
+		// A borrower admitted inside the window shares the row the close drains.
+		const third = session.put("three", "value");
+		await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(3));
+		expect(await permitIds(identity.siteId)).toHaveLength(1);
+
+		finishers[0]!();
+		await first;
+		await reservationExpiry();
 		await expect(session.put("late", "value")).rejects.toBeInstanceOf(
 			CmsRestoreFenceUnavailableError,
 		);
 		await expect(tenantR2(identity).delete("media/key")).rejects.toBeInstanceOf(
 			CmsRestoreFenceUnavailableError,
 		);
-		expect(put).toHaveBeenCalledTimes(2);
-
-		finishers[0]!();
-		await first;
-		await reservationExpiry();
-		// One borrower still runs: the row outlives the reuse window.
+		expect(put).toHaveBeenCalledTimes(3);
+		// Two borrowers still run: the row outlives the reuse window.
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
+		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
+		finishers[2]!();
+		await third;
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
 		finishers[1]!();
@@ -567,7 +585,7 @@ describe("nested tenant storage restore permits", () => {
 	}, 30_000);
 
 	test.each(["pause", "deprovision"] as const)(
-		"%s refuses new borrowers and cannot drain past a live shared row",
+		"%s refuses borrowers after expiry and cannot drain past a live shared row",
 		async (operation) => {
 			const identity = await site();
 			let finish!: () => void;
@@ -590,11 +608,11 @@ describe("nested tenant storage restore permits", () => {
 					.prepare("INSERT INTO cms_deprovision_operations (id) VALUES (?)")
 					.bind(identity.siteId)
 					.run();
+			await reservationExpiry();
 			await expect(session.put("late", "value")).rejects.toBeInstanceOf(
 				CmsRestoreFenceUnavailableError,
 			);
 			expect(put).toHaveBeenCalledTimes(1);
-			await reservationExpiry();
 			expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
 			finish();
 			await pending;
@@ -666,7 +684,8 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 		counts,
 	);
 	expect(counts.revisions).toBe(0);
-	expect(counts.queries).toBe(30);
+	// One outer and one nested reservation INSERT; borrows inside the TTL read nothing.
+	expect(counts.queries).toBe(2);
 }, 20_000);
 
 test("page-cache revision changes on tenant writes but not reads", async () => {

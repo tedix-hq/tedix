@@ -5,7 +5,6 @@ import { createD1Facade } from "../test/d1-facade";
 import {
 	abortCmsCaptureCronPause,
 	assertCmsCaptureCronPause,
-	canReuseCmsRestorePermit,
 	claimCmsCaptureCronPause,
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
@@ -20,7 +19,7 @@ import {
 	releaseCmsRestoreFence,
 } from "./cms-restore-fences";
 
-function fixture(onPrepare?: (query: string) => void) {
+function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		CREATE TABLE cms_sites (
@@ -68,7 +67,7 @@ function fixture(onPrepare?: (query: string) => void) {
 		);
 	`);
 	return {
-		db: createDbQueryClient(createD1Facade(sqlite, { onPrepare })),
+		db: createDbQueryClient(createD1Facade(sqlite)),
 		sqlite,
 	};
 }
@@ -88,77 +87,6 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
-	it("checks reusable permits through indexed point lookups without scanning admission tables", async () => {
-		let query = "";
-		const { db, sqlite } = fixture((statement) => {
-			query = statement;
-		});
-		const permit = { ...one, permitId: "indexed-permit" };
-		expect(await enterCmsRestorePermit(db, permit)).toBe(true);
-		expect(await canReuseCmsRestorePermit(db, permit)).toBe(true);
-		const plan = sqlite
-			.prepare(`EXPLAIN QUERY PLAN ${query}`)
-			.all(
-				permit.permitId,
-				permit.siteId,
-				permit.slug,
-				permit.restoreEpoch,
-				permit.kind,
-			)
-			.map((row) => String(row.detail));
-		for (const table of ["permit", "site", "fence", "operation"]) {
-			expect(
-				plan.some((step) =>
-					new RegExp(`SEARCH ${table} USING (?:COVERING )?INDEX`).test(step),
-				),
-			).toBe(true);
-			expect(
-				plan.some((step) => new RegExp(`SCAN ${table}\\b`).test(step)),
-			).toBe(false);
-		}
-	});
-
-	it.each(["nested", "scheduled"] as const)(
-		"reuses only eligible claims of the exact %s kind",
-		async (kind) => {
-			const { db } = fixture();
-			const permit = { ...one, kind, permitId: "typed-reservation" };
-			expect(await enterCmsRestorePermit(db, permit)).toBe(true);
-			expect(await canReuseCmsRestorePermit(db, permit)).toBe(
-				kind === "nested",
-			);
-			expect(
-				await canReuseCmsRestorePermit(db, { ...permit, kind: "outer" }),
-			).toBe(false);
-		},
-	);
-
-	it("reuses only the exact durable reservation while its site admission is open", async () => {
-		const { db, sqlite } = fixture();
-		const permit = { ...one, permitId: "public-reservation" };
-		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
-		expect(await enterCmsRestorePermit(db, permit)).toBe(true);
-		expect(await canReuseCmsRestorePermit(db, permit)).toBe(true);
-		for (const mismatch of [
-			{ siteId: two.siteId },
-			{ slug: two.slug },
-			{ restoreEpoch: 1 },
-		])
-			expect(
-				await canReuseCmsRestorePermit(db, { ...permit, ...mismatch }),
-			).toBe(false);
-		sqlite.exec("UPDATE cms_sites SET status = 'paused' WHERE id = 'site-1'");
-		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
-		sqlite.exec("UPDATE cms_sites SET status = 'active' WHERE id = 'site-1'");
-		sqlite.exec(
-			"INSERT INTO cms_deprovision_operations (id, organization_id, slug) VALUES ('site-1', 'org-one', 'one')",
-		);
-		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
-		sqlite.exec("DELETE FROM cms_deprovision_operations");
-		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
-		expect(await canReuseCmsRestorePermit(db, permit)).toBe(false);
-	});
-
 	it("never reconciles an in-flight scheduled permit as an abandoned response", async () => {
 		const { db } = fixture();
 		const scheduled = { ...one, kind: "scheduled" as const, permitId: "cron" };
