@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.2 — 2026-11-01
+
+### Patch Changes
+
+- Retain existing human Interaction waits across runner restarts and Work edits. Add an explicit verified preexisting CI recovery result without treating old commits as newly authored changes. Preserve normal coding proof, admission and completion fences.
+- Wait for a predecessor runner to finish active Work during supervisor reinstall instead of exiting and triggering restart backoff.
+- Retry transient renewal responses without fencing the login, record redacted HTTP diagnostics, and raise one machine-specific sign-in Decision while an uncertain login can still use its valid session token.
+
 ## 0.19.1 — 2026-10-31
 
 ### Patch Changes
