@@ -2,6 +2,9 @@
 
 import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 
+import { Switch, SwitchThumb } from "@/components/ui/switch";
+import { Toggle, ToggleGroup } from "@/components/ui/toggle-group";
+
 // ─── Data constants ──────────────────────────────────────────────────────────
 
 const SERIES_14 = {
@@ -568,10 +571,21 @@ function Sparkline({
 	);
 }
 
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+function SettingsSwitch({
+	on,
+	onToggle,
+	label,
+}: {
+	on: boolean;
+	onToggle: () => void;
+	label: string;
+}) {
 	return (
-		<div
-			onClick={onToggle}
+		<Switch
+			aria-label={label}
+			checked={on}
+			className="tds-focus"
+			onCheckedChange={onToggle}
 			style={{
 				width: 32,
 				height: 18,
@@ -583,7 +597,7 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 				flexShrink: 0,
 			}}
 		>
-			<div
+			<SwitchThumb
 				style={{
 					position: "absolute",
 					top: 3,
@@ -595,7 +609,7 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
 					transition: "left 0.2s",
 				}}
 			/>
-		</div>
+		</Switch>
 	);
 }
 
@@ -730,31 +744,52 @@ function AnimatedNumber({
 	return <>{format(display)}</>;
 }
 
-function SegmentBtn({
-	label,
-	active,
-	onClick,
+function SegmentedControl<T extends string>({
+	ariaLabel,
+	onChange,
+	options,
+	value,
 }: {
-	label: string;
-	active: boolean;
-	onClick: () => void;
+	ariaLabel: string;
+	onChange: (value: T) => void;
+	options: readonly T[];
+	value: T;
 }) {
 	return (
-		<button
-			onClick={onClick}
-			style={{
-				padding: "2px 9px",
-				borderRadius: 5,
-				border: "none",
-				cursor: "pointer",
-				...MONO,
-				fontSize: 10,
-				background: active ? "rgba(168,85,247,0.2)" : "transparent",
-				color: active ? C.violetSoft : C.muted,
+		<ToggleGroup
+			aria-label={ariaLabel}
+			onValueChange={(next) => {
+				const v = next[0];
+				if (v !== undefined && v !== value) onChange(v);
 			}}
+			style={{
+				background: C.panelLight,
+				borderRadius: 7,
+				gap: 2,
+				padding: 2,
+			}}
+			value={[value]}
 		>
-			{label}
-		</button>
+			{options.map((o) => (
+				<Toggle
+					className="tds-focus tds-seg"
+					key={o}
+					style={{
+						padding: "2px 9px",
+						borderRadius: 5,
+						border: "none",
+						cursor: "pointer",
+						...MONO,
+						fontSize: 10,
+						background: value === o ? "rgba(168,85,247,0.2)" : "transparent",
+						color: value === o ? C.violetSoft : C.muted,
+					}}
+					value={o}
+				>
+					{o}
+				</Toggle>
+			))}
+		</ToggleGroup>
 	);
 }
 
@@ -886,6 +921,7 @@ function ViewOverview() {
 		>
 			{/* KPI row */}
 			<div
+				className="tds-kpi-grid"
 				style={{
 					display: "grid",
 					gridTemplateColumns: "repeat(4,1fr)",
@@ -893,7 +929,9 @@ function ViewOverview() {
 				}}
 			>
 				{kpis.map((k) => (
-					<div
+					<button
+						aria-pressed={activeKpi === k.key}
+						className="tds-focus"
 						key={k.key}
 						onClick={() => setActiveKpi(k.key)}
 						style={{
@@ -901,10 +939,12 @@ function ViewOverview() {
 							borderRadius: 13,
 							padding: "9px 11px",
 							cursor: "pointer",
+							textAlign: "left",
 							border: `1px solid ${activeKpi === k.key ? C.violet : C.border}`,
 							position: "relative",
 							overflow: "hidden",
 						}}
+						type="button"
 					>
 						<div
 							style={{
@@ -959,12 +999,13 @@ function ViewOverview() {
 							</span>
 							<Sparkline data={k.spark} color={k.color} w={54} h={18} />
 						</div>
-					</div>
+					</button>
 				))}
 			</div>
 
 			{/* Chart + sidebar */}
 			<div
+				className="tds-chart-grid"
 				style={{
 					display: "grid",
 					gridTemplateColumns: "1fr 210px",
@@ -1013,14 +1054,16 @@ function ViewOverview() {
 									{ k: "errors", label: "Errors", c: C.rose },
 								] as const
 							).map((l) => (
-								<button
+								<Toggle
+									className="tds-focus"
 									key={l.k}
-									onClick={() =>
+									onPressedChange={() =>
 										setVisible((v) => ({
 											...v,
 											[l.k]: !v[l.k as keyof typeof v],
 										}))
 									}
+									pressed={visible[l.k as keyof typeof visible]}
 									style={{
 										display: "flex",
 										alignItems: "center",
@@ -1049,27 +1092,16 @@ function ViewOverview() {
 										}}
 									/>
 									{l.label}
-								</button>
+								</Toggle>
 							))}
 							{/* Period switcher */}
-							<div
-								style={{
-									display: "flex",
-									gap: 2,
-									marginLeft: 6,
-									background: C.panelLight,
-									borderRadius: 7,
-									padding: 2,
-								}}
-							>
-								{(["7d", "14d", "30d"] as const).map((p) => (
-									<SegmentBtn
-										key={p}
-										label={p}
-										active={period === p}
-										onClick={() => setPeriod(p)}
-									/>
-								))}
+							<div style={{ marginLeft: 6 }}>
+								<SegmentedControl
+									ariaLabel="Chart period"
+									onChange={setPeriod}
+									options={["7d", "14d", "30d"]}
+									value={period}
+								/>
 							</div>
 						</div>
 					</div>
@@ -1249,7 +1281,10 @@ function ViewOverview() {
 				</div>
 
 				{/* Suggestions */}
-				<div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+				<div
+					className="tds-chart-side"
+					style={{ display: "flex", flexDirection: "column", gap: 8 }}
+				>
 					{!insightDismissed ? (
 						<div
 							style={{
@@ -1293,6 +1328,8 @@ function ViewOverview() {
 								retry cap.
 							</div>
 							<button
+								aria-expanded={insightOpen}
+								className="tds-focus"
 								onClick={() => setInsightOpen((o) => !o)}
 								style={{
 									fontSize: 10,
@@ -1305,10 +1342,12 @@ function ViewOverview() {
 									marginRight: 6,
 									...MONO,
 								}}
+								type="button"
 							>
 								Review plan
 							</button>
 							<button
+								className="tds-focus"
 								onClick={() => setInsightDismissed(true)}
 								style={{
 									fontSize: 10,
@@ -1318,6 +1357,7 @@ function ViewOverview() {
 									cursor: "pointer",
 									...MONO,
 								}}
+								type="button"
 							>
 								Dismiss
 							</button>
@@ -1504,25 +1544,14 @@ function ViewWorkflows() {
 					Workflows
 				</span>
 				<div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-					<div
-						style={{
-							display: "flex",
-							background: C.panelLight,
-							borderRadius: 7,
-							padding: 2,
-							gap: 2,
-						}}
-					>
-						{(["all", "active", "paused", "draft"] as const).map((f) => (
-							<SegmentBtn
-								key={f}
-								label={f}
-								active={filter === f}
-								onClick={() => setFilter(f)}
-							/>
-						))}
-					</div>
+					<SegmentedControl
+						ariaLabel="Filter workflows by status"
+						onChange={setFilter}
+						options={["all", "active", "paused", "draft"]}
+						value={filter}
+					/>
 					<button
+						className="tds-focus"
 						style={{
 							padding: "4px 10px",
 							borderRadius: 7,
@@ -1532,23 +1561,29 @@ function ViewWorkflows() {
 							fontSize: 11,
 							cursor: "pointer",
 						}}
+						type="button"
 					>
 						+ New workflow
 					</button>
 				</div>
 			</div>
-			<div style={{ flex: 1, overflowY: "auto" }}>
+			<div style={{ flex: 1, overflowY: "auto", overflowX: "auto" }}>
 				<table style={{ width: "100%", borderCollapse: "collapse" }}>
 					<thead>
 						<tr>
 							{cols.map(({ key, label }) => (
 								<th
+									aria-sort={
+										sort.key === key
+											? sort.dir === "asc"
+												? "ascending"
+												: "descending"
+											: "none"
+									}
 									key={key}
-									onClick={() => toggleSort(key)}
 									style={{
 										padding: "5px 7px",
 										textAlign: "left",
-										cursor: "pointer",
 										...MONO,
 										fontSize: 9,
 										color: sort.key === key ? C.violetSoft : C.muted,
@@ -1557,8 +1592,23 @@ function ViewWorkflows() {
 										whiteSpace: "nowrap",
 									}}
 								>
-									{label}
-									{sort.key === key ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+									<button
+										className="tds-focus"
+										onClick={() => toggleSort(key)}
+										style={{
+											background: "none",
+											border: "none",
+											padding: 0,
+											cursor: "pointer",
+											color: "inherit",
+											font: "inherit",
+											letterSpacing: "inherit",
+										}}
+										type="button"
+									>
+										{label}
+										{sort.key === key ? (sort.dir === "asc" ? " ↑" : " ↓") : ""}
+									</button>
 								</th>
 							))}
 						</tr>
@@ -1699,6 +1749,7 @@ function ViewAutomations() {
 				Automations
 			</div>
 			<div
+				className="tds-auto-grid"
 				style={{
 					display: "grid",
 					gridTemplateColumns: "repeat(2,1fr)",
@@ -1803,7 +1854,10 @@ function ViewKnowledge() {
 			}}
 		>
 			{/* Tree */}
-			<div style={{ width: 158, flexShrink: 0, overflowY: "auto" }}>
+			<div
+				className="tds-kb-tree"
+				style={{ width: 158, flexShrink: 0, overflowY: "auto" }}
+			>
 				{folders.map((f) => (
 					<div key={f} style={{ marginBottom: 10 }}>
 						<div
@@ -1819,7 +1873,9 @@ function ViewKnowledge() {
 							{f}
 						</div>
 						{KB_DOCS.filter((d) => d.folder === f).map((d) => (
-							<div
+							<button
+								aria-pressed={selected === d.id}
+								className="tds-focus"
 								key={d.id}
 								onClick={() => setSelected(d.id)}
 								style={{
@@ -1829,6 +1885,8 @@ function ViewKnowledge() {
 									padding: "5px 6px",
 									borderRadius: 7,
 									cursor: "pointer",
+									width: "100%",
+									textAlign: "left",
 									background:
 										selected === d.id ? "rgba(168,85,247,0.15)" : "transparent",
 									border:
@@ -1837,6 +1895,7 @@ function ViewKnowledge() {
 											: "1px solid transparent",
 									marginBottom: 2,
 								}}
+								type="button"
 							>
 								<span
 									style={{
@@ -1855,7 +1914,7 @@ function ViewKnowledge() {
 								>
 									{d.name}
 								</span>
-							</div>
+							</button>
 						))}
 					</div>
 				))}
@@ -1920,26 +1979,15 @@ function ViewIntegrations() {
 				<span style={{ fontSize: 13, fontWeight: 600, color: C.heading }}>
 					Integrations
 				</span>
-				<div
-					style={{
-						display: "flex",
-						background: C.panelLight,
-						borderRadius: 7,
-						padding: 2,
-						gap: 2,
-					}}
-				>
-					{(["all", "connected", "available"] as const).map((t) => (
-						<SegmentBtn
-							key={t}
-							label={t}
-							active={tab === t}
-							onClick={() => setTab(t)}
-						/>
-					))}
-				</div>
+				<SegmentedControl
+					ariaLabel="Filter integrations"
+					onChange={setTab}
+					options={["all", "connected", "available"]}
+					value={tab}
+				/>
 			</div>
 			<div
+				className="tds-int-grid"
 				style={{
 					display: "grid",
 					gridTemplateColumns: "repeat(4,1fr)",
@@ -2092,6 +2140,7 @@ function ViewObservability() {
 				Observability
 			</div>
 			<div
+				className="tds-obs-grid"
 				style={{
 					display: "grid",
 					gridTemplateColumns: "repeat(3,1fr)",
@@ -2302,7 +2351,7 @@ function ViewSettings() {
 							</div>
 							<div style={{ fontSize: 10, color: C.muted }}>{sub}</div>
 						</div>
-						<Toggle on={s[k]} onToggle={() => tog(k)} />
+						<SettingsSwitch label={label} on={s[k]} onToggle={() => tog(k)} />
 					</div>
 				))}
 			</div>
@@ -2322,7 +2371,10 @@ function ViewSettings() {
 			<div style={{ fontSize: 13, fontWeight: 600, color: C.heading }}>
 				Settings
 			</div>
-			<div style={{ display: "flex", gap: 10, flex: 1 }}>
+			<div
+				className="tds-settings-row"
+				style={{ display: "flex", gap: 10, flex: 1 }}
+			>
 				<Panel title="Notifications" rows={notifRows} />
 				<Panel title="Privacy & Retention" rows={privRows} />
 			</div>
@@ -2367,6 +2419,7 @@ function Dashboard() {
 		>
 			{/* Sidebar */}
 			<div
+				className="tds-sidebar"
 				style={{
 					width: 220,
 					flexShrink: 0,
@@ -2415,7 +2468,7 @@ function Dashboard() {
 							}
 						}}
 					/>
-					<div>
+					<div className="tds-brand-text">
 						<div
 							style={{
 								fontFamily: "Inter, sans-serif",
@@ -2447,18 +2500,12 @@ function Dashboard() {
 						const isHovered = hovered === n.id;
 						const isLit = isActive || isHovered;
 						return (
-							<div
-								key={n.id}
+							<button
+								aria-label={n.label}
 								aria-pressed={isActive}
-								role="button"
-								tabIndex={0}
+								className="tds-focus tds-nav-item"
+								key={n.id}
 								onClick={() => setActive(n.id)}
-								onKeyDown={(event) => {
-									if (event.key === "Enter" || event.key === " ") {
-										event.preventDefault();
-										setActive(n.id);
-									}
-								}}
 								onMouseEnter={() => setHovered(n.id)}
 								onMouseLeave={() => setHovered(null)}
 								style={{
@@ -2469,6 +2516,9 @@ function Dashboard() {
 									borderRadius: 9,
 									fontSize: 12,
 									cursor: "pointer",
+									width: "100%",
+									textAlign: "left",
+									border: "none",
 									transition:
 										"transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease",
 									background: isActive
@@ -2500,7 +2550,9 @@ function Dashboard() {
 								>
 									{n.icon}
 								</span>
-								<span style={{ flex: 1 }}>{n.label}</span>
+								<span className="tds-nav-label" style={{ flex: 1 }}>
+									{n.label}
+								</span>
 								{n.id === "workflows" && (
 									<span
 										style={{
@@ -2533,7 +2585,7 @@ function Dashboard() {
 								>
 									›
 								</span>
-							</div>
+							</button>
 						);
 					})}
 				</div>
@@ -2564,7 +2616,7 @@ function Dashboard() {
 					>
 						MK
 					</div>
-					<div>
+					<div className="tds-user-text">
 						<div style={{ fontSize: 11, color: C.body, fontWeight: 500 }}>
 							Marina K.
 						</div>
@@ -2606,6 +2658,7 @@ function Dashboard() {
 					</div>
 					{/* Search */}
 					<div
+						className="tds-search"
 						style={{
 							display: "flex",
 							alignItems: "center",
@@ -2633,7 +2686,20 @@ function Dashboard() {
 						</span>
 					</div>
 					{/* Bell */}
-					<div style={{ position: "relative", cursor: "pointer" }}>
+					<button
+						aria-label="Notifications"
+						className="tds-focus"
+						style={{
+							position: "relative",
+							cursor: "pointer",
+							background: "transparent",
+							border: "none",
+							padding: 2,
+							display: "flex",
+							alignItems: "center",
+						}}
+						type="button"
+					>
 						<svg
 							width="16"
 							height="16"
@@ -2657,9 +2723,11 @@ function Dashboard() {
 								border: `1px solid ${C.bg}`,
 							}}
 						/>
-					</div>
+					</button>
 					{/* Plus */}
-					<div
+					<button
+						aria-label="Create"
+						className="tds-focus"
 						style={{
 							width: 24,
 							height: 24,
@@ -2675,9 +2743,10 @@ function Dashboard() {
 							lineHeight: 1,
 							flexShrink: 0,
 						}}
+						type="button"
 					>
 						+
-					</div>
+					</button>
 				</div>
 				{/* View area */}
 				<div style={{ flex: 1, overflow: "hidden" }}>
@@ -2704,7 +2773,7 @@ const BULLETS = [
 
 export function TediDashboardShowcase() {
 	return (
-		<div className="mt-20 w-full">
+		<div className="mt-20 w-full tds-root">
 			<p className="mb-3 text-center text-sm text-slate-400">
 				Interactive mockup — sample data
 			</p>
@@ -2901,6 +2970,35 @@ export function TediDashboardShowcase() {
         @keyframes pulse {
           0%,100%{box-shadow:0 0 0 3px rgba(251,191,36,0.2);}
           50%{box-shadow:0 0 0 6px rgba(251,191,36,0.08);}
+        }
+        .tds-root button { font-family: inherit; }
+        .tds-focus:focus-visible { outline: 2px solid #c084fc; outline-offset: 1px; }
+        @media (pointer: coarse) {
+          .tds-seg { min-height: 26px; }
+          .tds-nav-item { min-height: 34px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .tds-root *, .tds-root *::before, .tds-root *::after {
+            transition-duration: 0.01ms !important;
+            animation-duration: 0.01ms !important;
+            animation-iteration-count: 1 !important;
+          }
+        }
+        @media (max-width: 640px) {
+          .tds-root .tds-sidebar { width: 52px !important; }
+          .tds-root .tds-brand-text,
+          .tds-root .tds-user-text,
+          .tds-root .tds-nav-label,
+          .tds-root .tds-search { display: none !important; }
+          .tds-root .tds-nav-item { justify-content: center !important; padding: 7px 4px !important; }
+          .tds-root .tds-kpi-grid { grid-template-columns: repeat(2,1fr) !important; }
+          .tds-root .tds-chart-grid { grid-template-columns: 1fr !important; }
+          .tds-root .tds-chart-side { display: none !important; }
+          .tds-root .tds-auto-grid { grid-template-columns: 1fr !important; }
+          .tds-root .tds-int-grid { grid-template-columns: repeat(2,1fr) !important; }
+          .tds-root .tds-obs-grid { grid-template-columns: 1fr !important; }
+          .tds-root .tds-kb-tree { width: 118px !important; }
+          .tds-root .tds-settings-row { flex-direction: column !important; overflow-y: auto !important; }
         }
       `}</style>
 		</div>

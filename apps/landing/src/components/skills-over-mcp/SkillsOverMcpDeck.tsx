@@ -4,12 +4,16 @@ import {
 	BookOpen,
 	ChevronRight,
 	LockKeyhole,
-	MapPin,
-	PenLine,
-	Sparkles,
 	Workflow,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import {
+	Progress,
+	ProgressIndicator,
+	ProgressTrack,
+} from "@/components/ui/progress";
 
 type Slide = {
 	id: string;
@@ -414,7 +418,17 @@ export default function SkillsOverMcpDeck() {
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.target instanceof HTMLInputElement) {
+			const { target } = event;
+			if (
+				target instanceof HTMLInputElement ||
+				target instanceof HTMLTextAreaElement ||
+				(target instanceof HTMLElement && target.isContentEditable)
+			) {
+				return;
+			}
+			// A focused nav button activates itself on Space; counting it here too
+			// would skip a slide.
+			if (event.key === " " && target instanceof HTMLButtonElement) {
 				return;
 			}
 			if (
@@ -458,26 +472,35 @@ export default function SkillsOverMcpDeck() {
 			</main>
 
 			<footer className="som-controls" aria-label="Slide navigation">
-				<button
-					type="button"
+				<Button
 					aria-label="Previous slide"
+					disabled={index === 0}
 					onClick={() => setIndex(index - 1)}
+					shape="circle"
+					size="lg"
+					variant="outline"
 				>
 					<ArrowLeft size={18} />
-				</button>
-				<div className="som-progress">
-					<div
-						style={{ width: `${((index + 1) / slides.length) * 100}%` }}
-						aria-hidden="true"
-					/>
-				</div>
-				<button
-					type="button"
+				</Button>
+				<Progress
+					aria-label="Slide progress"
+					className="w-full"
+					value={Math.round(((index + 1) / slides.length) * 100)}
+				>
+					<ProgressTrack className="h-[0.36rem] bg-[rgba(255,255,255,0.12)]">
+						<ProgressIndicator className="bg-[linear-gradient(90deg,var(--som-lime),var(--som-sky))]" />
+					</ProgressTrack>
+				</Progress>
+				<Button
 					aria-label="Next slide"
+					disabled={index === slides.length - 1}
 					onClick={() => setIndex(index + 1)}
+					shape="circle"
+					size="lg"
+					variant="outline"
 				>
 					<ArrowRight size={18} />
-				</button>
+				</Button>
 			</footer>
 		</div>
 	);
