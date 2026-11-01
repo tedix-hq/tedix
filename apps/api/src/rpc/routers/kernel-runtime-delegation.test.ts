@@ -1,5 +1,6 @@
 import "./__tests__/kernel-runtime-work-mocks";
 import { describe, expect, it, vi } from "vite-plus/test";
+import * as eventQueries from "@tedix/db/queries/kernel-runtime-events";
 import type { BaseContext } from "../orpc";
 import { kernelRuntimeTestHooks } from "./kernel-runtime/policy-normalization";
 import {
@@ -357,6 +358,102 @@ describe("kernel runtime router: delegation", () => {
 			},
 		});
 	});
+
+	it.each([
+		["empty", "events"],
+		["completed", "events"],
+		["empty", "mapping"],
+	] as const)(
+		"reconciles a healthy %s ledger after a child %s outage without false terminal writes",
+		async (recovery, outage) => {
+			const db = createKernelRuntimeDb();
+			const context = createContext(db) as BaseContext & {
+				waitUntilPromises: Promise<unknown>[];
+			};
+			const client = createKernelRuntimeClient(context);
+			kernelRuntimeTestHooks.setDelegateRunnerForTest(async (input) => ({
+				childConversationId: "agent:main:main",
+				childRunId: input.childRunId,
+				status: "queued",
+			}));
+			const result = await client.enqueueMessage({
+				conversationId: "home:test",
+				content: "Ask CPO to check the result",
+				delegateToTediId: "tedi-cpo",
+				idempotencyKey: "home-outage",
+			});
+			await Promise.all(context.waitUntilPromises);
+			const row = db.runs.find((candidate) => candidate.id === result.run.id)!;
+			if (outage === "mapping")
+				row.runtimeMetadata = {
+					...row.runtimeMetadata,
+					dispatch: "workstation-dispatched",
+				};
+			Object.assign(row, {
+				createdAt: "2000-01-01T00:00:00.000Z",
+				startedAt: "2000-01-01T00:00:00.000Z",
+				updatedAt: "2000-01-01T00:00:00.000Z",
+			});
+			const before = structuredClone({
+				row,
+				events: db.events,
+				attempts: db.workAttemptRows,
+			});
+			const readError = new Error(
+				"D1_ERROR: Failed to parse body as JSON, got: Error: Network connection lost.",
+			);
+			const mapping =
+				outage === "mapping"
+					? vi
+							.spyOn(eventQueries, "getChatDispatchMappingByIdempotencyKey")
+							.mockRejectedValue(readError)
+					: null;
+			if (outage === "events") db.controls.childRuntimeSelectError = readError;
+			try {
+				await client.readRunSet({ conversationId: "home:test", limit: 10 });
+				await client.readRun({ runId: row.id });
+				expect({
+					row,
+					events: db.events,
+					attempts: db.workAttemptRows,
+				}).toEqual(before);
+			} finally {
+				mapping?.mockRestore();
+			}
+			db.controls.childRuntimeSelectError = null;
+			if (recovery === "completed") {
+				db.runtimeEvents.push(
+					childRuntimeEvent({
+						id: "outage-answer",
+						kind: "message.completed",
+						createdAt: "2026-06-06T08:01:00.000Z",
+						payload: {
+							role: "assistant",
+							content: "The requested result is verified.",
+						},
+						runId: row.childRunId!,
+						tediId: "tedi-cpo",
+					}),
+					childRuntimeEvent({
+						id: "outage-completed",
+						kind: "run.completed",
+						createdAt: "2026-06-06T08:01:01.000Z",
+						runId: row.childRunId!,
+						tediId: "tedi-cpo",
+					}),
+				);
+			}
+			const recovered = await client.readRunSet({
+				conversationId: "home:test",
+				limit: 10,
+			});
+			expect(
+				recovered.runSet.runs.find((run) => run.id === row.id)?.status,
+			).toBe(recovery === "completed" ? "completed" : "failed");
+			if (recovery === "empty")
+				expect(db.workAttemptRows).toEqual(before.attempts);
+		},
+	);
 
 	it("enriches delegated Home messages with child runtime status", async () => {
 		const db = createKernelRuntimeDb();

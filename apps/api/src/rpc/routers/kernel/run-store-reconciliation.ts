@@ -174,6 +174,7 @@ export async function reconcileHomeRunRowsFromChildStatus(
 	context: BaseContext,
 	input: {
 		childRunStatuses: Map<string, Record<string, unknown>>;
+		unavailableChildRunKeys?: ReadonlySet<string>;
 		rows: KernelRuntimeRun[];
 	},
 ): Promise<KernelRuntimeRun[]> {
@@ -216,6 +217,11 @@ export async function reconcileHomeRunRowsFromChildStatus(
 				row.status === "canceled"
 					? await stopCanceledParentChildIfLive(context, row)
 					: null;
+			if (
+				!isTerminalHomeRunStatus(row.status as TediRunStatus) &&
+				input.unavailableChildRunKeys?.has(childKey)
+			)
+				return row;
 			if (!childRunStatus) {
 				// Home timeout is not a child terminal receipt or Attempt settlement.
 				const failure = nonNullRecord(

@@ -352,11 +352,10 @@ export async function reconcileInboxWakeRuns(
 				)
 				.map((r) => r.childRunId as string),
 		);
-		const childRunStatuses = await readChildRunStatusesForRunRows(
-			context,
-			rows,
-		);
+		const { childRunStatuses, unavailableChildRunKeys } =
+			await readChildRunStatusesForRunRows(context, rows);
 		const reconciledRows = await reconcileHomeRunRowsFromChildStatus(context, {
+			unavailableChildRunKeys,
 			childRunStatuses,
 			rows,
 		});
@@ -494,7 +493,10 @@ export async function readKernelRunRecordsForConversation(
 		}
 		throw error;
 	}
-	const childRunStatuses = await readChildRunStatusesForRunRows(context, rows);
+	const { childRunStatuses } = await readChildRunStatusesForRunRows(
+		context,
+		rows,
+	);
 	return new Map(
 		rows.map((row) => [row.id, normalizeHomeRunRecord(row, childRunStatuses)]),
 	);
