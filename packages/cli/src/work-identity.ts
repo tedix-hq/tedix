@@ -293,18 +293,13 @@ export function oauthHarnessGuard(ctx: WorkContext): BoardError | undefined {
 	return undefined;
 }
 
-/**
- * Accept and complete are owner actions. A harness that exported
- * TEDIX_EXTERNAL_AGENT for its Attempt calls them as that agent and gets a bare
- * FORBIDDEN; name the owner login as the next step.
- */
 export function ownerActionHint(ctx: WorkContext, error: BoardError): string {
 	// Native transport surfaces the gateway refusal as text ("MCP tool error:
 	// FORBIDDEN: …"), not as a typed code.
 	const forbidden =
 		error.code === "FORBIDDEN" || /\bFORBIDDEN\b/.test(error.message);
 	if (!forbidden || !ctx.authSource?.startsWith("external-agent:")) return "";
-	return "\nThis call ran as the external agent. An agent may complete only an accepted item whose latest Attempt is its own, settled succeeded with --commit, and not credentials, payment or messaging work; anything else is an owner action. Rerun with the owner login: prefix it with `env -u TEDIX_EXTERNAL_AGENT`.";
+	return "\nThis call ran as the external agent. An agent may complete an accepted item after its own latest Attempt settled succeeded; coding Work also requires --commit. Accepted credentials, payment or messaging actions remain owner-only. For an owner action, the owner can rerun with their login: prefix it with `env -u TEDIX_EXTERNAL_AGENT`.";
 }
 
 /** Next step when the server refuses an Attempt for a caller with no executor identity. */

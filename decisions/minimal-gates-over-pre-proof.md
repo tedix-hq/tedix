@@ -48,7 +48,11 @@ claim's truth.
 5. **For coding work, the commit is the record.** The pre-push hook
    (`.githooks/pre-push` → `scripts/ci/preflight-gates.mjs`) runs the tests
    related to the changed files. Demanding a separate receipt that re-proves
-   the tests ran re-implements a validation stage.
+   the tests ran re-implements a validation stage. Successful non-coding Work,
+   including read-only deployment verification, uses its settled Attempt as the
+   record; it does not need an artificial code commit. An agent can close only
+   its own latest succeeded Attempt. Credential, payment and external-message
+   actions in the title or accepted outcome remain owner-controlled.
 6. **Settled means done.** A Work Item is accepted with a plain-language "done
    looks like"; an Attempt settles with an outcome, a summary, and its commit
    shas; completion carries no evidence count and no review requirement. Legacy
