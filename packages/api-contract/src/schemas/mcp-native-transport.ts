@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { JsonValueSchema } from "./common";
 
 export const MCP_NATIVE_CATALOG_META_KEY = "com.tedix/nativeCatalog";
 export const MCP_STRUCTURED_CALL_META_KEY = "com.tedix/structuredCall";
@@ -10,7 +11,7 @@ export const McpStructuredInvocationSchema = z.strictObject({
 		.string()
 		.max(513)
 		.regex(/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/),
-	args: z.record(z.string(), z.unknown()),
+	args: z.record(z.string(), JsonValueSchema),
 });
 
 /** Advertises bootstrap discovery, never permission to call the catalog. */
