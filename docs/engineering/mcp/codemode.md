@@ -111,6 +111,16 @@ program naming explicit providers hydrates only those namespaces, while one
 calling `discover.*` gets the full catalog; `get_info`, `server/discover`, and
 `tools/list` answer from app metadata without building the aggregate.
 
+The gateway advertises `_meta["com.tedix/structuredCall"]: { version: 1 }`
+on `code` in both SDK and compact listings. Clients may send
+`{ invocation: { callable: "namespace.tool", args: {} } }` instead of `code`;
+exactly one execution form is required. The server runs a uniquely configured
+RPC read with effective `readOnlyHint: true` and no destructive hint through
+its existing provider without a sandbox. Other structured calls select the
+existing sandbox before dispatch, using a generated single-call program.
+Both paths retain the same caller checks, approvals, execution receipts and
+result bounds. Authored JavaScript always uses a fresh isolated Worker.
+
 Widget tools such as Decisions and Activity are Code Mode callables by default: a `code`
 program that calls `<namespace>.show_deck()` returns the view's `ui://`
 resource in the result metadata, and hosts that render result views show it.

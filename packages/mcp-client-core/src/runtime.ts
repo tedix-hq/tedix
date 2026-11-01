@@ -1,6 +1,8 @@
 import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
+	MCP_STRUCTURED_CALL_META_KEY,
+	McpStructuredCallCapabilitySchema,
 	McpNativeCatalogCapabilitySchema,
 	MCP_NATIVE_CATALOG_META_KEY,
 } from "@tedix/api-contract/schemas/mcp-native-transport";
@@ -1694,6 +1696,7 @@ export class TedixMcpRuntime {
 		signal?: AbortSignal,
 		embeddedSessionToken?: string,
 		resolver?: McpElicitationResolver,
+		invocation?: { callable: string; args: Record<string, unknown> },
 	): Promise<ToolExecutionOutcome> {
 		let readObservations: OwnedReadObservation[] = [];
 		let collectionReads: OwnedConnectedCollectionRead[] = [];
@@ -1701,7 +1704,7 @@ export class TedixMcpRuntime {
 			const result = await this.manager.callTool(
 				serverId,
 				"code",
-				{ code },
+				invocation ? { invocation } : { code },
 				// Turn-abort cost protection: the manager threads this into its
 				// tasks/get polling loop and fires a best-effort tasks/cancel so the
 				// upstream stops executing when the turn is aborted.
@@ -1720,7 +1723,9 @@ export class TedixMcpRuntime {
 			const normalized = unwrapCallToolResult(result, "code");
 			this.toolCallLog.push({
 				name: "code",
-				args: { code: truncate(code, 1000) },
+				args: invocation
+					? { invocation: { callable: invocation.callable } }
+					: { code: truncate(code, 1000) },
 				ok: true,
 				serverId,
 			});
@@ -1747,7 +1752,9 @@ export class TedixMcpRuntime {
 			const guidedError = codeModeErrorWithGuidance(error);
 			this.toolCallLog.push({
 				name: "code",
-				args: { code: truncate(code, 1000) },
+				args: invocation
+					? { invocation: { callable: invocation.callable } }
+					: { code: truncate(code, 1000) },
 				ok: false,
 				serverId,
 				error: guidedError.message,
@@ -2043,8 +2050,36 @@ export class TedixMcpRuntime {
 			args.args && typeof args.args === "object" && !Array.isArray(args.args)
 				? (args.args as Record<string, unknown>)
 				: {};
+		const serverId = this.selectCodeServer();
+		const tools = this.manager.listTools(serverId);
+		const advertised = tools.filter(
+			(entry) => entry.meta?.[MCP_STRUCTURED_CALL_META_KEY] !== undefined,
+		);
+		for (const entry of advertised) {
+			McpStructuredCallCapabilitySchema.parse(
+				entry.meta![MCP_STRUCTURED_CALL_META_KEY],
+			);
+			if (entry.name !== "code")
+				throw new Error("Structured invocation must belong to the code tool");
+		}
+		if (
+			advertised.length > 1 ||
+			(advertised.length &&
+				tools.filter((entry) => entry.name === "code").length !== 1)
+		)
+			throw new Error("Structured invocation tool is ambiguous");
+		if (advertised.length === 1)
+			return this.callCodeOnServer(
+				serverId,
+				"",
+				signal,
+				embeddedSessionToken,
+				resolver,
+				{ callable, args: toolArgs },
+			);
 		const [, namespace, tool] = match;
-		return await this.callCode(
+		return await this.callCodeOnServer(
+			serverId,
 			`async () => await ${namespace}.${tool}(${jsonArg(toolArgs)})`,
 			signal,
 			embeddedSessionToken,

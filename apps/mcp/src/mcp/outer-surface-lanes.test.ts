@@ -16,7 +16,10 @@ import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tool
 
 import { describe, expect, it } from "vite-plus/test";
 
-import { compactCodeModeTools } from "../codemode-fast-paths";
+import {
+	compactCodeModeTools,
+	extractRequestedCodeModeNamespaces,
+} from "../codemode-fast-paths";
 import { mcpToolsListResultTransform } from "../mcp-result-transform";
 import { SESSION_NATIVE_HOME_TOOL_IDS } from "./code-mode-native-tools";
 import { MAX_CODEMODE_DESCRIPTION_CHARS } from "./codemode-guidance";
@@ -42,7 +45,7 @@ describe("outer-surface lanes", () => {
 				Object.keys(
 					(tools[0]!.inputSchema as { properties: object }).properties,
 				).sort(),
-			).toEqual(["agentSessionId", "code"]);
+			).toEqual(["agentSessionId", "code", "invocation"]);
 			expect(tools[0]!.description).toContain(
 				"Run one async JavaScript function",
 			);
@@ -90,7 +93,10 @@ describe("outer-surface lanes", () => {
 				} as never,
 				new Headers(),
 			);
-			expect(tools[0]?._meta).toEqual({ securitySchemes });
+			expect(tools[0]?._meta).toEqual({
+				securitySchemes,
+				"com.tedix/structuredCall": { version: 1 },
+			});
 			expect(tools[0]?.securitySchemes).toEqual(securitySchemes);
 			expect(tools[0]?.annotations).toEqual({
 				readOnlyHint: false,
@@ -108,14 +114,17 @@ describe("outer-surface lanes", () => {
 				response: {
 					jsonrpc: "2.0",
 					id: 1,
-					result: { tools: [{ name: "code", _meta: { securitySchemes } }] },
+					result: { tools: [{ name: "code", _meta: tools[0]?._meta }] },
 				},
 			} as never);
 			if (!("result" in transformed))
 				throw new Error("Expected tools/list result");
 			const listed = transformed.result.tools as Array<Record<string, unknown>>;
 			expect(listed[0]?.securitySchemes).toEqual(securitySchemes);
-			expect(listed[0]?._meta).toEqual({ securitySchemes });
+			expect(listed[0]?._meta).toEqual({
+				securitySchemes,
+				"com.tedix/structuredCall": { version: 1 },
+			});
 		},
 	);
 	it("stateless fast path advertises only code (no ask) independent of caller identity", () => {
@@ -330,4 +339,35 @@ it("native opt-in remains server configuration and does not borrow caller scopes
 		}),
 	);
 	expect(tools.map((row) => row.name)).not.toContain("read_work");
+});
+
+it("hydrates the structured call namespace and keeps discovery helpers unbounded", async () => {
+	const request = (invocation: unknown, code?: string) =>
+		new Request("https://example.invalid/mcp", {
+			method: "POST",
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name: "code", arguments: { invocation, code } },
+			}),
+		});
+	expect(
+		await extractRequestedCodeModeNamespaces(
+			request({ callable: "work.list", args: {} }),
+		),
+	).toEqual(new Set(["work"]));
+	expect(
+		await extractRequestedCodeModeNamespaces(
+			request({
+				callable: "discover.describe",
+				args: { callable: "work.list" },
+			}),
+		),
+	).toBeNull();
+	expect(
+		await extractRequestedCodeModeNamespaces(
+			request({ callable: "work.list", args: {} }, "async () => 1"),
+		),
+	).toEqual(new Set());
 });

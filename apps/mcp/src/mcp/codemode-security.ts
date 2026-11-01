@@ -1,3 +1,4 @@
+import { MCP_STRUCTURED_CALL_META_KEY } from "@tedix/api-contract/schemas/mcp-native-transport";
 import { sidebarAppConfig } from "./sidebar-app";
 
 /** Outer Code Mode auth describes the app, not the union of inner tools.
@@ -30,6 +31,7 @@ export function codeModeToolMeta(
 ) {
 	return {
 		...codeModeSecurityMeta(config),
+		[MCP_STRUCTURED_CALL_META_KEY]: { version: 1 },
 		...(sidebarAppConfig(config)
 			? { ui: { visibility: ["model", "app"] } }
 			: {}),

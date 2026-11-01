@@ -1,3 +1,4 @@
+import { resolveWireAnnotations } from "./tool-registration-policy";
 /**
  * Code Mode for Tedix MCP
  *
@@ -27,6 +28,7 @@ import {
 	writeCodeModeLog,
 	type CodeModeExecutionRefs,
 	buildLazyNamespaceGroups,
+	buildNamespaceGroups,
 	runSerializedSideEffect,
 	buildRuntimeProvider,
 	withLegacyNamespaceAliases,
@@ -134,6 +136,30 @@ const UI_TOOL_COUNT = 5;
 
 const MAX_INLINE_COMPACT_TYPE_TOOLS = 300;
 
+function createExecutionRefs(): CodeModeExecutionRefs {
+	return {
+		authorizationDenial: undefined,
+		approvalResult: undefined,
+		approvalExtra: undefined,
+		approvalSource: undefined,
+		replayUnsafeBuiltinCalls: 0,
+		executionId: undefined,
+		paymentExtra: undefined,
+		paymentResponses: [],
+		rpcCallCount: 0,
+		rpcNamespaces: new Set(),
+		sideEffectQueue: Promise.resolve(),
+		failureBudget: new IdenticalFailureBudget(),
+		discoverCalls: 0,
+		discoverParameterRequests: 0,
+		toolReceipts: [],
+		skillWorkflowRunIds: new Set(),
+		readObservations: [],
+		collectionReads: [],
+		ownerHostSession: undefined,
+	};
+}
+
 // =============================================================================
 // REGISTRATION
 // =============================================================================
@@ -198,27 +224,7 @@ export async function registerCodeModeTools(
 
 	// Mutable refs for correlating code_exec → inner tool_calls and forwarding
 	// outer MCP payment proofs into inner Code Mode tool calls.
-	const executionRefs: CodeModeExecutionRefs = {
-		authorizationDenial: undefined,
-		approvalResult: undefined,
-		approvalExtra: undefined,
-		approvalSource: undefined,
-		replayUnsafeBuiltinCalls: 0,
-		executionId: undefined,
-		paymentExtra: undefined,
-		paymentResponses: [],
-		rpcCallCount: 0,
-		rpcNamespaces: new Set(),
-		sideEffectQueue: Promise.resolve(),
-		failureBudget: new IdenticalFailureBudget(),
-		discoverCalls: 0,
-		discoverParameterRequests: 0,
-		toolReceipts: [],
-		skillWorkflowRunIds: new Set(),
-		readObservations: [],
-		collectionReads: [],
-		ownerHostSession: undefined,
-	};
+	const executionRefs = createExecutionRefs();
 
 	const collisionOwners = codeModeCollisionOwners(
 		serverCtx,
@@ -423,6 +429,8 @@ export async function registerCodeModeTools(
 		),
 	);
 
+	const sandboxExecutionRefs = executionRefs;
+
 	// Register single unified code tool
 	server.registerTool(
 		"code",
@@ -435,7 +443,8 @@ export async function registerCodeModeTools(
 				serverCtx.connectionAppSlug ?? serverCtx.appSlug,
 			),
 		},
-		async ({ code, payment, agentSessionId }, ctx?: McpCtx) => {
+		async (input, ctx?: McpCtx) => {
+			const { payment } = input;
 			const extra = {
 				_meta: resolveToolRequestMeta(
 					ctx?.mcpReq?._meta,
@@ -453,6 +462,39 @@ export async function registerCodeModeTools(
 					content: [{ type: "text" as const, text: CONNECT_PAYMENT_DENIED }],
 				};
 			}
+			const {
+				code: source,
+				invocation,
+				agentSessionId,
+			} = codeModeInputSchema(
+				serverCtx.connectionAppSlug ?? serverCtx.appSlug,
+			).parse(input);
+			const code =
+				source ??
+				`async () => await ${invocation!.callable}(JSON.parse(${JSON.stringify(JSON.stringify(invocation!.args))}))`;
+			const owners = invocation
+				? [...serverCtx.loadedTools].filter(([id, tool]) => {
+						const identity = projectedToolIdentity(
+							id,
+							tool,
+							namespaceOverrides,
+						);
+						return (
+							`${identity.namespace}.${identity.safeName}` ===
+							invocation.callable
+						);
+					})
+				: [];
+			const owner = owners.length === 1 ? owners[0]![1] : undefined;
+			const annotations = owner ? resolveWireAnnotations(owner) : undefined;
+			const structuredRead =
+				invocation !== undefined &&
+				owner?.config?.transport === "rpc" &&
+				annotations?.readOnlyHint === true &&
+				annotations.destructiveHint !== true;
+			const executionRefs = structuredRead
+				? createExecutionRefs()
+				: sandboxExecutionRefs;
 			const execStart = Date.now();
 			const executionId = crypto.randomUUID();
 			const waitUntil = serverCtx.ctx.waitUntil.bind(serverCtx.ctx);
@@ -481,6 +523,11 @@ export async function registerCodeModeTools(
 							toolCount,
 							namespaceCount: accessedNamespaceCount,
 							totalDurationMs: durationMs,
+							executionMode: structuredRead
+								? "structured_read"
+								: invocation
+									? "structured_sandbox"
+									: "javascript",
 							codeLength: code.length,
 							// Cost-shape telemetry: what the model
 							// actually re-reads, and how it discovered. Without these payload
@@ -647,6 +694,52 @@ export async function registerCodeModeTools(
 						span.setAttribute("tedix.trace_id", serverCtx.traceId);
 						span.setAttribute("tedix.app_id", serverCtx.appId);
 						span.setAttribute("tedix.execution_id", executionId);
+						if (invocation) {
+							const [namespace, name] = invocation.callable.split(".");
+							const matches = getExecutionProviders().filter(
+								(provider) =>
+									provider.name === namespace &&
+									Object.hasOwn(provider.fns, name!),
+							);
+							if (matches.length !== 1)
+								return {
+									result: undefined,
+									error: "Structured callable is unavailable or ambiguous",
+								};
+							if (structuredRead) {
+								const direct = buildNamespaceGroups(
+									serverCtx,
+									namespaceOverrides,
+									executionRefs,
+									collisionKeys,
+									new Set([namespace!]),
+								).get(namespace!)!.fns[name!]!;
+								let timer: ReturnType<typeof setTimeout> | undefined;
+								try {
+									const result = await Promise.race([
+										direct(invocation.args),
+										new Promise<never>((_resolve, reject) => {
+											timer = setTimeout(
+												() =>
+													reject(
+														new Error(`Execution timed out after ${timeout}ms`),
+													),
+												timeout,
+											);
+										}),
+									]);
+									return { result };
+								} catch (error) {
+									return {
+										result: undefined,
+										error:
+											error instanceof Error ? error.message : String(error),
+									};
+								} finally {
+									if (timer !== undefined) clearTimeout(timer);
+								}
+							}
+						}
 						const executionNamespaces =
 							extractCodeModeExecutionNamespacesFromCode(code);
 						const builtins = new Set([
@@ -895,24 +988,27 @@ export async function registerCodeModeTools(
 					executionRefs.collectionReads,
 				);
 			} finally {
-				executionRefs.ownerHostSession = undefined;
-				executionRefs.approvalResult = undefined;
-				executionRefs.approvalExtra = undefined;
-				executionRefs.approvalSource = undefined;
-				executionRefs.authorizationDenial = undefined;
-				executionRefs.replayUnsafeBuiltinCalls = 0;
-				executionRefs.executionId = undefined;
-				executionRefs.paymentExtra = undefined;
-				executionRefs.paymentResponses = [];
-				executionRefs.rpcCallCount = 0;
-				executionRefs.rpcNamespaces.clear();
-				executionRefs.discoverCalls = 0;
-				executionRefs.discoverParameterRequests = 0;
-				executionRefs.toolReceipts = [];
-				executionRefs.readObservations = [];
-				executionRefs.collectionReads = [];
-				executionRefs.skillWorkflowRunIds.clear();
-				executionRefs.sideEffectQueue = Promise.resolve();
+				// A late read still owns these refs after its response times out.
+				if (!structuredRead) {
+					executionRefs.ownerHostSession = undefined;
+					executionRefs.approvalResult = undefined;
+					executionRefs.approvalExtra = undefined;
+					executionRefs.approvalSource = undefined;
+					executionRefs.authorizationDenial = undefined;
+					executionRefs.replayUnsafeBuiltinCalls = 0;
+					executionRefs.executionId = undefined;
+					executionRefs.paymentExtra = undefined;
+					executionRefs.paymentResponses = [];
+					executionRefs.rpcCallCount = 0;
+					executionRefs.rpcNamespaces.clear();
+					executionRefs.discoverCalls = 0;
+					executionRefs.discoverParameterRequests = 0;
+					executionRefs.toolReceipts = [];
+					executionRefs.readObservations = [];
+					executionRefs.collectionReads = [];
+					executionRefs.skillWorkflowRunIds.clear();
+					executionRefs.sideEffectQueue = Promise.resolve();
+				}
 			}
 		},
 	);

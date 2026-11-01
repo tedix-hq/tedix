@@ -1,6 +1,17 @@
 import * as z from "zod";
 
 export const MCP_NATIVE_CATALOG_META_KEY = "com.tedix/nativeCatalog";
+export const MCP_STRUCTURED_CALL_META_KEY = "com.tedix/structuredCall";
+export const McpStructuredCallCapabilitySchema = z.strictObject({
+	version: z.literal(1),
+});
+export const McpStructuredInvocationSchema = z.strictObject({
+	callable: z
+		.string()
+		.max(513)
+		.regex(/^[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*$/),
+	args: z.record(z.string(), z.unknown()),
+});
 
 /** Advertises bootstrap discovery, never permission to call the catalog. */
 export const McpNativeCatalogCapabilitySchema = z
