@@ -36,7 +36,7 @@ function candidates(now: Date, terminalEventId?: string, limit = 20) {
    AND attempted.timestamp > ${Math.floor((now.getTime() - RETRY_MS) / 1000)})
  AND NOT EXISTS (SELECT 1 FROM tedi_runtime_events newer
    WHERE newer.organization_id = e.organization_id AND newer.tedi_id = e.tedi_id
-   AND newer.run_id = e.run_id AND newer.created_at > e.created_at
+   AND newer.run_id = e.run_id AND newer.created_at >= e.created_at
    AND newer.kind IN ('run.started', 'run.completed', 'run.canceled'))
  ORDER BY e.created_at, e.id LIMIT ${Math.min(Math.max(limit, 1), 20)}`;
 }

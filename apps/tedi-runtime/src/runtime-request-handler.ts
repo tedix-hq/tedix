@@ -1256,7 +1256,7 @@ export async function handleRuntimeRequest(
 				!dispatch ||
 				dispatch.runId !== cancelRunId ||
 				!Number.isFinite(dispatch.admittedAt) ||
-				dispatch.admittedAt > cutoff
+				dispatch.admittedAt >= cutoff
 			) {
 				return Response.json(
 					{ success: false, error: "orphan_dispatch_unverified" },
