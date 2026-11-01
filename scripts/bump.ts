@@ -221,6 +221,42 @@ function checkVitestWorkerPool() {
 	}
 }
 
+/**
+ * Every `patchedDependencies` entry in the root and template manifests, with
+ * the range each manifest now selects. Bun skips a patch whose version no
+ * longer resolves, so an update silently drops it.
+ */
+function patchedDependencies() {
+	return ["", ...templates].flatMap((dir) => {
+		const manifest = JSON.parse(
+			readFileSync(join(root, dir, "package.json"), "utf8"),
+		) as Record<string, Record<string, string> | undefined>;
+		return Object.entries(manifest.patchedDependencies ?? {}).map(
+			([key, patch]) => {
+				const at = key.lastIndexOf("@");
+				const name = key.slice(0, at);
+				const range =
+					manifest.catalog?.[name] ??
+					manifest.dependencies?.[name] ??
+					manifest.devDependencies?.[name];
+				return {
+					name,
+					version: key.slice(at + 1),
+					patch: join(dir, patch),
+					range,
+				};
+			},
+		);
+	});
+}
+
+function stalePatches() {
+	return patchedDependencies().filter(
+		({ version, range }) =>
+			range !== undefined && range.replace(/^[~^]/, "") !== version,
+	);
+}
+
 function emdashEncryptionWired() {
 	const manifestPath = join(root, "apps/cms-runtime/package.json");
 	if (!existsSync(manifestPath)) return true;
@@ -692,6 +728,13 @@ try {
 			console.log(
 				"bump: holding Emdash updates until cms-runtime encryption wiring is ready (see apps/cms-runtime/.env.example).",
 			);
+		const patched = interactive
+			? [...new Set(patchedDependencies().map(({ name }) => name))]
+			: [];
+		if (patched.length)
+			console.log(
+				`bump: holding patched ${patched.join(", ")}; port each patch with bun run bump:latest.`,
+			);
 		const options = [
 			"--packageManager",
 			"bun",
@@ -704,12 +747,13 @@ try {
 			"latest",
 			...(interactive ? ["--interactiveSelect", "patch"] : []),
 			...(interactive ? ["--peer"] : []),
-			...(holdEmdash || holdVitest
+			...(holdEmdash || holdVitest || patched.length
 				? [
 						"--reject",
 						[
 							...(holdEmdash ? ["emdash", "@emdash-cms/*"] : []),
 							...(holdVitest ? ["vitest", "vite-plus", "vite"] : []),
+							...patched,
 						].join(","),
 					]
 				: []),
@@ -740,6 +784,11 @@ try {
 		/(^|\/)(package\.json|bun\.lock)$/.test(file),
 	);
 	if (!check && (verify || dependencyChanges)) {
+		const stale = stalePatches();
+		if (stale.length)
+			throw new Error(
+				`Bun skips a patch once its version no longer resolves. Port each patch to the selected version, rename it and its patchedDependencies key, then run bun run bump:verify:\n${stale.map(({ patch, version, range }) => `  ${patch} targets ${version}; the manifest selects ${range}`).join("\n")}`,
+			);
 		deferIncompatibleSelections();
 		await run("Install workspace dependencies", ["bun", "install"]);
 		// Only an installed vite-plus reveals the Vitest it bundles; a selection
