@@ -401,11 +401,6 @@ describe("OsQuickChat mount", () => {
 			"script[data-tedix-os-quick-chat]",
 		)!;
 		(window as unknown as { Tedix?: unknown }).Tedix = widget;
-		await act(async () => {
-			script.dispatchEvent(new Event("load"));
-			for (let tick = 0; tick < 5; tick += 1)
-				await new Promise((resolve) => setTimeout(resolve, 0));
-		});
 		let mounted = true;
 		const unmount = async () => {
 			if (!mounted) return;
@@ -415,6 +410,10 @@ describe("OsQuickChat mount", () => {
 			delete (window as unknown as { Tedix?: unknown }).Tedix;
 		};
 		cleanups.push(unmount);
+		await act(async () => {
+			script.dispatchEvent(new Event("load"));
+			await vi.waitFor(() => expect(widget.init).toHaveBeenCalledTimes(1));
+		});
 		const initOptions = () =>
 			widget.init.mock.calls[0]![0] as Record<string, unknown> & {
 				session: (input: Record<string, unknown>) => Promise<unknown>;
@@ -426,6 +425,23 @@ describe("OsQuickChat mount", () => {
 		const { script } = await mount();
 		expect(script.src).toBe("https://widget.tedix.dev/v1/loader.js?host-sdk=3");
 		expect(script.dataset.tedixPreload).toBe("open");
+	});
+
+	it("waits for widget initialization when preference hashing is delayed", async () => {
+		const digest = vi
+			.spyOn(crypto.subtle, "digest")
+			.mockImplementationOnce(async () => {
+				for (let tick = 0; tick < 10; tick += 1)
+					await new Promise((resolve) => setTimeout(resolve, 0));
+				return new Uint8Array(32).buffer;
+			});
+		try {
+			const { widget, initOptions } = await mount();
+			expect(widget.init).toHaveBeenCalledTimes(1);
+			expect(initOptions().preferenceKey).toBe("0".repeat(32));
+		} finally {
+			digest.mockRestore();
+		}
 	});
 
 	it("drops the generated subtitle that only repeats the title", async () => {
