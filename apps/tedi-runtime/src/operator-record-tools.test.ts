@@ -8,7 +8,8 @@ const api = {
 	async fetch(request: Request) {
 		trace.push("authorize");
 		assert.equal(request.headers.get("X-Tedix-Tedi-Id"), "tedi");
-		assert.equal(request.headers.get("X-Tedix-Organization-Id"), "org");
+		assert.equal(request.headers.get("X-Tedix-Org-Id"), "org");
+		assert.equal(request.headers.get("X-Tedix-Organization-Id"), null);
 		const body = (await request.json()) as { json: Record<string, unknown> };
 		assert.equal(body.json.homeRunId, "home");
 		assert.equal(body.json.runId, "child");

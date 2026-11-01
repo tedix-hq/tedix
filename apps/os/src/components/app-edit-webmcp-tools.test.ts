@@ -16,8 +16,12 @@ vi.mock("@/lib/api", () => ({
 describe("workspace Home app editing", () => {
 	it("reads the pinned files and proposes an edit in the linked chat, then refreshes Drafts", async () => {
 		api.get.mockResolvedValue({
-			gadget: { id: "app-1" },
-			currentRevision: { id: "rev-1", manifest: { entry: "tedix:runtime/v1" } },
+			gadget: { id: "app-1", name: "Evaluations", status: "active" },
+			currentRevision: {
+				id: "rev-2",
+				revision: 2,
+				manifest: { entry: "tedix:runtime/v1", config: { version: 1 } },
+			},
 		});
 		api.getCode.mockResolvedValue({
 			code: { files: { "client.js": "hello", "server.js": "server" } },
@@ -29,10 +33,12 @@ describe("workspace Home app editing", () => {
 		const tools = buildAppEditTools("workspace-1", "chat-1", refresh);
 		const read = await tools[0]!.execute({ gadgetId: "app-1" });
 		expect(JSON.stringify(read)).toContain("hello");
+		expect(JSON.stringify(read)).toContain('"revision":2');
+		expect(JSON.stringify(read)).toContain('"version":1');
 		expect(api.getCode).toHaveBeenCalledWith({
 			workspaceId: "workspace-1",
 			gadgetId: "app-1",
-			revisionId: "rev-1",
+			revisionId: "rev-2",
 		});
 		const edits = [
 			{ path: "client.js", before: "hello", after: "good morning" },

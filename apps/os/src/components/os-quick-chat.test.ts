@@ -652,7 +652,10 @@ describe("OsQuickChat mount", () => {
 			status: "completed",
 			conversationId: "home:os:c-1",
 			run: { id: "run-1", status: "completed" },
-			assistantMessage: { content: "It asks you to pick a vendor." },
+			assistantMessage: {
+				role: "assistant",
+				content: "It asks you to pick a vendor.",
+			},
 		});
 		await expect(
 			home.turn({
@@ -670,6 +673,53 @@ describe("OsQuickChat mount", () => {
 		expect(sent.conversationId).toBe("home:os:c-1");
 		expect(sent.content).toContain("What is this card about?");
 		expect(sent.content).toContain('"id":"req-1"');
+	});
+
+	it("offers the native workspace catalog to Home with typed host scope", async () => {
+		const previous = window.location.pathname;
+		const workspaceId = "11111111-1111-4111-8111-111111111111";
+		const appId = "22222222-2222-4222-8222-222222222222";
+		const pathname = `/workspace/${workspaceId}`;
+		window.history.pushState({}, "", pathname);
+		try {
+			const { initOptions } = await mount();
+			api.handlers["kernelRuntime.enqueueMessage"] = () => ({
+				status: "completed",
+				run: { id: "run-1", status: "completed" },
+				assistantMessage: {
+					role: "assistant",
+					content: "The saved version is 2.",
+				},
+			});
+			const home = initOptions().home as {
+				turn(input: Record<string, unknown>): Promise<unknown>;
+			};
+			await home.turn({
+				conversationId: "c-1",
+				text: "Read this app and the saved sheet",
+				pageContext: { pathname, entity: { type: "gadget", id: appId } },
+			});
+			const sent = calls.find(
+				(call) => call.path === "kernelRuntime.enqueueMessage",
+			)!.input as {
+				workspaceContext: unknown;
+				pageTools: Array<{ name: string }>;
+			};
+			expect(sent.workspaceContext).toEqual({
+				workspaceId,
+				workpiece: { kind: "gadget", id: appId },
+			});
+			expect(sent.pageTools.map((tool) => tool.name)).toEqual(
+				expect.arrayContaining([
+					"read_app_files",
+					"read_workspace_output",
+					"list_workspace_apps",
+					"propose_app_edit",
+				]),
+			);
+		} finally {
+			window.history.pushState({}, "", previous);
+		}
 	});
 
 	it("seeds route context from the current page after initialization", async () => {
