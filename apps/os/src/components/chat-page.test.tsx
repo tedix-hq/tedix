@@ -27,7 +27,6 @@ const chatHarness = vi.hoisted(() => ({
 const apiHarness = vi.hoisted(() => ({
 	createWorkspace: vi.fn(),
 	createFromConversation: vi.fn(),
-	readConversation: vi.fn(),
 	conversations: [] as Array<{
 		id: string;
 		title?: string;
@@ -100,11 +99,9 @@ vi.mock("@/components/chat-thread", () => ({
 		onConversationPrepared,
 		prepareNewConversation,
 		recoverPendingSend,
-		workspaceId,
 		detailsActions,
 	}: {
 		recoverPendingSend?: boolean;
-		workspaceId?: string;
 		detailsActions?: ReactNode;
 		conversationId: string | null;
 		onConversationCreated?: (
@@ -126,7 +123,6 @@ vi.mock("@/components/chat-thread", () => ({
 			<div
 				data-chat-thread={conversationId ?? "new"}
 				data-recover-pending={recoverPendingSend}
-				data-workspace-id={workspaceId}
 			>
 				{detailsActions}
 				Chat thread
@@ -151,16 +147,6 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/lib/os-query-options", () => ({
-	osQuery: {
-		kernelRuntime: {
-			listConversations: {
-				queryOptions: ({ input }: { input: { conversationId: string } }) => ({
-					queryKey: ["exact-conversation", input],
-					queryFn: () => apiHarness.readConversation(input),
-				}),
-			},
-		},
-	},
 	osQueryKeys: {
 		workspaces: () => ["os-workspaces"],
 		outputs: () => ["os-outputs"],
@@ -181,17 +167,6 @@ let cleanup: (() => Promise<void>) | undefined;
 beforeEach(() => {
 	routing.navigate.mockReset();
 	routing.search = {};
-	apiHarness.readConversation.mockReset();
-	apiHarness.readConversation.mockImplementation(
-		async ({ conversationId }: { conversationId: string }) => ({
-			conversations: [
-				apiHarness.conversations.find((row) => row.id === conversationId) ?? {
-					id: conversationId,
-					workspaceId: null,
-				},
-			],
-		}),
-	);
 });
 
 afterEach(async () => {
@@ -224,9 +199,6 @@ async function mountPage(): Promise<HTMLElement> {
 				<ChatPage />
 			</QueryClientProvider>,
 		);
-	});
-	await act(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 0));
 	});
 	return host;
 }
@@ -297,109 +269,6 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 		).toBe(CONVERSATION_ID);
 	});
 
-	it("uses the persisted conversation workspace for the same chat opened on /chat", async () => {
-		routing.search = { conversation: CONVERSATION_ID };
-		apiHarness.conversations = [
-			{ id: CONVERSATION_ID, workspaceId: WORKSPACE_ID },
-		];
-		const host = await mountPage();
-		await vi.waitFor(() =>
-			expect(
-				host
-					.querySelector("[data-chat-thread]")
-					?.getAttribute("data-workspace-id"),
-			).toBe(WORKSPACE_ID),
-		);
-		await act(async () => chatHarness.onSelect?.(null));
-		expect(
-			host
-				.querySelector("[data-chat-thread]")
-				?.hasAttribute("data-workspace-id"),
-		).toBe(false);
-	});
-
-	it.each(["older", "archived"])(
-		"resolves a %s deep link outside the visible conversation page",
-		async () => {
-			routing.search = { conversation: CONVERSATION_ID };
-			apiHarness.conversations = Array.from({ length: 50 }, (_, i) => ({
-				id: `home:new-${i}`,
-				workspaceId: null,
-			}));
-			apiHarness.readConversation.mockResolvedValue({
-				conversations: [{ id: CONVERSATION_ID, workspaceId: WORKSPACE_ID }],
-			});
-			const host = await mountPage();
-			expect(apiHarness.readConversation).toHaveBeenCalledWith({
-				conversationId: CONVERSATION_ID,
-				includeArchived: true,
-				limit: 1,
-			});
-			expect(
-				host
-					.querySelector("[data-chat-thread]")
-					?.getAttribute("data-workspace-id"),
-			).toBe(WORKSPACE_ID);
-		},
-	);
-
-	it("does not mount a composer until the exact association lookup finishes", async () => {
-		routing.search = { conversation: CONVERSATION_ID };
-		let resolve!: (value: unknown) => void;
-		apiHarness.readConversation.mockReturnValue(
-			new Promise((done) => {
-				resolve = done;
-			}),
-		);
-		const host = await mountPage();
-		expect(host.textContent).toContain("Loading conversation");
-		expect(host.querySelector("[data-chat-thread]")).toBeNull();
-		await act(async () =>
-			resolve({
-				conversations: [{ id: CONVERSATION_ID, workspaceId: WORKSPACE_ID }],
-			}),
-		);
-		await vi.waitFor(() =>
-			expect(
-				host
-					.querySelector("[data-chat-thread]")
-					?.getAttribute("data-workspace-id"),
-			).toBe(WORKSPACE_ID),
-		);
-	});
-
-	it.each(["missing", "denied"])(
-		"does not mount an unscoped composer for a %s conversation",
-		async (state) => {
-			routing.search = { conversation: CONVERSATION_ID };
-			if (state === "missing")
-				apiHarness.readConversation.mockResolvedValue({ conversations: [] });
-			else
-				apiHarness.readConversation.mockRejectedValue(
-					Object.assign(new Error("Access denied"), { code: "FORBIDDEN" }),
-				);
-			const host = await mountPage();
-			expect(host.textContent).toContain(
-				"This conversation couldn't be loaded",
-			);
-			expect(host.querySelector("[data-chat-thread]")).toBeNull();
-		},
-	);
-
-	it("does not borrow a different conversation's workspace for a global chat", async () => {
-		routing.search = { conversation: CONVERSATION_ID };
-		apiHarness.conversations = [
-			{ id: CONVERSATION_ID, workspaceId: null },
-			{ id: "home:other", workspaceId: WORKSPACE_ID },
-		];
-		const host = await mountPage();
-		expect(
-			host
-				.querySelector("[data-chat-thread]")
-				?.hasAttribute("data-workspace-id"),
-		).toBe(false);
-	});
-
 	it("selects from the list with a replace navigation, never a history push", async () => {
 		const host = await mountPage();
 		await act(async () => {
@@ -446,7 +315,7 @@ describe("ChatPage deep links (/chat?conversation=)", () => {
 			await act(async () =>
 				chatHarness.onConversationCreated?.("home:os:orion"),
 			);
-			await vi.waitFor(() => expect(activeThread(host)).toBe("home:os:orion"));
+			expect(activeThread(host)).toBe("home:os:orion");
 		},
 	);
 

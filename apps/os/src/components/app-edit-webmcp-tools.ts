@@ -21,7 +21,7 @@ export function buildAppEditTools(
 		{
 			name: "read_app_files",
 			description:
-				"Read an app's committed revision, manifest and files using an id from list_workspace_apps or the selected workpiece. The returned revision is the app version; manifest config.version is only a settings format number.",
+				"Read the current app manifest and source files before proposing an edit. Use an app id from get_workspace_overview.",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			inputSchema: {
 				type: "object",
@@ -48,9 +48,6 @@ export function buildAppEditTools(
 					return webMcpResult(
 						{
 							gadgetId: gadget.id,
-							name: gadget.name,
-							status: gadget.status,
-							revision: currentRevision.revision,
 							revisionId: currentRevision.id,
 							manifest: currentRevision.manifest,
 							files: code?.files ?? null,
