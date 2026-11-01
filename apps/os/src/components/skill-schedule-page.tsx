@@ -20,6 +20,7 @@ import {
 	scheduleUpdateConfirmation,
 	useUpdateSkillSchedule,
 } from "@/components/skill-schedule-controls";
+import { cronToHuman } from "@/components/triggers-panel";
 import { errorMessage } from "@/lib/orpc-error";
 import { Text } from "@/components/kumo/text";
 import { skillSpecificSchedulesQueryOptions } from "@/lib/os-query-options";
@@ -94,103 +95,112 @@ export function SkillSchedulePage() {
 					</Empty>
 				) : (
 					<Collection>
-						{schedules.data.schedules.map((schedule) => (
-							<li key={schedule.id} className="grid min-w-0 gap-1 px-4 py-3">
-								<span className="flex flex-wrap items-center gap-2">
-									<Text as="strong" role="body">
-										{schedule.cron}
-									</Text>
-									<Badge variant={schedule.enabled ? "success" : "outline"}>
-										{schedule.enabled ? "Enabled" : "Paused"}
-									</Badge>
+						{schedules.data.schedules.map((schedule) => {
+							const cadence = cronToHuman(schedule.cron);
+							return (
+								<li key={schedule.id} className="grid min-w-0 gap-1 px-4 py-3">
+									<span className="flex flex-wrap items-center gap-2">
+										<Text as="strong" role="body">
+											{cadence}
+										</Text>
+										{cadence === schedule.cron ? null : (
+											<Text as="span" role="label" tone="secondary">
+												{schedule.cron}
+											</Text>
+										)}
+										<Badge variant={schedule.enabled ? "success" : "outline"}>
+											{schedule.enabled ? "Enabled" : "Paused"}
+										</Badge>
+										<Text as="span" role="label" tone="secondary">
+											{tediNames[schedule.tediId] ?? "tedi"}
+										</Text>
+									</span>
 									<Text as="span" role="label" tone="secondary">
-										{tediNames[schedule.tediId] ?? "tedi"}
-									</Text>
-								</span>
-								<Text as="span" role="label" tone="secondary">
-									{!schedule.enabled
-										? "Paused · not scheduled"
-										: Number.isFinite(Date.parse(schedule.nextFireAt)) &&
-											  Date.parse(schedule.nextFireAt) > now
-											? `Next run ${relativeTime(schedule.nextFireAt, new Date(now))} · ${absoluteTime(schedule.nextFireAt)}`
-											: "Next run unavailable"}
-									{schedule.lastFireAt
-										? ` · last fired ${relativeTime(schedule.lastFireAt)}`
-										: ""}
-								</Text>
-								{schedule.lastError ? (
-									<Text as="span" role="label" tone="warning">
-										Last error: {schedule.lastError}
-									</Text>
-								) : null}
-								{schedule.lastBudgetBlockedAt ? (
-									<Text as="span" role="label" tone="warning">
-										Budget blocked {relativeTime(schedule.lastBudgetBlockedAt)}
-										{schedule.lastBudgetAdmissionClass
-											? ` · ${schedule.lastBudgetAdmissionClass.replace(/_/g, " ")}`
-											: ""}
-										{schedule.lastBudgetBlockedReason
-											? ` · ${schedule.lastBudgetBlockedReason}`
+										{!schedule.enabled
+											? "Paused · not scheduled"
+											: Number.isFinite(Date.parse(schedule.nextFireAt)) &&
+												  Date.parse(schedule.nextFireAt) > now
+												? `Next run ${relativeTime(schedule.nextFireAt, new Date(now))} · ${absoluteTime(schedule.nextFireAt)}`
+												: "Next run unavailable"}
+										{schedule.lastFireAt
+											? ` · last fired ${relativeTime(schedule.lastFireAt)}`
 											: ""}
 									</Text>
-								) : null}
-								<span className="flex flex-wrap items-center gap-2">
-									<Button
-										size="sm"
-										variant="outline"
-										disabled={update.isPending}
-										onClick={() =>
-											update.mutate({
-												id: schedule.skillId,
-												enabled: !schedule.enabled,
-											})
-										}
-									>
-										{schedule.enabled ? "Turn off" : "Turn on"}
-									</Button>
-									<Button
-										size="sm"
-										variant="outline"
-										disabled={update.isPending}
-										onClick={() => setEditing(schedule)}
-									>
-										Change time
-									</Button>
-									{schedule.lastRunId ? (
-										<Link
-											href={`/work/runs/${schedule.lastRunId}`}
-											variant="inline"
-											className="flex min-h-11 min-w-11 w-fit items-center"
-											title={
-												schedule.lastFireAt
-													? absoluteTime(schedule.lastFireAt)
-													: undefined
+									{schedule.lastError ? (
+										<Text as="span" role="label" tone="warning">
+											Last error: {schedule.lastError}
+										</Text>
+									) : null}
+									{schedule.lastBudgetBlockedAt ? (
+										<Text as="span" role="label" tone="warning">
+											Budget blocked{" "}
+											{relativeTime(schedule.lastBudgetBlockedAt)}
+											{schedule.lastBudgetAdmissionClass
+												? ` · ${schedule.lastBudgetAdmissionClass.replace(/_/g, " ")}`
+												: ""}
+											{schedule.lastBudgetBlockedReason
+												? ` · ${schedule.lastBudgetBlockedReason}`
+												: ""}
+										</Text>
+									) : null}
+									<span className="flex flex-wrap items-center gap-2">
+										<Button
+											size="sm"
+											variant="outline"
+											disabled={update.isPending}
+											onClick={() =>
+												update.mutate({
+													id: schedule.skillId,
+													enabled: !schedule.enabled,
+												})
 											}
 										>
-											Open latest run
-										</Link>
+											{schedule.enabled ? "Turn off" : "Turn on"}
+										</Button>
+										<Button
+											size="sm"
+											variant="outline"
+											disabled={update.isPending}
+											onClick={() => setEditing(schedule)}
+										>
+											Change time
+										</Button>
+										{schedule.lastRunId ? (
+											<Link
+												href={`/work/runs/${schedule.lastRunId}`}
+												variant="inline"
+												className="flex min-h-11 min-w-11 w-fit items-center"
+												title={
+													schedule.lastFireAt
+														? absoluteTime(schedule.lastFireAt)
+														: undefined
+												}
+											>
+												Open latest run
+											</Link>
+										) : null}
+									</span>
+									{notices[schedule.skillId] ? (
+										<Text
+											as="span"
+											role="label"
+											tone="secondary"
+											className="m-0"
+											aria-live="polite"
+										>
+											{notices[schedule.skillId]}
+										</Text>
 									) : null}
-								</span>
-								{notices[schedule.skillId] ? (
-									<Text
-										as="span"
-										role="label"
-										tone="secondary"
-										className="m-0"
-										aria-live="polite"
-									>
-										{notices[schedule.skillId]}
-									</Text>
-								) : null}
-								{update.isError ? (
-									<Text as="span" role="label" tone="error" className="m-0">
-										{(update.error as Error).message}
-									</Text>
-								) : null}
-							</li>
-						))}
+								</li>
+							);
+						})}
 					</Collection>
 				))}
+			{update.isError ? (
+				<p className="m-0 px-4 text-kumo-danger text-sm" role="alert">
+					{(update.error as Error).message}
+				</p>
+			) : null}
 			{editing ? (
 				<SkillScheduleDialog
 					schedule={editing}

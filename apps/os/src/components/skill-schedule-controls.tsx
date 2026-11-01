@@ -120,8 +120,11 @@ export function SkillScheduleDialog({
 		const [hour, minute] = time.split(":").map(Number);
 		return retimedCron(schedule.cron, hour ?? 0, minute ?? 0);
 	})();
+	// A cleared time input parses as 00:00; require a value rather than
+	// silently retiming to midnight.
+	const timeMissing = fixed !== null && time.trim() === "";
 	const submit = () => {
-		if (update.isPending) return;
+		if (update.isPending || timeMissing) return;
 		if (draft === schedule.cron) close();
 		else update.mutate({ id: schedule.skillId, cron: draft });
 	};
@@ -196,7 +199,7 @@ export function SkillScheduleDialog({
 						>
 							Cancel
 						</Button>
-						<Button type="submit" disabled={update.isPending}>
+						<Button type="submit" disabled={update.isPending || timeMissing}>
 							{update.isPending ? "Saving…" : "Save"}
 						</Button>
 					</DialogFooter>

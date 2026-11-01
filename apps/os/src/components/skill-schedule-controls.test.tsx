@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vite-plus/test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { SkillSchedule } from "@tedix/api-contract/contracts/cognitive";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+const mocks = vi.hoisted(() => ({ update: vi.fn() }));
+vi.mock("@/lib/api", () => ({
+	osApi: { skills: { updateSchedule: mocks.update } },
+}));
+
 import {
+	SkillScheduleDialog,
 	cronFixedTime,
 	retimedCron,
 	scheduleUpdateConfirmation,
@@ -56,5 +67,64 @@ describe("scheduleUpdateConfirmation", () => {
 				"UTC",
 			),
 		).toBe("Already off — it was not running.");
+	});
+});
+
+describe("SkillScheduleDialog", () => {
+	it("blocks Save when the time field is cleared", async () => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const node = document.createElement("div");
+		document.body.append(node);
+		const root = createRoot(node);
+		const schedule = {
+			id: "schedule",
+			organizationId: "example",
+			skillId: "alpha",
+			tediId: "worker",
+			cron: "0 9 * * *",
+			params: {},
+			enabled: true,
+			nextFireAt: "2026-10-22T09:00:00Z",
+			lastFireAt: null,
+			lastRunId: null,
+			lastError: null,
+			lastBudgetBlockedAt: null,
+			lastBudgetBlockedReason: null,
+			lastBudgetAdmissionClass: null,
+		} satisfies SkillSchedule;
+		(
+			globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+		).IS_REACT_ACT_ENVIRONMENT = true;
+		try {
+			await act(async () => {
+				root.render(
+					<QueryClientProvider client={client}>
+						<SkillScheduleDialog schedule={schedule} close={() => {}} />
+					</QueryClientProvider>,
+				);
+			});
+			const input =
+				document.querySelector<HTMLInputElement>('input[type="time"]')!;
+			expect(input.value).toBe("09:00");
+			const save = [...document.querySelectorAll("button")].find(
+				(button) => button.textContent?.trim() === "Save",
+			)!;
+			expect(save.disabled).toBe(false);
+			const setValue = Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)!.set!;
+			await act(async () => {
+				setValue.call(input, "");
+				input.dispatchEvent(new Event("input", { bubbles: true }));
+			});
+			expect(save.disabled).toBe(true);
+		} finally {
+			await act(async () => root.unmount());
+			client.clear();
+			node.remove();
+		}
 	});
 });
