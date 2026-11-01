@@ -21,6 +21,7 @@ import {
 	marketingResponse,
 } from "./marketing";
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { fixedSiteCronPauseDecision } from "./cms-site-cron-pause";
 import {
@@ -283,6 +284,10 @@ export class TenantCachedAssets extends WorkerEntrypoint<
 // four-second bound sits beyond the observed production DO query tail. Only
 // plain SELECTs are retried: writes can complete even when their reply is lost.
 const TENANT_DB_READ_TIMEOUT_MS = 4_000;
+const TENANT_DB_DIAGNOSTIC_SAMPLE_RATE = 0.01;
+const writeTenantDbDiagnostic = createTelemetryWriter(
+	"cms.tenant_db.diagnostics",
+);
 
 class TenantDbReadTimeout extends Error {
 	constructor() {
@@ -363,13 +368,17 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 		opts?: { bookmark?: string },
 	): Promise<DoQueryResult> {
 		const selectOnly = PLAIN_SELECT_PATTERN.test(sql) && !sql.includes(";");
-		// Diagnostic trace: identify the statement class and nested RPC
-		// boundary without recording SQL or parameter values.
-		console.info("[cms-runtime] tenant database query entered", {
-			tenant: this.ctx.props.name,
-			selectOnly,
-			tableGroup: tenantDbQueryFamily(sql),
-		});
+		// Keep entry/resolution breadcrumbs together; retries and failures stay unsampled.
+		const diagnostic = Math.random() < TENANT_DB_DIAGNOSTIC_SAMPLE_RATE;
+		if (diagnostic)
+			writeTenantDbDiagnostic(() =>
+				console.info("[cms-runtime] tenant database query entered", {
+					tenant: this.ctx.props.name,
+					selectOnly,
+					tableGroup: tenantDbQueryFamily(sql),
+					sampleRate: TENANT_DB_DIAGNOSTIC_SAMPLE_RATE,
+				}),
+			);
 		// Keep this WorkerEntrypoint invocation pending until the nested DO RPC settles.
 		const result = selectOnly
 			? await retryTenantDbRead(
@@ -389,10 +398,14 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 					params,
 					opts,
 				);
-		console.info("[cms-runtime] tenant database query resolved", {
-			tenant: this.ctx.props.name,
-			selectOnly,
-		});
+		if (diagnostic)
+			writeTenantDbDiagnostic(() =>
+				console.info("[cms-runtime] tenant database query resolved", {
+					tenant: this.ctx.props.name,
+					selectOnly,
+					sampleRate: TENANT_DB_DIAGNOSTIC_SAMPLE_RATE,
+				}),
+			);
 		return result;
 	}
 
@@ -405,13 +418,16 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 				PLAIN_SELECT_PATTERN.test(statement.sql) &&
 				!statement.sql.includes(";"),
 		);
-		// Diagnostic trace: Logpush keeps these lines in the same RPC
-		// invocation as a hang, without recording SQL or parameter values.
-		console.info("[cms-runtime] tenant database batch entered", {
-			tenant: this.ctx.props.name,
-			selectOnly,
-			count: statements.length,
-		});
+		const diagnostic = Math.random() < TENANT_DB_DIAGNOSTIC_SAMPLE_RATE;
+		if (diagnostic)
+			writeTenantDbDiagnostic(() =>
+				console.info("[cms-runtime] tenant database batch entered", {
+					tenant: this.ctx.props.name,
+					selectOnly,
+					count: statements.length,
+					sampleRate: TENANT_DB_DIAGNOSTIC_SAMPLE_RATE,
+				}),
+			);
 		const result = selectOnly
 			? await retryTenantDbRead(
 					() =>
@@ -428,10 +444,14 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 					statements,
 					opts,
 				);
-		console.info("[cms-runtime] tenant database batch resolved", {
-			tenant: this.ctx.props.name,
-			selectOnly,
-		});
+		if (diagnostic)
+			writeTenantDbDiagnostic(() =>
+				console.info("[cms-runtime] tenant database batch resolved", {
+					tenant: this.ctx.props.name,
+					selectOnly,
+					sampleRate: TENANT_DB_DIAGNOSTIC_SAMPLE_RATE,
+				}),
+			);
 		return result;
 	}
 }

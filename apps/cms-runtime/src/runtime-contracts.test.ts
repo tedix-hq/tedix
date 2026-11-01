@@ -1520,6 +1520,8 @@ describe("Durable Object database runtime", () => {
 	});
 
 	test("TenantEmDashDB exposes direct RPC methods", async () => {
+		vi.spyOn(Math, "random").mockReturnValue(0.5);
+		const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
 		const calls: string[] = [];
 		const stub = {
 			async queryWithRestorePermit() {
@@ -1561,9 +1563,14 @@ describe("Durable Object database runtime", () => {
 		await TenantEmDashDB.prototype.query.call(entrypoint, "SELECT 1");
 		await TenantEmDashDB.prototype.batchQuery.call(entrypoint, []);
 		expect(calls).toEqual(["query", "batchQuery"]);
+		expect(info).not.toHaveBeenCalled();
 	});
 
-	test("TenantEmDashDB logs only a fixed table group for incident traces", async () => {
+	test("TenantEmDashDB samples complete diagnostic pairs without query values", async () => {
+		const sample = vi
+			.spyOn(Math, "random")
+			.mockReturnValueOnce(0)
+			.mockReturnValue(0.5);
 		const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
 			ctx: {
@@ -1578,7 +1585,10 @@ describe("Durable Object database runtime", () => {
 			env: {
 				PLATFORM_DB: acceptingPermitD1(),
 				DB_DO: {
-					get: () => ({ queryWithRestorePermit: async () => ({ rows: [] }) }),
+					get: () => ({
+						queryWithRestorePermit: async () => ({ rows: [] }),
+						batchQueryWithRestorePermit: async () => [],
+					}),
 					idFromName: (name: string) => name,
 				},
 			},
@@ -1590,16 +1600,49 @@ describe("Durable Object database runtime", () => {
 		]);
 		expect(info).toHaveBeenCalledWith(
 			"[cms-runtime] tenant database query entered",
-			{ tenant: "tenant", selectOnly: true, tableGroup: "options" },
+			{
+				tenant: "tenant",
+				selectOnly: true,
+				tableGroup: "options",
+				sampleRate: 0.01,
+			},
 		);
+		expect(info).toHaveBeenCalledWith(
+			"[cms-runtime] tenant database query resolved",
+			{ tenant: "tenant", selectOnly: true, sampleRate: 0.01 },
+		);
+		expect(info).toHaveBeenCalledTimes(2);
+		sample.mockReturnValueOnce(0);
+		await TenantEmDashDB.prototype.batchQuery.call(entrypoint, [
+			{ sql, params: ["private-param"] },
+		]);
+		expect(info).toHaveBeenCalledWith(
+			"[cms-runtime] tenant database batch entered",
+			{ tenant: "tenant", selectOnly: true, count: 1, sampleRate: 0.01 },
+		);
+		expect(info).toHaveBeenCalledWith(
+			"[cms-runtime] tenant database batch resolved",
+			{ tenant: "tenant", selectOnly: true, sampleRate: 0.01 },
+		);
+		expect(sample).toHaveBeenCalledTimes(2);
+		expect(info).toHaveBeenCalledTimes(4);
 		const logged = JSON.stringify(info.mock.calls);
 		expect(logged).not.toContain("private-value");
 		expect(logged).not.toContain("private-param");
+		info.mockImplementation(() => {
+			throw new Error("log sink unavailable");
+		});
+		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		sample.mockReturnValueOnce(0);
+		await expect(
+			TenantEmDashDB.prototype.query.call(entrypoint, "SELECT 1"),
+		).resolves.toEqual({ rows: [] });
 	});
 
 	test("TenantEmDashDB retries a stalled SELECT RPC once", async () => {
 		vi.useFakeTimers();
-		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		vi.spyOn(Math, "random").mockReturnValue(0.5);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const query = vi
 			.fn()
 			.mockImplementationOnce(() => new Promise(() => undefined))
@@ -1627,11 +1670,16 @@ describe("Durable Object database runtime", () => {
 		await vi.advanceTimersByTimeAsync(4_000);
 		await expect(result).resolves.toEqual({ rows: [{ value: 1 }] });
 		expect(query).toHaveBeenCalledTimes(2);
+		expect(warn).toHaveBeenCalledWith(
+			"[cms-runtime] tenant database SELECT RPC timed out; retrying",
+			{ tenant: "tenant" },
+		);
 	});
 
 	test("TenantEmDashDB bounds a stalled SELECT batch and rejects a second stall", async () => {
 		vi.useFakeTimers();
-		vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		vi.spyOn(Math, "random").mockReturnValue(0.5);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const batchQuery = vi
 			.fn()
 			.mockImplementation(() => new Promise(() => undefined));
@@ -1663,9 +1711,14 @@ describe("Durable Object database runtime", () => {
 		await vi.advanceTimersByTimeAsync(8_000);
 		await assertion;
 		expect(batchQuery).toHaveBeenCalledTimes(2);
+		expect(warn).toHaveBeenCalledWith(
+			"[cms-runtime] tenant database SELECT batch RPC timed out; retrying",
+			{ tenant: "tenant" },
+		);
 	});
 
 	test("TenantEmDashDB does not retry writes or mixed batches", async () => {
+		vi.spyOn(Math, "random").mockReturnValue(0.5);
 		const query = vi.fn().mockRejectedValue(new Error("write failed"));
 		const batchQuery = vi.fn().mockRejectedValue(new Error("batch failed"));
 		const entrypoint = Object.assign(Object.create(TenantEmDashDB.prototype), {
