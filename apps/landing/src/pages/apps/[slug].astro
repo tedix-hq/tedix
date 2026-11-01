@@ -1654,22 +1654,24 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 										<div class="mb-4">
 											<label class="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 block">Endpoint</label>
 											<div class="flex items-center gap-2 p-3 rounded-lg bg-muted font-mono text-sm break-all">
-												<code class="flex-1" id="mcp-url">{app.baseUrl}</code>
+												<code class="flex-1 min-w-0" id="mcp-url">{app.baseUrl}</code>
 											<button
 												type="button"
-												class={buttonVariants({ variant: "ghost", size: "xs", className: "flex-shrink-0" })}
-													id="copy-mcp-url"
-													title="Copy URL"
-												>
-													<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-														<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-														<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-													</svg>
-													<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 check-icon hidden text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-														<polyline points="20 6 9 17 4 12"></polyline>
-													</svg>
-												</button>
-											</div>
+												class={buttonVariants({ variant: "ghost", shape: "square", className: "flex-shrink-0" })}
+												id="copy-mcp-url"
+												aria-label="Copy endpoint URL"
+												title="Copy URL"
+											>
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+													<rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+													<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+												</svg>
+												<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 check-icon hidden text-green-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+													<polyline points="20 6 9 17 4 12"></polyline>
+												</svg>
+											</button>
+										</div>
+										<p id="copy-mcp-url-status" role="status" aria-live="polite" class="mt-1 text-xs"></p>
 										</div>
 									)}
 
@@ -2016,32 +2018,46 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 
 	<!-- Copy Button Script -->
 	<script>
+	function initCopyButton() {
 		const copyBtn = document.getElementById('copy-mcp-url');
 		const mcpUrl = document.getElementById('mcp-url');
+		const copyStatus = document.getElementById('copy-mcp-url-status');
 
 		if (copyBtn && mcpUrl) {
+			if (copyBtn.dataset.copyReady === 'true') return;
+			copyBtn.dataset.copyReady = 'true';
 			copyBtn.addEventListener('click', async () => {
 				const textToCopy = mcpUrl.textContent;
-				if (textToCopy) {
-					try {
-						await navigator.clipboard.writeText(textToCopy);
-						// Toggle icons for visual feedback
-						const copyIcon = copyBtn.querySelector('.copy-icon');
-						const checkIcon = copyBtn.querySelector('.check-icon');
-						if (copyIcon && checkIcon) {
-							copyIcon.classList.add('hidden');
-							checkIcon.classList.remove('hidden');
-							setTimeout(() => {
-								copyIcon.classList.remove('hidden');
-								checkIcon.classList.add('hidden');
-							}, 2000);
-						}
-					} catch (err) {
-						console.error('Failed to copy:', err);
+				if (!textToCopy) return;
+				try {
+					await navigator.clipboard.writeText(textToCopy);
+				} catch (err) {
+					console.error('Failed to copy:', err);
+					if (copyStatus) {
+						copyStatus.textContent = 'Could not copy automatically. Select the URL and copy it manually.';
+						copyStatus.className = 'mt-1 text-xs text-red-600 dark:text-red-400';
 					}
+					return;
+				}
+				// Toggle icons for visual feedback
+				const copyIcon = copyBtn.querySelector('.copy-icon');
+				const checkIcon = copyBtn.querySelector('.check-icon');
+				if (copyIcon && checkIcon) {
+					copyIcon.classList.add('hidden');
+					checkIcon.classList.remove('hidden');
+					setTimeout(() => {
+						copyIcon.classList.remove('hidden');
+						checkIcon.classList.add('hidden');
+					}, 2000);
+				}
+				if (copyStatus) {
+					copyStatus.textContent = 'Copied to clipboard.';
+					copyStatus.className = 'mt-1 text-xs text-green-600 dark:text-green-400';
 				}
 			});
 		}
+	}
+	document.addEventListener('astro:page-load', initCopyButton);
 	</script>
 
 </BaseLayout>

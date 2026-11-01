@@ -8,6 +8,13 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Keep native dialog backdrops and popups above the landing's fixed navigation. */
+[data-base-ui-portal]:has(> [role="dialog"]),
+[data-base-ui-portal]:has(> [role="alertdialog"]) {
+	position: relative;
+	z-index: var(--tedix-layer-overlay);
+}
+
 @theme inline {
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
