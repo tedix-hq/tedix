@@ -71,6 +71,7 @@ import type {
 	HomeConversation,
 	HomeMessage,
 	HomeRun,
+	ListHomeConversationsInput,
 	RunSteeringMessage,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -1113,6 +1114,7 @@ const seedState = (): LocalState => ({
 			pinnedAt: null,
 			origin: "human",
 		},
+		delegationConversation(),
 	],
 	messages: [
 		{
@@ -4599,6 +4601,23 @@ const findConversation = (
 	if (!conversation) throw new RpcError("NOT_FOUND", "Conversation not found");
 	return conversation;
 };
+
+/** The canonical conversation row shared by the seeded delegation runs. */
+function delegationConversation(): HomeConversation {
+	return {
+		id: CONVERSATION_DELEGATION,
+		organizationId: ORG_ID,
+		title: "Revenue follow-up with Miles",
+		status: "active",
+		channel: "os",
+		workspaceId: WORKSPACE_REVENUE,
+		lastMessageAt: T5,
+		messageCount: 0,
+		createdAt: T0,
+		updatedAt: T5,
+		origin: "human",
+	};
+}
 
 /** Running and completed Home → Miles delegations (see HOME_RUN_DELEGATING). */
 function delegationRuns(): HomeRun[] {
@@ -10847,9 +10866,25 @@ const handlers: Record<string, (input: never) => unknown> = {
 	},
 
 	// --- Home / kernel runtime ---
-	"kernelRuntime/listConversations": () => ({
+	"kernelRuntime/listConversations": (
+		input: ListHomeConversationsInput = {},
+	) => ({
 		conversations: state.conversations
-			.filter((row) => row.hidden !== true)
+			.filter(
+				(row) =>
+					row.hidden !== true &&
+					(!input.organizationId ||
+						row.organizationId === input.organizationId) &&
+					(!input.conversationId || row.id === input.conversationId) &&
+					(!input.workspaceId || row.workspaceId === input.workspaceId) &&
+					(!input.channel || row.channel === input.channel) &&
+					(input.includeArchived || row.status !== "archived") &&
+					(!input.search ||
+						[row.id, row.title, row.channel].some((value) =>
+							value?.toLowerCase().includes(input.search!.toLowerCase()),
+						)),
+			)
+			.slice(0, input.limit ?? 100)
 			.map(({ hidden: _hidden, ...conversation }) => conversation),
 		nextCursor: null,
 	}),
@@ -11313,6 +11348,7 @@ function installDemoPack(): number {
 		memoryHealth: MEMORY_HEALTH,
 	} as unknown as Parameters<typeof applyDemoPack>[0]);
 	state.homeRuns.push(...delegationRuns());
+	state.conversations.push(delegationConversation());
 	// The seeded draft improves the classic revenue skill, which the sample company replaces.
 	localSkillDrafts = [];
 	installWorkViewFixtures();
@@ -11336,6 +11372,7 @@ export const LOCAL_FIXTURE_IDS = {
 	blueprintDraft: BLUEPRINT_DRAFT,
 	blueprintSupport: BLUEPRINT_SUPPORT,
 	conversationHome: CONVERSATION_HOME,
+	conversationDelegation: CONVERSATION_DELEGATION,
 	homeRunDone: HOME_RUN_DONE,
 	homeRunDelegating: HOME_RUN_DELEGATING,
 	childRunDelegating: CHILD_RUN_DELEGATING,
