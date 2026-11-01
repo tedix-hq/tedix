@@ -63,6 +63,8 @@
 		"lint-session-genericity.test.ts",
 		"lint-demo-identities.ts",
 		"lint-demo-identities.test.ts",
+		"lint-public-quality.ts",
+		"lint-public-quality.test.ts",
 		"oxc-ast.ts",
 		"oss/dependency-licenses.ts",
 		"oss/secret-scan.ts",

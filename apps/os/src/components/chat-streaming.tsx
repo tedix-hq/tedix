@@ -14,8 +14,8 @@ import { sanitizeUntrustedText } from "@/lib/untrusted-text";
  * the durable assistant treatment (no bubble — plain text on the canvas,
  * left-aligned) with one subtle streaming affordance: a pulsing caret after
  * the text while the run is still producing. `done` (the finalize event
- * arrived, durable row not yet rendered) drops the caret so the swap is
- * seamless.
+ * arrived, durable row not yet rendered) drops the caret so the swap does not
+ * jump.
  *
  * The text goes through the SAME `ChatMarkdown` the durable row uses
  * (`ChatMessageBubble`). Rendering the in-flight text raw meant every streamed

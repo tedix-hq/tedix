@@ -1,0 +1,174 @@
+{
+	"//": "Rules for scripts/lint-public-quality.ts. Patterns are JavaScript regular expressions matched per line. `include`/`exclude` are repo-relative globs; `allow` patterns suppress a match on the same line. Categories: slop (AI-generated filler in public prose), internal (information that should not be public), config (behavior that belongs in configuration, not source).",
+	"prose": [
+		"docs/public/**/*.md",
+		"**/README.md",
+		"CHANGELOG.md",
+		"CONTRIBUTING.md",
+		"apps/landing/src/**",
+		"apps/os/src/**/*.tsx",
+		"packages/cli/src/**/*.ts"
+	],
+	"source": [
+		"apps/*/src/**/*.{ts,tsx}",
+		"packages/*/src/**/*.{ts,tsx}",
+		"scripts/**/*.{ts,mjs}"
+	],
+	"tests": [
+		"**/*.test.*",
+		"**/*.spec.*",
+		"**/test/**",
+		"**/tests/**",
+		"**/__tests__/**",
+		"**/browser-tests/**",
+		"**/fixtures/**"
+	],
+	"rules": [
+		{
+			"id": "slop-marketing-words",
+			"category": "slop",
+			"message": "Marketing filler; say what it does instead",
+			"pattern": "\\b(seamless(ly)?|leverag(e|es|ing)|delve|cutting-edge|game-?changer|state-of-the-art|best-in-class|world-class|supercharge|effortless(ly)?|revolutioni[sz]e|unlock the power)\\b",
+			"flags": "i",
+			"include": ["prose"],
+			"exclude": ["tests"]
+		},
+		{
+			"id": "slop-filler-phrases",
+			"category": "slop",
+			"message": "Chat-style filler phrase",
+			"pattern": "(it'?s worth noting|in today'?s (fast-paced|digital|world)|certainly!|let'?s dive|i hope this helps|here'?s a breakdown|in conclusion,|as an ai language model)",
+			"flags": "i",
+			"include": ["prose", "**/*.md"],
+			"exclude": ["tests"]
+		},
+		{
+			"id": "slop-banned-labels",
+			"category": "slop",
+			"message": "Label AGENTS.md asks public text to avoid",
+			"pattern": "\\b(AI workers?|long-lived (workers?|agents?|assistants?|tedis?)|cognitive system)\\b",
+			"include": ["prose"],
+			"exclude": ["tests", "**/AGENTS.md"]
+		},
+		{
+			"id": "slop-narrating-comments",
+			"category": "slop",
+			"message": "Comment narrates the edit or addresses a reviewer",
+			"pattern": "^\\s*(//|#|/?\\*)\\s*(now we |as requested|per (the|your) (request|instructions)|this (function|method|file|component) (now|will) |i (have|'ve) (added|updated|changed))",
+			"flags": "i",
+			"include": ["source"],
+			"exclude": ["tests"]
+		},
+		{
+			"id": "slop-emoji",
+			"category": "slop",
+			"message": "Emoji in source or public prose",
+			"pattern": "\\p{Emoji_Presentation}",
+			"flags": "u",
+			"include": [
+				"docs/public/**/*.md",
+				"**/README.md",
+				"scripts/**/*.{ts,mjs}",
+				"apps/*/src/**/*.ts",
+				"packages/*/src/**/*.ts"
+			],
+			"exclude": ["tests"]
+		},
+		{
+			"id": "internal-local-path",
+			"category": "internal",
+			"message": "Absolute path from a developer machine",
+			"pattern": "(^|[^A-Za-z0-9])/(Users|home)/[A-Za-z][A-Za-z0-9._-]*/",
+			"include": ["**/*"],
+			"exclude": ["tests"],
+			"allow": ["/home/(tedi|runner|user|node|app)/"]
+		},
+		{
+			"id": "internal-private-links",
+			"category": "internal",
+			"message": "Link into a private planning, chat or ticket workspace",
+			"pattern": "(plan\\.ref\\.tools|slack\\.com/archives/|[a-z0-9-]+\\.atlassian\\.net/|linear\\.app/[a-z0-9-]+/(issue|project)/|notion\\.so/[a-z0-9-]+/[A-Za-z])",
+			"flags": "i",
+			"include": ["**/*"],
+			"exclude": ["tests"]
+		},
+		{
+			"id": "internal-machine-identity",
+			"category": "internal",
+			"message": "Developer machine or host name",
+			"pattern": "\\b[a-z0-9]+s?-(mbp|macbook(-pro|-air)?|imac|mac-mini)(-\\d+)?\\b",
+			"flags": "i",
+			"include": ["**/*"],
+			"exclude": ["tests"]
+		},
+		{
+			"id": "config-hardcoded-product-host",
+			"category": "config",
+			"message": "Product host belongs in environment or configuration",
+			"pattern": "https?://(os|api|mcp|app|docs|www)\\.tedix\\.(dev|com|org|tech)",
+			"include": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+			"exclude": ["tests", "**/*config*", "**/*env*", "**/*.d.ts"],
+			"allow": [
+				"^\\s*(//|\\*|/\\*)",
+				"\\benv\\.[A-Z_]+\\s*(\\|\\||\\?\\?)",
+				"process\\.env|import\\.meta\\.env"
+			]
+		},
+		{
+			"id": "config-workers-dev-url",
+			"category": "config",
+			"message": "Deployment URL belongs in Worker configuration",
+			"pattern": "https://[a-z0-9.-]+\\.workers\\.dev",
+			"include": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+			"exclude": ["tests", "**/*.d.ts"]
+		},
+		{
+			"id": "config-literal-organization-id",
+			"category": "config",
+			"message": "Organization id in source; tenant behavior belongs in D1 rows or versioned assets",
+			"pattern": "[\"\\'`]org_(?!(?:admin|member|owner|viewer|editor|default|entitlement|mismatch|slug|capabilities|id|example|acme|abc\\d*)[\"\\'`])[a-z0-9]{3,}[\"\\'`]",
+			"include": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+			"exclude": [
+				"tests",
+				"**/*sample*",
+				"**/*seed*",
+				"**/*demo*",
+				"**/*fixture*"
+			],
+			"allow": ["^\\s*(//|\\*|/\\*)"]
+		},
+		{
+			"id": "config-tenant-branch",
+			"category": "config",
+			"message": "Branch on a literal tenant; use a policy, flag or row instead",
+			"pattern": "\\b(orgId|organizationId|organizationSlug|tenantId|tenantSlug)\\s*[!=]==?\\s*[\"'`][^\"'`]+[\"'`]",
+			"include": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+			"exclude": ["tests"],
+			"allow": ["\\btypeof\\b", "[\"\\'`]system[\"\\'`]"]
+		},
+		{
+			"id": "config-hardcoded-model-id",
+			"category": "config",
+			"message": "Model id in source; model selection belongs in the catalog or configuration",
+			"pattern": "[\"\\'`](gpt-[45][a-z0-9.-]*|o[134](-mini|-pro)?|claude-(3|4|opus|sonnet|haiku)[a-z0-9.-]*|gemini-[0-9][a-z0-9.-]*|@cf/[a-z0-9-]+/[a-z0-9/._-]+)[\"\\'`]",
+			"include": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+			"exclude": [
+				"tests",
+				"**/*catalog*",
+				"**/*model*",
+				"**/*provider*",
+				"**/*pricing*"
+			],
+			"allow": ["^\\s*(//|\\*|/\\*)"]
+		},
+		{
+			"id": "config-hardcoded-email",
+			"category": "config",
+			"message": "Contact address in source; it belongs in configuration",
+			"pattern": "[A-Za-z0-9._%+-]+@tedix\\.(dev|com|org|tech)",
+			"include": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+			"exclude": ["tests"],
+			"allow": ["mailto:security@"]
+		}
+	]
+}
