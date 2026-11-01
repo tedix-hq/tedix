@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ReportDispatcherHealthInputSchema } from "./dispatcher-health";
+import {
+	ReportDispatcherHealthInputSchema,
+	SupervisorDutyHealthSchema,
+} from "./dispatcher-health";
 
 const valid = {
 	reporterId: "mac-studio",
@@ -14,6 +17,32 @@ const valid = {
 };
 
 describe("dispatcher health report input", () => {
+	it("accepts bounded duty observations while preserving legacy report inputs", () => {
+		const duty = {
+			id: "fixture",
+			kind: "service",
+			state: "waiting",
+			observedAt: valid.observedAt,
+			lastRunAt: null,
+			lastExitAt: valid.observedAt,
+			lastExitCode: 7,
+			lastExecutor: "codex",
+			restartsLastHour: 2,
+			retryAt: valid.observedAt,
+			lastProblem: "Runner exited",
+		};
+		expect(
+			ReportDispatcherHealthInputSchema.parse({ ...valid, duty }).duty,
+		).toEqual(duty);
+		expect(
+			SupervisorDutyHealthSchema.safeParse({ ...duty, state: "healthy" })
+				.success,
+		).toBe(false);
+		expect(
+			SupervisorDutyHealthSchema.safeParse({ ...duty, restartsLastHour: -1 })
+				.success,
+		).toBe(false);
+	});
 	it("accepts a bounded sanitized report", () => {
 		expect(ReportDispatcherHealthInputSchema.parse(valid)).toEqual(valid);
 	});

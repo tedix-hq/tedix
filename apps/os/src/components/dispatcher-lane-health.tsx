@@ -53,7 +53,7 @@ function skipReasonSummary(reason: string): string {
 }
 
 function isStaleReport(lane: DispatcherHealthReport, now: number): boolean {
-	const observed = Date.parse(lane.observedAt);
+	const observed = Date.parse(lane.duty?.observedAt ?? lane.observedAt);
 	return (
 		lane.stale ||
 		!Number.isFinite(observed) ||
@@ -127,15 +127,27 @@ export function DispatcherLaneHealth() {
 											.map((lane) => {
 												const stale = historical;
 												const lead = lane.lane === "supervisor-lead";
+												const observedAt =
+													lane.duty?.observedAt ?? lane.observedAt;
 												const state = stale
 													? "Unknown · stale"
-													: lead
-														? "Last pass reported"
-														: !lane.running
-															? "Stopped"
-															: lane.slotsInUse > 0
-																? "Slots in use"
-																: "Idle";
+													: lane.duty
+														? {
+																running: lead ? "Lead running" : "Running",
+																waiting: lead
+																	? "Waiting for next check"
+																	: "Restart scheduled",
+																stopped: "Stopped",
+																failed: "Needs attention",
+																unknown: "Unknown",
+															}[lane.duty.state]
+														: lead
+															? "Last pass reported"
+															: !lane.running
+																? "Stopped"
+																: lane.slotsInUse > 0
+																	? "Slots in use"
+																	: "Idle";
 												return (
 													<Card
 														key={`${lane.reporterId}:${lane.lane}`}
@@ -164,7 +176,10 @@ export function DispatcherLaneHealth() {
 														</CardHeader>
 														<CardContent className="grid gap-2">
 															{lead ? (
-																<Text>Current pass: Not reported</Text>
+																<Text>
+																	Current pass:{" "}
+																	{lane.duty ? state : "Not reported"}
+																</Text>
 															) : (
 																<Text>
 																	{lane.slotsInUse} / {lane.slotsTotal} slots in
@@ -175,10 +190,10 @@ export function DispatcherLaneHealth() {
 															<Text tone="secondary">
 																Observed{" "}
 																<time
-																	dateTime={lane.observedAt}
-																	title={absoluteTime(lane.observedAt)}
+																	dateTime={observedAt}
+																	title={absoluteTime(observedAt)}
 																>
-																	{relativeTime(lane.observedAt, new Date(now))}
+																	{relativeTime(observedAt, new Date(now))}
 																</time>
 															</Text>
 															<Text tone="secondary">
@@ -216,9 +231,41 @@ export function DispatcherLaneHealth() {
 																		: "No repeated problem reported in the last 30 minutes."}
 																</Text>
 															)}
-															<Text tone="secondary">
-																Restart history: Not reported
-															</Text>
+															{lane.duty ? (
+																<div className="grid gap-2">
+																	<Text>
+																		Last started:{" "}
+																		{lane.duty.lastRunAt
+																			? absoluteTime(lane.duty.lastRunAt)
+																			: "Not observed"}
+																	</Text>
+																	<Text>
+																		Last exit:{" "}
+																		{lane.duty.lastExitAt
+																			? `${absoluteTime(lane.duty.lastExitAt)} · code ${lane.duty.lastExitCode ?? "unavailable"}`
+																			: "Not observed"}
+																	</Text>
+																	<Text>
+																		Recorded restarts (last hour):{" "}
+																		{lane.duty.restartsLastHour}
+																	</Text>
+																	{lane.duty.retryAt ? (
+																		<Text>
+																			Next {lead ? "check" : "retry"}:{" "}
+																			{absoluteTime(lane.duty.retryAt)}
+																		</Text>
+																	) : null}
+																	{lane.duty.lastProblem ? (
+																		<Text className="break-words">
+																			Last problem: {lane.duty.lastProblem}
+																		</Text>
+																	) : null}
+																</div>
+															) : (
+																<Text tone="secondary">
+																	Restart history: Not reported
+																</Text>
+															)}
 														</CardContent>
 													</Card>
 												);

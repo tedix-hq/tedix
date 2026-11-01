@@ -18,7 +18,10 @@ import {
 	type SupervisorDutyStatus,
 } from "./supervise-duty-status";
 import { laneProcessIdentity } from "./lane-process-recovery";
-import { dispatcherReporterId } from "./dispatcher-health";
+import {
+	dispatcherReporterId,
+	supervisorDutyHealth,
+} from "./dispatcher-health";
 import {
 	alive,
 	configDir,
@@ -244,9 +247,10 @@ export class LeadDuty {
 		const value = JSON.parse(readFileSync(path, "utf8"));
 		if (value.enabled === false) return;
 		const config = configSchema.parse(value);
+		let latestDuty: SupervisorDutyStatus | undefined;
 		const record = (update: Partial<SupervisorDutyStatus>) => {
 			try {
-				recordDutyStatus(
+				latestDuty = recordDutyStatus(
 					this.deps.env,
 					{
 						id: `lead:${config.organization}:${config.workspace}`,
@@ -391,6 +395,9 @@ export class LeadDuty {
 								slotsInUse: 0,
 								slotsTotal: 1,
 								topReason: { reason, count: 1 },
+								duty: latestDuty
+									? supervisorDutyHealth(latestDuty, this.now())
+									: undefined,
 							}),
 						],
 						15_000,

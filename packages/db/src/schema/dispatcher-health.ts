@@ -7,6 +7,7 @@ import {
 	text,
 } from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
+import type { SupervisorDutyHealth } from "@tedix/api-contract/schemas/dispatcher-health";
 
 /** One replaceable current health report for each local dispatcher lane. */
 export const dispatcherHealthReports = sqliteTable(
@@ -26,6 +27,7 @@ export const dispatcherHealthReports = sqliteTable(
 		slotsTotal: integer("slots_total").notNull(),
 		topReason: text("top_reason"),
 		topReasonCount: integer("top_reason_count"),
+		duty: text("duty", { mode: "json" }).$type<SupervisorDutyHealth>(),
 	},
 	(table) => [
 		primaryKey({

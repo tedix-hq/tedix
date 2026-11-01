@@ -12,6 +12,11 @@ import {
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
+import type { SupervisorDutyHealth } from "@tedix/api-contract/schemas/dispatcher-health";
+import {
+	readDutyStatuses,
+	type SupervisorDutyStatus,
+} from "./supervise-duty-status";
 
 const SOURCE_FILE = "health-source.json";
 const LOG_TAIL_BYTES = 256 * 1024;
@@ -53,6 +58,7 @@ export interface LocalDispatcherHealth {
 	slotsInUse: number;
 	slotsTotal: number;
 	topReason: { reason: string; count: number } | null;
+	duty?: SupervisorDutyHealth;
 }
 
 function selector(scope: string[], name: string): string {
@@ -297,6 +303,28 @@ export function dispatcherReporterId(env: NodeJS.ProcessEnv): string {
 		.slice(0, 32);
 }
 
+export function supervisorDutyHealth(
+	row: SupervisorDutyStatus,
+	now: number,
+): SupervisorDutyHealth {
+	return {
+		id: row.id,
+		kind: row.kind,
+		state: row.state,
+		observedAt: row.observedAt,
+		lastRunAt: row.lastRunAt,
+		lastExitAt: row.lastExitAt,
+		lastExitCode: row.lastExitCode,
+		lastExecutor: row.lastExecutor,
+		retryAt: row.retryAt,
+		lastProblem: row.lastProblem,
+		problemSince: row.problemSince ?? null,
+		restartsLastHour: row.restarts.filter(
+			(at) => at <= now && now - at < 3_600_000,
+		).length,
+	};
+}
+
 export function collectDispatcherHealth(
 	env: NodeJS.ProcessEnv,
 	now = Date.now(),
@@ -305,11 +333,10 @@ export function collectDispatcherHealth(
 		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
 		"dispatchers",
 	);
-	if (!existsSync(root)) return [];
 	const reporterId = dispatcherReporterId(env);
 	const observedAt = new Date(now).toISOString();
 	const reports: LocalDispatcherHealth[] = [];
-	for (const name of readdirSync(root)) {
+	for (const name of existsSync(root) ? readdirSync(root) : []) {
 		const directory = join(root, name);
 		try {
 			const source = readSource(join(directory, SOURCE_FILE));
@@ -341,6 +368,37 @@ export function collectDispatcherHealth(
 				topReason: log.topReason,
 			});
 		} catch {}
+	}
+	try {
+		for (const row of readDutyStatuses(env)) {
+			const duty = supervisorDutyHealth(row, now);
+			if (row.kind === "service") {
+				const report = reports.find(
+					(entry) =>
+						entry.lane === row.id &&
+						entry.organization === row.organization &&
+						entry.workspace === row.workspace,
+				);
+				if (report) report.duty = duty;
+			} else {
+				reports.push({
+					workspace: row.workspace,
+					organization: row.organization,
+					reporterId,
+					executor: row.lastExecutor ?? row.executor,
+					lane: "supervisor-lead",
+					running: row.state === "running",
+					observedAt: row.observedAt,
+					lastAdmissionAt: null,
+					slotsInUse: 0,
+					slotsTotal: 1,
+					topReason: null,
+					duty,
+				});
+			}
+		}
+	} catch {
+		// Missing duty history must not suppress the independent dispatcher observations.
 	}
 	return reports.sort(
 		(a, b) =>

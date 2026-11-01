@@ -1304,6 +1304,10 @@
 		{
 			"name": "20261031192409_skill_improvement_adoption/migration.sql",
 			"sha256": "c499f0f0a4629f77e6ba86d622f5bc1119a915844134423a71769506069362b9"
+		},
+		{
+			"name": "20261101111515_supervisor_duty_health/migration.sql",
+			"sha256": "2bb22061141554d982312c7604340a54d51be9654ebbd08d0c0b4ec7f08c7898"
 		}
 	]
 }

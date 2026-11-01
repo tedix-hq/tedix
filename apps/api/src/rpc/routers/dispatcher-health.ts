@@ -27,6 +27,7 @@ function toReport(row: DispatcherHealthReportRow, now: Date) {
 		observedAt: row.observedAt,
 		reportedAt: row.reportedAt,
 		lastAdmissionAt: row.lastAdmissionAt,
+		duty: row.duty ?? null,
 		slotsInUse: row.slotsInUse,
 		slotsTotal: row.slotsTotal,
 		topReason:
@@ -57,6 +58,7 @@ const reportProcedure = os.report
 			slotsTotal: input.slotsTotal,
 			topReason: input.topReason?.reason ?? null,
 			topReasonCount: input.topReason?.count ?? null,
+			duty: input.duty ?? null,
 		});
 		return toReport(row, now);
 	});

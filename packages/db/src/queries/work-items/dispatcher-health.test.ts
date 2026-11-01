@@ -71,6 +71,42 @@ function seed() {
 }
 
 describe("dispatcher health queries", () => {
+	it("round-trips duty status and clears it for a subsequent legacy report", async () => {
+		const sqlite = seed();
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const duty = {
+			id: "fixture",
+			kind: "service" as const,
+			state: "waiting" as const,
+			observedAt: T1,
+			lastRunAt: T0,
+			lastExitAt: T1,
+			lastExitCode: 7,
+			lastExecutor: "codex",
+			restartsLastHour: 2,
+			retryAt: T1,
+			lastProblem: "Runner exited",
+		};
+		const report = {
+			orgId: "busy",
+			reporterId: "fixture",
+			executor: "codex",
+			lane: "fixture",
+			running: false,
+			observedAt: T1,
+			reportedAt: T1,
+			lastAdmissionAt: null,
+			slotsInUse: 0,
+			slotsTotal: 1,
+		};
+		await upsertDispatcherHealthReport(db, { ...report, duty });
+		expect((await listDispatcherHealthReports(db, "busy"))[0]?.duty).toEqual(
+			duty,
+		);
+		await upsertDispatcherHealthReport(db, report);
+		expect((await listDispatcherHealthReports(db, "busy"))[0]?.duty).toBeNull();
+		expect(await listDispatcherHealthReports(db, "idle")).toEqual([]);
+	});
 	it("keeps one current report per organization, reporter, executor, and lane", async () => {
 		const sqlite = seed();
 		sqlite.exec(
