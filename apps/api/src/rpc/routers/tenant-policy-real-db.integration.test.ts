@@ -66,12 +66,14 @@ describe("owner policy against a real local D1 facade", () => {
 				),
 			);
 			const db = createDbClient(createD1Facade(sqlite));
-			await db
-				.insert(organizations)
-				.values({ id: "fictional-org", name: "Sample", slug: "sample" });
+			await db.insert(organizations).values({
+				id: "10000000-0000-4000-8000-000000000001",
+				name: "Sample",
+				slug: "sample",
+			});
 			await db.insert(organizationMembers).values({
 				id: "member",
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				descopeUserId: "owner",
 				email: "owner@example.invalid",
 				role: "owner",
@@ -79,7 +81,7 @@ describe("owner policy against a real local D1 facade", () => {
 			});
 			await db.insert(apps).values({
 				id: "00000000-0000-4000-8000-000000000001",
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				name: "Sample",
 				slug: "sample",
 			});
@@ -121,7 +123,8 @@ describe("owner policy against a real local D1 facade", () => {
 							)
 						) {
 							if (
-								request.headers.get("X-Tedix-Org-Id") !== "fictional-org" ||
+								request.headers.get("X-Tedix-Org-Id") !==
+									"10000000-0000-4000-8000-000000000001" ||
 								request.headers.get("X-Tedix-Acting-User") !== "owner"
 							)
 								return new Response("Denied", { status: 403 });
@@ -129,7 +132,7 @@ describe("owner policy against a real local D1 facade", () => {
 								json: {
 									accessToken: "fictional-token",
 									selectedCredential: {
-										organizationId: "fictional-org",
+										organizationId: "10000000-0000-4000-8000-000000000001",
 										providerId: "fictional-provider",
 										scope: "user",
 										userId: "owner",
@@ -141,7 +144,7 @@ describe("owner policy against a real local D1 facade", () => {
 							prefix: "/rpc",
 							context: {
 								authType: "service-binding",
-								organizationId: "fictional-org",
+								organizationId: "10000000-0000-4000-8000-000000000001",
 								db,
 								env: { ENVIRONMENT: "test" },
 								headers: request.headers,
@@ -160,7 +163,7 @@ describe("owner policy against a real local D1 facade", () => {
 			const gateway = createRouterClient(mcpGovernanceContractRouter, {
 				context: {
 					authType: "service-binding",
-					organizationId: "fictional-org",
+					organizationId: "10000000-0000-4000-8000-000000000001",
 					db,
 					env: { ENVIRONMENT: "test" },
 					headers: new Headers({ "X-Service-Binding": "true" }),
@@ -216,7 +219,7 @@ describe("owner policy against a real local D1 facade", () => {
 			};
 			const owner = createRouterClient(mcpGovernanceContractRouter, {
 				context: userContext({
-					organizationId: "fictional-org",
+					organizationId: "10000000-0000-4000-8000-000000000001",
 					userId: "owner",
 					sub: "owner",
 					claims: { scopes: ["connections.execute"] },
@@ -327,14 +330,14 @@ describe("owner policy against a real local D1 facade", () => {
 			});
 			await expect(
 				gateway.resolveTenantToolPolicy({
-					organizationId: "other-org",
+					organizationId: "20000000-0000-4000-8000-000000000001",
 					descriptor: prepared.descriptor,
 					descriptorDigest: prepared.descriptorDigest,
 					args: exampleArgs,
 				}),
 			).rejects.toThrow();
 			const candidate = {
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				rootAppId: "00000000-0000-4000-8000-000000000001",
 				mountedToolId: "sample__write",
 				actorUserId: "owner",
@@ -351,7 +354,7 @@ describe("owner policy against a real local D1 facade", () => {
 			expect(
 				(
 					await gateway.resolveTenantToolPolicy({
-						organizationId: "fictional-org",
+						organizationId: "10000000-0000-4000-8000-000000000001",
 						descriptor: altered,
 						descriptorDigest: prepared.descriptorDigest,
 						args: exampleArgs,
@@ -361,7 +364,7 @@ describe("owner policy against a real local D1 facade", () => {
 			expect(
 				(
 					await gateway.resolveTenantToolPolicy({
-						organizationId: "fictional-org",
+						organizationId: "10000000-0000-4000-8000-000000000001",
 						descriptor: altered,
 						descriptorDigest: await canonicalDigest(altered),
 						args: exampleArgs,
@@ -369,7 +372,7 @@ describe("owner policy against a real local D1 facade", () => {
 				).matched,
 			).toBe(false);
 			await db.insert(tenantToolPolicyMountRevisions).values({
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				rootAppId: candidate.rootAppId,
 				mountedToolId: candidate.mountedToolId,
 				policyId: "unknown-fixture",
@@ -410,7 +413,7 @@ describe("owner policy against a real local D1 facade", () => {
 				).candidate?.defaultAsk,
 			).toBe(true);
 			const mounted = await resolveFreshPolicyMount({
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				rootAppId: candidate.rootAppId,
 				mountedToolId: candidate.mountedToolId,
 				env: gatewayEnv,
@@ -419,7 +422,7 @@ describe("owner policy against a real local D1 facade", () => {
 			const selection = {
 				organizations: [
 					{
-						organizationId: "fictional-org",
+						organizationId: "10000000-0000-4000-8000-000000000001",
 						gatewaySlug: "sample",
 						descopeTenantId: "fictional-tenant",
 					},
@@ -429,7 +432,7 @@ describe("owner policy against a real local D1 facade", () => {
 				app: {
 					id: "00000000-0000-4000-8000-000000000002",
 					slug: "connect",
-					organizationId: "fictional-platform",
+					organizationId: "30000000-0000-4000-8000-000000000001",
 				},
 				metadata: { mcpConfig: { multiOrgConsent: true } },
 				tools: [mounted!.tool],
@@ -544,7 +547,7 @@ describe("owner policy against a real local D1 facade", () => {
 					binding: JSON.stringify([
 						resolved!.probe.binding,
 						{
-							organizationId: "fictional-org",
+							organizationId: "10000000-0000-4000-8000-000000000001",
 							providerId: "fictional-provider",
 							scope: "user",
 							userId: "owner",
@@ -583,7 +586,7 @@ describe("owner policy against a real local D1 facade", () => {
 			};
 			const approvalId = "00000000-0000-4000-8000-000000000003";
 			const fingerprint = await canonicalDigest({
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				userId: "owner",
 				appSlug: "sample",
 				toolId: mounted!.tool.toolId,
@@ -593,7 +596,7 @@ describe("owner policy against a real local D1 facade", () => {
 			await db.insert(tediApprovalRequests).values({
 				id: approvalId,
 				tediId: "fictional-tedi",
-				orgId: "fictional-org",
+				orgId: "10000000-0000-4000-8000-000000000001",
 				actionType: "mcp.tool_call",
 				description: "Reviewed fictional action",
 				status: "approved",
@@ -621,13 +624,13 @@ describe("owner policy against a real local D1 facade", () => {
 				app: {
 					id: candidate.rootAppId,
 					slug: "sample",
-					organizationId: "fictional-org",
+					organizationId: "10000000-0000-4000-8000-000000000001",
 				},
 				callerIdentity: {
 					authType: "service",
 					kernel: true,
 					userId: "owner",
-					organizationId: "fictional-org",
+					organizationId: "10000000-0000-4000-8000-000000000001",
 					scopes: ["connections.execute"],
 				},
 			};
