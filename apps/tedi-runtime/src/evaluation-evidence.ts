@@ -9,6 +9,7 @@ import {
 	evaluationNativeSystem,
 	evaluationSessionKey,
 	type EvaluationAdmission,
+	type readEvaluationInstructions,
 } from "./evaluation-context";
 import {
 	AGENT_PROMPT_VERSION,
@@ -41,6 +42,9 @@ export async function recordEvaluationEvidence(
 		admitted: EvaluationAdmission | undefined;
 		userText: string | undefined;
 		runtimeSource?: string;
+		instructionsObservation?: Awaited<
+			ReturnType<typeof readEvaluationInstructions>
+		>;
 	},
 ): Promise<{ artifactId: string; finalInputSha256: string }> {
 	if (
@@ -58,6 +62,24 @@ export async function recordEvaluationEvidence(
 	)
 		throw new Error(
 			"Evaluation dispatch is not isolated or does not match its admission",
+		);
+	if (
+		input.admission.reviewedAgentsPresence === "absent" &&
+		(input.admission.agents !== "" ||
+			host.instructionsObservation?.content !== "" ||
+			(await sha256Hex(JSON.stringify(input.admission.agentsProof ?? null))) !==
+				input.admission.reviewedAgentsProofSha256 ||
+			host.instructionsObservation?.presence !== "absent" ||
+			host.instructionsObservation.sha256 !==
+				input.admission.reviewedAgentsSha256 ||
+			host.instructionsObservation.backendProofSha256 !==
+				input.admission.reviewedAgentsProofSha256 ||
+			JSON.stringify(host.instructionsObservation.backendProof) !==
+				JSON.stringify(input.admission.agentsProof) ||
+			!host.instructionsObservation.checkedAt)
+	)
+		throw new Error(
+			"Evaluation absence has no matching fresh provider-bound read observation",
 		);
 	const system = input.prompt
 		.filter((message) => message.role === "system")
@@ -118,6 +140,7 @@ export async function recordEvaluationEvidence(
 				source: "reviewed-AGENTS.md",
 				sha256: input.admission.reviewedAgentsSha256,
 				content: input.admission.agents,
+				presence: input.admission.reviewedAgentsPresence ?? "present",
 			},
 		],
 		excluded: [
@@ -137,6 +160,15 @@ export async function recordEvaluationEvidence(
 			"piHistory",
 			"compaction",
 		],
+		organizationInstructionsObservation: host.instructionsObservation
+			? {
+					presence: host.instructionsObservation.presence,
+					checkedAt: host.instructionsObservation.checkedAt,
+					sha256: host.instructionsObservation.sha256,
+					backendProof: host.instructionsObservation.backendProof,
+					backendProofSha256: host.instructionsObservation.backendProofSha256,
+				}
+			: undefined,
 		historyMessages: 0,
 		toolDescriptors: [],
 	};

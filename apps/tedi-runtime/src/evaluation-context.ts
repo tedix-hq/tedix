@@ -20,6 +20,21 @@ export interface EvaluationAdmission extends EvaluationRequest {
 	workflowSourceSha256: string;
 	executionEpoch: number;
 	agents: string;
+	agentsProof?: EvaluationAbsenceProof;
+}
+
+export interface EvaluationAbsenceProof {
+	version: 1;
+	tediId: string;
+	path: "AGENTS.md";
+	artifacts: {
+		configured: true;
+		repoFound: true;
+		cloneOk: true;
+		attempted: true;
+		fileFound: false;
+	};
+	r2: { attempted: true; fileFound: false };
 }
 
 export const EVALUATION_SYSTEM =
@@ -46,7 +61,7 @@ export function authorizeEvaluation(input: {
 	tediId: string;
 	workflowRunId: string;
 	executionEpoch: number;
-}): Omit<EvaluationAdmission, "agents"> {
+}): Omit<EvaluationAdmission, "agents" | "agentsProof"> {
 	const { run, request } = input;
 	const pinned = run?.params?.evaluationAdmission as
 		| Record<string, unknown>
@@ -68,6 +83,13 @@ export function authorizeEvaluation(input: {
 		!z.uuid().safeParse(pinned.workAttemptId).success ||
 		pinned?.policy !== request.policy ||
 		pinned?.reviewedAgentsSha256 !== request.reviewedAgentsSha256 ||
+		(pinned?.reviewedAgentsPresence ?? "present") !==
+			(request.reviewedAgentsPresence ?? "present") ||
+		(request.reviewedAgentsPresence === "absent"
+			? !request.reviewedAgentsProofSha256 ||
+				pinned?.reviewedAgentsProofSha256 !== request.reviewedAgentsProofSha256
+			: request.reviewedAgentsProofSha256 !== undefined ||
+				pinned?.reviewedAgentsProofSha256 !== undefined) ||
 		pinned?.skillRevision !== run.skillRevision
 	) {
 		throw new Error(
@@ -122,11 +144,20 @@ export async function admitEvaluation(input: {
 		input.env,
 		input.tediId,
 	);
-	if (instructions.sha256 !== admission.reviewedAgentsSha256)
-		throw new Error(
-			"Evaluation organization instructions differ from the reviewed digest",
-		);
-	return { ...admission, agents: instructions.content };
+	assertReviewedInstructions(instructions, admission);
+	await assertEvaluationAuthority(
+		input.env,
+		input.orgId,
+		input.tediId,
+		admission,
+	);
+	return {
+		...admission,
+		agents: instructions.content,
+		...(instructions.backendProof
+			? { agentsProof: instructions.backendProof }
+			: {}),
+	};
 }
 
 /** Preflight and admission use the same effective identity source and bytes. */
@@ -142,25 +173,96 @@ export async function readEvaluationInstructions(
 		artifactsAccountId: env.CF_ACCOUNT_ID,
 		artifactsNamespace: TEDIX_ARTIFACTS_NAMESPACE_PRODUCTION,
 	});
+	return evaluationInstructionsFromIdentity(identity, tediId, env.GIT_SHA);
+}
+
+/** Classifies only authoritative read observations; missing is never an error fallback. */
+export async function evaluationInstructionsFromIdentity(
+	identity: Awaited<ReturnType<typeof readIdentityFilesWithDiagnostics>>,
+	tediId: string,
+	runtimeSource?: string,
+) {
 	const agents = identity.files.find((file) =>
 		file.key.endsWith("AGENTS.md"),
 	)?.text;
-	if (agents === undefined)
-		throw new Error(
-			"Effective evaluation organization instructions are unavailable",
-		);
 	const source = identity.diagnostics.files.find(
 		(file) => file.path === "AGENTS.md",
 	);
+	if (agents !== undefined && !agents.trim())
+		throw new Error(
+			"Effective evaluation organization instructions are unavailable",
+		);
+	let backendProof: EvaluationAbsenceProof | undefined;
+	if (agents === undefined) {
+		const d = identity.diagnostics;
+		if (
+			d.tediId !== tediId ||
+			!d.artifacts.bound ||
+			!d.artifacts.configured ||
+			d.artifacts.repoFound !== true ||
+			d.artifacts.cloneOk !== true ||
+			d.artifacts.error ||
+			d.lastReadError ||
+			source?.source !== "missing" ||
+			source.artifact.attempted !== true ||
+			source.artifact.repoFound !== true ||
+			source.artifact.fileFound !== false ||
+			source.artifact.error ||
+			source.r2.attempted !== true ||
+			source.r2.fileFound !== false ||
+			source.r2.error
+		)
+			throw new Error(
+				"Effective evaluation organization instructions are unavailable",
+			);
+		backendProof = {
+			version: 1,
+			tediId,
+			path: "AGENTS.md",
+			artifacts: {
+				configured: true,
+				repoFound: true,
+				cloneOk: true,
+				attempted: true,
+				fileFound: false,
+			},
+			r2: { attempted: true, fileFound: false },
+		};
+	}
 	return {
-		content: agents,
-		sha256: await sha256Hex(agents),
+		presence: agents === undefined ? ("absent" as const) : ("present" as const),
+		content: agents ?? "",
+		sha256: await sha256Hex(agents ?? ""),
+		backendProof,
+		backendProofSha256: backendProof
+			? await sha256Hex(JSON.stringify(backendProof))
+			: undefined,
+		checkedAt: identity.diagnostics.checkedAt,
 		provenance: {
-			backend: source?.source ?? "missing",
+			backend: backendProof ? "absent" : (source?.source ?? "missing"),
 			key: source?.key ?? null,
 		},
-		runtimeSource: env.GIT_SHA ?? null,
+		runtimeSource: runtimeSource ?? null,
 	};
+}
+
+function assertReviewedInstructions(
+	instructions: Awaited<ReturnType<typeof readEvaluationInstructions>>,
+	admission: Pick<
+		EvaluationAdmission,
+		| "reviewedAgentsSha256"
+		| "reviewedAgentsPresence"
+		| "reviewedAgentsProofSha256"
+	>,
+) {
+	if (
+		instructions.sha256 !== admission.reviewedAgentsSha256 ||
+		instructions.presence !== (admission.reviewedAgentsPresence ?? "present") ||
+		instructions.backendProofSha256 !== admission.reviewedAgentsProofSha256
+	)
+		throw new Error(
+			"Evaluation organization instructions differ from the reviewed digest or presence proof",
+		);
 }
 
 export async function assertEvaluationWork(
@@ -183,12 +285,14 @@ export async function assertEvaluationWork(
 	});
 }
 
-export async function assertEvaluationWorkflow(
+/** Recheck canonical workflow and Work authority without repeating backend reads. */
+export async function assertEvaluationAuthority(
 	env: Cloudflare.Env,
 	orgId: string,
 	tediId: string,
-	admission: EvaluationAdmission,
-): Promise<void> {
+	admission: Omit<EvaluationAdmission, "agents" | "agentsProof"> &
+		Partial<Pick<EvaluationAdmission, "agents" | "agentsProof">>,
+) {
 	const run = await getSkillRun(
 		createDbClient(env.DB),
 		admission.workflowRunId,
@@ -199,6 +303,12 @@ export async function assertEvaluationWorkflow(
 		request: {
 			policy: admission.policy,
 			reviewedAgentsSha256: admission.reviewedAgentsSha256,
+			...(admission.reviewedAgentsPresence
+				? { reviewedAgentsPresence: admission.reviewedAgentsPresence }
+				: {}),
+			...(admission.reviewedAgentsProofSha256
+				? { reviewedAgentsProofSha256: admission.reviewedAgentsProofSha256 }
+				: {}),
 		},
 		run,
 		orgId,
@@ -206,8 +316,29 @@ export async function assertEvaluationWorkflow(
 		workflowRunId: admission.workflowRunId,
 		executionEpoch: admission.executionEpoch,
 	});
-	const { agents: _agents, ...pinned } = admission;
+	const { agents: _agents, agentsProof: _proof, ...pinned } = admission;
 	if (JSON.stringify(current) !== JSON.stringify(pinned))
 		throw new Error("Evaluation admission changed before inference");
 	await assertEvaluationWork(env, orgId, admission);
+}
+
+export async function assertEvaluationWorkflow(
+	env: Cloudflare.Env,
+	orgId: string,
+	tediId: string,
+	admission: EvaluationAdmission,
+) {
+	await assertEvaluationAuthority(env, orgId, tediId, admission);
+	const instructions = await readEvaluationInstructions(env, tediId);
+	assertReviewedInstructions(instructions, admission);
+	if (
+		instructions.content !== admission.agents ||
+		JSON.stringify(instructions.backendProof ?? null) !==
+			JSON.stringify(admission.agentsProof ?? null)
+	)
+		throw new Error(
+			"Evaluation organization instructions changed before inference",
+		);
+	await assertEvaluationAuthority(env, orgId, tediId, admission);
+	return instructions;
 }
