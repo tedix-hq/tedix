@@ -14,14 +14,17 @@ import {
 	type ServeOptions,
 } from "./lane-serve";
 import type { ExecutorBudgets, LocalExecutor } from "./lane-routing";
+import { testRoutingPolicy } from "./lane-routing.fixture";
 const dirs: string[] = [];
 afterEach(() => {
 	for (const path of dirs.splice(0))
 		rmSync(path, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(configured = true) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-route-integration-"));
 	dirs.push(dir);
+	const routingConfig = join(dir, "routing.json");
+	writeFileSync(routingConfig, JSON.stringify(testRoutingPolicy));
 	const item: DispatchItem = {
 		id: "11111111-1111-4111-8111-111111111111",
 		title: "Inspect a widget",
@@ -38,6 +41,7 @@ function fixture() {
 	};
 	const options: ServeOptions = {
 		executor: "any-local",
+		...(configured ? { routingConfig } : {}),
 		coordinated: false,
 		acceptProposed: false,
 		max: 1,
@@ -89,7 +93,7 @@ function fixture() {
 						cliVersion: "1.2.3",
 					},
 					model: model?.split("/").at(-1) ?? "test-model",
-					modelProvider: executor === "opencode" ? "azure" : "test-provider",
+					modelProvider: executor === "opencode" ? "example" : "test-provider",
 				};
 			},
 			cli: async <T>(args: string[]): Promise<T> => {
@@ -163,6 +167,19 @@ function fixture() {
 	};
 	return { dir, item, control, create, receiptPath, retry };
 }
+it("retains unconfigured automatic Work without native allocation or admission", async () => {
+	const { control, create, receiptPath } = fixture(false);
+	const dispatcher = create();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(control.threads).toEqual([]);
+	expect(control.launches).toEqual([]);
+	expect(control.events).not.toContain("native");
+	expect(control.events).not.toContain("start");
+	const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+	expect(receipt.phase).toBe("deferred");
+	expect(receipt.note).toContain("--routing-config");
+});
 it("routes an any-local Work around a Codex cooldown and Claude allowance reserve and launches native OpenCode after admission", async () => {
 	const { control, create } = fixture();
 	for (const executor of ["codex", "claude-code"] as const)
@@ -178,7 +195,7 @@ it("routes an any-local Work around a Codex cooldown and Claude allowance reserv
 	expect(control.threads[0]?.executor).toBe("opencode");
 	const args = control.launches[0]!;
 	expect(args.slice(args.indexOf("--") + 1)).toContain("opencode");
-	expect(args).toContain("azure/gpt-5.6-sol");
+	expect(args).toContain("example/general");
 	expect(control.events.indexOf("native")).toBeLessThan(
 		control.events.indexOf("start"),
 	);

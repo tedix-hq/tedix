@@ -443,19 +443,37 @@ starts it as a child, restarts it with a backoff and adopts a child that
 outlived a supervisor restart, so the supervisor is the one LaunchAgent.
 
 `--routing-config <file>` (or `TEDIX_LANE_ROUTING_CONFIG`) selects a versioned JSON
-policy. Start from `src/lane-routing-default.json`; rules match `metadata.tags`,
-`metadata.size` or Work's `riskLevel`, in order, with the last rule as the default.
-Only routes within the matched rule can be selected. Named assignments keep their
-native model defaults; OpenCode always needs a configured `provider/model`.
+policy. Keep your team's executor order and model choices in a private file;
+the CLI does not ship a preferred vendor or model list. For example, this policy
+uses a single executor's own model default:
 
-| Rule       | Match                                                                       | Preferred executor/model order                                                          |
-| ---------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| hard       | security, multi-file or architecture tag; large size; high or critical risk | Codex/gpt-6.1-sol, Claude Code/opus, OpenCode/azure/gpt-5.6-terra                       |
-| mechanical | mechanical, formatting or docs tag; small size                              | OpenCode/azure/gpt-5.6-luna, Claude Code/haiku, Codex/gpt-6.1-sol, Devin/native default |
-| general    | otherwise                                                                   | Codex/gpt-6.1-sol, Claude Code/sonnet, OpenCode/azure/gpt-5.6-sol, Devin/native default |
+```json
+{
+	"version": 1,
+	"nearLimitPercent": 10,
+	"signalMaxAgeMs": 300000,
+	"rules": [
+		{
+			"name": "team-default",
+			"tags": [],
+			"sizes": [],
+			"risks": [],
+			"routes": [{ "executor": "codex" }]
+		}
+	],
+	"budgetFiles": {}
+}
+```
 
-Model names are operator-configurable preferences, not benchmark or availability
-claims. `opencodeModel` overrides the OpenCode model. Without an explicit policy,
+Rules match `metadata.tags`, `metadata.size` or Work's `riskLevel`, in order,
+with the last rule as the default. Only routes within the matched rule can be
+selected. An empty route list pauses automatic assignments for that rule.
+Without a policy, Work assigned to `any-local` waits before an agent is launched
+or an Attempt is started. Named assignments keep their native model defaults;
+OpenCode always needs a configured `provider/model`.
+
+Model names are your configuration, not benchmark or availability claims.
+`opencodeModel` overrides the OpenCode model. Without an explicit policy,
 `OPENCODE_ROUTING_CONFIG`, or `opencode-routing.json` beside `TEDIX_LANE_LOG`, can
 supply a string or `{ "defaultModel": "provider/model" }` default when present.
 No installation-specific path or provider credential is stored in the policy.

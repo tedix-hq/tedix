@@ -9,7 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readExecutorBudgets } from "./lane-budget";
-import { defaultRoutingPolicy, readRoutingPolicy } from "./lane-routing";
+import {
+	defaultRoutingPolicy,
+	readRoutingPolicy,
+	routeLocalWork,
+} from "./lane-routing";
+import { testRoutingPolicy } from "./lane-routing.fixture";
 const dirs: string[] = [];
 afterEach(() => {
 	for (const dir of dirs.splice(0))
@@ -81,4 +86,54 @@ it("uses an optional launcher-adjacent OpenCode default, with explicit policy ta
 	const path = join(dir, "routing.json");
 	writeFileSync(path, JSON.stringify(defaultRoutingPolicy));
 	expect(readRoutingPolicy(path, env).opencodeModel).toBeUndefined();
+});
+
+it("does not select an automatic executor without an operator policy, while retaining named assignments", () => {
+	const policy = readRoutingPolicy(undefined, {});
+	const available = {
+		codex: true,
+		"claude-code": true,
+		opencode: true,
+		devin: true,
+	};
+	expect(policy.rules.flatMap((rule) => rule.routes)).toEqual([]);
+	expect(() =>
+		routeLocalWork({ executor: "any-local" }, policy, available, {}),
+	).toThrow("--routing-config");
+	for (const executor of ["codex", "claude-code", "devin"] as const) {
+		expect(routeLocalWork({ executor }, policy, available, {})).toMatchObject({
+			executor,
+			model: undefined,
+		});
+	}
+});
+
+it("uses explicit choices without merging managed preferences and fails closed on missing or invalid files", () => {
+	const dir = mkdtempSync(join(tmpdir(), "lane-policy-test-"));
+	dirs.push(dir);
+	const path = join(dir, "routing.json");
+	const configured = structuredClone(testRoutingPolicy);
+	configured.rules = [
+		{
+			name: "only-configured",
+			tags: [],
+			sizes: [],
+			risks: [],
+			routes: [{ executor: "devin", model: "fictional-choice" }],
+		},
+	];
+	writeFileSync(path, JSON.stringify(configured));
+	const policy = readRoutingPolicy(path, {});
+	expect(policy).toEqual(configured);
+	expect(
+		routeLocalWork(
+			{ executor: "any-local" },
+			policy,
+			{ codex: true, "claude-code": true, opencode: true, devin: true },
+			{},
+		).executor,
+	).toBe("devin");
+	writeFileSync(path, JSON.stringify({ ...configured, version: 2 }));
+	expect(() => readRoutingPolicy(path, {})).toThrow();
+	expect(() => readRoutingPolicy(join(dir, "missing.json"), {})).toThrow();
 });

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
-	defaultRoutingPolicy,
 	routeLocalWork,
 	executorBackoff,
 	parseBudgetSignal,
 	resumeThenFresh,
 	LocalExecutorCapacityError,
 } from "./lane-routing";
+import { testRoutingPolicy } from "./lane-routing.fixture";
 
 const available = {
 	codex: true,
@@ -15,11 +15,11 @@ const available = {
 	devin: true,
 };
 describe("local capability routing", () => {
-	it("routes small mechanical work to the cheapest configured passing model", () => {
+	it("uses the first configured route for small mechanical work", () => {
 		expect(
 			routeLocalWork(
 				{ executor: "any-local", tags: ["mechanical"], size: "small" },
-				defaultRoutingPolicy,
+				testRoutingPolicy,
 				available,
 				{},
 			).executor,
@@ -32,7 +32,7 @@ describe("local capability routing", () => {
 				tags: ["mechanical", "security"],
 				size: "small",
 			},
-			defaultRoutingPolicy,
+			testRoutingPolicy,
 			available,
 			{},
 		);
@@ -57,7 +57,7 @@ describe("local capability routing", () => {
 			expect(
 				routeLocalWork(
 					{ executor },
-					defaultRoutingPolicy,
+					testRoutingPolicy,
 					available,
 					{ codex: budget },
 					now,
@@ -67,7 +67,7 @@ describe("local capability routing", () => {
 			expect(() =>
 				routeLocalWork(
 					{ executor: "codex" },
-					defaultRoutingPolicy,
+					testRoutingPolicy,
 					available,
 					{ codex: { ...budget, backoffUntil: now + 5000 } },
 					now,
@@ -76,7 +76,7 @@ describe("local capability routing", () => {
 			expect(
 				routeLocalWork(
 					{ executor: "any-local" },
-					defaultRoutingPolicy,
+					testRoutingPolicy,
 					available,
 					{ codex: { ...budget, backoffUntil: now + 5000 } },
 					now,
@@ -90,7 +90,7 @@ describe("local capability routing", () => {
 		expect(
 			routeLocalWork(
 				{ executor: "any-local" },
-				defaultRoutingPolicy,
+				testRoutingPolicy,
 				{ ...available, opencode: false },
 				{
 					codex: {
@@ -111,7 +111,7 @@ describe("local capability routing", () => {
 	});
 	it("never changes a pinned assignment and never downgrades outside the rule", () => {
 		expect(() =>
-			routeLocalWork({ executor: "codex" }, defaultRoutingPolicy, available, {
+			routeLocalWork({ executor: "codex" }, testRoutingPolicy, available, {
 				codex: {
 					observedAt: Date.now(),
 					source: "error",
@@ -122,7 +122,7 @@ describe("local capability routing", () => {
 		expect(() =>
 			routeLocalWork(
 				{ executor: "any-local", risk: "high" },
-				defaultRoutingPolicy,
+				testRoutingPolicy,
 				{ ...available, codex: false, "claude-code": false, opencode: false },
 				{},
 			),
@@ -152,7 +152,7 @@ describe("local capability routing", () => {
 			expect(() =>
 				routeLocalWork(
 					{ executor },
-					defaultRoutingPolicy,
+					testRoutingPolicy,
 					available,
 					{ [executor]: budget },
 					now,
@@ -161,7 +161,7 @@ describe("local capability routing", () => {
 			try {
 				routeLocalWork(
 					{ executor },
-					defaultRoutingPolicy,
+					testRoutingPolicy,
 					{ ...available, [executor]: false },
 					{ [executor]: budget },
 					now,
@@ -175,7 +175,7 @@ describe("local capability routing", () => {
 		expect(() =>
 			routeLocalWork(
 				{ executor: "unknown" },
-				defaultRoutingPolicy,
+				testRoutingPolicy,
 				available,
 				{},
 				now,
@@ -187,7 +187,7 @@ describe("local capability routing", () => {
 		expect(
 			routeLocalWork(
 				{ executor: "any-local" },
-				defaultRoutingPolicy,
+				testRoutingPolicy,
 				available,
 				{ codex: { observedAt: 1, source: "native", remainingPercent: 0 } },
 				1_000_000,
@@ -254,7 +254,7 @@ describe("budget observations", () => {
 			expect(() =>
 				routeLocalWork(
 					{ executor: "codex" },
-					defaultRoutingPolicy,
+					testRoutingPolicy,
 					available,
 					{ codex: persisted },
 					2000,
