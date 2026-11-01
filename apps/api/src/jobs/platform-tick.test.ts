@@ -16,6 +16,13 @@ const fixtures = vi.hoisted(() => ({
 }));
 
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
+vi.mock("./orphan-workflow-cleanup", () => ({
+	cleanupOrphanWorkflows: async () => ({
+		cleanupChecked: 0,
+		cleanupConfirmed: 0,
+		cleanupPending: 0,
+	}),
+}));
 vi.mock("@tedix/db/queries/tedis", () => ({
 	getAlwaysOnTedis: fixtures.getAlwaysOnTedis,
 }));
@@ -91,7 +98,14 @@ it("retains orphan sweep counts without logging returned error strings", async (
 
 	const result = await sweepOrphanRunsTick({ DB: {} } as CloudflareEnv);
 
-	expect(result).toEqual({ swept: 0, skipped: 1, errors: 1 });
+	expect(result).toEqual({
+		swept: 0,
+		skipped: 1,
+		errors: 1,
+		cleanupChecked: 0,
+		cleanupConfirmed: 0,
+		cleanupPending: 0,
+	});
 	expect(JSON.stringify(log.mock.calls)).toContain("errors=1");
 	expect(JSON.stringify([log.mock.calls, warn.mock.calls])).not.toContain(
 		"secret-from-sweep",

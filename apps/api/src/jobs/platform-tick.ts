@@ -328,6 +328,8 @@ export async function sweepOrphanRunsTick(
 			await import("../rpc/routers/cognitive-runtime/recovery-artifacts");
 		const { propagateSweptChildFailureToHomeRun } =
 			await import("../rpc/routers/kernel/run-store");
+		const { cleanupOrphanWorkflows } =
+			await import("./orphan-workflow-cleanup");
 		const db = createDbClient(env.DB);
 		// The Home-side writers only touch `context.db`; the scheduled tick has
 		// no request, so a db-only context is the honest shape here.
@@ -363,6 +365,7 @@ export async function sweepOrphanRunsTick(
 			swept: result.swept,
 			skipped: result.skipped,
 			errors: result.errors.length,
+			...(await cleanupOrphanWorkflows(db, env)),
 		};
 	} catch (err) {
 		console.warn(

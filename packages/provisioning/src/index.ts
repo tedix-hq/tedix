@@ -441,6 +441,22 @@ export async function controlRuntimeRunSteering(
 	});
 }
 
+/** A separate route fails closed on older runtimes that do not support the restart fence. */
+export async function cleanupOrphanRuntimeTurn(
+	config: ProvisioningConfig,
+	options: { clientRequestId: string; runId: string; orphanedBefore: string },
+): Promise<{ success: boolean; detail?: string }> {
+	return runtimeFetch(config, "/hooks/cleanup-orphan-turn", {
+		method: "POST",
+		body: JSON.stringify({
+			client_request_id: options.clientRequestId,
+			run_id: options.runId,
+			orphaned_before: options.orphanedBefore,
+		}),
+		timeoutMs: 15_000,
+	});
+}
+
 /**
  * Terminate a running CHAT_TURN_WORKFLOW instance on an isolate (agent-runtime)
  * tedi. The `clientRequestId` is the same id the kernel used when dispatching
