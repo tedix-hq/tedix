@@ -394,10 +394,11 @@ export function writeLocalWranglerConfig(cwd = process.cwd()): string {
  * request served by the wrong code with no error anywhere. Scoping the registry
  * to the checkout makes each stack's bindings resolve to its own Workers.
  *
- * Both variables are required and must agree: `wrangler dev` reads
- * WRANGLER_REGISTRY_PATH, the Cloudflare Vite plugin reads
- * MINIFLARE_REGISTRY_PATH, and setting only one splits the stack across two
- * registries — strictly worse than setting neither.
+ * Every variable is required and must agree: `wrangler dev` reads
+ * WRANGLER_REGISTRY_PATH, Miniflare before 5.20261023 reads
+ * MINIFLARE_REGISTRY_PATH and later Miniflare (the Cloudflare Vite plugin
+ * 2.0 betas) reads CLOUDFLARE_DEV_REGISTRY_PATH. Missing one splits the stack
+ * across two registries — strictly worse than setting none.
  */
 export function resolveLocalRegistryPath(cwd = process.cwd()): string {
 	const explicit = process.env.TEDIX_LOCAL_REGISTRY_PATH?.trim();
@@ -482,6 +483,7 @@ async function run(): Promise<void> {
 			CLOUDFLARE_ENV: "",
 			WRANGLER_REGISTRY_PATH: resolveLocalRegistryPath(),
 			MINIFLARE_REGISTRY_PATH: resolveLocalRegistryPath(),
+			CLOUDFLARE_DEV_REGISTRY_PATH: resolveLocalRegistryPath(),
 		},
 		stdio: "inherit",
 	});

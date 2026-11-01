@@ -109,7 +109,7 @@ export function resolveRegistryDirectory(
 	const override = env.WRANGLER_REGISTRY_PATH?.trim();
 	if (override) return override;
 	// This checkout scopes its own registry (scripts/dev-local.ts sets
-	// WRANGLER_REGISTRY_PATH/MINIFLARE_REGISTRY_PATH for every dev child) so that
+	// each dev child's registry variables, see resolveLocalRegistryPath) so that
 	// parallel worktrees cannot resolve each other's Workers. dev-health.sh runs
 	// this probe from a plain shell WITHOUT those variables, so it has to look in
 	// the same place the dev children write, or every binding reads as missing.
