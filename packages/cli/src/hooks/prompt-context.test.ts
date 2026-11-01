@@ -90,6 +90,19 @@ const lessonsData = (
 	},
 });
 const NO_LESSONS = lessonsData();
+const organizationInfo = (organizationId: string) => ({
+	structuredContent: {
+		nativeContext: {
+			version: 1,
+			surface: "mcp-gateway",
+			appId: "fixture",
+			appSlug: "fixture",
+			organizationId,
+			actor: { authType: "oauth" },
+			nativeTransportAvailable: true,
+		},
+	},
+});
 
 const copy = <T>(value: T): T => structuredClone(value);
 
@@ -496,7 +509,7 @@ describe("tedix hooks prompt-context", () => {
 		let { out, calls } = await run([
 			binding,
 			auth,
-			{ organizationId: ORG },
+			organizationInfo(ORG),
 			DATA,
 		]);
 		expect(out).toContain("simple user stories");
@@ -509,7 +522,7 @@ describe("tedix hooks prompt-context", () => {
 			wrong.shared.revision,
 		])
 			row.organizationId = WORK;
-		({ out } = await run([binding, auth, { organizationId: ORG }, wrong]));
+		({ out } = await run([binding, auth, organizationInfo(ORG), wrong]));
 		expect(out).toContain("unavailable");
 		expect(out).not.toContain("simple user stories");
 		({ out, calls } = await run([
@@ -1532,9 +1545,9 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 				if (args.some((arg) => arg.includes("ack_work_interaction_delivery")))
 					return { data: [] };
 				const code = String(args.at(-1));
-				if (code.includes("codemode.__runtime")) {
+				if (args.includes("tools/call")) {
 					steps.push("organization");
-					return (options.probe ?? (() => ({ organizationId: ORG })))();
+					return (options.probe ?? (() => organizationInfo(ORG)))();
 				}
 				if (code.includes('"selectedLessonIds"')) {
 					steps.push("validation");
@@ -1577,7 +1590,7 @@ describe("prompt-context latency: parallel reads and the local cache", () => {
 					"list_undelivered_work_interaction_responses",
 				)
 					? "answers"
-					: code.includes("codemode.__runtime")
+					: args.includes("tools/call")
 						? "organization"
 						: code.includes(`"preferencesOutputId":"${PREFERENCE_OUTPUT}"`)
 							? "gateway"

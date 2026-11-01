@@ -10,6 +10,19 @@ import { runSessionStart } from "./session-start";
 
 const organizationId = "11111111-1111-4111-8111-111111111111";
 const session = "22222222-2222-4222-8222-222222222222";
+const organizationInfo = (organizationId: string) => ({
+	structuredContent: {
+		nativeContext: {
+			version: 1,
+			surface: "mcp-gateway",
+			appId: "fixture",
+			appSlug: "fixture",
+			organizationId,
+			actor: { authType: "oauth" },
+			nativeTransportAvailable: true,
+		},
+	},
+});
 const binding = {
 	status: "bound",
 	workspace: "fictional",
@@ -72,7 +85,7 @@ function fixture() {
 			calls.push(args);
 			if (args.includes("show")) return { ...binding };
 			if (args.includes("auth")) return auth;
-			if (args.includes(ORGANIZATION_PROBE)) return { organizationId: org };
+			if (args.includes(ORGANIZATION_PROBE)) return organizationInfo(org);
 			if (args.some((arg) => arg.includes("discover.search")))
 				return {
 					tools: [
@@ -155,7 +168,7 @@ test("empty, unavailable and malformed Deck states stay silent", async () => {
 	expect(await f.read()).toBeUndefined();
 	f.deps.read = async (args) =>
 		args.includes(ORGANIZATION_PROBE)
-			? { organizationId }
+			? organizationInfo(organizationId)
 			: { cards: [card(1)] };
 	expect(await f.read()).toBeUndefined();
 });

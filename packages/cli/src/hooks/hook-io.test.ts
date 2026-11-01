@@ -17,10 +17,71 @@ import {
 	HOOK_READ_STDERR_TAIL,
 	HOOK_READ_STDOUT_LIMIT,
 	unattendedRun,
+	readOrganizationContext,
+	ORGANIZATION_PROBE,
 } from "./hook-io";
 const run = (source: string, timeout = 1000) =>
 	readJsonChild(process.execPath, ["-e", source], timeout);
 describe("local context reads", () => {
+	test("organization reads preserve the selected gateway without Code Mode", async () => {
+		const organizationId = "11111111-1111-4111-8111-111111111111";
+		const nativeContext = {
+			version: 1,
+			surface: "mcp-gateway",
+			appId: "fixture",
+			appSlug: "fixture",
+			organizationId,
+			actor: { authType: "oauth" },
+			nativeTransportAvailable: false,
+		};
+		const command = ["-w", "connect", "--organization", "org_fixture"];
+		for (const response of [
+			{ structuredContent: { nativeContext } },
+			{ content: [{ type: "text", text: JSON.stringify({ nativeContext }) }] },
+		]) {
+			const calls: string[][] = [];
+			const context = await readOrganizationContext(
+				async (args) => {
+					calls.push(args);
+					return response;
+				},
+				command,
+				1000,
+			);
+			expect(context).toEqual({ organizationId });
+			expect(calls).toEqual([
+				[
+					...command,
+					"mcp",
+					"call",
+					"tools/call",
+					"--params",
+					ORGANIZATION_PROBE,
+				],
+			]);
+			expect(calls[0]).not.toContain("code");
+		}
+		for (const response of [
+			{ structuredContent: {} },
+			{ structuredContent: { nativeContext: null } },
+			{
+				structuredContent: {
+					nativeContext: { ...nativeContext, organizationId: "org_fixture" },
+				},
+			},
+			{
+				structuredContent: {
+					nativeContext: { ...nativeContext, actor: { authType: "anonymous" } },
+				},
+			},
+			{ isError: true, content: [{ type: "text", text: "Forbidden" }] },
+		]) {
+			await expect(
+				readOrganizationContext(async () => response, command, 1000),
+			).rejects.toThrow();
+		}
+	});
+
 	test("the supervisor command resolves its default and exact session without a child", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "tedix-local-read-"));
 		// A session launched for Tedix work exports its workspace and organization.
