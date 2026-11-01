@@ -362,25 +362,52 @@ async function stableSnapshot(
 	return first;
 }
 
-/** Scan source Git objects in bounded chunks, including historical commits and tags. */
-async function rejectCredentialObject(
-	repoDir: string,
-	oid: string,
-	type: string,
-) {
-	const child = Bun.spawn(["git", "-C", repoDir, "cat-file", type, oid], {
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+/** Scan all objects in one batched Git read, including historical commits and tags. */
+async function rejectCredentialHistory(repoDir: string): Promise<void> {
+	const child = Bun.spawn(
+		["git", "-C", repoDir, "cat-file", "--batch", "--batch-all-objects"],
+		{ stdout: "pipe", stderr: "pipe" },
+	);
 	const errorText = new Response(child.stderr).text();
 	const reader = child.stdout.getReader();
-	const decoder = new TextDecoder();
-	let tail = "";
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			const text = tail + decoder.decode(value, { stream: true });
+	let pending = new Uint8Array(0);
+	const pull = async (): Promise<boolean> => {
+		const { done, value } = await reader.read();
+		if (done || !value) return false;
+		const next = new Uint8Array(pending.length + value.length);
+		next.set(pending);
+		next.set(value, pending.length);
+		pending = next;
+		return true;
+	};
+	const truncated = async (detail: string) =>
+		new Error(
+			`Git cat-file ended inside ${detail}: ${(await errorText).slice(0, 300)}`,
+		);
+	const header = async (): Promise<string | null> => {
+		for (;;) {
+			const newline = pending.indexOf(0x0a);
+			if (newline >= 0) {
+				const line = new TextDecoder().decode(pending.subarray(0, newline));
+				pending = pending.subarray(newline + 1);
+				return line;
+			}
+			if (!(await pull())) {
+				if (pending.length) throw await truncated("an object header");
+				return null;
+			}
+		}
+	};
+	const payload = async (size: number, oid: string, type: string) => {
+		const decoder = new TextDecoder();
+		let tail = "";
+		for (let remaining = size; remaining > 0;) {
+			while (!pending.length && (await pull()));
+			if (!pending.length) throw await truncated(`${type} ${oid}`);
+			const chunk = pending.subarray(0, Math.min(remaining, pending.length));
+			pending = pending.subarray(chunk.length);
+			remaining -= chunk.length;
+			const text = tail + decoder.decode(chunk, { stream: true });
 			if (CREDENTIAL_PATTERN.test(text)) {
 				throw new Error(
 					`Artifacts Git contains credential-shaped content in ${type} ${oid}`,
@@ -393,6 +420,23 @@ async function rejectCredentialObject(
 				`Artifacts Git contains credential-shaped content in ${type} ${oid}`,
 			);
 		}
+		while (!pending.length && (await pull()));
+		if (!pending.length) throw await truncated(`${type} ${oid}`);
+		pending = pending.subarray(1);
+	};
+	try {
+		for (;;) {
+			const line = await header();
+			if (line === null) break;
+			const [oid, type, sizeText] = line.split(" ");
+			const size = Number(sizeText);
+			if (!oid || !type || !Number.isInteger(size) || size < 0) {
+				throw new Error(
+					`Git cat-file returned invalid metadata: ${line.slice(0, 200)}`,
+				);
+			}
+			await payload(size, oid, type);
+		}
 		if ((await child.exited) !== 0) {
 			throw new Error(
 				`Git cat-file failed: ${(await errorText).slice(0, 300)}`,
@@ -401,23 +445,6 @@ async function rejectCredentialObject(
 	} finally {
 		child.kill();
 		reader.releaseLock();
-	}
-}
-
-/** Scan all objects before adding the already validated, potentially large snapshot. */
-async function rejectCredentialHistory(repoDir: string): Promise<void> {
-	const objects = await runGit([
-		"-C",
-		repoDir,
-		"cat-file",
-		"--batch-all-objects",
-		"--batch-check=%(objectname) %(objecttype) %(objectsize)",
-	]);
-	for (const line of objects.split("\n")) {
-		const [oid, type] = line.split(" ");
-		if (!oid || !type || !["blob", "commit", "tag", "tree"].includes(type))
-			continue;
-		await rejectCredentialObject(repoDir, oid, type);
 	}
 }
 
