@@ -6,6 +6,7 @@ import {
 } from "@tedix/api-contract/schemas/model-catalog-config";
 import { assistantMessageText } from "./facet-submission-result";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { RunSteering } from "./run-steering";
@@ -162,6 +163,8 @@ export interface ConversationFacetState {
 	budgetStop?: { kind: FacetBudgetStopReason; reason: string } | null;
 	/** Provider error text of the last settled model step; null when it finished cleanly. */
 	lastModelError?: string | null;
+	/** Canonical successful tools-off answer; invalidated before the next round. */
+	lastToolsOffAnswer?: { runId: string; textSha256: string } | null;
 	imageRefs?: WorkflowImageRef[];
 }
 
@@ -639,6 +642,8 @@ export class ConversationFacet extends PiAgent<
 					);
 					const providerAttempt =
 						await this.accounting.captureProviderAttempt();
+					if (this.state.lastToolsOffAnswer)
+						this.setState({ ...this.state, lastToolsOffAnswer: null });
 					const cache = explicitPromptCacheConfig({
 						provider: selected.identity.provider,
 						model: selected.identity.model,
@@ -721,6 +726,7 @@ export class ConversationFacet extends PiAgent<
 							ordinal,
 							operationId: this.facetReceiptOperation(),
 							providerAttempt,
+							toolsOff: final?.toolChoice === "none",
 							sessionKey: this.state.sessionKey,
 						},
 					};
@@ -744,6 +750,7 @@ export class ConversationFacet extends PiAgent<
 							message.stopReason === "error"
 								? message.errorMessage || "model step ended with an error"
 								: null,
+						lastToolsOffAnswer: null,
 					});
 					if (!receipt) return;
 					await this.assertFacetOriginalReceipt(
@@ -771,6 +778,22 @@ export class ConversationFacet extends PiAgent<
 							.map((call) => call.id),
 						receipt.providerAttempt,
 					);
+					const settledText = assistantMessageText(
+						message.content.filter((part) => part.type === "text"),
+					);
+					if (
+						receipt.toolsOff &&
+						message.stopReason === "stop" &&
+						settledText.trim() &&
+						!message.content.some((part) => part.type === "toolCall")
+					)
+						this.setState({
+							...this.state,
+							lastToolsOffAnswer: {
+								runId: receipt.runId,
+								textSha256: await sha256Hex(settledText),
+							},
+						});
 					try {
 						await (
 							await this.parent()
@@ -1456,6 +1479,7 @@ export class ConversationFacet extends PiAgent<
 			budgetStop: null,
 			finalReportStop: null,
 			lastModelError: null,
+			lastToolsOffAnswer: null,
 			selectedTurnModels: [],
 			imageRefs: [],
 		});
@@ -1620,10 +1644,20 @@ export class ConversationFacet extends PiAgent<
 		if (modelError && stop?.kind !== "delegation_budget")
 			throw new Error(modelError);
 		let report = "";
+		const alreadyFinal =
+			stop?.kind === "step_ceiling" &&
+			text.trim().length > 0 &&
+			this.state.lastToolsOffAnswer?.runId === pending.configuration.runId &&
+			this.state.lastToolsOffAnswer.textSha256 === (await sha256Hex(text));
 		const reportReason = finalReportReason({
-			stopReason: stop?.reason ?? null,
+			stopReason: alreadyFinal ? null : (stop?.reason ?? null),
 			assistantText: text,
 		});
+		if (alreadyFinal)
+			console.info({
+				event: "tedix.pi.final_report_reused",
+				reason: "step_ceiling",
+			});
 		if (
 			reportReason &&
 			(stop?.kind !== "delegation_budget" ||
