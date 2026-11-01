@@ -1,5 +1,5 @@
 import { discoveryRows } from "./delegation-preflight";
-import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
+import { getInternalApiClient } from "@tedix/api-client/internal";
 import { type ToolSet, tool } from "ai";
 import * as z from "zod";
 
@@ -16,12 +16,15 @@ export function operatorRecordTools(input: {
 		args: Record<string, unknown>,
 	): Promise<unknown>;
 }): ToolSet {
+	const api = getInternalApiClient(input.env, {
+		tediId: input.tediId,
+		organizationId: input.organizationId,
+	});
 	const read = (
 		source: "work" | "home" | "memory" | "calendar" | "mail",
 		args: { query?: string; conversationId?: string },
 	) =>
-		callRpc(
-			"kernelRuntime/readOperatorRecords",
+		api.kernelRuntime.readOperatorRecords(
 			{
 				tediId: input.tediId,
 				runId: input.runId,
@@ -31,13 +34,6 @@ export function operatorRecordTools(input: {
 				...args,
 			},
 			{
-				apiUrl: input.env.API_URL,
-				fetch: serviceBindingFetch(input.env.API_SERVICE),
-				headers: {
-					"X-Service-Binding": "true",
-					"X-Tedix-Tedi-Id": input.tediId,
-					"X-Tedix-Organization-Id": input.organizationId,
-				},
 				signal: AbortSignal.timeout(30000),
 			},
 		);

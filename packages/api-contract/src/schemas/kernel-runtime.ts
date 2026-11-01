@@ -519,6 +519,13 @@ export type KernelRuntimeEvent = z.infer<typeof KernelRuntimeEventSchema>;
 
 export const ListHomeConversationsInputSchema = z.object({
 	organizationId: z.string().optional(),
+	conversationId: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"Read one exact persisted conversation, independent of list pagination.",
+		),
 	limit: z.number().int().positive().max(500).optional(),
 	cursor: ConversationListCursorSchema.optional(),
 	search: z.string().optional(),

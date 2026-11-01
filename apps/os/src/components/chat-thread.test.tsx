@@ -2843,7 +2843,7 @@ afterEach(() => {
 
 describe("<ChatThread> workspace app tools", () => {
 	it.each(["output", "workspace"] as const)(
-		"keeps app tools out of %s chat",
+		"offers workspace reads but no app writes in %s chat",
 		async (kind) => {
 			transport.actions.enqueueMessage.mockReset();
 			transport.actions.enqueueMessage.mockReturnValue(new Promise(() => {}));
@@ -2855,9 +2855,21 @@ describe("<ChatThread> workspace app tools", () => {
 			typeDraft(container, "Update these notes.");
 			act(() => sendButton(container).click());
 			await flush();
+			const offered =
+				transport.actions.enqueueMessage.mock.calls[0]![0].pageTools;
+			expect(offered.map((tool: { name: string }) => tool.name)).toEqual(
+				expect.arrayContaining([
+					"list_workspace_apps",
+					"read_workspace_output",
+					"read_app_files",
+				]),
+			);
 			expect(
-				transport.actions.enqueueMessage.mock.calls[0]![0].pageTools,
-			).toBeUndefined();
+				offered.every(
+					(tool: { annotations: { readOnlyHint?: boolean } }) =>
+						tool.annotations.readOnlyHint,
+				),
+			).toBe(true);
 			transport.actions.enqueueMessage.mockReset();
 		},
 	);
@@ -2882,7 +2894,13 @@ describe("<ChatThread> workspace app tools", () => {
 			const input = transport.actions.enqueueMessage.mock.calls[0]![0];
 			expect(
 				input.pageTools.map((tool: { name: string }) => tool.name),
-			).toEqual(["read_app_files", "propose_app_edit"]);
+			).toEqual(
+				expect.arrayContaining([
+					"read_app_files",
+					"propose_app_edit",
+					"read_workspace_output",
+				]),
+			);
 			expect(input.workspaceContext).toEqual({
 				workspaceId: "workspace-1",
 				workpiece: { kind: "gadget", id: "app-1" },
