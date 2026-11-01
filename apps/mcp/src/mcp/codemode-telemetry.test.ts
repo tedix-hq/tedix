@@ -395,6 +395,40 @@ function makeServerCtx(
 	} as unknown as ServerContext;
 }
 
+async function trackStructuredProviders() {
+	const execution = await import("./codemode-execution");
+	const build = execution.buildNamespaceGroups;
+	const pending: Promise<unknown>[] = [];
+	const spy = vi
+		.spyOn(execution, "buildNamespaceGroups")
+		.mockImplementation((...args) => {
+			const groups = build(...args);
+			for (const group of groups.values()) {
+				for (const [name, execute] of Object.entries(group.fns)) {
+					group.fns[name] = (input) => {
+						const result = execute(input);
+						pending.push(result);
+						return result;
+					};
+				}
+			}
+			return groups;
+		});
+	return { pending, restore: () => spy.mockRestore() };
+}
+
+async function awaitProviderEntry(
+	entered: Promise<void>,
+	invocation: Promise<unknown>,
+) {
+	await Promise.race([
+		entered,
+		invocation.then(() => {
+			throw new Error("Invocation returned before entering the provider");
+		}),
+	]);
+}
+
 describe("Code Mode tail telemetry", () => {
 	const executeToolMock = vi.mocked(executeTool);
 	let logSpy: ReturnType<typeof vi.spyOn>;
@@ -506,6 +540,11 @@ describe("Code Mode tail telemetry", () => {
 
 	it("bounds a hung structured provider with the configured execution timeout", async () => {
 		vi.useFakeTimers();
+		const providers = await trackStructuredProviders();
+		const entered = Promise.withResolvers<void>();
+		const result =
+			Promise.withResolvers<Awaited<ReturnType<typeof executeTool>>>();
+		const invocations: Promise<unknown>[] = [];
 		try {
 			const registered = new Map<string, (args: unknown) => Promise<any>>();
 			const read = tool({
@@ -514,7 +553,10 @@ describe("Code Mode tail telemetry", () => {
 			});
 			const ctx = makeServerCtx(new Map([[read.toolId, read]]));
 			ctx.appMetadata!.mcpConfig!.codeModeTimeout = 25;
-			executeToolMock.mockImplementation(() => new Promise(() => {}));
+			executeToolMock.mockImplementation(() => {
+				entered.resolve();
+				return result.promise;
+			});
 			await registerCodeModeTools(
 				{
 					registerTool: (name: string, _config: unknown, handler: any) =>
@@ -525,6 +567,9 @@ describe("Code Mode tail telemetry", () => {
 			const pending = registered.get("code")!({
 				invocation: { callable: "test.soft_fail", args: {} },
 			});
+			invocations.push(pending);
+			await awaitProviderEntry(entered.promise, pending);
+			expect(providers.pending).toHaveLength(1);
 			await vi.advanceTimersByTimeAsync(25);
 			const response = await pending;
 			expect(response.isError).toBe(true);
@@ -533,12 +578,28 @@ describe("Code Mode tail telemetry", () => {
 			);
 			expect(executeToolMock).toHaveBeenCalledTimes(1);
 		} finally {
+			result.resolve({
+				content: [],
+				structuredContent: null,
+				_meta: {},
+				isError: false,
+			});
+			await Promise.allSettled([...invocations, ...providers.pending]);
+			providers.restore();
 			vi.useRealTimers();
 		}
 	});
 
 	it("does not attribute a late timed-out read to the next overlapping invocation", async () => {
 		vi.useFakeTimers();
+		const providers = await trackStructuredProviders();
+		const firstEntered = Promise.withResolvers<void>();
+		const secondEntered = Promise.withResolvers<void>();
+		const firstResult =
+			Promise.withResolvers<Awaited<ReturnType<typeof executeTool>>>();
+		const secondResult =
+			Promise.withResolvers<Awaited<ReturnType<typeof executeTool>>>();
+		const invocations: Promise<unknown>[] = [];
 		try {
 			const registered = new Map<string, (args: unknown) => Promise<any>>();
 			const read = tool({
@@ -566,21 +627,15 @@ describe("Code Mode tail telemetry", () => {
 				},
 				isError: false,
 			});
-			let finishFirst!: (value: ReturnType<typeof result>) => void;
-			let finishSecond!: (value: ReturnType<typeof result>) => void;
 			executeToolMock
-				.mockImplementationOnce(
-					() =>
-						new Promise((resolve) => {
-							finishFirst = resolve;
-						}),
-				)
-				.mockImplementationOnce(
-					() =>
-						new Promise((resolve) => {
-							finishSecond = resolve;
-						}),
-				);
+				.mockImplementationOnce(() => {
+					firstEntered.resolve();
+					return firstResult.promise;
+				})
+				.mockImplementationOnce(() => {
+					secondEntered.resolve();
+					return secondResult.promise;
+				});
 			await registerCodeModeTools(
 				{
 					registerTool: (name: string, _config: unknown, handler: any) =>
@@ -591,16 +646,20 @@ describe("Code Mode tail telemetry", () => {
 			const first = registered.get("code")!({
 				invocation: { callable: "test.soft_fail", args: { request: 1 } },
 			});
+			invocations.push(first);
+			await awaitProviderEntry(firstEntered.promise, first);
 			await vi.advanceTimersByTimeAsync(25);
 			const timedOut = await first;
 			expect(timedOut.isError).toBe(true);
 			const second = registered.get("code")!({
 				invocation: { callable: "test.soft_fail", args: { request: 2 } },
 			});
-			await vi.advanceTimersByTimeAsync(0);
-			finishFirst(result("first"));
-			await vi.advanceTimersByTimeAsync(0);
-			finishSecond(result("second"));
+			invocations.push(second);
+			await awaitProviderEntry(secondEntered.promise, second);
+			expect(providers.pending).toHaveLength(2);
+			firstResult.resolve(result("first"));
+			await providers.pending[0];
+			secondResult.resolve(result("second"));
 			const response = await second;
 			expect(response.structuredContent.result).toMatchObject({
 				value: "second",
@@ -628,6 +687,16 @@ describe("Code Mode tail telemetry", () => {
 			);
 			expect(executedPrograms).toHaveLength(0);
 		} finally {
+			const empty = {
+				content: [],
+				structuredContent: null,
+				_meta: {},
+				isError: false,
+			};
+			firstResult.resolve(empty);
+			secondResult.resolve(empty);
+			await Promise.allSettled([...invocations, ...providers.pending]);
+			providers.restore();
 			vi.useRealTimers();
 		}
 	});
