@@ -17,12 +17,14 @@ describe("fresh gateway mount over the real API and D1", () => {
 			sqlite.exec("PRAGMA foreign_keys = OFF");
 			sqlite.exec(schemaDdl(organizations, apps, appTools, appToolCspDomains));
 			const db = createDbClient(createD1Facade(sqlite));
-			await db
-				.insert(organizations)
-				.values({ id: "fictional-org", name: "Example", slug: "example" });
+			await db.insert(organizations).values({
+				id: "10000000-0000-4000-8000-000000000001",
+				name: "Example",
+				slug: "example",
+			});
 			await db.insert(apps).values({
 				id: "00000000-0000-4000-8000-000000000001",
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				name: "Example",
 				slug: "example",
 			});
@@ -53,7 +55,7 @@ describe("fresh gateway mount over the real API and D1", () => {
 							prefix: "/rpc",
 							context: {
 								authType: "service-binding",
-								organizationId: "fictional-org",
+								organizationId: "10000000-0000-4000-8000-000000000001",
 								db,
 								env: { ENVIRONMENT: "test" },
 								headers: request.headers,
@@ -65,13 +67,13 @@ describe("fresh gateway mount over the real API and D1", () => {
 				},
 			} as unknown as CloudflareEnv;
 			const result = await prepareTenantIdentityProfileMount({
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				rootAppId: "00000000-0000-4000-8000-000000000001",
 				mountedToolId: "example__write",
 				env,
 			});
 			expect(result?.descriptor).toMatchObject({
-				organizationId: "fictional-org",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				sourceToolRowId: "row",
 				upstreamOperation: "write",
 			});
