@@ -2,6 +2,100 @@ import { describe, expect, it } from "vite-plus/test";
 import { buildDescopeAihDriftReport } from "./descope-aih-drift";
 
 describe("buildDescopeAihDriftReport", () => {
+	it.each([
+		{ enabled: true, decisionId: undefined, matchingEntry: true, drift: true },
+		{ enabled: true, decisionId: "   ", matchingEntry: true, drift: true },
+		{
+			enabled: false,
+			decisionId: undefined,
+			matchingEntry: true,
+			drift: false,
+		},
+		{
+			enabled: undefined,
+			decisionId: undefined,
+			matchingEntry: true,
+			drift: false,
+		},
+		{
+			enabled: true,
+			decisionId: "decision-1",
+			matchingEntry: true,
+			drift: false,
+		},
+		{
+			enabled: true,
+			decisionId: "decision-1",
+			matchingEntry: false,
+			drift: true,
+		},
+	])(
+		"audits custom session settings: %j",
+		({ enabled, decisionId, matchingEntry, drift }) => {
+			const report = buildDescopeAihDriftReport({
+				checkedAt: "2026-11-01T00:00:00.000Z",
+				projectId: "project",
+				servers: [
+					{
+						id: "gateway",
+						name: "Acme Unified MCP",
+						sessionSettings: {
+							enabled,
+							sessionTokenExpiration: 600,
+							keySessionTokenExpiration: 600,
+							refreshTokenExpiration: 520,
+							refreshTokenExpirationUnit: "weeks",
+						},
+					},
+				],
+				clientsByServerId: new Map(),
+				outboundApps: [],
+				tenants: [],
+				roles: [],
+				fgaRelations: [],
+				providers: [],
+				d1Tedis: [],
+				d1Apps: [
+					{
+						id: "app",
+						slug: "acme-unified",
+						name: "Acme Unified",
+						descopeResourceId: matchingEntry ? "gateway" : "other-gateway",
+						authMode: "authenticated",
+						codeMode: true,
+						connectionProviderId: null,
+						metadata: {
+							mcpConfig: { sessionSettingsExceptionDecisionId: decisionId },
+						},
+					},
+				],
+			});
+			const issues = report.issues.filter(
+				(entry) => entry.code === "mcp_server_session_override",
+			);
+			expect(issues).toHaveLength(drift ? 1 : 0);
+			if (drift) {
+				expect(issues[0]).toMatchObject({
+					severity: "warning",
+					resourceType: "mcp_server",
+					resourceId: "gateway",
+					details: {
+						sessionSettingsEnabled: true,
+						sessionLifetimes: {
+							sessionTokenExpiration: 600,
+							keySessionTokenExpiration: 600,
+							refreshTokenExpiration: 520,
+							refreshTokenExpirationUnit: "weeks",
+						},
+					},
+				});
+			}
+			expect(report.mcpServers[0]?.sessionSettingsEnabled).toBe(
+				enabled === true,
+			);
+		},
+	);
+
 	it("records console-only token lifetimes and flags a wildcard CIMD domain", () => {
 		const report = buildDescopeAihDriftReport({
 			checkedAt: "2026-10-20T00:00:00.000Z",
@@ -394,6 +488,7 @@ describe("buildDescopeAihDriftReport", () => {
 				{
 					id: "server-live",
 					name: "Tedix Unified",
+					sessionSettings: { enabled: true, sessionTokenExpiration: 600 },
 					audienceWhitelist: ["https://tedix-unified.mcp.tedix.dev/mcp"],
 					loginPageURL:
 						"https://auth.tedix.dev/login/project-id?flow=inbound-apps-multi-org-consent",
@@ -542,6 +637,7 @@ describe("buildDescopeAihDriftReport", () => {
 				"broad_untagged_mcp_clients",
 				"mcp_server_login_flow_repeats_tenant_selection",
 				"mcp_server_cli_cimd_unavailable",
+				"mcp_server_session_override",
 				"connection_provider_missing",
 				"connection_provider_registry_missing",
 				"connection_provider_dcr_drift",
