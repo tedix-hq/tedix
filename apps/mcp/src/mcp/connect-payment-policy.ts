@@ -1,3 +1,4 @@
+import { McpStructuredInvocationSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
 import { z } from "zod";
 
 // The directory plugins share Connect and use host-created OAuth clients. The
@@ -35,29 +36,37 @@ export const codeModeOutputSchema = z.looseObject({
 });
 
 export function codeModeInputSchema(appSlug: string) {
-	return z.strictObject({
-		code: z
-			.string()
-			.describe(
-				'One async arrow function, for example `async () => { const { results } = await discover.search({ query: "work items" }); return results; }`. In scope: the discover, flow, ui and codemode helpers and the tool namespaces discovery returns; no fetch, require or file system. Its return value must be JSON-serializable and becomes `result`.',
-			),
-		...(isNonPayingConnection(appSlug)
-			? {}
-			: {
-					payment: z
-						.union([z.string().min(1), z.record(z.string(), z.unknown())])
-						.optional()
-						.describe(
-							'Optional x402 payment proof for paid inner tools, forwarded as _meta["x402/payment"].',
-						),
-				}),
-		agentSessionId: z
-			.uuid()
-			.optional()
-			.describe(
-				"session.id returned by start_external_agent_session_for_host in this conversation; pass it on every call so audit names the agent. Never invent one. Ignored for machine credentials.",
-			),
-	});
+	return z
+		.strictObject({
+			invocation: McpStructuredInvocationSchema.optional(),
+			code: z
+				.string()
+				.optional()
+				.describe(
+					'One async arrow function, for example `async () => { const { results } = await discover.search({ query: "work items" }); return results; }`. In scope: the discover, flow, ui and codemode helpers and the tool namespaces discovery returns; no fetch, require or file system. Its return value must be JSON-serializable and becomes `result`.',
+				),
+			...(isNonPayingConnection(appSlug)
+				? {}
+				: {
+						payment: z
+							.union([z.string().min(1), z.record(z.string(), z.unknown())])
+							.optional()
+							.describe(
+								'Optional x402 payment proof for paid inner tools, forwarded as _meta["x402/payment"].',
+							),
+					}),
+			agentSessionId: z
+				.uuid()
+				.optional()
+				.describe(
+					"session.id returned by start_external_agent_session_for_host in this conversation; pass it on every call so audit names the agent. Never invent one. Ignored for machine credentials.",
+				),
+		})
+		.refine(
+			(input) =>
+				(input.code !== undefined) !== (input.invocation !== undefined),
+			{ message: "Provide exactly one of code or invocation" },
+		);
 }
 
 export function hasPaymentProof(

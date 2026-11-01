@@ -10,6 +10,7 @@ import { TediSchema } from "@tedix/api-contract/schemas/tedi";
 import { enteredSpans } from "../../test/stubs/cloudflare-workers";
 
 const executorBudgets = vi.hoisted(() => [] as number[]);
+const executedPrograms = vi.hoisted(() => [] as string[]);
 vi.mock("@cloudflare/codemode", async () => {
 	const actual = await vi.importActual<typeof import("@cloudflare/codemode")>(
 		"@cloudflare/codemode",
@@ -44,6 +45,7 @@ vi.mock("@cloudflare/codemode", async () => {
 					>;
 				}>,
 			) {
+				executedPrograms.push(code);
 				if (code.includes("native_loader_fixture"))
 					return new actual.DynamicWorkerExecutor(this.options).execute(
 						code,
@@ -399,6 +401,7 @@ describe("Code Mode tail telemetry", () => {
 
 	beforeEach(() => {
 		enteredSpans.length = 0;
+		executedPrograms.length = 0;
 		executeToolMock.mockResolvedValue({
 			content: [{ type: "text", text: "soft fail" }],
 			structuredContent: null,
@@ -411,6 +414,303 @@ describe("Code Mode tail telemetry", () => {
 	afterEach(() => {
 		logSpy.mockRestore();
 		executeToolMock.mockReset();
+	});
+
+	it("runs structured calls through the same provider receipts and bounded finalizer without a loader", async () => {
+		const registered = new Map<string, (args: unknown) => Promise<any>>();
+		const read = tool({
+			toolId: "test__soft_fail",
+			config: { transport: "rpc", endpoint: "test/read" },
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		});
+		const ctx = makeServerCtx(new Map([[read.toolId, read]]));
+		ctx.appMetadata!.mcpConfig!.toolScopes = { soft_fail: [] };
+		const get = vi.fn(() => {
+			throw new Error("Structured calls must not load a Worker");
+		});
+		Object.assign(ctx.env, { LOADER: { get } });
+		const observation = {
+			version: 1,
+			kind: "docs_file_observation",
+			receiptId: "10000000-0000-4000-8000-000000000001",
+			provider: { appSlug: "docs", toolName: "get_docs_file" },
+			resource: {
+				organizationSlug: "example",
+				siteId: "10000000-0000-4000-8000-000000000002",
+				path: "README.md",
+			},
+			evidence: {
+				contentSha256: "a".repeat(64),
+				byteLength: 1,
+				observedGitRevision: "b".repeat(40),
+			},
+			observedAt: "2026-11-01T00:00:00Z",
+		};
+		executeToolMock.mockResolvedValue({
+			content: [],
+			structuredContent: { value: "ok" },
+			_meta: { "io.tedix/readObservation": observation },
+			isError: false,
+		});
+		await registerCodeModeTools(
+			{
+				registerTool: (name: string, _config: unknown, handler: any) =>
+					registered.set(name, handler),
+			} as never,
+			ctx,
+		);
+		const response = await registered.get("code")!({
+			invocation: { callable: "test.soft_fail", args: {} },
+		});
+		expect(response.structuredContent.result).toMatchObject({ value: "ok" });
+		expect(response.structuredContent.completionEvidence).toBeDefined();
+		expect(response._meta["io.tedix/readObservations"]).toEqual([
+			{
+				innerCallId: `${response.structuredContent.executionId}:0`,
+				receipt: observation,
+			},
+		]);
+		expect(get).not.toHaveBeenCalled();
+		expect(executedPrograms).toHaveLength(0);
+		const legacy = await registered.get("code")!({
+			code: "async () => await test.soft_fail({})",
+		});
+		expect(response.structuredContent.result).toEqual(
+			legacy.structuredContent.result,
+		);
+		expect(response.structuredContent.completionEvidence).toEqual(
+			legacy.structuredContent.completionEvidence,
+		);
+		executeToolMock.mockResolvedValue({
+			content: [],
+			structuredContent: { value: "large ".repeat(10000) },
+			_meta: {},
+			isError: false,
+		});
+		const large = await registered.get("code")!({
+			invocation: { callable: "test.soft_fail", args: {} },
+		});
+		expect(large.structuredContent.result.__tedix_truncated).toBe(true);
+		const put = vi.fn().mockResolvedValue(undefined);
+		Object.assign(ctx.env, { AGGREGATE_CACHE: { put, get: vi.fn() } });
+		const retained = await registered.get("code")!({
+			invocation: { callable: "test.soft_fail", args: {} },
+		});
+		expect(retained.structuredContent.result.__tedix_result_handle).toBe(true);
+		expect(put).toHaveBeenCalledTimes(1);
+		expect(put.mock.calls[0]?.[2].customMetadata.principal).toBe(
+			"user:user-uuid",
+		);
+		expect(get).not.toHaveBeenCalled();
+	});
+
+	it("bounds a hung structured provider with the configured execution timeout", async () => {
+		vi.useFakeTimers();
+		try {
+			const registered = new Map<string, (args: unknown) => Promise<any>>();
+			const read = tool({
+				annotations: { readOnlyHint: true, destructiveHint: false },
+				config: { transport: "rpc", endpoint: "test/read" },
+			});
+			const ctx = makeServerCtx(new Map([[read.toolId, read]]));
+			ctx.appMetadata!.mcpConfig!.codeModeTimeout = 25;
+			executeToolMock.mockImplementation(() => new Promise(() => {}));
+			await registerCodeModeTools(
+				{
+					registerTool: (name: string, _config: unknown, handler: any) =>
+						registered.set(name, handler),
+				} as never,
+				ctx,
+			);
+			const pending = registered.get("code")!({
+				invocation: { callable: "test.soft_fail", args: {} },
+			});
+			await vi.advanceTimersByTimeAsync(25);
+			const response = await pending;
+			expect(response.isError).toBe(true);
+			expect(response.structuredContent.error).toContain(
+				"timed out after 25ms",
+			);
+			expect(executeToolMock).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("does not attribute a late timed-out read to the next overlapping invocation", async () => {
+		vi.useFakeTimers();
+		try {
+			const registered = new Map<string, (args: unknown) => Promise<any>>();
+			const read = tool({
+				annotations: { readOnlyHint: true, destructiveHint: false },
+				config: { transport: "rpc", endpoint: "test/read" },
+			});
+			const ctx = makeServerCtx(new Map([[read.toolId, read]]));
+			ctx.appMetadata!.mcpConfig!.codeModeTimeout = 25;
+			const result = (value: string) => ({
+				content: [],
+				structuredContent: { value },
+				_meta: {
+					"io.tedix/readCollection": {
+						version: 1,
+						kind: "connected_collection_read",
+						source: {
+							appId: "10000000-0000-4000-8000-000000000001",
+							appSlug: "example",
+							toolName: "read",
+							connectionProviderId: "example",
+						},
+						collection: value,
+						observedAt: "2026-11-01T00:00:00Z",
+					},
+				},
+				isError: false,
+			});
+			let finishFirst!: (value: ReturnType<typeof result>) => void;
+			let finishSecond!: (value: ReturnType<typeof result>) => void;
+			executeToolMock
+				.mockImplementationOnce(
+					() =>
+						new Promise((resolve) => {
+							finishFirst = resolve;
+						}),
+				)
+				.mockImplementationOnce(
+					() =>
+						new Promise((resolve) => {
+							finishSecond = resolve;
+						}),
+				);
+			await registerCodeModeTools(
+				{
+					registerTool: (name: string, _config: unknown, handler: any) =>
+						registered.set(name, handler),
+				} as never,
+				ctx,
+			);
+			const first = registered.get("code")!({
+				invocation: { callable: "test.soft_fail", args: { request: 1 } },
+			});
+			await vi.advanceTimersByTimeAsync(25);
+			const timedOut = await first;
+			expect(timedOut.isError).toBe(true);
+			const second = registered.get("code")!({
+				invocation: { callable: "test.soft_fail", args: { request: 2 } },
+			});
+			await vi.advanceTimersByTimeAsync(0);
+			finishFirst(result("first"));
+			await vi.advanceTimersByTimeAsync(0);
+			finishSecond(result("second"));
+			const response = await second;
+			expect(response.structuredContent.result).toMatchObject({
+				value: "second",
+			});
+			expect(response._meta["io.tedix/readCollections"]).toEqual([
+				{
+					innerCallId: `${response.structuredContent.executionId}:0`,
+					observation: result("second")._meta["io.tedix/readCollection"],
+				},
+			]);
+			expect(response.structuredContent.executionId).not.toBe(
+				timedOut.structuredContent.executionId,
+			);
+			expect(executeToolMock).toHaveBeenCalledTimes(2);
+			const rpcIds = logSpy.mock.calls.flatMap(([message]: unknown[]) => {
+				if (typeof message !== "string" || !message.startsWith('{"_cm":"rpc"'))
+					return [];
+				return [JSON.parse(message).executionId];
+			});
+			expect(rpcIds.sort()).toEqual(
+				[
+					timedOut.structuredContent.executionId,
+					response.structuredContent.executionId,
+				].sort(),
+			);
+			expect(executedPrograms).toHaveLength(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it.each<Partial<AppTool>>([
+		{
+			annotations: { readOnlyHint: false, destructiveHint: false },
+			config: { transport: "rpc", endpoint: "test/read" },
+		},
+		{
+			annotations: { readOnlyHint: true, destructiveHint: true },
+			config: { transport: "rpc", endpoint: "test/read" },
+		},
+		{
+			annotations: { readOnlyHint: true, destructiveHint: false },
+			config: { transport: "code", code: "async () => 1" },
+		},
+	])(
+		"keeps ineligible typed calls in the existing sandbox before dispatch",
+		async (overrides) => {
+			const registered = new Map<string, (args: unknown) => Promise<any>>();
+			const configured = tool(overrides);
+			const ctx = makeServerCtx(new Map([[configured.toolId, configured]]));
+			await registerCodeModeTools(
+				{
+					registerTool: (name: string, _config: unknown, handler: any) =>
+						registered.set(name, handler),
+				} as never,
+				ctx,
+			);
+			await registered.get("code")!({
+				invocation: {
+					callable: "test.soft_fail",
+					args: JSON.parse('{"__proto__":{"safe":true},"text":"quote\\\""}'),
+				},
+			});
+			expect(executedPrograms).toHaveLength(1);
+			expect(executedPrograms[0]).toContain("JSON.parse(");
+			expect(executeToolMock.mock.calls.length).toBeLessThanOrEqual(1);
+		},
+	);
+
+	it.each([
+		"test.toString",
+		"test.constructor",
+		"__proto__.read",
+		"foreign.read",
+	])(
+		"rejects unavailable or inherited structured callable %s without dispatch",
+		async (callable) => {
+			const registered = new Map<string, (args: unknown) => Promise<any>>();
+			await registerCodeModeTools(
+				{
+					registerTool: (name: string, _config: unknown, handler: any) =>
+						registered.set(name, handler),
+				} as never,
+				makeServerCtx(),
+			);
+			const response = await registered.get("code")!({
+				invocation: { callable, args: {} },
+			});
+			expect(response.isError).toBe(true);
+			expect(executeToolMock).not.toHaveBeenCalled();
+		},
+	);
+
+	it("does not dispatch a structured call denied by the current capability scope", async () => {
+		const registered = new Map<string, (args: unknown) => Promise<any>>();
+		const ctx = makeServerCtx();
+		ctx.appMetadata!.mcpConfig!.toolScopes = { soft_fail: ["mcp:read"] };
+		await registerCodeModeTools(
+			{
+				registerTool: (name: string, _config: unknown, handler: any) =>
+					registered.set(name, handler),
+			} as never,
+			ctx,
+		);
+		const response = await registered.get("code")!({
+			invocation: { callable: "test.soft_fail", args: {} },
+		});
+		expect(response.isError).toBe(true);
+		expect(response.structuredContent.requiredScopes).toEqual(["mcp:read"]);
+		expect(executeToolMock).not.toHaveBeenCalled();
 	});
 
 	it.each([true, false])(
@@ -661,7 +961,10 @@ describe("Code Mode tail telemetry", () => {
 			});
 			expect(
 				registerTool.mock.calls.find(([name]) => name === "code")?.[1]._meta,
-			).toEqual({ securitySchemes });
+			).toEqual({
+				securitySchemes,
+				"com.tedix/structuredCall": { version: 1 },
+			});
 		},
 	);
 

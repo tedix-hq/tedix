@@ -1,3 +1,4 @@
+import { McpStructuredInvocationSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
 import { sidebarAppConfig, sidebarAppToolMeta } from "./mcp/sidebar-app";
 import {
 	capServerInstructions,
@@ -78,6 +79,14 @@ export async function extractRequestedCodeModeNamespaces(
 	const params = isRecord(body.params) ? body.params : {};
 	if (params.name !== "code") return null;
 	const args = isRecord(params.arguments) ? params.arguments : {};
+	if (args.invocation !== undefined) {
+		const invocation = McpStructuredInvocationSchema.safeParse(args.invocation);
+		if (!invocation.success || args.code !== undefined) return new Set();
+		const namespace = invocation.data.callable.split(".")[0]!;
+		return ["discover", "flow", "ui", "codemode"].includes(namespace)
+			? null
+			: new Set([namespace]);
+	}
 	const code = typeof args.code === "string" ? args.code : "";
 	if (!code) return new Set();
 	return extractCodeModeProviderNamespacesFromCode(code);

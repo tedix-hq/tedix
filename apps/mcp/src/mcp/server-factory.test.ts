@@ -1518,3 +1518,41 @@ describe("execution-only server construction", () => {
 		},
 	);
 });
+
+it("preserves the structured invocation capability through actual SDK tools/list", async () => {
+	listByApp.mockResolvedValue({ skills: [] });
+	const cached = createCachedData();
+	cached.tools = [catalogRow()];
+	cached.metadata = {
+		mcpConfig: {
+			codeMode: true,
+			enforcePolicies: false,
+			toolScopes: { find_tools: ["mcp:catalog.read"] },
+		},
+	} as unknown as CachedAppData["metadata"];
+	const server = await buildMcpServer(
+		cached,
+		{ authType: "oauth", scopes: ["mcp:catalog.read"] },
+		{ ...createEnv(), LOADER: {} } as CloudflareEnv,
+		createExecutionContext(),
+	);
+	try {
+		const client = await connectLegacyClient(server);
+		const listed = await client.request("tools/list");
+		const code = (
+			listed.result as {
+				tools: {
+					name: string;
+					_meta?: unknown;
+					inputSchema: { properties: Record<string, unknown> };
+				}[];
+			}
+		).tools.find((tool) => tool.name === "code");
+		expect(code?._meta).toMatchObject({
+			"com.tedix/structuredCall": { version: 1 },
+		});
+		expect(code?.inputSchema.properties).toHaveProperty("invocation");
+	} finally {
+		await server.close();
+	}
+});

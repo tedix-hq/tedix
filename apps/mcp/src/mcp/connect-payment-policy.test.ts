@@ -17,6 +17,23 @@ describe("Connect payment boundary", () => {
 			}).success,
 		).toBe(true);
 	});
+	it("requires exactly one execution form and a strict single-call shape", () => {
+		const schema = codeModeInputSchema("connect");
+		expect(
+			schema.safeParse({ invocation: { callable: "work.list", args: {} } })
+				.success,
+		).toBe(true);
+		for (const input of [
+			{},
+			{
+				code: "async () => 1",
+				invocation: { callable: "work.list", args: {} },
+			},
+			{ invocation: { callable: "work.list.extra", args: {} } },
+			{ invocation: { callable: "work.list", args: [], code: "extra" } },
+		])
+			expect(schema.safeParse(input).success).toBe(false);
+	});
 	it("detects metadata proofs including empty or null proofs", () => {
 		expect(hasPaymentProof(undefined, { "x402/payment": null })).toBe(true);
 		expect(hasPaymentProof(undefined, { "x402/payment": "" })).toBe(true);
