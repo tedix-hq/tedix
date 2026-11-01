@@ -298,18 +298,6 @@ function checkEmdashEncryptionWiring() {
 	}
 }
 
-function emdashNeedsWiring() {
-	const path = join(root, "apps/cms-runtime/package.json");
-	if (!existsSync(path) || emdashEncryptionWired()) return false;
-	const manifest = JSON.parse(readFileSync(path, "utf8")) as {
-		dependencies?: Record<string, string>;
-	};
-	const version = manifest.dependencies?.emdash?.match(/^[~^]?(\d+)\.(\d+)/);
-	return Boolean(
-		version && Number(version[1]) === 0 && Number(version[2]) >= 39,
-	);
-}
-
 // GitHub Actions are pinned as `uses: owner/repo[/path]@<40-hex sha> # vX[.Y.Z]`.
 // Pull requests are disabled here, so Dependabot/Renovate cannot deliver
 // updates; this step resolves each action's newest stable release to a commit
@@ -414,7 +402,9 @@ async function updateActionPins(apply: boolean, sameMajorOnly: boolean) {
 				const held =
 					sameMajorOnly && version && major(version) !== major(release.tag);
 				changes[key] ??=
-					`${version ?? sha.slice(0, 7)} → ${release.tag}${held ? " (major; held, run bump:latest)" : ""}`;
+					version === release.tag
+						? `${version} now resolves to ${release.sha.slice(0, 7)} (was ${sha.slice(0, 7)})`
+						: `${version ?? sha.slice(0, 7)} → ${release.tag}${held ? " (major; held, run bump:latest)" : ""}`;
 				if (!apply || held) return line;
 				return `${prefix}${repo}${path}@${release.sha} # ${tag}`;
 			},
@@ -448,14 +438,35 @@ async function updateRootPins(apply: boolean, sameMajorOnly: boolean) {
 	const format = { formattingOptions: { insertSpaces: false, tabSize: 1 } };
 	await Promise.all(
 		pins.map(async ([section, name, pinned]) => {
+			// `undici@^7` pins one major of a package; follow that range, not latest.
+			const at = name.lastIndexOf("@");
+			const range = at > 0 ? name.slice(at + 1) : null;
+			const pkg = range ? name.slice(0, at) : name;
 			const response = await fetch(
-				`https://registry.npmjs.org/-/package/${name}/dist-tags`,
+				range
+					? `https://registry.npmjs.org/${pkg}`
+					: `https://registry.npmjs.org/-/package/${pkg}/dist-tags`,
+				range
+					? { headers: { Accept: "application/vnd.npm.install-v1+json" } }
+					: undefined,
 			);
 			if (!response.ok) {
-				console.log(`  ${name}: could not read dist-tags (${response.status})`);
+				console.log(`  ${name}: could not read versions (${response.status})`);
 				return;
 			}
-			const tags = (await response.json()) as Record<string, string>;
+			const tags: Record<string, string | undefined> = range
+				? {
+						latest: Object.keys(
+							((await response.json()) as { versions: object }).versions,
+						)
+							.filter(
+								(version) =>
+									!version.includes("-") &&
+									Bun.semver.satisfies(version, range),
+							)
+							.sort((a, b) => Bun.semver.order(b, a))[0],
+					}
+				: ((await response.json()) as Record<string, string>);
 			const channel = pinned.split("-")[1]?.split(".")[0];
 			const ncuMovesIt =
 				section === "catalog" &&
@@ -497,10 +508,8 @@ function deferIncompatibleSelections() {
 		pool &&
 		Object.values(pool.overrides).some((pinned) => pinned !== pool.version),
 	);
-	const deferEmdash = emdashNeedsWiring();
 	const rewritten: string[] = [];
-	if (!deferVitest && !deferVitePlus && !alignOverrides && !deferEmdash)
-		return rewritten;
+	if (!deferVitest && !deferVitePlus && !alignOverrides) return rewritten;
 	const manifests = new Set(
 		changedFiles().filter((file) => file.endsWith("package.json")),
 	);
@@ -540,10 +549,7 @@ function deferIncompatibleSelections() {
 							  rootCatalog &&
 							  (name === "vite-plus" || name === "vite")
 							? "Vite+ bundles Vitest outside the Worker pool peer range"
-							: deferEmdash &&
-								  (name === "emdash" || name.startsWith("@emdash-cms/"))
-								? "CMS encryption wiring"
-								: null;
+							: null;
 				if (!reason) continue;
 				const retained = previous[section]?.[name];
 				if (!retained || retained === selected) continue;
@@ -710,7 +716,6 @@ try {
 	if (!verify) {
 		await updateActionPins(!check, interactive);
 		await updateRootPins(!check, interactive);
-		const holdEmdash = interactive && !emdashEncryptionWired();
 		// NCU evaluates peers within each manifest. The catalog's Vitest pin and
 		// the Worker pool declaration live in different manifests.
 		const pool = interactive ? vitestWorkerPool() : null;
@@ -723,10 +728,6 @@ try {
 		if (holdVitest)
 			console.log(
 				`bump: holding Vitest and Vite+ (which bundles Vitest) until @cloudflare/vitest-plugin supports the next major (currently ${pool!.required}).`,
-			);
-		if (holdEmdash)
-			console.log(
-				"bump: holding Emdash updates until cms-runtime encryption wiring is ready (see apps/cms-runtime/.env.example).",
 			);
 		const patched = interactive
 			? [...new Set(patchedDependencies().map(({ name }) => name))]
@@ -747,11 +748,10 @@ try {
 			"latest",
 			...(interactive ? ["--interactiveSelect", "patch"] : []),
 			...(interactive ? ["--peer"] : []),
-			...(holdEmdash || holdVitest || patched.length
+			...(holdVitest || patched.length
 				? [
 						"--reject",
 						[
-							...(holdEmdash ? ["emdash", "@emdash-cms/*"] : []),
 							...(holdVitest ? ["vitest", "vite-plus", "vite"] : []),
 							...patched,
 						].join(","),
@@ -870,6 +870,17 @@ try {
 	}
 	report.changedFiles = changedFiles();
 	report.status = "passed";
+	const changed = report.changedFiles.filter(
+		(file) => !preExistingSet.has(file),
+	);
+	if (!check)
+		console.log(
+			changed.length
+				? `bump: changed ${changed.join(", ")}. Review with git diff, then commit.`
+				: report.changedFiles.length
+					? `bump: no new changes; validated ${report.changedFiles.length} changed file(s) already in the checkout.`
+					: "bump: nothing changed.",
+		);
 	console.log(
 		`bump: ${check ? "check complete" : "complete"}. Result: ${reportPath}`,
 	);
