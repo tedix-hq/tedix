@@ -2,6 +2,7 @@ import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { memoryDiagnostics } from "./runtime-diagnostics";
 import { admitEvaluation } from "./evaluation-context";
 import { readWithEvaluationBoundary } from "./evaluation-read-boundary";
+import { runtimeWorkflowDiagnosticRunId } from "./runtime-workflow-diagnostic";
 import { RuntimeRunSteeringInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { PolicyCronReconcileReceipt } from "./runtime-cron";
 import { type ProxyToolOutput, resolveProvider } from "@cloudflare/codemode";
@@ -391,6 +392,7 @@ export interface RuntimeRequestHost {
 		maxChars?: number;
 		evaluationInstructions?: boolean;
 	}) => Promise<unknown>;
+	readOwnedRuntimeWorkflow: (runId: string) => Promise<unknown>;
 	writeArtifactFileTool: (
 		input: { path?: string; content?: string; message?: string },
 		runId: string | null | undefined,
@@ -2043,8 +2045,11 @@ export async function handleRuntimeRequest(
 				repoCommitStatus: async (input) => host.repoCommitStatusTool(input),
 				repoCommitDrain: async (input) => host.repoCommitDrainTool(input),
 				listArtifactFiles: async (input) => host.listArtifactFilesTool(input),
-				readArtifactFile: async (input) =>
-					readWithEvaluationBoundary({
+				readArtifactFile: async (input) => {
+					const diagnosticRunId = runtimeWorkflowDiagnosticRunId(input.path);
+					if (diagnosticRunId)
+						return host.readOwnedRuntimeWorkflow(diagnosticRunId);
+					return readWithEvaluationBoundary({
 						args: input,
 						read: () => host.readArtifactFileTool(input),
 						identity: {
@@ -2053,7 +2058,8 @@ export async function handleRuntimeRequest(
 							tediId: host.state.tediId || "",
 							slug: host.state.slug || host.name || "",
 						},
-					}),
+					});
+				},
 				writeArtifactFile: async (input) =>
 					host.writeArtifactFileTool(input, mcpComputer.turnContext?.runId),
 				computerTools: host.workstationAiTool(

@@ -1,4 +1,5 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { readOwnedRuntimeWorkflow } from "./runtime-workflow-diagnostic";
 import {
 	recordEvaluationEvidence,
 	recordEvaluationOutcome,
@@ -1434,6 +1435,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			repoCommitStatusTool: (...args) => parent.repoCommitStatusTool(...args),
 			listArtifactFilesTool: (...args) => parent.listArtifactFilesTool(...args),
 			readArtifactFileTool: (...args) => parent.readArtifactFileTool(...args),
+			readOwnedRuntimeWorkflow: (runId) =>
+				readOwnedRuntimeWorkflow({
+					runId,
+					tediId: parent.state.tediId,
+					orgId: parent.state.orgId,
+					agentName: parent.name,
+					env: parent.env,
+					storage: parent.ctx.storage,
+				}),
 			writeArtifactFileTool: (...args) => parent.writeArtifactFileTool(...args),
 			workstationAiTool: (...args) => parent.workstationAiTool(...args),
 			drainPendingCodemodeExecutions: (...args) =>
