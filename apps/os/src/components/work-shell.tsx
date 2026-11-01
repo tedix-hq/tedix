@@ -1,9 +1,4 @@
-import {
-	Link,
-	Outlet,
-	useNavigate,
-	useRouterState,
-} from "@tanstack/react-router";
+import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
 	DeckRemainingContext,
@@ -12,7 +7,7 @@ import {
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { useDeckCount } from "@/lib/use-deck-count";
 import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
-import { cn } from "@/lib/utils";
+import { Link } from "@/components/kumo/link";
 import { OS_COPY } from "@/shared/os-copy";
 import { useWorkApps } from "@/lib/use-work-apps";
 import { todayShortcut } from "@/lib/today-digest";
@@ -104,26 +99,18 @@ export function WorkShell() {
 						className="fd-work-navigation sticky bottom-0"
 					>
 						<Link
-							to="/work"
-							search={{ view: "feed" }}
+							href="/work?view=feed"
+							variant="navigation"
 							aria-current={feed ? "page" : undefined}
-							className={cn(
-								"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
-								feed &&
-									"font-semibold border-b-2 border-current text-kumo-default",
-							)}
+							className="flex-1 justify-center sm:flex-none"
 						>
 							{OS_COPY.workHome.feed}
 						</Link>
 						<Link
-							to="/work"
-							search={{ view: "deck" }}
+							href="/work?view=deck"
+							variant="navigation"
 							aria-current={deck ? "page" : undefined}
-							className={cn(
-								"flex min-h-12 flex-1 items-center justify-center gap-2 text-kumo-subtle no-underline sm:flex-none",
-								deck &&
-									"font-semibold border-b-2 border-current text-kumo-default",
-							)}
+							className="flex-1 justify-center sm:flex-none"
 						>
 							{OS_COPY.workHome.deck}
 							{config.success &&
