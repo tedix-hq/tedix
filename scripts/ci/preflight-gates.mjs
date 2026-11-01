@@ -295,6 +295,15 @@ const widgetBundleTouched = touched(
 		f.startsWith("packages/design-tokens/src/"),
 );
 
+// cms-runtime bundles Emdash outside Astro and stubs its Astro-only imports, so
+// an Emdash update can add an import that only its production build reports.
+const cmsRuntimeBundleTouched = touched(
+	(f) =>
+		f === "bun.lock" ||
+		f.startsWith("patches/") ||
+		f.startsWith("apps/cms-runtime/"),
+);
+
 /**
  * `worker-configuration.d.ts` is generated from `wrangler.jsonc` by the
  * installed wrangler, so those two plus the generator and the lockfile (a
@@ -549,6 +558,12 @@ const gates = [
 		name: "widget build",
 		when: widgetBundleTouched,
 		cmd: ["bun", "run", "--cwd", "apps/widget", "build"],
+	},
+	{
+		name: "cms-runtime build",
+		when: cmsRuntimeBundleTouched,
+		cmd: ["bun", "run", "--cwd", "apps/cms-runtime", "build"],
+		fix: "alias the new Astro-only import in apps/cms-runtime/vite.config.ts to src/emdash-virtual-stubs.ts, or stop importing the Emdash entry that pulls it in",
 	},
 	{
 		// `scripts/` is not a workspace, so the per-workspace sweep below never
