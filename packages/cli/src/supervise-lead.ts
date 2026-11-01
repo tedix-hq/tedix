@@ -21,6 +21,7 @@ import { laneProcessIdentity } from "./lane-process-recovery";
 import {
 	dispatcherReporterId,
 	supervisorDutyHealth,
+	supervisorTaskLaneId,
 } from "./dispatcher-health";
 import {
 	alive,
@@ -388,7 +389,9 @@ export class LeadDuty {
 							JSON.stringify({
 								reporterId: dispatcherReporterId(this.deps.env),
 								executor: executor.executor,
-								lane: "supervisor-lead",
+								lane: supervisorTaskLaneId(
+									`lead:${config.organization}:${config.workspace}`,
+								),
 								running: true,
 								observedAt: new Date(this.now()).toISOString(),
 								lastAdmissionAt: null,

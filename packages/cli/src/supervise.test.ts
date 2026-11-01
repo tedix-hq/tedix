@@ -1496,7 +1496,7 @@ describe("Lead duty", () => {
 		expect(f.health[1]?.topReason.reason).toContain(
 			"after fallback from devin",
 		);
-		expect(f.health[1]?.lane).toBe("supervisor-lead");
+		expect(f.health[1]?.lane).toMatch(/^task-[0-9a-f]{16}$/);
 		expect(f.duty.failed).toBe(false);
 		expect(readDutyStatuses({ TEDIX_CONFIG_DIR: config })[0]).toMatchObject({
 			kind: "task",

@@ -11,6 +11,7 @@ import type { BaseContext } from "../orpc";
 
 const mocks = vi.hoisted(() => ({
 	listDispatcherHealthReports: vi.fn(),
+	listDispatcherWorkReferences: vi.fn(),
 	upsertDispatcherHealthReport: vi.fn(),
 }));
 
@@ -59,6 +60,7 @@ beforeEach(() => {
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date(NOW));
 	mocks.listDispatcherHealthReports.mockReset().mockResolvedValue([row]);
+	mocks.listDispatcherWorkReferences.mockReset().mockResolvedValue([]);
 	mocks.upsertDispatcherHealthReport
 		.mockReset()
 		.mockImplementation(async (_db: unknown, value: typeof row) => value);
@@ -116,5 +118,98 @@ describe("dispatcher health router", () => {
 		});
 		await expect(client.list()).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(mocks.listDispatcherHealthReports).not.toHaveBeenCalled();
+	});
+});
+
+describe("reported task references", () => {
+	const own = "11111111-1111-4111-8111-111111111111";
+	const foreign = "22222222-2222-4222-8222-222222222222";
+	const done = "33333333-3333-4333-8333-333333333333";
+	function report() {
+		return {
+			...row,
+			executor: "tenant.build-runner",
+			running: true,
+			observedAt: NOW,
+			reportedAt: NOW,
+			duty: {
+				id: "configured-service",
+				kind: "service",
+				state: "running",
+				observedAt: NOW,
+				lastRunAt: NOW,
+				lastExitAt: null,
+				lastExitCode: null,
+				lastExecutor: "tenant.build-runner",
+				restartsLastHour: 0,
+				retryAt: null,
+				lastProblem: null,
+				activity: {
+					current: [
+						{ id: own, phase: "working", title: "Untrusted title" },
+						{ id: foreign, phase: "working", title: "Foreign title" },
+					],
+					currentCount: 2,
+					waiting: [{ id: foreign, reason: "reply", retryAt: null }],
+					nextCheckAt: null,
+					lastCompleted: {
+						id: done,
+						title: "Untrusted completion",
+						completedAt: NOW,
+					},
+				},
+			},
+		};
+	}
+	it("uses caller-scoped canonical titles, strips inaccessible references and rejects cancelled completion", async () => {
+		mocks.listDispatcherHealthReports.mockResolvedValue([report()]);
+		mocks.listDispatcherWorkReferences.mockResolvedValue([
+			{
+				id: own,
+				title: "Review build",
+				disposition: "accepted",
+				completedAt: null,
+			},
+			{
+				id: done,
+				title: "Cancelled build",
+				disposition: "cancelled",
+				completedAt: null,
+			},
+		]);
+		const client = createRouterClient(dispatcherHealthContractRouter, {
+			context: context("org-1"),
+		});
+		const out = await client.list();
+		const activity = out.data[0]!.duty!.activity!;
+		expect(activity.current).toEqual([
+			{ id: own, title: "Review build", phase: "working" },
+		]);
+		expect(activity.waiting).toEqual([]);
+		expect(activity.lastCompleted).toBeNull();
+		expect(JSON.stringify(out)).not.toContain("Foreign title");
+		expect(mocks.listDispatcherWorkReferences).toHaveBeenCalledWith(
+			{},
+			"org-1",
+			expect.arrayContaining([own, foreign, done]),
+		);
+	});
+	it("reports canonical completion time, not a reporter's claim", async () => {
+		mocks.listDispatcherHealthReports.mockResolvedValue([report()]);
+		const at = "2026-10-30T10:02:00.000Z";
+		mocks.listDispatcherWorkReferences.mockResolvedValue([
+			{
+				id: done,
+				title: "Finished review",
+				disposition: "completed",
+				completedAt: at,
+			},
+		]);
+		const client = createRouterClient(dispatcherHealthContractRouter, {
+			context: context("org-1"),
+		});
+		expect(
+			(await client.list()).data[0]!.duty!.activity!.lastCompleted,
+		).toEqual({ id: done, title: "Finished review", completedAt: at });
 	});
 });

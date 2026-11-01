@@ -3900,3 +3900,31 @@ describe("structured dispatcher outcomes", () => {
 		},
 	);
 });
+
+it("publishes only canonical completed Work, never a cancelled succeeded receipt", async () => {
+	const f = fixture();
+	writeDispatcherHealthSource(f.dir, options);
+	const receipt = {
+		itemId: item(1).id,
+		version: 2,
+		phase: "settled" as const,
+		outcome: "succeeded",
+		attemptId: "retained-attempt",
+		session: "fixture:retained-session",
+		executorKey: "fixture-agent",
+		completionPending: true,
+	};
+	Object.assign(f.items[0]!, { disposition: "cancelled", completedAt: null });
+	await f.dispatcher["complete"]({ ...receipt }, true);
+	expect(
+		JSON.parse(readFileSync(join(f.dir, "health-source.json"), "utf8"))
+			.lastCompleted,
+	).toBeUndefined();
+	const at = "2026-11-01T10:00:00.000Z";
+	Object.assign(f.items[0]!, { disposition: "completed", completedAt: at });
+	await f.dispatcher["complete"]({ ...receipt }, true);
+	expect(
+		JSON.parse(readFileSync(join(f.dir, "health-source.json"), "utf8"))
+			.lastCompleted,
+	).toEqual({ id: item(1).id, completedAt: at });
+});

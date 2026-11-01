@@ -166,9 +166,17 @@ prevents overlapping passes, and remembers the last start across restarts.
 `tedix supervise --once` waits for a due Lead pass and exits with an error if
 every executor fails. The executor used
 and any fallback appear in `supervisor.log` and dispatcher health under
-`supervisor-lead`. A finished pass means the executor exited successfully;
+the duty's reported task identity. A finished pass means the executor exited successfully;
 review its recorded result to assess its judgement. Set `enabled: false` to
 disable the duty.
+
+Work Capacity shows the executors and duties each supervisor reports. Current
+Work links, task-specific waits, known next checks and the last confirmed Work
+completion appear beside each duty. Executor names come from configuration;
+the view does not require a fixed set of harnesses. Older producers may report
+availability without task activity, and stale reports leave current activity
+unknown. A successful scheduled pass is separate from a completed Work Item;
+neither proves that its result is correct.
 
 To hand accepted Work to an existing Codex chat, run
 `tedix work handoff <id> --host codex --to codex:<chat-id> --launch`. The chat

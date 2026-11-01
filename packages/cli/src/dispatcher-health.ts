@@ -12,7 +12,11 @@ import {
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
-import type { SupervisorDutyHealth } from "@tedix/api-contract/schemas/dispatcher-health";
+import type {
+	SupervisorActivity,
+	SupervisorDutyHealth,
+} from "@tedix/api-contract/schemas/dispatcher-health";
+import { UUID_RE } from "./work-identity";
 import {
 	readDutyStatuses,
 	type SupervisorDutyStatus,
@@ -44,6 +48,8 @@ export interface DispatcherHealthSource {
 	startedAt: string;
 	lastAdmissionAt?: string;
 	preparingSlots?: number;
+	nextCheckAt?: string;
+	lastCompleted?: { id: string; completedAt: string };
 }
 
 export interface LocalDispatcherHealth {
@@ -92,12 +98,52 @@ export function writeDispatcherHealthSource(
 	if (
 		previous?.workspace === source.workspace &&
 		previous.organization === source.organization &&
-		previous.executor === source.executor &&
-		previous.lastAdmissionAt
-	)
+		previous.executor === source.executor
+	) {
 		source.lastAdmissionAt = previous.lastAdmissionAt;
+		source.lastCompleted = previous.lastCompleted;
+	}
 	writeFileSync(`${path}.tmp`, JSON.stringify(source), { mode: 0o600 });
 	renameSync(`${path}.tmp`, path);
+}
+
+function updateSource(
+	directory: string,
+	patch: Partial<DispatcherHealthSource>,
+	pid: number,
+) {
+	const path = join(directory, SOURCE_FILE);
+	const source = readSource(path);
+	if (!source || source.pid !== pid) return;
+	try {
+		writeFileSync(`${path}.tmp`, JSON.stringify({ ...source, ...patch }), {
+			mode: 0o600,
+		});
+		renameSync(`${path}.tmp`, path);
+	} catch {
+		// Reporting must not change execution or its recovery decisions.
+	}
+}
+
+export function recordDispatcherNextCheck(
+	directory: string,
+	at: string,
+	pid = process.pid,
+) {
+	if (Number.isFinite(Date.parse(at)))
+		updateSource(directory, { nextCheckAt: at }, pid);
+}
+
+export function recordDispatcherCompletion(
+	directory: string,
+	id: string,
+	at: string,
+	pid = process.pid,
+) {
+	const previous = readSource(join(directory, SOURCE_FILE))?.lastCompleted;
+	if (previous && Date.parse(previous.completedAt) >= Date.parse(at)) return;
+	if (UUID_RE.test(id) && Number.isFinite(Date.parse(at)))
+		updateSource(directory, { lastCompleted: { id, completedAt: at } }, pid);
 }
 
 function readSource(path: string): DispatcherHealthSource | undefined {
@@ -223,10 +269,7 @@ function safeReason(reason: string): string {
 			"<time>",
 		)
 		.replace(/(?:\/Users|\/home|\/tmp|\/var\/folders)\/[^\s,;]+/g, "<path>")
-		.replace(
-			/\b(?:codex|claude-code|opencode|devin):[a-z0-9._:-]+\b/gi,
-			"<session>",
-		)
+		.replace(/\b[a-z][a-z0-9._-]*:[a-z0-9._:-]{6,}\b/gi, "<session>")
 		.replace(/\s+/g, " ")
 		.trim()
 		.slice(0, 500);
@@ -275,21 +318,108 @@ function logHealth(directory: string, now: number) {
 	};
 }
 
-function activeSlots(directory: string): number {
-	let count = 0;
+function receiptActivity(
+	directory: string,
+	source: DispatcherHealthSource,
+	now: number,
+) {
+	let slots = 0;
+	const current: SupervisorActivity["current"] = [];
+	const waiting: SupervisorActivity["waiting"] = [];
+	const latest = new Map<
+		string,
+		{ version: number; row: Record<string, unknown> }
+	>();
 	for (const name of readdirSync(directory)) {
-		if (!/^[0-9a-f-]{36}-\d+\.json$/.test(name)) continue;
+		const match = /^([0-9a-f-]{36})-(\d+)\.json$/.exec(name);
+		if (!match || !UUID_RE.test(match[1]!)) continue;
 		try {
 			const row = JSON.parse(
 				readFileSync(join(directory, name), "utf8"),
 			) as Record<string, unknown>;
-			if (!new Set(["admitted", "running", "settling"]).has(String(row.phase)))
-				continue;
-			if (typeof row.pid === "number" && !processAlive(row.pid)) continue;
-			count++;
+			const id = match[1]!,
+				version = Number(match[2]);
+			if (
+				row &&
+				typeof row === "object" &&
+				(!latest.has(id) || latest.get(id)!.version < version)
+			)
+				latest.set(id, { version, row });
 		} catch {}
 	}
-	return count;
+	for (const [id, { row }] of latest) {
+		const phase = String(row.phase);
+		const live = typeof row.pid !== "number" || processAlive(row.pid);
+		if (["admitted", "running", "settling"].includes(phase) && live) slots++;
+		if (
+			(["preparing", "admitted"].includes(phase) && live) ||
+			(phase === "running" && typeof row.pid === "number" && live) ||
+			phase === "settling"
+		) {
+			current.push({
+				id,
+				phase:
+					phase === "running"
+						? "working"
+						: phase === "settling"
+							? "finishing"
+							: "starting",
+			});
+		} else if (row.completionPending === true && row.outcome === "succeeded") {
+			current.push({ id, phase: "finishing" });
+		}
+		const retry = Math.max(
+			...[
+				row.retryAt,
+				row.runRetryAt,
+				row.completionRetryAt,
+				row.waitCheckAt,
+			].map((v) => (typeof v === "number" && Number.isFinite(v) ? v : 0)),
+		);
+		const result = row.laneResult as { outcome?: string } | undefined;
+		const reason =
+			result?.outcome === "waiting_on_user" && !row.waitResponseId
+				? "reply"
+				: row.admissionState === "unknown"
+					? "confirmation"
+					: row.completionPending === true
+						? "completion"
+						: row.held === true
+							? "held"
+							: phase === "deferred" && retry > now
+								? "retry"
+								: undefined;
+		if (reason)
+			waiting.push({
+				id,
+				reason,
+				retryAt: retry > now ? new Date(retry).toISOString() : null,
+			});
+	}
+	const last = source.lastCompleted;
+	return {
+		slots,
+		activity: {
+			current: current.slice(0, 3),
+			currentCount: Math.max(current.length, slots),
+			waiting: waiting.slice(0, 3),
+			nextCheckAt:
+				typeof source.nextCheckAt === "string" &&
+				Number.isFinite(Date.parse(source.nextCheckAt))
+					? source.nextCheckAt
+					: null,
+			lastCompleted:
+				last &&
+				UUID_RE.test(last.id) &&
+				Number.isFinite(Date.parse(last.completedAt))
+					? last
+					: null,
+		} satisfies SupervisorActivity,
+	};
+}
+
+export function supervisorTaskLaneId(id: string): string {
+	return `task-${createHash("sha256").update(id).digest("hex").slice(0, 16)}`;
 }
 
 export function dispatcherReporterId(env: NodeJS.ProcessEnv): string {
@@ -336,6 +466,7 @@ export function collectDispatcherHealth(
 	const reporterId = dispatcherReporterId(env);
 	const observedAt = new Date(now).toISOString();
 	const reports: LocalDispatcherHealth[] = [];
+	const activities = new Map<string, SupervisorActivity>();
 	for (const name of existsSync(root) ? readdirSync(root) : []) {
 		const directory = join(root, name);
 		try {
@@ -343,6 +474,8 @@ export function collectDispatcherHealth(
 			if (!source) continue;
 			const running = processAlive(source.pid);
 			const log = logHealth(directory, now);
+			const activity = receiptActivity(directory, source, now);
+			activities.set(name, activity.activity);
 			reports.push({
 				workspace: source.workspace,
 				organization: source.organization,
@@ -361,7 +494,7 @@ export function collectDispatcherHealth(
 				slotsInUse: running
 					? Math.min(
 							source.slotsTotal,
-							activeSlots(directory) + (source.preparingSlots ?? 0),
+							activity.slots + (source.preparingSlots ?? 0),
 						)
 					: 0,
 				slotsTotal: source.slotsTotal,
@@ -379,14 +512,14 @@ export function collectDispatcherHealth(
 						entry.organization === row.organization &&
 						entry.workspace === row.workspace,
 				);
-				if (report) report.duty = duty;
+				if (report) report.duty = { ...duty, activity: activities.get(row.id) };
 			} else {
 				reports.push({
 					workspace: row.workspace,
 					organization: row.organization,
 					reporterId,
 					executor: row.lastExecutor ?? row.executor,
-					lane: "supervisor-lead",
+					lane: supervisorTaskLaneId(row.id),
 					running: row.state === "running",
 					observedAt: row.observedAt,
 					lastAdmissionAt: null,

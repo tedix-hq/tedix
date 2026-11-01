@@ -7,7 +7,8 @@
  * with ORDER BY ... DESC LIMIT 1, never a max() over a whole table.
  */
 
-import { asc, eq, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { workItems } from "../../schema/work-items";
 import type { DbQueryClient } from "../../query-client";
 import {
 	dispatcherHealthReports,
@@ -22,6 +23,38 @@ export type UpsertDispatcherHealthReportParams = Omit<
 	NewDispatcherHealthReportRow,
 	"orgId"
 > & { orgId: string };
+
+/** Resolve reported references without exposing another organization's Work. */
+export async function listDispatcherWorkReferences(
+	db: DbQueryClient,
+	orgId: string,
+	ids: string[],
+) {
+	const unique = [...new Set(ids)];
+	const rows: Pick<
+		typeof workItems.$inferSelect,
+		"id" | "title" | "disposition" | "completedAt"
+	>[] = [];
+	for (let offset = 0; offset < unique.length; offset += 50) {
+		rows.push(
+			...(await db
+				.select({
+					id: workItems.id,
+					title: workItems.title,
+					disposition: workItems.disposition,
+					completedAt: workItems.completedAt,
+				})
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.orgId, orgId),
+						inArray(workItems.id, unique.slice(offset, offset + 50)),
+					),
+				)),
+		);
+	}
+	return rows;
+}
 
 /** Replace one reporter's current snapshot for one executor lane. */
 export async function upsertDispatcherHealthReport(

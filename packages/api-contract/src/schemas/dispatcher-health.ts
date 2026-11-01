@@ -2,6 +2,41 @@ import * as z from "zod";
 
 const BoundedIdSchema = z.string().trim().min(1).max(128);
 
+const SupervisorWorkSchema = z.object({
+	id: z.uuid(),
+	title: z.string().min(1).max(200).optional(),
+});
+
+export const SupervisorActivitySchema = z.object({
+	current: z
+		.array(
+			SupervisorWorkSchema.extend({
+				phase: z.enum(["starting", "working", "finishing"]),
+			}),
+		)
+		.max(3),
+	currentCount: z.number().int().min(0).max(10_000),
+	waiting: z
+		.array(
+			SupervisorWorkSchema.extend({
+				reason: z.enum([
+					"retry",
+					"confirmation",
+					"reply",
+					"completion",
+					"held",
+				]),
+				retryAt: z.iso.datetime().nullable(),
+			}),
+		)
+		.max(3),
+	nextCheckAt: z.iso.datetime().nullable(),
+	lastCompleted: SupervisorWorkSchema.extend({
+		completedAt: z.iso.datetime(),
+	}).nullable(),
+});
+export type SupervisorActivity = z.infer<typeof SupervisorActivitySchema>;
+
 export const SupervisorDutyHealthSchema = z.object({
 	id: z.string().trim().min(1).max(256),
 	kind: z.enum(["service", "task"]),
@@ -15,6 +50,7 @@ export const SupervisorDutyHealthSchema = z.object({
 	retryAt: z.iso.datetime().nullable(),
 	lastProblem: z.string().min(1).max(500).nullable(),
 	problemSince: z.iso.datetime().nullable().optional(),
+	activity: SupervisorActivitySchema.optional(),
 });
 export type SupervisorDutyHealth = z.infer<typeof SupervisorDutyHealthSchema>;
 

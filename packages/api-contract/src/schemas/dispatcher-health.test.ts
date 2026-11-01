@@ -58,3 +58,48 @@ describe("dispatcher health report input", () => {
 		expect(() => ReportDispatcherHealthInputSchema.parse(input)).toThrow();
 	});
 });
+
+it("accepts arbitrary executor activity while bounding task references", () => {
+	const schema = SupervisorDutyHealthSchema;
+	const duty = {
+		id: "configured-worker",
+		kind: "service",
+		state: "running",
+		observedAt: valid.observedAt,
+		lastRunAt: null,
+		lastExitAt: null,
+		lastExitCode: null,
+		lastExecutor: "custom.builder",
+		restartsLastHour: 0,
+		retryAt: null,
+		lastProblem: null,
+		activity: {
+			current: [
+				{ id: "11111111-1111-4111-8111-111111111111", phase: "working" },
+			],
+			currentCount: 1,
+			waiting: [],
+			nextCheckAt: null,
+			lastCompleted: null,
+		},
+	};
+	expect(schema.safeParse(duty).success).toBe(true);
+	expect(
+		schema.safeParse({
+			...duty,
+			activity: {
+				...duty.activity,
+				current: Array(4).fill(duty.activity.current[0]),
+			},
+		}).success,
+	).toBe(false);
+	expect(
+		schema.safeParse({
+			...duty,
+			activity: {
+				...duty.activity,
+				waiting: [{ id: "not-a-work-id", reason: "retry", retryAt: null }],
+			},
+		}).success,
+	).toBe(false);
+});
