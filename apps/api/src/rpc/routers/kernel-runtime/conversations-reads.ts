@@ -379,6 +379,13 @@ export const listConversationsRoute = authed.listConversations
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context, input }) => {
 		const organizationId = resolveOrganizationId(context, input.organizationId);
+		if (input.conversationId) {
+			await ensureHomeConversationAccess(context, {
+				conversationId: input.conversationId,
+				organizationId,
+				required: "read",
+			});
+		}
 		return listKernelConversationsFromIndex(context, {
 			organizationId,
 			limit: input.limit ?? 100,

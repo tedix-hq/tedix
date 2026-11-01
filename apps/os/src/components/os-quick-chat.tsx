@@ -22,9 +22,10 @@ import {
 	readQuickChatHomeOpenTurn,
 	readQuickChatHomeTranscript,
 	resumeQuickChatHomeTurn,
-	runQuickChatHomeTurn,
 	type QuickChatHomeDeps,
 } from "@/lib/quick-chat-home";
+import { createQuickChatHomeAdapter } from "@/lib/quick-chat-home-adapter";
+import { buildWorkspaceChatTools } from "@/lib/workspace-chat-tools";
 import type { HomePageToolDescriptor } from "@tedix/api-contract/schemas/kernel-runtime";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import {
@@ -198,6 +199,11 @@ const quickChatHomeDeps: QuickChatHomeDeps = {
 	sleep: abortableSleep,
 	now: () => Date.now(),
 };
+
+const quickChatHomeTurn = createQuickChatHomeAdapter(quickChatHomeDeps, {
+	pathname: () => window.location.pathname,
+	workspaceTools: buildWorkspaceChatTools,
+});
 
 function decoded(value: string): string {
 	try {
@@ -708,8 +714,7 @@ export function OsQuickChat() {
 						? {
 								home: {
 									label: QUICK_CHAT_HOME_LABEL,
-									turn: (input) =>
-										runQuickChatHomeTurn(quickChatHomeDeps, input),
+									turn: quickChatHomeTurn,
 									transcript: ({ conversationId }) =>
 										readQuickChatHomeTranscript(
 											quickChatHomeDeps,

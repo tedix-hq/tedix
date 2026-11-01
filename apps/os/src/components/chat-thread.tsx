@@ -1,5 +1,5 @@
 import "./canvas-page.css";
-import { buildAppEditTools } from "@/components/app-edit-webmcp-tools";
+import { buildWorkspaceChatTools } from "@/lib/workspace-chat-tools";
 import { WorkspaceChatPageTools } from "@/lib/workspace-chat-page-tools";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import {
@@ -1231,16 +1231,16 @@ export function ChatThread({
 			const { enqueueMessage, draftContent, ...request } = input;
 			void draftContent;
 			const tools =
-				request.workspaceContext?.workpiece?.kind === "gadget" &&
-				!request.delegateToTediId
-					? buildAppEditTools(
-							request.workspaceContext.workspaceId,
-							request.conversationId,
-							() =>
+				request.workspaceContext && !request.delegateToTediId
+					? buildWorkspaceChatTools({
+							workspaceId: request.workspaceContext.workspaceId,
+							conversationId: request.conversationId,
+							workpiece: request.workspaceContext.workpiece,
+							onProposed: () =>
 								queryClient.invalidateQueries({
 									queryKey: osQueryKeys.collaborationProposals(),
 								}),
-						)
+						})
 					: [];
 			const descriptors = pageTools.offer(request.idempotencyKey, tools);
 			const result = enqueueMessage({

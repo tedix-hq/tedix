@@ -52,6 +52,7 @@ import { ensureActiveKernelHarnessVersion } from "../../../services/harness-pers
 import { getOrganizationTedi } from "@tedix/db/queries/kernel-runtime-support";
 import { homeRuntimeEventId } from "@tedix/api-contract/utils/runtime-events";
 import { kernelConversationOriginOrHuman } from "@tedix/db/schema/cognitive-runtime";
+import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
 import { delegationVerifyCommand } from "../kernel/delegated-stop";
 import {
 	readChildRunStatusesForRunRows,
@@ -583,6 +584,7 @@ export async function listKernelConversationsFromIndex(
 		organizationId: string;
 		limit: number;
 		list: {
+			conversationId?: string;
 			channel?: string;
 			cursor?: string;
 			search?: string;
@@ -600,18 +602,30 @@ export async function listKernelConversationsFromIndex(
 		input.list.search || input.list.channel
 			? Math.min(input.limit * 5, 500)
 			: input.limit;
-	const rows = await selectKernelConversationIndexPage(context.db, {
-		organizationId: input.organizationId,
-		cursor: parseKernelConversationCursor(input.list.cursor),
-		limit: fetchLimit,
-		workspaceId: input.list.workspaceId,
-		includeArchived: input.list.includeArchived,
-	});
+	const exact = input.list.conversationId
+		? await getKernelConversation(context.db, {
+				organizationId: input.organizationId,
+				conversationId: input.list.conversationId,
+			})
+		: undefined;
+	const rows = input.list.conversationId
+		? exact
+			? [exact]
+			: []
+		: await selectKernelConversationIndexPage(context.db, {
+				organizationId: input.organizationId,
+				cursor: parseKernelConversationCursor(input.list.cursor),
+				limit: fetchLimit,
+				workspaceId: input.list.workspaceId,
+				includeArchived: input.list.includeArchived,
+			});
 	const conversations: HomeConversation[] = [];
 	let lastConsumed: (typeof rows)[number] | null = null;
 	let stoppedEarly = false;
 	for (const row of rows) {
 		lastConsumed = row;
+		if (row.deletedAt || (row.archivedAt && !input.list.includeArchived))
+			continue;
 		// Ephemeral CI-smoke conversations are operational noise — never surface
 		// them in the operator sidebar / CLI list. They keep their event ledger.
 		if (isEphemeralHomeConversation(row.conversationId)) continue;
@@ -654,7 +668,8 @@ export async function listKernelConversationsFromIndex(
 			break;
 		}
 	}
-	const mayHaveMore = stoppedEarly || rows.length === fetchLimit;
+	const mayHaveMore =
+		!input.list.conversationId && (stoppedEarly || rows.length === fetchLimit);
 	return {
 		conversations,
 		nextCursor:
