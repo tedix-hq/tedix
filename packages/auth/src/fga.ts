@@ -36,6 +36,42 @@ function rel(appId: string, relation: string, descopeUserId: string) {
 	};
 }
 
+type AppRelation = ReturnType<typeof rel>;
+type CheckedRelation = {
+	allowed: boolean;
+	tuple: Omit<AppRelation, "resourceType" | "targetType"> & {
+		resourceType?: string;
+		targetType?: string;
+	};
+};
+
+function matchesRelation(
+	tuple: CheckedRelation["tuple"],
+	expected: AppRelation,
+) {
+	return (
+		tuple.resource === expected.resource &&
+		tuple.target === expected.target &&
+		tuple.relation === expected.relation &&
+		(tuple.resourceType === undefined || tuple.resourceType === "app") &&
+		(tuple.targetType === undefined || tuple.targetType === "user")
+	);
+}
+
+// Provider answers cannot expand the requested objects or principals. Duplicate
+// answers are ambiguous, including an allow/deny pair for the same tuple.
+function allowedRequestedRelations(
+	results: CheckedRelation[],
+	requested: AppRelation[],
+): AppRelation[] {
+	return requested.filter((expected) => {
+		const matching = results.filter((entry) =>
+			matchesRelation(entry.tuple, expected),
+		);
+		return matching.length === 1 && matching[0]!.allowed === true;
+	});
+}
+
 /**
  * App-assignment checks are runtime authorization gates. A failed provider
  * response must still deny access without making every tedi request fail, but
@@ -149,7 +185,7 @@ export async function getOperableApps(
 		return [];
 	}
 
-	return resp.data.filter((r) => r.allowed).map((r) => r.tuple.resource);
+	return allowedRequestedRelations(resp.data, relations).map((r) => r.resource);
 }
 
 /**
@@ -175,15 +211,11 @@ export async function getAssignedAppRoles(
 	}
 
 	const roles: Record<string, "operator" | "observer"> = {};
-	for (const result of resp.data) {
-		if (!result.allowed) continue;
-		if (result.tuple.relation === "operator") {
-			roles[result.tuple.resource] = "operator";
-		} else if (
-			!roles[result.tuple.resource] &&
-			result.tuple.relation === "observer"
-		) {
-			roles[result.tuple.resource] = "observer";
+	for (const relation of allowedRequestedRelations(resp.data, relations)) {
+		if (relation.relation === "operator") {
+			roles[relation.resource] = "operator";
+		} else if (!roles[relation.resource] && relation.relation === "observer") {
+			roles[relation.resource] = "observer";
 		}
 	}
 	return roles;
@@ -208,11 +240,8 @@ export async function getAppRoleStateForMutation(
 	}
 	const result = { operator: false, observer: false };
 	for (const role of ["operator", "observer"] as const) {
-		const matching = resp.data.filter(
-			(entry) =>
-				entry.tuple.resource === appId &&
-				entry.tuple.target === descopeUserId &&
-				entry.tuple.relation === role,
+		const matching = resp.data.filter((entry) =>
+			matchesRelation(entry.tuple, rel(appId, role, descopeUserId)),
 		);
 		if (matching.length !== 1) {
 			throw new Error("Incomplete app FGA relation check");
@@ -242,7 +271,7 @@ export async function getAppOperators(
 		return [];
 	}
 
-	return resp.data.filter((r) => r.allowed).map((r) => r.tuple.target);
+	return allowedRequestedRelations(resp.data, relations).map((r) => r.target);
 }
 
 /**
@@ -265,7 +294,7 @@ export async function getAppObservers(
 		return [];
 	}
 
-	return resp.data.filter((r) => r.allowed).map((r) => r.tuple.target);
+	return allowedRequestedRelations(resp.data, relations).map((r) => r.target);
 }
 
 // =============================================================================
