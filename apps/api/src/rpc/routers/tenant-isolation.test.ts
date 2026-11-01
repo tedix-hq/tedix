@@ -15,6 +15,7 @@
  * otherwise confirm that a record exists in another tenant.
  */
 
+import { MCP_GRANULAR_CAPABILITY_SCOPES } from "@tedix/api-contract/schemas/mcp-capability-scopes";
 import { describe, expect, test } from "vite-plus/test";
 import {
 	requireOrganizationAccess as requireScopedOrganizationAccess,
@@ -48,6 +49,38 @@ const record = (scope: string, organizationId: string | null) => ({
 });
 
 describe("organization resource scoping", () => {
+	test.each(Object.keys(MCP_GRANULAR_CAPABILITY_SCOPES))(
+		"%s cannot widen the shared object guard to a foreign tenant",
+		(scope) => {
+			for (const authType of ["apikey", "m2m", "tedi"] as const) {
+				const context = {
+					organizationId: ORG_A,
+					authType,
+					apiKey: { scopes: [scope] },
+					tediScopes: [scope],
+				} as BaseContext;
+				expect(() => requireScopedOrganizationAccess(context, ORG_B)).toThrow(
+					/access denied/i,
+				);
+				expect(() =>
+					assertReadableControlPlaneRecord(
+						context,
+						record("organization", ORG_B),
+						"Record not found",
+					),
+				).toThrow(/not found/i);
+				expect(requireScopedOrganizationAccess(context, ORG_A)).toBe(ORG_A);
+				expect(() =>
+					assertReadableControlPlaneRecord(
+						context,
+						record("organization", ORG_A),
+						"Record not found",
+					),
+				).not.toThrow();
+			}
+		},
+	);
+
 	test("a tenant cannot read another organization resolved by slug", () => {
 		expect(() => requireOrganizationAccess(tenantCtx(ORG_A), ORG_B)).toThrow(
 			/access denied/i,

@@ -48,6 +48,129 @@ function checkClientReturning(resp: Resp) {
 }
 
 describe("app assignment checks", () => {
+	it.each([
+		{ resource: "foreign-app" },
+		{ target: "foreign-user" },
+		{ relation: "owner" },
+		{ resourceType: "document" },
+		{ targetType: "group" },
+	])(
+		"rejects allowed answers outside the requested tuple: %j",
+		async (override) => {
+			for (const relation of ["operator", "observer"]) {
+				const client = checkClientReturning({
+					ok: true,
+					data: [
+						{
+							allowed: true,
+							tuple: {
+								resource: "app-a",
+								target: "user-a",
+								relation,
+								...override,
+							},
+						},
+					],
+				});
+				await expect(
+					getOperableApps(client, "user-a", ["app-a"]),
+				).resolves.toEqual([]);
+				await expect(
+					getAssignedAppRoles(client, "user-a", ["app-a"]),
+				).resolves.toEqual({});
+				await expect(
+					getAppOperators(client, "app-a", ["user-a"]),
+				).resolves.toEqual([]);
+				await expect(
+					getAppObservers(client, "app-a", ["user-a"]),
+				).resolves.toEqual([]);
+			}
+		},
+	);
+
+	it("cannot use observer authority as operator authority", async () => {
+		const client = checkClientReturning({
+			ok: true,
+			data: [
+				{
+					allowed: true,
+					tuple: { resource: "app-a", target: "user-a", relation: "observer" },
+				},
+			],
+		});
+		await expect(getOperableApps(client, "user-a", ["app-a"])).resolves.toEqual(
+			[],
+		);
+		await expect(getAppOperators(client, "app-a", ["user-a"])).resolves.toEqual(
+			[],
+		);
+		await expect(
+			getAssignedAppRoles(client, "user-a", ["app-a"]),
+		).resolves.toEqual({ "app-a": "observer" });
+		await expect(getAppObservers(client, "app-a", ["user-a"])).resolves.toEqual(
+			["user-a"],
+		);
+	});
+
+	it("retains exact grants while discarding foreign tuples and ambiguous answers", async () => {
+		const tuple = {
+			resource: "app-a",
+			target: "user-a",
+			relation: "operator",
+			resourceType: "app",
+			targetType: "user",
+		};
+		const client = checkClientReturning({
+			ok: true,
+			data: [
+				{ allowed: true, tuple },
+				{ allowed: true, tuple: { ...tuple, resource: "foreign-app" } },
+				{ allowed: true, tuple: { ...tuple, target: "foreign-user" } },
+			],
+		});
+		await expect(getOperableApps(client, "user-a", ["app-a"])).resolves.toEqual(
+			["app-a"],
+		);
+		await expect(
+			getAssignedAppRoles(client, "user-a", ["app-a"]),
+		).resolves.toEqual({ "app-a": "operator" });
+		await expect(getAppOperators(client, "app-a", ["user-a"])).resolves.toEqual(
+			["user-a"],
+		);
+		const ambiguous = checkClientReturning({
+			ok: true,
+			data: [
+				{ allowed: true, tuple },
+				{ allowed: false, tuple },
+			],
+		});
+		await expect(
+			getOperableApps(ambiguous, "user-a", ["app-a"]),
+		).resolves.toEqual([]);
+		await expect(
+			getAssignedAppRoles(ambiguous, "user-a", ["app-a"]),
+		).resolves.toEqual({});
+		await expect(
+			getAppOperators(ambiguous, "app-a", ["user-a"]),
+		).resolves.toEqual([]);
+	});
+
+	it.each([{ resourceType: "document" }, { targetType: "group" }])(
+		"cannot substitute a tuple of another type before mutation: %j",
+		async (override) => {
+			const client = checkClientReturning({
+				ok: true,
+				data: ["operator", "observer"].map((relation) => ({
+					allowed: true,
+					tuple: { resource: "app-a", target: "user-a", relation, ...override },
+				})),
+			});
+			await expect(
+				getAppRoleStateForMutation(client, "user-a", "app-a"),
+			).rejects.toThrow("Incomplete app FGA relation check");
+		},
+	);
+
 	it("reads both exact relations before a role mutation", async () => {
 		const client = checkClientReturning({
 			ok: true,
