@@ -71,10 +71,8 @@ const OWNER_COMPLETION_CLASSES = new Set([
 /**
  * Whether an external agent may complete this Work Item itself: it is
  * accepted, its latest Attempt is this agent's own (same principal and
- * verified session) and settled succeeded (a commit is required outside
- * research), and it is
- * not credentials, payment or external-messaging work. Owner completion stays
- * available either way.
+ * verified session) and settled succeeded. Coding Work requires a commit;
+ * accepted credential, payment or external-messaging actions stay owner-only.
  */
 export async function canCompleteOwnSucceededAttempt(
 	context: BaseContext,
@@ -82,8 +80,11 @@ export async function canCompleteOwnSucceededAttempt(
 	actor: { id: string; sessionId?: string | null },
 ): Promise<boolean> {
 	if (item.disposition !== "accepted" || !actor.sessionId) return false;
+	// The accepted outcome defines the action; descriptions can contain past incidents.
+	const completionScope =
+		item.acceptanceContract?.doneLooksLike?.trim() || item.description || "";
 	const reserved = humanReservedActionClasses(
-		withoutNegatedClauses(`${item.title}\n${item.description ?? ""}`),
+		withoutNegatedClauses(`${item.title}\n${completionScope}`),
 	);
 	if (reserved.some((id) => OWNER_COMPLETION_CLASSES.has(id))) return false;
 	const { data } = await listWorkItemAttempts(context.db, {
@@ -105,7 +106,7 @@ export async function canCompleteOwnSucceededAttempt(
 		latest.outcome === "succeeded" &&
 		(latest.metadata?.dispatchVersion === undefined ||
 			latest.metadata.dispatchVersion === item.version) &&
-		(item.workKind === "research" ||
+		(item.workKind !== "coding" ||
 			(typeof commitSha === "string" && /^[a-f\d]{40}$/i.test(commitSha))),
 	);
 }
@@ -166,7 +167,7 @@ export async function workItemStewardActor(
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		action === "completion" && actor.type === "external_agent"
-			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (a commit is required outside research), and not credentials, payment or messaging work"
+			? "Work Item completion requires its owner or steward; an agent may complete only its own latest succeeded Attempt (coding Work requires a commit), and not accepted credentials, payment or messaging actions"
 			: `Work Item ${action} requires its owner or steward; tedi cancellation requires a stale item in its led project and a reason`,
 	);
 }

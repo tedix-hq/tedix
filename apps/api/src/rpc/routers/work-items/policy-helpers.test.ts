@@ -7,7 +7,10 @@ vi.mock("@tedix/db/queries/work-items/attempts", () => ({
 	listWorkItemAttempts: attempts.list,
 }));
 
-import { canCompleteOwnSucceededAttempt } from "./policy-helpers";
+import {
+	canCompleteOwnSucceededAttempt,
+	workItemStewardActor,
+} from "./policy-helpers";
 
 const AGENT = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
@@ -45,6 +48,17 @@ describe("canCompleteOwnSucceededAttempt", () => {
 
 	const allowed = (work = item(), sessionId: string | null = SESSION) =>
 		canCompleteOwnSucceededAttempt(context, work, { id: AGENT, sessionId });
+
+	it("rejects completion outside the caller's organization before resolving an actor", async () => {
+		await expect(
+			workItemStewardActor(
+				{ ...context, organizationId: "other-organization" },
+				item({ workKind: "operations" }),
+				"completion",
+			),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(attempts.list).not.toHaveBeenCalled();
+	});
 
 	it("lets the agent complete an accepted item its own succeeded settle proved with a commit", async () => {
 		await expect(allowed()).resolves.toBe(true);
@@ -86,19 +100,108 @@ describe("canCompleteOwnSucceededAttempt", () => {
 		await expect(allowed()).resolves.toBe(false);
 	});
 
-	it("allows its own succeeded research without inventing a code commit", async () => {
+	it.each(["research", "operations", "document"] as const)(
+		"allows its own succeeded %s without inventing a code commit",
+		async (workKind) => {
+			attempts.list.mockResolvedValue({
+				data: [attempt({ metadata: {} })],
+				nextCursor: null,
+			});
+			await expect(allowed(item({ workKind }))).resolves.toBe(true);
+			attempts.list.mockResolvedValue({
+				data: [attempt({ metadata: {}, executorSessionId: "other" })],
+				nextCursor: null,
+			});
+			await expect(allowed(item({ workKind }))).resolves.toBe(false);
+			await expect(
+				allowed(item({ workKind, title: "Send a customer email" })),
+			).resolves.toBe(false);
+		},
+	);
+
+	it("uses the accepted verification outcome instead of credential incident history", async () => {
 		attempts.list.mockResolvedValue({
 			data: [attempt({ metadata: {} })],
 			nextCursor: null,
 		});
-		await expect(allowed(item({ workKind: "research" }))).resolves.toBe(true);
-		attempts.list.mockResolvedValue({
-			data: [attempt({ metadata: {}, executorSessionId: "other" })],
-			nextCursor: null,
-		});
-		await expect(allowed(item({ workKind: "research" }))).resolves.toBe(false);
 		await expect(
-			allowed(item({ workKind: "research", title: "Send a customer email" })),
+			allowed(
+				item({
+					workKind: "operations",
+					title: "Verify gateway session audit deployment",
+					description:
+						"Earlier incident: access tokens expired. Preserve existing grants and user consent. No new user sign-in needed for the token proof already collected.",
+					acceptanceContract: {
+						version: 1,
+						doneLooksLike:
+							"Observe managed delivery without changing release gates: verify the live API revision and audit results, and record evidence.",
+					},
+				}),
+			),
+		).resolves.toBe(true);
+	});
+
+	it.each([
+		{ executorId: "other-agent" },
+		{ executorSessionId: "other-session" },
+		{ outcome: "failed" },
+		{ metadata: { dispatchVersion: 1 } },
+	])(
+		"retains attempt fences for non-coding verification: %j",
+		async (overrides) => {
+			attempts.list.mockResolvedValue({
+				data: [attempt({ metadata: {}, ...overrides })],
+				nextCursor: null,
+			});
+			await expect(allowed(item({ workKind: "operations" }))).resolves.toBe(
+				false,
+			);
+		},
+	);
+
+	it.each([
+		"Rotate the provider API key",
+		"Pay the supplier invoice",
+		"Send a customer email",
+	])(
+		"keeps accepted reserved actions owner-only: %s",
+		async (doneLooksLike) => {
+			attempts.list.mockResolvedValue({
+				data: [attempt({ metadata: {} })],
+				nextCursor: null,
+			});
+			await expect(
+				allowed(
+					item({
+						workKind: "operations",
+						title: "Verify provider recovery",
+						description: "Read-only checks only.",
+						acceptanceContract: { version: 1, doneLooksLike },
+					}),
+				),
+			).resolves.toBe(false);
+		},
+	);
+
+	it("retains reserved title and description checks when the outcome is harmless or empty", async () => {
+		await expect(
+			allowed(
+				item({
+					title: "Rotate the provider API key",
+					acceptanceContract: {
+						version: 1,
+						doneLooksLike: "Record the result.",
+					},
+				}),
+			),
+		).resolves.toBe(false);
+		await expect(
+			allowed(
+				item({
+					description: "Pay the supplier invoice.",
+					acceptanceContract: { version: 1, doneLooksLike: "  " },
+				}),
+			),
 		).resolves.toBe(false);
 	});
 
