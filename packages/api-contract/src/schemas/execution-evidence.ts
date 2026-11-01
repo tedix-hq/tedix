@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { asRecord } from "../utils/is-record";
+import { CatalogAppDetailSchema } from "./catalog";
 import { TediSchema } from "./tedi";
 
 export const ExecutionCapabilitySchema = z.enum([
@@ -171,7 +172,10 @@ function inferStatus(
 	// The exact typed lookup reports the entity's lifecycle, not operation
 	// completion. Keep all other signals on the original record authoritative.
 	const entityLookup =
-		operation === "get_tedi" && TediSchema.safeParse(record).success;
+		(operation === "get_tedi" && TediSchema.safeParse(record).success) ||
+		(operation === "get_catalog_app" &&
+			["ENABLED", "DISABLED"].includes(String(record.status)) &&
+			CatalogAppDetailSchema.safeParse(record).success);
 	const status = entityLookup
 		? null
 		: stringValue(record, "status")?.toLowerCase();
