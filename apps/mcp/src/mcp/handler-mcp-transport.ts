@@ -1044,6 +1044,10 @@ export async function executeMcpTransport(
 				isRecord(data) && isRecord(data.evaluationReadBoundary)
 					? data.evaluationReadBoundary
 					: null;
+			const boundaryText = (value: unknown) =>
+				typeof value === "string" && value.length <= 128 ? value : null;
+			const boundaryFlag = (value: unknown) =>
+				typeof value === "boolean" ? value : null;
 			const evaluationTransportReceipt = {
 				version: 1,
 				gatewaySource: String(ctx.env.GIT_SHA || "unknown"),
@@ -1058,7 +1062,21 @@ export async function executeMcpTransport(
 				},
 				transport: "TEDI_SERVICE",
 				evaluationInstructions: true,
-				runtime: boundary,
+				runtime: boundary
+					? {
+							version: boundary.version === 1 ? 1 : null,
+							runtimeSource: boundaryText(boundary.runtimeSource),
+							environment: boundaryText(boundary.environment),
+							tediId: boundaryText(boundary.tediId),
+							slug: boundaryText(boundary.slug),
+							evaluationInstructionsPresent: boundaryFlag(
+								boundary.evaluationInstructionsPresent,
+							),
+							evaluationInstructions: boundaryFlag(
+								boundary.evaluationInstructions,
+							),
+						}
+					: null,
 			};
 			if (
 				!isRecord(data) ||
@@ -1072,7 +1090,13 @@ export async function executeMcpTransport(
 					status: 502,
 					data: {
 						ok: false,
-						error: "Evaluation instruction read boundary was not confirmed",
+						// Code Mode and the workflow bridge retain error text, not arbitrary
+						// structured failure fields. Only this allowlisted receipt goes there.
+						error: JSON.stringify({
+							code: "EVALUATION_READ_BOUNDARY_UNCONFIRMED",
+							message: "Evaluation instruction read boundary was not confirmed",
+							evaluationTransportReceipt,
+						}),
 						evaluationTransportReceipt,
 					},
 				};

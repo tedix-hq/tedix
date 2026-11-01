@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { unwrapJsonRpcToolResult } from "@tedix/mcp-shared/tool-result";
 import { DISPATCH_SHIM } from "../src/runner";
 import { WORKFLOW_FETCH_GATE_MODULE } from "../src/runner-sandbox";
 import {
@@ -502,6 +503,113 @@ for (const sensitiveOutput of [false, true]) {
 		);
 		if (sensitiveOutput)
 			assert.equal(JSON.stringify(call).includes("recorded reply"), false);
+	}
+}
+// The production-generated MCP proxy must persist the complete bounded
+// diagnostic received through the workflow parser, with sensitive steps redacted.
+for (const sensitiveOutput of [false, true]) {
+	const diagnostic = {
+		code: "EVALUATION_READ_BOUNDARY_UNCONFIRMED",
+		message: "Evaluation instruction read boundary was not confirmed",
+		evaluationTransportReceipt: {
+			version: 1,
+			gatewaySource: "a".repeat(40),
+			environment: "production",
+			toolId: "fixture__artifact_read_file",
+			toolInputSchemaSha256: "b".repeat(64),
+			configuredTarget: {
+				origin: "https://fixture.tedi.example",
+				path: "/mcp",
+			},
+			transport: "TEDI_SERVICE",
+			evaluationInstructions: true,
+			runtime: {
+				version: 1,
+				runtimeSource: "c".repeat(40),
+				environment: "production",
+				tediId: "fixture-tedi",
+				slug: "fixture",
+				evaluationInstructionsPresent: false,
+				evaluationInstructions: false,
+			},
+		},
+	};
+	const artifacts = new Map<string, any>();
+	let calls = 0;
+	const env = {
+		__ARTIFACT_BRIDGE__: {
+			record: async ({ path, value }: { path: string; value: unknown }) => {
+				artifacts.set(path, JSON.parse(JSON.stringify(value)));
+			},
+			recordOnce: async () => {},
+		},
+		__MCP_BRIDGE__: {
+			call: async () => {
+				calls++;
+				return unwrapJsonRpcToolResult(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						result: {
+							isError: true,
+							content: [
+								{
+									type: "text",
+									text: `Execution error: Error: ${JSON.stringify(diagnostic)}`,
+								},
+							],
+						},
+					}),
+					"code",
+				);
+			},
+		},
+	};
+	const native = {
+		do: async (
+			name: string,
+			_config: unknown,
+			fn: (ctx: unknown) => Promise<unknown>,
+		) => fn({ step: { name, count: 1 }, attempt: 1, config: {} }),
+	};
+	const step = runtime.wrapStep(
+		native,
+		env,
+		runtime.makeTimeline(),
+		runContext,
+	);
+	const mcp = runtime.buildMcpProxy(env, runContext);
+	await assert.rejects(
+		step.do(
+			"read-effective-evaluation-instructions",
+			sensitiveOutput ? { sensitive: "output" } : {},
+			() =>
+				mcp.tedi.artifact_read_file({
+					path: "AGENTS.md",
+					maxChars: 80000,
+					evaluationInstructions: true,
+				}),
+		),
+	);
+	assert.equal(calls, 1);
+	const call = artifacts.get(
+		"epochs/3/steps/x:read-effective-evaluation-instructions/1/attempts/1/calls/run/1.json",
+	);
+	assert.equal(call?.status, "failed");
+	if (sensitiveOutput) {
+		assert.equal(call.error.redacted, true);
+		assert.equal(JSON.stringify(call).includes("gatewaySource"), false);
+	} else {
+		assert.equal(call.error.name, "McpToolError");
+		assert.deepEqual(
+			JSON.parse(call.error.message.slice(call.error.message.indexOf("{"))),
+			diagnostic,
+		);
+		assert.deepEqual(call.request.value, {
+			path: "AGENTS.md",
+			maxChars: 80000,
+			evaluationInstructions: true,
+		});
 	}
 }
 console.log("durable connection recovery tests passed");
