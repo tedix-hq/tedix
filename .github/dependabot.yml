@@ -1,0 +1,21 @@
+# Security-only updates. Routine bumps run through `bun run bump:*`
+# (scripts/bump.ts), which also handles the CMS template lockfiles, so
+# version PRs are disabled here and Dependabot only raises a fix for a
+# known vulnerability. Actions get a weekly pass because they are pinned
+# by commit SHA and nothing else moves them.
+version: 2
+updates:
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns:
+          - "*"
