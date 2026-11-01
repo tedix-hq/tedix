@@ -1,4 +1,5 @@
 import { createMcpLogger } from "../log";
+import { nativeCatalogToolMeta } from "./registration/bootstrap";
 import { resolveHumanPolicyReplay } from "./tenant-human-replay";
 import {
 	resolveNativePolicyCandidate,
@@ -74,10 +75,7 @@ export async function registerTextOnlyTool(
 	}
 
 	// Build _meta for text-only tools (D1 metadata, invocationStatus, visibility, securitySchemes)
-	const meta: Record<string, unknown> =
-		tool.meta && typeof tool.meta === "object" && !Array.isArray(tool.meta)
-			? { ...(tool.meta as Record<string, unknown>) }
-			: {};
+	const meta = nativeCatalogToolMeta(tool, agent.appMetadata?.mcpConfig);
 
 	// securitySchemes — per-tool auth declaration for ChatGPT
 	const secSchemes = deriveSecuritySchemes(

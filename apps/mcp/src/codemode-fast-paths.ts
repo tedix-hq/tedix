@@ -14,7 +14,10 @@ import {
 	codeModeOutputSchema,
 } from "./mcp/connect-payment-policy";
 import { getInfoOutputSchema } from "./mcp/registration/get-info-schema";
-import { isConfiguredCatalogTool } from "./mcp/registration/bootstrap";
+import {
+	isConfiguredCatalogTool,
+	nativeCatalogToolMeta,
+} from "./mcp/registration/bootstrap";
 import { resolveToolAnnotations } from "@tedix/api-contract/schemas/tools";
 import { isDelegatedWorkTool } from "@tedix/auth/delegated-mcp-token";
 import { CODE_MODE_TOOL_ANNOTATIONS } from "@tedix/mcp-shared/codemode";
@@ -256,7 +259,7 @@ export function compactCodeModeTools(
 				meta: tool.meta,
 			}),
 			securitySchemes,
-			_meta: { ...tool.meta, securitySchemes },
+			_meta: { ...nativeCatalogToolMeta(tool, config), securitySchemes },
 		});
 	}
 	// Directory listings read the display name from `annotations.title`

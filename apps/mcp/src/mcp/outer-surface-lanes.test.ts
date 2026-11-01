@@ -266,6 +266,13 @@ describe("configured compact native catalog rows", () => {
 			outputSchema: row.outputSchema,
 			annotations: row.annotations,
 			securitySchemes: [{ type: "oauth2", scopes: ["mcp:catalog.read"] }],
+			_meta: {
+				"com.tedix/nativeCatalog": {
+					version: 1,
+					bootstrapTool: "get_info",
+					endpoint: "catalog/search",
+				},
+			},
 		});
 		expect(
 			compactCodeModeTools(app([row]), new Headers()).some(
