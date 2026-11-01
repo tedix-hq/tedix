@@ -28,6 +28,7 @@
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/db": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
+		"@tedix/tedi-codemode-core": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
 		"es-module-lexer": "^3.0.4",
 		"hono": "catalog:",

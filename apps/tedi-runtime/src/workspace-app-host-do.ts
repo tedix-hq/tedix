@@ -17,6 +17,7 @@ import {
 } from "@tedix/api-contract/utils/app-runtime";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 
 export interface WorkspaceAppHostEnv {
 	LOADER: WorkerLoader;
@@ -268,7 +269,10 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		this.ctx.storage.kv.put(`code:${name}`, codeId);
 		const facet = this.ctx.facets.get(name, () => {
 			const worker = loadAppRuntimeWorker(
-				this.env.LOADER,
+				withDynamicWorkerLoaderDiagnostics(this.env.LOADER, {
+					surface: "workspace_app_runtime",
+					reason: "workspace_app_invocation",
+				}),
 				codeId,
 				input.files,
 				{

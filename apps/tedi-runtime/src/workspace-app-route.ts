@@ -1,5 +1,6 @@
 import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
 import { loadAppRuntimeWorker } from "@tedix/api-contract/utils/app-runtime";
+import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { z } from "zod";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { verifyWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
@@ -124,7 +125,10 @@ export async function handleWorkspaceAppValidate(
 		return new Response("Invalid app source", { status: 400 });
 	try {
 		const worker = loadAppRuntimeWorker(
-			env.LOADER,
+			withDynamicWorkerLoaderDiagnostics(env.LOADER, {
+				surface: "workspace_app_validation",
+				reason: "workspace_app_validation",
+			}),
 			`validate:${crypto.randomUUID()}`,
 			parsed.data.files,
 			{ compatibilityDate: parsed.data.compatibilityDate, validation: true },
