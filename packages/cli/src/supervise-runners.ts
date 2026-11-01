@@ -446,7 +446,16 @@ export class RunnerDuties {
 					(entry.identity &&
 						this.identity(entry.pid, runner) === entry.identity)
 				) {
-					this.record(runner, { state: "running" }, now);
+					this.record(
+						runner,
+						{
+							state: "running",
+							...(now - entry.startedAt >= RUNNER_RESTART_BASE_MS
+								? { lastProblem: null }
+								: {}),
+						},
+						now,
+					);
 					continue;
 				}
 				// An adopted child ended; nobody told us, so note it here.
@@ -509,7 +518,6 @@ export class RunnerDuties {
 						lastRunAt: new Date(state.startedAt).toISOString(),
 						lastExecutor: runner.executor,
 						retryAt: null,
-						lastProblem: null,
 					},
 					now,
 				);
@@ -583,7 +591,6 @@ export class RunnerDuties {
 				lastRunAt: new Date(now).toISOString(),
 				lastExecutor: runner.executor,
 				retryAt: null,
-				lastProblem: null,
 			},
 			now,
 		);

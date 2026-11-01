@@ -76,3 +76,24 @@ test("a retry waiting to start is not counted as an actual restart", () => {
 	);
 	expect(readDutyStatuses(f.env)[0]?.restarts).toEqual([3000]);
 });
+
+test("a continuing problem retains its first observation until explicitly cleared", () => {
+	const f = fixture();
+	const first = recordDutyStatus(
+		f.env,
+		identity,
+		{ lastProblem: "Runner exited" },
+		1000,
+	);
+	recordDutyStatus(f.env, identity, { state: "running" }, 2000);
+	const next = recordDutyStatus(
+		f.env,
+		identity,
+		{ lastProblem: "Runner exited again" },
+		3000,
+	);
+	expect(next.problemSince).toBe(first.problemSince);
+	expect(
+		recordDutyStatus(f.env, identity, { lastProblem: null }, 4000).problemSince,
+	).toBeNull();
+});

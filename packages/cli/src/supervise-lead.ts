@@ -201,6 +201,7 @@ export function leadRunner(env: NodeJS.ProcessEnv): LeadRun {
 /** An opt-in duty of the existing supervisor; receipts survive --once and restarts. */
 export class LeadDuty {
 	private running?: Promise<void>;
+	private observe?: () => void;
 	failed = false;
 	constructor(
 		private readonly deps: {
@@ -221,6 +222,7 @@ export class LeadDuty {
 	}
 
 	async tick(wait = false): Promise<void> {
+		this.observe?.();
 		if (!this.running) {
 			this.running = this.pass()
 				.catch(() => {
@@ -229,6 +231,7 @@ export class LeadDuty {
 				})
 				.finally(() => {
 					this.running = undefined;
+					this.observe = undefined;
 				});
 		}
 		if (wait) await this.running;
@@ -260,6 +263,7 @@ export class LeadDuty {
 			}
 		};
 		const lock = beginFileLock(join(root, "supervisor", "lead-lock"));
+		this.observe = () => record({});
 		try {
 			if (!lock.ready()) return;
 			const statePath = join(root, "supervisor", "lead-state.json");
