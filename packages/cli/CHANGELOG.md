@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.3 — 2026-11-01
+
+### Patch Changes
+
+- Keep your team's automatic executor and model choices in an explicit routing file. Without that configuration, automatic assignments wait before launching an agent. Named assignments retain their native defaults; OpenCode requires a configured model.
+
 ## 0.19.2 — 2026-11-01
 
 ### Patch Changes
