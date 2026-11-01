@@ -150,6 +150,10 @@ describe("aggregate tedis", () => {
 		expect(send?.inputSchema.properties?.evaluation).toEqual(
 			zodToToolInputJsonSchema(EvaluationRequestSchema),
 		);
+		expect(
+			tools.find((tool) => tool.toolId === "acme_tedi__artifact_read_file")
+				?.inputSchema.properties?.evaluationInstructions,
+		).toEqual({ type: "boolean" });
 		expect(send?.config).toMatchObject({
 			transport: "mcp",
 			mcpServerUrl: "https://acme-operator.tedi.tedix.dev/mcp",

@@ -206,6 +206,7 @@ export const WORKSPACE_TOOLS: TediToolSpec[] = [
 			properties: {
 				path: { type: "string", minLength: 1 },
 				maxChars: { type: "integer", minimum: 1 },
+				evaluationInstructions: { type: "boolean" },
 			},
 			required: ["path"],
 			additionalProperties: false,

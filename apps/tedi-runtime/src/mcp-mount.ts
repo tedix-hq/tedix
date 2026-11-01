@@ -176,6 +176,7 @@ export interface AgentMcpTools {
 	readArtifactFile?: (input: {
 		path: string;
 		maxChars?: number;
+		evaluationInstructions?: boolean;
 	}) => Promise<unknown>;
 	/**
 	 * Write one UTF-8 text file to the tedi's canonical Artifacts repo — git-
@@ -1441,6 +1442,7 @@ function registerPlatformTools(
 				inputSchema: {
 					path: z.string().min(1),
 					maxChars: z.number().int().positive().optional(),
+					evaluationInstructions: z.boolean().optional(),
 				},
 				annotations: { readOnlyHint: true },
 			},
