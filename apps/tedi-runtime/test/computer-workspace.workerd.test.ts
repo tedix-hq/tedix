@@ -1,6 +1,12 @@
 import { env } from "cloudflare:workers";
 import { abortAllDurableObjects } from "cloudflare:test";
 import { getWorkspace } from "@cloudflare/computer";
+// The Vitest Workers pool fetches a Durable Object's dynamic import() over its
+// module runner socket, and concurrent cold imports share one pending fetch.
+// A second workspace object awaiting the first one's fetch is refused as
+// cross-object I/O and its exec never settles. Deployed Workers load bundled
+// chunks without I/O, so load the lazy shell backend once here.
+import "@cloudflare/computer/backends/worker-shell";
 import { expect, it, vi } from "vite-plus/test";
 import {
 	ScopedComputerWorkspace,
