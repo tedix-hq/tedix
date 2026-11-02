@@ -53,7 +53,7 @@ function buttonVariants({
 			size: SIZE_MAP[size],
 			variant: VARIANT_MAP[variant],
 		}),
-		"max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11 motion-reduce:transition-none",
+		"max-sm:min-h-11 max-sm:min-w-11 pointer-coarse:min-h-11 pointer-coarse:min-w-11 motion-reduce:transition-none",
 		variant === "link" &&
 			"bg-transparent text-kumo-link underline-offset-4 shadow-none hover:underline",
 		className,
@@ -75,7 +75,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
 		...props,
 		ref,
 		className: cn(
-			"max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11 motion-reduce:transition-none",
+			"max-sm:min-h-11 max-sm:min-w-11 pointer-coarse:min-h-11 pointer-coarse:min-w-11 motion-reduce:transition-none",
 			className,
 		),
 		"data-slot": "button",
@@ -120,7 +120,7 @@ const LinkButton = forwardRef<HTMLAnchorElement, LinkButtonProps>(
 				size={SIZE_MAP[size]}
 				variant={VARIANT_MAP[variant]}
 				className={cn(
-					"max-sm:min-h-11 max-sm:min-w-11 coarse:min-h-11 coarse:min-w-11 motion-reduce:transition-none",
+					"max-sm:min-h-11 max-sm:min-w-11 pointer-coarse:min-h-11 pointer-coarse:min-w-11 motion-reduce:transition-none",
 					className,
 				)}
 			/>
