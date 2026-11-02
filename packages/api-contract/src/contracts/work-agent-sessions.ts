@@ -1,6 +1,10 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import {
+	EvaluateLedgerModelInputSchema,
+	EvaluateLedgerModelResultSchema,
+} from "../schemas/ledger-model-evaluation";
+import {
 	AttentionLayoutResultSchema,
 	UpdateAttentionLayoutInputSchema,
 	AttentionVisitResultSchema,
@@ -39,6 +43,16 @@ export const workAgentSessionsContract = oc
 	.route({ tags: ["work-agent-sessions"], prefix: "/work-agent-sessions" })
 	.errors(baseErrors)
 	.router({
+		evaluateLedgerModel: oc
+			.route({
+				method: "POST",
+				path: "/ledger-model/evaluate",
+				tags: ["internal"],
+				summary:
+					"Evaluate one fixed bookkeeping corpus case with a managed model",
+			})
+			.input(EvaluateLedgerModelInputSchema)
+			.output(EvaluateLedgerModelResultSchema),
 		getAttentionLayout: oc
 			.route({
 				method: "GET",

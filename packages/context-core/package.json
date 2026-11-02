@@ -20,6 +20,7 @@
 		"./provider-error": "./src/provider-error.ts",
 		"./reflector": "./src/reflector.ts",
 		"./request-ledger": "./src/request-ledger.ts",
+		"./ledger-model-evaluation": "./src/ledger-model-evaluation.ts",
 		"./runtime-adapter": "./src/runtime-adapter.ts",
 		"./skill-adjacency": "./src/skill-adjacency.ts",
 		"./skill-retrieval": "./src/skill-retrieval.ts",

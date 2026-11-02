@@ -17,6 +17,7 @@ import {
 	generatedToolIdForEndpoint,
 	mergeGeneratedConfig,
 	projectionContractHash,
+	projectionCandidates,
 	titleFromToolId,
 } from "./tool-schema-projection";
 
@@ -35,6 +36,21 @@ function endpoint(
 		...overrides,
 	};
 }
+
+it("keeps paid fixed-corpus qualification API-only even during explicit projection", () => {
+	for (const options of [
+		{},
+		{ router: "workAgentSessions" },
+		{ endpoints: ["workAgentSessions/evaluateLedgerModel"] },
+	])
+		expect(
+			projectionCandidates(options).some(
+				(row) =>
+					row.router === "workAgentSessions" &&
+					row.procPath === "evaluateLedgerModel",
+			),
+		).toBe(false);
+});
 
 const emptyObjectSchema = {
 	type: "object",
