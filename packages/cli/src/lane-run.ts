@@ -629,7 +629,7 @@ async function runLaneProcessWithReporter(
 				telemetry.finalMessage,
 				deps.deliverWorkNote,
 			);
-			telemetry.finalMessage = result.note;
+			// The dispatcher needs the scoped declaration outside the delivery note.
 			if (result.outcome !== "succeeded") exitCode = 1;
 		} catch (error) {
 			exitCode = 1;

@@ -1069,10 +1069,17 @@ test.each([
 		const binary = fakeDevin(dir);
 		const note =
 			"The actual README paragraph.\nEvidence: https://example.invalid/readme";
+		const declaration = `TEDIX_LANE_RESULT ${JSON.stringify({
+			workItemId: "22222222-2222-4222-8222-222222222222",
+			workVersion: 2,
+			contractVersion: 1,
+			outcomeText: "Read README and post the first paragraph.",
+			outcome: "completed",
+		})}`;
 		const message =
 			outcome === "missing"
 				? "Could not post the requested result."
-				: `TEDIX_WORK_RESULT ${JSON.stringify({ outcome, note })}`;
+				: `${declaration}\nTEDIX_WORK_RESULT ${JSON.stringify({ outcome, note })}`;
 		let source = readFileSync(binary, "utf8").replace(
 			"console.log('Fake Devin completed the brief.');",
 			`console.log(${JSON.stringify(message)});`,
@@ -1120,6 +1127,10 @@ test.each([
 		expect(last).toMatchObject({
 			outcome: expectedExit === 0 ? "succeeded" : "failed",
 		});
+		if (expectedExit === 0)
+			expect(last).toMatchObject({
+				finalMessage: expect.stringContaining(message),
+			});
 		const invocation = JSON.parse(
 			readFileSync(join(dir, "invocation.json"), "utf8"),
 		);
