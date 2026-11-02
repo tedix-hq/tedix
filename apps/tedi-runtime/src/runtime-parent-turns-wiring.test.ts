@@ -143,4 +143,26 @@ for (const failure of [
 		assert.equal(dispatches, 1);
 	}
 }
+// An unmirrored local row has no canonical run/outcome evidence.
+{
+	const agent = tediDo({
+		env: {},
+		state: { tediId: "fixture-tedi", slug: "fixture" },
+		sessionRepo: {
+			listTurns: () => [
+				{
+					role: "assistant",
+					content: "opaque local text",
+					sessionKey: "owned",
+					ts: 1,
+				},
+			],
+		},
+	});
+	const result = await agent.readMessagesForSession("owned");
+	assert.equal(result.messages[0]?.content, "opaque local text");
+	assert.equal("status" in result.messages[0], false);
+	assert.equal("runId" in result.messages[0], false);
+	assert.equal("error" in result.messages[0], false);
+}
 console.log("runtime parent turn wiring characterization passed");

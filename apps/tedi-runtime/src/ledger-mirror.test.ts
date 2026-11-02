@@ -15,6 +15,7 @@ import type { HttpPlatformClient } from "./brain/platform-client";
 import {
 	buildRunId,
 	isEphemeralSession,
+	ledgerMessageForRead,
 	mirrorFailedTurnToLedger,
 	mirrorTurnToLedger,
 	parseRunSurface,
@@ -842,5 +843,44 @@ assert.equal(
 		assert.equal(logText.includes(secret), false, `${secret} leaked to logs`);
 	}
 }
+
+for (const status of [
+	"completed",
+	"failed",
+	"canceled",
+	"pending",
+	"streaming",
+] as const) {
+	const message = ledgerMessageForRead({
+		id: "assistant:owned-run",
+		tediId: TEDI,
+		conversationId: "owned-conversation",
+		runId: "owned-run",
+		role: "assistant",
+		status,
+		content: "Opaque answer or system notice",
+		createdAt: "2026-06-13T19:18:59.000Z",
+		metadata: {
+			error: "typed error",
+			privateContext: "not in simplified transcript",
+		},
+	});
+	assert.equal(message.runId, "owned-run");
+	assert.equal(message.status, status);
+	assert.equal(message.error, "typed error");
+	assert.equal("metadata" in message, false);
+}
+const malformedError = ledgerMessageForRead({
+	id: "message",
+	tediId: TEDI,
+	conversationId: "conversation",
+	role: "assistant",
+	status: "completed",
+	content: "answer",
+	createdAt: "2026-06-13T19:18:59.000Z",
+	metadata: { error: { private: "not a scalar error" } },
+});
+assert.equal("error" in malformedError, false);
+assert.equal("runId" in malformedError, false);
 
 console.log("ledger-mirror.test.ts: all assertions passed");

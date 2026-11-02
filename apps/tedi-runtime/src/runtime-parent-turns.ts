@@ -49,6 +49,7 @@ import {
 import {
 	buildRunId,
 	isEphemeralSession,
+	ledgerMessageForRead,
 	type MirrorFailedTurnOpts,
 	mirrorFailedTurnToLedger,
 	mirrorTurnToLedger,
@@ -2151,16 +2152,7 @@ export const runtimeParentTurns = {
 		if (ledger && ledger.length > 0 && ledger.length >= localMessages.length) {
 			return {
 				session_key: sessionKey,
-				messages: ledger.map((m) => {
-					const ts = Date.parse(m.createdAt) || Date.now();
-					return {
-						role: m.role,
-						content: m.content,
-						text: m.content,
-						ts,
-						timestamp: ts,
-					};
-				}),
+				messages: ledger.map(ledgerMessageForRead),
 			};
 		}
 		return {
