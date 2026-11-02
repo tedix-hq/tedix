@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { tediDo } from "../test/tedi-do";
+import { memoryStorage, tediDo } from "../test/tedi-do";
 
 // Cancellation/storage failures must stop recovery before budget authority runs.
 {
@@ -58,9 +58,13 @@ import { tediDo } from "../test/tedi-do";
 	const agent = tediDo({
 		runtimeAdmission: () => ({ assertAcceptedTurn: async () => {} }),
 		ctx: {
-			storage: {
-				get: async () => ({ params, id: "workflow", stage: "dispatched" }),
-			},
+			storage: memoryStorage({
+				"runtime-admission-workflow:run": {
+					params,
+					id: "workflow",
+					stage: "dispatched",
+				},
+			}),
 		},
 		runWorkflow: async () => assert.fail("repeated a dispatched workflow"),
 	});
@@ -76,5 +80,67 @@ import { tediDo } from "../test/tedi-do";
 		),
 		/Original admitted workflow dispatch changed/,
 	);
+}
+
+// Failed admission or journal persistence cannot reach native dispatch.
+for (const failure of [
+	"admission-before",
+	"admission-after",
+	"storage",
+	"dispatch",
+] as const) {
+	let checks = 0;
+	let dispatches = 0;
+	const storage = memoryStorage();
+	const params = { runId: "run", sessionKey: "chat:fixture" };
+	if (failure === "storage")
+		storage.put = async () => {
+			throw new Error("storage");
+		};
+	const agent = tediDo({
+		ctx: { storage },
+		runtimeAdmission: () =>
+			failure === "storage" || failure === "dispatch"
+				? null
+				: {
+						assertAcceptedTurn: async () => {
+							checks++;
+							if (checks === (failure === "admission-before" ? 1 : 2))
+								throw new Error(failure);
+						},
+					},
+		runWorkflow: async () => {
+			dispatches++;
+			throw new Error("dispatch");
+		},
+	});
+	await assert.rejects(
+		agent.dispatchAdmittedChatWorkflow("CHAT_TURN_WORKFLOW", params, {
+			id: "workflow",
+			agentBinding: "TEDI_AGENT",
+		}),
+	);
+	assert.equal(dispatches, failure === "dispatch" ? 1 : 0);
+	const prior = await storage.get<{ stage: string }>(
+		"runtime-admission-workflow:run",
+	);
+	assert.equal(
+		prior?.stage,
+		failure === "dispatch"
+			? "uncertain"
+			: failure === "admission-after"
+				? "dispatching"
+				: undefined,
+	);
+	if (failure === "dispatch") {
+		await assert.rejects(
+			agent.dispatchAdmittedChatWorkflow("CHAT_TURN_WORKFLOW", params, {
+				id: "workflow",
+				agentBinding: "TEDI_AGENT",
+			}),
+			/uncertain/,
+		);
+		assert.equal(dispatches, 1);
+	}
 }
 console.log("runtime parent turn wiring characterization passed");
