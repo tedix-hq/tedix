@@ -20,6 +20,10 @@ import {
 	projectionCandidates,
 	titleFromToolId,
 } from "./tool-schema-projection";
+import {
+	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
+	WORK_HIERARCHY_KIND_OVERRIDES,
+} from "./tool-schema-overrides";
 
 function endpoint(
 	overrides: Partial<ResolvedContractEndpoint> & {
@@ -37,19 +41,28 @@ function endpoint(
 	};
 }
 
-it("keeps paid fixed-corpus qualification API-only even during explicit projection", () => {
+it("projects fixed-corpus qualification through the normal managed write tool surface", () => {
 	for (const options of [
 		{},
 		{ router: "workAgentSessions" },
 		{ endpoints: ["workAgentSessions/evaluateLedgerModel"] },
-	])
+	]) {
+		const projected = projectionCandidates(options).find(
+			(row) =>
+				row.router === "workAgentSessions" &&
+				row.procPath === "evaluateLedgerModel",
+		);
+		expect(projected).toBeDefined();
 		expect(
-			projectionCandidates(options).some(
-				(row) =>
-					row.router === "workAgentSessions" &&
-					row.procPath === "evaluateLedgerModel",
+			annotationsForEndpoint(
+				projected!,
+				WORK_HIERARCHY_KIND_OVERRIDES["workAgentSessions/evaluateLedgerModel"],
 			),
-		).toBe(false);
+		).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+	}
+	expect(
+		WORK_HIERARCHY_TOOL_ID_OVERRIDES["workAgentSessions/evaluateLedgerModel"],
+	).toBe("evaluate_ledger_model");
 });
 
 const emptyObjectSchema = {
