@@ -313,7 +313,7 @@ it("rejects adopted delivery anywhere in draft-only replies while retaining expl
 });
 
 it("adjudicates only the two ambiguous intermediate statuses while retaining lane, mention and terminal constraints", () => {
-	expect(LEDGER_QUALIFICATION_GRADING_VERSION).toBe(2);
+	expect(LEDGER_QUALIFICATION_GRADING_VERSION).toBe(4);
 	const missing = getLedgerEvaluationCase("status", "missing-tool-error")!;
 	const lane = {
 		ref: "r1",
@@ -559,4 +559,125 @@ it("never treats an unsafe suggested MFA or owner-session bypass as successful r
 	expect(test.grade(JSON.stringify({ lessons: [invented] })).passed).toBe(
 		false,
 	);
+});
+
+it("keeps Cloud delivery unfinished under both defensible intermediate states, with exact citations and no invented dependency", () => {
+	for (const variant of ["production", "shorter_status"] as const) {
+		const test = getLedgerEvaluationCase(
+			"status",
+			"do-not-close-live-with-local",
+			variant,
+		)!;
+		const quote = "Cloud capture is still blocked.";
+		const progress = {
+			ref: "r1",
+			status: "in_progress",
+			evidence: "The screenshot is saved from local fixtures.",
+		};
+		const mentioned = {
+			updates: [],
+			mentioned: { r1: quote },
+			lanes: [],
+			merges: [],
+		};
+		const active = {
+			updates: [progress],
+			mentioned: {},
+			lanes: [],
+			merges: [],
+		};
+		expect(test.grade(JSON.stringify(mentioned)).passed).toBe(true);
+		expect(test.grade(JSON.stringify(active)).passed).toBe(true);
+		for (const status of ["done", "cancelled", "waiting_on_user"])
+			expect(
+				test.grade(
+					JSON.stringify({
+						...active,
+						updates: [{ ...progress, status, operational: true }],
+					}),
+				).passed,
+				status,
+			).toBe(false);
+		for (const bad of [
+			{ ...mentioned, mentioned: {} },
+			{
+				...mentioned,
+				mentioned: { r1: "Cloud delivery passed verification." },
+			},
+			{
+				...active,
+				updates: [{ ...progress, evidence: "Cloud screenshot was delivered." }],
+			},
+			{ ...active, mentioned: { r1: quote } },
+			{ ...active, mentioned: { r1: "unquoted fabricated text" } },
+			{ ...mentioned, lanes: [{ ref: "r1", running: true, evidence: quote }] },
+			{
+				...mentioned,
+				lanes: [
+					{ ref: "r1", running: false, evidence: "fabricated lane quote" },
+				],
+			},
+			{
+				...mentioned,
+				merges: [{ ref: "r1", into: "foreign", evidence: quote }],
+			},
+		])
+			expect(test.grade(JSON.stringify(bad)).passed, JSON.stringify(bad)).toBe(
+				false,
+			);
+	}
+});
+
+it("grades the HTTP method contract rather than requiring a numeric error code or the word method", () => {
+	const test = getLedgerEvaluationCase(
+		"lesson",
+		"http-405-documented-get-recovery",
+	)!;
+	const evidence = {
+		failure:
+			"Failed read_usage: POST returned HTTP 405 Method Not Allowed on the read-only usage endpoint.",
+		fix: "Fixed read_usage by following the documented GET method; read_usage succeeded with usage rows.",
+	};
+	const result = (rule: string) =>
+		test.grade(JSON.stringify({ lessons: [{ ...evidence, rule }] }));
+	for (const rule of [
+		"POST to read-only usage endpoint → Use documented GET for read_usage. Why: The endpoint supports GET and rejects POST.",
+		"read_usage POST is rejected → Replace POST with GET. Why: Only GET is accepted on the documented endpoint.",
+		"read_usage POST is rejected → Do not use POST; use GET. Why: The endpoint supports GET and rejects POST.",
+	])
+		expect(result(rule).passed, rule).toBe(true);
+	for (const rule of [
+		"read_usage POST is rejected → Use POST instead of GET. Why: The endpoint supports GET and rejects POST.",
+		"read_usage POST is rejected → Avoid GET and retry POST. Why: The endpoint supports GET and rejects POST.",
+		"read_usage POST is rejected → Use GET. Why: The network timed out.",
+		"read_usage POST is rejected → Use GET. Why: The endpoint supports POST and GET is rejected.",
+		"read_usage POST is rejected → Use GET. Why: GET is not supported on the documented endpoint.",
+	])
+		expect(result(rule).passed, rule).toBe(false);
+	expect(
+		test.grade(
+			JSON.stringify({
+				lessons: [
+					{
+						...evidence,
+						rule: "POST to read-only endpoint → Use GET for another_operation. Why: The endpoint supports GET and rejects POST.",
+					},
+				],
+			}),
+		).passed,
+	).toBe(false);
+	expect(
+		test.grade(
+			JSON.stringify({
+				lessons: [
+					{
+						...evidence,
+						failure: evidence.fix,
+						fix: evidence.failure,
+						rule: "POST to read-only endpoint → Use GET for read_usage. Why: The endpoint supports GET and rejects POST.",
+					},
+				],
+			}),
+		).passed,
+	).toBe(false);
 });

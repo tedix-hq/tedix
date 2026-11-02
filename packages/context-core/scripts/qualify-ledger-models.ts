@@ -54,6 +54,7 @@ export interface CliFailureEvidence {
 	traceId: string | null;
 	stderr: string;
 	stdout: string;
+	rawResponseFile?: string;
 }
 function cliFailureEvidence(
 	error: unknown,
@@ -110,10 +111,12 @@ function cliFailureEvidence(
 	const approvalId = field("approvalId");
 	const approval =
 		!!approvalId ||
-		records.some((row) =>
-			["requires_approval", "approval_required", "input_required"].includes(
-				String(row.status),
-			),
+		records.some(
+			(row) =>
+				row.resultType === "input_required" ||
+				["requires_approval", "approval_required", "input_required"].includes(
+					String(row.status),
+				),
 		);
 	return {
 		kind:
@@ -138,6 +141,9 @@ function cliFailureEvidence(
 		traceId: field("traceId") ?? field("trace_id"),
 		stderr,
 		stdout,
+		...(typeof source.rawResponseFile === "string"
+			? { rawResponseFile: source.rawResponseFile }
+			: {}),
 	};
 }
 class ManagedEvaluationDenied extends Error {
@@ -222,9 +228,9 @@ interface RecordResult {
 }
 export type EvaluationCaller = (input: Input) => Promise<ManagedResult>;
 export interface ReviewedLedgerContinuation {
-	schemaVersion: 1;
+	schemaVersion: 2;
 	decision: "continue_unrelated_no_replay";
-	failedReceipt: { file: string; sha256: string; evaluationId: string };
+	failedReceipts: Array<{ file: string; sha256: string; evaluationId: string }>;
 	preflight: {
 		workspace: "connect";
 		organization: string;
@@ -249,7 +255,7 @@ async function validateContinuation(
 	organization?: string,
 	callable?: string,
 	toolName?: string,
-): Promise<RecordResult> {
+): Promise<RecordResult[]> {
 	const exact = (value: unknown, keys: string[]) =>
 		!!value &&
 		typeof value === "object" &&
@@ -264,10 +270,23 @@ async function validateContinuation(
 		!exact(review, [
 			"schemaVersion",
 			"decision",
-			"failedReceipt",
+			"failedReceipts",
 			"preflight",
 		]) ||
-		!exact(review.failedReceipt, ["file", "sha256", "evaluationId"]) ||
+		!Array.isArray(review.failedReceipts) ||
+		review.failedReceipts.length < 1 ||
+		review.failedReceipts.length > 16 ||
+		review.failedReceipts.some(
+			(receipt) =>
+				!exact(receipt, ["file", "sha256", "evaluationId"]) ||
+				!uuid(receipt.evaluationId) ||
+				!/^[a-f0-9]{64}\.json$/.test(receipt.file) ||
+				!/^[a-f0-9]{64}$/.test(receipt.sha256),
+		) ||
+		new Set(review.failedReceipts.map((receipt) => receipt.file)).size !==
+			review.failedReceipts.length ||
+		new Set(review.failedReceipts.map((receipt) => receipt.evaluationId))
+			.size !== review.failedReceipts.length ||
 		!exact(review.preflight, [
 			"workspace",
 			"organization",
@@ -283,7 +302,7 @@ async function validateContinuation(
 			"executionId",
 			"traceId",
 		]) ||
-		review.schemaVersion !== 1 ||
+		review.schemaVersion !== 2 ||
 		review.decision !== "continue_unrelated_no_replay" ||
 		!organization ||
 		!callable ||
@@ -302,10 +321,7 @@ async function validateContinuation(
 		!Number.isFinite(Date.parse(review.preflight.observedAt)) ||
 		(review.preflight.executionId !== null &&
 			!uuid(review.preflight.executionId)) ||
-		(review.preflight.traceId !== null && !uuid(review.preflight.traceId)) ||
-		!uuid(review.failedReceipt.evaluationId) ||
-		!/^[a-f0-9]{64}\.json$/.test(review.failedReceipt.file) ||
-		!/^[a-f0-9]{64}$/.test(review.failedReceipt.sha256)
+		(review.preflight.traceId !== null && !uuid(review.preflight.traceId))
 	)
 		throw new Error(
 			"Invalid reviewed continuation or same-actor preflight binding",
@@ -332,6 +348,9 @@ async function validateContinuation(
 	if (
 		!preflightResult ||
 		preflightResult.isError !== true ||
+		(preflightResult.resultType !== undefined &&
+			preflightResult.resultType !== "complete") ||
+		cliFailureEvidence(null, preflightResult).kind !== "indeterminate" ||
 		preflightError?.code !== "BAD_REQUEST" ||
 		preflightError.message !== review.preflight.message ||
 		transportError?.code !== "BAD_REQUEST" ||
@@ -344,70 +363,67 @@ async function validateContinuation(
 		throw new Error(
 			"Reviewed native preflight does not prove the fixed-case validation error",
 		);
-	const bytes = await readFile(
-		join(directory, review.failedReceipt.file),
-		"utf8",
-	);
-	if (
-		createHash("sha256").update(bytes).digest("hex") !==
-		review.failedReceipt.sha256
-	)
-		throw new Error("Reviewed failed receipt hash mismatch");
-	const failed = JSON.parse(bytes) as RecordResult;
-	if (
-		failed.evaluationId !== review.failedReceipt.evaluationId ||
-		failed.state !== "completed" ||
-		failed.grade?.passed !== false ||
-		!(
-			(failed.interrupted && failed.cliFailure?.kind === "indeterminate") ||
-			(failed.denied &&
-				!failed.cliFailure &&
-				failed.error === LEGACY_INDETERMINATE_CLI_ERROR)
-		)
-	)
-		throw new Error(
-			"Only an indeterminate failed receipt can receive reviewed continuation",
-		);
-	if (
-		failed.cliFailure?.approvalId ||
-		["FORBIDDEN", "UNAUTHORIZED"].includes(failed.cliFailure?.errorCode ?? "")
-	)
-		throw new Error("Authorization and approval failures remain blocked");
-	const fixture = getLedgerEvaluationCase(
-		failed.job.surface,
-		failed.job.caseId,
-		failed.job.promptVariant,
-	);
-	if (!fixture || !MODELS.includes(failed.job.modelRef))
-		throw new Error("Invalid reviewed failed job");
-	const hashes = await hashLedgerEvaluationCase(fixture);
-	const key = createHash("sha256")
-		.update(JSON.stringify({ job: failed.job, ...hashes }))
-		.digest("hex");
-	if (
-		`${key}.json` !== review.failedReceipt.file ||
-		failed.systemHash !== hashes.systemHash ||
-		failed.inputHash !== hashes.inputHash
-	)
-		throw new Error("Reviewed failed job identity mismatch");
-	if (failed.response) {
-		validateIdentity(failed.response, failed.job, failed.evaluationId);
+	const failures: RecordResult[] = [];
+	for (const receipt of review.failedReceipts) {
+		const bytes = await readFile(join(directory, receipt.file), "utf8");
+		if (createHash("sha256").update(bytes).digest("hex") !== receipt.sha256)
+			throw new Error("Reviewed failed receipt hash mismatch");
+		const failed = JSON.parse(bytes) as RecordResult;
 		if (
-			failed.response.systemHash !== hashes.systemHash ||
-			failed.response.inputHash !== hashes.inputHash ||
-			cliFailureEvidence(null, failed.response).kind !== "indeterminate" ||
-			/HTTP (401|403)\b/.test(String(failed.response.error))
+			failed.evaluationId !== receipt.evaluationId ||
+			failed.state !== "completed" ||
+			failed.grade?.passed !== false ||
+			!(
+				(failed.interrupted && failed.cliFailure?.kind === "indeterminate") ||
+				(failed.denied &&
+					!failed.cliFailure &&
+					failed.error === LEGACY_INDETERMINATE_CLI_ERROR)
+			)
 		)
 			throw new Error(
-				"Reviewed response identity or authorization remains blocked",
+				"Only an indeterminate failed receipt can receive reviewed continuation",
 			);
-	}
-	for (const file of await readdir(directory)) {
 		if (
-			!/^[a-f0-9]{64}\.json$/.test(file) ||
-			file === review.failedReceipt.file
+			failed.cliFailure?.approvalId ||
+			["FORBIDDEN", "UNAUTHORIZED"].includes(failed.cliFailure?.errorCode ?? "")
 		)
-			continue;
+			throw new Error("Authorization and approval failures remain blocked");
+		const fixture = getLedgerEvaluationCase(
+			failed.job.surface,
+			failed.job.caseId,
+			failed.job.promptVariant,
+		);
+		if (!fixture || !MODELS.includes(failed.job.modelRef))
+			throw new Error("Invalid reviewed failed job");
+		const hashes = await hashLedgerEvaluationCase(fixture);
+		const key = createHash("sha256")
+			.update(JSON.stringify({ job: failed.job, ...hashes }))
+			.digest("hex");
+		if (
+			`${key}.json` !== receipt.file ||
+			failed.systemHash !== hashes.systemHash ||
+			failed.inputHash !== hashes.inputHash
+		)
+			throw new Error("Reviewed failed job identity mismatch");
+		if (failed.response) {
+			validateIdentity(failed.response, failed.job, failed.evaluationId);
+			if (
+				failed.response.systemHash !== hashes.systemHash ||
+				failed.response.inputHash !== hashes.inputHash ||
+				cliFailureEvidence(null, failed.response).kind !== "indeterminate" ||
+				/HTTP (401|403)\b/.test(String(failed.response.error))
+			)
+				throw new Error(
+					"Reviewed response identity or authorization remains blocked",
+				);
+		}
+		failures.push(failed);
+	}
+	const reviewedFiles = new Set(
+		review.failedReceipts.map((receipt) => receipt.file),
+	);
+	for (const file of await readdir(directory)) {
+		if (!/^[a-f0-9]{64}\.json$/.test(file) || reviewedFiles.has(file)) continue;
 		const other = JSON.parse(
 			await readFile(join(directory, file), "utf8"),
 		) as RecordResult;
@@ -417,7 +433,7 @@ async function validateContinuation(
 				"Another denied, indeterminate or unsettled receipt remains blocked",
 			);
 	}
-	return failed;
+	return failures;
 }
 const MODELS: ModelRef[] = [
 	"azure-openai/gpt-6-astra",
@@ -474,23 +490,44 @@ export async function runLedgerQualification(
 		organization?: string;
 		callable?: string;
 		toolName?: string;
+		surface?: LedgerEvaluationSurface;
+		promptVariant?: LedgerEvaluationPromptVariant;
 	} = {},
 ) {
+	if (
+		(options.surface !== undefined &&
+			!["status", "intake", "reply", "lesson"].includes(options.surface)) ||
+		(options.promptVariant !== undefined &&
+			!["production", "shorter_status"].includes(options.promptVariant)) ||
+		(options.promptVariant === "shorter_status" &&
+			options.surface !== undefined &&
+			options.surface !== "status")
+	)
+		throw new Error(
+			"Invalid fixed evaluation surface/prompt-variant selection",
+		);
 	let dispatched = 0;
 	let stopped = false;
 	await mkdir(directory, { recursive: true, mode: 0o700 });
-	const groups = models.flatMap((modelRef) =>
-		["production", "shorter_status"].flatMap((variant) =>
-			["status", "intake", "reply", "lesson"]
-				.filter((surface) => variant === "production" || surface === "status")
-				.map((surface) => ({
-					modelRef,
-					surface: surface as LedgerEvaluationSurface,
-					promptVariant: variant as LedgerEvaluationPromptVariant,
-				})),
-		),
-	);
-	const reviewedFailure = options.continuation
+	const groups = models
+		.flatMap((modelRef) =>
+			["production", "shorter_status"].flatMap((variant) =>
+				["status", "intake", "reply", "lesson"]
+					.filter((surface) => variant === "production" || surface === "status")
+					.map((surface) => ({
+						modelRef,
+						surface: surface as LedgerEvaluationSurface,
+						promptVariant: variant as LedgerEvaluationPromptVariant,
+					})),
+			),
+		)
+		.filter(
+			(group) =>
+				(options.surface === undefined || group.surface === options.surface) &&
+				(options.promptVariant === undefined ||
+					group.promptVariant === options.promptVariant),
+		);
+	const reviewedFailures = options.continuation
 		? await validateContinuation(
 				directory,
 				options.continuation,
@@ -501,7 +538,7 @@ export async function runLedgerQualification(
 		: undefined;
 	// Inspect the whole journal before either concurrent worker may dispatch.
 	// A failed or unsettled receipt outside the first scheduled job still blocks.
-	if (!reviewedFailure) {
+	if (!reviewedFailures) {
 		for (const file of await readdir(directory)) {
 			if (!/^[a-f0-9]{64}\.json$/.test(file)) continue;
 			const stored = JSON.parse(
@@ -525,12 +562,14 @@ export async function runLedgerQualification(
 		}
 	}
 	const excluded = (job: Pick<Job, "modelRef" | "surface" | "promptVariant">) =>
-		!!reviewedFailure &&
-		job.modelRef === reviewedFailure.job.modelRef &&
-		job.surface === reviewedFailure.job.surface &&
-		job.promptVariant === reviewedFailure.job.promptVariant;
+		!!reviewedFailures?.some(
+			(failed) =>
+				job.modelRef === failed.job.modelRef &&
+				job.surface === failed.job.surface &&
+				job.promptVariant === failed.job.promptVariant,
+		);
 	const records: RecordResult[] = [];
-	if (reviewedFailure) {
+	if (reviewedFailures) {
 		// Exclusion stops dispatch and re-grading, not historical cost accounting.
 		// validateContinuation already checked every other receipt in this journal.
 		for (const file of await readdir(directory)) {
@@ -677,7 +716,7 @@ export async function runLedgerQualification(
 			mode: 0o600,
 		});
 		await rename(temporary, path);
-		if (record.denied) throw new ManagedEvaluationDenied(record.error);
+		if (record.denied) throw new ManagedEvaluationDenied(record.error!);
 		if (record.interrupted)
 			throw new ManagedEvaluationInterrupted(record.error!, record.cliFailure!);
 		return record;
@@ -877,6 +916,7 @@ export function createCliEvaluationCaller(
 	organization: string,
 	toolName: string,
 	execute: CliToolExecutor = executeCliTool,
+	rawResponseDirectory?: string,
 ): EvaluationCaller {
 	if (
 		!/^[A-Za-z_$][\w$]*__evaluate_ledger_model$/.test(toolName) ||
@@ -884,7 +924,27 @@ export function createCliEvaluationCaller(
 	)
 		throw new Error("Use the exact authorized discovered evaluation tool name");
 	return async (input) => {
-		let raw: string;
+		if (
+			!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+				input.evaluationId,
+			)
+		)
+			throw cliFailure(null);
+		const rawResponseFile = rawResponseDirectory
+			? join(rawResponseDirectory, `${input.evaluationId}.mcp-response.json`)
+			: undefined;
+		let capture: Awaited<ReturnType<typeof open>> | undefined;
+		try {
+			if (rawResponseFile) {
+				await mkdir(rawResponseDirectory!, { recursive: true, mode: 0o700 });
+				// Reserve before dispatch; never overwrite or replay a captured ID.
+				capture = await open(rawResponseFile, "wx", 0o600);
+			}
+		} catch (error) {
+			throw cliFailure(error);
+		}
+		let raw = "";
+		let executionError: unknown;
 		try {
 			raw = await execute([
 				"-w",
@@ -899,24 +959,58 @@ export function createCliEvaluationCaller(
 				"--json",
 			]);
 		} catch (error) {
+			executionError = error;
+			if (
+				error &&
+				typeof error === "object" &&
+				typeof (error as { stdout?: unknown }).stdout === "string"
+			)
+				raw = (error as { stdout: string }).stdout;
+		}
+		try {
+			if (capture) {
+				// Full exact CLI stdout is durable before any protocol/schema parsing.
+				await capture.writeFile(raw);
+				await capture.sync();
+			}
+		} catch (error) {
 			throw cliFailure(error);
+		} finally {
+			await capture?.close().catch((error) => {
+				throw cliFailure(error);
+			});
+		}
+		if (executionError) {
+			throw cliFailure(
+				typeof executionError === "object"
+					? { ...executionError, rawResponseFile }
+					: executionError,
+			);
 		}
 		let envelope: unknown;
 		try {
 			envelope = JSON.parse(raw);
 		} catch {
-			throw cliFailure({ stdout: raw });
+			throw cliFailure({ stdout: raw, rawResponseFile });
 		}
 		if (!envelope || typeof envelope !== "object" || Array.isArray(envelope))
-			throw cliFailure({ stdout: raw }, envelope);
+			throw cliFailure({ stdout: raw, rawResponseFile }, envelope);
 		const result = envelope as Record<string, unknown>;
+		if (result.resultType !== undefined && result.resultType !== "complete")
+			throw cliFailure({ stdout: raw, rawResponseFile }, result);
 		if (
 			Object.keys(result).some(
 				(key) =>
-					!["content", "structuredContent", "isError", "_meta"].includes(key),
+					![
+						"resultType",
+						"content",
+						"structuredContent",
+						"isError",
+						"_meta",
+					].includes(key),
 			)
 		)
-			throw cliFailure({ stdout: raw }, result);
+			throw cliFailure({ stdout: raw, rawResponseFile }, result);
 		// rawRequest returns the MCP result, not a JSON-RPC transport envelope.
 		if (
 			result.isError ||
@@ -928,7 +1022,7 @@ export function createCliEvaluationCaller(
 					? (result.structuredContent as Record<string, unknown>)
 					: result;
 			throw cliFailure(
-				{ stdout: raw },
+				{ stdout: raw, rawResponseFile },
 				{
 					...detail,
 					...(meta?.["tedix/error"] as Record<string, unknown> | undefined),
@@ -939,22 +1033,26 @@ export function createCliEvaluationCaller(
 		const candidates: ManagedResult[] = [];
 		if (result.structuredContent !== undefined) {
 			if (!isManagedResult(result.structuredContent))
-				throw cliFailure({ stdout: raw }, result.structuredContent);
+				throw cliFailure(
+					{ stdout: raw, rawResponseFile },
+					result.structuredContent,
+				);
 			candidates.push(result.structuredContent);
 		}
 		if (result.content !== undefined) {
 			if (!Array.isArray(result.content))
-				throw cliFailure({ stdout: raw }, result);
+				throw cliFailure({ stdout: raw, rawResponseFile }, result);
 			for (const block of result.content) {
 				if (!block || block.type !== "text" || typeof block.text !== "string")
-					throw cliFailure({ stdout: raw }, result);
+					throw cliFailure({ stdout: raw, rawResponseFile }, result);
 				let parsed: unknown;
 				try {
 					parsed = JSON.parse(block.text);
 				} catch {
 					continue;
 				}
-				if (!isManagedResult(parsed)) throw cliFailure({ stdout: raw }, parsed);
+				if (!isManagedResult(parsed))
+					throw cliFailure({ stdout: raw, rawResponseFile }, parsed);
 				candidates.push(parsed);
 			}
 		}
@@ -972,7 +1070,7 @@ export function createCliEvaluationCaller(
 			!candidates.length ||
 			candidates.some((value) => canonical(value) !== canonical(candidates[0]!))
 		)
-			throw cliFailure({ stdout: raw }, result);
+			throw cliFailure({ stdout: raw, rawResponseFile }, result);
 		return parseManagedEvaluationEnvelope({ json: candidates[0]! });
 	};
 }
@@ -1021,19 +1119,38 @@ async function main(args: string[]) {
 		throw new Error(
 			"Pass --tool-name <live-discovered-wire-name> from current authorized native tool discovery",
 		);
-	const call = createCliEvaluationCaller(organization, toolName);
+	const call = createCliEvaluationCaller(
+		organization,
+		toolName,
+		executeCliTool,
+		directory,
+	);
 	const continuationPath = option("--continuation-manifest");
 	const continuation = continuationPath
 		? (JSON.parse(
 				await readFile(continuationPath, "utf8"),
 			) as ReviewedLedgerContinuation)
 		: undefined;
+	if (
+		(args.includes("--surface") && !option("--surface")) ||
+		(args.includes("--prompt-variant") && !option("--prompt-variant"))
+	)
+		throw new Error("Pass a value for each fixed evaluation selector");
 	const summary = await runLedgerQualification(
 		directory,
 		call,
 		model ? [model] : MODELS,
 		maximum,
-		{ continuation, organization, callable, toolName },
+		{
+			continuation,
+			organization,
+			callable,
+			toolName,
+			surface: option("--surface") as LedgerEvaluationSurface | undefined,
+			promptVariant: option("--prompt-variant") as
+				| LedgerEvaluationPromptVariant
+				| undefined,
+		},
 	);
 	await writeFile(
 		join(directory, "summary.json"),

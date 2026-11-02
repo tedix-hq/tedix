@@ -68,6 +68,7 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 const LEDGER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MODEL_TIMEOUT_MS = 15_000;
 export const LEDGER_REFLECTOR_MODEL = "gpt-6-astra";
+const LEDGER_INTAKE_MODEL = "gpt-6.1-sol";
 export const LEDGER_SILENCE_TURNS = 5;
 const writeInferenceDiagnostic = createTelemetryWriter(
 	"agent-session-request-ledger",
@@ -102,7 +103,10 @@ async function reflectWithGateway(
 	const filing = surface === "agent-session-project-routing";
 	try {
 		const pending = fetchLedgerGatewayCompletion(env, {
-			model: LEDGER_REFLECTOR_MODEL,
+			model:
+				surface === "agent-session-request-intake"
+					? LEDGER_INTAKE_MODEL
+					: LEDGER_REFLECTOR_MODEL,
 			system,
 			prompt,
 			metadata: { surface, orgId: organizationId },

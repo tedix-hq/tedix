@@ -1,0 +1,642 @@
+{
+	"version": 1,
+	"features": {
+		"intake": {
+			"modelRef": "azure-openai/gpt-6.1-sol",
+			"evaluatedPromptVariant": "production",
+			"systemHash": "41800be56ce428637c825c15c2024ca90331a77bc732e8ab324bd99d9d60ee89",
+			"cases": [
+				{
+					"caseId": "trim-tabs",
+					"inputHash": "65e6ce32e2d71c2d2e9382312d8995612872832c7c07f7285fcfbb70cc181e11",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "attention-panel",
+					"inputHash": "7ad7bd86ca6c47d62d241e4e44652e12c5191600e722a0ed69fa703dbc5394a1",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "authority-choice",
+					"inputHash": "e156c89a984c9fcdad50a5e14b98e879417057e28a978e6984ffad98b25a1982",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "normal-name-removal",
+					"inputHash": "d25de2b6f47d55eb0a4ff5b6e66b793b84bbb3b8197989ca159a0d01fced3392",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\": []}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "chat-acceptance",
+					"inputHash": "76356a25515a413ed7835aed52376381d51a62b6e68aa37a2bd1291f207b7db2",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "older-drive",
+					"inputHash": "fa401366ae6212dd2fbd712e4f9cc9cc3798e47da37568c0e17b41cf6605c66b",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "missing-tool-error",
+					"inputHash": "6c1a53c75d58e9ba080b01d928146bbec05509bd4efb9170e57946b3e031202c",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "linked-project-error",
+					"inputHash": "ea61225bab4750fabb602951e53cb1e8137e5dd28bf1c7b3939eda3f4b8f3e3c",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "notifications",
+					"inputHash": "c4ff3857633cc0f3db503d76266b85978b72f08ae01a3c7d22ae8ad0cb5c1507",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "acted-thread-rule",
+					"inputHash": "6c4c67f8c586ffd1b0e293bead4c4be4396fd056afc6c42cadf14e5ca68017c5",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "exact-post-rule",
+					"inputHash": "4d3d030ebd18683f95d57cb4a40280b2cb49565476af8b95904d8c57320234ea",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "borderline-archive",
+					"inputHash": "55e839da0e9a1ed6b82246003ba8f3c1e497a4df0a05092c728f235dec10084b",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "borderline-event",
+					"inputHash": "cbd75c0284bf9bbf2eeacc0d0fcae93da1d91b6b42fc5f62f53c9d2f979f5cfb",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "borderline-filter",
+					"inputHash": "5bd7e172c9fafb6edc131f4008c2be74639daf329aebef3cab86b781f09656e8",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "worktree-cleanup",
+					"inputHash": "805c7e65a76adb111e6f661fa08c7de1c80e6d332f7a5b9659d97295f072639f",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "milestone-error",
+					"inputHash": "538ac838cfb1e73173ebba0f31b377bfca49924aa6eb69e273088ecb1039a8bd",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "phone-screenshot",
+					"inputHash": "90dcc602ffa92f97fe41287b5782643536548c41da7836b46d7d2b21a0f91cd5",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "factory-security",
+					"inputHash": "bd37274df296b1befc2370c3edf82ec78f865dd25ec24cb3dc45c0b64df94728",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "public-pages",
+					"inputHash": "e8fa6414ada62d4e8471b86882247fd4812f2ec50b09c831f804d88d73a0f231",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "library-fix",
+					"inputHash": "c044c9b93d0b9cd9431bd0a24801d4622cc7f54ea45a1f884646b8f91af9ce43",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "catalog-cleanup",
+					"inputHash": "b7cd104e0af0a5a63eeb330d3c647b4f40a02eac7bf576db01efa219ef482a04",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Fix catalog cleanup so manually added apps stay listed.\",\"evidence\":\"I will fix catalog cleanup so manually added apps stay listed.\"}]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Fix catalog cleanup so manually added apps stay listed.\",\"evidence\":\"I will fix catalog cleanup so manually added apps stay listed.\"}]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Fix catalog cleanup so manually added apps stay listed.\",\"evidence\":\"I will fix catalog cleanup so manually added apps stay listed.\"}]}"
+						}
+					]
+				},
+				{
+					"caseId": "private-setup",
+					"inputHash": "3ec1bca0aaab1d3a1e626ffbae9b5a57c7293989544d9baabb4aed0a8fd75b96",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "excluded-work",
+					"inputHash": "589fcf770e55c6f483ae7eb0d1ab8c3b1eeeaaeb02fe14fecacf44aa399e7c6b",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "needs-you-doc",
+					"inputHash": "5505d42430837aafe90efa9cf2defe367838689a6ea4a36a71091b65935adabe",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Maintain the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Maintain the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Maintain the Needs you list in one private document.\",\"evidence\":\"I will keep the Needs you list in one private document.\"}]}"
+						}
+					]
+				},
+				{
+					"caseId": "connection-check",
+					"inputHash": "82dee80d80ab1f4c1080ec6abdad5b751ded752cf929588e5cb0407a00e2043b",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "credits-draft",
+					"inputHash": "a1da191fc43987f3253adb2318a64cb2a52c2ed8e8d8c83a15a270e54d1480e5",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "pause-database",
+					"inputHash": "f539f79a66c78e5f2ccd602140e7d9bb09a0b010bf25421a23329043ce34d8df",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "keep-required-consent",
+					"inputHash": "6ba9766218942a1e603bd3d3d1089664ebb17b9fac6d19a5e18aa49bccfc13f5",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[{\"kind\":\"ask\",\"text\":\"Click Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[{\"kind\":\"ask\",\"text\":\"Click Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[{\"kind\":\"ask\",\"text\":\"Click Allow mail access before the workspace’s first run.\",\"evidence\":\"Click Allow mail access before its first run.\"}]}"
+						}
+					]
+				},
+				{
+					"caseId": "keep-undelivered-screenshot",
+					"inputHash": "7152cb3490e5513a2764ca69895352b6707652db45e0c21dfd68d5c0ce94d982",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send you a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send you a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Send you a phone screenshot after deployment.\",\"evidence\":\"I will send you a phone screenshot after deployment.\"}]}"
+						}
+					]
+				},
+				{
+					"caseId": "do-not-close-live-with-local",
+					"inputHash": "970c0ad2ccad374d3130e4387d0108ebfc7f649c9affc51e0fe26eb02f2d5a78",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "do-not-infer-human-approval",
+					"inputHash": "49feeddd2c04b802a21acef6db28c4537ee0096c5f96dac83396709bed5c3f6d",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "merge-completed-restatement",
+					"inputHash": "485bceaf4b01546eb15d134eef7080121d603a2936c08874deea3d0d8b97d03b",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "selected-measured-goal",
+					"inputHash": "180736ed4636919c9971edaf468406be2258a3529e292bac1e12eeb927d230b8",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver a document in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\"}]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver document retrieval under 5 seconds and answers under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\"}]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[{\"kind\":\"promise\",\"text\":\"Deliver a document in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests.\",\"evidence\":\"Here is the selected goal I'm starting now:\\n| Goal | Status |\\n| A doc in under 5 seconds and an answer in under 3 seconds, measured on 20 fixed requests | Starting with Codex |\"}]}"
+						}
+					]
+				},
+				{
+					"caseId": "obsolete-ui-choice",
+					"inputHash": "19bc8b07178d8dcb8a8d15f89ac9674aca6962eb9a890700d0fb2528bb4e23e8",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "reserved-ui-publication",
+					"inputHash": "b85d3708c82ebf4429dceb8d1d3cb84cfa6d48a9c62372f978288f67bc7a56b4",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"new\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"new\":[]}"
+						}
+					]
+				}
+			]
+		}
+	}
+}
