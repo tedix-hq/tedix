@@ -1,3 +1,8 @@
+import {
+	recordRestrictedProviderCall,
+	resolveTurnExecutionRestriction,
+} from "./turn-execution-restriction";
+import type { TurnExecutionRestriction } from "@tedix/api-contract/schemas/turn-execution-restriction";
 import { createDbClient } from "@tedix/db/client";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
@@ -69,7 +74,7 @@ import {
 	legacySessionMessages,
 	createPiEventProjection,
 } from "./pi-agent";
-import { PiTurnAccounting } from "./pi-turn-accounting";
+import { PiTurnAccounting, type PiProviderAttempt } from "./pi-turn-accounting";
 import {
 	configureFacetGeneration,
 	resolveFacetGeneration,
@@ -154,6 +159,7 @@ export interface ConversationFacetState {
 	/** Optional surface-specific reasoning effort. */
 	reasoning?: ModelGenerationSettings["reasoningEffort"] | null;
 	generation?: ModelGenerationSettings;
+	executionRestriction?: TurnExecutionRestriction | null;
 	/** The turn's tool surface, persisted so getTools() survives eviction. */
 	toolDescriptors: FacetToolDescriptor[];
 	/** Completed turns on this facet (identity across hibernation). */
@@ -197,6 +203,7 @@ export interface ConversationFacetTurnResult {
 }
 
 export interface ConversationTurnConfiguration {
+	executionRestriction?: TurnExecutionRestriction | null;
 	delegationBudget?: DelegatedTurnBudget;
 	turnMetadata?: Record<string, unknown> | null;
 	system: string;
@@ -226,6 +233,22 @@ export interface ConfiguredConversationTurn {
 	imageRefs?: WorkflowImageRef[];
 	freshHistory?: boolean;
 	durableSubmissionId?: string;
+}
+
+interface ConversationProviderReceipt {
+	runId: string;
+	ordinal: number;
+	operationId?: string;
+	providerAttempt: PiProviderAttempt;
+	toolsOff: boolean;
+	sessionKey: string | null;
+	executionRestriction:
+		| (TurnExecutionRestriction & {
+				providerToolCount: number;
+				facetToolCount: number;
+				providerAttemptId: string;
+		  })
+		| null;
 }
 
 interface PendingFacetSubmission {
@@ -468,6 +491,11 @@ export class ConversationFacet extends PiAgent<
 			observerModelRef: input.observerModelRef ?? null,
 			observerDeployment: input.observerDeployment ?? null,
 			turnMetadata: input.turnMetadata ?? null,
+			executionRestriction:
+				resolveTurnExecutionRestriction(
+					input.executionRestriction ?? undefined,
+					input,
+				) ?? null,
 			generation: configureFacetGeneration({ runId: null }, input),
 		};
 	}
@@ -564,7 +592,24 @@ export class ConversationFacet extends PiAgent<
 	protected projection(): PiApplicationProjection {
 		const models = createModels();
 		models.setProvider(
-			createTedixPiProvider({
+			createTedixPiProvider<ConversationProviderReceipt>({
+				beforeDispatch: async (call, receipt) => {
+					if (!this.state.executionRestriction) return;
+					if (
+						!receipt ||
+						receipt.runId !== this.state.runId ||
+						receipt.providerAttempt.runId !== receipt.runId
+					)
+						throw new Error("Restricted provider receipt has stale ownership");
+					await recordRestrictedProviderCall({
+						storage: this.ctx.storage,
+						runId: receipt.runId,
+						providerAttemptId: receipt.providerAttempt.attemptId,
+						restriction: this.state.executionRestriction,
+						facetToolCount: this.state.toolDescriptors.length,
+						call,
+					});
+				},
 				deadlineAt: () => this.state.delegationBudget?.deadlineAt,
 				catalog: () => [this.selectedPiModel()],
 				resolveModel: () => {
@@ -696,12 +741,13 @@ export class ConversationFacet extends PiAgent<
 						);
 					}
 
-					const final = this.state.finalReportStop
-						? { toolChoice: "none" as const }
-						: reservedFinalStepConfig(
-								ordinal,
-								resolveFacetStepCeiling(this.state.maxSteps),
-							);
+					const final =
+						this.state.executionRestriction || this.state.finalReportStop
+							? { toolChoice: "none" as const }
+							: reservedFinalStepConfig(
+									ordinal,
+									resolveFacetStepCeiling(this.state.maxSteps),
+								);
 					const providerOptions = cache
 						? {
 								...generation.turnConfig.providerOptions,
@@ -727,6 +773,14 @@ export class ConversationFacet extends PiAgent<
 							operationId: this.facetReceiptOperation(),
 							providerAttempt,
 							toolsOff: final?.toolChoice === "none",
+							executionRestriction: this.state.executionRestriction
+								? {
+										...this.state.executionRestriction,
+										providerToolCount: 0,
+										facetToolCount: this.state.toolDescriptors.length,
+										providerAttemptId: providerAttempt.attemptId,
+									}
+								: null,
 							sessionKey: this.state.sessionKey,
 						},
 					};
@@ -800,50 +854,55 @@ export class ConversationFacet extends PiAgent<
 						).recordFacetModelStep({
 							runId: receipt.runId,
 							sessionKey: receipt.sessionKey ?? "",
-							payload: shapeStepTelemetry({
-								heapProxy: this.heapProxy.snapshot(),
-								// Pi only sees the stable `tedix/selected` catalog entry; the
-								// turn's actual choice is the resolved selection.
-								model: this.selected
-									? {
-											provider: this.selected.identity.provider,
-											modelId:
-												message.responseModel ?? this.selected.identity.model,
-										}
-									: {
-											provider: message.provider,
-											modelId: message.responseModel ?? message.model,
-										},
-								providerMetadata: measurement.providerMetadata,
-								stepNumber: receipt.ordinal,
-								finishReason: message.stopReason,
-								text: message.content
-									.filter((part) => part.type === "text")
-									.map((part) => part.text)
-									.join(""),
-								usage: measurement.hasUsage
-									? {
-											inputTokens: usage.inputTokens,
-											outputTokens: usage.outputTokens,
-											totalTokens: usage.totalTokens,
-											inputTokenDetails: {
-												cacheReadTokens: message.usage.cacheRead,
-												cacheWriteTokens: message.usage.cacheWrite,
+							payload: {
+								...shapeStepTelemetry({
+									heapProxy: this.heapProxy.snapshot(),
+									// Pi only sees the stable `tedix/selected` catalog entry; the
+									// turn's actual choice is the resolved selection.
+									model: this.selected
+										? {
+												provider: this.selected.identity.provider,
+												modelId:
+													message.responseModel ?? this.selected.identity.model,
+											}
+										: {
+												provider: message.provider,
+												modelId: message.responseModel ?? message.model,
 											},
-											...(typeof message.usage.reasoning === "number"
-												? {
-														outputTokenDetails: {
-															reasoningTokens: message.usage.reasoning,
-														},
-													}
-												: {}),
-										}
-									: undefined,
-								toolCalls: message.content
-									.filter((part) => part.type === "toolCall")
-									.map((part) => ({ toolName: part.name })),
-								toolResults: [],
-							}),
+									providerMetadata: measurement.providerMetadata,
+									stepNumber: receipt.ordinal,
+									finishReason: message.stopReason,
+									text: message.content
+										.filter((part) => part.type === "text")
+										.map((part) => part.text)
+										.join(""),
+									usage: measurement.hasUsage
+										? {
+												inputTokens: usage.inputTokens,
+												outputTokens: usage.outputTokens,
+												totalTokens: usage.totalTokens,
+												inputTokenDetails: {
+													cacheReadTokens: message.usage.cacheRead,
+													cacheWriteTokens: message.usage.cacheWrite,
+												},
+												...(typeof message.usage.reasoning === "number"
+													? {
+															outputTokenDetails: {
+																reasoningTokens: message.usage.reasoning,
+															},
+														}
+													: {}),
+											}
+										: undefined,
+									toolCalls: message.content
+										.filter((part) => part.type === "toolCall")
+										.map((part) => ({ toolName: part.name })),
+									toolResults: [],
+								}),
+								...(receipt.executionRestriction
+									? { executionRestriction: receipt.executionRestriction }
+									: {}),
+							},
 						});
 					} catch (error) {
 						console.error("[tedi.pi.model-telemetry]", {
@@ -870,6 +929,8 @@ export class ConversationFacet extends PiAgent<
 		};
 	}
 	protected async piExtension(): Promise<Extension> {
+		if (this.state.executionRestriction && this.state.toolDescriptors.length)
+			throw new Error("Restricted tool registry is not empty");
 		const tools: ToolRegistration[] = this.state.toolDescriptors.map(
 			(descriptor) => {
 				return {
@@ -1319,9 +1380,10 @@ export class ConversationFacet extends PiAgent<
 		return {
 			// 2s, 4s, 8s: spans a short D1 or service-binding outage.
 			retry: { enabled: true, maxRetries: 3, baseDelayMs: 2000 },
-			compaction: conversationCompactionSettings(
-				this.selectedPiModel().contextWindow,
-			),
+			compaction: {
+				...conversationCompactionSettings(this.selectedPiModel().contextWindow),
+				...(this.state.executionRestriction ? { enabled: false } : {}),
+			},
 		};
 	}
 	private readonly approvalSinks = new Set<
@@ -1416,6 +1478,18 @@ export class ConversationFacet extends PiAgent<
 	private async configureConversationTurn(
 		input: ConversationTurnConfiguration,
 	): Promise<number> {
+		const executionRestriction = resolveTurnExecutionRestriction(
+			input.executionRestriction ?? undefined,
+			input,
+		);
+		if (executionRestriction && input.toolDescriptors.length)
+			throw new Error("Restricted turn cannot register tools");
+		if (
+			this.state.runId === input.runId &&
+			JSON.stringify(this.state.executionRestriction ?? null) !==
+				JSON.stringify(executionRestriction ?? null)
+		)
+			throw new Error("Original conversation execution restriction changed");
 		const modelCatalog =
 			this.state.runId === input.runId && this.state.modelCatalog
 				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
@@ -1474,6 +1548,7 @@ export class ConversationFacet extends PiAgent<
 			observerModelRef: input.observerModelRef ?? null,
 			observerDeployment: input.observerDeployment ?? null,
 			turnMetadata: input.turnMetadata ?? null,
+			executionRestriction: executionRestriction ?? null,
 			generation: configureFacetGeneration(this.state, input),
 			toolRegistryUnavailableRunId: null,
 			budgetStop: null,

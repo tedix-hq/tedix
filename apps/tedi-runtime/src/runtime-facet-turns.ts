@@ -1,3 +1,7 @@
+import {
+	assertOriginalExecutionRestriction,
+	resolveTurnExecutionRestriction,
+} from "./turn-execution-restriction";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { operatorRecordTools } from "./operator-record-tools";
@@ -792,10 +796,12 @@ export const runtimeFacetTurns = {
 					admission.assertAcceptedTurnSync({ runId, expected: accepted });
 					this.activeFacetTurnTools.set(
 						runId,
-						configuredRuntimeTools(
-							setup.tools,
-							this.state.toolPolicy?.runtimeTools,
-						),
+						params.executionRestriction
+							? {}
+							: configuredRuntimeTools(
+									setup.tools,
+									this.state.toolPolicy?.runtimeTools,
+								),
 					);
 					this.activeFacetTurnConversations.set(runId, params.conversationId);
 					const authority = delegatedTurnAuthority({
@@ -988,6 +994,7 @@ export const runtimeFacetTurns = {
 	async prepareMcpFacetTurn(
 		this: RuntimeFacetTurnsHost,
 		input: {
+			executionRestriction?: ChatTurnParams["executionRestriction"];
 			noFunds?: boolean;
 			sessionKey: string;
 			userMessage: string;
@@ -1076,7 +1083,7 @@ export const runtimeFacetTurns = {
 			}
 		}
 		const requiredSchemas =
-			supervised && input.capabilityPlan
+			supervised && input.capabilityPlan && !input.executionRestriction
 				? await preflightDelegationTools(input.capabilityPlan, async (code) => {
 						if (!mcpRuntime)
 							throw new Error(
@@ -1221,7 +1228,9 @@ export const runtimeFacetTurns = {
 		});
 		if (input.toolsOnly)
 			return {
-				tools: noFundsTurnTools(tools, input.noFunds),
+				tools: input.executionRestriction
+					? {}
+					: noFundsTurnTools(tools, input.noFunds),
 				system: "",
 				turnBinding,
 			};
@@ -1229,6 +1238,7 @@ export const runtimeFacetTurns = {
 			input.sessionKey,
 			input.userMessage,
 			turnBinding,
+			Boolean(input.executionRestriction),
 		);
 		const toolsNote =
 			workspaceToolGuidance({
@@ -1265,7 +1275,9 @@ export const runtimeFacetTurns = {
 			);
 		}
 		return {
-			tools: noFundsTurnTools(tools, input.noFunds),
+			tools: input.executionRestriction
+				? {}
+				: noFundsTurnTools(tools, input.noFunds),
 			system: input.noFunds ? `${system}\n\n${NO_FUNDS_TURN_MESSAGE}` : system,
 			turnBinding,
 		};
@@ -1279,6 +1291,7 @@ export const runtimeFacetTurns = {
 			system: string;
 			runId: string;
 			maxSteps: number | null;
+			executionRestriction?: ChatTurnParams["executionRestriction"];
 			tools: ToolSet;
 			authorityEnvelope?: DelegationAuthorityEnvelope;
 			authorityMode?: DelegationAuthorityMode;
@@ -1329,6 +1342,11 @@ export const runtimeFacetTurns = {
 		/** Present when the facet's mid-turn budget gate stopped the loop early. */
 		stopReason?: FacetBudgetStopReason;
 	}> {
+		const executionRestriction = resolveTurnExecutionRestriction(
+			input.executionRestriction,
+			input,
+		);
+		const effectiveTools = executionRestriction ? {} : input.tools;
 		await this.acceptRuntimeTurn(
 			input.runId,
 			input.sessionKey,
@@ -1336,7 +1354,7 @@ export const runtimeFacetTurns = {
 				...input,
 				tools: describeFacetTools(
 					configuredRuntimeTools(
-						input.tools,
+						effectiveTools,
 						this.state.toolPolicy?.runtimeTools,
 					),
 				),
@@ -1345,7 +1363,10 @@ export const runtimeFacetTurns = {
 		);
 		this.activeFacetTurnTools.set(
 			input.runId,
-			configuredRuntimeTools(input.tools, this.state.toolPolicy?.runtimeTools),
+			configuredRuntimeTools(
+				effectiveTools,
+				this.state.toolPolicy?.runtimeTools,
+			),
 		);
 		this.activeFacetTurnConversations.set(
 			input.runId,
@@ -1371,7 +1392,7 @@ export const runtimeFacetTurns = {
 			const facet = await this.subAgent(ConversationFacet, facetName);
 			const toolDescriptors = describeFacetTools(
 				configuredRuntimeTools(
-					input.tools,
+					effectiveTools,
 					this.state.toolPolicy?.runtimeTools,
 				),
 			);
@@ -1396,6 +1417,7 @@ export const runtimeFacetTurns = {
 				sovereignty: "unconstrained",
 			} as const;
 			const turnConfiguration = {
+				executionRestriction: executionRestriction ?? null,
 				delegationBudget: input.delegationBudget,
 				observerModelRef:
 					this.modelOverrideForSurface("observer")?.modelRef ?? null,
@@ -1867,6 +1889,7 @@ export const runtimeFacetTurns = {
 		this: RuntimeFacetTurnsHost,
 		input: {
 			evaluation?: import("./evaluation-context").EvaluationAdmission;
+			executionRestriction?: ChatTurnParams["executionRestriction"];
 			noFunds?: boolean;
 			sessionKey: string;
 			text: string;
@@ -1891,6 +1914,10 @@ export const runtimeFacetTurns = {
 		const { tediId, slug } = this.state;
 		if (input.evaluation && input.noFunds)
 			throw new Error("Evaluation inference requires available funds");
+		const executionRestriction = resolveTurnExecutionRestriction(
+			input.executionRestriction,
+			input,
+		);
 		const sessionKey = input.evaluation
 			? evaluationSessionKey(buildRunId(tediId, input.clientRequestId, "mcp"))
 			: input.sessionKey;
@@ -1899,6 +1926,11 @@ export const runtimeFacetTurns = {
 		return this.imageCleanupJournal().withRun(runId, async () => {
 			if (await this.isWorkflowRunCanceled(runId))
 				throw new Error(`Tedi run ${runId} cancelled`);
+			await assertOriginalExecutionRestriction(
+				this.ctx.storage,
+				runId,
+				executionRestriction,
+			);
 			const assistantKey = deriveIdempotencyKey(runId, "assistant");
 
 			// Redelivery fast-path: THIS turn already settled (same client_request_id
@@ -1908,6 +1940,12 @@ export const runtimeFacetTurns = {
 				assistantKey,
 			);
 			if (settled) {
+				await assertOriginalExecutionRestriction(
+					this.ctx.storage,
+					runId,
+					executionRestriction,
+					true,
+				);
 				return await settledChatTurnReceipt(await this.getPlatformClient(), {
 					runId,
 					sessionKey,
@@ -1981,8 +2019,11 @@ export const runtimeFacetTurns = {
 						traceId: input.traceId,
 						clientRequestId: input.clientRequestId,
 						learningMode:
-							input.noFunds || input.evaluation ? "disabled" : learningMode,
+							input.noFunds || input.evaluation || executionRestriction
+								? "disabled"
+								: learningMode,
 						evaluation: input.evaluation,
+						executionRestriction,
 						callerTrust: input.callerTrust,
 						gatewayAttributionRunId: input.gatewayAttributionRunId,
 						noFunds: input.noFunds,
@@ -2468,6 +2509,7 @@ export const runtimeFacetTurns = {
 		const trust = mcpTurnSurfaceTrust(input);
 		const setup = await this.prepareMcpFacetTurn({
 			noFunds: input.noFunds,
+			executionRestriction: input.executionRestriction,
 			sessionKey: input.sessionKey,
 			userMessage: modelUserText,
 			trust,
@@ -2517,6 +2559,7 @@ export const runtimeFacetTurns = {
 				admissionClass: inferenceBudgetAdmissionClass(input),
 				freshHistory: isCronTurn,
 				durableSubmissionId: `${input.runId}:segment:${input.computerContinuation ?? 0}`,
+				executionRestriction: input.executionRestriction,
 				guardedUserText,
 				...(input.imageRefs?.length ? { imageRefs: input.imageRefs } : {}),
 				...(input.workItemId ? { workItemId: input.workItemId } : {}),
@@ -2671,6 +2714,7 @@ export const runtimeFacetTurns = {
 			durableCodePause?: DurableCodePause;
 			clientRequestId?: string;
 			learningMode?: AdaptiveLearningMode;
+			executionRestriction?: ChatTurnParams["executionRestriction"];
 			/** Home Work Item served by this delegated turn, when present. */
 			workItemId?: string;
 			/**
@@ -2713,6 +2757,7 @@ export const runtimeFacetTurns = {
 			durableCodePause?: DurableCodePause;
 			clientRequestId?: string;
 			learningMode?: AdaptiveLearningMode;
+			executionRestriction?: ChatTurnParams["executionRestriction"];
 			workItemId?: string;
 			suppressMemoryEffects?: boolean;
 			dailyLog?: boolean;
@@ -2816,7 +2861,7 @@ export const runtimeFacetTurns = {
 		// dedup fires) — polluting the exact surfaces these cognitive crons tend,
 		// and inflating the learning-conversion metric with an artifact. The
 		// ledger mirror (above) still seals the kernel-visible run lifecycle.
-		if (!input.suppressMemoryEffects) {
+		if (!input.suppressMemoryEffects && !input.executionRestriction) {
 			await this.dispatchTurnMemoryEffects({
 				user: userTurn,
 				assistant: assistantTurn,
@@ -2852,7 +2897,7 @@ export const runtimeFacetTurns = {
 			logTediRuntimeFailure("tedi.runtime.workflow_ledger_mirror_failed", e);
 			if (this.runtimeAdmission()) throw e;
 		}
-		if (inserted) {
+		if (inserted && !input.executionRestriction) {
 			// Stage 3: trigger best-effort compaction after a genuine commit.
 			await this.enqueueCompaction(input.sessionKey);
 		}

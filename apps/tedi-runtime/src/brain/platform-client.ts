@@ -351,7 +351,11 @@ export interface PlatformClient {
 	rankDiscovery?(input: DiscoveryRankingInput): Promise<DiscoveryRankingOutput>;
 	/** Bind/clear the active turn's episode id for cognitive-write correlation (P0.2). */
 	setEpisodeTrace(traceId: string | null): void;
-	memorySearch(query: string, limit?: number): Promise<MemorySearchResult>;
+	memorySearch(
+		query: string,
+		limit?: number,
+		options?: { recordAccess?: false },
+	): Promise<MemorySearchResult>;
 	getTurnMemory?(references: string[]): Promise<TurnMemory>;
 
 	memoryLearn(params: MemoryLearnParams): Promise<MemoryLearnResult>;
@@ -635,8 +639,15 @@ export class HttpPlatformClient implements PlatformClient {
 		});
 	}
 
-	async memorySearch(query: string, limit = 5): Promise<MemorySearchResult> {
+	async memorySearch(
+		query: string,
+		limit = 5,
+		options?: { recordAccess?: false },
+	): Promise<MemorySearchResult> {
 		return this.rpc("memoryGraph", "search", {
+			...(options?.recordAccess === false
+				? { recordAccess: false as const }
+				: {}),
 			query,
 			tediId: this.tediId,
 			topK: limit,

@@ -2119,35 +2119,41 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private async directivesPromptAddendum(
 		userText: string,
 		telemetryBinding?: ActiveTurnBinding | null,
+		learningDisabled?: boolean,
 	): Promise<string> {
 		return runtimeMemory.directivesPromptAddendum.call(
 			this.memoryHost(),
 			userText,
 			telemetryBinding,
+			learningDisabled,
 		);
 	}
 	private async brainDigestAddendum(
 		userText: string,
 		onRecall?: (report: MemoryRecallReport) => void,
 		sessionKey?: string | null,
+		learningDisabled?: boolean,
 	): Promise<string> {
 		return runtimeMemory.brainDigestAddendum.call(
 			this.memoryHost(),
 			userText,
 			onRecall,
 			sessionKey,
+			learningDisabled,
 		);
 	}
 	private async cognitiveAddenda(
 		sessionKey: string | null | undefined,
 		userText: string,
 		telemetryBinding?: ActiveTurnBinding | null,
+		learningDisabled?: boolean,
 	): Promise<string> {
 		return runtimeMemory.cognitiveAddenda.call(
 			this.memoryHost(),
 			sessionKey,
 			userText,
 			telemetryBinding,
+			learningDisabled,
 		);
 	}
 	private async recordDirectiveUsage(
@@ -3759,6 +3765,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		}
 	}
 	private async prepareMcpFacetTurn(input: {
+		executionRestriction?: ChatTurnParams["executionRestriction"];
 		noFunds?: boolean;
 		sessionKey: string;
 		userMessage: string;
@@ -3795,6 +3802,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		system: string;
 		runId: string;
 		maxSteps: number | null;
+		executionRestriction?: ChatTurnParams["executionRestriction"];
 		tools: ToolSet;
 		authorityEnvelope?: DelegationAuthorityEnvelope;
 		authorityMode?: DelegationAuthorityMode;
@@ -3908,6 +3916,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 	private async runDurableChatTurn(input: {
 		evaluation?: import("./evaluation-context").EvaluationAdmission;
+		executionRestriction?: ChatTurnParams["executionRestriction"];
 		noFunds?: boolean;
 		sessionKey: string;
 		text: string;
@@ -4063,6 +4072,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		durableCodePause?: DurableCodePause;
 		clientRequestId?: string;
 		learningMode?: AdaptiveLearningMode;
+		executionRestriction?: ChatTurnParams["executionRestriction"];
 		/** Home Work Item served by this delegated turn, when present. */
 		workItemId?: string;
 		/**
@@ -4103,6 +4113,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		durableCodePause?: DurableCodePause;
 		clientRequestId?: string;
 		learningMode?: AdaptiveLearningMode;
+		executionRestriction?: ChatTurnParams["executionRestriction"];
 		workItemId?: string;
 		suppressMemoryEffects?: boolean;
 		dailyLog?: boolean;

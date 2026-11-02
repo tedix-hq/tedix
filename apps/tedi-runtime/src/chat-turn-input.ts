@@ -18,6 +18,7 @@ import type { CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
  * workflow boundary.
  */
 export interface ChatTurnParams {
+	executionRestriction?: import("@tedix/api-contract/schemas/turn-execution-restriction").TurnExecutionRestriction;
 	/** Internal, canonical certified workflow admission; never a session-prefix grant. */
 	evaluation?: import("./evaluation-context").EvaluationAdmission;
 	/** Durable Object name of the originating Agent. Persisted so each retry can

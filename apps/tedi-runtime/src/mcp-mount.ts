@@ -51,6 +51,7 @@ import {
 } from "./mcp-authorization";
 import { nativeDirectTediTaskResult } from "./mcp-task-result";
 
+import { TurnExecutionRestrictionSchema } from "@tedix/api-contract/schemas/turn-execution-restriction";
 import { EvaluationRequestSchema } from "@tedix/api-contract/schemas/evaluation-context";
 
 const CODE_MODE_TIMEOUT_MS = 300_000;
@@ -96,6 +97,7 @@ export interface AgentMcpTools {
 		text: string;
 		trace_id?: string;
 		evaluation?: import("@tedix/api-contract/schemas/evaluation-context").EvaluationRequest;
+		executionRestriction?: import("@tedix/api-contract/schemas/turn-execution-restriction").TurnExecutionRestriction;
 		/**
 		 * STABLE client-generated id for this message — the turnKey for the turn's
 		 * runId. A redelivery carrying the same id dedups to the same runId, so the
@@ -1287,6 +1289,7 @@ function registerPlatformTools(
 				// the sender must mint a stable id (no server wall-clock fallback).
 				client_request_id: z.string().min(1),
 				evaluation: EvaluationRequestSchema.optional(),
+				executionRestriction: TurnExecutionRestrictionSchema.optional(),
 				attachments: z
 					.array(
 						z.object({

@@ -241,6 +241,12 @@ export const MemoryGraphSyncDrainOutputSchema = z.object({
 
 export const MemoryGraphSearchInputSchema = z
 	.object({
+		recordAccess: z
+			.literal(false)
+			.optional()
+			.describe(
+				"Skip optional recall access metrics; results and access checks are unchanged",
+			),
 		query: z
 			.string()
 			.min(1)

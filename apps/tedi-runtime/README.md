@@ -48,6 +48,12 @@ input with the intended blinded case. The matching provider receipt is recorded
 after dispatch. A queued turn or a prepared context record alone does not prove
 that the model ran or that the supplied case was blind.
 
+## Tool-free workflow chat turns
+
+Ordinary workflow callers can pass `executionRestriction: { tools: "none", learning: "disabled" }` to `run_tedi_turn`. Both fields are required. This keeps the normal chat model, generation settings and persona while removing provider tools and the executable tool registry. It disables automatic turn learning and compaction, preserves skill selection and semantic recall without persisting cache or access-metric updates; conversation, audit and billing records remain. Organization, Work, budget and approval checks still apply.
+
+The immutable dispatch binds the restriction to the child run, including redelivery and registry restoration. Before each provider call, a durable receipt records the actual empty SDK tool list, empty facet registry and `toolChoice: none`; failure to record it prevents dispatch. The model-step event carries the applied restriction and provider-attempt ID. A queued request alone does not prove execution. This option does not isolate learned context; use the separate evaluation contract when input isolation is required.
+
 ## Overview
 
 `tedix-tedi-runtime` is a Cloudflare Worker that hosts `AgentTediDO`, a
