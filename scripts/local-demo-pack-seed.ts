@@ -109,7 +109,7 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 	}
 	for (const { card, requestedAt } of demoPackCards(nowMs)) {
 		const group = groupOf(card);
-		const [, lesson] = memoryFacts[group === 0 ? 1 : group === 1 ? 5 : 6]!;
+		const lesson = memoryFacts[group === 0 ? 1 : group === 1 ? 5 : 6]![1]!;
 		const decision = demoDecisionEnvelope(card, group, {
 			id: `fact-${group}`,
 			text: lesson,

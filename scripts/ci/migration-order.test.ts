@@ -29,7 +29,9 @@ test("a migration that sorts before an existing base migration fails", () => {
 });
 
 test("removing unapplied base migrations is not an ordering failure", () => {
-	expect(findOutOfOrderMigrations(base, [base[0]]).outOfOrder).toEqual([]);
+	expect(findOutOfOrderMigrations(base, base.slice(0, 1)).outOfOrder).toEqual(
+		[],
+	);
 });
 
 test("an empty base accepts any migration", () => {

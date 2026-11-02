@@ -89,10 +89,19 @@ test("opt-in matrix covers every leaf and runs owner types once", () => {
 	}
 });
 
+type MatrixJob = {
+	workspace: string;
+	test: boolean;
+	testScript?: string;
+	shard?: string;
+	browsers?: string;
+	types: boolean;
+};
+
 test("slow workspaces publish complete non-overlapping shard sets on the real manifests", () => {
 	const root = join(import.meta.dir, "../..");
-	const jobsOf = (workspace, testScript) =>
-		workspaceMatrix(root).include.filter(
+	const jobsOf = (workspace: string, testScript: string) =>
+		(workspaceMatrix(root).include as MatrixJob[]).filter(
 			(job) => job.workspace === workspace && job.testScript === testScript,
 		);
 	expect(jobsOf("apps/api", "test:unit")).toEqual(
@@ -113,16 +122,20 @@ test("slow workspaces publish complete non-overlapping shard sets on the real ma
 			types: shard === 1,
 		})),
 	);
-	for (const [, entries] of Map.groupBy(
-		workspaceMatrix(root).include,
-		(job) => `${job.workspace}:${job.testScript ?? ""}`,
-	)) {
+	const groups = new Map<string, MatrixJob[]>();
+	for (const job of workspaceMatrix(root).include as MatrixJob[]) {
+		const key = `${job.workspace}:${job.testScript ?? ""}`;
+		const group = groups.get(key);
+		if (group) group.push(job);
+		else groups.set(key, [job]);
+	}
+	for (const entries of groups.values()) {
 		const shards = entries
-			.filter((job) => job.shard)
-			.map((job) => job.shard.split("/").map(Number));
+			.map((job) => job.shard?.split("/").map(Number))
+			.filter((shard): shard is number[] => shard !== undefined);
 		if (!shards.length) continue;
 		const count = shards[0]![1]!;
-		expect(shards.map(([index]) => index).sort((a, b) => a - b)).toEqual(
+		expect(shards.map(([index]) => index ?? 0).sort((a, b) => a - b)).toEqual(
 			[...Array(count).keys()].map((index) => index + 1),
 		);
 	}

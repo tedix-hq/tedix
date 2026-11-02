@@ -23,13 +23,13 @@ function isPortInUse(port: number): Promise<boolean> {
 }
 
 async function waitForLauncherPortsToClose(timeoutMs = 20_000): Promise<void> {
-	const ports = [
+	const [apiPort, osPort] = [
 		Number(new URL(LOCAL_API_URL).port),
 		Number(new URL(LOCAL_OS_URL).port),
 	];
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		if (!(await isPortInUse(ports[0])) && !(await isPortInUse(ports[1]))) {
+		if (!(await isPortInUse(apiPort)) && !(await isPortInUse(osPort))) {
 			return;
 		}
 		await Bun.sleep(250);
