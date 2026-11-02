@@ -1325,12 +1325,13 @@ export const runtimeParentTurns = {
 	): Promise<void> {
 		const admission = this.runtimeAdmission();
 		const key = `runtime-admission-workflow:${params.runId}`;
-		if (admission) {
-			await admission.assertAcceptedTurn({
-				runId: params.runId,
-				sessionKey: params.sessionKey,
-			});
-			const prior = await this.ctx.storage.get<{
+		await admission?.assertAcceptedTurn({
+			runId: params.runId,
+			sessionKey: params.sessionKey,
+		});
+		// The journal also binds evaluation evidence when admission is not configured.
+		const dispatch = await this.ctx.storage.transaction(async (storage) => {
+			const prior = await storage.get<{
 				params: typeof params;
 				id: string;
 				stage: string;
@@ -1341,34 +1342,34 @@ export const runtimeParentTurns = {
 					prior.id !== options.id)
 			)
 				throw new Error("Original admitted workflow dispatch changed");
-			if (prior?.stage === "dispatched") return;
+			if (prior?.stage === "dispatched") return false;
 			if (prior)
 				throw new Error("Original native workflow dispatch remains uncertain");
-			await this.ctx.storage.put(key, {
+			await storage.put(key, {
 				params,
 				id: options.id,
 				stage: "dispatching",
 			});
-			await admission.assertAcceptedTurn({
-				runId: params.runId,
-				sessionKey: params.sessionKey,
-			});
-		}
+			return true;
+		});
+		if (!dispatch) return;
+		await admission?.assertAcceptedTurn({
+			runId: params.runId,
+			sessionKey: params.sessionKey,
+		});
 		try {
 			await this.runWorkflow(binding, params, options);
-			if (admission)
-				await this.ctx.storage.put(key, {
-					params,
-					id: options.id,
-					stage: "dispatched",
-				});
+			await this.ctx.storage.put(key, {
+				params,
+				id: options.id,
+				stage: "dispatched",
+			});
 		} catch (error) {
-			if (admission)
-				await this.ctx.storage.put(key, {
-					params,
-					id: options.id,
-					stage: "uncertain",
-				});
+			await this.ctx.storage.put(key, {
+				params,
+				id: options.id,
+				stage: "uncertain",
+			});
 			throw error;
 		}
 	},
