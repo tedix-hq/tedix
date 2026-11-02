@@ -390,12 +390,10 @@ describe("local Wrangler config", () => {
 				AI_GATEWAY_LLM_ID: "local-test-gateway",
 				TEDIX_LOCAL_INFERENCE_PROXY_URL: "http://127.0.0.1:8791",
 			});
-			expect(
-				JSON.parse(
-					(config.vars as Record<string, string>)
-						.TEDIX_RUNTIME_ENTITLEMENT_GRANTS,
-				),
-			).toEqual([
+			const grants = (config.vars as Record<string, string>)
+				.TEDIX_RUNTIME_ENTITLEMENT_GRANTS;
+			expect(grants).toBeDefined();
+			expect(JSON.parse(grants!)).toEqual([
 				{
 					key: "local-inference",
 					status: "active",

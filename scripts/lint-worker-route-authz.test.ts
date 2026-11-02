@@ -110,7 +110,7 @@ describe("Hono route model", () => {
 		for (const [handler, classification] of [
 			["handleKernelVoiceTranscription(c.req.raw, c.env)", "guarded"],
 			["c.json({})", "unguarded"],
-		]) {
+		] as const) {
 			const { routes } = analyzeWorkerRoutes(config, [
 				file("apps/api/src/worker-app.ts", ["const app = new Hono();"]),
 				file("apps/api/src/http/kernel-routes.ts", [
