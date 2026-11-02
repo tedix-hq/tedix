@@ -29,7 +29,7 @@ vi.mock("./codemode-auth", () => ({
 }));
 vi.mock("../lib/api-client", () => ({
 	getApiClient: () => ({
-		apps: { getByIdWithTools: mocks.app },
+		apps: { getPolicyMountMetadata: mocks.app },
 		mcpGovernance: { resolveTenantPolicyPresence: mocks.presence },
 	}),
 }));

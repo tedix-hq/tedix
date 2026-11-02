@@ -125,6 +125,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"apps/getBySlugsWithTools": "mcp:apps.read",
 	"apps/getGatewayMembership": "mcp:apps.read",
 	"apps/getIntegrations": "mcp:apps.read",
+	"apps/getPolicyMountMetadata": "mcp:apps.read",
 	"apps/getScopeManifest": "mcp:apps.read",
 	"apps/isSlugAvailable": "mcp:apps.read",
 	"apps/listComposerCommands": "mcp:apps.read",

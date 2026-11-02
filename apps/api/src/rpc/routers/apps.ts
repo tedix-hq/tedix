@@ -40,6 +40,7 @@ import {
 	getAppByDomain,
 	getAppById,
 	getAppByIdWithToolsForOrganization,
+	getAppPolicyMountMetadataForOrganization,
 	getAppBySlugWithTools,
 	getAppMetadataJson,
 	getAppsBySlugsWithTools,
@@ -1469,6 +1470,23 @@ export const getBySlugsWithToolsProcedure =
 		};
 	});
 
+export const getPolicyMountMetadataProcedure =
+	mcpAppsOs.getPolicyMountMetadata.handler(async ({ input, context }) => {
+		const result = await getAppPolicyMountMetadataForOrganization(
+			context.db,
+			input.appId,
+			requireOrgId(context),
+		);
+		if (!result) return { app: null, tools: [] };
+		return {
+			...result,
+			app: {
+				...result.app,
+				metadata: normalizeAppMetadata(getAppMetadataJson(result.app)),
+			},
+		};
+	});
+
 /**
  * Get app with tools by ID (for MCP server tool loading)
  */
@@ -1478,7 +1496,9 @@ export const getByIdWithToolsProcedure = mcpAppsOs.getByIdWithTools.handler(
 		const { appId } = input;
 		const orgId = requireOrgId(context);
 
-		const result = await getAppByIdWithToolsForOrganization(db, appId, orgId);
+		const result = await getAppByIdWithToolsForOrganization(db, appId, orgId, {
+			toolIds: input.toolIds,
+		});
 
 		if (!result) {
 			return { app: null, tools: [] };
@@ -1748,6 +1768,7 @@ export const appsContractRouter = appsOs.router({
 	getBySlugWithTools: skipOutputValidation(getBySlugWithToolsProcedure),
 	getBySlugsWithTools: skipOutputValidation(getBySlugsWithToolsProcedure),
 	getByIdWithTools: skipOutputValidation(getByIdWithToolsProcedure),
+	getPolicyMountMetadata: getPolicyMountMetadataProcedure,
 	// MCP/Code Mode friendly endpoints (accept UUID or slug)
 	getByIdOrSlug: skipOutputValidation(getByIdOrSlugProcedure),
 	updateByIdOrSlug: updateByIdOrSlugProcedure,
