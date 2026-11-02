@@ -62,10 +62,21 @@ import {
 	withAuth,
 	userHoldsPermission,
 	withAuthorization,
+	AUTHZ,
+	createScopeMiddleware,
 } from "../orpc";
 
 const sessionsOs = implement(workAgentSessionsContract).$context<BaseContext>();
 const authenticatedOs = sessionsOs.use(withAuth);
+const evaluateLedgerModelProcedure = authenticatedOs.evaluateLedgerModel
+	.use(AUTHZ.platformAdmin)
+	.use(createScopeMiddleware("mcp:work.write"))
+	.handler(async ({ input, context }) => {
+		const organizationId = requireOrgId(context);
+		const { evaluateLedgerModel } =
+			await import("../../services/ledger-model-evaluation");
+		return evaluateLedgerModel(context.env, context.db, organizationId, input);
+	});
 const writeOs = authenticatedOs.use(
 	withAuthorization(
 		{
@@ -1104,6 +1115,7 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 		return { request: requestOutput(row) };
 	}),
 	report: reportProcedure,
+	evaluateLedgerModel: evaluateLedgerModelProcedure,
 	list: listProcedure,
 	contributors: contributorsProcedure,
 	recordEvents: recordEventsProcedure,

@@ -305,6 +305,7 @@
 		"./schemas/token-exchange": "./src/schemas/token-exchange.ts",
 		"./schemas/work-approvals": "./src/schemas/work-approvals.ts",
 		"./schemas/work-agent-sessions": "./src/schemas/work-agent-sessions.ts",
+		"./schemas/ledger-model-evaluation": "./src/schemas/ledger-model-evaluation.ts",
 		"./schemas/agent-session-requests": "./src/schemas/agent-session-requests.ts",
 		"./schemas/work-interactions": "./src/schemas/work-interactions.ts",
 		"./schemas/work-fleet": "./src/schemas/work-fleet.ts",

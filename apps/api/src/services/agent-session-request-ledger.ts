@@ -60,10 +60,8 @@ import type {
 	AgentSessionRequestRow,
 } from "@tedix/db/schema/agent-session-requests";
 import type { WorkAgentSessionHarness } from "@tedix/db/schema/work-agent-sessions";
-import {
-	type AiGatewayTransportEnv,
-	resolveAiGatewayTransport,
-} from "@tedix/workers-ai/gateway-transport";
+import { type AiGatewayTransportEnv } from "@tedix/workers-ai/gateway-transport";
+import { fetchLedgerGatewayCompletion } from "./ledger-gateway-completion";
 import { type DistillEnv, runDistillModel } from "./lesson-distiller";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 
@@ -101,38 +99,19 @@ async function reflectWithGateway(
 	surface: string,
 ): Promise<string | null> {
 	await assertModelEgressAllowed(env);
-	const transport = resolveAiGatewayTransport(
-		env,
-		env.AI_GATEWAY_LLM_ID ?? "",
-		"azure-openai",
-	);
-	const resource = env.AZURE_OPENAI_RESOURCE?.trim();
 	const filing = surface === "agent-session-project-routing";
-	if (!transport || !resource || !/^[a-zA-Z0-9-]+$/.test(resource)) {
-		if (filing) throw new Error("Request filing model transport unavailable");
-		return null;
-	}
 	try {
-		const response = await transport.fetch(
-			`${transport.providerRoot}/${resource}/openai/v1/responses`,
-			{
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					"cf-aig-authorization": `Bearer ${transport.authorization}`,
-					"cf-aig-no-wholesale": "true",
-					"cf-aig-metadata": JSON.stringify({ surface, orgId: organizationId }),
-				},
-				body: JSON.stringify({
-					model: LEDGER_REFLECTOR_MODEL,
-					instructions: system,
-					input: prompt,
-					max_output_tokens: 6000,
-					reasoning: { effort: "low" },
-				}),
-				signal: AbortSignal.timeout(24_000),
-			},
-		);
+		const pending = fetchLedgerGatewayCompletion(env, {
+			model: LEDGER_REFLECTOR_MODEL,
+			system,
+			prompt,
+			metadata: { surface, orgId: organizationId },
+		});
+		if (!pending) {
+			if (filing) throw new Error("Request filing model transport unavailable");
+			return null;
+		}
+		const response = await pending;
 		if (!response.ok) {
 			if (filing)
 				throw new Error(`Request filing model HTTP ${response.status}`);
