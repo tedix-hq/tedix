@@ -193,7 +193,12 @@ export async function resolveMachineCandidate(
 				)) !== (await tenantPolicyEffectiveToolDigest(tool)))
 		)
 			return null;
-		const { candidate } = fresh
+		// The reviewed mount can live on another root (the organization unified
+		// gateway) while this caller resolves the same source row on a direct
+		// gateway. The root-scoped lookup then misses, so fall back to the
+		// any-root lookup: the reviewed mount, profile, subject and account are
+		// still re-verified below before any decision is used.
+		const resolved = fresh
 			? await client.mcpGovernance.resolveMachinePolicyCandidate({
 					organizationId: identity.organizationId,
 					rootAppId: agent.appId,
@@ -201,10 +206,13 @@ export async function resolveMachineCandidate(
 					sourceToolRowId: fresh.tool.id,
 					args: inputArgs,
 				})
+			: null;
+		const { candidate } = resolved?.candidate
+			? resolved
 			: await client.mcpGovernance.resolveMachinePolicyAnyRoot({
 					organizationId: identity.organizationId,
-					sourceAppId: agent.appId,
-					sourceToolRowId: tool.id,
+					sourceAppId: fresh ? fresh.sourceAppId : agent.appId,
+					sourceToolRowId: fresh ? fresh.tool.id : tool.id,
 					args: inputArgs,
 				});
 		if (
