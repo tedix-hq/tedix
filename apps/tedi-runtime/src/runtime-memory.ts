@@ -163,11 +163,13 @@ export interface RuntimeMemoryHost {
 	directivesPromptAddendum(
 		userText: string,
 		telemetryBinding?: ActiveTurnBinding | null,
+		learningDisabled?: boolean,
 	): Promise<string>;
 	brainDigestAddendum(
 		userText: string,
 		onRecall?: (report: MemoryRecallReport) => void,
 		sessionKey?: string | null,
+		learningDisabled?: boolean,
 	): Promise<string>;
 	skillGuidanceAddendum(): Promise<string>;
 	retrievedSkillsAddendum(

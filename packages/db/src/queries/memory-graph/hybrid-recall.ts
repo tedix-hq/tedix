@@ -350,8 +350,9 @@ export async function recordRecallAccess(
 	db: DbQueryClient,
 	orgId: string,
 	ids: string[],
+	recordAccess = true,
 ): Promise<void> {
-	if (!ids.length) return;
+	if (!recordAccess || !ids.length) return;
 	await db
 		.update(memoryFacts)
 		.set({

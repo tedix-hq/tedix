@@ -1,3 +1,7 @@
+import {
+	assertOriginalExecutionRestriction,
+	resolveTurnExecutionRestriction,
+} from "./turn-execution-restriction";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { memoryDiagnostics } from "./runtime-diagnostics";
 import { admitEvaluation } from "./evaluation-context";
@@ -738,6 +742,7 @@ export async function handleRuntimeRequest(
 			idempotency_key?: string;
 			attachments?: AudioAttachment[];
 			learning_mode?: AdaptiveLearningMode;
+			executionRestriction?: unknown;
 			metadata?: Record<string, unknown>;
 			/**
 			 * Async-supervised inject (kernel delegation). When true the DO
@@ -759,6 +764,17 @@ export async function handleRuntimeRequest(
 				{ ok: false, success: false, error: "invalid_json" },
 				{ status: 400 },
 			);
+		}
+		let executionRestriction:
+			| import("@tedix/api-contract/schemas/turn-execution-restriction").TurnExecutionRestriction
+			| undefined;
+		try {
+			executionRestriction = resolveTurnExecutionRestriction(
+				payload.executionRestriction,
+				{ sessionKey: payload.session_key || DEFAULT_SESSION_KEY },
+			);
+		} catch (error) {
+			return Response.json({ error: String(error) }, { status: 400 });
 		}
 		const callerTrust = callerTrustTierForRequest(request.headers);
 		const noFunds = request.headers.get("X-Tedix-No-Funds") === "true";
@@ -834,12 +850,23 @@ export async function handleRuntimeRequest(
 					// re-dispatching instead throws instance.already_exists below and
 					// turned an idempotent retry into a 500 the caller read as an
 					// empty reply.
+					await assertOriginalExecutionRestriction(
+						host.ctx.storage,
+						runId,
+						executionRestriction,
+					);
 					const assistantKey = deriveIdempotencyKey(runId, "assistant");
 					const settledTurn = host.sessionRepo.findTurnByIdempotencyKey(
 						sessionKey,
 						assistantKey,
 					);
 					if (settledTurn) {
+						await assertOriginalExecutionRestriction(
+							host.ctx.storage,
+							runId,
+							executionRestriction,
+							true,
+						);
 						return Response.json({
 							success: true,
 							...(await settledChatTurnReceipt(await host.getPlatformClient(), {
@@ -992,7 +1019,16 @@ export async function handleRuntimeRequest(
 						tediRef: slug || tediId,
 						sessionKey,
 					});
-					const injectUserTs = Date.now();
+					const originalDispatch = await host.ctx.storage.get<{
+						params: ChatTurnParams;
+					}>(`runtime-admission-workflow:${runId}`);
+					if (
+						originalDispatch !== undefined &&
+						(!Number.isSafeInteger(originalDispatch.params?.userTs) ||
+							originalDispatch.params.userTs < 0)
+					)
+						throw new Error("Original admitted workflow timestamp unavailable");
+					const injectUserTs = originalDispatch?.params.userTs ?? Date.now();
 					const delegationBudget = homeRunId
 						? delegationBudgetForMetadata(metadata, injectUserTs)
 						: undefined;
@@ -1045,7 +1081,9 @@ export async function handleRuntimeRequest(
 								runId,
 								traceId,
 								clientRequestId,
-								learningMode: noFunds ? "disabled" : learningMode,
+								learningMode:
+									noFunds || executionRestriction ? "disabled" : learningMode,
+								executionRestriction,
 								workItemId,
 								homeRunId,
 								personalRequest: metadata?.personalRequest === true,
@@ -1150,6 +1188,7 @@ export async function handleRuntimeRequest(
 				traceId,
 				attachments: sanitizeChatAttachments(payload.attachments),
 				learningMode: payload.learning_mode,
+				executionRestriction,
 				callerTrust,
 				noFunds,
 			};
@@ -1977,7 +2016,12 @@ export async function handleRuntimeRequest(
 					client_request_id,
 					attachments,
 					evaluation: requestedEvaluation,
+					executionRestriction: requestedRestriction,
 				}) => {
+					const executionRestriction = resolveTurnExecutionRestriction(
+						requestedRestriction,
+						{ sessionKey: session_key, evaluation: requestedEvaluation },
+					);
 					if (requestedEvaluation && attachments?.length)
 						throw new Error("Evaluation accepts explicit text only");
 					const evaluation = requestedEvaluation
@@ -1992,6 +2036,7 @@ export async function handleRuntimeRequest(
 					const gatewayAttributionRunId = skillWorkflowRunId(request);
 					const turnInput = {
 						evaluation,
+						executionRestriction,
 						sessionKey: session_key,
 						text,
 						traceId: trace_id,

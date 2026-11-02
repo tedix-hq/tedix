@@ -1,5 +1,6 @@
 import {
 	type RetrievedSkillMatch,
+	type RetrievableSkill,
 	serializeRetrievedSkills,
 } from "@tedix/context-core/skill-retrieval";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
@@ -194,6 +195,7 @@ export async function retrievedSkillsAddendum(
 	this: RuntimeMemoryHost,
 	userText: string,
 	telemetryBinding?: ActiveTurnBinding | null,
+	corpusOverride?: RetrievableSkill[] | null,
 ): Promise<string> {
 	const knobs = parseSkillRetrievalKnobs(
 		this.env as unknown as {
@@ -203,14 +205,19 @@ export async function retrievedSkillsAddendum(
 	);
 	if (knobs.topK <= 0) return "";
 	this.ensureRetrievalCorpusLoaded();
-	if (this.retrievalCorpus === null && !this.retrievalCorpusWarmAttempted) {
+	if (
+		corpusOverride === undefined &&
+		this.retrievalCorpus === null &&
+		!this.retrievalCorpusWarmAttempted
+	) {
 		// Cold cache on an already-deployed tedi whose guidance row predates
 		// the corpus: one warm attempt per DO instance via the shared skills
 		// fetch (idempotent for guidance thanks to its fingerprint gate).
 		this.retrievalCorpusWarmAttempted = true;
 		await this.buildAndCacheSkillGuidance();
 	}
-	const corpus = this.retrievalCorpus;
+	const corpus =
+		corpusOverride === undefined ? this.retrievalCorpus : corpusOverride;
 	if (!corpus || corpus.length === 0) return "";
 	const ctx = await this.resolveTurnTelemetry({
 		binding: telemetryBinding ?? this.activeTurnBinding,
@@ -285,6 +292,26 @@ export async function recordSkillRetrieval(
 	});
 }
 
+function renderSkillGuidance(
+	allEntries: SkillSearchEntry[],
+	tediId: string,
+): string {
+	const entries = selectGuidanceSkills(allEntries, tediId);
+
+	const lines: string[] = entries.length
+		? [
+				`You have ${entries.length} platform skill(s) available. Use \`read_skill\` to load the full procedure for any skill listed below before following it.`,
+			]
+		: [];
+	for (const entry of entries) {
+		const slug = entry.slug ?? entry.id;
+		const summary = entry.summary ?? entry.description ?? "(no summary)";
+		const state = entry.lifecycleState ? ` [${entry.lifecycleState}]` : "";
+		lines.push(`- skill ${slug}: ${summary}${state}`);
+	}
+	return lines.join("\n");
+}
+
 /**
  * Build the compact skill guidance text from platform API and persist to
  * DO SQLite. Driven per turn by {@link SkillGuidanceTurnGate} (behind the
@@ -325,20 +352,7 @@ export async function buildAndCacheSkillGuidance(
 		// reachable on demand via `read_skill` by slug; they are NOT
 		// auto-advertised (progressive disclosure: compact, relevant
 		// discovery — not an always-on catalog).
-		const entries = selectGuidanceSkills(allEntries, this.state.tediId);
-
-		const lines: string[] = entries.length
-			? [
-					`You have ${entries.length} platform skill(s) available. Use \`read_skill\` to load the full procedure for any skill listed below before following it.`,
-				]
-			: [];
-		for (const entry of entries) {
-			const slug = entry.slug ?? entry.id;
-			const summary = entry.summary ?? entry.description ?? "(no summary)";
-			const state = entry.lifecycleState ? ` [${entry.lifecycleState}]` : "";
-			lines.push(`- skill ${slug}: ${summary}${state}`);
-		}
-		const text = lines.join("\n");
+		const text = renderSkillGuidance(allEntries, this.state.tediId);
 		try {
 			// Fingerprint gate (adoption-review backlog #8): the rendered block
 			// is a pure function of every catalog field it displays, so a
@@ -396,6 +410,7 @@ export async function brainDigestAddendum(
 	userText: string,
 	onRecall?: (report: MemoryRecallReport) => void,
 	sessionKey?: string | null,
+	learningDisabled = false,
 ): Promise<string> {
 	const recallPromise = recallLongTermMemoryBlock({
 		userText,
@@ -407,7 +422,13 @@ export async function brainDigestAddendum(
 			: {}),
 		search: async (query, limit) => {
 			const platform = await this.getPlatformClient();
-			return platform ? await platform.memorySearch(query, limit) : null;
+			return platform
+				? await platform.memorySearch(
+						query,
+						limit,
+						learningDisabled ? { recordAccess: false } : undefined,
+					)
+				: null;
 		},
 	});
 	await this.ensureBrainDigestLoaded();
@@ -457,8 +478,65 @@ export async function cognitiveAddenda(
 	sessionKey: string | null | undefined,
 	userText: string,
 	telemetryBinding?: ActiveTurnBinding | null,
+	learningDisabled?: boolean,
 ): Promise<string> {
 	let memoryRecall: MemoryRecallReport | null = null;
+	let readOnlyCatalog: Promise<SkillSearchEntry[] | null> | undefined;
+	let readOnlyCorpus: RetrievableSkill[] | undefined;
+	const catalogForTurn = () =>
+		(readOnlyCatalog ??= (async () => {
+			try {
+				const platform = await this.getPlatformClient();
+				if (!platform) return null;
+				const entries =
+					(await platform.listSkillsForTedi({ limit: 50 })).entries ?? [];
+				readOnlyCorpus = buildRetrievalCorpus(entries);
+				return entries;
+			} catch (error) {
+				logTediSourceFailure("skill_guidance", "build", error);
+				return null;
+			}
+		})());
+	const restrictedGuidance = async () => {
+		this.ensureSkillGuidanceLoaded();
+		const build = async () => {
+			const entries = await catalogForTurn();
+			return entries === null
+				? null
+				: renderSkillGuidance(entries, this.state.tediId);
+		};
+		return this.skillGuidanceGate
+			? this.skillGuidanceGate.readOnlyTextForTurn(
+					this.skillGuidanceText ?? "",
+					build,
+				)
+			: this.skillGuidanceText || (await build()) || "";
+	};
+	const restrictedRetrieval = async () => {
+		if (
+			parseSkillRetrievalKnobs(
+				this.env as {
+					TEDI_SKILL_RETRIEVAL_TOP_K?: string;
+					TEDI_SKILL_RETRIEVAL_MIN_OVERLAP?: string;
+				},
+			).topK <= 0
+		)
+			return "";
+		this.ensureRetrievalCorpusLoaded();
+		let corpus = readOnlyCorpus ?? this.retrievalCorpus;
+		if (corpus === null && !this.retrievalCorpusWarmAttempted) {
+			// A failed guidance read leaves the ordinary retrieval warmer eligible.
+			readOnlyCatalog = undefined;
+			await catalogForTurn();
+			corpus = readOnlyCorpus ?? null;
+		}
+		return retrievedSkillsAddendum.call(
+			this,
+			userText,
+			telemetryBinding,
+			corpus,
+		);
+	};
 	return await composeCognitiveAddenda({
 		sessionKey,
 		runId: telemetryBinding?.runId ?? this.activeTurnBinding?.runId ?? null,
@@ -467,7 +545,11 @@ export async function cognitiveAddenda(
 		contextWindowTokens: TEDI_CONTEXT_WINDOW_TOKENS,
 		sources: {
 			directives: () =>
-				this.directivesPromptAddendum(userText, telemetryBinding),
+				this.directivesPromptAddendum(
+					userText,
+					telemetryBinding,
+					learningDisabled,
+				),
 			brainDigest: () =>
 				this.brainDigestAddendum(
 					userText,
@@ -475,15 +557,19 @@ export async function cognitiveAddenda(
 						memoryRecall = report;
 					},
 					sessionKey,
+					learningDisabled,
 				),
 			// Cached block into this turn, rebuild behind it (and one blocking
 			// build on a cold cache) — see {@link skillGuidanceAddendum}.
-			skillGuidance: () => this.skillGuidanceAddendum(),
+			skillGuidance: () =>
+				learningDisabled ? restrictedGuidance() : this.skillGuidanceAddendum(),
 			// Act-time top-K skill retrieval matched against this turn's task
 			// (AWM/Memp retrieve leg). Runs AFTER skillGuidance in the compose
 			// order, so a cold-start guidance build has already warmed the corpus.
 			retrievedSkills: () =>
-				this.retrievedSkillsAddendum(userText, telemetryBinding),
+				learningDisabled
+					? restrictedRetrieval()
+					: this.retrievedSkillsAddendum(userText, telemetryBinding),
 		},
 		// Same event as the default sink, plus whether recall was skipped,
 		// timed out or completed (null when the brain digest was withheld).

@@ -133,6 +133,16 @@ export class SkillGuidanceTurnGate {
 		return text ?? "";
 	}
 
+	/** Same turn selection without changing the cache or scheduling a refresh. */
+	async readOnlyTextForTurn(
+		cachedText: string,
+		build: () => Promise<string | null>,
+	): Promise<string> {
+		if (cachedText) return cachedText;
+		if (this.now() < this.emptyUntilMs) return "";
+		return (await build()) ?? "";
+	}
+
 	/** Drop the negative cache — the next turn pays for a real lookup again. */
 	invalidateEmpty(): void {
 		this.emptyUntilMs = 0;

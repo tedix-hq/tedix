@@ -241,6 +241,7 @@
 		"./schemas/dispatcher-health": "./src/schemas/dispatcher-health.ts",
 		"./schemas/earned-delegation": "./src/schemas/earned-delegation.ts",
 		"./schemas/evaluation-context": "./src/schemas/evaluation-context.ts",
+		"./schemas/turn-execution-restriction": "./src/schemas/turn-execution-restriction.ts",
 		"./schemas/execution-evidence": "./src/schemas/execution-evidence.ts",
 		"./schemas/external-agent-identity": "./src/schemas/external-agent-identity.ts",
 		"./schemas/extraction-config": "./src/schemas/extraction-config.ts",

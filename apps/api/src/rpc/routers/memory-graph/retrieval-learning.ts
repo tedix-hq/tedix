@@ -328,6 +328,7 @@ const search = authed.search
 			context.db,
 			orgId,
 			searchResults.map((result) => result.factId),
+			input.recordAccess !== false,
 		).catch((error) => {
 			console.warn("[memory.search] Access bookkeeping failed", {
 				orgId,

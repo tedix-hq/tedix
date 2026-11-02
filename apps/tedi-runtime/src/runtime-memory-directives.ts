@@ -93,6 +93,7 @@ export async function directivesPromptAddendum(
 	this: RuntimeMemoryHost,
 	userText: string,
 	telemetryBinding?: ActiveTurnBinding | null,
+	learningDisabled = false,
 ): Promise<string> {
 	await this.ensureDirectivesLoaded();
 	if (this.compiledDirectives.length === 0) return "";
@@ -100,21 +101,24 @@ export async function directivesPromptAddendum(
 	const matches = selectMatchingDirectives(this.compiledDirectives, userText);
 	if (matches.length === 0) return "";
 
-	// 1) Mark matched directives as recently used (in-memory cache) + persist.
-	const now = new Date().toISOString();
-	for (const m of matches) {
-		markDirectiveMatched(this.compiledDirectives, m.index, now);
-	}
-	try {
-		await this.getDirectiveStore().updateLastMatched(
-			matches.map((m) => ({
-				directive: this.compiledDirectives[m.index]!,
-				index: m.index,
-			})),
-		);
-	} catch (err) {
-		// Persistence is best-effort; the in-memory mark still applies this turn.
-		logTediSourceFailure("directives", "touch", err);
+	// Restricted turns read the same guidance without changing its learning recency.
+	if (!learningDisabled) {
+		// 1) Mark matched directives as recently used (in-memory cache) + persist.
+		const now = new Date().toISOString();
+		for (const m of matches) {
+			markDirectiveMatched(this.compiledDirectives, m.index, now);
+		}
+		try {
+			await this.getDirectiveStore().updateLastMatched(
+				matches.map((m) => ({
+					directive: this.compiledDirectives[m.index]!,
+					index: m.index,
+				})),
+			);
+		} catch (err) {
+			// Persistence is best-effort; the in-memory mark still applies this turn.
+			logTediSourceFailure("directives", "touch", err);
+		}
 	}
 
 	// 2) Record a lightweight directive-usage signal (best-effort). The
@@ -134,10 +138,11 @@ export async function directivesPromptAddendum(
 	// other half of directive influence telemetry: we recorded that
 	// these directives were INJECTED; once the assistant reply is known we
 	// estimate whether each one INFLUENCED it and recalibrate confidence.
-	this.lastInjectedDirectives = matches.map((m) => ({
-		directive: this.compiledDirectives[m.index]!,
-		index: m.index,
-	}));
+	if (!learningDisabled)
+		this.lastInjectedDirectives = matches.map((m) => ({
+			directive: this.compiledDirectives[m.index]!,
+			index: m.index,
+		}));
 
 	return serializeMatchedDirectives(matches);
 }
