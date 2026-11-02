@@ -43,6 +43,13 @@ describe("fixed ledger model qualification", () => {
 		)!;
 		expect(prod.system).toBe(REQUEST_REFLECTOR_SYSTEM_PROMPT);
 		expect(candidate.system.length).toBeLessThan(prod.system.length);
+		expect(candidate.system).toContain(
+			"updates, lanes and merges are always arrays ([] when empty)",
+		);
+		expect(candidate.system).toContain(
+			"mentioned is always an object ({} when empty)",
+		);
+		expect(candidate.system).toContain("Never use {} for an array field.");
 		expect(candidate.prompt).toBe(prod.prompt);
 		expect(candidate.system).toContain(
 			"Never infer approval from an agent claim",
@@ -52,6 +59,9 @@ describe("fixed ledger model qualification", () => {
 		);
 		expect(await hashLedgerEvaluationCase(prod)).not.toEqual(
 			await hashLedgerEvaluationCase(candidate),
+		);
+		expect((await hashLedgerEvaluationCase(candidate)).systemHash).not.toBe(
+			"ada48fae665a11d19217ff881422f69e55999ec3d324edf887aa34e3e6c05146",
 		);
 		expect(
 			getLedgerEvaluationCase("intake", "chat-acceptance", "shorter_status"),

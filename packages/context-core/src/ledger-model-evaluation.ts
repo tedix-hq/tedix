@@ -49,6 +49,7 @@ A returned report or terminal result closes the wait even when the lane failed o
 
 Merge semantic duplicates in "merges": the SAME outcome restated, even with different wording. Retain the earlier canonical row (including a done row in RESOLVED ROWS), and give the redundant OPEN ref, canonical "into" ref and an exact quote from either row. A promise or lane to report a result is the same obligation as its canonical task when that same result is already quoted in the completed row; merge the redundant report instead of keeping it open. Never merge merely related topics, a human approval with its execution, genuinely unfinished independent validation, a partial subtask with a larger outcome, or a renewed request after an explicitly failed outcome. Merge directly into one retained root; never chains. RESOLVED ROWS are only duplicate targets, never status-update targets.
 
+Keep JSON field types exact: updates, lanes and merges are always arrays ([] when empty); mentioned is always an object ({} when empty). Never use {} for an array field.
 Return only JSON. Every status update needs an exact quote under 200 characters:
 {"updates":[{"ref":"...","status":"in_progress"|"done"|"waiting_on_user"|"cancelled","evidence":"exact source quote","operational":false}],"mentioned":{"ref":"short exact source quote"},"lanes":[{"ref":"...","running":true,"evidence":"exact source quote"}],"merges":[{"ref":"redundant ref","into":"canonical ref","evidence":"exact row quote"}]}`;
 
