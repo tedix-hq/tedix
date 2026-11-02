@@ -25,6 +25,7 @@ import type { BodyExecutionUsage } from "@tedix/api-contract/schemas/body-certif
 import {
 	classifyRunTerminalReason,
 	type ReadMessagesOutput,
+	type TediMessage,
 	type TediRuntimeEvent,
 	type TediRuntimeEventKind,
 } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -686,6 +687,23 @@ export async function mirrorFailedTurnToLedger(
 }
 
 // ── Reader: ledger-first messages_read fallback ──────────────────────────────
+
+/** Keep canonical outcome evidence when exposing the simpler MCP transcript. */
+export function ledgerMessageForRead(message: TediMessage) {
+	const ts = Date.parse(message.createdAt) || Date.now();
+	return {
+		role: message.role,
+		content: message.content,
+		text: message.content,
+		ts,
+		timestamp: ts,
+		...(message.runId ? { runId: message.runId } : {}),
+		status: message.status,
+		...(typeof message.metadata?.error === "string"
+			? { error: message.metadata.error.slice(0, 2000) }
+			: {}),
+	};
+}
 
 interface LedgerReaderExchange {
 	descopeAccessKey: string;

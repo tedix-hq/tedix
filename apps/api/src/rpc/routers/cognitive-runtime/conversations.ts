@@ -215,7 +215,9 @@ export const readMessagesRoute = authed.readMessages
 					role,
 					status:
 						row.kind === "message.completed" || completedAt
-							? "completed"
+							? payload?.status === "failed" || payload?.status === "canceled"
+								? payload.status
+								: "completed"
 							: "pending",
 					content: row.delta ?? readPayloadText(payload),
 					attachments: readPayloadAttachments(payload),

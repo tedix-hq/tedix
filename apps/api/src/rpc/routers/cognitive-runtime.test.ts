@@ -1492,6 +1492,40 @@ describe("cognitive runtime router invariants", () => {
 		]);
 	});
 
+	it.each(["completed", "failed", "canceled"] as const)(
+		"preserves the canonical %s message outcome and run binding",
+		async (status) => {
+			const client = createRuntimeClient(createContext(createRuntimeDb()));
+			await client.recordEvent({
+				tediId: TEDI_ID,
+				kind: "message.completed",
+				conversationId: "agent:main:outcome",
+				runId: "owned-run",
+				payload: {
+					role: "assistant",
+					content: "Opaque answer or system notice",
+					status,
+					...(status === "completed"
+						? {}
+						: { error: "typed terminal failure" }),
+				},
+				runtime: { backend: "cloudflare-agents" },
+				createdAt: "2026-06-13T19:18:59.000Z",
+			});
+			const result = await client.readMessages({
+				tediId: TEDI_ID,
+				conversationId: "agent:main:outcome",
+			});
+			expect(result.messages).toEqual([
+				expect.objectContaining({
+					runId: "owned-run",
+					status,
+					metadata: expect.objectContaining({ status }),
+				}),
+			]);
+		},
+	);
+
 	it("reads lowercase runtime agent session rows from mixed-case agent session input", async () => {
 		const db = createRuntimeDb();
 		const client = createRuntimeClient(createContext(db));
