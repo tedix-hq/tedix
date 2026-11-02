@@ -30,7 +30,7 @@ import {
 	parseReflectedLessons,
 	parseReflectedUpdates,
 	REQUEST_OBSERVER_SYSTEM_PROMPT,
-	REQUEST_REFLECTOR_SYSTEM_PROMPT,
+	REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
 	REQUEST_REPLY_REFLECTOR_SYSTEM_PROMPT,
 	requestObserverInput,
 	requestReplyReflectorInput,
@@ -68,7 +68,7 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 const LEDGER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const MODEL_TIMEOUT_MS = 15_000;
 export const LEDGER_REFLECTOR_MODEL = "gpt-6-astra";
-const LEDGER_INTAKE_MODEL = "gpt-6.1-sol";
+const LEDGER_BOOKKEEPING_MODEL = "gpt-6.1-sol";
 export const LEDGER_SILENCE_TURNS = 5;
 const writeInferenceDiagnostic = createTelemetryWriter(
 	"agent-session-request-ledger",
@@ -104,8 +104,9 @@ async function reflectWithGateway(
 	try {
 		const pending = fetchLedgerGatewayCompletion(env, {
 			model:
-				surface === "agent-session-request-intake"
-					? LEDGER_INTAKE_MODEL
+				surface === "agent-session-request-intake" ||
+				surface === "agent-session-request-reflector"
+					? LEDGER_BOOKKEEPING_MODEL
 					: LEDGER_REFLECTOR_MODEL,
 			system,
 			prompt,
@@ -217,6 +218,7 @@ export function workersAiLedgerModel(
 ): LedgerProcessingModel {
 	const model: LedgerModel = (system, prompt, surface) =>
 		surface === "agent-session-request-reflector" ||
+		surface === "agent-session-request-reply-reflector" ||
 		surface === "agent-session-request-intake" ||
 		surface === "agent-session-project-routing" ||
 		surface === "agent-session-lesson-reflector"
@@ -247,7 +249,7 @@ export function workersAiLedgerModel(
 		model(
 			REQUEST_REPLY_REFLECTOR_SYSTEM_PROMPT,
 			requestReplyReflectorInput(message, rows, previousTurn ?? ""),
-			"agent-session-request-reflector",
+			"agent-session-request-reply-reflector",
 		);
 	const reflectLessons: LedgerProcessingModel["reflectLessons"] = (sources) =>
 		model(
@@ -545,7 +547,7 @@ export async function reflectAgentSessionRequests(
 		skipStatusReflection
 			? Promise.resolve('{"updates":[]}')
 			: model(
-					REQUEST_REFLECTOR_SYSTEM_PROMPT,
+					REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
 					requestReflectorInput(
 						input.turn,
 						prompt.slice(0, active.length),

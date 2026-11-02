@@ -1,0 +1,750 @@
+{
+	"version": 1,
+	"features": {
+		"status": {
+			"modelRef": "azure-openai/gpt-6.1-sol",
+			"evaluatedPromptVariant": "shorter_status",
+			"systemHash": "3d8094236fcd2b86cd1c958a94f8d68cec978f49bfd2ebbdd1d6dbb52b1a3e79",
+			"cases": [
+				{
+					"caseId": "scope-numeric-target-in-activity",
+					"inputHash": "2a419babfb34e353035a0508ea2abe0e10735fc62cd03690f4ebdc09fb21694f",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Tests passed: 20 fixed requests. Document lookup p95 was 9 seconds; answers p95 was 2 seconds.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Tests passed: 20 fixed requests. Document lookup p95 was 9 seconds; answers p95 was 2 seconds.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Tests passed: 20 fixed requests. Document lookup p95 was 9 seconds; answers p95 was 2 seconds.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "scope-sibling-send-stays-reserved",
+					"inputHash": "e13b6c92232de0c9e48ccf9971404bad5a724277bc87a2a8ea02e7d386ce4f59",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Saved private email draft and read it back; no message was sent.\",\"operational\":false}],\"mentioned\":{\"r2\":\"Sending still needs your explicit approval.\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Saved private email draft and read it back; no message was sent.\",\"operational\":false}],\"mentioned\":{\"r2\":\"Sending still needs your explicit approval.\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Saved private email draft and read it back; no message was sent.\",\"operational\":false}],\"mentioned\":{\"r2\":\"Sending still needs your explicit approval.\"},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "scope-failed-lane-return-is-not-deployment",
+					"inputHash": "b628b5950d3fa420a51d2f962ec9c3ed7c3ab402f50bd18ac4e8ca78b3780dad",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":false,\"evidence\":\"The deploy lane returned a terminal failure.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":false,\"evidence\":\"The deploy lane returned a terminal failure.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":false,\"evidence\":\"The deploy lane returned a terminal failure.\"}],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "scope-proposal-not-new-activation",
+					"inputHash": "ea54edcde2618cdeaf79a090bc93927b5c8b0088b6f03a76a3e8b2e3bcfcd92f",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Saved proposed exact-post rule revision; readback matched. No active rule changed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Saved proposed exact-post rule revision; readback matched. No active rule changed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Saved proposed exact-post rule revision; readback matched. No active rule changed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "scope-explicit-started-repair-vs-plan",
+					"inputHash": "a3ac472856124a6faa3ebbe1f200cb4f176f1267eef57c1db9b790b737d00b13",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Started delegated CLI repair task; editing the argument parser now.\",\"operational\":false}],\"mentioned\":{\"r2\":\"dashboard redesign is only a proposal\"},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Started delegated CLI repair task; editing the argument parser now.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Started delegated CLI repair task; editing the argument parser now.\",\"operational\":false}],\"mentioned\":{\"r2\":\"only a proposal and has not started\"},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Started delegated CLI repair task; editing the argument parser now.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Started delegated CLI repair task; editing the argument parser now.\",\"operational\":false}],\"mentioned\":{\"r2\":\"The dashboard redesign is only a proposal\"},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Started delegated CLI repair task; editing the argument parser now.\"}],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "scope-explicit-missing-human-verdict",
+					"inputHash": "e3878a3e3ef3e9a99bbbf5fe0fff89c21d60dacf983c02ab2a6339d999ac29ae",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"waiting_on_user\",\"evidence\":\"Execution is blocked until you supply your missing verdict.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"waiting_on_user\",\"evidence\":\"Execution is blocked until you supply your missing verdict.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"waiting_on_user\",\"evidence\":\"Execution is blocked until you supply your missing verdict.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "trim-tabs",
+					"inputHash": "85a488252df26c6a968413c72ee24f1e844f0b2c67811019e98c15f870235f8e",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "attention-panel",
+					"inputHash": "9f72891498f1d1c45eb73a88fe2337874f959e6614a3b91d33dcf1fa4c640fda",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "authority-choice",
+					"inputHash": "da58d0cd5cd03ca40de1c3fef935e0b894bac605666eb4b37604479d36320891",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"You chose the simple option.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Approved answers now act as the approving person; live checks passed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Approved answers now act as the approving person; live checks passed.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "normal-name-removal",
+					"inputHash": "6d1e8bbafd625e403df7f7ed0759f0eea9c09c8b72ce1b54d6c5550489a7ab28",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The names were already removed from current source.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The names were already removed from current source.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The names were already removed from current source.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "chat-acceptance",
+					"inputHash": "a1c77cf407037bb158807d6b53b8d601d6405fd4a5f5d1011932b154587d4ac4",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is building chat acceptance and will test it live.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Codex is building chat acceptance and will test it live.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is building chat acceptance\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Codex is building chat acceptance\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is building chat acceptance and will test it live.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Codex is building chat acceptance and will test it live.\"}],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "older-drive",
+					"inputHash": "f5d221b489d49a7a26094aa3171dbafd213b1f90b1b9ab717d8d138442de7787",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "missing-tool-error",
+					"inputHash": "b64e78efaacbd26a0257ff99d1b067ee0e6e094122cc1b3c715fdf6038a45d39",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Both belong to the running CLI repair lane.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Both belong to the running CLI repair lane.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Both belong to the running CLI repair lane.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Both belong to the running CLI repair lane.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Both belong to the running CLI repair lane.\"}],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "linked-project-error",
+					"inputHash": "052654a96f69434297f252ca79d893876e5ca400e4251cc921a667b0589ba18c",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is fixing work creation under linked projects.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Now running: Codex is fixing work creation under linked projects.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is fixing work creation under linked projects.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Now running: Codex is fixing work creation under linked projects.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"Codex is fixing work creation under linked projects.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"Now running: Codex is fixing work creation under linked projects.\"}],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "notifications",
+					"inputHash": "ddeaa5c2cb18f290279f498501d8489e19f7ccfb6b028636a51e423750664e3d",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Both host sessions received their completion event in live tests.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Both host sessions received their completion event in live tests.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"Both host sessions received their completion event in live tests.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "acted-thread-rule",
+					"inputHash": "4771cae85f70cba607a4d8b3721b0864f1a54bf19616663fb37c0f5baaa9a9dc",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"I will add that rule once your verdict is logged.\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"I will add that rule once your verdict is logged.\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"I will add that rule once your verdict is logged.\"},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "exact-post-rule",
+					"inputHash": "1ff605e18a08e7307aaaccccbe88c620ef3317b5aeb8ebc8b53a96d20384d850",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The exact-post rule is saved as a proposed revision and read back.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The exact-post rule is saved as a proposed revision and read back.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The exact-post rule is saved as a proposed revision and read back.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "borderline-archive",
+					"inputHash": "72ff60bb4c3b6eb11af5d0417f0558e90581b9469ee5c9f72eeebc3b547fe4f1",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "borderline-event",
+					"inputHash": "fc881ddc4117e656a79de91b25e2c73edb8bcf1320849acab36434a94ef4931d",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "borderline-filter",
+					"inputHash": "481cabb7e095aaf9e37cc8ddb204084538ab2f3540f4aa88a2d5804c153773af",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "worktree-cleanup",
+					"inputHash": "d4c95d72524a26d3b37cf6f14e74855abe0ff730885bb990a8f7f6802ae7e8d0",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"I removed all merged, clean, idle worktrees. Locked and dirty worktrees are preserved. Cleanup report delivered.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"I removed all merged, clean, idle worktrees. Locked and dirty worktrees are preserved. Cleanup report delivered.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"I removed all merged, clean, idle worktrees. Locked and dirty worktrees are preserved. Cleanup report delivered.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "milestone-error",
+					"inputHash": "eacb9e2460bc3162e9daec4ea8c935a4c716057280cc318045abfa455bb32312",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"The lane is fixing the project link and explaining the milestone error.\"}],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "phone-screenshot",
+					"inputHash": "1a93743a98877311504a86b797df91af0899c01712c8a5a4f5731afad92d36da",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested local phone screenshot is saved at shots/cards-phone.png and visually checked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested local phone screenshot is saved at shots/cards-phone.png and visually checked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested local phone screenshot is saved at shots/cards-phone.png and visually checked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "factory-security",
+					"inputHash": "47782c4e3bad435d5b2f620819a92ceb3731244785dc652983d0c548237fd917",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"An agent is making the security factory read code-scan warnings and check private names.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"An agent is making the security factory read code-scan warnings\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"An agent is making the security factory read code-scan warnings and check private names.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"An agent is making the security factory read code-scan warnings\"}],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"An agent is making the security factory read code-scan warnings and check private names.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[{\"ref\":\"r1\",\"running\":true,\"evidence\":\"An agent is making the security factory read code-scan warnings\"}],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "public-pages",
+					"inputHash": "ceea741e34792da0adae4b3ae34511b03b68b8117e458c5d4bf957d3691cf8c0",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "library-fix",
+					"inputHash": "587e57aa8fefebeecdff47cc2028bfc63b683f3d5ed3ea9f9d92a6b0cc62eb47",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"The security repair lane\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"The security repair lane\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"The security repair lane\"},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "catalog-cleanup",
+					"inputHash": "04a1e7a3a78f9acfbedff89b0b0447f966006c1aeb50cae6c77e5419971311ba",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "private-setup",
+					"inputHash": "0899d9e3cc126f0d9c1485fe97815aa8ad270d7668b5dfb5deda6f2bf07ad7cb",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The private workspace, app and schedules are created and verified.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The private workspace, app and schedules are created and verified.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The private workspace, app and schedules are created and verified.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "excluded-work",
+					"inputHash": "2ba413b8ab87647482a8793740fc0b29a344eeb02ad502a4d731d77072223bcb",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "needs-you-doc",
+					"inputHash": "3379293072afc1c18463c2ff6386efc1d89f279de46189bf3969e9197e3a66a3",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "connection-check",
+					"inputHash": "f4567d43af3f7d0082f25fbf5038ec22bafb721875747feb86a7715af9381b59",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"CLI is connected. The plugin call completed successfully; the apparent hang came from inherited stdin.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"CLI is connected. The plugin call completed successfully; the apparent hang came from inherited stdin.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"CLI is connected. The plugin call completed successfully; the apparent hang came from inherited stdin.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "credits-draft",
+					"inputHash": "e09f043260aca96f252deedc4a8232eb8a487d5b3a6908b55bf3e0f984a7f1db",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts. Nothing was sent.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The requested credits email draft is in your mail drafts.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "pause-database",
+					"inputHash": "35ab9bf5606a2d12b512672c677dbc33ea63bbe360cbdd2282be908cc2f88c18",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The database is paused; the console readback shows Paused.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The database is paused; the console readback shows Paused.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"done\",\"evidence\":\"The database is paused; the console readback shows Paused.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "keep-required-consent",
+					"inputHash": "2fdbb372f1b1223e58db4d7c213ce38b77c1b722f1b6bf49206cdf2b964b27c5",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "keep-undelivered-screenshot",
+					"inputHash": "cc16e1105530e35adc37037f31d6b9cf407b32bb43c4340a5716a8fa5d8a9f6b",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "do-not-close-live-with-local",
+					"inputHash": "b2c59b7be8123c17296eb59da6c1aa2d07b2c449e2049ad2fa5f532c38189968",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The screenshot is saved from local fixtures. Cloud capture is still blocked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"in_progress\",\"evidence\":\"The screenshot is saved from local fixtures. Cloud capture is still blocked.\",\"operational\":false}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"Cloud capture is still blocked.\"},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "do-not-infer-human-approval",
+					"inputHash": "0c74d46702ac4ca0fd3844f9096de1da7abaa9f7071258c76aaeee747c8800c5",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"approval was granted\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"approval was granted\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"approval was granted\"},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "merge-completed-restatement",
+					"inputHash": "f5ce2a9babd7d2e924bea9a6ff6367839b50b260dd54a4865708184837a3ae86",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[{\"ref\":\"r1\",\"into\":\"r2\",\"evidence\":\"Report the deploy result\"}]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[{\"ref\":\"r1\",\"into\":\"r2\",\"evidence\":\"Report the deploy result\"}]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[{\"ref\":\"r1\",\"into\":\"r2\",\"evidence\":\"Report the deploy result\"}]}"
+						}
+					]
+				},
+				{
+					"caseId": "selected-measured-goal",
+					"inputHash": "5150cea33d808a317ae432dc21a528faf26f4adf3709924823eeec47345c8e64",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "obsolete-ui-choice",
+					"inputHash": "0d4cef0d3d77790cc145211ed528c8e6dd38f7bce76b7f0f24061022aee5e433",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"cancelled\",\"evidence\":\"The Work page now has three tabs instead of seven. The new navigation is verified live.\",\"operational\":true}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"cancelled\",\"evidence\":\"The Work page now has three tabs instead of seven. The new navigation is verified live.\",\"operational\":true}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[{\"ref\":\"r1\",\"status\":\"cancelled\",\"evidence\":\"The Work page now has three tabs instead of seven. The new navigation is verified live.\",\"operational\":true}],\"mentioned\":{},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				},
+				{
+					"caseId": "reserved-ui-publication",
+					"inputHash": "2b1e97cd5f7e788ac284089c735e1e730447a51adebbdd2a2dd2ac3b99df6f17",
+					"repetitions": [
+						{
+							"repetition": 0,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"Publication still needs your approval.\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 1,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"Publication still needs your approval.\"},\"lanes\":[],\"merges\":[]}"
+						},
+						{
+							"repetition": 2,
+							"raw": "{\"updates\":[],\"mentioned\":{\"r1\":\"Publication still needs your approval.\"},\"lanes\":[],\"merges\":[]}"
+						}
+					]
+				}
+			]
+		}
+	}
+}

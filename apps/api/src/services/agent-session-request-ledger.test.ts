@@ -34,7 +34,12 @@ import {
 	processAgentSessionEvents,
 	reflectAgentSessionRequests,
 } from "./agent-session-request-ledger";
-import { requestIntakeInput } from "@tedix/context-core/request-ledger";
+import {
+	requestIntakeInput,
+	REQUEST_REPLY_REFLECTOR_SYSTEM_PROMPT,
+	REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
+	SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+} from "@tedix/context-core/request-ledger";
 
 const SCOPE = {
 	organizationId: "org-example",
@@ -915,7 +920,7 @@ it("uses the Gateway for reflection, intake and filing while keeping the observe
 		"/azure-openai/example-resource/openai/v1/responses",
 	);
 	expect(JSON.parse(init.body)).toMatchObject({
-		model: "gpt-6-astra",
+		model: "gpt-6.1-sol",
 		input: "full turn",
 	});
 	fetch.mockResolvedValueOnce(
@@ -2214,7 +2219,7 @@ it.each([false, true])(
 	},
 );
 
-it("routes only intake to its qualified model and exact certified system prompt", async () => {
+it("retains the qualified intake model and exact certified system prompt", async () => {
 	const certificate = JSON.parse(
 		readFileSync(
 			new URL(
@@ -2281,7 +2286,7 @@ it("routes only intake to its qualified model and exact certified system prompt"
 			fetch.mock.calls
 				.slice(1)
 				.map(([, request]) => JSON.parse(request.body).model),
-		).toEqual(["gpt-6-astra", "gpt-6-astra", "gpt-6-astra", "gpt-6-astra"]);
+		).toEqual(["gpt-6.1-sol", "gpt-6-astra", "gpt-6-astra", "gpt-6-astra"]);
 		expect(run).not.toHaveBeenCalled();
 		expect(
 			JSON.parse(fetch.mock.calls[0]![1].headers["cf-aig-metadata"]),
@@ -2317,3 +2322,169 @@ it("does not fall back or retry when qualified intake inference fails", async ()
 	expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe("gpt-6.1-sol");
 	expect(run).not.toHaveBeenCalled();
 });
+
+it("uses the qualified status prompt in real ledger orchestration and keeps reply, lesson and filing on Astra", async () => {
+	const certificate = JSON.parse(
+		readFileSync(
+			new URL(
+				"../../../../packages/context-core/src/request-ledger-bookkeeping-qualified-results.json",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	).features;
+	const db = fixture();
+	await acceptAgentSessionEvents(db, {
+		...SCOPE,
+		now: T0,
+		events: [
+			{
+				...SCOPE,
+				kind: "prompt",
+				text: "Verify live deployment",
+				sourceAt: T0,
+			},
+		],
+	});
+	await processAgentSessionEvents(
+		db,
+		scripted(
+			'{"requests":[{"kind":"request","text":"Verify live deployment"}]}',
+		).model,
+		SCOPE,
+		{ limit: 1, now: () => T0 },
+	);
+	const run = vi.fn();
+	const fetch = vi.fn().mockImplementation(async (_url, request) => {
+		const surface = JSON.parse(request.headers["cf-aig-metadata"]).surface;
+		const text =
+			surface === "agent-session-request-intake"
+				? '{"new":[]}'
+				: surface === "agent-session-lesson-reflector"
+					? '{"lessons":[]}'
+					: '{"updates":[]}';
+		return Response.json({
+			status: "completed",
+			output: [{ type: "message", content: [{ type: "output_text", text }] }],
+		});
+	});
+	const model = workersAiLedgerModel(
+		{
+			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_LLM_ID: "example-gateway",
+			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
+			AZURE_OPENAI_RESOURCE: "example-resource",
+		},
+		SCOPE.organizationId,
+	);
+	const enqueueFilings = vi.fn(async () => {});
+	model.enqueueFilings = enqueueFilings;
+	expect(
+		await reflectAgentSessionRequests(db, model, {
+			...SCOPE,
+			turn: "The deployment inspection has started.",
+			activity: "Inspection started; no deployment outcome is verified.",
+			repository: "example/app",
+			sourceAt: "2026-10-06T10:01:00Z",
+			now: T0,
+		}),
+	).toMatchObject({ status: "reflected" });
+	await model.reflectLessons!([
+		{
+			id: "fictional-failure",
+			body: "",
+			activity: "Failed upload_report: body too large",
+		},
+		{
+			id: "fictional-fix",
+			body: "Fixed upload_report by native file upload; upload_report saved successfully.",
+			activity: "",
+		},
+	]);
+	await model.reflectReplies!([], "Continue", "Earlier status");
+	await model(
+		"filing system",
+		"filing prompt",
+		"agent-session-project-routing",
+	);
+	const calls = fetch.mock.calls.map(([, request]) => ({
+		body: JSON.parse(request.body),
+		metadata: JSON.parse(request.headers["cf-aig-metadata"]),
+		signal: request.signal,
+	}));
+	const status = calls.find(
+		(call) => call.metadata.surface === "agent-session-request-reflector",
+	)!;
+	expect(status).toBeDefined();
+	expect(`azure-openai/${status.body.model}`).toBe(certificate.status.modelRef);
+	expect(status.body.instructions).toBe(REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT);
+	expect(
+		createHash("sha256").update(status.body.instructions).digest("hex"),
+	).toBe(certificate.status.systemHash);
+	expect(status.body).toMatchObject({
+		max_output_tokens: 6000,
+		reasoning: { effort: "low" },
+	});
+	expect(status.signal).toBeInstanceOf(AbortSignal);
+	expect(enqueueFilings).toHaveBeenCalledWith({
+		organizationId: SCOPE.organizationId,
+		userId: SCOPE.userId,
+	});
+	expect(status.body.input).toContain(
+		"ORIGINAL REQUEST SCOPES:\n<<<\nr1:\nVerify live deployment",
+	);
+	expect(status.body.input).toContain(
+		"Inspection started; no deployment outcome is verified.",
+	);
+	for (const surface of [
+		"agent-session-request-reply-reflector",
+		"agent-session-lesson-reflector",
+		"agent-session-project-routing",
+	]) {
+		const call = calls.find((call) => call.metadata.surface === surface)!;
+		expect(call).toBeDefined();
+		expect(call.body.model).toBe("gpt-6-astra");
+	}
+	expect(
+		calls.find(
+			(call) =>
+				call.metadata.surface === "agent-session-request-reply-reflector",
+		)!.body.instructions,
+	).toBe(REQUEST_REPLY_REFLECTOR_SYSTEM_PROMPT);
+	expect(
+		calls.find(
+			(call) => call.metadata.surface === "agent-session-lesson-reflector",
+		)!.body.instructions,
+	).toBe(SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT);
+	for (const call of calls)
+		expect(call.metadata.orgId).toBe(SCOPE.organizationId);
+	expect(run).not.toHaveBeenCalled();
+});
+
+it.each([
+	["agent-session-request-reflector", "gpt-6.1-sol"],
+	["agent-session-lesson-reflector", "gpt-6-astra"],
+])(
+	"does not retry or fall back when bookkeeping %s fails",
+	async (surface, expectedModel) => {
+		const run = vi.fn();
+		const fetch = vi
+			.fn()
+			.mockImplementation(
+				async () => new Response("provider failure", { status: 503 }),
+			);
+		const model = workersAiLedgerModel(
+			{
+				AI: { run, fetch } as unknown as Ai,
+				AI_GATEWAY_LLM_ID: "example-gateway",
+				AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
+				AZURE_OPENAI_RESOURCE: "example-resource",
+			},
+			SCOPE.organizationId,
+		);
+		expect(await model("system", "prompt", surface)).toBeNull();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe(expectedModel);
+		expect(run).not.toHaveBeenCalled();
+	},
+);
