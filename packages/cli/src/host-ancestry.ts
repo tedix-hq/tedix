@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { basename } from "node:path";
+import { kernelProcessTable } from "./process-facts";
 
 export interface ProcessRow {
 	pid: number;
@@ -11,6 +12,9 @@ type ProcessTableReader = () => ProcessRow[];
 
 function readProcessTable(): ProcessRow[] {
 	if (process.platform === "win32") return [];
+	const kernel = kernelProcessTable();
+	if (kernel)
+		return kernel.map(({ pid, ppid, comm }) => ({ pid, ppid, command: comm }));
 	try {
 		return execFileSync("ps", ["-A", "-o", "pid=,ppid=,comm="], {
 			encoding: "utf8",

@@ -1,10 +1,48 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { realpathSync } from "node:fs";
+import { kernelProcessCwd, kernelProcessFacts } from "./process-facts";
 
-function processCwd(pid: number): string | undefined {
+export interface LaneProcessFacts {
+	pgid: number;
+	/** Opaque per-instance start tokens; consistent within one reader. */
+	start: string[];
+	argv: string[];
+}
+type LaneProcessFactsReader = (pid: number) => LaneProcessFacts | undefined;
+type LaneProcessCwdReader = (pid: number) => string | undefined;
+
+function psFacts(pid: number): LaneProcessFacts | undefined {
+	const result = spawnSync(
+		"ps",
+		["-p", String(pid), "-o", "pgid=", "-o", "lstart=", "-o", "command="],
+		{ encoding: "utf8", timeout: 2000, maxBuffer: 16384 },
+	);
+	if (result.status !== 0) return;
+	const fields = result.stdout.trim().split(/\s+/);
+	if (fields.length < 7) return;
+	return {
+		pgid: Number(fields[0]),
+		start: fields.slice(1, 6),
+		argv: fields.slice(6),
+	};
+}
+
+function defaultFactsReader(pid: number): LaneProcessFacts | undefined {
+	const kernel = kernelProcessFacts(pid);
+	if (kernel?.argv.length)
+		return { pgid: kernel.pgid, start: kernel.start, argv: kernel.argv };
 	try {
-		if (process.platform === "linux") return realpathSync(`/proc/${pid}/cwd`);
+		return psFacts(pid);
+	} catch {
+		return;
+	}
+}
+
+function defaultCwdReader(pid: number): string | undefined {
+	try {
+		const kernel = kernelProcessCwd(pid);
+		if (kernel) return kernel;
 		const result = spawnSync(
 			"lsof",
 			["-a", "-p", String(pid), "-d", "cwd", "-Fn"],
@@ -22,31 +60,43 @@ function processCwd(pid: number): string | undefined {
 	} catch {}
 }
 
+let factsReader: LaneProcessFactsReader = defaultFactsReader;
+let cwdReader: LaneProcessCwdReader = defaultCwdReader;
+
+/** Swap the process-fact readers (tests). No arguments restores the defaults. */
+export function setLaneProcessReaders(
+	facts?: LaneProcessFactsReader,
+	cwd?: LaneProcessCwdReader,
+): void {
+	factsReader = facts ?? defaultFactsReader;
+	cwdReader = cwd ?? defaultCwdReader;
+}
+
 /** A PID alone can be reused; bind recovery to its native session and OS start time. */
 export function laneProcessIdentity(
 	pid: number,
 	session: string,
 	cwd?: string,
 ): string | undefined {
-	const result = spawnSync(
-		"ps",
-		["-p", String(pid), "-o", "pgid=", "-o", "lstart=", "-o", "command="],
-		{ encoding: "utf8", timeout: 2000, maxBuffer: 16384 },
-	);
-	if (result.status !== 0) return;
-	const fields = result.stdout.trim().split(/\s+/);
+	const facts = factsReader(pid);
 	if (
-		Number(fields[0]) !== pid ||
-		!fields.slice(6).includes(session.slice(session.indexOf(":") + 1))
+		!facts ||
+		facts.pgid !== pid ||
+		!facts.argv.includes(session.slice(session.indexOf(":") + 1))
 	)
 		return;
-	if (!cwd) return createHash("sha256").update(fields.join(" ")).digest("hex");
+	if (!cwd)
+		return createHash("sha256")
+			.update([facts.pgid, ...facts.start, ...facts.argv].join(" "))
+			.digest("hex");
 	try {
 		const directory = realpathSync(cwd);
-		if (fields.length < 7 || processCwd(pid) !== directory) return;
+		if (cwdReader(pid) !== directory) return;
 		// exec replaces argv, but preserves the process birth, group and cwd.
 		return `v2:${createHash("sha256")
-			.update(JSON.stringify([fields.slice(0, 6), session, directory]))
+			.update(
+				JSON.stringify([[facts.pgid, ...facts.start], session, directory]),
+			)
 			.digest("hex")}`;
 	} catch {
 		return;
