@@ -22,6 +22,7 @@ import {
 
 export type LedgerEvaluationSurface = "status" | "intake" | "reply" | "lesson";
 export type LedgerEvaluationPromptVariant = "production" | "shorter_status";
+export const LEDGER_QUALIFICATION_GRADING_VERSION = 2;
 export interface LedgerEvaluationGrade {
 	passed: boolean;
 	failures: string[];
@@ -174,6 +175,52 @@ const scopeCases: ScopeCase[] = [
 		activity:
 			"Saved proposed exact-post rule revision; readback matched. No active rule changed.",
 		updates: [["r1", "done"]],
+		lanes: [],
+		mentions: [],
+	},
+	{
+		id: "scope-explicit-started-repair-vs-plan",
+		rows: [
+			{
+				ref: "r1",
+				kind: "request",
+				status: "open",
+				text: "Fix the CLI errors",
+			},
+			{
+				ref: "r2",
+				kind: "request",
+				status: "open",
+				text: "Build the dashboard redesign",
+			},
+		],
+		message: "",
+		scopes:
+			"r1:\nFix and verify CLI errors.\nr2:\nBuild and verify the dashboard redesign.",
+		turn: "Codex has started repairing the CLI errors. The dashboard redesign is only a proposal and has not started.",
+		activity:
+			"Started delegated CLI repair task; editing the argument parser now. No dashboard task was launched.",
+		updates: [["r1", "in_progress"]],
+		lanes: [["r1", true]],
+		mentions: ["r2"],
+	},
+	{
+		id: "scope-explicit-missing-human-verdict",
+		rows: [
+			{
+				ref: "r1",
+				kind: "request",
+				status: "open",
+				text: "Add the already-acted thread rule",
+			},
+		],
+		message: "",
+		scopes:
+			"r1:\nAdd the rule only after I give my own verdict. You cannot decide the verdict for me.",
+		turn: "Execution is blocked until you supply your missing verdict. You have not given the verdict, and I cannot decide it for you.",
+		activity:
+			"Rule execution has not started; the required human verdict is absent.",
+		updates: [["r1", "waiting_on_user"]],
 		lanes: [],
 		mentions: [],
 	},
@@ -617,12 +664,24 @@ export function getLedgerEvaluationCase(
 				if (progress.has(test.id)) expected.push(["r1", "in_progress"]);
 				if (test.id === "acted-thread-rule")
 					expected.push(["r1", "waiting_on_user"]);
-				equal(
-					sorted((updates ?? []).map((row) => [row.ref, row.status])),
-					sorted(expected),
-					"all status updates",
-					failures,
+				const actualUpdates = sorted(
+					(updates ?? []).map((row) => [row.ref, row.status]),
 				);
+				// These two historical inputs do not uniquely establish an intermediate status.
+				// Explicit held-out cases separately pin started work and a missing human verdict.
+				const allowedUpdates =
+					test.id === "missing-tool-error"
+						? [[], [["r1", "in_progress"]]]
+						: test.id === "acted-thread-rule"
+							? [[], [["r1", "waiting_on_user"]]]
+							: [sorted(expected)];
+				if (
+					!allowedUpdates.some(
+						(allowed) =>
+							JSON.stringify(allowed) === JSON.stringify(actualUpdates),
+					)
+				)
+					failures.push("all status updates");
 				equal(
 					sorted(
 						parseReflectedMerges(raw, [...rows, ...resolved]).map((row) => [
@@ -651,10 +710,19 @@ export function getLedgerEvaluationCase(
 								!parseLedgerLanes(raw, refs, source).has(ref),
 						)
 						.sort(),
-					mentions.has(test.id) ? ["r1"] : [],
+					mentions.has(test.id) ||
+						(test.id === "acted-thread-rule" && updates?.length === 0)
+						? ["r1"]
+						: [],
 					"mentioned refs",
 					failures,
 				);
+				if (
+					test.id === "acted-thread-rule" &&
+					updates?.length &&
+					parseLedgerMentions(raw, refs, source).has("r1")
+				)
+					failures.push("redundant acted-thread mention");
 				for (const field of ["updates", "lanes", "merges"])
 					if (
 						Array.isArray(value?.[field]) &&

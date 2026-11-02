@@ -11,6 +11,7 @@ import {
 import {
 	getLedgerEvaluationCase,
 	hashLedgerEvaluationCase,
+	LEDGER_QUALIFICATION_GRADING_VERSION,
 } from "./ledger-model-evaluation";
 
 it("bounds paid calls, records receipts before dispatch, resumes without rebilling, and pairs models", async () => {
@@ -91,16 +92,16 @@ it("refuses unresolved receipts and never retries provider failures or hash mism
 		expect(first.records.every((row) => row.grade?.passed === false)).toBe(
 			true,
 		);
-		const second = await runLedgerQualification(directory, call, undefined, 1);
-		expect(calls).toBe(3);
-		expect(second.records.every((row) => row.grade?.passed === false)).toBe(
-			true,
-		);
-		const file = (await readdir(directory))[0]!;
-		const path = join(directory, file);
-		const record = JSON.parse(await readFile(path, "utf8"));
-		record.state = "started";
-		await writeFile(path, JSON.stringify(record));
+		await expect(
+			runLedgerQualification(directory, call, undefined, 0),
+		).rejects.toThrow("Persisted evaluation response hash mismatch");
+		expect(calls).toBe(2);
+		for (const file of await readdir(directory)) {
+			const path = join(directory, file);
+			const record = JSON.parse(await readFile(path, "utf8"));
+			record.state = "started";
+			await writeFile(path, JSON.stringify(record));
+		}
 		await expect(
 			runLedgerQualification(directory, call, undefined, 1),
 		).rejects.toThrow("Unsettled evaluation");
@@ -159,8 +160,10 @@ it("rejects a different model's response with identical prompt hashes and retain
 				row.grade?.failures.includes("Managed evaluation identity mismatch"),
 			),
 		).toBe(true);
-		await runLedgerQualification(directory, call, undefined, 1);
-		expect(calls).toBe(3);
+		await expect(
+			runLedgerQualification(directory, call, undefined, 0),
+		).rejects.toThrow("Managed evaluation identity mismatch");
+		expect(calls).toBe(2);
 		const files = await readdir(directory);
 		const saved = await Promise.all(
 			files.map(async (file) =>
@@ -168,6 +171,86 @@ it("rejects a different model's response with identical prompt hashes and retain
 			),
 		);
 		expect(saved.every((row) => row.grade.passed === false)).toBe(true);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+it("atomically audits re-grading without changing authentic responses or making new calls", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "ledger-regrading-"));
+	let calls = 0;
+	const call: EvaluationCaller = async (input) => {
+		calls++;
+		return {
+			...input,
+			...(await hashLedgerEvaluationCase(
+				getLedgerEvaluationCase(
+					input.surface,
+					input.caseId,
+					input.promptVariant,
+				)!,
+			)),
+			status: "completed",
+			output: null,
+			providerRequestId: "fictional-authentic-receipt",
+			usage: { inputTokens: 10, outputTokens: 1 },
+		};
+	};
+	try {
+		const first = await runLedgerQualification(directory, call, undefined, 1);
+		expect(first.records[0]!.gradingVersion).toBe(
+			LEDGER_QUALIFICATION_GRADING_VERSION,
+		);
+		const path = join(directory, (await readdir(directory))[0]!);
+		const original = JSON.parse(await readFile(path, "utf8"));
+		const oldGrade = original.grade;
+		await writeFile(path, JSON.stringify({ ...original, gradingVersion: 1 }));
+		await runLedgerQualification(directory, call, undefined, 0);
+		const migrated = JSON.parse(await readFile(path, "utf8"));
+		expect(migrated.gradingVersion).toBe(2);
+		expect(migrated.gradeHistory).toEqual([
+			{ gradingVersion: 1, grade: oldGrade, replacedAt: expect.any(String) },
+		]);
+		const incorrectGrade = {
+			passed: true,
+			failures: [],
+			parsed: "obsolete-derived-grade",
+		};
+		await writeFile(
+			path,
+			JSON.stringify({ ...migrated, grade: incorrectGrade }),
+		);
+		await runLedgerQualification(directory, call, undefined, 0);
+		const corrected = JSON.parse(await readFile(path, "utf8"));
+		expect(corrected.grade).toEqual(oldGrade);
+		expect(corrected.gradeHistory).toHaveLength(2);
+		expect(corrected.gradeHistory[1]).toMatchObject({
+			gradingVersion: 2,
+			grade: incorrectGrade,
+		});
+		delete corrected.gradingVersion;
+		await writeFile(path, JSON.stringify(corrected));
+		await runLedgerQualification(directory, call, undefined, 0);
+		const legacy = JSON.parse(await readFile(path, "utf8"));
+		expect(legacy.gradeHistory[2]).toMatchObject({
+			gradingVersion: null,
+			grade: oldGrade,
+		});
+		await runLedgerQualification(directory, call, undefined, 0);
+		expect(JSON.parse(await readFile(path, "utf8"))).toEqual(legacy);
+		for (const key of [
+			"job",
+			"evaluationId",
+			"state",
+			"response",
+			"systemHash",
+			"inputHash",
+		])
+			expect(legacy[key]).toEqual(original[key]);
+		expect(calls).toBe(1);
+		expect(
+			(await readdir(directory)).filter((file) => file.endsWith(".tmp")),
+		).toEqual([]);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}

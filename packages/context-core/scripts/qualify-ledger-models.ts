@@ -7,6 +7,7 @@ import {
 	getLedgerEvaluationCase,
 	hashLedgerEvaluationCase,
 	listLedgerEvaluationCases,
+	LEDGER_QUALIFICATION_GRADING_VERSION,
 	type LedgerEvaluationSurface,
 	type LedgerEvaluationPromptVariant,
 } from "../src/ledger-model-evaluation";
@@ -73,6 +74,12 @@ interface RecordResult {
 	grade?: ReturnType<
 		NonNullable<ReturnType<typeof getLedgerEvaluationCase>>["grade"]
 	>;
+	gradingVersion?: number;
+	gradeHistory?: Array<{
+		gradingVersion: number | null;
+		grade: RecordResult["grade"] | null;
+		replacedAt: string;
+	}>;
 	error?: string;
 	denied?: boolean;
 }
@@ -136,7 +143,7 @@ export async function runLedgerQualification(
 				throw new Error(
 					`Unsettled evaluation ${existing.evaluationId}; inspect provider receipt before any new call`,
 				);
-			if (existing.response && !existing.error) {
+			if (existing.response) {
 				validateIdentity(existing.response, job, existing.evaluationId);
 				if (
 					existing.response.systemHash !== hashes.systemHash ||
@@ -144,18 +151,43 @@ export async function runLedgerQualification(
 				)
 					throw new Error("Persisted evaluation response hash mismatch");
 			}
-			return {
-				...existing,
-				grade: existing.error
-					? existing.grade
-					: existing.response
-						? fixture.grade(
-								existing.response.status === "completed"
-									? existing.response.output
-									: null,
-							)
-						: undefined,
-			};
+			let freshGrade = existing.response
+				? fixture.grade(
+						existing.response.status === "completed"
+							? existing.response.output
+							: null,
+					)
+				: existing.grade;
+			// Re-grading cannot turn an execution or custody failure into a pass.
+			if (existing.error)
+				freshGrade = {
+					passed: false,
+					failures: [
+						...new Set([...(freshGrade?.failures ?? []), existing.error]),
+					],
+					parsed: freshGrade?.parsed ?? null,
+				};
+			if (
+				existing.gradingVersion !== LEDGER_QUALIFICATION_GRADING_VERSION ||
+				JSON.stringify(existing.grade) !== JSON.stringify(freshGrade)
+			) {
+				existing.gradeHistory = [
+					...(existing.gradeHistory ?? []),
+					{
+						gradingVersion: existing.gradingVersion ?? null,
+						grade: existing.grade ?? null,
+						replacedAt: new Date().toISOString(),
+					},
+				];
+				existing.grade = freshGrade;
+				existing.gradingVersion = LEDGER_QUALIFICATION_GRADING_VERSION;
+				const temporary = `${path}.tmp`;
+				await writeFile(temporary, JSON.stringify(existing, null, 2), {
+					mode: 0o600,
+				});
+				await rename(temporary, path);
+			}
+			return existing;
 		}
 		if (dispatched >= maxCalls) return null;
 		dispatched++;
@@ -163,6 +195,7 @@ export async function runLedgerQualification(
 			job,
 			evaluationId: randomUUID(),
 			state: "started",
+			gradingVersion: LEDGER_QUALIFICATION_GRADING_VERSION,
 			...hashes,
 		};
 		const file = await open(path, "wx", 0o600);
