@@ -15,6 +15,7 @@ import {
 	readWorkspaceCredentials,
 	writeWorkspaceCredentials,
 } from "./credential-store";
+import { kernelProcessTable } from "./process-facts";
 import {
 	RENEWAL_HANDOFF_ENV,
 	renewStoredSession,
@@ -115,9 +116,18 @@ function startCommand() {
 /** Claude Code's timed-out hook kill: every descendant by parent PID. */
 function killDescendants(root: number) {
 	const children = new Map<number, number[]>();
-	const ps = Bun.spawnSync(["ps", "-A", "-o", "pid=", "-o", "ppid="]);
-	for (const line of ps.stdout.toString().split("\n")) {
-		const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+	let rows = kernelProcessTable();
+	if (!rows) {
+		const ps = Bun.spawnSync(["ps", "-A", "-o", "pid=", "-o", "ppid="]);
+		rows = ps.stdout
+			.toString()
+			.split("\n")
+			.flatMap((line) => {
+				const [pid, ppid] = line.trim().split(/\s+/).map(Number);
+				return pid && ppid ? [{ pid, ppid, comm: "", args: "" }] : [];
+			});
+	}
+	for (const { pid, ppid } of rows) {
 		if (pid && ppid) children.set(ppid, [...(children.get(ppid) ?? []), pid]);
 	}
 	const queue = [root];
