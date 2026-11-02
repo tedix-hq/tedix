@@ -217,6 +217,58 @@ describe("machine policy candidate", () => {
 			.mockResolvedValueOnce("original");
 		expect(await result?.probe.revalidate()).toBe(false);
 	});
+	it("falls back to the reviewed any-root mount when the direct gateway resolves", async () => {
+		const machine = {
+			...agent,
+			appId: "source",
+			callerIdentity: {
+				authType: "external_agent",
+				organizationId: "org",
+				externalAgentPrincipalId: "principal",
+				externalAgentSessionId: "session",
+				externalAgentClientRecordId: "record",
+				externalAgentMcpServerId: "server",
+				clientId: "client",
+			},
+		} as unknown as ServerContext;
+		mocks.authority.mockResolvedValue({ scopes: ["connections.execute"] });
+		// The direct gateway resolves its own row; the reviewed machine rule is
+		// mounted on the organization gateway ("root"), so the root-scoped
+		// lookup misses while the any-root source lookup finds it.
+		mocks.fresh.mockImplementation(
+			async ({ rootAppId }: { rootAppId: string }) =>
+				rootAppId === "root" || rootAppId === "source"
+					? { sourceAppId: "source", tool }
+					: null,
+		);
+		mocks.machineCandidate.mockResolvedValue({ candidate: null });
+		mocks.anyRoot.mockResolvedValue({
+			candidate: {
+				...candidate,
+				descriptor: {
+					...candidate.descriptor,
+					kind: "machine",
+					subject: {
+						scope: "principal",
+						principalId: "principal",
+						mcpServerId: "server",
+					},
+				},
+			},
+		});
+		const result = await resolveMachineCandidate(machine, tool, {
+			page: "one",
+		});
+		expect(mocks.anyRoot).toHaveBeenCalledWith(
+			expect.objectContaining({
+				organizationId: "org",
+				sourceAppId: "source",
+				sourceToolRowId: "row",
+			}),
+		);
+		expect(result?.probe.requireTenantCredential).toBe(true);
+		expect(await result?.probe.revalidate()).toBe(true);
+	});
 	it("requires fresh machine authority and rejects revocation before dispatch", async () => {
 		const machine = {
 			...agent,
