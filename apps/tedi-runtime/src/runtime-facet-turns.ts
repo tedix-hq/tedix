@@ -2190,6 +2190,29 @@ export const runtimeFacetTurns = {
 						input.sessionKey,
 						deriveIdempotencyKey(input.runId, "assistant"),
 					);
+				const dispatched = await this.ctx.storage.get<{
+					params: ChatTurnParams;
+					id: string;
+				}>(`runtime-admission-workflow:${input.runId}`);
+				if (dispatched) {
+					const {
+						computerContinuation: _continuation,
+						workflowInstanceId,
+						...originalInput
+					} = input;
+					if (!workflowInstanceId || workflowInstanceId !== dispatched.id)
+						throw new Error(
+							"Native workflow instance changed from admitted dispatch",
+						);
+					if (
+						JSON.stringify(originalInput) !== JSON.stringify(dispatched.params)
+					)
+						throw new Error(
+							"Native workflow input changed from admitted dispatch",
+						);
+				} else if (input.workflowInstanceId) {
+					throw new Error("Native workflow admitted dispatch is missing");
+				}
 				const settled = readSettled();
 				if (settled) {
 					return {
@@ -2201,20 +2224,8 @@ export const runtimeFacetTurns = {
 							: {}),
 					};
 				}
-				const dispatched = await this.ctx.storage.get<{
-					params: ChatTurnParams;
-				}>(`runtime-admission-workflow:${input.runId}`);
-				if (dispatched) {
-					const { computerContinuation: _continuation, ...originalInput } =
-						input;
-					if (
-						JSON.stringify(originalInput) !== JSON.stringify(dispatched.params)
-					)
-						throw new Error(
-							"Native workflow input changed from admitted dispatch",
-						);
-					await this.assertChatTurnActive(input.runId);
-				} else {
+				if (dispatched) await this.assertChatTurnActive(input.runId);
+				else {
 					await this.acceptRuntimeTurn(input.runId, input.sessionKey, {
 						...input,
 						computerContinuation: undefined,

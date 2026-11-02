@@ -15,6 +15,8 @@ import {
 	type ChatTurnParams,
 } from "../../src/chat-turn-input";
 import type { AgentTediDO } from "../../src/do";
+import { memoryStorage, tediDo } from "../tedi-do";
+import type { FacetWorkflowTurnInput } from "../../src/delegated-work-lease";
 
 export interface CallbackFixtureOptions {
 	agentName?: string;
@@ -26,6 +28,13 @@ export interface CallbackFixtureOptions {
 	freshCallbackError?: string;
 	turnError?: string;
 	cached?: boolean;
+	dispatchJournal?:
+		| "matching"
+		| "wrong-instance"
+		| "changed-input"
+		| "missing-journal"
+		| "missing-id";
+	settled?: boolean;
 }
 const memoryReset = new Error(
 	"Durable Object's isolate exceeded its memory limit and was reset.",
@@ -41,6 +50,8 @@ function fixture(
 		poisonCached?: boolean;
 		freshCallbackError?: Error;
 		turnError?: Error;
+		dispatchJournal?: CallbackFixtureOptions["dispatchJournal"];
+		settled?: boolean;
 	} = {},
 ) {
 	const ids = (env as unknown as { PI_TEST: DurableObjectNamespace }).PI_TEST;
@@ -69,10 +80,51 @@ function fixture(
 				}
 				callbacks.push({ route, callback: value });
 			};
-			const turn = async () => {
+			const model = async () => {
 				modelCalls++;
 				if (options.turnError) throw options.turnError;
 				return { text: "fixture response", stopReason: "stop", toolCalls: [] };
+			};
+			const turn = async (input: FacetWorkflowTurnInput) => {
+				if (!options.dispatchJournal) return model();
+				const parent = tediDo({
+					ctx: {
+						storage: memoryStorage({
+							[`runtime-admission-workflow:${params.runId}`]:
+								options.dispatchJournal === "missing-journal"
+									? undefined
+									: {
+											params:
+												options.dispatchJournal === "changed-input"
+													? { ...params, userText: "different admitted input" }
+													: params,
+											id:
+												options.dispatchJournal === "wrong-instance"
+													? "other-instance"
+													: options.dispatchJournal === "missing-id"
+														? undefined
+														: event.instanceId,
+											stage: "dispatched",
+										},
+						}),
+					},
+					state: { tediId: "fixture" },
+					facetWorkflowTurns: {
+						run: (_id: string, run: () => unknown) => run(),
+					},
+					facetTurnAdmission: {
+						run: (_id: string, run: () => unknown) => run(),
+					},
+					keepAliveWhile: (run: () => unknown) => run(),
+					ensureIdentity: async () => {},
+					sessionRepo: {
+						findTurnByIdempotencyKey: () =>
+							options.settled ? { content: "settled response" } : null,
+					},
+					assertChatTurnActive: async () => {},
+					runFacetWorkflowTurnImpl: model,
+				});
+				return parent.runFacetWorkflowTurn(input);
 			};
 			return {
 				id:
@@ -95,7 +147,8 @@ function fixture(
 				) => {
 					if (method === "_workflow_handleCallback")
 						return callback(args[0] as WorkflowCallback, "facet");
-					if (method === "runFacetWorkflowTurn") return turn();
+					if (method === "runFacetWorkflowTurn")
+						return turn(args[0] as FacetWorkflowTurnInput);
 				},
 				[Symbol.dispose]: () => {
 					disposed.push(index);
