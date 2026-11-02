@@ -902,10 +902,10 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
       <div class="cta-flow-stage mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-stretch">
         <span class="cta-flow-bridge cta-flow-bridge-forward" aria-hidden="true"></span>
         <span class="cta-flow-bridge cta-flow-bridge-return" aria-hidden="true"></span>
-        <div class="cta-flow-card cta-flow-card-primary relative flex min-h-[420px] overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#170b5f] via-violet-700 to-fuchsia-300 p-7 shadow-[0_34px_110px_rgba(124,58,237,0.36),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-40px_80px_rgba(20,0,70,0.22)] md:p-10">
+        <div class="cta-flow-card cta-flow-card-primary relative flex min-h-[420px] flex-col justify-between gap-8 overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#170b5f] via-violet-700 to-fuchsia-300 p-7 shadow-[0_34px_110px_rgba(124,58,237,0.36),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-40px_80px_rgba(20,0,70,0.22)] md:p-10">
           <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(255,255,255,0.22),transparent_28%),radial-gradient(circle_at_85%_25%,rgba(255,255,255,0.24),transparent_34%)]"></div>
           <div class="pointer-events-none absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-pink-200/40 to-transparent"></div>
-          <div class="relative z-10 flex max-w-md flex-col justify-center md:max-w-[54%] xl:max-w-md">
+          <div class="relative z-10 flex max-w-md flex-col">
             <h2 class="mb-4 font-display text-3xl font-bold leading-tight tracking-tight text-white md:text-4xl lg:text-5xl">
               {t.cta.demoTitle}
             </h2>
@@ -913,7 +913,7 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
               {t.cta.demoDescription}
             </p>
           </div>
-          <img src="/images/tedi-astronaut-waving.png" alt="" class="pointer-events-none absolute right-3 bottom-0 z-0 hidden h-[62%] max-h-[360px] object-contain opacity-90 drop-shadow-[0_28px_45px_rgba(15,0,55,0.45)] md:block lg:right-8 lg:h-[74%] xl:h-[80%]" loading="lazy" />
+          <img src="/images/tedi-astronaut-waving.png" alt="" class="pointer-events-none relative z-0 h-44 max-w-full self-end object-contain opacity-90 drop-shadow-[0_28px_45px_rgba(15,0,55,0.45)] md:h-56 xl:h-64" loading="lazy" />
         </div>
 
         <div class="cta-flow-card cta-flow-card-secondary relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045] p-7 shadow-[0_34px_100px_rgba(76,29,149,0.28),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-50px_90px_rgba(0,0,0,0.22)] backdrop-blur md:p-10">
