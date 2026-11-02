@@ -1,6 +1,8 @@
 import { mkdir, open, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
 	getLedgerEvaluationCase,
 	hashLedgerEvaluationCase,
@@ -296,6 +298,69 @@ export async function runLedgerQualification(
 	};
 }
 
+export type CliCodeExecutor = (args: string[]) => Promise<string>;
+const executeCliCode: CliCodeExecutor = async (args) => {
+	const result = await promisify(execFile)("tedix", args, {
+		timeout: 35_000,
+		maxBuffer: 16 * 1024 * 1024,
+	});
+	return result.stdout;
+};
+export function createCliEvaluationCaller(
+	organization: string,
+	callable: string,
+	execute: CliCodeExecutor = executeCliCode,
+): EvaluationCaller {
+	if (
+		!/^[A-Za-z_$][\w$]*\.evaluate_ledger_model$/.test(callable) ||
+		["constructor", "__proto__", "prototype"].includes(callable.split(".")[0]!)
+	)
+		throw new Error("Use the exact authorized discovered evaluation callable");
+	return async (input) => {
+		const source = `async () => await ${callable}(JSON.parse(${JSON.stringify(JSON.stringify(input))}))`;
+		let raw: string;
+		try {
+			raw = await execute([
+				"-w",
+				"connect",
+				"--organization",
+				organization,
+				"code",
+				source,
+				"--json",
+			]);
+		} catch {
+			throw new ManagedEvaluationDenied(
+				"Tedix CLI evaluation did not complete; inspect the normal authorization, approval or transport result before continuing",
+			);
+		}
+		let body: unknown;
+		try {
+			body = JSON.parse(raw);
+		} catch {
+			throw new ManagedEvaluationDenied(
+				"Tedix CLI returned an invalid evaluation result",
+			);
+		}
+		if (
+			!body ||
+			typeof body !== "object" ||
+			Array.isArray(body) ||
+			![
+				"completed",
+				"incomplete",
+				"http_error",
+				"transport_error",
+				"unavailable",
+			].includes((body as ManagedResult).status)
+		)
+			throw new ManagedEvaluationDenied(
+				"Tedix evaluation requires authorization, approval or result review before continuing",
+			);
+		return parseManagedEvaluationEnvelope({ json: body as ManagedResult });
+	};
+}
+
 async function main(args: string[]) {
 	const option = (name: string) => {
 		const index = args.indexOf(name);
@@ -330,58 +395,12 @@ async function main(args: string[]) {
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 	}
-	// These helpers retain the CLI's consent/refresh fence; credentials stay in memory.
-	const { resolveStoredLoginAuth } = await import("../../cli/src/auth-resolve");
-	const { resolveOrganizationTarget } =
-		await import("../../cli/src/organization-target");
-	const { auth, loginError } = await resolveStoredLoginAuth("connect", {
-		consentPrompt: false,
-	});
-	if (!auth)
+	const callable = option("--callable");
+	if (!callable)
 		throw new Error(
-			loginError ??
-				"Existing Connect authorization is unavailable; qualification cannot sign in",
+			"Pass --callable <namespace.evaluate_ledger_model> from current authorized tool discovery",
 		);
-	const token =
-		(await auth.oauthProvider?.tokens())?.access_token ??
-		auth.headers.Authorization?.replace(/^Bearer\s+/i, "");
-	if (!token || !auth.mcpUrl)
-		throw new Error("Existing Connect user authorization is unavailable");
-	const target = resolveOrganizationTarget({
-		url: auth.mcpUrl,
-		command: "code",
-		workspace: "connect",
-		organization,
-		accessToken: token,
-	});
-	const call: EvaluationCaller = async (input) => {
-		const response = await fetch(
-			"https://api.tedix.dev/rpc/workAgentSessions/evaluateLedgerModel",
-			{
-				method: "POST",
-				redirect: "error",
-				headers: {
-					"content-type": "application/json",
-					...auth.headers,
-					...target.headers,
-					Authorization: `Bearer ${token}`,
-				},
-				body: JSON.stringify({ json: input }),
-				signal: AbortSignal.timeout(35_000),
-			},
-		);
-		if (response.status === 401 || response.status === 403)
-			throw new ManagedEvaluationDenied(
-				`Managed evaluation HTTP ${response.status}`,
-			);
-		if (!response.ok)
-			throw new Error(`Managed evaluation HTTP ${response.status}`);
-		const body = (await response.json()) as {
-			json?: ManagedResult;
-			code?: string;
-		};
-		return parseManagedEvaluationEnvelope(body);
-	};
+	const call = createCliEvaluationCaller(organization, callable);
 	const summary = await runLedgerQualification(
 		directory,
 		call,

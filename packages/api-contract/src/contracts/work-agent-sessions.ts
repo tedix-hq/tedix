@@ -47,7 +47,6 @@ export const workAgentSessionsContract = oc
 			.route({
 				method: "POST",
 				path: "/ledger-model/evaluate",
-				tags: ["internal"],
 				summary:
 					"Evaluate one fixed bookkeeping corpus case with a managed model",
 			})

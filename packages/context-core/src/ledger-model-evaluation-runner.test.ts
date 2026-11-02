@@ -5,6 +5,7 @@ import { expect, it } from "vite-plus/test";
 import {
 	runLedgerQualification,
 	parseManagedEvaluationEnvelope,
+	createCliEvaluationCaller,
 	type EvaluationCaller,
 } from "../scripts/qualify-ledger-models";
 import {
@@ -170,4 +171,88 @@ it("rejects a different model's response with identical prompt hashes and retain
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
+});
+
+it("uses the normal scoped CLI code path with argv-only invocation and no direct bearer request", async () => {
+	const input = {
+		surface: "status",
+		caseId: "trim-tabs",
+		promptVariant: "production",
+		modelRef: "azure-openai/gpt-6-astra",
+		evaluationId: "10000000-0000-4000-8000-000000000001",
+	} as const;
+	const response = {
+		...input,
+		...(await hashLedgerEvaluationCase(
+			getLedgerEvaluationCase(input.surface, input.caseId)!,
+		)),
+		status: "completed",
+		output: '{"updates":[],"mentioned":{},"lanes":[],"merges":[]}',
+	};
+	const calls: string[][] = [];
+	const caller = createCliEvaluationCaller(
+		"org_example",
+		"example.evaluate_ledger_model",
+		async (args) => {
+			calls.push(args);
+			return JSON.stringify(response);
+		},
+	);
+	expect(await caller(input)).toEqual(response);
+	expect(calls).toEqual([
+		[
+			"-w",
+			"connect",
+			"--organization",
+			"org_example",
+			"code",
+			`async () => await example.evaluate_ledger_model(JSON.parse(${JSON.stringify(JSON.stringify(input))}))`,
+			"--json",
+		],
+	]);
+	expect(() =>
+		createCliEvaluationCaller("org_example", "example.other_tool"),
+	).toThrow("exact authorized discovered");
+	expect(() =>
+		createCliEvaluationCaller(
+			"org_example",
+			"example.evaluate_ledger_model; sideEffect()",
+		),
+	).toThrow();
+});
+
+it("stops on CLI policy approval or transport failures without dispatching a replacement", async () => {
+	const input = {
+		surface: "status",
+		caseId: "trim-tabs",
+		promptVariant: "production",
+		modelRef: "azure-openai/gpt-6-astra",
+		evaluationId: "10000000-0000-4000-8000-000000000001",
+	} as const;
+	let calls = 0;
+	const approval = createCliEvaluationCaller(
+		"org_example",
+		"example.evaluate_ledger_model",
+		async () => {
+			calls++;
+			return JSON.stringify({
+				status: "requires_approval",
+				approvalId: "fictional",
+			});
+		},
+	);
+	await expect(approval(input)).rejects.toThrow(
+		"requires authorization, approval or result review",
+	);
+	expect(calls).toBe(1);
+	const denied = createCliEvaluationCaller(
+		"org_example",
+		"example.evaluate_ledger_model",
+		async () => {
+			calls++;
+			throw new Error("FORBIDDEN");
+		},
+	);
+	await expect(denied(input)).rejects.toThrow("did not complete");
+	expect(calls).toBe(2);
 });
