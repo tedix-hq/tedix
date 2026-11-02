@@ -12,7 +12,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 			size={size}
 			data-slot="input"
 			className={cn(
-				"w-full min-w-0 max-sm:min-h-11 coarse:min-h-11",
+				"w-full min-w-0 max-sm:min-h-11 pointer-coarse:min-h-11",
 				className,
 			)}
 			{...props}
