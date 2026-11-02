@@ -11,7 +11,7 @@ import {
 } from "./push-range-selection.mjs";
 import { detachedGitEnv } from "../oss/git-env";
 
-function git(repo, args) {
+function git(repo: string, args: string[]) {
 	const result = Bun.spawnSync(["git", ...args], {
 		cwd: repo,
 		env: detachedGitEnv(),
@@ -22,7 +22,7 @@ function git(repo, args) {
 	return result.stdout.toString().trim();
 }
 
-function commit(repo, subject) {
+function commit(repo: string, subject: string) {
 	git(repo, [
 		"-c",
 		"user.name=Tedix Test",
@@ -35,7 +35,7 @@ function commit(repo, subject) {
 	return git(repo, ["rev-parse", "HEAD"]);
 }
 
-function writeAndCommit(repo, file) {
+function writeAndCommit(repo: string, file: string) {
 	writeFileSync(join(repo, file), `${file}\n`);
 	git(repo, ["add", file]);
 	return commit(repo, "add fixture file");

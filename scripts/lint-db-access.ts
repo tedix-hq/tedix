@@ -309,7 +309,7 @@ export function analyzeDbAccessPolicy(
 	validateSorted("directD1", manifest.directD1, failures);
 	for (const [path, entry] of Object.entries(manifest.directD1)) {
 		validateReason("directD1", path, entry, failures);
-		if (entry.storagePlane === "do-local-sqlite") {
+		if ((entry.storagePlane as StoragePlane) === "do-local-sqlite") {
 			failures.push(
 				`${path}: direct D1 exceptions cannot use the do-local-sqlite plane.`,
 			);

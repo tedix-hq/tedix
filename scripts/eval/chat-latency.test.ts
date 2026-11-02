@@ -96,7 +96,7 @@ describe("live chat eval accounting", () => {
 	test("question samples are counted once per group", () => {
 		expect(
 			summarize([{ operation: "question", ok: true, wallMs: 100 }]).question
-				.count,
+				?.count,
 		).toBe(1);
 	});
 	test("fixed coverage is ten writes and ten questions, with all output kinds and edits", () => {
@@ -311,7 +311,7 @@ describe("live chat eval accounting", () => {
 
 describe("scratch archive readback", () => {
 	test("retries failed cleanup reads without a mutation and preserves exhausted errors", async () => {
-		const delays: number[] = [];
+		const delays: (number | Date)[] = [];
 		let reads = 0;
 		const inventory = { items: [], truncated: false };
 		expect(
@@ -320,7 +320,7 @@ describe("scratch archive readback", () => {
 					if (++reads < 3) throw new Error("Rate limit exceeded");
 					return inventory;
 				},
-				async (ms: number) => {
+				async (ms) => {
 					delays.push(ms);
 				},
 			),
@@ -342,7 +342,7 @@ describe("scratch archive readback", () => {
 	test("retries null bounded writes until a separate read confirms the archive", async () => {
 		let writes = 0;
 		let reads = 0;
-		const delays = [];
+		const delays: (number | Date)[] = [];
 		const result = await archiveWithReadback(
 			async () => {
 				writes++;
@@ -352,7 +352,7 @@ describe("scratch archive readback", () => {
 				reads++;
 				return { status: writes >= 3 ? "archived" : "active" };
 			},
-			(state) => state?.status === "archived",
+			(state: { status?: string } | null) => state?.status === "archived",
 			async (ms) => {
 				delays.push(ms);
 			},
@@ -363,12 +363,12 @@ describe("scratch archive readback", () => {
 		expect(delays).toEqual([1000, 2000]);
 	});
 	test("an archive receipt alone cannot pass; missing readback exhausts bounded backoff", async () => {
-		const delays = [];
+		const delays: (number | Date)[] = [];
 		await expect(
 			archiveWithReadback(
 				async () => ({ status: "archived" }),
 				async () => null,
-				(state) => state?.status === "archived",
+				(state: { status?: string } | null) => state?.status === "archived",
 				async (ms) => {
 					delays.push(ms);
 				},

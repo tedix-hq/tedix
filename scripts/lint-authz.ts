@@ -231,12 +231,14 @@ function analyze(files: string[]): Analysis {
 		const src = readFileSync(file, "utf8");
 		sources.set(file, src);
 		for (const match of src.matchAll(BLOCK_RE)) {
+			if (match[1] === undefined || match[2] === undefined) continue;
 			defs.set(`${file}::${match[1]}`, match[2]);
 		}
 		const localToFile = new Map<string, string>();
 		for (const match of src.matchAll(
 			/import\s*(?:type\s*)?\{([^}]+)\}\s*from\s*["'](\.[^"']+)["']/g,
 		)) {
+			if (match[1] === undefined || match[2] === undefined) continue;
 			const target = resolveImport(file, match[2]);
 			if (!target) continue;
 			for (const raw of match[1].split(",")) {
@@ -297,7 +299,7 @@ function resolveGuards(
 	// Seed the memo before recursing so an import cycle terminates.
 	memo.set(key, none);
 
-	const chain = rhs.split(".handler(")[0];
+	const chain = rhs.split(".handler(")[0] ?? "";
 	const parentName = chain.match(/^\s*(\w+)/)?.[1];
 	const parent =
 		parentName && parentName !== name
@@ -372,6 +374,7 @@ export function collectAuthzFindings(
 
 		for (const match of src.matchAll(BLOCK_RE)) {
 			const [, name, rhs] = match;
+			if (name === undefined || rhs === undefined) continue;
 			if (rhs.includes(".router({")) {
 				for (const inline of collectInlineHandlers(rhs)) {
 					const baseName = inline.chain.match(/^\s*(\w+)/)?.[1];
@@ -411,7 +414,7 @@ export function collectAuthzFindings(
 				continue;
 			}
 			if (!rhs.includes(".handler(")) continue;
-			const chain = rhs.split(".handler(")[0];
+			const chain = rhs.split(".handler(")[0] ?? "";
 			const baseName = chain.match(/^\s*(\w+)/)?.[1];
 			if (!baseName) continue;
 
