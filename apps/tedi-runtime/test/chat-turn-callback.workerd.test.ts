@@ -30,6 +30,39 @@ async function probe(params: CallbackFixtureOptions = {}) {
 	return (await instance.getOutput()) as Proof;
 }
 
+it("passes the actual native Workflow instance through the admitted parent boundary", async () => {
+	const f = await probe({ dispatchJournal: "matching" });
+	expect(f.error).toBeUndefined();
+	expect(f.result?.text).toBe("fixture response");
+	expect(f.stats.modelCalls).toBe(1);
+});
+
+for (const settled of [false, true]) {
+	it.each([
+		[
+			"wrong-instance",
+			"Native workflow instance changed from admitted dispatch",
+		],
+		["missing-id", "Native workflow instance changed from admitted dispatch"],
+		["changed-input", "Native workflow input changed from admitted dispatch"],
+		["missing-journal", "Native workflow admitted dispatch is missing"],
+	] as const)(
+		`rejects native %s before inference or settled replay (settled=${settled})`,
+		async (dispatchJournal, error) => {
+			const f = await probe({ dispatchJournal, settled });
+			expect(f.error).toContain(error);
+			expect(f.stats.modelCalls).toBe(0);
+		},
+	);
+}
+
+it("returns a settled native turn only for its original dispatch", async () => {
+	const f = await probe({ dispatchJournal: "matching", settled: true });
+	expect(f.error).toBeUndefined();
+	expect(f.result?.text).toBe("settled response");
+	expect(f.stats.modelCalls).toBe(0);
+});
+
 it("reproduces the SDK cached callback rejection after a completed facet turn", async () => {
 	const f = await probe({ cached: true, poisonCached: true });
 	expect(f.error).toContain("memory limit");
