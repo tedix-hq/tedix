@@ -355,7 +355,7 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 					<Text>{stale ? "Current problem unknown" : duty?.lastProblem}</Text>
 				) : null}
 				{!stale ? (
-					<div className="grid gap-2">
+					<div className="grid min-w-0 grid-cols-1 gap-2">
 						{activity?.waiting.map((work) => (
 							<div key={work.id}>
 								<WorkLink work={work} />

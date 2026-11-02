@@ -409,18 +409,29 @@ try {
 		assert.equal(await page.locator("[data-lane-state]").count(), 0);
 		await page.close();
 	}
-	for (const width of [375, 1048, 1280]) {
+	for (const { width, theme } of [375, 1048, 1280].flatMap((width) =>
+		(["light", "dark"] as const).map((theme) => ({ width, theme })),
+	)) {
 		for (const executors of [
 			["tenant.builder", "review-pool", "night-check"],
 			["custom-service"],
 		]) {
-			const page = await browser.newPage({ viewport: { width, height: 900 } });
+			const page = await browser.newPage({
+				viewport: { width, height: 900 },
+				colorScheme: theme,
+			});
+			await page.addInitScript(
+				(value) => localStorage.setItem("tedix-os-theme", value),
+				theme,
+			);
 			let stale = false;
 			const current = "11111111-1111-4111-8111-111111111111";
 			const second = "22222222-2222-4222-8222-222222222222";
 			const completed = "33333333-3333-4333-8333-333333333333";
 			const workTitle =
 				"Build the guide with a detailed tenant-configured task title that stays readable without making every lane row expand";
+			const waitingTitle =
+				"Review the waiting Work with a detailed configured executor title that must end in an ellipsis inside the Next step column";
 			await page.route("**/dispatcherHealth/list**", (route) => {
 				const at = new Date().toISOString();
 				const future = new Date(Date.now() + 60_000).toISOString();
@@ -477,7 +488,7 @@ try {
 											: [
 													{
 														id: second,
-														title: "Review changes",
+														title: waitingTitle,
 														reason: "retry",
 														retryAt: future,
 													},
@@ -518,24 +529,64 @@ try {
 					.getAttribute("href"),
 				`/work/items/${completed}`,
 			);
-			const task = row.getByRole("link", { name: workTitle, exact: true });
-			assert.equal(await task.getAttribute("title"), workTitle);
-			const text = await task
-				.locator('[data-slot="text"]')
-				.evaluate((text) => ({
-					width: text.clientWidth,
-					scroll: text.scrollWidth,
-					height: text.getBoundingClientRect().height,
-					lineHeight: Number.parseFloat(getComputedStyle(text).lineHeight),
-				}));
-			assert.ok(
-				text.width > 0 && text.scroll > text.width,
-				"Long Work titles truncate within the lane column",
-			);
-			assert.ok(
-				text.height <= text.lineHeight + 1,
-				"A long title stays on one line",
-			);
+			assert.equal(await page.locator("html").getAttribute("data-mode"), theme);
+			for (const [title, id, column] of [
+				[workTitle, current, 2],
+				[waitingTitle, second, 4],
+			] as const) {
+				const cell = row.getByRole("cell").nth(column);
+				const task = cell.getByRole("link", { name: title, exact: true });
+				assert.equal(await task.getAttribute("title"), title);
+				assert.equal(await task.getAttribute("href"), `/work/items/${id}`);
+				const text = await task
+					.locator('[data-slot="text"]')
+					.evaluate((text) => ({
+						width: text.clientWidth,
+						scroll: text.scrollWidth,
+						height: text.getBoundingClientRect().height,
+						lineHeight: Number.parseFloat(getComputedStyle(text).lineHeight),
+						overflow: getComputedStyle(text).textOverflow,
+					}));
+				assert.ok(
+					text.width > 0 && text.scroll > text.width,
+					`${width}/${theme}: ${title} truncates within its column`,
+				);
+				assert.equal(text.overflow, "ellipsis");
+				assert.ok(
+					text.height <= text.lineHeight + 1,
+					"A long title stays on one line",
+				);
+				await task.focus();
+				await page.keyboard.press("Tab");
+				await page.keyboard.press("Shift+Tab");
+				const bounds = await task.evaluate((link) => {
+					const rect = link.getBoundingClientRect();
+					const cell = link.closest("td")!.getBoundingClientRect();
+					return {
+						focused: document.activeElement === link,
+						visible: link.matches(":focus-visible"),
+						left: rect.left,
+						right: rect.right,
+						cellLeft: cell.left,
+						cellRight: cell.right,
+						shadow: getComputedStyle(link).boxShadow,
+					};
+				});
+				assert.ok(
+					bounds.focused && bounds.visible,
+					"Work links retain keyboard focus",
+				);
+				assert.notEqual(bounds.shadow, "none");
+				assert.ok(
+					bounds.left - 2 >= bounds.cellLeft &&
+						bounds.right + 2 <= bounds.cellRight,
+					`${width}/${theme}: Work link and focus ring stay inside their cell`,
+				);
+				assert.ok(
+					bounds.left - 2 >= 0 && bounds.right + 2 <= width,
+					"Work link and focus ring stay inside the viewport",
+				);
+			}
 			if (executors.length > 1)
 				assert.equal(
 					await section.getByText("Ready", { exact: true }).count(),
@@ -552,7 +603,7 @@ try {
 				),
 			);
 			await section.screenshot({
-				path: `${evidence}/activity-${executors.length}-${width}.png`,
+				path: `${evidence}/activity-${executors.length}-${width}-${theme}.png`,
 			});
 			stale = true;
 			await page.reload();
