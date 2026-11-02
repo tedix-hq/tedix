@@ -455,6 +455,11 @@ interface Receipt {
 	repo?: string;
 	baseCommit?: string;
 	commits?: string[];
+	recoveredCommits?: Array<{
+		commitSha: string;
+		attemptId: string;
+		session: string;
+	}>;
 	skillRevisionProof?: SkillRevisionProof;
 	pendingCommitProof?: string;
 	laneResult?: LaneResult;
@@ -879,6 +884,14 @@ export async function landedLaneCommits(
 		},
 		sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
 	},
+	recovery?: {
+		workItemId: string;
+		verifySession: (
+			session: string,
+			commitSha: string,
+			committedAt: number,
+		) => Promise<boolean>;
+	},
 ): Promise<string[]> {
 	const candidates = new Set([
 		...(finalMessage.match(/\b[0-9a-f]{40}\b/gi) ?? []).map((sha) =>
@@ -903,11 +916,37 @@ export async function landedLaneCommits(
 			encoding: "utf8",
 			timeout: 10_000,
 		}).status === 0;
-	// A cited commit the lane started from is history, not this lane's result.
-	return [...candidates].filter(
-		(sha) =>
-			isAncestor(sha, "refs/remotes/origin/main") && !isAncestor(sha, base),
-	);
+	const landed: string[] = [];
+	for (const sha of candidates) {
+		if (!isAncestor(sha, "refs/remotes/origin/main")) continue;
+		if (!isAncestor(sha, base)) {
+			landed.push(sha);
+			continue;
+		}
+		// Historical proof must retain its original Work and executor custody.
+		if (!recovery) continue;
+		const trailers = gitOutput(repo, [
+			"show",
+			"-s",
+			"--format=%(trailers:only,unfold)",
+			sha,
+		]).split("\n");
+		const work = trailers.filter((line) => /^Work-Item:/i.test(line));
+		const sessions = trailers.filter((line) => /^Agent-Session:/i.test(line));
+		if (
+			work.length !== 1 ||
+			work[0] !== `Work-Item: ${recovery.workItemId}` ||
+			sessions.length !== 1
+		)
+			continue;
+		const session = sessions[0]!.slice("Agent-Session:".length).trim();
+		const committedAt = Date.parse(
+			gitOutput(repo, ["show", "-s", "--format=%cI", sha]),
+		);
+		if (session && (await recovery.verifySession(session, sha, committedAt)))
+			landed.push(sha);
+	}
+	return landed;
 }
 
 export async function installLaneDependencies(repo: string) {
@@ -2329,6 +2368,76 @@ export class LaneDispatcher {
 			);
 		return undefined;
 	}
+	private async checkCommitCustody(
+		receipt: Receipt,
+		session: string,
+		commitSha: string,
+		committedAt: number,
+	) {
+		if (
+			receipt.admissionState !== "admitted" ||
+			!receipt.session ||
+			!receipt.executorKey ||
+			!receipt.attemptId
+		)
+			throw new LaneOutcomeReadError(
+				"Original admitted receipt is unavailable",
+			);
+		await this.checkResultFence(receipt);
+		let history: { data: WorkAttempt[]; nextCursor: string | null };
+		try {
+			history = await this.call(
+				[
+					"work",
+					"dispatch-attempts",
+					receipt.itemId,
+					"--input",
+					'{"limit":100}',
+				],
+				receipt.session,
+				receipt.executorKey,
+			);
+		} catch (error) {
+			throw new LaneOutcomeReadError(String(error));
+		}
+		if (!Array.isArray(history.data) || history.nextCursor !== null)
+			throw new LaneOutcomeReadError(
+				"Complete commit custody history is unavailable",
+			);
+		// A native session can have several Attempts. Bind the commit to the
+		// unique admitted interval, rather than picking its latest Attempt.
+		const originals = history.data.filter(
+			(row) =>
+				row.externalSessionKey === session &&
+				Date.parse(row.startedAt) <= committedAt &&
+				committedAt <=
+					Math.min(
+						Date.parse(row.expiresAt ?? ""),
+						row.finishedAt ? Date.parse(row.finishedAt) : Infinity,
+					),
+		);
+		const original = originals[0];
+		if (
+			!(
+				originals.length === 1 &&
+				!!original &&
+				original.workItemId === receipt.itemId &&
+				!!original.admissionId &&
+				original.metadata?.dispatchVersion === receipt.version &&
+				(original.id === receipt.attemptId ||
+					original.outcome === "failed" ||
+					original.outcome === "expired")
+			)
+		)
+			return false;
+		receipt.recoveredCommits = [
+			...(receipt.recoveredCommits ?? []).filter(
+				(row) => row.commitSha !== commitSha,
+			),
+			{ commitSha, attemptId: original.id, session },
+		];
+		return true;
+	}
 	private async checkResultFence(receipt: Receipt) {
 		const result = receipt.laneResult!;
 		let detail: { workItem: DispatchItem & { orgId: string } };
@@ -2351,6 +2460,7 @@ export class LaneDispatcher {
 		const latest = history.data?.[0];
 		if (
 			!work ||
+			work.id !== receipt.itemId ||
 			work.id !== result.workItemId ||
 			work.disposition !== "accepted" ||
 			work.version !== receipt.version ||
@@ -2389,6 +2499,7 @@ export class LaneDispatcher {
 				return;
 			}
 			try {
+				delete receipt.recoveredCommits;
 				if (
 					receipt.laneResult?.outcome === "already_satisfied" ||
 					receipt.laneResult?.outcome === "waiting_on_user"
@@ -2407,6 +2518,15 @@ export class LaneDispatcher {
 						receipt.repo!,
 						receipt.baseCommit!,
 						receipt.pendingCommitProof,
+						undefined,
+						receipt.outcome === "succeeded" &&
+							receipt.laneResult?.outcome === "completed"
+							? {
+									workItemId: receipt.itemId,
+									verifySession: (session, sha, at) =>
+										this.checkCommitCustody(receipt, session, sha, at),
+								}
+							: undefined,
 					);
 				if (
 					receipt.outcome === "succeeded" &&
@@ -2460,6 +2580,9 @@ export class LaneDispatcher {
 							session: receipt.session,
 							usage: receipt.telemetry?.usage ?? null,
 							...(receipt.laneResult ? { laneResult: receipt.laneResult } : {}),
+							...(receipt.recoveredCommits?.length
+								? { recoveredCommits: receipt.recoveredCommits }
+								: {}),
 							...(receipt.existingProof
 								? { settlement: receipt.existingProof }
 								: {}),

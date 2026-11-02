@@ -3454,6 +3454,56 @@ it("extracts and deduplicates final-message and local commits, accepting only or
 	await expect(landedLaneCommits(repo, "f".repeat(40), "")).rejects.toThrow();
 });
 
+it("recovers cited same-Work history only with original session custody on origin/main", async () => {
+	const { repo, git } = gitFixture(true);
+	const session = "codex:original-session";
+	const commit = (trailers: string) => {
+		git([
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			`Fix\n\n${trailers}`,
+		]);
+		return git(["rev-parse", "HEAD"]);
+	};
+	const sameWork = commit(`Work-Item: ${item().id}\nAgent-Session: ${session}`);
+	const unrelated = commit(
+		`Work-Item: ${item(2).id}\nAgent-Session: ${session}`,
+	);
+	const missing = commit(`Work-Item: ${item().id}`);
+	const duplicate = commit(
+		`Work-Item: ${item().id}\nWork-Item: ${item(2).id}\nAgent-Session: ${session}`,
+	);
+	git(["push", "origin", "main"]);
+	const base = git(["rev-parse", "HEAD"]);
+	const unlanded = commit(`Work-Item: ${item().id}\nAgent-Session: ${session}`);
+	const verified: string[] = [];
+	const recovery = {
+		workItemId: item().id,
+		verifySession: async (value: string) => {
+			verified.push(value);
+			return value === session;
+		},
+	};
+	const message = [sameWork, unrelated, missing, duplicate, unlanded].join(" ");
+	expect(await landedLaneCommits(repo, base, message)).toEqual([]);
+	expect(
+		await landedLaneCommits(repo, base, message, undefined, recovery),
+	).toEqual([sameWork]);
+	expect(verified).toEqual([session]);
+	expect(await landedLaneCommits(repo, base, "", undefined, recovery)).toEqual(
+		[],
+	);
+	expect(
+		await landedLaneCommits(repo, base, sameWork, undefined, {
+			...recovery,
+			verifySession: async () => false,
+		}),
+	).toEqual([]);
+});
+
 it("normalizes only volatile diagnostics while preserving error identity", () => {
 	const first = new CliReadError(
 		"Denied 11111111-1111-4111-8111-111111111111 request_id=abc-123 traceparent=00-0123456789abcdef0123456789abcdef-0123456789abcdef-01 timestamp=1792601000 retry after 12 ms",
@@ -3909,6 +3959,148 @@ describe("structured dispatcher outcomes", () => {
 		];
 		return saved;
 	}
+	it.each([
+		"recovered",
+		"laterSessionAttempt",
+		"work",
+		"version",
+		"contract",
+		"text",
+		"attempt",
+		"session",
+		"expired",
+		"dispatchVersion",
+		"originalVersion",
+		"originalWork",
+		"originalAdmission",
+		"outsideInterval",
+		"missing",
+		"ambiguous",
+		"peer",
+		"truncated",
+		"offline",
+	])(
+		"retains historical commit proof and original custody across restart: %s",
+		async (state) => {
+			const { repo, git } = gitFixture(true);
+			const originalSession = "codex:original-session";
+			git([
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"--allow-empty",
+				"-m",
+				`Fix\n\nWork-Item: ${item().id}\nAgent-Session: ${originalSession}`,
+			]);
+			const sha = git(["rev-parse", "HEAD"]);
+			git(["push", "origin", "main"]);
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.workKind = "coding";
+			f.control.finalMessage = `Verified original fix ${sha}`;
+			f.deps.baseCommit = () => sha;
+			let offline = true;
+			f.deps.landedCommits = (_repo, base, message, deps, recovery) => {
+				if (offline) throw new LaneCommitFetchError("offline");
+				return landedLaneCommits(repo, base, message, deps, recovery);
+			};
+			const dispatcher = f.restart();
+			await dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			const saved = liveFence(f);
+			Object.assign(f.control.history.data[0]!, { workItemId: item().id });
+			const original = {
+				id: "original-attempt",
+				workItemId: item().id,
+				externalSessionKey: originalSession,
+				outcome: "expired" as string | null,
+				admissionId: "original-admission",
+				startedAt: new Date(Date.now() - 60000).toISOString(),
+				expiresAt: new Date(Date.now() + 60000).toISOString(),
+				finishedAt: new Date(Date.now() + 60000).toISOString(),
+				metadata: { dispatchVersion: 2 },
+			};
+			f.control.history.data.push(original);
+			f.releases[0]!();
+			await dispatcher.drain();
+			const path = join(f.dir, `${item().id}-2.json`);
+			const pending = JSON.parse(readFileSync(path, "utf8"));
+			expect(pending.pendingCommitProof).toContain(sha);
+			offline = false;
+			const current = f.control.history.data[0]!;
+			if (state === "work") f.items[0]!.id = item(2).id;
+			if (state === "version") f.items[0]!.version++;
+			if (state === "contract") f.items[0]!.acceptanceContract!.version++;
+			if (state === "text")
+				f.items[0]!.acceptanceContract!.doneLooksLike = "Changed outcome";
+			if (state === "attempt") current.id = "different-attempt";
+			if (state === "session") current.externalSessionKey = "codex:foreign";
+			if (state === "expired")
+				current.expiresAt = new Date(Date.now() - 1).toISOString();
+			if (state === "dispatchVersion")
+				current.metadata = { dispatchVersion: 1 };
+			if (state === "originalVersion") original.metadata.dispatchVersion = 1;
+			if (state === "originalWork") original.workItemId = item(2).id;
+			if (state === "originalAdmission") original.admissionId = "";
+			if (state === "outsideInterval") original.startedAt = original.finishedAt;
+			if (state === "laterSessionAttempt")
+				f.control.history.data.push({
+					...original,
+					id: "later-attempt",
+					startedAt: original.finishedAt,
+				});
+			if (state === "missing") f.control.history.data.pop();
+			if (state === "ambiguous")
+				f.control.history.data.push({ ...original, id: "duplicate-attempt" });
+			if (state === "peer") original.outcome = null;
+			if (state === "truncated") f.control.history.nextCursor = "more";
+			if (state === "offline") offline = true;
+			pending.retryAt = 0;
+			writeFileSync(path, JSON.stringify(pending));
+			try {
+				await f.restart().tick();
+			} catch (error) {
+				if (state !== "attempt" && state !== "session") throw error;
+			}
+			await f.dispatcher.drain();
+			const settled = f.events.filter((e) => e.verb === "settle");
+			expect(settled).toHaveLength(
+				[
+					"recovered",
+					"laterSessionAttempt",
+					"originalVersion",
+					"originalWork",
+					"originalAdmission",
+					"outsideInterval",
+					"missing",
+					"ambiguous",
+					"peer",
+				].includes(state)
+					? 1
+					: 0,
+			);
+			if (state === "recovered" || state === "laterSessionAttempt") {
+				expect(settled[0]!.args).toContain(sha);
+				expect(settled[0]!.input?.metadata).toMatchObject({
+					recoveredCommits: [
+						{
+							commitSha: sha,
+							attemptId: original.id,
+							session: originalSession,
+						},
+					],
+				});
+				expect(settled[0]!.env.TEDIX_AGENT_SESSION).toBe(saved.session);
+				expect(
+					settled[0]!.args[settled[0]!.args.indexOf("--outcome") + 1],
+				).toBe("succeeded");
+			} else {
+				expect(settled.some((e) => e.args.includes("succeeded"))).toBe(false);
+			}
+			expect(f.releases).toHaveLength(1);
+			expect(JSON.stringify(original)).not.toContain(sha);
+		},
+	);
 	it("retains one human request across ticks, restart and Work edits while fresh Work advances", async () => {
 		const f = fixture();
 		f.items.splice(1);
