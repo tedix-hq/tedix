@@ -1,6 +1,8 @@
 import { settleRequestsWithCompletedWork } from "./agent-session-request-completion";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { DatabaseSync } from "node:sqlite";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { listAgentSessionRequests } from "@tedix/db/queries/agent-session-requests";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
@@ -2211,3 +2213,107 @@ it.each([false, true])(
 		expect(await rows(db)).toHaveLength(1);
 	},
 );
+
+it("routes only intake to its qualified model and exact certified system prompt", async () => {
+	const certificate = JSON.parse(
+		readFileSync(
+			new URL(
+				"../../../../packages/context-core/src/request-ledger-intake-qualified-results.json",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	).features.intake;
+	const run = vi.fn();
+	const fetch = vi.fn().mockImplementation(async () =>
+		Response.json({
+			status: "completed",
+			output: [
+				{
+					type: "message",
+					content: [{ type: "output_text", text: '{"new":[]}' }],
+				},
+			],
+		}),
+	);
+	const model = workersAiLedgerModel(
+		{
+			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_LLM_ID: "example-gateway",
+			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
+			AZURE_OPENAI_RESOURCE: "example-resource",
+		},
+		SCOPE.organizationId,
+	);
+	const deadline = vi.spyOn(AbortSignal, "timeout");
+	try {
+		await model.extractObligations([], "Lead words", "User request");
+		const intake = JSON.parse(fetch.mock.calls[0]![1].body);
+		expect(`azure-openai/${intake.model}`).toBe(certificate.modelRef);
+		expect(createHash("sha256").update(intake.instructions).digest("hex")).toBe(
+			certificate.systemHash,
+		);
+		expect(intake).toMatchObject({
+			max_output_tokens: 6000,
+			reasoning: { effort: "low" },
+			input: requestIntakeInput("Lead words", [], "User request"),
+		});
+		expect(deadline).toHaveBeenCalledWith(24_000);
+		await model(
+			"status system",
+			"status prompt",
+			"agent-session-request-reflector",
+		);
+		await model.reflectReplies!([], "Continue", "Earlier status");
+		await model.reflectLessons!([
+			{
+				id: "fictional-event",
+				body: "No recovery demonstrated.",
+				activity: "",
+			},
+		]);
+		await model(
+			"filing system",
+			"filing prompt",
+			"agent-session-project-routing",
+		);
+		expect(
+			fetch.mock.calls
+				.slice(1)
+				.map(([, request]) => JSON.parse(request.body).model),
+		).toEqual(["gpt-6-astra", "gpt-6-astra", "gpt-6-astra", "gpt-6-astra"]);
+		expect(run).not.toHaveBeenCalled();
+		expect(
+			JSON.parse(fetch.mock.calls[0]![1].headers["cf-aig-metadata"]),
+		).toEqual({
+			surface: "agent-session-request-intake",
+			orgId: SCOPE.organizationId,
+		});
+	} finally {
+		deadline.mockRestore();
+	}
+});
+
+it("does not fall back or retry when qualified intake inference fails", async () => {
+	const run = vi.fn();
+	const fetch = vi
+		.fn()
+		.mockImplementation(
+			async () => new Response("provider failure", { status: 503 }),
+		);
+	const model = workersAiLedgerModel(
+		{
+			AI: { run, fetch } as unknown as Ai,
+			AI_GATEWAY_LLM_ID: "example-gateway",
+			AI_GATEWAY_BINDING_PROVIDERS: "azure-openai",
+			AZURE_OPENAI_RESOURCE: "example-resource",
+		},
+		SCOPE.organizationId,
+	);
+	expect(
+		await model.extractObligations([], "Lead words", "User request"),
+	).toBeNull();
+	expect(fetch).toHaveBeenCalledTimes(1);
+	expect(JSON.parse(fetch.mock.calls[0]![1].body).model).toBe("gpt-6.1-sol");
+	expect(run).not.toHaveBeenCalled();
+});

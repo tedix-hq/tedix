@@ -22,7 +22,7 @@ import {
 
 export type LedgerEvaluationSurface = "status" | "intake" | "reply" | "lesson";
 export type LedgerEvaluationPromptVariant = "production" | "shorter_status";
-export const LEDGER_QUALIFICATION_GRADING_VERSION = 2;
+export const LEDGER_QUALIFICATION_GRADING_VERSION = 4;
 export interface LedgerEvaluationGrade {
 	passed: boolean;
 	failures: string[];
@@ -289,6 +289,7 @@ interface LessonExpectation {
 	trapTerms?: string[][];
 	fixTerms?: string[][];
 	causeTerms?: string[][];
+	methodDirection?: "post_to_get";
 }
 const lessonCases: Array<{
 	id: string;
@@ -509,12 +510,13 @@ const lessonCases: Array<{
 			operation: "read_usage",
 			failureEventId: "http-failure",
 			fixEventId: "http-fix",
-			trapTerms: [["405"], ["post"]],
+			trapTerms: [["post"]],
 			fixTerms: [["get"]],
 			causeTerms: [
-				["method", "verb"],
-				["document", "support", "allow", "read-only"],
+				["get"],
+				["document", "support", "allow", "accept", "require", "only"],
 			],
+			methodDirection: "post_to_get",
 		},
 	},
 	{
@@ -536,6 +538,29 @@ const lessonCases: Array<{
 		count: 0,
 	},
 ];
+function supportsPostToGet(trap: string, fix: string, cause: string): boolean {
+	const problem = `${trap}. ${cause}`;
+	const rejectedPost =
+		/\bpost\b.{0,60}(?:405|reject|not allowed|unsupported|not supported|read.only)|(?:reject\w*|disallow\w*)\s+post\b/.test(
+			problem,
+		);
+	const direction = `${fix}. ${cause}`;
+	const wrongDirection = [
+		...direction.matchAll(
+			/\b(?:use|retry|send|require\w*|support\w*|allow\w*|accept\w*)\s+(?:(?:the|documented)\s+)?post\b/g,
+		),
+	].some(
+		(match) =>
+			!/(?:not|never|avoid|don't|doesn't|instead of|rather than)\s+$/.test(
+				direction.slice(0, match.index),
+			),
+	);
+	const rejectedGet =
+		/(?:not|never|cannot|avoid|reject\w*|disallow\w*)\s+(?:(?:use|using|support\w*|allow\w*)\s+){0,2}get\b|\bget\b\s+(?:is\s+)?(?:unsupported|rejected|disallowed|not supported|not allowed)/.test(
+			`${fix}. ${cause}`,
+		);
+	return rejectedPost && !wrongDirection && !rejectedGet;
+}
 function adoptsDelivery(text: string): boolean {
 	const normalized = text.toLowerCase().replace(/’/g, "'");
 	for (const match of normalized.matchAll(
@@ -773,10 +798,11 @@ export function getLedgerEvaluationCase(
 				const actualUpdates = sorted(
 					(updates ?? []).map((row) => [row.ref, row.status]),
 				);
-				// These two historical inputs do not uniquely establish an intermediate status.
+				// These historical inputs do not uniquely establish an intermediate status.
 				// Explicit held-out cases separately pin started work and a missing human verdict.
 				const allowedUpdates =
-					test.id === "missing-tool-error"
+					test.id === "missing-tool-error" ||
+					test.id === "do-not-close-live-with-local"
 						? [[], [["r1", "in_progress"]]]
 						: test.id === "acted-thread-rule"
 							? [[], [["r1", "waiting_on_user"]]]
@@ -817,7 +843,10 @@ export function getLedgerEvaluationCase(
 						)
 						.sort(),
 					mentions.has(test.id) ||
-						(test.id === "acted-thread-rule" && updates?.length === 0)
+						(["acted-thread-rule", "do-not-close-live-with-local"].includes(
+							test.id,
+						) &&
+							updates?.length === 0)
 						? ["r1"]
 						: [],
 					"mentioned refs",
@@ -829,6 +858,19 @@ export function getLedgerEvaluationCase(
 					parseLedgerMentions(raw, refs, source).has("r1")
 				)
 					failures.push("redundant acted-thread mention");
+				if (test.id === "do-not-close-live-with-local") {
+					if (!Array.isArray(value?.lanes) || value.lanes.length)
+						failures.push("unexpected Cloud lane");
+					if (!Array.isArray(value?.merges) || value.merges.length)
+						failures.push("unexpected Cloud merge");
+					if (
+						updates?.length &&
+						value?.mentioned &&
+						typeof value.mentioned === "object" &&
+						Object.keys(value.mentioned).length
+					)
+						failures.push("redundant Cloud mention");
+				}
 				for (const field of ["updates", "lanes", "merges"])
 					if (
 						Array.isArray(value?.[field]) &&
@@ -943,6 +985,11 @@ export function getLedgerEvaluationCase(
 								)
 							)
 								failures.push("lesson causal fix terms");
+						if (
+							expected.methodDirection === "post_to_get" &&
+							!supportsPostToGet(trap ?? "", fix ?? "", cause)
+						)
+							failures.push("lesson HTTP method direction");
 					}
 				}
 				return grade(parsed, failures);
