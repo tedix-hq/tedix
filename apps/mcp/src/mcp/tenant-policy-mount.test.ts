@@ -24,7 +24,10 @@ vi.mock("../aggregate-surface", () => ({
 }));
 vi.mock("../lib/api-client", () => ({
 	getApiClient: () => ({
-		apps: { getByIdWithTools: mocks.getApp },
+		apps: {
+			getByIdWithTools: mocks.getApp,
+			getPolicyMountMetadata: mocks.getApp,
+		},
 		tedis: { listRuntimeMetaBySlugs: mocks.listRuntimeMetaBySlugs },
 	}),
 }));
