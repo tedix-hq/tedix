@@ -1684,6 +1684,31 @@ export class LaneDispatcher {
 				throw new Error(
 					"Canonical history has a live Attempt or a completed dispatcher result; admission remains held",
 				);
+			// Use settled Attempt history rather than agent prose or a local retry
+			// window. A restart, reroute or elapsed delay cannot repair the same brief.
+			const failedExecutions = history.data.filter(
+				(attempt) =>
+					attempt.metadata?.dispatchVersion === item.version &&
+					(attempt.outcome === "failed" || attempt.outcome === "expired"),
+			).length;
+			if (failedExecutions >= 3) {
+				receipt.held = true;
+				// This is an execution hold, not a timed admission rejection.
+				delete receipt.admissionFailure;
+				receipt.note = `Automatic execution held after ${failedExecutions} failed or expired Attempts on Work revision ${item.version}. Resolve the blocker and revise the Work brief before retrying; elapsed time alone does not release this hold.`;
+				this.save(path, receipt);
+				this.log("execution-held", item.id, receipt.note);
+				if (!receipt.failureCommented) {
+					receipt.failureCommented = true;
+					this.save(path, receipt);
+					try {
+						await this.call(["work", "comment", item.id, receipt.note]);
+					} catch (error) {
+						this.log("failure-comment-unconfirmed", item.id, String(error));
+					}
+				}
+				return;
+			}
 			// `skill show` returns a bounded summary; the full SKILL.md comes
 			// from `--file`, so read the state first and the content second.
 			const skill = await this.call<

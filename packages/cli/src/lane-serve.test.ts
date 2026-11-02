@@ -4335,3 +4335,80 @@ it("publishes only canonical completed Work, never a cancelled succeeded receipt
 			.lastCompleted,
 	).toEqual({ id: item(1).id, completedAt: at });
 });
+
+it("holds exhausted canonical execution failures across windows and restarts while other Work completes", async () => {
+	const f = fixture({ max: 1 });
+	f.items.splice(1);
+	f.control.history.data = ["failed", "expired", "failed"].map(
+		(outcome, n) => ({
+			id: `failure-${n}`,
+			outcome,
+			summary: `Different agent wording ${n}`,
+			metadata: { dispatchVersion: 2 },
+		}),
+	);
+	await f.dispatcher.tick();
+	const path = join(f.dir, `${item().id}-2.json`);
+	await until(
+		() =>
+			f.releases.length > 0 ||
+			(existsSync(path) &&
+				JSON.parse(readFileSync(path, "utf8")).phase === "deferred"),
+	);
+	for (const release of f.releases) release();
+	await f.dispatcher.drain();
+	expect(f.releases).toHaveLength(0);
+	const saved = JSON.parse(readFileSync(path, "utf8"));
+	expect(saved.held).toBe(true);
+	expect(saved.attemptId).toBeUndefined();
+	// Passing a retry deadline must not buy more model calls.
+	saved.retryAt = 0;
+	saved.retryDeadlineAt = 0;
+	writeFileSync(path, JSON.stringify(saved));
+	await f.restart().tick();
+	expect(f.releases).toHaveLength(0);
+	expect(f.events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	const next = { ...item(2), version: 3 };
+	f.items.push(next);
+	const restarted = f.restart();
+	await restarted.tick();
+	await until(() => f.releases.length === 1);
+	f.releases[0]!();
+	await restarted.drain();
+	expect(
+		JSON.parse(readFileSync(join(f.dir, `${next.id}-3.json`), "utf8")),
+	).toMatchObject({
+		outcome: "succeeded",
+		completionPending: false,
+	});
+	// A revised brief has its own budget and still needs a fresh admission.
+	f.items.splice(1);
+	f.items[0]!.version = 3;
+	await restarted.tick();
+	await until(() => f.releases.length === 2);
+	f.releases[1]!();
+	await restarted.drain();
+	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
+});
+
+it("does not count manual or older revision failures against automatic execution", async () => {
+	const f = fixture();
+	f.items.splice(1);
+	f.control.history.data = [
+		...Array.from({ length: 4 }, (_, n) => ({
+			id: `manual-${n}`,
+			outcome: "failed",
+		})),
+		...Array.from({ length: 4 }, (_, n) => ({
+			id: `old-${n}`,
+			outcome: "failed",
+			metadata: { dispatchVersion: 1 },
+		})),
+		{ id: "current", outcome: "failed", metadata: { dispatchVersion: 2 } },
+	];
+	await f.dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	f.releases[0]!();
+	await f.dispatcher.drain();
+	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
+});
