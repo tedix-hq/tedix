@@ -19,6 +19,7 @@ import {
 } from "@/components/kumo/collapsible";
 import { MetricGrid, MetricItem } from "@/components/kumo/metric-grid";
 import { Text } from "@/components/kumo/text";
+import { SkillAnatomySection } from "@/components/skill-anatomy-section";
 import { SkillBundleTree } from "@/components/skill-bundle-tree";
 import { useOsFormattingPreferences, formatCount } from "@/lib/format";
 import {
@@ -60,6 +61,7 @@ export function SkillOverviewPage() {
 				successCount={skill.successCount}
 				failureCount={skill.failureCount}
 			/>
+			<SkillAnatomySection skill={skill} runs={runs.data?.runs ?? []} />
 			<PageSection aria-labelledby="skill-recent-runs-title">
 				<SectionHeader>
 					<SectionHeading>

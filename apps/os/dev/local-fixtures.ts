@@ -1818,15 +1818,35 @@ const localSkillReactivations = new Map<
 >();
 
 function fixtureSkillEntry(entry: (typeof SKILLS)[number]) {
+	// The revenue skill is the fixture's executable example: its saved
+	// workflow source and declared params drive the overview's anatomy
+	// section, matched against the fixture's recorded runs.
+	const executable =
+		entry.id === SKILL_REVENUE
+			? {
+					files: { "scripts/workflow.ts": LOCAL_WORKFLOW_SOURCE },
+					inputSchema: {
+						type: "object",
+						properties: {
+							period: {
+								type: "string",
+								description: "Reporting period to summarize",
+							},
+						},
+						required: ["period"],
+					} as SkillEntry["inputSchema"],
+				}
+			: {};
+	const withWorkflow = { ...entry, ...executable };
 	const reactivation = localSkillReactivations.get(entry.id);
 	return reactivation
 		? {
-				...entry,
+				...withWorkflow,
 				...reactivation,
 				lifecycleState: "active" as const,
 				paceLayer: "differentiation" as const,
 			}
-		: entry;
+		: withWorkflow;
 }
 
 /** The skills the revenue workspace's fixture schedule list starts with. */
@@ -1884,8 +1904,31 @@ const runtimeProvenanceNulls = {
 	tenantSubRequests: null,
 };
 
-const LOCAL_WORKFLOW_SOURCE =
-	"export default {\n\tasync run(step, params) {\n\t\tconst orders = await step.call('storefront.list_orders', params);\n\t\treturn { published: true, certification: { passed: true }, orders };\n\t},\n};\n";
+const LOCAL_WORKFLOW_SOURCE = `export default {
+	async run(event, step, env) {
+		const period = event.payload?.period ?? "last_7_days";
+		const orders = await step.do(
+			"fetch-orders",
+			{ retries: { limit: 2, delay: "1 second" }, timeout: "30 seconds" },
+			async () => env.MCP.storefront.list_orders({ period }),
+		);
+		for (let i = 0; i < orders.items.length; i++) {
+			await step.do(\`summarize-line-\${i}\`, async () => orders.items[i]);
+		}
+		await step.waitForEvent("publish-approval", {
+			type: "approval",
+			timeout: "24 hours",
+		});
+		await step.do(
+			"publish-sheet",
+			{ timeout: "1 minute" },
+			async () => env.MCP.sheets.write_report({ orders }),
+			{ rollback: async () => env.MCP.sheets.retract_report({}) },
+		);
+		return { published: true, certification: { passed: true }, orders };
+	},
+};
+`;
 type LocalSkillDraft = SkillEntry;
 const seedSkillDrafts = (): LocalSkillDraft[] => [
 	{
