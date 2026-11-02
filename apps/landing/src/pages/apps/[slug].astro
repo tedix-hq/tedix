@@ -1015,9 +1015,9 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 				)}
 
 				<!-- Zone 1 Content Grid -->
-				<div class="grid gap-8 lg:grid-cols-3">
+				<div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
 					<!-- Left Column: Main Content (2 cols) -->
-					<div class="lg:col-span-2 space-y-8">
+					<div class="min-w-0 lg:col-span-2 space-y-8">
 						<!-- Description -->
 						{appDescription && (
 							<Card className="rounded-2xl">
@@ -1504,7 +1504,7 @@ const cleanStructuredData = structuredData ? JSON.parse(JSON.stringify(structure
 						</div>
 					)}
 
-					<div class="grid gap-8 lg:grid-cols-3">
+					<div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
 						<!-- Left Column: Server Status + Keywords + Model Context (2 cols) -->
 						<div class="min-w-0 lg:col-span-2 space-y-8">
 
