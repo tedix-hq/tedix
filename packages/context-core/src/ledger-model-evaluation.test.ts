@@ -5,6 +5,7 @@ import {
 	getLedgerEvaluationCase,
 	hashLedgerEvaluationCase,
 	listLedgerEvaluationCases,
+	LEDGER_QUALIFICATION_GRADING_VERSION,
 } from "./ledger-model-evaluation";
 
 describe("fixed ledger model qualification", () => {
@@ -24,7 +25,7 @@ describe("fixed ledger model qualification", () => {
 				getLedgerEvaluationCase("reply", row.id)!.grade(row.raw),
 				row.id,
 			).toMatchObject({ passed: true });
-		expect(listLedgerEvaluationCases()).toHaveLength(91);
+		expect(listLedgerEvaluationCases()).toHaveLength(93);
 	});
 	it("rejects malformed response on every case, including expected empty cases", () => {
 		for (const row of listLedgerEvaluationCases())
@@ -309,4 +310,174 @@ it("rejects adopted delivery anywhere in draft-only replies while retaining expl
 		"Create the draft; send no messages",
 	])
 		expect(result(text).passed, text).toBe(true);
+});
+
+it("adjudicates only the two ambiguous intermediate statuses while retaining lane, mention and terminal constraints", () => {
+	expect(LEDGER_QUALIFICATION_GRADING_VERSION).toBe(2);
+	const missing = getLedgerEvaluationCase("status", "missing-tool-error")!;
+	const lane = {
+		ref: "r1",
+		running: true,
+		evidence: "Both belong to the running CLI repair lane.",
+	};
+	const progress = {
+		ref: "r1",
+		status: "in_progress",
+		evidence: "Both belong to the running CLI repair lane.",
+	};
+	for (const updates of [[], [progress]])
+		expect(
+			missing.grade(
+				JSON.stringify({ updates, lanes: [lane], mentioned: {}, merges: [] }),
+			).passed,
+		).toBe(true);
+	expect(
+		missing.grade(
+			JSON.stringify({ updates: [], lanes: [], mentioned: {}, merges: [] }),
+		).passed,
+	).toBe(false);
+	for (const status of ["done", "cancelled", "waiting_on_user"])
+		expect(
+			missing.grade(
+				JSON.stringify({
+					updates: [{ ...progress, status, operational: true }],
+					lanes: [lane],
+					mentioned: {},
+					merges: [],
+				}),
+			).passed,
+			status,
+		).toBe(false);
+	const acted = getLedgerEvaluationCase("status", "acted-thread-rule")!;
+	const quote = "I will add that rule once your verdict is logged.";
+	const waiting = { ref: "r1", status: "waiting_on_user", evidence: quote };
+	expect(
+		acted.grade(
+			JSON.stringify({
+				updates: [],
+				lanes: [],
+				mentioned: { r1: quote },
+				merges: [],
+			}),
+		).passed,
+	).toBe(true);
+	expect(
+		acted.grade(
+			JSON.stringify({
+				updates: [waiting],
+				lanes: [],
+				mentioned: {},
+				merges: [],
+			}),
+		).passed,
+	).toBe(true);
+	expect(
+		acted.grade(
+			JSON.stringify({
+				updates: [waiting],
+				lanes: [],
+				mentioned: { r1: quote },
+				merges: [],
+			}),
+		).passed,
+	).toBe(false);
+	expect(
+		acted.grade('{"updates":[],"lanes":[],"mentioned":{},"merges":[]}').passed,
+	).toBe(false);
+	for (const status of ["done", "cancelled", "in_progress"])
+		expect(
+			acted.grade(
+				JSON.stringify({
+					updates: [{ ...waiting, status, operational: true }],
+					lanes: [],
+					mentioned: {},
+					merges: [],
+				}),
+			).passed,
+			status,
+		).toBe(false);
+});
+
+it("strictly distinguishes explicit started repair, merely planned sibling work, and an absent human verdict", () => {
+	for (const variant of ["production", "shorter_status"] as const) {
+		const repair = getLedgerEvaluationCase(
+			"status",
+			"scope-explicit-started-repair-vs-plan",
+			variant,
+		)!;
+		const raw = {
+			updates: [
+				{
+					ref: "r1",
+					status: "in_progress",
+					evidence: "Codex has started repairing the CLI errors.",
+				},
+			],
+			lanes: [
+				{
+					ref: "r1",
+					running: true,
+					evidence:
+						"Started delegated CLI repair task; editing the argument parser now.",
+				},
+			],
+			mentioned: { r2: "dashboard redesign is only a proposal" },
+			merges: [],
+		};
+		expect(repair.grade(JSON.stringify(raw)).passed).toBe(true);
+		for (const status of ["done", "cancelled", "waiting_on_user"])
+			expect(
+				repair.grade(
+					JSON.stringify({
+						...raw,
+						updates: [{ ...raw.updates[0], status, operational: true }],
+					}),
+				).passed,
+				status,
+			).toBe(false);
+		expect(repair.grade(JSON.stringify({ ...raw, lanes: [] })).passed).toBe(
+			false,
+		);
+		expect(repair.grade(JSON.stringify({ ...raw, mentioned: {} })).passed).toBe(
+			false,
+		);
+		const verdict = getLedgerEvaluationCase(
+			"status",
+			"scope-explicit-missing-human-verdict",
+			variant,
+		)!;
+		const blocked = {
+			updates: [
+				{
+					ref: "r1",
+					status: "waiting_on_user",
+					evidence:
+						"Execution is blocked until you supply your missing verdict.",
+				},
+			],
+			lanes: [],
+			mentioned: {},
+			merges: [],
+		};
+		expect(verdict.grade(JSON.stringify(blocked)).passed).toBe(true);
+		for (const status of ["done", "cancelled", "in_progress"])
+			expect(
+				verdict.grade(
+					JSON.stringify({
+						...blocked,
+						updates: [{ ...blocked.updates[0], status, operational: true }],
+					}),
+				).passed,
+				status,
+			).toBe(false);
+		expect(
+			verdict.grade(
+				JSON.stringify({
+					...blocked,
+					updates: [],
+					mentioned: { r1: "You have not given the verdict" },
+				}),
+			).passed,
+		).toBe(false);
+	}
 });
