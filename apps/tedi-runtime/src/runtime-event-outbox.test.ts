@@ -9,6 +9,8 @@ import {
 	type RuntimeEventSink,
 } from "./runtime-event-outbox";
 import type { DerivedRuntimeEventSink } from "./k2-derived-events";
+import type { HttpPlatformClient } from "./brain/platform-client";
+import { mirrorFailedTurnToLedger, mirrorTurnToLedger } from "./ledger-mirror";
 
 /** Minimal Map-backed stand-in for the DO storage surface the outbox touches. */
 class FakeStorage {
@@ -729,4 +731,209 @@ console.log("runtime-event-outbox.test.ts OK");
 	} finally {
 		console.warn = realWarn;
 	}
+}
+
+// The actual mirror must retain a selectively failing assistant row across eviction.
+for (const failed of [false, true]) {
+	let unavailable = true;
+	const canonical = new Map<string, TediRuntimeEvent>();
+	const accepted: TediRuntimeEvent[] = [];
+	const sink = {
+		async recordRuntimeEvent(e: TediRuntimeEvent) {
+			if (unavailable && e.kind === "message.completed")
+				throw new Error("assistant row unavailable");
+			if (!canonical.has(e.id!)) accepted.push(e);
+			canonical.set(e.id!, e);
+		},
+	};
+	const h = harness(sink);
+	const runId = `reply-${failed}`;
+	const opts = {
+		platform: h.outbox.orderedSink(sink) as HttpPlatformClient,
+		tediId: "tedi-1",
+		conversationId: "tedi-1:workflow:judge",
+		runId,
+		userTurn: { content: "question", ts: 1000 },
+		assistantTurn: { content: '{"answer":"original complete text"}', ts: 2000 },
+	};
+	if (failed)
+		await mirrorFailedTurnToLedger({ ...opts, error: "permission denied" });
+	else await mirrorTurnToLedger(opts);
+	await h.settle();
+	assert.deepEqual(
+		accepted.map((e) => e.kind),
+		["message.received", "run.started"],
+	);
+	assert.equal(
+		h.storage.rows.size,
+		2,
+		"assistant and terminal are both durable",
+	);
+	const cold = new RuntimeEventOutbox({
+		storage: h.storage as unknown as DurableObjectStorage,
+		platform: async () => sink,
+		waitUntil: () => {},
+		scheduleRedrive: async () => {},
+	});
+	assert.equal(await cold.redrive(), true);
+	assert.equal(accepted.length, 2, "terminal cannot overtake the absent reply");
+	unavailable = false;
+	assert.equal(await cold.redrive(), false);
+	assert.equal(
+		await cold.redrive(),
+		false,
+		"repeated sweep does not duplicate delivery",
+	);
+	assert.deepEqual(
+		accepted.map((e) => e.kind),
+		[
+			"message.received",
+			"run.started",
+			"message.completed",
+			failed ? "run.failed" : "run.completed",
+		],
+	);
+	const reply = accepted[2]!;
+	assert.equal(reply.runId, runId);
+	assert.equal(reply.conversationId, opts.conversationId);
+	assert.equal(reply.payload?.content, opts.assistantTurn.content);
+	if (failed) {
+		assert.equal(reply.payload?.status, "failed");
+		assert.equal(reply.payload?.error, "permission denied");
+	}
+	assert.equal(h.storage.rows.size, 0);
+}
+
+// Optional telemetry saturation must not discard the only recoverable answer.
+{
+	const h = harness(null, { fail: true });
+	for (let i = 0; i < OBSERVATIONAL_PENDING_CAP; i++)
+		await h.outbox.publish(event("busy", `tool-${i}`));
+	await h.settle();
+	const reply = event("reply-at-cap", "2", "message.completed");
+	reply.payload = { role: "assistant", content: "retained answer" };
+	const sink: RuntimeEventSink = { recordRuntimeEvent: async () => {} };
+	await h.outbox.orderedSink(sink).recordRuntimeEvent(reply);
+	await h.settle();
+	const rows = await h.storage.list<LedgerOutboxEntry>({
+		prefix: LEDGER_OUTBOX_PREFIX,
+	});
+	assert.equal(rows.size, OBSERVATIONAL_PENDING_CAP + 1);
+	assert.deepEqual(
+		[...rows.values()].find((row) => row.event.id === reply.id)?.event,
+		reply,
+	);
+}
+
+// Even a failed local reply put cannot silently permit canonical completion.
+// A durable unresolved-delivery marker keeps the barrier after eviction.
+{
+	const h = harness({
+		async recordRuntimeEvent(e) {
+			if (e.kind === "message.completed")
+				throw new Error("reply API unavailable");
+			assert.notEqual(e.kind, "run.completed");
+		},
+	});
+	const put = h.storage.put.bind(h.storage);
+	h.storage.put = async (key, value) => {
+		if (key.endsWith(":2")) throw new Error("reply storage unavailable");
+		await put(key, value);
+	};
+	const platform: RuntimeEventSink = { recordRuntimeEvent: async () => {} };
+	const sink = h.outbox.orderedSink(platform);
+	await sink.recordRuntimeEvent(
+		event("storage-failure", "2", "message.completed"),
+	);
+	await h.settle();
+	await sink.recordRuntimeEvent(event("storage-failure", "3", "run.completed"));
+	const cold = new RuntimeEventOutbox({
+		storage: h.storage as unknown as DurableObjectStorage,
+		platform: async () => ({
+			recordRuntimeEvent: async () => {
+				assert.fail("unconfirmed reply must block terminal");
+			},
+		}),
+		waitUntil: () => {},
+		scheduleRedrive: async () => {},
+	});
+	assert.equal(await cold.redrive(), true);
+	assert.equal((await cold.inspectRun("storage-failure")).blockedPending, 1);
+}
+
+// Storage can recover between losing the reply+marker and saving the terminal.
+// The terminal must carry forward the unresolved blocker across a cold restart.
+{
+	let storageUnavailable = true;
+	const h = harness(null, { fail: true });
+	const put = h.storage.put.bind(h.storage);
+	h.storage.put = async (key, value) => {
+		if (storageUnavailable)
+			throw new Error("all storage temporarily unavailable");
+		await put(key, value);
+	};
+	const platform: RuntimeEventSink = { recordRuntimeEvent: async () => {} };
+	const sink = h.outbox.orderedSink(platform);
+	await sink.recordRuntimeEvent(event("lost-marker", "2", "message.completed"));
+	await h.settle();
+	assert.equal(h.storage.rows.size, 0);
+	storageUnavailable = false;
+	await sink.recordRuntimeEvent(event("lost-marker", "3", "run.completed"));
+	const cold = new RuntimeEventOutbox({
+		storage: h.storage as unknown as DurableObjectStorage,
+		platform: async () => ({
+			recordRuntimeEvent: async () => {
+				assert.fail("lost reply must remain unresolved after eviction");
+			},
+		}),
+		waitUntil: () => {},
+		scheduleRedrive: async () => {},
+	});
+	assert.equal(await cold.redrive(), true);
+	assert.equal((await cold.inspectRun("lost-marker")).blockedPending, 1);
+}
+
+// A late success for another non-durable send cannot clear an unknown lost reply.
+{
+	let storageUnavailable = true;
+	let release!: () => void;
+	const delayed = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const sink: RuntimeEventSink = {
+		async recordRuntimeEvent(e) {
+			if (e.kind === "message.completed") throw new Error("reply unavailable");
+			if (e.kind === "tool.completed") await delayed;
+			else assert.fail("terminal must remain fenced");
+		},
+	};
+	const h = harness(sink);
+	const put = h.storage.put.bind(h.storage);
+	h.storage.put = async (key, value) => {
+		if (storageUnavailable) throw new Error("storage unavailable");
+		await put(key, value);
+	};
+	await h.outbox.publish(event("late-send", "tool"));
+	await h.outbox
+		.orderedSink(sink)
+		.recordRuntimeEvent(event("late-send", "2", "message.completed"));
+	storageUnavailable = false;
+	// Terminal persistence restores the unknown blocker before flush waits for
+	// the old tool send, which can now decrement the ordinary pending counter.
+	const terminal = h.outbox.publishTerminal(
+		event("late-send", "3", "run.completed"),
+	);
+	while (!h.storage.rows.has("ledger-outbox:late-send:3"))
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	release();
+	await terminal;
+	await h.settle();
+	const cold = new RuntimeEventOutbox({
+		storage: h.storage as unknown as DurableObjectStorage,
+		platform: async () => sink,
+		waitUntil: () => {},
+		scheduleRedrive: async () => {},
+	});
+	assert.equal(await cold.redrive(), true);
+	assert.equal((await cold.inspectRun("late-send")).blockedPending, 1);
 }

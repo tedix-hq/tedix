@@ -177,8 +177,9 @@ export function parseRunSurface(runId: string): string {
  * strands the run as a ledger orphan (the success/turn_summary landed but the
  * ledger never sees the run finish), so {@link safeRecord} retries these before
  * giving up and escalates a still-failed terminal write to `console.error`.
- * Non-terminal events stay best-effort (single attempt) — over-retrying every
- * write would just amplify load on a degraded API for low-value seq0..seq2 rows.
+ * Other events get one sink invocation. The runtime's ordered sink durably
+ * queues message.completed before accepting it, fencing terminal delivery behind
+ * the reply; raw sinks remain best-effort for non-terminal events.
  */
 const TERMINAL_KINDS: ReadonlySet<TediRuntimeEventKind> = new Set([
 	"run.completed",

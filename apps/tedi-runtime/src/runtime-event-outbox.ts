@@ -3,8 +3,8 @@
  *
  * Two lanes share one DO-storage queue and one redrive sweep:
  *
- * - **observational** (`publish`) — `step.completed`, `tool.started`,
- *   `tool.completed`, `tool.failed`. These used to be `await`ed straight
+ * - **observational** (`publish`) — completed assistant replies, `step.completed`,
+ *   `tool.started`, `tool.completed`, `tool.failed`. These used to be `await`ed straight
  *   through to `platform.recordRuntimeEvent(...)` on the model/tool hot path,
  *   where each write took about a second and several ran
  *   sequentially inside a single answer. They are now persisted locally first
@@ -47,9 +47,9 @@ export const LEDGER_OUTBOX_MAX_REDRIVES = 24;
  */
 export const OBSERVATIONAL_MAX_REDRIVES = 6;
 /**
- * Ceiling on observational rows this isolate will persist while the API is
- * unreachable. Past it, events are still attempted in the background but not
- * written to DO storage. A compact per-run unresolved-delivery count is persisted
+ * Ceiling on optional observations persisted while the API is unreachable.
+ * Completed replies bypass this cap. Other overflow events are attempted in the
+ * background without their payload in storage. An unresolved-delivery count is persisted
  * before such sends. Unconfirmed sends block terminal publication even after eviction.
  * Those markers require evidence repair before removal; execution must not replay.
  */
@@ -154,7 +154,9 @@ export class RuntimeEventOutbox {
 			this.deps.storage.list<LedgerOutboxEntry>({
 				prefix: LEDGER_OUTBOX_PREFIX,
 			}),
-			this.deps.storage.get<{ pending: number }>(`${BLOCKED_PREFIX}${runId}`),
+			this.deps.storage.get<{ pending: number; unknownDelivery?: boolean }>(
+				`${BLOCKED_PREFIX}${runId}`,
+			),
 		]);
 		let observational = 0;
 		let terminal = 0;
@@ -183,7 +185,10 @@ export class RuntimeEventOutbox {
 					? null
 					: Math.max(0, Date.now() - oldestPendingAt),
 			maxRedrives,
-			blockedPending: Math.max(0, marker?.pending ?? 0),
+			blockedPending: Math.max(
+				marker?.unknownDelivery ? 1 : 0,
+				marker?.pending ?? 0,
+			),
 			blockedInMemory: this.blockedRuns.has(runId),
 			inFlight: [...this.inflightRuns.values()].filter((id) => id === runId)
 				.length,
@@ -228,10 +233,14 @@ export class RuntimeEventOutbox {
 			.then(async () => {
 				const key = `${BLOCKED_PREFIX}${run}`;
 				try {
-					const marker = await this.deps.storage.get<{ pending: number }>(key);
+					const marker = await this.deps.storage.get<{
+						pending: number;
+						unknownDelivery?: boolean;
+					}>(key);
 					const pending = Math.max(0, (marker?.pending ?? 0) + delta);
-					if (pending > 0)
+					if (pending > 0 || marker?.unknownDelivery)
 						await this.deps.storage.put(key, {
+							...marker,
 							pending,
 							reason: "observational_delivery_unknown",
 							at: Date.now(),
@@ -255,7 +264,7 @@ export class RuntimeEventOutbox {
 		if (this.markerQueues.get(run) === update) this.markerQueues.delete(run);
 	}
 
-	/** Preserve the existing mirror client; only terminal publication crosses the barrier. */
+	/** Completed replies must survive delivery failure and precede the run terminal. */
 	orderedSink<T extends RuntimeEventSink>(platform: T): T {
 		return new Proxy(platform, {
 			get: (target, property) => {
@@ -263,7 +272,9 @@ export class RuntimeEventOutbox {
 					return (event: TediRuntimeEvent) =>
 						isTerminal(event)
 							? this.publishTerminal(event)
-							: target.recordRuntimeEvent(event);
+							: event.kind === "message.completed"
+								? this.publish(event)
+								: target.recordRuntimeEvent(event);
 				return Reflect.get(target, property, target);
 			},
 		});
@@ -322,7 +333,8 @@ export class RuntimeEventOutbox {
 		let durable = false;
 		if (
 			hydrated &&
-			(this.persisted.has(key) ||
+			(event.kind === "message.completed" ||
+				this.persisted.has(key) ||
 				this.persisted.size < OBSERVATIONAL_PENDING_CAP)
 		) {
 			this.persisted.add(key); // Reserve before await, across concurrent runs.
@@ -380,6 +392,31 @@ export class RuntimeEventOutbox {
 	}
 
 	private async persistTerminal(event: TediRuntimeEvent): Promise<void> {
+		const runId = event.runId ?? "";
+		if (this.blockedRuns.has(runId)) {
+			// Storage may recover after both an observation and its blocker failed.
+			// Persist the blocker before a terminal can survive this isolate.
+			const previous = this.markerQueues.get(runId) ?? Promise.resolve();
+			const update = previous
+				.catch(() => {})
+				.then(async () => {
+					const markerKey = `${BLOCKED_PREFIX}${runId}`;
+					const marker = await this.deps.storage.get<{ pending: number }>(
+						markerKey,
+					);
+					await this.deps.storage.put(markerKey, {
+						...marker,
+						pending: Math.max(1, marker?.pending ?? 0),
+						unknownDelivery: true,
+						reason: "marker_storage_unavailable",
+						at: Date.now(),
+					});
+				});
+			this.markerQueues.set(runId, update);
+			await update;
+			if (this.markerQueues.get(runId) === update)
+				this.markerQueues.delete(runId);
+		}
 		const key = outboxKey(event);
 		await this.deps.storage.put<LedgerOutboxEntry>(key, {
 			event,
