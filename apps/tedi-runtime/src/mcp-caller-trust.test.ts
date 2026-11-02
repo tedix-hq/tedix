@@ -289,8 +289,11 @@ console.log("PASS: sync inject caller trust");
 }
 console.log("PASS: async inject caller trust");
 
-// --- /mcp run_tedi_turn carries the tier into the durable turn ---
-{
+// --- /mcp run_tedi_turn carries trust and explicit narrowing into the durable turn ---
+for (const executionRestriction of [
+	undefined,
+	{ tools: "none", learning: "disabled" },
+]) {
 	const probe = injectProbe();
 	const response = await probe.agent.onRequest(
 		new Request("https://acme.tedi.tedix.dev/mcp", {
@@ -319,6 +322,7 @@ console.log("PASS: async inject caller trust");
 						session_key: "main",
 						text: "hello from mcp",
 						client_request_id: "req-2",
+						...(executionRestriction ? { executionRestriction } : {}),
 					},
 					_meta: {
 						"io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -334,6 +338,10 @@ console.log("PASS: async inject caller trust");
 	);
 	assert.equal(response.status, 200, await response.clone().text());
 	assert.equal(probe.durable[0]?.text, "hello from mcp");
+	assert.deepEqual(
+		probe.durable[0]?.executionRestriction,
+		executionRestriction,
+	);
 	assert.equal(probe.durable[0]?.callerTrust, "foreign");
 }
 console.log("PASS: mcp run_tedi_turn caller trust");

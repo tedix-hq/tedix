@@ -59,6 +59,42 @@ describe("HttpPlatformClient", () => {
 		).toHaveLength(1);
 	});
 
+	it("narrows recall access bookkeeping without changing the scoped search request", async () => {
+		const bodies: Record<string, unknown>[] = [],
+			headers: Headers[] = [];
+		globalThis.fetch = async (_input, init) => {
+			bodies.push(JSON.parse(String(init?.body)));
+			headers.push(new Headers(init?.headers));
+			return new Response(JSON.stringify({ json: { results: [] } }), {
+				headers: { "Content-Type": "application/json" },
+			});
+		};
+		const client = new HttpPlatformClient({
+			apiBaseUrl: "http://127.0.0.1:8787",
+			apiAuthMode: "service-binding",
+			tediId: "tedi-1",
+			organizationId: "org-1",
+			serviceBindingScopes: ["tedis:read"],
+		});
+		await client.memorySearch("cobalt", 6);
+		await client.memorySearch("cobalt", 6, { recordAccess: false });
+		const normal = bodies[0]!,
+			restricted = bodies[1]!;
+		expect(restricted).toEqual({
+			json: {
+				...(normal.json as Record<string, unknown>),
+				recordAccess: false,
+			},
+		});
+		for (const header of [
+			"X-Service-Binding",
+			"X-Tedix-Org-Id",
+			"X-Tedix-Tedi-Id",
+			"X-Tedix-Tedi-Scopes",
+		])
+			expect(headers[1]!.get(header)).toBe(headers[0]!.get(header));
+	});
+
 	it("threads org and tedi identity through service-bound API calls", async () => {
 		const fetchMock = vi.fn(
 			async () =>

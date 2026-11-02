@@ -5,6 +5,7 @@ import {
 	skillsContract,
 } from "@tedix/api-contract/contracts/cognitive";
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
+import { TurnExecutionRestrictionSchema } from "@tedix/api-contract/schemas/turn-execution-restriction";
 import { EvaluationRequestSchema } from "@tedix/api-contract/schemas/evaluation-context";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import { describe, expect, it } from "vite-plus/test";
@@ -146,6 +147,9 @@ describe("aggregate tedis", () => {
 
 		const send = tools.find(
 			(tool) => tool.toolId === "acme_tedi__run_tedi_turn",
+		);
+		expect(send?.inputSchema.properties?.executionRestriction).toEqual(
+			zodToToolInputJsonSchema(TurnExecutionRestrictionSchema),
 		);
 		expect(send?.inputSchema.properties?.evaluation).toEqual(
 			zodToToolInputJsonSchema(EvaluationRequestSchema),

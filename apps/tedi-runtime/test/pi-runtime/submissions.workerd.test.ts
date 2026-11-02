@@ -947,3 +947,55 @@ it("commits a known compaction summary and its original ledger receipt exactly o
 		expect(adapter.read()?.state).toBe("quarantined");
 	});
 });
+
+it("restricts the actual normal conversation provider and survives eviction without enabling tools", async () => {
+	const normal = await fixture(crypto.randomUUID());
+	await normal.turn("normal-control");
+	const control = await inspect(normal, "normal-control");
+	expect(control.effects).toBe(1);
+	const name = crypto.randomUUID(),
+		limited = await fixture(name);
+	const first = await limited.restrictedTurn("restricted");
+	const snapshot = await inspect(limited, "restricted");
+	expect(snapshot.effects).toBe(0);
+	expect(snapshot.requests).toHaveLength(1);
+	expect(snapshot.facetToolCount).toBe(0);
+	expect(snapshot.compactionEnabled).toBe(false);
+	expect(snapshot.restrictionReceipts).toHaveLength(1);
+	expect(snapshot.restrictionReceipts[0]).toMatchObject({
+		runId: "restricted",
+		tools: "none",
+		learning: "disabled",
+		providerToolCount: 0,
+		facetToolCount: 0,
+		toolChoice: "none",
+	});
+	const call = snapshot.requests[0]!,
+		ordinary = control.requests[0]!;
+	expect(call.tools ?? []).toEqual([]);
+	expect(snapshot.sdkOptions[0]?.tools).toEqual([]);
+	expect(snapshot.sdkOptions[0]?.toolChoice).toEqual({ type: "none" });
+	expect(call.tool_choice).toBeUndefined();
+	for (const key of ["model", "instructions", "max_output_tokens", "reasoning"])
+		expect(call[key]).toEqual(ordinary[key]);
+	await abortAllDurableObjects();
+	const reopened = await fixture(name);
+	expect(await reopened.restrictedTurn("restricted")).toEqual(first);
+	const retained = await inspect(reopened, "restricted");
+	expect(retained.effects).toBe(0);
+	expect(retained.requests).toHaveLength(1);
+	expect(retained.facetToolCount).toBe(0);
+	const malicious = await fixture(crypto.randomUUID());
+	await malicious.restrictedTurn("malicious", true).catch(() => undefined);
+	const denied = await inspect(malicious, "malicious");
+	expect(denied.effects).toBe(0);
+	expect(denied.requests.length).toBeGreaterThan(0);
+	for (const options of denied.sdkOptions) {
+		expect(options.tools).toEqual([]);
+		expect(options.toolChoice).toEqual({ type: "none" });
+	}
+	for (const request of denied.requests) {
+		expect(request.tools ?? []).toEqual([]);
+		expect(request.tool_choice).toBeUndefined();
+	}
+});

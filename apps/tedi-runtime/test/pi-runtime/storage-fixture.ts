@@ -13,10 +13,14 @@ import {
 
 export interface PiStorageSnapshot {
 	requests: Array<Record<string, unknown>>;
+	sdkOptions: Array<Record<string, unknown>>;
 	effects: number;
 	budget: ReturnType<DoInferenceBudgetStore["status"]>;
 	checkpoint: PiAccountingCheckpoint;
 	submission: unknown;
+	restrictionReceipts: Array<Record<string, unknown>>;
+	facetToolCount: number;
+	compactionEnabled: boolean;
 }
 
 const limits = {
@@ -33,6 +37,7 @@ export class PiStorageFixture extends ConversationFacet {
 	private readonly budget = new DoInferenceBudgetStore(this);
 	private readonly actionReceipts = new ActionReceiptJournal(this.ctx.storage);
 	private fixtureToolName = "receipt";
+	private forcedRestrictedToolCall = false;
 	private holdSteeringTool = false;
 	private repeatedToolIds = false;
 	private releaseSteeringTool: (() => void) | undefined;
@@ -110,8 +115,24 @@ export class PiStorageFixture extends ConversationFacet {
 			await this.ctx.storage.put("fixture:requests", requests);
 			if (await this.ctx.storage.get("fixture:provider-rejects"))
 				throw new Error("fixture deployment rejected the request");
+			if (this.state.executionRestriction && !this.forcedRestrictedToolCall)
+				return 2;
 			return this.repeatedToolIds && requests.length <= 2 ? 1 : requests.length;
 		}, this.fixtureToolName);
+		const stream = model.doStream.bind(model);
+		model.doStream = async (options) => {
+			const prior =
+				(await this.ctx.storage.get<Array<Record<string, unknown>>>(
+					"fixture:sdk-options",
+				)) ?? [];
+			prior.push({
+				tools: options.tools ?? null,
+				toolChoice: options.toolChoice ?? null,
+				maxOutputTokens: options.maxOutputTokens ?? null,
+			});
+			await this.ctx.storage.put("fixture:sdk-options", prior);
+			return stream(options);
+		};
 		return {
 			model: this.repeatedToolIds
 				? { ...model, provider: "cloudflare-auto" }
@@ -123,7 +144,7 @@ export class PiStorageFixture extends ConversationFacet {
 			},
 		};
 	}
-	async turn(id: string, toolName = "receipt") {
+	async turn(id: string, toolName = "receipt", restricted = false) {
 		this.fixtureToolName = toolName;
 		this.budget.admit(id, limits, 20);
 		const completed = await this.runConfiguredConversationTurn({
@@ -138,13 +159,18 @@ export class PiStorageFixture extends ConversationFacet {
 				maxSteps: null,
 				reasoning: "high",
 				maxOutputTokens: 16_000,
-				toolDescriptors: [
-					{
-						name: toolName,
-						description: "Record one effect",
-						inputSchema: { type: "object", properties: {} },
-					},
-				],
+				executionRestriction: restricted
+					? { tools: "none", learning: "disabled" }
+					: null,
+				toolDescriptors: restricted
+					? []
+					: [
+							{
+								name: toolName,
+								description: "Record one effect",
+								inputSchema: { type: "object", properties: {} },
+							},
+						],
 			},
 			text: "Record one receipt then finish.",
 			durableSubmissionId: id,
@@ -154,6 +180,10 @@ export class PiStorageFixture extends ConversationFacet {
 			completed.result.assistantText,
 		);
 		return completed;
+	}
+	async restrictedTurn(id: string, maliciousProvider = false) {
+		this.forcedRestrictedToolCall = maliciousProvider;
+		return this.turn(id, "receipt", true);
 	}
 	async turnWithRepeatedToolIds(id: string) {
 		this.repeatedToolIds = true;
@@ -231,7 +261,20 @@ export class PiStorageFixture extends ConversationFacet {
 				(await this.ctx.storage.get<Array<Record<string, unknown>>>(
 					"fixture:requests",
 				)) ?? [],
+			sdkOptions:
+				(await this.ctx.storage.get<Array<Record<string, unknown>>>(
+					"fixture:sdk-options",
+				)) ?? [],
 			effects: (await this.ctx.storage.get<number>("fixture:effects")) ?? 0,
+			restrictionReceipts: [
+				...(
+					await this.ctx.storage.list<Record<string, unknown>>({
+						prefix: "turn-execution-restriction:" + runId + ":",
+					})
+				).values(),
+			],
+			facetToolCount: this.state.toolDescriptors.length,
+			compactionEnabled: this.piSettings().compaction.enabled,
 			budget: this.budget.status(limits),
 			checkpoint: await new PiTurnAccounting(this.ctx.storage, {
 				assertActive: async () => {},

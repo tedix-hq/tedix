@@ -2,6 +2,7 @@
 // plus the session messaging, approvals, and cron specs shared with the
 // full surface.
 import { learningFeedbackContract } from "@tedix/api-contract/contracts/learning-feedback";
+import { TurnExecutionRestrictionSchema } from "@tedix/api-contract/schemas/turn-execution-restriction";
 import { EvaluationRequestSchema } from "@tedix/api-contract/schemas/evaluation-context";
 import {
 	AnalyzeRecurringLearningIssuesInputSchema,
@@ -129,6 +130,9 @@ const MESSAGES_SEND_SCHEMA: ToolInputJsonSchema = {
 	type: "object",
 	properties: {
 		evaluation: zodToToolInputJsonSchema(EvaluationRequestSchema),
+		executionRestriction: zodToToolInputJsonSchema(
+			TurnExecutionRestrictionSchema,
+		),
 		session_key: { type: "string" },
 		text: { type: "string" },
 		client_request_id: { type: "string" },

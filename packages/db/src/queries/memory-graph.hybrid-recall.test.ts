@@ -91,6 +91,28 @@ describe("canonical hybrid recall D1 queries", () => {
 		const { db, add, sqlite } = fixture((query) => prepared.push(query));
 		add("a", "cobalt");
 		add("b", "cobalt foreign", "fictional-b");
+		const before = sqlite
+			.prepare(
+				"SELECT id,last_accessed_at,access_count FROM memory_facts ORDER BY id",
+			)
+			.all();
+		const recalled = await lexicalRecall(
+			db,
+			{ ...scope, now: undefined },
+			"cobalt",
+		);
+		await recordRecallAccess(db, scope.orgId, ["a", "b"], false);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id,last_accessed_at,access_count FROM memory_facts ORDER BY id",
+				)
+				.all(),
+		).toEqual(before);
+		expect(prepared.filter((query) => /^update /i.test(query))).toHaveLength(0);
+		expect(
+			await lexicalRecall(db, { ...scope, now: undefined }, "cobalt"),
+		).toEqual(recalled);
 		await recordRecallAccess(db, scope.orgId, [
 			"a",
 			"a",

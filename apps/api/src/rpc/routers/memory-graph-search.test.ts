@@ -61,7 +61,11 @@ const context = {
 		sub: "user-1",
 	},
 } as BaseContext;
-async function search(input: { query?: string; topicKey?: string }) {
+async function search(input: {
+	query?: string;
+	topicKey?: string;
+	recordAccess?: false;
+}) {
 	const { memoryGraphContractRouter } = await import("./memory-graph");
 	return createRouterClient(memoryGraphContractRouter, { context }).search(
 		input,
@@ -86,6 +90,24 @@ afterEach(() => {
 });
 
 describe("governed memory search", () => {
+	it("bookkeeping opt-out is narrow and cannot bypass organization authorization", async () => {
+		const { MemoryGraphSearchInputSchema } =
+			await import("@tedix/api-contract/contracts/memory-graph");
+		expect(
+			MemoryGraphSearchInputSchema.safeParse({
+				query: "cobalt",
+				recordAccess: true,
+			}).success,
+		).toBe(false);
+		const { memoryGraphContractRouter } = await import("./memory-graph");
+		await expect(
+			createRouterClient(memoryGraphContractRouter, {
+				context: { ...context, organizationId: undefined },
+			}).search({ query: "cobalt", recordAccess: false }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(mocks.recall).not.toHaveBeenCalled();
+		expect(mocks.access).not.toHaveBeenCalled();
+	});
 	it("does not let a hung informational count hold the recall response", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2090-01-01T00:00:00.000Z"));
@@ -166,6 +188,18 @@ describe("governed memory search", () => {
 			context.db,
 			context.organizationId,
 			[factId],
+			true,
+		);
+		const restricted = await search({
+			query: "recall evidence",
+			recordAccess: false,
+		});
+		expect(restricted.results).toEqual(result.results);
+		expect(mocks.access).toHaveBeenLastCalledWith(
+			context.db,
+			context.organizationId,
+			[factId],
+			false,
 		);
 		expect(result.results[0]!.fact).not.toHaveProperty("replacesFactIds");
 		expect(result.results[0]!.provenance).toEqual(provenance);
