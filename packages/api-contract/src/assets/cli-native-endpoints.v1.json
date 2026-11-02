@@ -20,6 +20,7 @@
 		"projects/listMilestones",
 		"projects/recordHealthJudgment",
 		"projects/updateMilestone",
+		"workAgentSessions/evaluateLedgerModel",
 		"workAgentSessions/report",
 		"workApprovals/decide",
 		"workApprovals/listAudit",

@@ -54,6 +54,13 @@ it("projects fixed-corpus qualification through the normal managed write tool su
 		);
 		expect(projected).toBeDefined();
 		expect(
+			mergeGeneratedConfig(undefined, projected!, emptyObjectSchema),
+		).toMatchObject({
+			transport: "rpc",
+			endpoint: "workAgentSessions/evaluateLedgerModel",
+			nativeDirect: true,
+		});
+		expect(
 			annotationsForEndpoint(
 				projected!,
 				WORK_HIERARCHY_KIND_OVERRIDES["workAgentSessions/evaluateLedgerModel"],
