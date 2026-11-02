@@ -260,10 +260,14 @@ describe("own-access check on a live tool call through an organization account",
 			async () => new Response("{}", { status: input.providerStatus ?? 200 }),
 		);
 		vi.stubGlobal("fetch", probe);
-		if (input.enforce !== false) {
-			vi.useFakeTimers({ toFake: ["Date"] });
-			vi.setSystemTime(new Date("2026-11-02T00:00:00.000Z"));
-		}
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(
+			new Date(
+				input.enforce === false
+					? "2026-11-01T00:00:00.000Z"
+					: "2026-11-02T00:00:00.000Z",
+			),
+		);
 		return { token, personalToken, probe };
 	}
 	const readPage = () =>
