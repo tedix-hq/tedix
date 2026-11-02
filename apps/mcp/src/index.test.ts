@@ -2015,3 +2015,200 @@ describe("stateless GET without catalog hydration", () => {
 		},
 	);
 });
+
+describe("fixed-corpus evaluation native publication", () => {
+	it("preserves write scope, verified organization and forced Code Mode without loading an executor", async () => {
+		const factory = await import("./mcp/server-factory");
+		const { EvaluateLedgerModelInputSchema } =
+			await import("@tedix/api-contract/schemas/ledger-model-evaluation");
+		const { zodToToolInputJsonSchema } =
+			await import("@tedix/api-contract/utils/tool-json-schema");
+		const native = (
+			await import("@tedix/api-contract/assets/cli-native-endpoints.v1.json")
+		).default;
+		const tool = {
+			id: "evaluation-row",
+			toolId: "evaluate_ledger_model",
+			title: "Evaluate ledger model",
+			enabled: true,
+			toolTypeId: "rpc",
+			writeCapability: "write",
+			annotations: { readOnlyHint: false, destructiveHint: false },
+			inputSchema: zodToToolInputJsonSchema(EvaluateLedgerModelInputSchema),
+			outputSchema: null,
+			config: {
+				transport: "rpc",
+				endpoint: "workAgentSessions/evaluateLedgerModel",
+				responsePath: "json",
+				nativeDirect: native.nativeDirectEndpoints.includes(
+					"workAgentSessions/evaluateLedgerModel",
+				),
+			},
+		};
+		const app = {
+			app: {
+				id: "evaluation-app",
+				slug: "fictional-evaluation",
+				name: "Evaluation fixture",
+				organizationId: "evaluation-org",
+				visibility: "public",
+			},
+			metadata: {
+				mcpConfig: {
+					codeMode: true,
+					authMode: "authenticated",
+					enforcePolicies: false,
+					descopeResourceId: "fixture-evaluation-resource",
+					toolScopes: { evaluate_ledger_model: ["mcp:work.write"] },
+				},
+			},
+			tools: [tool],
+		};
+		resolveGateway.mockResolvedValue(app);
+		const context = vi.spyOn(factory, "getAppContext").mockResolvedValue({
+			...app,
+			capabilities: {},
+			organizationId: "evaluation-org",
+			expiresAt: Date.now() + 60000,
+			catalogMcp: null,
+			catalogResources: [],
+			catalogResourceTemplates: [],
+			catalogPrompts: [],
+		} as unknown as CachedAppData);
+		const load = vi.fn(() => {
+			throw new Error("Executor load forbidden");
+		});
+		const get = vi.fn(() => {
+			throw new Error("Executor get forbidden");
+		});
+		// This fixture proves the MCP transport boundary. Real API router tests separately
+		// enforce platform-admin, fixed inputs, egress and zero inference on denial.
+		const api = vi.fn(async (_request: RequestInfo | URL) =>
+			Response.json({
+				json: {
+					descopeTenantId: "fixture-evaluation-tenant",
+					status: "completed",
+					output: '{"updates":[]}',
+				},
+			}),
+		);
+		const env = createEnv({
+			ENVIRONMENT: "production",
+			MCP_URL: "https://mcp.tedix.dev",
+			DESCOPE_PROJECT_ID: "Pfixture",
+			API_SERVICE: { fetch: api },
+			LOADER: { load, get },
+		});
+		const input = {
+			surface: "status",
+			caseId: "trim-tabs",
+			promptVariant: "production",
+			modelRef: "azure-openai/gpt-6-astra",
+			evaluationId: "10000000-0000-4000-8000-000000000001",
+		};
+		const invoke = async (
+			scopes: string[],
+			organizationId = "evaluation-org",
+			force = false,
+		) => {
+			vi.mocked(validateAuth).mockResolvedValueOnce({
+				type: "oauth",
+				userId: "local-demo-owner",
+				organizationId,
+				scopes,
+				payload: {
+					sub: "local-demo-owner",
+					dct: "fixture-evaluation-tenant",
+					exp: 2000000000,
+					iss: "fixture",
+				},
+			});
+			vi.mocked(resolveHumanMcpSelection).mockResolvedValueOnce({
+				ok: true,
+				selection: {
+					organizations: [
+						{
+							organizationId,
+							descopeTenantId: "fixture-evaluation-tenant",
+							gatewaySlug: "fictional-evaluation",
+						},
+					],
+				},
+			});
+			return worker.fetch(
+				new Request("https://fictional-evaluation.mcp.tedix.dev/mcp", {
+					method: "POST",
+					headers: {
+						Authorization: "Bearer offline",
+						Accept: "application/json, text/event-stream",
+						"Content-Type": "application/json",
+						"MCP-Protocol-Version": "2026-07-28",
+						"Mcp-Method": "tools/call",
+						"Mcp-Name": tool.toolId,
+						"x-tedix-auth-org-id": "forged-other-org",
+						"x-tedix-auth-scopes": "platform:admin mcp:work.write",
+						...(force ? { "x-tedix-code-mode": "force" } : {}),
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "tools/call",
+						params: {
+							name: tool.toolId,
+							arguments: input,
+							_meta: {
+								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+								"io.modelcontextprotocol/clientCapabilities": {},
+							},
+						},
+					}),
+				}),
+				env,
+				{
+					waitUntil: (promise: Promise<unknown>) => {
+						void promise.catch(() => {});
+					},
+				} as ExecutionContext,
+			);
+		};
+		try {
+			expect(tool.config.nativeDirect).toBe(true);
+			const evaluationCalls = () =>
+				api.mock.calls.filter((args) =>
+					new URL((args[0] as Request).url).pathname.endsWith(
+						"/workAgentSessions/evaluateLedgerModel",
+					),
+				);
+			const readOnly = await invoke(["platform:admin", "mcp:work.read"]);
+			expect(readOnly.status, await readOnly.clone().text()).toBe(403);
+			expect(evaluationCalls()).toHaveLength(0);
+			const mismatched = await invoke(
+				["platform:admin", "mcp:work.write"],
+				"other-org",
+			);
+			expect(mismatched.status, await mismatched.clone().text()).toBe(403);
+			expect(evaluationCalls()).toHaveLength(0);
+			const success = await invoke(["platform:admin", "mcp:work.write"]);
+			expect(success.status, await success.clone().text()).toBe(200);
+			expect(await success.json()).toMatchObject({
+				result: { structuredContent: { status: "completed" } },
+			});
+			expect(evaluationCalls()).toHaveLength(1);
+			expect(
+				(evaluationCalls()[0]![0] as Request).headers.get("X-Tedix-Org-Id"),
+			).toBe("evaluation-org");
+			const before = evaluationCalls().length;
+			const forced = await invoke(
+				["platform:admin", "mcp:work.write"],
+				"evaluation-org",
+				true,
+			);
+			expect(await forced.json()).toMatchObject({ error: expect.anything() });
+			expect(evaluationCalls()).toHaveLength(before);
+			expect(load).not.toHaveBeenCalled();
+			expect(get).not.toHaveBeenCalled();
+		} finally {
+			context.mockRestore();
+		}
+	});
+});

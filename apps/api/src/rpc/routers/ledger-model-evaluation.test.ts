@@ -159,7 +159,12 @@ describe("managed fixed-corpus ledger qualification", () => {
 	it("denies non-admin and absent-org principals", async () => {
 		await expect(
 			client({
-				user: { sub: "user", scope: "", permissions: [], roles: [] } as never,
+				user: {
+					sub: "user",
+					scope: "mcp:work.write",
+					permissions: [],
+					roles: [],
+				} as never,
 			}).evaluateLedgerModel(input),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		await expect(
