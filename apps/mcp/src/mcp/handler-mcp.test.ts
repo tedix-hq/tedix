@@ -839,9 +839,15 @@ describe("ToolHandler MCP transport", () => {
 		expect(body.params._meta?.tracestate).toBe("vendor=1");
 	});
 
-	it.each([undefined, "skill-run-1"])(
-		"acknowledges a pending turn for caller skillRunId=%s",
-		async (skillRunId) => {
+	it.each(
+		[undefined, "skill-run-1"].flatMap((skillRunId) =>
+			[undefined, { tools: "none", learning: "disabled" }].map(
+				(executionRestriction) => ({ skillRunId, executionRestriction }),
+			),
+		),
+	)(
+		"acknowledges a pending turn retaining caller restriction %j",
+		async ({ skillRunId, executionRestriction }) => {
 			const ctx = mcpCtx({
 				transport: "mcp",
 				mcpServerUrl: "https://cto.tedi.tedix.dev/mcp",
@@ -867,7 +873,11 @@ describe("ToolHandler MCP transport", () => {
 			};
 
 			const result = await new ToolHandler().execute(
-				{ session_key: "s", text: "hi" },
+				{
+					session_key: "s",
+					text: "hi",
+					...(executionRestriction ? { executionRestriction } : {}),
+				},
 				ctx,
 			);
 
@@ -885,6 +895,9 @@ describe("ToolHandler MCP transport", () => {
 				RequestInit,
 			];
 			expect(url).toBe("https://cto.tedi.tedix.dev/hooks/inject");
+			expect(JSON.parse(String(init.body)).executionRestriction).toEqual(
+				executionRestriction,
+			);
 			expect(JSON.parse(String(init.body))).toMatchObject({
 				session_key: "s",
 				text: "hi",

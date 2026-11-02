@@ -158,7 +158,7 @@ export class RegistryRestoreFixture extends Agent<
 		super(ctx, env);
 		this.lifecycle.use(this.native);
 	}
-	async begin() {
+	async begin(restricted = false) {
 		const admission = this.admission();
 		admission.gate.initialize({
 			operationId: "native-registry-init",
@@ -172,6 +172,14 @@ export class RegistryRestoreFixture extends Agent<
 			userTs: 1,
 			conversationId: "registry:agent:main:registry",
 			clientRequestId: "registry",
+			...(restricted
+				? {
+						executionRestriction: {
+							tools: "none" as const,
+							learning: "disabled" as const,
+						},
+					}
+				: {}),
 		};
 		await admission.beginAcceptedTurn({
 			runId: RUN,
@@ -186,7 +194,7 @@ export class RegistryRestoreFixture extends Agent<
 			stage: "dispatched",
 		});
 		await this.journal.enroll(RUN);
-		this.active.set(RUN, this.tools());
+		this.active.set(RUN, restricted ? {} : this.tools());
 		const pi = await this.native.pi();
 		const conversation = await this.native.conversation(
 			(await this.native.sessions.create()).id,
@@ -206,6 +214,14 @@ export class RegistryRestoreFixture extends Agent<
 		await this.ctx.storage.put("task-id", id);
 		return Number(id);
 	}
+	async attemptTool() {
+		return runtimeFacetTurns.executeFacetTool.call(this.host(), {
+			runId: RUN,
+			toolCallId: "restricted-probe",
+			tool: "probe",
+			args: {},
+		});
+	}
 	async snapshot() {
 		const id = this.ctx.storage.kv.get<TaskId<null>>("task-id")!;
 		const task = await (
@@ -224,6 +240,7 @@ export class RegistryRestoreFixture extends Agent<
 			outcome:
 				task?.state.status === "terminal" ? task.state.outcome.status : null,
 			registry: this.active.has(RUN),
+			toolCount: Object.keys(this.active.get(RUN) ?? {}).length,
 			liveTasks: inspection.tasks.length,
 			callId,
 			dispatchStatus: receipt?.status ?? null,
