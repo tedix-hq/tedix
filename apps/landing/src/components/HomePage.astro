@@ -905,15 +905,15 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
         <div class="cta-flow-card cta-flow-card-primary relative flex min-h-[420px] overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-br from-[#170b5f] via-violet-700 to-fuchsia-300 p-7 shadow-[0_34px_110px_rgba(124,58,237,0.36),inset_0_1px_0_rgba(255,255,255,0.22),inset_0_-40px_80px_rgba(20,0,70,0.22)] md:p-10">
           <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_15%,rgba(255,255,255,0.22),transparent_28%),radial-gradient(circle_at_85%_25%,rgba(255,255,255,0.24),transparent_34%)]"></div>
           <div class="pointer-events-none absolute right-0 top-0 h-full w-1/2 bg-gradient-to-l from-pink-200/40 to-transparent"></div>
-          <div class="relative z-10 flex max-w-md flex-col justify-start pt-3 md:max-w-[54%] md:pt-4 xl:max-w-md">
+          <div class="relative z-10 flex max-w-md flex-col justify-center md:max-w-[54%] xl:max-w-md">
             <h2 class="mb-4 font-display text-3xl font-bold leading-tight tracking-tight text-white md:text-4xl lg:text-5xl">
               {t.cta.demoTitle}
             </h2>
-            <p class="mb-8 max-w-sm text-base font-medium leading-relaxed text-white/72 md:text-lg">
+            <p class="max-w-sm text-base font-medium leading-relaxed text-white/85 md:text-lg">
               {t.cta.demoDescription}
             </p>
           </div>
-          <img src="/images/tedi-astronaut-waving.png" alt="" class="pointer-events-none absolute right-3 bottom-0 z-0 hidden h-[56%] max-h-[300px] object-contain opacity-90 drop-shadow-[0_28px_45px_rgba(15,0,55,0.45)] md:block lg:right-8 lg:h-[68%] xl:h-[72%]" loading="lazy" />
+          <img src="/images/tedi-astronaut-waving.png" alt="" class="pointer-events-none absolute right-3 bottom-0 z-0 hidden h-[62%] max-h-[360px] object-contain opacity-90 drop-shadow-[0_28px_45px_rgba(15,0,55,0.45)] md:block lg:right-8 lg:h-[74%] xl:h-[80%]" loading="lazy" />
         </div>
 
         <div class="cta-flow-card cta-flow-card-secondary relative overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.045] p-7 shadow-[0_34px_100px_rgba(76,29,149,0.28),inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-50px_90px_rgba(0,0,0,0.22)] backdrop-blur md:p-10">
@@ -931,11 +931,11 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
               {t.cta.titleLine1}<br />{t.cta.titleLine2}
             </h2>
 
-            <p class="mb-8 max-w-xl text-muted-foreground text-base leading-relaxed dark:text-white/50 md:text-lg">
+            <p class="mb-8 max-w-xl text-white/70 text-base leading-relaxed md:text-lg">
               {t.cta.description}
             </p>
 
-            <div class="mb-8 flex flex-wrap gap-x-5 gap-y-3 text-white/42 text-sm lg:justify-center">
+            <div class="mb-8 flex flex-wrap gap-x-5 gap-y-3 text-white/60 text-sm lg:justify-center">
               <span class="flex items-center gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-violet-400"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                 {t.cta.signals[0]}
@@ -957,7 +957,7 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
               </LinkButton>
             </div>
 
-            <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-white/35 text-sm lg:justify-center">
+            <p class="mt-8 flex flex-wrap gap-x-4 gap-y-1 text-white/55 text-sm lg:justify-center">
               {t.cta.footnotes.map((note) => <span>&#10003; {note}</span>)}
             </p>
           </div>
