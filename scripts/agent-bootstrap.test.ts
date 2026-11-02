@@ -66,6 +66,7 @@ printf 'bun:%s:%s\\n' "$PWD" "$*" >>"$BOOTSTRAP_LOG"
 			HOME: home,
 			PATH: `${bin}:/usr/bin:/bin`,
 			BOOTSTRAP_LOG: log,
+			TMPDIR: directory,
 			TEDIX_WORKSPACE: "cloud-fixture",
 		},
 		stdout: "pipe",
