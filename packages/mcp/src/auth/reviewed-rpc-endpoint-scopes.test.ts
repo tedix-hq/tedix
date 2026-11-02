@@ -32,6 +32,29 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("keeps managed ledger qualification on the work-write capability", () => {
+		const endpoint = "workAgentSessions/evaluateLedgerModel";
+		expect(resolve(endpoint, { readOnlyHint: false })).toEqual([
+			"mcp:work.write",
+		]);
+		const tool = {
+			toolId: "tedix_unified__evaluate_ledger_model",
+			toolTypeId: "rpc",
+			authRequired: true,
+			config: { endpoint },
+			annotations: { readOnlyHint: false },
+		};
+		for (const [scope, visible] of [
+			["mcp:work.read", false],
+			["mcp:work.write", true],
+		] as const)
+			expect(
+				isMcpToolVisibleToCaller(tool, "tedix_unified", undefined, {
+					authType: "oauth",
+					scopes: [scope],
+				}),
+			).toBe(visible);
+	});
 	it("requires connected execution authority for a machine identity probe", () => {
 		expect(
 			resolve("mcpGovernance/prepareMachineIdentityProbe", {

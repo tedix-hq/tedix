@@ -42,6 +42,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"decisionGraph/listAgentDecisions": "mcp:messaging.read",
 	"workAgentSessions/getAttentionLayout": "mcp:work.read",
 	"workAgentSessions/updateAttentionLayout": "mcp:work.write",
+	// The API independently requires platform-admin authority before paid evaluation.
+	"workAgentSessions/evaluateLedgerModel": "mcp:work.write",
 	"workAgentSessions/visitAttention": "mcp:work.write",
 	"support/configure": "platform:admin",
 	"support/file": "mcp:work.write",
