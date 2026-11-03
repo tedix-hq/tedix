@@ -345,6 +345,51 @@ describe("OtAuthority.submit", () => {
 
 // =======================================================================================
 
+describe("room content policy", () => {
+	it("checks the transformed head and denies concurrent growth without appending a row", async () => {
+		const h = await seeded("a");
+		h.deps.validateContent = (content) => {
+			if (textOf(content).length > 2) throw new Error("candidate capacity");
+		};
+		const results = await Promise.all([
+			h.authority.submit(
+				submission({ clientId: "first", change: edit("a", "ab") }),
+				ADA,
+			),
+			h.authority.submit(
+				submission({ clientId: "second", change: edit("a", "ac") }),
+				GRACE,
+			),
+		]);
+		expect(results.filter((result) => result.ok)).toHaveLength(1);
+		expect(results.find((result) => !result.ok)).toMatchObject({
+			ok: false,
+			code: "malformed",
+			message: "candidate capacity",
+		});
+		expect(await h.authority.head()).toEqual({ generation: 0, revision: 1 });
+		expect(h.broadcast).toHaveLength(1);
+		expect(textOf(await h.authority.content())).toHaveLength(2);
+	});
+	it.each<{ change: CodeChange }>([
+		{ change: [["outside", { set: "x" }]] },
+		{ change: [["document", { remove: true }]] },
+	])("refuses changing the frozen file set", async ({ change }) => {
+		const h = await seeded("a");
+		h.deps.validateContent = (content) => {
+			if (content.size !== 1 || !content.has("document"))
+				throw new Error("frozen file set");
+		};
+		const before = new Map(h.values);
+		expect(await h.authority.submit(submission({ change }), ADA)).toMatchObject(
+			{ ok: false, code: "malformed", message: "frozen file set" },
+		);
+		expect(await h.authority.head()).toEqual({ generation: 0, revision: 0 });
+		expect(h.values).toEqual(before);
+		expect(h.broadcast).toHaveLength(0);
+	});
+});
+
 describe("ingestion order", () => {
 	it("schema-validates before any transform runs", async () => {
 		const h = await seeded("hello\n");

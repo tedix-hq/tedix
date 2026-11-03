@@ -84,8 +84,10 @@ function canonicalFiles(
 	return value.files ? Object.entries(value.files) : [[path, value.text]];
 }
 
-export type UseCollabDocInput = {
-	workspaceId: string;
+export type UseCollabDocInput = (
+	| { workspaceId: string; workItemId?: never }
+	| { workItemId: string; workspaceId?: never }
+) & {
 	docKey: string;
 	enabled: boolean;
 	/**
@@ -103,6 +105,8 @@ export type UseCollabDocInput = {
 	 */
 	canonical: CollabDocCanonical | null;
 	location?: CollabLocation;
+	/** Stop network activity while retaining the session text and any unsynced recovery copy. */
+	paused?: boolean;
 };
 
 /** Result of an explicit request to restore the saved version. */
@@ -221,12 +225,13 @@ const PRESENCE_REBROADCAST_MS = 15_000;
 
 export function collabSocketUrl(
 	location: { protocol: string; host: string },
-	workspaceId: string,
+	scopeId: string,
 	docKey: string,
+	scope: "workspace" | "work" = "workspace",
 ): string {
 	const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-	return `${scheme}//${location.host}/collab/${encodeURIComponent(
-		workspaceId,
+	return `${scheme}//${location.host}/collab/${scope === "work" ? "work/" : ""}${encodeURIComponent(
+		scopeId,
 	)}/${encodeURIComponent(docKey)}`;
 }
 
@@ -328,12 +333,17 @@ class CollabSession implements OtEditSession {
 		private readonly canonical: () => CollabDocCanonical | null,
 		private readonly path: string,
 		private readonly handlers: SessionHandlers,
+		private paused = false,
 	) {
+		const initial = canonical();
+		if (paused && initial)
+			this.#content = new Map(canonicalFiles(initial, path));
 		this.#connect();
-		this.#presenceTimer = setInterval(
-			() => this.#sendPresence(),
-			PRESENCE_REBROADCAST_MS,
-		);
+		if (!this.paused)
+			this.#presenceTimer = setInterval(
+				() => this.#sendPresence(),
+				PRESENCE_REBROADCAST_MS,
+			);
 	}
 
 	// =====================================================================
@@ -606,8 +616,26 @@ class CollabSession implements OtEditSession {
 	// =====================================================================
 	// Lifecycle
 
+	setPaused(paused: boolean): void {
+		if (this.#disposed || this.paused === paused) return;
+		this.paused = paused;
+		if (paused) {
+			if (this.#reconnectTimer !== null) clearTimeout(this.#reconnectTimer);
+			this.#reconnectTimer = null;
+			if (this.#presenceTimer !== null) clearInterval(this.#presenceTimer);
+			this.#presenceTimer = null;
+			this.#teardownSocket();
+		} else {
+			this.#connect();
+			this.#presenceTimer = setInterval(
+				() => this.#sendPresence(),
+				PRESENCE_REBROADCAST_MS,
+			);
+		}
+	}
+
 	retry(): void {
-		if (this.#disposed || this.#ready) return;
+		if (this.#disposed || this.paused || this.#ready) return;
 		if (this.#reconnectTimer !== null) clearTimeout(this.#reconnectTimer);
 		this.#reconnectTimer = null;
 		this.#teardownSocket();
@@ -622,7 +650,7 @@ class CollabSession implements OtEditSession {
 	}
 
 	#connect(): void {
-		if (this.#disposed) return;
+		if (this.#disposed || this.paused) return;
 		this.handlers.onStatus("connecting");
 		let socket: WebSocket;
 		try {
@@ -781,7 +809,7 @@ class CollabSession implements OtEditSession {
 	}
 
 	#scheduleReconnect(): void {
-		if (this.#disposed || this.#reconnectTimer !== null) return;
+		if (this.#disposed || this.paused || this.#reconnectTimer !== null) return;
 		const delay = this.#reconnectMs;
 		this.#reconnectMs = Math.min(delay * 2, RECONNECT_MAX_MS);
 		this.#reconnectTimer = setTimeout(() => {
@@ -953,12 +981,14 @@ class CollabSession implements OtEditSession {
 }
 
 /**
- * One collaboration session per (workspaceId, docKey) while enabled and a seed
+ * One collaboration session per (scope, scopeId, docKey) while enabled and a seed
  * is available. The session object is stable for the life of that tuple —
  * reconnects happen underneath it.
  */
 export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
-	const { workspaceId, docKey, enabled, canonical, location } = input;
+	const { docKey, enabled, canonical, location, paused = false } = input;
+	const scope = input.workItemId !== undefined ? "work" : "workspace";
+	const scopeId = input.workItemId ?? input.workspaceId;
 	const [session, setSession] = useState<CollabSession | null>(null);
 	// An enabled room still waiting for its document is connecting, not
 	// disconnected: the first paint must not flash a red "Changes paused".
@@ -980,10 +1010,15 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	// Read at handshake time, not at connect time: the surface may load canonical
 	// truth after the socket is up, and a later value must not recreate the
 	// session (which would discard the user's in-flight edits).
-	const [canonicalBox] = useState<{ value: CollabDocCanonical | null }>({
+	const [canonicalBox] = useState<{
+		value: CollabDocCanonical | null;
+		paused: boolean;
+	}>({
 		value: canonical,
+		paused,
 	});
 	canonicalBox.value = canonical;
+	canonicalBox.paused = paused;
 	const hasCanonical = canonical !== null;
 	const tooLarge =
 		canonical !== null &&
@@ -1000,7 +1035,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	useEffect(() => {
 		if (
 			!enabled ||
-			workspaceId === "" ||
+			scopeId === "" ||
 			docKey === "" ||
 			!hasCanonical ||
 			tooLarge
@@ -1014,7 +1049,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 				if (active) apply(value);
 			};
 		const next = new CollabSession(
-			collabSocketUrl(window.location, workspaceId, docKey),
+			collabSocketUrl(window.location, scopeId, docKey, scope),
 			() => canonicalBox.value,
 			COLLAB_DOC_PATH,
 			{
@@ -1030,9 +1065,10 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 					if (active) setDiscarded((count) => count + 1);
 				},
 			},
+			canonicalBox.paused,
 		);
 		setSession(next);
-		setStatus("connecting");
+		setStatus(canonicalBox.paused ? "disconnected" : "connecting");
 		// Every derived signal is reset here, `discarded` included. It describes one
 		// document's session, so carrying it into the next document would put a
 		// "your edits were discarded" warning over a document that never had any --
@@ -1052,7 +1088,11 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 			setRecoveryRequired(false);
 			setRecoverableFiles(null);
 		};
-	}, [workspaceId, docKey, enabled, hasCanonical, tooLarge, canonicalBox]);
+	}, [scopeId, scope, docKey, enabled, hasCanonical, tooLarge, canonicalBox]);
+
+	useEffect(() => {
+		session?.setPaused(paused);
+	}, [session, paused]);
 
 	// A refetch that carried a newer canonical revision must reach the room: the
 	// session reads the box at offer time, but nothing else would tell it to look.

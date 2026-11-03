@@ -135,7 +135,9 @@ function canonicalDoc(text: string, revision = 1): CollabDocCanonical {
 }
 
 /** The input a surface passes once it has loaded canonical truth. */
-function input(overrides: Partial<UseCollabDocInput> = {}): UseCollabDocInput {
+function input(
+	overrides: Partial<Extract<UseCollabDocInput, { workspaceId: string }>> = {},
+): UseCollabDocInput {
 	return {
 		workspaceId: "ws-1",
 		docKey: "output:7",
@@ -235,6 +237,19 @@ afterEach(() => {
 });
 
 describe("collabSocketUrl", () => {
+	it("addresses Work candidates without pretending the Work is a workspace", () => {
+		expect(
+			collabSocketUrl(
+				{ protocol: "https:", host: "example.test" },
+				"work-id",
+				"repository-candidate:attempt",
+				"work",
+			),
+		).toBe(
+			"wss://example.test/collab/work/work-id/repository-candidate%3Aattempt",
+		);
+	});
+
 	it("addresses the room by path and escapes the document key", () => {
 		expect(
 			collabSocketUrl(
@@ -1592,6 +1607,90 @@ describe("large sheet admission", () => {
 });
 
 describe("multi-file proposal rooms", () => {
+	it("pauses a closed Work candidate without reconnecting or losing unsynced files", async () => {
+		vi.useFakeTimers();
+		const files = { "client.js": "client", "server.js": "server" };
+		const original: UseCollabDocInput = {
+			workItemId: "work-example",
+			docKey: "repo-candidate:scope",
+			enabled: true,
+			canonical: { text: "", files, revision: 0, revisionId: "base" },
+		};
+		const rendered = renderCollabDoc(original);
+		try {
+			const socket = lastSocket();
+			await act(async () => {
+				socket.open();
+				await Promise.resolve();
+			});
+			await act(async () => {
+				socket.deliver({
+					t: "base",
+					id: socket.requestsOf("base").at(-1)!.id,
+					generation: 0,
+					revision: 0,
+					files: Object.entries(files),
+					canonical: { revision: 0, revisionId: "base" },
+				});
+				await Promise.resolve();
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+			const session = rendered.result.current!.session!;
+			await act(async () => {
+				session.applyLocal(
+					[
+						["client.js", { edit: [6, [0, " local"]] }],
+						["server.js", { edit: [6, [0, " local"]] }],
+					],
+					"client.js",
+					"client local",
+				);
+				await Promise.resolve();
+			});
+			rendered.rerender({ ...original, paused: true });
+			expect(socket.closed).toBe(true);
+			expect(rendered.result.current!.session).toBe(session);
+			expect(session.text("client.js")).toBe("client local");
+			expect(rendered.result.current!.recoverableFiles).toEqual({
+				"client.js": "client local",
+				"server.js": "server local",
+			});
+			const count = sockets.length;
+			act(() => {
+				socket.drop();
+				rendered.result.current!.retry();
+				vi.advanceTimersByTime(120000);
+			});
+			expect(sockets).toHaveLength(count);
+			expect(session.text("server.js")).toBe("server local");
+		} finally {
+			rendered.unmount();
+			vi.useRealTimers();
+		}
+	});
+	it("opens an initially paused candidate as readable text without any socket", () => {
+		const count = sockets.length;
+		const rendered = renderCollabDoc({
+			workItemId: "work-example",
+			docKey: "repo-candidate:scope",
+			enabled: true,
+			paused: true,
+			canonical: {
+				text: "",
+				files: { "client.js": "sealed text" },
+				revision: 0,
+				revisionId: "base",
+			},
+		});
+		expect(sockets).toHaveLength(count);
+		expect(rendered.result.current!.session?.text("client.js")).toBe(
+			"sealed text",
+		);
+		expect(rendered.result.current!.status).toBe("disconnected");
+		rendered.unmount();
+	});
+
 	it("retains every unsynced code file for manual comparison after a reconnect", async () => {
 		const files = { "client.js": "client", "server.js": "server" };
 		const rendered = renderCollabDoc(

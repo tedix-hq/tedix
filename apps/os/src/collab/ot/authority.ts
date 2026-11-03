@@ -335,6 +335,9 @@ export interface OtAuthorityDeps {
 	/** Wall clock, in epoch milliseconds. */
 	now(): number;
 
+	/** Optional room policy; throwing refuses the transformed result before any row is appended. */
+	validateContent?: (content: CodeContent) => void;
+
 	/** Content digest for dedupe. Defaults to SHA-256 hex. */
 	digest?: (input: string) => Promise<string>;
 }
@@ -646,6 +649,7 @@ export function applySubmissionSynchronously(
 	if (content === null) return reject("stream-gone", STREAM_GONE_MESSAGE);
 	try {
 		validateCodeChangeContent(transformed, content);
+		deps.validateContent?.(applyCodeChange(content, transformed));
 	} catch (error) {
 		return reject("malformed", (error as Error).message);
 	}

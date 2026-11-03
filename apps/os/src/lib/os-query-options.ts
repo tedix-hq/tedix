@@ -589,6 +589,14 @@ export const workItemAttemptsQueryOptions = (
 		},
 	});
 
+export const repositoryCandidateQueryOptions = (
+	id: string,
+	attemptId: string,
+) =>
+	osQuery.workItems.readRepositoryCandidate.queryOptions({
+		input: { id, attemptId },
+	});
+
 export const workstationInspectionStatusQueryOptions = (
 	id: string,
 	attemptId: string,

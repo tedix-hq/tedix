@@ -11,6 +11,7 @@ import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { workRepositoryReviewQueryOptions } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
+import { RepositorySharedCandidate } from "@/components/repository-shared-candidate-editor";
 import { WorkAttemptRepositoryPanel } from "@/components/work-attempt-repository-panel";
 import { ProposalDiff } from "@/components/canvas-proposals";
 
@@ -102,6 +103,14 @@ export function WorkRepositoryReview({
 			Open repository in Canvas
 		</Link>
 	) : null;
+	const sharedCandidate = (
+		<RepositorySharedCandidate
+			key="shared-candidate"
+			workItemId={workItemId}
+			attemptId={attempt.id}
+			active={!attempt.finishedAt}
+		/>
+	);
 	if (!attempt.finishedAt)
 		return repository.success && repository.data.status === "ready" ? (
 			<div className="grid gap-2">
@@ -111,14 +120,18 @@ export function WorkRepositoryReview({
 					attemptId={attempt.id}
 					repository={repository.data}
 				/>
+				{sharedCandidate}
 			</div>
 		) : null;
 	if (!available)
 		return (
-			<Text role="label" tone="secondary">
-				Retained repository result unavailable: this session has no immutable
-				result receipt.
-			</Text>
+			<div className="grid gap-2">
+				<Text role="label" tone="secondary">
+					Retained repository result unavailable: this session has no immutable
+					result receipt.
+				</Text>
+				{sharedCandidate}
+			</div>
 		);
 	return (
 		<div className="min-w-0 basis-full">
@@ -324,6 +337,7 @@ export function WorkRepositoryReview({
 					) : null}
 				</section>
 			) : null}
+			{sharedCandidate}
 		</div>
 	);
 }

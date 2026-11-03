@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 const mocks = vi.hoisted(() => ({
 	read: vi.fn(),
+	candidateMounts: 0,
 	authority: { role: "owner", permissions: ["secrets:manage"] },
 }));
 vi.mock("@/lib/use-os-preferences", () => ({
@@ -15,6 +16,12 @@ vi.mock("@/lib/os-query-options", () => ({
 		queryKey: ["repository-review-test", input],
 		queryFn: () => mocks.read(input),
 	}),
+}));
+vi.mock("@/components/repository-shared-candidate-editor", () => ({
+	RepositorySharedCandidate: () => {
+		const [id] = useState(() => ++mocks.candidateMounts);
+		return <span data-candidate-instance={id} />;
+	},
 }));
 vi.mock("@/components/work-attempt-repository-panel", () => ({
 	WorkAttemptRepositoryPanel: ({ attemptId }: { attemptId: string }) => (
@@ -150,6 +157,24 @@ describe("retained repository result", () => {
 		expect(host.querySelectorAll("[data-active-snapshot]")).toHaveLength(1);
 		expect(host.textContent).not.toContain("Review repository result");
 		expect(mocks.read).not.toHaveBeenCalled();
+	});
+
+	it("keeps the same candidate editor mounted when its Attempt settles", async () => {
+		mocks.candidateMounts = 0;
+		const value = attempt();
+		value.finishedAt = "";
+		await mount(value);
+		const instance = host.querySelector("[data-candidate-instance]");
+		value.finishedAt = "2026-11-03T17:00:00.000Z";
+		await act(async () =>
+			root!.render(
+				<QueryClientProvider client={client}>
+					<WorkRepositoryReview workItemId={work} attempt={value} />
+				</QueryClientProvider>,
+			),
+		);
+		expect(host.querySelector("[data-candidate-instance]")).toBe(instance);
+		expect(mocks.candidateMounts).toBe(1);
 	});
 
 	it("shows unavailable without an immutable head receipt and never queries HEAD", async () => {
