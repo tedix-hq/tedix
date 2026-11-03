@@ -9,12 +9,7 @@ import {
 import { ensurePlatformOperatorAggregateApps } from "./platform-operator-aggregation";
 import { getApiClient } from "../lib/api-client";
 import type { AppTool } from "./server-context";
-import {
-	buildAggregateTediTools,
-	sanitizeTediNamespace,
-	type AggregateTediEntry,
-} from "./aggregate-tedis";
-import { buildHomeSurfaceTools } from "./home-surface-tools";
+import type { AggregateTediEntry } from "./aggregate-tedis-shared";
 import { shouldExposeHomeSurface } from "./home-surface";
 
 /** A server-produced description; it conveys no authority by itself. */
@@ -250,6 +245,7 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 	});
 	if (!root.app || root.app.organizationId !== input.organizationId)
 		return null;
+	const { buildHomeSurfaceTools } = await import("./home-surface-tools");
 	const homeTools = buildHomeSurfaceTools();
 	const home = shouldExposeHomeSurface({
 		appSlug: root.app.slug,
@@ -262,6 +258,8 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 	let aggregateTediClaimed = false;
 	let aggregateTediUnresolved = false;
 	if (Array.isArray(aggregateTedis)) {
+		const { buildAggregateTediTools, sanitizeTediNamespace } =
+			await import("./aggregate-tedis");
 		const entries = aggregateTedis.filter(
 			(entry): entry is AggregateTediEntry =>
 				isRecord(entry) &&
