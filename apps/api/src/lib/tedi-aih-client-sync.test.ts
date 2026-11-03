@@ -293,6 +293,44 @@ describe("resolveTediAihClientScopesForApp", () => {
 			}),
 		).toEqual(["connections.read"]);
 	});
+
+	it("admits capability scopes listed under any toolScopes key for connected aggregates", () => {
+		// Shape of the live google-gmail-tedix app: category keys never match a
+		// tool, but their values are this app's Tedi credential scope allowlist.
+		const toolScopes = {
+			content: ["mcp:content"],
+			messaging: ["mcp:messaging"],
+		};
+		const connected = {
+			connectionProviderId: "google-gmail",
+			aggregateApps: [{ slug: "google-gmail" }],
+		};
+		const standard = resolveTediScopes("standard");
+
+		const withScopes = resolveTediAihClientScopesForApp({
+			app: appWithMcpConfig({ ...connected, toolScopes }),
+			role: "operator",
+			tedi: { mcpCapabilityProfile: "standard" },
+		});
+		const admitted = standard.filter(
+			(scope) =>
+				scope.startsWith("mcp:content") || scope.startsWith("mcp:messaging"),
+		);
+		expect(admitted.length).toBeGreaterThan(0);
+		for (const scope of admitted) expect(withScopes).toContain(scope);
+
+		const cleared = resolveTediAihClientScopesForApp({
+			app: appWithMcpConfig({ ...connected, toolScopes: {} }),
+			role: "operator",
+			tedi: { mcpCapabilityProfile: "standard" },
+		});
+		expect(cleared.some((scope) => scope.startsWith("mcp:content"))).toBe(
+			false,
+		);
+		expect(cleared.some((scope) => scope.startsWith("mcp:messaging"))).toBe(
+			false,
+		);
+	});
 });
 
 describe("isTediCapabilityDowngrade", () => {
