@@ -40,6 +40,7 @@ const WORK = "00000000-0000-4000-8000-000000000002";
 const TEDI = "00000000-0000-4000-8000-000000000003";
 const ASK = "00000000-0000-4000-8000-000000000004";
 const ANSWER = "00000000-0000-4000-8000-000000000005";
+const ASK2 = "00000000-0000-4000-8000-000000000006";
 const createdAt = "2026-10-13T10:00:00.000Z";
 const now = "2026-10-17T10:00:00.000Z";
 
@@ -183,14 +184,66 @@ describe("owned Needs-you follow-through", () => {
 			);
 			return Response.json({ ok: true });
 		});
-		await expect(
-			dispatchInteractionReviews(env, Date.parse(now)),
-		).rejects.toThrow("Ambiguous");
-		await expect(
-			dispatchInteractionReviews(env, Date.parse(now)),
-		).rejects.toThrow("Ambiguous");
+		for (let attempt = 0; attempt < 2; attempt++) {
+			const failure = await dispatchInteractionReviews(
+				env,
+				Date.parse(now),
+			).then(
+				() => {
+					throw new Error("expected the dispatch to report a failure");
+				},
+				(error: unknown) => error,
+			);
+			expect(failure).toBeInstanceOf(AggregateError);
+			expect(String((failure as AggregateError).errors[0])).toContain(
+				"Ambiguous",
+			);
+			expect((failure as { counts?: Record<string, number> }).counts).toEqual({
+				interactionReviews: 0,
+				interactionReviewFailures: 1,
+			});
+		}
 		expect(await listDueWorkInteractionReviews(db, now)).toHaveLength(1);
 		expect(keys[0]).toBe(keys[1]);
+	});
+	it("drains the page behind a failed wake and reports only the failure", async () => {
+		const keys: unknown[] = [];
+		const { env, db } = await fixture(async (request) => {
+			const key = ((await request.json()) as { client_request_id: string })
+				.client_request_id;
+			keys.push(key);
+			return key.startsWith(`interaction-review:${ASK}:`)
+				? Response.json({ ok: true })
+				: Response.json({ accepted: true, run_id: "review-run-2" });
+		});
+		await createWorkInteraction(db, {
+			id: ASK2,
+			orgId: ORG,
+			workItemId: WORK,
+			kind: "question",
+			subject: "Confirm the migration window",
+			prompt: "Which window?",
+			creator: { type: "tedi", id: TEDI },
+			targetType: "user",
+			targetId: "person",
+			now: createdAt,
+		});
+		const failure = await dispatchInteractionReviews(env, Date.parse(now)).then(
+			() => {
+				throw new Error("expected the dispatch to report a failure");
+			},
+			(error: unknown) => error,
+		);
+		expect(failure).toBeInstanceOf(AggregateError);
+		expect((failure as { counts?: Record<string, number> }).counts).toEqual({
+			interactionReviews: 1,
+			interactionReviewFailures: 1,
+		});
+		expect(keys).toHaveLength(2);
+		// ASK sorts first and stays due for the next tick; ASK2 was still woken.
+		expect(
+			(await listDueWorkInteractionReviews(db, now)).map((row) => row.id),
+		).toEqual([ASK]);
 	});
 	it("lets only the original owner re-ask once, then close with a note", async () => {
 		const { client, db, sqlite } = await fixture();
