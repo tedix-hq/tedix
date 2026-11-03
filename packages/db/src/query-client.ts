@@ -9,6 +9,7 @@
  * imported query leaves reference.
  */
 
+import type { D1Database } from "@cloudflare/workers-types";
 import { drizzle } from "drizzle-orm/d1";
 import { observeD1 } from "./slow-query";
 

@@ -329,6 +329,7 @@ export async function remoteD1QueryRest(options: {
 	accountId: string;
 	databaseId: string;
 	sql: string;
+	params?: (string | number | null)[];
 	apiToken: string;
 	apiBaseUrl?: string;
 	fetchImplementation?: (
@@ -360,7 +361,10 @@ export async function remoteD1QueryRest(options: {
 					Authorization: `Bearer ${options.apiToken}`,
 					"content-type": "application/json",
 				},
-				body: JSON.stringify({ sql: options.sql }),
+				body: JSON.stringify({
+					sql: options.sql,
+					...(options.params ? { params: options.params } : {}),
+				}),
 			},
 		);
 	} catch (error) {
