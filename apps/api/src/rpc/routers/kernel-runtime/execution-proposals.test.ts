@@ -51,6 +51,20 @@ const repoInput = {
 	owner: "fictional-team",
 	repo: "example",
 	baseRef: "a".repeat(40),
+	revisionExpectation: {
+		baseSha: "a".repeat(40),
+		targetSha: null,
+		exactTreeValidation: {
+			version: "v1" as const,
+			baseSha: "a".repeat(40),
+			resultTreeSha: "b".repeat(40),
+			orderedChangesDigest: "c".repeat(64),
+			gateRecipeDigest: "d".repeat(64),
+			processId: "repo-check-fixture",
+			terminalEvidenceRef: "r2://fictional/repo-check-fixture/evidence.json",
+			exitCode: 0 as const,
+		},
+	},
 	branch: "feature/widget",
 	message: "Add widget",
 	openPr: false,
@@ -169,6 +183,31 @@ describe("proposal service boundary", () => {
 });
 
 describe("repo proposal decisions", () => {
+	it.each(["missing", "mutable-tree", "wrong-base"])(
+		"rejects a %s exact-tree receipt before effects",
+		async (failure) => {
+			const f = fixture();
+			const revisionExpectation = {
+				...repoInput.revisionExpectation,
+				exactTreeValidation:
+					failure === "missing"
+						? undefined
+						: {
+								...repoInput.revisionExpectation.exactTreeValidation,
+								resultTreeSha:
+									failure === "mutable-tree" ? "main" : "b".repeat(40),
+								baseSha:
+									failure === "wrong-base" ? "e".repeat(40) : "a".repeat(40),
+							},
+			};
+			await expect(
+				f.client.repo({ ...repoInput, revisionExpectation }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			expect(effects.policy).not.toHaveBeenCalled();
+			expect(effects.grants).not.toHaveBeenCalled();
+			noEffects(f);
+		},
+	);
 	it("auto-approves a trusted feature commit and persists the exact fingerprint without execution", async () => {
 		const f = fixture();
 		const fingerprint = "c".repeat(64);
@@ -187,6 +226,7 @@ describe("repo proposal decisions", () => {
 			kind: "repo_commit_write",
 			riskTier: "low",
 			changeFingerprint: fingerprint,
+			revisionExpectation: repoInput.revisionExpectation,
 		});
 		expect(
 			f.sqlite.prepare("SELECT action FROM audit_events ORDER BY rowid").all(),
