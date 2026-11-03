@@ -170,8 +170,40 @@ async function expectCount(page: Page, count: number, phase: string) {
 		);
 	} catch (cause) {
 		const visible = await page.locator(toastSelector).allTextContents();
+		const diagnostics = await page.evaluate(async (selector) => {
+			let frames = 0;
+			let frame: number;
+			const tick = () => {
+				frames++;
+				frame = requestAnimationFrame(tick);
+			};
+			frame = requestAnimationFrame(tick);
+			const sample = () => ({
+				time: performance.now(),
+				visibility: document.visibilityState,
+				focused: document.hasFocus(),
+				toasts: Array.from(document.querySelectorAll(selector), (root) => ({
+					ending: root.hasAttribute("data-ending-style"),
+					starting: root.hasAttribute("data-starting-style"),
+					transform: getComputedStyle(root).transform,
+					opacity: getComputedStyle(root).opacity,
+					animations: root.getAnimations().map((animation) => ({
+						playState: animation.playState,
+						pending: animation.pending,
+						currentTime: String(animation.currentTime),
+						startTime: String(animation.startTime),
+						timing: animation.effect?.getComputedTiming(),
+					})),
+				})),
+			});
+			const before = sample();
+			// Use a timer so a stopped frame loop can still report its state.
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			cancelAnimationFrame(frame);
+			return { before, after: sample(), frames };
+		}, toastSelector);
 		throw new Error(
-			`${phase}: expected ${count} toast(s), found ${JSON.stringify(visible)}`,
+			`${phase}: expected ${count} toast(s), found ${JSON.stringify(visible)}\ndismissal diagnostics: ${JSON.stringify(diagnostics)}`,
 			{ cause },
 		);
 	}
