@@ -149,10 +149,14 @@ export function resolveCollaborationSource(context: BaseContext): {
 	if (producer.skillRunId) {
 		return { sourceKind: "run", sourceId: producer.skillRunId };
 	}
-	if (context.externalAgentSessionId) {
+	// withAuth validates owner-host sessions against the exact user and organization.
+	// This names the producer without changing the user's authority or accountability.
+	const sessionId =
+		context.externalAgentSessionId ?? context.ownerHostSessionId;
+	if (sessionId) {
 		return {
 			sourceKind: "agent_session",
-			sourceId: context.externalAgentSessionId,
+			sourceId: sessionId,
 		};
 	}
 	throw createError(

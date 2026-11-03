@@ -16,6 +16,12 @@ import {
 } from "@tedix/db/schema/os-workspaces";
 import { kernelConversations } from "@tedix/db/schema/cognitive-runtime";
 import { auditEvents } from "@tedix/db/schema/audit-events";
+import {
+	externalAgentPrincipals,
+	externalAgentSessions,
+} from "@tedix/db/schema/external-agent-identity";
+import { OWNER_HOST_SESSION_HEADER } from "@tedix/api-contract/contracts/external-agent-identity";
+import { bindForwardedOwnerHostSession } from "../orpc";
 import { osCollaborationProcedures } from "./os-workspace-collaboration";
 import { organizations } from "@tedix/db/schema/organizations";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
@@ -51,6 +57,8 @@ async function fixture() {
 			osWorkspaces,
 			kernelConversations,
 			auditEvents,
+			externalAgentPrincipals,
+			externalAgentSessions,
 			osCollaborationProposals,
 			osGadgets,
 			osGadgetRevisions,
@@ -1899,5 +1907,217 @@ describe("MCP app editing", () => {
 			}),
 		).rejects.toMatchObject({ code: "CONFLICT" });
 		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+	});
+});
+
+describe("owner-host app collaboration provenance", () => {
+	const sessionId = "55555555-5555-4555-8555-555555555555";
+	async function ownerHostFixture(userId = "user-1") {
+		const f = await fixture();
+		await f.db.insert(externalAgentPrincipals).values({
+			id: "owner-host-principal",
+			organizationId: "org-1",
+			key: "owner-host-fixture",
+			displayName: "Owner hosts",
+			credentialBindingType: "owner_user",
+			credentialBindingId: userId,
+			createdByType: "user",
+			createdById: userId,
+		});
+		await f.db.insert(externalAgentSessions).values({
+			id: sessionId,
+			organizationId: "org-1",
+			principalId: "owner-host-principal",
+			externalSessionKey: "codex:fictional-owner-host",
+			harness: "codex",
+			harnessVersion: "test",
+			modelProvider: "example",
+			modelId: "fixture",
+			modelVersion: "fixture",
+			identitySource: "explicit",
+			creditEligible: false,
+			startedAt: "2026-01-01T00:00:00.000Z",
+			lastSeenAt: "2026-01-01T00:00:00.000Z",
+		});
+		const context = userContext({
+			env: f.env,
+			sub: userId,
+			permissions: ["os:read", "os:author"],
+		});
+		context.headers.set(OWNER_HOST_SESSION_HEADER, sessionId);
+		await bindForwardedOwnerHostSession(context, "org-1", {
+			status: "active",
+			userId,
+		});
+		const [revision] = await f.db.select().from(osGadgetRevisions);
+		const content = {
+			manifest: JSON.parse(revision!.manifest),
+			files: { "server.js": "export class App {}", "client.js": "" },
+		};
+		return {
+			...f,
+			context,
+			content,
+			client: createRouterClient(f.router, { context }),
+			collaboration: createRouterClient(osCollaborationProcedures, { context }),
+		};
+	}
+	const edit = {
+		...scope,
+		expectedRevisionId: revisionId,
+		edits: [
+			{
+				path: "server.js",
+				before: "export class App {}",
+				after: "export class App { count() { return 2; } }",
+			},
+		],
+	};
+	it("records the verified session as producer while keeping user accountability", async () => {
+		const f = await ownerHostFixture();
+		const input = {
+			workspaceId,
+			documentType: "gadget" as const,
+			documentId: gadgetId,
+			sourceKind: "agent_session" as const,
+			sourceId: sessionId,
+			content: f.content,
+		};
+		const { proposal } = await f.collaboration.create(input);
+		expect(proposal).toMatchObject({
+			sourceKind: "agent_session",
+			sourceId: sessionId,
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		expect(await f.db.select().from(osCollaborationProposals)).toMatchObject([
+			{ id: proposal.id, sourceAttestationVersion: 1 },
+		]);
+		await expect(
+			f.collaboration.create({ ...input, sourceId: previewId }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const saved = await f.client.saveDraft({
+			...scope,
+			expectedRevisionId: revisionId,
+			content: f.content,
+		});
+		const proposed = await f.client.proposeEdit(edit);
+		for (const draft of [saved.proposal, proposed.proposal]) {
+			expect(draft).toMatchObject({
+				sourceKind: "agent_session",
+				sourceId: sessionId,
+				createdByKind: "user",
+				createdById: "user-1",
+			});
+		}
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+	});
+	it("does not treat a raw header or a claimed source id as attestation", async () => {
+		const f = await ownerHostFixture();
+		const context = userContext({
+			env: f.env,
+			permissions: ["os:read", "os:author"],
+		});
+		context.headers.set(OWNER_HOST_SESSION_HEADER, sessionId);
+		const client = createRouterClient(osCollaborationProcedures, { context });
+		await expect(
+			client.create({
+				workspaceId,
+				documentType: "gadget",
+				documentId: gadgetId,
+				sourceKind: "agent_session",
+				sourceId: sessionId,
+				content: f.content,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(await f.db.select().from(osCollaborationProposals)).toHaveLength(0);
+	});
+	it("retains the exact user, organization and active-session fences", async () => {
+		const f = await ownerHostFixture();
+		for (const [organizationId, userId] of [
+			["org-1", "user-2"],
+			["org-2", "user-1"],
+		]) {
+			const context = userContext({ env: f.env, organizationId, sub: userId });
+			context.headers.set(OWNER_HOST_SESSION_HEADER, sessionId);
+			await expect(
+				bindForwardedOwnerHostSession(context, organizationId!, {
+					status: "active",
+					userId,
+				}),
+			).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+			expect(context.ownerHostSessionId).toBeUndefined();
+		}
+		await f.db
+			.update(externalAgentSessions)
+			.set({ status: "ended" })
+			.where(eq(externalAgentSessions.id, sessionId));
+		const context = userContext({ env: f.env });
+		context.headers.set(OWNER_HOST_SESSION_HEADER, sessionId);
+		await expect(
+			bindForwardedOwnerHostSession(context, "org-1", {
+				status: "active",
+				userId: "user-1",
+			}),
+		).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		expect(context.ownerHostSessionId).toBeUndefined();
+	});
+	it("does not grant a validated owner-host user the builder role", async () => {
+		const f = await ownerHostFixture("user-2");
+		await expect(
+			f.client.saveDraft({
+				...scope,
+				expectedRevisionId: revisionId,
+				content: f.content,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(f.client.proposeEdit(edit)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		expect(await f.db.select().from(osCollaborationProposals)).toHaveLength(0);
+	});
+	it("attributes room edits to the verified host session, separately from the human", async () => {
+		const f = await ownerHostFixture();
+		const { proposal } = await f.client.saveDraft({
+			...scope,
+			expectedRevisionId: revisionId,
+			content: f.content,
+		});
+		const actors: Array<{ kind: string; key: string }> = [];
+		f.env.APP_DRAFT_ROOM = {
+			idFromName: (name: string) => name,
+			get: () => ({
+				fetch: async (request: Request) => {
+					const input = (await request.json()) as {
+						actor: { kind: string; key: string };
+					};
+					actors.push(input.actor);
+					return Response.json({
+						snapshot: {
+							position: { generation: 0, revision: 0 },
+							canonical: { revision: 0, revisionId },
+							files: f.content.files,
+						},
+					});
+				},
+			}),
+		} as unknown as DurableObjectNamespace;
+		const input = {
+			...scope,
+			proposalId: proposal.id,
+			expectedRevisionId: revisionId,
+			expectedSequence: 0,
+		};
+		await f.client.readDraftRoom(input);
+		const human = createRouterClient(f.router, {
+			context: userContext({
+				env: f.env,
+				permissions: ["os:read", "os:author"],
+			}),
+		});
+		await human.readDraftRoom(input);
+		expect(actors.map(({ kind }) => kind)).toEqual(["external_agent", "human"]);
+		expect(actors[0]!.key).not.toBe(actors[1]!.key);
+		expect(JSON.stringify(actors)).not.toContain(sessionId);
 	});
 });

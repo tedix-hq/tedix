@@ -296,7 +296,9 @@ export function createOsAppRuntimeRouter() {
 			baseRevisionId: proposal.baseRevisionId,
 			sequence: proposal.sequence,
 			content: OsAppDraftContentSchema.parse(JSON.parse(proposal.content)),
-			actor: resolveCreator(context),
+			actor: context.ownerHostSessionId
+				? { kind: "external_agent", id: context.ownerHostSessionId }
+				: resolveCreator(context),
 			...(input.submission ? { submission: input.submission } : {}),
 		});
 	}
@@ -394,7 +396,9 @@ export function createOsAppRuntimeRouter() {
 			baseRevisionId: scope.revisionId,
 			baseRevision: code.revision,
 			status: "open",
-			...(context.authType === "user" && !context.externalAgentSessionId
+			...(context.authType === "user" &&
+			!context.externalAgentSessionId &&
+			!context.ownerHostSessionId
 				? { sourceKind: "user" as const, sourceId: scope.principal.id }
 				: resolveCollaborationSource(context)),
 			sourceAttestationVersion: 1,
@@ -411,7 +415,11 @@ export function createOsAppRuntimeRouter() {
 			sourceKind: "chat" | "run" | "agent_session";
 			sourceId: string;
 		};
-		if (context.authType === "user" && !context.externalAgentSessionId) {
+		if (
+			context.authType === "user" &&
+			!context.externalAgentSessionId &&
+			!context.ownerHostSessionId
+		) {
 			const conversation = input.conversationId
 				? await getKernelConversation(context.db, {
 						organizationId: scope.organizationId,
