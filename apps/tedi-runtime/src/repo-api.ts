@@ -1,8 +1,8 @@
 /**
- * GitHub REST API client for git-over-HTTPS repo access.
+ * GitHub API client for git-over-HTTPS repo access.
  *
  * Phase 1 (read): Trees/Blobs API — load repo file trees and blob content.
- * Phase 2 (write): Git data API — create blobs, trees, commits, refs, and PRs.
+ * Phase 2 (write): Git data API for objects and PRs; GraphQL for fenced ref updates.
  *
  * All network goes through the tedi DO host — the Worker Loader isolate stays
  * network-blocked and reaches repo content only through workspace RPC.
@@ -853,26 +853,66 @@ export async function commitRepoChanges({
 	const newCommitSha = newCommitData.sha;
 
 	if (revisionExpectation) {
-		// Recheck after object creation. force:false rejects non-fast-forward races;
-		// REST does not atomically compare the previous head for ancestor-preserving moves.
 		await assertRepoRevisions(revisionInput, revisionExpectation);
 		try {
-			if (revisionExpectation.targetSha === null) {
-				await ghWrite(
-					`${GH_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/git/refs`,
-					"POST",
-					{ ref: `refs/heads/${branch}`, sha: newCommitSha },
-					token,
+			const metadata = await ghFetch<{ node_id: string }>(
+				`${GH_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}`,
+				token,
+			);
+			if (typeof metadata.node_id !== "string" || !metadata.node_id)
+				throw new Error(
+					"Repository identity unavailable for atomic publication",
 				);
-			} else {
-				await ghWrite(
-					`${GH_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/git/refs/heads/${encodePathish(branch)}`,
-					"PATCH",
-					{ sha: newCommitSha, force: false },
-					token,
+			// beforeOid compares the target atomically, including absence. Keep the
+			// prepared commit's approved source parent and never fall back to REST refs.
+			const result = await ghWrite<{
+				errors?: unknown[];
+				data?: { updateRefs?: { clientMutationId?: string } | null } | null;
+			}>(
+				`${GH_API}/graphql`,
+				"POST",
+				{
+					query:
+						"mutation PublishReviewedCommit($input: UpdateRefsInput!) { updateRefs(input: $input) { clientMutationId } }",
+					variables: {
+						input: {
+							repositoryId: metadata.node_id,
+							clientMutationId: newCommitSha,
+							refUpdates: [
+								{
+									name: `refs/heads/${branch}`,
+									beforeOid: revisionExpectation.targetSha ?? "0".repeat(40),
+									afterOid: newCommitSha,
+									force: false,
+								},
+							],
+						},
+					},
+				},
+				token,
+			);
+			if (
+				result.errors?.length ||
+				result.data?.updateRefs?.clientMutationId !== newCommitSha
+			)
+				throw new Error(
+					"GitHub atomic reference update rejected; verify GraphQL write permissions and repository policy",
 				);
-			}
 		} catch (error) {
+			// A lost acknowledgement can follow a successful atomic write. Reconcile
+			// only our exact prepared object; never retry or replace a competing head.
+			let actualTargetSha: string | null = null;
+			try {
+				const actual = await ghFetch<{ object: { sha: string } }>(
+					`${GH_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/git/ref/heads/${encodePathish(branch)}`,
+					token,
+				);
+				actualTargetSha = actual.object.sha;
+			} catch {
+				// An unavailable read cannot prove publication; preserve refusal below.
+			}
+			if (actualTargetSha === newCommitSha)
+				return { commitSha: newCommitSha, branchRef: `refs/heads/${branch}` };
 			await assertRepoRevisions(revisionInput, revisionExpectation);
 			throw error;
 		}

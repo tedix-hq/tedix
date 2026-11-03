@@ -31,6 +31,12 @@ function provider(
 		target?: string | null;
 		afterCommit?: () => void;
 		race?: boolean;
+		raceHead?: string;
+		graphqlError?: boolean;
+		httpError?: boolean;
+		missingReceipt?: boolean;
+		lostAck?: boolean;
+		appliedMissingReceipt?: boolean;
 	} = {},
 ) {
 	const state = {
@@ -48,6 +54,8 @@ function provider(
 		const reply = (data: unknown, status = 200) =>
 			new Response(JSON.stringify(data), { status });
 		if (method === "GET") {
+			if (path === "/repos/fictional/demo")
+				return reply({ node_id: "fictional-repository-node" });
 			if (path.endsWith("/git/ref/heads/main"))
 				return reply({ object: { sha: state.base } });
 			if (path.endsWith("/git/ref/heads/feat/change"))
@@ -66,17 +74,62 @@ function provider(
 			options.afterCommit?.();
 			return reply({ sha: C });
 		}
-		if (options.race) {
-			state.target = B;
-			return reply({ message: "Reference changed" }, 422);
+		if (path === "/graphql") {
+			const variables = body.variables as {
+				input: {
+					repositoryId: string;
+					clientMutationId: string;
+					refUpdates: {
+						name: string;
+						beforeOid: string;
+						afterOid: string;
+						force: boolean;
+					}[];
+				};
+			};
+			assert.equal(variables.input.repositoryId, "fictional-repository-node");
+			const update = variables.input.refUpdates[0]!;
+			assert.equal(update.force, false);
+			if (options.race) state.target = options.raceHead ?? B;
+			if (options.httpError) return reply({ message: "Forbidden" }, 403);
+			if (options.graphqlError)
+				return reply({
+					errors: [{ type: "FORBIDDEN", message: "Permission denied" }],
+					data: {
+						updateRefs: { clientMutationId: variables.input.clientMutationId },
+					},
+				});
+			if (options.missingReceipt) return reply({ data: { updateRefs: null } });
+			if (update.beforeOid !== (state.target ?? "0".repeat(40)))
+				return reply({
+					errors: [{ message: "Reference changed" }],
+					data: { updateRefs: null },
+				});
+			state.target = update.afterOid;
+			if (options.lostAck) throw new Error("Transport lost after apply");
+			if (options.appliedMissingReceipt)
+				return reply({ data: { updateRefs: null } });
+			return reply({
+				data: {
+					updateRefs: { clientMutationId: variables.input.clientMutationId },
+				},
+			});
 		}
-		if (path.includes("/git/refs")) {
-			state.target = C;
-			return reply({ sha: C });
-		}
+
 		throw new Error(`Unexpected write ${path}`);
 	};
 	return state;
+}
+function refUpdate(state: ReturnType<typeof provider>) {
+	assert.equal(state.writes.at(-1)?.path, "/graphql");
+	assert.equal(
+		state.writes.some((w) => w.path.includes("/git/refs")),
+		false,
+		"atomic publication has no REST fallback",
+	);
+	return (
+		state.writes.at(-1)?.body.variables as { input: { refUpdates: unknown[] } }
+	).input.refUpdates[0];
 }
 try {
 	let state = provider({ base: B });
@@ -131,8 +184,8 @@ try {
 		RepoStaleRevisionError,
 	);
 	assert.deepEqual(
-		state.writes.at(-1)?.body,
-		{ sha: C, force: false },
+		refUpdate(state),
+		{ name: "refs/heads/feat/change", beforeOid: A, afterOid: C, force: false },
 		"non-fast-forward provider race cannot force publish",
 	);
 
@@ -144,6 +197,7 @@ try {
 		}),
 		RepoStaleRevisionError,
 	);
+	assert.equal(state.target, B, "concurrent branch creation is preserved");
 	assert.equal(state.writes.at(-1)?.method, "POST");
 	assert.equal(
 		state.writes.some((w) => w.method === "PATCH"),
@@ -164,17 +218,85 @@ try {
 		[A],
 		"published parent is the approved source",
 	);
-	assert.deepEqual(state.writes.at(-1)?.body, { sha: C, force: false });
+	assert.deepEqual(refUpdate(state), {
+		name: "refs/heads/feat/change",
+		beforeOid: A,
+		afterOid: C,
+		force: false,
+	});
 
 	state = provider({ target: null });
 	await commitRepoChanges({
 		...publish,
 		revisionExpectation: { baseSha: A, targetSha: null },
 	});
-	assert.deepEqual(state.writes.at(-1)?.body, {
-		ref: "refs/heads/feat/change",
-		sha: C,
+	assert.deepEqual(refUpdate(state), {
+		name: "refs/heads/feat/change",
+		beforeOid: "0".repeat(40),
+		afterOid: C,
+		force: false,
 	});
+	// Both B and A can be ancestors of prepared C. Fast-forward alone would
+	// accept B->A->C; the expected old head must still reject the target race.
+	state = provider({ target: B, race: true, raceHead: A });
+	await assert.rejects(
+		commitRepoChanges({
+			...publish,
+			revisionExpectation: { baseSha: A, targetSha: B },
+		}),
+		RepoStaleRevisionError,
+	);
+	assert.equal(
+		state.target,
+		A,
+		"ancestor-preserving movement is not overwritten",
+	);
+	assert.deepEqual(refUpdate(state), {
+		name: "refs/heads/feat/change",
+		beforeOid: B,
+		afterOid: C,
+		force: false,
+	});
+	assert.deepEqual(
+		state.writes.find((w) => w.path.endsWith("/git/commits"))?.body.parents,
+		[A],
+	);
+	for (const failure of [
+		{ graphqlError: true },
+		{ httpError: true },
+		{ missingReceipt: true },
+	]) {
+		state = provider(failure);
+		await assert.rejects(
+			commitRepoChanges({
+				...publish,
+				revisionExpectation: { baseSha: A, targetSha: A },
+			}),
+		);
+		assert.equal(state.target, A, "provider refusal cannot change the target");
+		refUpdate(state);
+	}
+
+	for (const uncertain of [
+		{ lostAck: true },
+		{ appliedMissingReceipt: true },
+	]) {
+		state = provider(uncertain);
+		assert.deepEqual(
+			await commitRepoChanges({
+				...publish,
+				revisionExpectation: { baseSha: A, targetSha: A },
+			}),
+			{ commitSha: C, branchRef: "refs/heads/feat/change" },
+		);
+		assert.equal(state.target, C);
+		assert.equal(
+			state.writes.filter((w) => w.path === "/graphql").length,
+			1,
+			"read-only reconciliation never repeats publication",
+		);
+		refUpdate(state);
+	}
 	console.log(
 		"PASS pinned source/target checks, concurrent movement, new branch and non-force publication",
 	);
