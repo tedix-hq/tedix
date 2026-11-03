@@ -5,11 +5,11 @@ import {
 	getArtifactRedactionCandidate,
 	getArtifactReleaseReviewHead,
 } from "@tedix/db/queries/artifact-policy/releases";
+import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import {
-	getOsOutput,
 	getOsOutputRevision,
 	getOsOutputRevisionByNumber,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "./os-workspace-outputs";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,

@@ -1,9 +1,9 @@
 import type { DbClient } from "@tedix/db/client";
 import {
 	getOsOutput,
-	getOsOutputRevision,
 	listOsOutputs,
 } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutputRevision } from "../../../services/os-workspace-outputs";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,

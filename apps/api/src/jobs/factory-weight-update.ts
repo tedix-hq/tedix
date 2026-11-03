@@ -32,7 +32,7 @@ import {
 import {
 	createOsOutputRevision,
 	getActiveSheetByTitle,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../services/os-workspace-outputs";
 
 /**
  * Weekly factory weight update. For every Card review or Deck factory source

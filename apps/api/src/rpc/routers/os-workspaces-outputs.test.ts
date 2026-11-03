@@ -721,6 +721,12 @@ describe("outputs", () => {
 			outputId: created.output.id,
 		});
 		expect(history.revisions.map((item) => item.revision)).toEqual([2, 1]);
+		expect(history.revisions.every((item) => !("content" in item))).toBe(true);
+		const exact = await c.org1.outputs.history({
+			outputId: created.output.id,
+			revision: 1,
+		});
+		expect(exact.revisions[0]?.content).toEqual(created.revision.content);
 		const audit = await createDbClient(c.env.DB)
 			.select()
 			.from(auditEvents)

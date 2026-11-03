@@ -1284,7 +1284,15 @@ export const osWorkspacesContract = oc
 				)
 				.output(
 					z.strictObject({
-						revisions: z.array(OsOutputRevisionSchema),
+						revisions: z.array(
+							OsOutputRevisionSchema.extend({
+								content: OsOutputRevisionSchema.shape.content
+									.optional()
+									.describe(
+										"Present for an exact revision request; history pages contain metadata only",
+									),
+							}),
+						),
 						nextBeforeRevision: z.number().int().positive().nullable(),
 						pending: z.array(FactoryCardPendingRevisionSchema),
 					}),

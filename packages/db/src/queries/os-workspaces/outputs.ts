@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsOutputRevisionRow,
@@ -49,6 +49,9 @@ export interface CreateOsOutputRevisionParams {
 	outputId: string;
 	/** JSON string: the semantic content body. */
 	content: string;
+	contentSha256?: string | null;
+	contentBytes?: number | null;
+	bodyR2Key?: string | null;
 	note?: string | null;
 	createdByKind: OsOutputRevisionRow["createdByKind"];
 	createdById: string;
@@ -312,13 +315,16 @@ export async function getOsOutputRevisionByNumber(
 	return row;
 }
 
+export type OsOutputRevisionMetadataRow = Omit<OsOutputRevisionRow, "content">;
+
 export async function listOsOutputRevisions(
 	db: DbQueryClient,
 	params: OsOutputScopeParams,
 	options: { limit?: number; beforeRevision?: number } = {},
-): Promise<OsOutputRevisionRow[]> {
+): Promise<OsOutputRevisionMetadataRow[]> {
+	const { content: _content, ...metadata } = getColumns(osOutputRevisions);
 	return db
-		.select()
+		.select(metadata)
 		.from(osOutputRevisions)
 		.where(
 			and(
@@ -423,14 +429,21 @@ export async function createOsOutputRevision(
 					>`${params.createdByKind}`.as("created_by_kind"),
 					createdById: sql<string>`${params.createdById}`.as("created_by_id"),
 					createdAt: sql<string>`${now}`.as("created_at"),
-					// Positional bind: this is an INSERT..SELECT with no column list,
-					// so these must stay last, matching the appended physical columns.
 					skillRunId: sql<string | null>`${params.skillRunId ?? null}`.as(
 						"skill_run_id",
 					),
 					skillId: sql<string | null>`${params.skillId ?? null}`.as("skill_id"),
 					accessEnvelope: sql<string | null>`${accessEnvelope}`.as(
 						"access_envelope",
+					),
+					contentSha256: sql<string | null>`${params.contentSha256 ?? null}`.as(
+						"content_sha256",
+					),
+					contentBytes: sql<number | null>`${params.contentBytes ?? null}`.as(
+						"content_bytes",
+					),
+					bodyR2Key: sql<string | null>`${params.bodyR2Key ?? null}`.as(
+						"body_r2_key",
 					),
 				})
 				.from(osOutputs)

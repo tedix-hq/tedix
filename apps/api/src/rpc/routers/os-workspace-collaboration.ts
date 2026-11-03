@@ -16,17 +16,17 @@ import {
 	decideOsCollaborationProposal,
 	getOsCollaborationProposal,
 	listOsCollaborationProposals,
-	mergeOsCollaborationProposal,
 	updateOsCollaborationProposalPreview,
 } from "@tedix/db/queries/os-workspaces/collaboration";
+import {
+	mergeOsCollaborationProposal,
+	getOsOutputRevision,
+} from "../../services/os-workspace-outputs";
 import {
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import {
-	getOsOutputRevision,
-	listOsOutputRevisions,
-} from "@tedix/db/queries/os-workspaces/outputs";
+import { listOsOutputRevisions } from "@tedix/db/queries/os-workspaces/outputs";
 import type {
 	OsCollaborationProposalRow,
 	OsGadgetRevisionRow,

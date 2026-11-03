@@ -413,7 +413,7 @@ export const attentionContractRouter = os.router({
 						{ context },
 					);
 					const revision = past.revisions[0];
-					if (!revision || revision.content.kind !== "sheet")
+					if (!revision || revision.content?.kind !== "sheet")
 						throw errors.BAD_REQUEST({
 							message: "That card version is unavailable",
 						});

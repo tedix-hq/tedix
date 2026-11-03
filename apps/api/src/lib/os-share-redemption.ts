@@ -39,9 +39,9 @@ import {
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	getOsOutput,
-	getOsOutputRevision,
 	listOsOutputs,
 } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutputRevision } from "../services/os-workspace-outputs";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { approvedGuestSkillRead } from "../services/os-share-skill-read-grants";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";

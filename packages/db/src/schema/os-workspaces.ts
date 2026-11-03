@@ -585,11 +585,6 @@ export const osOutputRevisions = sqliteTable(
 		 * null for a human-authored revision and for every revision written before
 		 * this column existed — there is no backfill source.
 		 *
-		 * Declared LAST on purpose: `ALTER TABLE ADD COLUMN` appends, and the
-		 * revision writers use `insert().select()`, which emits no column list and
-		 * binds positionally. Schema order must equal physical order or values
-		 * land in the wrong columns.
-		 *
 		 * Deliberately plain text with no FK, matching `osGadgetExecutions`: a
 		 * deliverable outlives the skill that produced it, so pruning a skill or
 		 * its runs must never cascade away the receipt. Orphaned ids are expected
@@ -599,6 +594,9 @@ export const osOutputRevisions = sqliteTable(
 		skillId: text("skill_id"),
 		/** JSON OsDerivedAccessEnvelope inherited from the producing governed run. */
 		accessEnvelope: text("access_envelope"),
+		contentSha256: text("content_sha256"),
+		contentBytes: integer("content_bytes"),
+		bodyR2Key: text("body_r2_key"),
 	},
 	(table) => [
 		uniqueIndex("os_output_revisions_output_revision_unique").on(

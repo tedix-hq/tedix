@@ -27,15 +27,17 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { getOsGadgetExecutionByRunId } from "@tedix/db/queries/os-workspaces/executions";
 import {
-	createOsOutput,
-	createOsOutputRevision,
 	getOsOutput,
-	getOsOutputRevision,
-	getOsOutputRevisionByNumber,
 	listOsOutputRevisions,
 	listOsOutputs,
 	updateOsOutput,
 } from "@tedix/db/queries/os-workspaces/outputs";
+import {
+	createOsOutput,
+	createOsOutputRevision,
+	getOsOutputRevision,
+	getOsOutputRevisionByNumber,
+} from "../../services/os-workspace-outputs";
 import type {
 	OsOutputRevisionRow,
 	OsOutputRow,
@@ -52,6 +54,7 @@ import {
 import {
 	buildOsOutputLibrary,
 	mapOsOutputRevisionRow,
+	mapOsOutputRevisionMetadata,
 	mapOsOutputRow,
 } from "../../services/os-output-library";
 import {
@@ -149,7 +152,7 @@ async function resolveAccessEnvelope(
  */
 async function resolveRevisionAccessEnvelope(
 	context: BaseContext,
-	revision: OsOutputRevisionRow,
+	revision: Omit<OsOutputRevisionRow, "content">,
 ): Promise<OsDerivedAccessEnvelope | null> {
 	const stored = parseDerivedAccessEnvelope(revision.accessEnvelope);
 	if (stored || !revision.skillRunId) return stored;
@@ -163,7 +166,7 @@ async function resolveRevisionAccessEnvelope(
 
 async function canReadDerivedRevision(
 	context: BaseContext,
-	revision: OsOutputRevisionRow,
+	revision: Omit<OsOutputRevisionRow, "content">,
 ): Promise<boolean> {
 	const accessEnvelope = await resolveRevisionAccessEnvelope(context, revision);
 	return Boolean(
@@ -213,7 +216,7 @@ const outputsLibrary = readOs.outputs.library.handler(
 
 async function requireDerivedRevisionAccess(
 	context: BaseContext,
-	revision: OsOutputRevisionRow,
+	revision: Omit<OsOutputRevisionRow, "content">,
 ): Promise<void> {
 	if (!(await canReadDerivedRevision(context, revision))) {
 		throw createError(
@@ -355,15 +358,26 @@ const outputsHistory = readOs.outputs.history.handler(
 			await requireDerivedRevisionAccess(context, revision);
 		const { factoryCardRevisionRequests } =
 			await import("../../services/factory-card-revisions");
-		const pending =
-			!input.revision && !input.beforeRevision && rows[0]
-				? await factoryCardRevisionRequests(
-						context,
-						mapOsOutputRevisionRow(rows[0]),
-					)
-				: [];
+		const newest =
+			output.kind === "sheet" &&
+			!input.revision &&
+			!input.beforeRevision &&
+			rows[0]
+				? await getOsOutputRevision(queryDb(context), {
+						organizationId: output.organizationId,
+						revisionId: rows[0].id,
+					})
+				: null;
+		const pending = newest
+			? await factoryCardRevisionRequests(
+					context,
+					mapOsOutputRevisionRow(newest),
+				)
+			: [];
 		return {
-			revisions: rows.map(mapOsOutputRevisionRow),
+			revisions: exact
+				? [mapOsOutputRevisionRow(exact)]
+				: rows.map(mapOsOutputRevisionMetadata),
 			nextBeforeRevision:
 				!input.revision && rows.length === 50 ? rows.at(-1)!.revision : null,
 			pending,

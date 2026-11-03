@@ -800,6 +800,56 @@ describe("CardReviewApp scored factory cards", () => {
 		);
 	});
 
+	it("loads exact bodies from metadata history and waits to load older versions until expanded", async () => {
+		revision = 3;
+		const draftColumn = sheet.columns.indexOf("Draft");
+		const contents = ["oldest draft", "previous draft", "current draft"].map(
+			(draft) => {
+				const content = structuredClone(sheet);
+				content.rows[0]![draftColumn] = draft;
+				return content;
+			},
+		);
+		sheet = contents[2]!;
+		vi.mocked(osApi.osWorkspaces.outputs.history).mockImplementation(
+			async (input) =>
+				({
+					revisions: (input.revision ? [input.revision] : [3, 2, 1]).map(
+						(number) => ({
+							id: `revision-${number}`,
+							revision: number,
+							note: null,
+							...(input.revision ? { content: contents[number - 1] } : {}),
+						}),
+					),
+					pending: [],
+					nextBeforeRevision: null,
+				}) as never,
+		);
+		await mount(false);
+		expect(osApi.osWorkspaces.outputs.history).toHaveBeenCalledWith(
+			expect.objectContaining({ revision: 3 }),
+			expect.anything(),
+		);
+		expect(osApi.osWorkspaces.outputs.history).toHaveBeenCalledWith(
+			expect.objectContaining({ revision: 2 }),
+			expect.anything(),
+		);
+		expect(
+			vi
+				.mocked(osApi.osWorkspaces.outputs.history)
+				.mock.calls.some(([input]) => input.revision === 1),
+		).toBe(false);
+		await click("Version history");
+		for (let i = 0; i < 3; i++) await flush();
+		expect(host.textContent).toContain("oldest draft");
+		expect(
+			vi
+				.mocked(osApi.osWorkspaces.outputs.history)
+				.mock.calls.some(([input]) => input.revision === 1),
+		).toBe(true);
+	});
+
 	it("asks for wording changes from the standalone gadget without a verdict", async () => {
 		vi.mocked(osApi.attention.decideDeckCard).mockResolvedValue({} as never);
 		await mount(false);
