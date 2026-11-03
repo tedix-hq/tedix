@@ -44,7 +44,7 @@ import {
 
 const createdAt = "2026-10-14T12:00:00.000Z";
 const now = "2026-10-17T12:00:00.000Z";
-function fixture() {
+function fixture({ configured = true } = {}) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
@@ -69,6 +69,10 @@ function fixture() {
 	);
 	sqlite.exec(`INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('river','fictional-orchard','River','river','active'),('moss','fictional-forest','Moss','moss','active');
  INSERT INTO projects(id,org_id,key,name,lead_tedi_id,created_at) VALUES ('orchard','fictional-orchard','ORCHARD','Orchard growth','river','${createdAt}'),('forest','fictional-forest','FOREST','Forest growth','moss','${createdAt}');`);
+	if (configured)
+		sqlite.exec(
+			`UPDATE projects SET metadata='{"continuity":{"idleHours":24}}'`,
+		);
 	const db = createDbClient(createD1Facade(sqlite));
 	const scope = async () =>
 		(await listContinuityScopes(db, "", "fictional-orchard"))[0]!;
@@ -90,6 +94,76 @@ function fixture() {
 }
 
 describe("autonomous stall recovery", () => {
+	it("leaves an unconfigured empty scope quiet until new Work appears", async () => {
+		const { sqlite, db, scope, recover, send } = fixture({ configured: false });
+		expect(await scope()).toMatchObject({ policy: null, pendingCount: 0 });
+		sqlite.exec(
+			`INSERT INTO work_interactions(id,org_id,project_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at) VALUES ('consent','fictional-orchard','orchard','question','Authorize the connector?','Choose read access.','tedi','river','user','ada','${now}');`,
+		);
+		expect(await recover()).toBe(false);
+		const s = await scope();
+		for (const environment of ["production", "staging"])
+			expect(
+				await recoverStall(
+					db,
+					s,
+					await assessContinuity(
+						db,
+						s,
+						Date.parse(now) + 86_400_000,
+						environment,
+					),
+					now,
+					send,
+					environment,
+				),
+			).toBe(false);
+		expect(send).not.toHaveBeenCalled();
+		expect(await db.select().from(learningInteractionEvents)).toHaveLength(0);
+		expect(
+			sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id='consent'")
+				.get(),
+		).toMatchObject({ status: "open" });
+		sqlite.exec(
+			`INSERT INTO work_items(id,org_id,title,project_id,created_at,disposition) VALUES ('next','fictional-orchard','Next authorized task','orchard','${now}','accepted');`,
+		);
+		expect(await recover()).toBe(true);
+		expect(send).toHaveBeenCalledTimes(1);
+	});
+
+	it("dispatches an empty scope's explicit missed schedule without waking another tenant", async () => {
+		const { sqlite, db } = fixture({ configured: false });
+		sqlite.prepare("UPDATE projects SET metadata=? WHERE id='orchard'").run(
+			JSON.stringify({
+				continuity: {
+					cadence: {
+						everyHours: 24,
+						minResults: 1,
+						description: "One result daily",
+					},
+				},
+			}),
+		);
+		const fetch = vi.fn(async (_request: Request) =>
+			Response.json({ accepted: true, run_id: "scheduled-run" }),
+		);
+		const env = {
+			ENVIRONMENT: "production",
+			TEDI_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		expect(await dispatchStallRecovery(db, env, Date.parse(now))).toBe(1);
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(fetch.mock.calls[0]![0].headers.get("X-Tedix-Host")).toBe(
+			"river.tedi.tedix.dev",
+		);
+		expect(
+			(await db.select().from(learningInteractionEvents)).every(
+				(row) => row.organizationId === "fictional-orchard",
+			),
+		).toBe(true);
+	});
+
 	it("processes one durable page per tick, wraps, and isolates environments", async () => {
 		const { sqlite, db } = fixture();
 		const insert = sqlite.prepare(
