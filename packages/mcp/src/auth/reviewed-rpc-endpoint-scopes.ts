@@ -531,6 +531,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"osAppRuntime/triggerWebhook": "mcp:apps.write",
 	"osAppRuntime/revisions": "mcp:apps.read",
 	"osAppRuntime/saveDraft": "mcp:apps.write",
+	"osAppRuntime/readDraftRoom": "mcp:apps.write",
+	"osAppRuntime/submitDraftChange": "mcp:apps.write",
 	"osAppRuntime/mergeDraft": "mcp:apps.write",
 	// Service-binding only: the tedi runtime calls these for a running app.
 	"osAppRuntime/capability": "platform:admin",

@@ -239,6 +239,48 @@ export const AppRuntimeScopeSchema = z.object({
 	workspaceId: z.uuid(),
 	gadgetId: z.uuid(),
 });
+
+export const AppDraftRoomScopeSchema = AppRuntimeScopeSchema.extend({
+	proposalId: z.uuid(),
+	expectedRevisionId: z.uuid(),
+	expectedSequence: z.number().int().nonnegative(),
+}).strict();
+
+export const AppDraftRoomSubmissionSchema = z.strictObject({
+	generation: z.number().int().nonnegative(),
+	revision: z.number().int().nonnegative(),
+	clientId: z.string().regex(/^[0-9A-Za-z_-]{1,64}$/),
+	seq: z.number().int().positive(),
+	change: JsonValueSchema.describe(
+		"CodeChange compact JSON: [path, {edit: ChangeSet JSON} | {set: text} | {remove: true}] entries; validated by the existing OT authority.",
+	),
+});
+
+export const AppDraftRoomSnapshotSchema = z.strictObject({
+	position: z.strictObject({
+		generation: z.number().int().nonnegative(),
+		revision: z.number().int().nonnegative(),
+	}),
+	canonical: z.strictObject({
+		revision: z.number().int().nonnegative(),
+		revisionId: z.string().nullable(),
+	}),
+	files: z.record(z.string(), z.string()),
+});
+
+export const AppDraftRoomSubmitResultSchema = z.discriminatedUnion("ok", [
+	z.strictObject({
+		ok: z.literal(true),
+		duplicate: z.boolean(),
+		generation: z.number().int().nonnegative(),
+		revision: z.number().int().nonnegative(),
+	}),
+	z.strictObject({
+		ok: z.literal(false),
+		code: z.enum(["malformed", "sequence", "stream-gone", "capacity", "busy"]),
+		message: z.string(),
+	}),
+]);
 export const AppRuntimeSessionResultSchema = z.object({
 	session: z.string(),
 	expiresAt: z.number().int(),

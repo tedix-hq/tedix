@@ -1,4 +1,10 @@
 import { validateAppSource } from "../../services/os-app-validation";
+import { requestAppDraftRoom } from "../../services/os-app-draft-room";
+import { getOrganizationProfile } from "@tedix/db/queries/organizations";
+import type {
+	AppDraftRoomScopeSchema,
+	AppDraftRoomSubmissionSchema,
+} from "@tedix/api-contract/schemas/os-app-runtime";
 import { implement, call as callProcedure } from "@orpc/server";
 import { z } from "zod";
 import { RunWorkspaceSkillNowInputSchema } from "@tedix/api-contract/schemas/os-workspace-schedules";
@@ -253,6 +259,62 @@ export function createOsAppRuntimeRouter() {
 		OsAppDraftContentSchema.parse(JSON.parse(proposal.content));
 		return proposal;
 	}
+	async function accessDraftRoom(
+		context: BaseContext,
+		input: z.infer<typeof AppDraftRoomScopeSchema> & {
+			submission?: z.infer<typeof AppDraftRoomSubmissionSchema>;
+		},
+	) {
+		const scope = await requireBuilder(context, input);
+		const proposal = await requireDraft(
+			context,
+			scope,
+			input.proposalId,
+			input.expectedSequence,
+		);
+		if (
+			proposal.status !== "open" ||
+			proposal.baseRevisionId !== input.expectedRevisionId
+		)
+			throw createError(ErrorCodes.CONFLICT, "Draft changed or is closed");
+		const organization = await getOrganizationProfile(
+			queryDb(context),
+			scope.organizationId,
+		);
+		if (!organization?.slug)
+			throw createError(
+				ErrorCodes.NOT_FOUND,
+				"Workspace organization unavailable",
+			);
+		return requestAppDraftRoom({
+			rooms: context.env.APP_DRAFT_ROOM,
+			organizationId: scope.organizationId,
+			tenantSlug: organization.slug,
+			workspaceId: scope.workspaceId,
+			gadgetId: scope.gadgetId,
+			proposalId: proposal.id,
+			baseRevisionId: proposal.baseRevisionId,
+			sequence: proposal.sequence,
+			content: OsAppDraftContentSchema.parse(JSON.parse(proposal.content)),
+			actor: resolveCreator(context),
+			...(input.submission ? { submission: input.submission } : {}),
+		});
+	}
+	const readDraftRoom = author.readDraftRoom.handler(
+		async ({ context, input }) =>
+			(await accessDraftRoom(context, input)).snapshot,
+	);
+	const submitDraftChange = author.submitDraftChange.handler(
+		async ({ context, input }) => {
+			const result = await accessDraftRoom(context, input);
+			if (!result.result)
+				throw createError(
+					ErrorCodes.INTERNAL_SERVER_ERROR,
+					"Shared edit result unavailable",
+				);
+			return { result: result.result, snapshot: result.snapshot };
+		},
+	);
 	const mergeDraft = author.mergeDraft.handler(async ({ context, input }) => {
 		const scope = await requireBuilder(context, input);
 		const proposal = await requireDraft(
@@ -1058,6 +1120,8 @@ export function createOsAppRuntimeRouter() {
 		revisions,
 		restoreRevision,
 		saveDraft,
+		readDraftRoom,
+		submitDraftChange,
 		mergeDraft,
 		capability,
 		recordTail,

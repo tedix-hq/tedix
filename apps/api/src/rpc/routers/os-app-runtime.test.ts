@@ -1349,6 +1349,38 @@ describe("Code drafts and rebasing", () => {
 		});
 		return { ...f, content, proposal: saved.proposal };
 	}
+	it("keeps a permitted source manifest.json intact when shared editing refuses its reserved path", async () => {
+		const f = await draftFixture();
+		const content = {
+			...f.content,
+			files: { ...f.content.files, "manifest.json": '{"source":true}' },
+		};
+		const saved = await f.client.saveDraft({
+			...scope,
+			expectedRevisionId: revisionId,
+			proposalId: f.proposal.id,
+			expectedSequence: f.proposal.sequence,
+			content,
+		});
+		await expect(
+			f.client.readDraftRoom({
+				...scope,
+				proposalId: saved.proposal.id,
+				expectedRevisionId: revisionId,
+				expectedSequence: saved.proposal.sequence,
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("source file named manifest.json"),
+		});
+		const [stored] = await f.db
+			.select()
+			.from(osCollaborationProposals)
+			.where(eq(osCollaborationProposals.id, saved.proposal.id));
+		expect(JSON.parse(stored!.content).files["manifest.json"]).toBe(
+			content.files["manifest.json"],
+		);
+	});
 	it("saves builder Code edits as a proposal without advancing mainline", async () => {
 		const f = await draftFixture();
 		expect(f.proposal).toMatchObject({
@@ -1363,6 +1395,124 @@ describe("Code drafts and rebasing", () => {
 			.from(osGadgetCode)
 			.where(eq(osGadgetCode.revisionId, revisionId));
 		expect(JSON.parse(code[0].files)["client.js"]).toBe("");
+	});
+	it("admits attributed agent edits to the exact browser room without publishing or forwarding credentials", async () => {
+		const f = await draftFixture();
+		const requests: Request[] = [];
+		const idFromName = vi.fn((name: string) => name);
+		f.env.APP_DRAFT_ROOM = {
+			idFromName,
+			get: () => ({
+				fetch: async (request: Request) => {
+					requests.push(request);
+					const input = (await request.clone().json()) as {
+						submission?: unknown;
+					};
+					return Response.json({
+						snapshot: {
+							position: { generation: 0, revision: input.submission ? 1 : 0 },
+							canonical: { revision: f.proposal.sequence, revisionId },
+							files: { "client.js": "shared" },
+						},
+						...(input.submission
+							? {
+									result: {
+										ok: true,
+										duplicate: false,
+										generation: 0,
+										revision: 1,
+									},
+								}
+							: {}),
+					});
+				},
+			}),
+		} as unknown as DurableObjectNamespace;
+		const agent = createRouterClient(f.router, {
+			context: {
+				...apiKeyContext({ env: f.env, scopes: ["apps:write"] }),
+				externalAgentPrincipalId: "verified-agent",
+				externalAgentSessionId: "verified-session",
+			},
+		});
+		const input = {
+			...scope,
+			proposalId: f.proposal.id,
+			expectedRevisionId: revisionId,
+			expectedSequence: f.proposal.sequence,
+		};
+		await agent.readDraftRoom(input);
+		const edited = await agent.submitDraftChange({
+			...input,
+			submission: {
+				generation: 0,
+				revision: 0,
+				clientId: "agent-client",
+				seq: 1,
+				change: [["client.js", { set: "shared" }]],
+			},
+		});
+		expect(edited.result).toMatchObject({ ok: true, revision: 1 });
+		expect(idFromName).toHaveBeenCalledWith(
+			`fictional:${workspaceId}:app-draft:${gadgetId}:${f.proposal.id}:${revisionId}`,
+		);
+		const body = (await requests[1]!.clone().json()) as {
+			actor: unknown;
+			canonical: unknown;
+		};
+		expect(body.actor).toMatchObject({
+			kind: "external_agent",
+			role: "build",
+			verified: true,
+			key: expect.stringMatching(/^p_[a-f0-9]{32}$/),
+		});
+		expect(JSON.stringify(body.actor)).not.toContain("verified-agent");
+		expect(body.canonical).toMatchObject({
+			revision: f.proposal.sequence,
+			revisionId,
+		});
+		for (const header of ["Authorization", "Cookie", "X-API-Key"])
+			expect(requests[1]!.headers.has(header)).toBe(false);
+		expect((await f.client.open(scope)).revisionId).toBe(revisionId);
+		await expect(
+			agent.readDraftRoom({
+				...input,
+				expectedSequence: input.expectedSequence + 1,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		await expect(
+			agent.readDraftRoom({ ...input, expectedRevisionId: previewId }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		const readOnly = createRouterClient(f.router, {
+			context: apiKeyContext({ env: f.env, scopes: ["apps:read"] }),
+		});
+		await expect(readOnly.readDraftRoom(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		const useOnly = createRouterClient(f.router, {
+			context: userContext({ env: f.env, sub: "user-2" }),
+		});
+		await expect(useOnly.readDraftRoom(input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		const foreign = createRouterClient(f.router, {
+			context: apiKeyContext({
+				env: f.env,
+				organizationId: "org-2",
+				scopes: ["apps:write"],
+			}),
+		});
+		await expect(foreign.readDraftRoom(input)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		await f.db
+			.update(osCollaborationProposals)
+			.set({ status: "merged" })
+			.where(eq(osCollaborationProposals.id, f.proposal.id));
+		await expect(agent.readDraftRoom(input)).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
+		expect(requests).toHaveLength(2);
 	});
 	it("rebases independent files and resets accepted drafts for review under sequence CAS", async () => {
 		const f = await draftFixture();

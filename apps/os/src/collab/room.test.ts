@@ -730,6 +730,87 @@ describe("live workspace access", () => {
 });
 
 describe("proposal room revalidation", () => {
+	it("orders an internal agent edit with human socket edits, deduplicates retry and refuses a stale proposal", async () => {
+		const sockets: FakeSocket[] = [];
+		const room = new CollabRoom(state(sockets));
+		const human = await connect(room, sockets);
+		const canonical = {
+			revision: 3,
+			revisionId: "base",
+			files: [
+				["client.js", "client"],
+				["server.js", "server"],
+			],
+		};
+		await room.webSocketMessage(
+			human,
+			encodeFrame({
+				t: "base",
+				id: 1,
+				seed: canonical as {
+					revision: number;
+					revisionId: string;
+					files: [string, string][];
+				},
+			}),
+		);
+		await room.webSocketMessage(
+			human,
+			encodeFrame({
+				t: "submit",
+				id: 2,
+				submission: submission({
+					change: [["client.js", { edit: [6, [0, " human"]] }]],
+				}),
+			}),
+		);
+		const agent = {
+			...other,
+			key: "opaque-agent",
+			kind: "external_agent",
+			role: "build",
+		};
+		const change = {
+			generation: 0,
+			revision: 0,
+			clientId: "agent-client",
+			seq: 1,
+			change: [["server.js", { edit: [6, [0, " agent"]] }]],
+		};
+		const send = (revision: number, submission?: unknown) =>
+			room.fetch(
+				new Request("https://room.internal/__internal/app-draft", {
+					method: "POST",
+					body: JSON.stringify({
+						actor: agent,
+						canonical: { ...canonical, revision },
+						...(submission ? { submission } : {}),
+					}),
+				}),
+			);
+		const result = (await (await send(3, change)).json()) as {
+			result: unknown;
+			snapshot: { files: Record<string, string> };
+		};
+		expect(result.result).toMatchObject({
+			ok: true,
+			duplicate: false,
+			revision: 2,
+		});
+		expect(result.snapshot.files).toEqual({
+			"client.js": "client human",
+			"server.js": "server agent",
+		});
+		expect(human.of("row").at(-1)?.row.author).toMatchObject({
+			key: "opaque-agent",
+			kind: "external_agent",
+		});
+		expect(await (await send(3, change)).json()).toMatchObject({
+			result: { ok: true, duplicate: true, revision: 2 },
+		});
+		expect((await send(2)).status).toBe(409);
+		expect((await send(4)).status).toBe(409);
+	});
 	it("converges concurrent edits to separate code files and retains them through hibernation", async () => {
 		const sockets: FakeSocket[] = [];
 		const stored = state(sockets);

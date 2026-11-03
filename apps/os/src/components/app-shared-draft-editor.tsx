@@ -37,7 +37,8 @@ export function AppSharedDraftEditor({
 	});
 	const baseChanged = proposal.baseRevisionId !== initial.baseRevisionId;
 	const closed = proposal.status !== "open";
-	const loaded = baseChanged ? initial.content : content;
+	const reservedSource = "manifest.json" in content.files;
+	const loaded = baseChanged || reservedSource ? initial.content : content;
 	const texts = {
 		...loaded.files,
 		"manifest.json": JSON.stringify(loaded.manifest, null, 2),
@@ -45,17 +46,18 @@ export function AppSharedDraftEditor({
 	const room = useCollabDoc({
 		workspaceId,
 		docKey: `app-draft:${gadgetId}:${proposal.id}:${initial.baseRevisionId}`,
-		enabled: true,
+		enabled: !("manifest.json" in initial.content.files),
 		canonical: {
 			text: "",
 			files: texts,
-			revision: baseChanged ? initial.sequence : proposal.sequence,
+			revision:
+				baseChanged || reservedSource ? initial.sequence : proposal.sequence,
 			revisionId: initial.baseRevisionId,
 		},
 	});
 	const save = useMutation({
 		mutationFn: async () => {
-			if (baseChanged || closed)
+			if (baseChanged || closed || reservedSource)
 				throw new Error(
 					"This draft changed or closed. Copy your code before reopening it.",
 				);
@@ -96,11 +98,20 @@ export function AppSharedDraftEditor({
 	return (
 		<section className="grid min-w-0 gap-2" aria-label="Shared draft code">
 			<Text as="p" role="label" tone="secondary" className="m-0">
-				{room.status === "connected"
-					? `${room.peers} connected`
-					: "Connecting shared editor…"}
+				{reservedSource
+					? "Shared editing unavailable"
+					: room.status === "connected"
+						? `${room.peers} connected`
+						: "Connecting shared editor…"}
 				{" · Save shared changes before previewing or accepting this draft."}
 			</Text>
+			{reservedSource && (
+				<Text as="p" role="label" tone="warning">
+					This app contains a source file named manifest.json. Shared editing is
+					unavailable so that file stays intact. Ask an agent to edit this draft
+					while preserving that file.
+				</Text>
+			)}
 			<div className="flex flex-wrap gap-1">
 				{Object.keys(texts).map((file) => (
 					<Button
@@ -118,6 +129,7 @@ export function AppSharedDraftEditor({
 					session={room.session}
 					path={path}
 					readOnly={
+						reservedSource ||
 						baseChanged ||
 						closed ||
 						room.status !== "connected" ||
@@ -173,6 +185,7 @@ export function AppSharedDraftEditor({
 			<Button
 				size="sm"
 				disabled={
+					reservedSource ||
 					baseChanged ||
 					closed ||
 					save.isPending ||

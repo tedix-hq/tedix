@@ -207,6 +207,10 @@ export class CollabRoom {
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		// Only namespace bindings can address this route; public OS ingress only
+		// forwards /collab/... upgrades after its own authorization probe.
+		if (new URL(request.url).pathname === "/__internal/app-draft")
+			return this.#appDraftRequest(request);
 		if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
 			return new Response("Expected a WebSocket upgrade.\n", {
 				status: 426,
@@ -341,6 +345,78 @@ export class CollabRoom {
 			const candidate = Math.floor(Math.random() * 2 ** 31) + 1;
 			if (!taken.has(candidate)) return candidate;
 		}
+	}
+
+	async #appDraftRequest(request: Request): Promise<Response> {
+		if (request.method !== "POST") return new Response(null, { status: 405 });
+		const text = await request.text();
+		if (isOversizedMessage(new TextEncoder().encode(text).byteLength))
+			return new Response(null, { status: 413 });
+		let input: { actor?: unknown; canonical?: unknown; submission?: unknown };
+		try {
+			input = JSON.parse(text);
+		} catch {
+			return new Response(null, { status: 400 });
+		}
+		if (!input || typeof input !== "object")
+			return new Response(null, { status: 400 });
+		const identity = parseCollabVerifiedIdentity(input.actor);
+		const base = parseClientFrame(
+			JSON.stringify({ t: "base", id: 0, seed: input.canonical }),
+		);
+		const submit =
+			input.submission === undefined
+				? null
+				: parseClientFrame(
+						JSON.stringify({
+							t: "submit",
+							id: 0,
+							submission: input.submission,
+						}),
+					);
+		if (
+			!identity ||
+			identity.role !== "build" ||
+			base?.t !== "base" ||
+			!base.seed ||
+			(input.submission !== undefined && submit?.t !== "submit")
+		)
+			return new Response(null, { status: 400 });
+		const canonical = {
+			revision: base.seed.revision,
+			revisionId: base.seed.revisionId,
+		};
+		await this.#authority.seed(new Map(base.seed.files), canonical);
+		const before = await this.#authority.snapshot();
+		if (
+			before.canonical.revisionId !== canonical.revisionId ||
+			before.canonical.revision > canonical.revision
+		)
+			return new Response(null, { status: 409 });
+		if (before.canonical.revision < canonical.revision) {
+			const adopted = await this.#authority.adoptCanonical({
+				canonical,
+				files: new Map(base.seed.files),
+				author: identity,
+				force: false,
+			});
+			if (!adopted.ok) return new Response(null, { status: 409 });
+			if (adopted.effect !== "current")
+				this.#broadcast({ t: "canonical", canonical: adopted.canonical });
+		}
+		const result =
+			submit?.t === "submit"
+				? await this.#authority.submit(submit.submission, identity)
+				: undefined;
+		const snapshot = await this.#authority.snapshot();
+		return Response.json({
+			...(result ? { result } : {}),
+			snapshot: {
+				position: snapshot.position,
+				canonical: snapshot.canonical,
+				files: Object.fromEntries(snapshot.content),
+			},
+		});
 	}
 
 	async webSocketMessage(

@@ -1,7 +1,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { OsCollaborationProposal } from "@tedix/api-contract/schemas/os-workspaces";
+import type {
+	OsAppDraftContent,
+	OsCollaborationProposal,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import type { UseCollabDocResult } from "@/lib/use-collab-doc";
 import {
 	afterEach,
@@ -71,7 +74,7 @@ const proposal: OsCollaborationProposal = {
 };
 let root: Root | null = null;
 let host: HTMLDivElement;
-function render(next = proposal) {
+function render(next = proposal, draft: OsAppDraftContent = content) {
 	act(() =>
 		root!.render(
 			<QueryClientProvider client={new QueryClient()}>
@@ -79,7 +82,7 @@ function render(next = proposal) {
 					workspaceId={proposal.workspaceId}
 					gadgetId={proposal.documentId}
 					proposal={next}
-					content={content}
+					content={draft}
 					onClose={() => {}}
 				/>
 			</QueryClientProvider>,
@@ -134,6 +137,16 @@ afterEach(() => {
 	host.remove();
 });
 describe("shared app draft save", () => {
+	it("refuses a reserved source path instead of shadowing and saving it as the app manifest", () => {
+		render(proposal, {
+			...content,
+			files: { ...content.files, "manifest.json": "source contents" },
+		});
+		expect(harness.input.mock.lastCall?.[0]).toMatchObject({ enabled: false });
+		expect(saveButton().disabled).toBe(true);
+		expect(host.textContent).toContain("source file named manifest.json");
+		expect(harness.save).not.toHaveBeenCalled();
+	});
 	it("saves the synchronized whole-file basis with room base/sequence fences and grounds its result", async () => {
 		render();
 		await act(async () => {

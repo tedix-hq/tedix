@@ -16,6 +16,10 @@ import {
 	AppRuntimeArgumentsSchema,
 	AppRuntimeSessionResultSchema,
 	AppRuntimeOperationSchema,
+	AppDraftRoomScopeSchema,
+	AppDraftRoomSubmissionSchema,
+	AppDraftRoomSnapshotSchema,
+	AppDraftRoomSubmitResultSchema,
 } from "../schemas/os-app-runtime";
 
 export const osAppRuntimeContract = oc
@@ -80,6 +84,33 @@ export const osAppRuntimeContract = oc
 			})
 			.input(AppRuntimeScopeSchema.extend({ proposalId: z.uuid() }).strict())
 			.output(AppRuntimeSessionResultSchema),
+		readDraftRoom: oc
+			.route({
+				method: "POST",
+				path: "/read-draft-room",
+				summary:
+					"Read the shared draft code and OT position without publishing it",
+			})
+			.input(AppDraftRoomScopeSchema)
+			.output(AppDraftRoomSnapshotSchema),
+		submitDraftChange: oc
+			.route({
+				method: "POST",
+				path: "/submit-draft-change",
+				summary:
+					"Submit an attributed change to the same shared draft stream people edit",
+			})
+			.input(
+				AppDraftRoomScopeSchema.extend({
+					submission: AppDraftRoomSubmissionSchema,
+				}).strict(),
+			)
+			.output(
+				z.strictObject({
+					result: AppDraftRoomSubmitResultSchema,
+					snapshot: AppDraftRoomSnapshotSchema,
+				}),
+			),
 		saveDraft: oc
 			.route({
 				method: "POST",
