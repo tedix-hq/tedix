@@ -52,4 +52,16 @@ export class WorkflowEntrypoint {
 		this.env = env;
 	}
 }
-export const env = {};
+const outputBodies = new Map<string, ArrayBuffer>();
+export const env = {
+	R2_BUCKET: {
+		async put(key: string, value: ArrayBuffer) {
+			outputBodies.set(key, value.slice(0));
+			return {};
+		},
+		async get(key: string) {
+			const bytes = outputBodies.get(key);
+			return bytes ? { arrayBuffer: async () => bytes.slice(0) } : null;
+		},
+	},
+};

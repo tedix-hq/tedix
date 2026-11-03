@@ -274,6 +274,12 @@ export async function mergeOsCollaborationProposal(
 		evidenceRefs: string;
 		mergedByKind: OsCollaborationProposalRow["createdByKind"];
 		mergedById: string;
+		outputBody?: {
+			contentSha256: string;
+			contentBytes: number;
+			bodyR2Key: string;
+			content: string;
+		};
 	},
 ): Promise<MergeOsCollaborationProposalResult> {
 	const proposal = await getOsCollaborationProposal(db, params);
@@ -450,7 +456,7 @@ export async function mergeOsCollaborationProposal(
 					// operator who merged them — the merger is already created_by. The
 					// proposal persists that source itself, so it is projected from the
 					// joined row rather than re-derived from a request header the
-					// merging operator would not carry. Kept last: positional bind.
+					// merging operator would not carry.
 					skillRunId: sql<
 						string | null
 					>`case when ${osCollaborationProposals.sourceAttestationVersion} = 1 and ${osCollaborationProposals.sourceKind} = 'run' then ${osCollaborationProposals.sourceId} else null end`.as(
@@ -460,6 +466,15 @@ export async function mergeOsCollaborationProposal(
 					accessEnvelope: sql<string | null>`${accessEnvelope}`.as(
 						"access_envelope",
 					),
+					contentSha256: sql<
+						string | null
+					>`${params.outputBody?.contentSha256 ?? null}`.as("content_sha256"),
+					contentBytes: sql<
+						number | null
+					>`${params.outputBody?.contentBytes ?? null}`.as("content_bytes"),
+					bodyR2Key: sql<
+						string | null
+					>`${params.outputBody?.bodyR2Key ?? null}`.as("body_r2_key"),
 				})
 				.from(osCollaborationProposals)
 				.innerJoin(
@@ -477,7 +492,14 @@ export async function mergeOsCollaborationProposal(
 						),
 					),
 				)
-				.where(proposalFence),
+				.where(
+					and(
+						proposalFence,
+						params.outputBody
+							? eq(osCollaborationProposals.content, params.outputBody.content)
+							: undefined,
+					),
+				),
 		)
 		.returning();
 	const advancePointer = db

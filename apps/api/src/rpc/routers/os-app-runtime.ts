@@ -40,11 +40,11 @@ import {
 } from "@tedix/api-contract/utils/app-draft-merge";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
+import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import {
-	getOsOutput,
 	getOsOutputRevision,
 	createOsOutputRevision,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../../services/os-workspace-outputs";
 import {
 	createOsGadgetExecution,
 	getOsGadgetExecution,

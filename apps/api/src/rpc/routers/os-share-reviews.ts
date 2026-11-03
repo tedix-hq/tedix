@@ -19,7 +19,7 @@ import {
 	touchOsShareSession,
 } from "@tedix/db/queries/os-shares";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
-import { getOsOutputRevision } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutputRevision } from "../../services/os-workspace-outputs";
 import type {
 	OsReviewBatchRow,
 	OsReviewFeedbackRow,

@@ -1312,6 +1312,10 @@
 		{
 			"name": "20261103160822_agent_session_lesson_reflection/migration.sql",
 			"sha256": "6ddcc0a78f905d12bb15da857618d9312475cd5656062c40793d99771107c5fe"
+		},
+		{
+			"name": "20261103173247_output_revision_body_store/migration.sql",
+			"sha256": "e5c142c44be32db098ee34a1b57774d0dd354b17704b359c0aca944965fe9ae2"
 		}
 	]
 }

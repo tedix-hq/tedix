@@ -13,7 +13,11 @@ import {
 	OsDerivedAccessEnvelopeSchema,
 	OsOutputContentSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { listOsOutputLibraryRows } from "@tedix/db/queries/os-workspaces/outputs";
+import {
+	listOsOutputLibraryRows,
+	type OsOutputRevisionMetadataRow,
+} from "@tedix/db/queries/os-workspaces/outputs";
+import { hydrateOutputRevision } from "./os-output-revision-body-store";
 import type { OsWorkspaceViewer } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type {
@@ -31,10 +35,26 @@ export function mapOsOutputRow(row: OsOutputRow): OsOutput {
 export function mapOsOutputRevisionRow(
 	row: OsOutputRevisionRow,
 ): OsOutputRevision {
-	const { skillRunId, skillId, accessEnvelope, ...rest } = row;
 	return {
-		...rest,
+		...mapOsOutputRevisionMetadata(row),
 		content: OsOutputContentSchema.parse(JSON.parse(row.content)),
+	};
+}
+
+export function mapOsOutputRevisionMetadata(
+	row: OsOutputRevisionMetadataRow,
+): Omit<OsOutputRevision, "content"> {
+	const { skillRunId, skillId, accessEnvelope } = row;
+	// Explicitly omit bodies even when passed a fully hydrated row.
+	return {
+		id: row.id,
+		organizationId: row.organizationId,
+		outputId: row.outputId,
+		revision: row.revision,
+		note: row.note,
+		createdByKind: row.createdByKind,
+		createdById: row.createdById,
+		createdAt: row.createdAt,
 		// The run id is the receipt. A skill id without one identifies no
 		// authoring event, so the envelope collapses to null rather than
 		// reporting half of it.
@@ -165,7 +185,9 @@ export async function buildOsOutputLibrary(
 								reason: "source_access_unavailable",
 							} as const)
 						: outputLibraryPreview(
-								OsOutputContentSchema.parse(JSON.parse(revision.content)),
+								OsOutputContentSchema.parse(
+									JSON.parse((await hydrateOutputRevision(revision)).content),
+								),
 							),
 				})),
 		),

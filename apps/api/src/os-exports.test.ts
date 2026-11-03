@@ -57,6 +57,7 @@ beforeEach(() => {
 	mocks.output.mockResolvedValue({ id: "output-1" });
 	mocks.revision.mockResolvedValue({
 		id: "revision-2",
+		content: '{"kind":"document","blocks":[]}',
 		accessEnvelope: '{"version":1,"sources":[]}',
 	});
 	mocks.authorize.mockResolvedValue(true);

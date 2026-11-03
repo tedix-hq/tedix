@@ -250,8 +250,10 @@ export function registerExportsAndRenders(
 		if (!orgId) return c.text("No organization context", 403);
 
 		const { createDbQueryClient } = await import("@tedix/db/query-client");
-		const { getOsOutput, getOsOutputRevisionByNumber } =
+		const { getOsOutput } =
 			await import("@tedix/db/queries/os-workspaces/outputs");
+		const { getOsOutputRevisionByNumber } =
+			await import("../services/os-workspace-outputs");
 		const db = createDbQueryClient(c.env.DB);
 		const output = await getOsOutput(db, {
 			organizationId: orgId,

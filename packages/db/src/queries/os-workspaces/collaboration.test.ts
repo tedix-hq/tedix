@@ -86,13 +86,12 @@ function fixture() {
 			created_by_kind TEXT NOT NULL,
 			created_by_id TEXT NOT NULL,
 			created_at TEXT NOT NULL,
-			-- Appended last, matching the ALTER TABLE order production will have.
-			-- The revision writers use INSERT..SELECT with no column list and bind
-			-- positionally, so this fixture only exercises the real binding when
-			-- its column order matches the migrated table.
 			skill_run_id TEXT,
 			skill_id TEXT,
 			access_envelope TEXT,
+			content_sha256 TEXT,
+			content_bytes INTEGER,
+			body_r2_key TEXT,
 			UNIQUE (output_id, revision)
 		);
 		CREATE TABLE os_gadget_executions (
@@ -141,7 +140,7 @@ function fixture() {
 			'out-1', 'org-1', 'ws-1', 'document', 'Brief', 'active', 'out-rev-1',
 			'user', 'u-1', '2026-08-17T10:00:00.000Z', '2026-08-17T10:00:00.000Z'
 		);
-		INSERT INTO os_output_revisions VALUES (
+		INSERT INTO os_output_revisions (id, organization_id, output_id, revision, content, note, created_by_kind, created_by_id, created_at, skill_run_id, skill_id, access_envelope) VALUES (
 			'out-rev-1', 'org-1', 'out-1', 1,
 			'{"kind":"document","blocks":[]}', NULL,
 			'user', 'u-1', '2026-08-17T10:00:00.000Z',
@@ -282,7 +281,7 @@ describe("OS collaboration proposals", () => {
 
 	it("atomically merges an accepted output preview into one immutable revision", async () => {
 		const { db, sqlite } = fixture();
-		await seedProposal(db);
+		const proposal = await seedProposal(db);
 		await decideOsCollaborationProposal(db, {
 			...decision,
 			expectedSequence: 0,
@@ -294,6 +293,12 @@ describe("OS collaboration proposals", () => {
 			expectedSequence: 0,
 			revisionId: "out-rev-2",
 			rationale: "Human approved final preview",
+			outputBody: {
+				content: proposal.content,
+				contentSha256: "a".repeat(64),
+				contentBytes: new TextEncoder().encode(proposal.content).byteLength,
+				bodyR2Key: `os-output-revisions/v1/org-1/${"a".repeat(64)}.gz`,
+			},
 			evidenceRefs: '["canvas://review/2"]',
 			mergedByKind: "user",
 			mergedById: "u-1",
@@ -301,7 +306,13 @@ describe("OS collaboration proposals", () => {
 		expect(merged).toMatchObject({
 			ok: true,
 			proposal: { status: "merged", resultRevision: 2 },
-			revision: { id: "out-rev-2", revision: 2 },
+			revision: {
+				id: "out-rev-2",
+				revision: 2,
+				contentSha256: "a".repeat(64),
+				contentBytes: new TextEncoder().encode(proposal.content).byteLength,
+				bodyR2Key: `os-output-revisions/v1/org-1/${"a".repeat(64)}.gz`,
+			},
 		});
 		expect(
 			sqlite
@@ -561,7 +572,7 @@ describe("OS collaboration proposals", () => {
 			decision: "accepted",
 		});
 		sqlite.exec(`
-			INSERT INTO os_output_revisions VALUES (
+			INSERT INTO os_output_revisions (id, organization_id, output_id, revision, content, note, created_by_kind, created_by_id, created_at, skill_run_id, skill_id, access_envelope) VALUES (
 				'out-racing-rev', 'org-1', 'out-1', 2,
 				'{"kind":"document","blocks":[]}', 'human race',
 				'user', 'u-2', '2026-08-17T10:10:00.000Z',

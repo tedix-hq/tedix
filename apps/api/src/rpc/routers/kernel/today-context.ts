@@ -1,9 +1,7 @@
 import type { DbClient } from "@tedix/db/client";
 import { listOsWorkApps } from "@tedix/db/queries/os-workspaces/gadgets";
-import {
-	getOsOutput,
-	getOsOutputRevision,
-} from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutputRevision } from "../../../services/os-workspace-outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { ActivityFeedConfigSchema } from "@tedix/api-contract/schemas/os-activity-feed";
 import {

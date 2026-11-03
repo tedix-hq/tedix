@@ -219,6 +219,7 @@ describe("selectedWorkspaceDocumentContext", () => {
 		vi.mocked(getOsOutputRevision).mockResolvedValue({
 			id: "revision-1",
 			outputId: "other-output",
+			content: '{"kind":"document","blocks":[]}',
 		} as never);
 		expect(
 			await selectedWorkspaceDocumentContext(db, "org-1", selection),

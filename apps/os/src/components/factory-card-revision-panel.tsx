@@ -9,6 +9,7 @@ import {
 	useInfiniteQuery,
 	useMutation,
 	useQueryClient,
+	useQueries,
 } from "@tanstack/react-query";
 import type { CardReviewSource } from "@tedix/api-contract/schemas/os-card-review";
 import {
@@ -86,6 +87,8 @@ export function FactoryCardRevisionPanel({
 	const attention = useContext(DecisionAttentionContext);
 	const mountedAt = useRef(Date.now());
 	const [open, setOpen] = useState(false);
+	const [historyOpen, setHistoryOpen] = useState(false);
+	const [comparisonCount, setComparisonCount] = useState(2);
 	const [instruction, setInstruction] = useState("");
 	const [optimistic, setOptimistic] = useState(false);
 	const history = useInfiniteQuery({
@@ -146,25 +149,58 @@ export function FactoryCardRevisionPanel({
 		},
 		onError: () => setOptimistic(false),
 	});
-	const versions = (
-		history.data?.pages.flatMap((page) => page.revisions) ?? []
-	).flatMap((version) =>
-		version.content.kind === "sheet" && source.columns.draft
-			? [
-					{
-						revision: version.revision,
-						body: cellText(
-							version.content.rows[card.rowIndex]?.[
-								columnIndex(version.content.columns, source.columns.draft)
-							],
-						),
-						note: version.note,
-					},
-				]
-			: [],
-	);
+	const metadata = history.data?.pages.flatMap((page) => page.revisions) ?? [];
+	const bodies = useQueries({
+		queries: metadata.map((version, index) => ({
+			...osQuery.osWorkspaces.outputs.history.queryOptions({
+				input: { outputId: card.outputId, revision: version.revision },
+			}),
+			enabled: !version.content && (historyOpen || index < comparisonCount),
+		})),
+	});
+	const versions = metadata
+		.map((version, index) => bodies[index]?.data?.revisions[0] ?? version)
+		.flatMap((version) =>
+			version.content?.kind === "sheet" && source.columns.draft
+				? [
+						{
+							revision: version.revision,
+							body: cellText(
+								version.content.rows[card.rowIndex]?.[
+									columnIndex(version.content.columns, source.columns.draft)
+								],
+							),
+							note: version.note,
+						},
+					]
+				: [],
+		);
 	const current = versions[0];
 	const previous = versions.find((version) => version.body !== current?.body);
+	const comparisonLoaded = metadata
+		.slice(0, comparisonCount)
+		.every(
+			(version, index) =>
+				version.content || bodies[index]?.data?.revisions[0]?.content,
+		);
+	useEffect(() => {
+		// Other rows can change while this card's draft stays the same.
+		if (
+			!historyOpen &&
+			current &&
+			!previous &&
+			comparisonLoaded &&
+			comparisonCount < metadata.length
+		)
+			setComparisonCount((count) => count + 1);
+	}, [
+		historyOpen,
+		current,
+		previous,
+		comparisonLoaded,
+		comparisonCount,
+		metadata.length,
+	]);
 	if (
 		!card.draft ||
 		!source.columns.draft ||
@@ -234,11 +270,14 @@ export function FactoryCardRevisionPanel({
 					</CollapsibleDefaultContent>
 				</Collapsible>
 			)}
-			<Collapsible>
+			<Collapsible open={historyOpen} onOpenChange={setHistoryOpen}>
 				<CollapsibleDefaultTrigger className="group/disclosure">
 					Version history
 				</CollapsibleDefaultTrigger>
 				<CollapsibleDefaultContent keepMounted>
+					{bodies.some((body) => body.isFetching) && (
+						<p role="status">Loading versions…</p>
+					)}
 					<div className="grid gap-4 pt-3">
 						{versions.map((version) => (
 							<article key={version.revision} className="grid gap-2">
@@ -274,6 +313,9 @@ export function FactoryCardRevisionPanel({
 			</Collapsible>
 			{(mutate.error || history.error) && (
 				<p role="alert">{(mutate.error || history.error)?.message}</p>
+			)}
+			{bodies.find((body) => body.error)?.error && (
+				<p role="alert">{bodies.find((body) => body.error)?.error?.message}</p>
 			)}
 		</section>
 	);

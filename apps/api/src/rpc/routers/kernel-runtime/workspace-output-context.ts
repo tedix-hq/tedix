@@ -2,10 +2,8 @@ import { documentBlockText } from "@tedix/api-contract/utils/os-document";
 /** A bounded, source-free document projection for an explicit Home selection. */
 import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
-import {
-	getOsOutput,
-	getOsOutputRevision,
-} from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutputRevision } from "../../../services/os-workspace-outputs";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,
