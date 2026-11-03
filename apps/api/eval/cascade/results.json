@@ -1,0 +1,54 @@
+{
+	"corpusVersion": "cascade-fictional-v1",
+	"corpusDigest": "893e5637bafe42e826f42b1e9bbfe66d6411bcb4e73a2f6594b6d398779c332e",
+	"thresholdStatus": "uncalibrated",
+	"activation": "off",
+	"calibration": {
+		"baseline": {
+			"complete": false,
+			"measurements": 0,
+			"labelAccuracy": null,
+			"falseSuccesses": null,
+			"meanQuality": null,
+			"correctionRate": null,
+			"p95Ms": null,
+			"totalCostMicros": null,
+			"cacheByResolvedModel": {}
+		},
+		"cascade": {
+			"complete": false,
+			"measurements": 0,
+			"labelAccuracy": null,
+			"falseSuccesses": null,
+			"meanQuality": null,
+			"correctionRate": null,
+			"p95Ms": null,
+			"totalCostMicros": null,
+			"cacheByResolvedModel": {}
+		}
+	},
+	"holdout": {
+		"baseline": {
+			"complete": false,
+			"measurements": 0,
+			"labelAccuracy": null,
+			"falseSuccesses": null,
+			"meanQuality": null,
+			"correctionRate": null,
+			"p95Ms": null,
+			"totalCostMicros": null,
+			"cacheByResolvedModel": {}
+		},
+		"cascade": {
+			"complete": false,
+			"measurements": 0,
+			"labelAccuracy": null,
+			"falseSuccesses": null,
+			"meanQuality": null,
+			"correctionRate": null,
+			"p95Ms": null,
+			"totalCostMicros": null,
+			"cacheByResolvedModel": {}
+		}
+	}
+}

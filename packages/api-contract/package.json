@@ -6,6 +6,8 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/decision-cascade": "./src/schemas/decision-cascade.ts",
+		"./assets/decision-cascade.v1.json": "./src/assets/decision-cascade.v1.json",
 		"./schemas/installation-trust": "./src/schemas/installation-trust.ts",
 		"./schemas/catalog-maintenance-policy": "./src/schemas/catalog-maintenance-policy.ts",
 		"./schemas/site-routing": "./src/schemas/site-routing.ts",
