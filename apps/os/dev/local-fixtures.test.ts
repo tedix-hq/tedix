@@ -395,6 +395,11 @@ const CALLS = {
 	"workItems/getById": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/getReadiness": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listAttempts": { id: "00000070-0000-4000-8000-000000000001" },
+	"workItems/readAttemptRepository": {
+		id: "00000070-0000-4000-8000-000000000001",
+		attemptId: "00000047-0000-4000-8000-000000000001",
+		operation: "tree",
+	},
 	"workItems/reviewAttemptRepository": {
 		id: "00000070-0000-4000-8000-000000000001",
 		attemptId: "00000071-0000-4000-8000-000000000001",
