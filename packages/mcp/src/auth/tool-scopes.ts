@@ -709,6 +709,25 @@ function resolveKnownToolCapabilityScope(toolName: string): string | null {
 	}
 }
 
+// External product tools (Notion, Gmail, Calendar, ...) mounted into a gateway
+// carry provider tool names that no Tedix rule knows, so they failed closed
+// until someone added a namespace key to the gateway's toolScopes. They act on
+// the organization's own product content, so they default to the content
+// family. The tier still follows the declaration: reads need `.read`, writes
+// `.write`, and destructive or unclassified verbs `.admin`. A gateway key for
+// the namespace or tool is checked first and always wins.
+const EXTERNAL_PRODUCT_FALLBACK_SCOPE = "mcp:content";
+
+function isMountedExternalProductTool(tool: ToolAuthShape): boolean {
+	const config = tool.config;
+	if (!config) return false;
+	return (
+		(config.transport === "mcp" || config.transport === "external") &&
+		typeof config._sourceAppSlug === "string" &&
+		tool.toolId.includes("__")
+	);
+}
+
 function resolveNamespaceFallbackScope(
 	tool: ToolAuthShape,
 	namespace: string,
@@ -827,6 +846,9 @@ function resolveNamespaceFallbackScope(
 	}
 	if (TEDI_WORK_BOARD_OBSERVE_TOOL_NAMES.has(rawName)) {
 		return resolveCapabilityFamilyScope("mcp:work", tool);
+	}
+	if (isMountedExternalProductTool(tool)) {
+		return resolveCapabilityFamilyScope(EXTERNAL_PRODUCT_FALLBACK_SCOPE, tool);
 	}
 
 	if (prefixedDomainlessWorkstationTool) {
