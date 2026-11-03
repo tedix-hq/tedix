@@ -1,9 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbClient } from "../client";
+import { configureLogStore, createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	getRunArtifact,
+	listRunArtifacts,
+	listRunArtifactsPage,
 	listRunTimelineArtifacts,
 	listRunWorkflowCallArtifacts,
 	listRunWorkflowRuntimeObservationsForRuns,
@@ -36,7 +38,8 @@ function fixture() {
 			(id, run_id, path, content_inline, attempt, created_at)
 		VALUES (?, 'run-1', ?, '{}', ?, ?)
 	`);
-	return { db: createDbClient(createD1Facade(sqlite)), insert };
+	const binding = createD1Facade(sqlite);
+	return { db: createDbClient(binding), insert, binding };
 }
 
 describe("skill run artifact content addressing", () => {
@@ -307,5 +310,47 @@ describe("compact timeline artifact reads", () => {
 			),
 		).toBe(true);
 		expect(await listRunTimelineArtifacts(db, "run-1", 4)).toEqual([]);
+	});
+});
+
+describe("artifact reads across retention stores", () => {
+	it("merges five moved artifacts, preserves R2 pointers and paginates after deduplication", async () => {
+		const main = fixture();
+		const logs = fixture();
+		const moved = [];
+		for (let index = 0; index < 5; index++) {
+			moved.push(
+				await recordRunArtifact(logs.db, {
+					runId: "run-1",
+					path: `evidence/${index}.json`,
+					value: null,
+					r2Key: `run-1/bodies/moved-${index}`,
+					sizeBytes: 8192,
+					sha256: "a".repeat(64),
+				}),
+			);
+		}
+		main.insert.run(moved[0]!.id, "evidence/0.json", 1, moved[0]!.createdAt);
+		main.insert.run("main-only", "evidence/5.json", 1, moved[0]!.createdAt);
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		const all = await listRunArtifacts(main.db, "run-1");
+		expect(all.map((row) => row.path)).toEqual(
+			Array.from({ length: 6 }, (_, i) => `evidence/${i}.json`),
+		);
+		expect(all[0]?.contentInline).toBe("{}");
+		for (const artifact of moved) {
+			const read = await getRunArtifact(main.db, "run-1", artifact.path);
+			expect(read?.id).toBe(artifact.id);
+			if (artifact !== moved[0]) {
+				expect(read?.contentR2Key).toBe(artifact.contentR2Key);
+				expect(read?.sha256).toBe(artifact.sha256);
+			}
+		}
+		expect(
+			(
+				await listRunArtifactsPage(main.db, "run-1", { limit: 3, offset: 2 })
+			).map((row) => row.path),
+		).toEqual(["evidence/2.json", "evidence/3.json", "evidence/4.json"]);
+		expect(await listRunArtifacts(main.db, "run-other")).toEqual([]);
 	});
 });
