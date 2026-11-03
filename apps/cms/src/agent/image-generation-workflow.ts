@@ -4,8 +4,6 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
-import { createDbClient } from "@tedix/db/client";
-import { createDbQueryClient } from "@tedix/db/query-client";
 import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
 import {
 	buildVertexCallCostRow,
@@ -526,7 +524,7 @@ function buildPrompt(
  * the job phase with the refusal as its message.
  */
 async function assertCmsVertexDailyBudget(db: D1Database): Promise<void> {
-	const totals = await getProviderSpendWindowTotals(createDbClient(db), {
+	const totals = await getProviderSpendWindowTotals(db, {
 		provider: VERTEX_PROVIDER,
 		since: utcDayStartIso(),
 	});
@@ -550,10 +548,9 @@ async function recordCmsVertexImageCall(
 	},
 ): Promise<void> {
 	try {
-		const organization = await getOrganizationBySlug(
-			createDbClient(db),
-			input.orgSlug,
-		).catch(() => undefined);
+		const organization = await getOrganizationBySlug(db, input.orgSlug).catch(
+			() => undefined,
+		);
 		const tokens = vertexUsageTokens(input.usageMetadata);
 		let priced: { costUsd: number; rateVersionId: string } | null = null;
 		let costReason: string | null = null;
@@ -563,7 +560,7 @@ async function recordCmsVertexImageCall(
 			typeof tokens.outputTokens === "number"
 		) {
 			const resolved = await resolveDirectProviderUsagePrice(
-				createDbQueryClient(db),
+				db,
 				{
 					provider: VERTEX_PROVIDER,
 					modelId: input.model,
@@ -585,7 +582,7 @@ async function recordCmsVertexImageCall(
 			}
 			costReason = resolved.reason;
 		}
-		await insertCallCosts(createDbClient(db), [
+		await insertCallCosts(db, [
 			buildVertexCallCostRow({
 				orgId: organization?.id ?? null,
 				source: "vertex-direct:cms-image",

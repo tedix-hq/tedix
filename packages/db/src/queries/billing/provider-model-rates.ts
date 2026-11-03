@@ -1,6 +1,6 @@
 /** Immutable provider-rate publication and event-time lookup. */
 import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
-import type { DbQueryClient } from "../../query-client";
+import { createDbQueryClient, type DbQueryClient } from "../../query-client";
 import {
 	providerModelRateVersions,
 	type NewProviderModelRateVersionRow,
@@ -137,7 +137,7 @@ export async function findProviderModelRates(
  * fabricated zero.
  */
 export async function resolveDirectProviderUsagePrice(
-	db: DbQueryClient,
+	db: DbQueryClient | D1Database,
 	identity: {
 		provider: string;
 		modelId: string;
@@ -167,7 +167,8 @@ export async function resolveDirectProviderUsagePrice(
 	) {
 		return { costUsd: null, rateVersionId: null, reason: "invalid_usage" };
 	}
-	const rows = await findProviderModelRates(db, {
+	const query = "prepare" in db ? createDbQueryClient(db) : db;
+	const rows = await findProviderModelRates(query, {
 		...identity,
 		inputTokens: usage.inputTokens ?? 0,
 	});

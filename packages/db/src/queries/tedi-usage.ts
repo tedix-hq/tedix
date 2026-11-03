@@ -14,6 +14,7 @@ import {
 } from "@tedix/api-contract/schemas/cost-provenance";
 import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { createDbQueryClient, type DbQueryClient } from "../query-client";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import {
 	type NewTediCallCost,
@@ -31,8 +32,12 @@ const D1_USAGE_WRITE_CHUNK_SIZE = 2;
  * Deduped on `gatewayLogId` (the source gateway log row's own id) so a retried
  * or overlapping ingestion page is a no-op rather than a duplicate row.
  */
-export async function insertCallCosts(db: DbClient, costs: NewTediCallCost[]) {
+export async function insertCallCosts(
+	db: DbClient | DbQueryClient | D1Database,
+	costs: NewTediCallCost[],
+) {
 	if (costs.length === 0) return [];
+	const query = "prepare" in db ? createDbQueryClient(db) : db;
 	const rows: TediCallCost[] = [];
 	// A Gateway page is 50 rows: 25 parameter-safe statements, one D1 trip.
 	for (const page of chunkForBoundParams(costs, 50)) {
@@ -40,13 +45,13 @@ export async function insertCallCosts(db: DbClient, costs: NewTediCallCost[]) {
 			page,
 			D1_USAGE_WRITE_CHUNK_SIZE,
 		).map((chunk) =>
-			db
+			query
 				.insert(tediCallCosts)
 				.values(chunk)
 				.onConflictDoNothing({ target: tediCallCosts.gatewayLogId })
 				.returning(),
 		);
-		if (first) rows.push(...(await db.batch([first, ...rest])).flat());
+		if (first) rows.push(...(await query.batch([first, ...rest])).flat());
 	}
 	return rows;
 }
@@ -185,10 +190,11 @@ export interface ProviderSpendWindowTotals {
 }
 
 export async function getProviderSpendWindowTotals(
-	db: DbClient,
+	db: DbClient | DbQueryClient | D1Database,
 	params: { provider: string; since: string },
 ): Promise<ProviderSpendWindowTotals> {
-	const rows = await db
+	const query = "prepare" in db ? createDbQueryClient(db) : db;
+	const rows = await query
 		.select({
 			callCount: sql<number>`COUNT(*)`,
 			totalTokens: sql<number>`COALESCE(SUM(${tediCallCosts.totalTokens}), 0)`,
