@@ -195,7 +195,9 @@ interface BundleManifest {
 }
 
 interface TenantScheduledFetcher extends Fetcher {
-	scheduled?: (controller: ScheduledController) => void | Promise<void>;
+	scheduled?: (
+		controller: ScheduledController,
+	) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 async function lookupActiveBundle(
@@ -932,7 +934,7 @@ export default class TenantRuntimeEntrypoint extends WorkerEntrypoint {
 	}
 
 	async scheduled(controller) {
-		if (typeof tenantHandler.scheduled !== "function") return;
+		if (typeof tenantHandler.scheduled !== "function") return { ok: true };
 		const pending = new Set();
 		let waitUntilFailed = false;
 		let waitUntilError;
@@ -967,8 +969,9 @@ export default class TenantRuntimeEntrypoint extends WorkerEntrypoint {
 			handlerError = error;
 		}
 		while (pending.size > 0) await Promise.all(pending);
-		if (handlerFailed) throw handlerError;
-		if (waitUntilFailed) throw waitUntilError;
+		if (handlerFailed) return { ok: false, error: String(handlerError) };
+		if (waitUntilFailed) return { ok: false, error: String(waitUntilError) };
+		return { ok: true };
 	}
 }
 `,
@@ -2262,11 +2265,10 @@ export default {
 						}
 
 						counters.attempted += 1;
-						await tenantEntrypoint.scheduled({
+						return await tenantEntrypoint.scheduled({
 							cron: controller.cron,
 							scheduledTime: controller.scheduledTime,
 						} as ScheduledController);
-						return true;
 					},
 				);
 				if (!permitted.admitted) {
@@ -2275,6 +2277,7 @@ export default {
 						`[cms-runtime] scheduled fanout skipped ${slug}: scheduled write permit unavailable`,
 					);
 				} else if (permitted.value) {
+					if (!permitted.value.ok) throw new Error(permitted.value.error);
 					counters.succeeded += 1;
 				}
 			} catch (err) {
