@@ -878,6 +878,14 @@ export const dispatcherHealthQueryOptions = () =>
 /** Polled every 10s: the board is a glance surface for live local sessions. */
 export const WORK_AGENT_SESSIONS_REFETCH_MS = 10_000;
 
+export const officeOperationsQueryOptions = (limit = 50) =>
+	osQuery.workAgentSessions.listOperations.queryOptions({
+		input: { limit },
+		retry: false,
+		refetchInterval: 30_000,
+		refetchOnWindowFocus: true,
+	});
+
 export const attentionLayoutQueryOptions = () =>
 	osQuery.workAgentSessions.getAttentionLayout.queryOptions({ input: {} });
 

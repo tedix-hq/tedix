@@ -7,6 +7,8 @@
  * `tedix work agent-session-report` call. It never prints to stdout, prompts, or blocks the host turn.
  */
 import { execFileSync, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { OfficeObservationSchema } from "@tedix/api-contract/schemas/office-activity";
 import { isHostSessionId } from "@tedix/api-contract/utils/host-session-id";
 import {
 	appendFileSync,
@@ -30,7 +32,7 @@ import {
 	type AgentContextOptions,
 	resolveAgentContext,
 } from "../agent-context";
-import { looksLikeUuid, selfCommand } from "../shared";
+import { CLI_VERSION, looksLikeUuid, selfCommand } from "../shared";
 import {
 	AGENT_IDENTITY_ENV,
 	captureOwnsStop,
@@ -660,6 +662,9 @@ export function reportInput(payload: JsonObject): string {
 		...uuidField("projectId", payload.projectId),
 		...uuidField("workItemId", payload.workItemId),
 		...(payload.telemetry ? { telemetry: payload.telemetry } : {}),
+		...(payload.observation
+			? { observation: OfficeObservationSchema.parse(payload.observation) }
+			: {}),
 	};
 	return asciiJson(fields);
 }
@@ -752,7 +757,14 @@ export async function applyTriagedStop(
 	const outcome: Outcome = supervisorContinued
 		? ["working", "Continued by supervisor"]
 		: triagedOutcome(event.last_assistant_message, triage);
-	recordStatus(deps, configured, event, harness, sessionKey, outcome);
+	recordStatus(
+		deps,
+		configured,
+		{ ...event, hook_event_name: "Stop" },
+		harness,
+		sessionKey,
+		outcome,
+	);
 }
 
 /**
@@ -770,10 +782,14 @@ export function recordAutoContinued(deps: StatusDeps, event: JsonObject): void {
 	});
 	if (!configured) return;
 	const harness = harnessOf(event, deps.env);
-	recordStatus(deps, configured, event, harness, sessionKey, [
-		"working",
-		"Continued by Tedix auto reply",
-	]);
+	recordStatus(
+		deps,
+		configured,
+		{ ...event, hook_event_name: "Stop" },
+		harness,
+		sessionKey,
+		["working", "Continued by Tedix auto reply"],
+	);
 	writeFileSync(
 		join(
 			statusDir(deps.env),
@@ -848,8 +864,16 @@ function recordStatus(
 		previous.workItemId !== binding.workItemId;
 	const now = (deps.now ?? (() => new Date()))();
 	// Tool activity renews liveness even when the state and label do not change.
-	if (!changed && now.getTime() - Date.parse(previous.updatedAt) < 60_000)
+	if (!changed && now.getTime() - Date.parse(previous.updatedAt) < 60_000) {
+		writeState(path, {
+			...previous,
+			coalescedCount: Math.min(
+				999_999,
+				Number(previous.coalescedCount ?? 0) + 1,
+			),
+		});
 		return;
+	}
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	chmodSync(directory, 0o700);
 	const record = {
@@ -919,6 +943,22 @@ function recordStatus(
 		}
 	}
 	if (configured.profile) {
+		const observation = OfficeObservationSchema.safeParse({
+			id: randomUUID(),
+			at: now.toISOString(),
+			source: "hook",
+			host: harness,
+			sessionKey: reportSession,
+			trigger: event.hook_event_name,
+			outcome: "observed",
+			reason: "reported",
+			reportedState: state,
+			reporterVersion: CLI_VERSION,
+			occurrences: Math.min(
+				1_000_000,
+				Number(previous?.coalescedCount ?? 0) + 1,
+			),
+		});
 		// The session board accepts only the signed-in user, so the report uses the
 		// stored login, never an exported agent identity.
 		const userEnv = { ...env };
@@ -936,6 +976,7 @@ function recordStatus(
 				"--input",
 				reportInput({
 					...record,
+					...(observation.success ? { observation: observation.data } : {}),
 					sessionKey: reportSession,
 					...(reportSession !== sessionKey
 						? { replacesSessionKey: sessionKey }

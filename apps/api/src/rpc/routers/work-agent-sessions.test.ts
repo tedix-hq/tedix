@@ -3,10 +3,18 @@ import {
 	learningImprovementProposals,
 } from "@tedix/db/schema/learning-feedback";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import { workInteractions } from "@tedix/db/schema/work-factory";
+import {
+	workInteractions,
+	workInteractionResponses,
+	workInteractionDeliveries,
+} from "@tedix/db/schema/work-factory";
 import { projects } from "@tedix/db/schema/projects";
 import { organizations } from "@tedix/db/schema/organizations";
-import { workItems, workAttempts } from "@tedix/db/schema/work-items";
+import {
+	workItems,
+	workAttempts,
+	workEvents,
+} from "@tedix/db/schema/work-items";
 import { skillRuns } from "@tedix/db/schema/cognitive";
 import {
 	kernelRuntimeRuns,
@@ -65,7 +73,10 @@ function fixture() {
 		organizationMembers,
 		workItems,
 		workAttempts,
+		workEvents,
 		workInteractions,
+		workInteractionResponses,
+		workInteractionDeliveries,
 		skillRuns,
 		agentSessionEvents,
 		kernelRuntimeRuns,
@@ -99,10 +110,15 @@ function fixture() {
 		organizationId: ORG_ID,
 		url: new URL("https://api.tedix.test/rpc/workAgentSessions"),
 	};
-	const userClient = (userId: string, userRole = "member") =>
+	const userClient = (
+		userId: string,
+		userRole = "member",
+		organizationId = ORG_ID,
+	) =>
 		createRouterClient(workAgentSessionsContractRouter, {
 			context: {
 				...baseContext,
+				organizationId,
 				authType: "user",
 				userId,
 				userRole,
@@ -136,6 +152,11 @@ function fixture() {
 		owner: userClient("owner", "owner"),
 		queued,
 		grace: userClient("grace"),
+		otherTenant: userClient(
+			"ada",
+			"member",
+			"00000000-0000-4000-8000-000000000002",
+		),
 		db: baseContext.db,
 		tediClient,
 	};
@@ -742,4 +763,205 @@ it("keeps OpenCode reports private to the reporting user", async () => {
 	expect(saved.session.harness).toBe("opencode");
 	expect((await ada.list({})).sessions).toHaveLength(1);
 	expect((await grace.list({})).sessions).toEqual([]);
+});
+
+describe("Office operational history", () => {
+	const observation = () => ({
+		id: crypto.randomUUID(),
+		at: new Date().toISOString(),
+		source: "hook" as const,
+		host: "claude-code" as const,
+		sessionKey: "session-1",
+		trigger: "Stop" as const,
+		outcome: "observed" as const,
+		reason: "reported" as const,
+		reporterVersion: "0.19.3",
+	});
+	it("requires its owner and exact reported session, rejects content fields and preserves same-time pagination", async () => {
+		const { ada, grace, otherTenant, tediClient, sqlite } = fixture();
+		const first = observation();
+		await ada.report({ ...report, observation: first });
+		await ada.report({
+			...report,
+			observation: { ...first, id: crypto.randomUUID() },
+		});
+		await ada.report({ ...report, observation: first });
+		const page = await ada.listOperations({ limit: 1 });
+		expect(page.rows).toHaveLength(1);
+		expect(page.nextBefore).not.toBeNull();
+		const next = await ada.listOperations({
+			limit: 1,
+			before: page.nextBefore!,
+		});
+		expect(next.rows).toHaveLength(1);
+		expect(next.rows[0]!.id).not.toBe(page.rows[0]!.id);
+		expect((await grace.listOperations({})).rows).toEqual([]);
+		expect((await otherTenant.listOperations({})).rows).toEqual([]);
+		await expect(grace.recordOperation(first)).rejects.toThrow();
+		await expect(tediClient.listOperations({})).rejects.toThrow();
+		await expect(
+			ada.report({ ...report, observation: { ...first, sessionKey: "other" } }),
+		).rejects.toThrow();
+		await expect(
+			ada.recordOperation({ ...first, at: "2000-01-01T00:00:00.000Z" }),
+		).rejects.toThrow();
+		await expect(
+			ada.recordOperation({ ...first, prompt: "secret" } as never),
+		).rejects.toThrow();
+		expect(JSON.stringify(page)).not.toContain("Waiting");
+		sqlite.close();
+	});
+	it("keeps offline history out of the retained window and never promotes status done to Work completion", async () => {
+		const { ada, sqlite } = fixture();
+		await ada.report({ ...report, state: "done", observation: observation() });
+		let page = await ada.listOperations({});
+		expect(page.rows).toHaveLength(1);
+		expect(page.canonical).toEqual([]);
+		sqlite
+			.prepare(
+				"UPDATE user_configs SET value=json_set(value, '$.rows[0].at', '2000-01-01T00:00:00.000Z') WHERE namespace='office.operations.v1'",
+			)
+			.run();
+		page = await ada.listOperations({});
+		expect(page.rows).toEqual([]);
+		sqlite.close();
+	});
+	it("projects only canonical receipt metadata, isolates recipients, and preserves automatic Work closure provenance", async () => {
+		const { ada, grace, db, sqlite } = fixture();
+		const now = new Date().toISOString();
+		const workItemId = "33333333-3333-4333-8333-333333333333";
+		const requestId = "44444444-4444-4444-8444-444444444444";
+		const responseId = "55555555-5555-4555-8555-555555555555";
+		const attemptId = "66666666-6666-4666-8666-666666666666";
+		await db.insert(workItems).values({
+			id: workItemId,
+			orgId: ORG_ID,
+			title: "Private test result",
+			disposition: "completed",
+			createdAt: now,
+			updatedAt: now,
+			completedAt: now,
+		});
+		await ada.report({ ...report, workItemId });
+		await db.insert(workAttempts).values({
+			id: attemptId,
+			workItemId,
+			orgId: ORG_ID,
+			executorType: "external_agent",
+			executorId: "agent",
+			executorSessionId: "agent-session",
+			externalSessionKey: report.sessionKey,
+			runtimeState: "finished",
+			outcome: "succeeded",
+			attemptNumber: 1,
+			startedAt: now,
+			heartbeatAt: now,
+			finishedAt: now,
+			summary: "secret-result-note",
+		});
+		await db.insert(workEvents).values({
+			id: "closure",
+			orgId: ORG_ID,
+			workItemId,
+			eventType: "work.completed",
+			actorType: "system",
+			actorId: "tedix",
+			actorSessionId: null,
+			occurredAt: now,
+		});
+		await db.insert(workInteractions).values({
+			id: requestId,
+			orgId: ORG_ID,
+			workItemId,
+			kind: "question",
+			subject: "secret-subject",
+			prompt: "secret-prompt",
+			creatorType: "external_agent",
+			creatorId: "agent",
+			targetType: "user",
+			targetId: "ada",
+			createdAt: now,
+			metadata: { sessionId: report.sessionKey, host: report.harness },
+		});
+		await db.insert(workInteractionResponses).values({
+			id: responseId,
+			orgId: ORG_ID,
+			interactionId: requestId,
+			resolvedRequestVersion: 1,
+			resolutionFence: "fence",
+			responderType: "user",
+			responderId: "ada",
+			body: "secret-answer",
+			responseKind: "answer",
+			resolvesRequest: true,
+			respondedAt: now,
+		});
+		await db.insert(workInteractionDeliveries).values({
+			orgId: ORG_ID,
+			responseId,
+			interactionId: requestId,
+			deliveredAt: now,
+			deliveredVia: "hook",
+			acknowledgedAt: null,
+			updatedAt: now,
+		});
+		const page = await ada.listOperations({});
+		expect(page.canonical.map((row) => row.stage).sort()).toEqual([
+			"queued",
+			"saved",
+			"work_closed",
+		]);
+		expect(
+			page.canonical.find((row) => row.stage === "work_closed"),
+		).toMatchObject({
+			attemptId,
+			resultRecorded: true,
+			sessionKey: report.sessionKey,
+		});
+		for (const text of [
+			"secret-result-note",
+			"secret-subject",
+			"secret-prompt",
+			"secret-answer",
+		])
+			expect(JSON.stringify(page)).not.toContain(text);
+		expect((await grace.listOperations({})).canonical).toEqual([]);
+		const acknowledgedAt = new Date(Date.parse(now) + 1000).toISOString();
+		await db.update(workInteractionDeliveries).set({ acknowledgedAt });
+		const acknowledged = await ada.listOperations({});
+		expect(
+			acknowledged.canonical
+				.filter((row) => row.source === "reply")
+				.map((row) => row.stage)
+				.sort(),
+		).toEqual(["acknowledged", "delivered", "queued", "saved"]);
+		expect(
+			acknowledged.canonical.find((row) => row.stage === "delivered")?.at,
+		).toBe(acknowledgedAt);
+		await db.update(workInteractionDeliveries).set({ deliveredVia: "handoff" });
+		const handoff = await ada.listOperations({});
+		expect(
+			handoff.canonical
+				.filter((row) => row.source === "reply")
+				.map((row) => row.stage)
+				.sort(),
+		).toEqual(["handed_off", "saved"]);
+		const supervisor = {
+			...observation(),
+			source: "supervisor" as const,
+			trigger: "reply_drain" as const,
+			reason: "working" as const,
+			outcome: "deferred" as const,
+			requestId,
+			responseId,
+		};
+		await expect(ada.recordOperation(supervisor)).resolves.toEqual({
+			recorded: true,
+		});
+		await expect(grace.recordOperation(supervisor)).rejects.toThrow();
+		await expect(
+			ada.recordOperation({ ...supervisor, responseId: crypto.randomUUID() }),
+		).rejects.toThrow();
+		sqlite.close();
+	});
 });

@@ -24,11 +24,10 @@ import {
 } from "./await-reply";
 import {
 	answersMessage,
-	claimAnsweredQuestion,
+	claimHookAnswers,
 	undeliveredAnswers,
 } from "./answer-delivery";
 import {
-	ackAnswers,
 	type Binding,
 	bindingFor,
 	captureStatePath,
@@ -36,7 +35,6 @@ import {
 	interactionDetail,
 	peek,
 	recordDraftDelivered,
-	rememberDelivered,
 } from "./decision-capture";
 import {
 	AGENT_IDENTITY_ENV,
@@ -73,12 +71,20 @@ async function pendingAnswers(
 		{ sessionId: session },
 		DETAIL_TIMEOUT_MS,
 	);
-	if (!answers?.length || !claimAnsweredQuestion(state, question, answers))
-		return undefined;
-	const ids = answers.map((answer) => answer.responseId);
-	await ackAnswers(deps, binding, ids, "hook", DETAIL_TIMEOUT_MS);
-	rememberDelivered(state, ids, "hook");
-	return JSON.stringify({ decision: "block", reason: answersMessage(answers) });
+	if (!answers?.length) return undefined;
+	const fresh = await claimHookAnswers(
+		deps,
+		binding,
+		session,
+		"codex",
+		state,
+		question,
+		answers,
+		DETAIL_TIMEOUT_MS,
+	);
+	return fresh.length
+		? JSON.stringify({ decision: "block", reason: answersMessage(fresh) })
+		: undefined;
 }
 
 /** The Codex Stop continuation, or undefined to let the turn end. */

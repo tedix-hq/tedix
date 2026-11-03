@@ -12,6 +12,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { autoDraftMessage } from "./hooks/await-reply";
+import { runAwaitDraft } from "./hooks/await-draft";
+import { answerDeliveryPath, claimHookAnswers } from "./hooks/answer-delivery";
+import { beginFileLock } from "./local-file-lock";
 import {
 	autoDeliveryPath,
 	draftStatusPath,
@@ -515,6 +518,7 @@ describe("tedix supervise", () => {
 		) {
 			const lines: string[] = [];
 			const acks: JsonObject[] = [];
+			const operations: JsonObject[] = [];
 			const resumed: Array<[string, string, string]> = [];
 			const queued: Array<[string, string]> = [];
 			const board: string[][] = [];
@@ -579,6 +583,10 @@ describe("tedix supervise", () => {
 						acks.push(workToolCall(args)!.input);
 						return { data: [] };
 					}
+					if (workToolCall(args)?.name === "record_office_operation") {
+						operations.push(workToolCall(args)!.input);
+						return { recorded: true };
+					}
 					if (args.includes("delegate")) {
 						board.push(args);
 						return { id: WORK, reused: false, via: "session" };
@@ -597,6 +605,7 @@ describe("tedix supervise", () => {
 				runner,
 				lines,
 				acks,
+				operations,
 				resumed,
 				queued,
 				board,
@@ -604,6 +613,122 @@ describe("tedix supervise", () => {
 				finish: (ok: boolean) => finish(ok),
 			};
 		}
+
+		test("a real answer races Codex Stop and supervisor drain while acknowledgement is delayed", async () => {
+			sessions([CODEX, "codex"]);
+			const pending = answer(CODEX, "codex", 60_000);
+			const state = join(config, "decision-capture", `${CODEX}.json`);
+			let releaseAck!: () => void;
+			let enteredAck!: () => void;
+			const entered = new Promise<void>((resolve) => {
+				enteredAck = resolve;
+			});
+			let clock = 0;
+			const hook = runAwaitDraft(
+				{
+					env: { TEDIX_CONFIG_DIR: config },
+					cwd: config,
+					stdin: JSON.stringify({
+						hook_event_name: "Stop",
+						session_id: CODEX,
+						turn_id: "turn-1",
+					}),
+					write: () => {},
+					read: async (args) => {
+						const tool = workToolCall(args);
+						if (args.includes("context")) return structuredClone(BINDING);
+						if (args.includes("auth")) return structuredClone(AUTH);
+						if (tool?.name === "list_undelivered_work_interaction_responses")
+							return {
+								data: [pending, pending],
+								observedAt: new Date().toISOString(),
+							};
+						if (tool?.name === "ack_work_interaction_delivery") {
+							expect(tool.input.responseIds).toEqual([pending.responseId]);
+							enteredAck();
+							await new Promise<void>((resolve) => {
+								releaseAck = resolve;
+							});
+							return { data: [] };
+						}
+						throw new Error("Unexpected hook read");
+					},
+				},
+				{
+					clock: () => clock,
+					maxMs: 1000,
+					sleep: async (ms) => {
+						clock += ms;
+						writeFileSync(
+							state,
+							JSON.stringify({
+								token: "t1",
+								requestId: REQUEST,
+								host: "codex",
+							}),
+						);
+					},
+				},
+			);
+			await entered;
+			const supervisor = drain([pending, pending]);
+			expect(await supervisor.runner.tick()).toBe(0);
+			expect(supervisor.queued).toEqual([]);
+			expect(supervisor.resumed).toEqual([]);
+			releaseAck();
+			const output = JSON.parse((await hook)!);
+			expect(output.decision).toBe("block");
+			expect(output.reason).toContain("Yes, ship it.");
+			expect(await drain([pending]).runner.tick()).toBe(0);
+		});
+
+		test("a crash after the shared response claim remains unconfirmed across restart", async () => {
+			sessions([CODEX, "codex"]);
+			const pending = answer(CODEX, "codex", 60_000);
+			const path = answerDeliveryPath(
+				{ TEDIX_CONFIG_DIR: config },
+				"codex",
+				CODEX,
+				`-w fixture:U-fixture-user:${pending.responseId}`,
+			);
+			mkdirSync(join(config, "supervisor", "deliveries"), { recursive: true });
+			writeFileSync(path, JSON.stringify({ session: CODEX, state: "pending" }));
+			const restarted = drain([pending]);
+			expect(await restarted.runner.tick()).toBe(0);
+			expect(restarted.acks).toEqual([]);
+			expect(restarted.queued).toEqual([]);
+			expect(restarted.lines.join(" ")).toContain("unconfirmed");
+		});
+
+		test("a supervisor holding the session lock excludes a hook claim", async () => {
+			const env = { TEDIX_CONFIG_DIR: config };
+			const lock = beginFileLock(
+				answerDeliveryPath(env, "codex", CODEX, "session-lock"),
+			);
+			try {
+				const result = await claimHookAnswers(
+					{
+						env,
+						cwd: config,
+						stdin: "",
+						write: () => {},
+						read: async () => {
+							throw new Error("must not acknowledge");
+						},
+					},
+					{ command: ["-w", "fixture"], user: "U-fixture-user" },
+					CODEX,
+					"codex",
+					join(config, "question.json"),
+					undefined,
+					[answer(CODEX, "codex", 1000)],
+					1000,
+				);
+				expect(result).toEqual([]);
+			} finally {
+				lock.release();
+			}
+		});
 
 		for (const [host, native] of [
 			["devin", "quiet-otter"],
@@ -668,6 +793,74 @@ describe("tedix supervise", () => {
 				expect(recovered.resumed[0]?.[0]).toBe(native);
 			});
 		}
+
+		test("supervisor metadata is content-free, coalesced and requires the same opt-in profile and tenant", async () => {
+			sessions([CODEX, "codex"]);
+			const pending = answer(CODEX, "codex", 60_000);
+			const path = join(config, "agent-status.json");
+			writeFileSync(path, JSON.stringify({ enabled: true, profile: "other" }));
+			const wrongProfile = drain([pending]);
+			expect(await wrongProfile.runner.tick()).toBe(1);
+			expect(wrongProfile.operations).toEqual([]);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					enabled: true,
+					profile: "fixture",
+					organization: "other",
+				}),
+			);
+			const wrongTenant = drain([
+				answer(CODEX, "codex", 1000, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+			]);
+			expect(await wrongTenant.runner.tick()).toBe(1);
+			expect(wrongTenant.operations).toEqual([]);
+			writeFileSync(
+				path,
+				JSON.stringify({ enabled: true, profile: "fixture" }),
+			);
+			const matching = drain([
+				answer(CODEX, "codex", 1000, "cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+			]);
+			expect(await matching.runner.tick()).toBe(1);
+			expect(matching.operations).toHaveLength(1);
+			expect(matching.operations[0]).toMatchObject({
+				source: "supervisor",
+				reason: "delivery_confirmed",
+				outcome: "success",
+				sessionKey: CODEX,
+			});
+			expect(JSON.stringify(matching.operations)).not.toContain("Yes, ship it");
+			expect(JSON.stringify(matching.operations)).not.toContain("Ship it?");
+			expect(await matching.runner.tick()).toBe(0);
+			expect(matching.operations).toHaveLength(1);
+		});
+
+		test("stale working state defers while fresh and resumes the exact session only after expiry", async () => {
+			sessions([CODEX, "codex"]);
+			mkdirSync(join(config, "agent-status"), { recursive: true });
+			const path = join(config, "agent-status", `codex-${CODEX}.json`);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					state: "working",
+					updatedAt: new Date().toISOString(),
+				}),
+			);
+			const fresh = drain([answer(CODEX, "codex", 60_000)]);
+			expect(await fresh.runner.tick()).toBe(0);
+			expect(fresh.queued).toEqual([]);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					state: "working",
+					updatedAt: new Date(Date.now() - 13 * 60 * 60_000).toISOString(),
+				}),
+			);
+			const stale = drain([answer(CODEX, "codex", 60_000)]);
+			expect(await stale.runner.tick()).toBe(1);
+			expect(stale.queued[0]?.[0]).toBe(CODEX);
+		});
 
 		test("a protected checkout is rejected before any binding or authentication read", async () => {
 			if (process.platform !== "darwin") return;

@@ -384,6 +384,11 @@ export function answerDeliveryLine(
 		case "saved":
 			return { text: "Saved", pending: true };
 		case "delivered": {
+			if (delivery.via === "hook" || delivery.via === "prompt_context")
+				return {
+					text: "Queued/unconfirmed — waiting for session acknowledgement",
+					pending: true,
+				};
 			const time = delivery.deliveredAt ? clockTime(delivery.deliveredAt) : "";
 			return {
 				text: `Delivered to your session${time ? ` ${time}` : ""}`,

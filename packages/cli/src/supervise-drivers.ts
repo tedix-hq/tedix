@@ -71,6 +71,7 @@ export interface LeadDelivery {
 	via?: DeliveryVia;
 	done?: Promise<boolean>;
 	reason?: string;
+	unconfirmed?: boolean;
 }
 
 /** All supervisor deliveries use the same lifecycle, independent of the CLI. */

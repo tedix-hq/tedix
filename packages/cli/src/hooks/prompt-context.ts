@@ -40,9 +40,12 @@ import {
 	readDelegations,
 } from "../delegation-ledger";
 import { harnessOf } from "./agent-status";
-import { answersMessage, undeliveredAnswers } from "./answer-delivery";
 import {
-	ackAnswers,
+	answersMessage,
+	claimHookAnswers,
+	undeliveredAnswers,
+} from "./answer-delivery";
+import {
 	answeredElsewhere,
 	type Binding,
 	captureStatePath,
@@ -50,7 +53,6 @@ import {
 	interactionDetail,
 	peek,
 	questionPath,
-	rememberDelivered,
 	repositoryName,
 } from "./decision-capture";
 import { selectPromptLessons, type LessonSelection } from "./lesson-selection";
@@ -221,12 +223,25 @@ async function captureContext(
 		);
 		if (answers) {
 			if (!answers.length) return [];
-			if (answers.some((answer) => answer.requestId === requestId))
+			const host =
+				typeof question?.host === "string"
+					? question.host
+					: harnessOf(JSON.parse(deps.stdin), deps.env);
+			const fresh = await claimHookAnswers(
+				deps,
+				binding,
+				session,
+				host,
+				state,
+				undefined,
+				answers,
+				ANSWER_MS,
+				"prompt_context",
+			);
+			if (!fresh.length) return [];
+			if (fresh.some((answer) => answer.requestId === requestId))
 				claim(questionPath(state));
-			const ids = answers.map((answer) => answer.responseId);
-			await ackAnswers(deps, binding, ids, "prompt_context", ANSWER_MS);
-			rememberDelivered(state, ids, "prompt_context");
-			return [answersMessage(answers, ANSWERS_IN_CONTEXT)];
+			return [answersMessage(fresh, ANSWERS_IN_CONTEXT)];
 		}
 		const detail = await interactionDetail(deps, binding, requestId, ANSWER_MS);
 		if (!detail || detail.state === "open") return [];

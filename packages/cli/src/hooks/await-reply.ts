@@ -29,11 +29,10 @@
 import { harnessOf, recordAutoContinued } from "./agent-status";
 import {
 	answersMessage,
-	claimAnsweredQuestion,
+	claimHookAnswers,
 	undeliveredAnswers,
 } from "./answer-delivery";
 import {
-	ackAnswers,
 	answeredElsewhere,
 	autoDeliveryPath,
 	type Binding,
@@ -47,7 +46,6 @@ import {
 	peek,
 	questionPath,
 	recordDraftDelivered,
-	rememberDelivered,
 	writeState,
 } from "./decision-capture";
 import {
@@ -147,6 +145,7 @@ export async function runAwaitReply(
 		);
 		if (!question) return { code: 0 };
 		return await poll(deps, binding, id, state, question, {
+			host: harnessOf(event, deps.env),
 			sleep,
 			clock,
 			deadline,
@@ -262,6 +261,7 @@ async function poll(
 	state: string,
 	question: { requestId: string; token: string },
 	timing: {
+		host: string;
 		sleep: (ms: number) => Promise<void>;
 		clock: () => number;
 		deadline: number;
@@ -293,12 +293,19 @@ async function poll(
 		if (answers) {
 			failures = 0;
 			if (answers.length) {
-				if (!claimAnsweredQuestion(state, question, answers))
-					return { code: 0 };
-				const ids = answers.map((answer) => answer.responseId);
-				await ackAnswers(deps, binding, ids, "hook", DETAIL_TIMEOUT_MS);
-				rememberDelivered(state, ids, "hook");
-				return { code: 2, message: answersMessage(answers) };
+				const fresh = await claimHookAnswers(
+					deps,
+					binding,
+					session,
+					timing.host,
+					state,
+					question,
+					answers,
+					DETAIL_TIMEOUT_MS,
+				);
+				return fresh.length
+					? { code: 2, message: answersMessage(fresh) }
+					: { code: 0 };
 			}
 			// Answers come from the list; the newest question is read only for
 			// a queued tedi draft.

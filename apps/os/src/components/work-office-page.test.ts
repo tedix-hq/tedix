@@ -77,10 +77,15 @@ describe("office helpers", () => {
 		expect(
 			line({
 				state: "delivered",
-				via: "hook",
+				via: "codex_queue",
 				deliveredAt: new Date(2026, 9, 9, 18, 21).toISOString(),
 			})?.text,
 		).toBe("Delivered to your session 18:21");
+		for (const via of ["hook", "prompt_context"])
+			expect(line({ state: "delivered", via })).toEqual({
+				text: "Queued/unconfirmed — waiting for session acknowledgement",
+				pending: true,
+			});
 		expect(line({ state: "acknowledged" })?.text).toBe("Acknowledged");
 		expect(line({ state: "not_needed", via: "none" })).toEqual({
 			text: "Closed (no delivery)",

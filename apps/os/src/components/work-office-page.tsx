@@ -1,4 +1,5 @@
 import { LedgerRow, RelativeTime } from "@/components/work-ledger-row";
+import { OfficeActivityTimeline } from "@/components/office-activity-timeline";
 import { WeeklyDecisionDigest } from "@/components/weekly-decision-digest";
 import { DeckAttentionMetrics } from "@/components/deck-attention-metrics";
 import { OS_COPY } from "@/shared/os-copy";
@@ -894,6 +895,7 @@ export function OfficeApp() {
 				</CollapsibleDefaultContent>
 			</Collapsible>
 			<Knocks since={since} />
+			<OfficeActivityTimeline />
 			<OfficeLeaderboard />
 			<Notebook since={since} />
 			<SupportAttention />
