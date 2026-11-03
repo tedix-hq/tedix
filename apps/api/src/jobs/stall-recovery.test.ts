@@ -504,7 +504,62 @@ describe("autonomous stall recovery", () => {
 		).rejects.toThrow("Stall recovery incomplete");
 		expect(fetch).toHaveBeenCalledTimes(2);
 		rejectForest = false;
-		expect(await dispatchStallRecovery(db, env, Date.parse(now))).toBe(1);
+		expect(await dispatchStallRecovery(db, env, Date.parse(now))).toBe(0);
+		expect(
+			await dispatchStallRecovery(db, env, Date.parse(now) + 120_000),
+		).toBe(1);
+		expect(fetch).toHaveBeenCalledTimes(3);
+	});
+	it("advances past a failed page and retries its exact wake after wrapping", async () => {
+		const { sqlite, db } = fixture();
+		const insert = sqlite.prepare(
+			"INSERT INTO projects(id,org_id,key,name,created_at) VALUES (?, 'fictional-orchard', ?, 'Fresh scope', ?)",
+		);
+		for (let i = 0; i < 99; i++) {
+			const id = `batch-${String(i).padStart(3, "0")}`;
+			insert.run(id, id, now);
+		}
+		let unavailable = true;
+		const requests: Array<{ host: string | null; key: string }> = [];
+		const fetch = vi.fn(async (request: Request) => {
+			const body = (await request.json()) as { client_request_id: string };
+			const host = request.headers.get("X-Tedix-Host");
+			requests.push({ host, key: body.client_request_id });
+			return host?.startsWith("moss.") && unavailable
+				? new Response("unavailable", { status: 500 })
+				: Response.json({ accepted: true, run_id: "accepted-run" });
+		});
+		const env = {
+			ENVIRONMENT: "production",
+			TEDI_SERVICE: { fetch },
+		} as unknown as CloudflareEnv;
+		const tick = Date.parse(now);
+		await expect(dispatchStallRecovery(db, env, tick)).rejects.toMatchObject({
+			counts: { resumeRequested: 0, failedScopes: 1 },
+		});
+		expect(
+			JSON.parse((await getStallRecoveryCheckpoint(db, "production"))!).after,
+		).toBe("project:forest");
+		expect(await getStallRecoveryCheckpoint(db, "staging")).toBeNull();
+		expect(
+			await getStallReceipt(
+				db,
+				"fictional-forest",
+				`${requests[0]!.key}:accepted`,
+			),
+		).toBeNull();
+		expect(await dispatchStallRecovery(db, env, tick + 120_000)).toBe(1);
+		expect(requests[1]!.host).toBe("river.tedi.tedix.dev");
+		unavailable = false;
+		expect(await dispatchStallRecovery(db, env, tick + 240_000)).toBe(1);
+		expect(requests[2]).toEqual(requests[0]);
+		expect(
+			await getStallReceipt(
+				db,
+				"fictional-forest",
+				`${requests[0]!.key}:accepted`,
+			),
+		).not.toBeNull();
 		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 	it("keeps a post-recovery decision visible after activity resets the idle clock", async () => {

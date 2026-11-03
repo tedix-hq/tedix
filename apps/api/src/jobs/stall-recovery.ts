@@ -2,6 +2,7 @@ import { ContinuityPolicySchema } from "@tedix/api-contract/schemas/work-attenti
 import type * as z from "zod";
 import type { DbClient } from "@tedix/db/client";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
+import { PlatformCronPathError } from "./platform-cron-receipts";
 import {
 	countContinuityResults,
 	CONTINUITY_SCOPE_BATCH_SIZE,
@@ -246,7 +247,7 @@ export async function dispatchStallRecovery(
 			)
 				dispatched++;
 		} catch (error) {
-			// Continue other tenants; the failed cron receipt retains the retry boundary.
+			// No delivery receipt is written; revisit this scope when the cursor wraps.
 			failures.push(error);
 		}
 	}
@@ -260,11 +261,6 @@ export async function dispatchStallRecovery(
 				skippedEmptyScopes,
 			}),
 		);
-	if (failures.length)
-		throw new AggregateError(
-			failures,
-			"Stall recovery incomplete; accepted wakes retained",
-		);
 	await advanceStallRecoveryCheckpoint(
 		db,
 		env.ENVIRONMENT,
@@ -275,5 +271,15 @@ export async function dispatchStallRecovery(
 			scheduledTime,
 		}),
 	);
+	if (failures.length)
+		throw new PlatformCronPathError(
+			failures,
+			"Stall recovery incomplete; accepted wakes retained",
+			{
+				resumeRequested: dispatched,
+				failedScopes: failures.length,
+				skippedEmptyScopes,
+			},
+		);
 	return dispatched;
 }
