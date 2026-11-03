@@ -10,6 +10,7 @@ import {
 } from "./mcp/client-apps-capability";
 import { AGGREGATE_SURFACE_CACHE_TTL_MS } from "./aggregate-surface-cache";
 import { aggregateAndPrefixTools } from "./aggregate-surface";
+import { withSelfTediSkills } from "./aggregate-self-tedi";
 import { AggregateAppEntry } from "./aggregate-types";
 import {
 	applyHostConnectionDefaultsToAggregateEntries,
@@ -541,11 +542,16 @@ export async function handleMcpRequest(
 	}
 
 	const aggregateTedis = filterAggregateTedisForCodeNamespaces(
-		multiOrgResource
-			? undefined
-			: (cachedData?.metadata?.mcpConfig?.aggregateTedis as
-					| AggregateTediEntry[]
-					| undefined),
+		await withSelfTediSkills({
+			entries: multiOrgResource
+				? undefined
+				: (cachedData?.metadata?.mcpConfig?.aggregateTedis as
+						| AggregateTediEntry[]
+						| undefined),
+			caller: callerIdentity,
+			organizationId: resolvedApp.app.organizationId,
+			env,
+		}),
 		aggregateNamespaces,
 	);
 	// Hydrated aggregate tedis (D1 tediId + runtime kind). Captured here so the
