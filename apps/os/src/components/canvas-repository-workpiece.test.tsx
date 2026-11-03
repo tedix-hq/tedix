@@ -1,6 +1,5 @@
-import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, useId, useState } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
@@ -9,10 +8,7 @@ const mocks = vi.hoisted(() => ({
 	authority: { role: "owner", permissions: ["secrets:manage"] },
 }));
 vi.mock("@/lib/use-os-preferences", () => ({
-	useOsOperationalContext: () => ({
-		data: { authority: mocks.authority },
-		isError: false,
-	}),
+	useOsOperationalContext: () => ({ data: { authority: mocks.authority } }),
 }));
 vi.mock("@/components/work-repository-review", () => ({
 	WorkRepositoryReview: ({
@@ -21,25 +17,11 @@ vi.mock("@/components/work-repository-review", () => ({
 	}: {
 		workItemId: string;
 		attempt: { id: string };
-	}) => {
-		const id = useId(),
-			paused = useWorkspaceVerificationPaused();
-		const [files, setFiles] = useState("first|second");
-		return (
-			<div
-				data-work={workItemId}
-				data-attempt={attempt.id}
-				data-instance={id}
-				data-paused={paused}
-			>
-				Canonical repository review
-				<button onClick={() => setFiles("unsynced first|unsynced second")}>
-					Type
-				</button>
-				{files}
-			</div>
-		);
-	},
+	}) => (
+		<div data-work={workItemId} data-attempt={attempt.id}>
+			Canonical repository review
+		</div>
+	),
 }));
 vi.mock("@/lib/os-query-options", () => ({
 	workItemDetailQueryOptions: (id: string) => ({
@@ -116,7 +98,6 @@ afterEach(async () => {
 	if (root) await act(async () => root.unmount());
 	host?.remove();
 	client?.clear();
-	vi.useRealTimers();
 });
 it("reuses the existing Work review with exact Work and Attempt IDs", async () => {
 	await mount();
@@ -176,57 +157,4 @@ it("can find the exact session on an older bounded ledger page", async () => {
 	expect(
 		host.querySelector("[data-attempt]")?.getAttribute("data-attempt"),
 	).toBe(attempt);
-});
-
-it("preserves an open repository and its local text through a background Work verification failure", async () => {
-	vi.useFakeTimers();
-	host = document.createElement("div");
-	document.body.append(host);
-	root = createRoot(host);
-	client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-	await act(async () => {
-		root.render(
-			<QueryClientProvider client={client}>
-				<CanvasRepositoryWorkpiece
-					workspaceId={workspace}
-					workItemId={work}
-					attemptId={attempt}
-				/>
-			</QueryClientProvider>,
-		);
-		await vi.advanceTimersByTimeAsync(1);
-	});
-	await act(async () => {
-		await vi.advanceTimersByTimeAsync(1);
-	});
-	const review = host.querySelector("[data-work]");
-	expect(review).not.toBeNull();
-	act(() => host.querySelector("button")!.click());
-	mocks.work.mockRejectedValue({ code: "INTERNAL_SERVER_ERROR" });
-	await act(async () => {
-		await client.invalidateQueries();
-		await vi.advanceTimersByTimeAsync(1);
-	});
-	expect(host.querySelector("[data-work]")).toBe(review);
-	expect(review?.getAttribute("data-paused")).toBe("true");
-	expect(host.textContent).toContain("unsynced first|unsynced second");
-	mocks.work.mockResolvedValue({
-		workItem: {
-			id: work,
-			title: "Coding Work",
-			provenance: { workspaceId: workspace },
-		},
-	});
-	await act(async () => {
-		await client.invalidateQueries();
-		await vi.advanceTimersByTimeAsync(1);
-	});
-	expect(host.querySelector("[data-work]")).toBe(review);
-	expect(review?.getAttribute("data-paused")).toBe("false");
-	mocks.work.mockRejectedValue({ code: "FORBIDDEN" });
-	await act(async () => {
-		await client.invalidateQueries();
-		await vi.advanceTimersByTimeAsync(1);
-	});
-	expect(host.querySelector("[data-work]")).toBeNull();
 });

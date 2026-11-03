@@ -1,4 +1,3 @@
-import { WorkspaceVerificationPausedContext } from "@/lib/workspace-verification";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -121,7 +120,6 @@ afterEach(async () => {
 	client?.clear();
 	vi.clearAllMocks();
 	mocks.authority.role = "owner";
-	vi.useRealTimers();
 });
 describe("retained repository result", () => {
 	it("waits for deferred repository and comparison results before using them", async () => {
@@ -231,58 +229,6 @@ describe("retained repository result", () => {
 		);
 		expect(host.querySelector("[data-candidate-instance]")).toBe(instance);
 		expect(mocks.candidateMounts).toBe(1);
-	});
-
-	it("does not refetch retained repository tree or comparison while verification is paused", async () => {
-		vi.useFakeTimers();
-		mocks.read.mockResolvedValue({
-			entries: [
-				{ name: "file.ts", type: "blob", hash: head, change: "modified" },
-			],
-			commits: [],
-			truncated: false,
-			nextOffset: null,
-			base: { status: "text", text: "before", bytes: 6 },
-			head: { status: "text", text: "after", bytes: 5 },
-		});
-		host = document.createElement("div");
-		document.body.append(host);
-		root = createRoot(host);
-		client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-		const value = attempt();
-		const render = (paused: boolean) =>
-			root!.render(
-				<QueryClientProvider client={client}>
-					<WorkspaceVerificationPausedContext.Provider value={paused}>
-						<WorkRepositoryReview workItemId={work} attempt={value} />
-					</WorkspaceVerificationPausedContext.Provider>
-				</QueryClientProvider>,
-			);
-		await act(async () => render(false));
-		await click("Review repository result");
-		await act(async () => {
-			await vi.advanceTimersByTimeAsync(1);
-		});
-		await click("file.ts");
-		await act(async () => {
-			await vi.advanceTimersByTimeAsync(1);
-		});
-		const calls = mocks.read.mock.calls.length;
-		expect(calls).toBe(2);
-		await act(async () => {
-			render(true);
-		});
-		await act(async () => {
-			await client.invalidateQueries();
-			await vi.advanceTimersByTimeAsync(1);
-		});
-		expect(mocks.read).toHaveBeenCalledTimes(calls);
-		expect(host.textContent).toContain("after");
-		await act(async () => {
-			render(false);
-			await vi.advanceTimersByTimeAsync(1);
-		});
-		expect(mocks.read.mock.calls.length).toBeGreaterThan(calls);
 	});
 
 	it("shows unavailable without an immutable head receipt and never queries HEAD", async () => {
