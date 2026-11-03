@@ -163,6 +163,10 @@ export async function authorizeDocsRequest(
 					projectId: env.DESCOPE_PROJECT_ID,
 					baseUrl: env.DESCOPE_BASE_URL,
 					allowTediJwt: true,
+					auditClaims: {
+						surface: "docs:api.forwarded",
+						expected: [env.DESCOPE_PROJECT_ID],
+					},
 				})
 			: null;
 		if (delegatedScope) {
@@ -200,6 +204,10 @@ export async function authorizeDocsRequest(
 		projectId: env.DESCOPE_PROJECT_ID,
 		baseUrl: env.DESCOPE_BASE_URL,
 		allowTediJwt: true,
+		auditClaims: {
+			surface: "docs:api",
+			expected: [env.DESCOPE_PROJECT_ID],
+		},
 	});
 	const isAdmin = platformAdmin(payload);
 	if (!isAdmin && !(await userHasTenant(env, payload, orgSlug))) {

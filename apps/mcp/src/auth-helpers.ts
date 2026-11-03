@@ -1274,6 +1274,12 @@ export async function validateAuth(
 				// the exact resource here.
 				audience: m2mIssuerShape ? undefined : options?.expectedAudience,
 				allowTediJwt: true, // Tedi JWTs are valid callers on MCP endpoints
+				// Enforced `aud` is already measured per-token below for M2M; this
+				// adds the issuer-equality measurement to the same surface.
+				auditClaims: {
+					surface: "mcp:edge",
+					expected: [options?.expectedAudience ?? env.DESCOPE_PROJECT_ID],
+				},
 			});
 			// Measure, before enforcing, whether those M2M tokens already carry
 			// this resource. The edge records it once the signed client resolves.

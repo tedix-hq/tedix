@@ -486,7 +486,22 @@ async function authenticateMcp(
 		// to @tedix/auth's stricter JWTPayload (which requires iat/exp/iss/aud and
 		// types the tenants claim differently). Cast through unknown so we can
 		// reuse the @tedix/auth validators without restating their shape.
-		validateJwt: validateToken as unknown as JwtValidator,
+		// The wrapper adds the logs-only claims audit: this surface is measured
+		// against the audience the middleware forwards, defaulting to the project.
+		validateJwt: ((
+			token: Parameters<JwtValidator>[0],
+			options: Parameters<JwtValidator>[1],
+		) =>
+			validateToken(token, {
+				...options,
+				auditClaims: {
+					surface: "tedi-runtime:mcp",
+					expected:
+						options.allowedAudiences && options.allowedAudiences.length > 0
+							? options.allowedAudiences
+							: [options.projectId],
+				},
+			})) as unknown as JwtValidator,
 		extractScopes: extractJwtScopes as unknown as JwtScopeExtractor,
 		extractTenantId: getTenantId as unknown as JwtTenantExtractor,
 		allowTediJwt: true,
@@ -655,6 +670,10 @@ async function authenticateAcpUpgrade(
 		const payload = await validateToken(token, {
 			projectId: env.DESCOPE_PROJECT_ID,
 			baseUrl: (env as { DESCOPE_BASE_URL?: string }).DESCOPE_BASE_URL,
+			auditClaims: {
+				surface: "tedi-runtime:gateway",
+				expected: [env.DESCOPE_PROJECT_ID],
+			},
 		});
 		const actor = extractTediJwtClaims(payload);
 		const subject = payload.sub ?? "anonymous";

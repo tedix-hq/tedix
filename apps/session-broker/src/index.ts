@@ -575,6 +575,10 @@ export class SessionRotationOwner extends DurableObject<BrokerEnv> {
 				await validateToken(input.sessionToken, {
 					baseUrl: this.env.DESCOPE_BASE_URL,
 					projectId: this.env.DESCOPE_PROJECT_ID,
+					auditClaims: {
+						surface: "session-broker:session",
+						expected: [this.env.DESCOPE_PROJECT_ID],
+					},
 				});
 				// A freshly authenticated browser already has a signed, unexpired DS.
 				// Adopt it without consuming the new DSR merely to reach the picker;

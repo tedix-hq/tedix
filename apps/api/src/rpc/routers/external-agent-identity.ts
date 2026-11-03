@@ -896,6 +896,10 @@ async function verifyM2mBindingToken(
 		payload = await validateToken(token, {
 			projectId: context.env.DESCOPE_PROJECT_ID,
 			baseUrl: context.env.DESCOPE_BASE_URL,
+			auditClaims: {
+				surface: "api:workload-binding",
+				expected: [context.env.DESCOPE_PROJECT_ID],
+			},
 		});
 	} catch (error) {
 		throw new WorkloadIdentityError(

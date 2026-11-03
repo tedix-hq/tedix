@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+	computeClaimsAudit,
 	isM2MToken,
 	isOAuthClientToken,
 	isUserToken,
@@ -132,5 +133,125 @@ describe("OAuth client token detection", () => {
 				}),
 			).toBe(false);
 		}
+	});
+});
+
+describe("claims audit (measurement for the enforcement rollout)", () => {
+	const audit = {
+		surface: "api:rpc",
+		expected: ["https://api.tedix.dev"],
+	};
+	const PROJECT = "P2example000000000000000000";
+
+	it("accepts a token whose aud matches the surface", () => {
+		const event = computeClaimsAudit(
+			audit,
+			{ aud: "https://api.tedix.dev", iss: PROJECT },
+			PROJECT,
+		);
+		expect(event.wouldRejectAudience).toBe(false);
+		expect(event.passedOnlyViaProjectId).toBe(false);
+		expect(event.wouldReject).toBe(false);
+	});
+
+	it("handles aud as an array, per RFC 7519", () => {
+		const event = computeClaimsAudit(
+			audit,
+			{
+				aud: ["https://other.tedix.dev", "https://api.tedix.dev"],
+				iss: PROJECT,
+			},
+			PROJECT,
+		);
+		expect(event.wouldRejectAudience).toBe(false);
+		expect(event.actualAudiences).toHaveLength(2);
+	});
+
+	// The headline finding: a token minted for the MCP edge is accepted
+	// everywhere else today, because no other surface checks aud at all.
+	it("flags a token minted for a different surface", () => {
+		const event = computeClaimsAudit(
+			audit,
+			{ aud: "https://tedix-unified.mcp.tedix.dev/mcp", iss: PROJECT },
+			PROJECT,
+		);
+		expect(event.wouldRejectAudience).toBe(true);
+		expect(event.passedOnlyViaProjectId).toBe(false);
+		expect(event.wouldReject).toBe(true);
+	});
+
+	// The subtle one this audit exists to measure: validateToken prepends the
+	// bare project ID whenever a caller passes allowedAudiences without an
+	// explicit audience, so `aud: <projectId>` satisfies the CURRENT check while
+	// failing a strict one. Flipping enforcement on breaks exactly these.
+	it("separates tokens that pass only via the bare project ID", () => {
+		const event = computeClaimsAudit(
+			audit,
+			{ aud: PROJECT, iss: PROJECT },
+			PROJECT,
+		);
+		expect(event.wouldRejectAudience).toBe(true);
+		expect(event.passedOnlyViaProjectId).toBe(true);
+	});
+
+	// Tedix session JWTs are not guaranteed to carry aud at all, so absence must
+	// not read as a rejection or it drowns the signal.
+	it("reports a missing aud claim without counting it as a rejection", () => {
+		const event = computeClaimsAudit(audit, { iss: PROJECT }, PROJECT);
+		expect(event.missingAudienceClaim).toBe(true);
+		expect(event.wouldRejectAudience).toBe(false);
+	});
+
+	// computeClaimsAudit is pure and must never throw on malformed input — a
+	// crash here would surface as a token rejection at the call site.
+	it("tolerates a malformed aud claim without throwing", () => {
+		for (const bad of [null, 42, {}, [1, 2], [null], true]) {
+			const event = computeClaimsAudit(
+				audit,
+				{ aud: bad, iss: PROJECT },
+				PROJECT,
+			);
+			expect(event.actualAudiences).toEqual([]);
+			expect(event.wouldRejectAudience).toBe(false);
+			expect(event.missingAudienceClaim).toBe(true);
+		}
+	});
+
+	// Finding #2 in the same pass: the issuer equality check the CMS session
+	// boundary already enforces. The SDK rewrites a validated project token's
+	// iss to the bare project ID, so a session JWT matches.
+	it("accepts the SDK-rewritten project issuer", () => {
+		const event = computeClaimsAudit(
+			audit,
+			{ aud: "https://api.tedix.dev", iss: PROJECT },
+			PROJECT,
+		);
+		expect(event.expectedIssuer).toBe(PROJECT);
+		expect(event.actualIssuer).toBe(PROJECT);
+		expect(event.wouldRejectIssuer).toBe(false);
+	});
+
+	// AIH client-credentials tokens keep their /v1/apps/ issuer through
+	// validation — they must be measured, not silently accepted, before any
+	// issuer equality is enforced.
+	it("flags an AIH /v1/apps/ issuer as an equality failure", () => {
+		const issuer = `https://api.descope.com/v1/apps/agentic/${PROJECT}/RSconnect`;
+		const event = computeClaimsAudit(
+			audit,
+			{ aud: [PROJECT, "CI_client"], iss: issuer },
+			PROJECT,
+		);
+		expect(event.wouldRejectIssuer).toBe(true);
+		expect(event.wouldReject).toBe(true);
+	});
+
+	it("tolerates a missing issuer without throwing", () => {
+		const event = computeClaimsAudit(
+			audit,
+			{ aud: "https://api.tedix.dev" },
+			PROJECT,
+		);
+		expect(event.actualIssuer).toBe("");
+		expect(event.wouldRejectIssuer).toBe(true);
 	});
 });

@@ -210,6 +210,10 @@ export function registerArtifactRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			payload = await validateToken(token, {
 				projectId: c.env.DESCOPE_PROJECT_ID,
 				baseUrl: c.env.DESCOPE_BASE_URL,
+				auditClaims: {
+					surface: "api:artifacts",
+					expected: [c.env.DESCOPE_PROJECT_ID],
+				},
 			});
 		} catch {
 			return c.text("Unauthorized", 401);

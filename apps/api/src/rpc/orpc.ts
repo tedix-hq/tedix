@@ -271,6 +271,10 @@ export const withTediAuth = base.middleware(async ({ context, next }) => {
 			projectId: context.env.DESCOPE_PROJECT_ID,
 			baseUrl: context.env.DESCOPE_BASE_URL,
 			allowTediJwt: true,
+			auditClaims: {
+				surface: "api:rpc.tedi-auth",
+				expected: [context.env.DESCOPE_PROJECT_ID],
+			},
 		});
 
 		const { claims: tediClaims, error: tediClaimError } =
@@ -1755,6 +1759,10 @@ async function authenticateUserJwt(
 		(await validateToken(token, {
 			projectId: context.env.DESCOPE_PROJECT_ID,
 			baseUrl: context.env.DESCOPE_BASE_URL,
+			auditClaims: {
+				surface: "api:rpc.user",
+				expected: [context.env.DESCOPE_PROJECT_ID],
+			},
 		}));
 
 	// Verify this is a user token (not M2M)
@@ -1902,6 +1910,10 @@ async function authenticateM2MJwt(context: BaseContext): Promise<void> {
 	const payload = await validateToken(token, {
 		projectId: context.env.DESCOPE_PROJECT_ID,
 		baseUrl: context.env.DESCOPE_BASE_URL,
+		auditClaims: {
+			surface: "api:rpc.m2m",
+			expected: [context.env.DESCOPE_PROJECT_ID],
+		},
 	});
 
 	// Verify this is an M2M token (not user)
@@ -1995,6 +2007,10 @@ async function authenticateTediJwt(context: BaseContext): Promise<void> {
 		projectId: context.env.DESCOPE_PROJECT_ID,
 		baseUrl: context.env.DESCOPE_BASE_URL,
 		allowTediJwt: true,
+		auditClaims: {
+			surface: "api:rpc.tedi",
+			expected: [context.env.DESCOPE_PROJECT_ID],
+		},
 	});
 
 	const { claims, error: claimError } = extractTediJwtClaims(payload);

@@ -107,6 +107,10 @@ export async function authorizeDocsSiteRequest(
 		const payload = await validateToken(token, {
 			projectId: env.DESCOPE_PROJECT_ID,
 			baseUrl: env.DESCOPE_BASE_URL,
+			auditClaims: {
+				surface: "docs-runtime:site",
+				expected: [env.DESCOPE_PROJECT_ID],
+			},
 		});
 		if (getTenantId(payload) === site.descopeTenantId) return null;
 	} catch (error) {

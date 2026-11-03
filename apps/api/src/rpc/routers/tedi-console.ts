@@ -143,6 +143,10 @@ const createSession = os.createSession
 			projectId: context.env.DESCOPE_PROJECT_ID,
 			baseUrl: context.env.DESCOPE_BASE_URL,
 			allowTediJwt: true,
+			auditClaims: {
+				surface: "api:tedi-console",
+				expected: [context.env.DESCOPE_PROJECT_ID],
+			},
 		});
 		const expiresAt = Math.min(
 			Math.floor(Date.now() / 1000) + TEDI_CONSOLE_SESSION_TTL_SECONDS,
