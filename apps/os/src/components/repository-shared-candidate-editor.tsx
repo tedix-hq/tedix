@@ -9,6 +9,7 @@ import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { repositoryCandidateQueryOptions } from "@/lib/os-query-options";
+import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { useCollabDoc } from "@/lib/use-collab-doc";
 
 /** Opening a candidate reads the current executor's frozen selection; it never starts another writer. */
@@ -22,12 +23,14 @@ export function RepositorySharedCandidate({
 	active: boolean;
 }) {
 	const [opened, setOpened] = useState(false);
+	const verificationPaused = useWorkspaceVerificationPaused();
 	const candidate = useQuery({
 		...repositoryCandidateQueryOptions(workItemId, attemptId),
-		enabled: opened && active,
+		enabled: opened && active && !verificationPaused,
 		refetchInterval: (query) =>
 			opened &&
 			active &&
+			!verificationPaused &&
 			query.state.status !== "error" &&
 			!query.state.data?.state.sealed
 				? 3000
@@ -35,7 +38,12 @@ export function RepositorySharedCandidate({
 	});
 	if (!opened)
 		return active ? (
-			<Button size="sm" variant="secondary" onClick={() => setOpened(true)}>
+			<Button
+				size="sm"
+				variant="secondary"
+				disabled={verificationPaused}
+				onClick={() => setOpened(true)}
+			>
 				Open shared code candidate
 			</Button>
 		) : null;
@@ -58,7 +66,12 @@ export function RepositorySharedCandidate({
 					workItemId={workItemId}
 					descriptor={candidate.data.descriptor}
 					state={candidate.data.state}
-					readOnly={!active || candidate.isError || candidate.data.state.sealed}
+					readOnly={
+						!active ||
+						verificationPaused ||
+						candidate.isError ||
+						candidate.data.state.sealed
+					}
 				/>
 			) : candidate.isPending && active ? (
 				<Text>Loading the executor's shared candidate…</Text>

@@ -1,3 +1,4 @@
+import { WorkspaceVerificationPausedContext } from "@/lib/workspace-verification";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
@@ -105,7 +106,7 @@ function lastSocket(): FakeWebSocket {
 }
 
 /** Minimal hook harness (this app carries no @testing-library dependency). */
-function renderCollabDoc(input: UseCollabDocInput) {
+function renderCollabDoc(input: UseCollabDocInput, verificationPaused = false) {
 	(
 		globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 	).IS_REACT_ACT_ENVIRONMENT = true;
@@ -116,9 +117,18 @@ function renderCollabDoc(input: UseCollabDocInput) {
 		result.current = useCollabDoc(props.input);
 		return null;
 	}
-	const render = (nextInput: UseCollabDocInput) => {
+	const render = (
+		nextInput: UseCollabDocInput,
+		nextPaused = verificationPaused,
+	) => {
 		act(() => {
-			root.render(createElement(Harness, { input: nextInput }));
+			root.render(
+				createElement(
+					WorkspaceVerificationPausedContext.Provider,
+					{ value: nextPaused },
+					createElement(Harness, { input: nextInput }),
+				),
+			);
 		});
 	};
 	render(input);
@@ -1607,68 +1617,79 @@ describe("large sheet admission", () => {
 });
 
 describe("multi-file proposal rooms", () => {
-	it("pauses a closed Work candidate without reconnecting or losing unsynced files", async () => {
-		vi.useFakeTimers();
-		const files = { "client.js": "client", "server.js": "server" };
-		const original: UseCollabDocInput = {
-			workItemId: "work-example",
-			docKey: "repo-candidate:scope",
-			enabled: true,
-			canonical: { text: "", files, revision: 0, revisionId: "base" },
-		};
-		const rendered = renderCollabDoc(original);
-		try {
-			const socket = lastSocket();
-			await act(async () => {
-				socket.open();
-				await Promise.resolve();
-			});
-			await act(async () => {
-				socket.deliver({
-					t: "base",
-					id: socket.requestsOf("base").at(-1)!.id,
-					generation: 0,
-					revision: 0,
-					files: Object.entries(files),
-					canonical: { revision: 0, revisionId: "base" },
+	it.each(["explicit", "verification"])(
+		"pauses a Work candidate through %s without reconnecting or losing unsynced files",
+		async (mode) => {
+			vi.useFakeTimers();
+			const files = { "client.js": "client", "server.js": "server" };
+			const original: UseCollabDocInput = {
+				workItemId: "work-example",
+				docKey: "repo-candidate:scope",
+				enabled: true,
+				canonical: { text: "", files, revision: 0, revisionId: "base" },
+			};
+			const rendered = renderCollabDoc(original);
+			try {
+				const socket = lastSocket();
+				await act(async () => {
+					socket.open();
+					await Promise.resolve();
 				});
-				await Promise.resolve();
-				await Promise.resolve();
-				await Promise.resolve();
-			});
-			const session = rendered.result.current!.session!;
-			await act(async () => {
-				session.applyLocal(
-					[
-						["client.js", { edit: [6, [0, " local"]] }],
-						["server.js", { edit: [6, [0, " local"]] }],
-					],
-					"client.js",
-					"client local",
-				);
-				await Promise.resolve();
-			});
-			rendered.rerender({ ...original, paused: true });
-			expect(socket.closed).toBe(true);
-			expect(rendered.result.current!.session).toBe(session);
-			expect(session.text("client.js")).toBe("client local");
-			expect(rendered.result.current!.recoverableFiles).toEqual({
-				"client.js": "client local",
-				"server.js": "server local",
-			});
-			const count = sockets.length;
-			act(() => {
-				socket.drop();
-				rendered.result.current!.retry();
-				vi.advanceTimersByTime(120000);
-			});
-			expect(sockets).toHaveLength(count);
-			expect(session.text("server.js")).toBe("server local");
-		} finally {
-			rendered.unmount();
-			vi.useRealTimers();
-		}
-	});
+				await act(async () => {
+					socket.deliver({
+						t: "base",
+						id: socket.requestsOf("base").at(-1)!.id,
+						generation: 0,
+						revision: 0,
+						files: Object.entries(files),
+						canonical: { revision: 0, revisionId: "base" },
+					});
+					await Promise.resolve();
+					await Promise.resolve();
+					await Promise.resolve();
+				});
+				const session = rendered.result.current!.session!;
+				await act(async () => {
+					session.applyLocal(
+						[
+							["client.js", { edit: [6, [0, " local"]] }],
+							["server.js", { edit: [6, [0, " local"]] }],
+						],
+						"client.js",
+						"client local",
+					);
+					await Promise.resolve();
+				});
+				if (mode === "verification") rendered.rerender(original, true);
+				else rendered.rerender({ ...original, paused: true });
+				expect(socket.closed).toBe(true);
+				expect(rendered.result.current!.session).toBe(session);
+				expect(session.text("client.js")).toBe("client local");
+				expect(rendered.result.current!.recoverableFiles).toEqual({
+					"client.js": "client local",
+					"server.js": "server local",
+				});
+				const count = sockets.length;
+				act(() => {
+					socket.drop();
+					rendered.result.current!.retry();
+					vi.advanceTimersByTime(120000);
+				});
+				expect(sockets).toHaveLength(count);
+				expect(session.text("server.js")).toBe("server local");
+				rendered.rerender(original, false);
+				expect(sockets).toHaveLength(count + 1);
+				expect(rendered.result.current!.session).toBe(session);
+				expect(rendered.result.current!.recoverableFiles).toEqual({
+					"client.js": "client local",
+					"server.js": "server local",
+				});
+			} finally {
+				rendered.unmount();
+				vi.useRealTimers();
+			}
+		},
+	);
 	it("opens an initially paused candidate as readable text without any socket", () => {
 		const count = sockets.length;
 		const rendered = renderCollabDoc({
