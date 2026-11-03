@@ -163,6 +163,7 @@
 		"drizzle-orm": "1.0.0-rc.5",
 		"fflate": "^0.8.3",
 		"hono": "^4.13.16",
+		"isomorphic-git": "1.44.9",
 		"jiti": "^2.7.0",
 		"react": "^19.3.1",
 		"react-dom": "^19.3.1",
