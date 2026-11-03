@@ -157,6 +157,11 @@
 				"name": "KERNEL_VOICE_INPUT",
 				"class_name": "KernelVoiceInputDO",
 			},
+			{
+				"name": "APP_DRAFT_ROOM",
+				"class_name": "CollabRoom",
+				"script_name": "public-installation-os-development",
+			},
 		],
 	},
 	"migrations": [
@@ -599,6 +604,11 @@
 					{
 						"name": "KERNEL_VOICE_INPUT",
 						"class_name": "KernelVoiceInputDO",
+					},
+					{
+						"name": "APP_DRAFT_ROOM",
+						"class_name": "CollabRoom",
+						"script_name": "public-installation-os",
 					},
 				],
 			},

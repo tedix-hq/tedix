@@ -60,6 +60,7 @@ import {
 } from "./auth/session-broker";
 import { CAPN_ROUTE_PATH } from "./capnweb/contract";
 import { COLLAB_PRESENCE_HEADER } from "./collab/presence";
+import { appDraftRoomName } from "@tedix/api-contract/utils/app-draft-room";
 import {
 	authenticateCollabPresence,
 	isPlaceholderPresenceName,
@@ -1746,7 +1747,9 @@ async function handleCollabUpgrade(
 		return refuse(403, "Collaboration identity is unavailable.");
 	}
 	const tenantScope = tenant.kind === "tenant" ? tenant.slug : "local";
-	const roomName = `${tenantScope}:${workspaceId}:${docKey}`;
+	const roomName = appDraft
+		? appDraftRoomName({ tenantSlug: tenantScope, workspaceId, ...appDraft })
+		: `${tenantScope}:${workspaceId}:${docKey}`;
 	const room = env.COLLAB_ROOM.get(env.COLLAB_ROOM.idFromName(roomName));
 	// Credentials stop at this Worker. The DO receives only a strict, verified,
 	// privacy-safe presence projection over the internal namespace binding.

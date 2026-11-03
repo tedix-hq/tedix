@@ -957,6 +957,25 @@ person to apply in the OS. Do not apply, publish or create share links in the
 authoring steps. Preview capabilities allow resource reads only; preview
 ratings are separate from the committed app's storage and are not migrated.
 
+When the installation binds `APP_DRAFT_ROOM` to the OS collaboration room,
+builders can choose **Edit together** on an open draft. Agents join that same
+stream through `osAppRuntime.readDraftRoom` and `submitDraftChange`, using
+`workspaceId`, `gadgetId`, `proposalId`, `expectedRevisionId` (the proposal's
+base) and `expectedSequence`. Reading returns the current file map, including
+`manifest.json`, and its OT `position`; it does not publish or save a revision.
+Submit positional `CodeChange` edits computed against that snapshot, with its
+`generation` and `revision`, a unique `clientId` and increasing `seq` starting
+at 1. Retry an uncertain request with the same client and sequence so the room
+can recognize it. The server supplies the verified author and transforms edits
+through the existing stream before broadcasting them to the open editors.
+On a stale proposal or an unavailable stream, read again and compare before
+recomputing the edit. Shared edits still need **Save shared draft** before
+preview and review; acceptance remains a separate decision. Reconnect recovery
+retains unsynced code for copying and comparison rather than silently replacing
+it with another editor's version.
+Shared editing currently refuses a source file named `manifest.json` so it
+cannot be confused with the app manifest; source API edits preserve that file.
+
 Before handing off, check:
 
 - Own light-theme colour tokens on `:root`, including background, surface,
