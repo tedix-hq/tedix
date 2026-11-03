@@ -8,6 +8,8 @@ import {
 	recordWorkAttemptRepository,
 	recordWorkAttemptRepositoryCandidate,
 	workAttemptCallerMetadata,
+	recordWorkAttemptRepositoryCandidatePublication,
+	claimWorkAttemptRepositoryCandidatePublication,
 } from "./attempts";
 
 const NOW = "2026-10-01T00:00:00.000Z";
@@ -306,5 +308,143 @@ describe("recordWorkAttemptRepository", () => {
 				workItemId: IDS.workItemId,
 			}),
 		).toThrow("ready Artifacts repository");
+	});
+});
+
+describe("server-reserved candidate publication CAS", () => {
+	function publicationFixture() {
+		const f = fixture();
+		f.sqlite.exec(
+			`CREATE TABLE work_items(id TEXT,org_id TEXT,disposition TEXT,completed_at TEXT,cancelled_at TEXT,admission_spec_revision TEXT);CREATE TABLE work_admissions(id TEXT,work_item_id TEXT,org_id TEXT,decision TEXT,admission_spec_revision TEXT);`,
+		);
+		f.sqlite
+			.prepare(
+				"INSERT INTO work_items VALUES (?, 'org','accepted',NULL,NULL,'spec')",
+			)
+			.run(IDS.workItemId);
+		f.sqlite
+			.prepare(
+				"INSERT INTO work_admissions VALUES (?,?,'org','admitted','spec')",
+			)
+			.run(IDS.admissionId, IDS.workItemId);
+		const descriptor = {
+			version: 1 as const,
+			organizationId: "org",
+			...IDS,
+			repositoryId: "repo-1",
+			repositoryName: "fixture",
+			baseRevision: "a".repeat(40),
+			files: [{ path: "README.md", blobRevision: "b".repeat(40), bytes: 1 }],
+			selectionDigest: "c".repeat(64),
+			roomName: "room",
+			docKey: "doc",
+			createdAt: NOW,
+		};
+		const person = {
+			name: "Fixture",
+			email: "fixture@example.invalid",
+			timestamp: 0,
+			timezoneOffset: 0,
+		};
+		const preparation = {
+			version: 1 as const,
+			descriptor,
+			position: { generation: 0, revision: 1 },
+			contentDigest: "d".repeat(64),
+			repositoryBaseRevision: null,
+			targetRef: "refs/heads/main",
+			remote: "https://artifacts.example/fixture.git",
+			recipe: { message: "fixture", author: person, committer: person },
+			treeRevision: "e".repeat(40),
+			commitRevision: "f".repeat(40),
+			objectManifestDigest: "1".repeat(64),
+			unchanged: false,
+			preparedAt: NOW,
+			preparationDigest: "2".repeat(64),
+		};
+		const record = { preparation, attemptedAt: null };
+		f.sqlite.prepare("UPDATE work_attempts SET metadata=? WHERE id=?").run(
+			JSON.stringify({
+				repository: { repositoryId: "repo-1" },
+				repositoryCandidate: descriptor,
+			}),
+			IDS.attemptId,
+		);
+		const params = {
+			orgId: "org",
+			...IDS,
+			executor: { type: "tedi" as const, id: "worker" },
+			at: NOW,
+		};
+		return { ...f, record, params };
+	}
+	it("reserves an immutable preparation and allows one attempted marker despite heartbeat version changes", async () => {
+		const f = publicationFixture();
+		expect(
+			await recordWorkAttemptRepositoryCandidatePublication(f.db, {
+				...f.params,
+				record: f.record,
+			}),
+		).not.toBeNull();
+		expect(
+			await recordWorkAttemptRepositoryCandidatePublication(f.db, {
+				...f.params,
+				record: f.record,
+			}),
+		).toBeNull();
+		f.sqlite.exec("UPDATE work_attempts SET version=version+4");
+		const params = {
+			...f.params,
+			preparationDigest: f.record.preparation.preparationDigest,
+		};
+		expect(
+			await claimWorkAttemptRepositoryCandidatePublication(f.db, params),
+		).not.toBeNull();
+		expect(
+			await claimWorkAttemptRepositoryCandidatePublication(f.db, params),
+		).toBeNull();
+	});
+	it.each(["peer", "short lease", "cancelled work", "revoked admission"])(
+		"refuses %s before the POST claim",
+		async (kind) => {
+			const f = publicationFixture();
+			await recordWorkAttemptRepositoryCandidatePublication(f.db, {
+				...f.params,
+				record: f.record,
+			});
+			const params = {
+				...f.params,
+				preparationDigest: f.record.preparation.preparationDigest,
+			};
+			if (kind === "peer") params.executor.id = "peer";
+			if (kind === "short lease") params.at = "2026-10-01T00:59:00.000Z";
+			if (kind === "cancelled work")
+				f.sqlite.exec("UPDATE work_items SET disposition='cancelled'");
+			if (kind === "revoked admission")
+				f.sqlite.exec("UPDATE work_admissions SET decision='denied'");
+			expect(
+				await claimWorkAttemptRepositoryCandidatePublication(f.db, params),
+			).toBeNull();
+		},
+	);
+	it("cannot inject publication receipts at start or overwrite them at settlement", () => {
+		const f = publicationFixture();
+		expect(
+			workAttemptCallerMetadata({
+				repositoryCandidatePublication: { forged: true },
+				note: "kept",
+			}),
+		).toEqual({ note: "kept" });
+		expect(
+			buildWorkAttemptSettlementMetadata({
+				priorMetadata: { repositoryCandidatePublication: f.record },
+				metadata: {
+					repositoryCandidatePublication: { forged: true },
+					note: "kept",
+				},
+				attemptId: IDS.attemptId,
+				workItemId: IDS.workItemId,
+			}),
+		).toEqual({ repositoryCandidatePublication: f.record, note: "kept" });
 	});
 });

@@ -1,5 +1,8 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import type { RepositoryCandidateDescriptor } from "@tedix/api-contract/schemas/repository-candidate";
+import type {
+	RepositoryCandidateDescriptor,
+	RepositoryCandidatePublicationRecord,
+} from "@tedix/api-contract/schemas/repository-candidate";
 import { recordPersistedCardCreationEdges } from "../decision-graph-writers";
 import {
 	WorkAttemptRepositorySchema,
@@ -808,6 +811,106 @@ export async function recordWorkAttemptRepositoryCandidate(
 	return attempt;
 }
 
+type CandidatePublicationFence = {
+	orgId: string;
+	workItemId: string;
+	attemptId: string;
+	executor: WorkExecutor;
+	sessionId?: string;
+	externalSessionKey?: string;
+};
+
+/** Preparation and the single POST claim are server-reserved, independent of heartbeat versions. */
+export async function recordWorkAttemptRepositoryCandidatePublication(
+	db: DbQueryClient,
+	params: CandidatePublicationFence & {
+		record: RepositoryCandidatePublicationRecord;
+		at?: string;
+	},
+): Promise<WorkAttempt | null> {
+	const at = params.at ?? new Date().toISOString(),
+		d = params.record.preparation.descriptor;
+	if (
+		d.organizationId !== params.orgId ||
+		d.workItemId !== params.workItemId ||
+		d.attemptId !== params.attemptId ||
+		params.record.attemptedAt !== null
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Publication preparation has different provenance",
+		);
+	const [row] = await db
+		.update(workAttempts)
+		.set({
+			metadata: sql<
+				Record<string, JsonValue>
+			>`json_set(${workAttempts.metadata}, '$.repositoryCandidatePublication', json(${JSON.stringify(params.record)}))`,
+			version: sql`${workAttempts.version}+1`,
+		})
+		.where(
+			and(
+				...candidatePublicationFence(params, at),
+				eq(workAttempts.admissionId, d.admissionId),
+				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidate.docKey')=${d.docKey}`,
+				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidate.selectionDigest')=${d.selectionDigest}`,
+				sql`json_extract(${workAttempts.metadata},'$.repository.repositoryId')=${d.repositoryId}`,
+				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication') IS NULL`,
+			),
+		)
+		.returning();
+	return row ?? null;
+}
+
+export async function claimWorkAttemptRepositoryCandidatePublication(
+	db: DbQueryClient,
+	params: CandidatePublicationFence & {
+		preparationDigest: string;
+		at?: string;
+	},
+): Promise<WorkAttempt | null> {
+	const at = params.at ?? new Date().toISOString();
+	const [row] = await db
+		.update(workAttempts)
+		.set({
+			metadata: sql<
+				Record<string, JsonValue>
+			>`json_set(${workAttempts.metadata}, '$.repositoryCandidatePublication.attemptedAt', ${at})`,
+			version: sql`${workAttempts.version}+1`,
+		})
+		.where(
+			and(
+				...candidatePublicationFence(params, at),
+				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.preparation.preparationDigest')=${params.preparationDigest}`,
+				sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.attemptedAt') IS NULL`,
+			),
+		)
+		.returning();
+	return row ?? null;
+}
+
+function candidatePublicationFence(
+	params: CandidatePublicationFence,
+	at: string,
+) {
+	return [
+		eq(workAttempts.id, params.attemptId),
+		eq(workAttempts.orgId, params.orgId),
+		eq(workAttempts.workItemId, params.workItemId),
+		eq(workAttempts.executorType, params.executor.type),
+		eq(workAttempts.executorId, params.executor.id),
+		params.sessionId
+			? eq(workAttempts.executorSessionId, params.sessionId)
+			: isNull(workAttempts.executorSessionId),
+		params.externalSessionKey
+			? eq(workAttempts.externalSessionKey, params.externalSessionKey)
+			: isNull(workAttempts.externalSessionKey),
+		inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+		sql`${workAttempts.expiresAt}>${new Date(Date.parse(at) + 90_000).toISOString()}`,
+		sql`EXISTS (SELECT 1 FROM work_items w JOIN work_admissions a ON a.id=${workAttempts.admissionId} AND a.work_item_id=w.id AND a.org_id=w.org_id WHERE w.id=${workAttempts.workItemId} AND w.org_id=${workAttempts.orgId} AND w.disposition='accepted' AND w.completed_at IS NULL AND w.cancelled_at IS NULL AND a.decision='admitted' AND a.admission_spec_revision=w.admission_spec_revision)`,
+	];
+}
+
 export async function heartbeatWorkItemAttempt(
 	db: DbQueryClient,
 	params: {
@@ -1165,8 +1268,11 @@ export async function settleWorkItemAttempt(
 export function workAttemptCallerMetadata(
 	metadata?: Record<string, JsonValue>,
 ): Record<string, JsonValue> {
-	const { repositoryCandidate: _reservedCandidate, ...callerMetadata } =
-		metadata ?? {};
+	const {
+		repositoryCandidate: _reservedCandidate,
+		repositoryCandidatePublication: _reservedPublication,
+		...callerMetadata
+	} = metadata ?? {};
 	return callerMetadata;
 }
 

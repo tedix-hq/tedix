@@ -40,6 +40,8 @@ describe("reviewed RPC endpoint scopes", () => {
 			"initializeRepositoryCandidate",
 			"submitRepositoryCandidate",
 			"sealRepositoryCandidate",
+			"applyRepositoryCandidate",
+			"reconcileRepositoryCandidate",
 		])
 			expect(REVIEWED_RPC_ENDPOINT_SCOPES[`workItems/${operation}`]).toBe(
 				"mcp:work.write",
