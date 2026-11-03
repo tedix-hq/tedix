@@ -872,12 +872,11 @@ async function resolveRiskApprovalTedi(
 	)
 		return null;
 	const tediId = designation.id.trim();
-	// Not independent: the tedi answers for or drives this Work. Admission
-	// separately ignores an approval decided by the admitted executor.
+	// Not independent: the tedi answers for this Work. Stewardship confers no
+	// execution, and admission ignores an approval decided by the executor.
 	if (
-		(item.accountableOwnerType === "tedi" &&
-			item.accountableOwnerId === tediId) ||
-		(item.stewardType === "tedi" && item.stewardId === tediId)
+		item.accountableOwnerType === "tedi" &&
+		item.accountableOwnerId === tediId
 	)
 		return null;
 	const [tedi] = await db

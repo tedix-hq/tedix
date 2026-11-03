@@ -106,6 +106,7 @@ describe("risk approvals for a designated approval tedi", () => {
 			accountableOwner?: { type: "user" | "tedi"; id: string };
 			title?: string;
 			riskLevel?: "high" | "critical";
+			steward?: boolean;
 		} = {},
 	) {
 		const db = createDbQueryClient(
@@ -164,6 +165,9 @@ describe("risk approvals for a designated approval tedi", () => {
 				admissionSpecRevision: "test-risk-revision",
 				accountableOwnerType: input.accountableOwner?.type ?? null,
 				accountableOwnerId: input.accountableOwner?.id ?? null,
+				// A default steward is not a party that executes the Work.
+				stewardType: input.steward ? "tedi" : null,
+				stewardId: input.steward ? approverTedi : null,
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -176,7 +180,10 @@ describe("risk approvals for a designated approval tedi", () => {
 	it.each(["high", "critical"] as const)(
 		"routes risk:%s to the tedi, whose approval admits the Work",
 		async (riskLevel) => {
-			const { db, item, proposals } = await setup({ riskLevel });
+			const { db, item, proposals } = await setup({
+				riskLevel,
+				steward: true,
+			});
 			expect(proposals).toHaveLength(1);
 			const [proposal] = proposals;
 			expect(proposal).toMatchObject({
