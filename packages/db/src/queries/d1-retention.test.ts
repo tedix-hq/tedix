@@ -315,6 +315,7 @@ describe("d1 logs copy statements", () => {
 		expect(verifyD1LogsCopy(audit(), rows, copied)).toEqual({
 			missing: [],
 			mismatched: [],
+			divergentColumns: {},
 		});
 		expect(
 			logs.sqlite
@@ -346,6 +347,7 @@ describe("d1 logs copy statements", () => {
 		expect(verifyD1LogsCopy(audit(), rows, copied)).toEqual({
 			missing: [],
 			mismatched: [],
+			divergentColumns: {},
 		});
 	});
 
@@ -362,6 +364,7 @@ describe("d1 logs copy statements", () => {
 		expect(verifyD1LogsCopy(audit(), rows, copied)).toEqual({
 			missing: [],
 			mismatched: ["audit-1"],
+			divergentColumns: { "audit-1": ["timestamp"] },
 		});
 	});
 });

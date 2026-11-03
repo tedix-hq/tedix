@@ -50,6 +50,7 @@ export async function runD1RetentionTick(
 					eligibleMb: Math.round(table.eligibleBytes / 1e6),
 					archivedRows: table.archivedRows,
 					movedRows: table.movedRows,
+					conflictedRows: table.conflictedRows,
 					deletedRows: table.deletedRows,
 					stoppedBy: table.stoppedBy,
 					error: table.error ?? null,
@@ -62,6 +63,7 @@ export async function runD1RetentionTick(
 	return {
 		d1RetentionArchivedRows: result.archivedRows,
 		d1RetentionMovedRows: result.movedRows,
+		d1RetentionConflictedRows: result.conflictedRows,
 		d1RetentionDeletedRows: result.deletedRows,
 		d1RetentionEligibleMb: Math.round(result.eligibleBytes / 1e6),
 		...sizes,

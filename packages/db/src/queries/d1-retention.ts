@@ -554,8 +554,15 @@ export async function copyD1RetentionRowsToLogs(
 export interface D1LogsCopyVerification {
 	/** Source ids with no row in the logs database. */
 	missing: string[];
-	/** Source ids whose logs-database row differs in at least one column. */
+	/**
+	 * Source ids whose logs-database row differs in at least one column. A
+	 * mismatch is a divergent earlier copy retention must never rewrite — the
+	 * caller archives the source row to R2 before deleting it, so both
+	 * versions survive in different stores.
+	 */
 	mismatched: string[];
+	/** Columns that differ, keyed by mismatched id, for repair evidence. */
+	divergentColumns: Record<string, string[]>;
 }
 
 /** Every source column must read back identical from the logs database. */
@@ -565,7 +572,11 @@ export function verifyD1LogsCopy(
 	copied: ReadonlyMap<string, Record<string, JsonValue>>,
 ): D1LogsCopyVerification {
 	const columns = tableColumnNames(tableSpec);
-	const result: D1LogsCopyVerification = { missing: [], mismatched: [] };
+	const result: D1LogsCopyVerification = {
+		missing: [],
+		mismatched: [],
+		divergentColumns: {},
+	};
 	for (const row of source) {
 		const id = String(rowValue(row, LOGS_ID_COLUMN));
 		const copy = copied.get(id);
@@ -573,10 +584,13 @@ export function verifyD1LogsCopy(
 			result.missing.push(id);
 			continue;
 		}
-		const same = columns.every(
-			(column) => rowValue(row, column) === (copy[column] ?? null),
+		const divergent = columns.filter(
+			(column) => rowValue(row, column) !== (copy[column] ?? null),
 		);
-		if (!same) result.mismatched.push(id);
+		if (divergent.length > 0) {
+			result.mismatched.push(id);
+			result.divergentColumns[id] = divergent;
+		}
 	}
 	return result;
 }

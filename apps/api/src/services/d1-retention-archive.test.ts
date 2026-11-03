@@ -556,6 +556,64 @@ describe("runD1Retention", () => {
 		expect(logs.count()).toBe(60);
 	});
 
+	it("archives a source row whose logs id holds a divergent earlier copy and never rewrites it", async () => {
+		const { db, seed, count, policy } = fixture(
+			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
+		);
+		seed(Array.from({ length: 10 }, () => 120));
+		const logs = logsFixture();
+		// An earlier copy that a main-side writer changed after the copy
+		// (e.g. the kernel event metadata stamp).
+		const stale = JSON.stringify({ n: 3, stale: true });
+		logs.sqlite
+			.prepare(
+				"INSERT INTO audit_events(id, organization_id, actor_id, actor_type, action, resource_type, metadata, timestamp) VALUES(?,?,?,?,?,?,?,?)",
+			)
+			.run(
+				"audit-3",
+				"fictional-lighthouse",
+				"user-ada",
+				"user",
+				"mcp.tool.execute",
+				"mcp_tool",
+				stale,
+				Math.floor(NOW.getTime() / 1000) - 120 * DAY,
+			);
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			stoppedBy: "done",
+			conflictedRows: 1,
+			movedRows: 9,
+			archivedRows: 10,
+			deletedRows: 10,
+			conflicts: [{ id: "audit-3", columns: ["metadata"] }],
+		});
+		expect(count()).toBe(0);
+		// The earlier copy is left exactly as retention found it.
+		expect(
+			logs.sqlite
+				.prepare("SELECT metadata FROM audit_events WHERE id = 'audit-3'")
+				.get(),
+		).toEqual({ metadata: stale });
+		// The source version survives in the archive.
+		const archived = (
+			await gunzipLines([...bucket.objects.values()][0] as Uint8Array)
+		).map((line) => JSON.parse(line));
+		expect(archived.find((row) => row.id === "audit-3")).toMatchObject({
+			metadata: JSON.stringify({ n: 3 }),
+		});
+		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
+			conflictedRows: 1,
+			conflicts: [{ id: "audit-3", columns: ["metadata"] }],
+		});
+	});
+
 	it("moves a page in one read, one logs batch, one archive write and one delete", async () => {
 		const { db, d1, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",

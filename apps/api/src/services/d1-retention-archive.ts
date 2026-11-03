@@ -15,16 +15,19 @@
  *
  * `move_to_logs_db` adds a step in front of the archive: the page is copied
  * into the logs database with insert-or-ignore, read back in the same batch
- * and compared column by column with the rows read from the main database,
- * and only a page that reads back identical is archived and then removed
- * from the main database. A crash anywhere leaves the main rows in place;
- * the next tick repeats the copy (a no-op for rows already there), the
- * check, the archive and the delete. Reads, copies and deletes back off on
- * D1 `overloaded` errors before the run gives up.
+ * and compared column by column with the rows read from the main database.
+ * A row with no logs copy fails the run before anything is archived or
+ * deleted. A row whose logs id already holds a different version is a
+ * conflict: the logs copy is never rewritten, the source version still goes
+ * to R2, and only then is the main row removed. A crash anywhere leaves the
+ * main rows in place; the next tick repeats the copy (a no-op for rows
+ * already there), the check, the archive and the delete. Reads, copies and
+ * deletes back off on D1 `overloaded` errors before the run gives up.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
+	type D1LogsCopyVerification,
 	type D1RetentionCutoff,
 	type D1RetentionRow,
 	type D1RetentionTableSpec,
@@ -49,6 +52,8 @@ export const D1_ARCHIVE_PREFIX = "d1-archive/v1/";
 /** Rows per R2 object, per logs copy and per delete statement. */
 export const D1_ARCHIVE_CHUNK_ROWS = D1_RETENTION_PAGE_ROWS;
 const DEFAULT_TIME_BUDGET_MS = 20_000;
+/** Conflicts kept in `last_report` for repair evidence. */
+const D1_RETENTION_CONFLICT_SAMPLE = 20;
 /** Waits before each retry of a statement D1 refused as overloaded. */
 const OVERLOAD_BACKOFF_MS = [500, 1000, 2000] as const;
 
@@ -101,12 +106,20 @@ export interface D1RetentionTableResult {
 	archivedRows: number;
 	/** Rows copied into the logs database and verified there. */
 	movedRows: number;
+	/**
+	 * Rows whose logs-database id already held a different version. The logs
+	 * copy is never rewritten; the source version went to R2 before the main
+	 * row was deleted, so both survive.
+	 */
+	conflictedRows: number;
 	deletedRows: number;
 	objects: number;
 	/** Last successfully processed rowid; -1 restarts a completed sweep. */
 	scanAfterRowid: number;
 	stoppedBy: "done" | "row_cap" | "time_budget" | "error" | "skipped";
 	error?: string;
+	/** First few conflicts with their differing columns, for repair evidence. */
+	conflicts: { id: string; columns: string[] }[];
 	timings: D1RetentionTimings;
 }
 
@@ -114,6 +127,7 @@ export interface D1RetentionRunResult {
 	tables: D1RetentionTableResult[];
 	archivedRows: number;
 	movedRows: number;
+	conflictedRows: number;
 	deletedRows: number;
 	eligibleBytes: number;
 }
@@ -127,10 +141,12 @@ function emptyResult(policy: D1RetentionPolicyRow): D1RetentionTableResult {
 		eligibleBytes: 0,
 		archivedRows: 0,
 		movedRows: 0,
+		conflictedRows: 0,
 		deletedRows: 0,
 		objects: 0,
 		scanAfterRowid: -1,
 		stoppedBy: "skipped",
+		conflicts: [],
 		timings: {
 			readMs: 0,
 			copyMs: 0,
@@ -205,26 +221,34 @@ async function readExpiredChunk(
 }
 
 /**
- * Copy one chunk into the logs database and prove the copy: every source row
- * must read back with every column identical. Throws otherwise, which stops
- * the run before anything is archived or deleted.
+ * Copy one chunk into the logs database and classify the read-back. A source
+ * row with no logs row at all is a real copy failure: throw, which stops the
+ * run before anything is archived or deleted. A row that reads back
+ * differently is a divergent earlier copy — insert-or-ignore already refused
+ * to rewrite it, and the kernel/runtime event ledgers are not immutable
+ * (`updateKernelRuntimeEventMetadata` rewrites `runtime_metadata`/`trace_id`,
+ * and deterministic event ids can be re-inserted after the original moved).
+ * Those rows are returned as conflicts: their current source version reaches
+ * R2 before the main row is deleted, so nothing rewrites the logs copy and no
+ * version is discarded.
  */
 async function copyChunkToLogs(
 	logsDb: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	rows: readonly D1RetentionRow[],
 	deadline: number,
-): Promise<void> {
+): Promise<D1LogsCopyVerification> {
 	const copied = await withOverloadBackoff(
 		() => copyD1RetentionRowsToLogs(logsDb, tableSpec, rows),
 		deadline,
 	);
 	const check = verifyD1LogsCopy(tableSpec, rows, copied);
-	if (check.missing.length > 0 || check.mismatched.length > 0) {
+	if (check.missing.length > 0) {
 		throw new Error(
-			`logs copy not verified for ${tableSpec.tableName}: ${check.missing.length} missing, ${check.mismatched.length} mismatched (first: ${check.missing[0] ?? check.mismatched[0]})`,
+			`logs copy not verified for ${tableSpec.tableName}: ${check.missing.length} missing (first: ${check.missing[0]})`,
 		);
 	}
+	return check;
 }
 
 /**
@@ -357,10 +381,20 @@ async function runPolicy(
 					if (reachedEnd) break;
 					continue;
 				}
+				let conflicted = 0;
 				if (policy.mode === "move_to_logs_db" && logsDb) {
-					await timed(timings, "copyMs", () =>
+					const check = await timed(timings, "copyMs", () =>
 						copyChunkToLogs(logsDb, tableSpec, rows, deadline),
 					);
+					conflicted = check.mismatched.length;
+					result.conflictedRows += conflicted;
+					for (const id of check.mismatched) {
+						if (result.conflicts.length >= D1_RETENTION_CONFLICT_SAMPLE) break;
+						result.conflicts.push({
+							id,
+							columns: check.divergentColumns[id] ?? [],
+						});
+					}
 				}
 				if (archives && bucket) {
 					await timed(timings, "archiveMs", () =>
@@ -383,7 +417,8 @@ async function runPolicy(
 						deadline,
 					),
 				);
-				if (policy.mode === "move_to_logs_db") result.movedRows += deleted;
+				if (policy.mode === "move_to_logs_db")
+					result.movedRows += deleted - Math.min(deleted, conflicted);
 				result.deletedRows += deleted;
 				// Fewer deletions than rows read means something else changed these
 				// rows; stop instead of re-reading the same chunk forever.
@@ -439,6 +474,8 @@ function reportFor(
 		eligibleBytes: result.eligibleBytes,
 		archivedRows: result.archivedRows,
 		movedRows: result.movedRows,
+		conflictedRows: result.conflictedRows,
+		...(result.conflicts.length > 0 ? { conflicts: result.conflicts } : {}),
 		deletedRows: result.deletedRows,
 		objects: result.objects,
 		scanAfterRowid: result.scanAfterRowid,
@@ -495,6 +532,7 @@ export async function runD1Retention(params: {
 		tables,
 		archivedRows: tables.reduce((sum, t) => sum + t.archivedRows, 0),
 		movedRows: tables.reduce((sum, t) => sum + t.movedRows, 0),
+		conflictedRows: tables.reduce((sum, t) => sum + t.conflictedRows, 0),
 		deletedRows: tables.reduce((sum, t) => sum + t.deletedRows, 0),
 		eligibleBytes: tables.reduce((sum, t) => sum + t.eligibleBytes, 0),
 	};

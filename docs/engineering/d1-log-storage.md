@@ -62,8 +62,15 @@ pages of 500 rows read with one statement:
    `json_each`), so a statement stays far under D1's 100 bound-parameter cap;
    a row larger than that is bound column by column on its own;
 2. reads the ids back in the same `LOGS_DB` batch, after the inserts, and
-   compares every column with the rows read from the main database; any
-   missing or different row stops the run before anything is deleted;
+   compares every column with the rows read from the main database; a row
+   with no logs copy stops the run before anything is deleted. A row whose
+   logs id already holds a different version is a conflict (`conflictedRows`,
+   `conflicts` in the report): the logs copy is never rewritten, the source
+   version still reaches R2 in step 3, and only then is the main row
+   deleted — the runtime event ledgers are mutable
+   (`updateKernelRuntimeEventMetadata`, `updateTediRuntimeEventPayload`) and
+   their deterministic ids can be re-inserted, so a divergence is an earlier
+   copy of the same id, not a broken copy;
 3. writes the page as gzip NDJSON to the private tedi bucket under
    `d1-archive/v1/<table>/<day>/<first>-<last>.ndjson.gz` and confirms the
    object R2 returns for the write (same key, same size);
