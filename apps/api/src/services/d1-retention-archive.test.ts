@@ -1,12 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
-import { skillRunArtifacts } from "@tedix/db/schema/cognitive";
+import { skillRunArtifacts, skillRuns } from "@tedix/db/schema/cognitive";
 import {
 	kernelRuntimeEvents,
 	tediRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { d1RetentionPolicies } from "@tedix/db/schema/d1-retention";
+import { memoryFacts } from "@tedix/db/schema/memory-graph";
+import { workEvidence } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl, tableDdl } from "@tedix/db/test/schema-ddl";
 import { describe, expect, it, vi } from "vite-plus/test";
@@ -77,6 +79,9 @@ function fixture(policies: string) {
 			tediRuntimeEvents,
 			kernelRuntimeEvents,
 			skillRunArtifacts,
+			skillRuns,
+			memoryFacts,
+			workEvidence,
 			d1RetentionPolicies,
 		),
 	);
@@ -328,6 +333,9 @@ describe("runD1Retention", () => {
 			);
 			const logs = logsFixture();
 			const key = "fictional-run/bodies/artifact-1";
+			sqlite.exec(`INSERT INTO skill_runs
+				(id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status, completed_at)
+				VALUES ('fictional-run', 'fictional-lighthouse', 'skill-example', 'tedi-ada', 'workflow-example', 'production', 'completed', '2026-07-01')`);
 			sqlite
 				.prepare(
 					"INSERT INTO skill_run_artifacts(id,run_id,path,content_r2_key,created_at) VALUES(?,?,?,?,?)",

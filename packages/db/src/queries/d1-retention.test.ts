@@ -2,8 +2,11 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
+import { skillRunArtifacts, skillRuns } from "../schema/cognitive";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { d1RetentionPolicies } from "../schema/d1-retention";
+import { memoryFacts } from "../schema/memory-graph";
+import { workEvidence } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl, tableDdl } from "../test/schema-ddl";
 import {
@@ -18,6 +21,7 @@ import {
 	d1RetentionPolicyProblem,
 	deleteD1RetentionRows,
 	estimateD1RetentionBacklog,
+	filterD1RetentionReferencedRows,
 	getD1RetentionTableSpec,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
@@ -391,5 +395,125 @@ describe("d1 logs copy statements", () => {
 			mismatched: ["audit-1"],
 			divergentColumns: { "audit-1": ["timestamp"] },
 		});
+	});
+});
+
+describe("artifact retention references", () => {
+	function artifacts() {
+		const sqlite = new DatabaseSync(":memory:", {
+			enableForeignKeyConstraints: false,
+		});
+		sqlite.exec(
+			schemaDdl(skillRuns, skillRunArtifacts, memoryFacts, workEvidence),
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const spec = getD1RetentionTableSpec("skill_run_artifacts")!;
+		const seed = (
+			id: string,
+			status = "completed",
+			completedAt: string | null = "2026-09-01",
+		) => {
+			sqlite
+				.prepare(`INSERT INTO skill_runs
+				(id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status, completed_at)
+				VALUES (?, 'org-example', 'skill-example', 'tedi-example', ?, 'production', ?, ?)`)
+				.run(id, id, status, completedAt);
+			sqlite
+				.prepare(`INSERT INTO skill_run_artifacts
+				(id, run_id, path, content_r2_key, created_at)
+				VALUES (?, ?, 'output.json', ?, '2026-09-01')`)
+				.run(id, id, `${id}/bodies/${id}`);
+		};
+		const fact = (id: string, source: string, org = "org-example") => {
+			sqlite
+				.prepare(`INSERT INTO memory_facts (id, organization_id, content, fact_type, source)
+				VALUES (?, ?, 'retained provenance', 'observation', ?)`)
+				.run(id, org, source);
+		};
+		const evidence = (id: string, org = "org-example") => {
+			sqlite
+				.prepare(`INSERT INTO work_evidence
+				(id, work_item_id, org_id, claim_key, kind, uri, submitted_by_type, submitted_by_id, submitted_at)
+				VALUES (?, 'work-example', ?, 'result', 'artifact', ?, 'user', 'user-example', '2026-10-01')`)
+				.run(id, org, `artifact://${id}`);
+		};
+		return { sqlite, db, spec, seed, fact, evidence };
+	}
+
+	it("retains run and path memory sources, Work evidence, open and missing runs", async () => {
+		const { sqlite, db, spec, seed, fact, evidence } = artifacts();
+		for (const id of [
+			"run-fact",
+			"path-fact",
+			"evidence",
+			"free",
+			"prefix",
+			"other-org",
+		])
+			seed(id);
+		for (const status of ["queued", "running", "paused"]) seed(status, status);
+		seed("unfinished", "completed", null);
+		seed("restart");
+		sqlite.exec(
+			"UPDATE skill_runs SET restart_requested_at = '2026-10-01' WHERE id = 'restart'",
+		);
+		seed("missing");
+		sqlite.exec("DELETE FROM skill_runs WHERE id = 'missing'");
+		fact("run-fact", "skill://runs/run-fact");
+		fact("path-fact", "skill://example/runs/path-fact/steps/result.json");
+		fact("prefix", "skill://runs/prefix-other/output.json");
+		fact("other-org", "skill://runs/other-org", "org-other");
+		evidence("evidence");
+		evidence("other-org", "org-other");
+		const page = await readD1RetentionPage(db, spec, -1);
+		const filtered = await filterD1RetentionReferencedRows(db, spec, page);
+		expect(filtered.rows.map((row) => row.id)).toEqual([
+			"free",
+			"prefix",
+			"other-org",
+		]);
+		expect(filtered.referencedRows).toBe(9);
+		expect(page).toHaveLength(12);
+		const deleted = await deleteD1RetentionRows(
+			db,
+			spec,
+			page.map((row) => row.__rowid),
+			"2026-10-01",
+		);
+		expect(deleted).toBe(3);
+		expect(
+			(await readD1RetentionPage(db, spec, -1)).map(
+				(row) => row.content_r2_key,
+			),
+		).toContain("path-fact/bodies/path-fact");
+	});
+
+	it("rechecks references at deletion if a fact appears after the page filter", async () => {
+		const { db, spec, seed, fact } = artifacts();
+		seed("late-fact");
+		const page = await readD1RetentionPage(db, spec, -1);
+		expect(
+			(await filterD1RetentionReferencedRows(db, spec, page)).referencedRows,
+		).toBe(0);
+		fact("late-fact", "skill://runs/late-fact");
+		expect(
+			await deleteD1RetentionRows(db, spec, [page[0]!.__rowid], "2026-10-01"),
+		).toBe(0);
+		expect(await readD1RetentionPage(db, spec, -1)).toHaveLength(1);
+	});
+
+	it("keeps the raw cursor through a fully pinned page", async () => {
+		const { db, spec, seed, fact } = artifacts();
+		seed("pinned");
+		seed("movable");
+		fact("pinned", "skill://runs/pinned");
+		const page = await readD1RetentionPage(db, spec, -1, 1);
+		expect(await filterD1RetentionReferencedRows(db, spec, page)).toEqual({
+			rows: [],
+			referencedRows: 1,
+		});
+		expect(
+			(await readD1RetentionPage(db, spec, page[0]!.__rowid, 1))[0]?.id,
+		).toBe("movable");
 	});
 });

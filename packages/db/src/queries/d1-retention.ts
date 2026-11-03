@@ -22,7 +22,7 @@ import { eq, getColumns, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
-import { skillRunArtifacts } from "../schema/cognitive";
+import { skillRunArtifacts, skillRuns } from "../schema/cognitive";
 import {
 	kernelRuntimeEvents,
 	tediRuntimeEvents,
@@ -32,7 +32,9 @@ import {
 	d1RetentionPolicies,
 } from "../schema/d1-retention";
 import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
+import { memoryFacts } from "../schema/memory-graph";
 import { tediCallCosts } from "../schema/tedis";
+import { workEvidence } from "../schema/work-items";
 
 /** Rows the backlog estimate samples for the average row size. */
 export const D1_RETENTION_SAMPLE_ROWS = 50;
@@ -248,6 +250,56 @@ export async function readD1RetentionPage(
 	)) as D1RetentionRow[];
 }
 
+/** Missing or nonterminal runs are retained; a memory source pins the whole run. */
+function artifactMayMove(): SQL {
+	return sql`EXISTS (
+		SELECT 1 FROM ${skillRuns}
+		WHERE ${skillRuns.id} = ${skillRunArtifacts.runId}
+		AND ${skillRuns.status} IN ('completed', 'failed', 'canceled')
+		AND ${skillRuns.completedAt} IS NOT NULL
+		AND ${skillRuns.restartRequestedAt} IS NULL
+		AND NOT EXISTS (
+			SELECT 1 FROM ${memoryFacts}
+			WHERE ${memoryFacts.organizationId} = ${skillRuns.organizationId}
+			AND substr(${memoryFacts.source}, 1, 8) = 'skill://'
+			AND instr(${memoryFacts.source} || '/', '/runs/' || ${skillRuns.id} || '/') > 0
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM ${workEvidence}
+			WHERE ${workEvidence.orgId} = ${skillRuns.organizationId}
+			AND ${workEvidence.uri} = 'artifact://' || ${skillRunArtifacts.id}
+		)
+	)`;
+}
+
+/**
+ * Filter expired candidates before copying. Keep the raw page's cursor and
+ * end marker: an entirely pinned page does not mean the sweep has ended.
+ * Callers accumulate referencedRows in the run report.
+ */
+export async function filterD1RetentionReferencedRows(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	rows: D1RetentionRow[],
+): Promise<{ rows: D1RetentionRow[]; referencedRows: number }> {
+	if (tableSpec.tableName !== "skill_run_artifacts" || rows.length === 0)
+		return { rows, referencedRows: 0 };
+	const movable = new Set<number>();
+	for (let start = 0; start < rows.length; start += D1_RETENTION_PAGE_ROWS) {
+		const rowids = rows
+			.slice(start, start + D1_RETENTION_PAGE_ROWS)
+			.map((row) => row.__rowid);
+		const allowed = await db.all<{ rowid: number }>(
+			sql`SELECT rowid AS rowid FROM ${skillRunArtifacts}
+			WHERE rowid IN (SELECT value FROM json_each(${JSON.stringify(rowids)}))
+			AND ${artifactMayMove()}`,
+		);
+		for (const row of allowed) movable.add(row.rowid);
+	}
+	const filtered = rows.filter((row) => movable.has(row.__rowid));
+	return { rows: filtered, referencedRows: rows.length - filtered.length };
+}
+
 /**
  * Delete statements for rows the run already read and judged expired: one
  * statement per page of rowids (passed as one JSON parameter, looked up by
@@ -267,7 +319,8 @@ export function buildD1RetentionDeleteStatements(
 			db
 				.delete(tableSpec.table)
 				.where(
-					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${tableSpec.timestamp} < ${cutoff}`,
+					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${tableSpec.timestamp} < ${cutoff}
+					AND ${tableSpec.tableName === "skill_run_artifacts" ? artifactMayMove() : sql`1 = 1`}`,
 				)
 				.returning({ rowid: sql<number>`rowid` }),
 		);
