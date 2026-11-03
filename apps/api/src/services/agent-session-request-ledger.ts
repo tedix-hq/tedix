@@ -460,6 +460,21 @@ export async function observeAgentSessionRequests(
 	return { status: "recorded", recorded, cancelled: cancelled.length };
 }
 
+function isReusableLessonReflection(
+	raw: string,
+	sources: readonly LedgerLessonSource[],
+): boolean {
+	try {
+		const lessons = JSON.parse(raw)?.lessons;
+		return (
+			Array.isArray(lessons) &&
+			parseReflectedLessons(raw, "", "", sources).length === lessons.length
+		);
+	} catch {
+		return false;
+	}
+}
+
 async function reflectSessionLessons(
 	db: DbQueryClient,
 	model: LedgerProcessingModel,
@@ -483,7 +498,7 @@ async function reflectSessionLessons(
 			: null;
 	if (receipt) {
 		const saved = await getAgentSessionLessonReflection(db, receipt);
-		if (saved !== null) {
+		if (saved !== null && isReusableLessonReflection(saved, sources)) {
 			writeInferenceDiagnostic(() =>
 				console.info({
 					event: "agent_session.inference_reused",
@@ -496,12 +511,8 @@ async function reflectSessionLessons(
 	}
 	const raw = await model.reflectLessons(sources);
 	if (!receipt || raw === null) return raw;
-	// A malformed result must remain retryable, just as a failed model call does.
-	try {
-		if (!Array.isArray(JSON.parse(raw)?.lessons)) return raw;
-	} catch {
-		return raw;
-	}
+	// Never checkpoint candidates the evidence parser would discard.
+	if (!isReusableLessonReflection(raw, sources)) return raw;
 	await recordAgentSessionLessonReflection(db, { ...receipt, response: raw });
 	return raw;
 }

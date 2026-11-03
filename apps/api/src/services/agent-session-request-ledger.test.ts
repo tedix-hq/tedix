@@ -229,6 +229,22 @@ describe("durable lesson inference reuse", () => {
 		},
 	);
 
+	it("does not checkpoint lesson entries rejected by the evidence parser", async () => {
+		const { db, input, model } = await setup();
+		model.reflectLessons = vi
+			.fn()
+			.mockResolvedValueOnce('{"lessons":[{}]}')
+			.mockResolvedValue('{"lessons":[]}');
+		model.extractObligations = async () => null;
+		await reflectAgentSessionRequests(db, model, input);
+		expect(
+			(await db.select().from(agentSessionEvents))[0]!.lessonReflection,
+		).toBeNull();
+		model.extractObligations = async () => '{"new":[]}';
+		await reflectAgentSessionRequests(db, model, input);
+		expect(model.reflectLessons).toHaveBeenCalledTimes(2);
+	});
+
 	it.each([
 		"model",
 		"prompt",
