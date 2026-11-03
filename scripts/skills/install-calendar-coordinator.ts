@@ -10,10 +10,7 @@ import type { OsBlueprintResourceRequirementSchema } from "@tedix/api-contract/s
 type OsBlueprintResourceRequirement = z.infer<
 	typeof OsBlueprintResourceRequirementSchema
 >;
-import {
-	GOOGLE_CALENDAR_SCOPE_FAMILY,
-	GOOGLE_CALENDAR_SCOPE_ROOT,
-} from "@tedix/api-contract/utils/personal-resource-tool-binding";
+import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
 
 type ApiClient = ReturnType<typeof getApiClient<ApiContract>>;
@@ -226,14 +223,7 @@ function verifyProviders(
 			throw new Error(
 				`Personal OAuth provider is unavailable: ${resource.providerId}`,
 			);
-		if (
-			!resource.scopes.every(
-				(scope) =>
-					provider.availableScopes.includes(scope) ||
-					(GOOGLE_CALENDAR_SCOPE_FAMILY.has(scope) &&
-						provider.availableScopes.includes(GOOGLE_CALENDAR_SCOPE_ROOT)),
-			)
-		)
+		if (!personalResourceScopesCover(provider.availableScopes, resource.scopes))
 			throw new Error(
 				`Provider catalog lacks required calendar scopes: ${resource.providerId}`,
 			);
