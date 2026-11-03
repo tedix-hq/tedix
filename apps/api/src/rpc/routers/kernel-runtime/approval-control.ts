@@ -21,6 +21,7 @@ import {
 	KERNEL_DELEGATE_ENQUEUE_BUDGET_MS,
 	createDelegationWorkItem,
 	directDelegationDispatchContent,
+	findForeignActiveAttempt,
 } from "../kernel/delegation-work-item";
 import {
 	type KernelRuntimeRun,
@@ -186,6 +187,23 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		...(input.resolvedBy ? { resolvedBy: input.resolvedBy } : {}),
 		workOrder: nextWorkOrder,
 	};
+	// Another executor already working the Work Item would make this a second
+	// writer that admission refuses; the approval is still the operator's
+	// decision, so record it and close the run instead of losing it.
+	const heldWorkItemId =
+		input.decision === "approve"
+			? (input.approvedWorkItemId ??
+				stringFromPayload(nonNullRecord(pending.metadata)?.workItemId) ??
+				stringFromPayload(nonNullRecord(input.run.runtimeMetadata)?.workItemId))
+			: undefined;
+	const heldBy = heldWorkItemId
+		? await findForeignActiveAttempt(context, {
+				assigneeTediId: pending.targetTediId,
+				now: resolvedAt,
+				organizationId: input.organizationId,
+				workItemId: heldWorkItemId,
+			})
+		: null;
 	const eventId = [
 		"home",
 		input.organizationId,
@@ -210,13 +228,42 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		},
 		runtimeMetadata: {
 			source: "kernelRuntime.respondApproval",
-			dispatch:
-				input.decision === "approve"
+			dispatch: heldBy
+				? "home-delegation-already-in-progress"
+				: input.decision === "approve"
 					? "home-delegation-approved"
 					: "home-delegation-rejected",
 		},
 		createdAt: resolvedAt,
 	});
+	if (heldBy) {
+		const detail = `Approved, but Work Item ${heldWorkItemId} is already being worked on (attempt ${heldBy.id}, started ${heldBy.startedAt}). The tedi was not started, so the Work has one writer.`;
+		await updateKernelRuntimeRun(context.db, input.run.id, {
+			status: "canceled",
+			progressValue: 100,
+			progressLabel: "Already in progress",
+			progressDetail: detail,
+			latestEventKind: "approval.resolved",
+			latestEventAt: resolvedAt,
+			preview: detail,
+			completedAt: resolvedAt,
+			updatedAt: resolvedAt,
+			metadata: toJsonRecord({
+				...pending.metadata,
+				homeDelegation: {
+					...nextDelegation,
+					inProgressAttemptId: heldBy.id,
+				},
+			}),
+		});
+		const updatedRun = await getKernelRuntimeRun(context.db, {
+			id: input.run.id,
+		});
+		return {
+			run: normalizeHomeRunRecord(updatedRun ?? input.run),
+			assignments: [],
+		};
+	}
 	if (input.decision === "reject") {
 		await updateKernelRuntimeRun(context.db, input.run.id, {
 			status: "canceled",
