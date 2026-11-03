@@ -26,6 +26,23 @@ const baseWorkOrder = {
 	sourceContent: "fix the approval inbox read",
 };
 
+describe("Home Work continuation", () => {
+	it("validates explicit metadata.workItemId while preserving other metadata", () => {
+		expect(
+			EnqueueHomeMessageInputSchema.safeParse({
+				content: "continue",
+				metadata: { workItemId: 42 },
+			}).success,
+		).toBe(false);
+		expect(
+			EnqueueHomeMessageInputSchema.parse({
+				content: "continue",
+				metadata: { workItemId: "fixture-work", source: "fixture" },
+			}).metadata,
+		).toEqual({ workItemId: "fixture-work", source: "fixture" });
+	});
+});
+
 describe("verifyCommand", () => {
 	it("is optional and trimmed on the work order and the Home submit input", () => {
 		expect(DelegationWorkOrderSchema.parse(baseWorkOrder)).not.toHaveProperty(

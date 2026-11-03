@@ -141,6 +141,18 @@ describe("composeWorkstationWorkOrderMessage", () => {
 });
 
 describe("dispatchWorkstationWorkOrder", () => {
+	it("refuses conflicting explicit Work bindings before enqueue or writes", async () => {
+		const { deps, enqueue, updates } = createDeps();
+		await expect(
+			dispatchWorkstationWorkOrder(deps, {
+				...input,
+				workItemId: "another-work",
+			}),
+		).rejects.toThrow(/conflicting Work Item/i);
+		expect(enqueue).not.toHaveBeenCalled();
+		expect(updates).toHaveLength(0);
+	});
+
 	const input = {
 		content: "please rotate the staging API keys",
 		conversationId: "home:test",

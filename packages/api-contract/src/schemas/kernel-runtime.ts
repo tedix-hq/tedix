@@ -831,7 +831,19 @@ export const EnqueueHomeMessageInputSchema = z.object({
 		.describe(
 			"Omitted unless the person's page offers tools for this turn. Home may ask the page to run them; results come back through resolvePageTool as untrusted page data.",
 		),
-	metadata: RuntimeMetadataSchema.optional(),
+	metadata: z
+		.object({
+			workItemId: z
+				.string()
+				.trim()
+				.min(1)
+				.optional()
+				.describe(
+					"For an explicit delegation continuing existing Work, pass its Work Item ID here. Prose references do not select Work. Existing admission, executor and approval checks still apply; this does not rebind a Computer lease.",
+				),
+		})
+		.catchall(z.unknown())
+		.optional(),
 });
 export type EnqueueHomeMessageInput = z.input<
 	typeof EnqueueHomeMessageInputSchema

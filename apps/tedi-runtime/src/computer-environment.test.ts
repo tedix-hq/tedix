@@ -858,12 +858,14 @@ async function assertUnconfirmedOpen(opening: Promise<unknown>) {
 	assert.equal(result.ok, false);
 	assert.equal(result.ready, false);
 	assert.match(String(result.error), /readiness and ownership are unconfirmed/);
-	// A cold start routinely outlives the foreground budget; the model must be
-	// told this is "still starting, call open_computer again", not a failure.
-	// `pending` stays reserved for a confirmed acquisition.
+	// A timeout alone proves neither progress nor a provisioning failure.
 	assert.equal(result.pending, undefined);
 	assert.equal(typeof result.waitedMs, "number");
-	assert.match(String(result.instruction), /still starting/);
+	assert.match(String(result.instruction), /readiness is unknown/);
+	assert.doesNotMatch(
+		String(result.instruction),
+		/still starting|not a provisioning failure/,
+	);
 	assert.match(String(result.instruction), /open_computer again/);
 	assert.doesNotMatch(String(result.instruction), /git fetch|shallow/);
 	for (const field of ["acquired", "leaseId", "cwd", "readinessTimedOut"])
@@ -2309,7 +2311,7 @@ for (const [name, receipt] of Object.entries({
 	assert.equal(newer.retainedLeaseId, "explicit-1");
 }
 
-// A successor Work Attempt gets a new immutable lease while the prior one stays retained.
+// A successor Work Attempt cannot adopt or replace the prior acquisition.
 {
 	const scope = "successor-attempt-lease";
 	const attempts = new Map<string, string>();
@@ -2375,13 +2377,12 @@ for (const [name, receipt] of Object.entries({
 		ready: boolean;
 	};
 	const selected = await successor.selected();
-	assert.equal(opened.ready, true);
-	assert.equal(selected?.leaseId, "successor-2");
-	assert.equal(attempts.get(selected!.leaseId), "attempt-successor");
-	assert.equal(
-		(values.get(`${scope}:retained:successor-1`) as { status: string }).status,
-		"superseded_attempt",
-	);
+	assert.equal(opened.ready, false);
+	assert.equal(selected?.leaseId, "successor-1");
+	assert.equal(attempts.size, 1);
+	assert.equal(attempts.get(selected!.leaseId), "attempt-first");
+	assert.equal(values.get(`${scope}:owner`), "run-first");
+	assert.equal(values.has(`computer-acquisition:successor-open`), false);
 }
 // A failed checkout does not poison its lease: the same lease reopens as a
 // shell and exec runs there without the checkout.

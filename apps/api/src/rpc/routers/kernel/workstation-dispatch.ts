@@ -118,12 +118,20 @@ function stringRecordValue(
 }
 
 function resolveWorkItemId(input: WorkstationDispatchInput): string | null {
-	return (
-		input.workItemId?.trim() ||
-		stringRecordValue(input.existingMetadata, "workItemId") ||
-		stringRecordValue(input.existingRuntimeMetadata, "workItemId") ||
-		stringRecordValue(input.workOrder, "workItemId")
+	const ids = new Set(
+		[
+			input.workItemId?.trim(),
+			stringRecordValue(input.existingMetadata, "workItemId"),
+			stringRecordValue(input.existingRuntimeMetadata, "workItemId"),
+			stringRecordValue(input.workOrder, "workItemId"),
+		].filter((id): id is string => Boolean(id)),
 	);
+	if (ids.size > 1)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Workstation continuation has conflicting Work Item bindings",
+		);
+	return ids.values().next().value ?? null;
 }
 
 /**
