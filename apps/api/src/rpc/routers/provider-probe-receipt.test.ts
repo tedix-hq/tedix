@@ -119,20 +119,23 @@ beforeEach(async () => {
 function ownerClient(
 	scopes: string[],
 	fetch = async () => Response.json({ accountRevisionDigest: "e".repeat(64) }),
+	scopeSource: "jwt" | "oidc" = "jwt",
 ) {
+	const context = userContext({
+		organizationId: "org-1",
+		userId: "owner",
+		sub: "owner",
+		claims: scopeSource === "jwt" ? { scopes } : {},
+		permissions: ["settings:manage"],
+		db: {} as BaseContext["db"],
+		env: {
+			ENVIRONMENT: "test",
+			MCP_SERVICE: { fetch },
+		} as unknown as CloudflareEnv,
+	});
+	if (scopeSource === "oidc") context.oidcScopes = scopes;
 	return createRouterClient(mcpGovernanceContractRouter, {
-		context: userContext({
-			organizationId: "org-1",
-			userId: "owner",
-			sub: "owner",
-			claims: { scopes },
-			permissions: ["settings:manage"],
-			db: {} as BaseContext["db"],
-			env: {
-				ENVIRONMENT: "test",
-				MCP_SERVICE: { fetch },
-			} as unknown as CloudflareEnv,
-		}),
+		context,
 	});
 }
 
@@ -344,6 +347,19 @@ describe("provider identity probe receipts", () => {
 			}),
 		);
 		expect(JSON.stringify(result)).not.toContain("e".repeat(64));
+	});
+
+	it("accepts the verified scope from an OS product session", async () => {
+		await expect(
+			ownerClient(
+				["apps:write", "connections.execute"],
+				async () => Response.json({ accountRevisionDigest: "e".repeat(64) }),
+				"oidc",
+			).probeProviderIdentityProfile({
+				profileId: "profile",
+				exampleArgs: args,
+			}),
+		).resolves.toEqual({ resultReceiptId: expect.any(String) });
 	});
 
 	it("service redemption rechecks active profile and owner before returning the recorded actor", async () => {

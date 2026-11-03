@@ -7,6 +7,7 @@
  */
 
 import { ProviderCredentialSummarySchema } from "@tedix/api-contract/schemas/provider-probe-receipt";
+import { extractJwtScopes } from "@tedix/auth/types";
 import { toJsonValue } from "@tedix/db/utils/json";
 import * as z from "zod";
 import {
@@ -176,6 +177,12 @@ async function isActiveOwnerOrAdmin(
 	);
 }
 
+function hasVerifiedUserScope(context: BaseContext, scope: string): boolean {
+	const scopes =
+		context.oidcScopes ?? (context.user ? extractJwtScopes(context.user) : []);
+	return scopes.includes(scope);
+}
+
 async function profileMount(
 	context: BaseContext,
 	organizationId: string,
@@ -313,8 +320,7 @@ export async function probeReviewedProviderIdentity(
 		!actor ||
 		context.organizationId !== input.organizationId ||
 		context.user?.sub !== actor ||
-		!Array.isArray(context.user.scopes) ||
-		!context.user.scopes.includes("connections.execute") ||
+		!hasVerifiedUserScope(context, "connections.execute") ||
 		!(await isActiveOwnerOrAdmin(context, input.organizationId, actor))
 	)
 		throw createError(
@@ -421,8 +427,7 @@ async function ownerReviewedAccountDigest(
 		context.authType !== "user" ||
 		!context.userId ||
 		context.user?.sub !== context.userId ||
-		!Array.isArray(context.user.scopes) ||
-		!context.user.scopes.includes("connections.execute")
+		!hasVerifiedUserScope(context, "connections.execute")
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
@@ -2130,8 +2135,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				context.authType !== "user" ||
 				!actor ||
 				context.user?.sub !== actor ||
-				!Array.isArray(context.user.scopes) ||
-				!context.user.scopes.includes("connections.execute") ||
+				!hasVerifiedUserScope(context, "connections.execute") ||
 				!(await isActiveOwnerOrAdmin(context, organizationId, actor))
 			)
 				throw createError(
