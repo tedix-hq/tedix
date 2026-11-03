@@ -169,6 +169,10 @@ function getDescopeMcpResourceId(app: App): string | null {
 	return typeof value === "string" && value.trim() ? value : null;
 }
 
+// Keys are ignored here: every mcp:* value under any toolScopes key joins the
+// Tedi credential allowlist for this app. A key that matches no tool is still
+// live config. Clearing toolScopes on a connected aggregate leaves only
+// connection scopes.
 function getConfiguredAppMcpScopes(app: {
 	metadata?: unknown;
 }): Set<string> | null {
