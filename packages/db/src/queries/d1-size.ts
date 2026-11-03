@@ -135,12 +135,22 @@ function message(error: unknown): string {
  */
 export async function readD1StorageReport(
 	db: DbQueryClient,
-	options: { pageSize?: number; sampleSize?: number; maxPages?: number } = {},
+	options: {
+		pageSize?: number;
+		sampleSize?: number;
+		maxPages?: number;
+		concurrency?: number;
+		onTable?: (objects: D1StorageObject[]) => void | Promise<void>;
+	} = {},
 ): Promise<D1StorageReport> {
 	const pageSize = options.pageSize ?? 1000;
 	const sampleSize = options.sampleSize ?? 32;
 	const maxPages = options.maxPages ?? 100_000;
+	const concurrency = options.concurrency ?? 1;
 	if (
+		!Number.isInteger(concurrency) ||
+		concurrency < 1 ||
+		concurrency > 4 ||
 		!Number.isInteger(pageSize) ||
 		pageSize < 1 ||
 		pageSize > 5000 ||
@@ -234,7 +244,8 @@ export async function readD1StorageReport(
 			"Physical btree page bytes from dbstat aggregate mode, including overflow and unused space. Freelist, pointer-map and lock pages are excluded by dbstat; the signed residual also includes concurrent database growth/shrinkage.",
 		);
 	} else {
-		for (const table of schema.filter((object) => object.type === "table")) {
+		const tables = schema.filter((object) => object.type === "table");
+		const readTable = async (table: SchemaObject) => {
 			const indexes = schema.filter(
 				(object) => object.type === "index" && object.tbl_name === table.name,
 			);
@@ -252,7 +263,8 @@ export async function readD1StorageReport(
 				objects[0]!.bytes = 0;
 				objects[0]!.note =
 					"Virtual table has no own btree; see backing tables. Storage unknown if backing tables are inaccessible.";
-				continue;
+				await options.onTable?.(objects);
+				return;
 			}
 			try {
 				spendPage();
@@ -375,7 +387,17 @@ export async function readD1StorageReport(
 					object.note = `Unknown/incomplete: ${message(error)}`;
 				report.complete = false;
 			}
-		}
+			await options.onTable?.(objects);
+		};
+		let nextTable = 0;
+		await Promise.all(
+			Array.from({ length: Math.min(concurrency, tables.length) }, async () => {
+				while (nextTable < tables.length) await readTable(tables[nextTable++]!);
+			}),
+		);
+		report.objects.sort(
+			(a, b) => a.table.localeCompare(b.table) || a.name.localeCompare(b.name),
+		);
 		report.notes.push(
 			"Estimates are logical payload proxies, not measured allocation. Samples use the first rows of every keyset page, not a random sample; skew and concurrent writes can bias counts and means. Numeric encoding, record headers, btree cell/branch overhead, page fill, overflow framing, freelist and internal schema pages are not attributed. No residual is distributed across tables to force reconciliation.",
 		);

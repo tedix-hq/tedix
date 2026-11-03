@@ -133,6 +133,29 @@ describe("D1 storage inventory", () => {
 		});
 	});
 
+	it("checkpoints complete table/index groups with bounded parallel tables", async () => {
+		const { sqlite, db } = fixture();
+		sqlite.exec(
+			"CREATE TABLE first(value TEXT); CREATE INDEX first_value ON first(value); INSERT INTO first VALUES ('abc'); CREATE TABLE second(value TEXT); INSERT INTO second VALUES ('xy')",
+		);
+		const checkpoints: string[][] = [];
+		const report = await readD1StorageReport(db, {
+			concurrency: 4,
+			onTable: (objects) => {
+				checkpoints.push(objects.map((o) => o.name));
+			},
+		});
+		expect(report.complete).toBe(true);
+		expect(report.attributedBytes).toBe(16);
+		expect(checkpoints.map((group) => group.sort()).sort()).toEqual([
+			["first", "first_value"],
+			["second"],
+		]);
+		await expect(readD1StorageReport(db, { concurrency: 5 })).rejects.toThrow(
+			"Invalid",
+		);
+	});
+
 	it("stops at the query budget and does not treat provider failures as absent dbstat", async () => {
 		const f = fixture();
 		f.sqlite.exec(
