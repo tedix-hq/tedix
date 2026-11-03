@@ -55,7 +55,7 @@ import {
 	handleMasterKeyFingerprint,
 	MASTER_KEY_FINGERPRINT_PATH,
 } from "./master-key-fingerprint";
-import { targetsInternalRoute } from "./runtime-request-handler";
+import { targetsInternalRoute } from "./internal-route";
 import {
 	getTediRuntimeBodyGeneration,
 	getTediRuntimeRouteBySlug,

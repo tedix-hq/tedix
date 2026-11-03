@@ -69,10 +69,7 @@ import {
 	runtimeRepository,
 	type RuntimeRepositoryHost,
 } from "./runtime-repository";
-import {
-	handleRuntimeRequest,
-	type RuntimeRequestHost,
-} from "./runtime-request-handler";
+import type { RuntimeRequestHost } from "./runtime-request-handler";
 import {
 	runtimeToolAuthority,
 	type RuntimeToolAuthorityHost,
@@ -4774,6 +4771,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 
 	override async onRequest(request: Request): Promise<Response> {
+		const { handleRuntimeRequest } = await import("./runtime-request-handler");
 		return handleRuntimeRequest(this.requestHost(), request);
 	}
 
