@@ -1,3 +1,4 @@
+import { WorkspaceVerificationPausedContext } from "@/lib/workspace-verification";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -74,15 +75,17 @@ const result = {
 let host: HTMLDivElement,
 	root: ReturnType<typeof createRoot>,
 	client: QueryClient;
-function render(active = true) {
+function render(active = true, verificationPaused = false) {
 	act(() =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<RepositorySharedCandidate
-					workItemId={workItemId}
-					attemptId={attemptId}
-					active={active}
-				/>
+				<WorkspaceVerificationPausedContext.Provider value={verificationPaused}>
+					<RepositorySharedCandidate
+						workItemId={workItemId}
+						attemptId={attemptId}
+						active={active}
+					/>
+				</WorkspaceVerificationPausedContext.Provider>
 			</QueryClientProvider>,
 		),
 	);
@@ -127,6 +130,7 @@ afterEach(async () => {
 	await act(async () => root.unmount());
 	host.remove();
 	client.clear();
+	vi.useRealTimers();
 });
 it("opens only the existing executor candidate and switches files in the same Work-scoped session", async () => {
 	render();
@@ -213,4 +217,30 @@ it("retains unsynced full file-map recovery and blocks editing until the copy is
 	).toBe("true");
 	await click("I have reviewed my copy; use shared code");
 	expect(h.room.clearRecoverableFiles).toHaveBeenCalledOnce();
+});
+
+it("pauses candidate polling and editing while workspace verification is unavailable, then resumes", async () => {
+	vi.useFakeTimers();
+	render();
+	await act(async () => {
+		host.querySelector("button")!.click();
+		await vi.advanceTimersByTimeAsync(1);
+	});
+	expect(h.read).toHaveBeenCalledTimes(1);
+	const editor = host.querySelector("[data-code-path]");
+	expect(editor).not.toBeNull();
+	render(true, true);
+	expect(h.input.mock.calls.at(-1)?.[0]).toMatchObject({ paused: true });
+	expect(editor?.getAttribute("data-read-only")).toBe("true");
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(12000);
+	});
+	expect(h.read).toHaveBeenCalledTimes(1);
+	render(true, false);
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(1);
+	});
+	expect(host.querySelector("[data-code-path]")).toBe(editor);
+	expect(h.input.mock.calls.at(-1)?.[0]).toMatchObject({ paused: false });
+	expect(h.read.mock.calls.length).toBeGreaterThan(1);
 });

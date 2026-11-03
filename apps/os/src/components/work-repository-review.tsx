@@ -1,3 +1,4 @@
+import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -49,6 +50,7 @@ export function WorkRepositoryReview({
 		metadata?: Record<string, unknown>;
 	};
 }) {
+	const verificationPaused = useWorkspaceVerificationPaused();
 	const authority = useOsOperationalContext().data?.authority;
 	const allowed = Boolean(
 		(authority?.role === "owner" || authority?.role === "admin") &&
@@ -84,7 +86,7 @@ export function WorkRepositoryReview({
 			path,
 			offset,
 		}),
-		enabled: open && allowed && available,
+		enabled: open && allowed && available && !verificationPaused,
 	});
 	const comparison = useQuery({
 		...workRepositoryReviewQueryOptions({
@@ -93,7 +95,13 @@ export function WorkRepositoryReview({
 			path: file ?? "",
 			offset: 0,
 		}),
-		enabled: open && allowed && available && file !== null && !history,
+		enabled:
+			open &&
+			allowed &&
+			available &&
+			!verificationPaused &&
+			file !== null &&
+			!history,
 	});
 	if (!allowed || !attempt.metadata?.repository) return null;
 	const canvasLink = canvasWorkspaceId ? (
