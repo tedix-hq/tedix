@@ -938,11 +938,22 @@ export async function cancelWorkInteraction(
 		interactionId: string;
 		expectedVersion: number;
 		actor: InteractionActor;
+		/** An active owner or admin may close any open question in the organization. */
+		actorIsAdmin?: boolean;
 		now: string;
 	},
 ) {
 	await validateActor(db, p.orgId, p.actor);
 	const resolutionFence = crypto.randomUUID();
+	const isCreator = and(
+		eq(workInteractions.creatorType, p.actor.type),
+		eq(workInteractions.creatorId, p.actor.id),
+	);
+	// The person or agent a question asks may withdraw it as well as its creator.
+	const isRecipient = and(
+		sql`${workInteractions.targetType} = ${p.actor.type}`,
+		eq(workInteractions.targetId, p.actor.id),
+	);
 	const row = (
 		await db
 			.update(workInteractions)
@@ -958,17 +969,38 @@ export async function cancelWorkInteraction(
 					eq(workInteractions.id, p.interactionId),
 					eq(workInteractions.version, p.expectedVersion),
 					eq(workInteractions.status, "open"),
-					eq(workInteractions.creatorType, p.actor.type),
-					eq(workInteractions.creatorId, p.actor.id),
+					...(p.actorIsAdmin ? [] : [or(isCreator, isRecipient)]),
 				),
 			)
 			.returning()
 	)[0];
-	if (!row)
+	if (!row) {
+		const current = (
+			await db
+				.select({
+					status: workInteractions.status,
+					version: workInteractions.version,
+				})
+				.from(workInteractions)
+				.where(
+					and(
+						eq(workInteractions.orgId, p.orgId),
+						eq(workInteractions.id, p.interactionId),
+					),
+				)
+				.limit(1)
+		)[0];
 		throw new WorkControlError(
 			"CONFLICT",
-			"Interaction is not cancellable by this actor",
+			!current
+				? "Interaction not found"
+				: current.status !== "open"
+					? `Interaction is already ${current.status}`
+					: current.version !== p.expectedVersion
+						? `Interaction changed (now version ${current.version}); reload and retry`
+						: "Interaction is not cancellable by this actor: only its creator, the one it asks, or an owner or admin can close it",
 		);
+	}
 	await retireDecisionReviews(db, {
 		orgId: p.orgId,
 		originalId: row.id,
