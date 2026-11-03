@@ -132,6 +132,139 @@ it("does not lose lesson extraction failures or malformed output as successful r
 	}
 });
 
+describe("durable lesson inference reuse", () => {
+	async function setup() {
+		const db = fixture();
+		const turn =
+			"Native uploader saved successfully after fixing the payload limit";
+		const activity = "Failed native upload: payload exceeds inline limit";
+		await acceptAgentSessionEvents(db, {
+			...SCOPE,
+			events: [{ ...SCOPE, kind: "turn", sourceAt: T0, text: turn, activity }],
+			now: T0,
+		});
+		const [event] = await db.select().from(agentSessionEvents);
+		const input = {
+			...SCOPE,
+			sourceEventId: event!.id,
+			turn,
+			activity,
+			repository: "example/app",
+			sourceAt: T0,
+			now: T0,
+		};
+		const model = scripted('{"updates":[]}').model;
+		model.lessonReflectionIdentity = {
+			model: "qualified-model",
+			systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+		};
+		model.reflectLessons = vi.fn(async () => '{"lessons":[]}');
+		model.extractObligations = vi.fn(async () => '{"new":[]}');
+		return { db, input, model };
+	}
+
+	it("reuses a successful phase across model instances after intake failed", async () => {
+		const { db, input, model } = await setup();
+		model.extractObligations = async () => null;
+		expect(await reflectAgentSessionRequests(db, model, input)).toEqual({
+			status: "unavailable",
+		});
+		const retry = Object.assign(scripted('{"updates":[]}').model, {
+			lessonReflectionIdentity: model.lessonReflectionIdentity,
+			reflectLessons: vi.fn(async () => '{"lessons":[]}'),
+			extractObligations: async () => '{"new":[]}',
+		});
+		expect((await reflectAgentSessionRequests(db, retry, input)).status).toBe(
+			"reflected",
+		);
+		expect(model.reflectLessons).toHaveBeenCalledTimes(1);
+		expect(retry.reflectLessons).not.toHaveBeenCalled();
+	});
+
+	it("retries learning after inference reuse rather than treating it as already delivered", async () => {
+		const { db, input, model } = await setup();
+		const lesson = {
+			rule: "Inline uploads fail → use the native uploader. Why: the payload limit.",
+			failure: input.activity,
+			fix: input.turn,
+		};
+		model.reflectLessons = vi.fn(async () =>
+			JSON.stringify({ lessons: [lesson] }),
+		);
+		model.learn = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("novelty unavailable"))
+			.mockResolvedValue(undefined);
+		await expect(reflectAgentSessionRequests(db, model, input)).rejects.toThrow(
+			"novelty unavailable",
+		);
+		await reflectAgentSessionRequests(db, model, input);
+		expect(model.reflectLessons).toHaveBeenCalledTimes(1);
+		expect(model.learn).toHaveBeenCalledTimes(2);
+		expect(model.learn).toHaveBeenLastCalledWith(
+			[
+				expect.objectContaining({
+					...lesson,
+					failureEventId: input.sourceEventId,
+					fixEventId: input.sourceEventId,
+				}),
+			],
+			expect.objectContaining(SCOPE),
+		);
+	});
+
+	it.each([null, "{}", "not JSON"])(
+		"never reuses an invalid result: %s",
+		async (raw) => {
+			const { db, input, model } = await setup();
+			model.reflectLessons = vi
+				.fn()
+				.mockResolvedValueOnce(raw)
+				.mockResolvedValue('{"lessons":[]}');
+			await expect(
+				reflectAgentSessionRequests(db, model, input),
+			).rejects.toThrow();
+			await reflectAgentSessionRequests(db, model, input);
+			expect(model.reflectLessons).toHaveBeenCalledTimes(2);
+		},
+	);
+
+	it.each([
+		"model",
+		"prompt",
+		"repository",
+		"body",
+		"activity",
+		"late arrival",
+	])("requires fresh inference after a change to %s", async (change) => {
+		const { db, input, model } = await setup();
+		await reflectAgentSessionRequests(db, model, input);
+		if (change === "model") model.lessonReflectionIdentity!.model = "new-model";
+		if (change === "prompt")
+			model.lessonReflectionIdentity!.systemPrompt += " New rule.";
+		if (change === "repository") input.repository = "example/other";
+		if (change === "body") input.turn += " Clarification: only large payloads.";
+		if (change === "activity")
+			input.activity += "\nSaved a second upload successfully";
+		if (change === "late arrival")
+			await acceptAgentSessionEvents(db, {
+				...SCOPE,
+				now: T0,
+				events: [
+					{
+						...SCOPE,
+						kind: "turn",
+						sourceAt: "2026-10-06T09:59:00.000Z",
+						text: "The uploader had a separate permission issue",
+						activity: "Denied native upload: permission",
+					},
+				],
+			});
+		await reflectAgentSessionRequests(db, model, input);
+		expect(model.reflectLessons).toHaveBeenCalledTimes(2);
+	});
+});
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");

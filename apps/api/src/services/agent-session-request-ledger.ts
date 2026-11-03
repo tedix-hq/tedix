@@ -41,6 +41,8 @@ import {
 	AGENT_SESSION_REQUEST_LIST_LIMIT,
 	type AgentSessionRequestUpdate,
 	claimAgentSessionEvent,
+	getAgentSessionLessonReflection,
+	recordAgentSessionLessonReflection,
 	getPreviousAgentSessionTurn,
 	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
@@ -201,6 +203,7 @@ export interface LedgerModel {
 	reflectLessons?: (
 		sources: readonly LedgerLessonSource[],
 	) => Promise<string | null>;
+	lessonReflectionIdentity?: { model: string; systemPrompt: string };
 	learn?: (
 		lessons: LedgerLesson[],
 		scope: SessionScope & { sourceAt: string; repository: string | null },
@@ -258,6 +261,10 @@ export function workersAiLedgerModel(
 			"agent-session-lesson-reflector",
 		);
 	model.routeProjects = true;
+	model.lessonReflectionIdentity = {
+		model: LEDGER_REFLECTOR_MODEL,
+		systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+	};
 	return Object.assign(model, { extractObligations, reflectLessons });
 }
 
@@ -453,6 +460,52 @@ export async function observeAgentSessionRequests(
 	return { status: "recorded", recorded, cancelled: cancelled.length };
 }
 
+async function reflectSessionLessons(
+	db: DbQueryClient,
+	model: LedgerProcessingModel,
+	input: SessionScope & { sourceEventId?: string; repository: string | null },
+	sources: readonly LedgerLessonSource[],
+): Promise<string | null> {
+	const receipt =
+		input.sourceEventId && model.lessonReflectionIdentity
+			? {
+					...input,
+					id: input.sourceEventId,
+					inputKey: await sourceKey([
+						JSON.stringify({
+							version: 1,
+							identity: model.lessonReflectionIdentity,
+							repository: input.repository,
+							sources,
+						}),
+					]),
+				}
+			: null;
+	if (receipt) {
+		const saved = await getAgentSessionLessonReflection(db, receipt);
+		if (saved !== null) {
+			writeInferenceDiagnostic(() =>
+				console.info({
+					event: "agent_session.inference_reused",
+					surface: "agent-session-lesson-reflector",
+					reason: "same_event_input",
+				}),
+			);
+			return saved;
+		}
+	}
+	const raw = await model.reflectLessons(sources);
+	if (!receipt || raw === null) return raw;
+	// A malformed result must remain retryable, just as a failed model call does.
+	try {
+		if (!Array.isArray(JSON.parse(raw)?.lessons)) return raw;
+	} catch {
+		return raw;
+	}
+	await recordAgentSessionLessonReflection(db, { ...receipt, response: raw });
+	return raw;
+}
+
 export async function reflectAgentSessionRequests(
 	db: DbQueryClient,
 	model: LedgerProcessingModel,
@@ -541,7 +594,7 @@ export async function reflectAgentSessionRequests(
 	if (skipStatusReflection)
 		recordSkippedInference("agent-session-request-reflector", "no_active_rows");
 	const lessonsPending = canReflectLessons
-		? model.reflectLessons(lessonSources)
+		? reflectSessionLessons(db, model, input, lessonSources)
 		: Promise.resolve('{"lessons":[]}');
 	const [raw, intakeRaw, lessonRaw] = await Promise.all([
 		skipStatusReflection

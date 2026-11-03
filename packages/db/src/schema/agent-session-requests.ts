@@ -162,6 +162,11 @@ export const agentSessionEvents = sqliteTable(
 		/** Processing lease start; a stale lease may be taken over. */
 		claimedAt: text("claimed_at"),
 		processedAt: text("processed_at"),
+		/** Successful lesson inference survives retries of other event phases. */
+		lessonReflection: text("lesson_reflection", { mode: "json" }).$type<{
+			inputKey: string;
+			response: string;
+		}>(),
 		createdAt: text("created_at")
 			.notNull()
 			.default(sql`(CURRENT_TIMESTAMP)`),

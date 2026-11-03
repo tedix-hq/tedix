@@ -1308,6 +1308,10 @@
 		{
 			"name": "20261101111515_supervisor_duty_health/migration.sql",
 			"sha256": "2bb22061141554d982312c7604340a54d51be9654ebbd08d0c0b4ec7f08c7898"
+		},
+		{
+			"name": "20261103160822_agent_session_lesson_reflection/migration.sql",
+			"sha256": "6ddcc0a78f905d12bb15da857618d9312475cd5656062c40793d99771107c5fe"
 		}
 	]
 }

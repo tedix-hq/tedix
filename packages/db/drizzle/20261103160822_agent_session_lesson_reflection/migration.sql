@@ -1,0 +1,1 @@
+ALTER TABLE `agent_session_events` ADD `lesson_reflection` text;
