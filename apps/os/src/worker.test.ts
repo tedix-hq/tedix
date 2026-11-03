@@ -1,3 +1,7 @@
+import {
+	repositoryCandidateDocKey,
+	repositoryCandidateRoomName,
+} from "@tedix/api-contract/utils/repository-candidate";
 import { OIDC_SESSION_COOKIE } from "@tedix/auth/oidc-cookies";
 // @vitest-environment node
 import {
@@ -2477,6 +2481,120 @@ describe("collaboration socket routing", () => {
 		);
 		expect(env.roomNames).toEqual([`tedix:ws-1:app:${gadgetId}`]);
 	});
+
+	it.each([
+		"allowed",
+		"denied",
+		"foreign",
+		"wrong-room",
+		"sealed",
+		"unverified",
+	])(
+		"authorizes exact Work repository scope before the %s socket upgrade",
+		async (access) => {
+			const verify = vi.spyOn(jwt, "validateToken").mockResolvedValue({
+				sub: "owner",
+				dct: "T-host-org",
+				iat: 1,
+				exp: 2,
+				iss: "project",
+				aud: ["project"],
+			});
+			onTestFinished(() => verify.mockRestore());
+			const scope = {
+				organizationId: "org-database-example",
+				workItemId: "11111111-1111-4111-8111-111111111111",
+				attemptId: "22222222-2222-4222-8222-222222222222",
+				admissionId: "33333333-3333-4333-8333-333333333333",
+				baseRevision: "a".repeat(40),
+				selectionDigest: "b".repeat(64),
+			};
+			const descriptor = {
+				version: 1,
+				...scope,
+				repositoryId: "example",
+				repositoryName: "work-example",
+				files: [{ path: "client.js", blobRevision: "c".repeat(40), bytes: 6 }],
+				roomName: repositoryCandidateRoomName(scope),
+				docKey: repositoryCandidateDocKey(scope),
+				createdAt: "2026-11-03T00:00:00.000Z",
+			};
+			const base = collabEnv({ authorized: true });
+			const env = {
+				...base,
+				DESCOPE_PROJECT_ID: access === "unverified" ? undefined : "project",
+				API_SERVICE: {
+					fetch: async (request: Request) => {
+						base.apiRequests.push(request);
+						const path = new URL(request.url).pathname;
+						if (path.endsWith("/userSettings/getContext"))
+							return Response.json({
+								json: { organization: { id: "org-database-example" } },
+							});
+						if (path.endsWith("/members/listMembers"))
+							return Response.json({
+								json: { data: [{ descopeUserId: "owner", name: "Owner" }] },
+							});
+						if (access === "denied")
+							return Response.json(
+								{ json: { message: "Forbidden" } },
+								{ status: 403 },
+							);
+						return Response.json({
+							json: {
+								descriptor: {
+									...descriptor,
+									...(access === "foreign"
+										? { organizationId: "another-org" }
+										: {}),
+									...(access === "wrong-room"
+										? { roomName: "caller-room" }
+										: {}),
+								},
+								state: { sealed: access === "sealed" },
+							},
+						});
+					},
+				},
+			};
+			const response = await handleOsRequest(
+				new Request(
+					`https://tedix.os.tedix.dev/collab/work/${scope.workItemId}/${encodeURIComponent(descriptor.docKey)}`,
+					{
+						headers: {
+							...upgradeHeaders,
+							Authorization: "Bearer fictional-session",
+							"X-Tedix-Repository-Candidate-Access": "forged",
+							"X-Tedix-Collab-Access": "forged",
+						},
+					},
+				),
+				env,
+				provisioned,
+			);
+			expect(new URL(base.apiRequests[0]!.url).pathname).toMatch(
+				/workItems\/readRepositoryCandidate$/,
+			);
+			if (access === "allowed") {
+				await expect(response.text()).resolves.toBe("room-upgrade");
+				expect(base.roomNames).toEqual([repositoryCandidateRoomName(scope)]);
+				expect(
+					base.roomRequests[0]!.headers.get("X-Tedix-Collab-Access"),
+				).toBeNull();
+				expect(base.roomRequests[0]!.headers.get("Authorization")).toBeNull();
+				expect(
+					JSON.parse(
+						base.roomRequests[0]!.headers.get(
+							"X-Tedix-Repository-Candidate-Access",
+						)!,
+					),
+				).toEqual({ descriptor, userId: "owner" });
+			} else {
+				expect(response.status).toBe(403);
+				expect(base.roomRequests).toHaveLength(0);
+			}
+		},
+	);
 
 	it.each(["build", "use", "stale", "foreign", "unverified"])(
 		"checks proposal builder access and pinned base before opening a %s code room",

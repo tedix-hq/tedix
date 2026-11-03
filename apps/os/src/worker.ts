@@ -60,6 +60,14 @@ import {
 } from "./auth/session-broker";
 import { CAPN_ROUTE_PATH } from "./capnweb/contract";
 import { COLLAB_PRESENCE_HEADER } from "./collab/presence";
+import {
+	RepositoryCandidateDescriptorSchema,
+	type RepositoryCandidateDescriptor,
+} from "@tedix/api-contract/schemas/repository-candidate";
+import {
+	repositoryCandidateDocKey,
+	repositoryCandidateRoomName,
+} from "@tedix/api-contract/utils/repository-candidate";
 import { appDraftRoomName } from "@tedix/api-contract/utils/app-draft-room";
 import {
 	authenticateCollabPresence,
@@ -1575,11 +1583,11 @@ export async function handleOsRequest(
  * (the sole authority) before the socket reaches the room. The hostname slug
  * only namespaces the room id; it grants nothing.
  *
- * THE READ IS AN AUTHORIZATION PROBE AND NOTHING ELSE — the revision body never
- * crosses this hop. Seeding is not this hop's problem: the base is established
- * once by `OtAuthority.seed`, which is single-writer and idempotent, so the
- * first client's `base` handshake seeds the room and every later offer is
- * ignored. There is no concurrent-seed race for a server-side seed to prevent.
+ * Workspace rooms use a document read as the authorization probe and accept
+ * the client's initial seed. Work candidates use `/collab/work/{workId}/{docKey}`:
+ * the API's bounded candidate read supplies the exact server-reserved descriptor,
+ * while only the admitted executor can hydrate its immutable source base. Browser
+ * seeds and canonical changes never replace a Work candidate's server-owned base.
  */
 async function handleCollabUpgrade(
 	request: Request,
@@ -1599,9 +1607,17 @@ async function handleCollabUpgrade(
 		return refuse(426, "Expected a WebSocket upgrade.");
 	}
 	const segments = url.pathname.split("/").filter(Boolean);
-	const workspaceId = segments[1];
-	const docKey = segments[2] ? decodeURIComponent(segments[2]) : "";
-	if (!workspaceId || segments.length !== 3 || !docKey) {
+	const workScoped = segments[1] === "work";
+	const workItemId = workScoped ? segments[2] : undefined;
+	const workspaceId = workScoped ? "" : (segments[1] ?? "");
+	const rawDocKey = segments[workScoped ? 3 : 2];
+	const docKey = rawDocKey ? decodeURIComponent(rawDocKey) : "";
+	if (
+		(workScoped
+			? !workItemId || segments.length !== 4
+			: !workspaceId || segments.length !== 3) ||
+		!docKey
+	) {
 		return refuse(404, "Malformed collaboration room path.");
 	}
 	// The caller's OWN credentials authenticate this read — never a
@@ -1625,6 +1641,7 @@ async function handleCollabUpgrade(
 		timeoutMs: 5_000,
 	};
 	let workspacePresence: WorkspacePresenceIdentity | null = null;
+	let repositoryCandidate: RepositoryCandidateDescriptor | undefined;
 	let appDraft:
 		| { gadgetId: string; proposalId: string; baseRevisionId: string }
 		| undefined;
@@ -1635,7 +1652,42 @@ async function handleCollabUpgrade(
 		if (!documentId) throw new Error("Malformed collaboration document key");
 		// `app:<gadgetId>` is a runtime app's own room (who is using it, and its
 		// live updates); it is admitted by the same read as the app's manifest.
-		if (kind === "workspace" && documentId === workspaceId) {
+		if (workScoped) {
+			const [candidateWorkId, attemptId] = documentId.split(":");
+			if (
+				localDemo ||
+				kind !== "repo-candidate" ||
+				candidateWorkId !== workItemId ||
+				!attemptId
+			)
+				throw new Error("Malformed Work candidate key");
+			const result = await callRpc<{
+				descriptor: unknown;
+				state: { sealed: boolean };
+			}>(
+				"workItems/readRepositoryCandidate",
+				{ id: workItemId, attemptId },
+				rpcOptions,
+			);
+			const organization = await callRpc<{ organization: { id: string } }>(
+				"userSettings/getContext",
+				{},
+				rpcOptions,
+			);
+			const descriptor = RepositoryCandidateDescriptorSchema.parse(
+				result.descriptor,
+			);
+			if (
+				result.state.sealed ||
+				descriptor.workItemId !== workItemId ||
+				descriptor.organizationId !== organization.organization.id ||
+				descriptor.docKey !== docKey ||
+				descriptor.docKey !== repositoryCandidateDocKey(descriptor) ||
+				descriptor.roomName !== repositoryCandidateRoomName(descriptor)
+			)
+				throw new Error("Repository candidate scope changed");
+			repositoryCandidate = descriptor;
+		} else if (kind === "workspace" && documentId === workspaceId) {
 			workspacePresence = await callRpc<WorkspacePresenceIdentity>(
 				"osCollaborators/presence",
 				{ workspaceId },
@@ -1718,7 +1770,9 @@ async function handleCollabUpgrade(
 										)?.name ?? null
 									);
 								},
-						workspacePresence !== null || appDraft !== undefined,
+						workspacePresence !== null ||
+							appDraft !== undefined ||
+							repositoryCandidate !== undefined,
 						(subject) => {
 							collabUserId = subject;
 						},
@@ -1739,7 +1793,11 @@ async function handleCollabUpgrade(
 					role: workspacePresence.role,
 				}
 			: authenticatedPresence;
-	if (!presence || (appDraft && !localDemo && !collabUserId)) {
+	if (
+		!presence ||
+		(repositoryCandidate && !collabUserId) ||
+		(appDraft && !localDemo && !collabUserId)
+	) {
 		// Do not surface the distinction to the caller: it would reveal whether a
 		// document exists. The server log retains the operational cause without
 		// recording a credential, document id, or identity payload.
@@ -1747,9 +1805,11 @@ async function handleCollabUpgrade(
 		return refuse(403, "Collaboration identity is unavailable.");
 	}
 	const tenantScope = tenant.kind === "tenant" ? tenant.slug : "local";
-	const roomName = appDraft
-		? appDraftRoomName({ tenantSlug: tenantScope, workspaceId, ...appDraft })
-		: `${tenantScope}:${workspaceId}:${docKey}`;
+	const roomName = repositoryCandidate
+		? repositoryCandidate.roomName
+		: appDraft
+			? appDraftRoomName({ tenantSlug: tenantScope, workspaceId, ...appDraft })
+			: `${tenantScope}:${workspaceId}:${docKey}`;
 	const room = env.COLLAB_ROOM.get(env.COLLAB_ROOM.idFromName(roomName));
 	// Credentials stop at this Worker. The DO receives only a strict, verified,
 	// privacy-safe presence projection over the internal namespace binding.
@@ -1764,7 +1824,13 @@ async function handleCollabUpgrade(
 	headers.delete(COLLAB_PRESENCE_HEADER);
 	headers.set(COLLAB_PRESENCE_HEADER, JSON.stringify(presence));
 	headers.delete("X-Tedix-Collab-Access");
-	if (collabUserId) {
+	headers.delete("X-Tedix-Repository-Candidate-Access");
+	if (repositoryCandidate && collabUserId) {
+		headers.set(
+			"X-Tedix-Repository-Candidate-Access",
+			JSON.stringify({ descriptor: repositoryCandidate, userId: collabUserId }),
+		);
+	} else if (collabUserId) {
 		headers.set(
 			"X-Tedix-Collab-Access",
 			JSON.stringify({

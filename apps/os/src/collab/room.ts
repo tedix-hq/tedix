@@ -12,8 +12,8 @@
  * The worker (`src/worker.ts`) authorizes the caller
  * against `apps/api` before routing the upgrade to this DO; by the time `fetch`
  * runs, the request is already authorized for this room. The DO never sees a
- * credential, only the Worker's verified identity and workspace scope. The
- * API rechecks that identity's workspace role on the room's access alarm.
+ * credential, only the Worker's verified identity and document or Work scope.
+ * Access alarms recheck permissions; Work candidates also recheck every operation.
  *
  * The room holds no second copy of D1 truth, but it does know which revision it
  * is grounded on. The server-agreed revision is the base: the stream starts
@@ -26,7 +26,7 @@
  * instant they press Commit. Pinning to the latter overwrites a revision
  * committed out of band with text that never saw it.
  *
- * All three grounding handshakes come from the client and all three are safe
+ * For workspace documents, grounding handshakes come from the client and are safe
  * for the same reason: the authority is a single writer and decides. `seed` is
  * idempotent — two clients racing produce one base, not two — `canonical`
  * adopts only an unedited or byte-identical room unless the user explicitly
@@ -57,6 +57,11 @@ import {
 	serviceBindingFetch,
 	type FetcherLike,
 } from "@tedix/api-client/internal";
+import {
+	RepositoryCandidateDescriptorSchema,
+	type RepositoryCandidateDescriptor,
+} from "@tedix/api-contract/schemas/repository-candidate";
+import { RepositoryCandidateRoom } from "./repository-candidate-room";
 import { OtAuthority, type OtAuthorityStorage } from "./ot/authority";
 import type { CodeChangeRow } from "./ot/wire";
 import { ChunkedRoomStorage } from "./chunked-storage";
@@ -111,6 +116,10 @@ type WebSocketPairCtor = new () => { 0: AcceptableSocket; 1: AcceptableSocket };
 interface SocketAttachment {
 	peerId: number;
 	identity: CollabVerifiedIdentity | null;
+	repositoryAccess?: {
+		descriptor: RepositoryCandidateDescriptor;
+		userId: string;
+	};
 	access?: {
 		workspaceId: string;
 		userId: string;
@@ -158,6 +167,21 @@ function parseAccess(value: unknown): SocketAttachment["access"] {
 		: undefined;
 }
 
+function parseRepositoryAccess(
+	value: unknown,
+): SocketAttachment["repositoryAccess"] {
+	if (!value || typeof value !== "object") return undefined;
+	const input = value as Record<string, unknown>;
+	const descriptor = RepositoryCandidateDescriptorSchema.safeParse(
+		input.descriptor,
+	);
+	return descriptor.success &&
+		typeof input.userId === "string" &&
+		input.userId.length > 0
+		? { descriptor: descriptor.data, userId: input.userId }
+		: undefined;
+}
+
 const MAX_SOCKETS = 32;
 /** 1013 = "try again later": the room is over its concurrency cap. */
 const CLOSE_ROOM_FULL = 1013;
@@ -175,6 +199,7 @@ function readAttachment(ws: CollabSocket): SocketAttachment {
 						: 0,
 				identity: parseCollabVerifiedIdentity(attachment.identity),
 				access: parseAccess(attachment.access),
+				repositoryAccess: parseRepositoryAccess(attachment.repositoryAccess),
 			};
 		}
 	} catch {
@@ -185,6 +210,7 @@ function readAttachment(ws: CollabSocket): SocketAttachment {
 
 export class CollabRoom {
 	readonly #authority: OtAuthority;
+	readonly #repositoryCandidate: RepositoryCandidateRoom;
 
 	/**
 	 * The live roster: peer id -> sanitized presence state. Memory-only on
@@ -203,10 +229,30 @@ export class CollabRoom {
 			storage: new ChunkedRoomStorage(state.storage),
 			broadcast: (row) => this.#broadcastRow(row),
 			now: () => Date.now(),
+			validateContent: (content) =>
+				this.#repositoryCandidate.validateContent(content),
 		});
+		this.#repositoryCandidate = new RepositoryCandidateRoom(
+			state.storage,
+			this.#authority,
+			env.API_SERVICE,
+		);
 	}
 
 	async fetch(request: Request): Promise<Response> {
+		await this.#repositoryCandidate.load();
+		if (new URL(request.url).pathname === "/__internal/repository-candidate") {
+			await this.#revalidateRepositorySockets();
+			const response = await this.#repositoryCandidate.handle(request);
+			if (this.#repositoryCandidate.sealed)
+				await this.#revalidateRepositorySockets();
+			return response;
+		}
+		if (
+			this.#repositoryCandidate.descriptor &&
+			new URL(request.url).pathname === "/__internal/app-draft"
+		)
+			return new Response(null, { status: 409 });
 		// Only namespace bindings can address this route; public OS ingress only
 		// forwards /collab/... upgrades after its own authorization probe.
 		if (new URL(request.url).pathname === "/__internal/app-draft")
@@ -248,7 +294,28 @@ export class CollabRoom {
 		const access = parseAccess(
 			JSON.parse(request.headers.get("X-Tedix-Collab-Access") ?? "null"),
 		);
-		if (access && (!this.env.API_SERVICE || !this.state.storage.setAlarm)) {
+		const repositoryAccess = parseRepositoryAccess(
+			JSON.parse(
+				request.headers.get("X-Tedix-Repository-Candidate-Access") ?? "null",
+			),
+		);
+		if (this.#repositoryCandidate.descriptor || repositoryAccess) {
+			if (
+				access ||
+				!repositoryAccess ||
+				!this.#repositoryCandidate.matches(repositoryAccess.descriptor)
+			)
+				return new Response(null, { status: 403 });
+			const roles = await this.#repositoryCandidate.access([
+				repositoryAccess.userId,
+			]);
+			if (roles[repositoryAccess.userId] !== "build")
+				return new Response(null, { status: 403 });
+		}
+		if (
+			(access || repositoryAccess) &&
+			(!this.env.API_SERVICE || !this.state.storage.setAlarm)
+		) {
 			return new Response("Access revalidation unavailable.\n", {
 				status: 503,
 			});
@@ -258,8 +325,9 @@ export class CollabRoom {
 			peerId,
 			identity,
 			access,
+			repositoryAccess,
 		} satisfies SocketAttachment);
-		if (access) await this.#scheduleAccessCheck();
+		if (access || repositoryAccess) await this.#scheduleAccessCheck();
 		this.#send(server, { t: "hello", peerId });
 		if (this.#presence.size > 0) {
 			this.#send(server, { t: "presence", peers: [...this.#presence] });
@@ -278,6 +346,8 @@ export class CollabRoom {
 
 	/** Alarms and attachments survive hibernation; no credential is retained. */
 	async alarm(): Promise<void> {
+		await this.#repositoryCandidate.load();
+		await this.#revalidateRepositorySockets();
 		const groups = new Map<string, { ws: CollabSocket; userId: string }[]>();
 		for (const ws of this.state.getWebSockets()) {
 			const { identity, access } = readAttachment(ws);
@@ -326,9 +396,46 @@ export class CollabRoom {
 			}),
 		);
 		this.#broadcastPresence();
-		if (this.state.getWebSockets().some((ws) => readAttachment(ws).access)) {
+		if (
+			this.state
+				.getWebSockets()
+				.some(
+					(ws) =>
+						readAttachment(ws).access || readAttachment(ws).repositoryAccess,
+				)
+		) {
 			await this.#scheduleAccessCheck();
 		}
+	}
+
+	async #revalidateRepositorySockets(): Promise<void> {
+		const peers = this.state
+			.getWebSockets()
+			.map((ws) => ({ ws, attachment: readAttachment(ws) }))
+			.filter(
+				({ attachment }) => attachment.identity && attachment.repositoryAccess,
+			);
+		if (peers.length === 0) return;
+		const roles = await this.#repositoryCandidate.access([
+			...new Set(
+				peers.map(({ attachment }) => attachment.repositoryAccess!.userId),
+			),
+		]);
+		for (const { ws, attachment } of peers) {
+			const access = attachment.repositoryAccess!;
+			if (
+				this.#repositoryCandidate.matches(access.descriptor) &&
+				roles[access.userId] === "build"
+			)
+				continue;
+			ws.serializeAttachment({ peerId: attachment.peerId, identity: null });
+			this.#presence.delete(attachment.peerId);
+			ws.close(
+				4003,
+				"Repository authority changed; keep a copy of your edits.",
+			);
+		}
+		this.#broadcastPresence();
 	}
 
 	/**
@@ -436,8 +543,28 @@ export class CollabRoom {
 		}
 		const frame = parseClientFrame(message);
 		if (!frame) return;
-		const { peerId, identity } = readAttachment(ws);
+		await this.#repositoryCandidate.load();
+		if (
+			this.#repositoryCandidate.descriptor ||
+			readAttachment(ws).repositoryAccess
+		)
+			await this.#revalidateRepositorySockets();
+		const { peerId, identity, repositoryAccess } = readAttachment(ws);
 		if (!identity) return;
+		if (this.#repositoryCandidate.descriptor && !repositoryAccess) {
+			ws.serializeAttachment({ peerId, identity: null });
+			this.#presence.delete(peerId);
+			ws.close(4003, "Repository scope required");
+			return;
+		}
+		if (repositoryAccess && (frame.t === "canonical" || frame.t === "ground")) {
+			this.#send(ws, {
+				t: "error",
+				id: frame.id,
+				message: "Repository candidates retain their immutable base",
+			});
+			return;
+		}
 
 		if (frame.t === "presence") {
 			this.#presence.set(
@@ -449,7 +576,7 @@ export class CollabRoom {
 		}
 		if (frame.t === "base") {
 			try {
-				if (frame.seed) {
+				if (frame.seed && !repositoryAccess) {
 					await this.#authority.seed(new Map(frame.seed.files), {
 						revision: frame.seed.revision,
 						revisionId: frame.seed.revisionId,
@@ -537,6 +664,18 @@ export class CollabRoom {
 		// A submission. The authority owns validation, ordering, and the
 		// broadcast; the room only supplies the transport-verified author, which
 		// is never anything the client asserted.
+		if (repositoryAccess) {
+			try {
+				this.#repositoryCandidate.validateSubmission(frame.submission);
+			} catch (error) {
+				this.#send(ws, {
+					t: "error",
+					id: frame.id,
+					message: (error as Error).message,
+				});
+				return;
+			}
+		}
 		const result = await this.#authority.submit(frame.submission, identity);
 		this.#send(ws, { t: "result", id: frame.id, result });
 	}

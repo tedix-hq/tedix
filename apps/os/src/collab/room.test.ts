@@ -16,6 +16,14 @@ import {
 	COLLAB_PRESENCE_HEADER,
 	type CollabVerifiedIdentity,
 } from "./presence";
+import type {
+	RepositoryCandidateDescriptor,
+	RepositoryCandidateState,
+} from "@tedix/api-contract/schemas/repository-candidate";
+import {
+	repositoryCandidateDocKey,
+	repositoryCandidateRoomName,
+} from "@tedix/api-contract/utils/repository-candidate";
 import type { CodeChangeSubmission } from "./ot/wire";
 
 const identity: CollabVerifiedIdentity = {
@@ -1034,4 +1042,297 @@ describe("large workbook rooms", () => {
 			expect(ws.of("base")).toHaveLength(0);
 		},
 	);
+});
+
+describe("Work repository candidates", () => {
+	function descriptor(): RepositoryCandidateDescriptor {
+		const scope = {
+			organizationId: "org-example",
+			workItemId: "11111111-1111-4111-8111-111111111111",
+			attemptId: "22222222-2222-4222-8222-222222222222",
+			admissionId: "33333333-3333-4333-8333-333333333333",
+			baseRevision: "a".repeat(40),
+			selectionDigest: "b".repeat(64),
+		};
+		return {
+			version: 1,
+			...scope,
+			repositoryId: "example-repo",
+			repositoryName: "work-example",
+			files: [
+				{ path: "client.js", blobRevision: "c".repeat(40), bytes: 6 },
+				{ path: "server.js", blobRevision: "d".repeat(40), bytes: 6 },
+			],
+			roomName: repositoryCandidateRoomName(scope),
+			docKey: repositoryCandidateDocKey(scope),
+			createdAt: "2026-11-03T00:00:00.000Z",
+		};
+	}
+	const actor = {
+		key: "verified-native-agent",
+		kind: "external_agent",
+		displayName: "Agent",
+		role: "build",
+		verified: true,
+	};
+	function call(
+		room: CollabRoom,
+		operation: string,
+		scope: RepositoryCandidateDescriptor,
+		extra: Record<string, unknown> = {},
+	) {
+		return room.fetch(
+			new Request("https://room/__internal/repository-candidate", {
+				method: "POST",
+				body: JSON.stringify({ operation, descriptor: scope, actor, ...extra }),
+			}),
+		);
+	}
+	function setup() {
+		const sockets: FakeSocket[] = [];
+		const roomState = state(sockets);
+		roomState.storage.getAlarm = async () => null;
+		roomState.storage.setAlarm = vi.fn(async () => {});
+		const check = vi.fn(async () =>
+			Response.json({
+				allowed: true,
+				expiresAt: new Date(Date.now() + 60000).toISOString(),
+				roles: { owner: "build" },
+			}),
+		);
+		const env = { API_SERVICE: { fetch: check } };
+		return {
+			sockets,
+			roomState,
+			env,
+			check,
+			room: new CollabRoom(roomState, env),
+		};
+	}
+	async function initialize(
+		room: CollabRoom,
+		scope: RepositoryCandidateDescriptor,
+	) {
+		const response = await call(room, "initialize", scope, {
+			files: { "client.js": "client", "server.js": "server" },
+		});
+		expect(response.status).toBe(200);
+		return (await response.json()) as RepositoryCandidateState;
+	}
+	function peer(scope: RepositoryCandidateDescriptor) {
+		const socket = new FakeSocket();
+		socket.close = vi.fn();
+		socket.serializeAttachment({
+			peerId: 7,
+			identity,
+			repositoryAccess: { descriptor: scope, userId: "owner" },
+		});
+		return socket;
+	}
+	it("shares two files across human and native agent edits, deduplicates, survives hibernation and seals exact content", async () => {
+		const h = setup(),
+			scope = descriptor();
+		await initialize(h.room, scope);
+		const human = peer(scope);
+		h.sockets.push(human);
+		await h.room.webSocketMessage(
+			human,
+			encodeFrame({
+				t: "base",
+				id: 1,
+				seed: {
+					revision: 999,
+					revisionId: "forged",
+					files: [["outside", "malicious"]],
+				},
+			}),
+		);
+		expect(human.of("base").at(-1)?.files).toEqual([
+			["client.js", "client"],
+			["server.js", "server"],
+		]);
+		await h.room.webSocketMessage(
+			human,
+			encodeFrame({
+				t: "submit",
+				id: 2,
+				submission: submission({
+					change: [["client.js", { edit: [6, [0, " human"]] }]],
+				}),
+			}),
+		);
+		const agentEdit = submission({
+			clientId: "native-client",
+			change: [["server.js", { edit: [6, [0, " agent"]] }]],
+		});
+		expect(
+			(await call(h.room, "submit", scope, { submission: agentEdit })).status,
+		).toBe(200);
+		const duplicate = await call(h.room, "submit", scope, {
+			submission: agentEdit,
+		});
+		const saved = (await duplicate.json()) as RepositoryCandidateState;
+		expect(saved.snapshot.position.revision).toBe(2);
+		expect(saved.snapshot.files).toEqual({
+			"client.js": "client human",
+			"server.js": "server agent",
+		});
+		expect(await initialize(h.room, scope)).toEqual(saved);
+		const woken = new CollabRoom(h.roomState, h.env);
+		expect(await (await call(woken, "read", scope)).json()).toEqual(saved);
+		expect(
+			(
+				await call(woken, "seal", scope, {
+					expectedPosition: { generation: 0, revision: 1 },
+					expectedContentDigest: saved.contentDigest,
+				})
+			).status,
+		).toBe(409);
+		const sealInput = {
+			expectedPosition: saved.snapshot.position,
+			expectedContentDigest: saved.contentDigest,
+		};
+		const sealed = (await (
+			await call(woken, "seal", scope, sealInput)
+		).json()) as RepositoryCandidateState;
+		expect(sealed.sealed).toBe(true);
+		expect(sealed.seal).toEqual({
+			position: saved.snapshot.position,
+			contentDigest: saved.contentDigest,
+		});
+		expect((await call(woken, "seal", scope, sealInput)).status).toBe(200);
+		expect(
+			(
+				await call(woken, "submit", scope, {
+					submission: submission({
+						seq: 2,
+						revision: 2,
+						clientId: "native-client",
+						change: [["server.js", { edit: [12, [0, "!"]] }]],
+					}),
+				})
+			).status,
+		).toBe(409);
+		expect(human.close).toHaveBeenCalledWith(
+			4003,
+			expect.stringContaining("Repository authority"),
+		);
+	});
+	it.each([
+		[["outside", { set: "x" }]],
+		[["client.js", { remove: true }]],
+		[["client.js", { set: "replacement" }]],
+	])(
+		"refuses non-edit operations and never advances the candidate",
+		async (change) => {
+			const h = setup(),
+				scope = descriptor();
+			await initialize(h.room, scope);
+			const response = await call(h.room, "submit", scope, {
+				submission: submission({
+					change: [change] as CodeChangeSubmission["change"],
+				}),
+			});
+			expect(response.status).toBe(409);
+			const saved = (await (
+				await call(h.room, "read", scope)
+			).json()) as RepositoryCandidateState;
+			expect(saved.snapshot.position.revision).toBe(0);
+		},
+	);
+	it("enforces the UTF8 file cap after transformation without advancing the stream", async () => {
+		const h = setup(),
+			scope = descriptor();
+		await initialize(h.room, scope);
+		const response = await call(h.room, "submit", scope, {
+			submission: submission({
+				change: [["client.js", { edit: [6, [0, "x".repeat(65536)]] }]],
+			}),
+		});
+		expect(response.status).toBe(409);
+		expect(await response.json()).toMatchObject({
+			message: "A selected file exceeds the shared editing limit",
+		});
+		const saved = (await (
+			await call(h.room, "read", scope)
+		).json()) as RepositoryCandidateState;
+		expect(saved.snapshot.position.revision).toBe(0);
+		expect(saved.snapshot.files["client.js"]).toBe("client");
+	});
+
+	it("closes revoked peers after hibernation before accepting another mutation", async () => {
+		const h = setup(),
+			scope = descriptor();
+		await initialize(h.room, scope);
+		const socket = peer(scope);
+		h.sockets.push(socket);
+		h.check.mockImplementation(async () =>
+			Response.json({ allowed: false, roles: {}, expiresAt: null }),
+		);
+		const woken = new CollabRoom(h.roomState, h.env);
+		await woken.webSocketMessage(
+			socket,
+			encodeFrame({
+				t: "submit",
+				id: 1,
+				submission: submission({
+					change: [["client.js", { edit: [6, [0, " denied"]] }]],
+				}),
+			}),
+		);
+		expect(socket.close).toHaveBeenCalledWith(
+			4003,
+			expect.stringContaining("Repository authority"),
+		);
+		expect((await call(woken, "read", scope)).status).toBe(409);
+		h.check.mockImplementation(async () =>
+			Response.json({
+				allowed: true,
+				expiresAt: new Date(Date.now() + 60000).toISOString(),
+				roles: { owner: "build" },
+			}),
+		);
+		const saved = (await (
+			await call(woken, "read", scope)
+		).json()) as RepositoryCandidateState;
+		expect(saved.snapshot.position.revision).toBe(0);
+	});
+	it("cannot replace the frozen descriptor or re-ground from the browser", async () => {
+		const h = setup(),
+			scope = descriptor();
+		await initialize(h.room, scope);
+		expect(
+			(
+				await call(
+					h.room,
+					"initialize",
+					{ ...scope, repositoryId: "replacement" },
+					{ files: { "client.js": "client", "server.js": "server" } },
+				)
+			).status,
+		).toBe(409);
+		const socket = peer(scope);
+		h.sockets.push(socket);
+		await h.room.webSocketMessage(
+			socket,
+			encodeFrame({
+				t: "canonical",
+				id: 8,
+				force: true,
+				offer: {
+					revision: 1,
+					revisionId: "forged",
+					files: [["client.js", "overwrite"]],
+				},
+			}),
+		);
+		expect(socket.of("error").at(-1)?.message).toContain("immutable base");
+		expect(
+			(
+				(await (
+					await call(h.room, "read", scope)
+				).json()) as RepositoryCandidateState
+			).snapshot.position.revision,
+		).toBe(0);
+	});
 });
