@@ -79,16 +79,21 @@ interface AppRuntimeLoaderOptions<TTail> {
 }
 
 /**
- * What the host hands to the Worker Loader for one revision. Only `.js` files
- * become modules the program can import; `.json` and `.txt` ride along as text
- * modules the code reads by name. Network access is never inherited.
+ * What the host hands to the Worker Loader for one revision. JavaScript files
+ * are executable modules; `.json` and `.txt` import as strings through explicit
+ * text modules. Network access is never inherited.
  */
 export function appRuntimeLoaderManifest<TTail = never>(
 	files: AppRuntimeFiles,
 	options: AppRuntimeLoaderOptions<TTail> = {},
 ) {
-	const modules = Object.fromEntries(
-		Object.entries(files).filter(([path]) => path !== "README.md"),
+	const modules: Record<string, string | { text: string }> = Object.fromEntries(
+		Object.entries(files)
+			.filter(([path]) => path !== "README.md")
+			.map(([path, source]) => [
+				path,
+				path.endsWith(".js") ? source : { text: source },
+			]),
 	);
 	return {
 		compatibilityDate:
@@ -100,7 +105,7 @@ export function appRuntimeLoaderManifest<TTail = never>(
 			: options.invocation
 				? INVOCATION_MODULE_NAME
 				: APP_RUNTIME_SERVER_MODULE,
-		modules: (options.validation
+		modules: options.validation
 			? {
 					...modules,
 					"__tedix_validate.js": `
@@ -112,7 +117,7 @@ export default { fetch() { return Response.json({ valid: true }); } };
 				}
 			: options.invocation
 				? { ...modules, [INVOCATION_MODULE_NAME]: INVOCATION_MODULE }
-				: modules) as Record<string, string>,
+				: modules,
 		env: { CONFIG: options.invocation?.config ?? {} },
 		tails: options.invocation?.tails ?? [],
 		// Always null: an app reaches the outside world only through capabilities.
