@@ -12,6 +12,7 @@ import {
 	skillEntries,
 	skillSchedules,
 } from "../schema/cognitive";
+import { workItems } from "../schema/work-items";
 import { toJsonRecord } from "../utils/json";
 
 /** Persist the pause in the manifest so restoring a skill cannot resume it. */
@@ -187,6 +188,23 @@ export async function listDueSkillSchedules(
 		.limit(Math.min(Math.max(limit, 1), 200));
 }
 
+/**
+ * Schedules whose params name the private review project — or a Work Item in
+ * it — trip the collection-read review guard; leave them out for callers
+ * without access so one private schedule cannot refuse the whole list.
+ */
+function paramsReferenceExclusion(referenceId: string) {
+	return [
+		sql`instr(coalesce(${skillSchedules.params}, ''), ${referenceId}) = 0`,
+		sql`NOT EXISTS (
+			SELECT 1 FROM ${workItems}
+			WHERE ${workItems.orgId} = ${skillSchedules.organizationId}
+				AND ${workItems.projectId} = ${referenceId}
+				AND instr(coalesce(${skillSchedules.params}, ''), ${workItems.id}) > 0
+		)`,
+	];
+}
+
 export async function listSkillSchedules(
 	db: DbClient,
 	organizationId: string,
@@ -195,9 +213,16 @@ export async function listSkillSchedules(
 		tediId?: string;
 		enabled?: boolean;
 		limit?: number;
+		/** Leave out schedules whose params reference this id (a private project or its Work). */
+		excludeParamsReferenceId?: string;
 	},
 ): Promise<SkillSchedule[]> {
 	const conditions = [eq(skillSchedules.organizationId, organizationId)];
+	if (options.excludeParamsReferenceId) {
+		conditions.push(
+			...paramsReferenceExclusion(options.excludeParamsReferenceId),
+		);
+	}
 	if (options.skillId)
 		conditions.push(eq(skillSchedules.skillId, options.skillId));
 	if (options.tediId)
@@ -223,14 +248,14 @@ export async function listSkillSchedulesPage(
 		query?: string;
 		skillId?: string;
 		tediId?: string;
-		/** Leave out schedules whose params mention this id (a private project). */
+		/** Leave out schedules whose params mention this id (a private project or its Work). */
 		excludeParamsReferenceId?: string;
 	},
 ): Promise<{ schedules: SkillSchedule[]; total: number }> {
 	const conditions = [eq(skillSchedules.organizationId, organizationId)];
 	if (options.excludeParamsReferenceId) {
 		conditions.push(
-			sql`instr(coalesce(${skillSchedules.params}, ''), ${options.excludeParamsReferenceId}) = 0`,
+			...paramsReferenceExclusion(options.excludeParamsReferenceId),
 		);
 	}
 	if (options.enabled !== undefined) {
