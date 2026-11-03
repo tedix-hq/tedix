@@ -1,3 +1,4 @@
+import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import type { WorkAttemptRepository } from "@tedix/api-contract/schemas/work-items";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -23,6 +24,7 @@ export function WorkAttemptRepositoryPanel({
 	attemptId: string;
 	repository: WorkAttemptRepository;
 }) {
+	const verificationPaused = useWorkspaceVerificationPaused();
 	const operationalContext = useOsOperationalContext();
 	const authority = operationalContext.data?.authority;
 	const canRead = Boolean(
@@ -40,7 +42,7 @@ export function WorkAttemptRepositoryPanel({
 			attemptId,
 			head ?? undefined,
 		),
-		enabled: open && canRead,
+		enabled: open && canRead && !verificationPaused,
 	});
 	useEffect(() => {
 		if (
@@ -61,7 +63,7 @@ export function WorkAttemptRepositoryPanel({
 			head ?? "",
 			dirPath || undefined,
 		),
-		enabled: open && canRead && !!head,
+		enabled: open && canRead && !verificationPaused && !!head,
 	});
 	const file = useMutation({
 		mutationFn: (path: string) =>
