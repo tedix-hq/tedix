@@ -924,6 +924,44 @@ describe("tedix supervise", () => {
 			expect(restarted.resumed).toEqual([]);
 		});
 
+		test("a retained unconfirmed Codex queue excludes hooks after the supervisor unlocks", async () => {
+			sessions([CODEX, "codex"]);
+			const pending = answer(CODEX, "codex", 60_000);
+			const first = drain([pending], { received: false, withdrawn: false });
+			expect(await first.runner.tick()).toBe(0);
+			expect(first.queued).toHaveLength(1);
+			let hookAcks = 0;
+			const hook = () =>
+				claimHookAnswers(
+					{
+						env: { TEDIX_CONFIG_DIR: config },
+						cwd: config,
+						stdin: "",
+						write: () => {},
+						read: async () => {
+							hookAcks++;
+							return { data: [] };
+						},
+					},
+					{ command: ["-w", "fixture"], user: "U-fixture-user" },
+					CODEX,
+					"codex",
+					join(config, "question.json"),
+					undefined,
+					[pending],
+					1000,
+				);
+			expect(await hook()).toEqual([]);
+			expect(hookAcks).toBe(0);
+			const confirmed = drain([pending]);
+			expect(await confirmed.runner.tick()).toBe(1);
+			expect(confirmed.queued).toEqual([]);
+			expect(confirmed.resumed).toEqual([]);
+			expect(confirmed.acks).toHaveLength(1);
+			expect(await hook()).toEqual([]);
+			expect(hookAcks).toBe(0);
+		});
+
 		test("a retained Codex answer resumes only after withdrawal succeeds", async () => {
 			sessions([SESSION, "codex"]);
 			const answers = [answer(SESSION, "codex", 60_000)];
