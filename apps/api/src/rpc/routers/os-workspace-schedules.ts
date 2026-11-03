@@ -6,17 +6,16 @@ import {
 	type OsWorkspaceSchedule,
 	WORKSPACE_SKILL_RESOURCE,
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
+import { PERSONAL_ORGANISE_OPERATION } from "@tedix/api-contract/utils/provider-capability-profiles";
 import {
-	PERSONAL_ORGANISE_OPERATION,
 	type PersonalAccessLevel,
 	personalAccessLevel,
 	personalAccessOperations,
 	reviewedPersonalAccountName,
-	reviewedPersonalResourceBinding,
+	effectivePersonalResourceBinding,
 	reviewedPersonalResourceReadScopes,
 } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
-import { PersonalResourceToolBindingSchema } from "@tedix/api-contract/schemas/tools";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import {
@@ -189,12 +188,11 @@ export async function personalAccessNeed(
 				(auth?.credentialScope ?? auth?.scope) !== "user"
 			)
 				continue;
-			const parsed = PersonalResourceToolBindingSchema.safeParse(
+			const binding = effectivePersonalResourceBinding(
+				providerId,
+				config.mcpToolName,
 				config.personalResourceBinding,
 			);
-			const binding = parsed.success
-				? parsed.data
-				: reviewedPersonalResourceBinding(providerId, config.mcpToolName);
 			if (
 				!binding ||
 				!("target" in binding) ||
