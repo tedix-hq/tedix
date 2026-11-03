@@ -76,6 +76,33 @@ describe("app runtime files", () => {
 });
 
 describe("loader manifest", () => {
+	it.each([
+		{},
+		{ validation: true },
+		{ invocation: { config: {}, tails: [] } },
+	])(
+		"loads txt/json as importable text in every runtime mode (%j)",
+		(options) => {
+			const authored = {
+				...files,
+				"notes.txt": "Use the shared sheet",
+				"settings.json": '{"label":"Review"}',
+				"README.md": "# App guide",
+			};
+			expect(AppRuntimeFilesSchema.parse(authored)).toEqual(authored);
+			const manifest = appRuntimeLoaderManifest(authored, options);
+			expect(manifest.modules["server.js"]).toBe(files["server.js"]);
+			expect(manifest.modules["client.js"]).toBe(files["client.js"]);
+			expect(manifest.modules["notes.txt"]).toEqual({
+				text: authored["notes.txt"],
+			});
+			expect(manifest.modules["settings.json"]).toEqual({
+				text: authored["settings.json"],
+			});
+			expect(manifest.modules).not.toHaveProperty("README.md");
+			expect(manifest.globalOutbound).toBeNull();
+		},
+	);
 	it("loads the shared invocation manifest without caller-side customization", async () => {
 		const options = {
 			invocation: {

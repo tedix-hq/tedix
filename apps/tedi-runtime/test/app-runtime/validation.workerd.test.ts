@@ -74,6 +74,14 @@ describe("app dry-load", () => {
 		);
 		expect(response.status).toBe(200);
 	});
+	it("dry-loads supported text and JSON source files as exact importable strings", async () => {
+		const response = await validate(
+			"import notes from './notes.txt'; import settings from './settings.json'; if (notes !== 'Draft notes' || typeof settings !== 'string' || JSON.parse(settings).label !== 'Review') throw new Error('wrong asset module'); export class App {}",
+			{ "notes.txt": "Draft notes", "settings.json": '{"label":"Review"}' },
+		);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({ valid: true });
+	});
 	it.each([
 		"export class Other {}",
 		"export const App = 1;",
