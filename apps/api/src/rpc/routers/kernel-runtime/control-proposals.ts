@@ -35,6 +35,7 @@ import { auditActor } from "../../audit-helpers";
 import {
 	childRunStatusFromSummary,
 	childRunStatusKey,
+	delegationSessionKey,
 	delegatedChildSteerRunId,
 	errorMessage,
 	homeRunProgress,
@@ -328,6 +329,66 @@ async function retryDelegationWorkItem(
 		// already represented by the original admission decision.
 	});
 
+	// Persist the admitted identity before dispatch can outlive this request.
+	// Readers must follow the new child even if its acknowledgement never returns.
+	const recoveryMetadata = { ...homeRunMetadata };
+	for (const key of [
+		"childRunStatus",
+		"childRunEventCount",
+		"childRunLatestEventAt",
+		"childRunLatestEventKind",
+		"childRunLatestActivityLabel",
+		"childRunPreview",
+		"childRunTerminalAt",
+		"childRunTerminalEventKind",
+		"childRunStopReason",
+		"childRunStopDetail",
+		"childTaskOutcome",
+		"kernelWorkflowInspect",
+		"delegationProof",
+		"progress",
+	])
+		delete recoveryMetadata[key];
+	const recoveryConversationId = delegationSessionKey(childClientRequestId);
+	const recoveryDispatch = {
+		previousChildRunId: homeRun.childRunId,
+		previousChildConversationId: homeRun.childConversationId,
+		childRunId: predictedChildRunId,
+		dispatchedAt,
+		retryCount: nextRetryCount,
+		source: "kernelRuntime.retryDelegation",
+	};
+	await updateKernelRuntimeRun(context.db, homeRunId, {
+		status: "queued",
+		delegatedTediId,
+		childRunId: predictedChildRunId,
+		childConversationId: recoveryConversationId,
+		progressValue: 24,
+		progressLabel: "Dispatching",
+		progressDetail: "Recovery admitted; awaiting dispatch acknowledgement",
+		latestEventKind: "submission.admitted",
+		latestEventAt: dispatchedAt,
+		preview: "Recovery admitted; dispatch acknowledgement is pending.",
+		completedAt: null,
+		startedAt: dispatchedAt,
+		updatedAt: dispatchedAt,
+		runtimeMetadata: {
+			...nonNullRecord(homeRun.runtimeMetadata),
+			childRunId: predictedChildRunId,
+			childConversationId: recoveryConversationId,
+		},
+		metadata: {
+			...recoveryMetadata,
+			childRunId: predictedChildRunId,
+			childConversationId: recoveryConversationId,
+			delegatedTediId,
+			workItemId,
+			retryCount: nextRetryCount,
+			delegationStatus: "queued",
+			homeRecoveryDispatch: recoveryDispatch,
+		},
+	});
+
 	// (6) REDISPATCH via the kernelDelegateRunner seam (mints a runnable child run
 	// on the target tedi; same shape as retryKernelRunCore / respondApproval).
 	const internalContext = internalDelegationContext(context, organizationId);
@@ -375,7 +436,7 @@ async function retryDelegationWorkItem(
 			conversationId: homeRun.conversationId,
 			delegatedTediId,
 			error: childResult.error ?? "Delegation recovery dispatch failed",
-			existingMetadata: homeRunMetadata,
+			existingMetadata: recoveryMetadata,
 			organizationId,
 			reason: childResult.reason ?? "dispatch_failed",
 			runId: homeRunId,
@@ -396,26 +457,6 @@ async function retryDelegationWorkItem(
 			},
 		});
 	} else {
-		// Child summaries belong to one execution. Carrying the previous terminal
-		// projection into this dispatch makes the immediate receipt look complete.
-		const recoveryMetadata = { ...homeRunMetadata };
-		for (const key of [
-			"childRunStatus",
-			"childRunEventCount",
-			"childRunLatestEventAt",
-			"childRunLatestEventKind",
-			"childRunLatestActivityLabel",
-			"childRunPreview",
-			"childRunTerminalAt",
-			"childRunTerminalEventKind",
-			"childRunStopReason",
-			"childRunStopDetail",
-			"childTaskOutcome",
-			"kernelWorkflowInspect",
-			"delegationProof",
-			"progress",
-		])
-			delete recoveryMetadata[key];
 		await updateKernelRuntimeRun(context.db, homeRunId, {
 			status: "queued",
 			delegatedTediId,
@@ -445,12 +486,8 @@ async function retryDelegationWorkItem(
 				retryCount: nextRetryCount,
 				delegationStatus: "queued",
 				homeRecoveryDispatch: {
-					previousChildRunId: homeRun.childRunId,
-					previousChildConversationId: homeRun.childConversationId,
+					...recoveryDispatch,
 					childRunId: childResult.childRunId,
-					dispatchedAt,
-					retryCount: nextRetryCount,
-					source: "kernelRuntime.retryDelegation",
 				},
 			},
 		});
