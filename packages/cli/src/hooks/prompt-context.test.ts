@@ -804,6 +804,41 @@ describe("tedix hooks prompt-context", () => {
 		expect(out).not.toContain("receipt-1");
 	});
 
+	test("focus truncates whole words and keeps Unicode on one line", () => {
+		const word = "supercalifragilisticexpialidocious";
+		const text = `完成 🚀 ${word} `;
+		const focus = workBoundaryLine(
+			{
+				item: {
+					id: WORK,
+					organizationId: ORG,
+					objectiveId: OUTPUT,
+					title: text.repeat(10),
+				},
+				objective: {
+					id: OUTPUT,
+					organizationId: ORG,
+					status: "active",
+					title: text.repeat(10),
+					successCriteria: `${text}\n`.repeat(20),
+				},
+			},
+			new Date("2026-11-03"),
+		);
+		expect(focus.split("\n")).toHaveLength(1);
+		expect(focus).toContain("完成 🚀");
+		const quoted = [...focus.matchAll(/"([^"]*)"/g)].map((match) => match[1]!);
+		for (const value of quoted) {
+			expect(value).toEndWith("…");
+			expect(
+				value
+					.slice(0, -1)
+					.split(" ")
+					.every((part) => ["完成", "🚀", word].includes(part)),
+			).toBe(true);
+		}
+	});
+
 	test("boundary focus counts calendar days from existing project dates", () => {
 		expect(
 			workBoundaryLine(

@@ -383,6 +383,25 @@ describe("plugin packager", () => {
 		).toContain("run by the installed Tedix CLI");
 	});
 
+	test("focus uses prompt context and never a Stop handler in either host", () => {
+		for (const host of ["openai", "claude"]) {
+			const hooks = decode(
+				packageFiles({ host, local: true }),
+				"hooks/hooks.json",
+			).hooks;
+			expect(
+				handlers({ UserPromptSubmit: hooks.UserPromptSubmit }).filter(
+					(h) => hookName(h) === "session-start",
+				),
+			).toHaveLength(1);
+			expect(
+				handlers({ Stop: hooks.Stop }).some(
+					(h) => hookName(h) === "session-start",
+				),
+			).toBe(false);
+		}
+	});
+
 	test("prompt context fits the limit both installed plugins declare", () => {
 		// Installed Claude plugins run the source hooks.json; Codex runs the package.
 		const declared = [
@@ -594,11 +613,11 @@ describe("plugin packager", () => {
 				).hooks;
 				const command = hooks.SessionStart[0].hooks[0].command;
 				for (const version of [
-					"0.8.15",
-					"0.8.16",
+					"0.19.2",
+					"0.19.3",
 					MIN_CLI,
-					"0.8.100",
-					"0.10.0",
+					"0.19.100",
+					"0.20.0",
 					"1.0.0",
 				]) {
 					const result = spawnSync("/bin/sh", ["-c", command], {
@@ -611,7 +630,7 @@ describe("plugin packager", () => {
 					expect(result.status).toBe(0);
 					expect(result.stderr).toBe("");
 					expect(result.stdout).toBe(
-						version === "0.8.15" || version === "0.8.16"
+						version === "0.19.2" || version === "0.19.3"
 							? `Tedix preflight: CLI ${version} is older than ${MIN_CLI}, which this plugin needs; run tedix update.\n`
 							: "hooks session-start\n",
 					);

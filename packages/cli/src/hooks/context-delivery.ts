@@ -12,6 +12,7 @@ import { cacheDir } from "./context-cache";
 import { isObject, type JsonObject } from "./hook-io";
 
 export interface ContextDelivery {
+	focus?: string;
 	preferences?: string;
 	lessons?: string;
 	staleRequests?: string;
@@ -37,7 +38,7 @@ export function readDelivery(
 		const saved: unknown = JSON.parse(readFileSync(path(env, session), "utf8"));
 		if (!isObject(saved) || saved.scope !== scope) return {};
 		return Object.fromEntries(
-			["preferences", "lessons", "staleRequests"].flatMap((key) =>
+			["focus", "preferences", "lessons", "staleRequests"].flatMap((key) =>
 				typeof saved[key] === "string" && /^[a-f0-9]{64}$/.test(saved[key])
 					? [[key, saved[key]]]
 					: [],

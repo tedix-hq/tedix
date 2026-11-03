@@ -34,6 +34,7 @@ async function run(
 	reads: unknown[],
 	env: Record<string, string> = {},
 	event: unknown = {},
+	now?: Date,
 ): Promise<{ output: string; calls: string[][] }> {
 	const calls: string[][] = [];
 	const lines: string[] = [];
@@ -41,6 +42,7 @@ async function run(
 		env: { ...env },
 		stdin: typeof event === "string" ? event : JSON.stringify(event),
 		cwd: process.cwd(),
+		now: now ? () => now : undefined,
 		write: (line) => lines.push(line),
 		read: async (args) => {
 			calls.push(args);
@@ -262,43 +264,137 @@ describe("tedix hooks session-start", () => {
 		expect(await brief("")).toContain("outcomeComplete=false");
 	});
 
-	test("shows focus at startup and only that line at Stop", async () => {
-		const startup = await brief("Finish the task");
-		expect(startup).toContain(
-			'Focus: Work "Selected task" -> objective "Reach the selected result" -> success "The selected result is delivered" -> days left not set.',
+	test("startup includes focus and legacy Stop is silent without reads", async () => {
+		expect(await brief("Finish the task")).toContain(
+			'Focus: Work "Selected task"',
 		);
 		const stopped = await run(
-			[AUTH, boundary({ title: "Selected task", disposition: "accepted" })],
-			{
-				TEDIX_PLUGIN_PREFLIGHT: "1",
-				TEDIX_WORKSPACE: "tedix",
-				TEDIX_WORK_ITEM_ID: WORK_ID,
-			},
+			[],
+			{ TEDIX_PLUGIN_PREFLIGHT: "1" },
 			{ hook_event_name: "Stop" },
 		);
-		const output = JSON.parse(stopped.output);
-		expect(output.systemMessage).toContain('Focus: Work "Selected task"');
-		expect(output.systemMessage.split("\n")).toHaveLength(1);
-		expect(output).not.toHaveProperty("hookSpecificOutput");
-		expect(stopped.calls).toHaveLength(2);
+		expect(stopped.output).toBe("");
+		expect(stopped.calls).toHaveLength(0);
 	});
 
-	test("offers an if-then park when Work has no active objective", async () => {
-		const stopped = await run(
+	test("focus changes are plain context scoped to this chat, never Stop notices", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "tedix-focus-"));
+		const session = "33333333-3333-4333-8333-333333333333";
+		const env = { TEDIX_CONFIG_DIR: directory };
+		const binding = {
+			status: "bound",
+			workspace: "tedix",
+			org: "org_tedix",
+			mcpUrl: AUTH.mcpUrl,
+			projectId: "project-id",
+			workItemId: WORK_ID,
+			contextSessionId: session,
+		};
+		const item = boundary({
+			title: "Selected task",
+			projectId: "project-id",
+			disposition: "accepted",
+			dueDate: "2026-11-05",
+		});
+		const at = new Date("2026-11-03T12:00:00Z");
+		const prompt = (data = item, chat = session, date = at) =>
+			run(
+				[
+					{ ...binding, contextSessionId: chat, workItemId: data.item.id },
+					AUTH,
+					data,
+				],
+				env,
+				{ hook_event_name: "UserPromptSubmit", session_id: chat },
+				date,
+			);
+		try {
+			const first = await prompt();
+			expect(context(first.output).split("\n")).toHaveLength(1);
+			expect(JSON.parse(first.output)).not.toHaveProperty("systemMessage");
+			expect(JSON.parse(first.output).hookSpecificOutput.hookEventName).toBe(
+				"UserPromptSubmit",
+			);
+			expect(first.calls[0]).toContain(session);
+			expect((await prompt()).output).toBe("");
+			// A healthy countdown changing tomorrow is not a purpose change.
+			expect(
+				(await prompt(item, session, new Date("2026-11-04T12:00:00Z"))).output,
+			).toBe("");
+			const changed = structuredClone(item);
+			changed.item.id = "44444444-4444-4444-8444-444444444444";
+			expect(context((await prompt(changed)).output)).toContain(
+				"Selected task",
+			);
+			expect((await prompt(changed)).output).toBe("");
+			changed.objective.successCriteria = "A changed purpose";
+			expect(context((await prompt(changed)).output)).toContain(
+				"A changed purpose",
+			);
+			// A child chat's receipt cannot change the parent's selected focus.
+			const child = "55555555-5555-4555-8555-555555555555";
+			expect(context((await prompt(changed, child)).output)).toContain(
+				"A changed purpose",
+			);
+			expect((await prompt(changed)).output).toBe("");
+			const overdue = await prompt(
+				changed,
+				session,
+				new Date("2026-11-06T12:00:00Z"),
+			);
+			expect(context(overdue.output)).toContain("1 day overdue");
+			expect(
+				(await prompt(changed, session, new Date("2026-11-06T13:00:00Z")))
+					.output,
+			).toBe("");
+			expect(
+				context(
+					(await prompt(changed, session, new Date("2026-11-07T12:00:00Z")))
+						.output,
+				),
+			).toContain("2 days overdue");
+			const missing = boundary(
+				{ title: "Side idea", projectId: "project-id" },
+				ORG_ID,
+				null,
+			);
+			expect(context((await prompt(missing)).output)).toBe(
+				'Focus: Work "Side idea" has no path to an active objective. If it is still worth doing, park it with a next step + review date; otherwise stop.',
+			);
+			expect((await prompt(missing)).output).toBe("");
+			const mismatch = await run(
+				[{ ...binding, contextSessionId: child }],
+				env,
+				{ hook_event_name: "UserPromptSubmit", session_id: session },
+			);
+			expect(mismatch.output).not.toContain("Selected task");
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	test("prompt focus never borrows a checkout-wide selection", async () => {
+		const result = await run(
 			[
+				{
+					status: "bound",
+					workspace: "tedix",
+					org: "org_tedix",
+					mcpUrl: AUTH.mcpUrl,
+					projectId: "project-id",
+					contextSource: "selection",
+					workItemId: WORK_ID,
+				},
 				AUTH,
-				boundary({ title: "Side idea", disposition: "accepted" }, ORG_ID, null),
 			],
+			{},
 			{
-				TEDIX_PLUGIN_PREFLIGHT: "1",
-				TEDIX_WORKSPACE: "tedix",
-				TEDIX_WORK_ITEM_ID: WORK_ID,
+				hook_event_name: "UserPromptSubmit",
+				session_id: "33333333-3333-4333-8333-333333333333",
 			},
-			{ hook_event_name: "Stop" },
 		);
-		expect(JSON.parse(stopped.output).systemMessage).toBe(
-			'Focus: Work "Side idea" has no path to an active objective. If it is still worth doing, park it with a next step + review date; otherwise stop.',
-		);
+		expect(result.output).toBe("");
+		expect(result.calls).toHaveLength(2);
 	});
 
 	test("an observed Attempt identifies its owner without inheriting authority", async () => {
