@@ -984,6 +984,126 @@ describe("shared Connect context targets", () => {
 			runAgentContext(["show", "--organization", "org_tedix"], opts),
 		).toThrow("applies only");
 	});
+	test("an explicit chat selection keeps its organization over ambient and organization-less scope rows", () => {
+		const { opts } = fixture();
+		connectProfile(opts);
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", projectId: PROJECT, organization: "org_tedix" },
+			opts,
+		);
+		const project = "451c68cc-5bd3-4cb4-b86b-b0c010f688b7";
+		const chat = { ...opts, sessionId: OTHER_WORK };
+		changeAgentContext(
+			"connect",
+			{
+				workspace: "connect",
+				projectId: project,
+				organization: "org_customer",
+			},
+			chat,
+		);
+		const env = { TEDIX_AGENT_SESSION: `codex:${OTHER_WORK}` };
+		// A held Work scope for the repository's organization is ambient
+		// metadata, never a retarget; a historical row that names no
+		// organization cannot route at all.
+		recordSessionScope(
+			{
+				workspace: "connect",
+				organization: "org_tedix",
+				projectId: PROJECT,
+				workItemId: WORK,
+				heldUntil: Date.now() + 60_000,
+			},
+			env,
+			opts,
+		);
+		recordSessionScope({ workspace: "connect" }, env, opts);
+		const resolved = resolveAgentContext(chat);
+		expect(resolved).toMatchObject({
+			status: "bound",
+			workspace: "connect",
+			org: "org_customer",
+			organization: "org_customer",
+			projectId: project,
+			contextSessionId: OTHER_WORK,
+		});
+		expect(resolved.workItemId).toBeUndefined();
+		expect(resolved.alsoActive).toContain("org_tedix");
+		expect(resolved.alsoActive ?? []).not.toContain(
+			"incidental_session_tenant",
+		);
+	});
+	test("an organization-less Connect scope row cannot route or hide a resolvable held Work", () => {
+		const { opts } = fixture();
+		connectProfile(opts);
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", projectId: PROJECT, organization: "org_tedix" },
+			opts,
+		);
+		const sessionId = "11111111-1111-4111-8111-111111111111";
+		const env = { TEDIX_AGENT_SESSION: `codex:${sessionId}` };
+		recordSessionScope(
+			{
+				workspace: "connect",
+				organization: "org_tedix",
+				projectId: PROJECT,
+				workItemId: WORK,
+				heldUntil: Date.now() + 60_000,
+			},
+			env,
+			opts,
+		);
+		// Written before scope carried the selected organization; it must not
+		// poison routing or masquerade as the login's own session tenant.
+		recordSessionScope({ workspace: "connect" }, env, opts);
+		expect(resolveAgentContext({ ...opts, sessionId })).toMatchObject({
+			status: "bound",
+			org: "org_tedix",
+			organization: "org_tedix",
+			projectId: PROJECT,
+			workItemId: WORK,
+			scopeRoutingHint: true,
+		});
+		const away = { ...opts, sessionId, cwd: join(opts.cwd, "..") };
+		expect(resolveAgentContext({ ...away, allowDefault: true })).toMatchObject({
+			status: "bound",
+			org: "org_tedix",
+			organization: "org_tedix",
+			projectId: PROJECT,
+			scopeRoutingHint: true,
+			alsoActive: ["connect"],
+		});
+	});
+	test("organization-less scope rows alone never route a shared login anywhere", () => {
+		const { opts } = fixture();
+		connectProfile(opts);
+		changeAgentContext(
+			"bind",
+			{ workspace: "connect", projectId: PROJECT, organization: "org_tedix" },
+			opts,
+		);
+		const sessionId = "11111111-1111-4111-8111-111111111111";
+		const env = { TEDIX_AGENT_SESSION: `codex:${sessionId}` };
+		recordSessionScope({ workspace: "connect", projectId: PROJECT }, env, opts);
+		// The repository's own binding still applies; the unroutable row is a
+		// hint only, never a tenant.
+		expect(resolveAgentContext({ ...opts, sessionId })).toMatchObject({
+			status: "bound",
+			org: "org_tedix",
+			organization: "org_tedix",
+			projectId: PROJECT,
+		});
+		expect(
+			resolveAgentContext({
+				...opts,
+				sessionId,
+				cwd: join(opts.cwd, ".."),
+				allowDefault: true,
+			}).status,
+		).toBe("unbound");
+	});
 });
 
 describe("default organization outside a bound repository", () => {

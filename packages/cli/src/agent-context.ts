@@ -11,7 +11,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { readSessionScopes } from "./session-scope";
+import { readSessionScopes, type SessionScope } from "./session-scope";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import {
 	credentialDirectory,
@@ -411,7 +411,7 @@ function chatBinding(
 	binding: Binding,
 	repo: Repo,
 	options?: AgentContextOptions,
-): { binding: Binding; sessionId?: string } {
+): { binding: Binding; sessionId?: string; targeted?: boolean } {
 	const sessionId = chatIdentity(options);
 	const rows = (binding.chats ?? []).filter((row) => row.root === repo.root);
 	if (!rows.length) return { binding };
@@ -448,6 +448,7 @@ function chatBinding(
 		);
 	return {
 		sessionId,
+		targeted: row?.target !== undefined,
 		binding: {
 			...binding,
 			...row?.target,
@@ -770,6 +771,42 @@ function directoryBinding(
 	return undefined;
 }
 
+/**
+ * The target a recent call routes to, or none. A row whose profile is gone,
+ * or a Connect row recorded without its selected organization, names no
+ * verified tenant: it is skipped rather than guessed or allowed to fail the
+ * whole context.
+ */
+function scopeTarget(
+	row: SessionScope,
+	options?: AgentContextOptions,
+): OrganizationTarget | undefined {
+	try {
+		return {
+			workspace: row.workspace,
+			...contextTarget(row.workspace, row.organization, options, true),
+		};
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * The organization a recent call may claim in `alsoActive`. A shared Connect
+ * profile's stored org is the login's own session tenant, never one of its
+ * selected organizations, so an organization-less row names only its profile.
+ */
+function scopeOrganization(
+	row: SessionScope,
+	options?: AgentContextOptions,
+): string {
+	if (row.organization) return row.organization;
+	const credentials = readWorkspaceCredentials(row.workspace, options);
+	if (!credentials?.mcpUrl || isMultiOrganizationMcpUrl(credentials.mcpUrl))
+		return row.workspace;
+	return credentials.org ?? row.workspace;
+}
+
 /** Local correlation only. Does not read the gateway or restore an Attempt credential. */
 export function resolveAgentContext(
 	options?: AgentContextOptions,
@@ -785,27 +822,26 @@ function resolveAgentContextWithRepo(
 		const store = readStore(options);
 		const sessionId = chatIdentity(options);
 		const recent = readSessionScopes(sessionId, options);
-		const recentOrgs = recent.map(
-			(row) =>
-				row.organization ??
-				readWorkspaceCredentials(row.workspace, options)?.org ??
-				row.workspace,
-		);
+		const recentOrgs = recent.map((row) => scopeOrganization(row, options));
+		const routed = recent
+			.map((row) => ({ row, target: scopeTarget(row, options) }))
+			.filter(
+				(entry): entry is { row: SessionScope; target: OrganizationTarget } =>
+					entry.target !== undefined,
+			);
 		let repo: Repo;
 		try {
 			repo = knownRepo ?? repoAt(options);
 		} catch {
-			if (options?.allowDefault && recent.length) {
-				const call = recent[0]!;
-				const target = {
-					workspace: call.workspace,
-					...contextTarget(call.workspace, call.organization, options, true),
-				};
+			if (options?.allowDefault && routed.length) {
+				const call = routed[0]!;
 				return {
-					...defaultContext(store, options, target),
-					...(call.projectId ? { projectId: call.projectId } : {}),
+					...defaultContext(store, options, call.target),
+					...(call.row.projectId ? { projectId: call.row.projectId } : {}),
 					scopeRoutingHint: true,
-					alsoActive: recentOrgs.slice(1),
+					alsoActive: [
+						...new Set(recentOrgs.filter((org) => org !== call.target.org)),
+					],
 				};
 			}
 			// Outside any Git repository: the default organization, when asked.
@@ -825,44 +861,50 @@ function resolveAgentContextWithRepo(
 		const directory = directoryBinding(repo, options);
 		const scoped =
 			!directory && binding ? chatBinding(binding, repo, options) : undefined;
+		// This chat's own explicit target or selected Work outranks ambient
+		// call records; they only route a session that never chose.
 		const held =
-			scoped && selectedWork(scoped.binding, repo).workItemId
+			scoped &&
+			(scoped.targeted || selectedWork(scoped.binding, repo).workItemId)
 				? scoped.binding
 				: undefined;
 		let active = directory ?? held;
-		if (!active && recent.length) {
+		if (!active && routed.length) {
 			const call =
-				recent.find(
-					(row) =>
-						row.workItemId && row.heldUntil && row.heldUntil > Date.now(),
-				) ?? recent[0]!;
-			const target = {
-				workspace: call.workspace,
-				...contextTarget(call.workspace, call.organization, options, true),
-			};
+				routed.find(
+					(entry) =>
+						entry.row.workItemId &&
+						entry.row.heldUntil &&
+						entry.row.heldUntil > Date.now(),
+				) ?? routed[0]!;
+			const target = call.target;
 			const candidates = store.repositories.filter(
 				(row) => row.workspace === target.workspace && row.org === target.org,
 			);
 			const projectId =
-				call.projectId ??
+				call.row.projectId ??
 				(candidates.length === 1 ? candidates[0]!.projectId : undefined);
 			if (!projectId)
 				return {
 					...defaultContext(store, options, target),
 					scopeRoutingHint: true,
-					alsoActive: recentOrgs.slice(1),
+					alsoActive: [
+						...new Set(recentOrgs.filter((org) => org !== target.org)),
+					],
 				};
 			active = {
 				...repo,
 				...target,
 				projectId,
 				selections:
-					call.workItemId && call.heldUntil && call.heldUntil > Date.now()
+					call.row.workItemId &&
+					call.row.heldUntil &&
+					call.row.heldUntil > Date.now()
 						? [
 								{
 									root: repo.root,
 									branch: repo.branch,
-									workItemId: call.workItemId,
+									workItemId: call.row.workItemId,
 								},
 							]
 						: [],
