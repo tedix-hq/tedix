@@ -1,4 +1,3 @@
-import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import type { CanvasDocSelection } from "@/lib/canvas-search";
@@ -20,7 +19,6 @@ export function useLiveWorkspace(
 	selectedDoc: CanvasDocSelection | null,
 ): void {
 	const queryClient = useQueryClient();
-	const paused = useWorkspaceVerificationPaused();
 	const { status } = useRealtimeSurface({ enabled: workspaceId !== null });
 	const scopeRef = useRef({
 		workspaceId: workspaceId ?? "",
@@ -43,14 +41,14 @@ export function useLiveWorkspace(
 	}
 
 	useEffect(() => {
-		if (workspaceId === null || paused) return;
+		if (workspaceId === null) return;
 		return subscribeLiveWorkspace(workspaceId, (event) => {
 			reconcileLiveWorkspaceEvent(queryClient, workspaceId, event);
 		});
-	}, [queryClient, workspaceId, paused]);
+	}, [queryClient, workspaceId]);
 
 	useEffect(() => {
-		if (workspaceId === null || paused) return;
+		if (workspaceId === null) return;
 		reconnectRef.current?.(status);
-	}, [status, workspaceId, paused]);
+	}, [status, workspaceId]);
 }

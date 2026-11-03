@@ -21,7 +21,6 @@
  *   round trip after the last keystroke.
  */
 
-import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import { useCallback, useEffect, useState } from "react";
 import {
 	type CodeChange,
@@ -987,15 +986,7 @@ class CollabSession implements OtEditSession {
  * reconnects happen underneath it.
  */
 export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
-	const {
-		docKey,
-		enabled,
-		canonical,
-		location,
-		paused: requestedPause = false,
-	} = input;
-	const verificationPaused = useWorkspaceVerificationPaused();
-	const paused = requestedPause || verificationPaused;
+	const { docKey, enabled, canonical, location, paused = false } = input;
 	const scope = input.workItemId !== undefined ? "work" : "workspace";
 	const scopeId = input.workItemId ?? input.workspaceId;
 	const [session, setSession] = useState<CollabSession | null>(null);
