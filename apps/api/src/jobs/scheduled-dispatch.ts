@@ -41,7 +41,8 @@ async function trackPlatformCronPath(
  *   database config is present), Deck pipeline sweep (in the first two minutes
  *   of each quarter hour: retire expired, finished-Work and duplicate cards),
  *   due skill schedules, always-on keepalive, orphan-run sweep, work-attempt
- *   lease sweep, work approval redrive, MCP event webhook delivery, Work
+ *   lease sweep, kernel request reconcile, interaction review dispatch, work
+ *   approval redrive, MCP event webhook delivery, Work
  *   routing (every ten minutes: accepted non-coding Work to its steward tedi).
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
@@ -155,6 +156,21 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				await import("./work-attempt-lease-sweeper");
 			await trackPlatformCronPath(env, event, "work-attempt-lease-sweep", () =>
 				runWorkAttemptLeaseSweeperTick(env, event.scheduledTime),
+			);
+			// Remote follow-through keeps its own receipts: a wedged tedi or
+			// Durable Object must fail these paths, not the pure-D1 lease reaper.
+			const { reconcileDueKernelRequests } =
+				await import("./kernel-request-reconcile");
+			await trackPlatformCronPath(env, event, "kernel-request-reconcile", () =>
+				reconcileDueKernelRequests(env, event.scheduledTime),
+			);
+			const { dispatchInteractionReviews } =
+				await import("./interaction-follow-through");
+			await trackPlatformCronPath(
+				env,
+				event,
+				"interaction-review-dispatch",
+				() => dispatchInteractionReviews(env, event.scheduledTime),
 			);
 		}
 

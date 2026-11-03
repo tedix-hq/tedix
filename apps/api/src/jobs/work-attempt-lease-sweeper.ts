@@ -7,7 +7,6 @@ import {
 	notifyStoppedLanes,
 } from "@tedix/db/queries/work-items/lane-lifecycle";
 import { sweepStaleFailedDelegationWorkItems } from "@tedix/db/queries/work-items/stale-delegation-sweep";
-import { dispatchInteractionReviews } from "./interaction-follow-through";
 import { sweepStuckOutboundReviews } from "@tedix/db/queries/work-items/outbound";
 
 /**
@@ -43,6 +42,12 @@ const MAX_INTERACTION_WRITES_PER_TICK = 100;
  * - Riding `trackPlatformCronPath` gives it a receipt, so a sweep that stops
  *   running shows up as `stale` in platform cron health instead of silently
  *   accumulating stranded leases again.
+ *
+ * This path stays pure D1. Remote follow-through that used to share the tick —
+ * kernel request reconciliation and interaction review wakes — runs under its
+ * own receipts (`kernel-request-reconcile`, `interaction-review-dispatch`), so
+ * a wedged tedi or Durable Object can neither strand the reaper nor make the
+ * expiry receipt look like the failing component.
  */
 export async function runWorkAttemptLeaseSweeperTick(
 	env: CloudflareEnv,
@@ -60,41 +65,6 @@ export async function runWorkAttemptLeaseSweeperTick(
 		console.log(
 			`[WorkAttemptLeaseSweeper] retired ${result.expired} elapsed attempt lease(s)`,
 		);
-	}
-	let requestsRecovered = 0;
-	let requestRecoveryFailures = 0;
-	if (env.KERNEL) {
-		const {
-			DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
-			listDispatcherAttemptCaptureOrganizations,
-			listDueKernelRequestOrganizations,
-		} = await import("@tedix/db/queries/kernel-requests");
-		const db = createDbQueryClient(env.DB);
-		// Dispatcher settlements enter the tracker inside the same reconcile call.
-		const organizations = new Set(
-			[
-				...(await listDueKernelRequestOrganizations(
-					db,
-					new Date(scheduledTime).toISOString(),
-				)),
-				...(await listDispatcherAttemptCaptureOrganizations(
-					db,
-					new Date(
-						scheduledTime - DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
-					).toISOString(),
-				)),
-			].map((row) => row.organizationId),
-		);
-		for (const result of await Promise.allSettled(
-			[...organizations].map((organizationId) =>
-				env.KERNEL.get(env.KERNEL.idFromName(organizationId)).reconcileRequests(
-					{ organizationId },
-				),
-			),
-		)) {
-			if (result.status === "fulfilled") requestsRecovered += result.value;
-			else requestRecoveryFailures++;
-		}
 	}
 	// Same tick, same shape: pure D1, idempotent, zero candidates at steady state.
 	// Closes kernel-delegation items whose failed Attempt nobody retried in a week.
@@ -123,14 +93,11 @@ export async function runWorkAttemptLeaseSweeperTick(
 			now: new Date(scheduledTime).toISOString(),
 			limit: MAX_INTERACTION_WRITES_PER_TICK,
 		})),
-		requestsRecovered,
-		requestRecoveryFailures,
 		lanesStale,
 		lanesNotified: await notifyStoppedLanes(
 			createDbQueryClient(env.DB),
 			new Date(scheduledTime).toISOString(),
 		),
-		...(await dispatchInteractionReviews(env, scheduledTime)),
 		...(await flushWorkInteractionDigests(
 			createDbQueryClient(env.DB),
 			new Date(scheduledTime).toISOString(),

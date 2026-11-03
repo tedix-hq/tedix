@@ -28,6 +28,8 @@ export const PLATFORM_CRON_IDS = [
 	"support-maintenance",
 	"mcp-event-webhook-delivery",
 	"work-attempt-lease-sweep",
+	"kernel-request-reconcile",
+	"interaction-review-dispatch",
 	"always-on-keepalive",
 	"billing-and-gateway-cost",
 	"gateway-cost-catchup",
@@ -79,6 +81,8 @@ const everyTwoMinuteIds = [
 	"orphan-run-sweep",
 	"approval-expiry",
 	"work-attempt-lease-sweep",
+	"kernel-request-reconcile",
+	"interaction-review-dispatch",
 	"dispatcher-health-alarm",
 ] as const;
 const everyTwoMinutes = everyTwoMinuteIds.map((id) => ({

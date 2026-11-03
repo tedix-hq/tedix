@@ -67,6 +67,12 @@ vi.mock("./approval-expiry", () => ({
 vi.mock("./work-attempt-lease-sweeper", () => ({
 	runWorkAttemptLeaseSweeperTick: vi.fn(),
 }));
+vi.mock("./kernel-request-reconcile", () => ({
+	reconcileDueKernelRequests: vi.fn(),
+}));
+vi.mock("./interaction-follow-through", () => ({
+	dispatchInteractionReviews: vi.fn(),
+}));
 vi.mock("./work-approval-redrive", () => ({
 	dispatchWorkApprovalRedrives: vi.fn(),
 }));
@@ -341,6 +347,8 @@ it("maintains provider notifications without fleet authority and isolates failur
 		status: "failure",
 	});
 	expect(catchup.paths).toContain("work-attempt-lease-sweep");
+	expect(catchup.paths).toContain("kernel-request-reconcile");
+	expect(catchup.paths).toContain("interaction-review-dispatch");
 });
 
 it("keeps commitment replay and later paths live while stall recovery is pending or fails", async () => {
