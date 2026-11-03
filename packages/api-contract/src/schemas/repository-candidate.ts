@@ -172,6 +172,21 @@ export const RepositoryCandidatePublicationRecordSchema = z.strictObject({
 export type RepositoryCandidatePublicationRecord = z.infer<
 	typeof RepositoryCandidatePublicationRecordSchema
 >;
+export const RepositoryCandidatePublicationFailureSchema = z.strictObject({
+	stage: z.enum(["authority", "token", "send", "claim"]),
+	reason: z.enum([
+		"publication_failed",
+		"candidate_git_http",
+		"candidate_git_advertisement_type",
+		"candidate_git_advertisement",
+		"candidate_git_advertisement_ref",
+		"candidate_git_report_status_required",
+		"candidate_git_packet",
+		"candidate_git_response_budget",
+		"candidate_git_response_missing",
+		"candidate_git_deadline",
+	]),
+});
 export const RepositoryCandidatePublicationObservationSchema = z.strictObject({
 	effect: z.enum([
 		"prepared",
@@ -185,6 +200,7 @@ export const RepositoryCandidatePublicationObservationSchema = z.strictObject({
 	objectPresent: z.boolean().nullable(),
 	superseded: z.boolean(),
 	cleanup: z.enum(["not_minted", "revoked", "failed"]),
+	failure: RepositoryCandidatePublicationFailureSchema.optional(),
 	observedAt: z.iso.datetime(),
 });
 export type RepositoryCandidatePublicationObservation = z.infer<

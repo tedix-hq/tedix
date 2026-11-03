@@ -108,7 +108,9 @@ async function fixture(base = A) {
 			remote: repository.remote,
 			defaultBranch: "main",
 		})),
-		log: vi.fn(async () => [{ hash: head }]),
+		log: vi.fn(async (_opts?: { ref: string; limit: number }) => [
+			{ hash: head },
+		]),
 		readCommit: vi.fn(async (oid: string) =>
 			oid === base
 				? { hash: base, treeHash: B }
@@ -250,6 +252,40 @@ describe("candidate publication authority and replay", () => {
 		await applyRepositoryCandidatePublication(f.io, f.input);
 		expect(f.stats()).toMatchObject({ sends: 1, mints: 1, revokes: 1 });
 	});
+	it("reads the recorded branch name through the binding after publication", async () => {
+		const f = await fixture();
+		const log = f.repo.log.getMockImplementation()!;
+		f.repo.log.mockImplementation(async (...args) => {
+			expect(args[0]).toEqual({ ref: "main", limit: 1 });
+			return log();
+		});
+		const r = await applyRepositoryCandidatePublication(f.io, f.input);
+		expect(r.observation.headRevision).toBe(C);
+	});
+	it.each(["candidate_git_packet", "private-fixture-token"])(
+		"reports only an allowlisted pre-POST reason: %s",
+		async (reason) => {
+			const f = await fixture();
+			f.io.send = async () => {
+				const error = new Error("private-fixture-token");
+				error.name = "CandidateGitError";
+				throw Object.assign(error, { reason });
+			};
+			const r = await applyRepositoryCandidatePublication(f.io, f.input);
+			expect(r.record.attemptedAt).toBeNull();
+			expect(r.observation).toMatchObject({
+				effect: "prepared",
+				cleanup: "revoked",
+				failure: {
+					stage: "send",
+					reason:
+						reason === "candidate_git_packet" ? reason : "publication_failed",
+				},
+			});
+			expect(JSON.stringify(r)).not.toContain("private-fixture-token");
+			expect(f.stats()).toMatchObject({ sends: 0, mints: 1, revokes: 1 });
+		},
+	);
 	it("admits only one concurrent POST winner", async () => {
 		const f = await fixture();
 		await Promise.all([
@@ -297,6 +333,10 @@ describe("candidate publication authority and replay", () => {
 		};
 		const r = await applyRepositoryCandidatePublication(f.io, f.input);
 		expect(r.observation.effect).toBe("prepared");
+		expect(r.observation.failure).toEqual({
+			stage: "claim",
+			reason: "publication_failed",
+		});
 		expect(f.stats()).toMatchObject({ sends: 0, mints: 1, revokes: 1 });
 	});
 	it("rejects an unbounded token and revokes even that invalid grant", async () => {
@@ -309,6 +349,10 @@ describe("candidate publication authority and replay", () => {
 		});
 		const r = await applyRepositoryCandidatePublication(f.io, f.input);
 		expect(r.observation.effect).toBe("prepared");
+		expect(r.observation.failure).toEqual({
+			stage: "token",
+			reason: "publication_failed",
+		});
 		expect(f.repo.revokeToken).toHaveBeenCalledWith("private-token-id");
 		expect(f.stats().sends).toBe(0);
 	});
