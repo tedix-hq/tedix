@@ -1,3 +1,4 @@
+import { WorkspaceVerificationPausedContext } from "@/lib/workspace-verification";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { RuntimeStreamEvent } from "@tedix/api-contract/schemas/runtime-submissions";
 import { act, createElement, type ReactNode } from "react";
@@ -400,6 +401,30 @@ function Surface(props: { config: RealtimeStreamConfig }) {
 }
 
 describe("useRealtimeSurface", () => {
+	it("releases its network capability during verification pause and resumes after fresh access", async () => {
+		const server = mockServer();
+		setActiveRealtimeConversation(CONVERSATION_ID);
+		const config: RealtimeStreamConfig = {
+			connect: server.connect,
+			metrics: null,
+		};
+		const tree = (paused: boolean) =>
+			createElement(
+				WorkspaceVerificationPausedContext.Provider,
+				{ value: paused },
+				createElement(Surface, { config }),
+			);
+		const rendered = render(tree(false));
+		await flushAsync();
+		expect(realtimeSubscriptionCount()).toBe(1);
+		rendered.rerender(tree(true));
+		teardown.run();
+		expect(realtimeSubscriptionCount()).toBe(0);
+		rendered.rerender(tree(false));
+		await flushAsync();
+		expect(realtimeSubscriptionCount()).toBe(1);
+	});
+
 	it("multiplexes several surfaces onto ONE subscription and ONE pump", async () => {
 		const server = mockServer();
 		setActiveRealtimeConversation(CONVERSATION_ID);
