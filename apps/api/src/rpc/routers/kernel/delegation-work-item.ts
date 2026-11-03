@@ -185,6 +185,41 @@ export function requiredProofKindForExecution(
 }
 
 /**
+ * The unexpired active Attempt another executor holds on the Work Item, if
+ * any. Approving a delegation onto it would start a second writer, which
+ * admission refuses as `already_running`.
+ */
+export async function findForeignActiveAttempt(
+	context: BaseContext,
+	input: {
+		assigneeTediId: string;
+		now: string;
+		organizationId: string;
+		workItemId: string;
+	},
+) {
+	const page = await listWorkItemAttempts(context.db, {
+		orgId: input.organizationId,
+		workItemId: input.workItemId,
+		limit: 100,
+	});
+	return (
+		page.data.find(
+			(attempt) =>
+				["queued", "running", "waiting", "retrying"].includes(
+					attempt.runtimeState,
+				) &&
+				!(
+					attempt.executorType === "tedi" &&
+					attempt.executorId === input.assigneeTediId
+				) &&
+				attempt.expiresAt !== null &&
+				Date.parse(attempt.expiresAt) > Date.parse(input.now),
+		) ?? null
+	);
+}
+
+/**
  * Whether the Work Item already has an unexpired active Attempt bound to this
  * exact child run and tedi executor — the signature of a repeated dispatch of
  * one delegation, never of a different run competing for the item.

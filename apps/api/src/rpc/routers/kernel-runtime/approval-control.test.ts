@@ -33,6 +33,9 @@ import { resolveApprovalByChatReply } from "./turn-delegation";
 const effects = vi.hoisted(() => ({
 	event: vi.fn(async () => ({})),
 	promote: vi.fn(async () => "delegation-work"),
+	foreignAttempt: vi.fn<
+		() => Promise<{ id: string; startedAt: string } | null>
+	>(async () => null),
 	dispatch: vi.fn(async () => ({ childRunId: "child", status: "queued" })),
 	workstation: vi.fn(),
 	learning: vi.fn(),
@@ -49,6 +52,7 @@ vi.mock("../kernel/run-store", async (original) => ({
 vi.mock("../kernel/delegation-work-item", async (original) => ({
 	...(await original<typeof import("../kernel/delegation-work-item")>()),
 	createDelegationWorkItem: effects.promote,
+	findForeignActiveAttempt: effects.foreignAttempt,
 }));
 vi.mock("./policy-normalization", async (original) => ({
 	...(await original<typeof import("./policy-normalization")>()),
@@ -262,6 +266,41 @@ describe("delegation approval core", () => {
 			noEffects(f.writes);
 		},
 	);
+	it("records an approval for Work another executor already holds without a second writer", async () => {
+		const f = await fixture();
+		effects.foreignAttempt.mockResolvedValueOnce({
+			id: "lane-attempt",
+			startedAt: "2026-11-03T16:53:00.000Z",
+		});
+		const result = await respondKernelDelegationRecommendationApprovalCore(
+			f.context,
+			{
+				organizationId: ORG,
+				run: f.run,
+				decision: "approve",
+				approvedWorkItemId: "work-held",
+			},
+		);
+		expect(effects.foreignAttempt).toHaveBeenCalledWith(
+			f.context,
+			expect.objectContaining({ workItemId: "work-held" }),
+		);
+		expect(result.run.status).toBe("canceled");
+		expect(result.run.metadata?.homeDelegation).toMatchObject({
+			resolutionStatus: "approved",
+			inProgressAttemptId: "lane-attempt",
+		});
+		expect(effects.event).toHaveBeenCalledWith(
+			f.context,
+			expect.objectContaining({
+				runtimeMetadata: expect.objectContaining({
+					dispatch: "home-delegation-already-in-progress",
+				}),
+			}),
+		);
+		expect(effects.promote).not.toHaveBeenCalled();
+		expect(effects.dispatch).not.toHaveBeenCalled();
+	});
 	it("refuses a run without a pending delegation", async () => {
 		const f = await fixture();
 		await expect(
