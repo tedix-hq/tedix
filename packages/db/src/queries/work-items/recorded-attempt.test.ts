@@ -18,23 +18,21 @@ describe("historical Attempt reads", () => {
 				"CREATE TABLE organizations (id TEXT PRIMARY KEY); INSERT INTO organizations VALUES ('org'); CREATE TABLE work_items (id TEXT NOT NULL, org_id TEXT NOT NULL, UNIQUE(org_id,id)); INSERT INTO work_items VALUES ('work','org');",
 			);
 			const db = createDbQueryClient(createD1Facade(sqlite));
-			await db
-				.insert(workAttempts)
-				.values({
-					id: "attempt",
-					orgId: "org",
-					workItemId: "work",
-					executorType: "external_agent",
-					executorId: "agent",
-					externalSessionKey: "codex:old",
-					runtimeState: "succeeded",
-					outcome: "succeeded",
-					attemptNumber: 1,
-					startedAt: "2026-01-01T00:00:00.000Z",
-					heartbeatAt: "2026-01-01T00:00:00.000Z",
-					expiresAt: "2026-01-01T01:00:00.000Z",
-					finishedAt: "2026-01-01T00:30:00.000Z",
-				});
+			await db.insert(workAttempts).values({
+				id: "attempt",
+				orgId: "org",
+				workItemId: "work",
+				executorType: "external_agent",
+				executorId: "agent",
+				externalSessionKey: "codex:old",
+				runtimeState: "succeeded",
+				outcome: "succeeded",
+				attemptNumber: 1,
+				startedAt: "2026-01-01T00:00:00.000Z",
+				heartbeatAt: "2026-01-01T00:00:00.000Z",
+				expiresAt: "2026-01-01T01:00:00.000Z",
+				finishedAt: "2026-01-01T00:30:00.000Z",
+			});
 			const scope = { orgId: "org", workItemId: "work", attemptId: "attempt" };
 			expect(await getRecordedWorkItemAttempt(db, scope)).toMatchObject({
 				id: "attempt",

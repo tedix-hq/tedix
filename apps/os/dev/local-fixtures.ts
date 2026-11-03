@@ -6982,6 +6982,51 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"workItems/listAttempts": () => ({ data: [], nextCursor: null }),
+	"workItems/reviewAttemptRepository": (input: {
+		id: string;
+		attemptId: string;
+		expectedHeadRevision: string;
+		operation: string;
+		path?: string;
+	}) => ({
+		workItemId: input.id,
+		attemptId: input.attemptId,
+		baseRevision: "a".repeat(40),
+		headRevision: input.expectedHeadRevision,
+		operation: input.operation,
+		path: input.path ?? "",
+		entries:
+			input.operation === "tree"
+				? [
+						{
+							name: "README.md",
+							type: "blob",
+							hash: "c".repeat(40),
+							change: "modified",
+						},
+					]
+				: [],
+		commits:
+			input.operation === "history"
+				? [
+						{
+							hash: input.expectedHeadRevision,
+							message: "Update example",
+							authoredAt: 1_790_000_000,
+						},
+					]
+				: [],
+		nextOffset: null,
+		truncated: false,
+		base:
+			input.operation === "compare"
+				? { status: "text", text: "Example before\n", bytes: 15 }
+				: null,
+		head:
+			input.operation === "compare"
+				? { status: "text", text: "Example after\n", bytes: 14 }
+				: null,
+	}),
 	"workItems/listEvidence": () => ({ data: [], nextCursor: null }),
 	"workItems/listEvents": () => ({ events: [], nextSequence: null }),
 	"workItems/listAttemptProjection": (
