@@ -280,6 +280,33 @@ describe("calendar coordinator asset installation", () => {
 			expect(h.calls).toEqual([]);
 		}
 	});
+	it("accepts reviewed root implications and exact required scopes", async () => {
+		for (const scopes of [
+			["https://www.googleapis.com/auth/calendar"],
+			[
+				"https://www.googleapis.com/auth/calendar.events",
+				"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+			],
+		]) {
+			const h = harness();
+			h.provider.availableScopes = scopes;
+			await installAssets(h.options, assets, h.client);
+			expect(h.calls).toContain("publishBlueprint");
+		}
+	});
+	it("rejects incomplete exact scope grants before writes", async () => {
+		for (const scope of [
+			"https://www.googleapis.com/auth/calendar.events",
+			"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+		]) {
+			const h = harness();
+			h.provider.availableScopes = [scope];
+			await expect(installAssets(h.options, assets, h.client)).rejects.toThrow(
+				"lacks required calendar scopes",
+			);
+			expect(h.calls).toEqual([]);
+		}
+	});
 	it("rejects provider scopes that merely contain or extend the Google calendar root", async () => {
 		const root = "https://www.googleapis.com/auth/calendar";
 		for (const lookalike of [
