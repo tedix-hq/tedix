@@ -166,6 +166,8 @@ export const agentSessionEvents = sqliteTable(
 		lessonReflection: text("lesson_reflection", { mode: "json" }).$type<{
 			inputKey: string;
 			response: string;
+			status?: { inputKey: string; response: string };
+			intake?: { inputKey: string; response: string };
 		}>(),
 		createdAt: text("created_at")
 			.notNull()
