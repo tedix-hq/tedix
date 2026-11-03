@@ -33,7 +33,10 @@ describe("native recovery diagnostic transport", () => {
 			{ ok: true, status: 200, json: { ...snapshot, scheduling: "invented" } },
 			{ ok: true, status: 200, json: {} },
 			{ ok: false, status: 503, json: null },
-			{ error: "SECRET transport https://internal.invalid" },
+			{
+				error: "SECRET transport https://internal.invalid",
+				failure: "transport_failure" as const,
+			},
 		])
 			expect(() =>
 				recoveryDiagnosticFromAdminFetch(response, "exact-session"),
@@ -96,4 +99,41 @@ test("rejects queued submission metadata owned by a different conversation", () 
 			"exact-session",
 		),
 	).toThrow("unexpected payload");
+});
+test("names the bounded runtime reason instead of one opaque failure", () => {
+	expect(() =>
+		recoveryDiagnosticFromAdminFetch(
+			{
+				ok: false,
+				status: 503,
+				json: { ok: false, error: "pi_recovery_session_unavailable" },
+			},
+			"exact-session",
+		),
+	).toThrow("runtime 503 pi_recovery_session_unavailable");
+	expect(() =>
+		recoveryDiagnosticFromAdminFetch(
+			{ ok: false, status: 403, json: null },
+			"exact-session",
+		),
+	).toThrow("runtime 403 unclassified");
+	expect(() =>
+		recoveryDiagnosticFromAdminFetch(
+			{
+				ok: false,
+				status: 503,
+				json: { ok: false, error: "SECRET https://internal.invalid" },
+			},
+			"exact-session",
+		),
+	).toThrow("runtime 503 unclassified");
+	expect(() =>
+		recoveryDiagnosticFromAdminFetch(
+			{
+				error: "SECRET transport https://internal.invalid",
+				failure: "timeout" as const,
+			},
+			"exact-session",
+		),
+	).toThrow(/^Runtime recovery diagnostic unavailable: timeout$/);
 });
