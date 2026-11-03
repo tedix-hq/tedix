@@ -1161,6 +1161,25 @@ export async function listLatestWorkAttemptSummaries(
 	return summaries;
 }
 
+/** Historical read; deliberately does not grant a live Attempt's write authority. */
+export async function getRecordedWorkItemAttempt(
+	db: DbQueryClient,
+	params: { orgId: string; workItemId: string; attemptId: string },
+): Promise<WorkAttempt | null> {
+	const [attempt] = await db
+		.select()
+		.from(workAttempts)
+		.where(
+			and(
+				eq(workAttempts.orgId, params.orgId),
+				eq(workAttempts.workItemId, params.workItemId),
+				eq(workAttempts.id, params.attemptId),
+			),
+		)
+		.limit(1);
+	return attempt ?? null;
+}
+
 export async function listWorkItemAttempts(
 	db: DbQueryClient,
 	params: {

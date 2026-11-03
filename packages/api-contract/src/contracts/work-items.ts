@@ -65,6 +65,8 @@ import {
 	WorkAttemptRepositoryRequestSchema,
 	WorkAttemptRepositorySchema,
 	WorkAttemptRepositoryLifecycleSchema,
+	WorkRepositoryReviewInputSchema,
+	WorkRepositoryReviewResultSchema,
 	WorkAdmissionRejectionSchema,
 	WorkAdmissionSpecificationRejectionSchema,
 	WorkAdmissionSpecificationSchema,
@@ -1215,6 +1217,15 @@ export const workItemsContract = oc
 					),
 				}),
 			),
+
+		reviewAttemptRepository: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/review",
+				summary: "Review the immutable repository result of a settled Attempt",
+			})
+			.input(WorkRepositoryReviewInputSchema)
+			.output(WorkRepositoryReviewResultSchema),
 
 		inspectAttemptRepository: oc
 			.route({
