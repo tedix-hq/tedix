@@ -1,4 +1,3 @@
-import { createDbClient } from "@tedix/db/client";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
 	validateCatalogFallback,
@@ -18,7 +17,11 @@ export async function loadTediModelFallback(
 		typeof row.organizationMetadata === "string"
 			? JSON.parse(row.organizationMetadata)
 			: row.organizationMetadata;
-	const config = catalog ?? (await getModelCatalogConfig(createDbClient(db)));
+	const config =
+		catalog ??
+		(await getModelCatalogConfig(
+			(await import("@tedix/db/client")).createDbClient(db),
+		));
 	return validateCatalogFallback(
 		metadata?.modelFallback ?? config.fallback,
 		config.entries,

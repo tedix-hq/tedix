@@ -1,4 +1,3 @@
-import { createDbClient } from "@tedix/db/client";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import { findCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
 import type { ModelCatalogConfig } from "@tedix/api-contract/schemas/model-catalog-config";
@@ -87,7 +86,9 @@ export async function observerCompletion(
 	const catalog =
 		opts.modelCatalog ??
 		(opts.env.DB
-			? await getModelCatalogConfig(createDbClient(opts.env.DB))
+			? await getModelCatalogConfig(
+					(await import("@tedix/db/client")).createDbClient(opts.env.DB),
+				)
 			: undefined);
 	const ref =
 		opts.modelRef ??

@@ -1,4 +1,3 @@
-import { createDbClient } from "@tedix/db/client";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
@@ -33,7 +32,7 @@ export async function readOwnedRuntimeWorkflow(input: {
 		!input.runId.startsWith(`${input.tediId}:`)
 	)
 		throw new Error("RUNTIME_WORKFLOW_OWNER_MISMATCH");
-	const db = createDbClient(input.env.DB);
+	const db = (await import("@tedix/db/client")).createDbClient(input.env.DB);
 	let owner;
 	try {
 		owner = await getTediByIdForOrganization(db, input.tediId, input.orgId);
