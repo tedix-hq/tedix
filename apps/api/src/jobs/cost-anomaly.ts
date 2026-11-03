@@ -227,6 +227,51 @@ export async function runCostAnomalyCheck(
 			);
 		}
 
+		// Direct Vertex (GCP-billed) spend — the same UTC-day window the
+		// dispatch gate enforces in skill-runtime and the CMS image workflow.
+		// A tripped cap is a platform incident: provider calls start refusing
+		// and the alert must reach the same digest as every other cost anomaly.
+		try {
+			const { getProviderSpendWindowTotals } =
+				await import("@tedix/db/queries/tedi-usage");
+			const {
+				evaluateVertexDailyBudget,
+				utcDayStartIso,
+				vertexBudgetExceededSignal,
+				VERTEX_DAILY_BUDGET_USD,
+				VERTEX_DAILY_REQUEST_CAP,
+				VERTEX_PROVIDER,
+			} = await import("@tedix/worker-kit/vertex-governance");
+			const vertex = await getProviderSpendWindowTotals(db, {
+				provider: VERTEX_PROVIDER,
+				since: utcDayStartIso(),
+			});
+			checked++;
+			const verdict = evaluateVertexDailyBudget(vertex);
+			const thresholdRatio = Math.max(
+				vertex.knownCostUsd / VERTEX_DAILY_BUDGET_USD,
+				vertex.callCount / VERTEX_DAILY_REQUEST_CAP,
+			);
+			if (!verdict.allowed || thresholdRatio >= 0.5) {
+				warnings++;
+				anomalies.push({
+					scope: "platform",
+					label: "Direct Vertex (GCP) vs daily cap",
+					daily_usd: vertex.knownCostUsd,
+					sevenDayAvgDailyUsd: VERTEX_DAILY_BUDGET_USD,
+					anomaly_score: verdict.allowed ? 0.5 : 1,
+					daily_calls: vertex.callCount,
+				});
+				console.warn(
+					vertexBudgetExceededSignal("cost-anomaly", verdict, {
+						kind: verdict.allowed ? "vertex.budget.near_cap" : undefined,
+					}),
+				);
+			}
+		} catch (vertexErr) {
+			console.warn("[Scheduled] Direct Vertex budget check failed:", vertexErr);
+		}
+
 		// Best-effort digest alert: one dispatch per run (never per-tedi
 		// flood) when anomalies fired. Delivered via the shared multi-channel
 		// egress — each channel self-gates (empty COST_ALERT_EMAIL /

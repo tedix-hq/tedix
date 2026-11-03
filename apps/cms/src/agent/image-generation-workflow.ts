@@ -4,6 +4,25 @@ import {
 	type WorkflowEvent,
 	type WorkflowStep,
 } from "cloudflare:workers";
+import { createDbClient } from "@tedix/db/client";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
+import {
+	buildVertexCallCostRow,
+	getProviderSpendWindowTotals,
+	insertCallCosts,
+} from "@tedix/db/queries/tedi-usage";
+import { resolveDirectProviderUsagePrice } from "@tedix/db/queries/billing/provider-model-rates";
+import {
+	assertVertexBudgetAllowed,
+	assertVertexRequestSize,
+	evaluateVertexDailyBudget,
+	utcDayStartIso,
+	vertexBudgetExceededSignal,
+	vertexUsageTokens,
+	VERTEX_DEPLOYMENT_SCOPE,
+	VERTEX_PROVIDER,
+} from "@tedix/worker-kit/vertex-governance";
 import type { AppBindings } from "../types";
 import { mediaUpload } from "./cms-proxy-media";
 import { type CmsProxyContext } from "./cms-proxy-runtime";
@@ -105,6 +124,11 @@ type GeminiImageResponse = {
 			}>;
 		};
 	}>;
+	usageMetadata?: {
+		promptTokenCount?: number;
+		candidatesTokenCount?: number;
+		totalTokenCount?: number;
+	};
 	error?: { message?: string };
 };
 
@@ -496,17 +520,121 @@ function buildPrompt(
 		.join("\n");
 }
 
+/**
+ * Daily platform Vertex budget gate shared with the skill-runtime proxy.
+ * Throws `VertexGovernanceError` (429) when the recorded window trips, failing
+ * the job phase with the refusal as its message.
+ */
+async function assertCmsVertexDailyBudget(db: D1Database): Promise<void> {
+	const totals = await getProviderSpendWindowTotals(createDbClient(db), {
+		provider: VERTEX_PROVIDER,
+		since: utcDayStartIso(),
+	});
+	const verdict = evaluateVertexDailyBudget(totals);
+	if (!verdict.allowed) {
+		console.error(vertexBudgetExceededSignal("cms-image", verdict));
+	}
+	assertVertexBudgetAllowed(verdict);
+}
+
+/** Ledger row for one CMS image-generation call; degrades, never throws. */
+async function recordCmsVertexImageCall(
+	db: D1Database,
+	input: {
+		orgSlug: string;
+		jobId: string;
+		model: string;
+		success: boolean;
+		callDurationMs: number;
+		usageMetadata?: GeminiImageResponse["usageMetadata"];
+	},
+): Promise<void> {
+	try {
+		const organization = await getOrganizationBySlug(
+			createDbClient(db),
+			input.orgSlug,
+		).catch(() => undefined);
+		const tokens = vertexUsageTokens(input.usageMetadata);
+		let priced: { costUsd: number; rateVersionId: string } | null = null;
+		let costReason: string | null = null;
+		if (
+			input.success &&
+			typeof tokens.inputTokens === "number" &&
+			typeof tokens.outputTokens === "number"
+		) {
+			const resolved = await resolveDirectProviderUsagePrice(
+				createDbQueryClient(db),
+				{
+					provider: VERTEX_PROVIDER,
+					modelId: input.model,
+					deploymentScope: VERTEX_DEPLOYMENT_SCOPE,
+					occurredAt: new Date().toISOString(),
+				},
+				{
+					inputTokens: tokens.inputTokens,
+					outputTokens: tokens.outputTokens,
+					cacheReadTokens: 0,
+					cacheWriteTokens: 0,
+				},
+			);
+			if (resolved.costUsd !== null && resolved.rateVersionId) {
+				priced = {
+					costUsd: resolved.costUsd,
+					rateVersionId: resolved.rateVersionId,
+				};
+			}
+			costReason = resolved.reason;
+		}
+		await insertCallCosts(createDbClient(db), [
+			buildVertexCallCostRow({
+				orgId: organization?.id ?? null,
+				source: "vertex-direct:cms-image",
+				model: input.model,
+				providerBaseUrl: "https://aiplatform.googleapis.com",
+				gatewayLogId: `vertex-direct:cms-image:${input.jobId}:${crypto.randomUUID()}`,
+				success: input.success,
+				callDurationMs: input.callDurationMs,
+				tokens,
+				usageKind: "image_generation",
+				usageUnit: "images",
+				usageQuantity: 1,
+				priced,
+				costReason,
+			}),
+		]);
+	} catch (error) {
+		// Ledger evidence must degrade, never fail the tenant's generation.
+		console.warn("vertex-direct ledger write failed", error);
+	}
+}
+
 async function generateGeminiImage(
 	apiKey: string,
 	model: string,
 	prompt: string,
 	aspectRatio: string,
-): Promise<{ mimeType: string; dataBase64: string }> {
+): Promise<{
+	mimeType: string;
+	dataBase64: string;
+	usageMetadata?: GeminiImageResponse["usageMetadata"];
+}> {
 	// Vertex AI express endpoint (aiplatform), not AI Studio (generativelanguage).
 	// AI Studio uses a separate prepay credit pool that 403/429s when empty and
 	// that Cloud/startup credits cannot fund; Vertex on-demand bills to the GCP
 	// project's Cloud billing account (startup-credit eligible). Same model id
 	// works on both. Vertex requires contents[].role and the key as a header.
+	// This direct path is platform-governed (@tedix/worker-kit/vertex-governance):
+	// budget-gated before dispatch, size-capped, and recorded in the per-org
+	// `tedi_call_costs` ledger. It may only be removed after image and
+	// dynamic-skill parity through a governed gateway route is proven.
+	const body = JSON.stringify({
+		contents: [{ role: "user", parts: [{ text: prompt }] }],
+		generationConfig: {
+			responseModalities: ["IMAGE"],
+			imageConfig: { aspectRatio },
+		},
+	});
+	assertVertexRequestSize(new TextEncoder().encode(body).byteLength);
 	const resp = await fetch(
 		`https://aiplatform.googleapis.com/v1/publishers/google/models/${model}:generateContent`,
 		{
@@ -515,13 +643,7 @@ async function generateGeminiImage(
 				"Content-Type": "application/json",
 				"x-goog-api-key": apiKey,
 			},
-			body: JSON.stringify({
-				contents: [{ role: "user", parts: [{ text: prompt }] }],
-				generationConfig: {
-					responseModalities: ["IMAGE"],
-					imageConfig: { aspectRatio },
-				},
-			}),
+			body,
 		},
 	);
 
@@ -547,6 +669,7 @@ async function generateGeminiImage(
 	return {
 		mimeType: inline.mimeType ?? "image/png",
 		dataBase64: inline.data,
+		usageMetadata: json.usageMetadata,
 	};
 }
 
@@ -598,12 +721,34 @@ export class ImageGenerationWorkflow extends WorkflowEntrypoint<
 				{ retries: { limit: 1, delay: "5 seconds" }, timeout: "2 minutes" },
 				async () => {
 					await requireUnrestrictedCmsModels(this.env.DB, params.orgSlug);
-					return generateGeminiImage(
-						this.env.GEMINI_API_KEY,
-						model,
-						prompt,
-						apiAspectRatio,
-					);
+					await assertCmsVertexDailyBudget(this.env.DB);
+					const startedAt = Date.now();
+					try {
+						const result = await generateGeminiImage(
+							this.env.GEMINI_API_KEY,
+							model,
+							prompt,
+							apiAspectRatio,
+						);
+						await recordCmsVertexImageCall(this.env.DB, {
+							orgSlug: params.orgSlug,
+							jobId,
+							model,
+							success: true,
+							callDurationMs: Date.now() - startedAt,
+							usageMetadata: result.usageMetadata,
+						});
+						return result;
+					} catch (error) {
+						await recordCmsVertexImageCall(this.env.DB, {
+							orgSlug: params.orgSlug,
+							jobId,
+							model,
+							success: false,
+							callDurationMs: Date.now() - startedAt,
+						});
+						throw error;
+					}
 				},
 			);
 			const bytes = base64ToBytes(generated.dataBase64);

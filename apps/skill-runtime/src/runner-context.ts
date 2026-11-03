@@ -152,6 +152,9 @@ export interface SkillRuntimeExportFactories {
 			googleServiceAccountKey?: string | null;
 			organizationId?: string | null;
 			vertexVideoEndpoint?: string | null;
+			tediId?: string | null;
+			runId?: string | null;
+			workItemId?: string | null;
 		};
 	}): Fetcher;
 }

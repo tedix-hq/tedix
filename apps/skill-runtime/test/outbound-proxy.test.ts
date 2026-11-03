@@ -216,6 +216,29 @@ describe("OutboundProxy.fetch", () => {
 		expect(calls).toHaveLength(0);
 	});
 
+	it("refuses an oversized Vertex request body before dispatch (413)", async () => {
+		const response = await proxy().fetch(
+			new Request(
+				"https://aiplatform.googleapis.com/v1/models/m:generateContent",
+				{ method: "POST", body: "x".repeat(26_000_000) },
+			),
+		);
+		expect(response.status).toBe(413);
+		expect(calls).toHaveLength(0);
+	});
+
+	it("still forwards a bounded Vertex body through the governed path", async () => {
+		const response = await proxy().fetch(
+			new Request(
+				"https://aiplatform.googleapis.com/v1/models/m:generateContent",
+				{ method: "POST", body: JSON.stringify({ contents: [] }) },
+			),
+		);
+		expect(await response.text()).toBe("ok");
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.headers.get("x-goog-api-key")).toBe(SECRET);
+	});
+
 	describe("secrets in thrown errors", () => {
 		it("a malformed service-account key does not echo its content", async () => {
 			const bad = `{"private_key":"${SECRET}" nope`;

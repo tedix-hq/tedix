@@ -261,6 +261,10 @@ export function loadSkillRuntime(
 							googleServiceAccountKey: env.GOOGLE_SERVICE_ACCOUNT_KEY ?? null,
 							organizationId: input.orgId,
 							vertexVideoEndpoint: env.VERTEX_VIDEO_ENDPOINT ?? null,
+							// Per-tedi attribution for the governed Vertex ledger.
+							tediId: input.tediId,
+							runId: input.runId,
+							workItemId: input.workItemId ?? null,
 						},
 					})
 				: null,
