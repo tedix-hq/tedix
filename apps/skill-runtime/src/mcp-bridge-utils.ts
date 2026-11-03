@@ -113,6 +113,30 @@ export interface McpTarget {
 	toolName: string;
 }
 
+/**
+ * Code Mode namespaces to try on a mapped app's own `code` endpoint, in order.
+ *
+ * A `<provider>-tedix` install wraps the provider app and serves its own Code
+ * Mode under the provider name (`github-tedix` serves `github.*`), while a
+ * skill may declare the slug-derived alias (`github_tedix`) that only the
+ * organization gateway mounts. Try the declared namespace first, then the
+ * install's provider namespace: the call still targets the same app and
+ * method — only the sandbox binding changes — so the alias never reaches a
+ * different app. Other slugs expose no derivable inner namespace.
+ */
+export function codeModeAppNamespaces(
+	declaredNamespace: string,
+	mappedSlug: string | undefined,
+): string[] {
+	if (!mappedSlug?.endsWith("-tedix")) return [declaredNamespace];
+	const install = mappedSlug
+		.slice(0, -"-tedix".length)
+		.replace(/[^a-zA-Z0-9_]/g, "_");
+	return install && install !== declaredNamespace
+		? [declaredNamespace, install]
+		: [declaredNamespace];
+}
+
 const CODE_MODE_IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 interface JsonRpcRequestBody {

@@ -596,8 +596,9 @@ test("a tool that answered earlier in the run reports the direct failure, not a 
 });
 
 test("a mapped wrapper without the skill's namespace falls through to the organization gateway", async () => {
-	// `github-tedix` is a Code Mode wrapper serving `github.*`; the org gateway
-	// mounts the wrapper itself as `github_tedix`. A skill declaring
+	// `github-tedix` is a Code Mode wrapper; the org gateway mounts it as
+	// `github_tedix`. When the wrapper's own `code` endpoint binds neither the
+	// declared alias nor the install namespace, a skill declaring
 	// `github_tedix` must reach the gateway, not stop at the wrapper's miss.
 	const calls: string[] = [];
 	const wrapperEnv = {
@@ -607,7 +608,7 @@ test("a mapped wrapper without the skill's namespace falls through to the organi
 				const body = (await request.json()) as {
 					id: string;
 					method: string;
-					params?: { name?: string };
+					params?: { name?: string; arguments?: { code?: string } };
 				};
 				const host = new URL(request.url).hostname;
 				calls.push(`${host} ${body.method} ${body.params?.name ?? ""}`);
@@ -623,14 +624,22 @@ test("a mapped wrapper without the skill's namespace falls through to the organi
 						id: body.id,
 						error: { code: -32601, message: "Method not found" },
 					});
-				const text = host.startsWith("github-tedix.")
-					? "Execution error: github_tedix is not defined"
+				const code = body.params?.arguments?.code ?? "";
+				const missing = !host.startsWith("github-tedix.")
+					? null
+					: code.includes("github_tedix.")
+						? "github_tedix"
+						: code.includes("github.")
+							? "github"
+							: null;
+				const text = missing
+					? `Execution error: ${missing} is not defined`
 					: '{"commits":1}';
 				return Response.json({
 					jsonrpc: "2.0",
 					id: body.id,
 					result: {
-						isError: host.startsWith("github-tedix."),
+						isError: missing !== null,
 						content: [{ type: "text", text }],
 					},
 				});
@@ -658,8 +667,91 @@ test("a mapped wrapper without the skill's namespace falls through to the organi
 		"github-tedix.mcp.tedix.dev tools/call list_commits",
 		"github-tedix.mcp.tedix.dev tools/list ",
 		"github-tedix.mcp.tedix.dev tools/call code",
+		"github-tedix.mcp.tedix.dev tools/call code",
 		"tedix-unified.mcp.tedix.dev tools/call code",
 	]);
+});
+
+test("a slug-alias declaration reaches the install's own Code Mode namespace before the gateway", async () => {
+	// `github-tedix` serves `github.*` on its own `code` endpoint. A skill
+	// declaring the slug-derived `github_tedix` alias still reaches the
+	// install even when the organization gateway mounts no such namespace.
+	const calls: string[] = [];
+	const wrapperEnv = {
+		MCP_SERVICE: {
+			fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+				const request = new Request(input, init);
+				const body = (await request.json()) as {
+					id: string;
+					method: string;
+					params?: { name?: string; arguments?: { code?: string } };
+				};
+				const host = new URL(request.url).hostname;
+				const code = body.params?.arguments?.code ?? "";
+				calls.push(`${host} ${body.method} ${body.params?.name ?? ""} ${code}`);
+				if (body.method === "tools/list")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						result: { tools: [{ name: "code" }] },
+					});
+				if (body.params?.name !== "code")
+					return Response.json({
+						jsonrpc: "2.0",
+						id: body.id,
+						error: { code: -32601, message: "Method not found" },
+					});
+				const missing = code.includes("github_tedix.")
+					? "github_tedix"
+					: code.includes("github.")
+						? null
+						: "unexpected";
+				return Response.json({
+					jsonrpc: "2.0",
+					id: body.id,
+					result: {
+						isError: missing !== null,
+						content: [
+							{
+								type: "text",
+								text: missing
+									? `Execution error: ${missing} is not defined`
+									: '{"commits":1}',
+							},
+						],
+					},
+				});
+			},
+		},
+	} as unknown as Parameters<typeof callMcpTool>[0];
+
+	const result = await callMcpTool(
+		wrapperEnv,
+		{
+			...props,
+			manifest: { ...manifest, mcp: { github_tedix: ["list_commits"] } },
+			namespaceToSlug: { github_tedix: "github-tedix" },
+		},
+		{
+			namespace: "github_tedix",
+			method: "list_commits",
+			args: {},
+			workflow,
+		},
+	);
+
+	assert.deepEqual(result, { __tedixMcpResult: true, value: { commits: 1 } });
+	assert.deepEqual(
+		calls.map((call) => `${call.split(" ")[0]} ${call.split(" ")[1]}`),
+		[
+			"github-tedix.mcp.tedix.dev tools/call",
+			"github-tedix.mcp.tedix.dev tools/list",
+			"github-tedix.mcp.tedix.dev tools/call",
+			"github-tedix.mcp.tedix.dev tools/call",
+		],
+	);
+	assert.ok(calls.some((call) => call.includes("github.list_commits")));
+	assert.ok(!calls.some((call) => call.includes("tedix-unified")));
 });
 
 test("an unrelated Code Mode failure keeps its original error", async () => {

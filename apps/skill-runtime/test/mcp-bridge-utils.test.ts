@@ -7,6 +7,7 @@ import {
 import {
 	buildCodeModeCallSource,
 	buildModernMcpBridgeRequest,
+	codeModeAppNamespaces,
 	extractPendingTediTaskId,
 	injectWorkflowWorkItemMeta,
 	injectWorkflowToolIdentity,
@@ -317,6 +318,24 @@ assert.deepEqual(
 	),
 	{ slug: "promptwatch-tedix", toolName: "get_site_health" },
 );
+
+// A `<provider>-tedix` install serves its own Code Mode under the provider
+// name, so a skill's slug-alias declaration gets the install namespace as a
+// second candidate on the app's own `code` endpoint. Other slugs add nothing.
+assert.deepEqual(codeModeAppNamespaces("github_tedix", "github-tedix"), [
+	"github_tedix",
+	"github",
+]);
+assert.deepEqual(codeModeAppNamespaces("github", "github-tedix"), ["github"]);
+assert.deepEqual(codeModeAppNamespaces("notion_tedix", "notion-tedix"), [
+	"notion_tedix",
+	"notion",
+]);
+assert.deepEqual(
+	codeModeAppNamespaces("planetscale_acme", "planetscale-acme"),
+	["planetscale_acme"],
+);
+assert.deepEqual(codeModeAppNamespaces("home", undefined), ["home"]);
 
 // Code-mode-only apps must be visible to apps/mcp's targeted aggregate
 // hydration before the generated program executes. Its extractor recognizes
