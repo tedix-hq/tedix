@@ -102,13 +102,15 @@ async function mount(value = attempt()) {
 	);
 }
 async function click(label: string) {
-	const button = [...host.querySelectorAll("button")].find((element) =>
-		element.textContent?.includes(label),
-	);
-	expect(button).toBeTruthy();
+	const button = await vi.waitFor(() => {
+		const element = [...host.querySelectorAll("button")].find((candidate) =>
+			candidate.textContent?.includes(label),
+		);
+		expect(element).toBeTruthy();
+		return element!;
+	});
 	await act(async () => {
-		button!.click();
-		await new Promise((resolve) => setTimeout(resolve, 20));
+		button.click();
 	});
 }
 afterEach(async () => {
@@ -120,6 +122,56 @@ afterEach(async () => {
 	mocks.authority.role = "owner";
 });
 describe("retained repository result", () => {
+	it("waits for deferred repository and comparison results before using them", async () => {
+		const tree = Promise.withResolvers<unknown>();
+		const comparison = Promise.withResolvers<unknown>();
+		mocks.read.mockImplementation((input) =>
+			input.operation === "compare" ? comparison.promise : tree.promise,
+		);
+		await mount();
+		expect(mocks.read).not.toHaveBeenCalled();
+		await click("Review repository result");
+		expect(host.textContent).toContain("Loading repository result");
+		let clicked = false;
+		const selected = click("file.ts").then(
+			() => {
+				clicked = true;
+				return null;
+			},
+			(error) => error,
+		);
+		await Promise.resolve();
+		expect(clicked).toBe(false);
+		await act(async () =>
+			tree.resolve({
+				entries: [
+					{ name: "file.ts", type: "blob", hash: head, change: "modified" },
+				],
+				commits: [],
+				truncated: false,
+				nextOffset: null,
+			}),
+		);
+		expect(await selected).toBeNull();
+		expect(mocks.read).toHaveBeenCalledWith(
+			expect.objectContaining({
+				expectedHeadRevision: head,
+				operation: "compare",
+				path: "file.ts",
+			}),
+		);
+		expect(host.textContent).toContain("Loading comparison");
+		await act(async () =>
+			comparison.resolve({
+				base: { status: "text", text: "deferred before", bytes: 15 },
+				head: { status: "text", text: "deferred after", bytes: 14 },
+			}),
+		);
+		await vi.waitFor(() => {
+			expect(host.textContent).toContain("deferred before");
+			expect(host.textContent).toContain("deferred after");
+		});
+	});
 	it("loads only on request and compares pinned content after an Attempt finishes", async () => {
 		mocks.read.mockImplementation(async (input) => ({
 			...input,
@@ -147,8 +199,10 @@ describe("retained repository result", () => {
 				path: "file.ts",
 			}),
 		);
-		expect(host.textContent).toContain("before");
-		expect(host.textContent).toContain("after");
+		await vi.waitFor(() => {
+			expect(host.textContent).toContain("before");
+			expect(host.textContent).toContain("after");
+		});
 	});
 	it("uses only the active snapshot browser before settlement", async () => {
 		const value = attempt();
