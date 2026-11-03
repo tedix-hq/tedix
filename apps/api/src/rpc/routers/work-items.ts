@@ -72,6 +72,7 @@ import {
 	updateCaseProcedure,
 } from "./work-items/cases";
 import { inspectAttemptRepositoryProcedure } from "./work-items/workstation-inspection";
+import { readAttemptRepositoryProcedure } from "./work-items/repository-read";
 import { reviewAttemptRepositoryProcedure } from "./work-items/repository-review";
 import { recordDelegationAutonomyFeedbackProcedure } from "./work-items/delegation-autonomy";
 
@@ -127,6 +128,7 @@ export const workItemsContractRouter = workItemsOs.router({
 	settleAttempt: settleAttemptProcedure,
 	listAttempts: listAttemptsProcedure,
 	inspectAttemptRepository: inspectAttemptRepositoryProcedure,
+	readAttemptRepository: readAttemptRepositoryProcedure,
 	reviewAttemptRepository: reviewAttemptRepositoryProcedure,
 	submitEvidence: submitEvidenceProcedure,
 	listEvidence: listEvidenceProcedure,

@@ -65,6 +65,8 @@ import {
 	WorkAttemptRepositoryRequestSchema,
 	WorkAttemptRepositorySchema,
 	WorkAttemptRepositoryLifecycleSchema,
+	WorkAttemptRepositoryReadRequestSchema,
+	WorkAttemptRepositoryReadResultSchema,
 	WorkRepositoryReviewInputSchema,
 	WorkRepositoryReviewResultSchema,
 	WorkAdmissionRejectionSchema,
@@ -1239,6 +1241,19 @@ export const workItemsContract = oc
 				),
 			)
 			.output(RepositoryInspectionResultSchema),
+
+		readAttemptRepository: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/read",
+				summary: "Read the immutable Artifacts repository bound to an Attempt",
+			})
+			.input(
+				WorkAttemptRepositoryReadRequestSchema.and(
+					z.object({ id: z.uuid(), attemptId: z.uuid() }),
+				),
+			)
+			.output(WorkAttemptRepositoryReadResultSchema),
 
 		submitEvidence: oc
 			.route({

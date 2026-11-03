@@ -83,6 +83,10 @@ import {
 } from "@/lib/project-target-date";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
 import { WorkRepositoryReview } from "@/components/work-repository-review";
+import {
+	readyAttemptRepository,
+	WorkAttemptRepositoryPanel,
+} from "@/components/work-attempt-repository-panel";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
 	osQuery,
@@ -236,6 +240,10 @@ export function WorkItemReadOnlyLedgers({
 										attemptId={attempt.id}
 									/>
 								) : null}
+								<AttemptRepositoryReview
+									workItemId={workItemId}
+									attempt={attempt}
+								/>
 								{attempt.finishedAt && attempt.metadata?.repository ? (
 									<WorkRepositoryReview
 										workItemId={workItemId}
@@ -332,6 +340,23 @@ export function WorkItemReadOnlyLedgers({
 			</SectionCollection>
 		</>
 	);
+}
+
+function AttemptRepositoryReview({
+	workItemId,
+	attempt,
+}: {
+	workItemId: string;
+	attempt: { id: string; metadata?: Record<string, unknown> };
+}) {
+	const repository = readyAttemptRepository(attempt.metadata);
+	return repository ? (
+		<WorkAttemptRepositoryPanel
+			workItemId={workItemId}
+			attemptId={attempt.id}
+			repository={repository}
+		/>
+	) : null;
 }
 
 export function evidenceTrustLabel(reference: {

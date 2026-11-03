@@ -1,10 +1,17 @@
 import {
 	WorkAttemptRepositorySchema,
 	type WorkAttemptRepository,
+	type WorkAttemptRepositoryReadRequest,
+	type WorkAttemptRepositoryReadResult,
 	type WorkAttemptRepositoryRequest,
 } from "@tedix/api-contract/schemas/work-items";
 
 type RepositoryHandle = Pick<ArtifactsRepo, "info" | "log" | "fork"> &
+	Partial<Disposable>;
+type RepositoryReadHandle = Pick<
+	ArtifactsRepo,
+	"info" | "log" | "readTree" | "readFile"
+> &
 	Partial<Disposable>;
 type ArtifactsBinding = Pick<Artifacts, "create" | "get">;
 
@@ -24,10 +31,23 @@ function repositoryName(params: ProvisionWorkAttemptRepositoryParams): string {
 	return `work-${params.workItemId.slice(0, 8)}-${params.attemptId}`.toLowerCase();
 }
 
+/**
+ * The provenance marker written into a Work Attempt repository's description.
+ * Reads verify it again at use time so a persisted name can never reach a
+ * repository some other principal renamed or recreated.
+ */
+export function workAttemptRepositoryDescriptionPrefix(params: {
+	workItemId: string;
+	attemptId: string;
+	admissionId: string;
+}): string {
+	return `tedix-work:${params.workItemId};attempt:${params.attemptId};admission:${params.admissionId}`;
+}
+
 function descriptionPrefix(
 	params: ProvisionWorkAttemptRepositoryParams,
 ): string {
-	return `tedix-work:${params.workItemId};attempt:${params.attemptId};admission:${params.admissionId}`;
+	return workAttemptRepositoryDescriptionPrefix(params);
 }
 
 function unavailable(
@@ -103,7 +123,7 @@ function artifactErrorCode(error: unknown): string | null {
 		: null;
 }
 
-function dispose(repository: RepositoryHandle): void {
+function dispose(repository: Partial<Disposable>): void {
 	try {
 		repository[Symbol.dispose]?.();
 	} catch {
@@ -237,5 +257,199 @@ export async function provisionWorkAttemptRepository(
 				? `Cloudflare Artifacts rejected repository provisioning (${code})`
 				: "Cloudflare Artifacts repository provisioning failed",
 		);
+	}
+}
+
+/** Bounded immutable reads keep a review response inside the oRPC budget. */
+const REPOSITORY_READ_FILE_BYTES = 512 * 1024;
+const REPOSITORY_READ_TREE_ENTRIES = 500;
+const BINARY_SNIFF_BYTES = 8_192;
+
+export class WorkAttemptRepositoryReadError extends Error {
+	readonly code: "unavailable" | "not_found";
+	constructor(code: "unavailable" | "not_found", message: string) {
+		super(message);
+		this.name = "WorkAttemptRepositoryReadError";
+		this.code = code;
+	}
+}
+
+export interface ReadWorkAttemptRepositoryParams {
+	artifacts: ArtifactsBinding | undefined;
+	repository: WorkAttemptRepository;
+	request: WorkAttemptRepositoryReadRequest;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+	let binary = "";
+	for (let offset = 0; offset < bytes.length; offset += 0x8000)
+		binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+	return btoa(binary);
+}
+
+function toCommitResult(commit: ArtifactsCommitMetadata) {
+	return {
+		hash: commit.hash,
+		treeHash: commit.treeHash,
+		message: commit.message,
+		author: { name: commit.author.name, email: commit.author.email },
+		parents: commit.parents,
+		committedAt: new Date(commit.committedAt * 1000).toISOString(),
+	};
+}
+
+async function resolveRevision(
+	repo: RepositoryReadHandle,
+	ref: string,
+): Promise<ArtifactsCommitMetadata | null> {
+	const [head] = await repo.log({ ref, limit: 1 });
+	return head ?? null;
+}
+
+async function readDirectory(
+	repo: RepositoryReadHandle,
+	treeHash: string,
+	segments: string[],
+): Promise<ArtifactsTreeEntry[] | null> {
+	let current = treeHash;
+	for (const segment of segments) {
+		const entries = await repo.readTree(current);
+		const entry = entries?.find((candidate) => candidate.name === segment);
+		if (!entry || entry.type !== "tree") return null;
+		current = entry.hash;
+	}
+	return repo.readTree(current);
+}
+
+/**
+ * Read commit history, a directory tree, or one file from the immutable
+ * Artifacts repository bound to an Attempt. The persisted provenance record
+ * is verified against the live repository description before any object is
+ * returned, so a caller can only ever reach the repo this Attempt recorded.
+ */
+export async function readWorkAttemptRepository(
+	params: ReadWorkAttemptRepositoryParams,
+): Promise<WorkAttemptRepositoryReadResult> {
+	const { artifacts, repository, request } = params;
+	if (!artifacts) {
+		throw new WorkAttemptRepositoryReadError(
+			"unavailable",
+			"Cloudflare Artifacts binding is unavailable",
+		);
+	}
+	if (repository.status !== "ready" || !repository.repositoryId) {
+		throw new WorkAttemptRepositoryReadError(
+			"not_found",
+			"Attempt has no ready Artifacts repository",
+		);
+	}
+	let repo: RepositoryReadHandle;
+	try {
+		repo = await artifacts.get(repository.repositoryName);
+	} catch (error) {
+		const code = artifactErrorCode(error);
+		throw new WorkAttemptRepositoryReadError(
+			code === "NOT_FOUND" ? "not_found" : "unavailable",
+			code === "NOT_FOUND"
+				? "The recorded Artifacts repository no longer exists"
+				: `Cloudflare Artifacts rejected the repository lookup (${code ?? "unexpected"})`,
+		);
+	}
+	try {
+		const info = await repo.info();
+		if (
+			info.name !== repository.repositoryName ||
+			!info.description?.startsWith(
+				workAttemptRepositoryDescriptionPrefix(repository),
+			)
+		) {
+			throw new WorkAttemptRepositoryReadError(
+				"not_found",
+				"The recorded repository name resolves to different provenance",
+			);
+		}
+		const ref =
+			"ref" in request && request.ref ? request.ref : info.defaultBranch;
+		const head = await resolveRevision(repo, ref);
+		const resolvedRevision = head?.hash ?? null;
+		if (request.operation === "log") {
+			const commits = head
+				? await repo.log({
+						ref,
+						limit: request.limit,
+						offset: request.offset,
+					})
+				: [];
+			return {
+				operation: "log",
+				repository,
+				resolvedRevision,
+				commits: commits.map(toCommitResult),
+			};
+		}
+		if (request.operation === "tree") {
+			const path = request.path ?? "";
+			const entries = head
+				? await readDirectory(repo, head.treeHash, path ? path.split("/") : [])
+				: null;
+			return {
+				operation: "tree",
+				repository,
+				resolvedRevision,
+				path,
+				exists: entries !== null,
+				entries: (entries ?? [])
+					.slice(0, REPOSITORY_READ_TREE_ENTRIES)
+					.map((entry) => ({
+						name: entry.name,
+						path: path ? `${path}/${entry.name}` : entry.name,
+						mode: entry.mode,
+						hash: entry.hash,
+						type: entry.type,
+					})),
+				truncated: (entries?.length ?? 0) > REPOSITORY_READ_TREE_ENTRIES,
+			};
+		}
+		const blob = head ? await repo.readFile({ ref, path: request.path }) : null;
+		if (!blob) {
+			return {
+				operation: "file",
+				repository,
+				resolvedRevision,
+				path: request.path,
+				exists: false,
+				size: null,
+				mediaType: null,
+				binary: false,
+				dataBase64: null,
+				truncated: false,
+			};
+		}
+		const bytes = new Uint8Array(
+			await blob.slice(0, REPOSITORY_READ_FILE_BYTES).arrayBuffer(),
+		);
+		return {
+			operation: "file",
+			repository,
+			resolvedRevision,
+			path: request.path,
+			exists: true,
+			size: blob.size,
+			mediaType: blob.type || null,
+			binary: bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0),
+			dataBase64: bytesToBase64(bytes),
+			truncated: blob.size > REPOSITORY_READ_FILE_BYTES,
+		};
+	} catch (error) {
+		if (error instanceof WorkAttemptRepositoryReadError) throw error;
+		const code = artifactErrorCode(error);
+		throw new WorkAttemptRepositoryReadError(
+			"unavailable",
+			code
+				? `Cloudflare Artifacts rejected the repository read (${code})`
+				: "Cloudflare Artifacts repository read failed",
+		);
+	} finally {
+		dispose(repo);
 	}
 }

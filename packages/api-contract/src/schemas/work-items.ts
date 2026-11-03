@@ -548,6 +548,170 @@ export type WorkAttemptRepositoryLifecycle = z.infer<
 	typeof WorkAttemptRepositoryLifecycleSchema
 >;
 
+/**
+ * A Git ref a reviewer may pin: an exact commit hash or a branch/tag/HEAD
+ * name. Range (`..`) and reflog (`@{`) syntax is rejected because the
+ * Artifacts binding resolves a single branch, tag, or commit.
+ */
+export const WorkAttemptRepositoryRefSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(300)
+	.regex(
+		/^(?![-.])(?!.*\.\.)(?!.*@\{)[A-Za-z0-9._/-]+$/,
+		"Not a resolvable Git ref",
+	);
+
+/** A clean repository-relative path; absolute, empty and `..` segments fail. */
+export const WorkAttemptRepositoryPathSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(4_096)
+	.refine(
+		(path) =>
+			!path.startsWith("/") &&
+			!path.includes("\0") &&
+			!path.split("/").some((segment) => segment === "" || segment === ".."),
+		{ message: "Path must be a clean repository-relative path" },
+	);
+
+/**
+ * One immutable read against an Attempt's Artifacts repository. `ref` defaults
+ * to the repository's default branch; pinned reviews pass an exact commit.
+ */
+export const WorkAttemptRepositoryReadRequestSchema = z.discriminatedUnion(
+	"operation",
+	[
+		z
+			.object({
+				operation: z.literal("log"),
+				ref: WorkAttemptRepositoryRefSchema.optional(),
+				limit: z.number().int().min(1).max(100).default(20),
+				offset: z.number().int().min(0).max(10_000).default(0),
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("tree"),
+				ref: WorkAttemptRepositoryRefSchema.optional(),
+				path: WorkAttemptRepositoryPathSchema.optional().describe(
+					"Directory path within the ref; omitted reads the root tree.",
+				),
+			})
+			.strict(),
+		z
+			.object({
+				operation: z.literal("file"),
+				ref: WorkAttemptRepositoryRefSchema.optional(),
+				path: WorkAttemptRepositoryPathSchema,
+			})
+			.strict(),
+	],
+);
+export type WorkAttemptRepositoryReadRequest = z.infer<
+	typeof WorkAttemptRepositoryReadRequestSchema
+>;
+
+export const WorkAttemptRepositoryCommitSchema = z
+	.object({
+		hash: GitRevisionSchema,
+		treeHash: GitRevisionSchema,
+		message: z.string().max(16_384),
+		author: z
+			.object({
+				name: z.string().max(500),
+				email: z.string().max(500),
+			})
+			.strict(),
+		parents: z.array(GitRevisionSchema).max(64),
+		committedAt: z.iso.datetime(),
+	})
+	.strict();
+
+export const WorkAttemptRepositoryTreeEntrySchema = z
+	.object({
+		name: z.string().min(1).max(4_096),
+		path: z.string().min(1).max(4_096),
+		mode: z.string().min(1).max(16),
+		hash: GitRevisionSchema,
+		type: z.enum(["tree", "blob", "symlink", "gitlink", "exec"]),
+	})
+	.strict();
+
+const repositoryReadBase = {
+	repository: WorkAttemptRepositorySchema.describe(
+		"The persisted secret-free provenance this read resolved against.",
+	),
+	resolvedRevision: GitRevisionSchema.nullable().describe(
+		"The exact commit the request's ref resolved to; null when it did not resolve.",
+	),
+};
+
+/** Typed immutable repository read result, matched on `operation`. */
+export const WorkAttemptRepositoryReadResultSchema = z.discriminatedUnion(
+	"operation",
+	[
+		z
+			.object({
+				...repositoryReadBase,
+				operation: z.literal("log"),
+				commits: z
+					.array(WorkAttemptRepositoryCommitSchema)
+					.max(100)
+					.describe("First-parent history, newest first."),
+			})
+			.strict(),
+		z
+			.object({
+				...repositoryReadBase,
+				operation: z.literal("tree"),
+				path: z
+					.string()
+					.max(4_096)
+					.describe("Normalized directory path; empty at the root."),
+				exists: z
+					.boolean()
+					.describe(
+						"False when the ref or directory path did not resolve to a tree.",
+					),
+				entries: z.array(WorkAttemptRepositoryTreeEntrySchema).max(500),
+				truncated: z.boolean(),
+			})
+			.strict(),
+		z
+			.object({
+				...repositoryReadBase,
+				operation: z.literal("file"),
+				path: z.string().min(1).max(4_096),
+				exists: z
+					.boolean()
+					.describe("False when the ref or file path did not resolve."),
+				size: z
+					.number()
+					.int()
+					.nonnegative()
+					.nullable()
+					.describe("Full blob size in bytes; null when absent."),
+				mediaType: z.string().max(300).nullable(),
+				binary: z.boolean(),
+				dataBase64: z
+					.string()
+					.max(750_000)
+					.nullable()
+					.describe("Leading bytes of the blob; null when absent."),
+				truncated: z
+					.boolean()
+					.describe("True when the blob exceeds the returned byte cap."),
+			})
+			.strict(),
+	],
+);
+export type WorkAttemptRepositoryReadResult = z.infer<
+	typeof WorkAttemptRepositoryReadResultSchema
+>;
+
 export const WorkAttemptSchema = z.object({
 	id: z.uuid(),
 	orgId: z.uuid(),
