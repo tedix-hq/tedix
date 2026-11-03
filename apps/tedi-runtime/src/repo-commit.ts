@@ -266,7 +266,7 @@ export async function executeRepoCommitFromLedger(args: {
 	const revisionExpectation = parseRepoCommitLedgerRevisionExpectation(
 		row.changesJson,
 	);
-	if (!revisionExpectation)
+	if (!revisionExpectation?.exactTreeValidation)
 		return {
 			ok: false,
 			error: "A fresh exact-revision proposal is required",

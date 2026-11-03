@@ -2643,17 +2643,17 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	 * Run the repo gates over the paths a repo_commit is about to publish.
 	 *
 	 * A human push runs these through `.githooks/pre-push`; repo_commit
-	 * publishes over the GitHub API and never reaches that hook. One blocking
-	 * workstation exec closes the gap, in the checkout the paths were read from.
+	 * publishes over the GitHub API and never reaches that hook. A retained
+	 * native process checks an isolated tree with exactly the proposed changes.
 	 */
-	private async runRepoCommitGate(paths: string[]): Promise<{
-		ok: boolean;
-		ran: boolean;
-		output: string;
-	}> {
+	private async runRepoCommitGate(
+		input: import("./repo-commit-snapshot").RepoSnapshotInput,
+		turnContext: WorkstationTurnContext | null,
+	): Promise<import("./repo-commit-gate").RepoCommitGateVerdict> {
 		return runtimeWorkstation.runRepoCommitGate.call(
 			this.workstationHost(),
-			paths,
+			input,
+			turnContext,
 		);
 	}
 
@@ -2912,6 +2912,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				commit: (input) =>
 					this.repoCommitProposeTool(input, {
 						turnContext,
+						scope,
 						readRepoGit: computerRepositoryGitReader(
 							(argv) => computer.git.cli({ argv, cwd: "repo" }),
 							this.computerEnvironment(scope, null),
@@ -3030,6 +3031,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		},
 		computer: {
 			turnContext: WorkstationTurnContext | null;
+			scope?: ComputerWorkspaceScope;
 			workspace: Pick<ScopedComputerWorkspace["workspace"], "readFile">;
 			readRepoGit: (
 				argv: string[],

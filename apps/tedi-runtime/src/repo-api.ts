@@ -839,6 +839,12 @@ export async function commitRepoChanges({
 		token,
 	);
 	const newTreeSha = treeData.sha;
+	if (
+		revisionExpectation &&
+		newTreeSha !== revisionExpectation.exactTreeValidation?.resultTreeSha
+	) {
+		throw new RepoStaleRevisionError();
+	}
 
 	// 5. Create the commit
 	interface CommitCreateResponse {

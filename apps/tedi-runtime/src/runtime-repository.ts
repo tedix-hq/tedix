@@ -637,6 +637,7 @@ export const runtimeRepository = {
 		},
 		computer: {
 			turnContext: WorkstationTurnContext | null;
+			scope?: import("./computer-workspace-scope").ComputerWorkspaceScope;
 			workspace: Pick<ScopedComputerWorkspace["workspace"], "readFile">;
 			readRepoGit: (
 				argv: string[],
@@ -768,8 +769,17 @@ export const runtimeRepository = {
 
 			// The gate a human push gets. Refuse the proposal on a failure, and
 			// hand back the gate's own output as the reason.
-			const gate = await this.runRepoCommitGate(changes.map((c) => c.path));
-			if (!gate.ok)
+			const gate = await this.runRepoCommitGate(
+				{
+					owner,
+					repo,
+					baseSha: reviewedBaseSha,
+					changes,
+					sourceScope: computer.scope,
+				},
+				computer.turnContext,
+			);
+			if (!gate.ok || !gate.validation)
 				return {
 					ok: false,
 					error: "push_gate_failed",
@@ -804,6 +814,7 @@ export const runtimeRepository = {
 				};
 			}
 
+			revisionExpectation.exactTreeValidation = gate.validation;
 			const riskTier = classifyRepoCommitRisk({
 				baseRef,
 				branch: input.branch,

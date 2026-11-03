@@ -27,6 +27,10 @@ import {
 } from "./computer-execution-wake";
 import { ComputerWorkflowContinuation } from "./computer-workflow-continuation";
 import { type ComputerWorkspaceScope } from "./computer-workspace-scope";
+import {
+	computerWorkspaceScope,
+	OPERATOR_COMPUTER_SCOPE,
+} from "./computer-workspace-scope";
 import { ConversationFacet } from "./conversation-facet";
 import type { AgentTediDO } from "./do";
 import { isDuplicateWorkflowInstanceError } from "./durable-messages-send";
@@ -35,6 +39,13 @@ import {
 	buildRepoCommitGateCommand,
 	classifyRepoCommitGateResult,
 } from "./repo-commit-gate";
+import type { RepoCommitGateVerdict } from "./repo-commit-gate";
+import {
+	repoSnapshotManifest,
+	repoSnapshotCommand,
+	readRepoSnapshotResult,
+	type RepoSnapshotInput,
+} from "./repo-commit-snapshot";
 import { identityValue, unknownRecord } from "./runtime-facet-turns";
 import {
 	logTediRuntimeFailure,
@@ -42,7 +53,6 @@ import {
 } from "./runtime-failure-log";
 import {
 	cancelWorkstationProcess,
-	execWorkstation,
 	operateComputerFiles,
 	readWorkstationProcess,
 	readWorkstationStatus,
@@ -411,32 +421,124 @@ export const runtimeWorkstation = {
 	},
 	async runRepoCommitGate(
 		this: RuntimeWorkstationHost,
-		paths: string[],
-	): Promise<{
-		ok: boolean;
-		ran: boolean;
-		output: string;
-	}> {
-		const command = buildRepoCommitGateCommand(paths);
-		if (!command)
-			return { ok: false, ran: false, output: "unsafe or missing gate paths" };
-		await this.ensureIdentity();
-		const { tediId, orgId, slug } = this.state;
-		if (!tediId || !slug)
-			return { ok: false, ran: false, output: "tedi identity is not resolved" };
+		input: RepoSnapshotInput,
+		turnContext: WorkstationTurnContext | null,
+	): Promise<RepoCommitGateVerdict> {
 		try {
-			const result = await execWorkstation(
-				this.env as unknown as { ENVIRONMENT?: string; TEDI_SERVICE?: Fetcher },
-				{ orgId, slug, tediId },
-				withWorkstationTurnContext(
-					// The pre-push gate normally outlasts the workstation's 120s default.
-					{ command, timeoutMs: 300_000 },
-					await this.resolveWorkstationTurnBinding(null),
+			const manifest = await repoSnapshotManifest(input);
+			if (!buildRepoCommitGateCommand(manifest.files.map((f) => f.path)))
+				throw new Error("unsafe gate paths");
+			if (turnContext && (!turnContext.runId || !turnContext.conversationId))
+				throw new Error("Exact tree check has no captured computer scope");
+			let inferredScope: ComputerWorkspaceScope = OPERATOR_COMPUTER_SCOPE;
+			if (turnContext?.workItemId)
+				inferredScope = { kind: "delegated-run", key: turnContext.workItemId };
+			else if (turnContext?.sessionKey)
+				inferredScope = computerWorkspaceScope({
+					sessionKey: turnContext.sessionKey,
+				});
+			else if (
+				turnContext &&
+				turnContext.conversationId === `mcp-run:${turnContext.runId}`
+			)
+				inferredScope = {
+					kind: "conversation",
+					key: turnContext.conversationId,
+				};
+			else if (turnContext)
+				throw new Error("Exact tree check has no captured computer scope");
+			const scope = input.sourceScope ?? inferredScope;
+			if (
+				turnContext &&
+				(scope.kind !== inferredScope.kind || scope.key !== inferredScope.key)
+			)
+				throw new Error(
+					"Exact tree source scope does not match its captured turn",
+				);
+			const controller = this.computerEnvironment(scope, turnContext);
+			const selected = await controller.selected();
+			if (!selected || selected.preparation !== "repository")
+				throw new Error(
+					"Exact tree checks require the selected native repository",
+				);
+			const processId = `repo-check-${crypto.randomUUID()}`;
+			const selection = {
+				workstationId: selected.workstationId,
+				leaseId: selected.leaseId,
+			};
+			const start = unknownRecord(
+				await this.startWorkstationProcessTool(
+					{
+						...selection,
+						processId,
+						command: repoSnapshotCommand(manifest),
+						cwd: selected.cwd,
+						timeoutMs: 360_000,
+						kind: "tests",
+					},
+					turnContext,
 				),
 			);
-			return classifyRepoCommitGateResult(
-				(result ?? {}) as Record<string, unknown>,
+			if (start?.ok !== true || start.processId !== processId)
+				throw new Error("Exact tree process was not admitted");
+			const deadline = Date.now() + 365_000;
+			let result: Record<string, unknown> = {};
+			while (Date.now() < deadline) {
+				const response =
+					unknownRecord(
+						await this.waitWorkstationJobTool(
+							{
+								...selection,
+								jobId: processId,
+								timeoutMs: 30_000,
+								tailBytes: 65536,
+							},
+							turnContext,
+						),
+					) ?? {};
+				if (response.ok === false)
+					throw new Error("Exact tree process could not be observed");
+				result = unknownRecord(response.job) ?? response;
+				if (result.terminal === true) break;
+				if (result.ok === false)
+					throw new Error("Exact tree process could not be observed");
+			}
+			const verdict = classifyRepoCommitGateResult({
+				...result,
+				stdout: result.stdoutTail,
+				stderr: result.stderrTail,
+			});
+			if (
+				result.terminal !== true ||
+				result.timedOut ||
+				result.canceled ||
+				!verdict.ok
+			)
+				return { ...verdict, ok: false };
+			const receipt = readRepoSnapshotResult(
+				typeof result.stdoutTail === "string" ? result.stdoutTail : "",
+				manifest,
 			);
+			const evidence = unknownRecord(result.evidence);
+			const refs = result.artifactRefs ?? evidence?.artifactRefs;
+			const terminalEvidenceRef = Array.isArray(refs)
+				? refs.find(
+						(ref): ref is string =>
+							typeof ref === "string" &&
+							ref.startsWith("r2://") &&
+							ref.endsWith("/evidence.json"),
+					)
+				: undefined;
+			if (
+				!receipt ||
+				!terminalEvidenceRef ||
+				unknownRecord(result.artifactWriteStatus)?.status !== "persisted"
+			)
+				throw new Error("Exact tree terminal evidence is unavailable");
+			return {
+				...verdict,
+				validation: { ...receipt, processId, terminalEvidenceRef, exitCode: 0 },
+			};
 		} catch (error) {
 			return {
 				ok: false,

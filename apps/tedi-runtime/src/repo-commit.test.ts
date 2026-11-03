@@ -217,6 +217,16 @@ for (const branch of ["feat/add-widget", "fix/login-bug", "chore/cleanup"]) {
 
 // ── 3. executeRepoCommitFromLedger — mocked deps ──────────────────────────────
 
+const VALIDATION = {
+	version: "v1" as const,
+	baseSha: "a".repeat(40),
+	resultTreeSha: "b".repeat(40),
+	orderedChangesDigest: "c".repeat(64),
+	gateRecipeDigest: "d".repeat(64),
+	processId: "test-check",
+	terminalEvidenceRef: "r2://test/check/evidence.json",
+	exitCode: 0 as const,
+};
 const VALID_ROW: RepoCommitLedgerRow = {
 	id: "row-1",
 	owner: "acme",
@@ -226,7 +236,11 @@ const VALID_ROW: RepoCommitLedgerRow = {
 	message: "Add feature",
 	changesJson: JSON.stringify({
 		changes: [{ path: "src/foo.ts", content: "export const x = 1;" }],
-		revisionExpectation: { baseSha: "a".repeat(40), targetSha: null },
+		revisionExpectation: {
+			baseSha: "a".repeat(40),
+			targetSha: null,
+			exactTreeValidation: VALIDATION,
+		},
 	}),
 	openPr: false,
 	prBase: null,
@@ -608,7 +622,11 @@ console.log("✅ All repo-commit tests passed");
 			...target,
 			changesJson: JSON.stringify({
 				changes,
-				revisionExpectation: { baseSha: "a".repeat(40), targetSha: null },
+				revisionExpectation: {
+					baseSha: "a".repeat(40),
+					targetSha: null,
+					exactTreeValidation: VALIDATION,
+				},
 			}),
 		}),
 	) as RepoCommitLedgerRow;
