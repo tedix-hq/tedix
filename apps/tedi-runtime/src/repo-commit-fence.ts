@@ -40,10 +40,11 @@ import {
 } from "@tedix/api-contract/schemas/repo-commit-write";
 import type { DoSqlRunner } from "./brain-bridge-do";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { repoSnapshotManifest } from "./repo-commit-snapshot";
 
 /** Bump when the canonical fingerprint encoding changes. Declarations recorded
  * under an older version fail closed rather than compare across encodings. */
-export const REPO_COMMIT_FENCE_VERSION = "v2";
+export const REPO_COMMIT_FENCE_VERSION = "v3";
 
 /**
  * Path-list cap shared with `buildRepoCommitPayload`'s change summary. The
@@ -199,6 +200,7 @@ export async function buildRepoCommitDeclaration(input: {
 			input.target.prBase,
 			input.target.revisionExpectation?.baseSha ?? null,
 			input.target.revisionExpectation?.targetSha ?? null,
+			input.target.revisionExpectation?.exactTreeValidation ?? null,
 		]),
 		String(entries.length),
 		...entries,
@@ -362,6 +364,8 @@ function sameTarget(
 		a.openPr === b.openPr &&
 		a.revisionExpectation?.baseSha === b.revisionExpectation?.baseSha &&
 		a.revisionExpectation?.targetSha === b.revisionExpectation?.targetSha &&
+		JSON.stringify(a.revisionExpectation?.exactTreeValidation) ===
+			JSON.stringify(b.revisionExpectation?.exactTreeValidation) &&
 		(a.prBase ?? null) === (b.prBase ?? null)
 	);
 }
@@ -389,8 +393,27 @@ export async function authorizeRepoCommitPublish(input: {
 	if (!declaration) return deny("fence_undeclared");
 	if (declaration.version !== REPO_COMMIT_FENCE_VERSION)
 		return deny("fence_version_mismatch");
-	if (!parseRepoCommitRevisionExpectation(input.target.revisionExpectation))
+	if (
+		!parseRepoCommitRevisionExpectation(input.target.revisionExpectation)
+			?.exactTreeValidation
+	)
 		return deny("fence_revision_missing");
+	try {
+		const manifest = await repoSnapshotManifest({
+			owner: input.target.owner,
+			repo: input.target.repo,
+			baseSha: input.target.revisionExpectation!.baseSha,
+			changes,
+		});
+		if (
+			manifest.orderedChangesDigest !==
+			input.target.revisionExpectation!.exactTreeValidation!
+				.orderedChangesDigest
+		)
+			return deny("fence_content_mismatch");
+	} catch {
+		return deny("fence_unverifiable");
+	}
 
 	if (!input.approvalRequestId) return deny("fence_approval_missing");
 	const approved = parseApprovedRepoCommitAction(input.approvalPayloadJson);

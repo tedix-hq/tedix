@@ -7,13 +7,16 @@
  * with type errors, unformatted files or red suites can reach main and
  * auto-deploy.
  *
- * This runs the SAME script over the paths the tedi is about to publish, in the
- * workstation that holds the checkout those paths were read from.
+ * The same script checks a disposable native checkout containing the pinned
+ * base and only the proposed changes. Its retained receipt binds the resulting
+ * tree to the publication approval; exit zero alone is insufficient.
  *
  * A repo_commit proposal must observe the gate running successfully. Unlike a
  * native Git push, this path never reaches the pre-push hook, so unavailable
  * validation cannot be treated as a successful check.
  */
+
+import type { RepoCommitExactTreeValidation } from "@tedix/api-contract/schemas/repo-commit-write";
 
 /** Paths the gate refuses to pass to the script, so a path cannot become a flag. */
 const UNSAFE_PATH_RE = /^-|[\s"'`$;&|<>()\\]/;
@@ -23,6 +26,7 @@ export interface RepoCommitGateVerdict {
 	/** False when the gate could not run at all. */
 	ran: boolean;
 	output: string;
+	validation?: RepoCommitExactTreeValidation;
 }
 
 export function buildRepoCommitGateCommand(paths: string[]): string | null {

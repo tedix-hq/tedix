@@ -3,6 +3,10 @@ import {
 	buildRepoCommitGateCommand,
 	classifyRepoCommitGateResult,
 } from "./repo-commit-gate";
+import {
+	readRepoSnapshotResult,
+	repoSnapshotManifest,
+} from "./repo-commit-snapshot";
 
 // A tedi's repo_commit never reaches the pre-push hook, so the gate command
 // must cover the same checks a human push would run.
@@ -57,3 +61,27 @@ import {
 }
 
 console.log("repo-commit-gate: command construction and verdicts pass");
+const manifest = await repoSnapshotManifest({
+	owner: "fictional",
+	repo: "repository",
+	baseSha: "a".repeat(40),
+	changes: [{ path: "file.txt", content: "new" }],
+});
+assert.equal(
+	readRepoSnapshotResult("exit0 but no exact tree receipt", manifest),
+	null,
+);
+assert.equal(
+	readRepoSnapshotResult(
+		"TEDIX_EXACT_TREE " +
+			JSON.stringify({
+				version: "v1",
+				baseSha: manifest.baseSha,
+				resultTreeSha: "b".repeat(40),
+				orderedChangesDigest: "c".repeat(64),
+				gateRecipeDigest: "d".repeat(64),
+			}),
+		manifest,
+	),
+	null,
+);

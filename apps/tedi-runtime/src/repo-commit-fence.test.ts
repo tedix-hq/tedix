@@ -64,6 +64,24 @@ const CHANGES: RepoCommitFenceChange[] = [
 	{ path: "src/index.ts", content: "export const x = 1;\n" },
 	{ path: "src/old.ts", content: null },
 ];
+const { repoSnapshotManifest } = await import("./repo-commit-snapshot");
+TARGET.revisionExpectation!.exactTreeValidation = {
+	version: "v1",
+	baseSha: "a".repeat(40),
+	resultTreeSha: "b".repeat(40),
+	orderedChangesDigest: (
+		await repoSnapshotManifest({
+			owner: TARGET.owner,
+			repo: TARGET.repo,
+			baseSha: "a".repeat(40),
+			changes: CHANGES,
+		})
+	).orderedChangesDigest,
+	gateRecipeDigest: "c".repeat(64),
+	processId: "check-one",
+	terminalEvidenceRef: "r2://test/processes/check-one/terminal/evidence.json",
+	exitCode: 0,
+};
 
 const APPROVED_FINGERPRINT = (
 	await buildRepoCommitDeclaration({ target: TARGET, changes: CHANGES })
@@ -799,3 +817,40 @@ for (const revisionExpectation of [
 	);
 }
 console.log("PASS source and target SHA tampering refuses publication");
+
+for (const exactTreeValidation of [
+	undefined,
+	{
+		...TARGET.revisionExpectation!.exactTreeValidation!,
+		resultTreeSha: "f".repeat(40),
+	},
+	{
+		...TARGET.revisionExpectation!.exactTreeValidation!,
+		gateRecipeDigest: "f".repeat(64),
+	},
+	{
+		...TARGET.revisionExpectation!.exactTreeValidation!,
+		terminalEvidenceRef: "r2://other/check/evidence.json",
+	},
+]) {
+	const target = {
+		...TARGET,
+		revisionExpectation: {
+			...TARGET.revisionExpectation!,
+			exactTreeValidation,
+		},
+	};
+	const verdict = await authorizeRepoCommitPublish({
+		ledgerId: LEDGER_ID,
+		approvalRequestId: "approval-1",
+		approvalPayloadJson: approvalPayload(),
+		declarationJson: await declarationJsonFor(target),
+		target,
+		changesJson: changesJson(CHANGES),
+	});
+	assert.equal(
+		verdict.authorized,
+		false,
+		"old unchecked proposal or replaced tree/recipe/receipt cannot borrow approval",
+	);
+}

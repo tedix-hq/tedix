@@ -12,6 +12,16 @@ import {
 const A = "a".repeat(40),
 	B = "b".repeat(40),
 	C = "c".repeat(40);
+const VALIDATION = {
+	version: "v1" as const,
+	baseSha: A,
+	resultTreeSha: "d".repeat(40),
+	orderedChangesDigest: "c".repeat(64),
+	gateRecipeDigest: "d".repeat(64),
+	processId: "test-check",
+	terminalEvidenceRef: "r2://test/check/evidence.json",
+	exitCode: 0 as const,
+};
 const input = {
 	owner: "fictional",
 	repo: "demo",
@@ -69,7 +79,7 @@ function provider(
 		const body = JSON.parse(String(init?.body));
 		state.writes.push({ method, path, body });
 		if (path.endsWith("/git/blobs")) return reply({ sha: "blob-new" });
-		if (path.endsWith("/git/trees")) return reply({ sha: "tree-new" });
+		if (path.endsWith("/git/trees")) return reply({ sha: "d".repeat(40) });
 		if (path.endsWith("/git/commits")) {
 			options.afterCommit?.();
 			return reply({ sha: C });
@@ -132,6 +142,25 @@ function refUpdate(state: ReturnType<typeof provider>) {
 	).input.refUpdates[0];
 }
 try {
+	const wrongTreeState = provider();
+	await assert.rejects(
+		commitRepoChanges({
+			...publish,
+			revisionExpectation: {
+				baseSha: A,
+				targetSha: A,
+				exactTreeValidation: { ...VALIDATION, resultTreeSha: "e".repeat(40) },
+			},
+		}),
+		RepoStaleRevisionError,
+	);
+	assert.equal(
+		wrongTreeState.writes.some(
+			(write) => write.path === "/graphql" || write.path.includes("/git/refs"),
+		),
+		false,
+		"provider tree mismatch cannot move a reference",
+	);
 	let state = provider({ base: B });
 	await assert.rejects(
 		readRepoRevisionExpectation(input, A),
@@ -147,7 +176,11 @@ try {
 	await assert.rejects(
 		commitRepoChanges({
 			...publish,
-			revisionExpectation: { baseSha: A, targetSha: A },
+			revisionExpectation: {
+				baseSha: A,
+				targetSha: A,
+				exactTreeValidation: VALIDATION,
+			},
 		}),
 		RepoStaleRevisionError,
 	);
@@ -165,7 +198,11 @@ try {
 	await assert.rejects(
 		commitRepoChanges({
 			...publish,
-			revisionExpectation: { baseSha: A, targetSha: A },
+			revisionExpectation: {
+				baseSha: A,
+				targetSha: A,
+				exactTreeValidation: VALIDATION,
+			},
 		}),
 		RepoStaleRevisionError,
 	);
@@ -179,7 +216,11 @@ try {
 	await assert.rejects(
 		commitRepoChanges({
 			...publish,
-			revisionExpectation: { baseSha: A, targetSha: A },
+			revisionExpectation: {
+				baseSha: A,
+				targetSha: A,
+				exactTreeValidation: VALIDATION,
+			},
 		}),
 		RepoStaleRevisionError,
 	);
@@ -193,7 +234,11 @@ try {
 	await assert.rejects(
 		commitRepoChanges({
 			...publish,
-			revisionExpectation: { baseSha: A, targetSha: null },
+			revisionExpectation: {
+				baseSha: A,
+				targetSha: null,
+				exactTreeValidation: VALIDATION,
+			},
 		}),
 		RepoStaleRevisionError,
 	);
@@ -209,7 +254,11 @@ try {
 	assert.deepEqual(
 		await commitRepoChanges({
 			...publish,
-			revisionExpectation: { baseSha: A, targetSha: A },
+			revisionExpectation: {
+				baseSha: A,
+				targetSha: A,
+				exactTreeValidation: VALIDATION,
+			},
 		}),
 		{ commitSha: C, branchRef: "refs/heads/feat/change" },
 	);
@@ -228,7 +277,11 @@ try {
 	state = provider({ target: null });
 	await commitRepoChanges({
 		...publish,
-		revisionExpectation: { baseSha: A, targetSha: null },
+		revisionExpectation: {
+			baseSha: A,
+			targetSha: null,
+			exactTreeValidation: VALIDATION,
+		},
 	});
 	assert.deepEqual(refUpdate(state), {
 		name: "refs/heads/feat/change",
@@ -242,7 +295,11 @@ try {
 	await assert.rejects(
 		commitRepoChanges({
 			...publish,
-			revisionExpectation: { baseSha: A, targetSha: B },
+			revisionExpectation: {
+				baseSha: A,
+				targetSha: B,
+				exactTreeValidation: VALIDATION,
+			},
 		}),
 		RepoStaleRevisionError,
 	);
@@ -270,7 +327,11 @@ try {
 		await assert.rejects(
 			commitRepoChanges({
 				...publish,
-				revisionExpectation: { baseSha: A, targetSha: A },
+				revisionExpectation: {
+					baseSha: A,
+					targetSha: A,
+					exactTreeValidation: VALIDATION,
+				},
 			}),
 		);
 		assert.equal(state.target, A, "provider refusal cannot change the target");
@@ -285,7 +346,11 @@ try {
 		assert.deepEqual(
 			await commitRepoChanges({
 				...publish,
-				revisionExpectation: { baseSha: A, targetSha: A },
+				revisionExpectation: {
+					baseSha: A,
+					targetSha: A,
+					exactTreeValidation: VALIDATION,
+				},
 			}),
 			{ commitSha: C, branchRef: "refs/heads/feat/change" },
 		);
