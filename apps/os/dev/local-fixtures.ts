@@ -6982,6 +6982,30 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"workItems/listAttempts": () => ({ data: [], nextCursor: null }),
+	"workItems/initializeRepositoryCandidate": () => {
+		throw new RpcError(
+			"FORBIDDEN",
+			"Only the current verified executor can initialize this candidate",
+		);
+	},
+	"workItems/readRepositoryCandidate": () => {
+		throw new RpcError(
+			"CONFLICT",
+			"Current executor has not initialized a shared repository candidate",
+		);
+	},
+	"workItems/submitRepositoryCandidate": () => {
+		throw new RpcError(
+			"FORBIDDEN",
+			"Only the current verified executor can submit this candidate",
+		);
+	},
+	"workItems/sealRepositoryCandidate": () => {
+		throw new RpcError(
+			"FORBIDDEN",
+			"Only the current verified executor can seal this candidate",
+		);
+	},
 	"workItems/readAttemptRepository": (input: {
 		operation: "log" | "tree" | "file";
 		path?: string;

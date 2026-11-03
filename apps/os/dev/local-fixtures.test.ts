@@ -1080,6 +1080,51 @@ const CALLS = {
 	},
 };
 
+const REPOSITORY_CANDIDATE_REFUSALS: Record<
+	string,
+	{ input: unknown; status: number }
+> = {
+	"workItems/initializeRepositoryCandidate": {
+		input: {
+			id: "00000070-0000-4000-8000-000000000001",
+			attemptId: "00000047-0000-4000-8000-000000000001",
+			expectedBaseRevision: "a".repeat(40),
+			paths: ["README.md"],
+		},
+		status: 403,
+	},
+	"workItems/readRepositoryCandidate": {
+		input: {
+			id: "00000070-0000-4000-8000-000000000001",
+			attemptId: "00000047-0000-4000-8000-000000000001",
+		},
+		status: 409,
+	},
+	"workItems/submitRepositoryCandidate": {
+		input: {
+			id: "00000070-0000-4000-8000-000000000001",
+			attemptId: "00000047-0000-4000-8000-000000000001",
+			submission: {
+				generation: 0,
+				revision: 0,
+				clientId: "fixture",
+				seq: 1,
+				change: [],
+			},
+		},
+		status: 403,
+	},
+	"workItems/sealRepositoryCandidate": {
+		input: {
+			id: "00000070-0000-4000-8000-000000000001",
+			attemptId: "00000047-0000-4000-8000-000000000001",
+			expectedPosition: { generation: 0, revision: 0 },
+			expectedContentDigest: "b".repeat(64),
+		},
+		status: 403,
+	},
+};
+
 // Runtime-app procedures answer only for the sample company's seeded app.
 const DEMO_PACK_CALLS = new Set([
 	"osAppRuntime/client",
@@ -1096,7 +1141,12 @@ describe("local fixtures parse through the contract output schemas", () => {
 	});
 
 	it("covers every registered handler with a contract-parse case", () => {
-		expect(Object.keys(CALLS).sort()).toEqual([...LOCAL_RPC_PROCEDURES].sort());
+		expect(
+			[
+				...Object.keys(CALLS),
+				...Object.keys(REPOSITORY_CANDIDATE_REFUSALS),
+			].sort(),
+		).toEqual([...LOCAL_RPC_PROCEDURES].sort());
 	});
 
 	it("does not invent linked tedi activity for a sample run", () => {
@@ -2062,6 +2112,16 @@ describe("kernel enqueue flow", () => {
 			list.conversations.some((row) => row.id === output.conversationId),
 		).toBe(true);
 	});
+});
+
+describe("repository candidate fixture authority", () => {
+	for (const [key, { input, status }] of Object.entries(
+		REPOSITORY_CANDIDATE_REFUSALS,
+	))
+		it(`${key} validates its input and refuses simulated executor authority`, async () => {
+			await expectInputAcceptedByContract(key, input);
+			expect(callLocal(key, input).status).toBe(status);
+		});
 });
 
 describe("fixture bootstrap parity", () => {

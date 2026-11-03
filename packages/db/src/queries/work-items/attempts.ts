@@ -1,4 +1,5 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { RepositoryCandidateDescriptor } from "@tedix/api-contract/schemas/repository-candidate";
 import { recordPersistedCardCreationEdges } from "../decision-graph-writers";
 import {
 	WorkAttemptRepositorySchema,
@@ -542,7 +543,9 @@ export async function startWorkItemAttempt(
 					version: sql<number>`1`.as("version"),
 					metadata: sql<
 						Record<string, JsonValue>
-					>`${JSON.stringify(params.metadata ?? {})}`.as("metadata"),
+					>`${JSON.stringify(workAttemptCallerMetadata(params.metadata))}`.as(
+						"metadata",
+					),
 				})
 				.from(workAdmissions)
 				.innerJoin(
@@ -715,6 +718,93 @@ export async function recordWorkAttemptRepository(
 			`Attempt ${params.attemptId} is no longer authoritative`,
 		);
 	}
+	return attempt;
+}
+
+export async function getWorkAttemptRepositoryAdmission(
+	db: DbQueryClient,
+	attempt: WorkAttempt,
+) {
+	const [admission] = await db
+		.select()
+		.from(workAdmissions)
+		.where(
+			and(
+				eq(workAdmissions.id, attempt.admissionId ?? ""),
+				eq(workAdmissions.orgId, attempt.orgId),
+				eq(workAdmissions.workItemId, attempt.workItemId),
+				eq(workAdmissions.executorType, attempt.executorType),
+				eq(workAdmissions.executorId, attempt.executorId),
+				eq(workAdmissions.decision, "admitted"),
+				attempt.executorSessionId
+					? eq(workAdmissions.executorSessionId, attempt.executorSessionId)
+					: isNull(workAdmissions.executorSessionId),
+				attempt.externalSessionKey
+					? eq(workAdmissions.externalSessionKey, attempt.externalSessionKey)
+					: isNull(workAdmissions.externalSessionKey),
+			),
+		)
+		.limit(1);
+	return admission ?? null;
+}
+
+/** Freeze discovery once; authority still comes from the live executor fence. */
+export async function recordWorkAttemptRepositoryCandidate(
+	db: DbQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		attemptId: string;
+		executor: WorkExecutor;
+		sessionId?: string;
+		externalSessionKey?: string;
+		descriptor: RepositoryCandidateDescriptor;
+	},
+): Promise<WorkAttempt> {
+	const descriptor = params.descriptor;
+	if (
+		descriptor.organizationId !== params.orgId ||
+		descriptor.workItemId !== params.workItemId ||
+		descriptor.attemptId !== params.attemptId
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Candidate provenance does not match the Attempt",
+		);
+	const [attempt] = await db
+		.update(workAttempts)
+		.set({
+			metadata: sql<
+				Record<string, JsonValue>
+			>`json_set(COALESCE(${workAttempts.metadata}, '{}'), '$.repositoryCandidate', json(${JSON.stringify(descriptor)}))`,
+			version: sql`${workAttempts.version} + 1`,
+		})
+		.where(
+			and(
+				eq(workAttempts.id, params.attemptId),
+				eq(workAttempts.orgId, params.orgId),
+				eq(workAttempts.workItemId, params.workItemId),
+				eq(workAttempts.admissionId, descriptor.admissionId),
+				eq(workAttempts.executorType, params.executor.type),
+				eq(workAttempts.executorId, params.executor.id),
+				params.sessionId
+					? eq(workAttempts.executorSessionId, params.sessionId)
+					: isNull(workAttempts.executorSessionId),
+				params.externalSessionKey
+					? eq(workAttempts.externalSessionKey, params.externalSessionKey)
+					: isNull(workAttempts.externalSessionKey),
+				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+				sql`${workAttempts.expiresAt} > ${new Date().toISOString()}`,
+				sql`json_extract(${workAttempts.metadata}, '$.repositoryCandidate') IS NULL`,
+				sql`json_extract(${workAttempts.metadata}, '$.repository.repositoryId') = ${descriptor.repositoryId}`,
+			),
+		)
+		.returning();
+	if (!attempt)
+		throw new WorkFactoryError(
+			"STALE_ATTEMPT",
+			"Attempt is stale or its repository candidate was already initialized",
+		);
 	return attempt;
 }
 
@@ -1072,6 +1162,14 @@ export async function settleWorkItemAttempt(
 	}
 }
 
+export function workAttemptCallerMetadata(
+	metadata?: Record<string, JsonValue>,
+): Record<string, JsonValue> {
+	const { repositoryCandidate: _reservedCandidate, ...callerMetadata } =
+		metadata ?? {};
+	return callerMetadata;
+}
+
 /** Preserve admission provenance while accepting bounded settlement receipts. */
 export function buildWorkAttemptSettlementMetadata(params: {
 	priorMetadata: Record<string, JsonValue>;
@@ -1084,7 +1182,7 @@ export function buildWorkAttemptSettlementMetadata(params: {
 		repository: _ignoredRepository,
 		repositoryLifecycle: _ignoredLifecycle,
 		...callerMetadata
-	} = params.metadata ?? {};
+	} = workAttemptCallerMetadata(params.metadata);
 	if (params.repositoryLifecycle) {
 		const repository = WorkAttemptRepositorySchema.safeParse(
 			params.priorMetadata.repository,

@@ -20,6 +20,15 @@ describe("bounded repository candidate protocol", () => {
 		);
 	});
 	it("requires the frozen path set and measures growth in UTF-8 bytes", () => {
+		for (const text of ["\ud800", "\udc00", "valid\ud800text"])
+			expect(
+				repositoryCandidateContentError({ "a.txt": text }, ["a.txt"]),
+			).not.toBeNull();
+		expect(
+			repositoryCandidateContentError({ "a.txt": "valid 😀 supplementary 𐐀" }, [
+				"a.txt",
+			]),
+		).toBeNull();
 		expect(
 			repositoryCandidateContentError({ "a.txt": "ok" }, ["a.txt"]),
 		).toBeNull();
@@ -67,6 +76,7 @@ describe("bounded repository candidate protocol", () => {
 			["../secret"],
 			["/absolute"],
 			["a", "a"],
+			[Array.from({ length: 33 }, () => "a").join("/")],
 			Array.from({ length: 9 }, (_, i) => `${i}.txt`),
 		])
 			expect(

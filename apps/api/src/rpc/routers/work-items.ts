@@ -73,6 +73,12 @@ import {
 } from "./work-items/cases";
 import { inspectAttemptRepositoryProcedure } from "./work-items/workstation-inspection";
 import { readAttemptRepositoryProcedure } from "./work-items/repository-read";
+import {
+	initializeRepositoryCandidateProcedure,
+	readRepositoryCandidateProcedure,
+	submitRepositoryCandidateProcedure,
+	sealRepositoryCandidateProcedure,
+} from "./work-items/repository-draft";
 import { reviewAttemptRepositoryProcedure } from "./work-items/repository-review";
 import { recordDelegationAutonomyFeedbackProcedure } from "./work-items/delegation-autonomy";
 
@@ -129,6 +135,10 @@ export const workItemsContractRouter = workItemsOs.router({
 	listAttempts: listAttemptsProcedure,
 	inspectAttemptRepository: inspectAttemptRepositoryProcedure,
 	readAttemptRepository: readAttemptRepositoryProcedure,
+	initializeRepositoryCandidate: initializeRepositoryCandidateProcedure,
+	readRepositoryCandidate: readRepositoryCandidateProcedure,
+	submitRepositoryCandidate: submitRepositoryCandidateProcedure,
+	sealRepositoryCandidate: sealRepositoryCandidateProcedure,
 	reviewAttemptRepository: reviewAttemptRepositoryProcedure,
 	submitEvidence: submitEvidenceProcedure,
 	listEvidence: listEvidenceProcedure,
