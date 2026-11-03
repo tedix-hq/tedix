@@ -199,6 +199,7 @@ export async function runCompaction(
 				JSON.stringify(original.input.source)
 			)
 				throw new Error("Compaction source branch changed before model");
+			if (!entries.some((entry) => entry.content.trim())) return null;
 			modelCalled = true;
 			const summary = await this.summarizeAdmittedCompaction(
 				entries,
