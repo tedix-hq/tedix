@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import type { KernelGovernancePolicy } from "@tedix/api-contract/utils/approval-policy";
-import { createRouterClient } from "@orpc/server";
+import { createRouterClient, ORPCError } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { tediApprovalDependencyEvents } from "@tedix/db/schema/approval-simulations";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
@@ -299,6 +299,128 @@ describe("delegation approval core", () => {
 			}),
 		);
 		expect(effects.promote).not.toHaveBeenCalled();
+		expect(effects.dispatch).not.toHaveBeenCalled();
+	});
+	it("reconciles a typed admission race and refuses one repeated parent resolution without dispatching", async () => {
+		const f = await fixture();
+		effects.foreignAttempt
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ id: "racing-attempt", startedAt: AT });
+		effects.promote.mockRejectedValueOnce(
+			new ORPCError("CONFLICT", { data: { rejectionCode: "already_running" } }),
+		);
+		const input = {
+			organizationId: ORG,
+			run: f.run,
+			decision: "approve" as const,
+			approvedWorkItemId: "work-held",
+		};
+		const result = await respondKernelDelegationRecommendationApprovalCore(
+			f.context,
+			input,
+		);
+		expect(result.run.status).toBe("canceled");
+		expect(result.run.metadata?.homeDelegation).toMatchObject({
+			resolutionStatus: "approved",
+			inProgressAttemptId: "racing-attempt",
+		});
+		expect(effects.foreignAttempt).toHaveBeenCalledTimes(2);
+		expect(effects.foreignAttempt).toHaveBeenLastCalledWith(
+			f.context,
+			expect.objectContaining({
+				workItemId: "work-held",
+				organizationId: ORG,
+				homeRunId: f.run.id,
+			}),
+		);
+		const resolved = await getKernelRuntimeRun(f.context.db, {
+			id: f.run.id,
+			organizationId: ORG,
+		});
+		await expect(
+			respondKernelDelegationRecommendationApprovalCore(f.context, {
+				...input,
+				run: resolved!,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(effects.promote).toHaveBeenCalledTimes(1);
+		expect(effects.event).toHaveBeenCalledTimes(1);
+		expect(effects.dispatch).not.toHaveBeenCalled();
+		expect(effects.workstation).not.toHaveBeenCalled();
+	});
+	it.each(["untyped", "different-rejection", "no-current-holder"])(
+		"does not suppress an admission failure with %s",
+		async (kind) => {
+			const f = await fixture();
+			const error =
+				kind === "untyped"
+					? new Error("already_running")
+					: new ORPCError("CONFLICT", {
+							data: {
+								rejectionCode:
+									kind === "different-rejection"
+										? "approval_required"
+										: "already_running",
+							},
+						});
+			effects.promote.mockRejectedValueOnce(error);
+			await expect(
+				respondKernelDelegationRecommendationApprovalCore(f.context, {
+					organizationId: ORG,
+					run: f.run,
+					decision: "approve",
+					approvedWorkItemId: "work-held",
+				}),
+			).rejects.toBe(error);
+			expect(effects.foreignAttempt).toHaveBeenCalledTimes(
+				kind === "no-current-holder" ? 2 : 1,
+			);
+			expect(
+				(
+					await getKernelRuntimeRun(f.context.db, {
+						id: f.run.id,
+						organizationId: ORG,
+					})
+				)?.status,
+			).toBe("requires_approval");
+			expect(effects.dispatch).not.toHaveBeenCalled();
+		},
+	);
+	it("does not overwrite a competing Home transition while reconciling an admission race", async () => {
+		const f = await fixture();
+		effects.foreignAttempt
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ id: "racing-attempt", startedAt: AT });
+		effects.promote.mockImplementationOnce(async () => {
+			f.sqlite
+				.prepare(
+					"UPDATE kernel_runtime_runs SET status = 'canceled', progress_label = 'Canceled by operator', updated_at = '2099-01-01T00:00:00.000Z' WHERE id = ?",
+				)
+				.run(f.run.id);
+			throw new ORPCError("CONFLICT", {
+				data: { rejectionCode: "already_running" },
+			});
+		});
+		await expect(
+			respondKernelDelegationRecommendationApprovalCore(f.context, {
+				organizationId: ORG,
+				run: f.run,
+				decision: "approve",
+				approvedWorkItemId: "work-held",
+			}),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: expect.stringContaining("Home run changed"),
+		});
+		expect(
+			await getKernelRuntimeRun(f.context.db, {
+				id: f.run.id,
+				organizationId: ORG,
+			}),
+		).toMatchObject({
+			status: "canceled",
+			progressLabel: "Canceled by operator",
+		});
 		expect(effects.dispatch).not.toHaveBeenCalled();
 	});
 	it("refuses a run without a pending delegation", async () => {

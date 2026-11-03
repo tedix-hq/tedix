@@ -1,4 +1,5 @@
 import { requireDelegatedChildTerminalReceipt } from "../kernel/delegation-recovery";
+import { ORPCError } from "@orpc/server";
 import {
 	workstationDispatchIdentity,
 	inspectWorkstationDispatchAdmission,
@@ -28,6 +29,7 @@ import {
 	compareAndTouchKernelRuntimeRun,
 	getKernelRuntimeRun,
 	updateKernelRuntimeRun,
+	transitionKernelRuntimeRunStatus,
 } from "@tedix/db/queries/kernel-runtime-runs";
 import { addWorkItemComment } from "@tedix/db/queries/work-items/comments";
 import {
@@ -237,34 +239,79 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		},
 		createdAt: resolvedAt,
 	});
-	if (heldBy) {
-		const detail = `Approved, but Work Item ${heldWorkItemId} is already being worked on (attempt ${heldBy.id}, started ${heldBy.startedAt}). The tedi was not started, so the Work has one writer.`;
-		await updateKernelRuntimeRun(context.db, input.run.id, {
-			status: "canceled",
-			progressValue: 100,
-			progressLabel: "Already in progress",
-			progressDetail: detail,
-			latestEventKind: "approval.resolved",
-			latestEventAt: resolvedAt,
-			preview: detail,
-			completedAt: resolvedAt,
-			updatedAt: resolvedAt,
-			metadata: toJsonRecord({
-				...pending.metadata,
-				homeDelegation: {
-					...nextDelegation,
-					inProgressAttemptId: heldBy.id,
-				},
-			}),
+	const closeAlreadyInProgress = async (
+		holder: NonNullable<Awaited<ReturnType<typeof findForeignActiveAttempt>>>,
+		workItemId: string,
+	) => {
+		const detail = `Approved, but Work Item ${workItemId} is already being worked on (attempt ${holder.id}, started ${holder.startedAt}). The tedi was not started, so the Work has one writer.`;
+		const closed = await transitionKernelRuntimeRunStatus(context.db, {
+			id: input.run.id,
+			organizationId: input.organizationId,
+			fromStatus: input.run.status,
+			expectedUpdatedAt: resolvedAt,
+			patch: {
+				status: "canceled",
+				progressValue: 100,
+				progressLabel: "Already in progress",
+				progressDetail: detail,
+				latestEventKind: "approval.resolved",
+				latestEventAt: resolvedAt,
+				preview: detail,
+				completedAt: resolvedAt,
+				updatedAt: resolvedAt,
+				metadata: toJsonRecord({
+					...pending.metadata,
+					homeDelegation: {
+						...nextDelegation,
+						inProgressAttemptId: holder.id,
+					},
+				}),
+			},
 		});
+		if (!closed)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Home run changed while the approval was being resolved; reload before continuing",
+			);
 		const updatedRun = await getKernelRuntimeRun(context.db, {
 			id: input.run.id,
+			organizationId: input.organizationId,
 		});
 		return {
 			run: normalizeHomeRunRecord(updatedRun ?? input.run),
 			assignments: [],
 		};
-	}
+	};
+	if (heldBy && heldWorkItemId)
+		return closeAlreadyInProgress(heldBy, heldWorkItemId);
+	const admitApprovedDelegationWork = async (
+		work: Parameters<typeof createDelegationWorkItem>[1],
+	) => {
+		try {
+			return {
+				workItemId: await createDelegationWorkItem(context, work),
+				holder: null,
+			};
+		} catch (error) {
+			if (
+				!(error instanceof ORPCError) ||
+				error.code !== ErrorCodes.CONFLICT ||
+				nonNullRecord(error.data)?.rejectionCode !== "already_running" ||
+				!work.workItemId
+			)
+				throw error;
+			// Admission is authoritative: another executor may claim after the preflight read.
+			const holder = await findForeignActiveAttempt(context, {
+				assigneeTediId: pending.targetTediId,
+				homeRunId: input.run.id,
+				organizationId: input.organizationId,
+				workItemId: work.workItemId,
+				now: nowIso(),
+			});
+			if (!holder) throw error;
+			return { workItemId: work.workItemId, holder };
+		}
+	};
 	if (input.decision === "reject") {
 		await updateKernelRuntimeRun(context.db, input.run.id, {
 			status: "canceled",
@@ -355,7 +402,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				runtimeRunId: identity.runtimeRunId,
 				now: resolvedAt,
 			});
-		const workstationWorkItemId = await createDelegationWorkItem(context, {
+		const admission = await admitApprovedDelegationWork({
 			autonomyClass:
 				input.resolvedBy?.type === "policy"
 					? `delegation:${nonNullRecord(pending.metadata.kernelRoute)?.effortClass ?? "unknown"}`
@@ -374,6 +421,9 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				) ?? stringFromPayload(nonNullRecord(input.run.metadata)?.objectiveId),
 			workItemId: requestedWorkItemId,
 		});
+		if (admission.holder)
+			return closeAlreadyInProgress(admission.holder, admission.workItemId);
+		const workstationWorkItemId = admission.workItemId;
 		const dispatch = await runWorkstationWorkOrderDispatch(context, {
 			content: sourceContent,
 			conversationId: input.run.conversationId,
@@ -414,7 +464,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		input.approvedWorkItemId ??
 		stringFromPayload(nonNullRecord(approvedMetadata)?.workItemId) ??
 		stringFromPayload(nonNullRecord(input.run.runtimeMetadata)?.workItemId);
-	const delegationWorkItemId = await createDelegationWorkItem(context, {
+	const admission = await admitApprovedDelegationWork({
 		autonomyClass:
 			input.resolvedBy?.type === "policy"
 				? `delegation:${nonNullRecord(pending.metadata.kernelRoute)?.effortClass ?? "unknown"}`
@@ -433,6 +483,9 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			) ?? stringFromPayload(nonNullRecord(input.run.metadata)?.objectiveId),
 		workItemId: requestedDelegationWorkItemId,
 	});
+	if (admission.holder)
+		return closeAlreadyInProgress(admission.holder, admission.workItemId);
+	const delegationWorkItemId = admission.workItemId;
 	if (requestedDelegationWorkItemId && !delegationWorkItemId) {
 		throw createError(
 			ErrorCodes.CONFLICT,
