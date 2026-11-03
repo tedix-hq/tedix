@@ -226,6 +226,7 @@ const VALID_ROW: RepoCommitLedgerRow = {
 	message: "Add feature",
 	changesJson: JSON.stringify({
 		changes: [{ path: "src/foo.ts", content: "export const x = 1;" }],
+		revisionExpectation: { baseSha: "a".repeat(40), targetSha: null },
 	}),
 	openPr: false,
 	prBase: null,
@@ -605,7 +606,10 @@ console.log("✅ All repo-commit tests passed");
 		JSON.stringify({
 			...VALID_ROW,
 			...target,
-			changesJson: JSON.stringify({ changes }),
+			changesJson: JSON.stringify({
+				changes,
+				revisionExpectation: { baseSha: "a".repeat(40), targetSha: null },
+			}),
 		}),
 	) as RepoCommitLedgerRow;
 	let publishedMessage = "";

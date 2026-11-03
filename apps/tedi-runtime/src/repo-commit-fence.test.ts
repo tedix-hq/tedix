@@ -57,6 +57,7 @@ const TARGET: RepoCommitFenceTarget = {
 	message: "Add the fence",
 	openPr: false,
 	prBase: null,
+	revisionExpectation: { baseSha: "a".repeat(40), targetSha: null },
 };
 
 const CHANGES: RepoCommitFenceChange[] = [
@@ -64,8 +65,15 @@ const CHANGES: RepoCommitFenceChange[] = [
 	{ path: "src/old.ts", content: null },
 ];
 
+const APPROVED_FINGERPRINT = (
+	await buildRepoCommitDeclaration({ target: TARGET, changes: CHANGES })
+).fingerprint;
+
 function changesJson(changes: RepoCommitFenceChange[]): string {
-	return JSON.stringify({ changes });
+	return JSON.stringify({
+		changes,
+		revisionExpectation: TARGET.revisionExpectation,
+	});
 }
 
 function approvalPayload(overrides: Record<string, unknown> = {}): string {
@@ -93,6 +101,8 @@ function approvalPayload(overrides: Record<string, unknown> = {}): string {
 		message: TARGET.message,
 		openPr: TARGET.openPr,
 		prBase: TARGET.prBase,
+		revisionExpectation: TARGET.revisionExpectation,
+		changeFingerprint: APPROVED_FINGERPRINT,
 		changeSummary: {
 			fileCount: CHANGES.length,
 			addedOrModified,
@@ -291,19 +301,19 @@ async function declarationJsonFor(
 	assert.deepEqual(forged.addedOrModified, honest.addedOrModified);
 	assert.deepEqual(forged.deleted, honest.deleted);
 
-	// Without the approval-carried anchor this publish would be authorized.
+	// Missing approval anchors require a fresh proposal.
 	const unanchored = await authorizeRepoCommitPublish({
 		ledgerId: LEDGER_ID,
 		approvalRequestId: "approval-1",
-		approvalPayloadJson: approvalPayload(),
+		approvalPayloadJson: approvalPayload({ changeFingerprint: null }),
 		declarationJson: JSON.stringify(forged),
 		target: TARGET,
 		changesJson: changesJson(swapped),
 	});
 	assert.equal(
 		unanchored.authorized,
-		true,
-		"pre-change approvals keep publishing on declaration + summary alone",
+		false,
+		"unanchored approvals require a fresh proposal",
 	);
 
 	// With it, the swap is refused: the anchor lives in D1, which the tedi's own
@@ -637,7 +647,7 @@ async function declarationJsonFor(
 	assert.ok(approved);
 	assert.equal(approved.executionLedgerId, LEDGER_ID);
 	assert.equal(approved.target.branch, TARGET.branch);
-	assert.equal(approved.fingerprint, null);
+	assert.equal(approved.fingerprint, APPROVED_FINGERPRINT);
 	const withFingerprint = parseApprovedRepoCommitAction(
 		approvalPayload({ changeFingerprint: "e".repeat(64) }),
 	);
@@ -716,6 +726,7 @@ async function declarationJsonFor(
 					message: row.message,
 					openPr: row.openPr === 1,
 					prBase: row.prBase,
+					revisionExpectation: TARGET.revisionExpectation,
 				},
 				changesJson: row.changesJson,
 			});
@@ -765,3 +776,26 @@ async function declarationJsonFor(
 }
 
 console.log("repo-commit-fence.test.ts: integration assertions passed");
+
+for (const revisionExpectation of [
+	null,
+	{ baseSha: "b".repeat(40), targetSha: null },
+	{ baseSha: "a".repeat(40), targetSha: "c".repeat(40) },
+]) {
+	const verdict = await authorizeRepoCommitPublish({
+		ledgerId: LEDGER_ID,
+		approvalRequestId: "approval-1",
+		approvalPayloadJson: approvalPayload(),
+		declarationJson: JSON.stringify(
+			await buildRepoCommitDeclaration({ target: TARGET, changes: CHANGES }),
+		),
+		target: { ...TARGET, revisionExpectation },
+		changesJson: changesJson(CHANGES),
+	});
+	assert.equal(
+		verdict.authorized,
+		false,
+		"missing or tampered source/target cannot publish",
+	);
+}
+console.log("PASS source and target SHA tampering refuses publication");

@@ -28,6 +28,8 @@ import {
 	REPO_COMMIT_FINGERPRINT_RE,
 	REPO_COMMIT_WRITE_KIND,
 	type RepoCommitWritePayload,
+	type RepoCommitRevisionExpectation,
+	parseRepoCommitRevisionExpectation,
 	classifyRepoCommitRisk,
 } from "@tedix/api-contract/schemas/repo-commit-write";
 import type { TediRunStatus } from "@tedix/api-contract/schemas/cognitive-runtime";
@@ -1510,6 +1512,7 @@ export async function proposeRepoCommitImpl(
 		 * propose-time declaration in D1, a store the tedi cannot rewrite.
 		 */
 		changeFingerprint?: string | null;
+		revisionExpectation?: RepoCommitRevisionExpectation | null;
 		executionLedgerId: string;
 		riskTier: "low" | "high";
 	},
@@ -1534,6 +1537,14 @@ export async function proposeRepoCommitImpl(
 		});
 	}
 	const riskTier = recomputedRisk;
+	const revisionExpectation = parseRepoCommitRevisionExpectation(
+		input.revisionExpectation,
+	);
+	if (input.revisionExpectation != null && !revisionExpectation)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Invalid repository revision expectation",
+		);
 	// Shape-check at the trust boundary, then store verbatim. A malformed value
 	// is dropped rather than persisted, because a payload carrying a non-hex
 	// fingerprint fails parseRepoCommitWritePayload outright and would make the
@@ -1569,7 +1580,7 @@ export async function proposeRepoCommitImpl(
 	// grants carry high-risk writes for home_tool_write; we narrow that here for repo commits.
 	let effectiveAutoResolve = decision.autoResolve && riskTier !== "high";
 	const approvalTitle = `Commit ${input.changeSummary.fileCount} file(s) to ${input.owner}/${input.repo}@${input.branch}`;
-	const approvalPreview = `${approvalTitle} (base ${input.baseRef})${input.openPr ? " + open PR" : ""}`;
+	const approvalPreview = `${approvalTitle} (base ${input.baseRef}${revisionExpectation ? ` at ${revisionExpectation.baseSha}; target ${revisionExpectation.targetSha ?? "new branch"}` : ""})${input.openPr ? " + open PR" : ""}`;
 	const payload = {
 		kind: REPO_COMMIT_WRITE_KIND,
 		organizationId: input.orgId,
@@ -1585,6 +1596,7 @@ export async function proposeRepoCommitImpl(
 		prBase: input.prBase ?? null,
 		changeSummary: input.changeSummary,
 		changeFingerprint,
+		revisionExpectation,
 		riskTier,
 		executionLedgerId: input.executionLedgerId,
 		// Operator-facing approval card metadata. Summary-only; no file contents or

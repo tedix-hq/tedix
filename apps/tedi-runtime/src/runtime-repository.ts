@@ -34,6 +34,8 @@ import {
 import {
 	commitRepoChanges as repoApiCommitChanges,
 	openPullRequest as repoApiOpenPullRequest,
+	readRepoRevisionExpectation,
+	RepoStaleRevisionError,
 } from "./repo-api";
 import {
 	buildRepoCommitPayload,
@@ -41,6 +43,8 @@ import {
 	executeRepoCommitFromLedger,
 	REPO_COMMIT_WRITE_KIND,
 	type RepoCommitExecuteResult,
+	readReviewedRepoBase,
+	parseRepoCommitLedgerRevisionExpectation,
 } from "./repo-commit";
 import { drainRepoCommits } from "./repo-commit-drain";
 import {
@@ -86,6 +90,9 @@ function repoCommitStatusSnapshot(
 		owner: row.owner,
 		repo: row.repo,
 		baseRef: row.baseRef,
+		revisionExpectation: parseRepoCommitLedgerRevisionExpectation(
+			row.changesJson,
+		),
 		branch: row.branch,
 		message: row.message,
 		openPr: row.openPr === 1,
@@ -615,7 +622,7 @@ export const runtimeRepository = {
 	/**
 	 * Propose a repo_commit: read workspace files, build changeset, park in
 	 * DO-SQLite, call proposeRepoCommit on the kernel API, store the returned
-	 * approvalRequestId. Never commits or decrypts the PAT here. Fail-soft.
+	 * approvalRequestId. Reads provider revisions but never publishes here.
 	 */
 	async repoCommitProposeTool(
 		this: RuntimeRepositoryHost,
@@ -631,6 +638,9 @@ export const runtimeRepository = {
 		computer: {
 			turnContext: WorkstationTurnContext | null;
 			workspace: Pick<ScopedComputerWorkspace["workspace"], "readFile">;
+			readRepoGit: (
+				argv: string[],
+			) => Promise<{ stdout: string; exitCode: number }>;
 		},
 	): Promise<unknown> {
 		try {
@@ -680,6 +690,33 @@ export const runtimeRepository = {
 				typeof input.baseRef === "string" && input.baseRef.trim()
 					? input.baseRef.trim()
 					: (cfg.branch ?? "main");
+			const reviewedBaseSha = await readReviewedRepoBase({
+				owner,
+				repo,
+				baseRef,
+				git: computer.readRepoGit,
+			});
+			if (!reviewedBaseSha)
+				return {
+					ok: false,
+					error: "repo_review_base_unavailable",
+					instruction:
+						"Refresh the configured repository clone before proposing; an unpinned file fallback cannot publish.",
+				};
+			const encryptedPat = await getTediRuntimeEncryptedSecret(
+				this.env.DB,
+				tediId,
+				"GITHUB_PAT",
+			);
+			const masterKey = (this.env as { SECRETS_MASTER_KEY?: string })
+				.SECRETS_MASTER_KEY;
+			if (!masterKey || !encryptedPat)
+				return { ok: false, error: "no_github_pat" };
+			const token = await decryptTediSecret(masterKey, tediId, encryptedPat);
+			const revisionExpectation = await readRepoRevisionExpectation(
+				{ owner, repo, baseRef, branch: input.branch, token },
+				reviewedBaseSha,
+			);
 
 			// Read workspace files to build changeset
 			const changes: { path: string; content: string | null }[] = [];
@@ -742,6 +779,31 @@ export const runtimeRepository = {
 						: "The repo gate did not run. Restore the validation surface or use native Git with its pre-push hook; do not retry unchanged.",
 				};
 
+			if (
+				(await readReviewedRepoBase({
+					owner,
+					repo,
+					baseRef,
+					git: computer.readRepoGit,
+				})) !== reviewedBaseSha ||
+				(await Promise.all(
+					changes
+						.filter((change) => change.content !== null)
+						.map(
+							async (change) =>
+								(await computer.workspace.readFile(`repo/${change.path}`)) ===
+								change.content,
+						),
+				).then((matches) => matches.some((matches) => !matches)))
+			) {
+				return {
+					ok: false,
+					error: "repo_validation_stale",
+					instruction:
+						"The checkout changed during validation. Validate and propose the current files again.",
+				};
+			}
+
 			const riskTier = classifyRepoCommitRisk({
 				baseRef,
 				branch: input.branch,
@@ -787,6 +849,7 @@ export const runtimeRepository = {
 					message,
 					openPr: input.openPr ?? false,
 					prBase: input.prBase ?? null,
+					revisionExpectation,
 				},
 				changes,
 			});
@@ -806,6 +869,7 @@ export const runtimeRepository = {
 				prBase: input.prBase ?? null,
 				changeSet: { changes },
 				changeFingerprint: declaration.fingerprint,
+				revisionExpectation,
 				executionLedgerId,
 			});
 
@@ -818,7 +882,7 @@ export const runtimeRepository = {
 				baseRef,
 				branch: input.branch,
 				message,
-				changesJson: JSON.stringify({ changes }),
+				changesJson: JSON.stringify({ changes, revisionExpectation }),
 				openPr: input.openPr ?? false,
 				prBase: input.prBase ?? null,
 				riskTier,
@@ -851,6 +915,7 @@ export const runtimeRepository = {
 						prBase: input.prBase ?? null,
 						changeSummary: payload.changeSummary,
 						changeFingerprint: payload.changeFingerprint,
+						revisionExpectation,
 						executionLedgerId,
 						riskTier,
 					},
@@ -966,6 +1031,12 @@ export const runtimeRepository = {
 				declaredFingerprint: declaration.fingerprint,
 			};
 		} catch (err) {
+			if (err instanceof RepoStaleRevisionError)
+				return {
+					ok: false,
+					error: "repo_revision_stale",
+					instruction: err.message,
+				};
 			console.warn("[repo_commit] unexpected error in propose", {
 				exception: exceptionTopology(err),
 			});
@@ -1052,6 +1123,9 @@ export const runtimeRepository = {
 						message: row.message,
 						openPr: row.openPr === 1,
 						prBase: row.prBase,
+						revisionExpectation: parseRepoCommitLedgerRevisionExpectation(
+							row.changesJson,
+						),
 					},
 					changesJson: row.changesJson,
 				});

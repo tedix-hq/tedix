@@ -258,6 +258,7 @@ import {
 	type ComputerEnvironment,
 	ComputerEnvironmentController,
 	computerRepositoryReader,
+	computerRepositoryGitReader,
 } from "./computer-environment";
 import { type ComputerExecutionWakeRecord } from "./computer-execution-wake";
 import { createComputerRepoTools } from "./computer-repo-tools";
@@ -2913,6 +2914,10 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				commit: (input) =>
 					this.repoCommitProposeTool(input, {
 						turnContext,
+						readRepoGit: computerRepositoryGitReader(
+							(argv) => computer.git.cli({ argv, cwd: "repo" }),
+							this.computerEnvironment(scope, null),
+						),
 						workspace: {
 							readFile: computerRepositoryReader(
 								computer.workspace,
@@ -3028,6 +3033,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		computer: {
 			turnContext: WorkstationTurnContext | null;
 			workspace: Pick<ScopedComputerWorkspace["workspace"], "readFile">;
+			readRepoGit: (
+				argv: string[],
+			) => Promise<{ stdout: string; exitCode: number }>;
 		},
 	): Promise<unknown> {
 		return runtimeRepository.repoCommitProposeTool.call(

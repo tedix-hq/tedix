@@ -1253,6 +1253,29 @@ describe("proposeRepoCommit + settle-guard", () => {
 		});
 	});
 
+	it("proposeRepoCommit persists reviewed heads without lowering symbolic-main risk", async () => {
+		const db = createKernelRuntimeDb();
+		const revisionExpectation = { baseSha: "a".repeat(40), targetSha: null };
+		await proposeRepoCommitImpl(createContext(db), {
+			...BASE_INPUT,
+			baseRef: "main",
+			riskTier: "low",
+			revisionExpectation,
+		});
+		expect(db.approvals[0]?.payload).toMatchObject({
+			baseRef: "main",
+			riskTier: "high",
+			revisionExpectation,
+		});
+		expect(db.approvals[0]?.status).toBe("pending");
+		await expect(
+			proposeRepoCommitImpl(createContext(createKernelRuntimeDb()), {
+				...BASE_INPUT,
+				revisionExpectation: { baseSha: "HEAD", targetSha: null },
+			}),
+		).rejects.toThrow();
+	});
+
 	it("proposeRepoCommit records null (never a malformed anchor) when the caller sends no usable fingerprint", async () => {
 		const db = createKernelRuntimeDb();
 		const context = createContext(db);

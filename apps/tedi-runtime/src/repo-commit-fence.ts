@@ -33,13 +33,17 @@
  * ledger links "what was declared" to "what moved".
  */
 
-import { parseRepoCommitWritePayload } from "@tedix/api-contract/schemas/repo-commit-write";
+import {
+	parseRepoCommitWritePayload,
+	parseRepoCommitRevisionExpectation,
+	type RepoCommitRevisionExpectation,
+} from "@tedix/api-contract/schemas/repo-commit-write";
 import type { DoSqlRunner } from "./brain-bridge-do";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 /** Bump when the canonical fingerprint encoding changes. Declarations recorded
  * under an older version fail closed rather than compare across encodings. */
-export const REPO_COMMIT_FENCE_VERSION = "v1";
+export const REPO_COMMIT_FENCE_VERSION = "v2";
 
 /**
  * Path-list cap shared with `buildRepoCommitPayload`'s change summary. The
@@ -60,6 +64,7 @@ export type RepoCommitFenceDenialCode =
 	| "fence_undeclared"
 	/** The declaration exists but was recorded under a different fence version. */
 	| "fence_version_mismatch"
+	| "fence_revision_missing"
 	/** The operator approval could not be read, parsed, or is not a repo commit. */
 	| "fence_approval_unreadable"
 	/** The row carries no approval to verify against. */
@@ -74,6 +79,8 @@ export type RepoCommitFenceDenialCode =
 const DENIAL_REASONS: Record<RepoCommitFenceDenialCode, string> = {
 	fence_unverifiable:
 		"the changeset about to be published could not be read, so it cannot be checked against the approval",
+	fence_revision_missing:
+		"the proposal has no exact repository revisions; refresh the checkout and propose again",
 	fence_undeclared:
 		"no publish declaration was recorded for this commit, so there is nothing binding the approval to these bytes",
 	fence_version_mismatch:
@@ -130,6 +137,7 @@ export interface RepoCommitFenceTarget {
 	message: string;
 	openPr: boolean;
 	prBase: string | null;
+	revisionExpectation?: RepoCommitRevisionExpectation | null;
 }
 
 export interface RepoCommitDeclaration {
@@ -189,6 +197,8 @@ export async function buildRepoCommitDeclaration(input: {
 			input.target.message,
 			input.target.openPr,
 			input.target.prBase,
+			input.target.revisionExpectation?.baseSha ?? null,
+			input.target.revisionExpectation?.targetSha ?? null,
 		]),
 		String(entries.length),
 		...entries,
@@ -318,6 +328,7 @@ export function parseApprovedRepoCommitAction(
 			message: payload.message,
 			openPr: payload.openPr,
 			prBase: payload.prBase,
+			revisionExpectation: payload.revisionExpectation,
 		},
 		changeSummary: payload.changeSummary,
 		fingerprint: payload.changeFingerprint,
@@ -349,6 +360,8 @@ function sameTarget(
 		a.branch === b.branch &&
 		a.message === b.message &&
 		a.openPr === b.openPr &&
+		a.revisionExpectation?.baseSha === b.revisionExpectation?.baseSha &&
+		a.revisionExpectation?.targetSha === b.revisionExpectation?.targetSha &&
 		(a.prBase ?? null) === (b.prBase ?? null)
 	);
 }
@@ -376,10 +389,13 @@ export async function authorizeRepoCommitPublish(input: {
 	if (!declaration) return deny("fence_undeclared");
 	if (declaration.version !== REPO_COMMIT_FENCE_VERSION)
 		return deny("fence_version_mismatch");
+	if (!parseRepoCommitRevisionExpectation(input.target.revisionExpectation))
+		return deny("fence_revision_missing");
 
 	if (!input.approvalRequestId) return deny("fence_approval_missing");
 	const approved = parseApprovedRepoCommitAction(input.approvalPayloadJson);
-	if (!approved) return deny("fence_approval_unreadable");
+	if (!approved || !approved.fingerprint)
+		return deny("fence_approval_unreadable");
 	if (approved.executionLedgerId !== input.ledgerId)
 		return deny("fence_ledger_mismatch");
 	if (!sameTarget(approved.target, input.target))
