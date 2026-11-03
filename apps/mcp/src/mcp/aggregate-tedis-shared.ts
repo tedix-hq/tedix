@@ -17,6 +17,8 @@ export interface AggregateTediEntry {
 	serverUrl?: string;
 	/** Tedi tool surface. Defaults to the full tedi MCP surface. */
 	surface?: "full" | "collaboration";
+	/** Request-local self mount; never grants the full peer surface. */
+	selfSkillsOnly?: boolean;
 	/** Hydrated from D1; all aggregate tedis use the Agent runtime. */
 	runtimeKind?: "agent";
 	/**

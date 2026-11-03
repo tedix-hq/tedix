@@ -248,8 +248,11 @@ export function buildAggregateTediTools(
 ): AppTool[] {
 	return entries.flatMap((entry) => {
 		const runtimeKind = entry.runtimeKind ?? "agent";
-		const specs =
-			entry.surface === "collaboration" ? COLLABORATION_TOOLS : FULL_TEDI_TOOLS;
+		const specs = entry.selfSkillsOnly
+			? SKILL_WORKFLOW_TOOLS
+			: entry.surface === "collaboration"
+				? COLLABORATION_TOOLS
+				: FULL_TEDI_TOOLS;
 		const runtimeSpecs = specs.filter(
 			(spec) => !spec.runtimeKinds || spec.runtimeKinds.includes(runtimeKind),
 		);
