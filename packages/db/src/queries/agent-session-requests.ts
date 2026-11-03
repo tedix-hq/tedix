@@ -227,6 +227,8 @@ interface AgentSessionLessonReflectionParams extends AgentSessionRequestOwner {
 	inputKey: string;
 }
 
+type AgentSessionInferencePhase = "status" | "intake";
+
 export async function getAgentSessionLessonReflection(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams,
@@ -257,10 +259,60 @@ export async function recordAgentSessionLessonReflection(
 	await db
 		.update(agentSessionEvents)
 		.set({
-			lessonReflection: {
-				inputKey: params.inputKey,
-				response: params.response,
-			},
+			lessonReflection: sql`json_set(COALESCE(${agentSessionEvents.lessonReflection}, '{}'), '$.inputKey', ${params.inputKey}, '$.response', ${params.response})`,
+		})
+		.where(
+			and(
+				eq(agentSessionEvents.id, params.id),
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, "turn"),
+			),
+		);
+}
+
+export async function getAgentSessionInferenceReflection(
+	db: DbQueryClient,
+	params: AgentSessionLessonReflectionParams & {
+		phase: AgentSessionInferencePhase;
+	},
+): Promise<string | null> {
+	const [row] = await db
+		.select({ reflection: agentSessionEvents.lessonReflection })
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.id, params.id),
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, "turn"),
+			),
+		)
+		.limit(1);
+	const reflection = row?.reflection?.[params.phase];
+	return reflection?.inputKey === params.inputKey ? reflection.response : null;
+}
+
+export async function recordAgentSessionInferenceReflection(
+	db: DbQueryClient,
+	params: AgentSessionLessonReflectionParams & {
+		phase: AgentSessionInferencePhase;
+		response: string;
+	},
+): Promise<void> {
+	const path = `$.${params.phase}`;
+	const receipt = JSON.stringify({
+		inputKey: params.inputKey,
+		response: params.response,
+	});
+	await db
+		.update(agentSessionEvents)
+		.set({
+			lessonReflection: sql`json_set(COALESCE(${agentSessionEvents.lessonReflection}, '{}'), ${path}, json(${receipt}))`,
 		})
 		.where(
 			and(

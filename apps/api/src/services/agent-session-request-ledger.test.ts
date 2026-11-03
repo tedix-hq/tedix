@@ -153,14 +153,15 @@ describe("durable lesson inference reuse", () => {
 			sourceAt: T0,
 			now: T0,
 		};
-		const model = scripted('{"updates":[]}').model;
+		const { model, prompts } = scripted('{"updates":[]}');
+		model.bookkeepingReflectionIdentity = { model: "qualified-bookkeeping" };
 		model.lessonReflectionIdentity = {
 			model: "qualified-model",
 			systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
 		};
 		model.reflectLessons = vi.fn(async () => '{"lessons":[]}');
 		model.extractObligations = vi.fn(async () => '{"new":[]}');
-		return { db, input, model };
+		return { db, input, model, prompts };
 	}
 
 	it("reuses a successful phase across model instances after intake failed", async () => {
@@ -200,6 +201,7 @@ describe("durable lesson inference reuse", () => {
 		);
 		await reflectAgentSessionRequests(db, model, input);
 		expect(model.reflectLessons).toHaveBeenCalledTimes(1);
+		expect(model.extractObligations).toHaveBeenCalledTimes(1);
 		expect(model.learn).toHaveBeenCalledTimes(2);
 		expect(model.learn).toHaveBeenLastCalledWith(
 			[
@@ -211,6 +213,39 @@ describe("durable lesson inference reuse", () => {
 			],
 			expect.objectContaining(SCOPE),
 		);
+	});
+
+	it("reuses successful status and intake inference when lesson delivery retries", async () => {
+		const { db, input, model, prompts } = await setup();
+		await observe(
+			db,
+			scripted(
+				'{"requests":[{"kind":"request","text":"Verify the deployment"}]}',
+			).model,
+			"Verify the deployment",
+		);
+		model.reflectLessons = vi.fn(async () =>
+			JSON.stringify({
+				lessons: [
+					{
+						rule: "Inline uploads fail → use the native uploader. Why: the payload limit.",
+						failure: input.activity,
+						fix: input.turn,
+					},
+				],
+			}),
+		);
+		model.learn = vi
+			.fn()
+			.mockRejectedValueOnce(new Error("novelty unavailable"))
+			.mockResolvedValue(undefined);
+		await expect(reflectAgentSessionRequests(db, model, input)).rejects.toThrow(
+			"novelty unavailable",
+		);
+		await reflectAgentSessionRequests(db, model, input);
+		expect(prompts).toHaveLength(1);
+		expect(model.extractObligations).toHaveBeenCalledTimes(1);
+		expect(model.reflectLessons).toHaveBeenCalledTimes(1);
 	});
 
 	it.each([null, "{}", "not JSON"])(
@@ -409,6 +444,17 @@ describe("request ledger observer", () => {
 		expect(prompts).toEqual([]);
 		expect(model.reflectReplies).not.toHaveBeenCalled();
 		expect(await rows(db)).toEqual([]);
+	});
+
+	it("skips reply reflection without open rows or a preceding turn", async () => {
+		const db = fixture();
+		const { model } = scripted('{"requests":[]}');
+		model.reflectReplies = vi.fn();
+		expect(await observe(db, model, "Hello")).toMatchObject({
+			status: "recorded",
+			recorded: [],
+		});
+		expect(model.reflectReplies).not.toHaveBeenCalled();
 	});
 
 	it("records each extracted request as an open row, once", async () => {

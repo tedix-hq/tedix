@@ -41,7 +41,9 @@ import {
 	AGENT_SESSION_REQUEST_LIST_LIMIT,
 	type AgentSessionRequestUpdate,
 	claimAgentSessionEvent,
+	getAgentSessionInferenceReflection,
 	getAgentSessionLessonReflection,
+	recordAgentSessionInferenceReflection,
 	recordAgentSessionLessonReflection,
 	getPreviousAgentSessionTurn,
 	getAgentSessionRequestPrompts,
@@ -203,6 +205,7 @@ export interface LedgerModel {
 	reflectLessons?: (
 		sources: readonly LedgerLessonSource[],
 	) => Promise<string | null>;
+	bookkeepingReflectionIdentity?: { model: string };
 	lessonReflectionIdentity?: { model: string; systemPrompt: string };
 	learn?: (
 		lessons: LedgerLesson[],
@@ -261,6 +264,7 @@ export function workersAiLedgerModel(
 			"agent-session-lesson-reflector",
 		);
 	model.routeProjects = true;
+	model.bookkeepingReflectionIdentity = { model: LEDGER_BOOKKEEPING_MODEL };
 	model.lessonReflectionIdentity = {
 		model: LEDGER_REFLECTOR_MODEL,
 		systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
@@ -350,27 +354,32 @@ export async function observeAgentSessionRequests(
 	});
 	if (previousPrompt === input.message)
 		return { status: "recorded", recorded: [], cancelled: 0 };
-	const open = await activeRows(db, input);
+	const [open, previousTurn] = await Promise.all([
+		activeRows(db, input),
+		model.reflectReplies
+			? getPreviousAgentSessionTurn(db, {
+					...input,
+					before: input.sourceAt,
+				})
+			: Promise.resolve(null),
+	]);
 	const { prompt, byRef } = refs(open);
+	const reflectReplies = Boolean(
+		model.reflectReplies && (prompt.length > 0 || previousTurn),
+	);
 	const [raw, replyRaw] = await Promise.all([
 		model(
 			REQUEST_OBSERVER_SYSTEM_PROMPT,
 			requestObserverInput(input.message, prompt),
 			"agent-session-request-observer",
 		),
-		model.reflectReplies
-			? (async () => {
-					const previousTurn = await getPreviousAgentSessionTurn(db, {
-						...input,
-						before: input.sourceAt,
-					});
-					return model.reflectReplies!(prompt, input.message, previousTurn);
-				})()
+		reflectReplies
+			? model.reflectReplies!(prompt, input.message, previousTurn)
 			: undefined,
 	]);
 	const observed = parseObservedRequests(raw, new Set(byRef.keys()));
 	if (!observed) return { status: "unavailable" };
-	if (model.reflectReplies) {
+	if (reflectReplies) {
 		const replies = parseObservedRequests(
 			replyRaw ?? null,
 			new Set(byRef.keys()),
@@ -430,7 +439,7 @@ export async function observeAgentSessionRequests(
 				.toLowerCase()
 				.includes(evidence.toLowerCase()),
 	);
-	const supported = model.reflectReplies
+	const supported = reflectReplies
 		? new Set(answers.map((answer) => answer.ref))
 		: ((await model.verify?.(
 				answers.map(({ ref, evidence }) => ({
@@ -480,6 +489,7 @@ async function reflectSessionLessons(
 	model: LedgerProcessingModel,
 	input: SessionScope & { sourceEventId?: string; repository: string | null },
 	sources: readonly LedgerLessonSource[],
+	writeReceipt: (write: () => Promise<void>) => Promise<void>,
 ): Promise<string | null> {
 	const receipt =
 		input.sourceEventId && model.lessonReflectionIdentity
@@ -513,7 +523,68 @@ async function reflectSessionLessons(
 	if (!receipt || raw === null) return raw;
 	// Never checkpoint candidates the evidence parser would discard.
 	if (!isReusableLessonReflection(raw, sources)) return raw;
-	await recordAgentSessionLessonReflection(db, { ...receipt, response: raw });
+	await writeReceipt(() =>
+		recordAgentSessionLessonReflection(db, { ...receipt, response: raw }),
+	);
+	return raw;
+}
+
+async function reflectSessionBookkeeping(
+	db: DbQueryClient,
+	model: LedgerProcessingModel,
+	input: SessionScope & {
+		sourceEventId?: string;
+		turn: string;
+		activity: string | null;
+		repository: string | null;
+		sourceAt: string;
+	},
+	phase: "status" | "intake",
+	systemPrompt: string,
+	reflect: () => Promise<string | null>,
+	reusable: (raw: string) => boolean,
+	writeReceipt: (write: () => Promise<void>) => Promise<void>,
+): Promise<string | null> {
+	const receipt =
+		input.sourceEventId && model.bookkeepingReflectionIdentity
+			? {
+					...input,
+					id: input.sourceEventId,
+					phase,
+					inputKey: await sourceKey([
+						JSON.stringify({
+							version: 1,
+							identity: model.bookkeepingReflectionIdentity,
+							systemPrompt,
+							repository: input.repository,
+							turn: input.turn,
+							activity: input.activity,
+							sourceAt: input.sourceAt,
+						}),
+					]),
+				}
+			: null;
+	if (receipt) {
+		const saved = await getAgentSessionInferenceReflection(db, receipt);
+		if (saved !== null && reusable(saved)) {
+			writeInferenceDiagnostic(() =>
+				console.info({
+					event: "agent_session.inference_reused",
+					surface: `agent-session-request-${phase}`,
+					reason: "same_event_input",
+				}),
+			);
+			return saved;
+		}
+	}
+	const raw = await reflect();
+	if (receipt && raw !== null && reusable(raw))
+		await writeReceipt(() =>
+			recordAgentSessionInferenceReflection(db, {
+				...receipt,
+				response: raw,
+			}),
+		);
 	return raw;
 }
 
@@ -604,27 +675,54 @@ export async function reflectAgentSessionRequests(
 	const skipStatusReflection = active.length === 0;
 	if (skipStatusReflection)
 		recordSkippedInference("agent-session-request-reflector", "no_active_rows");
+	let receiptWrites = Promise.resolve();
+	const writeReceipt = (write: () => Promise<void>) => {
+		const result = receiptWrites.then(write);
+		receiptWrites = result.catch(() => undefined);
+		return result;
+	};
 	const lessonsPending = canReflectLessons
-		? reflectSessionLessons(db, model, input, lessonSources)
+		? reflectSessionLessons(db, model, input, lessonSources, writeReceipt)
 		: Promise.resolve('{"lessons":[]}');
+	const statusPrompt = requestReflectorInput(
+		input.turn,
+		prompt.slice(0, active.length),
+		input.activity ?? "",
+		prompt.slice(active.length),
+		userMessage ?? "",
+		[...scopes]
+			.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
+			.join("\n\n"),
+	);
 	const [raw, intakeRaw, lessonRaw] = await Promise.all([
 		skipStatusReflection
 			? Promise.resolve('{"updates":[]}')
-			: model(
+			: reflectSessionBookkeeping(
+					db,
+					model,
+					input,
+					"status",
 					REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
-					requestReflectorInput(
-						input.turn,
-						prompt.slice(0, active.length),
-						input.activity ?? "",
-						prompt.slice(active.length),
-						userMessage ?? "",
-						[...scopes]
-							.map(([message, refs]) => `${refs.join(", ")}:\n${message}`)
-							.join("\n\n"),
-					),
-					"agent-session-request-reflector",
+					() =>
+						model(
+							REQUEST_STATUS_REFLECTOR_SYSTEM_PROMPT,
+							statusPrompt,
+							"agent-session-request-reflector",
+						),
+					(candidate) =>
+						parseReflectedUpdates(candidate, openRefs, source) !== null,
+					writeReceipt,
 				),
-		model.extractObligations(prompt, input.turn, userMessage ?? ""),
+		reflectSessionBookkeeping(
+			db,
+			model,
+			input,
+			"intake",
+			REQUEST_INTAKE_SYSTEM_PROMPT,
+			() => model.extractObligations(prompt, input.turn, userMessage ?? ""),
+			hasLedgerIntake,
+			writeReceipt,
+		),
 		lessonsPending,
 	]);
 	if (!hasLedgerIntake(intakeRaw)) return { status: "unavailable" };
