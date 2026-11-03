@@ -1,6 +1,4 @@
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
-import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
-import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import * as z from "zod";
 import type { EvaluationRequest } from "@tedix/api-contract/schemas/evaluation-context";
@@ -273,9 +271,12 @@ export async function assertEvaluationWork(
 	>,
 ): Promise<void> {
 	const db = (await import("@tedix/db/client")).createDbClient(env.DB);
+	const { getWorkItemById } = await import("@tedix/db/queries/work-items/crud");
 	const work = await getWorkItemById(db, admission.workItemId, orgId);
 	if (work?.disposition !== "accepted")
 		throw new Error("Evaluation Work is not accepted");
+	const { getAuthoritativeWorkItemAttempt } =
+		await import("@tedix/db/queries/work-items/attempts");
 	await getAuthoritativeWorkItemAttempt(db, {
 		orgId,
 		workItemId: admission.workItemId,
