@@ -135,3 +135,67 @@ export const RepositoryCandidateAccessInputSchema = z.strictObject({
 	descriptor: RepositoryCandidateDescriptorSchema,
 	userIds: z.array(z.string().min(1)).max(32),
 });
+
+const RepositoryCandidateGitIdentitySchema = z.strictObject({
+	name: z.string().min(1).max(128),
+	email: z.string().min(1).max(128),
+	timestamp: z.number().int().nonnegative(),
+	timezoneOffset: z.number().int().min(-840).max(840),
+});
+export const RepositoryCandidatePreparationSchema = z.strictObject({
+	version: z.literal(1),
+	descriptor: RepositoryCandidateDescriptorSchema,
+	position: RepositoryCandidatePositionSchema,
+	contentDigest: DigestSchema,
+	repositoryBaseRevision: GitRevisionSchema.nullable(),
+	targetRef: z.string().min(12).max(1024),
+	remote: z.string().url().max(2048),
+	recipe: z.strictObject({
+		message: z.string().min(1).max(2048),
+		author: RepositoryCandidateGitIdentitySchema,
+		committer: RepositoryCandidateGitIdentitySchema,
+	}),
+	treeRevision: GitRevisionSchema,
+	commitRevision: GitRevisionSchema,
+	objectManifestDigest: DigestSchema,
+	unchanged: z.boolean(),
+	preparedAt: z.iso.datetime(),
+	preparationDigest: DigestSchema,
+});
+export type RepositoryCandidatePreparation = z.infer<
+	typeof RepositoryCandidatePreparationSchema
+>;
+export const RepositoryCandidatePublicationRecordSchema = z.strictObject({
+	preparation: RepositoryCandidatePreparationSchema,
+	attemptedAt: z.iso.datetime().nullable(),
+});
+export type RepositoryCandidatePublicationRecord = z.infer<
+	typeof RepositoryCandidatePublicationRecordSchema
+>;
+export const RepositoryCandidatePublicationObservationSchema = z.strictObject({
+	effect: z.enum([
+		"prepared",
+		"acknowledged",
+		"observed",
+		"unknown",
+		"rejected",
+		"unchanged",
+	]),
+	headRevision: GitRevisionSchema.nullable(),
+	objectPresent: z.boolean().nullable(),
+	superseded: z.boolean(),
+	cleanup: z.enum(["not_minted", "revoked", "failed"]),
+	observedAt: z.iso.datetime(),
+});
+export type RepositoryCandidatePublicationObservation = z.infer<
+	typeof RepositoryCandidatePublicationObservationSchema
+>;
+export const ApplyRepositoryCandidateInputSchema =
+	SealRepositoryCandidateInputSchema.extend({
+		expectedBaseRevision: GitRevisionSchema,
+	}).strict();
+export const RepositoryCandidatePublicationResultSchema = z.strictObject({
+	record: RepositoryCandidatePublicationRecordSchema,
+	observation: RepositoryCandidatePublicationObservationSchema,
+	evidenceRecorded: z.boolean(),
+});

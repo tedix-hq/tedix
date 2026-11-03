@@ -29,6 +29,8 @@ import {
 	SubmitRepositoryCandidateInputSchema,
 	SealRepositoryCandidateInputSchema,
 	RepositoryCandidateResultSchema,
+	ApplyRepositoryCandidateInputSchema,
+	RepositoryCandidatePublicationResultSchema,
 } from "../schemas/repository-candidate";
 import * as z from "zod";
 import { baseErrors } from "../errors";
@@ -1283,6 +1285,25 @@ export const workItemsContract = oc
 			})
 			.input(SealRepositoryCandidateInputSchema)
 			.output(RepositoryCandidateResultSchema),
+
+		applyRepositoryCandidate: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/candidate/apply",
+				summary:
+					"Apply an exact sealed candidate to its isolated repository using the current executor",
+			})
+			.input(ApplyRepositoryCandidateInputSchema)
+			.output(RepositoryCandidatePublicationResultSchema),
+		reconcileRepositoryCandidate: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/candidate/reconcile",
+				summary:
+					"Observe prepared candidate publication without minting credentials or retrying writes",
+			})
+			.input(RepositoryCandidateInputSchema)
+			.output(RepositoryCandidatePublicationResultSchema),
 
 		readAttemptRepository: oc
 			.route({

@@ -16,6 +16,8 @@ describe("repository candidate native tool projection", () => {
 		["readRepositoryCandidate", "read_repository_candidate", "read"],
 		["submitRepositoryCandidate", "submit_repository_candidate", "write"],
 		["sealRepositoryCandidate", "seal_repository_candidate", "write"],
+		["applyRepositoryCandidate", "apply_repository_candidate", "write"],
+		["reconcileRepositoryCandidate", "reconcile_repository_candidate", "write"],
 	] as const)(
 		"projects %s without inferring publication authority",
 		async (operation, name, kind) => {

@@ -1,3 +1,7 @@
+import type {
+	RepositoryCandidatePreparation,
+	RepositoryCandidatePublicationObservation,
+} from "@tedix/api-contract/schemas/repository-candidate";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -87,6 +91,14 @@ export async function submitWorkItemEvidence(
 		metadata?: Record<string, JsonValue>;
 	},
 ): Promise<WorkEvidence> {
+	if (
+		params.kind === "repository_candidate_publication" ||
+		params.claimKey.startsWith("repository_candidate_publication:")
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Publication observations are server-derived only",
+		);
 	const submittedAt = params.submittedAt ?? new Date().toISOString();
 	// Org scoping: resolves (and refuses) the item before anything is written.
 	await getScopedWorkItem(db, params.orgId, params.workItemId);
@@ -268,4 +280,163 @@ export async function getWorkItemEvidence(
 		)
 		.limit(1);
 	return row ?? null;
+}
+
+/** Append observed provider facts without reviving or mutating a historical Attempt. */
+export async function recordRepositoryCandidatePublicationObservation(
+	db: DbQueryClient,
+	params: {
+		preparation: RepositoryCandidatePreparation;
+		observation: RepositoryCandidatePublicationObservation;
+		observedBy: {
+			type: "external_agent" | "tedi";
+			id: string;
+			sessionId?: string;
+			userId: string | null;
+		};
+	},
+): Promise<WorkEvidence> {
+	const p = params.preparation,
+		d = p.descriptor,
+		o = params.observation;
+	const { observedAt: _time, ...fact } = o;
+	const bytes = new Uint8Array(
+		await crypto.subtle.digest(
+			"SHA-256",
+			new TextEncoder().encode(
+				JSON.stringify({
+					preparationDigest: p.preparationDigest,
+					...fact,
+					observedBy: params.observedBy,
+				}),
+			),
+		),
+	);
+	const digest = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
+		"",
+	);
+	const id = crypto.randomUUID(),
+		claimKey = `repository_candidate_publication:${d.attemptId}:${p.preparationDigest}`,
+		uri = `artifacts:${d.repositoryId}/commits/${p.commitRevision}`;
+	const metadata = {
+		originalAttemptId: d.attemptId,
+		preparationDigest: p.preparationDigest,
+		publication: o,
+		observedBy: params.observedBy,
+	};
+	const insert = db
+		.insert(workEvidence)
+		.select(
+			db
+				.select({
+					id: sql<string>`${id}`.as("id"),
+					workItemId: workAttempts.workItemId,
+					orgId: workAttempts.orgId,
+					attemptId: sql<null>`NULL`.as("attempt_id"),
+					claimKey: sql<string>`${claimKey}`.as("claim_key"),
+					kind: sql<string>`'repository_candidate_publication'`.as("kind"),
+					uri: sql<string>`${uri}`.as("uri"),
+					digest: sql<string>`${digest}`.as("digest"),
+					mediaType: sql<string>`'application/json'`.as("media_type"),
+					label: sql<string>`'Repository candidate publication observation'`.as(
+						"label",
+					),
+					submittedByType: sql<WorkActorType>`'system'`.as("submitted_by_type"),
+					submittedById: sql<string>`'repository-candidate-publication'`.as(
+						"submitted_by_id",
+					),
+					submittedBySessionId: sql<null>`NULL`.as("submitted_by_session_id"),
+					disposition: sql<"pending">`'pending'`.as("disposition"),
+					reviewedByType: sql<null>`NULL`.as("reviewed_by_type"),
+					reviewedById: sql<null>`NULL`.as("reviewed_by_id"),
+					reviewedBySessionId: sql<null>`NULL`.as("reviewed_by_session_id"),
+					reviewReason: sql<null>`NULL`.as("review_reason"),
+					submittedAt: sql<string>`${o.observedAt}`.as("submitted_at"),
+					reviewedAt: sql<null>`NULL`.as("reviewed_at"),
+					version: sql<number>`1`.as("version"),
+					metadata: sql<
+						Record<string, JsonValue>
+					>`${JSON.stringify(metadata)}`.as("metadata"),
+				})
+				.from(workAttempts)
+				.where(
+					and(
+						eq(workAttempts.id, d.attemptId),
+						eq(workAttempts.orgId, d.organizationId),
+						eq(workAttempts.workItemId, d.workItemId),
+						sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.preparation.preparationDigest')=${p.preparationDigest}`,
+					),
+				),
+		)
+		.onConflictDoNothing()
+		.returning();
+	await db.batch([
+		insert,
+		evidenceEventInsert(db, {
+			evidenceId: id,
+			expectedVersion: 1,
+			disposition: "pending",
+			eventType: "evidence.submitted",
+			actor: { type: "system", id: "repository-candidate-publication" },
+			occurredAt: o.observedAt,
+			payload: {
+				evidenceId: id,
+				claimKey,
+				kind: "repository_candidate_publication",
+			},
+		}),
+	]);
+	const [evidence] = await db
+		.select()
+		.from(workEvidence)
+		.where(
+			and(
+				eq(workEvidence.orgId, d.organizationId),
+				eq(workEvidence.workItemId, d.workItemId),
+				eq(workEvidence.claimKey, claimKey),
+				eq(workEvidence.uri, uri),
+				eq(workEvidence.digest, digest),
+			),
+		)
+		.limit(1);
+	if (
+		!evidence ||
+		evidence.kind !== "repository_candidate_publication" ||
+		evidence.submittedByType !== "system" ||
+		evidence.submittedById !== "repository-candidate-publication"
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Publication preparation is unavailable for observation",
+		);
+	return evidence;
+}
+
+export async function getRepositoryCandidatePublicationEffect(
+	db: DbQueryClient,
+	p: RepositoryCandidatePreparation,
+): Promise<"acknowledged" | "observed" | null> {
+	const rows = await db
+		.select({
+			rank: sql<number>`max(CASE json_extract(${workEvidence.metadata},'$.publication.effect') WHEN 'acknowledged' THEN 2 WHEN 'observed' THEN 1 ELSE 0 END)`.as(
+				"rank",
+			),
+		})
+		.from(workEvidence)
+		.where(
+			and(
+				eq(workEvidence.orgId, p.descriptor.organizationId),
+				eq(workEvidence.workItemId, p.descriptor.workItemId),
+				eq(workEvidence.kind, "repository_candidate_publication"),
+				eq(workEvidence.submittedByType, "system"),
+				eq(workEvidence.submittedById, "repository-candidate-publication"),
+				sql`json_extract(${workEvidence.metadata},'$.preparationDigest')=${p.preparationDigest}`,
+				sql`json_extract(${workEvidence.metadata},'$.publication.effect') IN ('acknowledged','observed')`,
+			),
+		);
+	return Number(rows[0]?.rank) === 2
+		? "acknowledged"
+		: Number(rows[0]?.rank) === 1
+			? "observed"
+			: null;
 }

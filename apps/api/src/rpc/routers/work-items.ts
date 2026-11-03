@@ -79,6 +79,10 @@ import {
 	submitRepositoryCandidateProcedure,
 	sealRepositoryCandidateProcedure,
 } from "./work-items/repository-draft";
+import {
+	applyRepositoryCandidateProcedure,
+	reconcileRepositoryCandidateProcedure,
+} from "./work-items/repository-candidate-publication";
 import { reviewAttemptRepositoryProcedure } from "./work-items/repository-review";
 import { recordDelegationAutonomyFeedbackProcedure } from "./work-items/delegation-autonomy";
 
@@ -139,6 +143,8 @@ export const workItemsContractRouter = workItemsOs.router({
 	readRepositoryCandidate: readRepositoryCandidateProcedure,
 	submitRepositoryCandidate: submitRepositoryCandidateProcedure,
 	sealRepositoryCandidate: sealRepositoryCandidateProcedure,
+	applyRepositoryCandidate: applyRepositoryCandidateProcedure,
+	reconcileRepositoryCandidate: reconcileRepositoryCandidateProcedure,
 	reviewAttemptRepository: reviewAttemptRepositoryProcedure,
 	submitEvidence: submitEvidenceProcedure,
 	listEvidence: listEvidenceProcedure,

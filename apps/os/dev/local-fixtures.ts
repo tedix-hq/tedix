@@ -7008,6 +7008,18 @@ const handlers: Record<string, (input: never) => unknown> = {
 			"Only the current verified executor can seal this candidate",
 		);
 	},
+	"workItems/applyRepositoryCandidate": () => {
+		throw new RpcError(
+			"FORBIDDEN",
+			"Repository publication requires the current verified native executor",
+		);
+	},
+	"workItems/reconcileRepositoryCandidate": () => {
+		throw new RpcError(
+			"FORBIDDEN",
+			"Repository publication observation requires a verified native executor",
+		);
+	},
 	"workItems/readAttemptRepository": (input: {
 		operation: "log" | "tree" | "file";
 		path?: string;

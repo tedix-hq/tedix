@@ -1124,6 +1124,23 @@ const REPOSITORY_CANDIDATE_REFUSALS: Record<
 		},
 		status: 403,
 	},
+	"workItems/applyRepositoryCandidate": {
+		input: {
+			id: "00000070-0000-4000-8000-000000000001",
+			attemptId: "00000047-0000-4000-8000-000000000001",
+			expectedBaseRevision: "a".repeat(40),
+			expectedPosition: { generation: 0, revision: 0 },
+			expectedContentDigest: "b".repeat(64),
+		},
+		status: 403,
+	},
+	"workItems/reconcileRepositoryCandidate": {
+		input: {
+			id: "00000070-0000-4000-8000-000000000001",
+			attemptId: "00000047-0000-4000-8000-000000000001",
+		},
+		status: 403,
+	},
 };
 
 // Runtime-app procedures answer only for the sample company's seeded app.
