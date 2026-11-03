@@ -2402,9 +2402,51 @@ describe("home approved-write layer (v1)", () => {
 					payload: { status: "completed" },
 				}),
 			);
-			const recovery = await client.retryDelegation({
+			let signalDispatchStarted = () => {};
+			let releaseDispatch = () => {};
+			const dispatchStarted = new Promise<void>((resolve) => {
+				signalDispatchStarted = resolve;
+			});
+			const dispatchReleased = new Promise<void>((resolve) => {
+				releaseDispatch = resolve;
+			});
+			delegateRunner.mockImplementationOnce(async (input) => {
+				signalDispatchStarted();
+				await dispatchReleased;
+				return {
+					childConversationId: "agent:main:main",
+					childRunId: input.childRunId,
+					status: "queued" as const,
+				};
+			});
+			const recoveryPending = client.retryDelegation({
 				workItemId: workItemId!,
 			});
+			await dispatchStarted;
+			try {
+				const admittedChildRunId = db.workAttemptRows.at(-1)!.runId;
+				expect(db.runs.find((run) => run.id === result.run.id)).toMatchObject({
+					status: "queued",
+					childRunId: admittedChildRunId,
+					completedAt: null,
+					progressLabel: "Dispatching",
+					metadata: {
+						childRunId: admittedChildRunId,
+						homeRecoveryDispatch: { previousChildRunId },
+					},
+				});
+				expect(previousRun.metadata?.childRunPreview).toBeUndefined();
+				expect(previousRun.metadata?.delegationProof).toBeUndefined();
+				const attemptsBeforeDuplicate = structuredClone(db.workAttemptRows);
+				await expect(
+					client.retryDelegation({ workItemId: workItemId! }),
+				).rejects.toThrow(/original delegated child may still execute/);
+				expect(db.workAttemptRows).toEqual(attemptsBeforeDuplicate);
+				expect(delegateRunner).toHaveBeenCalledTimes(2);
+			} finally {
+				releaseDispatch();
+			}
+			const recovery = await recoveryPending;
 			expect(recovery.retryCount).toBe(1);
 			expect(recovery.run).toMatchObject({
 				status: "queued",
