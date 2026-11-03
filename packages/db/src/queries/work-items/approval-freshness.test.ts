@@ -17,6 +17,7 @@ import {
 	workItems,
 } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
+import { policyPacks } from "../../schema/control-plane";
 import { schemaDdl } from "../../test/schema-ddl";
 import { updateWorkItemSpecification } from "./crud";
 import { deriveWorkItemReadiness } from "./readiness";
@@ -41,6 +42,7 @@ function fixture() {
 			workResourceRequirements,
 			workBudgetEnvelopes,
 			workCaseItems,
+			policyPacks,
 		),
 	);
 	sqlite

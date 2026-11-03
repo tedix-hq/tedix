@@ -5,6 +5,8 @@ import { createDbQueryClient } from "../../query-client";
 import { createD1Facade, type D1FacadeOptions } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { workInteractions } from "../../schema/work-factory";
+import { policyPacks } from "../../schema/control-plane";
+import { tedis } from "../../schema/tedis";
 import {
 	heartbeatWorkItemAttempt,
 	settleWorkItemAttempt,
@@ -83,7 +85,9 @@ CREATE TABLE work_events (
 function fixture(options?: D1FacadeOptions) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
-	sqlite.exec(schemaDdl(workInteractions, organizationMembers));
+	sqlite.exec(
+		schemaDdl(workInteractions, organizationMembers, policyPacks, tedis),
+	);
 	sqlite.exec(
 		"CREATE TABLE work_item_comments (id TEXT PRIMARY KEY,work_item_id TEXT NOT NULL,org_id TEXT NOT NULL,author_type TEXT NOT NULL,author_id TEXT,body TEXT NOT NULL,metadata TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)",
 	);
