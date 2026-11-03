@@ -97,6 +97,11 @@ export async function readOwnedRuntimeWorkflow(input: {
 	} catch {
 		return unavailable("RUN_ASSOCIATION_MISMATCH");
 	}
+	const dispatchTiming = await readDispatchTiming(
+		input.storage,
+		record.id,
+		input.runId,
+	);
 	const associated = {
 		...base,
 		association: "verified",
@@ -106,6 +111,7 @@ export async function readOwnedRuntimeWorkflow(input: {
 		)
 			? record.stage
 			: null,
+		...(dispatchTiming ? { dispatchTiming } : {}),
 	};
 	if (!bindingConfigured)
 		return {
@@ -155,5 +161,49 @@ export async function readOwnedRuntimeWorkflow(input: {
 				? "NATIVE_INSTANCE_MISSING"
 				: "NATIVE_STATUS_READ_UNAVAILABLE",
 		};
+	}
+}
+
+/**
+ * The dispatch context is recorded before the native instance is created, so
+ * a verified association can report how long the run waited for its first
+ * checkpoint — the signal that separates a transient platform queue from a
+ * stalled dispatch. Only numeric fields are copied; userText stays private.
+ */
+async function readDispatchTiming(
+	storage: Pick<DurableObjectStorage, "get">,
+	workflowInstanceId: string,
+	runId: string,
+) {
+	try {
+		const dispatch = await storage.get(`wfctx:${workflowInstanceId}`);
+		if (!isRecord(dispatch) || dispatch.runId !== runId) return undefined;
+		const { admittedAt, startedAt, restartCount } = dispatch;
+		if (
+			typeof admittedAt !== "number" ||
+			!Number.isSafeInteger(admittedAt) ||
+			admittedAt <= 0
+		)
+			return undefined;
+		const started =
+			typeof startedAt === "number" &&
+			Number.isSafeInteger(startedAt) &&
+			startedAt > 0
+				? startedAt
+				: null;
+		return {
+			admittedAt,
+			startedAt: started,
+			restartCount:
+				typeof restartCount === "number" &&
+				Number.isSafeInteger(restartCount) &&
+				restartCount >= 0
+					? restartCount
+					: 0,
+			ageMs: Math.max(0, Date.now() - admittedAt),
+			startDelayMs: started === null ? null : Math.max(0, started - admittedAt),
+		};
+	} catch {
+		return undefined;
 	}
 }
