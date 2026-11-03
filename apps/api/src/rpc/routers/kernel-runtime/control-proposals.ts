@@ -1540,10 +1540,10 @@ export async function proposeRepoCommitImpl(
 	const revisionExpectation = parseRepoCommitRevisionExpectation(
 		input.revisionExpectation,
 	);
-	if (input.revisionExpectation != null && !revisionExpectation)
+	if (!revisionExpectation?.exactTreeValidation)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
-			"Invalid repository revision expectation",
+			"A successful exact resulting-tree check is required before proposing publication",
 		);
 	// Shape-check at the trust boundary, then store verbatim. A malformed value
 	// is dropped rather than persisted, because a payload carrying a non-hex
