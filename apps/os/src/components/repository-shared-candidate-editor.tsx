@@ -107,9 +107,8 @@ function RepositorySharedCandidateEditor({
 	return (
 		<div className="grid min-w-0 gap-2">
 			<Text>
-				Shared candidate at {descriptor.baseRevision.slice(0, 12)}. These edits
-				have not been written to the repository. The current executor must
-				review and apply them through the existing Work.
+				Shared candidate based on {descriptor.baseRevision.slice(0, 12)}. Review
+				this candidate and its repository application results on Work.
 			</Text>
 			<Text role="label" tone="secondary">
 				{state.sealed
