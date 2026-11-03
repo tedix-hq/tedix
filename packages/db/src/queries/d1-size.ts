@@ -5,7 +5,37 @@
  */
 
 import { sql, type SQL } from "drizzle-orm";
-import type { DbQueryClient } from "../query-client";
+import { createDbQueryClient, type DbQueryClient } from "../query-client";
+
+/** The operator supplies only transport; inventory SQL stays in this owner. */
+export function createD1StorageReader(
+	read: (
+		query: string,
+		params: (string | number | null)[],
+	) => Promise<{
+		success: boolean;
+		results: Record<string, unknown>[];
+		meta?: { size_after?: number; rows_written?: number };
+	}>,
+): DbQueryClient {
+	const binding = {
+		prepare(query: string) {
+			if (
+				!/^\s*(SELECT\b|PRAGMA\s+(table_xinfo|index_xinfo)\s*\()/i.test(query)
+			)
+				throw new Error("D1 size adapter accepts inventory reads only");
+			const statement = (params: (string | number | null)[]) => ({
+				bind: (...values: (string | number | null)[]) => statement(values),
+				all: () => read(query, params),
+				run: () => read(query, params),
+			});
+			return statement([]);
+		},
+	};
+	return createDbQueryClient(
+		binding as unknown as Parameters<typeof createDbQueryClient>[0],
+	);
+}
 
 export async function readD1SizeBytes(
 	db: DbQueryClient,
@@ -37,6 +67,7 @@ export interface D1StorageObject {
 }
 
 export interface D1StorageReport {
+	inventory: Pick<D1StorageObject, "name" | "table" | "type">[];
 	method: "dbstat" | "estimate";
 	dbstatProbeError: string | null;
 	sizeBefore: number | null;
@@ -140,6 +171,7 @@ export async function readD1StorageReport(
 		sampleSize?: number;
 		maxPages?: number;
 		concurrency?: number;
+		excludeTables?: readonly string[];
 		onTable?: (objects: D1StorageObject[]) => void | Promise<void>;
 	} = {},
 ): Promise<D1StorageReport> {
@@ -164,6 +196,7 @@ export async function readD1StorageReport(
 		throw new Error("Invalid D1 report page/sample budget");
 
 	const report: D1StorageReport = {
+		inventory: [],
 		method: "dbstat",
 		dbstatProbeError: null,
 		sizeBefore: await readD1SizeBytes(db),
@@ -210,6 +243,11 @@ export async function readD1StorageReport(
 		if (page.length < 100) break;
 		afterName = page[page.length - 1]!.name;
 	}
+	report.inventory = schema.map((object) => ({
+		name: object.name,
+		table: object.tbl_name,
+		type: object.type,
+	}));
 
 	if (report.method === "dbstat") {
 		// The schema btree is omitted from sqlite_master itself.
@@ -244,7 +282,15 @@ export async function readD1StorageReport(
 			"Physical btree page bytes from dbstat aggregate mode, including overflow and unused space. Freelist, pointer-map and lock pages are excluded by dbstat; the signed residual also includes concurrent database growth/shrinkage.",
 		);
 	} else {
-		const tables = schema.filter((object) => object.type === "table");
+		const tables = schema.filter(
+			(object) =>
+				object.type === "table" &&
+				!options.excludeTables?.includes(object.name),
+		);
+		if (options.excludeTables?.length)
+			report.notes.push(
+				`Checkpoint continuation excludes already measured tables: ${options.excludeTables.join(", ")}`,
+			);
 		const readTable = async (table: SchemaObject) => {
 			const indexes = schema.filter(
 				(object) => object.type === "index" && object.tbl_name === table.name,
@@ -325,7 +371,6 @@ export async function readD1StorageReport(
 						sql`CASE WHEN (${predicate}) THEN 1 ELSE 0 END AS ${identifier(`ir${i}`)}`,
 					);
 				}
-				const lengths = sql.join(projections, sql`, `);
 				const totals = columns.map(() => 0);
 				const indexBytes = indexes.map(() => 0);
 				const indexRows = indexes.map(() => 0);
@@ -344,10 +389,21 @@ export async function readD1StorageReport(
 						SELECT ${keyProjection} FROM ${identifier(table.name)}
 						WHERE ${where} ORDER BY ${keySql} LIMIT ${pageSize}`);
 					if (!page.length) break;
-					spendPage();
-					const sample = await db.all<Record<string, number>>(sql`
-						SELECT ${lengths} FROM ${identifier(table.name)}
-						WHERE ${where} ORDER BY ${keySql} LIMIT ${Math.min(sampleSize, page.length)}`);
+					let sample: Record<string, number>[] = [];
+					// D1 limits result columns; wide tables/index sets need separate projections.
+					for (let offset = 0; offset < projections.length; offset += 40) {
+						spendPage();
+						const chunk = await db.all<Record<string, number>>(sql`
+							SELECT ${sql.join(projections.slice(offset, offset + 40), sql`, `)} FROM ${identifier(table.name)}
+							WHERE ${where} ORDER BY ${keySql} LIMIT ${Math.min(sampleSize, page.length)}`);
+						if (offset === 0) sample = chunk;
+						else {
+							if (chunk.length !== sample.length)
+								throw new Error("Rows changed between sample projections");
+							for (let i = 0; i < chunk.length; i++)
+								Object.assign(sample[i]!, chunk[i]);
+						}
+					}
 					count += page.length;
 					sampled += sample.length;
 					if (!sample.length)
@@ -414,6 +470,8 @@ export async function readD1StorageReport(
 				? 0
 				: (100 * report.unattributedBytes) / report.sizeAfter;
 	}
-	report.complete &&= report.objects.every((object) => object.bytes !== null);
+	report.complete &&=
+		!options.excludeTables?.length &&
+		report.objects.every((object) => object.bytes !== null);
 	return report;
 }

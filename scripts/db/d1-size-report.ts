@@ -14,8 +14,8 @@
  * Record --sizes-only on that Work before and after each production report.
  */
 
-import { createDbQueryClient } from "@tedix/db/query-client";
 import {
+	createD1StorageReader,
 	readD1SizeBytes,
 	readD1StorageReport,
 } from "@tedix/db/queries/d1-size";
@@ -36,55 +36,34 @@ export function createSizeReportClient(options: {
 	>[0]["fetchImplementation"];
 	env?: NodeJS.ProcessEnv;
 }) {
-	// This adapter only supports the read methods used by the query owner.
-	const binding = {
-		prepare(query: string) {
-			if (
-				!/^\s*(SELECT\b|PRAGMA\s+(table_xinfo|index_xinfo)\s*\()/i.test(query)
-			) {
-				throw new Error("D1 size adapter accepts inventory reads only");
-			}
-			const statement = (params: (string | number | null)[]) => {
-				const execute = async () => {
-					const result = await remoteD1QueryRest({
-						...options,
-						sql: query,
-						params,
-						caller: "scripts/db/d1-size-report.ts",
-					});
-					if (!result.ok)
-						throw new Error(
-							`D1 query failed (${result.status}): ${result.detail ?? "unknown"}`,
-						);
-					const rows = result.result as {
-						success: boolean;
-						results: Record<string, unknown>[];
-						meta: { size_after?: number; rows_written?: number };
-					}[];
-					if (
-						!Array.isArray(rows) ||
-						rows.length !== 1 ||
-						rows[0]?.success !== true ||
-						!Array.isArray(rows[0].results)
-					) {
-						throw new Error("Invalid D1 statement envelope");
-					}
-					if (rows[0].meta?.rows_written)
-						throw new Error("Read-only inventory unexpectedly wrote rows");
-					return rows[0];
-				};
-				return {
-					bind: (...values: (string | number | null)[]) => statement(values),
-					all: execute,
-					run: execute,
-				};
-			};
-			return statement([]);
-		},
-	};
-	return createDbQueryClient(
-		binding as unknown as Parameters<typeof createDbQueryClient>[0],
-	);
+	return createD1StorageReader(async (query, params) => {
+		const result = await remoteD1QueryRest({
+			...options,
+			sql: query,
+			params,
+			caller: "scripts/db/d1-size-report.ts",
+		});
+		if (!result.ok)
+			throw new Error(
+				`D1 query failed (${result.status}): ${result.detail ?? "unknown"}`,
+			);
+		const rows = result.result as {
+			success: boolean;
+			results: Record<string, unknown>[];
+			meta: { size_after?: number; rows_written?: number };
+		}[];
+		if (
+			!Array.isArray(rows) ||
+			rows.length !== 1 ||
+			rows[0]?.success !== true ||
+			!Array.isArray(rows[0].results)
+		) {
+			throw new Error("Invalid D1 statement envelope");
+		}
+		if (rows[0].meta?.rows_written)
+			throw new Error("Read-only inventory unexpectedly wrote rows");
+		return rows[0];
+	});
 }
 
 async function main() {

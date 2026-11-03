@@ -154,6 +154,37 @@ describe("D1 storage inventory", () => {
 		await expect(readD1StorageReport(db, { concurrency: 5 })).rejects.toThrow(
 			"Invalid",
 		);
+		const continued = await readD1StorageReport(db, {
+			excludeTables: ["first"],
+		});
+		expect(continued.objects.map((o) => o.name)).toEqual(["second"]);
+		expect(continued.inventory.map((o) => o.name)).toEqual([
+			"first",
+			"first_value",
+			"second",
+		]);
+	});
+
+	it("samples wide schemas in bounded column projections", async () => {
+		const { sqlite, db, statements } = fixture();
+		const columns = Array.from({ length: 105 }, (_, i) => `c${i} TEXT`);
+		sqlite.exec(
+			`CREATE TABLE wide (${columns.join(",")}); INSERT INTO wide VALUES (${columns.map(() => "'x'").join(",")})`,
+		);
+		const report = await readD1StorageReport(db);
+		expect(report.objects[0]).toMatchObject({ bytes: 105, rows: 1 });
+		const projections = statements.filter(
+			(query) =>
+				query.includes('AS "c0"') ||
+				query.includes('AS "c40"') ||
+				query.includes('AS "c80"'),
+		);
+		expect(projections).toHaveLength(3);
+		expect(
+			projections.every(
+				(query) => [...query.matchAll(/AS "c\d+"/g)].length <= 40,
+			),
+		).toBe(true);
 	});
 
 	it("stops at the query budget and does not treat provider failures as absent dbstat", async () => {
