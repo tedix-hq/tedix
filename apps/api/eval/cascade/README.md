@@ -50,8 +50,16 @@ The grader rejects duplicate rows and reused execution IDs. Missing prices,
 usage persistence, resolved models, quality/correction scores or repetitions
 cannot qualify a measurement set. Replay tests exercise control flow and
 grading only. Report each partition separately. Summed cache tokens grouped by
-resolved model are descriptive; they do not establish causal savings. A complete
-measurement set still needs a no-regression comparison and threshold review.
+resolved model are descriptive; they do not establish causal savings.
+
+The report compares each partition only when both arms have complete provider
+measurements and matching case/repeat identities. Deltas are cascade minus
+baseline. `noRegression` requires no decrease in label accuracy or brief quality,
+no increase in false successes, correction rate, p95 latency or total cost, and
+no reserved-act violation in either arm. Missing or unpaired evidence leaves
+the comparison unknown. These are descriptive checks, not a promotion decision:
+the host must still prove matching source versions and strong-model configuration,
+freeze the policy revision and review calibration thresholds before holdout.
 
 `results.json` records the initial not-run state. Regenerate it only from
 sanitized verified measurements and retain the corpus digest and configuration
