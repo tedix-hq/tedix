@@ -357,11 +357,15 @@ export async function readWorkAttemptRepository(
 	}
 	try {
 		const info = await repo.info();
+		const prefix = workAttemptRepositoryDescriptionPrefix(repository);
+		const description =
+			repository.mode === "fork"
+				? `${prefix};source:${repository.sourceRepositoryName};ref:${encodeURIComponent(repository.sourceRef!)};base:${repository.baseRevision}`
+				: prefix;
 		if (
+			info.id !== repository.repositoryId ||
 			info.name !== repository.repositoryName ||
-			!info.description?.startsWith(
-				workAttemptRepositoryDescriptionPrefix(repository),
-			)
+			info.description !== description
 		) {
 			throw new WorkAttemptRepositoryReadError(
 				"not_found",
@@ -375,7 +379,7 @@ export async function readWorkAttemptRepository(
 		if (request.operation === "log") {
 			const commits = head
 				? await repo.log({
-						ref,
+						ref: head.hash,
 						limit: request.limit,
 						offset: request.offset,
 					})
@@ -410,7 +414,9 @@ export async function readWorkAttemptRepository(
 				truncated: (entries?.length ?? 0) > REPOSITORY_READ_TREE_ENTRIES,
 			};
 		}
-		const blob = head ? await repo.readFile({ ref, path: request.path }) : null;
+		const blob = head
+			? await repo.readFile({ ref: head.hash, path: request.path })
+			: null;
 		if (!blob) {
 			return {
 				operation: "file",

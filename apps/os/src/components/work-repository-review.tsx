@@ -5,10 +5,13 @@ import {
 	WorkAttemptRepositorySchema,
 	type WorkRepositoryReviewResult,
 } from "@tedix/api-contract/schemas/work-items";
+import { Link } from "@/components/kumo/link";
+import { canvasDocKey } from "@/lib/canvas-search";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { workRepositoryReviewQueryOptions } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
+import { WorkAttemptRepositoryPanel } from "@/components/work-attempt-repository-panel";
 import { ProposalDiff } from "@/components/canvas-proposals";
 
 function FileContent({ file }: { file: WorkRepositoryReviewResult["head"] }) {
@@ -35,7 +38,9 @@ function FileContent({ file }: { file: WorkRepositoryReviewResult["head"] }) {
 export function WorkRepositoryReview({
 	workItemId,
 	attempt,
+	canvasWorkspaceId,
 }: {
+	canvasWorkspaceId?: string;
 	workItemId: string;
 	attempt: {
 		id: string;
@@ -89,8 +94,25 @@ export function WorkRepositoryReview({
 		}),
 		enabled: open && allowed && available && file !== null && !history,
 	});
-	if (!allowed || !attempt.finishedAt || !attempt.metadata?.repository)
-		return null;
+	if (!allowed || !attempt.metadata?.repository) return null;
+	const canvasLink = canvasWorkspaceId ? (
+		<Link
+			href={`/workspace/${canvasWorkspaceId}?workpiece=${encodeURIComponent(canvasDocKey({ type: "repository", id: workItemId, attemptId: attempt.id }))}&pane=workpiece`}
+		>
+			Open repository in Canvas
+		</Link>
+	) : null;
+	if (!attempt.finishedAt)
+		return repository.success && repository.data.status === "ready" ? (
+			<div className="grid gap-2">
+				{canvasLink}
+				<WorkAttemptRepositoryPanel
+					workItemId={workItemId}
+					attemptId={attempt.id}
+					repository={repository.data}
+				/>
+			</div>
+		) : null;
 	if (!available)
 		return (
 			<Text role="label" tone="secondary">
@@ -100,6 +122,7 @@ export function WorkRepositoryReview({
 		);
 	return (
 		<div className="min-w-0 basis-full">
+			{canvasLink}
 			<Button
 				size="sm"
 				variant="secondary"

@@ -22,6 +22,20 @@ import {
 	vi,
 } from "vite-plus/test";
 
+vi.mock("@/components/canvas-repository-workpiece", () => ({
+	CanvasRepositoryWorkpiece: ({
+		workItemId,
+		attemptId,
+	}: {
+		workItemId: string;
+		attemptId: string;
+	}) => (
+		<div data-repository-work={workItemId} data-repository-attempt={attemptId}>
+			Repository snapshot
+		</div>
+	),
+}));
+
 const osWorkspacesApi = vi.hoisted(() => ({
 	workspaces: {
 		list: vi.fn(),
@@ -1229,6 +1243,31 @@ describe("canvasArtifactPaneLabel", () => {
 // ---------------------------------------------------------------------------
 
 describe("CanvasPage listing", () => {
+	it("opens a repository session without querying Output content or creating Work", async () => {
+		mockLists();
+		const workId = "11111111-1111-4111-8111-111111111111";
+		const attemptId = "22222222-2222-4222-8222-222222222222";
+		routing.search = {
+			workpiece: `repository:${workId}:${attemptId}`,
+			pane: "workpiece",
+		};
+		const container = renderPage();
+		await flush();
+		expect(
+			container
+				.querySelector("[data-repository-work]")
+				?.getAttribute("data-repository-work"),
+		).toBe(workId);
+		expect(
+			container
+				.querySelector("[data-repository-attempt]")
+				?.getAttribute("data-repository-attempt"),
+		).toBe(attemptId);
+		expect(osWorkspacesApi.outputs.get).not.toHaveBeenCalled();
+		expect(osWorkspacesApi.collaboration.list).not.toHaveBeenCalled();
+		expect(osWorkspacesApi.workspaces.create).not.toHaveBeenCalled();
+	});
+
 	it.each(["Dispatch", "Studio", "People", "Choices", "Updates"])(
 		"uses the configured app name %s above a quiet workspace breadcrumb",
 		async (name) => {

@@ -600,9 +600,17 @@ export const workstationInspectionStatusQueryOptions = (
 export const attemptRepositoryLogQueryOptions = (
 	id: string,
 	attemptId: string,
+	ref?: string,
 ) =>
 	osQuery.workItems.readAttemptRepository.queryOptions({
-		input: { id, attemptId, operation: "log", limit: 25, offset: 0 },
+		input: {
+			id,
+			attemptId,
+			operation: "log",
+			...(ref ? { ref } : {}),
+			limit: 25,
+			offset: 0,
+		},
 	});
 
 export const attemptRepositoryTreeQueryOptions = (

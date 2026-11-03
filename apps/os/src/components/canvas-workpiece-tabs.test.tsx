@@ -35,6 +35,28 @@ function renderTabs(ids = outputs.map(({ id }) => id)) {
 }
 
 describe("workpiece tab accessible names", () => {
+	it("distinguishes repository sessions belonging to the same Work", () => {
+		const opened = [
+			{ type: "repository" as const, id: "work", attemptId: "first" },
+			{ type: "repository" as const, id: "work", attemptId: "second" },
+		];
+		const html = renderToStaticMarkup(
+			<CanvasWorkpieceTabs
+				opened={opened}
+				selectedKey={canvasDocKey(opened[0]!)}
+				gadgets={[]}
+				outputs={[]}
+				onClose={() => {}}
+				onSelect={() => {}}
+			/>,
+		);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		const tabs = [...doc.querySelectorAll('[role="tab"]')];
+		expect(tabs[0]?.getAttribute("aria-label")).toContain("session first");
+		expect(tabs[1]?.getAttribute("aria-label")).toContain("session second");
+		expect(tabs[0]?.id).not.toBe(tabs[1]?.id);
+	});
+
 	it("distinguishes same-titled tabs and close controls by kind and stable identity", () => {
 		const doc = renderTabs();
 		const tabs = [...doc.querySelectorAll('[role="tab"]')];

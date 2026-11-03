@@ -115,6 +115,7 @@ import {
 	canvasDocKey,
 	canvasModeIsValidForDoc,
 	type CanvasDocSelection,
+	type CanvasWorkpieceSelection,
 	type CanvasMobilePane,
 	type CanvasSearch,
 	type CanvasWorkpieceMode,
@@ -154,6 +155,10 @@ import { OS_COPY } from "@/shared/os-copy";
  * renders its skeleton for the one tick the import takes; nothing else on the
  * route waits.
  */
+const CanvasRepositoryWorkpiece = lazy(async () => ({
+	default: (await import("@/components/canvas-repository-workpiece"))
+		.CanvasRepositoryWorkpiece,
+}));
 const CanvasDocPanel = lazy(async () => ({
 	default: (await import("@/components/canvas-doc-panel")).CanvasDocPanel,
 }));
@@ -213,9 +218,9 @@ export function clampCanvasChatWidth(
 export function isCanvasSimpleMode(input: {
 	documentsLoaded: boolean;
 	documentCount: number;
-	requestedDoc: CanvasDocSelection | null;
+	requestedDoc: CanvasWorkpieceSelection | null;
 	requestedPane: CanvasMobilePane | undefined;
-	unresolvedWorkpiece: CanvasDocSelection | null;
+	unresolvedWorkpiece: CanvasWorkpieceSelection | null;
 }): boolean {
 	return (
 		input.documentsLoaded &&
@@ -264,10 +269,10 @@ export function restoreCanvasChatWidth(
 }
 
 export function nextCanvasDocAfterClose(
-	opened: readonly CanvasDocSelection[],
+	opened: readonly CanvasWorkpieceSelection[],
 	closingKey: string,
 	selectedKey: string | null,
-): CanvasDocSelection | null {
+): CanvasWorkpieceSelection | null {
 	if (selectedKey !== closingKey) {
 		return opened.find((doc) => canvasDocKey(doc) === selectedKey) ?? null;
 	}
@@ -407,11 +412,16 @@ function WorkspaceConnectionsBody({
  * archived, or lives in another workspace. Saying "Pick a document" there
  * renders a populated project as an empty one.
  */
-export function missingWorkpieceCopy(doc: CanvasDocSelection): {
+export function missingWorkpieceCopy(doc: CanvasWorkpieceSelection): {
 	title: string;
 	description: string;
 } {
-	const noun = doc.type === "gadget" ? "app" : "output";
+	const noun =
+		doc.type === "gadget"
+			? "app"
+			: doc.type === "repository"
+				? "repository session"
+				: "output";
 	return {
 		title: `This ${noun} is not in this workspace`,
 		description: `Nothing here matches ${noun} ${doc.id}. It was deleted or archived, or it belongs to a different workspace than the link you followed.`,
@@ -442,10 +452,11 @@ export function canvasColumnView(input: {
 }
 
 export function canvasArtifactPaneLabel(
-	doc: CanvasDocSelection | null,
+	doc: CanvasWorkpieceSelection | null,
 	outputKind: OsOutputKind | null | undefined,
 ) {
 	if (!doc) return "Artifact";
+	if (doc.type === "repository") return "Repository";
 	return doc.type === "gadget"
 		? "Automation"
 		: outputWorkshopKindLabel(outputKind);
@@ -478,14 +489,13 @@ export function CanvasPage({
 		() => canvasDocsFromSearch(canvasSearch.workpieces),
 		[canvasSearch.workpieces],
 	);
-	const [selectedDoc, setSelectedDoc] = useState<CanvasDocSelection | null>(
-		null,
-	);
+	const [selectedDoc, setSelectedDoc] =
+		useState<CanvasWorkpieceSelection | null>(null);
 	// An unresolvable URL selection, remembered against the workspace it failed
 	// in so that switching workspaces cannot leave a stale notice behind.
 	const [missingWorkpiece, setMissingWorkpiece] = useState<{
 		workspaceId: string;
-		doc: CanvasDocSelection;
+		doc: CanvasWorkpieceSelection;
 	} | null>(null);
 	const [addSourceOpen, setAddSourceOpen] = useState(false);
 	const [resourceRailOpen, setResourceRailOpen] = useState(
@@ -520,7 +530,7 @@ export function CanvasPage({
 	const [mobilePane, setMobilePane] = useState<CanvasMobilePane>(
 		requestedPane ?? (requestedDoc ? "workpiece" : "chat"),
 	);
-	const [openedDocs, setOpenedDocs] = useState<CanvasDocSelection[]>([]);
+	const [openedDocs, setOpenedDocs] = useState<CanvasWorkpieceSelection[]>([]);
 	const [workpieceMode, setWorkpieceMode] = useState<CanvasWorkpieceMode>(
 		requestedView ?? "workpiece",
 	);
@@ -560,7 +570,7 @@ export function CanvasPage({
 	);
 	const visitedWorkspaceRef = useRef<string | null>(null);
 	const primaryWorkpieceWorkspaceRef = useRef<string | null>(null);
-	const openedDocsRef = useRef<CanvasDocSelection[]>([]);
+	const openedDocsRef = useRef<CanvasWorkpieceSelection[]>([]);
 	const resizeStartRef = useRef({ pointerX: 0, width: chatWidth });
 	const chatWidthRef = useRef(chatWidth);
 
@@ -582,7 +592,11 @@ export function CanvasPage({
 		setConversationListOpen(false);
 	}, [requestedConversation]);
 	const updateOpenedDocs = useCallback(
-		(update: (current: CanvasDocSelection[]) => CanvasDocSelection[]) => {
+		(
+			update: (
+				current: CanvasWorkpieceSelection[],
+			) => CanvasWorkpieceSelection[],
+		) => {
 			setOpenedDocs((current) => {
 				const next = update(current);
 				openedDocsRef.current = next;
@@ -665,8 +679,14 @@ export function CanvasPage({
 		(workspace) => workspace.id === requestedWorkspaceId,
 	);
 	const workspaceId = selectedWorkspace?.id ?? null;
-	useLiveWorkspace(workspaceId, selectedDoc);
-	useWorkspaceWebMcpTools(workspaceId, selectedDoc);
+	useLiveWorkspace(
+		workspaceId,
+		selectedDoc?.type === "repository" ? null : selectedDoc,
+	);
+	useWorkspaceWebMcpTools(
+		workspaceId,
+		selectedDoc?.type === "repository" ? null : selectedDoc,
+	);
 	useAppEditTools(workspaceId, activeConversationId);
 
 	const recordWorkspaceVisit = (nextWorkspaceId: string) => {
@@ -736,7 +756,9 @@ export function CanvasPage({
 	const selectedAppId =
 		selectedDoc?.type === "gadget"
 			? selectedDoc.id
-			: selectedDoc?.linkedGadgetId;
+			: selectedDoc?.type === "output"
+				? selectedDoc.linkedGadgetId
+				: undefined;
 	const selectedApp = gadgets.data?.items.find(
 		(gadget) => gadget.id === selectedAppId,
 	);
@@ -833,8 +855,11 @@ export function CanvasPage({
 			requestedDoc.type === "gadget"
 				? gadgets.data?.items
 				: outputs.data?.items;
-		if (!candidates) return;
-		if (!candidates.some((candidate) => candidate.id === requestedDoc.id)) {
+		if (requestedDoc.type !== "repository" && !candidates) return;
+		if (
+			requestedDoc.type !== "repository" &&
+			!candidates?.some((candidate) => candidate.id === requestedDoc.id)
+		) {
 			// Drop the unresolvable param so the URL stays canonical and no
 			// downstream query is issued for it, but land on the workbench and
 			// keep the request itself so the stage can explain what was missing
@@ -871,13 +896,14 @@ export function CanvasPage({
 		 * not in the URL survive after it.
 		 */
 		const urlDocs = requestedDocs.filter((doc) => {
+			if (doc.type === "repository") return true;
 			const list =
 				doc.type === "gadget" ? gadgets.data?.items : outputs.data?.items;
 			return !list || list.some((candidate) => candidate.id === doc.id);
 		});
 		updateOpenedDocs((current) => {
-			const next: CanvasDocSelection[] = [];
-			const push = (doc: CanvasDocSelection) => {
+			const next: CanvasWorkpieceSelection[] = [];
+			const push = (doc: CanvasWorkpieceSelection) => {
 				if (
 					!next.some(
 						(candidate) => canvasDocKey(candidate) === canvasDocKey(doc),
@@ -980,7 +1006,7 @@ export function CanvasPage({
 					(output) => output.id === linkedOutputId,
 				);
 				if (!linked) return;
-				const doc: CanvasDocSelection = {
+				const doc: CanvasWorkpieceSelection = {
 					type: "output",
 					id: linked.id,
 					linkedGadgetId: primary.id,
@@ -1007,10 +1033,10 @@ export function CanvasPage({
 	]);
 
 	/** The `workpieces` value for a tab list -- single tabs travel as `workpiece` alone. */
-	const openedDocsSearch = (docs: readonly CanvasDocSelection[]) =>
+	const openedDocsSearch = (docs: readonly CanvasWorkpieceSelection[]) =>
 		canvasDocsSearchValue(docs);
 
-	const openCanvasDoc = (doc: CanvasDocSelection) => {
+	const openCanvasDoc = (doc: CanvasWorkpieceSelection) => {
 		setMissingWorkpiece(null);
 		setSelectedDoc(doc);
 		setWorkpieceMode("workpiece");
@@ -1121,7 +1147,7 @@ export function CanvasPage({
 		items: outputsPanelItems,
 		loading: workspaceId !== null && (outputs.isPending || gadgets.isPending),
 		error: outputs.isError,
-		selectedDoc,
+		selectedDoc: selectedDoc?.type === "repository" ? null : selectedDoc,
 	};
 	const openOutputsPanelItem = (doc: CanvasDocSelection) => {
 		setTransitionEnabled(true);
@@ -1404,7 +1430,7 @@ export function CanvasPage({
 						showCreate={false}
 						compactActions
 						openItem={
-							selectedDoc
+							selectedDoc && selectedDoc.type !== "repository"
 								? {
 										type: selectedDoc.type,
 										id: selectedDoc.id,
@@ -1502,7 +1528,7 @@ export function CanvasPage({
 								workspaceId={workspaceId ?? undefined}
 								autoFocusComposer={simpleMode}
 								context={
-									selectedDoc
+									selectedDoc && selectedDoc.type !== "repository"
 										? {
 												kind: selectedDoc.type,
 												id: selectedDoc.id,
@@ -1608,7 +1634,9 @@ export function CanvasPage({
 							gadgets={gadgets}
 							outputs={outputLibrary}
 							resources={resources}
-							selectedDoc={selectedDoc}
+							selectedDoc={
+								selectedDoc?.type === "repository" ? null : selectedDoc
+							}
 							onSelectGadget={(gadgetId) => void selectGadget(gadgetId)}
 							onSelectOutput={selectOutput}
 							onAddSource={() => setAddSourceOpen(true)}
@@ -1638,7 +1666,14 @@ export function CanvasPage({
 					>
 						{workspaceId !== null && selectedDoc !== null ? (
 							<Suspense fallback={<CanvasStagePending />}>
-								{workpieceMode === "connections" ? (
+								{selectedDoc.type === "repository" ? (
+									<CanvasRepositoryWorkpiece
+										key={canvasDocKey(selectedDoc)}
+										workspaceId={workspaceId}
+										workItemId={selectedDoc.id}
+										attemptId={selectedDoc.attemptId}
+									/>
+								) : workpieceMode === "connections" ? (
 									<div className="canvas-secondary-view">
 										<SectionHeader className="border-b border-kumo-line pb-4">
 											<SectionHeading>
@@ -1814,7 +1849,7 @@ export function CanvasPage({
 					workspaceName={selectedWorkspace.name}
 					visibility={selectedWorkspace.visibility}
 					item={
-						selectedDoc
+						selectedDoc && selectedDoc.type !== "repository"
 							? {
 									type: selectedDoc.type,
 									id: selectedDoc.id,
