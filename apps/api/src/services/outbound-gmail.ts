@@ -54,6 +54,34 @@ export async function outboundGmailCredential(
 	return token.accessToken;
 }
 
+/** Probe full-message permission while returning only an id, never message content. */
+export async function checkSentMailReadAccess(
+	token: string,
+): Promise<"verified" | "denied" | "unknown"> {
+	const options = () => ({
+		headers: { Authorization: `Bearer ${token}` },
+		signal: AbortSignal.timeout(5000),
+	});
+	const list = await fetch(
+		"https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=SENT&maxResults=1&fields=messages(id)",
+		options(),
+	);
+	if (!list.ok) return [401, 403].includes(list.status) ? "denied" : "unknown";
+	const result = (await list.json()) as { messages?: { id: string }[] };
+	const id = result.messages?.[0]?.id;
+	// Listing alone also works with metadata-only consent; an empty mailbox cannot prove body access.
+	if (!id) return "unknown";
+	const message = await fetch(
+		`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=full&fields=id`,
+		options(),
+	);
+	return message.ok
+		? "verified"
+		: [401, 403].includes(message.status)
+			? "denied"
+			: "unknown";
+}
+
 export function outboundMime(draft: OutboundDraft): string {
 	if (
 		!/^[^\s<>@,;\r\n]+@[^\s<>@,;\r\n]+\.[^\s<>@,;\r\n]+$/.test(

@@ -412,9 +412,14 @@ export function OutboundStyleProfile() {
 					<Text role="body">{OS_COPY.outboundProfile.loading}</Text>
 				) : (
 					<>
-						{query.data?.decisionCount ? (
+						{query.data ? (
 							<Text role="body">
 								{OS_COPY.outboundProfile.decisions(query.data.decisionCount)}
+							</Text>
+						) : null}
+						{query.data ? (
+							<Text role="body">
+								{OS_COPY.outboundProfile.approvals(query.data.approvalCount)}
 							</Text>
 						) : null}
 						{query.data?.preferences.map((sentence) => (
@@ -470,6 +475,19 @@ export function OutboundStyleProfile() {
 						))}
 					</SelectContent>
 				</Select>
+				{accounts.isError ? (
+					<Text role="body">{errorMessage(accounts.error)}</Text>
+				) : null}
+				{account ? (
+					<Text role="body" tone="secondary">
+						{
+							OS_COPY.outboundProfile.readAccess[
+								accounts.data?.find((connection) => connection.id === account)
+									?.readAccess ?? "unknown"
+							]
+						}
+					</Text>
+				) : null}
 				<Button
 					variant="outline"
 					disabled={!account || learn.isPending}

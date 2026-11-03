@@ -5705,6 +5705,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"workInteractions/outbound/policy": () => ({ routes: [] }),
 	"workInteractions/outbound/profile": () => ({
 		decisionCount: 0,
+		approvalCount: 0,
 		preferences: [],
 		approvals: [],
 		lessons: [],

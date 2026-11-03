@@ -55,6 +55,7 @@ import {
 	sendOutboundGmail,
 	readSentStyleExamples,
 	readOutboundReply,
+	checkSentMailReadAccess,
 } from "../../services/outbound-gmail";
 
 const os = implement(outboundContract).$context<BaseContext>().use(withAuth);
@@ -247,9 +248,8 @@ export const outboundRouter = os.router({
 			accounts
 				.filter((account) => account.providerId === policy.gmailProviderId)
 				.map(async (account) => {
-					let label = account.label.includes("@")
-						? account.label
-						: "Gmail account";
+					let label = "Gmail account (address unverified)";
+					let readAccess: "verified" | "denied" | "unknown" = "unknown";
 					try {
 						const token = await outboundGmailCredential(
 							context,
@@ -270,10 +270,11 @@ export const outboundRouter = os.router({
 							};
 							if (profile.emailAddress) label = profile.emailAddress;
 						}
+						readAccess = await checkSentMailReadAccess(token);
 					} catch {
 						// Keep the account selectable so import can show its actual failure.
 					}
-					return { id: account.id, label };
+					return { id: account.id, label, readAccess };
 				}),
 		);
 	}),
@@ -848,6 +849,7 @@ export const outboundRouter = os.router({
 		return {
 			approvals,
 			decisionCount: learning.receipts.length,
+			approvalCount: history[0]?.totalCount ?? 0,
 			preferences: learning.preferences.map((p) => p.sentence),
 			sentExamples: sent.success ? sent.data.samples.length : 0,
 			sentStyleHints: sent.success

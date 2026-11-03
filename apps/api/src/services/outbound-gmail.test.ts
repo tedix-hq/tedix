@@ -3,12 +3,58 @@ import { describe, expect, it, vi, afterEach } from "vite-plus/test";
 import {
 	outboundGmailCredential,
 	readSentStyleExamples,
+	checkSentMailReadAccess,
 	outboundMime,
 	sendOutboundGmail,
 	sentStyleText,
 } from "./outbound-gmail";
 
 afterEach(() => vi.unstubAllGlobals());
+
+it.each([
+	[200, "verified"],
+	[401, "denied"],
+	[403, "denied"],
+	[404, "unknown"],
+	[500, "unknown"],
+])(
+	"checks full-message read permission without fetching content (%i)",
+	async (status, access) => {
+		const request = vi
+			.fn()
+			.mockResolvedValueOnce(
+				Response.json({ messages: [{ id: "sent/example" }] }),
+			)
+			.mockResolvedValueOnce(new Response(null, { status }));
+		vi.stubGlobal("fetch", request);
+		expect(await checkSentMailReadAccess("fictional-token")).toBe(access);
+		expect(request.mock.calls[1][0]).toContain(
+			"sent%2Fexample?format=full&fields=id",
+		);
+		for (const [url, options] of request.mock.calls) {
+			expect(url).not.toContain("payload");
+			expect(options.method ?? "GET").toBe("GET");
+			expect(options.body).toBeUndefined();
+		}
+	},
+);
+
+it("does not treat an empty sent mailbox as proof of body-read consent", async () => {
+	const request = vi.fn().mockResolvedValue(Response.json({ messages: [] }));
+	vi.stubGlobal("fetch", request);
+	expect(await checkSentMailReadAccess("fictional-token")).toBe("unknown");
+	expect(request).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+	[403, "denied"],
+	[503, "unknown"],
+])("reports a denied or unavailable listing (%i)", async (status, access) => {
+	const request = vi.fn().mockResolvedValue(new Response(null, { status }));
+	vi.stubGlobal("fetch", request);
+	expect(await checkSentMailReadAccess("fictional-token")).toBe(access);
+	expect(request).toHaveBeenCalledTimes(1);
+});
 const draft = {
 	channel: "email",
 	topic: "partners",
@@ -144,7 +190,7 @@ it("uses the shared owner account resolver and probes read access without compos
 });
 
 it("reads at most ten plain-text sent messages with GET requests only", async () => {
-	const request = vi.fn(async (url: string) =>
+	const request = vi.fn(async (url: string, _options: RequestInit) =>
 		Response.json(
 			url.includes("maxResults")
 				? {
@@ -163,8 +209,11 @@ it("reads at most ten plain-text sent messages with GET requests only", async ()
 	vi.stubGlobal("fetch", request);
 	expect(await readSentStyleExamples("fictional-read-token")).toHaveLength(10);
 	expect(request).toHaveBeenCalledTimes(11);
-	for (const call of request.mock.calls)
-		expect(call[0]).toContain("/users/me/messages");
+	for (const [url, options] of request.mock.calls) {
+		expect(url).toContain("/users/me/messages");
+		expect(options.method ?? "GET").toBe("GET");
+		expect(options.body).toBeUndefined();
+	}
 });
 
 it.each([

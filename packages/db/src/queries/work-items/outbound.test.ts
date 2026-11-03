@@ -393,6 +393,7 @@ describe("outbound work on migrated D1", () => {
 			).toBe(true);
 			const history = await outboundApprovalHistory(db, "org", "rosa");
 			expect(history).toHaveLength(1);
+			expect(history[0].totalCount).toBe(1);
 			expect(history[0].metadata).toMatchObject({
 				action: "approve_manual",
 				before: "Dear Lina, regarding our aforementioned discussion…",
