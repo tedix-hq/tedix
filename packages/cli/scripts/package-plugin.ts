@@ -24,7 +24,7 @@ const ASSETS = ["icon.png", "icon-dark.png", "logo.png", "logo-dark.png"];
 /** A missing Tedix CLI makes every hook exit 0 with no output. */
 export const HOOK_GUARD = "command -v tedix >/dev/null 2>&1 || exit 0; ";
 /** The oldest Tedix CLI the hooks support (README states the same version). */
-export const MIN_CLI = "0.8.17";
+export const MIN_CLI = "0.19.4";
 /** SessionStart preflight names an older CLI and stops instead of running it. */
 export const CLI_GATE = `v=$(tedix --version 2>/dev/null); [ "$(printf '%s\\n' ${MIN_CLI} "$v" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = ${MIN_CLI} ] || { echo "Tedix preflight: CLI \${v:-unknown} is older than ${MIN_CLI}, which this plugin needs; run tedix update."; exit 0; }; `;
 const HOOK_NAME =

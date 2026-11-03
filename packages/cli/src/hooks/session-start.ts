@@ -11,7 +11,12 @@ import { basename, isAbsolute, join } from "node:path";
 import { claudeConfigDirectory } from "../claude-lane-thread";
 import { unpinnedModelVersion } from "../external-agent";
 import { harnessOf } from "./agent-status";
-import { clearDelivery } from "./context-delivery";
+import {
+	clearDelivery,
+	contextHash,
+	readDelivery,
+	writeDelivery,
+} from "./context-delivery";
 import { repositoryName } from "./decision-capture";
 import {
 	gatewayCode,
@@ -80,21 +85,15 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 	const now = deps.now ?? (() => new Date());
 	// Opened before the Work preflight, so its line survives any early return.
 	let agentLine: string | undefined;
-	let stopEvent = false;
+	let promptEvent = false;
 	const send = (message: string) =>
 		deps.write(
-			JSON.stringify(
-				stopEvent
-					? { systemMessage: message }
-					: {
-							hookSpecificOutput: {
-								hookEventName: "SessionStart",
-								additionalContext: [agentLine, message]
-									.filter(Boolean)
-									.join("\n"),
-							},
-						},
-			),
+			JSON.stringify({
+				hookSpecificOutput: {
+					hookEventName: promptEvent ? "UserPromptSubmit" : "SessionStart",
+					additionalContext: [agentLine, message].filter(Boolean).join("\n"),
+				},
+			}),
 		);
 
 	const optIn = (env.TEDIX_PLUGIN_PREFLIGHT ?? "").toLowerCase();
@@ -107,7 +106,9 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 		const parsed = hostEvent(deps.stdin, env, EVENT_LIMIT);
 		session = parsed.session;
 		event = parsed.event;
-		stopEvent = event.hook_event_name === "Stop";
+		// Older installed plugins still invoke this hook at Stop.
+		if (event.hook_event_name === "Stop") return;
+		promptEvent = event.hook_event_name === "UserPromptSubmit";
 		const source = parsed.event.source;
 		sourceEvent =
 			typeof source === "string" && SOURCES.has(source) ? source : "unknown";
@@ -161,6 +162,14 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 			return;
 		}
 		workId = workId || binding.workItemId || "";
+		// A checkout-wide selection may have been made by a different chat.
+		if (
+			session &&
+			!env.TEDIX_WORK_ITEM_ID &&
+			binding.contextSource === "selection" &&
+			binding.contextSessionId !== session
+		)
+			workId = "";
 	}
 	const bound = Object.keys(binding).length > 0;
 
@@ -170,7 +179,10 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 	// The model opens the session through its own connector, so the session is
 	// verified against the login that makes the audited calls, and this hook
 	// makes no slow gateway call for it.
-	const tuple = session ? hostTuple(event, env, session, deps.cwd) : undefined;
+	const tuple =
+		session && !promptEvent
+			? hostTuple(event, env, session, deps.cwd)
+			: undefined;
 	if (tuple)
 		agentLine = `Tedix Agent-Session: before your first Tedix code call, call ${OWNER_HOST_TOOL} with ${JSON.stringify(tuple)}, then pass the returned session.id as agentSessionId on every Tedix code call; if it fails, continue without it.`;
 	const observedAt = isoSeconds(now());
@@ -263,7 +275,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 
 	const scopes = auth.storedLogin?.grantedScopes;
 	const hasWorkRead = Array.isArray(scopes) && scopes.includes("mcp:work.read");
-	if (stopEvent && !workId) return;
+	if (promptEvent && (!UUID.test(workId) || !session)) return;
 	const lines = [
 		`Tedix read-only preflight: source=${sourceEvent}; observed=${observedAt}; CLI profile ${workspace}; credential kind ${source}; Work read scope ${hasWorkRead ? "present" : "unverified"}. This does not select the execution surface or grant Work execution authority. Prefer authenticated MCP for remote operations when identity and scopes support them; use CLI for local integration or CLI-managed Attempt state.`,
 		"Checkpoint: use tedix-session-guide at a material milestone or completion claim; compare Work, commits and the named live result. Guardian: tedix-guardian-session for explicit oversight.",
@@ -305,11 +317,34 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 					send(lines.join("\n"));
 					return;
 				}
-				lines.push(workBoundaryLine(boundary, now()));
-				if (stopEvent) {
-					send(lines.at(-1)!);
+				if (item.id !== workId) throw new Error("Work boundary id mismatch");
+				const focus = workBoundaryLine(boundary, now());
+				const scope = contextHash([
+					deps.cwd,
+					workspace,
+					auth.mcpUrl,
+					binding.org,
+					source,
+					auth.storedLogin?.loginId,
+				]);
+				// Separate from prompt-context receipts, which use another scope.
+				const receiptSession = session ? `${session}:focus` : undefined;
+				const hash = contextHash([
+					boundary,
+					/no path to an active objective|overdue/.test(focus)
+						? now().toISOString().slice(0, 10)
+						: null,
+				]);
+				if (promptEvent) {
+					if (readDelivery(env, receiptSession!, scope).focus !== hash) {
+						send(focus);
+						writeDelivery(env, receiptSession!, scope, { focus: hash });
+					}
 					return;
 				}
+				lines.push(focus);
+				if (receiptSession)
+					writeDelivery(env, receiptSession, scope, { focus: hash });
 				const title = String(item.title ?? "").slice(0, 60);
 				disposition = String(item.disposition ?? "unknown").slice(0, 30);
 				const outcomeText = String(
@@ -326,6 +361,7 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 						"Outcome missing or truncated; read the full Work context before execution.",
 					);
 			} catch {
+				if (promptEvent) return;
 				lines.push(
 					`Work Item ${workId}: context read failed; inspect it through the CLI.`,
 				);

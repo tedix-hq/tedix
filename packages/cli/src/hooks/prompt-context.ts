@@ -271,7 +271,7 @@ export function workBoundaryCode(workItemId: string): string {
 }`.replace("WORK_ID", JSON.stringify(workItemId));
 }
 
-/** The single focus line shown at task start and end, never on each prompt. */
+/** A single focus line for task and purpose changes. */
 export function workBoundaryLine(data: JsonObject, now: Date): string {
 	const item = data.item;
 	if (
@@ -296,7 +296,7 @@ export function workBoundaryLine(data: JsonObject, now: Date): string {
 				? project.objectiveId
 				: undefined;
 	const objective = data.objective;
-	const work = JSON.stringify(item.title.replace(/[\r\n]/g, " ").slice(0, 160));
+	const work = JSON.stringify(focusText(item.title, 160));
 	if (
 		(isObject(project) && project.unavailable === true && !item.objectiveId) ||
 		(isObject(objective) && objective.unavailable === true)
@@ -310,13 +310,12 @@ export function workBoundaryLine(data: JsonObject, now: Date): string {
 		typeof objective.title !== "string"
 	)
 		throw new Error("Work boundary objective mismatch");
-	const success = String(
+	const success = focusText(
 		objective.successCriteria ??
 			item.acceptanceContract?.doneLooksLike ??
 			"not set",
-	)
-		.replace(/[\r\n]/g, " ")
-		.slice(0, 300);
+		300,
+	);
 	const target = String(
 		item.deadline ??
 			item.dueDate ??
@@ -325,7 +324,15 @@ export function workBoundaryLine(data: JsonObject, now: Date): string {
 				: "") ??
 			"",
 	);
-	return `Focus: Work ${work} -> objective ${JSON.stringify(objective.title.replace(/[\r\n]/g, " ").slice(0, 160))} -> success ${JSON.stringify(success)} -> ${daysLeft(target, now)}.`;
+	return `Focus: Work ${work} -> objective ${JSON.stringify(focusText(objective.title, 160))} -> success ${JSON.stringify(success)} -> ${daysLeft(target, now)}.`;
+}
+
+function focusText(value: unknown, limit: number): string {
+	const text = String(value).replace(/\s+/g, " ").trim();
+	if (text.length <= limit) return text;
+	const prefix = text.slice(0, limit - 1);
+	const end = prefix.lastIndexOf(" ");
+	return `${end < 0 ? "" : prefix.slice(0, end)}…`;
 }
 
 function daysLeft(target: string, now: Date): string {
