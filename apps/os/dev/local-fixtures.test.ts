@@ -418,6 +418,7 @@ const CALLS = {
 	},
 	"workAgentSessions/list": {},
 	"workAgentSessions/listRequests": { limit: 200 },
+	"workAgentSessions/listOperations": { limit: 50 },
 	"workAgentSessions/attention": {},
 	"workAgentSessions/getAttentionLayout": {},
 	"workAgentSessions/updateAttentionLayout": {

@@ -1,4 +1,17 @@
 import { organizationModelEnv } from "../../services/unrouted-model-egress";
+import {
+	OfficeObservationSchema,
+	OfficeActivityRowSchema,
+	type OfficeObservation,
+} from "@tedix/api-contract/schemas/office-activity";
+import {
+	recordOfficeObservation,
+	readOfficeObservations,
+	readOfficeCanonicalSources,
+	officeReplyReference,
+	pruneOfficeObservations,
+	OFFICE_HISTORY_MS,
+} from "@tedix/db/queries/office-activity";
 import { getOrganizationSessionProjectBindings } from "@tedix/db/queries/organizations";
 import { sessionProjectBinding } from "../../services/session-project-binding";
 /**
@@ -200,9 +213,91 @@ function sessionOutput(
 	};
 }
 
+function validateOperation(input: OfficeObservation, now: string) {
+	if (
+		Date.parse(input.at) > Date.parse(now) + 60_000 ||
+		Date.parse(input.at) < Date.parse(now) - OFFICE_HISTORY_MS
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Observation is outside the retained time window",
+		);
+	if (
+		input.source === "hook"
+			? input.trigger === "reply_drain" ||
+				input.reason !== "reported" ||
+				input.outcome !== "observed" ||
+				input.requestId ||
+				input.responseId
+			: input.trigger !== "reply_drain" ||
+				input.reason === "reported" ||
+				!input.requestId ||
+				!input.responseId ||
+				input.reportedState
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Observation source and action do not match",
+		);
+}
+
+async function saveOperation(
+	context: BaseContext,
+	input: OfficeObservation,
+	reportedSession?: WorkAgentSessionRow,
+) {
+	const owner = requireBoardOwner(context);
+	const now = new Date().toISOString();
+	validateOperation(input, now);
+	const session =
+		reportedSession ??
+		(await getWorkAgentSession(context.db, {
+			...owner,
+			harness: input.host,
+			sessionKey: input.sessionKey,
+		}));
+	if (!session)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"Your reported session was not found",
+		);
+	const reply =
+		input.source === "supervisor"
+			? await officeReplyReference(context.db, owner, input)
+			: null;
+	if (input.source === "supervisor" && !reply)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			"Reply does not belong to this recipient and session",
+		);
+	await pruneOfficeObservations(context.db, owner, now);
+	await recordOfficeObservation(
+		context.db,
+		owner,
+		{
+			...input,
+			workItemId: reply?.workItemId ?? session.workItemId,
+		},
+		now,
+	);
+}
+
 const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 	const owner = requireBoardOwner(context);
 	const now = new Date().toISOString();
+	if (input.observation) validateOperation(input.observation, now);
+	if (
+		input.observation &&
+		(input.observation.sessionKey !== input.sessionKey ||
+			input.observation.host !== input.harness ||
+			input.observation.source !== "hook" ||
+			input.observation.requestId ||
+			input.observation.responseId)
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Observation does not match the reported hook session",
+		);
 	const prior = input.telemetry
 		? await getWorkAgentSession(context.db, {
 				...owner,
@@ -261,6 +356,9 @@ const reportProcedure = writeOs.report.handler(async ({ input, context }) => {
 		now:
 			input.telemetry?.source === "import" ? input.telemetry.heartbeatAt : now,
 	});
+	if (input.observation) {
+		await saveOperation(context, input.observation, row);
+	}
 	const effectiveState = deriveWorkAgentSessionEffectiveState(
 		row,
 		now,
@@ -750,6 +848,140 @@ const updateRequestProcedure = writeOs.updateRequest.handler(
 );
 
 export const workAgentSessionsContractRouter = sessionsOs.router({
+	recordOperation: writeOs.recordOperation.handler(
+		async ({ input, context }) => {
+			await saveOperation(context, input);
+			return { recorded: true };
+		},
+	),
+	listOperations: readOs.listOperations.handler(async ({ input, context }) => {
+		const owner = requireBoardOwner(context);
+		const observedAt = new Date().toISOString();
+		const retainedSince = new Date(
+			Date.parse(observedAt) - OFFICE_HISTORY_MS,
+		).toISOString();
+		const value = await readOfficeObservations(context.db, owner);
+		const rows = (Array.isArray(value) ? value : [])
+			.flatMap((value) => {
+				const parsed = OfficeActivityRowSchema.safeParse(value);
+				return parsed.success &&
+					parsed.data.at >= retainedSince &&
+					(!input.before ||
+						parsed.data.at < input.before.at ||
+						(parsed.data.at === input.before.at &&
+							parsed.data.id < input.before.id))
+					? [parsed.data]
+					: [];
+			})
+			.sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
+		const page = rows.slice(0, input.limit);
+		const sources = await readOfficeCanonicalSources(
+			context.db,
+			owner,
+			retainedSince,
+		);
+		const canonical = [
+			...sources.replies.flatMap((reply) => {
+				if (
+					!OfficeObservationSchema.shape.sessionKey.safeParse(reply.sessionKey)
+						.success ||
+					!OfficeObservationSchema.shape.host.safeParse(reply.host).success
+				)
+					return [];
+				const base = {
+					source: "reply" as const,
+					sessionKey: reply.sessionKey,
+					host: reply.host,
+					workItemId: reply.workItemId,
+					requestId: reply.requestId,
+					attemptId: null,
+					resultRecorded: false,
+				};
+				const hookHandoff =
+					reply.via === "hook" || reply.via === "prompt_context";
+				return [
+					{
+						...base,
+						id: `${reply.responseId}:saved`,
+						at: reply.savedAt,
+						stage: "saved" as const,
+					},
+					...(reply.deliveredAt
+						? [
+								{
+									...base,
+									id: `${reply.responseId}:delivered`,
+									at: reply.deliveredAt,
+									stage:
+										reply.via === "handoff"
+											? ("handed_off" as const)
+											: reply.via === "legacy" || !reply.via
+												? ("unknown" as const)
+												: hookHandoff
+													? ("queued" as const)
+													: ("delivered" as const),
+								},
+							]
+						: []),
+					...(hookHandoff && reply.acknowledgedAt
+						? [
+								{
+									...base,
+									id: `${reply.responseId}:pickup`,
+									at: reply.acknowledgedAt,
+									stage: "delivered" as const,
+								},
+							]
+						: []),
+					...(reply.acknowledgedAt &&
+					reply.via &&
+					reply.via !== "handoff" &&
+					reply.via !== "legacy"
+						? [
+								{
+									...base,
+									id: `${reply.responseId}:acknowledged`,
+									at: reply.acknowledgedAt,
+									stage: "acknowledged" as const,
+								},
+							]
+						: []),
+				];
+			}),
+			...sources.events.map((event) => ({
+				id: event.id,
+				at: event.at,
+				source: "work" as const,
+				sessionKey: OfficeObservationSchema.shape.sessionKey.safeParse(
+					event.sessionKey,
+				).success
+					? event.sessionKey
+					: null,
+				host: null,
+				workItemId: event.workItemId,
+				requestId: null,
+				attemptId: event.attemptId,
+				resultRecorded: event.resultRecorded,
+				stage:
+					event.eventType === "work.completed"
+						? ("work_closed" as const)
+						: event.outcome === "succeeded"
+							? ("attempt_succeeded" as const)
+							: event.outcome === "failed"
+								? ("attempt_failed" as const)
+								: ("unknown" as const),
+			})),
+		];
+		const last = page.at(-1);
+		return {
+			rows: page,
+			canonical,
+			nextBefore:
+				rows.length > input.limit && last ? { at: last.at, id: last.id } : null,
+			observedAt,
+			retainedSince,
+		};
+	}),
 	getAttentionLayout: layoutReadOs.getAttentionLayout.handler(
 		async ({ context }) => {
 			const owner = await requireLayoutOwner(context);

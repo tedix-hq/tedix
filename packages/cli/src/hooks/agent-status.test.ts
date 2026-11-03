@@ -95,6 +95,10 @@ const notifications = () =>
 	spawned.filter(([args]) => args[0] === "terminal-notifier").map(([a]) => a);
 const reports = () =>
 	spawned.filter(([args]) => args[0] === "tedix").map(([a]) => a);
+const latestObservation = () => {
+	const args = reports().at(-1)!;
+	return JSON.parse(args[args.indexOf("--input") + 1]!).observation;
+};
 
 describe("tedix hooks status", () => {
 	test("decision-capture opt-in supplies the member's own status scope by default", () => {
@@ -311,6 +315,11 @@ describe("tedix hooks status", () => {
 			now: () => new Date(now.getTime() + 60_000),
 		});
 		expect(reports()).toHaveLength(2);
+		expect(latestObservation()).toMatchObject({
+			trigger: "PostToolUse",
+			occurrences: 2,
+			reportedState: "working",
+		});
 		expect(notifications()).toEqual([]);
 	});
 
@@ -506,8 +515,23 @@ describe("tedix hooks status", () => {
 		expect(/^[\x00-\x7f]*$/.test(literal)).toBe(true);
 		const decoded = JSON.parse(literal);
 		expect(new Set(Object.keys(decoded))).toEqual(
-			new Set(["harness", "sessionKey", "state", "summary", "label"]),
+			new Set([
+				"harness",
+				"sessionKey",
+				"state",
+				"summary",
+				"label",
+				"observation",
+			]),
 		);
+		expect(decoded.observation).toMatchObject({
+			source: "hook",
+			trigger: "Stop",
+			outcome: "observed",
+			reason: "reported",
+			sessionKey: SESSION,
+		});
+		expect(JSON.stringify(decoded.observation)).not.toContain("evil");
 		expect(decoded.sessionKey).toBe(SESSION);
 		expect(decoded).not.toHaveProperty("cwd");
 		expect(decoded.summary).toContain("café");
@@ -724,6 +748,10 @@ describe("tedix hooks status", () => {
 		await applyTriagedStop(deps, event, undefined);
 		await applyTriagedStop(deps, event, undefined);
 		expect(state()?.state).toBe("needs_you");
+		expect(latestObservation()).toMatchObject({
+			source: "hook",
+			trigger: "Stop",
+		});
 		expect(notifications()).toHaveLength(1);
 		await applyTriagedStop(
 			deps,

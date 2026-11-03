@@ -13,6 +13,7 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { createDbClient } from "@tedix/db/client";
 import { readD1SizeBytes } from "@tedix/db/queries/d1-size";
+import { pruneExpiredOfficeSnapshots } from "@tedix/db/queries/office-activity";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	type D1SizeAlertEnv,
@@ -63,7 +64,12 @@ export async function runD1RetentionTick(
 		);
 	}
 	const sizes = await runD1SizeCheck(env, now.toISOString());
+	const officeDeleted = await pruneExpiredOfficeSnapshots(
+		createDbQueryClient(env.DB),
+		now.toISOString(),
+	);
 	return {
+		officeExpiredSnapshotsDeleted: officeDeleted,
 		d1RetentionArchivedRows: result.archivedRows,
 		d1RetentionMovedRows: result.movedRows,
 		d1RetentionConflictedRows: result.conflictedRows,

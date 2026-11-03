@@ -211,6 +211,7 @@ export function WorkItemReadOnlyLedgers({
 							<li
 								className="flex min-w-0 flex-wrap items-center justify-between gap-3"
 								key={attempt.id}
+								id={`attempt-${attempt.id}`}
 							>
 								<div className="min-w-0">
 									<Text weight="medium">Session {attempt.attemptNumber}</Text>

@@ -26,7 +26,9 @@
  * Each delivery is recorded on the server; every skip is logged once
  * per answer. Activity goes to `~/.tedix/supervisor.log`.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { CLI_VERSION } from "./shared";
+import type { OfficeObservation } from "@tedix/api-contract/schemas/office-activity";
 import {
 	existsSync,
 	mkdirSync,
@@ -45,9 +47,14 @@ import {
 } from "./commit-handoff";
 import { beginFileLock } from "./local-file-lock";
 import { readDelegations, recordDelegation } from "./delegation-ledger";
-import { pruneStatusFiles, statusEnded } from "./hooks/agent-status";
+import {
+	pruneStatusFiles,
+	statusEnded,
+	statusSettings,
+} from "./hooks/agent-status";
 import {
 	answersMessage,
+	answerDeliveryPath,
 	type PendingAnswer,
 	undeliveredAnswers,
 } from "./hooks/answer-delivery";
@@ -66,6 +73,7 @@ import {
 	interactionDetail,
 	peek,
 	recordDraftDelivered,
+	workTool,
 } from "./hooks/decision-capture";
 import { AGENT_IDENTITY_ENV, cliRead, type ReadJson } from "./hooks/hook-io";
 import { readAuthStatus } from "./auth-resolve";
@@ -650,6 +658,7 @@ export class Supervisor {
 	>();
 	/** The last reason logged per answer, so each is logged once. */
 	private readonly noted = new Map<string, string>();
+	private readonly officeReported = new Set<string>();
 	private readonly retryAt = new Map<string, number>();
 	/** Sessions with a headless resume still running. */
 	private readonly resuming = new Set<string>();
@@ -674,6 +683,7 @@ export class Supervisor {
 						return via === "codex_queue" || via === "codex_resume"
 							? { via }
 							: {
+									unconfirmed: via === "queue-pending",
 									reason: `codex ${via}; queued reply not confirmed; retaining its receipt without another agent turn`,
 								};
 					},
@@ -685,15 +695,7 @@ export class Supervisor {
 	}
 
 	private deliveryPath(local: LocalSession, key: string): string {
-		const hash = createHash("sha256")
-			.update(`${local.host}:${local.session}:${key}`)
-			.digest("hex");
-		return join(
-			configDir(this.deps.env),
-			"supervisor",
-			"deliveries",
-			`${hash}.json`,
-		);
+		return answerDeliveryPath(this.deps.env, local.host, local.session, key);
 	}
 
 	/** Keep confirmed deliveries across restart if the server acknowledgment failed. */
@@ -705,10 +707,12 @@ export class Supervisor {
 		const paths = keys.map((key) => this.deliveryPath(local, key));
 		const lock = beginFileLock(this.deliveryPath(local, "session-lock"));
 		try {
-			if (!lock.ready()) return { reason: "another delivery is in progress" };
+			if (!lock.ready())
+				return { reason: "another delivery is in progress", unconfirmed: true };
 			if (paths.some((path) => existsSync(path)))
 				return {
 					reason: "a previous delivery is retained; no duplicate turn started",
+					unconfirmed: true,
 				};
 			mkdirSync(join(configDir(this.deps.env), "supervisor", "deliveries"), {
 				recursive: true,
@@ -745,6 +749,57 @@ export class Supervisor {
 		this.log(
 			`answer ${answer.responseId} (question ${answer.requestId}, ${answer.host ?? "agent"} session ${answer.sessionId}): ${reason}`,
 		);
+	}
+
+	private async observeAnswer(
+		binding: Binding,
+		local: LocalSession,
+		answer: PendingAnswer,
+		reason: OfficeObservation["reason"],
+		outcome: OfficeObservation["outcome"],
+		now: number,
+	) {
+		const settings = statusSettings(this.deps.env, {
+			cwd: local.cwd,
+			sessionId: local.session,
+		});
+		if (
+			!settings?.profile ||
+			settings.profile !== binding.workspace ||
+			settings.organization !== binding.organization
+		)
+			return;
+		const key = `office:${answer.responseId}:${reason}`;
+		if (this.officeReported.has(key)) return;
+		this.officeReported.add(key);
+		if (this.officeReported.size > 500)
+			this.officeReported.delete(this.officeReported.values().next().value!);
+		try {
+			await workTool(
+				this.hookDeps(local.cwd),
+				binding,
+				"record_office_operation",
+				{
+					id: randomUUID(),
+					at: new Date(now).toISOString(),
+					source: "supervisor",
+					host: local.host,
+					sessionKey:
+						typeof local.status?.reportSession === "string"
+							? local.status.reportSession
+							: local.session,
+					trigger: "reply_drain",
+					outcome,
+					reason,
+					requestId: answer.requestId,
+					responseId: answer.responseId,
+					reporterVersion: CLI_VERSION,
+				},
+				1500,
+			);
+		} catch {
+			// Offline metadata must never prevent or retry a delivery.
+		}
 	}
 
 	/**
@@ -866,9 +921,9 @@ export class Supervisor {
 		answers: PendingAnswer[],
 		now: number,
 	): Promise<number> {
-		let ready = answers.filter(
-			(answer) => (this.retryAt.get(answer.responseId) ?? 0) <= now,
-		);
+		let ready = [
+			...new Map(answers.map((answer) => [answer.responseId, answer])).values(),
+		].filter((answer) => (this.retryAt.get(answer.responseId) ?? 0) <= now);
 		for (const answer of answers)
 			if (!ready.includes(answer))
 				this.note(answer, "the last delivery failed; retrying later");
@@ -909,6 +964,14 @@ export class Supervisor {
 					answer,
 					"a previous delivery is unconfirmed; inspect the retained receipt before retrying",
 				);
+				await this.observeAnswer(
+					binding,
+					local,
+					answer,
+					"receipt_unconfirmed",
+					"unknown",
+					now,
+				);
 			} else fresh.push(answer);
 		}
 		ready = fresh;
@@ -923,6 +986,14 @@ export class Supervisor {
 		});
 		if (action.kind === "wait") {
 			for (const answer of ready) this.note(answer, action.reason);
+			await this.observeAnswer(
+				binding,
+				local,
+				ready[0]!,
+				working ? "working" : "session_unavailable",
+				"deferred",
+				now,
+			);
 			return 0;
 		}
 		const ids = ready.map((answer) => answer.responseId);
@@ -949,16 +1020,41 @@ export class Supervisor {
 		if (this.resuming.has(local.session)) {
 			for (const answer of ready)
 				this.note(answer, "a headless resume of this session is still running");
+			await this.observeAnswer(
+				binding,
+				local,
+				ready[0]!,
+				"resume_running",
+				"deferred",
+				now,
+			);
 			return 0;
 		}
 		const run = await this.deliver(local, message, ids.map(responseKey));
-		if (!run.via)
+		if (!run.via) {
+			await this.observeAnswer(
+				binding,
+				local,
+				ready[0]!,
+				run.unconfirmed ? "queue_unconfirmed" : "delivery_failed",
+				run.unconfirmed ? "unknown" : "failed",
+				now,
+			);
 			return failed(
 				run.reason ??
 					"headless resume did not confirm this session; not delivered",
 			);
+		}
 		const via = run.via;
 		const acked = await record(via);
+		await this.observeAnswer(
+			binding,
+			local,
+			ready[0]!,
+			"delivery_confirmed",
+			"success",
+			now,
+		);
 		for (const answer of ready)
 			this.note(
 				answer,

@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { OfficeObservationSchema } from "./office-activity";
 
 /** Local coding-agent hosts that report turn status through the Tedix plugin. */
 export const WorkAgentSessionHarnessSchema = z.enum([
@@ -108,6 +109,7 @@ export const LaneTelemetrySchema = z.object({
 });
 
 export const ReportWorkAgentSessionStatusInputSchema = z.strictObject({
+	observation: OfficeObservationSchema.optional(),
 	replacesSessionKey: z
 		.string()
 		.regex(/^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/)

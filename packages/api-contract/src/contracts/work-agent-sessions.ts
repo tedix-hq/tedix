@@ -1,6 +1,11 @@
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import {
+	OfficeObservationSchema,
+	ListOfficeActivityInputSchema,
+	ListOfficeActivityResultSchema,
+} from "../schemas/office-activity";
+import {
 	EvaluateLedgerModelInputSchema,
 	EvaluateLedgerModelResultSchema,
 } from "../schemas/ledger-model-evaluation";
@@ -43,6 +48,23 @@ export const workAgentSessionsContract = oc
 	.route({ tags: ["work-agent-sessions"], prefix: "/work-agent-sessions" })
 	.errors(baseErrors)
 	.router({
+		recordOperation: oc
+			.route({
+				method: "POST",
+				path: "/operations",
+				summary:
+					"Record private operational metadata for your own reported session",
+			})
+			.input(OfficeObservationSchema)
+			.output(z.strictObject({ recorded: z.boolean() })),
+		listOperations: oc
+			.route({
+				method: "GET",
+				path: "/operations",
+				summary: "Read your bounded private Office operational history",
+			})
+			.input(ListOfficeActivityInputSchema)
+			.output(ListOfficeActivityResultSchema),
 		evaluateLedgerModel: oc
 			.route({
 				method: "POST",

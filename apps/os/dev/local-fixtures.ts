@@ -5,6 +5,7 @@ import {
 	visitAttentionFixture,
 	resetAttentionFixtures,
 } from "./attention-fixtures";
+import { officeActivityFixture } from "./office-activity-fixture";
 import {
 	runTimelineFixture,
 	runTimelineArtifactFixture,
@@ -5723,6 +5724,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"workAgentSessions/list": (input: { includeEnded?: boolean } | undefined) =>
 		localAgentSessions(input?.includeEnded),
 	"workAgentSessions/listRequests": () => ({ data: [] }),
+	"workAgentSessions/listOperations": () => officeActivityFixture(),
 	"workAgentSessions/contributors": (input: { projectId: string }) =>
 		localProjectContributors(input.projectId),
 	"workInteractions/snooze": (input: {

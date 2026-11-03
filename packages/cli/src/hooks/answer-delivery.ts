@@ -10,8 +10,15 @@
  */
 import { ListUndeliveredWorkInteractionResponsesResultSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { markdownLineToPlainText } from "@tedix/api-contract/utils/markdown-plain-text";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { beginFileLock } from "../local-file-lock";
 import {
 	type Binding,
+	ackAnswers,
+	rememberDelivered,
 	claim,
 	peek,
 	questionPath,
@@ -34,6 +41,77 @@ export interface PendingAnswer {
 
 /** Bytes of answer text one delivery carries by default. */
 export const ANSWERS_LIMIT = 6000;
+
+/** The supervisor and hooks use the same receipts and session mutex. */
+export function answerDeliveryPath(
+	env: NodeJS.ProcessEnv,
+	host: string,
+	session: string,
+	key: string,
+): string {
+	const hash = createHash("sha256")
+		.update(`${host}:${session}:${key}`)
+		.digest("hex");
+	return join(
+		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
+		"supervisor",
+		"deliveries",
+		`${hash}.json`,
+	);
+}
+
+export async function claimHookAnswers(
+	deps: HookDeps,
+	binding: Binding,
+	session: string,
+	host: string,
+	state: string,
+	question: { requestId: string; token: string } | undefined,
+	answers: PendingAnswer[],
+	timeoutMs: number,
+	via: "hook" | "prompt_context" = "hook",
+): Promise<PendingAnswer[]> {
+	const lock = beginFileLock(
+		answerDeliveryPath(deps.env, host, session, "session-lock"),
+	);
+	try {
+		if (!lock.ready()) return [];
+		const unique = [
+			...new Map(answers.map((answer) => [answer.responseId, answer])).values(),
+		];
+		const pathOf = (answer: PendingAnswer) =>
+			answerDeliveryPath(
+				deps.env,
+				host,
+				session,
+				`${binding.command.join(" ")}:${binding.user}:${answer.responseId}`,
+			);
+		const fresh = unique.filter(
+			(answer) =>
+				answer.sessionId.toLowerCase() === session.toLowerCase() &&
+				(!answer.host || answer.host === host) &&
+				!existsSync(pathOf(answer)),
+		);
+		if (!fresh.length || !claimAnsweredQuestion(state, question, fresh))
+			return [];
+		for (const answer of fresh) {
+			const path = pathOf(answer);
+			mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+			writeFileSync(path, JSON.stringify({ session, state: "pending" }), {
+				mode: 0o600,
+				flag: "wx",
+			});
+		}
+		const ids = fresh.map((answer) => answer.responseId);
+		await ackAnswers(deps, binding, ids, via, timeoutMs);
+		rememberDelivered(state, ids, via);
+		for (const answer of fresh)
+			writeFileSync(pathOf(answer), JSON.stringify({ via }), { mode: 0o600 });
+		return fresh;
+	} finally {
+		lock.release();
+	}
+}
 
 /**
  * The user's undelivered answers (for one session when given), oldest first,
