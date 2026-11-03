@@ -3,6 +3,36 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.4 — 2026-11-03
+
+### Patch Changes
+
+- Preserve Devin's full response so its accepted-outcome declaration reaches the dispatcher after the Work note is delivered.
+- Require an explicit full accepted-outcome result before a dispatcher marks Work completed. Keep partial and undeclared results open even when a process exits successfully or lands a partial commit.
+- Let queued dispatcher admission reads progress during sustained lease-renewal traffic, while keeping renewal priority and serialized calls.
+- Prioritize final lane reports and Work settlement and completion alongside heartbeats, ahead of queued background reads. Keep existing permission and Attempt checks.
+- Stop asking research sessions to emit a special result marker that rejects ordinary completed findings. Keep the existing human-wait and CI-recovery validation checks.
+- Clarify that hook Work suggestions do not require the CLI: prefer authenticated MCP for remote operations, retain admission and identity checks, and use the CLI for local integration or compatible CLI-managed Attempts.
+- Verify hook organization context without starting a Code Mode sandbox.
+- Keep a chat's explicit Connect selection tenant-bound over ambient session scopes, and skip organization-less historical scope rows instead of letting them poison or misreport the routed organization.
+- Explain that agents can complete their own successful non-coding verification Work without a code commit. Coding Work still requires a commit, and accepted credential, payment and external messaging actions remain owner-only.
+- Stop automatic execution after three failed or expired Attempts on the same Work revision, even when summaries differ or runners restart. Resolve the blocker and revise the brief before retrying; other eligible Work continues.
+- Keep ordinary Claude replies free of repeated Stop notices. Show Work focus as plain prompt context when the selected task or purpose changes, with daily reminders for missing objectives or overdue dates and no cut-off words.
+- Retain cited same-Work landed commits during lane recovery when canonical
+  Attempt receipts verify their original session and admission interval. Keep
+  current Work contract and live Attempt fences, and preserve original custody
+  in settlement metadata.
+- Retry held admissions after their retry window expires, using current readiness and a fresh Attempt. Reconcile queued legacy successes through their original executor, keep active and unknown Attempts fenced, and recognize publish-boundary refactors as code work.
+
+  Start workers that already hold an admitted Attempt without waiting for optional activity reporting.
+
+- Keep runner and Lead duty status across supervisor restarts, retain restart delays, and verify retained process identity before adoption or shutdown.
+- Report persisted supervisor duty status alongside existing lane observations, including Lead cadence, retry times and recorded restarts.
+- Report current tasks, known check and retry times, and confirmed Work completions
+  in supervisor health. Keep executor names configurable and preserve unknown
+  activity for older reports.
+- Isolate renewal tests from the user's credential journal and label test renewals.
+
 ## 0.19.3 — 2026-11-01
 
 ### Patch Changes
