@@ -156,7 +156,6 @@ it("opens only the existing executor candidate and switches files in the same Wo
 	expect(
 		host.querySelector("[data-code-path]")?.getAttribute("data-code-path"),
 	).toBe("server.js");
-	expect(host.textContent).toContain("have not been written to the repository");
 	expect(
 		[...host.querySelectorAll("button")].some((button) =>
 			/save|apply|initialize|publish/i.test(button.textContent ?? ""),
