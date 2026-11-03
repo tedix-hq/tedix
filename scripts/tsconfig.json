@@ -10,6 +10,8 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"db/d1-size-report.ts",
+		"db/d1-size-report.test.ts",
 		"agent-bootstrap.test.ts",
 		"bump.ts",
 		"bump.test.ts",

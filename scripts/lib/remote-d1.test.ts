@@ -185,7 +185,8 @@ describe("remoteD1QueryRest", () => {
 			const result = await remoteD1QueryRest({
 				accountId: "acct",
 				databaseId: "db-1",
-				sql: "CREATE TABLE t (id INTEGER)",
+				sql: "SELECT ? AS value",
+				params: ["private-value"],
 				apiToken: "token",
 				env,
 				fetchImplementation: async (input, init) => {
@@ -199,6 +200,13 @@ describe("remoteD1QueryRest", () => {
 			expect(result.ok).toBe(true);
 			expect(calls[0]?.url).toBe(
 				"https://api.cloudflare.com/client/v4/accounts/acct/d1/database/db-1/query",
+			);
+			expect(JSON.parse(calls[0]!.body)).toEqual({
+				sql: "SELECT ? AS value",
+				params: ["private-value"],
+			});
+			expect(readFileSync(env.TEDIX_D1_AUDIT_LOG!, "utf8")).not.toContain(
+				"private-value",
 			);
 			const audit = JSON.parse(readFileSync(env.TEDIX_D1_AUDIT_LOG!, "utf8"));
 			expect(audit).toMatchObject({

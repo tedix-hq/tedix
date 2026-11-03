@@ -1,3 +1,8 @@
+import type {
+	D1Database,
+	D1PreparedStatement,
+	D1Result,
+} from "@cloudflare/workers-types";
 import { createLogger } from "@tedix/worker-kit/logger";
 
 const logger = createLogger<{
