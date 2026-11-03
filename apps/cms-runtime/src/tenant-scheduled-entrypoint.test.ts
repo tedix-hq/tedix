@@ -14,7 +14,9 @@ function scheduledTenant(source: string) {
 		},
 	}));
 	return worker.getEntrypoint() as unknown as {
-		scheduled(controller: ScheduledController): Promise<void>;
+		scheduled(
+			controller: ScheduledController,
+		): Promise<{ ok: true } | { ok: false; error: string }>;
 		fetch(request: Request): Promise<Response>;
 	};
 }
@@ -42,9 +44,53 @@ export default {
   fetch() { return Response.json(completed); },
 };`);
 
-		await tenant.scheduled(controller);
+		await expect(tenant.scheduled(controller)).resolves.toEqual({ ok: true });
 		expect(
 			await (await tenant.fetch(new Request("https://tenant.test/"))).json(),
 		).toEqual(["first", "late"]);
+	});
+
+	test("reports handler failure only after outstanding work drains", async () => {
+		const tenant = scheduledTenant(`
+let completed = false;
+export default {
+  scheduled(_controller, _env, ctx) {
+    ctx.waitUntil(new Promise((resolve) => setTimeout(() => {
+      completed = true;
+      resolve();
+    }, 10)));
+    throw new Error("handler failed");
+  },
+  fetch() { return Response.json(completed); },
+};`);
+		await expect(tenant.scheduled(controller)).resolves.toEqual({
+			ok: false,
+			error: "Error: handler failed",
+		});
+		expect(
+			await (await tenant.fetch(new Request("https://tenant.test/"))).json(),
+		).toBe(true);
+	});
+
+	test("reports a rejected waitUntil only after other callbacks drain", async () => {
+		const tenant = scheduledTenant(`
+let completed = false;
+export default {
+  scheduled(_controller, _env, ctx) {
+    ctx.waitUntil(Promise.reject(new Error("background failed")));
+    ctx.waitUntil(new Promise((resolve) => setTimeout(() => {
+      completed = true;
+      resolve();
+    }, 10)));
+  },
+  fetch() { return Response.json(completed); },
+};`);
+		await expect(tenant.scheduled(controller)).resolves.toEqual({
+			ok: false,
+			error: "Error: background failed",
+		});
+		expect(
+			await (await tenant.fetch(new Request("https://tenant.test/"))).json(),
+		).toBe(true);
 	});
 });

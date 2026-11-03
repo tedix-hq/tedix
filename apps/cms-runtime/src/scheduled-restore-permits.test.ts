@@ -134,6 +134,15 @@ describe("scheduled restore permit ownership", () => {
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
 	});
 
+	test("releases a confirmed handler failure while preserving its error result", async () => {
+		const identity = await site();
+		const result = { ok: false, error: "handler failed" };
+		await expect(
+			withScheduledCmsRestorePermit(db, storage, identity, async () => result),
+		).resolves.toEqual({ admitted: true, value: result });
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+	});
+
 	test("does not reclaim a running callback and drains only after it returns", async () => {
 		const identity = await site();
 		let finish!: () => void;

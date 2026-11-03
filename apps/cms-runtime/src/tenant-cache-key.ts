@@ -35,7 +35,7 @@ export interface TenantRuntimeEnvHashEnv {
  * shape changes. Loader handles survive parent deploys, so bundle and env
  * hashes alone do not guarantee that a corrected factory is re-evaluated.
  */
-export const TENANT_RUNTIME_LOADER_POLICY_VERSION = "11";
+export const TENANT_RUNTIME_LOADER_POLICY_VERSION = "12";
 
 function shortHash(input: string): string {
 	let hash = 2166136261;
