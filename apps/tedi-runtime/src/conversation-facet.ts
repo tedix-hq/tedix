@@ -3,7 +3,6 @@ import {
 	resolveTurnExecutionRestriction,
 } from "./turn-execution-restriction";
 import type { TurnExecutionRestriction } from "@tedix/api-contract/schemas/turn-execution-restriction";
-import { createDbClient } from "@tedix/db/client";
 import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
 	ModelCatalogConfigSchema,
@@ -1493,7 +1492,9 @@ export class ConversationFacet extends PiAgent<
 		const modelCatalog =
 			this.state.runId === input.runId && this.state.modelCatalog
 				? ModelCatalogConfigSchema.parse(this.state.modelCatalog)
-				: await getModelCatalogConfig(createDbClient(this.env.DB));
+				: await getModelCatalogConfig(
+						(await import("@tedix/db/client")).createDbClient(this.env.DB),
+					);
 		const prior = this.state.turnCount;
 		const gate = new DelegationBudgetGate(this.ctx.storage);
 		await gate.enroll(input.runId, input.delegationBudget);

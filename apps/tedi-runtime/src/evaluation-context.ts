@@ -1,4 +1,3 @@
-import { createDbClient } from "@tedix/db/client";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
@@ -123,7 +122,7 @@ export async function admitEvaluation(input: {
 	if (!workflowRunId || epoch === null || !/^\d+$/.test(epoch))
 		throw new Error("Evaluation requires authenticated workflow provenance");
 	const run = await getSkillRun(
-		createDbClient(input.env.DB),
+		(await import("@tedix/db/client")).createDbClient(input.env.DB),
 		workflowRunId,
 		input.orgId,
 		input.env.ENVIRONMENT === "production" ? "production" : "development",
@@ -273,7 +272,7 @@ export async function assertEvaluationWork(
 		"workItemId" | "workAttemptId" | "workExternalSessionKey"
 	>,
 ): Promise<void> {
-	const db = createDbClient(env.DB);
+	const db = (await import("@tedix/db/client")).createDbClient(env.DB);
 	const work = await getWorkItemById(db, admission.workItemId, orgId);
 	if (work?.disposition !== "accepted")
 		throw new Error("Evaluation Work is not accepted");
@@ -294,7 +293,7 @@ export async function assertEvaluationAuthority(
 		Partial<Pick<EvaluationAdmission, "agents" | "agentsProof">>,
 ) {
 	const run = await getSkillRun(
-		createDbClient(env.DB),
+		(await import("@tedix/db/client")).createDbClient(env.DB),
 		admission.workflowRunId,
 		orgId,
 		env.ENVIRONMENT === "production" ? "production" : "development",
