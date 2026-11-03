@@ -860,6 +860,18 @@ it("claims queued calls only when due, recovers a cut-off run, and rejects an ol
 		executionAttentionOnly: true,
 	});
 	expect(attention.total).toBe(1);
+	// A passed window leaves Needs review; History still has the row.
+	await db.run(
+		sql`update tedi_approval_requests set expires_at = '2000-01-01T00:00:00.000Z' where org_id = 'org-1'`,
+	);
+	expect(
+		(
+			await listApprovalRequests(db, {
+				orgId: "org-1",
+				executionAttentionOnly: true,
+			})
+		).total,
+	).toBe(0);
 	expect(
 		(
 			await listApprovalRequests(db, {

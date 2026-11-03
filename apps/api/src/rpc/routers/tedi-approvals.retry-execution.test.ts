@@ -255,7 +255,7 @@ describe("tediApprovals.retryExecution", () => {
 			client(expired).retryExecution({ id: APPROVAL_ID }),
 		).rejects.toMatchObject({
 			code: "BAD_REQUEST",
-			message: expect.stringContaining("could not be claimed"),
+			message: expect.stringContaining("window has passed"),
 		});
 		expect(mocks.executor).not.toHaveBeenCalled();
 	});
