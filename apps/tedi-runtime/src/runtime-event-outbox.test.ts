@@ -937,3 +937,54 @@ for (const failed of [false, true]) {
 	assert.equal(await cold.redrive(), true);
 	assert.equal((await cold.inspectRun("late-send")).blockedPending, 1);
 }
+
+// A cached reply can outlive an API outage. Restore its original observations
+// before its terminal, without publishing another run or manufacturing an event.
+{
+	const h = harness(null);
+	const original = [
+		event("replayed", "terminal", "run.failed"),
+		...[0, 1, 2, 3].map((i) =>
+			event("replayed", `step-${i}`, "step.completed"),
+		),
+		event("replayed", "reply", "message.completed"),
+	];
+	for (const row of [
+		...original,
+		event("other-run", "reply", "message.completed"),
+	])
+		await h.storage.put<LedgerOutboxEntry>(`${LEDGER_OUTBOX_PREFIX}${row.id}`, {
+			event: row,
+			class: row.kind === "run.failed" ? "terminal" : "observational",
+			redrives: 1,
+			firstDroppedAt: 1,
+		});
+	assert.equal(await h.outbox.redriveRun(""), false);
+	assert.deepEqual(h.recorded, []);
+	assert.equal(await h.outbox.redriveRun("replayed"), false);
+	assert.deepEqual(h.recorded, [...original.slice(1), original[0]]);
+	assert.equal(h.storage.rows.size, 1);
+	assert.equal((await h.outbox.inspectRun("other-run")).observational, 1);
+	await h.outbox.redriveRun("replayed");
+	assert.equal(
+		h.recorded.length,
+		6,
+		"replaying an acknowledged run adds no events",
+	);
+}
+{
+	const h = harness(null, { fail: true });
+	const row = event("still-unavailable", "terminal", "run.failed");
+	await h.storage.put<LedgerOutboxEntry>(`${LEDGER_OUTBOX_PREFIX}${row.id}`, {
+		event: row,
+		class: "terminal",
+		redrives: 0,
+		firstDroppedAt: 1,
+	});
+	await Promise.all([
+		h.outbox.redriveRun("still-unavailable"),
+		h.outbox.redrive(),
+	]);
+	assert.equal((await h.outbox.inspectRun("still-unavailable")).terminal, 1);
+	assert.equal((await h.outbox.inspectRun("still-unavailable")).maxRedrives, 2);
+}
