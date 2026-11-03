@@ -8,8 +8,6 @@
  * File contents and PATs must never appear here.
  */
 
-import * as z from "zod";
-
 export const REPO_COMMIT_WRITE_KIND = "repo_commit_write" as const;
 
 export interface RepoCommitChangeSummary {
@@ -21,42 +19,10 @@ export interface RepoCommitChangeSummary {
 	totalBytes: number;
 }
 
-export interface RepoCommitExactTreeValidation {
-	version: "v1";
-	baseSha: string;
-	resultTreeSha: string;
-	orderedChangesDigest: string;
-	gateRecipeDigest: string;
-	processId: string;
-	terminalEvidenceRef: string;
-	exitCode: 0;
-}
-
-export const RepoCommitExactTreeValidationSchema = z
-	.object({
-		version: z.literal("v1"),
-		baseSha: z.string().regex(/^[a-f0-9]{40}$/),
-		resultTreeSha: z.string().regex(/^[a-f0-9]{40}$/),
-		orderedChangesDigest: z.string().regex(/^[a-f0-9]{64}$/),
-		gateRecipeDigest: z.string().regex(/^[a-f0-9]{64}$/),
-		processId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/),
-		terminalEvidenceRef: z.string().startsWith("r2://").max(2048),
-		exitCode: z.literal(0),
-	})
-	.strict();
-
-export function parseRepoCommitExactTreeValidation(
-	value: unknown,
-): RepoCommitExactTreeValidation | null {
-	const result = RepoCommitExactTreeValidationSchema.safeParse(value);
-	return result.success ? result.data : null;
-}
-
 export interface RepoCommitRevisionExpectation {
 	baseSha: string;
 	/** Null means the target branch did not exist when the proposal was made. */
 	targetSha: string | null;
-	exactTreeValidation?: RepoCommitExactTreeValidation;
 }
 
 export function parseRepoCommitRevisionExpectation(
@@ -71,19 +37,7 @@ export function parseRepoCommitRevisionExpectation(
 			(typeof targetSha !== "string" || !/^[a-f0-9]{40}$/.test(targetSha)))
 	)
 		return null;
-	const exactTreeValidation = parseRepoCommitExactTreeValidation(
-		(value as Record<string, unknown>).exactTreeValidation,
-	);
-	if (
-		(value as Record<string, unknown>).exactTreeValidation != null &&
-		(!exactTreeValidation || exactTreeValidation.baseSha !== baseSha)
-	)
-		return null;
-	return {
-		baseSha,
-		targetSha,
-		...(exactTreeValidation ? { exactTreeValidation } : {}),
-	};
+	return { baseSha, targetSha };
 }
 
 export interface RepoCommitWritePayload {
