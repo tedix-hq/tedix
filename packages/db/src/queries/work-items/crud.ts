@@ -19,10 +19,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
-import {
-	workApprovalProposals,
-	workMilestoneItems,
-} from "../../schema/work-factory";
+import { workMilestoneItems } from "../../schema/work-factory";
 import { kernelRequests } from "../../schema/kernel-requests";
 import {
 	type WorkItem,
@@ -1160,29 +1157,10 @@ export async function updateWorkItemSpecification(
 		occurredAt: updatedAt,
 		...(projectMove ? { payload: { projectMove } } : {}),
 	});
-	// Planning keeps the approved scope, so approvals bound to the prior
-	// version follow it, only when this batch's own update applied: same
-	// disposition and spec revision, the next version, and this timestamp.
-	const carryApprovals = planningOnly
-		? [
-				db
-					.update(workApprovalProposals)
-					.set({ workItemVersion: prior.version + 1 })
-					.where(
-						and(
-							eq(workApprovalProposals.orgId, params.orgId),
-							eq(workApprovalProposals.workItemId, params.workItemId),
-							eq(workApprovalProposals.workItemVersion, prior.version),
-							inArray(workApprovalProposals.status, ["pending", "approved"]),
-							sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${params.orgId} AND ${workItems.id}=${params.workItemId} AND ${workItems.version}=${prior.version + 1} AND ${workItems.admissionSpecRevision}=${prior.admissionSpecRevision} AND ${workItems.disposition}=${prior.disposition} AND ${workItems.updatedAt}=${updatedAt})`,
-						),
-					),
-			]
-		: [];
+	// Approval proposals are immutable and remain bound to their reviewed version.
 	const [updatedRows] = await db.batch([
 		updateMutation,
 		updateEvent,
-		...carryApprovals,
 		...(dispatch
 			? [
 					dispatchReceiptInsert(

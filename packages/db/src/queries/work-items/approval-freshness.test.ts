@@ -110,15 +110,15 @@ function fixture() {
 }
 
 describe("approval freshness through lane planning", () => {
-	it("approve, plan held then ready, and the approval still admits the unchanged scope", async () => {
+	it("planning held then ready leaves the approval bound to its reviewed version", async () => {
 		const { sqlite, update, readiness, boundVersion } = fixture();
 		expect(await readiness()).toBe("ready");
 
 		const held = await update({ laneDispatch: { state: "held" } });
 		expect(held.version).toBe(2);
 		expect(held.admissionSpecRevision).toBe("rev-approved");
-		expect(boundVersion()).toBe(2);
-		expect(await readiness()).toBe("ready");
+		expect(boundVersion()).toBe(1);
+		expect(await readiness()).toBe("approval_blocked");
 
 		// Repeating the current executor is planning, not a reassignment.
 		const ready = await update({
@@ -128,8 +128,8 @@ describe("approval freshness through lane planning", () => {
 		});
 		expect(ready.version).toBe(3);
 		expect(ready.admissionSpecRevision).toBe("rev-approved");
-		expect(boundVersion()).toBe(3);
-		expect(await readiness()).toBe("ready");
+		expect(boundVersion()).toBe(1);
+		expect(await readiness()).toBe("approval_blocked");
 		sqlite.close();
 	});
 
