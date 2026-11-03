@@ -81,7 +81,10 @@ import {
 	withAuth,
 	withAuthorization,
 } from "../orpc";
-import { verifiedActiveWorkActor } from "./work-items-principal";
+import {
+	verifiedActiveUserMembership,
+	verifiedActiveWorkActor,
+} from "./work-items-principal";
 import {
 	requireOwnerAdminWorkItemAuthor,
 	rethrowWorkControlError,
@@ -883,6 +886,11 @@ const delegateProcedure = writeOs.delegate.handler(
 const cancelProcedure = writeOs.cancel.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
 	const actor = await verifiedActiveWorkActor(context, orgId);
+	const actorIsAdmin =
+		actor.type === "user" &&
+		["owner", "admin"].includes(
+			(await verifiedActiveUserMembership(context, orgId)).role,
+		);
 	try {
 		return requestOutput(
 			await cancelWorkInteraction(context.db, {
@@ -890,6 +898,7 @@ const cancelProcedure = writeOs.cancel.handler(async ({ input, context }) => {
 				interactionId: input.requestId,
 				expectedVersion: input.expectedRequestVersion,
 				actor,
+				actorIsAdmin,
 				now: new Date().toISOString(),
 			}),
 		);
