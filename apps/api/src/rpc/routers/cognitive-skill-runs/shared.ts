@@ -46,6 +46,7 @@ export interface SkillRuntimeLifecycleResponse {
 	executionEpoch?: number;
 	restartId?: string;
 	restartAborted?: boolean;
+	restartRetired?: boolean;
 	engine?: Record<string, unknown> | null;
 	engineStatus?: string;
 	deduplicated?: boolean;

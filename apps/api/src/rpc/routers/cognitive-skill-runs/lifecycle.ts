@@ -34,6 +34,7 @@ async function applySkillWorkflowLifecycleResponse(
 		executionEpoch: remote.executionEpoch,
 		restartId: remote.restartId,
 		restartAborted: remote.restartAborted,
+		restartRetired: remote.restartRetired,
 		deduplicated: remote.deduplicated,
 	};
 }
@@ -162,6 +163,41 @@ export const skillsRestartWorkflow = authedSkills.restartWorkflow
 		}
 		return result;
 	});
+
+export const skillsRetireUnstartedWorkflow =
+	authedSkills.retireUnstartedWorkflow
+		.use(AUTHZ.tedisWrite)
+		.handler(async ({ input, context }) => {
+			const orgId = requireOrgId(context);
+			const run = await getSkillRunForEnvironment(context, input.runId, orgId);
+			if (!run) throw createError(ErrorCodes.NOT_FOUND, "Skill run not found");
+			requireWorkflowRunTedi(run, input.tediId);
+			const remote = await callSkillRuntime<SkillRuntimeLifecycleResponse>(
+				context,
+				"/retire-unstarted-restart",
+				{
+					runId: run.id,
+					workflowInstanceId: run.workflowInstanceId,
+					expectedExecutionEpoch: run.executionEpoch ?? 0,
+					restartId: input.restartId,
+					retireUnstarted: true,
+					reason: input.reason,
+					from: input.from,
+				},
+			);
+			if (
+				remote.runId !== run.id ||
+				remote.restartId !== input.restartId ||
+				remote.restartRetired !== true ||
+				remote.status !== "canceled" ||
+				remote.executionEpoch !== (run.executionEpoch ?? 0)
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Workflow retirement was not confirmed for this exact run, command and epoch. No restart was requested.",
+				);
+			return applySkillWorkflowLifecycleResponse(context, run, remote);
+		});
 
 export const skillsApproveWorkflow = authedSkills.approveWorkflow
 	.use(AUTHZ.tedisWrite)

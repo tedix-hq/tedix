@@ -431,6 +431,12 @@ const SKILL_WORKFLOW_APPROVE_SCHEMA: ToolInputJsonSchema = withoutTediId(
 	),
 );
 
+const SKILL_WORKFLOW_RETIRE_SCHEMA: ToolInputJsonSchema = withoutTediId(
+	zodToToolInputJsonSchema(
+		procedureInputSchema(skillsContract.retireUnstartedWorkflow),
+	),
+);
+
 const SKILL_WORKFLOW_REJECT_SCHEMA: ToolInputJsonSchema = withoutTediId(
 	zodToToolInputJsonSchema(procedureInputSchema(skillsContract.rejectWorkflow)),
 );
@@ -561,6 +567,9 @@ export const SKILL_WORKFLOW_OUTPUT_SCHEMAS: Record<
 	),
 	"skills/restartWorkflow": zodToStructuredOutputJsonSchema(
 		procedureOutputSchema(skillsContract.restartWorkflow),
+	),
+	"skills/retireUnstartedWorkflow": zodToStructuredOutputJsonSchema(
+		procedureOutputSchema(skillsContract.retireUnstartedWorkflow),
 	),
 	"skills/approveWorkflow": zodToStructuredOutputJsonSchema(
 		procedureOutputSchema(skillsContract.approveWorkflow),
@@ -930,6 +939,15 @@ export const SKILL_WORKFLOW_TOOLS: TediToolSpec[] = [
 		inputSchema: SKILL_WORKFLOW_RESTART_SCHEMA,
 		annotations: DESTRUCTIVE,
 		rpcEndpoint: "skills/restartWorkflow",
+	},
+	{
+		name: "retire_unstarted_skill_workflow",
+		remoteName: "retire_unstarted_skill_workflow",
+		description:
+			"Stop an old run whose accepted restart never began. Never starts or restarts the engine or invokes a model. Requires a terminal engine read, no reserved-epoch start/outcome evidence, exact original restartId/from and an audit reason. Permanently fences late starts. Repeat the same command only to finish an interrupted cancellation record.",
+		inputSchema: SKILL_WORKFLOW_RETIRE_SCHEMA,
+		annotations: DESTRUCTIVE,
+		rpcEndpoint: "skills/retireUnstartedWorkflow",
 	},
 	{
 		name: "approve_skill_workflow",

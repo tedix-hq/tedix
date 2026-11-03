@@ -196,6 +196,11 @@ describe("owner gateway approvals", () => {
 		],
 		["run", { command: "echo hello" }, "Run the submitted command"],
 		["execute", {}, "Run the execute tool"],
+		[
+			"retire_unstarted_skill_workflow",
+			{},
+			"Retire the old workflow without restarting it",
+		],
 		["createContactNote", {}, "Create Contact Note"],
 	])(
 		"describes %s with its app, requester and organization",

@@ -10,6 +10,7 @@ type ControlAction =
 	| "resume"
 	| "restart"
 	| "restart_receipt"
+	| "restart_retirement_projection"
 	| "cancel"
 	| "approve"
 	| "reject"

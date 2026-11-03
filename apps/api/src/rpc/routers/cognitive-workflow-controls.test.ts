@@ -385,6 +385,125 @@ describe("skill workflow control epoch fencing", () => {
 		mocks.requestRunAbort.mockResolvedValue({ requested: true });
 	});
 
+	it("forwards explicit retirement without reopening the canceled submission", async () => {
+		const fetch = vi.fn(async () =>
+			Response.json({
+				runId: RUN.id,
+				status: "canceled",
+				executionEpoch: RUN.executionEpoch,
+				restartId: "original-restart",
+				restartRetired: true,
+				deduplicated: false,
+			}),
+		);
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(fetch),
+		});
+		await expect(
+			client.retireUnstartedWorkflow({
+				runId: RUN.id,
+				restartId: "original-restart",
+				reason: "Retire the old run only; do not restart or run the model.",
+				from: { name: "finish", count: 1, type: "do" },
+			}),
+		).resolves.toMatchObject({ status: "canceled", restartRetired: true });
+		const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+		expect(JSON.parse(String(init.body))).toMatchObject({
+			retireUnstarted: true,
+			expectedExecutionEpoch: RUN.executionEpoch,
+			restartId: "original-restart",
+		});
+		expect(mocks.restartTediSubmissionAttempt).not.toHaveBeenCalled();
+		expect(String(fetch.mock.calls[0]![0])).toContain(
+			"/retire-unstarted-restart",
+		);
+	});
+
+	it("never reopens a submission when retirement confirmation is missing", async () => {
+		const fetch = vi.fn(async () =>
+			Response.json({
+				runId: RUN.id,
+				status: "queued",
+				executionEpoch: RUN.executionEpoch,
+			}),
+		);
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(fetch),
+		});
+		await expect(
+			client.retireUnstartedWorkflow({
+				runId: RUN.id,
+				restartId: "original-restart",
+				reason: "Retire old run only.",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(mocks.restartTediSubmissionAttempt).not.toHaveBeenCalled();
+		expect(mocks.settleTediSubmission).not.toHaveBeenCalled();
+	});
+
+	it("old runtime or API refusal never falls back to restart", async () => {
+		const fetch = vi.fn(async () =>
+			Response.json({ error: "unknown retirement action" }, { status: 404 }),
+		);
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(fetch),
+		});
+		await expect(
+			client.retireUnstartedWorkflow({
+				runId: RUN.id,
+				restartId: "original-restart",
+				reason: "Stop only.",
+			}),
+		).rejects.toBeDefined();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(String(fetch.mock.calls[0]![0])).toContain(
+			"/retire-unstarted-restart",
+		);
+		expect(mocks.restartTediSubmissionAttempt).not.toHaveBeenCalled();
+	});
+
+	it("retirement has no optional public mode that an older schema can strip", async () => {
+		const fetch = vi.fn();
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(fetch),
+		});
+		const invalid = {
+			runId: RUN.id,
+			restartId: "original-restart",
+			reason: "Stop only.",
+			retireUnstarted: false,
+		};
+		await expect(client.retireUnstartedWorkflow(invalid)).rejects.toMatchObject(
+			{ code: "BAD_REQUEST" },
+		);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it("an older public API without the retirement procedure never selects restart", async () => {
+		const { RPCHandler } = await import("@orpc/server/fetch");
+		const fetch = vi.fn();
+		const oldApi = new RPCHandler({
+			skills: { restartWorkflow: skillsContractRouter.restartWorkflow },
+		});
+		const result = await oldApi.handle(
+			new Request("https://api.test/rpc/skills/retireUnstartedWorkflow", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					json: {
+						runId: RUN.id,
+						restartId: "original-restart",
+						reason: "Stop only.",
+					},
+				}),
+			}),
+			{ prefix: "/rpc", context: createContext(fetch) },
+		);
+		expect(result.matched).toBe(false);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(mocks.restartTediSubmissionAttempt).not.toHaveBeenCalled();
+	});
+
 	it("sends the D1 execution epoch on every lifecycle control request", async () => {
 		const fetch = vi.fn(async () =>
 			Response.json({

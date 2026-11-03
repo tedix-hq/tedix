@@ -407,6 +407,7 @@ export const SKILL_WORKFLOW_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"skills/resumeSchedule": "resume_skill_schedule",
 	"skills/updateSchedule": "update_skill_schedule",
 	"skills/restartWorkflow": "restart_skill_workflow",
+	"skills/retireUnstartedWorkflow": "retire_unstarted_skill_workflow",
 	"skills/approveWorkflow": "approve_skill_workflow",
 	"skills/rejectWorkflow": "reject_skill_workflow",
 	"skills/getRunArtifact": "get_skill_run_artifact",
@@ -456,6 +457,7 @@ export const SKILL_WORKFLOW_KIND_OVERRIDES: Record<
 	// Only capabilities.schedule.cron/enabled change; the prior policy is a revision away.
 	"skills/updateSchedule": "write",
 	"skills/restartWorkflow": "destructive",
+	"skills/retireUnstartedWorkflow": "destructive",
 	"skills/approveWorkflow": "destructive",
 	"skills/rejectWorkflow": "destructive",
 	"skills/getRunArtifact": "read",

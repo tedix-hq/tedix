@@ -394,7 +394,7 @@ export async function finalizeAbortedSkillRunRestart(
 			        started_at = restart_requested_at,
 			        completed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
 			        paused_at = NULL,
-			        workflow_retired_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+			        workflow_retired_at = COALESCE(workflow_retired_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')),
 			        restart_requested_at = NULL,
 			        restart_command_id = NULL
 			  WHERE id = ?1
