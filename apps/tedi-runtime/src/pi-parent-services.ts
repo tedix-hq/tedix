@@ -196,10 +196,10 @@ export class ParentMaintenanceServices {
 			.toArray();
 	}
 
-	async ensure(): Promise<void> {
+	async ensure(): Promise<boolean> {
 		// Maintenance is owned by the canonical parent DO.
 		await this.host.assertRuntimeActive();
-		if (!(await this.host.isCanonical())) return;
+		if (!(await this.host.isCanonical())) return false;
 		for (const taskId of Object.keys(
 			PARENT_MAINTENANCE_TASKS,
 		) as ParentMaintenanceTask[]) {
@@ -286,6 +286,7 @@ export class ParentMaintenanceServices {
 			await this.host.assertRuntimeActive();
 			await this.host.storage.put(this.key(taskId), record);
 		}
+		return true;
 	}
 
 	async run(

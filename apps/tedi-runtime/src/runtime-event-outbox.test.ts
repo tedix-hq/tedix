@@ -24,10 +24,16 @@ class FakeStorage {
 	async delete(key: string): Promise<boolean> {
 		return this.rows.delete(key);
 	}
-	async list<T>(opts: { prefix: string }): Promise<Map<string, T>> {
+	async list<T>(opts: {
+		prefix: string;
+		limit?: number;
+	}): Promise<Map<string, T>> {
 		const out = new Map<string, T>();
 		for (const [key, value] of this.rows) {
-			if (key.startsWith(opts.prefix)) out.set(key, value as T);
+			if (key.startsWith(opts.prefix)) {
+				out.set(key, value as T);
+				if (out.size === opts.limit) break;
+			}
 		}
 		return out;
 	}
@@ -987,4 +993,33 @@ for (const failed of [false, true]) {
 	]);
 	assert.equal((await h.outbox.inspectRun("still-unavailable")).terminal, 1);
 	assert.equal((await h.outbox.inspectRun("still-unavailable")).maxRedrives, 2);
+}
+
+{
+	const h = harness(null);
+	await h.outbox.ensureRedrive();
+	assert.equal(h.redrives, 0, "an empty runtime must not create an idle wake");
+	const row = event("persisted", "terminal", "run.failed");
+	await h.storage.put<LedgerOutboxEntry>(`${LEDGER_OUTBOX_PREFIX}${row.id}`, {
+		event: row,
+		class: "terminal",
+		redrives: 1,
+		firstDroppedAt: 1,
+	});
+	await h.outbox.ensureRedrive();
+	assert.equal(h.redrives, 1);
+	assert.equal(
+		h.recorded.length,
+		0,
+		"startup only arms existing evidence delivery",
+	);
+	assert.deepEqual(
+		(await h.storage.get<LedgerOutboxEntry>(`${LEDGER_OUTBOX_PREFIX}${row.id}`))
+			?.event,
+		row,
+	);
+	await h.outbox.redrive();
+	assert.deepEqual(h.recorded, [row]);
+	await h.outbox.ensureRedrive();
+	assert.equal(h.redrives, 1, "a drained runtime must return to silence");
 }

@@ -427,6 +427,15 @@ export class RuntimeEventOutbox {
 		this.persisted.add(key);
 	}
 
+	/** Recover a missing alarm without publishing evidence on the startup path. */
+	async ensureRedrive(): Promise<void> {
+		const pending = await this.deps.storage.list({
+			prefix: LEDGER_OUTBOX_PREFIX,
+			limit: 1,
+		});
+		if (pending.size > 0) await this.deps.scheduleRedrive();
+	}
+
 	/**
 	 * Visibility barrier. Awaits this isolate's in-flight publishes, then makes
 	 * one immediate attempt at anything still persisted for the run. False means
