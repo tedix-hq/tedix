@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
@@ -9,6 +9,7 @@ import { schemaDdl, tableDdl } from "../test/schema-ddl";
 import {
 	D1_LOGS_COPY_STATEMENT_BYTES,
 	D1_RETENTION_PAGE_ROWS,
+	D1RetentionEstimateDeadlineError,
 	buildD1LogsCopyStatements,
 	buildD1RetentionDeleteStatements,
 	copyD1RetentionRowsToLogs,
@@ -174,6 +175,30 @@ describe("d1 retention statements", () => {
 			deleteD1RetentionRows(db, audit(), rowids, cutoff),
 		).resolves.toBe(610);
 		expect(count("audit_events")).toBe(10);
+	});
+
+	it("stops backlog probes at the deadline and starts none when it already expired", async () => {
+		const { db, seedAudit } = fixture();
+		seedAudit(Array.from({ length: 1000 }, () => 120));
+		const cutoff = d1RetentionCutoff(audit(), NOW, 90);
+		const reads = vi.spyOn(db, "all");
+		let clock = 0;
+		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock++);
+		try {
+			await expect(
+				estimateD1RetentionBacklog(db, audit(), cutoff, 0),
+			).rejects.toBeInstanceOf(D1RetentionEstimateDeadlineError);
+			expect(reads).not.toHaveBeenCalled();
+			clock = 0;
+			await expect(
+				estimateD1RetentionBacklog(db, audit(), cutoff, 3),
+			).rejects.toBeInstanceOf(D1RetentionEstimateDeadlineError);
+			expect(reads.mock.calls.length).toBeGreaterThan(0);
+			expect(reads.mock.calls.length).toBeLessThanOrEqual(3);
+		} finally {
+			mocked.mockRestore();
+			reads.mockRestore();
+		}
 	});
 
 	it("estimates the expired backlog without counting the table", async () => {

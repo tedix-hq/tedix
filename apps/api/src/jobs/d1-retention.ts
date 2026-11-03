@@ -47,7 +47,10 @@ export async function runD1RetentionTick(
 					mode: table.mode,
 					problem: table.problem,
 					eligibleRows: table.eligibleRows,
-					eligibleMb: Math.round(table.eligibleBytes / 1e6),
+					eligibleMb:
+						table.eligibleBytes === null
+							? null
+							: Math.round(table.eligibleBytes / 1e6),
 					archivedRows: table.archivedRows,
 					movedRows: table.movedRows,
 					conflictedRows: table.conflictedRows,
@@ -65,7 +68,14 @@ export async function runD1RetentionTick(
 		d1RetentionMovedRows: result.movedRows,
 		d1RetentionConflictedRows: result.conflictedRows,
 		d1RetentionDeletedRows: result.deletedRows,
-		d1RetentionEligibleMb: Math.round(result.eligibleBytes / 1e6),
+		...(result.eligibleBytes === null
+			? {}
+			: {
+					d1RetentionEligibleMb: Math.round(result.eligibleBytes / 1e6),
+				}),
+		d1RetentionBacklogUnknownTables: result.tables.filter(
+			(table) => table.eligibleRows === null,
+		).length,
 		...sizes,
 	};
 }

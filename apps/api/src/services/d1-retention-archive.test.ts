@@ -2,7 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { skillRunArtifacts } from "@tedix/db/schema/cognitive";
-import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
+import {
+	kernelRuntimeEvents,
+	tediRuntimeEvents,
+} from "@tedix/db/schema/cognitive-runtime";
 import { d1RetentionPolicies } from "@tedix/db/schema/d1-retention";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl, tableDdl } from "@tedix/db/test/schema-ddl";
@@ -72,6 +75,7 @@ function fixture(policies: string) {
 		schemaDdl(
 			auditEvents,
 			tediRuntimeEvents,
+			kernelRuntimeEvents,
 			skillRunArtifacts,
 			d1RetentionPolicies,
 		),
@@ -141,7 +145,7 @@ function fixture(policies: string) {
 function logsFixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		[auditEvents, tediRuntimeEvents, skillRunArtifacts]
+		[auditEvents, tediRuntimeEvents, kernelRuntimeEvents, skillRunArtifacts]
 			.flatMap((table) => tableDdl(table, { foreignKeys: false }))
 			.join("\n"),
 	);
@@ -165,6 +169,120 @@ async function gunzipLines(bytes: Uint8Array): Promise<string[]> {
 }
 
 describe("runD1Retention", () => {
+	it("bounds a slow dry-run estimate so the next ledger still moves", async () => {
+		const { db, d1, seed, seedRuntime, count } = fixture(
+			"('audit_events','dry_run',90,10000,'2026-10-21'), ('tedi_runtime_events','move_to_logs_db',14,10000,'2026-10-21')",
+		);
+		seed(Array.from({ length: 5000 }, () => 120));
+		seedRuntime(Array.from({ length: 5000 }, () => 30));
+		const logs = logsFixture();
+		let clock = 0;
+		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
+		const prepare = d1.prepare.bind(d1);
+		d1.prepare = (query) => {
+			clock += 5;
+			return prepare(query);
+		};
+		try {
+			const result = await runD1Retention({
+				db,
+				logsDb: logs.db,
+				bucket: new MemoryBucket() as unknown as R2Bucket,
+				now: NOW,
+				timeBudgetMs: 120,
+			});
+			expect(result.tables[0]).toMatchObject({
+				mode: "dry_run",
+				stoppedBy: "time_budget",
+				eligibleRows: null,
+				eligibleBytes: null,
+				deletedRows: 0,
+			});
+			expect(result.tables[0]?.error).toBeUndefined();
+			expect(result.tables[0]?.timings.estimateMs).toBeGreaterThan(0);
+			expect(count()).toBe(5000);
+			expect(result.tables[1]?.movedRows).toBeGreaterThan(0);
+			expect(logs.count("tedi_runtime_events")).toBe(result.movedRows);
+		} finally {
+			mocked.mockRestore();
+		}
+	});
+
+	it.each([1, 120])(
+		"gives runtime ledgers a processing turn when audit rows are %i days old",
+		async (auditAge) => {
+			const { db, d1, seed, seedRuntime, sqlite, count, policy } = fixture(
+				"('audit_events','move_to_logs_db',90,10000,'2026-10-21'), ('kernel_runtime_events','move_to_logs_db',14,10000,'2026-10-21'), ('skill_run_artifacts','dry_run',14,10000,'2026-10-21'), ('tedi_runtime_events','move_to_logs_db',14,10000,'2026-10-21')",
+			);
+			seed(Array.from({ length: 5000 }, () => auditAge));
+			seedRuntime([...Array.from({ length: 5000 }, () => 30), 1]);
+			sqlite.exec(`INSERT INTO kernel_runtime_events(id, organization_id, kind, conversation_id, payload, created_at)
+			SELECT id, organization_id, kind, 'conversation-ada', payload, created_at FROM tedi_runtime_events`);
+			const logs = logsFixture();
+			const bucket = new MemoryBucket();
+			let clock = 0;
+			const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
+			const prepare = d1.prepare.bind(d1);
+			d1.prepare = (query) => {
+				// Each page read takes 2ms; estimates and report writes are slower.
+				if (query.startsWith("SELECT") && query.includes("__rowid")) clock += 2;
+				else clock += 5;
+				return prepare(query);
+			};
+			try {
+				const result = await runD1Retention({
+					db,
+					logsDb: logs.db,
+					bucket: bucket as unknown as R2Bucket,
+					now: NOW,
+					timeBudgetMs: 120,
+				});
+				for (const table of result.tables) {
+					expect(table.problem).toBeNull();
+					expect(table.error).toBeUndefined();
+					if (table.mode === "dry_run") {
+						expect(table.timings.estimateMs).toBeGreaterThan(0);
+						expect(table.eligibleRows).toBe(0);
+						expect(table.stoppedBy).toBe("done");
+						continue;
+					}
+					expect(table.timings.pages).toBeGreaterThan(0);
+					if (table.tableName !== "audit_events" || auditAge === 120) {
+						expect(table.movedRows).toBeGreaterThan(0);
+						expect(logs.count(table.tableName)).toBe(table.movedRows);
+					} else {
+						expect(table.deletedRows).toBe(0);
+						expect(count()).toBe(5000);
+					}
+				}
+				expect(result.tables.map((table) => table.eligibleRows)).toEqual([
+					null,
+					null,
+					0,
+					null,
+				]);
+				expect(result.eligibleBytes).toBeNull();
+				expect(
+					JSON.parse(policy("audit_events").report).eligibleRows,
+				).toBeNull();
+				expect(count("tedi_runtime_events")).toBeGreaterThan(0);
+				const archived = (
+					await Promise.all([...bucket.objects.values()].map(gunzipLines))
+				)
+					.flat()
+					.map((line) => JSON.parse(line));
+				expect(archived.length).toBe(result.archivedRows);
+				expect(
+					archived
+						.filter((row) => "created_at" in row)
+						.every((row) => row.created_at < "2026-10-07"),
+				).toBe(true);
+			} finally {
+				mocked.mockRestore();
+			}
+		},
+	);
+
 	it.each(["move_to_logs_db", "archive_then_delete"] as const)(
 		"%s skips a newer row and drains later expired rowids over repeated ticks",
 		async (mode) => {
