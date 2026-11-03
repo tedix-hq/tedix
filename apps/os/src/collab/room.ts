@@ -111,7 +111,12 @@ type WebSocketPairCtor = new () => { 0: AcceptableSocket; 1: AcceptableSocket };
 interface SocketAttachment {
 	peerId: number;
 	identity: CollabVerifiedIdentity | null;
-	access?: { workspaceId: string; userId: string; role?: "use" | "build" };
+	access?: {
+		workspaceId: string;
+		userId: string;
+		role?: "use" | "build";
+		appDraft?: { gadgetId: string; proposalId: string; baseRevisionId: string };
+	};
 }
 
 export const COLLAB_ACCESS_CHECK_MS = 3_000;
@@ -119,6 +124,19 @@ export const COLLAB_ACCESS_CHECK_MS = 3_000;
 function parseAccess(value: unknown): SocketAttachment["access"] {
 	if (typeof value !== "object" || value === null) return undefined;
 	const scope = value as Record<string, unknown>;
+	if (
+		scope.appDraft !== undefined &&
+		(typeof scope.appDraft !== "object" || scope.appDraft === null)
+	)
+		return undefined;
+	const appDraft = scope.appDraft as Record<string, unknown> | undefined;
+	if (
+		appDraft &&
+		(typeof appDraft.gadgetId !== "string" ||
+			typeof appDraft.proposalId !== "string" ||
+			typeof appDraft.baseRevisionId !== "string")
+	)
+		return undefined;
 	return typeof scope.workspaceId === "string" &&
 		scope.workspaceId.length > 0 &&
 		typeof scope.userId === "string" &&
@@ -127,6 +145,15 @@ function parseAccess(value: unknown): SocketAttachment["access"] {
 				workspaceId: scope.workspaceId,
 				userId: scope.userId,
 				role: scope.role === "use" ? "use" : "build",
+				...(appDraft
+					? {
+							appDraft: {
+								gadgetId: appDraft.gadgetId as string,
+								proposalId: appDraft.proposalId as string,
+								baseRevisionId: appDraft.baseRevisionId as string,
+							},
+						}
+					: {}),
 			}
 		: undefined;
 }
@@ -267,6 +294,9 @@ export class CollabRoom {
 							headers: { "Content-Type": "application/json" },
 							body: JSON.stringify({
 								workspaceId,
+								...(readAttachment(peers[0]!.ws).access?.appDraft
+									? { appDraft: readAttachment(peers[0]!.ws).access!.appDraft }
+									: {}),
 								userIds: [...new Set(peers.map(({ userId }) => userId))],
 							}),
 							signal: AbortSignal.timeout(5_000),

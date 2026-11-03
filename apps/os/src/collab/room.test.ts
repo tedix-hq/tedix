@@ -729,6 +729,120 @@ describe("live workspace access", () => {
 	);
 });
 
+describe("proposal room revalidation", () => {
+	it("converges concurrent edits to separate code files and retains them through hibernation", async () => {
+		const sockets: FakeSocket[] = [];
+		const stored = state(sockets);
+		let room = new CollabRoom(stored);
+		const ada = await connect(room, sockets);
+		const grace = await connect(room, sockets, other);
+		await room.webSocketMessage(
+			ada,
+			encodeFrame({
+				t: "base",
+				id: 1,
+				seed: {
+					revision: 3,
+					revisionId: "base",
+					files: [
+						["client.js", "client"],
+						["server.js", "server"],
+					],
+				},
+			}),
+		);
+		await room.webSocketMessage(grace, encodeFrame({ t: "base", id: 2 }));
+		await room.webSocketMessage(
+			ada,
+			encodeFrame({
+				t: "submit",
+				id: 3,
+				submission: submission({
+					change: [["client.js", { edit: [6, [0, " human"]] }]],
+				}),
+			}),
+		);
+		await room.webSocketMessage(
+			grace,
+			encodeFrame({
+				t: "submit",
+				id: 4,
+				submission: submission({
+					clientId: "agent-client",
+					change: [["server.js", { edit: [6, [0, " agent"]] }]],
+				}),
+			}),
+		);
+		expect(ada.of("result").at(-1)?.result.ok).toBe(true);
+		expect(grace.of("result").at(-1)?.result.ok).toBe(true);
+		room = new CollabRoom(stored);
+		await room.webSocketMessage(ada, encodeFrame({ t: "base", id: 5 }));
+		await room.webSocketMessage(grace, encodeFrame({ t: "base", id: 6 }));
+		const expected = [
+			["client.js", "client human"],
+			["server.js", "server agent"],
+		];
+		expect(ada.of("base").at(-1)?.files).toEqual(expected);
+		expect(grace.of("base").at(-1)?.files).toEqual(expected);
+		await room.webSocketMessage(
+			grace,
+			encodeFrame({
+				t: "canonical",
+				id: 7,
+				offer: {
+					revision: 4,
+					revisionId: "base",
+					files: [
+						["client.js", "outside change"],
+						["server.js", "server"],
+					],
+				},
+			}),
+		);
+		expect(grace.of("canonicalResult").at(-1)?.outcome).toBe("edited");
+	});
+	it("retains the exact proposal and base across hibernation and cuts a closed scope", async () => {
+		const socket = new FakeSocket();
+		const appDraft = {
+			gadgetId: "app",
+			proposalId: "proposal",
+			baseRevisionId: "base",
+		};
+		socket.serializeAttachment({
+			peerId: 1,
+			identity,
+			access: {
+				workspaceId: "workspace-1",
+				userId: "builder",
+				role: "build",
+				appDraft,
+			},
+		});
+		const roomState = state([socket]);
+		roomState.storage.setAlarm = vi.fn(async () => {});
+		const requests: Request[] = [];
+		const env = {
+			API_SERVICE: {
+				fetch: async (request: Request) => {
+					requests.push(request);
+					return Response.json({ roles: {} });
+				},
+			},
+		};
+		const close = vi.spyOn(socket, "close");
+		await new CollabRoom(roomState, env).alarm();
+		expect(await requests[0]!.json()).toEqual({
+			workspaceId: "workspace-1",
+			userIds: ["builder"],
+			appDraft,
+		});
+		expect(close).toHaveBeenCalledWith(
+			4003,
+			"Workspace access changed; reconnect.",
+		);
+	});
+});
+
 describe("large workbook rooms", () => {
 	it("edits a 12-tab workbook, wakes with its edits, and grounds a save", async () => {
 		const { largeSheetText } = await import("./large-sheet.fixture");

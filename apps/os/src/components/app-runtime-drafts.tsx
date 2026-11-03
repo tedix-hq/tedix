@@ -5,6 +5,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { AppDraftEditor } from "@/components/app-draft-editor";
+import { AppSharedDraftEditor } from "@/components/app-shared-draft-editor";
 import { AppRuntimeSandbox } from "@/components/app-runtime-panel";
 import { ProposalDiff } from "@/components/canvas-proposals";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -154,6 +155,7 @@ function AppDraftCard({
 	const queryClient = useQueryClient();
 	const { proposal, content } = draft;
 	const [reason, setReason] = useState("");
+	const [editing, setEditing] = useState(false);
 	const changes = useMemo(
 		() =>
 			appDraftFileChanges(
@@ -249,7 +251,7 @@ function AppDraftCard({
 			}),
 		onSuccess: settle,
 	});
-	const busy = accept.isPending || reject.isPending;
+	const busy = accept.isPending || reject.isPending || editing;
 	const error = accept.error ?? reject.error ?? rebase.error;
 	const title = `Draft ${number}`;
 
@@ -274,6 +276,24 @@ function AppDraftCard({
 					{proposal.baseRevision}
 				</Text>
 			</div>
+			{proposal.status === "open" && !baseMoved && !mergeBlockedReason && (
+				<Button
+					size="sm"
+					disabled={accept.isPending || reject.isPending}
+					onClick={() => setEditing(true)}
+				>
+					Edit together
+				</Button>
+			)}
+			{editing && (
+				<AppSharedDraftEditor
+					workspaceId={workspaceId}
+					gadgetId={gadget.id}
+					proposal={proposal}
+					content={content}
+					onClose={() => setEditing(false)}
+				/>
+			)}
 			{baseMoved && (
 				<Text as="p" role="label" tone="warning" className="m-0">
 					The app changed since this draft was made. Update to latest to combine
@@ -379,6 +399,7 @@ function AppDraftCard({
 					size="sm"
 					variant="secondary"
 					aria-pressed={previewing}
+					disabled={editing}
 					onClick={() => onPreviewChange(!previewing)}
 				>
 					{previewing ? "Hide preview" : "Preview"}

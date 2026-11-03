@@ -1590,3 +1590,131 @@ describe("large sheet admission", () => {
 		rendered.unmount();
 	});
 });
+
+describe("multi-file proposal rooms", () => {
+	it("retains every unsynced code file for manual comparison after a reconnect", async () => {
+		const files = { "client.js": "client", "server.js": "server" };
+		const rendered = renderCollabDoc(
+			input({
+				canonical: { text: "", files, revision: 1, revisionId: "base" },
+			}),
+		);
+		const answer = async (socket: FakeWebSocket) => {
+			await act(async () => {
+				socket.open();
+				await Promise.resolve();
+			});
+			await act(async () => {
+				socket.deliver({
+					t: "base",
+					id: socket.requestsOf("base").at(-1)!.id,
+					generation: 0,
+					revision: 0,
+					files: Object.entries(files),
+					canonical: { revision: 1, revisionId: "base" },
+				});
+				await Promise.resolve();
+				await Promise.resolve();
+				await Promise.resolve();
+			});
+		};
+		await answer(lastSocket());
+		const session = rendered.result.current!.session!;
+		await act(async () => {
+			session.applyLocal(
+				[
+					["client.js", { set: "unsynced client" }],
+					["server.js", { set: "unsynced server" }],
+				],
+				"client.js",
+				"unsynced client",
+			);
+			await Promise.resolve();
+		});
+		act(() => lastSocket().drop());
+		expect(rendered.result.current!.recoverableFiles).toEqual({
+			"client.js": "unsynced client",
+			"server.js": "unsynced server",
+		});
+		act(() => rendered.result.current!.retry());
+		await answer(lastSocket());
+		expect(rendered.result.current!.session).toBe(session);
+		expect(session.text("client.js")).toBe("client");
+		expect(rendered.result.current!.recoverableFiles?.["server.js"]).toBe(
+			"unsynced server",
+		);
+		expect(rendered.result.current!.commitBasis()).toBeNull();
+		act(() => rendered.result.current!.clearRecoverableFiles());
+		expect(rendered.result.current!.commitBasis()?.files).toEqual(
+			Object.entries(files),
+		);
+		rendered.unmount();
+	});
+	it("seeds, receives and grounds the whole file map without narrowing it to one document", async () => {
+		const files = {
+			"manifest.json": "{}",
+			"client.js": "client",
+			"server.js": "server",
+		};
+		const rendered = renderCollabDoc(
+			input({
+				docKey: "app-draft:app:proposal:base",
+				canonical: { text: "", files, revision: 4, revisionId: "base" },
+			}),
+		);
+		const socket = lastSocket();
+		await act(async () => {
+			socket.open();
+			await Promise.resolve();
+		});
+		expect(socket.requestsOf("base").at(-1)?.seed?.files).toEqual(
+			Object.entries(files),
+		);
+		await act(async () => {
+			socket.deliver({
+				t: "base",
+				id: socket.requestsOf("base").at(-1)!.id,
+				generation: 0,
+				revision: 0,
+				files: Object.entries(files),
+				canonical: { revision: 4, revisionId: "base" },
+			});
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		const session = rendered.result.current!.session!;
+		await act(async () => {
+			socket.deliver({
+				t: "row",
+				row: {
+					generation: 0,
+					revision: 1,
+					timestampMs: 1,
+					author: identity,
+					change: [
+						["client.js", { set: "changed client" }],
+						["server.js", { set: "changed server" }],
+					],
+				},
+			});
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(session.text("client.js")).toBe("changed client");
+		expect(session.text("server.js")).toBe("changed server");
+		const basis = rendered.result.current!.commitBasis()!;
+		expect(Object.fromEntries(basis.files!)).toEqual({
+			...files,
+			"client.js": "changed client",
+			"server.js": "changed server",
+		});
+		await act(async () => {
+			rendered.result.current!.groundCommit(basis, 5, "base");
+		});
+		expect(socket.requestsOf("ground").at(-1)?.offer.files).toEqual(
+			basis.files,
+		);
+		rendered.unmount();
+	});
+});
