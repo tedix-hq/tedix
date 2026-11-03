@@ -319,17 +319,28 @@ async function rowAt(
 	return row ? { rowid: Number(row.rowid_value), ts: row.ts } : null;
 }
 
+export class D1RetentionEstimateDeadlineError extends Error {}
+
 /**
  * Estimate the expired backlog with a few dozen indexed point reads: binary
  * search the rowid where rows enter the keep window, sample density at the
  * old end, and average the stored bytes of the oldest rows. Never counts or
- * scans the table.
+ * scans the table. The deadline is checked before each statement; an in-flight
+ * read finishes before the next check.
  */
 export async function estimateD1RetentionBacklog(
 	db: DbQueryClient,
 	tableSpec: D1RetentionTableSpec,
 	cutoff: D1RetentionCutoff,
+	deadline = Number.POSITIVE_INFINITY,
 ): Promise<D1RetentionBacklogEstimate> {
+	const checkDeadline = () => {
+		if (Date.now() >= deadline)
+			throw new D1RetentionEstimateDeadlineError(
+				"retention estimate time budget exhausted",
+			);
+	};
+	checkDeadline();
 	const [bounds] = (await db.all(
 		sql`SELECT (SELECT min(rowid) FROM ${tableSpec.table}) AS lo, (SELECT max(rowid) FROM ${tableSpec.table}) AS hi`,
 	)) as Array<{ lo: number | null; hi: number | null }>;
@@ -338,6 +349,7 @@ export async function estimateD1RetentionBacklog(
 	if (lo === null || hi === null) {
 		return { oldest: null, eligibleRows: 0, avgRowBytes: 0, eligibleBytes: 0 };
 	}
+	checkDeadline();
 	const first = await rowAt(db, tableSpec, lo);
 	if (!first || !isD1RetentionExpired(tableSpec, first.ts, cutoff)) {
 		return {
@@ -354,6 +366,7 @@ export async function estimateD1RetentionBacklog(
 	let right = hi + 1;
 	for (let probe = 0; probe < 64 && left < right; probe++) {
 		const mid = Math.floor((left + right) / 2);
+		checkDeadline();
 		const row = await rowAt(db, tableSpec, mid);
 		if (!row || row.rowid >= right) {
 			right = mid;
@@ -366,6 +379,7 @@ export async function estimateD1RetentionBacklog(
 	const boundary = left;
 	const span = Math.max(0, boundary - lo);
 	const window = Math.min(span, 1000);
+	checkDeadline();
 	const [density] = (await db.all(
 		sql`SELECT count(*) AS n FROM ${tableSpec.table} WHERE rowid >= ${lo} AND rowid < ${lo + window}`,
 	)) as Array<{ n: number }>;
@@ -379,6 +393,7 @@ export async function estimateD1RetentionBacklog(
 		),
 		sql` + `,
 	);
+	checkDeadline();
 	const [sample] = (await db.all(
 		sql`SELECT avg(row_bytes) AS avg_bytes FROM (SELECT ${lengthExpression} AS row_bytes FROM ${tableSpec.table} ORDER BY rowid LIMIT ${D1_RETENTION_SAMPLE_ROWS})`,
 	)) as Array<{ avg_bytes: number | null }>;

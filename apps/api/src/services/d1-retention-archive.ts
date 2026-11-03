@@ -32,6 +32,7 @@ import {
 	type D1RetentionRow,
 	type D1RetentionTableSpec,
 	D1_RETENTION_PAGE_ROWS,
+	D1RetentionEstimateDeadlineError,
 	copyD1RetentionRowsToLogs,
 	d1RetentionCutoff,
 	d1RetentionEffectiveKeepDays,
@@ -101,8 +102,9 @@ export interface D1RetentionTableResult {
 	tableName: string;
 	mode: D1RetentionPolicyRow["mode"];
 	problem: string | null;
-	eligibleRows: number;
-	eligibleBytes: number;
+	/** Approximate backlog; null when no estimate completed this run. */
+	eligibleRows: number | null;
+	eligibleBytes: number | null;
 	archivedRows: number;
 	/** Rows copied into the logs database and verified there. */
 	movedRows: number;
@@ -129,7 +131,7 @@ export interface D1RetentionRunResult {
 	movedRows: number;
 	conflictedRows: number;
 	deletedRows: number;
-	eligibleBytes: number;
+	eligibleBytes: number | null;
 }
 
 function emptyResult(policy: D1RetentionPolicyRow): D1RetentionTableResult {
@@ -137,8 +139,8 @@ function emptyResult(policy: D1RetentionPolicyRow): D1RetentionTableResult {
 		tableName: policy.tableName,
 		mode: policy.mode,
 		problem: null,
-		eligibleRows: 0,
-		eligibleBytes: 0,
+		eligibleRows: null,
+		eligibleBytes: null,
 		archivedRows: 0,
 		movedRows: 0,
 		conflictedRows: 0,
@@ -295,6 +297,30 @@ async function timed<T>(
 	}
 }
 
+async function estimateBacklog(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	cutoff: D1RetentionCutoff,
+	result: D1RetentionTableResult,
+	deadline: number,
+): Promise<void> {
+	try {
+		const estimate = await timed(result.timings, "estimateMs", () =>
+			estimateD1RetentionBacklog(db, tableSpec, cutoff, deadline),
+		);
+		result.eligibleRows = estimate.eligibleRows;
+		result.eligibleBytes = estimate.eligibleBytes;
+	} catch (error) {
+		if (error instanceof D1RetentionEstimateDeadlineError) {
+			if (result.mode === "dry_run") result.stoppedBy = "time_budget";
+			return;
+		}
+		if (result.mode === "dry_run") result.stoppedBy = "error";
+		const message = error instanceof Error ? error.message : String(error);
+		result.error ??= `estimate: ${message}`;
+	}
+}
+
 async function runPolicy(
 	db: DbQueryClient,
 	logsDb: DbQueryClient | undefined,
@@ -322,7 +348,9 @@ async function runPolicy(
 	const { timings } = result;
 	result.stoppedBy = "done";
 
-	if (policy.mode !== "dry_run") {
+	if (policy.mode === "dry_run") {
+		await estimateBacklog(db, tableSpec, cutoff, result, deadline);
+	} else {
 		const previousCursor = policy.lastReport?.scanAfterRowid;
 		if (
 			typeof previousCursor === "number" &&
@@ -438,19 +466,6 @@ async function runPolicy(
 		}
 	}
 
-	// Estimated after the moves, so the moves get the time budget first and
-	// the report shows what is still left.
-	try {
-		const estimate = await timed(timings, "estimateMs", () =>
-			estimateD1RetentionBacklog(db, tableSpec, cutoff),
-		);
-		result.eligibleRows = estimate.eligibleRows;
-		result.eligibleBytes = estimate.eligibleBytes;
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		if (policy.mode === "dry_run") result.stoppedBy = "error";
-		result.error ??= `estimate: ${message}`;
-	}
 	return result;
 }
 
@@ -486,9 +501,11 @@ function reportFor(
 }
 
 /**
- * Run every active policy once. Tables run one after another so the database
- * sees at most one retention statement at a time per store; one table's
- * failure is recorded on its row and never stops the next table.
+ * Run active policies serially, reserving an equal share of the remaining
+ * processing time for each table.
+ * In-flight pages finish their safety fences even when their share expires.
+ * Dry runs estimate during their turn; optional estimates and report writes
+ * follow all processing turns so diagnostics cannot consume another table's time.
  */
 export async function runD1Retention(params: {
 	db: DbQueryClient;
@@ -501,7 +518,14 @@ export async function runD1Retention(params: {
 	const deadline = Date.now() + (params.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
 	const policies = await listActiveD1RetentionPolicies(params.db);
 	const tables: D1RetentionTableResult[] = [];
-	for (const policy of policies) {
+	for (const [index, policy] of policies.entries()) {
+		const remainingTables = policies.length - index;
+		let tableDeadline = deadline;
+		if (remainingTables > 1) {
+			const startedAt = Date.now();
+			tableDeadline =
+				startedAt + Math.max(0, deadline - startedAt) / remainingTables;
+		}
 		let result: D1RetentionTableResult;
 		try {
 			result = await runPolicy(
@@ -510,7 +534,7 @@ export async function runD1Retention(params: {
 				params.bucket,
 				policy,
 				params.now,
-				deadline,
+				tableDeadline,
 			);
 		} catch (error) {
 			result = {
@@ -520,6 +544,23 @@ export async function runD1Retention(params: {
 			};
 		}
 		tables.push(result);
+	}
+	for (const [index, policy] of policies.entries()) {
+		const result = tables[index]!;
+		const tableSpec = getD1RetentionTableSpec(policy.tableName);
+		if (
+			policy.mode !== "dry_run" &&
+			!result.problem &&
+			tableSpec &&
+			Date.now() < deadline
+		) {
+			const cutoff = d1RetentionCutoff(
+				tableSpec,
+				params.now,
+				d1RetentionEffectiveKeepDays(tableSpec, policy),
+			);
+			await estimateBacklog(params.db, tableSpec, cutoff, result, deadline);
+		}
 		await recordD1RetentionRun(params.db, {
 			tableName: policy.tableName,
 			ranAt: params.now.toISOString(),
@@ -534,6 +575,8 @@ export async function runD1Retention(params: {
 		movedRows: tables.reduce((sum, t) => sum + t.movedRows, 0),
 		conflictedRows: tables.reduce((sum, t) => sum + t.conflictedRows, 0),
 		deletedRows: tables.reduce((sum, t) => sum + t.deletedRows, 0),
-		eligibleBytes: tables.reduce((sum, t) => sum + t.eligibleBytes, 0),
+		eligibleBytes: tables.some((t) => t.eligibleBytes === null)
+			? null
+			: tables.reduce((sum, t) => sum + (t.eligibleBytes ?? 0), 0),
 	};
 }
