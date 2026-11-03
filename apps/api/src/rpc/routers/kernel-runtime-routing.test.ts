@@ -1143,6 +1143,20 @@ describe("proposeRepoCommit + settle-guard", () => {
 	});
 
 	const BASE_INPUT = {
+		revisionExpectation: {
+			baseSha: "a".repeat(40),
+			targetSha: null,
+			exactTreeValidation: {
+				version: "v1" as const,
+				baseSha: "a".repeat(40),
+				resultTreeSha: "b".repeat(40),
+				orderedChangesDigest: "c".repeat(64),
+				gateRecipeDigest: "d".repeat(64),
+				processId: "test-check",
+				terminalEvidenceRef: "r2://test/check/evidence.json",
+				exitCode: 0 as const,
+			},
+		},
 		tediId: "tedi-cpo",
 		orgId: ORG_ID,
 		conversationId: "home:repo-test",
@@ -1205,7 +1219,7 @@ describe("proposeRepoCommit + settle-guard", () => {
 			toolName: "repo_commit",
 			title: "Commit 2 file(s) to tedix/ops@feat/add-widget",
 			requestPreview:
-				"Commit 2 file(s) to tedix/ops@feat/add-widget (base abc1234567890123456789012345678901234567)",
+				"Commit 2 file(s) to tedix/ops@feat/add-widget (base abc1234567890123456789012345678901234567 at aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; target new branch)",
 			executionLedgerId: "exec-ledger-1",
 		});
 
@@ -1255,7 +1269,7 @@ describe("proposeRepoCommit + settle-guard", () => {
 
 	it("proposeRepoCommit persists reviewed heads without lowering symbolic-main risk", async () => {
 		const db = createKernelRuntimeDb();
-		const revisionExpectation = { baseSha: "a".repeat(40), targetSha: null };
+		const revisionExpectation = BASE_INPUT.revisionExpectation;
 		await proposeRepoCommitImpl(createContext(db), {
 			...BASE_INPUT,
 			baseRef: "main",
@@ -1268,6 +1282,12 @@ describe("proposeRepoCommit + settle-guard", () => {
 			revisionExpectation,
 		});
 		expect(db.approvals[0]?.status).toBe("pending");
+		await expect(
+			proposeRepoCommitImpl(createContext(createKernelRuntimeDb()), {
+				...BASE_INPUT,
+				revisionExpectation: { baseSha: "a".repeat(40), targetSha: null },
+			}),
+		).rejects.toThrow("exact resulting-tree");
 		await expect(
 			proposeRepoCommitImpl(createContext(createKernelRuntimeDb()), {
 				...BASE_INPUT,
