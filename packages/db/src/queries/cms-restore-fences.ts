@@ -242,6 +242,20 @@ export async function leaveCmsRestorePermit(
 	return rows.length === 1;
 }
 
+/** After durable completion proof, an already reconciled claim is success.
+ * A conflicting row with the same ID must remain visible and fail closed. */
+export async function leaveCompletedCmsScheduledPermit(
+	db: DbQueryClient,
+	input: CmsRestorePermitParams,
+): Promise<boolean> {
+	if (input.kind !== "scheduled") return false;
+	if (await leaveCmsRestorePermit(db, input)) return true;
+	const rows = await db.all(sql`
+		SELECT id FROM cms_restore_permits WHERE id = ${input.permitId} LIMIT 1
+	`);
+	return rows.length === 0;
+}
+
 /**
  * A different generation cannot replace an existing close. A failed restore
  * therefore stays closed until the exact generation and capture are released.

@@ -15,6 +15,7 @@ import {
 	releaseCmsCaptureCronPause,
 } from "@tedix/db/queries/cms-restore-fences";
 import { listTenantBundleVersions } from "@tedix/provisioning/cms";
+import { reconcileScheduledCmsRestorePermits } from "./scheduled-restore-permits";
 import {
 	copyAndVerifyMediaObject,
 	digestSourceMediaObject,
@@ -522,9 +523,14 @@ export class CmsRecoveryWorkflow extends WorkflowEntrypoint<
 			let drained = false;
 			for (let attempt = 0; attempt < 60; attempt++) {
 				if (
-					await step.do(`drain-scheduled-writes-${attempt}`, () =>
-						drainCmsCaptureCronPause(db, event.payload),
-					)
+					await step.do(`drain-scheduled-writes-${attempt}`, async () => {
+						await reconcileScheduledCmsRestorePermits(
+							db,
+							this.env.RECOVERY_STORAGE,
+							event.payload,
+						);
+						return drainCmsCaptureCronPause(db, event.payload);
+					})
 				) {
 					drained = true;
 					break;

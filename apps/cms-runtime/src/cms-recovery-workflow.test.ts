@@ -8,9 +8,13 @@ const authority = vi.hoisted(() => ({
 const capturePause = vi.hoisted(() => ({
 	abort: vi.fn(),
 	claim: vi.fn(),
+	reconcile: vi.fn(),
 	drain: vi.fn(),
 	assert: vi.fn(),
 	release: vi.fn(),
+}));
+vi.mock("./scheduled-restore-permits", () => ({
+	reconcileScheduledCmsRestorePermits: capturePause.reconcile,
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: vi.fn(() => ({})) }));
 vi.mock("@tedix/db/query-client", () => ({
@@ -68,6 +72,10 @@ describe("CMS recovery workflow", () => {
 		capturePause.claim.mockImplementation(async () => {
 			events.push("pause-claimed");
 			return true;
+		});
+		capturePause.reconcile.mockImplementation(async () => {
+			events.push("completed-owners-reconciled");
+			return 0;
 		});
 		capturePause.drain
 			.mockImplementationOnce(async () => {
@@ -146,7 +154,9 @@ describe("CMS recovery workflow", () => {
 		expect(capturePause.release).toHaveBeenCalledOnce();
 		expect(events).toEqual([
 			"pause-claimed",
+			"completed-owners-reconciled",
 			"drain-blocked",
+			"completed-owners-reconciled",
 			"drain-complete",
 			"control-running",
 			"database-snapshot",
