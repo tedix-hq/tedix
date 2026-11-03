@@ -18,7 +18,7 @@ import type {
 	RuntimeEntitlementGrant,
 } from "@tedix/api-contract/schemas/runtime-entitlements";
 import type { DbClient } from "../client";
-import type { DbQueryClient } from "../query-client";
+import { createDbQueryClient, type DbQueryClient } from "../query-client";
 import { apiKeys } from "../schema/api-keys";
 import { apps } from "../schema/apps";
 import { organizationMembers } from "../schema/organization-members";
@@ -253,10 +253,11 @@ export async function getOrganizationOsTheme(
  * @param slug - Organization slug (unique identifier)
  */
 export async function getOrganizationBySlug(
-	db: DbClient,
+	db: DbClient | DbQueryClient | D1Database,
 	slug: string,
 ): Promise<Organization | undefined> {
-	const [row] = await db
+	const query = "prepare" in db ? createDbQueryClient(db) : db;
+	const [row] = await query
 		.select()
 		.from(organizations)
 		.where(

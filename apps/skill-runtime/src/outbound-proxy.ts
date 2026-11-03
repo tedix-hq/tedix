@@ -61,8 +61,6 @@ import {
 } from "./vertex-product-keyframes";
 import type { SkillRuntimeEnv } from "./env";
 import { isVertexHost, isVertexRegionalHost } from "./vertex-host";
-import { createDbClient } from "@tedix/db/client";
-import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	buildVertexCallCostRow,
 	getProviderSpendWindowTotals,
@@ -276,7 +274,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 	private async assertVertexDailyBudget(surface: string): Promise<void> {
 		const d1 = this.vertexLedgerDb();
 		if (!d1) return;
-		const totals = await getProviderSpendWindowTotals(createDbClient(d1), {
+		const totals = await getProviderSpendWindowTotals(d1, {
 			provider: VERTEX_PROVIDER,
 			since: utcDayStartIso(),
 		});
@@ -314,7 +312,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				typeof tokens?.outputTokens === "number"
 			) {
 				const resolved = await resolveDirectProviderUsagePrice(
-					createDbQueryClient(d1),
+					d1,
 					{
 						provider: VERTEX_PROVIDER,
 						modelId: input.model,
@@ -336,7 +334,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				}
 				costReason = resolved.reason;
 			}
-			await insertCallCosts(createDbClient(d1), [
+			await insertCallCosts(d1, [
 				buildVertexCallCostRow({
 					...input,
 					orgId: props.organizationId ?? null,
