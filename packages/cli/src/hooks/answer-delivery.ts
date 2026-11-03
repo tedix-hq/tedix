@@ -60,6 +60,18 @@ export function answerDeliveryPath(
 	);
 }
 
+export function codexQueuePath(
+	env: NodeJS.ProcessEnv,
+	session: string,
+): string {
+	return join(
+		env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
+		"supervisor",
+		"codex-queue",
+		`${createHash("sha256").update(session).digest("hex")}.json`,
+	);
+}
+
 export async function claimHookAnswers(
 	deps: HookDeps,
 	binding: Binding,
@@ -76,6 +88,9 @@ export async function claimHookAnswers(
 	);
 	try {
 		if (!lock.ready()) return [];
+		// A retained queue can still reach this session after the supervisor unlocks.
+		if (host === "codex" && existsSync(codexQueuePath(deps.env, session)))
+			return [];
 		const unique = [
 			...new Map(answers.map((answer) => [answer.responseId, answer])).values(),
 		];

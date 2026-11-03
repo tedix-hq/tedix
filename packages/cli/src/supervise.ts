@@ -38,7 +38,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	handoffDelivered,
 	pendingHandoffs,
@@ -55,6 +55,7 @@ import {
 import {
 	answersMessage,
 	answerDeliveryPath,
+	codexQueuePath,
 	type PendingAnswer,
 	undeliveredAnswers,
 } from "./hooks/answer-delivery";
@@ -594,14 +595,8 @@ export class Supervisor {
 		| "queue-pending"
 		| "resume-failed"
 	> {
-		const key = createHash("sha256").update(session).digest("hex");
 		const messageHash = createHash("sha256").update(message).digest("hex");
-		const directory = join(
-			configDir(this.deps.env),
-			"supervisor",
-			"codex-queue",
-		);
-		const receipt = join(directory, `${key}.json`);
+		const receipt = codexQueuePath(this.deps.env, session);
 		const saved = peek(receipt);
 		if (
 			this.deps.codex.resolveTranscript &&
@@ -621,7 +616,7 @@ export class Supervisor {
 			: await this.deps.codex.queue(session, message);
 		if (!item) return "queue-failed";
 		if (!saved) {
-			mkdirSync(directory, { recursive: true, mode: 0o700 });
+			mkdirSync(dirname(receipt), { recursive: true, mode: 0o700 });
 			writeFileSync(receipt, JSON.stringify({ ...item, messageHash }), {
 				mode: 0o600,
 			});
