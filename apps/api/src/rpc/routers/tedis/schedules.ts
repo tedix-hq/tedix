@@ -17,6 +17,7 @@ import type {
 	TediScheduleListResponse,
 } from "@tedix/api-contract/schemas/tedi";
 import { listSkillSchedules } from "@tedix/db/queries/skill-schedules";
+import { excludedAgentReviewProjectId } from "../../../services/agent-review-access";
 import { agentAdminFetch } from "./runtime-admin";
 import {
 	AUTHZ,
@@ -126,6 +127,13 @@ export const listSchedulesProcedure = authedTedisOs.listSchedules
 	.use(AUTHZ.tedisAppsRead)
 	.handler(async ({ input, context }) => {
 		const tedi = await requireTediAccess(context, input.tediId);
+		// A schedule whose params name the private review project makes the
+		// review guard refuse the whole list; leave it out for callers without
+		// access, matching skills/listWorkflowSchedules.
+		const excludeParamsReferenceId = await excludedAgentReviewProjectId(
+			context,
+			tedi.organizationId,
+		);
 		const [runtimeResult, skillSchedules] = await Promise.all([
 			agentAdminFetch(context, tedi, "/__admin/schedules", {
 				method: "GET",
@@ -134,6 +142,7 @@ export const listSchedulesProcedure = authedTedisOs.listSchedules
 			listSkillSchedules(context.db, tedi.organizationId, {
 				tediId: input.tediId,
 				limit: 200,
+				...(excludeParamsReferenceId ? { excludeParamsReferenceId } : {}),
 			}),
 		]);
 		return {

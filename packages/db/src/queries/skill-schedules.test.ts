@@ -50,6 +50,11 @@ describe("skill schedule budget state", () => {
 				created_at TEXT,
 				updated_at TEXT
 			);
+			CREATE TABLE work_items (
+				id TEXT PRIMARY KEY,
+				org_id TEXT NOT NULL,
+				project_id TEXT
+			);
 			INSERT INTO skill_schedules (
 				id, organization_id, skill_id, tedi_id, cron, params, enabled,
 				next_fire_at
@@ -197,6 +202,36 @@ describe("skill schedule budget state", () => {
 				(schedule) => schedule.id,
 			),
 		).toContain("schedule-private");
+	});
+
+	it("leaves out schedules whose params name a Work Item in the excluded project", async () => {
+		sqlite.exec(`
+			INSERT INTO work_items (id, org_id, project_id) VALUES
+				('item-private', 'org-1', 'project-private'),
+				('item-public', 'org-1', 'project-public'),
+				('item-other-org', 'org-2', 'project-private');
+			INSERT INTO skill_schedules (
+				id, organization_id, skill_id, tedi_id, cron, params, enabled,
+				next_fire_at
+			) VALUES
+				('schedule-private', 'org-1', 'skill-1', 'tedi-1', '0 9 * * *',
+					'{"healthWorkItemId":"item-private"}', 1, '2026-07-28T09:00:00.000Z'),
+				('schedule-public', 'org-1', 'skill-1', 'tedi-1', '0 9 * * *',
+					'{"healthWorkItemId":"item-public"}', 1, '2026-07-28T09:00:00.000Z'),
+				('schedule-same-text', 'org-1', 'skill-1', 'tedi-1', '0 9 * * *',
+					'{"healthWorkItemId":"item-other-org"}', 1, '2026-07-28T09:00:00.000Z');
+		`);
+
+		const result = await listSkillSchedulesPage(db, "org-1", {
+			excludeParamsReferenceId: "project-private",
+		});
+
+		expect(result.schedules.map((schedule) => schedule.id)).toEqual([
+			"schedule-1",
+			"schedule-public",
+			"schedule-same-text",
+		]);
+		expect(result.total).toBe(3);
 	});
 
 	it("matches a query longer than D1's 50-byte LIKE pattern cap", async () => {
