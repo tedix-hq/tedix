@@ -13,6 +13,7 @@ import {
 	enterCmsRestorePermit,
 	getCmsRestoreFenceState,
 	getCmsRestoreEpoch,
+	leaveCompletedCmsScheduledPermit,
 	leaveCmsRestorePermit,
 	reconcileCmsRestoreOuterPermits,
 	releaseCmsCaptureCronPause,
@@ -87,6 +88,28 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it("releases completed scheduled owners idempotently without deleting conflicts", async () => {
+		const { db } = fixture();
+		const permit = {
+			...one,
+			kind: "scheduled" as const,
+			permitId: "completed",
+		};
+		expect(await enterCmsRestorePermit(db, permit)).toBe(true);
+		expect(
+			await leaveCompletedCmsScheduledPermit(db, {
+				...permit,
+				restoreEpoch: 1,
+			}),
+		).toBe(false);
+		expect(
+			await leaveCompletedCmsScheduledPermit(db, { ...permit, kind: "nested" }),
+		).toBe(false);
+		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(1);
+		expect(await leaveCompletedCmsScheduledPermit(db, permit)).toBe(true);
+		expect(await leaveCompletedCmsScheduledPermit(db, permit)).toBe(true);
+	});
+
 	it("never reconciles an in-flight scheduled permit as an abandoned response", async () => {
 		const { db } = fixture();
 		const scheduled = { ...one, kind: "scheduled" as const, permitId: "cron" };

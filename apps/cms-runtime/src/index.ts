@@ -35,10 +35,10 @@ import {
 	CmsRestoreFenceUnavailableError,
 	cmsRestoreFenceResponse,
 	type CmsRestoreFenceIdentity,
-	withCmsRestorePermit,
 	withCmsRestoreResponsePermit,
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
+import { withScheduledCmsRestorePermit } from "./scheduled-restore-permits";
 import type {
 	CollectionDeletionGuardInput,
 	CollectionDeletionGuardResult,
@@ -2218,8 +2218,9 @@ export default {
 				}
 
 				// Cron pauses drain exact scheduled permits separately from shared nested work.
-				const permitted = await withCmsRestorePermit(
+				const permitted = await withScheduledCmsRestorePermit(
 					createDbQueryClient(env.PLATFORM_DB),
+					env.RECOVERY_STORAGE,
 					{ siteId: org.siteId, slug, restoreEpoch },
 					async () => {
 						const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
@@ -2267,8 +2268,6 @@ export default {
 						} as ScheduledController);
 						return true;
 					},
-					undefined,
-					"scheduled",
 				);
 				if (!permitted.admitted) {
 					counters.skipped += 1;
