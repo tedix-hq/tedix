@@ -369,6 +369,7 @@ type PendingOpen = Promise<unknown> & {
 	callId?: string;
 };
 interface OpenContext {
+	initialStatus?: Record<string, unknown>;
 	lastObservation?: ReturnType<typeof workstationPreparationObservation>;
 	refreshNative?: boolean;
 	deadline: AcquisitionDeadline;
@@ -476,6 +477,48 @@ export class ComputerEnvironmentController {
 			let environment = await this.store.get<ComputerEnvironment>(this.key);
 			context.refreshNative = Boolean(environment);
 			context.deadline.check();
+			const work = (await this.acquisition.captureAuthority?.()) ?? null;
+			context.work = work;
+			context.deadline.check();
+			if (
+				environment &&
+				work &&
+				(await this.store.get(`${this.key}:owner`)) !== this.ownerRunId
+			) {
+				return {
+					ok: false,
+					ready: false,
+					dependency: "computer_attempt_ownership",
+					error: "Selected Computer acquisition belongs to another run",
+					instruction:
+						"Retain the original acquisition and lease. Reconcile its original Work Attempt before continuing; this call will not adopt or replace it.",
+				};
+			}
+			if (environment && work) {
+				context.initialStatus = record(
+					await this.actions.status(
+						{ ...environment },
+						context.deadline.remaining(),
+						false,
+					),
+				);
+				context.deadline.check();
+				const lease = record(context.initialStatus.workstationLease);
+				if (
+					lease.id !== environment.leaseId ||
+					lease.workItemId !== work.workItemId ||
+					lease.attemptId !== work.attemptId
+				)
+					return {
+						ok: false,
+						ready: false,
+						dependency: "computer_attempt_ownership",
+						error:
+							"Selected Computer lease does not confirm this Work and Attempt",
+						instruction:
+							"Retain the original acquisition and lease. Resolve its Work and Attempt ownership before continuing; no new acquisition receipt or replacement was created.",
+					};
+			}
 			if (
 				environment?.preparation === "repository" &&
 				preparation === "shell" &&
@@ -490,9 +533,6 @@ export class ComputerEnvironmentController {
 					error:
 						"This task already has a computer with another preparation mode.",
 				};
-			const work = (await this.acquisition.captureAuthority?.()) ?? null;
-			context.work = work;
-			context.deadline.check();
 			const previous = callId
 				? await this.store.get<ComputerAcquisition>(
 						computerAcquisitionKey(callId),
@@ -519,6 +559,14 @@ export class ComputerEnvironmentController {
 				context.deadline.check();
 				if (selected?.leaseId !== environment?.leaseId)
 					throw new Error("Computer selection changed during acquisition");
+				if (
+					environment &&
+					work &&
+					(await this.store.get(`${this.key}:owner`)) !== this.ownerRunId
+				)
+					throw new Error(
+						"Computer acquisition owner changed during continuation",
+					);
 				if (!environment && generation)
 					throw new Error(
 						"Computer provisioning outcome is unknown; do not reprovision",
@@ -583,19 +631,16 @@ export class ComputerEnvironmentController {
 						);
 					// The expired budget cannot authorize another storage read. Keep
 					// the durable acquisition, but do not claim its current ownership.
-					// A cold workstation routinely outlives this budget (observed
-					// 25-30s), so this is the expected first answer, not a failure.
-					// `pending` stays reserved for a confirmed acquisition; the
-					// instruction tells the model the one action that resolves it.
 					return {
 						ok: false,
 						ready: false,
 						waitedMs: budgetMs,
+						dependency: "native_readiness_receipt",
 						...(context.lastObservation?.leaseId === context.confirmed.leaseId
 							? { lastObservation: context.lastObservation }
 							: {}),
 						error: UNCONFIRMED_READINESS,
-						instruction: `The computer is still starting after a ${Math.round(budgetMs / 1000)}s foreground wait; this is not a provisioning failure. Call open_computer again with the same arguments to resume this acquisition (it never reprovisions); it returns ready:true once the computer is up.`,
+						instruction: `Computer readiness is unknown after a ${Math.round(budgetMs / 1000)}s foreground wait. This timeout does not prove boot progress. Call open_computer again with the same arguments to observe this acquisition; use it only after ready:true, and resolve any returned dependency before retrying.`,
 					};
 				}
 			})(),
@@ -841,12 +886,14 @@ export class ComputerEnvironmentController {
 		}
 		if (!environment.ready) {
 			let status = record(
-				await this.actions.status(
-					{ ...environment },
-					context.deadline.remaining(),
-					false,
-				),
+				context.initialStatus ??
+					(await this.actions.status(
+						{ ...environment },
+						context.deadline.remaining(),
+						false,
+					)),
 			);
+			delete context.initialStatus;
 			await this.assertOpenScope(context);
 			if (context.refreshNative && context.work) {
 				const lease = record(status.workstationLease);
@@ -858,44 +905,58 @@ export class ComputerEnvironmentController {
 					};
 				}
 				if (lease.attemptId !== context.work.attemptId) {
-					if (typeof lease.attemptId !== "string" || !lease.attemptId) {
-						return {
-							ok: false,
-							ready: false,
-							error:
-								"Selected Computer lease has no confirmed Attempt authority",
-						};
-					}
-					if (context.replay) {
-						return {
-							ok: false,
-							ready: false,
-							error:
-								"Confirmed Computer acquisition belongs to a prior Attempt",
-						};
-					}
-					await withAcquisitionLock(this.store, this.key, async () => {
-						await this.assertOpenScope(context);
-						const generation = `computer-${crypto.randomUUID()}`;
-						context.confirmed = undefined;
-						if (context.intent)
-							context.intent = await replaceComputerAcquisition(
-								this.store,
-								context.intent,
-								generation,
-							);
-						await this.retainPriorEnvironment(
-							environment!,
-							"superseded_attempt",
-						);
-						context.generation = generation;
-						context.refreshNative = false;
-						await this.store.put(`${this.key}:generation`, generation);
-					});
-					return this.acquire(preparation, context);
+					return {
+						ok: false,
+						ready: false,
+						dependency: "computer_attempt_ownership",
+						error:
+							"Selected Computer lease has no confirmed Attempt authority for this continuation",
+						instruction:
+							"Retain the existing lease and acquisition. Reconcile its original Work Attempt before continuing; this call will not rebind or replace it.",
+					};
 				}
 			}
 			const reportedLease = record(status.workstationLease).id;
+			const fiber = record(status.provisioningFiber);
+			if (
+				reportedLease === environment.leaseId &&
+				["completed", "error", "aborted"].includes(String(fiber.status)) &&
+				status.ready !== true &&
+				!(
+					record(status.readiness).toolsReady === true &&
+					(preparation === "shell" ||
+						record(status.readiness).repoReady === true)
+				)
+			) {
+				const missingRepository =
+					fiber.status === "completed" &&
+					record(status.readiness).toolsReady === true &&
+					preparation === "repository" &&
+					record(status.repoSync).configured === false &&
+					record(status.repoSync).status === "not_configured";
+				return {
+					ok: false,
+					ready: false,
+					dependency: missingRepository
+						? "repository_not_configured"
+						: "computer_provisioning_ended",
+					error: missingRepository
+						? "No repository is configured for this Computer"
+						: "Computer provisioning ended without confirmed readiness",
+					lastObservation: workstationPreparationObservation({
+						leaseId: environment.leaseId,
+						source: "persisted_status",
+						receipt: status,
+						fiber: {
+							fiberId: String(fiber.fiberId),
+							status: String(fiber.status),
+						},
+					}),
+					instruction: missingRepository
+						? "Configure the repository through the authorized configuration path before continuing this acquisition. The existing lease is retained; reopening cannot supply missing configuration."
+						: "Inspect the retained provisioning failure and resolve its dependency before continuing this acquisition. The existing lease is retained; this call will not replace it.",
+				};
+			}
 			if (
 				(reportedLease === undefined ||
 					reportedLease === environment.leaseId) &&
@@ -1224,10 +1285,22 @@ export class ComputerEnvironmentController {
 			return { result: { ok: false, error: "Open a computer first." } };
 		const owner = await this.store.get(`${this.key}:owner`);
 		if (this.ownerRunId && owner !== this.ownerRunId) {
-			await new AcquisitionDeadline(
+			const work = await new AcquisitionDeadline(
 				this.acquisition.budgetMs ?? 20_000,
 				this.acquisition.now,
 			).run(Promise.resolve(this.acquisition.captureAuthority?.()));
+			if (work)
+				return {
+					result: {
+						ok: false,
+						ready: false,
+						executed: false,
+						dependency: "computer_attempt_ownership",
+						error: "Selected Computer acquisition belongs to another run",
+						instruction:
+							"Retain the original acquisition and lease. Reconcile its original Work Attempt before executing; this operation was not performed.",
+					},
+				};
 		}
 		environment = await withAcquisitionLock(this.store, this.key, async () => {
 			const current = await this.store.get<ComputerEnvironment>(this.key);
@@ -1675,7 +1748,7 @@ export function createComputerEnvironmentTools(
 		...tools,
 		open_computer: tool({
 			description:
-				"Open or reuse this task's full Linux computer. File tools and exec then operate on that computer for all subsequent turns. Choose repository only to prepare the configured checkout; shell starts without cloning or installing anything. Scratch files are separate and are not copied. Open before writing coding files. Acquisition, ownership, and replacement of a failed lease are all automatic. If opening returns an uncertainty error, reopen this same acquisition. After a confirmed open, run relative exec commands with cwd omitted so the next call checks readiness and selects the checkout. Use returned repository cwd only when ready:true.",
+				"Open or reuse this task's full Linux computer. File tools and exec then operate on that computer for all subsequent turns. Choose repository only to prepare the configured checkout; shell starts without cloning or installing anything. Scratch files are separate and are not copied. Open before writing coding files. Acquisition and readiness checks are automatic; a continuation cannot adopt or replace another Work Attempt's lease. Resolve a returned ownership or preparation dependency before retrying. If readiness is unknown, observe this same acquisition without creating another Home run. After a confirmed open, run relative exec commands with cwd omitted so the next call checks readiness and selects the checkout. Use returned repository cwd only when ready:true.",
 			inputSchema: z.object({
 				repository: z.boolean().optional(),
 			}),
