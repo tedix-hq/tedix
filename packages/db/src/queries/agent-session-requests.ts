@@ -220,6 +220,60 @@ export async function recordAgentSessionEvents(
 	return inserted;
 }
 
+interface AgentSessionLessonReflectionParams extends AgentSessionRequestOwner {
+	harness: WorkAgentSessionHarness;
+	sessionKey: string;
+	id: string;
+	inputKey: string;
+}
+
+export async function getAgentSessionLessonReflection(
+	db: DbQueryClient,
+	params: AgentSessionLessonReflectionParams,
+): Promise<string | null> {
+	const [row] = await db
+		.select({ reflection: agentSessionEvents.lessonReflection })
+		.from(agentSessionEvents)
+		.where(
+			and(
+				eq(agentSessionEvents.id, params.id),
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, "turn"),
+			),
+		)
+		.limit(1);
+	return row?.reflection?.inputKey === params.inputKey
+		? row.reflection.response
+		: null;
+}
+
+export async function recordAgentSessionLessonReflection(
+	db: DbQueryClient,
+	params: AgentSessionLessonReflectionParams & { response: string },
+): Promise<void> {
+	await db
+		.update(agentSessionEvents)
+		.set({
+			lessonReflection: {
+				inputKey: params.inputKey,
+				response: params.response,
+			},
+		})
+		.where(
+			and(
+				eq(agentSessionEvents.id, params.id),
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, "turn"),
+			),
+		);
+}
+
 /** Explicit retries never rewind a session past later completed or leased work. */
 export async function retryFailedAgentSessionEvents(
 	db: DbQueryClient,

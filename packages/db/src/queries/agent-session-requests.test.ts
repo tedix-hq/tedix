@@ -24,6 +24,8 @@ import {
 	rebuildFailedAgentSession,
 	listPendingAgentSessionEvents,
 	updateAgentSessionRequests,
+	getAgentSessionLessonReflection,
+	recordAgentSessionLessonReflection,
 } from "./agent-session-requests";
 
 const ORG = "org-example";
@@ -63,6 +65,65 @@ function record(
 }
 
 describe("agent session request ledger", () => {
+	it("isolates lesson receipts by organization, owner, harness, session, event and input", async () => {
+		const db = fixture();
+		await recordAgentSessionEvents(db, {
+			organizationId: ORG,
+			userId: USER,
+			now: T0,
+			events: [
+				{
+					harness: "claude-code",
+					sessionKey: "session-1",
+					repository: null,
+					kind: "turn",
+					body: "saved upload",
+					activity: "Failed upload",
+					sourceAt: T0,
+					sourceKey: "event-1",
+				},
+			],
+		});
+		const [event] = await db.select().from(agentSessionEvents);
+		const scope = {
+			organizationId: ORG,
+			userId: USER,
+			harness: "claude-code" as const,
+			sessionKey: "session-1",
+			id: event!.id,
+			inputKey: "exact-input",
+		};
+		await recordAgentSessionLessonReflection(db, {
+			...scope,
+			response: '{"lessons":[]}',
+		});
+		for (const override of [
+			{ organizationId: "other-org" },
+			{ userId: OTHER_USER },
+			{ harness: "codex" as const },
+			{ sessionKey: "other-session" },
+			{ id: "other-event" },
+		]) {
+			expect(
+				await getAgentSessionLessonReflection(db, { ...scope, ...override }),
+			).toBeNull();
+			await recordAgentSessionLessonReflection(db, {
+				...scope,
+				...override,
+				response: "wrong-owner",
+			});
+			expect(await getAgentSessionLessonReflection(db, scope)).toBe(
+				'{"lessons":[]}',
+			);
+		}
+		expect(
+			await getAgentSessionLessonReflection(db, {
+				...scope,
+				inputKey: "changed-input",
+			}),
+		).toBeNull();
+	});
+
 	it("amends only the signed-in owner's request without answering it", async () => {
 		const db = fixture();
 		const [row] = await record(db);
