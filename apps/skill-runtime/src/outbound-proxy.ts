@@ -61,6 +61,27 @@ import {
 } from "./vertex-product-keyframes";
 import type { SkillRuntimeEnv } from "./env";
 import { isVertexHost, isVertexRegionalHost } from "./vertex-host";
+import { createDbClient } from "@tedix/db/client";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import {
+	buildVertexCallCostRow,
+	getProviderSpendWindowTotals,
+	insertCallCosts,
+	type VertexCallCostInput,
+} from "@tedix/db/queries/tedi-usage";
+import { resolveDirectProviderUsagePrice } from "@tedix/db/queries/billing/provider-model-rates";
+import {
+	assertVertexBudgetAllowed,
+	assertVertexRequestSize,
+	evaluateVertexDailyBudget,
+	utcDayStartIso,
+	VertexGovernanceError,
+	vertexBudgetExceededSignal,
+	vertexModelFromPath,
+	vertexUsageTokens,
+	VERTEX_DEPLOYMENT_SCOPE,
+	VERTEX_PROVIDER,
+} from "@tedix/worker-kit/vertex-governance";
 
 /** Platform credentials handed to the proxy via `ctx.props` (loader-side). */
 export interface OutboundProxyProps {
@@ -72,6 +93,10 @@ export interface OutboundProxyProps {
 	organizationId?: string | null;
 	/** Vertex model collection endpoint used by the media bridge. */
 	vertexVideoEndpoint?: string | null;
+	/** Per-tedi ledger attribution for the governed Vertex budget. */
+	tediId?: string | null;
+	runId?: string | null;
+	workItemId?: string | null;
 }
 
 interface CachedGoogleToken {
@@ -218,13 +243,174 @@ export class OutboundProxy extends WorkerEntrypoint<
 	OutboundProxyProps
 > {
 	async fetch(request: Request): Promise<Response> {
-		const props = this.ctx.props ?? {};
 		const upgrade = request.headers.get("upgrade")?.toLowerCase();
 		if (upgrade === "websocket" || request.headers.has("sec-websocket-key")) {
 			throw new Error(
 				"WORKFLOW_WEBSOCKET_DISABLED: streaming socket lifetimes cannot be bounded by a durable workflow step",
 			);
 		}
+		try {
+			return await this.dispatchRequest(request);
+		} catch (error) {
+			// Governance refusals are responses, not crashes: tenant workflow code
+			// sees a bounded 413/429 it can handle like any provider error.
+			if (error instanceof VertexGovernanceError) {
+				return Response.json(
+					{ error: error.message, signal: error.signal },
+					{ status: error.status },
+				);
+			}
+			throw error;
+		}
+	}
+
+	private vertexLedgerDb(): D1Database | null {
+		return (this.env as { DB?: D1Database }).DB ?? null;
+	}
+
+	/**
+	 * Daily platform Vertex budget gate, read from the `tedi_call_costs`
+	 * ledger. A missing DB binding (local dev, unit tests) degrades to no
+	 * budget read — the request-size cap and ledger writes still apply.
+	 */
+	private async assertVertexDailyBudget(surface: string): Promise<void> {
+		const d1 = this.vertexLedgerDb();
+		if (!d1) return;
+		const totals = await getProviderSpendWindowTotals(createDbClient(d1), {
+			provider: VERTEX_PROVIDER,
+			since: utcDayStartIso(),
+		});
+		const verdict = evaluateVertexDailyBudget(totals);
+		if (!verdict.allowed) {
+			const props = this.ctx.props ?? {};
+			console.error(
+				vertexBudgetExceededSignal(`skill-runtime:${surface}`, verdict, {
+					orgId: props.organizationId ?? null,
+					tediId: props.tediId ?? null,
+					runId: props.runId ?? null,
+				}),
+			);
+		}
+		assertVertexBudgetAllowed(verdict);
+	}
+
+	/** Write one governed ledger row for a dispatched Vertex call. */
+	private recordVertexCall(
+		input: Omit<
+			VertexCallCostInput,
+			"orgId" | "tediId" | "runId" | "workItemId"
+		>,
+	): void {
+		const d1 = this.vertexLedgerDb();
+		if (!d1) return;
+		const props = this.ctx.props ?? {};
+		const write = (async () => {
+			let priced: { costUsd: number; rateVersionId: string } | null = null;
+			let costReason = input.costReason ?? null;
+			const tokens = input.tokens;
+			if (
+				input.success !== false &&
+				typeof tokens?.inputTokens === "number" &&
+				typeof tokens?.outputTokens === "number"
+			) {
+				const resolved = await resolveDirectProviderUsagePrice(
+					createDbQueryClient(d1),
+					{
+						provider: VERTEX_PROVIDER,
+						modelId: input.model,
+						deploymentScope: VERTEX_DEPLOYMENT_SCOPE,
+						occurredAt: input.snapshotAt ?? new Date().toISOString(),
+					},
+					{
+						inputTokens: tokens.inputTokens,
+						outputTokens: tokens.outputTokens,
+						cacheReadTokens: 0,
+						cacheWriteTokens: 0,
+					},
+				);
+				if (resolved.costUsd !== null && resolved.rateVersionId) {
+					priced = {
+						costUsd: resolved.costUsd,
+						rateVersionId: resolved.rateVersionId,
+					};
+				}
+				costReason = resolved.reason;
+			}
+			await insertCallCosts(createDbClient(d1), [
+				buildVertexCallCostRow({
+					...input,
+					orgId: props.organizationId ?? null,
+					tediId: props.tediId ?? null,
+					runId: props.runId ?? null,
+					workItemId: props.workItemId ?? null,
+					priced,
+					costReason,
+				}),
+			]);
+		})().catch((error) => {
+			// Ledger evidence must degrade, never fail the tenant's call.
+			console.warn("vertex-direct ledger write failed", error);
+		});
+		this.ctx.waitUntil?.(write);
+	}
+
+	/**
+	 * Dispatch one upstream Vertex call under the platform budget, then record
+	 * its usage in the per-tedi ledger. `extractUsageTokens` clones the JSON
+	 * response for `usageMetadata` without consuming the tenant's stream.
+	 */
+	private async callVertex(
+		request: Request,
+		meta: {
+			source: string;
+			model: string;
+			usageKind?: string;
+			usageUnit?: string;
+			usageQuantity?: number;
+			extractUsageTokens?: boolean;
+		},
+	): Promise<Response> {
+		await this.assertVertexDailyBudget(meta.source);
+		const startedAt = Date.now();
+		const upstream = await fetchHttpOnly(request);
+		const ledger = (async () => {
+			let tokens:
+				| {
+						inputTokens: number | null;
+						outputTokens: number | null;
+						totalTokens: number | null;
+				  }
+				| undefined;
+			if (meta.extractUsageTokens) {
+				try {
+					const body = (await upstream.clone().json()) as {
+						usageMetadata?: unknown;
+					} | null;
+					tokens = vertexUsageTokens(body?.usageMetadata);
+				} catch {
+					tokens = undefined;
+				}
+			}
+			this.recordVertexCall({
+				source: `vertex-direct:${meta.source}`,
+				model: meta.model,
+				providerBaseUrl: new URL(request.url).origin,
+				success: upstream.ok,
+				callDurationMs: Date.now() - startedAt,
+				tokens,
+				usageKind: meta.usageKind,
+				usageUnit: meta.usageUnit,
+				usageQuantity: meta.usageQuantity,
+			});
+		})().catch((error) => {
+			console.warn("vertex-direct ledger read failed", error);
+		});
+		this.ctx.waitUntil?.(ledger);
+		return upstream;
+	}
+
+	private async dispatchRequest(request: Request): Promise<Response> {
+		const props = this.ctx.props ?? {};
 		let url: URL;
 		try {
 			url = new URL(request.url);
@@ -360,7 +546,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				/\/models\/?$/,
 				"/models",
 			);
-			const upstream = await fetchHttpOnly(
+			const upstream = await this.callVertex(
 				new Request(
 					`${endpoint}/${encodeURIComponent(input.model)}:predictLongRunning`,
 					{
@@ -373,6 +559,13 @@ export class OutboundProxy extends WorkerEntrypoint<
 						redirect: "manual",
 					},
 				),
+				{
+					source: "skill-media-bridge",
+					model: input.model,
+					usageKind: "other",
+					usageUnit: "seconds",
+					usageQuantity: input.durationSeconds,
+				},
 			);
 			const body = (await upstream.json().catch(() => null)) as {
 				name?: string;
@@ -426,7 +619,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				.replace("/locations/us-central1/", "/locations/global/");
 			const keyframes = [];
 			for (let index = 0; index < input.sampleCount; index++) {
-				const generation = await fetchHttpOnly(
+				const generation = await this.callVertex(
 					new Request(
 						`${globalEndpoint}/gemini-2.5-flash-image:generateContent`,
 						{
@@ -439,6 +632,14 @@ export class OutboundProxy extends WorkerEntrypoint<
 							redirect: "manual",
 						},
 					),
+					{
+						source: "skill-media-bridge",
+						model: "gemini-2.5-flash-image",
+						usageKind: "image_generation",
+						usageUnit: "images",
+						usageQuantity: 1,
+						extractUsageTokens: true,
+					},
 				);
 				const generationBody = await generation.json().catch(() => null);
 				if (!generation.ok || !generationBody)
@@ -476,7 +677,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 					{ text: `Generated candidate ${index}:` },
 					{ inlineData: { mimeType: image.mimeType, data: image.data } },
 				);
-			const judge = await fetchHttpOnly(
+			const judge = await this.callVertex(
 				new Request(`${endpoint}/gemini-2.5-pro:generateContent`, {
 					method: "POST",
 					headers: {
@@ -493,6 +694,11 @@ export class OutboundProxy extends WorkerEntrypoint<
 					}),
 					redirect: "manual",
 				}),
+				{
+					source: "skill-media-bridge",
+					model: "gemini-2.5-pro",
+					extractUsageTokens: true,
+				},
 			);
 			const judgeBody = await judge.json().catch(() => null);
 			if (!judge.ok || !judgeBody)
@@ -633,7 +839,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				/\/models\/?$/,
 				"/models",
 			);
-			const upstream = await fetchHttpOnly(
+			const upstream = await this.callVertex(
 				new Request(
 					`${endpoint}/${encodeURIComponent(input.model)}:predictLongRunning`,
 					{
@@ -646,6 +852,13 @@ export class OutboundProxy extends WorkerEntrypoint<
 						redirect: "manual",
 					},
 				),
+				{
+					source: "skill-media-bridge",
+					model: input.model,
+					usageKind: "other",
+					usageUnit: "seconds",
+					usageQuantity: input.durationSeconds,
+				},
 			);
 			const body = (await upstream.json().catch(() => null)) as {
 				name?: string;
@@ -777,7 +990,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 				/\/models\/?$/,
 				"/models",
 			);
-			const upstream = await fetchHttpOnly(
+			const upstream = await this.callVertex(
 				new Request(
 					`${endpoint}/${encodeURIComponent(input.model)}:predictLongRunning`,
 					{
@@ -818,6 +1031,13 @@ export class OutboundProxy extends WorkerEntrypoint<
 						redirect: "manual",
 					},
 				),
+				{
+					source: "skill-media-bridge",
+					model: input.model,
+					usageKind: "other",
+					usageUnit: "seconds",
+					usageQuantity: Number(input.durationSeconds),
+				},
 			);
 			const body = (await upstream.json().catch(() => null)) as {
 				name?: string;
@@ -927,7 +1147,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 					{ status: 503 },
 				);
 			}
-			const upstream = await fetchHttpOnly(
+			const upstream = await this.callVertex(
 				new Request(operationUrl, {
 					method: "POST",
 					headers: {
@@ -944,6 +1164,11 @@ export class OutboundProxy extends WorkerEntrypoint<
 					}),
 					redirect: "manual",
 				}),
+				{
+					source: "skill-media-bridge",
+					model,
+					extractUsageTokens: true,
+				},
 			);
 			const upstreamBody = await upstream.json().catch(() => null);
 			if (!upstream.ok || !upstreamBody) {
@@ -1010,7 +1235,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 					{ status: 503 },
 				);
 			}
-			const upstream = await fetchHttpOnly(
+			const upstream = await this.callVertex(
 				new Request(operationUrl, {
 					method: "POST",
 					headers: {
@@ -1020,6 +1245,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 					body: JSON.stringify({ operationName: input.operationName }),
 					redirect: "manual",
 				}),
+				{ source: "skill-media-bridge", model: input.model },
 			);
 			if (!upstream.ok || !upstream.body) {
 				return Response.json(
@@ -1050,7 +1276,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 					{ status: 502 },
 				);
 			}
-			const importUpstream = await fetchHttpOnly(
+			const importUpstream = await this.callVertex(
 				new Request(operationUrl, {
 					method: "POST",
 					headers: {
@@ -1062,6 +1288,7 @@ export class OutboundProxy extends WorkerEntrypoint<
 					body: JSON.stringify({ operationName: input.operationName }),
 					redirect: "manual",
 				}),
+				{ source: "skill-media-bridge", model: input.model },
 			);
 			if (!importUpstream.ok || !importUpstream.body) {
 				return Response.json(
@@ -1177,20 +1404,48 @@ export class OutboundProxy extends WorkerEntrypoint<
 			}
 			if (headers.has("authorization") || headers.has("x-goog-api-key")) {
 				url.searchParams.delete("key");
-				return fetchHttpOnly(
+				if (!isVertex) {
+					return fetchHttpOnly(
+						new Request(url.toString(), {
+							method: request.method,
+							headers,
+							body: request.body,
+							// Never auto-follow redirects on a credential-injected
+							// request: a cross-host 3xx would otherwise re-send the
+							// credential to the redirect target. With "manual" the 3xx is
+							// returned to the tenant unfollowed, so the key only ever
+							// reaches the host the tenant explicitly targeted.
+							redirect: "manual",
+							// @ts-expect-error duplex required for streaming bodies on Workers
+							duplex: request.body ? "half" : undefined,
+						}),
+					);
+				}
+				// Direct Vertex dispatch is platform-governed (see
+				// @tedix/worker-kit/vertex-governance): the platform budget is
+				// checked first, then the tenant body is bounded before the
+				// platform credential signs it, and the call lands in the
+				// per-tedi `tedi_call_costs` ledger.
+				await this.assertVertexDailyBudget("skill-network");
+				let body: ArrayBuffer | null = null;
+				if (request.method !== "GET" && request.method !== "HEAD") {
+					const declared = Number(request.headers.get("content-length"));
+					if (Number.isSafeInteger(declared)) assertVertexRequestSize(declared);
+					body = await request.arrayBuffer();
+					assertVertexRequestSize(body.byteLength);
+				}
+				return this.callVertex(
 					new Request(url.toString(), {
 						method: request.method,
 						headers,
-						body: request.body,
-						// Never auto-follow redirects on a credential-injected request:
-						// a cross-host 3xx would otherwise re-send `x-goog-api-key` to
-						// the redirect target. With "manual" the 3xx is returned to the
-						// tenant unfollowed, so the key only ever reaches the host the
-						// tenant explicitly targeted (which we matched above).
+						body,
 						redirect: "manual",
-						// @ts-expect-error duplex required for streaming bodies on Workers
-						duplex: request.body ? "half" : undefined,
 					}),
+					{
+						source: "skill-network",
+						model: vertexModelFromPath(url.pathname) ?? "vertex-unresolved",
+						extractUsageTokens: true,
+					},
 				);
 			}
 			return fetchHttpOnly(request);

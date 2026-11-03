@@ -165,6 +165,165 @@ export async function getCallCosts(
 	).map(normalizeEffectiveCallCost);
 }
 
+// =============================================================================
+// Direct Vertex (GCP-billed) dispatch ledger + platform budget window
+// =============================================================================
+
+/**
+ * Platform spend window for one provider, read off the base `tedi_call_costs`
+ * table — deliberately NOT `effectiveCallCostsRelation()`. A dispatch
+ * admission check runs on every upstream call and must stay cheap; reviewed
+ * evidence overrides refine reporting later and do not change what admission
+ * recorded. `knownCostUsd` counts only `dataQuality='ok'` priced rows; the
+ * held-out share stays visible in `quarantinedCalls`.
+ */
+export interface ProviderSpendWindowTotals {
+	callCount: number;
+	totalTokens: number;
+	knownCostUsd: number;
+	quarantinedCalls: number;
+}
+
+export async function getProviderSpendWindowTotals(
+	db: DbClient,
+	params: { provider: string; since: string },
+): Promise<ProviderSpendWindowTotals> {
+	const rows = await db
+		.select({
+			callCount: sql<number>`COUNT(*)`,
+			totalTokens: sql<number>`COALESCE(SUM(${tediCallCosts.totalTokens}), 0)`,
+			knownCostUsd: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} = 'ok' AND ${tediCallCosts.estimatedCostUsd} IS NOT NULL AND ${tediCallCosts.estimatedCostUsd} >= 0 THEN ${tediCallCosts.estimatedCostUsd} ELSE 0 END), 0)`,
+			quarantinedCalls: sql<number>`COALESCE(SUM(CASE WHEN ${tediCallCosts.dataQuality} != 'ok' THEN 1 ELSE 0 END), 0)`,
+		})
+		.from(tediCallCosts)
+		.where(
+			and(
+				eq(tediCallCosts.provider, params.provider),
+				gte(tediCallCosts.snapshotAt, params.since),
+			),
+		);
+	const row = rows[0];
+	return {
+		callCount: Number(row?.callCount ?? 0),
+		totalTokens: Number(row?.totalTokens ?? 0),
+		knownCostUsd: Number(row?.knownCostUsd ?? 0),
+		quarantinedCalls: Number(row?.quarantinedCalls ?? 0),
+	};
+}
+
+/** Attribution and usage evidence for one dispatched direct-Vertex call. */
+export interface VertexCallCostInput {
+	orgId: string | null;
+	tediId?: string | null;
+	runId?: string | null;
+	workItemId?: string | null;
+	/** Ledger source — `vertex-direct:<surface>` (e.g. `vertex-direct:skill-network`). */
+	source: string;
+	model: string;
+	providerBaseUrl?: string | null;
+	sessionType?: "tedi" | "tedi_observer" | "kernel" | "unattributed";
+	snapshotAt?: string;
+	success?: boolean;
+	callDurationMs?: number | null;
+	tokens?: {
+		inputTokens?: number | null;
+		outputTokens?: number | null;
+		totalTokens?: number | null;
+	};
+	usageKind?: string | null;
+	usageUnit?: string | null;
+	usageQuantity?: number | null;
+	/** Governed-rate price when the direct deployment scope resolved one. */
+	priced?: { costUsd: number; rateVersionId: string } | null;
+	/** Why the row could not be priced (`missing_rate`, `invalid_usage`, ...). */
+	costReason?: string | null;
+	/** Caller-chosen dedupe key; defaults to a fresh `vertex-direct:<uuid>`. */
+	gatewayLogId?: string;
+}
+
+function nonnegInt(value: number | null | undefined): number | undefined {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: undefined;
+}
+
+/**
+ * One `tedi_call_costs` row per dispatched Vertex call. Rows are usage
+ * evidence, never customer-billed usage: they carry no `executionId`, so the
+ * billing settler deterministically quarantines them (`missing_model_rate` /
+ * `missing_provider_unit_rate`) while spend totals and the anomaly detector
+ * see the recorded cost. `gatewayId` is the `vertex-direct` sentinel — the
+ * dedupe key still makes replays idempotent.
+ */
+export function buildVertexCallCostRow(
+	input: VertexCallCostInput,
+): NewTediCallCost {
+	const tokens = input.tokens ?? {};
+	const inputTokens = nonnegInt(tokens.inputTokens) ?? 0;
+	const outputTokens = nonnegInt(tokens.outputTokens) ?? 0;
+	const totalTokens =
+		nonnegInt(tokens.totalTokens) ?? inputTokens + outputTokens;
+	const priced =
+		input.success !== false &&
+		input.priced &&
+		typeof input.priced.costUsd === "number" &&
+		Number.isFinite(input.priced.costUsd) &&
+		input.priced.costUsd >= 0 &&
+		Number.isSafeInteger(Math.round(input.priced.costUsd * 1_000_000))
+			? input.priced
+			: null;
+	const succeeded = input.success !== false;
+	const dataQuality = !succeeded
+		? "quarantined_failed"
+		: priced
+			? "ok"
+			: "quarantined_no_pricing";
+	// The `require_org_id_for_attributed_calls` trigger rejects org-scoped
+	// session types with a NULL org_id; demote rather than wedge the insert.
+	const requestedType =
+		input.sessionType ??
+		(input.tediId ? "tedi" : input.orgId ? "kernel" : "unattributed");
+	const sessionType =
+		requestedType !== "unattributed" && !input.orgId
+			? "unattributed"
+			: requestedType;
+	return {
+		id: crypto.randomUUID(),
+		tediId: input.tediId ?? null,
+		orgId: input.orgId,
+		gatewayLogId: input.gatewayLogId ?? `vertex-direct:${crypto.randomUUID()}`,
+		gatewayId: "vertex-direct",
+		snapshotAt: input.snapshotAt ?? new Date().toISOString(),
+		model: input.model,
+		provider: "google-vertex",
+		providerBaseUrl: input.providerBaseUrl ?? null,
+		runId: input.runId ?? null,
+		workItemId: input.workItemId ?? null,
+		sessionType,
+		source: input.source,
+		usageKind: input.usageKind ?? null,
+		usageUnit: input.usageUnit ?? null,
+		usageQuantity: nonnegInt(input.usageQuantity) ?? null,
+		inputTokens,
+		outputTokens,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		totalTokens,
+		estimatedCostUsd: priced?.costUsd ?? null,
+		callDurationMs: input.callDurationMs ?? null,
+		rateVersionId: priced?.rateVersionId ?? null,
+		costBasis: priced ? "governed_estimate" : "unknown",
+		costReason:
+			priced || !succeeded
+				? null
+				: (input.costReason ?? "unpriced_direct_call"),
+		sessionCount: 1,
+		success: succeeded,
+		cached: false,
+		dataQuality,
+	};
+}
+
 export interface CallCostTotals extends CostSummary {
 	inputTokens: number;
 	outputTokens: number;

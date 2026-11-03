@@ -6,6 +6,10 @@ import {
 	type NewProviderModelRateVersionRow,
 } from "../../schema/provider-model-rates";
 import { getAffectedRows } from "../../utils/d1-result";
+import {
+	computeCostMicros,
+	type ProviderTokenUsage,
+} from "../../utils/model-pricing";
 
 export interface PublishProviderModelRateParams extends NewProviderModelRateVersionRow {}
 
@@ -123,6 +127,63 @@ export async function findProviderModelRates(
 		)
 		.orderBy(asc(providerModelRateVersions.id))
 		.limit(2);
+}
+
+/**
+ * Resolve the governed price for one provider call directly against the rate
+ * table — the dispatch-side equivalent of apps/api's `priceProviderUsage`,
+ * minus the fleet-authority env (a Worker holding the platform DB is already
+ * inside the rate authority). Unresolvable usage returns a reason, never a
+ * fabricated zero.
+ */
+export async function resolveDirectProviderUsagePrice(
+	db: DbQueryClient,
+	identity: {
+		provider: string;
+		modelId: string;
+		deploymentScope: string;
+		occurredAt: string;
+	},
+	usage: ProviderTokenUsage,
+): Promise<{
+	costUsd: number | null;
+	rateVersionId: string | null;
+	reason: string | null;
+}> {
+	if (
+		[
+			usage.inputTokens,
+			usage.outputTokens,
+			usage.cacheReadTokens,
+			usage.cacheWriteTokens,
+		].some(
+			(value) =>
+				value === null ||
+				typeof value !== "number" ||
+				!Number.isSafeInteger(value) ||
+				value < 0,
+		) ||
+		usage.cacheReadTokens! + usage.cacheWriteTokens! > usage.inputTokens!
+	) {
+		return { costUsd: null, rateVersionId: null, reason: "invalid_usage" };
+	}
+	const rows = await findProviderModelRates(db, {
+		...identity,
+		inputTokens: usage.inputTokens ?? 0,
+	});
+	if (rows.length !== 1) {
+		return {
+			costUsd: null,
+			rateVersionId: null,
+			reason: rows.length === 0 ? "missing_rate" : "ambiguous_rate",
+		};
+	}
+	const micros = computeCostMicros(rows[0]!, usage);
+	return {
+		costUsd: micros === null ? null : Number(micros) / 1_000_000,
+		rateVersionId: rows[0]!.id,
+		reason: micros === null ? "invalid_usage" : null,
+	};
 }
 
 /** Current list-price estimates use published rows without rewriting historical usage. */
