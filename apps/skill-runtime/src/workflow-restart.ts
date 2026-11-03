@@ -911,3 +911,173 @@ export async function finalizeWorkflowRestart(input: {
 		);
 	}
 }
+
+interface UnstartedRestartRetirement {
+	version: 1;
+	action: "retire_unstarted_restart";
+	runId: string;
+	restartId: string;
+	executionEpoch: number;
+	request: WorkflowRestartRequest;
+	reason: string;
+	acceptedReceiptSha256: string;
+	retiredAt: string;
+	engine: { status: "complete" | "errored"; observedAt: string };
+}
+
+/** Retire before submission repair; the original accepted command stays immutable. */
+export async function retireUnstartedWorkflowRestart(input: {
+	db: D1Database;
+	runId: string;
+	organizationId: string;
+	runtimeEnvironment: string;
+	restartId: string;
+	executionEpoch: number;
+	from?: WorkflowRestartFrom | null;
+	reason: string;
+	engine: { status: string; observedAt: string } | null;
+}): Promise<{ deduplicated: boolean; receipt: UnstartedRestartRetirement }> {
+	const path = `controls/restart-retirements/${encodeWorkflowArtifactPathSegment(input.restartId)}.json`;
+	const request = { from: normalizeFrom(input.from) };
+	const readRetirement = async () => {
+		const row = await input.db
+			.prepare(
+				`SELECT a.content_inline, r.workflow_retired_at
+			 FROM skill_run_artifacts a JOIN skill_runs r ON r.id = a.run_id
+			 WHERE a.run_id = ?1 AND a.path = ?2
+			   AND r.organization_id = ?3 AND r.runtime_environment = ?4
+			   AND r.execution_epoch = ?5 LIMIT 1`,
+			)
+			.bind(
+				input.runId,
+				path,
+				input.organizationId,
+				input.runtimeEnvironment,
+				input.executionEpoch,
+			)
+			.first<{
+				content_inline: string | null;
+				workflow_retired_at: string | null;
+			}>();
+		if (!row) return null;
+		let receipt: UnstartedRestartRetirement;
+		try {
+			receipt = JSON.parse(row.content_inline ?? "null");
+		} catch {
+			throw new WorkflowRestartConflictError("retirement evidence is invalid");
+		}
+		if (
+			!row.workflow_retired_at ||
+			row.workflow_retired_at !== receipt?.retiredAt ||
+			receipt?.version !== 1 ||
+			receipt.action !== "retire_unstarted_restart" ||
+			receipt.runId !== input.runId ||
+			receipt.restartId !== input.restartId ||
+			receipt.executionEpoch !== input.executionEpoch ||
+			receipt.reason !== input.reason ||
+			!requestMatches(receipt.request, request)
+		) {
+			throw new WorkflowRestartConflictError(
+				"retirement does not match this exact command or permanent tombstone",
+			);
+		}
+		return receipt;
+	};
+	const existing = await readRetirement();
+	if (existing) return { deduplicated: true, receipt: existing };
+	if (
+		!input.reason.trim() ||
+		!input.engine ||
+		!["complete", "errored"].includes(input.engine.status)
+	) {
+		throw new WorkflowRestartConflictError(
+			"retiring an unstarted restart requires an audit reason and a first-hand terminal engine read",
+		);
+	}
+	const accepted = await findWorkflowRestartReceipt({
+		db: input.db,
+		runId: input.runId,
+		executionEpoch: input.executionEpoch,
+		restartCommandId: input.restartId,
+	});
+	if (
+		accepted?.receipt.status !== "accepted" ||
+		!requestMatches(accepted.receipt.request, request)
+	) {
+		throw new WorkflowRestartConflictError(
+			"retirement requires the exact accepted restart receipt and reserved epoch",
+		);
+	}
+	const retiredAt = new Date().toISOString();
+	const receipt: UnstartedRestartRetirement = {
+		version: 1,
+		action: "retire_unstarted_restart",
+		runId: input.runId,
+		restartId: input.restartId,
+		executionEpoch: input.executionEpoch,
+		request,
+		reason: input.reason,
+		acceptedReceiptSha256: await sha256Hex(accepted.content),
+		retiredAt,
+		engine: {
+			status: input.engine.status as "complete" | "errored",
+			observedAt: input.engine.observedAt,
+		},
+	};
+	const content = JSON.stringify(receipt);
+	// This batch and the factory's epoch-start INSERT arbitrate on the same D1.
+	// Any marker, including malformed/pending evidence, prevents absence claims.
+	const [retired, recorded] = await input.db.batch([
+		input.db
+			.prepare(`UPDATE skill_runs SET workflow_retired_at = ?6
+		 WHERE id = ?1 AND organization_id = ?2 AND runtime_environment = ?3
+		   AND execution_epoch = ?4 AND restart_command_id = ?5
+		   AND restart_requested_at IS NOT NULL AND workflow_retired_at IS NULL
+		   AND COALESCE(error, '') <> 'REVOKED' AND COALESCE(error, '') NOT GLOB 'REVOKED:*'
+		   AND EXISTS (SELECT 1 FROM skill_run_artifacts WHERE run_id = ?1
+		     AND path = ?7 AND content_inline = ?8 AND outcome = 'success')
+		   AND NOT EXISTS (SELECT 1 FROM skill_run_artifacts WHERE run_id = ?1
+		     AND path IN (?9, ?10, ?11, ?12)) RETURNING id AS retired_run_id`)
+			.bind(
+				input.runId,
+				input.organizationId,
+				input.runtimeEnvironment,
+				input.executionEpoch,
+				input.restartId,
+				retiredAt,
+				accepted.path,
+				accepted.content,
+				epochStartPath(input.executionEpoch),
+				...epochOutcomePaths(input.executionEpoch),
+				path,
+			),
+		input.db
+			.prepare(`INSERT INTO skill_run_artifacts
+		 (id, run_id, path, mime_type, size_bytes, content_inline, sha256, attempt, outcome, created_at)
+		 SELECT ?1, ?2, ?3, 'application/json', ?4, ?5, ?6, 1, 'success', ?7
+		 WHERE changes() = 1 AND EXISTS (SELECT 1 FROM skill_runs WHERE id = ?2 AND organization_id = ?8
+		   AND runtime_environment = ?9 AND execution_epoch = ?10 AND restart_command_id = ?11
+		   AND workflow_retired_at = ?7)
+		 ON CONFLICT(run_id, path) DO NOTHING RETURNING id AS retirement_artifact_id`)
+			.bind(
+				crypto.randomUUID(),
+				input.runId,
+				path,
+				new TextEncoder().encode(content).byteLength,
+				content,
+				await sha256Hex(content),
+				retiredAt,
+				input.organizationId,
+				input.runtimeEnvironment,
+				input.executionEpoch,
+				input.restartId,
+			),
+	]);
+	if (retired?.results?.length === 1 && recorded?.results?.length === 1)
+		return { deduplicated: false, receipt };
+	const raced = await readRetirement();
+	if (raced) return { deduplicated: true, receipt: raced };
+	throw new WorkflowRestartConflictError(
+		"restart changed or epoch evidence exists; no retirement was claimed",
+	);
+}

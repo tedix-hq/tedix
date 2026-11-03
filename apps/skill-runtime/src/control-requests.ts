@@ -50,6 +50,7 @@ export const CancelRequestSchema = ControlRequestSchema.extend({
 export const RestartRequestSchema = ControlRequestSchema.extend({
 	restartId: z.string().min(1).max(128),
 	abortUnknown: z.boolean().optional().default(false),
+	retireUnstarted: z.boolean().optional().default(false),
 	reason: z.string().min(1).max(4000).optional(),
 	from: z
 		.object({

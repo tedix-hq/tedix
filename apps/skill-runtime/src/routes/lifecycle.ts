@@ -17,6 +17,7 @@ import {
 	claimWorkflowRestart,
 	finalizeWorkflowRestart,
 	hasWorkflowExecutionEpochStarted,
+	retireUnstartedWorkflowRestart,
 	WorkflowRestartConflictError,
 } from "../workflow-restart";
 import {
@@ -268,7 +269,7 @@ export function registerLifecycleRoutes(app: Hono<AppEnv>) {
 	});
 
 	/** Restart from the beginning or from a native Cloudflare step coordinate. */
-	app.post("/restart", async (c) => {
+	app.on("POST", ["/restart", "/retire-unstarted-restart"], async (c) => {
 		const parsed = RestartRequestSchema.safeParse(
 			await c.req.json().catch(() => ({})),
 		);
@@ -278,6 +279,14 @@ export function registerLifecycleRoutes(app: Hono<AppEnv>) {
 				400,
 			);
 		}
+		if (
+			(c.req.path === "/retire-unstarted-restart") !==
+			parsed.data.retireUnstarted
+		)
+			return c.json(
+				{ error: "workflow_restart_recovery_endpoint_mismatch" },
+				400,
+			);
 		const run = await getSkillRun(
 			c.env.DB,
 			parsed.data.runId,
@@ -292,7 +301,97 @@ export function registerLifecycleRoutes(app: Hono<AppEnv>) {
 		const admissionConflict = workflowControlAdmissionConflict(run);
 		if (admissionConflict) return c.json(admissionConflict, 409);
 		if (!run.instanceId) return c.json({ error: "no_instance" }, 409);
+		let retirementClaimed = false;
 		try {
+			if (parsed.data.retireUnstarted) {
+				if (
+					parsed.data.abortUnknown ||
+					parsed.data.expectedExecutionEpoch == null ||
+					!parsed.data.reason?.trim()
+				)
+					return c.json(
+						{
+							error: "workflow_restart_retirement_invalid",
+							message:
+								"Retire the old run only: supply an audit reason and do not combine recovery modes.",
+						},
+						400,
+					);
+				const engine = run.workflowRetiredAt
+					? null
+					: await readEngineStatus(await c.env.WORKFLOWS.get(run.instanceId));
+				const retirement = await retireUnstartedWorkflowRestart({
+					db: c.env.DB,
+					runId: run.runId,
+					organizationId: run.orgId,
+					runtimeEnvironment: run.runtimeEnvironment,
+					restartId: parsed.data.restartId,
+					executionEpoch: run.executionEpoch,
+					from: parsed.data.from,
+					reason: parsed.data.reason,
+					engine: engine
+						? { status: engine.status, observedAt: new Date().toISOString() }
+						: null,
+				});
+				retirementClaimed = true;
+				const settled = await settleAbortedWorkflowRestartSubmission({
+					db: c.env.DB,
+					runId: run.runId,
+					organizationId: run.orgId,
+					restartId: parsed.data.restartId,
+					executionEpoch: run.executionEpoch,
+				});
+				if (!settled)
+					return c.json(
+						{
+							error: "workflow_restart_retirement_projection_pending",
+							retired: true,
+							message:
+								"The old workflow is permanently retired. Its cancellation record is still pending; repeat only this exact retirement command.",
+						},
+						503,
+					);
+				await finalizeAbortedSkillRunRestart(
+					c.env.DB,
+					run.runId,
+					run.executionEpoch,
+					parsed.data.restartId,
+				);
+				const current = await getSkillRun(
+					c.env.DB,
+					run.runId,
+					run.runtimeEnvironment,
+				);
+				if (
+					!current ||
+					current.executionEpoch !== run.executionEpoch ||
+					current.status !== "canceled" ||
+					!current.workflowRetiredAt ||
+					current.restartRequestedAt ||
+					current.restartCommandId
+				)
+					return c.json(
+						{
+							error: "workflow_restart_retirement_projection_pending",
+							retired: true,
+						},
+						503,
+					);
+				return c.json({
+					ok: true,
+					runId: run.runId,
+					workflowInstanceId: run.instanceId,
+					executionEpoch: run.executionEpoch,
+					action: "restart_retire",
+					restartId: parsed.data.restartId,
+					status: "canceled" as RunStatus,
+					restartRetired: true,
+					engine,
+					deduplicated: retirement.deduplicated,
+					operationAttempts: 0,
+					statusChecks: engine ? 1 : 0,
+				});
+			}
 			if (parsed.data.abortUnknown) {
 				if (!parsed.data.reason) {
 					return c.json(
@@ -677,6 +776,18 @@ export function registerLifecycleRoutes(app: Hono<AppEnv>) {
 				statusChecks: 0,
 			});
 		} catch (error) {
+			if (retirementClaimed) {
+				logControlFailure("restart_retirement_projection", error, run.runId);
+				return c.json(
+					{
+						error: "workflow_restart_retirement_projection_pending",
+						retired: true,
+						message:
+							"The old workflow is permanently retired. Its cancellation record is not confirmed; repeat only this exact retirement command.",
+					},
+					503,
+				);
+			}
 			if (error instanceof WorkflowRestartConflictError) {
 				return c.json(
 					{

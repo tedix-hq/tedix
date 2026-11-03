@@ -284,6 +284,7 @@ const SkillWorkflowLifecycleOutputSchema = z.object({
 	executionEpoch: z.number().int().min(0).optional(),
 	restartId: z.string().optional(),
 	restartAborted: z.boolean().optional(),
+	restartRetired: z.boolean().optional(),
 	deduplicated: z.boolean().optional(),
 });
 
@@ -2169,6 +2170,32 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 						"Operator recovery only: after verifying this pending/unknown reserved epoch never started, burn its exact submission/run projection as canceled and permanently retire that Workflow instance. Requires reason, never invokes the engine, exact retries must reuse restartId/from/reason, and subsequent work needs a new runId.",
 					),
 				from: SkillWorkflowRestartFromSchema.optional(),
+			}),
+		)
+		.output(SkillWorkflowLifecycleOutputSchema),
+
+	retireUnstartedWorkflow: oc
+		.route({
+			method: "POST",
+			path: "/skills/retire-unstarted-workflow",
+			tags: ["cognitive"],
+			description:
+				"Stop an old run whose accepted restart never began. Never starts, restarts, or terminates the engine and never invokes a model. Requires a terminal engine read, the exact accepted restartId/from and no start/outcome evidence for its reserved epoch. Permanently fences late starts; an interrupted cancellation record is repaired only by the same exact command.",
+		})
+		.input(
+			z.strictObject({
+				...StatelessDestructiveConfirmationShape,
+				runId: z.string(),
+				tediId: z.string().optional(),
+				restartId: z.string().min(1).max(128),
+				from: SkillWorkflowRestartFromSchema.optional(),
+				reason: z
+					.string()
+					.min(1)
+					.max(4000)
+					.describe(
+						"Audit reason: stop this old run only, without restarting the engine or invoking a model.",
+					),
 			}),
 		)
 		.output(SkillWorkflowLifecycleOutputSchema),

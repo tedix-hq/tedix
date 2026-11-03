@@ -268,6 +268,10 @@ describe("MCP capability scope mapping", () => {
 		expect(toolToCapabilityScope("skill_validate")).toBe("mcp:skills");
 		expect(toolToCapabilityScope("validate_skill")).toBe("mcp:skills");
 		expect(toolToCapabilityScope("run_skill_workflow")).toBe("mcp:skills");
+		expect(toolToCapabilityScope("retire_unstarted_skill_workflow")).toBe(
+			"mcp:skills",
+		);
+		expect(toolToAccessLevel("retire_unstarted_skill_workflow")).toBe("write");
 		expect(toolToCapabilityScope("operator__run_skill_workflow")).toBe(
 			"mcp:skills",
 		);

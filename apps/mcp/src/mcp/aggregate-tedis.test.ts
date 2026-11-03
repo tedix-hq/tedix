@@ -499,13 +499,29 @@ describe("aggregate tedis", () => {
 			);
 			expect(byName(name)?.inputSchema.properties).toHaveProperty("reason");
 		}
-		for (const name of ["cancel_skill_workflow", "restart_skill_workflow"]) {
+		for (const name of [
+			"cancel_skill_workflow",
+			"restart_skill_workflow",
+			"retire_unstarted_skill_workflow",
+		]) {
 			expect(byName(name)?.inputSchema.properties).toHaveProperty(
 				"confirmDestructive",
 			);
 			expect(byName(name)?.inputSchema.properties).toHaveProperty("reason");
 		}
 		expect(byName("inspect_skill_workflow_run")?.outputSchema).toBeTruthy();
+		expect(byName("retire_unstarted_skill_workflow")?.config?.endpoint).toBe(
+			"skills/retireUnstartedWorkflow",
+		);
+		expect(
+			byName("retire_unstarted_skill_workflow")?.annotations,
+		).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+		expect(
+			byName("retire_unstarted_skill_workflow")?.inputSchema.required,
+		).toEqual(expect.arrayContaining(["runId", "restartId", "reason"]));
+		expect(
+			byName("restart_skill_workflow")?.inputSchema.properties,
+		).not.toHaveProperty("retireUnstarted");
 		expect(
 			byName("get_workflow_step_tedi_activity")?.outputSchema,
 		).toBeTruthy();

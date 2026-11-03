@@ -391,6 +391,7 @@
 		"./schema/control-plane": "./src/schema/control-plane.ts",
 		"./schema/control-plane-history": "./src/schema/control-plane-history.ts",
 		"./schema/cognitive-runtime": "./src/schema/cognitive-runtime.ts",
+		"./schema/runtime-submissions": "./src/schema/runtime-submissions.ts",
 		"./schema/harness-versions": "./src/schema/harness-versions.ts",
 		"./queries/flywheel/cron-darkness": "./src/queries/flywheel/cron-darkness.ts",
 		"./queries/flywheel/cron-executions": "./src/queries/flywheel/cron-executions.ts",

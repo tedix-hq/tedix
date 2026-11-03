@@ -1196,6 +1196,7 @@ describe("oRPC tool projection sync", () => {
 				"skills/listWorkflowRetryCandidates",
 				"skills/inspectWorkflowRun",
 				"skills/restartWorkflow",
+				"skills/retireUnstartedWorkflow",
 			],
 		});
 		const byEndpoint = new Map(
@@ -1211,6 +1212,7 @@ describe("oRPC tool projection sync", () => {
 				],
 				["skills/inspectWorkflowRun", "inspect_skill_workflow_run"],
 				["skills/restartWorkflow", "restart_skill_workflow"],
+				["skills/retireUnstartedWorkflow", "retire_unstarted_skill_workflow"],
 			]),
 		);
 	});
@@ -2010,6 +2012,11 @@ describe("oRPC tool projection sync", () => {
 				annotations: { readOnlyHint: true },
 			}),
 			makeRpcTool({
+				toolId: "retire_unstarted_skill_workflow",
+				endpoint: "skills/retireUnstartedWorkflow",
+				annotations: { readOnlyHint: true },
+			}),
+			makeRpcTool({
 				toolId: "send_skill_workflow_event",
 				endpoint: "skills/runWorkflowSendEvent",
 				annotations: { readOnlyHint: true },
@@ -2024,10 +2031,11 @@ describe("oRPC tool projection sync", () => {
 				"skills/inspectWorkflowRun",
 				"skills/rejectWorkflow",
 				"skills/restartWorkflow",
+				"skills/retireUnstartedWorkflow",
 				"skills/runWorkflowSendEvent",
 			],
 		});
-		expect(result.updated).toBe(5);
+		expect(result.updated).toBe(6);
 		const annotations = new Map(
 			updates.map(({ patch }) => [
 				(patch.config as Record<string, unknown>).endpoint,
@@ -2051,6 +2059,10 @@ describe("oRPC tool projection sync", () => {
 			destructiveHint: true,
 		});
 		expect(annotations.get("skills/restartWorkflow")).toMatchObject({
+			readOnlyHint: false,
+			destructiveHint: true,
+		});
+		expect(annotations.get("skills/retireUnstartedWorkflow")).toMatchObject({
 			readOnlyHint: false,
 			destructiveHint: true,
 		});

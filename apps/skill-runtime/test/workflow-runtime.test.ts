@@ -4721,3 +4721,7 @@ assert.equal(
 	]),
 	null,
 );
+
+const { checkUnstartedRestartRetirement } =
+	await import("./workflow-restart-retirement.test");
+await checkUnstartedRestartRetirement(skillWorkflowFactory);

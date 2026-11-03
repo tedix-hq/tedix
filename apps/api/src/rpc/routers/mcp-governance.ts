@@ -1027,6 +1027,12 @@ function ownerToolApprovalTitle(
 	args: Record<string, unknown> = {},
 ): string {
 	if (skillTitle) return `Run skill: ${skillTitle}`;
+	if (
+		["retire_unstarted_skill_workflow", "retireUnstartedWorkflow"].includes(
+			toolId.split("__").at(-1) ?? toolId,
+		)
+	)
+		return "Retire the old workflow without restarting it";
 	const action = (toolId.split("__").at(-1) ?? toolId)
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
 		.replace(/[_-]+/g, " ")

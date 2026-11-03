@@ -90,6 +90,20 @@ Internal-only Hono API (`src/index.ts`), authenticated via service binding or
   claim and every epoch-start insert atomically refuse a committed operator
   abort, so SQLite serialization permits only one side of the start/abort race
   to win.
+- `POST /retire-unstarted-restart` with `retireUnstarted: true` is a separate recovery action:
+  the public `retire_unstarted_skill_workflow` tool uses its own API procedure,
+  so older gateways/APIs refuse an unknown action instead of stripping a mode
+  option into an ordinary restart.
+  **retire the old workflow without restarting it**. It requires the original
+  accepted `restartId` and `from`, an audit reason, a first-hand complete/errored
+  engine snapshot, and no start or outcome record for that reserved epoch.
+  One D1 batch checks the exact receipt and run epoch, records retirement evidence,
+  and permanently fences the instance against late factory entry. The original
+  accepted receipt stays unchanged. Submission cancellation is repaired afterward;
+  until confirmed, the response is `retired: true` with projection pending, not
+  a successful cancellation. Repeat only the exact same retirement command to
+  finish that repair. No restart, termination, or model call occurs. A new run
+  requires a new run ID. This cannot be combined with `abortUnknown`.
 - `POST /cancel` — terminates the Workflow instance, optionally with
   `{ rollback: true }`, and confirms `terminated` before marking the run
   canceled. Terminal projection first settles the matching epoch's durable

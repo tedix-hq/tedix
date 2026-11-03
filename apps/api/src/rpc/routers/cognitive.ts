@@ -56,6 +56,7 @@ import {
 	skillsPauseWorkflow,
 	skillsRejectWorkflow,
 	skillsRestartWorkflow,
+	skillsRetireUnstartedWorkflow,
 	skillsResumeWorkflow,
 	skillsRevokeSkillRun,
 } from "./cognitive-skill-runs/lifecycle";
@@ -182,6 +183,7 @@ export const skillsContractRouter = skillsOs.router({
 	resumeSchedule: skillsResumeSchedule,
 	updateSchedule: skillsUpdateSchedule,
 	restartWorkflow: skillsRestartWorkflow,
+	retireUnstartedWorkflow: skillsRetireUnstartedWorkflow,
 	approveWorkflow: skillsApproveWorkflow,
 	rejectWorkflow: skillsRejectWorkflow,
 	getRunArtifact: skipOutputValidation(skillsGetRunArtifact),
