@@ -1903,6 +1903,44 @@ export function computerRepositoryReader(
 	};
 }
 
+/** Read repository identity from the same selected checkout as repository files. */
+export function computerRepositoryGitReader(
+	scratch: (argv: string[]) => Promise<{ stdout: string; exitCode: number }>,
+	computer: Pick<ComputerEnvironmentController, "selected" | "exec">,
+): (argv: string[]) => Promise<{ stdout: string; exitCode: number }> {
+	return async (argv) => {
+		const allowed =
+			(argv.length === 3 &&
+				argv[0] === "config" &&
+				argv[1] === "--get" &&
+				argv[2] === "remote.origin.url") ||
+			(argv.length === 2 &&
+				argv[0] === "rev-parse" &&
+				/^[a-zA-Z0-9_./-]+$/.test(argv[1]!) &&
+				!argv[1]!.startsWith("-"));
+		if (!allowed) throw new Error("Unsupported repository identity read");
+		const environment = await computer.selected();
+		if (!environment) return scratch(argv);
+		if (environment.preparation !== "repository")
+			throw new Error("Computer has no repository checkout");
+		const result = record(
+			await computer.exec({
+				command: ["git", ...argv].map(shellQuote).join(" "),
+				cwd: environment.cwd,
+			}),
+		);
+		if (
+			result.terminal !== true ||
+			typeof result.exitCode !== "number" ||
+			typeof result.stdout !== "string"
+		)
+			throw new Error(
+				"Repository identity read is unavailable; refresh before proposing",
+			);
+		return { stdout: result.stdout, exitCode: result.exitCode };
+	};
+}
+
 /** The one-shot state API is explicitly scratch-only. Never let it write behind Linux tools. */
 export function computerScratchState<T extends object>(
 	scratch: T,

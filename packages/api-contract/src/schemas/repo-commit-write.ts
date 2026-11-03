@@ -19,6 +19,27 @@ export interface RepoCommitChangeSummary {
 	totalBytes: number;
 }
 
+export interface RepoCommitRevisionExpectation {
+	baseSha: string;
+	/** Null means the target branch did not exist when the proposal was made. */
+	targetSha: string | null;
+}
+
+export function parseRepoCommitRevisionExpectation(
+	value: unknown,
+): RepoCommitRevisionExpectation | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const { baseSha, targetSha } = value as Record<string, unknown>;
+	if (
+		typeof baseSha !== "string" ||
+		!/^[a-f0-9]{40}$/.test(baseSha) ||
+		(targetSha !== null &&
+			(typeof targetSha !== "string" || !/^[a-f0-9]{40}$/.test(targetSha)))
+	)
+		return null;
+	return { baseSha, targetSha };
+}
+
 export interface RepoCommitWritePayload {
 	kind: typeof REPO_COMMIT_WRITE_KIND;
 	organizationId: string;
@@ -56,6 +77,8 @@ export interface RepoCommitWritePayload {
 	 * makes the whole approval unreadable and therefore fails the publish closed.
 	 */
 	changeFingerprint: string | null;
+	/** Absent legacy proposals cannot pass the current publication fence. */
+	revisionExpectation?: RepoCommitRevisionExpectation | null;
 	riskTier: "low" | "high";
 	/** FK into the repo_commit_executions DO-SQLite table row. */
 	executionLedgerId: string;
@@ -152,6 +175,10 @@ export function parseRepoCommitWritePayload(
 	)
 		return null;
 	if (prBase !== null && typeof prBase !== "string") return null;
+	const revisionExpectation = parseRepoCommitRevisionExpectation(
+		p.revisionExpectation,
+	);
+	if (p.revisionExpectation != null && !revisionExpectation) return null;
 
 	if (riskTier !== "low" && riskTier !== "high") return null;
 
@@ -199,6 +226,7 @@ export function parseRepoCommitWritePayload(
 			totalBytes: cs.totalBytes as number,
 		},
 		changeFingerprint: (changeFingerprint as string | undefined) ?? null,
+		revisionExpectation,
 		riskTier,
 		executionLedgerId,
 	};

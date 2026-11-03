@@ -642,6 +642,16 @@ export const kernelRuntimeContract = oc
 					owner: z.string(),
 					repo: z.string(),
 					baseRef: z.string(),
+					revisionExpectation: z
+						.object({
+							baseSha: z.string().regex(/^[a-f0-9]{40}$/),
+							targetSha: z
+								.string()
+								.regex(/^[a-f0-9]{40}$/)
+								.nullable(),
+						})
+						.strict()
+						.nullish(),
 					branch: z.string(),
 					message: z.string(),
 					openPr: z.boolean(),

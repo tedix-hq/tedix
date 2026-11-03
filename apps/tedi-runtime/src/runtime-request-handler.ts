@@ -82,6 +82,7 @@ import {
 import {
 	ComputerEnvironmentController,
 	computerRepositoryReader,
+	computerRepositoryGitReader,
 	computerScratchState,
 } from "./computer-environment";
 import { computerMcpContext } from "./computer-mcp-context";
@@ -380,6 +381,9 @@ export interface RuntimeRequestHost {
 		computer: {
 			turnContext: WorkstationTurnContext | null;
 			workspace: Pick<ScopedComputerWorkspace["workspace"], "readFile">;
+			readRepoGit: (
+				argv: string[],
+			) => Promise<{ stdout: string; exitCode: number }>;
 		},
 	) => Promise<unknown>;
 	computerEnvironment: (
@@ -1913,7 +1917,8 @@ export async function handleRuntimeRequest(
 			request,
 			OPERATOR_COMPUTER_SCOPE,
 		);
-		const mcpWorkspace = host.computerWorkspace(mcpComputer.scope).workspace;
+		const mcpScopedWorkspace = host.computerWorkspace(mcpComputer.scope);
+		const mcpWorkspace = mcpScopedWorkspace.workspace;
 		const canManageDurableCode =
 			request.headers.get("X-Tedix-Can-Manage-Durable-Code") === "true";
 		const { handleMcp } = await import("./mcp-mount");
@@ -2082,6 +2087,13 @@ export async function handleRuntimeRequest(
 				repoCommit: async (input) =>
 					host.repoCommitProposeTool(input, {
 						turnContext: mcpComputer.turnContext,
+						readRepoGit: computerRepositoryGitReader(
+							(argv) => mcpScopedWorkspace.git.cli({ argv, cwd: "repo" }),
+							host.computerEnvironment(
+								mcpComputer.scope,
+								mcpComputer.turnContext,
+							),
+						),
 						workspace: {
 							readFile: computerRepositoryReader(
 								mcpWorkspace,

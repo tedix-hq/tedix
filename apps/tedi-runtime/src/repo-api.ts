@@ -23,6 +23,11 @@
  * (seconds) for burst write operations (create-blob × N + tree + commit + ref).
  */
 
+import {
+	parseRepoCommitRevisionExpectation,
+	type RepoCommitRevisionExpectation,
+} from "@tedix/api-contract/schemas/repo-commit-write";
+
 const GH_API = "https://api.github.com";
 const GH_ACCEPT = "application/vnd.github+json";
 const GH_API_VERSION = "2022-11-28";
@@ -41,6 +46,15 @@ export class RepoAuthError extends Error {
 	readonly name = "RepoAuthError";
 	constructor(message = "GitHub authentication failed") {
 		super(message);
+	}
+}
+
+export class RepoStaleRevisionError extends Error {
+	readonly name = "RepoStaleRevisionError";
+	constructor() {
+		super(
+			"Repository revisions changed; update the checkout, resolve conflicts and propose again",
+		);
 	}
 }
 
@@ -552,6 +566,66 @@ interface CommitRepoChangesParams {
 	/** null content = delete that path. */
 	changes: { path: string; content: string | null }[];
 	token: string;
+	revisionExpectation?: RepoCommitRevisionExpectation;
+}
+
+/** Snapshot refs without creating any Git object or publishing a branch. */
+export async function readRepoRevisionExpectation(
+	input: {
+		owner: string;
+		repo: string;
+		baseRef: string;
+		branch: string;
+		token: string;
+	},
+	reviewedBaseSha?: string,
+): Promise<RepoCommitRevisionExpectation> {
+	const prefix = `${GH_API}/repos/${encodeSegment(input.owner)}/${encodeSegment(input.repo)}`;
+	const base = isSha(input.baseRef)
+		? await ghFetch<{ sha: string }>(
+				`${prefix}/git/commits/${input.baseRef}`,
+				input.token,
+			)
+		: await ghFetch<{ object: { sha: string } }>(
+				`${prefix}/git/ref/heads/${encodePathish(input.baseRef)}`,
+				input.token,
+			);
+	const baseSha = "object" in base ? base.object.sha : base.sha;
+	if (reviewedBaseSha !== undefined && baseSha !== reviewedBaseSha)
+		throw new RepoStaleRevisionError();
+	let targetSha: string | null;
+	if (!isSha(input.baseRef) && input.baseRef === input.branch)
+		targetSha = baseSha;
+	else {
+		try {
+			const target = await ghFetch<{ object: { sha: string } }>(
+				`${prefix}/git/ref/heads/${encodePathish(input.branch)}`,
+				input.token,
+			);
+			targetSha = target.object.sha;
+		} catch (error) {
+			if (!(error instanceof RepoNotFoundError)) throw error;
+			targetSha = null;
+		}
+	}
+	const expectation = parseRepoCommitRevisionExpectation({
+		baseSha,
+		targetSha,
+	});
+	if (!expectation) throw new Error("Invalid repository revision response");
+	return expectation;
+}
+
+async function assertRepoRevisions(
+	input: Parameters<typeof readRepoRevisionExpectation>[0],
+	expected: RepoCommitRevisionExpectation,
+) {
+	const actual = await readRepoRevisionExpectation(input);
+	if (
+		actual.baseSha !== expected.baseSha ||
+		actual.targetSha !== expected.targetSha
+	)
+		throw new RepoStaleRevisionError();
 }
 
 interface OpenPullRequestParams {
@@ -653,6 +727,7 @@ export async function commitRepoChanges({
 	message,
 	changes,
 	token,
+	revisionExpectation,
 }: CommitRepoChangesParams): Promise<{ commitSha: string; branchRef: string }> {
 	// Defense-in-depth: reject any change whose path is empty, starts with '/',
 	// or has any dot-segment component ("" / "." / ".."). Layer 1 (do.ts
@@ -671,7 +746,11 @@ export async function commitRepoChanges({
 
 	// 1. Resolve baseRef → commit SHA
 	let baseCommitSha: string;
-	if (isSha(baseRef)) {
+	const revisionInput = { owner, repo, baseRef, branch, token };
+	if (revisionExpectation) {
+		await assertRepoRevisions(revisionInput, revisionExpectation);
+		baseCommitSha = revisionExpectation.baseSha;
+	} else if (isSha(baseRef)) {
 		baseCommitSha = baseRef;
 	} else {
 		interface RefResponse {
@@ -772,6 +851,33 @@ export async function commitRepoChanges({
 		token,
 	);
 	const newCommitSha = newCommitData.sha;
+
+	if (revisionExpectation) {
+		// Recheck after object creation. force:false rejects non-fast-forward races;
+		// REST does not atomically compare the previous head for ancestor-preserving moves.
+		await assertRepoRevisions(revisionInput, revisionExpectation);
+		try {
+			if (revisionExpectation.targetSha === null) {
+				await ghWrite(
+					`${GH_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/git/refs`,
+					"POST",
+					{ ref: `refs/heads/${branch}`, sha: newCommitSha },
+					token,
+				);
+			} else {
+				await ghWrite(
+					`${GH_API}/repos/${encodeSegment(owner)}/${encodeSegment(repo)}/git/refs/heads/${encodePathish(branch)}`,
+					"PATCH",
+					{ sha: newCommitSha, force: false },
+					token,
+				);
+			}
+		} catch (error) {
+			await assertRepoRevisions(revisionInput, revisionExpectation);
+			throw error;
+		}
+		return { commitSha: newCommitSha, branchRef: `refs/heads/${branch}` };
+	}
 
 	// 6. Create or fast-forward the branch ref
 	// Try POST first; if the ref already exists (422), fall through to PATCH.

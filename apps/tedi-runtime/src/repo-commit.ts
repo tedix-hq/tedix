@@ -16,7 +16,9 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import {
 	classifyRepoCommitRisk,
+	parseRepoCommitRevisionExpectation,
 	REPO_COMMIT_WRITE_KIND,
+	type RepoCommitRevisionExpectation,
 	type RepoCommitWritePayload,
 } from "@tedix/api-contract/schemas/repo-commit-write";
 import {
@@ -25,10 +27,67 @@ import {
 	RepoRateLimitError,
 	RepoSecondaryRateLimitError,
 	RepoUnsafeRefError,
+	RepoStaleRevisionError,
 } from "./repo-api";
 import { REPO_COMMIT_SUMMARY_PATH_CAP } from "./repo-commit-fence";
 
 export { classifyRepoCommitRisk, REPO_COMMIT_WRITE_KIND };
+
+export function parseRepoCommitLedgerRevisionExpectation(
+	changesJson: string,
+): RepoCommitRevisionExpectation | null {
+	try {
+		return parseRepoCommitRevisionExpectation(
+			JSON.parse(changesJson)?.revisionExpectation,
+		);
+	} catch {
+		return null;
+	}
+}
+
+/** Read the selected clone's checkout, never substitute a fresh remote head. */
+export async function readReviewedRepoBase(input: {
+	owner: string;
+	repo: string;
+	baseRef: string;
+	git: (argv: string[]) => Promise<{ stdout: string; exitCode: number }>;
+}): Promise<string | null> {
+	try {
+		const origin = await input.git(["config", "--get", "remote.origin.url"]);
+		if (origin.exitCode !== 0) return null;
+		const url = new URL(origin.stdout.trim());
+		if (
+			url.protocol !== "https:" ||
+			url.hostname !== "github.com" ||
+			url.port ||
+			url.username ||
+			url.password ||
+			url.search ||
+			url.hash ||
+			url.pathname.replace(/\.git$/, "").toLowerCase() !==
+				`/${input.owner}/${input.repo}`.toLowerCase()
+		)
+			return null;
+		const isSha = /^[a-f0-9]{40}$/.test(input.baseRef);
+		if (
+			!isSha &&
+			(!/^[A-Za-z0-9_./-]+$/.test(input.baseRef) ||
+				input.baseRef
+					.split("/")
+					.some((part) => !part || part === "." || part === ".."))
+		)
+			return null;
+		const base = await input.git(["rev-parse", "HEAD"]);
+		const sha = base.stdout.trim();
+		return base.exitCode === 0 &&
+			/^[a-f0-9]{40}$/.test(sha) &&
+			(!isSha || sha === input.baseRef)
+			? sha
+			: null;
+	} catch {
+		return null;
+	}
+}
 
 /** Shared with the publish fence, which compares these capped lists. */
 const PATH_CAP = REPO_COMMIT_SUMMARY_PATH_CAP;
@@ -59,6 +118,7 @@ export interface BuildRepoCommitPayloadInput {
 	 * cannot disagree. Omitted only where no declaration exists.
 	 */
 	changeFingerprint?: string | null;
+	revisionExpectation?: RepoCommitRevisionExpectation | null;
 	executionLedgerId: string;
 }
 
@@ -111,6 +171,7 @@ export function buildRepoCommitPayload(
 			totalBytes,
 		},
 		changeFingerprint: input.changeFingerprint ?? null,
+		revisionExpectation: input.revisionExpectation ?? null,
 		riskTier,
 		executionLedgerId: input.executionLedgerId,
 	};
@@ -152,6 +213,7 @@ export interface RepoCommitDeps {
 		message: string;
 		changes: { path: string; content: string | null }[];
 		token: string;
+		revisionExpectation: RepoCommitRevisionExpectation;
 	}) => Promise<{ commitSha: string; branchRef: string }>;
 	openPullRequest: (args: {
 		owner: string;
@@ -201,6 +263,15 @@ export async function executeRepoCommitFromLedger(args: {
 	}
 
 	let pat: string | null;
+	const revisionExpectation = parseRepoCommitLedgerRevisionExpectation(
+		row.changesJson,
+	);
+	if (!revisionExpectation)
+		return {
+			ok: false,
+			error: "A fresh exact-revision proposal is required",
+			code: "repo_revision_missing",
+		};
 	try {
 		pat = await deps.decryptPat();
 	} catch {
@@ -228,6 +299,7 @@ export async function executeRepoCommitFromLedger(args: {
 			message: row.message,
 			changes: changeSet.changes,
 			token: pat,
+			revisionExpectation,
 		});
 	} catch (err) {
 		// PAT stays local — it must never appear in the mapped error result
@@ -291,6 +363,8 @@ export async function executeRepoCommitFromLedger(args: {
 
 /** Map a repo-api error to a safe structured code. Never exposes err.message verbatim. */
 function mapRepoError(err: unknown): RepoCommitExecuteResult {
+	if (err instanceof RepoStaleRevisionError)
+		return { ok: false, error: err.message, code: "repo_revision_stale" };
 	if (err instanceof RepoNotFoundError) {
 		return {
 			ok: false,
