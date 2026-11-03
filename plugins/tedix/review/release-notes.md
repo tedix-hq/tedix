@@ -1,3 +1,9 @@
+Tedix 0.2.13 — quiet Work focus.
+
+Local Claude Code and Codex hooks deliver changed Work focus as plain prompt
+context, with daily reminders for missing objectives or overdue dates.
+Ordinary Stop events stay silent. Local hooks require Tedix CLI 0.19.4.
+
 Tedix 0.2.12 — one release across agent hosts.
 
 Claude, Codex, Devin, OpenCode and the public plugin repository use the root
