@@ -7,7 +7,11 @@
  */
 
 import type DescopeSdkFactory from "@descope/node-sdk";
-import type { JWTPayload, ValidateOptions } from "@tedix/auth/types";
+import type {
+	ClaimsAuditEvent,
+	JWTPayload,
+	ValidateOptions,
+} from "@tedix/auth/types";
 import * as jose from "jose";
 import { trimTrailingSlashes } from "./utils.ts";
 
@@ -150,8 +154,66 @@ function audienceClaim(raw: unknown): string | string[] | undefined {
 }
 
 // =============================================================================
-// AUDIENCE AUDIT (measurement for the enforcement rollout)
+// CLAIMS AUDIT (measurement for the audience/issuer enforcement rollout)
 // =============================================================================
+
+/** Normalize an `aud` claim, which is a string or an array per RFC 7519. */
+function audienceList(raw: unknown): string[] {
+	if (typeof raw === "string") return [raw];
+	if (Array.isArray(raw)) return raw.filter((a) => typeof a === "string");
+	return [];
+}
+
+/**
+ * Pure: what would audience and issuer enforcement have done for this token?
+ *
+ * Audience is compared against the surface's declared expectations. Issuer is
+ * compared against the bare project ID — the same equality the CMS session
+ * boundary enforces in `assertDescopeSessionBoundary` — because the Descope SDK
+ * rewrites a validated project token's `iss` to the project ID while AIH
+ * `/v1/apps/` issuers pass through unchanged.
+ *
+ * A token with no `aud` at all is NOT counted as a rejection — Tedix's own
+ * session JWTs are not guaranteed to carry one (that is project-level JWT
+ * template config), so treating absence as failure would swamp the signal with
+ * traffic that enforcement would have to special-case anyway. It is reported
+ * separately via `missingAudienceClaim` so the decision stays visible.
+ */
+export function computeClaimsAudit(
+	audit: NonNullable<ValidateOptions["auditClaims"]>,
+	claims: { aud?: unknown; iss?: unknown },
+	projectId: string,
+): ClaimsAuditEvent {
+	const actualAudiences = audienceList(claims.aud);
+	const satisfiesExpected = actualAudiences.some((a) =>
+		audit.expected.includes(a),
+	);
+	const actualIssuer = typeof claims.iss === "string" ? claims.iss : "";
+	const wouldRejectAudience = actualAudiences.length > 0 && !satisfiesExpected;
+	const wouldRejectIssuer = actualIssuer !== projectId;
+	return {
+		surface: audit.surface,
+		expectedAudiences: audit.expected,
+		actualAudiences,
+		wouldRejectAudience,
+		passedOnlyViaProjectId:
+			!satisfiesExpected && actualAudiences.includes(projectId),
+		missingAudienceClaim: actualAudiences.length === 0,
+		expectedIssuer: projectId,
+		actualIssuer,
+		wouldRejectIssuer,
+		wouldReject: wouldRejectAudience || wouldRejectIssuer,
+	};
+}
+
+/**
+ * Default audit reporter: one bounded console event per validation, with the
+ * same shape on every surface so a single log query covers the rollout window.
+ * Emits claim values (`aud`, `iss`, `surface`) but never the token itself.
+ */
+export function reportClaimsAudit(event: ClaimsAuditEvent): void {
+	console.warn({ event: "auth.claims_audit", ...event });
+}
 
 // =============================================================================
 // TOKEN VALIDATION
@@ -202,6 +264,20 @@ export async function validateToken(
 				"Tedi JWTs are not accepted on user auth paths",
 				"TEDI_JWT_REJECTED",
 			);
+		}
+
+		if (options.auditClaims) {
+			// Measurement must never be able to reject traffic: this sits after the
+			// token is fully accepted, and a throwing reporter is swallowed rather
+			// than falling into mapTokenError, which would turn a logging bug into
+			// an auth failure.
+			try {
+				(options.auditClaims.report ?? reportClaimsAudit)(
+					computeClaimsAudit(options.auditClaims, result, projectId),
+				);
+			} catch {
+				// An audit reporter is diagnostics only — never fail validation for it.
+			}
 		}
 
 		return result;

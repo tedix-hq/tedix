@@ -116,6 +116,10 @@ export async function authenticateKernelSessionJwt(
 		payload = await validateToken(token, {
 			projectId: env.DESCOPE_PROJECT_ID,
 			baseUrl: env.DESCOPE_BASE_URL,
+			auditClaims: {
+				surface: "api:kernel-edge",
+				expected: [env.DESCOPE_PROJECT_ID],
+			},
 		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : "invalid token";

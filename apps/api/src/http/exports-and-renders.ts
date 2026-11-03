@@ -22,6 +22,10 @@ export function registerExportsAndRenders(
 			payload = await validateToken(token, {
 				projectId: c.env.DESCOPE_PROJECT_ID,
 				baseUrl: c.env.DESCOPE_BASE_URL,
+				auditClaims: {
+					surface: "api:video-renders",
+					expected: [c.env.DESCOPE_PROJECT_ID],
+				},
 			});
 		} catch {
 			return c.text("Unauthorized", 401);
@@ -236,6 +240,10 @@ export function registerExportsAndRenders(
 				(await validateToken(token, {
 					projectId: c.env.DESCOPE_PROJECT_ID,
 					baseUrl: c.env.DESCOPE_BASE_URL,
+					auditClaims: {
+						surface: "api:os-exports",
+						expected: [c.env.DESCOPE_PROJECT_ID],
+					},
 				}));
 		} catch {
 			return c.text("Unauthorized", 401);

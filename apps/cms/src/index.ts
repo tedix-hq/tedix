@@ -280,6 +280,10 @@ async function validateForwardedUser(
 			projectId: env.DESCOPE_PROJECT_ID,
 			baseUrl: env.DESCOPE_BASE_URL,
 			allowTediJwt: true,
+			auditClaims: {
+				surface: "cms:worker.forwarded",
+				expected: [env.DESCOPE_PROJECT_ID],
+			},
 		});
 	} catch {
 		return undefined;
@@ -363,6 +367,10 @@ export async function authenticateRequest(
 		const payload = await validateToken(token, {
 			projectId: env.DESCOPE_PROJECT_ID,
 			baseUrl: env.DESCOPE_BASE_URL,
+			auditClaims: {
+				surface: "cms:worker.user",
+				expected: [env.DESCOPE_PROJECT_ID],
+			},
 		});
 
 		if (!payload.sub) {

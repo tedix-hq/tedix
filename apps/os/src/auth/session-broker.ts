@@ -71,6 +71,10 @@ async function status(
 	try {
 		const payload = await validateToken(session, {
 			projectId: env.DESCOPE_PROJECT_ID,
+			auditClaims: {
+				surface: "os:session-broker",
+				expected: [env.DESCOPE_PROJECT_ID],
+			},
 		});
 		if (!payload?.sub) {
 			throw new Error("Expired session");

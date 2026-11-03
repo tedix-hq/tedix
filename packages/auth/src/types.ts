@@ -211,6 +211,78 @@ export interface ValidateOptions {
 	 * Set true for tedi-auth endpoints (withTediAuth middleware).
 	 */
 	allowTediJwt?: boolean;
+	/**
+	 * Report — but do not enforce — what audience and issuer checking WOULD do
+	 * here.
+	 *
+	 * Audience is the only claim that can confine a token to one surface: every
+	 * Tedix app shares one Descope project, so issuer and signature are
+	 * identical across surfaces and prove nothing about where a token was meant
+	 * to be used. Today only the MCP edge passes an audience at all, so a token
+	 * minted for one surface is accepted by the rest.
+	 *
+	 * Turning enforcement on blind would reject live traffic, so this option
+	 * exists to measure first: set it to the surface name and the audience that
+	 * surface expects. Every validation then emits an observation saying
+	 * whether the token would still have been accepted under a strict
+	 * expected-audience check plus the issuer equality check the CMS session
+	 * boundary already enforces (`iss === projectId`, the form the Descope SDK
+	 * rewrites a validated project token's issuer to). Validation behaviour is
+	 * unchanged while auditing.
+	 */
+	auditClaims?: {
+		/** Stable name for the calling surface, e.g. "api:rpc" or "os:session". */
+		surface: string;
+		/** Audience(s) this surface would require once enforcement is on. */
+		expected: string[];
+		/**
+		 * Where to send the observation. Optional: the default reporter emits one
+		 * `auth.claims_audit` console event. Passed per call rather than
+		 * registered globally: a module-level sink is an import-time side effect
+		 * on shared state, so the last importer would silently win and a version
+		 * skew in `@tedix/auth` would crash at module load instead of at the call.
+		 */
+		report?: (event: ClaimsAuditEvent) => void;
+	};
+}
+
+/**
+ * One observation of what audience and issuer enforcement would have done.
+ *
+ * `wouldReject` is the headline: if it is false across a full traffic window
+ * for a surface, that surface can be flipped to enforcing. `passedOnlyViaProjectId`
+ * is the subtler one — see the `primaryAudience` note in `validateToken`.
+ */
+export interface ClaimsAuditEvent {
+	/** Stable name of the surface that validated the token. */
+	surface: string;
+	/** Audience(s) this surface would require once enforcement is on. */
+	expectedAudiences: string[];
+	/** The token's own `aud` claim, normalized to an array. */
+	actualAudiences: string[];
+	/** `aud` is present but no expected value appears in it. */
+	wouldRejectAudience: boolean;
+	/**
+	 * True when the strict audience check fails while the bare project ID is
+	 * present — the token survives today only because enforcement is off.
+	 */
+	passedOnlyViaProjectId: boolean;
+	/** True when the token carries no `aud` claim at all. */
+	missingAudienceClaim: boolean;
+	/**
+	 * The issuer the equality check requires: the bare project ID the Descope
+	 * SDK rewrites a validated project token's `iss` to.
+	 */
+	expectedIssuer: string;
+	/** The issuer the validated payload actually carries. */
+	actualIssuer: string;
+	/**
+	 * `iss` differs from the required issuer — e.g. an AIH `/v1/apps/` issuer,
+	 * which the SDK passes through unchanged rather than rewriting.
+	 */
+	wouldRejectIssuer: boolean;
+	/** Headline: either strict check would have rejected this token. */
+	wouldReject: boolean;
 }
 
 // =============================================================================
