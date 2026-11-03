@@ -6982,6 +6982,101 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 	},
 	"workItems/listAttempts": () => ({ data: [], nextCursor: null }),
+	"workItems/readAttemptRepository": (input: {
+		operation: "log" | "tree" | "file";
+		path?: string;
+	}) => {
+		const repository = {
+			version: 1 as const,
+			provider: "cloudflare_artifacts" as const,
+			status: "ready" as const,
+			mode: "create" as const,
+			repositoryName: `work-${workItemId(1).slice(0, 8)}-${fid("47", 1)}`,
+			repositoryId: "repo-local-1",
+			remote: "https://artifacts.example/local/work.git",
+			defaultBranch: "main",
+			sourceRepositoryName: null,
+			sourceRef: null,
+			baseRevision: "b".repeat(40),
+			workItemId: workItemId(1),
+			workItemVersion: 1,
+			admissionSpecRevision: "rev-local-1",
+			admissionId: fid("47", 0x41),
+			attemptId: fid("47", 1),
+			observedAt: T5,
+			reason: null,
+		};
+		const base = { repository, resolvedRevision: "c".repeat(40) };
+		if (input.operation === "log")
+			return {
+				...base,
+				operation: "log" as const,
+				commits: [
+					{
+						hash: "c".repeat(40),
+						treeHash: "d".repeat(40),
+						message: "Cohort export wired to Work evidence",
+						author: { name: "Miles", email: "miles@tedix.local" },
+						parents: ["b".repeat(40)],
+						committedAt: T5,
+					},
+					{
+						hash: "b".repeat(40),
+						treeHash: "e".repeat(40),
+						message: "Start cohort view",
+						author: { name: "Miles", email: "miles@tedix.local" },
+						parents: [],
+						committedAt: T4,
+					},
+				],
+			};
+		if (input.operation === "tree")
+			return {
+				...base,
+				operation: "tree" as const,
+				path: input.path ?? "",
+				exists: true,
+				entries: input.path
+					? [
+							{
+								name: "index.ts",
+								path: `${input.path}/index.ts`,
+								mode: "100644",
+								hash: "f".repeat(40),
+								type: "blob" as const,
+							},
+						]
+					: [
+							{
+								name: "src",
+								path: "src",
+								mode: "40000",
+								hash: "e".repeat(40),
+								type: "tree" as const,
+							},
+							{
+								name: "README.md",
+								path: "README.md",
+								mode: "100644",
+								hash: "f".repeat(40),
+								type: "blob" as const,
+							},
+						],
+				truncated: false,
+			};
+		const body = "# Cohort\n\nLocal fixture repository file.\n";
+		return {
+			...base,
+			operation: "file" as const,
+			path: input.path ?? "README.md",
+			exists: true,
+			size: body.length,
+			mediaType: "text/plain",
+			binary: false,
+			dataBase64: btoa(body),
+			truncated: false,
+		};
+	},
 	"workItems/reviewAttemptRepository": (input: {
 		id: string;
 		attemptId: string;
