@@ -451,6 +451,7 @@ interface Receipt {
 	runFailureCounted?: boolean;
 	runRetryAt?: number;
 	settlementRetries?: number;
+	settlementCheckFailures?: number;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
 	baseCommit?: string;
@@ -1031,6 +1032,7 @@ export class LaneDispatcher {
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private cleanupCursor = 0;
 	private reconciliationCursor = 0;
+	private settlementChecked = new Set<string>();
 	private cleanupAfter = new Map<string, number>();
 	private maintenance = new Map<string, Promise<void>>();
 	private queue = serialCalls();
@@ -1166,6 +1168,7 @@ export class LaneDispatcher {
 		}
 		this.saveBudgets();
 		let offset = 0;
+		this.settlementChecked.clear();
 		let retained: Receipt[];
 		try {
 			retained = readLaneReceipts(this.directory, this.receipts);
@@ -1320,6 +1323,19 @@ export class LaneDispatcher {
 				const previous = existsSync(this.path(item))
 					? (JSON.parse(readFileSync(this.path(item), "utf8")) as Receipt)
 					: undefined;
+				if (
+					previous?.phase === "settling" &&
+					!this.running.has(item.id) &&
+					!this.maintenance.has(item.id) &&
+					(!previous.pid || !alive(previous.pid)) &&
+					Date.now() >= (previous.retryAt ?? 0)
+				) {
+					// The retained-receipt sweep yields to every preparation, so a busy
+					// lane never reaches it. Retry settlement before the skip check so
+					// a terminal Attempt defers and this revision can be re-admitted.
+					this.settlementChecked.add(this.path(item));
+					await this.retrySettlement(previous);
+				}
 				if (
 					previous?.phase === "settled" &&
 					previous.outcome === "succeeded" &&
@@ -1495,10 +1511,13 @@ export class LaneDispatcher {
 					row.outcome === "succeeded" &&
 					!!row.attemptId)) &&
 			!this.running.has(row.itemId) &&
+			!this.settlementChecked.has(
+				this.path({ id: row.itemId, version: row.version }),
+			) &&
 			(!row.pid || !alive(row.pid)) &&
 			Date.now() >= (row.retryAt ?? 0)
 		) {
-			await this.recoverSettlement(row);
+			await this.retrySettlement(row);
 			return true;
 		}
 		if (
@@ -2851,6 +2870,26 @@ export class LaneDispatcher {
 		);
 		this.log("interruption-recovered", receipt.itemId, receipt.session);
 	}
+	/** A failed fence read must not abort the pass; retry it with backoff. */
+	private async retrySettlement(receipt: Receipt) {
+		try {
+			await this.recoverSettlement(receipt);
+		} catch (error) {
+			receipt.settlementCheckFailures =
+				(receipt.settlementCheckFailures ?? 0) + 1;
+			receipt.retryAt =
+				Date.now() +
+				Math.min(
+					15 * 60_000,
+					60_000 * 2 ** (receipt.settlementCheckFailures - 1),
+				);
+			this.save(
+				this.path({ id: receipt.itemId, version: receipt.version }),
+				receipt,
+			);
+			this.log("settlement-check-deferred", receipt.itemId, String(error));
+		}
+	}
 	private async recoverSettlement(receipt: Receipt) {
 		if (receipt.phase === "failed") receipt.retryAt = Date.now() + 15 * 60_000;
 		const history = await this.call<{ data: WorkAttempt[] }>([
@@ -2867,6 +2906,8 @@ export class LaneDispatcher {
 			);
 		if (
 			attempt.outcome === "expired" ||
+			// A lost lease the server closed as failed still needs fresh admission.
+			(attempt.outcome === "failed" && receipt.outcome === "expired") ||
 			(!attempt.outcome &&
 				attempt.expiresAt &&
 				Date.parse(attempt.expiresAt) <= Date.now())

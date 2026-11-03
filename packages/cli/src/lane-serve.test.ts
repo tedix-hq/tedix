@@ -165,6 +165,10 @@ function fixture({
 			data: [] as Record<string, unknown>[],
 			nextCursor: null as string | null,
 		},
+		historyError: undefined as Error | undefined,
+		preparationGate: undefined as
+			| { itemId: string; open: Promise<void> }
+			| undefined,
 	};
 	let threadNumber = 0;
 	const config = { ...options, executor, coordinated, acceptProposed, max };
@@ -208,6 +212,11 @@ function fixture({
 		},
 		thread: async (repo, executor) => {
 			if (control.threadError) throw control.threadError;
+			if (
+				control.preparationGate &&
+				repo.includes(control.preparationGate.itemId)
+			)
+				await control.preparationGate.open;
 			if (executor === "devin") expect(control.installed).toContain(repo);
 			return {
 				thread: {
@@ -237,8 +246,10 @@ function fixture({
 					workItem: items.find((row) => row.id === args[6]),
 					comments: [],
 				};
-			else if (verb === "dispatch-attempts") response = control.history;
-			else if (verb === "evidence") {
+			else if (verb === "dispatch-attempts") {
+				if (control.historyError) throw control.historyError;
+				response = control.history;
+			} else if (verb === "evidence") {
 				if (control.evidenceError) throw control.evidenceError;
 				response = control.evidence;
 			} else if (verb === "status") {
@@ -2217,11 +2228,19 @@ describe("dispatcher admission", () => {
 			for (let n = 0; n < (state === "offline" ? 6 : 1); n++) {
 				saved.retryAt = 0;
 				writeFileSync(path, JSON.stringify(saved));
-				const recovering = restart();
-				if (state === "foreign")
-					await expect(recovering.tick()).rejects.toThrow("fence");
-				else await recovering.tick();
+				await restart().tick();
 				saved = JSON.parse(readFileSync(path, "utf8"));
+			}
+			if (state === "foreign") {
+				// An unavailable fence holds this receipt without stopping the pass.
+				expect(saved).toMatchObject({
+					phase: "settling",
+					settlementCheckFailures: 1,
+				});
+				expect(saved.retryAt).toBeGreaterThan(Date.now());
+				expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+					"Retained settlement fence is unavailable",
+				);
 			}
 			expect(releases).toHaveLength(1);
 			expect(events.filter((e) => e.verb === "settle")).toHaveLength(
@@ -2808,6 +2827,76 @@ describe("dispatcher admission", () => {
 			for (const release of releases) release();
 			await dispatcher.drain();
 			clock.mockRestore();
+		}
+	});
+	it("retries a settling receipt after a read deadline and re-admits the same revision", async () => {
+		const { dispatcher, dir, events, releases, control } = fixture({ max: 3 });
+		// Another Work Item stays in preparation, as on a busy lane.
+		let openGate!: () => void;
+		control.preparationGate = {
+			itemId: item(3).id,
+			open: new Promise<void>((done) => {
+				openGate = done;
+			}),
+		};
+		const path = join(dir, `${item(1).id}-2.json`);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item(1).id,
+				version: 2,
+				phase: "settling",
+				admissionState: "admitted",
+				attemptId: "expired-attempt",
+				session: "codex:expired-session",
+				executorKey: "codex-fictional",
+				outcome: "expired",
+				retryable: false,
+				interrupted: true,
+				note: "Error: Tedix CLI read deadline elapsed",
+				retries: 1,
+				runFailureCounted: true,
+				runRetryAt: 0,
+				settlementRetries: 1,
+				retryAt: 0,
+				retryDeadlineAt: Date.now() + 30 * 60_000,
+			}),
+		);
+		const admissions = () =>
+			events.filter((e) => e.verb === "start" && e.args[6] === item(1).id);
+		try {
+			control.historyError = new Error("Tedix CLI read deadline elapsed");
+			await dispatcher.tick();
+			let saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved).toMatchObject({
+				phase: "settling",
+				settlementCheckFailures: 1,
+			});
+			expect(saved.retryAt).toBeGreaterThan(Date.now());
+			expect(admissions()).toHaveLength(0);
+
+			control.historyError = undefined;
+			control.history.data = [
+				{
+					id: "expired-attempt",
+					externalSessionKey: "codex:expired-session",
+					outcome: "expired",
+					expiresAt: new Date(Date.now() - 60_000).toISOString(),
+				},
+			];
+			saved.retryAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+			await dispatcher.tick();
+			await until(() => admissions().length === 1);
+			saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.version).toBe(2);
+			expect(saved.attemptId).toBe("fictional-attempt");
+			expect(events.filter((e) => e.verb === "settle")).toHaveLength(0);
+		} finally {
+			openGate();
+			await until(() => releases.length === 3);
+			for (const release of releases) release();
+			await dispatcher.drain();
 		}
 	});
 	it("retains the exact fence, outcome and retry deadline when settlement fails", async () => {
