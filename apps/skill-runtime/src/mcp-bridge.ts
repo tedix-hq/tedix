@@ -46,6 +46,7 @@ import {
 	AGGREGATE_NAMESPACES,
 	buildCodeModeCallSource,
 	buildModernMcpBridgeRequest,
+	codeModeAppNamespaces,
 	extractPendingTediTaskId,
 	getMappedMcpSlug,
 	injectWorkflowWorkItemMeta,
@@ -940,7 +941,10 @@ async function executeMcpTool(
 	// the call through Code Mode on the aggregate, where the inner tools appear
 	// under their gateway namespace (firecrawl_tedix.firecrawl_search). The
 	// (namespace, method) capability gate above already authorised it.
-	const invokeViaCodeModeOnce = async (gatewaySlug: string) => {
+	const invokeViaCodeModeOnce = async (
+		gatewaySlug: string,
+		namespaceOverride?: string,
+	) => {
 		const aggUrl = `https://${gatewaySlug}.${props.mcpBaseHost}/mcp`;
 		// The aggregate `code` tool evaluates an async ARROW FUNCTION source
 		// string (`async () => ...`) — a bare top-level `return` is a syntax
@@ -950,10 +954,9 @@ async function executeMcpTool(
 		// sees the call before sandbox execution. The helper retains a quoted
 		// bracket fallback for non-identifier tool names without allowing source
 		// injection from manifest-authored names or arguments.
-		const codeModeNamespace = resolveCodeModeNamespace(
-			namespace,
-			props.tediNamespace,
-		);
+		const codeModeNamespace =
+			namespaceOverride ??
+			resolveCodeModeNamespace(namespace, props.tediNamespace);
 		const wrapper = buildCodeModeCallSource(
 			codeModeNamespace,
 			method,
@@ -1021,8 +1024,13 @@ async function executeMcpTool(
 		}
 		return codeModeResult;
 	};
-	const invokeViaCodeMode = (gatewaySlug = props.aggregateMcpSlug) =>
-		retryUnknownAcknowledgement(() => invokeViaCodeModeOnce(gatewaySlug));
+	const invokeViaCodeMode = (
+		gatewaySlug = props.aggregateMcpSlug,
+		codeModeNamespace?: string,
+	) =>
+		retryUnknownAcknowledgement(() =>
+			invokeViaCodeModeOnce(gatewaySlug, codeModeNamespace),
+		);
 
 	// Code Mode as a recovery for a failed direct call: keep the direct
 	// failure's cause when the aggregate has no binding for the namespace.
@@ -1032,24 +1040,35 @@ async function executeMcpTool(
 	) => {
 		const codeModeNamespace =
 			namespace === "tedi" ? (props.tediNamespace ?? namespace) : namespace;
+		const mappedSlug = getMappedMcpSlug(props.namespaceToSlug, namespace);
 		try {
-			// A mapped app may itself be a Code Mode wrapper whose inner app keeps
-			// the skill's namespace (`github-tedix` serves `github.get_commit`
-			// with the organization's connection). Try it before the org gateway.
+			// A mapped app may itself be a Code Mode wrapper whose `code` endpoint
+			// serves the call under the install's own namespace (`github-tedix`
+			// serves `github.*`, so a skill declaring the slug alias
+			// `github_tedix` reaches it as `github`). Try that surface before the
+			// org gateway, which may not mount the alias the skill declared.
 			if (resolvedSlug !== props.aggregateMcpSlug) {
-				try {
-					return await invokeViaCodeMode(resolvedSlug);
-				} catch (error) {
-					// Only an absent code method, or a wrapper that has no such
-					// namespace (the one-call snippet fails on its first identifier),
-					// proves no tenant code executed. `github-tedix` serves
-					// `github.*`, so a skill declaring `github_tedix` reaches it only
-					// through the organization gateway.
-					if (
-						!(error instanceof McpCodeModeMethodNotFoundError) &&
-						!isCodeModeNamespaceMiss(error, codeModeNamespace)
-					)
-						throw error;
+				const candidates = codeModeAppNamespaces(codeModeNamespace, mappedSlug);
+				for (const candidate of candidates) {
+					try {
+						const result = await invokeViaCodeMode(resolvedSlug, candidate);
+						// Only the aggregate applies the host/proxy connection
+						// overlay for a structured credential miss.
+						if (!needsAggregateCredentialRecovery(result)) return result;
+						break;
+					} catch (error) {
+						// An absent code method means this app runs no Code Mode
+						// at all — no candidate can succeed here. A wrapper that
+						// lacks a candidate namespace (the one-call snippet fails
+						// on its first identifier) proves no tenant code
+						// executed; try the next candidate. Any other failure
+						// ran real code and is not replayed.
+						if (error instanceof McpCodeModeMethodNotFoundError) break;
+						if (
+							!candidates.some((name) => isCodeModeNamespaceMiss(error, name))
+						)
+							throw error;
+					}
 				}
 			}
 			return await invokeViaCodeMode();
@@ -1067,7 +1086,7 @@ async function executeMcpTool(
 				namespace,
 				codeModeNamespace,
 				method,
-				mappedSlug: getMappedMcpSlug(props.namespaceToSlug, namespace),
+				mappedSlug,
 				aggregateMcpSlug: props.aggregateMcpSlug,
 				directFailure,
 			});
