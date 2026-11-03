@@ -412,6 +412,37 @@ describe("bounded receive-pack transport", () => {
 		);
 		expect(body).not.toContain("side-band");
 	});
+	it.each([false, true])(
+		"accepts the provider's HEAD advertisement without using it as the target (stale=%s)",
+		async (stale) => {
+			const input = sendInput();
+			const advertised =
+				packet("# service=git-receive-pack\n") +
+				"0000" +
+				packet(
+					`${input.expectedOldOid} HEAD\0report-status report-status-v2 atomic side-band-64k object-format=sha1\n`,
+				) +
+				packet(
+					`${stale ? "c".repeat(40) : input.expectedOldOid} refs/heads/main\n`,
+				) +
+				"0000";
+			const fetcher = vi.fn<typeof fetch>(async (_url, init = {}) => {
+				if (init.method === "GET") return response(advertised);
+				const body = Buffer.from(init.body as Uint8Array).toString();
+				expect(body).toContain("refs/heads/main\0report-status\n");
+				expect(body).not.toContain(" HEAD\0");
+				return response(
+					packet("unpack ok\n") + packet("ok refs/heads/main\n") + "0000",
+					"application/x-git-receive-pack-result",
+				);
+			});
+			expect(await sendCandidateCommit({ ...input, fetcher })).toMatchObject({
+				kind: stale ? "rejected" : "acknowledged",
+			});
+			expect(fetcher).toHaveBeenCalledTimes(stale ? 1 : 2);
+			expect(input.beforePost).toHaveBeenCalledTimes(stale ? 0 : 1);
+		},
+	);
 	it("does not POST when the advertised base changed or authority denies", async () => {
 		const input = sendInput();
 		const fetcher = vi.fn(async () => response(adv("d".repeat(40))));
@@ -435,6 +466,16 @@ describe("bounded receive-pack transport", () => {
 		packet("# service=git-receive-pack\n") + "0000",
 		adv("a".repeat(40), "side-band-64k"),
 		adv("a".repeat(40)).slice(0, -1),
+		packet("# service=git-receive-pack\n") +
+			"0000" +
+			packet(`${"a".repeat(40)} HEAD\0report-status\n`) +
+			packet(`${"a".repeat(40)} HEAD\n`) +
+			"0000",
+		packet("# service=git-receive-pack\n") +
+			"0000" +
+			packet(`${"a".repeat(40)} refs/heads/main\0report-status\n`) +
+			packet(`${"a".repeat(40)} HEAD\n`) +
+			"0000",
 	])(
 		"rejects malformed or unsupported advertisements without publishing",
 		async (body) => {

@@ -1,6 +1,7 @@
 import {
 	RepositoryCandidateDescriptorSchema,
 	RepositoryCandidatePublicationRecordSchema,
+	RepositoryCandidatePublicationFailureSchema,
 	RepositoryCandidatePreparationSchema,
 	type RepositoryCandidatePreparation,
 	type RepositoryCandidatePublicationRecord,
@@ -226,7 +227,8 @@ async function observed(
 		objectPresent: boolean | null = null;
 	try {
 		const [head] = await within(
-			() => repo.log({ ref: p.targetRef, limit: 1 }),
+			() =>
+				repo.log({ ref: p.targetRef.slice("refs/heads/".length), limit: 1 }),
 			at,
 		);
 		if (head && /^[a-f0-9]{40}$/.test(head.hash)) headRevision = head.hash;
@@ -469,6 +471,8 @@ export async function applyRepositoryCandidatePublication(
 		}
 		let effect: RepositoryCandidatePublicationObservation["effect"] =
 			built.unchanged ? "unchanged" : "prepared";
+		let stage: "authority" | "token" | "send" | "claim" = "authority";
+		let failure: RepositoryCandidatePublicationObservation["failure"];
 		if (!built.unchanged) {
 			try {
 				const current = await within(io.authority, at);
@@ -481,6 +485,7 @@ export async function applyRepositoryCandidatePublication(
 					io.waitUntil,
 					"Publication requires a managed cleanup lifetime",
 				);
+				stage = "token";
 				mintStarted = true;
 				pendingMint = repo.createToken("write", 60).then((t) => {
 					tokenId = t.id || t.plaintext || null;
@@ -496,6 +501,7 @@ export async function applyRepositoryCandidatePublication(
 						Date.parse(token.expiresAt) <= Date.now() + 65_000,
 					"Artifacts did not issue the requested bounded write token",
 				);
+				stage = "send";
 				const sent = await within(
 					() =>
 						io.send({
@@ -509,6 +515,7 @@ export async function applyRepositoryCandidatePublication(
 							// Admission and Git CAS are separate: revocation after this check
 							// cannot cancel a POST already dispatched to the provider.
 							beforePost: async () => {
+								stage = "claim";
 								const renewed = await within(io.authority, at);
 								assertLive(renewed);
 								await validateRepositoryCandidatePreparation(
@@ -538,7 +545,19 @@ export async function applyRepositoryCandidatePublication(
 						: sent.kind === "rejected"
 							? "rejected"
 							: "unknown";
-			} catch {
+			} catch (error) {
+				const parsed = RepositoryCandidatePublicationFailureSchema.safeParse({
+					stage,
+					reason:
+						error instanceof Error &&
+						error.name === "CandidateGitError" &&
+						"reason" in error
+							? error.reason
+							: "publication_failed",
+				});
+				failure = parsed.success
+					? parsed.data
+					: { stage, reason: "publication_failed" };
 				effect = record.attemptedAt ? "unknown" : "prepared";
 			} finally {
 				if (tokenId) {
@@ -587,6 +606,7 @@ export async function applyRepositoryCandidatePublication(
 			cleanup,
 			at,
 		);
+		if (failure) observation.failure = failure;
 		const evidenceRecorded = await persistObservation(
 			io,
 			record.preparation,

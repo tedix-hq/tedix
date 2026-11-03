@@ -591,9 +591,12 @@ export async function sendCandidateCommit(input: {
 			"candidate_git_advertisement",
 		);
 		if (index === 2) capabilities = parts[1]!.split(" ");
-		const match = /^([a-f0-9]{40}) (refs\/[A-Za-z0-9._/-]+)$/.exec(parts[0]!);
+		const match = /^([a-f0-9]{40}) (HEAD|refs\/[A-Za-z0-9._/-]+)$/.exec(
+			parts[0]!,
+		);
 		check(
 			match &&
+				(match[2] !== "HEAD" || index === 2) &&
 				!refs.has(match[2]!) &&
 				refs.size < CANDIDATE_GIT_LIMITS.advertisedRefs,
 			"candidate_git_advertisement_ref",
