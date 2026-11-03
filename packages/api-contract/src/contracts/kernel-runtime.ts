@@ -5,6 +5,7 @@ import {
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
+import { RepoCommitExactTreeValidationSchema } from "../schemas/repo-commit-write";
 import { baseErrors } from "../errors";
 import {
 	ApproveHomePlanAssignmentsInputSchema,
@@ -645,6 +646,8 @@ export const kernelRuntimeContract = oc
 					revisionExpectation: z
 						.object({
 							baseSha: z.string().regex(/^[a-f0-9]{40}$/),
+							exactTreeValidation:
+								RepoCommitExactTreeValidationSchema.optional(),
 							targetSha: z
 								.string()
 								.regex(/^[a-f0-9]{40}$/)
