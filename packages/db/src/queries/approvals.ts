@@ -133,8 +133,6 @@ export async function listApprovalRequests(
 			eq(tediApprovalRequests.status, "approved"),
 			eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') IN ('queued', 'running', 'failed')`,
-			// A passed window can never run again; History keeps the row.
-			gt(tediApprovalRequests.expiresAt, new Date().toISOString()),
 		);
 	}
 	if (options.viewerUserId) {
