@@ -1,3 +1,4 @@
+import { scopesGrantingConsent } from "@tedix/api-contract/utils/provider-capability-profiles";
 import { fetchNamedTenantConnectionToken } from "@tedix/auth/connections";
 import { getConnectionInstance } from "@tedix/db/queries/connection-instances";
 import { getOrganizationDescopeTenantId } from "@tedix/db/queries/organizations";
@@ -93,16 +94,12 @@ export async function resolveProviderEventCredential(
 	// is the events/list check under this exact connection token.
 	const canRead =
 		subscription.adapter === "mcp_events" ||
-		(subscription.adapter === "google_calendar"
-			? scopes.some((s) =>
-					[
-						"https://www.googleapis.com/auth/calendar",
-						"https://www.googleapis.com/auth/calendar.readonly",
-						"https://www.googleapis.com/auth/calendar.events",
-						"https://www.googleapis.com/auth/calendar.events.readonly",
-					].includes(s),
-				)
-			: scopes.some((s) => /(^|\/)Calendars\.(Read|ReadWrite)$/i.test(s)));
+		scopesGrantingConsent(
+			subscription.adapter === "google_calendar"
+				? "google-calendar-event-read"
+				: "microsoft-calendar-read",
+			scopes,
+		).length > 0;
 	if (!canRead)
 		throw new Error("Calendar connection lacks event read permission");
 	const current = await getConnectionInstance(

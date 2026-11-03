@@ -1,3 +1,4 @@
+import { scopesGrantingConsent } from "@tedix/api-contract/utils/provider-capability-profiles";
 import { fetchNamedConnection } from "../rpc/routers/connections/policy-resolution";
 import { getConnectionProviderByDescopeAppId } from "@tedix/db/queries/connection-providers";
 import type { OutboundDraft } from "@tedix/api-contract/schemas/outbound";
@@ -39,13 +40,7 @@ export async function outboundGmailCredential(
 	// scope-name check. The shared resolver pins the selected owner's identity.
 	if (
 		purpose === "compose" &&
-		!token.scopes?.some((scope) =>
-			[
-				"https://www.googleapis.com/auth/gmail.compose",
-				"https://www.googleapis.com/auth/gmail.modify",
-				"https://mail.google.com/",
-			].includes(scope),
-		)
+		!scopesGrantingConsent("google-gmail-compose", token.scopes ?? []).length
 	)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
