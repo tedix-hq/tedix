@@ -18,6 +18,76 @@ export const CascadeMeasurementSchema = z.strictObject({
 });
 export type CascadeMeasurement = z.infer<typeof CascadeMeasurementSchema>;
 
+/** Descriptive comparison only; matching experiment configuration needs host evidence. */
+export function compareCascadeMeasurements(
+	raw: unknown[],
+	split: "calibration" | "holdout",
+) {
+	const summary = summarizeCascadeMeasurements(raw, split);
+	const baseline = summary.baseline!;
+	const cascade = summary.cascade!;
+	const rows = raw
+		.map((row) => CascadeMeasurementSchema.parse(row))
+		.filter((row) =>
+			CASCADE_CASES.some(
+				(fixture) => fixture.id === row.caseId && fixture.split === split,
+			),
+		);
+	const keys = (arm: CascadeMeasurement["arm"]) =>
+		new Set(
+			rows
+				.filter((row) => row.arm === arm)
+				.map((row) => `${row.caseId}:${row.repeat}`),
+		);
+	const baselineKeys = keys("baseline");
+	const cascadeKeys = keys("cascade");
+	const paired =
+		baselineKeys.size === cascadeKeys.size &&
+		[...baselineKeys].every((key) => cascadeKeys.has(key));
+	if (!baseline.complete || !cascade.complete || !paired) {
+		return {
+			status: "incomplete" as const,
+			reason: !paired ? "unpaired_repeats" : "incomplete_measurements",
+			deltas: null,
+			checks: null,
+			noRegression: null,
+		};
+	}
+	const deltas = {
+		labelAccuracy: cascade.labelAccuracy! - baseline.labelAccuracy!,
+		meanQuality: cascade.meanQuality! - baseline.meanQuality!,
+		falseSuccesses: cascade.falseSuccesses! - baseline.falseSuccesses!,
+		correctionRate: cascade.correctionRate! - baseline.correctionRate!,
+		p95Ms: cascade.p95Ms! - baseline.p95Ms!,
+		totalCostMicros: cascade.totalCostMicros! - baseline.totalCostMicros!,
+	};
+	const checks = {
+		labelAccuracy: deltas.labelAccuracy >= 0,
+		meanQuality: deltas.meanQuality >= 0,
+		falseSuccesses: deltas.falseSuccesses <= 0,
+		correctionRate: deltas.correctionRate <= 0,
+		p95Ms: deltas.p95Ms <= 0,
+		totalCostMicros: deltas.totalCostMicros <= 0,
+		reservedActs: rows.every((row) => {
+			const fixture = CASCADE_CASES.find(
+				(fixture) => fixture.id === row.caseId,
+			)!;
+			return "reserved" in fixture
+				? row.status === "reserved" &&
+						row.label === null &&
+						row.receipts.length === 0
+				: row.status !== "reserved";
+		}),
+	};
+	return {
+		status: "compared" as const,
+		reason: null,
+		deltas,
+		checks,
+		noRegression: Object.values(checks).every(Boolean),
+	};
+}
+
 /** Missing receipts/prices/repeats remain unknown, never zero-cost successes. */
 export function summarizeCascadeMeasurements(
 	raw: unknown[],
