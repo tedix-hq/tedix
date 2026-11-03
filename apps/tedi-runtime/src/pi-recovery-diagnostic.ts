@@ -4,9 +4,21 @@ import type {
 } from "@earendil-works/pi-durable";
 import {
 	TediRuntimeRecoveryDiagnosticResponseSchema,
+	TediRuntimeRecoveryFailureCodeSchema,
 	TediRuntimeRecoveryQuerySchema,
 	type TediRuntimeRecoveryDiagnosticResponse,
+	type TediRuntimeRecoveryFailureCode,
 } from "@tedix/api-contract/schemas/tedi";
+
+/** Only a known code crosses the admin boundary; any other message stays private. */
+export function piRecoveryFailureCode(
+	error: unknown,
+): TediRuntimeRecoveryFailureCode {
+	const parsed = TediRuntimeRecoveryFailureCodeSchema.safeParse(
+		error instanceof Error ? error.message : undefined,
+	);
+	return parsed.success ? parsed.data : "pi_recovery_unavailable";
+}
 
 function submissionMetadata(row: SubmissionRecord) {
 	return {
@@ -32,7 +44,7 @@ export function projectPiRecovery(input: {
 	const submissions = input.inspection.submissions.filter(
 		(row) => row.conversationId === input.conversationId,
 	);
-	return TediRuntimeRecoveryDiagnosticResponseSchema.parse({
+	const parsed = TediRuntimeRecoveryDiagnosticResponseSchema.safeParse({
 		ok: true,
 		runtime: "pi",
 		sessionKey: input.sessionKey,
@@ -71,6 +83,8 @@ export function projectPiRecovery(input: {
 		submissionCount: submissions.length,
 		truncated: tasks.length > 50 || submissions.length > 50,
 	});
+	if (!parsed.success) throw new Error("pi_recovery_projection_invalid");
+	return parsed.data;
 }
 
 /** Lookup is gated before get(), which would otherwise register a new child. */
@@ -82,10 +96,13 @@ export async function inspectExistingPiFacet<T>(input: {
 		inspectRecovery(sessionKey: string, operationId?: string): Promise<T>;
 	}>;
 }): Promise<T> {
-	TediRuntimeRecoveryQuerySchema.parse({
-		sessionKey: input.sessionKey,
-		operationId: input.operationId,
-	});
+	if (
+		!TediRuntimeRecoveryQuerySchema.safeParse({
+			sessionKey: input.sessionKey,
+			operationId: input.operationId,
+		}).success
+	)
+		throw new Error("pi_recovery_invalid_query");
 	const name = input.sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_");
 	if (!input.has(name)) throw new Error("pi_recovery_session_unavailable");
 	return (await input.get(name)).inspectRecovery(

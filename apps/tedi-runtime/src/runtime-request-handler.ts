@@ -135,7 +135,10 @@ import { turnModelForInject } from "./model-policy";
 import { OBJECT_STORE_PREFIX } from "./object-store-tools";
 import { parseOperatorConsent } from "./operator-consent";
 import { PiTelegram } from "./pi-parent-services";
-import { inspectExistingPiFacet } from "./pi-recovery-diagnostic";
+import {
+	inspectExistingPiFacet,
+	piRecoveryFailureCode,
+} from "./pi-recovery-diagnostic";
 import { RuntimeConfigCache } from "./runtime-config-cache";
 import { RuntimeEventOutbox } from "./runtime-event-outbox";
 import { repositoryModeForMetadata } from "./runtime-tool-guidance";
@@ -2415,12 +2418,10 @@ export async function handleRuntimeRequest(
 					get: (name) => host.dynamicAgents.get(ConversationFacet, name),
 				}),
 			);
-		} catch {
-			console.error("[tedi.pi.recovery] Diagnostic read unavailable");
-			return Response.json(
-				{ ok: false, error: "pi_recovery_unavailable" },
-				{ status: 503 },
-			);
+		} catch (error) {
+			const code = piRecoveryFailureCode(error);
+			console.error(`[tedi.pi.recovery] Diagnostic read unavailable: ${code}`);
+			return Response.json({ ok: false, error: code }, { status: 503 });
 		}
 	}
 

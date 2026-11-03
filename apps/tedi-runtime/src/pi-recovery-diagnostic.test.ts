@@ -3,6 +3,7 @@ import type { HarnessInspection } from "@earendil-works/pi-durable";
 import { PiAgent } from "./pi-agent";
 import {
 	inspectExistingPiFacet,
+	piRecoveryFailureCode,
 	projectPiRecovery,
 } from "./pi-recovery-diagnostic";
 const inspection = {
@@ -215,3 +216,41 @@ console.log(
 	);
 	assert.deepEqual(calls, ["conversation", "receipt"]);
 }
+
+// Failure responses carry one fixed reason code, never a raw error message.
+for (const code of [
+	"pi_recovery_session_unavailable",
+	"pi_recovery_session_mismatch",
+	"pi_recovery_operation_unavailable",
+	"pi_recovery_conversation_unavailable",
+	"pi_recovery_operation_mismatch",
+] as const)
+	assert.equal(piRecoveryFailureCode(new Error(code)), code);
+assert.equal(
+	piRecoveryFailureCode(new Error("SECRET https://internal.invalid")),
+	"pi_recovery_unavailable",
+);
+assert.equal(
+	piRecoveryFailureCode("pi_recovery_session_mismatch"),
+	"pi_recovery_unavailable",
+);
+await assert.rejects(
+	inspectExistingPiFacet({
+		sessionKey: " session",
+		has: () => true,
+		get: async () => {
+			throw Error("Should not create");
+		},
+	}),
+	/pi_recovery_invalid_query/,
+);
+assert.throws(
+	() =>
+		projectPiRecovery({
+			sessionKey: "session",
+			conversationId: 1,
+			inspection: { ...inspection, scheduling: "invented" } as never,
+		}),
+	/pi_recovery_projection_invalid/,
+);
+console.log("Native Pi recovery failures: fixed reason codes pass");

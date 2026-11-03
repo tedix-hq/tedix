@@ -985,6 +985,24 @@ export const TediRuntimeRecoveryDiagnosticResponseSchema = z.object({
 export type TediRuntimeRecoveryDiagnosticResponse = z.infer<
 	typeof TediRuntimeRecoveryDiagnosticResponseSchema
 >;
+/** Fixed, payload-free reason the runtime gives when it cannot read the session. */
+export const TediRuntimeRecoveryFailureCodeSchema = z.enum([
+	"pi_recovery_invalid_query",
+	"pi_recovery_session_unavailable",
+	"pi_recovery_session_mismatch",
+	"pi_recovery_operation_unavailable",
+	"pi_recovery_conversation_unavailable",
+	"pi_recovery_operation_mismatch",
+	"pi_recovery_projection_invalid",
+	"pi_recovery_unavailable",
+]);
+export type TediRuntimeRecoveryFailureCode = z.infer<
+	typeof TediRuntimeRecoveryFailureCodeSchema
+>;
+export const TediRuntimeRecoveryFailureResponseSchema = z.object({
+	ok: z.literal(false),
+	error: TediRuntimeRecoveryFailureCodeSchema,
+});
 
 /** A Durable Object ID hop, kept for recorded historical billing exposure payloads. */
 export const TediRuntimeCutoverObjectIdSchema = z
