@@ -116,9 +116,11 @@ export function approvalHistoryEntries(
 		const conversationId = payloadString(payload, "conversationId");
 		const executionRecord = parseOwnerToolExecution(payload.execution);
 		const execution = ownerToolExecutionOutcome(executionRecord);
-		const retry = isRetryableOwnerToolExecution(executionRecord)
-			? { approvalId: approval.id }
-			: undefined;
+		const open = Date.parse(approval.expiresAt) > Date.now();
+		const retry =
+			open && isRetryableOwnerToolExecution(executionRecord)
+				? { approvalId: approval.id }
+				: undefined;
 		const how = execution
 			? execution
 			: automatic
@@ -137,7 +139,9 @@ export function approvalHistoryEntries(
 				key: `approval:${approval.id}`,
 				filter: automatic ? "automatic" : "approvals",
 				needsAttention:
-					executionRecord != null && executionRecord.status !== "executed",
+					open &&
+					executionRecord != null &&
+					executionRecord.status !== "executed",
 				status: executionRecord
 					? EXECUTION_STATUS[executionRecord.status]
 					: automatic

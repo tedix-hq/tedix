@@ -422,6 +422,7 @@ export type OwnerToolRetryRefusal =
 	| "not_failed"
 	| "still_running"
 	| "not_retryable"
+	| "expired"
 	| "claim_lost";
 
 /**
@@ -452,6 +453,7 @@ export async function retryOwnerToolCallExecution(
 	if (execution.status === "running" && !isStaleOwnerToolRun(execution, now))
 		return "still_running";
 	if (!isRetryableOwnerToolExecution(execution, now)) return "not_retryable";
+	if (Date.parse(input.approval.expiresAt) <= now) return "expired";
 	const startedAt = new Date(now).toISOString();
 	const attempt = (execution.attempt ?? 1) + 1;
 	const claimed = await reclaimOwnerToolApprovalExecution(context.db, {
