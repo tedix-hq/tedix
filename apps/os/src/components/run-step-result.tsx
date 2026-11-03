@@ -7,8 +7,10 @@ import { CodeBlock } from "@/components/kumo/code";
 import { Link } from "@/components/kumo/link";
 import {
 	Collapsible,
+	CollapsibleContent,
 	CollapsibleDefaultTrigger,
 	CollapsibleDefaultContent,
+	CollapsibleTrigger,
 } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { osQuery } from "@/lib/os-query-options";
@@ -156,16 +158,12 @@ export function RunStepConversation({
 		enabled: open,
 	});
 	return (
-		<section className="grid gap-3">
-			<Button
-				variant="outline"
-				onClick={() => setOpen(!open)}
-				aria-expanded={open}
-			>
+		<Collapsible className="grid gap-3" open={open} onOpenChange={setOpen}>
+			<CollapsibleTrigger render={<Button variant="outline" />}>
 				{open ? "Hide conversation" : "Read saved conversation"}
-			</Button>
-			{open && (
-				<>
+			</CollapsibleTrigger>
+			<CollapsibleContent>
+				<div className="grid gap-3">
 					<Text as="p" tone="secondary">
 						Conversation history · may include other turns
 					</Text>
@@ -219,8 +217,8 @@ export function RunStepConversation({
 							Earlier messages
 						</Button>
 					)}
-				</>
-			)}
-		</section>
+				</div>
+			</CollapsibleContent>
+		</Collapsible>
 	);
 }

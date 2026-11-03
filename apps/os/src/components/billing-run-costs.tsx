@@ -6,6 +6,11 @@ import { CostChip } from "@/components/cost-chip";
 import { LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Empty, EmptyDescription } from "@/components/kumo/empty";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
@@ -39,97 +44,96 @@ export function BillingRunCosts({
 		enabled: expanded,
 	});
 	return (
-		<Card tone="raised">
-			<BillingSectionHeader
-				className="px-tedix-card"
-				title="Spending by run"
-				description="See which runs used model resources, then open a run to inspect its steps."
-				actions={
-					<Button
-						variant="outline"
-						className="text-kumo-strong"
-						aria-expanded={expanded}
-						onClick={() => setExpanded(!expanded)}
-					>
-						{expanded ? "Hide run costs" : "View run costs"}
-					</Button>
-				}
-			/>
-			{expanded && (
-				<CardContent className="grid min-w-0 gap-3">
-					<BillingSettledSpending />
-					{ledger.isPending ? (
-						<Skeleton className="h-24" aria-label="Loading recorded costs" />
-					) : ledger.isError || !ledger.data ? (
-						<LoadError
-							title="Recorded costs could not be loaded"
-							help="This does not mean zero spending. Try again in a moment."
-							error={ledger.error}
-							onRetry={() => {
-								void ledger.refetch();
-							}}
-							retrying={ledger.isFetching}
-						/>
-					) : (
-						<>
-							<Text tone="secondary">
-								Recent 30 days · {ledger.data.pagination.returnedRows} of{" "}
-								{ledger.data.pagination.totalRows} ledger records.{" "}
-								{ledger.data.pagination.hasMore
-									? "Only the newest records are shown; these run subtotals are incomplete."
-									: "Run attribution can still be incomplete or arrive later."}{" "}
-								These are recorded model costs, separate from customer credit
-								charges.
-							</Text>
-							{ledger.data.rows.length === 0 ? (
-								<Empty appearance="inline">
-									<EmptyDescription>
-										No model cost records in this window.
-									</EmptyDescription>
-								</Empty>
-							) : (
-								<Table scrollLabel="Recorded costs by run">
-									<TableHeader>
-										<TableRow>
-											<TableHead>Run</TableHead>
-											<TableHead>Recorded calls</TableHead>
-											<TableHead>Model cost</TableHead>
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{groupRecordedRunCosts(ledger.data.rows).map((group) => (
-											<TableRow key={group.runId ?? "unlinked"}>
-												<TableCell>
-													{group.runId ? (
-														<Link
-															href={`/work/runs/${encodeURIComponent(group.runId)}`}
-														>
-															Open run · {group.runId.slice(0, 8)}
-														</Link>
-													) : (
-														"Calls without a linked run"
-													)}
-												</TableCell>
-												<TableCell>{group.callCount}</TableCell>
-												<TableCell>
-													<CostChip
-														reading={group.reading}
-														subject="Model cost in returned ledger records for this run"
-													/>
-												</TableCell>
+		<Collapsible open={expanded} onOpenChange={setExpanded}>
+			<Card tone="raised">
+				<BillingSectionHeader
+					className="px-tedix-card"
+					title="Spending by run"
+					description="See which runs used model resources, then open a run to inspect its steps."
+					actions={
+						<CollapsibleTrigger
+							render={<Button variant="outline" className="text-kumo-strong" />}
+						>
+							{expanded ? "Hide run costs" : "View run costs"}
+						</CollapsibleTrigger>
+					}
+				/>
+				<CollapsibleContent>
+					<CardContent className="grid min-w-0 gap-3">
+						<BillingSettledSpending />
+						{ledger.isPending ? (
+							<Skeleton className="h-24" aria-label="Loading recorded costs" />
+						) : ledger.isError || !ledger.data ? (
+							<LoadError
+								title="Recorded costs could not be loaded"
+								help="This does not mean zero spending. Try again in a moment."
+								error={ledger.error}
+								onRetry={() => {
+									void ledger.refetch();
+								}}
+								retrying={ledger.isFetching}
+							/>
+						) : (
+							<>
+								<Text tone="secondary">
+									Recent 30 days · {ledger.data.pagination.returnedRows} of{" "}
+									{ledger.data.pagination.totalRows} ledger records.{" "}
+									{ledger.data.pagination.hasMore
+										? "Only the newest records are shown; these run subtotals are incomplete."
+										: "Run attribution can still be incomplete or arrive later."}{" "}
+									These are recorded model costs, separate from customer credit
+									charges.
+								</Text>
+								{ledger.data.rows.length === 0 ? (
+									<Empty appearance="inline">
+										<EmptyDescription>
+											No model cost records in this window.
+										</EmptyDescription>
+									</Empty>
+								) : (
+									<Table scrollLabel="Recorded costs by run">
+										<TableHeader>
+											<TableRow>
+												<TableHead>Run</TableHead>
+												<TableHead>Recorded calls</TableHead>
+												<TableHead>Model cost</TableHead>
 											</TableRow>
-										))}
-									</TableBody>
-								</Table>
-							)}
-							<Text role="label" tone="secondary">
-								Workspace, step and useful-result credit allocation is not
-								available in this ledger. Unlinked calls stay visible.
-							</Text>
-						</>
-					)}
-				</CardContent>
-			)}
-		</Card>
+										</TableHeader>
+										<TableBody>
+											{groupRecordedRunCosts(ledger.data.rows).map((group) => (
+												<TableRow key={group.runId ?? "unlinked"}>
+													<TableCell>
+														{group.runId ? (
+															<Link
+																href={`/work/runs/${encodeURIComponent(group.runId)}`}
+															>
+																Open run · {group.runId.slice(0, 8)}
+															</Link>
+														) : (
+															"Calls without a linked run"
+														)}
+													</TableCell>
+													<TableCell>{group.callCount}</TableCell>
+													<TableCell>
+														<CostChip
+															reading={group.reading}
+															subject="Model cost in returned ledger records for this run"
+														/>
+													</TableCell>
+												</TableRow>
+											))}
+										</TableBody>
+									</Table>
+								)}
+								<Text role="label" tone="secondary">
+									Workspace, step and useful-result credit allocation is not
+									available in this ledger. Unlinked calls stay visible.
+								</Text>
+							</>
+						)}
+					</CardContent>
+				</CollapsibleContent>
+			</Card>
+		</Collapsible>
 	);
 }
