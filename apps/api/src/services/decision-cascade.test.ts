@@ -190,6 +190,57 @@ describe("decision cascade evaluation boundary", () => {
 			(await evaluateDecisionCascade(policy, input, adapters)).status,
 		).toBe("abstained");
 	});
+	it("awaits a negative host check before escalation and abstention", async () => {
+		const adapters = {
+			...harness(),
+			validateCitations: vi.fn(async () => false),
+		};
+		const result = await evaluateDecisionCascade(policy, input, adapters);
+		expect(result.status).toBe("abstained");
+		expect(result.proposal).toBeNull();
+		expect(adapters.dispatch.mock.calls.map(([row]) => row.tier)).toEqual([
+			"judgment",
+			"strong",
+		]);
+	});
+	it("lets the host reject unsupported prose even when its label is supported", async () => {
+		const adapters = {
+			...harness(),
+			validateCitations: vi.fn<CascadeAdapters["validateCitations"]>(
+				async (_label, _citations, context) => !("brief" in context.proposal),
+			),
+		};
+		const result = await evaluateDecisionCascade(policy, input, adapters);
+		expect(result.status).toBe("abstained");
+		expect(adapters.dispatch.mock.calls.map(([row]) => row.tier)).toEqual([
+			"judgment",
+			"draft",
+			"strong",
+		]);
+		expect(adapters.validateCitations.mock.calls[1]![2]).toEqual({
+			input,
+			proposal: {
+				...judgment,
+				brief: "Revision 2 has matching delivery evidence.",
+			},
+		});
+	});
+	it("stops without further inference when the host check fails", async () => {
+		const adapters = {
+			...harness(),
+			validateCitations: vi.fn(async () => {
+				throw new Error("Source unavailable");
+			}),
+		};
+		const result = await evaluateDecisionCascade(policy, input, adapters);
+		expect(result).toMatchObject({
+			status: "stopped",
+			reason: "adapter_failure",
+			proposal: null,
+		});
+		expect(result.receipts).toHaveLength(1);
+		expect(adapters.dispatch).toHaveBeenCalledTimes(1);
+	});
 	it("uses the strong model directly for synthesis", async () => {
 		const adapters = harness();
 		expect(

@@ -20,6 +20,9 @@ budgets and deadlines, and supply actual resolved model and execution receipts.
 Three separate dispatches do not establish statistical independence. The host
 citation validator must check source access, freshness and semantic support;
 membership in the supplied source list alone is insufficient.
+The controller awaits this validator and supplies the request, source excerpts
+and full proposal, including prose. A rejected check stops further inference;
+a negative check escalates or abstains. The host validator remains to be wired.
 
 An adapter must translate Jev's bounded answers into the judgment schema. It
 must not request free-form briefs from Jev. Typed admission/budget/accounting

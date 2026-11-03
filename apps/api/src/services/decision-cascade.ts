@@ -41,7 +41,8 @@ export interface CascadeAdapters {
 	validateCitations: (
 		label: string,
 		citations: readonly CascadeCitation[],
-	) => boolean;
+		context: { input: CascadeInput; proposal: CascadeJudgment | CascadeDraft },
+	) => boolean | Promise<boolean>;
 }
 export interface CascadeResult {
 	status: "off" | "reserved" | "stopped" | "abstained" | "proposed";
@@ -85,7 +86,7 @@ export async function evaluateDecisionCascade(
 		new Set(input.evidence.map((row) => row.id)).size !== input.evidence.length
 	)
 		return finish("stopped", "ambiguous_evidence");
-	const supported = (value: CascadeJudgment) => {
+	const supported = async (value: CascadeJudgment | CascadeDraft) => {
 		if (
 			!input.labels.includes(value.label) ||
 			value.confidence < policy.minConfidence ||
@@ -102,7 +103,10 @@ export async function evaluateDecisionCascade(
 					(row) => row.id === citation.id && row.revision === citation.revision,
 				),
 			) &&
-			adapters.validateCitations(value.label, value.citations)
+			(await adapters.validateCitations(value.label, value.citations, {
+				input,
+				proposal: value,
+			}))
 		);
 	};
 	let calls = 0;
@@ -159,7 +163,7 @@ export async function evaluateDecisionCascade(
 	const strong = async (reason: string): Promise<CascadeResult> => {
 		const value = CascadeDraftSchema.safeParse(await send("strong", null));
 		if (stopReason) return finish("stopped", stopReason);
-		return value.success && supported(value.data)
+		return value.success && (await supported(value.data))
 			? finish("proposed", reason, value.data)
 			: finish("abstained", "strong_unavailable_or_unsupported");
 	};
@@ -175,7 +179,7 @@ export async function evaluateDecisionCascade(
 				await send("judgment", null, index),
 			);
 			if (stopReason) return finish("stopped", stopReason);
-			if (!value.success || !supported(value.data))
+			if (!value.success || !(await supported(value.data)))
 				return await strong("uncertain_or_unavailable");
 			judgments.push(value.data);
 		}
@@ -187,7 +191,7 @@ export async function evaluateDecisionCascade(
 		if (
 			!draft.success ||
 			draft.data.label !== judgment.label ||
-			!supported(draft.data)
+			!(await supported(draft.data))
 		)
 			return await strong("draft_unsupported");
 		return finish("proposed", "bounded_draft", draft.data);
