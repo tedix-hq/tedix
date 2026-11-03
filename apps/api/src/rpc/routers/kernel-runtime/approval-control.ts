@@ -199,6 +199,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 	const heldBy = heldWorkItemId
 		? await findForeignActiveAttempt(context, {
 				assigneeTediId: pending.targetTediId,
+				homeRunId: input.run.id,
 				now: resolvedAt,
 				organizationId: input.organizationId,
 				workItemId: heldWorkItemId,
