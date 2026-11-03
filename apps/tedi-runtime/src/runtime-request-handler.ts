@@ -870,6 +870,7 @@ export async function handleRuntimeRequest(
 							executionRestriction,
 							true,
 						);
+						await host.eventOutbox.redriveRun(runId);
 						return Response.json({
 							success: true,
 							...(await settledChatTurnReceipt(await host.getPlatformClient(), {
@@ -1122,6 +1123,7 @@ export async function handleRuntimeRequest(
 								assistantKey,
 							);
 							if (committedTurn) {
+								await host.eventOutbox.redriveRun(runId);
 								return Response.json({
 									success: true,
 									...(await settledChatTurnReceipt(

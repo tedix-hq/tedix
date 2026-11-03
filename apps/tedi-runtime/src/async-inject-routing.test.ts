@@ -604,3 +604,52 @@ for (const status of [
 		null,
 	);
 }
+
+// A cached assistant is not delivery proof until its original queued evidence
+// is visible. Replaying a failed result must keep the failed outcome.
+for (const kind of ["run.completed", "run.failed"]) {
+	const calls: string[] = [];
+	const expectedRun = buildRunId("tedi-1", "cached-wake", "mcp");
+	const agent = tediDo({
+		state: { tediId: "tedi-1", orgId: "org-1", slug: "acme" },
+		ctx: { storage: memoryStorage() },
+		async ensureIdentity() {},
+		sessionRepo: {
+			findTurnByIdempotencyKey: () => ({ content: "cached", ts: 1 }),
+		},
+		eventOutbox: {
+			async redriveRun(run: string) {
+				assert.equal(run, expectedRun);
+				calls.push("restore");
+				return false;
+			},
+		},
+		async getPlatformClient() {
+			return {
+				async listRuntimeEvents({ runId }: { runId: string }) {
+					assert.equal(runId, expectedRun);
+					assert.deepEqual(calls, ["restore"]);
+					calls.push("read");
+					return {
+						events: [{ kind, payload: {}, createdAt: "2026-11-03T00:00:00Z" }],
+					};
+				},
+			};
+		},
+		async runWorkflow() {
+			assert.fail("a cached wake must not dispatch inference again");
+		},
+	});
+	const response = await agent.onRequest(
+		post("/__internal/inject", {
+			text: "original recovery request",
+			client_request_id: "cached-wake",
+			async: true,
+		}),
+	);
+	assert.deepEqual(calls, ["restore", "read"]);
+	assert.equal(response.status, kind === "run.completed" ? 200 : 500);
+	const receipt = (await response.json()) as Record<string, unknown>;
+	assert.equal(receipt.run_id, expectedRun);
+	if (kind === "run.failed") assert.equal(receipt.outcome, "failed");
+}

@@ -492,10 +492,20 @@ export class RuntimeEventOutbox {
 		return this.redriving;
 	}
 
-	private async redriveOnce(): Promise<boolean> {
-		const entries = await this.deps.storage.list<LedgerOutboxEntry>({
+	/** Restore only the original run's queued evidence before acknowledging a replay. */
+	async redriveRun(runId: string): Promise<boolean> {
+		return this.redriveOnce(runId);
+	}
+
+	private async redriveOnce(runId?: string): Promise<boolean> {
+		const allEntries = await this.deps.storage.list<LedgerOutboxEntry>({
 			prefix: LEDGER_OUTBOX_PREFIX,
 		});
+		const entries = new Map(
+			[...allEntries].filter(
+				([, entry]) => runId === undefined || entry.event.runId === runId,
+			),
+		);
 		if (entries.size === 0) return false;
 		const platform = await this.deps.platform();
 		let remaining = 0;
@@ -504,9 +514,10 @@ export class RuntimeEventOutbox {
 				Number(a[1].class !== "observational") -
 				Number(b[1].class !== "observational"),
 		);
-		for (const [key, entry] of ordered) {
-			await this.serialize(entry.event.runId ?? "", async () => {
-				if (!(await this.deps.storage.get(key))) return;
+		for (const [key, pending] of ordered) {
+			await this.serialize(pending.event.runId ?? "", async () => {
+				const entry = await this.deps.storage.get<LedgerOutboxEntry>(key);
+				if (!entry) return;
 				if (
 					entry.class !== "observational" &&
 					!(await this.flush(entry.event.runId, false))
