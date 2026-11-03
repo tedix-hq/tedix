@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../../orpc";
-import { createDelegationWorkItem } from "./delegation-work-item";
+import {
+	createDelegationWorkItem,
+	findForeignActiveAttempt,
+} from "./delegation-work-item";
 
 const mocks = vi.hoisted(() => ({
 	getWorkItemBySourceIntentId: vi.fn(),
@@ -107,5 +110,46 @@ describe("createDelegationWorkItem re-dispatch of the same child run", () => {
 			expect.anything(),
 			expect.objectContaining({ admissionId: "admission-2" }),
 		);
+	});
+});
+
+describe("findForeignActiveAttempt before approving onto held Work", () => {
+	it.each([
+		[
+			"another executor",
+			{ executorType: "external_agent", executorId: "devin" },
+			"attempt-1",
+		],
+		[
+			"the same tedi through a different Home run",
+			{ metadata: { homeRunId: "other-run" } },
+			"attempt-1",
+		],
+		[
+			"a re-dispatch of this Home delegation",
+			{ metadata: { homeRunId: "home-run" } },
+			null,
+		],
+		[
+			"an expired lease",
+			{ executorType: "external_agent", expiresAt: "2026-10-22T11:00:00.000Z" },
+			null,
+		],
+	])("treats %s correctly", async (_label, overrides, expected) => {
+		mocks.listWorkItemAttempts.mockResolvedValueOnce({
+			data: [attempt(overrides)],
+			nextCursor: null,
+		});
+		const found = await findForeignActiveAttempt(
+			{ db: {} } as unknown as BaseContext,
+			{
+				assigneeTediId: "tedi-cfo",
+				homeRunId: "home-run",
+				now: NOW,
+				organizationId: "org-1",
+				workItemId: "work-1",
+			},
+		);
+		expect(found?.id ?? null).toBe(expected);
 	});
 });

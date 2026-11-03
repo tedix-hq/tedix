@@ -185,14 +185,16 @@ export function requiredProofKindForExecution(
 }
 
 /**
- * The unexpired active Attempt another executor holds on the Work Item, if
- * any. Approving a delegation onto it would start a second writer, which
+ * The unexpired active Attempt on the Work Item that is not a re-dispatch of
+ * this Home delegation, if any: another executor, or the same tedi through a
+ * different run. Approving onto it would start a second writer, which
  * admission refuses as `already_running`.
  */
 export async function findForeignActiveAttempt(
 	context: BaseContext,
 	input: {
 		assigneeTediId: string;
+		homeRunId: string;
 		now: string;
 		organizationId: string;
 		workItemId: string;
@@ -211,7 +213,8 @@ export async function findForeignActiveAttempt(
 				) &&
 				!(
 					attempt.executorType === "tedi" &&
-					attempt.executorId === input.assigneeTediId
+					attempt.executorId === input.assigneeTediId &&
+					nonNullRecord(attempt.metadata)?.homeRunId === input.homeRunId
 				) &&
 				attempt.expiresAt !== null &&
 				Date.parse(attempt.expiresAt) > Date.parse(input.now),
