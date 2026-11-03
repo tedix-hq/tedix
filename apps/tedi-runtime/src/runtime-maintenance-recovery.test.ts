@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { tediDo } from "../test/tedi-do";
 import { runtimeParentTurns } from "./runtime-parent-turns";
 import type { ParentServiceOperation } from "./pi-parent-services";
 const operation: ParentServiceOperation = {
@@ -78,3 +79,28 @@ await assert.rejects(
 console.log(
 	"PASS uncertain maintenance reconciles actual durable result and preserves original identity",
 );
+
+for (const canonical of [false, true]) {
+	let resumed = 0;
+	const pending: Promise<unknown>[] = [];
+	const agent = tediDo({
+		async ensureIdentity() {},
+		maintenance: { ensure: async () => canonical },
+		eventOutbox: {
+			ensureRedrive: async () => {
+				resumed++;
+			},
+		},
+		ctx: { waitUntil: (promise: Promise<unknown>) => pending.push(promise) },
+		async nativeTelegram() {
+			return null;
+		},
+	});
+	await agent.onStart();
+	await Promise.all(pending);
+	assert.equal(
+		resumed,
+		canonical ? 1 : 0,
+		"only the canonical runtime resumes queued evidence",
+	);
+}

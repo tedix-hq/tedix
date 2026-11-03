@@ -1536,7 +1536,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	}
 	override async onStart(): Promise<void> {
 		await this.ensureIdentity();
-		await this.maintenance.ensure();
+		if (await this.maintenance.ensure())
+			this.ctx.waitUntil(this.eventOutbox.ensureRedrive());
 		const telegram = await this.nativeTelegram();
 		if (telegram) this.ctx.waitUntil(telegram.recoverPending());
 	}
