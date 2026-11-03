@@ -368,6 +368,7 @@ export async function outboundApprovalHistory(
 			body: workInteractionResponses.body,
 			metadata: workInteractionResponses.metadata,
 			at: workInteractionResponses.respondedAt,
+			totalCount: sql<number>`count(*) over()`.as("total_count"),
 		})
 		.from(workInteractionResponses)
 		.where(

@@ -25,7 +25,15 @@ export const outboundContract = oc.errors(baseErrors).router({
 	accounts: oc
 		.route({ tags: ["internal"] })
 		.input(z.strictObject({}))
-		.output(z.array(z.strictObject({ id: z.uuid(), label: z.string() }))),
+		.output(
+			z.array(
+				z.strictObject({
+					id: z.uuid(),
+					label: z.string(),
+					readAccess: z.enum(["verified", "denied", "unknown"]),
+				}),
+			),
+		),
 	get: oc.input(identity).output(OutboundRecordSchema),
 	checkOutcome: oc
 		.route({ tags: ["internal"] })
@@ -103,6 +111,7 @@ export const outboundContract = oc.errors(baseErrors).router({
 					}),
 				),
 				decisionCount: z.number().int().nonnegative(),
+				approvalCount: z.number().int().nonnegative(),
 				preferences: z.array(z.string()),
 				lessons: z.array(z.string()),
 				sentExamples: z.number(),

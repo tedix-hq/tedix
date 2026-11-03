@@ -68,6 +68,16 @@ const ENGLISH_COPY = {
 		empty: "Your first decision or edit starts your profile.",
 		decisions: (count: number) =>
 			`Your profile includes ${count} recent ${count === 1 ? "decision" : "decisions"}.`,
+		approvals: (count: number) =>
+			`${count} outbound ${count === 1 ? "approval" : "approvals"}. The latest 10 are shown below.`,
+		readAccess: {
+			verified:
+				"Sent-mail read access verified. Import only reads Gmail; it never sends or changes mail.",
+			denied:
+				"Google denied sent-mail read access. Review this account's consent in Connections.",
+			unknown:
+				"Sent-mail read access is unverified. Import will check access without changing consent.",
+		},
 		examples: (count: number) =>
 			count
 				? `${count} sent-mail examples are saved privately for you.`

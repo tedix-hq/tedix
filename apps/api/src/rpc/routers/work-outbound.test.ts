@@ -613,36 +613,79 @@ it("imports sent mail into only the requesting person's private profile", async 
 	}
 });
 
-it("labels the owner's selected Gmail account with its verified address", async () => {
-	const { sqlite, client } = fixture();
-	sqlite.exec(schemaDdl(connectionInstances));
-	for (const user of ["rosa", "lina"])
-		sqlite
-			.prepare(
-				"INSERT INTO connection_instances(id,owner_user_id,provider_id,label,token_ids,created_at,updated_at) VALUES(?,?,'fictional-gmail',?,'[]',?,?)",
+it.each([
+	[200, 200, "verified", "rosa@example.test"],
+	[200, 403, "denied", "rosa@example.test"],
+	[503, 503, "unknown", "Gmail account (address unverified)"],
+])(
+	"reports verified identity and read access without trusting saved labels (%i, %i)",
+	async (profileStatus, readStatus, readAccess, label) => {
+		const { sqlite, client } = fixture();
+		sqlite.exec(schemaDdl(connectionInstances));
+		for (const user of ["rosa", "lina"])
+			sqlite
+				.prepare(
+					"INSERT INTO connection_instances(id,owner_user_id,provider_id,label,token_ids,created_at,updated_at) VALUES(?,?,'fictional-gmail',?,'[]',?,?)",
+				)
+				.run(
+					user === "rosa" ? ACCOUNT : "other-account",
+					`${user}-sub`,
+					"stale@example.test",
+					new Date().toISOString(),
+					new Date().toISOString(),
+				);
+		const request = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(
+				Response.json(
+					{ emailAddress: "rosa@example.test" },
+					{ status: profileStatus },
+				),
 			)
-			.run(
-				user === "rosa" ? ACCOUNT : "other-account",
-				`${user}-sub`,
-				"Gmail (default)",
-				new Date().toISOString(),
-				new Date().toISOString(),
+			.mockResolvedValueOnce(
+				Response.json({ messages: [{ id: "sent-example" }] }),
+			)
+			.mockResolvedValueOnce(
+				Response.json({ id: "sent-example" }, { status: readStatus }),
 			);
-	const request = vi
-		.spyOn(globalThis, "fetch")
-		.mockResolvedValue(Response.json({ emailAddress: "rosa@example.test" }));
-	try {
-		expect(await client().accounts({})).toEqual([
-			{ id: ACCOUNT, label: "rosa@example.test" },
-		]);
-		expect(request).toHaveBeenCalledTimes(1);
-		expect(gmail.credential).toHaveBeenLastCalledWith(
-			expect.anything(),
-			"fictional-gmail",
-			ACCOUNT,
-			"read",
+		try {
+			expect(await client().accounts({})).toEqual([
+				{ id: ACCOUNT, label, readAccess },
+			]);
+			expect(request).toHaveBeenCalledTimes(3);
+			expect(gmail.credential).toHaveBeenLastCalledWith(
+				expect.anything(),
+				"fictional-gmail",
+				ACCOUNT,
+				"read",
+			);
+		} finally {
+			request.mockRestore();
+		}
+	},
+);
+
+it("counts all of this owner's approvals while limiting displayed history to ten", async () => {
+	const { sqlite, client } = fixture();
+	const insert = sqlite.prepare(
+		"INSERT INTO work_interaction_responses(id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,metadata,responded_at) VALUES(?,?,?,2,?,'user',?,'Approved','answer',?,?)",
+	);
+	for (let index = 0; index < 15; index++) {
+		insert.run(
+			`approval-${index}`,
+			index === 14 ? "foreign-org" : ORG,
+			QUESTION,
+			`fence-${index}`,
+			index === 13 ? "lina" : "rosa",
+			JSON.stringify({
+				schema: "tedix.outbound.v1",
+				action: index === 12 ? "feedback" : "approve_manual",
+			}),
+			new Date().toISOString(),
 		);
-	} finally {
-		request.mockRestore();
 	}
+	const profile = await client().profile({});
+	expect(profile.approvals).toHaveLength(10);
+	expect(profile.approvalCount).toBe(12);
+	expect((await client("lina").profile({})).approvalCount).toBe(1);
 });
