@@ -330,10 +330,112 @@ export const SCOPE_IMPLICATION_PROFILES: readonly ScopeImplicationProfile[] = [
 	},
 ];
 
+// ---------------------------------------------------------------------------
+// Consent scope profiles: which granted scopes satisfy a provider capability
+// ---------------------------------------------------------------------------
+
+export interface ConsentScopeProfile extends ProviderCapabilityProfileBase {
+	/** Granted scopes, any one of which gives this consent (exact identity). */
+	anyOf: readonly string[];
+	/**
+	 * Matcher kept from the earlier inline Microsoft Graph checks, which accept
+	 * any casing and prefix. Tightening it to exact identities is a separate
+	 * reviewed change because live tenants may hold differently spelled scopes.
+	 */
+	anyOfPattern?: { source: string; flags: string };
+	/** Scopes a delegation requests for this capability, when it requests any. */
+	requests?: readonly string[];
+}
+
+const microsoftCalendarsReadPattern = {
+	source: "(^|\\/)Calendars\\.(Read|ReadWrite)$",
+	flags: "i",
+};
+
+const CONSENT_SCOPE_PROFILES: Readonly<Record<string, ConsentScopeProfile>> =
+	Object.fromEntries(
+		(
+			[
+				{
+					// A calendar Workspace attachment needs some Google Calendar scope.
+					id: "google-calendar-attach",
+					version: 1,
+					anyOf: [...GOOGLE_CALENDAR_SCOPE_FAMILY],
+				},
+				{
+					id: "google-calendar-event-read",
+					version: 1,
+					anyOf: [
+						GOOGLE_CALENDAR_SCOPE_ROOT,
+						`${GOOGLE_CALENDAR_SCOPE_ROOT}.readonly`,
+						`${GOOGLE_CALENDAR_SCOPE_ROOT}.events`,
+						`${GOOGLE_CALENDAR_SCOPE_ROOT}.events.readonly`,
+					],
+				},
+				{
+					id: "google-calendar-event-write",
+					version: 1,
+					anyOf: [
+						GOOGLE_CALENDAR_SCOPE_ROOT,
+						`${GOOGLE_CALENDAR_SCOPE_ROOT}.events`,
+					],
+					requests: [
+						`${GOOGLE_CALENDAR_SCOPE_ROOT}.events`,
+						`${GOOGLE_CALENDAR_SCOPE_ROOT}.calendarlist.readonly`,
+					],
+				},
+				{
+					id: "microsoft-calendar-read",
+					version: 1,
+					anyOf: [],
+					anyOfPattern: microsoftCalendarsReadPattern,
+				},
+				{
+					id: "microsoft-calendar-write",
+					version: 1,
+					anyOf: [],
+					anyOfPattern: { source: "(^|\\/)Calendars\\.ReadWrite$", flags: "i" },
+					requests: ["Calendars.ReadWrite"],
+				},
+				{
+					// Drafting or sending through Gmail needs compose authority.
+					id: "google-gmail-compose",
+					version: 1,
+					anyOf: [
+						"https://www.googleapis.com/auth/gmail.compose",
+						"https://www.googleapis.com/auth/gmail.modify",
+						"https://mail.google.com/",
+					],
+				},
+			] satisfies ConsentScopeProfile[]
+		).map((profile) => [profile.id, profile]),
+	);
+
+export function consentScopeProfile(id: string): ConsentScopeProfile {
+	if (!Object.hasOwn(CONSENT_SCOPE_PROFILES, id))
+		throw new Error(`Unknown consent scope profile: ${id}`);
+	return CONSENT_SCOPE_PROFILES[id]!;
+}
+
+/** The granted scopes that give a reviewed consent; empty means not granted. */
+export function scopesGrantingConsent(
+	profileId: string,
+	granted: readonly string[],
+): string[] {
+	const profile = consentScopeProfile(profileId);
+	const pattern = profile.anyOfPattern
+		? new RegExp(profile.anyOfPattern.source, profile.anyOfPattern.flags)
+		: undefined;
+	return granted.filter(
+		(scope) => profile.anyOf.includes(scope) || !!pattern?.test(scope),
+	);
+}
+
 /** Every reviewed profile, for audit listings and the version pin test. */
 export const PROVIDER_CAPABILITY_PROFILES: readonly ProviderCapabilityProfileBase[] =
 	[
 		...Object.values(RESOURCE_PROFILES),
 		...Object.values(PERSONAL_PROFILES),
 		...SCOPE_IMPLICATION_PROFILES,
+		...Object.values(CONSENT_SCOPE_PROFILES),
 	];

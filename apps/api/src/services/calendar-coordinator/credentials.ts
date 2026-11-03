@@ -17,6 +17,14 @@ import type {
 	CalendarAdapter,
 	Configuration,
 } from "./types";
+import {
+	consentScopeProfile,
+	scopesGrantingConsent,
+} from "@tedix/api-contract/utils/provider-capability-profiles";
+const calendarWriteConsent = (adapter: AdapterKind) =>
+	adapter === "google"
+		? "google-calendar-event-write"
+		: "microsoft-calendar-write";
 type Selection = Partial<
 	Pick<CalendarRoute, "workspaceResourceId" | "delegationId" | "calendarId">
 > &
@@ -118,13 +126,10 @@ export async function resolveCalendarAdapter(
 				: "microsoft-graph-calendar-tedix")
 		)
 			throw new Error("Calendar adapter differs from the canonical provider");
-		const requiredScopes =
-			selection.adapter === "google"
-				? [
-						"https://www.googleapis.com/auth/calendar.events",
-						"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-					]
-				: ["Calendars.ReadWrite"];
+		const requiredScopes = [
+			...(consentScopeProfile(calendarWriteConsent(selection.adapter))
+				.requests ?? []),
+		];
 		const fresh = async (operation: string) => {
 			const use = {
 				delegationId: selection.delegationId!,
@@ -286,14 +291,8 @@ export async function resolveCalendarAdapter(
 		);
 	const scopes = token.scopes ?? [];
 	const canWrite =
-		selection.adapter === "google"
-			? scopes.some((s) =>
-					[
-						"https://www.googleapis.com/auth/calendar",
-						"https://www.googleapis.com/auth/calendar.events",
-					].includes(s),
-				)
-			: scopes.some((s) => /(^|\/)Calendars\.ReadWrite$/i.test(s));
+		scopesGrantingConsent(calendarWriteConsent(selection.adapter), scopes)
+			.length > 0;
 	const underlying =
 		selection.adapter === "google"
 			? googleCalendarAdapter(token.accessToken)

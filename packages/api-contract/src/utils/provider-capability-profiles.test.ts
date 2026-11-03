@@ -2,8 +2,10 @@ import * as z from "zod";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	PROVIDER_CAPABILITY_PROFILES,
+	consentScopeProfile,
 	personalAccountCapabilityProfile,
 	resourceCapabilityProfile,
+	scopesGrantingConsent,
 } from "./provider-capability-profiles";
 import { effectivePersonalResourceBinding } from "./personal-resource-tool-binding";
 
@@ -32,6 +34,12 @@ const PINNED: Record<string, { version: number; fingerprint: string }> = {
 	"google-calendar": { version: 1, fingerprint: "19e8242a" },
 	"google-calendar-scopes": { version: 1, fingerprint: "39e19118" },
 	"microsoft-graph-calendar-scopes": { version: 1, fingerprint: "11be9888" },
+	"google-calendar-attach": { version: 1, fingerprint: "9c12ea19" },
+	"google-calendar-event-read": { version: 1, fingerprint: "44c94f7a" },
+	"google-calendar-event-write": { version: 1, fingerprint: "f1b82b23" },
+	"microsoft-calendar-read": { version: 1, fingerprint: "a7d48eb1" },
+	"microsoft-calendar-write": { version: 1, fingerprint: "ede13471" },
+	"google-gmail-compose": { version: 1, fingerprint: "12bee25a" },
 };
 
 describe("reviewed provider capability profiles", () => {
@@ -106,5 +114,49 @@ describe("tenant bindings stay within the reviewed profile", () => {
 				operation: "read",
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("consent scope profiles", () => {
+	const google = "https://www.googleapis.com/auth/";
+	it.each([
+		["google-calendar-attach", `${google}calendar.calendarlist.readonly`, true],
+		["google-calendar-event-read", `${google}calendar.events.readonly`, true],
+		[
+			"google-calendar-event-read",
+			`${google}calendar.calendarlist.readonly`,
+			false,
+		],
+		["google-calendar-event-write", `${google}calendar.events`, true],
+		["google-calendar-event-write", `${google}calendar.readonly`, false],
+		["google-calendar-event-write", `${google}calendar.events.evil`, false],
+		["google-gmail-compose", `${google}gmail.modify`, true],
+		["google-gmail-compose", "https://mail.google.com/", true],
+		["google-gmail-compose", `${google}gmail.readonly`, false],
+		[
+			"microsoft-calendar-read",
+			"https://graph.microsoft.com/Calendars.Read",
+			true,
+		],
+		["microsoft-calendar-read", "calendars.readwrite", true],
+		["microsoft-calendar-read", "Calendars.ReadBasic", false],
+		["microsoft-calendar-write", "Calendars.ReadWrite", true],
+		["microsoft-calendar-write", "Calendars.Read", false],
+	])("%s with %s grants %s", (id, scope, granted) => {
+		expect(scopesGrantingConsent(id, ["openid", scope])).toEqual(
+			granted ? [scope] : [],
+		);
+	});
+	it("requests only scopes its own consent accepts or reads with", () => {
+		expect(consentScopeProfile("google-calendar-event-write").requests).toEqual(
+			[`${google}calendar.events`, `${google}calendar.calendarlist.readonly`],
+		);
+		expect(consentScopeProfile("microsoft-calendar-write").requests).toEqual([
+			"Calendars.ReadWrite",
+		]);
+	});
+	it("rejects unknown and prototype ids", () => {
+		for (const id of ["unknown", "toString", "__proto__"])
+			expect(() => scopesGrantingConsent(id, [])).toThrow();
 	});
 });

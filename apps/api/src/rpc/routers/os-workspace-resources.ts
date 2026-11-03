@@ -1,4 +1,5 @@
 import { personalResourceScopesCover } from "@tedix/api-contract/utils/personal-resource-tool-binding";
+import { scopesGrantingConsent } from "@tedix/api-contract/utils/provider-capability-profiles";
 import { fetchNamedConnection } from "./connections/policy-resolution";
 import {
 	supportedCalendarAccounts,
@@ -221,20 +222,12 @@ async function verifiedResourceScopes(
 			"Calendar account identity changed during attachment",
 		);
 	const observed = token?.scopes ?? [];
-	const requiredScopes =
+	const requiredScopes = scopesGrantingConsent(
 		account.adapter === "google"
-			? observed.filter((scope) =>
-					[
-						"https://www.googleapis.com/auth/calendar",
-						"https://www.googleapis.com/auth/calendar.readonly",
-						"https://www.googleapis.com/auth/calendar.events",
-						"https://www.googleapis.com/auth/calendar.events.readonly",
-						"https://www.googleapis.com/auth/calendar.calendarlist.readonly",
-					].includes(scope),
-				)
-			: observed.filter((scope) =>
-					/(^|\/)Calendars\.(Read|ReadWrite)$/i.test(scope),
-				);
+			? "google-calendar-attach"
+			: "microsoft-calendar-read",
+		observed,
+	);
 	if (!requiredScopes.length)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
