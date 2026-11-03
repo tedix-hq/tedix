@@ -915,6 +915,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"workItems/listRecoveryProjection": "mcp:work.read",
 	"workItems/listRelations": "mcp:work.read",
 	"workItems/previewEvidence": "mcp:work.read",
+	"workItems/readAttemptRepository": "mcp:work.read",
 	"workItems/revokeOwnedChannel": "mcp:work.admin",
 	"workItems/updateCase": "mcp:work.write",
 	"workItems/upsertProjection": "mcp:work.write",

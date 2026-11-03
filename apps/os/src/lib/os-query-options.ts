@@ -597,6 +597,30 @@ export const workstationInspectionStatusQueryOptions = (
 		input: { id, attemptId, operation: "status" },
 	});
 
+export const attemptRepositoryLogQueryOptions = (
+	id: string,
+	attemptId: string,
+) =>
+	osQuery.workItems.readAttemptRepository.queryOptions({
+		input: { id, attemptId, operation: "log", limit: 25, offset: 0 },
+	});
+
+export const attemptRepositoryTreeQueryOptions = (
+	id: string,
+	attemptId: string,
+	ref: string,
+	path?: string,
+) =>
+	osQuery.workItems.readAttemptRepository.queryOptions({
+		input: {
+			id,
+			attemptId,
+			operation: "tree",
+			ref,
+			...(path ? { path } : {}),
+		},
+	});
+
 export const workRepositoryReviewQueryOptions = (
 	input: ClientInput<typeof osApi.workItems.reviewAttemptRepository>,
 ) => osQuery.workItems.reviewAttemptRepository.queryOptions({ input });
