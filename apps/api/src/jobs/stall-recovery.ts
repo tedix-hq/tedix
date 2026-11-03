@@ -1,6 +1,7 @@
 import { ContinuityPolicySchema } from "@tedix/api-contract/schemas/work-attention";
 import type * as z from "zod";
 import type { DbClient } from "@tedix/db/client";
+import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import {
 	countContinuityResults,
 	CONTINUITY_SCOPE_BATCH_SIZE,
@@ -20,6 +21,8 @@ import {
 	buildTediContextWakeRequest,
 	deliverTediContextWake,
 } from "./tedi-context-wake";
+
+const writeRecoveryDiagnostic = createTelemetryWriter("stall-recovery");
 
 export function continuityPolicy(
 	raw: string | null,
@@ -112,6 +115,17 @@ export function buildStallResumeRequest(
 	return buildTediContextWakeRequest(scope.slug, environment, body);
 }
 
+function isUnconfiguredEmptyScope(
+	scope: ContinuityScope,
+	assessment: ContinuityAssessment,
+): boolean {
+	return (
+		scope.pendingCount === 0 &&
+		scope.policy === null &&
+		assessment.promise?.status !== "missed"
+	);
+}
+
 export async function recoverStall(
 	db: DbClient,
 	scope: ContinuityScope,
@@ -121,6 +135,7 @@ export async function recoverStall(
 	environment: string,
 ): Promise<boolean> {
 	if (!assessment.idle && assessment.promise?.status !== "missed") return false;
+	if (isUnconfiguredEmptyScope(scope, assessment)) return false;
 	const issueKey = `continuity:${environment}:${scope.key}:${assessment.cause}`;
 	const base = {
 		organizationId: scope.orgId,
@@ -198,6 +213,7 @@ export async function dispatchStallRecovery(
 		: { after: "", scheduledTime: 0 };
 	if (checkpoint.scheduledTime >= scheduledTime) return 0;
 	let dispatched = 0;
+	let skippedEmptyScopes = 0;
 	const failures: unknown[] = [];
 	const now = new Date(scheduledTime).toISOString();
 	const scopes = await listContinuityScopes(
@@ -214,6 +230,10 @@ export async function dispatchStallRecovery(
 				scheduledTime,
 				env.ENVIRONMENT,
 			);
+			if (assessment.idle && isUnconfiguredEmptyScope(scope, assessment)) {
+				skippedEmptyScopes++;
+				continue;
+			}
 			if (
 				await recoverStall(
 					db,
@@ -230,6 +250,16 @@ export async function dispatchStallRecovery(
 			failures.push(error);
 		}
 	}
+	if (skippedEmptyScopes)
+		writeRecoveryDiagnostic(() =>
+			console.info({
+				event: "stall_recovery.empty_scopes_skipped",
+				environment: env.ENVIRONMENT,
+				scheduledTime,
+				pageStart: checkpoint.after,
+				skippedEmptyScopes,
+			}),
+		);
 	if (failures.length)
 		throw new AggregateError(
 			failures,
