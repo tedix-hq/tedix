@@ -12,7 +12,7 @@ import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-wo
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	constrainPersonalResourceToolArguments,
-	reviewedPersonalResourceBinding,
+	effectivePersonalResourceBinding,
 	reviewedPersonalResourceReadScopes,
 } from "@tedix/api-contract/utils/personal-resource-tool-binding";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
@@ -133,12 +133,11 @@ export const fetchTediToken = mcpOrAuthOs.fetchTediToken
 				let matched;
 				try {
 					matched = constrainPersonalResourceToolArguments({
-						binding:
-							tool.config?.personalResourceBinding ??
-							reviewedPersonalResourceBinding(
-								input.providerId,
-								tool.config?.mcpToolName,
-							),
+						binding: effectivePersonalResourceBinding(
+							input.providerId,
+							tool.config?.mcpToolName,
+							tool.config?.personalResourceBinding,
+						),
 						arguments: input.delegatedToolUse.arguments,
 						sources: personalSources,
 						providerId: input.providerId,

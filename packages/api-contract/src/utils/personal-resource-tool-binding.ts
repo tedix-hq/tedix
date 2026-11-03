@@ -3,6 +3,11 @@ import {
 	type PersonalResourceToolBinding,
 } from "../schemas/tools";
 import type { OsDerivedAccessEnvelope } from "../schemas/os-workspaces";
+import {
+	PERSONAL_ORGANISE_OPERATION,
+	SCOPE_IMPLICATION_PROFILES,
+	personalAccountCapabilityProfile,
+} from "./provider-capability-profiles";
 /** Unknown mappings, malformed arrays and cross-account batches are denied before credentials or transport. */
 export function constrainPersonalResourceToolArguments(input: {
 	binding: unknown;
@@ -94,14 +99,8 @@ export function constrainPersonalResourceToolArguments(input: {
 		denied();
 	return { operation: binding.operation, sources: matches };
 }
-/**
- * How much a person lets a worker do with their connected account, chosen on
- * the account's row in a Workspace: nothing, read, or read and organise.
- * Organising (operation `modify`) labels, archives, marks read and drafts; no
- * reviewed tool sends, trashes, marks spam or deletes.
- */
+/** What a person lets a worker do with their connected account: nothing, read, or read and organise. */
 export type PersonalAccessLevel = "none" | "read" | "organise";
-export const PERSONAL_ORGANISE_OPERATION = "modify";
 export function personalAccessOperations(level: PersonalAccessLevel): string[] {
 	if (level === "organise") return ["read", PERSONAL_ORGANISE_OPERATION];
 	return level === "read" ? ["read"] : [];
@@ -113,59 +112,17 @@ export function personalAccessLevel(
 	if (operations.includes(PERSONAL_ORGANISE_OPERATION)) return "organise";
 	return operations.includes("read") ? "read" : "none";
 }
-const onAccount = (operation: string): PersonalResourceToolBinding => ({
-	operation,
-	resourceType: "mailbox",
-	target: "account",
-});
-/**
- * Server-reviewed bindings for provider tools that act on the connected account
- * and take no resource argument. A consent can never reach a tool absent here:
- * Gmail's send, trash, spam and delete tools are deliberately missing.
- */
-const REVIEWED_ACCOUNT_BINDINGS: Readonly<
-	Record<string, Readonly<Record<string, PersonalResourceToolBinding>>>
-> = {
-	"google-gmail": {
-		...Object.fromEntries(
-			["search_threads", "get_thread", "get_message", "list_labels"].map(
-				(tool) => [tool, onAccount("read")],
-			),
-		),
-		...Object.fromEntries(
-			["label_thread", "unlabel_thread", "create_label", "create_draft"].map(
-				(tool) => [tool, onAccount(PERSONAL_ORGANISE_OPERATION)],
-			),
-		),
-	},
-	"google-calendar": {
-		list_events: {
-			operation: "read",
-			resourceType: "calendar_account",
-			target: "account",
-		},
-	},
-};
-/**
- * Adding Trash or Spam is how a label tool deletes mail, so no delegated call
- * may add them, whatever binding the installed tool carries.
- */
-const FORBIDDEN_LABEL_IDS = new Set(["TRASH", "SPAM"]);
-const LABEL_ADDING_TOOLS: Readonly<Record<string, readonly string[]>> = {
-	"google-gmail": ["label_thread", "label_message", "update_message_labels"],
-};
-/** True when a delegated call would make an account tool delete mail. */
+/** True when a delegated call would make an allowed tool destructive (e.g. Gmail label to Trash). */
 export function forbiddenPersonalToolArguments(
 	providerId: string,
 	toolName: string,
 	args: unknown,
 ): boolean {
-	const tools = Object.hasOwn(LABEL_ADDING_TOOLS, providerId)
-		? LABEL_ADDING_TOOLS[providerId]!
-		: [];
-	if (!tools.includes(toolName)) return false;
+	const guard =
+		personalAccountCapabilityProfile(providerId)?.forbiddenArguments;
+	if (!guard?.tools.includes(toolName)) return false;
 	if (typeof args !== "object" || args === null) return false;
-	return ["labelIds", "addLabelIds"].some((key) => {
+	return guard.keys.some((key) => {
 		const value = Object.hasOwn(args, key)
 			? (args as Record<string, unknown>)[key]
 			: undefined;
@@ -174,32 +131,52 @@ export function forbiddenPersonalToolArguments(
 			(!Array.isArray(value) ||
 				value.some(
 					(id) =>
-						typeof id !== "string" ||
-						FORBIDDEN_LABEL_IDS.has(id.trim().toUpperCase()),
+						typeof id !== "string" || guard.values.has(id.trim().toUpperCase()),
 				))
 		);
 	});
 }
 /** What people call a reviewed account, for consent copy ("read my Gmail"). */
-const REVIEWED_ACCOUNT_NAMES: Readonly<Record<string, string>> = {
-	"google-gmail": "Gmail",
-	"google-calendar": "Calendar",
-};
 export function reviewedPersonalAccountName(
 	providerId: string,
 ): string | undefined {
-	return Object.hasOwn(REVIEWED_ACCOUNT_NAMES, providerId)
-		? REVIEWED_ACCOUNT_NAMES[providerId]
-		: undefined;
+	return personalAccountCapabilityProfile(providerId)?.displayName;
 }
 export function reviewedPersonalResourceBinding(
 	providerId: string,
 	providerToolName: unknown,
 ): PersonalResourceToolBinding | undefined {
 	if (typeof providerToolName !== "string") return undefined;
-	const tools = REVIEWED_ACCOUNT_BINDINGS[providerId];
+	const tools = personalAccountCapabilityProfile(providerId)?.accountTools;
 	return tools && Object.hasOwn(tools, providerToolName)
 		? tools[providerToolName]
+		: undefined;
+}
+/**
+ * The binding a delegated call runs under. An installed tool may map its own
+ * resource arguments (`paths`), which only narrows to admitted resources. An
+ * account-wide binding names no resource, so only the reviewed profile may
+ * grant one: a tenant row cannot turn send or delete into a "read".
+ */
+export function effectivePersonalResourceBinding(
+	providerId: string,
+	providerToolName: unknown,
+	installedBinding: unknown,
+): PersonalResourceToolBinding | undefined {
+	const reviewed = reviewedPersonalResourceBinding(
+		providerId,
+		providerToolName,
+	);
+	if (installedBinding === undefined || installedBinding === null)
+		return reviewed;
+	const parsed = PersonalResourceToolBindingSchema.safeParse(installedBinding);
+	if (!parsed.success) return undefined;
+	if (!("target" in parsed.data)) return parsed.data;
+	return reviewed &&
+		"target" in reviewed &&
+		reviewed.operation === parsed.data.operation &&
+		reviewed.resourceType === parsed.data.resourceType
+		? reviewed
 		: undefined;
 }
 /** App-wide OAuth scopes can include writes that a reviewed read tool never needs. */
@@ -208,14 +185,12 @@ export function reviewedPersonalResourceReadScopes(
 	providerToolName: unknown,
 ): string[] | undefined {
 	if (
-		providerId === "google-gmail" &&
-		reviewedPersonalResourceBinding(providerId, providerToolName)?.operation ===
-			"read"
+		reviewedPersonalResourceBinding(providerId, providerToolName)?.operation !==
+		"read"
 	)
-		return ["https://www.googleapis.com/auth/gmail.readonly"];
-	if (providerId === "google-calendar" && providerToolName === "list_events")
-		return ["https://www.googleapis.com/auth/calendar.events.readonly"];
-	return undefined;
+		return undefined;
+	const scopes = personalAccountCapabilityProfile(providerId)?.readScopes;
+	return scopes?.length ? [...scopes] : undefined;
 }
 /** Provider-documented scope implications only; never turns a read grant into write authority. */
 export function personalResourceScopesCover(
@@ -225,29 +200,13 @@ export function personalResourceScopesCover(
 	// Whole-scope identity only: a scope is an opaque provider string, never a
 	// URL whose host or path we trust by prefix.
 	const has = new Set(granted);
-	const googleRoot = GOOGLE_CALENDAR_SCOPE_ROOT;
 	return required.every(
 		(scope) =>
 			has.has(scope) ||
-			(GOOGLE_CALENDAR_SCOPE_FAMILY.has(scope) && has.has(googleRoot)) ||
-			(scope === `${googleRoot}.events.readonly` &&
-				has.has(`${googleRoot}.events`)) ||
-			((scope === `${googleRoot}.calendarlist.readonly` ||
-				scope === `${googleRoot}.events.readonly`) &&
-				has.has(`${googleRoot}.readonly`)) ||
-			((scope === "Calendars.Read" ||
-				scope === "https://graph.microsoft.com/Calendars.Read") &&
-				(has.has("Calendars.ReadWrite") ||
-					has.has("https://graph.microsoft.com/Calendars.ReadWrite"))),
+			SCOPE_IMPLICATION_PROFILES.some((profile) =>
+				profile.implications.some(
+					(rule) => has.has(rule.granted) && rule.covers.includes(scope),
+				),
+			),
 	);
 }
-export const GOOGLE_CALENDAR_SCOPE_ROOT =
-	"https://www.googleapis.com/auth/calendar";
-/** Every Google Calendar scope the root scope implies, by exact identity. */
-export const GOOGLE_CALENDAR_SCOPE_FAMILY: ReadonlySet<string> = new Set([
-	GOOGLE_CALENDAR_SCOPE_ROOT,
-	`${GOOGLE_CALENDAR_SCOPE_ROOT}.readonly`,
-	`${GOOGLE_CALENDAR_SCOPE_ROOT}.events`,
-	`${GOOGLE_CALENDAR_SCOPE_ROOT}.events.readonly`,
-	`${GOOGLE_CALENDAR_SCOPE_ROOT}.calendarlist.readonly`,
-]);
