@@ -257,6 +257,14 @@ describe("workstation review surface", () => {
 		const view = await mountPanel();
 		await clickButton("Changes");
 		await vi.waitFor(() => expect(view.textContent).toContain("generation-2"));
+		const disclosure = [...view.querySelectorAll("button")].find((button) =>
+			button.textContent?.includes("Hide changes"),
+		);
+		const controlledId = disclosure?.getAttribute("aria-controls");
+		expect(disclosure?.getAttribute("data-kumo-component")).toBe(
+			"CollapsibleTrigger",
+		);
+		expect(view.querySelector(`#${controlledId}`)).not.toBeNull();
 		expect(view.textContent).toContain("non-atomic snapshot");
 		await clickButton("Modified · src/a.ts");
 		await vi.waitFor(() => expect(view.textContent).toContain("old diff"));

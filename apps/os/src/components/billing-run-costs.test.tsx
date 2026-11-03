@@ -82,6 +82,13 @@ async function inspect(
 		expect(
 			container.querySelector("button")?.getAttribute("aria-expanded"),
 		).toBe("true");
+		const controlledId = container
+			.querySelector("button")
+			?.getAttribute("aria-controls");
+		expect(controlledId).toBeTruthy();
+		expect(
+			container.querySelector(`#${controlledId}`)?.hasAttribute("hidden"),
+		).toBe(false);
 		check(container);
 		await act(async () => {
 			container.querySelector("button")!.click();

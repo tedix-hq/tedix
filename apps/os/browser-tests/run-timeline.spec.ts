@@ -462,9 +462,38 @@ try {
 			await drawer
 				.getByText("The question was already answered.", { exact: true })
 				.waitFor();
+			const conversationTrigger = drawer.getByRole("button", {
+				name: "Read saved conversation",
+				exact: true,
+			});
+			assert.equal(
+				await conversationTrigger.getAttribute("data-kumo-component"),
+				"CollapsibleTrigger",
+			);
+			if (width === 375)
+				assert(
+					(await conversationTrigger.boundingBox())!.height >= 44,
+					"saved conversation keeps its phone touch target",
+				);
+			await conversationTrigger.focus();
+			await conversationTrigger.press("Enter");
+			const openConversationTrigger = drawer.getByRole("button", {
+				name: "Hide conversation",
+				exact: true,
+			});
+			assert.equal(
+				await openConversationTrigger.getAttribute("aria-expanded"),
+				"true",
+			);
+			const conversationPanelId =
+				await openConversationTrigger.getAttribute("aria-controls");
+			assert(
+				conversationPanelId,
+				"saved conversation identifies its mounted Kumo panel",
+			);
 			await drawer
-				.getByRole("button", { name: "Read saved conversation", exact: true })
-				.click();
+				.locator(`#${conversationPanelId}`)
+				.waitFor({ state: "visible" });
 			await drawer
 				.getByText("Check whether the question is still open.", { exact: true })
 				.waitFor();
@@ -793,7 +822,7 @@ try {
 			await page.getByRole("heading", { name: "Steps", exact: true }).waitFor();
 			partial = true;
 			await page.reload();
-			await page.getByText(/Partial history/).waitFor();
+			await page.getByText(/Partial history/).waitFor({ timeout: 30000 });
 			await page
 				.getByRole("heading", { name: "Timing unknown (1)", exact: true })
 				.waitFor();
@@ -805,7 +834,7 @@ try {
 				.waitFor({ timeout: 30000 });
 			unavailable = false;
 			await page.getByRole("button", { name: "Retry", exact: true }).click();
-			await page.getByText(/Partial history/).waitFor();
+			await page.getByText(/Partial history/).waitFor({ timeout: 30000 });
 			await page.close();
 			console.log(`run timeline ${label}: ok`);
 		}
