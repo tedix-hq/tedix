@@ -501,6 +501,7 @@ describe("tedix supervise", () => {
 				undeliveredError,
 				ackError = false,
 				bound = true,
+				home,
 			}: {
 				open?: boolean | undefined;
 				started?: boolean;
@@ -509,6 +510,7 @@ describe("tedix supervise", () => {
 				undeliveredError?: Error;
 				ackError?: boolean;
 				bound?: boolean;
+				home?: string;
 			} = {},
 		) {
 			const lines: string[] = [];
@@ -545,7 +547,7 @@ describe("tedix supervise", () => {
 			};
 			let clock = Date.now();
 			const runner = new Supervisor({
-				env: { TEDIX_CONFIG_DIR: config },
+				env: { TEDIX_CONFIG_DIR: config, ...(home ? { HOME: home } : {}) },
 				codex,
 				claude,
 				drivers: {
@@ -679,6 +681,27 @@ describe("tedix supervise", () => {
 			expect(run.cwds).toEqual([]);
 			expect(run.lines.join("\n")).toContain("Full Disk Access");
 			expect(run.lines.join("\n")).not.toContain("deadline elapsed");
+		});
+
+		test("a readable protected checkout is delivered normally", async () => {
+			if (process.platform !== "darwin") return;
+			const home = mkdtempSync(join(tmpdir(), "tedix-tcc-ok-"));
+			const cwd = join(home, "Documents", "fixture");
+			mkdirSync(cwd, { recursive: true });
+			try {
+				writeFileSync(
+					join(config, "decision-capture", `${SESSION}.session.json`),
+					JSON.stringify({ host: "codex", cwd }),
+				);
+				const run = drain([answer(SESSION, "codex", 60_000)], { home });
+				expect(await run.runner.tick()).toBe(1);
+				expect(run.cwds.every(([, dir]) => dir === cwd)).toBe(true);
+				expect(run.queued.map(([session]) => session)).toEqual([SESSION]);
+				expect(run.acks).toHaveLength(1);
+				expect(run.lines.join("\n")).not.toContain("not resumed headless");
+			} finally {
+				rmSync(home, { recursive: true, force: true });
+			}
 		});
 
 		test("an uncertain Codex answer reuses its queue after restart until receipt is confirmed", async () => {
