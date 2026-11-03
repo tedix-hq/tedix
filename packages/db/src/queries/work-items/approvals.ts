@@ -13,7 +13,16 @@ import {
 } from "../decision-graph-writers";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { WorkItemAcceptanceContractSchema } from "@tedix/api-contract/schemas/work-items";
-import { and, asc, desc, eq, getColumns, inArray, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	getColumns,
+	inArray,
+	isNull,
+	sql,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { prefixedColumns } from "../../utils/select";
 import { workItems, workEvents, type WorkItem } from "../../schema/work-items";
@@ -35,6 +44,9 @@ import {
 	WORK_ADMISSION_APPROVAL_ACTION,
 } from "./admission-approval-policy";
 import { areSameWorkParty } from "../external-agent-identity/canonical-party";
+import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
+import { getActiveOrganizationPolicyPack } from "../kernel-runtime-support";
+import { tedis } from "../../schema/tedis";
 
 export interface ProposeWorkApprovalParams {
 	id: string;
@@ -829,7 +841,66 @@ export async function getLatestWorkApprovalPosition(
 	return row ?? null;
 }
 
-/** Materialize the human decision that otherwise leaves accepted Work invisible. */
+/**
+ * The organization's designated approval tedi
+ * (`gatingPolicy.delegationApprover` on its active policy pack), when it is an
+ * active tedi independent of this Work and the Work names no human-reserved
+ * action. Otherwise null, and a human owner decides.
+ */
+async function resolveRiskApprovalTedi(
+	db: DbQueryClient,
+	item: WorkItem,
+): Promise<string | null> {
+	if (
+		humanReservedActionClasses(`${item.title}\n${item.description ?? ""}`)
+			.length
+	)
+		return null;
+	const pack = await getActiveOrganizationPolicyPack(db, item.orgId);
+	const gating = pack?.definition?.gatingPolicy;
+	const designation =
+		gating && typeof gating === "object" && !Array.isArray(gating)
+			? (gating as Record<string, JsonValue>).delegationApprover
+			: null;
+	if (
+		!designation ||
+		typeof designation !== "object" ||
+		Array.isArray(designation) ||
+		designation.type !== "tedi" ||
+		typeof designation.id !== "string" ||
+		!designation.id.trim()
+	)
+		return null;
+	const tediId = designation.id.trim();
+	// Not independent: the tedi answers for or drives this Work. Admission
+	// separately ignores an approval decided by the admitted executor.
+	if (
+		(item.accountableOwnerType === "tedi" &&
+			item.accountableOwnerId === tediId) ||
+		(item.stewardType === "tedi" && item.stewardId === tediId)
+	)
+		return null;
+	const [tedi] = await db
+		.select({ id: tedis.id })
+		.from(tedis)
+		.where(
+			and(
+				eq(tedis.organizationId, item.orgId),
+				eq(tedis.id, tediId),
+				eq(tedis.status, "active"),
+				isNull(tedis.retiredAt),
+				sql`${tedis.slug}<>''`,
+			),
+		)
+		.limit(1);
+	return tedi?.id ?? null;
+}
+
+/**
+ * Materialize the risk decision that otherwise leaves accepted Work invisible.
+ * The designated approval tedi decides when one is valid; a human owner
+ * decides otherwise, and also when the tedi let its request expire.
+ */
 export async function ensureWorkRiskApproval(
 	db: DbQueryClient,
 	item: WorkItem,
@@ -842,7 +913,13 @@ export async function ensureWorkRiskApproval(
 		return;
 	const authorityKey = `risk:${item.riskLevel}`;
 	const existing = await db
-		.select({ id: workApprovalProposals.id })
+		.select({
+			approverType: workApprovalProposals.approverType,
+			status: workApprovalProposals.status,
+			expiresAt: sql<string>`${workApprovalProposals.expiresAt}`.as(
+				"risk_approval_expires_at",
+			),
+		})
 		.from(workApprovalProposals)
 		.where(
 			and(
@@ -853,34 +930,46 @@ export async function ensureWorkRiskApproval(
 				eq(workApprovalProposals.action, "admission"),
 			),
 		)
-		.limit(1);
+		.limit(10);
+	const lapsed = (row: (typeof existing)[number]) =>
+		row.status === "expired" ||
+		(row.status === "pending" && row.expiresAt <= now);
 	// A rejection is a decision, not an invitation to request approval again.
-	if (existing.length) return;
-	const ownerId =
-		item.accountableOwnerType === "user" ? item.accountableOwnerId : null;
-	const [approver] = await db
-		.select({ userId: organizationMembers.userId })
-		.from(organizationMembers)
-		.where(
-			and(
-				eq(organizationMembers.organizationId, item.orgId),
-				eq(organizationMembers.status, "active"),
-				eq(organizationMembers.kind, "human"),
-				sql`${organizationMembers.userId} IS NOT NULL`,
-				sql`(${organizationMembers.userId}=${ownerId} OR ${organizationMembers.role}='owner')`,
-			),
-		)
-		.orderBy(
-			sql`CASE WHEN ${organizationMembers.userId}=${ownerId} THEN 0 ELSE 1 END`,
-			asc(organizationMembers.userId),
-		)
-		.limit(1);
-	if (!approver?.userId) return;
+	// Only a tedi request that lapsed undecided hands the decision to a human.
+	if (existing.some((row) => row.approverType === "user" || !lapsed(row)))
+		return;
+	const tediId = existing.length
+		? null
+		: await resolveRiskApprovalTedi(db, item);
+	let approverId = tediId;
+	if (!approverId) {
+		const ownerId =
+			item.accountableOwnerType === "user" ? item.accountableOwnerId : null;
+		const [approver] = await db
+			.select({ userId: organizationMembers.userId })
+			.from(organizationMembers)
+			.where(
+				and(
+					eq(organizationMembers.organizationId, item.orgId),
+					eq(organizationMembers.status, "active"),
+					eq(organizationMembers.kind, "human"),
+					sql`${organizationMembers.userId} IS NOT NULL`,
+					sql`(${organizationMembers.userId}=${ownerId} OR ${organizationMembers.role}='owner')`,
+				),
+			)
+			.orderBy(
+				sql`CASE WHEN ${organizationMembers.userId}=${ownerId} THEN 0 ELSE 1 END`,
+				asc(organizationMembers.userId),
+			)
+			.limit(1);
+		approverId = approver?.userId ?? null;
+	}
+	if (!approverId) return;
 	// Stable identity also fences concurrent passes after a decision is recorded.
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
 		new TextEncoder().encode(
-			`risk-approval:${item.orgId}:${item.id}:${item.version}:${item.riskLevel}`,
+			`risk-approval:${item.orgId}:${item.id}:${item.version}:${item.riskLevel}${tediId ? `:tedi:${tediId}` : ""}`,
 		),
 	);
 	const hex = Array.from(new Uint8Array(digest), (byte) =>
@@ -896,11 +985,15 @@ export async function ensureWorkRiskApproval(
 			authorityKey,
 			requesterType: "system",
 			requesterId: "tedix",
-			approverType: "user",
-			approverId: approver.userId,
+			approverType: tediId ? "tedi" : "user",
+			approverId,
 			proposal: { workItemId: item.id },
 			rationale: `This Work needs your approval before it can run because its risk is ${item.riskLevel}.`,
-			expiresAt: new Date(Date.parse(now) + 30 * 86400000).toISOString(),
+			// The redrive wakes a tedi every few minutes; one that cannot decide
+			// within a day hands the decision to a human owner.
+			expiresAt: new Date(
+				Date.parse(now) + (tediId ? 1 : 30) * 86400000,
+			).toISOString(),
 			now,
 		});
 	} catch (error) {

@@ -327,10 +327,9 @@ async function evaluate(
 			),
 		)
 		.limit(1000);
-	// An owner may not approve the Work their own owner-host agent then
-	// executes: such an approval is not a second party's authorization. Only
-	// owner-host executors are filtered; other executors keep their existing
-	// admission semantics.
+	// An approval counts only from a second party: not the executor itself
+	// (such as a designated approval tedi admitting its own run), and not the
+	// owner whose owner-host agent then executes the Work.
 	const executor = { type: p.executorType, id: p.executorId };
 	const parties =
 		p.executorType === "external_agent"
@@ -340,15 +339,20 @@ async function evaluate(
 				})
 			: new Map<string, string>();
 	const ownerHostExecutor = parties.has(workPartyKey(executor));
-	const independentApprovals = ownerHostExecutor
-		? approvals.filter(
-				(approval) =>
-					!isSameCanonicalParty(parties, executor, {
-						type: approval.deciderType,
-						id: approval.deciderId,
-					}),
-			)
-		: approvals;
+	const independentApprovals = approvals.filter(
+		(approval) =>
+			!(
+				approval.deciderType === executor.type &&
+				approval.deciderId === executor.id
+			) &&
+			!(
+				ownerHostExecutor &&
+				isSameCanonicalParty(parties, executor, {
+					type: approval.deciderType,
+					id: approval.deciderId,
+				})
+			),
+	);
 	const missingApproval = evaluateWorkAdmissionApprovals(
 		item,
 		independentApprovals,
