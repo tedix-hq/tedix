@@ -40,6 +40,7 @@ const original = {
 	},
 };
 let record: unknown = original;
+let dispatchContext: Record<string, unknown> | undefined;
 let nativeStatus: unknown = {
 	status: "queued",
 	output: "private prompt",
@@ -62,7 +63,7 @@ const env = {
 const storage = {
 	get: async (key: string) => {
 		keys.push(key);
-		return record;
+		return key.startsWith("wfctx:") ? dispatchContext : record;
 	},
 } as unknown as Pick<DurableObjectStorage, "get">;
 const scope = {
@@ -94,7 +95,12 @@ for (const [status, expected] of [
 	assert.equal(result.nativeWorkflowId, "client-1");
 	assert.equal(JSON.stringify(result).includes("private"), false);
 }
-assert.ok(keys.every((key) => key === `runtime-admission-workflow:${runId}`));
+assert.ok(
+	keys.every(
+		(key) =>
+			key === `runtime-admission-workflow:${runId}` || key === "wfctx:client-1",
+	),
+);
 assert.ok(gets.every((id) => id === "client-1"));
 for (const changed of [
 	{ runId: "tedi-other:mcp:client-1" },
@@ -140,6 +146,50 @@ for (const changed of [
 	assert.equal(gets.length, n);
 }
 record = original;
+// A verified association reports how long the native instance waited for its
+// first checkpoint, so a queued delay is attributable.
+const admittedAt = Date.now() - 90_000;
+const dispatchBase = {
+	runId,
+	sessionKey: "session-1",
+	userText: "private prompt",
+	userTs: admittedAt,
+	admittedAt,
+	restartCount: 1,
+};
+dispatchContext = dispatchBase;
+nativeStatus = { status: "queued" };
+{
+	const result = await readOwnedRuntimeWorkflow(scope);
+	assert.equal(result.status, "queued");
+	const timing = "dispatchTiming" in result ? result.dispatchTiming : undefined;
+	assert.ok(timing);
+	assert.equal(timing.admittedAt, admittedAt);
+	assert.equal(timing.startedAt, null);
+	assert.equal(timing.startDelayMs, null);
+	assert.equal(timing.restartCount, 1);
+	assert.ok(timing.ageMs >= 80_000);
+	assert.equal(JSON.stringify(result).includes("private"), false);
+}
+dispatchContext = { ...dispatchBase, startedAt: admittedAt + 2_500 };
+nativeStatus = { status: "running" };
+{
+	const result = await readOwnedRuntimeWorkflow(scope);
+	assert.equal(result.status, "running");
+	const timing = "dispatchTiming" in result ? result.dispatchTiming : undefined;
+	assert.equal(timing?.startDelayMs, 2_500);
+}
+for (const changed of [
+	{ ...dispatchBase, runId: "other" },
+	{ runId, admittedAt: "soon" },
+	"not a record" as unknown as Record<string, unknown>,
+]) {
+	dispatchContext = changed;
+	const result = await readOwnedRuntimeWorkflow(scope);
+	assert.equal(result.status, "running");
+	assert.equal("dispatchTiming" in result, false);
+}
+dispatchContext = undefined;
 failure = { status: 404, message: "private secret" };
 assert.equal((await readOwnedRuntimeWorkflow(scope)).status, "missing");
 failure = new Error("private secret");
