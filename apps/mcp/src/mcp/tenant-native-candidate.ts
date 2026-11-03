@@ -12,7 +12,6 @@ import {
 	tenantPolicyEffectiveToolDigest,
 } from "./tenant-policy-mount";
 import type { AppTool, ServerContext } from "./server-context";
-import { buildHomeSurfaceTools } from "./home-surface-tools";
 import { shouldExposeHomeSurface } from "./home-surface";
 
 /** Missing or invalid rules cannot fall through to older autonomy grants. */
@@ -21,6 +20,7 @@ export async function tenantMachinePolicyFallbackBlocked(
 	tool: AppTool,
 ): Promise<boolean> {
 	const caller = agent.callerIdentity;
+	const { buildHomeSurfaceTools } = await import("./home-surface-tools");
 	const homeTools = buildHomeSurfaceTools();
 	const generatedHomeId = homeTools.some((home) => home.id === tool.id);
 	const generatedAggregateTedi =
