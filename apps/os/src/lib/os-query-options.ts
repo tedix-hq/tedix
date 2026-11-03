@@ -597,6 +597,10 @@ export const workstationInspectionStatusQueryOptions = (
 		input: { id, attemptId, operation: "status" },
 	});
 
+export const workRepositoryReviewQueryOptions = (
+	input: ClientInput<typeof osApi.workItems.reviewAttemptRepository>,
+) => osQuery.workItems.reviewAttemptRepository.queryOptions({ input });
+
 export const workItemEvidenceQueryOptions = (
 	id: string,
 	cursor?: WorkFactoryCursor,

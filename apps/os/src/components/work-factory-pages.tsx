@@ -82,6 +82,7 @@ import {
 	projectTargetLabel,
 } from "@/lib/project-target-date";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
+import { WorkRepositoryReview } from "@/components/work-repository-review";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
 	osQuery,
@@ -206,7 +207,7 @@ export function WorkItemReadOnlyLedgers({
 					) : attempts.length ? (
 						attempts.map((attempt) => (
 							<li
-								className="flex min-w-0 items-center justify-between gap-3"
+								className="flex min-w-0 flex-wrap items-center justify-between gap-3"
 								key={attempt.id}
 							>
 								<div className="min-w-0">
@@ -233,6 +234,12 @@ export function WorkItemReadOnlyLedgers({
 									<WorkstationInspectionPanel
 										workItemId={workItemId}
 										attemptId={attempt.id}
+									/>
+								) : null}
+								{attempt.finishedAt && attempt.metadata?.repository ? (
+									<WorkRepositoryReview
+										workItemId={workItemId}
+										attempt={attempt}
 									/>
 								) : null}
 							</li>

@@ -367,6 +367,77 @@ export type WorkAttemptRepository = z.infer<typeof WorkAttemptRepositorySchema>;
 
 const GitRevisionSchema = z.string().regex(/^[a-f0-9]{40}$/);
 
+const RepositoryReviewPathSchema = z
+	.string()
+	.max(2_000)
+	.refine(
+		(path) =>
+			!path.startsWith("/") &&
+			!path.includes("\\") &&
+			!/[\u0000-\u001f]/.test(path) &&
+			path.split("/").length <= 32 &&
+			(path === "" ||
+				path
+					.split("/")
+					.every((part) => part !== "" && part !== "." && part !== "..")),
+		"Use a repository-relative path without traversal",
+	);
+
+export const WorkRepositoryReviewInputSchema = z
+	.object({
+		id: z.uuid(),
+		attemptId: z.uuid(),
+		expectedHeadRevision: GitRevisionSchema,
+		operation: z.enum(["tree", "history", "compare"]),
+		path: RepositoryReviewPathSchema.default(""),
+		offset: z.number().int().min(0).max(10_000).default(0),
+	})
+	.strict();
+
+const RepositoryReviewFileSchema = z.object({
+	status: z.enum(["text", "binary", "too_large", "missing"]),
+	text: z.string().max(262_144).nullable(),
+	bytes: z.number().int().nonnegative().nullable(),
+});
+
+export const WorkRepositoryReviewResultSchema = z.object({
+	workItemId: z.uuid(),
+	attemptId: z.uuid(),
+	baseRevision: GitRevisionSchema.nullable(),
+	headRevision: GitRevisionSchema,
+	path: RepositoryReviewPathSchema,
+	operation: z.enum(["tree", "history", "compare"]),
+	entries: z
+		.array(
+			z.object({
+				name: z.string(),
+				type: z.enum(["tree", "blob", "symlink", "gitlink", "exec"]),
+				hash: GitRevisionSchema,
+				change: z.enum(["unchanged", "added", "removed", "modified"]),
+			}),
+		)
+		.max(500),
+	commits: z
+		.array(
+			z.object({
+				hash: GitRevisionSchema,
+				message: z.string().max(4_000),
+				authoredAt: z.number(),
+			}),
+		)
+		.max(50),
+	nextOffset: z.number().int().nonnegative().nullable(),
+	truncated: z.boolean(),
+	base: RepositoryReviewFileSchema.nullable(),
+	head: RepositoryReviewFileSchema.nullable(),
+});
+export type WorkRepositoryReviewInput = z.infer<
+	typeof WorkRepositoryReviewInputSchema
+>;
+export type WorkRepositoryReviewResult = z.infer<
+	typeof WorkRepositoryReviewResultSchema
+>;
+
 /** Settlement-time claims that carry an Artifacts result into canonical review. */
 export const WorkAttemptRepositoryLifecycleSchema = z
 	.object({
