@@ -720,6 +720,22 @@ it("uses durable original compaction admission for skipped, modified and uncerta
 		await parent.onCompactSession(skipped);
 		expect(modelCalls).toBe(0);
 		expect(adapter.gate.claim(skipped.operationId)?.status).toBe("completed");
+		for (let n = 0; n < 4; n++)
+			parent.sessionRepo.appendTurn({
+				sessionKey: "blank-history",
+				role: n % 2 ? "assistant" : "user",
+				content: "   ",
+				ts: n + 1,
+			});
+		const blank = await parent.prepareCompaction("blank-history", {
+			keepRecentTokens: 0,
+		});
+		await parent.onCompactSession({
+			sessionKey: "blank-history",
+			operationId: blank,
+		});
+		expect(modelCalls).toBe(0);
+		expect(adapter.gate.claim(blank)?.status).toBe("completed");
 		parent.sessionRepo.appendTurn({
 			sessionKey: "history",
 			role: "user",
