@@ -14,6 +14,7 @@ import {
 	workItemRelations,
 } from "@tedix/db/schema/work-items";
 import { tediRuntimeEvents } from "@tedix/db/schema/cognitive-runtime";
+import { buildRuntimeRunId } from "@tedix/api-contract/utils/runtime-identity";
 import {
 	externalAgentSessions,
 	externalAgentPrincipals,
@@ -175,6 +176,50 @@ describe("owned Needs-you follow-through", () => {
 			"close it with a note or reask once",
 		);
 	});
+	it.each(["before", "after"])(
+		"reconciles %s-response delivery without completing the failed review",
+		async (visible) => {
+			let calls = 0;
+			const runId = buildRuntimeRunId({
+				tediId: TEDI,
+				turnKey: `interaction-review:${ASK}:1`,
+				surface: "mcp",
+			});
+			const { env, db } = await fixture(async () => {
+				calls++;
+				await record();
+				return Response.json({ outcome: "failed" }, { status: 500 });
+			});
+			const record = async () => {
+				await db.insert(tediRuntimeEvents).values({
+					id: "original-failed-review",
+					organizationId: ORG,
+					tediId: TEDI,
+					runId,
+					kind: "run.failed",
+					runtimeBackend: "cloudflare-agents",
+					createdAt,
+				});
+			};
+			if (visible === "before") await record();
+			expect(await dispatchInteractionReviews(env, Date.parse(now))).toEqual({
+				interactionReviews: 1,
+			});
+			const ask = await getWorkInteraction(db, {
+				orgId: ORG,
+				interactionId: ASK,
+			});
+			expect(ask).toMatchObject({
+				status: "open",
+				version: 1,
+				metadata: { followThrough: { reviewRunId: runId } },
+			});
+			expect(
+				await dispatchInteractionReviews(env, Date.parse(now) + 120_000),
+			).toEqual({ interactionReviews: 0 });
+			expect(calls).toBe(visible === "before" ? 0 : 1);
+		},
+	);
 	it("keeps failed wake acceptance retryable with the same dispatch identity", async () => {
 		const keys: unknown[] = [];
 		const { env, db } = await fixture(async (request) => {
@@ -184,6 +229,31 @@ describe("owned Needs-you follow-through", () => {
 			);
 			return Response.json({ ok: true });
 		});
+		const runId = buildRuntimeRunId({
+			tediId: TEDI,
+			turnKey: `interaction-review:${ASK}:1`,
+			surface: "mcp",
+		});
+		await db.insert(tediRuntimeEvents).values([
+			{
+				id: "foreign-org",
+				organizationId: "00000000-0000-4000-8000-000000000099",
+				tediId: TEDI,
+				runId,
+				kind: "run.failed",
+				runtimeBackend: "cloudflare-agents",
+				createdAt,
+			},
+			{
+				id: "other-tedi",
+				organizationId: ORG,
+				tediId: "other",
+				runId,
+				kind: "run.failed",
+				runtimeBackend: "cloudflare-agents",
+				createdAt,
+			},
+		]);
 		for (let attempt = 0; attempt < 2; attempt++) {
 			const failure = await dispatchInteractionReviews(
 				env,

@@ -1,4 +1,3 @@
-import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { createDbClient } from "@tedix/db/client";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import {
@@ -13,7 +12,10 @@ import {
 	listDueWorkInteractionReviews,
 	recordWorkInteractionReviewWake,
 } from "@tedix/db/queries/work-items/interaction-reviews";
-import { assertWorkApprovalWakeAccepted } from "./work-approval-redrive";
+import {
+	buildTediContextWakeRequest,
+	deliverTediContextWake,
+} from "./tedi-context-wake";
 import { PlatformCronPathError } from "./platform-cron-receipts";
 import { cardOwningTedi } from "../services/card-revisions";
 import { recheckDecisionAction } from "../services/decision-action-recheck";
@@ -82,32 +84,20 @@ export async function dispatchInteractionReviews(
 					row.orgId,
 				);
 				if (!tedi || tedi.status !== "active" || !env.TEDI_SERVICE) continue;
-				const accepted = await assertWorkApprovalWakeAccepted(
-					await env.TEDI_SERVICE.fetch(
-						new Request("https://tedi/hooks/inject", {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-								"X-Service-Binding": "true",
-								[CALLER_TRUST_HEADER]: "member",
-								"X-Tedix-Host": `${tedi.slug}.tedi.${env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech"}`,
-							},
-							body: JSON.stringify({
-								session_key:
-									typeof row.metadata.sessionId === "string"
-										? row.metadata.sessionId
-										: `interaction-review:${row.id}`,
-								client_request_id: key,
-								async: true,
-								text: prompt,
-								metadata: {
-									source: "interaction_review",
-									requestId: row.id,
-								},
-							}),
-						}),
-					),
-				);
+				const accepted = await deliverTediContextWake(db, {
+					orgId: row.orgId,
+					tediId: tedi.id,
+					request: buildTediContextWakeRequest(tedi.slug, env.ENVIRONMENT, {
+						session_key:
+							typeof row.metadata.sessionId === "string"
+								? row.metadata.sessionId
+								: `interaction-review:${row.id}`,
+						client_request_id: key,
+						text: prompt,
+						metadata: { source: "interaction_review", requestId: row.id },
+					}),
+					send: (request) => env.TEDI_SERVICE.fetch(request),
+				});
 				runId = accepted.runId;
 			} else if (row.creatorType === "external_agent") {
 				// Existing directed inbox + host hooks retain the exact owner session.
