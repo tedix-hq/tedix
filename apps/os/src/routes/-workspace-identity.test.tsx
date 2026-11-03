@@ -98,11 +98,13 @@ it("resolves people and tedis in workspace apps outside the main shell", async (
 				</QueryClientProvider>,
 			),
 		);
-		expect(
-			Array.from(host.querySelectorAll("button"), (button) =>
-				button.getAttribute("aria-label"),
-			),
-		).toEqual(["Morgan Lee", "Morgan Lee", "Cedar"]);
+		await vi.waitFor(() => {
+			expect(
+				Array.from(host.querySelectorAll("button"), (button) =>
+					button.getAttribute("aria-label"),
+				),
+			).toEqual(["Morgan Lee", "Morgan Lee", "Cedar"]);
+		});
 		expect(host.querySelectorAll(".work-actor-badge")).toHaveLength(0);
 		expect(
 			Array.from(host.querySelectorAll(".work-actor-portrait")).at(-1)
