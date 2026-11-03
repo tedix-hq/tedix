@@ -57,6 +57,8 @@ export type CollabDocStatus = "connecting" | "connected" | "disconnected";
 /** One canonical revision as the surface loaded it: which revision, and what it says. */
 export type CollabDocCanonical = {
 	text: string;
+	/** Whole file map for a code proposal; ordinary documents keep using `text`. */
+	files?: Record<string, string>;
 	revision: number;
 	revisionId: string | null;
 };
@@ -71,8 +73,16 @@ export type CollabDocCanonical = {
  */
 export type CollabCommitBasis = {
 	text: string;
+	files?: [string, string][];
 	position: StreamPosition;
 };
+
+function canonicalFiles(
+	value: CollabDocCanonical,
+	path: string,
+): [string, string][] {
+	return value.files ? Object.entries(value.files) : [[path, value.text]];
+}
 
 export type UseCollabDocInput = {
 	workspaceId: string;
@@ -148,6 +158,10 @@ export type UseCollabDocResult = {
 	 * already accepted -- does not increment it: see `CollabSession`'s `#lostLocalEdits`.
 	 */
 	discarded: number;
+	/** Code snapshot retained when reconnect cannot prove all local edits were accepted. */
+	recoverableFiles: Record<string, string> | null;
+	/** Explicit acknowledgment after copying/comparing the retained code. */
+	clearRecoverableFiles: () => void;
 	/**
 	 * Which canonical revision the room represents. `null` until the first
 	 * handshake answers. A commit's compare-and-swap must be pinned to this, never
@@ -225,6 +239,7 @@ type SessionHandlers = {
 	onDiscarded(): void;
 	onCanonical(canonical: CollabCanonicalStamp): void;
 	onRecoveryRequired(required: boolean): void;
+	onRecoverableFiles(files: Record<string, string> | null): void;
 };
 
 function selectionOf(state: unknown): CollabSelection | null {
@@ -301,6 +316,8 @@ class CollabSession implements OtEditSession {
 	 * way, because a suspicion that survives its own resolution re-fires on every later row.
 	 */
 	#lostLocalEdits = false;
+	#recoverableFiles: Record<string, string> | null = null;
+	#lastLocalFiles: Record<string, string> | null = null;
 	#reconnectMs = RECONNECT_BASE_MS;
 	#reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	#presenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -332,6 +349,8 @@ class CollabSession implements OtEditSession {
 		client.applyLocalChange(change);
 		const next = client.getContent();
 		this.#content = next;
+		if (this.canonical()?.files)
+			this.#lastLocalFiles = Object.fromEntries(next);
 		this.#mapPeerSelections(change);
 		// The editor already applied `change` to its own buffer. If the client's
 		// content disagrees, the two replicas have diverged and the quiet failure
@@ -416,11 +435,23 @@ class CollabSession implements OtEditSession {
 	 */
 	commitBasis(): CollabCommitBasis | null {
 		const client = this.#client;
-		if (!client || !this.#ready || client.hasLocalEdits()) return null;
+		if (
+			!client ||
+			!this.#ready ||
+			client.hasLocalEdits() ||
+			this.#recoverableFiles
+		)
+			return null;
 		return {
 			text: client.getContent().get(this.path) ?? "",
+			...(this.canonical()?.files ? { files: [...client.getContent()] } : {}),
 			position: client.getPosition(),
 		};
+	}
+
+	clearRecoverableFiles(): void {
+		this.#recoverableFiles = null;
+		this.handlers.onRecoverableFiles(null);
 	}
 
 	/**
@@ -461,7 +492,7 @@ class CollabSession implements OtEditSession {
 				offer: {
 					revision: committed.revision,
 					revisionId: committed.revisionId,
-					files: [[this.path, committed.basis.text]] as [string, string][],
+					files: committed.basis.files ?? [[this.path, committed.basis.text]],
 				},
 				at: committed.basis.position,
 			});
@@ -499,7 +530,7 @@ class CollabSession implements OtEditSession {
 				offer: {
 					revision: target.revision,
 					revisionId: target.revisionId,
-					files: [[this.path, target.text]] as [string, string][],
+					files: canonicalFiles(target, this.path),
 				},
 				...(force ? { force: true } : {}),
 			});
@@ -525,7 +556,9 @@ class CollabSession implements OtEditSession {
 			frame.outcome === "adopted" ||
 			frame.outcome === "repaired" ||
 			(frame.outcome === "current" &&
-				(!force || this.text(this.path) === target.text))
+				(!force ||
+					diffFiles(this.#content, new Map(canonicalFiles(target, this.path)))
+						.length === 0))
 		)
 			return { ok: true };
 		return {
@@ -626,7 +659,7 @@ class CollabSession implements OtEditSession {
 									seed: {
 										revision: seed.revision,
 										revisionId: seed.revisionId,
-										files: [[this.path, seed.text]] as [string, string][],
+										files: canonicalFiles(seed, this.path),
 									},
 								}),
 					});
@@ -675,9 +708,16 @@ class CollabSession implements OtEditSession {
 					if (this.#lostLocalEdits) {
 						this.#lostLocalEdits = false;
 						if (republished) this.handlers.onDiscarded();
+						else this.clearRecoverableFiles();
 					}
 				},
-				onLocalEditsDiscarded: () => this.handlers.onDiscarded(),
+				onLocalEditsDiscarded: () => {
+					if (this.#lastLocalFiles && !this.#recoverableFiles) {
+						this.#recoverableFiles = this.#lastLocalFiles;
+						this.handlers.onRecoverableFiles(this.#recoverableFiles);
+					}
+					this.handlers.onDiscarded();
+				},
 				onDirtyState: (dirty) => this.handlers.onDirty(dirty),
 				onUnacknowledgedEdits: (unacknowledged) =>
 					this.handlers.onUnacknowledged(unacknowledged),
@@ -719,7 +759,13 @@ class CollabSession implements OtEditSession {
 		// Read in the same await-free span that destroys the buffers, and latched rather than
 		// reported: the replacement client cannot see edits that died with its predecessor, and
 		// until it has published the room's content there is nothing truthful to say about them.
-		if (this.#client?.hasLocalEdits() === true) this.#lostLocalEdits = true;
+		if (this.#client?.hasLocalEdits() === true) {
+			this.#lostLocalEdits = true;
+			if (this.canonical()?.files && !this.#recoverableFiles) {
+				this.#recoverableFiles = Object.fromEntries(this.#client.getContent());
+				this.handlers.onRecoverableFiles(this.#recoverableFiles);
+			}
+		}
 		this.#client?.dispose();
 		this.#client = null;
 		this.#deliverRows = null;
@@ -867,6 +913,8 @@ class CollabSession implements OtEditSession {
 		if (!client) return false;
 		const next = client.getContent();
 		const delta = change ?? diffFiles(this.#content, next);
+		if (client.hasLocalEdits() && this.canonical()?.files)
+			this.#lastLocalFiles = Object.fromEntries(next);
 		this.#content = next;
 		if (delta.length === 0) return false;
 		this.#mapPeerSelections(delta);
@@ -922,6 +970,10 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	const [unsynced, setUnsynced] = useState(false);
 	const [unacknowledged, setUnacknowledged] = useState(false);
 	const [discarded, setDiscarded] = useState(0);
+	const [recoverableFiles, setRecoverableFiles] = useState<Record<
+		string,
+		string
+	> | null>(null);
 	const [roomCanonical, setRoomCanonical] =
 		useState<CollabCanonicalStamp | null>(null);
 	const [recoveryRequired, setRecoveryRequired] = useState(false);
@@ -934,7 +986,10 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	canonicalBox.value = canonical;
 	const hasCanonical = canonical !== null;
 	const tooLarge =
-		canonical !== null && canonical.text.length > MAX_FILE_TEXT_LENGTH;
+		canonical !== null &&
+		canonicalFiles(canonical, COLLAB_DOC_PATH).some(
+			([, text]) => text.length > MAX_FILE_TEXT_LENGTH,
+		);
 	const canonicalRevision = canonical?.revision ?? null;
 	const canonicalRevisionId = canonical?.revisionId ?? null;
 	const locationSurface = location?.surface;
@@ -970,6 +1025,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 				onUnacknowledged: guard(setUnacknowledged),
 				onCanonical: guard(setRoomCanonical),
 				onRecoveryRequired: guard(setRecoveryRequired),
+				onRecoverableFiles: guard(setRecoverableFiles),
 				onDiscarded: () => {
 					if (active) setDiscarded((count) => count + 1);
 				},
@@ -994,6 +1050,7 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 			setDiscarded(0);
 			setRoomCanonical(null);
 			setRecoveryRequired(false);
+			setRecoverableFiles(null);
 		};
 	}, [workspaceId, docKey, enabled, hasCanonical, tooLarge, canonicalBox]);
 
@@ -1051,6 +1108,10 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 	);
 
 	const retry = useCallback(() => session?.retry(), [session]);
+	const clearRecoverableFiles = useCallback(
+		() => session?.clearRecoverableFiles(),
+		[session],
+	);
 
 	const setSelection = useCallback(
 		(selection: CollabSelection | null) => session?.setSelection(selection),
@@ -1070,6 +1131,8 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 		unsynced,
 		unacknowledged,
 		discarded,
+		recoverableFiles,
+		clearRecoverableFiles,
 		canonical: roomCanonical,
 		recoveryRequired,
 		replaceWithCanonical,

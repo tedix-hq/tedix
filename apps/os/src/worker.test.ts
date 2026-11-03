@@ -1,6 +1,13 @@
 import { OIDC_SESSION_COOKIE } from "@tedix/auth/oidc-cookies";
 // @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vite-plus/test";
 import { Window } from "happy-dom";
 import * as jwt from "@tedix/auth/jwt";
 import type { SessionBrokerRpc } from "@tedix/auth/session-broker";
@@ -2470,6 +2477,80 @@ describe("collaboration socket routing", () => {
 		);
 		expect(env.roomNames).toEqual([`tedix:ws-1:app:${gadgetId}`]);
 	});
+
+	it.each(["build", "use", "stale", "foreign", "unverified"])(
+		"checks proposal builder access and pinned base before opening a %s code room",
+		async (access) => {
+			const verify = vi.spyOn(jwt, "validateToken").mockResolvedValue({
+				sub: "builder",
+				dct: "guest-org",
+				iat: 1,
+				exp: 2,
+				iss: "project",
+				aud: ["project"],
+			});
+			onTestFinished(() => verify.mockRestore());
+			const gadgetId = "44444444-4444-4444-8444-444444444444";
+			const proposalId = "55555555-5555-4555-8555-555555555555";
+			const baseRevisionId = "66666666-6666-4666-8666-666666666666";
+			const base = collabEnv({ authorized: true });
+			const env = {
+				...base,
+				DESCOPE_PROJECT_ID: access === "unverified" ? undefined : "project",
+				API_SERVICE: {
+					fetch: async (request: Request) => {
+						base.apiRequests.push(request);
+						return access === "foreign"
+							? Response.json(
+									{ json: { message: "Forbidden" } },
+									{ status: 403 },
+								)
+							: Response.json({
+									json: {
+										role: access === "use" ? "use" : "build",
+										revisionId:
+											access === "stale" ? "other-base" : baseRevisionId,
+									},
+								});
+					},
+				},
+			};
+			const key = `app-draft:${gadgetId}:${proposalId}:${baseRevisionId}`;
+			const response = await handleOsRequest(
+				new Request(
+					`https://tedix.os.tedix.dev/collab/ws-1/${encodeURIComponent(key)}`,
+					{
+						headers: {
+							...upgradeHeaders,
+							Authorization: "Bearer builder-token",
+						},
+					},
+				),
+				env,
+				provisioned,
+			);
+			expect(new URL(base.apiRequests[0]!.url).pathname).toMatch(
+				/osAppRuntime\/draft$/,
+			);
+			if (access === "build") {
+				await expect(response.text()).resolves.toBe("room-upgrade");
+				expect(base.roomNames).toEqual([`tedix:ws-1:${key}`]);
+				expect(
+					JSON.parse(
+						base.roomRequests[0]!.headers.get("X-Tedix-Collab-Access")!,
+					),
+				).toMatchObject({
+					workspaceId: "ws-1",
+					userId: "builder",
+					role: "build",
+					appDraft: { gadgetId, proposalId, baseRevisionId },
+				});
+			} else {
+				expect(response.status).toBe(403);
+				expect(base.roomRequests).toHaveLength(0);
+			}
+		},
+	);
 
 	it("admits a use guest to the workspace roster with only allowlisted identity fields", async () => {
 		const verify = vi.spyOn(jwt, "validateToken").mockResolvedValue({

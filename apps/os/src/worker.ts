@@ -1624,6 +1624,9 @@ async function handleCollabUpgrade(
 		timeoutMs: 5_000,
 	};
 	let workspacePresence: WorkspacePresenceIdentity | null = null;
+	let appDraft:
+		| { gadgetId: string; proposalId: string; baseRevisionId: string }
+		| undefined;
 	try {
 		const separator = docKey.indexOf(":");
 		const kind = separator > 0 ? docKey.slice(0, separator) : "";
@@ -1640,6 +1643,19 @@ async function handleCollabUpgrade(
 			if (workspacePresence.workspaceId !== workspaceId) {
 				throw new Error("Workspace presence mismatch");
 			}
+		} else if (kind === "app-draft") {
+			const [gadgetId, proposalId, baseRevisionId, extra] =
+				documentId.split(":");
+			if (!gadgetId || !proposalId || !baseRevisionId || extra !== undefined)
+				throw new Error("Malformed app draft key");
+			const draft = await callRpc<{ role: string; revisionId: string }>(
+				"osAppRuntime/draft",
+				{ workspaceId, gadgetId, proposalId },
+				rpcOptions,
+			);
+			if (draft.role !== "build" || draft.revisionId !== baseRevisionId)
+				throw new Error("App draft base or access changed");
+			appDraft = { gadgetId, proposalId, baseRevisionId };
 		} else if (kind === "gadget" || kind === "app") {
 			const detail = await callRpc<CollabGadgetDetail>(
 				"osWorkspaces/gadgets/get",
@@ -1701,7 +1717,7 @@ async function handleCollabUpgrade(
 										)?.name ?? null
 									);
 								},
-						workspacePresence !== null,
+						workspacePresence !== null || appDraft !== undefined,
 						(subject) => {
 							collabUserId = subject;
 						},
@@ -1722,7 +1738,7 @@ async function handleCollabUpgrade(
 					role: workspacePresence.role,
 				}
 			: authenticatedPresence;
-	if (!presence) {
+	if (!presence || (appDraft && !localDemo && !collabUserId)) {
 		// Do not surface the distinction to the caller: it would reveal whether a
 		// document exists. The server log retains the operational cause without
 		// recording a credential, document id, or identity payload.
@@ -1751,6 +1767,7 @@ async function handleCollabUpgrade(
 			JSON.stringify({
 				workspaceId,
 				userId: collabUserId,
+				...(appDraft ? { appDraft } : {}),
 				role: workspacePresence?.role === "use" ? "use" : "build",
 			}),
 		);

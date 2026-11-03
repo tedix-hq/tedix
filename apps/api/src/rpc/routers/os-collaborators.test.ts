@@ -139,6 +139,69 @@ const DENIED = {
 };
 
 describe("workspace collaborators", () => {
+	it.each([
+		"open",
+		"accepted",
+		"merged",
+		"stale",
+		"foreign",
+		"wrong-app",
+		"archived",
+	])(
+		"revalidates a %s app code scope against the stored proposal",
+		async (condition) => {
+			const { env, workspaceId } = await seed();
+			const db = context(env, ROBIN).db;
+			const gadgetId = "44444444-4444-4444-8444-444444444444";
+			const proposalId = "55555555-5555-4555-8555-555555555555";
+			const baseRevisionId = "66666666-6666-4666-8666-666666666666";
+			await db.insert(osGadgets).values({
+				id: gadgetId,
+				organizationId: "org-1",
+				workspaceId,
+				name: "Draft app",
+				status: condition === "archived" ? "archived" : "active",
+				createdByKind: "user",
+				createdById: ROBIN,
+			});
+			await db.insert(osCollaborationProposals).values({
+				id: proposalId,
+				organizationId: condition === "foreign" ? "org-2" : "org-1",
+				workspaceId,
+				documentType: "gadget",
+				documentId: condition === "wrong-app" ? "another-app" : gadgetId,
+				baseRevisionId: condition === "stale" ? "another-base" : baseRevisionId,
+				baseRevision: 1,
+				status:
+					condition === "accepted"
+						? "accepted"
+						: condition === "merged"
+							? "merged"
+							: "open",
+				sourceKind: "user",
+				sourceId: ROBIN,
+				content: "{}",
+				createdByKind: "user",
+				createdById: ROBIN,
+			});
+			const response = await workspaceSessionAccess(
+				new Request("https://api/__internal/workspace-session-access", {
+					method: "POST",
+					body: JSON.stringify({
+						workspaceId,
+						userIds: [ROBIN, STRANGER],
+						appDraft: { gadgetId, proposalId, baseRevisionId },
+					}),
+				}),
+				env,
+			);
+			expect(await response.json()).toEqual(
+				condition === "open"
+					? { roles: { [ROBIN]: "build", [STRANGER]: null } }
+					: { roles: {} },
+			);
+		},
+	);
 	it("cuts an in-flight chat poll even when the removed collaborator still owns its conversation", async () => {
 		const { env, workspaceId, sqlite } = await seed();
 		await as(env, ROBIN).add({
