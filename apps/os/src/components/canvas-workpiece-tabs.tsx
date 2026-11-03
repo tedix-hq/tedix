@@ -13,7 +13,7 @@ import { Button } from "@/components/kumo/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/kumo/tabs";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import {
-	type CanvasDocSelection,
+	type CanvasWorkpieceSelection,
 	type CanvasWorkpieceMode,
 	canvasDocKey,
 } from "@/lib/canvas-search";
@@ -31,7 +31,7 @@ import {
  * person can see where they are and get back.
  */
 export function canvasWorkpieceModeOptions(
-	doc: CanvasDocSelection,
+	doc: CanvasWorkpieceSelection,
 	outputKind?: OsOutputKind | null,
 	/** Open drafts of a runtime app, counted on the Edit tab. */
 	draftCount = 0,
@@ -41,7 +41,11 @@ export function canvasWorkpieceModeOptions(
 		{
 			value: "workpiece",
 			label:
-				doc.type === "gadget" ? "App" : outputWorkshopKindLabel(outputKind),
+				doc.type === "gadget"
+					? "App"
+					: doc.type === "repository"
+						? "Repository"
+						: outputWorkshopKindLabel(outputKind),
 		},
 		...(doc.type === "gadget"
 			? [
@@ -70,7 +74,7 @@ export function canvasWorkpieceModeOptions(
 
 export const CANVAS_WORKPIECE_PANEL_ID = "canvas-workpiece-panel";
 
-export function canvasWorkpieceTabId(doc: CanvasDocSelection): string {
+export function canvasWorkpieceTabId(doc: CanvasWorkpieceSelection): string {
 	return `canvas-workpiece-tab-${encodeURIComponent(canvasDocKey(doc))}`;
 }
 
@@ -82,12 +86,12 @@ export function CanvasWorkpieceTabs({
 	onClose,
 	onSelect,
 }: {
-	opened: readonly CanvasDocSelection[];
+	opened: readonly CanvasWorkpieceSelection[];
 	selectedKey: string | null;
 	gadgets: readonly { id: string; name: string }[];
 	outputs: readonly { id: string; title: string; kind: string }[];
 	onClose: (key: string) => void;
-	onSelect: (doc: CanvasDocSelection) => void;
+	onSelect: (doc: CanvasWorkpieceSelection) => void;
 }) {
 	const stripRef = useRef<HTMLDivElement>(null);
 	useEffect(() => {
@@ -150,16 +154,20 @@ export function CanvasWorkpieceTabs({
 					const title =
 						doc.type === "gadget"
 							? gadgets.find((candidate) => candidate.id === doc.id)?.name
-							: output?.title;
+							: doc.type === "repository"
+								? `Repository · ${doc.id.slice(0, 8)}`
+								: output?.title;
 					const kind =
 						doc.type === "gadget" ? "gadget" : (output?.kind ?? null);
 					const kindLabel =
 						doc.type === "gadget"
 							? "App"
-							: outputWorkshopKindLabel(
-									output?.kind as OsOutputKind | undefined,
-								);
-					const accessibleName = `${title ?? "Workpiece"} (${kindLabel}, ${doc.id})`;
+							: doc.type === "repository"
+								? "Repository"
+								: outputWorkshopKindLabel(
+										output?.kind as OsOutputKind | undefined,
+									);
+					const accessibleName = `${title ?? "Workpiece"} (${kindLabel}, ${doc.id}${doc.type === "repository" ? `, session ${doc.attemptId}` : ""})`;
 					const selected = key === selectedKey;
 					return (
 						<div

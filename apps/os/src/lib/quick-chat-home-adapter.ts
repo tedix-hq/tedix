@@ -42,7 +42,7 @@ export function quickChatWorkspaceContext(
 			: null;
 	return {
 		workspaceId,
-		...(selected
+		...(selected && selected.type !== "repository"
 			? { workpiece: { kind: selected.type, id: selected.id } }
 			: {}),
 	};

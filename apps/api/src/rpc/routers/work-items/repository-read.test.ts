@@ -13,7 +13,7 @@ vi.mock("./policy-helpers", async (original) => ({
 	requireOwnerAdminWorkItemAuthor: mocks.author,
 }));
 vi.mock("@tedix/db/queries/work-items/attempts", () => ({
-	getAuthoritativeWorkItemAttempt: mocks.attempt,
+	getRecordedWorkItemAttempt: mocks.attempt,
 }));
 
 import { readAttemptRepository } from "./repository-read";
@@ -83,7 +83,9 @@ const trees: Record<string, Array<Record<string, string>>> = {
 };
 
 const files: Record<string, Blob> = {
-	[`main:README.md`]: new Blob(["hello\n"], { type: "text/markdown" }),
+	[`${headCommit.hash}:README.md`]: new Blob(["hello\n"], {
+		type: "text/markdown",
+	}),
 };
 
 function repoHandle() {
@@ -133,9 +135,50 @@ describe("OS attempt repository review", () => {
 		mocks.author.mockReset().mockResolvedValue("owner-1");
 		mocks.attempt.mockReset().mockResolvedValue({
 			id: attemptId,
+			admissionId,
 			metadata: { repository: provenance },
 		});
 		mocks.artifactsGet.mockReset().mockResolvedValue(repoHandle());
+	});
+
+	it.each(["external_agent", "tedi"])(
+		"reads an expired settled %s Attempt without granting executor authority",
+		async (executorType) => {
+			mocks.attempt.mockResolvedValue({
+				id: attemptId,
+				admissionId,
+				executorType,
+				finishedAt: "2026-11-01T01:00:00.000Z",
+				expiresAt: "2026-11-01T00:30:00.000Z",
+				metadata: { repository: provenance },
+			});
+			await expect(readAttemptRepository(args())).resolves.toMatchObject({
+				operation: "log",
+			});
+			expect(mocks.attempt).toHaveBeenCalledWith("db", {
+				orgId: "org-1",
+				workItemId,
+				attemptId,
+			});
+		},
+	);
+	it("rejects an Attempt outside the scoped Work", async () => {
+		mocks.attempt.mockResolvedValue(null);
+		await expect(readAttemptRepository(args())).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		expect(mocks.artifactsGet).not.toHaveBeenCalled();
+	});
+	it("rejects mismatched admission provenance", async () => {
+		mocks.attempt.mockResolvedValue({
+			id: attemptId,
+			admissionId: "other",
+			metadata: { repository: provenance },
+		});
+		await expect(readAttemptRepository(args())).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
+		expect(mocks.artifactsGet).not.toHaveBeenCalled();
 	});
 
 	it("returns first-parent history with the persisted provenance", async () => {
@@ -239,6 +282,34 @@ describe("OS attempt repository review", () => {
 		});
 		await expect(readAttemptRepository(args())).rejects.toMatchObject({
 			code: "CONFLICT",
+		});
+	});
+
+	it.each([
+		{ ...info, id: "replacement-repo" },
+		{ ...info, description: `${info.description}-other` },
+	])(
+		"rejects a recreated repository or extended admission marker",
+		async (replacement) => {
+			mocks.artifactsGet.mockResolvedValue({
+				...repoHandle(),
+				info: async () => replacement,
+			});
+			await expect(readAttemptRepository(args())).rejects.toMatchObject({
+				code: "CONFLICT",
+			});
+		},
+	);
+	it("reads the resolved commit even when the branch moves between reads", async () => {
+		const handle = repoHandle();
+		const readFile = vi.fn(handle.readFile);
+		mocks.artifactsGet.mockResolvedValue({ ...handle, readFile });
+		await readAttemptRepository(
+			args({ operation: "file", path: "README.md", ref: "main" }),
+		);
+		expect(readFile).toHaveBeenCalledWith({
+			ref: headCommit.hash,
+			path: "README.md",
 		});
 	});
 

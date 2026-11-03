@@ -92,6 +92,29 @@ describe("Canvas URL search", () => {
 		expect(canvasDocFromSearch(`output:${OUTPUT_ID}:extra`)).toBeNull();
 	});
 
+	it("round-trips Work/Attempt repository tabs without treating them as documents", () => {
+		const doc = {
+			type: "repository" as const,
+			id: OUTPUT_ID,
+			attemptId: GADGET_ID,
+		};
+		const key = canvasDocKey(doc);
+		expect(canvasDocFromSearch(key)).toEqual(doc);
+		expect(canvasDocsFromSearch(`${key},output:${OUTPUT_ID},${key}`)).toEqual([
+			doc,
+			{ type: "output", id: OUTPUT_ID },
+		]);
+		for (const mode of ["edit", "history", "connections", "activity"] as const)
+			expect(canvasModeIsValidForDoc(mode, doc)).toBe(false);
+		for (const invalid of [
+			`repository:${OUTPUT_ID}`,
+			`repository:${OUTPUT_ID}:bad`,
+			`${key}:extra`,
+			`repository:../:${GADGET_ID}`,
+		])
+			expect(canvasDocFromSearch(invalid)).toBeNull();
+	});
+
 	it("permits the Edit view only for Gadgets", () => {
 		expect(
 			canvasModeIsValidForDoc("edit", {

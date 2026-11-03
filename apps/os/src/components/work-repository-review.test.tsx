@@ -16,6 +16,11 @@ vi.mock("@/lib/os-query-options", () => ({
 		queryFn: () => mocks.read(input),
 	}),
 }));
+vi.mock("@/components/work-attempt-repository-panel", () => ({
+	WorkAttemptRepositoryPanel: ({ attemptId }: { attemptId: string }) => (
+		<div data-active-snapshot={attemptId}>Pinned active snapshot</div>
+	),
+}));
 import { WorkRepositoryReview } from "./work-repository-review";
 
 (
@@ -138,6 +143,15 @@ describe("retained repository result", () => {
 		expect(host.textContent).toContain("before");
 		expect(host.textContent).toContain("after");
 	});
+	it("uses only the active snapshot browser before settlement", async () => {
+		const value = attempt();
+		value.finishedAt = "";
+		await mount(value);
+		expect(host.querySelectorAll("[data-active-snapshot]")).toHaveLength(1);
+		expect(host.textContent).not.toContain("Review repository result");
+		expect(mocks.read).not.toHaveBeenCalled();
+	});
+
 	it("shows unavailable without an immutable head receipt and never queries HEAD", async () => {
 		const value = attempt();
 		delete (value.metadata as Record<string, unknown>).repositoryLifecycle;

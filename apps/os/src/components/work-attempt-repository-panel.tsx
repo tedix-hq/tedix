@@ -1,7 +1,6 @@
 import type { WorkAttemptRepository } from "@tedix/api-contract/schemas/work-items";
-import { WorkAttemptRepositorySchema } from "@tedix/api-contract/schemas/work-items";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ProposalDiff } from "@/components/canvas-proposals";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
@@ -14,22 +13,7 @@ import {
 } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
-/** The ready Artifacts repository recorded on an Attempt's metadata, if any. */
-export function readyAttemptRepository(
-	metadata?: Record<string, unknown>,
-): WorkAttemptRepository | null {
-	const parsed = WorkAttemptRepositorySchema.safeParse(metadata?.repository);
-	return parsed.success && parsed.data.status === "ready" ? parsed.data : null;
-}
-
-/**
- * Immutable review of an Attempt's Artifacts repository: first-parent
- * history, a tree browser pinned to the resolved head, and per-file reads with
- * an optional comparison against the recorded base revision. Unlike the live
- * workstation inspection this stays available after the Attempt settles; it
- * carries the same secrets-management gate because repository bytes are
- * executor-produced.
- */
+/** Active Attempt snapshot; settled results use the recorded immutable receipt. */
 export function WorkAttemptRepositoryPanel({
 	workItemId,
 	attemptId,
@@ -49,11 +33,26 @@ export function WorkAttemptRepositoryPanel({
 	const [segments, setSegments] = useState<string[]>([]);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [compare, setCompare] = useState(false);
+	const [head, setHead] = useState<string | null>(null);
 	const log = useQuery({
-		...attemptRepositoryLogQueryOptions(workItemId, attemptId),
+		...attemptRepositoryLogQueryOptions(
+			workItemId,
+			attemptId,
+			head ?? undefined,
+		),
 		enabled: open && canRead,
 	});
-	const head = log.data?.operation === "log" ? log.data.resolvedRevision : null;
+	useEffect(() => {
+		if (
+			open &&
+			head === null &&
+			!log.isFetching &&
+			!log.isError &&
+			log.data?.operation === "log" &&
+			log.data.resolvedRevision
+		)
+			setHead(log.data.resolvedRevision);
+	}, [open, head, log.data, log.isFetching, log.isError]);
 	const dirPath = segments.join("/");
 	const tree = useQuery({
 		...attemptRepositoryTreeQueryOptions(
@@ -115,6 +114,7 @@ export function WorkAttemptRepositoryPanel({
 				variant="secondary"
 				aria-expanded={open}
 				onClick={() => {
+					setHead(null);
 					setSegments([]);
 					setSelected(null);
 					setCompare(false);
@@ -128,7 +128,8 @@ export function WorkAttemptRepositoryPanel({
 			{open ? (
 				<div className="mt-2 grid min-w-0 gap-2">
 					<Text role="label" tone="secondary">
-						Repository {repository.repositoryName} · branch{" "}
+						Read-only snapshot. Reopen to refresh. Repository{" "}
+						{repository.repositoryName} · branch{" "}
 						{repository.defaultBranch ?? "unknown"} · base{" "}
 						{repository.baseRevision?.slice(0, 12) ?? "not recorded"} ·{" "}
 						{repository.mode === "fork" ? "fork" : "created"} snapshot

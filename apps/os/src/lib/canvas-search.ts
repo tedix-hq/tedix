@@ -5,6 +5,10 @@ export type CanvasDocSelection =
 	| { type: "gadget"; id: string }
 	| { type: "output"; id: string; linkedGadgetId?: string };
 
+export type CanvasWorkpieceSelection =
+	| CanvasDocSelection
+	| { type: "repository"; id: string; attemptId: string };
+
 export type CanvasMobilePane = "resources" | "work" | "chat" | "workpiece";
 
 /**
@@ -63,13 +67,23 @@ export function canvasWorkpieceModeFromSearch(
 	);
 }
 
-/** The collab room key and stable URL value: `gadget:<id>` / `output:<id>`. */
-export function canvasDocKey(doc: CanvasDocSelection): string {
-	return `${doc.type}:${doc.id}`;
+/** Stable workpiece URL identity; repository selections retain the exact Work and Attempt. */
+export function canvasDocKey(doc: CanvasWorkpieceSelection): string {
+	return doc.type === "repository"
+		? `repository:${doc.id}:${doc.attemptId}`
+		: `${doc.type}:${doc.id}`;
 }
 
-export function canvasDocFromSearch(value: unknown): CanvasDocSelection | null {
+export function canvasDocFromSearch(
+	value: unknown,
+): CanvasWorkpieceSelection | null {
 	if (typeof value !== "string") return null;
+	const parts = value.split(":");
+	if (parts.length === 3 && parts[0] === "repository") {
+		const id = optionalUuidSearchParam(parts[1]);
+		const attemptId = optionalUuidSearchParam(parts[2]);
+		return id && attemptId ? { type: "repository", id, attemptId } : null;
+	}
 	const separator = value.indexOf(":");
 	if (separator <= 0 || separator !== value.lastIndexOf(":")) return null;
 	const type = value.slice(0, separator);
@@ -113,10 +127,12 @@ export function canvasConversationFromSearch(
  * validation on purpose: one stale or mangled entry in a shared link drops
  * THAT entry, not the whole set. Deduped by key, bounded, order preserved.
  */
-export function canvasDocsFromSearch(value: unknown): CanvasDocSelection[] {
+export function canvasDocsFromSearch(
+	value: unknown,
+): CanvasWorkpieceSelection[] {
 	if (typeof value !== "string" || value === "") return [];
 	const seen = new Set<string>();
-	const docs: CanvasDocSelection[] = [];
+	const docs: CanvasWorkpieceSelection[] = [];
 	for (const part of value.split(",")) {
 		const doc = canvasDocFromSearch(part.trim());
 		if (!doc) continue;
@@ -135,7 +151,7 @@ export function canvasDocsFromSearch(value: unknown): CanvasDocSelection[] {
  * when there is genuinely a set to share.
  */
 export function canvasDocsSearchValue(
-	docs: readonly CanvasDocSelection[],
+	docs: readonly CanvasWorkpieceSelection[],
 ): string | undefined {
 	if (docs.length <= 1) return undefined;
 	return docs
@@ -202,7 +218,8 @@ export function validateWorkspaceSearch(
 
 export function canvasModeIsValidForDoc(
 	mode: CanvasWorkpieceMode,
-	doc: CanvasDocSelection,
+	doc: CanvasWorkpieceSelection,
 ): boolean {
+	if (doc.type === "repository") return mode === "workpiece";
 	return (mode !== "edit" && mode !== "history") || doc.type === "gadget";
 }

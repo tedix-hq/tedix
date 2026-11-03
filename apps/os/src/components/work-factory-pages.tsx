@@ -83,10 +83,6 @@ import {
 } from "@/lib/project-target-date";
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
 import { WorkRepositoryReview } from "@/components/work-repository-review";
-import {
-	readyAttemptRepository,
-	WorkAttemptRepositoryPanel,
-} from "@/components/work-attempt-repository-panel";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
 import {
 	osQuery,
@@ -138,7 +134,9 @@ export function WorkItemReadOnlyLedgers({
 	evidenceControls,
 	events,
 	workItemId,
+	repositoryWorkspaceId,
 }: {
+	repositoryWorkspaceId?: string;
 	workItemId: string;
 	acceptanceContract: WorkItem["acceptanceContract"];
 	attempts: Array<
@@ -240,14 +238,11 @@ export function WorkItemReadOnlyLedgers({
 										attemptId={attempt.id}
 									/>
 								) : null}
-								<AttemptRepositoryReview
-									workItemId={workItemId}
-									attempt={attempt}
-								/>
-								{attempt.finishedAt && attempt.metadata?.repository ? (
+								{attempt.metadata?.repository ? (
 									<WorkRepositoryReview
 										workItemId={workItemId}
 										attempt={attempt}
+										canvasWorkspaceId={repositoryWorkspaceId}
 									/>
 								) : null}
 							</li>
@@ -340,23 +335,6 @@ export function WorkItemReadOnlyLedgers({
 			</SectionCollection>
 		</>
 	);
-}
-
-function AttemptRepositoryReview({
-	workItemId,
-	attempt,
-}: {
-	workItemId: string;
-	attempt: { id: string; metadata?: Record<string, unknown> };
-}) {
-	const repository = readyAttemptRepository(attempt.metadata);
-	return repository ? (
-		<WorkAttemptRepositoryPanel
-			workItemId={workItemId}
-			attemptId={attempt.id}
-			repository={repository}
-		/>
-	) : null;
 }
 
 export function evidenceTrustLabel(reference: {
@@ -2233,6 +2211,9 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 						<ClipboardText size="sm" text={item.id} textToCopy={item.id} />
 						<WorkItemReadOnlyLedgers
 							workItemId={item.id}
+							repositoryWorkspaceId={
+								z.uuid().safeParse(item.provenance?.workspaceId).data
+							}
 							acceptanceContract={item.acceptanceContract}
 							attempts={attempts.data?.data ?? []}
 							attemptsError={attempts.error}

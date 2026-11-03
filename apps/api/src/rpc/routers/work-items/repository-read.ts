@@ -1,5 +1,5 @@
 import { WorkAttemptRepositorySchema } from "@tedix/api-contract/schemas/work-items";
-import { getAuthoritativeWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
+import { getRecordedWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import {
 	readWorkAttemptRepository,
 	WorkAttemptRepositoryReadError,
@@ -14,7 +14,6 @@ import {
 	assertWorkItemAccess,
 	authOs,
 	requireOwnerAdminWorkItemAuthor,
-	rethrowWorkItemWriteError,
 } from "./policy-helpers";
 
 type RepositoryReadHandlerArgs = Parameters<
@@ -42,11 +41,13 @@ export async function readAttemptRepository({
 			ErrorCodes.FORBIDDEN,
 			"Attempt repository review requires secrets management authority",
 		);
-	const attempt = await getAuthoritativeWorkItemAttempt(context.db, {
+	const attempt = await getRecordedWorkItemAttempt(context.db, {
 		orgId: workItem.orgId,
 		workItemId: workItem.id,
 		attemptId: input.attemptId,
-	}).catch(rethrowWorkItemWriteError);
+	});
+	if (!attempt)
+		throw createError(ErrorCodes.NOT_FOUND, "Attempt not found for this Work");
 	const provenance = WorkAttemptRepositorySchema.safeParse(
 		attempt.metadata?.repository,
 	);
@@ -54,7 +55,8 @@ export async function readAttemptRepository({
 		!provenance.success ||
 		provenance.data.status !== "ready" ||
 		provenance.data.attemptId !== attempt.id ||
-		provenance.data.workItemId !== workItem.id
+		provenance.data.workItemId !== workItem.id ||
+		provenance.data.admissionId !== attempt.admissionId
 	)
 		throw createError(
 			ErrorCodes.CONFLICT,
