@@ -92,6 +92,15 @@ async function serveFetch(
 export class InternalEntrypoint extends WorkerEntrypoint<CloudflareEnv> {
 	override fetch(request: Request): Promise<Response> {
 		if (
+			new URL(request.url).pathname ===
+			"/__internal/repository-candidate-access"
+		) {
+			return import("./services/work-repository-candidate-access").then(
+				({ repositoryCandidateAccess }) =>
+					repositoryCandidateAccess(request, this.env),
+			);
+		}
+		if (
 			new URL(request.url).pathname === "/__internal/workspace-session-access"
 		) {
 			return import("./services/os-workspace-session-access").then(

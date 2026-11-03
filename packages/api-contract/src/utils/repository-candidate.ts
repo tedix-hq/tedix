@@ -55,6 +55,12 @@ export function repositoryCandidateContentError(
 		return "The candidate must contain exactly its frozen selected files";
 	let total = 0;
 	for (const [, text] of entries) {
+		if (
+			/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(^|[^\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(
+				text,
+			)
+		)
+			return "Shared repository candidates require valid Unicode text";
 		const bytes = new TextEncoder().encode(text).byteLength;
 		if (text.includes("\0"))
 			return "Shared repository candidates contain text files only";

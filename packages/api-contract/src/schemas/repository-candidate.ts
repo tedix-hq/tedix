@@ -13,12 +13,13 @@ export const RepositoryCandidatePathSchema = z
 			!path.startsWith("/") &&
 			!path.includes("\\") &&
 			!/[\u0000-\u001f]/.test(path) &&
+			path.split("/").length <= 32 &&
 			path
 				.split("/")
 				.every((part) => part !== "" && part !== "." && part !== ".."),
 		"Use a repository-relative path without traversal",
 	);
-const SelectedPathsSchema = z
+export const RepositoryCandidateSelectedPathsSchema = z
 	.array(RepositoryCandidatePathSchema)
 	.min(1)
 	.max(REPOSITORY_CANDIDATE_MAX_FILES)
@@ -96,7 +97,7 @@ export const RepositoryCandidateInputSchema = z.strictObject({
 export const InitializeRepositoryCandidateInputSchema =
 	RepositoryCandidateInputSchema.extend({
 		expectedBaseRevision: GitRevisionSchema,
-		paths: SelectedPathsSchema,
+		paths: RepositoryCandidateSelectedPathsSchema,
 	}).strict();
 export const SubmitRepositoryCandidateInputSchema =
 	RepositoryCandidateInputSchema.extend({
@@ -132,5 +133,5 @@ export const RepositoryCandidateRoomRequestSchema = z.strictObject({
 });
 export const RepositoryCandidateAccessInputSchema = z.strictObject({
 	descriptor: RepositoryCandidateDescriptorSchema,
-	userIds: z.array(z.string().min(1)).min(1).max(32),
+	userIds: z.array(z.string().min(1)).max(32),
 });

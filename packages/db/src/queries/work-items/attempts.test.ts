@@ -6,6 +6,8 @@ import {
 	buildWorkAttemptSettlementMetadata,
 	listLatestWorkAttemptSummaries,
 	recordWorkAttemptRepository,
+	recordWorkAttemptRepositoryCandidate,
+	workAttemptCallerMetadata,
 } from "./attempts";
 
 const NOW = "2026-10-01T00:00:00.000Z";
@@ -92,6 +94,100 @@ const repository = {
 	observedAt: NOW,
 	reason: null,
 };
+
+describe("server-reserved repository candidate", () => {
+	const descriptor = {
+		version: 1 as const,
+		organizationId: "org",
+		...IDS,
+		repositoryId: "repo-1",
+		repositoryName: "fixture",
+		baseRevision: "a".repeat(40),
+		files: [{ path: "README.md", blobRevision: "b".repeat(40), bytes: 1 }],
+		selectionDigest: "c".repeat(64),
+		roomName: "room",
+		docKey: "doc",
+		createdAt: NOW,
+	};
+	it("freezes selection once under executor, lease and repository fences", async () => {
+		const { db, sqlite } = fixture();
+		sqlite
+			.prepare("UPDATE work_attempts SET expires_at=?, metadata=? WHERE id=?")
+			.run(
+				"2099-01-01T00:00:00.000Z",
+				JSON.stringify({ caller: "kept", repository }),
+				IDS.attemptId,
+			);
+		const params = {
+			orgId: "org",
+			...IDS,
+			executor: { type: "tedi" as const, id: "worker" },
+			descriptor,
+		};
+		await expect(
+			recordWorkAttemptRepositoryCandidate(db, {
+				...params,
+				executor: { type: "tedi", id: "stranger" },
+			}),
+		).rejects.toThrow("stale");
+		await expect(
+			recordWorkAttemptRepositoryCandidate(db, {
+				...params,
+				descriptor: { ...descriptor, repositoryId: "other" },
+			}),
+		).rejects.toThrow("stale");
+		const result = await recordWorkAttemptRepositoryCandidate(db, params);
+		expect(result.metadata).toMatchObject({
+			caller: "kept",
+			repository,
+			repositoryCandidate: descriptor,
+		});
+		await expect(
+			recordWorkAttemptRepositoryCandidate(db, {
+				...params,
+				descriptor: { ...descriptor, selectionDigest: "d".repeat(64) },
+			}),
+		).rejects.toThrow("already initialized");
+	});
+	it("rejects elapsed leases and foreign Work scope", async () => {
+		const { db } = fixture();
+		const params = {
+			orgId: "org",
+			...IDS,
+			executor: { type: "tedi" as const, id: "worker" },
+			descriptor,
+		};
+		await expect(
+			recordWorkAttemptRepositoryCandidate(db, params),
+		).rejects.toThrow("stale");
+		await expect(
+			recordWorkAttemptRepositoryCandidate(db, {
+				...params,
+				descriptor: { ...descriptor, workItemId: "other" },
+			}),
+		).rejects.toThrow("provenance");
+	});
+	it("cannot inject at start or replace at settlement while preserving other metadata", () => {
+		expect(
+			workAttemptCallerMetadata({
+				repositoryCandidate: { forged: true },
+				note: "kept",
+			}),
+		).toEqual({ note: "kept" });
+		expect(
+			buildWorkAttemptSettlementMetadata({
+				priorMetadata: { repositoryCandidate: descriptor, repository },
+				metadata: {
+					repositoryCandidate: { forged: true },
+					repositoryLifecycle: { forged: true },
+					note: "kept",
+				},
+				attemptId: IDS.attemptId,
+				workItemId: IDS.workItemId,
+			}),
+		).toEqual({ repositoryCandidate: descriptor, repository, note: "kept" });
+	});
+});
 
 describe("recordWorkAttemptRepository", () => {
 	it("merges provenance under the live Attempt fence", async () => {

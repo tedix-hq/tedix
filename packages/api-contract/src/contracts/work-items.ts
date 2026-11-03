@@ -23,6 +23,13 @@ import "@orpc/openapi/extensions/route";
  */
 
 import { oc } from "@orpc/contract";
+import {
+	InitializeRepositoryCandidateInputSchema,
+	RepositoryCandidateInputSchema,
+	SubmitRepositoryCandidateInputSchema,
+	SealRepositoryCandidateInputSchema,
+	RepositoryCandidateResultSchema,
+} from "../schemas/repository-candidate";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import {
@@ -1241,6 +1248,41 @@ export const workItemsContract = oc
 				),
 			)
 			.output(RepositoryInspectionResultSchema),
+
+		initializeRepositoryCandidate: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/candidate/initialize",
+				summary:
+					"Freeze selected repository text files for shared candidate editing",
+			})
+			.input(InitializeRepositoryCandidateInputSchema)
+			.output(RepositoryCandidateResultSchema),
+		readRepositoryCandidate: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/candidate/read",
+				summary: "Read the shared repository candidate without writing Git",
+			})
+			.input(RepositoryCandidateInputSchema)
+			.output(RepositoryCandidateResultSchema),
+		submitRepositoryCandidate: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/candidate/submit",
+				summary: "Submit an OT edit to a shared repository candidate",
+			})
+			.input(SubmitRepositoryCandidateInputSchema)
+			.output(RepositoryCandidateResultSchema),
+		sealRepositoryCandidate: oc
+			.route({
+				method: "POST",
+				path: "/{id}/attempts/{attemptId}/repository/candidate/seal",
+				summary:
+					"Seal an exact candidate stream position and digest without writing Git",
+			})
+			.input(SealRepositoryCandidateInputSchema)
+			.output(RepositoryCandidateResultSchema),
 
 		readAttemptRepository: oc
 			.route({

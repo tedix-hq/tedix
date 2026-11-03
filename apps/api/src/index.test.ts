@@ -25,7 +25,18 @@ vi.mock("cloudflare:workflows", () => ({
  * the short-circuit could vanish and the response would look identical, just
  * slow. Asserting the counter is what makes this a real guard.
  */
-const h = vi.hoisted(() => ({ evaluations: 0, accessChecks: 0 }));
+const h = vi.hoisted(() => ({
+	evaluations: 0,
+	accessChecks: 0,
+	candidateAccessChecks: 0,
+}));
+
+vi.mock("./services/work-repository-candidate-access", () => ({
+	repositoryCandidateAccess: async () => {
+		h.candidateAccessChecks++;
+		return Response.json({ allowed: false, roles: {}, expiresAt: null });
+	},
+}));
 
 vi.mock("./services/os-workspace-session-access", () => ({
 	workspaceSessionAccess: async () => {
@@ -128,6 +139,21 @@ describe("apps/api entrypoint liveness short-circuit", () => {
 });
 
 describe("apps/api service-binding trust boundary", () => {
+	it("keeps repository candidate access checks behind InternalEntrypoint", async () => {
+		const request = () =>
+			new Request("https://api.test/__internal/repository-candidate-access", {
+				method: "POST",
+				headers: { "X-Service-Binding": "true" },
+				body: "{}",
+			});
+		const before = h.candidateAccessChecks;
+		expect((await worker.fetch(request(), env, ctx)).status).toBe(418);
+		expect(h.candidateAccessChecks).toBe(before);
+		expect(
+			(await new InternalEntrypoint(ctx, env).fetch(request())).status,
+		).toBe(200);
+		expect(h.candidateAccessChecks).toBe(before + 1);
+	});
 	it("accepts verified workspace identities only through the internal entrypoint", async () => {
 		const request = () =>
 			new Request("https://api.test/__internal/workspace-session-access", {

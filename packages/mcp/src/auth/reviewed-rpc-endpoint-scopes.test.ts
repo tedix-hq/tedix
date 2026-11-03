@@ -32,6 +32,19 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("requires Work write scope only for candidate mutations", () => {
+		expect(
+			REVIEWED_RPC_ENDPOINT_SCOPES["workItems/readRepositoryCandidate"],
+		).toBe("mcp:work.read");
+		for (const operation of [
+			"initializeRepositoryCandidate",
+			"submitRepositoryCandidate",
+			"sealRepositoryCandidate",
+		])
+			expect(REVIEWED_RPC_ENDPOINT_SCOPES[`workItems/${operation}`]).toBe(
+				"mcp:work.write",
+			);
+	});
 	it("keeps managed ledger qualification on the work-write capability", () => {
 		const endpoint = "workAgentSessions/evaluateLedgerModel";
 		expect(resolve(endpoint, { readOnlyHint: false })).toEqual([
