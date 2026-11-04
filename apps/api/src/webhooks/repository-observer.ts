@@ -72,8 +72,12 @@ export async function handleRepositoryObserverWebhook(
 		let config: RepositoryObserverConfig;
 		try {
 			config = (await observerConfig(base, orgId, projectId)).config;
-		} catch {
-			return c.text("Observer unavailable", 404);
+		} catch (error) {
+			// Only a missing or inactive configuration is a 404. A failed read is
+			// a server error the notify step may retry, not "not configured".
+			if (error instanceof ORPCError && error.code === "NOT_FOUND")
+				return c.text("Observer unavailable", 404);
+			throw error;
 		}
 		const parsed = RepositoryEventSchema.safeParse(
 			await c.req.json().catch(() => null),

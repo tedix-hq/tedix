@@ -117,6 +117,7 @@ describe("repository event notifier", () => {
 						ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
 					},
 					fetcher,
+					delays: [],
 				},
 			),
 		).rejects.toThrow("503");
@@ -147,6 +148,7 @@ describe("repository event notifier", () => {
 						ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
 					},
 					fetcher,
+					delays: [],
 				},
 			).catch((error: unknown) => error);
 			if (!(error instanceof Error))
@@ -207,6 +209,7 @@ describe("repository event notifier", () => {
 							ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
 						},
 						fetcher,
+						delays: [],
 					},
 				).catch((error: unknown) => error);
 				if (!(error instanceof Error))
@@ -239,9 +242,83 @@ describe("repository event notifier", () => {
 						ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
 					},
 					fetcher,
+					delays: [],
 				},
 			),
 		).toEqual(receipt);
 		expect(fetcher).toHaveBeenCalledTimes(2);
+	});
+	it("retries a server error with the same event, then delivers", async () => {
+		const receipt = { observationId: "11111111-1111-4111-8111-111111111111" };
+		const payload = { summary: "same-event" };
+		const fetcher = mock()
+			.mockResolvedValueOnce(Response.json({ value: "ephemeral-token" }))
+			.mockResolvedValueOnce(new Response("", { status: 500 }))
+			.mockResolvedValueOnce(new Response("", { status: 503 }))
+			.mockResolvedValueOnce(Response.json(receipt, { status: 202 }));
+		const sleep = mock(async (_ms: number) => {});
+		const log = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			expect(
+				await notifyObserver("https://api.example/observer", payload, {
+					env: {
+						ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.example/request",
+						ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
+					},
+					fetcher,
+					delays: [1, 2],
+					sleep,
+				}),
+			).toEqual(receipt);
+		} finally {
+			log.mockRestore();
+		}
+		expect(fetcher).toHaveBeenCalledTimes(4);
+		expect(sleep.mock.calls).toEqual([[1], [2]]);
+		for (const call of fetcher.mock.calls.slice(1))
+			expect(call[1]?.body).toBe(JSON.stringify(payload));
+	});
+	it("fails after the bounded retries and never retries a 4xx", async () => {
+		const env = {
+			ACTIONS_ID_TOKEN_REQUEST_URL: "https://token.example/request",
+			ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-token",
+		};
+		const log = spyOn(console, "log").mockImplementation(() => {});
+		try {
+			const exhausted = mock()
+				.mockResolvedValueOnce(Response.json({ value: "ephemeral-token" }))
+				.mockResolvedValue(new Response("", { status: 500 }));
+			await expect(
+				notifyObserver(
+					"https://api.example/observer",
+					{},
+					{
+						env,
+						fetcher: exhausted,
+						delays: [0, 0],
+						sleep: async () => {},
+					},
+				),
+			).rejects.toThrow("Observer rejected event (500)");
+			expect(exhausted).toHaveBeenCalledTimes(4);
+			const rejected = mock()
+				.mockResolvedValueOnce(Response.json({ value: "ephemeral-token" }))
+				.mockResolvedValue(new Response("", { status: 403 }));
+			await expect(
+				notifyObserver(
+					"https://api.example/observer",
+					{},
+					{
+						env,
+						fetcher: rejected,
+						delays: [0, 0],
+						sleep: async () => {},
+					},
+				),
+			).rejects.toThrow("Observer rejected event (403)");
+			expect(rejected).toHaveBeenCalledTimes(2);
+		} finally {
+			log.mockRestore();
+		}
 	});
 });

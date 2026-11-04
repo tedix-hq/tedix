@@ -53,14 +53,40 @@ export function pushObservation(
 		...(repair ? { repairObservationId: repair } : {}),
 	};
 }
+/** Correlation ids of an error response; never its body or raw header text.
+ * @param {Response} response
+ */
+function references(response) {
+	const traceId = response.headers.get("X-Tedix-Trace-Id") ?? "";
+	const cfRay = response.headers.get("CF-Ray") ?? "";
+	// Match worker-kit correlation semantics without logging arbitrary header text.
+	const found = [
+		/^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(
+			traceId,
+		)
+			? `traceId=${traceId}`
+			: "",
+		/^[a-f0-9]{16}(?:-[a-z]{3})?$/i.test(cfRay) ? `cfRay=${cfRay}` : "",
+	]
+		.filter(Boolean)
+		.join(", ");
+	return found ? ` [${found}]` : "";
+}
+/** Waits before the 2nd and 3rd delivery attempts. */
+export const OBSERVER_RETRY_DELAYS_MS = [2_000, 8_000];
 /** @param {string} url
  * @param {unknown} payload
- * @param {{env?: Record<string,string|undefined>,fetcher?: (url: URL, init: RequestInit) => Promise<Response>}} options
+ * @param {{env?: Record<string,string|undefined>,fetcher?: (url: URL, init: RequestInit) => Promise<Response>,delays?: number[],sleep?: (ms: number) => Promise<void>}} options
  */
 export async function notifyObserver(
 	url,
 	payload,
-	{ env = process.env, fetcher = fetch } = {},
+	{
+		env = process.env,
+		fetcher = fetch,
+		delays = OBSERVER_RETRY_DELAYS_MS,
+		sleep = (ms) => new Promise((done) => setTimeout(done, ms)),
+	} = {},
 ) {
 	const target = new URL(url);
 	if (target.protocol !== "https:") throw new Error("Observer requires HTTPS");
@@ -74,33 +100,32 @@ export async function notifyObserver(
 		throw new Error(`OIDC request failed (${tokenResponse.status})`);
 	const { value } = await tokenResponse.json();
 	if (typeof value !== "string") throw new Error("OIDC response missing token");
-	const response = await fetcher(target, {
-		method: "POST",
-		headers: {
-			Authorization: `Bearer ${value}`,
-			"Content-Type": "application/json",
-		},
-		body: JSON.stringify(payload),
-		redirect: "error",
-	});
-	if (!response.ok) {
-		const traceId = response.headers.get("X-Tedix-Trace-Id") ?? "";
-		const cfRay = response.headers.get("CF-Ray") ?? "";
-		// Match worker-kit correlation semantics without logging arbitrary header text.
-		const references = [
-			/^(?:[a-f0-9]{32}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/i.test(
-				traceId,
-			)
-				? `traceId=${traceId}`
-				: "",
-			/^[a-f0-9]{16}(?:-[a-z]{3})?$/i.test(cfRay) ? `cfRay=${cfRay}` : "",
-		]
-			.filter(Boolean)
-			.join(", ");
-		throw new Error(
-			`Observer rejected event (${response.status})${references ? ` [${references}]` : ""}`,
+	const deliver = () =>
+		fetcher(target, {
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${value}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(payload),
+			redirect: "error",
+		});
+	// The observer derives the observation id from the event and enqueues the
+	// wake with an idempotency key, so resending the same event is safe. Only a
+	// server error is retried; a 4xx rejection fails at once.
+	let response;
+	for (let attempt = 0; ; attempt++) {
+		response = await deliver();
+		if (response.status < 500 || attempt >= delays.length) break;
+		console.log(
+			`Observer returned ${response.status}${references(response)}; retrying (${attempt + 2}/${delays.length + 1})`,
 		);
+		await sleep(delays[attempt]);
 	}
+	if (!response.ok)
+		throw new Error(
+			`Observer rejected event (${response.status})${references(response)}`,
+		);
 	return response.json();
 }
 /**

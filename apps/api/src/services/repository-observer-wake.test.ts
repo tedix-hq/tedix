@@ -128,3 +128,15 @@ it("wakes deferred pushes into free slots and releases a slot whose wake failed"
 		expect.objectContaining({ id: "newest" }),
 	);
 });
+
+it("releases the slot of a live event whose wake failed, so a retry can claim it", async () => {
+	deps.claim.mockResolvedValue(true);
+	deps.enqueue.mockRejectedValue(new Error("runtime down"));
+	await expect(
+		observeRepositoryEvent(context, "org-example", push),
+	).rejects.toThrow("runtime down");
+	expect(deps.release).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({ orgId: "org-example" }),
+	);
+});

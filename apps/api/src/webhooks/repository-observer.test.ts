@@ -319,11 +319,24 @@ describe("authenticated observer HTTP error boundary", () => {
 	});
 	it("keeps unavailable observer configuration private and stops before authentication", async () => {
 		vi.mocked(observerConfig).mockRejectedValue(
-			new Error("PRIVATE config detail"),
+			new ORPCError("NOT_FOUND", { message: "PRIVATE config detail" }),
 		);
 		const response = await notify();
 		expect(response.status).toBe(404);
 		expect(await response.text()).toBe("Observer unavailable");
+		expect(verifyGithubActionsWorkloadToken).not.toHaveBeenCalled();
+		expect(observeRepositoryEvent).not.toHaveBeenCalled();
+	});
+	it("reports a failed configuration read as a retryable 500, not a 404", async () => {
+		vi.mocked(observerConfig).mockRejectedValue(
+			new Error("PRIVATE D1_ERROR detail"),
+		);
+		const response = await notify();
+		expect(response.status).toBe(500);
+		expect(await response.json()).toEqual({ error: "Internal Server Error" });
+		expect(JSON.stringify(vi.mocked(console.error).mock.calls)).not.toContain(
+			"PRIVATE",
+		);
 		expect(verifyGithubActionsWorkloadToken).not.toHaveBeenCalled();
 		expect(observeRepositoryEvent).not.toHaveBeenCalled();
 	});
