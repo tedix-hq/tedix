@@ -750,6 +750,128 @@ export async function findKernelRuntimeRunForOutputRevision(
 		: null;
 }
 
+export interface ApprovedHomeDelegationApprovalEventSet {
+	digest: string;
+	originalExpiresAt: string;
+	events: KernelRuntimeEvent[];
+}
+
+function validApprovalEventSet(
+	value: unknown,
+): value is ApprovedHomeDelegationApprovalEventSet {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const proof = value as Partial<ApprovedHomeDelegationApprovalEventSet>;
+	if (
+		typeof proof.digest !== "string" ||
+		!/^[a-f0-9]{64}$/.test(proof.digest) ||
+		typeof proof.originalExpiresAt !== "string" ||
+		!Number.isFinite(Date.parse(proof.originalExpiresAt)) ||
+		!Array.isArray(proof.events) ||
+		proof.events.length < 2 ||
+		proof.events.length > 8 ||
+		new TextEncoder().encode(JSON.stringify(proof)).byteLength > 256 * 1024
+	)
+		return false;
+	const ids = new Set<string>();
+	let previous = "";
+	for (const event of proof.events) {
+		if (
+			!event ||
+			typeof event !== "object" ||
+			typeof event.id !== "string" ||
+			!event.id ||
+			typeof event.createdAt !== "string" ||
+			!Number.isFinite(Date.parse(event.createdAt)) ||
+			ids.has(event.id) ||
+			![
+				"id",
+				"organizationId",
+				"runId",
+				"conversationId",
+				"kind",
+				"createdAt",
+				"payload",
+				"runtimeMetadata",
+				"runtimeBackend",
+				"runtimeExternalId",
+				"runtimeExternalUrl",
+				"delegatedTediId",
+				"childRunId",
+				"causeEventId",
+				"messageId",
+				"sequence",
+				"delta",
+				"traceId",
+			].every((key) => Object.hasOwn(event, key))
+		)
+			return false;
+		const key = `${event.createdAt}\0${event.id}`;
+		if (key <= previous) return false;
+		previous = key;
+		ids.add(event.id);
+	}
+	return true;
+}
+
+/** Freeze the complete approval history, including producer fields, through the send boundary. */
+function approvedHomeApprovalHistoryGuard(
+	input: Pick<
+		ClaimApprovedHomeDelegationResumeParams,
+		| "organizationId"
+		| "runId"
+		| "conversationId"
+		| "approvalEventId"
+		| "approvalResolvedAt"
+		| "approvalEventSet"
+	>,
+	now: string,
+) {
+	const proof = input.approvalEventSet;
+	if (!proof)
+		return sql`(select count(*) from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved') = 1`;
+	if (
+		!validApprovalEventSet(proof) ||
+		!Number.isFinite(Date.parse(now)) ||
+		Date.parse(proof.originalExpiresAt) <= Date.parse(now) ||
+		proof.events.at(-1)?.id !== input.approvalEventId ||
+		proof.events.at(-1)?.createdAt !== input.approvalResolvedAt ||
+		proof.events.some(
+			(event) =>
+				event.organizationId !== input.organizationId ||
+				event.runId !== input.runId ||
+				event.conversationId !== input.conversationId ||
+				event.kind !== "approval.resolved",
+		)
+	)
+		return sql`0`;
+	return sql`
+		json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.expiresAt') = ${proof.originalExpiresAt}
+		and (select count(*) from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved') = ${proof.events.length}
+		and not exists (
+			select 1 from ${kernelRuntimeEvents} where ${kernelRuntimeEvents.organizationId} = ${input.organizationId} and ${kernelRuntimeEvents.runId} = ${input.runId} and ${kernelRuntimeEvents.kind} = 'approval.resolved'
+			and not exists (select 1 from json_each(${JSON.stringify(proof.events)}) as approval_snapshot where
+				${kernelRuntimeEvents.id} is json_extract(approval_snapshot.value, '$.id')
+				and ${kernelRuntimeEvents.organizationId} is json_extract(approval_snapshot.value, '$.organizationId')
+				and ${kernelRuntimeEvents.runId} is json_extract(approval_snapshot.value, '$.runId')
+				and ${kernelRuntimeEvents.conversationId} is json_extract(approval_snapshot.value, '$.conversationId')
+				and ${kernelRuntimeEvents.kind} is json_extract(approval_snapshot.value, '$.kind')
+				and ${kernelRuntimeEvents.createdAt} is json_extract(approval_snapshot.value, '$.createdAt')
+				and json(${kernelRuntimeEvents.payload}) is json_extract(approval_snapshot.value, '$.payload')
+				and json(${kernelRuntimeEvents.runtimeMetadata}) is json_extract(approval_snapshot.value, '$.runtimeMetadata')
+				and ${kernelRuntimeEvents.runtimeBackend} is json_extract(approval_snapshot.value, '$.runtimeBackend')
+				and ${kernelRuntimeEvents.runtimeExternalId} is json_extract(approval_snapshot.value, '$.runtimeExternalId')
+				and ${kernelRuntimeEvents.runtimeExternalUrl} is json_extract(approval_snapshot.value, '$.runtimeExternalUrl')
+				and ${kernelRuntimeEvents.delegatedTediId} is json_extract(approval_snapshot.value, '$.delegatedTediId')
+				and ${kernelRuntimeEvents.childRunId} is json_extract(approval_snapshot.value, '$.childRunId')
+				and ${kernelRuntimeEvents.causeEventId} is json_extract(approval_snapshot.value, '$.causeEventId')
+				and ${kernelRuntimeEvents.messageId} is json_extract(approval_snapshot.value, '$.messageId')
+				and ${kernelRuntimeEvents.sequence} is json_extract(approval_snapshot.value, '$.sequence')
+				and ${kernelRuntimeEvents.delta} is json_extract(approval_snapshot.value, '$.delta')
+				and ${kernelRuntimeEvents.traceId} is json_extract(approval_snapshot.value, '$.traceId')
+			)
+		)`;
+}
+
 export interface ClaimApprovedHomeDelegationResumeParams {
 	organizationId: string;
 	runId: string;
@@ -759,6 +881,7 @@ export interface ClaimApprovedHomeDelegationResumeParams {
 	expectedMetadata: Record<string, JsonValue>;
 	approvalEventId: string;
 	approvalResolvedAt: string;
+	approvalEventSet?: ApprovedHomeDelegationApprovalEventSet;
 	workItemId: string;
 	workItemVersion: number;
 	admissionSpecRevision: string;
@@ -807,7 +930,7 @@ export async function claimApprovedHomeDelegationResume(
 		.update(kernelRuntimeRuns)
 		.set({
 			updatedAt: input.now,
-			metadata: sql`json_set(${JSON.stringify({ ...input.expectedMetadata, homeDelegationResume: { version: 1, phase: "claimed", claimId: input.claimId, approvalEventId: input.approvalEventId, approvalResolvedAt: input.approvalResolvedAt, workItemId: input.workItemId, workItemVersion: input.workItemVersion, admissionSpecRevision: input.admissionSpecRevision, scopeDigest: input.scopeDigest, targetTediId: input.targetTediId, expectedChildRunId: input.expectedChildRunId, claimedAt: input.now } })}, '$.homeDelegation.workOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.delegationWorkOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.homeDelegation.resolutionStatus', 'approved', '$.homeDelegation.resolvedAt', ${input.approvalResolvedAt}, '$.homeDelegation.resolution', json_extract((${approvedReceipt}), '$.resolution'), '$.homeDelegation.resolvedBy', json_extract((${approvedReceipt}), '$.resolvedBy'))`,
+			metadata: sql`json_set(${JSON.stringify({ ...input.expectedMetadata, homeDelegationResume: { version: 1, phase: "claimed", claimId: input.claimId, approvalEventId: input.approvalEventId, approvalResolvedAt: input.approvalResolvedAt, workItemId: input.workItemId, workItemVersion: input.workItemVersion, admissionSpecRevision: input.admissionSpecRevision, scopeDigest: input.scopeDigest, targetTediId: input.targetTediId, expectedChildRunId: input.expectedChildRunId, claimedAt: input.now, ...(input.approvalEventSet ? { approvalEventSet: input.approvalEventSet } : {}) } })}, '$.homeDelegation.workOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.delegationWorkOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.homeDelegation.resolutionStatus', 'approved', '$.homeDelegation.resolvedAt', ${input.approvalResolvedAt}, '$.homeDelegation.resolution', json_extract((${approvedReceipt}), '$.resolution'), '$.homeDelegation.resolvedBy', json_extract((${approvedReceipt}), '$.resolvedBy'))`,
 		})
 		.where(
 			and(
@@ -881,6 +1004,7 @@ export async function claimApprovedHomeDelegationResume(
 						),
 				),
 
+				approvedHomeApprovalHistoryGuard(input, input.now),
 				exists(currentWork),
 				exists(approvedReceipt),
 				notExists(
@@ -909,6 +1033,7 @@ export type ApprovedHomeDelegationResumeScope = Pick<
 	| "claimId"
 	| "approvalEventId"
 	| "approvalResolvedAt"
+	| "approvalEventSet"
 	| "workItemId"
 	| "workItemVersion"
 	| "admissionSpecRevision"
@@ -946,7 +1071,9 @@ export function parseApprovedHomeDelegationResumeScope(input: {
 	if (
 		typeof value.workItemVersion !== "number" ||
 		!Number.isSafeInteger(value.workItemVersion) ||
-		value.workItemVersion < 1
+		value.workItemVersion < 1 ||
+		(value.approvalEventSet !== undefined &&
+			!validApprovalEventSet(value.approvalEventSet))
 	)
 		return null;
 	return {
@@ -962,6 +1089,12 @@ export function parseApprovedHomeDelegationResumeScope(input: {
 		targetTediId: value.targetTediId as string,
 		expectedChildRunId: value.expectedChildRunId as string,
 		workItemVersion: value.workItemVersion,
+		...(value.approvalEventSet
+			? {
+					approvalEventSet:
+						value.approvalEventSet as unknown as ApprovedHomeDelegationApprovalEventSet,
+				}
+			: {}),
 	};
 }
 
@@ -971,6 +1104,7 @@ function approvedHomeResumeScope(input: ApprovedHomeDelegationResumeScope) {
 		eq(kernelRuntimeRuns.organizationId, input.organizationId),
 		eq(kernelRuntimeRuns.conversationId, input.conversationId),
 		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.version') = 1`,
+		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.approvalEventSet') is json_extract(${JSON.stringify({ proof: input.approvalEventSet ?? null })}, '$.proof')`,
 		...(
 			[
 				"claimId",
@@ -1061,6 +1195,7 @@ export async function beginApprovedHomeDelegationResumeDispatch(
 			and(
 				approvedHomeResumeScope(input),
 				approvedHomeResumeAuthority(db, input),
+				approvedHomeApprovalHistoryGuard(input, input.now),
 				eq(kernelRuntimeRuns.status, "requires_approval"),
 				isNull(kernelRuntimeRuns.childRunId),
 				isNull(kernelRuntimeRuns.delegatedTediId),

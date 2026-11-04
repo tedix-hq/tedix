@@ -623,6 +623,17 @@ it("retains ACK without overwriting an independently linked child conversation",
 
 it("denies resume after a fresh reread of an in-flight normal resolution", async () => {
 	const f = await fixture();
+	const originalExpiresAt = "2026-11-05T09:00:00.000Z";
+	f.params.expectedMetadata = {
+		...f.params.expectedMetadata,
+		homeDelegation: {
+			...(f.params.expectedMetadata.homeDelegation as object),
+			expiresAt: originalExpiresAt,
+		},
+	};
+	await f.db
+		.update(kernelRuntimeRuns)
+		.set({ metadata: f.params.expectedMetadata });
 	expect(
 		await compareAndTouchKernelRuntimeRun(f.db, {
 			id: f.params.runId,
@@ -680,6 +691,19 @@ it("denies resume after a fresh reread of an in-flight normal resolution", async
 			...f.params,
 			expectedUpdatedAt: retired!.updatedAt,
 			expectedMetadata: retired!.metadata!,
+		}),
+	).toBeNull();
+	const events = (await f.db.select().from(kernelRuntimeEvents)).sort(
+		(a, b) =>
+			a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+	);
+	expect(events).toHaveLength(2);
+	expect(
+		await claimApprovedHomeDelegationResume(f.db, {
+			...f.params,
+			expectedUpdatedAt: retired!.updatedAt,
+			expectedMetadata: retired!.metadata!,
+			approvalEventSet: { digest: "b".repeat(64), originalExpiresAt, events },
 		}),
 	).not.toBeNull();
 });
@@ -1140,3 +1164,295 @@ it("uses the existing scoped executor index for cross-Work child history", async
 	expect(JSON.stringify(plan)).toContain("idx_work_attempt_executor_state");
 	expect(JSON.stringify(plan)).not.toContain("SCAN work_attempts");
 });
+
+async function approvalSetFixture(count = 4) {
+	const f = await fixture();
+	const original = (await f.db.select().from(kernelRuntimeEvents))[0]!;
+	const expiresAt = "2026-11-05T09:00:00.000Z";
+	f.params.expectedMetadata = {
+		...f.params.expectedMetadata,
+		homeDelegation: {
+			...(f.params.expectedMetadata.homeDelegation as object),
+			expiresAt,
+		},
+	};
+	await f.db.delete(kernelRuntimeEvents);
+	const events = Array.from({ length: count }, (_, i) => ({
+		...original,
+		id: `approval-${i}`,
+		createdAt: `2026-11-04T09:0${i}:00.000Z`,
+		delegatedTediId: f.params.targetTediId,
+		payload: { ...original.payload!, resolvedBy: null, resolution: null },
+		runtimeMetadata: {
+			source: "kernelRuntime.respondApproval",
+			dispatch: "home-delegation-approved",
+		},
+	}));
+	for (const event of events)
+		await f.db.insert(kernelRuntimeEvents).values(event);
+	const latest = events.at(-1)!;
+	f.params.approvalEventId = latest.id;
+	f.params.approvalResolvedAt = latest.createdAt;
+	f.params.expectedUpdatedAt = latest.createdAt;
+	f.params.expectedLatestEventAt = latest.createdAt;
+	f.params.approvalEventSet = {
+		digest: "b".repeat(64),
+		originalExpiresAt: expiresAt,
+		events,
+	};
+	await f.db.update(kernelRuntimeRuns).set({
+		metadata: f.params.expectedMetadata,
+		updatedAt: latest.createdAt,
+		latestEventAt: latest.createdAt,
+	});
+	return f;
+}
+
+describe("complete historical approval event set", () => {
+	it.each([2, 4, 8])(
+		"freezes %i full receipts and preserves null actors through one send",
+		async (count) => {
+			const f = await approvalSetFixture(count);
+			const before = await f.db.select().from(kernelRuntimeEvents);
+			const claimed = await claimApprovedHomeDelegationResume(f.db, f.params);
+			expect(claimed).not.toBeNull();
+			expect(claimed?.metadata?.homeDelegationResume).toMatchObject({
+				approvalEventSet: f.params.approvalEventSet,
+				scopeDigest: f.params.scopeDigest,
+			});
+			expect(claimed?.metadata?.homeDelegation).toMatchObject({
+				resolvedBy: null,
+			});
+			const scope = parseApprovedHomeDelegationResumeScope({
+				...f.params,
+				metadata: claimed!.metadata,
+			});
+			expect(scope?.approvalEventSet).toEqual(f.params.approvalEventSet);
+			expect(
+				await beginApprovedHomeDelegationResumeDispatch(f.db, {
+					...scope!,
+					now: f.params.now,
+				}),
+			).toBe(true);
+			expect(
+				await beginApprovedHomeDelegationResumeDispatch(f.db, {
+					...scope!,
+					now: f.params.now,
+				}),
+			).toBe(false);
+			expect(await f.db.select().from(kernelRuntimeEvents)).toEqual(before);
+		},
+	);
+
+	const mutations = [
+		[
+			"appended approval",
+			"INSERT INTO kernel_runtime_events (id,organization_id,conversation_id,run_id,kind,created_at,payload) SELECT 'new-approval',organization_id,conversation_id,run_id,kind,created_at,payload FROM kernel_runtime_events LIMIT 1",
+		],
+		[
+			"deleted receipt",
+			"DELETE FROM kernel_runtime_events WHERE id='approval-0'",
+		],
+		[
+			"changed payload",
+			"UPDATE kernel_runtime_events SET payload=json_set(payload,'$.resolution','changed') WHERE id='approval-0'",
+		],
+		[
+			"rejection",
+			"UPDATE kernel_runtime_events SET payload=json_set(payload,'$.status','rejected') WHERE id='approval-0'",
+		],
+		[
+			"changed actor",
+			'UPDATE kernel_runtime_events SET payload=json_set(payload,\'$.resolvedBy\',json(\'{"type":"user","id":"different"}\')) WHERE id=\'approval-0\'',
+		],
+		[
+			"changed producer",
+			"UPDATE kernel_runtime_events SET runtime_metadata=json_set(runtime_metadata,'$.source','different') WHERE id='approval-0'",
+		],
+		[
+			"changed receipt time",
+			"UPDATE kernel_runtime_events SET created_at='2026-11-04T09:00:01.000Z' WHERE id='approval-0'",
+		],
+		[
+			"changed target",
+			"UPDATE kernel_runtime_events SET delegated_tedi_id='different' WHERE id='approval-0'",
+		],
+		[
+			"changed backend",
+			"UPDATE kernel_runtime_events SET runtime_backend='cloudflare' WHERE id='approval-0'",
+		],
+		[
+			"changed nullable trace",
+			"UPDATE kernel_runtime_events SET trace_id='new-trace' WHERE id='approval-0'",
+		],
+		[
+			"changed conversation",
+			"UPDATE kernel_runtime_events SET conversation_id='different' WHERE id='approval-0'",
+		],
+		[
+			"changed hold",
+			"UPDATE kernel_runtime_runs SET metadata=json_set(metadata,'$.homeDelegation.expiresAt','2026-11-06T09:00:00.000Z')",
+		],
+	] as const;
+	it.each(mutations)(
+		"refuses %s between read and claim",
+		async (_, statement) => {
+			const f = await approvalSetFixture();
+			f.sqlite.exec(statement);
+			expect(
+				await claimApprovedHomeDelegationResume(f.db, f.params),
+			).toBeNull();
+		},
+	);
+	it.each(mutations)(
+		"refuses %s between claim and send",
+		async (_, statement) => {
+			const f = await approvalSetFixture();
+			expect(
+				await claimApprovedHomeDelegationResume(f.db, f.params),
+			).not.toBeNull();
+			f.sqlite.exec(statement);
+			expect(
+				await beginApprovedHomeDelegationResumeDispatch(f.db, f.params),
+			).toBe(false);
+			expect((await f.read())?.metadata?.homeDelegationResume).toMatchObject({
+				phase: "claimed",
+			});
+		},
+	);
+	it("allows only one actual claimant of the same complete event set", async () => {
+		const f = await approvalSetFixture();
+		const claims = await Promise.all([
+			claimApprovedHomeDelegationResume(f.db, f.params),
+			claimApprovedHomeDelegationResume(f.db, {
+				...f.params,
+				claimId: "second",
+			}),
+		]);
+		expect(claims.filter(Boolean)).toHaveLength(1);
+	});
+	it("refuses expiry crossing between claim and send", async () => {
+		const f = await approvalSetFixture();
+		expect(
+			await claimApprovedHomeDelegationResume(f.db, f.params),
+		).not.toBeNull();
+		expect(
+			await beginApprovedHomeDelegationResumeDispatch(f.db, {
+				...f.params,
+				now: f.params.approvalEventSet!.originalExpiresAt,
+			}),
+		).toBe(false);
+	});
+	it("refuses an already expired original hold even when the snapshot is unchanged", async () => {
+		const f = await approvalSetFixture();
+		expect(
+			await claimApprovedHomeDelegationResume(f.db, {
+				...f.params,
+				now: f.params.approvalEventSet!.originalExpiresAt,
+			}),
+		).toBeNull();
+	});
+	it.each(["missing", "reversed", "duplicate", "digest", "anchor"])(
+		"refuses %s set proof at the send boundary",
+		async (kind) => {
+			const f = await approvalSetFixture();
+			expect(
+				await claimApprovedHomeDelegationResume(f.db, f.params),
+			).not.toBeNull();
+			const proof = structuredClone(f.params.approvalEventSet!);
+			if (kind === "reversed") proof.events.reverse();
+			if (kind === "duplicate") proof.events[0] = proof.events[1]!;
+			if (kind === "digest") proof.digest = "c".repeat(64);
+			if (kind === "anchor") proof.events.pop();
+			expect(
+				await beginApprovedHomeDelegationResumeDispatch(f.db, {
+					...f.params,
+					approvalEventSet: kind === "missing" ? undefined : proof,
+				}),
+			).toBe(false);
+		},
+	);
+	it.each([
+		"one",
+		"nine",
+		"duplicate",
+		"reversed",
+		"missing nullable field",
+		"snapshot payload",
+		"latest anchor",
+	])("refuses %s proof before claim", async (kind) => {
+		const f = await approvalSetFixture();
+		const proof = f.params.approvalEventSet!;
+		if (kind === "one") proof.events = proof.events.slice(-1);
+		if (kind === "nine")
+			proof.events = Array.from({ length: 9 }, (_, i) => ({
+				...proof.events[0]!,
+				id: `receipt-${i}`,
+			}));
+		if (kind === "duplicate") proof.events[0] = proof.events[1]!;
+		if (kind === "reversed") proof.events.reverse();
+		if (kind === "missing nullable field")
+			Reflect.deleteProperty(proof.events[0]!, "traceId");
+		if (kind === "snapshot payload")
+			proof.events[0]!.payload = {
+				...proof.events[0]!.payload,
+				resolution: "forged",
+			};
+		if (kind === "latest anchor")
+			f.params.approvalEventId = proof.events[0]!.id;
+		expect(await claimApprovedHomeDelegationResume(f.db, f.params)).toBeNull();
+	});
+	it("compares the original expiry as an instant rather than local clock text", async () => {
+		const f = await approvalSetFixture();
+		const expiry = "2026-11-04T09:06:00.000+02:00";
+		f.params.approvalEventSet!.originalExpiresAt = expiry;
+		(
+			f.params.expectedMetadata.homeDelegation as Record<string, unknown>
+		).expiresAt = expiry;
+		await f.db
+			.update(kernelRuntimeRuns)
+			.set({ metadata: f.params.expectedMetadata });
+		expect(await claimApprovedHomeDelegationResume(f.db, f.params)).toBeNull();
+	});
+	it("keeps scoped index lookup for the complete event history", async () => {
+		const f = await approvalSetFixture();
+		const plan = f.sqlite
+			.prepare(
+				"EXPLAIN QUERY PLAN SELECT count(*) FROM kernel_runtime_events WHERE organization_id=? AND run_id=? AND kind='approval.resolved'",
+			)
+			.all(f.params.organizationId, f.params.runId);
+		expect(JSON.stringify(plan)).toContain(
+			"idx_kernel_runtime_events_run_created",
+		);
+		expect(JSON.stringify(plan)).not.toContain("SCAN kernel_runtime_events");
+	});
+});
+
+it.each(["claim", "send"])(
+	"refuses an approval appended before the unique-mode %s boundary",
+	async (boundary) => {
+		const f = await fixture();
+		const snapshot = (await f.db.select().from(kernelRuntimeEvents))[0]!;
+		if (boundary === "send")
+			expect(
+				await claimApprovedHomeDelegationResume(f.db, f.params),
+			).not.toBeNull();
+		await f.db.insert(kernelRuntimeEvents).values({
+			...snapshot,
+			id: "second-approval",
+			createdAt: "2026-11-04T09:01:00.000Z",
+		});
+		if (boundary === "claim")
+			expect(
+				await claimApprovedHomeDelegationResume(f.db, f.params),
+			).toBeNull();
+		else {
+			expect(
+				await beginApprovedHomeDelegationResumeDispatch(f.db, f.params),
+			).toBe(false);
+			expect((await f.read())?.metadata?.homeDelegationResume).toMatchObject({
+				phase: "claimed",
+			});
+		}
+	},
+);

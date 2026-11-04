@@ -1301,6 +1301,18 @@ export const RespondHomeApprovalInputSchema = z.union([
 			runId: z.string().min(1),
 			resumeOnly: z.literal(true),
 			approvalEventId: z.string().min(1).max(2000),
+			approvalEventSet: z
+				.object({
+					eventIds: z.array(z.string().min(1).max(2000)).min(2).max(8),
+					digest: z
+						.string()
+						.regex(/^[a-f0-9]{64}$/)
+						.describe(
+							"SHA-256 of sorted-key canonical JSON {originalExpiresAt, events}, where events are the complete ordered approval.resolved rows from JSON-serialized readRunEvents. Full producer snapshots are separately validated and fenced by the server.",
+						),
+				})
+				.strict()
+				.optional(),
 			expectedWorkItemVersion: z.number().int().positive(),
 		})
 		.strict(),
