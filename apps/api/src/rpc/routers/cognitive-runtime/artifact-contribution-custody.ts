@@ -47,11 +47,16 @@ export function artifactContributionCustody(
 		event.payload?.name === "record_artifact" &&
 		Array.isArray(event.payload.producedArtifactIds) &&
 		event.payload.producedArtifactIds.includes(artifact.id) &&
-		artifact.runId &&
-		artifact.runId !== event.runId &&
-		artifact.conversationId &&
-		artifact.conversationId !== event.conversationId &&
-		artifact.id.startsWith(`${artifact.runId}:artifact:v2:deliverable:`) &&
+		((artifact.runId &&
+			artifact.runId !== event.runId &&
+			artifact.conversationId &&
+			artifact.conversationId !== event.conversationId &&
+			artifact.id.startsWith(`${artifact.runId}:artifact:v2:deliverable:`)) ||
+			(artifact.runId === null &&
+				artifact.conversationId === null &&
+				artifact.id.startsWith(
+					`${artifact.tediId}:artifact:v2:deliverable:`,
+				))) &&
 		artifact.metadata?.subKind === "deliverable" &&
 		artifact.metadata?.producer === "tedi-tool" &&
 		artifact.contentDigest &&
