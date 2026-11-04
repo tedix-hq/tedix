@@ -1898,7 +1898,89 @@ export async function listWorkInteractionInbox(
 	const limit = Math.min(p.limit ?? 50, 200);
 	const urgency = sql`CASE WHEN json_extract(${workInteractions.metadata},'$.notification.state')='immediate' THEN 'now' WHEN ${workInteractionAttention.kind}='fyi' THEN 'later' ELSE COALESCE(json_extract(${workInteractions.metadata},'$.triage.urgency'),'later') END`;
 	const resolution = alias(workInteractionResponses, "resolution");
+	// Select the page before evaluating related decision history for each result.
+	const inboxPage = db.$with("work_interaction_inbox_page").as(
+		db
+			.select({ id: workInteractions.id })
+			.from(workInteractions)
+			.leftJoin(
+				workItems,
+				and(
+					eq(workItems.orgId, workInteractions.orgId),
+					eq(workItems.id, workInteractions.workItemId),
+				),
+			)
+			.leftJoin(
+				workInteractionAttention,
+				and(
+					eq(workInteractionAttention.orgId, workInteractions.orgId),
+					eq(workInteractionAttention.interactionId, workInteractions.id),
+				),
+			)
+			.where(
+				and(
+					eq(workInteractions.orgId, p.orgId),
+					p.excludeSessionCapture
+						? sql`json_extract(${workInteractions.metadata},'$.schema') IS NOT 'tedix.decision-capture.v1'`
+						: undefined,
+					sql`(${workInteractions.status}<>'open' OR NOT ${staleLaneReminder(p.observedAt)})`,
+					// bound-params: states is a closed four-value interaction-state enum
+					p.states?.length ? inArray(effective, p.states) : undefined,
+					// bound-params: kinds is a closed five-value interaction-kind enum
+					p.kinds?.length ? inArray(workInteractions.kind, p.kinds) : undefined,
+					p.decisionKind === "approval"
+						? sql`(
+					(json_type(${workInteractions.metadata},'$.approvalOperation')='text'
+					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalOperation')))>0
+					AND json_type(${workInteractions.metadata},'$.approvalTarget')='text'
+					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalTarget')))>0)
+					OR json_extract(${workInteractions.metadata},'$.decisionDeck.kind')='approval'
+				)`
+						: undefined,
+					p.workItemId
+						? eq(workInteractions.workItemId, p.workItemId)
+						: undefined,
+					p.projectId
+						? or(
+								eq(workInteractions.projectId, p.projectId),
+								eq(workItems.projectId, p.projectId),
+							)
+						: undefined,
+					p.creatorType
+						? eq(workInteractions.creatorType, p.creatorType)
+						: undefined,
+					p.creatorId ? eq(workInteractions.creatorId, p.creatorId) : undefined,
+					p.targetType
+						? eq(workInteractions.targetType, p.targetType)
+						: p.targetType === null
+							? isNull(workInteractions.targetType)
+							: undefined,
+					p.targetId
+						? eq(workInteractions.targetId, p.targetId)
+						: p.targetId === null
+							? isNull(workInteractions.targetId)
+							: undefined,
+					p.targetType === "user"
+						? sql`coalesce(json_extract(${workInteractions.metadata},'$.notification.state'),'immediate') NOT IN ('deferred','bundled','suppressed')`
+						: undefined,
+					p.targetType === "user"
+						? sql`(${workInteractions.status}<>'open' OR coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${p.observedAt})`
+						: undefined,
+					p.urgency === "now"
+						? sql`${urgency}='now'`
+						: p.urgency === "later"
+							? sql`${urgency}<>'now'`
+							: undefined,
+					p.cursor
+						? sql`(${workInteractions.createdAt}<${p.cursor.at} OR (${workInteractions.createdAt}=${p.cursor.at} AND ${workInteractions.id}<${p.cursor.id}))`
+						: undefined,
+				),
+			)
+			.orderBy(desc(workInteractions.createdAt), desc(workInteractions.id))
+			.limit(limit + 1),
+	);
 	const rows = await db
+		.with(inboxPage)
 		.select({
 			request: prefixedColumns(workInteractions, "work_interaction"),
 			effectiveState: effective.as("effective_state"),
@@ -1990,6 +2072,7 @@ export async function listWorkInteractionInbox(
 			},
 		})
 		.from(workInteractions)
+		.innerJoin(inboxPage, eq(inboxPage.id, workInteractions.id))
 		.leftJoin(
 			workItems,
 			and(
@@ -2020,67 +2103,7 @@ export async function listWorkInteractionInbox(
 				eq(workInteractionDeliveries.responseId, resolution.id),
 			),
 		)
-		.where(
-			and(
-				eq(workInteractions.orgId, p.orgId),
-				p.excludeSessionCapture
-					? sql`json_extract(${workInteractions.metadata},'$.schema') IS NOT 'tedix.decision-capture.v1'`
-					: undefined,
-				sql`(${workInteractions.status}<>'open' OR NOT ${staleLaneReminder(p.observedAt)})`,
-				// bound-params: states is a closed four-value interaction-state enum
-				p.states?.length ? inArray(effective, p.states) : undefined,
-				// bound-params: kinds is a closed five-value interaction-kind enum
-				p.kinds?.length ? inArray(workInteractions.kind, p.kinds) : undefined,
-				p.decisionKind === "approval"
-					? sql`(
-					(json_type(${workInteractions.metadata},'$.approvalOperation')='text'
-					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalOperation')))>0
-					AND json_type(${workInteractions.metadata},'$.approvalTarget')='text'
-					AND length(trim(json_extract(${workInteractions.metadata},'$.approvalTarget')))>0)
-					OR json_extract(${workInteractions.metadata},'$.decisionDeck.kind')='approval'
-				)`
-					: undefined,
-				p.workItemId
-					? eq(workInteractions.workItemId, p.workItemId)
-					: undefined,
-				p.projectId
-					? or(
-							eq(workInteractions.projectId, p.projectId),
-							eq(workItems.projectId, p.projectId),
-						)
-					: undefined,
-				p.creatorType
-					? eq(workInteractions.creatorType, p.creatorType)
-					: undefined,
-				p.creatorId ? eq(workInteractions.creatorId, p.creatorId) : undefined,
-				p.targetType
-					? eq(workInteractions.targetType, p.targetType)
-					: p.targetType === null
-						? isNull(workInteractions.targetType)
-						: undefined,
-				p.targetId
-					? eq(workInteractions.targetId, p.targetId)
-					: p.targetId === null
-						? isNull(workInteractions.targetId)
-						: undefined,
-				p.targetType === "user"
-					? sql`coalesce(json_extract(${workInteractions.metadata},'$.notification.state'),'immediate') NOT IN ('deferred','bundled','suppressed')`
-					: undefined,
-				p.targetType === "user"
-					? sql`(${workInteractions.status}<>'open' OR coalesce(json_extract(${workInteractions.metadata},'$.followThrough.snoozedUntil'),'')<=${p.observedAt})`
-					: undefined,
-				p.urgency === "now"
-					? sql`${urgency}='now'`
-					: p.urgency === "later"
-						? sql`${urgency}<>'now'`
-						: undefined,
-				p.cursor
-					? sql`(${workInteractions.createdAt}<${p.cursor.at} OR (${workInteractions.createdAt}=${p.cursor.at} AND ${workInteractions.id}<${p.cursor.id}))`
-					: undefined,
-			),
-		)
-		.orderBy(desc(workInteractions.createdAt), desc(workInteractions.id))
-		.limit(limit + 1);
+		.orderBy(desc(workInteractions.createdAt), desc(workInteractions.id));
 	const hasMore = rows.length > limit;
 	const data = rows.slice(0, limit);
 	const last = data.at(-1);
