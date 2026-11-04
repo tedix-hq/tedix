@@ -8,9 +8,9 @@
  * stay in the main database.
  *
  * What lands here and how:
- * - `audit_events`: new `mcp.tool.execute` rows are written here directly
- *   when the binding is present (`queries/audit.ts`); every other audit action
- *   stays in the main database.
+ * - `audit_events`: known MCP execution telemetry is written here directly
+ *   when the binding is present (`queries/audit.ts`). Access denials, payments,
+ *   unknown actions and main-database batch audit stay in the main database.
  * - `tedi_runtime_events`, `kernel_runtime_events`, `skill_run_artifacts`:
  *   new rows stay in the main database, because the runtime joins, cause-bound
  *   inserts and compare-and-set reads need them there. The retention job's

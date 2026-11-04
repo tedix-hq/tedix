@@ -76,10 +76,23 @@ export interface SearchAuditEventsOptions {
 // Queries
 // ============================================================================
 
+// Only execution telemetry belongs in LOGS_DB. Access, payment, authority and
+// unknown future actions keep main-D1 persistence.
+const MCP_TELEMETRY_ACTIONS = new Set([
+	"mcp.tool.execute",
+	"mcp.tool.error",
+	"mcp.code.execute",
+	"mcp.code.error",
+	"mcp.prompt.execute",
+	"mcp.prompt.error",
+	"mcp.resource.read",
+	"mcp.resource.error",
+]);
+
 /**
  * Insert a single audit event.
  *
- * `mcp.tool.execute` telemetry goes to the logs database when the client has
+ * Known MCP execution telemetry goes to the logs database when the client has
  * one (`configureLogStore`); every other action, and every audit row composed
  * into a main-database batch through `buildInsertAuditEventStatement`, stays
  * in the main database.
@@ -88,8 +101,9 @@ export async function insertAuditEvent(
 	db: DbClient,
 	event: InsertAuditEventParams,
 ): Promise<string> {
-	const target =
-		event.action === "mcp.tool.execute" ? (getLogStores(db)?.logs ?? db) : db;
+	const target = MCP_TELEMETRY_ACTIONS.has(event.action)
+		? (getLogStores(db)?.logs ?? db)
+		: db;
 	const { id, statement } = buildInsertAuditEventStatement(target, event);
 	await statement;
 	return id;
