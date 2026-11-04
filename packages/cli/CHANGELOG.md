@@ -3,6 +3,19 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.5 — 2026-11-04
+
+### Patch Changes
+
+- `tedix lane serve` now finishes saving a run's result after a brief server
+  timeout. If the save is cut off, the dispatcher retries it the next time that
+  Work comes up, and once the old Attempt is confirmed expired it starts the same
+  Work again without needing a new Work version. A failed read now waits and
+  retries instead of stopping the whole pass.
+- With status reporting turned on, local hook and supervisor activity now shows
+  on the Office timeline. It stays separate from reply delivery, acknowledgement
+  and Work completion.
+
 ## 0.19.4 — 2026-11-03
 
 ### Patch Changes
