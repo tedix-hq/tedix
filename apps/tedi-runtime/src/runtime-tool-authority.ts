@@ -1193,7 +1193,7 @@ export const runtimeToolAuthority = {
 			...workAiTools(() => this.getPlatformClient()),
 			...this.cronAiTool(binding?.sessionKey),
 			...(scope ? this.workstationAiTool(scope, binding) : {}),
-			...this.objectStoreAiTools(),
+			...this.objectStoreAiTools(binding),
 			...this.r2SqlAiTool(),
 			...createWebSearchAiTools({
 				ai: this.env.AI,

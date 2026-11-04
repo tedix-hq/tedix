@@ -2936,7 +2936,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			kind?: string;
 			description?: string;
 		},
-		turnCtx?: { runId?: string; conversationId?: string },
+		turnCtx: ActiveTurnBinding | null,
 	): Promise<unknown> {
 		return runtimeRepository.recordArtifactTool.call(
 			this.repositoryHost(),
@@ -2945,15 +2945,15 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		);
 	}
 
-	private objectStoreAiTools(): ToolSet {
+	private objectStoreAiTools(binding: ActiveTurnBinding | null): ToolSet {
 		return createObjectStoreTools({
 			bucket: this.env.TEDI_STORAGE,
 			ensureIdentity: () => this.ensureIdentity(),
 			getTediId: () => identityValue(this.state.tediId),
 			getSlug: () => this.state.slug,
 			getPlatformClient: async () =>
-				this.activeTurnBinding?.platform ?? (await this.getPlatformClient()),
-			recordArtifact: (input) => this.recordArtifactTool(input),
+				binding?.platform ?? (await this.getPlatformClient()),
+			recordArtifact: (input) => this.recordArtifactTool(input, binding),
 		});
 	}
 	private async repoCloneTool(
