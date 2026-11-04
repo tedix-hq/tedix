@@ -434,6 +434,7 @@ try {
 				"Review the waiting Work with a detailed configured executor title that must end in an ellipsis inside the Next step column";
 			await page.route("**/dispatcherHealth/list**", (route) => {
 				const at = new Date().toISOString();
+				const silentSince = new Date(Date.now() - 5 * 60_000).toISOString();
 				const future = new Date(Date.now() + 60_000).toISOString();
 				return route.fulfill({
 					status: 200,
@@ -475,6 +476,10 @@ try {
 														id: current,
 														title: workTitle,
 														phase: "working",
+														nativeActivity: {
+															state: "provider_waiting",
+															observedAt: silentSince,
+														},
 													},
 													{
 														id: second,
@@ -517,6 +522,10 @@ try {
 			assert.match(await row.innerText(), /3 more tasks reported/);
 			assert.match(await row.innerText(), /Retry scheduled/);
 			assert.match(await row.innerText(), /Last completed/);
+			assert.match(
+				await row.innerText(),
+				/No provider progress.*dispatcher heartbeat is separate/,
+			);
 			assert.equal(
 				await row
 					.getByRole("link", { name: workTitle, exact: true })

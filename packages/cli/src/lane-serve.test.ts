@@ -333,7 +333,9 @@ function fixture({
 					? "devin"
 					: args[args.indexOf("--executor") + 1] === "claude-code"
 						? "claude-code"
-						: "codex";
+						: args[args.indexOf("--executor") + 1] === "opencode"
+							? "opencode"
+							: "codex";
 			const brief = readFileSync(args[args.indexOf("--brief") + 1]!, "utf8");
 			briefs.push(brief);
 			expect(deps?.label).toBe(
@@ -346,27 +348,41 @@ function fixture({
 			expect(args.slice(args.indexOf("--") + 1)).toEqual(
 				nativeExecutor === "devin"
 					? ["devin"]
-					: nativeExecutor === "claude-code"
+					: nativeExecutor === "opencode"
 						? [
-								"claude",
-								"-p",
-								"--session-id",
-								expect.any(String),
-								"--output-format",
-								"stream-json",
-								"--verbose",
-							]
-						: [
-								"codex",
-								"exec",
-								"-C",
+								"opencode",
+								"run",
+								"--dir",
 								join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
-								"resume",
+								"--format",
+								"json",
+								"--model",
+								"test-provider/test-model",
+								"--auto",
+								"--session",
 								expect.any(String),
-								"-o",
-								expect.any(String),
-								"-",
-							],
+							]
+						: nativeExecutor === "claude-code"
+							? [
+									"claude",
+									"-p",
+									"--session-id",
+									expect.any(String),
+									"--output-format",
+									"stream-json",
+									"--verbose",
+								]
+							: [
+									"codex",
+									"exec",
+									"-C",
+									join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+									"resume",
+									expect.any(String),
+									"-o",
+									expect.any(String),
+									"-",
+								],
 			);
 			expect(brief).toContain("revision 7");
 			expect(brief).toContain("Keep all evidence in OS.");
@@ -1881,6 +1897,74 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+
+	it("uses a fresh OpenCode session after a proven provider stall and then picks up the next task", async () => {
+		const { dispatcher, deps, items, control, events, releases, dir } = fixture(
+			{
+				executor: "opencode",
+				max: 1,
+			},
+		);
+		const next = items[1]!;
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		const repo = join(dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				admissionState: "admitted",
+				attemptId: "stalled-attempt",
+				session: "opencode:ses_aaaaaaaaaaaaABCDEFGHIJKLMN",
+				executorKey: "local-acme",
+				outcome: "failed",
+				retryable: true,
+				retryAt: 0,
+				retryDeadlineAt: Date.now() + 30 * 60_000,
+				repo,
+				baseCommit: "a".repeat(40),
+				providerRecovery: {
+					reason: "provider_stall",
+					observedAt: new Date().toISOString(),
+					safeToRetry: true,
+				},
+			}),
+		);
+		control.history.data = [
+			{
+				id: "stalled-attempt",
+				externalSessionKey: "opencode:ses_aaaaaaaaaaaaABCDEFGHIJKLMN",
+				outcome: "failed",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		const thread = spyOn(deps, "thread");
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		expect(thread.mock.calls[0]?.[3]).toBeUndefined();
+		releases[0]!();
+		await dispatcher.drain();
+		expect(
+			events.filter(
+				(event) => event.verb === "start" && event.args[6] === item().id,
+			),
+		).toHaveLength(1);
+
+		items.splice(0, items.length, next);
+		control.history.data = [];
+		await dispatcher.tick();
+		await until(() => releases.length === 2);
+		releases[1]!();
+		await dispatcher.drain();
+		expect(
+			events.filter(
+				(event) => event.verb === "start" && event.args[6] === next.id,
+			),
+		).toHaveLength(1);
+	});
 
 	it.each(["dispatch-get", "agent-start"])(
 		"retains interrupted checkout correlation after %s fails",

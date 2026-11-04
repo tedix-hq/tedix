@@ -7,11 +7,28 @@ const SupervisorWorkSchema = z.object({
 	title: z.string().min(1).max(200).optional(),
 });
 
+export const NativeProviderActivitySchema = z.object({
+	state: z.enum([
+		"provider_progress",
+		"provider_waiting",
+		"tool_pending",
+		"tool_running",
+		"approval_wait",
+		"provider_stalled",
+	]),
+	observedAt: z.iso.datetime(),
+	tool: z.string().trim().min(1).max(100).optional(),
+});
+export type NativeProviderActivity = z.infer<
+	typeof NativeProviderActivitySchema
+>;
+
 export const SupervisorActivitySchema = z.object({
 	current: z
 		.array(
 			SupervisorWorkSchema.extend({
 				phase: z.enum(["starting", "working", "finishing"]),
+				nativeActivity: NativeProviderActivitySchema.optional(),
 			}),
 		)
 		.max(3),

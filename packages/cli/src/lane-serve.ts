@@ -42,6 +42,10 @@ import {
 	type WorkItemComment,
 	type WorkAttemptSchema,
 } from "@tedix/api-contract/schemas/work-items";
+import {
+	NativeProviderActivitySchema,
+	type NativeProviderActivity,
+} from "@tedix/api-contract/schemas/dispatcher-health";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import { laneReservedActions, userPresenceStep } from "./lane-reserved-actions";
 import { readExecutorBudgets } from "./lane-budget";
@@ -556,6 +560,12 @@ interface Receipt {
 	completionRetries?: number;
 	completionRetryAt?: number;
 	completionError?: string;
+	nativeActivity?: NativeProviderActivity;
+	providerRecovery?: {
+		reason: "provider_stall";
+		observedAt: string;
+		safeToRetry: true;
+	};
 }
 class LaneReceiptReadError extends Error {}
 
@@ -633,7 +643,16 @@ function readLaneReceipts(
 						row.laneResult.workVersion !== row.version)) ||
 				(row.waitResponseId !== undefined &&
 					(typeof row.waitResponseId !== "string" ||
-						!UUID_RE.test(row.waitResponseId)))
+						!UUID_RE.test(row.waitResponseId))) ||
+				(row.nativeActivity !== undefined &&
+					!NativeProviderActivitySchema.safeParse(row.nativeActivity)
+						.success) ||
+				(row.providerRecovery !== undefined &&
+					(!isRecord(row.providerRecovery) ||
+						row.providerRecovery.reason !== "provider_stall" ||
+						row.providerRecovery.safeToRetry !== true ||
+						typeof row.providerRecovery.observedAt !== "string" ||
+						!Number.isFinite(Date.parse(row.providerRecovery.observedAt))))
 			)
 				throw new Error("Invalid receipt ownership fields");
 			const receipt = row as unknown as Receipt;
@@ -1871,9 +1890,15 @@ export class LaneDispatcher {
 				if (app.success) receipt.runtimeAppArtifact = app.data;
 			}
 			if (executor === "devin") await this.deps.installDependencies(repo);
-			const previousSession = previousLane?.session?.startsWith(`${executor}:`)
-				? previousLane.session.slice(executor.length + 1)
-				: undefined;
+			const forceFreshProviderRecovery =
+				executor === "opencode" &&
+				previous?.providerRecovery?.reason === "provider_stall" &&
+				previous.providerRecovery.safeToRetry === true;
+			const previousSession =
+				!forceFreshProviderRecovery &&
+				previousLane?.session?.startsWith(`${executor}:`)
+					? previousLane.session.slice(executor.length + 1)
+					: undefined;
 			const fresh = () => this.deps.thread(repo, executor, selection.model);
 			const thread = await (
 				previousSession
@@ -2177,11 +2202,22 @@ export class LaneDispatcher {
 						receipt.telemetry = telemetry;
 						this.save(path, receipt);
 					},
+					onNativeActivity: (activity) => {
+						receipt.nativeActivity = activity;
+						if (activity.state === "provider_stalled")
+							receipt.providerRecovery = {
+								reason: "provider_stall",
+								observedAt: activity.observedAt,
+								safeToRetry: true,
+							};
+						this.save(path, receipt);
+					},
 				},
 			);
 			receipt.retryable =
 				exit !== 0 &&
-				this.recordLimit(executor, receipt.telemetry?.finalMessage ?? "");
+				(!!receipt.providerRecovery ||
+					this.recordLimit(executor, receipt.telemetry?.finalMessage ?? ""));
 			receipt.outcome =
 				exit === 0 && receipt.telemetry?.outcome === "succeeded"
 					? "succeeded"

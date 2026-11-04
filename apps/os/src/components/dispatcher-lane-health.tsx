@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@/components/kumo/link";
 import type {
 	DispatcherHealthReport,
+	NativeProviderActivity,
 	SupervisorActivity,
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { useEffect, useState } from "react";
@@ -203,6 +204,32 @@ function WorkLink({ work }: { work: { id: string; title?: string } }) {
 	);
 }
 
+export function nativeActivityLabel(
+	activity: NativeProviderActivity,
+	now: number,
+): string {
+	const elapsed = relativeTime(activity.observedAt, new Date(now));
+	switch (activity.state) {
+		case "tool_pending":
+			return activity.tool
+				? `Tool call pending: ${activity.tool} · ${elapsed}`
+				: `Tool call pending · ${elapsed}`;
+		case "tool_running":
+			return activity.tool
+				? `Tool running: ${activity.tool} · ${elapsed}`
+				: `Tool running · ${elapsed}`;
+		case "approval_wait":
+			return `Waiting for tool approval · ${elapsed}`;
+		case "provider_stalled":
+			return `Provider stall detected; fresh recovery scheduled · ${elapsed}`;
+		case "provider_waiting":
+		case "provider_progress":
+			return now - Date.parse(activity.observedAt) >= 2 * 60_000
+				? `No provider progress for ${elapsed}; dispatcher heartbeat is separate`
+				: `Provider progress ${elapsed}`;
+	}
+}
+
 function WorkActivity({
 	activity,
 	stale,
@@ -218,8 +245,15 @@ function WorkActivity({
 		<div className="grid min-w-0 grid-cols-1 gap-2">
 			{activity.current.length ? (
 				activity.current.map((work) => (
-					<div key={work.id}>
+					<div key={work.id} className="grid gap-1">
 						<WorkLink work={work} />
+						{work.nativeActivity ? (
+							<Text tone="secondary">
+								{nativeActivityLabel(work.nativeActivity, now)}
+							</Text>
+						) : (
+							<Text tone="secondary">Provider progress not reported</Text>
+						)}
 					</div>
 				))
 			) : (

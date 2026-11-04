@@ -12,9 +12,11 @@ import {
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
-import type {
-	SupervisorActivity,
-	SupervisorDutyHealth,
+import {
+	NativeProviderActivitySchema,
+	type NativeProviderActivity,
+	type SupervisorActivity,
+	type SupervisorDutyHealth,
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { UUID_RE } from "./work-identity";
 import {
@@ -351,6 +353,14 @@ function receiptActivity(
 	for (const [id, { row }] of latest) {
 		const phase = String(row.phase);
 		const live = typeof row.pid !== "number" || processAlive(row.pid);
+		const parsedActivity = NativeProviderActivitySchema.safeParse(
+			row.nativeActivity,
+		);
+		const nativeActivity: NativeProviderActivity | undefined =
+			parsedActivity.success &&
+			Date.parse(parsedActivity.data.observedAt) <= now + 60_000
+				? parsedActivity.data
+				: undefined;
 		if (["admitted", "running", "settling"].includes(phase) && live) slots++;
 		if (
 			(["preparing", "admitted"].includes(phase) && live) ||
@@ -365,6 +375,7 @@ function receiptActivity(
 						: phase === "settling"
 							? "finishing"
 							: "starting",
+				...(nativeActivity ? { nativeActivity } : {}),
 			});
 		} else if (row.completionPending === true && row.outcome === "succeeded") {
 			current.push({ id, phase: "finishing" });
