@@ -464,13 +464,19 @@ describe("runD1Retention", () => {
 	});
 
 	it("resumes scanning past retained pages after the time budget and wraps to reconsider them", async () => {
-		const { db, seed, count, policy } = fixture(
+		const { db, d1, seed, count, policy } = fixture(
 			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
 		);
 		seed([...Array.from({ length: 1000 }, () => 1), 120]);
 		const bucket = new MemoryBucket();
 		let clock = 0;
-		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock++);
+		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
+		const prepare = d1.prepare.bind(d1);
+		d1.prepare = (query) => {
+			// Each page read takes 1ms; the budget below fits two pages per tick.
+			if (query.startsWith("SELECT") && query.includes("__rowid")) clock += 1;
+			return prepare(query);
+		};
 		try {
 			const tick = () =>
 				runD1Retention({
@@ -483,17 +489,24 @@ describe("runD1Retention", () => {
 			expect(first.tables[0]).toMatchObject({
 				deletedRows: 0,
 				stoppedBy: "time_budget",
-				scanAfterRowid: 500,
+				scanAfterRowid: 1000,
 			});
 			expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(
-				500,
+				1000,
 			);
-			await tick();
-			const third = await tick();
-			expect(third.deletedRows).toBe(1);
+			// The next tick re-reads the head (nothing expired there) and then
+			// continues the sweep from rowid 1000 instead of rowid 0.
+			const second = await tick();
+			expect(second.tables[0]).toMatchObject({
+				deletedRows: 1,
+				stoppedBy: "done",
+				scanAfterRowid: -1,
+			});
+			expect(second.tables[0]?.timings.pages).toBe(2);
 			expect(count()).toBe(1000);
 		} finally {
 			mocked.mockRestore();
+			d1.prepare = prepare;
 		}
 		await runD1Retention({
 			db,
@@ -508,6 +521,72 @@ describe("runD1Retention", () => {
 		});
 		expect(later.deletedRows).toBe(1000);
 		expect(count()).toBe(0);
+	});
+
+	it("moves rows that expired at the head while the sweep is parked in retained rows", async () => {
+		const { db, sqlite, seed, count, policy } = fixture(
+			"('audit_events','archive_then_delete',30,10000,'2026-10-21')",
+		);
+		// 100 rows expired since the last tick; 1900 newer rows follow them.
+		seed([
+			...Array.from({ length: 100 }, () => 120),
+			...Array.from({ length: 1900 }, () => 1),
+		]);
+		// The previous tick's sweep stopped deep inside the retained rows.
+		sqlite
+			.prepare(
+				"UPDATE d1_retention_policies SET last_report = ? WHERE table_name = 'audit_events'",
+			)
+			.run(JSON.stringify({ scanAfterRowid: 1500 }));
+		const result = await runD1Retention({
+			db,
+			bucket: new MemoryBucket() as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			deletedRows: 100,
+			archivedRows: 100,
+			stoppedBy: "done",
+			scanAfterRowid: -1,
+		});
+		// Head: rows 1-500 (moved 100) and 501-1000 (nothing). Sweep: resumed
+		// at 1500 (rows 1501-2000, then the empty page that marks the end), so
+		// rows 1001-1500 were not read again this tick.
+		expect(result.tables[0]?.timings.pages).toBe(4);
+		expect(count()).toBe(1900);
+		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
+	});
+
+	it("keeps the parked sweep cursor when a head page fails", async () => {
+		const { db, sqlite, seed, count, policy } = fixture(
+			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
+		);
+		seed([
+			...Array.from({ length: 700 }, () => 120),
+			...Array.from({ length: 300 }, () => 1),
+		]);
+		sqlite
+			.prepare(
+				"UPDATE d1_retention_policies SET last_report = ? WHERE table_name = 'audit_events'",
+			)
+			.run(JSON.stringify({ scanAfterRowid: 900 }));
+		const logs = logsFixture();
+		logs.sqlite.exec(
+			"CREATE TRIGGER lose_row AFTER INSERT ON audit_events WHEN NEW.id = 'audit-650' BEGIN DELETE FROM audit_events WHERE id = NEW.id; END;",
+		);
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: new MemoryBucket() as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			stoppedBy: "error",
+			deletedRows: 500,
+			scanAfterRowid: 900,
+		});
+		expect(count()).toBe(500);
+		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(900);
 	});
 
 	it("skips an entire scan window of retained rows and keeps invalid timestamps", async () => {

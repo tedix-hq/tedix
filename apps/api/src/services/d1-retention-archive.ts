@@ -7,11 +7,14 @@
  * gzip NDJSON object per page to R2, confirms the stored object, and only
  * then deletes exactly those rows with one statement. The next page is read
  * while the current one is copied, archived and deleted, so a page costs a
- * few round trips instead of one per 50 rows. A run that stops midway resumes
- * on the next tick from its last processed rowid in `last_report`. A
- * completed sweep wraps to reconsider retained rows. If it stops between the
- * R2 write and the delete, the next tick rewrites the same rows to the same
- * deterministic key before deleting them.
+ * few round trips instead of one per 50 rows. Every tick starts at the oldest
+ * row, where rows leave the keep window, and moves what expired there; the
+ * first page with nothing to move ends that head pass. The rest of the tick
+ * continues the long sweep through retained rows from the rowid saved in
+ * `last_report` (`scanAfterRowid`), so out-of-order old rows are still found
+ * and a completed sweep wraps to reconsider retained rows. If a run stops
+ * between the R2 write and the delete, the next tick rewrites the same rows
+ * to the same deterministic key before deleting them.
  *
  * `move_to_logs_db` adds a step in front of the archive: the page is copied
  * into the logs database with insert-or-ignore, read back in the same batch
@@ -363,13 +366,25 @@ async function runPolicy(
 	if (policy.mode === "dry_run") {
 		await estimateBacklog(db, tableSpec, cutoff, result, deadline);
 	} else {
+		// Where the previous tick's walk through retained rows stopped; -1 when
+		// that sweep completed or never ran. Persisted as `scanAfterRowid`.
+		let sweepAfterRowid = -1;
 		const previousCursor = policy.lastReport?.scanAfterRowid;
 		if (
 			typeof previousCursor === "number" &&
 			Number.isSafeInteger(previousCursor) &&
 			previousCursor >= -1
 		)
-			result.scanAfterRowid = previousCursor;
+			sweepAfterRowid = previousCursor;
+		result.scanAfterRowid = sweepAfterRowid;
+		// Rows leave the keep window at the oldest end, so every tick reads the
+		// head first (`head`) and moves what expired there. The first page with
+		// nothing to move ends the head; the tick then continues the long sweep
+		// through retained rows (`sweep`) where the previous tick left it, so
+		// out-of-order old rows are still found and the cursor still wraps. A
+		// completed previous sweep starts at the head anyway, with one phase.
+		let phase: "head" | "sweep" = sweepAfterRowid === -1 ? "sweep" : "head";
+		let readAfterRowid = -1;
 		const rowCap = Math.max(0, policy.maxRowsPerRun);
 		const read = (afterRowid: number, limit: number) => {
 			const pending = readExpiredChunk(
@@ -398,10 +413,7 @@ async function runPolicy(
 				}
 				const pending: Promise<ExpiredChunk> =
 					next ??
-					read(
-						result.scanAfterRowid,
-						Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining),
-					);
+					read(readAfterRowid, Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining));
 				next = null;
 				const { rows, referencedRows, afterRowid, reachedEnd } = await timed(
 					timings,
@@ -410,6 +422,21 @@ async function runPolicy(
 				);
 				timings.pages += 1;
 				result.referencedRows += referencedRows;
+				if (phase === "head" && rows.length === 0) {
+					// The head holds nothing more to move (retained, pinned or
+					// invalid rows). Continue the sweep where the previous tick
+					// stopped, unless this page already reached past it.
+					phase = "sweep";
+					if (reachedEnd) {
+						result.scanAfterRowid = -1;
+						break;
+					}
+					if (sweepAfterRowid > afterRowid) {
+						readAfterRowid = sweepAfterRowid;
+						continue;
+					}
+				}
+				readAfterRowid = afterRowid;
 				// The next page has higher rowids than every row this one may
 				// delete, so it is read while this page is copied and deleted.
 				const nextLimit = Math.min(
@@ -471,7 +498,10 @@ async function runPolicy(
 						`deleted ${deleted} of ${rows.length} rows read; stopping`,
 					);
 				}
-				result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
+				// A head page never moves the parked sweep cursor; the head is
+				// re-read every tick anyway.
+				if (phase === "sweep" || reachedEnd)
+					result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
 				if (reachedEnd) break;
 			}
 		} catch (error) {
