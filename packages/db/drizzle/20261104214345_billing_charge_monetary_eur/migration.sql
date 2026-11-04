@@ -1,0 +1,1 @@
+CREATE INDEX `idx_billing_charge_monetary_eur` ON `billing_usage_charges` (`organization_id`,`occurred_at`) WHERE json_extract(metadata,'$.monetaryQuote.schemaVersion')=1 AND json_extract(metadata,'$.monetaryQuote.rateSnapshot.customerCurrency')='EUR';
