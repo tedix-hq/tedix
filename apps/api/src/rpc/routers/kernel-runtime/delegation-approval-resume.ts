@@ -1,8 +1,12 @@
 import { ExecutionRequirementSchema } from "@tedix/api-contract/schemas/execution-evidence";
 import { workstationDispatchIdentity } from "../kernel/workstation-dispatch";
 import type { RespondHomeApprovalInput } from "@tedix/api-contract/schemas/kernel-runtime";
+import type { RuntimeStreamReadOutput } from "@tedix/api-contract/schemas/runtime-submissions";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
-import { claimApprovedHomeDelegationResume } from "@tedix/db/queries/kernel-runtime-runs";
+import {
+	claimApprovedHomeDelegationResume,
+	type ApprovedHomeDelegationApprovalEventSet,
+} from "@tedix/db/queries/kernel-runtime-runs";
 import {
 	listKernelRuntimeEvents,
 	type KernelRuntimeEvent,
@@ -174,6 +178,47 @@ export async function delegationApprovalScopeDigest(input: {
 	).join("");
 }
 
+export async function delegationApprovalEventSetDigest(input: {
+	events: Array<KernelRuntimeEvent | RuntimeStreamReadOutput["events"][number]>;
+	originalExpiresAt: string;
+}) {
+	// Hash the JSON-visible readRunEvents receipt, never hidden producer fields.
+	// The separate retained proof still fences every raw event column in D1.
+	const events = input.events.map((event) => ({
+		id: event.id,
+		kind: event.kind,
+		conversationId: event.conversationId ?? undefined,
+		runId: event.runId ?? undefined,
+		messageId: event.messageId ?? undefined,
+		causeEventId: event.causeEventId ?? undefined,
+		toolCallId: ("toolCallId" in event ? event.toolCallId : null) ?? undefined,
+		approvalRequestId:
+			("approvalRequestId" in event ? event.approvalRequestId : null) ??
+			undefined,
+		artifactId: ("artifactId" in event ? event.artifactId : null) ?? undefined,
+		sequence: event.sequence ?? undefined,
+		delta: event.delta ?? undefined,
+		payload: event.payload ?? undefined,
+		createdAt: event.createdAt,
+	}));
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(
+			canonical(
+				JSON.parse(
+					JSON.stringify({
+						originalExpiresAt: input.originalExpiresAt,
+						events,
+					}),
+				),
+			),
+		),
+	);
+	return Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+}
+
 export async function resumeRecordedHomeDelegationApproval(
 	context: BaseContext,
 	input: ResumeInput,
@@ -186,11 +231,56 @@ export async function resumeRecordedHomeDelegationApproval(
 		runId: run.id,
 		kind: "approval.resolved",
 		order: "desc",
-		limit: 2,
+		limit: input.approvalEventSet ? 9 : 2,
 	});
-	if (events.length !== 1 || events[0]!.id !== input.approvalEventId)
+	let approvalEventSet: ApprovedHomeDelegationApprovalEventSet | undefined;
+	if (input.approvalEventSet) {
+		const ordered = [...events].sort((a, b) => {
+			if (a.createdAt !== b.createdAt)
+				return a.createdAt < b.createdAt ? -1 : 1;
+			return a.id === b.id ? 0 : a.id < b.id ? -1 : 1;
+		});
+		if (
+			ordered.length < 2 ||
+			ordered.length > 8 ||
+			canonical(ordered.map((event) => event.id)) !==
+				canonical(input.approvalEventSet.eventIds) ||
+			new Set(ordered.map((event) => event.id)).size !== ordered.length ||
+			ordered.at(-1)?.id !== input.approvalEventId
+		)
+			return refused(
+				"approval event set is incomplete, reordered or superseded",
+			);
+		const payload = canonical(ordered[0]!.payload);
+		for (const event of ordered) {
+			recordedDelegationApprovalScope(run, event, now);
+			if (canonical(event.payload) !== payload)
+				return refused("approval event payloads differ");
+		}
+		const originalExpiresAt = nonNullRecord(
+			nonNullRecord(run.metadata)?.homeDelegation,
+		)?.expiresAt;
+		if (typeof originalExpiresAt !== "string")
+			return refused("the original approval hold is unavailable");
+		approvalEventSet = {
+			digest: input.approvalEventSet.digest,
+			originalExpiresAt,
+			events: ordered,
+		};
+		if (
+			new TextEncoder().encode(JSON.stringify(approvalEventSet)).byteLength >
+			256 * 1024
+		)
+			return refused("approval event set exceeds the retained proof limit");
+		const digest = await delegationApprovalEventSetDigest({
+			events: ordered,
+			originalExpiresAt,
+		});
+		if (digest !== approvalEventSet.digest)
+			return refused("approval event set digest differs");
+	} else if (events.length !== 1 || events[0]!.id !== input.approvalEventId)
 		return refused("receipt is absent, superseded or ambiguous");
-	const event = events[0]!;
+	const event = approvalEventSet?.events.at(-1) ?? events[0]!;
 	const scope = recordedDelegationApprovalScope(run, event, now);
 	const execution = ExecutionRequirementSchema.safeParse(
 		scope.workOrder.executionRequirement,
@@ -242,6 +332,8 @@ export async function resumeRecordedHomeDelegationApproval(
 				: initialObservation;
 		if (
 			marker.approvalEventId === event.id &&
+			canonical(marker.approvalEventSet ?? null) ===
+				canonical(approvalEventSet ?? null) &&
 			marker.phase === "observed" &&
 			observation?.outcome === "acknowledged" &&
 			marker.scopeDigest === scopeDigest &&
@@ -287,6 +379,7 @@ export async function resumeRecordedHomeDelegationApproval(
 		expectedMetadata: toJsonRecord(run.metadata),
 		approvalEventId: event.id,
 		approvalResolvedAt: event.createdAt,
+		approvalEventSet,
 		targetTediId: scope.targetTediId,
 		expectedChildRunId,
 		workItemId: work.id,

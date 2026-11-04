@@ -3,6 +3,7 @@ import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import type { KernelRuntimeEvent } from "@tedix/db/queries/kernel-runtime-events";
 import type { BaseContext } from "../../orpc";
 import {
+	delegationApprovalEventSetDigest,
 	recordedDelegationApprovalScope,
 	resumeRecordedHomeDelegationApproval,
 } from "./delegation-approval-resume";
@@ -96,6 +97,15 @@ function fixture() {
 			source: "kernelRuntime.respondApproval",
 			dispatch: "home-delegation-approved",
 		},
+		runtimeBackend: "custom",
+		runtimeExternalId: null,
+		runtimeExternalUrl: null,
+		childRunId: null,
+		causeEventId: null,
+		messageId: null,
+		sequence: null,
+		delta: null,
+		traceId: "fictional-private-trace",
 	} as unknown as KernelRuntimeEvent;
 	const input = {
 		runId: run.id,
@@ -104,6 +114,37 @@ function fixture() {
 		expectedWorkItemVersion: 2,
 	};
 	return { run, event, input, context: { db: {} } as BaseContext };
+}
+async function eventSetFixture(count = 2) {
+	const f = fixture();
+	const events = Array.from({ length: count }, (_, i) => {
+		const createdAt = new Date(Date.parse(AT) + i * 1000).toISOString();
+		return {
+			...structuredClone(f.event),
+			createdAt,
+			id: f.event.id.replace(AT, createdAt),
+		};
+	});
+	const latest = events.at(-1)!;
+	f.run.updatedAt = latest.createdAt;
+	f.run.latestEventAt = latest.createdAt;
+	const originalExpiresAt = "2099-01-01T00:00:00.000Z";
+	return {
+		...f,
+		events,
+		originalExpiresAt,
+		input: {
+			...f.input,
+			approvalEventId: latest.id,
+			approvalEventSet: {
+				eventIds: events.map((event) => event.id),
+				digest: await delegationApprovalEventSetDigest({
+					events,
+					originalExpiresAt,
+				}),
+			},
+		},
+	};
 }
 function noMutation() {
 	expect(effects.claim).not.toHaveBeenCalled();
@@ -141,6 +182,199 @@ beforeEach(() => {
 });
 
 describe("recorded operator delegation approval continuation", () => {
+	it.each([2, 4, 8])(
+		"continues an explicit complete unchanged set of %i approvals once",
+		async (count) => {
+			const f = await eventSetFixture(count);
+			effects.events.mockResolvedValue([...f.events].reverse());
+			await resumeRecordedHomeDelegationApproval(f.context, f.input, f.run);
+			expect(effects.events).toHaveBeenCalledWith(
+				f.context.db,
+				expect.objectContaining({ limit: 9, kind: "approval.resolved" }),
+			);
+			expect(effects.claim).toHaveBeenCalledExactlyOnceWith(
+				f.context.db,
+				expect.objectContaining({
+					approvalEventId: f.input.approvalEventId,
+					approvalEventSet: {
+						digest: f.input.approvalEventSet.digest,
+						originalExpiresAt: f.originalExpiresAt,
+						events: f.events,
+					},
+				}),
+			);
+			expect(effects.dispatch).toHaveBeenCalledTimes(1);
+			expect(
+				effects.dispatch.mock.calls[0]![1].recordedApproval.resolvedBy,
+			).toBeNull();
+		},
+	);
+	it.each([
+		"overflow",
+		"subset",
+		"reordered",
+		"duplicate",
+		"latest",
+		"digest",
+		"expiry",
+		"expired",
+		"payload",
+		"producer",
+		"actor",
+		"identity",
+		"foreign",
+	])("refuses an unsafe explicit set: %s", async (change) => {
+		const f = await eventSetFixture(change === "overflow" ? 9 : 2);
+		if (change === "subset") f.input.approvalEventSet.eventIds.pop();
+		if (change === "reordered") f.input.approvalEventSet.eventIds.reverse();
+		if (change === "duplicate")
+			f.input.approvalEventSet.eventIds[0] = f.input.approvalEventId;
+		if (change === "latest") f.input.approvalEventId = f.events[0]!.id;
+		if (change === "digest") f.input.approvalEventSet.digest = "0".repeat(64);
+		if (change === "expiry" || change === "expired")
+			(f.run.metadata!.homeDelegation as Record<string, unknown>).expiresAt =
+				change === "expiry" ? "2098-01-01T00:00:00.000Z" : AT;
+		if (change === "payload")
+			f.events[0]!.payload = {
+				...f.events[0]!.payload,
+				resolution: "changed note",
+			};
+		if (change === "producer")
+			f.events[0]!.runtimeMetadata = { source: "untrusted" };
+		if (change === "actor")
+			f.events[0]!.payload = {
+				...f.events[0]!.payload,
+				resolvedBy: { type: "policy", id: "fictional" },
+			};
+		if (change === "identity") f.events[0]!.id = "noncanonical";
+		if (change === "foreign") f.events[0]!.organizationId = "foreign";
+		effects.events.mockResolvedValue([...f.events].reverse());
+		await expect(
+			resumeRecordedHomeDelegationApproval(f.context, f.input, f.run),
+		).rejects.toThrow(/Recorded approval cannot continue/);
+		noMutation();
+		expect(effects.readiness).not.toHaveBeenCalled();
+	});
+	it("retains the default unique-event refusal for identical approvals", async () => {
+		const f = await eventSetFixture();
+		effects.events.mockResolvedValue([...f.events].reverse());
+		const { approvalEventSet: _set, ...input } = f.input;
+		await expect(
+			resumeRecordedHomeDelegationApproval(f.context, input, f.run),
+		).rejects.toThrow(/ambiguous/);
+		noMutation();
+		expect(effects.events).toHaveBeenCalledWith(
+			f.context.db,
+			expect.objectContaining({ limit: 2 }),
+		);
+	});
+	it("round-trips the actual public replay into a usable digest without hidden fields", async () => {
+		const f = await eventSetFixture();
+		const { kernelStreamRow, buildRunEventStreamPage } =
+			await import("./run-reads-streams");
+		const page = buildRunEventStreamPage(f.events.map(kernelStreamRow), {
+			runId: f.run.id,
+		});
+		const wire = JSON.parse(JSON.stringify(page)) as typeof page;
+		expect(wire.events[0]).not.toHaveProperty("runtimeMetadata");
+		expect(wire.events[0]).not.toHaveProperty("traceId");
+		expect(wire.events[0]).not.toHaveProperty("messageId");
+		expect(wire.events[0]!.payload).toMatchObject({ resolvedBy: null });
+		f.input.approvalEventSet.digest = await delegationApprovalEventSetDigest({
+			events: wire.events,
+			originalExpiresAt: f.originalExpiresAt,
+		});
+		effects.events.mockResolvedValue([...f.events].reverse());
+		await resumeRecordedHomeDelegationApproval(f.context, f.input, f.run);
+		expect(effects.dispatch).toHaveBeenCalledTimes(1);
+		expect(effects.claim.mock.calls[0]![1].approvalEventSet.events).toEqual(
+			f.events,
+		);
+	});
+	it("keeps hidden provenance out of the public digest while still refusing an untrusted producer", async () => {
+		const f = await eventSetFixture();
+		f.events[0]!.runtimeMetadata = { source: "untrusted" };
+		f.events[0]!.traceId = "changed-hidden-trace";
+		expect(
+			await delegationApprovalEventSetDigest({
+				events: f.events,
+				originalExpiresAt: f.originalExpiresAt,
+			}),
+		).toBe(f.input.approvalEventSet.digest);
+		effects.events.mockResolvedValue([...f.events].reverse());
+		await expect(
+			resumeRecordedHomeDelegationApproval(f.context, f.input, f.run),
+		).rejects.toThrow(/operator delegation/);
+		noMutation();
+	});
+	it("refuses an oversized full proof before claiming even when its digest matches", async () => {
+		const f = await eventSetFixture();
+		f.events[0]!.runtimeMetadata = {
+			...f.events[0]!.runtimeMetadata,
+			retained: "x".repeat(256 * 1024),
+		};
+		f.input.approvalEventSet.digest = await delegationApprovalEventSetDigest({
+			events: f.events,
+			originalExpiresAt: f.originalExpiresAt,
+		});
+		effects.events.mockResolvedValue([...f.events].reverse());
+		await expect(
+			resumeRecordedHomeDelegationApproval(f.context, f.input, f.run),
+		).rejects.toThrow(/proof limit/);
+		noMutation();
+	});
+	it.each(["same", "digest", "expiry", "rows", "omitted", "hidden-current"])(
+		"only reads back acknowledged children with the same set proof: %s",
+		async (change) => {
+			const f = await eventSetFixture();
+			effects.events.mockResolvedValue([...f.events].reverse());
+			await resumeRecordedHomeDelegationApproval(f.context, f.input, f.run);
+			const prepared = effects.claim.mock.calls[0]![1];
+			effects.claim.mockClear();
+			effects.dispatch.mockClear();
+			effects.readiness.mockClear();
+			f.run.status = "queued";
+			f.run.childRunId = prepared.expectedChildRunId;
+			f.run.delegatedTediId = "fictional-tedi";
+			const proof = structuredClone(prepared.approvalEventSet);
+			if (change === "digest") proof.digest = "0".repeat(64);
+			if (change === "expiry") proof.originalExpiresAt = AT;
+			if (change === "rows")
+				proof.events[0].runtimeMetadata = { source: "tampered" };
+			if (change === "hidden-current") {
+				f.events[0]!.traceId = "changed-after-snapshot";
+				expect(
+					await delegationApprovalEventSetDigest({
+						events: f.events,
+						originalExpiresAt: f.originalExpiresAt,
+					}),
+				).toBe(f.input.approvalEventSet.digest);
+			}
+			f.run.metadata!.homeDelegationResume = {
+				approvalEventId: f.input.approvalEventId,
+				scopeDigest: prepared.scopeDigest,
+				workItemId: "fictional-work",
+				workItemVersion: 2,
+				phase: "observed",
+				expectedChildRunId: prepared.expectedChildRunId,
+				...(change === "omitted" ? {} : { approvalEventSet: proof }),
+				observation: {
+					outcome: "acknowledged",
+					observedChildRunId: prepared.expectedChildRunId,
+				},
+			};
+			const result = resumeRecordedHomeDelegationApproval(
+				f.context,
+				f.input,
+				f.run,
+			);
+			if (change === "same")
+				expect((await result).run.childRunId).toBe(prepared.expectedChildRunId);
+			else await expect(result).rejects.toThrow(/may already have effects/);
+			noMutation();
+			expect(effects.readiness).not.toHaveBeenCalled();
+		},
+	);
 	it("continues the canonical unchanged receipt without inventing an actor or new decision", async () => {
 		const f = fixture();
 		effects.events.mockResolvedValue([f.event]);

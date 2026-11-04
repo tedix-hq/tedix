@@ -128,6 +128,36 @@ describe("recorded Home approval continuation input", () => {
 		expect(parsed).toEqual(resume);
 		expect("decision" in parsed).toBe(false);
 	});
+	it("accepts a bounded explicit set without changing the two object branches", () => {
+		const input = {
+			...resume,
+			approvalEventSet: { eventIds: ["first", "last"], digest: "a".repeat(64) },
+		};
+		expect(RespondHomeApprovalInputSchema.parse(input)).toEqual(input);
+		expect(RespondHomeApprovalInputSchema.options).toHaveLength(2);
+		expect(
+			RespondHomeApprovalInputSchema.options[0]
+				.omit({ organizationId: true })
+				.parse(input),
+		).toEqual(input);
+	});
+	it.each([
+		{ eventIds: ["one"], digest: "a".repeat(64) },
+		{ eventIds: Array(9).fill("event"), digest: "a".repeat(64) },
+		{ eventIds: ["first", ""], digest: "a".repeat(64) },
+		{ eventIds: ["first", "last"], digest: "A".repeat(64) },
+		{ eventIds: ["first", "last"], digest: "a".repeat(63) },
+		{
+			eventIds: ["first", "last"],
+			digest: "a".repeat(64),
+			decision: "approve",
+		},
+	])("rejects malformed event set %j", (approvalEventSet) => {
+		expect(
+			RespondHomeApprovalInputSchema.safeParse({ ...resume, approvalEventSet })
+				.success,
+		).toBe(false);
+	});
 	it.each([
 		"decision",
 		"note",
