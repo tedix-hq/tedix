@@ -270,12 +270,13 @@ describe("durable kernel turn lifecycle", () => {
 		expect(fake.armTurnWatchdog).toHaveBeenCalledOnce();
 		expect(cancelSchedule).not.toHaveBeenCalled();
 		expect(fake.turnAbortControllers.size).toBe(0);
+		expect(fake.afterTurnMaintenance).toHaveBeenCalledTimes(2);
 		lifecycleWork.mockResolvedValueOnce({ status: "completed" });
 		await expect(run.call(fake, plannerInput)).resolves.toEqual({
 			status: "completed",
 		});
 		await Promise.all(pending);
-		expect(fake.afterTurnMaintenance).toHaveBeenCalledTimes(2);
+		expect(fake.afterTurnMaintenance).toHaveBeenCalledTimes(3);
 		expect(fake.onTurnEnded).toHaveBeenCalledWith("home:main");
 		expect(end).toHaveBeenCalledTimes(2);
 		expect(cancelSchedule).toHaveBeenCalledOnce();

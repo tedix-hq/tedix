@@ -867,8 +867,6 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 				},
 				turnInput,
 			);
-			// Reconciliation scheduling must not delay the turn response.
-			this.ctx.waitUntil(this.afterTurnMaintenance(input.organizationId));
 			// Inbox-wake: if a child completion was stranded while this turn ran, arm the wake alarm so it fires shortly after
 			// the turn ends. onTurnEnded is fail-soft (never throws).
 			this.ctx.waitUntil(this.onTurnEnded(input.conversationId));
@@ -899,6 +897,15 @@ export class KernelDOv4 extends AIChatAgent<CloudflareEnv, KernelState> {
 			}
 			return result;
 		} finally {
+			// Failed turns need the same durable recovery wake as successful turns.
+			try {
+				this.ctx.waitUntil(this.afterTurnMaintenance(input.organizationId));
+			} catch (error) {
+				console.warn(
+					"[kernel] recovery wake registration failed",
+					kernelErrorMessage(error),
+				);
+			}
 			await endTurn(false);
 			// Only remove our own controller — a redriven turn with the same runId (persist-first idempotency: same run row
 			// re-enters runPlannerStep) could otherwise delete a fresher controller registered by the new pass after this stale
