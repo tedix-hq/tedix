@@ -41,6 +41,7 @@ import {
 	estimateD1RetentionBacklog,
 	filterD1RetentionReferencedRows,
 	getD1RetentionTableSpec,
+	groupD1RetentionArchiveRows,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
 	readD1RetentionPage,
@@ -178,12 +179,13 @@ function archiveDay(
 
 export function d1ArchiveObjectKey(
 	tableSpec: D1RetentionTableSpec,
+	organizationId: string,
 	rows: readonly D1RetentionRow[],
 ): string {
 	const first = rows[0];
 	const last = rows[rows.length - 1];
 	if (!first || !last) throw new Error("cannot key an empty archive chunk");
-	return `${D1_ARCHIVE_PREFIX}${tableSpec.tableName}/${archiveDay(tableSpec, first)}/${first.__rowid}-${last.__rowid}.ndjson.gz`;
+	return `${D1_ARCHIVE_PREFIX}${tableSpec.tableName}/${encodeURIComponent(organizationId)}/${archiveDay(tableSpec, first)}/${first.__rowid}-${last.__rowid}.ndjson.gz`;
 }
 
 export async function gzipNdjson(
@@ -269,11 +271,12 @@ async function copyChunkToLogs(
  */
 async function archiveChunk(
 	bucket: R2Bucket,
+	organizationId: string,
 	tableSpec: D1RetentionTableSpec,
 	rows: readonly D1RetentionRow[],
 	cutoff: D1RetentionCutoff,
 ): Promise<void> {
-	const key = d1ArchiveObjectKey(tableSpec, rows);
+	const key = d1ArchiveObjectKey(tableSpec, organizationId, rows);
 	const body = await gzipNdjson(rows);
 	const stored = await bucket.put(key, body, {
 		httpMetadata: {
@@ -435,11 +438,14 @@ async function runPolicy(
 					}
 				}
 				if (archives && bucket) {
-					await timed(timings, "archiveMs", () =>
-						archiveChunk(bucket, tableSpec, rows, cutoff),
-					);
-					result.archivedRows += rows.length;
-					result.objects += 1;
+					const groups = await groupD1RetentionArchiveRows(db, tableSpec, rows);
+					for (const [organizationId, group] of groups) {
+						await timed(timings, "archiveMs", () =>
+							archiveChunk(bucket, organizationId, tableSpec, group, cutoff),
+						);
+						result.archivedRows += group.length;
+						result.objects += 1;
+					}
 				}
 				// Only a chunk that is in the logs database (verified) and in R2
 				// (confirmed) reaches this delete.

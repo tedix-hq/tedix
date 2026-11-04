@@ -477,3 +477,22 @@ export async function createOsOutputRevision(
 		reason: output ? "revision_conflict" : "output_not_found",
 	};
 }
+
+/** Every revision is a GC root, including history and inline-backed revisions. */
+export async function referencedOutputBodyHashes(
+	db: DbQueryClient,
+	organizationId: string,
+	hashes: readonly string[],
+): Promise<Set<string>> {
+	if (hashes.length === 0) return new Set();
+	const rows = await db
+		.selectDistinct({ hash: osOutputRevisions.contentSha256 })
+		.from(osOutputRevisions)
+		.where(
+			and(
+				eq(osOutputRevisions.organizationId, organizationId),
+				sql`${osOutputRevisions.contentSha256} IN (SELECT value FROM json_each(${JSON.stringify(hashes)}))`,
+			),
+		);
+	return new Set(rows.flatMap((row) => (row.hash ? [row.hash] : [])));
+}
