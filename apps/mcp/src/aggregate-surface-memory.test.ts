@@ -232,6 +232,10 @@ describe("aggregate snapshot memory", () => {
 				id: "deploy-before",
 			} as CloudflareEnv["WORKER_VERSION"];
 			const first = await load();
+			// The cold build keeps its snapshot writes alive; only the reuse
+			// after the deploy must schedule no background work.
+			await Promise.all(pending);
+			pending.length = 0;
 			aggregateSurfaceCache.clear();
 			aggregateSurfaceInFlight.clear();
 			if (tier === "r2") colo.store.clear();

@@ -368,6 +368,7 @@ export async function writeAggregateL2(
 	snapshot: Omit<SerializedAggregateSnapshot, "body"> & {
 		body: string | ReadableStream<Uint8Array>;
 	},
+	ctx?: Pick<ExecutionContext, "waitUntil">,
 ): Promise<void> {
 	try {
 		if (typeof caches === "undefined" || !caches.default) return;
@@ -379,11 +380,15 @@ export async function writeAggregateL2(
 				[AGGREGATE_GENERATION_HEADER]: snapshot.generation,
 			},
 		});
+		const put = caches.default.put(aggregateL2Request(cacheKey), body);
+		// The budget only stops the wait; keep a large snapshot's put alive past
+		// it, or the Worker drops the I/O and every isolate rebuilds from D1.
+		ctx?.waitUntil(put.catch(() => {}));
 		// Budgeted: awaited on the request path, so a wedged put must fail open.
 		await withStepBudget(
 			"aggregate_l2_write",
 			CACHE_TIER_BUDGET_MS,
-			caches.default.put(aggregateL2Request(cacheKey), body),
+			put,
 			cacheKey,
 		);
 	} catch (error) {
@@ -557,20 +562,28 @@ export async function writeAggregateR2(
 	snapshot: SerializedAggregateSnapshot,
 	rootSlug: string | undefined,
 	toolCount: number,
+	ctx?: Pick<ExecutionContext, "waitUntil">,
 ): Promise<void> {
 	try {
 		if (!("AGGREGATE_CACHE" in env) || !env.AGGREGATE_CACHE) return;
-		// Budgeted: awaited on the request path, so a wedged put must fail open.
-		await withStepBudget(
-			"aggregate_r2_write",
-			CACHE_TIER_BUDGET_MS,
-			env.AGGREGATE_CACHE.put(aggregateR2Key(cacheKey), snapshot.body, {
+		const put = env.AGGREGATE_CACHE.put(
+			aggregateR2Key(cacheKey),
+			snapshot.body,
+			{
 				httpMetadata: { contentType: "application/json" },
 				customMetadata: {
 					cachedAt: String(snapshot.cachedAt),
 					generation: snapshot.generation,
 				},
-			}),
+			},
+		);
+		// See writeAggregateL2: the budget stops the wait, not the write.
+		ctx?.waitUntil(put.catch(() => {}));
+		// Budgeted: awaited on the request path, so a wedged put must fail open.
+		await withStepBudget(
+			"aggregate_r2_write",
+			CACHE_TIER_BUDGET_MS,
+			put,
 			cacheKey,
 		);
 	} catch (error) {
