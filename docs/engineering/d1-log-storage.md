@@ -15,7 +15,7 @@ feature flag, no configuration row.
 
 | Class                                     | New rows                                                                    | Rows past the keep window                                 |
 | ----------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `mcp.tool.execute` audit telemetry        | `LOGS_DB.audit_events` (`queries/audit.ts`), metadata over 4 KiB in R2      | `move_to_logs_db`                                         |
+| Known MCP execution telemetry             | `LOGS_DB.audit_events` (`queries/audit.ts`), metadata over 4 KiB in R2      | `move_to_logs_db`                                         |
 | Every other audit action                  | Main D1, including rows composed into a main-database batch                 | `move_to_logs_db`                                         |
 | `tedi_runtime_events`                     | Main D1                                                                     | `move_to_logs_db`                                         |
 | `kernel_runtime_events`                   | Main D1                                                                     | `move_to_logs_db`                                         |
@@ -23,6 +23,12 @@ feature flag, no configuration row.
 | `skill_run_artifacts`                     | Pointer row in main D1; body in the private artifact bucket when over 4 KiB | `move_to_logs_db`                                         |
 | Workflow source snapshots                 | Main D1 `skill_workflow_sources`, one row per skill and SHA-256             | n/a                                                       |
 | Financial ledgers, security audit, grants | Main D1                                                                     | `tedi_call_costs` keeps its archive-only policy           |
+
+The execution telemetry allowlist covers `mcp.tool.execute`, `mcp.tool.error`,
+`mcp.code.execute`, `mcp.code.error`, `mcp.prompt.execute`, `mcp.prompt.error`,
+`mcp.resource.read` and `mcp.resource.error`. Access denials, payment events,
+unknown actions and audit inserts composed into main-database batches stay
+in main D1. New telemetry actions require an explicit review before redirecting.
 
 Why runtime and kernel event rows are not redirected at write time: twenty
 query modules read them with joins and correlated checks that need the row in
@@ -157,7 +163,7 @@ Steps, in order:
 3. Apply the main-database migration `shared_workflow_sources` through the
    normal release.
 4. Add the `LOGS_DB` binding to the api overlay and release. From that deploy
-   on, new `mcp.tool.execute` rows land in the logs database and the merged
+   on, new allowlisted MCP telemetry rows land in the logs database and the merged
    readers are active.
 5. Watch one `d1-retention` receipt (`d1MainSizeMb`, `d1LogsSizeMb`,
    each table's `dry_run` report), then switch tables to `move_to_logs_db`

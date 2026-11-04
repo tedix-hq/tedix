@@ -6,6 +6,7 @@ import { logPartition } from "../schema/logs-db";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
+	buildInsertAuditEventStatement,
 	getAuditEventsByResource,
 	insertAuditEvent,
 	searchAuditEvents,
@@ -37,6 +38,70 @@ const event = {
 };
 
 describe("optional audit log store", () => {
+	it("redirects execution telemetry while retaining authority, payments and batch audit in main", async () => {
+		const main = store();
+		const logs = store();
+		const telemetry = [
+			"mcp.tool.execute",
+			"mcp.tool.error",
+			"mcp.code.execute",
+			"mcp.code.error",
+			"mcp.prompt.execute",
+			"mcp.prompt.error",
+			"mcp.resource.read",
+			"mcp.resource.error",
+		];
+		for (const action of telemetry) {
+			await insertAuditEvent(main.db, {
+				...event,
+				id: `legacy:${action}`,
+				action,
+			});
+		}
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		for (const action of telemetry) {
+			await insertAuditEvent(main.db, { ...event, id: action, action });
+		}
+		const retained = [
+			"mcp.access.denied",
+			"mcp.payment.required",
+			"mcp.payment.rejected",
+			"mcp.payment.settled",
+			"mcp.future.action",
+			"approval.approved",
+		];
+		for (const action of retained) {
+			await insertAuditEvent(main.db, { ...event, id: action, action });
+		}
+		await main.db.batch([
+			buildInsertAuditEventStatement(main.db, { ...event, id: "batch" })
+				.statement,
+		]);
+		expect(
+			main.sqlite.prepare("SELECT id FROM audit_events ORDER BY id").all(),
+		).toEqual(
+			[...telemetry.map((action) => `legacy:${action}`), ...retained, "batch"]
+				.sort()
+				.map((id) => ({ id })),
+		);
+		expect(
+			logs.sqlite.prepare("SELECT id FROM audit_events ORDER BY id").all(),
+		).toEqual([...telemetry].sort().map((id) => ({ id })));
+		for (const action of telemetry) {
+			const result = await searchAuditEvents(main.db, {
+				organizationId: event.organizationId,
+				action,
+			});
+			expect(result.data.map((row) => row.id).sort()).toEqual(
+				[
+					action,
+					`legacy:${action}`,
+					...(action === event.action ? ["batch"] : []),
+				].sort(),
+			);
+		}
+	});
+
 	it("retains legacy behavior without a binding and security events in main with a binding", async () => {
 		const main = store();
 		const logs = store();
