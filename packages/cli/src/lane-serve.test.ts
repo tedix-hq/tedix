@@ -1932,6 +1932,78 @@ describe("dispatcher admission", () => {
 		expect(settle.args).toContain("a".repeat(40));
 		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
 	});
+	it.each(["completed", "incomplete"] as const)(
+		"preserves %s commit/evidence declarations on the admitted Work and Attempt",
+		async (outcome) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.workKind = "coding";
+			const commitSha = "a".repeat(40);
+			const result = {
+				...completedResult(),
+				outcome,
+				...(outcome === "incomplete"
+					? { remaining: "Live proof remains unknown" }
+					: {}),
+				commitSha,
+				evidenceRefs: ["44444444-4444-4444-8444-444444444444"],
+			};
+			f.control.commits = [commitSha];
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(result)}`;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			const path = join(f.dir, `${item().id}-2.json`);
+			const admitted = JSON.parse(readFileSync(path, "utf8"));
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(saved.laneResult).toEqual(result);
+			expect(saved.itemId).toBe(admitted.itemId);
+			expect(saved.attemptId).toBe(admitted.attemptId);
+			expect(saved.session).toBe(admitted.session);
+			expect(saved.executorKey).toBe(admitted.executorKey);
+			expect(settle.args[6]).toBe(admitted.itemId);
+			expect(settle.env.TEDIX_AGENT_SESSION).toBe(admitted.session);
+			expect(settle.env.TEDIX_EXTERNAL_AGENT).toBe(admitted.executorKey);
+			expect(settle.input?.metadata).toMatchObject({
+				laneResult: result,
+				session: admitted.session,
+			});
+			expect(settle.args).toContain(commitSha);
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				outcome === "completed" ? "succeeded" : "failed",
+			);
+			expect(
+				f.events.filter(
+					(event) => event.verb === "start" && event.args[4] === "work",
+				),
+			).toHaveLength(1);
+			expect(f.events.some((event) => event.verb === "complete")).toBe(
+				outcome === "completed",
+			);
+		},
+	);
+	it("does not use a declared commit as verified landed proof", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		const result = {
+			...completedResult(),
+			commitSha: "a".repeat(40),
+			evidenceRefs: ["unverified-ref"],
+		};
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(result)}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args).not.toContain("--commit");
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(settle.input?.metadata).toMatchObject({ laneResult: result });
+		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+	});
 	it.each([
 		{ workItemId: item(2).id },
 		{ workVersion: 3 },
