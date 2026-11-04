@@ -25,7 +25,7 @@ export function renderLogsDbSchema(tableName?: string): string {
 		: LOGS_DB_TABLES;
 	if (!tables.length) throw new Error(`Unknown logs table: ${tableName}`);
 	const statements = tables.flatMap((table) =>
-		tableDdl(table, { foreignKeys: false }),
+		tableDdl(table, { foreignKeys: false, expressionIndexes: true }),
 	);
 	return `-- Logs database schema, rendered by scripts/logs-db-schema.ts.\n-- Log tables without foreign keys, plus logs-local metadata.\n${statements.join("\n")}\n`;
 }

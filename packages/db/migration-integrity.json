@@ -1344,6 +1344,10 @@
 		{
 			"name": "20261104223304_open_unfiled_request_indexes/migration.sql",
 			"sha256": "4034c3da0abc7cf352d105723fef3d2d3c6c0214c3c58228bbc67bec3e1fea77"
+		},
+		{
+			"name": "20261104224712_audit_events_metadata_indexes/migration.sql",
+			"sha256": "68dae0a5dcd025af90423c710b62239b5723e4054929074f0844bdeb9f311552"
 		}
 	]
 }
