@@ -337,20 +337,9 @@ export const SCOPE_IMPLICATION_PROFILES: readonly ScopeImplicationProfile[] = [
 export interface ConsentScopeProfile extends ProviderCapabilityProfileBase {
 	/** Granted scopes, any one of which gives this consent (exact identity). */
 	anyOf: readonly string[];
-	/**
-	 * Matcher kept from the earlier inline Microsoft Graph checks, which accept
-	 * any casing and prefix. Tightening it to exact identities is a separate
-	 * reviewed change because live tenants may hold differently spelled scopes.
-	 */
-	anyOfPattern?: { source: string; flags: string };
 	/** Scopes a delegation requests for this capability, when it requests any. */
 	requests?: readonly string[];
 }
-
-const microsoftCalendarsReadPattern = {
-	source: "(^|\\/)Calendars\\.(Read|ReadWrite)$",
-	flags: "i",
-};
 
 const CONSENT_SCOPE_PROFILES: Readonly<Record<string, ConsentScopeProfile>> =
 	Object.fromEntries(
@@ -386,15 +375,21 @@ const CONSENT_SCOPE_PROFILES: Readonly<Record<string, ConsentScopeProfile>> =
 				},
 				{
 					id: "microsoft-calendar-read",
-					version: 1,
-					anyOf: [],
-					anyOfPattern: microsoftCalendarsReadPattern,
+					version: 2,
+					anyOf: [
+						"Calendars.Read",
+						"https://graph.microsoft.com/Calendars.Read",
+						"Calendars.ReadWrite",
+						"https://graph.microsoft.com/Calendars.ReadWrite",
+					],
 				},
 				{
 					id: "microsoft-calendar-write",
-					version: 1,
-					anyOf: [],
-					anyOfPattern: { source: "(^|\\/)Calendars\\.ReadWrite$", flags: "i" },
+					version: 2,
+					anyOf: [
+						"Calendars.ReadWrite",
+						"https://graph.microsoft.com/Calendars.ReadWrite",
+					],
 					requests: ["Calendars.ReadWrite"],
 				},
 				{
@@ -423,12 +418,7 @@ export function scopesGrantingConsent(
 	granted: readonly string[],
 ): string[] {
 	const profile = consentScopeProfile(profileId);
-	const pattern = profile.anyOfPattern
-		? new RegExp(profile.anyOfPattern.source, profile.anyOfPattern.flags)
-		: undefined;
-	return granted.filter(
-		(scope) => profile.anyOf.includes(scope) || !!pattern?.test(scope),
-	);
+	return granted.filter((scope) => profile.anyOf.includes(scope));
 }
 
 /** Every reviewed profile, for audit listings and the version pin test. */
