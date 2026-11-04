@@ -155,25 +155,12 @@ const EnqueueInputSchema = EnqueueHomeMessageInputSchema.omit({
 	conversationId: true,
 	idempotencyKey: true,
 });
-/**
- * Approval params: canonical input minus the host-asserted organization.
- * The canonical input is a union — omit on each branch, first match wins.
- */
+/** Approval params: canonical input minus the host-asserted organization. */
 const [resumeApprovalBranch, decideApprovalBranch] =
 	RespondHomeApprovalInputSchema.options;
-const RespondApprovalParamsBranches = [
-	resumeApprovalBranch.omit({ organizationId: true }),
-	decideApprovalBranch.omit({ organizationId: true }),
-];
-const RespondApprovalParamsSchema: SafeParser<unknown> = {
-	safeParse(value) {
-		for (const branch of RespondApprovalParamsBranches) {
-			const result = branch.safeParse(value);
-			if (result.success) return result;
-		}
-		return RespondHomeApprovalInputSchema.safeParse(value);
-	},
-};
+const RespondApprovalParamsSchema = resumeApprovalBranch
+	.omit({ organizationId: true })
+	.or(decideApprovalBranch.omit({ organizationId: true }));
 const CancelReasonSchema: SafeParser<string | undefined> =
 	CancelHomeRunInputSchema.shape.reason;
 

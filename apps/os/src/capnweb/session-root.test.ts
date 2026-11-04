@@ -481,6 +481,74 @@ describe("cancel and respondApproval", () => {
 		});
 		expect(calls[1]?.input).toEqual({ runId: "run-1", decision: "approve" });
 	});
+	it.each(["approve", "reject"])(
+		"preserves legacy %s input and host tenant binding",
+		async (decision) => {
+			const { service, calls } = mockApiService(() => ({}));
+			const conversation = makeSession(service).openConversation("conv-1");
+			await Reflect.apply(conversation.respondApproval, conversation, [
+				{
+					runId: "run-1",
+					decision,
+					note: "Operator note",
+					organizationId: "caller-org",
+				},
+			]);
+			expect(calls).toHaveLength(1);
+			expect(calls[0]?.input).toEqual({
+				runId: "run-1",
+				decision,
+				note: "Operator note",
+			});
+			expect(calls[0]?.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+			expect(calls[0]?.headers.get("Cookie")).toBe("DS=abc");
+		},
+	);
+	it("forwards receipt-only continuation without adding a decision", async () => {
+		const { service, calls } = mockApiService(() => ({}));
+		const conversation = makeSession(service).openConversation("conv-1");
+		const params = {
+			runId: "run-1",
+			resumeOnly: true,
+			approvalEventId: "recorded-event",
+			expectedWorkItemVersion: 2,
+		};
+		await Reflect.apply(conversation.respondApproval, conversation, [params]);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.path).toBe("kernelRuntime/respondApproval");
+		expect(calls[0]?.input).toEqual(params);
+		expect(calls[0]?.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+		expect(calls[0]?.headers.get("Cookie")).toBe("DS=abc");
+	});
+	it.each([
+		{ decision: "approve" },
+		{ note: "Changed scope" },
+		{ edits: {} },
+		{ assignmentIds: ["assignment-1"] },
+		{ delegateRecommendation: true },
+		{ organizationId: "caller-org" },
+		{ approvalEventId: undefined },
+		{ expectedWorkItemVersion: undefined },
+		{ expectedWorkItemVersion: 0 },
+	])(
+		"refuses invalid receipt-only input before forwarding: %j",
+		async (overrides) => {
+			const { service, calls } = mockApiService(() => ({}));
+			const conversation = makeSession(service).openConversation("conv-1");
+			await expect(
+				Reflect.apply(conversation.respondApproval, conversation, [
+					{
+						runId: "run-1",
+						resumeOnly: true,
+						approvalEventId: "recorded-event",
+						expectedWorkItemVersion: 2,
+						...overrides,
+					},
+				]),
+			).rejects.toThrow(/Invalid respondApproval params/);
+			expect(calls).toHaveLength(0);
+		},
+	);
 });
 
 // -----------------------------------------------------------------------------
