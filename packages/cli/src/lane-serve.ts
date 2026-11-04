@@ -170,6 +170,72 @@ export function dispatchSkip(
 }
 
 /**
+ * The one OS request a lane raises when it skips Work for a missing owner
+ * delegation. It asks; it never adds the delegation or changes the owner.
+ * Content is fixed per Work version and executor, so the server's open
+ * Interaction deduplication returns the same request on every later pass.
+ */
+export function laneDelegationRequest(
+	item: Pick<
+		DispatchItem,
+		| "id"
+		| "title"
+		| "version"
+		| "metadata"
+		| "accountableOwnerType"
+		| "accountableOwnerId"
+	>,
+	reason: string,
+	operatorUserId: string | undefined,
+):
+	| {
+			workItemId: string;
+			kind: "input";
+			subject: string;
+			prompt: string;
+			reason: string;
+			notificationReason: "blocked_approval";
+			requestedFrom: { type: "user"; id: string };
+			metadata: Record<string, unknown>;
+	  }
+	| undefined {
+	if (!reason.startsWith("Possible human-reserved action")) return;
+	const executor = String(item.metadata?.executor ?? "");
+	const line = `Delegation: ${executor} work-version=${item.version} <what the lane may do, in one bounded sentence>`;
+	const title =
+		item.title.length > 120 ? `${item.title.slice(0, 119)}…` : item.title;
+	const owner =
+		item.accountableOwnerType === "user" && item.accountableOwnerId
+			? item.accountableOwnerId
+			: undefined;
+	const target = owner ?? operatorUserId;
+	if (!target) return;
+	return {
+		workItemId: item.id,
+		kind: "input",
+		subject: owner
+			? `Delegate "${title}" to the ${executor} lane?`
+			: `Choose an accountable owner for "${title}"`,
+		prompt: owner
+			? `The ${executor} lane did not start this Work because it may include an action only a person can authorize. If the lane may do it, add this comment to the Work, filling in what it may do:\n\n${line}\n\nWithout that comment the Work stays waiting. Consent, sign-in and MFA always stay with you.`
+			: `The ${executor} lane did not start this Work because it may include an action only a person can authorize, and the Work has no accountable person who can delegate it. An organization owner or admin can make a person its accountable owner; that person can then add this comment if the lane may go ahead:\n\n${line}`,
+		reason: owner
+			? "Only the accountable owner can delegate a possibly human-reserved action to a lane."
+			: "Only a person can become the accountable owner who delegates this action.",
+		notificationReason: "blocked_approval",
+		requestedFrom: { type: "user", id: target },
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: owner ? "owner_delegation" : "accountable_owner",
+				executor,
+				workVersion: item.version,
+			},
+		},
+	};
+}
+
+/**
  * The done-when a dispatcher may accept a proposed item with: the item is
  * assigned to this executor and its description carries a `## Done when`
  * section. Anything else stays proposed for a human.
@@ -1050,6 +1116,7 @@ export class LaneDispatcher {
 	private queue = serialCalls();
 	private stopping = false;
 	private proposalsSweptAt = 0;
+	private delegationRequests = new Map<string, string>();
 	private ownerEnv = laneChildEnv();
 	private deps: DispatcherDeps;
 	private policy: RoutingPolicy;
@@ -1281,13 +1348,15 @@ export class LaneDispatcher {
 					this.options.executor,
 					this.options.coordinated,
 				);
+				let current = item;
 				if (reason?.startsWith("Possible human-reserved")) {
 					const detail = await this.call<{
 						workItem: DispatchItem;
 						comments: WorkItemComment[];
 					}>(["work", "dispatch-get", item.id, "--input", "{}"]);
+					current = { ...item, ...detail.workItem };
 					reason = dispatchSkip(
-						{ ...item, ...detail.workItem },
+						current,
 						detail.comments ?? [],
 						this.options.executor,
 						this.options.coordinated,
@@ -1301,6 +1370,7 @@ export class LaneDispatcher {
 					reason = "Devin must be installed and logged in before dispatch";
 				if (reason) {
 					this.log("skipped", item.id, reason);
+					await this.requestDelegation(current, reason);
 					continue;
 				}
 				if (
@@ -2242,6 +2312,42 @@ export class LaneDispatcher {
 			}
 			this.scheduleCleanup(receipt);
 			this.save(path, receipt);
+		}
+	}
+	/** Raise or reuse the one owner request a delegation skip needs. */
+	private async requestDelegation(item: DispatchItem, reason: string) {
+		if (!reason.startsWith("Possible human-reserved action")) return;
+		const operator = () => {
+			const at = this.options.scope.indexOf("--workspace");
+			const workspace =
+				at < 0 ? getCurrentWorkspace() : this.options.scope[at + 1];
+			return workspace
+				? readWorkspaceCredentials(workspace)?.loginId
+				: undefined;
+		};
+		const request = laneDelegationRequest(
+			item,
+			reason,
+			item.accountableOwnerType === "user" && item.accountableOwnerId
+				? undefined
+				: operator(),
+		);
+		if (!request) return;
+		const key = `${item.id}:${item.version}:${request.requestedFrom.id}`;
+		if (this.delegationRequests.has(key)) return;
+		try {
+			const created = await this.call<{ id: string }>([
+				"work",
+				"interaction-create",
+				"--input",
+				JSON.stringify(request),
+			]);
+			if (typeof created.id !== "string")
+				throw new Error("Delegation request returned no id");
+			this.delegationRequests.set(key, created.id);
+			this.log("owner-request", item.id, `Request ${created.id}`);
+		} catch (error) {
+			this.log("owner-request-failed", item.id, String(error));
 		}
 	}
 	private async holdForLogin(): Promise<boolean> {
