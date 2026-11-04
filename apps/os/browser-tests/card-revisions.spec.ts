@@ -12,6 +12,58 @@ const { origin } = server;
 const screenshotDirectory = process.env.CARD_REVISIONS_SCREENSHOT_DIR;
 if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
+/**
+ * A bare waitForFunction timeout names no predicate and no case in the
+ * aggregate run log, so an intermittent failure cannot be placed. Keep the
+ * same assertion and timeout, but on failure report the case plus the page's
+ * focus and DOM state; the evidence preload records the trace alongside.
+ */
+async function waitForPageState(
+	page: Page,
+	name: string,
+	predicate: () => boolean,
+	context: string,
+) {
+	try {
+		await page.waitForFunction(predicate);
+	} catch (error) {
+		let state = "page state unavailable";
+		try {
+			state = JSON.stringify(
+				await page.evaluate(() => {
+					const describe = (element: Element | null) =>
+						element instanceof HTMLElement
+							? `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""} aria-label=${JSON.stringify(element.getAttribute("aria-label"))} role=${JSON.stringify(element.getAttribute("role"))} class=${JSON.stringify(element.className)}`
+							: "none";
+					return {
+						activeElement: describe(document.activeElement),
+						changeInputMounted: Boolean(
+							document.querySelector('input[aria-label="What should change?"]'),
+						),
+						commentPillMounted: Boolean(
+							document.querySelector('[aria-label="Comment on selected text"]'),
+						),
+						openDialogs: [...document.querySelectorAll("[role=dialog]")]
+							.filter((dialog) => !dialog.hasAttribute("hidden"))
+							.map(describe),
+						revising: [...document.querySelectorAll("[role=status]")].some(
+							(status) => status.textContent?.includes("Revising"),
+						),
+						sendDisabled: [...document.querySelectorAll("button")].some(
+							(button) =>
+								button.textContent?.trim() === "Send" && button.disabled,
+						),
+					};
+				}),
+			);
+		} catch {
+			// The page may already be gone; the timeout itself is the evidence.
+		}
+		throw new Error(`${context}: ${name} timed out; ${state}`, {
+			cause: error,
+		});
+	}
+}
 /** Versions and change requests open on the card from its "⋯" menu. */
 async function openVersions(page: Page) {
 	await page
@@ -45,6 +97,7 @@ async function checkDisclosure(trigger: Locator, width: number) {
 try {
 	for (const width of [1280, 390])
 		for (const theme of ["light", "dark"] as const) {
+			const caseName = `${width}px ${theme}`;
 			const page = await browser.newPage({
 				viewport: { width, height: width === 390 ? 844 : 1000 },
 				colorScheme: theme,
@@ -290,10 +343,13 @@ try {
 			await page
 				.getByRole("button", { name: "Close decision context", exact: true })
 				.click();
-			if (width === 390)
-				await page
-					.getByRole("dialog", { name: "Decision context", exact: true })
-					.waitFor({ state: "hidden" });
+			// The sheet returns focus to its Decision context trigger when its
+			// close finishes, a frame or more after this click. Focusing the card
+			// before that restore lands lets it steal the "c" keydown, so the
+			// hidden check is ordering, not a wait for style.
+			await page
+				.getByRole("dialog", { name: "Decision context", exact: true })
+				.waitFor({ state: "hidden" });
 			await page
 				.getByText("Version 4", { exact: true })
 				.filter({ visible: true })
@@ -304,10 +360,13 @@ try {
 			});
 			await card.focus();
 			await page.keyboard.press("c");
-			await page.waitForFunction(
+			await waitForPageState(
+				page,
+				'"c" focuses the "What should change?" input',
 				() =>
 					document.activeElement?.getAttribute("aria-label") ===
 					"What should change?",
+				caseName,
 			);
 			const selectGreeting = async () => {
 				await page
@@ -333,17 +392,23 @@ try {
 			const pill = page.getByRole("dialog", {
 				name: "Comment on selected text",
 			});
-			await page.waitForFunction(
+			await waitForPageState(
+				page,
+				"selection focuses the comment pill",
 				() =>
 					document.activeElement?.getAttribute("aria-label") ===
 					"Comment on selected text",
+				caseName,
 			);
 			await page.keyboard.press("Escape");
 			await pill.waitFor({ state: "hidden" });
-			await page.waitForFunction(
+			await waitForPageState(
+				page,
+				"Escape returns focus to the card content",
 				() =>
 					document.activeElement?.matches("[data-card-feedback-content]") ===
 					true,
+				caseName,
 			);
 			await selectGreeting();
 			if (screenshotDirectory)
@@ -381,10 +446,15 @@ try {
 				.getByRole("button", { name: "Send to Draft author", exact: true })
 				.click();
 			await page.getByRole("status").filter({ hasText: "Revising…" }).waitFor();
-			await page.waitForFunction(() =>
-				[...document.querySelectorAll("button")].some(
-					(button) => button.textContent?.trim() === "Send" && button.disabled,
-				),
+			await waitForPageState(
+				page,
+				'"Send" is disabled while the revision is pending',
+				() =>
+					[...document.querySelectorAll("button")].some(
+						(button) =>
+							button.textContent?.trim() === "Send" && button.disabled,
+					),
+				caseName,
 			);
 			assert(
 				await page
@@ -460,6 +530,7 @@ try {
 				});
 			}
 			await page.close();
+			console.log(`card-revisions ${caseName} passed.`);
 		}
 	console.log(
 		"Card revisions: history, diff, restore, pending state, credential action and 1280/390 light/dark passed.",
