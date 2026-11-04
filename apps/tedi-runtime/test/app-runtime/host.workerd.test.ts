@@ -272,16 +272,20 @@ describe("workspace app supervisor in workerd", () => {
 			n: 2,
 			version: "v1",
 		});
-		await expect(
-			Promise.resolve(
-				stub.revokeSessions({
-					organizationId: "another-org",
-					workspaceId: hostWorkspaces.get(stub)!,
-					principalIds: [],
-					at: issuedAt,
-				}),
-			),
-		).rejects.toThrow("Workspace host scope mismatch");
+		const foreignScopeError = await stub
+			.revokeSessions({
+				organizationId: "another-org",
+				workspaceId: hostWorkspaces.get(stub)!,
+				principalIds: [],
+				at: issuedAt,
+			})
+			.then(
+				() => null,
+				(error: unknown) => error,
+			);
+		expect(String(foreignScopeError)).toContain(
+			"Workspace host scope mismatch",
+		);
 	});
 	it("durably queues failed trace writes and redrives them through an alarm", async () => {
 		const stub = createHost();
