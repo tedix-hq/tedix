@@ -68,8 +68,10 @@ import {
 } from "./workflow-restart";
 import { assertWorkflowExecutionEpochRuntimePin } from "./workflow-runtime-pin";
 import {
+	buildOutboundProxyConfigVersion,
 	buildWorkflowExecutionCompatibility,
 	buildWorkflowLoaderConfigHash,
+	outboundProxyConfig,
 } from "./workflow-runtime-compatibility";
 
 interface SkillWorkflowEnv {
@@ -281,10 +283,12 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 				tenantCpuMs: TENANT_WORKER_LIMITS.cpuMs,
 				tenantSubRequests: TENANT_WORKER_LIMITS.subRequests,
 			};
-			const outboundCredentialVersion =
-				manifest.network && env.GEMINI_API_KEY
-					? await sha256Hex(env.GEMINI_API_KEY)
-					: null;
+			// Network-disabled runs keep `null` so persisted legacy pins can still
+			// be reconstructed. Network runs version the whole OutboundProxy
+			// config, not just one credential.
+			const outboundCredentialVersion = manifest.network
+				? await buildOutboundProxyConfigVersion(outboundProxyConfig(env))
+				: null;
 			// Worker Loader ids are cache hints, but a given id must always resolve
 			// to identical WorkerCode/config. Deployment and credential versions
 			// therefore select a fresh immutable Loader even when the separately

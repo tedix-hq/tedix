@@ -88,9 +88,11 @@ import {
 import { isWorkflowRetirementError } from "../src/workflow-retirement";
 import { assertWorkflowExecutionEpochRuntimePin } from "../src/workflow-runtime-pin";
 import {
+	buildOutboundProxyConfigVersion,
 	buildWorkflowExecutionCompatibility,
 	buildWorkflowLoaderConfigHash,
 	canonicalWorkflowRuntimeJson,
+	outboundProxyConfig,
 } from "../src/workflow-runtime-compatibility";
 import {
 	workflowSubmissionHasAbortIntent,
@@ -2151,6 +2153,98 @@ assert.doesNotMatch(
 	JSON.stringify(originalCredentialCompatibility),
 	/original-service-token/,
 );
+
+// Every proxied value must version the Loader: rotating any credential or
+// endpoint the network OutboundProxy receives selects a fresh Loader id.
+{
+	const proxyEnv = {
+		GEMINI_API_KEY: "fictional-gemini",
+		GOOGLE_SERVICE_ACCOUNT_KEY: '{"client_email":"a@example.test"}',
+		VERTEX_VIDEO_ENDPOINT: "https://vertex.example.test/v1",
+	};
+	const loaderHashFor = async (env: Record<string, string>) =>
+		buildWorkflowLoaderConfigHash({
+			executionCompatibilityHash: "1".repeat(64),
+			deployment: {
+				workerVersionId: "worker-1",
+				workerVersionTag: "production",
+				workerVersionTimestamp: "2026-11-04T00:00:00.000Z",
+			},
+			secretVersions: {
+				serviceToken: "2".repeat(64),
+				outboundCredential: await buildOutboundProxyConfigVersion(
+					outboundProxyConfig(env),
+				),
+			},
+		});
+	const baseline = await loaderHashFor(proxyEnv);
+	assert.equal(await loaderHashFor({ ...proxyEnv }), baseline);
+	for (const key of Object.keys(proxyEnv) as (keyof typeof proxyEnv)[]) {
+		assert.notEqual(
+			await loaderHashFor({ ...proxyEnv, [key]: `${proxyEnv[key]}-rotated` }),
+			baseline,
+			`${key} rotation must select a new Loader`,
+		);
+		const { [key]: _removed, ...withoutKey } = proxyEnv;
+		assert.notEqual(
+			await loaderHashFor(withoutKey),
+			baseline,
+			`${key} removal must select a new Loader`,
+		);
+	}
+	const version = await buildOutboundProxyConfigVersion(
+		outboundProxyConfig(proxyEnv),
+	);
+	for (const raw of Object.values(proxyEnv)) {
+		assert.ok(!version.includes(raw));
+	}
+
+	// The Loader props come from the same config the hash versions, so a
+	// proxied value cannot reach the Loader without being versioned.
+	let outboundProps: Record<string, unknown> | null = null;
+	let loaderFactory: (() => unknown) | null = null;
+	const recordingExports = new Proxy(
+		{},
+		{
+			get: (_target, name) => (options: { props: Record<string, unknown> }) => {
+				if (name === "OutboundProxy") outboundProps = options.props;
+				return {};
+			},
+		},
+	);
+	loadSkillRuntime(
+		{
+			...proxyEnv,
+			PLATFORM_SERVICE_TOKEN: "fictional-service-token",
+			LOADER: {
+				get(_key: string, factory: () => unknown) {
+					loaderFactory = factory;
+					return { getEntrypoint: () => ({}) };
+				},
+			},
+		} as never,
+		{
+			...loaderIdentity,
+			orgId: "org-fictional",
+			code: "export default {};",
+			manifest: { network: true, rationale: { mode: "off" } },
+		} as never,
+		recordingExports as never,
+	);
+	assert.ok(loaderFactory);
+	(loaderFactory as () => unknown)();
+	assert.ok(outboundProps);
+	const {
+		organizationId: _org,
+		tediId: _tedi,
+		runId: _run,
+		workItemId: _workItem,
+		...proxiedConfig
+	} = outboundProps as Record<string, unknown>;
+	// orgId, tediId and runId are already in the Loader key; workItemId is
+	// fixed by the admitted run snapshot.
+	assert.deepEqual(proxiedConfig, outboundProxyConfig(proxyEnv));
+}
 
 const legacyPinnedDeployment = {
 	workerVersionId: "worker-legacy",
