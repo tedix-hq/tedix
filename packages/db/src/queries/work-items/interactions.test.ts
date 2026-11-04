@@ -1557,10 +1557,10 @@ it("returns the latest resolved related answer only within the same tenant and r
 			"org",
 			page.data.map((r) => r.request.id),
 		);
-		return row?.decision ? JSON.parse(row.decision).requestId : null;
+		return row?.decision?.requestId ?? null;
 	};
 	const [first] = await listLastRelatedDecisions(db, "org", ["mine"]);
-	expect(JSON.parse(first!.decision!)).toEqual({
+	expect(first!.decision).toEqual({
 		requestId: "previous",
 		subject: "Previous choice",
 		body: "Use the existing service",

@@ -2100,43 +2100,58 @@ export async function listWorkInteractionInbox(
 	};
 }
 
+/** Newest answered requests searched per recipient for a related decision. */
+const RELATED_DECISION_HISTORY = 500;
+
+/** Source keys match on kind and id, and on tediId including its absence. */
+function decisionSourceKeys(metadata: unknown) {
+	const meta = (metadata ?? {}) as {
+		decisionSources?: unknown;
+		decisionDeck?: { sources?: unknown };
+	};
+	const sources = meta.decisionSources ?? meta.decisionDeck?.sources;
+	if (!Array.isArray(sources)) return [];
+	return sources.flatMap(
+		(source: { kind?: unknown; id?: unknown; tediId?: unknown }) =>
+			source?.kind == null || source.id == null
+				? []
+				: [JSON.stringify([source.kind, source.id, source.tediId ?? null])],
+	);
+}
+
 /**
  * The latest answered request related to each given request: same recipient
- * and same Work, project or decision source. Each lookup compares source lists
- * against every prior answer, so callers pass only the page they return.
+ * and same Work, project or decision source. Reads each recipient's recent
+ * answers once and matches them here; a per-card SQL subquery compared every
+ * prior answer's sources and scanned millions of rows in production.
  */
 export async function listLastRelatedDecisions(
 	db: DbQueryClient,
 	orgId: string,
 	interactionIds: string[],
 ) {
-	const rows: { interactionId: string; decision: string | null }[] = [];
+	const cards: {
+		id: string;
+		targetType: string | null;
+		targetId: string | null;
+		workItemId: string | null;
+		projectId: string | null;
+		metadata: unknown;
+	}[] = [];
 	for (const ids of chunkForBoundParams(interactionIds, 50)) {
-		rows.push(
+		cards.push(
 			...(await db
 				.select({
-					interactionId: sql<string>`${workInteractions.id}`.as(
-						"interaction_id",
-					),
-					decision: sql<
+					id: workInteractions.id,
+					targetType: workInteractions.targetType,
+					targetId: workInteractions.targetId,
+					workItemId: workInteractions.workItemId,
+					projectId: sql<
 						string | null
-					>`(SELECT json_object('requestId', prior.id, 'subject', prior.subject, 'body', answer.body, 'decidedAt', answer.responded_at)
-    FROM work_interactions prior
-    JOIN work_interaction_responses answer ON answer.org_id=prior.org_id AND answer.interaction_id=prior.id AND answer.resolves_request=1
-    LEFT JOIN work_items prior_work ON prior_work.org_id=prior.org_id AND prior_work.id=prior.work_item_id
-    WHERE prior.org_id=${workInteractions.orgId} AND prior.id<>${workInteractions.id}
-    AND prior.status='resolved' AND prior.target_type=${workInteractions.targetType} AND prior.target_id=${workInteractions.targetId}
-    AND (prior.work_item_id=${workInteractions.workItemId}
-      OR coalesce(prior.project_id,prior_work.project_id)=coalesce(${workInteractions.projectId},${workItems.projectId})
-      OR EXISTS (SELECT 1
-       FROM json_each(coalesce(json_extract(prior.metadata,'$.decisionSources'),json_extract(prior.metadata,'$.decisionDeck.sources'),'[]')) old_source
-       JOIN json_each(coalesce(json_extract(${workInteractions.metadata},'$.decisionSources'),json_extract(${workInteractions.metadata},'$.decisionDeck.sources'),'[]')) current_source
-       ON json_extract(old_source.value,'$.kind')=json_extract(current_source.value,'$.kind')
-       AND json_extract(old_source.value,'$.id')=json_extract(current_source.value,'$.id')
-       AND json_extract(old_source.value,'$.tediId') IS json_extract(current_source.value,'$.tediId')))
-    ORDER BY answer.responded_at DESC, answer.id DESC LIMIT 1)`.as(
-						"last_related_decision",
+					>`coalesce(${workInteractions.projectId},${workItems.projectId})`.as(
+						"card_project_id",
 					),
+					metadata: workInteractions.metadata,
 				})
 				.from(workInteractions)
 				.leftJoin(
@@ -2154,7 +2169,125 @@ export async function listLastRelatedDecisions(
 				)),
 		);
 	}
-	return rows;
+	const prior = alias(workInteractions, "prior");
+	const priorWork = alias(workItems, "prior_work");
+	type Answered = {
+		id: string;
+		subject: string;
+		workItemId: string | null;
+		projectId: string | null;
+		metadata: unknown;
+		body: string;
+		decidedAt: string;
+		answerId: string;
+	};
+	// Two single-table reads, so the recipient index always drives the first
+	// and the read stops after the newest requests.
+	const readHistory = async (targetType: string, targetId: string) => {
+		const requests = await db
+			.select({
+				id: prior.id,
+				subject: prior.subject,
+				workItemId: prior.workItemId,
+				projectId: sql<
+					string | null
+				>`coalesce(${prior.projectId},${priorWork.projectId})`.as(
+					"prior_project_id",
+				),
+				metadata: prior.metadata,
+			})
+			.from(prior)
+			.leftJoin(
+				priorWork,
+				and(
+					eq(priorWork.orgId, prior.orgId),
+					eq(priorWork.id, prior.workItemId),
+				),
+			)
+			.where(
+				and(
+					eq(prior.orgId, orgId),
+					eq(prior.targetType, targetType as WorkInteractionTargetType),
+					eq(prior.targetId, targetId),
+					eq(prior.status, "resolved"),
+				),
+			)
+			.orderBy(desc(prior.createdAt))
+			.limit(RELATED_DECISION_HISTORY);
+		if (requests.length === 0) return [];
+		const answers = await db
+			.select({
+				answerId: workInteractionResponses.id,
+				interactionId: workInteractionResponses.interactionId,
+				body: workInteractionResponses.body,
+				decidedAt: workInteractionResponses.respondedAt,
+			})
+			.from(workInteractionResponses)
+			.where(
+				and(
+					eq(workInteractionResponses.orgId, orgId),
+					eq(workInteractionResponses.resolvesRequest, true),
+					sql`${workInteractionResponses.interactionId} IN (SELECT value FROM json_each(${JSON.stringify(requests.map((row) => row.id))}))`,
+				),
+			);
+		const byRequest = new Map(requests.map((row) => [row.id, row]));
+		return answers
+			.flatMap((row): Answered[] => {
+				const request = byRequest.get(row.interactionId);
+				return request
+					? [
+							{
+								...request,
+								body: row.body,
+								decidedAt: row.decidedAt,
+								answerId: row.answerId,
+							},
+						]
+					: [];
+			})
+			.sort(
+				(a, b) =>
+					b.decidedAt.localeCompare(a.decidedAt) ||
+					b.answerId.localeCompare(a.answerId),
+			);
+	};
+	const history = new Map<string, Promise<Answered[]>>();
+	const recipientHistory = (targetType: string, targetId: string) => {
+		const key = JSON.stringify([targetType, targetId]);
+		let rows = history.get(key);
+		if (!rows) {
+			rows = readHistory(targetType, targetId);
+			history.set(key, rows);
+		}
+		return rows;
+	};
+	return Promise.all(
+		cards.map(async (card) => {
+			if (!card.targetType || !card.targetId)
+				return { interactionId: card.id, decision: null };
+			const sources = new Set(decisionSourceKeys(card.metadata));
+			const match = (
+				await recipientHistory(card.targetType, card.targetId)
+			).find(
+				(row) =>
+					row.id !== card.id &&
+					((card.workItemId !== null && row.workItemId === card.workItemId) ||
+						(card.projectId !== null && row.projectId === card.projectId) ||
+						decisionSourceKeys(row.metadata).some((key) => sources.has(key))),
+			);
+			return {
+				interactionId: card.id,
+				decision: match
+					? {
+							requestId: match.id,
+							subject: match.subject,
+							body: match.body,
+							decidedAt: match.decidedAt,
+						}
+					: null,
+			};
+		}),
+	);
 }
 
 /** Identifier-only projection for the MCP interaction event feed. */
