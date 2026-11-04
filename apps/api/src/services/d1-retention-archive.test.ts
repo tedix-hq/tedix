@@ -369,6 +369,13 @@ describe("runD1Retention", () => {
 				expect(result.tables[0]?.problem).toBeNull();
 				expect(result.deletedRows).toBe(1);
 				expect(
+					[...bucket.objects.keys()].some((key) =>
+						key.startsWith(
+							`${D1_ARCHIVE_PREFIX}skill_run_artifacts/fictional-lighthouse/`,
+						),
+					),
+				).toBe(true);
+				expect(
 					logs.sqlite
 						.prepare(
 							"SELECT content_r2_key FROM skill_run_artifacts WHERE id = 'artifact-1'",
@@ -557,6 +564,37 @@ describe("runD1Retention", () => {
 			mode: "dry_run",
 			eligibleRows: 120,
 		});
+	});
+
+	it("partitions mixed-tenant archive pages without changing the archived rows", async () => {
+		const { db, seed, sqlite, count } = fixture(
+			"('audit_events','archive_then_delete',90,2000,'2026-10-21')",
+		);
+		seed([120, 121, 122, 123]);
+		sqlite.exec(
+			"UPDATE audit_events SET organization_id='fictional-other' WHERE id IN ('audit-1','audit-3')",
+		);
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			archivedRows: 4,
+			deletedRows: 4,
+			objects: 2,
+		});
+		expect(count()).toBe(0);
+		for (const [key, bytes] of bucket.objects) {
+			const rows = (await gunzipLines(bytes)).map((line) => JSON.parse(line));
+			const org = rows[0].organization_id;
+			expect(key.startsWith(`${D1_ARCHIVE_PREFIX}audit_events/${org}/`)).toBe(
+				true,
+			);
+			expect(rows).toHaveLength(2);
+			expect(rows.every((row) => row.organization_id === org)).toBe(true);
+		}
 	});
 
 	it("archives expired rows to R2 before deleting exactly those rows", async () => {

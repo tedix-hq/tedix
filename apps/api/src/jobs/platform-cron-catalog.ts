@@ -39,6 +39,7 @@ export const PLATFORM_CRON_IDS = [
 	"daily-billing-and-catalog-maintenance",
 	"cloudflare-billable-usage",
 	"retention-cleanup",
+	"output-revision-body-gc",
 	"memory-reflection-and-enrichment",
 	"mcp-scan",
 	"tool-test-and-quality",
@@ -189,6 +190,12 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "retention-cleanup",
+		cron: "0 3 * * *",
+		intervalMinutes: 1_440,
+		requiresFleet: true,
+	},
+	{
+		id: "output-revision-body-gc",
 		cron: "0 3 * * *",
 		intervalMinutes: 1_440,
 		requiresFleet: true,

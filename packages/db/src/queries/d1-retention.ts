@@ -252,6 +252,37 @@ export async function readD1RetentionPage(
 	)) as D1RetentionRow[];
 }
 
+/** Resolve indirect tenant ownership without changing the raw archive/copy rows. */
+export async function groupD1RetentionArchiveRows(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	rows: readonly D1RetentionRow[],
+): Promise<Map<string, D1RetentionRow[]>> {
+	const runOrganizations = new Map<string, string>();
+	if (tableSpec.tableName === "skill_run_artifacts" && rows.length) {
+		const runs = await db
+			.select({ id: skillRuns.id, organizationId: skillRuns.organizationId })
+			.from(skillRuns)
+			.where(
+				sql`${skillRuns.id} IN (SELECT value FROM json_each(${JSON.stringify(rows.map((row) => row.run_id))}))`,
+			);
+		for (const run of runs) runOrganizations.set(run.id, run.organizationId);
+	}
+	const groups = new Map<string, D1RetentionRow[]>();
+	for (const row of rows) {
+		const org =
+			tableSpec.tableName === "skill_run_artifacts"
+				? runOrganizations.get(String(row.run_id))
+				: row.organization_id;
+		if (typeof org !== "string" || !org)
+			throw new Error("Archive row has no valid organization");
+		const group = groups.get(org) ?? [];
+		group.push(row);
+		groups.set(org, group);
+	}
+	return groups;
+}
+
 /** Missing or nonterminal runs are retained; a memory source pins the whole run. */
 function artifactMayMove(): SQL {
 	return sql`EXISTS (
