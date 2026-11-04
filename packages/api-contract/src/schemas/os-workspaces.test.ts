@@ -164,6 +164,12 @@ describe("Built-in app manifest settings", () => {
 });
 
 describe("OS output library preview", () => {
+	it("represents an openable card without loading content", () => {
+		expect(OsOutputLibraryPreviewSchema.parse({ kind: "metadata" })).toEqual({
+			kind: "metadata",
+		});
+	});
+
 	it("represents a server-denied source without carrying content", () => {
 		const preview = OsOutputLibraryPreviewSchema.parse({
 			kind: "unavailable",

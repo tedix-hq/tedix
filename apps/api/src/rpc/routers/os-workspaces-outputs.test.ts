@@ -641,31 +641,18 @@ describe("outputs", () => {
 		).toMatchObject({
 			scope: "mine",
 			workspace: { name: "Q3 planning", status: "archived" },
-			preview: {
-				kind: "document",
-				lines: ["Launch plan", "Ship the governed workspace."],
-				blockCount: 2,
-			},
+			preview: { kind: "metadata" },
 		});
 		expect(
 			library.items.find((item) => item.output.kind === "sheet"),
 		).toMatchObject({
 			scope: "organization",
-			preview: {
-				kind: "sheet",
-				columns: ["Deal", "Value"],
-				rows: [["Acme", 1200]],
-			},
+			preview: { kind: "metadata" },
 		});
 		expect(
 			library.items.find((item) => item.output.kind === "presentation"),
 		).toMatchObject({
-			preview: {
-				kind: "presentation",
-				title: "Q3",
-				bullets: ["Revenue", "Retention"],
-				slideCount: 1,
-			},
+			preview: { kind: "metadata" },
 		});
 		expect((await c.org2.outputs.library({})).items).toHaveLength(0);
 

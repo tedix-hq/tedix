@@ -8,7 +8,7 @@ import {
 } from "@tedix/api-contract/utils/skill-schedule";
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import { getBlueprintApplyReceipt } from "@tedix/db/queries/os-workspaces/provisioning";
-import { instantiateOsBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
+import { instantiateOsBlueprint } from "../../services/os-workspace-outputs";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";

@@ -1,7 +1,7 @@
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import { WORKSPACE_FILE_PART_BYTES } from "@tedix/api-contract/schemas/workspace-files";
-import { confirmOsWorkspaceFile } from "@tedix/db/queries/os-workspaces/files";
+import { confirmOsWorkspaceFile } from "../../services/os-workspace-outputs";
 import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import {

@@ -1618,6 +1618,11 @@ export const OsOutputRevisionSchema = z.object({
 /** Compact, inert library previews. No rich HTML, formulas, or image sources are returned. */
 export const OsOutputLibraryPreviewSchema = z.discriminatedUnion("kind", [
 	z.object({
+		kind: z
+			.literal("metadata")
+			.describe("Content is loaded only when the output is opened"),
+	}),
+	z.object({
 		kind: z.literal("unavailable"),
 		reason: z.literal("source_access_unavailable"),
 	}),

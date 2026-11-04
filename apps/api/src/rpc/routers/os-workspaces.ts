@@ -74,7 +74,7 @@ import {
 	appRuntimeCodeLength,
 	isAppRuntimeManifest,
 } from "@tedix/api-contract/utils/app-runtime";
-import { instantiateOsBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
+import { instantiateOsBlueprint } from "../../services/os-workspace-outputs";
 import { buildBlueprintOutputRows } from "../../services/blueprint-outputs";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import type {
