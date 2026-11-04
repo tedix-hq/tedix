@@ -194,7 +194,9 @@ export async function readOfficeCanonicalSources(
 			workAttempts,
 			and(
 				eq(workAttempts.orgId, workEvents.orgId),
-				sql`(${workAttempts.id} = ${workEvents.attemptId} OR (${workEvents.eventType} = 'work.completed' AND ${workEvents.attemptId} IS NULL AND ${workAttempts.id} = (SELECT latest.id FROM ${workAttempts} latest WHERE latest.org_id = ${workEvents.orgId} AND latest.work_item_id = ${workEvents.workItemId} AND latest.started_at <= ${workEvents.occurredAt} ORDER BY latest.attempt_number DESC LIMIT 1)))`,
+				// `+started_at` keeps the lookup on the (org, item) key instead of an
+				// org-wide started_at range; see office-activity.plan.test.ts.
+				sql`(${workAttempts.id} = ${workEvents.attemptId} OR (${workEvents.eventType} = 'work.completed' AND ${workEvents.attemptId} IS NULL AND ${workAttempts.id} = (SELECT latest.id FROM ${workAttempts} latest WHERE latest.org_id = ${workEvents.orgId} AND latest.work_item_id = ${workEvents.workItemId} AND +latest.started_at <= ${workEvents.occurredAt} ORDER BY latest.attempt_number DESC LIMIT 1)))`,
 			),
 		)
 		.where(

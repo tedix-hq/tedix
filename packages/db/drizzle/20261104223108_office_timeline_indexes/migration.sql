@@ -1,0 +1,2 @@
+CREATE INDEX `idx_work_agent_sessions_org_user_session` ON `work_agent_sessions` (`organization_id`,`user_id`,`session_key`);--> statement-breakpoint
+CREATE INDEX `idx_work_events_org_type_occurred` ON `work_events` (`org_id`,`event_type`,`occurred_at`);
