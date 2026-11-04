@@ -95,6 +95,10 @@ describe("tenant policy call resolution", () => {
 				receipt,
 			),
 		).toMatchObject({ revisionId: "rev", descriptorDigest: "final-digest" });
+		// The gateway lookup only needs the app, not its whole tool list.
+		expect(mocks.gateway).toHaveBeenCalledWith(
+			expect.objectContaining({ toolIds: [tool.toolId] }),
+		);
 		expect(mocks.resolve).toHaveBeenCalledWith(
 			expect.objectContaining({
 				descriptorDigest: "final-digest",

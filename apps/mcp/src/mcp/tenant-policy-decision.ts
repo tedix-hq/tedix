@@ -31,6 +31,7 @@ export async function resolveTenantPolicyForCall(
 		});
 		const gateway = await client.apps.getBySlugWithTools({
 			slug: target.gatewaySlug,
+			toolIds: [tool.toolId],
 		});
 		if (!gateway.app || gateway.app.organizationId !== target.organizationId)
 			return null;
