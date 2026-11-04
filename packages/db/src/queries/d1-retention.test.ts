@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
 import { skillRunArtifacts, skillRuns } from "../schema/cognitive";
-import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import { tediArtifacts, tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { d1RetentionPolicies } from "../schema/d1-retention";
 import { memoryFacts } from "../schema/memory-graph";
+import { osGadgetExecutions } from "../schema/os-workspaces";
 import { workEvidence } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl, tableDdl } from "../test/schema-ddl";
@@ -404,7 +405,14 @@ describe("artifact retention references", () => {
 			enableForeignKeyConstraints: false,
 		});
 		sqlite.exec(
-			schemaDdl(skillRuns, skillRunArtifacts, memoryFacts, workEvidence),
+			schemaDdl(
+				skillRuns,
+				skillRunArtifacts,
+				memoryFacts,
+				workEvidence,
+				tediArtifacts,
+				osGadgetExecutions,
+			),
 		);
 		const db = createDbQueryClient(createD1Facade(sqlite));
 		const spec = getD1RetentionTableSpec("skill_run_artifacts")!;
@@ -500,6 +508,110 @@ describe("artifact retention references", () => {
 			await deleteD1RetentionRows(db, spec, [page[0]!.__rowid], "2026-10-01"),
 		).toBe(0);
 		expect(await readD1RetentionPage(db, spec, -1)).toHaveLength(1);
+	});
+
+	it("pins registry evidence by run and skill URI, including deletion-time references", async () => {
+		const { sqlite, db, spec, seed, evidence } = artifacts();
+		for (const id of [
+			"registry-run",
+			"registry-uri",
+			"unreferenced",
+			"other-org",
+		])
+			seed(id);
+		const page = await readD1RetentionPage(db, spec, -1);
+		for (const id of [
+			"registry-run",
+			"registry-uri",
+			"unreferenced",
+			"other-org",
+		]) {
+			sqlite
+				.prepare(`INSERT INTO tedi_artifacts
+				(id, organization_id, tedi_id, run_id, kind, name, uri, created_at)
+				VALUES (?, ?, 'tedi-example', ?, 'file', 'output', ?, '2026-09-01')`)
+				.run(
+					`registered-${id}`,
+					id === "other-org" ? "org-other" : "org-example",
+					id === "registry-uri" ? null : id,
+					`skill://example/runs/${id}/output.json`,
+				);
+			if (id !== "unreferenced") evidence(`registered-${id}`);
+		}
+		const filtered = await filterD1RetentionReferencedRows(db, spec, page);
+		expect(filtered.rows.map((row) => row.id)).toEqual([
+			"unreferenced",
+			"other-org",
+		]);
+		expect(filtered.referencedRows).toBe(2);
+		expect(
+			await deleteD1RetentionRows(
+				db,
+				spec,
+				page.map((row) => row.__rowid),
+				"2026-10-01",
+			),
+		).toBe(2);
+	});
+
+	it("pins registry evidence through its governed producer execution", async () => {
+		const { sqlite, db, spec, seed, evidence } = artifacts();
+		for (const id of ["producer", "foreign-producer"]) {
+			seed(id);
+			sqlite
+				.prepare(`INSERT INTO os_gadget_executions
+				(id, organization_id, workspace_id, gadget_id, status, granted_capabilities, policy_decision, run_id, created_by_kind, created_by_id, created_at)
+				VALUES (?, ?, 'workspace-example', 'gadget-example', 'completed', '[]', '{}', ?, 'user', 'user-example', '2026-09-01')`)
+				.run(
+					`execution-${id}`,
+					id === "producer" ? "org-example" : "org-other",
+					id,
+				);
+			sqlite
+				.prepare(`INSERT INTO tedi_artifacts
+				(id, organization_id, tedi_id, run_id, producer_execution_id, kind, name, created_at)
+				VALUES (?, 'org-example', 'tedi-example', 'runtime-run', ?, 'file', 'result', '2026-09-01')`)
+				.run(`registered-${id}`, `execution-${id}`);
+			evidence(`registered-${id}`);
+		}
+		const page = await readD1RetentionPage(db, spec, -1);
+		expect(
+			(await filterD1RetentionReferencedRows(db, spec, page)).rows.map(
+				(row) => row.id,
+			),
+		).toEqual(["foreign-producer"]);
+		expect(
+			await deleteD1RetentionRows(
+				db,
+				spec,
+				page.map((row) => row.__rowid),
+				"2026-10-01",
+			),
+		).toBe(1);
+	});
+
+	it("uses the resolver's stored artifact ID for encoded registry URIs", async () => {
+		const { sqlite, db, spec, seed } = artifacts();
+		seed("encoded");
+		sqlite.exec(`INSERT INTO tedi_artifacts
+			(id, organization_id, tedi_id, run_id, kind, name, created_at)
+			VALUES ('registry/id', 'org-example', 'tedi-example', 'encoded', 'file', 'result', '2026-09-01');
+			INSERT INTO work_evidence
+			(id, work_item_id, org_id, claim_key, kind, uri, submitted_by_type, submitted_by_id, submitted_at, metadata)
+			VALUES ('encoded-evidence', 'work-example', 'org-example', 'result', 'artifact', 'artifact://registry%2Fid', 'user', 'user-example', '2026-10-01', '{"_tedixEvidence":{"artifactId":"registry/id"}}')`);
+		const page = await readD1RetentionPage(db, spec, -1);
+		expect(await filterD1RetentionReferencedRows(db, spec, page)).toEqual({
+			rows: [],
+			referencedRows: 1,
+		});
+		expect(
+			await deleteD1RetentionRows(
+				db,
+				spec,
+				page.map((row) => row.__rowid),
+				"2026-10-01",
+			),
+		).toBe(0);
 	});
 
 	it("keeps the raw cursor through a fully pinned page", async () => {

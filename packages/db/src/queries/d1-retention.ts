@@ -25,6 +25,7 @@ import { auditEvents } from "../schema/audit-events";
 import { skillRunArtifacts, skillRuns } from "../schema/cognitive";
 import {
 	kernelRuntimeEvents,
+	tediArtifacts,
 	tediRuntimeEvents,
 } from "../schema/cognitive-runtime";
 import {
@@ -33,6 +34,7 @@ import {
 } from "../schema/d1-retention";
 import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
 import { memoryFacts } from "../schema/memory-graph";
+import { osGadgetExecutions } from "../schema/os-workspaces";
 import { tediCallCosts } from "../schema/tedis";
 import { workEvidence } from "../schema/work-items";
 
@@ -268,6 +270,32 @@ function artifactMayMove(): SQL {
 			SELECT 1 FROM ${workEvidence}
 			WHERE ${workEvidence.orgId} = ${skillRuns.organizationId}
 			AND ${workEvidence.uri} = 'artifact://' || ${skillRunArtifacts.id}
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM ${tediArtifacts}
+			INNER JOIN ${workEvidence}
+			ON ${workEvidence.orgId} = ${tediArtifacts.organizationId}
+			AND (
+				${workEvidence.uri} = 'artifact://' || ${tediArtifacts.id}
+				OR (
+					substr(${workEvidence.uri}, 1, 11) = 'artifact://'
+					AND json_extract(${workEvidence.metadata}, '$._tedixEvidence.artifactId') = ${tediArtifacts.id}
+				)
+			)
+			WHERE ${tediArtifacts.organizationId} = ${skillRuns.organizationId}
+			AND (
+				${tediArtifacts.runId} = ${skillRuns.id}
+				OR EXISTS (
+					SELECT 1 FROM ${osGadgetExecutions}
+					WHERE ${osGadgetExecutions.id} = ${tediArtifacts.producerExecutionId}
+					AND ${osGadgetExecutions.organizationId} = ${skillRuns.organizationId}
+					AND ${osGadgetExecutions.runId} = ${skillRuns.id}
+				)
+				OR (
+					substr(${tediArtifacts.uri}, 1, 8) = 'skill://'
+					AND instr(${tediArtifacts.uri} || '/', '/runs/' || ${skillRuns.id} || '/') > 0
+				)
+			)
 		)
 	)`;
 }
