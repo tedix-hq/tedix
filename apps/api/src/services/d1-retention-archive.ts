@@ -39,6 +39,7 @@ import {
 	d1RetentionPolicyProblem,
 	deleteD1RetentionRows,
 	estimateD1RetentionBacklog,
+	filterD1RetentionReferencedRows,
 	getD1RetentionTableSpec,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
@@ -106,6 +107,7 @@ export interface D1RetentionTableResult {
 	eligibleRows: number | null;
 	eligibleBytes: number | null;
 	archivedRows: number;
+	referencedRows: number;
 	/** Rows copied into the logs database and verified there. */
 	movedRows: number;
 	/**
@@ -142,6 +144,7 @@ function emptyResult(policy: D1RetentionPolicyRow): D1RetentionTableResult {
 		eligibleRows: null,
 		eligibleBytes: null,
 		archivedRows: 0,
+		referencedRows: 0,
 		movedRows: 0,
 		conflictedRows: 0,
 		deletedRows: 0,
@@ -195,6 +198,7 @@ export async function gzipNdjson(
 
 interface ExpiredChunk {
 	rows: D1RetentionRow[];
+	referencedRows: number;
 	afterRowid: number;
 	reachedEnd: boolean;
 }
@@ -212,10 +216,15 @@ async function readExpiredChunk(
 		() => readD1RetentionPage(db, tableSpec, afterRowid, limit),
 		deadline,
 	);
+	const expired = page.filter((row) =>
+		isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff),
+	);
+	const filtered = await withOverloadBackoff(
+		() => filterD1RetentionReferencedRows(db, tableSpec, expired),
+		deadline,
+	);
 	return {
-		rows: page.filter((row) =>
-			isD1RetentionExpired(tableSpec, row[tableSpec.timestamp.name], cutoff),
-		),
+		...filtered,
 		afterRowid: page[page.length - 1]?.__rowid ?? afterRowid,
 		// A short page is the end of the table as of this read.
 		reachedEnd: page.length < limit,
@@ -391,12 +400,13 @@ async function runPolicy(
 						Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining),
 					);
 				next = null;
-				const { rows, afterRowid, reachedEnd } = await timed(
+				const { rows, referencedRows, afterRowid, reachedEnd } = await timed(
 					timings,
 					"readMs",
 					() => pending,
 				);
 				timings.pages += 1;
+				result.referencedRows += referencedRows;
 				// The next page has higher rowids than every row this one may
 				// delete, so it is read while this page is copied and deleted.
 				const nextLimit = Math.min(
@@ -488,6 +498,7 @@ function reportFor(
 		eligibleRows: result.eligibleRows,
 		eligibleBytes: result.eligibleBytes,
 		archivedRows: result.archivedRows,
+		referencedRows: result.referencedRows,
 		movedRows: result.movedRows,
 		conflictedRows: result.conflictedRows,
 		...(result.conflicts.length > 0 ? { conflicts: result.conflicts } : {}),

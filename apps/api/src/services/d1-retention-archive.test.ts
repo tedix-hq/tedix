@@ -4,10 +4,12 @@ import { auditEvents } from "@tedix/db/schema/audit-events";
 import { skillRunArtifacts, skillRuns } from "@tedix/db/schema/cognitive";
 import {
 	kernelRuntimeEvents,
+	tediArtifacts,
 	tediRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { d1RetentionPolicies } from "@tedix/db/schema/d1-retention";
 import { memoryFacts } from "@tedix/db/schema/memory-graph";
+import { osGadgetExecutions } from "@tedix/db/schema/os-workspaces";
 import { workEvidence } from "@tedix/db/schema/work-items";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl, tableDdl } from "@tedix/db/test/schema-ddl";
@@ -82,6 +84,8 @@ function fixture(policies: string) {
 			skillRuns,
 			memoryFacts,
 			workEvidence,
+			tediArtifacts,
+			osGadgetExecutions,
 			d1RetentionPolicies,
 		),
 	);
@@ -374,6 +378,83 @@ describe("runD1Retention", () => {
 			}
 		},
 	);
+
+	it("skips pinned pages, moves a later artifact and persists the reference count", async () => {
+		const { db, sqlite, count, policy } = fixture(
+			"('skill_run_artifacts','move_to_logs_db',14,1,'2026-10-21')",
+		);
+		for (const id of ["pinned", "registry", "free"]) {
+			sqlite
+				.prepare(`INSERT INTO skill_runs
+				(id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status, completed_at)
+				VALUES (?, 'fictional-lighthouse', 'skill-example', 'tedi-ada', ?, 'production', 'completed', '2026-07-01')`)
+				.run(id, id);
+			sqlite
+				.prepare(`INSERT INTO skill_run_artifacts (id, run_id, path, content_r2_key, created_at)
+				VALUES (?, ?, 'result.json', ?, '2026-07-01')`)
+				.run(id, id, `${id}/bodies/${id}`);
+		}
+		sqlite.exec(`INSERT INTO memory_facts (id, organization_id, content, fact_type, source)
+			VALUES ('fact', 'fictional-lighthouse', 'provenance', 'observation', 'skill://runs/pinned');
+			INSERT INTO tedi_artifacts (id, organization_id, tedi_id, run_id, kind, name, created_at)
+			VALUES ('registered', 'fictional-lighthouse', 'tedi-ada', 'registry', 'file', 'result', '2026-07-01');
+			INSERT INTO work_evidence (id, work_item_id, org_id, claim_key, kind, uri, submitted_by_type, submitted_by_id, submitted_at)
+			VALUES ('evidence', 'work-example', 'fictional-lighthouse', 'result', 'artifact', 'artifact://registered', 'user', 'user-example', '2026-10-01')`);
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			referencedRows: 2,
+			movedRows: 1,
+			deletedRows: 1,
+			stoppedBy: "row_cap",
+		});
+		expect(JSON.parse(policy("skill_run_artifacts").report)).toMatchObject({
+			referencedRows: 2,
+		});
+		expect(count("skill_run_artifacts")).toBe(2);
+		expect(
+			logs.sqlite.prepare("SELECT id FROM skill_run_artifacts").all(),
+		).toEqual([{ id: "free" }]);
+		expect(bucket.puts).toBe(1);
+	});
+
+	it("retains an artifact repinned during archiving and reports the interrupted move", async () => {
+		const { db, sqlite, count } = fixture(
+			"('skill_run_artifacts','move_to_logs_db',14,1,'2026-10-21')",
+		);
+		sqlite.exec(`INSERT INTO skill_runs
+			(id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status, completed_at)
+			VALUES ('late', 'fictional-lighthouse', 'skill-example', 'tedi-ada', 'late', 'production', 'completed', '2026-07-01');
+			INSERT INTO skill_run_artifacts (id, run_id, path, created_at)
+			VALUES ('late', 'late', 'result.json', '2026-07-01')`);
+		const bucket = new MemoryBucket();
+		const put = bucket.put.bind(bucket);
+		bucket.put = async (key, value) => {
+			sqlite.exec(`INSERT INTO memory_facts (id, organization_id, content, fact_type, source)
+				VALUES ('late-fact', 'fictional-lighthouse', 'provenance', 'observation', 'skill://runs/late')`);
+			return put(key, value);
+		};
+		const logs = logsFixture();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(result.tables[0]).toMatchObject({
+			stoppedBy: "error",
+			deletedRows: 0,
+			movedRows: 0,
+			error: "deleted 0 of 1 rows read; stopping",
+		});
+		expect(count("skill_run_artifacts")).toBe(1);
+	});
 
 	it("resumes scanning past retained pages after the time budget and wraps to reconsider them", async () => {
 		const { db, seed, count, policy } = fixture(
