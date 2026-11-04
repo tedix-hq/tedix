@@ -360,3 +360,109 @@ it("applies navigation filters before the attention budget, preserves scope, and
 		client.clear();
 	}
 });
+
+it("keeps the Stalled view quiet when a background signal fails, but reports a failed choice", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+	});
+	client.setQueryData(
+		osQuery.learningFeedback.model.queryOptions({ input: {} }).queryKey,
+		learnDecisions({
+			organizationId: "fictional-acme",
+			personId: "fictional-person",
+			events: [],
+			now: new Date(),
+		}),
+	);
+	client.setQueryData(userPreferencesQueryOptions().queryKey, {
+		preferences: DEFAULT_OS_USER_PREFERENCES,
+		revision: 0,
+		source: "default",
+		updatedAt: null,
+	});
+	vi.mocked(osApi.learningFeedback.listInteractions).mockResolvedValue({
+		events: [],
+	});
+	const stalled = {
+		...row,
+		id: "attempt:stalled",
+		sentence: "The supplier review didn't finish.",
+		done: false,
+		stalled: true,
+	};
+	sourceState = {
+		items: [stalled],
+		loading: false,
+		failed: false,
+		more: false,
+	};
+	const record = vi
+		.mocked(osApi.learningFeedback.recordInteraction)
+		.mockRejectedValue(new Error("API rate limit exceeded"));
+	const observed: Element[] = [];
+	const original = globalThis.IntersectionObserver;
+	globalThis.IntersectionObserver = class {
+		constructor(private readonly report: IntersectionObserverCallback) {}
+		observe(node: Element) {
+			observed.push(node);
+			this.report(
+				[{ isIntersecting: true, target: node } as IntersectionObserverEntry],
+				this as unknown as IntersectionObserver,
+			);
+		}
+		disconnect() {}
+		unobserve() {}
+		takeRecords() {
+			return [];
+		}
+	} as unknown as typeof IntersectionObserver;
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	try {
+		await act(async () =>
+			root.render(
+				<QueryClientProvider client={client}>
+					<ActivityFeedApp
+						config={ActivityFeedConfigSchema.parse({
+							version: 1,
+							scope: "organization",
+							projects: [],
+						})}
+						navigation={{ filter: "stalled", onFilterChange: vi.fn() }}
+					/>
+				</QueryClientProvider>,
+			),
+		);
+		await vi.waitFor(async () => {
+			await act(async () => {
+				await new Promise((resolve) => setTimeout(resolve, 0));
+			});
+			expect(record).toHaveBeenCalledWith(
+				expect.objectContaining({
+					eventKind: "delivered",
+					metadata: expect.objectContaining({
+						reaction: "impression",
+						feedFilter: "stalled",
+					}),
+				}),
+			);
+		});
+		expect(observed.length).toBeGreaterThan(0);
+		expect(host.querySelector('[role="status"]')).toBeNull();
+		expect(host.textContent).not.toContain("Could not save your choice");
+
+		const pin = [...host.querySelectorAll("button")].find(
+			(b) =>
+				b.getAttribute("aria-label") === "More" || b.textContent === "More",
+		)!;
+		await act(async () => pin.click());
+		expect(host.querySelector('[role="status"]')?.textContent).toBe(
+			"Could not save your choice. Try again.",
+		);
+	} finally {
+		globalThis.IntersectionObserver = original;
+		await act(async () => root.unmount());
+		client.clear();
+	}
+});
