@@ -54,6 +54,7 @@ import { BOOTSTRAP_AWAITING_APPROVAL } from "./external-agent";
 import { UUID_RE } from "./work-identity";
 import { createClaudeLaneThread } from "./claude-lane-thread";
 import { createDevinLaneThread, devinAvailable } from "./devin-lane-thread";
+import { createDevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import { laneProcessIdentity, reapLaneProcess } from "./lane-process-recovery";
 import { beginFileLock } from "./local-file-lock";
@@ -1838,7 +1839,7 @@ export class LaneDispatcher {
 			this.save(path, receipt);
 			admissionSent = true;
 			const started = await this.call<{
-				attempt: { id: string; expiresAt: string };
+				attempt: { id: string; expiresAt: string; executorId: string };
 				workItem: WorkItem;
 			}>(
 				[
@@ -2017,20 +2018,48 @@ export class LaneDispatcher {
 					detachedChild: true,
 					forwardSignals: false,
 					admitted: true,
-					deliverWorkNote:
+					devinWorkBridge:
 						executor === "devin"
-							? async (note) => {
-									await this.call(
-										["work", "heartbeat", item.id],
-										receipt.session,
-										receipt.executorKey,
-									);
-									await this.call(
-										["work", "comment", item.id, "--body", note],
-										receipt.session,
-										receipt.executorKey,
-									);
-								}
+							? createDevinWorkBridge(
+									{
+										orgId: started.workItem.orgId,
+										workItemId: item.id,
+										workVersion: item.version,
+										attemptId: receipt.attemptId!,
+										executorId: started.attempt.executorId,
+										externalSessionKey: receipt.session!,
+									},
+									{
+										read: async () => {
+											const current = await this.call<{
+												workItem: WorkItem;
+												comments: WorkItemComment[];
+											}>(
+												["work", "dispatch-get", item.id, "--input", "{}"],
+												receipt.session,
+												receipt.executorKey,
+											);
+											const latest = await this.call<{ data: WorkAttempt[] }>(
+												[
+													"work",
+													"dispatch-attempts",
+													item.id,
+													"--input",
+													'{"limit":1}',
+												],
+												receipt.session,
+												receipt.executorKey,
+											);
+											return { ...current, attempt: latest.data?.[0] };
+										},
+										post: (note) =>
+											this.call(
+												["work", "comment", item.id, "--body", note],
+												receipt.session,
+												receipt.executorKey,
+											),
+									},
+								)
 							: undefined,
 					report: (input, scope) =>
 						this.queue(

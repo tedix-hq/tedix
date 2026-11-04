@@ -797,12 +797,22 @@ dotenv files. The OS sandbox applies the read denies to exec processes too;
 indirect runtime reads cannot bypass them. This also prevents commands needing
 those credentials from reading them. Shared Tedix plugin MCP access is disabled
 before discovery, so it cannot refresh the owner's OAuth grant.
-For admitted Work, the runner asks Devin for a final `TEDIX_WORK_RESULT` JSON
-line containing `outcome` (`succeeded` or `failed`) and `note`. The dispatcher
-renews the exact Attempt and posts only that note to its admitted Work using
-the lane's existing identity. It exposes no credentials or arbitrary tool proxy.
-Missing or malformed results, incomplete outcomes, and delivery errors fail the
-run. A saved note records the agent's report; it does not prove that report correct.
+For admitted Work, the dispatcher supplies a current Work and Attempt snapshot
+through the prompt file. It includes the accepted outcome and an exact binding
+to the organization, Work revision, Attempt, executor and native session.
+It includes no credentials, other Work or organization-wide context.
+Devin ends its first turn with a `TEDIX_WORK_RESULT` JSON line containing that
+`binding`, `outcome` (`succeeded` or `failed`) and `note`. The host checks current
+admission, posts the note once using the lane's identity, then reads back that
+exact comment. It resumes the same sandboxed session for one verification turn.
+Devin compares the saved body and returns `TEDIX_WORK_VERIFIED` with the binding,
+comment ID and SHA-256 supplied in the readback. The host checks these values,
+the saved note and current admission again. Other Work, organizations, Attempts
+and sessions are denied; no arbitrary host tool or credential proxy is exposed.
+Missing or malformed envelopes, stale admission, changed readback, incomplete
+outcomes and delivery errors fail the run. An uncertain write is not replayed
+within the exchange. A saved and read-back note records the agent's report;
+it does not prove that report correct.
 The lane also fails if the sandbox or permission hook fails.
 The runner supplies a temporary Git config containing only author name and email;
 credential helpers and owner config remain hidden.

@@ -113,6 +113,9 @@ function fixture({
 				: {}),
 		},
 	}));
+	const devinAttempts = new Map<string, Record<string, unknown>>();
+	const devinComments = new Map<string, Record<string, unknown>[]>();
+	const devinOrgId = "99999999-9999-4999-8999-999999999999";
 	const events: Array<{
 		verb: string;
 		args: string[];
@@ -243,12 +246,17 @@ function fixture({
 				response = { data: items, pagination: { hasMore: false } };
 			else if (verb === "dispatch-get")
 				response = {
-					workItem: items.find((row) => row.id === args[6]),
-					comments: [],
+					workItem: {
+						...items.find((row) => row.id === args[6]),
+						...(executor === "devin" ? { orgId: devinOrgId } : {}),
+					},
+					comments: devinComments.get(args[6]!) ?? [],
 				};
 			else if (verb === "dispatch-attempts") {
 				if (control.historyError) throw control.historyError;
-				response = control.history;
+				response = devinAttempts.has(args[6]!)
+					? { data: [devinAttempts.get(args[6]!)], nextCursor: null }
+					: control.history;
 			} else if (verb === "evidence") {
 				if (control.evidenceError) throw control.evidenceError;
 				response = control.evidence;
@@ -271,13 +279,43 @@ function fixture({
 				response = { principalKey: "local-acme" };
 			else if (verb === "start") {
 				if (control.startError) throw control.startError;
-				response = {
-					workItem: items.find((row) => row.id === args[6]),
-					attempt: {
-						id: "fictional-attempt",
-						expiresAt: new Date(Date.now() + 300000).toISOString(),
-					},
+				const isDevin = env.TEDIX_AGENT_SESSION?.startsWith("devin:");
+				const workItem = {
+					...items.find((row) => row.id === args[6]),
+					orgId: devinOrgId,
 				};
+				const attempt = {
+					id: isDevin
+						? "88888888-8888-4888-8888-888888888888"
+						: "fictional-attempt",
+					orgId: devinOrgId,
+					workItemId: args[6],
+					executorId: "local-acme",
+					executorType: "external_agent",
+					externalSessionKey: env.TEDIX_AGENT_SESSION,
+					runtimeState: "running",
+					outcome: null,
+					metadata: { dispatchVersion: workItem.version },
+					expiresAt: new Date(Date.now() + 300000).toISOString(),
+				};
+				if (isDevin) devinAttempts.set(args[6]!, attempt);
+				response = { workItem, attempt };
+			} else if (
+				verb === "comment" &&
+				env.TEDIX_AGENT_SESSION?.startsWith("devin:")
+			) {
+				const comment = {
+					id: "saved-note",
+					orgId: devinOrgId,
+					workItemId: args[6],
+					authorType: "external_agent",
+					authorId: "local-acme",
+					body: args[args.indexOf("--body") + 1],
+					metadata: { agentSession: env.TEDIX_AGENT_SESSION },
+					createdAt: new Date().toISOString(),
+				};
+				devinComments.set(args[6]!, [comment]);
+				response = comment;
 			} else if (verb === "settle" && failSettle)
 				throw new Error("Transient settlement failure");
 			else if (verb === "complete" && control.completeError)
@@ -349,8 +387,18 @@ function fixture({
 				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!,
 			);
 			await new Promise<void>((done) => releases.push(done));
-			if (control.deliverNote)
-				await deps?.deliverWorkNote?.(control.deliverNote);
+			if (control.deliverNote) {
+				const bridge = deps!.devinWorkBridge!;
+				expect((await bridge.context()).binding.externalSessionKey).toBe(
+					`devin:${deps!.sessionKey}`,
+				);
+				const saved = await bridge.deliver(
+					`TEDIX_WORK_RESULT ${JSON.stringify({ binding: bridge.binding, outcome: "succeeded", note: control.deliverNote })}`,
+				);
+				await bridge.verify(
+					`TEDIX_WORK_VERIFIED ${JSON.stringify({ binding: bridge.binding, commentId: saved.commentId, sha256: saved.sha256 })}`,
+				);
+			}
 			deps?.onTelemetry?.({
 				executor: nativeExecutor,
 				model: "test-model",
@@ -1233,8 +1281,23 @@ describe("dispatcher admission", () => {
 			admission.env.TEDIX_EXTERNAL_AGENT,
 		);
 		expect(f.events.slice(0, f.events.indexOf(comment)).at(-1)?.verb).toBe(
-			"heartbeat",
+			"dispatch-attempts",
 		);
+		const reads = f.events.filter(
+			(event) =>
+				["dispatch-get", "dispatch-attempts"].includes(event.verb) &&
+				event.env.TEDIX_AGENT_SESSION?.startsWith("devin:"),
+		);
+		expect(reads).toHaveLength(8);
+		for (const read of reads) {
+			expect(read.args[6]).toBe(f.items[0]!.id);
+			expect(read.env.TEDIX_AGENT_SESSION).toBe(
+				admission.env.TEDIX_AGENT_SESSION,
+			);
+			expect(read.env.TEDIX_EXTERNAL_AGENT).toBe(
+				admission.env.TEDIX_EXTERNAL_AGENT,
+			);
+		}
 	});
 	it.each([
 		["failed", 0],
