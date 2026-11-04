@@ -318,8 +318,13 @@ describe("aggregate entry resolution is batched", () => {
 			expect(next).not.toBe(first);
 			expect(next.tools).toEqual(first.tools);
 			expect(getBySlugsWithTools).toHaveBeenCalledTimes(1);
-			expect(cache.match).not.toHaveBeenCalled();
-			expect(cache.put).not.toHaveBeenCalled();
+			// Only the shared source app's definitions touch the durable tier;
+			// the combined catalog itself is never written or read as a snapshot.
+			for (const [request] of [
+				...cache.match.mock.calls,
+				...cache.put.mock.calls,
+			])
+				expect((request as Request).url).toContain("/v1/tool-definitions/");
 			expect(put).not.toHaveBeenCalled();
 			expect(get.mock.calls.length).toBe(3);
 			expect(new Set(get.mock.calls.map(([key]) => key)).size).toBe(1);
@@ -341,8 +346,17 @@ describe("aggregate entry resolution is batched", () => {
 				aggregateAndPrefixTools([{ slug: "shared-source" }], env);
 			const first = await load();
 			expect(await load()).toBe(first);
-			expect(cache.match).toHaveBeenCalledTimes(1);
-			expect(cache.put).toHaveBeenCalledTimes(1);
+			// One snapshot read and write, plus the source app's tool definitions.
+			const urls = (calls: unknown[][]) =>
+				calls.map(([request]) => (request as Request).url);
+			expect(urls(cache.match.mock.calls)).toEqual([
+				expect.not.stringContaining("/v1/tool-definitions/"),
+				expect.stringContaining("/v1/tool-definitions/"),
+			]);
+			expect(urls(cache.put.mock.calls)).toEqual([
+				expect.stringContaining("/v1/tool-definitions/"),
+				expect.not.stringContaining("/v1/tool-definitions/"),
+			]);
 			expect(put).toHaveBeenCalledTimes(1);
 		} finally {
 			vi.unstubAllGlobals();
@@ -1034,7 +1048,12 @@ describe("nested durable aggregate snapshots", () => {
 			expect((await first).tools).toHaveLength(1);
 			// The combined consent surface stays transient; only its nested source
 			// snapshot may survive an isolate. No second graph is retained in L1.
-			expect(snapshots.size).toBe(1);
+			// Each source app's tool definitions are durable on their own.
+			const snapshotUrls = () =>
+				[...snapshots.keys()].filter(
+					(url) => !url.includes("/v1/tool-definitions/"),
+				);
+			expect(snapshotUrls()).toHaveLength(1);
 
 			vi.resetModules();
 			const fresh = await import("./aggregate-surface");
@@ -1052,11 +1071,9 @@ describe("nested durable aggregate snapshots", () => {
 			await vi.runAllTimersAsync();
 			expect((await second).tools).toHaveLength(1);
 			expect(Date.now() - started).toBeLessThan(1000);
-			expect(
-				getBySlugsWithTools.mock.calls.flatMap(([input]) =>
-					input.apps.map((app: { slug: string }) => app.slug),
-				),
-			).toEqual(["alpha"]);
+			// The root's own definitions come from the durable tier too, so a cold
+			// isolate reads no tool rows at all.
+			expect(getBySlugsWithTools).not.toHaveBeenCalled();
 
 			const cycle = fresh.aggregateAndPrefixTools(
 				[{ slug: "beta", prefix: "mount" }],

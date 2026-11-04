@@ -415,6 +415,7 @@ async function aggregateAndPrefixToolsUncached(
 			visited,
 			activationEpoch,
 			cacheable,
+			ctx,
 		);
 	}
 	const entryTimings: Array<{ slug: string; resolveMs: number }> = [];
@@ -443,6 +444,7 @@ async function aggregateAndPrefixToolsUncached(
 					},
 					activationEpoch,
 					cacheable,
+					ctx,
 				).catch((error: unknown) => {
 					// Joiners time out before the owner's resolve budget. Degrade this
 					// entry just like the soft deadline instead of aborting discovery.

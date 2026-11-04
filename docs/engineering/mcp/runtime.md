@@ -182,6 +182,13 @@ Aggregators bundle dozens of apps, so resolution degrades rather than hangs
   Results are positional, so `app: null` stays distinct from `tools: []`. The
   prefetch only seeds caches; on failure entries resolve one at a time. Nested
   aggregates' late requests are coalesced into one batch.
+- Each source app's raw tool definitions are also kept per colo in the Cache
+  API (`aggregate-tool-definitions-cache.ts`), keyed like the per-isolate
+  `internalToolCache` (activation epoch, source, selection). Snapshot
+  revalidations and cold isolates read them there instead of reloading every
+  enabled `app_tools` row with its schemas from D1; a stale entry (older than
+  10 min) is served while one background refresh runs, up to a 1 h ceiling.
+  Not-found apps and fresh policy traversals (`cacheable: false`) never use it.
 - Snapshot-backed roots try an R2 fallback after the aggregate join deadline.
   Nested joins wait for their budgeted load instead of parsing another large
   snapshot beside the live build. The rebuild keeps running and fills the

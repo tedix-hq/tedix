@@ -6,14 +6,15 @@ import {
 	internalToolInFlight,
 	internalToolCacheKey,
 	isAggregateSourceVisited,
+	rememberInternalTools,
 	toInternalResolveResult,
-	INTERNAL_TOOL_CACHE_TTL_MS,
-	MAX_INTERNAL_TOOL_CACHE_ENTRIES,
+	type UpstreamAppWithTools,
 } from "./aggregate-internal-tools";
 import {
-	pruneExpiredCacheEntries,
-	setBoundedExpiringCacheEntry,
-} from "./lib/bounded-cache";
+	readToolDefinitionsL2,
+	writeToolDefinitionsL2,
+} from "./aggregate-tool-definitions-cache";
+import { pruneExpiredCacheEntries } from "./lib/bounded-cache";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 const log = createMcpLogger("mcp.router");
 
@@ -49,6 +50,8 @@ type AggregatePrefetchRequest = {
 	endpointPrefixes?: string[];
 	toolIds?: string[];
 	cacheable: boolean;
+	/** Keeps the durable cache write alive past its budget; see writeToolDefinitionsL2. */
+	ctx?: Pick<ExecutionContext, "waitUntil">;
 };
 
 type AggregatePrefetchBatch = {
@@ -107,32 +110,39 @@ async function flushAggregatePrefetch(
 			Promise.all(
 				chunks.map(async (chunk) => {
 					const { results } = await client.apps.getBySlugsWithTools({
-						apps: chunk.map(([, request]) => request),
+						apps: chunk.map(
+							([, { cacheable: _cacheable, ctx: _ctx, ...request }]) => request,
+						),
 					});
 					// Positional contract: results[i] answers apps[i]. A short or
 					// misaligned response seeds only what it can prove, and the rest
 					// falls back to per-entry resolution.
-					chunk.forEach(([cacheKey, request], index) => {
-						const result = results[index];
-						if (!result || result.slug !== request.slug) return;
-						// A batched `app: null` is an answer, so it is seeded like any
-						// other. (The single-slug path leaves not-found uncached; here
-						// that would mean a dead aggregate entry re-creating one cold
-						// apps/api isolate per rebuild forever.) It cannot delay a newly
-						// created app noticeably: this TTL is 120s and the aggregate
-						// surface it feeds is itself cached for at least that long.
-						if (request.cacheable) {
-							setBoundedExpiringCacheEntry(
-								internalToolCache,
+					await Promise.all(
+						chunk.map(async ([cacheKey, request], index) => {
+							const result = results[index];
+							if (!result || result.slug !== request.slug) return;
+							// A batched `app: null` is an answer, so it is seeded like any
+							// other. (The single-slug path leaves not-found uncached; here
+							// that would mean a dead aggregate entry re-creating one cold
+							// apps/api isolate per rebuild forever.) It cannot delay a newly
+							// created app noticeably: this TTL is 120s and the aggregate
+							// surface it feeds is itself cached for at least that long.
+							if (!request.cacheable) return;
+							rememberInternalTools(
 								cacheKey,
-								{
-									result: toInternalResolveResult(request.slug, result),
-									expiresAt: Date.now() + INTERNAL_TOOL_CACHE_TTL_MS,
-								},
-								MAX_INTERNAL_TOOL_CACHE_ENTRIES,
+								toInternalResolveResult(request.slug, result),
 							);
-						}
-					});
+							// The durable tier keeps not-found out, so a new app is seen
+							// by the next isolate as soon as its L1 entry expires.
+							if (result.app)
+								await writeToolDefinitionsL2(
+									cacheKey,
+									result,
+									request.ctx,
+									request.slug,
+								);
+						}),
+					);
 				}),
 			),
 			AGGREGATE_PREFETCH_TIMEOUT_MS,
@@ -162,6 +172,7 @@ export async function prefetchAggregateEntries(
 	visited: Set<string>,
 	activationEpoch: string,
 	cacheable: boolean,
+	ctx?: Pick<ExecutionContext, "waitUntil">,
 ): Promise<void> {
 	const now = Date.now();
 	const wanted = new Map<string, AggregatePrefetchRequest>();
@@ -187,7 +198,27 @@ export async function prefetchAggregateEntries(
 				: {}),
 			...selection,
 			cacheable,
+			...(ctx ? { ctx } : {}),
 		});
+	}
+	// Durable tier first: a fresh entry needs no upstream call at all. A stale
+	// entry seeds L1 now so its resolve never waits, and stays in the batch so
+	// this rebuild refreshes it.
+	if (cacheable && wanted.size > 0) {
+		await Promise.all(
+			[...wanted].map(async ([cacheKey, request]) => {
+				const durable = await readToolDefinitionsL2<UpstreamAppWithTools>(
+					cacheKey,
+					request.slug,
+				);
+				if (!durable?.payload.app) return;
+				rememberInternalTools(
+					cacheKey,
+					toInternalResolveResult(request.slug, durable.payload),
+				);
+				if (!durable.stale) wanted.delete(cacheKey);
+			}),
+		);
 	}
 	if (wanted.size === 0) return;
 	let batch = aggregatePrefetchBatches.get(env.API_SERVICE);

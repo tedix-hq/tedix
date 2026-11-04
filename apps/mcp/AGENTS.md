@@ -107,6 +107,11 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
   seconds; ordinary D1 writes still have no automatic invalidation. Do not
   assume an arbitrary write is visible on the next request, cache longer, or
   add another cache layer on top.
+- Source-app tool definitions have one durable tier of their own
+  (`src/aggregate-tool-definitions-cache.ts`, Cache API, keyed by the same
+  epoch + source + selection as `internalToolCache`), so snapshot
+  revalidations and cold isolates do not reload every schema row from D1.
+  A traversal that needs fresh rows passes `cacheable: false` and bypasses it.
 
 ## Sensitive-data latch
 

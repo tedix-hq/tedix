@@ -120,6 +120,17 @@ describe("native rule candidate", () => {
 		args.value = "changed";
 		expect(await result?.revalidate()).toBe(false);
 	});
+	it("skips the native mount traversal when the organization has no policy", async () => {
+		mocks.orgPresence.mockResolvedValue({ fenced: false });
+		expect(await resolveNativePolicyCandidate(agent, tool, {})).toBeNull();
+		expect(mocks.orgPresence).toHaveBeenCalledWith({ organizationId: "org" });
+		expect(mocks.mount).not.toHaveBeenCalled();
+		expect(mocks.candidate).not.toHaveBeenCalled();
+		mocks.orgPresence.mockRejectedValue(new Error("unavailable"));
+		await expect(resolveNativePolicyCandidate(agent, tool, {})).rejects.toThrow(
+			"unavailable",
+		);
+	});
 	it("rejects revoked machine scopes and another principal", async () => {
 		mocks.authority.mockResolvedValue({ scopes: [] });
 		expect(await resolveNativePolicyCandidate(agent, tool, {})).toBeNull();
