@@ -272,13 +272,26 @@ describe("generic task activity", () => {
 			outcome: "succeeded",
 			completionPending: false,
 		});
-		f.receipt(two, 1, { phase: "running", pid: process.pid });
+		f.receipt(two, 1, {
+			phase: "running",
+			pid: process.pid,
+			nativeActivity: {
+				state: "provider_waiting",
+				observedAt: new Date().toISOString(),
+			},
+		});
 		f.receipt(three, 1, {
 			phase: "deferred",
 			admissionState: "unknown",
 			retryAt: Date.now() + 60_000,
 		});
-		expect(f.activity().current).toEqual([{ id: two, phase: "working" }]);
+		expect(f.activity().current).toMatchObject([
+			{
+				id: two,
+				phase: "working",
+				nativeActivity: { state: "provider_waiting" },
+			},
+		]);
 		expect(f.activity().waiting).toMatchObject([
 			{ id: three, reason: "confirmation" },
 		]);

@@ -14,6 +14,7 @@ import {
 	ReportWorkAgentSessionStatusInputSchema,
 	LaneTelemetryInputSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
+import type { NativeProviderActivity } from "@tedix/api-contract/schemas/dispatcher-health";
 import { createLaneReporter } from "./lane-reporter";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
@@ -64,6 +65,77 @@ export async function reportLaneObservation(
 }
 
 export const LANE_HEARTBEAT_MS = 120_000;
+export const OPENCODE_PROVIDER_STALL_MS = 15 * 60_000;
+
+export function openCodeExportHasNoToolAction(
+	value: unknown,
+	sessionKey: string,
+	messageId: string,
+): boolean {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const exported = value as Record<string, unknown>;
+	const info = exported.info as Record<string, unknown> | undefined;
+	if (info?.id !== sessionKey || !Array.isArray(exported.messages))
+		return false;
+	const message = exported.messages.find((candidate) => {
+		if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+			return false;
+		return (candidate as { info?: { id?: unknown } }).info?.id === messageId;
+	}) as { info?: { role?: unknown }; parts?: unknown[] } | undefined;
+	return (
+		message?.info?.role === "assistant" &&
+		Array.isArray(message.parts) &&
+		!message.parts.some(
+			(part) =>
+				!!part &&
+				typeof part === "object" &&
+				!Array.isArray(part) &&
+				(part as { type?: unknown }).type === "tool",
+		)
+	);
+}
+
+async function confirmOpenCodeStallSafe(
+	executable: string,
+	sessionKey: string,
+	messageId: string,
+): Promise<boolean> {
+	return await new Promise((resolve) => {
+		const child = spawn(executable, ["export", sessionKey], {
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+		let output = "";
+		let oversized = false;
+		const timer = setTimeout(() => child.kill("SIGKILL"), 10_000);
+		child.stdout.on("data", (chunk: Buffer) => {
+			if (output.length + chunk.length > 16 * 1024 * 1024) {
+				oversized = true;
+				child.kill("SIGKILL");
+				return;
+			}
+			output += chunk.toString();
+		});
+		child.once("error", () => {
+			clearTimeout(timer);
+			resolve(false);
+		});
+		child.once("close", (code) => {
+			clearTimeout(timer);
+			if (code !== 0 || oversized) return resolve(false);
+			try {
+				resolve(
+					openCodeExportHasNoToolAction(
+						JSON.parse(output),
+						sessionKey,
+						messageId,
+					),
+				);
+			} catch {
+				resolve(false);
+			}
+		});
+	});
+}
 
 export function codexTranscript(
 	sessionKey: string,
@@ -108,6 +180,13 @@ async function runLaneProcessWithReporter(
 		deliverWorkNote?: (note: string) => Promise<void>;
 		onSpawn?: (pid: number) => void;
 		onTelemetry?: (value: LaneObservation) => void;
+		onNativeActivity?: (value: NativeProviderActivity) => void;
+		providerStallMs?: number;
+		confirmProviderStallSafe?: (input: {
+			executable: string;
+			sessionKey: string;
+			messageId: string;
+		}) => Promise<boolean>;
 	} = {},
 ): Promise<number> {
 	const sendReport = deps.report ?? reportLaneObservation;
@@ -398,6 +477,23 @@ async function runLaneProcessWithReporter(
 	let streamError = false;
 	let streamFailureMessage = "";
 	let lastTextMessage: string | undefined;
+	let nativeActivity: NativeProviderActivity | undefined;
+	let nativeToolActions = 0;
+	let providerStalled = false;
+	let stallCheckPending = false;
+	let nativeMessageId: string | undefined;
+	const nativeToolCalls = new Set<string>();
+	const observeNativeActivity = (
+		state: NativeProviderActivity["state"],
+		tool?: string,
+	) => {
+		nativeActivity = {
+			state,
+			observedAt: new Date().toISOString(),
+			...(tool ? { tool: tool.slice(0, 100) } : {}),
+		};
+		deps.onNativeActivity?.(nativeActivity);
+	};
 	const codexJson =
 		executor === "codex" &&
 		basename(command[0]!) === "codex" &&
@@ -447,6 +543,8 @@ async function runLaneProcessWithReporter(
 				stderr?.fd ?? "pipe",
 			],
 		});
+		let turnClosed = false;
+		let stallKillTimer: ReturnType<typeof setTimeout> | undefined;
 		if (child.pid) deps.onSpawn?.(child.pid);
 		function receiveStderr(chunk: Buffer) {
 			process.stderr.write(chunk);
@@ -491,6 +589,7 @@ async function runLaneProcessWithReporter(
 							}
 						}
 						if (event.type === "text" && !streamError) {
+							observeNativeActivity("provider_progress");
 							if (lastTextMessage !== event.part?.messageID)
 								telemetry.finalMessage = "";
 							lastTextMessage = event.part?.messageID;
@@ -498,10 +597,37 @@ async function runLaneProcessWithReporter(
 								telemetry.finalMessage + (event.part?.text ?? "")
 							).slice(-24000);
 						}
+						if (event.type === "step_start") {
+							nativeMessageId = event.part?.messageID;
+							observeNativeActivity("provider_waiting");
+						}
+						if (
+							event.type === "permission.asked" ||
+							event.type === "permission_asked"
+						)
+							observeNativeActivity("approval_wait");
 						if (event.type === "tool_use") {
 							const tool = event.part?.tool;
-							if (typeof tool === "string")
-								telemetry.tools[tool] = (telemetry.tools[tool] ?? 0) + 1;
+							const callId = event.part?.callID ?? event.part?.id;
+							const first =
+								typeof callId !== "string" || !nativeToolCalls.has(callId);
+							if (typeof callId === "string") nativeToolCalls.add(callId);
+							if (first) {
+								nativeToolActions++;
+								if (typeof tool === "string")
+									telemetry.tools[tool] = (telemetry.tools[tool] ?? 0) + 1;
+							}
+							if (event.part?.state?.status === "pending")
+								observeNativeActivity(
+									"tool_pending",
+									typeof tool === "string" ? tool : undefined,
+								);
+							else if (event.part?.state?.status === "running")
+								observeNativeActivity(
+									"tool_running",
+									typeof tool === "string" ? tool : undefined,
+								);
+							else observeNativeActivity("provider_waiting");
 						}
 					}
 					if (
@@ -541,6 +667,57 @@ async function runLaneProcessWithReporter(
 		};
 		const interrupt = () => forward("SIGINT"),
 			terminate = () => forward("SIGTERM");
+		const providerStallMs = deps.providerStallMs ?? OPENCODE_PROVIDER_STALL_MS;
+		const stallTimer = opencode
+			? setInterval(
+					() => {
+						if (
+							providerStalled ||
+							stallCheckPending ||
+							!nativeActivity ||
+							!nativeId ||
+							!nativeMessageId ||
+							nativeId !== sessionKey ||
+							nativeToolActions !== 0 ||
+							nativeActivity.state === "tool_pending" ||
+							nativeActivity.state === "tool_running" ||
+							nativeActivity.state === "approval_wait" ||
+							Date.now() - Date.parse(nativeActivity.observedAt) <
+								providerStallMs
+						)
+							return;
+						const observedAt = nativeActivity.observedAt;
+						stallCheckPending = true;
+						void (
+							deps.confirmProviderStallSafe?.({
+								executable: command[0]!,
+								sessionKey,
+								messageId: nativeMessageId,
+							}) ??
+							confirmOpenCodeStallSafe(command[0]!, sessionKey, nativeMessageId)
+						)
+							.then((safe) => {
+								if (
+									!safe ||
+									turnClosed ||
+									providerStalled ||
+									nativeToolActions !== 0 ||
+									nativeActivity?.observedAt !== observedAt ||
+									nativeActivity.state === "approval_wait"
+								)
+									return;
+								providerStalled = true;
+								observeNativeActivity("provider_stalled");
+								terminate();
+								stallKillTimer = setTimeout(() => forward("SIGKILL"), 5000);
+							})
+							.finally(() => {
+								stallCheckPending = false;
+							});
+					},
+					Math.min(30_000, Math.max(10, Math.floor(providerStallMs / 2))),
+				)
+			: undefined;
 		if (deps.forwardSignals !== false) {
 			process.on("SIGINT", interrupt);
 			process.on("SIGTERM", terminate);
@@ -557,7 +734,10 @@ async function runLaneProcessWithReporter(
 			signal = null;
 			telemetry.finalMessage = String(error);
 		} finally {
+			turnClosed = true;
 			clearInterval(timer);
+			if (stallTimer) clearInterval(stallTimer);
+			if (stallKillTimer) clearTimeout(stallKillTimer);
 			stdout?.close();
 			stderr?.close();
 			process.off("SIGINT", interrupt);
@@ -577,6 +757,11 @@ async function runLaneProcessWithReporter(
 			exitCode = 1;
 		if (exitCode !== 0 && !telemetry.finalMessage)
 			telemetry.finalMessage = devinStderr.slice(-24000);
+		if (providerStalled) {
+			exitCode = 1;
+			telemetry.finalMessage =
+				"OpenCode provider stream made no progress before any tool action or approval request; the dispatcher stopped this turn for safe fresh recovery.";
+		}
 		try {
 			if (devin) {
 				const exported = JSON.parse(readFileSync(devinTranscript, "utf8"));

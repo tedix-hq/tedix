@@ -9,7 +9,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
-import { runLaneProcess } from "./lane-run";
+import { openCodeExportHasNoToolAction, runLaneProcess } from "./lane-run";
 import { resumeThenFresh } from "./lane-routing";
 const dirs: string[] = [];
 afterEach(() => {
@@ -130,3 +130,175 @@ it.each(["ok", "error", "foreign"])(
 		if (mode === "error") expect(telemetry.finalMessage).toContain("429");
 	},
 );
+
+it("interrupts provider silence before tools and records a safe recovery reason", async () => {
+	const dir = fixture();
+	const brief = join(dir, "brief.txt");
+	const child = join(dir, "opencode");
+	writeFileSync(brief, "Inspect a fictional widget");
+	writeFileSync(
+		child,
+		`#!${process.execPath}
+process.stdin.resume(); process.stdin.on('end', () => {
+	 console.log(JSON.stringify({type:'step_start',sessionID:${JSON.stringify(id)},part:{messageID:'stalled-message'}}));
+ setInterval(() => {}, 1000);
+});`,
+	);
+	chmodSync(child, 0o700);
+	const activities: Array<{ state: string }> = [];
+	const reports: Record<string, unknown>[] = [];
+	const code = await runLaneProcess(
+		[
+			"run",
+			"--executor",
+			"opencode",
+			"--model",
+			"fictional/model",
+			"--project",
+			"11111111-1111-4111-8111-111111111111",
+			"--brief",
+			brief,
+			"--",
+			child,
+		],
+		{
+			cwd: dir,
+			sessionKey: id,
+			providerStallMs: 20,
+			confirmProviderStallSafe: async () => true,
+			onNativeActivity: (activity) => activities.push(activity),
+			report: async (input) => {
+				reports.push(input);
+				return {};
+			},
+		},
+	);
+	expect(code).toBe(1);
+	expect(activities.map((activity) => activity.state)).toEqual([
+		"provider_waiting",
+		"provider_stalled",
+	]);
+	expect(
+		(reports.at(-1)?.telemetry as { finalMessage: string }).finalMessage,
+	).toContain("safe fresh recovery");
+});
+
+it("requires persisted proof that the stalled assistant message has no tool part", () => {
+	const session = {
+		info: { id },
+		messages: [
+			{
+				info: { id: "safe", role: "assistant" },
+				parts: [{ type: "text", text: "starting" }],
+			},
+			{
+				info: { id: "unsafe", role: "assistant" },
+				parts: [
+					{
+						type: "tool",
+						tool: "shell",
+						state: { status: "running", input: {} },
+					},
+				],
+			},
+		],
+	};
+	expect(openCodeExportHasNoToolAction(session, id, "safe")).toBe(true);
+	expect(openCodeExportHasNoToolAction(session, id, "unsafe")).toBe(false);
+	expect(openCodeExportHasNoToolAction(session, id, "missing")).toBe(false);
+});
+
+it("does not turn a completed provider turn into a stall after inspection finishes", async () => {
+	const dir = fixture();
+	const brief = join(dir, "brief.txt");
+	const child = join(dir, "opencode");
+	writeFileSync(brief, "Inspect a fictional widget");
+	writeFileSync(
+		child,
+		`#!${process.execPath}
+process.stdin.resume(); process.stdin.on('end', () => {
+ console.log(JSON.stringify({type:'step_start',sessionID:${JSON.stringify(id)},part:{messageID:'finished-message'}}));
+ setTimeout(() => process.exit(0), 30);
+});`,
+	);
+	chmodSync(child, 0o700);
+	const activities: Array<{ state: string }> = [];
+	const code = await runLaneProcess(
+		[
+			"run",
+			"--executor",
+			"opencode",
+			"--model",
+			"fictional/model",
+			"--project",
+			"11111111-1111-4111-8111-111111111111",
+			"--brief",
+			brief,
+			"--",
+			child,
+		],
+		{
+			cwd: dir,
+			sessionKey: id,
+			providerStallMs: 10,
+			confirmProviderStallSafe: async () => {
+				await new Promise((resolve) => setTimeout(resolve, 80));
+				return true;
+			},
+			onNativeActivity: (activity) => activities.push(activity),
+			report: async () => ({}),
+		},
+	);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(code).toBe(0);
+	expect(activities.map((activity) => activity.state)).toEqual([
+		"provider_waiting",
+	]);
+});
+
+it("never interrupts or double-counts a turn after a tool action starts", async () => {
+	const dir = fixture();
+	const brief = join(dir, "brief.txt");
+	const child = join(dir, "opencode");
+	writeFileSync(brief, "Inspect a fictional widget");
+	writeFileSync(
+		child,
+		`#!${process.execPath}
+process.stdin.resume(); process.stdin.on('end', () => {
+ console.log(JSON.stringify({type:'step_start',sessionID:${JSON.stringify(id)}}));
+ const tool = {type:'tool_use',sessionID:${JSON.stringify(id)},part:{callID:'call-1',tool:'shell',state:{status:'running'}}};
+ console.log(JSON.stringify(tool)); console.log(JSON.stringify(tool));
+ setTimeout(() => { console.log(JSON.stringify({type:'text',sessionID:${JSON.stringify(id)},part:{messageID:'done',text:'finished'}})); process.exit(0); }, 80);
+});`,
+	);
+	chmodSync(child, 0o700);
+	const reports: Record<string, unknown>[] = [];
+	const code = await runLaneProcess(
+		[
+			"run",
+			"--executor",
+			"opencode",
+			"--model",
+			"fictional/model",
+			"--project",
+			"11111111-1111-4111-8111-111111111111",
+			"--brief",
+			brief,
+			"--",
+			child,
+		],
+		{
+			cwd: dir,
+			sessionKey: id,
+			providerStallMs: 20,
+			report: async (input) => {
+				reports.push(input);
+				return {};
+			},
+		},
+	);
+	expect(code).toBe(0);
+	expect(
+		(reports.at(-1)?.telemetry as { tools: Record<string, number> }).tools,
+	).toEqual({ shell: 1 });
+});
