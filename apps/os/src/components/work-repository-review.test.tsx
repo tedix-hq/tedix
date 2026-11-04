@@ -192,6 +192,18 @@ describe("retained repository result", () => {
 		await mount();
 		expect(mocks.read).not.toHaveBeenCalled();
 		await click("Review repository result");
+		const trigger = [...host.querySelectorAll("button")].find((candidate) =>
+			candidate.textContent?.includes("Hide repository result"),
+		);
+		const panelId = trigger?.getAttribute("aria-controls");
+		expect(trigger?.getAttribute("data-kumo-component")).toBe(
+			"CollapsibleTrigger",
+		);
+		expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+		expect(panelId).toBeTruthy();
+		expect(host.querySelector(`#${panelId}`)?.hasAttribute("hidden")).toBe(
+			false,
+		);
 		expect(host.textContent).toContain(head);
 		await click("file.ts");
 		expect(mocks.read).toHaveBeenCalledWith(

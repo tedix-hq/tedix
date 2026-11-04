@@ -126,6 +126,16 @@ it("pins file reads while branch head changes, and resolves a fresh head on reop
 	await mount();
 	expect(mocks.log).not.toHaveBeenCalled();
 	await click("Repository");
+	const trigger = [...host.querySelectorAll("button")].find(
+		(node) => node.textContent?.trim() === "Hide repository",
+	);
+	const panelId = trigger?.getAttribute("aria-controls");
+	expect(trigger?.getAttribute("data-kumo-component")).toBe(
+		"CollapsibleTrigger",
+	);
+	expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+	expect(panelId).toBeTruthy();
+	expect(host.querySelector(`#${panelId}`)?.hasAttribute("hidden")).toBe(false);
 	expect(mocks.tree).toHaveBeenLastCalledWith(head, undefined);
 	mocks.log.mockImplementation(async (ref) => ({
 		operation: "log",
