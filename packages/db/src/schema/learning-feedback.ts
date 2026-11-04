@@ -113,6 +113,14 @@ export const learningInteractionEvents = sqliteTable(
 			table.scopeId,
 			table.occurredAt,
 		),
+		// Filing history is private to its ledger owner, including shared corrections.
+		index("idx_learning_event_filing_owner_occurred").on(
+			table.organizationId,
+			sql`json_extract(${table.metadata}, '$.ledgerOwnerId')`,
+			table.surface,
+			table.occurredAt,
+			table.id,
+		),
 		// The not-corrected predicate looks up `undone` corrections per row; on
 		// the scope index that was the whole scope per row (4.7M rows read per
 		// owner page on 23 Oct 2026).

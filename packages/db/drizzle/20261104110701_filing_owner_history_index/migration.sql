@@ -1,0 +1,1 @@
+CREATE INDEX `idx_learning_event_filing_owner_occurred` ON `learning_interaction_events` (`organization_id`,json_extract("metadata", '$.ledgerOwnerId'),`surface`,`occurred_at`,`id`);
