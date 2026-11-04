@@ -1170,7 +1170,7 @@ export const runtimeFacetTurns = {
 				this.workstationAiTool(computerScope, computerTurnContext),
 				input.executionSurface,
 			),
-			...this.objectStoreAiTools(),
+			...this.objectStoreAiTools(turnBinding),
 			...this.r2SqlAiTool(),
 			...createWebSearchAiTools({
 				ai: this.env.AI,

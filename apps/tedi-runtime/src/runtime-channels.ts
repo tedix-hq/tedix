@@ -473,7 +473,7 @@ export const runtimeChannels = {
 				...this.durableCodemodeAiTools(computerScope, turnBinding),
 				...this.cronAiTool(input.sessionKey),
 				...this.workstationAiTool(computerScope, turnBinding),
-				...this.objectStoreAiTools(),
+				...this.objectStoreAiTools(turnBinding),
 				...this.r2SqlAiTool(),
 				...createWebSearchAiTools({
 					ai: this.env.AI,
@@ -665,7 +665,7 @@ export const runtimeChannels = {
 								...this.durableCodemodeAiTools(computerScope, turnBinding),
 								...this.cronAiTool(sessionKey),
 								...this.workstationAiTool(computerScope, turnBinding),
-								...this.objectStoreAiTools(),
+								...this.objectStoreAiTools(turnBinding),
 								...this.r2SqlAiTool(),
 								...createWebSearchAiTools({
 									ai: this.env.AI,

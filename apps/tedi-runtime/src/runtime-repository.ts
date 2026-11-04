@@ -69,6 +69,7 @@ import {
 import { identityValue } from "./runtime-facet-turns";
 import { logTediRuntimeFailure } from "./runtime-failure-log";
 import { type WorkstationTurnContext } from "./workstation-turn-context";
+import type { ActiveTurnBinding } from "./runtime-state";
 function clampPositiveInt(
 	value: unknown,
 	defaultValue: number,
@@ -454,8 +455,10 @@ export const runtimeRepository = {
 			kind?: string;
 			description?: string;
 		},
-		turnCtx?: { runId?: string; conversationId?: string },
+		turnCtx: ActiveTurnBinding | null,
 	): Promise<unknown> {
+		if (!turnCtx)
+			return { ok: false, error: "artifact_turn_context_unavailable" };
 		await this.ensureIdentity();
 		const tediId = identityValue(this.state.tediId);
 		if (!tediId) return { ok: false, error: "Tedi identity is not resolved" };
@@ -465,15 +468,12 @@ export const runtimeRepository = {
 		if (typeof input.content !== "string" || !input.content) {
 			return { ok: false, error: "content is required" };
 		}
-		const active = this.activeTurnBinding;
-		const platform = active?.platform ?? (await this.getPlatformClient());
-		if (!platform) return { ok: false, error: "platform client unavailable" };
 		return recordDeliverableArtifact({
-			platform,
+			platform: turnCtx.platform,
 			bucket: this.env.TEDI_STORAGE,
 			tediId,
-			conversationId: turnCtx?.conversationId ?? active?.conversationId,
-			runId: turnCtx?.runId ?? active?.runId,
+			conversationId: turnCtx.conversationId,
+			runId: turnCtx.runId,
 			name: input.name,
 			content: input.content,
 			mimeType: typeof input.mimeType === "string" ? input.mimeType : undefined,
