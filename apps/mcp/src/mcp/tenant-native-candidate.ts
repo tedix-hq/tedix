@@ -186,6 +186,18 @@ export async function resolveNativePolicyCandidate(
 		mountedToolId: tool.toolId,
 		env: agent.env,
 	};
+	// A native rule is a recorded policy, so without any policy fence in the
+	// organization no candidate can exist and the fresh mount traversal (a full
+	// tool reload from the database on every call) is skipped. A failed presence
+	// read throws to the caller, which treats it as no candidate; the legacy
+	// fallback gate then runs its own presence read and blocks on failure.
+	const { fenced } = await getApiClient({
+		serviceFetch: agent.env.API_SERVICE,
+		orgId: identity.organizationId,
+	}).mcpGovernance.resolveTenantPolicyOrganizationPresence({
+		organizationId: identity.organizationId,
+	});
+	if (!fenced) return null;
 	const inputArgs = JSON.parse(JSON.stringify(args));
 	const argsDigest = await tenantPolicyDescriptorDigest(inputArgs);
 	const snapshot = async () => {

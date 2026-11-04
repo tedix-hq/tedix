@@ -11,6 +11,10 @@ import {
 	trackInFlightLoad,
 	withStepBudget,
 } from "./lib/step-budget";
+import {
+	readToolDefinitionsL2,
+	writeToolDefinitionsL2,
+} from "./aggregate-tool-definitions-cache";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 const log = createMcpLogger("mcp.router");
 
@@ -97,9 +101,62 @@ function emptyInternalResolveResult(): InternalResolveResult {
 }
 
 /** Shape shared by `apps.getBySlugWithTools` and one entry of the batched form. */
-type UpstreamAppWithTools = Awaited<
+export type UpstreamAppWithTools = Awaited<
 	ReturnType<ApiClient["apps"]["getBySlugWithTools"]>
 >;
+
+/** Seed the per-isolate L1 entry for a resolved source app. */
+export function rememberInternalTools(
+	cacheKey: string,
+	result: InternalResolveResult,
+): void {
+	setBoundedExpiringCacheEntry(
+		internalToolCache,
+		cacheKey,
+		{ result, expiresAt: Date.now() + INTERNAL_TOOL_CACHE_TTL_MS },
+		MAX_INTERNAL_TOOL_CACHE_ENTRIES,
+	);
+}
+
+// Keys with a background definition refresh running in this isolate.
+const toolDefinitionsRefreshInFlight = new Set<string>();
+
+/**
+ * Refresh a stale durable entry once per isolate while callers keep using the
+ * stale copy. A failed refresh leaves the stale entry in place until its hard
+ * TTL; the next stale read tries again.
+ */
+function refreshToolDefinitionsInBackground(
+	cacheKey: string,
+	upstreamSlug: string,
+	fetchUpstream: () => Promise<UpstreamAppWithTools>,
+	ctx: Pick<ExecutionContext, "waitUntil"> | undefined,
+): void {
+	if (toolDefinitionsRefreshInFlight.has(cacheKey)) return;
+	toolDefinitionsRefreshInFlight.add(cacheKey);
+	const job = (async () => {
+		try {
+			const result = await fetchUpstream();
+			if (!result.app) return;
+			rememberInternalTools(
+				cacheKey,
+				toInternalResolveResult(upstreamSlug, result),
+			);
+			await writeToolDefinitionsL2(cacheKey, result, ctx, upstreamSlug);
+		} catch (error) {
+			log.warn("Tool definitions refresh failed", {
+				event: "aggregate.tool_definitions_refresh_failed",
+				appSlug: upstreamSlug,
+				outcome: "unavailable",
+				error: contentFreeMcpException(error),
+			});
+		} finally {
+			toolDefinitionsRefreshInFlight.delete(cacheKey);
+		}
+	})();
+	if (ctx) ctx.waitUntil(job);
+	else void job;
+}
 
 /**
  * Pure transform of one apps/api app+tools payload into the gateway's internal
@@ -210,6 +267,7 @@ export async function resolveUpstreamToolsInternally(
 	},
 	activationEpoch = "direct",
 	cacheable = true,
+	ctx?: Pick<ExecutionContext, "waitUntil">,
 ): Promise<InternalResolveResult> {
 	const upstreamSlug = source.slug;
 	const cacheKey = internalToolCacheKey(source, selection, activationEpoch);
@@ -242,45 +300,63 @@ export async function resolveUpstreamToolsInternally(
 			};
 			// An id-linked entry resolves through the batched endpoint, the one
 			// path that resolves by id under the aggregate ownership rule.
-			const result: UpstreamAppWithTools = await withStepBudget(
-				"internal_tool_resolve",
-				UPSTREAM_ATTEMPT_TIMEOUT_MS,
-				source.appId
-					? client.apps
-							.getBySlugsWithTools({
-								apps: [
-									{
-										slug: upstreamSlug,
-										appId: source.appId,
-										...(source.hostOrganizationId
-											? { hostOrganizationId: source.hostOrganizationId }
-											: {}),
-										...selectionInput,
-									},
-								],
-							})
-							.then(({ results }) => results[0] ?? { app: null, tools: [] })
-					: client.apps.getBySlugWithTools({
-							slug: upstreamSlug,
-							...(source.hostOrganizationId
-								? { hostOrganizationId: source.hostOrganizationId }
-								: {}),
-							...selectionInput,
-						}),
-				upstreamSlug,
-			);
+			const fetchUpstream = (): Promise<UpstreamAppWithTools> =>
+				withStepBudget(
+					"internal_tool_resolve",
+					UPSTREAM_ATTEMPT_TIMEOUT_MS,
+					source.appId
+						? client.apps
+								.getBySlugsWithTools({
+									apps: [
+										{
+											slug: upstreamSlug,
+											appId: source.appId,
+											...(source.hostOrganizationId
+												? { hostOrganizationId: source.hostOrganizationId }
+												: {}),
+											...selectionInput,
+										},
+									],
+								})
+								.then(({ results }) => results[0] ?? { app: null, tools: [] })
+						: client.apps.getBySlugWithTools({
+								slug: upstreamSlug,
+								...(source.hostOrganizationId
+									? { hostOrganizationId: source.hostOrganizationId }
+									: {}),
+								...selectionInput,
+							}),
+					upstreamSlug,
+				);
+			if (cacheable) {
+				// Durable, cross-isolate tier before the upstream call, which reads
+				// every enabled tool row with its schemas from D1.
+				const durable = await readToolDefinitionsL2<UpstreamAppWithTools>(
+					cacheKey,
+					upstreamSlug,
+				);
+				if (durable?.payload.app) {
+					const resolved = toInternalResolveResult(
+						upstreamSlug,
+						durable.payload,
+					);
+					rememberInternalTools(cacheKey, resolved);
+					if (durable.stale)
+						refreshToolDefinitionsInBackground(
+							cacheKey,
+							upstreamSlug,
+							fetchUpstream,
+							ctx,
+						);
+					return resolved;
+				}
+			}
+			const result = await fetchUpstream();
 			const resolved = toInternalResolveResult(upstreamSlug, result);
 			if (!result.app) return resolved;
 			if (cacheable) {
-				setBoundedExpiringCacheEntry(
-					internalToolCache,
-					cacheKey,
-					{
-						result: resolved,
-						expiresAt: Date.now() + INTERNAL_TOOL_CACHE_TTL_MS,
-					},
-					MAX_INTERNAL_TOOL_CACHE_ENTRIES,
-				);
+				rememberInternalTools(cacheKey, resolved);
+				await writeToolDefinitionsL2(cacheKey, result, ctx, upstreamSlug);
 			}
 			return resolved;
 		} catch (err) {
