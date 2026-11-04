@@ -1845,6 +1845,36 @@ describe("active skill manifest approval", () => {
 			),
 		).toMatchObject({ isError: true });
 	});
+	it.each([true, false])(
+		"names the draft lifecycle when a workflow call is refused (readOnly=%s)",
+		async (readOnlyHint) => {
+			const { agent, resolve } = context();
+			resolve.mockResolvedValue({
+				approved: false,
+				denialReason: "skill_draft",
+			} as never);
+			const result = await requireDestructiveToolApproval(
+				agent,
+				{
+					toolId: readOnlyHint ? "read_report" : "create_report",
+					title: "Tool",
+				},
+				{ readOnlyHint },
+			);
+			expect(result).toMatchObject({
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: expect.stringContaining(
+							"Skill is draft; a signed-in organization owner or admin must certify and activate it",
+						),
+					},
+				],
+			});
+			expect(resolve).toHaveBeenCalled();
+		},
+	);
 	it("preserves explicit third-party approval policy", async () => {
 		const { agent, resolve } = context();
 		agent.apiClient.mcpGovernance.resolveAgentTransportPolicy = vi.fn(

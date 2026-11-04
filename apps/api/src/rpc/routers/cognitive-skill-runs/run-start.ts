@@ -87,15 +87,10 @@ export const skillsRunWorkflow = authedSkills.runWorkflow
 			: await getSkillEntryBySlug(context.db, orgId, input.slug!);
 		if (!skill) throw createError(ErrorCodes.NOT_FOUND, "Skill not found");
 		assertExpectedSkillRevision(input.expectedSkillRevision, skill.revision);
-		if (
-			skill.lifecycleState === "draft" &&
-			skill.sourceSkillId &&
-			skill.tags?.includes("workflow-improvement") &&
-			!input.certification
-		) {
+		if (skill.lifecycleState === "draft" && !input.certification) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
-				"Draft workflow improvement proposals require certification=true from a signed-in organization owner or admin. Ask that person to run the reviewed proposal revision with the intended probe params, then share the completed run ID. Work admission and params.probe do not grant certification authority.",
+				"Skill is draft; a signed-in organization owner or admin must certify and activate it before unattended runs, including read-only workflows. To test the reviewed revision, that person must use certification=true. Work admission and params.probe do not grant certification authority.",
 			);
 		}
 
