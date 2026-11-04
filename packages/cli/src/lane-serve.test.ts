@@ -4554,7 +4554,8 @@ describe("structured dispatcher outcomes", () => {
 			const f = fixture();
 			f.items.splice(1);
 			f.items[0]!.workKind = "coding";
-			f.control.finalMessage = `Verified original fix ${sha}`;
+			const result = { ...completedResult(), commitSha: sha };
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(result)}`;
 			f.deps.baseCommit = () => sha;
 			let offline = true;
 			f.deps.landedCommits = (_repo, base, message, deps, recovery) => {
@@ -4639,6 +4640,7 @@ describe("structured dispatcher outcomes", () => {
 			if (state === "recovered" || state === "laterSessionAttempt") {
 				expect(settled[0]!.args).toContain(sha);
 				expect(settled[0]!.input?.metadata).toMatchObject({
+					laneResult: result,
 					recoveredCommits: [
 						{
 							commitSha: sha,
@@ -4651,6 +4653,13 @@ describe("structured dispatcher outcomes", () => {
 				expect(
 					settled[0]!.args[settled[0]!.args.indexOf("--outcome") + 1],
 				).toBe("succeeded");
+				expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+				await f.restart().tick();
+				await f.dispatcher.drain();
+				expect(f.events.filter((e) => e.verb === "settle")).toHaveLength(1);
+				expect(
+					f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+				).toHaveLength(1);
 			} else {
 				expect(settled.some((e) => e.args.includes("succeeded"))).toBe(false);
 			}
