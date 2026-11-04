@@ -3,6 +3,21 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.6 — 2026-11-04
+
+### Patch Changes
+
+- `tedix lane serve` no longer skips Work forever after a brief server error
+  while starting it. Once the retry time passes, it picks up the Attempt that
+  already started, or starts the same Work again.
+- Dispatcher settlement can accept an installed app revision as delivery proof
+  when no repository commit applies, after reading back the workspace, app and
+  revision.
+- Devin lanes get scoped Work context and read back their result safely through
+  the existing dispatcher, with host credentials kept outside the sandbox.
+- Runner results can include the full commit SHA and short evidence links;
+  landed commits are still verified before the Work settles.
+
 ## 0.19.5 — 2026-11-04
 
 ### Patch Changes
