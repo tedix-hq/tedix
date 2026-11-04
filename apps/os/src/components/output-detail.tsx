@@ -171,6 +171,7 @@ function OutputDetail({ outputId }: { outputId: string }) {
 						<OutputExportButtons
 							outputId={outputId}
 							kind={detail.data.output.kind}
+							content={detail.data.currentRevision.content}
 							compact
 						/>
 						<ShareControls
@@ -333,6 +334,7 @@ function OutputDetail({ outputId }: { outputId: string }) {
 						<OutputExportButtons
 							outputId={outputId}
 							kind={detail.data.output.kind}
+							content={detail.data.currentRevision.content}
 							phoneOverflow
 							phoneActions={
 								activeWorkspace ? (

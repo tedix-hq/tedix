@@ -1830,11 +1830,11 @@ describe("output export", () => {
 				rows: [],
 				workbook: {
 					activeSheetId: "a",
-					sheets: ["a", "b"].map((id) => ({
+					sheets: ["a", "b"].map((id, index) => ({
 						id,
 						name: id,
 						columns: [{ id: "v", label: "Value", width: 120 }],
-						rows: [[{ input: "42", value: 42 }]],
+						rows: [[{ input: String(index + 1), value: index + 1 }]],
 						frozenRows: 0,
 						frozenColumns: 0,
 					})),
@@ -1851,9 +1851,33 @@ describe("output export", () => {
 			"1-a.csv",
 			"2-b.csv",
 		]);
+		const tab = await client.outputs.export({
+			outputId: multi.id,
+			format: "csv",
+			sheetId: "b",
+		});
+		expect(tab.url).toMatch(/rev-1-tab-2.csv$/);
+		expect(new TextDecoder().decode(bodies.get(tab.key)!)).toBe(
+			"Value\r\n2\r\n",
+		);
+		await expect(
+			client.outputs.export({
+				outputId: multi.id,
+				format: "csv",
+				sheetId: "missing",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			client.outputs.export({
+				outputId: multi.id,
+				format: "xlsx",
+				sheetId: "b",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		expect(puts.map((put) => put.contentType)).toEqual([
 			"text/csv; charset=utf-8",
 			"application/zip",
+			"text/csv; charset=utf-8",
 		]);
 		expect(calls).toHaveLength(0);
 	});

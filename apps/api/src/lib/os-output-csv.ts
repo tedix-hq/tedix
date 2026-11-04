@@ -33,12 +33,14 @@ export function encodeCsv(rows: OsSheetCell[][]): Uint8Array {
 
 export async function buildOsSheetCsv(
 	content: Extract<OsOutputContent, { kind: "sheet" }>,
+	sheetId?: string,
 ): Promise<{
 	bytes: Uint8Array;
 	extension: "csv" | "zip";
 	contentType: string;
 }> {
-	const sheets = content.workbook?.sheets.map((sheet) => ({
+	let sheets = content.workbook?.sheets.map((sheet) => ({
+		id: sheet.id,
 		name: sheet.name,
 		rows: [
 			sheet.columns.map((column) => column.label),
@@ -46,7 +48,8 @@ export async function buildOsSheetCsv(
 				sheet.columns.map((_, index) => row[index]?.value ?? null),
 			),
 		],
-	})) ?? [{ name: "Sheet1", rows: [content.columns, ...content.rows] }];
+	})) ?? [{ id: "", name: "Sheet1", rows: [content.columns, ...content.rows] }];
+	if (sheetId) sheets = sheets.filter((sheet) => sheet.id === sheetId);
 	if (sheets.length === 1)
 		return {
 			bytes: encodeCsv(sheets[0]!.rows),
