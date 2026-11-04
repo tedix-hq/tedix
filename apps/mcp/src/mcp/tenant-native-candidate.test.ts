@@ -35,7 +35,7 @@ vi.mock("../lib/api-client", () => ({
 }));
 vi.mock("./tenant-policy-mount", () => ({
 	prepareTenantNativePolicyMount: mocks.mount,
-	resolveFreshPolicyMount: mocks.fresh,
+	resolvePolicyMountPath: mocks.fresh,
 	tenantPolicyDescriptorDigest: mocks.digest,
 	tenantPolicyEffectiveToolDigest: mocks.toolDigest,
 }));
@@ -135,6 +135,37 @@ describe("native rule candidate", () => {
 		mocks.presence.mockResolvedValue({ fenced: true });
 		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
 		mocks.presence.mockRejectedValue(new Error("unavailable"));
+		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
+	});
+	it("checks only the exact mount fence for another organization's shared source", async () => {
+		mocks.fresh.mockResolvedValue({
+			sourceAppId: "shared",
+			mountAppIds: ["root", "wrapper", "shared"],
+			sourceKind: "foreign-source",
+			tool,
+		});
+		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(false);
+		expect(mocks.presence.mock.calls).toEqual([
+			[
+				{
+					organizationId: "org",
+					rootAppId: "root",
+					mountedToolId: tool.toolId,
+					sourceAppId: "shared",
+					sourceToolRowId: tool.id,
+					sourceToolId: tool.toolId,
+				},
+			],
+		]);
+		mocks.presence.mockResolvedValue({ fenced: true });
+		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
+		mocks.presence.mockRejectedValue(new Error("unavailable"));
+		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
+		mocks.fresh.mockResolvedValue({
+			sourceAppId: "shared",
+			sourceKind: "foreign-source",
+			tool: { ...tool, id: "other-row" },
+		});
 		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
 	});
 	it("rejects stale or shadowed aggregate tedi mounts", async () => {

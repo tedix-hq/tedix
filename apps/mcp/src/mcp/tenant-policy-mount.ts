@@ -236,6 +236,16 @@ type PrepareMountInput = {
 
 /** Resolve an organization gateway mount without any aggregate cache tier. */
 export async function resolveFreshPolicyMount(input: PrepareMountInput) {
+	const resolved = await resolvePolicyMountPath(input);
+	return resolved?.sourceKind === "foreign-source" ? null : resolved;
+}
+
+/**
+ * Like `resolveFreshPolicyMount`, but also reports a mount whose source app this
+ * organization cannot see, such as a shared provider app another organization owns.
+ * No tenant policy can be prepared for such a source.
+ */
+export async function resolvePolicyMountPath(input: PrepareMountInput) {
 	const client = getApiClient({
 		serviceFetch: input.env.API_SERVICE,
 		orgId: input.organizationId,
@@ -440,11 +450,23 @@ export async function resolveFreshPolicyMount(input: PrepareMountInput) {
 		mountAppIds.at(-1) !== sourceAppId
 	)
 		return null;
+	const mountedAppIds = [...new Set(mountAppIds)];
 	const mountedApps = await Promise.all(
-		[...new Set(mountAppIds)].map((appId) =>
-			client.apps.getPolicyMountMetadata({ appId }),
-		),
+		mountedAppIds.map((appId) => client.apps.getPolicyMountMetadata({ appId })),
 	);
+	if (
+		mountedApps.every((result, index) =>
+			mountedAppIds[index] === sourceAppId
+				? !result.app
+				: result.app?.organizationId === input.organizationId,
+		)
+	)
+		return {
+			tool,
+			sourceAppId,
+			mountAppIds,
+			sourceKind: "foreign-source" as const,
+		};
 	if (
 		mountedApps.some(
 			(result) =>
