@@ -9,9 +9,12 @@ import {
 } from "../../schema/work-factory";
 import { createD1Facade } from "../../test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "../../test/schema-ddl";
-import { listWorkInteractionInbox } from "./interactions";
+import {
+	listLastRelatedDecisions,
+	listWorkInteractionInbox,
+} from "./interactions";
 
-it("evaluates related decision history only for the selected inbox page", async () => {
+it("pages the inbox without related history and evaluates history only for requested cards", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
 		`${canonicalWorkFactoryDdl()}\n${schemaDdl(workInteractions, workInteractionResponses, workInteractionAttention, workInteractionDeliveries)}`,
@@ -39,6 +42,13 @@ it("evaluates related decision history only for the selected inbox page", async 
 	const db = createDbQueryClient(
 		createD1Facade({
 			prepare(query) {
+				if (query.includes("work_interaction_inbox_page"))
+					plans.push(
+						...sqlite
+							.prepare(`EXPLAIN QUERY PLAN ${query}`)
+							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+							.map((row) => String(row.detail)),
+					);
 				if (query.includes('"last_related_decision"')) {
 					// An identity function counts actual SQLite evaluations without replacing JSON or the query's joins.
 					query = query
@@ -50,12 +60,6 @@ it("evaluates related decision history only for the selected inbox page", async 
 							"'decidedAt', answer.responded_at)",
 							"'decidedAt', answer.responded_at))",
 						);
-					plans.push(
-						...sqlite
-							.prepare(`EXPLAIN QUERY PLAN ${query}`)
-							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
-							.map((row) => String(row.detail)),
-					);
 				}
 				return sqlite.prepare(query);
 			},
@@ -71,11 +75,13 @@ it("evaluates related decision history only for the selected inbox page", async 
 		limit: 1,
 	});
 	expect(first.data.map((row) => row.request.id)).toEqual(["request-0499"]);
-	expect(JSON.parse(first.data[0]!.lastRelatedDecision!).body).toBe(
-		"Keep the service",
-	);
 	expect(first.hasMore).toBe(true);
-	expect(evaluations).toBe(2);
+	expect(evaluations).toBe(0);
+	const [decision] = await listLastRelatedDecisions(db, "org", [
+		"request-0499",
+	]);
+	expect(JSON.parse(decision!.decision!).body).toBe("Keep the service");
+	expect(evaluations).toBe(1);
 	expect(plans).toContainEqual(
 		expect.stringMatching(
 			/(?:CO-ROUTINE|MATERIALIZE) work_interaction_inbox_page/,
@@ -91,6 +97,6 @@ it("evaluates related decision history only for the selected inbox page", async 
 		cursor: first.nextCursor!,
 	});
 	expect(next.data.map((row) => row.request.id)).toEqual(["request-0498"]);
-	expect(evaluations).toBe(4);
+	expect(evaluations).toBe(1);
 	sqlite.close();
 });

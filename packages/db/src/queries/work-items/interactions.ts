@@ -42,6 +42,7 @@ import {
 	type WorkInteractionTargetType,
 } from "../../schema/work-factory";
 import { prefixedColumns } from "../../utils/select";
+import { chunkForBoundParams } from "../../utils/batch";
 import { policyPacks } from "../../schema/control-plane";
 import {
 	COORDINATION_TTL_DEFAULT_HOURS,
@@ -1998,25 +1999,6 @@ export async function listWorkInteractionInbox(
 					.mapWith(workItems.disposition)
 					.as("work_interaction_item_disposition"),
 			},
-			lastRelatedDecision: sql<
-				string | null
-			>`(SELECT json_object('requestId', prior.id, 'subject', prior.subject, 'body', answer.body, 'decidedAt', answer.responded_at)
-    FROM work_interactions prior
-    JOIN work_interaction_responses answer ON answer.org_id=prior.org_id AND answer.interaction_id=prior.id AND answer.resolves_request=1
-    LEFT JOIN work_items prior_work ON prior_work.org_id=prior.org_id AND prior_work.id=prior.work_item_id
-    WHERE prior.org_id=${workInteractions.orgId} AND prior.id<>${workInteractions.id}
-    AND prior.status='resolved' AND prior.target_type=${workInteractions.targetType} AND prior.target_id=${workInteractions.targetId}
-    AND (prior.work_item_id=${workInteractions.workItemId}
-      OR coalesce(prior.project_id,prior_work.project_id)=coalesce(${workInteractions.projectId},${workItems.projectId})
-      OR EXISTS (SELECT 1
-       FROM json_each(coalesce(json_extract(prior.metadata,'$.decisionSources'),json_extract(prior.metadata,'$.decisionDeck.sources'),'[]')) old_source
-       JOIN json_each(coalesce(json_extract(${workInteractions.metadata},'$.decisionSources'),json_extract(${workInteractions.metadata},'$.decisionDeck.sources'),'[]')) current_source
-       ON json_extract(old_source.value,'$.kind')=json_extract(current_source.value,'$.kind')
-       AND json_extract(old_source.value,'$.id')=json_extract(current_source.value,'$.id')
-       AND json_extract(old_source.value,'$.tediId') IS json_extract(current_source.value,'$.tediId')))
-    ORDER BY answer.responded_at DESC, answer.id DESC LIMIT 1)`.as(
-				"last_related_decision",
-			),
 			responseCount:
 				sql<number>`(SELECT COUNT(*) FROM work_interaction_responses response_count WHERE response_count.org_id=${workInteractions.orgId} AND response_count.interaction_id=${workInteractions.id})`.as(
 					"response_count",
@@ -2116,6 +2098,63 @@ export async function listWorkInteractionInbox(
 				: null,
 		observedAt: p.observedAt,
 	};
+}
+
+/**
+ * The latest answered request related to each given request: same recipient
+ * and same Work, project or decision source. Each lookup compares source lists
+ * against every prior answer, so callers pass only the page they return.
+ */
+export async function listLastRelatedDecisions(
+	db: DbQueryClient,
+	orgId: string,
+	interactionIds: string[],
+) {
+	const rows: { interactionId: string; decision: string | null }[] = [];
+	for (const ids of chunkForBoundParams(interactionIds, 50)) {
+		rows.push(
+			...(await db
+				.select({
+					interactionId: sql<string>`${workInteractions.id}`.as(
+						"interaction_id",
+					),
+					decision: sql<
+						string | null
+					>`(SELECT json_object('requestId', prior.id, 'subject', prior.subject, 'body', answer.body, 'decidedAt', answer.responded_at)
+    FROM work_interactions prior
+    JOIN work_interaction_responses answer ON answer.org_id=prior.org_id AND answer.interaction_id=prior.id AND answer.resolves_request=1
+    LEFT JOIN work_items prior_work ON prior_work.org_id=prior.org_id AND prior_work.id=prior.work_item_id
+    WHERE prior.org_id=${workInteractions.orgId} AND prior.id<>${workInteractions.id}
+    AND prior.status='resolved' AND prior.target_type=${workInteractions.targetType} AND prior.target_id=${workInteractions.targetId}
+    AND (prior.work_item_id=${workInteractions.workItemId}
+      OR coalesce(prior.project_id,prior_work.project_id)=coalesce(${workInteractions.projectId},${workItems.projectId})
+      OR EXISTS (SELECT 1
+       FROM json_each(coalesce(json_extract(prior.metadata,'$.decisionSources'),json_extract(prior.metadata,'$.decisionDeck.sources'),'[]')) old_source
+       JOIN json_each(coalesce(json_extract(${workInteractions.metadata},'$.decisionSources'),json_extract(${workInteractions.metadata},'$.decisionDeck.sources'),'[]')) current_source
+       ON json_extract(old_source.value,'$.kind')=json_extract(current_source.value,'$.kind')
+       AND json_extract(old_source.value,'$.id')=json_extract(current_source.value,'$.id')
+       AND json_extract(old_source.value,'$.tediId') IS json_extract(current_source.value,'$.tediId')))
+    ORDER BY answer.responded_at DESC, answer.id DESC LIMIT 1)`.as(
+						"last_related_decision",
+					),
+				})
+				.from(workInteractions)
+				.leftJoin(
+					workItems,
+					and(
+						eq(workItems.orgId, workInteractions.orgId),
+						eq(workItems.id, workInteractions.workItemId),
+					),
+				)
+				.where(
+					and(
+						eq(workInteractions.orgId, orgId),
+						inArray(workInteractions.id, ids),
+					),
+				)),
+		);
+	}
+	return rows;
 }
 
 /** Identifier-only projection for the MCP interaction event feed. */
