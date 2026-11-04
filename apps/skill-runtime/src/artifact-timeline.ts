@@ -1,4 +1,8 @@
-import { SkillWorkflowTimelineEventSchema } from "@tedix/api-contract/schemas/cognitive";
+import {
+	SkillWorkflowTimelineEventSchema,
+	type SkillWorkflowTimelineEvent,
+} from "@tedix/api-contract/schemas/cognitive";
+import { encodeTimelineReceipt } from "@tedix/api-contract/utils/workflow-timeline-receipt";
 
 type Receipt = Record<string, unknown>;
 
@@ -60,4 +64,14 @@ export function compactTimelineReceipt(input: {
 		host,
 		httpStatus: value.httpStatus,
 	});
+}
+
+/**
+ * Body stored at `timeline/<path>`: the compact v2 receipt when the row path
+ * carries the epoch the reader derives, otherwise the full schema-1 event.
+ */
+export function storedTimelineReceipt(event: SkillWorkflowTimelineEvent) {
+	return event.path.startsWith(`epochs/${event.executionEpoch}/`)
+		? encodeTimelineReceipt(event)
+		: event;
 }

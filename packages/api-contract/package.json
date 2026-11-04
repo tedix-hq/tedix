@@ -22,6 +22,7 @@
 		"./contracts/os-app-runtime": "./src/contracts/os-app-runtime.ts",
 		"./utils/app-draft-merge": "./src/utils/app-draft-merge.ts",
 		"./utils/app-draft-room": "./src/utils/app-draft-room.ts",
+		"./utils/workflow-timeline-receipt": "./src/utils/workflow-timeline-receipt.ts",
 		"./schemas/repository-candidate": "./src/schemas/repository-candidate.ts",
 		"./utils/repository-candidate": "./src/utils/repository-candidate.ts",
 		"./utils/connection-resource-policy": "./src/utils/connection-resource-policy.ts",

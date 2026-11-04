@@ -3,6 +3,7 @@ import {
 	SkillWorkflowRunTimelineSchema,
 	type SkillWorkflowTimelineEvent,
 } from "@tedix/api-contract/schemas/cognitive";
+import { encodeTimelineReceipt } from "@tedix/api-contract/utils/workflow-timeline-receipt";
 import { buildSkillWorkflowTimeline } from "./skill-workflow-timeline";
 
 const run = {
@@ -157,6 +158,46 @@ describe("compact workflow timeline", () => {
 			result.events.find((event) => event.kind === "network")?.httpStatus,
 		).toBe(429);
 		expect(result.phases[0]?.calls).toEqual({ ok: 0, failed: 1, pending: 0 });
+	});
+	it("reads schema-2 receipts next to schema-1 rows with identical events", () => {
+		const v1 = receipt(1, {
+			kind: "mcp",
+			namespace: "tedi",
+			method: "work_items_list",
+			lane: "tedi",
+			phase: "run",
+			attempt: 1,
+			startedAt: "2026-01-01T00:00:01.000Z",
+			endedAt: "2026-01-01T00:00:02.500Z",
+			durationMs: 1500,
+			status: "succeeded",
+			outcome: "success",
+		});
+		const event = JSON.parse(v1.contentInline) as SkillWorkflowTimelineEvent;
+		const v2 = {
+			path: v1.path,
+			contentInline: JSON.stringify(encodeTimelineReceipt(event)),
+		};
+		expect(v2.contentInline.length).toBeLessThan(v1.contentInline.length / 2);
+		const legacy = buildSkillWorkflowTimeline(run, [marker, v1]);
+		const compact = buildSkillWorkflowTimeline(run, [marker, v2]);
+		expect(compact).toEqual(legacy);
+		expect(compact.coverage).toBe("complete");
+		expect(compact.events[0]?.endedAt).toBe("2026-01-01T00:00:02.500Z");
+		expect(SkillWorkflowRunTimelineSchema.safeParse(compact).success).toBe(
+			true,
+		);
+	});
+	it("rejects an invalid schema-2 receipt as a warning", () => {
+		const result = buildSkillWorkflowTimeline(run, [
+			marker,
+			{
+				path: "timeline/epochs/3/steps/x:a/1/attempts/1.json",
+				contentInline: JSON.stringify({ v: 2, k: "step", n: "a" }),
+			},
+		]);
+		expect(result.events).toEqual([]);
+		expect(result.coverage).toBe("partial");
 	});
 	it("requires a valid marker for this epoch", () => {
 		expect(

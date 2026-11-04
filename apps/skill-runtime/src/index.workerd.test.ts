@@ -326,3 +326,51 @@ it("persists source consent independently of caller params in a real D1 run snap
 		_tedixContext: { resourceAccessEnvelope: { version: 1, sources: [] } },
 	});
 });
+
+it("stores step timeline receipts inline as compact schema 2 with a digest", async () => {
+	const db = (env as unknown as { DB: D1Database }).DB;
+	const runId = crypto.randomUUID();
+	const bridge = (
+		exports as unknown as SkillRuntimeExportFactories
+	).ArtifactBridge({ props: { runId } }) as unknown as {
+		record(payload: unknown): Promise<true>;
+	};
+	const path = "epochs/0/steps/x:read/1/attempts/1.json";
+	await bridge.record({
+		path,
+		outcome: "success",
+		attempt: 1,
+		value: {
+			kind: "workflow_step_attempt",
+			executionEpoch: 0,
+			step: { name: "read", count: 1 },
+			attempt: 1,
+			startedAt: "2026-11-03T18:12:59.332Z",
+			completedAt: "2026-11-03T18:13:13.800Z",
+			durationMs: 14468,
+			status: "succeeded",
+		},
+	});
+	const row = await db
+		.prepare(
+			"SELECT content_inline, content_r2_key, sha256 FROM skill_run_artifacts WHERE run_id = ? AND path = ?",
+		)
+		.bind(runId, `timeline/${path}`)
+		.first<{
+			content_inline: string;
+			content_r2_key: string | null;
+			sha256: string | null;
+		}>();
+	expect(row?.content_r2_key).toBeNull();
+	expect(row?.sha256).toMatch(/^[0-9a-f]{64}$/);
+	expect(JSON.parse(row!.content_inline)).toEqual({
+		v: 2,
+		k: "step",
+		n: "read",
+		a: 1,
+		s: Date.parse("2026-11-03T18:12:59.332Z"),
+		d: 14468,
+		st: "succeeded",
+		o: "success",
+	});
+});
