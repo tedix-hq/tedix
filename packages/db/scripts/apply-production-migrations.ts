@@ -104,32 +104,44 @@ export function applyProductionMigrations(
 		);
 	}
 
-	const optimize = parseWranglerJson(
-		// remote-d1: runWrangler audits this argv before executing it.
-		run([
-			"d1",
-			"execute",
-			D1_DATABASE_NAME,
-			"--remote",
-			"--config",
-			"wrangler.jsonc",
-			"--command",
-			"PRAGMA optimize",
-			"--json",
-		]),
-		"D1 PRAGMA optimize",
-	);
-	assertD1ExecutionSucceeded(optimize, "D1 PRAGMA optimize");
+	// Planner statistics are maintenance, not proof: on 2026-11-04 a busy
+	// database rejected optimize (D1 7429) after the migrations had committed,
+	// and the deploy failed with the schema already live. The ledger check
+	// below remains the gate.
+	let optimized = true;
+	try {
+		const optimize = parseWranglerJson(
+			// remote-d1: runWrangler audits this argv before executing it.
+			run([
+				"d1",
+				"execute",
+				D1_DATABASE_NAME,
+				"--remote",
+				"--config",
+				"wrangler.jsonc",
+				"--command",
+				"PRAGMA optimize",
+				"--json",
+			]),
+			"D1 PRAGMA optimize",
+		);
+		assertD1ExecutionSucceeded(optimize, "D1 PRAGMA optimize");
+	} catch (error) {
+		optimized = false;
+		console.warn(
+			`::warning title=PRAGMA optimize::${error instanceof Error ? error.message : String(error)}; continuing after the ledger check`,
+		);
+	}
 	const after = checkLiveMigrationLedger({
 		allowPending: false,
 		run,
 	});
 	appendMigrationSummary([
 		"",
-		`Applied ${before.pending.length} migration(s), ran \`PRAGMA optimize\`, and verified ${after.appliedCount} immutable ledger entries.`,
+		`Applied ${before.pending.length} migration(s), ${optimized ? "ran" : "could not run"} \`PRAGMA optimize\`, and verified ${after.appliedCount} immutable ledger entries.`,
 	]);
 	console.log(
-		`Production D1 migration complete (${after.appliedCount} applied); PRAGMA optimize succeeded`,
+		`Production D1 migration complete (${after.appliedCount} applied); PRAGMA optimize ${optimized ? "succeeded" : "skipped after a D1 error"}`,
 	);
 }
 
