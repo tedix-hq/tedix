@@ -43,6 +43,7 @@ import {
 	WORKFLOW_FETCH_GATE_MODULE,
 } from "./runner-sandbox";
 import { RUNNER_STEPS_SOURCE } from "./runner-steps";
+import { outboundProxyConfig } from "./workflow-runtime-compatibility";
 
 // Dispatch needs only AsyncLocalStorage. Keep the loaded tenant isolate off the
 // broad Node compatibility surface; static-import validation separately allows
@@ -257,10 +258,9 @@ export function loadSkillRuntime(
 			globalOutbound: input.manifest.network
 				? exports.OutboundProxy({
 						props: {
-							geminiApiKey: env.GEMINI_API_KEY ?? null,
-							googleServiceAccountKey: env.GOOGLE_SERVICE_ACCOUNT_KEY ?? null,
+							// Versioned in loaderConfigHash; see outboundProxyConfig.
+							...outboundProxyConfig(env),
 							organizationId: input.orgId,
-							vertexVideoEndpoint: env.VERTEX_VIDEO_ENDPOINT ?? null,
 							// Per-tedi attribution for the governed Vertex ledger.
 							tediId: input.tediId,
 							runId: input.runId,
