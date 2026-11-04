@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import { HttpPlatformClient } from "./platform-client";
+import * as z from "zod";
 
 describe("HttpPlatformClient", () => {
 	const originalFetch = globalThis.fetch;
@@ -559,3 +560,123 @@ it.each([
 		expect(fetcher).toHaveBeenCalledTimes(calls);
 	},
 );
+
+it("binds native steward reads and completion to canonical routes without retrying the write", async () => {
+	const calls: { url: string; body: unknown }[] = [];
+	let failWrite = false;
+	const client = new HttpPlatformClient({
+		apiBaseUrl: "https://api.example.test",
+		apiAuthMode: "service-binding",
+		tediId: "fixture-tedi",
+		fetch: async (url, init) => {
+			calls.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+			if (String(url).endsWith("/complete") && failWrite)
+				return new Response("unavailable", { status: 503 });
+			const result = String(url).endsWith("/getById")
+				? { workItem: { id: "target" }, comments: [] }
+				: String(url).endsWith("/listAttempts")
+					? {
+							data: [{ id: "latest" }, { id: "unrequested" }],
+							nextCursor: null,
+						}
+					: { id: "target" };
+			return new Response(JSON.stringify({ json: result }), {
+				headers: { "Content-Type": "application/json" },
+			});
+		},
+	});
+	const bound = {
+		id: "11111111-1111-4111-8111-111111111111",
+		nativeStewardCloseout: {
+			homeRunId: "home",
+			runId: "child",
+			linkedWorkItemId: "linked",
+			expectedWorkItemVersion: 2,
+		},
+	};
+	const read = await client.inspectStewardWork(bound);
+	const wire = {
+		id: "native-steward-closeout",
+		nativeStewardCloseout: { ...bound.nativeStewardCloseout, id: bound.id },
+	};
+	expect(read.latestAttempt?.id).toBe("latest");
+	expect(calls.map((call) => call.body)).toEqual([
+		{ json: wire },
+		{ json: wire },
+	]);
+	expect(calls.map((call) => call.url)).toEqual([
+		"https://api.example.test/rpc/workItems/getById",
+		"https://api.example.test/rpc/workItems/listAttempts",
+	]);
+	await client.completeStewardWork(bound);
+	expect(calls[2]?.body).toEqual({ json: wire });
+	for (const call of calls) {
+		const legacyInput = z.object({
+			id: call.url.endsWith("/getById")
+				? z.union([
+						z.uuid(),
+						z.string().regex(/^[a-f\d]{8}(?:[a-f\d-]{0,27})$/i),
+					])
+				: z.uuid(),
+		});
+		expect(
+			legacyInput.safeParse((call.body as { json: unknown }).json).success,
+		).toBe(false);
+	}
+	failWrite = true;
+	await expect(client.completeStewardWork(bound)).rejects.toThrow();
+	expect(calls.filter((call) => call.url.endsWith("/complete"))).toHaveLength(
+		2,
+	);
+});
+
+it("makes native steward operations fail closed on a legacy required-id API without completing Work", async () => {
+	const id = "22222222-2222-4222-8222-222222222222";
+	// Older APIs stripped unknown proof fields but required a top-level id.
+	const legacyInput = z.object({ id: z.uuid() });
+	let completions = 0;
+	const calls: string[] = [];
+	const client = new HttpPlatformClient({
+		apiBaseUrl: "https://api.example.test",
+		apiAuthMode: "service-binding",
+		tediId: "fixture-tedi",
+		fetch: async (url, init) => {
+			calls.push(String(url));
+			const inputSchema = String(url).endsWith("/getById")
+				? z.object({
+						id: z.union([
+							z.uuid(),
+							z.string().regex(/^[a-f\d]{8}(?:[a-f\d-]{0,27})$/i),
+						]),
+					})
+				: legacyInput;
+			const parsed = inputSchema.safeParse(JSON.parse(String(init?.body)).json);
+			if (!parsed.success)
+				return new Response("legacy input rejected", { status: 400 });
+			if (String(url).endsWith("/complete")) completions++;
+			const result = String(url).endsWith("/getById")
+				? { workItem: { id }, comments: [] }
+				: String(url).endsWith("/listAttempts")
+					? { data: [], nextCursor: null }
+					: { id };
+			return new Response(JSON.stringify({ json: result }), {
+				headers: { "Content-Type": "application/json" },
+			});
+		},
+	});
+	const bound = {
+		id,
+		nativeStewardCloseout: {
+			homeRunId: "home",
+			runId: "child",
+			linkedWorkItemId: id,
+			expectedWorkItemVersion: 2,
+		},
+	};
+	await expect(client.inspectStewardWork(bound)).rejects.toThrow();
+	await expect(client.completeStewardWork(bound)).rejects.toThrow();
+	expect(calls).toHaveLength(2);
+	expect(completions).toBe(0);
+	await client.completeWorkItem(id);
+	expect(completions).toBe(1);
+});

@@ -1,3 +1,8 @@
+import {
+	normalizeNativeStewardCloseoutInput,
+	assertNativeStewardCloseout,
+	prepareNativeStewardCloseout,
+} from "./delegated-closeout";
 import { recordObservedLearningInteraction } from "../../../services/learning-interaction-recorder";
 import {
 	assertValidWorkItemProject,
@@ -925,14 +930,24 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 
 export const listAttemptsProcedure = factoryOs.listAttempts.handler(
 	async ({ input, context }) => {
-		const workItem = await assertWorkItemAccess(context, input.id);
+		const request =
+			input.nativeStewardCloseout !== undefined
+				? normalizeNativeStewardCloseoutInput({
+						nativeStewardCloseout: input.nativeStewardCloseout,
+					})
+				: { id: input.id, nativeStewardCloseout: undefined };
+		if (request.nativeStewardCloseout)
+			await assertNativeStewardCloseout(context, {
+				id: request.id,
+				nativeStewardCloseout: request.nativeStewardCloseout,
+			});
+		const workItem = await assertWorkItemAccess(context, request.id);
+		const cursor = "cursor" in input ? input.cursor : undefined;
 		return listWorkItemAttempts(context.db, {
 			orgId: workItem.orgId,
 			workItemId: workItem.id,
-			cursor: input.cursor
-				? { startedAt: input.cursor.at, id: input.cursor.id }
-				: undefined,
-			limit: input.limit,
+			cursor: cursor ? { startedAt: cursor.at, id: cursor.id } : undefined,
+			limit: "limit" in input ? input.limit : 1,
 		}).then((page) => ({
 			data: page.data,
 			nextCursor: page.nextCursor
@@ -1036,14 +1051,32 @@ export const listEventsProcedure = factoryOs.listEvents.handler(
 
 export const completeProcedure = factoryOs.complete.handler(
 	async ({ input, context }) => {
-		const workItem = await assertWorkItemAccess(context, input.id);
+		const request =
+			input.nativeStewardCloseout !== undefined
+				? normalizeNativeStewardCloseoutInput({
+						nativeStewardCloseout: input.nativeStewardCloseout,
+					})
+				: { id: input.id, nativeStewardCloseout: undefined };
+		const native = request.nativeStewardCloseout
+			? await prepareNativeStewardCloseout(context, {
+					id: request.id,
+					nativeStewardCloseout: request.nativeStewardCloseout,
+				})
+			: null;
+		const workItem =
+			native?.item ?? (await assertWorkItemAccess(context, request.id));
+		if (native?.completed) return workItem;
 		const actor = await workItemStewardActor(context, workItem, "completion");
 		try {
 			const completed = await completeWorkItem(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				actor,
-				expectedWorkItemVersion: workItem.version,
+				expectedWorkItemVersion:
+					request.nativeStewardCloseout?.expectedWorkItemVersion ??
+					workItem.version,
+				nativeStewardCloseout: native?.fence ?? undefined,
+				closingComment: native?.closingComment ?? undefined,
 				completedAt: new Date().toISOString(),
 			});
 			await recordObservedLearningInteraction(context, {

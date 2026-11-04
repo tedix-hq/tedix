@@ -1,3 +1,4 @@
+import type { StewardCloseoutTargets } from "@tedix/api-contract/schemas/work-items";
 /**
  * Kernel — delegation work-order + auto-dispatch decision.
  *
@@ -620,6 +621,7 @@ export function renderDelegationWorkOrderMessage(input: {
  *                   and any approval note.
  */
 export function buildDelegationWorkOrder(input: {
+	stewardCloseoutTargets?: StewardCloseoutTargets;
 	route: KernelRouteDecision;
 	card: TediCapabilityCard | null;
 	userContent: string;
@@ -683,6 +685,7 @@ export function buildDelegationWorkOrder(input: {
 		input.executionRequirement ??
 		deriveExecutionRequirement(userContent, route);
 	const capabilityPlanDecision = buildDelegationCapabilityPlan({
+		stewardCloseoutTargets: input.stewardCloseoutTargets,
 		content: userContent,
 		route,
 		requirement: executionRequirement,

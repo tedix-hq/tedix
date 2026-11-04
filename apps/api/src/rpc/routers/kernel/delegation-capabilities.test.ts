@@ -719,3 +719,36 @@ describe("workspace app edits", () => {
 		).toContain("repository_edit");
 	});
 });
+
+it("persists explicit steward targets as a native-only ceiling instead of ambient MCP Work writes", () => {
+	const targets = [
+		{
+			id: "11111111-1111-4111-8111-111111111111",
+			expectedWorkItemVersion: 2,
+			repositoryTargetId: "configured-os",
+		},
+	];
+	const order = buildDelegationWorkOrder({
+		route,
+		card: readerCard,
+		userContent: "Review and close exactly the supplied Work records",
+		executionRequirement: {
+			surface: "native",
+			requiredCapabilities: [],
+			fallbackSurface: null,
+			prohibitedSurfaces: [],
+			satisfiable: true,
+			reason: "metadata only",
+		},
+		stewardCloseoutTargets: targets,
+	});
+	expect(order.capabilityPlan?.stewardCloseoutTargets).toEqual(targets);
+	expect(order.capabilityPlan?.allowedToolIds).toEqual([
+		"read_steward_work",
+		"complete_steward_work",
+	]);
+	expect(order.capabilityPlan?.missingCapabilities).toEqual([]);
+	expect(
+		order.capabilityPlan?.allowedToolIds.some((id) => id.includes(".")),
+	).toBe(false);
+});

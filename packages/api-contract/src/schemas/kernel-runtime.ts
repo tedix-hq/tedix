@@ -1,3 +1,4 @@
+import { StewardCloseoutTargetsSchema } from "./work-items";
 import { KernelPricingEvidenceSchema } from "./cost-provenance";
 import * as z from "zod";
 import {
@@ -249,6 +250,7 @@ export const DelegationCapabilityPlanSchema = z.object({
 	missingCapabilities: z.array(z.string().min(1)).max(64),
 	urls: z.array(z.url()).max(64),
 	outputIds: z.array(z.uuid()).max(64),
+	stewardCloseoutTargets: StewardCloseoutTargetsSchema.optional(),
 });
 export type DelegationCapabilityPlan = z.infer<
 	typeof DelegationCapabilityPlanSchema
@@ -833,6 +835,7 @@ export const EnqueueHomeMessageInputSchema = z.object({
 		),
 	metadata: z
 		.object({
+			stewardCloseoutTargets: StewardCloseoutTargetsSchema.optional(),
 			workItemId: z
 				.string()
 				.trim()

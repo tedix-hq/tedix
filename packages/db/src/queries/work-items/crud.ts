@@ -1,3 +1,7 @@
+import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
+import { runtimeSubmissions } from "../../schema/runtime-submissions";
+import { organizationMembers } from "../../schema/organization-members";
+import { tedis } from "../../schema/tedis";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	containsCardSecret,
@@ -19,7 +23,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
-import { workMilestoneItems } from "../../schema/work-factory";
+import { workAdmissions, workMilestoneItems } from "../../schema/work-factory";
 import { kernelRequests } from "../../schema/kernel-requests";
 import {
 	type WorkItem,
@@ -773,6 +777,27 @@ export async function acceptWorkItem(
 	return normalizeWorkItemRow(item);
 }
 
+export interface NativeStewardCloseoutFence {
+	homeRunId: string;
+	runId: string;
+	linkedWorkItemId: string;
+	coordinatorAttemptId: string;
+	coordinatorAdmissionId: string;
+	ownerUserId: string;
+	tediId: string;
+	targetWorkItemVersion: number;
+	sourceAttemptId: string;
+	sourceAttemptMetadata: Record<string, JsonValue>;
+	sourceCommit: string;
+	repositoryTargetId: string;
+	policyPackId: string;
+	policyDefinition: string;
+	capabilityPlanJson: string;
+	tediPolicyPackId: string | null;
+	tediPolicyDefinition: string | null;
+	autonomyLessonClasses: string[];
+}
+
 export async function completeWorkItem(
 	db: DbQueryClient,
 	params: {
@@ -781,6 +806,7 @@ export async function completeWorkItem(
 		actor: WorkActor;
 		expectedWorkItemVersion?: number;
 		completedAt?: string;
+		nativeStewardCloseout?: NativeStewardCloseoutFence;
 		/** Internal timer closeout, fenced against a changed request, policy or Attempt. */
 		verifiedDispatcherDelivery?: {
 			requestId: string;
@@ -810,7 +836,34 @@ export async function completeWorkItem(
 	// Completion is idempotent. Any peer that re-issues complete on an already
 	// completed item reads the settled row back rather than failing, so a
 	// double-send drains instead of deadlocking the item.
-	if (item.disposition === "completed") return item;
+	const native = params.nativeStewardCloseout;
+	const nativeCommentId = native
+		? `${native.homeRunId}:steward-closeout:${item.id}:v${native.targetWorkItemVersion}`
+		: null;
+	if (
+		native &&
+		(params.actor.type !== "tedi" ||
+			params.actor.id !== native.tediId ||
+			params.expectedWorkItemVersion !== native.targetWorkItemVersion ||
+			params.closingComment?.id !== nativeCommentId ||
+			item.id === native.linkedWorkItemId)
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Native steward completion proof is mismatched",
+		);
+	if (item.disposition === "completed") {
+		if (
+			native &&
+			(item.version !== native.targetWorkItemVersion + 1 ||
+				item.metadata?.completionCommentId !== nativeCommentId)
+		)
+			throw new WorkFactoryError(
+				"NOT_READY",
+				"Completed Work does not match this native closeout receipt",
+			);
+		return item;
+	}
 	// Settled means done: completion carries no evidence count and no review
 	// requirement (decisions/minimal-gates-over-pre-proof.md). Legacy
 	// contract-bearing items and contract-less items complete through one path.
@@ -842,6 +895,23 @@ export async function completeWorkItem(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
 				eq(workItems.disposition, "accepted"),
+				native
+					? and(
+							eq(workItems.stewardType, "tedi"),
+							eq(workItems.stewardId, native.tediId),
+							sql`EXISTS (SELECT 1 FROM ${tedis} native_tedi WHERE native_tedi.id=${native.tediId} AND native_tedi.organization_id=${params.orgId} AND native_tedi.status='active' AND native_tedi.policy_pack_id IS ${native.tediPolicyPackId})`,
+							native.tediPolicyPackId === null
+								? sql`1`
+								: sql`EXISTS (SELECT 1 FROM ${policyPacks} native_tedi_policy WHERE native_tedi_policy.id=${native.tediPolicyPackId} AND native_tedi_policy.status='active' AND (native_tedi_policy.organization_id IS NULL OR native_tedi_policy.organization_id=${params.orgId}) AND native_tedi_policy.definition=${native.tediPolicyDefinition})`,
+							sql`(SELECT count(DISTINCT json_extract(native_lesson.payload,'$.classId')) FROM ${workEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND json_type(native_lesson.payload,'$.classId')='text')=${native.autonomyLessonClasses.length} AND NOT EXISTS (SELECT 1 FROM ${workEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND json_type(native_lesson.payload,'$.classId')='text' AND json_extract(native_lesson.payload,'$.classId') NOT IN (SELECT value FROM json_each(${JSON.stringify(native.autonomyLessonClasses)})))`,
+							sql`EXISTS (SELECT 1 FROM ${organizationMembers} native_owner WHERE native_owner.organization_id=${params.orgId} AND native_owner.descope_user_id=${native.ownerUserId} AND native_owner.status='active' AND native_owner.role IN ('owner','admin'))`,
+							sql`EXISTS (SELECT 1 FROM ${kernelRuntimeRuns} native_home WHERE native_home.id=${native.homeRunId} AND native_home.organization_id=${params.orgId} AND native_home.status IN ('queued','running','waiting') AND native_home.delegated_tedi_id=${native.tediId} AND native_home.child_run_id=${native.runId} AND json_extract(native_home.metadata,'$.workItemId')=${native.linkedWorkItemId} AND json_extract(native_home.metadata,'$.redriveInput.descopeUserId')=${native.ownerUserId} AND json_extract(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan')=${native.capabilityPlanJson} AND EXISTS (SELECT 1 FROM json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.allowedToolIds') native_read_tool WHERE native_read_tool.value='read_steward_work') AND EXISTS (SELECT 1 FROM json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.allowedToolIds') native_complete_tool WHERE native_complete_tool.value='complete_steward_work') AND json_extract(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.stewardCloseoutTargets') = json_extract(native_home.metadata,'$.redriveInput.runtimeMetadata.stewardCloseoutTargets') AND EXISTS (SELECT 1 FROM json_each(native_home.metadata,'$.homeDelegation.workOrder.capabilityPlan.stewardCloseoutTargets') native_target WHERE json_extract(native_target.value,'$.id')=${params.workItemId} AND json_extract(native_target.value,'$.expectedWorkItemVersion')=${native.targetWorkItemVersion} AND json_extract(native_target.value,'$.repositoryTargetId')=${native.repositoryTargetId}))`,
+							sql`EXISTS (SELECT 1 FROM ${workAttempts} native_coordinator WHERE native_coordinator.id=${native.coordinatorAttemptId} AND native_coordinator.org_id=${params.orgId} AND native_coordinator.work_item_id=${native.linkedWorkItemId} AND native_coordinator.admission_id=${native.coordinatorAdmissionId} AND native_coordinator.executor_type='tedi' AND native_coordinator.executor_id=${native.tediId} AND native_coordinator.run_id=${native.runId} AND native_coordinator.runtime_state IN ('running','waiting','retrying') AND EXISTS (SELECT 1 FROM ${workItems} native_coordinator_work WHERE native_coordinator_work.id=native_coordinator.work_item_id AND native_coordinator_work.org_id=native_coordinator.org_id AND native_coordinator_work.disposition='accepted' AND EXISTS (SELECT 1 FROM ${workAdmissions} native_admission WHERE native_admission.id=native_coordinator.admission_id AND native_admission.org_id=native_coordinator.org_id AND native_admission.work_item_id=native_coordinator.work_item_id AND native_admission.decision='admitted' AND native_admission.work_item_version=native_coordinator_work.version AND native_admission.admission_spec_revision=native_coordinator_work.admission_spec_revision)) AND native_coordinator.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
+							sql`NOT EXISTS (SELECT 1 FROM ${runtimeSubmissions} native_abort WHERE native_abort.organization_id=${params.orgId} AND native_abort.run_id=${native.homeRunId} AND native_abort.abort_requested_at IS NOT NULL)`,
+							sql`EXISTS (SELECT 1 FROM ${workAttempts} native_source WHERE native_source.id=${native.sourceAttemptId} AND native_source.org_id=${params.orgId} AND native_source.work_item_id=${params.workItemId} AND native_source.runtime_state='finished' AND native_source.outcome='succeeded' AND native_source.finished_at IS NOT NULL AND native_source.metadata=${JSON.stringify(native.sourceAttemptMetadata)} AND coalesce(json_extract(native_source.metadata,'$.settlement.commitSha'),json_extract(native_source.metadata,'$.sourceCommit'))=${native.sourceCommit} AND NOT EXISTS (SELECT 1 FROM ${workAttempts} native_newer WHERE native_newer.org_id=native_source.org_id AND native_newer.work_item_id=native_source.work_item_id AND native_newer.attempt_number>native_source.attempt_number))`,
+							sql`EXISTS (SELECT 1 FROM ${policyPacks} native_policy WHERE native_policy.id=${native.policyPackId} AND native_policy.organization_id=${params.orgId} AND native_policy.status='active' AND native_policy.definition=${native.policyDefinition} AND NOT EXISTS (SELECT 1 FROM ${policyPacks} native_newer_policy WHERE native_newer_policy.organization_id=native_policy.organization_id AND native_newer_policy.status='active' AND native_newer_policy.version>native_policy.version))`,
+						)
+					: undefined,
 				delivery
 					? and(
 							eq(workItems.workKind, "coding"),

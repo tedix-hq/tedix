@@ -575,9 +575,16 @@ function unwrap(schema: unknown): Record<string, unknown> | null {
  * Zod 4 encodes `.strict()` as a `never` catchall rather than the v3
  * `unknownKeys` flag — read the catchall, or every strict object reads loose.
  */
-function classify(schema: unknown): ContractProcedureInput["strictness"] {
+export function classify(
+	schema: unknown,
+): ContractProcedureInput["strictness"] {
 	const def = unwrap(schema);
 	if (!def) return "absent";
+	if (def.type === "union" && Array.isArray(def.options)) {
+		const branches = def.options.map(classify);
+		if (branches.includes("loose")) return "loose";
+		return branches.includes("strict") ? "strict" : "non-object";
+	}
 	if (def.type !== "object") return "non-object";
 	const catchall = def.catchall as
 		| { _zod?: { def?: { type?: string } } }

@@ -124,3 +124,38 @@ for (const request of [
 }
 const background = await agent.prepareMcpFacetTurn(MCP_FACET_TURN_INPUT);
 assert.doesNotMatch(background.system, personalReadGuidance);
+
+const stewardTarget = {
+	id: "22222222-2222-4222-8222-222222222222",
+	expectedWorkItemVersion: 2,
+	repositoryTargetId: "fixture-repo",
+};
+const stewardPlan = {
+	version: "delegation-capabilities.v1" as const,
+	requiredCapabilities: [],
+	missingCapabilities: [],
+	urls: [],
+	outputIds: [],
+	allowedToolIds: ["read_steward_work", "complete_steward_work"],
+	stewardCloseoutTargets: [stewardTarget],
+};
+const stewardPrepared = await agent.prepareMcpFacetTurn({
+	...input,
+	capabilityPlan: stewardPlan,
+});
+assert.deepEqual(Object.keys(stewardPrepared.tools).sort(), [
+	"complete_steward_work",
+	"read_steward_work",
+]);
+await assert.rejects(
+	agent.prepareMcpFacetTurn({
+		...input,
+		capabilityPlan: { ...stewardPlan, stewardCloseoutTargets: undefined },
+	}),
+	/capability tool unavailable/,
+);
+const readOnlySteward = await agent.prepareMcpFacetTurn({
+	...input,
+	capabilityPlan: { ...stewardPlan, allowedToolIds: ["read_steward_work"] },
+});
+assert.deepEqual(Object.keys(readOnlySteward.tools), ["read_steward_work"]);

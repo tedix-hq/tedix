@@ -1,3 +1,4 @@
+import { StewardCloseoutTargetsSchema } from "@tedix/api-contract/schemas/work-items";
 import { UuidParamSchema } from "@tedix/api-contract/schemas/common";
 import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { homeDelegationApprovalId } from "@tedix/api-contract/utils/home-delegation-approval";
@@ -910,6 +911,14 @@ export async function runKernelTurnWork(
 							)
 						: await deps
 								.kernel({
+									...(runtimeMetadata.stewardCloseoutTargets !== undefined
+										? {
+												stewardCloseoutTargets:
+													StewardCloseoutTargetsSchema.parse(
+														runtimeMetadata.stewardCloseoutTargets,
+													),
+											}
+										: {}),
 									holdDecisionWork: deps.holdAfterSettle,
 									onExecutionAttempts: (attempts) =>
 										executionAttempts.push(...attempts),

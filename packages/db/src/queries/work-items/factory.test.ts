@@ -1,3 +1,6 @@
+import { proposeWorkApproval, decideWorkApproval } from "./approvals";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
+import type { NativeStewardCloseoutFence } from "./crud";
 import { organizationMembers } from "../../schema/organization-members";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
@@ -1336,3 +1339,343 @@ describe("artifact-neutral work factory", () => {
 		).toBe(true);
 	});
 });
+
+async function nativeCompletionFixture(mutation?: string) {
+	let mutated = false;
+	let ready = false;
+	const sqlite = createMigratedSqlite();
+	const db = createDbQueryClient(
+		createD1Facade(sqlite, {
+			maxBoundParams: 100,
+			onPrepare(query, connection) {
+				if (
+					ready &&
+					mutation &&
+					!mutated &&
+					/^update "work_items"/i.test(query)
+				) {
+					mutated = true;
+					connection.exec(mutation);
+				}
+			},
+		}),
+	);
+	const f = { sqlite, db };
+	f.sqlite.exec(
+		"INSERT INTO organizations(id,name,slug) VALUES ('org','Fictional organization','native-fixture')",
+	);
+	f.sqlite
+		.prepare(
+			"INSERT INTO work_items(id,org_id,title,disposition,work_kind,risk_level,steward_type,steward_id,acceptance_contract,version,admission_spec_revision,created_at) VALUES ('native-target','org','Target','accepted','coding','high','tedi','native-steward',?,1,'target-spec',?)",
+		)
+		.run(CONTRACT, NOW);
+	f.sqlite
+		.prepare(
+			"INSERT INTO work_items(id,org_id,title,disposition,acceptance_contract,version,admission_spec_revision,created_at) VALUES ('native-coordinator','org','Coordinator','accepted',?,1,'coordinator-spec',?)",
+		)
+		.run(CONTRACT, NOW);
+	f.sqlite.exec(
+		"INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('native-steward','org','Fictional steward','fictional-steward','active')",
+	);
+	f.sqlite.exec(
+		"INSERT INTO organization_members(id,organization_id,descope_user_id,email,role,status) VALUES ('native-owner','org','owner-subject','owner@example.invalid','owner','active')",
+	);
+	const policy = { kernelRequestCoordinator: { enabled: true } };
+	f.sqlite
+		.prepare(
+			"INSERT INTO policy_packs(id,organization_id,name,slug,status,version,definition) VALUES ('native-policy','org','Fixture','fixture','active',1,?)",
+		)
+		.run(JSON.stringify(policy));
+	const sourceMetadata = { settlement: { commitSha: "a".repeat(40) } };
+	const at = new Date().toISOString();
+	const leaseExpiresAt = new Date(Date.now() + 600_000).toISOString();
+	f.sqlite.exec(
+		"INSERT INTO external_agent_principals(id,organization_id,key,display_name,status,credential_binding_type,credential_binding_id,created_by_type,created_by_id) VALUES ('fictional-agent','org','fixture-source','Fixture source','active','owner_user','owner-subject','user','owner-subject')",
+	);
+	f.sqlite
+		.prepare(
+			"INSERT INTO external_agent_sessions(id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,status,started_at,last_seen_at) VALUES ('source-session','org','fictional-agent','source-session-key','codex','fixture','fixture','fixture','fixture','explicit','active',?,?)",
+		)
+		.run(at, at);
+	f.sqlite.exec(
+		"INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('native-reviewer','org','Independent reviewer','fixture-reviewer','active')",
+	);
+	const proposal = await proposeWorkApproval(db, {
+		id: "44444444-4444-4444-8444-444444444444",
+		orgId: "org",
+		workItemId: "native-target",
+		workItemVersion: 1,
+		authorityKey: "risk:high",
+		proposal: { scope: "Fixture source execution with independent admission" },
+		requesterType: "tedi",
+		requesterId: "native-steward",
+		approverType: "tedi",
+		approverId: "native-reviewer",
+		rationale: "Bounded high-risk source fixture for completion fencing",
+		expiresAt: leaseExpiresAt,
+		now: at,
+	});
+	await decideWorkApproval(db, {
+		id: "55555555-5555-4555-8555-555555555555",
+		orgId: "org",
+		proposalId: proposal.id,
+		expectedVersion: proposal.version,
+		decision: "approved",
+		deciderType: "tedi",
+		deciderId: "native-reviewer",
+		rationale:
+			"Independent fixture reviewer confirms this exact bounded source scope",
+		now: at,
+	});
+	f.sqlite
+		.prepare(
+			"INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,decided_at,expires_at,created_at) VALUES ('native-admission','org','native-coordinator',1,'coordinator-spec','tedi','native-steward','admitted',?,?,?)",
+		)
+		.run(at, leaseExpiresAt, at);
+	f.sqlite
+		.prepare(
+			"INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,executor_session_id,external_session_key,decision,decided_at,expires_at,created_at) VALUES ('native-source-admission','org','native-target',1,'target-spec','external_agent','fictional-agent','source-session','source-session-key','admitted',?,?,?)",
+		)
+		.run(at, leaseExpiresAt, at);
+	f.sqlite
+		.prepare(
+			"INSERT INTO work_attempts(id,admission_id,org_id,work_item_id,executor_type,executor_id,executor_session_id,external_session_key,runtime_state,outcome,attempt_number,started_at,heartbeat_at,finished_at,expires_at,metadata) VALUES ('native-source','native-source-admission','org','native-target','external_agent','fictional-agent','source-session','source-session-key','finished','succeeded',1,?,?,?,?,?)",
+		)
+		.run(at, at, at, leaseExpiresAt, JSON.stringify(sourceMetadata));
+	f.sqlite
+		.prepare(
+			"INSERT INTO work_attempts(id,admission_id,org_id,work_item_id,executor_type,executor_id,run_id,runtime_state,attempt_number,started_at,heartbeat_at,expires_at) VALUES ('native-current','native-admission','org','native-coordinator','tedi','native-steward','native-child','running',1,?,?,?)",
+		)
+		.run(at, at, leaseExpiresAt);
+	f.sqlite
+		.prepare(
+			"INSERT INTO work_admissions(id,org_id,work_item_id,work_item_version,admission_spec_revision,executor_type,executor_id,decision,decided_at,expires_at,created_at) VALUES ('native-next-admission','org','native-target',1,'target-spec','tedi','native-steward','admitted',?,?,?)",
+		)
+		.run(at, leaseExpiresAt, at);
+	const targets = [
+		{
+			id: "native-target",
+			expectedWorkItemVersion: 1,
+			repositoryTargetId: "configured-os",
+		},
+	];
+	const capabilityPlan = {
+		version: "delegation-capabilities.v1",
+		requiredCapabilities: ["work.steward_closeout"],
+		allowedToolIds: ["read_steward_work", "complete_steward_work"],
+		missingCapabilities: [],
+		urls: [],
+		outputIds: [],
+		stewardCloseoutTargets: targets,
+	};
+	const metadata = {
+		workItemId: "native-coordinator",
+		redriveInput: {
+			descopeUserId: "owner-subject",
+			runtimeMetadata: { stewardCloseoutTargets: targets },
+		},
+		homeDelegation: {
+			workOrder: { capabilityPlan },
+		},
+	};
+	f.sqlite
+		.prepare(
+			"INSERT INTO kernel_runtime_runs(id,organization_id,conversation_id,status,delegated_tedi_id,child_run_id,metadata,created_at) VALUES ('native-home','org','native-conversation','running','native-steward','native-child',?,?)",
+		)
+		.run(JSON.stringify(metadata), at);
+	const fence: NativeStewardCloseoutFence = {
+		homeRunId: "native-home",
+		runId: "native-child",
+		linkedWorkItemId: "native-coordinator",
+		coordinatorAttemptId: "native-current",
+		coordinatorAdmissionId: "native-admission",
+		ownerUserId: "owner-subject",
+		tediId: "native-steward",
+		targetWorkItemVersion: 1,
+		sourceAttemptId: "native-source",
+		sourceAttemptMetadata: sourceMetadata,
+		sourceCommit: "a".repeat(40),
+		repositoryTargetId: "configured-os",
+		policyPackId: "native-policy",
+		policyDefinition: JSON.stringify(policy),
+		capabilityPlanJson: JSON.stringify(capabilityPlan),
+		tediPolicyPackId: null,
+		tediPolicyDefinition: null,
+		autonomyLessonClasses: [],
+	};
+	const params = {
+		orgId: "org",
+		workItemId: "native-target",
+		actor: { type: "tedi" as const, id: "native-steward" },
+		expectedWorkItemVersion: 1,
+		nativeStewardCloseout: fence,
+		closingComment: {
+			id: "native-home:steward-closeout:native-target:v1",
+			body: "Verified source and managed delivery",
+			metadata: { source: "native-steward-closeout.v1" },
+		},
+	};
+	ready = true;
+	return { ...f, params };
+}
+
+describe("atomic native steward completion", () => {
+	it("completes only the frozen target and preserves its high implementation risk", async () => {
+		const f = await nativeCompletionFixture();
+		const result = await completeWorkItem(f.db, f.params);
+		expect(result).toMatchObject({
+			disposition: "completed",
+			version: 2,
+			riskLevel: "high",
+		});
+		expect(result.metadata?.completionCommentId).toBe(
+			f.params.closingComment.id,
+		);
+		expect(await completeWorkItem(f.db, f.params)).toMatchObject({
+			disposition: "completed",
+			version: 2,
+		});
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS count FROM work_events WHERE work_item_id='native-target' AND event_type='work.completed'",
+				)
+				.get()?.count,
+		).toBe(1);
+		f.sqlite.close();
+	});
+	it.each([
+		[
+			"target version",
+			"UPDATE work_items SET version=2 WHERE id='native-target'",
+		],
+		[
+			"steward",
+			"UPDATE work_items SET steward_id='other' WHERE id='native-target'",
+		],
+		[
+			"owner revoked",
+			"UPDATE organization_members SET status='inactive' WHERE id='native-owner'",
+		],
+		[
+			"tedi inactive",
+			"UPDATE tedis SET status='inactive' WHERE id='native-steward'",
+		],
+		[
+			"Home canceled",
+			"UPDATE kernel_runtime_runs SET status='canceled' WHERE id='native-home'",
+		],
+		[
+			"Home child",
+			"UPDATE kernel_runtime_runs SET child_run_id='different' WHERE id='native-home'",
+		],
+		[
+			"coordinator canceled",
+			"UPDATE work_items SET disposition='cancelled' WHERE id='native-coordinator'",
+		],
+		[
+			"coordinator expired",
+			"UPDATE work_attempts SET expires_at='2020-01-01T00:00:00.000Z',version=version+1 WHERE id='native-current'",
+		],
+		[
+			"newer failed Attempt",
+			"INSERT INTO work_attempts(id,admission_id,org_id,work_item_id,executor_type,executor_id,runtime_state,outcome,attempt_number,started_at,heartbeat_at,finished_at,expires_at) SELECT 'newer',id,org_id,work_item_id,executor_type,executor_id,'failed','failed',2,decided_at,decided_at,decided_at,expires_at FROM work_admissions WHERE id='native-next-admission'",
+		],
+		[
+			"new active Attempt",
+			"INSERT INTO work_attempts(id,admission_id,org_id,work_item_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at,expires_at) SELECT 'active-newer',id,org_id,work_item_id,executor_type,executor_id,'running',2,decided_at,decided_at,expires_at FROM work_admissions WHERE id='native-next-admission'",
+		],
+		[
+			"policy changed",
+			"UPDATE policy_packs SET definition=json_set(definition,'$.changed',1) WHERE id='native-policy'",
+		],
+		[
+			"native tool revoked with target preserved",
+			"UPDATE kernel_runtime_runs SET metadata=json_set(metadata,'$.homeDelegation.workOrder.capabilityPlan.allowedToolIds',json('[]')) WHERE id='native-home'",
+		],
+		[
+			"bound target changed",
+			"UPDATE kernel_runtime_runs SET metadata=json_set(metadata,'$.homeDelegation.workOrder.capabilityPlan.stewardCloseoutTargets[0].expectedWorkItemVersion',2) WHERE id='native-home'",
+		],
+	] as const)(
+		"denies %s racing after verification but before the actual mutation",
+		async (_, mutation) => {
+			const f = await nativeCompletionFixture(mutation);
+			await expect(completeWorkItem(f.db, f.params)).rejects.toBeInstanceOf(
+				WorkFactoryError,
+			);
+			expect(
+				f.sqlite
+					.prepare(
+						"SELECT disposition FROM work_items WHERE id='native-target'",
+					)
+					.get()?.disposition,
+			).toBe("accepted");
+			expect(
+				f.sqlite
+					.prepare("SELECT count(*) AS count FROM work_item_comments")
+					.get()?.count,
+			).toBe(0);
+			f.sqlite.close();
+		},
+	);
+});
+
+it.each(["admission", "source snapshot", "source identity"])(
+	"rejects a mismatched trusted %s proof against valid retained records",
+	async (kind) => {
+		const f = await nativeCompletionFixture();
+		if (kind === "admission")
+			f.params.nativeStewardCloseout.coordinatorAdmissionId = "other-admission";
+		if (kind === "source snapshot")
+			f.params.nativeStewardCloseout.sourceAttemptMetadata = {
+				sourceCommit: "different",
+			};
+		if (kind === "source identity")
+			f.params.nativeStewardCloseout.sourceAttemptId = "different-attempt";
+		await expect(completeWorkItem(f.db, f.params)).rejects.toBeInstanceOf(
+			WorkFactoryError,
+		);
+		expect(
+			f.sqlite
+				.prepare("SELECT disposition FROM work_items WHERE id='native-target'")
+				.get()?.disposition,
+		).toBe("accepted");
+		f.sqlite.close();
+	},
+);
+
+it.each(["tedi link", "tedi definition", "tedi status", "autonomy lesson"])(
+	"atomically denies changed %s policy after approval",
+	async (kind) => {
+		const mutation =
+			kind === "tedi link"
+				? "UPDATE tedis SET policy_pack_id='native-linked-policy' WHERE id='native-steward'"
+				: kind === "tedi definition"
+					? "UPDATE policy_packs SET definition=json_set(definition,'$.requiresApproval',1) WHERE id='native-linked-policy'"
+					: kind === "tedi status"
+						? "UPDATE policy_packs SET status='retired' WHERE id='native-linked-policy'"
+						: "INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES ('late-lesson','org','native-target','delegation.autonomy.corrected','user','historical-owner','{\"classId\":\"native:complete_steward_work\"}','2026-11-04T23:00:00Z')";
+		const f = await nativeCompletionFixture(mutation);
+		f.sqlite.exec(
+			"INSERT INTO policy_packs(id,name,slug,status,version,definition) VALUES ('native-linked-policy','Linked policy','linked-policy','active',1,'{}')",
+		);
+		if (kind === "tedi definition" || kind === "tedi status") {
+			f.sqlite.exec(
+				"UPDATE tedis SET policy_pack_id='native-linked-policy' WHERE id='native-steward'",
+			);
+			f.params.nativeStewardCloseout.tediPolicyPackId = "native-linked-policy";
+			f.params.nativeStewardCloseout.tediPolicyDefinition = "{}";
+		}
+		await expect(completeWorkItem(f.db, f.params)).rejects.toBeInstanceOf(
+			WorkFactoryError,
+		);
+		expect(
+			f.sqlite
+				.prepare("SELECT disposition FROM work_items WHERE id='native-target'")
+				.get()?.disposition,
+		).toBe("accepted");
+		expect(f.sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+		f.sqlite.close();
+	},
+);

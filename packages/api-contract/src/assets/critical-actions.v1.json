@@ -25,6 +25,7 @@
 	],
 	"nativeMediumRiskTools": [
 		"close_completed_work_item",
+		"complete_steward_work",
 		"write",
 		"edit",
 		"artifact_write",
