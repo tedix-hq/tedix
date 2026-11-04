@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import { resolveWebSearchAccess } from "@tedix/api-contract/schemas/web-search";
-import { isAppLevelGrant } from "./delegation-capabilities";
+import {
+	isAppLevelGrant,
+	isWorkspaceAppRequest,
+} from "./delegation-capabilities";
 import { buildAutoDelegationDispatcher } from "./auto-dispatch";
 import {
 	buildDelegationWorkOrder,
@@ -641,5 +644,78 @@ describe("web search delegation", () => {
 		expect(disabled.capabilityPlan?.requiredCapabilities ?? []).not.toContain(
 			"web.search",
 		);
+	});
+});
+
+describe("workspace app edits", () => {
+	const request =
+		"Workspace file: Screenshot.png (https://acme.os.tedix.dev/outputs/3fa7445c-e04e-4324-a651-6baff0d40c96)\n\nfix the loading ui for the research explained gadget app.";
+	const embodied = {
+		...route,
+		effortClass: "embodied" as const,
+		plannedToolIds: ["open_computer", "exec"],
+	};
+
+	it("keeps an app fix off the repository checkout even when the planner asks for a computer", () => {
+		const requirement = deriveExecutionRequirement(request, embodied);
+		expect(requirement.surface).toBe("native");
+		expect(requirement.requiredCapabilities).not.toContain("repository_edit");
+		expect(requirement.requiredCapabilities).not.toContain("process");
+	});
+
+	it("tells the tedi to read and propose through the app tools, not a computer or a page reader", () => {
+		const result = buildDelegationWorkOrder({
+			userContent: request,
+			card: readerCard,
+			route: embodied,
+			workspace: { id: "0c2464ac-201c-4e56-bb40-e1499d4673fe", name: "Reddit" },
+		});
+		const guidance = result.toolGuidance.join("\n");
+		expect(guidance).toContain("gadgets_get_code");
+		expect(guidance).toContain("propose_os_app_edit");
+		expect(guidance).toContain("0c2464ac-201c-4e56-bb40-e1499d4673fe");
+		expect(guidance).not.toContain("open_computer({ repository: true })");
+		expect(guidance).not.toContain("browser_markdown");
+		// Catalog tool names differ by organization: Code Mode, not exact ids.
+		expect(result.capabilityPlan).toBeUndefined();
+		expect(result.executionRequirement.surface).toBe("native");
+		const open = buildDelegationWorkOrder({
+			userContent: request,
+			card: readerCard,
+			route: embodied,
+			workspace: {
+				id: "0c2464ac-201c-4e56-bb40-e1499d4673fe",
+				name: "Reddit",
+				workpiece: {
+					kind: "gadget",
+					id: "b7fa45bd-5bdc-4987-95c3-ee6afbe3129a",
+					name: "Research explained",
+				},
+			},
+		});
+		expect(open.toolGuidance.join("\n")).toContain(
+			"gadgetId b7fa45bd-5bdc-4987-95c3-ee6afbe3129a",
+		);
+	});
+
+	it("routes planner-selected app tools as an app edit without the word gadget", () => {
+		expect(
+			isWorkspaceAppRequest("Fix the spinner in the Evaluations app", {
+				plannedToolIds: ["gadgets_get_code", "propose_os_app_edit"],
+			}),
+		).toBe(true);
+		expect(
+			isWorkspaceAppRequest("Fix the spinner in the Evaluations app", {
+				plannedToolIds: [],
+			}),
+		).toBe(false);
+	});
+
+	it("keeps a repository change to the gadget runtime as repository work", () => {
+		const content = "fix the gadget runtime loader in the repository";
+		expect(isWorkspaceAppRequest(content, route)).toBe(false);
+		expect(
+			deriveExecutionRequirement(content, route).requiredCapabilities,
+		).toContain("repository_edit");
 	});
 });

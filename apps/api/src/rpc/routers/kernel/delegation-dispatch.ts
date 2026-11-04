@@ -61,6 +61,7 @@ import type { TediCapabilityCard } from "./tedi-capabilities";
 import {
 	delegationRequestContent,
 	buildDelegationCapabilityPlan,
+	isWorkspaceAppRequest,
 } from "./delegation-capabilities";
 
 export type DelegationWorkOrder = ContractDelegationWorkOrder & {
@@ -107,6 +108,13 @@ const NEGATED_CAPABILITY_CLAUSE =
 	/\b(?:without|do not|don't|must not|never)\b[^.!?;]{0,180}?(?=,\s*(?:then\s+)?(?:run|use|poll|return|perform|execute|read|inspect|check|validate)\b|\s+but\s+|[.!?;]|$)/gi;
 
 const MANAGED_JOB_TOOL = /(?:^|[.:])(?:exec|read_execution|cancel_execution)$/;
+/** Capabilities a workspace app edit never needs: its code is not a checkout. */
+const CHECKOUT_CAPABILITIES = new Set<ExecutionCapability>([
+	"repository_edit",
+	"repository_read",
+	"filesystem_transform",
+	"process",
+]);
 
 const CAPABILITY_SIGNALS: ReadonlyArray<{
 	capability: ExecutionCapability;
@@ -187,10 +195,12 @@ function classifyCapabilities(
 		/\b(?:no\s+(?:repo(?:sitory)?|codebase|source code)\s+(?:research|lookup|inspection)(?:\s+(?:is\s+)?(?:needed|required)\b|(?=[.!?;]|$))|(?:repo(?:sitory)?|codebase|source code)\s+(?:research|lookup|inspection)\s+(?:is\s+)?not\s+(?:needed|required)\b|(?:do not|don't|never)\s+(?:research|inspect|read)\s+(?:the\s+)?(?:repo(?:sitory)?|codebase|source code)\b)/i.test(
 			content,
 		);
+	const appEdit = isWorkspaceAppRequest(content, route);
 	for (const signal of CAPABILITY_SIGNALS) {
 		// Supplied source excerpts do not require a checkout when lookup is excluded.
 		if (signal.capability === "repository_read" && noRepositoryResearch)
 			continue;
+		if (appEdit && CHECKOUT_CAPABILITIES.has(signal.capability)) continue;
 		if (signal.pattern.test(requestedContent))
 			capabilities.add(signal.capability);
 	}
@@ -202,6 +212,7 @@ function classifyCapabilities(
 		)
 			capabilities.add("browser_session");
 		if (value.includes("deploy")) capabilities.add("deploy");
+		if (appEdit) continue;
 		if (MANAGED_JOB_TOOL.test(value)) capabilities.add("data");
 		if (/(?:^|[.:])(?:open_computer|close_computer)$/.test(value))
 			capabilities.add("process");
@@ -275,6 +286,7 @@ export function deriveExecutionRequirement(
 	}
 	if (
 		route.effortClass === "embodied" &&
+		!isWorkspaceAppRequest(requestContent, route) &&
 		!(requiredCapabilities.length === 0 && /https?:\/\//i.test(requestContent))
 	) {
 		return {
@@ -652,6 +664,12 @@ export function buildDelegationWorkOrder(input: {
 	 * requirement that includes `repository_edit`.
 	 */
 	requiredProofKind?: "code" | "terminal_execution" | null;
+	/** The Workspace the Home turn was sent from; names where its apps live. */
+	workspace?: {
+		id: string;
+		name: string;
+		workpiece?: { kind: "gadget" | "output"; id: string; name: string };
+	} | null;
 }): DelegationWorkOrder {
 	const { route, card, userContent, budget, traceExcerpts, outputSchema } =
 		input;
@@ -715,8 +733,23 @@ export function buildDelegationWorkOrder(input: {
 	const readingContext = [sourceContent, ...(traceExcerpts ?? [])]
 		.map(delegationRequestContent)
 		.join("\n");
+	const appEdit = isWorkspaceAppRequest(sourceContent, route);
+	if (appEdit)
+		guidanceSeeds.push(
+			"This is a Tedix workspace app, not a repository: never open_computer or clone a repo. Use Code Mode (tedix_mcp_code) app tools.",
+			input.workspace?.workpiece?.kind === "gadget"
+				? `The open app is "${input.workspace.workpiece.name}" (gadgetId ${input.workspace.workpiece.id}) in workspace ${input.workspace.id}; read its files with gadgets_get_code.`
+				: input.workspace
+					? `Find the app with list_os_gadgets in workspace ${input.workspace.id} ("${input.workspace.name}"), then read its files with gadgets_get_code.`
+					: "Find the app with list_os_workspaces and list_os_gadgets, then read its files with gadgets_get_code.",
+			'Propose exact before/after replacements with propose_os_app_edit (discover.search("propose app edit") if named differently); it opens a draft for review.',
+			"Report the draft's previewUrl and what changed. Attached workspace files arrive with this message; do not fetch their OS links.",
+		);
+	// OS links to workspace files and outputs are not readable web pages.
 	if (
-		/https?:\/\/\S+/i.test(readingContext) ||
+		/https?:\/\/\S+/i.test(
+			readingContext.replace(/https?:\/\/\S+\/outputs\/[\w-]+\)?/gi, " "),
+		) ||
 		/\b(?:read|summari[sz]e|fetch)\b[^.!?\n]{0,80}\b(?:page|article|website)\b/i.test(
 			readingContext,
 		)

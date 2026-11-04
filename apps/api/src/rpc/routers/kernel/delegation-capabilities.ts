@@ -11,6 +11,31 @@ export function delegationRequestContent(content: string): string {
 	return content.split(/\n\nLocal terminal context:\n- cwd: /, 1)[0] ?? content;
 }
 
+const WORKSPACE_APP_TOOL =
+	/(?:^|[._])(?:gadgets_get_code|propose_(?:os_app_)?edit|accept_os_app_edit|(?:get|list|revise)_os_gadgets?|list_os_app_revisions|preview_os_app_draft)$/;
+
+/**
+ * A Tedix workspace app (gadget) keeps its client.js/server.js in Tedix app
+ * revisions, so changing one is an app edit through the app tools, never a
+ * repository checkout. A request that names the repository or codebase
+ * stays repository work.
+ */
+export function isWorkspaceAppRequest(
+	content: string,
+	route: Pick<KernelRouteDecision, "plannedToolIds">,
+): boolean {
+	const text = delegationRequestContent(content).replace(
+		/https?:\/\/\S+/gi,
+		" ",
+	);
+	if (/\b(?:repo(?:sitory)?|codebase|source code|git)\b/i.test(text))
+		return false;
+	return (
+		route.plannedToolIds.some((id) => WORKSPACE_APP_TOOL.test(id)) ||
+		/\b(?:gadgets?|workspace apps?)\b/i.test(text)
+	);
+}
+
 /**
  * Native tool ids are bare snake_case names and provider callables are
  * `namespace.tool`; a planned id of any other shape names a connected app
@@ -73,6 +98,9 @@ export function deriveDelegationCapabilityPlan(input: {
 			outputIds: [],
 		};
 	}
+	// App tool names differ between organization catalogs; the child finds
+	// them through Code Mode under its supervised ceiling.
+	if (isWorkspaceAppRequest(content, route)) return undefined;
 	// An explicitly read-only request never derives a Work write capability.
 	const readOnly = /\bread-only\b/i.test(content);
 	const scopedCloseout = Boolean(

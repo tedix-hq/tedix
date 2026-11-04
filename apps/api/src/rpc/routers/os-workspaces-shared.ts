@@ -33,7 +33,7 @@ import {
 	updateOsWorkspaceResourceMetadata,
 } from "@tedix/db/queries/os-workspaces/resources";
 import {
-	findOsWorkspaceIdForKernelRun,
+	findOsWorkspaceForKernelRun,
 	getOsWorkspace,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
@@ -741,37 +741,47 @@ export async function ensureWorkspaceSkillDependencyLinks(
 }
 
 /**
- * The Workspace of the Home turn making this call. The MCP edge forwards the
- * turn's kernel run id only on its trusted Worker-to-Worker hop; the run's
- * conversation (or the run that delegated it) names the Workspace. Null for a
- * direct call, a turn outside a Workspace, or a Workspace the caller cannot
- * see.
+ * The Workspace and Home conversation of the turn making this call. The MCP
+ * edge forwards the turn's kernel run id only on its trusted Worker-to-Worker
+ * hop: a Home run id, or the `<tediId>:<origin>:<requestId>` id of a tedi turn
+ * Home delegated. The run's conversation (or the run that delegated it) names
+ * the Workspace. Null for a direct call, a turn outside a Workspace, or a
+ * Workspace the caller cannot see.
  */
-export async function callerTurnWorkspace(
+export async function callerTurn(
 	context: BaseContext,
-): Promise<OsWorkspaceRow | null> {
+): Promise<{ workspace: OsWorkspaceRow; conversationId: string } | null> {
 	const runId = context.headers?.get("X-Tedix-Kernel-Run-Id");
 	if (
 		!runId ||
 		!isServiceBinding(context.headers) ||
-		!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?::[a-z_-]{1,40}:[\w:.-]{1,400})?$/i.test(
 			runId,
 		)
 	)
 		return null;
 	const organizationId = requireOrgId(context);
 	const db = queryDb(context);
-	const workspaceId = await findOsWorkspaceIdForKernelRun(db, {
+	const turn = await findOsWorkspaceForKernelRun(db, {
 		organizationId,
 		runId,
 	});
-	if (!workspaceId) return null;
-	const workspace = await getOsWorkspace(db, { organizationId, workspaceId });
+	if (!turn) return null;
+	const workspace = await getOsWorkspace(db, {
+		organizationId,
+		workspaceId: turn.workspaceId,
+	});
 	if (!workspace || workspace.status !== "active") return null;
 	try {
 		await assertOsWorkspaceVisible(context, workspace);
 	} catch {
 		return null;
 	}
-	return workspace;
+	return { workspace, conversationId: turn.conversationId };
+}
+
+export async function callerTurnWorkspace(
+	context: BaseContext,
+): Promise<OsWorkspaceRow | null> {
+	return (await callerTurn(context))?.workspace ?? null;
 }

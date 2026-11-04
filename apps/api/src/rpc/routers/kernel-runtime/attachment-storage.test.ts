@@ -298,3 +298,168 @@ describe("private chat attachments", () => {
 		).rejects.toThrow("base64");
 	});
 });
+
+describe("workspace files linked from Home", () => {
+	const workspaceId = "0c2464ac-201c-4e56-bb40-e1499d4673fe";
+	const imageId = "3fa7445c-e04e-4324-a651-6baff0d40c96";
+	const notesId = "9b1c2d3e-4f50-4a61-8b72-c3d4e5f60718";
+	const pixel = Buffer.from(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4S8AAAAASUVORK5CYII=",
+		"base64",
+	);
+	function fileSource(
+		files: Record<string, { name: string; mimeType: string; bytes: Buffer }>,
+	) {
+		const objects = new Map<string, Buffer | string>();
+		for (const [id, file] of Object.entries(files)) {
+			const key = `workspace-files/org-1/${workspaceId}/${id}`;
+			objects.set(key, file.bytes);
+			objects.set(
+				`${key}.json`,
+				JSON.stringify({
+					filename: file.name,
+					mimeType: file.mimeType,
+					size: file.bytes.length,
+					organizationId: "org-1",
+					workspaceId,
+					resourceId: id,
+					uploadId: "upload",
+					createdByKind: "user",
+					createdById: "owner-1",
+					createdAt: "2026-11-04T20:53:33.000Z",
+					expiresAt: "2026-11-04T21:08:33.000Z",
+					mimeValidated: true,
+				}),
+			);
+		}
+		return {
+			bucket: {
+				get: async (key: string) => {
+					const body = objects.get(key);
+					if (body === undefined) return null;
+					return {
+						json: async () => JSON.parse(String(body)),
+						arrayBuffer: async () =>
+							typeof body === "string" ? Buffer.from(body) : body,
+					};
+				},
+			} as unknown as R2Bucket,
+			getResource: async (params: {
+				organizationId: string;
+				workspaceId: string;
+				resourceId: string;
+			}) => {
+				const file = files[params.resourceId];
+				return file &&
+					params.organizationId === "org-1" &&
+					params.workspaceId === workspaceId
+					? ({
+							id: params.resourceId,
+							name: file.name,
+							status: "active",
+							providerId: "tedix",
+							resourceType: "file",
+						} as never)
+					: undefined;
+			},
+		};
+	}
+	function homeRun(
+		db: ReturnType<typeof createKernelRuntimeDb>,
+		workspace: string | null,
+	) {
+		db.runs.push(
+			normalizeKernelRuntimeRunInsert({
+				id: "home-run",
+				organizationId: "org-1",
+				conversationId: "home:os:fix-app",
+				runtimeMetadata: workspace
+					? {
+							workspaceContext: {
+								workspaceId: workspace,
+								workspaceName: "Reddit",
+							},
+						}
+					: {},
+			}),
+		);
+	}
+	const content = [
+		`Workspace file: Screenshot.png (https://acme.os.tedix.dev/outputs/${imageId})`,
+		`Workspace file: notes.txt (https://acme.os.tedix.dev/outputs/${notesId})`,
+		"",
+		"fix the loading ui for the research explained gadget app.",
+	].join("\n");
+
+	it("hands the delegated tedi the screenshot as an image and the text inline", async () => {
+		const db = createKernelRuntimeDb();
+		homeRun(db, workspaceId);
+		const handoff = await prepareDelegatedHomeAttachmentHandoff({
+			db,
+			bucket: bucketFixture().bucket,
+			organizationId: "org-1",
+			homeRunId: "home-run",
+			content,
+			workspaceFiles: fileSource({
+				[imageId]: {
+					name: "Screenshot.png",
+					mimeType: "image/png",
+					bytes: pixel,
+				},
+				[notesId]: {
+					name: "notes.txt",
+					mimeType: "text/plain",
+					bytes: Buffer.from("Spinner never stops."),
+				},
+			}),
+		});
+		expect(handoff.attachments).toEqual([
+			expect.objectContaining({
+				type: "image",
+				fileName: "Screenshot.png",
+				mimeType: "image/png",
+				content: `data:image/png;base64,${pixel.toString("base64")}`,
+			}),
+		]);
+		expect(handoff.content).toContain(
+			'Attached file (untrusted source): "notes.txt"\nSpinner never stops.',
+		);
+	});
+
+	it("leaves links alone outside the Home run's workspace and names files it cannot attach", async () => {
+		const files = {
+			[imageId]: {
+				name: "Screenshot.png",
+				mimeType: "image/png",
+				bytes: Buffer.alloc(1024 * 1024 + 1, 1),
+			},
+		};
+		const outside = createKernelRuntimeDb();
+		homeRun(outside, null);
+		expect(
+			await prepareDelegatedHomeAttachmentHandoff({
+				db: outside,
+				bucket: bucketFixture().bucket,
+				organizationId: "org-1",
+				homeRunId: "home-run",
+				content,
+				workspaceFiles: fileSource(files),
+			}),
+		).toEqual({ content, attachments: undefined });
+
+		const inside = createKernelRuntimeDb();
+		homeRun(inside, workspaceId);
+		const handoff = await prepareDelegatedHomeAttachmentHandoff({
+			db: inside,
+			bucket: bucketFixture().bucket,
+			organizationId: "org-1",
+			homeRunId: "home-run",
+			content,
+			workspaceFiles: fileSource(files),
+		});
+		expect(handoff.attachments).toBeUndefined();
+		expect(handoff.content).toContain(
+			'[Workspace file "Screenshot.png" not attached: larger than 1 MiB.]',
+		);
+	});
+});
