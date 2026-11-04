@@ -8,7 +8,7 @@ import {
 	type Page,
 	type Request,
 } from "playwright";
-import { startFixtureServer } from "./fixture-server";
+import { startFixtureServer, type FixtureServer } from "./fixture-server";
 
 /*
  * Work beyond the Deck on iPhone Safari (WebKit): Feed, Projects, a project,
@@ -17,12 +17,32 @@ import { startFixtureServer } from "./fixture-server";
  * keeps to the screen width, keeps its text inside its rows, and keeps its
  * row links 44px tall. Fields keep 16px text (smaller zooms the page on
  * focus) and stay reachable above the software keyboard.
+ *
+ * The checks run as several short specs so CI can shard them: the desktop
+ * Feed/Deck heading pass (`runWorkHeadings`) and, per iPhone size and colour
+ * scheme, a "views" half (every route's layout and the view controls of the
+ * dense pages) and a "flows" half (forms, keyboard, lists and tap targets).
  */
 
 const PROJECT = "/work/projects/00000076-0000-4000-8000-000000000001";
 const ITEM = "/work/items/00000070-0000-4000-8000-000000000001";
 const REQUEST = "/work/interactions/000000a7-0000-4000-8000-000000000001";
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+export type WorkIphoneSize = "390x844" | "375x667";
+export type WorkIphonePart = "views" | "flows";
+export type ColorScheme = "light" | "dark";
+
+const DEVICES = {
+	"390x844": {
+		device: devices["iPhone 13"],
+		viewport: { width: 390, height: 844 },
+	},
+	"375x667": {
+		device: devices["iPhone 8"],
+		viewport: { width: 375, height: 667 },
+	},
+} as const;
 
 /** Pages, each with the element that proves it rendered. */
 const PAGES: Array<[string, string]> = [
@@ -230,473 +250,483 @@ async function keyboardFailures(page: Page, field: Locator, action: Locator) {
 	return failures;
 }
 
-/** Runs the checks for the given iPhone sizes; `desktop` adds the Feed/Deck heading, Office and Capacity checks. */
-export async function runWorkIphone(
-	sizes: readonly ("390x844" | "375x667")[],
-	{ desktop }: { desktop: boolean },
-) {
+async function screenshotDir() {
 	const shots = process.env.TEDIX_SCREENSHOT_DIR;
 	if (shots) await mkdir(shots, { recursive: true });
-	const server = await startFixtureServer("/work");
-	const { origin } = server;
+	return shots;
+}
 
+async function withFixture(
+	run: (browser: Browser, server: FixtureServer) => Promise<void>,
+) {
+	const server = await startFixtureServer("/work");
 	let browser: Browser | undefined;
-	const allFailures: string[] = [];
 	try {
 		browser = await webkit.launch({ headless: true });
-		if (desktop) {
-			for (const width of [390, 1280]) {
-				for (const colorScheme of ["light", "dark"] as const) {
-					const context = await browser.newContext({
-						viewport: { width, height: 844 },
-						colorScheme,
-						reducedMotion: "reduce",
-					});
-					await context.addInitScript(
-						(theme) => localStorage.setItem("tedix-os-theme", theme),
-						colorScheme,
-					);
-					const page = await context.newPage();
-					for (const view of ["feed", "deck"] as const) {
-						await page.goto(`${origin}/work?view=${view}`);
-						await page
-							.locator(
-								`[data-workspace-app-entry=${view === "feed" ? "activity-feed" : "decision-deck"}]`,
-							)
-							.waitFor();
-						const headings = page.getByRole("heading", { level: 1 });
-						assert.equal(
-							await page.locator("vite-error-overlay").count(),
-							0,
-							`${width} ${colorScheme} ${view}: document scripts load without errors`,
-						);
-						assert(
-							await page.evaluate(() =>
-								document.documentElement.style
-									.getPropertyValue("--viewport-tedix-height")
-									.endsWith("px"),
-							),
-							`${width} ${colorScheme} ${view}: document viewport metrics are installed`,
-						);
-						assert.equal(await headings.count(), 1);
-						assert.equal(
-							await headings.textContent(),
-							view === "feed" ? "Activity" : "Decisions",
-						);
-						assert(
-							await headings.evaluate((heading) => {
-								const box = heading.getBoundingClientRect();
-								return (
-									box.width <= 1 &&
-									box.height <= 1 &&
-									[...document.querySelectorAll("h2, h3, h4, h5, h6")].every(
-										(other) =>
-											Boolean(
-												heading.compareDocumentPosition(other) &
-												Node.DOCUMENT_POSITION_FOLLOWING,
-											),
-									)
-								);
-							}),
-							`${width} ${colorScheme} ${view}: hidden page heading precedes content headings`,
-						);
-						if (shots)
-							await page.screenshot({
-								path: `${shots}/work-heading-${view}-${width}-${colorScheme}.png`,
-							});
-					}
-					await context.close();
-				}
-			}
-			console.log("Work headings: 8 Feed/Deck viewport/theme checks passed");
-			const office = await browser.newPage();
-			await office.goto(`${origin}/work?app=office`);
-			await office
-				.locator("[data-workspace-app-entry=office]")
-				.waitFor({ timeout: 20_000 });
-			assert.equal(
-				await office.getByText("Support tickets are unavailable.").count(),
-				0,
-				"Office fixture support read should resolve",
-			);
-			await office.close();
-			for (const colorScheme of ["light", "dark"] as const) {
-				const context = await browser.newContext({
-					viewport: { width: 1280, height: 800 },
-					colorScheme,
-					reducedMotion: "reduce",
-				});
-				await context.addInitScript(
-					(theme) => localStorage.setItem("tedix-os-theme", theme),
-					colorScheme,
-				);
-				const page = await context.newPage();
-				await page.goto(`${origin}/work/capacity`);
-				await page.locator("[data-slot=card] strong").first().waitFor();
-				await settle(page);
-				assert.deepEqual(
-					await layoutFailures(page),
-					[],
-					`1280x800 ${colorScheme} capacity layout`,
-				);
-				await context.close();
-			}
-		}
-		for (const [size, device, viewport] of [
-			["390x844", devices["iPhone 13"], { width: 390, height: 844 }],
-			["375x667", devices["iPhone 8"], { width: 375, height: 667 }],
-		] as const) {
-			if (!sizes.includes(size)) continue;
-			for (const colorScheme of ["light", "dark"] as const) {
-				const label = `${size} ${colorScheme}`;
-				const context = await browser.newContext({
-					...device,
-					viewport,
-					colorScheme,
-					reducedMotion: "reduce",
-				});
-				await context.addInitScript(
-					(theme) => localStorage.setItem("tedix-os-theme", theme),
-					colorScheme,
-				);
-				const page = await context.newPage();
-				const pending = new Set<Request>();
-				const errors: string[] = [];
-				page.on("request", (request) => pending.add(request));
-				page.on("requestfinished", (request) => pending.delete(request));
-				page.on("requestfailed", (request) => {
-					pending.delete(request);
-					errors.push(`${request.url()}: ${request.failure()?.errorText}`);
-				});
-				page.on("pageerror", (error) =>
-					errors.push(error.stack ?? error.message),
-				);
-				page.on("response", (response) => {
-					if (response.status() >= 400)
-						errors.push(`HTTP ${response.status()} ${response.url()}`);
-				});
-				const failures: string[] = [];
-				const check = async (path: string, ready: string) => {
-					errors.length = 0;
-					pending.clear();
-					const trace =
-						shots &&
-						ready === ".focus-today" &&
-						!process.env.TEDIX_BROWSER_EVIDENCE_DIR;
-					if (trace)
-						await context.tracing.start({ snapshots: true, screenshots: true });
-					try {
-						await page.goto(`${origin}${path}`);
-						await page.locator(ready).first().waitFor({ timeout: 20_000 });
-					} catch (error) {
-						console.error(`${label} ${path} readiness failure`, {
-							selector: ready,
-							url: page.url(),
-							fixtureExitCode: server.exitCode(),
-							errors,
-							pending: [...pending].map((request) => request.url()),
-						});
-						if (trace)
-							await context.tracing.stop({
-								path: `${shots}/${size}-${colorScheme}-render-failure.zip`,
-							});
-						if (shots) {
-							await page.screenshot({
-								path: `${shots}/${size}-${colorScheme}-render-failure.png`,
-							});
-						}
-						throw new Error(
-							`${path} did not render: ${await page.locator("main.route-content").innerText()}`,
-							{ cause: error },
-						);
-					}
-					if (trace) await context.tracing.stop();
-					await settle(page);
-					assert.deepEqual(
-						await page.evaluate(() => ({
-							width: innerWidth,
-							height: innerHeight,
-						})),
-						viewport,
-						`${label} viewport`,
-					);
-					for (const failure of await layoutFailures(page))
-						failures.push(`${path}: ${failure}`);
-					if (shots)
-						await page.screenshot({
-							path: `${shots}/${size}-${colorScheme}-${path.replace(/[^a-z0-9]+/gi, "_").replace(/_[0-9a-f]{8}_0000_4000_8000_0+/, "_")}.png`,
-						});
-				};
-				const targets = async (
-					path: string,
-					locator: Locator,
-					name: string,
-				) => {
-					const count = await locator.count();
-					assert(count > 0, `${label} ${path}: no ${name}`);
-					for (let index = 0; index < count; index++)
-						for (const failure of await targetFailures(
-							locator.nth(index),
-							`${name} ${index + 1}`,
-						))
-							failures.push(`${path}: ${failure}`);
-				};
-
-				for (const [path, ready] of PAGES) await check(path, ready);
-				if (viewport.width === 375) {
-					await check(PROJECT, '[aria-label="Work queue"]');
-					const metadata = page.locator('[aria-label="Work queue"] dd');
-					assert(
-						(await metadata.count()) > 0,
-						`${label} ${PROJECT}: no phone metadata`,
-					);
-					const overflow = await metadata.evaluateAll((cells) =>
-						cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
-					);
-					if (overflow)
-						failures.push(
-							`${PROJECT}: Work queue phone metadata scrolls sideways`,
-						);
-					// Fixture owner names are short; force a pathological identity to
-					// prove the label cannot widen its row and the title keeps the
-					// complete value discoverable.
-					const owners = page.locator(
-						'[aria-label="Work queue"] dd[title^="Owner:"]',
-					);
-					assert(
-						(await owners.count()) > 0,
-						`${label} ${PROJECT}: no phone owner metadata`,
-					);
-					const longOwner =
-						"SolsticeLongitudinalOperationsCoordinatorWithoutAnyBreaks";
-					const ownerCell = await owners.first().evaluate((cell, name) => {
-						const row = cell.closest("li")!;
-						// Keep the app's wrapping span and metadata separator intact.
-						cell.querySelector("span:last-child")!.textContent = name;
-						cell.setAttribute("title", `Owner: ${name}`);
-						return {
-							page: document.documentElement.scrollWidth,
-							viewport: document.documentElement.clientWidth,
-							cellRight: cell.getBoundingClientRect().right,
-							rowRight: row.getBoundingClientRect().right,
-							cellScroll: cell.scrollWidth,
-							cellClient: cell.clientWidth,
-							title: cell.getAttribute("title"),
-						};
-					}, longOwner);
-					if (ownerCell.page > ownerCell.viewport + 1)
-						failures.push(
-							`${PROJECT}: a long owner widened the page to ${ownerCell.page}px`,
-						);
-					if (ownerCell.cellRight > ownerCell.rowRight + 1)
-						failures.push(`${PROJECT}: owner label runs past its row`);
-					if (ownerCell.cellScroll > ownerCell.cellClient + 1)
-						failures.push(`${PROJECT}: owner label scrolls sideways`);
-					if (ownerCell.title !== `Owner: ${longOwner}`)
-						failures.push(`${PROJECT}: owner title lost the complete value`);
-				}
-				if (viewport.width === 390) {
-					await check("/work/capacity", "[data-slot=card] strong");
-					const holder = page
-						.locator("[data-slot=card] p")
-						.filter({ hasText: "fictional west warehouse" })
-						.first();
-					assert.equal(await holder.count(), 1, `${label}: no capacity holder`);
-					const holderOverflow = await holder.evaluate((node) => ({
-						clientWidth: node.clientWidth,
-						scrollWidth: node.scrollWidth,
-					}));
-					if (holderOverflow.scrollWidth > holderOverflow.clientWidth + 1)
-						failures.push(
-							`/work/capacity: holder details are ${holderOverflow.scrollWidth}px wide in a ${holderOverflow.clientWidth}px row`,
-						);
-				}
-				for (const path of [
-					"/work?app=agents",
-					"/work?app=office",
-					"/work?app=outbound",
-					"/work/cases",
-					"/work/capacity",
-					"/work/capacity?view=budgets",
-				]) {
-					const ready = PAGES.find(([url]) => url === path)![1];
-					await check(path, ready);
-					await targets(
-						path,
-						page.locator(
-							"main.route-content a[href]:visible, main.route-content button:visible:not([disabled]), main.route-content input:visible:not([aria-hidden=true]):not([tabindex='-1']), main.route-content summary:visible",
-						),
-						"view control",
-					);
-					if (shots && path === "/work?app=office") {
-						await page
-							.locator("#office-leaderboard-title")
-							.scrollIntoViewIfNeeded();
-						await page.screenshot({
-							path: `${shots}/${size}-${colorScheme}-office-leaderboard.png`,
-						});
-					}
-				}
-				await check("/work/cases", "[data-mobile-case-row]");
-				await page
-					.getByRole("button", { name: "New epic", exact: true })
-					.click();
-				for (const failure of await layoutFailures(page))
-					failures.push(`/work/cases form: ${failure}`);
-				await targets(
-					"/work/cases form",
-					page.locator(
-						"#open-case-form input:visible:not([aria-hidden=true]):not([tabindex='-1']), #open-case-form button:visible",
-					),
-					"epic field",
-				);
-
-				await check("/work?view=feed", ".focus-today");
-				await targets(
-					"Today",
-					page.locator(".focus-today a[data-link-role=record]"),
-					"Today link",
-				);
-
-				await check("/work?app=portfolio", "[data-project-row]");
-				await targets(
-					"Projects",
-					page.locator("[data-project-row] a[data-link-role=record]"),
-					"project row link",
-				);
-
-				// The Work item link once shrank to 2px beside the session name.
-				await check(PROJECT, "[data-contributor-state]");
-				const contributorLinks = page.locator(
-					"[data-contributor-state] a[href^='/work/items/']",
-				);
-				await targets(PROJECT, contributorLinks, "contributor Work item");
-				for (const width of await contributorLinks.evaluateAll((links) =>
-					links.map(
-						(link) =>
-							link.getBoundingClientRect().width /
-							link.closest("li")!.getBoundingClientRect().width,
-					),
-				))
-					if (width < 0.6)
-						failures.push(
-							`${PROJECT}: contributor Work item link is ${Math.round(width * 100)}% of its row`,
-						);
-
-				await check("/work/approvals", "[role=tablist][aria-label=Approvals]");
-				await page.getByRole("tab", { name: "History" }).click();
-				await targets(
-					"/work/approvals",
-					page.getByRole("button", {
-						name: "Receipts for past decisions",
-						exact: true,
-					}),
-					"past decisions",
-				);
-
-				// Requests read as a list on phones, not a sideways table of UUIDs.
-				await check(
-					"/work/interactions",
-					"[aria-labelledby=interaction-urgent-title]",
-				);
-				if (await page.locator("table:visible").count())
-					failures.push("/work/interactions: a table on a phone");
-				const rows = page.locator("[data-mobile-interaction-row]");
-				if (await rows.count()) {
-					await targets("/work/interactions", rows.locator("a"), "request");
-					if (UUID.test(await rows.first().innerText()))
-						failures.push("/work/interactions: a request row shows a raw id");
-				} else failures.push("/work/interactions: no phone request list");
-
-				await check(ITEM, "textarea");
-				await targets(
-					ITEM,
-					page.getByRole("button", { name: "Copy to clipboard" }),
-					"copy link",
-				);
-				await targets(
-					ITEM,
-					page.locator("dd a[href^='/work/projects/']"),
-					"project link",
-				);
-				failures.push(
-					...(
-						await keyboardFailures(
-							page,
-							page.getByPlaceholder("Share an update or ask a question"),
-							page.getByRole("button", { name: "Post comment" }),
-						)
-					).map((failure) => `${ITEM}: ${failure}`),
-				);
-
-				await check(REQUEST, "textarea");
-				// Provenance sits under the card's collapsed "Details for agents".
-				await page
-					.getByRole("button", { name: "Details for agents", exact: true })
-					.first()
-					.click();
-				const evidence = page
-					.getByRole("link", { name: "Evidence", exact: true })
-					.first();
-				const stable = await evidence.evaluate((node) => {
-					const text = document.createRange();
-					text.selectNodeContents(node);
-					const before = text.getBoundingClientRect();
-					const parentHeight =
-						node.parentElement!.getBoundingClientRect().height;
-					const minHeight = (node as HTMLElement).style.minHeight;
-					(node as HTMLElement).style.minHeight = "0px";
-					node.classList.remove("tap-target-y");
-					const after = text.getBoundingClientRect();
-					const same =
-						Math.abs(before.y - after.y) < 0.5 &&
-						Math.abs(before.x - after.x) < 0.5 &&
-						Math.abs(
-							parentHeight - node.parentElement!.getBoundingClientRect().height,
-						) < 0.5;
-					node.classList.add("tap-target-y");
-					(node as HTMLElement).style.minHeight = minHeight;
-					return same;
-				});
-				if (!stable)
-					failures.push(
-						`${REQUEST}: Evidence tap area moves the provenance line`,
-					);
-				await targets(REQUEST, evidence, "inline Evidence");
-				if (shots)
-					await page.screenshot({
-						path: `${shots}/${size}-${colorScheme}-request-evidence.png`,
-					});
-				failures.push(
-					...(
-						await keyboardFailures(
-							page,
-							page.getByRole("textbox", { name: "Your answer" }),
-							page.getByRole("button", { name: "Answer", exact: true }),
-						)
-					).map((failure) => `${REQUEST}: ${failure}`),
-				);
-				if (shots)
-					await page.screenshot({
-						path: `${shots}/${size}-${colorScheme}-request-keyboard.png`,
-					});
-
-				await check("/outputs", "input[type=search]");
-				await targets(
-					"/outputs",
-					page.getByRole("searchbox", { name: "Search outputs" }),
-					"search",
-				);
-
-				allFailures.push(...failures.map((failure) => `${label}: ${failure}`));
-				await context.close();
-				console.log(`${failures.length ? "FAIL" : "PASS"} ${label}`);
-				if (failures.length) console.error(failures.join("\n"));
-			}
-		}
-		assert.deepEqual(allFailures, [], "iPhone Work views");
+		await run(browser, server);
 	} finally {
 		await browser?.close();
 		await server.stop();
 	}
+}
+
+/**
+ * Desktop and phone Feed/Deck headings in both themes, the Office fixture
+ * read, and the desktop Capacity layout in both themes.
+ */
+export async function runWorkHeadings() {
+	const shots = await screenshotDir();
+	await withFixture(async (browser, { origin }) => {
+		for (const width of [390, 1280]) {
+			for (const colorScheme of ["light", "dark"] as const) {
+				const context = await browser.newContext({
+					viewport: { width, height: 844 },
+					colorScheme,
+					reducedMotion: "reduce",
+				});
+				await context.addInitScript(
+					(theme) => localStorage.setItem("tedix-os-theme", theme),
+					colorScheme,
+				);
+				const page = await context.newPage();
+				for (const view of ["feed", "deck"] as const) {
+					await page.goto(`${origin}/work?view=${view}`);
+					await page
+						.locator(
+							`[data-workspace-app-entry=${view === "feed" ? "activity-feed" : "decision-deck"}]`,
+						)
+						.waitFor();
+					const headings = page.getByRole("heading", { level: 1 });
+					assert.equal(
+						await page.locator("vite-error-overlay").count(),
+						0,
+						`${width} ${colorScheme} ${view}: document scripts load without errors`,
+					);
+					assert(
+						await page.evaluate(() =>
+							document.documentElement.style
+								.getPropertyValue("--viewport-tedix-height")
+								.endsWith("px"),
+						),
+						`${width} ${colorScheme} ${view}: document viewport metrics are installed`,
+					);
+					assert.equal(await headings.count(), 1);
+					assert.equal(
+						await headings.textContent(),
+						view === "feed" ? "Activity" : "Decisions",
+					);
+					assert(
+						await headings.evaluate((heading) => {
+							const box = heading.getBoundingClientRect();
+							return (
+								box.width <= 1 &&
+								box.height <= 1 &&
+								[...document.querySelectorAll("h2, h3, h4, h5, h6")].every(
+									(other) =>
+										Boolean(
+											heading.compareDocumentPosition(other) &
+											Node.DOCUMENT_POSITION_FOLLOWING,
+										),
+								)
+							);
+						}),
+						`${width} ${colorScheme} ${view}: hidden page heading precedes content headings`,
+					);
+					if (shots)
+						await page.screenshot({
+							path: `${shots}/work-heading-${view}-${width}-${colorScheme}.png`,
+						});
+				}
+				await context.close();
+			}
+		}
+		console.log("Work headings: 8 Feed/Deck viewport/theme checks passed");
+		const office = await browser.newPage();
+		await office.goto(`${origin}/work?app=office`);
+		await office
+			.locator("[data-workspace-app-entry=office]")
+			.waitFor({ timeout: 20_000 });
+		assert.equal(
+			await office.getByText("Support tickets are unavailable.").count(),
+			0,
+			"Office fixture support read should resolve",
+		);
+		await office.close();
+		for (const colorScheme of ["light", "dark"] as const) {
+			const context = await browser.newContext({
+				viewport: { width: 1280, height: 800 },
+				colorScheme,
+				reducedMotion: "reduce",
+			});
+			await context.addInitScript(
+				(theme) => localStorage.setItem("tedix-os-theme", theme),
+				colorScheme,
+			);
+			const page = await context.newPage();
+			await page.goto(`${origin}/work/capacity`);
+			await page.locator("[data-slot=card] strong").first().waitFor();
+			await settle(page);
+			assert.deepEqual(
+				await layoutFailures(page),
+				[],
+				`1280x800 ${colorScheme} capacity layout`,
+			);
+			await context.close();
+		}
+	});
+}
+
+/** Runs one half of the phone checks for one iPhone size and colour scheme. */
+export async function runWorkIphone(
+	size: WorkIphoneSize,
+	colorScheme: ColorScheme,
+	part: WorkIphonePart,
+) {
+	const shots = await screenshotDir();
+	const { device, viewport } = DEVICES[size];
+	const label = `${size} ${colorScheme}`;
+	await withFixture(async (browser, server) => {
+		const { origin } = server;
+		const context = await browser.newContext({
+			...device,
+			viewport,
+			colorScheme,
+			reducedMotion: "reduce",
+		});
+		await context.addInitScript(
+			(theme) => localStorage.setItem("tedix-os-theme", theme),
+			colorScheme,
+		);
+		const page = await context.newPage();
+		const pending = new Set<Request>();
+		const errors: string[] = [];
+		page.on("request", (request) => pending.add(request));
+		page.on("requestfinished", (request) => pending.delete(request));
+		page.on("requestfailed", (request) => {
+			pending.delete(request);
+			errors.push(`${request.url()}: ${request.failure()?.errorText}`);
+		});
+		page.on("pageerror", (error) => errors.push(error.stack ?? error.message));
+		page.on("response", (response) => {
+			if (response.status() >= 400)
+				errors.push(`HTTP ${response.status()} ${response.url()}`);
+		});
+		const failures: string[] = [];
+		const check = async (path: string, ready: string) => {
+			errors.length = 0;
+			pending.clear();
+			const trace =
+				shots &&
+				ready === ".focus-today" &&
+				!process.env.TEDIX_BROWSER_EVIDENCE_DIR;
+			if (trace)
+				await context.tracing.start({ snapshots: true, screenshots: true });
+			try {
+				await page.goto(`${origin}${path}`);
+				await page.locator(ready).first().waitFor({ timeout: 20_000 });
+			} catch (error) {
+				console.error(`${label} ${path} readiness failure`, {
+					selector: ready,
+					url: page.url(),
+					fixtureExitCode: server.exitCode(),
+					errors,
+					pending: [...pending].map((request) => request.url()),
+				});
+				if (trace)
+					await context.tracing.stop({
+						path: `${shots}/${size}-${colorScheme}-${part}-render-failure.zip`,
+					});
+				if (shots) {
+					await page.screenshot({
+						path: `${shots}/${size}-${colorScheme}-${part}-render-failure.png`,
+					});
+				}
+				throw new Error(
+					`${path} did not render: ${await page.locator("main.route-content").innerText()}`,
+					{ cause: error },
+				);
+			}
+			if (trace) await context.tracing.stop();
+			await settle(page);
+			assert.deepEqual(
+				await page.evaluate(() => ({
+					width: innerWidth,
+					height: innerHeight,
+				})),
+				viewport,
+				`${label} viewport`,
+			);
+			for (const failure of await layoutFailures(page))
+				failures.push(`${path}: ${failure}`);
+			if (shots)
+				await page.screenshot({
+					path: `${shots}/${size}-${colorScheme}-${path.replace(/[^a-z0-9]+/gi, "_").replace(/_[0-9a-f]{8}_0000_4000_8000_0+/, "_")}.png`,
+				});
+		};
+		const targets = async (path: string, locator: Locator, name: string) => {
+			const count = await locator.count();
+			assert(count > 0, `${label} ${path}: no ${name}`);
+			for (let index = 0; index < count; index++)
+				for (const failure of await targetFailures(
+					locator.nth(index),
+					`${name} ${index + 1}`,
+				))
+					failures.push(`${path}: ${failure}`);
+		};
+
+		if (part === "views") {
+			for (const [path, ready] of PAGES) await check(path, ready);
+			if (viewport.width === 375) {
+				await check(PROJECT, '[aria-label="Work queue"]');
+				const metadata = page.locator('[aria-label="Work queue"] dd');
+				assert(
+					(await metadata.count()) > 0,
+					`${label} ${PROJECT}: no phone metadata`,
+				);
+				const overflow = await metadata.evaluateAll((cells) =>
+					cells.some((cell) => cell.scrollWidth > cell.clientWidth + 1),
+				);
+				if (overflow)
+					failures.push(
+						`${PROJECT}: Work queue phone metadata scrolls sideways`,
+					);
+				// Fixture owner names are short; force a pathological identity to
+				// prove the label cannot widen its row and the title keeps the
+				// complete value discoverable.
+				const owners = page.locator(
+					'[aria-label="Work queue"] dd[title^="Owner:"]',
+				);
+				assert(
+					(await owners.count()) > 0,
+					`${label} ${PROJECT}: no phone owner metadata`,
+				);
+				const longOwner =
+					"SolsticeLongitudinalOperationsCoordinatorWithoutAnyBreaks";
+				const ownerCell = await owners.first().evaluate((cell, name) => {
+					const row = cell.closest("li")!;
+					// Keep the app's wrapping span and metadata separator intact.
+					cell.querySelector("span:last-child")!.textContent = name;
+					cell.setAttribute("title", `Owner: ${name}`);
+					return {
+						page: document.documentElement.scrollWidth,
+						viewport: document.documentElement.clientWidth,
+						cellRight: cell.getBoundingClientRect().right,
+						rowRight: row.getBoundingClientRect().right,
+						cellScroll: cell.scrollWidth,
+						cellClient: cell.clientWidth,
+						title: cell.getAttribute("title"),
+					};
+				}, longOwner);
+				if (ownerCell.page > ownerCell.viewport + 1)
+					failures.push(
+						`${PROJECT}: a long owner widened the page to ${ownerCell.page}px`,
+					);
+				if (ownerCell.cellRight > ownerCell.rowRight + 1)
+					failures.push(`${PROJECT}: owner label runs past its row`);
+				if (ownerCell.cellScroll > ownerCell.cellClient + 1)
+					failures.push(`${PROJECT}: owner label scrolls sideways`);
+				if (ownerCell.title !== `Owner: ${longOwner}`)
+					failures.push(`${PROJECT}: owner title lost the complete value`);
+			}
+			if (viewport.width === 390) {
+				await check("/work/capacity", "[data-slot=card] strong");
+				const holder = page
+					.locator("[data-slot=card] p")
+					.filter({ hasText: "fictional west warehouse" })
+					.first();
+				assert.equal(await holder.count(), 1, `${label}: no capacity holder`);
+				const holderOverflow = await holder.evaluate((node) => ({
+					clientWidth: node.clientWidth,
+					scrollWidth: node.scrollWidth,
+				}));
+				if (holderOverflow.scrollWidth > holderOverflow.clientWidth + 1)
+					failures.push(
+						`/work/capacity: holder details are ${holderOverflow.scrollWidth}px wide in a ${holderOverflow.clientWidth}px row`,
+					);
+			}
+			for (const path of [
+				"/work?app=agents",
+				"/work?app=office",
+				"/work?app=outbound",
+				"/work/cases",
+				"/work/capacity",
+				"/work/capacity?view=budgets",
+			]) {
+				const ready = PAGES.find(([url]) => url === path)![1];
+				await check(path, ready);
+				await targets(
+					path,
+					page.locator(
+						"main.route-content a[href]:visible, main.route-content button:visible:not([disabled]), main.route-content input:visible:not([aria-hidden=true]):not([tabindex='-1']), main.route-content summary:visible",
+					),
+					"view control",
+				);
+				if (shots && path === "/work?app=office") {
+					await page
+						.locator("#office-leaderboard-title")
+						.scrollIntoViewIfNeeded();
+					await page.screenshot({
+						path: `${shots}/${size}-${colorScheme}-office-leaderboard.png`,
+					});
+				}
+			}
+		} else {
+			await check("/work/cases", "[data-mobile-case-row]");
+			await page.getByRole("button", { name: "New epic", exact: true }).click();
+			for (const failure of await layoutFailures(page))
+				failures.push(`/work/cases form: ${failure}`);
+			await targets(
+				"/work/cases form",
+				page.locator(
+					"#open-case-form input:visible:not([aria-hidden=true]):not([tabindex='-1']), #open-case-form button:visible",
+				),
+				"epic field",
+			);
+
+			await check("/work?view=feed", ".focus-today");
+			await targets(
+				"Today",
+				page.locator(".focus-today a[data-link-role=record]"),
+				"Today link",
+			);
+
+			await check("/work?app=portfolio", "[data-project-row]");
+			await targets(
+				"Projects",
+				page.locator("[data-project-row] a[data-link-role=record]"),
+				"project row link",
+			);
+
+			// The Work item link once shrank to 2px beside the session name.
+			await check(PROJECT, "[data-contributor-state]");
+			const contributorLinks = page.locator(
+				"[data-contributor-state] a[href^='/work/items/']",
+			);
+			await targets(PROJECT, contributorLinks, "contributor Work item");
+			for (const width of await contributorLinks.evaluateAll((links) =>
+				links.map(
+					(link) =>
+						link.getBoundingClientRect().width /
+						link.closest("li")!.getBoundingClientRect().width,
+				),
+			))
+				if (width < 0.6)
+					failures.push(
+						`${PROJECT}: contributor Work item link is ${Math.round(width * 100)}% of its row`,
+					);
+
+			await check("/work/approvals", "[role=tablist][aria-label=Approvals]");
+			await page.getByRole("tab", { name: "History" }).click();
+			await targets(
+				"/work/approvals",
+				page.getByRole("button", {
+					name: "Receipts for past decisions",
+					exact: true,
+				}),
+				"past decisions",
+			);
+
+			// Requests read as a list on phones, not a sideways table of UUIDs.
+			await check(
+				"/work/interactions",
+				"[aria-labelledby=interaction-urgent-title]",
+			);
+			if (await page.locator("table:visible").count())
+				failures.push("/work/interactions: a table on a phone");
+			const rows = page.locator("[data-mobile-interaction-row]");
+			if (await rows.count()) {
+				await targets("/work/interactions", rows.locator("a"), "request");
+				if (UUID.test(await rows.first().innerText()))
+					failures.push("/work/interactions: a request row shows a raw id");
+			} else failures.push("/work/interactions: no phone request list");
+
+			await check(ITEM, "textarea");
+			await targets(
+				ITEM,
+				page.getByRole("button", { name: "Copy to clipboard" }),
+				"copy link",
+			);
+			await targets(
+				ITEM,
+				page.locator("dd a[href^='/work/projects/']"),
+				"project link",
+			);
+			failures.push(
+				...(
+					await keyboardFailures(
+						page,
+						page.getByPlaceholder("Share an update or ask a question"),
+						page.getByRole("button", { name: "Post comment" }),
+					)
+				).map((failure) => `${ITEM}: ${failure}`),
+			);
+
+			await check(REQUEST, "textarea");
+			// Provenance sits under the card's collapsed "Details for agents".
+			await page
+				.getByRole("button", { name: "Details for agents", exact: true })
+				.first()
+				.click();
+			const evidence = page
+				.getByRole("link", { name: "Evidence", exact: true })
+				.first();
+			const stable = await evidence.evaluate((node) => {
+				const text = document.createRange();
+				text.selectNodeContents(node);
+				const before = text.getBoundingClientRect();
+				const parentHeight = node.parentElement!.getBoundingClientRect().height;
+				const minHeight = (node as HTMLElement).style.minHeight;
+				(node as HTMLElement).style.minHeight = "0px";
+				node.classList.remove("tap-target-y");
+				const after = text.getBoundingClientRect();
+				const same =
+					Math.abs(before.y - after.y) < 0.5 &&
+					Math.abs(before.x - after.x) < 0.5 &&
+					Math.abs(
+						parentHeight - node.parentElement!.getBoundingClientRect().height,
+					) < 0.5;
+				node.classList.add("tap-target-y");
+				(node as HTMLElement).style.minHeight = minHeight;
+				return same;
+			});
+			if (!stable)
+				failures.push(
+					`${REQUEST}: Evidence tap area moves the provenance line`,
+				);
+			await targets(REQUEST, evidence, "inline Evidence");
+			if (shots)
+				await page.screenshot({
+					path: `${shots}/${size}-${colorScheme}-request-evidence.png`,
+				});
+			failures.push(
+				...(
+					await keyboardFailures(
+						page,
+						page.getByRole("textbox", { name: "Your answer" }),
+						page.getByRole("button", { name: "Answer", exact: true }),
+					)
+				).map((failure) => `${REQUEST}: ${failure}`),
+			);
+			if (shots)
+				await page.screenshot({
+					path: `${shots}/${size}-${colorScheme}-request-keyboard.png`,
+				});
+
+			await check("/outputs", "input[type=search]");
+			await targets(
+				"/outputs",
+				page.getByRole("searchbox", { name: "Search outputs" }),
+				"search",
+			);
+		}
+
+		await context.close();
+		console.log(`${failures.length ? "FAIL" : "PASS"} ${label} ${part}`);
+		if (failures.length) console.error(failures.join("\n"));
+		assert.deepEqual(
+			failures.map((failure) => `${label}: ${failure}`),
+			[],
+			"iPhone Work views",
+		);
+	});
 }
