@@ -14,6 +14,7 @@ const configurationAndMigrationFences = [
 	"Default model is not configured in the trusted model catalog",
 	"Pending Think submission prevents Pi transcript migration",
 	"Pending Think facet receipt requires reconciliation before Pi migration",
+	"Pending Pi submission lost its original run configuration",
 ] as const;
 
 for (const message of [

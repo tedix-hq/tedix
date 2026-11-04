@@ -1,5 +1,8 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { ConversationFacet } from "../../src/conversation-facet";
+import {
+	ConversationFacet,
+	type ConfiguredConversationTurn,
+} from "../../src/conversation-facet";
 import { ActionReceiptJournal } from "../../src/action-receipts";
 import { responsesFixtureModel } from "./responses-recovery-fixture";
 import { DoInferenceBudgetStore } from "../../src/inference-budget-store-do";
@@ -144,10 +147,8 @@ export class PiStorageFixture extends ConversationFacet {
 			},
 		};
 	}
-	async turn(id: string, toolName = "receipt", restricted = false) {
-		this.fixtureToolName = toolName;
-		this.budget.admit(id, limits, 20);
-		const completed = await this.runConfiguredConversationTurn({
+	private configuredTurn(id: string, toolName = "receipt", restricted = false) {
+		return {
 			configuration: {
 				system: "Stable fixture persona\nDynamic instructions",
 				stableSystemPrefix: "Stable fixture persona",
@@ -174,7 +175,14 @@ export class PiStorageFixture extends ConversationFacet {
 			},
 			text: "Record one receipt then finish.",
 			durableSubmissionId: id,
-		});
+		} satisfies ConfiguredConversationTurn;
+	}
+	async turn(id: string, toolName = "receipt", restricted = false) {
+		this.fixtureToolName = toolName;
+		this.budget.admit(id, limits, 20);
+		const completed = await this.runConfiguredConversationTurn(
+			this.configuredTurn(id, toolName, restricted),
+		);
 		completed.result.assistantText = await this.actionReceipts.finish(
 			id,
 			completed.result.assistantText,
@@ -236,6 +244,44 @@ export class PiStorageFixture extends ConversationFacet {
 	}
 	async acceptProvider() {
 		await this.ctx.storage.delete("fixture:provider-rejects");
+	}
+	async seedPendingRunMismatch(ownerRunId: string, currentRunId: string) {
+		const input = this.configuredTurn(ownerRunId);
+		this.setState({
+			...this.state,
+			...input.configuration,
+			runId: currentRunId,
+		});
+		await this.ctx.storage.put("pi-facet-pending-submission", {
+			configuration: input.configuration,
+			submissionId: ownerRunId,
+			priorTurnCount: this.state.turnCount,
+			turnInput: { text: input.text },
+		});
+	}
+	async pendingMismatchSnapshot(receiptRunId: string) {
+		return JSON.stringify({
+			state: this.state,
+			storage: Array.from(this.ctx.storage.kv.list()).sort(([a], [b]) =>
+				a.localeCompare(b),
+			),
+			receipt: JSON.parse(await this.inspectFixture(receiptRunId)),
+		});
+	}
+	async rejectedPendingRecovery(id: string) {
+		try {
+			await this.runConfiguredConversationTurn(this.configuredTurn(id));
+			return null;
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error);
+		}
+	}
+	async restorePendingRunOwner() {
+		const pending = await this.ctx.storage.get<{
+			configuration: ConfiguredConversationTurn["configuration"];
+		}>("pi-facet-pending-submission");
+		if (!pending) throw new Error("Missing pending fixture submission");
+		this.setState({ ...this.state, ...pending.configuration });
 	}
 	async cancelRun(id: string) {
 		await this.ctx.storage.put(`cancel:${id}`, true);
