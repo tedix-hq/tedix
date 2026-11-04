@@ -236,7 +236,13 @@ async function leanDeck(page: Page) {
 	const primary = row.buttons.find((b) => b.primary)?.text;
 	if (primary !== "Keep private")
 		failures.push(`yes/no primary reads "${primary}"`);
-	if (row.textarea) failures.push("a yes/no question shows an answer box");
+	// A yes/no question keeps a one-line optional answer on the card.
+	if (
+		row.textarea &&
+		(await card.locator("textarea").getAttribute("placeholder")) !==
+			"Or write your own answer…"
+	)
+		failures.push("a yes/no question shows a required answer box");
 	if (
 		(await page
 			.getByText("Not useful", { exact: true })
@@ -248,7 +254,7 @@ async function leanDeck(page: Page) {
 	await card.getByRole("button", { name: "More actions" }).click();
 	const menu = page.getByRole("menu");
 	await menu.getByRole("menuitem").first().waitFor();
-	for (const item of ["Write an answer", "Not useful", "Why am I seeing this"])
+	for (const item of ["Give feedback", "Not useful", "Why am I seeing this"])
 		if (
 			(await menu
 				.getByRole("menuitem")

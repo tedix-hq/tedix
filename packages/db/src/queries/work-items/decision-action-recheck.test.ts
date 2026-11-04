@@ -6,10 +6,16 @@ import {
 	workItemComments,
 	workItemRelations,
 } from "../../schema/work-items";
-import { workInteractions } from "../../schema/work-factory";
+import {
+	workInteractionResponses,
+	workInteractions,
+} from "../../schema/work-factory";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
-import { decisionActionChange } from "./decision-action-recheck";
+import {
+	decisionActionChange,
+	decisionActionChangeDetail,
+} from "./decision-action-recheck";
 
 const orgId = "org";
 const workId = "00000000-0000-4000-8000-000000000001";
@@ -20,7 +26,13 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
-		schemaDdl(workItems, workItemComments, workItemRelations, workInteractions),
+		schemaDdl(
+			workItems,
+			workItemComments,
+			workItemRelations,
+			workInteractions,
+			workInteractionResponses,
+		),
 	);
 	sqlite
 		.prepare(
@@ -44,7 +56,18 @@ function fixture() {
 			],
 		},
 	};
-	return { sqlite, check: () => decisionActionChange(db, orgId, request) };
+	return {
+		sqlite,
+		request,
+		check: () => decisionActionChange(db, orgId, request),
+		detail: (reviewedThrough?: string) =>
+			decisionActionChangeDetail(
+				db,
+				orgId,
+				{ ...request, status: "open" },
+				{ reviewedThrough },
+			),
+	};
 }
 
 it("allows a current delete approval at continuation time", async () => {
@@ -80,6 +103,51 @@ it("blocks a delete approval after a new credit comment", async () => {
 			)
 			.run(orgId, workId, later);
 		expect(await check()).toContain("Credits granted; this is production.");
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("lets the person answer against a newer comment they have read, and no newer", async () => {
+	const { sqlite, detail } = fixture();
+	const comment = (id: string, at: string) =>
+		sqlite
+			.prepare(
+				"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,body,created_at) VALUES (?,?,?,'tedi','Checks are green.',?)",
+			)
+			.run(id, orgId, workId, at);
+	try {
+		comment("progress", later);
+		expect(await detail()).toEqual({
+			text: "The linked Work has a newer comment: Checks are green.",
+			reviewableThrough: later,
+			note: "Checks are green.",
+		});
+		expect(await detail(later)).toBeNull();
+		comment("after", "2026-10-22T10:00:00.000Z");
+		expect((await detail(later))?.reviewableThrough).toBe(
+			"2026-10-22T10:00:00.000Z",
+		);
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("keeps honouring the reviewed version stored on a resolving answer", async () => {
+	const { sqlite, check } = fixture();
+	try {
+		sqlite
+			.prepare(
+				"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,body,created_at) VALUES ('progress',?,?,'tedi','Checks are green.',?)",
+			)
+			.run(orgId, workId, later);
+		expect(await check()).toContain("Checks are green.");
+		sqlite
+			.prepare(
+				"INSERT INTO work_interaction_responses(id,org_id,interaction_id,resolved_request_version,resolution_fence,responder_type,responder_id,body,response_kind,resolves_request,metadata,responded_at) VALUES ('answer',?,'card',1,'fence','user','person','Yes','answer',1,?,?)",
+			)
+			.run(orgId, JSON.stringify({ reviewedChangesThrough: later }), later);
+		expect(await check()).toBeNull();
 	} finally {
 		sqlite.close();
 	}

@@ -72,9 +72,7 @@ try {
 			await page.goto(`${server.origin}/work?view=deck`, {
 				waitUntil: "domcontentloaded",
 			});
-			await page
-				.locator(".fd-context-strip [data-context-item=last_decision]")
-				.waitFor();
+			await page.locator(".fd-deck-current .fd-outcomes").waitFor();
 			await page.evaluate(() => document.fonts.ready);
 			assert.equal(
 				await page.locator("html").getAttribute("data-mode"),
@@ -130,7 +128,7 @@ try {
 
 				// Everything in the face can be scrolled fully into view.
 				for (const node of card.querySelectorAll<HTMLElement>(
-					".fd-face > :not(.fd-context-strip), .fd-context-item",
+					".fd-face > *, .fd-outcomes > div",
 				)) {
 					node.scrollIntoView({ block: "nearest" });
 					const rect = node.getBoundingClientRect();

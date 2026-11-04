@@ -1,17 +1,11 @@
-import type {
-	DecisionCardContextItem,
-	DecisionCardPreferences,
-} from "@tedix/api-contract/schemas/user-settings";
+import type { DecisionCardPreferences } from "@tedix/api-contract/schemas/user-settings";
 import {
 	decideForMeMode,
-	decisionCardContextItems,
 	type DecideForMeMode,
 } from "@tedix/api-contract/utils/decision-card-preferences";
 import { useOsPreferences } from "@/lib/use-os-preferences";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { decisionText } from "@/shared/os-copy";
-import { Button } from "./kumo/button";
-import { Checkbox } from "./kumo/checkbox";
 import { SegmentedControl } from "./kumo/segmented-control";
 import {
 	Sheet,
@@ -22,20 +16,6 @@ import {
 } from "./kumo/sheet";
 import { Text } from "./kumo/text";
 
-const ITEMS: readonly DecisionCardContextItem[] = [
-	"last_decision",
-	"source",
-	"due",
-	"asker",
-	"stakes",
-];
-const ITEM_LABELS: Record<DecisionCardContextItem, string> = {
-	last_decision: "Last related decision",
-	source: "The original request",
-	due: "Due date",
-	asker: "Who asked",
-	stakes: "Cost or risk",
-};
 const LANGUAGES = [
 	{ value: "en", label: "English" },
 	{ value: "es", label: "Español" },
@@ -60,7 +40,6 @@ export function DecisionCardSettings({
 	const update = (next: DecisionCardPreferences) => {
 		if (preferences) save.mutate({ ...preferences, decisionCards: next });
 	};
-	const shown = decisionCardContextItems(cards, cardType, ITEMS);
 	const language = cards.language ?? "en";
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
@@ -95,45 +74,6 @@ export function DecisionCardSettings({
 								},
 							]}
 						/>
-					</section>
-					<section className="grid gap-2">
-						<Text weight="semibold">
-							{decisionText("Show on this kind of card (up to 3)")}
-						</Text>
-						{ITEMS.map((item) => (
-							<Checkbox
-								key={item}
-								label={decisionText(ITEM_LABELS[item])}
-								checked={shown.includes(item)}
-								disabled={!shown.includes(item) && shown.length >= 3}
-								onCheckedChange={(checked) =>
-									update({
-										...cards,
-										contextItems: {
-											...cards.contextItems,
-											[cardType]: ITEMS.filter((candidate) =>
-												candidate === item
-													? Boolean(checked)
-													: shown.includes(candidate),
-											).slice(0, 3),
-										},
-									})
-								}
-							/>
-						))}
-						{cards.contextItems?.[cardType] && (
-							<Button
-								variant="ghost"
-								size="sm"
-								className="justify-self-start"
-								onClick={() => {
-									const { [cardType]: _, ...rest } = cards.contextItems ?? {};
-									update({ ...cards, contextItems: rest });
-								}}
-							>
-								{decisionText("Learn from what I open")}
-							</Button>
-						)}
 					</section>
 					<section className="grid gap-2">
 						<Text weight="semibold">{decisionText("Decide for me")}</Text>

@@ -24,27 +24,29 @@ export function DecisionLearningWhy({
 		]),
 	];
 	return (
-		<div className="grid min-w-0 gap-2 pt-3">
-			<Text weight="medium">{copy.signals}</Text>
-			{explanation.factors.length ? (
-				explanation.factors.map((factor, index) => (
-					<Text key={`${factor.level}:${index}`}>{factor.reason}</Text>
-				))
-			) : (
-				<Text>{copy.initial}</Text>
-			)}
-			{evidence.length > 0 && (
-				<Collapsible>
-					<CollapsibleDefaultTrigger className="group/disclosure">
-						{copy.evidence}
-					</CollapsibleDefaultTrigger>
-					<CollapsibleDefaultContent keepMounted>
-						<Text role="label" className="break-all font-mono">
-							{evidence.join(" · ")}
-						</Text>
-					</CollapsibleDefaultContent>
-				</Collapsible>
-			)}
-		</div>
+		<Collapsible className="grid min-w-0 gap-2 pt-3">
+			<CollapsibleDefaultTrigger>{copy.signals}</CollapsibleDefaultTrigger>
+			<CollapsibleDefaultContent className="grid gap-2">
+				{explanation.factors.length ? (
+					explanation.factors.map((factor, index) => (
+						<Text key={`${factor.level}:${index}`}>{factor.reason}</Text>
+					))
+				) : (
+					<Text>{copy.initial}</Text>
+				)}
+				{evidence.length > 0 && (
+					<Collapsible>
+						<CollapsibleDefaultTrigger className="group/disclosure">
+							{copy.evidence}
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent keepMounted>
+							<Text role="label" className="break-all font-mono">
+								{evidence.join(" · ")}
+							</Text>
+						</CollapsibleDefaultContent>
+					</Collapsible>
+				)}
+			</CollapsibleDefaultContent>
+		</Collapsible>
 	);
 }

@@ -149,8 +149,7 @@ export function nextStepCard(request: {
 export const NEXT_STEP_BODY = {
 	reminder:
 		"Only this reminder closes. Do the step itself, then mark the original ask done.",
-	consent:
-		"Records that you did the step yourself. Nothing is authorized from this card.",
+	consent: "Saves that you did this step yourself. This card gives no access.",
 } as const;
 
 const STEP_WORDS =

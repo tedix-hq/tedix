@@ -371,6 +371,12 @@ export const RespondToWorkInteractionInputSchema = z
 				"Optional integrity digest; valid only with an artifact reference and version.",
 			),
 		resolvesRequest: z.boolean().default(true),
+		reviewedChangesThrough: z.iso
+			.datetime()
+			.optional()
+			.describe(
+				"Set after a stale-card refusal that returned reviewedChangesThrough: the person read the newer Work note and answers against it. Newer changes still block the answer.",
+			),
 		metadata: metadataSchema
 			.default({})
 			.describe(

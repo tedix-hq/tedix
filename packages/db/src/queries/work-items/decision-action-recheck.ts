@@ -3,10 +3,13 @@ import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import type { DbQueryClient } from "../../query-client";
 import { workItemComments, workItemRelations } from "../../schema/work-items";
-import { workInteractions } from "../../schema/work-factory";
+import {
+	workInteractionResponses,
+	workInteractions,
+} from "../../schema/work-factory";
 import { getWorkItemById } from "./crud";
 import {
-	decisionSourcesCurrent,
+	decisionSourcesReview,
 	DECISION_SOURCE_CHANGED,
 } from "./decision-sources";
 
@@ -23,12 +26,65 @@ type Decision = {
 	metadata: Record<string, unknown>;
 };
 
+export type DecisionActionChange = {
+	text: string;
+	/**
+	 * Set only for a newer Work comment: the person may read it and answer
+	 * against it. Passing this time back as `reviewedThrough` binds the answer
+	 * to that version; anything newer still blocks it.
+	 */
+	reviewableThrough?: string;
+	/** Bounded comment text, for the person to read before answering. */
+	note?: string;
+};
+
 /** An answer is evidence of a choice, never a durable grant over changed facts. */
 export async function decisionActionChange(
 	db: DbQueryClient,
 	orgId: string,
 	request: Decision,
+	options: { reviewedThrough?: string } = {},
 ): Promise<string | null> {
+	return (
+		(await decisionActionChangeDetail(db, orgId, request, options))?.text ??
+		null
+	);
+}
+
+/** The time a resolving answer said its person had read the Work through. */
+async function answeredReviewThrough(
+	db: DbQueryClient,
+	orgId: string,
+	requestId: string,
+) {
+	const [row] = await db
+		.select({
+			reviewedThrough: sql<
+				string | null
+			>`json_extract(${workInteractionResponses.metadata}, '$.reviewedChangesThrough')`,
+		})
+		.from(workInteractionResponses)
+		.where(
+			and(
+				eq(workInteractionResponses.orgId, orgId),
+				eq(workInteractionResponses.interactionId, requestId),
+				eq(workInteractionResponses.resolvesRequest, true),
+			),
+		)
+		.orderBy(desc(workInteractionResponses.respondedAt))
+		.limit(1);
+	return typeof row?.reviewedThrough === "string"
+		? row.reviewedThrough
+		: undefined;
+}
+
+export async function decisionActionChangeDetail(
+	db: DbQueryClient,
+	orgId: string,
+	request: Decision,
+	options: { reviewedThrough?: string } = {},
+): Promise<DecisionActionChange | null> {
+	const text = (value: string | null) => (value ? { text: value } : null);
 	if (request.targetType !== "user" || request.kind === "coordination")
 		return null;
 	const envelope = DecisionEnvelopeSchema.safeParse(
@@ -46,11 +102,16 @@ export async function decisionActionChange(
 						option.effect?.kind === "publish_support",
 				)));
 	if (!protectedAction) return null;
+	const reviewedThrough =
+		options.reviewedThrough ??
+		(request.status === "resolved"
+			? await answeredReviewThrough(db, orgId, request.id)
+			: undefined);
 	if (request.workItemId) {
 		const work = await getWorkItemById(db, request.workItemId, orgId);
-		if (!work) return "The linked Work is no longer available.";
+		if (!work) return text("The linked Work is no longer available.");
 		if (work.disposition === "completed" || work.disposition === "cancelled")
-			return `The linked Work is now ${work.disposition}.`;
+			return text(`The linked Work is now ${work.disposition}.`);
 		const [replacement] = await db
 			.select({ id: workItemRelations.fromWorkItemId })
 			.from(workItemRelations)
@@ -63,21 +124,32 @@ export async function decisionActionChange(
 			)
 			.limit(1);
 		if (replacement)
-			return `The linked Work was superseded by ${replacement.id}.`;
+			return text(`The linked Work was superseded by ${replacement.id}.`);
+		const since =
+			reviewedThrough && reviewedThrough > request.createdAt
+				? reviewedThrough
+				: request.createdAt;
 		const [comment] = await db
-			.select({ body: workItemComments.body })
+			.select({
+				body: workItemComments.body,
+				createdAt: workItemComments.createdAt,
+			})
 			.from(workItemComments)
 			.where(
 				and(
 					eq(workItemComments.orgId, orgId),
 					eq(workItemComments.workItemId, work.id),
-					gt(workItemComments.createdAt, request.createdAt),
+					gt(workItemComments.createdAt, since),
 				),
 			)
 			.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))
 			.limit(1);
 		if (comment)
-			return `The linked Work has a newer comment: ${comment.body.slice(0, 2000)}`;
+			return {
+				text: `The linked Work has a newer comment: ${comment.body.slice(0, 2000)}`,
+				reviewableThrough: comment.createdAt,
+				note: comment.body.slice(0, 600),
+			};
 	}
 	const subject = request.metadata.cardSubject;
 	const subjectName =
@@ -98,6 +170,8 @@ export async function decisionActionChange(
 					? eq(workInteractions.targetId, request.targetId)
 					: undefined,
 				gt(workInteractions.createdAt, request.createdAt),
+				// The facts-changed review this card raised is not a rival card.
+				sql`coalesce(json_extract(${workInteractions.metadata}, '$.replacesDecisionId'), '')<>${request.id}`,
 				or(
 					request.workItemId
 						? eq(workInteractions.workItemId, request.workItemId)
@@ -111,12 +185,21 @@ export async function decisionActionChange(
 		)
 		.orderBy(desc(workInteractions.createdAt))
 		.limit(1);
-	if (newer) return `A newer card (${newer.id}) concerns the same subject.`;
+	if (newer)
+		return text(`A newer card (${newer.id}) concerns the same subject.`);
 	// Resolved answers need the same source comparison as an open card.
-	return (await decisionSourcesCurrent(db, orgId, {
-		...request,
-		status: "open",
-	}))
-		? null
-		: DECISION_SOURCE_CHANGED;
+	const sources = await decisionSourcesReview(
+		db,
+		orgId,
+		{ ...request, status: "open" },
+		{ reviewedThrough },
+	);
+	if (sources.current) return null;
+	return sources.reviewable
+		? {
+				text: `${DECISION_SOURCE_CHANGED} ${sources.reviewable.note}`,
+				reviewableThrough: sources.reviewable.through,
+				note: sources.reviewable.note,
+			}
+		: text(DECISION_SOURCE_CHANGED);
 }

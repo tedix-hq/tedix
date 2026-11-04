@@ -618,7 +618,12 @@ export async function respondToWorkInteraction(
 	if (
 		(resolvesRequest || effectReceipt?.status === "started") &&
 		!claimedEffect &&
-		!(await decisionSourcesCurrent(db, p.orgId, request))
+		!(await decisionSourcesCurrent(db, p.orgId, request, {
+			reviewedThrough:
+				typeof p.metadata?.reviewedChangesThrough === "string"
+					? p.metadata.reviewedChangesThrough
+					: undefined,
+		}))
 	)
 		throw new WorkControlError("CONFLICT", DECISION_SOURCE_CHANGED);
 	const laneAction = p.metadata?.laneAction;

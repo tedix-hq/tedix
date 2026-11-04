@@ -21,11 +21,7 @@ try {
 				});
 			});
 			await page.goto(`${origin}/browser-tests/card-tldr.html?snooze=1`);
-			await page
-				.getByRole("button", {
-					name: "Last related decision: Keep the reminder personal",
-				})
-				.click();
+			await page.getByRole("button", { name: "Context", exact: true }).click();
 			await page
 				.getByText("Save a reminder; the person sends any message.", {
 					exact: false,
@@ -201,6 +197,7 @@ try {
 					assert(
 						!(await page
 							.getByText("Source invocation:", { exact: false })
+							.first()
 							.isVisible()),
 						"technical source stays behind Details",
 					);
@@ -225,11 +222,13 @@ try {
 						await page.keyboard.press("Enter");
 					} else
 						await page
-							.getByRole("button", { name: "Details", exact: true })
+							.getByRole("button", { name: "Details for agents", exact: true })
 							.click();
 					assert(
 						await page
 							.getByText("Source invocation:", { exact: false })
+							.filter({ visible: true })
+							.first()
 							.isVisible(),
 						"the exact source remains available",
 					);
@@ -239,6 +238,7 @@ try {
 						);
 						await page
 							.getByText("Source invocation:", { exact: false })
+							.first()
 							.waitFor();
 						await page.evaluate(async () => {
 							await Promise.all(

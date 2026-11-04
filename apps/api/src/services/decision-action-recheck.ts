@@ -1,5 +1,6 @@
+import { ORPCError } from "@orpc/server";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
-import { decisionActionChange } from "@tedix/db/queries/work-items/decision-action-recheck";
+import { decisionActionChangeDetail } from "@tedix/db/queries/work-items/decision-action-recheck";
 import { retireDecisionReviews } from "@tedix/db/queries/work-items/decision-review-retirement";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import {
@@ -15,10 +16,14 @@ export async function recheckDecisionAction(
 	db: DbQueryClient,
 	request: Request,
 	now = new Date().toISOString(),
+	reviewedThrough?: string,
 ) {
 	if (!request.targetId) return null;
-	const change = await decisionActionChange(db, request.orgId, request);
-	if (!change) return null;
+	const detail = await decisionActionChangeDetail(db, request.orgId, request, {
+		reviewedThrough,
+	});
+	if (!detail) return null;
+	const change = detail.text;
 	const bytes = new Uint8Array(
 		await crypto.subtle.digest(
 			"SHA-256",
@@ -94,5 +99,40 @@ export async function recheckDecisionAction(
 		originalId: request.id,
 		now,
 	});
-	return { change, requestId: id };
+	return {
+		change,
+		requestId: id,
+		reviewableThrough: detail.reviewableThrough,
+		note: detail.note,
+	};
+}
+
+/**
+ * The refusal a person sees for a stale card. A newer Work comment is
+ * recoverable: the client shows the note and answers again with
+ * `reviewedChangesThrough`, binding the answer to that version.
+ */
+export function staleDecisionError(changed: {
+	change: string;
+	requestId?: string;
+	reviewableThrough?: string;
+	note?: string;
+}) {
+	return new ORPCError("CONFLICT", {
+		message: changed.reviewableThrough
+			? "There is a newer note on the linked task since this was asked. Read it, then save your answer again against the latest version."
+			: changed.requestId
+				? `${changed.change} Review the fresh card ${changed.requestId}.`
+				: changed.change,
+		data: {
+			reason: changed.reviewableThrough ? "newer_comment" : "facts_changed",
+			...(changed.requestId ? { freshRequestId: changed.requestId } : {}),
+			...(changed.reviewableThrough
+				? {
+						reviewedChangesThrough: changed.reviewableThrough,
+						note: changed.note,
+					}
+				: {}),
+		},
+	});
 }

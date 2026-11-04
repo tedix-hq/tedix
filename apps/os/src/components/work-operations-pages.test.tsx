@@ -452,7 +452,7 @@ describe("Decision-capture questions", () => {
 		);
 		const text = container.textContent ?? "";
 		expect(container.querySelector("h2")?.textContent).toBe(
-			"acme-app · claude-code waiting: It's deployed.",
+			"acme-app · claude-code waiting: It's deployed. The live API runs the referenced version",
 		);
 		expect(container.querySelector(".fd-identifier")?.textContent).toContain(
 			"fc6b8f9",
@@ -461,9 +461,10 @@ describe("Decision-capture questions", () => {
 			"Claude Code",
 		);
 		expect(
-			container.querySelector('[data-kumo-part="default-trigger"]')
-				?.textContent,
-		).toBe("Why am I seeing this?");
+			[...container.querySelectorAll('[data-kumo-part="default-trigger"]')].map(
+				(trigger) => trigger.textContent,
+			),
+		).toContain("Why am I seeing this?");
 		expect(text).not.toContain("Question from");
 		expect(text).toContain("Blocked");
 		expect(text).not.toContain("Can wait");

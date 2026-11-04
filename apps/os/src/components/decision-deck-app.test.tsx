@@ -521,7 +521,7 @@ const linkedRow = (id: string, subject: string, canRespond = true) =>
 		responseCount: 0,
 	});
 
-it("previews the outbound draft in the context strip and keeps it whole in Details", async () => {
+it("states what yes does and keeps the outbound draft whole under Context", async () => {
 	vi.spyOn(globalThis, "fetch").mockRejectedValue(
 		new Error("No live requests in the fixture"),
 	);
@@ -549,17 +549,14 @@ it("previews the outbound draft in the context strip and keeps it whole in Detai
 	};
 	await mount({ rows: [row] });
 	expect(host.textContent).toContain("Send the revised date?");
-	expect(
-		host.querySelector('[data-context-item="source"]')?.textContent,
-	).toContain("Hello Morgan, The revised date is Friday.");
+	expect(host.querySelector('[data-context-item="source"]')).toBeNull();
 	await act(async () =>
 		(
 			Array.from(host.querySelectorAll("button")).find(
-				(button) => button.textContent === "Details",
+				(button) => button.textContent === "Context",
 			) as HTMLButtonElement
 		).click(),
 	);
-	expect(document.body.textContent).toContain("A short generated summary.");
 	expect(document.body.textContent).toContain(
 		"The revised date is Friday. No discount has been promised.",
 	);

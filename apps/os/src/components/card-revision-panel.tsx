@@ -50,7 +50,10 @@ export function CardRevisionPanel({
 	onOpen,
 	contentKind = "text",
 	agentName = "owning agent",
+	openRequest = 0,
 }: {
+	/** Increment to open the change form, as the card's Change… button does. */
+	openRequest?: number;
 	target: CardRevisionTarget;
 	disabled?: boolean;
 	onRevising?: (pending: boolean) => void;
@@ -68,6 +71,11 @@ export function CardRevisionPanel({
 	const panel = useRef<HTMLElement>(null);
 	const input = useRef<HTMLInputElement>(null);
 	const [focusRequest, setFocusRequest] = useState(0);
+	useEffect(() => {
+		if (!openRequest) return;
+		setOpen(true);
+		setFocusRequest((value) => value + 1);
+	}, [openRequest]);
 	useEffect(() => {
 		if (!focusRequest) return;
 		// Native key handlers can reach a frame before React mounts the input.

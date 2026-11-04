@@ -14,8 +14,6 @@ import { DeckCurationFooter } from "@/components/deck-curation-footer";
 import { DeckNotUseful } from "@/components/deck-not-useful";
 import { useCardSchedule } from "@/lib/use-card-schedule";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
-import type { DecisionCardContextItem } from "@tedix/api-contract/schemas/user-settings";
-import { recordDecisionCardContextUse } from "@tedix/api-contract/utils/decision-card-preferences";
 import { useOsPreferences } from "@/lib/use-os-preferences";
 import { DecisionCardSettings } from "@/components/decision-card-settings";
 import { workRefreshOptions } from "@/lib/work-refresh";
@@ -83,6 +81,11 @@ import { WorkInteractionDecisionCard } from "@/components/work-interaction-decis
 import { ApprovalDecisionCard } from "@/components/work-decision-stack";
 import { WorkDecisionCard } from "@/components/work-decision-card";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "@/components/kumo/collapsible";
 import { WorkReadRegion, WorkReadNotice } from "@/components/work-read-region";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
@@ -693,23 +696,6 @@ function DecisionDeckContent({
 					dueInHeader: true,
 					cardType,
 					preferences: storedPreferences?.decisionCards,
-					onContextUse: practiceMode
-						? undefined
-						: (
-								shown: readonly DecisionCardContextItem[],
-								opened: readonly DecisionCardContextItem[],
-							) => {
-								if (storedPreferences)
-									cardPreferences.save.mutate({
-										...storedPreferences,
-										decisionCards: recordDecisionCardContextUse(
-											storedPreferences.decisionCards,
-											cardType,
-											shown,
-											opened,
-										),
-									});
-							},
 					onOpenSettings: () => setCardSettingsOpen(true),
 				}
 			: null;
@@ -1209,6 +1195,12 @@ function DecisionDeckContent({
 																			? feedback.body
 																			: `${current.options.find((option) => option.id === feedback.action)!.label}: ${current.options.find((option) => option.id === feedback.action)!.consequence}${feedback.feedback ? ` Feedback: ${feedback.feedback}` : ""}`,
 																	resolvesRequest: choice !== "later",
+																	...(feedback.reviewedChangesThrough
+																		? {
+																				reviewedChangesThrough:
+																					feedback.reviewedChangesThrough,
+																			}
+																		: {}),
 																	metadata: decisionFeedbackMetadata(
 																		feedback,
 																		current.classId,
@@ -1298,20 +1290,28 @@ function DecisionDeckContent({
 					onOpenChange={setCardSettingsOpen}
 					cardType={cardType}
 				/>
-				<DecisionContextSection sectionId="style" title="Results and learning">
-					{!practiceMode && <DeckCurationFooter />}
-					<DeckAttentionMetrics />
-					<LearnedToday />
-					{mode === "decide" && classId && (
-						<DecisionClassCalibration
-							classId={instrumentationClassId ?? classId}
-						/>
-					)}
+				<DecisionContextSection sectionId="style" title="Your decisions">
 					<p>
 						{learning?.ready
 							? "Your recent choices favour this kind of recommendation."
 							: "Your choices help shape future recommendations."}
 					</p>
+					{/* Stats load only when someone asks for them. */}
+					<Collapsible>
+						<CollapsibleDefaultTrigger>
+							{decisionText("Stats and learned rules")}
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent className="grid gap-3">
+							{!practiceMode && <DeckCurationFooter />}
+							<DeckAttentionMetrics />
+							<LearnedToday />
+							{mode === "decide" && classId && (
+								<DecisionClassCalibration
+									classId={instrumentationClassId ?? classId}
+								/>
+							)}
+						</CollapsibleDefaultContent>
+					</Collapsible>
 				</DecisionContextSection>
 			</div>
 		</DecisionAttentionContext.Provider>,

@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import {
 	DecisionEnvelopeSchema,
 	DecisionSourcesSchema,
@@ -28,18 +28,41 @@ export async function decisionSourcesCurrent(
 	db: DbQueryClient,
 	orgId: string,
 	request: Request,
+	options: { reviewedThrough?: string } = {},
 ) {
+	return (await decisionSourcesReview(db, orgId, request, options)).current;
+}
+
+type SourceReview =
+	| { current: true }
+	| {
+			current: false;
+			/**
+			 * Set when the only change is newer comments on a cited Work: the
+			 * person may read the latest and answer through its time.
+			 */
+			reviewable?: { through: string; note: string };
+	  };
+
+export async function decisionSourcesReview(
+	db: DbQueryClient,
+	orgId: string,
+	request: Request,
+	options: { reviewedThrough?: string } = {},
+): Promise<SourceReview> {
+	const current = { current: true } as const;
+	const changed = { current: false } as const;
 	if (
 		request.status !== "open" ||
 		request.targetType !== "user" ||
 		request.kind === "coordination"
 	)
-		return true;
+		return current;
 	const envelope = DecisionEnvelopeSchema.safeParse(
 		request.metadata.decisionDeck,
 	);
 	if (request.metadata.decisionDeck !== undefined && !envelope.success)
-		return false;
+		return changed;
 	const records = [
 		request.metadata.decisionSources,
 		envelope.success ? envelope.data.sources : undefined,
@@ -67,7 +90,7 @@ export async function decisionSourcesCurrent(
 			typeof handoff.nextClick === "string" &&
 			typeof handoff.requestId === "string"
 		)
-			return true;
+			return current;
 		// Never grandfather irreversible approvals whose evidence was not recorded.
 		if (
 			humanReservedActionClasses(`${request.subject}\n${request.prompt}`).some(
@@ -80,25 +103,34 @@ export async function decisionSourcesCurrent(
 					].includes(kind),
 			)
 		)
-			return false;
-		return (
-			!envelope.success ||
+			return changed;
+		return !envelope.success ||
 			!(
 				envelope.data.reversibility === "one_way" ||
 				envelope.data.protectedEffects.some((effect) =>
 					["money", "message", "data"].includes(effect),
 				)
 			)
-		);
+			? current
+			: changed;
 	}
+	let reviewable: { through: string; note: string } | undefined;
 	for (const raw of records) {
 		const sources = DecisionSourcesSchema.safeParse(raw);
-		if (!sources.success) return false;
+		if (!sources.success) return changed;
 		for (const source of sources.data) {
-			if (!(await decisionSourceMatches(db, orgId, source))) return false;
+			const match = await decisionSourceMatches(
+				db,
+				orgId,
+				source,
+				options.reviewedThrough,
+			);
+			if (match === false) return changed;
+			if (match !== true && (!reviewable || match.through > reviewable.through))
+				reviewable = match;
 		}
 	}
-	return true;
+	return reviewable ? { current: false, reviewable } : current;
 }
 
 /** Expire only the checked version; keep its facts and history without recording an answer. */
@@ -139,7 +171,8 @@ async function decisionSourceMatches(
 	db: DbQueryClient,
 	orgId: string,
 	source: DecisionSource,
-) {
+	reviewedThrough?: string,
+): Promise<boolean | { through: string; note: string }> {
 	switch (source.kind) {
 		case "work": {
 			const work = await getWorkItemById(db, source.id, orgId);
@@ -153,7 +186,29 @@ async function decisionSourceMatches(
 						eq(workItemComments.workItemId, source.id),
 					),
 				);
-			return Number(comments?.count) === source.commentCount;
+			const count = Number(comments?.count);
+			if (count === source.commentCount) return true;
+			if (count < source.commentCount) return false;
+			// Only newer comments: current through what the person has read.
+			const [latest] = await db
+				.select({
+					body: workItemComments.body,
+					createdAt: workItemComments.createdAt,
+				})
+				.from(workItemComments)
+				.where(
+					and(
+						eq(workItemComments.orgId, orgId),
+						eq(workItemComments.workItemId, source.id),
+						reviewedThrough
+							? gt(workItemComments.createdAt, reviewedThrough)
+							: undefined,
+					),
+				)
+				.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))
+				.limit(1);
+			if (!latest) return true;
+			return { through: latest.createdAt, note: latest.body.slice(0, 600) };
 		}
 		case "output": {
 			const output = await getOsOutput(db, {

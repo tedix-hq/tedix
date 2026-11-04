@@ -430,7 +430,8 @@ try {
 		"pending saves keep the deciding card mounted",
 	);
 	await page
-		.getByText("Fictional save failed", { exact: true })
+		// The card states the failure inline, with its next step.
+		.getByText(/Fictional save failed/)
 		.first()
 		.waitFor();
 	await first.waitFor();

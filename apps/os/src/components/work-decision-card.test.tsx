@@ -53,6 +53,22 @@ async function click(label: string) {
 	const button = [...document.querySelectorAll("button")].find(
 		(item) => item.textContent === label,
 	);
+	if (!button) {
+		// Quiet controls such as "Give feedback" live in the "⋯" menu.
+		const more = host.querySelector<HTMLButtonElement>(
+			'button[aria-label="More actions"]',
+		);
+		if (more) {
+			await act(async () => more.click());
+			const item = [
+				...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+			].find((entry) => entry.textContent === label);
+			if (item) {
+				await act(async () => item.click());
+				return;
+			}
+		}
+	}
 	expect(button).toBeDefined();
 	await act(async () => button!.click());
 }
@@ -394,27 +410,29 @@ const WAITING_WORDS = [
 	"Retry",
 ];
 
-it("leads with the question, one story line, the recommendation and at most three context items", async () => {
+it("leads with the question, why now with a relative due date, and what each option does", async () => {
 	const context = "Morgan picks the room at the Friday stand-up.";
 	await mountFace({
 		presentation: { ...FACE, context },
 		confidence: null,
+		now: new Date("2026-10-30T09:00:00Z"),
 		dates: ["2026-10-27T10:30:00Z"],
 	});
 	expect(heading()).toBe(FACE.title);
-	expect(host.querySelector(".fd-card-context")?.textContent).toBe(context);
+	expect(host.querySelector("[data-why-now]")?.textContent).toBe(
+		`3 days overdue · ${context}`,
+	);
+	expect(host.querySelector("[data-context-item]")).toBeNull();
+	const outcomes = host.querySelector(".fd-outcomes")!.textContent;
+	expect(outcomes).toContain(`Yes${FACE.body}`);
+	expect(outcomes).toContain("Not nowSkips it for now");
+	// The recommendation and the original ask stay one tap away in Context.
 	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
-		`Tedix recommends: ${FACE.recommendation}`,
+		`Suggested: ${FACE.recommendation}`,
 	);
-	const items = [...host.querySelectorAll("[data-context-item]")].map((item) =>
-		item.getAttribute("data-context-item"),
-	);
-	expect(items).toEqual(["source", "due", "asker"]);
 	expect(
-		host.querySelector('[data-context-item="source"]')?.textContent,
-	).toContain("Confirm who staffs the booth and send the guest list");
-	// The consequence stays one tap away in Details.
-	expect(host.textContent).toContain(FACE.body);
+		host.querySelector(".fd-recommendation")?.closest("[hidden]"),
+	).not.toBeNull();
 });
 
 it("shows the original ask at once, with no waiting or error face, and keeps actions live", async () => {
@@ -441,7 +459,7 @@ it("drops list numbers such as 'Review 07 —' from the headline", async () => {
 	expect(heading()).toBe("LOI draft and paid-maintainer offer for Ines?");
 });
 
-it("names every action by its outcome and moves feedback and declines into the overflow", async () => {
+it("names every action by its outcome and keeps the decline in view", async () => {
 	await mountFace(
 		{
 			presentation: { ...FACE, actionLabels: { approve: "Save the room" } },
@@ -471,15 +489,11 @@ it("names every action by its outcome and moves feedback and declines into the o
 		.map((button) => button.textContent);
 	expect(visible).toEqual([
 		"Save the room",
+		"Decline",
 		"Not now",
 		"Decide for me",
 		"Change…",
 	]);
-	const decline = row.querySelector<HTMLButtonElement>(
-		'[data-decision-intent="reject"]',
-	)!;
-	expect(decline.textContent).toBe("Decline");
-	expect(decline.hasAttribute("data-deck-overflow")).toBe(true);
 	for (const label of ["Reviewed", "No / Not needed", "Not useful"])
 		expect(visible).not.toContain(label);
 });
@@ -506,7 +520,7 @@ it("decides for the person with the recommended answer when no tedi can take it"
 	);
 });
 
-it("shows only the question and actions in compact density", async () => {
+it("leaves out the option list in compact density", async () => {
 	await mountFace({
 		presentation: FACE,
 		confidence: null,
@@ -514,32 +528,8 @@ it("shows only the question and actions in compact density", async () => {
 		preferences: { density: "compact" },
 	});
 	expect(heading()).toBe(FACE.title);
-	expect(host.querySelector(".fd-card-context")).toBeNull();
-	expect(host.querySelector("[data-context-item]")).toBeNull();
+	expect(host.querySelector(".fd-outcomes")).toBeNull();
 	expect(actionButtons().length).toBeGreaterThan(0);
-});
-
-it("follows the person's context choice and reports which items they opened", async () => {
-	const onContextUse = vi.fn();
-	await mountFace({
-		presentation: FACE,
-		confidence: null,
-		dates: ["2026-10-27T10:30:00Z"],
-		preferences: { contextItems: { decision: ["due", "source"] } },
-		onContextUse,
-	});
-	expect(
-		[...host.querySelectorAll("[data-context-item]")].map((item) =>
-			item.getAttribute("data-context-item"),
-		),
-	).toEqual(["source", "due"]);
-	await act(async () =>
-		host
-			.querySelector<HTMLButtonElement>('[data-context-item="due"] button')!
-			.click(),
-	);
-	await click("Yes");
-	expect(onContextUse).toHaveBeenCalledWith(["source", "due"], ["due"]);
 });
 
 it("auto-decides a confident card after a visible countdown the person can stop", async () => {
@@ -704,6 +694,7 @@ it("keeps ranking evidence inside the selected card's single explanation drawer"
 	).toHaveLength(1);
 	await click("Why am I seeing this?");
 	expect(host.textContent).toContain("The workshop is waiting on this answer.");
+	await click("How this was ranked");
 	expect(host.textContent).toContain("Your recent workshop decisions");
 	expect(host.textContent).toContain(
 		"Applicable lesson: confirm the time before promising delivery",
@@ -779,20 +770,17 @@ it("does not repeat the If yes label inside the consequence sentence", async () 
 		presentation: { ...FACE, body: "If yes, saves the proposed room." },
 		confidence: null,
 	});
-	expect(host.querySelector(".fd-card-summary")?.textContent).toBe(
-		"If yes: Saves the proposed room.",
+	expect(host.querySelector(".fd-outcomes dd")?.textContent).toBe(
+		"Saves the proposed room.",
 	);
 });
 
-it("omits unknown confidence and retains assessed confidence", async () => {
-	await mountFace({ presentation: FACE, confidence: null });
-	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
-		`Tedix recommends: ${FACE.recommendation}`,
-	);
+it("keeps confidence scores off the card", async () => {
 	await mountFace({ presentation: FACE, confidence: 0.8 });
-	expect(host.querySelector(".fd-recommendation")?.textContent).toContain(
-		"80% sure",
+	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
+		`Suggested: ${FACE.recommendation}`,
 	);
+	expect(host.textContent).not.toContain("% sure");
 });
 
 it.each([
@@ -817,7 +805,7 @@ it.each([
 	},
 );
 
-it("keeps revision controls behind collapsed Details", async () => {
+it("keeps revision controls hidden until the person asks for changes", async () => {
 	const client = new QueryClient({
 		defaultOptions: { queries: { enabled: false } },
 	});
@@ -840,19 +828,14 @@ it("keeps revision controls behind collapsed Details", async () => {
 			</QueryClientProvider>,
 		),
 	);
-	const trigger = [...host.querySelectorAll("button")].find(
-		(button) => button.textContent === "Card revisions",
-	);
-	expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-	expect(
-		host.querySelector('[aria-label="Card revisions"]')?.closest("[hidden]"),
-	).not.toBeNull();
+	const panel = () => host.querySelector('[aria-label="Card revisions"]');
+	expect(panel()?.closest("[hidden]")).not.toBeNull();
 	await act(async () => {
 		host
 			.querySelector("section")!
 			.dispatchEvent(new KeyboardEvent("keydown", { key: "c", bubbles: true }));
 	});
-	expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+	expect(panel()?.closest("[hidden]")).toBeNull();
 });
 
 it.each(["outbound", "decision", "proposal", "question", "approval"] as const)(
@@ -1038,7 +1021,10 @@ it.each([
 		"[data-decision-intent=approve]",
 	)!;
 	expect(primary.textContent).toBe(label);
-	expect(Boolean(host.querySelector("textarea"))).toBe(label === "Answer");
+	// The card asks a question, so a typed answer is always one field away.
+	expect(host.querySelector("textarea")?.getAttribute("placeholder")).toBe(
+		label === "Answer" ? "Your answer…" : "Or write your own answer…",
+	);
 	if (label === "Answer") return;
 	await act(async () => primary.click());
 	expect(decide).toHaveBeenCalledWith(
@@ -1119,16 +1105,26 @@ it("shows and saves a chat-filled answer on a yes/no question", async () => {
 	);
 });
 
-it("opens a typed answer for a yes/no question on request", async () => {
-	await mountQuestion("Keep dark-factory private?");
-	await click("Write an answer");
-	expect(host.querySelector("textarea")).not.toBeNull();
+it("answers a yes/no question in the person's own words from the card", async () => {
+	const decide = await mountQuestion("Keep dark-factory private?");
+	await type("textarea", "Only until the audit is done");
 	expect(
 		host.querySelector("[data-decision-intent=approve]")?.textContent,
-	).toBe("Answer");
+	).toBe("Send answer");
+	expect(host.querySelector(".fd-outcomes")?.textContent).toContain(
+		"Sends your answer to Robin.",
+	);
+	await click("Send answer");
+	expect(decide).toHaveBeenCalledWith(
+		expect.objectContaining({
+			action: "answer",
+			signal: "answer",
+			body: "Only until the audit is done",
+		}),
+	);
 });
 
-it("shows the last related decision in the context strip only when the list supplies one", async () => {
+it("shows the last related decision under Context only when the list supplies one", async () => {
 	const state = {
 		presentation: FACE,
 		confidence: null,
@@ -1139,16 +1135,87 @@ it("shows the last related decision in the context strip only when the list supp
 		},
 	};
 	await mountFace(state);
-	const button = host.querySelector<HTMLButtonElement>(
-		'[data-context-item="last_decision"] button',
-	);
-	expect(button?.textContent).toContain(
-		"Last related decision: Keep the existing service",
-	);
-	await act(async () => button!.click());
-	expect(button?.textContent).toContain(
-		"Use the current provider for this project.",
+	expect(host.textContent).toContain(
+		"Last time: Use the current provider for this project.",
 	);
 	await mountFace({ ...state, lastRelatedDecision: null });
-	expect(host.querySelector('[data-context-item="last_decision"]')).toBeNull();
+	expect(host.textContent).not.toContain("Last time:");
+});
+
+it("hides IDs, hashes and agent notes from the card but keeps them for agents", async () => {
+	await mountFace(
+		{
+			presentation: {
+				...FACE,
+				title: "Open share 57e61f8a to the research team?",
+				context:
+					"Work cbf08453 is waiting (trace 894b5978-1c2d-4e5f-8a9b-0c1d2e3f4a5b).",
+			},
+			confidence: null,
+		},
+		undefined,
+		{
+			body: "The pilot needs the terms. Then dispatch this Work to a lane admitted for the Willowbrook org. See https://tedix.example/work/items/cbf08453.",
+		},
+	);
+	expect(heading()).toBe("Open the share to the research team?");
+	expect(host.querySelector("[data-why-now]")?.textContent).toBe(
+		"The linked task is waiting.",
+	);
+	await click("Context");
+	const context = host.querySelector(".fd-proposal-body")!;
+	expect(context.textContent).toContain("The pilot needs the terms.");
+	expect(context.textContent).not.toMatch(/dispatch|cbf08453|https?:/);
+	await click("Details for agents");
+	expect(host.textContent).toContain(
+		"Then dispatch this Work to a lane admitted for the Willowbrook org.",
+	);
+});
+
+it("recovers a stale card in one click by answering against the newer note", async () => {
+	const decide = vi
+		.fn(async (_feedback: DecisionCardFeedback) => {})
+		.mockRejectedValueOnce(
+			Object.assign(new Error("The linked Work has a newer comment: raw"), {
+				code: "CONFLICT",
+				data: {
+					reason: "newer_comment",
+					reviewedChangesThrough: "2026-11-04T09:20:00.000Z",
+					note: "Checks for Work 47464594-e486-401b-97ba-5d286a6a41b1 are green.",
+				},
+			}),
+		);
+	await mountQuestion("Keep dark-factory private?", decide);
+	await click("Keep private");
+	const alert = host.querySelector(".fd-stale")!;
+	expect(alert.textContent).toContain("Something changed since this was asked");
+	expect(alert.textContent).toContain("Checks for the linked task are green.");
+	expect(alert.textContent).not.toContain("47464594");
+	await click("Save with the latest version");
+	expect(decide).toHaveBeenLastCalledWith(
+		expect.objectContaining({
+			action: "answer",
+			reviewedChangesThrough: "2026-11-04T09:20:00.000Z",
+		}),
+	);
+	expect(host.querySelector(".fd-stale")).toBeNull();
+	expect(host.textContent).toContain("Decision saved");
+});
+
+it("shows a short plain reason for other refusals", async () => {
+	const decide = vi
+		.fn(async (_feedback: DecisionCardFeedback) => {})
+		.mockRejectedValueOnce(
+			Object.assign(
+				new Error(
+					"The linked Work was superseded by 1a2b3c4d-1111-4111-8111-111111111111. Review the fresh card 2b3c4d5e-2222-4222-8222-222222222222.",
+				),
+				{ code: "CONFLICT" },
+			),
+		);
+	await mountQuestion("Keep dark-factory private?", decide);
+	await click("Keep private");
+	const alert = host.querySelector('[role="alert"]')!.textContent;
+	expect(alert).toContain("The linked Work was superseded.");
+	expect(alert).not.toMatch(/[0-9a-f]{8}-/);
 });

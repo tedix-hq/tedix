@@ -4,7 +4,7 @@ import {
 } from "@tedix/api-contract/schemas/card-revisions";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
-import { chromium, type Locator } from "playwright";
+import { chromium, type Locator, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
 const server = await startFixtureServer("/browser-tests/card-revisions.html");
@@ -12,6 +12,16 @@ const { origin } = server;
 const screenshotDirectory = process.env.CARD_REVISIONS_SCREENSHOT_DIR;
 if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true });
 const browser = await chromium.launch({ headless: true });
+/** Versions and change requests open on the card from its "⋯" menu. */
+async function openVersions(page: Page) {
+	await page
+		.getByRole("button", { name: "More actions", exact: true })
+		.first()
+		.click();
+	await page
+		.getByRole("menuitem", { name: "Versions and changes", exact: true })
+		.click();
+}
 async function checkDisclosure(trigger: Locator, width: number) {
 	await trigger.scrollIntoViewIfNeeded();
 	const box = await trigger.boundingBox();
@@ -165,7 +175,7 @@ try {
 				document.documentElement.dataset.theme = mode;
 			}, theme);
 			await page
-				.getByRole("button", { name: "Details", exact: true })
+				.getByRole("button", { name: "More actions", exact: true })
 				.first()
 				.waitFor();
 			assert.equal(
@@ -174,10 +184,7 @@ try {
 					.isVisible(),
 				false,
 			);
-			await page
-				.getByRole("button", { name: "Details", exact: true })
-				.first()
-				.click();
+			await openVersions(page);
 			await page
 				.getByRole("button", { name: "Ask for changes", exact: true })
 				.waitFor();
@@ -279,6 +286,7 @@ try {
 			await page
 				.getByRole("button", { name: "Restore version 1", exact: true })
 				.click();
+			// Version history opens in the decision context; the card keeps its panel.
 			await page
 				.getByRole("button", { name: "Close decision context", exact: true })
 				.click();
@@ -286,22 +294,11 @@ try {
 				await page
 					.getByRole("dialog", { name: "Decision context", exact: true })
 					.waitFor({ state: "hidden" });
-			await page
-				.getByRole("button", { name: "Details", exact: true })
-				.first()
-				.click();
 			await page
 				.getByText("Version 4", { exact: true })
 				.filter({ visible: true })
 				.first()
 				.waitFor();
-			await page
-				.getByRole("button", { name: "Close decision context", exact: true })
-				.click();
-			if (width === 390)
-				await page
-					.getByRole("dialog", { name: "Decision context", exact: true })
-					.waitFor({ state: "hidden" });
 			const card = page.getByRole("region", {
 				name: "Send Morgan the use-case email?",
 			});
@@ -312,13 +309,6 @@ try {
 					document.activeElement?.getAttribute("aria-label") ===
 					"What should change?",
 			);
-			await page
-				.getByRole("button", { name: "Close decision context", exact: true })
-				.click();
-			if (width === 390)
-				await page
-					.getByRole("dialog", { name: "Decision context", exact: true })
-					.waitFor({ state: "hidden" });
 			const selectGreeting = async () => {
 				await page
 					.locator("[data-card-feedback-content]")
@@ -363,13 +353,6 @@ try {
 					animations: "disabled",
 				});
 			await pill.getByRole("button", { name: "Shorter", exact: true }).click();
-			await page
-				.getByRole("button", { name: "Close decision context", exact: true })
-				.click();
-			if (width === 390)
-				await page
-					.getByRole("dialog", { name: "Decision context", exact: true })
-					.waitFor({ state: "hidden" });
 			await selectGreeting();
 			await pill
 				.getByRole("textbox", { name: "Comment on selection" })
@@ -444,14 +427,8 @@ try {
 					children: [{ ...plan.children[0]!, title: "Verify every source" }],
 				},
 			};
-			await page
-				.getByRole("button", { name: "Close decision context", exact: true })
-				.click();
 			await page.goto(`${origin}/browser-tests/card-revisions.html?plan=1`);
-			await page
-				.getByRole("button", { name: "Details", exact: true })
-				.first()
-				.click();
+			await openVersions(page);
 			await page.getByText("What changed", { exact: true }).click();
 			await page
 				.getByRole("button", { name: "Keep original change 1", exact: true })

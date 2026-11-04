@@ -100,7 +100,7 @@ const ENGLISH_COPY = {
 		undone: "Learning corrected. Your decision is unchanged.",
 		failed: "Couldn't correct that learning. Try again.",
 		why: "Why this?",
-		signals: "Signals used",
+		signals: "How this was ranked",
 		evidence: "Evidence",
 		initial: "I’ll learn from your next choice.",
 		lessons: "Lessons used",
