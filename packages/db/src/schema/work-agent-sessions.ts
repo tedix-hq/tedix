@@ -122,6 +122,12 @@ export const workAgentSessions = sqliteTable(
 			table.userId,
 			table.lastEventAt,
 		),
+		// Office ownership checks look one Attempt's session key up per user.
+		index("idx_work_agent_sessions_org_user_session").on(
+			table.organizationId,
+			table.userId,
+			table.sessionKey,
+		),
 		index("idx_work_agent_sessions_org_project").on(
 			table.organizationId,
 			table.projectId,

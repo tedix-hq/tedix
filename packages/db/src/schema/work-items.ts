@@ -750,6 +750,12 @@ export const workEvents = sqliteTable(
 			table.eventType,
 			table.actorType,
 		),
+		// The Office timeline reads a few event types inside a time window per org.
+		index("idx_work_events_org_type_occurred").on(
+			table.orgId,
+			table.eventType,
+			table.occurredAt,
+		),
 		// The lease sweep reads stopped lanes across tenants in sequence order.
 		index("idx_work_events_stopped_lane_sequence")
 			.on(table.sequence)
