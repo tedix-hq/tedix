@@ -92,13 +92,14 @@ async function revalidateAggregate(
 				retain,
 				snapshot.generation,
 			);
-			await writeAggregateL2(cacheKey, snapshot);
+			await writeAggregateL2(cacheKey, snapshot, ctx);
 			await writeAggregateR2(
 				env,
 				cacheKey,
 				snapshot,
 				rootSlug,
 				fresh.tools.length,
+				ctx,
 			);
 			console.log(JSON.stringify({ _cm: "aggregate", event: "revalidated" }));
 			emitAggregateCacheMetric(env, {
@@ -304,13 +305,14 @@ export async function aggregateAndPrefixTools(
 		if (!result.degraded) {
 			const snapshot = serializeAggregateSnapshot(result);
 			rememberAggregateSurface(cacheKey, result, retain, snapshot.generation);
-			await writeAggregateL2(cacheKey, snapshot);
+			await writeAggregateL2(cacheKey, snapshot, ctx);
 			await writeAggregateR2(
 				env,
 				cacheKey,
 				snapshot,
 				rootSlug,
 				result.tools.length,
+				ctx,
 			);
 			return result;
 		}
