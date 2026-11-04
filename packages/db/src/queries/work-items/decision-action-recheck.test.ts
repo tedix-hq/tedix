@@ -41,6 +41,8 @@ function fixture() {
 		.run(workId, orgId, createdAt);
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	const request = {
+		creatorType: "external_agent",
+		creatorId: "asking-agent",
 		id: "card",
 		workItemId: workId,
 		createdAt,
@@ -78,6 +80,81 @@ it("allows a current delete approval at continuation time", async () => {
 		sqlite.close();
 	}
 });
+
+it.each(["external_agent", "tedi"])(
+	"ignores the asking %s's declared progress at answer and continuation time",
+	async (creatorType) => {
+		const { sqlite, request, check, detail } = fixture();
+		request.creatorType = creatorType;
+		try {
+			sqlite
+				.prepare(
+					"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,metadata,created_at) VALUES ('progress',?,?,?,?,?,?,?)",
+				)
+				.run(
+					orgId,
+					workId,
+					creatorType,
+					request.creatorId,
+					"Still working; waiting for your answer.",
+					JSON.stringify({ decisionImpact: "progress" }),
+					later,
+				);
+			expect(await detail()).toBeNull();
+			expect(await check()).toBeNull();
+			// A fact from the same agent must not be hidden by later progress.
+			sqlite
+				.prepare(
+					"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,created_at) VALUES ('fact',?,?,?,?,?,?)",
+				)
+				.run(
+					orgId,
+					workId,
+					creatorType,
+					request.creatorId,
+					"Credits granted; this is production.",
+					"2026-10-20T12:00:00.000Z",
+				);
+			expect((await detail())?.note).toContain("this is production");
+			expect(await check()).toContain("this is production");
+			expect(await detail("2026-10-20T12:00:00.000Z")).toBeNull();
+		} finally {
+			sqlite.close();
+		}
+	},
+);
+
+it.each([
+	["external_agent", "other-agent", { decisionImpact: "progress" }],
+	["tedi", "asking-agent", { decisionImpact: "progress" }],
+	["external_agent", null, { decisionImpact: "progress" }],
+	["external_agent", "asking-agent", {}],
+	["external_agent", "asking-agent", { decisionImpact: "facts" }],
+])(
+	"keeps comments from %s/%s with %j blocking",
+	async (authorType, authorId, metadata) => {
+		const { sqlite, check, detail } = fixture();
+		try {
+			sqlite
+				.prepare(
+					"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,metadata,created_at) VALUES ('comment',?,?,?,?,?,?,?)",
+				)
+				.run(
+					orgId,
+					workId,
+					authorType,
+					authorId,
+					"Check the current facts.",
+					JSON.stringify(metadata),
+					later,
+				);
+			expect(await detail()).not.toBeNull();
+			expect(await check()).toContain("Check the current facts.");
+		} finally {
+			sqlite.close();
+		}
+	},
+);
 
 it.each(["completed", "cancelled"])(
 	"blocks a delete approval after Work is %s",

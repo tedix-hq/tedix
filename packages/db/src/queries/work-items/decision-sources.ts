@@ -6,13 +6,18 @@ import {
 } from "@tedix/api-contract/schemas/os-decision-deck";
 import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
 import type { DbQueryClient } from "../../query-client";
+import { auditEvents } from "../../schema/audit-events";
 import { tediEmailMessages, tediEmailThreads } from "../../schema/tedi-email";
 import { getWorkItemById } from "./crud";
+import { decisionRelevantWorkComment } from "./comments";
 import { workItemComments } from "../../schema/work-items";
 import { getOsOutput } from "../os-workspaces/outputs";
 import { workInteractions } from "../../schema/work-factory";
 
 type Request = {
+	creatorType?: string;
+	creatorId?: string;
+	createdAt?: string;
 	status: string;
 	kind?: string;
 	targetType: string | null;
@@ -123,6 +128,7 @@ export async function decisionSourcesReview(
 				db,
 				orgId,
 				source,
+				request,
 				options.reviewedThrough,
 			);
 			if (match === false) return changed;
@@ -144,26 +150,56 @@ export async function retireDecisionSourceCard(
 		now: string;
 	},
 ) {
-	return db
-		.update(workInteractions)
-		.set({
-			status: "expired",
-			expiredAt: p.now,
-			resolutionFence: crypto.randomUUID(),
-			version: sql`${workInteractions.version}+1`,
-			metadata: sql`json_set(${workInteractions.metadata}, '$.supersession', json(${JSON.stringify({ reason: "decision_sources_changed", at: p.now })}))`,
-		})
-		.where(
-			and(
-				eq(workInteractions.orgId, p.orgId),
-				eq(workInteractions.id, p.id),
-				eq(workInteractions.version, p.version),
-				eq(workInteractions.status, "open"),
-				eq(workInteractions.targetType, "user"),
-				eq(workInteractions.targetId, p.targetId),
-			),
-		)
-		.returning({ id: workInteractions.id });
+	const fence = crypto.randomUUID();
+	const [retired] = await db.batch([
+		db
+			.update(workInteractions)
+			.set({
+				status: "expired",
+				expiredAt: p.now,
+				resolutionFence: fence,
+				version: sql`${workInteractions.version}+1`,
+			})
+			.where(
+				and(
+					eq(workInteractions.orgId, p.orgId),
+					eq(workInteractions.id, p.id),
+					eq(workInteractions.version, p.version),
+					eq(workInteractions.status, "open"),
+					eq(workInteractions.targetType, "user"),
+					eq(workInteractions.targetId, p.targetId),
+				),
+			)
+			.returning({ id: workInteractions.id }),
+		db.insert(auditEvents).select(
+			db
+				.select({
+					id: sql<string>`${fence}`.as("id"),
+					organizationId: workInteractions.orgId,
+					actorId: sql<string>`'tedix'`.as("actor_id"),
+					actorType: sql<string>`'service'`.as("actor_type"),
+					action: sql<string>`'decision.sources.expired'`.as("action"),
+					resourceType: sql<string>`'work_interaction'`.as("resource_type"),
+					resourceId: workInteractions.id,
+					metadata:
+						sql<string>`${JSON.stringify({ reason: "decision_sources_changed", at: p.now })}`.as(
+							"metadata",
+						),
+					timestamp: sql<number>`${Math.floor(Date.parse(p.now) / 1000)}`.as(
+						"timestamp",
+					),
+				})
+				.from(workInteractions)
+				.where(
+					and(
+						eq(workInteractions.orgId, p.orgId),
+						eq(workInteractions.id, p.id),
+						eq(workInteractions.resolutionFence, fence),
+					),
+				),
+		),
+	]);
+	return retired;
 }
 
 /** Only tenant-scoped reads; missing/archived sources never validate a decision. */
@@ -171,14 +207,20 @@ async function decisionSourceMatches(
 	db: DbQueryClient,
 	orgId: string,
 	source: DecisionSource,
+	request: Request,
 	reviewedThrough?: string,
 ): Promise<boolean | { through: string; note: string }> {
 	switch (source.kind) {
 		case "work": {
 			const work = await getWorkItemById(db, source.id, orgId);
 			if (!work || work.version !== source.version) return false;
+			const relevant = decisionRelevantWorkComment(request);
 			const [comments] = await db
-				.select({ count: sql<number>`count(*)` })
+				.select({
+					count: sql<number>`count(*)`,
+					relevantCount: sql<number>`coalesce(sum(case when ${relevant} then 1 else 0 end), 0)`,
+					baselineCount: sql<number>`coalesce(sum(case when ${workItemComments.createdAt} <= ${request.createdAt ?? null} then 1 else 0 end), 0)`,
+				})
 				.from(workItemComments)
 				.where(
 					and(
@@ -189,6 +231,14 @@ async function decisionSourceMatches(
 			const count = Number(comments?.count);
 			if (count === source.commentCount) return true;
 			if (count < source.commentCount) return false;
+			// The pin counts all comments. Exempt progress only when its original baseline is intact.
+			const progressExempt =
+				Number(comments?.baselineCount) === source.commentCount;
+			if (
+				progressExempt &&
+				Number(comments?.relevantCount) === source.commentCount
+			)
+				return true;
 			// Only newer comments: current through what the person has read.
 			const [latest] = await db
 				.select({
@@ -200,6 +250,7 @@ async function decisionSourceMatches(
 					and(
 						eq(workItemComments.orgId, orgId),
 						eq(workItemComments.workItemId, source.id),
+						progressExempt ? relevant : undefined,
 						reviewedThrough
 							? gt(workItemComments.createdAt, reviewedThrough)
 							: undefined,

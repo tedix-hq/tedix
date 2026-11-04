@@ -17,6 +17,26 @@ import {
 	workItems,
 } from "../../schema/work-items";
 
+/** Unclassified notes remain facts; only the asking agent's declared progress is exempt. */
+export function decisionRelevantWorkComment(request: {
+	creatorType?: string;
+	creatorId?: string;
+	createdAt?: string;
+}) {
+	if (
+		!["tedi", "external_agent"].includes(request.creatorType ?? "") ||
+		!request.creatorId ||
+		!request.createdAt
+	)
+		return sql`1`;
+	return sql`NOT coalesce((
+		${workItemComments.authorType} = ${request.creatorType}
+		AND ${workItemComments.authorId} = ${request.creatorId}
+		AND json_extract(${workItemComments.metadata}, '$.decisionImpact') = 'progress'
+		AND ${workItemComments.createdAt} > ${request.createdAt}
+	), 0)`;
+}
+
 export interface AddWorkItemCommentParams {
 	id: string;
 	workItemId: string;
