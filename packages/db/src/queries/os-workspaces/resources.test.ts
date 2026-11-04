@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
+import { skillEntries } from "../../schema/cognitive";
 import { osWorkspaceResources, osWorkspaces } from "../../schema/os-workspaces";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
@@ -9,6 +10,7 @@ import {
 	findOsWorkspaceTenantResource,
 	getOsWorkspaceResource,
 	listOsWorkspaceIdsLinkingSkill,
+	listOsWorkspaceLinkedTediIds,
 	listOsWorkspaceResources,
 	removeOsWorkspaceResource,
 	rebindOsWorkspaceResource,
@@ -410,5 +412,61 @@ describe("OS Workspace resources", () => {
 		expect(await linked("skill-1")).toEqual(["ws-1"]);
 		expect(await linked("skill-2")).toEqual([]);
 		expect(await linked("skill-1", "org-2")).toEqual([]);
+	});
+});
+
+describe("listOsWorkspaceLinkedTediIds", () => {
+	it("names the tedis of the skills linked to a workspace, once each, active links only", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys = OFF");
+		sqlite.exec(schemaDdl(osWorkspaces, osWorkspaceResources, skillEntries));
+		const skill = sqlite.prepare(
+			"INSERT INTO skill_entries (id, organization_id, title, content, tedi_id) VALUES (?, ?, ?, '# s', ?)",
+		);
+		skill.run("skill-reddit", "org-1", "Reddit watch", "tedi-reddit");
+		skill.run("skill-reddit-2", "org-1", "Reddit digest", "tedi-reddit");
+		skill.run("skill-cfo", "org-1", "Invoices", "tedi-cfo");
+		skill.run("skill-removed", "org-1", "Old", "tedi-old");
+		skill.run("skill-no-tedi", "org-1", "Shared", null);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const link = {
+			organizationId: "org-1",
+			workspaceId: "ws-1",
+			providerId: "tedix",
+			connectionScope: "tenant" as const,
+			requiredScopes: "[]",
+			resourceType: "skill",
+			metadata: "{}",
+			createdByKind: "user" as const,
+			createdById: "u-1",
+			createdAt: "2026-08-20T00:00:00.000Z",
+			updatedAt: "2026-08-20T00:00:00.000Z",
+		};
+		for (const [id, skillId, name, status] of [
+			["link-1", "skill-reddit", "A Reddit watch", "active"],
+			["link-2", "skill-cfo", "B Invoices", "active"],
+			["link-3", "skill-reddit-2", "C Reddit digest", "active"],
+			["link-4", "skill-removed", "D Old", "removed"],
+			["link-5", "skill-no-tedi", "E Shared", "active"],
+		] as const)
+			await createOsWorkspaceResource(db, {
+				...link,
+				id,
+				providerResourceId: skillId,
+				name,
+				status,
+			});
+		expect(
+			await listOsWorkspaceLinkedTediIds(db, {
+				organizationId: "org-1",
+				workspaceId: "ws-1",
+			}),
+		).toEqual(["tedi-reddit", "tedi-cfo"]);
+		expect(
+			await listOsWorkspaceLinkedTediIds(db, {
+				organizationId: "org-1",
+				workspaceId: "ws-other",
+			}),
+		).toEqual([]);
 	});
 });

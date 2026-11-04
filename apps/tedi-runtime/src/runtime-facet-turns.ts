@@ -1041,6 +1041,17 @@ export const runtimeFacetTurns = {
 				).selected(),
 			);
 		}
+		// Start-up reads that do not depend on each other run together: the
+		// platform client resolves while the MCP runtime syncs, and memory and
+		// skill recall run beside the delegation preflight. Only the preflight
+		// waits for the sync whose credential it uses.
+		const setupStartedAt = Date.now();
+		let platformMs = 0;
+		const platformPromise = this.getPlatformClient().then((client) => {
+			platformMs = Date.now() - setupStartedAt;
+			return client;
+		});
+		platformPromise.catch(() => undefined);
 		const cronTool = this.cronAiTool(input.sessionKey);
 		// Connections carry the calling run's personal-read lookup and trace.
 		// Isolate them per turn so a scheduled or concurrent turn cannot borrow
@@ -1068,7 +1079,9 @@ export const runtimeFacetTurns = {
 							: undefined,
 					)
 				: await this.getMcpRuntime();
+		let mcpSyncMs = 0;
 		if (isolatedRequest && mcpRuntime) {
+			const syncStartedAt = Date.now();
 			try {
 				await withTimeout(
 					mcpRuntime.ensureSynced(),
@@ -1081,7 +1094,37 @@ export const runtimeFacetTurns = {
 					{ exception: exceptionTopology(error) },
 				);
 			}
+			mcpSyncMs = Date.now() - syncStartedAt;
 		}
+		const platform = await platformPromise;
+		const turnBinding: ActiveTurnBinding | null =
+			mcpRuntime && platform
+				? {
+						platform,
+						conversationId: input.conversationId,
+						runId: input.runId,
+						// The conversation a detached command's completion wake lands
+						// back in; a delegated-run computer scope is keyed by Work Item,
+						// so the session key exists nowhere else at tool-call time.
+						sessionKey: input.sessionKey,
+						traceId: input.traceId ?? input.runId,
+						...(input.workItemId ? { workItemId: input.workItemId } : {}),
+						...(input.homeRunId ? { homeRunId: input.homeRunId } : {}),
+					}
+				: null;
+		// Memory and skill recall need only the platform client and the turn's
+		// telemetry binding; they run while the preflight checks the tool schemas.
+		const addendaStartedAt = Date.now();
+		const addendaPromise = input.toolsOnly
+			? null
+			: this.cognitiveAddenda(
+					input.sessionKey,
+					input.userMessage,
+					turnBinding,
+					Boolean(input.executionRestriction),
+				);
+		addendaPromise?.catch(() => undefined);
+		const preflightStartedAt = Date.now();
 		const requiredSchemas =
 			supervised && input.capabilityPlan && !input.executionRestriction
 				? await preflightDelegationTools(input.capabilityPlan, async (code) => {
@@ -1098,8 +1141,7 @@ export const runtimeFacetTurns = {
 						);
 					})
 				: [];
-		const platform = await this.getPlatformClient();
-		let turnBinding: ActiveTurnBinding | null = null;
+		const preflightMs = Date.now() - preflightStartedAt;
 		if (mcpRuntime && platform) {
 			mcpRuntime.bindTurn({
 				platform,
@@ -1108,18 +1150,6 @@ export const runtimeFacetTurns = {
 				traceId: input.traceId ?? input.runId,
 				workItemId: input.workItemId,
 			});
-			turnBinding = {
-				platform,
-				conversationId: input.conversationId,
-				runId: input.runId,
-				// The conversation a detached command's completion wake lands back
-				// in; a delegated-run computer scope is keyed by Work Item, so the
-				// session key exists nowhere else at tool-call time.
-				sessionKey: input.sessionKey,
-				traceId: input.traceId ?? input.runId,
-				...(input.workItemId ? { workItemId: input.workItemId } : {}),
-				...(input.homeRunId ? { homeRunId: input.homeRunId } : {}),
-			};
 			platform.setEpisodeTrace(input.traceId ?? input.runId);
 		}
 		const computerScope = computerWorkspaceScope(input);
@@ -1234,12 +1264,17 @@ export const runtimeFacetTurns = {
 				system: "",
 				turnBinding,
 			};
-		const addenda = await this.cognitiveAddenda(
-			input.sessionKey,
-			input.userMessage,
-			turnBinding,
-			Boolean(input.executionRestriction),
-		);
+		const addenda = addendaPromise ? await addendaPromise : "";
+		const addendaMs = Date.now() - addendaStartedAt;
+		console.log("[mcp-facet] turn setup", {
+			runId: input.runId,
+			supervised,
+			platformMs,
+			mcpSyncMs,
+			preflightMs,
+			addendaMs,
+			setupMs: Date.now() - setupStartedAt,
+		});
 		const toolsNote =
 			workspaceToolGuidance({
 				supervised,

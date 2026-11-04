@@ -163,6 +163,9 @@ export function renderHomeInventory(ctx: KernelContext): string {
 				const cap = tedi.capability;
 				const meta = [
 					tedi.role ? `role=${tedi.role}` : null,
+					// Workspace-fit signal: this tedi runs a skill linked to the
+					// workspace the chat is in; the planner ranks it first.
+					tedi.workspaceLinked ? "workspace=linked" : null,
 					// Prefer the card's coarse availability when present; fall back to the
 					// raw status so the line is never empty.
 					cap

@@ -79,7 +79,7 @@ export function homePageToolsRouteNote(
 			),
 			"page_tool_descriptors",
 		),
-		"Choose answer_in_home for a page request only when the offered tools can fulfill the whole request. Home can then read or act on the page itself without delegation. The presence of a page tool does not mean it can read other workspace resources or perform other actions. If the request needs access or actions beyond these tools, use the normal routing and authorization rules instead of trapping it in the page-only answer pass.",
+		"Choose answer_in_home when the offered tools can fulfill the whole request: Home then reads or acts on the page itself, without delegation. A request about this workspace's apps, files or outputs (read, explain, fix, change, propose an edit) is such a request when a matching tool is offered; do not delegate it to a tedi. The presence of a page tool does not mean it can read other workspace resources or perform other actions. If the request needs access or actions beyond these tools (live external provider data, long-running or embodied work), use the normal routing and authorization rules instead of trapping it in the page-only answer pass.",
 	].join("\n");
 }
 
@@ -91,3 +91,62 @@ export const HOME_PAGE_TOOLS_INSTRUCTION = [
 	"Never submit anything the person did not explicitly ask to submit; a submit waits for their tap in the chat. If a tool reports the person did not confirm, say nothing was submitted.",
 	"Finish with a short plain-text answer that says what you changed on the page. Do not mention internal routing machinery or tool names.",
 ].join("\n");
+
+/** Workspace app words a person uses in that workspace's chat. */
+const WORKSPACE_APP_REQUEST =
+	/\b(?:gadgets?|workspace apps?|(?:this|the|our|my|that)\s+(?:app|application|widget)|(?:app|widget)(?:'s)?\s+(?:code|files?|ui|screen|button|layout|styles?|loading))\b/i;
+const WORKSPACE_OUTPUT_REQUEST =
+	/\b(?:this|the|our|my|that)\s+(?:document|doc|sheet|presentation|output)\b/i;
+/** Words that make the request repository or external-provider work. */
+const NOT_PAGE_WORK =
+	/\b(?:repo(?:sitory)?|codebase|source code|git|deploy)\b/i;
+
+export interface PageToolCoverageInput {
+	content: string;
+	descriptors: readonly Pick<HomePageToolDescriptor, "name">[];
+	/** The workspace the chat is in and the app or output open beside it. */
+	workspace?: { workpiece?: { kind: "gadget" | "output" } } | null;
+	/** Available app labels; a request naming one is provider work, not page work. */
+	apps?: readonly { slug: string; name: string }[];
+	plannedToolIds?: readonly string[];
+}
+
+/**
+ * Whether the offered page tools cover the request: it is about this
+ * workspace's apps or outputs and a tool that reads them is offered. Repository,
+ * deploy and named-provider requests are never page work.
+ */
+export function pageToolsCoverRequest(input: PageToolCoverageInput): boolean {
+	const offered = new Set(
+		input.descriptors.map((descriptor) => descriptor.name),
+	);
+	const text = input.content.replace(/https?:\/\/\S+/gi, " ");
+	if (NOT_PAGE_WORK.test(text)) return false;
+	const lower = text.toLocaleLowerCase();
+	if (
+		input.apps?.some((app) =>
+			[app.slug, app.name]
+				.map((label) => label.trim().toLocaleLowerCase())
+				.filter((label) => label.length >= 3)
+				.some((label) => lower.includes(label)),
+		)
+	)
+		return false;
+	const plannedAppTool = (input.plannedToolIds ?? []).some((id) =>
+		/(?:^|[._])(?:gadgets_get_code|propose_(?:os_app_)?edit|read_app_files|list_workspace_apps)$/.test(
+			id,
+		),
+	);
+	const openApp = input.workspace?.workpiece?.kind === "gadget";
+	const openOutput = input.workspace?.workpiece?.kind === "output";
+	const aboutApp =
+		plannedAppTool ||
+		WORKSPACE_APP_REQUEST.test(text) ||
+		(openApp && /\b(?:app|screen|ui|button|loading)\b/i.test(text));
+	if (aboutApp && offered.has("read_app_files")) return true;
+	const aboutOutput =
+		WORKSPACE_OUTPUT_REQUEST.test(text) ||
+		(openOutput &&
+			/\b(?:document|doc|sheet|presentation|output|text)\b/i.test(text));
+	return aboutOutput && offered.has("read_workspace_output");
+}

@@ -12,6 +12,7 @@ import {
 	shapeRouteUsage as actualShapeRouteUsage,
 	SYSTEM_PROMPT,
 	guardPersonalRecallRoute,
+	guardWorkspacePageToolRoute,
 } from "./route-planner";
 import {
 	type KernelRouteDecision,
@@ -458,14 +459,15 @@ describe("planKernelRoute", () => {
 			model,
 		});
 
-		// TOOL/PROVIDER OWNERSHIP is the primary ranking signal (step 1).
+		// TOOL/PROVIDER OWNERSHIP is the first capability signal (step 2, after
+		// the workspace link).
 		expect(capturedSystem).toContain("TOOL/PROVIDER OWNERSHIP");
 		expect(capturedSystem).toContain("tools=[...]");
-		// TRACK-RECORD is the secondary signal (step 2).
+		// TRACK-RECORD is the next signal (step 3).
 		expect(capturedSystem).toContain("TRACK-RECORD");
 		expect(capturedSystem).toContain("track-record=NN%");
-		// POLICY is the tie-breaker (step 3).
-		expect(capturedSystem).toContain("3. POLICY:");
+		// POLICY is the tie-breaker (step 4).
+		expect(capturedSystem).toContain("4. POLICY:");
 		expect(capturedSystem).toContain("autonomous");
 		expect(capturedSystem).toContain("gated");
 		// A standby tedi wakes on dispatch, so it must not lose to a running one;
@@ -708,7 +710,7 @@ describe("planKernelRoute", () => {
 		expect(capturedUser).toContain("<conversation_history>");
 		expect(capturedUser).toContain("denied (403)");
 		expect(capturedSystem).toContain("not a standing refusal");
-		expect(capturedSystem).toContain("fresh authorized read-only attempt");
+		expect(capturedSystem).toContain("fresh authorized read");
 		// The renewed-request delegation survives the route guard untouched.
 		expect(result).toMatchObject({
 			routeKind: "delegate_tedi",
@@ -1292,7 +1294,7 @@ describe("planKernelRoute", () => {
 		expect(capturedSystem).toContain("delegate_tedi");
 		// propose_tool_write is ONLY for writes where NO tedi owns the domain.
 		expect(capturedSystem).toContain(
-			"Reserve propose_tool_write ONLY for writes where NO tedi",
+			"Reserve propose_tool_write for such writes only when NO tedi",
 		);
 		// Concrete example: platform governance → CTO/platform tedi.
 		expect(capturedSystem).toContain("platform governance");
@@ -1303,7 +1305,7 @@ describe("planKernelRoute", () => {
 		// fresh organization whose default tedi is not yet needed for ownership.
 		expect(capturedSystem).toContain("catalog.install");
 		expect(capturedSystem).toContain(
-			"Installing tenant apps from the Tedix catalog",
+			"Catalog installs route through the app carrying catalog.install",
 		);
 	});
 
@@ -3489,5 +3491,104 @@ describe("personal recall routing", () => {
 				decision,
 			),
 		).toBe(decision);
+	});
+});
+
+describe("guardWorkspacePageToolRoute", () => {
+	const delegated: KernelRouteDecision = {
+		routeKind: "delegate_tedi",
+		answer: null,
+		rationale: "The Reddit Operator owns app work.",
+		risk: "low",
+		confidence: 0.8,
+		effortClass: "single_read",
+		targetTediId: "reddit",
+		targetTediLabel: "Reddit Operator",
+		targetActivityId: null,
+		plannedToolIds: ["gadgets_get_code"],
+		toolIntent: null,
+		workflowHint: null,
+		clarifyingQuestion: null,
+		evidenceExpectation: null,
+	};
+	const workspaceContext: KernelContext = {
+		...EMPTY_CONTEXT,
+		tedis: [{ id: "reddit", slug: "reddit-operator", name: "Reddit Operator" }],
+		workspace: {
+			id: "ws-1",
+			name: "Research",
+			workpiece: { kind: "gadget", id: "g-1", name: "Research explained" },
+		},
+	};
+	const pageTools = {
+		descriptors: [
+			{
+				name: "read_app_files",
+				description: "Read the app files.",
+				inputSchema: { type: "object" },
+			},
+			{
+				name: "propose_app_edit",
+				description: "Propose an edit.",
+				inputSchema: { type: "object" },
+			},
+		],
+		relay: async () => ({ ok: true, content: "{}" }),
+	};
+
+	it("keeps an app fix in the workspace chat with Home when page tools cover it", () => {
+		const guarded = guardWorkspacePageToolRoute(
+			"fix the loading screen of this app",
+			workspaceContext,
+			delegated,
+			pageTools,
+		);
+		expect(guarded).toMatchObject({
+			routeKind: "answer_in_home",
+			targetTediId: null,
+			targetTediLabel: null,
+			plannedToolIds: [],
+		});
+	});
+
+	it("leaves the delegation alone when the operator names a tedi", () => {
+		expect(
+			guardWorkspacePageToolRoute(
+				"have the Reddit Operator fix the loading screen of this app",
+				workspaceContext,
+				delegated,
+				pageTools,
+			),
+		).toBe(delegated);
+	});
+
+	it("leaves the delegation alone outside a workspace or without page tools", () => {
+		expect(
+			guardWorkspacePageToolRoute(
+				"fix the loading screen of this app",
+				{ ...workspaceContext, workspace: null },
+				delegated,
+				pageTools,
+			),
+		).toBe(delegated);
+		expect(
+			guardWorkspacePageToolRoute(
+				"fix the loading screen of this app",
+				workspaceContext,
+				delegated,
+				undefined,
+			),
+		).toBe(delegated);
+	});
+
+	it("leaves specialist work with the tedi", () => {
+		expect(
+			guardWorkspacePageToolRoute(
+				"find this week's Reddit threads about price alerts",
+				workspaceContext,
+				{ ...delegated, plannedToolIds: ["reddit.search"] },
+				pageTools,
+			),
+		).toMatchObject({ routeKind: "delegate_tedi", targetTediId: "reddit" });
 	});
 });

@@ -52,6 +52,7 @@ import {
 	assembleHomeContext,
 	deriveAppCapabilities,
 	type KernelContext,
+	prioritizeWorkspaceTedis,
 	unresolvedSkillReferences,
 } from "./context-assembly";
 import { rankByQueryRelevance, withRankingBudget } from "./context-relevance";
@@ -1107,6 +1108,78 @@ describe("renderHomeContextPrompt — AVAILABLE TEDIS capability card", () => {
 				resourceType: "file",
 			},
 		]);
+		vi.restoreAllMocks();
+	});
+
+	it("ranks the tedis linked to the selected Workspace first and marks them", async () => {
+		vi.spyOn(tediQueries, "getTedisByOrganization").mockResolvedValue([
+			{
+				id: "tedi-cto",
+				slug: "cto",
+				name: "CTO",
+				scope: "organization",
+				organizationId: ORG_ID,
+			},
+			{
+				id: "tedi-reddit",
+				slug: "reddit-operator",
+				name: "Reddit Operator",
+				scope: "organization",
+				organizationId: ORG_ID,
+			},
+		] as never);
+		const linked = vi
+			.spyOn(workspaceResourceQueries, "listOsWorkspaceLinkedTediIds")
+			.mockResolvedValue(["tedi-reddit"]);
+		const context = await assembleHomeContext(createEventsDb([]), ORG_ID, {
+			workspaceContext: {
+				workspaceId: "workspace-1",
+				workspaceName: "Reddit",
+			},
+		});
+		expect(linked).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: ORG_ID,
+			workspaceId: "workspace-1",
+		});
+		expect(context.tedis.map((tedi) => tedi.id)).toEqual([
+			"tedi-reddit",
+			"tedi-cto",
+		]);
+		expect(context.tedis[0]).toMatchObject({ workspaceLinked: true });
+		expect(context.tedis[1]!.workspaceLinked).toBeUndefined();
+		const prompt = renderHomeContextPrompt(context);
+		expect(prompt).toMatch(
+			/Reddit Operator \[slug=reddit-operator[^\n]*workspace=linked/,
+		);
+		expect(prompt).not.toMatch(/CTO \[slug=cto[^\n]*workspace=linked/);
+		vi.restoreAllMocks();
+	});
+
+	it("keeps the roster order when the chat is not in a Workspace", async () => {
+		vi.spyOn(tediQueries, "getTedisByOrganization").mockResolvedValue([
+			{ id: "tedi-cto", slug: "cto", name: "CTO", organizationId: ORG_ID },
+			{
+				id: "tedi-reddit",
+				slug: "reddit-operator",
+				name: "Reddit Operator",
+				organizationId: ORG_ID,
+			},
+		] as never);
+		const linked = vi.spyOn(
+			workspaceResourceQueries,
+			"listOsWorkspaceLinkedTediIds",
+		);
+		const context = await assembleHomeContext(createEventsDb([]), ORG_ID);
+		expect(linked).not.toHaveBeenCalled();
+		expect(context.tedis.some((tedi) => tedi.workspaceLinked)).toBe(false);
+		expect(
+			prioritizeWorkspaceTedis([
+				{ id: "a" },
+				{ id: "b", workspaceLinked: true },
+				{ id: "c" },
+				{ id: "d", workspaceLinked: true },
+			]).map((tedi) => tedi.id),
+		).toEqual(["b", "d", "a", "c"]);
 		vi.restoreAllMocks();
 	});
 

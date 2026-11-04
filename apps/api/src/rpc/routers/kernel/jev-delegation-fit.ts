@@ -87,7 +87,7 @@ export function createJevDelegationRanker(
 	};
 }
 
-function mentionsNamedTedi(
+export function mentionsNamedTedi(
 	content: string,
 	tedis: KernelContext["tedis"],
 ): boolean {
@@ -195,6 +195,7 @@ export async function refineDelegationFit<
 				description: [
 					tedi.slug,
 					tedi.name,
+					tedi.workspaceLinked ? "linked to the current workspace" : "",
 					tedi.capability!.apps.join(" "),
 					tedi.capability!.scopeGroups.join(" "),
 					tedi.capability!.skills.join(" "),
