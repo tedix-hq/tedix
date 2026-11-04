@@ -362,6 +362,9 @@ try {
 			const sheet = page.getByRole("dialog", { name: "Outputs" });
 			await sheet.waitFor();
 			await sheet.getByRole("list", { name: "Files" }).waitFor();
+			await page.waitForFunction(
+				() => !document.querySelector("[data-starting-style]"),
+			);
 			const close = sheet.getByRole("button", { name: "Close", exact: true });
 			assert(
 				await close.evaluate((node) => {
