@@ -337,6 +337,9 @@ export const ResolveTenantPolicyDiscoveryInputSchema = z
 export const ResolveTenantPolicyDiscoveryResponseSchema = z.object({
 	potential: z.boolean(),
 });
+export const ResolveTenantPolicyOrganizationPresenceInputSchema = z
+	.object({ organizationId: z.string().min(1) })
+	.strict();
 export const ResolveTenantPolicyPresenceInputSchema = z
 	.object({
 		organizationId: z.string().min(1),

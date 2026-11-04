@@ -20,6 +20,7 @@ import {
 	findTenantToolPolicySubjectFences,
 	tenantPolicySubjectKey,
 	hasTenantToolPolicyFenceForSource,
+	hasTenantToolPolicyFenceInOrganization,
 	listDeletedTenantPolicyFences,
 	revokeTenantToolPolicy,
 } from "./tenant-tool-policy";
@@ -734,6 +735,7 @@ describe("tenant tool policy persistence", () => {
 			sourceToolId: "write",
 		};
 		expect(await hasTenantToolPolicyFenceForSource(db, scope)).toBe(false);
+		expect(await hasTenantToolPolicyFenceInOrganization(db, "org")).toBe(false);
 		await createTenantToolPolicy(db, {
 			id: "policy",
 			organizationId: "org",
@@ -753,6 +755,10 @@ describe("tenant tool policy persistence", () => {
 			.delete(tenantToolPolicies)
 			.where(eq(tenantToolPolicies.id, "policy"));
 		expect(await hasTenantToolPolicyFenceForSource(db, scope)).toBe(true);
+		expect(await hasTenantToolPolicyFenceInOrganization(db, "org")).toBe(true);
+		expect(await hasTenantToolPolicyFenceInOrganization(db, "other")).toBe(
+			false,
+		);
 		expect(
 			await hasTenantToolPolicyFenceForSource(db, {
 				...scope,

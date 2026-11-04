@@ -480,6 +480,19 @@ export async function findTenantToolPolicyCandidatesBySource(
 		);
 }
 
+/** Whether any tool policy was ever recorded in the organization. */
+export async function hasTenantToolPolicyFenceInOrganization(
+	db: DbQueryClient,
+	organizationId: string,
+) {
+	const rows = await db
+		.select({ sequence: tenantToolPolicyMountRevisions.sequence })
+		.from(tenantToolPolicyMountRevisions)
+		.where(eq(tenantToolPolicyMountRevisions.organizationId, organizationId))
+		.limit(1);
+	return rows.length > 0;
+}
+
 /** A missing pre-migration source binding is unknown and must block fallback. */
 export async function hasTenantToolPolicyFenceForSource(
 	db: DbQueryClient,

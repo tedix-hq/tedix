@@ -78,6 +78,7 @@ import {
 	tenantPolicySubjectKey,
 	findTenantToolPolicyCandidatesBySource,
 	hasTenantToolPolicyFenceForSource,
+	hasTenantToolPolicyFenceInOrganization,
 	getTenantToolPolicyResourceGenerations,
 	getProviderIdentityProfile,
 	listProviderIdentityProfiles,
@@ -2892,6 +2893,18 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 							? { effect: decision.effect }
 							: { defaultAsk: true as const }),
 					},
+				};
+			},
+		),
+	resolveTenantPolicyOrganizationPresence:
+		serviceOs.resolveTenantPolicyOrganizationPresence.handler(
+			async ({ input, context }) => {
+				await assertGatewayOrganization(context, input.organizationId);
+				return {
+					fenced: await hasTenantToolPolicyFenceInOrganization(
+						context.db,
+						input.organizationId,
+					),
 				};
 			},
 		),
