@@ -127,6 +127,12 @@ export const learningInteractionEvents = sqliteTable(
 		index("idx_learning_event_corrections")
 			.on(table.organizationId, table.scopeKind, table.scopeId, table.actorId)
 			.where(sql`event_kind = 'undone'`),
+		// The unfiled-request listing asks, per open row, whether a pending
+		// filing proposal exists for exactly that request. On the owner index
+		// that probe ranged over all of the owner's later filing events.
+		index("idx_learning_event_pending_filing")
+			.on(table.organizationId, table.issueKey, table.occurredAt)
+			.where(sql`json_extract(metadata, '$.pending') = 1`),
 	],
 );
 

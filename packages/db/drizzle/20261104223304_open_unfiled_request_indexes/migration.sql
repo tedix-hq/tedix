@@ -1,0 +1,2 @@
+CREATE INDEX `idx_learning_event_pending_filing` ON `learning_interaction_events` (`organization_id`,`issue_key`,`occurred_at`) WHERE json_extract(metadata, '$.pending') = 1;--> statement-breakpoint
+CREATE INDEX `idx_agent_session_requests_open_unfiled` ON `agent_session_requests` (`organization_id`,`user_id`,`source_at`) WHERE project_id is null and status not in ('done', 'cancelled');

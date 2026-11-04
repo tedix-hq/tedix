@@ -108,6 +108,12 @@ export const agentSessionRequests = sqliteTable(
 			table.harness,
 			table.sessionKey,
 		),
+		// The auto-filing queue lists an owner's open, unfiled rows newest first
+		// on every pass. Without this it walked every row of the owner and
+		// sorted them (about 110k rows read per call on 4 Nov 2026).
+		index("idx_agent_session_requests_open_unfiled")
+			.on(table.organizationId, table.userId, table.sourceAt)
+			.where(sql`project_id is null and status not in ('done', 'cancelled')`),
 	],
 );
 

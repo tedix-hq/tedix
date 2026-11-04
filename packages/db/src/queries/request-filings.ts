@@ -314,7 +314,9 @@ export async function listUnfiledRequests(
 				eq(agentSessionRequests.userId, owner.userId),
 				isNull(agentSessionRequests.projectId),
 				sql`${agentSessionRequests.status} not in ('done', 'cancelled')`,
-				sql`not exists (select 1 from learning_interaction_events e where e.organization_id = ${owner.organizationId} and e.issue_key = 'request-filing:' || ${agentSessionRequests.id} and e.surface = ${FILING_SURFACE} and json_extract(e.metadata, '$.ledgerOwnerId') = ${owner.userId} and json_extract(e.metadata, '$.pending') = 1 and e.occurred_at >= ${agentSessionRequests.updatedAt})`,
+				// The unary + keeps the owner term off the owner/occurred index so
+				// the probe seeks this one request's pending filing by issue key.
+				sql`not exists (select 1 from learning_interaction_events e where e.organization_id = ${owner.organizationId} and e.issue_key = 'request-filing:' || ${agentSessionRequests.id} and e.surface = ${FILING_SURFACE} and +json_extract(e.metadata, '$.ledgerOwnerId') = ${owner.userId} and json_extract(e.metadata, '$.pending') = 1 and e.occurred_at >= ${agentSessionRequests.updatedAt})`,
 			),
 		)
 		.orderBy(desc(agentSessionRequests.sourceAt))
