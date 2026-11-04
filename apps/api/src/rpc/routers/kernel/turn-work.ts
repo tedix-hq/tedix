@@ -1,3 +1,4 @@
+import { UuidParamSchema } from "@tedix/api-contract/schemas/common";
 import { runtimeInferenceDenialMessage } from "@tedix/api-contract/schemas/runtime-entitlements";
 import { homeDelegationApprovalId } from "@tedix/api-contract/utils/home-delegation-approval";
 import { findApprovalRule } from "../approval-rule-matcher";
@@ -1442,11 +1443,27 @@ export async function runKernelTurnWork(
 				deps.createDelegationWorkItem &&
 				deps.predictAutoDelegationChildRunId
 			) {
+				const selectedWorkIds = [
+					runRowMetadata.workItemId,
+					runtimeMetadata.workItemId,
+				]
+					.filter((value) => value !== undefined)
+					.map((value) => {
+						const parsed = UuidParamSchema.safeParse({
+							id: typeof value === "string" ? value.trim() : value,
+						});
+						if (!parsed.success)
+							throw new Error("Selected Work Item must be a valid Work ID");
+						return parsed.data.id;
+					});
+				const selectedWorkItemId = selectedWorkIds[0];
+				if (selectedWorkIds.some((id) => id !== selectedWorkItemId))
+					throw new Error("Home run contains conflicting selected Work Items");
 				const predictedChildRunId = deps.predictAutoDelegationChildRunId({
 					homeRunId: runId,
 					delegatedTediId: autoDelegation.workOrder.targetTediId,
 				});
-				autoDelegationWorkItemId = await deps.createDelegationWorkItem({
+				const admittedWorkItemId = await deps.createDelegationWorkItem({
 					autonomyClass: autoDelegation.workOrder.autonomyClass,
 					assigneeTediId: autoDelegation.workOrder.targetTediId,
 					childRunId: predictedChildRunId,
@@ -1457,7 +1474,13 @@ export async function runKernelTurnWork(
 					homeRunId: runId,
 					organizationId,
 					objectiveId,
+					...(selectedWorkItemId ? { workItemId: selectedWorkItemId } : {}),
 				});
+				if (selectedWorkItemId && admittedWorkItemId !== selectedWorkItemId)
+					throw new Error(
+						"Selected Work Item was not admitted for this delegation",
+					);
+				autoDelegationWorkItemId = admittedWorkItemId;
 			}
 			autoDispatch = await deps.dispatchAutoDelegation({
 				attachments: input.attachments,

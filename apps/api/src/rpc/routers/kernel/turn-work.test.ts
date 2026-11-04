@@ -3657,6 +3657,152 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 		).toBe(result.assistantMessage.content);
 	});
 
+	it("forwards selected Work from normal Home runtime metadata into auto-delegation admission", async () => {
+		const workItemId = "11111111-1111-4111-8111-111111111111";
+		const createDelegationWorkItem = vi.fn(async () => workItemId);
+		const dispatch = vi.fn(async () => ({
+			childRunId: "selected-child",
+			status: "queued" as const,
+		}));
+		const deps = stubDeps({
+			db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
+			kernel: autoDelegateKernel(),
+			createDelegationWorkItem,
+			dispatchAutoDelegation: dispatch,
+		});
+		const input = turnInput();
+		const result = await runKernelTurnWork(deps, {
+			...input,
+			runtimeMetadata: { ...input.runtimeMetadata, workItemId },
+		});
+		expect(createDelegationWorkItem).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ workItemId }),
+		);
+		expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ workItemId }),
+		);
+		expect(result.run.metadata).toMatchObject({ workItemId });
+	});
+
+	it.each(["run", "matching"] as const)(
+		"reuses %s selected Work without replacing its identity",
+		async (selection) => {
+			const workItemId = "11111111-1111-4111-8111-111111111111";
+			const create = vi.fn(async () => workItemId);
+			const dispatch = vi.fn(async () => ({
+				childRunId: "selected-child",
+				status: "queued" as const,
+			}));
+			const deps = stubDeps({
+				db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
+				kernel: autoDelegateKernel(),
+				createDelegationWorkItem: create,
+				dispatchAutoDelegation: dispatch,
+			});
+			const input = turnInput();
+			const result = await runKernelTurnWork(deps, {
+				...input,
+				runRowMetadata: { workItemId },
+				runtimeMetadata:
+					selection === "matching" ? { workItemId: ` ${workItemId} ` } : {},
+			});
+			expect(create).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({ workItemId }),
+			);
+			expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+				expect.objectContaining({ workItemId }),
+			);
+			expect(result.run.metadata).toMatchObject({ workItemId });
+		},
+	);
+
+	it.each([null, "", "   ", "not-a-work-id", 17])(
+		"refuses malformed selected Work %j before admission or dispatch",
+		async (workItemId) => {
+			const create = vi.fn();
+			const dispatch = vi.fn();
+			const deps = stubDeps({
+				db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
+				kernel: autoDelegateKernel(),
+				createDelegationWorkItem: create,
+				dispatchAutoDelegation: dispatch,
+			});
+			const result = await runKernelTurnWork(deps, {
+				...turnInput(),
+				runtimeMetadata: { workItemId },
+			});
+			expect(create).not.toHaveBeenCalled();
+			expect(dispatch).not.toHaveBeenCalled();
+			expect(result.status).toBe("failed");
+		},
+	);
+
+	it("refuses conflicting run and runtime Work selections before admission", async () => {
+		const create = vi.fn();
+		const dispatch = vi.fn();
+		const deps = stubDeps({
+			db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
+			kernel: autoDelegateKernel(),
+			createDelegationWorkItem: create,
+			dispatchAutoDelegation: dispatch,
+		});
+		const result = await runKernelTurnWork(deps, {
+			...turnInput(),
+			runRowMetadata: { workItemId: "11111111-1111-4111-8111-111111111111" },
+			runtimeMetadata: { workItemId: "22222222-2222-4222-8222-222222222222" },
+		});
+		expect(create).not.toHaveBeenCalled();
+		expect(dispatch).not.toHaveBeenCalled();
+		expect(result.status).toBe("failed");
+	});
+
+	it.each([
+		"missing selected Work",
+		"foreign selected Work",
+		"denied admission",
+		"already_running",
+	])("does not create a replacement or dispatch after %s", async (reason) => {
+		const workItemId = "11111111-1111-4111-8111-111111111111";
+		const create = vi.fn(async () => {
+			throw new Error(reason);
+		});
+		const dispatch = vi.fn();
+		const deps = stubDeps({
+			db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
+			kernel: autoDelegateKernel(),
+			createDelegationWorkItem: create,
+			dispatchAutoDelegation: dispatch,
+		});
+		const result = await runKernelTurnWork(deps, {
+			...turnInput(),
+			runtimeMetadata: { workItemId },
+		});
+		expect(create).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ workItemId }),
+		);
+		expect(dispatch).not.toHaveBeenCalled();
+		expect(result.status).toBe("failed");
+	});
+
+	it("refuses dispatch when admission returns a different Work", async () => {
+		const create = vi.fn(async () => "22222222-2222-4222-8222-222222222222");
+		const dispatch = vi.fn();
+		const deps = stubDeps({
+			db: sequencedSelectDbProxy([{ status: "running", metadata: {} }]),
+			kernel: autoDelegateKernel(),
+			createDelegationWorkItem: create,
+			dispatchAutoDelegation: dispatch,
+		});
+		const result = await runKernelTurnWork(deps, {
+			...turnInput(),
+			runtimeMetadata: { workItemId: "11111111-1111-4111-8111-111111111111" },
+		});
+		expect(create).toHaveBeenCalledTimes(1);
+		expect(dispatch).not.toHaveBeenCalled();
+		expect(result.status).toBe("failed");
+		expect(result.run.metadata).not.toHaveProperty("workItemId");
+	});
+
 	it("creates and threads the auto-delegation Work Item before child dispatch", async () => {
 		const createDelegationWorkItem = vi.fn(async () => "work-item-1");
 		const predictAutoDelegationChildRunId = vi.fn(
