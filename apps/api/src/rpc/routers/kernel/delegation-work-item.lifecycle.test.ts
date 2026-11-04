@@ -286,6 +286,46 @@ describe("Home delegation evidence lifecycle", () => {
 		});
 	});
 
+	it.each(["completed", "failed"] as const)(
+		"a blocked child (%s) settles as blocked with the reroute_to_home hint and the blocker as data",
+		async (status) => {
+			const text =
+				"Blocked (missing_repository): no repository is connected for this worker yet.";
+			const stop = classifyDelegatedStop({
+				assistantText: text,
+				structuredStopReason: null,
+			});
+			await expect(
+				disposeDelegationWorkItem(context(), {
+					childRunId: "child-1",
+					childRunStatus: status,
+					childStop: stop,
+					createdAt: NOW,
+					delegatedTediId: "tedi-1",
+					delegationError: null,
+					organizationId: "org-1",
+					proof: { ...proof, transcript: text },
+					workItemId: WORK_ITEM_ID,
+				}),
+			).resolves.toMatchObject({
+				outcome: "failed",
+				workItemDisposition: "accepted",
+				failureReason: "blocked",
+				retryable: true,
+				recoveryHints: ["reroute_to_home"],
+				blocker: { kind: "missing_repository", source: "declared" },
+			});
+			const settled = mocks.settleWorkItemAttempt.mock.calls.at(-1)?.[1];
+			expect(settled?.summary).toContain("could not start");
+			expect(settled?.summary).toContain(
+				"no repository is connected for this worker yet",
+			);
+			expect(settled?.summary).not.toMatch(
+				/open_computer|repository_not_configured/,
+			);
+		},
+	);
+
 	it.each(["failed", "canceled"] as const)(
 		"runtime %s takes precedence over a success declaration",
 		async (status) => {

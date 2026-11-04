@@ -15,8 +15,22 @@ import {
 	readChildRunFinalAssistantResult,
 	readChildRunFullResult,
 } from "./child-run-reads";
-import { delegatedStopFromSummary } from "./delegated-stop";
-import { type DelegationAttemptResult } from "./delegation-work-item";
+import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
+import {
+	delegatedStopFromSummary,
+	extractTechnicalReport,
+	parseDelegationBlocker,
+	stripSyntheticMarkers,
+} from "./delegated-stop";
+import {
+	type BlockerRecoveryResult,
+	recoverBlockedDelegation,
+} from "./delegation-blocker-recovery";
+import {
+	type DelegationAttemptResult,
+	resolveDelegationWorkItemId,
+} from "./delegation-work-item";
 import { homeNarrationMetadata } from "./home-narration";
 import { type KernelEnv, configuredKernelModel } from "./llm";
 import {
@@ -257,25 +271,80 @@ export async function recordHomeDelegationCompletionMessage(
 		organizationId: input.row.organizationId,
 	});
 	const finalMessage = finalResult.content;
+	const stop = delegatedStopFromSummary(nonNullRecord(input.run.metadata));
+	// The engineer-facing part of the child's report stays out of the chat
+	// body and rides as message metadata (the child's own event row keeps the
+	// full text).
+	const technicalReport = extractTechnicalReport(finalMessage);
+	// A blocked child reaches Home as data: the classifier's blocker, or the
+	// declared/plainly carried one on the final message when the summary
+	// predates the classification.
+	const blocker =
+		stop?.blocker ??
+		(finalMessage
+			? parseDelegationBlocker(stripSyntheticMarkers(finalMessage))
+			: null);
+	// Home consumes the settlement's recovery hint once per delegation: it
+	// re-routes to a tedi that has the capability, retries a transient fault
+	// once, or asks the person exactly one question. The completion event id is
+	// deterministic, so an already-recorded completion means the decision was
+	// already taken; repeated reads must not dispatch again.
+	let recovery: BlockerRecoveryResult | null = null;
+	if (
+		blocker &&
+		(input.run.status === "failed" || input.run.status === "completed") &&
+		!(await homeDelegationCompletionExists(context, input.row))
+	) {
+		recovery = await recoverBlockedDelegation(context, {
+			blocker,
+			disposition: input.disposition ?? null,
+			row: input.row,
+			run: input.run,
+			tediName: await delegatedTediName(context, input.row),
+			workItemId: await resolveDelegationWorkItemId(context, input.row).catch(
+				() => null,
+			),
+		});
+	}
+	if (recovery && recovery.decision.action !== "ask") {
+		// The Home run row now points at the new child; its completion message
+		// is written when that child ends. The person reads one hand-off line.
+		await recordHomeDelegationHandoffMessage(context, {
+			content: recovery.message,
+			createdAt: input.createdAt,
+			metadata: {
+				delegationBlocker: blocker,
+				delegationRecovery: recovery.decision,
+				...(technicalReport
+					? { delegationTechnicalReport: technicalReport }
+					: {}),
+			},
+			previousChildRunId: input.row.childRunId,
+			row: input.row,
+		});
+		return;
+	}
 	// Synthesis is the FALLBACK, not a rewrite: only when the child completed
 	// WITHOUT a final assistant message (tool-only evidence), interpret the full
 	// transcript via one bounded LLM pass. Fail-soft — null → the preview-based
 	// content.
 	const synthesized =
-		!finalMessage && input.run.status === "completed"
+		!finalMessage && !blocker && input.run.status === "completed"
 			? await readAndSynthesizeChildRunResult(context, {
 					tediId: input.row.delegatedTediId,
 					runId: input.row.childRunId,
 					organizationId: input.row.organizationId,
 				})
 			: null;
-	const content = homeDelegationCompletionContent({
-		preview: input.preview,
-		synthesized,
-		finalMessage,
-		status: input.run.status,
-		stop: delegatedStopFromSummary(nonNullRecord(input.run.metadata)),
-	});
+	const content = recovery
+		? recovery.message
+		: homeDelegationCompletionContent({
+				preview: input.preview,
+				synthesized,
+				finalMessage,
+				status: input.run.status,
+				stop: blocker && stop ? { ...stop, blocker } : stop,
+			});
 	// One delegation = one row. With NEITHER a relayed child answer NOR a
 	// synthesis, `homeDelegationCompletionContent` returns a template over
 	// (`status`, `preview`) — "The delegated tedi assignment was canceled.
@@ -368,6 +437,11 @@ export async function recordHomeDelegationCompletionMessage(
 							}
 						: {}),
 					...verdictMetadata,
+					...(blocker ? { delegationBlocker: blocker } : {}),
+					...(recovery ? { delegationRecovery: recovery.decision } : {}),
+					...(technicalReport
+						? { delegationTechnicalReport: technicalReport }
+						: {}),
 					...(statusOnlyNarration
 						? homeNarrationMetadata("delegation_status_only")
 						: {}),
@@ -397,6 +471,107 @@ export async function recordHomeDelegationCompletionMessage(
 			run: input.run,
 			delegationProof: verdictMetadata.delegationProof,
 			updatedAt: input.createdAt,
+		});
+	}
+}
+
+/** Whether this run's deterministic completion message is already recorded. */
+async function homeDelegationCompletionExists(
+	context: BaseContext,
+	row: KernelRuntimeRun,
+): Promise<boolean> {
+	try {
+		const [existing] = await listKernelRuntimeEvents(context.db, {
+			id: homeDelegationCompletionEventId(row),
+			organizationId: row.organizationId,
+			limit: 1,
+		});
+		return Boolean(existing);
+	} catch (error) {
+		// Fail-closed for recovery: an unreadable gate must not dispatch twice.
+		console.warn("[kernelRuntime] completion-message existence check failed", {
+			error: errorMessage(error),
+			runId: row.id,
+		});
+		return true;
+	}
+}
+
+async function delegatedTediName(
+	context: BaseContext,
+	row: KernelRuntimeRun,
+): Promise<string> {
+	if (!row.delegatedTediId) return "The worker";
+	try {
+		const tedi = await getTediByIdForOrganization(
+			context.db,
+			row.delegatedTediId,
+			row.organizationId,
+		);
+		return tedi?.name?.trim() || "The worker";
+	} catch {
+		return "The worker";
+	}
+}
+
+/**
+ * The one line the person reads when Home re-routed or retried a blocked
+ * delegation. Its own message id (keyed by the child that was blocked) keeps
+ * the deterministic completion slot free for the new child's answer.
+ */
+async function recordHomeDelegationHandoffMessage(
+	context: BaseContext,
+	input: {
+		content: string;
+		createdAt: string;
+		metadata: Record<string, unknown>;
+		previousChildRunId: string | null;
+		row: KernelRuntimeRun;
+	},
+): Promise<void> {
+	const suffix = `blocker-recovery:${input.previousChildRunId ?? "none"}`;
+	try {
+		await insertKernelRuntimeEvent(context, {
+			id: homeRuntimeEventId({
+				organizationId: input.row.organizationId,
+				kind: "message.completed",
+				conversationId: input.row.conversationId,
+				runId: input.row.id,
+				suffix,
+			}),
+			organizationId: input.row.organizationId,
+			kind: "message.completed",
+			conversationId: input.row.conversationId,
+			runId: input.row.id,
+			messageId: `${input.row.id}:${suffix}:assistant`,
+			delegatedTediId: input.row.delegatedTediId ?? undefined,
+			childRunId: input.previousChildRunId ?? undefined,
+			payload: {
+				role: "assistant",
+				content: input.content,
+				channel: "home",
+				metadata: {
+					asyncCompletion: true,
+					childRunId: input.previousChildRunId,
+					delegatedTediId: input.row.delegatedTediId,
+					homeRunId: input.row.id,
+					homeSubject: true,
+					source: "kernelRuntime.delegationBlockerRecovery",
+					...input.metadata,
+				},
+			},
+			runtimeMetadata: {
+				asyncCompletion: true,
+				childRunId: input.previousChildRunId,
+				delegatedTediId: input.row.delegatedTediId,
+				source: "kernelRuntime.delegationBlockerRecovery",
+			},
+			createdAt: input.createdAt,
+		});
+	} catch (error) {
+		console.warn("[kernelRuntime] blocker hand-off message insert failed", {
+			error: errorMessage(error),
+			runId: input.row.id,
 		});
 	}
 }

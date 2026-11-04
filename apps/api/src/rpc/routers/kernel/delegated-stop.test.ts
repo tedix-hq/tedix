@@ -4,7 +4,9 @@ import {
 	declaredDelegationOutcome,
 	delegatedStopFromSummary,
 	delegationVerifyCommand,
+	extractTechnicalReport,
 	hasDelegatedOutput,
+	parseDelegationBlocker,
 	hasVerificationOutput,
 	parseEarlyStopMarker,
 	stripSyntheticMarkers,
@@ -381,3 +383,101 @@ it.each([
 		).toBeNull();
 	},
 );
+
+// The report shape seen live: the forced final report said "Accomplished
+// nothing yet" and quoted `repository_not_configured`.
+const INCIDENT_REPORT =
+	"Accomplished nothing yet. What happened: `open_computer({ repository: true })` returned `repository_not_configured` for the lease. Next step: retry `browser_markdown` with the Reddit URL, or use `tedix_mcp_code` to read the sheet.";
+const DECLARED_REPORT =
+	"Blocked (missing_repository): no repository is connected for this worker yet.\n\n[technical-report]\nopen_computer({ repository: true }) → repository_not_configured; configure repoConfig.repoUrl.\n[/technical-report]";
+
+describe("parseDelegationBlocker / technical report", () => {
+	it("reads the declared Blocked line as data and keeps the technical part out of the output", () => {
+		expect(
+			parseDelegationBlocker(stripSyntheticMarkers(DECLARED_REPORT)),
+		).toEqual({
+			kind: "missing_repository",
+			detail: "no repository is connected for this worker yet.",
+			source: "declared",
+		});
+		expect(stripSyntheticMarkers(DECLARED_REPORT)).toBe(
+			"Blocked (missing_repository): no repository is connected for this worker yet.",
+		);
+		expect(extractTechnicalReport(DECLARED_REPORT)).toBe(
+			"open_computer({ repository: true }) → repository_not_configured; configure repoConfig.repoUrl.",
+		);
+		expect(extractTechnicalReport("plain answer")).toBeNull();
+	});
+
+	it("infers the blocker from the incident report that named repository_not_configured", () => {
+		expect(parseDelegationBlocker(INCIDENT_REPORT)).toEqual({
+			kind: "missing_repository",
+			detail: "no repository is connected for this worker yet.",
+			source: "inferred",
+		});
+	});
+
+	it("needs a no-progress phrase before reading an access or capability error as a blocker", () => {
+		expect(
+			parseDelegationBlocker(
+				"Could not start: work.list_work_items is unavailable or unauthorized for this tedi.",
+			),
+		).toMatchObject({ kind: "missing_access", source: "inferred" });
+		expect(
+			parseDelegationBlocker(
+				"Done. One note: the sandbox reported permission denied on a scratch file I did not need.",
+			),
+		).toBeNull();
+		expect(parseDelegationBlocker("Blocked: the road.")).toBeNull();
+		expect(
+			parseDelegationBlocker(
+				"Context: a previous run was Blocked (transient): x",
+			),
+		).toBeNull();
+	});
+});
+
+describe("classifyDelegatedStop — blocked", () => {
+	it("classifies a declared blocker as a failed stop with the blocker attached, even next to a ceiling marker", () => {
+		const classified = classifyDelegatedStop({
+			assistantText: `${DECLARED_REPORT}\n\n${STEP_MARKER}`,
+			structuredStopReason: null,
+		});
+		expect(classified).toMatchObject({
+			outcome: "failed",
+			stopReason: "blocked",
+			detail: "no repository is connected for this worker yet.",
+			steps: 10,
+			blocker: { kind: "missing_repository", source: "declared" },
+		});
+	});
+
+	it("classifies the incident report as blocked instead of a clean completion", () => {
+		expect(
+			classifyDelegatedStop({
+				assistantText: INCIDENT_REPORT,
+				structuredStopReason: null,
+			}),
+		).toMatchObject({ outcome: "failed", stopReason: "blocked" });
+	});
+
+	it("recovers a persisted blocker from the summary when the preview was clamped past the Blocked line", () => {
+		expect(
+			delegatedStopFromSummary({
+				childRunStatus: "failed",
+				childRunStopReason: "blocked",
+				childRunStopDetail: "no repository is connected for this worker yet.",
+				childRunPreview: "…ted for this worker yet.",
+				childRunBlocker: {
+					kind: "missing_repository",
+					detail: "no repository is connected for this worker yet.",
+					source: "declared",
+				},
+			}),
+		).toMatchObject({
+			outcome: "failed",
+			stopReason: "blocked",
+			blocker: { kind: "missing_repository" },
+		});
+	});
+});

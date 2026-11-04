@@ -223,7 +223,10 @@ export function homeDelegationCompletionContent(input: {
 	finalMessage?: string | null;
 	status: TediRunStatus;
 	/** Runtime stop classification when the child was stopped early or reported partial. */
-	stop?: Pick<DelegatedStopClassification, "detail" | "outcome"> | null;
+	stop?: Pick<
+		DelegatedStopClassification,
+		"detail" | "outcome" | "blocker"
+	> | null;
 }): string {
 	// Proof and output-contract verdicts are NOT part of the body: they ride as
 	// message metadata (`homeDelegationVerdictMetadata`) and the OS renders
@@ -231,6 +234,14 @@ export function homeDelegationCompletionContent(input: {
 	// When a full synthesis is available, use it directly — it's the operator-
 	// facing interpreted answer, no wrapping needed.
 	if (input.synthesized) return input.synthesized;
+	// A blocked child is not an answer to relay: the person reads what is
+	// missing, in the child's plain words, and what to do about it. The
+	// completion writer normally replaces this with Home's decision (re-route,
+	// retry or the one question); this is the fallback when it could not.
+	if (input.stop?.blocker) {
+		const detail = input.stop.blocker.detail.trim().replace(/[.\s]+$/, "");
+		return `I couldn't do this yet: ${detail.charAt(0).toLowerCase()}${detail.slice(1)}. Tell me what to connect or allow, and I'll continue.`;
+	}
 	// A runtime stop that left nothing but the `[Turn stopped early: …]` marker
 	// is not a failed report and not a partial: the tedi produced no output.
 	// Do not relay the marker as if it were the tedi's answer.

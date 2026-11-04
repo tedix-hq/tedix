@@ -522,6 +522,12 @@ export type DelegationWork = {
 	/** The runtime's own failure record, kept for a hover title. */
 	failure?: { reason: string | null; error: string | null } | null;
 	/**
+	 * How a terminal run that produced no result should read: `needs_you` when
+	 * the worker was blocked on something only the person can connect or
+	 * allow, `blocked` when it stopped before producing anything.
+	 */
+	outcome?: "needs_you" | "blocked" | null;
+	/**
 	 * `metadata.delegationProof` on the parent run: the kernel's verdict on the
 	 * delegated result's evidence. Rendered as a chip, never as prose — the
 	 * assistant body no longer carries proof notes.
@@ -627,6 +633,7 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 			? plainFailure(failure)
 			: plainRuntimeLabel(run.progress?.label ?? run.progress?.detail),
 		failure,
+		outcome: delegationOutcomeFromMetadata(status, metadata),
 		proof: delegationProofFromRun(run),
 		timing: {
 			progress: run.progress,
@@ -642,6 +649,31 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 
 const TERMINAL_RUN_STATUSES: ReadonlySet<TediRunStatus> =
 	new Set<TediRunStatus>(["completed", "failed", "canceled"]);
+
+/**
+ * A blocked child (`childRunStopReason: "blocked"` / `childRunBlocker`) needs
+ * the person; a child that stopped before producing anything was blocked by
+ * its own limits. Everything else keeps the status verb.
+ */
+function delegationOutcomeFromMetadata(
+	status: TediRunStatus,
+	metadata: Record<string, unknown> | null,
+): "needs_you" | "blocked" | null {
+	if (!metadata || (status !== "failed" && status !== "completed")) return null;
+	if (
+		metadata.childRunStopReason === "blocked" ||
+		asRecord(metadata.childRunBlocker)
+	)
+		return "needs_you";
+	if (
+		status === "failed" &&
+		typeof metadata.childRunStopReason === "string" &&
+		typeof metadata.childRunPreview === "string" &&
+		/^No output was produced\b/.test(metadata.childRunPreview)
+	)
+		return "blocked";
+	return null;
+}
 
 /**
  * Deduplicates delegation cards by delegated work identity
@@ -979,13 +1011,17 @@ export function DelegationSummaryRow({
 			)
 		: null;
 	const verb =
-		work.status === "completed"
-			? "finished"
-			: work.status === "failed"
-				? "stopped with an error"
-				: work.status === "canceled"
-					? "was stopped"
-					: sentenceCase(work.status).toLowerCase();
+		work.outcome === "needs_you"
+			? "needs you"
+			: work.outcome === "blocked"
+				? "was blocked"
+				: work.status === "completed"
+					? "finished"
+					: work.status === "failed"
+						? "stopped with an error"
+						: work.status === "canceled"
+							? "was stopped"
+							: sentenceCase(work.status).toLowerCase();
 	// Only the delegated run's own settled charge is its cost; the parent run's
 	// `usage.costUsd` is the kernel's routing call and would misstate it.
 	const parts = [

@@ -102,7 +102,7 @@ export function verificationFailurePolicyClause(): string {
 export type DelegatedStopClassification = {
 	/** `partial` when the child produced substantive text; `failed` when only markers remained or execution was explicitly refused. */
 	outcome: DelegatedStopOutcome;
-	/** Structured reason id (`context_ceiling`, `step_ceiling`, `budget_exhausted`, `provider_error`, `reported_partial`, `early_stop`). */
+	/** Structured reason id (`context_ceiling`, `step_ceiling`, `budget_exhausted`, `provider_error`, `reported_partial`, `early_stop`, `blocked`). */
 	stopReason: string;
 	/** Operator-facing sentence: `Stopped after 17 steps: per-turn cumulative input-token ceiling reached`. */
 	detail: string;
@@ -110,9 +110,162 @@ export type DelegatedStopClassification = {
 	steps: number | null;
 	/** The child's assistant text with synthetic markers stripped and trimmed. */
 	output: string;
+	/** The structured blocker the child declared (or that its text plainly carries), when it could not proceed. */
+	blocker?: DelegationBlocker | null;
 };
 
+/** Stop reason id for a child that declared it could not proceed. */
+export const BLOCKED_STOP_REASON = "blocked";
+
+export const DELEGATION_BLOCKER_KINDS = [
+	"missing_repository",
+	"missing_access",
+	"missing_capability",
+	"transient",
+] as const;
+export type DelegationBlockerKind = (typeof DELEGATION_BLOCKER_KINDS)[number];
+
+/**
+ * What stopped a delegated child before it could do the work, as data Home can
+ * act on: re-route to a tedi that has the capability, retry once after a
+ * transient failure, or ask the person for the one thing to connect or allow.
+ * `detail` is the child's plain-words description of what is missing.
+ */
+export type DelegationBlocker = {
+	kind: DelegationBlockerKind;
+	detail: string;
+	/** `declared` when the child wrote the `Blocked (<kind>):` line; `inferred` when its text plainly carries a known blocker. */
+	source: "declared" | "inferred";
+};
+
+// The child's protocol line: `Blocked (missing_repository): no repository is connected yet.`
+// Only the first non-empty line declares a blocker; mentions further down do not.
+const BLOCKED_LINE_RE =
+	/^[\s#*>`_-]*Blocked\s*\((missing_repository|missing_access|missing_capability|transient)\)\s*:\s*(.+?)\s*$/i;
+// Text that says, in the runtime's or the model's own words, that nothing was
+// done because a known dependency is missing. Checked against the report's
+// head only, so a long answer that merely mentions a configuration does not
+// turn into a blocker.
+const NO_PROGRESS_RE =
+	/\b(?:accomplished nothing|nothing (?:was )?(?:accomplished|done|produced)|could not (?:start|proceed|begin|continue)|did not (?:get|make) (?:any )?progress|unable to (?:start|proceed|continue))\b/i;
+const INFERRED_BLOCKERS: ReadonlyArray<{
+	kind: DelegationBlockerKind;
+	match: RegExp;
+	detail: string;
+	/** Strong enough on its own; no no-progress phrase needed. */
+	standalone?: boolean;
+}> = [
+	{
+		kind: "missing_repository",
+		match:
+			/repository_not_configured|No repository is (?:configured|connected)/i,
+		detail: "no repository is connected for this worker yet.",
+		standalone: true,
+	},
+	{
+		kind: "missing_capability",
+		match:
+			/\bcapability (?:gap|tool unavailable)\b|\bno (?:tool|app) (?:is )?(?:available|connected) (?:for|to)\b/i,
+		detail: "a tool this task needs is not connected for this worker.",
+	},
+	{
+		kind: "missing_access",
+		match:
+			/\b(?:unavailable or unauthorized|not authorized|unauthori[sz]ed|permission denied|access (?:is )?denied|403 Forbidden|missing (?:scope|permission)s?)\b/i,
+		detail: "this worker is not allowed to use something the task needs.",
+	},
+];
+const INFERRED_HEAD_CHARS = 600;
+const BLOCKER_DETAIL_CHARS = 240;
+
+function clampBlockerDetail(detail: string): string {
+	const oneLine = detail.replace(/\s+/g, " ").trim();
+	return oneLine.length > BLOCKER_DETAIL_CHARS
+		? `${oneLine.slice(0, BLOCKER_DETAIL_CHARS - 1).trimEnd()}…`
+		: oneLine;
+}
+
+/**
+ * The blocker the child declared on its first line, or the one its text
+ * plainly carries. `null` for an ordinary answer. Call with marker-free text.
+ */
+export function parseDelegationBlocker(
+	text: string | null | undefined,
+): DelegationBlocker | null {
+	if (!text) return null;
+	const firstLine = text
+		.split("\n")
+		.map((line) => line.trim())
+		.find((line) => line.length > 0);
+	const declared = firstLine ? BLOCKED_LINE_RE.exec(firstLine) : null;
+	if (declared?.[1] && declared[2]) {
+		return {
+			kind: declared[1].toLowerCase() as DelegationBlockerKind,
+			detail: clampBlockerDetail(declared[2]),
+			source: "declared",
+		};
+	}
+	const head = text.slice(0, INFERRED_HEAD_CHARS);
+	const noProgress = NO_PROGRESS_RE.test(head);
+	for (const candidate of INFERRED_BLOCKERS) {
+		if (!candidate.match.test(head)) continue;
+		if (!candidate.standalone && !noProgress) continue;
+		return {
+			kind: candidate.kind,
+			detail: candidate.detail,
+			source: "inferred",
+		};
+	}
+	return null;
+}
+
+/** Read a persisted blocker record back; any other shape is `null`. */
+export function delegationBlockerFromRecord(
+	value: unknown,
+): DelegationBlocker | null {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+	const record = value as Record<string, unknown>;
+	const kind = record.kind;
+	const detail = typeof record.detail === "string" ? record.detail.trim() : "";
+	if (
+		typeof kind !== "string" ||
+		!(DELEGATION_BLOCKER_KINDS as readonly string[]).includes(kind) ||
+		!detail
+	)
+		return null;
+	return {
+		kind: kind as DelegationBlockerKind,
+		detail,
+		source: record.source === "inferred" ? "inferred" : "declared",
+	};
+}
+
+/** The text without its technical block; every other marker is kept. */
+export function stripTechnicalReport(text: string): string {
+	return text.replace(new RegExp(TECHNICAL_REPORT_RE.source, "g"), "").trim();
+}
+
+/**
+ * The engineer-facing part of a child's final report, which the runtime keeps
+ * behind `[technical-report]` markers. `null` when the text carries none.
+ */
+export function extractTechnicalReport(
+	text: string | null | undefined,
+): string | null {
+	if (!text) return null;
+	const parts: string[] = [];
+	for (const match of text.matchAll(
+		new RegExp(TECHNICAL_REPORT_RE.source, "g"),
+	)) {
+		const body = match[1]?.trim();
+		if (body) parts.push(body);
+	}
+	return parts.length ? parts.join("\n\n") : null;
+}
+
 const EARLY_STOP_MARKER_RE = /\[Turn stopped early:\s*([^\]]*)\]/g;
+const TECHNICAL_REPORT_RE =
+	/\[technical-report\]\s*([\s\S]*?)\s*\[\/technical-report\]/g;
 const PARTIAL_RESULT_HEADER_RE = /\[partial-result\]\s*(?:stopReason=[^\n]*)?/g;
 const TRUNCATION_MARKER_RE = /\[(?:assistant|tool) result truncated\]/g;
 const EMPTY_ASSISTANT_SENTINEL_RE = /^\s*empty_assistant_message\s*$/i;
@@ -152,6 +305,7 @@ export function isStructuredDelegatedStopReason(
 export function stripSyntheticMarkers(text: string): string {
 	return text
 		.replace(EARLY_STOP_MARKER_RE, "")
+		.replace(TECHNICAL_REPORT_RE, "")
 		.replace(PARTIAL_RESULT_HEADER_RE, "")
 		.replace(TRUNCATION_MARKER_RE, "")
 		.replace(EMPTY_ASSISTANT_SENTINEL_RE, "")
@@ -230,6 +384,20 @@ export function classifyDelegatedStop(input: {
 		? input.structuredStopReason
 		: null;
 	const verifyCommand = input.verifyCommand?.trim() || null;
+	// A declared or plainly carried blocker outranks the stop mechanics: a
+	// child that could not start is blocked whether or not it also ran into a
+	// ceiling while trying, and its text is a report of the gap, not output.
+	const blocker = parseDelegationBlocker(output);
+	if (blocker) {
+		return {
+			outcome: "failed",
+			stopReason: BLOCKED_STOP_REASON,
+			detail: blocker.detail,
+			steps: marker?.steps ?? null,
+			output,
+			blocker,
+		};
+	}
 	if (!structured && !marker && reportedRefusal) {
 		return {
 			outcome: "failed",
@@ -295,10 +463,34 @@ export function delegatedStopFromSummary(
 		typeof summary.childRunStopDetail === "string"
 			? summary.childRunStopDetail
 			: null;
+	const persistedBlocker = delegationBlockerFromRecord(summary.childRunBlocker);
 	if (classified) {
-		return persistedDetail
-			? { ...classified, detail: persistedDetail }
-			: classified;
+		return {
+			...classified,
+			...(persistedDetail ? { detail: persistedDetail } : {}),
+			...(persistedBlocker && !classified.blocker
+				? {
+						blocker: persistedBlocker,
+						stopReason: BLOCKED_STOP_REASON,
+						outcome: "failed" as const,
+					}
+				: {}),
+		};
+	}
+	// A persisted blocker whose preview was clamped past the declaring line
+	// still reaches Home as data.
+	if (persistedBlocker || stopReason === BLOCKED_STOP_REASON) {
+		return {
+			outcome: "failed",
+			stopReason: BLOCKED_STOP_REASON,
+			detail:
+				persistedDetail ??
+				persistedBlocker?.detail ??
+				"The tedi could not proceed",
+			steps: null,
+			output: preview ? stripSyntheticMarkers(preview) : "",
+			blocker: persistedBlocker,
+		};
 	}
 	// A persisted `partial` whose preview never carried a marker (a reported
 	// partial clamped out of the preview, or no preview at all) keeps its label
