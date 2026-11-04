@@ -537,7 +537,24 @@ to the expected skill UUID and `metadata.artifactSkillRevision` set to the
 expected revision can instead submit `skill_revision` evidence for the held
 Attempt using `skill://runs/<runId>`. The dispatcher checks that the run
 completed for that active organization skill and records its pinned skill and
-revision. Coding Work with neither proof settles as failed, even when the
+revision.
+
+For an installed runtime app, accept Work with `metadata.artifactKind` set to
+`runtime_app_revision` and `metadata.artifactRuntimeApp` set to an object with
+`workspaceId`, `gadgetId`, `revision` (a positive integer), and `revisionId`.
+The three IDs are UUIDs. Submit evidence for the held Attempt with
+`--claim-key delivery --evidence-kind runtime_app_revision` and
+`--evidence tedix://workspaces/<workspaceId>/gadgets/<gadgetId>/revisions/<revisionId>`.
+The dispatcher discovers authorized app read tools in its selected organization,
+checks that the app is active in the configured workspace at that exact current
+revision, and confirms that revision has runtime code. It retains the evidence
+reference and revision metadata, without copying tenant source into the repo.
+A past revision that is no longer installed does not qualify. Unavailable reads
+retain settlement for retry; missing evidence or a mismatched revision fails
+proof. Recover previous app Work only through its owning dispatcher and Attempt;
+this contract does not authorize another session to settle it.
+
+Coding Work without delivery proof settles as failed, even when the
 harness exited normally. After success the dispatcher requests Work completion
 under its original session, retaining any denied or interrupted request for
 bounded retry. Owner-only actions remain with the owner. A lane's report and

@@ -590,8 +590,21 @@ contains both the fix and minimum commit, and that its commit is on
 claiming the old fix as a new commit. Work and the original live Attempt are
 rechecked before settlement; completion uses the existing recovery fences.
 Unavailable proof stays retained. Ordinary coding success still requires
-new landed commits or the declared completed skill revision. Devin's
-structured Work delivery remains separate; these lines must be carried in
+new landed commits, the declared completed skill revision, or an installed
+runtime app revision. For runtime apps, set Work's `metadata.artifactKind` to
+`runtime_app_revision` and `metadata.artifactRuntimeApp` to
+`{workspaceId, gadgetId, revision, revisionId}` before dispatch. All IDs must be
+UUIDs and `revision` a positive integer. The lane submits `runtime_app_revision`
+evidence for its held Attempt using
+`tedix://workspaces/<workspaceId>/gadgets/<gadgetId>/revisions/<revisionId>`.
+The dispatcher reads the active app and its current code through discovered,
+authorized tools in the selected organization. Workspace, gadget, revision
+number and revision ID must match. Historical code alone does not prove an
+installed app. Unavailable proof sources defer settlement; a complete ledger
+without matching evidence or a mismatched installed revision fails proof.
+Settlement retains revision metadata and the evidence reference, without tenant
+source or an invented commit. Existing app Work stays with its owning dispatcher.
+Devin's structured Work delivery remains separate; these lines must be carried in
 its delivered note and do not replace its success/failure envelope.
 
 `--max` defaults to 5. One dispatcher per organization and executor runs on a
