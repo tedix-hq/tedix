@@ -471,7 +471,7 @@ describe("Response details copy", () => {
 		const text = host.textContent ?? "";
 		expect(text).not.toContain("Delegation not found");
 		expect(text).toContain("Writing the weekly summary");
-		expect(text).not.toContain("48 of 100");
+		expect(text).toContain("48 of 100");
 		expect(text).toMatch(/last activity 20s ago/);
 		expect(text).toContain("CFO's events");
 		const events = host.querySelector('[aria-label="Delegated events"]');

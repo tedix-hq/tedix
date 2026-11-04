@@ -1442,11 +1442,12 @@ describe("live delegation card", () => {
 		);
 	};
 
-	it("shows the current step, elapsed time and last activity", () => {
+	it("shows the current step, a progress bar, elapsed time and last activity", () => {
 		const html = render(T0 + 412_000);
 		expect(html).toContain('data-phase="working"');
 		expect(html).toContain("Writing the weekly summary");
-		expect(html).not.toContain("48 of 100");
+		expect(html).toContain('data-slot="progress"');
+		expect(html).toContain("48 of 100");
 		expect(html).toContain("Running 6m 52s · last activity 12s ago");
 		expect(html).toContain("1 step");
 		expect(html).not.toContain("May be stuck");
