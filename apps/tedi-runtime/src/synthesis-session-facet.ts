@@ -113,6 +113,7 @@ export class SynthesisSessionFacet extends PiAgent<
 	}
 	protected override projection(): PiApplicationProjection {
 		const models = createToolFreePiModels({
+			maxSteps: () => (this.state.evaluation ? 1 : 10),
 			afterDispatch: async (outcome) => {
 				if (this.state.evaluation)
 					await (await this.parent()).recordEvaluationModelReceipt(outcome);

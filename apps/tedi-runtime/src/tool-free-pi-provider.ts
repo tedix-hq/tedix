@@ -5,6 +5,7 @@ import type { PiTurnAccounting, PiProviderAttempt } from "./pi-turn-accounting";
 import { TEDI_CONTEXT_WINDOW_TOKENS } from "./model-input-budget";
 
 export interface ToolFreePiProviderHost {
+	maxSteps?(): number;
 	afterDispatch?(
 		outcome: import("./evaluation-evidence").EvaluationOutcome,
 	): Promise<void>;
@@ -78,7 +79,7 @@ export function createToolFreePiModels(host: ToolFreePiProviderHost) {
 				await host.accounting.begin(runId);
 				const stepNumber = await host.accounting.prepareStep(
 					{ messages: context.messages },
-					{ maxSteps: 10 },
+					{ maxSteps: host.maxSteps?.() ?? 10 },
 				);
 				return {
 					receipt: {
