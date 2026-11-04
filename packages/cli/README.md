@@ -589,9 +589,17 @@ contains both the fix and minimum commit, and that its commit is on
 `origin/main`. Settlement records `verified_existing` evidence rather than
 claiming the old fix as a new commit. Work and the original live Attempt are
 rechecked before settlement; completion uses the existing recovery fences.
-Unavailable proof stays retained. Ordinary coding success still requires
-new landed commits, the declared completed skill revision, or an installed
-runtime app revision. For runtime apps, set Work's `metadata.artifactKind` to
+Unavailable proof stays retained. Ordinary coding success requires
+landed commits, the declared completed skill revision, or an installed
+runtime app revision. A `completed` result may cite an existing fix with
+`commitSha`. For a commit that predates the lane's base, the dispatcher verifies
+it is on `origin/main`, has exactly one matching `Work-Item` and `Agent-Session`
+trailer, and belongs to a unique admitted Attempt interval for the same Work
+revision. The original Attempt must be the current Attempt or have failed or
+expired. Settlement preserves that original custody and rechecks the current
+Work contract and live Attempt. This source proof does not establish deployment
+or live acceptance; the entire accepted outcome must still have happened.
+For runtime apps, set Work's `metadata.artifactKind` to
 `runtime_app_revision` and `metadata.artifactRuntimeApp` to
 `{workspaceId, gadgetId, revision, revisionId}` before dispatch. All IDs must be
 UUIDs and `revision` a positive integer. The lane submits `runtime_app_revision`
