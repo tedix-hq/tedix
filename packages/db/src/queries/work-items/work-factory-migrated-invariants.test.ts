@@ -90,6 +90,10 @@ function migratedLegacy() {
 		},
 	});
 }
+// The seeded-ledger template variant is built once, at collection: a cold
+// chain replay inside a timed test lets shared-machine load decide the verdict.
+migratedLegacy().close();
+
 function expectAbort(run: () => unknown, pattern: RegExp) {
 	expect(run).toThrow(pattern);
 }
@@ -1931,11 +1935,14 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		expect(winner.attempt.admissionId).toBe("winner-admission");
 	});
 
-	it("normalizes historical composite attempt ids without losing provenance", () => {
-		const guardIndex = migrations.findIndex((row) =>
-			row.name.startsWith("20260821020828_"),
-		);
-		const sqlite = migrated(guardIndex);
+	const compositeGuardIndex = migrations.findIndex((row) =>
+		row.name.startsWith("20260821020828_"),
+	);
+	// The prefix template and the remaining-chain replay are fixture setup, so
+	// they run once at collection rather than inside a timed test on a shared
+	// machine.
+	const compositeAttempt = (() => {
+		const sqlite = migrated(compositeGuardIndex);
 		seedCore(sqlite);
 		const compositeId = "work:checkout:agent:mcp:historical-execution-session";
 		sqlite
@@ -1949,15 +1956,22 @@ describe("migrated Work factory raw-D1 invariants", () => {
 			)
 			.run(compositeId);
 
-		for (const row of migrations.slice(guardIndex)) sqlite.exec(row.sql);
-		const attempt = sqlite
+		for (const row of migrations.slice(compositeGuardIndex))
+			sqlite.exec(row.sql);
+		return sqlite
 			.prepare(
 				"SELECT id,metadata FROM work_attempts WHERE work_item_id='work'",
 			)
 			.get() as { id: string; metadata: string };
-		expect(attempt.id).toMatch(/^40000000-0000-5000-8000-[0-9a-f]{12}$/);
-		expect(JSON.parse(attempt.metadata)).toMatchObject({
-			migratedCompositeAttemptId: compositeId,
+	})();
+
+	it("normalizes historical composite attempt ids without losing provenance", () => {
+		expect(compositeAttempt.id).toMatch(
+			/^40000000-0000-5000-8000-[0-9a-f]{12}$/,
+		);
+		expect(JSON.parse(compositeAttempt.metadata)).toMatchObject({
+			migratedCompositeAttemptId:
+				"work:checkout:agent:mcp:historical-execution-session",
 		});
 	});
 });

@@ -17,6 +17,10 @@ function apply(db: DatabaseSync, name: string) {
 		).replaceAll("--> statement-breakpoint", ""),
 	);
 }
+// Build the chain-prefix template at collection, not inside a timed test on a
+// shared machine.
+createMigratedSqlite({ beforeMigration: "20261019204457_" }).close();
+
 it("seeds owning apps idempotently and leaves the exact versioned specs in D1", () => {
 	const db = createMigratedSqlite({ beforeMigration: "20261019204457_" });
 	try {

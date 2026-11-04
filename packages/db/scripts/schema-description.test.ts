@@ -363,15 +363,20 @@ describe("schema description building", () => {
 });
 
 describe("live drift verdicts", () => {
+	// The declared side still replays the whole reviewed chain; it runs once at
+	// collection so shared-machine load cannot decide a verdict whose subject
+	// is the live read below.
+	const unreadableOutcome = checkLiveDrift({
+		run: () => {
+			throw new Error("wrangler exited 1: credentials unavailable");
+		},
+	});
+
 	// An unreadable production database is indistinguishable from an outage, so
 	// NO ANSWER must never
 	// block a deploy — only a difference we actually observed may.
 	it("does NOT block when the live schema cannot be read at all", () => {
-		const outcome = checkLiveDrift({
-			run: () => {
-				throw new Error("wrangler exited 1: credentials unavailable");
-			},
-		});
+		const outcome = unreadableOutcome;
 
 		expect(outcome.verdict).toBe("unverified");
 		if (outcome.verdict !== "unverified") throw new Error("unreachable");

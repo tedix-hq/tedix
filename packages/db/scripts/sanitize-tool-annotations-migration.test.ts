@@ -26,6 +26,10 @@ function migrationName(suffix = "_sanitize-tool-annotations"): string {
 	return name;
 }
 
+// Build the chain-prefix template at collection, not inside a timed test on a
+// shared machine.
+createMigratedSqlite({ beforeMigration: migrationName() }).close();
+
 function databaseBeforeRepair(): DatabaseSync {
 	const sqlite = createMigratedSqlite({ beforeMigration: migrationName() });
 	// Rows are inserted without their parents; only the column rewrite matters.

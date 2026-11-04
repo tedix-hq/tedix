@@ -261,6 +261,14 @@ describe("immutable provider execution admission", () => {
 	});
 });
 
+// Build the chain-prefix templates at collection, not inside a timed test on
+// a shared machine.
+for (const boundary of [
+	"20260920072429_provider_execution_cost_provenance",
+	"20260923094659_jev_provider_execution",
+])
+	createMigratedSqlite({ beforeMigration: boundary }).close();
+
 describe("populated canonical cost migration", () => {
 	it("preserves historical values, attribution and the org guard trigger", () => {
 		const directory = new URL("../../drizzle/", import.meta.url);

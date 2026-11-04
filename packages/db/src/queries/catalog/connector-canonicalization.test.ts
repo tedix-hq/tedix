@@ -26,6 +26,12 @@ import { syncCatalogAppFromStore } from "./upsert-sync";
 // SQLite built from the production Drizzle migration ledger, wired
 // through the production createDbClient path (catalog-maintenance.test.ts pattern).
 
+// Build the transformed-chain template at collection, not inside a timed test
+// on a shared machine.
+createMigratedSqlite({
+	transformMigration: (sql) => sql.replaceAll("--> statement-breakpoint", ""),
+}).close();
+
 function migratedDb(): DbClient {
 	const sqlite = createMigratedSqlite({
 		transformMigration: (sql) => sql.replaceAll("--> statement-breakpoint", ""),

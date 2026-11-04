@@ -7,6 +7,13 @@ import { listWorkItemsPage } from "./crud";
 
 const migration = "20261022073425_work_items_lane_dispatch_indexes";
 
+// Build the chain-prefix template at collection, not inside a timed test on a
+// shared machine.
+createMigratedSqlite({
+	beforeMigration: migration,
+	foreignKeys: false,
+}).close();
+
 describe("lane dispatch indexes", () => {
 	it("indexes existing metadata and follows metadata updates without a backfill", async () => {
 		const sqlite = createMigratedSqlite({

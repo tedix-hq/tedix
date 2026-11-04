@@ -214,13 +214,36 @@ describe("Drizzle Kit machine-readable commands", () => {
 });
 
 describe("installed generator CLI review before recording", () => {
-	it("isolates actual generation, no_changes, explicit recording and strict check", () => {
+	// Every installed-CLI invocation below is fixture setup, not the verdict:
+	// the spawns run once at collection so subprocess wall-clock on a shared
+	// machine cannot decide a timed test.
+	const review = (() => {
 		const dbRoot = path.resolve(
 			path.dirname(fileURLToPath(import.meta.url)),
 			"..",
 		);
 		const fixture = mkdtempSync(path.join(tmpdir(), "tedix-generator-review-"));
 		const root = path.join(fixture, "packages/db");
+		const out: {
+			error?: unknown;
+			initial?: { status: number | null; stdout: string; stderr: string };
+			manifest?: string;
+			generated?: { status: number | null; stdout: string; stderr: string };
+			manifestAfterGenerate?: string;
+			unchanged?: { status: number | null; stdout: string; stderr: string };
+			manifestAfterUnchanged?: string;
+			check?: { status: number | null; stdout: string; stderr: string };
+			record?: { status: number | null; stdout: string; stderr: string };
+			migrationsAfterRecord?: { name: string }[];
+			final?: { status: number | null; stdout: string; stderr: string };
+			custom?: { status: number | null; stdout: string; stderr: string };
+			recordedBytes?: string;
+			drizzleBeforeDenied?: string[];
+			denied?: { status: number | null; stdout: string; stderr: string };
+			drizzleAfterDenied?: string[];
+			missing?: { status: number | null; stdout: string; stderr: string };
+			drizzleAfterMissing?: string[];
+		} = {};
 		try {
 			mkdirSync(path.join(root, "scripts"), { recursive: true });
 			for (const name of [
@@ -258,13 +281,19 @@ describe("installed generator CLI review before recording", () => {
 				`import {sqliteTable,text} from "drizzle-orm/sqlite-core"; export const sample=sqliteTable("sample",{id:text().primaryKey()});`,
 			);
 			// Seed an actual generated and reviewed prefix before exercising the wrapper.
-			const run = (script: string, args: string[] = []) =>
-				spawnSync("bun", [script, ...args], {
+			const run = (script: string, args: string[] = []) => {
+				const result = spawnSync("bun", [script, ...args], {
 					cwd: root,
 					encoding: "utf8",
 					env: process.env,
 				});
-			const initial = run("run", [
+				return {
+					status: result.status,
+					stdout: result.stdout ?? "",
+					stderr: result.stderr ?? "",
+				};
+			};
+			out.initial = run("run", [
 				"--silent",
 				"drizzle-kit",
 				"--",
@@ -274,7 +303,6 @@ describe("installed generator CLI review before recording", () => {
 				"--output",
 				"json",
 			]);
-			expect(initial.status, initial.stderr + initial.stdout).toBe(0);
 			const generatedBaseline = readdirSync(path.join(root, "drizzle")).filter(
 				(name) => name !== "meta",
 			)[0]!;
@@ -300,75 +328,115 @@ describe("installed generator CLI review before recording", () => {
 					},
 				],
 			});
+			out.manifest = manifest;
 			writeFileSync(path.join(root, "migration-integrity.json"), manifest);
 			writeFileSync(
 				path.join(root, "schema.ts"),
 				`import {sqliteTable,text,integer} from "drizzle-orm/sqlite-core"; export const sample=sqliteTable("sample",{id:text().primaryKey(),count:integer()});`,
 			);
-			const generated = run("scripts/generate-migration.ts", [
+			out.generated = run("scripts/generate-migration.ts", [
 				"--name",
 				"review",
 			]);
-			expect(generated.status, generated.stderr + generated.stdout).toBe(0);
-			expect(generated.stdout).toContain("unrecorded draft");
 			const generatedReview = readdirSync(path.join(root, "drizzle")).find(
 				(name) => name !== "meta" && name !== baseline,
-			)!;
-			renameSync(
-				path.join(root, "drizzle", generatedReview),
-				path.join(root, "drizzle", "20000101000001_review"),
 			);
-			expect(
+			if (generatedReview) {
+				renameSync(
+					path.join(root, "drizzle", generatedReview),
+					path.join(root, "drizzle", "20000101000001_review"),
+				);
+			}
+			out.manifestAfterGenerate = readFileSync(
+				path.join(root, "migration-integrity.json"),
+				"utf8",
+			);
+			out.unchanged = run("scripts/generate-migration.ts");
+			out.manifestAfterUnchanged = readFileSync(
+				path.join(root, "migration-integrity.json"),
+				"utf8",
+			);
+			out.check = run("scripts/generate-migration.ts", ["--check"]);
+			out.record = run("scripts/migration-integrity.ts", ["--write"]);
+			out.migrationsAfterRecord = JSON.parse(
 				readFileSync(path.join(root, "migration-integrity.json"), "utf8"),
-			).toBe(manifest);
-			const unchanged = run("scripts/generate-migration.ts");
-			expect(unchanged.status, unchanged.stderr + unchanged.stdout).toBe(0);
-			expect(unchanged.stdout).toContain("Pending drafts remain unrecorded");
-			expect(
-				readFileSync(path.join(root, "migration-integrity.json"), "utf8"),
-			).toBe(manifest);
-			const check = run("scripts/generate-migration.ts", ["--check"]);
-			expect(check.status).not.toBe(0);
-			expect(check.stderr).toContain("unrecorded");
-			const record = run("scripts/migration-integrity.ts", ["--write"]);
-			expect(record.status, record.stderr + record.stdout).toBe(0);
-			expect(
-				JSON.parse(
-					readFileSync(path.join(root, "migration-integrity.json"), "utf8"),
-				).migrations,
-			).toHaveLength(2);
-			const final = run("scripts/generate-migration.ts", ["--check"]);
-			expect(final.status, final.stderr + final.stdout).toBe(0);
-			const custom = run("scripts/generate-migration.ts", [
+			).migrations;
+			out.final = run("scripts/generate-migration.ts", ["--check"]);
+			out.custom = run("scripts/generate-migration.ts", [
 				"--custom",
 				"--name",
 				"custom_review",
 			]);
-			expect(custom.status, custom.stderr + custom.stdout).toBe(0);
-			expect(custom.stdout).toContain("unrecorded draft");
-			const recordedBytes = readFileSync(
+			out.recordedBytes = readFileSync(
 				path.join(root, "migration-integrity.json"),
 				"utf8",
 			);
-			expect(JSON.parse(recordedBytes).migrations).toHaveLength(2);
 			// Missing/corrupt history refuses before the installed generator can write.
 			writeFileSync(path.join(root, "migration-integrity.json"), "invalid");
-			const before = readdirSync(path.join(root, "drizzle"));
-			const denied = run("scripts/generate-migration.ts", [
+			out.drizzleBeforeDenied = readdirSync(path.join(root, "drizzle"));
+			out.denied = run("scripts/generate-migration.ts", [
 				"--custom",
 				"--name",
 				"denied",
 			]);
-			expect(denied.status).not.toBe(0);
-			expect(readdirSync(path.join(root, "drizzle"))).toEqual(before);
+			out.drizzleAfterDenied = readdirSync(path.join(root, "drizzle"));
 			rmSync(path.join(root, "migration-integrity.json"));
-			expect(
-				run("scripts/generate-migration.ts", ["--custom", "--name", "missing"])
-					.status,
-			).not.toBe(0);
-			expect(readdirSync(path.join(root, "drizzle"))).toEqual(before);
+			out.missing = run("scripts/generate-migration.ts", [
+				"--custom",
+				"--name",
+				"missing",
+			]);
+			out.drizzleAfterMissing = readdirSync(path.join(root, "drizzle"));
+		} catch (error) {
+			out.error = error;
 		} finally {
 			rmSync(fixture, { recursive: true, force: true });
 		}
+		return out;
+	})();
+
+	it("isolates actual generation, no_changes, explicit recording and strict check", () => {
+		expect(
+			review.initial?.status,
+			(review.initial?.stderr ?? "") + (review.initial?.stdout ?? ""),
+		).toBe(0);
+		expect(
+			review.generated?.status,
+			(review.generated?.stderr ?? "") + (review.generated?.stdout ?? ""),
+		).toBe(0);
+		expect(review.generated?.stdout).toContain("unrecorded draft");
+		expect(review.manifestAfterGenerate).toBe(review.manifest);
+		expect(
+			review.unchanged?.status,
+			(review.unchanged?.stderr ?? "") + (review.unchanged?.stdout ?? ""),
+		).toBe(0);
+		expect(review.unchanged?.stdout).toContain(
+			"Pending drafts remain unrecorded",
+		);
+		expect(review.manifestAfterUnchanged).toBe(review.manifest);
+		expect(review.check?.status).not.toBe(0);
+		expect(review.check?.stderr).toContain("unrecorded");
+		expect(
+			review.record?.status,
+			(review.record?.stderr ?? "") + (review.record?.stdout ?? ""),
+		).toBe(0);
+		expect(review.migrationsAfterRecord).toHaveLength(2);
+		expect(
+			review.final?.status,
+			(review.final?.stderr ?? "") + (review.final?.stdout ?? ""),
+		).toBe(0);
+		expect(
+			review.custom?.status,
+			(review.custom?.stderr ?? "") + (review.custom?.stdout ?? ""),
+		).toBe(0);
+		expect(review.custom?.stdout).toContain("unrecorded draft");
+		expect(JSON.parse(review.recordedBytes ?? "null").migrations).toHaveLength(
+			2,
+		);
+		expect(review.denied?.status).not.toBe(0);
+		expect(review.drizzleAfterDenied).toEqual(review.drizzleBeforeDenied);
+		expect(review.missing?.status).not.toBe(0);
+		expect(review.drizzleAfterMissing).toEqual(review.drizzleBeforeDenied);
+		if (review.error) throw review.error;
 	}, 30000);
 });
