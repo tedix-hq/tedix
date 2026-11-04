@@ -13,7 +13,6 @@ import {
 } from "@/components/kumo/empty";
 import { Loader } from "@/components/kumo/loader";
 import { Page } from "@/components/kumo/page";
-import { Skeleton } from "@/components/kumo/skeleton";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import { getOsSurface } from "@/lib/os-navigation";
 import { hasUnsavedOsInput } from "@/lib/reload-safety";
@@ -95,22 +94,9 @@ export function OsRoutePending({
 			aria-live="polite"
 			role="status"
 		>
-			<div className="grid w-full max-w-md justify-items-center gap-6">
-				<strong className="font-mono type-tedix-body">Tedix</strong>
-				<div className="flex items-center gap-2 text-kumo-subtle type-tedix-body">
-					<Loader aria-hidden="true" />
-					<span>{OS_COPY.routePending.loading}</span>
-				</div>
-				<div aria-hidden="true" className="mx-auto grid w-full max-w-3xl gap-6">
-					<Skeleton className="h-6 w-36" />
-					<Skeleton className="h-2 w-full" />
-					<div className="grid gap-6 rounded-3xl bg-kumo-elevated p-6 sm:p-12">
-						<Skeleton className="size-11 rounded-full" />
-						<Skeleton className="h-12 w-4/5" />
-						<Skeleton className="h-12 w-full" />
-						<Skeleton className="h-10 w-full rounded-full" />
-					</div>
-				</div>
+			<div className="flex items-center gap-2 text-kumo-subtle type-tedix-body">
+				<Loader aria-hidden="true" />
+				<span>{OS_COPY.routePending.loading}</span>
 			</div>
 		</main>
 	);
