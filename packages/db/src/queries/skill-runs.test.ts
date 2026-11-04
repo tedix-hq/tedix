@@ -42,6 +42,7 @@ interface RunFixture {
 	skillRevision?: number | null;
 	skillSlug?: string | null;
 	startedAt?: string;
+	completedAt?: string | null;
 }
 
 function fixture() {
@@ -106,8 +107,8 @@ function fixture() {
 			execution_epoch, restart_requested_at, workflow_retired_at,
 			runtime_environment, status,
 			result, error, cost_summary, workflow_source, skill_doc,
-			skill_revision, skill_slug, started_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			skill_revision, skill_slug, started_at, completed_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`);
 	const insert = (row: RunFixture) => {
 		insertStatement.run(
@@ -129,6 +130,7 @@ function fixture() {
 			row.skillRevision ?? 1,
 			row.skillSlug ?? "skill-one",
 			row.startedAt ?? "2026-07-12T00:00:00.000Z",
+			row.completedAt ?? null,
 		);
 	};
 	return {
@@ -395,6 +397,31 @@ describe("skill run environment fencing", () => {
 });
 
 describe("latest reported skill run", () => {
+	it("reports the last completion even when an earlier-started run finishes later", async () => {
+		const { db, insert } = fixture();
+		insert({
+			id: "short-run",
+			status: "completed",
+			startedAt: "2026-07-12T12:10:00.000Z",
+			completedAt: "2026-07-12T12:11:00.000Z",
+		});
+		insert({
+			id: "long-run",
+			status: "completed",
+			executionEpoch: 1,
+			startedAt: "2026-07-12T12:00:00.000Z",
+			completedAt: "2026-07-12T12:20:00.000Z",
+		});
+		expect(
+			await getLatestReportedSkillRun(db, {
+				organizationId: "org-1",
+				skillId: "skill-1",
+				runtimeEnvironment: "development",
+				skippedResultStatuses: [],
+			}),
+		).toMatchObject({ id: "long-run", executionEpoch: 1 });
+	});
+
 	it("skips skipped-slot and unfinished runs and reads only the bounded report fields", async () => {
 		const { db, insert } = fixture();
 		insert({
@@ -434,6 +461,7 @@ describe("latest reported skill run", () => {
 		};
 		expect(await getLatestReportedSkillRun(db, params)).toEqual({
 			id: "carded",
+			executionEpoch: 0,
 			status: "completed",
 			startedAt: "2026-07-12T11:17:00.000Z",
 			completedAt: null,

@@ -29,6 +29,7 @@ import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { userContext } from "../rpc/test-context";
 import { createOsAppRuntimeRouter } from "../rpc/routers/os-app-runtime";
 import {
+	appTriggerExecutionId,
 	appTriggerWebhookPath,
 	appTriggerWebhookSecret,
 	dispatchDueAppTriggers,
@@ -427,6 +428,83 @@ describe("workspace app triggers", () => {
 					trigger: "scouted",
 					kind: "skill",
 					run: { id: "run-1", status: "completed", cards: 3 },
+				},
+			],
+		});
+	});
+
+	it("delivers a recovered skill execution once after its failed execution was reported", async () => {
+		const f = await fixture({ triggers: [triggers[2]!] });
+		await f.db.insert(osWorkspaceResources).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			slot: "scout",
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "skill",
+			providerResourceId: "skill-1",
+			name: "Scout",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await f.db.insert(skillRuns).values({
+			id: "recovered-run",
+			organizationId: "org-1",
+			skillId: "skill-1",
+			tediId: "tedi-1",
+			workflowInstanceId: "wf-recovered-run",
+			runtimeEnvironment: "development",
+			status: "failed",
+			executionEpoch: 0,
+			startedAt: "2026-10-26T09:05:00.000Z",
+			completedAt: "2026-10-26T09:10:00.000Z",
+			error: "Database unavailable",
+		});
+		const tick = nineUtc + 30 * 60_000;
+		expect(await dispatchDueAppTriggers(f.env, tick)).toMatchObject({ ran: 1 });
+		const originalReceiptId = await appTriggerExecutionId([
+			gadgetId,
+			"scouted",
+			"skill",
+			"recovered-run",
+		]);
+		expect(
+			await f.db
+				.select()
+				.from(osGadgetExecutions)
+				.where(eq(osGadgetExecutions.id, originalReceiptId)),
+		).toHaveLength(1);
+		expect(await dispatchDueAppTriggers(f.env, tick)).toMatchObject({
+			ran: 0,
+			duplicate: 1,
+		});
+		await f.db
+			.update(skillRuns)
+			.set({
+				status: "completed",
+				executionEpoch: 1,
+				completedAt: "2026-10-26T09:25:00.000Z",
+				error: null,
+				result: { cards: 1 },
+			})
+			.where(eq(skillRuns.id, "recovered-run"));
+		expect(await dispatchDueAppTriggers(f.env, tick)).toMatchObject({ ran: 1 });
+		expect(await dispatchDueAppTriggers(f.env, tick)).toMatchObject({
+			ran: 0,
+			duplicate: 1,
+		});
+		const calls = await f.calls();
+		expect(calls).toHaveLength(2);
+		expect(calls[1]).toMatchObject({
+			args: [
+				{
+					run: {
+						id: "recovered-run",
+						executionEpoch: 1,
+						status: "completed",
+						cards: 1,
+					},
 				},
 			],
 		});

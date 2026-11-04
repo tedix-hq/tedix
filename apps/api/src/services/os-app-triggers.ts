@@ -372,6 +372,9 @@ export async function dispatchDueAppTriggers(
 						run: JsonValueSchema.parse({ ...run }),
 					};
 					parts = ["skill", run.id];
+					// Preserve original receipt keys while delivering recovered executions separately.
+					if (run.executionEpoch > 0)
+						parts.push("epoch", String(run.executionEpoch));
 				}
 				if (!event) continue;
 				const executionId = await appTriggerExecutionId([
