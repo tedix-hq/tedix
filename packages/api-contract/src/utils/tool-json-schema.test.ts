@@ -1,6 +1,59 @@
 import * as z from "zod";
 import { describe, expect, it } from "vite-plus/test";
-import { zodToStructuredOutputJsonSchema } from "./tool-json-schema";
+import { RespondHomeApprovalInputSchema } from "../schemas/kernel-runtime";
+import {
+	zodToStructuredOutputJsonSchema,
+	zodToToolInputJsonSchema,
+} from "./tool-json-schema";
+
+describe("zodToToolInputJsonSchema", () => {
+	it("preserves the canonical approval alternatives without flattening", () => {
+		const { $schema: _dialect, ...original } = z.toJSONSchema(
+			RespondHomeApprovalInputSchema,
+			{ io: "input" },
+		);
+		const projected = zodToToolInputJsonSchema(RespondHomeApprovalInputSchema);
+		expect(projected).toEqual({ ...original, type: "object", properties: {} });
+	});
+
+	it("preserves oneOf exclusivity and root definitions", () => {
+		const entry = z.object({ value: z.string() }).meta({ id: "Entry" });
+		const source = z.xor([
+			z.object({ left: entry }).strict(),
+			z.object({ right: entry }).strict(),
+		]);
+		const { $schema: _dialect, ...original } = z.toJSONSchema(source, {
+			io: "input",
+		});
+		const projected = zodToToolInputJsonSchema(source);
+		expect(projected).toEqual({ ...original, type: "object", properties: {} });
+		expect(projected).toHaveProperty("$defs.Entry");
+	});
+
+	it("leaves existing object input projections unchanged", () => {
+		const source = z.object({ id: z.string() }).strict();
+		const { $schema: _dialect, ...original } = z.toJSONSchema(source, {
+			io: "input",
+		});
+		expect(zodToToolInputJsonSchema(source)).toEqual(original);
+	});
+
+	it.each([
+		z.union([z.object({ id: z.string() }), z.string()]),
+		z.object({ id: z.string() }).nullable(),
+		z.union([]),
+		z.union([
+			z.object({ id: z.string() }).meta({ id: "Referenced" }),
+			z.object({ value: z.string() }),
+		]),
+		z.string(),
+		z.any(),
+		z.unknown(),
+		z.array(z.object({ id: z.string() })),
+	])("refuses roots without explicit direct-object alternatives", (source) => {
+		expect(() => zodToToolInputJsonSchema(source)).toThrow();
+	});
+});
 
 describe("zodToStructuredOutputJsonSchema", () => {
 	it("wraps root arrays in the ToolHandler structuredContent envelope", () => {

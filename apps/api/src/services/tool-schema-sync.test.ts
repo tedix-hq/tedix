@@ -1,4 +1,6 @@
 import { ToolIdSchema } from "@tedix/api-contract/schemas/tools";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
+import * as z from "zod";
 import {
 	resolveMcpToolRequiredScopes,
 	isMcpToolVisibleToCaller,
@@ -1045,6 +1047,90 @@ describe("oRPC tool projection sync", () => {
 			]),
 		});
 		expect(updates).toHaveLength(0);
+	});
+
+	it("projects receipt-only approval inputs without losing either strict alternative", async () => {
+		const { db, inserts } = makeDb([]);
+		const result = await runToolSchemaSync(db, {
+			mode: "projection",
+			apply: true,
+			endpoints: ["kernelRuntime/respondApproval"],
+		});
+		expect(result).toMatchObject({
+			total: 1,
+			created: 1,
+			failed: 0,
+			skipped: 0,
+		});
+		expect(inserts[0]?.inputSchema).toMatchObject({
+			type: "object",
+			anyOf: [
+				{
+					type: "object",
+					additionalProperties: false,
+					required: [
+						"runId",
+						"resumeOnly",
+						"approvalEventId",
+						"expectedWorkItemVersion",
+					],
+					properties: { resumeOnly: { const: true } },
+				},
+				{
+					type: "object",
+					required: ["runId", "decision"],
+					properties: {
+						resumeOnly: { const: false },
+						decision: { enum: ["approve", "reject"] },
+					},
+				},
+			],
+		});
+		const projected = inserts[0]?.inputSchema;
+		if (!projected) throw new Error("Approval input schema was not projected");
+		const validate = new AjvJsonSchemaValidator().getValidator(projected);
+		const resume = {
+			runId: "fictional-run",
+			resumeOnly: true,
+			approvalEventId: "recorded-event",
+			expectedWorkItemVersion: 2,
+		};
+		for (const input of [
+			{ runId: "fictional-run", decision: "approve" },
+			{ runId: "fictional-run", decision: "reject" },
+			resume,
+		]) {
+			expect(validate(input).valid).toBe(true);
+		}
+		for (const input of [
+			{ runId: "fictional-run" },
+			{ ...resume, decision: "approve" },
+			{ ...resume, note: "Changed" },
+			{ ...resume, edits: {} },
+			{ ...resume, unexpected: "extra" },
+			{ ...resume, assignmentIds: ["assignment-1"] },
+			{ ...resume, delegateRecommendation: true },
+			{ ...resume, approvalEventId: undefined },
+			{ ...resume, expectedWorkItemVersion: undefined },
+			{ ...resume, expectedWorkItemVersion: 0 },
+			{ ...resume, expectedWorkItemVersion: 1.5 },
+			"scalar",
+			null,
+			[],
+		]) {
+			expect(validate(input).valid).toBe(false);
+		}
+	});
+
+	it("retains oneOf exclusivity in emitted object input schemas", () => {
+		const projected = toolJsonSchema.zodToToolInputJsonSchema(
+			z.xor([z.object({ left: z.string() }), z.object({ right: z.string() })]),
+		);
+		const validate = new AjvJsonSchemaValidator().getValidator(projected);
+		expect(validate({ left: "valid" }).valid).toBe(true);
+		expect(validate({ right: "valid" }).valid).toBe(true);
+		expect(validate({ left: "valid", right: "valid" }).valid).toBe(false);
+		expect(validate({}).valid).toBe(false);
 	});
 
 	it("projects root-array outputs with the MCP structuredContent data envelope", async () => {

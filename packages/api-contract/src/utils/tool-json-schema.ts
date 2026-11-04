@@ -66,6 +66,23 @@ function projectStructuredAlternative(schema: unknown): unknown {
 export function zodToToolInputJsonSchema(schema: unknown): ToolInputJsonSchema {
 	if (!schema) return EMPTY_TOOL_INPUT_SCHEMA;
 	const jsonSchema = zodToJsonSchema(schema, { io: "input" });
+	if (
+		jsonSchema.type === undefined &&
+		["anyOf", "oneOf"].some((keyword) => {
+			const alternatives = jsonSchema[keyword];
+			return (
+				Array.isArray(alternatives) &&
+				alternatives.length > 0 &&
+				alternatives.every(
+					(alternative) =>
+						isRecord(alternative) && alternative.type === "object",
+				)
+			);
+		})
+	) {
+		// The root object constraint is redundant when every alternative is an object.
+		jsonSchema.type = "object";
+	}
 	if (jsonSchema.type !== "object") {
 		throw new Error(
 			`top-level input schema must be a JSON object schema, got ${String(jsonSchema.type)}`,
