@@ -50,6 +50,7 @@ import {
 	ResolveMachinePolicyCandidateResponseSchema,
 	ResolveNativeRpcPolicyCandidateResponseSchema,
 	ResolveMachinePolicyAnyRootInputSchema,
+	ResolveTenantPolicyOrganizationPresenceInputSchema,
 	ResolveTenantPolicyPresenceInputSchema,
 	RequestMachineToolApprovalInputSchema,
 	RequestNativeMachineToolApprovalInputSchema,
@@ -343,6 +344,15 @@ export const mcpGovernanceContract = oc
 			})
 			.input(ResolveMachinePolicyCandidateInputSchema)
 			.output(ResolveNativeRpcPolicyCandidateResponseSchema),
+		resolveTenantPolicyOrganizationPresence: oc
+			.route({
+				method: "POST",
+				path: "/resolve-tenant-policy-organization-presence",
+				summary: "Check whether the organization has any policy fence",
+				tags: ["internal"],
+			})
+			.input(ResolveTenantPolicyOrganizationPresenceInputSchema)
+			.output(z.object({ fenced: z.boolean() })),
 		resolveTenantPolicyPresence: oc
 			.route({
 				method: "POST",
