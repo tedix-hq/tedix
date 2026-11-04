@@ -112,6 +112,18 @@
 		"cancel",
 		"complete"
 	],
+	"negatedObjectLists": {
+		"additionalVerbs": ["reopen", "add", "claim"],
+		"objects": [
+			"(?:the\\s+|any\\s+|existing\\s+|original\\s+)?(?:code|files?|docs?|documentation|records?|requests?|runs?|work(?:\\s+items?)?|messages?|emails?|drafts?|reports?|invoices?|roles?|permissions?|tokens?|secrets?|passwords?|credentials?|data|GitHub)",
+			"(?:fixture|record|request|run|work)[0-9]+",
+			"(?:parent\\s+)?coding\\s+parity"
+		],
+		"maxCharacters": 512,
+		"maxObjectTokens": 8,
+		"minMembers": 3,
+		"maxMembers": 12
+	},
 	"draftOnly": {
 		"pattern": "\\bdrafts?[ -]only\\b|\\bonly\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b|\\bas\\s+(?:a\\s+)?drafts?\\b|\\bkeep\\s+(?:it|them|the\\s+\\w+)\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b",
 		"waivedClasses": ["money", "external_message", "public_publish"]

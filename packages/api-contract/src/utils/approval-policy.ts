@@ -127,6 +127,42 @@ const negatedMixedListPattern = new RegExp(
 	"gi",
 );
 
+const objectListPolicy = criticalActions.negatedObjectLists;
+const negatedObjectMemberPattern = new RegExp(
+	`^(?:${negatedListMembers}|${objectListPolicy.additionalVerbs.join("|")})\\s+(${objectListPolicy.objects.join("|")})$`,
+	"i",
+);
+const negatedObjectClausePattern = new RegExp(
+	`\\b(?:do not|don't|don’t|never)\\s+([^;!?\\r\\n]{1,${objectListPolicy.maxCharacters + 1}}?)(?=[;!?\\r\\n]|$|\\.(?:\\s|$))`,
+	"gi",
+);
+
+// Only complete lists of reviewed noun arguments borrow the leading negation.
+// Unknown prose, nested actions and dotted paths remain subject to the gate.
+function withoutNegatedObjectLists(content: string): string {
+	return content.replace(negatedObjectClausePattern, (clause, body: string) => {
+		if (clause.length > objectListPolicy.maxCharacters) return clause;
+		const finalMember = /^(.*?)(?:,\s*|\s+)(?:or|nor)\s+([^,]+)$/i.exec(body);
+		const prefix = finalMember?.[1];
+		const last = finalMember?.[2];
+		if (prefix === undefined || last === undefined) return clause;
+		const members = [...prefix.split(","), last];
+		if (
+			members.length < objectListPolicy.minMembers ||
+			members.length > objectListPolicy.maxMembers ||
+			!members.every((member) => {
+				const object = negatedObjectMemberPattern.exec(member.trim())?.[1];
+				return (
+					object !== undefined &&
+					object.split(/\s+/).length <= objectListPolicy.maxObjectTokens
+				);
+			})
+		)
+			return clause;
+		return " ";
+	});
+}
+
 // A request that declares its effect is a draft creates or edits a record a
 // human still has to finalize; the classes that describe the finalized effect
 // (payment, external message, publication) do not apply to the draft itself.
@@ -291,7 +327,7 @@ export function humanReservedActionClasses(content: string): string[] {
 					"save the internal post",
 				)
 			: actionContent;
-	const actionable = publicationContent
+	const actionable = withoutNegatedObjectLists(publicationContent)
 		.replace(/\b(?:do not|don't|don’t|never)\s+`[^`\r\n]+`/gi, " ")
 		.replace(
 			/\bcredential(?:\/token)?\s+(?:code|lane|cache band)\b/gi,

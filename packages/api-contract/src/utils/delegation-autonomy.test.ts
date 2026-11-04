@@ -11,6 +11,51 @@ import {
 const policy = { version: 1 as const, maxRisk: "medium" as const };
 describe("critical-only autonomy v1", () => {
 	it.each([
+		"Do not edit code, publish GitHub, or add credentials.",
+		"DON’T reopen fixture73, edit code, publish GitHub, add credentials, NOR claim parent coding parity!",
+		"Close the verified Work and return its receipt. Do not reopen fixture73, edit code, publish GitHub, add credentials, or claim parent coding parity. Return the outcome.",
+		"Never edit code, publish GitHub or add credentials",
+		`Do not ${Array(11).fill("edit code").join(", ")}, or add credentials.`,
+	])("recognizes complete negated object lists: %s", (content) => {
+		expect(humanReservedActionClasses(content)).toEqual([]);
+	});
+	it.each([
+		"Do not edit code, publish GitHub, or claim parent coding parity by publishing GitHub.",
+		"Do not edit code, publish GitHub, or add credentials then send email.",
+		"Do not edit code, add credentials, or publish GitHub to grant access.",
+		"Do not inspect code, publish GitHub, or add credentials.",
+		"Do not edit code, inspect files, publish GitHub, or add credentials.",
+		"Do not edit code, publish GitHub, or add `credentials`.",
+		'Do not edit code, publish "GitHub", or add credentials.',
+		"Do not edit code, publish https://example.invalid, or add credentials.",
+		"Do not edit code, publish GitHub, add credentials.",
+		"Do not publish GitHub or add credentials.",
+		"Do not edit code, publish GitHub, and add credentials.",
+		"Do not edit code, publish GitHub, or add credentials payInvoice.",
+		"Do not edit code, publish GitHub, or add credentials gmail_send_email.",
+		"Do not edit code, publish GitHub, or add credentials.env.",
+		"Do not edit code, publish GitHub.example, or add credentials.",
+		"Do not edit code, publish GitHub v1.2, or add credentials.",
+		"Do not edit code, publish GitHub, or add credentials (then pay invoice).",
+		`Do not ${Array(12).fill("edit code").join(", ")}, or add credentials.`,
+		`Do not edit ${"code ".repeat(110)}, publish GitHub, or add credentials.`,
+		`Do not edit${" ".repeat(512)}code, publish GitHub, or add credentials.`,
+	])("keeps uncertain object lists reserved: %s", (content) => {
+		expect(humanReservedActionClasses(content).length).toBeGreaterThan(0);
+	});
+	it.each([
+		[". Then publish GitHub.", "public_publish"],
+		["; add credentials.", "credentials"],
+		[", then pay the invoice.", "money"],
+		[". Send email to the customer.", "external_message"],
+	])("preserves appended commands: %s", (suffix, actionClass) => {
+		expect(
+			humanReservedActionClasses(
+				`Do not edit code, publish GitHub, or add credentials${suffix}`,
+			),
+		).toContain(actionClass);
+	});
+	it.each([
 		"List API keys",
 		"list_api_keys",
 		"listApiKeys",
@@ -94,6 +139,7 @@ describe("critical-only autonomy v1", () => {
 		},
 	);
 	it.each([
+		"Do not reopen fixture73, edit code, publish GitHub, add credentials, or claim parent coding parity.",
 		"Research the caching algorithms",
 		"Write the overnight Today/Feed post from settled Work history. Low risk; publish it.",
 		"Correct the internal Today/Feed post links. Publish the internal correction and read it back. No external messages or other records need changing.",
