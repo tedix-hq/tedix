@@ -165,6 +165,32 @@ export async function listAgentSessionRequests(
 		);
 }
 
+/** Current project of each listed row the caller owns, read by primary key. */
+export async function listAgentSessionRequestProjects(
+	db: DbQueryClient,
+	params: AgentSessionRequestOwner & { ids: readonly string[] },
+): Promise<{ id: string; projectId: string | null }[]> {
+	const rows: { id: string; projectId: string | null }[] = [];
+	for (const ids of chunkForBoundParams([...new Set(params.ids)], 90)) {
+		rows.push(
+			...(await db
+				.select({
+					id: agentSessionRequests.id,
+					projectId: agentSessionRequests.projectId,
+				})
+				.from(agentSessionRequests)
+				.where(
+					and(
+						inArray(agentSessionRequests.id, ids),
+						eq(agentSessionRequests.organizationId, params.organizationId),
+						eq(agentSessionRequests.userId, params.userId),
+					),
+				)),
+		);
+	}
+	return rows;
+}
+
 /** Most events one upload may carry. */
 export const AGENT_SESSION_EVENT_BATCH_LIMIT = 20;
 /** A processing lease older than this may be taken over. */

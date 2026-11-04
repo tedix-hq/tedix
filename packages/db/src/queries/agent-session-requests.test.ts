@@ -17,6 +17,7 @@ import {
 	listRecentAgentSessionTurns,
 	getAgentSessionRequestPrompts,
 	listAgentSessionRequests,
+	listAgentSessionRequestProjects,
 	fileAgentSessionRequest,
 	recordAgentSessionEvents,
 	recordAgentSessionRequests,
@@ -224,6 +225,35 @@ describe("agent session request ledger", () => {
 			text: `Request ${index}`,
 		}));
 		expect(await record(db, { requests })).toHaveLength(8);
+	});
+
+	it("reads the projects of the listed rows only, for their owner", async () => {
+		const db = fixture();
+		const [first, second] = await record(db);
+		await db
+			.update(agentSessionRequests)
+			.set({ projectId: "project-docs" })
+			.where(eq(agentSessionRequests.id, second!.id));
+		const ids = [first!.id, second!.id, first!.id];
+		expect(
+			await listAgentSessionRequestProjects(db, {
+				organizationId: ORG,
+				userId: USER,
+				ids,
+			}),
+		).toEqual(
+			expect.arrayContaining([
+				{ id: first!.id, projectId: null },
+				{ id: second!.id, projectId: "project-docs" },
+			]),
+		);
+		expect(
+			await listAgentSessionRequestProjects(db, {
+				organizationId: ORG,
+				userId: OTHER_USER,
+				ids,
+			}),
+		).toEqual([]);
 	});
 
 	it("reads the newest rows first when asked, so a bounded read keeps them", async () => {

@@ -47,6 +47,7 @@ import {
 	recordAgentSessionLessonReflection,
 	getPreviousAgentSessionTurn,
 	getAgentSessionRequestPrompts,
+	listAgentSessionRequestProjects,
 	listAgentSessionRequests,
 	listRecentAgentSessionTurns,
 	listPendingAgentSessionEvents,
@@ -1032,7 +1033,11 @@ async function routeLedgerRequests(
 		});
 	const { autoFileRequests } = await import("./request-auto-filing");
 	await autoFileRequests(db, model, scope);
-	const current = await listAgentSessionRequests(db, { ...scope, limit: 200 });
+	const current = await listAgentSessionRequestProjects(db, {
+		organizationId: scope.organizationId,
+		userId: scope.userId,
+		ids: rows.map((row) => row.id),
+	});
 	for (const row of rows)
 		row.projectId =
 			current.find((r) => r.id === row.id)?.projectId ?? row.projectId;

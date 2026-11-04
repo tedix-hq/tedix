@@ -422,7 +422,10 @@ describe("request ledger observer", () => {
 				actionable: true,
 			};
 		};
-		await observe(db, model, "Improve the installation guide");
+		const result = await observe(db, model, "Improve the installation guide");
+		expect(result).toMatchObject({
+			recorded: [{ projectId: "project-example" }],
+		});
 		expect((await rows(db))[0]?.projectId).toBe("project-example");
 	});
 	it("ignores scheduled prompts before calling either model or touching rows", async () => {
