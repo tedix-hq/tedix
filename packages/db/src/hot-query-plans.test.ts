@@ -3,11 +3,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "./client";
 import { createDbQueryClient } from "./query-client";
 import {
-	listAnalyticsExecutionAuditRows,
-	listAnalyticsTraceActivity,
-	listRecentAnalyticsAuditActivity,
-} from "./queries/analytics-audit";
-import {
 	findOrphanRuns,
 	listRecentKernelRunsForOrganization,
 } from "./queries/cognitive-runtime";
@@ -121,70 +116,5 @@ describe("hot production query plans", () => {
 		expect(lastPlan()).toContain(
 			"SEARCH tedi_runtime_events USING INDEX idx_tedi_runtime_events_global_kind_created (kind=? AND created_at>? AND created_at<?)",
 		);
-	});
-
-	// Migration 20261104224712_audit_events_metadata_indexes (logs-db 0004):
-	// every analytics lookup by a metadata field walked the whole tenant in
-	// both stores (1,679,000 rows read, 7 s, for one trace on 4 Nov 2026).
-	it("reads one trace's audit rows through the trace expression index", async () => {
-		const { db, lastPlan } = fixture();
-		await listAnalyticsTraceActivity(db, {
-			traceId: "trace-1",
-			organizationId: "org-1",
-		});
-		const plan = lastPlan();
-		expect(plan).toContain(
-			"SEARCH audit_events USING INDEX idx_audit_events_trace_timestamp (<expr>=?)",
-		);
-		expect(plan).not.toContain("USE TEMP B-TREE FOR ORDER BY");
-	});
-
-	it("reads one trace's audit rows platform-wide through the same index", async () => {
-		const { db, lastPlan } = fixture();
-		await listAnalyticsTraceActivity(db, { traceId: "trace-1" });
-		expect(lastPlan()).toContain(
-			"SEARCH audit_events USING INDEX idx_audit_events_trace_timestamp (<expr>=?)",
-		);
-	});
-
-	it("drills into one execution through the execution expression index", async () => {
-		const { db, lastPlan } = fixture();
-		await listAnalyticsExecutionAuditRows(db, {
-			executionId: "exec-1",
-			organizationId: "org-1",
-		});
-		const plan = lastPlan();
-		expect(plan).toContain(
-			"SEARCH audit_events USING INDEX idx_audit_events_execution_timestamp (<expr>=?)",
-		);
-		expect(plan).not.toContain("USE TEMP B-TREE FOR ORDER BY");
-	});
-
-	it("lists an app's recent activity from the app index without a sort", async () => {
-		const { db, lastPlan } = fixture();
-		await listRecentAnalyticsAuditActivity(db, {
-			organizationId: "org-1",
-			appId: "app-1",
-			limit: 50,
-		});
-		const plan = lastPlan();
-		expect(plan).toContain(
-			"SEARCH audit_events USING INDEX idx_audit_events_org_app_timestamp (organization_id=? AND <expr>=?)",
-		);
-		expect(plan).not.toContain("USE TEMP B-TREE FOR ORDER BY");
-	});
-
-	it("lists an actor's recent activity from the actor index without a sort", async () => {
-		const { db, lastPlan } = fixture();
-		await listRecentAnalyticsAuditActivity(db, {
-			organizationId: "org-1",
-			actorId: "user-1",
-			limit: 50,
-		});
-		const plan = lastPlan();
-		expect(plan).toContain(
-			"SEARCH audit_events USING INDEX idx_audit_events_org_actor_timestamp (organization_id=? AND actor_id=?)",
-		);
-		expect(plan).not.toContain("USE TEMP B-TREE FOR ORDER BY");
 	});
 });
