@@ -10,6 +10,33 @@ import {
 import { readMigrationManifest } from "./check-live-migration-ledger";
 
 describe("production D1 migration orchestration", () => {
+	it("keeps a verified migration when PRAGMA optimize is rejected", () => {
+		const names = readMigrationManifest().migrations.map(({ name }) => name);
+		let ledgerReads = 0;
+		expect(() =>
+			applyProductionMigrations({
+				run: (args) => {
+					if (
+						args.includes(
+							"SELECT name FROM tedix_drizzle_migrations ORDER BY id",
+						)
+					) {
+						const applied = ledgerReads++ === 0 ? names.slice(0, -1) : names;
+						return JSON.stringify([
+							{ success: true, results: applied.map((name) => ({ name })) },
+						]);
+					}
+					if (args[1] === "time-travel")
+						return JSON.stringify({ bookmark: "bookmark-1" });
+					if (args.includes("PRAGMA optimize"))
+						throw new Error("D1 7429: too many resources");
+					return "";
+				},
+			}),
+		).not.toThrow();
+		expect(ledgerReads).toBe(2);
+	});
+
 	it("uses the configured binding for recovery, apply, optimize and ledger checks", () => {
 		const directory = mkdtempSync(join(tmpdir(), "tedix-migration-summary-"));
 		const summaryPath = join(directory, "summary.md");
