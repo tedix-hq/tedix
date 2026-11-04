@@ -72,6 +72,11 @@ export interface CatalogToolEntry {
 	authorized?: boolean;
 	requiredScopes?: string[];
 	missingScopes?: string[];
+	/**
+	 * Set for this caller when the tool's credential is reachable only from the
+	 * provider's embedded assistant session (signed host delegation).
+	 */
+	requiresEmbeddedSession?: true;
 }
 
 interface CatalogSchemaFreshness {

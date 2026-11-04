@@ -666,6 +666,68 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		expect(service.gated_tool?.authorized).toBe(true);
 	});
 
+	it("flags provider tools a foreign caller can reach only from the embedded assistant", async () => {
+		const loadedTools = new Map<string, AppTool>([
+			[
+				"acme_staging__orders_status_summary",
+				tool({
+					id: "row-acme",
+					toolId: "acme_staging__orders_status_summary",
+					title: "Orders status summary",
+					description: "Summarize order status.",
+					config: {
+						endpoint: "orders/status-summary",
+						_aggregateNamespace: "acme_staging",
+						_sourceAppId: "provider-app",
+						_sourceEmbeddedHostDelegation: "provider-org",
+					},
+				}),
+			],
+		]);
+		const describeFor = async (
+			callerIdentity: unknown,
+			requestMeta?: Record<string, unknown>,
+		) => {
+			const provider = buildCatalogProvider(
+				{
+					loadedTools,
+					appMetadata: null,
+					callerIdentity,
+					requestMeta,
+				} as unknown as ServerContext,
+				undefined,
+			);
+			const tools = provider.tools as Record<
+				string,
+				{ execute: (input: unknown) => Promise<unknown> }
+			>;
+			return (await tools.describe?.execute?.({
+				callable: "acme_staging.orders_status_summary",
+			})) as Record<string, unknown>;
+		};
+		const delegated = {
+			authType: "service",
+			tediId: "operator",
+			organizationId: "customer-org",
+		};
+		expect((await describeFor(delegated)).requiresEmbeddedSession).toBe(true);
+		expect(
+			(
+				await describeFor(delegated, {
+					"tedix/embedded-session": "browser-token",
+				})
+			).requiresEmbeddedSession,
+		).toBeUndefined();
+		expect(
+			(
+				await describeFor({
+					...delegated,
+					organizationId: "provider-org",
+				})
+			).requiresEmbeddedSession,
+		).toBeUndefined();
+	});
+
 	it("collapses repeated tedi-native role verbs onto the caller's row", async () => {
 		const roleCtx = {
 			callerIdentity: { authType: "tedi", tediId: "cto-id" },

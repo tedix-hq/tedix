@@ -17,7 +17,9 @@ import { type ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { getByPath } from "./handlers/path-utils";
 import { validateUrl } from "@tedix/ssrf-guard";
 import {
+	EMBEDDED_SESSION_REQUIRED_MESSAGE,
 	resolveEmbeddedHostDelegation,
+	toolRequiresEmbeddedSession,
 	redactDelegationResponse,
 } from "./embedded-host-delegation";
 import { buildQueryString } from "./utils/query-params";
@@ -191,6 +193,17 @@ export async function executeExternalTransport(
 	// Build headers, then let the request body encoder set Content-Type.
 	const headers: Record<string, string> = {};
 	let delegatedTransportToken: string | undefined;
+
+	if (
+		!delegation &&
+		toolRequiresEmbeddedSession({
+			config,
+			appMetadata: ctx.appMetadata,
+			appOrganizationId: ctx.app?.organizationId,
+			callerOrganizationId: ctx.callerIdentity?.organizationId,
+		})
+	)
+		return { data: { error: EMBEDDED_SESSION_REQUIRED_MESSAGE }, status: 403 };
 
 	if (delegation) {
 		const credentialResult = await credentials.fetchOrgConnectionToken(

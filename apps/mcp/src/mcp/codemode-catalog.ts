@@ -1,6 +1,7 @@
 import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { type ServerContext } from "./server-context";
 import { tenantProfileDiscoveryPotential } from "./tenant-profile-candidate";
+import { toolRequiresEmbeddedSession } from "./embedded-host-delegation";
 import { cachedCatalogProjection } from "./catalog-projection";
 import {
 	writeCodeModeLog,
@@ -480,9 +481,20 @@ export function buildCatalogProvider(
 				schemaFreshness: schemaFreshnessFromTool(tool),
 			});
 		});
+		const requiresEmbeddedSession =
+			!serverCtx.requestMeta?.["tedix/embedded-session"] &&
+			toolRequiresEmbeddedSession({
+				config: tool.config,
+				appMetadata: serverCtx.appMetadata as Record<string, unknown> | null,
+				appOrganizationId: serverCtx.app?.organizationId,
+				callerOrganizationId: serverCtx.callerIdentity?.organizationId,
+			});
 		const primaryEntry = {
 			...projection,
 			wire: { name: tool.toolId },
+			...(requiresEmbeddedSession
+				? { requiresEmbeddedSession: true as const }
+				: {}),
 			...(typeof toolOrganizationId === "string" && toolOrganizationId
 				? { organization: toolOrganizationId }
 				: {}),

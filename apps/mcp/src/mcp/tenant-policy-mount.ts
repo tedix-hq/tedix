@@ -75,6 +75,7 @@ export function tenantPolicyCrossMountDigest(tool: AppTool): Promise<string> {
 	delete config._aggregateLegacyNamespace;
 	delete config._multiOrgOrganizationId;
 	delete config._sourceAppId;
+	delete config._sourceEmbeddedHostDelegation;
 	delete config._sourceAppSlug;
 	delete config._sourceAuthRequired;
 	delete config._sourceVisibility;

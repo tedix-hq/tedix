@@ -45,6 +45,8 @@ export type AggregateAppEntry = {
 
 export interface InternalResolveResult {
 	tools: InternalAppTool[];
+	/** Source app opted into provider-owned host delegation (embedded widget only). */
+	embeddedHostDelegation?: true;
 	connectionInstanceId?: string;
 	appId: string | null;
 	/** The resolved app's current slug (an id-linked entry may store an old one). */

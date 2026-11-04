@@ -195,6 +195,9 @@ export function toInternalResolveResult(
 		forwardedQueryParams,
 		aggregateApps,
 		toolScopes: mcpConfig?.toolScopes,
+		...(mcpConfig?.embeddedHostDelegation
+			? { embeddedHostDelegation: true as const }
+			: {}),
 	};
 }
 
