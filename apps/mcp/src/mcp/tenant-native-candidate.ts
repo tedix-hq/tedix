@@ -7,7 +7,7 @@ import { getApiClient } from "../lib/api-client";
 import { resolveMultiOrgToolTarget } from "./multi-org-tool-target";
 import {
 	prepareTenantNativePolicyMount,
-	resolveFreshPolicyMount,
+	resolvePolicyMountPath,
 	tenantPolicyDescriptorDigest,
 	tenantPolicyEffectiveToolDigest,
 } from "./tenant-policy-mount";
@@ -62,22 +62,37 @@ export async function tenantMachinePolicyFallbackBlocked(
 		)
 			return true;
 		const rootAppId = selectedGateway?.app?.id ?? agent.appId;
-		const fresh = await resolveFreshPolicyMount({
+		const path = await resolvePolicyMountPath({
 			organizationId,
 			rootAppId,
 			mountedToolId: tool.toolId,
 			env: agent.env,
 		});
-		let sourceAppId = fresh?.sourceAppId;
-		let sourceToolId = fresh?.sourceToolId;
-		if (fresh && fresh.tool.id !== tool.id) return true;
-		if (generatedHomeId && fresh?.sourceKind !== "home-surface") return true;
-		if (generatedAggregateTedi && fresh?.sourceKind !== "aggregate-tedi")
+		if (path && path.tool.id !== tool.id) return true;
+		if (generatedHomeId && path?.sourceKind !== "home-surface") return true;
+		if (generatedAggregateTedi && path?.sourceKind !== "aggregate-tedi")
 			return true;
+		// No rule can be prepared for another organization's app, so only a
+		// fence recorded on this exact mount can still apply.
+		if (path?.sourceKind === "foreign-source") {
+			const { fenced } = await client.mcpGovernance.resolveTenantPolicyPresence(
+				{
+					organizationId,
+					rootAppId,
+					mountedToolId: tool.toolId,
+					sourceAppId: path.sourceAppId,
+					sourceToolRowId: tool.id,
+					sourceToolId: tool.toolId,
+				},
+			);
+			return fenced;
+		}
+		let sourceAppId = path?.sourceAppId;
+		let sourceToolId = path?.sourceToolId;
 		if (
-			(fresh?.sourceKind === "home-surface" ||
-				fresh?.sourceKind === "aggregate-tedi") &&
-			(await tenantPolicyEffectiveToolDigest(fresh.tool)) !==
+			(path?.sourceKind === "home-surface" ||
+				path?.sourceKind === "aggregate-tedi") &&
+			(await tenantPolicyEffectiveToolDigest(path.tool)) !==
 				(await tenantPolicyEffectiveToolDigest(tool))
 		)
 			return true;

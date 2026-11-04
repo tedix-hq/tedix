@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	prepareTenantPolicyMount,
 	resolveFreshPolicyMount,
+	resolvePolicyMountPath,
 	prepareTenantIdentityProfileMount,
 	prepareTenantNativePolicyMount,
 	acceptsEmptyProfileArguments,
@@ -710,13 +711,16 @@ describe("tenant policy mount descriptor", () => {
 						},
 						tools: [],
 					}
-				: {
-						app: { id: "source", organizationId: sourceOrganization },
-						tools: [{ id: "tool-row", toolId: "edit" }],
-					},
+				: sourceVisible
+					? {
+							app: { id: "source", organizationId: sourceOrganization },
+							tools: [{ id: "tool-row", toolId: "edit" }],
+						}
+					: { app: null, tools: [] },
 		);
 		let degraded = false,
-			duplicate = false;
+			duplicate = false,
+			sourceVisible = true;
 		mocks.resolve.mockImplementation(async (entries) =>
 			entries[0]?.organizationMount
 				? { tools: [{ ...base, toolId: "gateway__mounted__edit" }] }
@@ -760,6 +764,14 @@ describe("tenant policy mount descriptor", () => {
 		duplicate = false;
 		sourceOrganization = "other-org";
 		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		expect(await resolvePolicyMountPath(request)).toBeNull();
+		sourceVisible = false;
+		expect(await resolveFreshPolicyMount(request)).toBeNull();
+		expect(await resolvePolicyMountPath(request)).toMatchObject({
+			sourceAppId: "source",
+			mountAppIds: ["root", "source"],
+			sourceKind: "foreign-source",
+		});
 	});
 
 	it("prepares only an enabled RPC mount from the selected organization", async () => {
