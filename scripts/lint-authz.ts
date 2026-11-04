@@ -208,8 +208,8 @@ function resolveImport(fromFile: string, spec: string): string | null {
 type Analysis = {
 	/** `<abs file>::<const name>` → right-hand side source text. */
 	defs: Map<string, string>;
-	/** abs file → (local imported name → abs source file). */
-	imports: Map<string, Map<string, string>>;
+	/** abs file → (local imported name → source file and exported name). */
+	imports: Map<string, Map<string, { file: string; name: string }>>;
 	/** abs file → source text. */
 	sources: Map<string, string>;
 	/**
@@ -222,7 +222,7 @@ type Analysis = {
 
 function analyze(files: string[]): Analysis {
 	const defs = new Map<string, string>();
-	const imports = new Map<string, Map<string, string>>();
+	const imports: Analysis["imports"] = new Map();
 	const sources = new Map<string, string>();
 
 	function ingest(file: string): void {
@@ -234,7 +234,7 @@ function analyze(files: string[]): Analysis {
 			if (match[1] === undefined || match[2] === undefined) continue;
 			defs.set(`${file}::${match[1]}`, match[2]);
 		}
-		const localToFile = new Map<string, string>();
+		const localToFile = new Map<string, { file: string; name: string }>();
 		for (const match of src.matchAll(
 			/import\s*(?:type\s*)?\{([^}]+)\}\s*from\s*["'](\.[^"']+)["']/g,
 		)) {
@@ -242,13 +242,11 @@ function analyze(files: string[]): Analysis {
 			const target = resolveImport(file, match[2]);
 			if (!target) continue;
 			for (const raw of match[1].split(",")) {
-				// `foo as bar` binds locally as `bar`.
-				const local = raw
-					.trim()
-					.split(/\s+as\s+/)
-					.pop()
-					?.trim();
-				if (local) localToFile.set(local, target);
+				const [imported, alias] = raw.trim().split(/\s+as\s+/);
+				const local = alias ?? imported;
+				if (local && imported) {
+					localToFile.set(local, { file: target, name: imported });
+				}
 			}
 		}
 		imports.set(file, localToFile);
@@ -283,14 +281,16 @@ function resolveGuards(
 
 	let rhs = analysis.defs.get(key);
 	let owner = file;
+	let ownerName = name;
 	if (rhs === undefined) {
 		const source = analysis.imports.get(file)?.get(name);
 		if (source) {
-			analysis.ingest(source);
-			const imported = analysis.defs.get(`${source}::${name}`);
+			analysis.ingest(source.file);
+			const imported = analysis.defs.get(`${source.file}::${source.name}`);
 			if (imported !== undefined) {
 				rhs = imported;
-				owner = source;
+				owner = source.file;
+				ownerName = source.name;
 			}
 		}
 	}
@@ -302,7 +302,7 @@ function resolveGuards(
 	const chain = rhs.split(".handler(")[0] ?? "";
 	const parentName = chain.match(/^\s*(\w+)/)?.[1];
 	const parent =
-		parentName && parentName !== name
+		parentName && parentName !== ownerName
 			? resolveGuards(analysis, memo, owner, parentName, depth + 1)
 			: undefined;
 

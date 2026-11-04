@@ -80,6 +80,7 @@
 		"generate-worker-types.test.ts",
 		"generate-worker-types.ts",
 		"lint-authz.ts",
+		"lint-authz.test.ts",
 		"lint-contracts.ts",
 		"lint-db-access.ts",
 		"descope/**/*.ts",
