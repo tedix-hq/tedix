@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import {
 	assertNativeResearchCheckout,
+	compactToolSchema,
 	preflightDelegationTools,
+	TOOL_SCHEMA_CHAR_CAP,
 } from "./delegation-preflight";
 import type { DelegationCapabilityPlan } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
@@ -293,4 +295,89 @@ await assert.rejects(
 assert.equal(embeddedOnlyModelCalls, 0);
 console.log(
 	"PASS delegated tool authority and checkout preflight replay before inference",
+);
+// Replay (tenant runs 30ba6932, 22f5429b): the gateway's create_os_output
+// input schema is 16,704 characters, over the 16,000-character prompt cap, and
+// the preflight failed the whole turn after ten minutes with no tool run. An
+// oversized schema is now compacted, never fatal.
+const deepNode = (depth: number): Record<string, unknown> =>
+	depth === 0
+		? { type: "string", description: "leaf ".repeat(40), pattern: "^x+$" }
+		: {
+				type: "object",
+				description: "level ".repeat(60),
+				properties: { child: deepNode(depth - 1), note: { type: "string" } },
+			};
+const hugeParameters = {
+	type: "object",
+	required: ["kind", "title"],
+	$defs: { richText: deepNode(6) },
+	properties: {
+		kind: { type: "string", enum: ["document", "sheet"] },
+		title: { type: "string", maxLength: 200 },
+		content: {
+			oneOf: Array.from({ length: 12 }, (_, index) => ({
+				type: "object",
+				properties: { [`branch${index}`]: deepNode(5) },
+				richText: { $ref: "#/$defs/richText" },
+			})),
+		},
+	},
+};
+assert.ok(
+	JSON.stringify(hugeParameters).length > TOOL_SCHEMA_CHAR_CAP,
+	"the fixture is over the cap",
+);
+const compacted = compactToolSchema("os.create_os_output", hugeParameters);
+assert.ok(compacted.length <= TOOL_SCHEMA_CHAR_CAP, "compacted under the cap");
+const parsedCompact = JSON.parse(compacted) as {
+	callable: string;
+	parameters: { required?: string[]; properties: Record<string, unknown> };
+};
+assert.equal(parsedCompact.callable, "os.create_os_output");
+assert.deepEqual(parsedCompact.parameters.required, ["kind", "title"]);
+assert.ok("content" in parsedCompact.parameters.properties);
+assert.doesNotMatch(compacted, /leaf leaf/, "annotations are dropped first");
+const osPlan = { ...plan, allowedToolIds: ["os.create_os_output"] };
+const [osSchema] = await preflightDelegationTools(osPlan, async () => [
+	{
+		callable: "os.create_os_output",
+		authorized: true,
+		missingScopes: [],
+		parameters: hugeParameters,
+	},
+]);
+assert.ok(osSchema!.length <= TOOL_SCHEMA_CHAR_CAP);
+// A schema under the cap is passed through byte for byte.
+assert.equal(
+	compactToolSchema("work.add_comment", { type: "object" }),
+	JSON.stringify({
+		callable: "work.add_comment",
+		parameters: { type: "object" },
+	}),
+);
+// The last resort keeps the top-level shape and says where the rest is.
+const wide = {
+	type: "object",
+	required: ["a"],
+	properties: Object.fromEntries(
+		Array.from({ length: 400 }, (_, index) => [
+			`field${index}`,
+			{ type: "string", enum: Array.from({ length: 20 }, (_, j) => `v${j}`) },
+		]),
+	),
+};
+const lastResort = JSON.parse(compactToolSchema("wide.tool", wide, 9_000)) as {
+	parameters: { note?: string; properties: Record<string, { type?: string }> };
+};
+assert.match(lastResort.parameters.note ?? "", /tedix_mcp_search_tools/);
+assert.equal(lastResort.parameters.properties.field0?.type, "string");
+// Replay (cto run coding-native-apply-…-v4, 4 Nov 2026): a raw transport error
+// from the describe read is a preflight failure the workflow seals at once,
+// not an error it retries for twelve silent minutes.
+await assert.rejects(
+	preflightDelegationTools(plan, async () => {
+		throw new Error("No assigned MCP servers connected");
+	}),
+	/^Error: Delegation preflight failed: the tedi's tool connection could not be read \(No assigned MCP servers connected\); return to Home and retry$/,
 );

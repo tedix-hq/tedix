@@ -142,6 +142,16 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "orphan-run-sweep", () =>
 				sweepOrphanRunsTick(env),
 			);
+			// Home-side counterpart: a delegated run whose child never published,
+			// or outlived its deadline, ends with a visible reason without a reader.
+			const { sweepDelegatedRunDeadlines } =
+				await import("./delegated-run-deadline-sweep");
+			await trackPlatformCronPath(
+				env,
+				event,
+				"delegated-run-deadline-sweep",
+				() => sweepDelegatedRunDeadlines(env, event.scheduledTime),
+			);
 		}
 
 		if (cron === "*/2 * * * *") {

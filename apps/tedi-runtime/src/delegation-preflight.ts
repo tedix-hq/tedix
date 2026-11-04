@@ -156,10 +156,28 @@ async function executeWithCatalogRetry(
 			const delay = delaysMs[attempt];
 			const message = error instanceof Error ? error.message : String(error);
 			if (delay === undefined || !CATALOG_NOT_EXPOSED.test(message))
-				throw error;
+				throw preflightReadError(message);
 			await new Promise((resolve) => setTimeout(resolve, delay));
 		}
 	}
+}
+
+/**
+ * A discovery read that fails for any reason other than a missing catalog
+ * ends the turn as a preflight failure, which the turn workflow seals at once
+ * with this text. Live cto runs on 3-4 Nov 2026 (coding-native-apply-…-v4)
+ * threw the raw `No assigned MCP servers connected` here; the workflow did
+ * not recognize it, retried the whole turn five times with exponential
+ * backoff and the 12-minute orphan sweep raced the sixth attempt, so the
+ * person saw either "runtime dropped" or a cut-off "No assigned…" 12 minutes
+ * later. A prefixed error is terminal on the first attempt.
+ */
+function preflightReadError(message: string): Error {
+	if (message.startsWith("Delegation preflight failed: "))
+		return new Error(message);
+	return new Error(
+		`Delegation preflight failed: the tedi's tool connection could not be read (${message.slice(0, 200)}); return to Home and retry`,
+	);
 }
 
 /** Read metadata with the child's own credential; discovery never grants access. */
@@ -220,11 +238,102 @@ export async function preflightDelegationTools(
 			throw new Error(
 				`Delegation preflight failed: ${callable} reaches its tenant connection only through the provider's embedded assistant, which carries the signed-in host user's delegation. A delegated tedi cannot borrow that credential, so no rounds were run. Return to Home and tell the person to ask this question in the embedded assistant`,
 			);
-		const schema = JSON.stringify({ callable, parameters: row.parameters });
-		if (schema.length > 16000)
-			throw new Error(
-				`Delegation preflight failed: schema too large for ${callable}`,
-			);
-		return schema;
+		return compactToolSchema(callable, row.parameters);
 	});
+}
+
+/** One callable's schema in the prompt; 16 callables at this cap still fit the turn. */
+export const TOOL_SCHEMA_CHAR_CAP = 16_000;
+
+const SCHEMA_ANNOTATION_KEYS = new Set([
+	"description",
+	"title",
+	"examples",
+	"pattern",
+	"default",
+	"$comment",
+]);
+
+function stripSchemaAnnotations(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(stripSchemaAnnotations);
+	if (!value || typeof value !== "object") return value;
+	const out: Record<string, unknown> = {};
+	for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+		if (SCHEMA_ANNOTATION_KEYS.has(key)) continue;
+		out[key] = stripSchemaAnnotations(child);
+	}
+	return out;
+}
+
+/** Nodes below `maxDepth` keep only their type; `$ref` targets become open objects. */
+function pruneSchemaDepth(
+	value: unknown,
+	maxDepth: number,
+	depth = 0,
+): unknown {
+	if (Array.isArray(value))
+		return value.map((item) => pruneSchemaDepth(item, maxDepth, depth));
+	if (!value || typeof value !== "object") return value;
+	const record = value as Record<string, unknown>;
+	if (typeof record.$ref === "string") return { type: "object" };
+	if (depth >= maxDepth) {
+		return typeof record.type === "string"
+			? { type: record.type, truncated: true }
+			: { truncated: true };
+	}
+	const out: Record<string, unknown> = {};
+	for (const [key, child] of Object.entries(record)) {
+		if (key === "$defs" || key === "definitions") continue;
+		out[key] = pruneSchemaDepth(child, maxDepth, depth + 1);
+	}
+	return out;
+}
+
+/**
+ * Render one callable's input schema for the delegated prompt without ever
+ * failing the turn on size. The full `create_os_output` schema measured
+ * 16,704 characters on 2026-11-04 (its document/sheet/presentation content
+ * union alone 14,747), which failed two tenant delegations at preflight after
+ * ten minutes with no tool run (runs 30ba6932, 22f5429b). Annotations go
+ * first, then nesting depth, and the last resort keeps the top-level shape
+ * with a note that the full schema is one `tedix_mcp_search_tools` call away.
+ */
+export function compactToolSchema(
+	callable: string,
+	parameters: unknown,
+	cap = TOOL_SCHEMA_CHAR_CAP,
+): string {
+	const render = (value: unknown) =>
+		JSON.stringify({ callable, parameters: value });
+	const full = render(parameters);
+	if (full.length <= cap) return full;
+	const stripped = stripSchemaAnnotations(parameters);
+	const strippedText = render(stripped);
+	if (strippedText.length <= cap) return strippedText;
+	for (const maxDepth of [8, 6, 4, 3, 2]) {
+		const pruned = render(pruneSchemaDepth(stripped, maxDepth));
+		if (pruned.length <= cap) return pruned;
+	}
+	const record =
+		stripped && typeof stripped === "object" && !Array.isArray(stripped)
+			? (stripped as Record<string, unknown>)
+			: {};
+	const properties = nonNullObject(record.properties);
+	return render({
+		type: "object",
+		...(Array.isArray(record.required) ? { required: record.required } : {}),
+		properties: Object.fromEntries(
+			Object.entries(properties).map(([key, child]) => {
+				const type = nonNullObject(child).type;
+				return [key, typeof type === "string" ? { type } : {}];
+			}),
+		),
+		note: `Input schema truncated to its top-level fields; read the full shape with tedix_mcp_search_tools before calling ${callable}`,
+	});
+}
+
+function nonNullObject(value: unknown): Record<string, unknown> {
+	return value && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: {};
 }

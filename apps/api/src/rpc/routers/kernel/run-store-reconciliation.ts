@@ -22,8 +22,10 @@ import { stalledChildRunStatus } from "./child-run-stall";
 import {
 	disposeTerminalDirectDelegationWorkItem,
 	isStaleDelegationDispatchRow,
+	isStaleDispatchConfirmed,
 	recordDelegationWorkItemHeartbeat,
 	resolveDelegationWorkItemId,
+	staleDispatchObservedAt,
 } from "./delegation-work-item";
 import { readOptionalHomePlanFromRun } from "./home-plan";
 import {
@@ -325,6 +327,30 @@ export async function reconcileHomeRunRowsFromChildStatus(
 					}
 				}
 				if (!isStaleDelegationDispatchRow(row)) return canceledStopRow ?? row;
+				// First quiet sighting: stamp it and look again later. The child may
+				// have accepted the dispatch and simply not published yet.
+				if (!isStaleDispatchConfirmed(row)) {
+					if (!staleDispatchObservedAt(row)) {
+						const metadata = {
+							...nonNullRecord(row.metadata),
+							staleDispatchObservedAt: nowIso(),
+						};
+						try {
+							await updateKernelRuntimeRunForOrg(context.db, {
+								organizationId: row.organizationId,
+								id: row.id,
+								patch: { metadata: toJsonRecord(metadata) },
+							});
+							row.metadata = toJsonRecord(metadata);
+						} catch (error) {
+							console.warn("[kernelRuntime] stale dispatch stamp failed", {
+								runId: row.id,
+								error: errorMessage(error),
+							});
+						}
+					}
+					return canceledStopRow ?? row;
+				}
 				const failedAt = nowIso();
 				// An unassigned mapping describes the observed handoff, not a cancellation.
 				const dispatchNeverLanded = await didDispatchNeverLand(context, row);

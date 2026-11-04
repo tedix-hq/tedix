@@ -98,6 +98,37 @@ export const KERNEL_DELEGATE_ENQUEUE_BUDGET_MS = 20_000;
  */
 export const KERNEL_DELEGATE_FIRST_EVENT_TIMEOUT_MS = 90_000;
 
+/**
+ * A quiet dispatch is sealed only when a second look, this long after the
+ * first, still finds no child event. One empty page is not proof: live rows
+ * 63387b00 (31 Oct 2026) and 6d2934f1 (1 Nov) were sealed as "timed out before
+ * the child runtime published events" at 90-180 s although the child had
+ * written `run.started` seconds after dispatch and went on to run for twenty
+ * minutes; the person never saw its real failure. The first sighting is
+ * stamped on the row (`metadata.staleDispatchObservedAt`); the read path and
+ * the two-minute deadline sweep both confirm it.
+ */
+export const KERNEL_DELEGATE_STALE_CONFIRM_MS = 60_000;
+
+/** The first quiet sighting stamped on the row, or null before one. */
+export function staleDispatchObservedAt(row: KernelRuntimeRun): string | null {
+	const value = nonNullRecord(row.metadata)?.staleDispatchObservedAt;
+	return typeof value === "string" && Number.isFinite(Date.parse(value))
+		? value
+		: null;
+}
+
+export function isStaleDispatchConfirmed(
+	row: KernelRuntimeRun,
+	now = Date.now(),
+): boolean {
+	const observedAt = staleDispatchObservedAt(row);
+	return (
+		observedAt !== null &&
+		now - Date.parse(observedAt) >= KERNEL_DELEGATE_STALE_CONFIRM_MS
+	);
+}
+
 // Workstation-dispatched runs get a wider no-events window than isolate ones:
 // a workstation wake/restore routinely
 // exceeds the isolate budget before the first ledger event lands.

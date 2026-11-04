@@ -288,6 +288,20 @@ describe("kernel runtime router: delegation", () => {
 		});
 
 		const attemptsBeforeTimeout = structuredClone(db.workAttemptRows);
+		// One empty event page is a sighting, not a verdict: the row stays live
+		// with the sighting stamped, and a second quiet look a minute later seals it.
+		const firstLook = await client.readRunSet({
+			conversationId: "home:test",
+			limit: 10,
+		});
+		expect(
+			firstLook.runSet.runs.find(
+				(candidate) => candidate.id === "home-delegate-stale-1",
+			)?.status,
+		).toBe("queued");
+		const stamped = (runRow?.metadata ?? {}) as Record<string, unknown>;
+		expect(typeof stamped.staleDispatchObservedAt).toBe("string");
+		stamped.staleDispatchObservedAt = "2000-01-01T00:00:00.000Z";
 		const runSet = await client.readRunSet({
 			conversationId: "home:test",
 			limit: 10,
@@ -442,6 +456,18 @@ describe("kernel runtime router: delegation", () => {
 						tediId: "tedi-cpo",
 					}),
 				);
+			}
+			if (recovery === "empty") {
+				// The first healthy read only stamps the quiet sighting.
+				const sighting = await client.readRunSet({
+					conversationId: "home:test",
+					limit: 10,
+				});
+				expect(
+					sighting.runSet.runs.find((run) => run.id === row.id)?.status,
+				).toBe("queued");
+				(row.metadata as Record<string, unknown>).staleDispatchObservedAt =
+					"2000-01-01T00:00:00.000Z";
 			}
 			const recovered = await client.readRunSet({
 				conversationId: "home:test",
