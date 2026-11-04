@@ -1,10 +1,12 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
+import { WorkEvidenceSchema } from "@tedix/api-contract/schemas/work-items";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
 	recordRepositoryCandidatePublicationObservation,
 	getRepositoryCandidatePublicationEffect,
+	listWorkItemEvidence,
 	submitWorkItemEvidence,
 } from "./evidence";
 import type {
@@ -12,6 +14,7 @@ import type {
 	RepositoryCandidatePublicationObservation,
 } from "@tedix/api-contract/schemas/repository-candidate";
 const id = "11111111-1111-4111-8111-111111111111",
+	orgId = "44444444-4444-4444-8444-444444444444",
 	attemptId = "22222222-2222-4222-8222-222222222222",
 	admissionId = "33333333-3333-4333-8333-333333333333",
 	now = "2026-10-01T00:00:00.000Z";
@@ -31,7 +34,7 @@ function fixture() {
 		version: 1,
 		descriptor: {
 			version: 1,
-			organizationId: "org",
+			organizationId: orgId,
 			workItemId: id,
 			attemptId,
 			admissionId,
@@ -61,8 +64,8 @@ function fixture() {
 		repositoryCandidatePublication: { preparation, attemptedAt: now },
 	});
 	sqlite
-		.prepare("INSERT INTO work_attempts VALUES (?,?,'org','expired',?)")
-		.run(attemptId, id, metadata);
+		.prepare("INSERT INTO work_attempts VALUES (?,?,?,'expired',?)")
+		.run(attemptId, id, orgId, metadata);
 	const observation: RepositoryCandidatePublicationObservation = {
 		effect: "acknowledged",
 		headRevision: preparation.commitRevision,
@@ -98,6 +101,10 @@ describe("server-derived historical publication facts", () => {
 				},
 			});
 		expect(first.id).toBe(second.id);
+		expect(first.claimKey).toHaveLength(97);
+		expect(WorkEvidenceSchema.parse(JSON.parse(JSON.stringify(first)))).toEqual(
+			first,
+		);
 		expect(first.attemptId).toBeNull();
 		expect(first.metadata).toMatchObject({
 			originalAttemptId: attemptId,
@@ -116,7 +123,7 @@ describe("server-derived historical publication facts", () => {
 			const f = fixture();
 			await expect(
 				submitWorkItemEvidence(f.db, {
-					orgId: "org",
+					orgId,
 					workItemId: id,
 					claimKey:
 						kind === "reserved claim prefix"
@@ -147,6 +154,180 @@ describe("server-derived historical publication facts", () => {
 		expect(
 			await getRepositoryCandidatePublicationEffect(f.db, f.preparation),
 		).toBe("acknowledged");
+	});
+	it("repairs only legacy claim bookkeeping without changing facts, events or deduplication", async () => {
+		const f = fixture();
+		for (const effect of ["prepared", "unknown", "acknowledged"] as const)
+			await recordRepositoryCandidatePublicationObservation(f.db, {
+				...f,
+				observation: { ...f.observation, effect },
+			});
+		const legacy = `repository_candidate_publication:${attemptId}:${f.preparation.preparationDigest}`;
+		f.sqlite.prepare("UPDATE work_evidence SET claim_key=?").run(legacy);
+		const before = f.sqlite
+			.prepare("SELECT * FROM work_evidence ORDER BY id")
+			.all();
+		const events = f.sqlite
+			.prepare("SELECT * FROM work_events ORDER BY sequence")
+			.all();
+		const result = await recordRepositoryCandidatePublicationObservation(
+			f.db,
+			f,
+		);
+		expect(result.claimKey).toHaveLength(102);
+		expect(
+			WorkEvidenceSchema.parse(JSON.parse(JSON.stringify(result))),
+		).toEqual(result);
+		const after = f.sqlite
+			.prepare("SELECT * FROM work_evidence ORDER BY id")
+			.all();
+		expect(after.map(({ claim_key: _key, ...fact }) => fact)).toEqual(
+			before.map(({ claim_key: _key, ...fact }) => fact),
+		);
+		const page = await listWorkItemEvidence(f.db, { orgId, workItemId: id });
+		expect(page.data).toHaveLength(3);
+		for (const row of page.data)
+			expect(WorkEvidenceSchema.parse(JSON.parse(JSON.stringify(row)))).toEqual(
+				row,
+			);
+		expect(
+			after.every(
+				(row) =>
+					typeof row.claim_key === "string" && row.claim_key.length <= 120,
+			),
+		).toBe(true);
+		expect(
+			f.sqlite.prepare("SELECT * FROM work_events ORDER BY sequence").all(),
+		).toEqual(events);
+		expect(
+			f.sqlite.prepare("SELECT metadata FROM work_attempts").get(),
+		).toEqual({ metadata: f.metadata });
+		expect(
+			await getRepositoryCandidatePublicationEffect(f.db, f.preparation),
+		).toBe("acknowledged");
+	});
+	it("preserves both facts when legacy and canonical observations already coexist", async () => {
+		const f = fixture();
+		const canonical = await recordRepositoryCandidatePublicationObservation(
+			f.db,
+			f,
+		);
+		const legacy = await recordRepositoryCandidatePublicationObservation(f.db, {
+			...f,
+			observedBy: { ...f.observedBy, id: "another-owner" },
+		});
+		f.sqlite
+			.prepare(
+				"UPDATE work_evidence SET claim_key=?,digest=?,metadata=? WHERE id=?",
+			)
+			.run(
+				`repository_candidate_publication:${attemptId}:${f.preparation.preparationDigest}`,
+				canonical.digest,
+				JSON.stringify(canonical.metadata),
+				legacy.id,
+			);
+		const events = f.sqlite
+			.prepare("SELECT * FROM work_events ORDER BY sequence")
+			.all();
+		await recordRepositoryCandidatePublicationObservation(f.db, f);
+		const rows = f.sqlite
+			.prepare("SELECT id,claim_key FROM work_evidence")
+			.all();
+		expect(rows.map((row) => row.id).sort()).toEqual(
+			[canonical.id, legacy.id].sort(),
+		);
+		expect(
+			rows.every(
+				(row) =>
+					typeof row.claim_key === "string" && row.claim_key.length <= 120,
+			),
+		).toBe(true);
+		expect(
+			f.sqlite.prepare("SELECT * FROM work_events ORDER BY sequence").all(),
+		).toEqual(events);
+	});
+	it.each(["org", "work", "producer", "preparation"])(
+		"does not repair legacy rows outside the trusted %s identity",
+		async (field) => {
+			const f = fixture();
+			const original = await recordRepositoryCandidatePublicationObservation(
+				f.db,
+				f,
+			);
+			f.sqlite
+				.prepare("UPDATE work_evidence SET claim_key=? WHERE id=?")
+				.run(
+					`repository_candidate_publication:${attemptId}:${f.preparation.preparationDigest}`,
+					original.id,
+				);
+			if (field === "org")
+				f.sqlite
+					.prepare("UPDATE work_evidence SET org_id=? WHERE id=?")
+					.run("55555555-5555-4555-8555-555555555555", original.id);
+			if (field === "work")
+				f.sqlite
+					.prepare("UPDATE work_evidence SET work_item_id=? WHERE id=?")
+					.run("55555555-5555-4555-8555-555555555555", original.id);
+			if (field === "producer")
+				f.sqlite
+					.prepare(
+						"UPDATE work_evidence SET submitted_by_id='untrusted' WHERE id=?",
+					)
+					.run(original.id);
+			if (field === "preparation")
+				f.sqlite.prepare("UPDATE work_evidence SET metadata=? WHERE id=?").run(
+					JSON.stringify({
+						...original.metadata,
+						preparationDigest: "9".repeat(64),
+					}),
+					original.id,
+				);
+			const before = f.sqlite
+				.prepare("SELECT * FROM work_evidence WHERE id=?")
+				.get(original.id);
+			await recordRepositoryCandidatePublicationObservation(f.db, f);
+			expect(
+				f.sqlite
+					.prepare("SELECT * FROM work_evidence WHERE id=?")
+					.get(original.id),
+			).toEqual(before);
+		},
+	);
+	it("does not repair or return a legacy row when the recorded preparation changes before UPDATE", async () => {
+		const f = fixture();
+		const original = await recordRepositoryCandidatePublicationObservation(
+			f.db,
+			f,
+		);
+		const key = `repository_candidate_publication:${attemptId}:${f.preparation.preparationDigest}`;
+		f.sqlite
+			.prepare("UPDATE work_evidence SET claim_key=? WHERE id=?")
+			.run(key, original.id);
+		const facade = createD1Facade(f.sqlite),
+			prepare = facade.prepare.bind(facade);
+		let raced = false;
+		facade.prepare = (query: string) => {
+			if (!raced && query.startsWith('update "work_evidence"')) {
+				raced = true;
+				f.sqlite.prepare("UPDATE work_attempts SET metadata='{}'").run();
+			}
+			return prepare(query);
+		};
+		await expect(
+			recordRepositoryCandidatePublicationObservation(
+				createDbQueryClient(facade),
+				f,
+			),
+		).rejects.toThrow(/unavailable/);
+		expect(raced).toBe(true);
+		expect(
+			f.sqlite
+				.prepare("SELECT claim_key FROM work_evidence WHERE id=?")
+				.get(original.id),
+		).toEqual({ claim_key: key });
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM work_events").get(),
+		).toEqual({ n: 1 });
 	});
 	it("cannot append facts to a different preparation", async () => {
 		const f = fixture();

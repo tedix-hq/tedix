@@ -3,7 +3,18 @@ import type {
 	RepositoryCandidatePublicationObservation,
 } from "@tedix/api-contract/schemas/repository-candidate";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import {
+	and,
+	desc,
+	eq,
+	exists,
+	inArray,
+	isNull,
+	lt,
+	or,
+	sql,
+} from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkActorType,
@@ -300,24 +311,88 @@ export async function recordRepositoryCandidatePublicationObservation(
 		d = p.descriptor,
 		o = params.observation;
 	const { observedAt: _time, ...fact } = o;
-	const bytes = new Uint8Array(
-		await crypto.subtle.digest(
-			"SHA-256",
-			new TextEncoder().encode(
-				JSON.stringify({
-					preparationDigest: p.preparationDigest,
-					...fact,
-					observedBy: params.observedBy,
-				}),
-			),
-		),
+	const digest = await sha256Hex(
+		JSON.stringify({
+			preparationDigest: p.preparationDigest,
+			...fact,
+			observedBy: params.observedBy,
+		}),
 	);
-	const digest = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
-		"",
+	const claimDigest = await sha256Hex(
+		JSON.stringify({
+			orgId: d.organizationId,
+			workItemId: d.workItemId,
+			attemptId: d.attemptId,
+			preparationDigest: p.preparationDigest,
+		}),
 	);
 	const id = crypto.randomUUID(),
-		claimKey = `repository_candidate_publication:${d.attemptId}:${p.preparationDigest}`,
+		claimKey = `repository_candidate_publication:${claimDigest}`,
 		uri = `artifacts:${d.repositoryId}/commits/${p.commitRevision}`;
+	const recordedPreparation = and(
+		eq(workAttempts.id, d.attemptId),
+		eq(workAttempts.orgId, d.organizationId),
+		eq(workAttempts.workItemId, d.workItemId),
+		sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.preparation.preparationDigest')=${p.preparationDigest}`,
+	);
+	const recordedPreparationExists = exists(
+		db
+			.select({ id: workAttempts.id })
+			.from(workAttempts)
+			.where(recordedPreparation),
+	);
+	const [attempt] = await db
+		.select({ id: workAttempts.id })
+		.from(workAttempts)
+		.where(recordedPreparation)
+		.limit(1);
+	if (!attempt)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Publication preparation is unavailable for observation",
+		);
+	const trustedIdentity = and(
+		eq(workEvidence.orgId, d.organizationId),
+		eq(workEvidence.workItemId, d.workItemId),
+		eq(workEvidence.kind, "repository_candidate_publication"),
+		eq(workEvidence.submittedByType, "system"),
+		eq(workEvidence.submittedById, "repository-candidate-publication"),
+		sql`json_extract(${workEvidence.metadata},'$.originalAttemptId')=${d.attemptId}`,
+		sql`json_extract(${workEvidence.metadata},'$.preparationDigest')=${p.preparationDigest}`,
+	);
+	// Normalize only this producer's legacy keys; immutable facts and their events remain intact.
+	await db
+		.update(workEvidence)
+		.set({
+			claimKey: sql`${`repository_candidate_publication:${p.preparationDigest.slice(0, 32)}:`} || ${workEvidence.id}`,
+		})
+		.where(
+			and(
+				trustedIdentity,
+				eq(
+					workEvidence.claimKey,
+					`repository_candidate_publication:${d.attemptId}:${p.preparationDigest}`,
+				),
+				recordedPreparationExists,
+			),
+		);
+	const readFact = async () => {
+		const [row] = await db
+			.select()
+			.from(workEvidence)
+			.where(
+				and(
+					trustedIdentity,
+					recordedPreparationExists,
+					eq(workEvidence.uri, uri),
+					eq(workEvidence.digest, digest),
+				),
+			)
+			.limit(1);
+		return row;
+	};
+	const existing = await readFact();
+	if (existing) return existing;
 	const metadata = {
 		originalAttemptId: d.attemptId,
 		preparationDigest: p.preparationDigest,
@@ -359,14 +434,7 @@ export async function recordRepositoryCandidatePublicationObservation(
 					>`${JSON.stringify(metadata)}`.as("metadata"),
 				})
 				.from(workAttempts)
-				.where(
-					and(
-						eq(workAttempts.id, d.attemptId),
-						eq(workAttempts.orgId, d.organizationId),
-						eq(workAttempts.workItemId, d.workItemId),
-						sql`json_extract(${workAttempts.metadata},'$.repositoryCandidatePublication.preparation.preparationDigest')=${p.preparationDigest}`,
-					),
-				),
+				.where(recordedPreparation),
 		)
 		.onConflictDoNothing()
 		.returning();
@@ -386,25 +454,8 @@ export async function recordRepositoryCandidatePublicationObservation(
 			},
 		}),
 	]);
-	const [evidence] = await db
-		.select()
-		.from(workEvidence)
-		.where(
-			and(
-				eq(workEvidence.orgId, d.organizationId),
-				eq(workEvidence.workItemId, d.workItemId),
-				eq(workEvidence.claimKey, claimKey),
-				eq(workEvidence.uri, uri),
-				eq(workEvidence.digest, digest),
-			),
-		)
-		.limit(1);
-	if (
-		!evidence ||
-		evidence.kind !== "repository_candidate_publication" ||
-		evidence.submittedByType !== "system" ||
-		evidence.submittedById !== "repository-candidate-publication"
-	)
+	const evidence = await readFact();
+	if (!evidence)
 		throw new WorkFactoryError(
 			"NOT_READY",
 			"Publication preparation is unavailable for observation",
