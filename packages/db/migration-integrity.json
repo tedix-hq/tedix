@@ -1316,6 +1316,10 @@
 		{
 			"name": "20261103173247_output_revision_body_store/migration.sql",
 			"sha256": "e5c142c44be32db098ee34a1b57774d0dd354b17704b359c0aca944965fe9ae2"
+		},
+		{
+			"name": "20261104110701_filing_owner_history_index/migration.sql",
+			"sha256": "7ec61e9f4813e75d7837167c8a13f155e0ab53b34094df3cc957981d82031925"
 		}
 	]
 }
