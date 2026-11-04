@@ -106,6 +106,23 @@ const neutralPhrasePatterns = criticalActions.neutralPhrases.map(
 const credentialMetadataReadPattern =
 	/^\s*(?:[\w-]+[.:])?(?:list[ -]+api[ -]+keys|(?:list|read|get|describe)[ -]+(?:api[ -]+keys?|credentials?|access[ -]+tokens?)[ -]+metadata)(?:[ -]+only)?\s*[.!]?\s*$/i;
 
+const imperativeReadLeadPattern = new RegExp(
+	criticalActions.imperativeReads.leadPattern,
+	"i",
+);
+const imperativeReadActionPattern = new RegExp(
+	criticalActions.imperativeReads.actionPattern,
+	"i",
+);
+const imperativeCredentialMetadataPattern = new RegExp(
+	criticalActions.imperativeReads.credentialMetadataPattern,
+	"i",
+);
+const credentialValuePattern = new RegExp(
+	criticalActions.imperativeReads.credentialValuePattern,
+	"i",
+);
+
 // "do not finalize, send or book" negates every verb in the list, not only
 // the first one; a non-verb word ends the list ("never delete anything or pay").
 const negatedVerbs = criticalActions.negatedVerbs.join("|");
@@ -354,12 +371,31 @@ export function humanReservedActionClasses(content: string): string[] {
 	const credentialMetadataRead = credentialMetadataReadPattern.test(
 		actionable.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " "),
 	);
+	// Every clause must be a read. A following action cannot borrow its lead verb.
+	const clauses = imperativeReadLeadPattern.test(actionable)
+		? actionable
+				.split(/[;:!?\r\n,]|\.(?=\s|$)|\s+(?:and|or|but|then|before|after)\s+/i)
+				.filter((clause) => clause.trim())
+		: [];
+	const imperativeRead =
+		clauses.length > 0 &&
+		clauses.every((clause) => imperativeReadLeadPattern.test(clause)) &&
+		!imperativeReadActionPattern.test(normalized);
+	// These whole-clause forms describe metadata, never a file path or values.
+	const imperativeCredentialMetadataRead =
+		imperativeRead &&
+		!credentialValuePattern.test(actionable) &&
+		clauses.every((clause) => imperativeCredentialMetadataPattern.test(clause));
 	return criticalActionRules
 		.filter(
 			(rule) =>
-				(rule.pattern.test(normalized) &&
+				!(
+					(rule.id === "money" && imperativeRead) ||
+					(rule.id === "credentials" && imperativeCredentialMetadataRead)
+				) &&
+				((rule.pattern.test(normalized) &&
 					!(rule.id === "credentials" && credentialMetadataRead)) ||
-				rule.filePattern?.test(actionable),
+					rule.filePattern?.test(actionable)),
 		)
 		.map((rule) => rule.id)
 		.filter((id) => !(draftOnly && draftOnlyWaivedClasses.has(id)));
