@@ -614,6 +614,13 @@ export const billingUsageCharges = sqliteTable(
 			table.organizationId,
 			table.occurredAt,
 		),
+		// Only EUR monetary charges count toward monetary period spend; its
+		// predicate must match monetaryPeriodSpendSql's json_extract terms.
+		index("idx_billing_charge_monetary_eur")
+			.on(table.organizationId, table.occurredAt)
+			.where(
+				sql`json_extract(metadata,'$.monetaryQuote.schemaVersion')=1 AND json_extract(metadata,'$.monetaryQuote.rateSnapshot.customerCurrency')='EUR'`,
+			),
 		index("idx_billing_charge_reservation").on(table.reservationId),
 		index("idx_billing_charge_metering").on(
 			table.meteringReady,

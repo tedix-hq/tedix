@@ -1324,6 +1324,10 @@
 		{
 			"name": "20261104193015_work_events_stopped_lane_sequence/migration.sql",
 			"sha256": "8c30a1991ef71083b56d8804b5e86a74cd2cd08c5041e02458c12ab3b32ace2d"
+		},
+		{
+			"name": "20261104214345_billing_charge_monetary_eur/migration.sql",
+			"sha256": "684e003f844938b8baf9429dbb278fb8640be79144f64c243852a4151de2a583"
 		}
 	]
 }
