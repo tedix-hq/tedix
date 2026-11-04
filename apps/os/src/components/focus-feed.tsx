@@ -411,6 +411,8 @@ export function FocusFeed({
 			item: ActivityFeedItem,
 			reaction: FocusSignal,
 			extra: Record<string, string | number | boolean | null> = {},
+			/** Recorded by the page, not chosen by the person: never claim a choice failed. */
+			observed = false,
 		) => {
 			const impressionKey = `impression:${item.id}`;
 			if (reaction === "impression" && counters.current.has(impressionKey))
@@ -460,7 +462,7 @@ export function FocusFeed({
 				return true;
 			} catch {
 				if (reaction === "impression") counters.current.delete(impressionKey);
-				setStatus("Could not save your choice. Try again.");
+				if (!observed) setStatus("Could not save your choice. Try again.");
 				return false;
 			}
 		},

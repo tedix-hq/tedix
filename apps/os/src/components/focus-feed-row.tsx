@@ -32,6 +32,7 @@ export function FocusRow({
 		item: ActivityFeedItem,
 		reaction: FocusSignal,
 		extra?: Record<string, string | number | boolean | null>,
+		observed?: boolean,
 	) => Promise<boolean>;
 	budgeted: boolean;
 	session: { id: string; openedAt: number };
@@ -64,10 +65,15 @@ export function FocusRow({
 					start = Date.now();
 					if (!recorded) {
 						recorded = true;
-						void report.current(item, "impression", {
-							aboveFold: initialAbove.current,
-							budgeted: context.current.budgeted,
-						});
+						void report.current(
+							item,
+							"impression",
+							{
+								aboveFold: initialAbove.current,
+								budgeted: context.current.budgeted,
+							},
+							true,
+						);
 						const previous = context.current.events.filter(
 							(e) =>
 								e.targetId === item.id &&
@@ -80,7 +86,7 @@ export function FocusRow({
 						if (previous.length >= 1 && !opened)
 							timer = setTimeout(() => {
 								if (!engaged.current && document.visibilityState === "visible")
-									void report.current(item, "ignored_twice");
+									void report.current(item, "ignored_twice", {}, true);
 							}, ignoredAfterMs);
 					}
 				} else if (start) {
@@ -88,7 +94,7 @@ export function FocusRow({
 					start = 0;
 					clearTimeout(timer);
 					if (elapsed >= 1000)
-						void report.current(item, "dwell", { elapsedMs: elapsed });
+						void report.current(item, "dwell", { elapsedMs: elapsed }, true);
 				}
 			},
 			{ threshold: 0.5 },
@@ -98,7 +104,12 @@ export function FocusRow({
 			observer.disconnect();
 			clearTimeout(timer);
 			if (start && Date.now() - start >= 1000)
-				void report.current(item, "dwell", { elapsedMs: Date.now() - start });
+				void report.current(
+					item,
+					"dwell",
+					{ elapsedMs: Date.now() - start },
+					true,
+				);
 		};
 	}, [item.id, session.id, enabled, ignoredAfterMs]);
 	function open() {
