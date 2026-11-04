@@ -262,6 +262,26 @@ describe("native Pi provider and durable storage", () => {
 		expect(await later.rejectedTurn("failed-earlier")).toBe(failure);
 		expect((await inspect(later, "later")).requests).toHaveLength(requests);
 	});
+	it("fences a pending run ownership mismatch without inference or durable mutation", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		const receipt = await agent.turn("settled-receipt");
+		await agent.seedPendingRunMismatch("pending-owner", "foreign-owner");
+		const before = await agent.pendingMismatchSnapshot("settled-receipt");
+
+		expect(await agent.rejectedPendingRecovery("new-workflow")).toBe(
+			"Pending Pi submission lost its original run configuration",
+		);
+		expect(await agent.pendingMismatchSnapshot("settled-receipt")).toBe(before);
+
+		await agent.restorePendingRunOwner();
+		expect((await agent.turn("pending-owner")).result.assistantText).toBe(
+			"completed",
+		);
+		expect(await agent.turn("settled-receipt")).toEqual(receipt);
+		expect((await agent.turn("later-valid-turn")).result.assistantText).toBe(
+			"completed",
+		);
+	});
 	it("materializes private images through native Pi and replays the settled answer after eviction", async () => {
 		const name = crypto.randomUUID();
 		const agent = await getAgentByName(bindings.PI_FACET_MEDIA, name);

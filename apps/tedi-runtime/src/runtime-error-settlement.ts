@@ -35,6 +35,7 @@ export function runtimeErrorWorkflowResult(
 		message !== "Pending Think submission prevents Pi transcript migration" &&
 		message !==
 			"Pending Think facet receipt requires reconciliation before Pi migration" &&
+		message !== "Pending Pi submission lost its original run configuration" &&
 		!message.startsWith(MODEL_TURN_FAILED_PREFIX) &&
 		!message.startsWith("Delegation preflight failed: ") &&
 		!message.startsWith("capability tool unavailable: ") &&
