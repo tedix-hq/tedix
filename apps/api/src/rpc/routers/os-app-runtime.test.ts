@@ -14,7 +14,10 @@ import {
 	osOutputs,
 	osOutputRevisions,
 } from "@tedix/db/schema/os-workspaces";
-import { kernelConversations } from "@tedix/db/schema/cognitive-runtime";
+import {
+	kernelConversations,
+	kernelRuntimeRuns,
+} from "@tedix/db/schema/cognitive-runtime";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import {
 	externalAgentPrincipals,
@@ -56,6 +59,7 @@ async function fixture() {
 		schemaDdl(
 			osWorkspaces,
 			kernelConversations,
+			kernelRuntimeRuns,
 			auditEvents,
 			externalAgentPrincipals,
 			externalAgentSessions,
@@ -2119,5 +2123,87 @@ describe("owner-host app collaboration provenance", () => {
 		expect(actors.map(({ kind }) => kind)).toEqual(["external_agent", "human"]);
 		expect(actors[0]!.key).not.toBe(actors[1]!.key);
 		expect(JSON.stringify(actors)).not.toContain(sessionId);
+	});
+});
+
+describe("app edits from a delegated tedi", () => {
+	const tediId = "55555555-5555-4555-8555-555555555555";
+	const homeRunId = "66666666-6666-4666-8666-666666666666";
+	const childRunId = `${tediId}:mcp:${homeRunId}_workstation_${tediId}`;
+	async function delegated(conversationWorkspace: string) {
+		const f = await fixture();
+		await f.db.insert(kernelConversations).values({
+			id: "org-1:home:os:fix-app",
+			organizationId: "org-1",
+			conversationId: "home:os:fix-app",
+			workspaceId: conversationWorkspace,
+			lastMessageAt: new Date().toISOString(),
+		});
+		await f.db.insert(kernelRuntimeRuns).values({
+			id: homeRunId,
+			organizationId: "org-1",
+			conversationId: "home:os:fix-app",
+			childRunId,
+			delegatedTediId: tediId,
+		} as typeof kernelRuntimeRuns.$inferInsert);
+		const tedi = (runId?: string) =>
+			createRouterClient(f.router, {
+				context: {
+					...f.context,
+					authType: "service-binding",
+					user: undefined,
+					tediId,
+					tediScopes: ["mcp:apps.read", "mcp:apps.write", "apps:write"],
+					headers: new Headers({
+						"X-Service-Binding": "true",
+						...(runId ? { "X-Tedix-Kernel-Run-Id": runId } : {}),
+					}),
+				} as typeof f.context,
+			});
+		const input = {
+			...scope,
+			expectedRevisionId: revisionId,
+			edits: [
+				{
+					path: "server.js",
+					before: "export class App {}",
+					after: "export class App { loading() { return false; } }",
+				},
+			],
+		};
+		return { ...f, tedi, input };
+	}
+
+	it("opens a reviewable draft attributed to the Home chat that delegated it", async () => {
+		const f = await delegated(workspaceId);
+		const { proposal, previewUrl } = await f
+			.tedi(childRunId)
+			.proposeEdit(f.input);
+		expect(proposal).toMatchObject({
+			status: "open",
+			sourceKind: "chat",
+			sourceId: "home:os:fix-app",
+			documentId: gadgetId,
+		});
+		expect(previewUrl).toContain("view=drafts");
+		const [revision] = await f.db
+			.select()
+			.from(osGadgets)
+			.where(eq(osGadgets.id, gadgetId));
+		expect(revision?.currentRevisionId).toBe(revisionId);
+	});
+
+	it("refuses a tedi turn from another workspace or with no attested Home turn", async () => {
+		const elsewhere = await delegated(previewId);
+		await expect(
+			elsewhere.tedi(childRunId).proposeEdit(elsewhere.input),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		const f = await delegated(workspaceId);
+		await expect(f.tedi().proposeEdit(f.input)).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(
+			f.tedi("not-a-run").proposeEdit(f.input),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 });

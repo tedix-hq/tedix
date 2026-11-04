@@ -82,6 +82,8 @@ import {
 	requireWorkspace,
 	resolveCreator,
 	resolveCollaborationSource,
+	resolveProducer,
+	callerTurn,
 	mapGadgetRevision,
 } from "./os-workspaces-shared";
 
@@ -436,6 +438,16 @@ export function createOsAppRuntimeRouter() {
 					"App edits require a Home conversation linked to this workspace",
 				);
 			source = { sourceKind: "chat", sourceId: conversation.conversationId };
+		} else if (context.tediId && !resolveProducer(context).skillRunId) {
+			// A tedi proposes only from a Home turn (or one Home delegated to it)
+			// in this app's own workspace; the draft still waits for review.
+			const turn = await callerTurn(context);
+			if (turn?.workspace.id !== scope.workspaceId)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"A tedi proposes app edits only from a Home chat in this app's workspace",
+				);
+			source = { sourceKind: "chat", sourceId: turn.conversationId };
 		} else {
 			source = resolveCollaborationSource(context);
 		}

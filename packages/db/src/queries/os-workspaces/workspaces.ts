@@ -457,12 +457,15 @@ export async function deleteOsWorkspace(
  * holds the kernel run, or of the run that delegated it as a child run. Null
  * when the turn is not in a Workspace conversation.
  */
-export async function findOsWorkspaceIdForKernelRun(
+export async function findOsWorkspaceForKernelRun(
 	db: DbQueryClient,
 	params: { organizationId: string; runId: string },
-): Promise<string | null> {
+): Promise<{ workspaceId: string; conversationId: string } | null> {
 	const [row] = await db
-		.select({ workspaceId: kernelConversations.workspaceId })
+		.select({
+			workspaceId: kernelConversations.workspaceId,
+			conversationId: kernelConversations.conversationId,
+		})
 		.from(kernelRuntimeRuns)
 		.innerJoin(
 			kernelConversations,
@@ -489,5 +492,7 @@ export async function findOsWorkspaceIdForKernelRun(
 			),
 		)
 		.limit(1);
-	return row?.workspaceId ?? null;
+	return row?.workspaceId
+		? { workspaceId: row.workspaceId, conversationId: row.conversationId }
+		: null;
 }

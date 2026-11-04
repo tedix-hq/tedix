@@ -2,6 +2,13 @@ import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-refe
 import { controlHomeRunSteering } from "./run-steering";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
 import { resolveHomeAttachments } from "./attachment-storage";
+import {
+	type WorkspaceFileSource,
+	workspaceFileAttachments,
+} from "./workspace-file-attachments";
+import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { CHAT_ATTACHMENT_MAX_COUNT } from "@tedix/api-contract/schemas/chat-attachments";
 import { listWorkItemsPage } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemComments } from "@tedix/db/queries/work-items/comments";
 import { resolveDelegationWorkContext } from "../kernel/delegation-work-context";
@@ -204,6 +211,7 @@ export async function prepareDelegatedHomeAttachmentHandoff(input: {
 	homeRunId?: string;
 	content: string;
 	attachments?: HomeMessage["attachments"];
+	workspaceFiles?: WorkspaceFileSource;
 }): Promise<{
 	content: string;
 	attachments: HomeMessage["attachments"];
@@ -259,12 +267,25 @@ export async function prepareDelegatedHomeAttachmentHandoff(input: {
 		input.organizationId,
 		attachments,
 	);
-	const forwarded = resolved?.filter(
-		(attachment) => attachment.type !== "file",
-	);
+	const workspaceId = nonNullRecord(
+		nonNullRecord(parent?.runtimeMetadata)?.workspaceContext,
+	)?.workspaceId;
+	const linked =
+		input.workspaceFiles && typeof workspaceId === "string"
+			? await workspaceFileAttachments({
+					source: input.workspaceFiles,
+					organizationId: input.organizationId,
+					workspaceId,
+					content: input.content,
+					limit: CHAT_ATTACHMENT_MAX_COUNT - (resolved?.length ?? 0),
+				})
+			: { attachments: [], notes: [] };
+	const all = [...(resolved ?? []), ...linked.attachments];
+	const forwarded = all.filter((attachment) => attachment.type !== "file");
+	const content = [input.content, ...linked.notes].join("\n");
 	return {
-		content: homeAttachmentContent(input.content, resolved).text,
-		attachments: forwarded?.length ? forwarded : undefined,
+		content: homeAttachmentContent(content, all).text,
+		attachments: forwarded.length ? forwarded : undefined,
 		...(sourceRunId ? { sourceRunId } : {}),
 	};
 }
@@ -323,6 +344,11 @@ const defaultKernelDelegateRunner: KernelDelegateRunner = async ({
 		homeRunId,
 		content,
 		attachments,
+		workspaceFiles: {
+			bucket: context.env.SKILL_ARTIFACTS,
+			getResource: (params) =>
+				getOsWorkspaceResource(createDbQueryClient(context.env.DB), params),
+		},
 	});
 	const client = createRouterClient(cognitiveRuntimeContractRouter, {
 		context,

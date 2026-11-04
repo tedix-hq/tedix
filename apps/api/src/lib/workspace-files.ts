@@ -26,7 +26,7 @@ export function workspaceFileKey(
 	return `workspace-files/${encodeURIComponent(org)}/${workspace}/${resource}`;
 }
 export async function readWorkspaceFileManifest(
-	env: CloudflareEnv,
+	env: Pick<CloudflareEnv, "SKILL_ARTIFACTS">,
 	org: string,
 	workspace: string,
 	resource: string,
