@@ -2214,22 +2214,29 @@ export async function listLastRelatedDecisions(
 			)
 			.orderBy(desc(prior.createdAt))
 			.limit(RELATED_DECISION_HISTORY);
-		if (requests.length === 0) return [];
-		const answers = await db
-			.select({
-				answerId: workInteractionResponses.id,
-				interactionId: workInteractionResponses.interactionId,
-				body: workInteractionResponses.body,
-				decidedAt: workInteractionResponses.respondedAt,
-			})
-			.from(workInteractionResponses)
-			.where(
-				and(
-					eq(workInteractionResponses.orgId, orgId),
-					eq(workInteractionResponses.resolvesRequest, true),
-					sql`${workInteractionResponses.interactionId} IN (SELECT value FROM json_each(${JSON.stringify(requests.map((row) => row.id))}))`,
-				),
+		const answers = [];
+		for (const ids of chunkForBoundParams(
+			requests.map((row) => row.id),
+			90,
+		)) {
+			answers.push(
+				...(await db
+					.select({
+						answerId: workInteractionResponses.id,
+						interactionId: workInteractionResponses.interactionId,
+						body: workInteractionResponses.body,
+						decidedAt: workInteractionResponses.respondedAt,
+					})
+					.from(workInteractionResponses)
+					.where(
+						and(
+							eq(workInteractionResponses.orgId, orgId),
+							eq(workInteractionResponses.resolvesRequest, true),
+							inArray(workInteractionResponses.interactionId, ids),
+						),
+					)),
 			);
+		}
 		const byRequest = new Map(requests.map((row) => [row.id, row]));
 		return answers
 			.flatMap((row): Answered[] => {
