@@ -645,7 +645,7 @@ describe("app connection read observations and own-access checks", () => {
 			),
 		).rejects.toThrow(/Your own notion account cannot open this resource/);
 		expect(fetchMock).toHaveBeenCalledWith(
-			`https://api.notion.com/v1/blocks/${NOTION_PAGE}`,
+			`https://api.notion.com/v1/blocks/${NOTION_PAGE.replaceAll("-", "")}`,
 			expect.objectContaining({
 				headers: expect.objectContaining({
 					Authorization: "Bearer member-token",
@@ -675,6 +675,22 @@ describe("app connection read observations and own-access checks", () => {
 		});
 		expect(policy.allowed).toBe(false);
 		expect(policy.reasons).toContain("own_access:denied");
+	});
+
+	it("fails closed before HTTP when the Notion profile rejects the page id", async () => {
+		vi.setSystemTime(ENFORCED);
+		linkOwnNotion();
+		const partialUuid = NOTION_PAGE.replace("-", "");
+		await expect(
+			callWorkspaceAppConnection(
+				collaborator.context,
+				collaborator.session,
+				{ ...notionPage, providerResourceId: partialUuid },
+				{ ...notionInput, arguments: { page_id: partialUuid } },
+			),
+		).rejects.toThrow(/could not be confirmed/);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(observation().input.ownAccess).toBe("check_failed");
 	});
 
 	it("fails closed when the member has no linked Notion account", async () => {

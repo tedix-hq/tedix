@@ -1,4 +1,5 @@
 import type { ConnectionAccessCheck } from "@tedix/api-contract/schemas/connections";
+import { resourceCapabilityProfile } from "@tedix/api-contract/utils/provider-capability-profiles";
 import type { OrganizationMetadata } from "@tedix/db/schema/organizations";
 import { listConnectionInstances } from "@tedix/db/queries/connection-instances";
 import { getConnectionProviderByDescopeAppId } from "@tedix/db/queries/connection-providers";
@@ -84,15 +85,14 @@ type AccessProbe = (
 	fetchFn?: typeof fetch,
 ) => Promise<boolean>;
 
-const NOTION_ID =
-	/^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/i;
-
 /** Notion: pages and databases are both blocks; 403/404 means not shared with this person. */
 const notionProbe: AccessProbe = async (token, resource, fetchFn) => {
-	if (!NOTION_ID.test(resource.providerResourceId))
-		throw new Error("Unrecognised Notion resource id");
+	const resourceId = resourceCapabilityProfile("notion_page")?.normalize(
+		resource.providerResourceId,
+	);
+	if (!resourceId) throw new Error("Unrecognised Notion resource id");
 	const response = await guardedFetch(
-		`https://api.notion.com/v1/blocks/${resource.providerResourceId}`,
+		`https://api.notion.com/v1/blocks/${resourceId}`,
 		{
 			headers: {
 				Authorization: `Bearer ${token}`,
