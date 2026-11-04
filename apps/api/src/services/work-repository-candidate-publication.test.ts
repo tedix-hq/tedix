@@ -522,14 +522,15 @@ describe("publication deadlines and historical provenance", () => {
 		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
 		try {
 			let postPending = false;
+			const postStarted = Promise.withResolvers<void>();
 			f.io.send = async (p) => {
 				await p.beforePost();
 				postPending = true;
+				postStarted.resolve();
 				return new Promise(() => {});
 			};
 			const pending = applyRepositoryCandidatePublication(f.io, f.input);
-			for (let i = 0; i < 100 && !postPending; i++)
-				await new Promise<void>((resolve) => setImmediate(resolve));
+			await postStarted.promise;
 			expect(postPending).toBe(true);
 			expect(f.repo.createToken).toHaveBeenCalledTimes(1);
 			await vi.advanceTimersByTimeAsync(25_001);
@@ -545,6 +546,7 @@ describe("publication deadlines and historical provenance", () => {
 	});
 	it("revokes a late mint before disposing its retained capability and never sends", async () => {
 		const f = await fixture();
+		const mintStarted = Promise.withResolvers<void>();
 		let resolve!: (t: {
 			id: string;
 			plaintext: string;
@@ -555,17 +557,13 @@ describe("publication deadlines and historical provenance", () => {
 			() =>
 				new Promise((r) => {
 					resolve = r;
+					mintStarted.resolve();
 				}),
 		);
 		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
 		try {
 			const pending = applyRepositoryCandidatePublication(f.io, f.input);
-			for (
-				let i = 0;
-				i < 100 && f.repo.createToken.mock.calls.length === 0;
-				i++
-			)
-				await new Promise<void>((r) => setImmediate(r));
+			await mintStarted.promise;
 			expect(f.repo.createToken).toHaveBeenCalledTimes(1);
 			await vi.advanceTimersByTimeAsync(25_001);
 			const result = await pending;
@@ -596,13 +594,14 @@ describe("publication deadlines and historical provenance", () => {
 		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
 		let observed = false;
 		try {
+			const observationStarted = Promise.withResolvers<void>();
 			f.io.observe = async () => {
 				observed = true;
+				observationStarted.resolve();
 				return new Promise(() => {});
 			};
 			const pending = applyRepositoryCandidatePublication(f.io, f.input);
-			for (let i = 0; i < 100 && !observed; i++)
-				await new Promise<void>((r) => setImmediate(r));
+			await observationStarted.promise;
 			expect(observed).toBe(true);
 			await vi.advanceTimersByTimeAsync(30_001);
 			const r = await pending;

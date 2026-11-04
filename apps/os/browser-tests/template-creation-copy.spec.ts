@@ -24,6 +24,11 @@ try {
 							theme,
 						);
 						const page = await context.newPage();
+						// Quick Chat mounts with the shell; its branding must stay local.
+						await page.route("**/widget/branding/*", async (route) => {
+							assert.equal(route.request().method(), "GET");
+							await route.fulfill({ json: { branding: {} } });
+						});
 						const errors: string[] = [];
 						page.on("pageerror", (error) => errors.push(error.message));
 						let release = () => {};
