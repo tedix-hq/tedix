@@ -30,6 +30,7 @@ import {
 } from "./credits";
 import { effectiveAllowOverageSql } from "./overage";
 import { reservationUsedTokensSql } from "./usage-tokens";
+import { liveAtSql, sameUtcDaySql } from "./usage-window";
 import {
 	estimateMonetaryInference,
 	monetaryInferenceConfig,
@@ -91,7 +92,7 @@ async function aiGatewayLimitExceeded(
 					FROM billing_usage_reservations
 					WHERE organization_id = account.organization_id
 						AND status = 'reserved'
-						AND datetime(expires_at) > datetime(${input.now})
+						AND ${liveAtSql("expires_at", input.now)}
 						AND period_start = account.period_start
 						AND period_end = account.period_end
 				), 0) AS reserved_tokens,
@@ -99,9 +100,9 @@ async function aiGatewayLimitExceeded(
 					SELECT SUM(${reservationUsedTokensSql("reservation")})
 					FROM billing_usage_reservations AS reservation
 					WHERE reservation.organization_id = account.organization_id
+						AND ${sameUtcDaySql("reservation.created_at", input.now)}
 						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.now}))
-						AND substr(reservation.created_at, 1, 10) = substr(${input.now}, 1, 10)
+						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
 				), 0) AS organization_day_tokens,
 				COALESCE((
 					SELECT SUM(spend_micros)
@@ -109,14 +110,14 @@ async function aiGatewayLimitExceeded(
 						SELECT estimated_charge_micros AS spend_micros
 						FROM billing_usage_reservations
 						WHERE organization_id = account.organization_id
+							AND ${sameUtcDaySql("created_at", input.now)}
 							AND status = 'reserved'
-							AND datetime(expires_at) > datetime(${input.now})
-							AND substr(created_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${liveAtSql("expires_at", input.now)}
 						UNION ALL
 						SELECT provider_cost_micros AS spend_micros
 						FROM billing_usage_charges
 						WHERE organization_id = account.organization_id
-							AND substr(occurred_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${sameUtcDaySql("occurred_at", input.now)}
 					)
 				), 0) AS organization_day_spend_micros,
 				COALESCE((
@@ -125,7 +126,7 @@ async function aiGatewayLimitExceeded(
 					WHERE organization_id = account.organization_id
 						AND budget_day = substr(${input.now}, 1, 10)
 						AND stripe_environment = ${input.stripeEnvironment}
-						AND datetime(expires_at) > datetime(${input.now})
+						AND ${liveAtSql("expires_at", input.now)}
 				), 0) AS organization_day_capacity_tokens,
 				COALESCE((
 					SELECT SUM(spend_amount_micros)
@@ -133,16 +134,16 @@ async function aiGatewayLimitExceeded(
 					WHERE organization_id = account.organization_id
 						AND budget_day = substr(${input.now}, 1, 10)
 						AND stripe_environment = ${input.stripeEnvironment}
-						AND datetime(expires_at) > datetime(${input.now})
+						AND ${liveAtSql("expires_at", input.now)}
 				), 0) AS organization_day_capacity_spend_micros,
 				COALESCE((
 					SELECT SUM(${reservationUsedTokensSql("reservation")})
 					FROM billing_usage_reservations AS reservation
 					WHERE reservation.organization_id = account.organization_id
 						AND reservation.tedi_id = ${input.tediId ?? null}
+						AND ${sameUtcDaySql("reservation.created_at", input.now)}
 						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.now}))
-						AND substr(reservation.created_at, 1, 10) = substr(${input.now}, 1, 10)
+						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
 				), 0) AS tedi_day_tokens,
 				COALESCE((
 					SELECT SUM(spend_micros)
@@ -151,15 +152,15 @@ async function aiGatewayLimitExceeded(
 						FROM billing_usage_reservations
 						WHERE organization_id = account.organization_id
 							AND tedi_id = ${input.tediId ?? null}
+							AND ${sameUtcDaySql("created_at", input.now)}
 							AND status = 'reserved'
-							AND datetime(expires_at) > datetime(${input.now})
-							AND substr(created_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${liveAtSql("expires_at", input.now)}
 						UNION ALL
 						SELECT provider_cost_micros AS spend_micros
 						FROM billing_usage_charges
 						WHERE organization_id = account.organization_id
 							AND tedi_id = ${input.tediId ?? null}
-							AND substr(occurred_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${sameUtcDaySql("occurred_at", input.now)}
 					)
 				), 0) AS tedi_day_spend_micros
 			FROM billing_accounts AS account
@@ -538,7 +539,7 @@ export async function reserveBillingUsage(
 					FROM billing_usage_reservations AS reservation
 					WHERE reservation.organization_id = account.organization_id
 						AND reservation.status = 'reserved'
-						AND datetime(reservation.expires_at) > datetime(${input.now})
+						AND ${liveAtSql("reservation.expires_at", input.now)}
 						AND reservation.period_start = account.period_start
 						AND reservation.period_end = account.period_end
 				), 0) AS reserved_tokens,
@@ -547,7 +548,7 @@ export async function reserveBillingUsage(
 					FROM billing_usage_reservations AS reservation
 					WHERE reservation.organization_id = account.organization_id
 						AND reservation.status = 'reserved'
-						AND datetime(reservation.expires_at) > datetime(${input.now})
+						AND ${liveAtSql("reservation.expires_at", input.now)}
 						AND reservation.period_start = account.period_start
 						AND reservation.period_end = account.period_end
 				), 0) AS reserved_charge_micros
@@ -555,9 +556,9 @@ export async function reserveBillingUsage(
 					SELECT SUM(${reservationUsedTokensSql("reservation")})
 					FROM billing_usage_reservations AS reservation
 					WHERE reservation.organization_id = account.organization_id
+						AND ${sameUtcDaySql("reservation.created_at", input.now)}
 						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.now}))
-						AND substr(reservation.created_at, 1, 10) = substr(${input.now}, 1, 10)
+						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
 				), 0) AS organization_day_tokens
 				, COALESCE((
 					SELECT SUM(spend_micros)
@@ -565,14 +566,14 @@ export async function reserveBillingUsage(
 						SELECT reservation.estimated_charge_micros AS spend_micros
 						FROM billing_usage_reservations AS reservation
 						WHERE reservation.organization_id = account.organization_id
+							AND ${sameUtcDaySql("reservation.created_at", input.now)}
 							AND reservation.status = 'reserved'
-							AND datetime(reservation.expires_at) > datetime(${input.now})
-							AND substr(reservation.created_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${liveAtSql("reservation.expires_at", input.now)}
 						UNION ALL
 						SELECT charge.provider_cost_micros AS spend_micros
 						FROM billing_usage_charges AS charge
 						WHERE charge.organization_id = account.organization_id
-							AND substr(charge.occurred_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${sameUtcDaySql("charge.occurred_at", input.now)}
 					)
 				), 0) AS organization_day_spend_micros
 				, COALESCE((
@@ -581,7 +582,7 @@ export async function reserveBillingUsage(
 					WHERE allocation_row.organization_id = account.organization_id
 						AND allocation_row.budget_day = substr(${input.now}, 1, 10)
 						AND allocation_row.stripe_environment = ${input.stripeEnvironment ?? "live"}
-						AND datetime(allocation_row.expires_at) > datetime(${input.now})
+						AND ${liveAtSql("allocation_row.expires_at", input.now)}
 				), 0) AS organization_day_capacity_tokens
 				, COALESCE((
 					SELECT SUM(allocation_row.spend_amount_micros)
@@ -589,16 +590,16 @@ export async function reserveBillingUsage(
 					WHERE allocation_row.organization_id = account.organization_id
 						AND allocation_row.budget_day = substr(${input.now}, 1, 10)
 						AND allocation_row.stripe_environment = ${input.stripeEnvironment ?? "live"}
-						AND datetime(allocation_row.expires_at) > datetime(${input.now})
+						AND ${liveAtSql("allocation_row.expires_at", input.now)}
 				), 0) AS organization_day_capacity_spend_micros
 				, COALESCE((
 					SELECT SUM(${reservationUsedTokensSql("reservation")})
 					FROM billing_usage_reservations AS reservation
 					WHERE reservation.organization_id = account.organization_id
 						AND reservation.tedi_id = ${input.tediId ?? null}
+						AND ${sameUtcDaySql("reservation.created_at", input.now)}
 						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.now}))
-						AND substr(reservation.created_at, 1, 10) = substr(${input.now}, 1, 10)
+						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
 				), 0) AS tedi_day_tokens
 				, COALESCE((
 					SELECT SUM(spend_micros)
@@ -607,15 +608,15 @@ export async function reserveBillingUsage(
 						FROM billing_usage_reservations
 						WHERE organization_id = account.organization_id
 							AND tedi_id = ${input.tediId ?? null}
+							AND ${sameUtcDaySql("created_at", input.now)}
 							AND status = 'reserved'
-							AND datetime(expires_at) > datetime(${input.now})
-							AND substr(created_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${liveAtSql("expires_at", input.now)}
 						UNION ALL
 						SELECT provider_cost_micros AS spend_micros
 						FROM billing_usage_charges
 						WHERE organization_id = account.organization_id
 							AND tedi_id = ${input.tediId ?? null}
-							AND substr(occurred_at, 1, 10) = substr(${input.now}, 1, 10)
+							AND ${sameUtcDaySql("occurred_at", input.now)}
 					)
 				), 0) AS tedi_day_spend_micros
 			FROM billing_accounts AS account

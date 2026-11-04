@@ -1,0 +1,1 @@
+CREATE INDEX `idx_billing_reservation_org_created` ON `billing_usage_reservations` (`organization_id`,`created_at`);
