@@ -108,6 +108,22 @@ describe("authenticated output exports", () => {
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(mocks.validate).not.toHaveBeenCalled();
 	});
+	it("serves a per-tab CSV filename from the same authenticated route", async () => {
+		const response = await worker.fetch(
+			new Request("http://api/os-exports/output-1/rev-2-tab-3.csv", {
+				headers: { Authorization: "Bearer tedix-local-demo" },
+			}),
+			env as unknown as CloudflareEnv,
+			{} as ExecutionContext,
+		);
+		expect(response.status).toBe(200);
+		expect(mocks.object).toHaveBeenCalledWith(
+			"os-exports/local-org/output-1/rev-2-tab-3.csv",
+		);
+		expect(response.headers.get("Content-Disposition")).toBe(
+			'attachment; filename="rev-2-tab-3.csv"',
+		);
+	});
 	it("denies retained export bytes after source access is revoked", async () => {
 		mocks.authorize.mockResolvedValue(false);
 		expect((await request()).status).toBe(403);

@@ -853,6 +853,7 @@ export function CanvasDocPanel({
 					<OutputExportButtons
 						outputId={doc.id}
 						kind={outputDetail.data.output.kind}
+						content={outputDetail.data.currentRevision.content}
 						compact
 					/>
 				)}

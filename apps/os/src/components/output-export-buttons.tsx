@@ -3,6 +3,7 @@ import { DotsThree, DownloadSimple } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 import {
 	type OsOutputExportFormat,
+	type OsOutputContent,
 	type OsOutputKind,
 	osOutputExportFormatsForKind,
 } from "@tedix/api-contract/schemas/os-workspaces";
@@ -29,9 +30,12 @@ const FORMAT_LABELS: Partial<Record<OsOutputExportFormat, string>> = {
 	csv: "CSV (all sheets)",
 };
 
+type ExportRequest = { format: OsOutputExportFormat; sheetId?: string };
+
 export function OutputExportButtons({
 	outputId,
 	kind,
+	content,
 	compact = false,
 	phoneOverflow = false,
 	phoneActions,
@@ -43,13 +47,18 @@ export function OutputExportButtons({
 	 * this component never resolves it a second time.
 	 */
 	kind: OsOutputKind;
+	content?: OsOutputContent;
 	compact?: boolean;
 	phoneOverflow?: boolean;
 	phoneActions?: ReactNode;
 }) {
 	const exportOutput = useMutation({
-		mutationFn: (format: OsOutputExportFormat) =>
-			osApi.osWorkspaces.outputs.export({ outputId, format }),
+		mutationFn: ({ format, sheetId }: ExportRequest) =>
+			osApi.osWorkspaces.outputs.export({
+				outputId,
+				format,
+				...(sheetId ? { sheetId } : {}),
+			}),
 		onSuccess: (result) => {
 			const exportUrl = new URL(result.url);
 			// Keep downloads on the same authenticated API proxy as the export call.
@@ -59,8 +68,12 @@ export function OutputExportButtons({
 			download.click();
 		},
 	});
-	const activeFormat = exportOutput.isPending ? exportOutput.variables : null;
+	const activeFormat = exportOutput.isPending
+		? exportOutput.variables?.format
+		: null;
 	const formats: OsOutputExportFormat[] = osOutputExportFormatsForKind(kind);
+	const sheets =
+		content?.kind === "sheet" ? content.workbook?.sheets : undefined;
 	return (
 		<div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
 			<DropdownMenu>
@@ -102,11 +115,27 @@ export function OutputExportButtons({
 						<DropdownMenuItem
 							key={format}
 							disabled={exportOutput.isPending}
-							onClick={() => exportOutput.mutate(format)}
+							onClick={() => exportOutput.mutate({ format })}
 						>
 							{FORMAT_LABELS[format] ?? format.toUpperCase()}
 						</DropdownMenuItem>
 					))}
+					{sheets && sheets.length > 1
+						? sheets.map((sheet) => (
+								<DropdownMenuItem
+									key={sheet.id}
+									disabled={exportOutput.isPending}
+									onClick={() =>
+										exportOutput.mutate({
+											format: "csv",
+											sheetId: sheet.id,
+										})
+									}
+								>
+									CSV ({sheet.name})
+								</DropdownMenuItem>
+							))
+						: null}
 				</DropdownMenuContent>
 			</DropdownMenu>
 			{activeFormat ? (

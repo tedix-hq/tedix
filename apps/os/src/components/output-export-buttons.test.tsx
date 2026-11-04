@@ -10,7 +10,10 @@ vi.mock("@/lib/api", () => ({
 	osApi: { osWorkspaces: { outputs: exportsApi } },
 }));
 
-import type { OsOutputKind } from "@tedix/api-contract/schemas/os-workspaces";
+import type {
+	OsOutputContent,
+	OsOutputKind,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { OutputExportButtons } from "./output-export-buttons";
 
 (
@@ -22,6 +25,7 @@ const cleanups: Array<() => void> = [];
 function renderButtons(
 	kind: OsOutputKind = "document",
 	compact = true,
+	content?: OsOutputContent,
 ): HTMLElement {
 	const client = new QueryClient({
 		defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
@@ -35,6 +39,7 @@ function renderButtons(
 				<OutputExportButtons
 					outputId="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 					kind={kind}
+					content={content}
 					compact={compact}
 				/>
 			</QueryClientProvider>,
@@ -202,5 +207,36 @@ describe("OutputExportButtons", () => {
 			"Try again",
 		);
 		expect(exportsApi.get).not.toHaveBeenCalled();
+	});
+	it("exports an individual workbook tab from the existing menu", async () => {
+		vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+		exportsApi.export.mockResolvedValue({
+			url: "https://api.example.test/os-exports/example/rev-2-tab-2.csv",
+		});
+		const container = renderButtons("sheet", true, {
+			kind: "sheet",
+			columns: ["Value"],
+			rows: [],
+			workbook: {
+				activeSheetId: "summary",
+				sheets: ["summary", "detail"].map((id) => ({
+					id,
+					name: id === "summary" ? "Summary" : "Detail",
+					columns: [{ id: "value", label: "Value", width: 120 }],
+					rows: [],
+					frozenRows: 0,
+					frozenColumns: 0,
+				})),
+			},
+		});
+		await openMenu(container);
+		expect(menuItem("CSV (all sheets)")).toBeTruthy();
+		act(() => menuItem("CSV (Detail)").click());
+		await flush();
+		expect(exportsApi.export).toHaveBeenCalledWith({
+			outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+			format: "csv",
+			sheetId: "detail",
+		});
 	});
 });

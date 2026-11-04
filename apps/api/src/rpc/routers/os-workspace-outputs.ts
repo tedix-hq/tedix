@@ -1025,6 +1025,24 @@ const outputsExport = authorOs.outputs.export.handler(
 		}
 		const revisionRow = await requireCurrentOutputRevision(context, output);
 		const revision = mapOsOutputRevisionRow(revisionRow);
+		let selectedSheetIndex: number | undefined;
+		if (input.sheetId) {
+			if (input.format !== "csv") {
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"sheetId is valid only for CSV exports",
+				);
+			}
+			selectedSheetIndex =
+				revision.content.kind === "sheet"
+					? revision.content.workbook?.sheets.findIndex(
+							(sheet) => sheet.id === input.sheetId,
+						)
+					: undefined;
+			if (selectedSheetIndex === undefined || selectedSheetIndex < 0) {
+				throw createError(ErrorCodes.BAD_REQUEST, "Sheet not found");
+			}
+		}
 		let organization: PresentationAppearance = {};
 		if (output.kind === "presentation") {
 			const [profile, appearance] = await Promise.all([
@@ -1063,6 +1081,7 @@ const outputsExport = authorOs.outputs.export.handler(
 			const { buildOsSheetCsv } = await import("../../lib/os-output-csv");
 			({ bytes, extension, contentType } = await buildOsSheetCsv(
 				revision.content,
+				input.sheetId,
 			));
 		} else if (
 			(input.format === "markdown" || input.format === "html") &&
@@ -1103,7 +1122,10 @@ const outputsExport = authorOs.outputs.export.handler(
 				"Export format does not match stored content",
 			);
 		}
-		const key = `os-exports/${output.organizationId}/${output.id}/rev-${revision.revision}.${extension}`;
+		const tabSuffix =
+			selectedSheetIndex !== undefined ? `-tab-${selectedSheetIndex + 1}` : "";
+		const file = `rev-${revision.revision}${tabSuffix}.${extension}`;
+		const key = `os-exports/${output.organizationId}/${output.id}/${file}`;
 		await context.env.R2_BUCKET.put(key, bytes, {
 			httpMetadata: { contentType },
 			customMetadata: {
@@ -1122,7 +1144,7 @@ const outputsExport = authorOs.outputs.export.handler(
 			// service-binding or OS-proxy call arrives as `https://api/...`,
 			// which no browser can open.
 			url: new URL(
-				`/os-exports/${output.id}/rev-${revision.revision}.${extension}`,
+				`/os-exports/${output.id}/${file}`,
 				context.env.API_URL,
 			).toString(),
 		};

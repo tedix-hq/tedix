@@ -821,6 +821,15 @@ Output's content. Connection calls support reviewed resource-bound reads;
 provider permission and approval rules still apply. No network or ambient
 Cloudflare bindings are inherited. Do not retain a capability after its call.
 
+Sheet range conflicts deliberately use the Output revision, not per-cell
+versions. Two writers based on the same revision can therefore conflict even
+when their rectangles do not overlap. Per-cell detection would let more
+disjoint writes land, but it would also require version metadata for every
+cell, rules for structural changes and overlapping ranges, and consistent
+behavior across editors and tools. That complexity is not justified for the
+current bounded sheets. On `CONFLICT`, read the latest revision, check that the
+target cells still have the expected values, and retry the range once.
+
 ### Run app methods after an interaction, schedule, webhook or skill result
 
 An app method can also run without anyone clicking. List the triggers in

@@ -1512,11 +1512,17 @@ export const osWorkspacesContract = oc
 					summary:
 						"Export a Tedix OS output as PDF, PNG, Office, Markdown, HTML or CSV",
 					description:
-						"pdf and png render the output's current revision through Cloudflare Browser Rendering, waiting for images and fonts. Public HTTPS PNG, JPEG, GIF and WebP images are fetched server-side with SSRF and redirect guards, a 10 MB per-image cap and a 10-second timeout, then inlined. Private networks and internal services are blocked; the public tedix.dev website is allowed. Up to six declared font families load from Google Fonts (letters, digits and spaces, at most 40 characters per family); system and generic faces use browser fonts. Unavailable weights retry without weights. Unsafe, oversized or unavailable images fail the export. xlsx, docx and pptx are written directly from the content model. PPTX embeds PNG and JPEG; SVG elements are omitted with an export-notes.txt entry. markdown (.md) and html export documents from stored richText, falling back to semantic blocks. csv exports a sheet as .csv, or a workbook as a ZIP containing one CSV per sheet with cached values and column labels. Text, HTML, CSV and ZIP downloads are attachments. Bytes are stored in R2. The returned URL is API-only: download with an Authorization Bearer token for the selected organization; an OS browser login alone does not authorize it. For a browser download use the OS UI Export menu. Fails BAD_REQUEST without Browser Rendering or for a format incompatible with the output kind; fails if allowed resources cannot load within the bounded render wait.",
+						"pdf and png render the output's current revision through Cloudflare Browser Rendering, waiting for images and fonts. Public HTTPS PNG, JPEG, GIF and WebP images are fetched server-side with SSRF and redirect guards, a 10 MB per-image cap and a 10-second timeout, then inlined. Private networks and internal services are blocked; the public tedix.dev website is allowed. Up to six declared font families load from Google Fonts (letters, digits and spaces, at most 40 characters per family); system and generic faces use browser fonts. Unavailable weights retry without weights. Unsafe, oversized or unavailable images fail the export. xlsx, docx and pptx are written directly from the content model. PPTX embeds PNG and JPEG; SVG elements are omitted with an export-notes.txt entry. markdown (.md) and html export documents from stored richText, falling back to semantic blocks. csv exports one selected workbook sheet as .csv when sheetId is supplied, a single-sheet output as .csv, or a workbook as a ZIP containing one CSV per sheet with cached values and column labels. Text, HTML, CSV and ZIP downloads are attachments. Bytes are stored in R2. The returned URL is API-only: download with an Authorization Bearer token for the selected organization; an OS browser login alone does not authorize it. For a browser download use the OS UI Export menu. Fails BAD_REQUEST without Browser Rendering, for an unknown sheetId, or for a format incompatible with the output kind; fails if allowed resources cannot load within the bounded render wait.",
 				})
 				.input(
 					outputIdInput.extend({
 						format: OsOutputExportFormatSchema,
+						sheetId: z
+							.string()
+							.min(1)
+							.max(80)
+							.optional()
+							.describe("Workbook sheet to export; valid only for CSV"),
 					}),
 				)
 				.output(

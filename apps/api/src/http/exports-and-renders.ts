@@ -215,9 +215,10 @@ export function registerExportsAndRenders(
 	app.get("/os-exports/:outputId/:file", async (c) => {
 		const outputId = c.req.param("outputId");
 		const file = c.req.param("file");
-		const match = /^rev-(\d+)\.(pdf|png|xlsx|docx|pptx|md|html|csv|zip)$/.exec(
-			file,
-		);
+		const match =
+			/^rev-(\d+)(?:-tab-\d+)?\.(pdf|png|xlsx|docx|pptx|md|html|csv|zip)$/.exec(
+				file,
+			);
 		if (!match) return c.text("Not found", 404);
 
 		const { extractRequestToken } = await import("../lib/request-token");
@@ -334,12 +335,9 @@ export function registerExportsAndRenders(
 		const disposition =
 			extension === "pdf" || extension === "png"
 				? "inline"
-				: // The filename is built only from values this route has already
-					// constrained: the revision digits from the regex and the literal
-					// extension. `outputId` is an unvalidated path param, and
-					// interpolating it here would let a quote break out of the quoted
-					// filename. It is not needed to name the file usefully.
-					`attachment; filename="rev-${match[1]}.${extension}"`;
+				: // The regex above constrains every character in `file`. `outputId`
+					// remains excluded because it is an unvalidated path parameter.
+					`attachment; filename="${file}"`;
 		return new Response(object.body, {
 			headers: {
 				"X-Content-Type-Options": "nosniff",
