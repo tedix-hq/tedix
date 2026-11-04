@@ -750,6 +750,10 @@ export const workEvents = sqliteTable(
 			table.eventType,
 			table.actorType,
 		),
+		// The lease sweep reads stopped lanes across tenants in sequence order.
+		index("idx_work_events_stopped_lane_sequence")
+			.on(table.sequence)
+			.where(sql`event_type IN ('lane.stale', 'attempt.expired')`),
 	],
 );
 

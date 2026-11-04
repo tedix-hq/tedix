@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_events_stopped_lane_sequence` ON `work_events` (`sequence`) WHERE event_type IN ('lane.stale', 'attempt.expired');
