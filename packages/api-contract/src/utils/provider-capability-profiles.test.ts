@@ -37,8 +37,8 @@ const PINNED: Record<string, { version: number; fingerprint: string }> = {
 	"google-calendar-attach": { version: 1, fingerprint: "9c12ea19" },
 	"google-calendar-event-read": { version: 1, fingerprint: "44c94f7a" },
 	"google-calendar-event-write": { version: 1, fingerprint: "f1b82b23" },
-	"microsoft-calendar-read": { version: 1, fingerprint: "a7d48eb1" },
-	"microsoft-calendar-write": { version: 1, fingerprint: "ede13471" },
+	"microsoft-calendar-read": { version: 2, fingerprint: "44d0fdc5" },
+	"microsoft-calendar-write": { version: 2, fingerprint: "706af951" },
 	"google-gmail-compose": { version: 1, fingerprint: "12bee25a" },
 };
 
@@ -138,9 +138,28 @@ describe("consent scope profiles", () => {
 			"https://graph.microsoft.com/Calendars.Read",
 			true,
 		],
-		["microsoft-calendar-read", "calendars.readwrite", true],
+		["microsoft-calendar-read", "Calendars.Read", true],
+		["microsoft-calendar-read", "Calendars.ReadWrite", true],
+		[
+			"microsoft-calendar-read",
+			"https://graph.microsoft.com/Calendars.ReadWrite",
+			true,
+		],
+		["microsoft-calendar-read", "calendars.readwrite", false],
+		["microsoft-calendar-read", "https://example.com/Calendars.Read", false],
 		["microsoft-calendar-read", "Calendars.ReadBasic", false],
 		["microsoft-calendar-write", "Calendars.ReadWrite", true],
+		[
+			"microsoft-calendar-write",
+			"https://graph.microsoft.com/Calendars.ReadWrite",
+			true,
+		],
+		["microsoft-calendar-write", "calendars.readwrite", false],
+		[
+			"microsoft-calendar-write",
+			"https://example.com/Calendars.ReadWrite",
+			false,
+		],
 		["microsoft-calendar-write", "Calendars.Read", false],
 	])("%s with %s grants %s", (id, scope, granted) => {
 		expect(scopesGrantingConsent(id, ["openid", scope])).toEqual(
