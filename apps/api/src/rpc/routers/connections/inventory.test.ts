@@ -2,7 +2,11 @@ import { call } from "@orpc/server";
 import { ConnectionInventoryInputSchema } from "@tedix/api-contract/schemas/connections";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { apiKeyContext, userContext } from "../../test-context";
-import { getConnectionsOverview } from "./inventory";
+import {
+	foldDefaultAccounts,
+	getConnectionsOverview,
+	readGoogleAccountEmail,
+} from "./inventory";
 
 const mocks = vi.hoisted(() => ({
 	fetchToken: vi.fn(),
@@ -140,3 +144,152 @@ describe.each(["organization", "personal"] as const)(
 		});
 	},
 );
+
+describe("one row per account", () => {
+	const provider = { appId: "google-gmail", name: "Google Gmail" };
+	const ref = (appId: string) => ({
+		appId,
+		appSlug: appId,
+		source: "app" as const,
+	});
+	const row = (extra: Record<string, unknown>) =>
+		({
+			provider,
+			scope: "user",
+			accountState: "present",
+			accountLabel: null,
+			connection: null,
+			references: [],
+			referencesComplete: true,
+			access: "not_evaluated",
+			health: "not_checked",
+			...extra,
+		}) as unknown as Parameters<typeof foldDefaultAccounts>[0][number];
+
+	it("folds the default login into the named slot that adopted it", () => {
+		const rows = foldDefaultAccounts(
+			[
+				row({
+					isDefault: true,
+					accountEmail: "owner@example.com",
+					references: [ref("gmail"), ref("gmail-tedix")],
+				}),
+				row({
+					connectionInstanceId: "slot-default",
+					instanceLabel: "Gmail (default)",
+					isDefault: false,
+				}),
+				row({
+					connectionInstanceId: "slot-second",
+					instanceLabel: "Account",
+					isDefault: false,
+					references: [ref("gmail-tedix")],
+				}),
+			],
+			{
+				instances: [
+					{ id: "slot-default", providerId: "google-gmail", tokenIds: ["t1"] },
+					{ id: "slot-second", providerId: "google-gmail", tokenIds: ["t2"] },
+				],
+				defaultTokenIds: new Map([["google-gmail", "t1"]]),
+				pins: new Map([
+					[
+						"gmail-tedix",
+						{ providerId: "google-gmail", connectionInstanceId: "slot-second" },
+					],
+				]),
+			},
+		);
+		expect(
+			rows.map((account) => ({
+				id: account.connectionInstanceId,
+				isDefault: account.isDefault,
+				email: account.accountEmail,
+				apps: account.references.map((reference) => reference.appId),
+			})),
+		).toEqual([
+			{
+				id: "slot-default",
+				isDefault: true,
+				email: "owner@example.com",
+				apps: ["gmail"],
+			},
+			{
+				id: "slot-second",
+				isDefault: false,
+				email: undefined,
+				apps: ["gmail-tedix"],
+			},
+		]);
+	});
+
+	it("keeps an unadopted default row but drops apps pinned elsewhere", () => {
+		const rows = foldDefaultAccounts(
+			[
+				row({
+					isDefault: true,
+					references: [ref("gmail"), ref("gmail-tedix")],
+				}),
+				row({
+					connectionInstanceId: "slot-second",
+					references: [ref("gmail-tedix")],
+				}),
+			],
+			{
+				instances: [
+					{ id: "slot-second", providerId: "google-gmail", tokenIds: ["t2"] },
+				],
+				defaultTokenIds: new Map([["google-gmail", "t1"]]),
+				pins: new Map([
+					[
+						"gmail-tedix",
+						{ providerId: "google-gmail", connectionInstanceId: "slot-second" },
+					],
+				]),
+			},
+		);
+		expect(
+			rows.map((account) => account.references.map((r) => r.appId)),
+		).toEqual([["gmail"], ["gmail-tedix"]]);
+	});
+});
+
+describe("readGoogleAccountEmail", () => {
+	const gmail = "https://www.googleapis.com/auth/gmail.readonly";
+	it("reads the Gmail address with a Google token", async () => {
+		const fetcher = vi.fn(async () =>
+			Response.json({ emailAddress: "sam@example.com" }),
+		);
+		await expect(
+			readGoogleAccountEmail("token", [gmail], fetcher as typeof fetch),
+		).resolves.toBe("sam@example.com");
+		expect(fetcher).toHaveBeenCalledWith(
+			"https://gmail.googleapis.com/gmail/v1/users/me/profile?fields=emailAddress",
+			expect.objectContaining({
+				headers: { Authorization: "Bearer token" },
+			}),
+		);
+	});
+
+	it("falls back to the userinfo address when Gmail refuses", async () => {
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(new Response(null, { status: 403 }))
+			.mockResolvedValueOnce(Response.json({ email: "owner@example.com" }));
+		await expect(
+			readGoogleAccountEmail(
+				"token",
+				[gmail, "https://www.googleapis.com/auth/userinfo.email"],
+				fetcher as typeof fetch,
+			),
+		).resolves.toBe("owner@example.com");
+	});
+
+	it("never sends a non-Google token to Google", async () => {
+		const fetcher = vi.fn();
+		await expect(
+			readGoogleAccountEmail("token", ["email", "Mail.Read"], fetcher),
+		).resolves.toBeNull();
+		expect(fetcher).not.toHaveBeenCalled();
+	});
+});

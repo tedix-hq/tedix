@@ -543,8 +543,97 @@ describe("account list rows", () => {
 		const props = await render([row]);
 		await expand();
 		await details();
-		await act(async () => button("Use for Second calendar")!.click());
+		expect(
+			host.querySelector('[data-app-account="second-calendar"]')?.textContent,
+		).toContain("Second calendar uses no account yet");
+		await act(async () =>
+			button("Use Work account for Second calendar")!.click(),
+		);
 		expect(props.onBind).toHaveBeenCalledWith(row, target);
+	});
+
+	it("tells two Gmail accounts apart: address, default, scope, apps", async () => {
+		const gmail: ConnectionProvider = {
+			...provider,
+			appId: "google-gmail",
+			name: "Google Gmail",
+		};
+		const identity = "https://www.googleapis.com/auth/userinfo.email";
+		const gmailApp = {
+			appId: "gmail-app",
+			appSlug: "google-gmail",
+			appName: "Google Gmail",
+			source: "app" as const,
+		};
+		const tedixApp = {
+			appId: "gmail-tedix-app",
+			appSlug: "google-gmail-tedix",
+			appName: "Google Gmail Tedix",
+			source: "app" as const,
+		};
+		const account = (
+			id: string,
+			extra: Partial<ConnectionInventoryRow>,
+		): ConnectionInventoryRow => ({
+			...base,
+			provider: gmail,
+			connectionInstanceId: id,
+			bindingTargets: [gmailApp, tedixApp],
+			connection: { ...base.connection!, appId: gmail.appId, scopes: [] },
+			...extra,
+		});
+		const owner = account("00000000-0000-4000-8000-0000000000a1", {
+			instanceLabel: "Gmail (default)",
+			accountEmail: "owner@example.com",
+			isDefault: true,
+			references: [gmailApp],
+		});
+		const second = account("00000000-0000-4000-8000-0000000000a2", {
+			instanceLabel: "Account",
+			accountEmail: "sam@example.com",
+			isDefault: false,
+			references: [tedixApp],
+			capabilities: [
+				{
+					id: "identity",
+					label: "Identity",
+					requiredScopes: [identity],
+					state: "not_configured",
+					setupUrl: "/account/connections?connect=google-gmail",
+					verified: true,
+				},
+			],
+		});
+		const props = await render([owner, second]);
+		await expand("Gmail");
+		const rows = [...host.querySelectorAll("[data-account-row]")];
+		expect(rows).toHaveLength(2);
+		const [first, other] = rows.map((row) => row.textContent ?? "");
+		expect(first).toContain("owner@example.com");
+		expect(first).toContain("Default · Personal · Used by Google Gmail");
+		expect(other).toContain("sam@example.com");
+		expect(other).toContain(
+			"Named “Account” · Personal · Used by Google Gmail Tedix",
+		);
+		expect(other).not.toContain("Default ·");
+		expect(other).toContain(
+			"Missing permission for Identity. Reconnect and allow “See your primary Google Account email address” on Google's screen",
+		);
+		await details();
+		expect(
+			host.querySelector('[data-app-account="google-gmail"]')?.textContent,
+		).toContain("Google Gmail uses owner@example.com");
+		expect(
+			host.querySelector('[data-app-account="google-gmail-tedix"]')
+				?.textContent,
+		).toContain("Google Gmail Tedix uses sam@example.com");
+		expect(host.textContent).toContain(
+			"2 apps use Gmail. Each signs in on its own, so each can use a different account.",
+		);
+		await act(async () =>
+			button("Use sam@example.com for Google Gmail")!.click(),
+		);
+		expect(props.onBind).toHaveBeenCalledWith(second, gmailApp);
 	});
 
 	it("lets an org admin turn an account's access check off and back to default", async () => {
