@@ -58,6 +58,9 @@ vi.mock("./platform-tick", () => ({
 	sweepOrphanRunsTick: vi.fn(),
 	runAlwaysOnKeepalive: vi.fn(),
 }));
+vi.mock("./delegated-run-deadline-sweep", () => ({
+	sweepDelegatedRunDeadlines: vi.fn().mockResolvedValue({}),
+}));
 vi.mock("./dispatcher-health-alarm", () => ({
 	runDispatcherHealthAlarm: vi.fn().mockResolvedValue({}),
 }));

@@ -185,6 +185,35 @@ export async function listPendingDelegationRuns(
 		.limit(input.limit);
 }
 
+/**
+ * Live delegated Home rows nobody has read lately, oldest first, across every
+ * organization: queued or running, with a target tedi and child run, started
+ * and last touched before `before`. The two-minute deadline sweep re-reads
+ * their child evidence so a dispatch that never published, or a child that
+ * outlived its deadline, ends with a visible reason even when no person or
+ * client opens the conversation again.
+ */
+export async function listQuietDelegatedRuns(
+	db: DbClient,
+	input: { before: string; limit: number },
+): Promise<KernelRuntimeRun[]> {
+	return db
+		.select()
+		.from(kernelRuntimeRuns)
+		.where(
+			and(
+				inArray(kernelRuntimeRuns.status, ["queued", "running"]),
+				sql`${kernelRuntimeRuns.delegatedTediId} IS NOT NULL`,
+				sql`${kernelRuntimeRuns.childRunId} IS NOT NULL`,
+				// Rows carry both ISO and SQLite CURRENT_TIMESTAMP spellings.
+				sql`datetime(COALESCE(${kernelRuntimeRuns.startedAt}, ${kernelRuntimeRuns.createdAt})) < datetime(${input.before})`,
+				sql`datetime(${kernelRuntimeRuns.updatedAt}) < datetime(${input.before})`,
+			),
+		)
+		.orderBy(kernelRuntimeRuns.updatedAt, kernelRuntimeRuns.id)
+		.limit(input.limit);
+}
+
 export interface CountActiveDelegatedRunsParams {
 	organizationId: string;
 	/** Ignore rows not touched since this ISO instant (stale, unsettled rows). */

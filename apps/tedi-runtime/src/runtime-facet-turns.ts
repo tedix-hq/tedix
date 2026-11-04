@@ -213,6 +213,14 @@ export function identityValue(
 export const COLD_MCP_SYNC_TIMEOUT_MS = 250;
 
 /**
+ * Sync budget when the turn must verify delegated callables before inference.
+ * Above the core's per-server connect ceiling (a slow but healthy cold connect
+ * still lands) and under the 60s `prepare-context` catch-all, so a hang still
+ * fails as a readable preflight error instead of a wedge.
+ */
+export const PREFLIGHT_MCP_SYNC_TIMEOUT_MS = 30_000;
+
+/**
  * Per-turn provider-call discipline for interactive/delegated turns.
  * Cron turns learn their four-call budget from the
  * cron message body; operator/delegated turns previously learned about the
@@ -1080,12 +1088,23 @@ export const runtimeFacetTurns = {
 					)
 				: await this.getMcpRuntime();
 		let mcpSyncMs = 0;
+		// A capability-planned delegation verifies its callables through the
+		// child's own credential before inference, so that read needs a synced
+		// connection, not the 250 ms cold-start guard that lets an ordinary turn
+		// proceed tool-less. Live cto delegations on 3-4 Nov 2026 hit the guard on
+		// every cold start: the preflight then ran against zero connections and the
+		// turn died 12 minutes later with no visible reason (Work a713079a).
+		const preflightRequired = Boolean(
+			supervised && input.capabilityPlan && !input.executionRestriction,
+		);
 		if (isolatedRequest && mcpRuntime) {
 			const syncStartedAt = Date.now();
 			try {
 				await withTimeout(
 					mcpRuntime.ensureSynced(),
-					COLD_MCP_SYNC_TIMEOUT_MS,
+					preflightRequired
+						? PREFLIGHT_MCP_SYNC_TIMEOUT_MS
+						: COLD_MCP_SYNC_TIMEOUT_MS,
 					"supervised MCP sync",
 				);
 			} catch (error) {
@@ -1125,22 +1144,21 @@ export const runtimeFacetTurns = {
 				);
 		addendaPromise?.catch(() => undefined);
 		const preflightStartedAt = Date.now();
-		const requiredSchemas =
-			supervised && input.capabilityPlan && !input.executionRestriction
-				? await preflightDelegationTools(input.capabilityPlan, async (code) => {
-						if (!mcpRuntime)
-							throw new Error(
-								"Delegation preflight failed: child MCP credential unavailable",
-							);
-						return mcpRuntime.executeTool(
-							"tedix_mcp_code",
-							{ code },
-							{
-								resultAudience: "machine",
-							},
+		const requiredSchemas = preflightRequired
+			? await preflightDelegationTools(input.capabilityPlan, async (code) => {
+					if (!mcpRuntime)
+						throw new Error(
+							"Delegation preflight failed: child MCP credential unavailable",
 						);
-					})
-				: [];
+					return mcpRuntime.executeTool(
+						"tedix_mcp_code",
+						{ code },
+						{
+							resultAudience: "machine",
+						},
+					);
+				})
+			: [];
 		const preflightMs = Date.now() - preflightStartedAt;
 		if (mcpRuntime && platform) {
 			mcpRuntime.bindTurn({

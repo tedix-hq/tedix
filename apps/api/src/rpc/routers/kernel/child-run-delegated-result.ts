@@ -238,8 +238,30 @@ export function delegatedWidgetProjectionFromEvents(
 	return widgets;
 }
 
+const TERMINAL_TREE_STATUSES = new Set<HomeChildRunStatus>([
+	"partial",
+	"completed",
+	"failed",
+	"canceled",
+]);
+
+function isTerminalTreeStatus(status: unknown): status is HomeChildRunStatus {
+	return TERMINAL_TREE_STATUSES.has(status as HomeChildRunStatus);
+}
+
 function homeChildRunTreeStatus(run: HomeRun): HomeChildRunStatus {
 	const metadataStatus = nonNullRecord(run.metadata)?.childRunStatus;
+	// A settled Home row owns the outcome. Its last child observation can be
+	// older than the settlement: a dispatch that never published events keeps
+	// `childRunStatus: "queued"` after `run.failed` exists (live rows 6d2934f1,
+	// 63387b00 on 2026-11-01 stayed "queued" in the tree for days), so a
+	// non-terminal child status never outranks a terminal parent.
+	const parentTerminal =
+		run.status === "completed" ||
+		run.status === "failed" ||
+		run.status === "canceled";
+	if (parentTerminal && !isTerminalTreeStatus(metadataStatus))
+		return run.status as HomeChildRunStatus;
 	if (
 		metadataStatus === "queued" ||
 		metadataStatus === "running" ||
@@ -517,7 +539,7 @@ export function buildHomeChildRunTree(input: {
 						const childRunId = stringFromPayload(assignment?.childRunId);
 						if (!delegatedTediId && !childRunId) return [];
 						const rawStatus = stringFromPayload(assignment?.status);
-						const status: HomeChildRunStatus =
+						const liveStatus: HomeChildRunStatus =
 							rawStatus === "completed" ||
 							rawStatus === "failed" ||
 							rawStatus === "canceled" ||
@@ -526,6 +548,19 @@ export function buildHomeChildRunTree(input: {
 							rawStatus === "streaming"
 								? rawStatus
 								: "requires_approval";
+						// Once the plan run itself has settled, no branch is still waiting:
+						// a dispatched branch inherits the parent outcome and a branch that
+						// never got a child run was dropped with the plan.
+						const planTerminal =
+							run.status === "completed" ||
+							run.status === "failed" ||
+							run.status === "canceled";
+						const status: HomeChildRunStatus =
+							planTerminal && !isTerminalTreeStatus(liveStatus)
+								? childRunId
+									? (run.status as HomeChildRunStatus)
+									: "canceled"
+								: liveStatus;
 						const active =
 							status === "queued" ||
 							status === "running" ||
