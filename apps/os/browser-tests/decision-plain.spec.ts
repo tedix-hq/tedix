@@ -43,6 +43,13 @@ try {
 				/47464594|https?:/,
 				`${width}: the newer note is shown without IDs or raw links`,
 			);
+			// Measured before saving: a saved card flies off the edge on purpose.
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth,
+				),
+				`${width}: no horizontal overflow`,
+			);
 			await card
 				.getByRole("button", {
 					name: "Save with the latest version",
@@ -64,12 +71,6 @@ try {
 					reviewedChangesThrough: "2026-11-04T09:20:00.000Z",
 				},
 			]);
-			assert(
-				await page.evaluate(
-					() => document.documentElement.scrollWidth <= innerWidth,
-				),
-				`${width}: no horizontal overflow`,
-			);
 			console.log(`Plain decision card ${width}px passed`);
 		} finally {
 			await page.close();
