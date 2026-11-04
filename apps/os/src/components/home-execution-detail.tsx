@@ -67,7 +67,11 @@ import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 import { ArtifactReleaseReview } from "@/components/artifact-release-review";
 import { useTediNames } from "@/lib/use-tedi-names";
 import { useNow } from "@/lib/use-now";
-import { delegationLiveState, shortAge } from "@/lib/delegation-activity";
+import {
+	DELEGATION_IDLE_NOTICE_AFTER_MS,
+	delegationLiveState,
+	shortAge,
+} from "@/lib/delegation-activity";
 import { formatSettledEurMicros } from "@/lib/billing-price";
 import {
 	Progress,
@@ -308,7 +312,9 @@ function DelegationEvidence({
 								live.idleMs != null
 									? live.phase === "stalled"
 										? `no activity for ${shortAge(live.idleMs)}, it may be stuck`
-										: `last activity ${shortAge(live.idleMs)} ago`
+										: live.idleMs >= DELEGATION_IDLE_NOTICE_AFTER_MS
+											? `last activity ${shortAge(live.idleMs)} ago`
+											: null
 									: null,
 							]
 								.filter(Boolean)

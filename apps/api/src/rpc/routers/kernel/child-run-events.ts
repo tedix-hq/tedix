@@ -16,15 +16,18 @@ import {
  *
  * Priority (first match on newest event wins):
  *   tool.started / tool.completed / tool.failed → "calling <name>"
- *   message.delta → "responding…"
+ *   message.progress / message.delta → "Writing the answer"
  *   step.completed with toolNames → "calling <last tool>"
- *   message.received → "reading the task"
- *   context.injected → "loading context…"
- *   run.started → "thinking…"
- *   subagent.started → "delegating…"
- *   artifact.created → "writing <name>" (truncated 35)
- *   message.completed (latest, run still live) → "wrapping up…"
+ *   message.received → "Reading the request"
+ *   context.injected / run.started → "Getting ready"
+ *   subagent.started → "Asking a helper"
+ *   artifact.created → "Writing <name>" (truncated 35)
+ *   message.completed (latest, run still live) → "Wrapping up"
  * Returns null when no meaningful event is found (fail-soft).
+ *
+ * "calling <name>" is the one machine-shaped label: Tedix OS turns the tool
+ * id into a verb (`plainRuntimeLabel`). Everything else is a sentence a
+ * person can read as is, because the CLI panel prints it verbatim.
  */
 export function latestActivityLabelFromEvents(
 	rows: TediRuntimeEventRow[],
@@ -47,10 +50,10 @@ export function latestActivityLabelFromEvents(
 			// T1.1 heartbeat: the model is mid-generation (synthesizing its reply)
 			// during the post-tool window before the first message.delta lands. This
 			// keeps the live panel legible instead of frozen on the last tool name.
-			return "synthesizing…";
+			return "Writing the answer";
 		}
 		if (row.kind === "message.delta") {
-			return "responding…";
+			return "Writing the answer";
 		}
 		if (row.kind === "step.completed") {
 			const payload = nonNullRecord(row.payload);
@@ -67,16 +70,13 @@ export function latestActivityLabelFromEvents(
 			}
 		}
 		if (row.kind === "message.received") {
-			return "reading the task";
+			return "Reading the request";
 		}
-		if (row.kind === "context.injected") {
-			return "loading context…";
-		}
-		if (row.kind === "run.started") {
-			return "thinking…";
+		if (row.kind === "context.injected" || row.kind === "run.started") {
+			return "Getting ready";
 		}
 		if (row.kind === "subagent.started") {
-			return "delegating…";
+			return "Asking a helper";
 		}
 		if (row.kind === "artifact.created") {
 			const payload = nonNullRecord(row.payload);
@@ -90,15 +90,15 @@ export function latestActivityLabelFromEvents(
 					artifactLabel.length > 35
 						? `${artifactLabel.slice(0, 35)}…`
 						: artifactLabel;
-				return `writing ${truncated}`;
+				return `Writing ${truncated}`;
 			}
-			return "writing artifact";
+			return "Saving a file";
 		}
 		if (row.kind === "message.completed") {
 			// Only emit "wrapping up…" for in-progress runs — not as the terminal
 			// post-hoc record label. Rows are DESC-ordered; message.completed as the
 			// latest event (before any run.completed) means the run is still settling.
-			return "wrapping up…";
+			return "Wrapping up";
 		}
 	}
 	return null;

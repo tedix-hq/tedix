@@ -426,7 +426,7 @@ describe("Response details copy", () => {
 								...(runningRun as object),
 								delegatedTediId: "cfo",
 								childRunId: CHILD_RUN,
-								updatedAt: ago(20_000),
+								updatedAt: ago(45_000),
 								progress: {
 									current: 48,
 									total: 100,
@@ -448,14 +448,14 @@ describe("Response details copy", () => {
 										kind: "tool.completed",
 										toolCallId: "t1",
 										payload: { name: "ledger__read" },
-										createdAt: ago(30_000),
+										createdAt: ago(50_000),
 									},
 									{
 										id: "c1",
 										kind: "tool.started",
 										toolCallId: "t1",
 										payload: { name: "ledger__read" },
-										createdAt: ago(40_000),
+										createdAt: ago(60_000),
 									},
 								],
 								artifacts: [],
@@ -472,7 +472,7 @@ describe("Response details copy", () => {
 		expect(text).not.toContain("Delegation not found");
 		expect(text).toContain("Writing the weekly summary");
 		expect(text).toContain("48 of 100");
-		expect(text).toMatch(/last activity 20s ago/);
+		expect(text).toMatch(/last activity 4[56]s ago/);
 		expect(text).toContain("CFO's events");
 		const events = host.querySelector('[aria-label="Delegated events"]');
 		expect(events?.textContent).toMatch(/Tool started.*Tool completed/);

@@ -79,9 +79,9 @@ describe("latestActivityLabelFromEvents", () => {
 		).toBe("calling firecrawl_scrape");
 	});
 
-	it("labels a message.delta event as 'responding…'", () => {
+	it("labels a message.delta event as 'Writing the answer'", () => {
 		expect(latestActivityLabelFromEvents([makeEvent("message.delta")])).toBe(
-			"responding…",
+			"Writing the answer",
 		);
 	});
 
@@ -92,12 +92,12 @@ describe("latestActivityLabelFromEvents", () => {
 					payload: { artifact: { name: "report.md" } },
 				}),
 			]),
-		).toBe("writing report.md");
+		).toBe("Writing report.md");
 		expect(
 			latestActivityLabelFromEvents([
 				makeEvent("artifact.created", { payload: { name: "legacy.md" } }),
 			]),
-		).toBe("writing artifact");
+		).toBe("Saving a file");
 	});
 
 	it("returns null when no meaningful event is present", () => {

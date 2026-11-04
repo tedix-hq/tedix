@@ -613,7 +613,7 @@ describe("summarizeChildRuntimeEvents — latestActivityLabel (CLI live panel)",
 		);
 	});
 
-	it("message.delta as latest event → childRunLatestActivityLabel='responding…'", async () => {
+	it("message.delta as latest event → childRunLatestActivityLabel='Writing the answer'", async () => {
 		const db = createKernelRuntimeDb();
 		const context = createContext(db);
 		db.runtimeEvents.push(
@@ -638,11 +638,11 @@ describe("summarizeChildRuntimeEvents — latestActivityLabel (CLI live panel)",
 			runId: RUN_ID,
 		});
 		expect(summary).not.toBeNull();
-		expect(summary?.childRunLatestActivityLabel).toBe("responding…");
+		expect(summary?.childRunLatestActivityLabel).toBe("Writing the answer");
 	});
 
-	it("run.started → childRunLatestActivityLabel='thinking…' (widened Part B)", async () => {
-		// After Part B widening, run.started maps to "thinking…" instead of null.
+	it("run.started → childRunLatestActivityLabel='Getting ready' (widened Part B)", async () => {
+		// After Part B widening, run.started maps to "Getting ready" instead of null.
 		// This pins the new correct behavior so regressions are caught.
 		const db = createKernelRuntimeDb();
 		const context = createContext(db);
@@ -660,7 +660,7 @@ describe("summarizeChildRuntimeEvents — latestActivityLabel (CLI live panel)",
 			runId: RUN_ID,
 		});
 		expect(summary).not.toBeNull();
-		expect(summary?.childRunLatestActivityLabel).toBe("thinking…");
+		expect(summary?.childRunLatestActivityLabel).toBe("Getting ready");
 	});
 
 	it("running run with tool.started → progress.detail='calling <tool>' (not event count)", async () => {
@@ -716,11 +716,11 @@ describe("summarizeChildRuntimeEvents — latestActivityLabel (CLI live panel)",
 // ─────────────────────────────────────────────────────────────────────────────
 // latestActivityLabelFromEventsForTest — direct unit tests for Part B widened
 // event kinds. Tests the new labels that were not previously matched:
-//   run.started → "thinking…"
-//   context.injected → "loading context…"
-//   artifact.created → "writing <name>"
-//   subagent.started → "delegating…"
-//   message.completed (no run.completed yet) → "wrapping up…"
+//   run.started → "Getting ready"
+//   context.injected → "Getting ready"
+//   artifact.created → "Writing <name>"
+//   subagent.started → "Asking a helper"
+//   message.completed (no run.completed yet) → "Wrapping up"
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("latestActivityLabelFromEvents — widened Part B event kinds", () => {
@@ -746,20 +746,20 @@ describe("latestActivityLabelFromEvents — widened Part B event kinds", () => {
 		} as Parameters<typeof fn>[0][number];
 	}
 
-	it("run.started as latest event → 'thinking…'", () => {
-		expect(fn([makeEvent("run.started")])).toBe("thinking…");
+	it("run.started as latest event → 'Getting ready'", () => {
+		expect(fn([makeEvent("run.started")])).toBe("Getting ready");
 	});
 
-	it("context.injected as latest event → 'loading context…'", () => {
-		expect(fn([makeEvent("context.injected")])).toBe("loading context…");
+	it("context.injected as latest event → 'Getting ready'", () => {
+		expect(fn([makeEvent("context.injected")])).toBe("Getting ready");
 	});
 
-	it("artifact.created with named payload → 'writing <name>'", () => {
+	it("artifact.created with named payload → 'Writing <name>'", () => {
 		expect(
 			fn([
 				makeEvent("artifact.created", { artifact: { name: "turn_summary" } }),
 			]),
-		).toBe("writing turn_summary");
+		).toBe("Writing turn_summary");
 	});
 
 	it("artifact.created with long name → truncated to 35 chars with ellipsis", () => {
@@ -767,34 +767,34 @@ describe("latestActivityLabelFromEvents — widened Part B event kinds", () => {
 		const result = fn([
 			makeEvent("artifact.created", { artifact: { name: longName } }),
 		]);
-		expect(result).toBe(`writing ${"a".repeat(35)}…`);
+		expect(result).toBe(`Writing ${"a".repeat(35)}…`);
 	});
 
-	it("artifact.created with no name in payload → 'writing artifact' fallback", () => {
-		expect(fn([makeEvent("artifact.created", {})])).toBe("writing artifact");
+	it("artifact.created with no name in payload → 'Saving a file' fallback", () => {
+		expect(fn([makeEvent("artifact.created", {})])).toBe("Saving a file");
 	});
 
-	it("subagent.started as latest event → 'delegating…'", () => {
-		expect(fn([makeEvent("subagent.started")])).toBe("delegating…");
+	it("subagent.started as latest event → 'Asking a helper'", () => {
+		expect(fn([makeEvent("subagent.started")])).toBe("Asking a helper");
 	});
 
-	it("message.completed as latest event → 'wrapping up…'", () => {
+	it("message.completed as latest event → 'Wrapping up'", () => {
 		// message.completed before any run.completed = the run is still settling.
 		expect(fn([makeEvent("message.completed", { content: "Done." })])).toBe(
-			"wrapping up…",
+			"Wrapping up",
 		);
 	});
 
-	it("message.received as latest event → 'reading the task'", () => {
-		expect(fn([makeEvent("message.received")])).toBe("reading the task");
+	it("message.received as latest event → 'Reading the request'", () => {
+		expect(fn([makeEvent("message.received")])).toBe("Reading the request");
 	});
 
-	it("message.progress as latest event → 'synthesizing…' (T1.1 heartbeat)", () => {
+	it("message.progress as latest event → 'Writing the answer' (T1.1 heartbeat)", () => {
 		// The T1.1 mid-round heartbeat emits message.progress while the model is
 		// composing its reply (post-tool, pre-message.delta). The live panel must
-		// read "synthesizing…" instead of freezing on the last tool name.
+		// read "Writing the answer" instead of freezing on the last tool name.
 		expect(fn([makeEvent("message.progress", { round: 1 })])).toBe(
-			"synthesizing…",
+			"Writing the answer",
 		);
 	});
 

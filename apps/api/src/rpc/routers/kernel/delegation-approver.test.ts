@@ -131,11 +131,20 @@ describe("resolveDelegationApprover", () => {
 
 describe("agent review helpers", () => {
 	it("renders the approver line only when an approver is engaged", () => {
-		expect(renderHeldDelegationLine("CPO", "CTO")).toContain(
-			"routed the decision to CTO",
+		expect(renderHeldDelegationLine("CPO", "CTO", "Review the roadmap.")).toBe(
+			"I'll ask CPO to review the roadmap. CTO decides whether it starts; I'll come back to you only if CTO declines or can't decide.",
 		);
-		expect(renderHeldDelegationLine("CPO", null)).toContain(
-			"approve this Home run",
+		expect(renderHeldDelegationLine("CPO", null)).toBe(
+			"I'll ask CPO to take this on. Approve below to start.",
+		);
+		expect(
+			renderHeldDelegationLine(
+				"CPO",
+				null,
+				"[[tedix-context:abc]] SEO audit for the landing page. Then more.",
+			),
+		).toBe(
+			"I'll ask CPO to SEO audit for the landing page. Approve below to start.",
 		);
 	});
 

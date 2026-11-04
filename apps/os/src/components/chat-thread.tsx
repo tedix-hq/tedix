@@ -222,6 +222,10 @@ type RecoverableChatSend = Parameters<
 	draftContent: string;
 };
 
+/** Approval cards a person can still answer; expired ones need no banner. */
+const PENDING_APPROVAL_CARD_SELECTOR =
+	'[data-slot="approval-card"]:not([data-approval-status="expired"])';
+
 const FIRST_SEND_PENDING_MS = 15_000;
 const RECOVERED_SEND_NOTICE =
 	"Confirmation is taking longer than expected. Check status or retry the saved message.";
@@ -703,6 +707,44 @@ export function ChatThread({
 		[displayMessages],
 	);
 	const blockingApprovalCards = approvalCards.filter(isBlockingApprovalCard);
+
+	// The approval card is the one place to decide. The banner above the
+	// composer only appears while every pending card is scrolled out of view.
+	const [approvalCardInView, setApprovalCardInView] = useState(false);
+	useEffect(() => {
+		const root = scrollRef.current;
+		if (
+			!root ||
+			approvalCards.length === 0 ||
+			typeof IntersectionObserver === "undefined"
+		) {
+			setApprovalCardInView(false);
+			return;
+		}
+		const cards = root.querySelectorAll(PENDING_APPROVAL_CARD_SELECTOR);
+		if (cards.length === 0) {
+			setApprovalCardInView(false);
+			return;
+		}
+		const visible = new Set<Element>();
+		const observer = new IntersectionObserver(
+			(entries) => {
+				for (const entry of entries) {
+					if (entry.isIntersecting) visible.add(entry.target);
+					else visible.delete(entry.target);
+				}
+				setApprovalCardInView(visible.size > 0);
+			},
+			{ root, threshold: 0.4 },
+		);
+		for (const card of cards) observer.observe(card);
+		return () => observer.disconnect();
+	}, [approvalCards, composerOnly]);
+	const showApprovalCard = useCallback(() => {
+		scrollRef.current
+			?.querySelector(PENDING_APPROVAL_CARD_SELECTOR)
+			?.scrollIntoView({ block: "center", behavior: "smooth" });
+	}, []);
 
 	// Live-card pruning: when a run leaves the active set its tool frames are
 	// dropped — durable evidence lives in the transcript and run detail, so a
@@ -2319,8 +2361,11 @@ export function ChatThread({
 				/>
 			) : null}
 
-			{blockingApprovalCards.length > 0 ? (
-				<ApprovalInputGate count={blockingApprovalCards.length} />
+			{blockingApprovalCards.length > 0 && !approvalCardInView ? (
+				<ApprovalInputGate
+					count={blockingApprovalCards.length}
+					onShow={showApprovalCard}
+				/>
 			) : null}
 			<form
 				data-slot="chat-composer"

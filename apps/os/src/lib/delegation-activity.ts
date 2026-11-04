@@ -25,13 +25,23 @@ export type DelegationStepStatus = "running" | "completed" | "failed";
 
 export type DelegationStep = {
 	id: string;
+	/** What was done, as a short past-tense sentence ("Read a web page"). */
 	label: string;
 	/** The exact tool id, kept for a hover title. */
 	detail: string | null;
 	status: DelegationStepStatus;
 	startedAt: string;
 	durationMs: number | null;
+	/** Consecutive calls of the same tool folded into this row. */
+	attempts: number;
+	/** How many of those attempts failed before the last one. */
+	retries: number;
+	/** Why the last attempt failed, in the runtime's words. */
+	failureReason: string | null;
 };
+
+/** "last activity" is noise until the run has been quiet for this long. */
+export const DELEGATION_IDLE_NOTICE_AFTER_MS = 30_000;
 
 export type DelegationPhase =
 	| "queued"
@@ -67,16 +77,122 @@ function text(value: unknown): string | null {
 	return clean || null;
 }
 
-/** "reddit__search_posts" → "Reddit: search posts"; the raw id stays a title. */
-export function plainToolName(name: string): string {
+type ToolVerb = { past: string; now: string };
+
+/** First word of a tool id → how to say it, done and in progress. */
+const TOOL_VERBS: Record<string, ToolVerb> = {
+	search: { past: "Searched", now: "Searching" },
+	find: { past: "Searched", now: "Searching" },
+	query: { past: "Searched", now: "Searching" },
+	lookup: { past: "Looked up", now: "Looking up" },
+	read: { past: "Read", now: "Reading" },
+	get: { past: "Read", now: "Reading" },
+	fetch: { past: "Read", now: "Reading" },
+	scrape: { past: "Read", now: "Reading" },
+	markdown: { past: "Read", now: "Reading" },
+	view: { past: "Read", now: "Reading" },
+	load: { past: "Loaded", now: "Loading" },
+	list: { past: "Listed", now: "Listing" },
+	open: { past: "Opened", now: "Opening" },
+	create: { past: "Created", now: "Creating" },
+	add: { past: "Added", now: "Adding" },
+	update: { past: "Updated", now: "Updating" },
+	edit: { past: "Edited", now: "Editing" },
+	set: { past: "Updated", now: "Updating" },
+	rename: { past: "Renamed", now: "Renaming" },
+	move: { past: "Moved", now: "Moving" },
+	delete: { past: "Deleted", now: "Deleting" },
+	remove: { past: "Removed", now: "Removing" },
+	archive: { past: "Archived", now: "Archiving" },
+	send: { past: "Sent", now: "Sending" },
+	reply: { past: "Replied to", now: "Replying to" },
+	post: { past: "Posted", now: "Posting" },
+	publish: { past: "Published", now: "Publishing" },
+	comment: { past: "Commented on", now: "Commenting on" },
+	write: { past: "Wrote", now: "Writing" },
+	draft: { past: "Drafted", now: "Drafting" },
+	save: { past: "Saved", now: "Saving" },
+	run: { past: "Ran", now: "Running" },
+	exec: { past: "Ran", now: "Running" },
+	execute: { past: "Ran", now: "Running" },
+	start: { past: "Started", now: "Starting" },
+	launch: { past: "Started", now: "Starting" },
+	stop: { past: "Stopped", now: "Stopping" },
+	close: { past: "Closed", now: "Closing" },
+	clone: { past: "Cloned", now: "Cloning" },
+	checkout: { past: "Checked out", now: "Checking out" },
+	upload: { past: "Uploaded", now: "Uploading" },
+	download: { past: "Downloaded", now: "Downloading" },
+	check: { past: "Checked", now: "Checking" },
+	verify: { past: "Checked", now: "Checking" },
+	test: { past: "Tested", now: "Testing" },
+	validate: { past: "Checked", now: "Checking" },
+	ask: { past: "Asked", now: "Asking" },
+	call: { past: "Called", now: "Calling" },
+	generate: { past: "Generated", now: "Generating" },
+	summarize: { past: "Summarized", now: "Summarizing" },
+	analyze: { past: "Analyzed", now: "Analyzing" },
+	compare: { past: "Compared", now: "Comparing" },
+};
+
+const WEB_TOOLS =
+	/\b(browser|firecrawl|web|http|crawl|scrape|markdown|url|page|site)\b/;
+const COMPUTER_TOOLS =
+	/\b(computer|workstation|sandbox|terminal|shell|bash|exec|command|container)\b/;
+
+const toolWords = (value: string): string[] =>
+	value
+		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+		.toLowerCase()
+		.split(/[._:/\s-]+/)
+		.filter(Boolean);
+
+/**
+ * "reddit__search_posts" → "Searched Reddit posts" / "Searching Reddit posts";
+ * tool families a person recognises (web, computer) get fixed wording. The
+ * raw id stays a hover title.
+ */
+export function describeTool(name: string): ToolVerb {
 	const safe = sanitizeUntrustedText(name).trim();
-	if (!safe) return "Tool action";
-	const [app, tool] = safe.includes("__") ? safe.split("__", 2) : [null, safe];
-	const words = (value: string) =>
-		sentenceCase(value.replace(/[._:/-]+/g, " ").replace(/\s+/g, " "));
-	return app && tool
-		? `${words(app)}: ${words(tool).toLowerCase()}`
-		: words(safe);
+	if (!safe) return { past: "Tool action", now: "Working" };
+	const [app, tool] = safe.includes("__")
+		? safe.split("__", 2)
+		: [null, safe.replace(/^functions\./, "")];
+	const words = toolWords(tool ?? "");
+	const appName = app ? sentenceCase(toolWords(app).join(" ")) : null;
+	const haystack = ` ${[...toolWords(app ?? ""), ...words].join(" ")} `;
+	const verb = words.length ? TOOL_VERBS[words[0]!] : undefined;
+	const rest = words.slice(verb ? 1 : 0).join(" ");
+	if (WEB_TOOLS.test(haystack)) {
+		return words.some((word) => TOOL_VERBS[word]?.past === "Searched")
+			? { past: "Searched the web", now: "Searching the web" }
+			: { past: "Read a web page", now: "Reading a web page" };
+	}
+	if (COMPUTER_TOOLS.test(haystack)) {
+		if (verb && ["Ran", "Called"].includes(verb.past))
+			return { past: "Ran a command", now: "Running a command" };
+		if (verb && ["Started", "Opened", "Created"].includes(verb.past))
+			return { past: "Started a computer", now: "Starting a computer" };
+		if (verb?.past === "Stopped")
+			return { past: "Stopped the computer", now: "Stopping the computer" };
+		return { past: "Used the computer", now: "Using the computer" };
+	}
+	if (verb) {
+		const object = [appName, rest].filter(Boolean).join(" ");
+		return {
+			past: object ? `${verb.past} ${object}` : verb.past,
+			now: object ? `${verb.now} ${object}` : verb.now,
+		};
+	}
+	const plain = appName
+		? `${appName}: ${words.join(" ") || "action"}`
+		: sentenceCase(words.join(" "));
+	return { past: plain, now: plain };
+}
+
+/** The finished form of {@link describeTool}, for step rows and tests. */
+export function plainToolName(name: string): string {
+	return describeTool(name).past;
 }
 
 const NOTABLE_EVENTS: Record<string, string> = {
@@ -112,6 +228,8 @@ export function delegationSteps(
 	);
 	const tools = new Map<string, DelegationStep & { endedAt: string | null }>();
 	const steps: (DelegationStep & { endedAt?: string | null })[] = [];
+	const reason = (payload: Record<string, unknown>) =>
+		text(payload.error) ?? text(payload.message) ?? text(payload.reason);
 	const seen = new Set<string>();
 	const started = new Set<string>();
 	const latency = new Map<string, number>();
@@ -135,6 +253,9 @@ export function delegationSteps(
 					status: "running",
 					startedAt: event.createdAt,
 					durationMs: null,
+					attempts: 1,
+					retries: 0,
+					failureReason: null,
 					endedAt: null,
 				};
 				tools.set(callId, step);
@@ -153,6 +274,7 @@ export function delegationSteps(
 				event.kind === "tool.failed"
 			) {
 				step.status = event.kind === "tool.completed" ? "completed" : "failed";
+				step.failureReason = step.status === "failed" ? reason(payload) : null;
 				step.endedAt = event.createdAt;
 				// The runtime's own measure beats our clock difference.
 				if (typeof payload.latencyMs === "number" && payload.latencyMs >= 0)
@@ -174,27 +296,107 @@ export function delegationSteps(
 				status: "completed",
 				startedAt: event.createdAt,
 				durationMs: null,
+				attempts: 1,
+				retries: 0,
+				failureReason: null,
 			});
 			continue;
 		}
 		const label = NOTABLE_EVENTS[event.kind];
 		if (!label) continue;
+		const failed = FAILED_KINDS.has(event.kind);
 		steps.push({
 			id: event.id,
 			label,
 			detail: null,
-			status: FAILED_KINDS.has(event.kind) ? "failed" : "completed",
+			status: failed ? "failed" : "completed",
 			startedAt: event.createdAt,
 			durationMs: null,
+			attempts: 1,
+			retries: 0,
+			failureReason: failed ? reason(payload) : null,
 		});
 	}
-	return steps.map(({ endedAt: _endedAt, ...step }) => step);
+	// Consecutive calls of one tool read as one row: a retry after a failure
+	// says so, repeated successes just count.
+	const folded: DelegationStep[] = [];
+	for (const { endedAt: _endedAt, ...step } of steps) {
+		const prev = folded[folded.length - 1];
+		if (!prev || !prev.detail || prev.detail !== step.detail) {
+			folded.push(step);
+			continue;
+		}
+		prev.attempts += 1;
+		if (prev.status === "failed") prev.retries += 1;
+		prev.status = step.status;
+		prev.failureReason = step.failureReason;
+		prev.durationMs =
+			prev.durationMs == null && step.durationMs == null
+				? null
+				: (prev.durationMs ?? 0) + (step.durationMs ?? 0);
+	}
+	return folded;
 }
 
-/** The runtime reports "calling <tool_id>"; say which tool in plain words. */
-function plainProgress(detail: string | null): string | null {
-	const call = detail?.match(/^calling ([\w.:-]+)$/i);
-	return call ? `Using ${plainToolName(call[1]!)}` : detail;
+/** Older runtime rows carry these lowercase labels; newer ones say it plainly. */
+const RUNTIME_LABELS: Record<string, string> = {
+	thinking: "Getting ready",
+	"loading context": "Getting ready",
+	"reading the task": "Reading the request",
+	synthesizing: "Writing the answer",
+	responding: "Writing the answer",
+	"wrapping up": "Wrapping up",
+	delegating: "Asking a helper",
+	"writing artifact": "Saving a file",
+};
+
+/**
+ * The runtime's progress label as a sentence: "calling <tool_id>" names the
+ * tool in plain words, legacy lowercase labels are mapped, anything else is
+ * sentence-cased without its trailing ellipsis.
+ */
+export function plainRuntimeLabel(
+	label: string | null | undefined,
+): string | null {
+	const clean = text(label)
+		?.replace(/(?:…|\.{3})+$/, "")
+		.trim();
+	if (!clean) return null;
+	const call = clean.match(/^calling ([\w.:/-]+)$/i);
+	if (call) return describeTool(call[1]!).now;
+	return (
+		RUNTIME_LABELS[clean.toLowerCase()] ??
+		clean[0]!.toUpperCase() + clean.slice(1)
+	);
+}
+
+const TECHNICAL_TEXT =
+	/[{}[\]<>]|https?:\/\/|\b[A-Z][A-Za-z]+(Error|Exception)\b|\b(status|code)\b[^.]*\b\d{3}\b|\bat [\w$.]+ \(|\bE[A-Z]{4,}\b|\bundefined\b|\b[a-z]+_[a-z_]+\b/;
+
+/**
+ * A failed run's reason in plain words. Known reason codes get a sentence;
+ * a readable runtime message is kept, a technical one is replaced. The raw
+ * text stays available for a hover title.
+ */
+export function plainFailure(input: {
+	reason?: string | null;
+	error?: string | null;
+	/** The tedi's display name, when the caller knows it. */
+	who?: string | null;
+}): string {
+	const who = text(input.who) ?? "That assistant";
+	if (input.reason === "runtime_unavailable")
+		return `${who} isn't available right now.`;
+	if (input.reason === "dispatch_failed")
+		return `The task couldn't be handed to ${who}.`;
+	const error = text(input.error);
+	if (!error || TECHNICAL_TEXT.test(error))
+		return "Something went wrong before it finished.";
+	const sentence =
+		error.length > 160 ? `${error.slice(0, 159).trimEnd()}…` : error;
+	return /[.!?…]$/.test(sentence)
+		? sentence[0]!.toUpperCase() + sentence.slice(1)
+		: `${sentence[0]!.toUpperCase()}${sentence.slice(1)}.`;
 }
 
 function latest(...values: (string | null | undefined)[]): string | null {
@@ -276,9 +478,10 @@ export function delegationLiveState(input: {
 		.find((step) => step.status === "running");
 	const currentStep = terminal
 		? null
-		: (plainProgress(text(progress?.detail)) ??
-			(runningTool ? `Using ${runningTool.label}` : null) ??
-			text(progress?.label) ??
+		: (plainRuntimeLabel(progress?.detail) ??
+			(runningTool?.detail ? describeTool(runningTool.detail).now : null) ??
+			(runningTool ? runningTool.label : null) ??
+			plainRuntimeLabel(progress?.label) ??
 			(steps.length ? `Last step: ${steps[steps.length - 1]!.label}` : null));
 
 	return {

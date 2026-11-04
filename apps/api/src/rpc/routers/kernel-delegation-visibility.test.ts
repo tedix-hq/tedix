@@ -53,8 +53,8 @@ describe("latestActivityLabelFromEvents — Part B widening", () => {
 		);
 	});
 
-	it("message.delta → 'responding…'", () => {
-		expect(label([makeRow("message.delta")])).toBe("responding…");
+	it("message.delta → 'Writing the answer'", () => {
+		expect(label([makeRow("message.delta")])).toBe("Writing the answer");
 	});
 
 	it("step.completed with toolNames → 'calling <last tool>'", () => {
@@ -69,39 +69,39 @@ describe("latestActivityLabelFromEvents — Part B widening", () => {
 
 	// ─── NEW event kinds (Part B) ─────────────────────────────────────────────
 
-	it("message.received → 'reading the task'", () => {
-		expect(label([makeRow("message.received")])).toBe("reading the task");
+	it("message.received → 'Reading the request'", () => {
+		expect(label([makeRow("message.received")])).toBe("Reading the request");
 	});
 
-	it("run.started → 'thinking…'", () => {
-		expect(label([makeRow("run.started")])).toBe("thinking…");
+	it("run.started → 'Getting ready'", () => {
+		expect(label([makeRow("run.started")])).toBe("Getting ready");
 	});
 
-	it("subagent.started → 'delegating…'", () => {
-		expect(label([makeRow("subagent.started")])).toBe("delegating…");
+	it("subagent.started → 'Asking a helper'", () => {
+		expect(label([makeRow("subagent.started")])).toBe("Asking a helper");
 	});
 
-	it("artifact.created with name → 'writing <name>'", () => {
+	it("artifact.created with name → 'Writing <name>'", () => {
 		expect(
 			label([
 				makeRow("artifact.created", { artifact: { name: "turn_summary" } }),
 			]),
-		).toBe("writing turn_summary");
+		).toBe("Writing turn_summary");
 	});
 
-	it("artifact.created with no name → 'writing artifact'", () => {
-		expect(label([makeRow("artifact.created")])).toBe("writing artifact");
+	it("artifact.created with no name → 'Saving a file'", () => {
+		expect(label([makeRow("artifact.created")])).toBe("Saving a file");
 	});
 
 	it("artifact.created truncates long name to 35 chars", () => {
 		const longName = "a".repeat(40);
 		expect(
 			label([makeRow("artifact.created", { artifact: { name: longName } })]),
-		).toBe(`writing ${"a".repeat(35)}…`);
+		).toBe(`Writing ${"a".repeat(35)}…`);
 	});
 
-	it("message.completed (latest, before run.completed) → 'wrapping up…'", () => {
-		expect(label([makeRow("message.completed")])).toBe("wrapping up…");
+	it("message.completed (latest, before run.completed) → 'Wrapping up'", () => {
+		expect(label([makeRow("message.completed")])).toBe("Wrapping up");
 	});
 
 	it("rows are DESC-ordered — newest event wins", () => {
@@ -111,7 +111,7 @@ describe("latestActivityLabelFromEvents — Part B widening", () => {
 				makeRow("artifact.created", { artifact: { name: "turn_summary" } }),
 				makeRow("message.received"),
 			]),
-		).toBe("writing turn_summary");
+		).toBe("Writing turn_summary");
 	});
 
 	it("terminal event (run.completed) produces null — no label for post-hoc record", () => {
@@ -124,12 +124,12 @@ describe("latestActivityLabelFromEvents — Part B widening", () => {
 	});
 
 	it("tool.started without name → falls through to next event", () => {
-		// No name in payload → keeps scanning; finds message.received → "reading the task"
+		// No name in payload → keeps scanning; finds message.received → "Reading the request"
 		expect(
 			label([
 				makeRow("tool.started", {}), // no name
 				makeRow("message.received"),
 			]),
-		).toBe("reading the task");
+		).toBe("Reading the request");
 	});
 });

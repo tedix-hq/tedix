@@ -514,7 +514,17 @@ export function SendFailureBanner({
 	);
 }
 
-export function ApprovalInputGate({ count }: { count: number }) {
+/**
+ * Shown only while the approval card itself is scrolled out of view: the
+ * card is the one place to decide, this just brings the reader back to it.
+ */
+export function ApprovalInputGate({
+	count,
+	onShow,
+}: {
+	count: number;
+	onShow?: () => void;
+}) {
 	return (
 		<div
 			data-slot="chat-approval-gate"
@@ -526,12 +536,16 @@ export function ApprovalInputGate({ count }: { count: number }) {
 					Waiting for your approval
 				</Text>
 				<Text as="span" role="label" tone="secondary" className="block">
-					Approve below or reply ‘approve’.
+					{count > 1
+						? `${count} requests are waiting above.`
+						: "The request is waiting above, or reply ‘approve’."}
 				</Text>
 			</span>
-			<Badge variant="outline" className="shrink-0">
-				{count} pending
-			</Badge>
+			{onShow ? (
+				<Button size="sm" variant="outline" onClick={onShow}>
+					Show
+				</Button>
+			) : null}
 		</div>
 	);
 }

@@ -987,13 +987,18 @@ describe("controllableRun", () => {
 });
 
 describe("ApprovalInputGate", () => {
-	it("shows reply guidance while an approval is pending", () => {
-		const html = renderToStaticMarkup(<ApprovalInputGate count={2} />);
+	it("points back at the cards while they are scrolled out of view", () => {
+		const html = renderToStaticMarkup(
+			<ApprovalInputGate count={2} onShow={() => {}} />,
+		);
 		expect(html).toContain('data-slot="chat-approval-gate"');
 		expect(html).toContain("Waiting for your approval");
-		expect(html).toContain("Approve below or reply ‘approve’");
-		expect(html).toContain("2 pending");
+		expect(html).toContain("2 requests are waiting above.");
+		expect(html).toContain(">Show<");
 		expect(html).not.toContain("chat-composer");
+		expect(renderToStaticMarkup(<ApprovalInputGate count={1} />)).toContain(
+			"The request is waiting above, or reply ‘approve’.",
+		);
 	});
 });
 
@@ -3148,9 +3153,8 @@ describe("<ChatThread> delegation names", () => {
 		const { container } = mountThread();
 		await flush();
 		const card = container.querySelector('[data-slot="delegation-work-card"]');
-		expect(card?.textContent).toContain(
-			"Delegated to Chief Technology Officer",
-		);
+		expect(card?.textContent).toContain("Chief Technology Officer");
+		expect(card?.textContent).not.toContain("Delegated");
 		expect(card?.textContent).not.toContain("tedi-cto");
 	});
 });

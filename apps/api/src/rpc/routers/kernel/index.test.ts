@@ -174,8 +174,7 @@ describe("approval-held delegation routing", () => {
 			},
 		);
 
-		expect(msg).toContain("not dispatched yet");
-		expect(msg).toContain("approve this Home run");
+		expect(msg).toBe("I'll ask CTO to review the CLI. Approve below to start.");
 		expect(msg).not.toContain("delegating to CTO now");
 	});
 
@@ -208,10 +207,10 @@ describe("approval-held delegation routing", () => {
 			} as unknown as Parameters<typeof renderDelegationResponse>[1],
 		);
 
-		expect(msg).toContain("not dispatched yet");
-		expect(msg).toContain("routed the decision to CTO");
-		expect(msg).toContain("only if CTO declines");
-		expect(msg).not.toContain("approve this Home run");
+		expect(msg).toBe(
+			"I'll ask CPO to review the roadmap. CTO decides whether it starts; I'll come back to you only if CTO declines or can't decide.",
+		);
+		expect(msg).not.toContain("Approve below");
 	});
 });
 

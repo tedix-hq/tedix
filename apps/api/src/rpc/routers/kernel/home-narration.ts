@@ -42,7 +42,8 @@ import { nonNullRecord, stringFromPayload } from "./runtime-shared";
  *   under which the turn carries `delegatedTediId` + `childRunId` and therefore
  *   renders a receipt. A `needs_approval` delegation is deliberately NOT
  *   stamped: it dispatches nothing, carries no child run, renders no receipt,
- *   and its prose is the only surface asking the operator to approve.
+ *   and its one-line prose points the operator at the approval card, which
+ *   is the only surface asking for the decision.
  * - `turn_canceled_delegated` — the operator-cancel marker written by the
  *   pre-materialize cancel gate for a turn whose dispatch had already landed.
  *   The receipt on the same turn resolves to "Canceled".

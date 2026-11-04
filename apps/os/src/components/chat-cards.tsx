@@ -55,6 +55,9 @@ import {
 	relativeTime,
 } from "@/lib/time";
 import {
+	DELEGATION_IDLE_NOTICE_AFTER_MS,
+	plainFailure,
+	plainRuntimeLabel,
 	shortAge,
 	type DelegationLiveState,
 	type DelegationStep,
@@ -514,8 +517,10 @@ export type DelegationWork = {
 	childRunId: string | null;
 	delegatedTediId: string | null;
 	status: TediRunStatus;
-	/** Activity or failure reason from the durable parent run. */
+	/** Activity or failure reason from the durable parent run, in plain words. */
 	activityLabel?: string | null;
+	/** The runtime's own failure record, kept for a hover title. */
+	failure?: { reason: string | null; error: string | null } | null;
 	/**
 	 * `metadata.delegationProof` on the parent run: the kernel's verdict on the
 	 * delegated result's evidence. Rendered as a chip, never as prose — the
@@ -601,22 +606,27 @@ export function delegationFromRun(run: HomeRun): DelegationWork | null {
 			childStatus === "canceled")
 			? childStatus
 			: run.status;
-	const failure = asRecord(metadata?.delegationFailure);
-	const failureReason =
-		typeof failure?.error === "string"
-			? failure.error
-			: typeof metadata?.childRunPreview === "string"
-				? metadata.childRunPreview
-				: (run.progress?.detail ?? null);
+	const envelope = asRecord(metadata?.delegationFailure);
+	const failure =
+		status === "failed"
+			? {
+					reason: asString(envelope?.reason) ?? null,
+					error:
+						asString(envelope?.error) ??
+						asString(metadata?.childRunPreview) ??
+						run.progress?.detail ??
+						null,
+				}
+			: null;
 	return {
 		runId: run.id,
 		childRunId,
 		delegatedTediId,
 		status,
-		activityLabel:
-			status === "failed"
-				? failureReason
-				: (run.progress?.label ?? run.progress?.detail ?? null),
+		activityLabel: failure
+			? plainFailure(failure)
+			: plainRuntimeLabel(run.progress?.label ?? run.progress?.detail),
+		failure,
 		proof: delegationProofFromRun(run),
 		timing: {
 			progress: run.progress,
@@ -689,7 +699,13 @@ export function DelegationWorkCard({
 	const who =
 		sanitizeUntrustedText(tediName ?? "").trim() || "a digital worker";
 	const stalled = live?.phase === "stalled";
-	const step = live ? live.currentStep : work.activityLabel;
+	const step = work.failure
+		? plainFailure({ ...work.failure, who })
+		: live
+			? live.currentStep
+			: work.activityLabel;
+	// The runtime's own words stay one hover away.
+	const stepTitle = work.failure?.error ?? step;
 	const meta = live
 		? [
 				live.phase === "queued"
@@ -697,7 +713,9 @@ export function DelegationWorkCard({
 					: live.elapsedMs != null
 						? `${active ? "Running" : "Took"} ${formatDurationMs(Math.floor(live.elapsedMs / 1_000) * 1_000)}`
 						: null,
-				live.idleMs != null && !stalled
+				live.idleMs != null &&
+				!stalled &&
+				live.idleMs >= DELEGATION_IDLE_NOTICE_AFTER_MS
 					? `last activity ${shortAge(live.idleMs)} ago`
 					: null,
 			].filter(Boolean)
@@ -719,16 +737,16 @@ export function DelegationWorkCard({
 						{stalled ? (
 							<Warning size={15} className="text-kumo-warning" />
 						) : active ? (
-							<Loader aria-label="Delegated work running" size={15} />
+							<Loader aria-label={`${who} is working`} size={15} />
 						) : (
 							<TreeStructure size={15} />
 						)}
 					</span>
 					<Text as="span" truncate className="flex-1">
-						Delegated to{" "}
 						<Text as="strong" weight="medium">
 							{who}
 						</Text>
+						{active && !stalled ? " is working on this" : ""}
 					</Text>
 					{stalled ? (
 						<Badge variant="warning" data-status="stalled">
@@ -743,7 +761,7 @@ export function DelegationWorkCard({
 					<ExecutionLinkChip
 						runId={work.runId}
 						branch={work.childRunId ?? undefined}
-						label={live ? "Details" : "View delegation"}
+						label="Details"
 						LinkComponent={LinkComponent}
 					/>
 				</span>
@@ -755,7 +773,7 @@ export function DelegationWorkCard({
 						truncate
 						className="pl-7"
 						data-slot="delegation-step"
-						title={sanitizeUntrustedText(step)}
+						title={sanitizeUntrustedText(stepTitle ?? step)}
 					>
 						{sanitizeUntrustedText(step)}
 					</Text>
@@ -875,19 +893,20 @@ export function DelegationActivityList({
 			<CollapsibleContent>
 				<ol
 					data-slot="delegation-activity"
-					aria-label="Delegated activity"
+					aria-label="Steps"
 					className="m-0 mt-1 grid list-none gap-0.5 border-kumo-hairline border-l p-0 pl-3"
 				>
 					{steps.length > shown.length ? (
 						<Text as="li" role="caption" tone="secondary">
-							{steps.length - shown.length} earlier steps in View delegation
+							{steps.length - shown.length} earlier steps in Details
 						</Text>
 					) : null}
 					{shown.map((step) => (
 						<li
 							key={step.id}
 							data-step-status={step.status}
-							className="flex min-w-0 items-center gap-2"
+							data-attempts={step.attempts > 1 ? step.attempts : undefined}
+							className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2"
 						>
 							<span className="flex size-4 shrink-0 items-center justify-center">
 								{STEP_ICONS[step.status]}
@@ -896,10 +915,14 @@ export function DelegationActivityList({
 								as="span"
 								role="caption"
 								truncate
-								className="flex-1"
 								title={step.detail ?? undefined}
 							>
 								{step.label}
+								{step.retries
+									? ` after ${step.retries} ${step.retries === 1 ? "retry" : "retries"}`
+									: step.attempts > 1
+										? ` ×${step.attempts}`
+										: ""}
 							</Text>
 							<Text
 								as="span"
@@ -913,6 +936,18 @@ export function DelegationActivityList({
 										? "Failed"
 										: (formatDurationMs(step.durationMs) ?? "Done")}
 							</Text>
+							{step.status === "failed" && step.failureReason ? (
+								<Text
+									as="span"
+									role="caption"
+									tone="secondary"
+									truncate
+									className="col-start-2 col-end-4"
+									title={sanitizeUntrustedText(step.failureReason)}
+								>
+									{sanitizeUntrustedText(step.failureReason)}
+								</Text>
+							) : null}
 						</li>
 					))}
 				</ol>
@@ -1227,9 +1262,7 @@ export function approvalsFromRunSet(
 			{
 				approvalId: homeDelegationApprovalId(run.id),
 				runId: run.id,
-				summary: tediName
-					? `Approve delegation to ${tediName}`
-					: "Approve delegation",
+				summary: tediName ? `${tediName} is ready to start` : "Ready to start",
 				detail: review ? `${review.outcome}. ${holdReason}` : holdReason,
 				reasonCode,
 				tediName,
@@ -1424,6 +1457,16 @@ export function ApprovalCard({
 					>
 						{sanitizeUntrustedText(approval.summary)}
 					</Text>
+					{approval.requestPreview ? (
+						<Text
+							as="p"
+							role="body"
+							className="break-words"
+							data-slot="approval-request"
+						>
+							“{sanitizeUntrustedText(approval.requestPreview)}”
+						</Text>
+					) : null}
 					{actionable && !isDelegation ? (
 						<ApprovalDecisionCopy
 							approval={{
@@ -1554,14 +1597,6 @@ export function ApprovalCard({
 					<span className="col-span-2 flex min-w-0 flex-wrap items-center justify-start gap-2 pl-[30px]">
 						<Button
 							size="sm"
-							loading={inFlight === "delegate"}
-							disabled={resolving}
-							onClick={() => resolve("delegate")}
-						>
-							Decide for me
-						</Button>
-						<Button
-							size="sm"
 							icon={<Check size={14} />}
 							loading={inFlight === "approve"}
 							disabled={resolving}
@@ -1571,7 +1606,7 @@ export function ApprovalCard({
 						</Button>
 						<Button
 							size="sm"
-							variant="destructive"
+							variant="outline"
 							icon={<X size={14} />}
 							loading={inFlight === "reject"}
 							disabled={resolving}
@@ -1579,10 +1614,19 @@ export function ApprovalCard({
 						>
 							Reject
 						</Button>
+						<Button
+							size="sm"
+							variant="ghost"
+							loading={inFlight === "delegate"}
+							disabled={resolving}
+							onClick={() => resolve("delegate")}
+						>
+							Decide for me
+						</Button>
 						{approval.sessionScopeKey ? (
 							<Button
 								size="sm"
-								variant="outline"
+								variant="ghost"
 								disabled={resolving}
 								onClick={() =>
 									onAlwaysApprove?.(
