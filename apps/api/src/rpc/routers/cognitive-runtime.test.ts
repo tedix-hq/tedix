@@ -3509,16 +3509,20 @@ describe("cognitive runtime router invariants", () => {
 	});
 
 	async function historicalContributionFixture(
-		options: { persisted?: boolean; foreign?: "organization" | "tedi" } = {},
+		options: {
+			persisted?: boolean;
+			foreign?: "organization" | "tedi";
+			unbound?: boolean;
+		} = {},
 	) {
 		const db = createRuntimeDb();
-		const artifactId = "producer-run:artifact:v2:deliverable:report.md";
+		const artifactId = `${options.unbound ? TEDI_ID : "producer-run"}:artifact:v2:deliverable:report.md`;
 		await db.insert(tediArtifacts).values({
 			id: artifactId,
 			organizationId: options.foreign === "organization" ? "other-org" : ORG_ID,
 			tediId: options.foreign === "tedi" ? "other-tedi" : TEDI_ID,
-			conversationId: "producer-conversation",
-			runId: "producer-run",
+			conversationId: options.unbound ? null : "producer-conversation",
+			runId: options.unbound ? null : "producer-run",
 			kind: "document",
 			name: "report.md",
 			metadata: { subKind: "deliverable", producer: "tedi-tool" },
@@ -3570,42 +3574,48 @@ describe("cognitive runtime router invariants", () => {
 		};
 	}
 
-	it("records historical contribution rejection once without rewriting custody or granting a receipt", async () => {
-		const { db, input, client } = await historicalContributionFixture();
-		const audit = await vi.importActual<
-			typeof import("@tedix/db/queries/audit")
-		>("@tedix/db/queries/audit");
-		mocks.insertAuditEvent.mockImplementation(audit.insertAuditEvent);
-		const eventsBefore = await db.select().from(tediRuntimeEvents);
-		const artifactsBefore = await db.select().from(tediArtifacts);
-		for (let retry = 0; retry < 2; retry++) {
-			const result = await client.recordEvent(input);
-			expect(result.event).toMatchObject({
-				id: input.id,
-				payload: input.payload,
-				createdAt: input.createdAt,
+	it.each([false, true])(
+		"records historical contribution rejection once without rewriting custody or granting a receipt (unbound=%s)",
+		async (unbound) => {
+			const { db, input, client } = await historicalContributionFixture({
+				unbound,
 			});
-		}
-		expect(await db.select().from(tediRuntimeEvents)).toEqual(eventsBefore);
-		expect(await db.select().from(tediArtifacts)).toEqual(artifactsBefore);
-		expect(mocks.recordContribution).not.toHaveBeenCalled();
-		const rows = await db.select().from(auditEvents);
-		expect(rows).toHaveLength(1);
-		expect(rows[0]).toMatchObject({
-			organizationId: ORG_ID,
-			action: "cognitive_runtime.artifact_contribution_rejected",
-			resourceId: input.id,
-			metadata: {
-				reason: "producer_context_mismatch",
-				disposition: "rejected",
-				runId: "consumer-run",
-				artifactRunId: "producer-run",
-			},
-		});
-	});
+			const audit = await vi.importActual<
+				typeof import("@tedix/db/queries/audit")
+			>("@tedix/db/queries/audit");
+			mocks.insertAuditEvent.mockImplementation(audit.insertAuditEvent);
+			const eventsBefore = await db.select().from(tediRuntimeEvents);
+			const artifactsBefore = await db.select().from(tediArtifacts);
+			for (let retry = 0; retry < 2; retry++) {
+				const result = await client.recordEvent(input);
+				expect(result.event).toMatchObject({
+					id: input.id,
+					payload: input.payload,
+					createdAt: input.createdAt,
+				});
+			}
+			expect(await db.select().from(tediRuntimeEvents)).toEqual(eventsBefore);
+			expect(await db.select().from(tediArtifacts)).toEqual(artifactsBefore);
+			expect(mocks.recordContribution).not.toHaveBeenCalled();
+			const rows = await db.select().from(auditEvents);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({
+				organizationId: ORG_ID,
+				action: "cognitive_runtime.artifact_contribution_rejected",
+				resourceId: input.id,
+				metadata: {
+					reason: "producer_context_mismatch",
+					disposition: "rejected",
+					runId: "consumer-run",
+					artifactRunId: unbound ? null : "producer-run",
+				},
+			});
+		},
+	);
 
 	it.each([
 		"fresh",
+		"fresh-unbound",
 		"organization",
 		"tedi",
 		"payload",
@@ -3619,7 +3629,8 @@ describe("cognitive runtime router invariants", () => {
 		"does not acknowledge a %s contribution mismatch",
 		async (mismatch) => {
 			const fixture = await historicalContributionFixture({
-				persisted: mismatch !== "fresh",
+				persisted: mismatch !== "fresh" && mismatch !== "fresh-unbound",
+				unbound: mismatch === "fresh-unbound",
 				foreign:
 					mismatch === "organization" || mismatch === "tedi"
 						? mismatch
@@ -3653,7 +3664,7 @@ describe("cognitive runtime router invariants", () => {
 			expect(mocks.recordContribution).not.toHaveBeenCalled();
 			expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
 			expect(await db.select().from(tediRuntimeEvents)).toHaveLength(
-				mismatch === "fresh" ? 0 : 1,
+				mismatch === "fresh" || mismatch === "fresh-unbound" ? 0 : 1,
 			);
 		},
 	);
