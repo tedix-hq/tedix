@@ -1,5 +1,4 @@
 import { DatabaseSync } from "node:sqlite";
-import { readFileSync, readdirSync } from "node:fs";
 import {
 	afterEach,
 	beforeEach,
@@ -10,6 +9,7 @@ import {
 } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { tedis } from "@tedix/db/schema/tedis";
 import { projects } from "@tedix/db/schema/projects";
@@ -64,14 +64,16 @@ const after = "2026-10-16T12:00:00.000Z";
 const through = "2026-10-16T12:02:00.000Z";
 const changedAt = "2026-10-16T12:01:00.000Z";
 
+// Build the shared migrated-schema template at collection, not inside a timed
+// test on a shared machine.
+createMigratedSqlite({ foreignKeys: false }).close();
+
 function fixture(plans: string[] = [], migrated = false) {
-	const sqlite = new DatabaseSync(":memory:");
+	const sqlite = migrated
+		? createMigratedSqlite({ foreignKeys: false })
+		: new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
-	if (migrated) {
-		const root = new URL("../../../../packages/db/drizzle/", import.meta.url);
-		for (const name of readdirSync(root).sort())
-			sqlite.exec(readFileSync(new URL(`${name}/migration.sql`, root), "utf8"));
-	} else
+	if (!migrated)
 		sqlite.exec(
 			schemaDdl(
 				tedis,

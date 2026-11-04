@@ -11,6 +11,12 @@ import {
 } from "./sync-logs";
 import { syncCatalogAppFromStore } from "./upsert-sync";
 
+// Build the transformed-chain template at collection, not inside a timed test
+// on a shared machine.
+createMigratedSqlite({
+	transformMigration: (sql) => sql.replaceAll("--> statement-breakpoint", ""),
+}).close();
+
 function migratedDb(): DbClient {
 	const sqlite = createMigratedSqlite({
 		transformMigration: (sql) => sql.replaceAll("--> statement-breakpoint", ""),

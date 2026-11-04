@@ -73,6 +73,17 @@ function messageOf(run: () => unknown): string {
 }
 
 describe("D1 cascade safety", () => {
+	// The real chain is judged once, at collection: a full replay inside a timed
+	// test lets shared-machine contention, not the check, decide the verdict.
+	const realChainError = (() => {
+		try {
+			checkWithBaseline();
+			return undefined;
+		} catch (error) {
+			return error;
+		}
+	})();
+
 	afterAll(() => {
 		for (const directory of directories) {
 			rmSync(directory, { recursive: true, force: true });
@@ -200,7 +211,7 @@ describe("D1 cascade safety", () => {
 	});
 
 	it("passes the real migration chain", () => {
-		expect(() => checkWithBaseline()).not.toThrow();
+		if (realChainError) throw realChainError;
 	});
 });
 

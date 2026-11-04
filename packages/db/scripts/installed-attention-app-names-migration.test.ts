@@ -8,6 +8,13 @@ const sql = readFileSync(
 	"utf8",
 );
 
+// Build the chain-prefix template at collection, not inside a timed test on a
+// shared machine.
+createMigratedSqlite({
+	beforeMigration: migration,
+	foreignKeys: false,
+}).close();
+
 it("renames only default built-in titles across organizations and preserves name collisions", () => {
 	const db = createMigratedSqlite({
 		beforeMigration: migration,
