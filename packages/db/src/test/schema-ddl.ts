@@ -18,6 +18,7 @@ import { is, SQL } from "drizzle-orm";
 import {
 	getTableConfig,
 	type SQLiteColumn,
+	SQLiteDialect,
 	type SQLiteTable,
 } from "drizzle-orm/sqlite-core";
 import { capabilityLinks, orgCapabilities } from "../schema/capabilities";
@@ -39,6 +40,14 @@ import {
 	workResourcePools,
 	workResourceRequirements,
 } from "../schema/work-factory";
+
+let indexDialect: SQLiteDialect | undefined;
+
+/** Renders an index expression the way `CREATE INDEX` accepts it. */
+function indexExpression(expression: SQL): string {
+	indexDialect ??= new SQLiteDialect();
+	return indexDialect.sqlToQuery(expression.inlineParams(), "indexes").sql;
+}
 
 function quote(identifier: string): string {
 	return `"${identifier.replace(/"/g, '""')}"`;
@@ -70,6 +79,14 @@ export interface TableDdlOptions {
 	 * of ledger tables without their parent tables, so its DDL omits them.
 	 */
 	foreignKeys?: boolean;
+	/**
+	 * Emit indexes built over expressions (default false). Test doubles skip
+	 * them: several fixtures apply the real migration next to this DDL, and the
+	 * retention tests store deliberately non-JSON metadata that a json_extract
+	 * index would reject. The logs-database renderer turns them on so its
+	 * checked-in migrations are compared index for index.
+	 */
+	expressionIndexes?: boolean;
 }
 
 /** Render `CREATE TABLE` (plus its indexes) for one Drizzle table. */
@@ -118,16 +135,17 @@ export function tableDdl(
 
 	for (const index of config.indexes) {
 		const indexConfig = index.config;
-		// Expression indexes carry SQL rather than columns; tests do not depend on
-		// them for correctness, only for the plain column indexes that back
-		// uniqueness, so skip anything that is not a bare column list.
-		const columns = indexConfig.columns.filter(
-			(column): column is SQLiteColumn => !is(column, SQL),
+		const hasExpression = indexConfig.columns.some((column) => is(column, SQL));
+		if (hasExpression && !options.expressionIndexes) continue;
+		// An expression renders the way drizzle-kit writes it: column references
+		// unqualified ("." is not allowed in index expressions), parameters
+		// inlined.
+		const members = indexConfig.columns.map((column) =>
+			is(column, SQL) ? indexExpression(column) : quote(column.name),
 		);
-		if (columns.length !== indexConfig.columns.length) continue;
 		statements.push(
 			`CREATE ${indexConfig.unique ? "UNIQUE " : ""}INDEX ${quote(indexConfig.name)} ` +
-				`ON ${quote(config.name)} (${columns.map((column) => quote(column.name)).join(", ")});`,
+				`ON ${quote(config.name)} (${members.join(", ")});`,
 		);
 	}
 

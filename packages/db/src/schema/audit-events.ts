@@ -4,6 +4,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const auditEvents = sqliteTable(
@@ -41,6 +42,35 @@ export const auditEvents = sqliteTable(
 			table.organizationId,
 			table.resourceType,
 			table.resourceId,
+			table.timestamp,
+		),
+		// queries/analytics-audit.ts looks MCP telemetry up by metadata fields.
+		// Without these expression indexes each lookup walked the whole tenant
+		// over idx_audit_events_org_timestamp in both stores and applied
+		// json_extract row by row (measured 1,679,000 rows read and 7 s on the
+		// logs database to return one trace). The expressions must match the
+		// query text exactly for SQLite to use them.
+		// Trace and execution ids are unique across tenants, so the index leads
+		// with the id and serves platform-wide (no organization) reads too;
+		// trailing timestamp keeps the ORDER BY index-served.
+		index("idx_audit_events_trace_timestamp").on(
+			sql`json_extract(${table.metadata}, '$.traceId')`,
+			table.timestamp,
+		),
+		index("idx_audit_events_execution_timestamp").on(
+			sql`json_extract(${table.metadata}, '$.executionId')`,
+			table.timestamp,
+		),
+		// Recent activity by app and by actor: organization leads so the planner
+		// prefers this over the tenant index when both equalities are present.
+		index("idx_audit_events_org_app_timestamp").on(
+			table.organizationId,
+			sql`json_extract(${table.metadata}, '$.appId')`,
+			table.timestamp,
+		),
+		index("idx_audit_events_org_actor_timestamp").on(
+			table.organizationId,
+			table.actorId,
 			table.timestamp,
 		),
 	],
