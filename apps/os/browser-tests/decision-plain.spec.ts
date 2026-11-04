@@ -2,12 +2,19 @@ import assert from "node:assert/strict";
 import { chromium, type Browser } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
-/** A Codex-style question reads as plain English and saves after a stale refusal. */
+/**
+ * A Codex-style question reads as plain English and saves after a stale
+ * refusal, whether the person clicks the notice's button or Answer again.
+ */
 const server = await startFixtureServer("/browser-tests/decision-plain.html");
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch({ headless: true });
-	for (const width of [390, 1280]) {
+	for (const [width, retry] of [
+		[390, "Send answer"],
+		[1280, "Send answer"],
+		[1280, "Save with the latest version"],
+	] as const) {
 		const page = await browser.newPage({ viewport: { width, height: 844 } });
 		try {
 			await page.goto(
@@ -50,12 +57,8 @@ try {
 				),
 				`${width}: no horizontal overflow`,
 			);
-			await card
-				.getByRole("button", {
-					name: "Save with the latest version",
-					exact: true,
-				})
-				.click();
+			// One more click saves it, against the version the notice showed.
+			await card.getByRole("button", { name: retry, exact: true }).click();
 			await page.waitForFunction(
 				() => document.documentElement.dataset.saved === "2",
 			);
@@ -71,7 +74,7 @@ try {
 					reviewedChangesThrough: "2026-11-04T09:20:00.000Z",
 				},
 			]);
-			console.log(`Plain decision card ${width}px passed`);
+			console.log(`Plain decision card ${width}px (${retry}) passed`);
 		} finally {
 			await page.close();
 		}

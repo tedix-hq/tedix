@@ -567,8 +567,11 @@ export function WorkDecisionCard({
 		action: DecisionCardAction,
 		reason?: string,
 		confirmed = false,
-		reviewedChangesThrough?: string,
+		reviewedThrough?: string,
 	): Promise<SubmitStatus> => {
+		// The newer note is on screen: the next answer, from any control, is
+		// made against it. Anything newer than it still blocks the answer.
+		const reviewedChangesThrough = reviewedThrough ?? stale?.through;
 		if (
 			busy ||
 			action.disabled ||

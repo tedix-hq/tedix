@@ -1202,6 +1202,38 @@ it("recovers a stale card in one click by answering against the newer note", asy
 	expect(host.textContent).toContain("Decision saved");
 });
 
+it("binds the next plain Answer to the newer note it showed", async () => {
+	const stale = (through: string) =>
+		Object.assign(new Error("The linked Work has a newer comment: raw"), {
+			code: "CONFLICT",
+			data: { reason: "newer_comment", reviewedChangesThrough: through },
+		});
+	const decide = vi
+		.fn(async (_feedback: DecisionCardFeedback) => {})
+		.mockRejectedValueOnce(stale("2026-11-04T09:20:00.000Z"))
+		.mockRejectedValueOnce(stale("2026-11-04T09:30:00.000Z"));
+	await mountQuestion("Keep dark-factory private?", decide);
+	await click("Keep private");
+	expect(host.querySelector(".fd-stale")).not.toBeNull();
+	await click("Keep private");
+	expect(decide).toHaveBeenLastCalledWith(
+		expect.objectContaining({
+			reviewedChangesThrough: "2026-11-04T09:20:00.000Z",
+		}),
+	);
+	// A note newer than the one read still blocks, and is shown in turn.
+	expect(host.querySelector(".fd-stale")).not.toBeNull();
+	expect(host.textContent).not.toContain("Decision saved");
+	await click("Keep private");
+	expect(decide).toHaveBeenCalledTimes(3);
+	expect(decide).toHaveBeenLastCalledWith(
+		expect.objectContaining({
+			reviewedChangesThrough: "2026-11-04T09:30:00.000Z",
+		}),
+	);
+	expect(host.textContent).toContain("Decision saved");
+});
+
 it("shows a short plain reason for other refusals", async () => {
 	const decide = vi
 		.fn(async (_feedback: DecisionCardFeedback) => {})
