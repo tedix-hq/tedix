@@ -653,10 +653,14 @@ try {
 			await openWhy(page);
 			await page
 				.getByRole("heading", {
-					name: "Results and learning",
+					name: "Your decisions",
 					exact: true,
 				})
 				.waitFor();
+			// Stats stay folded until someone asks for them.
+			await page
+				.getByRole("button", { name: "Stats and learned rules", exact: true })
+				.click();
 			for (const name of [
 				"Filters",
 				"Keyboard shortcuts",

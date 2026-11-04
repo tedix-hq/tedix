@@ -630,6 +630,11 @@ export async function runWorkIphone(
 				);
 
 				await check(REQUEST, "textarea");
+				// Provenance sits under the card's collapsed "Details for agents".
+				await page
+					.getByRole("button", { name: "Details for agents", exact: true })
+					.first()
+					.click();
 				const evidence = page
 					.getByRole("link", { name: "Evidence", exact: true })
 					.first();

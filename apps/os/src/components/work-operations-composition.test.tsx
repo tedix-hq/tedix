@@ -548,15 +548,10 @@ describe("Work interactions", () => {
 		expect(page.host.textContent).toContain("OS");
 		expect(page.host.textContent).not.toContain("Responses (0)");
 		expect(page.host.textContent).toContain("Can we refund within 30 days?");
-		expect(
-			page.host
-				.querySelector('[data-kumo-part="default-trigger"]')
-				?.getAttribute("aria-expanded"),
-		).toBe("false");
-		expect(
-			page.host.querySelector('[data-kumo-part="default-trigger"]')
-				?.textContent,
-		).toBe("Why am I seeing this?");
+		const why = [
+			...page.host.querySelectorAll('[data-kumo-part="default-trigger"]'),
+		].find((trigger) => trigger.textContent === "Why am I seeing this?");
+		expect(why?.getAttribute("aria-expanded")).toBe("false");
 		await page.submit("Answer");
 		expect(mutations("workInteractions.respond")).toEqual([]);
 		await page.type("Your answer", "  Keep access passwordless.  ");

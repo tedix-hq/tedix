@@ -185,6 +185,19 @@ async function pressButton(label: string) {
 	expect(target).toBeDefined();
 	await act(async () => target!.click());
 }
+/** "Give feedback" and other quiet controls live in the card's "⋯" menu. */
+async function chooseMenuItem(label: string) {
+	const more = document.querySelector<HTMLButtonElement>(
+		'button[aria-label="More actions"]',
+	);
+	expect(more).not.toBeNull();
+	await act(async () => more!.click());
+	const item = [
+		...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+	].find((entry) => entry.textContent === label);
+	expect(item, label).toBeDefined();
+	await act(async () => item!.click());
+}
 async function enter(label: string, value: string) {
 	const input = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(
 		`[aria-label="${label}"]`,
@@ -264,7 +277,7 @@ describe("outbound decisions through the shared card", () => {
 	});
 	it("sends free-text feedback as feedback, never as approval", async () => {
 		await mountOutbound();
-		await pressButton("Give feedback");
+		await chooseMenuItem("Give feedback");
 		await enter("Optional feedback", "Keep this to two short paragraphs.");
 		await pressButton("Send feedback");
 		expect(actOutbound).toHaveBeenCalledWith(

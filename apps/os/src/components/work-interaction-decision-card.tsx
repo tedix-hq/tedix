@@ -233,6 +233,9 @@ export function WorkInteractionDecisionCard({
 							: "answer",
 				body,
 				resolvesRequest: !deferred && !(lane && feedback.action === "snooze"),
+				...(feedback.reviewedChangesThrough
+					? { reviewedChangesThrough: feedback.reviewedChangesThrough }
+					: {}),
 				metadata: {
 					elapsedMs: Date.now() - shown.current.at,
 					cardAction: feedback.action,
@@ -713,7 +716,6 @@ export function WorkInteractionDecisionCard({
 					{nextAction.label}
 				</Button>
 			) : null}
-			{respond.error ? <p role="alert">{respond.error.message}</p> : null}
 		</div>,
 	);
 }

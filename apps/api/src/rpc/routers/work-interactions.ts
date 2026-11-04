@@ -15,10 +15,14 @@ import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
 import { bindCardPresentationSource } from "../../services/card-presentation-source";
 import {
 	decisionSourcesCurrent,
+	decisionSourcesReview,
 	DECISION_SOURCE_CHANGED,
 } from "@tedix/db/queries/work-items/decision-sources";
 import { refreshDecisionSourceCards } from "../../services/decision-sources";
-import { recheckDecisionAction } from "../../services/decision-action-recheck";
+import {
+	recheckDecisionAction,
+	staleDecisionError,
+} from "../../services/decision-action-recheck";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
 import { listDecisionCardPresentations } from "@tedix/db/queries/work-items/card-presentation";
 import {
@@ -673,20 +677,34 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 				initialRequest.targetType === responder.type &&
 				initialRequest.targetId === responder.id
 			) {
-				const changed = await recheckDecisionAction(context.db, initialRequest);
-				if (changed)
-					throw createError(
-						ErrorCodes.CONFLICT,
-						`${changed.change} Review the fresh card ${changed.requestId}.`,
-					);
+				const changed = await recheckDecisionAction(
+					context.db,
+					initialRequest,
+					undefined,
+					input.reviewedChangesThrough,
+				);
+				if (changed) throw staleDecisionError(changed);
 			}
 			if (
 				initialRequest &&
 				initialRequest.targetType === responder.type &&
-				initialRequest.targetId === responder.id &&
-				!(await decisionSourcesCurrent(context.db, orgId, initialRequest))
-			)
-				throw createError(ErrorCodes.CONFLICT, DECISION_SOURCE_CHANGED);
+				initialRequest.targetId === responder.id
+			) {
+				const sources = await decisionSourcesReview(
+					context.db,
+					orgId,
+					initialRequest,
+					{ reviewedThrough: input.reviewedChangesThrough },
+				);
+				if (!sources.current)
+					throw sources.reviewable
+						? staleDecisionError({
+								change: DECISION_SOURCE_CHANGED,
+								reviewableThrough: sources.reviewable.through,
+								note: sources.reviewable.note,
+							})
+						: createError(ErrorCodes.CONFLICT, DECISION_SOURCE_CHANGED);
+			}
 			const change = await latestCardChangeRequest(
 				context.db,
 				orgId,
@@ -705,9 +723,14 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 					);
 			}
 		}
-		let metadata = approvingUserId
-			? { ...input.metadata, actor: { type: actor.type, id: actor.id } }
-			: input.metadata;
+		let metadata: typeof input.metadata = {
+			...(approvingUserId
+				? { ...input.metadata, actor: { type: actor.type, id: actor.id } }
+				: input.metadata),
+			...(input.reviewedChangesThrough
+				? { reviewedChangesThrough: input.reviewedChangesThrough }
+				: {}),
+		};
 		let body = input.body;
 		if (input.responseKind === "handoff_accepted" && input.resolvesRequest) {
 			const request = initialRequest;

@@ -1,9 +1,6 @@
 import { createContext, type ReactNode } from "react";
 import type { DecisionCardPresentation } from "@tedix/api-contract/schemas/decision-card-presentation";
-import type {
-	DecisionCardContextItem,
-	DecisionCardPreferences,
-} from "@tedix/api-contract/schemas/user-settings";
+import type { DecisionCardPreferences } from "@tedix/api-contract/schemas/user-settings";
 
 /**
  * The written card face. Without a presentation the card shows the original
@@ -25,11 +22,6 @@ export const CardFaceContext = createContext<{
 	/** Decision class (or kind) that per-person card preferences are keyed by. */
 	cardType?: string;
 	preferences?: DecisionCardPreferences;
-	/** Called once per decided card with the strip items it showed and those opened. */
-	onContextUse?: (
-		shown: readonly DecisionCardContextItem[],
-		opened: readonly DecisionCardContextItem[],
-	) => void;
 	onOpenSettings?: () => void;
 } | null>(null);
 

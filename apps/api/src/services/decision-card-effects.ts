@@ -16,7 +16,10 @@ import {
 	type RespondWorkInteractionParams,
 } from "@tedix/db/queries/work-items/interactions";
 import { type BaseContext, createError, ErrorCodes } from "../rpc/orpc";
-import { recheckDecisionAction } from "./decision-action-recheck";
+import {
+	recheckDecisionAction,
+	staleDecisionError,
+} from "./decision-action-recheck";
 
 type Effect = NonNullable<DecisionEnvelope["options"][number]["effect"]>;
 type Response = Omit<RespondWorkInteractionParams, "id" | "now">;
@@ -324,12 +327,14 @@ export async function executeDecisionCardEffect(
 			ErrorCodes.CONFLICT,
 			"This action already started. Check its saved receipt before creating a new decision",
 		);
-	const changed = await recheckDecisionAction(context.db, request);
-	if (changed)
-		throw createError(
-			ErrorCodes.CONFLICT,
-			`${changed.change} Review the fresh card ${changed.requestId}.`,
-		);
+	const reviewedThrough = input.metadata?.reviewedChangesThrough;
+	const changed = await recheckDecisionAction(
+		context.db,
+		request,
+		undefined,
+		typeof reviewedThrough === "string" ? reviewedThrough : undefined,
+	);
+	if (changed) throw staleDecisionError(changed);
 	const started = await respondToWorkInteraction(context.db, {
 		...input,
 		id: crypto.randomUUID(),

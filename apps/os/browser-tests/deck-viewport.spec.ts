@@ -156,13 +156,13 @@ try {
 						).backgroundColor,
 					};
 				});
-				// Phones keep Later and Why this in the row's "⋯" menu.
+				// Phones keep Later and Why this in the row's "⋯" menu; "⋯" shows everywhere.
 				assert.equal(
 					result.actions.length,
-					width! < 640 ? 3 : 4,
+					width! < 640 ? 3 : 5,
 					width! < 640
 						? "Approve, Not this and ⋯ share the footer"
-						: "Approve, Not this, Later and Why this share the footer",
+						: "Approve, Not this, Later, Why this and ⋯ share the footer",
 				);
 				assert(
 					result.bodyHeight >= 44,

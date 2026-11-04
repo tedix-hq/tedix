@@ -44,7 +44,10 @@ export function FeedDeckDisclosure({
 	keepMounted = true,
 	open,
 	onOpenChange,
+	inline = false,
 }: {
+	/** Stay on the card even when a context rail is mounted. */
+	inline?: boolean;
 	title: ReactNode;
 	label?: string;
 	children: ReactNode;
@@ -54,7 +57,7 @@ export function FeedDeckDisclosure({
 	onOpenChange?: (open: boolean) => void;
 }) {
 	const rail = useContext(DecisionRailContext);
-	if (rail)
+	if (rail && !inline)
 		return (
 			<DecisionContextSection
 				sectionId="details"

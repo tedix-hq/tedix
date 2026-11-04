@@ -210,6 +210,19 @@ async function click(label: string) {
 	await act(async () => button(label).click());
 	await flush();
 }
+/** "Give feedback" and other quiet controls live in the card's "⋯" menu. */
+async function chooseMenuItem(label: string) {
+	const more = document.querySelector<HTMLButtonElement>(
+		'button[aria-label="More actions"]',
+	);
+	expect(more).not.toBeNull();
+	await act(async () => more!.click());
+	const item = [
+		...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+	].find((entry) => entry.textContent === label);
+	expect(item, label).toBeDefined();
+	await act(async () => item!.click());
+}
 function heading(index: number) {
 	return host.querySelector(
 		`section[aria-label="${examples[index]!.proposal}"]`,
@@ -424,7 +437,8 @@ describe("CardReviewApp decision interactions", () => {
 			'textarea[aria-label="What should change?"]',
 			"Please keep Friday as the delivery date.",
 		);
-		await click("Give feedback");
+		await chooseMenuItem("Give feedback");
+		await flush();
 		await type(
 			'textarea[aria-label="Optional feedback"]',
 			"Keep the original facts.",
