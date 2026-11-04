@@ -521,17 +521,16 @@ describe("publication deadlines and historical provenance", () => {
 		const f = await fixture();
 		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
 		try {
+			let postPending = false;
 			f.io.send = async (p) => {
 				await p.beforePost();
+				postPending = true;
 				return new Promise(() => {});
 			};
 			const pending = applyRepositoryCandidatePublication(f.io, f.input);
-			for (
-				let i = 0;
-				i < 100 && f.repo.createToken.mock.calls.length === 0;
-				i++
-			)
+			for (let i = 0; i < 100 && !postPending; i++)
 				await new Promise<void>((resolve) => setImmediate(resolve));
+			expect(postPending).toBe(true);
 			expect(f.repo.createToken).toHaveBeenCalledTimes(1);
 			await vi.advanceTimersByTimeAsync(25_001);
 			const r = await pending;
