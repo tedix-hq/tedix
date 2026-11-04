@@ -56,6 +56,58 @@ describe("critical-only autonomy v1", () => {
 		).toContain(actionClass);
 	});
 	it.each([
+		"Show me the Stripe balance",
+		"Look up our refund policy",
+		"Read the latest bank statement and summarize the charges",
+		"List the secrets configured for the example app",
+		"Check whether the API key expires soon",
+		"Review the credential rotation doc",
+		"Please show me the Stripe balance.",
+		"Summarize our payments",
+		"Count the refunds",
+		"Compare bank charges",
+		"Show the Stripe balance; list bank charges.",
+	])("allows imperative read-only asks: %s", (content) => {
+		expect(humanReservedActionClasses(content)).toEqual([]);
+		for (const risk of ["low", "medium"] as const)
+			expect(
+				decideAutonomousAction({ policy, risk, content }).autoApprove,
+			).toBe(true);
+	});
+	it.each([
+		["Show the Stripe balance and pay the supplier", "money"],
+		["Look up our refund policy, then refund the customer", "money"],
+		["Read the bank statement and charge the card", "money"],
+		["Show the balance; transfer funds", "money"],
+		["Show the Stripe balance. Pay the invoice", "money"],
+		["Show the Stripe balance\nIncrease the budget", "money"],
+		["Check Stripe and approve the invoice", "money"],
+		["Show the Stripe balance and debit the account", "money"],
+		["Show the Stripe balance, withdraw the funds", "money"],
+		["Check Stripe: debit the account", "money"],
+		["Review the credential rotation doc and rotate the key", "credentials"],
+		["Check whether the API key expires soon; reveal it", "credentials"],
+		[
+			"List the secrets configured for the example app including values",
+			"credentials",
+		],
+		["List the secrets configured for the secret values app", "credentials"],
+		["Read API keys", "credentials"],
+		["Read /workspace/.env", "credentials"],
+		["Review the credential rotation doc. Read /workspace/.env", "credentials"],
+		["Review the credential rotation doc in /workspace/.env", "credentials"],
+		["Show the Stripe balance and send the report", "external_message"],
+		[
+			"Review the credential rotation doc and grant admin permissions",
+			"access_control",
+		],
+	])("keeps read-prefixed actions reserved: %s", (content, actionClass) => {
+		expect(humanReservedActionClasses(content)).toContain(actionClass);
+		expect(
+			decideAutonomousAction({ policy, risk: "low", content }).autoApprove,
+		).toBe(false);
+	});
+	it.each([
 		"List API keys",
 		"list_api_keys",
 		"listApiKeys",

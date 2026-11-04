@@ -124,6 +124,12 @@
 		"minMembers": 3,
 		"maxMembers": 12
 	},
+	"imperativeReads": {
+		"leadPattern": "^\\s*(?:please\\s+)?(?:show|list|read|look\\s+up|check|review|summarize|count|compare)\\b",
+		"actionPattern": "\\b(?:pay(?:ing)?|purchas(?:e|ing)|buy(?:ing)?|transfer(?:ring)?|refund(?:ing)?(?!\\s+policy\\b)|charg(?:e|ing)|spend(?:ing)?|wire|create|issue|settle|void|approve|raise|increase|lower|update|set|configure|adjust|decrease|reduce|modify|allocate|add|grant|revoke|remove|rotate|reveal|expose|use|copy|export|print|dump|send|publish|delete|execute|run|sign|log|authorize|complete)\\b",
+		"credentialMetadataPattern": "^\\s*(?:please\\s+)?(?:list\\s+(?:the\\s+)?secrets\\s+configured\\s+for\\s+(?:the\\s+)?[\\w -]+\\s+(?:app|application|service|project)|check\\s+whether\\s+(?:the\\s+)?(?:api\\s+key|credential|access\\s+token)\\s+(?:expires\\s+soon|has\\s+expired|is\\s+configured)|(?:read|review|summarize|compare)\\s+(?:the\\s+)?(?:credential|password|secret|api\\s+key)\\s+(?:rotation\\s+)?(?:doc|documentation|policy|guide)s?)\\s*$",
+		"credentialValuePattern": "\\b(?:values?|contents?|plaintext|raw|including)\\b"
+	},
 	"draftOnly": {
 		"pattern": "\\bdrafts?[ -]only\\b|\\bonly\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b|\\bas\\s+(?:a\\s+)?drafts?\\b|\\bkeep\\s+(?:it|them|the\\s+\\w+)\\s+(?:as\\s+)?(?:a\\s+)?drafts?\\b",
 		"waivedClasses": ["money", "external_message", "public_publish"]
