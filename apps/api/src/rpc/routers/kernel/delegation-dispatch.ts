@@ -1362,7 +1362,7 @@ function routeNeedsEmbodiedSurface(route: KernelRouteDecision): boolean {
  *  | 3b | embodied target + embodied route, body up but       | needs_approval  |
  *  |    |   workstation lease cold (warms own ws first turn) |                 |
  *  | 4  | availability not running/active                    | needs_approval  |
- *  | 5  | embodied route, target not embodied                | needs_approval  |
+ *  | 5  | embodied route, target not embodied                | blocked         |
  *  | 6  | card.requiresApproval, no organization autonomy   | needs_approval  |
  *  | 7  | no relevant scopeGroups                             | needs_approval  |
  *  | 8  | speaker lacks approvalAuthority                    | needs_approval  |
@@ -1591,8 +1591,13 @@ function computeDispatchVerdict(input: {
 	// org's own tedis through the soft holds below (a cold or inactive target, a
 	// tedi that gates its own actions). It never overrides a deny, a critical
 	// action, a capability gap or a speaker without authority.
+	// A session-layer allow is the operator's standing approval for this exact
+	// target in this conversation ("Always allow this session"): it clears the
+	// same soft holds a one-off approval would, and nothing more.
+	const sessionApproved = input.gating?.session?.effect === "allow";
 	const handoffApproved =
 		autonomy.autoApprove ||
+		sessionApproved ||
 		(!input.gating?.org?.autonomy &&
 			input.gating?.org?.platformAutonomy !== false &&
 			decideAutonomousAction({
@@ -1751,16 +1756,17 @@ function computeDispatchVerdict(input: {
 	}
 
 	// 5. Embodied work needs an embodied capability envelope. That can be a
-	//    runtime body or an isolate tedi with a workstation adapter.
-	//    Fail closed to a human decision rather than auto-dispatching work the
-	//    target physically cannot do.
+	//    runtime body or an isolate tedi with a workstation adapter. No approval
+	//    can make a bodiless target able to do it, so this is a capability
+	//    block, not an approval question. `rerouteEmbodiedMismatch` moves the
+	//    route to a capable tedi (or answers in Home) before the gate runs; this
+	//    rule is the floor for callers that skipped it.
 	if (needsWorkstation && card.embodied === false) {
 		return {
 			canAutoDispatch: false,
-			mode: "needs_approval",
-			approvalRoute: "human",
+			mode: "blocked",
 			reason:
-				"embodied work targeted at a tedi without body/workstation capability — needs human confirmation",
+				"capability gap: embodied work targeted at a tedi without body/workstation capability; Home must reroute to a tedi that carries one",
 		};
 	}
 

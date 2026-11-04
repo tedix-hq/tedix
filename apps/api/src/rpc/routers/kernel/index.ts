@@ -138,6 +138,8 @@ import {
 	delegationCapacity,
 	spreadDelegationLoad,
 } from "./delegation-load";
+import { rerouteEmbodiedMismatch } from "./embodied-reroute";
+import { readConversationSessionPolicyLayer } from "./session-policy";
 import {
 	type HomeDelegationAgentReview,
 	type ResolvedDelegationApprover,
@@ -519,11 +521,10 @@ export async function runKernel(args: {
 	 * Optional session/conversation-scoped gating policy — the highest-precedence
 	 * layer above the now-live tedi + org gating layers (precedence session → tedi
 	 * → org, deny short-circuits). The tedi/org layers are sourced automatically
-	 * from policy-pack `gatingPolicy` slots inside `runKernel`; this `session`
-	 * input is the one layer with no durable store yet, so no live caller supplies
-	 * it. Absent ⇒ the session layer defers (tedi/org still enforce); bind it at
-	 * the call site once a session-policy source is chosen (no schema migration —
-	 * it is a parsed `gatingPolicy`-shaped bag). */
+	 * from policy-pack `gatingPolicy` slots inside `runKernel`. Absent ⇒ the
+	 * session layer is read from the conversation's stored standing decisions
+	 * (`kernel_conversation_session_policies`, written by "Always allow this
+	 * session"); a caller-supplied layer overrides that read. */
 	sessionPolicy?: DispatchPolicyLayer | null;
 	/**
 	 * Optional per-turn operator-abort signal (`KernelDO.cancelTurn` — see
@@ -1223,6 +1224,15 @@ export async function runKernel(args: {
 		};
 	}
 
+	// Workstation work for a tedi without a workstation or coding environment
+	// cannot be approved into existence: move it to a tedi that carries one, or
+	// answer in Home with what to connect.
+	route = rerouteEmbodiedMismatch({
+		content: inputContent,
+		context,
+		decision: route,
+	});
+
 	// Live delegated load: spread coding work across the tedis that share the
 	// target's repository, and hold a target already at its concurrency limit.
 	// A failed read leaves the planner's target and applies no capacity hold.
@@ -1263,7 +1273,9 @@ export async function runKernel(args: {
 			null;
 		// Layered dispatch gating (precedence session → tedi → org, deny
 		// short-circuits, fail-closed):
-		//   - session: the optional conversation-scoped layer (no live store yet).
+		//   - session: the caller's conversation-scoped layer, else the stored
+		//              standing decisions of this conversation ("Always allow
+		//              this session"), read for the route's exact target.
 		//   - tedi:    the target tedi's policy pack `gatingPolicy`, already parsed
 		//              onto the capability card during assembly.
 		//   - org:     the org's active policy pack `gatingPolicy`, read here via
@@ -1275,6 +1287,13 @@ export async function runKernel(args: {
 			organizationId,
 			contextCache ? { cache: contextCache, trace: context.cache } : undefined,
 		);
+		const sessionLayer =
+			sessionPolicy ??
+			(await readConversationSessionPolicyLayer(db, {
+				organizationId,
+				conversationId,
+				targetTediId: route.targetTediId,
+			}));
 		const executionRequirement = deriveExecutionRequirement(content, route);
 		const executionEnvironment =
 			(env as unknown as { ENVIRONMENT?: string }).ENVIRONMENT ?? "development";
@@ -1327,7 +1346,7 @@ export async function runKernel(args: {
 					approvalAuthority: context.speaker?.approvalAuthority ?? false,
 				},
 				gating: {
-					session: sessionPolicy ?? null,
+					session: sessionLayer,
 					tedi: card?.dispatchPolicy ?? null,
 					org: orgPolicy,
 				},

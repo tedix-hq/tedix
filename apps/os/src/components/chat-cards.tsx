@@ -1177,6 +1177,29 @@ export function delegationHoldReason(code: string, tediName: string): string {
 		);
 	if (risk) return copy.riskReason(risk[1]!);
 	if (/\bentrustment\b/.test(code)) return copy.notTrusted(tediName);
+	const holds = copy.holds;
+	const denied = /^dispatch denied by (session|tedi|org) policy/.exec(code);
+	if (denied?.[1] === "org") return holds.orgPolicyDeny;
+	if (denied?.[1] === "tedi") return holds.tediPolicyDeny(tediName);
+	if (denied?.[1] === "session") return holds.sessionPolicyDeny;
+	if (code.startsWith("embodied work for an isolate with a cold workstation"))
+		return holds.workstationCold(tediName);
+	if (code.startsWith("workstation warming"))
+		return holds.workstationWarming(tediName);
+	if (code === "target not active") return holds.targetInactive(tediName);
+	if (code === "target requires approval for its actions")
+		return holds.targetAsksFirst(tediName);
+	if (code === "target has no authorized scope groups")
+		return holds.noGrants(tediName);
+	if (code === "speaker lacks approval authority")
+		return holds.speakerNoAuthority;
+	if (code === "route classified as high risk") return holds.highRisk;
+	if (
+		code.startsWith("capability gap") ||
+		code.includes("without body/workstation capability")
+	)
+		return holds.noWorkstation(tediName);
+	if (code.startsWith("capacity:")) return holds.atCapacity(tediName);
 	return copy.policyReason;
 }
 
@@ -1601,11 +1624,6 @@ export function ApprovalCard({
 								) : null}
 							</Text>
 						)
-					) : null}
-					{actionable && isDelegation ? (
-						<Text as="p" role="label" tone="secondary">
-							{OS_COPY.approvalCard.ownerOrAdmin}
-						</Text>
 					) : null}
 					{expired ? (
 						<Text as="span" role="label" tone="error">

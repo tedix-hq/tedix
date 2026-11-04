@@ -119,6 +119,9 @@ export type CapnEnqueueInput = Pick<
 export type CapnRespondApprovalParams = {
 	runId: string;
 	decision: "approve" | "reject";
+	delegateRecommendation?: boolean;
+	/** Approve and keep approving this target for the rest of the conversation. */
+	rememberForSession?: boolean;
 };
 
 export type CapnCancelOutput = { run: HomeRun };

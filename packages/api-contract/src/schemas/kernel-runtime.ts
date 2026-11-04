@@ -1320,6 +1320,14 @@ export const RespondHomeApprovalInputSchema = z.union([
 		/** Plan target only: optional subset of plan assignment ids. */
 		assignmentIds: z.array(z.string().min(1)).optional(),
 		note: z.string().max(2000).optional(),
+		/**
+		 * Held hand-off target only, with `decision: "approve"`: also record a
+		 * standing allow for the same target tedi in this conversation, so later
+		 * turns that would hold for the same soft reason start on their own. The
+		 * row is read by the kernel; it never clears a policy deny, a
+		 * human-reserved action or a capability gap.
+		 */
+		rememberForSession: z.boolean().optional(),
 	}),
 ]);
 export type RespondHomeApprovalInput = z.infer<
