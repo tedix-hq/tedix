@@ -1,1016 +1,1016 @@
 {
-  "corpusVersion": "request-filing-fictional-v1",
-  "corpusDigest": "27510714f2b0981923c65679653700e39577c61ee7dbb28f3236a3c86fa602e9",
-  "origin": "replay",
-  "candidate": "b8590b6a5",
-  "baseline": "f8efdebd3",
-  "policy": "request-filing.v1.json",
-  "holdout": {
-    "baseline": {
-      "cases": 25,
-      "filed": 12,
-      "pending": 8,
-      "errors": 5,
-      "correct": 20,
-      "accuracy": 0.8,
-      "wrongProjectFilings": 4,
-      "missedCorrectFilings": 1,
-      "factoryProposals": 5,
-      "actionableFilings": 10,
-      "workAttached": 2,
-      "createdWorkItems": 9,
-      "upstreamNone": 7,
-      "upstreamUnclear": 1,
-      "calls": {
-        "chooser": 0,
-        "writer": 25,
-        "scorer": 15,
-        "total": 40
-      },
-      "callsPer1000": 1600,
-      "writerCallsPer1000": 1000,
-      "chooserCallsPer1000": 0,
-      "scorerCallsPer1000": 600,
-      "failedCaseCallsPer1000": 240
-    },
-    "candidate": {
-      "cases": 25,
-      "filed": 10,
-      "pending": 8,
-      "errors": 7,
-      "correct": 21,
-      "accuracy": 0.84,
-      "wrongProjectFilings": 2,
-      "missedCorrectFilings": 2,
-      "factoryProposals": 1,
-      "actionableFilings": 8,
-      "workAttached": 2,
-      "createdWorkItems": 7,
-      "upstreamNone": 7,
-      "upstreamUnclear": 1,
-      "calls": {
-        "chooser": 23,
-        "writer": 3,
-        "scorer": 0,
-        "total": 26
-      },
-      "callsPer1000": 1040,
-      "writerCallsPer1000": 120,
-      "chooserCallsPer1000": 920,
-      "scorerCallsPer1000": 0,
-      "failedCaseCallsPer1000": 280
-    }
-  },
-  "cases": [
-    {
-      "id": "h01",
-      "kind": "request",
-      "expectedFiled": "proj-docs",
-      "note": null,
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-docs",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-docs",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-docs",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-docs",
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h02",
-      "kind": "request",
-      "expectedFiled": "proj-billing",
-      "note": null,
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-billing",
-        "suggestedProjectId": null,
-        "confidence": 0.92,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-billing",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-billing",
-        "suggestedProjectId": null,
-        "confidence": 0.92,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-billing",
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h03",
-      "kind": "request",
-      "expectedFiled": "proj-growth",
-      "note": null,
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-growth",
-        "suggestedProjectId": null,
-        "confidence": 0.88,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-growth",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-growth",
-        "suggestedProjectId": null,
-        "confidence": 0.88,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-growth",
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h04",
-      "kind": "issue",
-      "expectedFiled": "proj-security",
-      "note": "Boundary: the automatic threshold is inclusive at 0.8.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-security",
-        "suggestedProjectId": null,
-        "confidence": 0.8,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-security",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-security",
-        "suggestedProjectId": null,
-        "confidence": 0.8,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-security",
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h05",
-      "kind": "request",
-      "expectedFiled": "proj-docs",
-      "note": "Reuses matching existing Work instead of proposing a duplicate.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-docs",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": "work-docs",
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-docs",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": "work-docs",
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h06",
-      "kind": "question",
-      "expectedFiled": "proj-billing",
-      "note": null,
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-billing",
-        "suggestedProjectId": null,
-        "confidence": 0.95,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-billing",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-billing",
-        "suggestedProjectId": null,
-        "confidence": 0.95,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-billing",
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h07",
-      "kind": "request",
-      "expectedFiled": "proj-growth",
-      "note": "Scripted upstream error: a confident wrong pick files wrong on both arms.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-billing",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-billing",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-billing",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-billing",
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h08",
-      "kind": "request",
-      "expectedFiled": "proj-docs",
-      "note": "Scripted upstream error: a confident wrong pick files wrong on both arms.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-security",
-        "suggestedProjectId": null,
-        "confidence": 0.85,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-security",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-security",
-        "suggestedProjectId": null,
-        "confidence": 0.85,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-security",
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h09",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "Below-threshold match stays pending with the project suggested.",
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-docs",
-        "confidence": 0.4,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-docs",
-        "confidence": 0.4,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h10",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": null,
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-billing",
-        "confidence": 0.79,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-billing",
-        "confidence": 0.79,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h11",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "Baseline flags any project-free pick as a factory proposal; the chooser does not.",
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": true,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h12",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "Low-confidence NONE stays pending; the candidate never calls the writer.",
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": true,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h13",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "Confident NONE invokes the grounded writer once on the candidate only.",
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": true,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": true,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h14",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "A NONE choice with matching Work suppresses the novel writer.",
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-billing",
-        "confidence": null,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": "work-billing",
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-billing",
-        "confidence": null,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": "work-billing",
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h15",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "The writer tried to claim an existing project after a NONE choice; only the chooser path refuses it.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-docs",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-docs",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Novel brief cannot choose existing resources",
-        "calls": {
-          "writer": 1,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h16",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "Malformed writer output fails both arms without filing.",
-      "baseline": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Request filing candidate unavailable: model returned invalid JSON",
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Request filing candidate unavailable: model returned invalid JSON",
-        "calls": {
-          "writer": 1,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h17",
-      "kind": "ask",
-      "expectedFiled": "proj-growth",
-      "note": "An ask files to its project but is never marked actionable.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-growth",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-growth",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h18",
-      "kind": "decision",
-      "expectedFiled": "proj-security",
-      "note": "A decision files to its project but is never marked actionable.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-security",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "filed",
-        "projectId": "proj-security",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h19",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "Pending suggestion falls back to the source session's project.",
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-docs",
-        "confidence": null,
-        "factoryProposal": true,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-docs",
-        "confidence": null,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h20",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "Pending suggestion falls back to the owner's intake project.",
-      "baseline": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": true,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "pending",
-        "projectId": null,
-        "suggestedProjectId": "proj-intake",
-        "confidence": null,
-        "factoryProposal": false,
-        "actionable": false,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": null,
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h21",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "A project id outside the supplied list fails closed on both arms.",
-      "baseline": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Unknown filing project",
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Unknown filing project",
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h22",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "A model timeout retains the request unfilled on both arms.",
-      "baseline": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "provider timeout",
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "provider timeout",
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h23",
-      "kind": "request",
-      "expectedFiled": null,
-      "note": "A non-finite confidence fails closed on both arms.",
-      "baseline": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Request filing fit score unavailable",
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Request filing choice unavailable",
-        "calls": {
-          "writer": 0,
-          "chooser": 1,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h24",
-      "kind": "request",
-      "expectedFiled": "proj-tail",
-      "note": "Baseline silently drops tail projects when its prompt overflows and files a confident wrong project; the chooser refuses a window that cannot hold the portfolio.",
-      "baseline": {
-        "status": "filed",
-        "projectId": "proj-docs",
-        "suggestedProjectId": null,
-        "confidence": 0.9,
-        "factoryProposal": false,
-        "actionable": true,
-        "workItemId": null,
-        "createdWorkProjectId": "proj-docs",
-        "error": null,
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 1
-        }
-      },
-      "candidate": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Request filing portfolio exceeds choice window",
-        "calls": {
-          "writer": 0,
-          "chooser": 0,
-          "scorer": 0
-        }
-      }
-    },
-    {
-      "id": "h25",
-      "kind": "request",
-      "expectedFiled": "proj-tail",
-      "note": "At 201+ live projects the chooser errors before any model call; baseline answers from a truncated portfolio.",
-      "baseline": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Unknown filing project",
-        "calls": {
-          "writer": 1,
-          "chooser": 0,
-          "scorer": 0
-        }
-      },
-      "candidate": {
-        "status": "error",
-        "projectId": null,
-        "suggestedProjectId": null,
-        "confidence": null,
-        "factoryProposal": null,
-        "actionable": null,
-        "workItemId": null,
-        "createdWorkProjectId": null,
-        "error": "Request filing inventory may be truncated",
-        "calls": {
-          "writer": 0,
-          "chooser": 0,
-          "scorer": 0
-        }
-      }
-    }
-  ]
+	"corpusVersion": "request-filing-fictional-v1",
+	"corpusDigest": "27510714f2b0981923c65679653700e39577c61ee7dbb28f3236a3c86fa602e9",
+	"origin": "replay",
+	"candidate": "b8590b6a5",
+	"baseline": "f8efdebd3",
+	"policy": "request-filing.v1.json",
+	"holdout": {
+		"baseline": {
+			"cases": 25,
+			"filed": 12,
+			"pending": 8,
+			"errors": 5,
+			"correct": 20,
+			"accuracy": 0.8,
+			"wrongProjectFilings": 4,
+			"missedCorrectFilings": 1,
+			"factoryProposals": 5,
+			"actionableFilings": 10,
+			"workAttached": 2,
+			"createdWorkItems": 9,
+			"upstreamNone": 7,
+			"upstreamUnclear": 1,
+			"calls": {
+				"chooser": 0,
+				"writer": 25,
+				"scorer": 15,
+				"total": 40
+			},
+			"callsPer1000": 1600,
+			"writerCallsPer1000": 1000,
+			"chooserCallsPer1000": 0,
+			"scorerCallsPer1000": 600,
+			"failedCaseCallsPer1000": 240
+		},
+		"candidate": {
+			"cases": 25,
+			"filed": 10,
+			"pending": 8,
+			"errors": 7,
+			"correct": 21,
+			"accuracy": 0.84,
+			"wrongProjectFilings": 2,
+			"missedCorrectFilings": 2,
+			"factoryProposals": 1,
+			"actionableFilings": 8,
+			"workAttached": 2,
+			"createdWorkItems": 7,
+			"upstreamNone": 7,
+			"upstreamUnclear": 1,
+			"calls": {
+				"chooser": 23,
+				"writer": 3,
+				"scorer": 0,
+				"total": 26
+			},
+			"callsPer1000": 1040,
+			"writerCallsPer1000": 120,
+			"chooserCallsPer1000": 920,
+			"scorerCallsPer1000": 0,
+			"failedCaseCallsPer1000": 280
+		}
+	},
+	"cases": [
+		{
+			"id": "h01",
+			"kind": "request",
+			"expectedFiled": "proj-docs",
+			"note": null,
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-docs",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-docs",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-docs",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-docs",
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h02",
+			"kind": "request",
+			"expectedFiled": "proj-billing",
+			"note": null,
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-billing",
+				"suggestedProjectId": null,
+				"confidence": 0.92,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-billing",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-billing",
+				"suggestedProjectId": null,
+				"confidence": 0.92,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-billing",
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h03",
+			"kind": "request",
+			"expectedFiled": "proj-growth",
+			"note": null,
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-growth",
+				"suggestedProjectId": null,
+				"confidence": 0.88,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-growth",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-growth",
+				"suggestedProjectId": null,
+				"confidence": 0.88,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-growth",
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h04",
+			"kind": "issue",
+			"expectedFiled": "proj-security",
+			"note": "Boundary: the automatic threshold is inclusive at 0.8.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-security",
+				"suggestedProjectId": null,
+				"confidence": 0.8,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-security",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-security",
+				"suggestedProjectId": null,
+				"confidence": 0.8,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-security",
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h05",
+			"kind": "request",
+			"expectedFiled": "proj-docs",
+			"note": "Reuses matching existing Work instead of proposing a duplicate.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-docs",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": "work-docs",
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-docs",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": "work-docs",
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h06",
+			"kind": "question",
+			"expectedFiled": "proj-billing",
+			"note": null,
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-billing",
+				"suggestedProjectId": null,
+				"confidence": 0.95,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-billing",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-billing",
+				"suggestedProjectId": null,
+				"confidence": 0.95,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-billing",
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h07",
+			"kind": "request",
+			"expectedFiled": "proj-growth",
+			"note": "Scripted upstream error: a confident wrong pick files wrong on both arms.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-billing",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-billing",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-billing",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-billing",
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h08",
+			"kind": "request",
+			"expectedFiled": "proj-docs",
+			"note": "Scripted upstream error: a confident wrong pick files wrong on both arms.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-security",
+				"suggestedProjectId": null,
+				"confidence": 0.85,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-security",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-security",
+				"suggestedProjectId": null,
+				"confidence": 0.85,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-security",
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h09",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "Below-threshold match stays pending with the project suggested.",
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-docs",
+				"confidence": 0.4,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-docs",
+				"confidence": 0.4,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h10",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": null,
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-billing",
+				"confidence": 0.79,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-billing",
+				"confidence": 0.79,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h11",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "Baseline flags any project-free pick as a factory proposal; the chooser does not.",
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": true,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h12",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "Low-confidence NONE stays pending; the candidate never calls the writer.",
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": true,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h13",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "Confident NONE invokes the grounded writer once on the candidate only.",
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": true,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": true,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h14",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "A NONE choice with matching Work suppresses the novel writer.",
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-billing",
+				"confidence": null,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": "work-billing",
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-billing",
+				"confidence": null,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": "work-billing",
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h15",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "The writer tried to claim an existing project after a NONE choice; only the chooser path refuses it.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-docs",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-docs",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Novel brief cannot choose existing resources",
+				"calls": {
+					"writer": 1,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h16",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "Malformed writer output fails both arms without filing.",
+			"baseline": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Request filing candidate unavailable: model returned invalid JSON",
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Request filing candidate unavailable: model returned invalid JSON",
+				"calls": {
+					"writer": 1,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h17",
+			"kind": "ask",
+			"expectedFiled": "proj-growth",
+			"note": "An ask files to its project but is never marked actionable.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-growth",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-growth",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h18",
+			"kind": "decision",
+			"expectedFiled": "proj-security",
+			"note": "A decision files to its project but is never marked actionable.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-security",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "filed",
+				"projectId": "proj-security",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h19",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "Pending suggestion falls back to the source session's project.",
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-docs",
+				"confidence": null,
+				"factoryProposal": true,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-docs",
+				"confidence": null,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h20",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "Pending suggestion falls back to the owner's intake project.",
+			"baseline": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": true,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "pending",
+				"projectId": null,
+				"suggestedProjectId": "proj-intake",
+				"confidence": null,
+				"factoryProposal": false,
+				"actionable": false,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": null,
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h21",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "A project id outside the supplied list fails closed on both arms.",
+			"baseline": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Unknown filing project",
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Unknown filing project",
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h22",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "A model timeout retains the request unfilled on both arms.",
+			"baseline": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "provider timeout",
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "provider timeout",
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h23",
+			"kind": "request",
+			"expectedFiled": null,
+			"note": "A non-finite confidence fails closed on both arms.",
+			"baseline": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Request filing fit score unavailable",
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Request filing choice unavailable",
+				"calls": {
+					"writer": 0,
+					"chooser": 1,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h24",
+			"kind": "request",
+			"expectedFiled": "proj-tail",
+			"note": "Baseline silently drops tail projects when its prompt overflows and files a confident wrong project; the chooser refuses a window that cannot hold the portfolio.",
+			"baseline": {
+				"status": "filed",
+				"projectId": "proj-docs",
+				"suggestedProjectId": null,
+				"confidence": 0.9,
+				"factoryProposal": false,
+				"actionable": true,
+				"workItemId": null,
+				"createdWorkProjectId": "proj-docs",
+				"error": null,
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 1
+				}
+			},
+			"candidate": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Request filing portfolio exceeds choice window",
+				"calls": {
+					"writer": 0,
+					"chooser": 0,
+					"scorer": 0
+				}
+			}
+		},
+		{
+			"id": "h25",
+			"kind": "request",
+			"expectedFiled": "proj-tail",
+			"note": "At 201+ live projects the chooser errors before any model call; baseline answers from a truncated portfolio.",
+			"baseline": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Unknown filing project",
+				"calls": {
+					"writer": 1,
+					"chooser": 0,
+					"scorer": 0
+				}
+			},
+			"candidate": {
+				"status": "error",
+				"projectId": null,
+				"suggestedProjectId": null,
+				"confidence": null,
+				"factoryProposal": null,
+				"actionable": null,
+				"workItemId": null,
+				"createdWorkProjectId": null,
+				"error": "Request filing inventory may be truncated",
+				"calls": {
+					"writer": 0,
+					"chooser": 0,
+					"scorer": 0
+				}
+			}
+		}
+	]
 }
