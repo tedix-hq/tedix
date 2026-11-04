@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	mount: vi.fn(),
 	fresh: vi.fn(),
 	presence: vi.fn(),
+	orgPresence: vi.fn(),
 	app: vi.fn(),
 	digest: vi.fn(),
 	toolDigest: vi.fn(),
@@ -30,7 +31,10 @@ vi.mock("./codemode-auth", () => ({
 vi.mock("../lib/api-client", () => ({
 	getApiClient: () => ({
 		apps: { getPolicyMountMetadata: mocks.app },
-		mcpGovernance: { resolveTenantPolicyPresence: mocks.presence },
+		mcpGovernance: {
+			resolveTenantPolicyPresence: mocks.presence,
+			resolveTenantPolicyOrganizationPresence: mocks.orgPresence,
+		},
 	}),
 }));
 vi.mock("./tenant-policy-mount", () => ({
@@ -105,6 +109,7 @@ beforeEach(() => {
 		tool,
 	});
 	mocks.presence.mockResolvedValue({ fenced: false });
+	mocks.orgPresence.mockResolvedValue({ fenced: true });
 });
 
 describe("native rule candidate", () => {
@@ -135,6 +140,15 @@ describe("native rule candidate", () => {
 		mocks.presence.mockResolvedValue({ fenced: true });
 		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
 		mocks.presence.mockRejectedValue(new Error("unavailable"));
+		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
+	});
+	it("skips the fresh mount traversal when the organization has no policy", async () => {
+		mocks.orgPresence.mockResolvedValue({ fenced: false });
+		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(false);
+		expect(mocks.orgPresence).toHaveBeenCalledWith({ organizationId: "org" });
+		expect(mocks.fresh).not.toHaveBeenCalled();
+		expect(mocks.presence).not.toHaveBeenCalled();
+		mocks.orgPresence.mockRejectedValue(new Error("unavailable"));
 		expect(await tenantMachinePolicyFallbackBlocked(agent, tool)).toBe(true);
 	});
 	it("checks only the exact mount fence for another organization's shared source", async () => {

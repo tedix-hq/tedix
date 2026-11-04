@@ -102,6 +102,7 @@ export async function tenantProfileDiscoveryPotential(
 		});
 		const gateway = await client.apps.getBySlugWithTools({
 			slug: selected.gatewaySlug,
+			toolIds: [tool.toolId],
 		});
 		if (!gateway.app || gateway.app.organizationId !== selected.organizationId)
 			return false;
@@ -349,6 +350,7 @@ export async function resolveTenantProfileCandidate(
 		});
 		const gateway = await client.apps.getBySlugWithTools({
 			slug: target.gatewaySlug,
+			toolIds: [tool.toolId],
 		});
 		if (!gateway.app || gateway.app.organizationId !== target.organizationId)
 			return null;

@@ -52,8 +52,21 @@ export async function tenantMachinePolicyFallbackBlocked(
 			serviceFetch: agent.env.API_SERVICE,
 			orgId: organizationId,
 		});
+		// Without any recorded policy no rule can apply, so an ordinary stored tool
+		// needs no fresh (uncached) mount traversal. Generated tools still verify
+		// their canonical definitions below.
+		if (!generatedHomeId && !generatedAggregateTedi) {
+			const { fenced } =
+				await client.mcpGovernance.resolveTenantPolicyOrganizationPresence({
+					organizationId,
+				});
+			if (!fenced) return false;
+		}
 		const selectedGateway = selected
-			? await client.apps.getBySlugWithTools({ slug: selected.gatewaySlug })
+			? await client.apps.getBySlugWithTools({
+					slug: selected.gatewaySlug,
+					toolIds: [tool.toolId],
+				})
 			: null;
 		if (
 			selected &&
