@@ -256,18 +256,29 @@ export async function observeRepositoryEvent(
 			now,
 			limit: event.kind === "push" ? config.maxActivePushWakes : null,
 		});
-		if (woken)
-			await wakeObserver(
-				context,
-				config.ownerTediId,
-				id,
-				event.kind === "push" || event.kind === "ci_red"
-					? id
-					: await observerId(`${id}:${JSON.stringify(event)}`),
-				config.instructions,
-				{ observationId: id, event, lessons: row.metadata?.lessons },
-			);
-		else {
+		if (woken) {
+			try {
+				await wakeObserver(
+					context,
+					config.ownerTediId,
+					id,
+					event.kind === "push" || event.kind === "ci_red"
+						? id
+						: await observerId(`${id}:${JSON.stringify(event)}`),
+					config.instructions,
+					{ observationId: id, event, lessons: row.metadata?.lessons },
+				);
+			} catch (error) {
+				// A wake that never reached the owner must not hold a slot for the
+				// whole wake window; the retried event or the tick claims it again.
+				await observations.releaseRepositoryObserverWake(context.db, {
+					orgId,
+					id,
+					now: new Date().toISOString(),
+				});
+				throw error;
+			}
+		} else {
 			await observations.deferRepositoryObserverWake(context.db, {
 				orgId,
 				id,
