@@ -426,7 +426,7 @@ export async function getDecisionLabelEvidence(
 				sql`(json_extract(${memoryFacts.metadata},'$.learningFeed.ownerUserId')=${p.actorId} OR (${memoryFacts.tediId} IS NULL AND (coalesce(${memoryFacts.visibility},'private')<>'private' OR json_extract(${memoryFacts.metadata},'$.learningFeed.ownerUserId') IS NULL)))`,
 				sql`datetime(${memoryFacts.createdAt})>datetime(${p.decidedAt})`,
 				sql`datetime(${memoryFacts.createdAt})<=datetime(${p.until})`,
-				sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata},'$.learningFeed.evidenceEventIds')) e JOIN learning_interaction_events le ON le.id=e.value AND le.organization_id=${p.organizationId} WHERE le.target_id=${p.cardId})`,
+				sql`EXISTS (SELECT 1 FROM json_each(json_extract(${memoryFacts.metadata},'$.learningFeed.evidenceEventIds')) e WHERE e.value IN (SELECT le.id FROM learning_interaction_events le WHERE le.organization_id=${p.organizationId} AND le.target_id=${p.cardId}))`,
 			),
 		)
 		.limit(50);
