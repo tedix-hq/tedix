@@ -428,9 +428,11 @@ export const runtimeFacetTurns = {
 				this.state.orgId!,
 				"Speech transcription",
 			);
-		const resolveImages = isVisionCapableChatDeployment(
-			this.env.AZURE_CHAT_DEPLOYMENT,
-		);
+		// Image bytes persist only under admitted custody; without it the turn
+		// still runs and names the image instead of failing dispatch.
+		const resolveImages =
+			isVisionCapableChatDeployment(this.env.AZURE_CHAT_DEPLOYMENT) &&
+			this.runtimeAdmission() !== null;
 		const resolved = await resolveVoiceMessageContent({
 			env: this.env as unknown as VoiceSttEnv,
 			content: userText,
