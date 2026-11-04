@@ -32,6 +32,7 @@ import {
 	createRepositoryCiAlert,
 	refreshRepositoryCiAlerts,
 	delegateWorkInteraction,
+	listLastRelatedDecisions,
 	listWorkInteractionInbox,
 	respondToWorkInteraction,
 	sweepObsoleteWorkInteractions,
@@ -1543,14 +1544,23 @@ it("returns the latest resolved related answer only within the same tenant and r
  INSERT INTO work_interaction_responses(id,org_id,interaction_id,response_kind,body,responder_type,responder_id,resolves_request,responded_at,resolved_request_version,resolution_fence)
  VALUES ('answer','org','previous','answer','Use the existing service','tedi','cto',1,'2026-08-21T10:00:00.000Z',1,'a'),
  ('secret','org','private','answer','Private answer','tedi','cfo',1,'2026-08-21T11:00:00.000Z',1,'b');`);
-	const page = await listWorkInteractionInbox(db, {
-		orgId: "org",
-		targetType: "tedi",
-		targetId: "cto",
-		observedAt: NOW,
-		states: ["open"],
-	});
-	expect(JSON.parse(page.data[0]!.lastRelatedDecision!)).toEqual({
+	const read = async () => {
+		const page = await listWorkInteractionInbox(db, {
+			orgId: "org",
+			targetType: "tedi",
+			targetId: "cto",
+			observedAt: NOW,
+			states: ["open"],
+		});
+		const [row] = await listLastRelatedDecisions(
+			db,
+			"org",
+			page.data.map((r) => r.request.id),
+		);
+		return row?.decision ? JSON.parse(row.decision).requestId : null;
+	};
+	const [first] = await listLastRelatedDecisions(db, "org", ["mine"]);
+	expect(JSON.parse(first!.decision!)).toEqual({
 		requestId: "previous",
 		subject: "Previous choice",
 		body: "Use the existing service",
@@ -1560,15 +1570,7 @@ it("returns the latest resolved related answer only within the same tenant and r
 	sqlite.exec(
 		"INSERT INTO work_items(id,org_id,title,created_at) VALUES ('another','org','Other work','2026-08-20T00:00:00Z'); UPDATE work_interactions SET work_item_id='another' WHERE id='previous'",
 	);
-	const read = () =>
-		listWorkInteractionInbox(db, {
-			orgId: "org",
-			targetType: "tedi",
-			targetId: "cto",
-			observedAt: NOW,
-			states: ["open"],
-		});
-	expect((await read()).data[0]?.lastRelatedDecision).toBeNull();
+	expect(await read()).toBeNull();
 	for (const id of ["mine", "previous"])
 		sqlite.prepare("UPDATE work_interactions SET metadata=? WHERE id=?").run(
 			JSON.stringify({
@@ -1578,9 +1580,7 @@ it("returns the latest resolved related answer only within the same tenant and r
 			}),
 			id,
 		);
-	expect(
-		JSON.parse((await read()).data[0]!.lastRelatedDecision!).requestId,
-	).toBe("previous");
+	expect(await read()).toBe("previous");
 	sqlite
 		.prepare("UPDATE work_interactions SET metadata=? WHERE id='previous'")
 		.run(
@@ -1590,13 +1590,30 @@ it("returns the latest resolved related answer only within the same tenant and r
 				],
 			}),
 		);
-	expect((await read()).data[0]?.lastRelatedDecision).toBeNull();
+	expect(await read()).toBeNull();
 	sqlite.exec(
 		"INSERT INTO projects(id,org_id,key,name,created_at) VALUES ('project','org','test','Example','2026-08-20T00:00:00Z'); UPDATE work_interactions SET project_id='project' WHERE id IN ('mine','previous')",
 	);
+	expect(await read()).toBe("previous");
+	sqlite.close();
+});
+
+it("keeps the prior-answer scan out of shared inbox reads", async () => {
+	const { sqlite } = fixture();
+	const queries: string[] = [];
+	const db = createDbQueryClient(
+		createD1Facade(sqlite, { onPrepare: (query) => queries.push(query) }),
+	);
+	await listWorkInteractionInbox(db, {
+		orgId: "org",
+		targetType: "tedi",
+		targetId: "cto",
+		observedAt: NOW,
+		states: ["open"],
+	});
 	expect(
-		JSON.parse((await read()).data[0]!.lastRelatedDecision!).requestId,
-	).toBe("previous");
+		queries.some((query) => query.includes("work_interactions prior")),
+	).toBe(false);
 	sqlite.close();
 });
 

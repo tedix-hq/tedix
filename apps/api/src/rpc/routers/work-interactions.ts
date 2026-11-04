@@ -51,6 +51,7 @@ import {
 	delegateWorkInteraction,
 	getWorkInteraction,
 	getWorkInteractionAttention,
+	listLastRelatedDecisions,
 	listWorkInteractionInbox,
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
@@ -1216,8 +1217,8 @@ const listInboxProcedure = readOs.listInbox.handler(
 				copy.get(row.request.id),
 			);
 		});
-		const [tedis, references, sessions, drafts, objectives] = await Promise.all(
-			[
+		const [tedis, references, sessions, drafts, objectives, decisions] =
+			await Promise.all([
 				listTediDisplayNamesByIds(context.db, {
 					organizationId: orgId,
 					ids: requests
@@ -1244,7 +1245,14 @@ const listInboxProcedure = readOs.listInbox.handler(
 					requests.map((request) => request.id),
 				),
 				listCardObjectives(context.db, orgId, requests),
-			],
+				listLastRelatedDecisions(
+					context.db,
+					orgId,
+					requests.map((request) => request.id),
+				),
+			]);
+		const lastDecisions = new Map(
+			decisions.map((row) => [row.interactionId, row.decision]),
 		);
 		const tediNames = new Map(
 			tedis.map((tedi) => [tedi.id, tedi.displayName ?? tedi.name]),
@@ -1256,6 +1264,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 			data: page.data.map((row, index) => {
 				const request = requests[index] as (typeof requests)[number];
 				const quoted = new Set(quotedShortIds(request));
+				const lastRelatedDecision = lastDecisions.get(request.id);
 				const draft = drafts.find(
 					(draft) => draft.interactionId === request.id,
 				);
@@ -1279,10 +1288,8 @@ const listInboxProcedure = readOs.listInbox.handler(
 							}
 						: null,
 					workItem: row.workItem?.id ? row.workItem : null,
-					lastRelatedDecision: row.lastRelatedDecision
-						? LastRelatedDecisionSchema.parse(
-								JSON.parse(row.lastRelatedDecision),
-							)
+					lastRelatedDecision: lastRelatedDecision
+						? LastRelatedDecisionSchema.parse(JSON.parse(lastRelatedDecision))
 						: null,
 					responseCount: row.responseCount,
 					askedBy: askedBy(request, caller.id, tediNames, sessionHarnesses),
