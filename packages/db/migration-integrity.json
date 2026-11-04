@@ -1320,6 +1320,10 @@
 		{
 			"name": "20261104110701_filing_owner_history_index/migration.sql",
 			"sha256": "7ec61e9f4813e75d7837167c8a13f155e0ab53b34094df3cc957981d82031925"
+		},
+		{
+			"name": "20261104193015_work_events_stopped_lane_sequence/migration.sql",
+			"sha256": "8c30a1991ef71083b56d8804b5e86a74cd2cd08c5041e02458c12ab3b32ace2d"
 		}
 	]
 }

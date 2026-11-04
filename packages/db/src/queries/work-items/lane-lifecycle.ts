@@ -99,9 +99,13 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 		(SELECT id FROM ${tedis} WHERE organization_id=${workItems.orgId} AND id=${workItems.stewardId} AND ${workItems.stewardType}='tedi' AND retired_at IS NULL AND status='active'),
 		(SELECT id FROM ${tedis} WHERE organization_id=${workItems.orgId} AND id=${workItems.accountableOwnerId} AND ${workItems.accountableOwnerType}='tedi' AND retired_at IS NULL AND status='active'))`;
 	const targetType = sql<string>`CASE WHEN ${machineTedi} IS NOT NULL THEN 'tedi' ELSE 'external_agent' END`;
-	const targetId = sql<string>`COALESCE(${machineTedi},${externalAgentPrincipals.id})`;
+	const targetId = sql<string>`COALESCE(${machineTedi},${workAttempts.executorId})`;
+	// Joining principals let SQLite drive from every principal and rescan its
+	// tenant's stopped events (10.4M rows per tick in production); an existence
+	// check keeps the partial stopped-lane index as the driving scan.
 	const eligible = and(
 		sql`${workEvents.eventType} IN ('lane.stale', 'attempt.expired')`,
+		sql`EXISTS (SELECT 1 FROM ${externalAgentPrincipals} p WHERE p.organization_id = ${workAttempts.orgId} AND p.id = ${workAttempts.executorId} AND p.status = 'active')`,
 		sql`json_extract(${workAttempts.metadata}, '$.lane') = 1`,
 		sql`${workItems.disposition} NOT IN ('completed','cancelled')`,
 		sql`NOT EXISTS (SELECT 1 FROM work_interactions i WHERE i.org_id = ${workEvents.orgId} AND i.id = ${workEvents.id})`,
@@ -132,14 +136,6 @@ export async function notifyStoppedLanes(db: DbQueryClient, now: string) {
 			and(
 				eq(workItems.orgId, workEvents.orgId),
 				eq(workItems.id, workEvents.workItemId),
-			),
-		)
-		.innerJoin(
-			externalAgentPrincipals,
-			and(
-				eq(externalAgentPrincipals.organizationId, workAttempts.orgId),
-				eq(externalAgentPrincipals.id, workAttempts.executorId),
-				eq(externalAgentPrincipals.status, "active"),
 			),
 		)
 		.where(eligible)
