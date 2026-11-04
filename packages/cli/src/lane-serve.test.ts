@@ -43,6 +43,7 @@ import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
 import { beginFileLock } from "./local-file-lock";
 import { LaneOutcomeReadError } from "./lane-result";
+import { runtimeAppEvidenceUri } from "./lane-runtime-app-proof";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
@@ -156,6 +157,7 @@ function fixture({
 		skillRun: {} as Record<string, unknown>,
 		skillRunError: undefined as Error | undefined,
 		skill: {} as Record<string, unknown>,
+		appRead: undefined as ((source: string) => unknown) | undefined,
 		startError: refuse
 			? new CliReadError("Admission refused: resource capacity", "CONFLICT")
 			: (undefined as Error | undefined),
@@ -240,7 +242,8 @@ function fixture({
 			if (verb === "dispatch-list" && input.disposition !== "proposed")
 				expect(input.dispatchReadyOnly).toBe(true);
 			let response: unknown;
-			if (verb === "dispatch-list" && input.disposition === "proposed")
+			if (args[4] === "code") response = control.appRead?.(args[5]!);
+			else if (verb === "dispatch-list" && input.disposition === "proposed")
 				response = { data: proposed, pagination: { hasMore: false } };
 			else if (verb === "dispatch-list")
 				response = { data: items, pagination: { hasMore: false } };
@@ -2482,6 +2485,252 @@ describe("dispatcher admission", () => {
 				expect(receipt.note).toContain("No landed commit SHA on origin/main");
 		},
 	);
+
+	it.each([
+		"installed",
+		"workspace",
+		"app",
+		"revision",
+		"revisionId",
+		"currentPointer",
+		"revisionApp",
+		"organization",
+		"archived",
+		"entry",
+		"codeRevision",
+		"codeRevisionId",
+		"noCode",
+		"noClient",
+		"attempt",
+		"uri",
+		"missingEvidence",
+		"noContract",
+		"invalidContract",
+		"incompleteResult",
+		"git",
+		"ledgerUnavailable",
+		"ledgerTruncated",
+		"discoveryUnavailable",
+		"appUnavailable",
+		"codeUnavailable",
+		"malformedRead",
+		"denied",
+		"missingTool",
+		"restart",
+	])("checks installed runtime app proof: %s", async (scenario) => {
+		const {
+			dispatcher,
+			restart,
+			items,
+			control,
+			events,
+			releases,
+			briefs,
+			dir,
+		} = fixture();
+		items.splice(1);
+		items[0]!.workKind = "coding";
+		const app = {
+			workspaceId: "66666666-6666-4666-8666-666666666666",
+			gadgetId: "77777777-7777-4777-8777-777777777777",
+			revision: 4,
+			revisionId: "88888888-8888-4888-8888-888888888888",
+		};
+		const other = "99999999-9999-4999-8999-999999999999";
+		items[0]!.metadata = {
+			...items[0]!.metadata,
+			...(scenario === "noContract"
+				? {}
+				: {
+						artifactKind: "runtime_app_revision",
+						artifactRuntimeApp:
+							scenario === "invalidContract" ? { ...app, revision: 0 } : app,
+					}),
+		};
+		const evidenceId = "55555555-5555-4555-8555-555555555555";
+		control.evidence.data =
+			scenario === "missingEvidence" || scenario === "ledgerTruncated"
+				? []
+				: [
+						{
+							id: evidenceId,
+							attemptId:
+								scenario === "attempt" ? "other-attempt" : "fictional-attempt",
+							kind: "runtime_app_revision",
+							uri:
+								scenario === "uri"
+									? runtimeAppEvidenceUri({ ...app, workspaceId: other })
+									: runtimeAppEvidenceUri(app),
+						},
+					];
+		if (scenario === "ledgerUnavailable")
+			control.evidenceError = new Error("gateway unavailable");
+		if (scenario === "ledgerTruncated")
+			control.evidence.nextCursor = "next-page";
+		if (scenario === "git") control.commits = ["c".repeat(40)];
+		if (scenario === "incompleteResult")
+			control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify({ ...completedResult(items[0]!), outcome: "incomplete", remaining: "App tests remain" })}`;
+		let unavailableCode = scenario === "restart";
+		control.appRead = (source) => {
+			if (source.includes("discover.search")) {
+				if (scenario === "discoveryUnavailable")
+					throw new Error("discovery unavailable");
+				const tool = source.includes('"get_os_gadget"')
+					? "get_os_gadget"
+					: "gadgets_get_code";
+				return {
+					tools:
+						scenario === "missingTool"
+							? []
+							: [
+									{
+										tool,
+										callable: `os.${tool}`,
+										authorized: true,
+										schemaFreshness: {
+											sourceRef: `osWorkspaces/gadgets/${tool === "get_os_gadget" ? "get" : "getCode"}`,
+										},
+									},
+								],
+				};
+			}
+			expect(source).toContain(
+				JSON.stringify({
+					workspaceId: app.workspaceId,
+					gadgetId: app.gadgetId,
+				}),
+			);
+			expect(source).not.toContain(`"revisionId":`);
+			if (source.includes("os.get_os_gadget(")) {
+				if (scenario === "appUnavailable") throw new Error("app unavailable");
+				if (scenario === "malformedRead") return {};
+				if (scenario === "denied")
+					return {
+						defined: true,
+						status: 403,
+						code: "FORBIDDEN",
+						message: "denied",
+					};
+				return {
+					gadget: {
+						id: scenario === "app" ? other : app.gadgetId,
+						workspaceId: scenario === "workspace" ? other : app.workspaceId,
+						status: scenario === "archived" ? "archived" : "active",
+						organizationId: "fictional-org",
+						currentRevisionId:
+							scenario === "currentPointer" ? other : app.revisionId,
+					},
+					currentRevision: {
+						id: scenario === "revisionId" ? other : app.revisionId,
+						gadgetId: scenario === "revisionApp" ? other : app.gadgetId,
+						organizationId:
+							scenario === "organization" ? "other-org" : "fictional-org",
+						revision: scenario === "revision" ? 5 : app.revision,
+						manifest: {
+							entry:
+								scenario === "entry" ? "tedix:app/work" : "tedix:runtime/v1",
+						},
+					},
+				};
+			}
+			if (scenario === "codeUnavailable" || unavailableCode)
+				throw new Error("code unavailable");
+			return {
+				code:
+					scenario === "noCode"
+						? null
+						: {
+								revisionId:
+									scenario === "codeRevisionId" ? other : app.revisionId,
+								revision: scenario === "codeRevision" ? 5 : app.revision,
+								codeLength: 10,
+								hasServer: true,
+								hasClient: scenario !== "noClient",
+							},
+			};
+		};
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		if (scenario === "restart") {
+			expect(events.some((event) => event.verb === "settle")).toBe(false);
+			const path = join(dir, `${items[0]!.id}-2.json`);
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.runtimeAppArtifact).toEqual(app);
+			control.history.data = [
+				{
+					id: saved.attemptId,
+					externalSessionKey: saved.session,
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300_000).toISOString(),
+				},
+			];
+			writeFileSync(path, JSON.stringify({ ...saved, retryAt: 0 }));
+			unavailableCode = false;
+			const resumed = restart();
+			await resumed.tick();
+			await resumed.drain();
+			expect(
+				events.filter(
+					(event) => event.verb === "start" && event.args[4] === "work",
+				),
+			).toHaveLength(1);
+		}
+		const settlement = events.find((event) => event.verb === "settle");
+		const unavailable = [
+			"ledgerUnavailable",
+			"ledgerTruncated",
+			"discoveryUnavailable",
+			"appUnavailable",
+			"codeUnavailable",
+			"malformedRead",
+			"denied",
+			"missingTool",
+		].includes(scenario);
+		if (unavailable) {
+			expect(settlement).toBeUndefined();
+			const receipt = JSON.parse(
+				readFileSync(join(dir, `${items[0]!.id}-2.json`), "utf8"),
+			);
+			expect(receipt.phase).toBe("settling");
+			expect(receipt.pendingCommitProof).toBeDefined();
+		} else {
+			expect(settlement!.args[settlement!.args.indexOf("--outcome") + 1]).toBe(
+				["installed", "git", "restart"].includes(scenario)
+					? "succeeded"
+					: "failed",
+			);
+		}
+		if (scenario === "installed") {
+			expect(settlement!.args).not.toContain("--commit");
+			expect(settlement!.input).toMatchObject({
+				metadata: {
+					settlement: {
+						mode: "runtime_app_revision",
+						...app,
+						evidenceId,
+						evidenceUri: runtimeAppEvidenceUri(app),
+					},
+				},
+			});
+			expect(briefs[0]).toContain("--evidence-kind runtime_app_revision");
+			expect(
+				events.find((event) => event.verb === "complete")?.env
+					.TEDIX_AGENT_SESSION,
+			).toBe(settlement!.env.TEDIX_AGENT_SESSION);
+		}
+		if (
+			["git", "noContract", "invalidContract", "incompleteResult"].includes(
+				scenario,
+			)
+		)
+			expect(
+				events.some(
+					(event) => event.args[4] === "code" || event.verb === "evidence",
+				),
+			).toBe(false);
+	});
 
 	it("settles coding Work from completed skill revision evidence attributed to its Attempt", async () => {
 		const { dispatcher, items, control, events, releases } = fixture();
