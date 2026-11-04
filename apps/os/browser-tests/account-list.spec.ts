@@ -124,10 +124,16 @@ try {
 					),
 					`${label}: opened row names who can use it`,
 				);
+				// With several accounts each says which apps use it; a single
+				// account keeps "Used by" behind Details.
+				assert.equal(
+					opened.includes("Used by"),
+					owner === "personal",
+					`${label}: "Used by" only on accounts that need telling apart`,
+				);
 				for (const hidden of [
 					"Who can use it",
 					"Last checked",
-					"Used by",
 					"Tedix keeps your",
 					"Provider ID",
 					"pricewise-official-f9ab445d",

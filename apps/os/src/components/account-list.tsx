@@ -37,6 +37,7 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { normalizeConsentPermissions } from "@/shared/consent-permissions";
+import { missingGoogleConsentLines } from "@/shared/google-consent-wording";
 import { ConnectionToolSummary } from "@/components/connection-tool-summary";
 
 type Reference = ConnectionInventoryRow["references"][number];
@@ -105,6 +106,22 @@ function missingPermissions(row: ConnectionInventoryRow) {
 	);
 }
 
+function isGoogleProvider(provider: ConnectionProvider): boolean {
+	return /google|gmail/i.test(`${provider.appId} ${provider.name}`);
+}
+
+/** Google's own consent-screen lines for what is missing; empty elsewhere. */
+function consentLines(
+	row: ConnectionInventoryRow,
+	missing: readonly ConnectionInventoryRow["capabilities"][number][],
+): string[] {
+	if (!isGoogleProvider(row.provider)) return [];
+	return missingGoogleConsentLines(
+		missing.flatMap((capability) => capability.requiredScopes),
+		row.connection?.scopes ?? [],
+	);
+}
+
 /**
  * One status per account. "Needs attention" and Reconnect are reserved for a
  * known fault (expired, revoked, missing permissions). A status read that
@@ -139,12 +156,18 @@ export function accountStatus(row: ConnectionInventoryRow): AccountStatus {
 		return attention("Access removed at the provider");
 	if (row.accountState === "present" && row.connection) {
 		const missing = missingPermissions(row);
-		if (missing.length)
-			return attention(
+		if (missing.length) {
+			const lines = consentLines(row, missing);
+			const what =
 				missing.length === 1 && missing[0]!.id === "access"
 					? "Some permissions missing"
-					: `Missing permission for ${missing.map((item) => item.label).join(", ")}`,
+					: `Missing permission for ${missing.map((item) => item.label).join(", ")}`;
+			return attention(
+				lines.length
+					? `${what}. Reconnect and allow ${lines.map((line) => `“${line}”`).join(" and ")} on Google's screen`
+					: what,
 			);
+		}
 		return { kind: "connected", label: "Connected" };
 	}
 	// A named slot whose sign-in was never finished is an account the person
@@ -160,8 +183,36 @@ export type AccountGroup = {
 	status: AccountStatus;
 };
 
+/** The provider account address when known, else the slot name. */
 export function accountLabel(row: ConnectionInventoryRow): string {
-	return row.instanceLabel?.trim() || "Default account";
+	return (
+		row.accountEmail?.trim() || row.instanceLabel?.trim() || "Default account"
+	);
+}
+
+/** The slot name, when the address is shown and the name says something else. */
+function accountName(row: ConnectionInventoryRow): string | null {
+	const name = row.instanceLabel?.trim();
+	const email = row.accountEmail?.trim();
+	return name && email && name.toLowerCase() !== email.toLowerCase()
+		? name
+		: null;
+}
+
+/** "Default · Personal · Used by Gmail": the facts that tell accounts apart. */
+function accountFacts(row: ConnectionInventoryRow): string {
+	const apps = appNames(row.references);
+	return [
+		(row.isDefault ?? !row.connectionInstanceId) ? "Default" : null,
+		row.scope === "user" ? "Personal" : "Organization",
+		apps.length
+			? `Used by ${listNames(apps)}`
+			: row.referencesComplete
+				? "Not used by any app"
+				: null,
+	]
+		.filter(Boolean)
+		.join(" · ");
 }
 
 /** Group by provider: attention, connected, unchecked; unconnected apps last. */
@@ -483,10 +534,12 @@ function AccountGroupRow({
 function AccountLine({
 	row,
 	name,
+	multiple,
 	props,
 }: {
 	row: ConnectionInventoryRow;
 	name: string;
+	multiple: boolean;
 	props: AccountListProps;
 }) {
 	const status = accountStatus(row);
@@ -510,6 +563,23 @@ function AccountLine({
 				<Text weight="medium" className="break-words">
 					{label}
 				</Text>
+				{/* Several accounts: say which is the default, whose it is, and
+				    which apps use each, so two Gmail rows are never ambiguous. */}
+				{multiple && (
+					<Text
+						role="label"
+						tone="secondary"
+						className="break-words"
+						data-account-facts
+					>
+						{[
+							accountName(row) ? `Named “${accountName(row)}”` : null,
+							accountFacts(row),
+						]
+							.filter(Boolean)
+							.join(" · ")}
+					</Text>
+				)}
 				{unchecked ? (
 					<StatusLine
 						status={{ ...status, label: `${status.label}: ${status.reason}` }}
@@ -605,6 +675,7 @@ function AccountDetails({
 						key={row.connectionInstanceId ?? "default"}
 						row={row}
 						name={name}
+						multiple={accounts.length > 1}
 						props={props}
 					/>
 				))}
@@ -697,6 +768,14 @@ function MoreDetails({
 				(row) => row.connectionInstanceId && row.bindingTargets?.length,
 			)
 		: [];
+	// Each app that can pin an account, once, whichever account offers it.
+	const bindingApps = [
+		...new Map(
+			bindable
+				.flatMap((row) => row.bindingTargets ?? [])
+				.map((target) => [target.appId, target] as const),
+		).values(),
+	];
 	const renamable = accounts.filter((row) => row.connectionInstanceId);
 	const accessChecked = accounts.filter((row) => row.accessCheck);
 	const renderConsumerGrants = props.renderConsumerGrants;
@@ -885,38 +964,61 @@ function MoreDetails({
 								</div>
 							</DetailRow>
 						)}
-						{bindable.length > 0 && (
-							<DetailRow term="Which account apps use">
-								<div className="grid gap-2">
-									{bindable.map((row) => (
-										<div
-											key={row.connectionInstanceId}
-											className="flex flex-wrap items-center gap-2"
-										>
-											<span>{accountLabel(row)}:</span>
-											{(row.bindingTargets ?? []).map((reference) => {
-												const selected = row.references.some(
-													(bound) => bound.appId === reference.appId,
-												);
-												const appName = appNames([reference])[0];
-												return (
-													<Button
-														key={reference.appId}
-														size="sm"
-														variant="outline"
-														disabled={
-															props.isBinding ||
-															row.accountState !== "present" ||
-															selected
-														}
-														onClick={() => props.onBind(row, reference)}
-													>
-														{selected ? "Used for" : "Use for"} {appName}
-													</Button>
-												);
-											})}
-										</div>
-									))}
+						{bindingApps.length > 0 && (
+							<DetailRow term="Which account each app uses">
+								<div className="grid gap-3">
+									{bindingApps.length > 1 && (
+										<span className="text-kumo-subtle">
+											{bindingApps.length} apps use {name}. Each signs in on its
+											own, so each can use a different account.
+										</span>
+									)}
+									{bindingApps.map((app) => {
+										const current = accounts.find((row) =>
+											row.references.some((bound) => bound.appId === app.appId),
+										);
+										const appName = appNames([app])[0];
+										return (
+											<div
+												key={app.appId}
+												data-app-account={app.appSlug}
+												className="grid gap-1.5"
+											>
+												<span>
+													{appName} uses{" "}
+													<span className="font-medium">
+														{current ? accountLabel(current) : "no account yet"}
+													</span>
+												</span>
+												<div className="flex flex-wrap gap-2">
+													{bindable
+														.filter(
+															(row) =>
+																row !== current &&
+																row.bindingTargets?.some(
+																	(target) => target.appId === app.appId,
+																),
+														)
+														.map((row) => (
+															<Button
+																key={row.connectionInstanceId}
+																size="sm"
+																variant="outline"
+																className="max-w-full whitespace-normal [overflow-wrap:anywhere]"
+																multiline
+																disabled={
+																	props.isBinding ||
+																	row.accountState !== "present"
+																}
+																onClick={() => props.onBind(row, app)}
+															>
+																Use {accountLabel(row)} for {appName}
+															</Button>
+														))}
+												</div>
+											</div>
+										);
+									})}
 								</div>
 							</DetailRow>
 						)}
@@ -952,7 +1054,9 @@ function MoreDetails({
 									data-connection-app-identifiers
 									className="block min-w-0 [overflow-wrap:anywhere]"
 								>
-									{slugs.join(", ")}
+									{slugs.length > 1
+										? `One per app that uses ${name}: ${slugs.join(", ")}`
+										: slugs.join(", ")}
 								</span>
 							</DetailRow>
 						)}

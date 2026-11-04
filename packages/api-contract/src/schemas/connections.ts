@@ -620,6 +620,19 @@ export const ConnectionInventoryRowSchema = z.object({
 		.describe(
 			"Current credential owner label when known; null does not identify an external provider account.",
 		),
+	accountEmail: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"Provider account address read live from the provider, such as the Gmail address; absent when the provider was not asked or did not say.",
+		),
+	isDefault: z
+		.boolean()
+		.optional()
+		.describe(
+			"True for the unlabeled default sign-in, or the named account that adopted it: apps without a chosen account use it.",
+		),
 	connection: UserConnectionSchema.nullable().describe(
 		"Credential metadata only when a token was observed; null may mean missing, restricted, or unknown, as accountState specifies.",
 	),

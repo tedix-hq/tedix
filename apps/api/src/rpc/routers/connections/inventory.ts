@@ -38,6 +38,7 @@ type CredentialResponse = {
 	code?: number;
 	error?: { errorCode?: string };
 	data?: {
+		id?: string;
 		accessToken?: string;
 		accessTokenExpiry?: number | string;
 		scopes?: string[];
@@ -47,6 +48,132 @@ type CredentialResponse = {
 		reconnectNeeded?: boolean;
 	};
 };
+type AppPin = { providerId?: string; connectionInstanceId?: string };
+type InventoryAccount = Omit<
+	ConnectionInventoryRow,
+	"capabilities" | "toolCapabilities" | "toolCapabilitiesComplete"
+>;
+
+const GOOGLE_SCOPE =
+	/^https:\/\/(www\.googleapis\.com\/auth\/|mail\.google\.com\/)/;
+const GMAIL_PROFILE_SCOPE =
+	/^https:\/\/(mail\.google\.com\/$|www\.googleapis\.com\/auth\/gmail\.(readonly|modify|compose|metadata)$)/;
+const EMAIL_SCOPE =
+	/^(email|https:\/\/www\.googleapis\.com\/auth\/userinfo\.email)$/;
+
+/**
+ * The Google account address behind a token, read live. Only a token granted
+ * Google scopes is ever sent to Google; null when Google did not say.
+ */
+export async function readGoogleAccountEmail(
+	accessToken: string,
+	scopes: readonly string[],
+	fetcher: typeof fetch = fetch,
+): Promise<string | null> {
+	if (!accessToken || !scopes.some((scope) => GOOGLE_SCOPE.test(scope)))
+		return null;
+	const endpoints = [
+		...(scopes.some((scope) => GMAIL_PROFILE_SCOPE.test(scope))
+			? [
+					"https://gmail.googleapis.com/gmail/v1/users/me/profile?fields=emailAddress",
+				]
+			: []),
+		...(scopes.some((scope) => EMAIL_SCOPE.test(scope))
+			? ["https://openidconnect.googleapis.com/v1/userinfo"]
+			: []),
+	];
+	for (const endpoint of endpoints) {
+		try {
+			const response = await fetcher(endpoint, {
+				headers: { Authorization: `Bearer ${accessToken}` },
+				signal: AbortSignal.timeout(5000),
+			});
+			if (!response.ok) continue;
+			const body = (await response.json()) as {
+				emailAddress?: unknown;
+				email?: unknown;
+			};
+			const email = body.emailAddress ?? body.email;
+			if (typeof email === "string" && /^[^\s@]+@[^\s@]+$/.test(email))
+				return email;
+		} catch {
+			// An address is a label, never a status: a failed read leaves it unknown.
+		}
+	}
+	return null;
+}
+
+/**
+ * One row per account. The default row keeps only apps no listed named
+ * account claims, and a named slot that adopted the default login absorbs
+ * it: the same Descope grant is one account, not two.
+ */
+export function foldDefaultAccounts<T extends InventoryAccount>(
+	rows: readonly T[],
+	input: {
+		instances: readonly {
+			id: string;
+			providerId: string;
+			tokenIds: readonly string[];
+		}[];
+		defaultTokenIds: ReadonlyMap<string, string>;
+		pins: ReadonlyMap<string, AppPin>;
+	},
+): T[] {
+	const listed = new Set(rows.map((row) => row.connectionInstanceId));
+	const claimed = (providerId: string, appId: string) => {
+		const pin = input.pins.get(appId);
+		return (
+			pin?.providerId === providerId &&
+			!!pin.connectionInstanceId &&
+			listed.has(pin.connectionInstanceId)
+		);
+	};
+	const adopted = new Map<string, T>();
+	const result: T[] = [];
+	for (const row of rows) {
+		if (row.connectionInstanceId) {
+			result.push(row);
+			continue;
+		}
+		const own = {
+			...row,
+			references: row.references.filter(
+				(reference) => !claimed(row.provider.appId, reference.appId),
+			),
+		};
+		const tokenId = input.defaultTokenIds.get(row.provider.appId);
+		const adopter = tokenId
+			? input.instances.find(
+					(instance) =>
+						instance.providerId === row.provider.appId &&
+						instance.tokenIds.includes(tokenId) &&
+						listed.has(instance.id),
+				)
+			: undefined;
+		if (adopter) adopted.set(adopter.id, own);
+		else result.push(own);
+	}
+	return result.map((row) => {
+		const base = row.connectionInstanceId
+			? adopted.get(row.connectionInstanceId)
+			: undefined;
+		if (!base) return row;
+		return {
+			...row,
+			isDefault: true,
+			accountEmail: row.accountEmail ?? base.accountEmail,
+			references: [
+				...row.references,
+				...base.references.filter(
+					(reference) =>
+						!row.references.some((own) => own.appId === reference.appId),
+				),
+			],
+		};
+	});
+}
+
 /** Deliberately return metadata only. Provider outages are never evidence of absence. */
 export function summarizeCredential(
 	response: CredentialResponse,
@@ -136,6 +263,25 @@ export async function readConnectionsOverview(
 		ConnectionInventoryRow,
 		"capabilities" | "toolCapabilities" | "toolCapabilitiesComplete"
 	>[] = [];
+	const defaultTokenIds = new Map<string, string>();
+	// App id -> the provider and account slot its MCP config pins, read once.
+	const appPins = new Map<string, Promise<AppPin>>();
+	const appPin = (appId: string) => {
+		let pin = appPins.get(appId);
+		if (!pin) {
+			pin = getAppByIdForOrganization(context.db, appId, organizationId).then(
+				(app) => {
+					const config = app ? getAppMetadataJson(app)?.mcpConfig : undefined;
+					return {
+						providerId: config?.connectionProviderId,
+						connectionInstanceId: config?.connectionInstanceId,
+					};
+				},
+			);
+			appPins.set(appId, pin);
+		}
+		return pin;
+	};
 	let instancesTruncated = false;
 	// Bound concurrency without serializing every provider request. Each request has a deadline.
 	let cursor = 0;
@@ -150,6 +296,7 @@ export async function readConnectionsOverview(
 					scopes: [],
 				};
 				let timer: ReturnType<typeof setTimeout> | undefined;
+				let token: CredentialResponse["data"];
 				try {
 					if (scope === "user" || org?.descopeTenantId) {
 						const operation =
@@ -165,19 +312,21 @@ export async function readConnectionsOverview(
 										org!.descopeTenantId!,
 										{ forceRefresh: false },
 									);
+						const response: CredentialResponse = await Promise.race([
+							operation,
+							new Promise<never>((_, reject) => {
+								timer = setTimeout(
+									() => reject(new Error("Credential inspection timed out")),
+									8000,
+								);
+							}),
+						]);
 						credential = summarizeCredential(
-							await Promise.race([
-								operation,
-								new Promise<never>((_, reject) => {
-									timer = setTimeout(
-										() => reject(new Error("Credential inspection timed out")),
-										8000,
-									);
-								}),
-							]),
+							response,
 							Date.now(),
 							scope === "user",
 						);
+						if (credential.state === "present") token = response.data;
 					}
 				} catch {
 					console.warn("[connections] Credential inspection unavailable");
@@ -193,11 +342,18 @@ export async function readConnectionsOverview(
 					)
 				)
 					continue;
+				// Only a personal default login can be adopted by a named slot.
+				if (scope === "user" && token?.id)
+					defaultTokenIds.set(provider.appId, token.id);
 				rows.push({
 					provider,
 					scope,
 					accountState: credential.state,
 					accountLabel: scope === "user" ? (context.user?.email ?? null) : null,
+					accountEmail: token?.accessToken
+						? await readGoogleAccountEmail(token.accessToken, credential.scopes)
+						: null,
+					isDefault: true,
 					connection:
 						credential.state === "present" || credential.state === "expired"
 							? mapConnectionRecord({
@@ -228,9 +384,9 @@ export async function readConnectionsOverview(
 			}
 		}),
 	);
+	const owner = scope === "user" ? { userId: userId! } : { organizationId };
+	const instances = await listConnectionInstances(context.db, owner);
 	{
-		const owner = scope === "user" ? { userId: userId! } : { organizationId };
-		const instances = await listConnectionInstances(context.db, owner);
 		instancesTruncated = instances.length === 100;
 		let instanceCursor = 0;
 		await Promise.all(
@@ -247,6 +403,7 @@ export async function readConnectionsOverview(
 						expiresAt: null,
 						scopes: [],
 					};
+					let accountEmail: string | null = null;
 					try {
 						const token = await fetchNamedConnection(
 							context,
@@ -269,6 +426,11 @@ export async function readConnectionsOverview(
 									},
 								})
 							: { state: "missing", expiresAt: null, scopes: [] };
+						if (token && credential.state === "present")
+							accountEmail = await readGoogleAccountEmail(
+								token.accessToken,
+								credential.scopes,
+							);
 					} catch {
 						// Leaves the row "unknown"; isInventoryVerified reports it.
 					}
@@ -276,13 +438,8 @@ export async function readConnectionsOverview(
 					const bindingTargets = [] as ConnectionInventoryRow["references"];
 					for (const reference of references.references.get(provider.appId) ??
 						[]) {
-						const app = await getAppByIdForOrganization(
-							context.db,
-							reference.appId,
-							organizationId,
-						);
-						const config = app ? getAppMetadataJson(app)?.mcpConfig : undefined;
-						if (config?.connectionProviderId === provider.appId) {
+						const config = await appPin(reference.appId);
+						if (config.providerId === provider.appId) {
 							if (
 								!bindingTargets.some(
 									(target) => target.appId === reference.appId,
@@ -300,6 +457,8 @@ export async function readConnectionsOverview(
 						instanceLabel: instance.label,
 						allowedResources: instance.allowedResources,
 						accountLabel: instance.label,
+						accountEmail,
+						isDefault: false,
 						accountState: credential.state,
 						connection:
 							credential.state === "present" || credential.state === "expired"
@@ -341,8 +500,27 @@ export async function readConnectionsOverview(
 			}),
 		);
 	}
-	const verificationComplete = !instancesTruncated && isInventoryVerified(rows);
-	const filtered = rows
+	const named = new Set(instances.map((instance) => instance.providerId));
+	const accounts = foldDefaultAccounts(rows, {
+		instances,
+		defaultTokenIds,
+		pins: new Map(
+			await Promise.all(
+				[
+					...new Set(
+						rows.flatMap((row) =>
+							!row.connectionInstanceId && named.has(row.provider.appId)
+								? row.references.map((reference) => reference.appId)
+								: [],
+						),
+					),
+				].map(async (appId) => [appId, await appPin(appId)] as const),
+			),
+		),
+	});
+	const verificationComplete =
+		!instancesTruncated && isInventoryVerified(accounts);
+	const filtered = accounts
 		.map((row) => ({
 			...row,
 			capabilities: projectConnectionCapabilities(row),
