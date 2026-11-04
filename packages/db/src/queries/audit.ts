@@ -95,15 +95,74 @@ export async function insertAuditEvent(
 	return id;
 }
 
+/**
+ * MCP telemetry (`mcp.*`) carries about 98% of audit metadata bytes, in rows of
+ * about 500 bytes, and most of them repeat two identifiers: `subjectUserId`
+ * equal to the row's actor and `tediId` equal to `agentTediId`. New `mcp.*`
+ * rows store a flag in place of the copy; `expandAuditMetadata` and the
+ * analytics projections restore it. Other actions are stored as given, since
+ * their readers take metadata straight from the row.
+ */
+const AUDIT_SUBJECT_IS_ACTOR = "subjectIsActor";
+const AUDIT_TEDI_IS_AGENT = "tediIsAgent";
+
+function compactAuditMetadata(
+	event: InsertAuditEventParams,
+): Record<string, JsonValue> | null {
+	if (!event.metadata) return null;
+	const metadata = { ...event.metadata };
+	if (metadata.oauthClientId === metadata.clientId)
+		delete metadata.oauthClientId;
+	if (!event.action.startsWith("mcp.")) return metadata;
+	if (
+		metadata.subjectUserId === event.actorId &&
+		metadata[AUDIT_SUBJECT_IS_ACTOR] === undefined
+	) {
+		delete metadata.subjectUserId;
+		metadata[AUDIT_SUBJECT_IS_ACTOR] = true;
+	}
+	if (
+		typeof metadata.tediId === "string" &&
+		metadata.tediId === metadata.agentTediId &&
+		metadata[AUDIT_TEDI_IS_AGENT] === undefined
+	) {
+		delete metadata.tediId;
+		metadata[AUDIT_TEDI_IS_AGENT] = true;
+	}
+	return metadata;
+}
+
+/** The metadata as it was written, before `compactAuditMetadata`. */
+export function expandAuditMetadata<
+	T extends { actorId: string; metadata: Record<string, JsonValue> | null },
+>(row: T): T {
+	const metadata = row.metadata;
+	if (
+		!metadata ||
+		(metadata[AUDIT_SUBJECT_IS_ACTOR] !== true &&
+			metadata[AUDIT_TEDI_IS_AGENT] !== true)
+	)
+		return row;
+	const expanded = { ...metadata };
+	if (expanded[AUDIT_SUBJECT_IS_ACTOR] === true) {
+		delete expanded[AUDIT_SUBJECT_IS_ACTOR];
+		expanded.subjectUserId = row.actorId;
+	}
+	if (expanded[AUDIT_TEDI_IS_AGENT] === true) {
+		delete expanded[AUDIT_TEDI_IS_AGENT];
+		if (expanded.agentTediId !== undefined)
+			expanded.tediId = expanded.agentTediId;
+	}
+	return { ...row, metadata: expanded };
+}
+
 /** Unexecuted audit insert, for `db.batch()` composition. */
 export function buildInsertAuditEventStatement(
 	db: DbClient,
 	event: InsertAuditEventParams,
 ) {
 	const id = event.id ?? crypto.randomUUID();
-	const metadata = event.metadata ? { ...event.metadata } : null;
-	if (metadata && metadata.oauthClientId === metadata.clientId)
-		delete metadata.oauthClientId;
+	const metadata = compactAuditMetadata(event);
 	const insert = db.insert(auditEvents).values({
 		id,
 		organizationId: event.organizationId,
@@ -181,7 +240,7 @@ export async function searchAuditEvents(
 
 	const total = await db.$count(auditEvents, whereClause);
 
-	return { data, total };
+	return { data: data.map(expandAuditMetadata), total };
 }
 
 /**
@@ -208,7 +267,7 @@ export async function getAuditEventsByResource(
 			compare: compareTimestampId("desc"),
 			limit,
 		});
-	return db
+	const rows = await db
 		.select()
 		.from(auditEvents)
 		.where(
@@ -220,4 +279,5 @@ export async function getAuditEventsByResource(
 		)
 		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 		.limit(limit);
+	return rows.map(expandAuditMetadata);
 }

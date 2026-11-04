@@ -82,6 +82,9 @@ export interface AnalyticsRationaleEvidenceRow {
 	completedAt: string | null;
 }
 
+/** `subjectUserId`, restored where the row stores `subjectIsActor` (queries/audit.ts). */
+const auditSubjectUserId = sql`coalesce(json_extract(${auditEvents.metadata}, '$.subjectUserId'), CASE WHEN json_extract(${auditEvents.metadata}, '$.subjectIsActor') = 1 THEN ${auditEvents.actorId} END)`;
+
 const auditActivityProjection = sql`
 	${auditEvents.action} AS action,
 	${auditEvents.actorId} AS actorId,
@@ -94,7 +97,7 @@ const auditActivityProjection = sql`
 	json_extract(${auditEvents.metadata}, '$.executionId') AS executionId,
 	json_extract(${auditEvents.metadata}, '$.traceId') AS traceId,
 	json_extract(${auditEvents.metadata}, '$.clientId') AS clientId,
-	json_extract(${auditEvents.metadata}, '$.subjectUserId') AS subjectUserId,
+	${auditSubjectUserId} AS subjectUserId,
 	json_extract(${auditEvents.metadata}, '$.agentTediId') AS agentTediId,
 	coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId')) AS oauthClientId,
 	json_extract(${auditEvents.metadata}, '$.delegationMode') AS delegationMode,
@@ -203,7 +206,7 @@ export async function listAnalyticsExecutionAuditRows(
 			json_extract(${auditEvents.metadata}, '$.errorCode') AS errorCode,
 			json_extract(${auditEvents.metadata}, '$.traceId') AS traceId,
 			json_extract(${auditEvents.metadata}, '$.clientId') AS clientId,
-			json_extract(${auditEvents.metadata}, '$.subjectUserId') AS subjectUserId,
+			${auditSubjectUserId} AS subjectUserId,
 			json_extract(${auditEvents.metadata}, '$.agentTediId') AS agentTediId,
 			coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId')) AS oauthClientId,
 			json_extract(${auditEvents.metadata}, '$.delegationMode') AS delegationMode

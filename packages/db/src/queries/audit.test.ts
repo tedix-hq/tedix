@@ -4,6 +4,7 @@ import { createDbClient, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
+import { listRecentAnalyticsAuditActivity } from "./analytics-audit";
 import {
 	buildInsertAuditEventStatement,
 	getAuditEventsByResource,
@@ -208,5 +209,79 @@ describe("audit evidence insertion", () => {
 		expect(
 			(await searchAuditEvents(db, { organizationId: "org-second" })).total,
 		).toBe(0);
+	});
+});
+
+describe("compact MCP telemetry metadata", () => {
+	const mcp: InsertAuditEventParams = {
+		...event,
+		action: "mcp.code.execute",
+		resourceType: "mcp_tool",
+		resourceId: "code",
+		metadata: {
+			appId: "app-1",
+			subjectUserId: "actor-first",
+			tediId: "tedi-1",
+			agentTediId: "tedi-1",
+			delegationMode: "human_to_tedi",
+		},
+	};
+	const storedMetadata = (id: string) =>
+		JSON.parse(
+			(
+				sqlite
+					.prepare("SELECT metadata FROM audit_events WHERE id = ?")
+					.get(id) as { metadata: string }
+			).metadata,
+		);
+
+	it("stores flags for repeated ids and restores them for every reader", async () => {
+		await insertAuditEvent(db, { ...mcp, id: "mcp" });
+		expect(storedMetadata("mcp")).toEqual({
+			appId: "app-1",
+			agentTediId: "tedi-1",
+			delegationMode: "human_to_tedi",
+			subjectIsActor: true,
+			tediIsAgent: true,
+		});
+		const [searched] = (
+			await searchAuditEvents(db, { organizationId: "org-first" })
+		).data;
+		expect(searched?.metadata).toEqual(mcp.metadata);
+		const [byResource] = await getAuditEventsByResource(
+			db,
+			"org-first",
+			"mcp_tool",
+			"code",
+		);
+		expect(byResource?.metadata).toEqual(mcp.metadata);
+		const [activity] = await listRecentAnalyticsAuditActivity(db, {
+			organizationId: "org-first",
+			limit: 5,
+		});
+		expect(activity?.subjectUserId).toBe("actor-first");
+		expect(activity?.agentTediId).toBe("tedi-1");
+	});
+
+	it("keeps differing ids and every non-MCP row as written", async () => {
+		const distinct = {
+			appId: "app-1",
+			subjectUserId: "someone-else",
+			tediId: "tedi-1",
+			agentTediId: "tedi-2",
+		};
+		await insertAuditEvent(db, { ...mcp, id: "distinct", metadata: distinct });
+		await insertAuditEvent(db, {
+			...mcp,
+			id: "approval",
+			action: "approval.approved",
+		});
+		expect(storedMetadata("distinct")).toEqual(distinct);
+		expect(storedMetadata("approval")).toEqual(mcp.metadata);
+		const [activity] = await listRecentAnalyticsAuditActivity(db, {
+			organizationId: "org-first",
+			limit: 5,
+		});
+		expect(activity?.subjectUserId).toBe("someone-else");
 	});
 });
