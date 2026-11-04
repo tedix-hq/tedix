@@ -468,7 +468,7 @@ describe("route-planner SYSTEM_PROMPT — owned-write delegation guidance", asyn
 	it("SYSTEM_PROMPT retains owner routing for external provider and governance writes", () => {
 		// Internal artifact actions do not remove external-domain ownership.
 		expect(SYSTEM_PROMPT).toContain(
-			"Reserve propose_tool_write ONLY for writes where NO tedi",
+			"Reserve propose_tool_write for such writes only when NO tedi owns the domain",
 		);
 	});
 
