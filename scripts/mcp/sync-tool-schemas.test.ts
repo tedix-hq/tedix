@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn, spawnSync } from "node:child_process";
@@ -21,10 +21,8 @@ import {
 	type ReaderIo,
 	type ReaderTools,
 } from "./sync-tool-schemas.ts";
-import {
-	listContractEndpoints,
-	resolveContractEndpoint,
-} from "@tedix/api-contract/utils/contract-routers";
+import { resolveContractEndpoint } from "@tedix/api-contract/utils/contract-routers";
+import * as toolJsonSchema from "@tedix/api-contract/utils/tool-json-schema";
 import {
 	zodToToolInputJsonSchema,
 	zodToStructuredOutputJsonSchema,
@@ -421,19 +419,10 @@ describe("real registry and owning main", () => {
 			expect(f.logs.join("\n")).not.toContain("Check passed");
 		});
 	test("converterUnsupported is a check failure from actual registry, raw message omitted", async () => {
-		const endpoint = listContractEndpoints({ includeInternal: true })
-			.map((x) => `${x.router}/${x.procPath}`)
-			.find((x) => {
-				const p = resolveContractEndpoint(x)!;
-				try {
-					zodToToolInputJsonSchema(p.inputSchema);
-					zodToStructuredOutputJsonSchema(p.outputSchema);
-					return false;
-				} catch {
-					return true;
-				}
-			});
-		expect(endpoint).toBeDefined();
+		const endpoint = REQUIRED_PROJECTION_ENDPOINTS[0];
+		const proc = resolveContractEndpoint(endpoint)!;
+		const rawMarker = "fictional-private-converter-diagnostic";
+		const convert = toolJsonSchema.zodToToolInputJsonSchema;
 		const f = fixture((c) =>
 			c.finish(
 				report([
@@ -449,8 +438,27 @@ describe("real registry and owning main", () => {
 				]),
 			),
 		);
-		expect(await main(["--check", "--only=unsupported"], f.io)).toBe(1);
-		expect(f.logs.join("\n")).toContain("converterUnsupported");
+		const converter = spyOn(
+			toolJsonSchema,
+			"zodToToolInputJsonSchema",
+		).mockImplementation((schema) => {
+			if (schema === proc.inputSchema) throw new Error(rawMarker);
+			return convert(schema);
+		});
+		try {
+			expect(await main(["--check", "--only=unsupported"], f.io)).toBe(1);
+			expect(converter).toHaveBeenCalledWith(proc.inputSchema);
+			expect(f.logs.join("\n")).toContain("converterUnsupported");
+			expect(f.logs.join("\n")).toContain(
+				`unsupported: schema conversion unsupported at "${endpoint}"`,
+			);
+			expect([...f.logs, ...f.errors].join("\n")).not.toContain(rawMarker);
+			expect(f.commands).toHaveLength(2);
+			expect(f.commands[1]!.at(-1)).toBe(TOOL_SCHEMA_SELECT);
+			expect(f.logs.join("\n")).not.toContain("Check passed");
+		} finally {
+			converter.mockRestore();
+		}
 	});
 	test("dry-run drift does not fail; only filter skips required projections", async () => {
 		const f = fixture((c) =>
