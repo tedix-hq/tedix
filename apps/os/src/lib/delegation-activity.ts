@@ -321,6 +321,11 @@ export function delegationSteps(
 	// says so, repeated successes just count.
 	const folded: DelegationStep[] = [];
 	for (const { endedAt: _endedAt, ...step } of steps) {
+		// A step still running reads in the present ("Reading a web page").
+		if (step.detail)
+			step.label = describeTool(step.detail)[
+				step.status === "running" ? "now" : "past"
+			];
 		const prev = folded[folded.length - 1];
 		if (!prev || !prev.detail || prev.detail !== step.detail) {
 			folded.push(step);
@@ -329,6 +334,7 @@ export function delegationSteps(
 		prev.attempts += 1;
 		if (prev.status === "failed") prev.retries += 1;
 		prev.status = step.status;
+		prev.label = step.label;
 		prev.failureReason = step.failureReason;
 		prev.durationMs =
 			prev.durationMs == null && step.durationMs == null

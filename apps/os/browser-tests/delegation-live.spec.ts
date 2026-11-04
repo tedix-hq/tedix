@@ -46,7 +46,8 @@ try {
 			await working.locator('[data-slot="delegation-work-card"]').waitFor();
 			await page.evaluate(() => document.fonts.ready);
 
-			// Working: plain current step, a real bar, elapsed and last activity.
+			// Working: plain current step, a real bar, elapsed time; a run quiet
+			// for only seconds does not mention its last activity.
 			assert.equal(
 				await working.locator("[data-phase]").getAttribute("data-phase"),
 				"working",
@@ -55,9 +56,8 @@ try {
 				.getByText("Writing the summary for this week's community threads")
 				.waitFor();
 			await working.getByText("48 of 100").waitFor();
-			await working
-				.getByText(/^Running 7m( \d\ds)? · last activity 12s ago$/)
-				.waitFor();
+			await working.getByText(/^Running 7m( \d\ds)?$/).waitFor();
+			assert.equal(await working.getByText(/last activity/).count(), 0);
 			assert.equal(
 				await working.getByRole("button", { name: "Stop" }).count(),
 				0,
@@ -71,9 +71,9 @@ try {
 					.then((rows) => rows.map((row) => row.replace(/\s+/g, " ").trim())),
 				[
 					"Started Done",
-					"Community: search posts 9s",
-					"Community: read thread 28s",
-					"Notes: write summary Running",
+					"Searched Community posts 9s",
+					"Read Community thread 28s",
+					"Writing Notes summary Running",
 				],
 			);
 
