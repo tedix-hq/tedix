@@ -1358,8 +1358,8 @@ function toolFreeParent(
 				},
 			);
 		},
-		recordEvaluationModelReceipt: async (input) =>
-			recordEvaluationOutcome(input, {
+		recordEvaluationModelReceipt: async (input) => {
+			await recordEvaluationOutcome(input, {
 				storage,
 				tediId: "tool-free-tedi",
 				platform: {
@@ -1367,7 +1367,17 @@ function toolFreeParent(
 						await storage.put("evaluation:receipt", event);
 					},
 				},
-			}),
+			});
+			const failure = await storage.get<string>("evaluation:receipt-failure");
+			if (failure === "hold") {
+				await storage.put("evaluation:receipt-held", true);
+				await new Promise<void>(() => {});
+			}
+			if (failure === "ack") {
+				await storage.delete("evaluation:receipt-failure");
+				throw new Error("503 service unavailable after durable receipt");
+			}
+		},
 		assertChatTurnActive: async (runId) => {
 			if (await storage.get("tool-free:cancel:" + runId))
 				throw new Error("tool-free authority cancelled");
@@ -1391,12 +1401,17 @@ function toolFreeParent(
 			if (!stats.receipts.includes(input.stepId))
 				stats.receipts.push(input.stepId);
 			await storage.put("tool-free:stats", stats);
-			return budget.recordStep(
+			const result = budget.recordStep(
 				input.runId,
 				input.stepId,
 				input.actualTokens,
 				toolFreeLimits,
 			);
+			if (await storage.get("tool-free:hold-budget-receipt")) {
+				await storage.put("tool-free:budget-receipt-held", true);
+				await new Promise<void>(() => {});
+			}
+			return result;
 		},
 	};
 }
@@ -1419,6 +1434,10 @@ function toolFreeModel(
 			stats.tools.push(options.tools ?? null);
 			stats.prompts.push(JSON.parse(JSON.stringify(options.prompt)) as unknown);
 			await storage.put("tool-free:stats", stats);
+			if (await storage.get("tool-free:hold-sdk")) {
+				await storage.put("tool-free:sdk-held", true);
+				await new Promise<void>(() => {});
+			}
 			const latest = options.prompt
 				.filter((message) => message.role === "user")
 				.at(-1);
