@@ -8,13 +8,23 @@ const fence = {
 	contractVersion: z.number().int().positive(),
 	outcomeText: z.string().min(1).max(2000),
 };
+// Declarations are retained in laneResult metadata; landed commits are verified separately.
+const proof = {
+	commitSha: z
+		.string()
+		.regex(/^[a-f0-9]{40}$/)
+		.optional(),
+	evidenceRefs: z.array(z.string().trim().min(1).max(2000)).max(30).optional(),
+};
 export const LaneResultSchema = z.discriminatedUnion("outcome", [
 	z.strictObject({
 		...fence,
+		...proof,
 		outcome: z.literal("completed"),
 	}),
 	z.strictObject({
 		...fence,
+		...proof,
 		outcome: z.literal("incomplete"),
 		remaining: z.string().min(1).max(1800),
 	}),

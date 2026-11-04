@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import * as z from "zod";
+import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
+import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import {
 	LaneOutcomeReadError,
 	laneWaitResponse,
@@ -73,6 +76,51 @@ function interaction() {
 }
 
 describe("structured lane results", () => {
+	it.each(["completed", "incomplete"] as const)(
+		"retains declared commit and evidence through strict %s parsing and settlement input",
+		(outcome) => {
+			const result = {
+				workItemId: wait.workItemId,
+				workVersion: wait.workVersion,
+				contractVersion: wait.contractVersion,
+				outcomeText: wait.outcomeText,
+				...(outcome === "incomplete"
+					? { outcome, remaining: "Live proof remains unknown" }
+					: { outcome }),
+				commitSha: "a".repeat(40),
+				evidenceRefs: [responseId],
+			};
+			const line = (value: unknown) =>
+				`TEDIX_LANE_RESULT ${JSON.stringify(value)}`;
+			const parsed = parseLaneResult(line(result));
+			expect(parsed).toEqual(result);
+			const input = {
+				id: result.workItemId,
+				attemptId: wait.interactionId,
+				outcome: outcome === "completed" ? "succeeded" : "failed",
+				metadata: { session: "codex:fictional-session", laneResult: parsed },
+			};
+			const schema = workItemsContract.settleAttempt["~orpc"]
+				.inputSchemas![0] as z.ZodType;
+			const parameters: Record<string, unknown> =
+				zodToToolInputJsonSchema(schema);
+			const nativeInput = z.fromJSONSchema(parameters);
+			expect(nativeInput.parse(input)).toEqual(input);
+			expect(schema.parse(input)).toEqual(input);
+			expect(zodToToolInputJsonSchema(schema).properties).not.toHaveProperty(
+				"commitSha",
+			);
+			for (const bad of [
+				{ ...result, ignored: true },
+				{ ...result, commitSha: "abc123" },
+				{ ...result, evidenceRefs: [""] },
+				{ ...result, evidenceRefs: [42] },
+				{ ...result, evidenceRefs: ["x".repeat(2001)] },
+				{ ...result, evidenceRefs: Array(31).fill(responseId) },
+			])
+				expect(() => parseLaneResult(line(bad))).toThrow();
+		},
+	);
 	it("distinguishes complete and incomplete accepted outcomes", () => {
 		const { interactionId, requestVersion, orgId, userId, ...base } = wait;
 		expect(
