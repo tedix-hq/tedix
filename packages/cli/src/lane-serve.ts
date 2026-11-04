@@ -461,6 +461,7 @@ interface Receipt {
 	runRetryAt?: number;
 	settlementRetries?: number;
 	settlementCheckFailures?: number;
+	admissionCheckFailures?: number;
 	admissionState?: "not_sent" | "unknown" | "rejected" | "admitted";
 	repo?: string;
 	baseCommit?: string;
@@ -1505,7 +1506,8 @@ export class LaneDispatcher {
 			row.session &&
 			row.executorKey
 		) {
-			await this.recoverOrphan(row);
+			if (Date.now() < (row.retryAt ?? 0)) return false;
+			await this.resolveUnknownAdmission(row);
 			return true;
 		}
 
@@ -2870,17 +2872,72 @@ export class LaneDispatcher {
 			}
 		}
 	}
-	private async recoverOrphan(receipt: Receipt) {
-		const history = await this.call<{
-			data: WorkAttempt[];
-			nextCursor: string | null;
-		}>([
-			"work",
-			"dispatch-attempts",
+	/**
+	 * A lost admission response leaves the receipt "unknown". Canonical
+	 * Attempts decide it: adopt this session's Attempt, or re-admit when none
+	 * exists. Admission itself re-checks history, so no second live Attempt.
+	 */
+	private async resolveUnknownAdmission(receipt: Receipt) {
+		const path = this.path({ id: receipt.itemId, version: receipt.version });
+		let history: { data: WorkAttempt[]; nextCursor: string | null };
+		try {
+			history = await this.call<typeof history>([
+				"work",
+				"dispatch-attempts",
+				receipt.itemId,
+				"--input",
+				JSON.stringify({ limit: 100 }),
+			]);
+			if (!Array.isArray(history.data) || history.nextCursor !== null)
+				throw new Error("Complete Attempt history is unavailable");
+		} catch (error) {
+			receipt.admissionCheckFailures =
+				(receipt.admissionCheckFailures ?? 0) + 1;
+			receipt.retryAt =
+				Date.now() +
+				Math.min(
+					15 * 60_000,
+					60_000 * 2 ** (receipt.admissionCheckFailures - 1),
+				);
+			this.save(path, receipt);
+			this.log("admission-check-deferred", receipt.itemId, String(error));
+			return;
+		}
+		delete receipt.admissionCheckFailures;
+		if (
+			history.data.some(
+				(attempt) =>
+					attempt.externalSessionKey === receipt.session &&
+					attempt.metadata?.dispatchVersion === receipt.version,
+			)
+		) {
+			await this.recoverOrphan(receipt, history);
+			return;
+		}
+		receipt.admissionState = "not_sent";
+		this.save(path, receipt);
+		this.log(
+			"admission-not-recorded",
 			receipt.itemId,
-			"--input",
-			JSON.stringify({ limit: 100 }),
-		]);
+			"No canonical Attempt for this session; revision may be re-admitted",
+		);
+	}
+	private async recoverOrphan(
+		receipt: Receipt,
+		known?: { data: WorkAttempt[]; nextCursor: string | null },
+	) {
+		const history =
+			known ??
+			(await this.call<{
+				data: WorkAttempt[];
+				nextCursor: string | null;
+			}>([
+				"work",
+				"dispatch-attempts",
+				receipt.itemId,
+				"--input",
+				JSON.stringify({ limit: 100 }),
+			]));
 		const attempt = history.data.find((row) =>
 			receipt.attemptId
 				? row.id === receipt.attemptId

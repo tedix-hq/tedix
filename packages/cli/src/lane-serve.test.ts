@@ -958,6 +958,14 @@ describe("dispatcher admission", () => {
 				}),
 			);
 		}
+		// Each retained session holds a live Attempt, so every pass re-reads it.
+		f.control.history.data = [1, 2, 3].map((n) => ({
+			id: `retained-attempt-${n}`,
+			externalSessionKey: `codex:retained-${n}`,
+			outcome: null,
+			metadata: { dispatchVersion: 2 },
+			expiresAt: new Date(Date.now() + 300_000).toISOString(),
+		}));
 		for (let n = 0; n < 4; n++) await f.dispatcher.tick();
 		const reads = f.events
 			.filter((event) => event.verb === "dispatch-attempts")
@@ -972,6 +980,79 @@ describe("dispatcher admission", () => {
 		expect(
 			f.events.filter((event) => event.verb === "start" && event.input),
 		).toHaveLength(0);
+	});
+	describe("unknown admission after a transient error", () => {
+		const stuck = (f: ReturnType<typeof fixture>) => {
+			const path = join(f.dir, `${item(1).id}-2.json`);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item(1).id,
+					version: 2,
+					phase: "deferred",
+					admissionState: "unknown",
+					session: "codex:lost-session",
+					executorKey: "local-acme",
+					retries: 1,
+					retryAt: Date.now() - 60_000,
+					note: "Database temporarily unavailable",
+				}),
+			);
+			return path;
+		};
+		const admissions = (f: ReturnType<typeof fixture>) =>
+			f.events.filter((event) => event.verb === "start" && event.input);
+		it("re-admits the revision when no canonical Attempt exists", async () => {
+			const f = fixture({ max: 1 });
+			f.items.splice(1);
+			const path = stuck(f);
+			await f.dispatcher.tick();
+			expect(admissions(f)).toHaveLength(0);
+			expect(JSON.parse(readFileSync(path, "utf8")).admissionState).toBe(
+				"not_sent",
+			);
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			expect(admissions(f).map((event) => event.args[6])).toEqual([item(1).id]);
+			for (const release of f.releases) release();
+			await f.dispatcher.drain();
+		});
+		it("adopts this session's live Attempt instead of admitting another", async () => {
+			const f = fixture({ max: 1 });
+			f.items.splice(1);
+			const path = stuck(f);
+			f.control.history.data = [
+				{
+					id: "lost-attempt",
+					externalSessionKey: "codex:lost-session",
+					outcome: null,
+					metadata: { dispatchVersion: 2 },
+					expiresAt: new Date(Date.now() + 300_000).toISOString(),
+				},
+			];
+			for (let n = 0; n < 3; n++) await f.dispatcher.tick();
+			await f.dispatcher.drain();
+			expect(admissions(f)).toHaveLength(0);
+			const receipt = JSON.parse(readFileSync(path, "utf8"));
+			expect(receipt.attemptId).toBe("lost-attempt");
+			expect(receipt.admissionState).toBe("admitted");
+		});
+		it("backs off when re-resolution cannot read Attempts", async () => {
+			const f = fixture({ max: 1 });
+			f.items.splice(1);
+			const path = stuck(f);
+			f.control.historyError = new Error("MCP tools/call error");
+			for (let n = 0; n < 3; n++) await f.dispatcher.tick();
+			const reads = f.events.filter(
+				(event) => event.verb === "dispatch-attempts",
+			);
+			expect(reads).toHaveLength(1);
+			expect(admissions(f)).toHaveLength(0);
+			const receipt = JSON.parse(readFileSync(path, "utf8"));
+			expect(receipt.admissionState).toBe("unknown");
+			expect(receipt.admissionCheckFailures).toBe(1);
+			expect(receipt.retryAt).toBeGreaterThan(Date.now() + 30_000);
+		});
 	});
 	it.each(["succeeded", "failed", "unknown admission"])(
 		"does not reserve an unrelated reused PID for settled %s except uncertain admission",
@@ -2316,14 +2397,17 @@ describe("dispatcher admission", () => {
 			await dispatcher.tick();
 			await dispatcher.drain();
 			const saved = JSON.parse(readFileSync(path, "utf8"));
-			expect(saved.identicalFailures).toBe(1);
-			expect(saved.admissionState).toBe("unknown");
+			// After its retry time, the next pass finds no canonical Attempt and
+			// re-admits instead of fencing the revision forever.
+			expect(saved.identicalFailures).toBe(Math.ceil(n / 2));
+			expect(saved.admissionState).toBe(n % 2 ? "unknown" : "not_sent");
 			expect(saved.held).toBe(false);
 			expect(saved.phase).toBe("deferred");
 			saved.retryAt = 0;
 			saved.retryDeadlineAt = 0;
 			writeFileSync(path, JSON.stringify(saved));
 		}
+		expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
 		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
 	});
 	it.each(["recovered", "offline", "expired", "foreign", "settled"])(
