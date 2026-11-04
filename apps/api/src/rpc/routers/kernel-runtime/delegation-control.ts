@@ -579,6 +579,23 @@ export const respondApprovalRoute = authed.respondApproval
 			organizationId,
 			required: "edit",
 		});
+		if (input.resumeOnly === true) {
+			await assertHomeDelegationOperatorAuthority(context, organizationId);
+			const { resumeRecordedHomeDelegationApproval } =
+				await import("./delegation-approval-resume");
+			const continuation = resumeRecordedHomeDelegationApproval(
+				context,
+				input,
+				existingRun,
+			);
+			context.waitUntil?.(
+				continuation.then(
+					() => undefined,
+					() => undefined,
+				),
+			);
+			return continuation;
+		}
 		const recommendation = approvalDecision({
 			actionType: "home_request",
 			review: { intent: "home_request" },

@@ -511,7 +511,7 @@ export const kernelRuntimeContract = oc
 				path: "/runs/{runId}/approval/respond",
 				summary: "Approve or reject what a Tedix Home run is waiting on",
 				description:
-					"The single Home approval surface. Resolves the run's pending target from the run itself: a parked write-action approval card (kind home_tool_write — approve executes the server-stored call exactly once via the canonical approval latch; reject cancels the run without executing), a Home delegation recommendation or workstation attachment work order (approve dispatches the certified work order; reject cancels it), or a proposed Home plan (approve promotes assignments into Work Items and dispatches; reject cancels assignments, plan, run, and linked Work Items).",
+					"The single Home approval surface. A resumeOnly request has no decision and continues an existing unchanged recorded delegation approval; it never creates a new approval decision. Resolves the run's pending target from the run itself: a parked write-action approval card (kind home_tool_write — approve executes the server-stored call exactly once via the canonical approval latch; reject cancels the run without executing), a Home delegation recommendation or workstation attachment work order (approve dispatches the certified work order; reject cancels it), or a proposed Home plan (approve promotes assignments into Work Items and dispatches; reject cancels assignments, plan, run, and linked Work Items).",
 			})
 			.input(RespondHomeApprovalInputSchema)
 			.output(

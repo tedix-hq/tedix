@@ -16,6 +16,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import { evaluateKernelRunMetadataPatch } from "../__tests__/api-sqlite";
 import type { BodyExecutionResult } from "@tedix/api-contract/schemas/body-certification";
 import {
 	modelCatalogConfig,
@@ -134,7 +135,10 @@ function capturingDbProxy(sink: Array<Record<string, unknown>>): DbClient {
 					// submission row's metadata with `reservedOutcome`.
 					const md = patch.metadata as Record<string, unknown> | undefined;
 					if ("metadata" in patch && !(md && "reservedOutcome" in md)) {
-						sink.push(patch.metadata as Record<string, unknown>);
+						sink.push(
+							evaluateKernelRunMetadataPatch(patch, { metadata: sink.at(-1) })
+								.metadata as Record<string, unknown>,
+						);
 					}
 					return proxy;
 				};
@@ -3491,7 +3495,17 @@ describe("runKernelTurnWork operator-cancel gates (P0)", () => {
 					}
 					if (prop === "set" && updateSets) {
 						return (patch: Record<string, unknown>) => {
-							updateSets.push(patch);
+							updateSets.push(
+								evaluateKernelRunMetadataPatch(
+									patch,
+									selectRows[
+										Math.min(
+											Math.max(selectIndex - 1, 0),
+											selectRows.length - 1,
+										)
+									],
+								),
+							);
 							return proxy;
 						};
 					}

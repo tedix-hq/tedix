@@ -1,11 +1,35 @@
-import { getColumns, getTableName } from "drizzle-orm";
-import type { SQLiteTable } from "drizzle-orm/sqlite-core";
+import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import { getColumns, getTableName, SQL, sql } from "drizzle-orm";
+import { SQLiteDialect, type SQLiteTable } from "drizzle-orm/sqlite-core";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade, type D1FacadeOptions } from "@tedix/db/test/d1-facade";
 import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
 
 // Replay the ledger during suite setup; individual tests only deserialize a copy.
 createMigratedSqlite({ foreignKeys: false }).close();
+
+/** Evaluate metadata expressions against the observed row, rather than storing SQL in fake rows. */
+export function evaluateKernelRunMetadataPatch<
+	T extends Record<string, unknown>,
+>(patch: T, current: Record<string, unknown> = {}): T {
+	if (!(patch.metadata instanceof SQL)) return patch;
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		const query = new SQLiteDialect().sqlToQuery(
+			sql`select ${patch.metadata} as value from (select ${JSON.stringify(current.metadata ?? null)} as metadata, ${current.conversationId ?? null} as conversation_id) as ${sql.identifier("kernel_runtime_runs")}`,
+		);
+		const result = sqlite
+			.prepare(query.sql)
+			.get(...(query.params as SQLInputValue[]));
+		return {
+			...patch,
+			metadata:
+				result?.value === null ? null : JSON.parse(String(result?.value)),
+		};
+	} finally {
+		sqlite.close();
+	}
+}
 
 /** Real migrated SQL, with mutable seed/readback arrays for the older router suites.
  * Foreign keys are off because these fixtures intentionally seed individual ledgers

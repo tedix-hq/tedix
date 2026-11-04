@@ -1294,22 +1294,34 @@ export type RetryDelegationWorkItemInput = z.infer<
 	typeof RetryDelegationWorkItemInputSchema
 >;
 
-export const RespondHomeApprovalInputSchema = z.object({
-	organizationId: z.string().optional(),
-	runId: z.string().min(1),
-	/**
-	 * Required decision — respond_home_approval is THE Home approval surface.
-	 * The target is resolved FROM THE RUN: a parked `home_tool_write` approval
-	 * card, a Home delegation recommendation, a workstation attachment work
-	 * order, or a proposed Home plan.
-	 */
-	decision: z.enum(["approve", "reject"]),
-	delegateRecommendation: z.boolean().optional(),
-	edits: ApprovalEditsInputSchema.optional(),
-	/** Plan target only: optional subset of plan assignment ids. */
-	assignmentIds: z.array(z.string().min(1)).optional(),
-	note: z.string().max(2000).optional(),
-});
+export const RespondHomeApprovalInputSchema = z.union([
+	z
+		.object({
+			organizationId: z.string().optional(),
+			runId: z.string().min(1),
+			resumeOnly: z.literal(true),
+			approvalEventId: z.string().min(1).max(2000),
+			expectedWorkItemVersion: z.number().int().positive(),
+		})
+		.strict(),
+	z.object({
+		organizationId: z.string().optional(),
+		runId: z.string().min(1),
+		/**
+		 * Required decision — respond_home_approval is THE Home approval surface.
+		 * The target is resolved FROM THE RUN: a parked `home_tool_write` approval
+		 * card, a Home delegation recommendation, a workstation attachment work
+		 * order, or a proposed Home plan.
+		 */
+		resumeOnly: z.literal(false).optional(),
+		decision: z.enum(["approve", "reject"]),
+		delegateRecommendation: z.boolean().optional(),
+		edits: ApprovalEditsInputSchema.optional(),
+		/** Plan target only: optional subset of plan assignment ids. */
+		assignmentIds: z.array(z.string().min(1)).optional(),
+		note: z.string().max(2000).optional(),
+	}),
+]);
 export type RespondHomeApprovalInput = z.infer<
 	typeof RespondHomeApprovalInputSchema
 >;
