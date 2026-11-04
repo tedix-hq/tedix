@@ -343,6 +343,7 @@
 		"./utils/procedure-schemas": "./src/utils/procedure-schemas.ts",
 		"./utils/runtime-events": "./src/utils/runtime-events.ts",
 		"./utils/runtime-identity": "./src/utils/runtime-identity.ts",
+		"./utils/release-manifest": "./src/utils/release-manifest.ts",
 		"./utils/run-error": "./src/utils/run-error.ts",
 		"./utils/share-slug": "./src/utils/share-slug.ts",
 		"./utils/skill-manifest": "./src/utils/skill-manifest.ts",

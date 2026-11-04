@@ -27,6 +27,8 @@
 	"vars": {
 		"ENVIRONMENT": "development",
 		"GIT_SHA": "configured-via-private-overlay",
+		"RELEASE_REPOSITORY": "configured-via-private-overlay",
+		"SHIP_RUN_ID": "configured-via-private-overlay",
 		"AGENT_REVIEW_PROJECT_ID": "configured-via-private-overlay",
 		"TEDIX_FLEET_AUTHORITY_MODE": "configured-via-private-overlay",
 		"TEDIX_BILLING_SETTLEMENT_MODE": "configured-via-private-overlay",
@@ -469,6 +471,8 @@
 			"vars": {
 				"ENVIRONMENT": "production",
 				"GIT_SHA": "configured-via-private-overlay",
+				"RELEASE_REPOSITORY": "configured-via-private-overlay",
+				"SHIP_RUN_ID": "configured-via-private-overlay",
 				"AGENT_REVIEW_PROJECT_ID": "configured-via-private-overlay",
 				"CF_CMS_SAAS_ZONE_ID": "configured-via-private-overlay",
 				"CF_CMS_SAAS_TARGET_DOMAIN": "configured-via-private-overlay",

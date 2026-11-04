@@ -3009,3 +3009,51 @@ describe("custom-host share sign-in return", () => {
 		},
 	);
 });
+
+describe("version-bound public OS release manifest", () => {
+	it("answers on every host before tenant resolution and never serves assets", async () => {
+		const env = {
+			...assetsReturning("must not serve asset"),
+			GIT_SHA: "b".repeat(40),
+			RELEASE_REPOSITORY: "fictional/product",
+			SHIP_RUN_ID: "23456",
+		};
+		for (const host of [
+			"https://os.example.test",
+			"https://fixture.os.example.test",
+		]) {
+			const response = await handleOsRequest(
+				new Request(`${host}/release-manifest.json?surface=caller`, {
+					headers: { "X-Ship-Run-Id": "999" },
+				}),
+				env,
+				() => {
+					throw new Error("manifest must not resolve tenant");
+				},
+			);
+			expect(response.status).toBe(200);
+			expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+			expect(await response.json()).toEqual({
+				repository: "fictional/product",
+				commitSha: "b".repeat(40),
+				surface: "os",
+				deploymentRunId: 23456,
+			});
+		}
+	});
+	it("fails closed on missing metadata or non-GET with no asset fallback", async () => {
+		for (const method of ["GET", "POST"]) {
+			const response = await handleOsRequest(
+				new Request("https://os.example.test/release-manifest.json", {
+					method,
+				}),
+				assetsReturning("must not serve asset"),
+				() => {
+					throw new Error("manifest must not resolve tenant");
+				},
+			);
+			expect(response.status).toBe(method === "GET" ? 503 : 405);
+			expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+		}
+	});
+});
