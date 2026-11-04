@@ -18,10 +18,10 @@ import { startFixtureServer, type FixtureServer } from "./fixture-server";
  * row links 44px tall. Fields keep 16px text (smaller zooms the page on
  * focus) and stay reachable above the software keyboard.
  *
- * The checks run as several short specs so CI can shard them: the desktop
- * Feed/Deck heading pass (`runWorkHeadings`) and, per iPhone size and colour
- * scheme, a "views" half (every route's layout and the view controls of the
- * dense pages) and a "flows" half (forms, keyboard, lists and tap targets).
+ * The checks run as several short specs so CI can shard them: the Feed/Deck
+ * heading pass per theme (`runWorkHeadings`) and, per iPhone size and colour
+ * scheme, "routes" (every route's layout), "controls" (the view controls of
+ * the dense pages) and "flows" (forms, keyboard, lists and tap targets).
  */
 
 const PROJECT = "/work/projects/00000076-0000-4000-8000-000000000001";
@@ -30,7 +30,7 @@ const REQUEST = "/work/interactions/000000a7-0000-4000-8000-000000000001";
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 export type WorkIphoneSize = "390x844" | "375x667";
-export type WorkIphonePart = "views" | "flows";
+export type WorkIphonePart = "routes" | "controls" | "flows";
 export type ColorScheme = "light" | "dark";
 
 const DEVICES = {
@@ -271,14 +271,14 @@ async function withFixture(
 }
 
 /**
- * Desktop and phone Feed/Deck headings in both themes, the Office fixture
- * read, and the desktop Capacity layout in both themes.
+ * Desktop and phone Feed/Deck headings in one theme and the desktop Capacity
+ * layout in that theme; the light pass also makes the Office fixture read.
  */
-export async function runWorkHeadings() {
+export async function runWorkHeadings(colorScheme: ColorScheme) {
 	const shots = await screenshotDir();
 	await withFixture(async (browser, { origin }) => {
 		for (const width of [390, 1280]) {
-			for (const colorScheme of ["light", "dark"] as const) {
+			{
 				const context = await browser.newContext({
 					viewport: { width, height: 844 },
 					colorScheme,
@@ -340,19 +340,23 @@ export async function runWorkHeadings() {
 				await context.close();
 			}
 		}
-		console.log("Work headings: 8 Feed/Deck viewport/theme checks passed");
-		const office = await browser.newPage();
-		await office.goto(`${origin}/work?app=office`);
-		await office
-			.locator("[data-workspace-app-entry=office]")
-			.waitFor({ timeout: 20_000 });
-		assert.equal(
-			await office.getByText("Support tickets are unavailable.").count(),
-			0,
-			"Office fixture support read should resolve",
+		console.log(
+			`Work headings: 4 Feed/Deck viewport checks passed (${colorScheme})`,
 		);
-		await office.close();
-		for (const colorScheme of ["light", "dark"] as const) {
+		if (colorScheme === "light") {
+			const office = await browser.newPage();
+			await office.goto(`${origin}/work?app=office`);
+			await office
+				.locator("[data-workspace-app-entry=office]")
+				.waitFor({ timeout: 20_000 });
+			assert.equal(
+				await office.getByText("Support tickets are unavailable.").count(),
+				0,
+				"Office fixture support read should resolve",
+			);
+			await office.close();
+		}
+		{
 			const context = await browser.newContext({
 				viewport: { width: 1280, height: 800 },
 				colorScheme,
@@ -474,7 +478,7 @@ export async function runWorkIphone(
 					failures.push(`${path}: ${failure}`);
 		};
 
-		if (part === "views") {
+		if (part === "routes") {
 			for (const [path, ready] of PAGES) await check(path, ready);
 			if (viewport.width === 375) {
 				await check(PROJECT, '[aria-label="Work queue"]');
@@ -544,6 +548,7 @@ export async function runWorkIphone(
 						`/work/capacity: holder details are ${holderOverflow.scrollWidth}px wide in a ${holderOverflow.clientWidth}px row`,
 					);
 			}
+		} else if (part === "controls") {
 			for (const path of [
 				"/work?app=agents",
 				"/work?app=office",
