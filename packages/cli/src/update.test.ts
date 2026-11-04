@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import * as http from "node:http";
 import {
 	chmodSync,
 	existsSync,
@@ -68,6 +69,12 @@ function fixture(options?: {
 	}> = [];
 	let server: Bun.Server<undefined>;
 	server = Bun.serve({
+		// Bind IPv4 explicitly: the default wildcard :: socket is dual-stack,
+		// so a foreign 127.0.0.1 listener can coexist on the same port and
+		// shadow the fixture's replies for IPv4 fetches (macOS delivers to the
+		// more specific address). Owning 127.0.0.1 keeps the port exclusively
+		// the fixture's.
+		hostname: "127.0.0.1",
 		port: 0,
 		fetch(request): Response {
 			const url = new URL(request.url);
@@ -414,6 +421,32 @@ describe("CLI update lifecycle", () => {
 			} finally {
 				fixtureData.close();
 			}
+		}
+	});
+
+	test("owns the fixture's IPv4 port so no foreign listener can shadow it", async () => {
+		// The fixture fetches 127.0.0.1. A wildcard :: listener is dual-stack
+		// and can share its port with a 127.0.0.1-specific socket, which then
+		// answers IPv4 traffic instead (a foreign 404 reaches the test).
+		const data = fixture();
+		const foreign = http.createServer((_request, response) => {
+			response.writeHead(404);
+			response.end();
+		});
+		try {
+			const port = Number(new URL(data.runtime.baseUrl!).port);
+			const bindError = await new Promise<Error | null>((resolve) => {
+				foreign.once("error", resolve);
+				foreign.listen(port, "127.0.0.1", () => resolve(null));
+			});
+			expect(bindError).not.toBeNull();
+			const response = await fetch(
+				`${data.runtime.baseUrl}/releases/${data.version}/manifest.json`,
+			);
+			expect(response.status).toBe(200);
+		} finally {
+			if (foreign.listening) foreign.close();
+			data.close();
 		}
 	});
 
