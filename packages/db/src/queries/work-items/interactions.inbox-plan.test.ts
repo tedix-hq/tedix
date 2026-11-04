@@ -33,34 +33,18 @@ it("pages the inbox without related history and evaluates history only for reque
 	sqlite.exec(`INSERT INTO work_interaction_responses
 		(id,org_id,interaction_id,response_kind,body,responder_type,responder_id,resolves_request,responded_at,resolved_request_version,resolution_fence)
 		VALUES ('answer','org','previous','answer','Keep the service','tedi','cto',1,'2026-01-01',1,'fence')`);
-	let evaluations = 0;
-	sqlite.function("observe_related_decision", (value) => {
-		evaluations++;
-		return value;
-	});
 	const plans: string[] = [];
+	const statements: string[] = [];
 	const db = createDbQueryClient(
 		createD1Facade({
 			prepare(query) {
-				if (query.includes("work_interaction_inbox_page"))
-					plans.push(
-						...sqlite
-							.prepare(`EXPLAIN QUERY PLAN ${query}`)
-							.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
-							.map((row) => String(row.detail)),
-					);
-				if (query.includes('"last_related_decision"')) {
-					// An identity function counts actual SQLite evaluations without replacing JSON or the query's joins.
-					query = query
-						.replace(
-							"SELECT json_object('requestId'",
-							"SELECT observe_related_decision(json_object('requestId'",
-						)
-						.replace(
-							"'decidedAt', answer.responded_at)",
-							"'decidedAt', answer.responded_at))",
-						);
-				}
+				statements.push(query);
+				plans.push(
+					...sqlite
+						.prepare(`EXPLAIN QUERY PLAN ${query}`)
+						.all(...Array((query.match(/\?/g) ?? []).length).fill(null))
+						.map((row) => String(row.detail)),
+				);
 				return sqlite.prepare(query);
 			},
 			exec: (query) => sqlite.exec(query),
@@ -76,12 +60,30 @@ it("pages the inbox without related history and evaluates history only for reque
 	});
 	expect(first.data.map((row) => row.request.id)).toEqual(["request-0499"]);
 	expect(first.hasMore).toBe(true);
-	expect(evaluations).toBe(0);
-	const [decision] = await listLastRelatedDecisions(db, "org", [
-		"request-0499",
-	]);
-	expect(JSON.parse(decision!.decision!).body).toBe("Keep the service");
-	expect(evaluations).toBe(1);
+	expect(statements.some((query) => query.includes("json_each"))).toBe(false);
+	statements.length = 0;
+	const decisions = await listLastRelatedDecisions(
+		db,
+		"org",
+		Array.from(
+			{ length: 50 },
+			(_, i) => `request-${String(i).padStart(4, "0")}`,
+		),
+	);
+	expect(decisions).toHaveLength(50);
+	expect(
+		decisions.every((row) => row.decision?.body === "Keep the service"),
+	).toBe(true);
+	// Cards, then the recipient's requests and their answers, however many cards.
+	expect(statements).toHaveLength(3);
+	const historyPlan = sqlite
+		.prepare(`EXPLAIN QUERY PLAN ${statements[1]}`)
+		.all(...Array((statements[1]!.match(/\?/g) ?? []).length).fill(null))
+		.map((row) => String(row.detail));
+	expect(historyPlan[0]).toMatch(
+		/^SEARCH prior USING INDEX idx_work_interactions_target_status/,
+	);
+	expect(historyPlan.some((plan) => plan.includes("TEMP B-TREE"))).toBe(false);
 	expect(plans).toContainEqual(
 		expect.stringMatching(
 			/(?:CO-ROUTINE|MATERIALIZE) work_interaction_inbox_page/,
@@ -97,6 +99,5 @@ it("pages the inbox without related history and evaluates history only for reque
 		cursor: first.nextCursor!,
 	});
 	expect(next.data.map((row) => row.request.id)).toEqual(["request-0498"]);
-	expect(evaluations).toBe(1);
 	sqlite.close();
 });

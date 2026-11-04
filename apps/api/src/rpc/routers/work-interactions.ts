@@ -1289,7 +1289,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 						: null,
 					workItem: row.workItem?.id ? row.workItem : null,
 					lastRelatedDecision: lastRelatedDecision
-						? LastRelatedDecisionSchema.parse(JSON.parse(lastRelatedDecision))
+						? LastRelatedDecisionSchema.parse(lastRelatedDecision)
 						: null,
 					responseCount: row.responseCount,
 					askedBy: askedBy(request, caller.id, tediNames, sessionHarnesses),
