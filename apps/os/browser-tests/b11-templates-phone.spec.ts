@@ -12,40 +12,20 @@ import {
 	type Locator,
 	type Page,
 } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
 // Standalone, local-only Templates browsing regression. Only contract reads
 // are answered (with fictional inventory); every mutation and every request
 // that leaves the local origin is blocked and reported.
-const cwd = new URL("../", import.meta.url).pathname;
 const evidence =
 	process.env.TEDIX_SCREENSHOT_DIR ??
 	join(tmpdir(), "tedix-b11-templates-phone-browser");
 await mkdir(evidence, { recursive: true });
-const probe = Bun.serve({
-	port: 0,
-	hostname: "127.0.0.1",
-	fetch: () => new Response(),
+const server = await startFixtureServer("/health", {
+	stdout: Bun.file(`${evidence}/server.log`),
+	stderr: Bun.file(`${evidence}/server-error.log`),
 });
-const port = probe.port!;
-probe.stop();
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		String(port),
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{
-		cwd,
-		stdout: Bun.file(`${evidence}/server.log`),
-		stderr: Bun.file(`${evidence}/server-error.log`),
-		detached: true,
-	},
-);
+const { origin } = server;
 const failures: string[] = [];
 const measurements: unknown[] = [];
 const browsers: Browser[] = [];
@@ -153,25 +133,6 @@ async function keyboardFocus(page: Page, target: Locator) {
 		}),
 		"Keyboard focus must have a visible outline or ring",
 	);
-}
-
-async function waitReady() {
-	for (let attempt = 0; ; attempt++) {
-		if (server.exitCode !== null)
-			throw new Error(
-				`Templates fixture server exited early (${server.exitCode}); see server-error.log`,
-			);
-		if (attempt === 120)
-			throw new Error("Templates fixture server did not become ready");
-		try {
-			if (
-				(await fetch(`${origin}/health`, { signal: AbortSignal.timeout(1000) }))
-					.ok
-			)
-				return;
-		} catch {}
-		await Bun.sleep(250);
-	}
 }
 
 async function run(engine: string, type: BrowserType) {
@@ -399,8 +360,16 @@ async function run(engine: string, type: BrowserType) {
 					release = resolve;
 				});
 				// The route loader holds the page on its pending view until the
-				// list read settles, so the search box is not mounted yet.
-				void page.goto(`${origin}/blueprints`);
+				// list read settles, so the search box is not mounted yet. Waiting
+				// for that request keeps a failed navigation inside this scenario
+				// instead of an unhandled rejection.
+				const listRequest = page.waitForRequest(
+					(request) =>
+						new URL(request.url()).pathname ===
+						"/api/rpc/osWorkspaces/blueprints/list",
+				);
+				await page.goto(`${origin}/blueprints`);
+				await listRequest;
 				await page.waitForTimeout(1500);
 				assert.equal(
 					await page.getByText("No templates yet").count(),
@@ -457,7 +426,6 @@ async function run(engine: string, type: BrowserType) {
 }
 
 try {
-	await waitReady();
 	await run("webkit", webkit);
 	await run("chromium", chromium);
 } finally {
@@ -466,22 +434,7 @@ try {
 		JSON.stringify({ origin, measurements, failures }, null, 2),
 	);
 	for (const browser of browsers) await browser.close();
-	// This lane owns only this detached process group; never clear shared ports.
-	if (server.exitCode === null) {
-		try {
-			process.kill(-server.pid, "SIGTERM");
-		} catch {
-			server.kill("SIGTERM");
-		}
-		await Promise.race([server.exited, Bun.sleep(3000)]);
-		if (server.exitCode === null) {
-			try {
-				process.kill(-server.pid, "SIGKILL");
-			} catch {
-				server.kill("SIGKILL");
-			}
-		}
-	}
+	await server.stop();
 }
 assert.deepEqual(
 	failures,
