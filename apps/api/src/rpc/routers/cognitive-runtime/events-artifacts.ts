@@ -1,4 +1,6 @@
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+import { artifactContributionCustody } from "./artifact-contribution-custody";
 import { AUTHZ, ErrorCodes, createError, withAuthorization } from "../../orpc";
 import {
 	ProvisioningHttpError,
@@ -16,6 +18,8 @@ import {
 	claimTediArtifact,
 	getTediArtifact,
 	getTediArtifactClaim,
+	getTediRuntimeEventById,
+	type TediRuntimeEventRow,
 	listRecentKernelRunsForOrganization,
 	listTediArtifacts,
 	markTediArtifactPublished,
@@ -304,6 +308,12 @@ export const recordEventRoute = authed.recordEvent
 		const incomingContribution = nonNullRecord(
 			incomingPayload?.artifactContributionReceipt,
 		);
+		let priorContributionEvent: TediRuntimeEventRow | null = null;
+		let exactContributionRetry = false;
+		const contributionClaims = new Map<
+			string,
+			Awaited<ReturnType<typeof getTediArtifactClaim>>
+		>();
 		if (incomingContribution) {
 			const trustedRuntime = isTrustedRuntimeArtifactCaller(
 				context,
@@ -344,6 +354,70 @@ export const recordEventRoute = authed.recordEvent
 					ErrorCodes.BAD_REQUEST,
 					"Malformed runtime artifact contribution receipt",
 				);
+			priorContributionEvent = input.id
+				? await getTediRuntimeEventById(context.db, input.id, {
+						organizationId: tedi.organizationId,
+						tediId: input.tediId,
+					})
+				: null;
+			if (
+				priorContributionEvent &&
+				(priorContributionEvent.kind !== input.kind ||
+					priorContributionEvent.runId !== input.runId ||
+					priorContributionEvent.conversationId !== input.conversationId ||
+					(input.createdAt !== undefined &&
+						priorContributionEvent.createdAt !== input.createdAt) ||
+					(priorContributionEvent.toolCallId ?? undefined) !==
+						input.toolCallId ||
+					JSON.stringify(priorContributionEvent.payload) !==
+						JSON.stringify(incomingPayload))
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Canonical runtime contribution event does not match this trusted retry",
+				);
+			exactContributionRetry =
+				!!priorContributionEvent &&
+				priorContributionEvent.createdAt === input.createdAt &&
+				(priorContributionEvent.sequence ?? undefined) === input.sequence &&
+				(priorContributionEvent.delta ?? undefined) === input.delta &&
+				(priorContributionEvent.messageId ?? undefined) === input.messageId &&
+				(priorContributionEvent.artifactId ?? undefined) === input.artifactId &&
+				(priorContributionEvent.approvalRequestId ?? undefined) ===
+					input.approvalRequestId &&
+				priorContributionEvent.runtimeBackend === runtimeBackend &&
+				(priorContributionEvent.runtimeExternalId ?? undefined) ===
+					input.runtime?.externalId &&
+				(priorContributionEvent.runtimeExternalUrl ?? undefined) ===
+					input.runtime?.externalUrl &&
+				JSON.stringify(priorContributionEvent.runtimeMetadata ?? null) ===
+					JSON.stringify(input.runtime?.metadata ?? null);
+			const candidate = {
+				id: input.id ?? "",
+				tediId: input.tediId,
+				kind: input.kind,
+				runId: input.runId,
+				conversationId: input.conversationId,
+				payload: incomingPayload ?? undefined,
+				createdAt,
+			};
+			// Validate custody before insertion; retries cannot create their own historical exception.
+			for (const artifactId of rawIds as string[]) {
+				const artifact = await getTediArtifactClaim(context.db, artifactId);
+				contributionClaims.set(artifactId, artifact);
+				if (
+					artifactContributionCustody(
+						artifact,
+						candidate,
+						tedi.organizationId,
+						exactContributionRetry,
+					) === "conflict"
+				)
+					throw createError(
+						ErrorCodes.CONFLICT,
+						"Runtime artifact does not match its contribution event",
+					);
+			}
 		}
 		if (input.kind === "message.completed") {
 			const existingCompleted = await findCompletedMessageForRun(context, {
@@ -372,26 +446,28 @@ export const recordEventRoute = authed.recordEvent
 				};
 			}
 		}
-		const event = await insertRuntimeEvent(context, {
-			id: input.id,
-			organizationId: tedi.organizationId,
-			tediId: input.tediId,
-			kind: input.kind,
-			conversationId: input.conversationId,
-			runId: input.runId,
-			messageId: input.messageId,
-			toolCallId: input.toolCallId,
-			approvalRequestId: input.approvalRequestId,
-			artifactId: input.artifactId,
-			sequence: input.sequence,
-			delta: input.delta,
-			payload: input.payload,
-			runtimeBackend,
-			runtimeExternalId: input.runtime?.externalId,
-			runtimeExternalUrl: input.runtime?.externalUrl,
-			runtimeMetadata: input.runtime?.metadata,
-			createdAt,
-		});
+		const event = priorContributionEvent
+			? normalizeRuntimeEvent(priorContributionEvent)
+			: await insertRuntimeEvent(context, {
+					id: input.id,
+					organizationId: tedi.organizationId,
+					tediId: input.tediId,
+					kind: input.kind,
+					conversationId: input.conversationId,
+					runId: input.runId,
+					messageId: input.messageId,
+					toolCallId: input.toolCallId,
+					approvalRequestId: input.approvalRequestId,
+					artifactId: input.artifactId,
+					sequence: input.sequence,
+					delta: input.delta,
+					payload: input.payload,
+					runtimeBackend,
+					runtimeExternalId: input.runtime?.externalId,
+					runtimeExternalUrl: input.runtime?.externalUrl,
+					runtimeMetadata: input.runtime?.metadata,
+					createdAt,
+				});
 		const eventPayload = nonNullRecord(event.payload);
 		const contribution = nonNullRecord(
 			eventPayload?.artifactContributionReceipt,
@@ -449,33 +525,39 @@ export const recordEventRoute = authed.recordEvent
 				(byte) => byte.toString(16).padStart(2, "0"),
 			).join("");
 			for (const artifactId of artifactIds) {
-				const artifact = await getTediArtifactClaim(context.db, artifactId);
-				// Earlier detached workstation reads recorded an exact-run private
-				// artifact without the child conversation. Permit only those immutable
-				// claims to replay against the canonical trusted tool event.
-				const legacyWorkstationConversation =
-					trustedRuntime &&
-					artifact?.conversationId === null &&
-					artifact.kind === "log" &&
-					artifact.id.startsWith(
-						`${event.runId}:artifact:workstation_process:`,
-					) &&
-					artifact.metadata?.source === "workstation_process" &&
-					artifact.metadata?.subKind === "workstation_process" &&
-					artifact.metadata?.producer === "workstation-adapter";
-				if (
-					!artifact ||
-					artifact.organizationId !== tedi.organizationId ||
-					artifact.tediId !== input.tediId ||
-					(!legacyWorkstationConversation &&
-						artifact.conversationId !== event.conversationId) ||
-					artifact.runId !== event.runId ||
-					artifact.accessClassification !== "runtime_private"
-				) {
+				const artifact = contributionClaims.get(artifactId) ?? null;
+				const custody = artifactContributionCustody(
+					artifact,
+					event,
+					tedi.organizationId,
+					exactContributionRetry,
+				);
+				if (!artifact || custody === "conflict") {
 					throw createError(
 						ErrorCodes.CONFLICT,
 						"Runtime artifact does not match its contribution event",
 					);
+				}
+				if (custody === "rejected_producer_context") {
+					await insertAuditEvent(context.db, {
+						id: `runtime-contribution-rejected:${await sha256Hex(JSON.stringify([event.id, artifactId]))}`,
+						organizationId: tedi.organizationId,
+						...auditActor(context),
+						action: "cognitive_runtime.artifact_contribution_rejected",
+						resourceType: "tedi_runtime_event",
+						resourceId: event.id,
+						ignoreDuplicates: true,
+						metadata: {
+							artifactId,
+							runId: event.runId!,
+							conversationId: event.conversationId!,
+							artifactRunId: artifact.runId,
+							artifactConversationId: artifact.conversationId,
+							reason: "producer_context_mismatch",
+							disposition: "rejected",
+						},
+					});
+					continue;
 				}
 				// Trusted workstation rows may intentionally remain URI-only. They are
 				// private and unverifiable, but must not wedge the terminal outbox.
@@ -501,7 +583,7 @@ export const recordEventRoute = authed.recordEvent
 						completeness,
 						createdAt: event.createdAt,
 						producerEventPayload: toJsonRecord(eventPayload ?? {}),
-						allowLegacyNullConversation: legacyWorkstationConversation,
+						allowLegacyNullConversation: custody === "legacy_workstation",
 					});
 				} catch (error) {
 					if (error instanceof TediArtifactContributionReceiptConflictError)

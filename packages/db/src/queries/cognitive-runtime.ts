@@ -227,16 +227,25 @@ export async function insertTediRuntimeEvent(
 export async function getTediRuntimeEventById(
 	db: DbClient,
 	id: string,
+	scope?: { organizationId: string; tediId: string },
 ): Promise<TediRuntimeEventRow | null> {
 	const pages = await readLogStores(db, async (store) => {
-		const row = await getTediRuntimeEventById(store, id);
+		const row = await getTediRuntimeEventById(store, id, scope);
 		return row ? [row] : [];
 	});
 	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0] ?? null;
 	const [row] = await db
 		.select()
 		.from(tediRuntimeEvents)
-		.where(eq(tediRuntimeEvents.id, id))
+		.where(
+			and(
+				eq(tediRuntimeEvents.id, id),
+				scope
+					? eq(tediRuntimeEvents.organizationId, scope.organizationId)
+					: undefined,
+				scope ? eq(tediRuntimeEvents.tediId, scope.tediId) : undefined,
+			),
+		)
 		.limit(1);
 	return row ?? null;
 }

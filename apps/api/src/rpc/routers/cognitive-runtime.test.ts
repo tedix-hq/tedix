@@ -10,6 +10,7 @@ import {
 import { REPO_COMMIT_WRITE_KIND } from "@tedix/api-contract/schemas/repo-commit-write";
 import { getTediArtifactClaim } from "@tedix/db/queries/cognitive-runtime";
 import {
+	auditEvents,
 	kernelRuntimeRuns,
 	kernelWakeQueue,
 	TEDI_RUNTIME_EVENT_KIND_VALUES,
@@ -305,6 +306,7 @@ describe("cognitive runtime router invariants", () => {
 	beforeEach(() => {
 		vi.restoreAllMocks();
 		vi.clearAllMocks();
+		mocks.insertAuditEvent.mockReset();
 		mocks.getApprovalRequestById.mockReset();
 		mocks.getGatewayStability.mockReset();
 		mocks.getAgentDiagnostics.mockReset();
@@ -3376,6 +3378,21 @@ describe("cognitive runtime router invariants", () => {
 			},
 			createdAt: "2026-09-23T00:00:00.000Z",
 		});
+		await createRuntimeClient(context).recordEvent({
+			id: "trusted-contribution",
+			tediId: TEDI_ID,
+			kind: "tool.completed",
+			conversationId: "agent:main:qa",
+			runId: "run-bound",
+			payload: {
+				artifactContributionReceipt: {
+					version: 1,
+					artifactIds: ["bound-artifact"],
+					completeness: "observed_prefix",
+					observations: [],
+				},
+			},
+		});
 		expect(mocks.recordContribution).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
@@ -3489,6 +3506,167 @@ describe("cognitive runtime router invariants", () => {
 				createdAt: "2026-09-23T00:00:00.000Z",
 			}),
 		).rejects.toMatchObject({ code: "CONFLICT" });
+	});
+
+	async function historicalContributionFixture(
+		options: { persisted?: boolean; foreign?: "organization" | "tedi" } = {},
+	) {
+		const db = createRuntimeDb();
+		const artifactId = "producer-run:artifact:v2:deliverable:report.md";
+		await db.insert(tediArtifacts).values({
+			id: artifactId,
+			organizationId: options.foreign === "organization" ? "other-org" : ORG_ID,
+			tediId: options.foreign === "tedi" ? "other-tedi" : TEDI_ID,
+			conversationId: "producer-conversation",
+			runId: "producer-run",
+			kind: "document",
+			name: "report.md",
+			metadata: { subKind: "deliverable", producer: "tedi-tool" },
+			contentDigest: "a".repeat(64),
+			accessClassification: "runtime_private",
+			publicationState: "ready",
+			createdAt: "2026-09-23T00:00:00.000Z",
+		});
+		const input = {
+			id: "consumer-run:native-tool.call-1.completed",
+			tediId: TEDI_ID,
+			kind: "tool.completed" as const,
+			conversationId: "consumer-conversation",
+			runId: "consumer-run",
+			createdAt: "2026-09-23T00:00:01.000Z",
+			payload: {
+				surface: "native_tool",
+				name: "record_artifact",
+				producedArtifactIds: [artifactId],
+				artifactContributionReceipt: {
+					version: 1,
+					artifactIds: [artifactId],
+					completeness: "observed_prefix",
+					observations: [],
+				},
+			},
+		};
+		if (options.persisted !== false)
+			await db.insert(tediRuntimeEvents).values({
+				...input,
+				organizationId: ORG_ID,
+				runtimeBackend: "cloudflare-agents",
+			});
+		const context = createContext(db);
+		context.authType = "service-binding";
+		context.tediId = TEDI_ID;
+		context.tediScopes = ["tedis:write"];
+		context.headers = new Headers({
+			"X-Tedix-Caller": "brain-bridge",
+			"X-Tedix-Caller-Source": "http-platform-client",
+			"X-Tedix-Tedi-Id": TEDI_ID,
+		});
+		return {
+			db,
+			context,
+			input,
+			artifactId,
+			client: createRuntimeClient(context),
+		};
+	}
+
+	it("records historical contribution rejection once without rewriting custody or granting a receipt", async () => {
+		const { db, input, client } = await historicalContributionFixture();
+		const audit = await vi.importActual<
+			typeof import("@tedix/db/queries/audit")
+		>("@tedix/db/queries/audit");
+		mocks.insertAuditEvent.mockImplementation(audit.insertAuditEvent);
+		const eventsBefore = await db.select().from(tediRuntimeEvents);
+		const artifactsBefore = await db.select().from(tediArtifacts);
+		for (let retry = 0; retry < 2; retry++) {
+			const result = await client.recordEvent(input);
+			expect(result.event).toMatchObject({
+				id: input.id,
+				payload: input.payload,
+				createdAt: input.createdAt,
+			});
+		}
+		expect(await db.select().from(tediRuntimeEvents)).toEqual(eventsBefore);
+		expect(await db.select().from(tediArtifacts)).toEqual(artifactsBefore);
+		expect(mocks.recordContribution).not.toHaveBeenCalled();
+		const rows = await db.select().from(auditEvents);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			organizationId: ORG_ID,
+			action: "cognitive_runtime.artifact_contribution_rejected",
+			resourceId: input.id,
+			metadata: {
+				reason: "producer_context_mismatch",
+				disposition: "rejected",
+				runId: "consumer-run",
+				artifactRunId: "producer-run",
+			},
+		});
+	});
+
+	it.each([
+		"fresh",
+		"organization",
+		"tedi",
+		"payload",
+		"timestamp",
+		"run",
+		"conversation",
+		"sequence",
+		"runtime",
+		"untrusted",
+	] as const)(
+		"does not acknowledge a %s contribution mismatch",
+		async (mismatch) => {
+			const fixture = await historicalContributionFixture({
+				persisted: mismatch !== "fresh",
+				foreign:
+					mismatch === "organization" || mismatch === "tedi"
+						? mismatch
+						: undefined,
+			});
+			const { db, context, input } = fixture;
+			if (mismatch === "payload") input.payload.name = "exec";
+			if (mismatch === "timestamp")
+				input.createdAt = "2026-09-23T00:00:02.000Z";
+			if (mismatch === "run") input.runId = "changed-run";
+			if (mismatch === "conversation")
+				input.conversationId = "changed-conversation";
+			if (mismatch === "untrusted") context.authType = "apikey";
+			const request =
+				mismatch === "sequence"
+					? { ...input, sequence: 1 }
+					: mismatch === "runtime"
+						? {
+								...input,
+								runtime: {
+									backend: "cloudflare-agents" as const,
+									externalId: "changed-runtime",
+								},
+							}
+						: input;
+			await expect(
+				createRuntimeClient(context).recordEvent(request),
+			).rejects.toMatchObject({
+				code: mismatch === "untrusted" ? "FORBIDDEN" : "CONFLICT",
+			});
+			expect(mocks.recordContribution).not.toHaveBeenCalled();
+			expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
+			expect(await db.select().from(tediRuntimeEvents)).toHaveLength(
+				mismatch === "fresh" ? 0 : 1,
+			);
+		},
+	);
+
+	it("keeps historical delivery retryable when its rejection audit cannot be persisted", async () => {
+		const { client, input } = await historicalContributionFixture();
+		mocks.insertAuditEvent.mockRejectedValueOnce(
+			new Error("audit unavailable"),
+		);
+		await expect(client.recordEvent(input)).rejects.toThrow(
+			"audit unavailable",
+		);
+		expect(mocks.recordContribution).not.toHaveBeenCalled();
 	});
 
 	it("rejects unowned R2 references and mints links only for owned bodies", async () => {
