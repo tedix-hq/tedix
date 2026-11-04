@@ -8,12 +8,15 @@ import {
 	workInteractions,
 } from "../../schema/work-factory";
 import { getWorkItemById } from "./crud";
+import { decisionRelevantWorkComment } from "./comments";
 import {
 	decisionSourcesReview,
 	DECISION_SOURCE_CHANGED,
 } from "./decision-sources";
 
 type Decision = {
+	creatorType?: string;
+	creatorId?: string;
 	id: string;
 	workItemId: string | null;
 	createdAt: string;
@@ -140,6 +143,7 @@ export async function decisionActionChangeDetail(
 					eq(workItemComments.orgId, orgId),
 					eq(workItemComments.workItemId, work.id),
 					gt(workItemComments.createdAt, since),
+					decisionRelevantWorkComment(request),
 				),
 			)
 			.orderBy(desc(workItemComments.createdAt), desc(workItemComments.id))

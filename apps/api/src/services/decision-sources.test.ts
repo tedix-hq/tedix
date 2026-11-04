@@ -10,6 +10,8 @@ import {
 import { osOutputs } from "@tedix/db/schema/os-workspaces";
 import { expect, it } from "vite-plus/test";
 import { decisionSourcesCurrent } from "@tedix/db/queries/work-items/decision-sources";
+import { createMigratedSqlite } from "@tedix/db/test/migrated-sqlite";
+import { refreshDecisionSourceCards } from "./decision-sources";
 
 const orgId = "00000000-0000-4000-8000-000000000001";
 const id = "00000000-0000-4000-8000-000000000002";
@@ -31,6 +33,9 @@ function fixture() {
 	const db = createDbClient(createD1Facade(sqlite));
 	const check = (sources: unknown, subject = "Delete the paused copy?") =>
 		decisionSourcesCurrent(db, orgId, {
+			creatorType: "external_agent",
+			creatorId: "asking-agent",
+			createdAt: at,
 			status: "open",
 			targetType: "user",
 			subject,
@@ -39,6 +44,138 @@ function fixture() {
 		});
 	return { sqlite, check };
 }
+
+it("keeps the pinned historical comment count while exempting new progress", async () => {
+	const { sqlite, check } = fixture();
+	try {
+		sqlite
+			.prepare(
+				"INSERT INTO work_items(id,org_id,title,created_at) VALUES (?,?,'Copy',?)",
+			)
+			.run(id, orgId, at);
+		const comment = sqlite.prepare(
+			"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,metadata,created_at) VALUES (?,?,?,'external_agent','asking-agent',?,?,?)",
+		);
+		comment.run("old", orgId, id, "Earlier findings", "{}", at);
+		const source = { kind: "work", id, version: 1, commentCount: 1 };
+		comment.run(
+			"progress",
+			orgId,
+			id,
+			"Waiting for your answer",
+			'{"decisionImpact":"progress"}',
+			"2026-10-22T10:00:00.000Z",
+		);
+		expect(await check([source])).toBe(true);
+		comment.run(
+			"fact",
+			orgId,
+			id,
+			"Credits approved",
+			"{}",
+			"2026-10-21T18:00:00.000Z",
+		);
+		expect(await check([source])).toBe(false);
+		// A pin refreshed after card creation cannot reuse the original baseline.
+		expect(await check([{ ...source, commentCount: 2 }])).toBe(false);
+		// A backdated fact still invalidates a count pin.
+		sqlite
+			.prepare("UPDATE work_item_comments SET created_at=? WHERE id='fact'")
+			.run(at);
+		expect(await check([source])).toBe(false);
+	} finally {
+		sqlite.close();
+	}
+});
+
+it.each([
+	["external_agent", "asking-agent", { decisionImpact: "progress" }, true],
+	["external_agent", "asking-agent", {}, false],
+	["external_agent", "asking-agent", { decisionImpact: "facts" }, false],
+	["external_agent", "other-agent", { decisionImpact: "progress" }, false],
+	["tedi", "asking-agent", { decisionImpact: "progress" }, false],
+	["user", "asking-agent", { decisionImpact: "progress" }, false],
+])(
+	"sweeps a card after %s/%s posts %j (current: %s)",
+	async (authorType, authorId, metadata, current) => {
+		const sqlite = createMigratedSqlite({ foreignKeys: false });
+		const db = createDbClient(createD1Facade(sqlite));
+		try {
+			sqlite
+				.prepare(
+					"INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status) VALUES ('member',?,'person','person','person@example.test','active')",
+				)
+				.run(orgId);
+			sqlite
+				.prepare(
+					"INSERT INTO external_agent_principals(id,organization_id,key,display_name,credential_binding_type,credential_binding_id,created_by_type,created_by_id) VALUES ('asking-agent',?,'asking-agent','Asking agent','api_key','key','user','person')",
+				)
+				.run(orgId);
+			sqlite
+				.prepare(
+					"INSERT INTO external_agent_sessions(id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,started_at,last_seen_at) VALUES ('session',?,'asking-agent','test-session','test','1','test','test','test','explicit',?,?)",
+				)
+				.run(orgId, at, at);
+			sqlite
+				.prepare(
+					"INSERT INTO work_items(id,org_id,title,created_at,admission_spec_revision) VALUES (?,?,'Copy',?,'revision-1')",
+				)
+				.run(id, orgId, at);
+			sqlite
+				.prepare(
+					"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,creator_session_id,creator_external_session_key,target_type,target_id,created_at,metadata) VALUES ('card',?,?,'question','Delete the copy?','Review facts','external_agent','asking-agent','session','test-session','user','person',?,?)",
+				)
+				.run(
+					orgId,
+					id,
+					at,
+					JSON.stringify({
+						decisionSources: [
+							{ kind: "work", id, version: 1, commentCount: 0 },
+						],
+					}),
+				);
+			sqlite
+				.prepare(
+					"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,metadata,created_at) VALUES ('note',?,?,?,?,?,?,?)",
+				)
+				.run(
+					orgId,
+					id,
+					authorType,
+					authorId,
+					current ? "Still working; waiting for your answer." : "Updated facts",
+					JSON.stringify(metadata),
+					"2026-10-22T10:00:00.000Z",
+				);
+			expect(await refreshDecisionSourceCards(db, orgId, "person")).toEqual({
+				scanned: 1,
+				superseded: current ? 0 : 1,
+				hasMore: false,
+			});
+			expect(
+				sqlite
+					.prepare("SELECT status FROM work_interactions WHERE id='card'")
+					.get(),
+			).toMatchObject({ status: current ? "open" : "expired" });
+			const receipts = sqlite
+				.prepare(
+					"SELECT metadata FROM audit_events WHERE resource_id='card' AND action='decision.sources.expired'",
+				)
+				.all();
+			expect(receipts).toHaveLength(current ? 0 : 1);
+			if (!current)
+				expect(receipts[0]).toMatchObject({
+					metadata: expect.stringContaining("decision_sources_changed"),
+				});
+			expect(
+				await refreshDecisionSourceCards(db, orgId, "person"),
+			).toMatchObject({ superseded: 0 });
+		} finally {
+			sqlite.close();
+		}
+	},
+);
 
 it.each([
 	undefined,

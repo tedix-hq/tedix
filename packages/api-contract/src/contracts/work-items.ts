@@ -1048,7 +1048,9 @@ export const workItemsContract = oc
 							.describe(
 								"Explicitly request executor assignment from this comment; requires specification authority. Ordinary comment text never changes assignment.",
 							),
-						metadata: JsonRecordSchema.optional(),
+						metadata: JsonRecordSchema.optional().describe(
+							'Set decisionImpact to "progress" only for routine notes that change no decision facts. Such notes do not stale cards created by the same agent; unmarked and fact-changing comments still do.',
+						),
 					})
 					.refine(
 						(value) => !containsCardSecret([value.body, value.metadata]),
