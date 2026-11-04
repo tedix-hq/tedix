@@ -501,6 +501,7 @@ async function aggregateAndPrefixToolsUncached(
 				forwardedQueryParams: appForwardedQueryParams,
 				resolutionFailed,
 				toolScopes: appToolScopes,
+				embeddedHostDelegation: sourceEmbeddedHostDelegation,
 			} = resolved;
 			if (resolutionFailed) {
 				return {
@@ -710,6 +711,11 @@ async function aggregateAndPrefixToolsUncached(
 						config: {
 							...aggregateConfig,
 							...(sourceAppId ? { _sourceAppId: sourceAppId } : {}),
+							...(sourceEmbeddedHostDelegation
+								? {
+										_sourceEmbeddedHostDelegation: sourceOrganizationId ?? true,
+									}
+								: {}),
 							_sourceAppSlug: sourceSlug,
 							...(entry.organizationId
 								? { _multiOrgOrganizationId: entry.organizationId }

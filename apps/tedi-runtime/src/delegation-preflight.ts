@@ -184,7 +184,7 @@ export async function preflightDelegationTools(
 		throw new Error(
 			"Delegation preflight failed: invalid or excessive required callables",
 		);
-	const code = `async () => await Promise.all(${codeModeLiteral(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, parameters: row.parameters }; }))`;
+	const code = `async () => await Promise.all(${codeModeLiteral(callables)}.map(async (callable) => { const row = await discover.describe(callable); return { callable: row.callable, authorized: row.authorized, missingScopes: row.missingScopes, requiresEmbeddedSession: row.requiresEmbeddedSession, parameters: row.parameters }; }))`;
 	const result = await executeWithCatalogRetry(execute, code, retryDelaysMs);
 	let resolved: unknown;
 	try {
@@ -215,6 +215,10 @@ export async function preflightDelegationTools(
 		)
 			throw new Error(
 				`Delegation preflight failed: ${callable} is unavailable or unauthorized; missing scopes: ${Array.isArray(row?.missingScopes) ? row.missingScopes.join(", ") : "unverified"}. No scopes were added; return to Home`,
+			);
+		if (row.requiresEmbeddedSession === true)
+			throw new Error(
+				`Delegation preflight failed: ${callable} reaches its tenant connection only through the provider's embedded assistant, which carries the signed-in host user's delegation. A delegated tedi cannot borrow that credential, so no rounds were run. Return to Home and tell the person to ask this question in the embedded assistant`,
 			);
 		const schema = JSON.stringify({ callable, parameters: row.parameters });
 		if (schema.length > 16000)

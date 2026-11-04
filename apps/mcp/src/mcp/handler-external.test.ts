@@ -1197,6 +1197,40 @@ describe("external embedded delegation dispatch", () => {
 		expect(globalThis.fetch).not.toHaveBeenCalled();
 	});
 
+	it("refuses a foreign caller without the embedded session before any credential lookup", async () => {
+		const config = {
+			transport: "external",
+			method: "GET",
+			baseUrl: "https://provider.example",
+			endpoint: "orders",
+			auth: { type: "connection", connectionId: "aggregate-connection" },
+			_sourceAppId: "source-app",
+			_sourceEmbeddedHostDelegation: "provider",
+		};
+		const apiFetch = vi.fn();
+		globalThis.fetch = vi.fn();
+		for (const callerIdentity of [
+			{ authType: "tedi", tediId: "delegated", organizationId: "customer" },
+			{ authType: "oauth", userId: "operator", organizationId: "customer" },
+		] as const) {
+			const result = await new ToolHandler().execute(
+				{},
+				{
+					...ctx(config),
+					env: { API_SERVICE: { fetch: apiFetch } } as unknown as CloudflareEnv,
+					callable: "acme.orders_detail",
+					callerIdentity,
+				},
+			);
+			expect(result.status).toBe(403);
+			expect(JSON.stringify(result.data)).toContain(
+				"only runs inside the provider's embedded assistant",
+			);
+		}
+		expect(apiFetch).not.toHaveBeenCalled();
+		expect(globalThis.fetch).not.toHaveBeenCalled();
+	});
+
 	it("omits credential exception content from the diagnostic log", async () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {

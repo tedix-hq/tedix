@@ -3,6 +3,7 @@ import { callApiRpc } from "../lib/rpc";
 import {
 	resolveEmbeddedHostDelegation,
 	redactDelegationResponse,
+	toolRequiresEmbeddedSession,
 } from "./embedded-host-delegation";
 import type { ToolExecutionContext } from "./handler";
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
@@ -112,6 +113,45 @@ describe("embedded host delegation", () => {
 				resolveEmbeddedHostDelegation(context(), config),
 			).rejects.toThrow();
 		}
+	});
+	it("requires the embedded session only when a foreign organization borrows a provider credential", () => {
+		const marked = { ...config, _sourceEmbeddedHostDelegation: "provider" };
+		const check = (
+			value: unknown,
+			callerOrganizationId: string | undefined,
+			appMetadata: Record<string, unknown> | null = null,
+			appOrganizationId = "gateway-org",
+		) =>
+			toolRequiresEmbeddedSession({
+				config: value,
+				appMetadata,
+				appOrganizationId,
+				callerOrganizationId,
+			});
+		expect(check(marked, "customer")).toBe(true);
+		expect(check(marked, undefined)).toBe(true);
+		expect(
+			check({ ...config, _sourceEmbeddedHostDelegation: true }, "provider"),
+		).toBe(true);
+		// The provider's own organization keeps its ordinary credential path.
+		expect(check(marked, "provider")).toBe(false);
+		// Unmarked aggregate tools and ordinary apps are unaffected.
+		expect(check(config, "customer")).toBe(false);
+		const direct = {
+			baseUrl: "https://provider.example/api",
+			auth: { type: "connection", connectionId: "source-connection" },
+		};
+		const optedIn = {
+			mcpConfig: { embeddedHostDelegation: { audience: "https://p.example" } },
+		};
+		expect(check(direct, "customer", optedIn, "provider")).toBe(true);
+		expect(check(direct, "provider", optedIn, "provider")).toBe(false);
+		expect(check(direct, "customer", { mcpConfig: {} }, "provider")).toBe(
+			false,
+		);
+		expect(
+			check({ ...direct, auth: { type: "api_key" } }, "customer", optedIn),
+		).toBe(false);
 	});
 	it("redacts upstream assertion echoes without truncating product data", () => {
 		expect(

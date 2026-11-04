@@ -508,6 +508,21 @@ holds the provider signing key. Code:
 `apps/mcp/src/mcp/embedded-host-delegation.ts`,
 `packages/mcp-client-core/src/client-manager.ts`.
 
+Policy: only the embedded session may borrow the provider's credential. A
+delegated tedi, Home run, or CLI identity in the customer organization cannot,
+because it has no signed host user to forward. The provider's own organization
+keeps its ordinary credential path. Aggregated tools carry
+`_sourceEmbeddedHostDelegation` (the provider organization), and
+`toolRequiresEmbeddedSession` decides the rule in one place:
+
+- `discover.describe` marks such rows `requiresEmbeddedSession: true` for the
+  caller. The delegation preflight in
+  `apps/tedi-runtime/src/delegation-preflight.ts` refuses them before any model
+  round runs and tells Home to send the person to the embedded assistant.
+- External transport returns a 403 with that same explanation before any
+  credential lookup. Without it, the caller would get a misleading
+  "Connection credential not found".
+
 ## Membership reconciliation
 
 D1 is authoritative for organization membership. An invitation or role update

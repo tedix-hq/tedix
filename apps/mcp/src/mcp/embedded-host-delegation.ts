@@ -2,6 +2,48 @@ import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { callApiRpc } from "../lib/rpc";
 import type { ToolExecutionContext } from "./handler";
 
+export const EMBEDDED_SESSION_REQUIRED_MESSAGE =
+	"This tool only runs inside the provider's embedded assistant, where the signed-in host user's delegation authorizes the tenant connection. A delegated tedi, Home run or CLI session cannot borrow that credential. Ask the question in the embedded assistant instead.";
+
+/**
+ * A source app with `mcpConfig.embeddedHostDelegation` lends its provider-org
+ * credential to another organization only through a verified embedded-session
+ * token: the provider call also carries the host user's signed assertion.
+ * Without that token a foreign caller's tenant lookup can never succeed, so
+ * callers refuse up front instead of spending rounds on "credential not found".
+ * The provider's own organization keeps its ordinary credential path.
+ */
+export function toolRequiresEmbeddedSession(input: {
+	config: unknown;
+	appMetadata: Record<string, unknown> | null | undefined;
+	appOrganizationId: string | null | undefined;
+	callerOrganizationId: string | null | undefined;
+}): boolean {
+	const { config, appMetadata, appOrganizationId, callerOrganizationId } =
+		input;
+	if (!config || typeof config !== "object") return false;
+	const record = config as Record<string, unknown>;
+	let providerOrganizationId: string | true;
+	const marker = record._sourceEmbeddedHostDelegation;
+	if (marker === true || (typeof marker === "string" && marker)) {
+		providerOrganizationId = marker;
+	} else {
+		if (record._sourceAppId !== undefined) return false;
+		const auth = record.auth as Record<string, unknown> | undefined;
+		const mcpConfig = appMetadata?.mcpConfig as
+			| Record<string, unknown>
+			| undefined;
+		if (auth?.type !== "connection" || !mcpConfig?.embeddedHostDelegation)
+			return false;
+		providerOrganizationId = appOrganizationId || true;
+	}
+	return (
+		providerOrganizationId === true ||
+		!callerOrganizationId ||
+		callerOrganizationId !== providerOrganizationId
+	);
+}
+
 /** Original signed browser token is private request metadata, never a tool argument. */
 export async function resolveEmbeddedHostDelegation(
 	ctx: ToolExecutionContext<ToolConfig>,

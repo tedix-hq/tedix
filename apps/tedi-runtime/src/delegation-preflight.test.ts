@@ -267,6 +267,30 @@ await assert.rejects(
 	}),
 	/docs\.create_document is unavailable or unauthorized/,
 );
+// A tenant connection reachable only through the provider's embedded
+// assistant is refused before inference instead of failing after rounds.
+let embeddedOnlyModelCalls = 0;
+await assert.rejects(
+	preflightDelegationTools(
+		{ ...plan, allowedToolIds: ["acme_staging.orders_status_summary"] },
+		async (code) => {
+			assert.match(
+				code,
+				/requiresEmbeddedSession: row\.requiresEmbeddedSession/,
+			);
+			return [
+				{
+					callable: "acme_staging.orders_status_summary",
+					authorized: true,
+					requiresEmbeddedSession: true,
+					parameters: { type: "object" },
+				},
+			];
+		},
+	).then(() => embeddedOnlyModelCalls++),
+	/orders_status_summary reaches its tenant connection only through the provider's embedded assistant.*no rounds were run/,
+);
+assert.equal(embeddedOnlyModelCalls, 0);
 console.log(
 	"PASS delegated tool authority and checkout preflight replay before inference",
 );
