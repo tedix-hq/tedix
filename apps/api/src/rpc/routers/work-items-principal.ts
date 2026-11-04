@@ -13,6 +13,7 @@ import {
 } from "@tedix/db/queries/organization-members";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { type BaseContext, createError, ErrorCodes } from "../orpc";
+import { browserAgentMetadata } from "../browser-agent-seat";
 
 type ExternalWorkExecutor = {
 	type: "external_agent";
@@ -325,6 +326,28 @@ export async function verifiedWorkItemCommentAuthor(
 	orgId: string,
 	metadata: Record<string, unknown> | undefined,
 ): Promise<VerifiedWorkItemCommentAuthor> {
+	if (context.browserAgentSeat) {
+		const membership = await verifiedActiveUserMembership(context, orgId);
+		if (
+			membership.userId !== context.browserAgentSeat.userId ||
+			membership.kind !== "browser_agent"
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Browser agent membership changed",
+			);
+		const scrubbed = { ...metadata };
+		for (const key of EXTERNAL_AGENT_RESERVED_METADATA_KEYS)
+			delete scrubbed[key];
+		return {
+			authorType: "external_agent",
+			authorId: membership.userId,
+			metadata: {
+				...scrubbed,
+				...browserAgentMetadata(context.browserAgentSeat),
+			},
+		};
+	}
 	const external = await verifiedExternalAgent(context, orgId);
 	if (external) {
 		return {

@@ -6,7 +6,7 @@
  * adapter edge for invitations and migration fallback.
  */
 
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { apps } from "../schema/apps";
@@ -246,7 +246,7 @@ export async function listTedisByMemberDescopeUserIds(
 	return rows;
 }
 
-/** Conditional tenant-scoped metadata write; never changes authorization fields. */
+/** Conditional tenant-scoped identity write; never grants the represented user's access. */
 export async function setMemberIdentity(
 	db: DbClient,
 	organizationId: string,
@@ -254,7 +254,7 @@ export async function setMemberIdentity(
 	identity:
 		| { kind: "human" }
 		| {
-				kind: "external_agent";
+				kind: "external_agent" | "browser_agent";
 				displayName: string;
 				representedUserId: string;
 				/** The agent's own avatar; `undefined` leaves the stored value alone. */
@@ -262,14 +262,14 @@ export async function setMemberIdentity(
 		  },
 ) {
 	const representedUserId =
-		identity.kind === "external_agent" ? identity.representedUserId : null;
+		identity.kind !== "human" ? identity.representedUserId : null;
 	return (
 		await db
 			.update(organizationMembers)
 			.set({
 				kind: identity.kind,
 				representedUserId,
-				...(identity.kind === "external_agent"
+				...(identity.kind !== "human"
 					? {
 							name: identity.displayName,
 							...(identity.avatarUrl !== undefined
@@ -284,6 +284,12 @@ export async function setMemberIdentity(
 					eq(organizationMembers.organizationId, organizationId),
 					eq(organizationMembers.id, memberId),
 					eq(organizationMembers.status, "active"),
+					identity.kind === "browser_agent"
+						? and(
+								isNotNull(organizationMembers.userId),
+								inArray(organizationMembers.role, ["member", "viewer"]),
+							)
+						: undefined,
 					representedUserId
 						? sql`EXISTS (SELECT 1 FROM organization_members AS person WHERE person.organization_id = ${organizationId} AND person.user_id = ${representedUserId} AND person.status = 'active' AND person.kind = 'human' AND person.id <> ${memberId})`
 						: undefined,
@@ -291,6 +297,27 @@ export async function setMemberIdentity(
 			)
 			.returning()
 	)[0];
+}
+
+/** Retain the seat as inactive so a still-valid browser JWT cannot regain access. */
+export async function suspendBrowserAgentSeat(
+	db: DbQueryClient,
+	input: { organizationId: string; memberId: string; actorUserId: string },
+) {
+	const [seat] = await db
+		.update(organizationMembers)
+		.set({ status: "deactivated", updatedAt: new Date().toISOString() })
+		.where(
+			and(
+				eq(organizationMembers.organizationId, input.organizationId),
+				eq(organizationMembers.id, input.memberId),
+				eq(organizationMembers.kind, "browser_agent"),
+				inArray(organizationMembers.role, ["member", "viewer"]),
+				sql`EXISTS (SELECT 1 FROM organization_members AS actor WHERE actor.organization_id = ${input.organizationId} AND actor.user_id = ${input.actorUserId} AND actor.status = 'active' AND actor.kind = 'human' AND (actor.role IN ('owner', 'admin') OR actor.user_id = ${organizationMembers.representedUserId}))`,
+			),
+		)
+		.returning();
+	return seat;
 }
 
 /**

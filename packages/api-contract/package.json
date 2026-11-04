@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/browser-agent-seat": "./src/schemas/browser-agent-seat.ts",
 		"./schemas/decision-cascade": "./src/schemas/decision-cascade.ts",
 		"./assets/decision-cascade.v1.json": "./src/assets/decision-cascade.v1.json",
 		"./schemas/office-activity": "./src/schemas/office-activity.ts",

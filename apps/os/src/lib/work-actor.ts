@@ -7,6 +7,7 @@ export interface ActorProfile {
 	image?: string | null;
 	for?: ActorProfile;
 	personalAgent?: boolean;
+	browserAgent?: boolean;
 }
 export type ActorDirectory = ReadonlyMap<string, ActorProfile>;
 
@@ -94,6 +95,7 @@ export function resolveWorkActor(
 	const harness: "codex" | "claude-code" | "devin" | undefined =
 		ref?.type === "external_agent" &&
 		!personalAgent &&
+		!profile?.browserAgent &&
 		(ref.harness === "codex" ||
 			ref.harness === "claude-code" ||
 			ref.harness === "devin")
@@ -112,12 +114,19 @@ export function resolveWorkActor(
 						)
 							? "Agent"
 							: fallback));
-	const represented = personalAgent || harness ? profile?.for : undefined;
+	const represented =
+		personalAgent || profile?.browserAgent || harness
+			? profile?.for
+			: undefined;
 	return {
 		name,
 		harness,
 		image: harness ? undefined : profile?.image,
 		represented,
-		label: represented ? `${name} for ${represented.name}` : name,
+		label: represented
+			? profile?.browserAgent
+				? `${name} (agent for ${represented.name})`
+				: `${name} for ${represented.name}`
+			: name,
 	};
 }

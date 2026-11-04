@@ -2,6 +2,7 @@ import { Pagination } from "@/components/kumo/pagination";
 import { Text } from "@/components/kumo/text";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Member } from "@tedix/api-contract/schemas/organization";
+import { isAgentMemberKind } from "@tedix/api-contract/schemas/browser-agent-seat";
 import { useState } from "react";
 import { Button } from "@/components/kumo/button";
 import {
@@ -29,7 +30,7 @@ import {
 
 export function memberIdentityLabel(member: Member): string {
 	const name = member.name || member.email;
-	return member.kind === "external_agent"
+	return isAgentMemberKind(member.kind)
 		? `${name} · ${member.representedUserName ? `agent for ${member.representedUserName}` : "external agent"}`
 		: name;
 }
@@ -51,7 +52,7 @@ export function MemberIdentityDialog({
 		member.representedUserName ?? "",
 	);
 	const [avatarUrl, setAvatarUrl] = useState(
-		member.kind === "external_agent" ? (member.avatarUrl ?? "") : "",
+		isAgentMemberKind(member.kind) ? (member.avatarUrl ?? "") : "",
 	);
 	const avatarUrlValid =
 		avatarUrl.trim() === "" || /^https?:\/\/\S+$/.test(avatarUrl.trim());
@@ -68,53 +69,76 @@ export function MemberIdentityDialog({
 			osApi.members.setMemberIdentity({
 				organizationId: member.organizationId,
 				memberId: member.id,
-				identity:
-					kind === "external_agent"
-						? {
-								kind,
-								displayName,
-								representedUserId,
-								avatarUrl: avatarUrl.trim() || null,
-							}
-						: { kind },
+				identity: isAgentMemberKind(kind)
+					? {
+							kind,
+							displayName,
+							representedUserId,
+							avatarUrl: avatarUrl.trim() || null,
+						}
+					: { kind },
 			}),
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({ queryKey: osQueryKeys.members() });
 			onClose();
 		},
 	});
+	const suspend = useMutation({
+		mutationFn: () =>
+			osApi.members.suspendAgentSeat({
+				organizationId: member.organizationId,
+				memberId: member.id,
+			}),
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: osQueryKeys.members() });
+			onClose();
+		},
+	});
+	const error = save.error ?? suspend.error;
 	return (
 		<Dialog
 			open
 			onOpenChange={(open) => {
-				if (!open && !save.isPending) onClose();
+				if (!open && !save.isPending && !suspend.isPending) onClose();
 			}}
 		>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Member identity</DialogTitle>
 					<DialogDescription>
-						Label this member as a person or an external agent. Representation
-						does not grant access to the person's private data or decisions.
+						Choose a display label or a browser agent seat. A browser seat uses
+						its own login with member or viewer access and cannot approve
+						actions or manage the team. Suspend blocks its next API request. A
+						display label keeps existing access.
 					</DialogDescription>
 				</DialogHeader>
 				<Select
 					value={kind}
 					onValueChange={(value) => {
-						if (value === "human" || value === "external_agent") setKind(value);
+						if (
+							value === "human" ||
+							value === "external_agent" ||
+							value === "browser_agent"
+						)
+							setKind(value);
 					}}
 				>
 					<SelectTrigger aria-label="Member kind">
 						<SelectValue>
-							{kind === "human" ? "Person" : "External agent"}
+							{kind === "human"
+								? "Person"
+								: kind === "browser_agent"
+									? "Browser agent seat"
+									: "External agent label"}
 						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="human">Person</SelectItem>
 						<SelectItem value="external_agent">External agent</SelectItem>
+						<SelectItem value="browser_agent">Browser agent seat</SelectItem>
 					</SelectContent>
 				</Select>
-				{kind === "external_agent" ? (
+				{isAgentMemberKind(kind) ? (
 					<>
 						<Input
 							aria-label="Agent name"
@@ -148,7 +172,7 @@ export function MemberIdentityDialog({
 										(person) =>
 											person.id !== member.id &&
 											person.status === "active" &&
-											person.kind !== "external_agent" &&
+											!isAgentMemberKind(person.kind) &&
 											person.userId,
 									)
 									.map((person) => (
@@ -186,19 +210,28 @@ export function MemberIdentityDialog({
 						) : null}
 					</>
 				) : null}
-				{save.error ? (
+				{error ? (
 					<div role="alert">
 						<Text role="label" tone="error">
-							{save.error instanceof Error
-								? save.error.message
+							{error instanceof Error
+								? error.message
 								: "Identity could not be saved."}
 						</Text>
 					</div>
 				) : null}
 				<DialogFooter>
+					{member.kind === "browser_agent" && member.status === "active" ? (
+						<Button
+							variant="destructive"
+							disabled={save.isPending || suspend.isPending}
+							onClick={() => suspend.mutate()}
+						>
+							Suspend agent
+						</Button>
+					) : null}
 					<Button
 						variant="secondary"
-						disabled={save.isPending}
+						disabled={save.isPending || suspend.isPending}
 						onClick={onClose}
 					>
 						Cancel
@@ -206,7 +239,8 @@ export function MemberIdentityDialog({
 					<Button
 						disabled={
 							save.isPending ||
-							(kind === "external_agent" &&
+							suspend.isPending ||
+							(isAgentMemberKind(kind) &&
 								(!displayName.trim() || !representedUserId || !avatarUrlValid))
 						}
 						onClick={() => save.mutate()}

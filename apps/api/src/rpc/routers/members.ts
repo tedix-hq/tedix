@@ -8,7 +8,7 @@ import { getDescopeManagement } from "../../lib/descope-management";
  * D1 is the primary store for member records. Descope management SDK
  * is used for user/tenant operations when available.
  *
- * All mutations require admin/owner role via requireRole() middleware
+ * Team administration requires admin/owner access; human seat owners may suspend their agents.
  *
  * This router uses contract-first development with oRPC.
  * The contract is imported from @tedix/api-contract package.
@@ -16,6 +16,7 @@ import { getDescopeManagement } from "../../lib/descope-management";
 
 import { implement } from "@orpc/server";
 import { membersContract } from "@tedix/api-contract/contracts/members";
+import { isAgentMemberKind } from "@tedix/api-contract/schemas/browser-agent-seat";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	acceptInvite,
@@ -25,6 +26,7 @@ import {
 	listMemberRepresentatives,
 	listTedisByMemberDescopeUserIds,
 	setMemberIdentity,
+	suspendBrowserAgentSeat,
 	inviteMember as inviteMemberD1,
 	removeMember as removeMemberD1,
 	setMemberPermissions as setMemberPermissionsD1,
@@ -496,7 +498,7 @@ function formatMemberResponse(m: {
 	organizationId: string;
 	descopeUserId: string;
 	userId?: string | null;
-	kind?: "human" | "external_agent";
+	kind?: "human" | "external_agent" | "browser_agent";
 	representedUserId?: string | null;
 	representedUserName?: string | null;
 	tediId?: string | null;
@@ -565,7 +567,7 @@ async function resolveMemberIdentities(
 		db,
 		organizationId,
 		members.flatMap((member) =>
-			member.kind === "external_agent" && member.representedUserId
+			isAgentMemberKind(member.kind) && member.representedUserId
 				? [member.representedUserId]
 				: [],
 		),
@@ -582,7 +584,7 @@ async function resolveMemberIdentities(
 				db,
 				organizationId,
 				members.flatMap((member) =>
-					member.kind !== "external_agent" ? [member.descopeUserId] : [],
+					!isAgentMemberKind(member.kind) ? [member.descopeUserId] : [],
 				),
 			)
 		).flatMap((tedi) =>
@@ -590,10 +592,9 @@ async function resolveMemberIdentities(
 		),
 	);
 	return members.map((member) => {
-		const tedi =
-			member.kind !== "external_agent"
-				? tedisBySubject.get(member.descopeUserId)
-				: undefined;
+		const tedi = !isAgentMemberKind(member.kind)
+			? tedisBySubject.get(member.descopeUserId)
+			: undefined;
 		return formatMemberResponse({
 			...member,
 			representedUserName: names.get(member.representedUserId) ?? null,
@@ -1180,7 +1181,7 @@ export const setMemberIdentityContract = authedMembersOs.setMemberIdentity
 		if (!updated)
 			throw createError(
 				ErrorCodes.CONFLICT,
-				"Choose an active member and a different active human in this organization",
+				"Choose an active member or viewer and a different active human in this organization",
 			);
 		await emitAuditEvent(context.db, {
 			organizationId: input.organizationId,
@@ -1198,7 +1199,54 @@ export const setMemberIdentityContract = authedMembersOs.setMemberIdentity
 		return { data: formatMemberResponse(updated) };
 	});
 
+export const suspendAgentSeatContract = authedMembersOs.suspendAgentSeat
+	.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The query requires an active human seat owner or organization admin in this organization.",
+			},
+			"team:write",
+		),
+	)
+	.handler(async ({ input, context }) => {
+		await requireOrganizationAccess(context, input.organizationId);
+		if (
+			context.authType !== "user" ||
+			!context.userId ||
+			context.browserAgentSeat
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only a human seat owner or organization admin can suspend an agent",
+			);
+		const seat = await suspendBrowserAgentSeat(context.db, {
+			...input,
+			actorUserId: context.userId,
+		});
+		if (!seat)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"No agent seat managed by this person in this organization",
+			);
+		const actor = auditActor(context);
+		await emitAuditEvent(context.db, {
+			organizationId: input.organizationId,
+			actorId: actor.actorId,
+			actorType: actor.actorType,
+			action: "member.agent_suspended",
+			resourceType: "organization_member",
+			resourceId: seat.id,
+			metadata: {
+				...actor.actorMetadata,
+				representedUserId: seat.representedUserId,
+			},
+		});
+		return { data: formatMemberResponse(seat) };
+	});
+
 export const membersContractRouter = authedMembersOs.router({
+	suspendAgentSeat: suspendAgentSeatContract,
 	setMemberIdentity: setMemberIdentityContract,
 	getMembershipReconciliation: getMembershipReconciliationContract,
 	repairMembership: repairMembershipContract,

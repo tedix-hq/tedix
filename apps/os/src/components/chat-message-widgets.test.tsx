@@ -19,7 +19,41 @@ vi.mock("@/components/widget-frame", () => ({
 	),
 }));
 
-import { ChatMessageWidgets, StructuredReadResult } from "./chat-message-parts";
+import {
+	ChatMessageBubble,
+	ChatMessageWidgets,
+	StructuredReadResult,
+} from "./chat-message-parts";
+
+it("labels a browser agent's Home turn with its represented person", () => {
+	const html = renderToStaticMarkup(
+		<ChatMessageBubble
+			message={{
+				id: "seat-turn",
+				organizationId: "team",
+				conversationId: "home:seat",
+				role: "user",
+				status: "completed",
+				content: "Hello",
+				createdAt: "2026-10-01T12:00:00.000Z",
+				metadata: {
+					author: {
+						id: "juniper",
+						type: "external_agent",
+						browserAgentSeat: {
+							userId: "juniper",
+							memberId: "seat",
+							displayName: "Juniper",
+							representedUserId: "river",
+							representedUserName: "River",
+						},
+					},
+				},
+			}}
+		/>,
+	);
+	expect(html).toContain("Juniper (agent for River)");
+});
 
 const message: HomeMessage = {
 	id: "message-1",

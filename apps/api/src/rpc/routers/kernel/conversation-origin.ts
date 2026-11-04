@@ -69,7 +69,10 @@ export const KERNEL_CONVERSATION_ORIGIN_PAYLOAD_KEY = "origin";
  * and Durable-Object contexts have — is `human`.
  */
 export function resolveKernelConversationOrigin(
-	context: Pick<BaseContext, "authType" | "externalAgentPrincipalId"> & {
+	context: Pick<
+		BaseContext,
+		"authType" | "externalAgentPrincipalId" | "browserAgentSeat"
+	> & {
 		headers?: Headers;
 	},
 ): KernelConversationOrigin {
@@ -82,7 +85,8 @@ export function resolveKernelConversationOrigin(
 		default:
 			break;
 	}
-	if (context.externalAgentPrincipalId) return "agent";
+	if (context.externalAgentPrincipalId || context.browserAgentSeat)
+		return "agent";
 	if (context.headers?.get(MCP_EDGE_TOOL_ID_HEADER)) return "agent";
 	return "human";
 }
@@ -138,23 +142,20 @@ function conversationKeyScope(value: string): string {
 export function defaultHomeConversationIdForCaller(
 	context: Pick<
 		BaseContext,
-		"authType" | "externalAgentPrincipalId" | "tediId"
+		"authType" | "externalAgentPrincipalId" | "tediId" | "browserAgentSeat"
 	> & { headers?: Headers },
 ): string {
 	if (resolveKernelConversationOrigin(context) === "human") {
 		return MAIN_HOME_CONVERSATION_ID;
 	}
-	// Narrowest stable identity first: one thread per coding-agent principal or
-	// per tedi, so an agent's own follow-up turns stay coherent. A bare
-	// principal class is next — it buckets all of that class's traffic together,
-	// which is still strictly better than the operator's thread. Only a MACHINE
-	// class may name a scope: an `authType` of "user" that reached here was
-	// classified agent by the MCP-edge header alone, so it belongs to `mcp` (the
-	// Code Mode / smoke-probe case) and must not mint a `home:agent:user` key
-	// that reads as if the operator owned it.
+	// Keep each verified browser seat, coding agent and tedi in its own thread.
+	// A user credential replayed by MCP without an agent identity uses `mcp`.
 	const machineClass =
 		context.authType && context.authType !== "user" ? context.authType : null;
 	const scope =
+		(context.browserAgentSeat
+			? `browser-${context.browserAgentSeat.userId}`
+			: null) ??
 		context.externalAgentPrincipalId ??
 		(context.tediId ? `tedi-${context.tediId}` : null) ??
 		machineClass ??

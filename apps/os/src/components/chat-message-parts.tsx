@@ -1,5 +1,6 @@
 /** Presentational chat pieces: message bubble, widgets, banners, indicators and starter prompts. */
 import { CHAT_STARTERS } from "@/components/chat-composer-options";
+import { BrowserAgentSeatSchema } from "@tedix/api-contract/schemas/browser-agent-seat";
 import { isLocalWorkersAi } from "@/lib/local-inference";
 import {
 	ArrowCounterClockwise,
@@ -126,6 +127,10 @@ export function ChatMessageBubble({
 }) {
 	useOsFormattingPreferences();
 	const isUser = message.role === "user";
+	const author = message.metadata?.author as
+		| Record<string, unknown>
+		| undefined;
+	const seat = BrowserAgentSeatSchema.safeParse(author?.browserAgentSeat);
 	const decoded = decodeChatContext(message.content);
 	const structuredResult = directReadResult(message);
 	const readFailure = directReadError(message);
@@ -146,6 +151,11 @@ export function ChatMessageBubble({
 						: "max-w-full py-0.5",
 				)}
 			>
+				{isUser && seat.success ? (
+					<Text role="label" tone="secondary">
+						{`${seat.data.displayName} (agent for ${seat.data.representedUserName})`}
+					</Text>
+				) : null}
 				{decoded.context &&
 				!(
 					(decoded.context.kind === "workspace" &&

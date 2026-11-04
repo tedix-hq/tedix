@@ -765,8 +765,8 @@ export const MemberSchema = z.object({
 	 */
 	avatarUrl: z.string().nullable(),
 	role: MemberRoleSchema,
-	/** Display identity only; grants no access to the represented user's data. */
-	kind: z.enum(["human", "external_agent"]).optional(),
+	/** Browser seats are opt-in; external_agent remains a display label. */
+	kind: z.enum(["human", "external_agent", "browser_agent"]).optional(),
 	representedUserId: z.string().nullable().optional(),
 	representedUserName: z.string().nullable().optional(),
 	/** The live tedi whose identity this membership is, when there is one. */

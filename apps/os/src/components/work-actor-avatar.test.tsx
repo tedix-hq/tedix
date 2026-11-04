@@ -8,6 +8,27 @@ import {
 } from "./work-actor-avatar";
 import { resolveWorkActor, workActorReference } from "@/lib/work-actor";
 
+it("shows a browser agent and its human owner without allowing a forged harness label", () => {
+	const rows = new Map([
+		[
+			"external_agent:juniper",
+			{ name: "Juniper", browserAgent: true, for: { name: "River" } },
+		],
+	]);
+	const actor = workActorReference("external_agent", "juniper", {
+		agentHarness: "codex",
+	});
+	expect(resolveWorkActor(actor, "Team member", rows).label).toBe(
+		"Juniper (agent for River)",
+	);
+	const html = renderToStaticMarkup(
+		<WorkActorDirectoryContext.Provider value={rows}>
+			<WorkActorAvatar actor={actor} />
+		</WorkActorDirectoryContext.Provider>,
+	);
+	expect(html).toContain("Juniper (agent for River)");
+});
+
 const directory = new Map([
 	[
 		"user:pine-owner",

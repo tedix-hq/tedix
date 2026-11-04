@@ -1387,6 +1387,7 @@ export function resetLocalFixtures(): void {
 	localShareLinks.clear();
 	localCustomDomain = null;
 	localApiKeys = [...API_KEYS];
+	localSuspendedAgentSeats.clear();
 	if (demoPackBuiltAt !== null) demoPackBuiltAt = installDemoPack();
 	else installWorkViewFixtures();
 }
@@ -4104,17 +4105,19 @@ const TEAM_MEMBERS = [
 		...ORG_MEMBERSHIP.member,
 		id: fid("90", 3),
 		descopeUserId: "agent-instinct-local",
-		userId: null,
+		userId: "local-browser-agent",
 		email: "agent@mail.fictional.example",
 		name: "Instinct",
 		avatarUrl: AGENT_AVATAR,
-		kind: "external_agent" as const,
+		kind: "browser_agent" as const,
 		representedUserId: "dev-operator",
 		representedUserName: "Local Operator",
 		role: "member" as const,
 		lastActiveAt: T5,
 	},
 ];
+
+const localSuspendedAgentSeats = new Set<string>();
 
 /** Org API keys for /admin/api-keys; raw keys never exist in a list read. */
 const apiKeyRow = (
@@ -5895,7 +5898,36 @@ const handlers: Record<string, (input: never) => unknown> = {
 
 	// --- team ---
 	"members/listMembers": (input: Pagination | undefined) =>
-		paginate(TEAM_MEMBERS, input),
+		paginate(
+			TEAM_MEMBERS.map((member) =>
+				localSuspendedAgentSeats.has(member.id)
+					? { ...member, status: "deactivated" as const }
+					: member,
+			),
+			input,
+		),
+	"members/suspendAgentSeat": (input: {
+		organizationId: string;
+		memberId: string;
+	}) => {
+		const member = TEAM_MEMBERS.find(
+			(row) =>
+				row.id === input.memberId &&
+				row.organizationId === input.organizationId,
+		);
+		if (
+			!member ||
+			!("kind" in member) ||
+			member.kind !== "browser_agent" ||
+			member.role !== "member"
+		)
+			throw new RpcError(
+				"FORBIDDEN",
+				"No browser agent seat managed by this person",
+			);
+		localSuspendedAgentSeats.add(member.id);
+		return { data: { ...member, status: "deactivated" as const } };
+	},
 	"tedis/list": (input: Pagination | undefined) => paginate(TEDIS, input),
 	"tedis/get": (input: { tediId: string }) => {
 		const tedi = TEDIS.find((row) => row.id === input.tediId);
