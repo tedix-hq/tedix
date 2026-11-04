@@ -14,6 +14,7 @@ import {
 	choiceProbability,
 	resolveRouteChoice,
 	decideHomeRoute,
+	routeDecisionAttachments,
 	type RouteDecisionObservation,
 	type RouteChoice,
 } from "./route-decision";
@@ -223,7 +224,7 @@ describe("route choice probabilities and policy", () => {
 			vi.useRealTimers();
 		}
 	});
-	it("skips images without a text-only judgment", async () => {
+	it("skips an ineligible turn without a judgment", async () => {
 		const result = await decideHomeRoute({
 			db: {} as DbClient,
 			env: { AI: {} } as KernelEnv,
@@ -235,6 +236,73 @@ describe("route choice probabilities and policy", () => {
 		});
 		expect(result.status).toBe("ineligible");
 		expect(executeJevJudgment).not.toHaveBeenCalled();
+	});
+	it("judges an image-attached request from its attachment manifest", async () => {
+		vi.mocked(executeJevJudgment).mockResolvedValueOnce({
+			model: "clef-flash",
+			answers: { route: distribution("answer_in_home", HOME_ROUTE_KINDS) },
+			usage: { input_tokens: 100, output_tokens: 0 },
+		});
+		const result = await decideHomeRoute({
+			db: {} as DbClient,
+			env: { AI: {} } as KernelEnv,
+			gatewayContext: { organizationId: "org-fiction" },
+			content: "fix the loading screen of this app",
+			context,
+			policy,
+			attachments: routeDecisionAttachments(
+				[
+					{
+						type: "image",
+						fileName: "loading.png",
+						mimeType: "image/png",
+						content: "data:image/png;base64,AAAA",
+					},
+				],
+				[
+					{
+						role: "user",
+						content: "earlier",
+						attachments: [
+							{
+								type: "image",
+								fileName: "before.png",
+								mimeType: "image/png",
+								content: "data:image/png;base64,BBBB",
+							},
+						],
+					},
+				],
+			),
+			pageTools: [
+				{
+					name: "read_app_files",
+					description: "Read the app files.",
+					inputSchema: { type: "object" },
+				},
+			],
+		});
+		expect(result.status).toBe("selected");
+		const call = vi.mocked(executeJevJudgment).mock.calls[0]![0];
+		const state = JSON.parse(call.state.input as string) as {
+			attachments: unknown;
+			pageTools: unknown;
+		};
+		expect(state.attachments).toEqual([
+			{ fileName: "loading.png", mimeType: "image/png", type: "image" },
+			{
+				fileName: "before.png",
+				mimeType: "image/png",
+				type: "image (earlier message)",
+			},
+		]);
+		expect(state.pageTools).toEqual([
+			{ name: "read_app_files", description: "Read the app files." },
+		]);
+		expect(call.questions.route.instructions).toContain(
+			"attachments lists files",
+		);
+		expect(JSON.stringify(call.questions.route)).toContain("pageTools");
 	});
 });
 describe("two-step route integration", () => {

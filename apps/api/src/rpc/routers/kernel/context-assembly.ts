@@ -16,7 +16,10 @@ import { readDraftPreferences } from "../../../services/decision-learning";
 import { type ContextCandidateRanker } from "./jev-context-ranking";
 import type { DbClient } from "@tedix/db/client";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
-import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
+import {
+	listOsWorkspaceLinkedTediIds,
+	listOsWorkspaceResources,
+} from "@tedix/db/queries/os-workspaces/resources";
 import { getCapabilityByIdForOrganization } from "@tedix/db/queries/capabilities";
 import { listKernelWorkflowCatalog } from "@tedix/db/queries/cognitive/skill-catalog";
 import {
@@ -169,6 +172,11 @@ export interface KernelContext {
 		 * renders exactly as before (zero regression).
 		 */
 		selectionPrior?: { successRate: number; total: number };
+		/**
+		 * This tedi runs a skill linked to the selected workspace. Linked tedis
+		 * rank first for delegation from that workspace's chat.
+		 */
+		workspaceLinked?: boolean;
 	}[];
 	apps: {
 		slug: string;
@@ -356,6 +364,21 @@ const ACTIVE_WORK_ITEM_STATUSES = new Set(["proposed", "accepted"]);
 // Helpers
 // ============================================================================
 
+/**
+ * Tedis linked to the selected workspace come first, in their ranked order,
+ * so they survive the roster render cap and lead the delegation candidates.
+ * Without a workspace, or with no linked tedi, the order is unchanged.
+ */
+export function prioritizeWorkspaceTedis<
+	T extends { workspaceLinked?: boolean },
+>(tedis: readonly T[]): T[] {
+	if (!tedis.some((tedi) => tedi.workspaceLinked)) return [...tedis];
+	return [
+		...tedis.filter((tedi) => tedi.workspaceLinked),
+		...tedis.filter((tedi) => !tedi.workspaceLinked),
+	];
+}
+
 type ContextReadSource =
 	| "tedis"
 	| "apps"
@@ -372,6 +395,7 @@ type ContextReadSource =
 	| "conversationCapabilities"
 	| "conversationArtifactPins"
 	| "workspaceResources"
+	| "workspaceTedis"
 	| "recentConversations"
 	| "openWorkRequests"
 	| "personalCalendar";
@@ -1069,6 +1093,7 @@ export async function assembleHomeContext(
 		conversationArtifactPins,
 		referencedSkillRows,
 		workspaceResourceRows,
+		workspaceLinkedTediIds,
 	] = await Promise.all([
 		visibleTediRowsPromise,
 		appRowsPromise,
@@ -1180,6 +1205,19 @@ export async function assembleHomeContext(
 			: Promise.resolve(
 					[] as Awaited<ReturnType<typeof listOsWorkspaceResources>>,
 				),
+		selectedWorkspaceId
+			? safeRead(
+					() =>
+						cached(`workspaceTedis:${selectedWorkspaceId}`, () =>
+							listOsWorkspaceLinkedTediIds(db, {
+								organizationId,
+								workspaceId: selectedWorkspaceId,
+							}),
+						),
+					[] as string[],
+					"workspaceTedis",
+				)
+			: Promise.resolve([] as string[]),
 	]);
 	const recentConversationRows = await recentConversationsPromise;
 	const openWorkRequests = await openWorkRequestsPromise;
@@ -1244,6 +1282,7 @@ export async function assembleHomeContext(
 	const cardByTediId = new Map(
 		capabilityCards.map((card) => [card.tediId, card]),
 	);
+	const linkedTediIds = new Set(workspaceLinkedTediIds);
 	const tedis: KernelContext["tedis"] = visibleTediRows.map((tedi) => {
 		const capability = cardByTediId.get(tedi.id);
 		const prior = selectionPriors.get(tedi.id);
@@ -1256,6 +1295,7 @@ export async function assembleHomeContext(
 			...(tedi.runtimeKind ? { role: tedi.runtimeKind } : {}),
 			...(tedi.status ? { status: tedi.status } : {}),
 			...(capability ? { capability } : {}),
+			...(linkedTediIds.has(tedi.id) ? { workspaceLinked: true } : {}),
 			...(prior
 				? {
 						selectionPrior: {
@@ -1387,12 +1427,12 @@ export async function assembleHomeContext(
 		...(cacheTrace ? { cache: cacheTrace } : {}),
 		workspace,
 		tedis: (await personalRecallPromise)
-			? [...rankedTedis].sort(
+			? [...prioritizeWorkspaceTedis(rankedTedis)].sort(
 					(a, b) =>
 						Number(b.scope === "personal" && b.ownerUserId === descopeUserId) -
 						Number(a.scope === "personal" && a.ownerUserId === descopeUserId),
 				)
-			: rankedTedis,
+			: prioritizeWorkspaceTedis(rankedTedis),
 		apps,
 		workflows: rankedWorkflows,
 		conversationCapabilities,

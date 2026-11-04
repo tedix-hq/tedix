@@ -52,7 +52,6 @@ import type { DbClient } from "@tedix/db/client";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
 import {
 	homeAttachmentContent,
-	hasHomeHistoryImages,
 	hydrateHomeHistory,
 	type HomeAttachmentResolver,
 } from "./attachment-content";
@@ -126,7 +125,11 @@ import {
 } from "./output-create-intent";
 import { workWriteGateway } from "./work-write-gateway";
 import { planKernelRoute } from "./route-planner";
-import { decideHomeRoute, readHomeRoutePolicy } from "./route-decision";
+import {
+	decideHomeRoute,
+	readHomeRoutePolicy,
+	routeDecisionAttachments,
+} from "./route-decision";
 import type { KernelRouteDecision } from "./route-schema";
 import { readOrgDispatchPolicyLayer } from "./tedi-capabilities";
 import { countActiveDelegatedRunsByTedi } from "@tedix/db/queries/kernel-runtime-runs";
@@ -1059,8 +1062,13 @@ export async function runKernel(args: {
 							context,
 							policy: homeRoutePolicy,
 							signal: abortSignal,
-							ineligible:
-								images.length > 0 || hasHomeHistoryImages(context.history),
+							...(args.pageTools?.descriptors.length
+								? { pageTools: args.pageTools.descriptors }
+								: {}),
+							attachments: routeDecisionAttachments(
+								args.attachments,
+								context.history,
+							),
 							hold: args.holdDecisionWork,
 							onExecutionAttempts: args.onExecutionAttempts,
 						})),

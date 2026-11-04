@@ -9,6 +9,7 @@ import {
 	HOME_PAGE_TOOLS_INSTRUCTION,
 	HomeAnswerIncompleteError,
 	homePageToolsRouteNote,
+	pageToolsCoverRequest,
 	type HomePageTools,
 } from "./home-page-tools";
 import type { SelectedKernelModel } from "./llm";
@@ -27,7 +28,7 @@ import {
 	prohibitsDelegation,
 } from "./delegation-intent";
 import type { ContextCandidateRanker } from "./jev-context-ranking";
-import { refineDelegationFit } from "./jev-delegation-fit";
+import { mentionsNamedTedi, refineDelegationFit } from "./jev-delegation-fit";
 import type { KernelContext } from "./context-assembly";
 import {
 	renderHomeStableContext,
@@ -68,6 +69,48 @@ import {
 	routeWriterContext,
 	ROUTE_DETAILS_PROMPT_VERSION,
 } from "./route-decision-writer";
+
+/**
+ * In a workspace chat, work the offered page tools cover (this workspace's
+ * apps and outputs) stays with Home: it reads and proposes the edit itself.
+ * A delegation the planner chose for such a request becomes the page-action
+ * answer pass, unless the operator named a tedi. Delegation stays for
+ * long-running or specialist work, which the coverage predicate excludes.
+ */
+export function guardWorkspacePageToolRoute<T extends KernelRouteDecision>(
+	content: string,
+	context: KernelContext,
+	decision: T,
+	pageTools: HomePageTools | undefined,
+): T {
+	if (
+		!pageTools?.descriptors.length ||
+		!context.workspace ||
+		(decision.routeKind !== "delegate_tedi" &&
+			decision.routeKind !== "suggest_handoff") ||
+		mentionsNamedTedi(content, context.tedis) ||
+		!pageToolsCoverRequest({
+			content,
+			descriptors: pageTools.descriptors,
+			workspace: context.workspace,
+			apps: context.apps,
+			plannedToolIds: decision.plannedToolIds,
+		})
+	)
+		return decision;
+	return {
+		...decision,
+		routeKind: "answer_in_home",
+		answer: null,
+		targetTediId: null,
+		targetTediLabel: null,
+		targetActivityId: null,
+		plannedToolIds: [],
+		toolIntent: null,
+		rationale:
+			"The page offers tools for this workspace's apps and outputs; Home acts on it directly.",
+	};
+}
 
 /** A model or fit rerank cannot send a private recall to another member's tedi. */
 export function guardPersonalRecallRoute<T extends KernelRouteDecision>(
@@ -161,7 +204,7 @@ Routes:
 - answer_in_home: answer questions and internal reads from assembled evidence in answer. Missing Work history, attempts or source details: delegate a bounded read. The request authorizes reading; never ask for records or fresh read permission. Posts/artifacts need a write after verification.
 - propose_tool_write: propose one bounded create/update/delete/send through an available app. Use this for Tedix-internal documents, sheets, presentations and workspace artifacts; for external provider data, use it only when NO tedi owns the domain. Fill toolIntent with the actual app slug from context (not a tool namespace); never claim execution.
 - delegate_tedi: give one bounded task to the best owning tedi. To READ or FETCH live EXTERNAL provider data (commits, invoices, email), use the connection-owning tedi. Fill exact targetTediId/targetTediLabel and, when an entrustment matches, its targetActivityId plus the smallest exact plannedToolIds subset. toolIntent must be null.
-- suggest_handoff: suggest that the operator open an extended, human-driven specialist session. Fill targetTediId/targetTediLabel and a one-sentence answer. The conversation is never auto-transferred. Use delegate_tedi for bounded work; prefer delegate_tedi when uncertain.
+- suggest_handoff: suggest that the operator open an extended, human-driven specialist session. Fill targetTediId/targetTediLabel and a one-sentence answer. The conversation is never auto-transferred. Use delegate_tedi for bounded work; between the two, prefer delegate_tedi.
 - run_workflow: execute a genuinely matching listed workflow using its exact slug in workflowHint. Keyword overlap is insufficient. Listing or designing workflows/skills is answer_in_home; never invent a workflow.
 - ask_human: when genuinely ambiguous or missing routing context, ask one grounded question with 2-3 options and a recommended default.
 
@@ -177,27 +220,30 @@ Examples:
 - "make our tedis autonomous" → delegate_tedi to the platform/CTO tedi.
 - "Goal for the CMO tedi: build a marketing skill" → delegate_tedi to that named CMO tedi.
 - "install Google Calendar from the catalog" → propose_tool_write through the available app carrying catalog.install. Catalog installation is a bounded Tedix-internal write; it does not require a tedi owner. For multiple named apps, preserve every requested name in the write intent so the write planner can choose the batch installer.
-- "Visualize this" / "render an inline MCP App" → delegate_tedi for a transient visual, not a certification workflow or durable artifact. Preserve the original requested subject and data in the delegation rationale and evidence expectation; the worker may not have conversation history.
+- "Visualize this" / "render an inline MCP App" → delegate_tedi for a transient visual, not a workflow or durable artifact; keep the requested subject and data in the rationale and evidence expectation (the worker lacks history).
 - "fix it" with no history referent → ask_human with plausible contextual options.
 - "save it in our workspace for <client>", workspace unlisted → delegate_tedi to find it; a described destination is a lookup, not ambiguity.
+
+Workspace-first: in a workspace chat, small work on its apps, files and outputs is Home's own when the page offers tools for it: answer_in_home, read, propose the edit (the person accepts it), say what changed. Delegate only long-running or specialist work: live external provider data, embodied work, multi-step research, or work given to a named tedi.
 
 Conversation and evidence:
 - For personalRecall, answer first-person commitments, people, follow-ups, priorities and schedule from the assembled records when sufficient. If records are missing, delegate a bounded read to the caller's own personal tedi when available. Never select another member's personal tedi. Use dated sources; public web cannot establish a person's private commitments or meetings.
 - Resolve pronouns and references from history; ask_human remains correct. History is not current policy: route retries using current availability; dispatch enforces approval. Preserve explicit holds.
-- A prior access error or denial in history is evidence of that moment, not a standing refusal. On a renewed request for the same read, route a fresh authorized read-only attempt when a capable tedi exists; never answer by repeating the historical denial. Consent, ownership, read-scope and critical-effect gates stay authoritative at dispatch.
+- A prior access error or denial in history is evidence of that moment, not a standing refusal: on a renewed request route a fresh authorized read when a capable tedi exists; never repeat the historical denial. Consent, ownership, read-scope and critical-effect gates stay authoritative at dispatch.
 - Never assert completion from history alone. For external state, delegate a verification read or explicitly say it is unverified. For Tedix-internal state, verify against assembled context and answer_in_home.
-- Context inventory entries are one-line summaries, not underlying artifacts. When asked for exact steps, tools, contents, configuration, code, or to read a skill/file/doc, do NOT restate the summary. Delegate a bounded read to the owner, or explicitly say you only hold the summary and offer to fetch the specifics.
-- Workspace and selected-workpiece names/ids identify references; they do not contain the document body. Missing retrieved content is not evidence that the document is empty or lacks the requested information. If the contents are unavailable, say you have not read them. When tools are disallowed or no reader is available, ask for the relevant text; do not infer contents from the title or repeat internal reference IDs unless requested. Use actual text already supplied in this conversation when available.
+- Inventory entries are one-line summaries, not the artifacts. Asked for exact steps, tools, contents, configuration or code, do NOT restate the summary: delegate a bounded read to the owner, or say you only hold the summary and offer to fetch specifics.
+- Workspace and workpiece names/ids are references, not the document body; missing content is not evidence the document is empty. If unread, say so; with no reader, ask for the text. Never infer contents from a title or repeat reference IDs unless asked; use text already supplied in this conversation.
 - If an answer would substantially repeat the prior answer, the follow-up was not answered; fetch deeper detail or ask a useful question.
 
 Delegation ranking: choose the right tedi for the job and the single best-fit tedi.
 0. An explicitly named tedi wins if present and capable.
-1. TOOL/PROVIDER OWNERSHIP: prefer the tedi whose tools=[...] contain the exact provider.
-2. TRACK-RECORD: then prefer track-record=NN% when both have at least 3 samples; no record is neutral.
-3. POLICY: then prefer autonomous over gated. Running and standby are equally available: a standby tedi wakes on dispatch.
-plannedToolIds: web lookup → web_search when offered; URL → browser_markdown/browser_read_result; email draft → exact activity draft tool, never send; app/gadget edit → gadgets_get_code/propose_os_app_edit, no computer; repo execution → open_computer/exec/files. Use exact activity MCP IDs, never aliases/wrappers/tedix_mcp_code. No entrustment: targetActivityId=null; native tools obey policy. Fetch URLs before summarizing; page reads need no workstation. Home synthesis is tool-free. Do NOT delegate to isolate tedis by default; among equivalent non-embodied targets, prefer the isolate body for lower latency/cost.
+1. WORKSPACE: prefer workspace=linked (works in this workspace).
+2. TOOL/PROVIDER OWNERSHIP: then prefer the tedi whose tools=[...] contain the exact provider.
+3. TRACK-RECORD: then prefer track-record=NN% when both have at least 3 samples; no record is neutral.
+4. POLICY: then prefer autonomous over gated. Running and standby are equally available: a standby tedi wakes on dispatch.
+plannedToolIds: web lookup → web_search when offered; URL → browser_markdown/browser_read_result; email draft → exact activity draft tool, never send; app/gadget edit → gadgets_get_code/propose_os_app_edit, no computer; repo execution → open_computer/exec/files. Use exact activity MCP IDs, never aliases/wrappers/tedix_mcp_code. No entrustment: targetActivityId=null; native tools obey policy. Fetch URLs before summarizing; page reads need no workstation. Home synthesis is tool-free except for offered page tools. Do NOT delegate to isolate tedis by default; among equivalent non-embodied targets, prefer the isolate body for lower latency/cost.
 
-Writes: use propose_tool_write for a bounded Tedix-internal artifact action through an available app. Installing tenant apps from the Tedix catalog is also a bounded Tedix-internal write: when an available app carries catalog.install, route the request through that app with capability="catalog.install" even when no tedis exist. For external provider or governance requests to WRITE, CHANGE, or SET something, if a tedi owns the domain, delegate_tedi to it (platform governance/policy → CTO; finance → CFO). Reserve propose_tool_write ONLY for writes where NO tedi owns the domain when handling those external provider or governance requests. Respect installation capabilities: never delegate or suggest handoff when the tedi runtime is unavailable. If app connection state is unclear, use connectionStatus="unknown".
+Writes: use propose_tool_write for a bounded Tedix-internal artifact action through an available app. Catalog installs route through the app carrying catalog.install with capability="catalog.install" even with no tedis. For external provider or governance requests to WRITE, CHANGE, or SET something, if a tedi owns the domain, delegate_tedi to it (platform governance/policy → CTO; finance → CFO). Reserve propose_tool_write for such writes only when NO tedi owns the domain. Respect installation capabilities: never delegate or suggest handoff when the tedi runtime is unavailable. If app connection state is unclear, use connectionStatus="unknown".
 An approval is a persisted proposal, not an answer in prose. When the operator asks to perform an action, route it through propose_tool_write or an available delegation; never use answer_in_home to say an approval is prepared or to ask the operator to approve an action you have not proposed. If no executable route exists, state the limitation.
 
 effortClass is a budget the policy layer enforces, not the execution surface. Emit it for every route except ask_human may use null:
@@ -966,7 +1012,12 @@ async function planKernelRouteWithRecovery(
 			ranker: args.delegationCandidateRanker,
 			signal: args.abortSignal,
 		});
-		const guarded = guardPersonalRecallRoute(args.context, fitted);
+		const guarded = guardWorkspacePageToolRoute(
+			args.operatorContent ?? args.content,
+			args.context,
+			guardPersonalRecallRoute(args.context, fitted),
+			pageTools,
+		);
 		if (pageTools && guarded.routeKind === "answer_in_home" && routeModel) {
 			const answerModel = routeModel.forOperation();
 			try {
