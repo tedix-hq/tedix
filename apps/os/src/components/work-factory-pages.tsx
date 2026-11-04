@@ -84,9 +84,9 @@ import {
 import { WorkstationInspectionPanel } from "@/components/workstation-inspection-panel";
 import { WorkRepositoryReview } from "@/components/work-repository-review";
 import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
+import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import {
 	osQuery,
-	userProfileQueryOptions,
 	projectDetailQueryOptions,
 	projectRollupQueryOptions,
 	projectHealthJudgmentsQueryOptions,
@@ -574,6 +574,14 @@ export function WorkItemStatusSummary({
 					</Text>
 					{acceptAction}
 				</div>
+			) : disposition === "accepted" &&
+			  readiness?.state === "approval_blocked" ? (
+				<div className="flex flex-wrap items-center gap-3">
+					<Text as="p" tone="secondary">
+						{OS_COPY.work.needsApproval}
+					</Text>
+					<Link href="/work/approvals">{OS_COPY.work.openApprovals}</Link>
+				</div>
 			) : disposition === "accepted" ? (
 				<Text as="p" tone="secondary">
 					{readiness?.ready ? OS_COPY.work.ready : OS_COPY.work.waitingNextStep}
@@ -583,8 +591,8 @@ export function WorkItemStatusSummary({
 	);
 }
 
-function WorkItemAcceptance({ item }: { item: WorkItem }) {
-	const viewer = useQuery(userProfileQueryOptions());
+export function WorkItemAcceptance({ item }: { item: WorkItem }) {
+	const role = useOsOperationalContext().data?.authority?.role;
 	const client = useQueryClient();
 	const accept = useMutation({
 		mutationFn: () =>
@@ -600,12 +608,9 @@ function WorkItemAcceptance({ item }: { item: WorkItem }) {
 				queryKey: osQuery.workItems.key({ type: "query" }),
 			}),
 	});
-	if (
-		item.accountableOwnerType !== "user" ||
-		!viewer.data?.id ||
-		viewer.data.id !== item.accountableOwnerId
-	)
-		return null;
+	// The API accepts for an organization owner or admin, whoever owns the
+	// Work: a tedi's proposal needs a person who may accept it.
+	if (role !== "owner" && role !== "admin") return null;
 	return (
 		<div className="grid gap-1">
 			<Button

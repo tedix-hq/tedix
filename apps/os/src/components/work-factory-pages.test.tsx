@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
-	userProfileQueryOptions,
+	operationalContextQueryOptions,
 	workItemDetailQueryOptions,
 	workItemRelationsQueryOptions,
 	workItemAttemptsQueryOptions,
@@ -600,8 +600,15 @@ describe("Work project brief", () => {
 });
 
 describe("Work item status summary", () => {
-	it("puts acceptance beside the owner message only for the signed-in owner", () => {
-		for (const viewerId of ["owner-1", "another-person"]) {
+	it("offers acceptance to an organization owner or admin, including for a tedi's proposal", () => {
+		const cases = [
+			{ ownerType: "user", ownerId: "owner-1", role: "member", accept: false },
+			{ ownerType: "user", ownerId: "owner-1", role: "admin", accept: true },
+			{ ownerType: "tedi", ownerId: "tedi-1", role: "owner", accept: true },
+			{ ownerType: "tedi", ownerId: "tedi-1", role: "admin", accept: true },
+			{ ownerType: "tedi", ownerId: "tedi-1", role: "member", accept: false },
+		] as const;
+		for (const { ownerType, ownerId, role, accept: expected } of cases) {
 			const client = new QueryClient({
 				defaultOptions: { queries: { staleTime: Infinity, retry: false } },
 			});
@@ -614,8 +621,12 @@ describe("Work item status summary", () => {
 				}).queryKey,
 				{ data: [{ descopeUserId: "owner-1", name: "Mira Okafor" }] },
 			);
-			client.setQueryData<unknown>(userProfileQueryOptions().queryKey, {
-				id: viewerId,
+			client.setQueryData<unknown>(tediRosterQueryOptions(100).queryKey, {
+				data: [{ id: "tedi-1", name: "Rowan" }],
+			});
+			client.setQueryData<unknown>(operationalContextQueryOptions().queryKey, {
+				authority: { role, permissions: [] },
+				organization: { id: item.orgId, type: "team" },
 			});
 			client.setQueryData<unknown>(
 				workItemDetailQueryOptions(item.id).queryKey,
@@ -623,6 +634,8 @@ describe("Work item status summary", () => {
 					workItem: {
 						...item,
 						disposition: "proposed",
+						accountableOwnerType: ownerType,
+						accountableOwnerId: ownerId,
 						acceptanceContract: null,
 					},
 					project: null,
@@ -635,17 +648,39 @@ describe("Work item status summary", () => {
 				</QueryClientProvider>,
 			);
 			const doc = new DOMParser().parseFromString(html, "text/html");
-			expect(doc.body.textContent).toContain(
-				"Not started yet · Mira needs to accept this",
-			);
+			expect(doc.body.textContent).toContain("needs to accept this");
 			expect(doc.body.textContent).not.toContain("WorkSpec");
 			expect(doc.body.textContent).not.toContain(item.id);
 			const accept = [...doc.querySelectorAll("button")].some(
 				(button) => button.textContent === "Accept",
 			);
-			expect(accept).toBe(viewerId === "owner-1");
+			expect({ ownerType, role, accept }).toEqual({
+				ownerType,
+				role,
+				accept: expected,
+			});
 			client.clear();
 		}
+	});
+
+	it("points accepted Work that waits for risk approval at the approvals queue", () => {
+		const html = renderToStaticMarkup(
+			<WorkItemStatusSummary
+				disposition="accepted"
+				accountableOwnerId={null}
+				readiness={{
+					state: "approval_blocked",
+					ready: false,
+					reasons: [{ detail: "Missing approval risk:high" }],
+				}}
+			/>,
+		);
+		const doc = new DOMParser().parseFromString(html, "text/html");
+		expect(doc.body.textContent).toContain(
+			"Accepted · waiting for approval before it can run",
+		);
+		const link = doc.querySelector('a[href="/work/approvals"]');
+		expect(link?.textContent).toBe("Open approvals");
 	});
 
 	it("uses a semantic status strip instead of statistic cards", () => {

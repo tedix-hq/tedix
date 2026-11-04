@@ -24,6 +24,7 @@ import {
 	mergeDispatcherReceipts,
 	retainedLaneWorktree,
 	dispatchSkip,
+	laneDelegationRequest,
 	parseServeOptions,
 	runLaneServe,
 	proposedAcceptance,
@@ -3446,6 +3447,84 @@ it("requires the owner's version-specific note for money or personal messaging",
 	expect(dispatchSkip({ ...work, disposition: "proposed" }, [note])).toContain(
 		"not accepted",
 	);
+});
+
+it("asks the accountable owner once for a missing delegation and never adds it", async () => {
+	const f = fixture();
+	const [owned, ownerless] = [item(1), item(2)];
+	f.items.splice(
+		0,
+		f.items.length,
+		{ ...owned, description: "Send an email as the owner" },
+		{
+			...ownerless,
+			description: "Send an email as the owner",
+			accountableOwnerType: "tedi",
+			accountableOwnerId: "fictional-tedi",
+		},
+	);
+	const requests = new Map<string, string>();
+	const base = f.deps.cli!;
+	f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+		if (args[5] !== "interaction-create") return base<T>(args, env);
+		const input = args[args.indexOf("--input") + 1]!;
+		f.events.push({ verb: args[5], args, env, input: JSON.parse(input) });
+		// The API returns the open request with identical content and creator.
+		if (!requests.has(input))
+			requests.set(input, `request-${requests.size + 1}`);
+		return { id: requests.get(input) } as T;
+	};
+	for (let pass = 0; pass < 2; pass++) await f.restart().tick();
+	const asks = f.events.filter((e) => e.verb === "interaction-create");
+	expect(asks).toHaveLength(2);
+	expect(requests.size).toBe(1);
+	expect(asks[0]!.input).toEqual(asks[1]!.input);
+	expect(asks[0]!.input).toMatchObject({
+		workItemId: owned.id,
+		kind: "input",
+		notificationReason: "blocked_approval",
+		requestedFrom: { type: "user", id: "fictional-owner" },
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: { kind: "owner_delegation", executor: "codex" },
+		},
+	});
+	expect(String(asks[0]!.input?.prompt)).toContain(
+		"Delegation: codex work-version=2 <",
+	);
+	expect(
+		f.events.some((e) => ["start", "comment", "readiness"].includes(e.verb)),
+	).toBe(false);
+	expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+		"Request request-1",
+	);
+});
+
+it("routes an ownerless delegation blocker to the signed-in lane operator", () => {
+	const work = {
+		...item(),
+		accountableOwnerType: "tedi" as const,
+		accountableOwnerId: "fictional-tedi",
+	};
+	const reason = dispatchSkip({ ...work, description: "Send an email" });
+	expect(reason).toContain("no accountable user owner");
+	const request = laneDelegationRequest(work, reason!, "fictional-operator");
+	expect(request).toMatchObject({
+		requestedFrom: { type: "user", id: "fictional-operator" },
+		metadata: { laneBlocker: { kind: "accountable_owner" } },
+	});
+	expect(request?.subject).toContain("Choose an accountable owner");
+	expect(laneDelegationRequest(work, reason!, undefined)).toBeUndefined();
+	expect(
+		laneDelegationRequest(
+			work,
+			"Consent, MFA and user presence remain human-only",
+			"fictional-operator",
+		),
+	).toBeUndefined();
+	expect(
+		laneDelegationRequest(work, "Work has no project", "x"),
+	).toBeUndefined();
 });
 
 it("dispatches Work that only mentions logins or credentials and holds credential acts for the owner", () => {
