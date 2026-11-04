@@ -32,6 +32,7 @@ import { policyPacks } from "@tedix/db/schema/control-plane";
 import { workstationLeases } from "@tedix/db/schema/workstations";
 import { tediApprovalExecutionReceipts } from "@tedix/db/schema/approval-simulations";
 import { vi } from "vite-plus/test";
+import { evaluateKernelRunMetadataPatch } from "./api-sqlite";
 import type { BaseContext } from "../../orpc";
 import { kernelRuntimeContractRouter } from "../kernel-runtime";
 
@@ -126,7 +127,7 @@ export const columnKeyByName: Record<string, string> = {
 };
 
 export function stringChunkValue(chunk: unknown): string {
-	const value = (chunk as { value?: unknown }).value;
+	const value = (chunk as { value?: unknown } | undefined)?.value;
 	return typeof value === "string" ? value : "";
 }
 
@@ -1778,7 +1779,12 @@ export function createKernelRuntimeDb(opts?: {
 						| Array<HarnessSubjectVersionRow>
 						| Array<HarnessSubjectTraceBundleRow>;
 					for (const row of matched) {
-						Object.assign(row, values);
+						Object.assign(
+							row,
+							table === kernelRuntimeRuns
+								? evaluateKernelRunMetadataPatch(values, row)
+								: values,
+						);
 					}
 					return this;
 				},

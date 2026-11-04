@@ -1,10 +1,25 @@
-import { and, desc, eq, inArray, isNull, like, ne, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	exists,
+	inArray,
+	isNull,
+	like,
+	ne,
+	notExists,
+	sql,
+} from "drizzle-orm";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { workItems, workAttempts } from "../schema/work-items";
+import { runtimeSubmissions } from "../schema/runtime-submissions";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import { chunkForBoundParams } from "../utils/batch";
 import {
 	chatDispatchIdempotency,
+	kernelRuntimeEvents,
 	kernelRuntimeRuns,
 } from "../schema/cognitive-runtime";
 import {
@@ -296,6 +311,16 @@ export async function getDurableKernelRuntimeRun(
 	return row;
 }
 
+function preserveHomeDelegationClaims(patch: KernelRuntimeRunUpdate) {
+	if (patch.metadata === undefined) return patch;
+	let metadata = sql`${JSON.stringify(patch.metadata)}`;
+	for (const key of ["homeDelegationResume", "homeDelegationResolutionClaim"]) {
+		const path = "$." + key;
+		metadata = sql`case when json_type(${kernelRuntimeRuns.metadata}, ${path}) = 'object' then json_set(case when json_type(${metadata}) = 'object' then ${metadata} else '{}' end, ${path}, json_extract(${kernelRuntimeRuns.metadata}, ${path})) else json_remove(${metadata}, ${path}) end`;
+	}
+	return { ...patch, metadata };
+}
+
 export async function updateKernelRuntimeRun(
 	db: DbClient,
 	id: string,
@@ -303,7 +328,7 @@ export async function updateKernelRuntimeRun(
 ): Promise<void> {
 	await db
 		.update(kernelRuntimeRuns)
-		.set(patch)
+		.set(preserveHomeDelegationClaims(patch))
 		.where(eq(kernelRuntimeRuns.id, id));
 }
 
@@ -317,7 +342,7 @@ export async function updateKernelRuntimeRunForOrg(
 ): Promise<void> {
 	await db
 		.update(kernelRuntimeRuns)
-		.set(input.patch)
+		.set(preserveHomeDelegationClaims(input.patch))
 		.where(
 			and(
 				eq(kernelRuntimeRuns.id, input.id),
@@ -341,7 +366,7 @@ export function buildTransitionKernelRuntimeRunStatusStatement(
 ) {
 	return db
 		.update(kernelRuntimeRuns)
-		.set(input.patch)
+		.set(preserveHomeDelegationClaims(input.patch))
 		.where(
 			and(
 				eq(kernelRuntimeRuns.id, input.id),
@@ -527,8 +552,8 @@ export async function openKernelRuntimeTurn(
  * Single-statement compare-and-set on a run's `updatedAt`: advances it only
  * when the row still has the status and `updatedAt` the caller read. Two
  * resolvers that read the same row cannot both win, which is what makes a
- * read-then-decide approval latch atomic without a metadata claim that could
- * be stranded by a crash.
+ * read-then-decide approval latch atomic. Home delegation also retains a
+ * durable owner marker so a fresh reread cannot overtake an in-flight resolver.
  */
 export async function compareAndTouchKernelRuntimeRun(
 	db: DbClient,
@@ -538,17 +563,38 @@ export async function compareAndTouchKernelRuntimeRun(
 		status: KernelRuntimeRun["status"];
 		expectedUpdatedAt: string;
 		updatedAt: string;
+		requireNoDelegationResumeClaim?: boolean;
+		delegationResolutionClaimId?: string;
+		delegationApprovalEventId?: string;
+		delegationWorkItemId?: string;
+		delegationScopeDigest?: string;
 	},
 ): Promise<boolean> {
+	if (
+		input.requireNoDelegationResumeClaim &&
+		(!input.delegationResolutionClaimId?.trim() ||
+			!input.delegationApprovalEventId?.trim())
+	)
+		return false;
 	const rows = await db
 		.update(kernelRuntimeRuns)
-		.set({ updatedAt: input.updatedAt })
+		.set({
+			updatedAt: input.updatedAt,
+			...(input.requireNoDelegationResumeClaim
+				? {
+						metadata: sql`json_set(coalesce(${kernelRuntimeRuns.metadata}, '{}'), '$.homeDelegationResolutionClaim', json(${JSON.stringify({ version: 1, phase: "resolving", claimId: input.delegationResolutionClaimId, claimedAt: input.updatedAt, approvalEventId: input.delegationApprovalEventId, approvalResolvedAt: input.updatedAt, organizationId: input.organizationId, runId: input.id, workItemId: input.delegationWorkItemId ?? null, scopeDigest: input.delegationScopeDigest ?? null })}), '$.homeDelegationResolutionClaim.conversationId', ${kernelRuntimeRuns.conversationId})`,
+					}
+				: {}),
+		})
 		.where(
 			and(
 				eq(kernelRuntimeRuns.id, input.id),
 				eq(kernelRuntimeRuns.organizationId, input.organizationId),
 				eq(kernelRuntimeRuns.status, input.status),
 				eq(kernelRuntimeRuns.updatedAt, input.expectedUpdatedAt),
+				input.requireNoDelegationResumeClaim
+					? sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)}))`
+					: undefined,
 			),
 		)
 		.returning({ id: kernelRuntimeRuns.id });
@@ -702,4 +748,573 @@ export async function findKernelRuntimeRunForOutputRevision(
 	return matches.length === 1
 		? { id: matches[0]!.id, conversationId: matches[0]!.conversationId }
 		: null;
+}
+
+export interface ClaimApprovedHomeDelegationResumeParams {
+	organizationId: string;
+	runId: string;
+	conversationId: string;
+	expectedUpdatedAt: string;
+	expectedLatestEventAt: string | null;
+	expectedMetadata: Record<string, JsonValue>;
+	approvalEventId: string;
+	approvalResolvedAt: string;
+	workItemId: string;
+	workItemVersion: number;
+	admissionSpecRevision: string;
+	scopeDigest: string;
+	targetTediId: string;
+	expectedChildRunId: string;
+	now: string;
+	claimId: string;
+}
+
+/** Claim one exact recorded approval without rewriting its actor, receipt or selected Work. */
+export async function claimApprovedHomeDelegationResume(
+	db: DbQueryClient,
+	input: ClaimApprovedHomeDelegationResumeParams,
+): Promise<KernelRuntimeRun | null> {
+	const currentWork = db
+		.select({ id: workItems.id })
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.id, input.workItemId),
+				eq(workItems.orgId, input.organizationId),
+				eq(workItems.disposition, "accepted"),
+				eq(workItems.version, input.workItemVersion),
+				eq(workItems.admissionSpecRevision, input.admissionSpecRevision),
+			),
+		);
+	const approvedReceipt = db
+		.select({ payload: kernelRuntimeEvents.payload })
+		.from(kernelRuntimeEvents)
+		.where(
+			and(
+				eq(kernelRuntimeEvents.id, input.approvalEventId),
+				eq(kernelRuntimeEvents.organizationId, input.organizationId),
+				eq(kernelRuntimeEvents.runId, input.runId),
+				eq(kernelRuntimeEvents.conversationId, input.conversationId),
+				eq(kernelRuntimeEvents.kind, "approval.resolved"),
+				eq(kernelRuntimeEvents.createdAt, input.approvalResolvedAt),
+				sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = 'approved'`,
+				sql`json_type(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder') = 'object'`,
+				sql`json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.targetTediId') = json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId')`,
+				sql`(json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.workItemId') is null or json_extract(${kernelRuntimeEvents.payload}, '$.delegationWorkOrder.workItemId') = ${input.workItemId})`,
+			),
+		);
+	const [run] = await db
+		.update(kernelRuntimeRuns)
+		.set({
+			updatedAt: input.now,
+			metadata: sql`json_set(${JSON.stringify({ ...input.expectedMetadata, homeDelegationResume: { version: 1, phase: "claimed", claimId: input.claimId, approvalEventId: input.approvalEventId, approvalResolvedAt: input.approvalResolvedAt, workItemId: input.workItemId, workItemVersion: input.workItemVersion, admissionSpecRevision: input.admissionSpecRevision, scopeDigest: input.scopeDigest, targetTediId: input.targetTediId, expectedChildRunId: input.expectedChildRunId, claimedAt: input.now } })}, '$.homeDelegation.workOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.delegationWorkOrder', json_extract((${approvedReceipt}), '$.delegationWorkOrder'), '$.homeDelegation.resolutionStatus', 'approved', '$.homeDelegation.resolvedAt', ${input.approvalResolvedAt}, '$.homeDelegation.resolution', json_extract((${approvedReceipt}), '$.resolution'), '$.homeDelegation.resolvedBy', json_extract((${approvedReceipt}), '$.resolvedBy'))`,
+		})
+		.where(
+			and(
+				eq(kernelRuntimeRuns.id, input.runId),
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(kernelRuntimeRuns.conversationId, input.conversationId),
+				eq(kernelRuntimeRuns.status, "requires_approval"),
+				eq(kernelRuntimeRuns.updatedAt, input.expectedUpdatedAt),
+				input.expectedLatestEventAt === null
+					? isNull(kernelRuntimeRuns.latestEventAt)
+					: eq(kernelRuntimeRuns.latestEventAt, input.expectedLatestEventAt),
+				eq(kernelRuntimeRuns.metadata, input.expectedMetadata),
+				isNull(kernelRuntimeRuns.childRunId),
+				isNull(kernelRuntimeRuns.delegatedTediId),
+				isNull(kernelRuntimeRuns.childConversationId),
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
+				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)} and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId') = ${input.approvalEventId} and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt') = ${input.approvalResolvedAt} and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.workItemId') = ${input.workItemId}) and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.scopeDigest') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.scopeDigest') = ${input.scopeDigest})))`,
+				sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder') = 'object'`,
+				sql`coalesce(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.resolutionStatus'), '') <> 'rejected'`,
+				sql`coalesce(json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId'), json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId')) = ${input.workItemId}`,
+				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.workItemId') = ${input.workItemId})`,
+				sql`(json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId') is null or json_extract(${kernelRuntimeRuns.runtimeMetadata}, '$.workItemId') = ${input.workItemId})`,
+				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.redriveInput.runtimeMetadata.workItemId') = ${input.workItemId})`,
+				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId') is null or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.workItemId') = ${input.workItemId})`,
+				notExists(
+					db
+						.select({ id: workAttempts.id })
+						.from(workAttempts)
+						.where(
+							and(
+								eq(workAttempts.orgId, input.organizationId),
+								eq(workAttempts.executorType, "tedi"),
+								eq(workAttempts.executorId, input.targetTediId),
+								eq(workAttempts.runId, input.expectedChildRunId),
+							),
+						),
+				),
+
+				notExists(
+					db
+						.select({ id: workAttempts.id })
+						.from(workAttempts)
+						.where(
+							and(
+								eq(workAttempts.orgId, input.organizationId),
+								eq(workAttempts.workItemId, input.workItemId),
+								eq(workAttempts.runId, input.expectedChildRunId),
+							),
+						),
+				),
+				notExists(
+					db
+						.select({ id: chatDispatchIdempotency.idempotencyKey })
+						.from(chatDispatchIdempotency)
+						.where(
+							and(
+								eq(chatDispatchIdempotency.tediId, input.targetTediId),
+								eq(chatDispatchIdempotency.runId, input.expectedChildRunId),
+							),
+						),
+				),
+				notExists(
+					db
+						.select({ id: runtimeSubmissions.id })
+						.from(runtimeSubmissions)
+						.where(
+							and(
+								eq(runtimeSubmissions.organizationId, input.organizationId),
+								eq(runtimeSubmissions.runId, input.expectedChildRunId),
+							),
+						),
+				),
+
+				exists(currentWork),
+				exists(approvedReceipt),
+				notExists(
+					db
+						.select({ id: runtimeSubmissions.id })
+						.from(runtimeSubmissions)
+						.where(
+							and(
+								eq(runtimeSubmissions.organizationId, input.organizationId),
+								eq(runtimeSubmissions.runId, input.runId),
+								sql`${runtimeSubmissions.abortRequestedAt} is not null`,
+							),
+						),
+				),
+			),
+		)
+		.returning();
+	return run ?? null;
+}
+
+export type ApprovedHomeDelegationResumeScope = Pick<
+	ClaimApprovedHomeDelegationResumeParams,
+	| "organizationId"
+	| "runId"
+	| "conversationId"
+	| "claimId"
+	| "approvalEventId"
+	| "approvalResolvedAt"
+	| "workItemId"
+	| "workItemVersion"
+	| "admissionSpecRevision"
+	| "scopeDigest"
+	| "targetTediId"
+	| "expectedChildRunId"
+>;
+
+export function parseApprovedHomeDelegationResumeScope(input: {
+	organizationId: string;
+	runId: string;
+	conversationId: string;
+	metadata: Record<string, JsonValue> | null;
+}): ApprovedHomeDelegationResumeScope | null {
+	const value = input.metadata?.homeDelegationResume;
+	if (
+		!value ||
+		typeof value !== "object" ||
+		Array.isArray(value) ||
+		value.version !== 1
+	)
+		return null;
+	const keys = [
+		"claimId",
+		"approvalEventId",
+		"approvalResolvedAt",
+		"workItemId",
+		"admissionSpecRevision",
+		"scopeDigest",
+		"targetTediId",
+		"expectedChildRunId",
+	] as const;
+	for (const key of keys)
+		if (typeof value[key] !== "string" || !value[key].trim()) return null;
+	if (
+		typeof value.workItemVersion !== "number" ||
+		!Number.isSafeInteger(value.workItemVersion) ||
+		value.workItemVersion < 1
+	)
+		return null;
+	return {
+		organizationId: input.organizationId,
+		runId: input.runId,
+		conversationId: input.conversationId,
+		claimId: value.claimId as string,
+		approvalEventId: value.approvalEventId as string,
+		approvalResolvedAt: value.approvalResolvedAt as string,
+		workItemId: value.workItemId as string,
+		admissionSpecRevision: value.admissionSpecRevision as string,
+		scopeDigest: value.scopeDigest as string,
+		targetTediId: value.targetTediId as string,
+		expectedChildRunId: value.expectedChildRunId as string,
+		workItemVersion: value.workItemVersion,
+	};
+}
+
+function approvedHomeResumeScope(input: ApprovedHomeDelegationResumeScope) {
+	return and(
+		eq(kernelRuntimeRuns.id, input.runId),
+		eq(kernelRuntimeRuns.organizationId, input.organizationId),
+		eq(kernelRuntimeRuns.conversationId, input.conversationId),
+		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.version') = 1`,
+		...(
+			[
+				"claimId",
+				"approvalEventId",
+				"approvalResolvedAt",
+				"workItemId",
+				"workItemVersion",
+				"admissionSpecRevision",
+				"scopeDigest",
+				"targetTediId",
+				"expectedChildRunId",
+			] as const
+		).map(
+			(key) =>
+				sql`json_extract(${kernelRuntimeRuns.metadata}, ${"$.homeDelegationResume." + key}) = ${input[key]}`,
+		),
+	);
+}
+
+function approvedHomeResumeAuthority(
+	db: DbQueryClient,
+	input: ApprovedHomeDelegationResumeScope,
+) {
+	return and(
+		exists(
+			db
+				.select({ id: workItems.id })
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.id, input.workItemId),
+						eq(workItems.orgId, input.organizationId),
+						eq(workItems.disposition, "accepted"),
+						eq(workItems.version, input.workItemVersion),
+						eq(workItems.admissionSpecRevision, input.admissionSpecRevision),
+					),
+				),
+		),
+		notExists(
+			db
+				.select({ id: runtimeSubmissions.id })
+				.from(runtimeSubmissions)
+				.where(
+					and(
+						eq(runtimeSubmissions.organizationId, input.organizationId),
+						eq(runtimeSubmissions.runId, input.runId),
+						sql`${runtimeSubmissions.abortRequestedAt} is not null`,
+					),
+				),
+		),
+		exists(
+			db
+				.select({ id: kernelRuntimeEvents.id })
+				.from(kernelRuntimeEvents)
+				.where(
+					and(
+						eq(kernelRuntimeEvents.id, input.approvalEventId),
+						eq(kernelRuntimeEvents.organizationId, input.organizationId),
+						eq(kernelRuntimeEvents.runId, input.runId),
+						eq(kernelRuntimeEvents.conversationId, input.conversationId),
+						eq(kernelRuntimeEvents.kind, "approval.resolved"),
+						eq(kernelRuntimeEvents.createdAt, input.approvalResolvedAt),
+						sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = 'approved'`,
+					),
+				),
+		),
+	);
+}
+
+export interface BeginApprovedHomeDelegationResumeDispatchParams extends ApprovedHomeDelegationResumeScope {
+	targetTediId: string;
+	expectedChildRunId: string;
+	now: string;
+}
+
+/** Reserve the sole send before any enqueue; unknown delivery never reopens this phase. */
+export async function beginApprovedHomeDelegationResumeDispatch(
+	db: DbQueryClient,
+	input: BeginApprovedHomeDelegationResumeDispatchParams,
+): Promise<boolean> {
+	const rows = await db
+		.update(kernelRuntimeRuns)
+		.set({
+			updatedAt: input.now,
+			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase', 'dispatching', '$.homeDelegationResume.expectedChildRunId', ${input.expectedChildRunId}, '$.homeDelegationResume.targetTediId', ${input.targetTediId}, '$.homeDelegationResume.dispatchStartedAt', ${input.now})`,
+		})
+		.where(
+			and(
+				approvedHomeResumeScope(input),
+				approvedHomeResumeAuthority(db, input),
+				eq(kernelRuntimeRuns.status, "requires_approval"),
+				isNull(kernelRuntimeRuns.childRunId),
+				isNull(kernelRuntimeRuns.delegatedTediId),
+				isNull(kernelRuntimeRuns.childConversationId),
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'claimed'`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegation.workOrder.targetTediId') = ${input.targetTediId}`,
+			),
+		)
+		.returning({ id: kernelRuntimeRuns.id });
+	return rows.length === 1;
+}
+
+export interface RecordApprovedHomeDelegationResumeDispatchParams extends ApprovedHomeDelegationResumeScope {
+	expectedChildRunId: string;
+	observedChildRunId?: string | null;
+	childConversationId?: string | null;
+	outcome: "acknowledged" | "failed" | "unknown";
+	error?: string;
+	now: string;
+}
+
+/** Retain the real enqueue outcome even when cancellation has won the parent. */
+export async function recordApprovedHomeDelegationResumeDispatch(
+	db: DbQueryClient,
+	input: RecordApprovedHomeDelegationResumeDispatchParams,
+): Promise<{
+	run: KernelRuntimeRun | null;
+	livePersisted: boolean;
+	observationPersisted: boolean;
+}> {
+	const matchesChild = input.observedChildRunId === input.expectedChildRunId;
+	const outcome =
+		(input.observedChildRunId && !matchesChild) ||
+		(input.outcome === "acknowledged" && !matchesChild)
+			? "unknown"
+			: input.outcome;
+	const observationId = crypto.randomUUID();
+	const observation = {
+		id: observationId,
+		outcome,
+		observedChildRunId: input.observedChildRunId ?? null,
+		childConversationId: input.childConversationId ?? null,
+		error: input.error?.slice(0, 1000) ?? null,
+		observedAt: input.now,
+	};
+	const observed = db
+		.update(kernelRuntimeRuns)
+		.set({
+			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase', 'observed', '$.homeDelegationResume.observation', json(${JSON.stringify(observation)}))`,
+		})
+		.where(
+			and(
+				approvedHomeResumeScope(input),
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'dispatching'`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.expectedChildRunId') = ${input.expectedChildRunId}`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation') is null`,
+			),
+		)
+		.returning({ id: kernelRuntimeRuns.id });
+	const lateObserved = db
+		.update(kernelRuntimeRuns)
+		.set({
+			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation', json(${JSON.stringify(observation)}))`,
+		})
+		.where(
+			and(
+				approvedHomeResumeScope(input),
+				sql`${outcome} = 'acknowledged'`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'observed'`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.outcome') = 'unknown'`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation') is null`,
+			),
+		)
+		.returning({ id: kernelRuntimeRuns.id });
+
+	const physical = db
+		.update(kernelRuntimeRuns)
+		.set({
+			status: outcome === "acknowledged" ? "queued" : "failed",
+			...(outcome === "acknowledged"
+				? {
+						childRunId: input.observedChildRunId!,
+						childConversationId: input.childConversationId ?? null,
+						delegatedTediId: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.targetTediId')`,
+					}
+				: {}),
+			...(outcome === "failed" ? { completedAt: input.now } : {}),
+			updatedAt: input.now,
+		})
+		.where(
+			and(
+				approvedHomeResumeScope(input),
+				approvedHomeResumeAuthority(db, input),
+				inArray(kernelRuntimeRuns.status, [
+					"requires_approval",
+					"queued",
+					"running",
+				]),
+				sql`${outcome} <> 'unknown'`,
+				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.id') = ${observationId} or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation.id') = ${observationId})`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.expectedChildRunId') = ${input.expectedChildRunId}`,
+				isNull(kernelRuntimeRuns.childRunId),
+				isNull(kernelRuntimeRuns.delegatedTediId),
+				isNull(kernelRuntimeRuns.childConversationId),
+			),
+		)
+		.returning({ id: kernelRuntimeRuns.id });
+	const canonical = db
+		.select()
+		.from(kernelRuntimeRuns)
+		.where(approvedHomeResumeScope(input))
+		.limit(1);
+	const [saved, lateSaved, live, runs] = await db.batch([
+		observed,
+		lateObserved,
+		physical,
+		canonical,
+	]);
+	return {
+		run: runs[0] ?? null,
+		livePersisted: live.length === 1,
+		observationPersisted: saved.length === 1 || lateSaved.length === 1,
+	};
+}
+
+function homeDelegationResolutionReceiptExists(db: DbQueryClient) {
+	return and(
+		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.version') = 1`,
+		sql`length(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimId')) > 0`,
+		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.organizationId') = ${kernelRuntimeRuns.organizationId}`,
+		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.runId') = ${kernelRuntimeRuns.id}`,
+		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.conversationId') = ${kernelRuntimeRuns.conversationId}`,
+		exists(
+			db
+				.select({ id: kernelRuntimeEvents.id })
+				.from(kernelRuntimeEvents)
+				.where(
+					and(
+						eq(
+							kernelRuntimeEvents.organizationId,
+							kernelRuntimeRuns.organizationId,
+						),
+						eq(kernelRuntimeEvents.runId, kernelRuntimeRuns.id),
+						eq(
+							kernelRuntimeEvents.conversationId,
+							kernelRuntimeRuns.conversationId,
+						),
+						eq(kernelRuntimeEvents.kind, "approval.resolved"),
+						sql`${kernelRuntimeEvents.id} = json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalEventId')`,
+						sql`${kernelRuntimeEvents.createdAt} = json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.approvalResolvedAt')`,
+						sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = 'approved'`,
+					),
+				),
+		),
+	);
+}
+
+/** Only a caller that proved admission failed before provider entry may retire its own fence. */
+export async function markHomeDelegationResolutionAdmissionFailed(
+	db: DbQueryClient,
+	input: {
+		organizationId: string;
+		runId: string;
+		expectedClaimId: string;
+		now: string;
+	},
+): Promise<boolean> {
+	const rows = await db
+		.update(kernelRuntimeRuns)
+		.set({
+			metadata: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase', 'admission_failed', '$.homeDelegationResolutionClaim.admissionFailedAt', ${input.now})`,
+		})
+		.where(
+			and(
+				homeDelegationResolutionReceiptExists(db),
+				eq(kernelRuntimeRuns.organizationId, input.organizationId),
+				eq(kernelRuntimeRuns.id, input.runId),
+				eq(kernelRuntimeRuns.status, "requires_approval"),
+				isNull(kernelRuntimeRuns.childRunId),
+				isNull(kernelRuntimeRuns.delegatedTediId),
+				isNull(kernelRuntimeRuns.childConversationId),
+				notExists(
+					db
+						.select({ id: runtimeSubmissions.id })
+						.from(runtimeSubmissions)
+						.where(
+							and(
+								eq(runtimeSubmissions.organizationId, input.organizationId),
+								eq(runtimeSubmissions.runId, input.runId),
+								sql`${runtimeSubmissions.abortRequestedAt} is not null`,
+							),
+						),
+				),
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.claimId') = ${input.expectedClaimId}`,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'resolving'`,
+			),
+		)
+		.returning({ id: kernelRuntimeRuns.id });
+	return rows.length === 1;
+}
+
+export interface RecordApprovedHomeDelegationResumeStopOutcomeParams extends ApprovedHomeDelegationResumeScope {
+	stopAttemptId: string;
+	outcome: "attempted" | "succeeded" | "failed" | "unknown";
+	error?: string;
+	now: string;
+}
+
+/** Reserve one stop for the acknowledged child, then retain its result without reviving its parent. */
+export async function recordApprovedHomeDelegationResumeStopOutcome(
+	db: DbQueryClient,
+	input: RecordApprovedHomeDelegationResumeStopOutcomeParams,
+): Promise<boolean> {
+	if (!input.stopAttemptId.trim()) return false;
+	const acknowledgement = sql`((json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.outcome') = 'acknowledged' and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.observedChildRunId') = ${input.expectedChildRunId}) or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.outcome') = 'unknown' and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation.outcome') = 'acknowledged' and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation.observedChildRunId') = ${input.expectedChildRunId}))`;
+	const attempt = input.outcome === "attempted";
+	const rows = await db
+		.update(kernelRuntimeRuns)
+		.set({
+			metadata: attempt
+				? sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation', json(${JSON.stringify({ attemptId: input.stopAttemptId, outcome: "attempted", attemptedAt: input.now })}))`
+				: sql`json_set(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation.completion', json(${JSON.stringify({ outcome: input.outcome, completedAt: input.now, error: input.error?.slice(0, 1000) ?? null })}))`,
+		})
+		.where(
+			and(
+				approvedHomeResumeScope(input),
+				acknowledgement,
+				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.phase') = 'observed'`,
+				attempt
+					? and(
+							sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation') is null`,
+							sql`(${kernelRuntimeRuns.status} = 'canceled' or ${exists(
+								db
+									.select({ id: runtimeSubmissions.id })
+									.from(runtimeSubmissions)
+									.where(
+										and(
+											eq(
+												runtimeSubmissions.organizationId,
+												input.organizationId,
+											),
+											eq(runtimeSubmissions.runId, input.runId),
+											sql`${runtimeSubmissions.abortRequestedAt} is not null`,
+										),
+									),
+							)})`,
+						)
+					: and(
+							sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation.attemptId') = ${input.stopAttemptId}`,
+							sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.stopObservation.completion') is null`,
+						),
+			),
+		)
+		.returning({ id: kernelRuntimeRuns.id });
+	return rows.length === 1;
 }

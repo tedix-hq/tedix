@@ -9,9 +9,16 @@ import {
 	kernelConversations,
 	kernelConversationGrants,
 	kernelRuntimeRuns,
+	kernelRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import { workEvents } from "@tedix/db/schema/work-items";
+import { eq, sql } from "drizzle-orm";
+import { evaluateKernelRunMetadataPatch } from "../__tests__/api-sqlite";
+import * as runQueries from "@tedix/db/queries/kernel-runtime-runs";
+import { workstationDispatchIdentity } from "../kernel/workstation-dispatch";
+import { predictAgentRunId } from "../kernel/runtime-shared";
+import { workItems, workEvents } from "@tedix/db/schema/work-items";
+import { runtimeSubmissions } from "@tedix/db/schema/runtime-submissions";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { canonicalWorkFactoryDdl, schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
@@ -30,6 +37,60 @@ import {
 import { respondApprovalRoute } from "./delegation-control";
 import { resolveApprovalByChatReply } from "./turn-delegation";
 
+describe("kernel metadata fixture SQL evaluation", () => {
+	async function metadataPatch(metadata: Record<string, unknown>) {
+		let captured: Record<string, unknown> = {};
+		const db = {
+			update: () => ({
+				set: (patch: Record<string, unknown>) => {
+					captured = patch;
+					return { where: async () => undefined };
+				},
+			}),
+		};
+		await runQueries.updateKernelRuntimeRun(db as never, "fictional-run", {
+			metadata,
+		});
+		return captured;
+	}
+
+	it("evaluates ordinary metadata while retaining trusted claims from the current row", async () => {
+		const current = {
+			metadata: {
+				homeDelegationResume: { claimId: "trusted-resume" },
+				homeDelegationResolutionClaim: { claimId: "trusted-normal" },
+			},
+		};
+		const patch = await metadataPatch({
+			answer: "retained",
+			homeDelegationResume: { claimId: "forged" },
+		});
+		expect(evaluateKernelRunMetadataPatch(patch, current).metadata).toEqual({
+			answer: "retained",
+			...current.metadata,
+		});
+	});
+
+	it("removes incoming claims absent from the current row", async () => {
+		const patch = await metadataPatch({
+			answer: "retained",
+			homeDelegationResume: { claimId: "forged" },
+			homeDelegationResolutionClaim: { claimId: "forged" },
+		});
+		expect(evaluateKernelRunMetadataPatch(patch).metadata).toEqual({
+			answer: "retained",
+		});
+	});
+
+	it("propagates SQLite errors instead of treating unevaluated SQL as metadata", () => {
+		expect(() =>
+			evaluateKernelRunMetadataPatch({
+				metadata: sql`unknown_metadata_function()`,
+			}),
+		).toThrow();
+	});
+});
+
 const effects = vi.hoisted(() => ({
 	event: vi.fn(async () => ({})),
 	promote: vi.fn(async () => "delegation-work"),
@@ -40,6 +101,7 @@ const effects = vi.hoisted(() => ({
 	workstation: vi.fn(),
 	learning: vi.fn(),
 	settle: vi.fn(),
+	stop: vi.fn(async () => ({ attempted: true, outcome: "succeeded" as const })),
 	policy: vi.fn<() => Promise<KernelGovernancePolicy | null>>(async () => null),
 	fetch: vi.fn(() => {
 		throw new Error("Unexpected external call");
@@ -57,6 +119,7 @@ vi.mock("../kernel/delegation-work-item", async (original) => ({
 vi.mock("./policy-normalization", async (original) => ({
 	...(await original<typeof import("./policy-normalization")>()),
 	kernelDelegateRunner: effects.dispatch,
+	kernelChildStopper: effects.stop,
 	readOrgGovernancePolicy: effects.policy,
 }));
 vi.mock("./run-reads-streams", async (original) => ({
@@ -111,6 +174,8 @@ async function fixture(
 	sqlite.exec(
 		schemaDdl(
 			kernelRuntimeRuns,
+			kernelRuntimeEvents,
+			runtimeSubmissions,
 			kernelConversations,
 			kernelConversationGrants,
 			organizationMembers,
@@ -192,6 +257,73 @@ afterEach(() => {
 });
 
 describe("delegation approval core", () => {
+	it("retains the recorded operator decision when downstream Work admission fails", async () => {
+		const f = await fixture();
+		effects.event.mockImplementationOnce(async (...args: unknown[]) => {
+			const input = args[1] as typeof kernelRuntimeEvents.$inferInsert;
+			await f.context.db.insert(kernelRuntimeEvents).values(input);
+			return input;
+		});
+		effects.promote.mockRejectedValueOnce(
+			new ORPCError("CONFLICT", {
+				message: "current Work risk approval is missing",
+			}),
+		);
+		await expect(
+			respondKernelDelegationRecommendationApprovalCore(f.context, {
+				organizationId: ORG,
+				run: f.run,
+				decision: "approve",
+			}),
+		).rejects.toThrow("risk approval is missing");
+		expect(effects.event).toHaveBeenCalledExactlyOnceWith(
+			f.context,
+			expect.objectContaining({
+				kind: "approval.resolved",
+				payload: expect.objectContaining({
+					status: "approved",
+					resolvedBy: null,
+				}),
+			}),
+		);
+		expect(effects.dispatch).not.toHaveBeenCalled();
+		expect(effects.workstation).not.toHaveBeenCalled();
+		const saved = await getKernelRuntimeRun(f.context.db, {
+			id: f.run.id,
+			organizationId: ORG,
+		});
+		expect(saved?.status).toBe("requires_approval");
+		expect(
+			(saved?.metadata?.homeDelegation as Record<string, unknown>)
+				.resolutionStatus,
+		).toBeUndefined();
+		expect(saved?.metadata?.homeDelegationResolutionClaim).toMatchObject({
+			phase: "admission_failed",
+		});
+	});
+	it.each(["approve", "reject"] as const)(
+		"refuses a new %s decision when a recorded continuation owns the run",
+		async (decision) => {
+			const f = await fixture();
+			await expect(
+				respondKernelDelegationRecommendationApprovalCore(f.context, {
+					organizationId: ORG,
+					run: {
+						...f.run,
+						metadata: {
+							...f.run.metadata,
+							homeDelegationResume: {
+								claimId: "fictional-claim",
+								phase: "dispatching",
+							},
+						},
+					},
+					decision,
+				}),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			noEffects(f.writes);
+		},
+	);
 	it.each(["approve", "reject"] as const)(
 		"records an authorized %s without confusing rejection with a refused request",
 		async (decision) => {
@@ -1009,5 +1141,290 @@ describe("Home approve with changes", () => {
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 		noEffects(f.writes);
+	});
+});
+
+async function resumedNativeFixture(
+	surface: "native" | "workstation" = "native",
+) {
+	const f = await fixture();
+	const childRunId =
+		surface === "workstation"
+			? workstationDispatchIdentity({
+					homeRunId: f.run.id,
+					target: { id: "tedi-research" },
+				}).runtimeRunId
+			: predictAgentRunId({
+					clientRequestId: `${f.run.id}:approved:tedi-research`,
+					tediId: "tedi-research",
+				});
+	const eventId = [
+		"home",
+		ORG,
+		"event",
+		"delegation.approval.resolved",
+		f.run.conversationId,
+		f.run.id,
+		AT,
+	].join(":");
+	const workOrder = {
+		...((f.run.metadata!.homeDelegation as Record<string, unknown>)
+			.workOrder as Record<string, unknown>),
+		status: "approved",
+		executionRequirement: { ...requirement, surface },
+	};
+	await f.context.db.insert(workItems).values({
+		id: "delegation-work",
+		orgId: ORG,
+		title: "Fictional bounded review",
+		disposition: "accepted",
+		version: 2,
+		admissionSpecRevision: "fictional-spec",
+		createdAt: AT,
+		updatedAt: AT,
+	});
+	await f.context.db.insert(kernelRuntimeEvents).values({
+		id: eventId,
+		organizationId: ORG,
+		conversationId: f.run.conversationId,
+		runId: f.run.id,
+		kind: "approval.resolved",
+		delegatedTediId: "tedi-research",
+		createdAt: AT,
+		payload: {
+			status: "approved",
+			delegationWorkOrder: workOrder,
+			resolvedBy: null,
+		},
+		runtimeMetadata: {
+			source: "kernelRuntime.respondApproval",
+			dispatch: "home-delegation-approved",
+		},
+	});
+	const marker = {
+		version: 1,
+		claimId: "fictional-claim",
+		approvalEventId: eventId,
+		approvalResolvedAt: AT,
+		workItemId: "delegation-work",
+		workItemVersion: 2,
+		admissionSpecRevision: "fictional-spec",
+		scopeDigest: "d".repeat(64),
+		claimedAt: AT,
+		phase: "claimed",
+		targetTediId: "tedi-research",
+		expectedChildRunId: childRunId,
+	};
+	await f.context.db
+		.update(kernelRuntimeRuns)
+		.set({ metadata: { ...f.run.metadata, homeDelegationResume: marker } })
+		.where(eq(kernelRuntimeRuns.id, f.run.id));
+	const run = (await getKernelRuntimeRun(f.context.db, {
+		id: f.run.id,
+		organizationId: ORG,
+	}))!;
+	const pending: Promise<unknown>[] = [];
+	f.context.waitUntil = (promise) => {
+		pending.push(promise);
+	};
+	const invoke = () =>
+		respondKernelDelegationRecommendationApprovalCore(f.context, {
+			organizationId: ORG,
+			run,
+			decision: "approve",
+			approvedWorkItemId: "delegation-work",
+			recordedApproval: {
+				claimId: marker.claimId,
+				eventId,
+				resolvedAt: AT,
+				workOrder,
+				resolvedBy: null,
+				resolution: null,
+			},
+		});
+	const childSubmission = () =>
+		f.context.db.insert(runtimeSubmissions).values({
+			id: `sub:${childRunId}`,
+			organizationId: ORG,
+			subjectKind: "tedi",
+			subjectId: "tedi-research",
+			runId: childRunId,
+			sourceKind: "tedi_message",
+			status: "running",
+		});
+	const read = () =>
+		getKernelRuntimeRun(f.context.db, { id: f.run.id, organizationId: ORG });
+	return {
+		...f,
+		childRunId,
+		eventId,
+		marker,
+		pending,
+		invoke,
+		childSubmission,
+		read,
+	};
+}
+
+describe("native recorded approval single-send lifecycle", () => {
+	it("retains and stops an actual workstation acknowledgement after cancellation", async () => {
+		const f = await resumedNativeFixture("workstation");
+		const adapter = await vi.importActual<
+			typeof import("./workstation-dispatch")
+		>("./workstation-dispatch");
+		effects.workstation.mockImplementationOnce(
+			adapter.runWorkstationWorkOrderDispatch,
+		);
+		effects.dispatch.mockImplementationOnce(async () => {
+			await f.childSubmission();
+			await f.context.db
+				.update(kernelRuntimeRuns)
+				.set({ status: "canceled" })
+				.where(eq(kernelRuntimeRuns.id, f.run.id));
+			return { childRunId: f.childRunId, status: "queued" };
+		});
+		const result = await f.invoke();
+		await Promise.all(f.pending);
+		expect(result.run.status).toBe("canceled");
+		expect(effects.dispatch).toHaveBeenCalledTimes(1);
+		expect(effects.event).not.toHaveBeenCalled();
+		expect(effects.stop).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				childRunId: f.childRunId,
+				delegatedTediId: "tedi-research",
+			}),
+		);
+		expect((await f.read())?.metadata?.homeDelegationResume).toMatchObject({
+			observation: {
+				outcome: "acknowledged",
+				observedChildRunId: f.childRunId,
+			},
+			stopObservation: { completion: { outcome: "succeeded" } },
+		});
+	});
+
+	it("uses the original decision once and refuses a duplicate internal send", async () => {
+		const f = await resumedNativeFixture();
+		effects.dispatch.mockResolvedValueOnce({
+			childRunId: f.childRunId,
+			status: "queued",
+		});
+		const result = await f.invoke();
+		expect(result.run.childRunId).toBe(f.childRunId);
+		expect(effects.event).not.toHaveBeenCalled();
+		expect(effects.dispatch).toHaveBeenCalledTimes(1);
+		expect(effects.stop).not.toHaveBeenCalled();
+		await expect(f.invoke()).rejects.toThrow(/already started/);
+		expect(effects.dispatch).toHaveBeenCalledTimes(1);
+	});
+	it("honors cancellation before the provider boundary", async () => {
+		const f = await resumedNativeFixture();
+		effects.promote.mockImplementationOnce(async () => {
+			await f.context.db
+				.update(kernelRuntimeRuns)
+				.set({ status: "canceled" })
+				.where(eq(kernelRuntimeRuns.id, f.run.id));
+			return "delegation-work";
+		});
+		await expect(f.invoke()).rejects.toThrow(/canceled or already started/);
+		expect(effects.dispatch).not.toHaveBeenCalled();
+		expect((await f.read())?.status).toBe("canceled");
+	});
+	it.each([false, true])(
+		"retains actual late ACK after timeout without another send (canceled=%s)",
+		async (canceled) => {
+			vi.useFakeTimers();
+			try {
+				const f = await resumedNativeFixture();
+				let release!: (v: { childRunId: string; status: string }) => void;
+				effects.dispatch.mockImplementationOnce(
+					() =>
+						new Promise((resolve) => {
+							release = resolve;
+						}),
+				);
+				const invocation = f.invoke();
+				await vi.waitFor(() =>
+					expect(effects.dispatch).toHaveBeenCalledTimes(1),
+				);
+				await vi.advanceTimersByTimeAsync(20_001);
+				const first = await invocation;
+				expect(first.run.metadata?.homeDelegationResume).toMatchObject({
+					observation: { outcome: "unknown", observedChildRunId: null },
+				});
+				if (canceled)
+					await f.context.db
+						.update(kernelRuntimeRuns)
+						.set({ status: "canceled" })
+						.where(eq(kernelRuntimeRuns.id, f.run.id));
+				await f.childSubmission();
+				release({ childRunId: f.childRunId, status: "queued" });
+				await Promise.all(f.pending);
+				const saved = await f.read();
+				expect(saved?.metadata?.homeDelegationResume).toMatchObject({
+					observation: { outcome: "unknown" },
+					lateObservation: {
+						outcome: "acknowledged",
+						observedChildRunId: f.childRunId,
+					},
+				});
+				expect(saved?.status).toBe(canceled ? "canceled" : "queued");
+				expect(effects.dispatch).toHaveBeenCalledTimes(1);
+				expect(effects.event).not.toHaveBeenCalled();
+				if (canceled) {
+					expect(effects.stop).toHaveBeenCalledExactlyOnceWith(
+						expect.objectContaining({
+							childRunId: f.childRunId,
+							delegatedTediId: "tedi-research",
+						}),
+					);
+					expect(saved?.metadata?.homeDelegationResume).toMatchObject({
+						stopObservation: { completion: { outcome: "succeeded" } },
+					});
+				} else expect(effects.stop).not.toHaveBeenCalled();
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
+	it("retains a real late ACK even when recording the initial timeout fails", async () => {
+		vi.useFakeTimers();
+		const writer = vi.spyOn(
+			runQueries,
+			"recordApprovedHomeDelegationResumeDispatch",
+		);
+		try {
+			const f = await resumedNativeFixture();
+			let release!: (v: { childRunId: string; status: string }) => void;
+			effects.dispatch.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						release = resolve;
+					}),
+			);
+			writer.mockRejectedValueOnce(
+				new Error("fictional evidence database unavailable"),
+			);
+			const invocation = f.invoke();
+			const rejected = expect(invocation).rejects.toThrow(
+				"fictional evidence database unavailable",
+			);
+			await vi.waitFor(() => expect(effects.dispatch).toHaveBeenCalledTimes(1));
+			await vi.advanceTimersByTimeAsync(20_001);
+			await rejected;
+			release({ childRunId: f.childRunId, status: "queued" });
+			await Promise.all(f.pending);
+			const saved = await f.read();
+			expect(saved?.metadata?.homeDelegationResume).toMatchObject({
+				observation: {
+					outcome: "acknowledged",
+					observedChildRunId: f.childRunId,
+				},
+			});
+			expect(effects.dispatch).toHaveBeenCalledTimes(1);
+		} finally {
+			writer.mockRestore();
+			vi.useRealTimers();
+		}
 	});
 });

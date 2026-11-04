@@ -9,6 +9,21 @@ import {
 	workstationDispatchIdentity,
 } from "./workstation-dispatch";
 
+const resumeEffects = vi.hoisted(() => ({ begin: vi.fn(), record: vi.fn() }));
+vi.mock("@tedix/db/queries/kernel-runtime-runs", async (original) => ({
+	...(await original<typeof import("@tedix/db/queries/kernel-runtime-runs")>()),
+	beginApprovedHomeDelegationResumeDispatch: resumeEffects.begin,
+	recordApprovedHomeDelegationResumeDispatch: resumeEffects.record,
+	// These tests own the adapter/query contract; real D1 marker preservation is tested by the query owner.
+	updateKernelRuntimeRun: async (
+		db: BaseContext["db"],
+		_id: string,
+		patch: Record<string, unknown>,
+	) => {
+		await db.update(kernelRuntimeRuns).set(patch).where(undefined);
+	},
+}));
+
 type RunUpdate = { set: Record<string, unknown>; table: unknown };
 
 function createFakeDb() {
@@ -328,5 +343,128 @@ describe("workstationDispatchIdentity", () => {
 			runtimeRunId:
 				"11111111-1111-4111-8111-111111111111:mcp:home-1_workstation_11111111-1111-4111-8111-111111111111",
 		});
+	});
+});
+
+describe("recorded approval workstation dispatch boundary", () => {
+	function fixture() {
+		const { deps, enqueue, recordDispatchFailure, updates } = createDeps();
+		const input = {
+			organizationId: "fictional-org",
+			runId: "fictional-run",
+			conversationId: "fictional-conversation",
+			targetTediId: "fictional-tedi",
+			content: "Approved fictional work",
+			trigger: "human-approval" as const,
+			userMessageId: "fictional-message",
+			workItemId: "fictional-work",
+			workOrder: { targetTediId: "fictional-tedi", status: "approved" },
+			existingMetadata: {} as Record<string, unknown>,
+		};
+		const expected = workstationDispatchIdentity({
+			homeRunId: input.runId,
+			target: { id: input.targetTediId },
+		}).runtimeRunId;
+		input.existingMetadata.homeDelegationResume = {
+			version: 1,
+			claimId: "claim",
+			approvalEventId: "event",
+			approvalResolvedAt: "2026-01-01T00:00:00.000Z",
+			workItemId: input.workItemId,
+			workItemVersion: 2,
+			admissionSpecRevision: "spec",
+			scopeDigest: "d".repeat(64),
+			targetTediId: input.targetTediId,
+			expectedChildRunId: expected,
+			phase: "claimed",
+		};
+		resumeEffects.begin.mockReset().mockResolvedValue(true);
+		resumeEffects.record.mockReset().mockResolvedValue({
+			run: { status: "queued" },
+			livePersisted: true,
+			observationPersisted: true,
+		});
+		enqueue.mockImplementation(async () => ({
+			childRunId: expected,
+			childConversationId: "fictional-child-conversation",
+			status: "queued",
+		}));
+		return { deps, enqueue, recordDispatchFailure, updates, input, expected };
+	}
+	it("denies a canceled or consumed claim before provider contact", async () => {
+		const f = fixture();
+		resumeEffects.begin.mockResolvedValue(false);
+		await expect(dispatchWorkstationWorkOrder(f.deps, f.input)).rejects.toThrow(
+			/canceled or already started/,
+		);
+		expect(f.enqueue).not.toHaveBeenCalled();
+		expect(resumeEffects.record).not.toHaveBeenCalled();
+		expect(f.updates).toEqual([]);
+	});
+	it("sends the delivery key once while binding and retaining the actual runtime id", async () => {
+		const f = fixture();
+		const result = await dispatchWorkstationWorkOrder(f.deps, f.input);
+		expect(resumeEffects.begin).toHaveBeenCalledExactlyOnceWith(
+			f.deps.db,
+			expect.objectContaining({ expectedChildRunId: f.expected }),
+		);
+		expect(f.enqueue).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				childRunId: mintWorkstationChildRunId({
+					homeRunId: f.input.runId,
+					tediId: f.input.targetTediId,
+				}),
+			}),
+		);
+		expect(resumeEffects.record).toHaveBeenCalledExactlyOnceWith(
+			f.deps.db,
+			expect.objectContaining({
+				outcome: "acknowledged",
+				observedChildRunId: f.expected,
+			}),
+		);
+		expect(result.childRunId).toBe(f.expected);
+		expect(f.updates).toEqual([]);
+		expect(f.recordDispatchFailure).not.toHaveBeenCalled();
+	});
+	it("retains an acknowledgement after cancellation without calling the unconditional writer", async () => {
+		const f = fixture();
+		let release!: (value: Awaited<ReturnType<typeof f.enqueue>>) => void;
+		f.enqueue.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					release = resolve;
+				}),
+		);
+		const result = dispatchWorkstationWorkOrder(f.deps, f.input);
+		await vi.waitFor(() => expect(f.enqueue).toHaveBeenCalledTimes(1));
+		resumeEffects.record.mockResolvedValue({
+			run: { status: "canceled" },
+			livePersisted: false,
+			observationPersisted: true,
+		});
+		release({
+			childRunId: f.expected,
+			childConversationId: "fictional-child-conversation",
+			status: "queued",
+		});
+		await expect(result).resolves.toMatchObject({
+			childRunId: f.expected,
+			status: "dispatched",
+		});
+		expect(f.updates).toEqual([]);
+		expect(f.recordDispatchFailure).not.toHaveBeenCalled();
+	});
+	it("records a transport failure as unknown without inventing an acknowledgement", async () => {
+		const f = fixture();
+		f.enqueue.mockRejectedValue(new Error("fictional transport timeout"));
+		await dispatchWorkstationWorkOrder(f.deps, f.input);
+		expect(resumeEffects.record).toHaveBeenCalledExactlyOnceWith(
+			f.deps.db,
+			expect.objectContaining({ outcome: "unknown", observedChildRunId: null }),
+		);
+		expect(f.enqueue).toHaveBeenCalledTimes(1);
+		expect(f.recordDispatchFailure).not.toHaveBeenCalled();
+		expect(f.updates).toEqual([]);
 	});
 });

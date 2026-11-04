@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { propagateSweptChildFailureToHomeRun } from "./run-store";
+import { evaluateKernelRunMetadataPatch } from "../__tests__/api-sqlite";
 
 /**
  * Chainable Drizzle-shaped mock: `select().from().where().limit()` resolves the
@@ -21,7 +22,12 @@ function makeDb(row: Record<string, unknown> | undefined) {
 				if (prop === "returning") return () => Promise.resolve(terminal());
 				return (...args: unknown[]) => {
 					if (prop === "set" && args[0] && typeof args[0] === "object") {
-						patches.push(args[0] as Record<string, unknown>);
+						patches.push(
+							evaluateKernelRunMetadataPatch(
+								args[0] as Record<string, unknown>,
+								row,
+							),
+						);
 					}
 					if (prop === "values" && args[0] && typeof args[0] === "object") {
 						events.push(args[0] as Record<string, unknown>);

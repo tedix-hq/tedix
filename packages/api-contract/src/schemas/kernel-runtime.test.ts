@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	DelegationWorkOrderSchema,
 	EnqueueHomeMessageInputSchema,
+	RespondHomeApprovalInputSchema,
 } from "./kernel-runtime";
 
 const baseWorkOrder = {
@@ -112,5 +113,54 @@ describe("Home execution policy", () => {
 				executionPolicy: "execute_anyway",
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("recorded Home approval continuation input", () => {
+	const resume = {
+		runId: "fictional-run",
+		resumeOnly: true,
+		approvalEventId: "fictional-event",
+		expectedWorkItemVersion: 2,
+	};
+	it("accepts a receipt-only request without a new decision", () => {
+		const parsed = RespondHomeApprovalInputSchema.parse(resume);
+		expect(parsed).toEqual(resume);
+		expect("decision" in parsed).toBe(false);
+	});
+	it.each([
+		"decision",
+		"note",
+		"edits",
+		"assignmentIds",
+		"delegateRecommendation",
+	])("rejects a mixed resume and %s request", (field) => {
+		const values = {
+			decision: "approve",
+			note: "another decision",
+			edits: {},
+			assignmentIds: [],
+			delegateRecommendation: true,
+		};
+		expect(
+			RespondHomeApprovalInputSchema.safeParse({
+				...resume,
+				[field]: values[field as keyof typeof values],
+			}).success,
+		).toBe(false);
+	});
+	it("preserves ordinary approve and reject requests", () => {
+		for (const decision of ["approve", "reject"])
+			expect(
+				RespondHomeApprovalInputSchema.parse({
+					runId: "fictional-run",
+					decision,
+					note: "operator decision",
+				}),
+			).toEqual({
+				runId: "fictional-run",
+				decision,
+				note: "operator decision",
+			});
 	});
 });

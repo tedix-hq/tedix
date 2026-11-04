@@ -23,7 +23,13 @@ import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import { createError, ErrorCodes } from "../../orpc";
 import { predictAgentRunId } from "./runtime-shared";
-import { updateKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
+import {
+	updateKernelRuntimeRun,
+	parseApprovedHomeDelegationResumeScope,
+	beginApprovedHomeDelegationResumeDispatch,
+	recordApprovedHomeDelegationResumeDispatch,
+} from "@tedix/db/queries/kernel-runtime-runs";
+import { toJsonRecord } from "@tedix/db/utils/json";
 import type { BaseContext } from "../../orpc";
 import { renderDelegationWorkOrderMessage } from "./delegation-dispatch";
 
@@ -262,6 +268,44 @@ export async function dispatchWorkstationWorkOrder(
 	});
 	const workItemId = resolveWorkItemId(input);
 
+	const resumeMarker = input.existingMetadata?.homeDelegationResume;
+	const resume = resumeMarker
+		? parseApprovedHomeDelegationResumeScope({
+				organizationId: input.organizationId,
+				runId: input.runId,
+				conversationId: input.conversationId,
+				metadata: toJsonRecord(input.existingMetadata),
+			})
+		: null;
+	const expectedRuntimeRunId = workstationDispatchIdentity({
+		homeRunId: input.runId,
+		target: { id: input.targetTediId },
+	}).runtimeRunId;
+	if (
+		resumeMarker &&
+		(!resume ||
+			resume.targetTediId !== input.targetTediId ||
+			resume.expectedChildRunId !== expectedRuntimeRunId ||
+			resume.workItemId !== workItemId)
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Recorded approval dispatch scope changed",
+		);
+	if (
+		resume &&
+		!(await beginApprovedHomeDelegationResumeDispatch(deps.db, {
+			...resume,
+			targetTediId: input.targetTediId,
+			expectedChildRunId: expectedRuntimeRunId,
+			now: now(),
+		}))
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Recorded approval dispatch was canceled or already started",
+		);
+	let deliveryUnknown = false;
 	let enqueueResult: Awaited<ReturnType<WorkstationDispatchEnqueue>>;
 	try {
 		enqueueResult = await deps.enqueue({
@@ -280,11 +324,51 @@ export async function dispatchWorkstationWorkOrder(
 			},
 		});
 	} catch (error) {
+		deliveryUnknown = true;
 		enqueueResult = {
 			childRunId,
 			error: error instanceof Error ? error.message : String(error),
 			status: "failed",
 		};
+	}
+
+	if (resume) {
+		const observedChildRunId = deliveryUnknown
+			? null
+			: enqueueResult.childRunId;
+		const outcome = deliveryUnknown
+			? "unknown"
+			: enqueueResult.status === "failed"
+				? "failed"
+				: "acknowledged";
+		const recorded = await recordApprovedHomeDelegationResumeDispatch(deps.db, {
+			...resume,
+			expectedChildRunId: expectedRuntimeRunId,
+			observedChildRunId,
+			childConversationId: enqueueResult.childConversationId ?? null,
+			outcome,
+			error: enqueueResult.error,
+			now: now(),
+		});
+		if (!recorded.run)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Dispatch result could not be retained; delivery must not be repeated",
+			);
+		const acknowledged =
+			outcome === "acknowledged" && observedChildRunId === expectedRuntimeRunId;
+		return {
+			childRunId: observedChildRunId ?? expectedRuntimeRunId,
+			childConversationId: enqueueResult.childConversationId,
+			status: acknowledged ? "dispatched" : "failed",
+			...(!acknowledged
+				? {
+						error:
+							enqueueResult.error ??
+							"Delivery outcome is unknown; inspect the retained receipt before continuing",
+					}
+				: {}),
+		} as WorkstationDispatchResult;
 	}
 
 	if (enqueueResult.status === "failed") {

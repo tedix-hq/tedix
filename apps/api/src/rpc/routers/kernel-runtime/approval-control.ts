@@ -1,3 +1,4 @@
+import { delegationApprovalScopeDigest } from "./delegation-approval-resume";
 import { requireDelegatedChildTerminalReceipt } from "../kernel/delegation-recovery";
 import { ORPCError } from "@orpc/server";
 import {
@@ -27,6 +28,11 @@ import {
 import {
 	type KernelRuntimeRun,
 	compareAndTouchKernelRuntimeRun,
+	markHomeDelegationResolutionAdmissionFailed,
+	parseApprovedHomeDelegationResumeScope,
+	beginApprovedHomeDelegationResumeDispatch,
+	recordApprovedHomeDelegationResumeDispatch,
+	recordApprovedHomeDelegationResumeStopOutcome,
 	getKernelRuntimeRun,
 	updateKernelRuntimeRun,
 	transitionKernelRuntimeRunStatus,
@@ -65,12 +71,16 @@ import {
 } from "../kernel/run-store";
 import { normalizeHomeRunRecord } from "../kernel/run-store-normalization";
 import { resolveKernelFanOutCap } from "@tedix/api-contract/utils/approval-policy";
-import { settleKernelSubmission } from "../../../kernel/runtime-submission-bridge";
+import {
+	requestRunAbort,
+	settleKernelSubmission,
+} from "../../../kernel/runtime-submission-bridge";
 import { startWorkItemAttempt } from "@tedix/db/queries/work-items/attempts";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
 import {
 	kernelDelegateRunner,
+	kernelChildStopper,
 	kernelPlanWorkItemDescription,
 	kernelPlanWorkItemTitle,
 	readKernelPlanFromRun,
@@ -113,6 +123,15 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		 * the turn decided `auto`; only the target's free slot was pending.
 		 */
 		capacityRelease?: true;
+		/** Server-validated existing decision; never accepted from an approval request. */
+		recordedApproval?: {
+			claimId: string;
+			eventId: string;
+			resolvedAt: string;
+			workOrder: Record<string, unknown>;
+			resolvedBy: Record<string, unknown> | null;
+			resolution: string | null;
+		};
 	},
 ): Promise<{
 	run: HomeRun;
@@ -123,6 +142,38 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			ErrorCodes.CONFLICT,
 			"Terminal Home run cannot resolve a delegation approval",
 		);
+	const normalMarker = nonNullRecord(
+		nonNullRecord(input.run.metadata)?.homeDelegationResolutionClaim,
+	);
+	const delegationResolutionClaimId = input.recordedApproval
+		? undefined
+		: crypto.randomUUID();
+	const resumeMarker = nonNullRecord(
+		nonNullRecord(input.run.metadata)?.homeDelegationResume,
+	);
+	if (input.recordedApproval) {
+		if (
+			input.decision !== "approve" ||
+			input.note !== undefined ||
+			input.resolvedBy ||
+			!resumeMarker ||
+			resumeMarker.claimId !== input.recordedApproval.claimId ||
+			resumeMarker.approvalEventId !== input.recordedApproval.eventId ||
+			resumeMarker.approvalResolvedAt !== input.recordedApproval.resolvedAt ||
+			resumeMarker.workItemId !== input.approvedWorkItemId ||
+			resumeMarker.phase !== "claimed"
+		) {
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Recorded approval continuation has no current claim",
+			);
+		}
+	} else if (resumeMarker) {
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"An existing recorded approval continuation owns this delegation",
+		);
+	}
 	if (input.resolvedBy?.type === "policy" && !input.capacityRelease) {
 		const review = await reviewDelegationAutonomy(context, input.run);
 		if (input.decision !== "approve" || !review.allowed)
@@ -144,49 +195,44 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 	const resolutionStatus = stringFromPayload(
 		pending.delegation.resolutionStatus,
 	);
-	if (resolutionStatus) {
+	if (resolutionStatus && !input.recordedApproval) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
 			`Home run ${input.run.id} delegation approval is already "${resolutionStatus}".`,
 		);
 	}
-	let resolvedAt = nowIso();
-	if (resolvedAt === input.run.updatedAt) resolvedAt = offsetIso(resolvedAt, 1);
-	// Atomic latch: the resolutionStatus check above is a read. Advance the
-	// run's updatedAt with a compare-and-set against the row this resolver read,
-	// so a concurrent operator and agent (or two operators) cannot both resolve.
-	if (
-		!(await compareAndTouchKernelRuntimeRun(context.db, {
-			id: input.run.id,
-			organizationId: input.organizationId,
-			status: input.run.status,
-			expectedUpdatedAt: input.run.updatedAt,
-			updatedAt: resolvedAt,
-		}))
-	) {
+	if (!input.recordedApproval && normalMarker?.phase === "resolving")
 		throw createError(
 			ErrorCodes.CONFLICT,
-			`Home run ${input.run.id} delegation approval changed while it was being resolved; reload and retry.`,
+			"Another approval resolution is still in progress",
 		);
-	}
+	let resolvedAt = nowIso();
+	if (resolvedAt === input.run.updatedAt) resolvedAt = offsetIso(resolvedAt, 1);
 	const baseWorkOrder = {
 		...pending.workOrder,
 		status: input.decision === "approve" ? "approved" : "rejected",
 	};
 	const nextWorkOrder =
-		input.decision === "approve"
+		input.recordedApproval?.workOrder ??
+		(input.decision === "approve"
 			? approvedExecutionWorkOrder({
 					delegation: pending.delegation,
 					note: input.note,
 					workOrder: baseWorkOrder,
 				})
-			: baseWorkOrder;
+			: baseWorkOrder);
 	const nextDelegation = {
 		...pending.delegation,
-		resolution: input.note ?? null,
+		resolution: input.recordedApproval
+			? input.recordedApproval.resolution
+			: (input.note ?? null),
 		resolutionStatus: input.decision === "approve" ? "approved" : "rejected",
-		resolvedAt,
-		...(input.resolvedBy ? { resolvedBy: input.resolvedBy } : {}),
+		resolvedAt: input.recordedApproval?.resolvedAt ?? resolvedAt,
+		...(input.recordedApproval
+			? { resolvedBy: input.recordedApproval.resolvedBy }
+			: input.resolvedBy
+				? { resolvedBy: input.resolvedBy }
+				: {}),
 		workOrder: nextWorkOrder,
 	};
 	// Another executor already working the Work Item would make this a second
@@ -198,15 +244,6 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				stringFromPayload(nonNullRecord(pending.metadata)?.workItemId) ??
 				stringFromPayload(nonNullRecord(input.run.runtimeMetadata)?.workItemId))
 			: undefined;
-	const heldBy = heldWorkItemId
-		? await findForeignActiveAttempt(context, {
-				assigneeTediId: pending.targetTediId,
-				homeRunId: input.run.id,
-				now: resolvedAt,
-				organizationId: input.organizationId,
-				workItemId: heldWorkItemId,
-			})
-		: null;
 	const eventId = [
 		"home",
 		input.organizationId,
@@ -216,29 +253,70 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		input.run.id,
 		resolvedAt,
 	].join(":");
-	await insertKernelRuntimeEvent(context, {
-		id: eventId,
+	const decisionScopeDigest = await delegationApprovalScopeDigest({
 		organizationId: input.organizationId,
-		kind: "approval.resolved",
-		conversationId: input.run.conversationId,
 		runId: input.run.id,
-		delegatedTediId: pending.targetTediId,
-		payload: {
-			delegationWorkOrder: nextWorkOrder,
-			resolvedBy: input.resolvedBy ?? null,
-			resolution: input.note ?? null,
-			status: nextDelegation.resolutionStatus,
-		},
-		runtimeMetadata: {
-			source: "kernelRuntime.respondApproval",
-			dispatch: heldBy
-				? "home-delegation-already-in-progress"
-				: input.decision === "approve"
-					? "home-delegation-approved"
-					: "home-delegation-rejected",
-		},
-		createdAt: resolvedAt,
+		conversationId: input.run.conversationId,
+		targetTediId: pending.targetTediId,
+		workItemId: heldWorkItemId ?? null,
+		workOrder: nextWorkOrder,
 	});
+	// Atomic latch: the resolutionStatus check above is a read. Advance the
+	// run's updatedAt with a compare-and-set against the row this resolver read,
+	// so a concurrent operator and agent (or two operators) cannot both resolve.
+	if (
+		!input.recordedApproval &&
+		!(await compareAndTouchKernelRuntimeRun(context.db, {
+			id: input.run.id,
+			organizationId: input.organizationId,
+			status: input.run.status,
+			expectedUpdatedAt: input.run.updatedAt,
+			updatedAt: resolvedAt,
+			requireNoDelegationResumeClaim: true,
+			delegationResolutionClaimId,
+			delegationApprovalEventId: eventId,
+			delegationWorkItemId: heldWorkItemId,
+			delegationScopeDigest: decisionScopeDigest,
+		}))
+	) {
+		throw createError(
+			ErrorCodes.CONFLICT,
+			`Home run ${input.run.id} delegation approval changed while it was being resolved; reload and retry.`,
+		);
+	}
+	const heldBy = heldWorkItemId
+		? await findForeignActiveAttempt(context, {
+				assigneeTediId: pending.targetTediId,
+				homeRunId: input.run.id,
+				now: resolvedAt,
+				organizationId: input.organizationId,
+				workItemId: heldWorkItemId,
+			})
+		: null;
+	if (!input.recordedApproval)
+		await insertKernelRuntimeEvent(context, {
+			id: eventId,
+			organizationId: input.organizationId,
+			kind: "approval.resolved",
+			conversationId: input.run.conversationId,
+			runId: input.run.id,
+			delegatedTediId: pending.targetTediId,
+			payload: {
+				delegationWorkOrder: nextWorkOrder,
+				resolvedBy: input.resolvedBy ?? null,
+				resolution: input.note ?? null,
+				status: nextDelegation.resolutionStatus,
+			},
+			runtimeMetadata: {
+				source: "kernelRuntime.respondApproval",
+				dispatch: heldBy
+					? "home-delegation-already-in-progress"
+					: input.decision === "approve"
+						? "home-delegation-approved"
+						: "home-delegation-rejected",
+			},
+			createdAt: resolvedAt,
+		});
 	const closeAlreadyInProgress = async (
 		holder: NonNullable<Awaited<ReturnType<typeof findForeignActiveAttempt>>>,
 		workItemId: string,
@@ -284,6 +362,23 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 	};
 	if (heldBy && heldWorkItemId)
 		return closeAlreadyInProgress(heldBy, heldWorkItemId);
+	const releaseFailedAdmission = async () => {
+		if (!delegationResolutionClaimId) return;
+		try {
+			await markHomeDelegationResolutionAdmissionFailed(context.db, {
+				organizationId: input.organizationId,
+				runId: input.run.id,
+				expectedClaimId: delegationResolutionClaimId,
+				now: nowIso(),
+			});
+		} catch (error) {
+			// A failed release leaves the owner locked; preserve the original admission error.
+			console.warn(
+				"[kernelRuntime] admission failure ownership receipt unavailable",
+				errorMessage(error),
+			);
+		}
+	};
 	const admitApprovedDelegationWork = async (
 		work: Parameters<typeof createDelegationWorkItem>[1],
 	) => {
@@ -298,8 +393,10 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				error.code !== ErrorCodes.CONFLICT ||
 				nonNullRecord(error.data)?.rejectionCode !== "already_running" ||
 				!work.workItemId
-			)
+			) {
+				await releaseFailedAdmission();
 				throw error;
+			}
 			// Admission is authoritative: another executor may claim after the preflight read.
 			const holder = await findForeignActiveAttempt(context, {
 				assigneeTediId: pending.targetTediId,
@@ -308,7 +405,10 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				workItemId: work.workItemId,
 				now: nowIso(),
 			});
-			if (!holder) throw error;
+			if (!holder) {
+				await releaseFailedAdmission();
+				throw error;
+			}
 			return { workItemId: work.workItemId, holder };
 		}
 	};
@@ -353,6 +453,79 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		homeDelegation: nextDelegation,
 		delegationWorkOrder: nextWorkOrder,
 	};
+	const stopCanceledAcknowledgedChild = async (
+		scope: NonNullable<
+			ReturnType<typeof parseApprovedHomeDelegationResumeScope>
+		>,
+		actualChildRunId: string,
+		childConversationId: string | null,
+	) => {
+		if (actualChildRunId !== scope.expectedChildRunId) return;
+		const stopAttemptId = crypto.randomUUID();
+		const proof = { ...scope, stopAttemptId };
+		if (
+			!(await recordApprovedHomeDelegationResumeStopOutcome(context.db, {
+				...proof,
+				outcome: "attempted",
+				now: nowIso(),
+			}))
+		)
+			return;
+		await requestRunAbort(context.db, {
+			organizationId: scope.organizationId,
+			runId: actualChildRunId,
+			reason: "Parent Home run canceled before the child acknowledgement",
+		});
+		const stop = kernelChildStopper({
+			context,
+			organizationId: scope.organizationId,
+			delegatedTediId: scope.targetTediId,
+			childRunId: actualChildRunId,
+			childConversationId,
+			reason: "Parent Home run canceled by operator",
+		});
+		context.waitUntil?.(
+			stop
+				.then(
+					(result) =>
+						recordApprovedHomeDelegationResumeStopOutcome(context.db, {
+							...proof,
+							outcome:
+								result.outcome === "succeeded"
+									? "succeeded"
+									: result.outcome === "failed"
+										? "failed"
+										: "unknown",
+							error: result.error,
+							now: nowIso(),
+						}),
+					(error) =>
+						recordApprovedHomeDelegationResumeStopOutcome(context.db, {
+							...proof,
+							outcome: "unknown",
+							error: errorMessage(error),
+							now: nowIso(),
+						}),
+				)
+				.then(() => undefined)
+				.catch((error) =>
+					console.warn(
+						"[kernelRuntime] child stop receipt unavailable",
+						errorMessage(error),
+					),
+				),
+		);
+		try {
+			await withTimeout(stop, 3000, "Canceled Home child stop");
+		} catch (error) {
+			await recordApprovedHomeDelegationResumeStopOutcome(context.db, {
+				...proof,
+				outcome: "unknown",
+				error: errorMessage(error),
+				now: nowIso(),
+			});
+		}
+	};
 	const recordPolicyFyi = async (
 		workItemId: string | null,
 		childRunId: string,
@@ -395,13 +568,18 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			stringFromPayload(nonNullRecord(approvedMetadata)?.workItemId) ??
 			stringFromPayload(nonNullRecord(input.run.runtimeMetadata)?.workItemId);
 		if (requestedWorkItemId)
-			await inspectWorkstationDispatchAdmission(context, {
-				organizationId: input.organizationId,
-				workItemId: requestedWorkItemId,
-				targetTediId: target.id,
-				runtimeRunId: identity.runtimeRunId,
-				now: resolvedAt,
-			});
+			try {
+				await inspectWorkstationDispatchAdmission(context, {
+					organizationId: input.organizationId,
+					workItemId: requestedWorkItemId,
+					targetTediId: target.id,
+					runtimeRunId: identity.runtimeRunId,
+					now: resolvedAt,
+				});
+			} catch (error) {
+				await releaseFailedAdmission();
+				throw error;
+			}
 		const admission = await admitApprovedDelegationWork({
 			autonomyClass:
 				input.resolvedBy?.type === "policy"
@@ -442,6 +620,20 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			workItemId: workstationWorkItemId,
 			workOrder: nextWorkOrder,
 		});
+		if (input.recordedApproval && dispatch.status === "dispatched") {
+			const scope = parseApprovedHomeDelegationResumeScope({
+				organizationId: input.organizationId,
+				runId: input.run.id,
+				conversationId: input.run.conversationId,
+				metadata: input.run.metadata,
+			});
+			if (scope)
+				await stopCanceledAcknowledgedChild(
+					scope,
+					dispatch.childRunId,
+					dispatch.childConversationId ?? null,
+				);
+		}
 		await recordPolicyFyi(
 			workstationWorkItemId,
 			dispatch.childRunId,
@@ -518,44 +710,146 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		context,
 		input.organizationId,
 	);
-	const childResult = await withTimeout(
-		kernelDelegateRunner({
-			context: internalContext,
-			childRunId: clientRequestId,
-			content: childDispatchContent,
-			delegateToTediId: pending.targetTediId,
-			metadata: toJsonRecord({
-				source: "kernelRuntime.respondApproval",
-				homeConversationId: input.run.conversationId,
-				homeRunId: input.run.id,
-				homeMessageId: input.run.inputMessageId ?? `${input.run.id}:input`,
-				delegationWorkOrder: nextWorkOrder,
-				executionSurface: approvedExecutionRequirement.data.surface,
-				...(nonNullRecord(input.run.runtimeMetadata)?.requiredProofKind ===
-				"code"
-					? { requiredProofKind: "code" }
-					: {}),
-				dispatchTrigger:
-					input.resolvedBy?.type === "policy"
-						? "policy-auto-approval"
-						: input.resolvedBy?.type === "tedi"
-							? "agent-approval"
-							: "human-approval",
-				...(delegationWorkItemId
-					? {
-							workItemId: delegationWorkItemId,
-						}
-					: {}),
-			}),
+	const resumeScope = input.recordedApproval
+		? parseApprovedHomeDelegationResumeScope({
+				organizationId: input.organizationId,
+				runId: input.run.id,
+				conversationId: input.run.conversationId,
+				metadata: input.run.metadata,
+			})
+		: null;
+	if (
+		input.recordedApproval &&
+		(!resumeScope ||
+			resumeScope.targetTediId !== pending.targetTediId ||
+			resumeScope.expectedChildRunId !== predictedChildRunId ||
+			resumeScope.workItemId !== delegationWorkItemId ||
+			!context.waitUntil)
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Recorded approval cannot retain this dispatch scope",
+		);
+	if (
+		resumeScope &&
+		!(await beginApprovedHomeDelegationResumeDispatch(context.db, {
+			...resumeScope,
+			targetTediId: pending.targetTediId,
+			expectedChildRunId: predictedChildRunId,
+			now: nowIso(),
+		}))
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Recorded approval dispatch was canceled or already started",
+		);
+	const childDispatch = kernelDelegateRunner({
+		context: internalContext,
+		childRunId: clientRequestId,
+		content: childDispatchContent,
+		delegateToTediId: pending.targetTediId,
+		metadata: toJsonRecord({
+			source: "kernelRuntime.respondApproval",
+			homeConversationId: input.run.conversationId,
+			homeRunId: input.run.id,
+			homeMessageId: input.run.inputMessageId ?? `${input.run.id}:input`,
+			delegationWorkOrder: nextWorkOrder,
+			executionSurface: approvedExecutionRequirement.data.surface,
+			...(nonNullRecord(input.run.runtimeMetadata)?.requiredProofKind === "code"
+				? { requiredProofKind: "code" }
+				: {}),
+			dispatchTrigger:
+				input.resolvedBy?.type === "policy"
+					? "policy-auto-approval"
+					: input.resolvedBy?.type === "tedi"
+						? "agent-approval"
+						: "human-approval",
+			...(delegationWorkItemId
+				? {
+						workItemId: delegationWorkItemId,
+					}
+				: {}),
 		}),
+	});
+	let deliveryUnknown = false;
+	const childResult = await withTimeout(
+		childDispatch,
 		KERNEL_DELEGATE_ENQUEUE_BUDGET_MS,
 		"Home approved delegation dispatch",
-	).catch((error) => ({
-		childRunId: predictedChildRunId,
-		childConversationId: undefined,
-		error: errorMessage(error),
-		status: "failed" as const,
-	}));
+	).catch((error) => {
+		deliveryUnknown = true;
+		return {
+			childRunId: predictedChildRunId,
+			childConversationId: undefined,
+			error: errorMessage(error),
+			status: "failed" as const,
+		};
+	});
+	if (resumeScope) {
+		const initialReceipt = recordApprovedHomeDelegationResumeDispatch(
+			context.db,
+			{
+				...resumeScope,
+				expectedChildRunId: predictedChildRunId,
+				observedChildRunId: deliveryUnknown ? null : childResult.childRunId,
+				childConversationId: childResult.childConversationId ?? null,
+				outcome: deliveryUnknown
+					? "unknown"
+					: childResult.status === "failed"
+						? "failed"
+						: "acknowledged",
+				error: childResult.error,
+				now: nowIso(),
+			},
+		);
+		if (deliveryUnknown) {
+			const lateReceipt = initialReceipt
+				.catch(() => undefined)
+				.then(() => childDispatch)
+				.then(
+					async (actual) => {
+						await recordApprovedHomeDelegationResumeDispatch(context.db, {
+							...resumeScope,
+							expectedChildRunId: predictedChildRunId,
+							observedChildRunId: actual.childRunId,
+							childConversationId: actual.childConversationId ?? null,
+							outcome: actual.status === "failed" ? "failed" : "acknowledged",
+							error: actual.error,
+							now: nowIso(),
+						});
+						if (actual.status !== "failed")
+							await stopCanceledAcknowledgedChild(
+								resumeScope,
+								actual.childRunId,
+								actual.childConversationId ?? null,
+							);
+					},
+					() => undefined,
+				);
+			context.waitUntil?.(
+				lateReceipt.catch((error) =>
+					console.warn(
+						"[kernelRuntime] late dispatch receipt could not be retained",
+						errorMessage(error),
+					),
+				),
+			);
+		}
+		const recorded = await initialReceipt;
+		if (!deliveryUnknown && childResult.status !== "failed")
+			await stopCanceledAcknowledgedChild(
+				resumeScope,
+				childResult.childRunId,
+				childResult.childConversationId ?? null,
+			);
+		if (!recorded.run)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Dispatch outcome could not be retained; delivery must not be repeated",
+			);
+		return { run: normalizeHomeRunRecord(recorded.run), assignments: [] };
+	}
+
 	await recordPolicyFyi(
 		delegationWorkItemId,
 		childResult.childRunId,
