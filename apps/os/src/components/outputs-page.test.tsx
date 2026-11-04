@@ -159,6 +159,22 @@ afterEach(() => {
 });
 
 describe("OutputsPage", () => {
+	it("keeps metadata-only cards openable", async () => {
+		outputsApi.library.mockResolvedValue({
+			items: [libraryItem({ preview: { kind: "metadata" } })],
+			truncated: false,
+		});
+		const container = renderPage();
+		await flush();
+		expect(container.textContent).toContain("Open to view content");
+		const open = container.querySelector<HTMLButtonElement>(
+			'button[aria-label="Open Weekly report in Q3 planning"]',
+		);
+		expect(open?.disabled).toBe(false);
+		act(() => open!.click());
+		expect(navigate).toHaveBeenCalled();
+	});
+
 	it.each(["grid", "list"])(
 		"keeps one action row, Open then an icon-only ⋯, in %s layout",
 		async (layout) => {

@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import {
@@ -21,7 +22,7 @@ import {
 	updateOsOutput,
 } from "./outputs";
 
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		PRAGMA foreign_keys = ON;
@@ -29,7 +30,10 @@ function fixture() {
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 	`);
 	sqlite.exec(schemaDdl(osWorkspaces, osOutputs, osOutputRevisions));
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	return {
+		sqlite,
+		db: createDbQueryClient(createD1Facade(sqlite, { onPrepare })),
+	};
 }
 
 const ANYONE = { userIds: [] };
@@ -80,12 +84,45 @@ async function seedOutput(
 			outputId: id,
 			revision: 1,
 			content: '{"kind":"document","blocks":[]}',
+			contentSha256: await sha256Hex('{"kind":"document","blocks":[]}'),
 			note: null,
 		},
 	);
 }
 
 describe("os outputs", () => {
+	it("lists revision metadata without selecting inline bodies", async () => {
+		const queries: string[] = [];
+		const { db } = fixture((query) => queries.push(query));
+		await seedOutput(db);
+		queries.length = 0;
+		const rows = await listOsOutputLibraryRows(db, "org-1", ANYONE);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]!.revision).not.toHaveProperty("content");
+		expect(queries).toHaveLength(1);
+		expect(queries[0]).not.toMatch(/"os_output_revisions"\."content"/);
+	});
+
+	it("upgrades a legacy revision without a digest instead of comparing inline bodies", async () => {
+		const { db, sqlite } = fixture();
+		await seedOutput(db);
+		sqlite.exec("UPDATE os_output_revisions SET content_sha256 = NULL");
+		const result = await createOsOutputRevision(db, {
+			...accountability,
+			id: "rev-upgrade",
+			outputId: "out-1",
+			content: '{"kind":"document","blocks":[]}',
+			expectedRevision: 1,
+		});
+		expect(result).toMatchObject({
+			ok: true,
+			revision: {
+				revision: 2,
+				contentSha256: await sha256Hex('{"kind":"document","blocks":[]}'),
+			},
+		});
+	});
+
 	it("creates output + revision 1 atomically with the pointer preset", async () => {
 		const { db } = fixture();
 		const created = await seedOutput(db);
@@ -152,9 +189,10 @@ describe("os outputs", () => {
 		).toMatchObject({ note: "second draft" });
 	});
 
-	it("returns the current revision instead of storing an identical body again", async () => {
+	it("uses the digest for no-op saves even when the inline body is absent", async () => {
 		const { db, sqlite } = fixture();
 		await seedOutput(db);
+		sqlite.exec("UPDATE os_output_revisions SET content = ''");
 		const same = await createOsOutputRevision(db, {
 			id: "rev-same",
 			organizationId: "org-1",

@@ -168,6 +168,7 @@ function workspaceLabel(item: OsOutputLibraryItem): string {
 }
 
 function outputMetric(preview: OsOutputLibraryPreview): string {
+	if (preview.kind === "metadata") return "Open to view content";
 	if (preview.kind === "unavailable") return "Source access unavailable";
 	if (preview.kind === "document")
 		return `${preview.blockCount} ${preview.blockCount === 1 ? "block" : "blocks"}`;

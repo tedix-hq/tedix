@@ -1,4 +1,5 @@
 import { and, desc, eq, getColumns, sql } from "drizzle-orm";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsOutputRevisionRow,
@@ -38,7 +39,7 @@ export interface UpdateOsOutputPatch {
 
 export interface OsOutputLibraryRow {
 	output: OsOutputRow;
-	revision: OsOutputRevisionRow;
+	revision: OsOutputRevisionMetadataRow;
 	workspace: OsWorkspaceRow | null;
 }
 
@@ -212,10 +213,14 @@ export async function listOsOutputLibraryRows(
 	}
 	if (options.kind) conditions.push(eq(osOutputs.kind, options.kind));
 	if (options.status) conditions.push(eq(osOutputs.status, options.status));
+	const { content: _content, ...revisionMetadata } = prefixedColumns(
+		osOutputRevisions,
+		"revision",
+	);
 	const rows = await db
 		.select({
 			output: prefixedColumns(osOutputs, "output"),
-			revision: prefixedColumns(osOutputRevisions, "revision"),
+			revision: revisionMetadata,
 			workspace: prefixedColumns(osWorkspaces, "workspace"),
 		})
 		.from(osOutputs)
@@ -238,7 +243,7 @@ export async function listOsOutputLibraryRows(
 		.limit(Math.min(Math.max(options.limit ?? 100, 1), 500));
 	return rows.map((row) => ({
 		output: row.output as OsOutputRow,
-		revision: row.revision as OsOutputRevisionRow,
+		revision: row.revision as OsOutputRevisionMetadataRow,
 		workspace:
 			row.workspace.id === null
 				? null
@@ -358,11 +363,7 @@ export async function createOsOutputRevision(
 			id: osOutputRevisions.id,
 			revision: osOutputRevisions.revision,
 			accessEnvelope: osOutputRevisions.accessEnvelope,
-			// Compared inside SQLite so the current body is never sent back.
-			unchangedContent:
-				sql<number>`${osOutputRevisions.content} = ${params.content}`
-					.mapWith(Number)
-					.as("unchanged_content"),
+			contentSha256: osOutputRevisions.contentSha256,
 		})
 		.from(osOutputs)
 		.innerJoin(
@@ -387,6 +388,8 @@ export async function createOsOutputRevision(
 	) {
 		return { ok: false, reason: "revision_conflict" };
 	}
+	const contentSha256 =
+		params.contentSha256 ?? (await sha256Hex(params.content));
 	const accessEnvelope = mergeOsOutputAccessEnvelopes(
 		base.accessEnvelope,
 		params.accessEnvelope,
@@ -395,7 +398,7 @@ export async function createOsOutputRevision(
 	// storing another full copy of the body: in October 2026, 68 % of sampled
 	// revisions were byte-identical to the revision before them.
 	if (
-		base.unchangedContent === 1 &&
+		base.contentSha256 === contentSha256 &&
 		(accessEnvelope ?? null) === (base.accessEnvelope ?? null)
 	) {
 		const current = await getOsOutputRevision(db, {
@@ -436,7 +439,7 @@ export async function createOsOutputRevision(
 					accessEnvelope: sql<string | null>`${accessEnvelope}`.as(
 						"access_envelope",
 					),
-					contentSha256: sql<string | null>`${params.contentSha256 ?? null}`.as(
+					contentSha256: sql<string | null>`${contentSha256}`.as(
 						"content_sha256",
 					),
 					contentBytes: sql<number | null>`${params.contentBytes ?? null}`.as(

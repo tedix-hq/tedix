@@ -1,4 +1,6 @@
 import * as outputs from "@tedix/db/queries/os-workspaces/outputs";
+import { confirmOsWorkspaceFile as confirmFile } from "@tedix/db/queries/os-workspaces/files";
+import { instantiateOsBlueprint as instantiateBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
 import { env } from "cloudflare:workers";
 import {
 	getOsCollaborationProposal,
@@ -9,6 +11,60 @@ import {
 	storeOutputRevisionBody,
 	type OutputBodyBucket,
 } from "./os-output-revision-body-store";
+
+export async function confirmOsWorkspaceFile(
+	db: Parameters<typeof confirmFile>[0],
+	params: Parameters<typeof confirmFile>[1],
+	bucket: OutputBodyBucket = env.R2_BUCKET,
+) {
+	const revision = params.revision;
+	if (!revision) return confirmFile(db, params);
+	const body = await storeOutputRevisionBody(
+		bucket,
+		revision.organizationId,
+		revision.content,
+	);
+	return confirmFile(db, {
+		...params,
+		revision: { ...revision, ...body },
+	});
+}
+
+/** Store every body before the blueprint's atomic D1 batch, including provisioning. */
+export async function instantiateOsBlueprint(
+	db: Parameters<typeof instantiateBlueprint>[0],
+	params: Parameters<typeof instantiateBlueprint>[1],
+	bucket: OutputBodyBucket = env.R2_BUCKET,
+) {
+	const storeRevisions = async (
+		revisions: NonNullable<typeof params.outputRevisions>,
+	) => {
+		const stored = [];
+		for (const revision of revisions) {
+			if (revision.organizationId !== params.workspace.organizationId)
+				throw new Error("Output revision scope mismatch");
+			stored.push({
+				...revision,
+				...(await storeOutputRevisionBody(
+					bucket,
+					revision.organizationId,
+					revision.content,
+				)),
+			});
+		}
+		return stored;
+	};
+	const outputRevisions = await storeRevisions(params.outputRevisions ?? []);
+	const provisioning = params.provisioning
+		? {
+				...params.provisioning,
+				outputRevisions: await storeRevisions(
+					params.provisioning.outputRevisions,
+				),
+			}
+		: undefined;
+	return instantiateBlueprint(db, { ...params, outputRevisions, provisioning });
+}
 
 export async function getOsOutputRevision(
 	db: Parameters<typeof outputs.getOsOutputRevision>[0],

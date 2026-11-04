@@ -17,7 +17,6 @@ import {
 	listOsOutputLibraryRows,
 	type OsOutputRevisionMetadataRow,
 } from "@tedix/db/queries/os-workspaces/outputs";
-import { hydrateOutputRevision } from "./os-output-revision-body-store";
 import type { OsWorkspaceViewer } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type {
@@ -142,7 +141,9 @@ export async function buildOsOutputLibrary(
 		kind?: OsOutputKind;
 		status?: OsOutputStatus;
 		limit: number;
-		canReadRevision: (revision: OsOutputRevisionRow) => Promise<boolean>;
+		canReadRevision: (
+			revision: OsOutputRevisionMetadataRow,
+		) => Promise<boolean>;
 	},
 ): Promise<{ items: OsOutputLibraryItem[]; truncated: boolean }> {
 	const rows = await listOsOutputLibraryRows(
@@ -184,11 +185,7 @@ export async function buildOsOutputLibrary(
 								kind: "unavailable",
 								reason: "source_access_unavailable",
 							} as const)
-						: outputLibraryPreview(
-								OsOutputContentSchema.parse(
-									JSON.parse((await hydrateOutputRevision(revision)).content),
-								),
-							),
+						: ({ kind: "metadata" } as const),
 				})),
 		),
 		truncated: rows.length > params.limit,

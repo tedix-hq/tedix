@@ -10,6 +10,34 @@ import {
 } from "./os-output-library";
 
 describe("buildOsOutputLibrary", () => {
+	it("returns openable metadata cards without touching body content or R2", async () => {
+		const revision = { id: "rev-1", revision: 1, createdAt: "2026-11-04" };
+		Object.defineProperty(revision, "content", {
+			get() {
+				throw new Error("Body must not be read");
+			},
+		});
+		mocks.list.mockResolvedValue([
+			{
+				output: { id: "out-1", createdByKind: "user", createdById: "u-1" },
+				revision,
+				workspace: null,
+			},
+		]);
+		const result = await buildOsOutputLibrary({} as never, {
+			organizationId: "org-1",
+			viewer: { userIds: [] },
+			creator: { kind: "user", id: "u-1" },
+			limit: 20,
+			canReadRevision: async () => true,
+		});
+		expect(result.items[0]).toMatchObject({
+			preview: { kind: "metadata" },
+			scope: "mine",
+			currentRevision: { id: "rev-1" },
+		});
+	});
+
 	it("preserves inventory without parsing content when source access is unavailable", async () => {
 		mocks.list.mockResolvedValue([
 			{

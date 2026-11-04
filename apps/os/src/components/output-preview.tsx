@@ -111,6 +111,15 @@ export function OutputPreview({
 }: {
 	preview: OsOutputLibraryPreview;
 }) {
+	if (preview.kind === "metadata") {
+		return (
+			<div className="flex h-full items-center justify-center bg-kumo-tint">
+				<Text as="span" role="label" tone="secondary">
+					Open to view content
+				</Text>
+			</div>
+		);
+	}
 	if (preview.kind === "unavailable") {
 		return (
 			<div className="flex h-full items-center justify-center bg-kumo-tint">

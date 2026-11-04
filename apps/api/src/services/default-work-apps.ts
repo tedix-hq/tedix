@@ -3,7 +3,7 @@ import {
 	OsBlueprintDefinitionSchema,
 	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { instantiateOsBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
+import { instantiateOsBlueprint } from "./os-workspace-outputs";
 import { listOsWorkApps } from "@tedix/db/queries/os-workspaces/gadgets";
 import {
 	getOsWorkspace,
