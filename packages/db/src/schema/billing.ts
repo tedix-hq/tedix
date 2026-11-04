@@ -473,6 +473,12 @@ export const billingUsageReservations = sqliteTable(
 			table.tediId,
 			table.createdAt,
 		),
+		// The daily organization gates read one UTC day of an organization's
+		// reservations by created_at; without this they walked every status.
+		index("idx_billing_reservation_org_created").on(
+			table.organizationId,
+			table.createdAt,
+		),
 		index("idx_billing_reservation_trace").on(table.traceId),
 	],
 );

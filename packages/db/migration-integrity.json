@@ -1332,6 +1332,10 @@
 		{
 			"name": "20261104215410_conversation_session_policies/migration.sql",
 			"sha256": "f1591bd30f5a051b19008555b1baf97233731759aa240eee2ba02eb4e36ba4ce"
+		},
+		{
+			"name": "20261104223017_billing_reservation_org_created/migration.sql",
+			"sha256": "2d3b7a6ed695bf2e902899f68f5bcff10adf0daf23a3769927d57d900ca7699d"
 		}
 	]
 }
