@@ -1640,6 +1640,57 @@ describe("live delegation card", () => {
 		expect(html).not.toContain("$0.0042");
 	});
 
+	it("says the worker needs you, not finished, when the child was blocked", () => {
+		const work = delegationFromRun({
+			...run,
+			status: "failed",
+			completedAt: at(127),
+			metadata: {
+				childRunStatus: "failed",
+				childRunStopReason: "blocked",
+				childRunPreview:
+					"Blocked (missing_repository): no repository is connected for this worker yet.",
+				childRunBlocker: {
+					kind: "missing_repository",
+					detail: "no repository is connected for this worker yet.",
+					source: "declared",
+				},
+			},
+		});
+		if (!work) throw new Error("expected delegation work");
+		expect(work.outcome).toBe("needs_you");
+		const html = renderToStaticMarkup(
+			<DelegationSummaryRow
+				work={work}
+				tediName="Reddit Operator"
+				LinkComponent={StubLink}
+			/>,
+		);
+		expect(html).toContain("Reddit Operator needs you in 2m 07s");
+		expect(html).not.toContain("finished");
+		expect(html).not.toContain("stopped with an error");
+	});
+
+	it("says the worker was blocked when it stopped before producing anything", () => {
+		const work = delegationFromRun({
+			...run,
+			status: "failed",
+			completedAt: at(127),
+			metadata: {
+				childRunStatus: "failed",
+				childRunStopReason: "context_ceiling",
+				childRunPreview:
+					"No output was produced. Stopped after 17 steps: per-turn cumulative input-token ceiling reached",
+			},
+		});
+		if (!work) throw new Error("expected delegation work");
+		expect(work.outcome).toBe("blocked");
+		const html = renderToStaticMarkup(
+			<DelegationSummaryRow work={work} LinkComponent={StubLink} />,
+		);
+		expect(html).toContain("A digital worker was blocked in 2m 07s");
+	});
+
 	it("keeps sub-cent settled charges readable", () => {
 		const work = delegationFromRun({
 			...run,

@@ -273,6 +273,7 @@ export function normalizeHomeRunRecord(
 				? { childRunStopReason: childRunStatus.childRunStopReason }
 				: {}),
 			...(childStop ? { childRunStopDetail: childStop.detail } : {}),
+			...(childStop?.blocker ? { childRunBlocker: childStop.blocker } : {}),
 			...(childSteerRunResult
 				? { delegatedChildSteerResult: childSteerRunResult }
 				: {}),

@@ -7,6 +7,7 @@ import {
 	finalReportReason,
 	reservedFinalStepConfig,
 	resolveFacetStepCeiling,
+	splitFinalReport,
 	stepCeilingReached,
 	stoppedTurnNotice,
 } from "./facet-turn-stop";
@@ -41,18 +42,43 @@ assert.equal(reservedFinalStepConfig(3, null), undefined);
 assert.equal(reservedFinalStepConfig(3, 5), undefined);
 assert.deepEqual(reservedFinalStepConfig(4, 5), { toolChoice: "none" });
 
-// The forced report runs tools-off for exactly one round.
+// The forced report runs tools-off for exactly one round and asks for an
+// operator part, a technical part, and a Blocked line when something is missing.
 assert.match(
 	finalReportInstruction("the step ceiling was reached"),
 	/Do not call tools/,
 );
+assert.match(finalReportInstruction("x"), /---technical---/);
+assert.match(finalReportInstruction("x"), /Blocked \(<kind>\)/);
+assert.match(finalReportInstruction("x"), /missing_repository, missing_access/);
 assert.match(
 	finalReportInstruction("x"),
-	/what remains, and the single next step/,
+	/no tool names, file paths, ids or commands/,
 );
 
+// The report splits on the separator; without one it is all operator text.
+assert.deepEqual(
+	splitFinalReport(
+		"Blocked (missing_repository): no repository is connected yet.\n\n---technical---\nopen_computer({ repository: true }) → repository_not_configured.\nNext: configure repoConfig.repoUrl.",
+	),
+	{
+		operator: "Blocked (missing_repository): no repository is connected yet.",
+		technical:
+			"open_computer({ repository: true }) → repository_not_configured.\nNext: configure repoConfig.repoUrl.",
+	},
+);
+assert.deepEqual(splitFinalReport("All done.\n--- Technical ---\n"), {
+	operator: "All done.",
+	technical: null,
+});
+assert.deepEqual(splitFinalReport("Done: read a.ts."), {
+	operator: "Done: read a.ts.",
+	technical: null,
+});
+
 // A stopped turn always settles with text: report + notice even when the loop
-// produced nothing; Home can identify the structured stop notice.
+// produced nothing; Home can identify the structured stop notice. The
+// technical part rides behind markers so it stays in evidence, not in chat.
 const notice = stoppedTurnNotice("provider-call ceiling reached (5/5 steps)");
 assert.equal(
 	notice,
@@ -67,6 +93,15 @@ assert.equal(
 	`Done: read a.ts. Remaining: fix b.ts. Next: edit b.ts.\n\n${notice}`,
 );
 assert.equal(
+	composeStoppedTurnText({
+		assistantText: "",
+		finalReport:
+			"I checked two of five invoices.\n---technical---\nRead invoices 1-2 via list_invoices; remaining ids 3,4,5.",
+		notice,
+	}),
+	`I checked two of five invoices.\n\n[technical-report]\nRead invoices 1-2 via list_invoices; remaining ids 3,4,5.\n[/technical-report]\n\n${notice}`,
+);
+assert.equal(
 	composeStoppedTurnText({ assistantText: "  ", finalReport: "", notice }),
 	notice,
 	"a failed report still leaves the notice",
@@ -78,6 +113,24 @@ assert.equal(
 		notice,
 	}),
 	`loop text\n\nreport\n\n${notice}`,
+);
+assert.equal(
+	composeStoppedTurnText({
+		assistantText: "",
+		finalReport:
+			"Blocked (missing_access): I am not allowed to read that mailbox.",
+		notice: null,
+	}),
+	"Blocked (missing_access): I am not allowed to read that mailbox.",
+	"an empty-answer report without a stop has no notice",
+);
+assert.equal(
+	composeStoppedTurnText({
+		assistantText: "answer",
+		finalReport: "",
+		notice: null,
+	}),
+	"answer",
 );
 
 console.log("facet-turn-stop OK");

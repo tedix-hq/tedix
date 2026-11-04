@@ -82,13 +82,61 @@ export function emptyTurnModelError(input: {
 	return input.lastModelError?.trim() || null;
 }
 
-/** The synthetic instruction that drives the forced final report. */
+/** Blocker kinds a delegated tedi may declare on the first line of its report. */
+export const REPORT_BLOCKER_KINDS = [
+	"missing_repository",
+	"missing_access",
+	"missing_capability",
+	"transient",
+] as const;
+
+/** The line the model writes between the operator part and the technical part. */
+export const TECHNICAL_REPORT_SEPARATOR = "---technical---";
+const TECHNICAL_SEPARATOR_RE = /^\s*-{3,}\s*technical\s*-{3,}\s*$/im;
+
+/**
+ * The synthetic instruction that drives the forced final report. It asks for
+ * two parts: the first is for the person who asked (plain words, no tool
+ * names), the second is for the engineer and never reaches the chat. A tedi
+ * that could not proceed opens with one `Blocked (<kind>): …` line so Home
+ * can act on it instead of relaying a diagnostic.
+ */
 export function finalReportInstruction(reason: string): string {
 	return (
 		`The turn is ending because ${reason}. Do not call tools. ` +
-		"Write: what you accomplished (with exact files/commands/ids), " +
-		"what remains, and the single next step."
+		"Write two parts separated by a line containing only " +
+		`\`${TECHNICAL_REPORT_SEPARATOR}\`. ` +
+		"Part 1 is for the person who asked, in plain words with no tool names, file paths, ids or commands: " +
+		"one or two sentences on what changed or what you found, then at most one next action they can take. " +
+		"If you could not proceed because something is not connected, not configured or not allowed, " +
+		"start Part 1 with one line `Blocked (<kind>): <what is missing, in plain words>` where <kind> is one of " +
+		`${REPORT_BLOCKER_KINDS.join(", ")}. ` +
+		"Part 2 is for the engineer: exact files, commands, ids and tool names, what remains, and the single next step."
 	);
+}
+
+/**
+ * Split the forced final report into its operator part and its technical
+ * part. A report without the separator is all operator text.
+ */
+export function splitFinalReport(report: string): {
+	operator: string;
+	technical: string | null;
+} {
+	const match = TECHNICAL_SEPARATOR_RE.exec(report);
+	if (!match) return { operator: report.trim(), technical: null };
+	const operator = report.slice(0, match.index).trim();
+	const technical = report.slice(match.index + match[0].length).trim();
+	return { operator, technical: technical || null };
+}
+
+/**
+ * The technical part travels inside the assistant text behind markers so it
+ * stays in the run's evidence; Home strips the block before relaying and keeps
+ * it as message metadata.
+ */
+export function technicalReportBlock(technical: string): string {
+	return `[technical-report]\n${technical}\n[/technical-report]`;
 }
 
 /** Model-free notice appended after every early stop. */
@@ -97,16 +145,24 @@ export function stoppedTurnNotice(reason: string): string {
 }
 
 /**
- * Final assistant text of a stopped turn: the loop's own text, then the forced
- * final report, then the notice. Empty segments are dropped so a turn that
- * produced nothing still settles with the report and the notice.
+ * Final assistant text of a turn that carries a forced final report: the loop's
+ * own text, then the report's operator part, then the technical part behind
+ * its markers, then the stop notice when the turn stopped early. Empty
+ * segments are dropped so a turn that produced nothing still settles with the
+ * report and the notice.
  */
 export function composeStoppedTurnText(input: {
 	assistantText: string;
 	finalReport: string;
-	notice: string;
+	notice: string | null;
 }): string {
-	return [input.assistantText, input.finalReport, input.notice]
+	const { operator, technical } = splitFinalReport(input.finalReport);
+	return [
+		input.assistantText,
+		operator,
+		technical ? technicalReportBlock(technical) : "",
+		input.notice ?? "",
+	]
 		.map((segment) => segment.trim())
 		.filter(Boolean)
 		.join("\n\n");

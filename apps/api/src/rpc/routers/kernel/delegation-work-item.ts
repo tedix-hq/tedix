@@ -53,6 +53,7 @@ import { readChildRunResultAndLiveness } from "./child-run-reads";
 import {
 	type DelegatedStopClassification,
 	type DeclaredDelegationOutcome,
+	type DelegationBlocker,
 	delegationVerifyCommand,
 	VERIFICATION_MISSING_STOP_REASON,
 	verificationRequirementLines,
@@ -854,6 +855,13 @@ async function readDelegatedChildSteeringProof(
  * over (childRunStatus, proof); returned even when the underlying writes were
  * already applied by an earlier reconcile (idempotent re-derivation).
  */
+export type DelegationRecoveryHint =
+	| "redispatch_same_work_order"
+	| "require_durable_proof_ref"
+	| "reroute_to_home"
+	| "verify_dispatch_ledger"
+	| "verify_runtime_liveness";
+
 export type DelegationAttemptResult = {
 	outcome: "succeeded" | "failed" | "cancelled";
 	workItemDisposition: "accepted" | "completed" | "cancelled";
@@ -865,11 +873,21 @@ export type DelegationAttemptResult = {
 		| "dispatch_never_landed"
 		| "partial_result"
 		| "stopped_without_output"
+		| "blocked"
 		| "delegation_cancelled"
 		| null;
 	retryable: boolean;
 	hasProof: boolean;
 	evidenceState: DelegationProofRefs["evidenceState"];
+	/**
+	 * The machine-recoverable hints written onto the settled attempt. Home
+	 * consumes `reroute_to_home` (re-route to a tedi that has the capability, or
+	 * ask the person for the missing piece) and `redispatch_same_work_order`
+	 * (one retry after a transient failure) for a blocked child.
+	 */
+	recoveryHints: DelegationRecoveryHint[];
+	/** What stopped a blocked child before it could do the work, as data. */
+	blocker: DelegationBlocker | null;
 };
 
 export function delegationCompletionProofBody(input: {
@@ -894,6 +912,7 @@ const DECLARED_OUTCOME_LINE = /^\s*Outcome:\s*[a-z_]+\s*/i;
 
 export type DelegationFeedOutcome =
 	| "succeeded"
+	| "blocked"
 	| "partial"
 	| "unverified"
 	| "failed"
@@ -914,6 +933,8 @@ export function delegationFeedSentence(
 	switch (outcome) {
 		case "succeeded":
 			return `${tediName} finished ${task}.`;
+		case "blocked":
+			return `${tediName} could not start ${task} because something it needs is missing.`;
 		case "partial":
 			return `${tediName} finished part of ${task} and needs you to check the rest.`;
 		case "unverified":
@@ -927,6 +948,95 @@ export function delegationFeedSentence(
 		case "cancelled":
 			return `${tediName} stopped working on ${task} because it was cancelled.`;
 	}
+}
+
+/** The failed-child reading of `disposeDelegationWorkItem`, kept pure. */
+function readFailedChildDisposition(input: {
+	childStop: DelegatedStopClassification | null;
+	delegationError: string | null;
+	tediName: string;
+	taskTitle: string;
+}): {
+	outcome: "failed";
+	releaseReason: string;
+	failureReason:
+		| "delegation_failed"
+		| "dispatch_timeout"
+		| "dispatch_never_landed"
+		| "partial_result"
+		| "stopped_without_output";
+	recoveryHints: DelegationRecoveryHint[];
+	retryable: true;
+	feedOutcome: DelegationFeedOutcome;
+	body: string;
+} {
+	const { tediName, taskTitle } = input;
+	const stop = input.childStop;
+	const releaseReason =
+		stop?.outcome === "partial"
+			? "delegation_partial_result"
+			: stop && !stop.output
+				? "delegation_stopped_without_output"
+				: "delegation_failed";
+	let failureReason:
+		| "delegation_failed"
+		| "dispatch_timeout"
+		| "dispatch_never_landed"
+		| "partial_result"
+		| "stopped_without_output";
+	let recoveryHints: DelegationRecoveryHint[];
+	// The stale-net dispatch path routes its no-events timeout through
+	// here with a `dispatch_timeout:`-prefixed error — discriminate it so
+	// recovery re-checks runtime liveness rather than assuming an in-loop
+	// failure.
+	if (stop?.outcome === "partial") {
+		failureReason = "partial_result";
+		recoveryHints = ["redispatch_same_work_order", "require_durable_proof_ref"];
+	} else if (stop?.output) {
+		failureReason = "delegation_failed";
+		recoveryHints = ["redispatch_same_work_order"];
+	} else if (stop) {
+		failureReason = "stopped_without_output";
+		recoveryHints = ["redispatch_same_work_order"];
+	} else {
+		({ failureReason, recoveryHints } = classifyDelegationFailureRecovery(
+			input.delegationError,
+		));
+	}
+	const feedOutcome: DelegationFeedOutcome =
+		stop?.outcome === "partial"
+			? "partial"
+			: stop && !stop.output
+				? "no_output"
+				: failureReason === "dispatch_never_landed"
+					? "never_dispatched"
+					: "failed";
+	const headline = delegationFeedSentence(feedOutcome, tediName, taskTitle);
+	// The stop reason stays in metadata (childStopReason); the
+	// default detail only repeats the headline.
+	const detail =
+		stop?.detail && stop.detail !== "The tedi reported a partial result"
+			? ` ${stop.detail.replace(/[.\s]+$/, "")}.`
+			: "";
+	const body =
+		stop?.outcome === "partial"
+			? `${headline}${detail} It stays open so it can be continued or sent again with fresh proof.`
+			: stop?.output
+				? `${headline}${detail} ${delegationProofTranscriptPreview(stop.output)}`
+				: stop
+					? `${headline}${detail} Nothing was delivered, so it needs to be sent again with a smaller scope or a larger budget.`
+					: failureReason === "dispatch_never_landed"
+						? `${headline} ${tediName} never received it, so this is not their failure. Reason: ${input.delegationError ?? "unknown error"}.`
+						: `${headline} Reason: ${input.delegationError ?? "unknown error"}. Home can send it to another tedi, or ${tediName} can try again another way.`;
+	return {
+		outcome: "failed",
+		releaseReason,
+		failureReason,
+		recoveryHints,
+		retryable: true,
+		feedOutcome,
+		body,
+	};
 }
 
 /** Settle the exact tedi Attempt from the task/runtime outcome, then complete Home wrappers.
@@ -964,16 +1074,11 @@ export async function disposeDelegationWorkItem(
 		| "dispatch_never_landed"
 		| "partial_result"
 		| "stopped_without_output"
+		| "blocked"
 		| "delegation_cancelled"
 		| undefined;
 	let retryable = false;
-	let recoveryHints: Array<
-		| "redispatch_same_work_order"
-		| "require_durable_proof_ref"
-		| "reroute_to_home"
-		| "verify_dispatch_ledger"
-		| "verify_runtime_liveness"
-	> = [];
+	let recoveryHints: DelegationRecoveryHint[] = [];
 	let canonicalWorkItemReuse = false;
 	let homeCreatedDelegationWrapper = false;
 	let taskTitle = "Delegated work";
@@ -1055,8 +1160,46 @@ export async function disposeDelegationWorkItem(
 
 	const verificationMissing =
 		input.childStop?.stopReason === VERIFICATION_MISSING_STOP_REASON;
+	const blocker = input.childStop?.blocker ?? null;
 	switch (input.childRunStatus) {
 		case "completed":
+		case "failed":
+			if (!blocker) {
+				// fall through to the status-specific readings below
+			} else {
+				// The child could not start: a structured blocker, not a failed
+				// attempt at the work. The hint tells Home what to do next —
+				// re-route (or ask the person) for a missing repository, access or
+				// capability; one more try for a transient fault.
+				outcome = "failed";
+				releaseReason = "delegation_blocked";
+				failureReason = "blocked";
+				retryable = true;
+				recoveryHints =
+					blocker.kind === "transient"
+						? ["redispatch_same_work_order"]
+						: ["reroute_to_home"];
+				feedOutcome = "blocked";
+				body = `${delegationFeedSentence(feedOutcome, tediName, taskTitle)} What is missing: ${blocker.detail.replace(/[.\s]+$/, "")}. Home re-routes it, retries once, or asks for the missing piece.`;
+				break;
+			}
+			if (input.childRunStatus === "failed") {
+				({
+					outcome,
+					releaseReason,
+					failureReason,
+					recoveryHints,
+					retryable,
+					feedOutcome,
+					body,
+				} = readFailedChildDisposition({
+					childStop: input.childStop ?? null,
+					delegationError: input.delegationError,
+					tediName,
+					taskTitle,
+				}));
+				break;
+			}
 			if (
 				input.declaredOutcome === "failed" ||
 				input.declaredOutcome === "needs_follow_up" ||
@@ -1106,70 +1249,6 @@ export async function disposeDelegationWorkItem(
 				});
 			}
 			break;
-		case "failed": {
-			outcome = "failed";
-			const stop = input.childStop ?? null;
-			releaseReason =
-				stop?.outcome === "partial"
-					? "delegation_partial_result"
-					: stop && !stop.output
-						? "delegation_stopped_without_output"
-						: "delegation_failed";
-			// The stale-net dispatch path routes its no-events timeout through
-			// here with a `dispatch_timeout:`-prefixed error — discriminate it so
-			// recovery re-checks runtime liveness rather than assuming an in-loop
-			// failure.
-			if (stop?.outcome === "partial") {
-				failureReason = "partial_result";
-				recoveryHints = [
-					"redispatch_same_work_order",
-					"require_durable_proof_ref",
-				];
-			} else if (stop?.output) {
-				failureReason = "delegation_failed";
-				recoveryHints = ["redispatch_same_work_order"];
-			} else if (stop) {
-				failureReason = "stopped_without_output";
-				recoveryHints = ["redispatch_same_work_order"];
-			} else {
-				({ failureReason, recoveryHints } = classifyDelegationFailureRecovery(
-					input.delegationError,
-				));
-			}
-			retryable = true;
-			feedOutcome =
-				stop?.outcome === "partial"
-					? "partial"
-					: stop && !stop.output
-						? "no_output"
-						: failureReason === "dispatch_never_landed"
-							? "never_dispatched"
-							: "failed";
-			{
-				const headline = delegationFeedSentence(
-					feedOutcome,
-					tediName,
-					taskTitle,
-				);
-				// The stop reason stays in metadata (childStopReason); the
-				// default detail only repeats the headline.
-				const detail =
-					stop?.detail && stop.detail !== "The tedi reported a partial result"
-						? ` ${stop.detail.replace(/[.\s]+$/, "")}.`
-						: "";
-				body =
-					stop?.outcome === "partial"
-						? `${headline}${detail} It stays open so it can be continued or sent again with fresh proof.`
-						: stop?.output
-							? `${headline}${detail} ${delegationProofTranscriptPreview(stop.output)}`
-							: stop
-								? `${headline}${detail} Nothing was delivered, so it needs to be sent again with a smaller scope or a larger budget.`
-								: failureReason === "dispatch_never_landed"
-									? `${headline} ${tediName} never received it, so this is not their failure. Reason: ${input.delegationError ?? "unknown error"}.`
-									: `${headline} Reason: ${input.delegationError ?? "unknown error"}. Home can send it to another tedi, or ${tediName} can try again another way.`;
-			}
-			break;
-		}
 		case "canceled":
 			outcome = "cancelled";
 			feedOutcome = "cancelled";
@@ -1203,6 +1282,8 @@ export async function disposeDelegationWorkItem(
 		retryable,
 		hasProof: input.proof.hasProof,
 		evidenceState: input.proof.evidenceState,
+		recoveryHints,
+		blocker,
 	};
 	const canonicalProofRef =
 		input.proof.repoCommitSha ??

@@ -953,7 +953,7 @@ export class ComputerEnvironmentController {
 						},
 					}),
 					instruction: missingRepository
-						? "Configure the repository through the authorized configuration path before continuing this acquisition. The existing lease is retained; reopening cannot supply missing configuration."
+						? "No repository is connected for this tedi, so repository work cannot start. Tell the person in plain words, opening with `Blocked (missing_repository): no repository is connected for this worker yet.` The existing lease is retained; reopening cannot supply missing configuration."
 						: "Inspect the retained provisioning failure and resolve its dependency before continuing this acquisition. The existing lease is retained; this call will not replace it.",
 				};
 			}

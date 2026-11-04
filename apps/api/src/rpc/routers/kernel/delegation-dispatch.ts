@@ -521,6 +521,9 @@ export function renderDelegationWorkOrderMessage(input: {
 		// Honesty clause: a delegated tedi must not claim a side effect that only
 		// a discovery call preceded, or the kernel repeats the claim as fact.
 		"Honesty contract: only claim an action was performed, created, or scheduled if a tool call in THIS turn actually did it — cite that call's result. Discovery/search does not count as doing. If something remains undone, say exactly what and why.",
+		// Blocked contract: a structured first line lets Home re-route, retry or
+		// ask the person for the missing piece instead of relaying a diagnostic.
+		"Blocked contract: if you cannot proceed because something is not connected, not configured or not allowed, do not improvise around it. Reply with a first line `Blocked (<kind>): <what is missing, in plain words>` where <kind> is missing_repository, missing_access, missing_capability or transient, then one plain sentence on what you tried. Keep tool names, ids and paths out of that first line.",
 	];
 	// Contract block — each line independently conditional so a partially-shaped
 	// contract still renders what it has (and no contract renders nothing).

@@ -103,6 +103,7 @@ import {
 	finalReportInstruction,
 	emptyTurnModelError,
 	finalReportReason,
+	composeStoppedTurnText,
 } from "./facet-turn-stop";
 import { promptCacheKey, explicitPromptCacheConfig } from "./prompt-cache";
 import { MODEL_TURN_FAILED_PREFIX } from "./runtime-error-settlement";
@@ -1767,11 +1768,11 @@ export class ConversationFacet extends PiAgent<
 			await this.accounting.assertComplete();
 			this.setState({ ...this.state, finalReportStop: null });
 		}
-		const assistantText = stop
-			? [text, report, stoppedTurnNotice(stop.reason)]
-					.filter(Boolean)
-					.join("\n\n")
-			: text || report.trim();
+		const assistantText = composeStoppedTurnText({
+			assistantText: text,
+			finalReport: report,
+			notice: stop ? stoppedTurnNotice(stop.reason) : null,
+		});
 		const reportError = emptyTurnModelError({
 			assistantText,
 			lastModelError: this.state.lastModelError,

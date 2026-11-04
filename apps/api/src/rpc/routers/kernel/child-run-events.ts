@@ -3,6 +3,7 @@ import type { TediRuntimeEventRow } from "@tedix/db/queries/kernel-runtime-event
 import {
 	classifyDelegatedStop,
 	declaredDelegationOutcome,
+	stripTechnicalReport,
 } from "./delegated-stop";
 import {
 	nonNullRecord,
@@ -522,13 +523,19 @@ export function summarizeChildRuntimeEvents(
 	});
 	const latestPayload = nonNullRecord(latest?.payload);
 	const messagePayload = nonNullRecord(latestMessage?.payload);
-	const rawPreview =
+	const rawPreviewWithTechnical =
 		latestMessage?.delta ??
 		stringFromPayload(messagePayload?.content) ??
 		stringFromPayload(messagePayload?.text) ??
 		stringFromPayload(latestPayload?.content) ??
 		stringFromPayload(latestPayload?.text) ??
 		null;
+	// The engineer-facing part of a final report stays in the child's own
+	// event row (its evidence); the preview Home relays never carries it.
+	const rawPreview =
+		rawPreviewWithTechnical === null
+			? null
+			: stripTechnicalReport(rawPreviewWithTechnical) || null;
 	// A runtime stop (structured reason or the `[Turn stopped early: …]`
 	// marker) or a self-reported partial. It is `partial` only when the child
 	// wrote something besides the markers; a marker-only stop produced no
@@ -612,6 +619,7 @@ export function summarizeChildRuntimeEvents(
 		),
 		childRunStopReason: stop?.stopReason ?? null,
 		...(stop ? { childRunStopDetail: stop.detail } : {}),
+		...(stop?.blocker ? { childRunBlocker: stop.blocker } : {}),
 		childRunTerminalAt: terminal?.createdAt ?? null,
 		childRunTerminalEventKind: terminal?.kind ?? null,
 		...(kernelWorkflowInspect ? { kernelWorkflowInspect } : {}),

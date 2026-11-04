@@ -167,6 +167,14 @@ async function retryDelegationWorkItem(
 	input: {
 		organizationId: string;
 		workItemId: string;
+		/**
+		 * Re-route: dispatch the same work order to this tedi instead of the one
+		 * that held the attempt. Home passes it when the first tedi reported a
+		 * blocker (missing repository or capability) that another tedi can cover.
+		 */
+		targetTediId?: string;
+		/** Who asked for the recovery; stamped on the dispatch and the audit row. */
+		trigger?: "operator-recovery" | "home-blocker-recovery";
 	},
 ): Promise<{
 	run: HomeRun;
@@ -254,13 +262,15 @@ async function retryDelegationWorkItem(
 	const nextRetryCount = retryCount + 1;
 
 	// (3) Resolve target tedi + the linked Home run (source of the work order).
-	const delegatedTediId =
+	const previousTediId =
 		(workItem.accountableOwnerType === "tedi"
 			? workItem.accountableOwnerId
 			: null) ??
 		(typeof metadata.delegatedTediId === "string"
 			? metadata.delegatedTediId
 			: null);
+	const delegatedTediId = input.targetTediId ?? previousTediId;
+	const trigger = input.trigger ?? "operator-recovery";
 	if (!delegatedTediId) {
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
@@ -287,7 +297,7 @@ async function retryDelegationWorkItem(
 	}
 	await requireDelegatedChildTerminalReceipt(context, {
 		organizationId,
-		delegatedTediId,
+		delegatedTediId: previousTediId ?? delegatedTediId,
 		childRunId: homeRun.childRunId,
 	});
 	const homeRunMetadata = nonNullRecord(homeRun.metadata) ?? {};
@@ -326,7 +336,7 @@ async function retryDelegationWorkItem(
 		runId: predictedChildRunId,
 		startedAt: dispatchedAt,
 		expiresAt: admission.expiresAt,
-		metadata: { retryCount: nextRetryCount, recovery: true },
+		metadata: { retryCount: nextRetryCount, recovery: true, trigger },
 		// Operator recovery retries the same admitted WorkSpec. Dependency state is
 		// already represented by the original admission decision.
 	});
@@ -359,6 +369,10 @@ async function retryDelegationWorkItem(
 		dispatchedAt,
 		retryCount: nextRetryCount,
 		source: "kernelRuntime.retryDelegation",
+		trigger,
+		...(previousTediId && previousTediId !== delegatedTediId
+			? { reroutedFromTediId: previousTediId }
+			: {}),
 	};
 	await updateKernelRuntimeRun(context.db, homeRunId, {
 		status: "queued",
@@ -410,7 +424,7 @@ async function retryDelegationWorkItem(
 				homeRunId,
 				workItemId,
 				retryCount: nextRetryCount,
-				dispatchTrigger: "operator-recovery",
+				dispatchTrigger: trigger,
 				executionSurface: recoveryExecutionRequirement.data.surface,
 				delegationWorkOrder,
 				...(nonNullRecord(homeRun.runtimeMetadata)?.requiredProofKind === "code"
@@ -513,6 +527,10 @@ async function retryDelegationWorkItem(
 			childRunId: childResult.childRunId,
 			retryCount: nextRetryCount,
 			dispatchStatus: childResult.status,
+			trigger,
+			...(previousTediId && previousTediId !== delegatedTediId
+				? { reroutedFromTediId: previousTediId }
+				: {}),
 		}),
 		ipAddress: context.headers.get("CF-Connecting-IP"),
 		userAgent: context.headers.get("User-Agent"),

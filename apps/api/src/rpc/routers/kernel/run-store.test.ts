@@ -775,6 +775,29 @@ describe("homeDelegationCompletionContent — verdicts never enter the body", ()
 		).toBe("I stopped before I had a result to share. Want me to try again?");
 	});
 
+	it("a blocked child never relays its report: the person reads what is missing and what to do", () => {
+		expect(
+			homeDelegationCompletionContent({
+				preview:
+					"Blocked (missing_repository): no repository is connected for this worker yet.",
+				finalMessage:
+					"Blocked (missing_repository): no repository is connected for this worker yet.\n\n[technical-report]\nopen_computer → repository_not_configured\n[/technical-report]",
+				status: "failed",
+				stop: {
+					outcome: "failed",
+					detail: "no repository is connected for this worker yet.",
+					blocker: {
+						kind: "missing_repository",
+						detail: "No repository is connected for this worker yet.",
+						source: "declared",
+					},
+				},
+			}),
+		).toBe(
+			"I couldn't do this yet: no repository is connected for this worker yet. Tell me what to connect or allow, and I'll continue.",
+		);
+	});
+
 	it("a stop with a text report relays the report as a partial result", () => {
 		const content =
 			"Two of five checks passed.\n\n[Turn stopped early: per-turn provider-call ceiling reached (10/10 steps). Partial results above; remaining work was not attempted.]";
