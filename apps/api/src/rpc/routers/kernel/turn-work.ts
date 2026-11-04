@@ -1613,6 +1613,7 @@ export async function runKernelTurnWork(
 								heldDelegation.workOrder.targetTediLabel?.trim() ||
 									"the selected tedi",
 								null,
+								heldDelegation.workOrder.objective,
 							)
 						: (routedAssistantContent ?? KERNEL_MODEL_UNAVAILABLE_MESSAGE);
 	const dispatchAwareStatus: TediRunStatus = modelUnavailable

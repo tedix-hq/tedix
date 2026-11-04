@@ -3,6 +3,8 @@ import {
 	DELEGATION_STALL_AFTER_MS,
 	delegationLiveState,
 	delegationSteps,
+	plainFailure,
+	plainRuntimeLabel,
 	plainToolName,
 	shortAge,
 } from "@/lib/delegation-activity";
@@ -24,10 +26,52 @@ const run = {
 };
 
 describe("plainToolName", () => {
-	it("reads an app-qualified tool id as plain words", () => {
-		expect(plainToolName("reddit__search_posts")).toBe("Reddit: search posts");
-		expect(plainToolName("list_threads")).toBe("List threads");
+	it("reads an app-qualified tool id as a short sentence", () => {
+		expect(plainToolName("reddit__search_posts")).toBe("Searched Reddit posts");
+		expect(plainToolName("list_threads")).toBe("Listed threads");
 		expect(plainToolName("  ")).toBe("Tool action");
+	});
+
+	it("names tool families a person recognises", () => {
+		expect(plainToolName("browser__markdown")).toBe("Read a web page");
+		expect(plainToolName("firecrawl_search")).toBe("Searched the web");
+		expect(plainToolName("computer__open")).toBe("Started a computer");
+		expect(plainToolName("workstation__exec")).toBe("Ran a command");
+	});
+
+	it("keeps an unknown verb readable without inventing one", () => {
+		expect(plainToolName("ledger__reconcile_month")).toBe(
+			"Ledger: reconcile month",
+		);
+	});
+});
+
+describe("plainRuntimeLabel", () => {
+	it("turns runtime labels into sentences", () => {
+		expect(plainRuntimeLabel("thinking…")).toBe("Getting ready");
+		expect(plainRuntimeLabel("synthesizing…")).toBe("Writing the answer");
+		expect(plainRuntimeLabel("Writing the answer")).toBe("Writing the answer");
+		expect(plainRuntimeLabel("calling reddit__search_posts")).toBe(
+			"Searching Reddit posts",
+		);
+		expect(plainRuntimeLabel("  ")).toBeNull();
+	});
+});
+
+describe("plainFailure", () => {
+	it("says who is unavailable and hides technical errors", () => {
+		expect(
+			plainFailure({ reason: "runtime_unavailable", who: "Reddit Operator" }),
+		).toBe("Reddit Operator isn't available right now.");
+		expect(plainFailure({ reason: "dispatch_failed" })).toBe(
+			"The task couldn't be handed to That assistant.",
+		);
+		expect(
+			plainFailure({ error: 'TypeError: fetch failed {"status":502}' }),
+		).toBe("Something went wrong before it finished.");
+		expect(plainFailure({ error: "the page needs a login" })).toBe(
+			"The page needs a login.",
+		);
 	});
 });
 
@@ -62,9 +106,57 @@ describe("delegationSteps", () => {
 			steps.map((step) => [step.label, step.status, step.durationMs]),
 		).toEqual([
 			["Started", "completed", null],
-			["Reddit: search posts", "completed", 2_000],
-			["Draft reply", "running", null],
+			["Searched Reddit posts", "completed", 2_000],
+			["Drafted reply", "running", null],
 		]);
+	});
+
+	it("folds consecutive calls of one tool into one row that counts retries", () => {
+		const call = (
+			n: number,
+			kind: string,
+			extra: Record<string, unknown> = {},
+		) => ({
+			id: `${kind}-${n}`,
+			kind,
+			toolCallId: `call-${n}`,
+			payload: { name: "browser__markdown", ...extra },
+			createdAt: at(n * 10 + (kind === "tool.started" ? 0 : 3)),
+		});
+		const steps = delegationSteps([
+			call(1, "tool.started"),
+			call(1, "tool.failed", { error: "page timed out" }),
+			call(2, "tool.started"),
+			call(2, "tool.completed"),
+			call(3, "tool.started"),
+			call(3, "tool.completed"),
+		]);
+		expect(steps).toHaveLength(1);
+		expect(steps[0]).toMatchObject({
+			label: "Read a web page",
+			status: "completed",
+			attempts: 3,
+			retries: 1,
+			failureReason: null,
+			durationMs: 9_000,
+		});
+	});
+
+	it("keeps the runtime's reason on a step that stays failed", () => {
+		const [step] = delegationSteps([
+			{
+				id: "f",
+				kind: "tool.failed",
+				toolCallId: "c",
+				payload: { name: "reddit__post_comment", error: "rate limited" },
+				createdAt: at(5),
+			},
+		]);
+		expect(step).toMatchObject({
+			label: "Posted Reddit comment",
+			status: "failed",
+			failureReason: "rate limited",
+		});
 	});
 
 	it("ignores a re-delivered event and keeps a terminal status on late starts", () => {
@@ -107,7 +199,7 @@ describe("delegationSteps on delegated runtime events", () => {
 		]);
 		expect(steps).toHaveLength(1);
 		expect(steps[0]).toMatchObject({
-			label: "Clone repo",
+			label: "Cloned repo",
 			status: "completed",
 			durationMs: 1_651,
 		});
@@ -135,7 +227,7 @@ describe("delegationLiveState", () => {
 			},
 			now: T0 + 410_000,
 		});
-		expect(live.currentStep).toBe("Using Clone repo");
+		expect(live.currentStep).toBe("Cloning repo");
 	});
 
 	it("reports the current step, progress and last activity of a working run", () => {
@@ -188,7 +280,7 @@ describe("delegationLiveState", () => {
 			],
 			now: T0 + 310_000,
 		});
-		expect(live.currentStep).toBe("Using Reddit: search posts");
+		expect(live.currentStep).toBe("Searching Reddit posts");
 		expect(live.progress).toBeNull();
 	});
 

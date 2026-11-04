@@ -4376,8 +4376,8 @@ describe("runKernelTurnWork agent-in-the-loop delegation review", () => {
 					targetActivityId: "activity-roadmap",
 				}),
 				assistantContent: approver
-					? `I prepared a delegation to CPO. It is not dispatched yet: I routed the decision to ${approver.label}, and I'll ask you only if ${approver.label} declines or cannot decide.`
-					: "I prepared a delegation to CPO. It is not dispatched yet; approve this Home run to dispatch the work order.",
+					? `I'll ask CPO to review the roadmap. ${approver.label} decides whether it starts; I'll come back to you only if ${approver.label} declines or can't decide.`
+					: "I'll ask CPO to review the roadmap. Approve below to start.",
 				delegation: {
 					workOrder: {
 						kind: "tedi.delegate",
@@ -4491,7 +4491,7 @@ describe("runKernelTurnWork agent-in-the-loop delegation review", () => {
 			},
 		});
 		expect(result.assistantMessage.content).toContain(
-			"routed the decision to CTO",
+			"CTO decides whether it starts",
 		);
 	});
 
@@ -4519,9 +4519,11 @@ describe("runKernelTurnWork agent-in-the-loop delegation review", () => {
 				reason: expect.stringContaining("not eligible"),
 			},
 		});
-		expect(result.assistantMessage.content).toContain("approve this Home run");
+		expect(result.assistantMessage.content).toBe(
+			"I'll ask CPO to review the roadmap. Approve below to start.",
+		);
 		expect(result.assistantMessage.content).not.toContain(
-			"routed the decision",
+			"decides whether it starts",
 		);
 	});
 

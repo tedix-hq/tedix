@@ -7,6 +7,7 @@ import {
 	type ApprovalCardData,
 	ApprovalCard,
 	approvalsFromRunSet,
+	DelegationActivityList,
 	approvalsForAuthority,
 	type CardRunLinkProps,
 	compactPreview,
@@ -340,7 +341,7 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 	it("projects a delegated run and returns null for plain kernel turns", () => {
 		const work = delegationFromRun(run);
 		expect(work?.childRunId).toBe(CHILD_RUN_ID);
-		expect(work?.activityLabel).toBe("synthesizing…");
+		expect(work?.activityLabel).toBe("Writing the answer");
 		expect(
 			delegationFromRun({
 				...run,
@@ -365,6 +366,32 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 		expect(html).toContain('data-run-status="failed"');
 		expect(html).toContain("The worker stopped before finishing.");
 		expect(html).not.toContain("synthesizing");
+	});
+
+	it("says a technical failure plainly and keeps the raw error one hover away", () => {
+		const work = delegationFromRun({
+			...run,
+			metadata: {
+				childRunStatus: "failed",
+				delegationFailure: {
+					reason: "dispatch_failed",
+					error: "Error: ECONNRESET at fetch (worker.ts:12)",
+				},
+			},
+		});
+		if (!work) throw new Error("expected delegation work");
+		const html = renderToStaticMarkup(
+			<DelegationWorkCard
+				work={work}
+				tediName="Reddit Operator"
+				LinkComponent={StubLink}
+			/>,
+		);
+		expect(html).toContain(
+			"The task couldn&#x27;t be handed to Reddit Operator.",
+		);
+		expect(html).toContain('title="Error: ECONNRESET at fetch (worker.ts:12)"');
+		expect(html).not.toContain(">Error: ECONNRESET");
 	});
 
 	it.each(["completed", "failed", "canceled"] as const)(
@@ -395,9 +422,10 @@ describe("delegationFromRun / DelegationWorkCard", () => {
 		expect(html).toContain(
 			`href="/work/executions/${RUN_ID}?branch=${CHILD_RUN_ID}"`,
 		);
-		expect(html).toContain("synthesizing…");
+		expect(html).toContain("Writing the answer");
+		expect(html).toContain("CTO</strong> is working on this");
 		expect(html).toContain('role="status"');
-		expect(html).toContain('aria-label="Delegated work running"');
+		expect(html).toContain('aria-label="CTO is working"');
 		expect(html).not.toContain("animate-spin");
 		expect(html).toContain("max-w-full");
 		expect(html).not.toContain("border-kumo-hairline bg-kumo-base");
@@ -494,6 +522,30 @@ function approval(overrides: Partial<ApprovalCardData> = {}): ApprovalCardData {
 }
 
 describe("ApprovalCard", () => {
+	it("shows what will be done before asking for the decision", () => {
+		const html = renderToStaticMarkup(
+			<ApprovalCard
+				approval={approval({
+					approvalId: `home-delegation:${RUN_ID}`,
+					summary: "Reddit Operator is ready to start",
+					tediName: "Reddit Operator",
+					requestPreview: "Fix the loading screen on the Reddit page.",
+					sessionScopeKey: "delegate:tedi-1",
+				})}
+			/>,
+		);
+		expect(html).toContain("Reddit Operator is ready to start");
+		expect(html).toContain("“Fix the loading screen on the Reddit page.”");
+		const order = [
+			">Approve<",
+			">Reject<",
+			">Decide for me<",
+			">Always allow this session<",
+		].map((label) => html.indexOf(label));
+		expect(order.every((at) => at >= 0)).toBe(true);
+		expect([...order].sort((a, b) => a - b)).toEqual(order);
+	});
+
 	it("renders Approve/Reject for an actionable pending approval", () => {
 		const html = renderToStaticMarkup(<ApprovalCard approval={approval()} />);
 		expect(html).toContain('data-approval-status="pending"');
@@ -501,6 +553,10 @@ describe("ApprovalCard", () => {
 		expect(html).toContain("Approve");
 		expect(html).toContain("Reject");
 		expect(html).toContain("Decide for me");
+		expect(html.indexOf(">Approve<")).toBeLessThan(html.indexOf(">Reject<"));
+		expect(html.indexOf(">Reject<")).toBeLessThan(
+			html.indexOf(">Decide for me<"),
+		);
 		expect(html).toContain("If you approve:");
 		expect(html).toContain("Tedix suggests:");
 		expect(html).not.toContain('disabled=""');
@@ -675,7 +731,7 @@ describe("ApprovalCard", () => {
 		const html = renderToStaticMarkup(
 			<ApprovalCard
 				approval={approval({
-					summary: "Approve delegation to globex-operator",
+					summary: "globex-operator is ready to start",
 					detail:
 						"A long approval reason must remain readable in a resizable workspace pane.",
 					sessionScopeKey: "delegate:globex-operator",
@@ -735,7 +791,7 @@ describe("Home delegation approval copy", () => {
 			approvalMirrors: {},
 		});
 		expect(card).toMatchObject({
-			summary: "Approve delegation to CFO",
+			summary: "CFO is ready to start",
 			detail:
 				"Sends a request to CFO on your behalf. It needs your approval because it may message people outside your organization.",
 			reasonCode: "human-reserved: external_message",
@@ -938,7 +994,7 @@ describe("approval builders", () => {
 			expect.objectContaining({
 				approvalId: `home-delegation:${RUN_ID}`,
 				runId: RUN_ID,
-				summary: "Approve delegation to Acme",
+				summary: "Acme is ready to start",
 				detail:
 					"Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.",
 				reasonCode: "target not active",
@@ -1147,7 +1203,7 @@ describe("approval builders", () => {
 				const cards = approvalsFromRunSet(heldRun(review), {}, NOW);
 				expect(cards).toEqual([
 					expect.objectContaining({
-						summary: "Approve delegation to Acme",
+						summary: "Acme is ready to start",
 						detail: `${outcome}. Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.`,
 						sessionScopeKey: `delegate:${TEDI_ID}`,
 					}),
@@ -1442,16 +1498,83 @@ describe("live delegation card", () => {
 		);
 	};
 
-	it("shows the current step, a progress bar, elapsed time and last activity", () => {
+	it("shows the current step, a progress bar and elapsed time without idle noise", () => {
 		const html = render(T0 + 412_000);
 		expect(html).toContain('data-phase="working"');
 		expect(html).toContain("Writing the weekly summary");
 		expect(html).toContain('data-slot="progress"');
 		expect(html).toContain("48 of 100");
-		expect(html).toContain("Running 6m 52s · last activity 12s ago");
+		expect(html).toContain("Running 6m 52s<");
+		expect(html).not.toContain("last activity");
 		expect(html).toContain("1 step");
 		expect(html).not.toContain("May be stuck");
 		expect(html).not.toContain(">Stop<");
+	});
+
+	it("mentions the last activity only once the run has been quiet for a while", () => {
+		const html = render(T0 + 445_000);
+		expect(html).toContain("Running 7m 25s · last activity 45s ago");
+	});
+
+	it("lists steps as plain sentences with a merged retry and its reason", () => {
+		const work = delegationFromRun(run);
+		if (!work) throw new Error("expected delegation work");
+		const html = renderToStaticMarkup(
+			<DelegationActivityList
+				defaultOpen
+				steps={
+					delegationLiveState({
+						run,
+						events: [
+							{
+								id: "a1",
+								kind: "tool.started",
+								toolCallId: "a",
+								payload: { name: "browser__markdown" },
+								createdAt: at(10),
+							},
+							{
+								id: "a2",
+								kind: "tool.failed",
+								toolCallId: "a",
+								payload: { name: "browser__markdown", error: "page timed out" },
+								createdAt: at(12),
+							},
+							{
+								id: "b1",
+								kind: "tool.started",
+								toolCallId: "b",
+								payload: { name: "browser__markdown" },
+								createdAt: at(13),
+							},
+							{
+								id: "b2",
+								kind: "tool.completed",
+								toolCallId: "b",
+								payload: { name: "browser__markdown" },
+								createdAt: at(15),
+							},
+							{
+								id: "c1",
+								kind: "tool.failed",
+								toolCallId: "c",
+								payload: {
+									name: "reddit__post_comment",
+									error: "rate limited",
+								},
+								createdAt: at(20),
+							},
+						],
+						now: T0 + 30_000,
+					}).steps
+				}
+			/>,
+		);
+		expect(html).toContain("2 steps · 1 failed");
+		expect(html).toContain("Read a web page after 1 retry");
+		expect(html).toContain("Posted Reddit comment");
+		expect(html).toContain(">rate limited<");
+		expect(html).not.toContain("browser__markdown<");
 	});
 
 	it("says plainly when nothing has happened for minutes, with Stop and retry", () => {
@@ -1461,7 +1584,7 @@ describe("live delegation card", () => {
 		expect(html).toContain("No activity for 7 min. It may be stuck.");
 		expect(html).toContain(">Stop<");
 		expect(html).toContain(">Stop and retry<");
-		expect(html).not.toContain("Delegated work running");
+		expect(html).not.toContain("is working on this");
 	});
 
 	it("folds a finished delegation to one summary line with duration and its settled cost", () => {

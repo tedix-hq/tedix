@@ -130,14 +130,41 @@ export async function resolveDelegationApprover(input: {
 	}
 }
 
-/** The durable Home line for a held delegation, with or without an approver. */
+/**
+ * The request as a short verb phrase for "I'll ask X to …": context tokens
+ * and headings dropped, first sentence only, cut to one line.
+ */
+function requestPhrase(request: string | null | undefined): string | null {
+	const first = (request ?? "")
+		.replace(/\[\[tedix-context:[^\]]*\]\]/g, " ")
+		.replace(/^#+\s*/gm, "")
+		.replace(/\s+/g, " ")
+		.trim()
+		.split(/(?<=[.!?])\s|\n/)[0]
+		?.replace(/[.!?\s]+$/, "");
+	if (!first) return null;
+	const clipped =
+		first.length > 120 ? `${first.slice(0, 119).trimEnd()}…` : first;
+	// "Fix the loading screen" → "fix the loading screen"; keep "SEO audit".
+	return /^[A-Z][a-z]/.test(clipped)
+		? clipped[0]!.toLowerCase() + clipped.slice(1)
+		: clipped;
+}
+
+/**
+ * The durable Home line for a held delegation, with or without an approver.
+ * One plain sentence: the approval card below is the only surface asking.
+ */
 export function renderHeldDelegationLine(
 	owner: string,
 	approverLabel: string | null | undefined,
+	request?: string | null,
 ): string {
+	const ask = requestPhrase(request);
+	const lead = `I'll ask ${owner} to ${ask ?? "take this on"}.`;
 	return approverLabel
-		? `I prepared a delegation to ${owner}. It is not dispatched yet: I routed the decision to ${approverLabel}, and I'll ask you only if ${approverLabel} declines or cannot decide.`
-		: `I prepared a delegation to ${owner}. It is not dispatched yet; approve this Home run to dispatch the work order.`;
+		? `${lead} ${approverLabel} decides whether it starts; I'll come back to you only if ${approverLabel} declines or can't decide.`
+		: `${lead} Approve below to start.`;
 }
 
 /** Pending and unexpired: the operator's approve is fenced off. */
