@@ -30,7 +30,7 @@ import {
 	getPersonalOsWorkspace,
 	isOsWorkspaceVisibleTo,
 	listOsWorkspaces,
-	findOsWorkspaceIdForKernelRun,
+	findOsWorkspaceForKernelRun,
 	saveConversationAsOsWorkspace,
 	updateOsWorkspace,
 } from "./workspaces";
@@ -650,9 +650,10 @@ describe("save a conversation as a workspace", () => {
 			},
 		]);
 		const find = (organizationId: string, runId: string) =>
-			findOsWorkspaceIdForKernelRun(db, { organizationId, runId });
-		expect(await find("org-1", "run-ws")).toBe("ws-chat");
-		expect(await find("org-1", "child-run")).toBe("ws-chat");
+			findOsWorkspaceForKernelRun(db, { organizationId, runId });
+		const turn = { workspaceId: "ws-chat", conversationId: "home:ws" };
+		expect(await find("org-1", "run-ws")).toEqual(turn);
+		expect(await find("org-1", "child-run")).toEqual(turn);
 		expect(await find("org-1", "run-global")).toBeNull();
 		expect(await find("org-2", "run-ws")).toBeNull();
 	});
