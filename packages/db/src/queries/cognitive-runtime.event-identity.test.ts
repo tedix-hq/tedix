@@ -20,6 +20,7 @@ import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import { createDbClient } from "../client";
 import {
+	getTediRuntimeEventById,
 	insertTediRuntimeEvent,
 	listTediRuntimeEventsForRouter,
 	type TediRuntimeEventInsert,
@@ -54,6 +55,28 @@ function toolEvent(
 }
 
 describe("tedi runtime event identity", () => {
+	it("scopes exact retry lookup to both organization and tedi", async () => {
+		const db = fixture();
+		await insertTediRuntimeEvent(db, toolEvent("owned-event"));
+		expect(
+			await getTediRuntimeEventById(db, "owned-event", {
+				organizationId: "org-1",
+				tediId: TEDI_ID,
+			}),
+		).not.toBeNull();
+		expect(
+			await getTediRuntimeEventById(db, "owned-event", {
+				organizationId: "org-other",
+				tediId: TEDI_ID,
+			}),
+		).toBeNull();
+		expect(
+			await getTediRuntimeEventById(db, "owned-event", {
+				organizationId: "org-1",
+				tediId: "tedi-other",
+			}),
+		).toBeNull();
+	});
 	it("drops a re-issued event id and keeps the row already written", async () => {
 		const db = fixture();
 		const first = await insertTediRuntimeEvent(
