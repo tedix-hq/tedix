@@ -8,6 +8,8 @@ import { isPlatformPrincipal } from "@tedix/auth/types";
 import type { DbClient } from "@tedix/db/client";
 import { type AuditActorType, insertAuditEvent } from "@tedix/db/queries/audit";
 import { toJsonRecord } from "@tedix/db/utils/json";
+import { browserAgentMetadata } from "./browser-agent-seat";
+import type { BrowserAgentSeat } from "@tedix/api-contract/schemas/browser-agent-seat";
 
 /**
  * Emit an audit event to the audit_events table.
@@ -73,6 +75,7 @@ export function auditActor(context: {
 	externalAgentPrincipalId?: string;
 	externalAgentSessionId?: string;
 	gatewayEndUserId?: string;
+	browserAgentSeat?: BrowserAgentSeat;
 }): {
 	actorId: string;
 	actorType: AuditActorType;
@@ -80,6 +83,14 @@ export function auditActor(context: {
 	actorMetadata: Record<string, unknown>;
 } {
 	const platformAdmin = isPlatformPrincipal(context);
+	if (context.browserAgentSeat) {
+		return {
+			actorId: context.browserAgentSeat.userId,
+			actorType: "external_agent",
+			platformAdmin: false,
+			actorMetadata: browserAgentMetadata(context.browserAgentSeat),
+		};
+	}
 
 	// Checked first, matching the accountability precedence the Tedix OS domain
 	// already persists on `created_by_kind` (`resolveCreator`): a gateway call

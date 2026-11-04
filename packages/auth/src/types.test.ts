@@ -38,6 +38,20 @@ const basePayload = {
 } satisfies JWTPayload;
 
 describe("isPlatformPrincipal", () => {
+	it("does not grant platform authority to a verified browser agent seat", () => {
+		expect(
+			isPlatformPrincipal({
+				authType: "user",
+				user: {
+					...basePayload,
+					sub: "juniper",
+					roles: ["platform-admin"],
+					scopes: ["platform:admin"],
+				},
+				browserAgentSeat: { userId: "juniper" },
+			}),
+		).toBe(false);
+	});
 	it("does not grant platform authority to service bindings", () => {
 		expect(isPlatformPrincipal({ authType: "service-binding" })).toBe(false);
 		expect(isPlatformPrincipal({ authType: "service" })).toBe(false);

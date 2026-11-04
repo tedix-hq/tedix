@@ -12,6 +12,7 @@ const membersApi = vi.hoisted(() => ({
 	updateMemberRole: vi.fn(),
 	setMemberPermissions: vi.fn(),
 	setMemberIdentity: vi.fn(),
+	suspendAgentSeat: vi.fn(),
 	listMembers: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
@@ -571,7 +572,7 @@ describe("members surface", () => {
 		].find((item) => item.textContent?.trim() === "Edit identity")!;
 		await act(async () => edit.click());
 		expect(document.body.textContent).toContain(
-			"Representation does not grant access",
+			"approve actions or manage the team",
 		);
 		await act(async () => mounted.button("Save identity")!.click());
 		await flushInviteMutation();
@@ -587,6 +588,42 @@ describe("members surface", () => {
 		});
 		expect(mounted.invalidated).toContainEqual(osQueryKeys.members());
 		expect(membersApi.updateMemberRole).not.toHaveBeenCalled();
+	});
+
+	it("suspends an agent through the contract and refreshes the member list", async () => {
+		const juniper = member({
+			email: "juniper@example.test",
+			name: "Juniper",
+			kind: "browser_agent",
+			representedUserId: "river",
+			representedUserName: "River",
+		});
+		membersApi.suspendAgentSeat.mockResolvedValue({
+			data: { ...juniper, status: "deactivated" },
+		});
+		const mounted = await mountPanel({
+			permissions: MANAGE,
+			members: [juniper],
+		});
+		const actions = mounted.host.querySelector<HTMLButtonElement>(
+			'[aria-label="Actions for juniper@example.test"]',
+		)!;
+		await act(async () => {
+			actions.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+			actions.click();
+		});
+		const edit = [
+			...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		].find((item) => item.textContent?.trim() === "Edit identity")!;
+		await act(async () => edit.click());
+		await act(async () => mounted.button("Suspend agent")!.click());
+		await flushInviteMutation();
+		expect(membersApi.suspendAgentSeat).toHaveBeenCalledWith({
+			organizationId: "org-1",
+			memberId: juniper.id,
+		});
+		expect(mounted.invalidated).toContainEqual(osQueryKeys.members());
+		expect(membersApi.removeMember).not.toHaveBeenCalled();
 	});
 
 	it("shows each member's resolved avatar in every row and initials otherwise", async () => {

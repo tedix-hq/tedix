@@ -369,11 +369,13 @@ export function isPlatformAdmin(payload: JWTPayload | undefined): boolean {
  */
 export function isPlatformPrincipal(context: {
 	user?: JWTPayload;
+	browserAgentSeat?: { userId: string };
 	apiKey?: { scopes?: string[] };
 	serviceAccount?: { scope?: string };
 	tediScopes?: string[];
 	authType?: string;
 }): boolean {
+	if (context.browserAgentSeat) return false;
 	if (isPlatformAdmin(context.user)) return true;
 	const userScopes = context.user ? extractJwtScopes(context.user) : [];
 	if (userScopes.includes("platform:admin") || userScopes.includes("*")) {

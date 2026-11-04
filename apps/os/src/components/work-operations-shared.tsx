@@ -75,8 +75,16 @@ export function useWorkPrincipalNames(organizationId?: string) {
 		const names = new Map<string, string>();
 		for (const tedi of tedis.data?.data ?? [])
 			names.set(`tedi:${tedi.id}`, tedi.displayName || tedi.name);
-		for (const member of members.data?.data ?? [])
+		for (const member of members.data?.data ?? []) {
 			names.set(`user:${member.descopeUserId}`, member.name || member.email);
+			if (member.userId)
+				names.set(`user:${member.userId}`, member.name || member.email);
+			if (member.kind === "browser_agent" && member.userId)
+				names.set(
+					`external_agent:${member.userId}`,
+					`${member.name || member.email} (agent for ${member.representedUserName || "team member"})`,
+				);
+		}
 		for (const principal of external.data ?? [])
 			names.set(`external_agent:${principal.id}`, principal.displayName);
 		return names;

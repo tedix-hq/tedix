@@ -44,8 +44,8 @@ export const organizationMembers = sqliteTable(
 		email: text("email").notNull(),
 		name: text("name"),
 		avatarUrl: text("avatar_url"),
-		// Display identity only. Representation never delegates the person's access.
-		kind: text("kind", { enum: ["human", "external_agent"] })
+		// external_agent is a display label; browser_agent opts into seat enforcement.
+		kind: text("kind", { enum: ["human", "external_agent", "browser_agent"] })
 			.notNull()
 			.default("human"),
 		representedUserId: text("represented_user_id"),

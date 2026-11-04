@@ -528,6 +528,8 @@ function messageFromDirectReadEvent(
 	role: "user" | "assistant",
 ): HomeMessage {
 	const payload = record(event.payload) ?? {};
+	const metadata = record(payload.metadata);
+	const author = record(payload.author);
 	return {
 		id: event.messageId ?? "",
 		organizationId: event.organizationId,
@@ -539,8 +541,8 @@ function messageFromDirectReadEvent(
 		createdAt: event.createdAt,
 		startedAt: event.createdAt,
 		completedAt: event.createdAt,
-		...(record(payload.metadata)
-			? { metadata: record(payload.metadata)! }
+		...(metadata || author
+			? { metadata: { ...metadata, ...(author ? { author } : {}) } }
 			: {}),
 	};
 }

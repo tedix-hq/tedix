@@ -56,6 +56,7 @@ import {
 } from "@tedix/db/queries/api-keys";
 import { hashApiKey, matchesIpOrCidr } from "@tedix/db/schema/api-keys";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { bindBrowserAgentSeat } from "./browser-agent-seat";
 import {
 	getOrganizationByDescopeId,
 	getOrganizationByExternalIdentity,
@@ -780,6 +781,7 @@ export const withAuth = base.middleware(async (options, input) => {
 				await measureMiningPhase(context, "auth.forwarded", () =>
 					authenticateForwardedMcpUserJwt(context),
 				);
+				await bindBrowserAgentSeat(context);
 			} catch (error) {
 				if (error instanceof ORPCError) throw error;
 				// Token/permission failures above are explicit ORPCErrors. An
@@ -991,6 +993,7 @@ export const withAuth = base.middleware(async (options, input) => {
 	// Note: scope enforcement is handled via createScopeMiddleware(requiredScope)
 	// on a per-procedure basis (see comment below).
 
+	if (!alreadyAuthenticated) await bindBrowserAgentSeat(context);
 	return next({ context });
 });
 
@@ -1435,6 +1438,7 @@ export function userHoldsPermission(
 		| "userRole"
 		| "crossTenantOverrideActive"
 		| "userPermissionOverrides"
+		| "browserAgentSeat"
 	>,
 	permission: Permission,
 ): boolean {
@@ -1453,6 +1457,7 @@ export function userHoldsPermission(
 	const tokenRoleIsCurrent =
 		!liveMembership || !tokenRole || tokenRole === context.userRole;
 	const tokenMayGrant =
+		!context.browserAgentSeat &&
 		!context.crossTenantOverrideActive &&
 		tokenRoleIsCurrent &&
 		(!liveMembership || roleImpliesPermission(["member"], permission));
@@ -1469,6 +1474,7 @@ export function userHoldsPermission(
 	// both write and read, so this can never be an escalation path to
 	// `platform:admin`; `isPlatformPrincipal` is unaffected either way.
 	return (
+		!context.browserAgentSeat &&
 		isTenantGrantablePermission(permission) &&
 		context.userPermissionOverrides?.includes(permission) === true
 	);

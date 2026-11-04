@@ -93,6 +93,7 @@ const jwtMocks = vi.hoisted(() => ({ validateToken: vi.fn() }));
 const personalAuthMocks = vi.hoisted(() => ({
 	getPersonalOrganization: vi.fn(),
 	getMemberByUserId: vi.fn(),
+	getMemberByCanonicalUserId: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
@@ -105,6 +106,7 @@ vi.mock("@tedix/db/queries/organization-members", async (importOriginal) => ({
 		typeof import("@tedix/db/queries/organization-members")
 	>()),
 	getMemberByUserId: personalAuthMocks.getMemberByUserId,
+	getMemberByCanonicalUserId: personalAuthMocks.getMemberByCanonicalUserId,
 }));
 
 vi.mock("@tedix/auth/jwt", async (importOriginal) => {
@@ -688,6 +690,7 @@ describe("public user-session authentication", () => {
 			);
 		jwtMocks.validateToken.mockReset().mockImplementation(actual.validateToken);
 		shareAuthMocks.resolveUserTenantIdentityContext.mockReset();
+		personalAuthMocks.getMemberByCanonicalUserId.mockReset();
 	});
 
 	async function authenticate(
@@ -709,6 +712,16 @@ describe("public user-session authentication", () => {
 			memberRole: memberIsActive ? "owner" : null,
 			memberPermissionOverrides: [],
 		});
+		personalAuthMocks.getMemberByCanonicalUserId.mockResolvedValue(
+			memberIsActive === null
+				? undefined
+				: {
+						userId: "canonical-user",
+						kind: "human",
+						status: memberIsActive ? "active" : "deactivated",
+						role: "owner",
+					},
+		);
 		let seen: BaseContext | undefined;
 		const guarded = os
 			.$context<BaseContext>()
@@ -771,6 +784,55 @@ describe("public user-session authentication", () => {
 		});
 		expect(context?.authType).toBe("user");
 		expect(context?.organizationId).toBe("org-1");
+	});
+
+	it("binds a freshly authenticated browser seat before invoking its handler", async () => {
+		personalAuthMocks.getMemberByCanonicalUserId
+			.mockResolvedValueOnce({
+				id: "seat",
+				userId: "canonical-user",
+				organizationId: "org-1",
+				kind: "browser_agent",
+				status: "active",
+				role: "member",
+				name: "Juniper",
+				representedUserId: "river",
+			})
+			.mockResolvedValueOnce({
+				userId: "river",
+				kind: "human",
+				status: "active",
+				name: "River",
+			});
+		const context = await authenticate({
+			iss: "https://auth.tedix.dev/P2fictional",
+			roles: ["admin"],
+			permissions: ["team:manage", "os:approve"],
+		});
+		expect(context?.browserAgentSeat).toMatchObject({
+			userId: "canonical-user",
+			displayName: "Juniper",
+			representedUserId: "river",
+		});
+		expect(userHoldsPermission(context!, "os:approve")).toBe(false);
+	});
+
+	it("refuses a suspended browser seat during fresh authentication", async () => {
+		personalAuthMocks.getMemberByCanonicalUserId.mockResolvedValueOnce({
+			id: "seat",
+			userId: "canonical-user",
+			kind: "browser_agent",
+			status: "deactivated",
+			role: "member",
+		});
+		await expect(
+			authenticate({
+				iss: "https://auth.tedix.dev/P2fictional",
+				roles: ["admin"],
+			}),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
 	});
 
 	it("rejects an inactive member despite stale token admin claims and permits reactivation", async () => {

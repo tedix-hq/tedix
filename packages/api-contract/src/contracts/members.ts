@@ -25,11 +25,19 @@ import {
 /**
  * Members contract defining all organization member management endpoints
  *
- * All mutations require admin/owner role via requireRole() middleware
+ * Team administration requires admin/owner access; human seat owners may suspend their agents.
  */
 export const membersContract = oc
 	.route({ tags: ["members"], prefix: "/organizations" })
 	.router({
+		suspendAgentSeat: oc
+			.route({
+				method: "POST",
+				path: "/{organizationId}/members/{memberId}/suspend-agent",
+				summary: "Suspend a browser agent seat",
+			})
+			.input(OrgIdParamSchema.extend(MemberIdParamSchema.shape).strict())
+			.output(z.object({ data: MemberSchema })),
 		getMembershipReconciliation: oc
 			.route({
 				method: "GET",
@@ -200,9 +208,9 @@ export const membersContract = oc
 			.route({
 				method: "PUT",
 				path: "/{organizationId}/members/{memberId}/identity",
-				summary: "Set a member's display identity",
+				summary: "Set a member's identity",
 				description:
-					"Identify a browser agent and the active person it represents. Display provenance only; does not delegate access, change roles, or alter sign-in.",
+					"Choose human, external_agent for a display label, or browser_agent to opt into an agent seat. Browser seats require member/viewer access and an active human owner's canonical user id; token claims and custom permissions cannot grant approval or team management. Representation does not delegate the owner's access.",
 			})
 			.input(
 				OrgIdParamSchema.extend({
@@ -210,7 +218,7 @@ export const membersContract = oc
 					identity: z.discriminatedUnion("kind", [
 						z.strictObject({ kind: z.literal("human") }),
 						z.strictObject({
-							kind: z.literal("external_agent"),
+							kind: z.enum(["external_agent", "browser_agent"]),
 							displayName: z.string().trim().min(1).max(100),
 							representedUserId: z.string().min(1).max(300),
 							/** The agent's own avatar; omit to keep it, null to clear it. */

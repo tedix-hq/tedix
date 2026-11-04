@@ -283,6 +283,10 @@ const CALLS = {
 	"workInteractions/outbound/policy": {},
 	"workInteractions/outbound/profile": {},
 	"members/listMembers": { organizationId: IDS.orgId, limit: 25, offset: 0 },
+	"members/suspendAgentSeat": {
+		organizationId: IDS.orgId,
+		memberId: "00000090-0000-4000-8000-000000000003",
+	},
 	"tedis/list": { limit: 50, offset: 0 },
 	"tedis/get": { tediId: IDS.tediMiles },
 	"tedis/getSetup": { tediId: IDS.tediMiles },
@@ -1191,6 +1195,44 @@ describe("local fixtures parse through the contract output schemas", () => {
 			{ json: { ...input, runId: "missing-run" } },
 		);
 		expect(missing?.status).toBe(404);
+	});
+
+	it("suspends the seeded browser seat, keeps human members active, and resets the stop switch", () => {
+		const input = CALLS["members/suspendAgentSeat"] as {
+			organizationId: string;
+			memberId: string;
+		};
+		expect(callLocalOk("members/suspendAgentSeat", input)).toMatchObject({
+			data: {
+				id: input.memberId,
+				kind: "browser_agent",
+				status: "deactivated",
+			},
+		});
+		const rows = () =>
+			(
+				callLocalOk("members/listMembers", CALLS["members/listMembers"]) as {
+					data: { id: string; status: string }[];
+				}
+			).data;
+		expect(rows().find((row) => row.id === input.memberId)?.status).toBe(
+			"deactivated",
+		);
+		expect(
+			rows()
+				.filter((row) => row.id !== input.memberId)
+				.every((row) => row.status === "active"),
+		).toBe(true);
+		expect(
+			callLocal("members/suspendAgentSeat", {
+				...input,
+				memberId: rows()[0]!.id,
+			}).status,
+		).toBe(403);
+		resetLocalFixtures();
+		expect(rows().find((row) => row.id === input.memberId)?.status).toBe(
+			"active",
+		);
 	});
 
 	for (const [key, input] of Object.entries(CALLS)) {

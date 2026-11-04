@@ -75,6 +75,9 @@ export function resolveCreator(context: BaseContext): {
 	kind: OsCreatedByKind;
 	id: string;
 } {
+	if (context.browserAgentSeat) {
+		return { kind: "external_agent", id: context.browserAgentSeat.userId };
+	}
 	if (context.externalAgentPrincipalId) {
 		return { kind: "external_agent", id: context.externalAgentPrincipalId };
 	}

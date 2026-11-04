@@ -58,6 +58,17 @@ export function WorkActorDirectory({ children }: { children: ReactNode }) {
 				image:
 					profile.data.avatarUrl ?? rows.get(`user:${profile.data.id}`)?.image,
 			});
+		for (const member of members.data?.data ?? []) {
+			if (member.kind !== "browser_agent" || !member.userId) continue;
+			rows.set(`external_agent:${member.userId}`, {
+				name: member.name || member.email,
+				image: member.avatarUrl,
+				browserAgent: true,
+				for: rows.get(`user:${member.representedUserId}`) ?? {
+					name: member.representedUserName || "team member",
+				},
+			});
+		}
 		for (const principal of external.data ?? []) {
 			const identity = PersonalAgentIdentitySchema.safeParse(
 				principal.metadata?.personalAgent,

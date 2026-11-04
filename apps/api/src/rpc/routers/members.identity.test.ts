@@ -104,6 +104,11 @@ const input = {
 	},
 };
 
+const browserInput = {
+	...input,
+	identity: { ...input.identity, kind: "browser_agent" as const },
+};
+
 describe("member avatars resolve from identity data", () => {
 	it("shows a tedi-backed member with its tedi's avatar, a person with their own, and initials-only otherwise", async () => {
 		const { client } = await fixture();
@@ -253,6 +258,115 @@ describe("browser agent member identity", () => {
 				.prepare("SELECT kind FROM organization_members WHERE id = ?")
 				.get(agent),
 		).toMatchObject({ kind: "human" });
+	});
+
+	it("refuses to turn an elevated membership into a browser agent seat", async () => {
+		const { client, db, sqlite } = await fixture();
+		await db
+			.update(organizationMembers)
+			.set({ role: "admin" })
+			.where(eq(organizationMembers.id, agent));
+		await expect(client.setMemberIdentity(browserInput)).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
+		expect(
+			sqlite
+				.prepare("SELECT kind, role FROM organization_members WHERE id = ?")
+				.get(agent),
+		).toMatchObject({ kind: "human", role: "admin" });
+	});
+
+	it("requires the browser seat's own linked user identity", async () => {
+		const { client, db, sqlite } = await fixture();
+		await db
+			.update(organizationMembers)
+			.set({ userId: null })
+			.where(eq(organizationMembers.id, agent));
+		await expect(client.setMemberIdentity(browserInput)).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
+		expect(
+			sqlite
+				.prepare("SELECT kind FROM organization_members WHERE id = ?")
+				.get(agent),
+		).toMatchObject({ kind: "human" });
+	});
+
+	it("lets the represented human suspend a seat without team administration and keeps its audit identity", async () => {
+		const { client, db, sqlite } = await fixture();
+		await client.setMemberIdentity(browserInput);
+		await db
+			.update(organizationMembers)
+			.set({ role: "member" })
+			.where(eq(organizationMembers.id, person));
+		const result = await client.suspendAgentSeat({
+			organizationId: org,
+			memberId: agent,
+		});
+		expect(result.data).toMatchObject({
+			id: agent,
+			kind: "browser_agent",
+			status: "deactivated",
+			representedUserId: "river",
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT actor_id, metadata FROM audit_events WHERE action = 'member.agent_suspended'",
+				)
+				.get(),
+		).toMatchObject({ actor_id: "river" });
+		await expect(
+			client.suspendAgentSeat({ organizationId: otherOrg, memberId: agent }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("does not let the agent stop switch deactivate an owner membership", async () => {
+		const { client, db, sqlite } = await fixture();
+		await client.setMemberIdentity(browserInput);
+		await db
+			.update(organizationMembers)
+			.set({ role: "owner" })
+			.where(eq(organizationMembers.id, agent));
+		await expect(
+			client.suspendAgentSeat({ organizationId: org, memberId: agent }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			sqlite
+				.prepare("SELECT role, status FROM organization_members WHERE id = ?")
+				.get(agent),
+		).toMatchObject({ role: "owner", status: "active" });
+	});
+
+	it("refuses suspension by an unrelated human member", async () => {
+		const { client, db, sqlite } = await fixture();
+		await client.setMemberIdentity(browserInput);
+		await db
+			.update(organizationMembers)
+			.set({ role: "member" })
+			.where(eq(organizationMembers.id, person));
+		await db.insert(organizationMembers).values({
+			id: "other-human",
+			organizationId: org,
+			userId: "maple",
+			descopeUserId: "maple-provider",
+			email: "maple@example.test",
+			kind: "human",
+			status: "active",
+			role: "member",
+		});
+		await db
+			.update(organizationMembers)
+			.set({ representedUserId: "maple" })
+			.where(eq(organizationMembers.id, agent));
+		await expect(
+			client.suspendAgentSeat({ organizationId: org, memberId: agent }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(
+			sqlite
+				.prepare("SELECT status FROM organization_members WHERE id = ?")
+				.get(agent),
+		).toMatchObject({ status: "active" });
 	});
 
 	it("leaves identity unchanged if its audit intent cannot be persisted", async () => {

@@ -41,6 +41,7 @@ import {
 	recordKernelSubmissionStarted,
 } from "../../../kernel/runtime-submission-bridge";
 import { type BaseContext, createError, ErrorCodes } from "../../orpc";
+import { auditActor } from "../../audit-helpers";
 import {
 	applyKernelConversationEvent,
 	kernelConversationMessageParams,
@@ -149,8 +150,8 @@ export function asyncCompletionAssistantMessageId(homeRunId: string): string {
  *   events are written from settle paths and Durable Object contexts whose
  *   `authType` says nothing about who asked, and stamping them would let a
  *   completion overwrite the ingress classification.
- * - An origin already present on the payload wins, so a caller that knows
- *   better than the transport can say so.
+ * - An explicit origin wins except for a verified browser agent seat, whose
+ *   membership determines its origin.
  */
 function stampConversationOrigin(
 	context: BaseContext,
@@ -159,7 +160,8 @@ function stampConversationOrigin(
 ): Record<string, unknown> | undefined {
 	if (kind !== "message.received") return payload;
 	if (!payload || payload.role !== "user") return payload;
-	if (kernelConversationOriginFromPayload(payload)) return payload;
+	if (!context.browserAgentSeat && kernelConversationOriginFromPayload(payload))
+		return payload;
 	return {
 		...payload,
 		[KERNEL_CONVERSATION_ORIGIN_PAYLOAD_KEY]:
@@ -222,7 +224,18 @@ function buildKernelRuntimeEventRow(
 	input: KernelRuntimeEventInsertInput,
 ): NewKernelRuntimeEvent {
 	const createdAt = input.createdAt ?? nowIso();
-	const payload = stampConversationOrigin(context, input.kind, input.payload);
+	let payload = stampConversationOrigin(context, input.kind, input.payload);
+	if (input.kind === "message.received" && payload?.role === "user") {
+		const actor = auditActor(context);
+		payload = {
+			...payload,
+			author: {
+				id: actor.actorId,
+				type: actor.actorType,
+				...actor.actorMetadata,
+			},
+		};
+	}
 	const event = buildKernelRuntimeEvent({
 		id: input.id,
 		organizationId: input.organizationId,

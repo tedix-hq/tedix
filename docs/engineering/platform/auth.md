@@ -198,6 +198,34 @@ pass the usual tenant, FGA, and scope checks.
 - Org resolution (`apps/api/src/rpc/orpc.ts`) maps issuer + `dct` through
   `principal_identities`; slug reconstruction is forbidden.
 
+### Browser agent seats
+
+A browser helper signs in with its own invited account. An administrator can
+mark its membership as `browser_agent` and link a different active human in
+the same organization through `members.setMemberIdentity`. The seat must have
+the `member` or `viewer` role. This uses the existing browser login and does
+not create a harness Agent-Session or delegate the represented person's access.
+
+The older `external_agent` member kind is a display label. It does not activate
+seat restrictions. Converting one requires an explicit identity update, a
+member/viewer role, and the represented human's canonical user id. Existing
+admin accounts with agent display labels retain their access until converted.
+
+API authentication resolves the seat from live membership on each request.
+Token permission claims and custom membership grants cannot lift a seat above
+its role. Audit actors, workspace creators and Work comment activity identify
+the seat's canonical user as `external_agent`; audit and comment metadata keep
+the represented person in `browserAgentSeat`. Home ingress events persist that
+author and force agent origin. Home and Work display the agent and its owner.
+
+`members.suspendAgentSeat` lets an active human seat owner or organization
+administrator retain the membership as `deactivated`. Existing browser
+credentials then fail the next authenticated API request. Team exposes this
+as **Suspend agent** in the identity dialog. This does not revoke the identity
+provider's refresh credentials or terminate already-open collaboration sockets;
+those are separate session-revocation work. Sign-in, mailbox control and consent
+remain with the human.
+
 ## Waitlist gate
 
 Signup is gated in the Descope sign-up-or-in flow on the `waitlistStatus` user
