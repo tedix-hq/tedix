@@ -31,7 +31,7 @@ export function delegationCapacity(
 	};
 }
 
-function mentionsLabel(content: string, label: string): boolean {
+export function mentionsLabel(content: string, label: string): boolean {
 	const words = ` ${content.toLocaleLowerCase()} `;
 	const needle = label.trim().toLocaleLowerCase();
 	if (needle.length < 3) return false;

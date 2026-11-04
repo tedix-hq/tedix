@@ -48,6 +48,7 @@ export * from "./connection-providers";
 export * from "./connection-instances";
 export * from "./connection-connect-tickets";
 export * from "./conversation-capabilities";
+export * from "./conversation-session-policies";
 export * from "./conversation-artifact-pins";
 export * from "./docs-sites";
 export * from "./os-approval-rules";

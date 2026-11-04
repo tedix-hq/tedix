@@ -13,6 +13,8 @@ import {
 } from "../../orpc";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { grantConversationSessionPolicy } from "@tedix/db/queries/conversation-session-policies";
+import { delegationSessionScopeKey } from "../kernel/session-policy";
 import { cancelWorkItem } from "@tedix/db/queries/work-items/crud";
 import { deriveApprovalAuthority } from "../kernel/context-assembly";
 import {
@@ -752,6 +754,30 @@ export const respondApprovalRoute = authed.respondApproval
 				),
 			);
 			const result = await resolution;
+			// "Always allow this session": keep the operator's decision for this
+			// target for the rest of the conversation. Recorded only after the
+			// approval itself settled, and never fatal to the approval.
+			if (input.decision === "approve" && input.rememberForSession) {
+				const subject = context.descopeUserId ?? context.user?.sub ?? null;
+				if (subject) {
+					await grantConversationSessionPolicy(context.db, {
+						organizationId,
+						conversationId: existingRun.conversationId,
+						scopeKey: delegationSessionScopeKey(pendingDelegation.targetTediId),
+						grantedByType: "user",
+						grantedById: subject,
+						reason:
+							stringFromPayload(
+								nonNullRecord(pendingDelegation.delegation.decision)?.reason,
+							) ?? null,
+					}).catch((error) =>
+						console.warn(
+							"[kernelRuntime] session allow for held Home delegation not recorded",
+							errorMessage(error),
+						),
+					);
+				}
+			}
 			if (agentReview?.workItemId && agentReview.status !== "approved") {
 				// The operator decided instead: retire the held review item so it
 				// cannot be admitted by a late approver decision.

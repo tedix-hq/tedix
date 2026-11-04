@@ -1391,14 +1391,73 @@ describe("decideDelegationDispatch", () => {
 		expect(d.mode).toBe("auto");
 	});
 
-	it("needs approval when an embodied route targets a tedi without body/workstation capability", () => {
+	it("blocks an embodied route to a tedi without body/workstation capability instead of asking a person", () => {
 		const d = decideDelegationDispatch({
 			route: makeRoute({ risk: "low", effortClass: "embodied" }),
 			card: makeCard({ runtimeKind: "agent", embodied: false }),
 			speaker: AUTHORIZED_SPEAKER,
 		});
-		expect(d).toMatchObject({ mode: "needs_approval", canAutoDispatch: false });
-		expect(d.reason).toContain("without body/workstation capability");
+		expect(d).toMatchObject({ mode: "blocked", canAutoDispatch: false });
+		expect(d.approvalRoute).toBeUndefined();
+		expect(d.reason).toContain("capability gap");
+	});
+
+	describe('session allow ("Always allow this session")', () => {
+		const session = { effect: "allow" as const, reason: "operator allowed" };
+
+		it("clears the soft hold a one-off approval would have cleared", () => {
+			const held = decideDelegationDispatch({
+				route: makeRoute({ risk: "low" }),
+				card: makeCard({ availability: "stopped", requiresApproval: true }),
+				speaker: AUTHORIZED_SPEAKER,
+			});
+			expect(held).toMatchObject({ mode: "needs_approval" });
+			const allowed = decideDelegationDispatch({
+				route: makeRoute({ risk: "low" }),
+				card: makeCard({ availability: "stopped", requiresApproval: true }),
+				speaker: AUTHORIZED_SPEAKER,
+				gating: { session },
+			});
+			expect(allowed).toMatchObject({ mode: "auto", canAutoDispatch: true });
+		});
+
+		it.each([
+			[
+				"an organization policy deny",
+				{
+					gating: {
+						session,
+						org: { effect: "deny" as const, reason: "freeze" },
+					},
+				},
+			],
+			[
+				"a target with no grants",
+				{ card: makeCard({ scopeGroups: [] }), gating: { session } },
+			],
+			[
+				"a speaker without approval authority",
+				{ speaker: { approvalAuthority: false }, gating: { session } },
+			],
+			[
+				"a human-reserved action",
+				{
+					workOrderContent: "Wire the money to the supplier today",
+					gating: { session },
+				},
+			],
+		])("never clears %s", (_label, overrides) => {
+			const d = decideDelegationDispatch({
+				route: makeRoute({ risk: "low" }),
+				card: makeCard(),
+				speaker: AUTHORIZED_SPEAKER,
+				...overrides,
+			});
+			expect(d).toMatchObject({
+				mode: "needs_approval",
+				approvalRoute: "human",
+			});
+		});
 	});
 
 	it("auto-dispatches an embodied route to a workstation-capable tedi when all other gates pass", () => {
@@ -2379,13 +2438,6 @@ describe("decideDelegationDispatch approvalRoute", () => {
 			"rule 4: gated target not active",
 			{
 				card: makeCard({ availability: "stopped", requiresApproval: true }),
-			},
-		],
-		[
-			"rule 5: embodied route to a non-embodied target",
-			{
-				route: makeRoute({ risk: "low", effortClass: "embodied" }),
-				card: makeCard({ embodied: false }),
 			},
 		],
 		["rule 7: no scope groups", { card: makeCard({ scopeGroups: [] }) }],

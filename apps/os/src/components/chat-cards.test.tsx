@@ -800,7 +800,7 @@ describe("Home delegation approval copy", () => {
 		const html = renderToStaticMarkup(<ApprovalCard approval={card!} />);
 		expect(html).toContain('data-slot="approval-reason-code"');
 		expect(html).toContain("coarse:min-h-11 coarse:min-w-11");
-		expect(html).toContain("An organization owner or admin can decide.");
+		expect(html).not.toContain("owner or admin can decide");
 		expect(html).not.toContain("human-reserved");
 		expect(html).not.toContain("kernel");
 	});
@@ -823,9 +823,71 @@ describe("Home delegation approval copy", () => {
 			"target lacks a matching production entrustment for this route risk",
 			"CFO is not yet trusted",
 		],
-		["target not active", "Your organization requires approval"],
+		["target not active", "CFO is paused and needs a go-ahead"],
+		[
+			"dispatch denied by org policy: freeze",
+			"Your organization's rules say a person must approve this kind of work.",
+		],
+		[
+			"dispatch denied by tedi policy: ask first",
+			"CFO is set to ask a person before this kind of work starts.",
+		],
+		[
+			"embodied work for an isolate with a cold workstation lease; approve to dispatch",
+			"CFO's workstation is not running yet",
+		],
+		[
+			"workstation warming: the workstation is up but not yet environment-ready",
+			"CFO's workstation is still setting up",
+		],
+		[
+			"target requires approval for its actions",
+			"CFO is set to ask before it acts.",
+		],
+		[
+			"target has no authorized scope groups",
+			"CFO has not been given access to any tools yet.",
+		],
+		[
+			"speaker lacks approval authority",
+			"The person who asked cannot start work for a tedi on their own.",
+		],
+		["route classified as high risk", "Tedix rated this high risk"],
+		[
+			"capability gap: embodied work targeted at a tedi without body/workstation capability",
+			"CFO has no workstation or coding environment connected",
+		],
+		[
+			"something new the kernel says",
+			"a person must approve this before it starts",
+		],
 	])("maps %s to plain language", (code, expected) => {
 		expect(delegationHoldReason(code, "CFO")).toContain(expected);
+	});
+
+	it("never names an owner or admin as the decider on an actionable card", () => {
+		const [card] = approvalsFromRunSet({
+			runs: [
+				{
+					id: RUN_ID,
+					organizationId: ORG_ID,
+					conversationId: "home:main",
+					status: "requires_approval",
+					createdAt: "2026-10-23T14:44:17.000Z",
+					updatedAt: "2026-10-23T14:44:17.000Z",
+					metadata: {
+						homeDelegation: {
+							workOrder: { targetTediId: TEDI_ID, targetTediLabel: "CFO" },
+							decision: { mode: "needs_approval", reason: "target not active" },
+						},
+					},
+				},
+			],
+			approvalMirrors: {},
+		});
+		const html = renderToStaticMarkup(<ApprovalCard approval={card!} />);
+		expect(html).toContain("CFO is paused and needs a go-ahead");
+		expect(html).not.toContain("owner or admin");
 	});
 });
 
@@ -996,7 +1058,7 @@ describe("approval builders", () => {
 				runId: RUN_ID,
 				summary: "Acme is ready to start",
 				detail:
-					"Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.",
+					"Sends a request to Acme on your behalf. Acme is paused and needs a go-ahead to wake up for this.",
 				reasonCode: "target not active",
 				status: "pending",
 			}),
@@ -1170,7 +1232,7 @@ describe("approval builders", () => {
 					summary: "Awaiting CTO decision",
 					decisionMode: "no_action",
 					detail:
-						"Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.",
+						"Sends a request to Acme on your behalf. Tedix rated this high risk, so a person decides.",
 					reasonCode: "route classified as high risk",
 				}),
 			]);
@@ -1204,7 +1266,7 @@ describe("approval builders", () => {
 				expect(cards).toEqual([
 					expect.objectContaining({
 						summary: "Acme is ready to start",
-						detail: `${outcome}. Sends a request to Acme on your behalf. Your organization requires approval before this delegation starts.`,
+						detail: `${outcome}. Sends a request to Acme on your behalf. Tedix rated this high risk, so a person decides.`,
 						sessionScopeKey: `delegate:${TEDI_ID}`,
 					}),
 				]);

@@ -444,8 +444,9 @@ export function ChatThread({
 	// by a model change, and on conversation switch.
 	const [attachmentError, setAttachmentError] = useState<string | null>(null);
 	const [directReadOpen, setDirectReadOpen] = useState(false);
-	// Session approvals are memory-only, scoped to one exact
-	// delegation target, and cleared on a full page/session reset.
+	// Cards already on screen for a target the operator just allowed are
+	// approved from this set; the kernel reads the stored decision for later
+	// turns, so a reload loses nothing.
 	const alwaysApproveScopesRef = useRef(new Set<string>());
 	const autoApprovalAttemptedRef = useRef(new Set<string>());
 	const attachmentInputRef = useRef<HTMLInputElement | null>(null);
@@ -893,6 +894,7 @@ export function ChatThread({
 			runId: string;
 			decision: "approve" | "reject";
 			delegateRecommendation?: boolean;
+			rememberForSession?: boolean;
 		}) => transportActions.respondApproval(input),
 		onMutate: () => setApprovalError(null),
 		onSuccess: () => {
@@ -927,7 +929,13 @@ export function ChatThread({
 			if (!card || respondApproval.isPending) return;
 			alwaysApproveScopesRef.current.add(scopeKey);
 			autoApprovalAttemptedRef.current.add(approvalId);
-			respondApproval.mutate({ runId: card.runId, decision: "approve" });
+			// The server keeps this decision for the rest of the conversation;
+			// the in-memory set only covers cards already on screen.
+			respondApproval.mutate({
+				runId: card.runId,
+				decision: "approve",
+				rememberForSession: true,
+			});
 		},
 		[approvalCards, respondApproval],
 	);

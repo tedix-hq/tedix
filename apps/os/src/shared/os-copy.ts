@@ -482,9 +482,34 @@ const ENGLISH_COPY = {
 				: `Tedix rated it ${risk} risk, so a person decides.`,
 		notTrusted: (tedi: string) =>
 			`${tedi} is not yet trusted with this kind of work on its own.`,
+		/** One plain sentence per hold code the kernel can return. */
+		holds: {
+			orgPolicyDeny:
+				"Your organization's rules say a person must approve this kind of work.",
+			tediPolicyDeny: (tedi: string) =>
+				`${tedi} is set to ask a person before this kind of work starts.`,
+			sessionPolicyDeny:
+				"This conversation is set to ask before this kind of work starts.",
+			workstationCold: (tedi: string) =>
+				`${tedi}'s workstation is not running yet; approving starts it and the work.`,
+			workstationWarming: (tedi: string) =>
+				`${tedi}'s workstation is still setting up; approving sends the work as soon as it is ready.`,
+			targetInactive: (tedi: string) =>
+				`${tedi} is paused and needs a go-ahead to wake up for this.`,
+			targetAsksFirst: (tedi: string) =>
+				`${tedi} is set to ask before it acts.`,
+			noGrants: (tedi: string) =>
+				`${tedi} has not been given access to any tools yet.`,
+			speakerNoAuthority:
+				"The person who asked cannot start work for a tedi on their own.",
+			highRisk: "Tedix rated this high risk, so a person decides.",
+			noWorkstation: (tedi: string) =>
+				`${tedi} has no workstation or coding environment connected, so it cannot do this.`,
+			atCapacity: (tedi: string) =>
+				`${tedi} is at its limit of running tasks; this starts when one finishes.`,
+		},
 		policyReason:
-			"Your organization requires approval before this delegation starts.",
-		ownerOrAdmin: "An organization owner or admin can decide.",
+			"Your organization's rules say a person must approve this before it starts.",
 		policyDetails: "Policy details",
 	},
 	feed: {

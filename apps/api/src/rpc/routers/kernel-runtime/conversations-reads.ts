@@ -73,6 +73,7 @@ import {
 	detachConversationCapability,
 	listConversationCapabilities,
 } from "@tedix/db/queries/conversation-capabilities";
+import { clearConversationSessionPolicies } from "@tedix/db/queries/conversation-session-policies";
 import { getCapabilityByIdForOrganization } from "@tedix/db/queries/capabilities";
 import {
 	ConversationArtifactPinConflictError,
@@ -508,6 +509,10 @@ export const deleteConversationRoute = authed.deleteConversation
 			organizationId,
 			conversationId: input.conversationId,
 			deletedAt,
+		});
+		await clearConversationSessionPolicies(context.db, {
+			organizationId,
+			conversationId: input.conversationId,
 		});
 		await cleanupExactKernelToolResults({
 			db: context.db,
