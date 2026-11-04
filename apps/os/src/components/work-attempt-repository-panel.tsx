@@ -4,6 +4,11 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { ProposalDiff } from "@/components/canvas-proposals";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { decodeWorkstationInspectionText } from "@/components/workstation-inspection-panel";
 import { osApi } from "@/lib/api";
@@ -110,206 +115,210 @@ export function WorkAttemptRepositoryPanel({
 			? decodeWorkstationInspectionText(baseData.dataBase64)
 			: null;
 	return (
-		<div className="mt-2 min-w-0" data-attempt-repository>
-			<Button
-				size="sm"
-				variant="secondary"
-				aria-expanded={open}
-				onClick={() => {
-					setHead(null);
-					setSegments([]);
-					setSelected(null);
-					setCompare(false);
-					file.reset();
-					baseFile.reset();
-					setOpen((value) => !value);
-				}}
-			>
+		<Collapsible
+			className="mt-2 min-w-0"
+			data-attempt-repository
+			open={open}
+			onOpenChange={(nextOpen) => {
+				setHead(null);
+				setSegments([]);
+				setSelected(null);
+				setCompare(false);
+				file.reset();
+				baseFile.reset();
+				setOpen(nextOpen);
+			}}
+		>
+			<CollapsibleTrigger render={<Button size="sm" variant="secondary" />}>
 				{open ? "Hide repository" : "Repository"}
-			</Button>
-			{open ? (
-				<div className="mt-2 grid min-w-0 gap-2">
-					<Text role="label" tone="secondary">
-						Read-only snapshot. Reopen to refresh. Repository{" "}
-						{repository.repositoryName} · branch{" "}
-						{repository.defaultBranch ?? "unknown"} · base{" "}
-						{repository.baseRevision?.slice(0, 12) ?? "not recorded"} ·{" "}
-						{repository.mode === "fork" ? "fork" : "created"} snapshot
-					</Text>
-					{log.isPending ? (
-						<Text role="label">Loading history…</Text>
-					) : log.isError ? (
+			</CollapsibleTrigger>
+			<CollapsibleContent>
+				{open ? (
+					<div className="mt-2 grid min-w-0 gap-2">
 						<Text role="label" tone="secondary">
-							Repository history unavailable.
+							Read-only snapshot. Reopen to refresh. Repository{" "}
+							{repository.repositoryName} · branch{" "}
+							{repository.defaultBranch ?? "unknown"} · base{" "}
+							{repository.baseRevision?.slice(0, 12) ?? "not recorded"} ·{" "}
+							{repository.mode === "fork" ? "fork" : "created"} snapshot
 						</Text>
-					) : log.data?.operation === "log" ? (
-						log.data.commits.length ? (
-							<ul className="grid gap-1" aria-label="Commit history">
-								{log.data.commits.map((commit) => (
-									<li
-										key={commit.hash}
-										className="flex min-w-0 flex-wrap items-baseline gap-x-2"
-									>
-										<code className="shrink-0 text-xs">
-											{commit.hash.slice(0, 10)}
-										</code>
-										<Text as="span" role="label" className="min-w-0 truncate">
-											{commit.message.split("\n", 1)[0]}
-										</Text>
-										<Text
-											as="span"
-											role="label"
-											tone="secondary"
-											className="shrink-0"
+						{log.isPending ? (
+							<Text role="label">Loading history…</Text>
+						) : log.isError ? (
+							<Text role="label" tone="secondary">
+								Repository history unavailable.
+							</Text>
+						) : log.data?.operation === "log" ? (
+							log.data.commits.length ? (
+								<ul className="grid gap-1" aria-label="Commit history">
+									{log.data.commits.map((commit) => (
+										<li
+											key={commit.hash}
+											className="flex min-w-0 flex-wrap items-baseline gap-x-2"
 										>
-											{commit.author.name} ·{" "}
-											<time
-												dateTime={commit.committedAt}
-												title={absoluteTime(commit.committedAt)}
-											>
-												{absoluteTime(commit.committedAt)}
-											</time>
-										</Text>
-									</li>
-								))}
-							</ul>
-						) : (
-							<Text role="label" tone="secondary">
-								The repository has no commits yet.
-							</Text>
-						)
-					) : null}
-					{head ? (
-						<div className="grid min-w-0 gap-1" aria-label="Files">
-							<div className="flex min-w-0 flex-wrap items-center gap-1">
-								<Text role="label" tone="mono-secondary">
-									{dirPath ? `${dirPath}/` : "/"} · at {head.slice(0, 12)}
-								</Text>
-								{segments.length ? (
-									<Button
-										size="sm"
-										variant="ghost"
-										onClick={() => setSegments(segments.slice(0, -1))}
-									>
-										Up
-									</Button>
-								) : null}
-							</div>
-							{tree.isPending ? (
-								<Text role="label">Loading files…</Text>
-							) : tree.isError ? (
-								<Text role="label" tone="secondary">
-									File listing unavailable.
-								</Text>
-							) : treeData && !treeData.exists ? (
-								<Text role="label" tone="secondary">
-									This directory does not exist at {head.slice(0, 12)}.
-								</Text>
-							) : treeData && treeData.entries.length === 0 ? (
-								<Text role="label" tone="secondary">
-									Empty directory.
-								</Text>
-							) : treeData ? (
-								<>
-									<ul className="grid gap-0.5">
-										{treeData.entries.map((entry) => (
-											<li key={entry.path}>
-												<Button
-													variant="ghost"
-													size="sm"
-													aria-pressed={selected === entry.path}
-													onClick={() =>
-														entry.type === "tree"
-															? setSegments([...segments, entry.name])
-															: openFile(entry.path)
-													}
-												>
-													{entry.type === "tree"
-														? `${entry.name}/`
-														: entry.name}
-												</Button>
-											</li>
-										))}
-									</ul>
-									{treeData.truncated ? (
-										<Text role="label">Listing truncated at 500 entries.</Text>
-									) : null}
-								</>
-							) : null}
-						</div>
-					) : null}
-					{file.isPending ? <Text role="label">Loading file…</Text> : null}
-					{file.isError ? (
-						<Text role="label">File read unavailable.</Text>
-					) : null}
-					{fileData && selected === fileData.path ? (
-						<div
-							className="grid min-w-0 gap-1"
-							data-attempt-repository-file={selected}
-						>
-							<Text role="label" tone="mono-secondary">
-								{selected}
-							</Text>
-							<Text role="label" tone="secondary">
-								{fileData.exists
-									? `${fileData.size ?? "?"} bytes${
-											fileData.binary ? " · binary" : ""
-										}${fileData.truncated ? " · truncated" : ""}`
-									: "Not present at this revision"}
-							</Text>
-							{fileData.exists && fileData.binary ? (
-								<Text role="label">Binary file.</Text>
-							) : fileData.exists && fileText === null ? (
-								<Text role="label">Content is not valid UTF-8.</Text>
-							) : fileText === null ? null : (
-								<pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs">
-									{fileText}
-								</pre>
-							)}
-							{fileData.exists &&
-							!fileData.binary &&
-							fileText !== null &&
-							repository.baseRevision ? (
-								<div className="grid gap-1">
-									<Button
-										size="sm"
-										variant="secondary"
-										aria-pressed={compare}
-										disabled={baseFile.isPending}
-										onClick={() => {
-											setCompare(!compare);
-											if (!compare) baseFile.mutate(selected);
-										}}
-									>
-										{baseFile.isPending
-											? "Comparing…"
-											: compare
-												? "Hide base comparison"
-												: "Compare to base"}
-									</Button>
-									{compare && baseFile.isError ? (
-										<Text role="label">Base revision read unavailable.</Text>
-									) : null}
-									{compare && baseData ? (
-										baseText !== null ? (
-											<ProposalDiff
-												baseText={baseText}
-												previewTextValue={fileText}
-												baseMoved={false}
-											/>
-										) : (
-											<Text role="label" tone="secondary">
-												The file is absent or binary at the recorded base
-												revision.
+											<code className="shrink-0 text-xs">
+												{commit.hash.slice(0, 10)}
+											</code>
+											<Text as="span" role="label" className="min-w-0 truncate">
+												{commit.message.split("\n", 1)[0]}
 											</Text>
-										)
+											<Text
+												as="span"
+												role="label"
+												tone="secondary"
+												className="shrink-0"
+											>
+												{commit.author.name} ·{" "}
+												<time
+													dateTime={commit.committedAt}
+													title={absoluteTime(commit.committedAt)}
+												>
+													{absoluteTime(commit.committedAt)}
+												</time>
+											</Text>
+										</li>
+									))}
+								</ul>
+							) : (
+								<Text role="label" tone="secondary">
+									The repository has no commits yet.
+								</Text>
+							)
+						) : null}
+						{head ? (
+							<div className="grid min-w-0 gap-1" aria-label="Files">
+								<div className="flex min-w-0 flex-wrap items-center gap-1">
+									<Text role="label" tone="mono-secondary">
+										{dirPath ? `${dirPath}/` : "/"} · at {head.slice(0, 12)}
+									</Text>
+									{segments.length ? (
+										<Button
+											size="sm"
+											variant="ghost"
+											onClick={() => setSegments(segments.slice(0, -1))}
+										>
+											Up
+										</Button>
 									) : null}
 								</div>
-							) : null}
-						</div>
-					) : null}
-				</div>
-			) : null}
-		</div>
+								{tree.isPending ? (
+									<Text role="label">Loading files…</Text>
+								) : tree.isError ? (
+									<Text role="label" tone="secondary">
+										File listing unavailable.
+									</Text>
+								) : treeData && !treeData.exists ? (
+									<Text role="label" tone="secondary">
+										This directory does not exist at {head.slice(0, 12)}.
+									</Text>
+								) : treeData && treeData.entries.length === 0 ? (
+									<Text role="label" tone="secondary">
+										Empty directory.
+									</Text>
+								) : treeData ? (
+									<>
+										<ul className="grid gap-0.5">
+											{treeData.entries.map((entry) => (
+												<li key={entry.path}>
+													<Button
+														variant="ghost"
+														size="sm"
+														aria-pressed={selected === entry.path}
+														onClick={() =>
+															entry.type === "tree"
+																? setSegments([...segments, entry.name])
+																: openFile(entry.path)
+														}
+													>
+														{entry.type === "tree"
+															? `${entry.name}/`
+															: entry.name}
+													</Button>
+												</li>
+											))}
+										</ul>
+										{treeData.truncated ? (
+											<Text role="label">
+												Listing truncated at 500 entries.
+											</Text>
+										) : null}
+									</>
+								) : null}
+							</div>
+						) : null}
+						{file.isPending ? <Text role="label">Loading file…</Text> : null}
+						{file.isError ? (
+							<Text role="label">File read unavailable.</Text>
+						) : null}
+						{fileData && selected === fileData.path ? (
+							<div
+								className="grid min-w-0 gap-1"
+								data-attempt-repository-file={selected}
+							>
+								<Text role="label" tone="mono-secondary">
+									{selected}
+								</Text>
+								<Text role="label" tone="secondary">
+									{fileData.exists
+										? `${fileData.size ?? "?"} bytes${
+												fileData.binary ? " · binary" : ""
+											}${fileData.truncated ? " · truncated" : ""}`
+										: "Not present at this revision"}
+								</Text>
+								{fileData.exists && fileData.binary ? (
+									<Text role="label">Binary file.</Text>
+								) : fileData.exists && fileText === null ? (
+									<Text role="label">Content is not valid UTF-8.</Text>
+								) : fileText === null ? null : (
+									<pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs">
+										{fileText}
+									</pre>
+								)}
+								{fileData.exists &&
+								!fileData.binary &&
+								fileText !== null &&
+								repository.baseRevision ? (
+									<div className="grid gap-1">
+										<Button
+											size="sm"
+											variant="secondary"
+											aria-pressed={compare}
+											disabled={baseFile.isPending}
+											onClick={() => {
+												setCompare(!compare);
+												if (!compare) baseFile.mutate(selected);
+											}}
+										>
+											{baseFile.isPending
+												? "Comparing…"
+												: compare
+													? "Hide base comparison"
+													: "Compare to base"}
+										</Button>
+										{compare && baseFile.isError ? (
+											<Text role="label">Base revision read unavailable.</Text>
+										) : null}
+										{compare && baseData ? (
+											baseText !== null ? (
+												<ProposalDiff
+													baseText={baseText}
+													previewTextValue={fileText}
+													baseMoved={false}
+												/>
+											) : (
+												<Text role="label" tone="secondary">
+													The file is absent or binary at the recorded base
+													revision.
+												</Text>
+											)
+										) : null}
+									</div>
+								) : null}
+							</div>
+						) : null}
+					</div>
+				) : null}
+			</CollapsibleContent>
+		</Collapsible>
 	);
 }
