@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	decideAutonomousAction,
+	nativeToolAutonomyRisk,
 	decideKernelWriteApproval,
 	isWorkItemPurposeRepairCall,
 	parseKernelGovernancePolicy,
@@ -956,6 +958,49 @@ describe("isPlatformCriticalActionType", () => {
 		"%s can be opted in",
 		(type) => {
 			expect(isPlatformCriticalActionType(type)).toBe(false);
+		},
+	);
+});
+
+describe("native steward completion autonomy", () => {
+	const operation = {
+		risk: nativeToolAutonomyRisk("complete_steward_work"),
+		content:
+			"Complete the explicitly requested Work record after source and delivery verification",
+		classId: "native:complete_steward_work",
+	};
+	const policy = { version: 1 as const, maxRisk: "medium" as const };
+
+	it("classifies only the bounded completion effect and still requires configured autonomy", () => {
+		expect(operation.risk).toBe("medium");
+		expect(decideAutonomousAction(operation).autoApprove).toBe(false);
+		expect(decideAutonomousAction({ ...operation, policy }).autoApprove).toBe(
+			true,
+		);
+		expect(nativeToolAutonomyRisk("repo_commit")).toBe("high");
+		expect(nativeToolAutonomyRisk("complete_steward_work_unregistered")).toBe(
+			"unknown",
+		);
+	});
+
+	it.each(["*", "native:complete_steward_work"])(
+		"preserves explicit approval for %s",
+		(classId) => {
+			expect(
+				decideAutonomousAction({
+					...operation,
+					policy: { ...policy, askForClasses: [classId] },
+				}).autoApprove,
+			).toBe(false);
+		},
+	);
+
+	it.each(["Publish the source publicly", "Rotate production credentials"])(
+		"keeps human-reserved effects gated: %s",
+		(content) => {
+			expect(
+				decideAutonomousAction({ ...operation, content, policy }).autoApprove,
+			).toBe(false);
 		},
 	);
 });

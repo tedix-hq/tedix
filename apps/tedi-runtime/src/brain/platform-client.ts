@@ -44,6 +44,9 @@ import type {
 	WorkEvidenceSchema,
 	WorkItem,
 	WorkItemAcceptanceContractSchema,
+	NativeStewardCloseoutProof,
+	GetWorkItemResult,
+	ListWorkItemAttemptsResult,
 } from "@tedix/api-contract/schemas/work-items";
 import { DescopeAccessKeyExchange } from "@tedix/auth/access-key-exchange";
 
@@ -77,6 +80,14 @@ export interface PlatformClientConfig {
 }
 
 export type WorkItemForContext = WorkItem;
+
+export type StewardWorkInspection = GetWorkItemResult & {
+	latestAttempt: WorkAttempt | null;
+};
+export type StewardWorkInput = {
+	id: string;
+	nativeStewardCloseout: NativeStewardCloseoutProof;
+};
 
 export type WorkAttemptOutcome = typeof WorkAttemptOutcomeSchema._output;
 export type WorkItemAcceptanceContract =
@@ -489,6 +500,8 @@ export interface PlatformClient {
 		metadata?: Record<string, unknown>;
 	}): Promise<WorkEvidence>;
 	completeWorkItem(workItemId: string): Promise<WorkItemForContext>;
+	inspectStewardWork(input: StewardWorkInput): Promise<StewardWorkInspection>;
+	completeStewardWork(input: StewardWorkInput): Promise<WorkItemForContext>;
 	closeoutDelegatedWorkItem(params: {
 		id: string;
 		sha: string;
@@ -1131,6 +1144,38 @@ export class HttpPlatformClient implements PlatformClient {
 
 	async completeWorkItem(workItemId: string): Promise<WorkItemForContext> {
 		return this.rpc("workItems", "complete", { id: workItemId });
+	}
+	async inspectStewardWork(
+		input: StewardWorkInput,
+	): Promise<StewardWorkInspection> {
+		const wire = {
+			id: "native-steward-closeout" as const,
+			nativeStewardCloseout: { ...input.nativeStewardCloseout, id: input.id },
+		};
+		const work = await this.rpc<GetWorkItemResult>(
+			"workItems",
+			"getById",
+			wire,
+			RPC_TIMEOUT_MS,
+			[503],
+		);
+		const attempts = await this.rpc<ListWorkItemAttemptsResult>(
+			"workItems",
+			"listAttempts",
+			wire,
+			RPC_TIMEOUT_MS,
+			[503],
+		);
+		return { ...work, latestAttempt: attempts.data[0] ?? null };
+	}
+	async completeStewardWork(
+		input: StewardWorkInput,
+	): Promise<WorkItemForContext> {
+		// A lost response may follow a committed completion. Never retry this write.
+		return this.rpc("workItems", "complete", {
+			id: "native-steward-closeout",
+			nativeStewardCloseout: { ...input.nativeStewardCloseout, id: input.id },
+		});
 	}
 	async closeoutDelegatedWorkItem(params: {
 		id: string;

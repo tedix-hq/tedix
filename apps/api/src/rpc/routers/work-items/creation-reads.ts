@@ -1,4 +1,8 @@
 import {
+	assertNativeStewardCloseout,
+	normalizeNativeStewardCloseoutInput,
+} from "./delegated-closeout";
+import {
 	ListWorkCliProjectionResultSchema,
 	WorkCliBoardRowSchema,
 	WorkCliResolveRowSchema,
@@ -230,7 +234,18 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 
 export const getByIdProcedure = authOs.getById.handler(
 	async ({ input, context }) => {
-		let id = input.id.toLowerCase();
+		const request =
+			input.nativeStewardCloseout !== undefined
+				? normalizeNativeStewardCloseoutInput({
+						nativeStewardCloseout: input.nativeStewardCloseout,
+					})
+				: { id: input.id, nativeStewardCloseout: undefined };
+		if (request.nativeStewardCloseout)
+			await assertNativeStewardCloseout(context, {
+				id: request.id,
+				nativeStewardCloseout: request.nativeStewardCloseout,
+			});
+		let id = request.id.toLowerCase();
 		if (id.length !== 36) {
 			const matches = await listWorkItemsPage(context.db, {
 				orgId: requireOrgId(context),

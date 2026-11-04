@@ -175,13 +175,20 @@ export async function readConfiguredRepositoryDelivery(
 	context: BaseContext,
 	organizationId: string,
 	policy: KernelRequestPolicy,
-	check: Parameters<KernelAcceptanceReader["readRepositoryDelivery"]>[0],
+	check: Parameters<KernelAcceptanceReader["readRepositoryDelivery"]>[0] & {
+		sourceCommit?: string;
+	},
 	fetchFn: typeof fetch = fetch,
 ) {
 	const target = policy.repositoryTargets.find(
 		(t) => t.id === check.targetId && t.surface === check.surface,
 	);
 	if (!target) throw new Error("Repository target is not configured");
+	if (
+		check.sourceCommit !== undefined &&
+		!shaSchema.safeParse(check.sourceCommit).success
+	)
+		throw new Error("Invalid source commit identity");
 	const headers: Record<string, string> = {
 		Accept: "application/vnd.github+json",
 		"User-Agent": "Tedix-kernel-acceptance",
@@ -242,7 +249,56 @@ export async function readConfiguredRepositoryDelivery(
 		);
 		if (!logs.split("\n").some((line) => line.trimEnd().endsWith(receipt)))
 			continue;
+		const ancestryRefs: string[] = [];
+		let sourceAncestry:
+			| { sourceCommit: string; liveCommitSha: string; mainCommitSha: string }
+			| undefined;
+		if (check.sourceCommit !== undefined) {
+			if (live.commitSha !== check.commitSha)
+				throw new Error("Live manifest changed before source verification");
+			const compareSchema = z.object({
+				status: z.enum(["ahead", "identical", "behind", "diverged"]),
+				ahead_by: z.number().int().nonnegative(),
+				behind_by: z.number().int().nonnegative(),
+				base_commit: z.object({ sha: shaSchema }),
+				merge_base_commit: z.object({ sha: shaSchema }),
+			});
+			for (const [base, head] of [
+				[check.sourceCommit, live.commitSha],
+				[live.commitSha, main.sha],
+			] as const) {
+				const comparison = compareSchema.parse(
+					JSON.parse(
+						await boundedText(
+							await github(
+								`${target.repository}/compare/${base}...${head}?per_page=1`,
+							),
+						),
+					),
+				);
+				if (
+					comparison.base_commit.sha !== base ||
+					comparison.merge_base_commit.sha !== base ||
+					comparison.behind_by !== 0 ||
+					(base === head
+						? comparison.status !== "identical" || comparison.ahead_by !== 0
+						: comparison.status !== "ahead" || comparison.ahead_by <= 0)
+				)
+					throw new Error(
+						"Configured repository does not prove source ancestry through live to main",
+					);
+				ancestryRefs.push(
+					`https://github.com/${target.repository}/compare/${base}...${head}`,
+				);
+			}
+			sourceAncestry = {
+				sourceCommit: check.sourceCommit,
+				liveCommitSha: live.commitSha,
+				mainCommitSha: main.sha,
+			};
+		}
 		return {
+			...(sourceAncestry ? { sourceAncestry } : {}),
 			mainSha: main.sha,
 			shipSha: check.commitSha,
 			shipStatus: "success",
@@ -252,6 +308,7 @@ export async function readConfiguredRepositoryDelivery(
 				run.html_url,
 				`${run.html_url}/job/${job.id}`,
 				target.liveManifestUrl,
+				...ancestryRefs,
 			],
 		};
 	}

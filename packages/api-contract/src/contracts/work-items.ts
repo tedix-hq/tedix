@@ -1,5 +1,10 @@
 import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import {
+	GetWorkItemResultSchema,
+	ListWorkItemAttemptsResultSchema,
+	GetWorkItemInputSchema,
+	ListWorkItemAttemptsInputSchema,
+	CompleteWorkItemInputSchema,
 	LaneDispatchPlanSchema,
 	DelegationAutonomyFeedbackInputSchema,
 	DelegationAutonomyFeedbackResultSchema,
@@ -567,40 +572,8 @@ export const workItemsContract = oc
 				path: "/{id}",
 				summary: "Get Work Item",
 			})
-			.input(
-				z.object({
-					id: z
-						.union([
-							z.uuid(),
-							z.string().regex(/^[a-f\d]{8}(?:[a-f\d-]{0,27})$/i),
-						])
-						.describe(
-							"Canonical Work UUID or an unambiguous UUID prefix of at least eight hex characters. Never pad or invent a UUID; ambiguous prefixes return candidates.",
-						),
-				}),
-			)
-			.output(
-				z.object({
-					workItem: WorkItemSchema,
-					project: z
-						.object({
-							id: z.string(),
-							name: z.string(),
-							description: z.string().nullable(),
-						})
-						.nullable()
-						.describe(
-							"The Work Item's project brief (projects.description), so a fresh session reads its purpose without a search. Null when the item has no project.",
-						),
-					comments: z.array(WorkItemCommentSchema),
-					evidence: z.array(ResolvedWorkEvidenceSchema),
-					evidenceNextCursor:
-						WorkFactoryProjectionCursorSchema.nullable().describe(
-							"Null when the exact Work Item evidence ledger has no further bounded page.",
-						),
-					projections: z.array(WorkItemProjectionSchema),
-				}),
-			),
+			.input(GetWorkItemInputSchema)
+			.output(GetWorkItemResultSchema),
 
 		getWorkGraphHealth: oc
 			.route({
@@ -1027,7 +1000,7 @@ export const workItemsContract = oc
 				path: "/{id}/complete",
 				summary: "Complete Work Item",
 			})
-			.input(z.object({ id: z.uuid() }))
+			.input(CompleteWorkItemInputSchema)
 			.output(WorkItemSchema),
 
 		addComment: oc
@@ -1213,23 +1186,8 @@ export const workItemsContract = oc
 				path: "/{id}/attempts",
 				summary: "List Work Item attempts",
 			})
-			.input(
-				z.object({
-					id: z.uuid(),
-					cursor: WorkFactoryProjectionCursorSchema.optional().describe(
-						"Opaque attempt-ledger cursor; omit to read the newest bounded page.",
-					),
-					limit: z.number().int().min(1).max(100).default(50),
-				}),
-			)
-			.output(
-				z.object({
-					data: z.array(WorkAttemptSchema),
-					nextCursor: WorkFactoryProjectionCursorSchema.nullable().describe(
-						"Null when the Work Item has no further attempt page.",
-					),
-				}),
-			),
+			.input(ListWorkItemAttemptsInputSchema)
+			.output(ListWorkItemAttemptsResultSchema),
 
 		reviewAttemptRepository: oc
 			.route({

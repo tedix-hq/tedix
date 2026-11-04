@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { capabilityToolSet } from "./delegation-capabilities";
 import { createAITools } from "@cloudflare/computer/tools/ai-sdk";
 import type { DelegationAuthorityEnvelope } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { ToolSet } from "ai";
@@ -530,4 +531,29 @@ assert.deepEqual(
 		),
 	),
 	[],
+);
+
+const stewardTools: ToolSet = {
+	read_steward_work: supervisedTools.read!,
+	complete_steward_work: supervisedTools.read!,
+};
+assert.deepEqual(Object.keys(supervisedDelegationToolSet(stewardTools, true)), [
+	"read_steward_work",
+	"complete_steward_work",
+]);
+assert.deepEqual(
+	Object.keys(
+		capabilityToolSet({
+			tools: stewardTools,
+			plan: {
+				version: "delegation-capabilities.v1",
+				allowedToolIds: ["read_steward_work"],
+				requiredCapabilities: [],
+				missingCapabilities: [],
+				urls: [],
+				outputIds: [],
+			},
+		}),
+	),
+	["read_steward_work"],
 );

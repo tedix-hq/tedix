@@ -421,3 +421,50 @@ describe("Work item patch defaults", () => {
 		});
 	});
 });
+
+it("bounds native steward targets and keeps actor/SHA claims out of the proof", async () => {
+	const {
+		StewardCloseoutTargetsSchema,
+		NativeStewardCloseoutProofSchema,
+		CompleteWorkItemInputSchema,
+	} = await import("./work-items");
+	const target = {
+		id: "11111111-1111-4111-8111-111111111111",
+		expectedWorkItemVersion: 2,
+		repositoryTargetId: "configured-os",
+	};
+	expect(StewardCloseoutTargetsSchema.parse([target])).toEqual([target]);
+	for (const values of [[], [target, target], Array(9).fill(target)])
+		expect(StewardCloseoutTargetsSchema.safeParse(values).success).toBe(false);
+	const proof = {
+		homeRunId: "home-fixture",
+		runId: "child-fixture",
+		linkedWorkItemId: "22222222-2222-4222-8222-222222222222",
+		expectedWorkItemVersion: 2,
+	};
+	expect(
+		NativeStewardCloseoutProofSchema.safeParse({
+			...proof,
+			actor: "owner",
+			sha: "a".repeat(40),
+		}).success,
+	).toBe(false);
+	expect(CompleteWorkItemInputSchema.parse({ id: target.id })).toEqual({
+		id: target.id,
+	});
+	expect(
+		CompleteWorkItemInputSchema.parse({
+			id: "native-steward-closeout",
+			nativeStewardCloseout: { ...proof, id: target.id },
+		}),
+	).toEqual({
+		id: "native-steward-closeout",
+		nativeStewardCloseout: { ...proof, id: target.id },
+	});
+	expect(
+		CompleteWorkItemInputSchema.safeParse({
+			id: target.id,
+			nativeStewardCloseout: proof,
+		}).success,
+	).toBe(false);
+});

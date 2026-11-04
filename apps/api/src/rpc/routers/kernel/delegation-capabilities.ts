@@ -1,3 +1,4 @@
+import type { StewardCloseoutTargets } from "@tedix/api-contract/schemas/work-items";
 import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
 import type { ExecutionRequirement } from "@tedix/api-contract/schemas/execution-evidence";
 import { withoutQuotedCommitSubjects } from "@tedix/api-contract/utils/approval-policy";
@@ -59,8 +60,20 @@ export function deriveDelegationCapabilityPlan(input: {
 	route: KernelRouteDecision;
 	requirement: ExecutionRequirement;
 	card: TediCapabilityCard | null;
+	stewardCloseoutTargets?: StewardCloseoutTargets;
 }): DelegationCapabilityPlan | undefined {
 	const { route, requirement, card } = input;
+	if (input.stewardCloseoutTargets)
+		return {
+			version: "delegation-capabilities.v1",
+			requiredCapabilities: ["work.steward_closeout"],
+			allowedToolIds: ["read_steward_work", "complete_steward_work"],
+			missingCapabilities:
+				requirement.surface === "native" ? [] : ["native_steward_closeout"],
+			urls: [],
+			outputIds: [],
+			stewardCloseoutTargets: input.stewardCloseoutTargets,
+		};
 	const content = withoutQuotedCommitSubjects(
 		delegationRequestContent(input.content),
 	);

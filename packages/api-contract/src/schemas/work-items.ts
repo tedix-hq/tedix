@@ -2657,3 +2657,98 @@ export const ListWorkEventCliProjectionResultSchema = z.strictObject({
 	events: z.array(WorkEventCliRowSchema).max(100),
 	nextSequence: z.number().int().positive().nullable(),
 });
+
+export const StewardCloseoutTargetsSchema = z
+	.array(
+		z.strictObject({
+			id: z.uuid(),
+			expectedWorkItemVersion: z.number().int().positive(),
+			repositoryTargetId: z.string().trim().min(1).max(300),
+		}),
+	)
+	.min(1)
+	.max(8)
+	.refine(
+		(targets) =>
+			new Set(targets.map((target) => target.id)).size === targets.length,
+		"Closeout targets must be unique",
+	);
+export type StewardCloseoutTargets = z.infer<
+	typeof StewardCloseoutTargetsSchema
+>;
+
+export const NativeStewardCloseoutProofSchema = z.strictObject({
+	homeRunId: z.string().min(1).max(500),
+	runId: z.string().min(1).max(500),
+	linkedWorkItemId: z.uuid(),
+	expectedWorkItemVersion: z.number().int().positive(),
+});
+export type NativeStewardCloseoutProof = z.infer<
+	typeof NativeStewardCloseoutProofSchema
+>;
+export const NativeStewardCloseoutInputSchema = z.strictObject({
+	id: z.literal("native-steward-closeout"),
+	nativeStewardCloseout: NativeStewardCloseoutProofSchema.extend({
+		id: z.uuid(),
+	}).strict(),
+});
+export type NativeStewardCloseoutInput = z.infer<
+	typeof NativeStewardCloseoutInputSchema
+>;
+export const GetWorkItemInputSchema = z.union([
+	z.object({
+		nativeStewardCloseout: z.never().optional(),
+		id: z
+			.union([z.uuid(), z.string().regex(/^[a-f\d]{8}(?:[a-f\d-]{0,27})$/i)])
+			.describe(
+				"Canonical Work UUID or an unambiguous UUID prefix of at least eight hex characters. Never pad or invent a UUID; ambiguous prefixes return candidates.",
+			),
+	}),
+	NativeStewardCloseoutInputSchema,
+]);
+export const ListWorkItemAttemptsInputSchema = z.union([
+	z.object({
+		nativeStewardCloseout: z.never().optional(),
+		id: z.uuid(),
+		cursor: WorkFactoryProjectionCursorSchema.optional().describe(
+			"Opaque attempt-ledger cursor; omit to read the newest bounded page.",
+		),
+		limit: z.number().int().min(1).max(100).default(50),
+	}),
+	NativeStewardCloseoutInputSchema,
+]);
+export const CompleteWorkItemInputSchema = z.union([
+	z.object({ id: z.uuid(), nativeStewardCloseout: z.never().optional() }),
+	NativeStewardCloseoutInputSchema,
+]);
+
+export const GetWorkItemResultSchema = z.object({
+	workItem: WorkItemSchema,
+	project: z
+		.object({
+			id: z.string(),
+			name: z.string(),
+			description: z.string().nullable(),
+		})
+		.nullable()
+		.describe(
+			"The Work Item's project brief (projects.description), so a fresh session reads its purpose without a search. Null when the item has no project.",
+		),
+	comments: z.array(WorkItemCommentSchema),
+	evidence: z.array(ResolvedWorkEvidenceSchema),
+	evidenceNextCursor: WorkFactoryProjectionCursorSchema.nullable().describe(
+		"Null when the exact Work Item evidence ledger has no further bounded page.",
+	),
+	projections: z.array(WorkItemProjectionSchema),
+});
+export type GetWorkItemResult = z.infer<typeof GetWorkItemResultSchema>;
+
+export const ListWorkItemAttemptsResultSchema = z.object({
+	data: z.array(WorkAttemptSchema),
+	nextCursor: WorkFactoryProjectionCursorSchema.nullable().describe(
+		"Null when the Work Item has no further attempt page.",
+	),
+});
+export type ListWorkItemAttemptsResult = z.infer<
+	typeof ListWorkItemAttemptsResultSchema
+>;

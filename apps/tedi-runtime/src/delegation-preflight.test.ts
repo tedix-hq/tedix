@@ -381,3 +381,27 @@ await assert.rejects(
 	}),
 	/^Error: Delegation preflight failed: the tedi's tool connection could not be read \(No assigned MCP servers connected\); return to Home and retry$/,
 );
+
+assert.deepEqual(
+	await preflightDelegationTools(
+		{
+			...plan,
+			allowedToolIds: ["read_steward_work", "complete_steward_work"],
+			requiredCapabilities: [],
+		},
+		async () => {
+			throw new Error("native tool must not discover MCP");
+		},
+	),
+	[],
+);
+await assert.rejects(
+	preflightDelegationTools(
+		{
+			...plan,
+			allowedToolIds: ["read_steward_work", "work.add_comment"],
+		},
+		async () => [{ ...row, authorized: false }],
+	),
+	/unauthorized/,
+);

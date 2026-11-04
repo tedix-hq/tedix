@@ -4694,3 +4694,24 @@ it.each(["eu_provider_pool_required", "eu_provider_credential_required"])(
 		);
 	},
 );
+
+it("threads only the original structured steward targets into the kernel producer", async () => {
+	const targets = [
+		{
+			id: "11111111-1111-4111-8111-111111111111",
+			expectedWorkItemVersion: 2,
+			repositoryTargetId: "configured-os",
+		},
+	];
+	const input = turnInput();
+	input.runtimeMetadata.stewardCloseoutTargets = targets;
+	const kernel = vi.fn(async () => ({
+		route: route({ answer: "Ready to review" }),
+		assistantContent: "Ready to review",
+		evidence: null,
+	}));
+	await runKernelTurnWork(stubDeps({ kernel }), input);
+	expect(kernel).toHaveBeenCalledWith(
+		expect.objectContaining({ stewardCloseoutTargets: targets }),
+	);
+});

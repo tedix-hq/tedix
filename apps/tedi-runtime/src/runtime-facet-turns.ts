@@ -1202,12 +1202,19 @@ export const runtimeFacetTurns = {
 			...(supervised &&
 			input.homeRunId &&
 			input.workItemId &&
-			input.capabilityPlan?.allowedToolIds.includes("close_completed_work_item")
+			input.capabilityPlan?.allowedToolIds.some((id) =>
+				[
+					"close_completed_work_item",
+					"read_steward_work",
+					"complete_steward_work",
+				].includes(id),
+			)
 				? delegatedWorkTools({
 						getPlatform: () => this.getPlatformClient(),
 						homeRunId: input.homeRunId,
 						runId: input.runId,
 						linkedWorkItemId: input.workItemId,
+						stewardCloseoutTargets: input.capabilityPlan.stewardCloseoutTargets,
 					})
 				: {}),
 			...this.browserAiTools(computerScope, turnBinding),

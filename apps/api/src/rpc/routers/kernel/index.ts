@@ -1,3 +1,9 @@
+import {
+	StewardCloseoutTargetsSchema,
+	type StewardCloseoutTargets,
+} from "@tedix/api-contract/schemas/work-items";
+import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
 	guardKernelRouteDecision,
@@ -498,6 +504,7 @@ export async function runKernel(args: {
 	env: KernelEnv;
 	organizationId: string;
 	descopeUserId?: string;
+	stewardCloseoutTargets?: StewardCloseoutTargets;
 	content: string;
 	/** A request that passed Home ingress catalog admission. */
 	modelRef?: string;
@@ -1318,7 +1325,38 @@ export async function runKernel(args: {
 				route.targetActivityId,
 			) ??
 				false);
+		const stewardCloseoutTargets =
+			args.stewardCloseoutTargets === undefined
+				? undefined
+				: StewardCloseoutTargetsSchema.parse(args.stewardCloseoutTargets);
+		if (stewardCloseoutTargets) {
+			const owner = descopeUserId
+				? await getMemberByUserId(db, organizationId, descopeUserId)
+				: null;
+			if (
+				owner?.status !== "active" ||
+				!["owner", "admin"].includes(owner.role)
+			)
+				throw new Error(
+					"Steward closeout requires the original active owner request",
+				);
+			for (const target of stewardCloseoutTargets) {
+				const item = await getWorkItemById(db, target.id, organizationId);
+				if (
+					!item ||
+					item.version !== target.expectedWorkItemVersion ||
+					item.disposition !== "accepted" ||
+					item.stewardType !== "tedi" ||
+					item.stewardId !== route.targetTediId ||
+					item.id === workItemId
+				)
+					throw new Error(
+						"Steward closeout target is changed, unavailable or outside the selected tedi's stewardship",
+					);
+			}
+		}
 		const workOrder = buildDelegationWorkOrder({
+			stewardCloseoutTargets,
 			route,
 			card,
 			userContent: content,
