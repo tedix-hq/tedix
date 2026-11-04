@@ -16,7 +16,10 @@ import {
 } from "@tedix/db/queries/skill-run-artifacts";
 import * as z from "zod";
 import { recordArtifactOnceForRun } from "./artifact-immutability";
-import { compactTimelineReceipt } from "./artifact-timeline";
+import {
+	compactTimelineReceipt,
+	storedTimelineReceipt,
+} from "./artifact-timeline";
 
 const ArtifactRecordSchema = z.object({
 	path: z.string().min(1),
@@ -187,7 +190,7 @@ export class ArtifactBridge extends WorkerEntrypoint<
 			await recordRunArtifact(createDbClient(this.env.DB), {
 				runId: this.ctx.props.runId,
 				path: compact ? "timeline/" + input.path : input.path,
-				value: compact ?? input.value,
+				value: compact ? storedTimelineReceipt(compact) : input.value,
 				outcome: input.outcome,
 				attempt: input.attempt,
 			});

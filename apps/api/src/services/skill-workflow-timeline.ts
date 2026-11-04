@@ -3,6 +3,10 @@ import {
 	type SkillWorkflowTimelineEvent,
 	type SkillWorkflowRunTimeline,
 } from "@tedix/api-contract/schemas/cognitive";
+import {
+	decodeTimelineReceipt,
+	SkillWorkflowTimelineReceiptSchema,
+} from "@tedix/api-contract/utils/workflow-timeline-receipt";
 import type { SkillRun, SkillRunArtifact } from "@tedix/db/schema/cognitive";
 
 /** Read only compact receipts. Historical artifact bodies are never inferred. */
@@ -40,6 +44,22 @@ export function buildSkillWorkflowTimeline(
 			)
 				covered = true;
 			else warnings.push("Invalid timeline coverage marker.");
+			continue;
+		}
+		const receipt = SkillWorkflowTimelineReceiptSchema.safeParse(value);
+		if (receipt.success) {
+			// Schema 2 stores no path or epoch; both come from the row path.
+			try {
+				events.push(
+					decodeTimelineReceipt(
+						receipt.data,
+						artifact.path.slice("timeline/".length),
+						executionEpoch,
+					),
+				);
+			} catch {
+				warnings.push(`Invalid compact timeline receipt: ${artifact.path}`);
+			}
 			continue;
 		}
 		const parsed = SkillWorkflowTimelineEventSchema.safeParse(value);
