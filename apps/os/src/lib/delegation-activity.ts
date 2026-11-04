@@ -46,8 +46,6 @@ export type DelegationLiveState = {
 	phase: DelegationPhase;
 	/** The current step in plain words, or null when nothing is known yet. */
 	currentStep: string | null;
-	/** Present only when the runtime reports a real total. */
-	progress: { current: number; total: number; percent: number } | null;
 	elapsedMs: number | null;
 	lastActivityAt: string | null;
 	idleMs: number | null;
@@ -261,16 +259,6 @@ export function delegationLiveState(input: {
 					: "working";
 
 	const progress = run.progress;
-	const reportedTotal =
-		progress && progress.total > 0 && progress.current > 0
-			? {
-					current: Math.min(progress.current, progress.total),
-					total: progress.total,
-					percent: Math.round(
-						(Math.min(progress.current, progress.total) / progress.total) * 100,
-					),
-				}
-			: null;
 	const runningTool = [...steps]
 		.reverse()
 		.find((step) => step.status === "running");
@@ -284,7 +272,6 @@ export function delegationLiveState(input: {
 	return {
 		phase,
 		currentStep,
-		progress: terminal ? null : reportedTotal,
 		elapsedMs,
 		lastActivityAt,
 		idleMs,

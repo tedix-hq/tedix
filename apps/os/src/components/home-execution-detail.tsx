@@ -69,11 +69,6 @@ import { useTediNames } from "@/lib/use-tedi-names";
 import { useNow } from "@/lib/use-now";
 import { delegationLiveState, shortAge } from "@/lib/delegation-activity";
 import { formatSettledEurMicros } from "@/lib/billing-price";
-import {
-	Progress,
-	ProgressIndicator,
-	ProgressTrack,
-} from "@/components/kumo/progress";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
 
 const DIGITAL_WORKER = "Digital worker";
@@ -283,25 +278,12 @@ function DelegationEvidence({
 						<Text role="body" className="[overflow-wrap:anywhere]">
 							{live.currentStep ?? "Starting…"}
 						</Text>
-						{live.progress ? (
-							<Progress
-								value={live.progress.percent}
-								aria-label={`${live.progress.current} of ${live.progress.total}`}
-							>
-								<ProgressTrack className="h-1">
-									<ProgressIndicator />
-								</ProgressTrack>
-							</Progress>
-						) : null}
 						<Text
 							role="label"
 							tone={live.phase === "stalled" ? "warning" : "secondary"}
 							className="tabular-nums"
 						>
 							{[
-								live.progress
-									? `${live.progress.current} of ${live.progress.total}`
-									: null,
 								live.elapsedMs != null
 									? `running ${formatDurationMs(Math.floor(live.elapsedMs / 1_000) * 1_000)}`
 									: null,

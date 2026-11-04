@@ -533,6 +533,16 @@
  * black/white alpha. It stays translucent because it paints over the code
  * block's own background.
  */
+/*
+ * Kumo disables a loading Button, and callers usually disable its siblings
+ * too, so every one fades to 50% and the spinner on the pressed button reads
+ * as inactive. Keep the button that is working at full strength.
+ */
+[data-kumo-component="Button"]:disabled:has(svg[role="status"]) {
+	opacity: 1;
+	cursor: progress;
+}
+
 .kumo-shiki,
 [data-mode="dark"] .kumo-shiki {
 	--kumo-code-highlight-bg: color-mix(
