@@ -20,6 +20,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import { prefixedColumns } from "../utils/select";
 import {
 	type LaneTelemetry,
 	type WorkAgentSessionHarness,
@@ -424,9 +425,11 @@ export async function listTediLaneSources(
 	for (let i = 0; i < runIds.length; i += 50) {
 		const ids = runIds.slice(i, i + 50);
 		const [callRows, eventRows] = await Promise.all([
+			// Without the hint SQLite seeks by org and reads the tenant's whole
+			// cost history (~300k rows per call in production) for a few runs.
 			db
-				.select()
-				.from(tediCallCosts)
+				.select(prefixedColumns(tediCallCosts, "call_cost"))
+				.from(sql`${tediCallCosts} INDEXED BY idx_call_costs_run`)
 				.where(
 					and(
 						eq(tediCallCosts.orgId, organizationId),
