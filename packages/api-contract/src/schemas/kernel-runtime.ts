@@ -839,7 +839,7 @@ export const EnqueueHomeMessageInputSchema = z.object({
 				.min(1)
 				.optional()
 				.describe(
-					"For an explicit delegation continuing existing Work, pass its Work Item ID here. Prose references do not select Work. Existing admission, executor and approval checks still apply; this does not rebind a Computer lease.",
+					"To continue existing Work through Home or an explicit delegation, pass its Work Item ID here. Prose references do not select Work. Existing admission, executor and approval checks still apply; this does not rebind a Computer lease.",
 				),
 		})
 		.catchall(z.unknown())
