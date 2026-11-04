@@ -3051,25 +3051,33 @@ describe("planKernelRoute — bounded attempts replace route hedging", () => {
 	});
 
 	it("lets a healthy primary finish without starting a duplicate request", async () => {
-		const { mock, selected } = hedgeModel([
-			{ kind: "stream", decision: DECISION, delayMs: 60 },
-			{ kind: "stall" },
-		]);
-		const deltas: string[] = [];
-		const result = await settlesWithin(
-			run(selected, "40", deltas),
-			3_000,
-			"primary finishes",
-		);
-		expect(result?.answer).toBe(DECISION.answer);
-		expect(deltas.join("")).toBe(DECISION.answer);
-		expect(mock.doStreamCalls).toHaveLength(1);
-		expect(mock.doGenerateCalls).toHaveLength(0);
-		expect(result?.hedge).toMatchObject({
-			fired: false,
-			afterMs: 0,
-			winner: "primary",
-		});
+		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+		try {
+			const { mock, selected } = hedgeModel([
+				{ kind: "stream", decision: DECISION, delayMs: 60 },
+				{ kind: "stall" },
+			]);
+			const deltas: string[] = [];
+			const pending = settlesWithin(
+				run(selected, "40", deltas),
+				3_000,
+				"primary finishes",
+			);
+			await vi.advanceTimersByTimeAsync(60);
+			const result = await pending;
+			expect(result?.answer).toBe(DECISION.answer);
+			expect(deltas.join("")).toBe(DECISION.answer);
+			expect(mock.doStreamCalls).toHaveLength(1);
+			expect(mock.doGenerateCalls).toHaveLength(0);
+			expect(result?.hedge).toMatchObject({
+				fired: false,
+				afterMs: 0,
+				winner: "primary",
+			});
+		} finally {
+			vi.clearAllTimers();
+			vi.useRealTimers();
+		}
 	});
 
 	it("does not replay an unclassified primary error", async () => {
@@ -3108,15 +3116,23 @@ describe("planKernelRoute — bounded attempts replace route hedging", () => {
 	});
 
 	it("KERNEL_ROUTE_HEDGE_AFTER_MS=0 disables the hedge", async () => {
-		const { mock, selected } = hedgeModel([
-			{ kind: "stream", decision: DECISION, delayMs: 40 },
-			{ kind: "stream", decision: HEDGE_DECISION },
-		]);
-		const deltas: string[] = [];
-		const result = await run(selected, "0", deltas);
-		expect(result?.answer).toBe(DECISION.answer);
-		expect(mock.doStreamCalls).toHaveLength(1);
-		expect(result?.hedge).toMatchObject({ fired: false, afterMs: 0 });
+		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+		try {
+			const { mock, selected } = hedgeModel([
+				{ kind: "stream", decision: DECISION, delayMs: 40 },
+				{ kind: "stream", decision: HEDGE_DECISION },
+			]);
+			const deltas: string[] = [];
+			const pending = run(selected, "0", deltas);
+			await vi.advanceTimersByTimeAsync(40);
+			const result = await pending;
+			expect(result?.answer).toBe(DECISION.answer);
+			expect(mock.doStreamCalls).toHaveLength(1);
+			expect(result?.hedge).toMatchObject({ fired: false, afterMs: 0 });
+		} finally {
+			vi.clearAllTimers();
+			vi.useRealTimers();
+		}
 	});
 
 	it("resolves the deadline from env: unset → 5000, invalid → 5000, 0 → 0", () => {
