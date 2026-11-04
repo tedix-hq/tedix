@@ -107,7 +107,7 @@ describe("delegationSteps", () => {
 		).toEqual([
 			["Started", "completed", null],
 			["Searched Reddit posts", "completed", 2_000],
-			["Drafted reply", "running", null],
+			["Drafting reply", "running", null],
 		]);
 	});
 
