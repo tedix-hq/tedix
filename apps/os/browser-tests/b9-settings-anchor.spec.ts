@@ -400,7 +400,12 @@ try {
 								);
 							});
 							await page.evaluate(() => document.fonts.ready);
-							await heading.scrollIntoViewIfNeeded();
+							await heading.evaluate((element) =>
+								element.scrollIntoView({
+									block: "nearest",
+									inline: "nearest",
+								}),
+							);
 							const state = await geometry(page);
 							assert.equal(state.theme, theme);
 							assert(
