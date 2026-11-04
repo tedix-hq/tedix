@@ -132,6 +132,7 @@ describe("schedule text", () => {
 	it("reports a failed run with its first error line and a finished run with its counts", () => {
 		const base = {
 			id: "run-1",
+			executionEpoch: 0,
 			startedAt: "2026-07-01T11:17:00.000Z",
 			completedAt: "2026-07-01T11:19:00.000Z",
 			cards: null,

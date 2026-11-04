@@ -674,6 +674,7 @@ export async function listLatestSkillRunsForSkills(
 
 export interface ReportedSkillRunRow {
 	id: string;
+	executionEpoch: number;
 	status: SkillRunStatus;
 	startedAt: string | null;
 	completedAt: string | null;
@@ -702,6 +703,7 @@ export async function getLatestReportedSkillRun(
 	const [row] = await db
 		.select({
 			id: skillRuns.id,
+			executionEpoch: skillRuns.executionEpoch,
 			status: skillRuns.status,
 			startedAt: skillRuns.startedAt,
 			completedAt: skillRuns.completedAt,
@@ -736,7 +738,10 @@ export async function getLatestReportedSkillRun(
 					: []),
 			),
 		)
-		.orderBy(desc(skillRuns.startedAt), desc(skillRuns.id))
+		.orderBy(
+			desc(sql`coalesce(${skillRuns.completedAt}, ${skillRuns.startedAt})`),
+			desc(skillRuns.id),
+		)
 		.limit(1);
 	return row;
 }
