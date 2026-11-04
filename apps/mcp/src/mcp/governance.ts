@@ -1691,7 +1691,9 @@ export async function requireDestructiveToolApproval(
 				return null;
 			}
 			return approvalFailure(
-				"Skill run identity or declared manifest capability is invalid; no side effect was executed.",
+				resolution.denialReason === "skill_draft"
+					? "Skill is draft; a signed-in organization owner or admin must certify and activate it before unattended runs, including read-only workflows. Draft tool calls require a user-started certification run on the current revision; no tool call was executed."
+					: "Skill run identity or declared manifest capability is invalid; no side effect was executed.",
 			);
 		} catch (error) {
 			// Upstream errors can include arguments or credentials; log correlation

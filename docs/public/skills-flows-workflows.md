@@ -104,18 +104,27 @@ its manifest in SKILL.md frontmatter and needs no header. Never write a
 `0-59/5` or a comma list, or move the schedule to SKILL.md frontmatter.
 
 Discover the exact callable and parameter schema before declaring a
-capability; do not guess tool names. Then run and watch it:
+capability; do not guess tool names. For unattended execution, run a reviewed,
+activated skill:
 
 ```bash
 tedix -w acme code \
   'async () => await discover.search({ query: "list app tools", limit: 2, includeParameters: true })'
-tedix -w acme flow run --file plan.ts --watch
+tedix -w acme flow run --skill ACTIVE_SKILL_UUID --watch
 ```
 
-The command returns a `skillId` and `runId`. File-authored flows are draft
-skills tagged `flow-ephemeral`; they never run on a schedule and auto-archive
-after 14 unused days. Put large output in an artifact and return its reference:
-only the bounded return value should enter the caller's context.
+The command returns a `skillId` and `runId`. Put large output in an artifact
+and return its reference: only the bounded return value should enter the
+caller's context.
+
+`flow run --file plan.ts` records a draft tagged `flow-ephemeral`, then its
+ordinary run is refused before dispatch. These drafts never run on a schedule
+and auto-archive after 14 unused days. Draft workflows, including read-only
+workflows, require a certification run started by a signed-in organization
+owner or admin. That person can test an existing reviewed draft with
+`flow run --skill DRAFT_SKILL_UUID --params '{"certification":true}' --watch`,
+then activate it before agents, queues, or schedules run it unattended.
+An agent or service cannot use the certification flag as owner authority.
 
 Use the returned run identifier for readback:
 

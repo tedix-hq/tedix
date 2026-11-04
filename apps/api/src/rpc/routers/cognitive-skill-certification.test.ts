@@ -54,7 +54,14 @@ function client(patch: Partial<BaseContext> = {}) {
 			organizationId: "org-1",
 			db: {},
 			env: { ENVIRONMENT: "development" },
-			headers: new Headers(),
+			headers: new Headers(
+				patch.authType === "service-binding"
+					? {
+							"X-Service-Binding": "true",
+							"X-Tedix-Tedi-Scopes": "tedis:write",
+						}
+					: {},
+			),
 			url: new URL("https://api.test/rpc/skills"),
 			rateLimiter: { limit: async () => ({ success: true }) },
 			...patch,
@@ -177,9 +184,7 @@ describe("certification run admission", () => {
 			});
 			await expect(
 				client()({ ...input, certification: false, params }),
-			).rejects.toThrow(
-				"Ask that person to run the reviewed proposal revision",
-			);
+			).rejects.toThrow("Skill is draft");
 			expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
 			expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
 			expect(mocks.recordTediSubmissionStarted).not.toHaveBeenCalled();
@@ -224,16 +229,92 @@ describe("certification run admission", () => {
 			...(await mocks.getSkillEntry()),
 			sourceSkillId: "baseline-1",
 		});
-		await client()({
-			...input,
-			certification: undefined,
-			params: { certification: true },
+		await expect(
+			client()({
+				...input,
+				certification: undefined,
+				params: { certification: true },
+			}),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: expect.stringContaining("Skill is draft"),
 		});
-		expect(mocks.callSkillRuntime).toHaveBeenCalledWith(
-			expect.anything(),
-			"/run",
-			expect.objectContaining({ certification: false }),
-		);
+		expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
 		expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
 	});
+	it.each([
+		{},
+		{ authType: "service-binding", user: undefined },
+		{
+			authType: "apikey",
+			user: undefined,
+			apiKey: {
+				id: "key-1",
+				organizationId: "org-1",
+				name: "test",
+				scopes: ["tedis:write"],
+			},
+		},
+		{
+			authType: "service-binding",
+			user: undefined,
+			tediId: "tedi-1",
+			tediScopes: ["tedis:write"],
+		},
+		{
+			authType: "service-binding",
+			user: undefined,
+			externalAgentPrincipalId: "executor",
+		},
+		{
+			authType: "service-binding",
+			user: undefined,
+			gatewayEndUserId: "owner-1",
+		},
+	] as Partial<BaseContext>[])(
+		"refuses an ordinary read-only draft before dispatch: %j",
+		async (patch) => {
+			mocks.getSkillEntry.mockResolvedValue({
+				...(await mocks.getSkillEntry()),
+				content:
+					"---\ncapabilities:\n  mcp:\n    work: [list_work_items]\n---\n",
+				files: {
+					"scripts/workflow.ts":
+						"export default { async run(ctx) { return ctx.mcp.work.list_work_items({}); } }",
+				},
+			});
+			await expect(
+				client(patch)({ ...input, certification: false }),
+			).rejects.toMatchObject({
+				code: "FORBIDDEN",
+				message: expect.stringContaining(
+					"Skill is draft; a signed-in organization owner or admin must certify and activate it",
+				),
+			});
+			expect(mocks.callSkillRuntime).not.toHaveBeenCalled();
+			expect(mocks.insertAuditEvent).not.toHaveBeenCalled();
+			expect(mocks.recordTediSubmissionStarted).not.toHaveBeenCalled();
+		},
+	);
+	it.each(["active", "proven", "crystallized"])(
+		"dispatches an unattended %s skill without certification",
+		async (lifecycleState) => {
+			mocks.getSkillEntry.mockResolvedValue({
+				...(await mocks.getSkillEntry()),
+				lifecycleState,
+			});
+			await client({ authType: "service-binding", user: undefined })({
+				...input,
+				certification: false,
+			});
+			expect(mocks.callSkillRuntime).toHaveBeenCalledWith(
+				expect.anything(),
+				"/run",
+				expect.objectContaining({
+					certification: false,
+					createdBy: "service-binding",
+				}),
+			);
+		},
+	);
 });

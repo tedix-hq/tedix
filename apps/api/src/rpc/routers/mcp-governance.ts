@@ -1784,7 +1784,12 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 							skill.revision === run.skillRevision
 						))
 				)
-					return { approved: false };
+					return {
+						approved: false,
+						...(skill?.lifecycleState === "draft"
+							? { denialReason: "skill_draft" as const }
+							: {}),
+					};
 				const manifest = readPinnedCapabilityManifest(run.capabilityManifest);
 				if (!manifest) return { approved: false };
 				const namespaces = Object.keys(manifest.mcp ?? {});

@@ -46,6 +46,7 @@ export const ResolveSkillManifestAuthorizationResponseSchema = z.object({
 	approved: z.boolean(),
 	skillId: z.string().optional(),
 	revision: z.number().int().positive().optional(),
+	denialReason: z.literal("skill_draft").optional(),
 });
 
 export const McpToolApprovalGrantKindSchema = z.enum(["once", "always"]);

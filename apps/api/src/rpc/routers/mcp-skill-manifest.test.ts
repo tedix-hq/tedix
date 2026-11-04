@@ -109,13 +109,21 @@ describe("workflow manifest authorization", () => {
 				!patch.skillRevision;
 			await expect(
 				client().resolveSkillManifestAuthorization(input),
-			).resolves.toMatchObject({ approved: allowed });
+			).resolves.toEqual(
+				allowed
+					? { approved: true, skillId: "skill-1", revision: 40 }
+					: { approved: false, denialReason: "skill_draft" },
+			);
 			await expect(
 				client().resolveSkillManifestAuthorization({
 					...input,
 					method: "messages_send",
 				}),
-			).resolves.toEqual({ approved: false });
+			).resolves.toEqual(
+				allowed
+					? { approved: false }
+					: { approved: false, denialReason: "skill_draft" },
+			);
 		}
 	});
 	it("resolves renamed app bindings and matches the dispatched provider", async () => {
@@ -188,7 +196,11 @@ describe("workflow manifest authorization", () => {
 			} as never);
 			await expect(
 				client().resolveSkillManifestAuthorization(input),
-			).resolves.toEqual({ approved: false });
+			).resolves.toEqual(
+				lifecycleState === "draft"
+					? { approved: false, denialReason: "skill_draft" }
+					: { approved: false },
+			);
 		},
 	);
 	it("refuses missing identities, undeclared tools and other tedis, preserving the pinned revision", async () => {
@@ -279,7 +291,16 @@ capabilities:
 			} as never);
 			await expect(
 				client().resolveSkillManifestAuthorization(workRead),
-			).resolves.toEqual({ approved: false });
+			).resolves.toEqual({ approved: false, denialReason: "skill_draft" });
+			vi.mocked(getSkillRun).mockResolvedValue({
+				...run,
+				capabilityManifest: coordinatorManifest,
+				certification: true,
+				createdBy: "user:owner",
+			} as never);
+			await expect(
+				client().resolveSkillManifestAuthorization(workRead),
+			).resolves.toEqual({ approved: true, skillId: "skill-1", revision: 40 });
 		});
 		it("approves a declared turn on a named tedi of the same organization", async () => {
 			await expect(
