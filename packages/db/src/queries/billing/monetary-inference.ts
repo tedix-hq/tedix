@@ -21,12 +21,14 @@ import { providerModelRateVersions } from "../../schema/provider-model-rates";
 /**
  * Canonical monetary-only spend; legacy token charges remain historical.
  * A charge never predates its reservation's period, so the occurred_at bound
- * keeps the total and lets idx_billing_charge_org_occurred skip earlier
- * periods instead of reading the organization's whole charge history.
+ * keeps the total. The partial index holds only EUR monetary charges; it is
+ * pinned because production's planner otherwise picks the plain org/time
+ * index and reads the period's ~110k token charges (2 rows with the hint).
  */
 export function monetaryPeriodSpendSql() {
 	return sql`COALESCE((SELECT SUM(charge.credit_applied_micros + charge.customer_charge_micros)
-	FROM billing_usage_charges AS charge JOIN billing_usage_reservations AS held ON held.id=charge.reservation_id
+	FROM billing_usage_charges AS charge INDEXED BY idx_billing_charge_monetary_eur
+	JOIN billing_usage_reservations AS held ON held.id=charge.reservation_id
 	WHERE charge.organization_id=account.organization_id AND charge.occurred_at>=account.period_start
 	AND held.period_start=account.period_start AND held.period_end=account.period_end
 	AND json_extract(charge.metadata,'$.monetaryQuote.schemaVersion')=1
