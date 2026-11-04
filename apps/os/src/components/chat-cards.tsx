@@ -36,11 +36,6 @@ import {
 	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { Loader } from "@/components/kumo/loader";
-import {
-	Progress,
-	ProgressIndicator,
-	ProgressTrack,
-} from "@/components/kumo/progress";
 import { Text } from "@/components/kumo/text";
 import {
 	Tooltip,
@@ -809,27 +804,6 @@ export function DelegationWorkCard({
 					>
 						{sanitizeUntrustedText(step)}
 					</Text>
-				) : null}
-				{live?.progress ? (
-					<span className="flex min-w-0 items-center gap-2 pl-7">
-						<Progress
-							value={live.progress.percent}
-							aria-label={`${who}: ${live.progress.current} of ${live.progress.total}`}
-							className="min-w-0 flex-1"
-						>
-							<ProgressTrack className="h-1">
-								<ProgressIndicator />
-							</ProgressTrack>
-						</Progress>
-						<Text
-							as="span"
-							role="caption"
-							tone="secondary"
-							className="shrink-0 tabular-nums"
-						>
-							{live.progress.current} of {live.progress.total}
-						</Text>
-					</span>
 				) : null}
 				{meta.length ? (
 					<Text

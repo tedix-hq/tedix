@@ -230,11 +230,10 @@ describe("delegationLiveState", () => {
 		expect(live.currentStep).toBe("Cloning repo");
 	});
 
-	it("reports the current step, progress and last activity of a working run", () => {
+	it("reports the current step and last activity of a working run", () => {
 		const live = delegationLiveState({ run, now: T0 + 412_000 });
 		expect(live.phase).toBe("working");
 		expect(live.currentStep).toBe("Writing the weekly summary");
-		expect(live.progress).toEqual({ current: 48, total: 100, percent: 48 });
 		expect(live.elapsedMs).toBe(412_000);
 		expect(live.idleMs).toBe(12_000);
 	});
@@ -281,7 +280,6 @@ describe("delegationLiveState", () => {
 			now: T0 + 310_000,
 		});
 		expect(live.currentStep).toBe("Searching Reddit posts");
-		expect(live.progress).toBeNull();
 	});
 
 	it("summarises a finished run by its duration and cost", () => {
@@ -304,7 +302,6 @@ describe("delegationLiveState", () => {
 		expect(live.phase).toBe("completed");
 		expect(live.elapsedMs).toBe(483_000);
 		expect(live.idleMs).toBeNull();
-		expect(live.progress).toBeNull();
 		expect(live.currentStep).toBeNull();
 		expect(live.costUsd).toBe(0.0123);
 	});

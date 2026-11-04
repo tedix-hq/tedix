@@ -46,8 +46,8 @@ try {
 			await working.locator('[data-slot="delegation-work-card"]').waitFor();
 			await page.evaluate(() => document.fonts.ready);
 
-			// Working: plain current step, a real bar, elapsed time; a run quiet
-			// for only seconds does not mention its last activity.
+			// Working: plain current step and elapsed time, no placeholder bar or
+			// count; a run quiet for only seconds does not mention its last activity.
 			assert.equal(
 				await working.locator("[data-phase]").getAttribute("data-phase"),
 				"working",
@@ -55,7 +55,8 @@ try {
 			await working
 				.getByText("Writing the summary for this week's community threads")
 				.waitFor();
-			await working.getByText("48 of 100").waitFor();
+			assert.equal(await working.getByText("48 of 100").count(), 0);
+			assert.equal(await working.locator('[data-slot="progress"]').count(), 0);
 			await working.getByText(/^Running 7m( \d\ds)?$/).waitFor();
 			assert.equal(await working.getByText(/last activity/).count(), 0);
 			assert.equal(
