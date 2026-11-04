@@ -211,3 +211,68 @@ it("derives MCP authority from the configured entrypoint, never headers", async 
 	const mcpResult = await new McpEntrypoint(ctx, env).fetch(request());
 	expect(mcpResult.headers.get("X-Seen-Principal")).toBe("mcp-edge");
 });
+
+describe("version-bound public API release manifest", () => {
+	const release = {
+		GIT_SHA: "a".repeat(40),
+		RELEASE_REPOSITORY: "fictional/product",
+		SHIP_RUN_ID: "12345",
+	};
+	it("reports only deployed version metadata without evaluating the app", async () => {
+		vi.resetModules();
+		const { default: freshWorker } = await import("./index");
+		const before = h.evaluations;
+		const response = await freshWorker.fetch(
+			new Request(
+				"https://api.example.test/release-manifest.json?commitSha=caller",
+				{ headers: { "X-Ship-Run-Id": "999" } },
+			),
+			release as unknown as CloudflareEnv,
+			ctx,
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("Cache-Control")).toBe("no-store");
+		expect(await response.json()).toEqual({
+			repository: "fictional/product",
+			commitSha: "a".repeat(40),
+			surface: "api",
+			deploymentRunId: 12345,
+		});
+		expect(h.evaluations).toBe(before);
+	});
+	it("refuses missing metadata and non-GET without loading the app", async () => {
+		const before = h.evaluations;
+		for (const request of [
+			new Request("https://api.example.test/release-manifest.json"),
+			new Request("https://api.example.test/release-manifest.json", {
+				method: "POST",
+			}),
+		]) {
+			const response = await worker.fetch(request, env, ctx);
+			expect(response.status).toBe(request.method === "GET" ? 503 : 405);
+			expect(response.headers.get("Cache-Control")).toBe("no-store");
+		}
+		expect(h.evaluations).toBe(before);
+	});
+	it("reports an older version's own Ship identity after rollback", async () => {
+		for (const [sha, run] of [
+			["a".repeat(40), "12345"],
+			["b".repeat(40), "23456"],
+			["a".repeat(40), "12345"],
+		]) {
+			const response = await worker.fetch(
+				new Request("https://api.example.test/release-manifest.json"),
+				{
+					...release,
+					GIT_SHA: sha,
+					SHIP_RUN_ID: run,
+				} as unknown as CloudflareEnv,
+				ctx,
+			);
+			expect(await response.json()).toMatchObject({
+				commitSha: sha,
+				deploymentRunId: Number(run),
+			});
+		}
+	});
+});

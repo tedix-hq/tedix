@@ -17,6 +17,7 @@
  * here — that silently re-eagers the whole bundle and re-breaks deploys.
  */
 import { bindMcpServicePrincipal } from "./service-principal";
+import { releaseManifest } from "@tedix/api-contract/utils/release-manifest";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import {
 	WorkerEntrypoint,
@@ -48,6 +49,24 @@ async function serveFetch(
 	env: CloudflareEnv,
 	ctx: ExecutionContext,
 ): Promise<Response> {
+	if (new URL(request.url).pathname === "/release-manifest.json") {
+		const headers = { "Cache-Control": "no-store" };
+		if (request.method !== "GET")
+			return new Response(null, {
+				status: 405,
+				headers: { ...headers, Allow: "GET" },
+			});
+		const manifest = releaseManifest({
+			repository: env.RELEASE_REPOSITORY,
+			commitSha: env.GIT_SHA,
+			surface: "api",
+			deploymentRunId: env.SHIP_RUN_ID,
+		});
+		return Response.json(
+			manifest ?? { error: "Release metadata is unavailable" },
+			{ status: manifest ? 200 : 503, headers },
+		);
+	}
 	// Liveness, answered before loadApp(). `/health` in worker-app.ts is a
 	// static JSON literal — no bindings, no D1 — but reaching it costs a full
 	// evaluation of the worker-app module graph, which on a cold isolate is

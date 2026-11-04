@@ -129,6 +129,10 @@ export default defineConfig(({ mode }) => {
 					? { TEDIX_LOCAL_DEMO_ENABLED: bindings.text(localLane.demoEnabled) }
 					: { TEDIX_PROVIDER_COHORT_API_KEY: bindings.secret() }),
 				GIT_SHA: bindings.text(releaseSha),
+				RELEASE_REPOSITORY: bindings.text(
+					runtimeEnv?.RELEASE_REPOSITORY ?? "configured-via-private-overlay",
+				),
+				SHIP_RUN_ID: bindings.text(runtimeEnv?.SHIP_RUN_ID ?? "0"),
 			},
 		}),
 	};

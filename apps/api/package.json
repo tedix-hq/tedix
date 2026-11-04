@@ -17,7 +17,7 @@
 		"dev:local-demo": "bun run clear-port && bun ../../scripts/dev-local.ts -- wrangler dev",
 		"dev:local-launcher": "TEDIX_LOCAL_API_URL=http://localhost:8790 bun ../../scripts/dev-local.ts -- wrangler dev --name public-installation-api --port 8790",
 		"dev:local-hmr": "TEDIX_LOCAL_API_URL=http://localhost:8790 bun ../../scripts/dev-local.ts -- wrangler dev --name public-installation-api --port 8790",
-		"deploy:production": "bun run types && wrangler deploy --env production --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"deploy:production": "bun run types && wrangler deploy --env production --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --var RELEASE_REPOSITORY:${RELEASE_REPOSITORY:-unconfigured} --var SHIP_RUN_ID:${SHIP_RUN_ID:-0} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
 		"tail": "wrangler tail",
 		"test": "bun run test:run",
 		"test:run": "bun run test:unit",

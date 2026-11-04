@@ -28,6 +28,7 @@ import {
 	serviceBindingFetch,
 } from "@tedix/api-client/internal";
 import { validateToken } from "@tedix/auth/jwt";
+import { releaseManifest } from "@tedix/api-contract/utils/release-manifest";
 import { OIDC_SESSION_COOKIE } from "@tedix/auth/oidc-cookies";
 import { handleTediConsole } from "./auth/tedi-console";
 import {
@@ -134,6 +135,8 @@ export interface OsRouterEnv extends OsSessionBrokerEnv {
 	readonly PROVIDER_COHORT_EXTERNAL_TENANT_ID?: string;
 	/** Release sha stamped by deploy:production; "unknown" outside a deploy. */
 	readonly GIT_SHA?: string;
+	readonly RELEASE_REPOSITORY?: string;
+	readonly SHIP_RUN_ID?: string;
 }
 
 const DESCOPE_OUTBOUND_BRIDGE_PATH = "/auth/descope/v1/outbound/oauth/connect";
@@ -964,6 +967,29 @@ export async function handleOsRequest(
 	resolver: TenantResolver = resolveTenantViaApi,
 ): Promise<Response> {
 	const url = new URL(request.url);
+	// authz: public — identity is bound to this Worker version, never tenant or caller data.
+	if (url.pathname === "/release-manifest.json") {
+		const headers = { "Cache-Control": "no-store" };
+		if (request.method !== "GET")
+			return withSecurityHeaders(
+				new Response(null, {
+					status: 405,
+					headers: { ...headers, Allow: "GET" },
+				}),
+			);
+		const manifest = releaseManifest({
+			repository: env.RELEASE_REPOSITORY,
+			commitSha: env.GIT_SHA,
+			surface: "os",
+			deploymentRunId: env.SHIP_RUN_ID,
+		});
+		return withSecurityHeaders(
+			Response.json(manifest ?? { error: "Release metadata is unavailable" }, {
+				status: manifest ? 200 : 503,
+				headers,
+			}),
+		);
+	}
 	let tenant = resolveOsTenant(url.hostname, env.OS_URL);
 	let customResolution: (TenantResolution & { slug: string | null }) | null =
 		null;
