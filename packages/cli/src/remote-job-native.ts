@@ -8,7 +8,12 @@ import { createInstinctEmailTransport } from "./remote-job-email";
 import {
 	createInstinctEmailAdapter,
 	RemoteJobRecordSchema,
+	type RemoteJobRecord,
 } from "./remote-job";
+import {
+	inspectRemoteJob,
+	type RemoteJobInspection,
+} from "./remote-job-inspect";
 import { fileRemoteJobStore } from "./remote-job-store";
 import {
 	RemoteJobWorkScopeSchema,
@@ -41,9 +46,27 @@ const ThreadSchema = z.object({
 	messages: z.array(MessageSchema),
 });
 
-/** One explicit send or receive pass. The caller retains Attempt lifecycle ownership. */
-export async function runNativeRemoteJob(
+export function runNativeRemoteJob(
 	operation: "send" | "receive",
+	value: unknown,
+	read?: ReadJson,
+	env?: NodeJS.ProcessEnv,
+): Promise<RemoteJobRecord>;
+export function runNativeRemoteJob(
+	operation: "inspect",
+	value: unknown,
+	read?: ReadJson,
+	env?: NodeJS.ProcessEnv,
+): Promise<RemoteJobInspection>;
+export function runNativeRemoteJob(
+	operation: "send" | "receive" | "inspect",
+	value: unknown,
+	read?: ReadJson,
+	env?: NodeJS.ProcessEnv,
+): Promise<RemoteJobRecord | RemoteJobInspection>;
+/** The caller retains Attempt lifecycle ownership. Inspection never changes a job. */
+export async function runNativeRemoteJob(
+	operation: "send" | "receive" | "inspect",
 	value: unknown,
 	read: ReadJson = cliRead,
 	env: NodeJS.ProcessEnv = process.env,
@@ -53,7 +76,7 @@ export async function runNativeRemoteJob(
 		job.adapter !== "instinct-email" ||
 		job.organizationId !== scope.organizationId ||
 		job.workItemId !== scope.workItemId ||
-		job.attemptId !== scope.attemptId ||
+		(operation !== "inspect" && job.attemptId !== scope.attemptId) ||
 		job.senderUserId !== scope.senderUserId
 	)
 		throw new Error("Job does not match the held Instinct Work scope");
@@ -79,6 +102,19 @@ export async function runNativeRemoteJob(
 		);
 	}
 	await evidence.verifyAttempt();
+	const context = await read(
+		[
+			...selectors,
+			"work",
+			"dispatch-get",
+			"--input",
+			JSON.stringify({ id: scope.workItemId }),
+			"--json",
+		],
+		60_000,
+		undefined,
+		options,
+	);
 	const work = z
 		.object({
 			workItem: z.object({
@@ -89,21 +125,7 @@ export async function runNativeRemoteJob(
 				accountableOwnerId: z.string(),
 			}),
 		})
-		.parse(
-			await read(
-				[
-					...selectors,
-					"work",
-					"dispatch-get",
-					"--input",
-					JSON.stringify({ id: scope.workItemId }),
-					"--json",
-				],
-				60_000,
-				undefined,
-				options,
-			),
-		).workItem;
+		.parse(context).workItem;
 	if (
 		work.id !== job.workItemId ||
 		work.orgId !== job.organizationId ||
@@ -134,6 +156,20 @@ export async function runNativeRemoteJob(
 		member.representedUserId !== job.senderUserId
 	)
 		throw new Error("Test mailbox is not the represented organization member");
+	const store = fileRemoteJobStore(
+		join(env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"), "remote-jobs"),
+	);
+	if (operation === "inspect")
+		return inspectRemoteJob({
+			scope,
+			job,
+			memberId,
+			tediId,
+			context,
+			record: store.read(job),
+			call,
+			verifyAttempt: evidence.verifyAttempt,
+		});
 	// Verify the scoped receive route before creating an outbound intent.
 	z.object({
 		threads: z.array(z.unknown()),
@@ -144,9 +180,6 @@ export async function runNativeRemoteJob(
 			query: `Tedix controlled job ${job.jobId}`,
 			limit: 1,
 		}),
-	);
-	const store = fileRemoteJobStore(
-		join(env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"), "remote-jobs"),
 	);
 	let received: z.infer<typeof ThreadSchema> | undefined;
 	const proof = (threadId: string, messageId: string) =>
@@ -265,17 +298,21 @@ export async function runNativeRemoteJob(
 export async function runRemoteJobCommand(args: string[]) {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane remote-job send|receive --input <file> -w <workspace> --organization <org>",
+			"tedix lane remote-job send|receive|inspect --input <file> -w <workspace> --organization <org>",
 		);
 		return 0;
 	}
-	let operation: "send" | "receive" | undefined;
+	let operation: "send" | "receive" | "inspect" | undefined;
 	let file: string | undefined,
 		workspace: string | undefined,
 		organization: string | undefined;
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
-		if ((arg === "send" || arg === "receive") && !operation) operation = arg;
+		if (
+			(arg === "send" || arg === "receive" || arg === "inspect") &&
+			!operation
+		)
+			operation = arg;
 		else if (arg === "--input") file = args[++index];
 		else if (arg === "-w" || arg === "--workspace") workspace = args[++index];
 		else if (arg === "--organization") organization = args[++index];

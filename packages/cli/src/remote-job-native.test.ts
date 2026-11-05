@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReadJson } from "./hooks/hook-io";
@@ -106,7 +106,20 @@ function fixture() {
 		expect(args).toContain(scope.workspace);
 		const argument = (key: string) => args[args.indexOf(key) + 1]!;
 		if (args.includes("dispatch-attempts")) return { data: [attempt] };
-		if (args.includes("dispatch-get")) return { workItem: work };
+		if (args.includes("dispatch-get"))
+			return {
+				workItem: work,
+				evidence: published.map((record) => ({
+					id: randomUUID(),
+					orgId: scope.organizationId,
+					workItemId: scope.workItemId,
+					attemptId: record.job.attemptId,
+					kind: "remote_job",
+					submittedByType: "external_agent",
+					submittedById: scope.executorId,
+					metadata: { remoteJob: record },
+				})),
+			};
 		if (args.includes("submit-evidence")) {
 			const metadata = JSON.parse(
 				readFileSync(argument("--evidence-metadata").slice(1), "utf8"),
@@ -207,6 +220,8 @@ function fixture() {
 		failEvidence: () => {
 			failEvidence = true;
 		},
+		directory,
+		inspect: () => runNativeRemoteJob("inspect", input, read, env),
 		run: (operation: "send" | "receive") =>
 			runNativeRemoteJob(operation, input, read, env),
 	};
@@ -282,4 +297,44 @@ it("requires explicit CLI operation and selectors", async () => {
 	await expect(runRemoteJobCommand(["send", "--unexpected"])).rejects.toThrow(
 		"Unknown",
 	);
+});
+
+it("inspects an older unknown job under fresh admission without rewriting or replaying it", async () => {
+	const f = fixture();
+	f.failSend();
+	const unknown = await f.run("send");
+	const originalAttemptId = f.input.job.attemptId;
+	f.input.scope.attemptId = randomUUID();
+	f.attempt.id = f.input.scope.attemptId;
+	const contents = () =>
+		readdirSync(join(f.directory, "remote-jobs")).map((file) =>
+			readFileSync(join(f.directory, "remote-jobs", file), "utf8"),
+		);
+	const before = contents();
+	expect(await f.inspect()).toMatchObject({
+		job: { attemptId: originalAttemptId },
+		inspectedByAttemptId: f.input.scope.attemptId,
+		record: unknown,
+		providerAcceptance: "unknown",
+		providerReceipts: [],
+		mailbox: { threadIds: [], nextCursor: null },
+		replayed: false,
+	});
+	expect(contents()).toEqual(before);
+	expect(f.sent).toHaveLength(1);
+	expect(f.published).toHaveLength(2);
+	await expect(f.run("send")).rejects.toThrow("held Instinct Work scope");
+	await expect(f.run("receive")).rejects.toThrow("held Instinct Work scope");
+});
+
+it("requires original Work evidence and current admission before inspecting", async () => {
+	const f = fixture();
+	await expect(f.inspect()).rejects.toThrow(
+		"No matching original Work evidence",
+	);
+	await f.run("send");
+	f.attempt.expiresAt = new Date(0).toISOString();
+	await expect(f.inspect()).rejects.toThrow("Current admitted Attempt");
+	expect(f.sent).toHaveLength(1);
+	expect(f.published).toHaveLength(2);
 });

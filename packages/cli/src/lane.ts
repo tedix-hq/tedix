@@ -51,7 +51,7 @@ export const laneUsage = `tedix lane serve --executor codex|claude-code|opencode
 
 ${laneRunUsage}
 
-tedix lane remote-job send|receive --input <file> --workspace <profile> --organization <org>
+tedix lane remote-job send|receive|inspect --input <file> --workspace <profile> --organization <org>
 
 tedix lane start "<title>" --project <id> [--work-item <id>]
 tedix lane brief <brief-file> [--host codex|claude]  # enriched brief for launchers
