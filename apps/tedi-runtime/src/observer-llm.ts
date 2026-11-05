@@ -106,6 +106,11 @@ export async function observerCompletion(
 	try {
 		// No ref = the observer's env default Azure deployment (the runtime's
 		// model policy resolves `cloudflare/auto` to no ref for this surface).
+		const routed =
+			opts.modelRef === CLOUDFLARE_AUTO_MODEL_REF ||
+			opts.modelRef?.startsWith("workers-ai/");
+		if (routed && opts.images?.length)
+			throw new Error("Observer images need an Azure vision deployment");
 		if (opts.modelRef === CLOUDFLARE_AUTO_MODEL_REF)
 			return await observerViaAutoRouter(opts);
 		if (opts.modelRef?.startsWith("workers-ai/"))

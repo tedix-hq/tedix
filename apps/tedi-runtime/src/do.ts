@@ -791,6 +791,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			},
 			admitInferenceTurn: (...args) => parent.admitInferenceTurn(...args),
 			tediAigMetadata: (...args) => parent.tediAigMetadata(...args),
+			observerBeforeDispatch: (...args) =>
+				parent.observerBeforeDispatch(...args),
 			get sessionHarness() {
 				return parent.sessionHarness;
 			},

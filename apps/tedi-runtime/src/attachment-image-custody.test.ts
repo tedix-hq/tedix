@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { resolveTurnImageParts } from "@tedix/voice/stt";
+import { describeTurnImages } from "./image-description";
 import { runtimeFacetTurns } from "./runtime-facet-turns";
 
 const pixel =
@@ -29,7 +31,8 @@ const admitted = await runtimeFacetTurns.resolveAttachmentTurn.call(
 );
 assert.equal(admitted.images.length, 1);
 
-// Without custody the delegated turn still runs and names the image.
+// Without custody the delegated turn still runs and names the image, even
+// when the description request cannot be made.
 const unadmitted = await runtimeFacetTurns.resolveAttachmentTurn.call(
 	host(false),
 	"fix the loading ui",
@@ -38,5 +41,24 @@ const unadmitted = await runtimeFacetTurns.resolveAttachmentTurn.call(
 assert.deepEqual(unadmitted.images, []);
 assert.match(unadmitted.content, /fix the loading ui/);
 assert.match(unadmitted.content, /Screenshot\.png/);
+
+// The vision request carries the image itself and its answer becomes text.
+const [image] = resolveTurnImageParts(screenshot).images;
+let sent: string[] = [];
+const described = await describeTurnImages([image!], async ({ images }) => {
+	sent = images;
+	return JSON.stringify({
+		images: [{ description: "A spinner overlaps the card titles." }],
+	});
+});
+assert.equal(sent.length, 1);
+assert.match(sent[0]!, /^data:image\/png;base64,/);
+assert.match(described, /Screenshot\.png/);
+assert.match(described, /spinner overlaps the card titles/);
+
+// A malformed answer falls back to the file-name note.
+const fellBack = await describeTurnImages([image!], async () => "not json");
+assert.match(fellBack, /Attachments received/);
+assert.match(fellBack, /Screenshot\.png/);
 
 console.log("attachment-image-custody: ok");
