@@ -12,7 +12,6 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { BorderBeam } from "./magicui/BorderBeam.tsx";
 import { Particles } from "./magicui/Particles.tsx";
-import { BlurFade } from "./magicui/BlurFade.tsx";
 import { AnimatedGradientText } from "./magicui/AnimatedGradientText.tsx";
 import { LogoMarquee } from "./landing/LogoMarquee";
 import { TextAnimate } from "./magicui/TextAnimate.tsx";
@@ -92,7 +91,7 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
         <HeroBrain client:only="react" variant="mobile" className="overflow-hidden" />
       </div>
       <div class="max-w-xl lg:max-w-2xl">
-        <BlurFade client:only="react" delay={0.3} direction="up">
+        <div class="hero-reveal" style="--hero-reveal-delay: 0.34s">
           <h1 class="mb-8 font-bold font-display text-4xl leading-[1.08] tracking-tight sm:text-5xl md:text-6xl lg:text-[4.5rem]">
             <span class="text-foreground dark:text-white/95">{t.hero.line1}</span>
             <br />
@@ -100,9 +99,9 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
             <br />
             <span class="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-orange-500 bg-clip-text text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-orange-400">{t.hero.line3}</span>
           </h1>
-        </BlurFade>
+        </div>
 
-        <BlurFade client:only="react" delay={0.45} direction="up">
+        <div class="hero-reveal" style="--hero-reveal-delay: 0.49s">
           <p class="mb-5 max-w-lg font-semibold text-xl leading-snug text-foreground md:text-2xl dark:text-white/90">
             {t.hero.subtitleIntro}{" "}
             <span class="bg-gradient-to-r from-violet-600 via-fuchsia-500 to-orange-500 bg-clip-text text-transparent dark:from-violet-400 dark:via-fuchsia-400 dark:to-orange-400">
@@ -112,9 +111,9 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
           <p class="mb-12 max-w-lg text-base leading-relaxed text-muted-foreground dark:text-white/60">
             {t.hero.description}
           </p>
-        </BlurFade>
+        </div>
 
-        <BlurFade client:only="react" delay={0.6} direction="up">
+        <div class="hero-reveal" style="--hero-reveal-delay: 0.64s">
           <div class="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
             <div class="cta-pulse-ring w-full sm:w-fit">
               <LinkButton href={primaryHeroHref} size="lg" className="w-full sm:w-auto">
@@ -126,7 +125,7 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
               {t.hero.secondaryCta}
             </a>
           </div>
-        </BlurFade>
+        </div>
 
       </div>
     </div>
@@ -134,7 +133,7 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
     <!-- Invite-Only badge — bottom right -->
     <div class="hero-composition-frame pointer-events-none absolute inset-y-0 left-1/2 z-30 hidden -translate-x-1/2 lg:block">
       <div class="absolute right-[8%] bottom-[12%]">
-        <BlurFade client:only="react" delay={1} direction="up">
+        <div class="hero-reveal" style="--hero-reveal-delay: 1.04s">
           <div class="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/30 bg-fuchsia-500/15 px-4 py-1.5 shadow-[0_0_20px_rgba(217,70,239,0.25)] backdrop-blur-sm">
             <span class="relative flex h-2 w-2">
               <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-fuchsia-400 opacity-75"></span>
@@ -142,7 +141,7 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
             </span>
             <span class="text-xs font-semibold text-fuchsia-600 tracking-wide dark:text-fuchsia-300">{t.hero.betaBadge}</span>
           </div>
-        </BlurFade>
+        </div>
       </div>
     </div>
 
@@ -1089,6 +1088,14 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+/* Hero copy is server-rendered so its height is reserved before hydration; only paint properties animate. */
+@keyframes heroReveal {
+  from { opacity: 0; transform: translateY(6px); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+.hero-reveal {
+  animation: heroReveal 0.4s ease-out var(--hero-reveal-delay, 0s) both;
+}
 .challenge-title {
   animation: challengeTitleIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -1116,7 +1123,8 @@ const challenge = (t as typeof t & { challenge?: ChallengeContent }).challenge;
 @media (prefers-reduced-motion: reduce) {
   .cta-flow-card::before,
   .cta-flow-bridge,
-  .cta-pulse-ring {
+  .cta-pulse-ring,
+  .hero-reveal {
     animation: none;
   }
 }
