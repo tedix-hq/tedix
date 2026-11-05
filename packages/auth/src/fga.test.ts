@@ -155,13 +155,13 @@ describe("app assignment checks", () => {
 		).resolves.toEqual([]);
 	});
 
-	it("keeps a grant answered with blank types or repeated identically", async () => {
+	it("keeps a grant answered with unset types or repeated identically", async () => {
 		const tuple = {
 			resource: "app-a",
 			target: "user-a",
 			relation: "operator",
-			resourceType: "",
-			targetType: "",
+			resourceType: "app",
+			targetType: "none",
 		};
 		const client = checkClientReturning({
 			ok: true,
