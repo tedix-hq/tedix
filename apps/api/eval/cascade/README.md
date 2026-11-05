@@ -24,18 +24,10 @@ The controller awaits this validator and supplies the request, source excerpts
 and full proposal, including prose. A rejected check stops further inference;
 a negative check escalates or abstains. The host validator remains to be wired.
 
-`dispatchCascadeJev` in `decision-cascade-jev.ts` implements the judgment send
-through `executeJevJudgment`. It requests a label choice and bounded citation
-choices in one admitted call, never a brief. Its receipt is published only after
-the canonical usage write settles, retaining the actual resolved model and
-governed cost. A rejected paid response retains its receipt with unknown model;
-missing receipts stop further spending. Citation choices remain advisory until
-the host validates semantic support, access and freshness. This adapter has
-source tests only; it has not been exercised against a live provider.
-
-Typed admission/budget/accounting denials stop the controller. Unavailable and
-uncertain judgments escalate only when all receipt attribution is known.
-No proposal authorizes execution. Reserved acts
+An adapter must translate Jev's bounded answers into the judgment schema. It
+must not request free-form briefs from Jev. Typed admission/budget/accounting
+denials stop the controller; unavailable and uncertain judgments escalate to
+the configured strong model. No proposal authorizes execution. Reserved acts
 return to their designated owner before inference. Roll back by selecting the
 previous immutable policy revision or setting `mode` to `off`.
 
@@ -74,8 +66,7 @@ sanitized verified measurements and retain the corpus digest and configuration
 revision in the associated OS evidence. It must not be replaced with test-double
 results described as provider measurements.
 
-Remaining implementation: admitted prose adapters, host citation validation,
-live runner wiring and calibration, production routing behind measured promotion,
-removal of any remaining caller-owned model policy, and a
+Remaining implementation: admitted live adapters, production routing behind
+measured promotion, removal of any remaining caller-owned model policy, and a
 verified optimizer receipt only when an eligible executor/model really changes.
 No optimizer application is implemented or claimed here.

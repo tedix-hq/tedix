@@ -2,7 +2,7 @@ import { providerDeploymentScope } from "@tedix/api-contract/schemas/provider-ex
 import type { NewTediCallCost } from "@tedix/db/schema/tedis";
 import type { DbClient } from "@tedix/db/client";
 import { insertCallCosts } from "@tedix/db/queries/tedi-usage";
-import { callJev, JEV_MODEL, JevResponseError } from "@tedix/workers-ai/jev";
+import { callJev, JevResponseError } from "@tedix/workers-ai/jev";
 import { resolveProviderModelRate } from "./provider-model-pricing";
 import {
 	computeCostMicros,
@@ -27,14 +27,6 @@ export class JevUsagePersistenceError extends Error {
 	}
 }
 
-export interface JevUsageReceipt {
-	executionId: string;
-	requestedModel: string;
-	resolvedModel: string | null;
-	latencyMs: number;
-	costMicros: number | null;
-}
-
 export interface JevJudgmentInput<
 	Q extends Record<string, JevQuestion>,
 > extends JevRequest<Q> {
@@ -48,8 +40,6 @@ export interface JevJudgmentInput<
 	model?: DecisionModel;
 	transport?: "cloudflare" | "direct";
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
-	/** Published only after the canonical paid-usage row is durable. */
-	onUsagePersisted?: (receipt: JevUsageReceipt) => void;
 	/** A real Worker/DO lifetime holder; admission remains awaited. */
 	holdUsagePersistence?: (work: Promise<void>) => void;
 }
@@ -130,8 +120,8 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 			input_tokens: number;
 			output_tokens: number;
 		},
-		resolvedModel: string | undefined,
-		callDurationMs: number,
+		resolvedModel?: string,
+		callDurationMs?: number,
 	) {
 		const attempt = attempts.at(-1);
 		if (!attempt || !admitted?.executionId)
@@ -192,13 +182,7 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 		for (let retry = 0; retry < 3; retry++) {
 			try {
 				await insertCallCosts(db, [row]);
-				return {
-					executionId: admitted.executionId,
-					requestedModel: model ?? JEV_MODEL,
-					resolvedModel: resolvedModel ?? null,
-					latencyMs: callDurationMs,
-					costMicros: micros === null ? null : Number(micros),
-				} satisfies JevUsageReceipt;
+				return;
 			} catch {
 				if (retry < 2)
 					await new Promise((resolve) =>
@@ -238,11 +222,7 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 			timeoutMs,
 		});
 		callDurationMs = Math.max(0, performance.now() - callStartedAt);
-		const persistence = recordUsage(
-			result.usage,
-			result.model,
-			callDurationMs,
-		).then((receipt) => input.onUsagePersisted?.(receipt));
+		const persistence = recordUsage(result.usage, result.model, callDurationMs);
 		if (input.holdUsagePersistence)
 			input.holdUsagePersistence(persistence.catch(() => undefined));
 		else await persistence;
@@ -251,11 +231,7 @@ export async function executeJevJudgment<Q extends Record<string, JevQuestion>>(
 		if (error instanceof JevUsagePersistenceError) throw error;
 		if (error instanceof JevResponseError && error.usage) {
 			callDurationMs ??= Math.max(0, performance.now() - callStartedAt);
-			const persistence = recordUsage(
-				error.usage,
-				undefined,
-				callDurationMs,
-			).then((receipt) => input.onUsagePersisted?.(receipt));
+			const persistence = recordUsage(error.usage, undefined, callDurationMs);
 			if (input.holdUsagePersistence)
 				input.holdUsagePersistence(persistence.catch(() => undefined));
 			else await persistence;
