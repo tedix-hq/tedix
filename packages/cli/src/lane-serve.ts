@@ -488,6 +488,18 @@ interface SkillRevisionProof {
 
 class LaneSkillProofReadError extends Error {}
 
+/**
+ * The owner revised the Work while this runner prepared the old revision.
+ * Not an execution failure: the next poll admits the new revision.
+ */
+class WorkRevisedDuringPreparationError extends Error {
+	constructor(prepared: number, current: unknown) {
+		super(
+			`Work revised from ${prepared} to ${String(current)} while this runner prepared it; the new revision is admitted next. No model turn launched`,
+		);
+	}
+}
+
 function permanentSkillProofFailure(error: unknown): boolean {
 	if (!(error instanceof CliReadError)) return false;
 	return (
@@ -1481,20 +1493,22 @@ export class LaneDispatcher {
 				) {
 					previous.phase = "deferred";
 				}
+				if (this.running.has(item.id) || this.maintenance.has(item.id)) {
+					// A newer revision waits for this runner's in-flight preparation,
+					// which re-reads the Work and stops before admission.
+					this.log("skipped", item.id, "Already preparing or running here");
+					continue;
+				}
 				if (
-					this.running.has(item.id) ||
-					this.maintenance.has(item.id) ||
-					(previous &&
-						(previous.admissionState === "unknown" ||
-							previous.held ||
-							(previous.attemptId && previous.phase !== "deferred") ||
-							!["deferred", "failed", "preparing"].includes(previous.phase) ||
-							(previous.pid &&
-								alive(previous.pid) &&
-								!previousProcessFinished) ||
-							Date.now() < (previous.retryAt ?? 0) ||
-							((previous.retries ?? 0) >= 5 &&
-								Date.now() < (previous.retryDeadlineAt ?? 0))))
+					previous &&
+					(previous.admissionState === "unknown" ||
+						previous.held ||
+						(previous.attemptId && previous.phase !== "deferred") ||
+						!["deferred", "failed", "preparing"].includes(previous.phase) ||
+						(previous.pid && alive(previous.pid) && !previousProcessFinished) ||
+						Date.now() < (previous.retryAt ?? 0) ||
+						((previous.retries ?? 0) >= 5 &&
+							Date.now() < (previous.retryDeadlineAt ?? 0)))
 				) {
 					this.log(
 						"skipped",
@@ -1950,6 +1964,21 @@ export class LaneDispatcher {
 				throw new Error(
 					`Admission not ready: ${JSON.stringify(readiness.reasons)}`,
 				);
+			// Preparation can take minutes. Admission fences the revision current
+			// at start, so an edit meanwhile would admit a revision this brief was
+			// not built from. Re-read and stop before any Attempt exists.
+			const current = await this.call<{ workItem?: DispatchItem }>([
+				"work",
+				"dispatch-get",
+				item.id,
+				"--input",
+				"{}",
+			]);
+			if (current.workItem?.version !== item.version)
+				throw new WorkRevisedDuringPreparationError(
+					item.version,
+					current.workItem?.version,
+				);
 			receipt.admissionState = "unknown";
 			this.save(path, receipt);
 			admissionSent = true;
@@ -1983,8 +2012,9 @@ export class LaneDispatcher {
 			this.save(path, receipt);
 			this.finishPreparation(candidate.id);
 			if (started.workItem.version !== item.version)
-				throw new Error(
-					"Work changed during admission; no model turn launched",
+				throw new WorkRevisedDuringPreparationError(
+					item.version,
+					started.workItem.version,
 				);
 			let leaseExpiry = Date.parse(started.attempt.expiresAt);
 			if (!Number.isFinite(leaseExpiry) || leaseExpiry <= Date.now())
@@ -2262,7 +2292,11 @@ export class LaneDispatcher {
 			if (receipt.outcome !== "expired")
 				receipt.pendingCommitProof = finalMessage;
 		} catch (error) {
-			receipt.outcome = receipt.interrupted ? "expired" : "failed";
+			receipt.outcome = receipt.interrupted
+				? "expired"
+				: error instanceof WorkRevisedDuringPreparationError
+					? "cancelled"
+					: "failed";
 			if (
 				!admitted &&
 				admissionSent &&
@@ -2295,7 +2329,13 @@ export class LaneDispatcher {
 					!awaitsOwnerApproval(error) &&
 					!nativePreparationTimedOut(receipt);
 			}
-			this.log("skipped-or-failed", candidate.id, receipt.note);
+			this.log(
+				error instanceof WorkRevisedDuringPreparationError
+					? "superseded"
+					: "skipped-or-failed",
+				candidate.id,
+				receipt.note,
+			);
 			if (!admitted && receipt.held && !receipt.failureCommented) {
 				// Persist before sending: an uncertain comment response must not cause duplicates.
 				receipt.failureCommented = true;

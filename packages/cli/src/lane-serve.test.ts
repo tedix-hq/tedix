@@ -3319,6 +3319,72 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 	});
+	it("stops before admission when the owner revises Work during preparation, then admits the new revision", async () => {
+		const { dispatcher, dir, items, control, events, releases } = fixture();
+		items.splice(1);
+		let openGate!: () => void;
+		control.preparationGate = {
+			itemId: item(1).id,
+			open: new Promise<void>((done) => {
+				openGate = done;
+			}),
+		};
+		const starts = () =>
+			events.filter((e) => e.verb === "start" && e.args[4] === "work");
+		await dispatcher.tick();
+		await until(() =>
+			events.some((e) => e.verb === "show" && e.args.includes("--file")),
+		);
+		await new Promise((done) => setTimeout(done, 10));
+		// The owner edits the brief while the native thread is still starting.
+		items[0]!.version = 3;
+		await dispatcher.tick();
+		expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+			"Already preparing or running here",
+		);
+		openGate();
+		await dispatcher.drain();
+		expect(starts()).toHaveLength(0);
+		expect(events.filter((e) => e.verb === "settle")).toHaveLength(0);
+		expect(
+			JSON.parse(readFileSync(join(dir, `${item(1).id}-2.json`), "utf8")),
+		).toMatchObject({ phase: "deferred", admissionState: "not_sent" });
+		expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+			'"event":"superseded"',
+		);
+		control.preparationGate = undefined;
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		expect(starts()).toHaveLength(1);
+		expect(starts()[0]!.input?.metadata).toMatchObject({ dispatchVersion: 3 });
+		releases[0]!();
+		await dispatcher.drain();
+	});
+	it("cancels, not fails, an Attempt admitted on a revision that landed during start, then admits it", async () => {
+		const { restart, deps, items, events, releases } = fixture();
+		items.splice(1);
+		const cli = deps.cli!;
+		let raced = false;
+		deps.cli = async (args, env) => {
+			if (!raced && args[4] === "work" && args[5] === "start") {
+				raced = true;
+				items[0]!.version = 3;
+			}
+			return cli(args, env);
+		};
+		const dispatcher = restart();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		const settles = events.filter((e) => e.verb === "settle");
+		expect(settles).toHaveLength(1);
+		expect(settles[0]!.args).toContain("cancelled");
+		expect(settles[0]!.input?.metadata).toMatchObject({ dispatchVersion: 2 });
+		expect(releases).toHaveLength(0);
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+	});
 	it("does nothing during dark wake", async () => {
 		const { dispatcher, events } = fixture({ dark: true });
 		await dispatcher.tick();
