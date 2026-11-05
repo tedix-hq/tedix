@@ -10,7 +10,7 @@ import {
 import { cliRead, type ReadJson } from "./hooks/hook-io";
 import { RemoteJobRecordSchema, type RemoteJobEvidence } from "./remote-job";
 
-const ScopeSchema = z.strictObject({
+export const RemoteJobWorkScopeSchema = z.strictObject({
 	workspace: z.string().min(1),
 	organization: z.string().min(1),
 	organizationId: z.uuid(),
@@ -22,15 +22,17 @@ const ScopeSchema = z.strictObject({
 	senderUserId: z.string().min(1),
 	workUrl: z.url().refine((url) => new URL(url).protocol === "https:"),
 });
-export type RemoteJobWorkScope = z.infer<typeof ScopeSchema>;
+export type RemoteJobWorkScope = z.infer<typeof RemoteJobWorkScopeSchema>;
 
 /** Uses the held CLI identity and Attempt; never admits, heartbeats or settles one. */
 export function workRemoteJobEvidence(
 	input: RemoteJobWorkScope,
 	read: ReadJson = cliRead,
 	env: NodeJS.ProcessEnv = process.env,
-): RemoteJobEvidence {
-	const scope = ScopeSchema.parse(input);
+): RemoteJobEvidence & {
+	verifyAttempt(): Promise<z.infer<typeof WorkAttemptSchema>>;
+} {
+	const scope = RemoteJobWorkScopeSchema.parse(input);
 	if (
 		env.TEDIX_AGENT_SESSION !== scope.agentSession ||
 		env.TEDIX_EXTERNAL_AGENT !== scope.externalAgent
@@ -46,7 +48,45 @@ export function workRemoteJobEvidence(
 		cwd: homedir(),
 		env: { ...env },
 	};
+	async function verifyAttempt() {
+		const history = await read(
+			[
+				...selectors,
+				"work",
+				"dispatch-attempts",
+				"--input",
+				JSON.stringify({ id: scope.workItemId, limit: 1 }),
+				"--json",
+			],
+			60_000,
+			undefined,
+			options,
+		);
+		const attempt = z
+			.object({ data: z.array(WorkAttemptSchema).min(1) })
+			.parse(history).data[0]!;
+		if (
+			attempt.id !== scope.attemptId ||
+			attempt.orgId !== scope.organizationId ||
+			attempt.workItemId !== scope.workItemId ||
+			attempt.executorType !== "external_agent" ||
+			attempt.executorId !== scope.executorId ||
+			attempt.externalSessionKey !== scope.agentSession ||
+			attempt.runtimeState !== "running" ||
+			attempt.outcome !== null ||
+			!attempt.admissionId ||
+			!attempt.executorSessionId ||
+			!attempt.expiresAt ||
+			Date.parse(attempt.expiresAt) <= Date.now()
+		) {
+			throw new Error(
+				"Current admitted Attempt and lease could not be verified",
+			);
+		}
+		return attempt;
+	}
 	return {
+		verifyAttempt,
 		async publish(value, snapshotDigest) {
 			const record = RemoteJobRecordSchema.parse(value);
 			if (
@@ -63,40 +103,7 @@ export function workRemoteJobEvidence(
 			) {
 				throw new Error("Remote job does not match the held Work scope");
 			}
-			const history = await read(
-				[
-					...selectors,
-					"work",
-					"dispatch-attempts",
-					"--input",
-					JSON.stringify({ id: scope.workItemId, limit: 1 }),
-					"--json",
-				],
-				60_000,
-				undefined,
-				options,
-			);
-			const attempt = z
-				.object({ data: z.array(WorkAttemptSchema).min(1) })
-				.parse(history).data[0]!;
-			if (
-				attempt.id !== scope.attemptId ||
-				attempt.orgId !== scope.organizationId ||
-				attempt.workItemId !== scope.workItemId ||
-				attempt.executorType !== "external_agent" ||
-				attempt.executorId !== scope.executorId ||
-				attempt.externalSessionKey !== scope.agentSession ||
-				attempt.runtimeState !== "running" ||
-				attempt.outcome !== null ||
-				!attempt.admissionId ||
-				!attempt.executorSessionId ||
-				!attempt.expiresAt ||
-				Date.parse(attempt.expiresAt) <= Date.now()
-			) {
-				throw new Error(
-					"Current admitted Attempt and lease could not be verified",
-				);
-			}
+			const attempt = await verifyAttempt();
 			const claimKey = `remote-job:${job.jobId}:${z
 				.string()
 				.regex(/^[a-f0-9]{64}$/)

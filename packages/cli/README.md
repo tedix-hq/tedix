@@ -655,6 +655,42 @@ normal identity and Attempt fences remain mandatory.
 `work dispatcher-health-list` reads the current organization-scoped reports;
 `dispatcher-health-record --input <json>` is the supervisor's reporting path.
 
+### Controlled remote email jobs
+
+`tedix lane remote-job send|receive --input <file> -w <profile> --organization <org>`
+runs one explicit Instinct email pass under the caller's existing admitted
+Attempt. It never starts, heartbeats or settles an Attempt. `lane serve`
+continues to dispatch local executors; it does not poll these remote jobs.
+
+The private JSON input contains `scope`, `job`, `memberId` and `tediId`.
+`scope` names `workspace`, `organization`, `organizationId`, `workItemId`,
+`attemptId`, `executorId`, `agentSession`, `externalAgent`, `senderUserId` and
+an HTTPS `workUrl`. Use the current admitted executor and Attempt, with the
+matching `TEDIX_AGENT_SESSION` and `TEDIX_EXTERNAL_AGENT` environment values.
+`job` contains the same organization, Work, Attempt and sender IDs, plus
+`jobId` (a UUID retained across passes), `adapter: "instinct-email"`,
+`recipient` (the explicitly authorized member test mailbox) and `brief`.
+`memberId` identifies that active external-agent organization member; `tediId`
+identifies the sending and receiving tedi mailbox. The member must represent
+the human Work owner. Keep real IDs and mailbox addresses out of source.
+
+Send records intent in Work evidence before calling the mail provider and
+requires a confirmed provider receipt. The email asks for separate JSON
+heartbeat and result replies in the same thread. Receive reads that exact
+thread without marking mail read, requires the ingress's authenticated sender
+trust and the member's exact email, and records correlated events in Work
+evidence. Local files under the CLI configuration directory's `remote-jobs/`
+are recovery buffers; the Work evidence ledger retains the result.
+
+The command prints the current record as JSON. `sent` means the provider
+accepted the message; it does not prove delivery or a result. No reply leaves
+the record pending. A `sending` or `unknown` record, or an uncertain evidence
+publication, requires reconciliation; repeating the command never resends the
+job automatically. Keep its input and recovery record until reconciled.
+WhatsApp remains an explicit computer-use fallback, never an automatic resend
+after an unknown email outcome. Cloud transports and ordered live proofs
+remain separate requirements; this command does not configure them.
+
 ### Commit handoff (experimental)
 
 A cloud session transfers one validated commit with one CLI invocation:
