@@ -13,6 +13,7 @@ import { evaluationOutputShape } from "./evaluation-evidence";
 const identity = { provider: "fixture", model: "judge" };
 function fixture(
 	options: {
+		emptyOutput?: boolean;
 		unknownUsage?: boolean;
 		missingRun?: boolean;
 		changeRun?: boolean;
@@ -38,11 +39,13 @@ function fixture(
 			order.push("dispatch");
 			dispatched = input;
 			if (options.changeRun) runId = "run-2";
-			const parts: LanguageModelV2StreamPart[] = [
-				{ type: "text-start", id: "answer" },
-				{ type: "text-delta", id: "answer", delta: "owned verdict" },
-				{ type: "text-end", id: "answer" },
-			];
+			const parts: LanguageModelV2StreamPart[] = options.emptyOutput
+				? []
+				: [
+						{ type: "text-start", id: "answer" },
+						{ type: "text-delta", id: "answer", delta: "owned verdict" },
+						{ type: "text-end", id: "answer" },
+					];
 			if (!options.unknownUsage)
 				parts.push({
 					type: "finish",
@@ -106,6 +109,19 @@ function fixture(
 		},
 	});
 	return { models, order, outcomes, usage, dispatched: () => dispatched };
+}
+{
+	const f = fixture({ emptyOutput: true });
+	const answer = await run(f);
+	assert.equal(answer.stopReason, "stop");
+	assert.deepEqual(answer.content, []);
+	assert.deepEqual((f.outcomes[0] as { outputShape?: unknown }).outputShape, {
+		measurementBoundary: "pi-adapter-final-assistant-message-v1",
+		textPartCount: 0,
+		textChars: 0,
+		reasoningPartCount: 0,
+		reasoningChars: 0,
+	});
 }
 async function run(
 	f: ReturnType<typeof fixture>,

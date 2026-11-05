@@ -236,7 +236,7 @@ export interface EvaluationOutcome {
 	finishReason: string;
 	responseId: string | null;
 	responseModel: string | null;
-	outputShape?: EvaluationOutputShape;
+	outputShape: EvaluationOutputShape | null;
 	usage: {
 		inputTokens: number | null;
 		outputTokens: number | null;
@@ -329,8 +329,7 @@ export async function recordEvaluationOutcome(
 			`${input.providerAttempt.runId}:artifact:v2:evaluation-context:${input.providerAttempt.attemptId}` ||
 		!/^[a-f0-9]{64}$/.test(prepared.finalInputSha256) ||
 		!prepared.conversationId ||
-		(input.outputShape !== undefined &&
-			!isEvaluationOutputShape(input.outputShape))
+		(input.outputShape !== null && !isEvaluationOutputShape(input.outputShape))
 	)
 		throw new Error("Evaluation model receipt has invalid bound evidence");
 	await host.platform.recordRuntimeEvent({
@@ -348,7 +347,7 @@ export async function recordEvaluationOutcome(
 			responseId: input.responseId,
 			responseModel: input.responseModel,
 			usage: input.usage,
-			...(input.outputShape ? { outputShape: input.outputShape } : {}),
+			outputShape: input.outputShape,
 			dispatched: true,
 		},
 		runtime: { backend: "cloudflare-agents" },
