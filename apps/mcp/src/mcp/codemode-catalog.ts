@@ -10,6 +10,7 @@ import {
 import {
 	type CatalogToolEntry,
 	type CatalogPageEntry,
+	SHARED_CATALOG_PROJECTION,
 	codeModeCollisionOwners,
 	callerTediNamespace,
 	projectedToolIdentity,
@@ -40,7 +41,7 @@ import {
 } from "./codemode-result-store";
 import { resolveCodeModeResultBudget } from "./codemode-results";
 import { createNativeDescriptorLookup } from "./registration/bootstrap";
-import { isToolDeniedForConnection } from "./no-funds-policy";
+import { hasNoFundsRestriction, isNoFundsToolDenied } from "./no-funds-policy";
 import { recordFrom, UI_NAMESPACE, UI_CATALOG_TOOLS } from "./codemode-ui";
 import { getToolPaymentPolicy } from "./payments-policy";
 import { evaluateMcpToolScopeAuthorization } from "./codemode-auth";
@@ -438,6 +439,10 @@ export function buildCatalogProvider(
 	// Connect mounts several organizations; each mounted tool records its own.
 	const namespaceOrganizations = new Map<string, string>();
 
+	// Connection-level denial is constant for the whole pass; only the per-tool
+	// financial check varies.
+	const connectionRestricted = hasNoFundsRestriction(serverCtx);
+
 	for (const [toolId, tool] of serverCtx.loadedTools) {
 		const {
 			namespace: ns,
@@ -445,7 +450,7 @@ export function buildCatalogProvider(
 			ownerKey,
 		} = projectedToolIdentity(toolId, tool, namespaceOverrides);
 		if (collisionKeys.has(ownerKey)) continue;
-		if (isToolDeniedForConnection(serverCtx, tool)) {
+		if (connectionRestricted && isNoFundsToolDenied(tool)) {
 			policyHidden.set(
 				ownerKey,
 				typeof tool.config?._aggregateTediSlug === "string"
@@ -499,15 +504,18 @@ export function buildCatalogProvider(
 				? { organization: toolOrganizationId }
 				: {}),
 		};
-		Object.defineProperty(primaryEntry, CALLER_CATALOG_STATE, {
-			value: {
-				serverCtx,
-				tool,
-				namespace: ns,
-				describeNativeTool,
-			} satisfies CallerCatalogState,
+		Object.defineProperties(primaryEntry, {
+			...CALLER_CATALOG_PROPERTIES,
+			[CALLER_CATALOG_STATE]: {
+				value: {
+					serverCtx,
+					tool,
+					namespace: ns,
+					describeNativeTool,
+				} satisfies CallerCatalogState,
+			},
+			[SHARED_CATALOG_PROJECTION]: { value: projection },
 		});
-		Object.defineProperties(primaryEntry, CALLER_CATALOG_PROPERTIES);
 		catalog[ns][safeName] = primaryEntry;
 	}
 
@@ -560,6 +568,16 @@ export function buildCatalogProvider(
 		const entries = Object.values(catalog[ns] ?? {});
 		return entries.length === 0 || entries.some((entry) => !entry.aliasOf);
 	});
+	// localeCompare per comparison dominated the ranked sort at catalog scale;
+	// a precomputed rank map preserves the same ordering with integer compares.
+	// The skills namespace is folded into ranked results without being a
+	// catalog key, so it joins the map explicitly.
+	const namespaceRank = new Map(
+		[...new Set([...namespaces, "skills"])]
+			.sort((a, b) => a.localeCompare(b))
+			.map((ns, rank) => [ns, rank]),
+	);
+	let freshnessMeta: ReturnType<typeof catalogFreshnessMeta> | undefined;
 	const namespaceSummary = canonicalNamespaces
 		.map((ns) => `${ns} (${Object.keys(catalog[ns] ?? {}).length} tools)`)
 		.join(", ");
@@ -612,7 +630,9 @@ export function buildCatalogProvider(
 							executionRefs.discoverParameterRequests += 1;
 						}
 					}
-					const freshnessMeta = catalogFreshnessMeta(catalog, catalogBuiltAt);
+					// Freshness reads every row; the snapshot is fixed per build,
+					// so the result is computed once and shared across calls.
+					freshnessMeta ??= catalogFreshnessMeta(catalog, catalogBuiltAt);
 					// A namespace filter is either honored or explicitly rejected —
 					// never silently ignored (agents cannot distinguish a dropped
 					// argument from an empty catalog). This throws rather than
@@ -793,7 +813,8 @@ export function buildCatalogProvider(
 						if (delta !== 0) return delta;
 						return a.namespace === b.namespace
 							? a.tool.localeCompare(b.tool)
-							: a.namespace.localeCompare(b.namespace);
+							: (namespaceRank.get(a.namespace) ?? 0) -
+									(namespaceRank.get(b.namespace) ?? 0);
 					});
 					const rankDiscovery: DiscoveryRanker | undefined =
 						serverCtx.apiClient?.cognitiveRuntime?.rankDiscovery;

@@ -2,6 +2,7 @@ import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { recordFrom } from "./codemode-ui";
 import {
 	type CatalogToolEntry,
+	SHARED_CATALOG_PROJECTION,
 	workflowTediOwners,
 	tediNativeInterfaceGroups,
 	isTediNativeInterfaceTool,
@@ -141,6 +142,13 @@ export function paginateCatalog(
 	const roleGroups = keepAliasEntries
 		? null
 		: tediNativeInterfaceGroups(catalog, preferredTediNamespace);
+	// localeCompare per comparison dominated this sort at catalog scale; a
+	// precomputed rank map preserves the same ordering with integer compares.
+	const namespaceRank = new Map(
+		Object.keys(catalog)
+			.sort((a, b) => a.localeCompare(b))
+			.map((ns, rank) => [ns, rank]),
+	);
 	const entries = Object.entries(catalog)
 		.flatMap(([namespace, tools]) =>
 			Object.entries(tools).flatMap(([tool, meta]) => {
@@ -180,7 +188,8 @@ export function paginateCatalog(
 		.sort((a, b) =>
 			a.namespace === b.namespace
 				? a.tool.localeCompare(b.tool)
-				: a.namespace.localeCompare(b.namespace),
+				: (namespaceRank.get(a.namespace) ?? 0) -
+					(namespaceRank.get(b.namespace) ?? 0),
 		);
 	return paginateCatalogEntries(
 		entries,
@@ -348,31 +357,28 @@ type SchemaIndex = {
 	matches: Map<string, { matched: boolean; spent: number }>;
 };
 
-// Query-owned, bounded indexes avoid repeatedly enumerating or walking a shared
-// vendor schema. Catalog schemas belong to an immutable revision snapshot for
-// the query. Tiny records are cheaper to read directly and do not evict wide
-// ones.
-const schemaIndexesByQuery = new WeakMap<string[], Map<object, SchemaIndex>>();
+// Record-owned, bounded indexes avoid repeatedly enumerating or walking a shared
+// vendor schema. Catalog schemas belong to an immutable revision snapshot that
+// servers sharing the source rows also share, so memoizing per record — not per
+// query — lets later searches and later servers skip a walk outright. Wide
+// records keep a match memo; the schema root is always indexed since it is the
+// entry point every search walks through.
+const schemaIndexes = new WeakMap<object, SchemaIndex>();
 
 function schemaIndex(
 	value: Record<string, unknown>,
-	terms: string[],
-): SchemaIndex {
-	const cached = schemaIndexesByQuery.get(terms);
-	const hit = cached?.get(value);
+	force = false,
+): SchemaIndex | undefined {
+	const hit = schemaIndexes.get(value);
 	if (hit) return hit;
 	// Even an empty key costs three characters in the schema prefix budget.
 	const keys = Object.keys(value).slice(
 		0,
 		Math.ceil(CATALOG_SEARCH_PARAMETERS_CHARS / 3),
 	);
+	if (!force && keys.length <= 64) return undefined;
 	const index = { keys, matches: new Map() };
-	if (keys.length > 64) {
-		const entries = cached ?? new Map<object, SchemaIndex>();
-		if (entries.size >= 16) entries.delete(entries.keys().next().value!);
-		entries.set(value, index);
-		schemaIndexesByQuery.set(terms, entries);
-	}
+	schemaIndexes.set(value, index);
 	return index;
 }
 
@@ -389,12 +395,11 @@ function cacheSchemaMatch(
  * Walk the input schema's keys and scalar values in document order, charging
  * each against the same prefix budget the serialized schema used to have.
  */
-function schemaContains(
-	schema: unknown,
-	term: PreparedSearchTerm,
-	terms: string[],
-): boolean {
+function schemaContains(schema: unknown, term: PreparedSearchTerm): boolean {
 	let budget = CATALOG_SEARCH_PARAMETERS_CHARS;
+	// The first record visited is the schema root itself: it is the entry point
+	// of every search over this row, so its walk outcome is always memoized.
+	let root = true;
 	// Containers are visited through cursors, so a wide schema is read only as
 	// far as the budget reaches. A record cursor yields each key, then its value.
 	const cursors: SchemaCursor[] = [{ items: [schema], keys: null, index: 0 }];
@@ -446,28 +451,32 @@ function schemaContains(
 			cursors.push({ items: value, keys: null, index: 0 });
 		} else if (isRecord(value)) {
 			budget -= 2;
-			const indexed = schemaIndex(value, terms);
-			const cacheKey = `${term.cacheKey}:${budget}`;
-			const cached = indexed.matches.get(cacheKey);
-			if (cached) {
-				if (cached.matched) return true;
-				budget -= cached.spent;
-				continue;
+			const indexed = schemaIndex(value, root);
+			const keys =
+				indexed?.keys ??
+				Object.keys(value).slice(
+					0,
+					Math.ceil(CATALOG_SEARCH_PARAMETERS_CHARS / 3),
+				);
+			if (indexed) {
+				const cacheKey = `${term.cacheKey}:${budget}`;
+				const cached = indexed.matches.get(cacheKey);
+				if (cached) {
+					if (cached.matched) return true;
+					budget -= cached.spent;
+					root = false;
+					continue;
+				}
+				cursors.push({
+					items: value,
+					keys,
+					index: 0,
+					indexed: { index: indexed, key: cacheKey, startBudget: budget },
+				});
+			} else {
+				cursors.push({ items: value, keys, index: 0 });
 			}
-			cursors.push({
-				items: value,
-				keys: indexed.keys,
-				index: 0,
-				...(indexed.keys.length > 64
-					? {
-							indexed: {
-								index: indexed,
-								key: cacheKey,
-								startBudget: budget,
-							},
-						}
-					: {}),
-			});
+			root = false;
 		}
 	}
 	for (const active of cursors) {
@@ -496,7 +505,6 @@ function scoringFieldWeight(
 	toolName: string,
 	meta: CatalogToolEntry,
 	term: PreparedSearchTerm,
-	terms: string[],
 	best: number,
 ): number {
 	const patterns = term.patterns;
@@ -510,7 +518,7 @@ function scoringFieldWeight(
 	) {
 		return 4;
 	}
-	if (best < 1 && schemaContains(meta.parameters, term, terms)) return 1;
+	if (best < 1 && schemaContains(meta.parameters, term)) return 1;
 	return best;
 }
 
@@ -560,7 +568,15 @@ export function scoreCatalogSearch(
 		return { score: 1, matchedTerms: [], unmatchedTerms: [] };
 	}
 	const query = queryKey(terms);
-	const cached = lastCatalogMatch.get(meta);
+	// Rows minted by buildCatalogProvider carry a reference to the shared
+	// cachedCatalogProjection descriptor. Keying the match on it reuses the
+	// score across every server built from the same source revision; the
+	// caller-private row itself would rescore per request.
+	const matchKey =
+		(meta as { [SHARED_CATALOG_PROJECTION]?: CatalogToolEntry })[
+			SHARED_CATALOG_PROJECTION
+		] ?? meta;
+	const cached = lastCatalogMatch.get(matchKey);
 	if (
 		cached?.query === query &&
 		cached.namespace === namespace &&
@@ -569,7 +585,7 @@ export function scoreCatalogSearch(
 		return cached.match;
 	}
 	const match = computeCatalogSearch(terms, query, namespace, toolName, meta);
-	lastCatalogMatch.set(meta, { query, namespace, toolName, match });
+	lastCatalogMatch.set(matchKey, { query, namespace, toolName, match });
 	return match;
 }
 
@@ -585,7 +601,7 @@ function computeCatalogSearch(
 	const unmatchedTerms: string[] = [];
 	for (const term of prepareSearchTerms(terms, query)) {
 		let best = namespaceWeight(namespace, term.variants, term.patterns);
-		best = scoringFieldWeight(toolName, meta, term, terms, best);
+		best = scoringFieldWeight(toolName, meta, term, best);
 		if (best > 0) {
 			score += best;
 			matchedTerms.push(term.term);
