@@ -1,9 +1,6 @@
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp } from "@tedix/mcp-shared/transport";
-import {
-	CatalogueDescribeInputJsonSchema,
-	CatalogueSearchInputJsonSchema,
-} from "@tedix/api-contract/schemas/tools";
+import { NATIVE_CATALOG_TOOLS } from "./mcp/native-catalog-tools";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { CachedAppData } from "./mcp/server-factory";
 
@@ -316,18 +313,8 @@ describe("Connect compact protocol organization routing", () => {
 		});
 	}
 	it("lists and calls configured discovery only in the selected Connect organization", async () => {
-		const row = {
-			id: "fictional-connect-row",
-			toolId: "find_catalog_entries",
-			title: "Find entries",
-			description: "Discovery",
-			toolTypeId: "rpc",
-			enabled: true,
-			config: { transport: "catalog", endpoint: "catalog/search" },
-			inputSchema: CatalogueSearchInputJsonSchema,
-			outputSchema: null,
-			annotations: { readOnlyHint: true },
-		};
+		// The selected gateway stores no catalog rows; it builds the pair itself.
+		const row = NATIVE_CATALOG_TOOLS[0]!;
 		resolveGateway.mockResolvedValue({
 			app: {
 				id: "fictional-gateway",
@@ -340,10 +327,9 @@ describe("Connect compact protocol organization routing", () => {
 					codeMode: true,
 					authMode: "authenticated",
 					enforcePolicies: false,
-					toolScopes: { find_catalog_entries: ["mcp:catalog.read"] },
 				},
 			},
-			tools: [row],
+			tools: [],
 		});
 		const env = createEnv({
 			API_SERVICE: {
@@ -395,22 +381,7 @@ describe("Connect compact protocol organization routing", () => {
 		const { validateAuth } = await import("./auth-helpers");
 		const factory = await import("./mcp/server-factory");
 		const contextSpy = vi.spyOn(factory, "getAppContext");
-		const row = {
-			id: "fictional-connect-ingress-row",
-			toolId: "find_catalog_entries",
-			title: "Selected catalog",
-			description: "Selected organization discovery",
-			toolTypeId: "rpc",
-			enabled: true,
-			config: {
-				transport: "catalog",
-				endpoint: "catalog/search",
-				nativeDirect: true,
-			},
-			inputSchema: CatalogueSearchInputJsonSchema,
-			outputSchema: null,
-			annotations: { readOnlyHint: true },
-		};
+		const row = NATIVE_CATALOG_TOOLS[0]!;
 		const selected = {
 			app: {
 				id: "fictional-selected-gateway",
@@ -423,26 +394,9 @@ describe("Connect compact protocol organization routing", () => {
 					codeMode: true,
 					authMode: "authenticated",
 					enforcePolicies: false,
-					toolScopes: {
-						find_catalog_entries: ["mcp:catalog.read"],
-						describe_catalog_entry: ["mcp:catalog.read"],
-					},
 				},
 			},
-			tools: [
-				row,
-				{
-					...row,
-					id: "fictional-connect-describe",
-					toolId: "describe_catalog_entry",
-					config: {
-						transport: "catalog",
-						endpoint: "catalog/describe",
-						nativeDirect: true,
-					},
-					inputSchema: CatalogueDescribeInputJsonSchema,
-				},
-			],
+			tools: [],
 		};
 		resolveGateway.mockImplementation(
 			async ({ appSlug }: { appSlug: string }) =>
@@ -587,7 +541,7 @@ describe("Connect compact protocol organization routing", () => {
 										nativeCatalog: {
 											status: "usable",
 											search: { name: row.toolId },
-											describe: { name: "describe_catalog_entry" },
+											describe: { name: "get_native_tool_schema" },
 										},
 									},
 								},
@@ -1052,31 +1006,24 @@ describe("credential-free local MCP resource boundary", () => {
 	});
 });
 
-describe("modern compact configured catalog protocol", () => {
-	const rows = Array.from({ length: 205 }, (_, i) => ({
-		id: `fictional-${i}`,
-		toolId: `find_tools_${String(i).padStart(3, "0")}`,
-		title: `Find tools ${i}`,
+describe("modern compact built-in catalog protocol", () => {
+	// A stored catalog row is ignored; the gateway lists only its built-in pair.
+	const stored = {
+		id: "fictional-stored-row",
+		toolId: "search_native_tools",
+		title: "Stored title",
 		description: "Stored description",
 		toolTypeId: "rpc",
 		enabled: true,
 		config: { transport: "catalog", endpoint: "catalog/search" },
-		inputSchema: CatalogueSearchInputJsonSchema,
+		inputSchema: { type: "object", properties: {} },
 		outputSchema: null,
 		annotations: { readOnlyHint: true },
-	}));
+	};
 	const resolved = {
 		app: { id: "fictional-app", slug: "fictional", name: "Fictional" },
-		metadata: {
-			mcpConfig: {
-				codeMode: true,
-				authMode: "authenticated",
-				toolScopes: Object.fromEntries(
-					rows.map((row) => [row.toolId, ["mcp:catalog.read"]]),
-				),
-			},
-		},
-		tools: rows,
+		metadata: { mcpConfig: { codeMode: true, authMode: "authenticated" } },
+		tools: [stored],
 	};
 	async function list(cursor?: string, scopes = "mcp:catalog.read") {
 		const request = new Request("https://fictional.mcp.example.test/mcp", {
@@ -1109,37 +1056,28 @@ describe("modern compact configured catalog protocol", () => {
 		);
 		expect(response.status).toBe(cursor === "invalid-cursor" ? 400 : 200);
 		return (await response.json()) as {
-			result: { tools: { name: string }[]; nextCursor?: string };
+			result: {
+				tools: { name: string; description?: string }[];
+				nextCursor?: string;
+			};
 			error?: { code: number };
 		};
 	}
-	it("pages the real tools/list envelope after configured caller filtering", async () => {
+	it("lists the built-in pair once, after caller filtering, on the real tools/list envelope", async () => {
 		const first = await list();
-		expect(first.result.tools).toHaveLength(200);
-		expect(first.result.nextCursor).toBeTruthy();
-		const second = await list(first.result.nextCursor);
-		expect(second.result.tools).toHaveLength(6);
+		const names = first.result.tools.map((tool) => tool.name);
+		expect(names.filter((name) => name === "search_native_tools")).toHaveLength(
+			1,
+		);
+		expect(names).toContain("get_native_tool_schema");
 		expect(
-			new Set(
-				[...first.result.tools, ...second.result.tools].map(
-					(tool) => tool.name,
-				),
-			).size,
-		).toBe(206);
-		resolved.tools = [...rows].reverse();
-		try {
-			const permuted = await list();
-			expect(permuted.result).toEqual(first.result);
-			expect((await list(permuted.result.nextCursor)).result).toEqual(
-				second.result,
-			);
-		} finally {
-			resolved.tools = rows;
-		}
+			first.result.tools.find((tool) => tool.name === "search_native_tools"),
+		).toMatchObject({ description: NATIVE_CATALOG_TOOLS[0]!.description });
+		expect(first.result.nextCursor).toBeUndefined();
 		expect((await list("invalid-cursor")).error?.code).toBe(-32602);
 		expect(
 			(await list(undefined, "mcp:work.read")).result.tools.some((tool) =>
-				tool.name.startsWith("find_tools"),
+				tool.name.endsWith("native_tools"),
 			),
 		).toBe(false);
 	});
@@ -1150,18 +1088,7 @@ describe("public ingress configured native catalog", () => {
 		const { validateAuth } = await import("./auth-helpers");
 		const factory = await import("./mcp/server-factory");
 		const contextSpy = vi.spyOn(factory, "getAppContext");
-		const row = {
-			id: "fictional-public-row",
-			toolId: "find_catalog_entries",
-			title: "Find catalog entries",
-			description: "Configured discovery",
-			toolTypeId: "rpc",
-			enabled: true,
-			config: { transport: "catalog", endpoint: "catalog/search" },
-			inputSchema: CatalogueSearchInputJsonSchema,
-			outputSchema: null,
-			annotations: { readOnlyHint: true },
-		};
+		const row = NATIVE_CATALOG_TOOLS[0]!;
 		const app = {
 			app: {
 				id: "fictional-public-app",
@@ -1175,10 +1102,10 @@ describe("public ingress configured native catalog", () => {
 					codeMode: true,
 					authMode: "authenticated",
 					enforcePolicies: false,
-					toolScopes: { find_catalog_entries: ["mcp:catalog.read"] },
+					toolScopes: {},
 				},
 			},
-			tools: [row],
+			tools: [],
 		};
 		resolveGateway.mockResolvedValue(app);
 		const loads = vi.fn(() => {
@@ -1295,40 +1222,14 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 	it("uses original OAuth context and owning native handlers with zero loader diagnostics", async () => {
 		const { validateAuth } = await import("./auth-helpers");
 		const factory = await import("./mcp/server-factory");
-		// Deployed rows were synced before the parser gained includeMetadata;
-		// the CLI's bootstrap must still accept them (regression 687bb7306).
-		const { includeMetadata: _added, ...legacySearchProperties } =
-			CatalogueSearchInputJsonSchema.properties as Record<string, unknown>;
-		const search = {
-			id: "search-row",
-			toolId: "find_native_entries",
-			title: "Find",
+		// No stored catalog rows: the gateway builds the pair the CLI resolves Work with.
+		const search = NATIVE_CATALOG_TOOLS[0]!;
+		const describeRow = NATIVE_CATALOG_TOOLS[1]!;
+		const work = {
+			title: "List Work",
 			enabled: true,
 			toolTypeId: "rpc",
-			config: {
-				transport: "catalog",
-				endpoint: "catalog/search",
-				nativeDirect: true,
-			},
-			inputSchema: {
-				...CatalogueSearchInputJsonSchema,
-				properties: legacySearchProperties,
-			},
 			outputSchema: null,
-		};
-		const describeRow = {
-			...search,
-			id: "describe-row",
-			toolId: "describe_native_entry",
-			config: {
-				transport: "catalog",
-				endpoint: "catalog/describe",
-				nativeDirect: true,
-			},
-			inputSchema: CatalogueDescribeInputJsonSchema,
-		};
-		const work = {
-			...search,
 			id: "work-row",
 			toolId: "list_native_work",
 			config: {
@@ -1355,14 +1256,10 @@ describe("verified native bootstrap and opted-in Work ingress", () => {
 					codeMode: true,
 					authMode: "authenticated",
 					enforcePolicies: false,
-					toolScopes: {
-						find_native_entries: ["mcp:catalog.read"],
-						describe_native_entry: ["mcp:catalog.read"],
-						list_native_work: ["mcp:work.read"],
-					},
+					toolScopes: { list_native_work: ["mcp:work.read"] },
 				},
 			},
-			tools: [search, describeRow, work],
+			tools: [work],
 		};
 		resolveGateway.mockResolvedValue(app);
 		const context = vi.spyOn(factory, "getAppContext").mockResolvedValue({
@@ -1617,31 +1514,6 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 				await import("./mcp/registration/bootstrap");
 			const { buildServerContext } = factory;
 			const { createMcpServer } = await import("@tedix/mcp-shared/server");
-			const search = {
-				id: "family-search",
-				toolId: "find_tools",
-				title: "Find",
-				enabled: true,
-				toolTypeId: "rpc",
-				config: {
-					transport: "catalog",
-					endpoint: "catalog/search",
-					nativeDirect: true,
-				},
-				inputSchema: CatalogueSearchInputJsonSchema,
-				outputSchema: null,
-			};
-			const describeRow = {
-				...search,
-				id: "family-describe",
-				toolId: "describe_tools",
-				config: {
-					transport: "catalog",
-					endpoint: "catalog/describe",
-					nativeDirect: true,
-				},
-				inputSchema: CatalogueDescribeInputJsonSchema,
-			};
 			const cached = {
 				app: {
 					id: "family-app",
@@ -1650,16 +1522,12 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 					organizationId: "org-id",
 					visibility: "public",
 				},
-				tools: [search, describeRow],
+				tools: [],
 				metadata: {
 					mcpConfig: {
 						codeMode: true,
 						enforcePolicies: false,
 						authMode: "authenticated",
-						toolScopes: {
-							find_tools: ["mcp:catalog.read"],
-							describe_tools: ["mcp:catalog.read"],
-						},
 					},
 				},
 				capabilities: {},
@@ -1745,8 +1613,8 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 					},
 					nativeCatalog: {
 						status: "usable",
-						search: { name: "find_tools" },
-						describe: { name: "describe_tools" },
+						search: { name: "search_native_tools" },
+						describe: { name: "get_native_tool_schema" },
 					},
 				});
 				// Compare the actual fast-ingress payload with the shared session owner
@@ -1758,7 +1626,7 @@ describe("native bootstrap post-auth credential-family and Home ingress", () => 
 				);
 				const sessionData = {
 					...cached,
-					tools: [...cached.tools, ...homeTools],
+					tools: [...cached.tools, ...NATIVE_CATALOG_TOOLS, ...homeTools],
 				};
 				const server = createMcpServer({
 					name: "Fictional Home",

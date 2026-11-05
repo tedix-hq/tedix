@@ -16,6 +16,7 @@ import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
 import { type McpAccessDenialReason } from "./mcp/security-decision";
 import type { ResolvedApp } from "./resolution";
 import { readJsonRpcBody } from "./json-rpc-envelope";
+import { withNativeCatalogTools } from "./mcp/native-catalog-tools";
 
 /**
  * Request-level MCP access gate (`enforceMcpAccess`): origin, authentication,
@@ -89,7 +90,9 @@ export async function enforceMcpAccess(params: {
 		multiOrgSelection,
 		isDev,
 	} = params;
-	const { app, metadata, tools } = resolvedApp;
+	const { app, metadata } = resolvedApp;
+	// The built-in catalog pair is part of the gateway the edge gate checks.
+	const tools = withNativeCatalogTools(resolvedApp.tools, app.slug, metadata);
 	if (request.headers.get("x-tedix-auth-credential-mode") === "delegated-mcp") {
 		const requested = await extractMcpToolCallName(request);
 		if (requested && requested !== "code") {
@@ -272,7 +275,8 @@ export async function enforceMcpAccess(params: {
 	if (
 		toolScopes ||
 		enforcePolicies ||
-		tools.some((tool) => tool.authRequired)
+		// Stored rows only: the built-in pair has its own dispatch-time gate.
+		resolvedApp.tools.some((tool) => tool.authRequired)
 	) {
 		let requiredScopes = enforcePolicies
 			? await extractPolicyRequiredScopes(request, mcpConfig)

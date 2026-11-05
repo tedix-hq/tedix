@@ -36,11 +36,12 @@ import {
 	codeModeToolMeta,
 } from "./mcp/codemode-security";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
+import { hasScope } from "@tedix/mcp-shared/auth/scopes";
 import {
-	isMcpToolVisibleToCaller,
-	resolveMcpToolNamespace,
-	resolveMcpToolRequiredScopes,
-} from "@tedix/mcp-shared/auth/tool-scopes";
+	NATIVE_CATALOG_REQUIRED_SCOPES,
+	withNativeCatalogTools,
+} from "./mcp/native-catalog-tools";
 import { shouldExposeHomeSurface } from "./mcp/home-surface";
 import {
 	accountProfileEnabled,
@@ -222,24 +223,23 @@ export function compactCodeModeTools(
 	const overrides = config?.codeModeNamespaces as
 		| Record<string, string>
 		| undefined;
-	const rows = (resolvedApp.tools ?? []).filter((tool) =>
-		isConfiguredCatalogTool(tool, config),
+	const registry = withNativeCatalogTools(
+		resolvedApp.tools ?? [],
+		resolvedApp.app.slug,
+		resolvedApp.metadata,
 	);
 	const names = new Map<string, number>();
-	for (const tool of resolvedApp.tools ?? [])
+	for (const tool of registry)
 		names.set(tool.toolId, (names.get(tool.toolId) ?? 0) + 1);
 	const baseNames = new Set(tools.map((tool) => tool.name));
-	for (const tool of rows) {
+	const scopes = [...NATIVE_CATALOG_REQUIRED_SCOPES];
+	const visible =
+		caller.authType === "service" ||
+		(!!caller.authType &&
+			scopes.every((scope) => hasScope(caller.scopes ?? [], scope)));
+	for (const tool of registry.filter(isConfiguredCatalogTool)) {
 		if (names.get(tool.toolId) !== 1 || baseNames.has(tool.toolId)) continue;
-		if (
-			!isMcpToolVisibleToCaller(
-				tool,
-				resolveMcpToolNamespace(tool, overrides),
-				config,
-				caller,
-			)
-		)
-			continue;
+		if (!visible) continue;
 		if (
 			requestHeaders.get("x-tedix-auth-credential-mode") === "delegated-mcp" &&
 			isDelegatedWorkTool(
@@ -250,11 +250,6 @@ export function compactCodeModeTools(
 			)
 		)
 			continue;
-		const scopes = resolveMcpToolRequiredScopes(
-			tool,
-			resolveMcpToolNamespace(tool, overrides),
-			config,
-		);
 		const securitySchemes = [{ type: "oauth2", scopes }];
 		tools.push({
 			name: tool.toolId,
@@ -268,7 +263,7 @@ export function compactCodeModeTools(
 				meta: tool.meta,
 			}),
 			securitySchemes,
-			_meta: { ...nativeCatalogToolMeta(tool, config), securitySchemes },
+			_meta: { ...nativeCatalogToolMeta(tool), securitySchemes },
 		});
 	}
 	// Directory listings read the display name from `annotations.title`

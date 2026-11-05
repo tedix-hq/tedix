@@ -224,10 +224,13 @@ that period are dropped; subscribe again to restart from now. Each
 subscription receives at most 300 events per hour, and later events wait for
 the next hour. A caller can hold 20 subscriptions per organization.
 
-## Configured native catalog tools
+## Native catalog tools
 
-An app can configure tools with `transport: "catalog"` and the closed
-`catalog/search` or `catalog/describe` endpoint. Search accepts query, namespace,
+Every Code Mode organization gateway offers two built-in tools:
+`search_native_tools` (`catalog/search`) and `get_native_tool_schema`
+(`catalog/describe`). The `tedix work` commands use them to find Work tools in
+one call. The gateway builds both from code, so nobody needs to add them to an
+app, and stored tools with `transport: "catalog"` are ignored. Search accepts query, namespace,
 bounded paging, and schema inclusion options; describe accepts an exact
 `namespace.tool` callable. These operations use the same request-local tool discovery as Code Mode
 without creating a separate isolated tool runner. Discovery reports whether
@@ -241,13 +244,13 @@ when you need the output schema. The native `catalog/describe` transport retains
 its full descriptor for existing clients. Native CLI Work commands explicitly
 request output schemas through catalog search and validate results against them.
 
-Each enabled row needs its own explicit capability mapping. Missing, empty,
-invalid, namespace-only or wildcard-only mappings do not expose the tool.
-The compact gateway lists the base tools plus its actually configured,
-caller-permitted catalog rows using the stored tool metadata and stable paging.
-No configured rows means the base surface stays unchanged. Aggregate-only rows
-are available after normal session construction, not through compact list
-hydration. The stateless lane still omits `ask`.
+Both tools need `mcp:catalog.read`, which organization members get with app
+read access. Gateway `toolScopes` cannot change that. Search only reveals tool
+names: each result says whether you may call the tool, and every call is checked
+again. The compact gateway lists the pair to callers that hold the scope. Gateways
+in Descope policy mode and the multi-organization Connect surface do not offer
+the pair; Connect answers a selected organization through that organization's
+gateway. The stateless lane still omits `ask`.
 
 Catalog operations execute synchronously in the original caller context;
 async-task replay and executable code inputs are refused. Arbitrary Code Mode

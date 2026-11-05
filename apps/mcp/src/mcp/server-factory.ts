@@ -1007,8 +1007,7 @@ export async function buildMcpServer(
 		skipCodeMode &&
 		cachedData.tools.some(
 			(tool) =>
-				tool.toolId === requestedToolName &&
-				isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig),
+				tool.toolId === requestedToolName && isConfiguredCatalogTool(tool),
 		);
 	const directToolAllowSet =
 		skipCodeMode && requestedToolName && !directCatalog
@@ -1025,7 +1024,7 @@ export async function buildMcpServer(
 			continue;
 		if (
 			tool.config?.transport === "catalog" &&
-			(!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) ||
+			(!isConfiguredCatalogTool(tool) ||
 				cachedData.tools.filter((candidate) => candidate.toolId === tool.toolId)
 					.length !== 1)
 		)
@@ -1071,7 +1070,7 @@ export async function buildMcpServer(
 		const registeredResourceUris = new Set<string>();
 		for (const tool of serverCtx.loadedTools.values()) {
 			if (
-				!isConfiguredCatalogTool(tool, cachedData.metadata?.mcpConfig) &&
+				!isConfiguredCatalogTool(tool) &&
 				!(
 					clientAppsSupported &&
 					tool.enabled &&

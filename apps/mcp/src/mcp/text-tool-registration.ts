@@ -75,7 +75,7 @@ export async function registerTextOnlyTool(
 	}
 
 	// Build _meta for text-only tools (D1 metadata, invocationStatus, visibility, securitySchemes)
-	const meta = nativeCatalogToolMeta(tool, agent.appMetadata?.mcpConfig);
+	const meta = nativeCatalogToolMeta(tool);
 
 	// securitySchemes — per-tool auth declaration for ChatGPT
 	const secSchemes = deriveSecuritySchemes(

@@ -108,6 +108,7 @@ import {
 	removeProjectedKernelConversationLifecycleTools,
 	shouldExposeHomeSurface,
 } from "./mcp/home-surface";
+import { withNativeCatalogTools } from "./mcp/native-catalog-tools";
 import { ensurePlatformOperatorAggregateApps } from "./mcp/platform-operator-aggregation";
 import {
 	buildEdgeListCacheHints,
@@ -348,6 +349,16 @@ export async function handleMcpRequest(
 			catalogResources: [],
 			catalogResourceTemplates: [],
 			catalogPrompts: [],
+		};
+	} else {
+		// Before direct-call targeting: a catalog call names the namespace to hydrate.
+		cachedData = {
+			...cachedData,
+			tools: withNativeCatalogTools(
+				cachedData.tools,
+				resolvedApp.app.slug,
+				cachedData.metadata,
+			),
 		};
 	}
 	const requestedToolName = await extractMcpToolCallName(request);

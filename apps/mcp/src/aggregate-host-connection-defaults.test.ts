@@ -537,7 +537,10 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 				.filter((tool) => tool.toolId.startsWith("restricted-parent__"))
 				.map((tool) => tool.toolId),
 		).toEqual(["restricted-parent__read_one"]);
-		expect(mounted[0]?.config?._multiOrgOrganizationId).toBe("org-selected");
+		expect(
+			mounted.find((tool) => tool.toolId === "restricted-parent__read_one")
+				?.config?._multiOrgOrganizationId,
+		).toBe("org-selected");
 		expect(
 			getBySlugWithTools.mock.calls.some(
 				([input]) =>

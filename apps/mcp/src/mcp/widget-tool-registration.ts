@@ -153,7 +153,7 @@ export async function registerDynamicTool(
 		authRequired: tool.authRequired ?? false,
 		icons: tool.icons ?? null,
 		executionTaskSupport: tool.executionTaskSupport ?? null,
-		meta: nativeCatalogToolMeta(tool, agent.appMetadata?.mcpConfig),
+		meta: nativeCatalogToolMeta(tool),
 		schemaDialect: tool.schemaDialect ?? null,
 		schemaSource: tool.schemaSource ?? null,
 		schemaSourceRef: tool.schemaSourceRef ?? null,

@@ -38,6 +38,10 @@ import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
 import { CAPABILITY_SCOPES, hasScope } from "@tedix/mcp-shared/auth/scopes";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { getApiClient } from "./lib/api-client";
+import {
+	isNativeCatalogTool,
+	NATIVE_CATALOG_REQUIRED_SCOPES,
+} from "./mcp/native-catalog-tools";
 import { createMcpLogger } from "./log";
 import { withStepBudget } from "./lib/step-budget";
 import { trackMcpEvent } from "./mcp/utils/analytics";
@@ -1075,6 +1079,8 @@ function resolveEntryRequiredScopes(
 	if (body?.method !== "tools/call" || !toolName) return [];
 
 	const tool = tools?.find((candidate) => candidate.toolId === toolName);
+	if (tool && isNativeCatalogTool(tool))
+		return [...NATIVE_CATALOG_REQUIRED_SCOPES];
 	if (tool) {
 		const namespaceOverrides = mcpConfig?.codeModeNamespaces as
 			| Record<string, string>

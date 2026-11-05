@@ -1,4 +1,4 @@
-import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tools";
+import { NATIVE_CATALOG_TOOLS } from "./native-catalog-tools";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { buildMcpServer } from "./server-factory";
 import type { CachedAppData } from "./server-factory";
@@ -501,26 +501,9 @@ it("native catalog uses zero real Loader calls while arbitrary code remains isol
 			name: "Fictional",
 			visibility: "public",
 		},
-		tools: [
-			{
-				id: "fictional-row",
-				toolId: "find_tools",
-				title: "Find tools",
-				description: "Discovery",
-				toolTypeId: "rpc",
-				enabled: true,
-				config: { transport: "catalog", endpoint: "catalog/search" },
-				inputSchema: CatalogueSearchInputJsonSchema,
-				outputSchema: null,
-				annotations: { readOnlyHint: true },
-			},
-		],
+		tools: NATIVE_CATALOG_TOOLS.map((tool) => ({ ...tool })),
 		metadata: {
-			mcpConfig: {
-				codeMode: true,
-				authMode: "authenticated",
-				toolScopes: { find_tools: ["mcp:catalog.read"] },
-			},
+			mcpConfig: { codeMode: true, authMode: "authenticated" },
 		},
 		catalogMcp: null,
 		catalogResources: [],
@@ -550,7 +533,7 @@ it("native catalog uses zero real Loader calls while arbitrary code remains isol
 		undefined,
 		undefined,
 		undefined,
-		"find_tools",
+		"search_native_tools",
 	);
 	const [client, transport] = InMemoryTransport.createLinkedPair();
 	const pending = new Map<number, (message: Record<string, unknown>) => void>();
@@ -581,7 +564,7 @@ it("native catalog uses zero real Loader calls while arbitrary code remains isol
 		method: "notifications/initialized",
 	} as never);
 	const result = await request("tools/call", {
-		name: "find_tools",
+		name: "search_native_tools",
 		arguments: { query: "" },
 	});
 	expect(result.error).toBeUndefined();

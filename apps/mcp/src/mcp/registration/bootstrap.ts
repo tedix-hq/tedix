@@ -7,17 +7,8 @@ import {
 	buildMcpAppResourceMeta,
 	WIDGET_MIME_TYPES,
 } from "../utils/register-widget";
-import {
-	MCP_CAPABILITY_SCOPES,
-	MCP_GRANULAR_CAPABILITY_SCOPES,
-} from "@tedix/api-contract/schemas/mcp-capability-scopes";
-import {
-	CatalogueTransportConfigSchema,
-	catalogueInputDeclarationMatches,
-	ToolInputJsonSchemaSchema,
-	ToolJsonSchemaSchema,
-} from "@tedix/api-contract/schemas/tools";
-import { resolveMcpToolRequiredScopes } from "@tedix/mcp-shared/auth/tool-scopes";
+import { CatalogueTransportConfigSchema } from "@tedix/api-contract/schemas/tools";
+import { isNativeCatalogTool } from "../native-catalog-tools";
 /**
  * Bootstrap tool + resource registration.
  *
@@ -47,68 +38,18 @@ import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
 import type { ServerContext } from "../server-context";
 import { registerAccountProfile } from "./account-profile";
 
-export function isConfiguredCatalogTool(
-	tool: AppTool,
-	mcpConfig: Record<string, unknown> | undefined,
-): boolean {
-	const configured = CatalogueTransportConfigSchema.safeParse(tool.config);
-	if (
-		!tool.enabled ||
-		mcpConfig?.enforcePolicies === true ||
-		!configured.success ||
-		!catalogueInputDeclarationMatches(
-			configured.data.endpoint,
-			tool.inputSchema,
-		)
-	)
-		return false;
-	if (
-		!ToolInputJsonSchemaSchema.safeParse(tool.inputSchema).success ||
-		(tool.outputSchema !== null &&
-			tool.outputSchema !== undefined &&
-			!ToolJsonSchemaSchema.safeParse(tool.outputSchema).success)
-	)
-		return false;
-	const scopes = mcpConfig?.toolScopes;
-	if (
-		!scopes ||
-		typeof scopes !== "object" ||
-		!Object.hasOwn(scopes, tool.toolId)
-	)
-		return false;
-	const own = (scopes as Record<string, unknown>)[tool.toolId];
-	if (
-		!Array.isArray(own) ||
-		!own.length ||
-		own.some(
-			(scope) =>
-				typeof scope !== "string" ||
-				(!Object.hasOwn(MCP_CAPABILITY_SCOPES, scope) &&
-					!Object.hasOwn(MCP_GRANULAR_CAPABILITY_SCOPES, scope)),
-		)
-	)
-		return false;
-	try {
-		return (
-			resolveMcpToolRequiredScopes(tool, "", {
-				...mcpConfig,
-				enforcePolicies: false,
-				toolScopes: { [tool.toolId]: own },
-			}).length > 0
-		);
-	} catch {
-		return false;
-	}
+/** Only the gateway's built-in pair is a native catalog; stored rows never are. */
+export function isConfiguredCatalogTool(tool: AppTool): boolean {
+	return tool.enabled === true && isNativeCatalogTool(tool);
 }
 
 /** The server owns this capability marker; tenant metadata cannot supply it. */
 export function nativeCatalogToolMeta(
 	tool: AppTool,
-	mcpConfig: Record<string, unknown> | undefined,
 ): NonNullable<AppTool["meta"]> {
 	const meta = { ...tool.meta };
 	delete meta[MCP_NATIVE_CATALOG_META_KEY];
-	if (isConfiguredCatalogTool(tool, mcpConfig)) {
+	if (isConfiguredCatalogTool(tool)) {
 		meta[MCP_NATIVE_CATALOG_META_KEY] = {
 			version: 1,
 			bootstrapTool: "get_info",
@@ -213,18 +154,9 @@ export function buildNativeBootstrap(
 	const select = (endpoint: string) => {
 		const matches = registry.filter(
 			(tool) =>
-				tool.config?.transport === "catalog" &&
-				tool.config?.endpoint === endpoint,
+				isConfiguredCatalogTool(tool) && tool.config?.endpoint === endpoint,
 		);
-		if (
-			matches.length !== 1 ||
-			!isConfiguredCatalogTool(matches[0]!, agent.appMetadata?.mcpConfig)
-		)
-			return null;
-		const configured = CatalogueTransportConfigSchema.parse(matches[0]!.config);
-		return configured.endpoint === endpoint
-			? describeNativeTool(matches[0]!)
-			: null;
+		return matches.length === 1 ? describeNativeTool(matches[0]!) : null;
 	};
 	const search = select("catalog/search"),
 		describe = select("catalog/describe");

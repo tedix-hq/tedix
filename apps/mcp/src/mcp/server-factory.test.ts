@@ -1,8 +1,5 @@
 import { DynamicWorkerExecutor } from "@cloudflare/codemode";
-import {
-	CatalogueSearchInputJsonSchema,
-	CatalogueDescribeInputJsonSchema,
-} from "@tedix/api-contract/schemas/tools";
+import { NATIVE_CATALOG_TOOLS } from "./native-catalog-tools";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import {
@@ -881,16 +878,7 @@ function catalogRow(
 	overrides: Partial<import("./server-context").AppTool> = {},
 ): import("./server-context").AppTool {
 	return {
-		id: "fictional-catalog",
-		toolId: "find_tools",
-		title: "Find tools",
-		description: "Find permitted tools",
-		toolTypeId: "rpc",
-		inputSchema: CatalogueSearchInputJsonSchema,
-		outputSchema: null,
-		config: { transport: "catalog", endpoint: "catalog/search" },
-		enabled: true,
-		annotations: { readOnlyHint: true },
+		...NATIVE_CATALOG_TOOLS[0]!,
 		...overrides,
 	} as import("./server-context").AppTool;
 }
@@ -988,46 +976,19 @@ describe("Code Mode widget declarations", () => {
 });
 
 describe("configured native catalog registration", () => {
-	it("requires the exact valid nonempty capability map and preserves canonical binding refusals", () => {
-		const row = catalogRow();
-		expect(
-			isConfiguredCatalogTool(
-				catalogRow({
-					config: {
-						transport: "catalog",
-						endpoint: "catalog/search",
-						_aggregateNamespace: "fictional",
-						_sourceAppSlug: "fictional",
-						_sourceAuthRequired: true,
-						_sourceVisibility: "private",
-					},
-				}),
-				{ toolScopes: { find_tools: ["mcp:catalog.read"] } },
-			),
-		).toBe(true);
-		expect(
-			isConfiguredCatalogTool(row, {
-				toolScopes: { find_tools: ["mcp:catalog.read"] },
+	it("recognises only the built-in pair, never a stored catalog row", () => {
+		for (const tool of NATIVE_CATALOG_TOOLS)
+			expect(isConfiguredCatalogTool({ ...tool })).toBe(true);
+		for (const row of [
+			catalogRow({ id: "fictional-stored-row" }),
+			catalogRow({ toolId: "find_tools" }),
+			catalogRow({ enabled: false }),
+			catalogRow({
+				config: { transport: "catalog", endpoint: "catalog/describe" },
 			}),
-		).toBe(true);
-		for (const config of [
-			{},
-			{ toolScopes: { "*": ["mcp:catalog.read"] } },
-			{ toolScopes: { catalog: ["mcp:catalog.read"] } },
-			{ toolScopes: { find_tools: [] } },
-			{ toolScopes: { find_tools: ["unknown.scope"] } },
-			{
-				enforcePolicies: true,
-				toolScopes: { find_tools: ["mcp:catalog.read"] },
-			},
+			catalogRow({ config: { transport: "rpc", endpoint: "catalog/search" } }),
 		])
-			expect(isConfiguredCatalogTool(row, config)).toBe(false);
-		expect(
-			isConfiguredCatalogTool(
-				catalogRow({ toolId: "list_mcp_authorizations" }),
-				{ toolScopes: { list_mcp_authorizations: ["mcp:settings.admin"] } },
-			),
-		).toBe(false);
+			expect(isConfiguredCatalogTool(row)).toBe(false);
 	});
 	it("keeps native catalog visible in a Code Mode session and calls it through the actual handler", async () => {
 		listByApp.mockResolvedValue({ skills: [] });
@@ -1037,7 +998,6 @@ describe("configured native catalog registration", () => {
 			mcpConfig: {
 				codeMode: true,
 				authMode: "authenticated",
-				toolScopes: { find_tools: ["mcp:catalog.read"] },
 			},
 		} as unknown as CachedAppData["metadata"];
 		const server = await buildMcpServer(
@@ -1052,11 +1012,11 @@ describe("configured native catalog registration", () => {
 			(listed.result as { tools: { name: string }[] }).tools.map(
 				(tool) => tool.name,
 			),
-		).toContain("find_tools");
+		).toContain("search_native_tools");
 		expect(
 			(
 				listed.result as { tools: { name: string; _meta?: unknown }[] }
-			).tools.find((tool) => tool.name === "find_tools")?._meta,
+			).tools.find((tool) => tool.name === "search_native_tools")?._meta,
 		).toMatchObject({
 			"com.tedix/nativeCatalog": {
 				version: 1,
@@ -1065,7 +1025,7 @@ describe("configured native catalog registration", () => {
 			},
 		});
 		const called = await client.request("tools/call", {
-			name: "find_tools",
+			name: "search_native_tools",
 			arguments: { query: "" },
 		});
 		expect(called.error).toBeUndefined();
@@ -1091,7 +1051,6 @@ it("named catalog calls retain the caller's full discovery projection", async ()
 			authMode: "authenticated",
 			enforcePolicies: false,
 			toolScopes: {
-				find_tools: ["mcp:catalog.read"],
 				get_item: ["mcp:apps.read"],
 			},
 		},
@@ -1106,7 +1065,7 @@ it("named catalog calls retain the caller's full discovery projection", async ()
 		undefined,
 		undefined,
 		undefined,
-		"find_tools",
+		"search_native_tools",
 	);
 	const client = await connectLegacyClient(server);
 	const listed = await client.request("tools/list");
@@ -1114,9 +1073,9 @@ it("named catalog calls retain the caller's full discovery projection", async ()
 		(listed.result as { tools: { name: string }[] }).tools.map(
 			(tool) => tool.name,
 		),
-	).toEqual(["find_tools"]);
+	).toEqual(["search_native_tools"]);
 	const result = await client.request("tools/call", {
-		name: "find_tools",
+		name: "search_native_tools",
 		arguments: { query: "" },
 	});
 	expect(JSON.stringify(result)).toContain("get_item");
@@ -1253,33 +1212,10 @@ describe("native request-private bootstrap", () => {
 			config: { transport: "rpc", endpoint: "apps/get" },
 			meta: { retained: true, "com.tedix/nativeCatalog": marker },
 		});
-		expect(
-			nativeCatalogToolMeta(tool, {
-				toolScopes: { find_tools: ["mcp:catalog.read"] },
-			}),
-		).toEqual({ retained: true });
+		expect(nativeCatalogToolMeta(tool)).toEqual({ retained: true });
 		expect(tool.meta).toHaveProperty("com.tedix/nativeCatalog", marker);
 	});
-	const rows = () => [
-		catalogRow({
-			config: {
-				transport: "catalog",
-				endpoint: "catalog/search",
-				nativeDirect: true,
-			},
-		}),
-		catalogRow({
-			id: "fictional-describe-row",
-			toolId: "describe_tools",
-			inputSchema:
-				CatalogueDescribeInputJsonSchema as unknown as import("./server-context").AppTool["inputSchema"],
-			config: {
-				transport: "catalog",
-				endpoint: "catalog/describe",
-				nativeDirect: true,
-			},
-		}),
-	];
+	const rows = () => NATIVE_CATALOG_TOOLS.map((tool) => ({ ...tool }));
 	const cached = (org = "fictional-org") => {
 		const c = createCachedData();
 		c.app.organizationId = org;
@@ -1291,10 +1227,6 @@ describe("native request-private bootstrap", () => {
 				authMode: "authenticated",
 				capabilities: {},
 				enforcePolicies: false,
-				toolScopes: {
-					find_tools: ["mcp:catalog.read"],
-					describe_tools: ["mcp:catalog.read"],
-				},
 			},
 		} as unknown as CachedAppData["metadata"];
 		return c;
@@ -1349,11 +1281,11 @@ describe("native request-private bootstrap", () => {
 				nativeCatalog: {
 					status: "usable",
 					search: {
-						name: "find_tools",
-						toolRowId: "fictional-catalog",
+						name: "search_native_tools",
+						toolRowId: "native-catalog:search",
 						endpoint: "catalog/search",
 					},
-					describe: { name: "describe_tools" },
+					describe: { name: "get_native_tool_schema" },
 				},
 			});
 			expect(load).not.toHaveBeenCalled();
@@ -1464,7 +1396,7 @@ describe("native request-private bootstrap", () => {
 });
 
 describe("execution-only server construction", () => {
-	it.each(["code", "find_tools"])(
+	it.each(["code", "search_native_tools"])(
 		"does not load skill resources or instructions for %s",
 		async (requestedToolName) => {
 			vi.spyOn(DynamicWorkerExecutor.prototype, "execute").mockImplementation(
@@ -1487,7 +1419,6 @@ describe("execution-only server construction", () => {
 				mcpConfig: {
 					codeMode: true,
 					enforcePolicies: false,
-					toolScopes: { find_tools: ["mcp:catalog.read"] },
 				},
 			} as unknown as CachedAppData["metadata"];
 			const server = await buildMcpServer(
@@ -1527,7 +1458,6 @@ it("preserves the structured invocation capability through actual SDK tools/list
 		mcpConfig: {
 			codeMode: true,
 			enforcePolicies: false,
-			toolScopes: { find_tools: ["mcp:catalog.read"] },
 		},
 	} as unknown as CachedAppData["metadata"];
 	const server = await buildMcpServer(
