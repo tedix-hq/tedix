@@ -644,19 +644,26 @@ function computeCatalogSearch(
 	scoreSchema: boolean,
 ): CatalogSearchMatch | null {
 	let score = 0;
-	const matchedTerms: string[] = [];
-	const unmatchedTerms: string[] = [];
-	for (const term of prepareSearchTerms(terms, query)) {
+	// Most rows match no term; they allocate no term lists.
+	let matchedTerms: string[] | undefined;
+	let unmatchedTerms: string[] | undefined;
+	const prepared = prepareSearchTerms(terms, query);
+	for (let index = 0; index < prepared.length; index++) {
+		const term = prepared[index]!;
 		let best = namespaceWeight(namespace, term.variants, term.patterns);
 		best = scoringFieldWeight(toolName, meta, term, best, scoreSchema);
 		if (best > 0) {
 			score += best;
+			if (!matchedTerms) {
+				matchedTerms = [];
+				unmatchedTerms = prepared.slice(0, index).map((prior) => prior.term);
+			}
 			matchedTerms.push(term.term);
 		} else {
-			unmatchedTerms.push(term.term);
+			unmatchedTerms?.push(term.term);
 		}
 	}
-	if (matchedTerms.length === 0) return null;
+	if (!matchedTerms || !unmatchedTerms) return null;
 	score += Math.round((matchedTerms.length / terms.length) * 20);
 	// When the name contains every query term, favour names devoted to those
 	// terms over longer vendor names. Count repeated tokens in the denominator.
@@ -718,7 +725,7 @@ export function nearestCatalogNamespaces(
 				score = Math.max(score, match?.score ?? 0);
 			}
 			if (score === 0) {
-				score = fuzzyNamespaceScore(terms, namespace, Object.keys(tools));
+				score = fuzzyNamespaceScore(terms, namespace, tools);
 			}
 			return {
 				namespace,
@@ -732,40 +739,81 @@ export function nearestCatalogNamespaces(
 		.slice(0, 8);
 }
 
+/**
+ * Distinct name tokens of one namespace record, kept for the life of the
+ * request's catalog so repeated searches in one run reuse them.
+ *
+ * Every search that missed a namespace used to join, split and edit-compare
+ * all of its tool-name tokens, one fresh row array per comparison: about
+ * 137 MB of garbage for one search over a local 16k-tool benchmark catalog;
+ * Connect `discover.search` failed with Cloudflare 1102 (5 Nov). Only distinct tokens
+ * within two characters of a term's length can score, so only those are
+ * compared; the score is unchanged.
+ */
+const namespaceFuzzyTokens = new WeakMap<object, string[]>();
+
 function fuzzyNamespaceScore(
 	terms: string[],
 	namespace: string,
-	toolNames: string[],
+	tools: Record<string, unknown>,
 ): number {
-	const candidates = normalizeSearchText([namespace, ...toolNames].join(" "))
-		.split(" ")
-		.filter(Boolean);
+	let candidates = namespaceFuzzyTokens.get(tools);
+	if (!candidates) {
+		const tokens = new Set(normalizeSearchTerms(namespace));
+		for (const toolName in tools) {
+			for (const token of normalizeSearchTerms(toolName)) tokens.add(token);
+		}
+		candidates = [...tokens];
+		namespaceFuzzyTokens.set(tools, candidates);
+	}
 	let score = 0;
 	for (const term of terms) {
-		const best = candidates.reduce(
-			(min, candidate) => Math.min(min, editDistance(term, candidate)),
-			Number.POSITIVE_INFINITY,
-		);
+		let best = Number.POSITIVE_INFINITY;
+		for (const candidate of candidates) {
+			if (Math.abs(candidate.length - term.length) > 2) continue;
+			best = Math.min(best, editDistance(term, candidate, 2));
+			if (best === 0) break;
+		}
 		if (best <= 2) score += 2 - best + 1;
 	}
 	return score;
 }
 
-export function editDistance(left: string, right: string): number {
-	const previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+// Two reused rows: catalog-wide hints compare thousands of tokens per search.
+let editRows = [new Int32Array(64), new Int32Array(64)];
+
+/**
+ * Levenshtein distance. With `max`, returns `max + 1` as soon as every
+ * distance in a row exceeds it, since the final distance cannot be smaller.
+ */
+export function editDistance(
+	left: string,
+	right: string,
+	max = Number.POSITIVE_INFINITY,
+): number {
+	if (editRows[0]!.length <= right.length) {
+		const size = right.length * 2 + 1;
+		editRows = [new Int32Array(size), new Int32Array(size)];
+	}
+	let [previous, current] = editRows as [Int32Array, Int32Array];
+	for (let j = 0; j <= right.length; j++) previous[j] = j;
 	for (let i = 1; i <= left.length; i++) {
-		const current = [i];
+		current[0] = i;
+		let rowMin = i;
 		for (let j = 1; j <= right.length; j++) {
-			const cost = left[i - 1] === right[j - 1] ? 0 : 1;
-			current[j] = Math.min(
+			const cost = left.charCodeAt(i - 1) === right.charCodeAt(j - 1) ? 0 : 1;
+			const value = Math.min(
 				current[j - 1]! + 1,
 				previous[j]! + 1,
 				previous[j - 1]! + cost,
 			);
+			current[j] = value;
+			if (value < rowMin) rowMin = value;
 		}
-		for (let j = 0; j < current.length; j++) previous[j] = current[j]!;
+		if (rowMin > max) return max + 1;
+		[previous, current] = [current, previous];
 	}
-	return previous[right.length] ?? 0;
+	return previous[right.length]!;
 }
 
 export function suggestedCatalogQueries(
