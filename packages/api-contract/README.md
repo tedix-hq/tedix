@@ -169,3 +169,47 @@ type AppsInputs = InferContractRouterInputs<typeof apiContract.apps>;
 | **oRPC Contracts**       | `apiContract`                                          | `@tedix/api-contract/contracts/api`        |
 | **Individual Contracts** | `appsContract`, `organizationsContract`                | `@tedix/api-contract/contracts/apps`, etc. |
 | **Type Utilities**       | `InferContractInput`, `InferContractOutput`            | `@tedix/api-contract/types`                |
+
+## Work Task Contract adapter
+
+Import schemas from `@tedix/api-contract/schemas/task-contract` and adapter
+functions from `@tedix/api-contract/utils/task-contract`. `exportWorkTaskContract`
+exports an accepted Work snapshot, its version, accepted outcome, description
+checkboxes (checked boxes still require verification), capabilities and required
+authorities. The caller supplies the admitted resource scope, budget, human gates,
+external runtime registration, expiry and fresh contract ID/nonce. Missing checks
+or an accepted outcome fail export. Do not derive human approval from a checked box.
+
+`executeTaskContract` passes that contract and signed approvals to an injected
+external gateway with the contract digest as its idempotency key. The external
+runtime owns its hierarchy and model calls through its own gateway/LiteLLM.
+This package has no model client. The mock gateway test is the local adapter
+proof; it does not establish compatibility with an external runtime's wire protocol.
+
+`importTaskResult` verifies Ed25519 signatures, tenant, contract digest, nonce and
+the registered runtime/SPIFFE identity. Approval signatures bind the complete
+contract digest, gate, human approver, canonical reference and expiry. Trust keys
+come from the host's registration, never from the result. A SPIFFE string and
+signature alone are not workload attestation: the host must provision trusted
+keys using its authenticated runtime identity system.
+
+The kernel implements `assertActive` to check the current canonical Work version,
+full admitted contract, scopes, budget, authorities, human gates and cancellation.
+It implements `assertApproval` against canonical human decisions and revocation.
+Both checks run before dispatch/import and again before storing a new receipt.
+The independent verifier returns exactly one outcome with evidence per acceptance
+check. Failed checks are stored alongside the original signed runtime claims;
+claims cannot turn a failed verification into success or complete Work.
+
+The host implements `TaskReceiptStore` using existing Work evidence storage.
+`insertOnce` must atomically persist the receipt and its Work evidence link with
+a unique `(orgId, contractId)` key and return the original row on conflict.
+Conflicting results are rejected; identical retries return that row without
+repeating gateway execution or verification. Concurrent first calls can reach
+the gateway with the same idempotency key, which it must honor. Gateway timeout
+retries also reuse that key. Never allocate a new contract/nonce just to retry.
+
+No production transport, SPIFFE enrollment, approval issuer or database binding
+is installed by this library. The injected services preserve the kernel's existing
+admission, cancellation and settlement ownership; receipt import is evidence,
+not Work completion or proof of external effects.
