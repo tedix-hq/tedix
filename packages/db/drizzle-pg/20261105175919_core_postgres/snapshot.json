@@ -1,0 +1,4902 @@
+{
+  "type": "base",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "7dfe03ac-b7dd-4525-8d1a-71533bf4c49b",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_accounts"
+      ],
+      "writes": [
+        "s|tbl|public.billing_accounts",
+        "n|tbl|public.billing_accounts",
+        "e|tbl|public.billing_accounts",
+        "n|rel|public.billing_accounts",
+        "n|type|public.billing_accounts",
+        "n|rel|public.billing_accounts_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_credit_entries"
+      ],
+      "writes": [
+        "s|tbl|public.billing_credit_entries",
+        "n|tbl|public.billing_credit_entries",
+        "e|tbl|public.billing_credit_entries",
+        "n|rel|public.billing_credit_entries",
+        "n|type|public.billing_credit_entries",
+        "n|rel|public.billing_credit_entries_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_plan_versions"
+      ],
+      "writes": [
+        "s|tbl|public.billing_plan_versions",
+        "n|tbl|public.billing_plan_versions",
+        "e|tbl|public.billing_plan_versions",
+        "n|rel|public.billing_plan_versions",
+        "n|type|public.billing_plan_versions",
+        "n|rel|public.billing_plan_versions_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_usage_reservations"
+      ],
+      "writes": [
+        "s|tbl|public.billing_usage_reservations",
+        "n|tbl|public.billing_usage_reservations",
+        "e|tbl|public.billing_usage_reservations",
+        "n|rel|public.billing_usage_reservations",
+        "n|type|public.billing_usage_reservations",
+        "n|rel|public.billing_usage_reservations_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "organization_members"
+      ],
+      "writes": [
+        "s|tbl|public.organization_members",
+        "n|tbl|public.organization_members",
+        "e|tbl|public.organization_members",
+        "n|rel|public.organization_members",
+        "n|type|public.organization_members",
+        "n|rel|public.organization_members_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "organizations"
+      ],
+      "writes": [
+        "s|tbl|public.organizations",
+        "n|tbl|public.organizations",
+        "e|tbl|public.organizations",
+        "n|rel|public.organizations",
+        "n|type|public.organizations",
+        "n|rel|public.organizations_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "principal_identities"
+      ],
+      "writes": [
+        "s|tbl|public.principal_identities",
+        "n|tbl|public.principal_identities",
+        "e|tbl|public.principal_identities",
+        "n|rel|public.principal_identities",
+        "n|type|public.principal_identities",
+        "n|rel|public.principal_identities_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_attempts"
+      ],
+      "writes": [
+        "s|tbl|public.work_attempts",
+        "n|tbl|public.work_attempts",
+        "e|tbl|public.work_attempts",
+        "n|rel|public.work_attempts",
+        "n|type|public.work_attempts",
+        "n|rel|public.work_attempts_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_items"
+      ],
+      "writes": [
+        "s|tbl|public.work_items",
+        "n|tbl|public.work_items",
+        "e|tbl|public.work_items",
+        "n|rel|public.work_items",
+        "n|type|public.work_items",
+        "n|rel|public.work_items_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_accounts",
+        "idx_billing_account_status"
+      ],
+      "writes": [
+        "s|idx|public.idx_billing_account_status",
+        "n|idx|public.idx_billing_account_status",
+        "e|idx|public.idx_billing_account_status",
+        "n|rel|public.idx_billing_account_status"
+      ],
+      "reads": [
+        "n|tbl|public.billing_accounts",
+        "n|sch|public",
+        "n|col|public.billing_accounts.status",
+        "n|col|public.billing_accounts.period_end"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_accounts",
+        "idx_billing_account_plan"
+      ],
+      "writes": [
+        "s|idx|public.idx_billing_account_plan",
+        "n|idx|public.idx_billing_account_plan",
+        "e|idx|public.idx_billing_account_plan",
+        "n|rel|public.idx_billing_account_plan"
+      ],
+      "reads": [
+        "n|tbl|public.billing_accounts",
+        "n|sch|public",
+        "n|col|public.billing_accounts.plan_version_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_credit_entries",
+        "uniq_billing_credit_idempotency"
+      ],
+      "writes": [
+        "s|idx|public.uniq_billing_credit_idempotency",
+        "n|idx|public.uniq_billing_credit_idempotency",
+        "e|idx|public.uniq_billing_credit_idempotency",
+        "n|rel|public.uniq_billing_credit_idempotency"
+      ],
+      "reads": [
+        "n|tbl|public.billing_credit_entries",
+        "n|sch|public",
+        "n|col|public.billing_credit_entries.idempotency_key"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_credit_entries",
+        "idx_billing_credit_org_created"
+      ],
+      "writes": [
+        "s|idx|public.idx_billing_credit_org_created",
+        "n|idx|public.idx_billing_credit_org_created",
+        "e|idx|public.idx_billing_credit_org_created",
+        "n|rel|public.idx_billing_credit_org_created"
+      ],
+      "reads": [
+        "n|tbl|public.billing_credit_entries",
+        "n|sch|public",
+        "n|col|public.billing_credit_entries.organization_id",
+        "n|col|public.billing_credit_entries.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_plan_versions",
+        "uniq_billing_plan_key_version"
+      ],
+      "writes": [
+        "s|idx|public.uniq_billing_plan_key_version",
+        "n|idx|public.uniq_billing_plan_key_version",
+        "e|idx|public.uniq_billing_plan_key_version",
+        "n|rel|public.uniq_billing_plan_key_version"
+      ],
+      "reads": [
+        "n|tbl|public.billing_plan_versions",
+        "n|sch|public",
+        "n|col|public.billing_plan_versions.plan_key",
+        "n|col|public.billing_plan_versions.version"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_plan_versions",
+        "idx_billing_plan_active"
+      ],
+      "writes": [
+        "s|idx|public.idx_billing_plan_active",
+        "n|idx|public.idx_billing_plan_active",
+        "e|idx|public.idx_billing_plan_active",
+        "n|rel|public.idx_billing_plan_active"
+      ],
+      "reads": [
+        "n|tbl|public.billing_plan_versions",
+        "n|sch|public",
+        "n|col|public.billing_plan_versions.plan_key",
+        "n|col|public.billing_plan_versions.status",
+        "n|col|public.billing_plan_versions.effective_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_usage_reservations",
+        "uniq_billing_reservation_idempotency"
+      ],
+      "writes": [
+        "s|idx|public.uniq_billing_reservation_idempotency",
+        "n|idx|public.uniq_billing_reservation_idempotency",
+        "e|idx|public.uniq_billing_reservation_idempotency",
+        "n|rel|public.uniq_billing_reservation_idempotency"
+      ],
+      "reads": [
+        "n|tbl|public.billing_usage_reservations",
+        "n|sch|public",
+        "n|col|public.billing_usage_reservations.idempotency_key"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_usage_reservations",
+        "idx_billing_reservation_org_status"
+      ],
+      "writes": [
+        "s|idx|public.idx_billing_reservation_org_status",
+        "n|idx|public.idx_billing_reservation_org_status",
+        "e|idx|public.idx_billing_reservation_org_status",
+        "n|rel|public.idx_billing_reservation_org_status"
+      ],
+      "reads": [
+        "n|tbl|public.billing_usage_reservations",
+        "n|sch|public",
+        "n|col|public.billing_usage_reservations.organization_id",
+        "n|col|public.billing_usage_reservations.status",
+        "n|col|public.billing_usage_reservations.expires_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_usage_reservations",
+        "idx_billing_reservation_status_expiry"
+      ],
+      "writes": [
+        "s|idx|public.idx_billing_reservation_status_expiry",
+        "n|idx|public.idx_billing_reservation_status_expiry",
+        "e|idx|public.idx_billing_reservation_status_expiry",
+        "n|rel|public.idx_billing_reservation_status_expiry"
+      ],
+      "reads": [
+        "n|tbl|public.billing_usage_reservations",
+        "n|sch|public",
+        "n|col|public.billing_usage_reservations.status",
+        "n|col|public.billing_usage_reservations.expires_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "billing_usage_reservations",
+        "idx_billing_reservation_org_created"
+      ],
+      "writes": [
+        "s|idx|public.idx_billing_reservation_org_created",
+        "n|idx|public.idx_billing_reservation_org_created",
+        "e|idx|public.idx_billing_reservation_org_created",
+        "n|rel|public.idx_billing_reservation_org_created"
+      ],
+      "reads": [
+        "n|tbl|public.billing_usage_reservations",
+        "n|sch|public",
+        "n|col|public.billing_usage_reservations.organization_id",
+        "n|col|public.billing_usage_reservations.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "uniq_org_member"
+      ],
+      "writes": [
+        "s|idx|public.uniq_org_member",
+        "n|idx|public.uniq_org_member",
+        "e|idx|public.uniq_org_member",
+        "n|rel|public.uniq_org_member"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.organization_id",
+        "n|col|public.organization_members.descope_user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "uniq_org_member_user"
+      ],
+      "writes": [
+        "s|idx|public.uniq_org_member_user",
+        "n|idx|public.uniq_org_member_user",
+        "e|idx|public.uniq_org_member_user",
+        "n|rel|public.uniq_org_member_user"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.organization_id",
+        "n|col|public.organization_members.user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "idx_org_members_org"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_members_org",
+        "n|idx|public.idx_org_members_org",
+        "e|idx|public.idx_org_members_org",
+        "n|rel|public.idx_org_members_org"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.organization_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "idx_org_members_canonical_user"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_members_canonical_user",
+        "n|idx|public.idx_org_members_canonical_user",
+        "e|idx|public.idx_org_members_canonical_user",
+        "n|rel|public.idx_org_members_canonical_user"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "idx_org_members_user"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_members_user",
+        "n|idx|public.idx_org_members_user",
+        "e|idx|public.idx_org_members_user",
+        "n|rel|public.idx_org_members_user"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.descope_user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "idx_org_members_email"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_members_email",
+        "n|idx|public.idx_org_members_email",
+        "e|idx|public.idx_org_members_email",
+        "n|rel|public.idx_org_members_email"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.email"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "idx_org_members_status"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_members_status",
+        "n|idx|public.idx_org_members_status",
+        "e|idx|public.idx_org_members_status",
+        "n|rel|public.idx_org_members_status"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.status"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organization_members",
+        "idx_org_members_role"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_members_role",
+        "n|idx|public.idx_org_members_role",
+        "e|idx|public.idx_org_members_role",
+        "n|rel|public.idx_org_members_role"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|col|public.organization_members.role"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organizations",
+        "organizations_slug_unique"
+      ],
+      "writes": [
+        "s|idx|public.organizations_slug_unique",
+        "n|idx|public.organizations_slug_unique",
+        "e|idx|public.organizations_slug_unique",
+        "n|rel|public.organizations_slug_unique"
+      ],
+      "reads": [
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.organizations.slug"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organizations",
+        "organizations_descope_tenant_id_unique"
+      ],
+      "writes": [
+        "s|idx|public.organizations_descope_tenant_id_unique",
+        "n|idx|public.organizations_descope_tenant_id_unique",
+        "e|idx|public.organizations_descope_tenant_id_unique",
+        "n|rel|public.organizations_descope_tenant_id_unique"
+      ],
+      "reads": [
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.organizations.descope_tenant_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organizations",
+        "idx_org_slug"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_slug",
+        "n|idx|public.idx_org_slug",
+        "e|idx|public.idx_org_slug",
+        "n|rel|public.idx_org_slug"
+      ],
+      "reads": [
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.organizations.slug"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organizations",
+        "idx_org_descope"
+      ],
+      "writes": [
+        "s|idx|public.idx_org_descope",
+        "n|idx|public.idx_org_descope",
+        "e|idx|public.idx_org_descope",
+        "n|rel|public.idx_org_descope"
+      ],
+      "reads": [
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.organizations.descope_tenant_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "organizations",
+        "organizations_type_idx"
+      ],
+      "writes": [
+        "s|idx|public.organizations_type_idx",
+        "n|idx|public.organizations_type_idx",
+        "e|idx|public.organizations_type_idx",
+        "n|rel|public.organizations_type_idx"
+      ],
+      "reads": [
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.organizations.type"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "principal_identities",
+        "uniq_principal_identity_external"
+      ],
+      "writes": [
+        "s|idx|public.uniq_principal_identity_external",
+        "n|idx|public.uniq_principal_identity_external",
+        "e|idx|public.uniq_principal_identity_external",
+        "n|rel|public.uniq_principal_identity_external"
+      ],
+      "reads": [
+        "n|tbl|public.principal_identities",
+        "n|sch|public",
+        "n|col|public.principal_identities.provider",
+        "n|col|public.principal_identities.issuer",
+        "n|col|public.principal_identities.subject"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "principal_identities",
+        "uniq_principal_identity_canonical"
+      ],
+      "writes": [
+        "s|idx|public.uniq_principal_identity_canonical",
+        "n|idx|public.uniq_principal_identity_canonical",
+        "e|idx|public.uniq_principal_identity_canonical",
+        "n|rel|public.uniq_principal_identity_canonical"
+      ],
+      "reads": [
+        "n|tbl|public.principal_identities",
+        "n|sch|public",
+        "n|col|public.principal_identities.principal_type",
+        "n|col|public.principal_identities.principal_id",
+        "n|col|public.principal_identities.provider",
+        "n|col|public.principal_identities.issuer",
+        "n|col|public.principal_identities.subject"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "principal_identities",
+        "idx_principal_identity_principal"
+      ],
+      "writes": [
+        "s|idx|public.idx_principal_identity_principal",
+        "n|idx|public.idx_principal_identity_principal",
+        "e|idx|public.idx_principal_identity_principal",
+        "n|rel|public.idx_principal_identity_principal"
+      ],
+      "reads": [
+        "n|tbl|public.principal_identities",
+        "n|sch|public",
+        "n|col|public.principal_identities.principal_type",
+        "n|col|public.principal_identities.principal_id",
+        "n|col|public.principal_identities.status"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "principal_identities",
+        "idx_principal_identity_org"
+      ],
+      "writes": [
+        "s|idx|public.idx_principal_identity_org",
+        "n|idx|public.idx_principal_identity_org",
+        "e|idx|public.idx_principal_identity_org",
+        "n|rel|public.idx_principal_identity_org"
+      ],
+      "reads": [
+        "n|tbl|public.principal_identities",
+        "n|sch|public",
+        "n|col|public.principal_identities.organization_id",
+        "n|col|public.principal_identities.principal_type",
+        "n|col|public.principal_identities.status"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_attempts",
+        "uniq_work_attempt_number"
+      ],
+      "writes": [
+        "s|idx|public.uniq_work_attempt_number",
+        "n|idx|public.uniq_work_attempt_number",
+        "e|idx|public.uniq_work_attempt_number",
+        "n|rel|public.uniq_work_attempt_number"
+      ],
+      "reads": [
+        "n|tbl|public.work_attempts",
+        "n|sch|public",
+        "n|col|public.work_attempts.org_id",
+        "n|col|public.work_attempts.work_item_id",
+        "n|col|public.work_attempts.attempt_number"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_attempts",
+        "uniq_work_attempt_admission"
+      ],
+      "writes": [
+        "s|idx|public.uniq_work_attempt_admission",
+        "n|idx|public.uniq_work_attempt_admission",
+        "e|idx|public.uniq_work_attempt_admission",
+        "n|rel|public.uniq_work_attempt_admission"
+      ],
+      "reads": [
+        "n|tbl|public.work_attempts",
+        "n|sch|public",
+        "n|col|public.work_attempts.admission_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_attempts",
+        "uniq_work_attempt_active"
+      ],
+      "writes": [
+        "s|idx|public.uniq_work_attempt_active",
+        "n|idx|public.uniq_work_attempt_active",
+        "e|idx|public.uniq_work_attempt_active",
+        "n|rel|public.uniq_work_attempt_active"
+      ],
+      "reads": [
+        "n|tbl|public.work_attempts",
+        "n|sch|public",
+        "n|col|public.work_attempts.org_id",
+        "n|col|public.work_attempts.work_item_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_attempts",
+        "idx_work_attempt_executor_state"
+      ],
+      "writes": [
+        "s|idx|public.idx_work_attempt_executor_state",
+        "n|idx|public.idx_work_attempt_executor_state",
+        "e|idx|public.idx_work_attempt_executor_state",
+        "n|rel|public.idx_work_attempt_executor_state"
+      ],
+      "reads": [
+        "n|tbl|public.work_attempts",
+        "n|sch|public",
+        "n|col|public.work_attempts.org_id",
+        "n|col|public.work_attempts.executor_type",
+        "n|col|public.work_attempts.executor_id",
+        "n|col|public.work_attempts.runtime_state"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_attempts",
+        "idx_work_attempt_expiry"
+      ],
+      "writes": [
+        "s|idx|public.idx_work_attempt_expiry",
+        "n|idx|public.idx_work_attempt_expiry",
+        "e|idx|public.idx_work_attempt_expiry",
+        "n|rel|public.idx_work_attempt_expiry"
+      ],
+      "reads": [
+        "n|tbl|public.work_attempts",
+        "n|sch|public",
+        "n|col|public.work_attempts.runtime_state",
+        "n|col|public.work_attempts.expires_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_items",
+        "uniq_work_items_org_id"
+      ],
+      "writes": [
+        "s|idx|public.uniq_work_items_org_id",
+        "n|idx|public.uniq_work_items_org_id",
+        "e|idx|public.uniq_work_items_org_id",
+        "n|rel|public.uniq_work_items_org_id"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_items.org_id",
+        "n|col|public.work_items.id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_items",
+        "idx_work_items_org_created"
+      ],
+      "writes": [
+        "s|idx|public.idx_work_items_org_created",
+        "n|idx|public.idx_work_items_org_created",
+        "e|idx|public.idx_work_items_org_created",
+        "n|rel|public.idx_work_items_org_created"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_items.org_id",
+        "n|col|public.work_items.created_at"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_items",
+        "idx_work_items_org_disposition"
+      ],
+      "writes": [
+        "s|idx|public.idx_work_items_org_disposition",
+        "n|idx|public.idx_work_items_org_disposition",
+        "e|idx|public.idx_work_items_org_disposition",
+        "n|rel|public.idx_work_items_org_disposition"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_items.org_id",
+        "n|col|public.work_items.disposition"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_items",
+        "idx_work_items_lane_executor"
+      ],
+      "writes": [
+        "s|idx|public.idx_work_items_lane_executor",
+        "n|idx|public.idx_work_items_lane_executor",
+        "e|idx|public.idx_work_items_lane_executor",
+        "n|rel|public.idx_work_items_lane_executor"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_items.org_id",
+        "n|col|public.work_items.disposition",
+        "n|col|public.work_items.created_at",
+        "n|col|public.work_items.id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_items",
+        "idx_work_items_project"
+      ],
+      "writes": [
+        "s|idx|public.idx_work_items_project",
+        "n|idx|public.idx_work_items_project",
+        "e|idx|public.idx_work_items_project",
+        "n|rel|public.idx_work_items_project"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_items.project_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_items",
+        "idx_work_items_parent"
+      ],
+      "writes": [
+        "s|idx|public.idx_work_items_parent",
+        "n|idx|public.idx_work_items_parent",
+        "e|idx|public.idx_work_items_parent",
+        "n|rel|public.idx_work_items_parent"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_items.parent_work_item_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "work_items",
+        "uniq_work_items_org_source_intent"
+      ],
+      "writes": [
+        "s|idx|public.uniq_work_items_org_source_intent",
+        "n|idx|public.uniq_work_items_org_source_intent",
+        "e|idx|public.uniq_work_items_org_source_intent",
+        "n|rel|public.uniq_work_items_org_source_intent"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_items.org_id",
+        "n|col|public.work_items.source_intent_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_accounts"
+      ],
+      "writes": [
+        "s|fk|public.billing_accounts.billing_accounts_organization_id_organizations_id_fkey",
+        "n|fk|public.billing_accounts.billing_accounts_organization_id_organizations_id_fkey",
+        "e|fk|public.billing_accounts.billing_accounts_organization_id_organizations_id_fkey",
+        "n|con|public.billing_accounts.billing_accounts_organization_id_organizations_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.billing_accounts",
+        "n|sch|public",
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.billing_accounts.organization_id",
+        "n|col|public.organizations.id",
+        "e|uniqueness|public.organizations.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_accounts"
+      ],
+      "writes": [
+        "s|fk|public.billing_accounts.billing_accounts_plan_version_id_billing_plan_versions_id_fkey",
+        "n|fk|public.billing_accounts.billing_accounts_plan_version_id_billing_plan_versions_id_fkey",
+        "e|fk|public.billing_accounts.billing_accounts_plan_version_id_billing_plan_versions_id_fkey",
+        "n|con|public.billing_accounts.billing_accounts_plan_version_id_billing_plan_versions_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.billing_accounts",
+        "n|sch|public",
+        "n|tbl|public.billing_plan_versions",
+        "n|sch|public",
+        "n|col|public.billing_accounts.plan_version_id",
+        "n|col|public.billing_plan_versions.id",
+        "e|uniqueness|public.billing_plan_versions.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_credit_entries"
+      ],
+      "writes": [
+        "s|fk|public.billing_credit_entries.billing_credit_entries_organization_id_organizations_id_fkey",
+        "n|fk|public.billing_credit_entries.billing_credit_entries_organization_id_organizations_id_fkey",
+        "e|fk|public.billing_credit_entries.billing_credit_entries_organization_id_organizations_id_fkey",
+        "n|con|public.billing_credit_entries.billing_credit_entries_organization_id_organizations_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.billing_credit_entries",
+        "n|sch|public",
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.billing_credit_entries.organization_id",
+        "n|col|public.organizations.id",
+        "e|uniqueness|public.organizations.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_usage_reservations"
+      ],
+      "writes": [
+        "s|fk|public.billing_usage_reservations.billing_usage_reservations_BQnlBiOpQATc_fkey",
+        "n|fk|public.billing_usage_reservations.billing_usage_reservations_BQnlBiOpQATc_fkey",
+        "e|fk|public.billing_usage_reservations.billing_usage_reservations_BQnlBiOpQATc_fkey",
+        "n|con|public.billing_usage_reservations.billing_usage_reservations_BQnlBiOpQATc_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.billing_usage_reservations",
+        "n|sch|public",
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.billing_usage_reservations.organization_id",
+        "n|col|public.organizations.id",
+        "e|uniqueness|public.organizations.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "billing_usage_reservations"
+      ],
+      "writes": [
+        "s|fk|public.billing_usage_reservations.billing_usage_reservations_yTsh5NGei6yU_fkey",
+        "n|fk|public.billing_usage_reservations.billing_usage_reservations_yTsh5NGei6yU_fkey",
+        "e|fk|public.billing_usage_reservations.billing_usage_reservations_yTsh5NGei6yU_fkey",
+        "n|con|public.billing_usage_reservations.billing_usage_reservations_yTsh5NGei6yU_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.billing_usage_reservations",
+        "n|sch|public",
+        "n|tbl|public.billing_plan_versions",
+        "n|sch|public",
+        "n|col|public.billing_usage_reservations.plan_version_id",
+        "n|col|public.billing_plan_versions.id",
+        "e|uniqueness|public.billing_plan_versions.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "organization_members"
+      ],
+      "writes": [
+        "s|fk|public.organization_members.organization_members_organization_id_organizations_id_fkey",
+        "n|fk|public.organization_members.organization_members_organization_id_organizations_id_fkey",
+        "e|fk|public.organization_members.organization_members_organization_id_organizations_id_fkey",
+        "n|con|public.organization_members.organization_members_organization_id_organizations_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.organization_members",
+        "n|sch|public",
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.organization_members.organization_id",
+        "n|col|public.organizations.id",
+        "e|uniqueness|public.organizations.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "principal_identities"
+      ],
+      "writes": [
+        "s|fk|public.principal_identities.principal_identities_organization_id_organizations_id_fkey",
+        "n|fk|public.principal_identities.principal_identities_organization_id_organizations_id_fkey",
+        "e|fk|public.principal_identities.principal_identities_organization_id_organizations_id_fkey",
+        "n|con|public.principal_identities.principal_identities_organization_id_organizations_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.principal_identities",
+        "n|sch|public",
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.principal_identities.organization_id",
+        "n|col|public.organizations.id",
+        "e|uniqueness|public.organizations.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_attempts"
+      ],
+      "writes": [
+        "s|fk|public.work_attempts.work_attempts_org_id_organizations_id_fkey",
+        "n|fk|public.work_attempts.work_attempts_org_id_organizations_id_fkey",
+        "e|fk|public.work_attempts.work_attempts_org_id_organizations_id_fkey",
+        "n|con|public.work_attempts.work_attempts_org_id_organizations_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.work_attempts",
+        "n|sch|public",
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.work_attempts.org_id",
+        "n|col|public.organizations.id",
+        "e|uniqueness|public.organizations.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_attempts"
+      ],
+      "writes": [
+        "s|fk|public.work_attempts.fk_work_attempt_item_org",
+        "n|fk|public.work_attempts.fk_work_attempt_item_org",
+        "e|fk|public.work_attempts.fk_work_attempt_item_org",
+        "n|con|public.work_attempts.fk_work_attempt_item_org"
+      ],
+      "reads": [
+        "n|tbl|public.work_attempts",
+        "n|sch|public",
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|col|public.work_attempts.org_id",
+        "n|col|public.work_attempts.work_item_id",
+        "n|col|public.work_items.org_id",
+        "n|col|public.work_items.id",
+        "e|uniqueness|public.work_items.id.org_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_items"
+      ],
+      "writes": [
+        "s|fk|public.work_items.work_items_org_id_organizations_id_fkey",
+        "n|fk|public.work_items.work_items_org_id_organizations_id_fkey",
+        "e|fk|public.work_items.work_items_org_id_organizations_id_fkey",
+        "n|con|public.work_items.work_items_org_id_organizations_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.work_items",
+        "n|sch|public",
+        "n|tbl|public.organizations",
+        "n|sch|public",
+        "n|col|public.work_items.org_id",
+        "n|col|public.organizations.id",
+        "e|uniqueness|public.organizations.id"
+      ]
+    }
+  ],
+  "ddl": [
+    {
+      "schema": "public",
+      "name": "billing_accounts",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "billing_credit_entries",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "billing_plan_versions",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "billing_usage_reservations",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "organization_members",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "organizations",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "principal_identities",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "work_attempts",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "work_items",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "organization_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "plan_version_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "status",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'trial'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "billing_mode",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'trial'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "stripe_environment",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "stripe_customer_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "stripe_subscription_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "stripe_cancel_at_period_end",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "period_start",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "period_end",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "overage_enabled",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "hard_spend_limit_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "credit_balance_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "grace_ends_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "entitlement_version",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "updated_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "organization_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "kind",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "amount_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "source_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "source_ref",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "usage_charge_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "idempotency_key",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "expires_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "description",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "plan_key",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "version",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "status",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'draft'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "currency",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'usd'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "monthly_price_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "annual_price_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "included_monthly_tokens",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "included_monthly_credit_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "overage_unit_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1000",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "overage_unit_price_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "max_tedis",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "max_cron_jobs_per_tedi",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "max_iterations_per_task",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "default_daily_token_limit",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "default_daily_message_limit",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "allow_overage",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "effective_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "organization_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "plan_version_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "tedi_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "status",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'reserved'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "source",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "provider",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "model",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "estimated_input_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "estimated_output_tokens",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "estimated_charge_micros",
+      "type": "bigint",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "period_start",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "period_end",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "run_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "trace_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "idempotency_key",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "rejection_code",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "expires_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "settled_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "released_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "updated_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "organization_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "user_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "descope_user_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "email",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "avatar_url",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "kind",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'human'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "represented_user_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "role",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'member'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "custom_permissions",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "status",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "'active'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "invited_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "invite_accepted_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "invited_by",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "last_active_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "updated_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "slug",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'organization'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "descope_tenant_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "logo_url",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "description",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "apps_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "features",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "updated_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "organization_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "principal_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "principal_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "provider",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "issuer",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "subject",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "status",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'active'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "last_verified_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "updated_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "CURRENT_TIMESTAMP",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "admission_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "work_item_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "org_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "executor_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "executor_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "executor_session_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "external_session_key",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "run_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "runtime_state",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'running'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "outcome",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "attempt_number",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "started_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "heartbeat_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "expires_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "finished_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "summary",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "version",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "org_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "title",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "description",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "disposition",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'proposed'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "work_kind",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'other'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "risk_level",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'medium'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "acceptance_contract",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "required_capabilities",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'[]'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "required_authorities",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'[]'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "admission_spec_revision",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'legacy'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "priority",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'medium'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "accountable_owner_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "accountable_owner_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "steward_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "steward_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "reviewer_type",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "reviewer_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "reviewer_lease_expires_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "objective_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "work_class",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "purpose_exception_expires_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "project_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "parent_work_item_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "source_session_key",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "source_intent_id",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "due_date",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "deadline",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "start_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "duration_days",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "provenance",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "metadata",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "created_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "updated_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "accepted_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "completed_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "cancelled_at",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "version",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "1",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "idx_billing_account_status",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "period_end",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "idx_billing_account_plan",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "plan_version_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "uniq_billing_credit_idempotency",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "idempotency_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "idx_billing_credit_org_created",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "uniq_billing_plan_key_version",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "plan_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "version",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "idx_billing_plan_active",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "plan_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "effective_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "uniq_billing_reservation_idempotency",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "idempotency_key",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "idx_billing_reservation_org_status",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "idx_billing_reservation_status_expiry",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "idx_billing_reservation_org_created",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "uniq_org_member",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "descope_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "uniq_org_member_user",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"user_id\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "idx_org_members_org",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "idx_org_members_canonical_user",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "idx_org_members_user",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "descope_user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "idx_org_members_email",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "email",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "idx_org_members_status",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "idx_org_members_role",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "role",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "organizations_slug_unique",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "slug",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "organizations_descope_tenant_id_unique",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "descope_tenant_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"descope_tenant_id\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "idx_org_slug",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "slug",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "idx_org_descope",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "descope_tenant_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "organizations_type_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "type",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "uniq_principal_identity_external",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "provider",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "issuer",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "subject",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "uniq_principal_identity_canonical",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "principal_type",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "principal_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "provider",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "issuer",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "subject",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "idx_principal_identity_principal",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "principal_type",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "principal_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "idx_principal_identity_org",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "principal_type",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "uniq_work_attempt_number",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "work_item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "attempt_number",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "uniq_work_attempt_admission",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "admission_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "uniq_work_attempt_active",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "work_item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": "\"runtime_state\" IN ('queued', 'running', 'waiting', 'retrying')",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "idx_work_attempt_executor_state",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "executor_type",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "executor_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "runtime_state",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "idx_work_attempt_expiry",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "runtime_state",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "expires_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "uniq_work_items_org_id",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "idx_work_items_org_created",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "idx_work_items_org_disposition",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "disposition",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "idx_work_items_lane_executor",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "disposition",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "(\"metadata\" ->> 'executor')",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "idx_work_items_project",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "project_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "idx_work_items_parent",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "parent_work_item_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "uniq_work_items_org_source_intent",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "source_intent_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "billing_accounts_organization_id_organizations_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "billing_accounts_plan_version_id_billing_plan_versions_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "plan_version_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "billing_plan_versions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "billing_credit_entries_organization_id_organizations_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "billing_usage_reservations_BQnlBiOpQATc_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "billing_usage_reservations_yTsh5NGei6yU_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "plan_version_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "billing_plan_versions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "organization_members_organization_id_organizations_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "principal_identities_organization_id_organizations_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "work_attempts_org_id_organizations_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "org_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "fk_work_attempt_item_org",
+      "nameExplicit": true,
+      "columns": [
+        "org_id",
+        "work_item_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "work_items",
+      "columnsTo": [
+        "org_id",
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "work_items_org_id_organizations_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "org_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_accounts",
+      "name": "billing_accounts_pkey",
+      "columns": [
+        "organization_id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_credit_entries",
+      "name": "billing_credit_entries_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_plan_versions",
+      "name": "billing_plan_versions_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "billing_usage_reservations",
+      "name": "billing_usage_reservations_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "organization_members",
+      "name": "organization_members_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "organizations",
+      "name": "organizations_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "principal_identities_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "work_attempts_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "work_items",
+      "name": "work_items_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "chk_principal_identity_provider",
+      "value": "length(\"provider\") > 0",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "chk_principal_identity_issuer",
+      "value": "length(\"issuer\") > 0",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "chk_principal_identity_subject",
+      "value": "length(\"subject\") > 0",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "principal_identities",
+      "name": "chk_principal_identity_org_principal",
+      "value": "\"principal_type\" <> 'organization' OR \"organization_id\" = \"principal_id\"",
+      "entityType": "checks"
+    },
+    {
+      "schema": "public",
+      "table": "work_attempts",
+      "name": "chk_work_attempt_terminal_state",
+      "value": "(\"runtime_state\" IN ('failed', 'expired', 'finished', 'cancelled') AND \"finished_at\" IS NOT NULL AND \"outcome\" IS NOT NULL) OR (\"runtime_state\" IN ('queued', 'running', 'waiting', 'retrying') AND \"finished_at\" IS NULL AND \"outcome\" IS NULL)",
+      "entityType": "checks"
+    }
+  ]
+}

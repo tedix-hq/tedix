@@ -35,6 +35,8 @@ Key principles:
 
 - `apps/api` is the primary consumer. Application code calls direct query leaf
   modules and does not build shared-D1 statements inline.
+- The additive `src/pg` surface owns the transactional Postgres core schema and
+  query variants while D1 remains active during migration.
 - Split domains use `@tedix/db/queries/<domain>/<capability>`; there are no
   query barrels or aggregation facades.
 - Query modules return persistence rows or computed database results. The
@@ -196,6 +198,17 @@ ledger with no unreviewed schema drift. See the
 [live drift checker](scripts/check-live-drift.ts)
 for the accepted schema differences and verdicts.
 
+Postgres core migrations use their own Drizzle config and append-only chain so
+they cannot alter the D1 ledger:
+
+```bash
+bun run db:pg:migrate:generate -- --name <change>
+```
+
+Review and commit both files generated under `drizzle-pg/`. The cross-dialect
+test applies that chain to PGlite and compares the Postgres query variants with
+the migrated SQLite implementation.
+
 ## Environment Variables
 
 Required for live D1 inspection, Studio, and authorized migration operations.
@@ -217,7 +230,8 @@ supply the values from whichever store your installation uses.
 
 ## Architecture
 
-This package is designed for Cloudflare D1 (SQLite) and provides:
+This package keeps the Cloudflare D1 (SQLite) data plane working while adding a
+Postgres transactional core. It provides:
 
 - **Type-safe schema** using Drizzle ORM with `snake_case` column naming
 - **JSON fields** for flexible metadata (app capabilities, product attributes)

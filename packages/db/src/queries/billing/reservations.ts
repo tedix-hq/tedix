@@ -15,6 +15,7 @@ import {
 import {
 	and,
 	asc,
+	desc,
 	eq,
 	inArray,
 	lte,
@@ -27,6 +28,7 @@ import type { DbClient } from "../../client";
 import {
 	type BillingAccountStatus,
 	type BillingPlanVersion,
+	type BillingReservationStatus,
 	type BillingUsageReservation,
 	type BillingUsageSource,
 	billingUsageReservations,
@@ -52,6 +54,33 @@ import {
 } from "./monetary-inference";
 
 const ACTIVE_BILLING_STATUSES: BillingAccountStatus[] = ["trial", "active"];
+
+export async function listBillingUsageReservations(
+	db: DbClient,
+	params: {
+		organizationId: string;
+		status?: BillingReservationStatus;
+		monetaryCurrency?: string;
+		limit?: number;
+	},
+): Promise<BillingUsageReservation[]> {
+	return db
+		.select()
+		.from(billingUsageReservations)
+		.where(
+			and(
+				eq(billingUsageReservations.organizationId, params.organizationId),
+				params.status
+					? eq(billingUsageReservations.status, params.status)
+					: undefined,
+				params.monetaryCurrency
+					? sql`json_extract(${billingUsageReservations.metadata}, '$.monetaryQuote.rateSnapshot.customerCurrency') = ${params.monetaryCurrency}`
+					: undefined,
+			),
+		)
+		.orderBy(desc(billingUsageReservations.createdAt))
+		.limit(params.limit ?? 100);
+}
 
 /** Monthly metering is the paid account's capacity authority. */
 export function usesMonthlyInferenceCapacity(input: {
