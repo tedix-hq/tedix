@@ -100,10 +100,14 @@ import {
 	accountingStepPolicy,
 	stoppedTurnNotice,
 	reservedFinalStepConfig,
-	finalReportInstruction,
 	emptyTurnModelError,
 	finalReportReason,
 	composeStoppedTurnText,
+	CONTINUATION_WITHOUT_ANSWER,
+	finalReportIsToolFree,
+	finalReportPrompt,
+	finalReportStopFor,
+	type FinalReportStop,
 } from "./facet-turn-stop";
 import { promptCacheKey, explicitPromptCacheConfig } from "./prompt-cache";
 import { MODEL_TURN_FAILED_PREFIX } from "./runtime-error-settlement";
@@ -165,7 +169,7 @@ export interface ConversationFacetState {
 	/** Completed turns on this facet (identity across hibernation). */
 	turnCount: number;
 	selectedTurnModels?: SelectedConversationModelIdentity[];
-	finalReportStop?: { reason: string } | null;
+	finalReportStop?: FinalReportStop | null;
 	budgetStop?: { kind: FacetBudgetStopReason; reason: string } | null;
 	/** Provider error text of the last settled model step; null when it finished cleanly. */
 	lastModelError?: string | null;
@@ -742,7 +746,8 @@ export class ConversationFacet extends PiAgent<
 					}
 
 					const final =
-						this.state.executionRestriction || this.state.finalReportStop
+						this.state.executionRestriction ||
+						finalReportIsToolFree(this.state.finalReportStop)
 							? { toolChoice: "none" as const }
 							: reservedFinalStepConfig(
 									ordinal,
@@ -1070,7 +1075,7 @@ export class ConversationFacet extends PiAgent<
 					beforeTool: async (call, api, context) => {
 						await this.assertFacetRuntimeDispatch();
 						await this.admitResumedNativeTask(api, context);
-						if (this.state.finalReportStop)
+						if (finalReportIsToolFree(this.state.finalReportStop))
 							return { block: "Forced final report is tool-free" };
 						await this.accounting.begin(this.requireRunId());
 						await this.accounting.restoreAttemptForTool(call.id);
@@ -1436,7 +1441,7 @@ export class ConversationFacet extends PiAgent<
 	/** A spent tool-call budget still admits the tool-free closing answer. */
 	private toolBudgetFinalReport(): boolean {
 		return (
-			Boolean(this.state.finalReportStop) &&
+			finalReportIsToolFree(this.state.finalReportStop) &&
 			this.state.budgetStop?.kind === "delegation_budget" &&
 			isDelegatedToolCallBudgetStop(this.state.budgetStop.reason)
 		);
@@ -1740,19 +1745,19 @@ export class ConversationFacet extends PiAgent<
 			(stop?.kind !== "delegation_budget" ||
 				isDelegatedToolCallBudgetStop(stop.reason))
 		) {
-			this.setState({
-				...this.state,
-				finalReportStop: { reason: reportReason },
+			const finalReportStop = finalReportStopFor({
+				reason: reportReason,
+				stopped: Boolean(stop),
+				ceiling,
 			});
+			this.setState({ ...this.state, finalReportStop });
 			const reportId = `${id}:final-report`;
 			await this.submitMessages(
 				[
 					{
 						id: `${reportId}:user`,
 						role: "user",
-						parts: [
-							{ type: "text", text: finalReportInstruction(reportReason) },
-						],
+						parts: [{ type: "text", text: finalReportPrompt(finalReportStop) }],
 					},
 				],
 				{ submissionId: reportId },
@@ -1765,6 +1770,13 @@ export class ConversationFacet extends PiAgent<
 				console.error("[tedi.pi.final-report]", {
 					exception: exceptionTopology(settledReport.error),
 				});
+			if (finalReportStop.continueWithTools) {
+				console.info({
+					event: "tedix.pi.empty_answer_continued",
+					answered: Boolean(report.trim()),
+				});
+				if (!report.trim()) report = CONTINUATION_WITHOUT_ANSWER;
+			}
 			await this.accounting.assertComplete();
 			this.setState({ ...this.state, finalReportStop: null });
 		}

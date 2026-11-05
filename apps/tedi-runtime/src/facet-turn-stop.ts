@@ -63,10 +63,51 @@ export function finalReportReason(input: {
 	assistantText: string;
 }): string | null {
 	if (input.stopReason) return input.stopReason;
-	return input.assistantText.trim()
-		? null
-		: "your last response contained no written answer";
+	return input.assistantText.trim() ? null : NO_WRITTEN_ANSWER;
 }
+
+export const NO_WRITTEN_ANSWER =
+	"your last response contained no written answer";
+
+/**
+ * The owned stop behind the `:final-report` submission. `continueWithTools`
+ * turns it into one tools-on continuation: a model that stopped with no text
+ * mid-task (seen live after its first tool result) has not finished, and a
+ * tools-off report would end the work it was about to do.
+ */
+export type FinalReportStop = { reason: string; continueWithTools?: boolean };
+
+/** Only an unexplained empty stop continues; a budget or ceiling stop reports. */
+export function finalReportStopFor(input: {
+	reason: string;
+	stopped: boolean;
+	ceiling: number | null;
+}): FinalReportStop {
+	return !input.stopped &&
+		input.ceiling === null &&
+		input.reason === NO_WRITTEN_ANSWER
+		? { reason: input.reason, continueWithTools: true }
+		: { reason: input.reason };
+}
+
+/** True while the owned stop forbids tools. */
+export function finalReportIsToolFree(
+	stop: FinalReportStop | null | undefined,
+): boolean {
+	return Boolean(stop) && !stop?.continueWithTools;
+}
+
+export function finalReportPrompt(stop: FinalReportStop): string {
+	return stop.continueWithTools
+		? "Your last response ended without a written answer, but the task is not finished. " +
+				"Continue it now with your tools. When it is done, or if you cannot go further, " +
+				"write your answer for the person who asked, saying what you did and anything still missing."
+		: finalReportInstruction(stop.reason);
+}
+
+/** Settles a continuation that again ended without text instead of failing the turn. */
+export const CONTINUATION_WITHOUT_ANSWER =
+	"Partial result: I stopped before writing an answer. Ask me again to continue.";
 
 /**
  * A loop whose last model step ended in a provider error has no answer, and a
