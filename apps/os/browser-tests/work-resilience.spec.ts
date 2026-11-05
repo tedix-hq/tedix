@@ -106,6 +106,33 @@ try {
 		path: `${output}/work-resilience-recovered.png`,
 		fullPage: true,
 	});
+	// `resilience=empty` marks the deck's reads failed before mount, but every
+	// error query mounts with retryOnMount and this dev server answers /api/rpc
+	// from local fixtures — the refetch rescues the failure before the heading
+	// can paint. Hold the same reads down at the boundary, like load-error.spec.
+	const DECK_READS = new Set([
+		"/api/rpc/workInteractions/listInbox",
+		"/api/rpc/workApprovals/listInbox",
+		"/api/rpc/tediApprovals/list",
+		"/api/rpc/learningFeedback/model",
+		"/api/rpc/learningFeedback/listInteractions",
+	]);
+	await page.route("**/api/rpc/**", async (route) => {
+		const path = new URL(route.request().url()).pathname;
+		if (DECK_READS.has(path))
+			return route.fulfill({
+				status: 503,
+				json: {
+					json: {
+						defined: false,
+						code: "SERVICE_UNAVAILABLE",
+						message: "Service temporarily unavailable",
+						data: { traceId: "11111111-1111-4111-8111-111111111111" },
+					},
+				},
+			});
+		return route.continue();
+	});
 	await page.goto(`${fixture}&resilience=empty`);
 	await page
 		.getByText("Tedix couldn't load this view", { exact: true })
