@@ -169,35 +169,9 @@ try {
 			await page.keyboard.press("Escape");
 			await menu.waitFor({ state: "hidden" });
 			await page.evaluate(async () => {
-				const React = (await import("/node_modules/.vite/deps/react.js"))
-					.default;
-				const { createRoot } = (
-					await import("/node_modules/.vite/deps/react-dom_client.js")
-				).default;
-				const {
-					Dialog,
-					DialogTrigger,
-					DialogContent,
-					DialogTitle,
-					DialogDescription,
-				} = await import("/src/components/kumo/dialog.tsx");
-				const host = document.createElement("div");
-				document.querySelector("header")!.append(host);
-				const h = React.createElement;
-				createRoot(host).render(
-					h(
-						Dialog,
-						null,
-						h(DialogTrigger, null, "Open shortcut dialog"),
-						h(
-							DialogContent,
-							null,
-							h(DialogTitle, null, "Shortcut ownership"),
-							h(DialogDescription, null, "Keys stay with this dialog."),
-							h("input", { "aria-label": "Dialog draft" }),
-						),
-					),
-				);
+				const { mountShortcutDialog } =
+					await import("/browser-tests/feed-deck-polish.tsx");
+				mountShortcutDialog();
 			});
 			await page.getByRole("button", { name: "Open shortcut dialog" }).click();
 			const dialog = page.getByRole("dialog");
