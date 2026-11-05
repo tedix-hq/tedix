@@ -99,5 +99,27 @@ it("pages the inbox without related history and evaluates history only for reque
 		cursor: first.nextCursor!,
 	});
 	expect(next.data.map((row) => row.request.id)).toEqual(["request-0498"]);
+	for (let i = 0; i < 501; i++) {
+		insert.run(`history-${i}`, "resolved", "2026-01-02");
+	}
+	statements.length = 0;
+	const olderDecisions = await listLastRelatedDecisions(
+		db,
+		"org",
+		Array.from(
+			{ length: 50 },
+			(_, i) => `request-${String(i).padStart(4, "0")}`,
+		),
+	);
+	expect(olderDecisions).toHaveLength(50);
+	expect(
+		olderDecisions.every((row) => row.decision?.requestId === "previous"),
+	).toBe(true);
+	// One card read, one recipient read, and six answer batches for 502 requests.
+	expect(statements).toHaveLength(8);
+	expect(
+		statements.filter((query) => query.includes('"work_interactions" "prior"')),
+	).toHaveLength(1);
+	expect(statements.some((query) => query.includes("json_each"))).toBe(false);
 	sqlite.close();
 });

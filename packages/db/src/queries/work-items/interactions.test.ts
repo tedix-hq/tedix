@@ -1617,6 +1617,34 @@ it("keeps the prior-answer scan out of shared inbox reads", async () => {
 	sqlite.close();
 });
 
+it("finds older related requests by answer time beyond 500 newer unrelated requests", async () => {
+	const { sqlite, db } = fixture();
+	sqlite.exec("PRAGMA foreign_keys = OFF");
+	sqlite.exec(
+		"INSERT INTO work_items(id,org_id,title,created_at) VALUES ('unrelated','org','Other work','2026-01-01')",
+	);
+	const insert = sqlite.prepare(`INSERT INTO work_interactions
+		(id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at)
+		VALUES (?,'org',?,'question','resolved','Previous choice','?','system','tedix','tedi','cto',?)`);
+	insert.run("old-request", "work", "2026-01-01");
+	insert.run("new-request", "work", "2026-02-01");
+	for (let i = 0; i < 501; i++) {
+		insert.run(`unrelated-${i}`, "unrelated", "2026-03-01");
+	}
+	sqlite.exec(`INSERT INTO work_interaction_responses
+		(id,org_id,interaction_id,response_kind,body,responder_type,responder_id,resolves_request,responded_at,resolved_request_version,resolution_fence)
+		VALUES ('answer-a','org','new-request','answer','Earlier answer','tedi','cto',1,'2026-08-01',1,'a'),
+		('answer-z','org','old-request','answer','Latest answer','tedi','cto',1,'2026-08-20',1,'z')`);
+	const [row] = await listLastRelatedDecisions(db, "org", ["mine"]);
+	expect(row?.decision).toEqual({
+		requestId: "old-request",
+		subject: "Previous choice",
+		body: "Latest answer",
+		decidedAt: "2026-08-20",
+	});
+	sqlite.close();
+});
+
 it("atomically reuses an equivalent open ask without merging different evidence, recipients or answered asks", async () => {
 	const { db, sqlite } = fixture();
 	sqlite.exec(

@@ -2100,9 +2100,6 @@ export async function listWorkInteractionInbox(
 	};
 }
 
-/** Newest answered requests searched per recipient for a related decision. */
-const RELATED_DECISION_HISTORY = 500;
-
 /** Source keys match on kind and id, and on tediId including its absence. */
 function decisionSourceKeys(metadata: unknown) {
 	const meta = (metadata ?? {}) as {
@@ -2121,7 +2118,7 @@ function decisionSourceKeys(metadata: unknown) {
 
 /**
  * The latest answered request related to each given request: same recipient
- * and same Work, project or decision source. Reads each recipient's recent
+ * and same Work, project or decision source. Reads each recipient's
  * answers once and matches them here; a per-card SQL subquery compared every
  * prior answer's sources and scanned millions of rows in production.
  */
@@ -2181,8 +2178,8 @@ export async function listLastRelatedDecisions(
 		decidedAt: string;
 		answerId: string;
 	};
-	// Two single-table reads, so the recipient index always drives the first
-	// and the read stops after the newest requests.
+	// Read history once per recipient through its index. Request creation time
+	// cannot bound the search: an older request can have the newest answer.
 	const readHistory = async (targetType: string, targetId: string) => {
 		const requests = await db
 			.select({
@@ -2212,8 +2209,7 @@ export async function listLastRelatedDecisions(
 					eq(prior.status, "resolved"),
 				),
 			)
-			.orderBy(desc(prior.createdAt))
-			.limit(RELATED_DECISION_HISTORY);
+			.orderBy(desc(prior.createdAt));
 		const answers = [];
 		for (const ids of chunkForBoundParams(
 			requests.map((row) => row.id),
