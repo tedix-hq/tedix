@@ -37,6 +37,13 @@ describe("invisible and bidirectional characters", () => {
 		);
 	});
 
+	it("removes invisible characters decoded from HTML entities", () => {
+		expect(sanitizeUntrustedText("&#x202e;hello&#8203;")).toBe("hello");
+		expect(sanitizeUntrustedText("<scr&#8203;ipt>steal()</script>Hi")).toBe(
+			"Hi",
+		);
+	});
+
 	it("keeps emoji joiners and variation selectors", () => {
 		const family = "ok 👨‍👩‍👧 ❤️";
 		expect(sanitizeUntrustedText(family)).toBe(family);
@@ -72,6 +79,19 @@ describe("unsafe HTML", () => {
 });
 
 describe("structured payloads", () => {
+	it("preserves opaque identifiers and URLs containing text-like characters", () => {
+		const data = {
+			id: "literal&lt;id&gt;",
+			messageId: "msg\u200b<opaque>",
+			thread_id: "thread&amp;1",
+			parentIDs: ["one&#x202e;", "two<id>"],
+			webUrl: "https://mail.example/?a=1&amp;b=2",
+			links: [{ href: "/mail/<message>?a=1&amp;b=2" }],
+			body: "&#x202e;Hello<script>steal()</script>",
+		};
+		expect(sanitizeUntrustedValue(data)).toEqual({ ...data, body: "Hello" });
+	});
+
 	it("sanitizes string leaves without touching ids, urls or numbers", () => {
 		const data = {
 			id: "msg_19a2f",
