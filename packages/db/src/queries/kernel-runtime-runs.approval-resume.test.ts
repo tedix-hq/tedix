@@ -1456,3 +1456,153 @@ it.each(["claim", "send"])(
 		}
 	},
 );
+
+it("starts the first resumed child at its persisted dispatch time rather than the old Home start", async () => {
+	const f = await claimedFixture();
+	const oldStartedAt = "2026-11-03T09:00:00.000Z";
+	await f.db.update(kernelRuntimeRuns).set({ startedAt: oldStartedAt });
+	expect(
+		await beginApprovedHomeDelegationResumeDispatch(f.db, f.dispatch),
+	).toBe(true);
+	const result = await recordApprovedHomeDelegationResumeDispatch(
+		f.db,
+		f.record,
+	);
+	expect(result.livePersisted).toBe(true);
+	expect(result.run?.startedAt).toBe(f.dispatch.now);
+});
+
+it("uses the original dispatch time for a late actual ACK and never resets it on duplicate readback", async () => {
+	const f = await claimedFixture();
+	const oldStartedAt = "2026-11-03T09:00:00.000Z";
+	await f.db.update(kernelRuntimeRuns).set({ startedAt: oldStartedAt });
+	await beginApprovedHomeDelegationResumeDispatch(f.db, f.dispatch);
+	const unknown = await recordApprovedHomeDelegationResumeDispatch(f.db, {
+		...f.record,
+		outcome: "unknown",
+		observedChildRunId: null,
+		now: "2026-11-04T09:06:00.000Z",
+	});
+	expect(unknown.run?.startedAt).toBe(oldStartedAt);
+	const late = await recordApprovedHomeDelegationResumeDispatch(f.db, {
+		...f.record,
+		now: "2026-11-04T09:07:00.000Z",
+	});
+	expect(late.livePersisted).toBe(true);
+	expect(late.run?.startedAt).toBe(f.dispatch.now);
+	const duplicate = await recordApprovedHomeDelegationResumeDispatch(f.db, {
+		...f.record,
+		now: "2026-11-04T09:08:00.000Z",
+	});
+	expect(duplicate.livePersisted).toBe(false);
+	expect(duplicate.observationPersisted).toBe(false);
+	expect(duplicate.run).toEqual(late.run);
+});
+
+it.each(["unknown", "failed", "canceled", "aborted", "mismatched"] as const)(
+	"does not reset Home start for %s delivery",
+	async (kind) => {
+		const f = await claimedFixture();
+		const oldStartedAt = "2026-11-03T09:00:00.000Z";
+		await f.db.update(kernelRuntimeRuns).set({ startedAt: oldStartedAt });
+		await beginApprovedHomeDelegationResumeDispatch(f.db, f.dispatch);
+		if (kind === "canceled")
+			await f.db.update(kernelRuntimeRuns).set({ status: "canceled" });
+		if (kind === "aborted") await f.abort();
+		const result = await recordApprovedHomeDelegationResumeDispatch(f.db, {
+			...f.record,
+			outcome: kind === "failed" || kind === "unknown" ? kind : "acknowledged",
+			observedChildRunId:
+				kind === "mismatched"
+					? "foreign-child"
+					: kind === "failed" || kind === "unknown"
+						? null
+						: f.record.observedChildRunId,
+		});
+		expect(result.observationPersisted).toBe(true);
+		expect(result.livePersisted).toBe(kind === "failed");
+		expect(result.run?.startedAt).toBe(oldStartedAt);
+	},
+);
+
+it.each([
+	["missing", undefined],
+	["null", null],
+	["numeric", 1],
+	["invalid", "not-a-time"],
+	["noncanonical", "2026-11-04 09:05:00"],
+	["offset", "2026-11-04T09:05:00.000+00:00"],
+	["extra precision", "2026-11-04T09:05:00.0000Z"],
+	["invalid calendar", "2026-11-31T09:05:00.000Z"],
+	["before claim", "2026-11-04T09:04:00.000Z"],
+	["after observation", "2026-11-04T09:06:00.000Z"],
+] as const)(
+	"retains ACK without projecting an invalid %s dispatch timestamp",
+	async (_label, value) => {
+		const f = await claimedFixture();
+		const oldStartedAt = "2026-11-03T09:00:00.000Z";
+		await f.db.update(kernelRuntimeRuns).set({ startedAt: oldStartedAt });
+		await beginApprovedHomeDelegationResumeDispatch(f.db, f.dispatch);
+		if (value === undefined)
+			f.sqlite.exec(
+				"UPDATE kernel_runtime_runs SET metadata=json_remove(metadata,'$.homeDelegationResume.dispatchStartedAt')",
+			);
+		else
+			f.sqlite
+				.prepare(
+					"UPDATE kernel_runtime_runs SET metadata=json_set(metadata,'$.homeDelegationResume.dispatchStartedAt',json(?))",
+				)
+				.run(JSON.stringify(value));
+		const result = await recordApprovedHomeDelegationResumeDispatch(
+			f.db,
+			f.record,
+		);
+		expect(result.observationPersisted).toBe(true);
+		expect(result.livePersisted).toBe(false);
+		expect(result.run?.startedAt).toBe(oldStartedAt);
+		expect(result.run?.childRunId).toBeNull();
+	},
+);
+
+it("refuses a dispatch before its recorded approval even if the claim timestamp is earlier", async () => {
+	const f = await claimedFixture();
+	await beginApprovedHomeDelegationResumeDispatch(f.db, f.dispatch);
+	f.sqlite.exec(
+		"UPDATE kernel_runtime_runs SET metadata=json_set(metadata,'$.homeDelegationResume.claimedAt','2026-11-04T08:00:00.000Z','$.homeDelegationResume.dispatchStartedAt','2026-11-04T08:59:00.000Z')",
+	);
+	const result = await recordApprovedHomeDelegationResumeDispatch(
+		f.db,
+		f.record,
+	);
+	expect(result.livePersisted).toBe(false);
+	expect(result.observationPersisted).toBe(true);
+	expect(result.run?.childRunId).toBeNull();
+});
+
+it("keeps all historical approvals, null actors and the original hold while starting the resumed child", async () => {
+	const f = await approvalSetFixture();
+	const events = await f.db.select().from(kernelRuntimeEvents);
+	const hold = f.params.approvalEventSet!.originalExpiresAt;
+	expect(
+		await claimApprovedHomeDelegationResume(f.db, f.params),
+	).not.toBeNull();
+	expect(await beginApprovedHomeDelegationResumeDispatch(f.db, f.params)).toBe(
+		true,
+	);
+	const result = await recordApprovedHomeDelegationResumeDispatch(f.db, {
+		...f.params,
+		outcome: "acknowledged",
+		observedChildRunId: f.params.expectedChildRunId,
+		now: "2026-11-04T09:08:00.000Z",
+	});
+	expect(result.livePersisted).toBe(true);
+	expect(result.run?.startedAt).toBe(f.params.now);
+	expect(
+		(result.run?.metadata?.homeDelegation as Record<string, unknown>).expiresAt,
+	).toBe(hold);
+	expect(
+		(result.run?.metadata?.homeDelegationResume as Record<string, unknown>)
+			.approvalEventSet,
+	).toEqual(f.params.approvalEventSet);
+	expect(await f.db.select().from(kernelRuntimeEvents)).toEqual(events);
+});
