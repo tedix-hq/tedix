@@ -19,7 +19,9 @@ interface SourceReadView {
 		path: string,
 		options: { recursive: true },
 	): Promise<Array<{ type: string; relativePath: string }>>;
-	readFile(path: string): Promise<{ content: string; size: number }>;
+	readFile(
+		path: string,
+	): Promise<{ content: string | Uint8Array<ArrayBuffer>; size: number }>;
 }
 
 /** Warm bounded Sandbox reads while retaining the canonical digest algorithm. */
@@ -27,7 +29,10 @@ function prefetchEditableReads(
 	view: SourceReadView,
 	templateSlug: string,
 ): SourceReadView {
-	const reads = new Map<string, Promise<{ content: string; size: number }>>();
+	const reads = new Map<
+		string,
+		Promise<{ content: string | Uint8Array<ArrayBuffer>; size: number }>
+	>();
 	return {
 		async listFiles(path, options) {
 			const listing = await view.listFiles(path, options);
@@ -146,7 +151,18 @@ export async function inspectWorkspaceSourceStatus(input: {
 	let workspaceSource: EditableThemeSource;
 	try {
 		workspaceSource = await digestEditableThemeSource(
-			prefetchEditableReads(input.sandbox, input.templateSlug),
+			prefetchEditableReads(
+				{
+					listFiles: (path, options) => input.sandbox.listFiles(path, options),
+					async readFile(path) {
+						const file = await input.sandbox.readFile(path, {
+							encoding: "none",
+						});
+						return { content: new Uint8Array(file.content), size: file.size };
+					},
+				},
+				input.templateSlug,
+			),
 			input.templateSlug,
 		);
 	} catch {

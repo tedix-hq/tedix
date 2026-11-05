@@ -13,7 +13,9 @@ interface EditableSourceSandbox {
 		path: string,
 		options: { recursive: true },
 	): Promise<Array<{ type: string; relativePath: string }>>;
-	readFile(path: string): Promise<{ content: string; size: number }>;
+	readFile(
+		path: string,
+	): Promise<{ content: string | Uint8Array<ArrayBuffer>; size: number }>;
 }
 
 /**
@@ -133,6 +135,7 @@ export async function requirePinnedEditableThemeSource(
 }
 
 interface ThemeSourceSandbox extends EditableSourceSandbox {
+	readFile(path: string): Promise<{ content: string; size: number }>;
 	exec(argv: [string, ...string[]]): Promise<{
 		output(options: { encoding: "utf8"; maxBytes: number }): Promise<{
 			exitCode: number | null;
