@@ -3,7 +3,8 @@ import type {
 	SkillWorkflowRunTimeline,
 	SkillWorkflowTimelineEvent,
 } from "@tedix/api-contract/schemas/cognitive";
-import { useState } from "react";
+import { PauseIcon, PlayIcon } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, LoadError } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Badge } from "@/components/kumo/badge";
@@ -46,6 +47,7 @@ import {
 	SheetDescription,
 } from "@/components/kumo/sheet";
 import { Skeleton } from "@/components/kumo/skeleton";
+import { Slider } from "@/components/kumo/slider";
 import { Text } from "@/components/kumo/text";
 import {
 	workflowRunArtifactQueryOptions,
@@ -58,18 +60,38 @@ import {
 	parseRunReceipt,
 } from "@/lib/run-timeline";
 import { absoluteTime, formatDurationMs } from "@/lib/time";
-import { cn } from "@/lib/utils";
 
-const outcomeClasses = {
-	success: "bg-kumo-success",
-	failure: "bg-kumo-danger",
-	pending: "bg-kumo-interact",
-};
+// Each lane gets its own hue so parallel work reads apart; red stays reserved
+// for failures and pending calls are hollow.
+const laneHues = ["blue", "violet", "amber", "teal"] as const;
+const laneHue = (index: number) => laneHues[index % laneHues.length]!;
+const barHue = (
+	outcome: SkillWorkflowTimelineEvent["outcome"],
+	hue: (typeof laneHues)[number],
+) => (outcome === "failure" ? "red" : hue);
 
-const waitStyle = {
-	backgroundImage:
-		"repeating-linear-gradient(135deg, transparent, transparent 4px, var(--color-kumo-base) 4px, var(--color-kumo-base) 6px)",
-};
+function barStyle(
+	outcome: SkillWorkflowTimelineEvent["outcome"],
+	laneColor: (typeof laneHues)[number],
+	wait: boolean,
+) {
+	const hue = `var(--tedix-hue-${barHue(outcome, laneColor)})`;
+	if (outcome === "failure") return { backgroundColor: hue };
+	if (outcome === "pending")
+		return { borderColor: hue, borderStyle: "dashed", borderWidth: 2 };
+	return {
+		backgroundColor: hue,
+		...(wait
+			? {
+					backgroundImage:
+						"repeating-linear-gradient(135deg, transparent, transparent 4px, var(--color-kumo-base) 4px, var(--color-kumo-base) 6px)",
+				}
+			: {}),
+	};
+}
+
+/** A whole run replays in this long, however long it really took. */
+const REPLAY_MS = 15_000;
 
 export function RunTimeline({ runId }: { runId: string }) {
 	const timeline = useQuery({
@@ -128,6 +150,8 @@ export function RunTimelineChart({
 					: Date.now()) - Date.parse(timeline.run.startedAt)
 			: null;
 	const select = (event: SkillWorkflowTimelineEvent) => setSelectedId(event.id);
+	const replay = useReplay();
+	const playhead = replay.progress;
 	return (
 		<div className="grid min-w-0 gap-4" data-run-timeline>
 			<label className="grid gap-2">
@@ -209,29 +233,66 @@ export function RunTimelineChart({
 				</Collapsible>
 			)}
 			<div className="flex flex-wrap gap-4" aria-label="Timeline legend">
-				{(["success", "failure", "pending"] as const).map((outcome) => (
+				{(
+					[
+						["Finished", barStyle("success", laneHue(0), false)],
+						["Failed", barStyle("failure", laneHue(0), false)],
+						["Still running", barStyle("pending", laneHue(0), false)],
+						["Recorded wait", barStyle("success", laneHue(0), true)],
+					] as const
+				).map(([label, style]) => (
 					<Text
-						key={outcome}
+						key={label}
 						as="span"
 						role="label"
 						className="flex items-center gap-1.5"
 					>
-						<span
-							aria-hidden
-							className={cn("size-2 rounded-full", outcomeClasses[outcome])}
-						/>
-						{outcome}
+						<span aria-hidden className="h-3 w-5 rounded" style={style} />
+						{label}
 					</Text>
 				))}
-				<Text as="span" role="label" className="flex items-center gap-1.5">
-					<span
-						aria-hidden
-						className="h-3 w-5 rounded bg-kumo-interact"
-						style={waitStyle}
-					/>
-					Recorded wait
+				<Text as="span" tone="secondary" className="type-tedix-caption">
+					Each row has its own color.
 				</Text>
 			</div>
+			{layout.start !== null && layout.span > 0 && (
+				<div
+					className="flex flex-wrap items-center gap-3 sm:ml-44"
+					aria-label="Replay"
+				>
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={replay.toggle}
+						aria-label={replay.playing ? "Pause replay" : "Replay the run"}
+					>
+						{replay.playing ? (
+							<PauseIcon aria-hidden />
+						) : (
+							<PlayIcon aria-hidden />
+						)}
+						{replay.playing ? "Pause" : playhead === null ? "Replay" : "Resume"}
+					</Button>
+					<Slider
+						ariaLabel="Replay position"
+						className="min-w-40 flex-1"
+						min={0}
+						max={100}
+						step={0.1}
+						value={playhead ?? 100}
+						onValueChange={(value) => replay.seek(value)}
+					/>
+					<Text as="span" tone="secondary" className="type-tedix-caption">
+						{formatDurationMs(((playhead ?? 100) / 100) * layout.span) ?? "0s"}{" "}
+						of {formatDurationMs(layout.span)}
+					</Text>
+					{playhead !== null && (
+						<Button variant="ghost" size="sm" onClick={replay.reset}>
+							Show all
+						</Button>
+					)}
+				</div>
+			)}
 			{layout.start !== null && (
 				<div
 					className="flex justify-between gap-2 text-kumo-subtle type-tedix-caption sm:ml-44"
@@ -242,7 +303,7 @@ export function RunTimelineChart({
 					<span>{formatDurationMs(layout.span)}</span>
 				</div>
 			)}
-			{layout.lanes.map((lane) => (
+			{layout.lanes.map((lane, laneIndex) => (
 				<div
 					key={lane.id}
 					className="grid min-w-0 gap-2 border-b border-kumo-line pb-3 sm:grid-cols-[10rem_minmax(0,1fr)]"
@@ -268,36 +329,52 @@ export function RunTimelineChart({
 								style={{ left: `${tick}%` }}
 							/>
 						))}
-						{lane.entries.map(({ event, left, width, track }) => (
-							<Button
-								key={event.id}
-								variant="ghost"
-								size="sm"
-								multiline
-								aria-label={`${event.name} · ${event.status} · ${formatDurationMs(event.durationMs) ?? "duration unknown"}`}
-								title={`${event.name} · ${event.status}`}
-								onClick={() => select(event)}
-								data-timeline-event={event.id}
-								data-outcome={event.outcome}
-								data-wait={isTimelineWait(event) || undefined}
-								className="absolute !h-11 !min-w-2 !justify-start !p-0"
-								style={{
-									left: `min(${left}%, calc(100% - 8px))`,
-									width: `${width}%`,
-									maxWidth: `max(8px, ${100 - left}%)`,
-									top: track * 48,
-								}}
-							>
-								<span
-									aria-hidden
-									className={cn(
-										"h-5 w-full overflow-hidden rounded border border-kumo-line",
-										outcomeClasses[event.outcome],
-									)}
-									style={isTimelineWait(event) ? waitStyle : undefined}
-								/>
-							</Button>
-						))}
+						{lane.entries.map(({ event, left, width, track }) => {
+							// During a replay a step appears when it starts and grows until it ends.
+							if (playhead !== null && left > playhead) return null;
+							const shown =
+								playhead === null ? width : Math.min(width, playhead - left);
+							return (
+								<Button
+									key={event.id}
+									variant="ghost"
+									size="sm"
+									multiline
+									aria-label={`${event.name} · ${event.status} · ${formatDurationMs(event.durationMs) ?? "duration unknown"}`}
+									title={`${event.name} · ${event.status}`}
+									onClick={() => select(event)}
+									data-timeline-event={event.id}
+									data-outcome={event.outcome}
+									data-wait={isTimelineWait(event) || undefined}
+									className="absolute !h-11 !min-w-2 !justify-start !p-0"
+									style={{
+										left: `min(${left}%, calc(100% - 8px))`,
+										width: `${shown}%`,
+										maxWidth: `max(8px, ${100 - left}%)`,
+										top: track * 48,
+									}}
+								>
+									<span
+										aria-hidden
+										data-hue={barHue(event.outcome, laneHue(laneIndex))}
+										className="h-5 w-full overflow-hidden rounded"
+										style={barStyle(
+											event.outcome,
+											laneHue(laneIndex),
+											isTimelineWait(event),
+										)}
+									/>
+								</Button>
+							);
+						})}
+						{playhead !== null && (
+							<span
+								aria-hidden
+								data-replay-playhead
+								className="pointer-events-none absolute inset-y-0 border-l-2 border-kumo-contrast"
+								style={{ left: `${playhead}%` }}
+							/>
+						)}
 					</div>
 				</div>
 			))}
@@ -354,6 +431,52 @@ export function RunTimelineChart({
 			</Sheet>
 		</div>
 	);
+}
+
+/**
+ * Playhead for the timeline replay, as a percentage of the run. `null` shows
+ * the whole run; playing advances it over REPLAY_MS and stops at the end.
+ */
+function useReplay() {
+	const [progress, setProgress] = useState<number | null>(null);
+	const [playing, setPlaying] = useState(false);
+	const position = useRef<number>(0);
+	useEffect(() => {
+		if (!playing) return;
+		let frame = 0;
+		let last = performance.now();
+		const tick = (now: number) => {
+			position.current = Math.min(
+				100,
+				position.current + ((now - last) / REPLAY_MS) * 100,
+			);
+			last = now;
+			setProgress(position.current);
+			if (position.current >= 100) setPlaying(false);
+			else frame = requestAnimationFrame(tick);
+		};
+		frame = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(frame);
+	}, [playing]);
+	return {
+		progress,
+		playing,
+		toggle() {
+			if (playing) return setPlaying(false);
+			if (progress === null || progress >= 100) position.current = 0;
+			setProgress(position.current);
+			setPlaying(true);
+		},
+		seek(value: number) {
+			setPlaying(false);
+			position.current = value;
+			setProgress(value);
+		},
+		reset() {
+			setPlaying(false);
+			setProgress(null);
+		},
+	};
 }
 
 function isReferenceCoordinate(value: string) {
