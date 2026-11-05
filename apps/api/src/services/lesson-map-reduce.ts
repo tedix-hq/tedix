@@ -289,7 +289,7 @@ export async function readOwnerChunk(
 		});
 		const evidence = await decisionLessonEvidence(
 			db,
-			input.orgId,
+			{ organizationId: input.orgId },
 			rows.map((r) => r.id),
 		);
 		const liveIds = new Set(evidence.sources.map((s) => s.id));
@@ -825,7 +825,7 @@ async function ownerLessons(
 	return (
 		await listCurrentLearningFeedLessons(
 			db,
-			orgId,
+			{ organizationId: orgId },
 			LESSON_PREFIX,
 			500,
 			ownerUserId,
@@ -849,10 +849,14 @@ export async function prepareOwners(
 	for (const owner of owners) {
 		const current = await ownerLessons(db, orgId, owner.ownerUserId);
 		const replaceable = current.filter(isReplaceableLesson);
-		const live = await filterEvidenceBackedLessons(db, orgId, replaceable);
+		const live = await filterEvidenceBackedLessons(
+			db,
+			{ organizationId: orgId },
+			replaceable,
+		);
 		const archived = await listArchivedLearningFeedLessonsForOwner(
 			db,
-			orgId,
+			{ organizationId: orgId },
 			LESSON_PREFIX,
 			owner.ownerUserId,
 		);
@@ -942,11 +946,15 @@ export async function writeOwnerLessons(
 	});
 	const keep = new Set<string>();
 	const newIdByKey = new Map<string, string>();
-	const domain = await getOrCreateDomain(db, input.orgId, "operations");
+	const domain = await getOrCreateDomain(
+		db,
+		{ organizationId: input.orgId },
+		"operations",
+	);
 	for (const lesson of lessons) {
 		const evidence = await decisionLessonEvidence(
 			db,
-			input.orgId,
+			{ organizationId: input.orgId },
 			lesson.rules.flatMap((r) => r.eventIds),
 		);
 		const same = replaceable.find(
@@ -958,7 +966,7 @@ export async function writeOwnerLessons(
 			result.kept++;
 			// Unchanged lesson, newer history: record the run so it is skipped.
 			const meta = rec(same.metadata);
-			await updateFact(db, same.id, {
+			await updateFact(db, { organizationId: input.orgId }, same.id, {
 				metadata: toJsonRecord({
 					...meta,
 					learningFeed: {
@@ -1043,21 +1051,28 @@ export async function writeOwnerLessons(
 		const successor = old.topicKey ? newIdByKey.get(old.topicKey) : undefined;
 		await invalidateFact(
 			db,
+			{ organizationId: input.orgId },
 			old.id,
 			successor
 				? `Superseded by ${successor} for topic ${old.topicKey}`
 				: "Superseded by the person's distilled subject lessons",
 		);
-		await updateFact(db, old.id, { reviewStatus: "superseded" });
+		await updateFact(db, { organizationId: input.orgId }, old.id, {
+			reviewStatus: "superseded",
+		});
 		if (successor)
-			await createEdge(db, {
-				id: crypto.randomUUID(),
-				sourceFactId: successor,
-				targetFactId: old.id,
-				relationType: "supersedes",
-				strength: 1,
-				context: `Learning feed distillation: ${old.topicKey}`,
-			});
+			await createEdge(
+				db,
+				{ organizationId: input.orgId },
+				{
+					id: crypto.randomUUID(),
+					sourceFactId: successor,
+					targetFactId: old.id,
+					relationType: "supersedes",
+					strength: 1,
+					context: `Learning feed distillation: ${old.topicKey}`,
+				},
+			);
 		result.superseded++;
 	}
 	return result;
@@ -1374,7 +1389,12 @@ export async function distillOwnerIncrementally(
 					),
 				)
 			)
-				await holdLessonForRedistillation(db, orgId, row.id, row.metadata);
+				await holdLessonForRedistillation(
+					db,
+					{ organizationId: orgId },
+					row.id,
+					row.metadata,
+				);
 		}
 	});
 	const candidates =

@@ -73,7 +73,12 @@ export async function readWorkspaceAppSkill(
 		});
 	}
 	if (args.view === "artifact") {
-		const artifact = await getRunArtifact(context.db, run.id, args.path);
+		const artifact = await getRunArtifact(
+			context.db,
+			{ organizationId: resource.organizationId },
+			run.id,
+			args.path,
+		);
 		if (!artifact || artifact.sizeBytes > 262144)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,

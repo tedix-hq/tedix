@@ -59,14 +59,16 @@ const FIXTURE: FactSeed[] = [
 describe("searchFactsWithVisibility", () => {
 	it("without a visibilityTediId returns only org and shared facts — never any tedi's private facts", async () => {
 		const db = seed(FIXTURE);
-		const rows = await searchFactsWithVisibility(db, { orgId: "org-1" });
+		const rows = await searchFactsWithVisibility(db, {
+			organizationId: "org-1",
+		});
 		expect(ids(rows)).toEqual(["org-fact", "shared-fact"]);
 	});
 
 	it("with a visibilityTediId adds exactly that tedi's private facts", async () => {
 		const db = seed(FIXTURE);
 		const rows = await searchFactsWithVisibility(db, {
-			orgId: "org-1",
+			organizationId: "org-1",
 			visibilityTediId: "tedi-1",
 		});
 		expect(ids(rows)).toEqual(["org-fact", "own-private", "shared-fact"]);
@@ -77,7 +79,9 @@ describe("searchFactsWithVisibility", () => {
 			...FIXTURE,
 			{ id: "archived-org", visibility: "org", archivedAt: "2026-06-16" },
 		]);
-		const rows = await searchFactsWithVisibility(db, { orgId: "org-1" });
+		const rows = await searchFactsWithVisibility(db, {
+			organizationId: "org-1",
+		});
 		expect(ids(rows)).toEqual(["org-fact", "shared-fact"]);
 	});
 });

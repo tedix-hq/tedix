@@ -1,3 +1,4 @@
+import { requireOrgId } from "../org-scope";
 /**
  * oRPC Rationale Records Router
  * Tedi decision journal — the "why" behind every action
@@ -228,7 +229,7 @@ async function enrichRationaleEvidenceWithMemory(
 
 	try {
 		const results = await searchFactsWithVisibility(context.db, {
-			orgId: input.orgId,
+			organizationId: input.orgId,
 			visibilityTediId: input.tediId,
 			limit: 5,
 			minConfidence: 0.35,
@@ -246,7 +247,11 @@ async function enrichRationaleEvidenceWithMemory(
 
 		const accessUpdates = Promise.all(
 			citations.map((citation) =>
-				recordFactAccess(context.db, citation.factId).catch(() => {}),
+				recordFactAccess(
+					context.db,
+					{ organizationId: requireOrgId(context) },
+					citation.factId,
+				).catch(() => {}),
 			),
 		);
 		context.waitUntil?.(accessUpdates);
@@ -472,6 +477,7 @@ const createProcedure = authOs.create
 			try {
 				emitFactFeedbackForOutcome(
 					context.db,
+					{ organizationId: responseRecord.orgId },
 					evidence,
 					responseRecord.outcomeStatus,
 				).catch(() => {});
@@ -686,6 +692,7 @@ const completeProcedure = authOs.complete
 		try {
 			emitFactFeedbackForOutcome(
 				context.db,
+				{ organizationId: completed.orgId },
 				evidence,
 				completed.outcomeStatus,
 			).catch((err) => {

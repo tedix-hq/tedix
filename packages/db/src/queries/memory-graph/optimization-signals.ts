@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -17,8 +18,9 @@ export async function findOpenOptimizationSignal(
 		type: TediOptimizationSignal["type"];
 		domain: string;
 		evidenceIncludes?: string[];
-	},
+	} & TenantScope,
 ): Promise<TediOptimizationSignal | undefined> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const candidates = await db
 		.select()
 		.from(tediOptimizationSignals)
@@ -47,8 +49,9 @@ export async function findOpenOptimizationSignal(
 
 export async function createOptimizationSignal(
 	db: DbClient,
-	signal: NewTediOptimizationSignal,
+	signal: NewTediOptimizationSignal & TenantScope,
 ): Promise<TediOptimizationSignal> {
+	signal = { ...signal, ...normalizeTenantScope(signal) };
 	const id = signal.id ?? crypto.randomUUID();
 	const [created] = await db
 		.insert(tediOptimizationSignals)
@@ -60,13 +63,14 @@ export async function createOptimizationSignal(
 
 export async function listOptimizationSignals(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options?: {
 		tediId?: string;
 		status?: OptimizationSignalStatus;
 		limit?: number;
 	},
 ): Promise<TediOptimizationSignal[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [eq(tediOptimizationSignals.organizationId, orgId)];
 
 	if (options?.tediId) {
@@ -89,9 +93,11 @@ export async function listOptimizationSignals(
 
 export async function updateSignalStatus(
 	db: DbClient,
+	tenantScope: TenantScope,
 	id: string,
 	status: OptimizationSignalStatus,
 ): Promise<void> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	await db
 		.update(tediOptimizationSignals)
@@ -102,7 +108,12 @@ export async function updateSignalStatus(
 				: {}),
 			updatedAt: now,
 		})
-		.where(eq(tediOptimizationSignals.id, id));
+		.where(
+			and(
+				eq(tediOptimizationSignals.organizationId, organizationId),
+				eq(tediOptimizationSignals.id, id),
+			),
+		);
 }
 
 /**
@@ -111,16 +122,21 @@ export async function updateSignalStatus(
  */
 export async function getCompiledPatterns(
 	db: DbClient,
+	tenantScope: TenantScope,
 	tediId: string,
 ): Promise<string[]> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const signals = await db
 		.select({ suggestedAction: tediOptimizationSignals.suggestedAction })
 		.from(tediOptimizationSignals)
 		.where(
 			and(
-				eq(tediOptimizationSignals.tediId, tediId),
-				eq(tediOptimizationSignals.type, "compiled_pattern"),
-				sql`${tediOptimizationSignals.status} NOT IN ('completed', 'dismissed')`,
+				eq(tediOptimizationSignals.organizationId, organizationId),
+				and(
+					eq(tediOptimizationSignals.tediId, tediId),
+					eq(tediOptimizationSignals.type, "compiled_pattern"),
+					sql`${tediOptimizationSignals.status} NOT IN ('completed', 'dismissed')`,
+				),
 			),
 		)
 		.orderBy(
@@ -136,9 +152,10 @@ export async function getCompiledPatterns(
 
 export async function getOptimizationBacklog(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options?: { tediId?: string; limit?: number },
 ): Promise<TediOptimizationSignal[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(tediOptimizationSignals.organizationId, orgId),
 		sql`${tediOptimizationSignals.status} NOT IN ('completed', 'dismissed')`,

@@ -144,14 +144,14 @@ function recallAt5(hits: boolean[]) {
 
 describe("chat memory retrieval eval", () => {
 	it("finds the asked-about fact for ordinary, exact-topic and date-cued messages", async () => {
-		const staticTop = (await getTopPlatformFacts(db, ORG, { limit: 5 })).map(
-			(row) => row.fact.id,
-		);
+		const staticTop = (
+			await getTopPlatformFacts(db, { organizationId: ORG }, { limit: 5 })
+		).map((row) => row.fact.id);
 		const rows = [];
 		for (const query of QUERIES) {
 			const started = performance.now();
 			const ranked = await recallMemoryFacts(db, {
-				orgId: ORG,
+				organizationId: ORG,
 				query: query.query,
 				topK: 5,
 			});

@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import {
 	and,
 	desc,
@@ -24,8 +25,7 @@ import {
 import { prefixedColumns } from "../../utils/select";
 import { filterEvidenceBackedLessons } from "./agent-lessons";
 
-export interface RecallScope {
-	orgId: string;
+export interface RecallScope extends TenantScope {
 	tediId?: string;
 	domainIds?: string[];
 	factTypes?: string[];
@@ -55,7 +55,7 @@ function eligible(scope: RecallScope): SQL {
 	const now = scope.now ?? new Date().toISOString();
 	const f = memoryFacts;
 	return and(
-		eq(f.organizationId, scope.orgId),
+		eq(f.organizationId, scope.organizationId),
 		sql`${f.archivedAt} IS NULL`,
 		sql`coalesce(json_extract(${f.metadata}, '$.learningFeed.evidence.state'), '') != 'held'`,
 		sql`(${f.validTo} IS NULL OR datetime(${f.validTo}) > datetime(${now}))`,
@@ -83,7 +83,7 @@ function eligible(scope: RecallScope): SQL {
 				SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_source WHERE source_fact_id = ${f.id}
 				UNION SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_target WHERE target_fact_id = ${f.id}
 			)
-			AND newer.organization_id = ${scope.orgId}
+			AND newer.organization_id = ${scope.organizationId}
 			AND newer.id = CASE WHEN e.target_fact_id = ${f.id} THEN e.source_fact_id ELSE e.target_fact_id END
 			AND ((e.relation_type = 'supersedes' AND e.target_fact_id = ${f.id})
 			OR (e.relation_type = 'contradicts'
@@ -100,6 +100,7 @@ export async function lexicalRecall(
 	scope: RecallScope,
 	query: string,
 ): Promise<RecallCandidate[]> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const terms = recallTerms(query);
 	if (!terms.length) return [];
 	const match = terms.map((term) => `"${term}"`).join(" OR ");
@@ -126,7 +127,7 @@ export async function lexicalRecall(
 					eligible(scope),
 					sql`${memoryFacts}.rowid = ${index}.rowid`,
 					sql`${index} MATCH ${match}`,
-					sql`${index}.organization_id = ${scope.orgId}`,
+					sql`${index}.organization_id = ${scope.organizationId}`,
 					sql`${index}.rank MATCH 'bm25(0,0,1,2)'`,
 				),
 			)
@@ -140,6 +141,7 @@ export async function graphRecall(
 	scope: RecallScope,
 	query: string,
 ): Promise<RecallCandidate[]> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const terms = recallTerms(query);
 	if (!terms.length) return [];
 	// Resolve entities from the query, then traverse one fact edge from their
@@ -160,22 +162,25 @@ export async function graphRecall(
 				r,
 				and(
 					eq(r.entityId, ent.id),
-					eq(r.organizationId, scope.orgId),
+					eq(r.organizationId, scope.organizationId),
 					sql`${r.status} = 'active'`,
 					isNull(r.validTo),
 				),
 			)
 			.innerJoin(
 				m,
-				and(eq(m.id, r.mentionId), eq(m.organizationId, scope.orgId)),
+				and(eq(m.id, r.mentionId), eq(m.organizationId, scope.organizationId)),
 			)
 			.innerJoin(
 				seed,
-				and(eq(seed.id, m.sourceFactId), eq(seed.organizationId, scope.orgId)),
+				and(
+					eq(seed.id, m.sourceFactId),
+					eq(seed.organizationId, scope.organizationId),
+				),
 			)
 			.where(
 				and(
-					eq(ent.organizationId, scope.orgId),
+					eq(ent.organizationId, scope.organizationId),
 					sql`${ent.status} = 'active'`,
 					exists(
 						db
@@ -355,6 +360,7 @@ export async function temporalRecall(
 	scope: RecallScope,
 	query: string,
 ): Promise<RecallCandidate[]> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const window = recallWindow(query, new Date(scope.now ?? Date.now()));
 	if (!window) return [];
 	const time = sql`coalesce(${memoryFacts.validFrom}, ${memoryFacts.createdAt})`;
@@ -371,10 +377,10 @@ export async function temporalRecall(
 				// Separate time ranges let SQLite use each tenant/time index before
 				// evaluating lifecycle predicates on just the matching fact IDs.
 				sql`${memoryFacts.id} IN (
-				SELECT id FROM memory_facts WHERE organization_id = ${scope.orgId}
+				SELECT id FROM memory_facts WHERE organization_id = ${scope.organizationId}
 				AND datetime(coalesce(valid_from, created_at)) >= datetime(${window.from})
 				AND datetime(coalesce(valid_from, created_at)) < datetime(${window.to})
-				UNION SELECT id FROM memory_facts WHERE organization_id = ${scope.orgId}
+				UNION SELECT id FROM memory_facts WHERE organization_id = ${scope.organizationId}
 				AND datetime(valid_to) >= datetime(${window.from}) AND datetime(valid_to) < datetime(${window.to})
 				)`,
 			),
@@ -388,13 +394,14 @@ export async function hydrateRecall(
 	scope: RecallScope,
 	ids: string[],
 ): Promise<Array<MemoryFact & { replacesFactIds: string[] }>> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	if (!ids.length) return [];
 	const rows = await db
 		.select({
 			...prefixedColumns(memoryFacts, "fact"),
 			replacesFactIds: sql<string>`(
 			SELECT coalesce(json_group_array(older.id), '[]') FROM memory_edges edge
-			JOIN memory_facts older ON older.organization_id = ${scope.orgId}
+			JOIN memory_facts older ON older.organization_id = ${scope.organizationId}
 		AND older.id = CASE WHEN edge.source_fact_id = memory_facts.id THEN edge.target_fact_id ELSE edge.source_fact_id END
 			WHERE (older.visibility IN ('org','shared') OR (older.visibility = 'private' AND older.tedi_id = ${scope.tediId ?? ""}))
 			AND ((edge.relation_type = 'supersedes' AND edge.source_fact_id = memory_facts.id)
@@ -413,28 +420,30 @@ export async function hydrateRecall(
 				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
 			),
 		);
-	return filterEvidenceBackedLessons(db, scope.orgId, rows);
+	return filterEvidenceBackedLessons(db, scope, rows);
 }
 export async function fallbackRecall(
 	db: DbQueryClient,
 	scope: RecallScope,
 ): Promise<MemoryFact[]> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const rows = await db
 		.select()
 		.from(memoryFacts)
 		.where(eligible(scope))
 		.orderBy(desc(memoryFacts.confidence), desc(memoryFacts.createdAt))
 		.limit(100);
-	return filterEvidenceBackedLessons(db, scope.orgId, rows);
+	return filterEvidenceBackedLessons(db, scope, rows);
 }
 
 /** Record retrieval frequency without changing fact confidence. */
 export async function recordRecallAccess(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	ids: string[],
 	recordAccess = true,
 ): Promise<void> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (!recordAccess || !ids.length) return;
 	await db
 		.update(memoryFacts)
@@ -453,9 +462,10 @@ export async function recordRecallAccess(
 /** Repair old rows in bounded, repeatable chunks; new writes are trigger-synced. */
 export async function backfillFactSearch(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	limit = 500,
 ): Promise<number> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	// Stays raw: FTS5 shadow tables and changes() reads have no Drizzle builder.
 	const results = await db.batch([
 		db.run(sql`INSERT OR REPLACE INTO memory_fact_fts(rowid, fact_id, organization_id, text, entity_names)

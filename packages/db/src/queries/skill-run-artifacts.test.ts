@@ -58,7 +58,12 @@ describe("skill run artifact overload recovery", () => {
 		});
 		logs.insert.run("saved", "steps/search.json", 1, "2026-01-01");
 		configureLogStore(main.db, { LOGS_DB: logs.binding });
-		const result = getRunArtifact(main.db, "run-1", "steps/search.json");
+		const result = getRunArtifact(
+			main.db,
+			{ organizationId: "org-1" },
+			"run-1",
+			"steps/search.json",
+		);
 		await vi.advanceTimersByTimeAsync(999);
 		expect(reads).toBe(1);
 		await vi.advanceTimersByTimeAsync(1);
@@ -77,6 +82,7 @@ describe("skill run artifact overload recovery", () => {
 		const put = vi.fn(async () => null);
 		const result = recordRunArtifact(
 			db,
+			{ organizationId: "org-1" },
 			{
 				runId: "run-1",
 				path: "large.json",
@@ -98,12 +104,15 @@ describe("skill run artifact overload recovery", () => {
 		});
 		const { db } = fixture(read);
 		// Cloudflare retains only name and message, not Error.cause.
-		const result = getRunArtifact(db, "run-1", "steps/search.json").catch(
-			(error) => ({
-				name: error.name,
-				message: error.message,
-			}),
-		);
+		const result = getRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			"run-1",
+			"steps/search.json",
+		).catch((error) => ({
+			name: error.name,
+			message: error.message,
+		}));
 		for (const delay of [1_000, 2_000, 4_000, 8_000]) {
 			await vi.advanceTimersByTimeAsync(delay - 1);
 			const calls = read.mock.calls.length;
@@ -129,7 +138,12 @@ describe("skill run artifact overload recovery", () => {
 			});
 			const { db } = fixture(read);
 			await expect(
-				getRunArtifact(db, "run-1", "missing.json"),
+				getRunArtifact(
+					db,
+					{ organizationId: "org-1" },
+					"run-1",
+					"missing.json",
+				),
 			).rejects.toMatchObject({ cause: error });
 			expect(read).toHaveBeenCalledTimes(1);
 			expect(vi.getTimerCount()).toBe(0);
@@ -140,31 +154,48 @@ describe("skill run artifact overload recovery", () => {
 describe("skill run artifact content addressing", () => {
 	it("content-addresses inline writes without any caller change", async () => {
 		const { db } = fixture();
-		const created = await recordRunArtifact(db, {
-			runId: "run-1",
-			path: "evidence/scrape.json",
-			value: { price: 42 },
-		});
+		const created = await recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{
+				runId: "run-1",
+				path: "evidence/scrape.json",
+				value: { price: 42 },
+			},
+		);
 		// The digest is over the serialized bytes actually persisted.
 		expect(created.sha256).toBe(await sha256Hex('{"price":42}'));
 		expect(created.contentInline).toBe('{"price":42}');
 
-		const read = await getRunArtifact(db, "run-1", "evidence/scrape.json");
+		const read = await getRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			"run-1",
+			"evidence/scrape.json",
+		);
 		expect(read?.sha256).toBe(await sha256Hex('{"price":42}'));
 	});
 
 	it("re-hashes a mutable path so the digest always describes current bytes", async () => {
 		const { db } = fixture();
-		await recordRunArtifact(db, {
-			runId: "run-1",
-			path: "timeline.json",
-			value: { events: [] },
-		});
-		const updated = await recordRunArtifact(db, {
-			runId: "run-1",
-			path: "timeline.json",
-			value: { events: ["step-1"] },
-		});
+		await recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{
+				runId: "run-1",
+				path: "timeline.json",
+				value: { events: [] },
+			},
+		);
+		const updated = await recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{
+				runId: "run-1",
+				path: "timeline.json",
+				value: { events: ["step-1"] },
+			},
+		);
 		// Upsert-in-place: one row, digest tracks the new bytes — a stale digest
 		// would be worse than none, since it would falsely "prove" old evidence.
 		expect(updated.sha256).toBe(await sha256Hex('{"events":["step-1"]}'));
@@ -175,14 +206,18 @@ describe("skill run artifact content addressing", () => {
 		const { db } = fixture();
 		const bytes = "x".repeat(20_000);
 		const digest = await sha256Hex(bytes);
-		const created = await recordRunArtifact(db, {
-			runId: "run-1",
-			path: "evidence/large.json",
-			value: null,
-			r2Key: "run-1/evidence/large.json",
-			sizeBytes: bytes.length,
-			sha256: digest,
-		});
+		const created = await recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{
+				runId: "run-1",
+				path: "evidence/large.json",
+				value: null,
+				r2Key: "run-1/evidence/large.json",
+				sizeBytes: bytes.length,
+				sha256: digest,
+			},
+		);
 		expect(created.sha256).toBe(digest);
 		expect(created.contentInline).toBeNull();
 		expect(created.contentR2Key).toBe("run-1/evidence/large.json");
@@ -209,9 +244,13 @@ describe("skill workflow artifact pages", () => {
 		}
 
 		expect(
-			(await listRunWorkflowRuntimeObservationsForRuns(db, ["run-1"])).map(
-				(row) => row.path,
-			),
+			(
+				await listRunWorkflowRuntimeObservationsForRuns(
+					db,
+					{ organizationId: "org-1" },
+					["run-1"],
+				)
+			).map((row) => row.path),
 		).toEqual(paths.slice(0, 3));
 	});
 
@@ -238,18 +277,28 @@ describe("skill workflow artifact pages", () => {
 			"2026-07-12T00:00:01.000Z",
 		);
 
-		const first = await listRunWorkflowStepArtifacts(db, "run-1", {
-			stepName: "target",
-			kind: "attempt",
-			limit: 1,
-			offset: 0,
-		});
-		const second = await listRunWorkflowStepArtifacts(db, "run-1", {
-			stepName: "target",
-			kind: "attempt",
-			limit: 1,
-			offset: 1,
-		});
+		const first = await listRunWorkflowStepArtifacts(
+			db,
+			{ organizationId: "org-1" },
+			"run-1",
+			{
+				stepName: "target",
+				kind: "attempt",
+				limit: 1,
+				offset: 0,
+			},
+		);
+		const second = await listRunWorkflowStepArtifacts(
+			db,
+			{ organizationId: "org-1" },
+			"run-1",
+			{
+				stepName: "target",
+				kind: "attempt",
+				limit: 1,
+				offset: 1,
+			},
+		);
 		expect(first.map((row) => row.path)).toEqual([
 			"epochs/0/steps/x:target/1/attempts/1.json",
 		]);
@@ -275,16 +324,26 @@ describe("skill workflow artifact pages", () => {
 
 		expect(
 			(
-				await listRunWorkflowStepArtifacts(db, "run-1", {
-					stepName: "report.publish",
-				})
+				await listRunWorkflowStepArtifacts(
+					db,
+					{ organizationId: "org-1" },
+					"run-1",
+					{
+						stepName: "report.publish",
+					},
+				)
 			).map((row) => row.path),
 		).toEqual(["epochs/0/steps/x:report%2Epublish/1/attempts/1.json"]);
 		expect(
 			(
-				await listRunWorkflowStepArtifacts(db, "run-1", {
-					stepName: "hidden..step",
-				})
+				await listRunWorkflowStepArtifacts(
+					db,
+					{ organizationId: "org-1" },
+					"run-1",
+					{
+						stepName: "hidden..step",
+					},
+				)
 			).map((row) => row.path),
 		).toEqual(["epochs/0/steps/x:hidden%2E%2Estep/1/attempts/1.json"]);
 	});
@@ -306,11 +365,16 @@ describe("skill workflow artifact pages", () => {
 			"2026-07-12T00:00:00.000Z",
 		);
 
-		const rows = await listRunWorkflowCallArtifacts(db, "run-1", {
-			stepName: "target",
-			attempt: 3,
-			limit: 10,
-		});
+		const rows = await listRunWorkflowCallArtifacts(
+			db,
+			{ organizationId: "org-1" },
+			"run-1",
+			{
+				stepName: "target",
+				attempt: 3,
+				limit: 10,
+			},
+		);
 		expect(rows.map((row) => row.path)).toEqual([
 			"epochs/0/steps/x:target/1/attempts/3/calls/run/1.json",
 		]);
@@ -319,8 +383,20 @@ describe("skill workflow artifact pages", () => {
 	it("does not project timeline summaries as step or call evidence", async () => {
 		const { db, insert } = fixture();
 		insert.run("timeline", "timeline.json", 1, "2026-07-11T00:00:00.000Z");
-		expect(await listRunWorkflowStepArtifacts(db, "run-1")).toEqual([]);
-		expect(await listRunWorkflowCallArtifacts(db, "run-1")).toEqual([]);
+		expect(
+			await listRunWorkflowStepArtifacts(
+				db,
+				{ organizationId: "org-1" },
+				"run-1",
+			),
+		).toEqual([]);
+		expect(
+			await listRunWorkflowCallArtifacts(
+				db,
+				{ organizationId: "org-1" },
+				"run-1",
+			),
+		).toEqual([]);
 	});
 });
 
@@ -334,6 +410,7 @@ it("keeps small bodies inline and uploads bodies over 4 KiB before committing a 
 	} as unknown as R2Bucket;
 	const small = await recordRunArtifact(
 		db,
+		{ organizationId: "org-1" },
 		{ runId: "run-1", path: "small.json", value: { ok: true } },
 		bucket,
 	);
@@ -343,6 +420,7 @@ it("keeps small bodies inline and uploads bodies over 4 KiB before committing a 
 	const body = { text: "x".repeat(R2_BODY_THRESHOLD_BYTES) };
 	const large = await recordRunArtifact(
 		db,
+		{ organizationId: "org-1" },
 		{ runId: "run-1", path: "large.json", value: body },
 		bucket,
 	);
@@ -353,6 +431,7 @@ it("keeps small bodies inline and uploads bodies over 4 KiB before committing a 
 	await expect(
 		recordRunArtifact(
 			db,
+			{ organizationId: "org-1" },
 			{ runId: "run-1", path: "failed.json", value: body },
 			{
 				put: async () => {
@@ -361,7 +440,14 @@ it("keeps small bodies inline and uploads bodies over 4 KiB before committing a 
 			} as unknown as R2Bucket,
 		),
 	).rejects.toThrow("unavailable");
-	expect(await getRunArtifact(db, "run-1", "failed.json")).toBeNull();
+	expect(
+		await getRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			"run-1",
+			"failed.json",
+		),
+	).toBeNull();
 });
 
 describe("compact timeline artifact reads", () => {
@@ -385,12 +471,21 @@ describe("compact timeline artifact reads", () => {
 			createdAt,
 		);
 		insert.run("original", "epochs/3/steps/original.json", 1, createdAt);
-		await recordRunArtifact(db, {
-			runId: "other-run",
-			path: "timeline/epochs/3/steps/other.json",
-			value: { other: true },
-		});
-		const rows = await listRunTimelineArtifacts(db, "run-1", 3);
+		await recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{
+				runId: "other-run",
+				path: "timeline/epochs/3/steps/other.json",
+				value: { other: true },
+			},
+		);
+		const rows = await listRunTimelineArtifacts(
+			db,
+			{ organizationId: "org-1" },
+			"run-1",
+			3,
+		);
 		expect(rows).toHaveLength(301);
 		expect(
 			rows.every(
@@ -404,7 +499,14 @@ describe("compact timeline artifact reads", () => {
 					row.runId === "run-1" && row.path.startsWith("timeline/epochs/3/"),
 			),
 		).toBe(true);
-		expect(await listRunTimelineArtifacts(db, "run-1", 4)).toEqual([]);
+		expect(
+			await listRunTimelineArtifacts(
+				db,
+				{ organizationId: "org-1" },
+				"run-1",
+				4,
+			),
+		).toEqual([]);
 	});
 });
 
@@ -415,26 +517,39 @@ describe("artifact reads across retention stores", () => {
 		const moved = [];
 		for (let index = 0; index < 5; index++) {
 			moved.push(
-				await recordRunArtifact(logs.db, {
-					runId: "run-1",
-					path: `evidence/${index}.json`,
-					value: null,
-					r2Key: `run-1/bodies/moved-${index}`,
-					sizeBytes: 8192,
-					sha256: "a".repeat(64),
-				}),
+				await recordRunArtifact(
+					logs.db,
+					{ organizationId: "org-1" },
+					{
+						runId: "run-1",
+						path: `evidence/${index}.json`,
+						value: null,
+						r2Key: `run-1/bodies/moved-${index}`,
+						sizeBytes: 8192,
+						sha256: "a".repeat(64),
+					},
+				),
 			);
 		}
 		main.insert.run(moved[0]!.id, "evidence/0.json", 1, moved[0]!.createdAt);
 		main.insert.run("main-only", "evidence/5.json", 1, moved[0]!.createdAt);
 		configureLogStore(main.db, { LOGS_DB: logs.binding });
-		const all = await listRunArtifacts(main.db, "run-1");
+		const all = await listRunArtifacts(
+			main.db,
+			{ organizationId: "org-1" },
+			"run-1",
+		);
 		expect(all.map((row) => row.path)).toEqual(
 			Array.from({ length: 6 }, (_, i) => `evidence/${i}.json`),
 		);
 		expect(all[0]?.contentInline).toBe("{}");
 		for (const artifact of moved) {
-			const read = await getRunArtifact(main.db, "run-1", artifact.path);
+			const read = await getRunArtifact(
+				main.db,
+				{ organizationId: "org-1" },
+				"run-1",
+				artifact.path,
+			);
 			expect(read?.id).toBe(artifact.id);
 			if (artifact !== moved[0]) {
 				expect(read?.contentR2Key).toBe(artifact.contentR2Key);
@@ -443,9 +558,16 @@ describe("artifact reads across retention stores", () => {
 		}
 		expect(
 			(
-				await listRunArtifactsPage(main.db, "run-1", { limit: 3, offset: 2 })
+				await listRunArtifactsPage(
+					main.db,
+					{ organizationId: "org-1" },
+					"run-1",
+					{ limit: 3, offset: 2 },
+				)
 			).map((row) => row.path),
 		).toEqual(["evidence/2.json", "evidence/3.json", "evidence/4.json"]);
-		expect(await listRunArtifacts(main.db, "run-other")).toEqual([]);
+		expect(
+			await listRunArtifacts(main.db, { organizationId: "org-1" }, "run-other"),
+		).toEqual([]);
 	});
 });

@@ -117,7 +117,11 @@ describe("getMemoryHealthFindings", () => {
 			],
 			[["e1", "fresh", "dup-a", "contradicts"]],
 		);
-		const result = await getMemoryHealthFindings(db, "org-1", { now: NOW });
+		const result = await getMemoryHealthFindings(
+			db,
+			{ organizationId: "org-1" },
+			{ now: NOW },
+		);
 
 		const unused = kind(result, "unused");
 		expect(unused.samples.map((s) => s.factId).sort()).toEqual([
@@ -153,7 +157,11 @@ describe("getMemoryHealthFindings", () => {
 		}));
 		const { db } = setup(seeds);
 		const unused = kind(
-			await getMemoryHealthFindings(db, "org-1", { now: NOW }),
+			await getMemoryHealthFindings(
+				db,
+				{ organizationId: "org-1" },
+				{ now: NOW },
+			),
 			"unused",
 		);
 		expect(unused.count).toBe(500);
@@ -163,7 +171,11 @@ describe("getMemoryHealthFindings", () => {
 
 	it("bounds every statement and reaches memory tables through an index", async () => {
 		const { db, seen, prepare } = setup([{ id: "a", created: daysAgo(100) }]);
-		await getMemoryHealthFindings(db, "org-1", { now: NOW });
+		await getMemoryHealthFindings(
+			db,
+			{ organizationId: "org-1" },
+			{ now: NOW },
+		);
 		expect(seen.length).toBeGreaterThanOrEqual(12);
 		const plans: string[] = [];
 		for (const statement of seen) {

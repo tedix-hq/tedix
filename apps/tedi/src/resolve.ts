@@ -528,10 +528,14 @@ export async function resolveTedi(
 				})
 			: Promise.resolve(null),
 		tedi.organizationId
-			? getTopPlatformFacts(db, tedi.organizationId, {
-					tediId: tedi.id,
-					limit: 30,
-				}).catch((err) => {
+			? getTopPlatformFacts(
+					db,
+					{ organizationId: tedi.organizationId },
+					{
+						tediId: tedi.id,
+						limit: 30,
+					},
+				).catch((err) => {
 					warnOptionalResolutionFailure(
 						"resolve.platform_knowledge_load_failed",
 						err,

@@ -937,6 +937,7 @@ export async function assembleHomeContext(
 						if (candidates.length === 0) return [];
 						const hydrated = await getFactsByIds(
 							db,
+							{ organizationId },
 							candidates.map((candidate) => candidate.factId),
 						);
 						const byId = new Map(hydrated.map((fact) => [fact.id, fact]));
@@ -974,7 +975,7 @@ export async function assembleHomeContext(
 				async () =>
 					(
 						await recallMemoryFacts(db, {
-							orgId: organizationId,
+							organizationId: organizationId,
 							query: operatorMessage,
 							topK: RELEVANCE_RECALL_TOP_K,
 							budgetMs: MESSAGE_RECALL_BUDGET_MS,
@@ -1105,7 +1106,12 @@ export async function assembleHomeContext(
 			"workItems",
 		),
 		safeRead(
-			() => getTopPlatformFacts(db, organizationId, { limit: FACTS_LIMIT }),
+			() =>
+				getTopPlatformFacts(
+					db,
+					{ organizationId: organizationId },
+					{ limit: FACTS_LIMIT },
+				),
 			[],
 			"facts",
 		),

@@ -185,7 +185,12 @@ export const skillsGetRunArtifact = authedSkills.getRunArtifact
 		}
 		const { getRunArtifact } =
 			await import("@tedix/db/queries/skill-run-artifacts");
-		const artifact = await getRunArtifact(context.db, input.runId, input.path);
+		const artifact = await getRunArtifact(
+			context.db,
+			{ organizationId: requireOrgId(context) },
+			input.runId,
+			input.path,
+		);
 		if (!artifact) {
 			throw createError(ErrorCodes.NOT_FOUND, "Artifact not found");
 		}
@@ -337,10 +342,15 @@ export const skillsListRunArtifacts = authedSkills.listRunArtifacts
 		}
 		const { listRunArtifactsPage } =
 			await import("@tedix/db/queries/skill-run-artifacts");
-		const fetched = await listRunArtifactsPage(context.db, input.runId, {
-			limit: input.limit + 1,
-			offset: input.offset,
-		});
+		const fetched = await listRunArtifactsPage(
+			context.db,
+			{ organizationId: requireOrgId(context) },
+			input.runId,
+			{
+				limit: input.limit + 1,
+				offset: input.offset,
+			},
+		);
 		const truncated = fetched.length > input.limit;
 		const artifacts = fetched.slice(0, input.limit);
 		return {

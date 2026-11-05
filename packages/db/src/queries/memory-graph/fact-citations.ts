@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, eq, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFactCitationBackfills } from "../../schema/memory-fact-citations";
@@ -8,7 +9,8 @@ const SOURCES = [
 ];
 const PAGE_SIZE = 100;
 
-async function progress(db: DbQueryClient, orgId: string) {
+async function progress(db: DbQueryClient, tenantScope: TenantScope) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
 		.from(memoryFactCitationBackfills)
@@ -24,12 +26,13 @@ async function progress(db: DbQueryClient, orgId: string) {
  */
 export async function findCitationDependents(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	citedIds: string[],
 	options?: { legacyPages?: number },
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (!citedIds.length) return [];
-	const checkpoint = await progress(db, orgId);
+	const checkpoint = await progress(db, tenantScope);
 	const ids = new Set<string>();
 	let pages = options?.legacyPages ?? Number.POSITIVE_INFINITY;
 	if (!checkpoint?.done) {
@@ -76,10 +79,11 @@ export async function findCitationDependents(
 /** Atomic cursor and link repair; a crash replays at most one idempotent page. */
 export async function backfillFactCitations(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	limit = PAGE_SIZE,
 ) {
-	const checkpoint = await progress(db, orgId);
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
+	const checkpoint = await progress(db, tenantScope);
 	if (checkpoint?.done) return 0;
 	const size = Math.min(PAGE_SIZE, Math.max(1, Math.trunc(limit) || PAGE_SIZE));
 	const page: Array<{ id: string; source: string }> = [];

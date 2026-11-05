@@ -180,7 +180,7 @@ export function loadSkillRuntime(
 				props: createMcpBridgeProps(input, env),
 			}),
 			__ARTIFACT_BRIDGE__: exports.ArtifactBridge({
-				props: { runId: input.runId },
+				props: { runId: input.runId, organizationId: input.orgId },
 			}),
 			// Grounding runs HOST-side. Tenant code gets a labeling service, not a
 			// verdict pen: the scrape, the digest, the exact/entailment decision,

@@ -59,22 +59,34 @@ describe("tedi runtime event identity", () => {
 		const db = fixture();
 		await insertTediRuntimeEvent(db, toolEvent("owned-event"));
 		expect(
-			await getTediRuntimeEventById(db, "owned-event", {
-				organizationId: "org-1",
-				tediId: TEDI_ID,
-			}),
+			await getTediRuntimeEventById(
+				db,
+				{
+					organizationId: "org-1",
+					tediId: TEDI_ID,
+				},
+				"owned-event",
+			),
 		).not.toBeNull();
 		expect(
-			await getTediRuntimeEventById(db, "owned-event", {
-				organizationId: "org-other",
-				tediId: TEDI_ID,
-			}),
+			await getTediRuntimeEventById(
+				db,
+				{
+					organizationId: "org-other",
+					tediId: TEDI_ID,
+				},
+				"owned-event",
+			),
 		).toBeNull();
 		expect(
-			await getTediRuntimeEventById(db, "owned-event", {
-				organizationId: "org-1",
-				tediId: "tedi-other",
-			}),
+			await getTediRuntimeEventById(
+				db,
+				{
+					organizationId: "org-1",
+					tediId: "tedi-other",
+				},
+				"owned-event",
+			),
 		).toBeNull();
 	});
 	it("drops a re-issued event id and keeps the row already written", async () => {
@@ -98,6 +110,7 @@ describe("tedi runtime event identity", () => {
 		expect(second).toBeNull();
 
 		const rows = await listTediRuntimeEventsForRouter(db, {
+			organizationId: "org-1",
 			tediId: TEDI_ID,
 			runId: RUN_ID,
 			limit: 100,
@@ -127,6 +140,7 @@ describe("tedi runtime event identity", () => {
 		}
 
 		const rows = await listTediRuntimeEventsForRouter(db, {
+			organizationId: "org-1",
 			tediId: TEDI_ID,
 			runId: RUN_ID,
 			limit: 500,
@@ -138,6 +152,7 @@ describe("tedi runtime event identity", () => {
 
 		// The read path itself imposes no per-run ceiling below its `limit`.
 		const kindOnly = await listTediRuntimeEventsForRouter(db, {
+			organizationId: "org-1",
 			tediId: TEDI_ID,
 			runId: RUN_ID,
 			kind: "tool.started",

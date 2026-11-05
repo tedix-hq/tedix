@@ -111,7 +111,11 @@ async function recentFactCount(
 	const now = Date.now();
 	const cached = factCounts.get(orgId);
 	if (cached && cached.expiresAt > now) return cached.value;
-	const value = await countActiveFactsUpTo(db, orgId, FACT_COUNT_CAP);
+	const value = await countActiveFactsUpTo(
+		db,
+		{ organizationId: orgId },
+		FACT_COUNT_CAP,
+	);
 	if (factCounts.size >= 500) factCounts.clear();
 	factCounts.set(orgId, { value, expiresAt: now + FACT_COUNT_TTL_MS });
 	return value;
@@ -180,7 +184,7 @@ const search = authed.search
 		let domainId: string | undefined;
 		if (domain) {
 			const d = await measureSearchPhase(timings, "domainMs", () =>
-				getOrCreateDomain(context.db, orgId, domain),
+				getOrCreateDomain(context.db, { organizationId: orgId }, domain),
 			);
 			domainId = d.id;
 		}
@@ -195,7 +199,11 @@ const search = authed.search
 		let recallOutcome = "matched";
 		if (topicKey) {
 			const topicFacts = await measureSearchPhase(timings, "topicKeyD1Ms", () =>
-				findCurrentFactsByTopicKey(context.db, orgId, topicKey),
+				findCurrentFactsByTopicKey(
+					context.db,
+					{ organizationId: orgId },
+					topicKey,
+				),
 			);
 			results = topicFacts.map((fact) => ({ factId: fact.id, score: 1 }));
 		}
@@ -204,7 +212,7 @@ const search = authed.search
 			try {
 				hybridResults = await measureSearchPhase(timings, "hybridMs", () =>
 					recallMemoryFacts(context.db, {
-						orgId,
+						organizationId: orgId,
 						tediId,
 						query,
 						domainIds: domainId ? [domainId] : undefined,
@@ -239,7 +247,7 @@ const search = authed.search
 				hydrateRecall(
 					context.db,
 					{
-						orgId,
+						organizationId: orgId,
 						tediId,
 						includeGraphAnchors,
 					},
@@ -276,6 +284,7 @@ const search = authed.search
 			? await measureSearchPhase(timings, "relatedFactsMs", () =>
 					getRelatedFactsForFacts(
 						context.db,
+						{ organizationId: orgId },
 						hydratedResults.map((r) => r.factId),
 					),
 				)
@@ -292,7 +301,7 @@ const search = authed.search
 				(
 					await hydrateRecall(
 						context.db,
-						{ orgId, tediId, includeGraphAnchors },
+						{ organizationId: orgId, tediId, includeGraphAnchors },
 						relatedIds,
 					)
 				).map((fact) => fact.id),
@@ -326,7 +335,7 @@ const search = authed.search
 		);
 		const accessWork = recordRecallAccess(
 			context.db,
-			orgId,
+			{ organizationId: orgId },
 			searchResults.map((result) => result.factId),
 			input.recordAccess !== false,
 		).catch((error) => {
@@ -497,12 +506,17 @@ const learn = authed.learn
 			);
 		const existingByHash = await findFactBySourceHash(
 			context.db,
-			orgId,
+			{ organizationId: orgId },
 			contentHash,
 		);
 		if (existingByHash) {
 			// Exact duplicate — boost existing fact instead of creating a new one
-			await recordFactVerification(context.db, existingByHash.id, 1.02);
+			await recordFactVerification(
+				context.db,
+				{ organizationId: orgId },
+				existingByHash.id,
+				1.02,
+			);
 			const reprojection = reconcileCanonicalMemoryProjection(
 				context.env.AGENT_MEMORY,
 				{
@@ -540,7 +554,11 @@ const learn = authed.learn
 		}
 
 		// Get or create domain
-		const domain = await getOrCreateDomain(context.db, orgId, input.domain);
+		const domain = await getOrCreateDomain(
+			context.db,
+			{ organizationId: orgId },
+			input.domain,
+		);
 
 		// Create the canonical fact in D1 before any managed projection call.
 		const factId = crypto.randomUUID();
@@ -661,9 +679,14 @@ const learn = authed.learn
 		// this synchronous path; the deferred vector pass below upgrades
 		// unlinked → linked when similarity finds neighbours.
 		const supersessionTargets = topicKey
-			? await findCurrentFactsByTopicKey(context.db, orgId, topicKey, {
-					memoryScope,
-				})
+			? await findCurrentFactsByTopicKey(
+					context.db,
+					{ organizationId: orgId },
+					topicKey,
+					{
+						memoryScope,
+					},
+				)
 			: [];
 		const relatedFactCount = input.relatedTo?.length ?? 0;
 		const similarSameDomainCount =
@@ -835,7 +858,7 @@ const learn = authed.learn
 		if (input.relatedTo?.length) {
 			const targetIds = [...new Set(input.relatedTo.map((rel) => rel.factId))];
 			const reachable = new Set(
-				(await getFactsByIds(context.db, targetIds))
+				(await getFactsByIds(context.db, { organizationId: orgId }, targetIds))
 					.filter((fact) => fact.organizationId === orgId)
 					.map((fact) => fact.id),
 			);
@@ -849,14 +872,18 @@ const learn = authed.learn
 		}
 		if (input.relatedTo) {
 			for (const rel of input.relatedTo) {
-				const edge = await createEdge(context.db, {
-					id: crypto.randomUUID(),
-					sourceFactId: factId,
-					targetFactId: rel.factId,
-					relationType: rel.relationType,
-					strength: 0.8,
-					context: rel.context ?? null,
-				});
+				const edge = await createEdge(
+					context.db,
+					{ organizationId: orgId },
+					{
+						id: crypto.randomUUID(),
+						sourceFactId: factId,
+						targetFactId: rel.factId,
+						relationType: rel.relationType,
+						strength: 0.8,
+						context: rel.context ?? null,
+					},
+				);
 				edges.push(edge);
 			}
 		}
@@ -870,20 +897,30 @@ const learn = authed.learn
 			for (const existingFact of supersessionTargets) {
 				await invalidateFact(
 					context.db,
+					{ organizationId: orgId },
 					existingFact.id,
 					`Superseded by ${factId} for topic ${topicKey}`,
 				);
-				await updateFact(context.db, existingFact.id, {
-					reviewStatus: "superseded",
-				});
-				const supersedesEdge = await createEdge(context.db, {
-					id: crypto.randomUUID(),
-					sourceFactId: factId,
-					targetFactId: existingFact.id,
-					relationType: "supersedes",
-					strength: 1,
-					context: `Topic-key supersession: ${topicKey}`,
-				});
+				await updateFact(
+					context.db,
+					{ organizationId: orgId },
+					existingFact.id,
+					{
+						reviewStatus: "superseded",
+					},
+				);
+				const supersedesEdge = await createEdge(
+					context.db,
+					{ organizationId: orgId },
+					{
+						id: crypto.randomUUID(),
+						sourceFactId: factId,
+						targetFactId: existingFact.id,
+						relationType: "supersedes",
+						strength: 1,
+						context: `Topic-key supersession: ${topicKey}`,
+					},
+				);
 				edges.push(supersedesEdge);
 				invalidated.push({
 					factId: existingFact.id,
@@ -935,7 +972,12 @@ const learn = authed.learn
 		if (factTediId) {
 			const expertiseWork = (async () => {
 				try {
-					await recalculateExpertise(context.db, factTediId, domain.id);
+					await recalculateExpertise(
+						context.db,
+						{ organizationId: orgId },
+						factTediId,
+						domain.id,
+					);
 				} catch (e) {
 					console.warn("[MemoryGraph] Expertise recalculation failed", {
 						exception: safeExceptionTopology(e),
@@ -975,12 +1017,18 @@ const reflect = authed.reflect
 		}
 		const tediId = input.tediId;
 		const domainId = input.domain
-			? (await getOrCreateDomain(context.db, orgId, input.domain)).id
+			? (
+					await getOrCreateDomain(
+						context.db,
+						{ organizationId: orgId },
+						input.domain,
+					)
+				).id
 			: undefined;
 		// Match the existing workflow's bounded fact selection, including its
 		// shared search ordering. Never scan every domain for a recent request.
 		const selectedFacts = await searchFacts(context.db, {
-			orgId,
+			organizationId: orgId,
 			tediId,
 			domainId,
 			limit: input.scope === "full" ? 500 : 100,
@@ -991,7 +1039,7 @@ const reflect = authed.reflect
 		// Detect and fix confidence collapse before doing anything else
 		const resetCount = await resetCollapsedConfidence(
 			context.db,
-			orgId,
+			{ organizationId: orgId },
 			0.8,
 			factIds,
 		);
@@ -1004,14 +1052,14 @@ const reflect = authed.reflect
 		// Time-based decay: only stale facts, max once/day per fact
 		const decayed = await decayConfidence(
 			context.db,
-			orgId,
+			{ organizationId: orgId },
 			0.99,
 			0.1,
 			filterOpts,
 		);
 		const { count: archivedCount, archivedIds } = await archiveLowConfidence(
 			context.db,
-			orgId,
+			{ organizationId: orgId },
 			0.2,
 			filterOpts,
 		);
@@ -1030,7 +1078,7 @@ const reflect = authed.reflect
 			domainGroups.set(fact.domainId, group);
 		}
 		const allDomains = domainGroups.size
-			? await listDomains(context.db, orgId)
+			? await listDomains(context.db, { organizationId: orgId })
 			: [];
 		for (const [domainId, domainFacts] of domainGroups) {
 			if (edgesCreated >= MAX_NEW_EDGES) break;
@@ -1039,6 +1087,7 @@ const reflect = authed.reflect
 			if (!domain) continue;
 			const edges = await getEdgesForFacts(
 				context.db,
+				{ organizationId: orgId },
 				domainFacts.map((fact) => fact.id),
 			);
 			const linkedPairs = new Set(
@@ -1062,14 +1111,18 @@ const reflect = authed.reflect
 						.sort()
 						.join(":");
 					if (!linkedPairs.has(pairKey)) {
-						await createEdge(context.db, {
-							id: crypto.randomUUID(),
-							sourceFactId: domainFacts[i]!.id,
-							targetFactId: domainFacts[j]!.id,
-							relationType: "related_to",
-							strength: 0.5,
-							context: `same_domain:${domain.name}`,
-						});
+						await createEdge(
+							context.db,
+							{ organizationId: orgId },
+							{
+								id: crypto.randomUUID(),
+								sourceFactId: domainFacts[i]!.id,
+								targetFactId: domainFacts[j]!.id,
+								relationType: "related_to",
+								strength: 0.5,
+								context: `same_domain:${domain.name}`,
+							},
+						);
 						linkedPairs.add(pairKey);
 						edgesCreated++;
 					}
@@ -1084,7 +1137,12 @@ const reflect = authed.reflect
 				domainGroups.has(domain.id),
 			)) {
 				try {
-					await recalculateExpertise(context.db, tediId, domain.id);
+					await recalculateExpertise(
+						context.db,
+						{ organizationId: orgId },
+						tediId,
+						domain.id,
+					);
 					expertiseUpdated++;
 				} catch (e) {
 					console.warn(
@@ -1115,7 +1173,7 @@ const listDomainsProcedure = authed.listDomains
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context }) => {
 		const orgId = requireOrgId(context);
-		const domains = await listDomains(context.db, orgId);
+		const domains = await listDomains(context.db, { organizationId: orgId });
 		return {
 			domains,
 		};
@@ -1131,7 +1189,7 @@ export // ======================================================================
 
 const stats = authed.stats.use(AUTHZ.tedisRead).handler(async ({ context }) => {
 	const orgId = requireOrgId(context);
-	return getMemoryGraphStats(context.db, orgId);
+	return getMemoryGraphStats(context.db, { organizationId: orgId });
 });
 
 // =============================================================================
@@ -1201,10 +1259,19 @@ const expertise = authed.expertise
 		}
 		let domainId: string | undefined;
 		if (input.domain) {
-			const d = await getOrCreateDomain(context.db, orgId, input.domain);
+			const d = await getOrCreateDomain(
+				context.db,
+				{ organizationId: orgId },
+				input.domain,
+			);
 			domainId = d.id;
 		}
-		const results = await getExpertise(context.db, tediId, domainId);
+		const results = await getExpertise(
+			context.db,
+			{ organizationId: orgId },
+			tediId,
+			domainId,
+		);
 		return {
 			expertise: results,
 		};

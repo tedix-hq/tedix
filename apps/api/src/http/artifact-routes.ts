@@ -126,7 +126,14 @@ export function registerArtifactRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		const { getTediArtifactById } =
 			await import("@tedix/db/queries/kernel-runtime-events");
 		const db = createDbClient(c.env.DB);
-		const artifact = await getTediArtifactById(db, { tediId, artifactId });
+		const { getTediById } = await import("@tedix/db/queries/tedis");
+		const tedi = await getTediById(db, tediId);
+		if (!tedi) return c.text("Artifact not found", 404);
+		const artifact = await getTediArtifactById(db, {
+			organizationId: tedi.organizationId,
+			tediId,
+			artifactId,
+		});
 		if (!artifact) return c.text("Artifact not found", 404);
 		if (artifactSubpath(c.req.url, 5) || c.req.header("Range"))
 			return c.text("Artifact not found", 404);

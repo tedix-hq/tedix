@@ -91,13 +91,21 @@ describe("listApprovedAgentLessons", () => {
 			{ id: "no-topic", topicKey: null },
 			{ id: "other-org", org: "org-2" },
 		]);
-		const rows = await listApprovedAgentLessons(db, "org-1", "learning-feed:");
+		const rows = await listApprovedAgentLessons(
+			db,
+			{ organizationId: "org-1" },
+			"learning-feed:",
+		);
 		expect(rows.map((row) => row.id)).toEqual(["approved", "instruction"]);
 		expect(rows[0]!.metadata).toEqual({
 			learningFeed: { scope: { repo: "tedix" } },
 		});
 		expect(
-			await listApprovedAgentLessons(db, "org-3", "learning-feed:"),
+			await listApprovedAgentLessons(
+				db,
+				{ organizationId: "org-3" },
+				"learning-feed:",
+			),
 		).toEqual([]);
 	});
 
@@ -133,9 +141,14 @@ describe("listApprovedAgentLessons", () => {
 		]);
 		const ids = async (viewerUserId?: string) =>
 			(
-				await listApprovedAgentLessons(db, "org-1", "learning-feed:", {
-					viewerUserId,
-				})
+				await listApprovedAgentLessons(
+					db,
+					{ organizationId: "org-1" },
+					"learning-feed:",
+					{
+						viewerUserId,
+					},
+				)
 			).map((row) => row.id);
 		expect(await ids("user-a")).toEqual([
 			"team",
@@ -181,7 +194,7 @@ describe("listApprovedAgentLessons", () => {
 		]);
 		const rows = await listStaleLearningFeedLessons(
 			db,
-			"org-1",
+			{ organizationId: "org-1" },
 			"learning-feed:decision:",
 			"2026-07-09T00:00:00.000Z",
 		);
@@ -203,7 +216,7 @@ describe("listApprovedAgentLessons", () => {
 		]);
 		const rows = await listArchivedLearningFeedLessonsForOwner(
 			db,
-			"org-1",
+			{ organizationId: "org-1" },
 			"learning-feed:decision:",
 			"user-1",
 		);

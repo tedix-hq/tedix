@@ -206,6 +206,7 @@ export async function dispatchCommitmentWakes(
 			try {
 				const [started] = await bounded(() =>
 					listTediRuntimeEventsForRouter(db, {
+						organizationId: first.orgId,
 						tediId: first.tediId,
 						conversationId: buildTediConversationId({
 							tediRef: first.slug,

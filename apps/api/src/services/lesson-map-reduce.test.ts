@@ -546,7 +546,7 @@ describe("distillPersonalLessons", () => {
 			"How the user works in tedix:\n- Commit straight to main, never open pull requests",
 		);
 		// The person's own review is never superseded.
-		expect(vi.mocked(invalidateFact).mock.calls.map((c) => c[1])).toEqual([
+		expect(vi.mocked(invalidateFact).mock.calls.map((c) => c[2])).toEqual([
 			"old-repo-lesson",
 		]);
 	});
@@ -758,7 +758,7 @@ describe("distillPersonalLessons", () => {
 			// The reversal takes the old rule's key; the old rule is history.
 			const feeds = [
 				...vi.mocked(createFact).mock.calls.map((call) => call[1].metadata),
-				...vi.mocked(updateFact).mock.calls.map((call) => call[2].metadata),
+				...vi.mocked(updateFact).mock.calls.map((call) => call[3].metadata),
 			].flatMap((meta) =>
 				meta
 					? [(meta as { learningFeed: Record<string, unknown> }).learningFeed]

@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 export type BrainAuditScope = "self" | "org" | "visible" | "all";
 export type BrainAuditTopicKeyState = "any" | "missing" | "present";
 export type BrainAuditOrderBy = "created_desc" | "updated_desc";
@@ -82,7 +83,7 @@ export type BrainAuditResult = {
 
 type QueryValue = string | number | null;
 
-export interface BrainAuditDeps {
+export interface BrainAuditDeps extends TenantScope {
 	db: {
 		prepare(sql: string): {
 			bind(...args: QueryValue[]): {
@@ -91,7 +92,6 @@ export interface BrainAuditDeps {
 			};
 		};
 	};
-	organizationId: string;
 	tediId: string;
 }
 
@@ -121,6 +121,7 @@ export async function auditMemoryGraph(
 	deps: BrainAuditDeps,
 	input: BrainAuditInput = {},
 ): Promise<BrainAuditResult> {
+	deps = { ...deps, ...normalizeTenantScope(deps) };
 	const filters = normalizeInput(input);
 	const where = buildWhereClause(deps, filters);
 	const orderBy = ORDER_BY_SQL[filters.order_by];

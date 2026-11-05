@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { osOutputRevisions } from "../../schema/os-workspaces";
@@ -12,8 +13,9 @@ export async function listOutputBodyBackfillPage(
 		after: number;
 		through: number;
 		limit: number;
-	},
+	} & TenantScope,
 ) {
+	params = { ...params, ...normalizeTenantScope(params) };
 	if (
 		![params.after, params.through, params.limit].every(Number.isSafeInteger) ||
 		params.after < 0 ||
@@ -44,8 +46,9 @@ export async function listOutputBodyBackfillPage(
 
 export async function getOutputBodyBackfillSummary(
 	db: DbQueryClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 ) {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select({
 			through: sql<number>`coalesce(max(${rowid}), 0)`.as("through_rowid"),
@@ -79,8 +82,9 @@ export async function setBackfilledOutputBody(
 		bodyR2Key: string;
 		contentSha256: string;
 		contentBytes: number;
-	},
+	} & TenantScope,
 ) {
+	params = { ...params, ...normalizeTenantScope(params) };
 	return db
 		.update(osOutputRevisions)
 		.set({

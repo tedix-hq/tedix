@@ -523,7 +523,7 @@ async function writeDecisionLessons(
 	for (const [topicKey, scopeEvents] of byTopic) {
 		const sourceEvidence = await decisionLessonEvidence(
 			db,
-			orgId,
+			{ organizationId: orgId },
 			scopeEvents.map((event) => event.id),
 		);
 		const liveIds = new Set(sourceEvidence.sources.map((source) => source.id));
@@ -534,18 +534,28 @@ async function writeDecisionLessons(
 			return;
 		}
 		const ownerUserId = ownerOf(topicEvents[0]!);
-		const current = await findCurrentFactsByTopicKey(db, orgId, topicKey);
+		const current = await findCurrentFactsByTopicKey(
+			db,
+			{ organizationId: orgId },
+			topicKey,
+		);
 		// Lessons written before personal scoping used the shared key; events a
 		// reviewed one covers are not learned again.
 		const legacyKey = learningFeedTopicKey(scopeOf(topicEvents[0]!));
 		const legacy =
 			legacyKey === topicKey
 				? []
-				: await findCurrentFactsByTopicKey(db, orgId, legacyKey);
+				: await findCurrentFactsByTopicKey(
+						db,
+						{ organizationId: orgId },
+						legacyKey,
+					);
 		// A lesson a person archived is not current, but still covers its events.
-		const archived = await listArchivedLearningFeedLessons(db, orgId, [
-			...new Set([topicKey, legacyKey]),
-		]);
+		const archived = await listArchivedLearningFeedLessons(
+			db,
+			{ organizationId: orgId },
+			[...new Set([topicKey, legacyKey])],
+		);
 		const covered = new Set(
 			[...current, ...legacy, ...archived]
 				.filter((f) => !isReplaceableLesson(f))
@@ -612,6 +622,7 @@ async function writeDecisionLessons(
 			for (const old of replaced)
 				await invalidateFact(
 					db,
+					{ organizationId: orgId },
 					old.id,
 					`No lasting rule in the decisions for topic ${topicKey}`,
 				);
@@ -641,7 +652,11 @@ async function writeDecisionLessons(
 		const sourceHash = await sha256Hex(
 			`${ownerUserId ?? ""}\n${lesson.content.toLowerCase()}`,
 		);
-		if (!held && (await findFactBySourceHash(db, orgId, sourceHash))) continue;
+		if (
+			!held &&
+			(await findFactBySourceHash(db, { organizationId: orgId }, sourceHash))
+		)
+			continue;
 
 		let routing: LessonRouting | undefined;
 		if (route) {
@@ -669,12 +684,16 @@ async function writeDecisionLessons(
 			autoConfirmed: true,
 			evidence: await decisionLessonEvidence(
 				db,
-				orgId,
+				{ organizationId: orgId },
 				lesson.metadata.evidenceEventIds,
 			),
 		};
 
-		const domain = await getOrCreateDomain(db, orgId, DOMAIN_NAME);
+		const domain = await getOrCreateDomain(
+			db,
+			{ organizationId: orgId },
+			DOMAIN_NAME,
+		);
 		const source = `learning-feed:decision:${orgId}:${lesson.metadata.evidenceEventIds[0]}`;
 		const strong = lesson.metadata.kind === "prefer_avoid";
 		const metadata: Meta = {
@@ -738,18 +757,25 @@ async function writeDecisionLessons(
 		for (const old of replaced) {
 			await invalidateFact(
 				db,
+				{ organizationId: orgId },
 				old.id,
 				`Superseded by ${factId} for topic ${topicKey}`,
 			);
-			await updateFact(db, old.id, { reviewStatus: "superseded" });
-			await createEdge(db, {
-				id: crypto.randomUUID(),
-				sourceFactId: factId,
-				targetFactId: old.id,
-				relationType: "supersedes",
-				strength: 1,
-				context: `Learning feed supersession: ${topicKey}`,
+			await updateFact(db, { organizationId: orgId }, old.id, {
+				reviewStatus: "superseded",
 			});
+			await createEdge(
+				db,
+				{ organizationId: orgId },
+				{
+					id: crypto.randomUUID(),
+					sourceFactId: factId,
+					targetFactId: old.id,
+					relationType: "supersedes",
+					strength: 1,
+					context: `Learning feed supersession: ${topicKey}`,
+				},
+			);
 			result.factsSuperseded++;
 		}
 	}
@@ -770,13 +796,15 @@ async function archiveStaleLessons(
 	).toISOString();
 	const stale = await listStaleLearningFeedLessons(
 		db,
-		orgId,
+		{ organizationId: orgId },
 		"learning-feed:decision:",
 		before,
 	);
 	for (const fact of stale) {
 		if (!isReplaceableLesson(fact)) continue;
-		await updateFact(db, fact.id, { archivedAt: now.toISOString() });
+		await updateFact(db, { organizationId: orgId }, fact.id, {
+			archivedAt: now.toISOString(),
+		});
 		result.factsArchived++;
 	}
 }

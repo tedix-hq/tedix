@@ -921,7 +921,14 @@ export async function getSkillRunArtifactInlineContent(
 	if (!bucket) return null;
 	const { getRunArtifact } =
 		await import("@tedix/db/queries/skill-run-artifacts");
-	const row = await getRunArtifact(createDbClient(db), runId, path);
+	const run = await getSkillRun(db, runId);
+	if (!run) return null;
+	const row = await getRunArtifact(
+		createDbClient(db),
+		{ organizationId: run.orgId },
+		runId,
+		path,
+	);
 	if (!row?.contentR2Key) return null;
 	const object = await bucket.get(row.contentR2Key);
 	if (!object) throw new Error("SKILL_ARTIFACT_BODY_UNAVAILABLE");

@@ -54,7 +54,7 @@ describe("Home fact freshness with a warm context cache", () => {
 			});
 			expect(renderHomeContextPrompt(first)).toContain("amber-17");
 
-			await updateFact(db, "fixture-fact", {
+			await updateFact(db, { organizationId: "org-fixture" }, "fixture-fact", {
 				content: "The fictional depot's reference code is cobalt-42.",
 			});
 			const updated = await assembleHomeContext(db, "org-fixture", {
@@ -67,7 +67,7 @@ describe("Home fact freshness with a warm context cache", () => {
 				expect.arrayContaining(["tedis", "apps", "workflows"]),
 			);
 
-			await updateFact(db, "fixture-fact", {
+			await updateFact(db, { organizationId: "org-fixture" }, "fixture-fact", {
 				archivedAt: new Date().toISOString(),
 			});
 			const archived = await assembleHomeContext(db, "org-fixture", {

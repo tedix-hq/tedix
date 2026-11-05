@@ -662,9 +662,14 @@ export async function getCanonicalGraphFacts(
 	const facts = [];
 	for (let offset = 0; offset < ids.length; offset += 80) {
 		facts.push(
-			...(await getFactsByIds(context.db, ids.slice(offset, offset + 80), {
-				includeGraphAnchors: true,
-			})),
+			...(await getFactsByIds(
+				context.db,
+				{ organizationId: orgId },
+				ids.slice(offset, offset + 80),
+				{
+					includeGraphAnchors: true,
+				},
+			)),
 		);
 	}
 	return facts.filter((fact) => fact.organizationId === orgId);

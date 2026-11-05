@@ -67,7 +67,9 @@ describe("reflection selection bounds lifecycle writes", () => {
 				quality("durable_candidate"),
 			);
 
-			expect(await promoteFromProbation(db, "org", 1)).toBe(8);
+			expect(await promoteFromProbation(db, { organizationId: "org" }, 1)).toBe(
+				8,
+			);
 			const statuses = sqlite
 				.prepare(
 					"SELECT id,status FROM memory_facts WHERE status IS NOT NULL ORDER BY id",
@@ -96,7 +98,10 @@ describe("reflection selection bounds lifecycle writes", () => {
 		const { sqlite, db } = fixture();
 		try {
 			expect(
-				await resetCollapsedConfidence(db, "org", 0.8, ["selected", "foreign"]),
+				await resetCollapsedConfidence(db, { organizationId: "org" }, 0.8, [
+					"selected",
+					"foreign",
+				]),
 			).toBe(1);
 			expect(
 				sqlite
@@ -116,11 +121,16 @@ describe("reflection selection bounds lifecycle writes", () => {
 		const { sqlite, db } = fixture();
 		try {
 			expect(
-				await decayConfidence(db, "org", 0.99, 0.1, { factIds: ["selected"] }),
+				await decayConfidence(db, { organizationId: "org" }, 0.99, 0.1, {
+					factIds: ["selected"],
+				}),
 			).toBe(1);
 			expect(
-				(await archiveLowConfidence(db, "org", 0.2, { factIds: ["selected"] }))
-					.archivedIds,
+				(
+					await archiveLowConfidence(db, { organizationId: "org" }, 0.2, {
+						factIds: ["selected"],
+					})
+				).archivedIds,
 			).toEqual(["selected"]);
 			expect(
 				sqlite
@@ -134,12 +144,18 @@ describe("reflection selection bounds lifecycle writes", () => {
 	it("treats an empty selection as no work", async () => {
 		const { sqlite, db } = fixture();
 		try {
-			expect(await resetCollapsedConfidence(db, "org", 0.8, [])).toBe(0);
-			expect(await decayConfidence(db, "org", 0.99, 0.1, { factIds: [] })).toBe(
-				0,
-			);
 			expect(
-				await archiveLowConfidence(db, "org", 0.2, { factIds: [] }),
+				await resetCollapsedConfidence(db, { organizationId: "org" }, 0.8, []),
+			).toBe(0);
+			expect(
+				await decayConfidence(db, { organizationId: "org" }, 0.99, 0.1, {
+					factIds: [],
+				}),
+			).toBe(0);
+			expect(
+				await archiveLowConfidence(db, { organizationId: "org" }, 0.2, {
+					factIds: [],
+				}),
 			).toEqual({ count: 0, archivedIds: [] });
 		} finally {
 			sqlite.close();

@@ -168,6 +168,7 @@ export async function readWorkflowStepTediActivity(
 	// Read exactly one canonical run. Dispatch aliases and conversation history
 	// are intentionally not expanded into evidence for this selected call.
 	const rows = await listTediRuntimeEventsForRouter(context.db, {
+		organizationId: tedi.organizationId,
 		tediId: ref.tediId,
 		runId: ref.runId,
 		order: "desc",

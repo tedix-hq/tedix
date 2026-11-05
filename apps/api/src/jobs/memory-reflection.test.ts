@@ -50,12 +50,12 @@ describe("memory maintenance citation backfill", () => {
 		});
 		const calls = mocks.citations.mock.calls.map((call) => call.slice(1));
 		expect(calls.slice(0, 3)).toEqual([
-			["fictional-one", 2000],
-			["fictional-one", 1900],
-			["fictional-two", 1870],
+			[{ organizationId: "fictional-one" }, 2000],
+			[{ organizationId: "fictional-one" }, 1900],
+			[{ organizationId: "fictional-two" }, 1870],
 		]);
 		expect(calls).toHaveLength(21);
-		expect(calls.at(-1)).toEqual(["fictional-two", 70]);
+		expect(calls.at(-1)).toEqual([{ organizationId: "fictional-two" }, 70]);
 		expect(create).toHaveBeenCalledTimes(3);
 	});
 	it("continues reflection and subsequent orgs when a backfill batch fails", async () => {

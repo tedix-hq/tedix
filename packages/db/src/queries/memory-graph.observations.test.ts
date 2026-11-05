@@ -79,7 +79,7 @@ function setup(onPrepare?: (query: string, db: SyncSqliteDatabase) => void) {
 			validFrom: id === "a" ? "2026-09-01T00:00:00Z" : "2026-09-02T00:00:00Z",
 		});
 	};
-	const heads = () => listMemoryObservations(db, ORG);
+	const heads = () => listMemoryObservations(db, { organizationId: ORG });
 	const observation = async () =>
 		(await heads()).find(
 			(row) => readConsolidation(row)?.kind === "observation",
@@ -100,7 +100,7 @@ describe("evidence-backed observations and standing summaries", () => {
 		await fact("b", "The Orchard repo tests writes with a D1 facade.", ORG, {
 			confidence: 0.7,
 		});
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		expect(await heads()).toHaveLength(2);
 		const row = await observation();
 		expect(row.content).toBe(
@@ -132,20 +132,24 @@ describe("evidence-backed observations and standing summaries", () => {
 		expect(readConsolidation(await summary())?.observationIds).toEqual([
 			row.id,
 		]);
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		expect(readConsolidation(await observation())?.revision).toBe(1);
 		expect(
-			await listMemoryObservations(db, ORG, { includeHistory: true }),
+			await listMemoryObservations(
+				db,
+				{ organizationId: ORG },
+				{ includeHistory: true },
+			),
 		).toHaveLength(2);
 	});
 	it("refines new evidence and retains prior text and a trace", async () => {
 		const { db, fact, observation } = setup();
 		await fact("a", "Orchard uses batch writes.");
 		await fact("b", "Orchard tests batch writes.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		const before = await observation();
 		await fact("c", "Orchard chunks writes below 100 parameters.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		const after = await observation();
 		expect(after.id).toBe(before.id);
 		expect(readConsolidation(after)).toMatchObject({
@@ -153,9 +157,13 @@ describe("evidence-backed observations and standing summaries", () => {
 			evidence: { supportCount: 3 },
 			refresh: { reason: "source_changed", previousText: before.content },
 		});
-		const history = await listMemoryObservations(db, ORG, {
-			includeHistory: true,
-		});
+		const history = await listMemoryObservations(
+			db,
+			{ organizationId: ORG },
+			{
+				includeHistory: true,
+			},
+		);
 		expect(
 			history.find(
 				(row) => row.id === readConsolidation(after)?.previousVersionId,
@@ -166,8 +174,13 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { db, fact, observation, summary } = setup();
 		await fact("a", "Orchard uses batches.");
 		await fact("b", "Orchard runs D1 tests.");
-		await consolidateMemory(db, ORG);
-		await invalidateFact(db, "a", "Fictional fixture correction");
+		await consolidateMemory(db, { organizationId: ORG });
+		await invalidateFact(
+			db,
+			{ organizationId: ORG },
+			"a",
+			"Fictional fixture correction",
+		);
 		expect((await observation()).content).toBe("Orchard runs D1 tests.");
 		expect((await summary()).content).toBe("Orchard runs D1 tests.");
 		expect(readConsolidation(await observation())).toMatchObject({
@@ -179,14 +192,14 @@ describe("evidence-backed observations and standing summaries", () => {
 				sourceFactIds: expect.arrayContaining(["a"]),
 			},
 		});
-		await invalidateFact(db, "b");
+		await invalidateFact(db, { organizationId: ORG }, "b");
 		for (const row of [await observation(), await summary()])
 			expect(readConsolidation(row)).toMatchObject({
 				state: "retracted",
 				evidence: { supportCount: 0, state: "held" },
 			});
 		expect(
-			await filterConsolidatedEvidence(db, ORG, [
+			await filterConsolidatedEvidence(db, { organizationId: ORG }, [
 				await observation(),
 				await summary(),
 			]),
@@ -196,13 +209,17 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { db, fact, observation, summary } = setup();
 		await fact("a", "Orchard builds on Mondays.");
 		await fact("b", "Orchard never builds on Mondays.");
-		await consolidateMemory(db, ORG);
-		await createEdge(db, {
-			id: "conflict",
-			sourceFactId: "b",
-			targetFactId: "a",
-			relationType: "contradicts",
-		});
+		await consolidateMemory(db, { organizationId: ORG });
+		await createEdge(
+			db,
+			{ organizationId: ORG },
+			{
+				id: "conflict",
+				sourceFactId: "b",
+				targetFactId: "a",
+				relationType: "contradicts",
+			},
+		);
 		const disputed = await observation();
 		expect(readConsolidation(disputed)).toMatchObject({
 			state: "disputed",
@@ -210,7 +227,7 @@ describe("evidence-backed observations and standing summaries", () => {
 		});
 		expect(disputed.content).toContain("Conflicting evidence:");
 		expect(readConsolidation(await summary())?.state).toBe("retracted");
-		await invalidateFact(db, "b");
+		await invalidateFact(db, { organizationId: ORG }, "b");
 		expect(readConsolidation(await observation())?.state).toBe("live");
 		expect((await summary()).content).toBe("Orchard builds on Mondays.");
 	});
@@ -218,14 +235,18 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { db, fact, observation, summary } = setup();
 		await fact("a", "Orchard uses old storage.");
 		await fact("b", "Orchard has nightly checks.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		await fact("c", "Orchard uses new storage.");
-		await createEdge(db, {
-			id: "replace",
-			sourceFactId: "c",
-			targetFactId: "a",
-			relationType: "supersedes",
-		});
+		await createEdge(
+			db,
+			{ organizationId: ORG },
+			{
+				id: "replace",
+				sourceFactId: "c",
+				targetFactId: "a",
+				relationType: "supersedes",
+			},
+		);
 		expect((await observation()).content).not.toContain("old storage");
 		expect((await summary()).content).toContain("new storage");
 		expect(
@@ -236,36 +257,38 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { sqlite, db, fact, observation, summary } = setup();
 		await fact("a", "Orchard uses batches.");
 		await fact("b", "Orchard runs D1 tests.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		sqlite.exec(
 			"UPDATE memory_facts SET valid_to = CURRENT_TIMESTAMP WHERE id = 'a'",
 		);
 		const source = await db.select().from(memoryFacts);
 		const raw = source.find((row) => row.id === "b")!;
 		expect(
-			await filterEvidenceBackedLessons(db, ORG, [
+			await filterEvidenceBackedLessons(db, { organizationId: ORG }, [
 				raw,
 				await observation(),
 				await summary(),
 			]),
 		).toEqual([raw]);
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		expect(readConsolidation(await summary())?.evidence.supportCount).toBe(1);
 	});
 	it("prefers a live summary over its observations and raw facts at the shared recall boundary", async () => {
 		const { db, fact, observation, summary } = setup();
 		await fact("a", "Orchard uses batches.");
 		await fact("b", "Orchard runs D1 tests.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		const all = await db.select().from(memoryFacts);
 		expect(
-			(await filterEvidenceBackedLessons(db, ORG, all)).map((row) => row.id),
+			(await filterEvidenceBackedLessons(db, { organizationId: ORG }, all)).map(
+				(row) => row.id,
+			),
 		).toEqual([(await summary()).id]);
 		expect(
 			(
 				await filterEvidenceBackedLessons(
 					db,
-					ORG,
+					{ organizationId: ORG },
 					all.filter(
 						(row) =>
 							row.id !==
@@ -285,22 +308,26 @@ describe("evidence-backed observations and standing summaries", () => {
 			tediId: "worker-orchard",
 			visibility: "private",
 		});
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		expect(await heads()).toEqual([]);
 		await fact("b", "Orchard tests batches.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		for (const row of await heads()) {
 			expect(row.content).not.toContain("secret");
 			expect(readConsolidation(row)?.evidence.supportCount).toBe(2);
 		}
-		expect(await listMemoryObservations(db, "fictional-pine")).toEqual([]);
+		expect(
+			await listMemoryObservations(db, { organizationId: "fictional-pine" }),
+		).toEqual([]);
 	});
 	it("refreshes edited source text without retaining its previous unsupported claim", async () => {
 		const { db, fact, observation, summary } = setup();
 		await fact("a", "Orchard uses old batches.");
 		await fact("b", "Orchard runs tests.");
-		await consolidateMemory(db, ORG);
-		await updateFact(db, "a", { content: "Orchard uses revised batches." });
+		await consolidateMemory(db, { organizationId: ORG });
+		await updateFact(db, { organizationId: ORG }, "a", {
+			content: "Orchard uses revised batches.",
+		});
 		expect((await observation()).content).toContain("revised batches");
 		expect((await summary()).content).not.toContain("old batches");
 	});
@@ -308,29 +335,31 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { db, fact, heads } = setup();
 		for (let i = 0; i < 51; i++)
 			await fact(`fact-${i}`, `Orchard evidence ${i}.`);
-		expect((await consolidateMemory(db, ORG)).overflow).toBe(1);
+		expect(
+			(await consolidateMemory(db, { organizationId: ORG })).overflow,
+		).toBe(1);
 		expect(await heads()).toEqual([]);
 	});
 	it("holds cached claims after an edit beyond the quote or a privacy change", async () => {
 		const { sqlite, db, fact, observation, summary } = setup();
 		await fact("a", "Orchard " + "evidence ".repeat(45) + "old ending.");
 		await fact("b", "Orchard runs tests.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		sqlite.exec(
 			"UPDATE memory_facts SET content = replace(content, 'old ending.', 'new ending.') WHERE id = 'a'",
 		);
 		expect(
-			await filterConsolidatedEvidence(db, ORG, [
+			await filterConsolidatedEvidence(db, { organizationId: ORG }, [
 				await observation(),
 				await summary(),
 			]),
 		).toEqual([]);
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		sqlite.exec(
 			"UPDATE memory_facts SET visibility = 'private' WHERE id = 'a'",
 		);
 		expect(
-			await filterConsolidatedEvidence(db, ORG, [
+			await filterConsolidatedEvidence(db, { organizationId: ORG }, [
 				await observation(),
 				await summary(),
 			]),
@@ -340,12 +369,12 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { sqlite, db, fact, observation, summary } = setup();
 		await fact("a", "Orchard uses Mondays.");
 		await fact("b", "Orchard uses Tuesdays.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		sqlite.exec(
 			"INSERT INTO memory_edges (id, source_fact_id, target_fact_id, relation_type) VALUES ('direct-conflict', 'a', 'b', 'contradicts')",
 		);
 		expect(
-			await filterConsolidatedEvidence(db, ORG, [
+			await filterConsolidatedEvidence(db, { organizationId: ORG }, [
 				await observation(),
 				await summary(),
 			]),
@@ -355,12 +384,14 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { db, fact, summary } = setup();
 		await fact("a", "Orchard uses batches.");
 		await fact("b", "Orchard runs tests.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		const raw = (await db.select().from(memoryFacts)).filter(
 			(row) => row.id === "a",
 		);
 		expect(
-			(await preferConsolidatedFacts(db, ORG, raw)).map((row) => row.id),
+			(await preferConsolidatedFacts(db, { organizationId: ORG }, raw)).map(
+				(row) => row.id,
+			),
 		).toEqual([(await summary()).id]);
 	});
 	it("summarizes separate topics for one accepted entity", async () => {
@@ -402,7 +433,7 @@ describe("evidence-backed observations and standing summaries", () => {
 				validFrom: "2026-09-01T00:00:00Z",
 			});
 		}
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		const rows = await heads();
 		expect(rows).toHaveLength(2);
 		const summary = rows.find(
@@ -413,7 +444,7 @@ describe("evidence-backed observations and standing summaries", () => {
 			evidence: { supportCount: 4 },
 		});
 		expect(readConsolidation(summary)?.observationIds).toHaveLength(1);
-		await invalidateFact(db, "a");
+		await invalidateFact(db, { organizationId: ORG }, "a");
 		expect(
 			(await heads()).find((row) => row.id === summary.id)?.content,
 		).not.toContain("Orchard a evidence.");
@@ -428,8 +459,8 @@ describe("evidence-backed observations and standing summaries", () => {
 				topic: `orchard:${i}`,
 			});
 		}
-		await consolidateMemory(db, ORG);
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
+		await consolidateMemory(db, { organizationId: ORG });
 		expect(
 			(await heads()).filter(
 				(row) => readConsolidation(row)?.kind === "observation",
@@ -447,8 +478,8 @@ describe("evidence-backed observations and standing summaries", () => {
 			observationTopic: TOPIC,
 		});
 		await Promise.all([
-			consolidateMemory(db, ORG, { topicKey: TOPIC }),
-			consolidateMemory(db, ORG, { topicKey: TOPIC }),
+			consolidateMemory(db, { organizationId: ORG }, { topicKey: TOPIC }),
+			consolidateMemory(db, { organizationId: ORG }, { topicKey: TOPIC }),
 		]);
 		expect((await observation()).content).toBe("Orchard uses batches.");
 		expect(readConsolidation(await observation())).toMatchObject({
@@ -456,22 +487,32 @@ describe("evidence-backed observations and standing summaries", () => {
 			evidence: { supportCount: 2 },
 		});
 		expect(
-			await listMemoryObservations(db, ORG, { includeHistory: true }),
+			await listMemoryObservations(
+				db,
+				{ organizationId: ORG },
+				{ includeHistory: true },
+			),
 		).toHaveLength(2);
 	});
 	it("never resurrects an archived observation or uses it in a standing summary", async () => {
 		const { db, fact, heads, observation, summary } = setup();
 		await fact("a", "Orchard uses batches.");
 		await fact("b", "Orchard runs tests.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		const old = await observation();
-		await updateFact(db, old.id, { archivedAt: "2026-10-01T00:00:00Z" });
+		await updateFact(db, { organizationId: ORG }, old.id, {
+			archivedAt: "2026-10-01T00:00:00Z",
+		});
 		await fact("c", "Orchard uses checks.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		expect((await heads()).some((row) => row.id === old.id)).toBe(false);
 		expect(readConsolidation(await summary())?.state).toBe("retracted");
 		const retained = (
-			await listMemoryObservations(db, ORG, { includeHistory: true })
+			await listMemoryObservations(
+				db,
+				{ organizationId: ORG },
+				{ includeHistory: true },
+			)
 		).find((row) => row.id === old.id)!;
 		expect(retained.archivedAt).toBe("2026-10-01T00:00:00Z");
 	});
@@ -487,10 +528,14 @@ describe("evidence-backed observations and standing summaries", () => {
 					ORG,
 					{ tediId: worker, visibility: "private" },
 				);
-		await consolidateMemory(db, ORG);
-		const rows = await listMemoryObservations(db, ORG, {
-			tediId: "own-worker",
-		});
+		await consolidateMemory(db, { organizationId: ORG });
+		const rows = await listMemoryObservations(
+			db,
+			{ organizationId: ORG },
+			{
+				tediId: "own-worker",
+			},
+		);
 		expect(rows).toHaveLength(4);
 		expect(rows.every((row) => !row.content.includes("other-worker"))).toBe(
 			true,
@@ -500,16 +545,20 @@ describe("evidence-backed observations and standing summaries", () => {
 		const { db, fact, observation, summary } = setup();
 		await fact("a", "Orchard builds on Mondays.");
 		await fact("b", "Orchard runs tests.");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		await fact("c", "Orchard never builds on Mondays.", ORG, {
 			topic: "orchard:new-report",
 		});
-		await createEdge(db, {
-			id: "cross-topic-conflict",
-			sourceFactId: "c",
-			targetFactId: "a",
-			relationType: "contradicts",
-		});
+		await createEdge(
+			db,
+			{ organizationId: ORG },
+			{
+				id: "cross-topic-conflict",
+				sourceFactId: "c",
+				targetFactId: "a",
+				relationType: "contradicts",
+			},
+		);
 		expect(readConsolidation(await observation())).toMatchObject({
 			state: "disputed",
 			evidence: {
@@ -521,7 +570,7 @@ describe("evidence-backed observations and standing summaries", () => {
 			},
 		});
 		expect(readConsolidation(await summary())?.state).toBe("retracted");
-		await invalidateFact(db, "c");
+		await invalidateFact(db, { organizationId: ORG }, "c");
 		expect(readConsolidation(await observation())?.state).toBe("live");
 		expect((await summary()).content).not.toContain("never builds");
 	});
@@ -547,7 +596,7 @@ describe("evidence-backed observations and standing summaries", () => {
 		for (let i = 0; i < 2000; i++) insert.run(`unrelated-${i}`, ORG);
 		await fact("a", "Orchard uses batches.");
 		await fact("b", "Orchard tests batches.");
-		await consolidateMemory(db, ORG, { topicKey: TOPIC });
+		await consolidateMemory(db, { organizationId: ORG }, { topicKey: TOPIC });
 		const expected = await summary();
 		const raw = await db
 			.select()
@@ -555,8 +604,10 @@ describe("evidence-backed observations and standing summaries", () => {
 			.where(sql`${memoryFacts.id} = 'a'`);
 		plans.length = 0;
 		queries.length = 0;
-		expect(await preferConsolidatedFacts(db, ORG, raw)).toEqual([expected]);
-		await refreshConsolidatedForFact(db, ORG, "a");
+		expect(
+			await preferConsolidatedFacts(db, { organizationId: ORG }, raw),
+		).toEqual([expected]);
+		await refreshConsolidatedForFact(db, { organizationId: ORG }, "a");
 		expect(await summary()).toEqual(expected);
 		expect(
 			plans
@@ -597,10 +648,10 @@ describe("evidence-backed observations and standing summaries", () => {
 		for (let i = 0; i < 2000; i++) insert.run(`unrelated-${i}`, ORG);
 		await fact("a", "Orchard uses batches.");
 		await fact("b", "Orchard tests batches.");
-		await consolidateMemory(db, ORG, { topicKey: TOPIC });
+		await consolidateMemory(db, { organizationId: ORG }, { topicKey: TOPIC });
 		plans.length = 0;
 		expect(
-			await filterConsolidatedEvidence(db, ORG, [
+			await filterConsolidatedEvidence(db, { organizationId: ORG }, [
 				await observation(),
 				await summary(),
 			]),

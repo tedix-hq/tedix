@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import type { DbClient } from "../../client";
 import { recordOwnerInstructionEdges } from "../decision-graph-writers";
 import { memoryFacts, type NewMemoryFact } from "../../schema/memory-graph";
@@ -5,8 +6,9 @@ import { memoryFacts, type NewMemoryFact } from "../../schema/memory-graph";
 /** Stable fact ids make a replay safe even when two harness hooks race. */
 export async function insertSessionFeedbackLesson(
 	db: DbClient,
-	fact: NewMemoryFact,
+	fact: NewMemoryFact & TenantScope,
 ) {
+	fact = { ...fact, ...normalizeTenantScope(fact) };
 	const [created] = await db
 		.insert(memoryFacts)
 		.values(fact)

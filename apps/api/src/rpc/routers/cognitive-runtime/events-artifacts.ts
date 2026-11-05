@@ -84,6 +84,7 @@ export const getStatusRoute = authed.getStatus
 	.handler(async ({ context, input }) => {
 		const tedi = await requireTediAccess(context, input.tediId);
 		const latestHealthEvent = await listTediRuntimeEventsForRouter(context.db, {
+			organizationId: tedi.organizationId,
 			tediId: input.tediId,
 			kind: "runtime.health_changed",
 			order: "desc",
@@ -260,13 +261,14 @@ export const getStabilityRoute = authed.getStability
 export const listEventsRoute = authed.listEvents
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context, input }) => {
-		await requireTediAccess(context, input.tediId);
+		const tedi = await requireTediAccess(context, input.tediId);
 		const limit = input.limit ?? 100;
 		const mappedRunIds = await mappedDispatchRunIds(context, input);
 		const conversationId = input.conversationId
 			? normalizeTediConversationIdForRead(input.conversationId)
 			: undefined;
 		const rows = await listTediRuntimeEventsForRouter(context.db, {
+			organizationId: tedi.organizationId,
 			tediId: input.tediId,
 			conversationId,
 			runId: input.runId,
@@ -355,10 +357,14 @@ export const recordEventRoute = authed.recordEvent
 					"Malformed runtime artifact contribution receipt",
 				);
 			priorContributionEvent = input.id
-				? await getTediRuntimeEventById(context.db, input.id, {
-						organizationId: tedi.organizationId,
-						tediId: input.tediId,
-					})
+				? await getTediRuntimeEventById(
+						context.db,
+						{
+							organizationId: tedi.organizationId,
+							tediId: input.tediId,
+						},
+						input.id,
+					)
 				: null;
 			if (
 				priorContributionEvent &&
@@ -783,9 +789,10 @@ export const recordEventRoute = authed.recordEvent
 export const listArtifactsRoute = authed.listArtifacts
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context, input }) => {
-		await requireTediAccess(context, input.tediId);
+		const tedi = await requireTediAccess(context, input.tediId);
 		const limit = input.limit ?? 100;
 		const rows = await listTediArtifacts(context.db, {
+			organizationId: tedi.organizationId,
 			tediId: input.tediId,
 			conversationId: input.conversationId,
 			runId: input.runId,
@@ -1240,8 +1247,11 @@ export const getArtifactRoute = authed.getArtifact
 export const createArtifactShareLinkRoute = authed.createArtifactShareLink
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context, input }) => {
-		await requireTediAccess(context, input.tediId);
-		const artifact = await getTediArtifact(context.db, input);
+		const tedi = await requireTediAccess(context, input.tediId);
+		const artifact = await getTediArtifact(context.db, {
+			...input,
+			organizationId: tedi.organizationId,
+		});
 		if (!artifact) {
 			throw createError(ErrorCodes.NOT_FOUND, "Tedi artifact not found");
 		}

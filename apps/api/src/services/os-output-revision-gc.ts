@@ -44,7 +44,7 @@ export async function sweepOutputRevisionBodies(input: {
 		// historical revisions and inline-backed rows count, not just current pointers.
 		const roots = await referencedOutputBodyHashes(
 			db,
-			organizationId,
+			{ organizationId: organizationId },
 			candidates.map((object) => object.key.slice(prefix.length, -3)),
 		);
 		for (const object of candidates) {
@@ -62,7 +62,13 @@ export async function sweepOutputRevisionBodies(input: {
 				continue;
 			if (
 				!deletedOrganization &&
-				(await referencedOutputBodyHashes(db, organizationId, [hash])).has(hash)
+				(
+					await referencedOutputBodyHashes(
+						db,
+						{ organizationId: organizationId },
+						[hash],
+					)
+				).has(hash)
 			)
 				continue;
 			await bucket.delete(object.key);

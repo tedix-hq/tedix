@@ -1,6 +1,6 @@
 import type { FactoryRunContext } from "@tedix/db/queries/factories";
 import type { CapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
-import type { ArtifactBridge } from "./artifacts";
+import type { ArtifactBridge, ArtifactBridgeProps } from "./artifacts";
 import type { EvidenceBridge, EvidenceBridgeProps } from "./evidence";
 import type { ReasonBridge } from "./reason";
 import type { ReasonBridgeProps } from "./reason-core";
@@ -131,7 +131,7 @@ export interface SkillRuntimeEnv {
 
 export interface SkillRuntimeExportFactories {
 	McpBridge(opts: { props: McpBridgeProps }): Fetcher<McpBridge>;
-	ArtifactBridge(opts: { props: { runId: string } }): Fetcher<ArtifactBridge>;
+	ArtifactBridge(opts: { props: ArtifactBridgeProps }): Fetcher<ArtifactBridge>;
 	EvidenceBridge(opts: { props: EvidenceBridgeProps }): Fetcher<EvidenceBridge>;
 	ReasonBridge(opts: { props: ReasonBridgeProps }): Fetcher<ReasonBridge>;
 	RationaleBridge(opts: {

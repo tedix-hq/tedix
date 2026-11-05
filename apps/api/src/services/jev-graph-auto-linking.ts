@@ -76,6 +76,7 @@ export async function autoLinkFactsWithJev(
 	const facts = await listAutoLinkFacts(input.db, input.scope);
 	const edges = await getEdgesForFacts(
 		input.db,
+		input.scope,
 		facts.map((f) => f.id),
 	);
 	const counts = new Map<string, number>();

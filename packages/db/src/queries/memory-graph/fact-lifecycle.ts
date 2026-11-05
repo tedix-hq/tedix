@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { refreshConsolidatedForFact } from "./observations";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -6,11 +7,12 @@ import { getAffectedRows } from "../../utils/d1-result";
 
 export async function decayConfidence(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	decayFactor: number = 0.99,
 	minConfidence: number = 0.1,
 	options?: { tediId?: string; domainId?: string; factIds?: string[] },
 ): Promise<number> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (options?.factIds?.length === 0) return 0;
 	// Usage-reinforced decay: facts with high usage decay slower, unused facts decay faster.
 	// Linear approximation (D1/SQLite-compatible, no POWER() needed):
@@ -88,10 +90,11 @@ export async function decayConfidence(
 
 export async function archiveLowConfidence(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	threshold: number = 0.2,
 	options?: { tediId?: string; domainId?: string; factIds?: string[] },
 ): Promise<{ count: number; archivedIds: string[] }> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (options?.factIds?.length === 0) return { count: 0, archivedIds: [] };
 	const conditions = [
 		eq(memoryFacts.organizationId, orgId),
@@ -132,9 +135,11 @@ export async function archiveLowConfidence(
  */
 export async function invalidateFact(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factId: string,
 	reason?: string,
 ): Promise<void> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	await db
 		.update(memoryFacts)
@@ -145,20 +150,31 @@ export async function invalidateFact(
 				? sql`json_set(COALESCE(${memoryFacts.metadata}, '{}'), '$.invalidationReason', ${reason})`
 				: undefined,
 		})
-		.where(eq(memoryFacts.id, factId));
+		.where(
+			and(
+				eq(memoryFacts.organizationId, organizationId),
+				eq(memoryFacts.id, factId),
+			),
+		);
 	const [fact] = await db
 		.select({ orgId: memoryFacts.organizationId })
 		.from(memoryFacts)
-		.where(eq(memoryFacts.id, factId));
-	if (fact) await refreshConsolidatedForFact(db, fact.orgId, factId);
+		.where(
+			and(
+				eq(memoryFacts.organizationId, organizationId),
+				eq(memoryFacts.id, factId),
+			),
+		);
+	if (fact) await refreshConsolidatedForFact(db, tenantScope, factId);
 }
 
 /** Promote retrieved probation facts unless the evidence check rejected them. */
 export async function promoteFromProbation(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	minAccessCount: number = 1,
 ): Promise<number> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const result = await db
 		.update(memoryFacts)
 		.set({
@@ -192,9 +208,10 @@ export async function promoteFromProbation(
  */
 export async function expireProbation(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	maxAgeDays: number = 7,
 ): Promise<{ count: number; expiredIds: string[] }> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const cutoff = new Date(
 		Date.now() - maxAgeDays * 24 * 60 * 60 * 1000,
 	).toISOString();
@@ -221,10 +238,11 @@ export async function expireProbation(
 
 export async function resetCollapsedConfidence(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	resetTo: number = 0.8,
 	factIds?: string[],
 ): Promise<number> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (factIds?.length === 0) return 0;
 	const selection =
 		factIds === undefined

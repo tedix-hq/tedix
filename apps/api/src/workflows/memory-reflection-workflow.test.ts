@@ -351,7 +351,7 @@ describe("reflection projection checkpoints", () => {
 			["b", fact("b")],
 		]);
 		vi.mocked(getFactById).mockImplementation(
-			async (_db, id) => rows.get(id) as never,
+			async (_db, _scope, id) => rows.get(id) as never,
 		);
 		const remember = vi.fn(async ({ sessionId }: { sessionId: string }) => {
 			if (sessionId === "fact:b") throw new Error("provider unavailable");
@@ -389,7 +389,7 @@ describe("reflection projection checkpoints", () => {
 			"fact:b",
 		]);
 		expect(deleteSession).toHaveBeenLastCalledWith("fact:b");
-		expect(vi.mocked(getFactById).mock.calls.map(([, id]) => id)).toEqual([
+		expect(vi.mocked(getFactById).mock.calls.map(([, , id]) => id)).toEqual([
 			"a",
 			"b",
 			"b",
@@ -408,7 +408,7 @@ describe("reflection projection checkpoints", () => {
 			["foreign", fact("foreign", { organizationId: "org-2" })],
 		]);
 		vi.mocked(getFactById).mockImplementation(
-			async (_db, id) => rows.get(id) as never,
+			async (_db, _scope, id) => rows.get(id) as never,
 		);
 		const remember = vi.fn();
 		const deleteSession = vi.fn(async (_sessionId: string) => {});

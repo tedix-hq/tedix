@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 import {
 	and,
 	asc,
@@ -35,6 +36,7 @@ import {
 import {
 	unindexedKind,
 	unindexedKindIn,
+	unindexedOrganizationId,
 } from "../utils/tedi-runtime-event-predicates";
 import { searchAuditEvents } from "./audit";
 
@@ -81,13 +83,14 @@ export async function listTediObservabilityRows(
 		from: string;
 		to: string;
 		limit: number;
-	},
+	} & TenantScope,
 ): Promise<{
 	runtimeEvents: TediObservabilityRuntimeRow[];
 	auditEvents: TediObservabilityAuditRow[];
 	runtimeTruncated: boolean;
 	auditTruncated: boolean;
 }> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const rowLimit = input.limit + 1;
 	const stores = getLogStores(db);
 	const readRuntimeRows = (store: DbClient) =>
@@ -210,8 +213,9 @@ export async function getMappedDispatchRunId(
 
 export async function insertTediRuntimeEvent(
 	db: DbClient,
-	input: TediRuntimeEventInsert,
+	input: TediRuntimeEventInsert & TenantScope,
 ): Promise<TediRuntimeEventRow | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const metadataTraceId = input.runtimeMetadata?.traceId;
 	const [row] = await db
 		.insert(tediRuntimeEvents)
@@ -228,11 +232,12 @@ export async function insertTediRuntimeEvent(
 
 export async function getTediRuntimeEventById(
 	db: DbClient,
+	scope: TenantScope & { tediId?: string },
 	id: string,
-	scope?: { organizationId: string; tediId: string },
 ): Promise<TediRuntimeEventRow | null> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const pages = await readLogStores(db, async (store) => {
-		const row = await getTediRuntimeEventById(store, id, scope);
+		const row = await getTediRuntimeEventById(store, scope, id);
 		return row ? [row] : [];
 	});
 	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0] ?? null;
@@ -242,10 +247,8 @@ export async function getTediRuntimeEventById(
 		.where(
 			and(
 				eq(tediRuntimeEvents.id, id),
-				scope
-					? eq(tediRuntimeEvents.organizationId, scope.organizationId)
-					: undefined,
-				scope ? eq(tediRuntimeEvents.tediId, scope.tediId) : undefined,
+				eq(tediRuntimeEvents.organizationId, scope.organizationId),
+				scope.tediId ? eq(tediRuntimeEvents.tediId, scope.tediId) : undefined,
 			),
 		)
 		.limit(1);
@@ -254,12 +257,21 @@ export async function getTediRuntimeEventById(
 
 export async function updateTediRuntimeEventPayload(
 	db: DbClient,
-	input: { id: string; payload: TediRuntimeEventInsert["payload"] },
+	input: {
+		id: string;
+		payload: TediRuntimeEventInsert["payload"];
+	} & TenantScope,
 ): Promise<TediRuntimeEventRow | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.update(tediRuntimeEvents)
 		.set({ payload: input.payload })
-		.where(eq(tediRuntimeEvents.id, input.id))
+		.where(
+			and(
+				eq(tediRuntimeEvents.id, input.id),
+				eq(tediRuntimeEvents.organizationId, input.organizationId),
+			),
+		)
 		.returning();
 	return row ?? null;
 }
@@ -276,8 +288,9 @@ export async function listTediRuntimeEventsForRouter(
 		before?: TediRuntimeEventCursor;
 		order?: "asc" | "desc";
 		limit?: number;
-	},
+	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.runIds?.length === 0 || input.kinds?.length === 0) return [];
 	// Both stores apply the same `before` cursor; the merged set is re-limited.
 	const pages = await readLogStores(
@@ -316,6 +329,9 @@ export async function listTediRuntimeEventsForRouter(
 	}
 	const runScoped = Boolean(input.runId);
 	const conditions = [
+		runScoped
+			? unindexedOrganizationId(input.organizationId)
+			: eq(tediRuntimeEvents.organizationId, input.organizationId),
 		eq(tediRuntimeEvents.tediId, input.tediId),
 		...(input.conversationId
 			? [eq(tediRuntimeEvents.conversationId, input.conversationId)]
@@ -370,8 +386,9 @@ export async function listTediRuntimeEventsForRouter(
 
 export async function listTediRunConversationHints(
 	db: DbClient,
-	input: { tediId: string; runId: string; limit: number },
+	input: { tediId: string; runId: string; limit: number } & TenantScope,
 ): Promise<Array<Pick<TediRuntimeEventRow, "conversationId" | "kind">>> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	return db
 		.select({
 			conversationId: tediRuntimeEvents.conversationId,
@@ -380,6 +397,7 @@ export async function listTediRunConversationHints(
 		.from(tediRuntimeEvents)
 		.where(
 			and(
+				eq(tediRuntimeEvents.organizationId, input.organizationId),
 				eq(tediRuntimeEvents.tediId, input.tediId),
 				eq(tediRuntimeEvents.runId, input.runId),
 			),
@@ -395,13 +413,15 @@ export async function listTediConversationIndexRows(
 		tediId: string;
 		before?: string;
 		limit: number;
-	},
+	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	return db
 		.select()
 		.from(tediRuntimeEvents)
 		.where(
 			and(
+				eq(tediRuntimeEvents.organizationId, input.organizationId),
 				eq(tediRuntimeEvents.tediId, input.tediId),
 				notExists(
 					db
@@ -454,8 +474,9 @@ export async function listTediConversationTranscriptRows(
 		conversationId: string;
 		before?: string;
 		limit: number;
-	},
+	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const pages = await readLogStores(
 		db,
 		(store) => listTediConversationTranscriptRows(store, input),
@@ -471,6 +492,7 @@ export async function listTediConversationTranscriptRows(
 		.from(tediRuntimeEvents)
 		.where(
 			and(
+				eq(tediRuntimeEvents.organizationId, input.organizationId),
 				eq(tediRuntimeEvents.tediId, input.tediId),
 				eq(tediRuntimeEvents.conversationId, input.conversationId),
 				or(
@@ -490,8 +512,9 @@ export async function listTediConversationTranscriptRows(
 
 export async function getLatestTediConversationCompactionEvent(
 	db: DbClient,
-	input: { tediId: string; conversationId: string },
+	input: { tediId: string; conversationId: string } & TenantScope,
 ): Promise<TediConversationCompactionEventRow | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select({
 			payload: tediRuntimeEvents.payload,
@@ -500,6 +523,7 @@ export async function getLatestTediConversationCompactionEvent(
 		.from(tediRuntimeEvents)
 		.where(
 			and(
+				eq(tediRuntimeEvents.organizationId, input.organizationId),
 				eq(tediRuntimeEvents.tediId, input.tediId),
 				eq(tediRuntimeEvents.conversationId, input.conversationId),
 				eq(tediRuntimeEvents.kind, "context.compacted"),
@@ -597,9 +621,11 @@ export async function listTediArtifacts(
 		name?: string;
 		before?: string;
 		limit: number;
-	},
+	} & TenantScope,
 ): Promise<TediArtifactRow[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const conditions = [
+		eq(tediArtifacts.organizationId, input.organizationId),
 		eq(tediArtifacts.tediId, input.tediId),
 		...(input.name ? [eq(tediArtifacts.name, input.name)] : []),
 		...(input.conversationId
@@ -620,8 +646,9 @@ export async function listTediArtifacts(
 
 export async function upsertTediArtifact(
 	db: DbClient,
-	input: TediArtifactInsert,
+	input: TediArtifactInsert & TenantScope,
 ): Promise<TediArtifactRow> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.insert(tediArtifacts)
 		.values(input)
@@ -656,8 +683,9 @@ export async function upsertTediArtifact(
  */
 export async function claimTediArtifact(
 	db: DbClient,
-	input: TediArtifactInsert,
+	input: TediArtifactInsert & TenantScope,
 ): Promise<{ artifact: TediArtifactRow; created: boolean }> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [created] = await db
 		.insert(tediArtifacts)
 		.values({
@@ -668,7 +696,7 @@ export async function claimTediArtifact(
 		.returning();
 	if (created) return { artifact: created, created: true };
 	const existing = await getTediArtifact(db, {
-		organizationId: input.organizationId,
+		...normalizeTenantScope(input),
 		artifactId: input.id,
 	});
 	if (
@@ -703,8 +731,9 @@ export async function markTediArtifactPublished(
 		organizationId: string;
 		tediId: string;
 		contentDigest: string | null;
-	},
+	} & TenantScope,
 ): Promise<TediArtifactRow | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [published] = await db
 		.update(tediArtifacts)
 		.set({ publicationState: "ready" })
@@ -725,14 +754,13 @@ export async function markTediArtifactPublished(
 
 export async function getTediArtifact(
 	db: DbClient,
-	input:
-		| { tediId: string; artifactId: string }
-		| { organizationId: string; artifactId: string },
+	input: TenantScope & { tediId?: string; artifactId: string },
 ): Promise<TediArtifactRow | null> {
-	const ownerCondition =
-		"organizationId" in input
-			? eq(tediArtifacts.organizationId, input.organizationId)
-			: eq(tediArtifacts.tediId, input.tediId);
+	input = { ...input, ...normalizeTenantScope(input) };
+	const ownerCondition = and(
+		eq(tediArtifacts.organizationId, input.organizationId),
+		input.tediId ? eq(tediArtifacts.tediId, input.tediId) : undefined,
+	);
 	const [row] = await db
 		.select()
 		.from(tediArtifacts)
@@ -1041,7 +1069,8 @@ export async function findOrphanRuns(
 
 export async function insertOrphanTerminalEvent(
 	db: DbClient,
-	input: TediRuntimeEventInsert,
+	input: TediRuntimeEventInsert & TenantScope,
 ): Promise<boolean> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	return (await insertTediRuntimeEvent(db, input)) !== null;
 }

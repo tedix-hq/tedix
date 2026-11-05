@@ -59,9 +59,13 @@ function fixture(
 		});
 	};
 	const verifyLinks = async () => {
-		const rows = await listMemoryObservations(db, ORG, {
-			includeHistory: true,
-		});
+		const rows = await listMemoryObservations(
+			db,
+			{ organizationId: ORG },
+			{
+				includeHistory: true,
+			},
+		);
 		for (const row of rows) {
 			const links = sqlite
 				.prepare(
@@ -84,33 +88,43 @@ describe("consolidation citation link parity", () => {
 		const { db, add, verifyLinks } = fixture();
 		await add("a");
 		await add("b");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		await verifyLinks();
 		await add("c");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		await verifyLinks();
-		await invalidateFact(db, "a");
+		await invalidateFact(db, { organizationId: ORG }, "a");
 		await verifyLinks();
-		await invalidateFact(db, "b");
+		await invalidateFact(db, { organizationId: ORG }, "b");
 		await verifyLinks();
-		await invalidateFact(db, "c");
+		await invalidateFact(db, { organizationId: ORG }, "c");
 		await verifyLinks();
 	});
 	it("returns identical recall results before, during and after bounded backfill", async () => {
 		const { sqlite, db, add } = fixture();
 		await add("a");
 		await add("b");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		const raw = (await db.select().from(memoryFacts)).filter(
 			(row) => row.id === "a",
 		);
-		const indexed = await preferConsolidatedFacts(db, ORG, raw);
+		const indexed = await preferConsolidatedFacts(
+			db,
+			{ organizationId: ORG },
+			raw,
+		);
 		sqlite.exec("DELETE FROM memory_fact_citations");
-		expect(await preferConsolidatedFacts(db, ORG, raw)).toEqual(indexed);
-		expect(await backfillFactCitations(db, ORG, 1)).toBe(1);
-		expect(await preferConsolidatedFacts(db, ORG, raw)).toEqual(indexed);
-		while (await backfillFactCitations(db, ORG, 1)) {}
-		expect(await preferConsolidatedFacts(db, ORG, raw)).toEqual(indexed);
+		expect(
+			await preferConsolidatedFacts(db, { organizationId: ORG }, raw),
+		).toEqual(indexed);
+		expect(await backfillFactCitations(db, { organizationId: ORG }, 1)).toBe(1);
+		expect(
+			await preferConsolidatedFacts(db, { organizationId: ORG }, raw),
+		).toEqual(indexed);
+		while (await backfillFactCitations(db, { organizationId: ORG }, 1)) {}
+		expect(
+			await preferConsolidatedFacts(db, { organizationId: ORG }, raw),
+		).toEqual(indexed);
 	});
 	it("does not replace a winning head's links when a concurrent refresh loses its CAS", async () => {
 		let compete = false;
@@ -138,10 +152,10 @@ describe("consolidation citation link parity", () => {
 		});
 		await add("a");
 		await add("b");
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		await add("c");
 		compete = true;
-		await consolidateMemory(db, ORG);
+		await consolidateMemory(db, { organizationId: ORG });
 		expect(winnerId).not.toBe("");
 		await verifyLinks();
 	});

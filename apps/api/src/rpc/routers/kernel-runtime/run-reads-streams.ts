@@ -1,3 +1,4 @@
+import { requireOrgId } from "../../org-scope";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { type BaseContext, ErrorCodes, createError } from "../../orpc";
 import type { HarnessSubjectVersion } from "@tedix/api-contract/schemas/harness-version";
@@ -174,6 +175,7 @@ export async function readChildRunStatuses(
 		[...refs.entries()].map(async ([key, ref]) => {
 			try {
 				const childRows = await listTediRuntimeEvents(context.db, {
+					organizationId: requireOrgId(context),
 					tediId: ref.tediId,
 					runId: ref.runId,
 					order: "desc",
@@ -319,6 +321,7 @@ export async function reconcileInboxWakeRuns(
 				});
 				const [existing] = await listKernelRuntimeEvents(context.db, {
 					id: eventId,
+					organizationId: row.organizationId,
 					limit: 1,
 				});
 				if (existing) existingPlanSynthesisEventIds.add(eventId);
@@ -1227,12 +1230,17 @@ export async function ensureKernelHarnessStampOnResult(
 			kinds: ["message.completed", "run.completed", "approval.requested"],
 		});
 		for (const event of events) {
-			await updateKernelRuntimeEventMetadata(context.db, event.id, {
-				...recordOrNull(event.runtimeMetadata),
-				harnessVersionId: version.id,
-				harnessSubjectKind: version.subjectKind,
-				harnessSubjectId: version.subjectId,
-			});
+			await updateKernelRuntimeEventMetadata(
+				context.db,
+				{ organizationId: result.run.organizationId },
+				event.id,
+				{
+					...recordOrNull(event.runtimeMetadata),
+					harnessVersionId: version.id,
+					harnessSubjectKind: version.subjectKind,
+					harnessSubjectId: version.subjectId,
+				},
+			);
 		}
 		const runRuntime = result.run.runtime ?? {
 			backend: KERNEL_RUNTIME_BACKEND,

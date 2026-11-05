@@ -30,7 +30,7 @@ const migration = readFileSync(
 	"utf8",
 );
 const scope = {
-	orgId: "fictional-a",
+	organizationId: "fictional-a",
 	tediId: "tedi-a",
 	now: "2026-10-18T12:00:00.000Z",
 };
@@ -101,7 +101,12 @@ describe("canonical hybrid recall D1 queries", () => {
 			{ ...scope, now: undefined },
 			"cobalt",
 		);
-		await recordRecallAccess(db, scope.orgId, ["a", "b"], false);
+		await recordRecallAccess(
+			db,
+			{ organizationId: scope.organizationId },
+			["a", "b"],
+			false,
+		);
 		expect(
 			sqlite
 				.prepare(
@@ -113,7 +118,7 @@ describe("canonical hybrid recall D1 queries", () => {
 		expect(
 			await lexicalRecall(db, { ...scope, now: undefined }, "cobalt"),
 		).toEqual(recalled);
-		await recordRecallAccess(db, scope.orgId, [
+		await recordRecallAccess(db, { organizationId: scope.organizationId }, [
 			"a",
 			"a",
 			"b",
@@ -190,13 +195,21 @@ describe("canonical hybrid recall D1 queries", () => {
 			(await lexicalRecall(db, liveScope, "amber")).map((f) => f.factId),
 		).toEqual(["current"]);
 		sqlite.exec("DELETE FROM memory_fact_fts_recall WHERE fact_id='current'");
-		expect(await backfillFactSearch(db, scope.orgId)).toBe(1);
-		expect(await backfillFactSearch(db, scope.orgId)).toBe(0);
+		expect(
+			await backfillFactSearch(db, { organizationId: scope.organizationId }),
+		).toBe(1);
+		expect(
+			await backfillFactSearch(db, { organizationId: scope.organizationId }),
+		).toBe(0);
 		sqlite.exec(
 			"INSERT INTO memory_fact_fts_recall(rowid,fact_id,organization_id,text,entity_names) SELECT rowid,fact_id,organization_id,text,entity_names FROM memory_fact_search_documents WHERE fact_id='ended'",
 		);
-		expect(await backfillFactSearch(db, scope.orgId)).toBe(1);
-		expect(await backfillFactSearch(db, scope.orgId)).toBe(0);
+		expect(
+			await backfillFactSearch(db, { organizationId: scope.organizationId }),
+		).toBe(1);
+		expect(
+			await backfillFactSearch(db, { organizationId: scope.organizationId }),
+		).toBe(0);
 		sqlite.exec(
 			`UPDATE memory_facts SET metadata='{"learningFeed":{"evidence":{"state":"held"}}}' WHERE id='current'`,
 		);
@@ -353,8 +366,12 @@ describe("canonical hybrid recall D1 queries", () => {
 			(await lexicalRecall(db, scope, "amber")).map((x) => x.factId),
 		).toEqual(["a"]);
 		sqlite.prepare("DELETE FROM memory_fact_fts WHERE fact_id='a'").run();
-		expect(await backfillFactSearch(db, scope.orgId)).toBe(1);
-		expect(await backfillFactSearch(db, scope.orgId)).toBe(0);
+		expect(
+			await backfillFactSearch(db, { organizationId: scope.organizationId }),
+		).toBe(1);
+		expect(
+			await backfillFactSearch(db, { organizationId: scope.organizationId }),
+		).toBe(0);
 		sqlite.prepare("DELETE FROM memory_facts WHERE id='a'").run();
 		expect(await lexicalRecall(db, scope, "amber")).toEqual([]);
 		expect(

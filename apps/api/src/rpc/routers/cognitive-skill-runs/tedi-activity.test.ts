@@ -134,7 +134,8 @@ beforeEach(async () => {
 	mocks.run.mockResolvedValue(run);
 	mocks.tediForOrg.mockResolvedValue({ id: "tedi-1", organizationId: "org-1" });
 	mocks.deleted.mockResolvedValue(false);
-	mocks.artifact.mockImplementation(async (_db, runId, selectedPath) => {
+	mocks.artifact.mockImplementation(async (_db, scope, runId, selectedPath) => {
+		expect(scope).toEqual({ organizationId: "org-1" });
 		const value = selectedPath.includes("/calls/") ? receipt : parent;
 		return value
 			? {
@@ -201,6 +202,7 @@ describe("workflow step canonical tedi activity", () => {
 			"development",
 		);
 		expect(mocks.events).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
+			organizationId: "org-1",
 			tediId: "tedi-1",
 			runId: "native-run-1",
 			order: "desc",

@@ -87,12 +87,12 @@ describe("situational recall persistence", () => {
 		).rejects.toThrow("unavailable");
 		const [row] = await listApprovedAgentLessons(
 			context.db,
-			org,
+			{ organizationId: org },
 			"learning-feed:",
 		);
 		await updateTriggers(context, org, lesson, { commands: ["tool deploy"] });
 		expect(
-			await setAgentLessonTriggers(context.db, org, row!, {
+			await setAgentLessonTriggers(context.db, { organizationId: org }, row!, {
 				keywords: ["stale"],
 			}),
 		).toBe(false);
@@ -105,16 +105,21 @@ describe("situational recall persistence", () => {
 		expect(catalog.truncated).toBe(false);
 		const [current] = await listApprovedAgentLessons(
 			context.db,
-			org,
+			{ organizationId: org },
 			"learning-feed:",
 		);
 		sqlite
 			.prepare("UPDATE memory_facts SET content=? WHERE id=?")
 			.run("Edited lesson", lesson);
 		expect(
-			await setAgentLessonTriggers(context.db, org, current!, {
-				keywords: ["old text"],
-			}),
+			await setAgentLessonTriggers(
+				context.db,
+				{ organizationId: org },
+				current!,
+				{
+					keywords: ["old text"],
+				},
+			),
 		).toBe(false);
 	});
 	it("links a failure to a preexisting lesson and proposes one delivery investigation per actor, preserving unknown", async () => {

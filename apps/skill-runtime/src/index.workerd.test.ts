@@ -332,7 +332,9 @@ it("stores step timeline receipts inline as compact schema 2 with a digest", asy
 	const runId = crypto.randomUUID();
 	const bridge = (
 		exports as unknown as SkillRuntimeExportFactories
-	).ArtifactBridge({ props: { runId } }) as unknown as {
+	).ArtifactBridge({
+		props: { runId, organizationId: "org-test" },
+	}) as unknown as {
 		record(payload: unknown): Promise<true>;
 	};
 	const path = "epochs/0/steps/x:read/1/attempts/1.json";

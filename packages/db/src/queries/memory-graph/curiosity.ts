@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, desc, eq } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -12,8 +13,9 @@ export type { CuriositySource, CuriosityStatus };
 
 export async function createCuriosityItem(
 	db: DbClient,
-	item: NewTediCuriosityItem,
+	item: NewTediCuriosityItem & TenantScope,
 ): Promise<TediCuriosityItem> {
+	item = { ...item, ...normalizeTenantScope(item) };
 	const id = item.id ?? crypto.randomUUID();
 	const [created] = await db
 		.insert(tediCuriosityQueue)
@@ -25,9 +27,10 @@ export async function createCuriosityItem(
 
 export async function listCuriosityQueue(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options?: { tediId?: string; status?: CuriosityStatus; limit?: number },
 ): Promise<TediCuriosityItem[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [eq(tediCuriosityQueue.organizationId, orgId)];
 
 	if (options?.tediId) {
@@ -50,10 +53,12 @@ export async function listCuriosityQueue(
 
 export async function updateCuriosityStatus(
 	db: DbClient,
+	tenantScope: TenantScope,
 	id: string,
 	status: CuriosityStatus,
 	results?: { factsLearned?: number; gapsFound?: number },
 ): Promise<void> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	await db
 		.update(tediCuriosityQueue)
@@ -68,14 +73,20 @@ export async function updateCuriosityStatus(
 			...(status === "completed" ? { completedAt: now } : {}),
 			updatedAt: now,
 		})
-		.where(eq(tediCuriosityQueue.id, id));
+		.where(
+			and(
+				eq(tediCuriosityQueue.organizationId, organizationId),
+				eq(tediCuriosityQueue.id, id),
+			),
+		);
 }
 
 export async function getNextCuriosityItem(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	tediId?: string,
 ): Promise<TediCuriosityItem | undefined> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(tediCuriosityQueue.organizationId, orgId),
 		eq(tediCuriosityQueue.status, "queued"),

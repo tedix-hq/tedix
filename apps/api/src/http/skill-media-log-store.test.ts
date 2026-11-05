@@ -1,3 +1,4 @@
+import { osGadgetExecutions } from "@tedix/db/schema/os-workspaces";
 import { DatabaseSync } from "node:sqlite";
 import { createDbClient } from "@tedix/db/client";
 import {
@@ -67,6 +68,7 @@ describe("skill media from LOGS_DB", () => {
 			schemaDdl(
 				organizations,
 				organizationMembers,
+				osGadgetExecutions,
 				skillRuns,
 				skillWorkflowSources,
 				skillRunArtifacts,

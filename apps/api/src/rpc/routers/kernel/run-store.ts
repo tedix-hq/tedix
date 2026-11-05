@@ -203,7 +203,11 @@ export async function existingRunStartedCause(
 		runId: input.runId,
 		messageId: input.messageId,
 	});
-	const [row] = await listKernelRuntimeEvents(context.db, { id, limit: 1 });
+	const [row] = await listKernelRuntimeEvents(context.db, {
+		organizationId: input.organizationId,
+		id,
+		limit: 1,
+	});
 	if (!row) return undefined;
 	if (
 		row.organizationId !== input.organizationId ||

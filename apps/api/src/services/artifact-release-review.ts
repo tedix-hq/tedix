@@ -116,6 +116,7 @@ async function requireArtifactConversationAccess(
 		const event = receipt
 			? await getTediRuntimeEventById(
 					context.db,
+					{ organizationId: artifact.organizationId },
 					receipt.producerRuntimeEventId,
 				)
 			: null;
@@ -242,6 +243,7 @@ async function sourceState(
 		};
 	const producer = await getTediRuntimeEventById(
 		context.db,
+		{ organizationId: parent.organizationId },
 		receipt.producerRuntimeEventId,
 	);
 	if (

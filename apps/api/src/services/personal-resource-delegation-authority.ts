@@ -304,6 +304,7 @@ export async function authorizePersonalResourceDelegation(
 		run?.status === "queued"
 			? await getRunArtifact(
 					context.db,
+					{ organizationId },
 					runId,
 					`epochs/${Number(epoch)}/started.json`,
 				)

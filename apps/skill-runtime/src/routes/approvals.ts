@@ -307,6 +307,7 @@ export function registerApprovalRoutes(app: Hono<AppEnv>) {
 		try {
 			if (parsed.data.type.startsWith("connection_recovery_")) {
 				await requirePendingConnectionRecovery(createDbClient(c.env.DB), {
+					organizationId: run.orgId,
 					runId: run.runId,
 					executionEpoch: run.executionEpoch,
 					type: parsed.data.type,

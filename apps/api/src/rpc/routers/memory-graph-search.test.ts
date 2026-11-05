@@ -127,7 +127,7 @@ describe("governed memory search", () => {
 		const result = await search({ query: "cobalt" });
 		expect(mocks.count).toHaveBeenCalledWith(
 			context.db,
-			context.organizationId,
+			{ organizationId: context.organizationId },
 			1_000,
 		);
 		const { memoryGraphContract } =
@@ -186,7 +186,7 @@ describe("governed memory search", () => {
 		expect(mocks.access).toHaveBeenCalledTimes(1);
 		expect(mocks.access).toHaveBeenCalledWith(
 			context.db,
-			context.organizationId,
+			{ organizationId: context.organizationId },
 			[factId],
 			true,
 		);
@@ -197,7 +197,7 @@ describe("governed memory search", () => {
 		expect(restricted.results).toEqual(result.results);
 		expect(mocks.access).toHaveBeenLastCalledWith(
 			context.db,
-			context.organizationId,
+			{ organizationId: context.organizationId },
 			[factId],
 			false,
 		);

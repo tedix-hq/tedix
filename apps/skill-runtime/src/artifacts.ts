@@ -1,3 +1,4 @@
+import type { TenantScope } from "@tedix/db/tenant-scope";
 /**
  * Artifact bridge for tenant skill workflows.
  *
@@ -45,12 +46,13 @@ export interface ArtifactBridgeEnv {
 	SKILL_ARTIFACTS: R2Bucket;
 }
 
-export interface ArtifactBridgeProps {
+export interface ArtifactBridgeProps extends TenantScope {
 	runId: string;
 }
 
 async function recordArtifactForRun(
 	env: ArtifactBridgeEnv,
+	tenantScope: TenantScope,
 	runId: string,
 	input: ArtifactRecordInput,
 ): Promise<{
@@ -92,7 +94,7 @@ async function recordArtifactForRun(
 		});
 		const { createDbClient } = await import("@tedix/db/client");
 		const db = createDbClient(env.DB);
-		const row = await recordRunArtifact(db, {
+		const row = await recordRunArtifact(db, tenantScope, {
 			runId,
 			path,
 			value: null,
@@ -108,7 +110,7 @@ async function recordArtifactForRun(
 
 	const { createDbClient } = await import("@tedix/db/client");
 	const db = createDbClient(env.DB);
-	const row = await recordRunArtifact(db, {
+	const row = await recordRunArtifact(db, tenantScope, {
 		runId,
 		path,
 		value: value ?? null,
@@ -129,6 +131,7 @@ async function recordArtifactForRun(
  */
 async function recordBlobForRun(
 	env: ArtifactBridgeEnv,
+	tenantScope: TenantScope,
 	runId: string,
 	input: ArtifactBlobInput,
 ): Promise<{
@@ -158,7 +161,7 @@ async function recordBlobForRun(
 	});
 	const { createDbClient } = await import("@tedix/db/client");
 	const db = createDbClient(env.DB);
-	const row = await recordRunArtifact(db, {
+	const row = await recordRunArtifact(db, tenantScope, {
 		runId,
 		path,
 		value: null,
@@ -187,7 +190,7 @@ export class ArtifactBridge extends WorkerEntrypoint<
 		if (compact || input.path.startsWith("timeline/")) {
 			const { createDbClient } = await import("@tedix/db/client");
 			// Inline rows survive isolate replay and require no R2 body reads.
-			await recordRunArtifact(createDbClient(this.env.DB), {
+			await recordRunArtifact(createDbClient(this.env.DB), this.ctx.props, {
 				runId: this.ctx.props.runId,
 				path: compact ? "timeline/" + input.path : input.path,
 				value: compact ? storedTimelineReceipt(compact) : input.value,
@@ -196,7 +199,12 @@ export class ArtifactBridge extends WorkerEntrypoint<
 			});
 		}
 		if (!input.path.startsWith("timeline/")) {
-			await recordArtifactForRun(this.env, this.ctx.props.runId, input);
+			await recordArtifactForRun(
+				this.env,
+				this.ctx.props,
+				this.ctx.props.runId,
+				input,
+			);
 		}
 		return true;
 	}
@@ -234,7 +242,12 @@ export class ArtifactBridge extends WorkerEntrypoint<
 			);
 		}
 		const runId = this.ctx.props.runId;
-		const r = await recordBlobForRun(this.env, runId, parsed.data);
+		const r = await recordBlobForRun(
+			this.env,
+			this.ctx.props,
+			runId,
+			parsed.data,
+		);
 		return {
 			ok: true,
 			runId,

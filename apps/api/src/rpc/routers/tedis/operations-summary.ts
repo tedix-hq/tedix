@@ -123,10 +123,14 @@ export const listOperationsSummariesProcedure =
 							limit: 5,
 						}),
 						listMuscleMemory(context.db, orgId, tedi.id),
-						listOptimizationSignals(context.db, orgId, {
-							tediId: tedi.id,
-							limit: 5,
-						}),
+						listOptimizationSignals(
+							context.db,
+							{ organizationId: orgId },
+							{
+								tediId: tedi.id,
+								limit: 5,
+							},
+						),
 					]);
 
 					const enabledCronNames = resolveEnabledGovernedLearningCronNames({

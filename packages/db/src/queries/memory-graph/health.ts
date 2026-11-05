@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import { and, eq, isNull, not, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -33,8 +35,9 @@ export interface MemoryHealthExtended {
 
 export async function getMemoryHealthExtended(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 ): Promise<MemoryHealthExtended> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const sixtyDaysAgo = new Date(
 		Date.now() - 60 * 24 * 60 * 60 * 1000,
 	).toISOString();

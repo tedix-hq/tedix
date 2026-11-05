@@ -24,7 +24,9 @@ export async function runMemoryReflection(
 	let citationFactsBackfilled = 0;
 	for (const org of orgs) {
 		try {
-			searchRowsBackfilled += await backfillFactSearch(db, org.id);
+			searchRowsBackfilled += await backfillFactSearch(db, {
+				organizationId: org.id,
+			});
 		} catch (error) {
 			console.warn("[Scheduled] Memory search backfill unavailable", {
 				orgId: org.id,
@@ -37,7 +39,7 @@ export async function runMemoryReflection(
 			while (citationFactsBackfilled < CITATION_BACKFILL_BUDGET) {
 				const page = await backfillFactCitations(
 					db,
-					org.id,
+					{ organizationId: org.id },
 					CITATION_BACKFILL_BUDGET - citationFactsBackfilled,
 				);
 				citationFactsBackfilled += page;

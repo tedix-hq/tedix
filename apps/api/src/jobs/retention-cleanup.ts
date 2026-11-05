@@ -383,7 +383,13 @@ export async function runRetentionCleanupCron(
 				agentMemoryProjectionProfileNames,
 				deleteCanonicalMemoryProjection,
 			} = await import("../integrations/cloudflare/agent-memory");
-			const archivedFacts = await getFactsByIds(db, probationSweep.archivedIds);
+			const archivedFacts = (
+				await Promise.all(
+					Object.keys(probationSweep.perOrg).map((organizationId) =>
+						getFactsByIds(db, { organizationId }, probationSweep.archivedIds),
+					),
+				)
+			).flat();
 			for (const fact of archivedFacts) {
 				await deleteCanonicalMemoryProjection(
 					env.AGENT_MEMORY,

@@ -130,10 +130,9 @@ function factoryStore(context: BaseContext, orgId: string): FactoryStore {
 			const row = (
 				await listOsOutputs(
 					db,
-					orgId,
+					{ workspaceId: params.workspaceId, organizationId: orgId },
 					await resolveOsWorkspaceViewer(context),
 					{
-						workspaceId: params.workspaceId,
 						kind: params.kind,
 						status: "active",
 						limit: 500,

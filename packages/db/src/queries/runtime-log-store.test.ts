@@ -131,6 +131,7 @@ describe("merged runtime event reads", () => {
 	it("applies the same cursor in both stores", async () => {
 		const { main } = split();
 		const before = await listTediRuntimeEventsForRouter(main.db, {
+			organizationId: ORG,
 			tediId: TEDI,
 			runId: "run-1",
 			order: "desc",
@@ -139,6 +140,7 @@ describe("merged runtime event reads", () => {
 		});
 		expect(before.map((row) => row.id)).toEqual(["e3", "e2"]);
 		const transcript = await listTediConversationTranscriptRows(main.db, {
+			organizationId: ORG,
 			tediId: TEDI,
 			conversationId: "conv-1",
 			before: "2026-09-03T00:00:00.000Z",
@@ -149,24 +151,59 @@ describe("merged runtime event reads", () => {
 
 	it("finds a single row in whichever store holds it", async () => {
 		const { main } = split();
-		expect((await getTediRuntimeEventById(main.db, "e1"))?.id).toBe("e1");
-		expect((await getTediRuntimeEventById(main.db, "e5"))?.id).toBe("e5");
-		expect(await getTediRuntimeEventById(main.db, "missing")).toBeNull();
-		expect((await getKernelRuntimeEventById(main.db, "k1"))?.id).toBe("k1");
-		expect(await getKernelRuntimeEventById(main.db, "missing")).toBeUndefined();
+		expect(
+			(await getTediRuntimeEventById(main.db, { organizationId: ORG }, "e1"))
+				?.id,
+		).toBe("e1");
+		expect(
+			(await getTediRuntimeEventById(main.db, { organizationId: ORG }, "e5"))
+				?.id,
+		).toBe("e5");
+		expect(
+			await getTediRuntimeEventById(
+				main.db,
+				{ organizationId: ORG },
+				"missing",
+			),
+		).toBeNull();
+		expect(
+			(await getKernelRuntimeEventById(main.db, { organizationId: ORG }, "k1"))
+				?.id,
+		).toBe("k1");
+		expect(
+			await getKernelRuntimeEventById(
+				main.db,
+				{ organizationId: ORG },
+				"missing",
+			),
+		).toBeUndefined();
 	});
 
 	it("lists a run's artifacts from both stores", async () => {
 		const { main } = split();
 		expect(
-			(await listRunArtifacts(main.db, "run-1")).map((row) => row.path),
+			(await listRunArtifacts(main.db, { organizationId: ORG }, "run-1")).map(
+				(row) => row.path,
+			),
 		).toEqual(["old.json", "new.json"]);
 		expect(
 			(
-				await listRunArtifactsPage(main.db, "run-1", { limit: 1, offset: 1 })
+				await listRunArtifactsPage(main.db, { organizationId: ORG }, "run-1", {
+					limit: 1,
+					offset: 1,
+				})
 			).map((row) => row.path),
 		).toEqual(["new.json"]);
-		expect((await getRunArtifact(main.db, "run-1", "old.json"))?.id).toBe("a1");
+		expect(
+			(
+				await getRunArtifact(
+					main.db,
+					{ organizationId: ORG },
+					"run-1",
+					"old.json",
+				)
+			)?.id,
+		).toBe("a1");
 	});
 
 	it("reads the main store only when there is no logs binding", async () => {
@@ -199,9 +236,24 @@ describe("merged runtime event reads", () => {
 			limit: 4,
 		});
 		expect(page.map((row) => row.id)).toEqual(["e2", "e3", "e4", "e5"]);
-		expect((await getTediRuntimeEventById(main.db, "e1"))?.id).toBe("e1");
-		expect((await getKernelRuntimeEventById(main.db, "k1"))?.id).toBe("k1");
-		expect((await getRunArtifact(main.db, "run-1", "old.json"))?.id).toBe("a1");
+		expect(
+			(await getTediRuntimeEventById(main.db, { organizationId: ORG }, "e1"))
+				?.id,
+		).toBe("e1");
+		expect(
+			(await getKernelRuntimeEventById(main.db, { organizationId: ORG }, "k1"))
+				?.id,
+		).toBe("k1");
+		expect(
+			(
+				await getRunArtifact(
+					main.db,
+					{ organizationId: ORG },
+					"run-1",
+					"old.json",
+				)
+			)?.id,
+		).toBe("a1");
 		expect(
 			await listTediRuntimeEvents(main.db, {
 				organizationId: "org-other",

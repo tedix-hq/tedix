@@ -318,7 +318,9 @@ describe.each([false, true])(
 			};
 			await createFact(f.db, fact);
 			expect(f.edges()).toEqual([]);
-			await updateFact(f.db, fact.id, { reviewStatus: "confirmed" });
+			await updateFact(f.db, { organizationId: "org" }, fact.id, {
+				reviewStatus: "confirmed",
+			});
 			if (broken)
 				expect(f.warn).toHaveBeenCalledWith(
 					"[decision-graph] edge write skipped",
@@ -329,7 +331,7 @@ describe.each([false, true])(
 					expect.objectContaining({ from_id: "work", to_id: fact.id }),
 				]);
 			f.warn.mockClear();
-			await createFacts(f.db, [
+			await createFacts(f.db, { organizationId: "org" }, [
 				{ ...fact, id: "bulk-lesson", reviewStatus: "confirmed" },
 			]);
 			if (broken)

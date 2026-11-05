@@ -122,8 +122,9 @@ beforeEach(() => {
 	// The mocked D1 search deliberately over-returns every fixture fact;
 	// hydration eligibility remains the authorization boundary.
 	mocks.searchFactsWithVisibility.mockResolvedValue(FACTS);
-	mocks.getFactById.mockImplementation(async (_db: unknown, id: string) =>
-		FACTS.find((f) => f.id === id),
+	mocks.getFactById.mockImplementation(
+		async (_db: unknown, _scope: unknown, id: string) =>
+			FACTS.find((f) => f.id === id),
 	);
 	mocks.createFact.mockImplementation(
 		async (_db: unknown, params: Record<string, unknown>) => ({

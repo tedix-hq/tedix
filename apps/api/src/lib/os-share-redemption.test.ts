@@ -126,6 +126,7 @@ async function seedOutput(
 ) {
 	await createOsOutput(
 		db,
+		{ organizationId: "org-1" },
 		{
 			...accountability,
 			id: "out-1",

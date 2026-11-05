@@ -65,14 +65,14 @@ it("holds an overlapping correction in the same owner and repo before re-distill
 	await holdLessonsForCorrection(db, correction);
 	expect(listCurrentLearningFeedLessons).toHaveBeenCalledWith(
 		db,
-		"fictional-orchard",
+		{ organizationId: "fictional-orchard" },
 		"learning-feed:",
 		500,
 		"user-orchard",
 	);
 	expect(holdLessonForRedistillation).toHaveBeenCalledExactlyOnceWith(
 		db,
-		"fictional-orchard",
+		{ organizationId: "fictional-orchard" },
 		"related",
 		expect.any(Object),
 	);

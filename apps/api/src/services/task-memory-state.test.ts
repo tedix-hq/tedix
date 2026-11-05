@@ -87,7 +87,7 @@ it("retains preferences verbatim and finds owned work without semantic recall", 
 	expect(mocks.preferences).toHaveBeenCalledWith(
 		db,
 		expect.objectContaining({
-			orgId: "org-fiction",
+			organizationId: "org-fiction",
 			visibilityTediId: "tedi-fiction",
 		}),
 	);
@@ -151,6 +151,7 @@ it("corrects old transient state from live work while preserving durable prefere
 	expect(mocks.update).toHaveBeenCalledTimes(1);
 	expect(mocks.update).toHaveBeenCalledWith(
 		db,
+		{ organizationId: "org-fiction" },
 		"fact",
 		expect.objectContaining({
 			content: expect.stringContaining("completed"),

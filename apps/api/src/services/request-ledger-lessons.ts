@@ -122,10 +122,18 @@ export async function recordLedgerLessonCandidates(
 ): Promise<void> {
 	if (!lessons.length) return;
 	const [approved, memory, proposals] = await Promise.all([
-		listApprovedAgentLessons(db, scope.organizationId, "learning-feed:", {
-			viewerUserId: scope.ownerUserId,
+		listApprovedAgentLessons(
+			db,
+			{ organizationId: scope.organizationId },
+			"learning-feed:",
+			{
+				viewerUserId: scope.ownerUserId,
+			},
+		),
+		searchFactsWithVisibility(db, {
+			organizationId: scope.organizationId,
+			limit: 200,
 		}),
-		searchFactsWithVisibility(db, { orgId: scope.organizationId, limit: 200 }),
 		listLearningImprovementProposals(db, {
 			organizationId: scope.organizationId,
 			personalScopeId: scope.ownerUserId,

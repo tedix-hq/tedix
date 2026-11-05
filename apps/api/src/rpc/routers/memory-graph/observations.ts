@@ -18,7 +18,7 @@ export const browse = authed.browse
 			);
 		const result = await browseMemory(context.db, {
 			...input,
-			orgId: requireOrgId(context),
+			organizationId: requireOrgId(context),
 			tediId: context.tediId,
 		});
 		return {
@@ -60,7 +60,7 @@ export const listObservations = authed.listObservations
 		facts: (
 			await listMemoryObservations(
 				context.db,
-				requireOrgId(context),
+				{ organizationId: requireOrgId(context) },
 				observationScope(input, context),
 			)
 		).map((fact) => FactSchema.parse(fact)),
@@ -70,7 +70,7 @@ export const consolidateObservations = authed.consolidateObservations
 	.handler(async ({ input, context }) =>
 		consolidateMemory(
 			context.db,
-			requireOrgId(context),
+			{ organizationId: requireOrgId(context) },
 			observationScope(input, context),
 		),
 	);

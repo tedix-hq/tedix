@@ -284,7 +284,7 @@ export async function readLessonEffectiveness(
 		read(DECISION_CAPTURE_LEARNING_SURFACE),
 		listApprovedAgentLessons(
 			context.db,
-			organizationId,
+			{ organizationId: organizationId },
 			AGENT_LESSON_TOPIC_PREFIX,
 			{ viewerUserId: viewer },
 		),
@@ -365,7 +365,7 @@ export async function retireIneffectiveLessons(
 
 	const current = await listCurrentLearningFeedLessons(
 		db,
-		orgId,
+		{ organizationId: orgId },
 		AGENT_LESSON_TOPIC_PREFIX,
 	);
 	const strikeLog = await read(
@@ -430,7 +430,7 @@ export async function retireIneffectiveLessons(
 				...stats,
 			};
 			if (action === "archive") {
-				await updateFact(db, fact.id, {
+				await updateFact(db, { organizationId: orgId }, fact.id, {
 					archivedAt: now.toISOString(),
 					metadata: toJsonRecord({
 						...meta,
@@ -447,7 +447,7 @@ export async function retireIneffectiveLessons(
 				});
 				result.archived++;
 			} else {
-				await updateFact(db, fact.id, {
+				await updateFact(db, { organizationId: orgId }, fact.id, {
 					confidence: Math.max(
 						MIN_CONFIDENCE,
 						Math.round((fact.confidence ?? 0.5) * DECAY_FACTOR * 1000) / 1000,

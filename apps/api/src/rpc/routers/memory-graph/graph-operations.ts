@@ -855,13 +855,13 @@ const optimizeScan = authed.optimize.scan
 			status: string;
 			createdAt: string | null;
 		}> = [];
-		const domains = await listDomains(context.db, orgId);
+		const domains = await listDomains(context.db, { organizationId: orgId });
 
 		// Detect confidence mismatches
 		for (const domain of domains) {
 			if (input.domain && domain.name !== input.domain) continue;
 			const facts = await searchFacts(context.db, {
-				orgId,
+				organizationId: orgId,
 				domainId: domain.id,
 				limit: 100,
 			});
@@ -902,7 +902,7 @@ const optimizeScan = authed.optimize.scan
 		}
 
 		// Detect high gap counts
-		const gapStats = await getGapStats(context.db, orgId);
+		const gapStats = await getGapStats(context.db, { organizationId: orgId });
 		for (const [domainName, gapCount] of Object.entries(gapStats.byDomain)) {
 			if (input.domain && domainName !== input.domain) continue;
 			if (gapCount >= 3) {
@@ -945,7 +945,7 @@ const optimizeScan = authed.optimize.scan
 		for (const domain of domains) {
 			if (input.domain && domain.name !== input.domain) continue;
 			const facts = await searchFacts(context.db, {
-				orgId,
+				organizationId: orgId,
 				domainId: domain.id,
 				limit: 1,
 			});
@@ -975,26 +975,38 @@ export const optimizeBacklog = authed.optimize.backlog
 		const optimizationStatus = toOptimizationSignalStatus(input.status);
 		const curiosityItems =
 			input.type === "all" || input.type === "curiosity"
-				? await listCuriosityQueue(context.db, orgId, {
-						tediId: input.tediId,
-						status: curiosityStatus,
-						limit: input.limit,
-					})
+				? await listCuriosityQueue(
+						context.db,
+						{ organizationId: orgId },
+						{
+							tediId: input.tediId,
+							status: curiosityStatus,
+							limit: input.limit,
+						},
+					)
 				: [];
 
 		// Optimization signals
 		const optimizationSignals =
 			input.type === "all" || input.type === "optimization"
 				? await (optimizationStatus
-						? listOptimizationSignals(context.db, orgId, {
-								tediId: input.tediId,
-								status: optimizationStatus,
-								limit: input.limit,
-							})
-						: getOptimizationBacklog(context.db, orgId, {
-								tediId: input.tediId,
-								limit: input.limit,
-							}))
+						? listOptimizationSignals(
+								context.db,
+								{ organizationId: orgId },
+								{
+									tediId: input.tediId,
+									status: optimizationStatus,
+									limit: input.limit,
+								},
+							)
+						: getOptimizationBacklog(
+								context.db,
+								{ organizationId: orgId },
+								{
+									tediId: input.tediId,
+									limit: input.limit,
+								},
+							))
 				: [];
 		return {
 			curiosityItems,
@@ -1045,7 +1057,7 @@ export const optimizeExecute = authed.optimize.execute
 			case "next_curiosity": {
 				const item = await getNextCuriosityItem(
 					context.db,
-					orgId,
+					{ organizationId: orgId },
 					input.tediId,
 				);
 				return {
@@ -1061,10 +1073,16 @@ export const optimizeExecute = authed.optimize.execute
 						"complete_curiosity requires id",
 					);
 				}
-				await updateCuriosityStatus(context.db, input.id, "completed", {
-					factsLearned: input.factsLearned,
-					gapsFound: input.gapsFound,
-				});
+				await updateCuriosityStatus(
+					context.db,
+					{ organizationId: orgId },
+					input.id,
+					"completed",
+					{
+						factsLearned: input.factsLearned,
+						gapsFound: input.gapsFound,
+					},
+				);
 				return {
 					success: true,
 					item: null,
@@ -1078,7 +1096,12 @@ export const optimizeExecute = authed.optimize.execute
 						"execute_signal requires id",
 					);
 				}
-				await updateSignalStatus(context.db, input.id, "executing");
+				await updateSignalStatus(
+					context.db,
+					{ organizationId: orgId },
+					input.id,
+					"executing",
+				);
 				return {
 					success: true,
 					item: null,
@@ -1086,10 +1109,14 @@ export const optimizeExecute = authed.optimize.execute
 				};
 			}
 			case "review": {
-				const completed = await listOptimizationSignals(context.db, orgId, {
-					tediId: input.tediId,
-					status: "completed",
-				});
+				const completed = await listOptimizationSignals(
+					context.db,
+					{ organizationId: orgId },
+					{
+						tediId: input.tediId,
+						status: "completed",
+					},
+				);
 				const avgRoi =
 					completed.length > 0
 						? completed.reduce((s, c) => s + c.roi, 0) / completed.length

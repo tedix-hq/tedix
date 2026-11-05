@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, isNull, not, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -17,17 +19,18 @@ import { createFact, getFactById, updateFact } from "./facts";
 export async function createGapFact(
 	db: DbClient,
 	params: {
-		orgId: string;
 		tediId?: string;
 		domainId: string;
 		content: string;
 		metadata: Record<string, JsonValue>;
 		confidence?: number;
-	},
+	} & TenantScope,
 ): Promise<MemoryFact> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	return createFact(db, {
+		workspaceId: params.workspaceId,
 		id: crypto.randomUUID(),
-		organizationId: params.orgId,
+		organizationId: params.organizationId,
 		tediId: params.tediId ?? null,
 		domainId: params.domainId,
 		content: params.content,
@@ -41,7 +44,7 @@ export async function createGapFact(
 
 export async function listGaps(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options?: {
 		domainId?: string;
 		severity?: string;
@@ -49,6 +52,7 @@ export async function listGaps(
 		limit?: number;
 	},
 ): Promise<MemoryFact[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(memoryFacts.organizationId, orgId),
 		eq(memoryFacts.factType, "gap"),
@@ -79,26 +83,19 @@ export async function listGaps(
 	return gaps;
 }
 
-/**
- * `orgId` is REQUIRED, and BOTH fact ids are checked against it.
- *
- * The handler passed two raw caller-supplied ids straight through, so this
- * archived (soft-deleted) any organization's fact and linked it to any other
- * organization's fact. Checking only the gap would still leave the edge write
- * able to reach across tenants, which is why `resolvedByFactId` is verified too
- * — `getFactById` is id-only, so neither id proves anything on its own.
- */
+/** Both facts must belong to the supplied tenant before updating the gap or edge. */
 export async function resolveGap(
 	db: DbClient,
+	tenantScope: TenantScope,
 	gapId: string,
 	resolvedByFactId: string,
-	orgId: string,
 ): Promise<void> {
-	const gap = await getFactById(db, gapId);
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
+	const gap = await getFactById(db, tenantScope, gapId);
 	if (!gap || gap.organizationId !== orgId) {
 		throw new Error(`Gap not found: ${gapId}`);
 	}
-	const resolvedBy = await getFactById(db, resolvedByFactId);
+	const resolvedBy = await getFactById(db, tenantScope, resolvedByFactId);
 	if (!resolvedBy || resolvedBy.organizationId !== orgId) {
 		throw new Error(`Resolving fact not found: ${resolvedByFactId}`);
 	}
@@ -106,13 +103,13 @@ export async function resolveGap(
 	const now = new Date().toISOString();
 	const meta = (gap.metadata as Record<string, unknown>) ?? {};
 
-	await updateFact(db, gapId, {
+	await updateFact(db, tenantScope, gapId, {
 		metadata: { ...meta, resolvedBy: resolvedByFactId, resolvedAt: now },
 		archivedAt: now,
 	});
 
 	// Create edge linking gap to resolving fact
-	await createEdge(db, {
+	await createEdge(db, tenantScope, {
 		id: crypto.randomUUID(),
 		sourceFactId: resolvedByFactId,
 		targetFactId: gapId,
@@ -124,13 +121,14 @@ export async function resolveGap(
 
 export async function getGapStats(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 ): Promise<{
 	totalGaps: number;
 	resolvedGaps: number;
 	byDomain: Record<string, number>;
 	bySeverity: Record<string, number>;
 }> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	// Run all independent reads in parallel
 	const [totalGaps, resolvedGaps, byDomainRows, allGaps] = await Promise.all([
 		// Total active gaps
@@ -171,7 +169,7 @@ export async function getGapStats(
 			.groupBy(memoryDomains.name),
 
 		// All active gaps for severity breakdown
-		listGaps(db, orgId),
+		listGaps(db, tenantScope),
 	]);
 
 	const byDomain: Record<string, number> = {};

@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import { preferConsolidatedFacts } from "./observations";
 
 import { and, desc, eq, isNull, or } from "drizzle-orm";
@@ -15,9 +17,10 @@ import {
 
 export async function getTopPlatformFacts(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options?: { tediId?: string; limit?: number },
 ): Promise<Array<{ fact: MemoryFact; domainName: string | null }>> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const limit = options?.limit ?? 30;
 
 	// One query PER priority instead of `OR`-ing the two and re-ranking with
@@ -67,7 +70,7 @@ export async function getTopPlatformFacts(
 	const rows = [...core, ...active].slice(0, limit);
 	const facts = await preferConsolidatedFacts(
 		db,
-		orgId,
+		tenantScope,
 		rows.map((row) => row.fact),
 		options?.tediId,
 	);

@@ -28,7 +28,7 @@ async function setup() {
 		});
 	const read = (patch: Partial<Parameters<typeof browseMemory>[1]> = {}) =>
 		browseMemory(db, {
-			orgId: "orchard",
+			organizationId: "orchard",
 			view: "stale",
 			orderBy: "updated",
 			limit: 20,

@@ -60,10 +60,15 @@ export async function readDecisionLearning(
 			excludeFeedImpressions: true,
 			limit: config.historyLimit,
 		}),
-		listApprovedAgentLessons(db, organizationId, AGENT_LESSON_TOPIC_PREFIX, {
-			viewerUserId: personId,
-			limit: 50,
-		}),
+		listApprovedAgentLessons(
+			db,
+			{ organizationId: organizationId },
+			AGENT_LESSON_TOPIC_PREFIX,
+			{
+				viewerUserId: personId,
+				limit: 50,
+			},
+		),
 	]);
 	return learnDecisions({
 		organizationId,

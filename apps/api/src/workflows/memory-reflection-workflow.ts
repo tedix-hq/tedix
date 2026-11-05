@@ -265,7 +265,11 @@ export async function reconcileReflectedMemory(input: {
 			`reconcile-agent-memory:${factId}`,
 			{ retries: { limit: 3, delay: "5 seconds" }, timeout: "2 minutes" },
 			async () => {
-				const fact = await getFactById(input.db, factId);
+				const fact = await getFactById(
+					input.db,
+					{ organizationId: input.organizationId },
+					factId,
+				);
 				if (!fact || fact.organizationId !== input.organizationId) {
 					return { skipped: true };
 				}
@@ -330,7 +334,7 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "30 seconds" },
 			async () => {
 				const params: Parameters<typeof searchFacts>[1] = {
-					orgId: organizationId,
+					organizationId,
 					limit: scope === "full" ? 500 : 100,
 				};
 				if (tediId) params.tediId = tediId;
@@ -401,7 +405,11 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 				for (const dup of duplicates) {
 					try {
 						// Check if edge already exists
-						const existing = await getEdgesForFact(db, dup.factId);
+						const existing = await getEdgesForFact(
+							db,
+							{ organizationId },
+							dup.factId,
+						);
 						const alreadyLinked = existing.some(
 							(e: { sourceFactId: string; targetFactId: string }) =>
 								(e.sourceFactId === dup.factId &&
@@ -411,15 +419,19 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 						);
 
 						if (!alreadyLinked) {
-							await createEdge(db, {
-								id: crypto.randomUUID(),
-								sourceFactId: dup.factId,
-								targetFactId: dup.similarTo,
-								relationType: "related_to",
-								strength: dup.score,
-								context:
-									"Auto-discovered via vector similarity during reflection",
-							});
+							await createEdge(
+								db,
+								{ organizationId },
+								{
+									id: crypto.randomUUID(),
+									sourceFactId: dup.factId,
+									targetFactId: dup.similarTo,
+									relationType: "related_to",
+									strength: dup.score,
+									context:
+										"Auto-discovered via vector similarity during reflection",
+								},
+							);
 							created++;
 						}
 					} catch {
@@ -456,7 +468,12 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			"decay-confidence",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "30 seconds" },
 			async () => {
-				await decayConfidence(db, organizationId, 0.995, 0.1);
+				await decayConfidence(
+					db,
+					{ organizationId: organizationId },
+					0.995,
+					0.1,
+				);
 				return facts.length;
 			},
 		);
@@ -467,7 +484,11 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			"archive-stale",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "30 seconds" },
 			async () => {
-				return archiveLowConfidence(db, organizationId, 0.15);
+				return archiveLowConfidence(
+					db,
+					{ organizationId: organizationId },
+					0.15,
+				);
 			},
 		);
 
@@ -476,7 +497,7 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			"promote-probation",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "30 seconds" },
 			async () => {
-				return promoteFromProbation(db, organizationId, 1);
+				return promoteFromProbation(db, { organizationId: organizationId }, 1);
 			},
 		);
 
@@ -485,14 +506,15 @@ export class MemoryReflectionWorkflow extends WorkflowEntrypoint<
 			"expire-probation",
 			{ retries: { limit: 2, delay: "2 seconds" }, timeout: "30 seconds" },
 			async () => {
-				return expireProbation(db, organizationId, 7);
+				return expireProbation(db, { organizationId: organizationId }, 7);
 			},
 		);
 
 		await step.do(
 			"consolidate-observations",
 			{ retries: { limit: 2, delay: "5 seconds" }, timeout: "2 minutes" },
-			() => consolidateMemory(db, organizationId, { tediId }),
+			() =>
+				consolidateMemory(db, { organizationId: organizationId }, { tediId }),
 		);
 
 		// Step 6c: checkpoint each fact independently so one failed projection

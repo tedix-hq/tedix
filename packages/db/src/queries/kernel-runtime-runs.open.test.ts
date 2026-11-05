@@ -127,6 +127,7 @@ describe("openKernelRuntimeTurn", () => {
 		const result = await openKernelRuntimeTurn(db, turnParams());
 		expect(result.events.map((event) => event.inserted)).toEqual([true, true]);
 		const rows = await listKernelRuntimeEvents(db, {
+			organizationId: "org-1",
 			runId: "run-1",
 			order: "asc",
 		});
@@ -157,9 +158,14 @@ describe("openKernelRuntimeTurn", () => {
 			false,
 		]);
 		expect(replay.events[1]?.row.causeEventId).toBe("evt-received");
-		expect((await listKernelRuntimeEvents(db, { runId: "run-1" })).length).toBe(
-			2,
-		);
+		expect(
+			(
+				await listKernelRuntimeEvents(db, {
+					organizationId: "org-1",
+					runId: "run-1",
+				})
+			).length,
+		).toBe(2);
 		expect(
 			(
 				await getKernelConversation(db, {
@@ -187,9 +193,12 @@ describe("openKernelRuntimeTurn", () => {
 			attemptCount: 1,
 			currentAttemptId: "attempt-1",
 		});
-		const kinds = (await listKernelRuntimeEvents(db, { runId: "run-1" })).map(
-			(row) => row.kind,
-		);
+		const kinds = (
+			await listKernelRuntimeEvents(db, {
+				organizationId: "org-1",
+				runId: "run-1",
+			})
+		).map((row) => row.kind);
 		expect(kinds).toContain("submission.admitted");
 	});
 

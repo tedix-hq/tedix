@@ -102,26 +102,28 @@ describe("interactive reflection scope", () => {
 			context.db,
 			expect.objectContaining({ limit: 100, tediId: "tedi" }),
 		);
-		expect(mocks.getEdgesForFacts).toHaveBeenCalledExactlyOnceWith(context.db, [
-			"one",
-			"two",
-		]);
+		expect(mocks.getEdgesForFacts).toHaveBeenCalledExactlyOnceWith(
+			context.db,
+			{ organizationId: context.organizationId },
+			["one", "two"],
+		);
 		expect(mocks.getEdgesForFact).not.toHaveBeenCalled();
 		expect(mocks.decayConfidence).toHaveBeenCalledWith(
 			context.db,
-			context.organizationId,
+			{ organizationId: context.organizationId },
 			0.99,
 			0.1,
 			expect.objectContaining({ factIds: ["one", "two"] }),
 		);
 		expect(mocks.resetCollapsedConfidence).toHaveBeenCalledWith(
 			context.db,
-			context.organizationId,
+			{ organizationId: context.organizationId },
 			0.8,
 			["one", "two"],
 		);
 		expect(mocks.recalculateExpertise).toHaveBeenCalledExactlyOnceWith(
 			context.db,
+			{ organizationId: context.organizationId },
 			"tedi",
 			"domain",
 		);

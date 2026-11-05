@@ -64,6 +64,7 @@ describe("skills.getWorkflowRunTimeline", () => {
 		);
 		expect(mocks.listRunTimelineArtifacts).toHaveBeenCalledExactlyOnceWith(
 			ctx.db,
+			{ organizationId: "org-1" },
 			"run-1",
 			7,
 		);

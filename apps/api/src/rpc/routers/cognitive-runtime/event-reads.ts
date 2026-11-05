@@ -1,3 +1,4 @@
+import { requireOrgId } from "../../org-scope";
 import type { BaseContext } from "../../orpc";
 import {
 	type TediRuntimeEventKind,
@@ -16,6 +17,7 @@ export async function findRuntimeEventRow(
 	},
 ): Promise<TediRuntimeEventRow | null> {
 	const rows = await listTediRuntimeEventsForRouter(context.db, {
+		organizationId: requireOrgId(context),
 		tediId: input.tediId,
 		runId: input.runId,
 		conversationId: input.conversationId,

@@ -714,6 +714,7 @@ export class EvidenceBridge extends WorkerEntrypoint<
 			await import("@tedix/db/queries/skill-run-artifacts");
 		await recordRunArtifact(
 			createDbClient(this.env.DB),
+			{ organizationId: this.ctx.props.mcp.orgId },
 			{
 				runId,
 				path: GROUNDING_SUMMARY_PATH,
@@ -1017,6 +1018,7 @@ function buildEvidenceItem(input: {
  */
 export async function enforceGroundingPolicy(input: {
 	db: D1Database;
+	organizationId: string;
 	artifacts: R2Bucket;
 	runId: string;
 	policy: GroundingPolicySnapshot;
@@ -1055,6 +1057,7 @@ export async function enforceGroundingPolicy(input: {
 		await import("@tedix/db/queries/skill-run-artifacts");
 	await recordRunArtifact(
 		createDbClient(input.db),
+		{ organizationId: input.organizationId },
 		{
 			runId: input.runId,
 			path: GROUNDING_POLICY_PATH,

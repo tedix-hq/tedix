@@ -1067,6 +1067,7 @@ const executionsExport = readOs.executions.export.handler(
 
 		const artifact = await getRunArtifact(
 			context.db,
+			{ organizationId: row.organizationId },
 			row.runId,
 			descriptor.artifactPath,
 		);

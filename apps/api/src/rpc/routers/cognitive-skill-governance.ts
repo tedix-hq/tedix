@@ -658,7 +658,11 @@ export const skillsActivateWorkflowImprovement =
 				orgId,
 			);
 			const certificationArtifacts = certificationRun
-				? await listRunArtifacts(context.db, certificationRun.id)
+				? await listRunArtifacts(
+						context.db,
+						{ organizationId: orgId },
+						certificationRun.id,
+					)
 				: [];
 			if (
 				!certificationRun ||
@@ -817,7 +821,11 @@ export const skillsReviseWorkshop = authedSkills.reviseWorkshop
 
 		let domainId: string | undefined;
 		if (input.domain !== undefined) {
-			const domain = await getOrCreateDomain(context.db, orgId, input.domain);
+			const domain = await getOrCreateDomain(
+				context.db,
+				{ organizationId: orgId },
+				input.domain,
+			);
 			domainId = domain.id;
 		}
 		const resolvedAppId = await resolveAppId(context, input);

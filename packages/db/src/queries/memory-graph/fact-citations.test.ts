@@ -75,10 +75,14 @@ describe("indexed memory fact citations", () => {
 		sqlite
 			.prepare("UPDATE memory_facts SET organization_id=? WHERE id='head'")
 			.run("fictional-other");
-		expect(await findCitationDependents(db, ORG, ["c"])).toEqual([]);
-		expect(await findCitationDependents(db, "fictional-other", ["c"])).toEqual([
-			"head",
-		]);
+		expect(
+			await findCitationDependents(db, { organizationId: ORG }, ["c"]),
+		).toEqual([]);
+		expect(
+			await findCitationDependents(db, { organizationId: "fictional-other" }, [
+				"c",
+			]),
+		).toEqual(["head"]);
 		sqlite.exec("UPDATE memory_facts SET metadata='{}' WHERE id='head'");
 		expect(links()).toEqual([]);
 		add("history", [{ id: "a" }]);
@@ -103,12 +107,12 @@ describe("indexed memory fact citations", () => {
 				cited_fact_id: "valid",
 			},
 		]);
-		expect(await findCitationDependents(db, ORG, ["valid"])).toEqual([
-			"shape-4",
-		]);
+		expect(
+			await findCitationDependents(db, { organizationId: ORG }, ["valid"]),
+		).toEqual(["shape-4"]);
 		const expected = links();
 		legacy();
-		await backfillFactCitations(db, ORG);
+		await backfillFactCitations(db, { organizationId: ORG });
 		expect(links()).toEqual(expected);
 	});
 
@@ -120,28 +124,40 @@ describe("indexed memory fact citations", () => {
 		add("empty", []);
 		add("other", [{ id: "a" }], "fictional-other");
 		legacy();
-		const before = (await findCitationDependents(db, ORG, ["a"])).sort();
+		const before = (
+			await findCitationDependents(db, { organizationId: ORG }, ["a"])
+		).sort();
 		expect(before).toHaveLength(206);
-		expect(await backfillFactCitations(db, ORG, 5000)).toBe(100);
+		expect(await backfillFactCitations(db, { organizationId: ORG }, 5000)).toBe(
+			100,
+		);
 		expect(links()).toHaveLength(198); // empty evidence advances the cursor too.
 		const resumed = createDbQueryClient(
 			createD1Facade(sqlite, { maxBoundParams: 100 }),
 		);
-		expect(await backfillFactCitations(resumed, ORG)).toBe(100);
-		expect(await backfillFactCitations(resumed, ORG)).toBe(7);
-		const after = links();
-		expect(await backfillFactCitations(db, ORG)).toBe(0);
-		expect(links()).toEqual(after);
-		expect((await findCitationDependents(db, ORG, ["a"])).sort()).toEqual(
-			before,
+		expect(await backfillFactCitations(resumed, { organizationId: ORG })).toBe(
+			100,
 		);
+		expect(await backfillFactCitations(resumed, { organizationId: ORG })).toBe(
+			7,
+		);
+		const after = links();
+		expect(await backfillFactCitations(db, { organizationId: ORG })).toBe(0);
+		expect(links()).toEqual(after);
+		expect(
+			(await findCitationDependents(db, { organizationId: ORG }, ["a"])).sort(),
+		).toEqual(before);
 		expect(after).toHaveLength(411);
-		expect(await findCitationDependents(db, "fictional-other", ["a"])).toEqual([
-			"other",
-		]);
+		expect(
+			await findCitationDependents(db, { organizationId: "fictional-other" }, [
+				"a",
+			]),
+		).toEqual(["other"]);
 		// New facts behind the completed cursor are write-through indexed.
 		add("aaa-new", [{ id: "a" }]);
-		expect(await findCitationDependents(db, ORG, ["a"])).toContain("aaa-new");
+		expect(
+			await findCitationDependents(db, { organizationId: ORG }, ["a"]),
+		).toContain("aaa-new");
 	});
 
 	it("preserves existing link timestamps when a backfill page is replayed", async () => {
@@ -150,9 +166,9 @@ describe("indexed memory fact citations", () => {
 		sqlite.exec(
 			"UPDATE memory_fact_citations SET created_at='2000-01-01T00:00:00Z'",
 		);
-		await backfillFactCitations(db, ORG);
+		await backfillFactCitations(db, { organizationId: ORG });
 		sqlite.exec("DELETE FROM memory_fact_citation_backfills");
-		await backfillFactCitations(db, ORG);
+		await backfillFactCitations(db, { organizationId: ORG });
 		expect(
 			sqlite.prepare("SELECT created_at FROM memory_fact_citations").get(),
 		).toEqual({ created_at: "2000-01-01T00:00:00Z" });
@@ -165,15 +181,17 @@ describe("indexed memory fact citations", () => {
 		sqlite.exec(
 			"CREATE TRIGGER fixture_abort_cursor BEFORE INSERT ON memory_fact_citation_backfills BEGIN SELECT RAISE(ABORT, 'fixture interruption'); END",
 		);
-		await expect(backfillFactCitations(db, ORG)).rejects.toThrow();
+		await expect(
+			backfillFactCitations(db, { organizationId: ORG }),
+		).rejects.toThrow();
 		expect(
 			sqlite.prepare("SELECT * FROM memory_fact_citation_backfills").all(),
 		).toEqual([]);
 		expect(links()).toEqual([]);
 		sqlite.exec("DROP TRIGGER fixture_abort_cursor");
-		expect(await backfillFactCitations(db, ORG)).toBe(1);
+		expect(await backfillFactCitations(db, { organizationId: ORG })).toBe(1);
 		expect(links()).toHaveLength(1);
-		expect(await backfillFactCitations(db, ORG)).toBe(0);
+		expect(await backfillFactCitations(db, { organizationId: ORG })).toBe(0);
 	});
 
 	it("backfills persisted metadata when a concurrent replacement wins after selection", async () => {
@@ -196,7 +214,7 @@ describe("indexed memory fact citations", () => {
 		add("head", [{ id: "stale" }]);
 		legacy();
 		replace = true;
-		expect(await backfillFactCitations(db, ORG)).toBe(1);
+		expect(await backfillFactCitations(db, { organizationId: ORG })).toBe(1);
 		expect(links()).toEqual([
 			{
 				organization_id: ORG,
@@ -224,7 +242,7 @@ describe("indexed memory fact citations", () => {
 		add("head", [{ id: "a" }]);
 		legacy();
 		advance = true;
-		await backfillFactCitations(db, ORG, 1);
+		await backfillFactCitations(db, { organizationId: ORG }, 1);
 		expect(
 			sqlite
 				.prepare(
@@ -257,7 +275,9 @@ describe("indexed memory fact citations", () => {
 		add("head", [{ id: "a" }]);
 		legacy();
 		race = true;
-		expect(await findCitationDependents(db, ORG, ["a"])).toEqual(["head"]);
+		expect(
+			await findCitationDependents(db, { organizationId: ORG }, ["a"]),
+		).toEqual(["head"]);
 	});
 
 	it("uses index SEARCH for linked and legacy pages, with JSON parsed only for bounded missing-link pages", async () => {
@@ -279,7 +299,9 @@ describe("indexed memory fact citations", () => {
 		for (let i = 0; i < 205; i++)
 			add(`head-${String(i).padStart(3, "0")}`, [{ id: "a" }]);
 		legacy();
-		expect(await findCitationDependents(db, ORG, ["a"])).toHaveLength(205);
+		expect(
+			await findCitationDependents(db, { organizationId: ORG }, ["a"]),
+		).toHaveLength(205);
 		expect(
 			queries.filter((query) => query.includes("citation.value")),
 		).toHaveLength(3);
@@ -311,9 +333,11 @@ describe("indexed memory fact citations", () => {
 		expect(
 			plans.some((detail) => /SCAN (?:memory_facts|f)\b/.test(detail)),
 		).toBe(false);
-		while (await backfillFactCitations(db, ORG)) {}
+		while (await backfillFactCitations(db, { organizationId: ORG })) {}
 		queries.length = 0;
-		expect(await findCitationDependents(db, ORG, ["a"])).toHaveLength(205);
+		expect(
+			await findCitationDependents(db, { organizationId: ORG }, ["a"]),
+		).toHaveLength(205);
 		expect(queries.some((query) => query.includes("citation.value"))).toBe(
 			false,
 		);
@@ -328,9 +352,14 @@ describe("indexed memory fact citations", () => {
 			add(`head-${String(i).padStart(3, "0")}`, [{ id: "a" }]);
 		add("summary", [{ id: "a" }], ORG, "consolidation://standing_summary");
 		legacy();
-		const found = await findCitationDependents(db, ORG, ["a"], {
-			legacyPages: 2,
-		});
+		const found = await findCitationDependents(
+			db,
+			{ organizationId: ORG },
+			["a"],
+			{
+				legacyPages: 2,
+			},
+		);
 		expect(found).toHaveLength(200);
 		expect(
 			queries.filter((query) =>
@@ -338,10 +367,12 @@ describe("indexed memory fact citations", () => {
 			),
 		).toHaveLength(2);
 		// A done marker removes the fallback; links alone answer the read.
-		while (await backfillFactCitations(db, ORG)) {}
+		while (await backfillFactCitations(db, { organizationId: ORG })) {}
 		queries.length = 0;
 		expect(
-			await findCitationDependents(db, ORG, ["a"], { legacyPages: 2 }),
+			await findCitationDependents(db, { organizationId: ORG }, ["a"], {
+				legacyPages: 2,
+			}),
 		).toHaveLength(306);
 		expect(
 			queries.some((query) =>

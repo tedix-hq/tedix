@@ -287,13 +287,26 @@ async function writeFact(
 	const hash = await contentHash(fact.content);
 
 	// Content-hash dedup: exact same content already in memory — boost instead of insert
-	const existingByHash = await findFactBySourceHash(db, orgId, hash);
+	const existingByHash = await findFactBySourceHash(
+		db,
+		{ organizationId: orgId },
+		hash,
+	);
 	if (existingByHash) {
-		await recordFactVerification(db, existingByHash.id, 1.01);
+		await recordFactVerification(
+			db,
+			{ organizationId: orgId },
+			existingByHash.id,
+			1.01,
+		);
 		return false;
 	}
 
-	const domain = await getOrCreateDomain(db, orgId, DOMAIN_NAME);
+	const domain = await getOrCreateDomain(
+		db,
+		{ organizationId: orgId },
+		DOMAIN_NAME,
+	);
 	const visibility = "org";
 	// Confidence <= 0.7: operator can reverse a decision (probationary by default)
 	const requestedConfidence = 0.65;

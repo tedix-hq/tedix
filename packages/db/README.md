@@ -321,6 +321,19 @@ does not authorize access on its own. Global catalog/configuration rows and
 immutable ledgers have their own documented ownership rules; do not add a fake
 `organizationId` merely for uniformity.
 
+Output revisions, run artifacts/events and memory queries take `TenantScope`
+from `@tedix/db/tenant-scope`: `{ organizationId, workspaceId? }`. Pass the
+workspace when known, and keep the same scope through nested queries and log
+store reads. Organization-wide jobs omit it. Inputs that already carry the
+organization also carry the scope; ID-only queries take it after the client.
+
+`normalizeTenantScope` validates the routing identity at the query boundary.
+Organization IDs stay opaque: a query maps `organizationId` to its schema's
+`orgId` or `organizationId` property without renaming physical columns. This
+contract does not select a different store yet. Rows without an organization
+column, such as skill-run artifacts, still depend on the caller authorizing
+the parent run. A supplied scope does not replace that authorization.
+
 ```typescript
 export const yourTable = sqliteTable("your_table", {
 	id: text("id").primaryKey(),

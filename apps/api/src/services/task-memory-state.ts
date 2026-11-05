@@ -93,12 +93,12 @@ export async function readTurnMemory(
 	const checkedAt = new Date().toISOString();
 	const [preferences, lessons, owned] = await Promise.all([
 		searchFactsWithVisibility(db, {
-			orgId,
+			organizationId: orgId,
 			visibilityTediId: tediId,
 			factType: "preference",
 			limit: 100,
 		}),
-		listApprovedAgentLessons(db, orgId, "learning-feed:"),
+		listApprovedAgentLessons(db, { organizationId: orgId }, "learning-feed:"),
 		listWorkItemsPage(db, {
 			orgId,
 			accountableOwnerId: tediId,
@@ -201,7 +201,7 @@ export async function reconcileTaskMemory(
 			)
 			.join("\n");
 		if (content === fact.content) continue;
-		await updateFact(db, fact.id, {
+		await updateFact(db, { organizationId: orgId }, fact.id, {
 			content,
 			summary: content,
 			lastVerifiedAt: checkedAt,

@@ -1,3 +1,4 @@
+import { requireOrgId } from "../../org-scope";
 import type { BaseContext } from "../../orpc";
 import type { DbClient } from "@tedix/db/client";
 import {
@@ -223,6 +224,7 @@ export async function repairCompletedMessageContent(
 		repairedAt: nowIso(),
 	};
 	const row = await updateTediRuntimeEventPayload(context.db, {
+		organizationId: requireOrgId(context),
 		id: input.existing.id,
 		payload,
 	});
@@ -240,6 +242,7 @@ export async function resolveConversationIdForRun(
 	if (input.fallbackConversationId) return input.fallbackConversationId;
 	if (!input.runId) return undefined;
 	const rows = await listTediRunConversationHints(context.db, {
+		organizationId: requireOrgId(context),
 		tediId: input.tediId,
 		runId: input.runId,
 		limit: 50,
@@ -533,6 +536,7 @@ export async function promoteLatestDeltaToCompletedMessage(
 	let completedAt = input.completedAt;
 	if (!completedAt) {
 		const completedRuns = await listTediRuntimeEventsForRouter(context.db, {
+			organizationId: requireOrgId(context),
 			tediId: input.tediId,
 			runId: input.runId,
 			kind: "run.completed",
@@ -543,6 +547,7 @@ export async function promoteLatestDeltaToCompletedMessage(
 		completedAt = completedRuns[0].createdAt;
 	}
 	const deltas = await listTediRuntimeEventsForRouter(context.db, {
+		organizationId: requireOrgId(context),
 		tediId: input.tediId,
 		runId: input.runId,
 		kind: "message.delta",

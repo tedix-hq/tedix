@@ -260,7 +260,11 @@ export const skillsImprove = authedSkills.improve
 		// Resolve domain if changed
 		let domainId: string | undefined;
 		if (input.domain !== undefined) {
-			const domain = await getOrCreateDomain(context.db, orgId, input.domain);
+			const domain = await getOrCreateDomain(
+				context.db,
+				{ organizationId: orgId },
+				input.domain,
+			);
 			domainId = domain.id;
 		}
 
@@ -527,7 +531,13 @@ export const skillsListByOrg = authedSkills.listByOrg
 		const orgId = requireOrgId(context);
 
 		const domainId = input.domain
-			? (await getOrCreateDomain(context.db, orgId, input.domain)).id
+			? (
+					await getOrCreateDomain(
+						context.db,
+						{ organizationId: orgId },
+						input.domain,
+					)
+				).id
 			: undefined;
 
 		const page = await listAllSkillsForOrg(context.db, orgId, {

@@ -45,7 +45,7 @@ async function recallRows(context: BaseContext, organizationId: string) {
 	const actor = observedLearningActor(context);
 	return listApprovedAgentLessons(
 		context.db,
-		organizationId,
+		{ organizationId: organizationId },
 		AGENT_LESSON_TOPIC_PREFIX,
 		{ viewerUserId: actor.actorType === "user" ? actor.actorId : null },
 	);
@@ -61,7 +61,14 @@ export async function updateTriggers(
 		throw new ORPCError("NOT_FOUND", {
 			message: "Approved lesson unavailable",
 		});
-	if (!(await setAgentLessonTriggers(context.db, org, row, triggers)))
+	if (
+		!(await setAgentLessonTriggers(
+			context.db,
+			{ organizationId: org },
+			row,
+			triggers,
+		))
+	)
 		throw new ORPCError("CONFLICT", {
 			message: "Lesson changed; re-read before editing triggers",
 		});
@@ -101,7 +108,14 @@ export async function backfillTriggers(
 				)
 			)
 				continue;
-			if (await setAgentLessonTriggers(context.db, org, row, triggers))
+			if (
+				await setAgentLessonTriggers(
+					context.db,
+					{ organizationId: org },
+					row,
+					triggers,
+				)
+			)
 				updated++;
 		} catch {
 			/* Leave missing triggers for a later bounded retry. */
@@ -256,7 +270,7 @@ export async function recallDispatchBrief(
 	const actor = observedLearningActor(context);
 	const rows = await listApprovedAgentLessons(
 		context.db,
-		org,
+		{ organizationId: org },
 		AGENT_LESSON_TOPIC_PREFIX,
 		{
 			// A dispatch to someone else never carries the sender's personal lessons.
