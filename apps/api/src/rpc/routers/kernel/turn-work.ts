@@ -1621,6 +1621,13 @@ export async function runKernelTurnWork(
 	const routedAssistantContent = autoDispatchFailed
 		? "The delegated request failed during dispatch. No completed result was received. Open the run details for the error, and check any changes before retrying."
 		: kernelResult?.assistantContent;
+	// A write proposed from the page keeps the page answer above its outcome:
+	// what was found, then what waits for approval (or why nothing was formed).
+	const pageAnswer = kernelResult?.route?.pageWriteRequest
+		? (kernelResult.route.answer?.trim() ?? "")
+		: "";
+	const withPageAnswer = (text: string) =>
+		pageAnswer ? `${pageAnswer}\n\n${text}` : text;
 	const assistantContent = observeOnly
 		? `Observation only: Kernel selected ${kernelResult?.route?.routeKind ?? "no route"}. No tools, workflows, approvals, writes, Work Items, or delegations were executed.`
 		: modelUnavailable
@@ -1639,12 +1646,16 @@ export async function runKernelTurnWork(
 			: writeProposalActive && writeProposal && writeApprovalRequestId
 				? writeWillAutoResolve
 					? `${writeApprovalDecision?.source === "session" ? "Authorized for this conversation" : "Authorized by tenant policy"}: executing \`${writeProposal.toolName}\` on ${writeProposal.appSlug}.`
-					: deps.kernelWriteCardContent({
-							approvalRequestId: writeApprovalRequestId,
-							proposal: writeProposal,
-						})
+					: withPageAnswer(
+							deps.kernelWriteCardContent({
+								approvalRequestId: writeApprovalRequestId,
+								proposal: writeProposal,
+							}),
+						)
 				: declinedRecord && kernelResult?.route
-					? renderWriteDeclined(declinedRecord, kernelResult.route)
+					? withPageAnswer(
+							renderWriteDeclined(declinedRecord, kernelResult.route),
+						)
 					: heldDelegation?.approver && !agentReviewPending
 						? // The approver could not be engaged: the operator decides.
 							renderHeldDelegationLine(

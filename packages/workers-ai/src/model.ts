@@ -17,6 +17,10 @@
  * When tool calls are emitted, `response` is null and `tool_calls` is populated.
  */
 
+import {
+	opensThinkingImplicitly,
+	splitInlineThinking,
+} from "./inline-thinking";
 import type { LanguageModel } from "ai";
 import {
 	callWorkersAi,
@@ -293,11 +297,15 @@ async function generateOnce(
 		attribution,
 	});
 	const content: ModelContent[] = [];
-	if (result.reasoning)
-		content.push({ type: "reasoning", text: result.reasoning });
+	// Separate provider reasoning means the text is the reply as sent.
+	const split = result.reasoning
+		? { text: result.text, reasoning: "" }
+		: splitInlineThinking(result.text, opensThinkingImplicitly(modelId));
+	const reasoning = `${result.reasoning ?? ""}${split.reasoning}`;
+	if (reasoning) content.push({ type: "reasoning", text: reasoning });
 
-	if (result.text.length > 0) {
-		content.push({ type: "text", text: result.text });
+	if (split.text.length > 0) {
+		content.push({ type: "text", text: split.text });
 	}
 
 	result.toolCalls.forEach((call) => {

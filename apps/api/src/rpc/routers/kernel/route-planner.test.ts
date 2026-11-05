@@ -3168,6 +3168,7 @@ describe("planKernelRoute — page tools on a Home turn", () => {
 
 	it("asks the page to run its tools and streams only the page-action answer", async () => {
 		const prompts: string[] = [];
+		const routePrompts: string[] = [];
 		let unreadSteering: string[] = [];
 		const model = new MockLanguageModelV3({
 			doStream: async (options) => {
@@ -3217,7 +3218,8 @@ describe("planKernelRoute — page tools on a Home turn", () => {
 					}),
 				};
 			},
-			doGenerate: async () => ({
+			doGenerate: async (options) => ({
+				...(routePrompts.push(JSON.stringify(options.prompt)) && {}),
 				finishReason: "stop",
 				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
 				warnings: [],
@@ -3270,7 +3272,9 @@ describe("planKernelRoute — page tools on a Home turn", () => {
 		// The route pass's promise is never shown; only the page-action answer.
 		expect(deltas.join("")).toBe("I filled the answer with Yes.");
 		expect(result?.answer).toBe("I filled the answer with Yes.");
-		expect(prompts[0]).toContain("set_decision_card_answer");
+		// The route pass sees the page's tools; the page pass gets them as tools.
+		expect(routePrompts.join("")).toContain("set_decision_card_answer");
+		expect(prompts.join("")).not.toContain("Choose answer_in_home");
 		// The page's result reaches the model fenced as untrusted page data, and
 		// a fence marker inside it cannot close the fence early.
 		const answerPrompt = prompts.at(-1)!;
@@ -3279,6 +3283,108 @@ describe("planKernelRoute — page tools on a Home turn", () => {
 		expect(answerPrompt.split("end_external_page_tool>>>")).toHaveLength(2);
 		expect(answerPrompt).toContain("Mention the evidence before you finish.");
 		expect(prompts[0]).not.toContain("Mention the evidence before you finish.");
+	});
+
+	// Regression (5 Nov): with an app open, "file it as a Work Item" had no
+	// route from the page pass; it argued with itself about route names.
+	it("turns a write asked for on an app page into a write proposal", async () => {
+		const prompts: string[] = [];
+		const model = new MockLanguageModelV3({
+			doStream: async (options) => {
+				prompts.push(JSON.stringify(options.prompt));
+				const answered = options.prompt.some(
+					(message) => message.role === "tool",
+				);
+				const chunks = !options.tools?.length
+					? [
+							{ type: "stream-start" as const, warnings: [] },
+							{ type: "text-start" as const, id: "0" },
+							{
+								type: "text-delta" as const,
+								id: "0",
+								delta: JSON.stringify(routeWire),
+							},
+							{ type: "text-end" as const, id: "0" },
+							finish("stop"),
+						]
+					: !answered
+						? [
+								{ type: "stream-start" as const, warnings: [] },
+								{
+									type: "tool-call" as const,
+									toolCallId: "w1",
+									toolName: "propose_write",
+									input: JSON.stringify({
+										capability: "work_items.create",
+										appSlug: "tedix-unified",
+										request:
+											"Title: Let apps read a project Work board live. Apps can only read bound outputs today.",
+									}),
+								},
+								finish("tool-calls"),
+							]
+						: [
+								{ type: "stream-start" as const, warnings: [] },
+								{ type: "text-start" as const, id: "a" },
+								{
+									type: "text-delta" as const,
+									id: "a",
+									delta:
+										"The app can't read the board live yet. A Work Item is ready for you to approve.",
+								},
+								{ type: "text-end" as const, id: "a" },
+								finish("stop"),
+							];
+				return {
+					stream: simulateReadableStream({
+						initialDelayInMs: null,
+						chunkDelayInMs: null,
+						chunks,
+					}),
+				};
+			},
+			doGenerate: async () => ({
+				finishReason: "stop",
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				warnings: [],
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(normalizeRouteDecisionCandidate(routeWire)),
+					},
+				],
+			}),
+		});
+		const relay = vi.fn(async () => ({ ok: true, content: "{}" }));
+		const result = await planKernelRoute({
+			content: "Make the Work tab live, or file it as a Work Item",
+			context: EMPTY_CONTEXT,
+			model,
+			onAnswerDelta: () => {},
+			pageTools: {
+				descriptors: [
+					{
+						name: "read_app_files",
+						description: "Read the app files.",
+						inputSchema: { type: "object", properties: {} },
+					},
+				],
+				relay,
+			},
+		});
+		expect(relay).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			routeKind: "propose_tool_write",
+			toolIntent: {
+				appSlug: "tedix-unified",
+				capability: "work_items.create",
+			},
+			pageWriteRequest: expect.stringContaining("read a project Work board"),
+			answer:
+				"The app can't read the board live yet. A Work Item is ready for you to approve.",
+		});
+		// The page pass answers the person's message, not the routing note.
+		expect(prompts.join("")).not.toContain("Choose answer_in_home");
 	});
 
 	// Regression (27 Oct): "I'll read the app files first" streamed,

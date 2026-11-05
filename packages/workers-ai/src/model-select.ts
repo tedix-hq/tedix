@@ -15,6 +15,10 @@ import {
 	openCloudflareAutoRouterResponse,
 } from "./gateway-transport";
 import { autoRouterSdkStream } from "./auto-router-stream";
+import {
+	opensThinkingImplicitly,
+	splitInlineThinking,
+} from "./inline-thinking";
 import { authorizedProviderDispatch, type WorkersAiClient } from "./transport";
 
 export { CLOUDFLARE_AUTO_MODEL_REF };
@@ -268,6 +272,7 @@ interface AutoRouterWireResponse {
 		finish_reason?: string;
 		message?: {
 			reasoning_content?: string;
+			reasoning?: string;
 			content?: string | null;
 			tool_calls?: Array<{
 				id?: string;
@@ -411,10 +416,22 @@ export function cloudflareAutoRouterModel(
 		const providerMetadata = responseMetadata(response);
 		const message = data.choices?.[0]?.message;
 		const content: ModelContent[] = [];
-		if (message?.reasoning_content)
-			content.push({ type: "reasoning", text: message.reasoning_content });
-		if (typeof message?.content === "string" && message.content.length > 0)
-			content.push({ type: "text", text: message.content });
+		const providerReasoning = message?.reasoning_content ?? message?.reasoning;
+		// Separate provider reasoning means content is the reply as sent.
+		const split =
+			typeof message?.content === "string"
+				? providerReasoning
+					? { text: message.content, reasoning: "" }
+					: splitInlineThinking(
+							message.content,
+							opensThinkingImplicitly(
+								response.headers.get("cf-aig-routed-model"),
+							),
+						)
+				: { text: "", reasoning: "" };
+		const reasoning = `${providerReasoning ?? ""}${split.reasoning}`;
+		if (reasoning) content.push({ type: "reasoning", text: reasoning });
+		if (split.text.length > 0) content.push({ type: "text", text: split.text });
 		for (const [index, toolCall] of (message?.tool_calls ?? []).entries()) {
 			content.push({
 				type: "tool-call",
@@ -472,6 +489,7 @@ export function cloudflareAutoRouterModel(
 				const stream = autoRouterSdkStream(
 					response.body,
 					responseMetadata(response),
+					opensThinkingImplicitly(response.headers.get("cf-aig-routed-model")),
 				);
 				return { stream: structured ? structuredToolAsText(stream) : stream };
 			}

@@ -33,6 +33,7 @@
  * The write layer owns its MCP transport and provider-resolution helpers.
  */
 
+import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import {
 	canonicalWriteToolName,
 	CREATE_OUTPUT_TOOL,
@@ -1044,7 +1045,9 @@ export async function planKernelWriteProposal(args: {
 								: undefined,
 							content: capability?.startsWith("factories.")
 								? `${content}\n${route.rationale}`
-								: content,
+								: route.pageWriteRequest
+									? `${content}\n\nWhat the chat drafted for this write:\n${wrapUntrustedInput(route.pageWriteRequest, "chat_write_draft")}`
+									: content,
 							capability: route.toolIntent?.capability ?? null,
 							tools: [exactTool],
 							model,
