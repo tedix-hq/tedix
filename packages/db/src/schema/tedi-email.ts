@@ -15,6 +15,7 @@ import {
 	sqliteTable,
 	text,
 	unique,
+	uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 import { tedis } from "./tedis";
@@ -265,6 +266,40 @@ export const tediEmailEvents = sqliteTable(
 	],
 );
 
+/**
+ * Exact external addresses a tedi may email without a human approval card.
+ * Organization data, set by an owner or admin; a revoked row stays for audit.
+ * At most one active row per tedi and address.
+ */
+export const tediEmailTrustedRecipients = sqliteTable(
+	"tedi_email_trusted_recipients",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		tediId: text("tedi_id")
+			.notNull()
+			.references(() => tedis.id, { onDelete: "cascade" }),
+		address: text("address").notNull(),
+		createdBy: text("created_by").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+		revokedAt: text("revoked_at"),
+		revokedBy: text("revoked_by"),
+	},
+	(table) => [
+		uniqueIndex("uniq_tedi_email_trusted_recipient_active")
+			.on(table.tediId, table.address)
+			.where(sql`${table.revokedAt} IS NULL`),
+		index("idx_tedi_email_trusted_recipients_org_tedi").on(
+			table.organizationId,
+			table.tediId,
+		),
+	],
+);
+
 export type TediEmailAddress = typeof tediEmailAddresses.$inferSelect;
 export type NewTediEmailAddress = typeof tediEmailAddresses.$inferInsert;
 export type TediEmailThread = typeof tediEmailThreads.$inferSelect;
@@ -275,3 +310,7 @@ export type TediEmailAttachment = typeof tediEmailAttachments.$inferSelect;
 export type NewTediEmailAttachment = typeof tediEmailAttachments.$inferInsert;
 export type TediEmailEvent = typeof tediEmailEvents.$inferSelect;
 export type NewTediEmailEvent = typeof tediEmailEvents.$inferInsert;
+export type TediEmailTrustedRecipientRow =
+	typeof tediEmailTrustedRecipients.$inferSelect;
+export type NewTediEmailTrustedRecipientRow =
+	typeof tediEmailTrustedRecipients.$inferInsert;

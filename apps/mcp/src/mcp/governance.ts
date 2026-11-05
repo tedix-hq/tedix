@@ -20,6 +20,10 @@ import {
 	platformAutonomousOperation,
 	type DelegationAutonomyPolicy,
 } from "@tedix/api-contract/utils/approval-policy";
+import {
+	trustedRecipientEmailAction,
+	trustedRecipientSkipsCard,
+} from "@tedix/api-contract/utils/email-trusted-recipients";
 import { AgentLifecycleEndpointSchema } from "@tedix/api-contract/schemas/mcp-governance";
 import {
 	ToolActionTypeSchema,
@@ -973,6 +977,101 @@ export function isHomeApprovalCall(
 	);
 }
 
+/**
+ * The trusted-recipient exception to the external-message card. Applies only
+ * to a tedi's own `sendEmail` / `replyEmail` RPC with no other reserved class,
+ * no explicit approval policy and no organization policy asking for review.
+ * The decision comes from apps/api, which reads the stored list (and a reply's
+ * recipient) from D1; arguments name recipients, never trust.
+ */
+async function resolveTrustedRecipientSkip(
+	agent: ApprovalContext,
+	tool: ApprovalTool,
+	annotations: ToolAnnotations | null | undefined,
+	options: DestructiveApprovalOptions | undefined,
+): Promise<{ senderTediId: string; addresses: string[] } | null> {
+	const args = options?.args;
+	const endpoint =
+		tool.config?.transport === "rpc" && typeof tool.config.endpoint === "string"
+			? tool.config.endpoint
+			: undefined;
+	const kind = trustedRecipientEmailAction(endpoint);
+	if (
+		!kind ||
+		!args ||
+		annotations?.destructiveHint === true ||
+		tool.writeCapability === "destructive" ||
+		isTedixOwnedChannelPublishBoundary(agent, tool) ||
+		readApprovalPolicy(agent, tool) ||
+		options?.tenantPolicyCandidate?.effect.disposition === "ask" ||
+		options?.nativePolicyCandidate?.effect.disposition === "ask" ||
+		!agent.apiClient?.tediEmail?.resolveTrustedRecipientSend
+	)
+		return null;
+	const caller = agent.callerIdentity;
+	const actingTediId =
+		caller?.authType === "tedi" ||
+		(caller?.authType === "service" && !caller.kernel && caller.skillRunId)
+			? caller.tediId
+			: undefined;
+	const aggregateTediId =
+		typeof tool.config?._aggregateTediId === "string"
+			? tool.config._aggregateTediId
+			: undefined;
+	const argTediId = typeof args.tediId === "string" ? args.tediId : undefined;
+	const senderTediId = aggregateTediId ?? argTediId;
+	if (
+		!actingTediId ||
+		actingTediId !== senderTediId ||
+		(aggregateTediId && argTediId && aggregateTediId !== argTediId) ||
+		(caller?.organizationId &&
+			agent.app?.organizationId &&
+			caller.organizationId !== agent.app.organizationId)
+	)
+		return null;
+	const reserved = humanReservedActionClasses(
+		`${agent.appSlug ?? ""}:${tool.toolId} ${endpoint}`,
+	);
+	const addresses = (value: unknown): string[] | null => {
+		if (value === undefined) return [];
+		if (!Array.isArray(value)) return null;
+		const out: string[] = [];
+		for (const entry of value) {
+			const email = typeof entry === "string" ? entry : entry?.email;
+			if (typeof email !== "string") return null;
+			out.push(email);
+		}
+		return out;
+	};
+	const to = kind === "send" ? addresses(args.to) : [];
+	const cc = addresses(args.cc);
+	const bcc = addresses(args.bcc);
+	if (!to || !cc || !bcc) return null;
+	try {
+		const decision =
+			await agent.apiClient.tediEmail.resolveTrustedRecipientSend({
+				tediId: senderTediId,
+				actingTediId,
+				kind,
+				...(to.length ? { to } : {}),
+				...(cc.length ? { cc } : {}),
+				...(bcc.length ? { bcc } : {}),
+				...(kind === "reply" && typeof args.threadId === "string"
+					? { threadId: args.threadId }
+					: {}),
+				...(kind === "reply" && typeof args.messageId === "string"
+					? { messageId: args.messageId }
+					: {}),
+			});
+		return trustedRecipientSkipsCard({ reservedClasses: reserved, decision })
+			? { senderTediId, addresses: decision.addresses }
+			: null;
+	} catch {
+		// The ordinary approval path still applies.
+		return null;
+	}
+}
+
 export async function requireDestructiveToolApproval(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
@@ -1160,6 +1259,32 @@ export async function requireDestructiveToolApproval(
 		return approvalFailure(
 			"The organization's tool policy denies this action.",
 		);
+	const trustedRecipients = await resolveTrustedRecipientSkip(
+		agent,
+		tool,
+		annotations,
+		options,
+	);
+	if (trustedRecipients) {
+		const latched = await refuseAutoApprovalWhileLatched();
+		if (latched) return latched;
+		// Narrowing only: the API re-reads the stored list at send time and
+		// refuses the send if a recipient was revoked since this check.
+		options!.args!.trustedRecipientsOnly = true;
+		emitGovernanceAuditEvent(
+			agent,
+			tool,
+			"destructive_approved",
+			"trusted recipient",
+			{
+				trustedRecipientSend: {
+					senderTediId: trustedRecipients.senderTediId,
+					recipients: trustedRecipients.addresses,
+				},
+			},
+		);
+		return null;
+	}
 	if (options?.nativePolicyCandidate?.effect.disposition === "ask") {
 		const candidate = options.nativePolicyCandidate;
 		const caller = agent.callerIdentity;

@@ -65,6 +65,12 @@ export interface InboundEmailPayload {
 	receivedAt?: string;
 }
 
+/** Bare address from `Name <a@b>` or `a@b`. */
+function emailAddressOf(value: string): string {
+	const angle = /<([^<>]+)>\s*$/.exec(value);
+	return (angle?.[1] ?? value).trim();
+}
+
 /**
  * Synthetic tool spec for the email-turn `reply_to_email` tool. Injected by
  * {@link AgentTediDO.completeEmailTurn} alongside the aggregator's MCP tools
@@ -109,6 +115,7 @@ export interface RuntimeChannelsHost {
 	name: AgentTediDO["name"];
 	sessionHarness: AgentTediDO["sessionHarness"];
 	completeEmailTurn: AgentTediDO["completeEmailTurn"];
+	activeEmailReplyRecipients: Map<string, string>;
 	ctx: AgentTediDO["ctx"];
 	env: AgentTediDO["env"];
 	queue: AgentTediDO["queue"];
@@ -488,6 +495,12 @@ export const runtimeChannels = {
 		const system = mcpRuntime
 			? `${input.system}\n\n${mcpRuntime.getSystemInstructions()}\n\n${WORKSPACE_TOOLS_NOTE}\n\n${CODE_MODE_BATCHING_NOTE}`
 			: `${input.system}\n\n${WORKSPACE_TOOLS_NOTE}\n\n${CODE_MODE_BATCHING_NOTE}`;
+		// The reply goes to the inbound sender; the approval gate reads it here,
+		// never from the model's arguments, to apply the trusted-recipient rule.
+		this.activeEmailReplyRecipients.set(
+			input.runId,
+			emailAddressOf(input.payload.from),
+		);
 		try {
 			const facetTurn = await this.runConversationFacetTurn({
 				guardedUserText: input.guardedUserText,
@@ -511,6 +524,7 @@ export const runtimeChannels = {
 				...(facetTurn.usage ? { usage: facetTurn.usage } : {}),
 			};
 		} finally {
+			this.activeEmailReplyRecipients.delete(input.runId);
 			try {
 				mcpRuntime?.clearTurn();
 			} catch {

@@ -235,6 +235,7 @@ export function tediDo(fields: Record<string, unknown> = {}): TediDoProbe {
 		pageToolBroker: new PageToolBroker(),
 		activeFacetTurnAuthorities: new Map(),
 		activeFacetTurnConversations: new Map(),
+		activeEmailReplyRecipients: new Map(),
 		facetWorkflowTurns: new KeyedFacetTurnGate(),
 		facetTurnAdmission: new FacetTurnAdmission(),
 		...fields,

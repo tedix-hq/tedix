@@ -146,7 +146,7 @@
 		},
 		{
 			"id": "external_message",
-			"pattern": "\\b(send(?:ing|s)?|whatsapp|impersonat\\w*)\\b|\\b(?:email|message)[_ -]+(?:a[_ -]+|the[_ -]+|our[_ -]+)?(?:customer|client|person|people|external|recipient|them|him|her)\\b|^\\s*(?:please\\s+)?email\\b|\\b(?:(?:slack|discord|teams)[_ -]+(?:\\w+[_ -]+){0,2}(?:post|reply)|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:slack|discord|teams))\\b|\\b(?:resend\\s+emails\\s+create|twilio\\s+messages\\s+create|reply\\s+(?:\\w+\\s+){0,5}(?:customer|zendesk))\\b"
+			"pattern": "\\b(send(?:ing|s)?|whatsapp|impersonat\\w*)\\b|\\b(?:email|message)[_ -]+(?:a[_ -]+|the[_ -]+|our[_ -]+)?(?:customer|client|person|people|external|recipient|them|him|her)\\b|^\\s*(?:please\\s+)?email\\b|\\b(?:(?:slack|discord|teams)[_ -]+(?:\\w+[_ -]+){0,2}(?:post|reply)|post(?:ing)?[_ -]+(?:\\w+[_ -]+){0,4}(?:slack|discord|teams))\\b|\\b(?:resend\\s+emails\\s+create|twilio\\s+messages\\s+create|reply\\s+(?:\\w+\\s+){0,5}(?:customer|zendesk)|reply(?:ing)?[_ -]+(?:to[_ -]+)?(?:an?[_ -]+|the[_ -]+)?e-?mails?)\\b"
 		},
 		{
 			"id": "public_publish",

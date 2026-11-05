@@ -1,3 +1,7 @@
+import {
+	trustedRecipientSkipsCard,
+	type TrustedRecipientDecision,
+} from "./email-trusted-recipients";
 import criticalActions from "../assets/critical-actions.v1.json";
 import organizationAutonomy from "../assets/organization-autonomy.v1.json";
 
@@ -419,6 +423,8 @@ export function decideAutonomousAction(input: {
 	risk: "low" | "medium" | "high" | "critical" | "unknown";
 	content: string;
 	classId?: string;
+	/** Stored-list decision for a tedi email send; see email-trusted-recipients. */
+	trustedRecipientSend?: Pick<TrustedRecipientDecision, "trusted"> | null;
 }): { autoApprove: boolean; reason: string } {
 	const reserved = humanReservedActionClasses(input.content);
 	if (
@@ -429,6 +435,13 @@ export function decideAutonomousAction(input: {
 			autoApprove: false,
 			reason: `human correction requires approval for ${input.classId}`,
 		};
+	if (
+		trustedRecipientSkipsCard({
+			reservedClasses: reserved,
+			decision: input.trustedRecipientSend,
+		})
+	)
+		return { autoApprove: true, reason: "trusted recipient" };
 	if (reserved.length)
 		return {
 			autoApprove: false,

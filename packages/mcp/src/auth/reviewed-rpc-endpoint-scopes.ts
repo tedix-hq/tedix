@@ -768,6 +768,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tediApprovals/rollbackProvisionalOutcome": "mcp:tedis.write",
 	// Tenant mailbox self-serve: API guard is withAuthorization("tedis:update",
 	// "mcp:messaging.write"); listAddresses pairs with AUTHZ.messagingRead.
+	// Trusted recipients are settings:manage (owner/admin) and refuse tedis.
+	"tediEmail/addTrustedRecipient": "mcp:messaging.admin",
 	"tediEmail/createAddress": "mcp:messaging.write",
 	"tediEmail/deleteAddress": "mcp:messaging.write",
 	"tediEmail/getAttachment": "mcp:tedis.read",
@@ -776,10 +778,14 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"tediEmail/listAddressRequests": "platform:admin",
 	"tediEmail/listAddresses": "mcp:messaging.read",
 	"tediEmail/listInbox": "mcp:tedis.read",
+	"tediEmail/listTrustedRecipients": "mcp:messaging.read",
 	"tediEmail/mark": "mcp:tedis.write",
 	"tediEmail/provisionAddress": "platform:admin",
 	"tediEmail/readThread": "mcp:tedis.read",
 	"tediEmail/replyEmail": "mcp:tedis.write",
+	// Service-binding only: the gateway and runtime pre-send check.
+	"tediEmail/resolveTrustedRecipientSend": "platform:admin",
+	"tediEmail/revokeTrustedRecipient": "mcp:messaging.admin",
 	"tediEmail/search": "mcp:tedis.read",
 	"tediEmail/sendEmail": "mcp:tedis.write",
 	"tediEmail/updateAddress": "mcp:messaging.write",

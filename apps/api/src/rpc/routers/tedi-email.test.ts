@@ -22,6 +22,10 @@ const queries = vi.hoisted(() => ({
 	addressById: vi.fn(),
 	updateAddressStatus: vi.fn(),
 	deleteAddress: vi.fn(),
+	listTrusted: vi.fn(),
+	addTrusted: vi.fn(),
+	revokeTrusted: vi.fn(),
+	thread: vi.fn(),
 }));
 
 vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
@@ -59,7 +63,17 @@ vi.mock("@tedix/db/queries/organization-members", async (importOriginal) => ({
 vi.mock("@tedix/db/queries/tedi-email/threads", async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	markTediEmail: queries.mark,
+	getTediEmailThread: queries.thread,
 }));
+vi.mock(
+	"@tedix/db/queries/tedi-email/trusted-recipients",
+	async (importOriginal) => ({
+		...(await importOriginal<object>()),
+		listTediEmailTrustedRecipients: queries.listTrusted,
+		addTediEmailTrustedRecipient: queries.addTrusted,
+		revokeTediEmailTrustedRecipient: queries.revokeTrusted,
+	}),
+);
 vi.mock("@tedix/db/queries/tedi-email/events", async (importOriginal) => ({
 	...(await importOriginal<object>()),
 	recordTediEmailOutcome: queries.recordOutcome,
@@ -748,5 +762,317 @@ describe("tenant self-serve mailbox addresses", () => {
 		expect(queries.createAddress).not.toHaveBeenCalled();
 		expect(queries.updateAddressStatus).not.toHaveBeenCalled();
 		expect(queries.deleteAddress).not.toHaveBeenCalled();
+	});
+});
+
+describe("trusted email recipients", () => {
+	const ORG = "0b90b0e2-14da-4a34-bd35-a416ab604f25";
+	const OTHER_ORG = "7d0a4a7e-2d7f-4e42-9d7f-2d6f6c3f1a11";
+	const TEDI = "d3b0f0a2-51f6-4a7e-9a36-2a8f1f0b1f11";
+	const RECIPIENT_ID = "6f1c9d0e-8b8a-4c34-9c55-0a7f0c5b2d10";
+	const THREAD = "a2a4c4b8-1f0e-4bb1-8f43-5d6f4f8f0b33";
+	const PARTNER = "partner-agent@mail.example.com";
+	const row = {
+		id: RECIPIENT_ID,
+		organizationId: ORG,
+		tediId: TEDI,
+		address: PARTNER,
+		createdBy: "user:user-1",
+		createdAt: "2026-11-05T10:00:00.000Z",
+		revokedAt: null,
+		revokedBy: null,
+	};
+
+	function user(permissions: string[], organizationId = ORG) {
+		return createRouterClient(tediEmailContractRouter, {
+			context: {
+				authType: "user",
+				db: {} as BaseContext["db"],
+				env: { ENVIRONMENT: "test" } as CloudflareEnv,
+				headers: new Headers(),
+				organizationId,
+				url: new URL("https://api.tedix.test/rpc/tediEmail"),
+				user: {
+					aud: "test",
+					dct: "tenant-1",
+					exp: 2,
+					iat: 1,
+					iss: "https://auth.tedix.test",
+					permissions,
+					roles: [],
+					sub: "user-1",
+				},
+			} as BaseContext,
+		});
+	}
+
+	function tediJwt() {
+		queries.validateToken.mockResolvedValue({
+			aud: "test",
+			exp: 2,
+			iat: 1,
+			iss: "https://auth.tedix.test",
+			sub: "key-1",
+			entityType: "tedi",
+			tediId: TEDI,
+			descopeUserId: "descope-user-1",
+			tedixRuntimeApiScopes: [
+				"mcp:messaging.read",
+				"mcp:messaging.write",
+				"mcp:messaging.admin",
+			],
+		});
+		return createRouterClient(tediEmailContractRouter, {
+			context: {
+				db: {} as BaseContext["db"],
+				env: { ENVIRONMENT: "test" } as CloudflareEnv,
+				headers: new Headers({ Authorization: "Bearer tedi-token" }),
+				organizationId: ORG,
+				url: new URL("https://api.tedix.test/rpc/tediEmail"),
+			} as BaseContext,
+		});
+	}
+
+	function service(organizationId = ORG) {
+		return createRouterClient(tediEmailContractRouter, {
+			context: {
+				db: {} as BaseContext["db"],
+				env: { ENVIRONMENT: "test" } as CloudflareEnv,
+				headers: new Headers({
+					"X-Service-Binding": "true",
+					"X-Tedix-Org-Id": organizationId,
+				}),
+				url: new URL("https://api/rpc/tediEmail"),
+			} as BaseContext,
+		});
+	}
+
+	beforeEach(() => {
+		vi.resetAllMocks();
+		queries.tedi.mockResolvedValue({
+			id: TEDI,
+			organizationId: ORG,
+			slug: "worker",
+		});
+		queries.activeSlug.mockResolvedValue("worker");
+		queries.listTrusted.mockResolvedValue([row]);
+		queries.addTrusted.mockImplementation(async (_db, input) => ({
+			recipient: { ...row, ...input },
+			created: true,
+		}));
+		queries.revokeTrusted.mockResolvedValue({
+			...row,
+			revokedAt: "2026-11-05T11:00:00.000Z",
+			revokedBy: "user:user-1",
+		});
+	});
+
+	it("lets an owner or admin add, list and revoke an exact address", async () => {
+		const admin = user(["settings:manage"]);
+		await expect(
+			admin.addTrustedRecipient({
+				tediId: TEDI,
+				address: " Partner-Agent@Mail.Example.com",
+			}),
+		).resolves.toMatchObject({
+			created: true,
+			recipient: { address: PARTNER },
+		});
+		expect(queries.addTrusted).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: ORG,
+			tediId: TEDI,
+			address: PARTNER,
+			createdBy: "user:user-1",
+		});
+		await expect(
+			admin.listTrustedRecipients({ tediId: TEDI }),
+		).resolves.toEqual({ recipients: [row] });
+		await expect(
+			admin.revokeTrustedRecipient({ tediId: TEDI, recipientId: RECIPIENT_ID }),
+		).resolves.toMatchObject({ recipient: { revokedBy: "user:user-1" } });
+		expect(queries.revokeTrusted).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: ORG,
+			tediId: TEDI,
+			id: RECIPIENT_ID,
+			revokedBy: "user:user-1",
+		});
+	});
+
+	it("refuses members without settings:manage", async () => {
+		const member = user(["tedis:read", "tedis:update"]);
+		await expect(
+			member.addTrustedRecipient({ tediId: TEDI, address: PARTNER }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			member.listTrustedRecipients({ tediId: TEDI }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			member.revokeTrustedRecipient({
+				tediId: TEDI,
+				recipientId: RECIPIENT_ID,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(queries.addTrusted).not.toHaveBeenCalled();
+		expect(queries.revokeTrusted).not.toHaveBeenCalled();
+	});
+
+	it("refuses a tedi managing its own trusted recipients", async () => {
+		await expect(
+			tediJwt().addTrustedRecipient({ tediId: TEDI, address: PARTNER }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(queries.addTrusted).not.toHaveBeenCalled();
+	});
+
+	it("refuses an admin of another organization", async () => {
+		await expect(
+			user(["settings:manage"], OTHER_ORG).addTrustedRecipient({
+				tediId: TEDI,
+				address: PARTNER,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(queries.addTrusted).not.toHaveBeenCalled();
+	});
+
+	it("rejects wildcards and domains", async () => {
+		for (const address of [
+			"*@mail.example.com",
+			"@mail.example.com",
+			"mail.example.com",
+		]) {
+			await expect(
+				user(["settings:manage"]).addTrustedRecipient({
+					tediId: TEDI,
+					address,
+				}),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		}
+		expect(queries.addTrusted).not.toHaveBeenCalled();
+	});
+
+	it("resolves a send from the stored list, not the caller", async () => {
+		await expect(
+			service().resolveTrustedRecipientSend({
+				tediId: TEDI,
+				actingTediId: TEDI,
+				kind: "send",
+				to: [PARTNER.toUpperCase()],
+			}),
+		).resolves.toEqual({
+			trusted: true,
+			reason: "trusted recipient",
+			addresses: [PARTNER],
+		});
+		await expect(
+			service().resolveTrustedRecipientSend({
+				tediId: TEDI,
+				actingTediId: TEDI,
+				kind: "send",
+				to: [PARTNER],
+				bcc: ["someone@example.com"],
+			}),
+		).resolves.toMatchObject({ trusted: false });
+		await expect(
+			service().resolveTrustedRecipientSend({
+				tediId: TEDI,
+				actingTediId: "another-tedi",
+				kind: "send",
+				to: [PARTNER],
+			}),
+		).resolves.toMatchObject({ trusted: false });
+		expect(queries.listTrusted).toHaveBeenCalledWith(expect.anything(), {
+			organizationId: ORG,
+			tediId: TEDI,
+		});
+	});
+
+	it("resolves a reply's recipient from the stored thread", async () => {
+		const thread = (from: string) => ({
+			id: THREAD,
+			messages: [
+				{
+					id: "m-1",
+					direction: "inbound",
+					from: { email: from },
+					fromAddr: from,
+					to: [{ email: "worker@tedix.tech" }],
+					subject: "Hello",
+				},
+			],
+		});
+		queries.thread.mockResolvedValue(thread(PARTNER));
+		await expect(
+			service().resolveTrustedRecipientSend({
+				tediId: TEDI,
+				actingTediId: TEDI,
+				kind: "reply",
+				threadId: THREAD,
+			}),
+		).resolves.toMatchObject({ trusted: true, addresses: [PARTNER] });
+		queries.thread.mockResolvedValue(thread("stranger@example.com"));
+		await expect(
+			service().resolveTrustedRecipientSend({
+				tediId: TEDI,
+				actingTediId: TEDI,
+				kind: "reply",
+				threadId: THREAD,
+			}),
+		).resolves.toMatchObject({
+			trusted: false,
+			reason: "untrusted recipient: stranger@example.com",
+		});
+	});
+
+	it("refuses a service check for another organization's tedi", async () => {
+		await expect(
+			service(OTHER_ORG).resolveTrustedRecipientSend({
+				tediId: TEDI,
+				actingTediId: TEDI,
+				kind: "send",
+				to: [PARTNER],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("re-checks the stored list at send time when trustedRecipientsOnly is set", async () => {
+		const send = (to: string) =>
+			user(["integrations:manage"]).sendEmail({
+				tediId: TEDI,
+				to: [{ email: to }],
+				subject: "Hello",
+				text: "Hi",
+				trustedRecipientsOnly: true,
+			});
+		await expect(send("someone@example.com")).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		queries.listTrusted.mockResolvedValue([]);
+		await expect(send(PARTNER)).rejects.toMatchObject({ code: "FORBIDDEN" });
+		queries.listTrusted.mockResolvedValue([row]);
+		// Past the trust check, the missing EMAIL binding is the next refusal.
+		await expect(send(PARTNER)).rejects.toThrow("EMAIL binding unavailable");
+	});
+
+	it("re-checks a reply's stored recipient when trustedRecipientsOnly is set", async () => {
+		queries.thread.mockResolvedValue({
+			id: THREAD,
+			messages: [
+				{
+					id: "m-1",
+					direction: "inbound",
+					from: { email: "stranger@example.com" },
+					fromAddr: "stranger@example.com",
+					to: [{ email: "worker@tedix.tech" }],
+					subject: "Hello",
+				},
+			],
+		});
+		await expect(
+			user(["integrations:manage"]).replyEmail({
+				tediId: TEDI,
+				threadId: THREAD,
+				text: "Hi",
+				trustedRecipientsOnly: true,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 });

@@ -1368,6 +1368,10 @@
 		{
 			"name": "20261105191934_os_workspace_summaries/migration.sql",
 			"sha256": "fcd50e50a3f2247612e6a1e06a2ab153a352ea324a5dbe98f1fc3e0e035cae6e"
+		},
+		{
+			"name": "20261105194447_tedi_email_trusted_recipients/migration.sql",
+			"sha256": "07418a261ac76ff725eb58806e401baf2041397412a8ecd6a0d6b71cce29919f"
 		}
 	]
 }
