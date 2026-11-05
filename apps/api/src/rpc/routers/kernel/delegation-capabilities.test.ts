@@ -674,8 +674,11 @@ describe("workspace app edits", () => {
 		expect(guidance).toContain("gadgets_get_code");
 		expect(guidance).toContain("propose_os_app_edit");
 		expect(guidance).toContain("0c2464ac-201c-4e56-bb40-e1499d4673fe");
-		// The child guessed `.gadgets` and gave up; name the real result shape.
-		expect(guidance).toContain("{ items: [{ id, name, status }] }");
+		// Children guessed result shapes and gave up; name the real ones.
+		expect(guidance).toContain("returns { items: [{ id, name }] }");
+		expect(guidance).toContain("gadgets_get_code({ workspaceId, gadgetId })");
+		expect(guidance).toContain("files: { [path]: text }");
+		expect(result.toolGuidance.every((item) => !item.endsWith("…"))).toBe(true);
 		expect(guidance).not.toContain("open_computer({ repository: true })");
 		expect(guidance).not.toContain("browser_markdown");
 		// Catalog tool names differ by organization: Code Mode, not exact ids.
@@ -696,8 +699,9 @@ describe("workspace app edits", () => {
 			},
 		});
 		expect(open.toolGuidance.join("\n")).toContain(
-			"gadgetId b7fa45bd-5bdc-4987-95c3-ee6afbe3129a",
+			'gadgetId: "b7fa45bd-5bdc-4987-95c3-ee6afbe3129a"',
 		);
+		expect(open.toolGuidance.every((item) => !item.endsWith("…"))).toBe(true);
 	});
 
 	it("routes planner-selected app tools as an app edit without the word gadget", () => {
