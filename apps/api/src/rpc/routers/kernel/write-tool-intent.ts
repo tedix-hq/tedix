@@ -127,6 +127,21 @@ export interface SkillCertificationIntent {
 export const PAUSE_SKILL_SCHEDULE_TOOL = "skills.pause_skill_schedule";
 export const RESUME_SKILL_SCHEDULE_TOOL = "skills.resume_skill_schedule";
 
+export interface SkillRunIntent {
+	capability: "skills.run";
+	toolName: typeof RUN_SKILL_WORKFLOW_TOOL;
+	args: {
+		skillId: string;
+		tediId: string;
+		workItemId?: string;
+		expectedSkillRevision: number;
+		idempotencyKey: string;
+		confirmDestructive: true;
+		reason: string;
+		params: Record<string, unknown>;
+	};
+}
+
 /** "Pause/resume the schedule of skill X", resolved to the skill id. */
 export interface SkillScheduleIntent {
 	capability: "skills.pause_schedule" | "skills.resume_schedule";
@@ -141,6 +156,7 @@ export type DirectWriteIntent =
 	| WorkpieceRenameIntent
 	| SkillMoveIntent
 	| SkillCertificationIntent
+	| SkillRunIntent
 	| SkillScheduleIntent;
 
 /** What a "rename X to Y" request names: an app, an output, or "it". */
@@ -325,6 +341,7 @@ export function canonicalWriteToolName(
 	}
 	if (capability === "skills.move_to_tedi") return MOVE_SKILL_TO_TEDI_TOOL;
 	if (capability === "skills.certify") return RUN_SKILL_WORKFLOW_TOOL;
+	if (capability === "skills.run") return RUN_SKILL_WORKFLOW_TOOL;
 	if (capability === "skills.pause_schedule") return PAUSE_SKILL_SCHEDULE_TOOL;
 	if (capability === "skills.resume_schedule")
 		return RESUME_SKILL_SCHEDULE_TOOL;
