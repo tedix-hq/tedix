@@ -10,6 +10,7 @@ import {
 	type BillingPlanVersion,
 	billingAccounts,
 	billingPlanVersions,
+	billingUsageReservations,
 } from "../../schema/billing";
 
 export interface BillingEntitlement {
@@ -282,16 +283,20 @@ export async function correctBillingAccountPeriod(
 		.limit(1);
 	if (!account) throw new Error("No billing account for organization");
 	// What the reset is about to detach, captured before it is detached.
-	const [orphaned] = await db.all<{ tokens: number; chargeMicros: number }>(sql`
-		SELECT
-			COALESCE(SUM(estimated_input_tokens + estimated_output_tokens), 0) AS tokens,
-			COALESCE(SUM(estimated_charge_micros), 0) AS chargeMicros
-		FROM billing_usage_reservations
-		WHERE organization_id = ${input.organizationId}
-			AND status IN ('reserved', 'settled')
-			AND period_start = ${account.periodStart}
-			AND period_end = ${account.periodEnd}
-	`);
+	const [orphaned] = await db
+		.select({
+			tokens: sql<number>`COALESCE(SUM(${billingUsageReservations.estimatedInputTokens} + ${billingUsageReservations.estimatedOutputTokens}), 0)`,
+			chargeMicros: sql<number>`COALESCE(SUM(${billingUsageReservations.estimatedChargeMicros}), 0)`,
+		})
+		.from(billingUsageReservations)
+		.where(
+			and(
+				eq(billingUsageReservations.organizationId, input.organizationId),
+				inArray(billingUsageReservations.status, ["reserved", "settled"]),
+				eq(billingUsageReservations.periodStart, account.periodStart),
+				eq(billingUsageReservations.periodEnd, account.periodEnd),
+			),
+		);
 	if (Date.parse(input.periodStart) < Date.parse(account.periodStart))
 		throw new Error(
 			"A correction may not move periodStart earlier: usage already metered against this window would lose its period",

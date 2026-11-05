@@ -3,6 +3,7 @@ import {
 	asc,
 	desc,
 	eq,
+	exists,
 	gte,
 	inArray,
 	isNotNull,
@@ -13,6 +14,7 @@ import {
 	or,
 	sql,
 } from "drizzle-orm";
+import { type AnySQLiteColumn, alias } from "drizzle-orm/sqlite-core";
 import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { tediApprovalRequests } from "../schema/approvals";
@@ -808,6 +810,11 @@ const ORPHAN_DEFAULT_LIMIT = 100;
 // candidate again, so seven days is safely wider than the recovery cadence.
 const ORPHAN_DEFAULT_LOOKBACK_DAYS = 7;
 
+type RuntimeEventAlias = Record<
+	"tediId" | "runId" | "kind" | "payload" | "createdAt",
+	AnySQLiteColumn
+>;
+
 export async function findOrphanRuns(
 	db: DbClient,
 	options: {
@@ -830,36 +837,33 @@ export async function findOrphanRuns(
 	// The fleet sweep intentionally stays unscoped. Org-scoped health reads add
 	// an indexable outer predicate and fence every correlated alias to the same
 	// organization so malformed cross-org rows cannot suppress a candidate.
-	const outerOrganizationPredicate = organizationId
-		? sql`AND tedi_runtime_events.organization_id = ${organizationId}`
-		: sql``;
-	const okOrganizationPredicate = organizationId
-		? sql`AND ok.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const termOrganizationPredicate = organizationId
-		? sql`AND term.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const activityOrganizationPredicate = organizationId
-		? sql`AND act.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const approvalOrganizationPredicate = organizationId
-		? sql`AND ar.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const approvalResolutionOrganizationPredicate = organizationId
-		? sql`AND res.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const mappingOrganizationPredicate = organizationId
-		? sql`AND map.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const mappedTerminalOrganizationPredicate = organizationId
-		? sql`AND mapped_term.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const mappedActivityOrganizationPredicate = organizationId
-		? sql`AND mapped_act.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
-	const retryOwnerOrganizationPredicate = organizationId
-		? sql`AND own.organization_id = tedi_runtime_events.organization_id`
-		: sql``;
+	// Kind filters stay SQL literals so the planner sees the same statement shape.
+	const run = tediRuntimeEvents;
+	const ok = alias(tediRuntimeEvents, "ok");
+	const term = alias(tediRuntimeEvents, "term");
+	const act = alias(tediRuntimeEvents, "act");
+	const own = alias(tediRuntimeEvents, "own");
+	const ar = alias(tediRuntimeEvents, "ar");
+	const res = alias(tediRuntimeEvents, "res");
+	const map = alias(chatDispatchIdempotency, "map");
+	const mappedTerm = alias(tediRuntimeEvents, "mapped_term");
+	const mappedAct = alias(tediRuntimeEvents, "mapped_act");
+	const sameOrganization = (correlated: AnySQLiteColumn) =>
+		organizationId ? eq(correlated, run.organizationId) : undefined;
+	const sameRun = (correlated: RuntimeEventAlias) =>
+		and(eq(correlated.tediId, run.tediId), eq(correlated.runId, run.runId));
+	const successfulCompletion = (event: RuntimeEventAlias) =>
+		and(
+			sql`${event.kind} = 'message.completed'`,
+			sql`COALESCE(LOWER(json_extract(${event.payload}, '$.status')), '')
+				NOT IN ('failed', 'error', 'canceled', 'cancelled')`,
+			sql`json_extract(${event.payload}, '$.error') IS NULL`,
+		);
+	const recentActivity = (event: RuntimeEventAlias) =>
+		and(
+			sql`${event.kind} IN ('message.delta', 'tool.started', 'tool.completed', 'tool.failed', 'message.progress', 'step.completed', 'step.retry')`,
+			sql`${event.createdAt} >= ${activityCutoff}`,
+		);
 	const orphanCutoff = new Date(
 		now.getTime() - orphanAgeMinutes * 60_000,
 	).toISOString();
@@ -870,114 +874,155 @@ export async function findOrphanRuns(
 		now.getTime() - lookbackDays * 24 * 60 * 60_000,
 	).toISOString();
 	const nowIso = now.toISOString();
+	const one = { one: sql`1` };
 
-	const rows = await db.all<{
-		id: string;
-		tedi_id: string;
-		organization_id: string;
-		run_id: string;
-		conversation_id: string | null;
-		runtime_backend: string;
-		runtime_external_id: string | null;
-		created_at: string;
-		succeeded_lost: number;
-	}>(sql`
-		SELECT id, tedi_id, organization_id, run_id, conversation_id,
-			runtime_backend, runtime_external_id, created_at,
-			EXISTS (
-				SELECT 1 FROM tedi_runtime_events ok
-				WHERE ok.tedi_id = tedi_runtime_events.tedi_id
-					AND ok.run_id = tedi_runtime_events.run_id
-					${okOrganizationPredicate}
-					AND ok.kind = 'message.completed'
-					AND COALESCE(LOWER(json_extract(ok.payload, '$.status')), '')
-						NOT IN ('failed', 'error', 'canceled', 'cancelled')
-					AND json_extract(ok.payload, '$.error') IS NULL
-			) AS succeeded_lost
-		FROM tedi_runtime_events
-		WHERE kind = 'run.started'
-			AND run_id IS NOT NULL
-			${outerOrganizationPredicate}
-			AND created_at < ${orphanCutoff}
-			AND created_at > ${lookbackFloor}
-			AND NOT EXISTS (
-				SELECT 1 FROM tedi_runtime_events term
-				WHERE term.tedi_id = tedi_runtime_events.tedi_id
-					AND term.run_id = tedi_runtime_events.run_id
-					${termOrganizationPredicate}
-					AND term.kind IN ('run.completed', 'run.failed', 'run.canceled')
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM tedi_runtime_events act
-				WHERE act.tedi_id = tedi_runtime_events.tedi_id
-					AND act.run_id = tedi_runtime_events.run_id
-					${activityOrganizationPredicate}
-					AND act.kind IN ('message.delta', 'tool.started', 'tool.completed', 'tool.failed', 'message.progress', 'step.completed', 'step.retry')
-					AND act.created_at >= ${activityCutoff}
-			)
-			-- A runtime that is re-driving this run after a transient loss
-			-- (isolate memory reset, platform Workflows error) owns it until the
-			-- lease it recorded expires; sealing it now would fail a child the
-			-- pending retry is about to rerun.
-			AND NOT EXISTS (
-				SELECT 1 FROM tedi_runtime_events own
-				WHERE own.tedi_id = tedi_runtime_events.tedi_id
-					AND own.run_id = tedi_runtime_events.run_id
-					${retryOwnerOrganizationPredicate}
-					AND own.kind = 'step.retry'
-					AND json_extract(own.payload, '$.retryOwnedUntil') > ${nowIso}
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM tedi_runtime_events ar
-				WHERE ar.tedi_id = tedi_runtime_events.tedi_id
-					AND ar.run_id = tedi_runtime_events.run_id
-					${approvalOrganizationPredicate}
-					AND ar.kind = 'approval.requested'
-					AND NOT EXISTS (
-						SELECT 1 FROM tedi_runtime_events res
-						WHERE res.tedi_id = ar.tedi_id
-							AND res.run_id = ar.run_id
-							${approvalResolutionOrganizationPredicate}
-							AND res.kind = 'approval.resolved'
-					)
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM chat_dispatch_idempotency map
-				WHERE map.tedi_id = tedi_runtime_events.tedi_id
-					AND map.conversation_id = tedi_runtime_events.conversation_id
-					AND map.idempotency_key = tedi_runtime_events.run_id
-					${mappingOrganizationPredicate}
-					AND map.run_id IS NOT NULL
-					AND map.run_id != tedi_runtime_events.run_id
-					AND (
-						EXISTS (
-							SELECT 1 FROM tedi_runtime_events mapped_term
-							WHERE mapped_term.tedi_id = tedi_runtime_events.tedi_id
-								AND mapped_term.run_id = map.run_id
-								${mappedTerminalOrganizationPredicate}
-								AND (
-									mapped_term.kind IN ('run.completed', 'run.failed', 'run.canceled')
-									OR (
-										mapped_term.kind = 'message.completed'
-										AND COALESCE(LOWER(json_extract(mapped_term.payload, '$.status')), '')
-											NOT IN ('failed', 'error', 'canceled', 'cancelled')
-										AND json_extract(mapped_term.payload, '$.error') IS NULL
-									)
-								)
-						)
-						OR EXISTS (
-							SELECT 1 FROM tedi_runtime_events mapped_act
-							WHERE mapped_act.tedi_id = tedi_runtime_events.tedi_id
-								AND mapped_act.run_id = map.run_id
-								${mappedActivityOrganizationPredicate}
-								AND mapped_act.kind IN ('message.delta', 'tool.started', 'tool.completed', 'tool.failed', 'message.progress', 'step.completed', 'step.retry')
-								AND mapped_act.created_at >= ${activityCutoff}
-						)
-					)
-			)
-		ORDER BY created_at ASC
-		LIMIT ${limit}
-	`);
+	const rows = await db
+		.select({
+			id: run.id,
+			tedi_id: run.tediId,
+			organization_id: run.organizationId,
+			run_id: sql<string>`${run.runId}`.as("run_id"),
+			conversation_id: run.conversationId,
+			runtime_backend: run.runtimeBackend,
+			runtime_external_id: run.runtimeExternalId,
+			created_at: run.createdAt,
+			succeeded_lost: sql<number>`${exists(
+				db
+					.select(one)
+					.from(ok)
+					.where(
+						and(
+							sameRun(ok),
+							sameOrganization(ok.organizationId),
+							successfulCompletion(ok),
+						),
+					),
+			)}`.as("succeeded_lost"),
+		})
+		.from(run)
+		.where(
+			and(
+				sql`${run.kind} = 'run.started'`,
+				isNotNull(run.runId),
+				organizationId ? eq(run.organizationId, organizationId) : undefined,
+				sql`${run.createdAt} < ${orphanCutoff}`,
+				sql`${run.createdAt} > ${lookbackFloor}`,
+				notExists(
+					db
+						.select(one)
+						.from(term)
+						.where(
+							and(
+								sameRun(term),
+								sameOrganization(term.organizationId),
+								sql`${term.kind} IN ('run.completed', 'run.failed', 'run.canceled')`,
+							),
+						),
+				),
+				notExists(
+					db
+						.select(one)
+						.from(act)
+						.where(
+							and(
+								sameRun(act),
+								sameOrganization(act.organizationId),
+								recentActivity(act),
+							),
+						),
+				),
+				// A runtime that is re-driving this run after a transient loss
+				// (isolate memory reset, platform Workflows error) owns it until the
+				// lease it recorded expires; sealing it now would fail a child the
+				// pending retry is about to rerun.
+				notExists(
+					db
+						.select(one)
+						.from(own)
+						.where(
+							and(
+								sameRun(own),
+								sameOrganization(own.organizationId),
+								sql`${own.kind} = 'step.retry'`,
+								sql`json_extract(${own.payload}, '$.retryOwnedUntil') > ${nowIso}`,
+							),
+						),
+				),
+				notExists(
+					db
+						.select(one)
+						.from(ar)
+						.where(
+							and(
+								sameRun(ar),
+								sameOrganization(ar.organizationId),
+								sql`${ar.kind} = 'approval.requested'`,
+								notExists(
+									db
+										.select(one)
+										.from(res)
+										.where(
+											and(
+												eq(res.tediId, ar.tediId),
+												eq(res.runId, ar.runId),
+												sameOrganization(res.organizationId),
+												sql`${res.kind} = 'approval.resolved'`,
+											),
+										),
+								),
+							),
+						),
+				),
+				notExists(
+					db
+						.select(one)
+						.from(map)
+						.where(
+							and(
+								eq(map.tediId, run.tediId),
+								eq(map.conversationId, run.conversationId),
+								eq(map.idempotencyKey, run.runId),
+								sameOrganization(map.organizationId),
+								isNotNull(map.runId),
+								sql`${map.runId} != ${run.runId}`,
+								or(
+									exists(
+										db
+											.select(one)
+											.from(mappedTerm)
+											.where(
+												and(
+													eq(mappedTerm.tediId, run.tediId),
+													eq(mappedTerm.runId, map.runId),
+													sameOrganization(mappedTerm.organizationId),
+													or(
+														sql`${mappedTerm.kind} IN ('run.completed', 'run.failed', 'run.canceled')`,
+														successfulCompletion(mappedTerm),
+													),
+												),
+											),
+									),
+									exists(
+										db
+											.select(one)
+											.from(mappedAct)
+											.where(
+												and(
+													eq(mappedAct.tediId, run.tediId),
+													eq(mappedAct.runId, map.runId),
+													sameOrganization(mappedAct.organizationId),
+													recentActivity(mappedAct),
+												),
+											),
+									),
+								),
+							),
+						),
+				),
+			),
+		)
+		.orderBy(asc(run.createdAt))
+		.limit(limit);
 
 	return rows.map((row) => ({
 		tediId: row.tedi_id,

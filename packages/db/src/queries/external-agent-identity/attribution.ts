@@ -1,5 +1,6 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentAttribution,
@@ -68,50 +69,70 @@ export async function recordExternalAgentAttribution(
 			}
 		: providedMetadata;
 	const workItemId = input.workItemId ?? null;
-	const inserted = (await db.all(sql`
-		INSERT INTO ${externalAgentAttributions} (
-			id, organization_id, principal_id, session_id, target_type,
-			target_id, role, work_item_id, metadata, occurred_at
+	const activeSession = alias(externalAgentSessions, "active_session");
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
+	const historical = input.allowHistoricalSession ? 1 : 0;
+	const inserted = await db
+		.insert(externalAgentAttributions)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.id}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					principalId: sql<string>`${input.principalId}`.as("principal_id"),
+					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
+					targetType: sql<typeof input.targetType>`${input.targetType}`.as(
+						"target_type",
+					),
+					targetId: sql<string>`${input.targetId}`.as("target_id"),
+					role: sql<typeof input.role>`${input.role}`.as("role"),
+					workItemId: sql<string | null>`${workItemId}`.as("work_item_id"),
+					metadata: sql<
+						Record<string, JsonValue>
+					>`${JSON.stringify(metadata)}`.as("metadata"),
+					occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
+				})
+				.from(activeSession)
+				.innerJoin(
+					activePrincipal,
+					and(
+						eq(activePrincipal.organizationId, activeSession.organizationId),
+						eq(activePrincipal.id, activeSession.principalId),
+					),
+				)
+				.where(
+					and(
+						eq(activeSession.organizationId, input.organizationId),
+						eq(activeSession.principalId, input.principalId),
+						eq(activeSession.id, input.sessionId),
+						lte(activeSession.startedAt, input.occurredAt),
+						// A historical acceptance may attribute an event that happened AFTER the
+						// session ended. The bound below only constrains parties who report their
+						// true clock: for a commit, occurredAt is the git committer date, which
+						// the committer sets (GIT_COMMITTER_DATE). It therefore taxed honest
+						// agents and stopped nobody — the dominant cause of human overrides was
+						// an agent whose session ended (or whose lease the reaper reclaimed)
+						// before CI validated its already-pushed commits.
+						or(
+							sql`${historical} = 1`,
+							isNull(activeSession.endedAt),
+							gte(activeSession.endedAt, input.occurredAt),
+						),
+						// The session's own ended/active state is forgivable; a REVOKED principal
+						// is not. allowHistoricalSession used to bypass both, which meant
+						// disabling a principal did not stop its pending attributions:
+						// setExternalAgentPrincipalStatus bulk-ends that principal's sessions
+						// (principals.ts, the non-active branch), so every one of
+						// them became "historical" and sailed through this predicate.
+						eq(activePrincipal.status, "active"),
+						or(sql`${historical} = 1`, eq(activeSession.status, "active")),
+					),
+				),
 		)
-		SELECT
-			${input.id}, ${input.organizationId}, ${input.principalId},
-			${input.sessionId}, ${input.targetType}, ${input.targetId},
-			${input.role}, ${workItemId}, ${JSON.stringify(metadata)},
-			${input.occurredAt}
-		FROM ${externalAgentSessions} AS active_session
-		JOIN ${externalAgentPrincipals} AS active_principal
-			ON active_principal.organization_id = active_session.organization_id
-			AND active_principal.id = active_session.principal_id
-		WHERE active_session.organization_id = ${input.organizationId}
-			AND active_session.principal_id = ${input.principalId}
-			AND active_session.id = ${input.sessionId}
-			AND active_session.started_at <= ${input.occurredAt}
-			-- A historical acceptance may attribute an event that happened AFTER the
-			-- session ended. The bound below only constrains parties who report their
-			-- true clock: for a commit, occurredAt is the git committer date, which
-			-- the committer sets (GIT_COMMITTER_DATE). It therefore taxed honest
-			-- agents and stopped nobody — the dominant cause of human overrides was
-			-- an agent whose session ended (or whose lease the reaper reclaimed)
-			-- before CI validated its already-pushed commits.
-			AND (
-				${input.allowHistoricalSession ? 1 : 0} = 1
-				OR active_session.ended_at IS NULL
-				OR active_session.ended_at >= ${input.occurredAt}
-			)
-			-- The session's own ended/active state is forgivable; a REVOKED principal
-			-- is not. allowHistoricalSession used to bypass both, which meant
-			-- disabling a principal did not stop its pending attributions:
-			-- setExternalAgentPrincipalStatus bulk-ends that principal's sessions
-			-- (principals.ts, the non-active branch), so every one of
-			-- them became "historical" and sailed through this predicate.
-			AND active_principal.status = 'active'
-			AND (
-				${input.allowHistoricalSession ? 1 : 0} = 1
-				OR active_session.status = 'active'
-			)
-		ON CONFLICT DO NOTHING
-		RETURNING id
-	`)) as Array<{ id: string }>;
+		.onConflictDoNothing()
+		.returning({ id: externalAgentAttributions.id });
 	if (inserted[0]) {
 		const created = await db
 			.select()

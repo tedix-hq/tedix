@@ -1,5 +1,16 @@
 /** Bounded historical sources and durable progress for the decision maintenance tick. */
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	inArray,
+	isNotNull,
+	isNull,
+	type SQLWrapper,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import {
 	DECISION_GRAPH_BACKFILL_PHASES,
 	DecisionGraphBackfillCursorSchema,
@@ -8,7 +19,22 @@ import {
 import type { DbQueryClient } from "../query-client";
 import { organizations } from "../schema/organizations";
 import { platformCronCheckpoints } from "../schema/platform-cron-executions";
-import { workInteractions } from "../schema/work-factory";
+import { tediApprovalRequests } from "../schema/approvals";
+import { memoryFacts } from "../schema/memory-graph";
+import { osOutputs } from "../schema/os-workspaces";
+import { tediRationaleRecords } from "../schema/rationale-records";
+import {
+	workApprovalDecisions,
+	workApprovalProposals,
+	workInteractionResponses,
+	workInteractions,
+} from "../schema/work-factory";
+import {
+	workEvidence,
+	workItemComments,
+	workItemRelations,
+	workItems,
+} from "../schema/work-items";
 import type { DecisionEdgeInput } from "./decision-graph";
 
 type Source = {
@@ -19,6 +45,30 @@ type Source = {
 	extraId: string | null;
 	data: string | null;
 };
+const NULL_SOURCE_FIELD = sql`NULL`;
+
+/** Every phase projects the same raw, uniquely named Source columns. */
+function sourceFields(fields: {
+	id: SQLWrapper;
+	at: SQLWrapper;
+	subjectId: SQLWrapper;
+	targetId?: SQLWrapper;
+	extraId?: SQLWrapper;
+	data?: SQLWrapper;
+}) {
+	return {
+		id: sql<string>`${fields.id}`.as("id"),
+		at: sql<string>`${fields.at}`.as("at"),
+		subjectId: sql<string | null>`${fields.subjectId}`.as("subjectId"),
+		targetId: sql<string | null>`${fields.targetId ?? NULL_SOURCE_FIELD}`.as(
+			"targetId",
+		),
+		extraId: sql<string | null>`${fields.extraId ?? NULL_SOURCE_FIELD}`.as(
+			"extraId",
+		),
+		data: sql<string | null>`${fields.data ?? NULL_SOURCE_FIELD}`.as("data"),
+	};
+}
 const CHECKPOINT = "decision-graph-backfill:v1:";
 const DECISION_GRAPH_BACKFILL_BATCH_SIZE = 50;
 
@@ -38,77 +88,269 @@ export async function planDecisionGraphBackfillPage(
 		throw new Error("Backfill page limit must be within 1..50");
 	const org = organizationId;
 	const after = cursor.afterId;
-	// Each statement selects unique output names and binds at most six values.
+	// Each statement selects unique output names and binds at most nine values.
+	const c = alias(workInteractions, "c");
+	const w = alias(workItems, "w");
 	const queries = {
-		cards: sql`SELECT c.id AS id, c.created_at AS at, c.id AS subjectId,
-   w.id AS targetId, CASE WHEN c.target_type='user' THEN c.target_id END AS extraId,
-   CASE WHEN c.status='cancelled' THEN c.metadata END AS data
-   FROM work_interactions c LEFT JOIN work_items w ON w.id=c.work_item_id AND w.org_id=c.org_id
-   WHERE c.org_id=${org} AND c.id>${after} ORDER BY c.id LIMIT ${limit}`,
-		responses: sql`SELECT r.id AS id, r.responded_at AS at, c.id AS subjectId,
-   w.id AS targetId, NULL AS extraId, NULL AS data
-   FROM work_interaction_responses r JOIN work_interactions c ON c.id=r.interaction_id AND c.org_id=r.org_id
-   LEFT JOIN work_items w ON w.id=c.work_item_id AND w.org_id=c.org_id
-   WHERE r.org_id=${org} AND r.id>${after} AND r.resolves_request=1 AND c.status='resolved'
-   AND r.resolved_request_version=c.version ORDER BY r.id LIMIT ${limit}`,
-		approvals: sql`SELECT d.id AS id, d.decided_at AS at, p.id AS subjectId,
-   w.id AS targetId, NULL AS extraId, NULL AS data
-   FROM work_approval_decisions d JOIN work_approval_proposals p ON p.id=d.proposal_id
-   JOIN work_items w ON w.id=p.work_item_id AND w.org_id=p.org_id
-   WHERE p.org_id=${org} AND d.id>${after} AND p.status=d.decision
-   ORDER BY d.id LIMIT ${limit}`,
-		tedi_approvals: sql`SELECT a.id AS id, a.resolved_at AS at, a.id AS subjectId,
-   w.id AS targetId, NULL AS extraId, NULL AS data
-   FROM tedi_approval_requests a LEFT JOIN work_items w
-   ON w.id=json_extract(a.payload,'$.workItemId') AND w.org_id=a.org_id
-   WHERE a.org_id=${org} AND a.id>${after} AND a.status IN ('approved','rejected')
-   AND a.resolved_at IS NOT NULL ORDER BY a.id LIMIT ${limit}`,
-		decisions: sql`SELECT d.id AS id, d.created_at AS at, w.id AS subjectId,
-   NULL AS targetId, NULL AS extraId, NULL AS data
-   FROM tedi_rationale_records d JOIN work_items w ON w.id=d.work_item_id AND w.org_id=d.org_id
-   WHERE d.org_id=${org} AND d.id>${after} AND d.category='decision' AND d.outcome_status='success'
-   ORDER BY d.id LIMIT ${limit}`,
-		work_items: sql`SELECT w.id AS id, w.created_at AS at, w.id AS subjectId,
-   CASE WHEN w.accountable_owner_type='user' THEN w.accountable_owner_id END AS targetId,
-   NULL AS extraId, NULL AS data FROM work_items w
-   WHERE w.org_id=${org} AND w.id>${after} ORDER BY w.id LIMIT ${limit}`,
-		relations: sql`SELECT r.id AS id, r.created_at AS at, a.id AS subjectId,
-   b.id AS targetId, NULL AS extraId, NULL AS data FROM work_item_relations r
-   JOIN work_items a ON a.id=r.from_work_item_id AND a.org_id=r.org_id
-   JOIN work_items b ON b.id=r.to_work_item_id AND b.org_id=r.org_id
-   WHERE r.org_id=${org} AND r.id>${after} AND r.relation_type='blocks'
-   ORDER BY r.id LIMIT ${limit}`,
-		comments: sql`SELECT c.id AS id, c.created_at AS at, w.id AS subjectId,
-   CASE WHEN c.author_type='user' THEN c.author_id END AS targetId,
-   NULL AS extraId, NULL AS data FROM work_item_comments c
-   JOIN work_items w ON w.id=c.work_item_id AND w.org_id=c.org_id
-   WHERE c.org_id=${org} AND c.id>${after} ORDER BY c.id LIMIT ${limit}`,
-		instructions: sql`SELECT f.id AS id, f.created_at AS at, w.id AS subjectId,
-   f.fact_type AS targetId, NULL AS extraId, NULL AS data FROM memory_facts f
-   LEFT JOIN work_item_comments c ON c.org_id=f.organization_id AND
-    c.id=coalesce(json_extract(f.metadata,'$.workCommentId'),
-     CASE WHEN substr(f.source,1,length('work-comment://'))='work-comment://'
-      THEN substr(f.source,length('work-comment://')+1)
-      WHEN substr(f.source,1,length('work-comment:'))='work-comment:'
-      THEN substr(f.source,length('work-comment:')+1) END)
-   JOIN work_items w ON w.org_id=f.organization_id AND
-    w.id=coalesce(json_extract(f.metadata,'$.workItemId'), CASE WHEN c.author_type='user' THEN c.work_item_id END)
-   WHERE f.organization_id=${org} AND f.id>${after} AND f.review_status='confirmed'
-    AND f.use_policy='can_use_as_instruction' AND f.status='active' AND f.archived_at IS NULL AND f.valid_to IS NULL
-    AND f.fact_type IN ('feedback','preference','decision') ORDER BY f.id LIMIT ${limit}`,
-		evidence: sql`SELECT e.id AS id, e.submitted_at AS at, w.id AS subjectId,
-   coalesce(target.id,o.id) AS targetId,
-   CASE WHEN target.id IS NULL THEN 'output' ELSE 'work_item' END AS extraId, NULL AS data FROM work_evidence e
-   JOIN work_items w ON w.id=e.work_item_id AND w.org_id=e.org_id
-   LEFT JOIN work_items target ON substr(e.uri,1,7)='work://' AND
-    target.id=substr(e.uri,8) AND target.org_id=e.org_id
-   LEFT JOIN os_outputs o ON o.organization_id=e.org_id AND substr(e.uri,1,9)='output://' AND
-    o.id=CASE WHEN instr(substr(e.uri,10),'/')>0
-     THEN substr(e.uri,10,instr(substr(e.uri,10),'/')-1) ELSE substr(e.uri,10) END
-   WHERE e.org_id=${org} AND e.id>${after} AND coalesce(target.id,o.id) IS NOT NULL
-   ORDER BY e.id LIMIT ${limit}`,
+		cards: () =>
+			db
+				.select(
+					sourceFields({
+						id: c.id,
+						at: c.createdAt,
+						subjectId: c.id,
+						targetId: w.id,
+						extraId: sql`CASE WHEN ${c.targetType}='user' THEN ${c.targetId} END`,
+						data: sql`CASE WHEN ${c.status}='cancelled' THEN ${c.metadata} END`,
+					}),
+				)
+				.from(c)
+				.leftJoin(w, and(eq(w.id, c.workItemId), eq(w.orgId, c.orgId)))
+				.where(and(eq(c.orgId, org), gt(c.id, after)))
+				.orderBy(c.id)
+				.limit(limit),
+		responses: () => {
+			const r = workInteractionResponses;
+			return db
+				.select(
+					sourceFields({
+						id: r.id,
+						at: r.respondedAt,
+						subjectId: c.id,
+						targetId: w.id,
+					}),
+				)
+				.from(r)
+				.innerJoin(c, and(eq(c.id, r.interactionId), eq(c.orgId, r.orgId)))
+				.leftJoin(w, and(eq(w.id, c.workItemId), eq(w.orgId, c.orgId)))
+				.where(
+					and(
+						eq(r.orgId, org),
+						gt(r.id, after),
+						sql`${r.resolvesRequest}=1`,
+						eq(c.status, "resolved"),
+						eq(r.resolvedRequestVersion, c.version),
+					),
+				)
+				.orderBy(r.id)
+				.limit(limit);
+		},
+		approvals: () => {
+			const d = workApprovalDecisions;
+			const p = workApprovalProposals;
+			return db
+				.select(
+					sourceFields({
+						id: d.id,
+						at: d.decidedAt,
+						subjectId: p.id,
+						targetId: w.id,
+					}),
+				)
+				.from(d)
+				.innerJoin(p, eq(p.id, d.proposalId))
+				.innerJoin(w, and(eq(w.id, p.workItemId), eq(w.orgId, p.orgId)))
+				.where(
+					and(
+						eq(p.orgId, org),
+						gt(d.id, after),
+						sql`${p.status}=${d.decision}`,
+					),
+				)
+				.orderBy(d.id)
+				.limit(limit);
+		},
+		tedi_approvals: () => {
+			const a = tediApprovalRequests;
+			return db
+				.select(
+					sourceFields({
+						id: a.id,
+						at: a.resolvedAt,
+						subjectId: a.id,
+						targetId: w.id,
+					}),
+				)
+				.from(a)
+				.leftJoin(
+					w,
+					and(
+						sql`${w.id}=json_extract(${a.payload},'$.workItemId')`,
+						eq(w.orgId, a.orgId),
+					),
+				)
+				.where(
+					and(
+						eq(a.orgId, org),
+						gt(a.id, after),
+						inArray(a.status, ["approved", "rejected"]),
+						isNotNull(a.resolvedAt),
+					),
+				)
+				.orderBy(a.id)
+				.limit(limit);
+		},
+		decisions: () => {
+			const d = tediRationaleRecords;
+			return db
+				.select(sourceFields({ id: d.id, at: d.createdAt, subjectId: w.id }))
+				.from(d)
+				.innerJoin(w, and(eq(w.id, d.workItemId), eq(w.orgId, d.orgId)))
+				.where(
+					and(
+						eq(d.orgId, org),
+						gt(d.id, after),
+						eq(d.category, "decision"),
+						eq(d.outcomeStatus, "success"),
+					),
+				)
+				.orderBy(d.id)
+				.limit(limit);
+		},
+		work_items: () =>
+			db
+				.select(
+					sourceFields({
+						id: w.id,
+						at: w.createdAt,
+						subjectId: w.id,
+						targetId: sql`CASE WHEN ${w.accountableOwnerType}='user' THEN ${w.accountableOwnerId} END`,
+					}),
+				)
+				.from(w)
+				.where(and(eq(w.orgId, org), gt(w.id, after)))
+				.orderBy(w.id)
+				.limit(limit),
+		relations: () => {
+			const r = workItemRelations;
+			const a = alias(workItems, "a");
+			const b = alias(workItems, "b");
+			return db
+				.select(
+					sourceFields({
+						id: r.id,
+						at: r.createdAt,
+						subjectId: a.id,
+						targetId: b.id,
+					}),
+				)
+				.from(r)
+				.innerJoin(a, and(eq(a.id, r.fromWorkItemId), eq(a.orgId, r.orgId)))
+				.innerJoin(b, and(eq(b.id, r.toWorkItemId), eq(b.orgId, r.orgId)))
+				.where(
+					and(eq(r.orgId, org), gt(r.id, after), eq(r.relationType, "blocks")),
+				)
+				.orderBy(r.id)
+				.limit(limit);
+		},
+		comments: () => {
+			const comment = alias(workItemComments, "c");
+			return db
+				.select(
+					sourceFields({
+						id: comment.id,
+						at: comment.createdAt,
+						subjectId: w.id,
+						targetId: sql`CASE WHEN ${comment.authorType}='user' THEN ${comment.authorId} END`,
+					}),
+				)
+				.from(comment)
+				.innerJoin(
+					w,
+					and(eq(w.id, comment.workItemId), eq(w.orgId, comment.orgId)),
+				)
+				.where(and(eq(comment.orgId, org), gt(comment.id, after)))
+				.orderBy(comment.id)
+				.limit(limit);
+		},
+		instructions: () => {
+			const f = alias(memoryFacts, "f");
+			const comment = alias(workItemComments, "c");
+			return db
+				.select(
+					sourceFields({
+						id: f.id,
+						at: f.createdAt,
+						subjectId: w.id,
+						targetId: f.factType,
+					}),
+				)
+				.from(f)
+				.leftJoin(
+					comment,
+					and(
+						eq(comment.orgId, f.organizationId),
+						sql`${comment.id}=coalesce(json_extract(${f.metadata},'$.workCommentId'),
+     CASE WHEN substr(${f.source},1,length('work-comment://'))='work-comment://'
+      THEN substr(${f.source},length('work-comment://')+1)
+      WHEN substr(${f.source},1,length('work-comment:'))='work-comment:'
+      THEN substr(${f.source},length('work-comment:')+1) END)`,
+					),
+				)
+				.innerJoin(
+					w,
+					and(
+						eq(w.orgId, f.organizationId),
+						sql`${w.id}=coalesce(json_extract(${f.metadata},'$.workItemId'), CASE WHEN ${comment.authorType}='user' THEN ${comment.workItemId} END)`,
+					),
+				)
+				.where(
+					and(
+						eq(f.organizationId, org),
+						gt(f.id, after),
+						eq(f.reviewStatus, "confirmed"),
+						eq(f.usePolicy, "can_use_as_instruction"),
+						eq(f.status, "active"),
+						isNull(f.archivedAt),
+						isNull(f.validTo),
+						inArray(f.factType, ["feedback", "preference", "decision"]),
+					),
+				)
+				.orderBy(f.id)
+				.limit(limit);
+		},
+		evidence: () => {
+			const e = workEvidence;
+			const target = alias(workItems, "target");
+			const o = osOutputs;
+			const targetId = sql`coalesce(${target.id},${o.id})`;
+			return db
+				.select(
+					sourceFields({
+						id: e.id,
+						at: e.submittedAt,
+						subjectId: w.id,
+						targetId,
+						extraId: sql`CASE WHEN ${target.id} IS NULL THEN 'output' ELSE 'work_item' END`,
+					}),
+				)
+				.from(e)
+				.innerJoin(w, and(eq(w.id, e.workItemId), eq(w.orgId, e.orgId)))
+				.leftJoin(
+					target,
+					and(
+						sql`substr(${e.uri},1,7)='work://'`,
+						sql`${target.id}=substr(${e.uri},8)`,
+						eq(target.orgId, e.orgId),
+					),
+				)
+				.leftJoin(
+					o,
+					and(
+						eq(o.organizationId, e.orgId),
+						sql`substr(${e.uri},1,9)='output://'`,
+						sql`${o.id}=CASE WHEN instr(substr(${e.uri},10),'/')>0
+     THEN substr(${e.uri},10,instr(substr(${e.uri},10),'/')-1) ELSE substr(${e.uri},10) END`,
+					),
+				)
+				.where(
+					and(eq(e.orgId, org), gt(e.id, after), sql`${targetId} IS NOT NULL`),
+				)
+				.orderBy(e.id)
+				.limit(limit);
+		},
 	};
-	const rows = await db.all<Source>(queries[cursor.phase]);
+	const rows: Source[] = await queries[cursor.phase]();
 	const edges: DecisionEdgeInput[] = [];
 	const add = (
 		row: Source,

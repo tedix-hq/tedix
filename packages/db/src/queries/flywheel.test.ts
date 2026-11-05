@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import { createDbClient } from "../client";
+import { createD1Facade } from "../test/d1-facade";
+import { createMigratedSqlite } from "../test/migrated-sqlite";
 import {
 	buildCronFlywheelHealth,
 	EXPECTED_COGNITIVE_CRONS,
@@ -18,6 +21,44 @@ const access: FlywheelAccess = {
 	tediId: "tedi-1",
 	orgId: "org-1",
 };
+
+/** Insert a row, filling unrelated NOT NULL columns with placeholders. */
+function insertWithPlaceholders(
+	sqlite: ReturnType<typeof createMigratedSqlite>,
+	table: string,
+	row: Record<string, string>,
+) {
+	const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+		name: string;
+		notnull: number;
+		dflt_value: unknown;
+		type: string;
+	}>;
+	const values: Record<string, string | number> = { ...row };
+	for (const column of columns) {
+		if (column.name in values || !column.notnull || column.dflt_value != null)
+			continue;
+		values[column.name] = /INT|REAL/i.test(column.type) ? 0 : column.name;
+	}
+	const names = Object.keys(values);
+	sqlite
+		.prepare(
+			`INSERT INTO ${table} (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`,
+		)
+		.run(...names.map((name) => values[name]!));
+}
+
+function flywheelDb() {
+	const sqlite = createMigratedSqlite({ foreignKeys: false });
+	const d1 = createD1Facade(sqlite);
+	const statements: string[] = [];
+	const prepare = d1.prepare.bind(d1);
+	d1.prepare = (query: string) => {
+		statements.push(query);
+		return prepare(query);
+	};
+	return { db: createDbClient(d1), sqlite, statements };
+}
 
 describe("flywheel query helpers", () => {
 	afterEach(() => {
@@ -94,49 +135,33 @@ describe("flywheel query helpers", () => {
 	});
 
 	it("projects decision episodes with objective and approval context", async () => {
-		const db = {
-			all: vi
-				.fn()
-				.mockResolvedValueOnce([
-					{
-						id: "decision-1",
-						action: "Deploy app",
-						category: "deployment",
-						confidence: 0.82,
-						outcomeStatus: "success",
-						evidence: { factIds: ["fact-1"] },
-						objectiveId: "objective-1",
-						approvalRequestId: "approval-1",
-						runId: "tedi-1:mcp:171",
-						workItemId: null,
-						toolCallRefs: JSON.stringify([
-							"tedi-1:mcp:171:step:0:0:deploy_worker",
-							"tedi-1:mcp:171:step:1:0:verify_deploy",
-						]),
-						proofRef: JSON.stringify({ kind: "run", ref: "tedi-1:mcp:171" }),
-						createdAt: "2026-05-22T10:00:00.000Z",
-						completedAt: "2026-05-22T10:10:00.000Z",
-					},
-				])
-				.mockResolvedValueOnce([
-					{
-						id: "work-1",
-						label: "Ship deployment",
-						createdAt: "2026-05-22T09:00:00.000Z",
-						objectiveId: "objective-1",
-						provenance: {},
-						metadata: {},
-					},
-				])
-				.mockResolvedValueOnce([])
-				.mockResolvedValueOnce([{ decisionId: "decision-1", cnt: 1 }]),
-		};
-
-		const [episode] = await getDecisionEpisodeProjections(
-			db as never,
-			access,
-			1,
+		const { db, sqlite, statements } = flywheelDb();
+		sqlite
+			.prepare(
+				`INSERT INTO tedi_rationale_records (id, tedi_id, org_id, action, rationale, category, confidence, evidence, outcome_status, objective_id, approval_request_id, run_id, tool_call_refs, proof_ref, created_at, completed_at)
+				 VALUES ('decision-1', 'tedi-1', 'org-1', 'Deploy app', 'why', 'deployment', 0.82, ?, 'success', 'objective-1', 'approval-1', 'tedi-1:mcp:171', ?, ?, '2026-05-22T10:00:00.000Z', '2026-05-22T10:10:00.000Z')`,
+			)
+			.run(
+				JSON.stringify({ factIds: ["fact-1"] }),
+				JSON.stringify([
+					"tedi-1:mcp:171:step:0:0:deploy_worker",
+					"tedi-1:mcp:171:step:1:0:verify_deploy",
+				]),
+				JSON.stringify({ kind: "run", ref: "tedi-1:mcp:171" }),
+			);
+		sqlite.exec(
+			`INSERT INTO work_items (id, org_id, title, objective_id, provenance, metadata, created_at, admission_spec_revision)
+			 VALUES ('work-1', 'org-1', 'Ship deployment', 'objective-1', '{}', '{}', '2026-05-22T09:00:00.000Z', 'fixture');`,
 		);
+		insertWithPlaceholders(sqlite, "mcp_payment_events", {
+			id: "payment-1",
+			organization_id: "org-1",
+			tedi_id: "tedi-1",
+			rationale_record_id: "decision-1",
+		});
+		statements.length = 0;
+
+		const [episode] = await getDecisionEpisodeProjections(db, access, 1);
 
 		expect(episode).toMatchObject({
 			decisionId: "decision-1",
@@ -193,40 +218,17 @@ describe("flywheel query helpers", () => {
 			episodesWithPayments: 1,
 		});
 		expect(quality.gaps).toEqual([]);
-		expect(db.all).toHaveBeenCalledTimes(4);
+		expect(statements).toHaveLength(5);
 	});
 
 	it("flags unlinked legacy episodes in the WS1 quality gate", async () => {
-		const db = {
-			all: vi
-				.fn()
-				.mockResolvedValueOnce([
-					{
-						id: "decision-legacy",
-						action: "Old decision",
-						category: "custom",
-						confidence: 0.5,
-						outcomeStatus: "success",
-						evidence: {},
-						objectiveId: null,
-						approvalRequestId: null,
-						runId: null,
-						workItemId: null,
-						toolCallRefs: null,
-						proofRef: null,
-						createdAt: "2026-05-01T10:00:00.000Z",
-						completedAt: "2026-05-01T10:10:00.000Z",
-					},
-				])
-				.mockResolvedValueOnce([])
-				.mockResolvedValueOnce([]),
-		};
-
-		const [episode] = await getDecisionEpisodeProjections(
-			db as never,
-			access,
-			1,
+		const { db, sqlite } = flywheelDb();
+		sqlite.exec(
+			`INSERT INTO tedi_rationale_records (id, tedi_id, org_id, action, rationale, category, confidence, evidence, outcome_status, created_at, completed_at)
+			 VALUES ('decision-legacy', 'tedi-1', 'org-1', 'Old decision', 'why', 'custom', 0.5, '{}', 'success', '2026-05-01T10:00:00.000Z', '2026-05-01T10:10:00.000Z')`,
 		);
+
+		const [episode] = await getDecisionEpisodeProjections(db, access, 1);
 
 		expect(episode).toMatchObject({
 			runId: null,
@@ -247,46 +249,46 @@ describe("flywheel query helpers", () => {
 		vi.spyOn(Date, "now").mockReturnValue(
 			new Date("2026-05-22T12:00:00.000Z").getTime(),
 		);
-		const db = {
-			all: vi.fn().mockResolvedValueOnce([
-				{
-					cohort: "operator",
-					taskType: "skill:deploy",
-					totalEpisodes: 8,
-					totalTaskTypes: 1,
-					phase: "baseline",
-					fromEpisode: 1,
-					cumulativeEpisodes: 4,
-					episodeCount: 4,
-					successes: 4,
-					steps: 8,
-					durationMs: 4000,
-					durationSamples: 4,
-					tokenCost: 4000,
-					tokenCostSamples: 4,
-					workItemLinks: 4,
-				},
-				{
-					cohort: "operator",
-					taskType: "skill:deploy",
-					totalEpisodes: 8,
-					totalTaskTypes: 1,
-					phase: "recent",
-					fromEpisode: 5,
-					cumulativeEpisodes: 8,
-					episodeCount: 4,
-					successes: 2,
-					steps: 20,
-					durationMs: 24000,
-					durationSamples: 4,
-					tokenCost: 16000,
-					tokenCostSamples: 4,
-					workItemLinks: 4,
-				},
-			]),
-		};
+		const { db, sqlite } = flywheelDb();
+		// Eight operator episodes: four clean baseline runs, then four slower,
+		// costlier, half-failing recent runs.
+		const insertEpisode = sqlite.prepare(
+			`INSERT INTO tedi_rationale_records (id, tedi_id, org_id, action, rationale, category, confidence, evidence, outcome_status, run_id, work_item_id, tool_call_refs, proof_ref, created_at, completed_at)
+			 VALUES (?, 'tedi-1', 'org-1', 'Deploy', 'why', 'deployment', 0.8, '{"taskType":"skill:deploy"}', ?, ?, 'work-1', ?, ?, ?, ?)`,
+		);
+		const insertRunCompleted = sqlite.prepare(
+			`INSERT INTO tedi_runtime_events (id, organization_id, tedi_id, run_id, kind, payload, runtime_backend, created_at)
+			 VALUES (?, 'org-1', 'tedi-1', ?, 'run.completed', ?, 'cloudflare', ?)`,
+		);
+		for (let index = 0; index < 8; index++) {
+			const recent = index >= 4;
+			const createdAt = new Date(
+				Date.UTC(2026, 4, 20, 10, index),
+			).toISOString();
+			const completedAt = new Date(
+				Date.parse(createdAt) + (recent ? 6000 : 1000),
+			).toISOString();
+			const success = !recent || index % 2 === 0;
+			insertEpisode.run(
+				`episode-${index}`,
+				success ? "success" : "failure",
+				`run-${index}`,
+				JSON.stringify(
+					Array.from({ length: recent ? 5 : 2 }, (_, step) => `step-${step}`),
+				),
+				success ? JSON.stringify({ kind: "run", ref: `run-${index}` }) : null,
+				createdAt,
+				completedAt,
+			);
+			insertRunCompleted.run(
+				`event-${index}`,
+				`run-${index}`,
+				JSON.stringify({ tokensUsed: recent ? 4000 : 1000 }),
+				completedAt,
+			);
+		}
 
-		const report = await getTaskTypeLearningCurves(db as never, access, {
+		const report = await getTaskTypeLearningCurves(db, access, {
 			windowDays: 30,
 			limit: 10,
 		});

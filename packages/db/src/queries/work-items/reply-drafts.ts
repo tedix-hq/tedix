@@ -25,7 +25,24 @@ import {
 	DECISION_SOURCE_CHANGED,
 } from "./decision-sources";
 import { recordPersistedCardResolutionEdges } from "../decision-graph-writers";
-import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	exists,
+	gt,
+	gte,
+	inArray,
+	isNotNull,
+	lt,
+	ne,
+	notExists,
+	notInArray,
+	or,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type WorkInteractionDeliveryVia,
@@ -38,6 +55,8 @@ import {
 	workInteractions,
 } from "../../schema/work-factory";
 import { WorkControlError } from "./factory-validation";
+import { competencyObservations } from "../../schema/earned-delegation";
+import { tedis } from "../../schema/tedis";
 
 /** Response `metadata.source` of an auto draft answering in the tedi's name. */
 export const AUTO_REPLY_SOURCE = "auto-reply";
@@ -222,30 +241,41 @@ export async function countConsecutiveAutoReplies(
 	p: CountConsecutiveAutoRepliesParams,
 ): Promise<number> {
 	if (p.limit <= 0) return 0;
-	const rows = await db.all<ConsecutiveRow>(sql`
-		SELECT
-			EXISTS(
-				SELECT 1 FROM work_interaction_reply_drafts d
-				WHERE d.org_id = q.org_id AND d.interaction_id = q.id AND d.delivery = 'auto'
-			) AS has_auto,
-			EXISTS(
-				SELECT 1 FROM work_interaction_responses r
-				WHERE r.org_id = q.org_id AND r.interaction_id = q.id
-					AND r.responder_type = 'user' AND r.responder_id = ${p.targetUserId}
-					AND json_extract(r.metadata, '$.source') = ${USER_REPLY_SOURCE}
-			) AS user_replied
-		FROM work_interactions q
-		WHERE q.org_id = ${p.orgId}
-			AND q.target_type = 'user'
-			AND q.target_id = ${p.targetUserId}
-			AND q.kind = 'question'
-			AND q.id <> ${p.interactionId}
-			AND json_extract(q.metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
-			AND json_extract(q.metadata, '$.sessionId') = ${p.sessionId}
-			AND (q.created_at < ${p.createdAt} OR (q.created_at = ${p.createdAt} AND q.id < ${p.interactionId}))
-		ORDER BY q.created_at DESC, q.id DESC
-		LIMIT ${p.limit}
-	`);
+	const d = alias(workInteractionReplyDrafts, "d");
+	const r = alias(workInteractionResponses, "r");
+	const rows: ConsecutiveRow[] = await db
+		.select({
+			has_auto: sql<number>`${exists(
+				db
+					.select({ one: sql`1` })
+					.from(d)
+					.where(
+						and(
+							eq(d.orgId, q.orgId),
+							eq(d.interactionId, q.id),
+							eq(d.delivery, "auto"),
+						),
+					),
+			)}`.as("has_auto"),
+			user_replied: sql<number>`${exists(
+				db
+					.select({ one: sql`1` })
+					.from(r)
+					.where(
+						and(
+							eq(r.orgId, q.orgId),
+							eq(r.interactionId, q.id),
+							eq(r.responderType, "user"),
+							eq(r.responderId, p.targetUserId),
+							sql`json_extract(${r.metadata}, '$.source') = ${USER_REPLY_SOURCE}`,
+						),
+					),
+			)}`.as("user_replied"),
+		})
+		.from(q)
+		.where(earlierSessionQuestions(p))
+		.orderBy(desc(q.createdAt), desc(q.id))
+		.limit(p.limit);
 	let count = 0;
 	for (const row of rows) {
 		if (!Number(row.has_auto) || Number(row.user_replied)) break;
@@ -272,26 +302,40 @@ export async function getPreviousSessionDraftTurnType(
 	db: DbQueryClient,
 	p: GetPreviousSessionDraftTurnTypeParams,
 ): Promise<string | null> {
-	const [row] = await db.all<{ turn_type: string | null }>(sql`
-		SELECT (
-			SELECT d.turn_type FROM work_interaction_reply_drafts d
-			WHERE d.org_id = q.org_id AND d.interaction_id = q.id
-			ORDER BY d.created_at DESC, d.id DESC
-			LIMIT 1
-		) AS turn_type
-		FROM work_interactions q
-		WHERE q.org_id = ${p.orgId}
-			AND q.target_type = 'user'
-			AND q.target_id = ${p.targetUserId}
-			AND q.kind = 'question'
-			AND q.id <> ${p.interactionId}
-			AND json_extract(q.metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
-			AND json_extract(q.metadata, '$.sessionId') = ${p.sessionId}
-			AND (q.created_at < ${p.createdAt} OR (q.created_at = ${p.createdAt} AND q.id < ${p.interactionId}))
-		ORDER BY q.created_at DESC, q.id DESC
-		LIMIT 1
-	`);
+	const d = alias(workInteractionReplyDrafts, "d");
+	const [row] = await db
+		.select({
+			turn_type: sql<string | null>`${db
+				.select({ turnType: d.turnType })
+				.from(d)
+				.where(and(eq(d.orgId, q.orgId), eq(d.interactionId, q.id)))
+				.orderBy(desc(d.createdAt), desc(d.id))
+				.limit(1)}`.as("turn_type"),
+		})
+		.from(q)
+		.where(earlierSessionQuestions(p))
+		.orderBy(desc(q.createdAt), desc(q.id))
+		.limit(1);
 	return row?.turn_type ?? null;
+}
+
+const q = alias(workInteractions, "q");
+
+/** The session's decision-capture questions before the current one. */
+function earlierSessionQuestions(p: GetPreviousSessionDraftTurnTypeParams) {
+	return and(
+		eq(q.orgId, p.orgId),
+		eq(q.targetType, "user"),
+		eq(q.targetId, p.targetUserId),
+		eq(q.kind, "question"),
+		ne(q.id, p.interactionId),
+		sql`json_extract(${q.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+		sql`json_extract(${q.metadata}, '$.sessionId') = ${p.sessionId}`,
+		or(
+			lt(q.createdAt, p.createdAt),
+			and(eq(q.createdAt, p.createdAt), lt(q.id, p.interactionId)),
+		),
+	);
 }
 
 export interface GetReplyDraftAcceptanceParams {
@@ -344,17 +388,12 @@ type AcceptanceRow = {
 	overridden_count: number;
 };
 
-function replyClassLists() {
-	return {
-		followClasses: sql.join(
-			AUTO_REPLY_FOLLOW_CLASSES.map((label) => sql`${label}`),
-			sql`, `,
-		),
-		neutralClasses: sql.join(
-			AUTO_REPLY_NEUTRAL_CLASSES.map((label) => sql`${label}`),
-			sql`, `,
-		),
-	};
+/**
+ * An auto draft the agent declined, or whose follow-up was neither a follow
+ * nor a neutral class.
+ */
+function overriddenDraft(o: DraftOutcomeRows) {
+	return sql`(${o.rejected} = 1 OR (${o.followup} IS NOT NULL AND ${notInArray(o.followup, [...AUTO_REPLY_FOLLOW_CLASSES])} AND ${notInArray(o.followup, [...AUTO_REPLY_NEUTRAL_CLASSES])}))`;
 }
 
 /** Narrows {@link draftOutcomes}; an omitted field does not filter. */
@@ -370,73 +409,112 @@ interface DraftOutcomeScope {
  * auto follow-up `replyClass`, whether the agent declined it, its drafter and
  * how long after the question it landed (`reply_seconds`).
  */
-function draftOutcomes(p: DraftOutcomeScope) {
+function draftOutcomes(db: DbQueryClient, p: DraftOutcomeScope) {
 	const since = p.since ?? null;
 	const orgId = p.orgId ?? null;
 	const targetUserId = p.targetUserId ?? null;
-	return sql`
-			SELECT
-				d.id AS draft_id,
-				d.org_id AS org_id,
-				i.target_id AS target_id,
-				d.turn_type AS turn_type,
-				d.drafter_id AS drafter_id,
-				d.created_at AS created_at,
-				(julianday(d.created_at) - julianday(i.created_at)) * 86400 AS reply_seconds,
-				(
-					SELECT json_extract(r.metadata, '$.draftOutcome')
-					FROM work_interaction_responses r
-					WHERE r.org_id = d.org_id
-						AND r.interaction_id = d.interaction_id
-						AND r.responder_type = 'user'
-						AND r.responder_id = i.target_id
-						AND json_extract(r.metadata, '$.draftId') = d.id
-					ORDER BY r.responded_at, r.id
-					LIMIT 1
-				) AS outcome,
-				d.delivery AS delivery,
-				CASE WHEN d.delivery = 'auto' THEN (
-					SELECT coalesce(json_extract(u.metadata, '$.replyClass'), '')
-					FROM work_interaction_responses u
-					WHERE u.org_id = d.org_id
-						AND u.responder_type = 'user'
-						AND u.responder_id = i.target_id
-						AND (json_extract(u.metadata, '$.source') = ${USER_REPLY_SOURCE} OR json_extract(u.metadata, '$.corrects') IS NOT NULL)
-						AND u.interaction_id IN (
-							d.interaction_id,
-							(
-								SELECT n.id FROM work_interactions n
-								WHERE n.org_id = i.org_id
-									AND n.target_type = 'user'
-									AND n.target_id = i.target_id
-									AND n.kind = 'question'
-									AND json_extract(n.metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
-									AND json_extract(n.metadata, '$.sessionId') = json_extract(i.metadata, '$.sessionId')
-									AND (n.created_at > i.created_at OR (n.created_at = i.created_at AND n.id > i.id))
-								ORDER BY n.created_at, n.id
-								LIMIT 1
-							)
-						)
-					ORDER BY u.responded_at, u.id
-					LIMIT 1
-				) END AS followup,
-				CASE WHEN d.delivery = 'auto' THEN EXISTS (
-					SELECT 1 FROM work_interactions n
-					WHERE n.org_id = i.org_id
-						AND n.target_type = 'user'
-						AND n.target_id = i.target_id
-						AND n.kind = 'question'
-						AND json_extract(n.metadata, '$.priorDraft.draftId') = d.id
-						AND json_extract(n.metadata, '$.priorDraft.draftOutcome') = 'rejected'
-				) ELSE 0 END AS rejected
-			FROM work_interaction_reply_drafts d
-			JOIN work_interactions i ON i.org_id = d.org_id AND i.id = d.interaction_id
-			WHERE (${orgId} IS NULL OR d.org_id = ${orgId})
-				AND i.target_type = 'user'
-				AND (${targetUserId} IS NULL OR i.target_id = ${targetUserId})
-				AND (${since} IS NULL OR d.created_at >= ${since})
-	`;
+	const d = alias(workInteractionReplyDrafts, "d");
+	const i = alias(workInteractions, "i");
+	const r = alias(workInteractionResponses, "r");
+	const u = alias(workInteractionResponses, "u");
+	const n = alias(workInteractions, "n");
+	const outcome = db
+		.select({ outcome: sql`json_extract(${r.metadata}, '$.draftOutcome')` })
+		.from(r)
+		.where(
+			and(
+				eq(r.orgId, d.orgId),
+				eq(r.interactionId, d.interactionId),
+				eq(r.responderType, "user"),
+				eq(r.responderId, i.targetId),
+				sql`json_extract(${r.metadata}, '$.draftId') = ${d.id}`,
+			),
+		)
+		.orderBy(asc(r.respondedAt), asc(r.id))
+		.limit(1);
+	const nextSessionQuestion = db
+		.select({ id: n.id })
+		.from(n)
+		.where(
+			and(
+				eq(n.orgId, i.orgId),
+				eq(n.targetType, "user"),
+				eq(n.targetId, i.targetId),
+				eq(n.kind, "question"),
+				sql`json_extract(${n.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+				sql`json_extract(${n.metadata}, '$.sessionId') = json_extract(${i.metadata}, '$.sessionId')`,
+				or(
+					gt(n.createdAt, i.createdAt),
+					and(eq(n.createdAt, i.createdAt), gt(n.id, i.id)),
+				),
+			),
+		)
+		.orderBy(asc(n.createdAt), asc(n.id))
+		.limit(1);
+	const followup = db
+		.select({
+			replyClass: sql`coalesce(json_extract(${u.metadata}, '$.replyClass'), '')`,
+		})
+		.from(u)
+		.where(
+			and(
+				eq(u.orgId, d.orgId),
+				eq(u.responderType, "user"),
+				eq(u.responderId, i.targetId),
+				sql`(json_extract(${u.metadata}, '$.source') = ${USER_REPLY_SOURCE} OR json_extract(${u.metadata}, '$.corrects') IS NOT NULL)`,
+				sql`${u.interactionId} IN (${d.interactionId}, ${nextSessionQuestion})`,
+			),
+		)
+		.orderBy(asc(u.respondedAt), asc(u.id))
+		.limit(1);
+	const declined = db
+		.select({ one: sql`1` })
+		.from(n)
+		.where(
+			and(
+				eq(n.orgId, i.orgId),
+				eq(n.targetType, "user"),
+				eq(n.targetId, i.targetId),
+				eq(n.kind, "question"),
+				sql`json_extract(${n.metadata}, '$.priorDraft.draftId') = ${d.id}`,
+				sql`json_extract(${n.metadata}, '$.priorDraft.draftOutcome') = 'rejected'`,
+			),
+		);
+	return db
+		.select({
+			draftId: sql<string>`${d.id}`.as("draft_id"),
+			orgId: sql<string>`${d.orgId}`.as("org_id"),
+			targetId: sql<string>`${i.targetId}`.as("target_id"),
+			turnType: sql<string | null>`${d.turnType}`.as("turn_type"),
+			drafterId: sql<string>`${d.drafterId}`.as("drafter_id"),
+			createdAt: sql<string>`${d.createdAt}`.as("created_at"),
+			replySeconds:
+				sql<number>`(julianday(${d.createdAt}) - julianday(${i.createdAt})) * 86400`.as(
+					"reply_seconds",
+				),
+			outcome: sql<string | null>`${outcome}`.as("outcome"),
+			delivery: sql<ReplyDraftDelivery>`${d.delivery}`.as("delivery"),
+			followup: sql<
+				string | null
+			>`CASE WHEN ${d.delivery} = 'auto' THEN ${followup} END`.as("followup"),
+			rejected:
+				sql<number>`CASE WHEN ${d.delivery} = 'auto' THEN ${exists(declined)} ELSE 0 END`.as(
+					"rejected",
+				),
+		})
+		.from(d)
+		.innerJoin(i, and(eq(i.orgId, d.orgId), eq(i.id, d.interactionId)))
+		.where(
+			and(
+				sql`(${orgId} IS NULL OR ${d.orgId} = ${orgId})`,
+				eq(i.targetType, "user"),
+				sql`(${targetUserId} IS NULL OR ${i.targetId} = ${targetUserId})`,
+				sql`(${since} IS NULL OR ${d.createdAt} >= ${since})`,
+			),
+		);
 }
+
+type DraftOutcomeRows = ReturnType<ReturnType<typeof draftOutcomes>["as"]>;
 
 /**
  * Draft acceptance per turn type for one target user. A draft's outcome is the
@@ -459,23 +537,40 @@ export async function getReplyDraftAcceptance(
 	p: GetReplyDraftAcceptanceParams,
 	options: ReplyDraftAcceptanceOptions,
 ): Promise<ReplyDraftAcceptanceResult[]> {
-	const { followClasses, neutralClasses } = replyClassLists();
-	const rows = await db.all<AcceptanceRow>(sql`
-		SELECT
-			outcomes.turn_type AS turn_type,
-			count(*) AS draft_count,
-			sum(CASE WHEN outcomes.outcome = 'accepted' THEN 1 ELSE 0 END) AS accepted_count,
-			sum(CASE WHEN outcomes.outcome = 'edited' THEN 1 ELSE 0 END) AS edited_count,
-			sum(CASE WHEN outcomes.outcome = 'replaced' THEN 1 ELSE 0 END) AS replaced_count,
-			sum(CASE WHEN outcomes.delivery = 'auto' THEN 1 ELSE 0 END) AS auto_count,
-			sum(CASE WHEN outcomes.followup IS NOT NULL THEN 1 ELSE 0 END) AS auto_followed_count,
-			sum(CASE WHEN outcomes.rejected = 1 OR (outcomes.followup IS NOT NULL AND outcomes.followup NOT IN (${followClasses}) AND outcomes.followup NOT IN (${neutralClasses})) THEN 1 ELSE 0 END) AS overridden_count
-		FROM (
-${draftOutcomes(p)}
-		) outcomes
-		GROUP BY outcomes.turn_type
-		ORDER BY draft_count DESC, outcomes.turn_type
-	`);
+	const outcomes = draftOutcomes(db, p).as("outcomes");
+	const draftCount = sql<number>`count(*)`.as("draft_count");
+	const rows: AcceptanceRow[] = await db
+		.select({
+			turn_type: outcomes.turnType,
+			draft_count: draftCount,
+			accepted_count:
+				sql<number>`sum(CASE WHEN ${outcomes.outcome} = 'accepted' THEN 1 ELSE 0 END)`.as(
+					"accepted_count",
+				),
+			edited_count:
+				sql<number>`sum(CASE WHEN ${outcomes.outcome} = 'edited' THEN 1 ELSE 0 END)`.as(
+					"edited_count",
+				),
+			replaced_count:
+				sql<number>`sum(CASE WHEN ${outcomes.outcome} = 'replaced' THEN 1 ELSE 0 END)`.as(
+					"replaced_count",
+				),
+			auto_count:
+				sql<number>`sum(CASE WHEN ${outcomes.delivery} = 'auto' THEN 1 ELSE 0 END)`.as(
+					"auto_count",
+				),
+			auto_followed_count:
+				sql<number>`sum(CASE WHEN ${outcomes.followup} IS NOT NULL THEN 1 ELSE 0 END)`.as(
+					"auto_followed_count",
+				),
+			overridden_count:
+				sql<number>`sum(CASE WHEN ${overriddenDraft(outcomes)} THEN 1 ELSE 0 END)`.as(
+					"overridden_count",
+				),
+		})
+		.from(outcomes)
+		.groupBy(outcomes.turnType)
+		.orderBy(desc(sql`draft_count`), asc(outcomes.turnType));
 	return rows.map((row) => {
 		const accepted = Number(row.accepted_count ?? 0);
 		const edited = Number(row.edited_count ?? 0);
@@ -547,37 +642,71 @@ export async function getReplyDraftLeaderboard(
 	db: DbQueryClient,
 	p: GetReplyDraftLeaderboardParams,
 ): Promise<ReplyDraftLeaderboardResult[]> {
-	const { followClasses, neutralClasses } = replyClassLists();
-	const overridden = sql`(o.rejected = 1 OR (o.followup IS NOT NULL AND o.followup NOT IN (${followClasses}) AND o.followup NOT IN (${neutralClasses})))`;
-	const stood = sql`((o.delivery = 'auto' AND NOT ${overridden}) OR (o.delivery IS NOT 'auto' AND o.outcome = 'accepted'))`;
-	const corrected = sql`(o.outcome IN ('edited', 'replaced') OR (o.delivery = 'auto' AND ${overridden}))`;
-	const today = sql`o.created_at >= ${p.todaySince}`;
-	const steered = sql`o.turn_type = ${STEER_TURN_TYPE}`;
-	const rows = await db.all<LeaderboardRow>(sql`
-		SELECT
-			o.drafter_id AS drafter_id,
-			t.name AS tedi_name,
-			t.avatar AS tedi_avatar,
-			count(*) AS w_answered,
-			sum(CASE WHEN o.delivery = 'auto' THEN 1 ELSE 0 END) AS w_auto,
-			sum(CASE WHEN ${stood} THEN 1 ELSE 0 END) AS w_stood,
-			sum(CASE WHEN ${corrected} THEN 1 ELSE 0 END) AS w_corrected,
-			sum(CASE WHEN ${steered} THEN 1 ELSE 0 END) AS w_steered,
-			avg(o.reply_seconds) AS w_reply_seconds,
-			sum(CASE WHEN ${today} THEN 1 ELSE 0 END) AS t_answered,
-			sum(CASE WHEN ${today} AND o.delivery = 'auto' THEN 1 ELSE 0 END) AS t_auto,
-			sum(CASE WHEN ${today} AND ${stood} THEN 1 ELSE 0 END) AS t_stood,
-			sum(CASE WHEN ${today} AND ${corrected} THEN 1 ELSE 0 END) AS t_corrected,
-			sum(CASE WHEN ${today} AND ${steered} THEN 1 ELSE 0 END) AS t_steered,
-			avg(CASE WHEN ${today} THEN o.reply_seconds END) AS t_reply_seconds
-		FROM (
-${draftOutcomes(p)}
-		) o
-		LEFT JOIN tedis t ON t.id = o.drafter_id AND t.organization_id = ${p.orgId}
-		GROUP BY o.drafter_id
-		ORDER BY w_stood DESC, w_corrected ASC, w_answered DESC, o.drafter_id
-		LIMIT 50
-	`);
+	const o = draftOutcomes(db, p).as("o");
+	const t = alias(tedis, "t");
+	const overridden = overriddenDraft(o);
+	const stood = sql`((${o.delivery} = 'auto' AND NOT ${overridden}) OR (${o.delivery} IS NOT 'auto' AND ${o.outcome} = 'accepted'))`;
+	const corrected = sql`(${o.outcome} IN ('edited', 'replaced') OR (${o.delivery} = 'auto' AND ${overridden}))`;
+	const today = sql`${o.createdAt} >= ${p.todaySince}`;
+	const steered = sql`${o.turnType} = ${STEER_TURN_TYPE}`;
+	const rows: LeaderboardRow[] = await db
+		.select({
+			drafter_id: o.drafterId,
+			tedi_name: sql<string | null>`${t.name}`.as("tedi_name"),
+			tedi_avatar: sql<string | null>`${t.avatar}`.as("tedi_avatar"),
+			w_answered: sql<number>`count(*)`.as("w_answered"),
+			w_auto:
+				sql<number>`sum(CASE WHEN ${o.delivery} = 'auto' THEN 1 ELSE 0 END)`.as(
+					"w_auto",
+				),
+			w_stood: sql<number>`sum(CASE WHEN ${stood} THEN 1 ELSE 0 END)`.as(
+				"w_stood",
+			),
+			w_corrected:
+				sql<number>`sum(CASE WHEN ${corrected} THEN 1 ELSE 0 END)`.as(
+					"w_corrected",
+				),
+			w_steered: sql<number>`sum(CASE WHEN ${steered} THEN 1 ELSE 0 END)`.as(
+				"w_steered",
+			),
+			w_reply_seconds: sql<number | null>`avg(${o.replySeconds})`.as(
+				"w_reply_seconds",
+			),
+			t_answered: sql<number>`sum(CASE WHEN ${today} THEN 1 ELSE 0 END)`.as(
+				"t_answered",
+			),
+			t_auto:
+				sql<number>`sum(CASE WHEN ${today} AND ${o.delivery} = 'auto' THEN 1 ELSE 0 END)`.as(
+					"t_auto",
+				),
+			t_stood:
+				sql<number>`sum(CASE WHEN ${today} AND ${stood} THEN 1 ELSE 0 END)`.as(
+					"t_stood",
+				),
+			t_corrected:
+				sql<number>`sum(CASE WHEN ${today} AND ${corrected} THEN 1 ELSE 0 END)`.as(
+					"t_corrected",
+				),
+			t_steered:
+				sql<number>`sum(CASE WHEN ${today} AND ${steered} THEN 1 ELSE 0 END)`.as(
+					"t_steered",
+				),
+			t_reply_seconds: sql<
+				number | null
+			>`avg(CASE WHEN ${today} THEN ${o.replySeconds} END)`.as(
+				"t_reply_seconds",
+			),
+		})
+		.from(o)
+		.leftJoin(t, and(eq(t.id, o.drafterId), eq(t.organizationId, p.orgId)))
+		.groupBy(o.drafterId)
+		.orderBy(
+			desc(sql`w_stood`),
+			asc(sql`w_corrected`),
+			desc(sql`w_answered`),
+			asc(o.drafterId),
+		)
+		.limit(50);
 	const score = (row: LeaderboardRow, at: "w" | "t"): ReplyDraftScore => {
 		const seconds = row[`${at}_reply_seconds`];
 		return {
@@ -849,40 +978,62 @@ export async function listUnrecordedReplyDraftOutcomes(
 	db: DbQueryClient,
 	p: ListUnrecordedReplyDraftOutcomesParams,
 ): Promise<SettledReplyDraftOutcome[]> {
-	const { followClasses, neutralClasses } = replyClassLists();
-	const overridden = sql`(o.rejected = 1 OR (o.followup IS NOT NULL AND o.followup NOT IN (${followClasses}) AND o.followup NOT IN (${neutralClasses})))`;
-	const rows = await db.all<SettledRow>(sql`
-		SELECT * FROM (
-			SELECT
-				o.org_id AS org_id,
-				o.draft_id AS draft_id,
-				o.drafter_id AS drafter_id,
-				o.target_id AS target_id,
-				o.created_at AS created_at,
-				o.delivery AS delivery,
-				CASE
-					WHEN o.delivery = 'auto' AND ${overridden} THEN 'corrected'
-					WHEN o.delivery = 'auto' AND (o.followup IS NOT NULL OR o.created_at <= ${p.settledBefore}) THEN 'stood'
-					WHEN o.delivery IS NOT 'auto' AND o.outcome = 'accepted' THEN 'stood'
-					WHEN o.delivery IS NOT 'auto' AND o.outcome IN ('edited', 'replaced') THEN 'corrected'
-				END AS verdict
-			FROM (
-${draftOutcomes({ since: p.since, orgId: p.orgId })}
-			) o
-			WHERE EXISTS (
-				SELECT 1 FROM tedis t
-				WHERE t.id = o.drafter_id AND t.organization_id = o.org_id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM competency_observations c
-				WHERE c.organization_id = o.org_id
-					AND c.client_observation_id = 'reply-draft:' || o.draft_id
-			)
-		) settled
-		WHERE settled.verdict IS NOT NULL
-		ORDER BY settled.created_at, settled.draft_id
-		LIMIT ${p.limit}
-	`);
+	const o = draftOutcomes(db, { since: p.since, orgId: p.orgId }).as("o");
+	const t = alias(tedis, "t");
+	const c = alias(competencyObservations, "c");
+	const overridden = overriddenDraft(o);
+	const settled = db
+		.select({
+			orgId: sql<string>`${o.orgId}`.as("org_id"),
+			draftId: sql<string>`${o.draftId}`.as("draft_id"),
+			drafterId: sql<string>`${o.drafterId}`.as("drafter_id"),
+			targetId: sql<string>`${o.targetId}`.as("target_id"),
+			createdAt: sql<string>`${o.createdAt}`.as("created_at"),
+			delivery: sql<ReplyDraftDelivery>`${o.delivery}`.as("delivery"),
+			verdict: sql<"stood" | "corrected" | null>`CASE
+					WHEN ${o.delivery} = 'auto' AND ${overridden} THEN 'corrected'
+					WHEN ${o.delivery} = 'auto' AND (${o.followup} IS NOT NULL OR ${o.createdAt} <= ${p.settledBefore}) THEN 'stood'
+					WHEN ${o.delivery} IS NOT 'auto' AND ${o.outcome} = 'accepted' THEN 'stood'
+					WHEN ${o.delivery} IS NOT 'auto' AND ${o.outcome} IN ('edited', 'replaced') THEN 'corrected'
+				END`.as("verdict"),
+		})
+		.from(o)
+		.where(
+			and(
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(t)
+						.where(and(eq(t.id, o.drafterId), eq(t.organizationId, o.orgId))),
+				),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(c)
+						.where(
+							and(
+								eq(c.organizationId, o.orgId),
+								sql`${c.clientObservationId} = 'reply-draft:' || ${o.draftId}`,
+							),
+						),
+				),
+			),
+		)
+		.as("settled");
+	const rows = (await db
+		.select({
+			org_id: settled.orgId,
+			draft_id: settled.draftId,
+			drafter_id: settled.drafterId,
+			target_id: settled.targetId,
+			created_at: settled.createdAt,
+			delivery: settled.delivery,
+			verdict: settled.verdict,
+		})
+		.from(settled)
+		.where(isNotNull(settled.verdict))
+		.orderBy(asc(settled.createdAt), asc(settled.draftId))
+		.limit(p.limit)) as SettledRow[];
 	return rows.map((row) => ({
 		orgId: row.org_id,
 		draftId: row.draft_id,

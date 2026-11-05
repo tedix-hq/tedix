@@ -1,5 +1,8 @@
 import type { D1Executor } from "../client";
 
+// Raw D1 by design: apps/tedi passes `Pick<D1Database, "prepare">` and needs
+// `meta.changes` for these CAS writes across two tables; a builder would change that wiring.
+
 type D1PrepareExecutor = Pick<D1Executor, "prepare">;
 
 export type RuntimeBodyGenerationStatus =

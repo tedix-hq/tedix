@@ -6,8 +6,16 @@
  */
 
 import type { WorkStewardshipPolicy } from "@tedix/api-contract/schemas/work-stewardship";
-import { sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, ne, notExists, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import { organizations } from "../../schema/organizations";
+import { projects } from "../../schema/projects";
+import { tedis } from "../../schema/tedis";
+import {
+	workAttempts,
+	workItemComments,
+	workItems,
+} from "../../schema/work-items";
 import { addWorkItemCommentIfAbsent } from "./comments";
 
 export function workRoutingCommentId(workItemId: string): string {
@@ -18,13 +26,21 @@ export function workRoutingCommentId(workItemId: string): string {
 export async function listWorkRoutingOrgs(
 	db: DbQueryClient,
 ): Promise<Array<{ orgId: string; policy: unknown }>> {
-	const rows = await db.all<{ org_id: string; policy: string | null }>(sql`
-		SELECT o.id AS org_id, json_extract(o.metadata, '$.workStewardship') AS policy
-		FROM organizations o
-		WHERE json_extract(o.metadata, '$.workStewardship.enabled') = 1
-			AND json_extract(o.metadata, '$.workStewardship.autoRoute.enabled') = 1
-		ORDER BY o.id
-	`);
+	const rows = await db
+		.select({
+			org_id: organizations.id,
+			policy: sql<
+				string | null
+			>`json_extract(${organizations.metadata}, '$.workStewardship')`,
+		})
+		.from(organizations)
+		.where(
+			and(
+				sql`json_extract(${organizations.metadata}, '$.workStewardship.enabled') = 1`,
+				sql`json_extract(${organizations.metadata}, '$.workStewardship.autoRoute.enabled') = 1`,
+			),
+		)
+		.orderBy(asc(organizations.id));
 	return rows.map((row) => ({
 		orgId: row.org_id,
 		policy: row.policy ? JSON.parse(row.policy) : null,
@@ -61,50 +77,78 @@ export async function listRoutableWork(
 	},
 ): Promise<RoutableWorkItem[]> {
 	const { policy } = input;
-	const rows = await db.all<{
-		id: string;
-		title: string;
-		description: string | null;
-		work_kind: string;
-		project_id: string | null;
-		version: number;
-		done_when: string;
-		tedi_id: string;
-		tedi_slug: string;
-		tedi_name: string;
-	}>(sql`
-		SELECT w.id, w.title, w.description, w.work_kind, w.project_id, w.version,
-			json_extract(w.acceptance_contract, '$.doneLooksLike') AS done_when,
-			t.id AS tedi_id, t.slug AS tedi_slug, t.name AS tedi_name
-		FROM work_items w
-		LEFT JOIN projects p ON p.org_id = w.org_id AND p.id = w.project_id
-		JOIN tedis t ON t.organization_id = w.org_id
-			AND t.status = 'active' AND t.retired_at IS NULL
-			AND t.id = coalesce(
-				CASE WHEN w.steward_type = 'tedi' THEN w.steward_id END,
-				json_extract(${JSON.stringify(policy.projectStewards)}, '$."' || w.project_id || '"'),
-				CASE WHEN ${policy.useProjectLead ? 1 : 0} = 1 THEN p.lead_tedi_id END,
-				json_extract(${JSON.stringify(policy.workKindStewards)}, '$."' || w.work_kind || '"'),
-				${policy.defaultTediId ?? null}
-			)
-		WHERE w.org_id = ${input.orgId}
-			AND w.disposition = 'accepted'
-			AND json_extract(w.metadata, '$.executor') IS NULL
-			AND w.work_kind <> 'coding'
-			AND trim(coalesce(json_extract(w.acceptance_contract, '$.doneLooksLike'), '')) <> ''
-			AND (w.start_at IS NULL OR w.start_at <= ${input.now})
-			AND NOT EXISTS (
-				SELECT 1 FROM work_attempts a
-				WHERE a.org_id = w.org_id AND a.work_item_id = w.id
-					AND a.runtime_state IN ('queued', 'running', 'waiting', 'retrying')
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM work_item_comments c
-				WHERE c.id = ${workRoutingCommentId("")} || w.id
-			)
-		ORDER BY w.created_at, w.id
-		LIMIT ${input.limit}
-	`);
+	const rows = await db
+		.select({
+			id: workItems.id,
+			title: workItems.title,
+			description: workItems.description,
+			work_kind: workItems.workKind,
+			project_id: workItems.projectId,
+			version: workItems.version,
+			done_when:
+				sql<string>`json_extract(${workItems.acceptanceContract}, '$.doneLooksLike')`.as(
+					"done_when",
+				),
+			tedi_id: sql<string>`${tedis.id}`.as("tedi_id"),
+			tedi_slug: sql<string>`${tedis.slug}`.as("tedi_slug"),
+			tedi_name: sql<string>`${tedis.name}`.as("tedi_name"),
+		})
+		.from(workItems)
+		.leftJoin(
+			projects,
+			and(
+				eq(projects.orgId, workItems.orgId),
+				eq(projects.id, workItems.projectId),
+			),
+		)
+		.innerJoin(
+			tedis,
+			and(
+				eq(tedis.organizationId, workItems.orgId),
+				eq(tedis.status, "active"),
+				isNull(tedis.retiredAt),
+				sql`${tedis.id} = coalesce(
+					CASE WHEN ${workItems.stewardType} = 'tedi' THEN ${workItems.stewardId} END,
+					json_extract(${JSON.stringify(policy.projectStewards)}, '$."' || ${workItems.projectId} || '"'),
+					CASE WHEN ${policy.useProjectLead ? 1 : 0} = 1 THEN ${projects.leadTediId} END,
+					json_extract(${JSON.stringify(policy.workKindStewards)}, '$."' || ${workItems.workKind} || '"'),
+					${policy.defaultTediId ?? null}
+				)`,
+			),
+		)
+		.where(
+			and(
+				eq(workItems.orgId, input.orgId),
+				eq(workItems.disposition, "accepted"),
+				sql`json_extract(${workItems.metadata}, '$.executor') IS NULL`,
+				ne(workItems.workKind, "coding"),
+				sql`trim(coalesce(json_extract(${workItems.acceptanceContract}, '$.doneLooksLike'), '')) <> ''`,
+				or(isNull(workItems.startAt), lte(workItems.startAt, input.now)),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(workAttempts)
+						.where(
+							and(
+								eq(workAttempts.orgId, workItems.orgId),
+								eq(workAttempts.workItemId, workItems.id),
+								// Literal list: it must match the uniq_work_attempt_active partial index.
+								sql`${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')`,
+							),
+						),
+				),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(workItemComments)
+						.where(
+							sql`${workItemComments.id} = ${workRoutingCommentId("")} || ${workItems.id}`,
+						),
+				),
+			),
+		)
+		.orderBy(asc(workItems.createdAt), asc(workItems.id))
+		.limit(input.limit);
 	return rows.map((row) => ({
 		id: row.id,
 		title: row.title,

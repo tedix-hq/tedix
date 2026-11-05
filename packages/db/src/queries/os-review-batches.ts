@@ -1,4 +1,5 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, exists, gt, isNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import {
 	osReviewBatches,
@@ -10,15 +11,67 @@ import {
 } from "../schema/os-shares";
 import { osGadgets } from "../schema/os-workspaces";
 
+const l = alias(osShareLinks, "l");
+const g = alias(osGadgets, "g");
+const linkedGadget = and(
+	eq(g.id, l.resourceId),
+	eq(g.organizationId, l.organizationId),
+);
+
+/** A live `use` link to a gadget whose role policy still allows use. */
+function usableGadgetLink(now: string) {
+	return and(
+		sql`${l.resourceType}='gadget'`,
+		sql`${l.role}='use'`,
+		or(isNull(l.policyMaxRole), sql`${l.policyMaxRole}='use'`),
+		isNull(l.revokedAt),
+		or(isNull(l.expiresAt), gt(l.expiresAt, now)),
+	);
+}
+
 export async function createOsReviewBatch(
 	db: DbQueryClient,
 	row: typeof osReviewBatches.$inferInsert,
 	now: string,
 ) {
+	// l.id and g.id are primary keys: the join yields at most the one row the
+	// former EXISTS checked for.
 	const [batch] = await db
 		.insert(osReviewBatches)
 		.select(
-			sql`select ${row.id},${row.organizationId},${row.shareLinkId},${row.sourceOutputId},${row.sourceRevisionId},${row.title},${row.cards},${row.accessEnvelope},${row.createdById},${row.createdAt} where exists(select 1 from ${osShareLinks} l join ${osGadgets} g on g.id=l.resource_id and g.organization_id=l.organization_id where l.id=${row.shareLinkId} and l.organization_id=${row.organizationId} and l.created_by_kind='user' and l.created_by_id=${row.createdById} and l.resource_type='gadget' and l.role='use' and (l.policy_max_role is null or l.policy_max_role='use') and l.revoked_at is null and (l.expires_at is null or l.expires_at>${now}) and g.status='active')`,
+			db
+				.select({
+					id: sql<string>`${row.id}`.as("id"),
+					organizationId: sql<string>`${row.organizationId}`.as(
+						"organization_id",
+					),
+					shareLinkId: sql<string>`${row.shareLinkId}`.as("share_link_id"),
+					sourceOutputId: sql<string>`${row.sourceOutputId}`.as(
+						"source_output_id",
+					),
+					sourceRevisionId: sql<string>`${row.sourceRevisionId}`.as(
+						"source_revision_id",
+					),
+					title: sql<string>`${row.title}`.as("title"),
+					cards: sql<string>`${row.cards}`.as("cards"),
+					accessEnvelope: sql<string>`${row.accessEnvelope}`.as(
+						"access_envelope",
+					),
+					createdById: sql<string>`${row.createdById}`.as("created_by_id"),
+					createdAt: sql<string>`${row.createdAt}`.as("created_at"),
+				})
+				.from(l)
+				.innerJoin(g, linkedGadget)
+				.where(
+					and(
+						eq(l.id, row.shareLinkId),
+						eq(l.organizationId, row.organizationId),
+						sql`${l.createdByKind}='user'`,
+						eq(l.createdById, row.createdById),
+						usableGadgetLink(now),
+						sql`${g.status}='active'`,
+					),
+				),
 		)
 		.onConflictDoNothing()
 		.returning();
@@ -129,18 +182,31 @@ export async function saveOsReviewFeedback(
 		now: string;
 	},
 ) {
+	const b = alias(osReviewBatches, "b");
 	const caller =
 		p.access.kind === "share"
-			? sql`l.id=${p.access.shareId} and exists(select 1 from ${osShareSessions} s where s.share_link_id=l.id and s.session_token_hash=${p.access.sessionHash} and s.revoked_at is null and s.expires_at>${p.now})`
-			: sql`l.resource_id=${p.access.gadgetId}`;
-	const active = sql`exists(select 1 from ${osReviewBatches} b
- join ${osShareLinks} l on l.id=b.share_link_id
- join ${osGadgets} g on g.id=l.resource_id and g.organization_id=l.organization_id
- where b.id=${p.batchId} and b.organization_id=${p.organizationId} and l.organization_id=${p.organizationId}
- and ${caller} and l.resource_type='gadget' and l.role='use'
- and (l.policy_max_role is null or l.policy_max_role='use')
- and l.revoked_at is null and (l.expires_at is null or l.expires_at>${p.now})
- and g.status='active' and exists(select 1 from json_each(b.cards) c where json_extract(c.value,'$.id')=${p.cardId}))`;
+			? sql`${l.id}=${p.access.shareId} and exists(select 1 from ${osShareSessions} s where s.share_link_id=${l.id} and s.session_token_hash=${p.access.sessionHash} and s.revoked_at is null and s.expires_at>${p.now})`
+			: sql`${l.resourceId}=${p.access.gadgetId}`;
+	// b.id, l.id and g.id are primary keys, so the join yields at most one row.
+	const batchLink = eq(l.id, b.shareLinkId);
+	const activeBatch = and(
+		eq(b.id, p.batchId),
+		eq(b.organizationId, p.organizationId),
+		eq(l.organizationId, p.organizationId),
+		caller,
+		usableGadgetLink(p.now),
+		sql`${g.status}='active'`,
+		// json_each is a table-valued function; no builder form.
+		sql`exists(select 1 from json_each(${b.cards}) c where json_extract(c.value,'$.id')=${p.cardId})`,
+	);
+	const active = exists(
+		db
+			.select({ one: sql`1` })
+			.from(b)
+			.innerJoin(l, batchLink)
+			.innerJoin(g, linkedGadget)
+			.where(activeBatch),
+	);
 	const values = {
 		organizationId: p.organizationId,
 		batchId: p.batchId,
@@ -156,7 +222,25 @@ export async function saveOsReviewFeedback(
 		const [row] = await db
 			.insert(osReviewFeedback)
 			.select(
-				sql`select ${crypto.randomUUID()},${p.organizationId},${p.batchId},${p.cardId},${p.reviewerId},1,${p.decision},${p.editedReply},${p.reason},${p.now} where ${active}`,
+				db
+					.select({
+						id: sql<string>`${crypto.randomUUID()}`.as("id"),
+						organizationId: sql<string>`${p.organizationId}`.as(
+							"organization_id",
+						),
+						batchId: sql<string>`${p.batchId}`.as("batch_id"),
+						cardId: sql<string>`${p.cardId}`.as("card_id"),
+						reviewerId: sql<string>`${p.reviewerId}`.as("reviewer_id"),
+						revision: sql<number>`1`.as("revision"),
+						decision: sql<string>`${p.decision}`.as("decision"),
+						editedReply: sql<string>`${p.editedReply}`.as("edited_reply"),
+						reason: sql<string>`${p.reason}`.as("reason"),
+						updatedAt: sql<string>`${p.now}`.as("updated_at"),
+					})
+					.from(b)
+					.innerJoin(l, batchLink)
+					.innerJoin(g, linkedGadget)
+					.where(activeBatch),
 			)
 			.onConflictDoNothing()
 			.returning();

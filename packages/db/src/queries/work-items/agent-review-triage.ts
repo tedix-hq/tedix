@@ -1,9 +1,11 @@
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { DbQueryClient } from "../../query-client";
-import { workEvents } from "../../schema/work-items";
+import { workEvents, workItemComments } from "../../schema/work-items";
 
 /** Materialize a bounded recent window before examining comments; never scan the project history. */
+// Raw: both CTEs need AS MATERIALIZED, which Drizzle $with cannot emit; flattened, each comment subquery runs repeatedly.
 export function buildAgentReviewsForTriageStatement(p: {
 	orgId: string;
 	projectId: string;
@@ -54,14 +56,50 @@ export async function claimAgentReviewRetry(
 	},
 ) {
 	const [, attempt] = await db.batch([
-		db.run(sql`INSERT INTO work_item_comments (id,org_id,work_item_id,author_type,body,metadata,created_at)
-			VALUES (${p.tickSlotId},${p.orgId},${p.workItemId},'system','Review triage tick slot reserved.','{}',${p.at}) ON CONFLICT DO NOTHING`),
-		db.all<{
-			id: string;
-		}>(sql`INSERT INTO work_item_comments (id,org_id,work_item_id,author_type,body,metadata,created_at)
-			SELECT ${`${p.workItemId}:agent-review-retry:${p.retry}`},${p.orgId},${p.workItemId},'system','Review triage attempted; completion remains unverified.',${JSON.stringify({ agentReviewRetry: true, retry: p.retry })},${p.at}
-			WHERE EXISTS (SELECT 1 FROM work_item_comments WHERE id = ${p.tickSlotId} AND org_id = ${p.orgId} AND work_item_id = ${p.workItemId})
-			ON CONFLICT DO NOTHING RETURNING id`),
+		db
+			.insert(workItemComments)
+			.values({
+				id: p.tickSlotId,
+				orgId: p.orgId,
+				workItemId: p.workItemId,
+				authorType: "system",
+				body: "Review triage tick slot reserved.",
+				metadata: {},
+				createdAt: p.at,
+			})
+			.onConflictDoNothing(),
+		db
+			.insert(workItemComments)
+			.select(
+				db
+					.select({
+						id: sql<string>`${`${p.workItemId}:agent-review-retry:${p.retry}`}`.as(
+							"id",
+						),
+						orgId: sql<string>`${p.orgId}`.as("org_id"),
+						workItemId: sql<string>`${p.workItemId}`.as("work_item_id"),
+						authorType: sql<"system">`'system'`.as("author_type"),
+						body: sql<string>`'Review triage attempted; completion remains unverified.'`.as(
+							"body",
+						),
+						metadata: sql<
+							Record<string, JsonValue>
+						>`${JSON.stringify({ agentReviewRetry: true, retry: p.retry })}`.as(
+							"metadata",
+						),
+						createdAt: sql<string>`${p.at}`.as("created_at"),
+					})
+					.from(workItemComments)
+					.where(
+						and(
+							eq(workItemComments.id, p.tickSlotId),
+							eq(workItemComments.orgId, p.orgId),
+							eq(workItemComments.workItemId, p.workItemId),
+						),
+					),
+			)
+			.onConflictDoNothing()
+			.returning({ id: workItemComments.id }),
 	]);
 	return attempt.length === 1;
 }

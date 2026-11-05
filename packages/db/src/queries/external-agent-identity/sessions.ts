@@ -1,6 +1,7 @@
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, lt, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -123,26 +124,54 @@ export async function openExternalAgentSession(
 	const creditEligible =
 		input.identitySource !== "derived" && input.creditEligible !== false;
 	const metadata = input.metadata ?? {};
-	const inserted = (await db.all(sql`
-		INSERT INTO ${externalAgentSessions} (
-			id, organization_id, principal_id, external_session_key,
-			harness, harness_version, model_provider, model_id, model_version,
-			identity_source, status, credit_eligible, started_at, last_seen_at,
-			ended_at, metadata
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
+	const inserted = await db
+		.insert(externalAgentSessions)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.id}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					principalId: sql<string>`${input.principalId}`.as("principal_id"),
+					externalSessionKey: sql<string>`${input.externalSessionKey}`.as(
+						"external_session_key",
+					),
+					harness: sql<string>`${input.harness}`.as("harness"),
+					harnessVersion: sql<string>`${input.harnessVersion}`.as(
+						"harness_version",
+					),
+					modelProvider: sql<string>`${input.modelProvider}`.as(
+						"model_provider",
+					),
+					modelId: sql<string>`${input.modelId}`.as("model_id"),
+					modelVersion: sql<string>`${input.modelVersion}`.as("model_version"),
+					identitySource: sql<
+						typeof input.identitySource
+					>`${input.identitySource}`.as("identity_source"),
+					status: sql<"active">`'active'`.as("status"),
+					creditEligible: sql<boolean>`${creditEligible ? 1 : 0}`.as(
+						"credit_eligible",
+					),
+					startedAt: sql<string>`${input.startedAt}`.as("started_at"),
+					lastSeenAt: sql<string>`${input.startedAt}`.as("last_seen_at"),
+					endedAt: sql<null>`NULL`.as("ended_at"),
+					metadata: sql<
+						Record<string, JsonValue>
+					>`${JSON.stringify(metadata)}`.as("metadata"),
+				})
+				.from(activePrincipal)
+				.where(
+					and(
+						eq(activePrincipal.organizationId, input.organizationId),
+						eq(activePrincipal.id, input.principalId),
+						eq(activePrincipal.status, "active"),
+					),
+				),
 		)
-		SELECT
-			${input.id}, ${input.organizationId}, ${input.principalId},
-			${input.externalSessionKey}, ${input.harness}, ${input.harnessVersion},
-			${input.modelProvider}, ${input.modelId}, ${input.modelVersion},
-			${input.identitySource}, 'active', ${creditEligible ? 1 : 0},
-			${input.startedAt}, ${input.startedAt}, NULL, ${JSON.stringify(metadata)}
-		FROM ${externalAgentPrincipals} AS active_principal
-		WHERE active_principal.organization_id = ${input.organizationId}
-			AND active_principal.id = ${input.principalId}
-			AND active_principal.status = 'active'
-		ON CONFLICT DO NOTHING
-		RETURNING id
-	`)) as Array<{ id: string }>;
+		.onConflictDoNothing()
+		.returning({ id: externalAgentSessions.id });
 	if (inserted[0]) {
 		const created = await getExternalAgentSession(db, {
 			organizationId: input.organizationId,
@@ -164,21 +193,31 @@ export async function heartbeatExternalAgentSession(
 		seenAt: string;
 	},
 ): Promise<ExternalAgentSession> {
-	const updated = (await db.all(sql`
-		UPDATE ${externalAgentSessions}
-		SET last_seen_at = ${params.seenAt}
-		WHERE organization_id = ${params.organizationId}
-			AND principal_id = ${params.principalId}
-			AND id = ${params.sessionId}
-			AND status = 'active'
-			AND EXISTS (
-				SELECT 1 FROM ${externalAgentPrincipals} AS active_principal
-				WHERE active_principal.organization_id = ${params.organizationId}
-					AND active_principal.id = ${params.principalId}
-					AND active_principal.status = 'active'
-			)
-		RETURNING id
-	`)) as Array<{ id: string }>;
+	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
+	const updated = await db
+		.update(externalAgentSessions)
+		.set({ lastSeenAt: params.seenAt })
+		.where(
+			and(
+				eq(externalAgentSessions.organizationId, params.organizationId),
+				eq(externalAgentSessions.principalId, params.principalId),
+				eq(externalAgentSessions.id, params.sessionId),
+				eq(externalAgentSessions.status, "active"),
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(activePrincipal)
+						.where(
+							and(
+								eq(activePrincipal.organizationId, params.organizationId),
+								eq(activePrincipal.id, params.principalId),
+								eq(activePrincipal.status, "active"),
+							),
+						),
+				),
+			),
+		)
+		.returning({ id: externalAgentSessions.id });
 	if (!updated[0]) return diagnoseMutableSession(db, params);
 	return (await getExternalAgentSession(db, params))!;
 }
@@ -330,17 +369,31 @@ export async function consumeExternalAgentExchangeBudget(
 	params: { organizationId: string; principalId: string; nowMs: number },
 ): Promise<boolean> {
 	const windowStart = Math.floor(params.nowMs / 60_000);
-	const rows = await db.all(sql`
-		INSERT INTO ${externalAgentExchangeLimits} (organization_id, principal_id, window_start, request_count)
-		VALUES (${params.organizationId}, ${params.principalId}, ${windowStart}, 1)
-		ON CONFLICT (organization_id, principal_id) DO UPDATE SET
-			window_start = excluded.window_start,
-			request_count = CASE WHEN ${externalAgentExchangeLimits.windowStart} = excluded.window_start
-				THEN ${externalAgentExchangeLimits.requestCount} + 1 ELSE 1 END
-		WHERE ${externalAgentExchangeLimits.windowStart} < excluded.window_start
-			OR (${externalAgentExchangeLimits.windowStart} = excluded.window_start AND ${externalAgentExchangeLimits.requestCount} < 30)
-		RETURNING request_count
-	`);
+	const limits = externalAgentExchangeLimits;
+	const rows = await db
+		.insert(limits)
+		.values({
+			organizationId: params.organizationId,
+			principalId: params.principalId,
+			windowStart,
+			requestCount: 1,
+		})
+		.onConflictDoUpdate({
+			target: [limits.organizationId, limits.principalId],
+			set: {
+				windowStart: sql`excluded.window_start`,
+				requestCount: sql`CASE WHEN ${limits.windowStart} = excluded.window_start
+				THEN ${limits.requestCount} + 1 ELSE 1 END`,
+			},
+			setWhere: or(
+				sql`${limits.windowStart} < excluded.window_start`,
+				and(
+					sql`${limits.windowStart} = excluded.window_start`,
+					lt(limits.requestCount, 30),
+				),
+			),
+		})
+		.returning({ requestCount: limits.requestCount });
 	return rows.length === 1;
 }
 

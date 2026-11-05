@@ -4,6 +4,7 @@
  * session's own user records delivery (and later acknowledgement) once each.
  */
 import { and, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import {
 	workInteractionDeliveries,
@@ -160,8 +161,8 @@ export async function recordWorkInteractionDeliveries(
 		);
 	if (!owned.length) return [];
 	const acknowledgedAt = p.acknowledged ? p.now : null;
-	const keep = (column: string) =>
-		sql.raw(`COALESCE("${column}", excluded."${column}")`);
+	const keep = (column: SQLiteColumn) =>
+		sql`COALESCE(${sql.identifier(column.name)}, excluded.${sql.identifier(column.name)})`;
 	return db
 		.insert(workInteractionDeliveries)
 		.values(
@@ -183,11 +184,11 @@ export async function recordWorkInteractionDeliveries(
 				workInteractionDeliveries.responseId,
 			],
 			set: {
-				deliveredAt: keep("delivered_at"),
-				deliveredVia: keep("delivered_via"),
-				acknowledgedAt: keep("acknowledged_at"),
-				handoffTo: keep("handoff_to"),
-				handoffRef: keep("handoff_ref"),
+				deliveredAt: keep(workInteractionDeliveries.deliveredAt),
+				deliveredVia: keep(workInteractionDeliveries.deliveredVia),
+				acknowledgedAt: keep(workInteractionDeliveries.acknowledgedAt),
+				handoffTo: keep(workInteractionDeliveries.handoffTo),
+				handoffRef: keep(workInteractionDeliveries.handoffRef),
 				updatedAt: p.now,
 			},
 		})

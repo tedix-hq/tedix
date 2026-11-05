@@ -7,8 +7,27 @@
  * with ORDER BY ... DESC LIMIT 1, never a max() over a whole table.
  */
 
-import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
-import { workItems } from "../../schema/work-items";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	exists,
+	inArray,
+	isNotNull,
+	notExists,
+	or,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
+import { policyPacks } from "../../schema/control-plane";
+import { kernelRequests } from "../../schema/kernel-requests";
+import { organizationMembers } from "../../schema/organization-members";
+import { organizations } from "../../schema/organizations";
+import { workInteractions } from "../../schema/work-factory";
+import { workAttempts, workItems } from "../../schema/work-items";
 import type { DbQueryClient } from "../../query-client";
 import {
 	dispatcherHealthReports,
@@ -108,21 +127,37 @@ export function listDispatcherHealthReports(
  * The organization's newest active policy pack enables the request tracker.
  * Only these organizations run the dispatcher, so only they can stall.
  */
-function trackerEnabled(orgId: SQL): SQL {
-	return sql`coalesce((SELECT json_extract(p.definition, '$.kernelRequestCoordinator.enabled') = 1
-		FROM policy_packs p
-		WHERE p.organization_id = ${orgId} AND +p.status = 'active'
-		ORDER BY p.version DESC LIMIT 1), 0)`;
+function trackerEnabled(db: DbQueryClient, orgId: SQLWrapper): SQL {
+	const p = alias(policyPacks, "p");
+	// `+status` keeps the planner on the (organization_id, version) seek.
+	return sql`coalesce(${db
+		.select({
+			enabled: sql`json_extract(${p.definition}, '$.kernelRequestCoordinator.enabled') = 1`,
+		})
+		.from(p)
+		.where(and(eq(p.organizationId, orgId), sql`+${p.status} = 'active'`))
+		.orderBy(desc(p.version))
+		.limit(1)}, 0)`;
 }
 
-function lastAdmission(orgId: SQL): SQL {
-	return sql`(SELECT a.started_at FROM work_attempts a
-		WHERE a.org_id = ${orgId} ORDER BY a.started_at DESC LIMIT 1)`;
+function lastAdmission(db: DbQueryClient, orgId: SQLWrapper): SQL {
+	const a = alias(workAttempts, "a");
+	return sql`${db
+		.select({ startedAt: a.startedAt })
+		.from(a)
+		.where(eq(a.orgId, orgId))
+		.orderBy(desc(a.startedAt))
+		.limit(1)}`;
 }
 
-function lastTrackerAction(orgId: SQL): SQL {
-	return sql`(SELECT k.updated_at FROM kernel_requests k
-		WHERE k.organization_id = ${orgId} ORDER BY k.updated_at DESC LIMIT 1)`;
+function lastTrackerAction(db: DbQueryClient, orgId: SQLWrapper): SQL {
+	const k = alias(kernelRequests, "k");
+	return sql`${db
+		.select({ updatedAt: k.updatedAt })
+		.from(k)
+		.where(eq(k.organizationId, orgId))
+		.orderBy(desc(k.updatedAt))
+		.limit(1)}`;
 }
 
 export interface DispatcherActivity {
@@ -136,16 +171,18 @@ export interface DispatcherActivity {
 export async function readDispatcherActivity(
 	db: DbQueryClient,
 ): Promise<DispatcherActivity> {
-	const [row] = await db.all<{
-		last_admission_at: string | null;
-		last_tracker_at: string | null;
-	}>(sql`
-		SELECT
-			max(${lastAdmission(sql`o.id`)}) AS last_admission_at,
-			max(${lastTrackerAction(sql`o.id`)}) AS last_tracker_at
-		FROM organizations o
-		WHERE ${trackerEnabled(sql`o.id`)} = 1
-	`);
+	const o = alias(organizations, "o");
+	const [row] = await db
+		.select({
+			last_admission_at: sql<string | null>`max(${lastAdmission(db, o.id)})`.as(
+				"last_admission_at",
+			),
+			last_tracker_at: sql<
+				string | null
+			>`max(${lastTrackerAction(db, o.id)})`.as("last_tracker_at"),
+		})
+		.from(o)
+		.where(sql`${trackerEnabled(db, o.id)} = 1`);
 	return {
 		lastAdmissionAt: row?.last_admission_at ?? null,
 		lastTrackerActionAt: row?.last_tracker_at ?? null,
@@ -190,18 +227,30 @@ type OrgRow = {
 	answered_alert_at: string | null;
 };
 
-function dispatchable(): SQL {
-	return sql`
-		w.org_id = t.org_id
-		AND w.disposition = 'accepted'
-		AND json_extract(w.metadata, '$.executor') IS NOT NULL
-		AND (json_type(w.metadata, '$.laneDispatch') IS NULL
-			OR json_extract(w.metadata, '$.laneDispatch.state') = 'ready') = 1
-		AND NOT EXISTS (
-			SELECT 1 FROM work_attempts x
-			WHERE x.org_id = w.org_id AND x.work_item_id = w.id
-				AND x.runtime_state IN ('queued', 'running', 'waiting', 'retrying')
-		)`;
+const w = alias(workItems, "w");
+
+function dispatchable(db: DbQueryClient, orgId: SQLWrapper): SQL | undefined {
+	const x = alias(workAttempts, "x");
+	return and(
+		eq(w.orgId, orgId),
+		eq(w.disposition, "accepted"),
+		sql`json_extract(${w.metadata}, '$.executor') IS NOT NULL`,
+		sql`(json_type(${w.metadata}, '$.laneDispatch') IS NULL
+			OR json_extract(${w.metadata}, '$.laneDispatch.state') = 'ready') = 1`,
+		notExists(
+			db
+				.select({ one: sql`1` })
+				.from(x)
+				.where(
+					and(
+						eq(x.orgId, w.orgId),
+						eq(x.workItemId, w.id),
+						// Literal list: it must match the uniq_work_attempt_active partial index.
+						sql`${x.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')`,
+					),
+				),
+		),
+	);
 }
 
 /**
@@ -214,48 +263,117 @@ export async function listDispatcherHealthOrgs(
 	db: DbQueryClient,
 ): Promise<DispatcherHealthOrgRow[]> {
 	// The alarm addresses its item to a user; target_type keeps this on an index.
-	const alertOf = (orgId: SQL) => sql`h.org_id = ${orgId}
-		AND h.target_type = 'user'
-		AND json_extract(h.metadata, '$.schema') = ${DISPATCHER_HEALTH_SCHEMA}`;
-	const rows = await db.all<OrgRow>(sql`
-		WITH c AS (
-			SELECT
-				o.id AS org_id,
-				o.metadata AS org_metadata,
-				${trackerEnabled(sql`o.id`)} AS tracker_enabled,
-				(SELECT h.id FROM work_interactions h
-					WHERE ${alertOf(sql`o.id`)} AND h.status = 'open'
-					ORDER BY h.created_at, h.id LIMIT 1) AS alert_id
-			FROM organizations o
-		),
-		t AS (
-			SELECT * FROM c WHERE c.tracker_enabled = 1 OR c.alert_id IS NOT NULL
+	const h = alias(workInteractions, "h");
+	const alertOf = (orgId: SQLWrapper) =>
+		and(
+			eq(h.orgId, orgId),
+			eq(h.targetType, "user"),
+			sql`json_extract(${h.metadata}, '$.schema') = ${DISPATCHER_HEALTH_SCHEMA}`,
+		);
+	const o = alias(organizations, "o");
+	const c = db.$with("c").as(
+		db
+			.select({
+				orgId: sql<string>`${o.id}`.as("org_id"),
+				orgMetadata: sql<string | null>`${o.metadata}`.as(
+					"organization_metadata",
+				),
+				trackerEnabled: sql<number>`${trackerEnabled(db, o.id)}`.as(
+					"tracker_enabled",
+				),
+				alertId: sql<string | null>`${db
+					.select({ id: h.id })
+					.from(h)
+					.where(and(alertOf(o.id), eq(h.status, "open")))
+					.orderBy(h.createdAt, h.id)
+					.limit(1)}`.as("alert_id"),
+			})
+			.from(o),
+	);
+	const t = db.$with("t").as(
+		db
+			.select({
+				orgId: c.orgId,
+				orgMetadata: c.orgMetadata,
+				trackerEnabled: c.trackerEnabled,
+				alertId: c.alertId,
+			})
+			.from(c)
+			.where(or(eq(c.trackerEnabled, 1), isNotNull(c.alertId))),
+	);
+	const m = alias(organizationMembers, "m");
+	const a = alias(workInteractions, "a");
+	const rows: OrgRow[] = await db
+		.with(c, t)
+		.select({
+			org_id: t.orgId,
+			tracker_enabled: t.trackerEnabled,
+			stale_after: sql<
+				number | null
+			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.staleAfterMinutes')`.as(
+				"stale_after",
+			),
+			alarm_enabled: sql<
+				number | string | null
+			>`json_extract(${t.orgMetadata}, '$.dispatcherHealth.enabled')`.as(
+				"alarm_enabled",
+			),
+			waiting: sql<number>`${db
+				.select({ n: sql`count(*)` })
+				.from(w)
+				.where(dispatchable(db, t.orgId))}`.as("waiting"),
+			work_item_id: sql<string | null>`${db
+				.select({ id: w.id })
+				.from(w)
+				.where(dispatchable(db, t.orgId))
+				.orderBy(w.createdAt, w.id)
+				.limit(1)}`.as("work_item_id"),
+			last_admission_at: sql<string | null>`${lastAdmission(db, t.orgId)}`.as(
+				"last_admission_at",
+			),
+			last_tracker_at: sql<string | null>`${lastTrackerAction(db, t.orgId)}`.as(
+				"last_tracker_at",
+			),
+			owner_user_id: sql<string | null>`${db
+				.select({ userId: m.userId })
+				.from(m)
+				.where(
+					and(
+						eq(m.organizationId, t.orgId),
+						eq(m.role, "owner"),
+						eq(m.status, "active"),
+						eq(m.kind, "human"),
+						isNotNull(m.userId),
+					),
+				)
+				.orderBy(m.id)
+				.limit(1)}`.as("owner_user_id"),
+			alert_id: t.alertId,
+			alert_version: sql<number | null>`${a.version}`.as("alert_version"),
+			alert_creator_id: sql<string | null>`${a.creatorId}`.as(
+				"alert_creator_id",
+			),
+			answered_alert_at: sql<string | null>`${db
+				.select({ at: sql`max(${h.createdAt})` })
+				.from(h)
+				.where(and(alertOf(t.orgId), eq(h.status, "resolved")))}`.as(
+				"answered_alert_at",
+			),
+		})
+		.from(t)
+		.leftJoin(a, and(eq(a.orgId, t.orgId), eq(a.id, t.alertId)))
+		.where(
+			or(
+				isNotNull(t.alertId),
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(w)
+						.where(dispatchable(db, t.orgId)),
+				),
+			),
 		)
-		SELECT
-			t.org_id,
-			t.tracker_enabled,
-			json_extract(t.org_metadata, '$.dispatcherHealth.staleAfterMinutes') AS stale_after,
-			json_extract(t.org_metadata, '$.dispatcherHealth.enabled') AS alarm_enabled,
-			(SELECT count(*) FROM work_items w WHERE ${dispatchable()}) AS waiting,
-			(SELECT w.id FROM work_items w WHERE ${dispatchable()}
-				ORDER BY w.created_at, w.id LIMIT 1) AS work_item_id,
-			${lastAdmission(sql`t.org_id`)} AS last_admission_at,
-			${lastTrackerAction(sql`t.org_id`)} AS last_tracker_at,
-			(SELECT m.user_id FROM organization_members m
-				WHERE m.organization_id = t.org_id AND m.role = 'owner'
-					AND m.status = 'active' AND m.kind = 'human' AND m.user_id IS NOT NULL
-				ORDER BY m.id LIMIT 1) AS owner_user_id,
-			t.alert_id,
-			a.version AS alert_version,
-			a.creator_id AS alert_creator_id,
-			(SELECT max(h.created_at) FROM work_interactions h
-				WHERE ${alertOf(sql`t.org_id`)} AND h.status = 'resolved') AS answered_alert_at
-		FROM t
-		LEFT JOIN work_interactions a ON a.org_id = t.org_id AND a.id = t.alert_id
-		WHERE t.alert_id IS NOT NULL
-			OR EXISTS (SELECT 1 FROM work_items w WHERE ${dispatchable()})
-		ORDER BY t.org_id
-	`);
+		.orderBy(t.orgId);
 	return rows.map((r) => ({
 		orgId: r.org_id,
 		trackerEnabled: Number(r.tracker_enabled) === 1,

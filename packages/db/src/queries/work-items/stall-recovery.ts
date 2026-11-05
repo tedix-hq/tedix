@@ -1,7 +1,29 @@
-import { eq, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	gt,
+	gte,
+	inArray,
+	isNull,
+	lt,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import type { DbQueryClient } from "../../query-client";
+import {
+	learningImprovementProposals,
+	learningInteractionEvents,
+} from "../../schema/learning-feedback";
 import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+import {
+	workInteractionAttention,
+	workInteractions,
+} from "../../schema/work-factory";
+import { workItems } from "../../schema/work-items";
 
 export const CONTINUITY_SCOPE_BATCH_SIZE = 100;
 
@@ -27,6 +49,7 @@ export interface ContinuityScope {
  * CROSS JOIN keeps the page outside indexed history lookups; SQLite must not
  * scan runtime history to build an automatic index. Joins retain tenant scope.
  */
+// Raw: needs AS MATERIALIZED CTEs and CROSS JOIN join-order pinning, which Drizzle cannot emit.
 export async function listContinuityScopes(
 	db: DbQueryClient,
 	after = "",
@@ -145,9 +168,27 @@ export async function countContinuityResults(
 	start: string,
 	end: string,
 ): Promise<number> {
-	const [row] = await db.all<{ count: number }>(
-		sql`SELECT count(*) AS count FROM work_items w WHERE w.org_id = ${scope.orgId} AND w.disposition = 'completed' AND w.completed_at >= ${start} AND w.completed_at < ${end} AND ((${scope.kind} = 'project' AND w.project_id = ${scope.id}) OR (${scope.kind} = 'objective' AND w.objective_id = ${scope.id}))`,
-	);
+	const [row] = await db
+		.select({ count: sql<number>`count(*)`.as("count") })
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, scope.orgId),
+				eq(workItems.disposition, "completed"),
+				gte(workItems.completedAt, start),
+				lt(workItems.completedAt, end),
+				or(
+					and(
+						sql`${scope.kind} = 'project'`,
+						eq(workItems.projectId, scope.id),
+					),
+					and(
+						sql`${scope.kind} = 'objective'`,
+						eq(workItems.objectiveId, scope.id),
+					),
+				),
+			),
+		);
 	return Number(row?.count ?? 0);
 }
 
@@ -156,9 +197,20 @@ export async function getStallReceipt(
 	orgId: string,
 	clientEventId: string,
 ) {
-	const [row] = await db.all<{ occurredAt: string }>(
-		sql`SELECT occurred_at AS occurredAt FROM learning_interaction_events WHERE organization_id = ${orgId} AND client_event_id = ${clientEventId} AND surface = 'stall_recovery' AND event_kind = 'delivered' AND actor_type = 'service' AND actor_id = 'stall-recovery' LIMIT 1`,
-	);
+	const [row] = await db
+		.select({ occurredAt: learningInteractionEvents.occurredAt })
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, orgId),
+				eq(learningInteractionEvents.clientEventId, clientEventId),
+				eq(learningInteractionEvents.surface, "stall_recovery"),
+				eq(learningInteractionEvents.eventKind, "delivered"),
+				eq(learningInteractionEvents.actorType, "service"),
+				eq(learningInteractionEvents.actorId, "stall-recovery"),
+			),
+		)
+		.limit(1);
 	return row ?? null;
 }
 
@@ -177,24 +229,50 @@ export async function listStallReceipts(
 	}> = [];
 	for (let at = 0; at < keys.length; at += 50) {
 		const chunk = keys.slice(at, at + 50);
+		const target = sql<string>`${learningInteractionEvents.targetType} || ':' || ${learningInteractionEvents.targetId}`;
+		const receipts = db.$with("receipts").as(
+			db
+				.select({
+					key: target.as("key"),
+					requestKey:
+						sql<string>`${learningInteractionEvents.clientEventId}`.as(
+							"requestKey",
+						),
+					tediId: sql<string | null>`${learningInteractionEvents.tediId}`.as(
+						"tediId",
+					),
+					occurredAt: sql<string>`${learningInteractionEvents.occurredAt}`.as(
+						"occurredAt",
+					),
+					position:
+						sql<number>`row_number() OVER (PARTITION BY ${learningInteractionEvents.targetType}, ${learningInteractionEvents.targetId} ORDER BY ${learningInteractionEvents.occurredAt} DESC, ${learningInteractionEvents.id} DESC)`.as(
+							"position",
+						),
+				})
+				.from(learningInteractionEvents)
+				.where(
+					and(
+						eq(learningInteractionEvents.organizationId, orgId),
+						eq(learningInteractionEvents.surface, "stall_recovery"),
+						eq(learningInteractionEvents.eventKind, "delivered"),
+						sql`json_extract(${learningInteractionEvents.metadata}, '$.environment') = ${environment}`,
+						eq(learningInteractionEvents.actorType, "service"),
+						eq(learningInteractionEvents.actorId, "stall-recovery"),
+						inArray(target, chunk),
+					),
+				),
+		);
 		rows.push(
-			...(await db.all<{
-				key: string;
-				requestKey: string;
-				tediId: string | null;
-				occurredAt: string;
-			}>(sql`
-   WITH receipts AS (
-    SELECT target_type || ':' || target_id AS key, client_event_id AS requestKey, tedi_id AS tediId, occurred_at AS occurredAt,
-    row_number() OVER (PARTITION BY target_type, target_id ORDER BY occurred_at DESC, id DESC) AS position
-    FROM learning_interaction_events
-    WHERE organization_id = ${orgId} AND surface = 'stall_recovery' AND event_kind = 'delivered' AND json_extract(metadata, '$.environment') = ${environment} AND actor_type = 'service' AND actor_id = 'stall-recovery'
-    AND target_type || ':' || target_id IN (${sql.join(
-			chunk.map((key) => sql`${key}`),
-			sql`, `,
-		)})
-   ) SELECT key, requestKey, tediId, occurredAt FROM receipts WHERE position = 1
-  `)),
+			...(await db
+				.with(receipts)
+				.select({
+					key: receipts.key,
+					requestKey: receipts.requestKey,
+					tediId: receipts.tediId,
+					occurredAt: receipts.occurredAt,
+				})
+				.from(receipts)
+				.where(eq(receipts.position, 1))),
 		);
 	}
 	return rows;
@@ -205,9 +283,16 @@ export async function hasContinuityFix(
 	orgId: string,
 	issueKey: string,
 ) {
-	const [row] = await db.all(
-		sql`SELECT id FROM learning_improvement_proposals WHERE organization_id = ${orgId} AND client_proposal_id = ${issueKey} LIMIT 1`,
-	);
+	const [row] = await db
+		.select({ id: learningImprovementProposals.id })
+		.from(learningImprovementProposals)
+		.where(
+			and(
+				eq(learningImprovementProposals.organizationId, orgId),
+				eq(learningImprovementProposals.clientProposalId, issueKey),
+			),
+		)
+		.limit(1);
 	return !!row;
 }
 
@@ -218,23 +303,41 @@ export async function listContinuityHumanAsks(
 	userId: string,
 	now: string,
 ) {
-	return db.all<{
-		id: string;
-		need: string;
-		projectId: string | null;
-		objectiveId: string | null;
-		creatorId: string;
-	}>(sql`
- SELECT i.id, coalesce(a.need, json_extract(i.metadata, '$.reason'), i.subject) AS need,
- coalesce(i.project_id, w.project_id) AS projectId, w.objective_id AS objectiveId, i.creator_id AS creatorId
- FROM work_interactions i LEFT JOIN work_items w ON w.id = i.work_item_id AND w.org_id = i.org_id
- LEFT JOIN work_interaction_attention a ON a.org_id = i.org_id AND a.interaction_id = i.id
- WHERE i.org_id = ${orgId} AND i.target_type = 'user' AND i.target_id = ${userId}
- AND i.status = 'open' AND (i.expires_at IS NULL OR i.expires_at > ${now})
- AND i.creator_type = 'tedi' AND a.kind IS NOT 'fyi'
- AND (i.kind <> 'coordination' OR (a.kind = 'needs_you' AND length(trim(a.need)) > 0))
- ORDER BY i.created_at, i.id LIMIT 200
- `);
+	const i = alias(workInteractions, "i");
+	const w = alias(workItems, "w");
+	const a = alias(workInteractionAttention, "a");
+	return db
+		.select({
+			id: i.id,
+			need: sql<string>`coalesce(${a.need}, json_extract(${i.metadata}, '$.reason'), ${i.subject})`.as(
+				"need",
+			),
+			projectId: sql<
+				string | null
+			>`coalesce(${i.projectId}, ${w.projectId})`.as("projectId"),
+			objectiveId: sql<string | null>`${w.objectiveId}`.as("objectiveId"),
+			creatorId: sql<string>`${i.creatorId}`.as("creatorId"),
+		})
+		.from(i)
+		.leftJoin(w, and(eq(w.id, i.workItemId), eq(w.orgId, i.orgId)))
+		.leftJoin(a, and(eq(a.orgId, i.orgId), eq(a.interactionId, i.id)))
+		.where(
+			and(
+				eq(i.orgId, orgId),
+				eq(i.targetType, "user"),
+				eq(i.targetId, userId),
+				eq(i.status, "open"),
+				or(isNull(i.expiresAt), gt(i.expiresAt, now)),
+				eq(i.creatorType, "tedi"),
+				sql`${a.kind} IS NOT 'fyi'`,
+				or(
+					ne(i.kind, "coordination"),
+					and(eq(a.kind, "needs_you"), sql`length(trim(${a.need})) > 0`),
+				),
+			),
+		)
+		.orderBy(i.createdAt, i.id)
+		.limit(200);
 }
 
 /** Native detector incidents, independent of user/tedi feedback on the same issue. */
@@ -243,11 +346,22 @@ export async function listStallIncidents(
 	orgId: string,
 	issueKey: string,
 ) {
-	return db.all<{ id: string }>(sql`
-  SELECT id FROM learning_interaction_events
-  WHERE organization_id = ${orgId} AND issue_key = ${issueKey}
-   AND surface = 'stall_recovery' AND event_kind = 'retried'
-   AND actor_type = 'service' AND actor_id = 'stall-recovery'
-  ORDER BY occurred_at DESC, id DESC LIMIT 3
- `);
+	return db
+		.select({ id: learningInteractionEvents.id })
+		.from(learningInteractionEvents)
+		.where(
+			and(
+				eq(learningInteractionEvents.organizationId, orgId),
+				eq(learningInteractionEvents.issueKey, issueKey),
+				eq(learningInteractionEvents.surface, "stall_recovery"),
+				eq(learningInteractionEvents.eventKind, "retried"),
+				eq(learningInteractionEvents.actorType, "service"),
+				eq(learningInteractionEvents.actorId, "stall-recovery"),
+			),
+		)
+		.orderBy(
+			desc(learningInteractionEvents.occurredAt),
+			desc(learningInteractionEvents.id),
+		)
+		.limit(3);
 }

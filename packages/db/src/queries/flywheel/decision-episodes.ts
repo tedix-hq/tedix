@@ -1,5 +1,9 @@
-import { sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import { tediRuntimeEvents } from "../../schema/cognitive-runtime";
+import { mcpPaymentEvents } from "../../schema/mcp-payments";
+import { tediRationaleRecords } from "../../schema/rationale-records";
+import { workItems } from "../../schema/work-items";
 import { extractFactIdsFromFlywheelEvidence } from "./evidence-fact-ids";
 
 interface FlywheelAccess {
@@ -145,15 +149,6 @@ type EpisodeRuntimeLinkRow = {
 	payload: unknown;
 };
 
-type EpisodePaymentCountRow = { decisionId: string; cnt: number };
-
-function sqlValueList(values: readonly string[]) {
-	return sql.join(
-		values.map((value) => sql`${value}`),
-		sql`, `,
-	);
-}
-
 function serializedJson(value: unknown): string {
 	if (typeof value === "string") return value;
 	try {
@@ -168,17 +163,31 @@ export async function getDecisionEpisodeProjections(
 	access: FlywheelAccess,
 	limit = 10,
 ): Promise<DecisionEpisodeProjection[]> {
-	const decisions = await db.all<DecisionEpisodeRow>(
-		sql`SELECT id, action, category, confidence, outcome_status as outcomeStatus,
-				evidence, objective_id as objectiveId, approval_request_id as approvalRequestId,
-				run_id as runId, work_item_id as workItemId,
-				tool_call_refs as toolCallRefs, proof_ref as proofRef,
-				created_at as createdAt, completed_at as completedAt
-			FROM tedi_rationale_records
-			WHERE tedi_id = ${access.tediId} AND org_id = ${access.orgId}
-			ORDER BY created_at DESC
-			LIMIT ${limit}`,
-	);
+	const records = tediRationaleRecords;
+	// JSON columns stay raw TEXT: the parsers below fail soft on bad rows.
+	const decisions: DecisionEpisodeRow[] = await db
+		.select({
+			id: records.id,
+			action: records.action,
+			category: records.category,
+			confidence: records.confidence,
+			outcomeStatus: records.outcomeStatus,
+			evidence: sql<unknown>`${records.evidence}`.as("evidence"),
+			objectiveId: records.objectiveId,
+			approvalRequestId: records.approvalRequestId,
+			runId: records.runId,
+			workItemId: records.workItemId,
+			toolCallRefs: sql<unknown>`${records.toolCallRefs}`.as("toolCallRefs"),
+			proofRef: sql<unknown>`${records.proofRef}`.as("proofRef"),
+			createdAt: records.createdAt,
+			completedAt: records.completedAt,
+		})
+		.from(records)
+		.where(
+			and(eq(records.tediId, access.tediId), eq(records.orgId, access.orgId)),
+		)
+		.orderBy(desc(records.createdAt))
+		.limit(limit);
 	if (decisions.length === 0) return [];
 
 	const decisionIds = decisions.map((decision) => decision.id);
@@ -191,49 +200,91 @@ export async function getDecisionEpisodeProjections(
 	const objectiveIds = decisions
 		.map((decision) => decision.objectiveId)
 		.filter((objectiveId): objectiveId is string => Boolean(objectiveId));
-	const workItemPredicates = [
+	// Two statements keep each under D1's 100 bound parameters at the API's
+	// 25-decision cap (ids + objectives ≤ 50, LIKE pairs ≤ 50).
+	const idPredicates = [
 		...(storedWorkItemIds.length > 0
-			? [sql`id IN (${sqlValueList(storedWorkItemIds)})`]
+			? // bound-params: the decisions page is capped at 25.
+				[inArray(workItems.id, storedWorkItemIds)]
 			: []),
 		...(objectiveIds.length > 0
-			? [sql`objective_id IN (${sqlValueList(objectiveIds)})`]
+			? // bound-params: the decisions page is capped at 25.
+				[inArray(workItems.objectiveId, objectiveIds)]
 			: []),
-		...decisionIds.flatMap((decisionId) => [
-			sql`provenance LIKE ${`%${decisionId}%`}`,
-			sql`metadata LIKE ${`%${decisionId}%`}`,
-		]),
 	];
+	const mentionPredicates = decisionIds.flatMap((decisionId) => [
+		sql`${workItems.provenance} LIKE ${`%${decisionId}%`}`,
+		sql`${workItems.metadata} LIKE ${`%${decisionId}%`}`,
+	]);
+	const selectLinkedWorkItems = (predicates: SQL[]) =>
+		db
+			.select({
+				id: workItems.id,
+				label: workItems.title,
+				createdAt: workItems.createdAt,
+				objectiveId: workItems.objectiveId,
+				provenance: sql<unknown>`${workItems.provenance}`.as("provenance"),
+				metadata: sql<unknown>`${workItems.metadata}`.as("metadata"),
+			})
+			.from(workItems)
+			.where(and(eq(workItems.orgId, access.orgId), or(...predicates)))
+			.orderBy(desc(workItems.createdAt));
 	const [workItemRows, runtimeLinkRows, paymentRows] = await Promise.all([
-		workItemPredicates.length > 0
-			? db.all<EpisodeLinkedRow>(
-					sql`SELECT id, title as label, created_at as createdAt,
-							objective_id as objectiveId, provenance, metadata
-						FROM work_items
-						WHERE org_id = ${access.orgId}
-							AND (${sql.join(workItemPredicates, sql` OR `)})
-						ORDER BY created_at DESC`,
-				)
-			: Promise.resolve([]),
+		Promise.all(
+			[idPredicates, mentionPredicates]
+				.filter((predicates) => predicates.length > 0)
+				.map(selectLinkedWorkItems),
+		).then((groups) => {
+			const byId = new Map<string, EpisodeLinkedRow>();
+			for (const row of groups.flat()) byId.set(row.id, row);
+			return [...byId.values()].sort(
+				(a, b) => Number(b.createdAt) - Number(a.createdAt),
+			);
+		}),
 		runIds.length > 0
-			? db.all<EpisodeRuntimeLinkRow>(
-					sql`SELECT id, run_id as runId, kind, tool_call_id as toolCallId,
-							payload
-						FROM tedi_runtime_events
-						WHERE tedi_id = ${access.tediId}
-							AND organization_id = ${access.orgId}
-							AND run_id IN (${sqlValueList(runIds)})
-							AND kind IN ('tool.completed', 'tool.failed', 'memory.retrieved')
-						ORDER BY created_at ASC`,
-				)
-			: Promise.resolve([]),
-		db.all<EpisodePaymentCountRow>(
-			sql`SELECT rationale_record_id as decisionId, count(*) as cnt
-				FROM mcp_payment_events
-				WHERE organization_id = ${access.orgId}
-					AND tedi_id = ${access.tediId}
-					AND rationale_record_id IN (${sqlValueList(decisionIds)})
-				GROUP BY rationale_record_id`,
-		),
+			? db
+					.select({
+						id: tediRuntimeEvents.id,
+						runId: sql<string>`${tediRuntimeEvents.runId}`.as("runId"),
+						kind: sql<
+							EpisodeRuntimeLinkRow["kind"]
+						>`${tediRuntimeEvents.kind}`.as("kind"),
+						toolCallId: tediRuntimeEvents.toolCallId,
+						payload: sql<unknown>`${tediRuntimeEvents.payload}`.as("payload"),
+					})
+					.from(tediRuntimeEvents)
+					.where(
+						and(
+							eq(tediRuntimeEvents.tediId, access.tediId),
+							eq(tediRuntimeEvents.organizationId, access.orgId),
+							// bound-params: run ids come from the decisions page, capped at 25.
+							inArray(tediRuntimeEvents.runId, runIds),
+							inArray(tediRuntimeEvents.kind, [
+								"tool.completed",
+								"tool.failed",
+								"memory.retrieved",
+							]),
+						),
+					)
+					.orderBy(asc(tediRuntimeEvents.createdAt))
+			: Promise.resolve([] as EpisodeRuntimeLinkRow[]),
+		db
+			.select({
+				decisionId: sql<string>`${mcpPaymentEvents.rationaleRecordId}`.as(
+					"decisionId",
+				),
+				cnt: sql<number>`count(*)`.as("cnt"),
+			})
+			.from(mcpPaymentEvents)
+			.where(
+				and(
+					eq(mcpPaymentEvents.organizationId, access.orgId),
+					eq(mcpPaymentEvents.tediId, access.tediId),
+					// bound-params: the decisions page is capped at 25.
+					inArray(mcpPaymentEvents.rationaleRecordId, decisionIds),
+				),
+			)
+			.groupBy(mcpPaymentEvents.rationaleRecordId),
 	]);
 	const runtimeLinksByRun = new Map<string, EpisodeRuntimeLinkRow[]>();
 	for (const row of runtimeLinkRows) {

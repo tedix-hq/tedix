@@ -3,8 +3,14 @@ import {
 	GOVERNED_LEARNING_SCHEDULES,
 	GOVERNED_LEARNING_SKILL_SLUGS,
 } from "@tedix/api-contract/utils/governed-learning";
-import { sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import {
+	skillEntries,
+	skillRuns,
+	skillSchedules,
+} from "../../schema/cognitive";
 import { tediCronExecutions } from "../../schema/cron-executions";
 
 interface FlywheelAccess {
@@ -130,6 +136,29 @@ export async function recordCronExecutionFinish(
 		});
 }
 
+/** Scheduled skill-workflow slug `platform-<name>-dogfood` → cron name. */
+const scheduledCronName = sql<string>`replace(replace(${skillRuns.skillSlug}, 'platform-', ''), '-dogfood', '')`;
+
+function legacyCronScope(access: FlywheelAccess) {
+	return and(
+		eq(tediCronExecutions.tediId, access.tediId),
+		eq(tediCronExecutions.orgId, access.orgId),
+		inArray(
+			tediCronExecutions.cronName,
+			EXPECTED_COGNITIVE_CRONS.map((cron) => cron.name),
+		),
+	);
+}
+
+function scheduledSkillRunScope(access: FlywheelAccess) {
+	return and(
+		eq(skillRuns.tediId, access.tediId),
+		eq(skillRuns.organizationId, access.orgId),
+		eq(skillRuns.createdBy, "schedule"),
+		inArray(skillRuns.skillSlug, [...COGNITIVE_SKILL_SLUGS]),
+	);
+}
+
 /**
  * Latest execution per cron name. Uses SQLite's documented bare-column-with-
  * MAX() semantics: `status`/`finished_at` come from the same row as the
@@ -139,42 +168,58 @@ export async function getLatestCronExecutions(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<CronExecutionSummaryRow[]> {
-	const cronNames = sql.join(
-		EXPECTED_COGNITIVE_CRONS.map((cron) => sql`${cron.name}`),
-		sql`, `,
+	const executions = db.$with("executions").as(
+		unionAll(
+			db
+				.select({
+					cronName: sql<string>`${tediCronExecutions.cronName}`.as("cronName"),
+					status: sql<string>`${tediCronExecutions.status}`.as("status"),
+					startedAt: sql<string>`${tediCronExecutions.startedAt}`.as(
+						"startedAt",
+					),
+					finishedAt: sql<string | null>`${tediCronExecutions.finishedAt}`.as(
+						"finishedAt",
+					),
+					mechanism: sql<
+						CronExecutionSummaryRow["mechanism"]
+					>`'legacy_cron'`.as("mechanism"),
+					runId: sql<string | null>`${tediCronExecutions.runId}`.as("runId"),
+				})
+				.from(tediCronExecutions)
+				.where(legacyCronScope(access)),
+			db
+				.select({
+					cronName: scheduledCronName.as("cronName"),
+					status: sql<string>`CASE
+						WHEN ${skillRuns.status} = 'completed' THEN 'success'
+						WHEN ${skillRuns.status} IN ('failed', 'canceled') THEN 'failure'
+						ELSE 'running'
+					END`.as("status"),
+					startedAt: sql<string>`${skillRuns.startedAt}`.as("startedAt"),
+					finishedAt: sql<string | null>`${skillRuns.completedAt}`.as(
+						"finishedAt",
+					),
+					mechanism: sql<
+						CronExecutionSummaryRow["mechanism"]
+					>`'scheduled_skill_workflow'`.as("mechanism"),
+					runId: sql<string | null>`${skillRuns.id}`.as("runId"),
+				})
+				.from(skillRuns)
+				.where(scheduledSkillRunScope(access)),
+		),
 	);
-	const skillSlugs = sql.join(
-		COGNITIVE_SKILL_SLUGS.map((slug) => sql`${slug}`),
-		sql`, `,
-	);
-	return db.all<CronExecutionSummaryRow>(
-		sql`WITH executions AS (
-			SELECT cron_name as cronName, status, started_at as startedAt,
-				finished_at as finishedAt, 'legacy_cron' as mechanism,
-				run_id as runId
-			FROM tedi_cron_executions
-			WHERE tedi_id = ${access.tediId} AND org_id = ${access.orgId}
-				AND cron_name IN (${cronNames})
-			UNION ALL
-			SELECT replace(replace(skill_slug, 'platform-', ''), '-dogfood', '') as cronName,
-				CASE
-					WHEN status = 'completed' THEN 'success'
-					WHEN status IN ('failed', 'canceled') THEN 'failure'
-					ELSE 'running'
-				END as status,
-				started_at as startedAt, completed_at as finishedAt,
-				'scheduled_skill_workflow' as mechanism, id as runId
-			FROM skill_runs
-			WHERE tedi_id = ${access.tediId}
-				AND organization_id = ${access.orgId}
-				AND created_by = 'schedule'
-				AND skill_slug IN (${skillSlugs})
-		)
-		SELECT cronName, status, MAX(startedAt) as startedAt,
-			finishedAt, mechanism, runId
-		FROM executions
-		GROUP BY cronName`,
-	);
+	return db
+		.with(executions)
+		.select({
+			cronName: executions.cronName,
+			status: executions.status,
+			startedAt: sql<string>`MAX(${executions.startedAt})`.as("startedAt"),
+			finishedAt: executions.finishedAt,
+			mechanism: executions.mechanism,
+			runId: executions.runId,
+		})
+		.from(executions)
+		.groupBy(executions.cronName);
 }
 
 /** Count executions per cron name since the given ISO timestamp. */
@@ -183,34 +228,35 @@ export async function getCronExecutionCounts(
 	access: FlywheelAccess,
 	since: string,
 ): Promise<CronExecutionCountRow[]> {
-	const cronNames = sql.join(
-		EXPECTED_COGNITIVE_CRONS.map((cron) => sql`${cron.name}`),
-		sql`, `,
+	const executions = db.$with("executions").as(
+		unionAll(
+			db
+				.select({
+					cronName: sql<string>`${tediCronExecutions.cronName}`.as("cronName"),
+					startedAt: sql<string>`${tediCronExecutions.startedAt}`.as(
+						"startedAt",
+					),
+				})
+				.from(tediCronExecutions)
+				.where(legacyCronScope(access)),
+			db
+				.select({
+					cronName: scheduledCronName.as("cronName"),
+					startedAt: sql<string>`${skillRuns.startedAt}`.as("startedAt"),
+				})
+				.from(skillRuns)
+				.where(scheduledSkillRunScope(access)),
+		),
 	);
-	const skillSlugs = sql.join(
-		COGNITIVE_SKILL_SLUGS.map((slug) => sql`${slug}`),
-		sql`, `,
-	);
-	return db.all<CronExecutionCountRow>(
-		sql`WITH executions AS (
-			SELECT cron_name as cronName, started_at as startedAt
-			FROM tedi_cron_executions
-			WHERE tedi_id = ${access.tediId} AND org_id = ${access.orgId}
-				AND cron_name IN (${cronNames})
-			UNION ALL
-			SELECT replace(replace(skill_slug, 'platform-', ''), '-dogfood', '') as cronName,
-				started_at as startedAt
-			FROM skill_runs
-			WHERE tedi_id = ${access.tediId}
-				AND organization_id = ${access.orgId}
-				AND created_by = 'schedule'
-				AND skill_slug IN (${skillSlugs})
-		)
-		SELECT cronName, count(*) as cnt
-		FROM executions
-		WHERE startedAt >= ${since}
-		GROUP BY cronName`,
-	);
+	return db
+		.with(executions)
+		.select({
+			cronName: executions.cronName,
+			cnt: sql<number>`count(*)`.as("cnt"),
+		})
+		.from(executions)
+		.where(gte(executions.startedAt, since))
+		.groupBy(executions.cronName);
 }
 
 export interface CronFlywheelHealthEntry {
@@ -251,24 +297,32 @@ export async function getGovernedLearningScheduleStates(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<GovernedLearningScheduleStateRow[]> {
-	const skillSlugs = sql.join(
-		COGNITIVE_SKILL_SLUGS.map((slug) => sql`${slug}`),
-		sql`, `,
-	);
-	return db.all<GovernedLearningScheduleStateRow>(
-		sql`SELECT
-				replace(replace(se.slug, 'platform-', ''), '-dogfood', '') as cronName,
-				ss.enabled as enabled,
-				ss.last_budget_blocked_at as lastBudgetBlockedAt,
-				ss.last_budget_blocked_reason as lastBudgetBlockedReason,
-				ss.last_budget_reset_at as lastBudgetResetAt,
-				ss.last_budget_admission_class as lastBudgetAdmissionClass
-			FROM skill_schedules ss
-			INNER JOIN skill_entries se ON se.id = ss.skill_id
-			WHERE ss.tedi_id = ${access.tediId}
-				AND ss.organization_id = ${access.orgId}
-				AND se.slug IN (${skillSlugs})`,
-	);
+	return db
+		.select({
+			cronName:
+				sql<string>`replace(replace(${skillEntries.slug}, 'platform-', ''), '-dogfood', '')`.as(
+					"cronName",
+				),
+			// Raw 0/1, as the row type allows.
+			enabled: sql<boolean | number>`${skillSchedules.enabled}`.as("enabled"),
+			lastBudgetBlockedAt: skillSchedules.lastBudgetBlockedAt,
+			lastBudgetBlockedReason: skillSchedules.lastBudgetBlockedReason,
+			lastBudgetResetAt: skillSchedules.lastBudgetResetAt,
+			lastBudgetAdmissionClass: sql<
+				string | null
+			>`${skillSchedules.lastBudgetAdmissionClass}`.as(
+				"lastBudgetAdmissionClass",
+			),
+		})
+		.from(skillSchedules)
+		.innerJoin(skillEntries, eq(skillEntries.id, skillSchedules.skillId))
+		.where(
+			and(
+				eq(skillSchedules.tediId, access.tediId),
+				eq(skillSchedules.organizationId, access.orgId),
+				inArray(skillEntries.slug, [...COGNITIVE_SKILL_SLUGS]),
+			),
+		);
 }
 
 /**

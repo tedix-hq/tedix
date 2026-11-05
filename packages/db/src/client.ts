@@ -201,8 +201,8 @@ export function createDbSession(
 		metrics,
 		// Cast is confined to the `$client` escape hatch: a session-backed Drizzle
 		// instance has an identical query surface, and `$client` narrows from
-		// D1Database to D1DatabaseSession. The one caller that reaches for it
-		// (queries/billing/settlement.ts) takes `D1Executor`, which both satisfy.
+		// D1Database to D1DatabaseSession. Callers that reach for it take
+		// `D1Executor`, which both satisfy.
 		db: drizzle(measured, { relations }) as unknown as DbClient,
 		getBookmark: () => session.getBookmark() ?? null,
 	};

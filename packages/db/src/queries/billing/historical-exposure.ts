@@ -118,6 +118,7 @@ export async function recordHistoricalExposure(
 	// The physical object_id selects the archived leaf; object_name remains the
 	// canonical ROOT name. Selected original identity/path live explicitly in JSON.
 	// Membership and canonical root-name custody are checked in the INSERT itself.
+	// Raw: FROM-less conditional INSERT ... SELECT ... WHERE <fences>; Drizzle cannot build it.
 	await db.run(sql`INSERT INTO billing_historical_exposures
  (id,organization_id,tedi_id,object_id,object_name,generation,snapshot_id,source_hash,operation_id,request_hash,exposure,payload,observed_by,observed_user_id,observed_at)
  SELECT ${p.id},${p.organizationId},${p.tediId},${p.objectId},${p.rootObjectName},${p.generation},${p.snapshotId},${p.sourceHash},${input.operationId},${p.requestHash},'UNKNOWN',${JSON.stringify(p)},${p.observedBy},${p.observedUserId},${p.observedAt}
@@ -242,6 +243,7 @@ export async function recordHistoricalDecision(
 		operationFence = sql`EXISTS (SELECT 1 FROM billing_historical_decisions original WHERE original.id=${p.decisionId} AND original.organization_id=${p.organizationId} AND original.tedi_id=${p.tediId} AND original.kind='decision' AND json_extract(original.payload,'$.authority')='records_only')
   AND NOT EXISTS (SELECT 1 FROM billing_historical_decisions r WHERE r.organization_id=${p.organizationId} AND r.tedi_id=${p.tediId} AND r.decision_id=${p.decisionId} AND r.kind='revocation')`;
 	} else return null;
+	// Raw: FROM-less conditional INSERT ... SELECT ... WHERE <fences>; Drizzle cannot build it.
 	await db.run(sql`INSERT INTO billing_historical_decisions (id,organization_id,tedi_id,revision,kind,decision_id,operation_id,request_hash,payload,recorded_by,recorded_user_id,recorded_at)
  SELECT ${p.id},${p.organizationId},${p.tediId},${p.revision},${p.kind},${p.decisionId},${i.operationId},${p.requestHash},${JSON.stringify(p)},${p.recordedBy},${p.recordedUserId},${p.recordedAt}
  WHERE ${memberFence(p.organizationId, p.recordedBy, p.recordedUserId)} AND ${custodyFence(p.organizationId, p.tediId, objectName)}
@@ -329,8 +331,8 @@ function finiteEventRowFence(
 	p: FiniteExecutionAuthorization | FiniteExecutionRevocation,
 	alias?: "a",
 ) {
-	const col = (name: string) =>
-		sql.raw(`${alias ?? "billing_historical_decisions"}.${name}`);
+	const table = sql.identifier(alias ?? "billing_historical_decisions");
+	const col = (name: string) => sql`${table}.${sql.identifier(name)}`;
 	return sql`${col("id")}=${p.id} AND ${col("organization_id")}=${p.organizationId} AND ${col("tedi_id")}=${p.tediId}
  AND ${col("revision")}=${p.revision} AND ${col("kind")}=${p.kind} AND ${col("decision_id")} IS ${p.decisionId}
  AND ${col("operation_id")}=${p.input.operationId} AND ${col("request_hash")}=${p.requestHash}
@@ -424,6 +426,7 @@ export async function recordFiniteExecutionAuthorization(
 			? readFiniteExecutionAuthorizationForHuman(db, parsed.data)
 			: null;
 	}
+	// Raw: FROM-less conditional INSERT ... SELECT ... WHERE <fences>; Drizzle cannot build it.
 	await db.run(sql`INSERT INTO billing_historical_decisions (id,organization_id,tedi_id,revision,kind,decision_id,operation_id,request_hash,payload,recorded_by,recorded_user_id,recorded_at)
  SELECT ${p.id},${p.organizationId},${p.tediId},${p.revision},'decision',NULL,${p.input.operationId},${p.requestHash},${JSON.stringify(p)},${p.recordedBy},${p.recordedUserId},${p.recordedAt}
  WHERE ${memberFence(p.organizationId, p.recordedBy, p.recordedUserId)} AND ${custodyFence(p.organizationId, p.tediId, p.input.freshRootName)}
@@ -490,6 +493,7 @@ export async function recordFiniteExecutionRevocation(
 		retained = parsed.data;
 	}
 	// Revocation remains possible after funding/permit expiry; it allocates nothing.
+	// Raw: FROM-less conditional INSERT ... SELECT ... WHERE <fences>; Drizzle cannot build it.
 	if (!prior)
 		await db.run(sql`INSERT INTO billing_historical_decisions (id,organization_id,tedi_id,revision,kind,decision_id,operation_id,request_hash,payload,recorded_by,recorded_user_id,recorded_at)
  SELECT ${p.id},${p.organizationId},${p.tediId},${p.revision},'revocation',${p.decisionId},${p.input.operationId},${p.requestHash},${JSON.stringify(p)},${p.recordedBy},${p.recordedUserId},${p.recordedAt}

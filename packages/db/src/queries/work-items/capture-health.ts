@@ -8,8 +8,24 @@
  * that is the failure this module exists to surface.
  */
 
-import { sql } from "drizzle-orm";
+import {
+	and,
+	eq,
+	exists,
+	gt,
+	gte,
+	isNull,
+	or,
+	sql,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
+import { learningInteractionEvents } from "../../schema/learning-feedback";
+import {
+	workInteractionReplyDrafts,
+	workInteractions,
+} from "../../schema/work-factory";
 
 const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
 /** `metadata.schema` of the "capture may be broken" item. */
@@ -37,33 +53,56 @@ const counts = (row: CountRow | undefined): CaptureHealthCounts => ({
 	lessons: Number(row?.lessons ?? 0),
 });
 
-function countColumns(orgId: unknown, userId: unknown, since: string) {
-	return sql`
-		(
-			SELECT count(*) FROM work_interactions t
-			WHERE t.org_id = ${orgId}
-				AND t.target_type = 'user'
-				AND t.target_id = ${userId}
-				AND t.created_at >= ${since}
-				AND json_extract(t.metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
-		) AS turns,
-		(
-			SELECT count(*) FROM work_interaction_reply_drafts d
-			JOIN work_interactions q ON q.org_id = d.org_id AND q.id = d.interaction_id
-			WHERE d.org_id = ${orgId}
-				AND q.target_type = 'user'
-				AND q.target_id = ${userId}
-				AND d.created_at >= ${since}
-		) AS drafts,
-		(
-			SELECT count(*) FROM learning_interaction_events e
-			WHERE e.organization_id = ${orgId}
-				AND e.actor_type = 'user'
-				AND e.actor_id = ${userId}
-				AND e.surface = ${LESSON_DELIVERY_SURFACE}
-				AND e.event_kind = 'delivered'
-				AND e.occurred_at >= ${since}
-		) AS lessons`;
+/** Each count is an aggregate without GROUP BY, so it always yields one row. */
+function countQueries(
+	db: DbQueryClient,
+	orgId: SQLWrapper | string,
+	userId: SQLWrapper | string,
+	since: string,
+) {
+	const t = alias(workInteractions, "t");
+	const d = alias(workInteractionReplyDrafts, "d");
+	const q = alias(workInteractions, "q");
+	const e = alias(learningInteractionEvents, "e");
+	return {
+		turns: db
+			.select({ n: sql<number>`count(*)`.as("turns") })
+			.from(t)
+			.where(
+				and(
+					eq(t.orgId, orgId),
+					eq(t.targetType, "user"),
+					eq(t.targetId, userId),
+					gte(t.createdAt, since),
+					sql`json_extract(${t.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+				),
+			),
+		drafts: db
+			.select({ n: sql<number>`count(*)`.as("drafts") })
+			.from(d)
+			.innerJoin(q, and(eq(q.orgId, d.orgId), eq(q.id, d.interactionId)))
+			.where(
+				and(
+					eq(d.orgId, orgId),
+					eq(q.targetType, "user"),
+					eq(q.targetId, userId),
+					gte(d.createdAt, since),
+				),
+			),
+		lessons: db
+			.select({ n: sql<number>`count(*)`.as("lessons") })
+			.from(e)
+			.where(
+				and(
+					eq(e.organizationId, orgId),
+					eq(e.actorType, "user"),
+					eq(e.actorId, userId),
+					eq(e.surface, LESSON_DELIVERY_SURFACE),
+					eq(e.eventKind, "delivered"),
+					gte(e.occurredAt, since),
+				),
+			),
+	};
 }
 
 /** One user's counts since `since`. */
@@ -71,9 +110,15 @@ export async function getCaptureHealth(
 	db: DbQueryClient,
 	p: { orgId: string; userId: string; since: string },
 ): Promise<CaptureHealthCounts> {
-	const [row] = await db.all<CountRow>(
-		sql`SELECT ${countColumns(p.orgId, p.userId, p.since)}`,
-	);
+	const queries = countQueries(db, p.orgId, p.userId, p.since);
+	const turns = queries.turns.as("turns_count");
+	const drafts = queries.drafts.as("drafts_count");
+	const lessons = queries.lessons.as("lessons_count");
+	const [row] = await db
+		.select({ turns: turns.n, drafts: drafts.n, lessons: lessons.n })
+		.from(turns)
+		.crossJoin(drafts)
+		.crossJoin(lessons);
 	return counts(row);
 }
 
@@ -105,44 +150,76 @@ export async function listCaptureHealth(
 	db: DbQueryClient,
 	p: { since: string; activeSince: string; now: string },
 ): Promise<CaptureHealthRow[]> {
-	const rows = await db.all<HealthRow>(sql`
-		WITH latest AS (
-			SELECT org_id, target_id AS user_id, max(created_at) AS last_at
-			FROM work_interactions
-			WHERE target_type = 'user'
-				AND created_at >= ${p.activeSince}
-				AND json_extract(metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
-			GROUP BY org_id, target_id
+	const latest = db.$with("latest").as(
+		db
+			.select({
+				orgId: workInteractions.orgId,
+				userId: sql<string>`${workInteractions.targetId}`.as("user_id"),
+				lastAt: sql<string>`max(${workInteractions.createdAt})`.as("last_at"),
+			})
+			.from(workInteractions)
+			.where(
+				and(
+					eq(workInteractions.targetType, "user"),
+					gte(workInteractions.createdAt, p.activeSince),
+					sql`json_extract(${workInteractions.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+				),
+			)
+			.groupBy(workInteractions.orgId, workInteractions.targetId),
+	);
+	const c = alias(workInteractions, "c");
+	const h = alias(workInteractions, "h");
+	const n = alias(workInteractions, "n");
+	const queries = countQueries(db, latest.orgId, latest.userId, p.since);
+	const rows: HealthRow[] = await db
+		.with(latest)
+		.select({
+			org_id: sql<string>`${latest.orgId}`.as("org_id"),
+			user_id: sql<string>`${latest.userId}`.as("user_id"),
+			project_id: sql<string | null>`${c.projectId}`.as("project_id"),
+			work_item_id: sql<string | null>`${c.workItemId}`.as("work_item_id"),
+			case_id: sql<string | null>`${c.caseId}`.as("case_id"),
+			turns: sql<number | null>`${queries.turns}`.as("turns"),
+			drafts: sql<number | null>`${queries.drafts}`.as("drafts"),
+			lessons: sql<number | null>`${queries.lessons}`.as("lessons"),
+			alert_open: sql<number | null>`${exists(
+				db
+					.select({ one: sql`1` })
+					.from(h)
+					.where(
+						and(
+							eq(h.orgId, latest.orgId),
+							eq(h.targetType, "user"),
+							eq(h.targetId, latest.userId),
+							eq(h.status, "open"),
+							or(isNull(h.expiresAt), gt(h.expiresAt, p.now)),
+							sql`json_extract(${h.metadata}, '$.schema') = ${CAPTURE_HEALTH_SCHEMA}`,
+						),
+					),
+			)}`.as("alert_open"),
+		})
+		.from(latest)
+		.innerJoin(
+			c,
+			eq(
+				c.id,
+				db
+					.select({ id: n.id })
+					.from(n)
+					.where(
+						and(
+							eq(n.orgId, latest.orgId),
+							eq(n.targetType, "user"),
+							eq(n.targetId, latest.userId),
+							eq(n.createdAt, latest.lastAt),
+							sql`json_extract(${n.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+						),
+					)
+					.orderBy(n.id)
+					.limit(1),
+			),
 		)
-		SELECT
-			u.org_id AS org_id,
-			u.user_id AS user_id,
-			c.project_id AS project_id,
-			c.work_item_id AS work_item_id,
-			c.case_id AS case_id,
-			${countColumns(sql`u.org_id`, sql`u.user_id`, p.since)},
-			EXISTS (
-				SELECT 1 FROM work_interactions h
-				WHERE h.org_id = u.org_id
-					AND h.target_type = 'user'
-					AND h.target_id = u.user_id
-					AND h.status = 'open'
-					AND (h.expires_at IS NULL OR h.expires_at > ${p.now})
-					AND json_extract(h.metadata, '$.schema') = ${CAPTURE_HEALTH_SCHEMA}
-			) AS alert_open
-		FROM latest u
-		JOIN work_interactions c ON c.id = (
-			SELECT n.id FROM work_interactions n
-			WHERE n.org_id = u.org_id
-				AND n.target_type = 'user'
-				AND n.target_id = u.user_id
-				AND n.created_at = u.last_at
-				AND json_extract(n.metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
-			ORDER BY n.id
-			LIMIT 1
-		)
-		ORDER BY u.org_id, u.user_id
-	`);
+		.orderBy(latest.orgId, latest.userId);
 	return rows.map((row) => ({
 		orgId: row.org_id,
 		userId: row.user_id,

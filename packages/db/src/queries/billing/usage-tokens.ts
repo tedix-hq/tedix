@@ -20,7 +20,7 @@ import { type SQL, sql } from "drizzle-orm";
  * `charge`, so the caller must not reuse that name in the same scope.
  */
 export function reservationUsedTokensSql(reservationAlias: string): SQL {
-	const reservation = sql.raw(reservationAlias);
+	const reservation = sql.identifier(reservationAlias);
 	const estimate = sql`${reservation}.estimated_input_tokens + ${reservation}.estimated_output_tokens`;
 	return sql`CASE
 		WHEN ${reservation}.status = 'settled' THEN COALESCE((

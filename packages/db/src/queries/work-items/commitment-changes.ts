@@ -1,7 +1,28 @@
-import { eq, sql } from "drizzle-orm";
+import {
+	and,
+	eq,
+	exists,
+	gt,
+	isNull,
+	lte,
+	notExists,
+	notInArray,
+	or,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
-import { platformCronCheckpoints } from "../../schema/platform-cron-executions";
+import { memoryFacts } from "../../schema/memory-graph";
+import { organizationMembers } from "../../schema/organization-members";
+import {
+	platformCronCheckpoints,
+	platformCronExecutions,
+} from "../../schema/platform-cron-executions";
+import { tedis } from "../../schema/tedis";
 import { workInteractions } from "../../schema/work-factory";
+import { workAttempts, workItems } from "../../schema/work-items";
 
 export interface CommitmentChange {
 	key: string;
@@ -27,50 +48,157 @@ export async function getCommitmentFollowupTarget(
 } | null> {
 	if (!["overdue", "idle"].includes(change.state)) return null;
 	if (change.kind === "interaction") {
-		const [interaction] = await db.all<{
-			id: string;
-			title: string;
-			personId: string;
-			openInteractionId: string;
-		}>(sql`
-			SELECT coalesce(i.work_item_id,i.id) AS id, i.subject AS title, i.target_id AS personId, i.id AS openInteractionId
-			FROM work_interactions i JOIN organization_members m ON m.organization_id=i.org_id AND m.user_id=i.target_id AND m.status='active'
-			JOIN tedis t ON t.id=${change.tediId} AND t.organization_id=i.org_id AND t.scope='personal' AND t.status='active' AND t.owner_user_id=m.descope_user_id
-			WHERE i.org_id=${change.orgId} AND i.id=${change.objectId} AND i.target_type='user' AND i.status='open'
-				AND (i.expires_at IS NULL OR i.expires_at>${now})
-				AND (i.due_at<=${now} OR (i.due_at IS NULL AND i.created_at<=${new Date(Date.parse(now) - 172_800_000).toISOString()}))
-				AND (i.work_item_id IS NULL OR EXISTS(SELECT 1 FROM work_items w WHERE w.org_id=i.org_id AND w.id=i.work_item_id AND w.disposition NOT IN ('completed','cancelled')))
-			LIMIT 1
-		`);
+		const i = alias(workInteractions, "i");
+		const m = alias(organizationMembers, "m");
+		const t = alias(tedis, "t");
+		const w = alias(workItems, "w");
+		const [interaction] = await db
+			.select({
+				id: sql<string>`coalesce(${i.workItemId},${i.id})`.as("id"),
+				title: sql<string>`${i.subject}`.as("title"),
+				personId: sql<string>`${i.targetId}`.as("personId"),
+				openInteractionId: sql<string>`${i.id}`.as("openInteractionId"),
+			})
+			.from(i)
+			.innerJoin(
+				m,
+				and(
+					eq(m.organizationId, i.orgId),
+					eq(m.userId, i.targetId),
+					eq(m.status, "active"),
+				),
+			)
+			.innerJoin(
+				t,
+				and(
+					eq(t.id, change.tediId),
+					eq(t.organizationId, i.orgId),
+					eq(t.scope, "personal"),
+					eq(t.status, "active"),
+					eq(t.ownerUserId, m.descopeUserId),
+				),
+			)
+			.where(
+				and(
+					eq(i.orgId, change.orgId),
+					eq(i.id, change.objectId),
+					eq(i.targetType, "user"),
+					eq(i.status, "open"),
+					or(isNull(i.expiresAt), gt(i.expiresAt, now)),
+					or(
+						lte(i.dueAt, now),
+						and(
+							isNull(i.dueAt),
+							lte(
+								i.createdAt,
+								new Date(Date.parse(now) - 172_800_000).toISOString(),
+							),
+						),
+					),
+					or(
+						isNull(i.workItemId),
+						exists(
+							db
+								.select({ one: sql`1` })
+								.from(w)
+								.where(
+									and(
+										eq(w.orgId, i.orgId),
+										eq(w.id, i.workItemId),
+										notInArray(w.disposition, ["completed", "cancelled"]),
+									),
+								),
+						),
+					),
+				),
+			)
+			.limit(1);
 		return interaction ?? null;
 	}
 	if (change.kind !== "work") return null;
-	const [work] = await db.all<{
-		id: string;
-		title: string;
-		personId: string;
-	}>(sql`
-		SELECT w.id, w.title, m.user_id AS personId FROM work_items w
-		JOIN organization_members m ON m.organization_id = w.org_id
-			AND m.user_id = w.accountable_owner_id AND m.status = 'active'
-		JOIN tedis t ON t.id = ${change.tediId} AND t.organization_id = w.org_id
-			AND t.status = 'active' AND t.scope = 'personal' AND t.owner_user_id = m.descope_user_id
-		WHERE w.org_id = ${change.orgId} AND w.id = ${change.objectId}
-			AND w.accountable_owner_type = 'user' AND w.disposition NOT IN ('completed', 'cancelled')
-			AND ((coalesce(w.deadline, w.due_date) <= ${now}) OR
-				(w.disposition = 'accepted' AND coalesce(w.updated_at, w.accepted_at, w.created_at) <= ${new Date(Date.parse(now) - 172_800_000).toISOString()}
-				AND NOT EXISTS (SELECT 1 FROM work_attempts a WHERE a.org_id = w.org_id
-					AND a.work_item_id = w.id AND a.runtime_state = 'running' AND a.expires_at > ${now})))
-		LIMIT 1
-	`);
+	const w = alias(workItems, "w");
+	const m = alias(organizationMembers, "m");
+	const t = alias(tedis, "t");
+	const a = alias(workAttempts, "a");
+	const [work] = await db
+		.select({
+			id: w.id,
+			title: w.title,
+			personId: sql<string>`${m.userId}`.as("personId"),
+		})
+		.from(w)
+		.innerJoin(
+			m,
+			and(
+				eq(m.organizationId, w.orgId),
+				eq(m.userId, w.accountableOwnerId),
+				eq(m.status, "active"),
+			),
+		)
+		.innerJoin(
+			t,
+			and(
+				eq(t.id, change.tediId),
+				eq(t.organizationId, w.orgId),
+				eq(t.status, "active"),
+				eq(t.scope, "personal"),
+				eq(t.ownerUserId, m.descopeUserId),
+			),
+		)
+		.where(
+			and(
+				eq(w.orgId, change.orgId),
+				eq(w.id, change.objectId),
+				eq(w.accountableOwnerType, "user"),
+				notInArray(w.disposition, ["completed", "cancelled"]),
+				or(
+					sql`coalesce(${w.deadline}, ${w.dueDate}) <= ${now}`,
+					and(
+						eq(w.disposition, "accepted"),
+						sql`coalesce(${w.updatedAt}, ${w.acceptedAt}, ${w.createdAt}) <= ${new Date(Date.parse(now) - 172_800_000).toISOString()}`,
+						notExists(
+							db
+								.select({ one: sql`1` })
+								.from(a)
+								.where(
+									and(
+										eq(a.orgId, w.orgId),
+										eq(a.workItemId, w.id),
+										eq(a.runtimeState, "running"),
+										gt(a.expiresAt, now),
+									),
+								),
+						),
+					),
+				),
+			),
+		)
+		.limit(1);
 	if (!work) return null;
-	const [open] = await db.all<{ id: string }>(sql`
-		SELECT id FROM work_interactions WHERE org_id = ${change.orgId} AND work_item_id = ${work.id}
-			AND target_type = 'user' AND target_id = ${work.personId} AND status = 'open'
-			AND (kind = 'question' OR (kind = 'coordination' AND json_extract(metadata,'$.commitmentKey') = ${`work:${work.id}`}))
-			AND (expires_at IS NULL OR expires_at > ${now})
-		LIMIT 1
-	`);
+	const [open] = await db
+		.select({ id: workInteractions.id })
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.orgId, change.orgId),
+				eq(workInteractions.workItemId, work.id),
+				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetId, work.personId),
+				eq(workInteractions.status, "open"),
+				or(
+					eq(workInteractions.kind, "question"),
+					and(
+						eq(workInteractions.kind, "coordination"),
+						sql`json_extract(${workInteractions.metadata},'$.commitmentKey') = ${`work:${work.id}`}`,
+					),
+				),
+				or(
+					isNull(workInteractions.expiresAt),
+					gt(workInteractions.expiresAt, now),
+				),
+			),
+		)
+		.limit(1);
 	return { ...work, openInteractionId: open?.id ?? null };
 }
 
@@ -108,6 +236,7 @@ export async function listCommitmentChanges(
 		? sql`WHERE (changedAt, key, tediId) > (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})`
 		: sql``;
 	// D1 rejects the eight-term compound scan; keep each statement to four terms.
+	// Raw: these compound scans need AS MATERIALIZED windows and CROSS JOIN order, which Drizzle cannot emit.
 	const statements = [
 		sql`
 		WITH recent_work_events AS MATERIALIZED (
@@ -217,62 +346,189 @@ export async function listCommitmentChanges(
 		)
 		SELECT DISTINCT key, orgId, tediId, slug, kind, objectId, state, changedAt FROM changes
 		`,
-		sql`
-		SELECT 'member-overdue:' || w.id AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
-			'work' AS kind, w.id AS objectId, 'overdue' AS state,
-			coalesce(w.deadline, w.due_date) AS changedAt
-		FROM tedis t
-		JOIN organization_members m ON m.organization_id = t.organization_id
-			AND m.descope_user_id = t.owner_user_id AND m.status = 'active'
-		JOIN work_items w INDEXED BY idx_work_items_accountable_owner
-			ON w.org_id = m.organization_id AND w.accountable_owner_type = 'user'
-			AND w.accountable_owner_id = m.user_id
-		WHERE t.scope = 'personal' AND t.status = 'active'
-			AND w.disposition NOT IN ('completed', 'cancelled')
-			AND coalesce(w.deadline, w.due_date) > ${after}
-			AND coalesce(w.deadline, w.due_date) <= ${through}
-		`,
-		sql`
-		SELECT 'idle:' || w.id AS key, w.org_id AS orgId, t.id AS tediId, t.slug,
-			'work' AS kind, w.id AS objectId, 'idle' AS state,
-			strftime('%Y-%m-%dT%H:%M:%fZ', coalesce(w.updated_at, w.accepted_at, w.created_at), '+2 days') AS changedAt
-		FROM tedis t
-		JOIN organization_members m ON m.organization_id = t.organization_id
-			AND m.descope_user_id = t.owner_user_id AND m.status = 'active'
-		JOIN work_items w INDEXED BY idx_work_items_accountable_owner
-			ON w.org_id = m.organization_id AND w.accountable_owner_type = 'user'
-			AND w.accountable_owner_id = m.user_id
-		WHERE t.scope = 'personal' AND t.status = 'active' AND w.disposition = 'accepted'
-			AND coalesce(w.updated_at, w.accepted_at, w.created_at) > ${new Date(Date.parse(after) - 172_800_000).toISOString()}
-			AND coalesce(w.updated_at, w.accepted_at, w.created_at) <= ${new Date(Date.parse(through) - 172_800_000).toISOString()}
-			AND NOT EXISTS (SELECT 1 FROM work_attempts a INDEXED BY uniq_work_attempt_number
-				WHERE a.org_id = w.org_id AND a.work_item_id = w.id AND a.runtime_state = 'running' AND a.expires_at > ${through})
-		`,
-		sql`
-		SELECT 'interaction-idle:' || i.id AS key, i.org_id AS orgId, t.id AS tediId, t.slug,
-			'interaction' AS kind, i.id AS objectId, 'idle' AS state,
-			strftime('%Y-%m-%dT%H:%M:%fZ', i.created_at, '+2 days') AS changedAt
-		FROM tedis t JOIN organization_members m ON m.organization_id = t.organization_id
-			AND m.descope_user_id = t.owner_user_id AND m.status = 'active'
-		JOIN work_interactions i INDEXED BY idx_work_interactions_target_status
-			ON i.org_id = m.organization_id AND i.target_type = 'user' AND i.target_id = m.user_id AND i.status = 'open'
-		WHERE t.scope = 'personal' AND t.status = 'active' AND i.due_at IS NULL
-			AND i.created_at > ${new Date(Date.parse(after) - 172_800_000).toISOString()}
-			AND i.created_at <= ${new Date(Date.parse(through) - 172_800_000).toISOString()}
-			AND (i.expires_at IS NULL OR i.expires_at > ${through})
-			AND (i.work_item_id IS NULL OR EXISTS (SELECT 1 FROM work_items w WHERE w.org_id=i.org_id AND w.id=i.work_item_id AND w.disposition NOT IN ('completed','cancelled')))
-		`,
-		sql`
-		SELECT 'memory:' || f.id AS key, f.organization_id AS orgId, t.id AS tediId, t.slug,
-			'memory' AS kind, f.id AS objectId, 'overdue' AS state,
-			json_extract(f.metadata, '$.dueAt') AS changedAt
-		FROM memory_facts f INDEXED BY idx_memory_facts_type
-		JOIN tedis t ON t.id = f.tedi_id AND t.organization_id = f.organization_id AND t.status = 'active'
-		WHERE f.fact_type = 'commitment' AND f.archived_at IS NULL AND f.valid_to IS NULL
-			AND f.review_status NOT IN ('rejected', 'superseded', 'disputed')
-			AND json_extract(f.metadata, '$.dueAt') > ${after}
-			AND json_extract(f.metadata, '$.dueAt') <= ${through}
-		`,
+	];
+	const t = tedis;
+	const m = organizationMembers;
+	const personalMembers = and(
+		eq(m.organizationId, t.organizationId),
+		eq(m.descopeUserId, t.ownerUserId),
+		eq(m.status, "active"),
+	);
+	const memberWork = sql`${workItems} INDEXED BY idx_work_items_accountable_owner`;
+	const memberOwnsWork = and(
+		eq(workItems.orgId, m.organizationId),
+		eq(workItems.accountableOwnerType, "user"),
+		eq(workItems.accountableOwnerId, m.userId),
+	);
+	const workDue = sql`coalesce(${workItems.deadline}, ${workItems.dueDate})`;
+	const workTouched = sql`coalesce(${workItems.updatedAt}, ${workItems.acceptedAt}, ${workItems.createdAt})`;
+	const idleAfter = new Date(Date.parse(after) - 172_800_000).toISOString();
+	const idleThrough = new Date(Date.parse(through) - 172_800_000).toISOString();
+	const change = (
+		key: SQL,
+		orgId: SQLWrapper,
+		kind: CommitmentChange["kind"],
+		objectId: SQLWrapper,
+		state: SQL,
+		changedAt: SQL,
+	) => ({
+		key: sql<string>`${key}`.as("key"),
+		orgId: sql<string>`${orgId}`.as("orgId"),
+		tediId: sql<string>`${t.id}`.as("tediId"),
+		slug: sql<string>`${t.slug}`.as("slug"),
+		kind: sql<CommitmentChange["kind"]>`${kind}`.as("kind"),
+		objectId: sql<string>`${objectId}`.as("objectId"),
+		state: sql<string>`${state}`.as("state"),
+		changedAt: sql<string>`${changedAt}`.as("changedAt"),
+	});
+	const builders = [
+		db
+			.select(
+				change(
+					sql`'member-overdue:' || ${workItems.id}`,
+					workItems.orgId,
+					"work",
+					workItems.id,
+					sql`'overdue'`,
+					workDue,
+				),
+			)
+			.from(t)
+			.innerJoin(m, personalMembers)
+			.innerJoin(memberWork, memberOwnsWork)
+			.where(
+				and(
+					eq(t.scope, "personal"),
+					eq(t.status, "active"),
+					notInArray(workItems.disposition, ["completed", "cancelled"]),
+					sql`${workDue} > ${after}`,
+					sql`${workDue} <= ${through}`,
+				),
+			),
+		db
+			.select(
+				change(
+					sql`'idle:' || ${workItems.id}`,
+					workItems.orgId,
+					"work",
+					workItems.id,
+					sql`'idle'`,
+					sql`strftime('%Y-%m-%dT%H:%M:%fZ', ${workTouched}, '+2 days')`,
+				),
+			)
+			.from(t)
+			.innerJoin(m, personalMembers)
+			.innerJoin(memberWork, memberOwnsWork)
+			.where(
+				and(
+					eq(t.scope, "personal"),
+					eq(t.status, "active"),
+					eq(workItems.disposition, "accepted"),
+					sql`${workTouched} > ${idleAfter}`,
+					sql`${workTouched} <= ${idleThrough}`,
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(sql`${workAttempts} INDEXED BY uniq_work_attempt_number`)
+							.where(
+								and(
+									eq(workAttempts.orgId, workItems.orgId),
+									eq(workAttempts.workItemId, workItems.id),
+									eq(workAttempts.runtimeState, "running"),
+									gt(workAttempts.expiresAt, through),
+								),
+							),
+					),
+				),
+			),
+		db
+			.select(
+				change(
+					sql`'interaction-idle:' || ${workInteractions.id}`,
+					workInteractions.orgId,
+					"interaction",
+					workInteractions.id,
+					sql`'idle'`,
+					sql`strftime('%Y-%m-%dT%H:%M:%fZ', ${workInteractions.createdAt}, '+2 days')`,
+				),
+			)
+			.from(t)
+			.innerJoin(m, personalMembers)
+			.innerJoin(
+				sql`${workInteractions} INDEXED BY idx_work_interactions_target_status`,
+				and(
+					eq(workInteractions.orgId, m.organizationId),
+					eq(workInteractions.targetType, "user"),
+					eq(workInteractions.targetId, m.userId),
+					eq(workInteractions.status, "open"),
+				),
+			)
+			.where(
+				and(
+					eq(t.scope, "personal"),
+					eq(t.status, "active"),
+					isNull(workInteractions.dueAt),
+					gt(workInteractions.createdAt, idleAfter),
+					lte(workInteractions.createdAt, idleThrough),
+					or(
+						isNull(workInteractions.expiresAt),
+						gt(workInteractions.expiresAt, through),
+					),
+					or(
+						isNull(workInteractions.workItemId),
+						exists(
+							db
+								.select({ one: sql`1` })
+								.from(workItems)
+								.where(
+									and(
+										eq(workItems.orgId, workInteractions.orgId),
+										eq(workItems.id, workInteractions.workItemId),
+										notInArray(workItems.disposition, [
+											"completed",
+											"cancelled",
+										]),
+									),
+								),
+						),
+					),
+				),
+			),
+		db
+			.select(
+				change(
+					sql`'memory:' || ${memoryFacts.id}`,
+					memoryFacts.organizationId,
+					"memory",
+					memoryFacts.id,
+					sql`'overdue'`,
+					sql`json_extract(${memoryFacts.metadata}, '$.dueAt')`,
+				),
+			)
+			.from(sql`${memoryFacts} INDEXED BY idx_memory_facts_type`)
+			.innerJoin(
+				t,
+				and(
+					eq(t.id, memoryFacts.tediId),
+					eq(t.organizationId, memoryFacts.organizationId),
+					eq(t.status, "active"),
+				),
+			)
+			.where(
+				and(
+					// Not in the typed fact-type enum, but stored by commitment capture.
+					sql`${memoryFacts.factType} = 'commitment'`,
+					isNull(memoryFacts.archivedAt),
+					isNull(memoryFacts.validTo),
+					notInArray(memoryFacts.reviewStatus, [
+						"rejected",
+						"superseded",
+						"disputed",
+					]),
+					sql`json_extract(${memoryFacts.metadata}, '$.dueAt') > ${after}`,
+					sql`json_extract(${memoryFacts.metadata}, '$.dueAt') <= ${through}`,
+				),
+			),
 	];
 	const groups: CommitmentChange[][] = [];
 	for (const statement of statements)
@@ -281,6 +537,25 @@ export async function listCommitmentChanges(
 				sql`SELECT * FROM (${statement}) ${pageFilter} ORDER BY changedAt COLLATE BINARY, key COLLATE BINARY, tediId COLLATE BINARY LIMIT ${limit}`,
 			),
 		);
+	for (const builder of builders) {
+		const changes = builder.as("changes");
+		groups.push(
+			await db
+				.select()
+				.from(changes)
+				.where(
+					cursor
+						? sql`(${changes.changedAt}, ${changes.key}, ${changes.tediId}) > (${cursor.changedAt}, ${cursor.key}, ${cursor.tediId})`
+						: undefined,
+				)
+				.orderBy(
+					sql`${changes.changedAt} COLLATE BINARY`,
+					sql`${changes.key} COLLATE BINARY`,
+					sql`${changes.tediId} COLLATE BINARY`,
+				)
+				.limit(limit),
+		);
+	}
 	return groups
 		.flat()
 		.sort((a, b) => {
@@ -368,12 +643,19 @@ export async function lastCommitmentWakeCheckpoint(
 		.where(eq(platformCronCheckpoints.scheduleId, "commitment-wakes"))
 		.limit(1);
 	if (cursor) return cursor.through;
-	const [row] = await db.all<{
-		successful: string | null;
-		firstFire: string | null;
-	}>(
-		sql`SELECT max(CASE WHEN status = 'success' THEN scheduled_at END) AS successful, min(scheduled_at) AS firstFire FROM platform_cron_executions WHERE schedule_id = 'commitment-wakes'`,
-	);
+	const [row] = await db
+		.select({
+			successful: sql<
+				string | null
+			>`max(CASE WHEN ${platformCronExecutions.status} = 'success' THEN ${platformCronExecutions.scheduledAt} END)`.as(
+				"successful",
+			),
+			firstFire: sql<
+				string | null
+			>`min(${platformCronExecutions.scheduledAt})`.as("firstFire"),
+		})
+		.from(platformCronExecutions)
+		.where(eq(platformCronExecutions.scheduleId, "commitment-wakes"));
 	const legacy = row?.successful ?? row?.firstFire;
 	if (!legacy) return null;
 	// Success covered the eligible boundary; a first failed fire also owes its initial window.

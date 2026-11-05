@@ -7,9 +7,10 @@
 
 import type { RationaleProofRefKind } from "@tedix/api-contract/constants/enums";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, like, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, like, ne, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { skillRunArtifacts } from "../schema/cognitive";
+import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import {
 	type OutcomeStatus,
 	type TediRationaleRecord,
@@ -73,13 +74,17 @@ export async function countRationaleRunToolEvents(
 	db: DbClient,
 	access: { tediId: string; orgId: string; runId: string },
 ): Promise<number> {
-	const rows = await db.all<{ cnt: number }>(
-		sql`SELECT count(*) AS cnt FROM tedi_runtime_events
-			WHERE tedi_id = ${access.tediId}
-				AND organization_id = ${access.orgId}
-				AND run_id = ${access.runId}
-				AND kind IN ('tool.completed', 'tool.failed')`,
-	);
+	const rows = await db
+		.select({ cnt: sql<number>`count(*)`.as("cnt") })
+		.from(tediRuntimeEvents)
+		.where(
+			and(
+				eq(tediRuntimeEvents.tediId, access.tediId),
+				eq(tediRuntimeEvents.organizationId, access.orgId),
+				eq(tediRuntimeEvents.runId, access.runId),
+				inArray(tediRuntimeEvents.kind, ["tool.completed", "tool.failed"]),
+			),
+		);
 	return Number(rows[0]?.cnt ?? 0);
 }
 

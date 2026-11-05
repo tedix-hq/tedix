@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { auditEvents } from "../../schema/audit-events";
 import { billingAccounts } from "../../schema/billing";
@@ -69,7 +69,20 @@ export async function assignInternalPlan(
 		isNull(billingAccounts.stripeSubscriptionId),
 		noReservations,
 	);
-	const assigned = sql`EXISTS (SELECT 1 FROM billing_accounts WHERE organization_id = ${input.organizationId} AND json_extract(metadata, '$.internalPlanAssignment.request') = ${request} AND entitlement_version = ${(current?.account.entitlementVersion ?? 0) + 1})`;
+	const assignedAccount = and(
+		eq(billingAccounts.organizationId, input.organizationId),
+		sql`json_extract(${billingAccounts.metadata}, '$.internalPlanAssignment.request') = ${request}`,
+		eq(
+			billingAccounts.entitlementVersion,
+			(current?.account.entitlementVersion ?? 0) + 1,
+		),
+	);
+	const assigned = exists(
+		db
+			.select({ one: sql`1` })
+			.from(billingAccounts)
+			.where(assignedAccount),
+	);
 	// Each dependent write shares the successful account CAS inside D1's atomic batch.
 	await db.batch([
 		db
@@ -111,7 +124,30 @@ export async function assignInternalPlan(
 		db
 			.insert(auditEvents)
 			.select(
-				sql`SELECT ${auditId}, ${input.organizationId}, ${actor.id}, ${actor.type}, 'billing.internal_plan_assigned', 'billing_account', ${input.organizationId}, ${JSON.stringify({ request, planVersionId: plan.id, previousPlanVersionId: current?.plan.id ?? null, actor, reason: input.reason })}, NULL, NULL, ${Math.floor(Date.parse(now) / 1000)} WHERE ${assigned}`,
+				// billing_accounts is keyed by organization: at most one row, only once assigned.
+				db
+					.select({
+						id: sql<string>`${auditId}`.as("id"),
+						organizationId: sql<string>`${input.organizationId}`.as(
+							"organization_id",
+						),
+						actorId: sql<string>`${actor.id}`.as("actor_id"),
+						actorType: sql<string>`${actor.type}`.as("actor_type"),
+						action: sql<string>`'billing.internal_plan_assigned'`.as("action"),
+						resourceType: sql<string>`'billing_account'`.as("resource_type"),
+						resourceId: sql<string>`${input.organizationId}`.as("resource_id"),
+						metadata:
+							sql<string>`${JSON.stringify({ request, planVersionId: plan.id, previousPlanVersionId: current?.plan.id ?? null, actor, reason: input.reason })}`.as(
+								"metadata",
+							),
+						ipAddress: sql<null>`NULL`.as("ip_address"),
+						userAgent: sql<null>`NULL`.as("user_agent"),
+						timestamp: sql<number>`${Math.floor(Date.parse(now) / 1000)}`.as(
+							"timestamp",
+						),
+					})
+					.from(billingAccounts)
+					.where(assignedAccount),
 			)
 			.onConflictDoNothing(),
 	]);

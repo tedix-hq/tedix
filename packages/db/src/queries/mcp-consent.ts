@@ -1,4 +1,17 @@
-import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	exists,
+	gt,
+	notExists,
+	notInArray,
+	or,
+	sql,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { apps } from "../schema/apps";
 import { organizations } from "../schema/organizations";
@@ -307,62 +320,179 @@ export async function promoteMcpConsentPending(
 	},
 ) {
 	const now = new Date().toISOString();
-	const key = sql`descope_user_id = ${input.descopeUserId} AND mcp_server_id = ${input.mcpServerId} AND client_id = ${input.clientId}`;
+	const selections = mcpConsentSelections;
+	const grants = mcpConsentGrants;
+	const selectionKey = and(
+		eq(selections.descopeUserId, input.descopeUserId),
+		eq(selections.mcpServerId, input.mcpServerId),
+		eq(selections.clientId, input.clientId),
+	);
+	const grantKey = and(
+		eq(grants.descopeUserId, input.descopeUserId),
+		eq(grants.mcpServerId, input.mcpServerId),
+		eq(grants.clientId, input.clientId),
+	);
 	// A latest decision written before grants existed becomes an explicit grant
 	// before the selection row moves on.
-	const preserve = db.run(sql`
- INSERT OR IGNORE INTO mcp_consent_grants
- (descope_user_id, mcp_server_id, client_id, revision, app_id, selected_tenant_ids, approved_scopes, created_at)
- SELECT descope_user_id, mcp_server_id, client_id, revision, app_id, selected_tenant_ids, approved_scopes, updated_at
- FROM mcp_consent_selections WHERE ${key} AND status = 'active'
- `);
-	const fence = (selection: SQL) => sql`(
-  ${selection}.revision = ${input.expectedActiveRevision}
-  OR (${selection}.status = 'active' AND EXISTS (
-   SELECT 1 FROM mcp_consent_grants g WHERE g.descope_user_id = ${selection}.descope_user_id
-   AND g.mcp_server_id = ${selection}.mcp_server_id AND g.client_id = ${selection}.client_id
-   AND g.revision = ${input.expectedActiveRevision}
-  ))
- )`;
-	const promote = db.all<{ revision: string }>(sql`
- INSERT INTO mcp_consent_selections
- (descope_user_id, mcp_server_id, client_id, app_id, revision, status, selected_tenant_ids, approved_scopes, created_at, updated_at)
- SELECT p.descope_user_id, p.mcp_server_id, p.client_id, p.app_id, p.revision, 'active', p.selected_tenant_ids, p.approved_scopes, ${now}, ${now}
- FROM mcp_consent_pending p
- WHERE p.descope_user_id = ${input.descopeUserId} AND p.mcp_server_id = ${input.mcpServerId}
- AND p.client_id = ${input.clientId} AND p.app_id = ${input.appId} AND p.revision = ${input.revision}
- AND p.expected_active_revision IS ${input.expectedActiveRevision} AND p.expires_at > ${now}
- AND p.selected_tenant_ids = ${JSON.stringify([...input.selectedTenantIds].sort())}
- AND p.approved_scopes = ${JSON.stringify([...input.approvedScopes].sort())}
- AND (
-  (${input.expectedActiveRevision} IS NULL AND NOT EXISTS (
-   SELECT 1 FROM mcp_consent_selections a WHERE a.descope_user_id = p.descope_user_id
-   AND a.mcp_server_id = p.mcp_server_id AND a.client_id = p.client_id
-  )) OR EXISTS (
-   SELECT 1 FROM mcp_consent_selections a WHERE a.descope_user_id = p.descope_user_id
-   AND a.mcp_server_id = p.mcp_server_id AND a.client_id = p.client_id AND ${fence(sql`a`)}
-  )
- )
- ON CONFLICT(descope_user_id, mcp_server_id, client_id) DO UPDATE SET
- app_id = excluded.app_id, revision = excluded.revision, status = excluded.status,
- selected_tenant_ids = excluded.selected_tenant_ids, approved_scopes = excluded.approved_scopes, updated_at = excluded.updated_at
- WHERE ${fence(sql`mcp_consent_selections`)}
- RETURNING revision
- `);
+	const preserve = db
+		.insert(grants)
+		.select(
+			db
+				.select({
+					descopeUserId: selections.descopeUserId,
+					mcpServerId: selections.mcpServerId,
+					clientId: selections.clientId,
+					revision: selections.revision,
+					appId: selections.appId,
+					selectedTenantIds: selections.selectedTenantIds,
+					approvedScopes: selections.approvedScopes,
+					createdAt: selections.updatedAt,
+				})
+				.from(selections)
+				.where(and(selectionKey, eq(selections.status, "active"))),
+		)
+		.onConflictDoNothing();
+	const g = alias(grants, "g");
+	const fence = (selection: {
+		revision: SQLWrapper;
+		status: SQLWrapper;
+		descopeUserId: SQLWrapper;
+		mcpServerId: SQLWrapper;
+		clientId: SQLWrapper;
+	}) =>
+		or(
+			sql`${selection.revision} = ${input.expectedActiveRevision}`,
+			and(
+				sql`${selection.status} = 'active'`,
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(g)
+						.where(
+							and(
+								sql`${g.descopeUserId} = ${selection.descopeUserId}`,
+								sql`${g.mcpServerId} = ${selection.mcpServerId}`,
+								sql`${g.clientId} = ${selection.clientId}`,
+								sql`${g.revision} = ${input.expectedActiveRevision}`,
+							),
+						),
+				),
+			),
+		);
+	const p = alias(mcpConsentPending, "p");
+	const a = alias(selections, "a");
+	const sameClient = and(
+		eq(a.descopeUserId, p.descopeUserId),
+		eq(a.mcpServerId, p.mcpServerId),
+		eq(a.clientId, p.clientId),
+	);
+	const promote = db
+		.insert(selections)
+		.select(
+			db
+				.select({
+					descopeUserId: p.descopeUserId,
+					mcpServerId: p.mcpServerId,
+					clientId: p.clientId,
+					appId: p.appId,
+					revision: p.revision,
+					status: sql<"active">`'active'`.as("status"),
+					selectedTenantIds: p.selectedTenantIds,
+					approvedScopes: p.approvedScopes,
+					createdAt: sql<string>`${now}`.as("created_at"),
+					updatedAt: sql<string>`${now}`.as("updated_at"),
+				})
+				.from(p)
+				.where(
+					and(
+						eq(p.descopeUserId, input.descopeUserId),
+						eq(p.mcpServerId, input.mcpServerId),
+						eq(p.clientId, input.clientId),
+						eq(p.appId, input.appId),
+						eq(p.revision, input.revision),
+						sql`${p.expectedActiveRevision} IS ${input.expectedActiveRevision}`,
+						gt(p.expiresAt, now),
+						sql`${p.selectedTenantIds} = ${JSON.stringify([...input.selectedTenantIds].sort())}`,
+						sql`${p.approvedScopes} = ${JSON.stringify([...input.approvedScopes].sort())}`,
+						or(
+							and(
+								sql`${input.expectedActiveRevision} IS NULL`,
+								notExists(
+									db
+										.select({ one: sql`1` })
+										.from(a)
+										.where(sameClient),
+								),
+							),
+							exists(
+								db
+									.select({ one: sql`1` })
+									.from(a)
+									.where(and(sameClient, fence(a))),
+							),
+						),
+					),
+				),
+		)
+		.onConflictDoUpdate({
+			target: [
+				selections.descopeUserId,
+				selections.mcpServerId,
+				selections.clientId,
+			],
+			set: {
+				appId: sql`excluded.app_id`,
+				revision: sql`excluded.revision`,
+				status: sql`excluded.status`,
+				selectedTenantIds: sql`excluded.selected_tenant_ids`,
+				approvedScopes: sql`excluded.approved_scopes`,
+				updatedAt: sql`excluded.updated_at`,
+			},
+			setWhere: fence(selections),
+		})
+		.returning({ revision: selections.revision });
 	// Only a selection this batch just activated yields a grant.
-	const grant = db.run(sql`
- INSERT OR IGNORE INTO mcp_consent_grants
- (descope_user_id, mcp_server_id, client_id, revision, app_id, selected_tenant_ids, approved_scopes, created_at)
- SELECT descope_user_id, mcp_server_id, client_id, revision, app_id, selected_tenant_ids, approved_scopes, ${now}
- FROM mcp_consent_selections WHERE ${key} AND revision = ${input.revision}
- AND status = 'active' AND updated_at = ${now}
- `);
-	const prune = db.run(sql`
- DELETE FROM mcp_consent_grants WHERE ${key} AND revision NOT IN (
-  SELECT revision FROM mcp_consent_grants WHERE ${key}
-  ORDER BY created_at DESC, revision DESC LIMIT ${MAX_MCP_CONSENT_GRANTS_PER_CLIENT}
- )
- `);
+	const grant = db
+		.insert(grants)
+		.select(
+			db
+				.select({
+					descopeUserId: selections.descopeUserId,
+					mcpServerId: selections.mcpServerId,
+					clientId: selections.clientId,
+					revision: selections.revision,
+					appId: selections.appId,
+					selectedTenantIds: selections.selectedTenantIds,
+					approvedScopes: selections.approvedScopes,
+					createdAt: sql<string>`${now}`.as("created_at"),
+				})
+				.from(selections)
+				.where(
+					and(
+						selectionKey,
+						eq(selections.revision, input.revision),
+						eq(selections.status, "active"),
+						eq(selections.updatedAt, now),
+					),
+				),
+		)
+		.onConflictDoNothing();
+	const prune = db
+		.delete(grants)
+		.where(
+			and(
+				grantKey,
+				notInArray(
+					grants.revision,
+					db
+						.select({ revision: grants.revision })
+						.from(grants)
+						.where(grantKey)
+						.orderBy(desc(grants.createdAt), desc(grants.revision))
+						.limit(MAX_MCP_CONSENT_GRANTS_PER_CLIENT),
+				),
+			),
+		);
 	const [, rows] = await db.batch([preserve, promote, grant, prune]);
 	return rows.length === 1;
 }

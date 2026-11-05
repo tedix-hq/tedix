@@ -1,10 +1,42 @@
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	exists,
+	gt,
+	gte,
+	isNotNull,
+	isNull,
+	lt,
+	ne,
+	notExists,
+	type SQL,
+	type SQLWrapper,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type {
 	PersonalAgentOutcome,
 	PersonalAgentEnrollment,
 } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import type { DbQueryClient } from "../query-client";
-import { workEvents } from "../schema/work-items";
+import { organizationMembers } from "../schema/organization-members";
+import { tediEmailAddresses } from "../schema/tedi-email";
+import { userConfigs } from "../schema/user-configs";
+import {
+	workInteractionResponses,
+	workInteractions,
+} from "../schema/work-factory";
+import {
+	workEvents,
+	workEvidence,
+	workEvidenceVerifications,
+	workItemComments,
+	workItemCorroborations,
+	workItems,
+} from "../schema/work-items";
 
 export interface PersonalAgentOutcomeSource {
 	orgId: string;
@@ -30,57 +62,231 @@ export interface PersonalAgentOutcomeSource {
 	sourceKey: string;
 }
 
+const ENROLLMENT_NAMESPACE = "personal-agent-inbound.v1";
+const w = alias(workItems, "w");
+const cfg = alias(userConfigs, "cfg");
+const i = alias(workInteractions, "i");
+const r = alias(workInteractionResponses, "r");
+const o = alias(workEvents, "o");
+
+/** A user's direct, final answer: no agent session, actor, triage or auto-draft. */
+function directUserAnswer(userId: SQLWrapper | string) {
+	return and(
+		eq(r.responderType, "user"),
+		eq(r.responderId, userId),
+		eq(r.resolvesRequest, true),
+		eq(r.responseKind, "answer"),
+		isNull(r.responderSessionId),
+		isNull(r.responderExternalSessionKey),
+		sql`json_extract(${r.metadata},'$.actor') IS NULL`,
+		sql`coalesce(json_extract(${r.metadata},'$.source'),'') NOT IN ('triage-fyi','auto-reply')`,
+		sql`coalesce(json_extract(${r.metadata},'$.draftOutcome'),'')<>'auto'`,
+	);
+}
+
+/** The active enrollment row for one user and `${orgId}:${agentId}` key. */
+function activeEnrollment(userId: string, key: string) {
+	return and(
+		eq(cfg.userId, userId),
+		eq(cfg.namespace, ENROLLMENT_NAMESPACE),
+		eq(cfg.key, key),
+		sql`json_extract(${cfg.value},'$.active')=1`,
+	);
+}
+
 /** Existing response/verification ledgers are the backlog; no second queue. */
-export function listPersonalAgentOutcomeSources(db: DbQueryClient, limit = 50) {
-	return db.all<PersonalAgentOutcomeSource>(sql`
-		WITH observations AS (
-		 SELECT v.id, v.org_id, v.work_item_id, v.evidence_id, e.uri AS evidence_uri,
-		 cast(e.version AS TEXT) AS evidence_version, v.source AS observation_source,
-		 v.verifier_type AS observer_type, v.verifier_id AS observer_id,
-		 CASE WHEN v.matches_claim=0 THEN 'contradicted'
-		 WHEN e.version=1 OR json_extract(v.claimed,'$.evidenceVersion')=e.version THEN 'verified' ELSE 'unverified' END AS observation_state,
-		 v.matches_claim, v.observed_at FROM work_evidence_verifications v
-		 JOIN work_evidence e ON e.org_id=v.org_id AND e.id=v.evidence_id AND e.work_item_id=v.work_item_id
-		 UNION ALL
-		 SELECT c.id,c.org_id,c.work_item_id,NULL,c.evidence_ref,c.occurred_at,'work_confirmation',c.principal_type,c.principal_id,
-		 CASE WHEN c.stance='corroborates' THEN 'corroborated' ELSE 'contradicted' END,
-		 CASE WHEN c.stance='corroborates' THEN 1 ELSE 0 END,c.occurred_at FROM work_item_corroborations c
+export function listPersonalAgentOutcomeSources(
+	db: DbQueryClient,
+	limit = 50,
+): Promise<PersonalAgentOutcomeSource[]> {
+	const v = alias(workEvidenceVerifications, "v");
+	const e = alias(workEvidence, "e");
+	const c = alias(workItemCorroborations, "c");
+	const observations = db.$with("observations").as(
+		db
+			.select({
+				id: sql<string>`${v.id}`.as("id"),
+				orgId: sql<string>`${v.orgId}`.as("org_id"),
+				workItemId: sql<string>`${v.workItemId}`.as("work_item_id"),
+				evidenceId: sql<string | null>`${v.evidenceId}`.as("evidence_id"),
+				evidenceUri: sql<string | null>`${e.uri}`.as("evidence_uri"),
+				evidenceVersion: sql<string | null>`cast(${e.version} AS TEXT)`.as(
+					"evidence_version",
+				),
+				observationSource: sql<string>`${v.source}`.as("observation_source"),
+				observerType: sql<string>`${v.verifierType}`.as("observer_type"),
+				observerId: sql<string>`${v.verifierId}`.as("observer_id"),
+				observationState:
+					sql<string>`CASE WHEN ${v.matchesClaim}=0 THEN 'contradicted'
+				 WHEN ${e.version}=1 OR json_extract(${v.claimed},'$.evidenceVersion')=${e.version} THEN 'verified' ELSE 'unverified' END`.as(
+						"observation_state",
+					),
+				matchesClaim: sql<number>`${v.matchesClaim}`.as("matches_claim"),
+				observedAt: sql<string>`${v.observedAt}`.as("observed_at"),
+			})
+			.from(v)
+			.innerJoin(
+				e,
+				and(
+					eq(e.orgId, v.orgId),
+					eq(e.id, v.evidenceId),
+					eq(e.workItemId, v.workItemId),
+				),
+			)
+			.unionAll(
+				db
+					.select({
+						id: sql<string>`${c.id}`.as("id"),
+						orgId: sql<string>`${c.orgId}`.as("org_id"),
+						workItemId: sql<string>`${c.workItemId}`.as("work_item_id"),
+						evidenceId: sql<string | null>`NULL`.as("evidence_id"),
+						evidenceUri: sql<string | null>`${c.evidenceRef}`.as(
+							"evidence_uri",
+						),
+						evidenceVersion: sql<string | null>`${c.occurredAt}`.as(
+							"evidence_version",
+						),
+						observationSource: sql<string>`'work_confirmation'`.as(
+							"observation_source",
+						),
+						observerType: sql<string>`${c.principalType}`.as("observer_type"),
+						observerId: sql<string>`${c.principalId}`.as("observer_id"),
+						observationState:
+							sql<string>`CASE WHEN ${c.stance}='corroborates' THEN 'corroborated' ELSE 'contradicted' END`.as(
+								"observation_state",
+							),
+						matchesClaim:
+							sql<number>`CASE WHEN ${c.stance}='corroborates' THEN 1 ELSE 0 END`.as(
+								"matches_claim",
+							),
+						observedAt: sql<string>`${c.occurredAt}`.as("observed_at"),
+					})
+					.from(c),
+			),
+	);
+	const newer = alias(workInteractionResponses, "newer");
+	const observationKey = sql`coalesce(${observations.id} || ':' || ${observations.observedAt} || ':' || ${observations.matchesClaim} || ':' || ${observations.evidenceVersion},'decision')`;
+	return db
+		.with(observations)
+		.select({
+			orgId: sql<string>`${w.orgId}`.as("orgId"),
+			userId: sql<string>`${cfg.userId}`.as("userId"),
+			enrollment: sql<string>`${cfg.value}`.as("enrollment"),
+			contribution:
+				sql<string>`json_extract(${w.provenance},'$.personalAgentContribution')`.as(
+					"contribution",
+				),
+			workItemId: sql<string>`${w.id}`.as("workItemId"),
+			interactionId: sql<string>`${i.id}`.as("interactionId"),
+			responseId: sql<string>`${r.id}`.as("responseId"),
+			body: sql<string>`${r.body}`.as("body"),
+			metadata: sql<string>`${r.metadata}`.as("metadata"),
+			decidedAt: sql<string>`${r.respondedAt}`.as("decidedAt"),
+			sourceVersion: sql<number>`${r.resolvedRequestVersion}`.as(
+				"sourceVersion",
+			),
+			verificationId: sql<string | null>`${observations.id}`.as(
+				"verificationId",
+			),
+			evidenceId: sql<string | null>`${observations.evidenceId}`.as(
+				"evidenceId",
+			),
+			evidenceUri: sql<string | null>`${observations.evidenceUri}`.as(
+				"evidenceUri",
+			),
+			evidenceVersion: sql<string | null>`${observations.evidenceVersion}`.as(
+				"evidenceVersion",
+			),
+			observationSource: sql<
+				string | null
+			>`${observations.observationSource}`.as("observationSource"),
+			observerType: sql<string | null>`${observations.observerType}`.as(
+				"observerType",
+			),
+			observerId: sql<string | null>`${observations.observerId}`.as(
+				"observerId",
+			),
+			observationState: sql<string | null>`${observations.observationState}`.as(
+				"observationState",
+			),
+			observedAt: sql<string | null>`${observations.observedAt}`.as(
+				"observedAt",
+			),
+			sourceKey: sql<string>`(${r.id} || ':' || ${observationKey})`.as(
+				"sourceKey",
+			),
+		})
+		.from(w)
+		.innerJoin(
+			cfg,
+			and(
+				eq(cfg.namespace, ENROLLMENT_NAMESPACE),
+				sql`${cfg.userId}=json_extract(${w.provenance},'$.personalAgentContribution.representedUserId')`,
+				sql`${cfg.key}=${w.orgId} || ':' || json_extract(${w.provenance},'$.personalAgentContribution.sourceAgentId')`,
+				sql`json_extract(${cfg.value},'$.active')=1`,
+			),
 		)
-		SELECT w.org_id AS orgId, cfg.user_id AS userId, cfg.value AS enrollment,
-		json_extract(w.provenance,'$.personalAgentContribution') AS contribution,
-		w.id AS workItemId, i.id AS interactionId, r.id AS responseId, r.body AS body,
-		r.metadata AS metadata, r.responded_at AS decidedAt,
-		r.resolved_request_version AS sourceVersion,
-		v.id AS verificationId, v.evidence_id AS evidenceId, v.evidence_uri AS evidenceUri,
-		v.evidence_version AS evidenceVersion, v.observation_source AS observationSource,
-		v.observer_type AS observerType, v.observer_id AS observerId, v.observation_state AS observationState,
-		v.observed_at AS observedAt,
-		(r.id || ':' || coalesce(v.id || ':' || v.observed_at || ':' || v.matches_claim || ':' || v.evidence_version,'decision')) AS sourceKey
-		FROM work_items w
-		JOIN user_configs cfg ON cfg.namespace='personal-agent-inbound.v1'
-		 AND cfg.user_id=json_extract(w.provenance,'$.personalAgentContribution.representedUserId')
-		 AND cfg.key=w.org_id || ':' || json_extract(w.provenance,'$.personalAgentContribution.sourceAgentId')
-		 AND json_extract(cfg.value,'$.active')=1
-		JOIN work_interactions i ON i.org_id=w.org_id AND i.work_item_id=w.id
-		 AND i.target_type='user' AND i.target_id=cfg.user_id
-		 AND json_extract(i.metadata,'$.source')='personal-agent-inbound'
-		JOIN work_interaction_responses r ON r.org_id=i.org_id AND r.interaction_id=i.id
-		 AND r.responder_type='user' AND r.responder_id=cfg.user_id AND r.resolves_request=1
-		 AND r.response_kind='answer'
-		 AND r.responder_session_id IS NULL AND r.responder_external_session_key IS NULL
-		 AND json_extract(r.metadata,'$.actor') IS NULL
-		 AND coalesce(json_extract(r.metadata,'$.source'),'') NOT IN ('triage-fyi','auto-reply')
-		 AND coalesce(json_extract(r.metadata,'$.draftOutcome'),'')<>'auto'
-		LEFT JOIN observations v ON v.org_id=w.org_id AND v.work_item_id=w.id
-		WHERE json_extract(cfg.value,'$.orgId')=w.org_id
-		 AND json_extract(cfg.value,'$.representedUserId')=cfg.user_id
-		 AND NOT EXISTS (SELECT 1 FROM work_interaction_responses newer
-		 WHERE newer.org_id=r.org_id AND newer.interaction_id=r.interaction_id
-		 AND newer.responder_type='user' AND newer.responder_id=r.responder_id AND newer.resolves_request=1
-		 AND newer.resolved_request_version>r.resolved_request_version)
-		 AND NOT EXISTS (SELECT 1 FROM work_events o WHERE o.org_id=w.org_id
-		 AND o.id='pa-outcome:' || r.id || ':' || coalesce(v.id || ':' || v.observed_at || ':' || v.matches_claim || ':' || v.evidence_version,'decision'))
-		ORDER BY r.responded_at, r.id, v.observed_at, v.id LIMIT ${limit}`);
+		.innerJoin(
+			i,
+			and(
+				eq(i.orgId, w.orgId),
+				eq(i.workItemId, w.id),
+				eq(i.targetType, "user"),
+				eq(i.targetId, cfg.userId),
+				sql`json_extract(${i.metadata},'$.source')='personal-agent-inbound'`,
+			),
+		)
+		.innerJoin(
+			r,
+			and(
+				eq(r.orgId, i.orgId),
+				eq(r.interactionId, i.id),
+				directUserAnswer(cfg.userId),
+			),
+		)
+		.leftJoin(
+			observations,
+			and(eq(observations.orgId, w.orgId), eq(observations.workItemId, w.id)),
+		)
+		.where(
+			and(
+				sql`json_extract(${cfg.value},'$.orgId')=${w.orgId}`,
+				sql`json_extract(${cfg.value},'$.representedUserId')=${cfg.userId}`,
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(newer)
+						.where(
+							and(
+								eq(newer.orgId, r.orgId),
+								eq(newer.interactionId, r.interactionId),
+								eq(newer.responderType, "user"),
+								eq(newer.responderId, r.responderId),
+								eq(newer.resolvesRequest, true),
+								gt(newer.resolvedRequestVersion, r.resolvedRequestVersion),
+							),
+						),
+				),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(o)
+						.where(
+							and(
+								eq(o.orgId, w.orgId),
+								sql`${o.id}='pa-outcome:' || ${r.id} || ':' || ${observationKey}`,
+							),
+						),
+				),
+			),
+		)
+		.orderBy(
+			asc(r.respondedAt),
+			asc(r.id),
+			asc(observations.observedAt),
+			asc(observations.id),
+		)
+		.limit(limit);
 }
 
 /** Outcome and its always-on Work comment commit together. Deterministic ids fence races. */
@@ -90,15 +296,57 @@ export async function recordPersonalAgentOutcome(
 	outcome: PersonalAgentOutcome,
 ) {
 	await db.batch([
-		db.run(sql`INSERT INTO work_events (id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at)
-		 SELECT ${outcome.id},${orgId},${outcome.workItemId},'personal_agent.outcome_recorded','system','personal-agent-outbound',${JSON.stringify(outcome)},${outcome.recordedAt}
-		 FROM user_configs cfg WHERE cfg.user_id=${outcome.decidedBy} AND cfg.namespace='personal-agent-inbound.v1'
-		 AND cfg.key=${`${orgId}:${outcome.sourceAgentId}`} AND json_extract(cfg.value,'$.active')=1
-		 ON CONFLICT(id) DO NOTHING`),
-		db.run(sql`INSERT INTO work_item_comments (id,org_id,work_item_id,author_type,author_id,body,metadata,created_at)
-		 SELECT id,org_id,work_item_id,'system','personal-agent-outbound',payload,json_object('personalAgentOutcome',json(payload)),occurred_at
-		 FROM work_events WHERE org_id=${orgId} AND id=${outcome.id}
-		 ON CONFLICT(id) DO NOTHING`),
+		db
+			.insert(workEvents)
+			.select(
+				db
+					.select({
+						id: sql<string>`${outcome.id}`.as("id"),
+						orgId: sql<string>`${orgId}`.as("org_id"),
+						workItemId: sql<string>`${outcome.workItemId}`.as("work_item_id"),
+						eventType: sql<string>`'personal_agent.outcome_recorded'`.as(
+							"event_type",
+						),
+						actorType: sql<"system">`'system'`.as("actor_type"),
+						actorId: sql<string>`'personal-agent-outbound'`.as("actor_id"),
+						payload: sql<
+							Record<string, JsonValue>
+						>`${JSON.stringify(outcome)}`.as("payload"),
+						occurredAt: sql<string>`${outcome.recordedAt}`.as("occurred_at"),
+					})
+					.from(cfg)
+					.where(
+						activeEnrollment(
+							outcome.decidedBy,
+							`${orgId}:${outcome.sourceAgentId}`,
+						),
+					),
+			)
+			.onConflictDoNothing({ target: workEvents.id }),
+		db
+			.insert(workItemComments)
+			.select(
+				db
+					.select({
+						id: workEvents.id,
+						orgId: workEvents.orgId,
+						workItemId: workEvents.workItemId,
+						authorType: sql<"system">`'system'`.as("author_type"),
+						authorId: sql<string>`'personal-agent-outbound'`.as("author_id"),
+						body: sql<string>`${workEvents.payload}`.as("body"),
+						metadata: sql<
+							Record<string, JsonValue>
+						>`json_object('personalAgentOutcome',json(${workEvents.payload}))`.as(
+							"metadata",
+						),
+						createdAt: workEvents.occurredAt,
+					})
+					.from(workEvents)
+					.where(
+						and(eq(workEvents.orgId, orgId), eq(workEvents.id, outcome.id)),
+					),
+			)
+			.onConflictDoNothing({ target: workItemComments.id }),
 	]);
 }
 
@@ -153,13 +401,28 @@ export async function getPersonalAgentEmailDestination(
 	e: PersonalAgentEnrollment,
 ) {
 	if (!e.delivery?.email) return null;
-	const [row] = await db.all<{ to: string; from: string }>(sql`
-		SELECT m.email AS "to", a.address AS "from" FROM organization_members m
-		JOIN tedi_email_addresses a ON a.organization_id=m.organization_id AND a.status='active'
-		WHERE m.organization_id=${e.orgId} AND m.id=${e.delivery.email.memberId}
-		 AND m.kind='external_agent' AND m.status='active' AND m.represented_user_id=${e.representedUserId}
-		 AND m.user_id IS NOT NULL AND m.user_id<>${e.representedUserId}
-		 AND a.id=${e.delivery.email.senderAddressId} LIMIT 1`);
+	const m = organizationMembers;
+	const a = tediEmailAddresses;
+	const [row] = await db
+		.select({ to: m.email, from: a.address })
+		.from(m)
+		.innerJoin(
+			a,
+			and(eq(a.organizationId, m.organizationId), eq(a.status, "active")),
+		)
+		.where(
+			and(
+				eq(m.organizationId, e.orgId),
+				eq(m.id, e.delivery.email.memberId),
+				eq(m.kind, "external_agent"),
+				eq(m.status, "active"),
+				eq(m.representedUserId, e.representedUserId),
+				isNotNull(m.userId),
+				ne(m.userId, e.representedUserId),
+				eq(a.id, e.delivery.email.senderAddressId),
+			),
+		)
+		.limit(1);
 	return row ?? null;
 }
 
@@ -168,16 +431,39 @@ export async function claimPersonalAgentEmail(
 	e: PersonalAgentEnrollment,
 	outcome: PersonalAgentOutcome,
 ) {
-	const rows = await db.all<{
-		id: string;
-	}>(sql`INSERT INTO work_events (id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at)
-		SELECT ${`${outcome.id}:email`},${e.orgId},${outcome.workItemId},'personal_agent.outcome_email','system','personal-agent-outbound',
-		${JSON.stringify({ outcomeId: outcome.id, status: "sending_or_unknown" })},${new Date().toISOString()}
-		FROM user_configs cfg WHERE cfg.user_id=${e.representedUserId} AND cfg.namespace='personal-agent-inbound.v1'
-		AND cfg.key=${`${e.orgId}:${e.id}`} AND json_extract(cfg.value,'$.active')=1
-		AND json_extract(cfg.value,'$.delivery.email.memberId')=${e.delivery?.email?.memberId ?? null}
-		AND json_extract(cfg.value,'$.delivery.email.senderAddressId')=${e.delivery?.email?.senderAddressId ?? null}
-		ON CONFLICT(id) DO NOTHING RETURNING id`);
+	const rows = await db
+		.insert(workEvents)
+		.select(
+			db
+				.select({
+					id: sql<string>`${`${outcome.id}:email`}`.as("id"),
+					orgId: sql<string>`${e.orgId}`.as("org_id"),
+					workItemId: sql<string>`${outcome.workItemId}`.as("work_item_id"),
+					eventType: sql<string>`'personal_agent.outcome_email'`.as(
+						"event_type",
+					),
+					actorType: sql<"system">`'system'`.as("actor_type"),
+					actorId: sql<string>`'personal-agent-outbound'`.as("actor_id"),
+					payload: sql<
+						Record<string, JsonValue>
+					>`${JSON.stringify({ outcomeId: outcome.id, status: "sending_or_unknown" })}`.as(
+						"payload",
+					),
+					occurredAt: sql<string>`${new Date().toISOString()}`.as(
+						"occurred_at",
+					),
+				})
+				.from(cfg)
+				.where(
+					and(
+						activeEnrollment(e.representedUserId, `${e.orgId}:${e.id}`),
+						sql`json_extract(${cfg.value},'$.delivery.email.memberId')=${e.delivery?.email?.memberId ?? null}`,
+						sql`json_extract(${cfg.value},'$.delivery.email.senderAddressId')=${e.delivery?.email?.senderAddressId ?? null}`,
+					),
+				),
+		)
+		.onConflictDoNothing({ target: workEvents.id })
+		.returning({ id: workEvents.id });
 	return rows.length === 1;
 }
 
@@ -202,15 +488,37 @@ export async function finishPersonalAgentEmail(
 }
 
 export function listPendingPersonalAgentEmails(db: DbQueryClient, limit = 50) {
-	return db.all<{ orgId: string; payload: string; enrollment: string }>(sql`
-		SELECT o.org_id AS orgId, o.payload AS payload, cfg.value AS enrollment FROM work_events o
-		JOIN user_configs cfg ON cfg.namespace='personal-agent-inbound.v1'
-		 AND cfg.user_id=json_extract(o.payload,'$.decidedBy')
-		 AND cfg.key=o.org_id || ':' || json_extract(o.payload,'$.sourceAgentId')
-		WHERE o.event_type='personal_agent.outcome_recorded' AND json_extract(cfg.value,'$.active')=1
-		 AND json_extract(cfg.value,'$.delivery.email') IS NOT NULL
-		 AND NOT EXISTS (SELECT 1 FROM work_events d WHERE d.org_id=o.org_id AND d.id=o.id || ':email')
-		ORDER BY o.sequence LIMIT ${limit}`);
+	const d = alias(workEvents, "d");
+	return db
+		.select({
+			orgId: sql<string>`${o.orgId}`.as("orgId"),
+			payload: sql<string>`${o.payload}`.as("payload"),
+			enrollment: sql<string>`${cfg.value}`.as("enrollment"),
+		})
+		.from(o)
+		.innerJoin(
+			cfg,
+			and(
+				eq(cfg.namespace, ENROLLMENT_NAMESPACE),
+				sql`${cfg.userId}=json_extract(${o.payload},'$.decidedBy')`,
+				sql`${cfg.key}=${o.orgId} || ':' || json_extract(${o.payload},'$.sourceAgentId')`,
+			),
+		)
+		.where(
+			and(
+				eq(o.eventType, "personal_agent.outcome_recorded"),
+				sql`json_extract(${cfg.value},'$.active')=1`,
+				sql`json_extract(${cfg.value},'$.delivery.email') IS NOT NULL`,
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(d)
+						.where(and(eq(d.orgId, o.orgId), sql`${d.id}=${o.id} || ':email'`)),
+				),
+			),
+		)
+		.orderBy(asc(o.sequence))
+		.limit(limit);
 }
 
 export async function acknowledgePersonalAgentOutcome(
@@ -223,18 +531,48 @@ export async function acknowledgePersonalAgentOutcome(
 		reminderId?: string;
 	},
 ) {
-	const rows = await db.all<{
-		workItemId: string;
-	}>(sql`SELECT work_item_id AS workItemId FROM work_events
-		WHERE org_id=${p.orgId} AND id=${p.outcomeId} AND event_type='personal_agent.outcome_recorded'
-		AND json_extract(payload,'$.sourceAgentId')=${p.enrollmentId} AND json_extract(payload,'$.decidedBy')=${p.userId} LIMIT 1`);
+	const rows = await db
+		.select({ workItemId: workEvents.workItemId })
+		.from(workEvents)
+		.where(
+			and(
+				eq(workEvents.orgId, p.orgId),
+				eq(workEvents.id, p.outcomeId),
+				eq(workEvents.eventType, "personal_agent.outcome_recorded"),
+				sql`json_extract(${workEvents.payload},'$.sourceAgentId')=${p.enrollmentId}`,
+				sql`json_extract(${workEvents.payload},'$.decidedBy')=${p.userId}`,
+			),
+		)
+		.limit(1);
 	if (!rows[0]) return false;
-	await db.run(sql`INSERT INTO work_events (id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at)
-		SELECT ${`${p.outcomeId}:ack`},${p.orgId},${rows[0].workItemId},'personal_agent.outcome_acknowledged','system',${`personal-agent:${p.enrollmentId}`},
-		${JSON.stringify({ outcomeId: p.outcomeId, sourceAgentId: p.enrollmentId, reminderId: p.reminderId ?? null, evidenceSource: "agent_report" })},${new Date().toISOString()}
-		FROM user_configs cfg WHERE cfg.user_id=${p.userId} AND cfg.namespace='personal-agent-inbound.v1'
-		AND cfg.key=${`${p.orgId}:${p.enrollmentId}`} AND json_extract(cfg.value,'$.active')=1
-		ON CONFLICT(id) DO NOTHING`);
+	await db
+		.insert(workEvents)
+		.select(
+			db
+				.select({
+					id: sql<string>`${`${p.outcomeId}:ack`}`.as("id"),
+					orgId: sql<string>`${p.orgId}`.as("org_id"),
+					workItemId: sql<string>`${rows[0].workItemId}`.as("work_item_id"),
+					eventType: sql<string>`'personal_agent.outcome_acknowledged'`.as(
+						"event_type",
+					),
+					actorType: sql<"system">`'system'`.as("actor_type"),
+					actorId: sql<string>`${`personal-agent:${p.enrollmentId}`}`.as(
+						"actor_id",
+					),
+					payload: sql<
+						Record<string, JsonValue>
+					>`${JSON.stringify({ outcomeId: p.outcomeId, sourceAgentId: p.enrollmentId, reminderId: p.reminderId ?? null, evidenceSource: "agent_report" })}`.as(
+						"payload",
+					),
+					occurredAt: sql<string>`${new Date().toISOString()}`.as(
+						"occurred_at",
+					),
+				})
+				.from(cfg)
+				.where(activeEnrollment(p.userId, `${p.orgId}:${p.enrollmentId}`)),
+		)
+		.onConflictDoNothing({ target: workEvents.id });
 	return true;
 }
 
@@ -245,52 +583,138 @@ export async function getPersonalAgentValue(
 	start: string,
 	end: string,
 ) {
-	const [row] = await db.all<{
-		findings: number;
-		decisionFindings: number;
-		decisionCards: number;
-		fyiFindings: number;
-		decidedFromCard: number;
-		outcomes: number;
-		verifiedOutcomes: number;
-		corroboratedOutcomes: number;
-		emailsSent: number;
-		acknowledgedOutcomes: number;
-		agentReportedReminderRetirements: number;
-	}>(sql`
-		WITH cohort AS (SELECT min(w.id) AS id,
-		 json_extract(w.provenance,'$.personalAgentContribution.kind') AS kind FROM work_items w
-		 WHERE w.org_id=${e.orgId}
-		 AND json_extract(w.provenance,'$.personalAgentContribution.sourceAgentId')=${e.id}
-		 AND json_extract(w.provenance,'$.personalAgentContribution.representedUserId')=${e.representedUserId}
-		 AND w.created_at>=${start} AND w.created_at<${end}
-		 GROUP BY json_extract(w.provenance,'$.personalAgentContribution.externalFindingId')),
-		 outcomes AS (SELECT o.* FROM work_events o JOIN cohort c ON c.id=o.work_item_id
-		 WHERE o.org_id=${e.orgId} AND o.event_type='personal_agent.outcome_recorded' AND o.occurred_at<${end})
-		SELECT (SELECT count(*) FROM cohort) AS findings,
-		 (SELECT count(*) FROM cohort WHERE kind='proposal') AS decisionFindings,
-		 (SELECT count(*) FROM cohort c WHERE c.kind='proposal' AND EXISTS (SELECT 1 FROM work_interactions i
-		 WHERE i.org_id=${e.orgId} AND i.work_item_id=c.id AND i.target_type='user' AND i.target_id=${e.representedUserId}
-		 AND json_extract(i.metadata,'$.source')='personal-agent-inbound'
-		 AND json_extract(i.metadata,'$.decisionDeck') IS NOT NULL AND i.created_at<${end})) AS decisionCards,
-		 (SELECT count(*) FROM cohort WHERE kind='fyi') AS fyiFindings,
-		 (SELECT count(*) FROM cohort c WHERE c.kind='proposal' AND EXISTS (
-		 SELECT 1 FROM work_interactions i JOIN work_interaction_responses r ON r.org_id=i.org_id AND r.interaction_id=i.id
-		 WHERE i.org_id=${e.orgId} AND i.work_item_id=c.id AND r.responder_type='user' AND r.responder_id=${e.representedUserId}
-		 AND i.target_type='user' AND i.target_id=${e.representedUserId} AND json_extract(i.metadata,'$.decisionDeck') IS NOT NULL AND i.created_at<${end}
-		 AND r.responder_session_id IS NULL AND r.responder_external_session_key IS NULL AND json_extract(r.metadata,'$.actor') IS NULL
-		 AND r.response_kind='answer' AND json_extract(i.metadata,'$.source')='personal-agent-inbound'
-		 AND coalesce(json_extract(r.metadata,'$.source'),'') NOT IN ('triage-fyi','auto-reply')
-		 AND coalesce(json_extract(r.metadata,'$.draftOutcome'),'')<>'auto'
-		 AND r.resolves_request=1 AND r.responded_at<${end} AND json_extract(r.metadata,'$.cardAction') IS NOT NULL)) AS decidedFromCard,
-		 (SELECT count(*) FROM outcomes) AS outcomes,
-		 (SELECT count(*) FROM outcomes WHERE json_extract(payload,'$.execution.state')='verified') AS verifiedOutcomes,
-		 (SELECT count(*) FROM outcomes WHERE json_extract(payload,'$.execution.state')='corroborated') AS corroboratedOutcomes,
-		 (SELECT count(*) FROM work_events d JOIN outcomes o ON d.id=o.id || ':email'
-		 WHERE d.org_id=${e.orgId} AND json_extract(d.payload,'$.status')='sent' AND d.occurred_at<${end}) AS emailsSent,
-		 (SELECT count(*) FROM work_events a JOIN outcomes o ON a.id=o.id || ':ack'
-		 WHERE a.org_id=${e.orgId} AND a.occurred_at<${end}) AS acknowledgedOutcomes,
-		 (SELECT count(DISTINCT json_extract(a.payload,'$.reminderId')) FROM work_events a JOIN outcomes o ON a.id=o.id || ':ack'
-		 WHERE a.org_id=${e.orgId} AND a.occurred_at<${end}) AS agentReportedReminderRetirements`);
+	const cohort = db.$with("cohort").as(
+		db
+			.select({
+				id: sql<string>`min(${w.id})`.as("id"),
+				kind: sql<
+					string | null
+				>`json_extract(${w.provenance},'$.personalAgentContribution.kind')`.as(
+					"kind",
+				),
+			})
+			.from(w)
+			.where(
+				and(
+					eq(w.orgId, e.orgId),
+					sql`json_extract(${w.provenance},'$.personalAgentContribution.sourceAgentId')=${e.id}`,
+					sql`json_extract(${w.provenance},'$.personalAgentContribution.representedUserId')=${e.representedUserId}`,
+					gte(w.createdAt, start),
+					lt(w.createdAt, end),
+				),
+			)
+			.groupBy(
+				sql`json_extract(${w.provenance},'$.personalAgentContribution.externalFindingId')`,
+			),
+	);
+	const outcomes = db.$with("outcomes").as(
+		db
+			.select({
+				id: sql<string>`${o.id}`.as("id"),
+				payload: sql<string>`${o.payload}`.as("payload"),
+			})
+			.from(o)
+			.innerJoin(cohort, eq(cohort.id, o.workItemId))
+			.where(
+				and(
+					eq(o.orgId, e.orgId),
+					eq(o.eventType, "personal_agent.outcome_recorded"),
+					lt(o.occurredAt, end),
+				),
+			),
+	);
+	const count = sql<number>`count(*)`;
+	const proposals = (...extra: SQL[]) =>
+		db
+			.select({ n: count })
+			.from(cohort)
+			.where(and(eq(cohort.kind, "proposal"), ...extra));
+	const outcomesInState = (state: string) =>
+		db
+			.select({ n: count })
+			.from(outcomes)
+			.where(
+				sql`json_extract(${outcomes.payload},'$.execution.state')=${state}`,
+			);
+	const a = alias(workEvents, "a");
+	const acknowledgements = (selection: SQL<number>) =>
+		db
+			.select({ n: selection })
+			.from(a)
+			.innerJoin(outcomes, sql`${a.id}=${outcomes.id} || ':ack'`)
+			.where(and(eq(a.orgId, e.orgId), lt(a.occurredAt, end)));
+	const d = alias(workEvents, "d");
+	const deckCard = and(
+		eq(i.orgId, e.orgId),
+		eq(i.workItemId, cohort.id),
+		eq(i.targetType, "user"),
+		eq(i.targetId, e.representedUserId),
+		sql`json_extract(${i.metadata},'$.source')='personal-agent-inbound'`,
+		sql`json_extract(${i.metadata},'$.decisionDeck') IS NOT NULL`,
+		lt(i.createdAt, end),
+	);
+	// A grouped CTE has no natural single row, so the aggregate over cohort
+	// supplies it; every other count is a scalar subquery as before.
+	const [row] = await db
+		.with(cohort, outcomes)
+		.select({
+			findings: count.as("findings"),
+			decisionFindings: sql<number>`${proposals()}`.as("decisionFindings"),
+			decisionCards: sql<number>`${proposals(
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(i)
+						.where(deckCard),
+				),
+			)}`.as("decisionCards"),
+			fyiFindings: sql<number>`${db
+				.select({ n: count })
+				.from(cohort)
+				.where(eq(cohort.kind, "fyi"))}`.as("fyiFindings"),
+			decidedFromCard: sql<number>`${proposals(
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(i)
+						.innerJoin(r, and(eq(r.orgId, i.orgId), eq(r.interactionId, i.id)))
+						.where(
+							and(
+								deckCard,
+								directUserAnswer(e.representedUserId),
+								lt(r.respondedAt, end),
+								sql`json_extract(${r.metadata},'$.cardAction') IS NOT NULL`,
+							),
+						),
+				),
+			)}`.as("decidedFromCard"),
+			outcomes: sql<number>`${db.select({ n: count }).from(outcomes)}`.as(
+				"outcomes",
+			),
+			verifiedOutcomes: sql<number>`${outcomesInState("verified")}`.as(
+				"verifiedOutcomes",
+			),
+			corroboratedOutcomes: sql<number>`${outcomesInState("corroborated")}`.as(
+				"corroboratedOutcomes",
+			),
+			emailsSent: sql<number>`${db
+				.select({ n: count })
+				.from(d)
+				.innerJoin(outcomes, sql`${d.id}=${outcomes.id} || ':email'`)
+				.where(
+					and(
+						eq(d.orgId, e.orgId),
+						sql`json_extract(${d.payload},'$.status')='sent'`,
+						lt(d.occurredAt, end),
+					),
+				)}`.as("emailsSent"),
+			acknowledgedOutcomes: sql<number>`${acknowledgements(count)}`.as(
+				"acknowledgedOutcomes",
+			),
+			agentReportedReminderRetirements: sql<number>`${acknowledgements(
+				sql<number>`count(DISTINCT json_extract(${a.payload},'$.reminderId'))`,
+			)}`.as("agentReportedReminderRetirements"),
+		})
+		.from(cohort);
 	return row!;
 }

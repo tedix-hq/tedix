@@ -33,6 +33,7 @@ export function buildProviderExecutionInsertStatement(
 	if (input.deploymentScope !== providerDeploymentScope(identity))
 		throw new Error("Execution scope mismatch");
 	const capturedPredicate = providerExecutionGuardPredicate(input, guard);
+	// Stays raw: Drizzle's $with cannot emit AS MATERIALIZED ahead of an INSERT.
 	const eligibility = guard
 		? sql`WITH __provider_eligibility(eligible) AS MATERIALIZED ${capturedPredicate}`
 		: sql``;
@@ -338,6 +339,7 @@ export function compactAdmissionPredicate(predicate: SQL): SQL {
 								: chunk.encoder.mapToDriverValue(chunk.value);
 						values.push(chunk.codec ? chunk.codec(value) : value);
 					} else values.push(chunk);
+					// sql.raw keeps the JSON path a literal; binding it would spend the params this compacts.
 					return sql`json_extract(__provider_policy.value, ${sql.raw(`'$[${index}]'`)})`;
 				}
 				return chunk;

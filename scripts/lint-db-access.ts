@@ -16,6 +16,7 @@ import { detachedGitEnv } from "./oss/git-env.ts";
 
 const REPO_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const MANIFEST_PATH = join(REPO_ROOT, "scripts/db-access-exceptions.json");
+const RAW_SQL_BASELINE_PATH = join(REPO_ROOT, "scripts/raw-sql-baseline.json");
 
 export type StoragePlane =
 	| "platform-d1"
@@ -481,6 +482,49 @@ export function analyzeDbArchitecture(files: DbArchitectureSource[]): string[] {
 	return failures;
 }
 
+// Hand-written statements in query owners: a whole statement in a `sql` template,
+// a D1 `.prepare()`, or `sql.raw()`. Bound `sql` fragments inside builders are fine.
+const RAW_SQL_STATEMENT_RE =
+	/\bsql\s*`\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH|REPLACE\s+INTO)\b|\.\s*prepare\s*\(|\bsql\s*\.\s*raw\s*\(/gi;
+
+export function countRawSqlStatements(source: string): number {
+	return countMatches(stripComments(source), RAW_SQL_STATEMENT_RE);
+}
+
+/**
+ * Ratchet for freestyle SQL in `packages/db/src/queries`: a file may not gain raw
+ * statements, a new file may not add any, and the baseline must drop as files
+ * move to Drizzle builders so the count only goes down.
+ */
+export function analyzeRawSqlRatchet(
+	files: SourceFile[],
+	baseline: Record<string, number>,
+): string[] {
+	const failures: string[] = [];
+	const seen = new Set<string>();
+	for (const file of files) {
+		if (!file.path.startsWith(QUERY_SOURCE_PREFIX)) continue;
+		if (!file.path.endsWith(".ts") || TEST_FILE_RE.test(file.path)) continue;
+		const count = countRawSqlStatements(file.text);
+		const allowed = baseline[file.path] ?? 0;
+		if (count > 0 || allowed > 0) seen.add(file.path);
+		if (count > allowed) {
+			failures.push(
+				`${file.path}: ${count} hand-written SQL statements (baseline ${allowed}); use Drizzle builders (db.select/insert/update/delete, $with) and keep bound sql\`\` to expressions.`,
+			);
+		} else if (count < allowed) {
+			failures.push(
+				`${file.path}: ${count} hand-written SQL statements, below baseline ${allowed}; lower scripts/raw-sql-baseline.json to ${count === 0 ? "remove the entry" : count}.`,
+			);
+		}
+	}
+	for (const path of Object.keys(baseline)) {
+		if (!seen.has(path))
+			failures.push(`${path}: stale raw-SQL baseline entry; remove it.`);
+	}
+	return failures;
+}
+
 function trackedFiles(pathspecs: readonly string[]): SourceFile[] {
 	const result = spawnSync(
 		"git",
@@ -528,7 +572,16 @@ if (import.meta.main) {
 		"package.json",
 		"packages/db/package.json",
 	]);
-	const architectureFailures = analyzeDbArchitecture(dbFiles);
+	const architectureFailures = [
+		...analyzeDbArchitecture(dbFiles),
+		...analyzeRawSqlRatchet(
+			dbFiles,
+			JSON.parse(readFileSync(RAW_SQL_BASELINE_PATH, "utf8")) as Record<
+				string,
+				number
+			>,
+		),
+	];
 	if (accessFailures.length > 0) {
 		console.error("database access policy check failed:");
 		for (const failure of accessFailures) console.error(`- ${failure}`);

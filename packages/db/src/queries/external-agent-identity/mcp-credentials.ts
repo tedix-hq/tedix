@@ -1,4 +1,18 @@
-import { and, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNull,
+	lt,
+	lte,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import { apiKeys } from "../../schema/api-keys";
 import {
@@ -12,6 +26,11 @@ import {
 } from "../../schema/external-agent-identity";
 import { ExternalAgentIdentityError } from "./principals";
 import { diagnoseMutableSession } from "./session-state";
+import { prefixedColumns } from "../../utils/select";
+
+const activeSession = alias(externalAgentSessions, "active_session");
+/** `activePrincipalKey` references this alias by name. */
+const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 
 export async function acquireExternalAgentMcpIssuanceLease(
 	db: DbClient,
@@ -26,34 +45,49 @@ export async function acquireExternalAgentMcpIssuanceLease(
 		expiresAt: string;
 	},
 ): Promise<boolean> {
-	const rows = (await db.all(sql`
-		INSERT INTO ${externalAgentMcpIssuanceLeases} (
-			id, organization_id, principal_id, session_id, mcp_server_id,
-			owner_token, expires_at, created_at, updated_at
+	const rows = await db
+		.insert(externalAgentMcpIssuanceLeases)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.id}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					principalId: sql<string>`${input.principalId}`.as("principal_id"),
+					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
+					mcpServerId: sql<string>`${input.mcpServerId}`.as("mcp_server_id"),
+					ownerToken: sql<string>`${input.ownerToken}`.as("owner_token"),
+					expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
+					createdAt: sql<string>`${input.now}`.as("created_at"),
+					updatedAt: sql<string>`${input.now}`.as("updated_at"),
+				})
+				.from(activeSession)
+				.innerJoin(activePrincipal, joinActivePrincipal())
+				.where(
+					and(
+						activeSessionScope(input),
+						eq(activePrincipal.status, "active"),
+						activePrincipalKey(sql`${input.now}`),
+					),
+				),
 		)
-		SELECT
-			${input.id}, ${input.organizationId}, ${input.principalId},
-			${input.sessionId}, ${input.mcpServerId}, ${input.ownerToken},
-			${input.expiresAt}, ${input.now}, ${input.now}
-		FROM ${externalAgentSessions} AS active_session
-		JOIN ${externalAgentPrincipals} AS active_principal
-			ON active_principal.organization_id = active_session.organization_id
-			AND active_principal.id = active_session.principal_id
-		WHERE active_session.organization_id = ${input.organizationId}
-			AND active_session.principal_id = ${input.principalId}
-			AND active_session.id = ${input.sessionId}
-			AND active_session.status = 'active'
-			AND active_principal.status = 'active'
-			AND ${activePrincipalKey(sql`${input.now}`)}
-		ON CONFLICT (organization_id, principal_id, session_id, mcp_server_id)
-		DO UPDATE SET
-			id = excluded.id,
-			owner_token = excluded.owner_token,
-			expires_at = excluded.expires_at,
-			updated_at = excluded.updated_at
-		WHERE ${externalAgentMcpIssuanceLeases.expiresAt} <= ${input.now}
-		RETURNING id
-	`)) as Array<{ id: string }>;
+		.onConflictDoUpdate({
+			target: [
+				externalAgentMcpIssuanceLeases.organizationId,
+				externalAgentMcpIssuanceLeases.principalId,
+				externalAgentMcpIssuanceLeases.sessionId,
+				externalAgentMcpIssuanceLeases.mcpServerId,
+			],
+			set: {
+				id: sql`excluded.id`,
+				ownerToken: sql`excluded.owner_token`,
+				expiresAt: sql`excluded.expires_at`,
+				updatedAt: sql`excluded.updated_at`,
+			},
+			setWhere: lte(externalAgentMcpIssuanceLeases.expiresAt, input.now),
+		})
+		.returning({ id: externalAgentMcpIssuanceLeases.id });
 	return rows.length === 1;
 }
 
@@ -94,28 +128,39 @@ export async function recordExternalAgentMcpCredential(
 		expiresAt: string;
 	},
 ): Promise<ExternalAgentMcpCredential> {
-	const inserted = (await db.all(sql`
-		INSERT INTO ${externalAgentMcpCredentials} (
-			id, organization_id, principal_id, session_id, client_record_id,
-			mcp_server_id, mcp_server_url, status, issued_at, expires_at, revoked_at
+	const inserted = await db
+		.insert(externalAgentMcpCredentials)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.id}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					principalId: sql<string>`${input.principalId}`.as("principal_id"),
+					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
+					clientRecordId: sql<string>`${input.clientRecordId}`.as(
+						"client_record_id",
+					),
+					mcpServerId: sql<string>`${input.mcpServerId}`.as("mcp_server_id"),
+					mcpServerUrl: sql<string>`${input.mcpServerUrl}`.as("mcp_server_url"),
+					status: sql<"active">`'active'`.as("status"),
+					issuedAt: sql<string>`${input.issuedAt}`.as("issued_at"),
+					expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
+					revokedAt: sql<null>`NULL`.as("revoked_at"),
+				})
+				.from(activeSession)
+				.innerJoin(activePrincipal, joinActivePrincipal())
+				.where(
+					and(
+						activeSessionScope(input),
+						eq(activePrincipal.status, "active"),
+						activePrincipalKey(sql`${input.issuedAt}`),
+					),
+				),
 		)
-		SELECT
-			${input.id}, ${input.organizationId}, ${input.principalId},
-			${input.sessionId}, ${input.clientRecordId}, ${input.mcpServerId},
-			${input.mcpServerUrl}, 'active', ${input.issuedAt}, ${input.expiresAt}, NULL
-		FROM ${externalAgentSessions} AS active_session
-		JOIN ${externalAgentPrincipals} AS active_principal
-			ON active_principal.organization_id = active_session.organization_id
-			AND active_principal.id = active_session.principal_id
-		WHERE active_session.organization_id = ${input.organizationId}
-			AND active_session.principal_id = ${input.principalId}
-			AND active_session.id = ${input.sessionId}
-			AND active_session.status = 'active'
-			AND active_principal.status = 'active'
-			AND ${activePrincipalKey(sql`${input.issuedAt}`)}
-		ON CONFLICT DO NOTHING
-		RETURNING id
-	`)) as Array<{ id: string }>;
+		.onConflictDoNothing()
+		.returning({ id: externalAgentMcpCredentials.id });
 	if (!inserted[0]) {
 		const existingRows = await db
 			.select()
@@ -368,38 +413,61 @@ export async function refreshExternalAgentMcpCredentialUnderLease(
 		leaseNow: string;
 	},
 ): Promise<ExternalAgentMcpCredential> {
-	const rows = (await db.all(sql`
-		UPDATE ${externalAgentMcpCredentials}
-		SET issued_at = ${params.issuedAt}, expires_at = ${params.expiresAt}
-		WHERE organization_id = ${params.organizationId}
-			AND principal_id = ${params.principalId}
-			AND session_id = ${params.sessionId}
-			AND client_record_id = ${params.clientRecordId}
-			AND mcp_server_id = ${params.mcpServerId}
-			AND status = 'active'
-            AND EXISTS (
-             SELECT 1 FROM ${externalAgentPrincipals} AS active_principal
-             JOIN ${externalAgentSessions} AS active_session
-              ON active_session.organization_id = active_principal.organization_id
-              AND active_session.principal_id = active_principal.id
-             WHERE active_principal.organization_id = ${params.organizationId}
-              AND active_principal.id = ${params.principalId}
-              AND active_principal.status = 'active'
-              AND active_session.id = ${params.sessionId}
-              AND active_session.status = 'active'
-              AND ${activePrincipalKey(sql`${params.leaseNow}`)}
-            )
-			AND EXISTS (
-				SELECT 1 FROM ${externalAgentMcpIssuanceLeases} AS issuance_lease
-				WHERE issuance_lease.organization_id = ${params.organizationId}
-					AND issuance_lease.principal_id = ${params.principalId}
-					AND issuance_lease.session_id = ${params.sessionId}
-					AND issuance_lease.mcp_server_id = ${params.mcpServerId}
-					AND issuance_lease.owner_token = ${params.leaseOwnerToken}
-					AND issuance_lease.expires_at > ${params.leaseNow}
-			)
-		RETURNING id
-	`)) as Array<{ id: string }>;
+	const issuanceLease = alias(externalAgentMcpIssuanceLeases, "issuance_lease");
+	const rows = await db
+		.update(externalAgentMcpCredentials)
+		.set({ issuedAt: params.issuedAt, expiresAt: params.expiresAt })
+		.where(
+			and(
+				eq(externalAgentMcpCredentials.organizationId, params.organizationId),
+				eq(externalAgentMcpCredentials.principalId, params.principalId),
+				eq(externalAgentMcpCredentials.sessionId, params.sessionId),
+				eq(externalAgentMcpCredentials.clientRecordId, params.clientRecordId),
+				eq(externalAgentMcpCredentials.mcpServerId, params.mcpServerId),
+				eq(externalAgentMcpCredentials.status, "active"),
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(activePrincipal)
+						.innerJoin(
+							activeSession,
+							and(
+								eq(
+									activeSession.organizationId,
+									activePrincipal.organizationId,
+								),
+								eq(activeSession.principalId, activePrincipal.id),
+							),
+						)
+						.where(
+							and(
+								eq(activePrincipal.organizationId, params.organizationId),
+								eq(activePrincipal.id, params.principalId),
+								eq(activePrincipal.status, "active"),
+								eq(activeSession.id, params.sessionId),
+								eq(activeSession.status, "active"),
+								activePrincipalKey(sql`${params.leaseNow}`),
+							),
+						),
+				),
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(issuanceLease)
+						.where(
+							and(
+								eq(issuanceLease.organizationId, params.organizationId),
+								eq(issuanceLease.principalId, params.principalId),
+								eq(issuanceLease.sessionId, params.sessionId),
+								eq(issuanceLease.mcpServerId, params.mcpServerId),
+								eq(issuanceLease.ownerToken, params.leaseOwnerToken),
+								gt(issuanceLease.expiresAt, params.leaseNow),
+							),
+						),
+				),
+			),
+		)
+		.returning({ id: externalAgentMcpCredentials.id });
 	if (!rows[0]) {
 		throw new ExternalAgentIdentityError(
 			"binding_conflict",
@@ -421,35 +489,51 @@ export async function recordExternalAgentMcpCredentialUnderLease(
 		leaseNow: string;
 	},
 ): Promise<ExternalAgentMcpCredential> {
-	const inserted = (await db.all(sql`
-		INSERT INTO ${externalAgentMcpCredentials} (
-			id, organization_id, principal_id, session_id, client_record_id,
-			mcp_server_id, mcp_server_url, status, issued_at, expires_at, revoked_at
+	const issuanceLease = alias(externalAgentMcpIssuanceLeases, "issuance_lease");
+	const inserted = await db
+		.insert(externalAgentMcpCredentials)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.id}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					principalId: sql<string>`${input.principalId}`.as("principal_id"),
+					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
+					clientRecordId: sql<string>`${input.clientRecordId}`.as(
+						"client_record_id",
+					),
+					mcpServerId: sql<string>`${input.mcpServerId}`.as("mcp_server_id"),
+					mcpServerUrl: sql<string>`${input.mcpServerUrl}`.as("mcp_server_url"),
+					status: sql<"active">`'active'`.as("status"),
+					issuedAt: sql<string>`${input.issuedAt}`.as("issued_at"),
+					expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
+					revokedAt: sql<null>`NULL`.as("revoked_at"),
+				})
+				.from(activeSession)
+				.innerJoin(activePrincipal, joinActivePrincipal())
+				.innerJoin(
+					issuanceLease,
+					and(
+						eq(issuanceLease.organizationId, activeSession.organizationId),
+						eq(issuanceLease.principalId, activeSession.principalId),
+						eq(issuanceLease.sessionId, activeSession.id),
+						eq(issuanceLease.mcpServerId, input.mcpServerId),
+						eq(issuanceLease.ownerToken, input.leaseOwnerToken),
+						gt(issuanceLease.expiresAt, input.leaseNow),
+					),
+				)
+				.where(
+					and(
+						activeSessionScope(input),
+						eq(activePrincipal.status, "active"),
+						activePrincipalKey(sql`${input.leaseNow}`),
+					),
+				),
 		)
-		SELECT
-			${input.id}, ${input.organizationId}, ${input.principalId},
-			${input.sessionId}, ${input.clientRecordId}, ${input.mcpServerId},
-			${input.mcpServerUrl}, 'active', ${input.issuedAt}, ${input.expiresAt}, NULL
-		FROM ${externalAgentSessions} AS active_session
-		JOIN ${externalAgentPrincipals} AS active_principal
-			ON active_principal.organization_id = active_session.organization_id
-			AND active_principal.id = active_session.principal_id
-		JOIN ${externalAgentMcpIssuanceLeases} AS issuance_lease
-			ON issuance_lease.organization_id = active_session.organization_id
-			AND issuance_lease.principal_id = active_session.principal_id
-			AND issuance_lease.session_id = active_session.id
-			AND issuance_lease.mcp_server_id = ${input.mcpServerId}
-			AND issuance_lease.owner_token = ${input.leaseOwnerToken}
-			AND issuance_lease.expires_at > ${input.leaseNow}
-		WHERE active_session.organization_id = ${input.organizationId}
-			AND active_session.principal_id = ${input.principalId}
-			AND active_session.id = ${input.sessionId}
-			AND active_session.status = 'active'
-			AND active_principal.status = 'active'
-			AND ${activePrincipalKey(sql`${input.leaseNow}`)}
-		ON CONFLICT DO NOTHING
-		RETURNING id
-	`)) as Array<{ id: string }>;
+		.onConflictDoNothing()
+		.returning({ id: externalAgentMcpCredentials.id });
 	if (!inserted[0]) {
 		throw new ExternalAgentIdentityError(
 			"binding_conflict",
@@ -478,95 +562,66 @@ export async function resolveAuthorizedExternalAgentMcpSession(
 	session: ExternalAgentSession;
 	credential: ExternalAgentMcpCredential;
 } | null> {
-	const rows = (await db.all(sql`
-		SELECT
-			json_object(
-				'id', principal.id,
-				'organizationId', principal.organization_id,
-				'key', principal.key,
-				'displayName', principal.display_name,
-				'status', principal.status,
-				'credentialBindingType', principal.credential_binding_type,
-				'credentialBindingId', principal.credential_binding_id,
-				'createdByType', principal.created_by_type,
-				'createdById', principal.created_by_id,
-				'metadata', json(principal.metadata),
-				'createdAt', principal.created_at,
-				'updatedAt', principal.updated_at
-			) AS principal_json,
-			json_object(
-				'id', agent_session.id,
-				'organizationId', agent_session.organization_id,
-				'principalId', agent_session.principal_id,
-				'externalSessionKey', agent_session.external_session_key,
-				'harness', agent_session.harness,
-				'harnessVersion', agent_session.harness_version,
-				'modelProvider', agent_session.model_provider,
-				'modelId', agent_session.model_id,
-				'modelVersion', agent_session.model_version,
-				'identitySource', agent_session.identity_source,
-				'status', agent_session.status,
-				'creditEligible', json(agent_session.credit_eligible),
-				'startedAt', agent_session.started_at,
-				'lastSeenAt', agent_session.last_seen_at,
-				'endedAt', agent_session.ended_at,
-				'metadata', json(agent_session.metadata)
-			) AS session_json,
-			json_object(
-				'id', credential.id,
-				'organizationId', credential.organization_id,
-				'principalId', credential.principal_id,
-				'sessionId', credential.session_id,
-				'clientRecordId', credential.client_record_id,
-				'mcpServerId', credential.mcp_server_id,
-				'mcpServerUrl', credential.mcp_server_url,
-				'status', credential.status,
-				'issuedAt', credential.issued_at,
-				'expiresAt', credential.expires_at,
-				'revokedAt', credential.revoked_at,
-				'providerCleanupAt', credential.provider_cleanup_at
-			) AS credential_json
-		FROM ${externalAgentMcpCredentials} AS credential
-		JOIN ${externalAgentSessions} AS agent_session
-			ON agent_session.organization_id = credential.organization_id
-			AND agent_session.principal_id = credential.principal_id
-			AND agent_session.id = credential.session_id
-		JOIN ${externalAgentPrincipals} AS principal
-			ON principal.organization_id = agent_session.organization_id
-			AND principal.id = agent_session.principal_id
-		LEFT JOIN ${apiKeys} AS bound_key
-			ON principal.credential_binding_type = 'api_key'
-			AND bound_key.id = principal.credential_binding_id
-			AND bound_key.organization_id = principal.organization_id
-		WHERE credential.organization_id = ${params.organizationId}
-			AND credential.principal_id = ${params.principalId}
-			AND credential.session_id = ${params.sessionId}
-			AND credential.client_record_id = ${params.clientRecordId}
-			AND credential.status = 'active'
-			AND credential.expires_at > ${params.now}
-			AND agent_session.status = 'active'
-			AND principal.status = 'active'
-			AND (principal.credential_binding_type != 'api_key' OR (
-				bound_key.status = 'active'
-				AND (bound_key.expires_at IS NULL OR bound_key.expires_at > ${params.now})
-			))
-		LIMIT 1
-	`)) as Array<{
-		principal_json: string;
-		session_json: string;
-		credential_json: string;
-	}>;
-	const row = rows[0];
+	const credential = alias(externalAgentMcpCredentials, "credential");
+	const agentSession = alias(externalAgentSessions, "agent_session");
+	const principal = alias(externalAgentPrincipals, "principal");
+	const boundKey = alias(apiKeys, "bound_key");
+	const [row] = await db
+		.select({
+			principal: prefixedColumns(principal, "principal"),
+			session: prefixedColumns(agentSession, "session"),
+			credential: prefixedColumns(credential, "credential"),
+		})
+		.from(credential)
+		.innerJoin(
+			agentSession,
+			and(
+				eq(agentSession.organizationId, credential.organizationId),
+				eq(agentSession.principalId, credential.principalId),
+				eq(agentSession.id, credential.sessionId),
+			),
+		)
+		.innerJoin(
+			principal,
+			and(
+				eq(principal.organizationId, agentSession.organizationId),
+				eq(principal.id, agentSession.principalId),
+			),
+		)
+		.leftJoin(
+			boundKey,
+			and(
+				eq(principal.credentialBindingType, "api_key"),
+				eq(boundKey.id, principal.credentialBindingId),
+				eq(boundKey.organizationId, principal.organizationId),
+			),
+		)
+		.where(
+			and(
+				eq(credential.organizationId, params.organizationId),
+				eq(credential.principalId, params.principalId),
+				eq(credential.sessionId, params.sessionId),
+				eq(credential.clientRecordId, params.clientRecordId),
+				eq(credential.status, "active"),
+				gt(credential.expiresAt, params.now),
+				eq(agentSession.status, "active"),
+				eq(principal.status, "active"),
+				or(
+					ne(principal.credentialBindingType, "api_key"),
+					and(
+						eq(boundKey.status, "active"),
+						or(isNull(boundKey.expiresAt), gt(boundKey.expiresAt, params.now)),
+					),
+				),
+			),
+		)
+		.limit(1);
 	if (!row) return null;
-	const principal = JSON.parse(row.principal_json) as ExternalAgentPrincipal;
-	const session = JSON.parse(row.session_json) as ExternalAgentSession;
-	const credential = JSON.parse(
-		row.credential_json,
-	) as ExternalAgentMcpCredential;
+	const { session } = row;
 	return {
-		principal,
+		principal: row.principal,
 		session: { ...session, creditEligible: Boolean(session.creditEligible) },
-		credential,
+		credential: row.credential,
 	};
 }
 
@@ -639,6 +694,27 @@ export async function finishExternalAgentProviderCleanup(
 	return row;
 }
 
+function joinActivePrincipal() {
+	return and(
+		eq(activePrincipal.organizationId, activeSession.organizationId),
+		eq(activePrincipal.id, activeSession.principalId),
+	);
+}
+
+function activeSessionScope(input: {
+	organizationId: string;
+	principalId: string;
+	sessionId: string;
+}) {
+	return and(
+		eq(activeSession.organizationId, input.organizationId),
+		eq(activeSession.principalId, input.principalId),
+		eq(activeSession.id, input.sessionId),
+		eq(activeSession.status, "active"),
+	);
+}
+
+/** References the `active_principal` alias of the enclosing statement. */
 function activePrincipalKey(now: ReturnType<typeof sql>) {
 	return sql`(active_principal.credential_binding_type != 'api_key' OR EXISTS (
   SELECT 1 FROM ${apiKeys} AS issuance_key

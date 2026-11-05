@@ -1,5 +1,20 @@
-import { sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNotNull,
+	ne,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
+import { alias, QueryBuilder } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { tediRuntimeEvents } from "../../schema/cognitive-runtime";
+import { tediRationaleRecords } from "../../schema/rationale-records";
 
 export interface FlywheelAccess {
 	tediId: string;
@@ -257,97 +272,127 @@ function buildLearningCurveAlerts(
  * `evidence.taskType`, then `skill:{slug}` from `evidence.skillSlug`, then
  * rationale category) plus mechanical cost columns (`durationMs`, `steps`,
  * `tokenCost`, `workItemLinked`). Consumers wrap it as a CTE:
- * `WITH raw_episodes AS (${learningCurveRawEpisodesSql(access, since)})`.
+ * `db.$with("raw_episodes").as(learningCurveRawEpisodes(access, since))`.
  * Reference-class forecasting (queries/reference-class.ts) reuses this
  * fragment so the outside view is computed over the exact same episode
  * population as the learning curves — never a parallel SQL definition.
  */
-export function learningCurveRawEpisodesSql(
+export function learningCurveRawEpisodes(
 	access: FlywheelAccess,
 	since: string,
 ) {
-	return sql`SELECT id, outcome_status,
-			CASE
-				WHEN json_valid(evidence) AND (
-					json_extract(evidence, '$.skillSlug') LIKE 'platform-%-dogfood'
-					OR json_extract(evidence, '$.taskType') LIKE 'skill:platform-%-dogfood'
+	const records = tediRationaleRecords;
+	const runtime = alias(tediRuntimeEvents, "runtime");
+	const qb = new QueryBuilder();
+	const runtimeOfRecord = (kind: SQL | undefined) =>
+		and(
+			eq(runtime.tediId, access.tediId),
+			eq(runtime.organizationId, access.orgId),
+			eq(runtime.runId, records.runId),
+			kind,
+		);
+	const runStartedAt = qb
+		.select({ at: sql<string | null>`min(${runtime.createdAt})`.as("at") })
+		.from(runtime)
+		.where(runtimeOfRecord(eq(runtime.kind, "run.started")));
+	const runEndedAt = qb
+		.select({ at: sql<string | null>`max(${runtime.createdAt})`.as("at") })
+		.from(runtime)
+		.where(
+			runtimeOfRecord(
+				inArray(runtime.kind, ["run.completed", "run.failed", "run.canceled"]),
+			),
+		);
+	const runToolEvents = qb
+		.select({ cnt: sql<number>`count(*)`.as("cnt") })
+		.from(runtime)
+		.where(
+			runtimeOfRecord(inArray(runtime.kind, ["tool.completed", "tool.failed"])),
+		);
+	// run.completed carries the scalar total as payload.tokensUsed (body parity
+	// with the kernel; see ledger-mirror.ts). The usage object has only
+	// input/output/cache token fields — no totalTokens — so the old
+	// '$.usage.totalTokens' read was structurally always NULL, leaving
+	// averageTokenCost dark. Read the correct sibling field.
+	const runTokensUsed = qb
+		.select({
+			tokens:
+				sql<number>`CAST(json_extract(${runtime.payload}, '$.tokensUsed') AS REAL)`.as(
+					"tokens",
+				),
+		})
+		.from(runtime)
+		.where(
+			runtimeOfRecord(
+				and(
+					eq(runtime.kind, "run.completed"),
+					sql`json_valid(${runtime.payload})`,
+				),
+			),
+		)
+		.orderBy(desc(runtime.createdAt))
+		.limit(1);
+	const linkedToolCalls = sql`(${records.toolCallRefs} IS NOT NULL AND json_valid(${records.toolCallRefs})
+		AND json_array_length(${records.toolCallRefs}) > 0)`;
+	return qb
+		.select({
+			id: records.id,
+			outcomeStatus: records.outcomeStatus,
+			cohort: sql<LearningCurveCohort>`CASE
+				WHEN json_valid(${records.evidence}) AND (
+					json_extract(${records.evidence}, '$.skillSlug') LIKE 'platform-%-dogfood'
+					OR json_extract(${records.evidence}, '$.taskType') LIKE 'skill:platform-%-dogfood'
 				) THEN 'scheduled_dogfood'
-				WHEN work_item_id IS NOT NULL THEN 'operator'
+				WHEN ${records.workItemId} IS NOT NULL THEN 'operator'
 				ELSE 'organic'
-			END AS cohort,
-			COALESCE(
-				CASE WHEN json_valid(evidence)
-					THEN json_extract(evidence, '$.taskType') END,
-				CASE WHEN json_valid(evidence) AND json_extract(evidence, '$.skillSlug') IS NOT NULL
-					THEN 'skill:' || json_extract(evidence, '$.skillSlug') END,
-				category
-			) AS taskType,
-			created_at,
-			CASE
-				WHEN run_id IS NOT NULL
-					AND (SELECT min(runtime.created_at) FROM tedi_runtime_events runtime
-						WHERE runtime.tedi_id = ${access.tediId}
-							AND runtime.organization_id = ${access.orgId}
-							AND runtime.run_id = tedi_rationale_records.run_id
-							AND runtime.kind = 'run.started') IS NOT NULL
-					AND (SELECT max(runtime.created_at) FROM tedi_runtime_events runtime
-						WHERE runtime.tedi_id = ${access.tediId}
-							AND runtime.organization_id = ${access.orgId}
-							AND runtime.run_id = tedi_rationale_records.run_id
-							AND runtime.kind IN ('run.completed', 'run.failed', 'run.canceled')) IS NOT NULL
-				THEN max(0, CAST(round((julianday((
-					SELECT max(runtime.created_at) FROM tedi_runtime_events runtime
-					WHERE runtime.tedi_id = ${access.tediId}
-						AND runtime.organization_id = ${access.orgId}
-						AND runtime.run_id = tedi_rationale_records.run_id
-						AND runtime.kind IN ('run.completed', 'run.failed', 'run.canceled')
-				)) - julianday((
-					SELECT min(runtime.created_at) FROM tedi_runtime_events runtime
-					WHERE runtime.tedi_id = ${access.tediId}
-						AND runtime.organization_id = ${access.orgId}
-						AND runtime.run_id = tedi_rationale_records.run_id
-						AND runtime.kind = 'run.started'
-				))) * 86400000) AS INTEGER))
-				WHEN completed_at IS NOT NULL
-					THEN max(0, CAST(round((julianday(completed_at) - julianday(created_at)) * 86400000) AS INTEGER))
+			END`.as("cohort"),
+			taskType: sql<string>`COALESCE(
+				CASE WHEN json_valid(${records.evidence})
+					THEN json_extract(${records.evidence}, '$.taskType') END,
+				CASE WHEN json_valid(${records.evidence}) AND json_extract(${records.evidence}, '$.skillSlug') IS NOT NULL
+					THEN 'skill:' || json_extract(${records.evidence}, '$.skillSlug') END,
+				${records.category}
+			)`.as("taskType"),
+			createdAt: records.createdAt,
+			durationMs: sql<number | null>`CASE
+				WHEN ${records.runId} IS NOT NULL
+					AND ${runStartedAt} IS NOT NULL
+					AND ${runEndedAt} IS NOT NULL
+				THEN max(0, CAST(round((julianday(${runEndedAt}) - julianday(${runStartedAt})) * 86400000) AS INTEGER))
+				WHEN ${records.completedAt} IS NOT NULL
+					THEN max(0, CAST(round((julianday(${records.completedAt}) - julianday(${records.createdAt})) * 86400000) AS INTEGER))
 				ELSE NULL
-			END AS durationMs,
-			CASE
-				WHEN tool_call_refs IS NOT NULL AND json_valid(tool_call_refs)
-					THEN json_array_length(tool_call_refs)
-				WHEN run_id IS NOT NULL THEN (
-					SELECT count(*) FROM tedi_runtime_events runtime
-					WHERE runtime.tedi_id = ${access.tediId}
-						AND runtime.organization_id = ${access.orgId}
-						AND runtime.run_id = tedi_rationale_records.run_id
-						AND runtime.kind IN ('tool.completed', 'tool.failed')
-				)
-				ELSE 0 END AS steps,
-			CASE WHEN run_id IS NOT NULL THEN (
-				-- run.completed carries the scalar total as payload.tokensUsed (body
-				-- parity with the kernel; see ledger-mirror.ts). The usage object has
-				-- only input/output/cache token fields — no totalTokens — so the old
-				-- '$.usage.totalTokens' read was structurally always NULL, leaving
-				-- averageTokenCost dark. Read the correct sibling field.
-				SELECT CAST(json_extract(runtime.payload, '$.tokensUsed') AS REAL)
-				FROM tedi_runtime_events runtime
-				WHERE runtime.tedi_id = ${access.tediId}
-					AND runtime.organization_id = ${access.orgId}
-					AND runtime.run_id = tedi_rationale_records.run_id
-					AND runtime.kind = 'run.completed'
-					AND json_valid(runtime.payload)
-				ORDER BY runtime.created_at DESC LIMIT 1
-			) END AS tokenCost,
-			CASE WHEN work_item_id IS NOT NULL THEN 1 ELSE 0 END AS workItemLinked
-		FROM tedi_rationale_records
-		WHERE tedi_id = ${access.tediId}
-			AND org_id = ${access.orgId}
-			AND created_at >= ${since}
-			AND outcome_status != 'pending'
-			AND (run_id IS NOT NULL OR work_item_id IS NOT NULL
-				OR (tool_call_refs IS NOT NULL AND json_valid(tool_call_refs)
-					AND json_array_length(tool_call_refs) > 0))
-			AND (outcome_status != 'success' OR proof_ref IS NOT NULL)`;
+			END`.as("durationMs"),
+			steps: sql<number>`CASE
+				WHEN ${records.toolCallRefs} IS NOT NULL AND json_valid(${records.toolCallRefs})
+					THEN json_array_length(${records.toolCallRefs})
+				WHEN ${records.runId} IS NOT NULL THEN ${runToolEvents}
+				ELSE 0 END`.as("steps"),
+			tokenCost: sql<
+				number | null
+			>`CASE WHEN ${records.runId} IS NOT NULL THEN ${runTokensUsed} END`.as(
+				"tokenCost",
+			),
+			workItemLinked:
+				sql<number>`CASE WHEN ${records.workItemId} IS NOT NULL THEN 1 ELSE 0 END`.as(
+					"workItemLinked",
+				),
+		})
+		.from(records)
+		.where(
+			and(
+				eq(records.tediId, access.tediId),
+				eq(records.orgId, access.orgId),
+				gte(records.createdAt, since),
+				ne(records.outcomeStatus, "pending"),
+				or(
+					isNotNull(records.runId),
+					isNotNull(records.workItemId),
+					linkedToolCalls,
+				),
+				or(ne(records.outcomeStatus, "success"), isNotNull(records.proofRef)),
+			),
+		);
 }
 
 export async function getTaskTypeLearningCurves(
@@ -375,57 +420,169 @@ export async function getTaskTypeLearningCurves(
 	const since = new Date(
 		Date.now() - windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
-	const rows = await db.all<LearningCurveAggregateRow>(
-		sql`WITH raw_episodes AS (
-			${learningCurveRawEpisodesSql(access, since)}
-		), filtered_episodes AS (
-			SELECT * FROM raw_episodes
-			WHERE ${cohort === "all" ? sql`1 = 1` : sql`cohort = ${cohort}`}
-		), task_types AS (
-			SELECT cohort, taskType, count(*) AS totalEpisodes
-			FROM filtered_episodes GROUP BY cohort, taskType HAVING count(*) >= ${minEpisodes}
-		), eligible_types AS (
-			SELECT cohort, taskType, totalEpisodes, count(*) OVER () AS totalTaskTypes
-			FROM task_types
-			ORDER BY totalEpisodes DESC, cohort ASC, taskType ASC
-		), selected_types AS (
-			SELECT * FROM eligible_types LIMIT ${limit} OFFSET ${offset}
-		), ranked AS (
-			SELECT episode.*, selected.totalEpisodes, selected.totalTaskTypes,
-				row_number() OVER (
-					PARTITION BY episode.cohort, episode.taskType ORDER BY episode.created_at, episode.id
-				) AS episodeNumber
-			FROM filtered_episodes episode
-			JOIN selected_types selected ON selected.cohort = episode.cohort
-				AND selected.taskType = episode.taskType
-		), phased AS (
-			SELECT *, CASE WHEN episodeNumber <= totalEpisodes / 2.0
-				THEN 'baseline' ELSE 'recent' END AS phase
-			FROM ranked
-		), phase_ranked AS (
-			SELECT *,
-				row_number() OVER (
-					PARTITION BY cohort, taskType, phase ORDER BY episodeNumber
-				) AS phaseEpisodeNumber,
-				count(*) OVER (PARTITION BY cohort, taskType, phase) AS phaseEpisodes
-			FROM phased
-		)
-		SELECT cohort, taskType, totalEpisodes, totalTaskTypes, phase,
-			min(episodeNumber) AS fromEpisode,
-			max(episodeNumber) AS cumulativeEpisodes,
-			count(*) AS episodeCount,
-			sum(CASE WHEN outcome_status = 'success' THEN 1 ELSE 0 END) AS successes,
-			sum(steps) AS steps,
-			coalesce(sum(durationMs), 0) AS durationMs,
-			sum(CASE WHEN durationMs IS NOT NULL THEN 1 ELSE 0 END) AS durationSamples,
-			coalesce(sum(tokenCost), 0) AS tokenCost,
-			sum(CASE WHEN tokenCost IS NOT NULL THEN 1 ELSE 0 END) AS tokenCostSamples,
-			sum(workItemLinked) AS workItemLinks
-		FROM phase_ranked
-		GROUP BY cohort, taskType, phase,
-			CAST((phaseEpisodeNumber - 1) * ${pointsPerPhase} / phaseEpisodes AS INTEGER)
-		ORDER BY cohort, taskType, cumulativeEpisodes`,
+	const rawEpisodes = db
+		.$with("raw_episodes")
+		.as(learningCurveRawEpisodes(access, since));
+	const filtered = db.$with("filtered_episodes").as(
+		db
+			.select()
+			.from(rawEpisodes)
+			.where(cohort === "all" ? undefined : eq(rawEpisodes.cohort, cohort)),
 	);
+	const taskTypes = db.$with("task_types").as(
+		db
+			.select({
+				cohort: filtered.cohort,
+				taskType: filtered.taskType,
+				totalEpisodes: sql<number>`count(*)`.as("totalEpisodes"),
+			})
+			.from(filtered)
+			.groupBy(filtered.cohort, filtered.taskType)
+			.having(sql`count(*) >= ${minEpisodes}`),
+	);
+	const eligibleTypes = db.$with("eligible_types").as(
+		db
+			.select({
+				cohort: taskTypes.cohort,
+				taskType: taskTypes.taskType,
+				totalEpisodes: taskTypes.totalEpisodes,
+				totalTaskTypes: sql<number>`count(*) OVER ()`.as("totalTaskTypes"),
+			})
+			.from(taskTypes)
+			.orderBy(
+				desc(taskTypes.totalEpisodes),
+				asc(taskTypes.cohort),
+				asc(taskTypes.taskType),
+			),
+	);
+	const selectedTypes = db
+		.$with("selected_types")
+		.as(db.select().from(eligibleTypes).limit(limit).offset(offset));
+	const ranked = db.$with("ranked").as(
+		db
+			.select({
+				outcomeStatus: filtered.outcomeStatus,
+				cohort: filtered.cohort,
+				taskType: filtered.taskType,
+				durationMs: filtered.durationMs,
+				steps: filtered.steps,
+				tokenCost: filtered.tokenCost,
+				workItemLinked: filtered.workItemLinked,
+				totalEpisodes: selectedTypes.totalEpisodes,
+				totalTaskTypes: selectedTypes.totalTaskTypes,
+				episodeNumber: sql<number>`row_number() OVER (
+					PARTITION BY ${filtered.cohort}, ${filtered.taskType} ORDER BY ${filtered.createdAt}, ${filtered.id}
+				)`.as("episodeNumber"),
+			})
+			.from(filtered)
+			.innerJoin(
+				selectedTypes,
+				and(
+					eq(selectedTypes.cohort, filtered.cohort),
+					eq(selectedTypes.taskType, filtered.taskType),
+				),
+			),
+	);
+	const phased = db.$with("phased").as(
+		db
+			.select({
+				outcomeStatus: ranked.outcomeStatus,
+				cohort: ranked.cohort,
+				taskType: ranked.taskType,
+				durationMs: ranked.durationMs,
+				steps: ranked.steps,
+				tokenCost: ranked.tokenCost,
+				workItemLinked: ranked.workItemLinked,
+				totalEpisodes: ranked.totalEpisodes,
+				totalTaskTypes: ranked.totalTaskTypes,
+				episodeNumber: ranked.episodeNumber,
+				phase: sql<
+					"baseline" | "recent"
+				>`CASE WHEN ${ranked.episodeNumber} <= ${ranked.totalEpisodes} / 2.0
+					THEN 'baseline' ELSE 'recent' END`.as("phase"),
+			})
+			.from(ranked),
+	);
+	const phaseRanked = db.$with("phase_ranked").as(
+		db
+			.select({
+				outcomeStatus: phased.outcomeStatus,
+				cohort: phased.cohort,
+				taskType: phased.taskType,
+				durationMs: phased.durationMs,
+				steps: phased.steps,
+				tokenCost: phased.tokenCost,
+				workItemLinked: phased.workItemLinked,
+				totalEpisodes: phased.totalEpisodes,
+				totalTaskTypes: phased.totalTaskTypes,
+				episodeNumber: phased.episodeNumber,
+				phase: phased.phase,
+				phaseEpisodeNumber: sql<number>`row_number() OVER (
+					PARTITION BY ${phased.cohort}, ${phased.taskType}, ${phased.phase} ORDER BY ${phased.episodeNumber}
+				)`.as("phaseEpisodeNumber"),
+				phaseEpisodes:
+					sql<number>`count(*) OVER (PARTITION BY ${phased.cohort}, ${phased.taskType}, ${phased.phase})`.as(
+						"phaseEpisodes",
+					),
+			})
+			.from(phased),
+	);
+	const cumulativeEpisodes = sql<number>`max(${phaseRanked.episodeNumber})`.as(
+		"cumulativeEpisodes",
+	);
+	const rows: LearningCurveAggregateRow[] = await db
+		.with(
+			rawEpisodes,
+			filtered,
+			taskTypes,
+			eligibleTypes,
+			selectedTypes,
+			ranked,
+			phased,
+			phaseRanked,
+		)
+		.select({
+			cohort: phaseRanked.cohort,
+			taskType: phaseRanked.taskType,
+			totalEpisodes: phaseRanked.totalEpisodes,
+			totalTaskTypes: phaseRanked.totalTaskTypes,
+			phase: phaseRanked.phase,
+			fromEpisode: sql<number>`min(${phaseRanked.episodeNumber})`.as(
+				"fromEpisode",
+			),
+			cumulativeEpisodes,
+			episodeCount: sql<number>`count(*)`.as("episodeCount"),
+			successes:
+				sql<number>`sum(CASE WHEN ${phaseRanked.outcomeStatus} = 'success' THEN 1 ELSE 0 END)`.as(
+					"successes",
+				),
+			steps: sql<number>`sum(${phaseRanked.steps})`.as("steps"),
+			durationMs: sql<number>`coalesce(sum(${phaseRanked.durationMs}), 0)`.as(
+				"durationMs",
+			),
+			durationSamples:
+				sql<number>`sum(CASE WHEN ${phaseRanked.durationMs} IS NOT NULL THEN 1 ELSE 0 END)`.as(
+					"durationSamples",
+				),
+			tokenCost: sql<number>`coalesce(sum(${phaseRanked.tokenCost}), 0)`.as(
+				"tokenCost",
+			),
+			tokenCostSamples:
+				sql<number>`sum(CASE WHEN ${phaseRanked.tokenCost} IS NOT NULL THEN 1 ELSE 0 END)`.as(
+					"tokenCostSamples",
+				),
+			workItemLinks: sql<number>`sum(${phaseRanked.workItemLinked})`.as(
+				"workItemLinks",
+			),
+		})
+		.from(phaseRanked)
+		.groupBy(
+			phaseRanked.cohort,
+			phaseRanked.taskType,
+			phaseRanked.phase,
+			sql`CAST((${phaseRanked.phaseEpisodeNumber} - 1) * ${pointsPerPhase} / ${phaseRanked.phaseEpisodes} AS INTEGER)`,
+		)
+		.orderBy(phaseRanked.cohort, phaseRanked.taskType, cumulativeEpisodes);
 	const pointsByTaskType = new Map<string, LearningCurvePoint[]>();
 	const totalEpisodesByTaskType = new Map<string, number>();
 	const taskIdentity = new Map<

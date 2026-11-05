@@ -51,40 +51,12 @@
 			"binding": "D1Database d1.withSession",
 			"reason": "The canonical client factory opens D1 sessions and binds Drizzle to them so request-scoped reads preserve sequential consistency and bookmark propagation."
 		},
-		"packages/db/src/queries/billing-service-credits.ts": {
-			"storagePlane": "platform-d1",
-			"disposition": "approved",
-			"owner": "packages/db:service-credit-settlement",
-			"binding": "DbClient.$client D1Database",
-			"reason": "Service-credit admission and settlement require native D1 batches for atomic reservation, immutable debit, provider receipt, and compare-and-set transitions without BEGIN."
-		},
-		"packages/db/src/queries/billing/settlement.ts": {
-			"storagePlane": "platform-d1",
-			"disposition": "approved",
-			"owner": "packages/db:billing-usage-settlement",
-			"binding": "DbClient.$client D1Executor",
-			"reason": "Canonical customer-usage settlement uses five parameterized native statements inside one D1 batch to atomically advance the usage period, insert the immutable charge and credit journal, settle the reservation, and enqueue Stripe metering output without BEGIN."
-		},
-		"packages/db/src/queries/catalog/maintenance-reports.ts": {
-			"storagePlane": "platform-d1",
-			"disposition": "approved",
-			"owner": "packages/db:catalog-maintenance-reports",
-			"binding": "D1Database d1",
-			"reason": "Catalog maintenance owns aggregate quality, leakage, duplicate, stale-source, and drift reports whose dynamic cross-table SQL shapes are not expressible cleanly as Drizzle builders."
-		},
 		"packages/db/src/queries/graph-projection.ts": {
 			"storagePlane": "platform-d1",
 			"disposition": "approved",
 			"owner": "packages/db:graph-projection-canonical-store",
 			"binding": "DbClient.$client D1Database",
 			"reason": "Graph projection uses one affected-row readiness compare-and-set with a canonical outbox exclusion and one heterogeneous native D1 batch that hydrates entity-kind-specific canonical rows without reading Neo4j."
-		},
-		"packages/db/src/queries/growth-snapshots.ts": {
-			"storagePlane": "platform-d1",
-			"disposition": "approved",
-			"owner": "packages/db:growth-snapshot-aggregator",
-			"binding": "D1Database d1",
-			"reason": "The weekly growth collector performs bounded bulk aggregates across all active tedis in three queries, avoiding per-tedi round trips before snapshot insertion."
 		},
 		"packages/db/src/queries/memory-audit.ts": {
 			"storagePlane": "platform-d1",

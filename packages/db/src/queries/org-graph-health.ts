@@ -20,6 +20,7 @@
  */
 
 import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import {
 	type CapabilityPaceLayer,
@@ -27,7 +28,11 @@ import {
 	orgCapabilities,
 } from "../schema/capabilities";
 import { tediObjectives } from "../schema/tedi-objectives";
-import { type WorkItemDisposition, workItems } from "../schema/work-items";
+import {
+	type WorkItemDisposition,
+	workItemRelations,
+	workItems,
+} from "../schema/work-items";
 import { chunkForBoundParams } from "../utils/batch";
 
 /**
@@ -37,7 +42,7 @@ import { chunkForBoundParams } from "../utils/batch";
  * (including `blocked` and `stale`) still blocks its dependents, so a "live"
  * blocker is any non-terminal item.
  */
-const TERMINAL_DISPOSITION_SQL = "'completed', 'cancelled'";
+const TERMINAL_DISPOSITIONS: WorkItemDisposition[] = ["completed", "cancelled"];
 
 /**
  * Depth bound for the recursive downstream closure. Doubles as the cycle guard:
@@ -137,20 +142,28 @@ function toNumber(value: unknown): number {
  * items in this org (a done/cancelled endpoint breaks the chain — a terminal
  * blocker no longer gates, and a terminal dependent is not blocked work).
  */
-function canonEdgeCte(orgId: string, projectId?: string) {
-	const projectScope = projectId
-		? sql`AND wb.project_id = ${projectId} AND wd.project_id = ${projectId}`
-		: sql``;
-	return sql`canon_edge(blocker, dependent) AS (
-		SELECT r.from_work_item_id, r.to_work_item_id
-		FROM work_item_relations r
-		JOIN work_items wb ON wb.id = r.from_work_item_id AND wb.org_id = ${orgId}
-		JOIN work_items wd ON wd.id = r.to_work_item_id AND wd.org_id = ${orgId}
-		WHERE r.org_id = ${orgId} AND r.relation_type = 'blocks'
-			AND wb.disposition NOT IN (${sql.raw(TERMINAL_DISPOSITION_SQL)})
-			AND wd.disposition NOT IN (${sql.raw(TERMINAL_DISPOSITION_SQL)})
-			${projectScope}
-	)`;
+function canonEdgeQuery(db: DbClient, orgId: string, projectId?: string) {
+	const relation = workItemRelations;
+	const wb = alias(workItems, "wb");
+	const wd = alias(workItems, "wd");
+	return db
+		.select({
+			blocker: sql<string>`${relation.fromWorkItemId}`.as("blocker"),
+			dependent: sql<string>`${relation.toWorkItemId}`.as("dependent"),
+		})
+		.from(relation)
+		.innerJoin(wb, and(eq(wb.id, relation.fromWorkItemId), eq(wb.orgId, orgId)))
+		.innerJoin(wd, and(eq(wd.id, relation.toWorkItemId), eq(wd.orgId, orgId)))
+		.where(
+			and(
+				eq(relation.orgId, orgId),
+				eq(relation.relationType, "blocks"),
+				notInArray(wb.disposition, TERMINAL_DISPOSITIONS),
+				notInArray(wd.disposition, TERMINAL_DISPOSITIONS),
+				projectId ? eq(wb.projectId, projectId) : undefined,
+				projectId ? eq(wd.projectId, projectId) : undefined,
+			),
+		);
 }
 
 /**
@@ -180,7 +193,7 @@ export async function getOrgGraphHealth(
 		and(
 			eq(workItems.orgId, orgId),
 			projectWhere,
-			notInArray(workItems.disposition, ["completed", "cancelled"]),
+			notInArray(workItems.disposition, TERMINAL_DISPOSITIONS),
 		),
 	);
 
@@ -188,12 +201,15 @@ export async function getOrgGraphHealth(
 	// A root blocker is a chain head: a non-terminal blocker with ≥1 non-terminal
 	// dependent (it IS a blocker) that never appears as a dependent itself (nothing
 	// non-terminal blocks it). Both facts fall out of the canonical edge set.
-	const edgeRows = (await db.all(
-		sql`WITH ${canonEdgeCte(orgId, projectId)}
-			SELECT blocker, dependent FROM canon_edge
-			ORDER BY blocker, dependent
-			LIMIT ${ORG_GRAPH_EDGE_SCAN_CAP + 1}`,
-	)) as Array<{ blocker: string; dependent: string }>;
+	const canonEdge = db
+		.$with("canon_edge")
+		.as(canonEdgeQuery(db, orgId, projectId));
+	const edgeRows = await db
+		.with(canonEdge)
+		.select({ blocker: canonEdge.blocker, dependent: canonEdge.dependent })
+		.from(canonEdge)
+		.orderBy(canonEdge.blocker, canonEdge.dependent)
+		.limit(ORG_GRAPH_EDGE_SCAN_CAP + 1);
 
 	const truncated = edgeRows.length > ORG_GRAPH_EDGE_SCAN_CAP;
 	const edges = edgeRows.slice(0, ORG_GRAPH_EDGE_SCAN_CAP);
@@ -214,8 +230,9 @@ export async function getOrgGraphHealth(
 	// bound-param only — the recursive walk lives in the DB, not N per-root reads.
 	const downstream = new Map<string, number>();
 	if (rootIds.length > 0) {
+		// Stays raw: Drizzle cannot express the recursive reach CTE.
 		const reachRows = (await db.all(
-			sql`WITH RECURSIVE ${canonEdgeCte(orgId, projectId)},
+			sql`WITH RECURSIVE canon_edge AS ${canonEdgeQuery(db, orgId, projectId)},
 				reach(seed, node, depth) AS (
 					SELECT blocker, dependent, 1 FROM canon_edge
 					UNION
@@ -431,24 +448,41 @@ async function computeCapabilityStall(
 		validIds,
 		ORG_GRAPH_IN_LIST_CHUNK,
 	)) {
-		const projectScope = projectId
-			? sql`AND dependent.project_id = ${projectId}`
-			: sql``;
-		const rows =
-			(await db.all(sql`SELECT dependent.objective_id AS objectiveId, count(DISTINCT dependent.id) AS blockedCount
-			FROM work_item_relations relation
-			JOIN work_items dependent ON dependent.id = relation.to_work_item_id AND dependent.org_id = ${orgId}
-			JOIN work_items blocker ON blocker.id = relation.from_work_item_id AND blocker.org_id = ${orgId}
-			WHERE relation.org_id = ${orgId} AND relation.relation_type = 'blocks'
-				AND dependent.objective_id IN (${sql.join(
-					idChunk.map((id) => sql`${id}`),
-					sql`, `,
-				)})
-				AND dependent.disposition = 'accepted' AND blocker.disposition NOT IN ('completed','cancelled') ${projectScope}
-			GROUP BY dependent.objective_id`)) as Array<{
-				objectiveId: string;
-				blockedCount: number;
-			}>;
+		const dependent = alias(workItems, "dependent");
+		const blocker = alias(workItems, "blocker");
+		const rows = await db
+			.select({
+				objectiveId: sql<string>`${dependent.objectiveId}`.as("objectiveId"),
+				blockedCount: sql<number>`count(DISTINCT ${dependent.id})`.as(
+					"blockedCount",
+				),
+			})
+			.from(workItemRelations)
+			.innerJoin(
+				dependent,
+				and(
+					eq(dependent.id, workItemRelations.toWorkItemId),
+					eq(dependent.orgId, orgId),
+				),
+			)
+			.innerJoin(
+				blocker,
+				and(
+					eq(blocker.id, workItemRelations.fromWorkItemId),
+					eq(blocker.orgId, orgId),
+				),
+			)
+			.where(
+				and(
+					eq(workItemRelations.orgId, orgId),
+					eq(workItemRelations.relationType, "blocks"),
+					inArray(dependent.objectiveId, idChunk),
+					eq(dependent.disposition, "accepted"),
+					notInArray(blocker.disposition, TERMINAL_DISPOSITIONS),
+					projectId ? eq(dependent.projectId, projectId) : undefined,
+				),
+			)
+			.groupBy(dependent.objectiveId);
 		for (const row of rows) {
 			if (!row.objectiveId) continue;
 			anyWork = true;

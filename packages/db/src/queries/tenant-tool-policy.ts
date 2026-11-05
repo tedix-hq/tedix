@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import {
 	type NewTenantToolPolicyRow,
@@ -299,17 +300,61 @@ export async function replaceTenantToolPolicy(
 	const unknownRecovery = recoverUnknownRevisionId !== null;
 	if (subjectRecoveryMode && (!unknownRecovery || !expectedRevisionId))
 		throw new Error("Subject recovery requires both reviewed revisions");
+	const unknown = alias(tenantToolPolicyMountRevisions, "u");
 	const [createdRows] = await db.batch([
 		db
 			.insert(tenantToolPolicies)
 			.select(
+				// Raw: a FROM-less SELECT gated only by EXISTS fences; Drizzle selects need a FROM.
 				sql`SELECT ${row.id}, ${row.organizationId}, ${row.appId}, ${row.rootAppId}, ${row.mountedToolId}, ${row.toolRowId}, ${row.toolDigest}, ${row.ruleDigest}, ${JSON.stringify(row.mountDescriptor ?? null)}, ${row.mountDigest ?? null}, ${row.resourceGenerationDigest ?? null}, ${JSON.stringify(row.predicate)}, ${JSON.stringify(row.effect)}, ${JSON.stringify(row.policySet ?? null)}, ${row.createdBy}, ${row.createdAt}, ${row.revokedAt ?? null} WHERE ((${!unknownRecovery} AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS unknown WHERE unknown.organization_id = ${row.organizationId} AND unknown.root_app_id = ${row.rootAppId} AND unknown.mounted_tool_id = ${row.mountedToolId} AND unknown.subject_key IS NULL AND unknown.sequence = (SELECT MAX(u2.sequence) FROM tenant_tool_policy_mount_revisions AS u2 WHERE u2.organization_id = unknown.organization_id AND u2.root_app_id = unknown.root_app_id AND u2.mounted_tool_id = unknown.mounted_tool_id AND u2.subject_key IS NULL) AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = unknown.organization_id AND retired.root_app_id = unknown.root_app_id AND retired.mounted_tool_id = unknown.mounted_tool_id AND retired.retired_unknown_sequence = unknown.sequence))) OR (${unknownRecovery} AND EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS unknown LEFT JOIN tenant_tool_policies AS old ON old.id = unknown.policy_id AND old.organization_id = unknown.organization_id WHERE unknown.organization_id = ${row.organizationId} AND unknown.root_app_id = ${row.rootAppId} AND unknown.mounted_tool_id = ${row.mountedToolId} AND unknown.subject_key IS NULL AND unknown.policy_id = ${recoverUnknownRevisionId} AND unknown.sequence = (SELECT MAX(u2.sequence) FROM tenant_tool_policy_mount_revisions AS u2 WHERE u2.organization_id = unknown.organization_id AND u2.root_app_id = unknown.root_app_id AND u2.mounted_tool_id = unknown.mounted_tool_id AND u2.subject_key IS NULL) AND ((old.id IS NULL AND ${recoverDeleted}) OR (old.id IS NOT NULL AND old.revoked_at IS NOT NULL AND ${regrantRevoked})) AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS retired WHERE retired.organization_id = unknown.organization_id AND retired.root_app_id = unknown.root_app_id AND retired.mounted_tool_id = unknown.mounted_tool_id AND retired.retired_unknown_sequence = unknown.sequence)))) AND ((${expectedRevisionId} IS NULL AND NOT EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS existing WHERE existing.organization_id = ${row.organizationId} AND existing.root_app_id = ${row.rootAppId} AND existing.mounted_tool_id = ${row.mountedToolId} AND existing.subject_key IS ${subjectKey})) OR (${expectedRevisionId} IS NOT NULL AND EXISTS (SELECT 1 FROM tenant_tool_policy_mount_revisions AS fence LEFT JOIN tenant_tool_policies AS previous ON previous.id = fence.policy_id AND previous.organization_id = fence.organization_id WHERE fence.organization_id = ${row.organizationId} AND fence.root_app_id = ${row.rootAppId} AND fence.mounted_tool_id = ${row.mountedToolId} AND fence.subject_key IS ${subjectKey} AND fence.policy_id = ${expectedRevisionId} AND ((previous.id IS NOT NULL AND previous.revoked_at IS NULL AND ${unknownRecovery ? subjectRecoveryMode === null : !regrantRevoked && !recoverDeleted}) OR (previous.id IS NOT NULL AND previous.revoked_at IS NOT NULL AND ${unknownRecovery ? subjectRecoveryMode === "revoked" : regrantRevoked}) OR (previous.id IS NULL AND ${unknownRecovery ? subjectRecoveryMode === "deleted" : recoverDeleted})) AND fence.sequence = (SELECT MAX(newer.sequence) FROM tenant_tool_policy_mount_revisions AS newer WHERE newer.organization_id = fence.organization_id AND newer.root_app_id = fence.root_app_id AND newer.mounted_tool_id = fence.mounted_tool_id AND newer.subject_key IS fence.subject_key))))`,
 			)
 			.returning(),
 		db
 			.insert(tenantToolPolicyMountRevisions)
 			.select(
-				sql`SELECT NULL, ${row.organizationId}, ${row.rootAppId}, ${row.mountedToolId}, ${row.id}, ${row.appId}, ${row.toolRowId}, ${typeof sourceToolId === "string" && sourceToolId ? sourceToolId : null}, ${subjectKey}, (SELECT u.sequence FROM tenant_tool_policy_mount_revisions AS u WHERE ${recoverUnknownRevisionId} IS NOT NULL AND u.organization_id = ${row.organizationId} AND u.root_app_id = ${row.rootAppId} AND u.mounted_tool_id = ${row.mountedToolId} AND u.subject_key IS NULL AND u.policy_id = ${recoverUnknownRevisionId} ORDER BY u.sequence DESC LIMIT 1) WHERE EXISTS (SELECT 1 FROM tenant_tool_policies WHERE id = ${row.id} AND organization_id = ${row.organizationId})`,
+				db
+					.select({
+						organizationId: sql<string>`${row.organizationId}`.as(
+							"organization_id",
+						),
+						rootAppId: sql<string>`${row.rootAppId}`.as("root_app_id"),
+						mountedToolId: sql<string>`${row.mountedToolId}`.as(
+							"mounted_tool_id",
+						),
+						policyId: sql<string>`${row.id}`.as("policy_id"),
+						sourceAppId: sql<string>`${row.appId}`.as("source_app_id"),
+						sourceToolRowId: sql<string>`${row.toolRowId}`.as(
+							"source_tool_row_id",
+						),
+						sourceToolId: sql<
+							string | null
+						>`${typeof sourceToolId === "string" && sourceToolId ? sourceToolId : null}`.as(
+							"source_tool_id",
+						),
+						subjectKey: sql<string>`${subjectKey}`.as("subject_key"),
+						retiredUnknownSequence: sql<number | null>`${db
+							.select({ sequence: unknown.sequence })
+							.from(unknown)
+							.where(
+								and(
+									sql`${recoverUnknownRevisionId} IS NOT NULL`,
+									eq(unknown.organizationId, row.organizationId),
+									eq(unknown.rootAppId, row.rootAppId),
+									eq(unknown.mountedToolId, row.mountedToolId),
+									isNull(unknown.subjectKey),
+									sql`${unknown.policyId} = ${recoverUnknownRevisionId}`,
+								),
+							)
+							.orderBy(desc(unknown.sequence))
+							.limit(1)}`.as("retired_unknown_sequence"),
+					})
+					.from(tenantToolPolicies)
+					.where(
+						and(
+							eq(tenantToolPolicies.id, row.id),
+							eq(tenantToolPolicies.organizationId, row.organizationId),
+						),
+					),
 			)
 			.returning(),
 	]);

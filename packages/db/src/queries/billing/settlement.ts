@@ -1,19 +1,22 @@
 /** Canonical billing settlement queries. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, exists, gt, isNotNull, or, sql } from "drizzle-orm";
 import {
 	monetaryInferenceConfig,
 	observedMonetaryInference,
 } from "./monetary-inference";
-import type { D1Executor, DbClient } from "../../client";
+import type { DbClient } from "../../client";
 import {
 	type BillingUsageCharge,
 	type BillingUsageSource,
+	billingAccounts,
+	billingCreditEntries,
 	billingPlanVersions,
 	billingUsageCharges,
 	billingUsagePeriods,
 	billingUsageReservations,
+	stripeMeterOutbox,
 } from "../../schema/billing";
 
 const STRIPE_TOKEN_METER_EVENT = "token_usage";
@@ -173,14 +176,6 @@ export async function settleBillingUsage(
 		throw new Error("Monetary settlement requires a pinned rate snapshot");
 	if (monetaryQuote && input.rateCardVersion !== monetaryQuote.rateSnapshot.id)
 		throw new Error("Settlement receipt differs from reserved monetary price");
-	const duplicateSql = `(
-		(? IS NOT NULL AND gateway_log_id = ?)
-		OR (? IS NOT NULL AND provider_usage_id = ?)
-	)`;
-	// Narrower than D1Database on purpose: this only needs prepare + batch, which
-	// a D1DatabaseSession also provides, so these writes work unchanged when the
-	// caller passes a session-backed client (see createDbSession).
-	const d1 = db.$client as D1Executor;
 
 	const outboxId = crypto.randomUUID();
 	const creditEntryId = crypto.randomUUID();
@@ -192,28 +187,29 @@ export async function settleBillingUsage(
 	// The INSERT claims one reservation and prices it against the current wallet
 	// and allowance. D1 serializes the whole batch, so no external CAS snapshot
 	// or retry budget is needed when other reservations settle in the same period.
-	const insertCharge = d1
-		.prepare(`
+	// Raw: a SELECT basis.* CTE chain prices the claim inside a guarded
+	// INSERT ... SELECT; kept verbatim on the settlement money path.
+	const insertCharge = db.run(sql`
 		WITH basis AS (
 			SELECT period.used_input_tokens + period.used_output_tokens AS used_before,
 				period.included_tokens, period.credit_applied_micros AS credited_before,
 				period.metered_overage_tokens AS metered_before,
 				account.credit_balance_micros AS balance,
-				? AS total_tokens, MAX(1, ?) AS unit_tokens, ? AS unit_price,
-				? AND account.overage_enabled = 0 AS absorb_overage,
-				? AS monetary, ? AS quoted_charge,
+				${totalTokens} AS total_tokens, MAX(1, ${plan.overageUnitTokens}) AS unit_tokens, ${plan.overageUnitPriceMicros} AS unit_price,
+				${plan.allowOverage && plan.overageUnitPriceMicros > 0 ? 1 : 0} AND account.overage_enabled = 0 AS absorb_overage,
+				${monetaryQuote ? 1 : 0} AS monetary, ${monetaryQuote?.customerChargeMicros ?? 0} AS quoted_charge,
 				reservation.estimated_charge_micros AS hold_ceiling,
-				CASE WHEN ? THEN COALESCE((
+				CASE WHEN ${monetaryQuote ? 1 : 0} THEN COALESCE((
 					SELECT SUM(held.estimated_charge_micros)
 					FROM billing_usage_reservations AS held
 					WHERE held.organization_id = account.organization_id
 						AND held.id <> reservation.id AND held.status = 'reserved'
-						AND held.expires_at > ?
+						AND held.expires_at > ${input.now}
 				), 0) ELSE 0 END AS other_holds
 			FROM billing_usage_periods AS period
 			JOIN billing_accounts AS account ON account.organization_id = period.organization_id
-			JOIN billing_usage_reservations AS reservation ON reservation.id = ?
-			WHERE period.id = ? AND period.organization_id = ?
+			JOIN billing_usage_reservations AS reservation ON reservation.id = ${input.reservationId}
+			WHERE period.id = ${periodId} AND period.organization_id = ${input.organizationId}
 				AND reservation.organization_id = period.organization_id
 				AND reservation.status IN ('reserved', 'expired')
 				AND NOT EXISTS (SELECT 1 FROM billing_usage_charges WHERE reservation_id = reservation.id)
@@ -255,59 +251,22 @@ export async function settleBillingUsage(
 			usage_quality, provider_cost_quality, metering_ready, rate_card_version,
 			occurred_at, metadata, created_at
 		)
-		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, included_applied, metered,
-			?, customer_charge, credit_applied, ?, ?, ?, ?, ?,
-			CASE WHEN ? THEN json_set(?, '$.absorbedChargeMicros', ? - credit_applied) ELSE ? END, ?
+		SELECT ${input.id}, ${input.organizationId}, ${input.tediId ?? null}, ${input.reservationId}, ${periodId}, ${input.gatewayLogId ?? null}, ${input.providerUsageId ?? null}, ${input.provider}, ${input.model}, ${input.source}, ${input.inputTokens}, ${input.outputTokens}, included_applied, metered,
+			${input.providerCostMicros}, customer_charge, credit_applied, ${input.usageQuality}, ${input.providerCostQuality}, ${input.meteringReady ? 1 : 0}, ${input.rateCardVersion ?? null}, ${input.occurredAt},
+			CASE WHEN ${monetaryQuote ? 1 : 0} THEN json_set(${metadata}, '$.absorbedChargeMicros', ${monetaryQuote?.customerChargeMicros ?? 0} - credit_applied) ELSE ${metadata} END, ${input.now}
 		FROM amounts
-		WHERE NOT EXISTS (SELECT 1 FROM billing_usage_charges WHERE ${duplicateSql})
+		WHERE NOT EXISTS (SELECT 1 FROM billing_usage_charges WHERE (
+		(${input.gatewayLogId ?? null} IS NOT NULL AND gateway_log_id = ${input.gatewayLogId ?? null})
+		OR (${input.providerUsageId ?? null} IS NOT NULL AND provider_usage_id = ${input.providerUsageId ?? null})
+	))
 		ON CONFLICT DO NOTHING
 		RETURNING id
-	`)
-		.bind(
-			totalTokens,
-			plan.overageUnitTokens,
-			plan.overageUnitPriceMicros,
-			plan.allowOverage && plan.overageUnitPriceMicros > 0 ? 1 : 0,
-			monetaryQuote ? 1 : 0,
-			monetaryQuote?.customerChargeMicros ?? 0,
-			monetaryQuote ? 1 : 0,
-			input.now,
-			input.reservationId,
-			periodId,
-			input.organizationId,
-			input.id,
-			input.organizationId,
-			input.tediId ?? null,
-			input.reservationId,
-			periodId,
-			input.gatewayLogId ?? null,
-			input.providerUsageId ?? null,
-			input.provider,
-			input.model,
-			input.source,
-			input.inputTokens,
-			input.outputTokens,
-			input.providerCostMicros,
-			input.usageQuality,
-			input.providerCostQuality,
-			input.meteringReady ? 1 : 0,
-			input.rateCardVersion ?? null,
-			input.occurredAt,
-			monetaryQuote ? 1 : 0,
-			metadata,
-			monetaryQuote?.customerChargeMicros ?? 0,
-			metadata,
-			input.now,
-			input.gatewayLogId ?? null,
-			input.gatewayLogId ?? null,
-			input.providerUsageId ?? null,
-			input.providerUsageId ?? null,
-		);
+	`);
 
 	// changes() belongs to the immediately preceding INSERT in this atomic batch.
 	// A duplicate claim changes zero rows, including retries with the same charge id.
-	const updatePeriod = d1
-		.prepare(`
+	// Raw: the row-value SET (...) = (SELECT ...) has no Drizzle builder form.
+	const updatePeriod = db.run(sql`
 		UPDATE billing_usage_periods
 		SET (used_input_tokens, used_output_tokens, metered_overage_tokens,
 			provider_cost_micros, customer_charge_micros, credit_applied_micros) = (
@@ -316,91 +275,130 @@ export async function settleBillingUsage(
 				billing_usage_periods.provider_cost_micros + charge.provider_cost_micros,
 				billing_usage_periods.customer_charge_micros + charge.customer_charge_micros,
 				billing_usage_periods.credit_applied_micros + charge.credit_applied_micros
-			FROM billing_usage_charges AS charge WHERE charge.id = ?
-		), settlement_version = settlement_version + 1, last_settlement_id = ?, updated_at = ?
-		WHERE id = ? AND changes() = 1
-	`)
-		.bind(input.id, input.id, input.now, periodId);
+			FROM billing_usage_charges AS charge WHERE charge.id = ${input.id}
+		), settlement_version = settlement_version + 1, last_settlement_id = ${input.id}, updated_at = ${input.now}
+		WHERE id = ${periodId} AND changes() = 1
+	`);
 
-	const insertCredit = d1
-		.prepare(
-			`INSERT INTO billing_credit_entries (
-			   id, organization_id, kind, amount_micros, source_type,
-			   source_ref, usage_charge_id, idempotency_key, description,
-			   metadata, created_at
-			 )
-			 SELECT ?, organization_id, 'debit', -credit_applied_micros,
-			        'usage_charge', id, id, ?, ?, '{}', ?
-			 FROM billing_usage_charges
-			 WHERE id = ? AND credit_applied_micros > 0
-			 ON CONFLICT(idempotency_key) DO NOTHING
-			 RETURNING id`,
+	const insertCredit = db
+		.insert(billingCreditEntries)
+		.select(
+			db
+				.select({
+					id: sql<string>`${creditEntryId}`.as("id"),
+					organizationId: billingUsageCharges.organizationId,
+					kind: sql<"debit">`'debit'`.as("kind"),
+					amountMicros:
+						sql<number>`-${billingUsageCharges.creditAppliedMicros}`.as(
+							"amount_micros",
+						),
+					sourceType: sql<string>`'usage_charge'`.as("source_type"),
+					sourceRef: billingUsageCharges.id,
+					usageChargeId: billingUsageCharges.id,
+					idempotencyKey: sql<string>`${`usage-charge:${input.id}`}`.as(
+						"idempotency_key",
+					),
+					description:
+						sql<string>`${`Credits applied to ${input.model} usage`}`.as(
+							"description",
+						),
+					metadata: sql<string>`'{}'`.as("metadata"),
+					createdAt: sql<string>`${input.now}`.as("created_at"),
+				})
+				.from(billingUsageCharges)
+				.where(
+					and(
+						eq(billingUsageCharges.id, input.id),
+						gt(billingUsageCharges.creditAppliedMicros, 0),
+					),
+				),
 		)
-		.bind(
-			creditEntryId,
-			`usage-charge:${input.id}`,
-			`Credits applied to ${input.model} usage`,
-			input.now,
-			input.id,
-		);
+		.onConflictDoNothing({ target: billingCreditEntries.idempotencyKey })
+		.returning({ id: billingCreditEntries.id });
 
-	const settleReservation = d1
-		.prepare(
-			`UPDATE billing_usage_reservations
-			 SET status = 'settled', settled_at = ?, updated_at = ?
-			 WHERE id = ? AND organization_id = ?
-			   AND status IN ('reserved', 'expired')
-			   AND EXISTS (
-			     SELECT 1 FROM billing_usage_charges WHERE id = ?
-			       AND reservation_id = billing_usage_reservations.id
-			       AND organization_id = billing_usage_reservations.organization_id
-			   )
-			 RETURNING id`,
+	const settleReservation = db
+		.update(billingUsageReservations)
+		.set({ status: "settled", settledAt: input.now, updatedAt: input.now })
+		.where(
+			and(
+				eq(billingUsageReservations.id, input.reservationId),
+				eq(billingUsageReservations.organizationId, input.organizationId),
+				sql`${billingUsageReservations.status} IN ('reserved', 'expired')`,
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(billingUsageCharges)
+						.where(
+							and(
+								eq(billingUsageCharges.id, input.id),
+								eq(
+									billingUsageCharges.reservationId,
+									billingUsageReservations.id,
+								),
+								eq(
+									billingUsageCharges.organizationId,
+									billingUsageReservations.organizationId,
+								),
+							),
+						),
+				),
+			),
 		)
-		.bind(
-			input.now,
-			input.now,
-			input.reservationId,
-			input.organizationId,
-			input.id,
-		);
+		.returning({ id: billingUsageReservations.id });
 
-	const insertOutbox = d1
-		.prepare(
-			`INSERT INTO stripe_meter_outbox (
-			   id, organization_id, usage_charge_id, stripe_customer_id,
-			   stripe_environment,
-			   event_name, quantity, idempotency_key, status,
-			   attempt_count, next_attempt_at, created_at, updated_at
-			 )
-			 SELECT ?, charge.organization_id, charge.id,
-			        account.stripe_customer_id, ?, ?,
-			        charge.metered_overage_tokens, ?, 'pending', 0, ?, ?, ?
-			 FROM billing_usage_charges AS charge
-			 JOIN billing_accounts AS account
-			   ON account.organization_id = charge.organization_id
-			 WHERE charge.id = ?
-			   AND charge.metering_ready = 1
-			   AND charge.metered_overage_tokens > 0
-			   AND account.billing_mode = 'stripe'
-			   AND account.stripe_environment = ?
-			   AND account.stripe_customer_id IS NOT NULL
-			 ON CONFLICT DO NOTHING
-			 RETURNING id`,
+	const insertOutbox = db
+		.insert(stripeMeterOutbox)
+		.select(
+			db
+				.select({
+					id: sql<string>`${outboxId}`.as("id"),
+					organizationId: billingUsageCharges.organizationId,
+					usageChargeId: billingUsageCharges.id,
+					stripeCustomerId: sql<string>`${billingAccounts.stripeCustomerId}`.as(
+						"stripe_customer_id",
+					),
+					stripeEnvironment: sql<
+						"test" | "live"
+					>`${input.stripeEnvironment ?? "live"}`.as("stripe_environment"),
+					eventName: sql<string>`${STRIPE_TOKEN_METER_EVENT}`.as("event_name"),
+					quantity: sql<number>`${billingUsageCharges.meteredOverageTokens}`.as(
+						"quantity",
+					),
+					idempotencyKey: sql<string>`${`stripe-meter:${input.id}`}`.as(
+						"idempotency_key",
+					),
+					status: sql<"pending">`'pending'`.as("status"),
+					attemptCount: sql<number>`0`.as("attempt_count"),
+					nextAttemptAt: sql<string>`${input.now}`.as("next_attempt_at"),
+					createdAt: sql<string>`${input.now}`.as("created_at"),
+					updatedAt: sql<string>`${input.now}`.as("updated_at"),
+				})
+				.from(billingUsageCharges)
+				.innerJoin(
+					billingAccounts,
+					eq(
+						billingAccounts.organizationId,
+						billingUsageCharges.organizationId,
+					),
+				)
+				.where(
+					and(
+						eq(billingUsageCharges.id, input.id),
+						sql`${billingUsageCharges.meteringReady} = 1`,
+						gt(billingUsageCharges.meteredOverageTokens, 0),
+						sql`${billingAccounts.billingMode} = 'stripe'`,
+						eq(
+							billingAccounts.stripeEnvironment,
+							input.stripeEnvironment ?? "live",
+						),
+						isNotNull(billingAccounts.stripeCustomerId),
+					),
+				),
 		)
-		.bind(
-			outboxId,
-			input.stripeEnvironment ?? "live",
-			STRIPE_TOKEN_METER_EVENT,
-			`stripe-meter:${input.id}`,
-			input.now,
-			input.now,
-			input.now,
-			input.id,
-			input.stripeEnvironment ?? "live",
-		);
+		.onConflictDoNothing()
+		.returning({ id: stripeMeterOutbox.id });
 
-	await d1.batch([
+	await db.batch([
 		insertCharge,
 		updatePeriod,
 		insertCredit,

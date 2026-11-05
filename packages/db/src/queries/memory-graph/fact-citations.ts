@@ -39,6 +39,7 @@ export async function findCitationDependents(
 			while (pages-- > 0) {
 				// Materialize the page before evaluating JSON; LIMIT after EXISTS would still
 				// parse an unbounded number of candidates when evidence does not match.
+				// Both page reads stay raw: Drizzle cannot emit INDEXED BY or json_each.
 				const page = await db.all<{
 					id: string;
 				}>(sql`SELECT id AS id FROM memory_facts INDEXED BY idx_memory_facts_org_source_id
@@ -62,6 +63,7 @@ export async function findCitationDependents(
 	}
 	// Read links after the fallback: a concurrent backfill can move a fact out
 	// of the missing-link set between page reads. The final seek includes it.
+	// Stays raw: INDEXED BY plus a json_each id list, neither of which Drizzle emits.
 	const rows = await db.all<{
 		id: string;
 	}>(sql`SELECT DISTINCT consolidated_fact_id AS id
@@ -84,6 +86,7 @@ export async function backfillFactCitations(
 	for (const source of SOURCES) {
 		if (checkpoint && source < checkpoint.source) continue;
 		const cursor = checkpoint?.source === source ? checkpoint.factId : "";
+		// Stays raw: Drizzle cannot emit the INDEXED BY hint this page pins.
 		page.push(
 			...(await db.all<{
 				id: string;
@@ -99,6 +102,7 @@ export async function backfillFactCitations(
 	const factIds = JSON.stringify(page.map((row) => row.id));
 	await db.batch([
 		// Read the persisted metadata inside the batch, never a stale pre-CAS snapshot.
+		// Stays raw: INSERT OR IGNORE over an INDEXED BY json_each join.
 		db.run(sql`INSERT OR IGNORE INTO memory_fact_citations(organization_id, cited_fact_id, consolidated_fact_id)
    SELECT f.organization_id, json_extract(citation.value, '$.id'), f.id
    FROM memory_facts f INDEXED BY sqlite_autoindex_memory_facts_1,

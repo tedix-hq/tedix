@@ -98,11 +98,24 @@ vi.mock("../../lib/analytics-engine-codemode", async (importOriginal) => {
 const APP_ID = "5eed0020-0000-4000-8000-000000000020";
 const ORG_ID = "aff11111-1111-4111-8111-111111111111";
 
+/** Each awaited select builder resolves to the next `dbAll` result. */
+function selectChain(dbAll: ReturnType<typeof vi.fn>) {
+	const chain: Record<string, unknown> = {};
+	for (const method of ["from", "where", "orderBy", "limit", "groupBy"])
+		chain[method] = () => chain;
+	chain.then = (
+		resolve: (rows: unknown) => unknown,
+		reject: (error: unknown) => unknown,
+	) => Promise.resolve(dbAll()).then(resolve, reject);
+	return chain;
+}
+
 function createContext(dbAll = vi.fn()): BaseContext {
 	return {
 		authType: "user",
 		db: {
 			all: dbAll,
+			select: () => selectChain(dbAll),
 		} as unknown as BaseContext["db"],
 		env: { ENVIRONMENT: "test" } as CloudflareEnv,
 		headers: new Headers(),
@@ -815,6 +828,8 @@ describe("activity review trace evidence", () => {
 		]);
 		const select = vi
 			.fn()
+			// The audit activity read itself, then the identity hydration reads.
+			.mockReturnValueOnce(selectChain(dbAll))
 			.mockReturnValueOnce({
 				from: () => ({
 					where: vi.fn().mockResolvedValue([]),
@@ -918,6 +933,8 @@ describe("activity review trace evidence", () => {
 		);
 		const select = vi
 			.fn()
+			// The audit activity read itself, then the identity hydration reads.
+			.mockReturnValueOnce(selectChain(dbAll))
 			.mockReturnValueOnce({
 				from: () => ({
 					where: vi.fn().mockResolvedValue([]),

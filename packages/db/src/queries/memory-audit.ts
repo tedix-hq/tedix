@@ -344,6 +344,8 @@ async function groupCounts(
 	);
 }
 
+// Stays raw: BrainAuditDeps.db is the minimal D1 executor contract (a checked
+// db-access exception) that tedi-runtime and its tests supply, not a Drizzle client.
 async function runFirst<T>(
 	db: BrainAuditDeps["db"],
 	sql: string,

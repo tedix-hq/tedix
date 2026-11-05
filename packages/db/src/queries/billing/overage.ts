@@ -7,7 +7,7 @@
  * metering) needs no opt-in because nothing is sold.
  */
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type BillingAccount,
@@ -26,8 +26,10 @@ export const BILLING_OVERAGE_MONTHLY_CAP_MAX_MICROS = 1_000_000_000_000;
 export function effectiveAllowOverageSql(
 	planAlias: string,
 	accountAlias: string,
-): string {
-	return `(${planAlias}.allow_overage = 1 AND (${planAlias}.overage_unit_price_micros = 0 OR ${accountAlias}.overage_enabled = 1))`;
+): SQL {
+	const plan = sql.identifier(planAlias);
+	const account = sql.identifier(accountAlias);
+	return sql`(${plan}.allow_overage = 1 AND (${plan}.overage_unit_price_micros = 0 OR ${account}.overage_enabled = 1))`;
 }
 
 export function effectiveAllowOverage(
