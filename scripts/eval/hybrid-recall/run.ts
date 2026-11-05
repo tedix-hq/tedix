@@ -115,7 +115,7 @@ for (const mode of ["before", "after"] as const) {
 				mode === "before"
 					? (
 							await searchFactsWithVisibility(db, {
-								orgId: "fictional-larch",
+								organizationId: "fictional-larch",
 								visibilityTediId: "fictional-tedi",
 								limit: 100,
 								minConfidence: 0.3,
@@ -130,7 +130,7 @@ for (const mode of ["before", "after"] as const) {
 							.map((x) => x.id)
 					: (
 							await recallMemoryFacts(db, {
-								orgId: "fictional-larch",
+								organizationId: "fictional-larch",
 								tediId: "fictional-tedi",
 								query: test.query,
 								now: fixture.now,
