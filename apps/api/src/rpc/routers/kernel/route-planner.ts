@@ -7,10 +7,15 @@ import {
 	HOME_PAGE_TOOL_MAX_OUTPUT_TOKENS,
 	HOME_PAGE_TOOL_MAX_STEPS,
 	HOME_PAGE_TOOLS_INSTRUCTION,
+	HOME_PAGE_WRITE_TOOL,
+	HOME_PAGE_WRITE_TOOL_DESCRIPTION,
+	HOME_PAGE_WRITE_TOOL_SCHEMA,
 	HomeAnswerIncompleteError,
 	homePageToolsRouteNote,
 	pageToolsCoverRequest,
+	parseHomePageWriteRequest,
 	type HomePageTools,
+	type HomePageWriteRequest,
 } from "./home-page-tools";
 import type { SelectedKernelModel } from "./llm";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
@@ -1012,7 +1017,7 @@ async function planKernelRouteWithRecovery(
 			ranker: args.delegationCandidateRanker,
 			signal: args.abortSignal,
 		});
-		const guarded = guardWorkspacePageToolRoute(
+		let guarded = guardWorkspacePageToolRoute(
 			args.operatorContent ?? args.content,
 			args.context,
 			guardPersonalRecallRoute(args.context, fitted),
@@ -1021,12 +1026,15 @@ async function planKernelRouteWithRecovery(
 		if (pageTools && guarded.routeKind === "answer_in_home" && routeModel) {
 			const answerModel = routeModel.forOperation();
 			try {
-				await streamHomePageAnswer(
-					{ ...input, content: args.content },
+				// The page pass answers the person's own message; the routing note
+				// appended for the route pass is not part of it.
+				const write = await streamHomePageAnswer(
+					input,
 					answerModel,
 					guarded,
 					pageTools,
 				);
+				if (write) guarded = pageWriteProposalRoute(guarded, write);
 			} finally {
 				attempts.push(...answerModel.attempts);
 			}
@@ -1626,6 +1634,35 @@ async function streamRoutePlan(args: {
 	};
 }
 
+/**
+ * A write the page-action pass asked for becomes the normal write proposal:
+ * the turn plans the exact call and shows a proposal card for approval.
+ */
+export function pageWriteProposalRoute<T extends KernelRouteDecision>(
+	decision: T,
+	write: HomePageWriteRequest,
+): T {
+	return {
+		...decision,
+		routeKind: "propose_tool_write",
+		risk: decision.risk === "high" ? "high" : "medium",
+		targetTediId: null,
+		targetTediLabel: null,
+		targetActivityId: null,
+		plannedToolIds: [],
+		workflowHint: null,
+		clarifyingQuestion: null,
+		toolIntent: {
+			appSlug: write.appSlug,
+			capability: write.capability,
+			connectionStatus: "unknown",
+		},
+		pageWriteRequest: write.request,
+		rationale:
+			"The person asked for a write from the page; it waits for approval.",
+	};
+}
+
 /** Closes a page-action answer that stopped after it already changed the page. */
 export const HOME_PAGE_ANSWER_STOPPED_AFTER_CHANGE =
 	"I stopped before finishing. Check what changed on the page before you ask me again.";
@@ -1642,7 +1679,7 @@ async function streamHomePageAnswer(
 	model: SelectedKernelModel,
 	decision: PlanKernelRouteResult,
 	pageTools: HomePageTools,
-): Promise<void> {
+): Promise<HomePageWriteRequest | null> {
 	const idle = withIdleAbort(
 		args.streamIdleMs ?? KERNEL_STREAM_IDLE_TIMEOUT_MS,
 		"[kernel] Home page-action answer stream",
@@ -1654,8 +1691,24 @@ async function streamHomePageAnswer(
 	// A successful non-read-only call changed the page; a replay of this turn
 	// would repeat that change.
 	let changedPage = false;
-	const tools = Object.fromEntries(
-		pageTools.descriptors.map((descriptor) => [
+	let write: HomePageWriteRequest | null = null;
+	// A page tool with the same name wins: then nothing is proposed here.
+	const writeTool = tool({
+		description: HOME_PAGE_WRITE_TOOL_DESCRIPTION,
+		inputSchema: jsonSchema(HOME_PAGE_WRITE_TOOL_SCHEMA as never),
+		execute: async (input: unknown) => {
+			if (write)
+				return "A proposal is already prepared for this message; only one write is proposed per message.";
+			const parsed = parseHomePageWriteRequest(input);
+			if (!parsed)
+				return "Not proposed: give the action as object.verb and describe what to write.";
+			write = parsed;
+			return "Recorded. Nothing has run yet: after your answer the person sees a proposal card with the exact fields and approves or rejects it.";
+		},
+	});
+	const tools = Object.fromEntries([
+		[HOME_PAGE_WRITE_TOOL, writeTool],
+		...pageTools.descriptors.map((descriptor) => [
 			descriptor.name,
 			tool({
 				description: descriptor.description,
@@ -1684,7 +1737,7 @@ async function streamHomePageAnswer(
 				},
 			}),
 		]),
-	);
+	]);
 	try {
 		signal.throwIfAborted();
 		const result = tracedAi.streamText({
@@ -1775,6 +1828,7 @@ async function streamHomePageAnswer(
 			outputTokens: sum(decision.usage.outputTokens, usage.outputTokens),
 		};
 		decision.answer = answer;
+		return write;
 	} finally {
 		idle.clear();
 	}

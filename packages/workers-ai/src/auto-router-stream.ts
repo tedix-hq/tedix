@@ -1,4 +1,5 @@
 import { jsonSchema, parseJsonEventStream, type LanguageModel } from "ai";
+import { InlineThinkingSplitter, type ContentPiece } from "./inline-thinking";
 
 type Model = Extract<LanguageModel, { specificationVersion: "v2" }>;
 type Result = Awaited<ReturnType<Model["doGenerate"]>>;
@@ -16,6 +17,7 @@ interface Chunk {
 		delta?: {
 			content?: string | null;
 			reasoning_content?: string | null;
+			reasoning?: string | null;
 			tool_calls?: Array<{
 				index: number;
 				id?: string;
@@ -44,19 +46,47 @@ const chunkSchema = jsonSchema<Chunk>(
 	},
 );
 
-/** Convert parsed provider deltas immediately; complete tools only after a terminal receipt. */
+/**
+ * Convert parsed provider deltas immediately; complete tools only after a
+ * terminal receipt. Thinking a model writes inline in content becomes
+ * reasoning parts (`inline-thinking.ts`); `implicitThinking` is for routed
+ * models whose template opens the tag for them.
+ */
 export function autoRouterSdkStream(
 	body: ReadableStream<Uint8Array>,
 	providerMetadata: Result["providerMetadata"],
+	implicitThinking = false,
 ): ReadableStream<Part> {
 	let textStarted = false;
 	let reasoningStarted = false;
+	const splitter = new InlineThinkingSplitter(implicitThinking);
 	let finishReason: Result["finishReason"] | undefined;
 	let usage: Result["usage"] | undefined;
 	const tools = new Map<
 		number,
 		{ id: string; name: string; input: string; started: boolean }
 	>();
+	const emit = (
+		controller: TransformStreamDefaultController<Part>,
+		pieces: readonly ContentPiece[],
+	) => {
+		for (const { type, value } of pieces) {
+			const id = type === "text" ? "txt-0" : "reasoning-0";
+			if (type === "text" ? !textStarted : !reasoningStarted) {
+				controller.enqueue({
+					type: type === "text" ? "text-start" : "reasoning-start",
+					id,
+				});
+				if (type === "text") textStarted = true;
+				else reasoningStarted = true;
+			}
+			controller.enqueue({
+				type: type === "text" ? "text-delta" : "reasoning-delta",
+				id,
+				delta: value,
+			});
+		}
+	};
 	return parseJsonEventStream({
 		stream: body,
 		schema: chunkSchema,
@@ -105,28 +135,20 @@ export function autoRouterSdkStream(
 											: "unknown";
 					const delta = choice.delta;
 					if (!delta) continue;
-					for (const [type, value] of [
-						["text", delta.content],
-						["reasoning", delta.reasoning_content],
-					] as const) {
-						if (!value) continue;
-						if (typeof value !== "string")
-							throw new Error("Invalid Auto Router text delta");
-						const id = type === "text" ? "txt-0" : "reasoning-0";
-						if (type === "text" ? !textStarted : !reasoningStarted) {
-							controller.enqueue({
-								type: type === "text" ? "text-start" : "reasoning-start",
-								id,
-							});
-							if (type === "text") textStarted = true;
-							else reasoningStarted = true;
-						}
-						controller.enqueue({
-							type: type === "text" ? "text-delta" : "reasoning-delta",
-							id,
-							delta: value,
-						});
-					}
+					const reasoning = delta.reasoning_content ?? delta.reasoning;
+					if (reasoning && typeof reasoning !== "string")
+						throw new Error("Invalid Auto Router text delta");
+					if (delta.content && typeof delta.content !== "string")
+						throw new Error("Invalid Auto Router text delta");
+					emit(controller, [
+						...(reasoning
+							? [
+									...splitter.providerReasoning(),
+									{ type: "reasoning" as const, value: reasoning },
+								]
+							: []),
+						...(delta.content ? splitter.push(delta.content) : []),
+					]);
 					for (const call of delta.tool_calls ?? []) {
 						if (!Number.isInteger(call.index) || call.index < 0)
 							throw new Error("Invalid Auto Router tool index");
@@ -178,6 +200,7 @@ export function autoRouterSdkStream(
 					throw new Error(
 						"Incomplete Auto Router stream: missing finish or usage receipt",
 					);
+				emit(controller, splitter.end());
 				if (textStarted) controller.enqueue({ type: "text-end", id: "txt-0" });
 				if (reasoningStarted)
 					controller.enqueue({ type: "reasoning-end", id: "reasoning-0" });

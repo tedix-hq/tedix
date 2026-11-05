@@ -205,3 +205,29 @@ describe("incremental Auto Router stream", () => {
 		});
 	});
 });
+
+describe("inline thinking in Auto Router content", () => {
+	it("emits thinking before </think> as reasoning, never as text", async () => {
+		const parts = [];
+		for await (const part of autoRouterSdkStream(
+			body([
+				{ choices: [{ delta: { content: "Routes: answer_in_home." } }] },
+				{ choices: [{ delta: { content: "</think>Short answer." } }] },
+				final,
+			]),
+			receipt,
+			true,
+		))
+			parts.push(part);
+		const text = parts
+			.filter((p) => p.type === "text-delta")
+			.map((p) => (p as { delta: string }).delta)
+			.join("");
+		const reasoning = parts
+			.filter((p) => p.type === "reasoning-delta")
+			.map((p) => (p as { delta: string }).delta)
+			.join("");
+		expect(text).toBe("Short answer.");
+		expect(reasoning).toBe("Routes: answer_in_home.");
+	});
+});
