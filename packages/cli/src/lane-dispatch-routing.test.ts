@@ -367,3 +367,16 @@ it("keeps interrupted coding Work resumable without requiring a success commit",
 	expect(receipt.phase).toBe("deferred");
 	expect(receipt.note).not.toContain("No landed commit");
 });
+it("a stopping drain gives up at its deadline instead of holding the lane for a whole model turn", async () => {
+	const { create } = fixture();
+	const dispatcher = create();
+	const running = (
+		dispatcher as unknown as { running: Map<string, Promise<void>> }
+	).running;
+	const id = "33333333-3333-4333-8333-333333333333";
+	running.set(id, new Promise<void>(() => {}));
+	expect(await dispatcher.drain(20)).toBe(false);
+	expect(dispatcher.inFlight()).toEqual([id]);
+	running.clear();
+	expect(await dispatcher.drain(20)).toBe(true);
+});

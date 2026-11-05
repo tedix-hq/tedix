@@ -137,6 +137,17 @@ export function recordDispatcherNextCheck(
 		updateSource(directory, { nextCheckAt: at }, pid);
 }
 
+/** When dispatcher process `pid` scheduled its next pass; undefined before its first pass. */
+export function dispatcherNextCheckAt(
+	directory: string,
+	pid: number,
+): number | undefined {
+	const source = readSource(join(directory, SOURCE_FILE));
+	if (source?.pid !== pid || !source.nextCheckAt) return;
+	const at = Date.parse(source.nextCheckAt);
+	return Number.isFinite(at) ? at : undefined;
+}
+
 export function recordDispatcherCompletion(
 	directory: string,
 	id: string,

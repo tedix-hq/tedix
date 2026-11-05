@@ -3266,9 +3266,34 @@ export class LaneDispatcher {
 				"The exact Attempt is no longer live; no write attempted",
 			);
 	}
-	async drain() {
-		await Promise.all(this.running.values());
-		await Promise.all(this.maintenance.values());
+	/**
+	 * Waits for in-flight work, at most `deadlineMs`. Returns false when work was
+	 * still running at the deadline: its detached lane processes keep running and
+	 * the next runner recovers them as orphans, so a stop never holds this
+	 * executor's lock for a whole model turn.
+	 */
+	async drain(deadlineMs = Number.POSITIVE_INFINITY): Promise<boolean> {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const deadline = new Promise<false>((done) => {
+			if (Number.isFinite(deadlineMs))
+				timer = setTimeout(() => done(false), deadlineMs);
+		});
+		try {
+			return await Promise.race([
+				(async () => {
+					await Promise.all(this.running.values());
+					await Promise.all(this.maintenance.values());
+					return true as const;
+				})(),
+				deadline,
+			]);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+	/** Work items still in flight, for the stop message. */
+	inFlight(): string[] {
+		return [...this.running.keys(), ...this.maintenance.keys()];
 	}
 }
 
@@ -3290,6 +3315,13 @@ export function mergeDispatcherReceipts(directory: string, sources: string[]) {
 		}
 	}
 }
+
+/**
+ * How long a stopping runner waits for in-flight work. The replacement runner
+ * waits on this executor's lock meanwhile, so an unbounded drain froze the
+ * lane for a whole model turn (claude-code, 5 Nov 2026: 61 minutes).
+ */
+export const LANE_STOP_DRAIN_MS = 2 * 60_000;
 
 export async function runLaneServe(args: string[]): Promise<number> {
 	if (args.includes("--help")) {
@@ -3314,6 +3346,7 @@ export async function runLaneServe(args: string[]): Promise<number> {
 	const locks: ReturnType<typeof beginFileLock>[] = [];
 	let dispatcher: LaneDispatcher | undefined;
 	let stopping = false;
+	let abandoned = false;
 	const stop = () => {
 		stopping = true;
 		dispatcher?.stop();
@@ -3374,11 +3407,22 @@ export async function runLaneServe(args: string[]): Promise<number> {
 			);
 			await new Promise<void>((done) => setTimeout(done, delay));
 		} while (!stopping);
-		await dispatcher.drain();
+		if (options.once) {
+			await dispatcher.drain();
+			return 0;
+		}
+		abandoned = !(await dispatcher.drain(LANE_STOP_DRAIN_MS));
+		if (abandoned)
+			process.stderr.write(
+				`Dispatcher stopped after draining ${LANE_STOP_DRAIN_MS / 1000}s; left ${dispatcher.inFlight().join(", ")} running for the next runner to recover\n`,
+			);
 		return 0;
 	} finally {
 		process.off("SIGTERM", stop);
 		process.off("SIGINT", stop);
 		for (const lock of locks) lock.release();
+		// Lease and heartbeat timers of abandoned work would keep this process,
+		// and its stale heartbeats, alive after the lock is released.
+		if (abandoned) process.exit(0);
 	}
 }
