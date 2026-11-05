@@ -34,6 +34,16 @@ export function installViewportMetrics(): () => void {
 
 	const publish = () => {
 		frame = 0;
+		// A pinch zoom (trackpad or touch) magnifies the page: the visual
+		// viewport shrinks to the zoomed-in region while the layout stays put.
+		// Following it would size the shell to that region and cut the page off
+		// part-way down, so a pinched page keeps the full layout viewport.
+		if ((viewport.scale ?? 1) > 1.01) {
+			root.style.setProperty(HEIGHT_PROPERTY, `${window.innerHeight}px`);
+			root.style.setProperty(TOP_PROPERTY, "0px");
+			root.style.setProperty(BOTTOM_PROPERTY, "0px");
+			return;
+		}
 		const { height, offsetTop } = viewport;
 		root.style.setProperty(HEIGHT_PROPERTY, `${height}px`);
 		root.style.setProperty(TOP_PROPERTY, `${offsetTop}px`);
