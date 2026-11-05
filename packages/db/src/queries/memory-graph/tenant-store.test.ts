@@ -1,3 +1,4 @@
+import type { SQLInputValue } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { eq, sql } from "drizzle-orm";
 import { SearchResultSchema } from "@tedix/api-contract/schemas/memory-graph";
@@ -30,10 +31,11 @@ import {
 import { selectMemoryStore, type TenantMemoryStorage } from "./tenant-store";
 
 const scope = {
-	orgId: "fictional-grove",
+	organizationId: "fictional-grove",
 	tediId: "tedi-a",
 	now: "2026-11-05T12:00:00.000Z",
 };
+const orgScope = { organizationId: scope.organizationId };
 const databases: ReturnType<typeof createMigratedSqlite>[] = [];
 afterEach(() => {
 	for (const db of databases.splice(0)) db.close();
@@ -48,7 +50,10 @@ function fixture(plane: "platform-d1" | "do-local-sqlite") {
 				const statement = sqlite.prepare(query);
 				const columnNames = statement.columns().map((column) => column.name);
 				statement.setReturnArrays(true);
-				const rows = statement.all(...bindings);
+				// setReturnArrays(true) makes rows arrays; node:sqlite's types still say objects.
+				const rows = statement.all(
+					...(bindings as SQLInputValue[]),
+				) as unknown as (string | number | null | ArrayBuffer)[][];
 				return {
 					columnNames,
 					raw: () => rows.values(),
@@ -80,7 +85,7 @@ function fixture(plane: "platform-d1" | "do-local-sqlite") {
 	) =>
 		createFact(selected.db, {
 			id,
-			organizationId: scope.orgId,
+			organizationId: scope.organizationId,
 			tediId: scope.tediId,
 			domainId: "fictional-domain",
 			content: "Cobalt migration uses workspace stores",
@@ -122,7 +127,7 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 					fact,
 				}).factId,
 			).toBe("match");
-			await recordRecallAccess(db, scope.orgId, ["match", "foreign"]);
+			await recordRecallAccess(db, orgScope, ["match", "foreign"]);
 			expect(
 				(await db.select().from(memoryFacts)).find((row) => row.id === "match")
 					?.accessCount,
@@ -142,15 +147,19 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 			});
 			await add("wrong", { topicKey: "storage/cobalt-extra" });
 			expect(
-				(
-					await findCurrentFactsByTopicKey(db, scope.orgId, "storage/cobalt")
-				).map((row) => row.id),
+				(await findCurrentFactsByTopicKey(db, orgScope, "storage/cobalt")).map(
+					(row) => row.id,
+				),
 			).toEqual(["topic"]);
 			expect(
-				(await findFactBySourceHash(db, scope.orgId, "hash-cobalt"))?.id,
+				(await findFactBySourceHash(db, orgScope, "hash-cobalt"))?.id,
 			).toBe("topic");
 			expect(
-				await findFactBySourceHash(db, "fictional-other", "hash-cobalt"),
+				await findFactBySourceHash(
+					db,
+					{ organizationId: "fictional-other" },
+					"hash-cobalt",
+				),
 			).toBeUndefined();
 		});
 
@@ -174,7 +183,7 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 			const { db, add } = fixture(plane);
 			const entity = await createMemoryEntity(db, {
 				id: "entity",
-				organizationId: scope.orgId,
+				organizationId: scope.organizationId,
 				entityType: "concept",
 				displayName: "  Cobalt Migration ",
 				now: scope.now,
@@ -183,7 +192,7 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 			expect(
 				(
 					await getMemoryEntity(db, {
-						organizationId: scope.orgId,
+						organizationId: scope.organizationId,
 						entityId: entity.id,
 					})
 				)?.id,
@@ -202,7 +211,7 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 			});
 			await recordMemoryEntityMention(db, {
 				id: "mention",
-				organizationId: scope.orgId,
+				organizationId: scope.organizationId,
 				occurrenceKey: "seed:1",
 				sourceFactId: "seed",
 				surfaceForm: "Cobalt",
@@ -214,7 +223,7 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 			});
 			await proposeMemoryEntityResolution(db, {
 				id: "decision",
-				organizationId: scope.orgId,
+				organizationId: scope.organizationId,
 				clientProposalKey: "proposal",
 				mentionId: "mention",
 				targetEntityId: entity.id,
@@ -224,7 +233,7 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 				proposedAt: scope.now,
 			});
 			await reviewMemoryEntityResolutionProposal(db, {
-				organizationId: scope.orgId,
+				organizationId: scope.organizationId,
 				decisionId: "decision",
 				expectedDecisionVersion: 0,
 				outcome: "accept",
@@ -258,11 +267,11 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 					consolidation: { evidence: { sources: [{ id: "source" }] } },
 				},
 			});
-			expect(await findCitationDependents(db, scope.orgId, ["source"])).toEqual(
-				["summary"],
-			);
+			expect(await findCitationDependents(db, orgScope, ["source"])).toEqual([
+				"summary",
+			]);
 			await db.batch([db.update(memoryFacts).set({ metadata: {} })]);
-			expect(await findCitationDependents(db, scope.orgId, ["source"])).toEqual(
+			expect(await findCitationDependents(db, orgScope, ["source"])).toEqual(
 				[],
 			);
 			await db
@@ -273,11 +282,11 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 					},
 				})
 				.where(eq(memoryFacts.id, "summary"));
-			expect(await findCitationDependents(db, scope.orgId, ["source"])).toEqual(
-				["summary"],
-			);
+			expect(await findCitationDependents(db, orgScope, ["source"])).toEqual([
+				"summary",
+			]);
 			await db.delete(memoryFacts).where(eq(memoryFacts.id, "summary"));
-			expect(await findCitationDependents(db, scope.orgId, ["source"])).toEqual(
+			expect(await findCitationDependents(db, orgScope, ["source"])).toEqual(
 				[],
 			);
 		});
@@ -303,13 +312,13 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 			await add("b");
 			await add("foreign", { organizationId: "fictional-other" });
 			const facts = await listAutoLinkFacts(db, {
-				organizationId: scope.orgId,
+				organizationId: scope.organizationId,
 			});
 			expect(facts.map((row) => row.id).sort()).toEqual(["a", "b"]);
 			expect(
 				await createAutoLinkEdge(
 					db,
-					{ organizationId: scope.orgId },
+					{ organizationId: scope.organizationId },
 					{
 						id: "edge",
 						source: facts[0]!,
@@ -320,7 +329,11 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 				),
 			).toBe(true);
 			const audit = await auditMemoryGraph(
-				{ db: auditDb, organizationId: scope.orgId, tediId: scope.tediId },
+				{
+					db: auditDb,
+					organizationId: scope.organizationId,
+					tediId: scope.tediId,
+				},
 				{ scope: "org" },
 			);
 			expect(audit.counts.total).toBe(2);
@@ -332,10 +345,10 @@ describe.each(["platform-d1", "do-local-sqlite"] as const)(
 			await expect(
 				db.batch([
 					db.run(
-						sql`INSERT INTO memory_facts(id,organization_id,content,fact_type) VALUES ('rollback',${scope.orgId},'test','technical')`,
+						sql`INSERT INTO memory_facts(id,organization_id,content,fact_type) VALUES ('rollback',${scope.organizationId},'test','technical')`,
 					),
 					db.run(
-						sql`INSERT INTO memory_facts(id,organization_id,content,fact_type) VALUES ('rollback',${scope.orgId},'duplicate','technical')`,
+						sql`INSERT INTO memory_facts(id,organization_id,content,fact_type) VALUES ('rollback',${scope.organizationId},'duplicate','technical')`,
 					),
 				]),
 			).rejects.toThrow();
