@@ -210,10 +210,12 @@ export function currentCatalogOrganizationId(
 }
 
 /**
- * On a multi-organization surface, rows from the caller's current organization
- * come first. Relevance order is kept inside each group, and rows that belong
- * to no particular organization stay with the rest. Recorded skill rows are
- * listed for the caller's organization, so they count as current.
+ * On a multi-organization surface, the caller's current organization wins ties:
+ * within each run of equally relevant rows its rows come first. Relevance still
+ * decides across runs, so an exact match in another selected organization is
+ * never pushed behind weaker rows of the current one. Rows that belong to no
+ * particular organization stay with the rest. Recorded skill rows are listed
+ * for the caller's organization, so they count as current.
  */
 function currentOrganizationFirst(
 	entries: CatalogPageEntry[],
@@ -226,10 +228,22 @@ function currentOrganizationFirst(
 	const isCurrent = (entry: CatalogPageEntry) =>
 		entry.namespace === "skills" ||
 		namespaceOrganizations.get(entry.namespace) === currentOrganizationId;
-	return [
-		...entries.filter(isCurrent),
-		...entries.filter((entry) => !isCurrent(entry)),
-	];
+	const ordered: CatalogPageEntry[] = [];
+	for (let start = 0; start < entries.length;) {
+		let end = start + 1;
+		while (
+			end < entries.length &&
+			entries[end]!.score === entries[start]!.score
+		)
+			end++;
+		const run = entries.slice(start, end);
+		ordered.push(
+			...run.filter(isCurrent),
+			...run.filter((entry) => !isCurrent(entry)),
+		);
+		start = end;
+	}
+	return ordered;
 }
 
 /**
