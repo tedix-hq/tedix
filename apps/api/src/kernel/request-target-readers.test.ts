@@ -10,6 +10,13 @@ const mocks = vi.hoisted(() => ({
 	access: vi.fn(),
 	output: vi.fn(),
 	workspace: vi.fn(),
+	defaultCredential: vi.fn(),
+}));
+vi.mock("../services/default-connection-reference", async (original) => ({
+	...(await original<
+		typeof import("../services/default-connection-reference")
+	>()),
+	readDefaultRepositoryCredential: mocks.defaultCredential,
 }));
 vi.mock("@tedix/db/queries/organization-members", () => ({
 	getMemberByUserId: mocks.member,
@@ -110,17 +117,9 @@ describe("trusted request target readers", () => {
 		const fetchFn = vi.fn(async (url: string | URL | Request) => {
 			const path = String(url);
 			if (path.endsWith("/commits/main")) return Response.json({ sha });
-			if (path.includes("/runs?"))
-				return Response.json({
-					workflow_runs: [
-						{
-							id: 7,
-							conclusion: "success",
-							html_url: "https://github.com/example/operations/actions/runs/7",
-							updated_at: new Date().toISOString(),
-						},
-					],
-				});
+			if (path.endsWith("/actions/workflows/ship.yml"))
+				return Response.json({ id: 42, path: ".github/workflows/ship.yml" });
+			if (path.endsWith("/actions/runs/7")) return Response.json(shipRun());
 			if (path.endsWith("build.json"))
 				return Response.json({
 					repository: "example/product",
@@ -186,17 +185,9 @@ function ancestryFetch(
 		const path = String(url);
 		paths.push(path);
 		if (path.endsWith("/commits/main")) return Response.json({ sha: main });
-		if (path.includes("/runs?"))
-			return Response.json({
-				workflow_runs: [
-					{
-						id: 7,
-						conclusion: "success",
-						html_url: "https://github.com/example/operations/actions/runs/7",
-						updated_at: new Date().toISOString(),
-					},
-				],
-			});
+		if (path.endsWith("/actions/workflows/ship.yml"))
+			return Response.json({ id: 42, path: ".github/workflows/ship.yml" });
+		if (path.endsWith("/actions/runs/7")) return Response.json(shipRun());
 		if (path.endsWith("build.json"))
 			return Response.json({
 				repository: "example/product",
@@ -360,4 +351,327 @@ describe("configured source ancestry through actual live to current main", () =>
 		expect(result.sourceAncestry).toBeUndefined();
 		expect(f.paths.filter((path) => path.includes("/compare/"))).toEqual([]);
 	});
+});
+
+function shipRun() {
+	return {
+		id: 7,
+		workflow_id: 42,
+		path: ".github/workflows/ship.yml",
+		repository: { full_name: "example/operations" },
+		status: "completed",
+		conclusion: "success",
+		html_url: "https://github.com/example/operations/actions/runs/7",
+		updated_at: new Date().toISOString(),
+	};
+}
+
+describe("exact managed Ship identity", () => {
+	it.each([".github/workflows/ship.yml", ".github/workflows/ship.yml@main"])(
+		"reads exact run outside any latest-runs window: %s",
+		async (workflowPath) => {
+			const f = ancestryFetch();
+			const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) =>
+				String(args[0]).endsWith("/actions/runs/7")
+					? Response.json({ ...shipRun(), path: workflowPath })
+					: f.fetchFn(...args),
+			) as typeof fetch;
+			await readConfiguredRepositoryDelivery(
+				context,
+				source.organizationId,
+				policy,
+				{
+					kind: "repository_delivery",
+					targetId: "repo-one",
+					surface: "app",
+					commitSha: f.live,
+				},
+				fetchFn,
+			);
+			expect(
+				fetchFn.mock.calls.some((call) => String(call[0]).includes("/runs?")),
+			).toBe(false);
+		},
+	);
+	it.each([
+		{ id: 8 },
+		{ workflow_id: 99 },
+		{ repository: { full_name: "other/operations" } },
+		{ path: ".github/workflows/other.yml" },
+		{ path: ".github/workflows/ship.yml@" },
+		{ path: ".github/workflows/ship.yml.evil" },
+		{ status: "in_progress" },
+		{ conclusion: "failure" },
+		{ updated_at: new Date(Date.now() - 120000).toISOString() },
+		{ updated_at: new Date(Date.now() + 60000).toISOString() },
+	])("refuses a mismatched or stale exact run", async (change) => {
+		const f = ancestryFetch();
+		const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) =>
+			String(args[0]).endsWith("/actions/runs/7")
+				? Response.json({ ...shipRun(), ...change })
+				: f.fetchFn(...args),
+		) as typeof fetch;
+		await expect(
+			readConfiguredRepositoryDelivery(
+				context,
+				source.organizationId,
+				policy,
+				{
+					kind: "repository_delivery",
+					targetId: "repo-one",
+					surface: "app",
+					commitSha: f.live,
+				},
+				fetchFn,
+			),
+		).rejects.toThrow();
+		expect(f.paths.some((path) => path.includes("/jobs?"))).toBe(false);
+	});
+	it.each(["workflow", "run"])(
+		"bounds %s response bytes before parsing",
+		async (kind) => {
+			const f = ancestryFetch();
+			const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) =>
+				String(args[0]).endsWith(
+					kind === "run" ? "/actions/runs/7" : "/actions/workflows/ship.yml",
+				)
+					? new Response(" ".repeat(1000001))
+					: f.fetchFn(...args),
+			) as typeof fetch;
+			await expect(
+				readConfiguredRepositoryDelivery(
+					context,
+					source.organizationId,
+					policy,
+					{
+						kind: "repository_delivery",
+						targetId: "repo-one",
+						surface: "app",
+						commitSha: f.live,
+					},
+					fetchFn,
+				),
+			).rejects.toThrow("budget");
+		},
+	);
+});
+
+describe("private GitHub logs download", () => {
+	const selectedPolicy: KernelRequestPolicy = {
+		...policy,
+		repositoryTargets: policy.repositoryTargets.map((target) => ({
+			...target,
+			defaultTenantCredential: {
+				organizationId: source.organizationId,
+				providerId: "github-pat-key",
+				scope: "tenant",
+				accountRevisionDigest: "a".repeat(64),
+			},
+		})),
+	};
+	const check = {
+		kind: "repository_delivery" as const,
+		targetId: "repo-one",
+		surface: "app",
+		commitSha: "b".repeat(40),
+	};
+	it("uses the PAT only for GitHub and downloads the signed receipt without headers", async () => {
+		mocks.defaultCredential.mockResolvedValue("fictional-pat");
+		const f = ancestryFetch();
+		const signed = "https://downloads.example.com/logs?signature=private";
+		const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) =>
+			String(args[0]).endsWith("/logs")
+				? new Response(null, { status: 302, headers: { Location: signed } })
+				: String(args[0]) === signed
+					? new Response(`verified: app is live on ${f.live}`)
+					: f.fetchFn(...args),
+		);
+		await readConfiguredRepositoryDelivery(
+			context,
+			source.organizationId,
+			selectedPolicy,
+			check,
+			fetchFn as typeof fetch,
+		);
+		const download = fetchFn.mock.calls.find(
+			(call) => String(call[0]) === signed,
+		)!;
+		expect(download[1]?.headers).toBeUndefined();
+		expect(download[1]?.redirect).toBe("manual");
+		const api = fetchFn.mock.calls.find((call) =>
+			String(call[0]).endsWith("/logs"),
+		)!;
+		expect(new Headers(api[1]?.headers).get("Authorization")).toBe(
+			"Bearer fictional-pat",
+		);
+	});
+	it.each(["unsafe", "missing", "redirect", "oversized"])(
+		"fails closed on %s signed download",
+		async (kind) => {
+			const f = ancestryFetch();
+			const signed = "https://downloads.example.com/logs?signature=private";
+			const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) => {
+				const path = String(args[0]);
+				if (
+					path.endsWith("/logs") &&
+					path.startsWith("https://api.github.com/")
+				)
+					return new Response(null, {
+						status: 302,
+						headers:
+							kind === "missing"
+								? {}
+								: {
+										Location:
+											kind === "unsafe" ? "https://127.0.0.1/logs" : signed,
+									},
+					});
+				if (path === signed)
+					return kind === "redirect"
+						? new Response(null, {
+								status: 302,
+								headers: { Location: "https://other.example.com/logs" },
+							})
+						: new Response("x".repeat(1000001));
+				return f.fetchFn(...args);
+			});
+			await expect(
+				readConfiguredRepositoryDelivery(
+					context,
+					source.organizationId,
+					policy,
+					check,
+					fetchFn as typeof fetch,
+				),
+			).rejects.toThrow();
+			expect(
+				fetchFn.mock.calls.some((call) =>
+					String(call[0]).startsWith("https://127.0.0.1"),
+				),
+			).toBe(false);
+			expect(
+				fetchFn.mock.calls.some((call) =>
+					String(call[0]).startsWith("https://other.example.com"),
+				),
+			).toBe(false);
+		},
+	);
+	it("does not call GitHub after live credential verification fails", async () => {
+		mocks.defaultCredential.mockRejectedValue(
+			new Error("Default connection revision changed or unavailable"),
+		);
+		const fetchFn = vi.fn();
+		await expect(
+			readConfiguredRepositoryDelivery(
+				context,
+				source.organizationId,
+				selectedPolicy,
+				check,
+				fetchFn,
+			),
+		).rejects.toThrow("revision changed");
+		expect(fetchFn).not.toHaveBeenCalled();
+	});
+});
+
+describe("configured workflow lookup", () => {
+	it.each(["ship.yml", "42"])(
+		"checks configured workflow identity for %s",
+		async (workflowId) => {
+			const f = ancestryFetch();
+			const p = {
+				...policy,
+				repositoryTargets: policy.repositoryTargets.map((target) => ({
+					...target,
+					workflowId,
+				})),
+			};
+			const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) =>
+				String(args[0]).endsWith(`/actions/workflows/${workflowId}`)
+					? Response.json({ id: 42, path: ".github/workflows/ship.yml" })
+					: f.fetchFn(...args),
+			);
+			await expect(
+				readConfiguredRepositoryDelivery(
+					context,
+					source.organizationId,
+					p,
+					{
+						kind: "repository_delivery",
+						targetId: "repo-one",
+						surface: "app",
+						commitSha: f.live,
+					},
+					fetchFn as typeof fetch,
+				),
+			).resolves.toMatchObject({ shipStatus: "success" });
+		},
+	);
+	it.each([
+		{ id: 43, path: ".github/workflows/ship.yml" },
+		{ id: 42, path: ".github/workflows/wrong.yml" },
+	])("refuses configured workflow mismatch", async (workflow) => {
+		const f = ancestryFetch();
+		const numeric = workflow.id === 43;
+		const p = {
+			...policy,
+			repositoryTargets: policy.repositoryTargets.map((target) => ({
+				...target,
+				workflowId: numeric ? "42" : "ship.yml",
+			})),
+		};
+		const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) =>
+			String(args[0]).includes("/actions/workflows/")
+				? Response.json(workflow)
+				: f.fetchFn(...args),
+		);
+		await expect(
+			readConfiguredRepositoryDelivery(
+				context,
+				source.organizationId,
+				p,
+				{
+					kind: "repository_delivery",
+					targetId: "repo-one",
+					surface: "app",
+					commitSha: f.live,
+				},
+				fetchFn as typeof fetch,
+			),
+		).rejects.toThrow("workflow identity");
+		expect(f.paths.some((path) => path.includes("/actions/runs/"))).toBe(false);
+	});
+});
+
+it("redacts a signed URL from a downstream streamed-body error", async () => {
+	const f = ancestryFetch();
+	const signed =
+		"https://downloads.example.com/log?signature=must-stay-private";
+	const fetchFn = vi.fn(async (...args: Parameters<typeof fetch>) => {
+		if (String(args[0]).endsWith("/logs"))
+			return new Response(null, { status: 302, headers: { Location: signed } });
+		if (String(args[0]) === signed)
+			return new Response(
+				new ReadableStream({
+					start(controller) {
+						controller.error(new Error(`Transport failed at ${signed}`));
+					},
+				}),
+			);
+		return f.fetchFn(...args);
+	});
+	await expect(
+		readConfiguredRepositoryDelivery(
+			context,
+			source.organizationId,
+			policy,
+			{
+				kind: "repository_delivery",
+				targetId: "repo-one",
+				surface: "app",
+				commitSha: f.live,
+			},
+			fetchFn as typeof fetch,
+		),
+	).rejects.toThrow("Managed Ship log download unavailable");
 });

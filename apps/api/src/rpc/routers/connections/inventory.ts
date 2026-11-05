@@ -32,6 +32,7 @@ import {
 import { collectReferencedProviders } from "./provider-registration";
 import { mapConnectionRecord } from "./url-and-scopes";
 import { readConnectionProviders } from "./discovery-user";
+import { defaultTenantCredentialReference } from "../../../services/default-connection-reference";
 
 type CredentialResponse = {
 	ok: boolean;
@@ -347,6 +348,24 @@ export async function readConnectionsOverview(
 					defaultTokenIds.set(provider.appId, token.id);
 				rows.push({
 					provider,
+					...(scope === "tenant" &&
+					provider.connectionType === "api_key" &&
+					token &&
+					credential.state === "present"
+						? {
+								selectedCredential:
+									(await defaultTenantCredentialReference({
+										masterKey: context.env.SECRETS_MASTER_KEY,
+										organizationId,
+										tenantId: org?.descopeTenantId ?? "",
+										providerId: provider.appId,
+										token: {
+											...token,
+											expiresAt: credential.expiresAt ?? undefined,
+										},
+									})) ?? undefined,
+							}
+						: {}),
 					scope,
 					accountState: credential.state,
 					accountLabel: scope === "user" ? (context.user?.email ?? null) : null,
