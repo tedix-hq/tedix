@@ -6,7 +6,7 @@ import {
 	verifyWorkspaceFileSignature,
 	workspaceFileKey,
 	workspaceFilePartSize,
-	workspaceFileInlineMime,
+	streamWorkspaceFile,
 } from "./workspace-files";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -128,55 +128,10 @@ export async function serveWorkspaceFile(
 		})({ workspaceId, resourceId });
 		if (new URL(file.url, request.url).pathname !== `/api${url.pathname}`)
 			return new Response("Not found", { status: 404 });
-		const key = workspaceFileKey(org, workspaceId, resourceId);
-		let range: { offset: number; length: number } | undefined;
-		const rawRange = request.headers.get("Range");
-		if (rawRange) {
-			const match = /^bytes=(\d*)-(\d*)$/.exec(rawRange);
-			if (!match || (!match[1] && !match[2])) return rangeError(file.size);
-			const start = match[1]
-				? Number(match[1])
-				: Math.max(0, file.size - Number(match[2]));
-			const end = match[1]
-				? match[2]
-					? Math.min(Number(match[2]), file.size - 1)
-					: file.size - 1
-				: file.size - 1;
-			if (
-				!Number.isSafeInteger(start) ||
-				!Number.isSafeInteger(end) ||
-				start < 0 ||
-				end < start ||
-				start >= file.size
-			)
-				return rangeError(file.size);
-			range = { offset: start, length: end - start + 1 };
-		}
-		const object =
-			request.method === "HEAD"
-				? await env.SKILL_ARTIFACTS.head(key)
-				: await env.SKILL_ARTIFACTS.get(key, range ? { range } : undefined);
-		if (!object || object.size !== file.size)
-			return new Response("Not found", { status: 404 });
-		const inline = workspaceFileInlineMime(file.mimeType);
-		const headers = new Headers({
-			"Content-Type": inline ?? "application/octet-stream",
-			"Content-Length": String(range?.length ?? file.size),
-			"Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
-			"Accept-Ranges": "bytes",
-			"Cache-Control": "private, no-store",
-			"X-Content-Type-Options": "nosniff",
-			"Content-Security-Policy": "sandbox; default-src 'none'",
+		return streamWorkspaceFile(request, env, {
+			key: workspaceFileKey(org, workspaceId, resourceId),
+			...file,
 		});
-		if (range)
-			headers.set(
-				"Content-Range",
-				`bytes ${range.offset}-${range.offset + range.length - 1}/${file.size}`,
-			);
-		return new Response(
-			"body" in object ? (object as R2ObjectBody).body : null,
-			{ status: range ? 206 : 200, headers },
-		);
 	} catch (error) {
 		if (error instanceof ORPCError)
 			return new Response("File unavailable", {
@@ -184,13 +139,4 @@ export async function serveWorkspaceFile(
 			});
 		throw error;
 	}
-}
-function rangeError(size: number) {
-	return new Response(null, {
-		status: 416,
-		headers: {
-			"Content-Range": `bytes */${size}`,
-			"Cache-Control": "private, no-store",
-		},
-	});
 }

@@ -151,14 +151,17 @@ const SHARE_DOCUMENT_PATH = /^\/s\/([A-Za-z0-9]{22})(?:\/[^/]*)?$/;
 /** `/s/<id>?sign-in`: the share page asking for this host's sign-in. */
 const SHARE_SIGN_IN_PARAM = "sign-in";
 const GUEST_SHARE_API_PATH =
-	/^\/api\/os-shared\/(?:open|redeem|session|output|app\/(?:open|call|read))$/;
+	/^\/api\/os-shared\/(?:open|redeem|session|output|file|app\/(?:open|call|read))$/;
+/** A shared document's file bytes: a signed, session-bound GET a `<video>` can range over. */
+const GUEST_SHARE_FILE_PATH =
+	/^\/api\/os-shared\/file\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,100}$/;
 /**
  * The share calls that may carry the visitor's own host session: an
  * `organization` or `invited` link needs to know who is opening it. The app
  * calls never do; their share session is the only credential.
  */
 const RECIPIENT_SHARE_API_PATH =
-	/^\/api\/os-shared\/(?:open|redeem|session|output)$/;
+	/^\/api\/os-shared\/(?:open|redeem|session|output|file)$/;
 /** A gallery blueprint's shareable landing page and the one public read it makes. */
 const BLUEPRINT_DOCUMENT_PATH = /^\/blueprint\/[0-9a-f-]{36}$/i;
 const PUBLIC_BLUEPRINT_API_PATH = /^\/api\/public\/blueprints\/[0-9a-f-]{36}$/i;
@@ -1203,16 +1206,20 @@ export async function handleOsRequest(
 		// session), so an organization or invited link can tell who is opening
 		// it; the app calls carry no browser credential at all.
 		// authz: public — apps/api binds every call to one share link; a forwarded session only identifies the recipient.
+		const shareFileRead =
+			(request.method === "GET" || request.method === "HEAD") &&
+			GUEST_SHARE_FILE_PATH.test(url.pathname);
 		if (
 			!cliApi &&
-			request.method === "POST" &&
-			GUEST_SHARE_API_PATH.test(url.pathname)
+			((request.method === "POST" && GUEST_SHARE_API_PATH.test(url.pathname)) ||
+				shareFileRead)
 		) {
 			const headers = new Headers(request.headers);
 			headers.delete("Cookie");
 			headers.delete("Authorization");
 			const recipientSession =
-				hostTenantId && RECIPIENT_SHARE_API_PATH.test(url.pathname)
+				hostTenantId &&
+				(RECIPIENT_SHARE_API_PATH.test(url.pathname) || shareFileRead)
 					? hostRecipientSessionCookie(
 							request.headers.get("Cookie"),
 							hostTenantId,

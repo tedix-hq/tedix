@@ -132,6 +132,47 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 	});
 
+	// The uploaded file a shared document carries (a video, image, PDF or
+	// download), served through the link and never the owner's workspace.
+	// authz: public — the share session token is the credential; it names only the file of an Output the link shows, same 404 for every refusal.
+	app.post("/os-shared/file", async (c) => {
+		const [{ handleOsShareFile }, { createDbQueryClient }, recipient] =
+			await Promise.all([
+				import("../lib/os-share-files"),
+				import("@tedix/db/query-client"),
+				shareRecipient(c.req.raw, c.env),
+			]);
+		const body = await c.req.json().catch(() => null);
+		return handleOsShareFile(
+			c.env,
+			createDbQueryClient(c.env.DB),
+			bodyString(body, "sessionToken"),
+			bodyString(body, "outputId"),
+			recipient.authorize,
+			recipient.identify,
+		);
+	});
+	// authz: public — signed per session, Output and file; every range read rechecks the session, link and file.
+	app.get("/os-shared/file/:sessionId/:outputId", async (c) => {
+		const [{ serveOsShareFile }, { createDbQueryClient }, recipient] =
+			await Promise.all([
+				import("../lib/os-share-files"),
+				import("@tedix/db/query-client"),
+				shareRecipient(c.req.raw, c.env),
+			]);
+		return serveOsShareFile(
+			c.req.raw,
+			c.env,
+			createDbQueryClient(c.env.DB),
+			{
+				sessionId: c.req.param("sessionId"),
+				outputId: c.req.param("outputId"),
+			},
+			recipient.authorize,
+			recipient.identify,
+		);
+	});
+
 	// A share-link guest using a runtime app: open its client, call its server,
 	// read a granted Output. Each call re-resolves the share session; every
 	// refusal is the same 404 as an unknown link.

@@ -229,6 +229,19 @@ export const OsSharePreviewSchema = z.discriminatedUnion("kind", [
 ]);
 export type OsSharePreview = z.infer<typeof OsSharePreviewSchema>;
 
+/**
+ * The uploaded file a shared document carries, read through the link's
+ * session (`POST /os-shared/file`). `url` streams only that file, supports
+ * HTTP Range, and rechecks the session and link on every read.
+ */
+export const OsSharedFileSchema = z.object({
+	filename: z.string(),
+	mimeType: z.string(),
+	size: z.number().int().nonnegative(),
+	url: z.string(),
+});
+export type OsSharedFile = z.infer<typeof OsSharedFileSchema>;
+
 export const OsReviewCardSchema = z.object({
 	id: z.string().trim().min(1).max(100),
 	title: z.string().trim().min(1).max(240),

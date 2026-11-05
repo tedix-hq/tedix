@@ -40,6 +40,7 @@ import {
 import { ShareControls } from "@/components/share-controls";
 import { WidgetFrame } from "@/components/widget-frame";
 import { OutputContentView } from "@/components/output-content";
+import { SharedFileView } from "@/components/shared-file-view";
 import { gadgetWidgetTargetFromManifest } from "@/lib/gadget-widget-target";
 import { absoluteTime } from "@/lib/time";
 import { adoptShareLinkAddress } from "@/lib/share-link-session";
@@ -498,7 +499,15 @@ export function SharedResourceView({
 					className="flex-1 lg:min-h-0 lg:overflow-y-auto"
 					data-shared-output
 				>
-					<OutputContentView content={sharedOutputContent(resource)} />
+					<OutputContentView
+						content={resource.revision.content}
+						renderFile={() => (
+							<SharedFileView
+								sessionToken={sessionToken}
+								outputId={resource.output.id}
+							/>
+						)}
+					/>
 				</div>
 			) : resource.type === "gadget" && role === "use" ? (
 				<div className="flex flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
@@ -515,17 +524,4 @@ export function SharedResourceView({
 			)}
 		</main>
 	);
-}
-
-type SharedOutput = Extract<SharePayload["resource"], { type: "output" }>;
-
-/**
- * A shared file's content. An uploaded file's preview reads through the
- * owner's workspace, which a link never opens, so only its text shows.
- */
-function sharedOutputContent(resource: SharedOutput): OsOutputContent {
-	const content = resource.revision.content;
-	if (content.kind !== "document" || !content.file) return content;
-	const { file: _file, ...text } = content;
-	return text;
 }

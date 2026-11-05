@@ -161,3 +161,73 @@ export function workspaceFileMimeMatches(mime: string, bytes: Uint8Array) {
 			return false;
 	}
 }
+
+/**
+ * Stream one stored workspace file, honouring a single HTTP byte range so a
+ * video can seek. The caller has already authorized the read; `size` is the
+ * manifest's, so a replaced or missing object answers 404.
+ */
+export async function streamWorkspaceFile(
+	request: Request,
+	env: Pick<CloudflareEnv, "SKILL_ARTIFACTS">,
+	file: { key: string; size: number; mimeType: string; filename: string },
+): Promise<Response> {
+	let range: { offset: number; length: number } | undefined;
+	const rawRange = request.headers.get("Range");
+	if (rawRange) {
+		const match = /^bytes=(\d*)-(\d*)$/.exec(rawRange);
+		if (!match || (!match[1] && !match[2])) return rangeError(file.size);
+		const start = match[1]
+			? Number(match[1])
+			: Math.max(0, file.size - Number(match[2]));
+		const end = match[1]
+			? match[2]
+				? Math.min(Number(match[2]), file.size - 1)
+				: file.size - 1
+			: file.size - 1;
+		if (
+			!Number.isSafeInteger(start) ||
+			!Number.isSafeInteger(end) ||
+			start < 0 ||
+			end < start ||
+			start >= file.size
+		)
+			return rangeError(file.size);
+		range = { offset: start, length: end - start + 1 };
+	}
+	const object =
+		request.method === "HEAD"
+			? await env.SKILL_ARTIFACTS.head(file.key)
+			: await env.SKILL_ARTIFACTS.get(file.key, range ? { range } : undefined);
+	if (!object || object.size !== file.size)
+		return new Response("Not found", { status: 404 });
+	const inline = workspaceFileInlineMime(file.mimeType);
+	const headers = new Headers({
+		"Content-Type": inline ?? "application/octet-stream",
+		"Content-Length": String(range?.length ?? file.size),
+		"Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+		"Accept-Ranges": "bytes",
+		"Cache-Control": "private, no-store",
+		"X-Content-Type-Options": "nosniff",
+		"Content-Security-Policy": "sandbox; default-src 'none'",
+	});
+	if (range)
+		headers.set(
+			"Content-Range",
+			`bytes ${range.offset}-${range.offset + range.length - 1}/${file.size}`,
+		);
+	return new Response("body" in object ? (object as R2ObjectBody).body : null, {
+		status: range ? 206 : 200,
+		headers,
+	});
+}
+
+function rangeError(size: number) {
+	return new Response(null, {
+		status: 416,
+		headers: {
+			"Content-Range": `bytes */${size}`,
+			"Cache-Control": "private, no-store",
+		},
+	});
+}
