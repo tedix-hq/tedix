@@ -379,10 +379,29 @@ describe("share-link guests on a runtime app", () => {
 			method: "verdicts",
 			args: [],
 			guestName: "Forged caller name",
+			actorUserId: "owner",
+			CALLER: { role: "owner" },
 		});
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({ result: [] });
 		expect(fetch).toHaveBeenCalledTimes(1);
+		const body = (await fetch.mock.calls[0]![0].clone().json()) as {
+			session: string;
+		};
+		const signed = await verifyWorkspaceAppSession(key, body.session);
+		expect(signed).toMatchObject({
+			principal: { kind: "share_session" },
+			role: "use",
+			guestName: "Maya",
+		});
+		expect(signed.actorUserId).toBeUndefined();
+		expect(Object.keys(body).sort()).toEqual([
+			"args",
+			"callId",
+			"files",
+			"method",
+			"session",
+		]);
 		const [execution] = await db
 			.select()
 			.from(osGadgetExecutions)

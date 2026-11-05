@@ -8,7 +8,7 @@
  * grants and acts for the person who saved the current revision: the
  * capability endpoint re-checks that person's live access on every resource
  * call, so a trigger can never do more than its author could, and an author
- * who left the organization leaves the app able to run only its own code.
+ * who left the organization cannot invoke even app-local mutations.
  *
  * Every event derives its receipt id from what happened (fire time, skill run
  * id, signed webhook delivery), so a repeat is recognised and skipped.
@@ -44,6 +44,7 @@ import {
 	loadAppRuntimeRevision,
 	runAppRuntimeCall,
 } from "./os-app-runtime-code";
+import { readWorkspaceSessionRole } from "./os-workspace-collaborators";
 import { SKIPPED_RUN_RESULT_STATUSES } from "./workspace-schedules";
 
 export const APP_TRIGGER_PRINCIPAL_KIND = "app_trigger";
@@ -160,8 +161,14 @@ export async function fireAppTrigger(
 		app.createdByKind === "user"
 			? await getMemberAccessByUserId(db, app.organizationId, app.createdById)
 			: undefined;
-	const actor = member?.status === "active" ? member : undefined;
-	const role = actor ? "build" : "use";
+	const actor =
+		member?.status === "active" &&
+		(await readWorkspaceSessionRole(db, app.workspaceId, app.createdById)) ===
+			"build"
+			? member
+			: undefined;
+	// `use` can mutate app-local storage. A revoked author must not run code.
+	const role = actor ? "build" : "viewer";
 	const session = await mintWorkspaceAppSession(env.SECRETS_MASTER_KEY, {
 		organizationId: app.organizationId,
 		workspaceId: app.workspaceId,

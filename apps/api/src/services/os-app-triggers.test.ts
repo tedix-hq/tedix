@@ -318,7 +318,7 @@ describe("workspace app triggers", () => {
 		const f = await fixture({ author: "user-gone", triggers: [interaction] });
 		await runInteractiveAppCall(f.env, f.db, await interactiveInput(f));
 		const calls = await f.calls();
-		expect(calls[1]!.session).toMatchObject({ role: "use", grants: [] });
+		expect(calls[1]!.session).toMatchObject({ role: "viewer", grants: [] });
 		expect(calls[1]!.session.actorUserId).toBeUndefined();
 	});
 
@@ -370,11 +370,27 @@ describe("workspace app triggers", () => {
 		});
 	});
 
+	it.each(["role", "workspace"])(
+		"denies app-local trigger authority after the author's %s access changes",
+		async (change) => {
+			const f = await fixture();
+			if (change === "role")
+				await f.db.update(organizationMembers).set({ role: "viewer" });
+			else
+				await f.db
+					.update(osWorkspaces)
+					.set({ visibility: "private", ownerUserId: "other-owner" });
+			await dispatchDueAppTriggers(f.env, nineUtc);
+			const [call] = await f.calls();
+			expect(call!.session).toMatchObject({ role: "viewer", grants: [] });
+			expect(call!.session.actorUserId).toBeUndefined();
+		},
+	);
 	it("gives a trigger no grants once its author is no longer a member", async () => {
 		const f = await fixture({ author: "user-gone" });
 		await dispatchDueAppTriggers(f.env, nineUtc);
 		const [call] = await f.calls();
-		expect(call!.session).toMatchObject({ role: "use", grants: [] });
+		expect(call!.session).toMatchObject({ role: "viewer", grants: [] });
 		expect(call!.session.actorUserId).toBeUndefined();
 	});
 

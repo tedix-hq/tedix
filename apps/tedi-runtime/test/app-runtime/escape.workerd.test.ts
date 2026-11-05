@@ -151,9 +151,10 @@ describe("hostile app code in the workspace app host", () => {
 			).rejects.toThrow();
 	});
 
-	it("hands the app only CONFIG and its capability, with no bindings in scope", async () => {
+	it("hands the app only CONFIG, CALLER and its capability, with no bindings in scope", async () => {
 		const { stub, workspaceId } = host();
 		expect(await call(stub, workspaceId, { method: "envKeys" })).toEqual([
+			"CALLER",
 			"CONFIG",
 			"TEDIX",
 		]);
