@@ -1592,6 +1592,42 @@ describe("discover.search on a multi-organization surface", () => {
 		]);
 	});
 
+	it("keeps another organization's exact match ahead of weaker current-organization rows", async () => {
+		const orgTool = (namespace: string, organizationId: string, name: string) =>
+			tool({
+				id: `row-${namespace}-${name}`,
+				toolId: `${namespace}__${name}`,
+				title: name.replace(/_/g, " "),
+				description: "Skill operation.",
+				config: {
+					_aggregateNamespace: namespace,
+					_multiOrgOrganizationId: organizationId,
+					endpoint: `skills/${name}`,
+				},
+			});
+		const loadedTools = new Map<string, AppTool>(
+			[
+				orgTool("tedix_unified_tedix", "org-tedix", "list_skills"),
+				orgTool("acme_unified_tedix", "org-acme", "improve_skills"),
+			].map((entry) => [entry.toolId, entry]),
+		);
+		const ctx = {
+			loadedTools,
+			callerIdentity: {
+				authType: "service",
+				scopes: [],
+				organizationId: "org-tedix",
+			},
+		} as unknown as ServerContext;
+		const results = await runSearch(
+			buildCatalogProvider(ctx, undefined),
+			"improve skills",
+		);
+		expect(catalogToolEntries(results)[0]?.namespace).toBe(
+			"acme_unified_tedix",
+		);
+	});
+
 	it.each([
 		{
 			requestOrganizationId: "11111111-acme",
