@@ -4,6 +4,7 @@ import { installViewportMetrics } from "./viewport-metrics";
 type FakeViewport = {
 	height: number;
 	offsetTop: number;
+	scale?: number;
 	addEventListener: (type: string, listener: () => void) => void;
 	removeEventListener: (type: string, listener: () => void) => void;
 	emit: (type: string) => void;
@@ -99,6 +100,32 @@ describe("installViewportMetrics", () => {
 			expect(read("--viewport-tedix-top")).toBe(`${top}px`);
 			expect(read("--viewport-tedix-bottom")).toBe(`${844 - height - top}px`);
 		}
+		teardown();
+	});
+
+	it("keeps the full layout height while the page is pinch-zoomed", async () => {
+		window.innerHeight = 900;
+		const viewport = createFakeViewport(900);
+		installFakeViewport(viewport);
+		const teardown = installViewportMetrics();
+
+		// A 2x pinch: the visible region is half as tall and panned down.
+		viewport.scale = 2;
+		viewport.height = 450;
+		viewport.offsetTop = 300;
+		viewport.emit("resize");
+		await runFrame();
+
+		expect(read("--viewport-tedix-height")).toBe("900px");
+		expect(read("--viewport-tedix-top")).toBe("0px");
+		expect(read("--viewport-tedix-bottom")).toBe("0px");
+
+		viewport.scale = 1;
+		viewport.height = 900;
+		viewport.offsetTop = 0;
+		viewport.emit("resize");
+		await runFrame();
+		expect(read("--viewport-tedix-height")).toBe("900px");
 		teardown();
 	});
 
