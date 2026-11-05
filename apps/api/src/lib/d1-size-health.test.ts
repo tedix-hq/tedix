@@ -83,22 +83,26 @@ describe("reconcileD1SizeAlert", () => {
 		const { db, state } = fixture();
 		const key = D1_SIZE_CONDITION_KEYS.main;
 		expect(
-			await reconcileD1SizeAlert(
-				db,
-				ENV,
-				{ store: "main", bytes: MAIN_D1_ALERT_BYTES - 1 },
-				"2026-10-22T00:00:00.000Z",
-			),
+			(
+				await reconcileD1SizeAlert(
+					db,
+					ENV,
+					{ store: "main", bytes: MAIN_D1_ALERT_BYTES - 1 },
+					"2026-10-22T00:00:00.000Z",
+				)
+			).lifecycle,
 		).toBe("unchanged");
 		expect(state(key)).toBeUndefined();
 
 		expect(
-			await reconcileD1SizeAlert(
-				db,
-				ENV,
-				{ store: "main", bytes: MAIN_D1_ALERT_BYTES },
-				"2026-10-22T01:00:00.000Z",
-			),
+			(
+				await reconcileD1SizeAlert(
+					db,
+					ENV,
+					{ store: "main", bytes: MAIN_D1_ALERT_BYTES },
+					"2026-10-22T01:00:00.000Z",
+				)
+			).lifecycle,
 		).toBe("new");
 		expect(state(key)).toMatchObject({ status: "open", notified: 1 });
 		const first = vi.mocked(egress.sendOpsAlert).mock.calls.at(-1)?.[1];
@@ -107,46 +111,72 @@ describe("reconcileD1SizeAlert", () => {
 
 		// Same quarter-gigabyte bucket: silent.
 		expect(
-			await reconcileD1SizeAlert(
-				db,
-				ENV,
-				{ store: "main", bytes: MAIN_D1_ALERT_BYTES + 0.1 * GB },
-				"2026-10-22T02:00:00.000Z",
-			),
+			(
+				await reconcileD1SizeAlert(
+					db,
+					ENV,
+					{ store: "main", bytes: MAIN_D1_ALERT_BYTES + 0.1 * GB },
+					"2026-10-22T02:00:00.000Z",
+				)
+			).lifecycle,
 		).toBe("ongoing");
 		expect(vi.mocked(egress.sendOpsAlert)).toHaveBeenCalledTimes(1);
 
 		expect(
-			await reconcileD1SizeAlert(
-				db,
-				ENV,
-				{ store: "main", bytes: 9.5 * GB },
-				"2026-10-22T03:00:00.000Z",
-			),
+			(
+				await reconcileD1SizeAlert(
+					db,
+					ENV,
+					{ store: "main", bytes: 9.5 * GB },
+					"2026-10-22T03:00:00.000Z",
+				)
+			).lifecycle,
 		).toBe("escalated");
 		expect(state(key)).toMatchObject({ status: "open", notified: 2 });
 
 		expect(
-			await reconcileD1SizeAlert(
-				db,
-				ENV,
-				{ store: "main", bytes: 7 * GB },
-				"2026-10-22T04:00:00.000Z",
-			),
+			(
+				await reconcileD1SizeAlert(
+					db,
+					ENV,
+					{ store: "main", bytes: 7 * GB },
+					"2026-10-22T04:00:00.000Z",
+				)
+			).lifecycle,
 		).toBe("resolved");
 		expect(state(key)).toMatchObject({ status: "resolved" });
 		expect(vi.mocked(egress.sendOpsAlert)).toHaveBeenCalledTimes(3);
 	});
 
+	it("reports which channels delivered a page, and none while silent", async () => {
+		const { db } = fixture();
+		const page = await reconcileD1SizeAlert(
+			db,
+			ENV,
+			{ store: "main", bytes: MAIN_D1_ALERT_BYTES },
+			"2026-10-22T01:00:00.000Z",
+		);
+		expect(page.delivery).toEqual({ emailed: true, webhookPosted: false });
+		const silent = await reconcileD1SizeAlert(
+			db,
+			ENV,
+			{ store: "main", bytes: MAIN_D1_ALERT_BYTES + 1 },
+			"2026-10-22T02:00:00.000Z",
+		);
+		expect(silent).toEqual({ lifecycle: "ongoing", delivery: null });
+	});
+
 	it("uses the 6 GB rotation trigger for the logs database", async () => {
 		const { db, state } = fixture();
 		expect(
-			await reconcileD1SizeAlert(
-				db,
-				ENV,
-				{ store: "logs", bytes: LOGS_D1_ALERT_BYTES },
-				"2026-10-22T01:00:00.000Z",
-			),
+			(
+				await reconcileD1SizeAlert(
+					db,
+					ENV,
+					{ store: "logs", bytes: LOGS_D1_ALERT_BYTES },
+					"2026-10-22T01:00:00.000Z",
+				)
+			).lifecycle,
 		).toBe("new");
 		expect(state(D1_SIZE_CONDITION_KEYS.logs)).toMatchObject({
 			status: "open",
@@ -158,12 +188,14 @@ describe("reconcileD1SizeAlert", () => {
 	it("leaves the state alone when the probe gave no size", async () => {
 		const { db, state } = fixture();
 		expect(
-			await reconcileD1SizeAlert(
-				db,
-				ENV,
-				{ store: "main", bytes: null },
-				"2026-10-22T01:00:00.000Z",
-			),
+			(
+				await reconcileD1SizeAlert(
+					db,
+					ENV,
+					{ store: "main", bytes: null },
+					"2026-10-22T01:00:00.000Z",
+				)
+			).lifecycle,
 		).toBe("unchanged");
 		expect(state(D1_SIZE_CONDITION_KEYS.main)).toBeUndefined();
 		expect(vi.mocked(egress.sendOpsAlert)).not.toHaveBeenCalled();

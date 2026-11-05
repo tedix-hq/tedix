@@ -109,11 +109,16 @@ export async function runD1SizeCheck(
 	const db = createDbClient(env.DB);
 	const numbers: Record<string, number> = {};
 	for (const probe of probes) {
+		const prefix = `d1${probe.store === "main" ? "Main" : "Logs"}`;
 		if (probe.bytes !== null)
-			numbers[`d1${probe.store === "main" ? "Main" : "Logs"}SizeMb`] =
-				Math.round(probe.bytes / 1e6);
+			numbers[`${prefix}SizeMb`] = Math.round(probe.bytes / 1e6);
 		try {
-			await reconcileD1SizeAlert(db, env, probe, nowIso);
+			const { delivery } = await reconcileD1SizeAlert(db, env, probe, nowIso);
+			// Receipt of a page: proves which channel delivered it.
+			if (delivery) {
+				numbers[`${prefix}AlertEmailed`] = delivery.emailed ? 1 : 0;
+				numbers[`${prefix}AlertWebhookPosted`] = delivery.webhookPosted ? 1 : 0;
+			}
 		} catch (error) {
 			console.error(
 				JSON.stringify({
