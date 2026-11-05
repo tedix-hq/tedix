@@ -6,7 +6,7 @@ import {
 } from "../../apps/os/browser-tests/focus-clip-shards";
 
 test("focus-clip route partitions cover every route and theme/viewport exactly once", () => {
-	for (const count of [1, 2, 4, 8]) {
+	for (const count of [1, 2, 4, 8, 16]) {
 		const coverage: string[] = [];
 		const text: string[] = [];
 		for (let shard = 1; shard <= count; shard++) {

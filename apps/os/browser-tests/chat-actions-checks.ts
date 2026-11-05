@@ -37,12 +37,15 @@ const conversation = "00000060-0000-4000-8000-000000000001";
 const runId = "00000062-0000-4000-8000-000000000001";
 const chat = `/chat?conversation=${conversation}`;
 const screenshots = process.env.CHAT_ACTIONS_SCREENSHOTS;
+const selectedWidth = Number(process.env.CHAT_ACTIONS_WIDTH ?? 0);
 let browser: Browser | undefined;
 try {
 	await waitForFixtureServer(origin, { server });
 	browser = await chromium.launch({ headless: true });
 	if (screenshots) await mkdir(screenshots, { recursive: true });
-	for (const width of [1280, 390, 375]) {
+	for (const width of [1280, 390, 375].filter(
+		(width) => !selectedWidth || selectedWidth === width,
+	)) {
 		for (const theme of ["light", "dark"]) {
 			const context = await browser.newContext({
 				viewport: { width, height: 900 },
@@ -189,7 +192,7 @@ try {
 		}
 	}
 	console.log(
-		"Chat actions passed: clipboard, focus, scroll, deep links, legacy redirect, light/dark at 1280/390/375.",
+		`Chat actions passed: clipboard, focus, scroll, deep links, legacy redirect, light/dark at ${selectedWidth || "1280/390/375"}.`,
 	);
 } finally {
 	await browser?.close();

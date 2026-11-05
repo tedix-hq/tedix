@@ -41,6 +41,7 @@ test("malformed shard values fail rather than silently miss specs", () => {
 test("the long browser suites each run as at least two CI shards", () => {
 	for (const name of [
 		"deck",
+		"chat-actions",
 		"feed-deck",
 		"viewport",
 		"shell",
