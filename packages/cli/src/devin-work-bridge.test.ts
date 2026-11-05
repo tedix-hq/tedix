@@ -169,6 +169,7 @@ test("missing context, duplicate envelopes and trailing text cannot deliver", as
 	for (const message of [
 		`${f.result()}\n${f.result()}`,
 		`${f.result()}\nMore text.`,
+		`${f.result()}\nTEDIX_LANE_RESULT ${JSON.stringify({ workItemId: binding.workItemId, workVersion: 2, contractVersion: 1, outcomeText: "Widget inspected.", outcome: "completed" })}`,
 		"No result",
 	])
 		await expect(f.bridge.deliver(message)).rejects.toThrow("one final");
