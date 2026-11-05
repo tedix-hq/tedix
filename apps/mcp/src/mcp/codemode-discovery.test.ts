@@ -169,6 +169,11 @@ describe("Code Mode discovery helpers", () => {
 	it("calculates edit distance and ranks exact and multi-term names", () => {
 		expect(editDistance("kitten", "sitting")).toBe(3);
 		expect(editDistance("same", "same")).toBe(0);
+		expect(editDistance("", "abc")).toBe(3);
+		expect(editDistance("kitten", "sitting", 2)).toBe(3);
+		expect(editDistance("kitten", "sitting", 3)).toBe(3);
+		const long = "a".repeat(300);
+		expect(editDistance(long, `${long}bc`)).toBe(2);
 
 		const exact = entry("tools", "list_skills");
 		const partial = entry("tools", "list_skill_metadata");
@@ -370,6 +375,18 @@ describe("Code Mode discovery helpers", () => {
 		expect(nearestCatalogNamespaces("skils", catalog)[0]?.namespace).toBe(
 			"skills",
 		);
+		// A typo of a tool-name token scores its namespace, and repeat searches
+		// over the same catalog give the same hint.
+		for (let run = 0; run < 2; run++) {
+			expect(nearestCatalogNamespaces("invoise", catalog)).toEqual([
+				{
+					namespace: "billing",
+					score: 2,
+					tools: 1,
+					sampleTools: ["get_invoice"],
+				},
+			]);
+		}
 		expect(
 			suggestedCatalogQueries(["skills", "missing", "extra"], catalog),
 		).toEqual(["skills", "skills missing extra"]);
