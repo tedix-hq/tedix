@@ -13,9 +13,9 @@ import {
 	extractWebSocketBearerToken,
 } from "@tedix/worker-kit/request-auth";
 import { createDbClient } from "@tedix/db/client";
-import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getOrganizationByDescopeId } from "@tedix/db/queries/organizations";
 import { verifyKernelWsToken } from "./ws-token";
+import { hasActiveVoiceMembership } from "./voice-membership";
 
 interface KernelIdentity {
 	descopeUserId: string;
@@ -92,13 +92,11 @@ export async function authenticateKernelEdge(
 					};
 				}
 			}
-			return {
-				ok: true,
-				identity: {
-					descopeUserId: scoped.descopeUserId,
-					organizationId: scoped.organizationId,
-				},
-			};
+			return authorizeVoiceIdentity(
+				env,
+				scoped.organizationId,
+				scoped.descopeUserId,
+			);
 		}
 	}
 
@@ -167,26 +165,25 @@ export async function authenticateKernelSessionJwt(
 			response: jsonError(403, "Forbidden", "No organization context"),
 		};
 	}
-	if (organizationId !== claimOrganizationId) {
-		const member = await getMemberByUserId(
-			db,
-			organizationId,
-			payload.sub,
-		).catch(() => null);
-		if (!member) {
-			return {
-				ok: false,
-				response: jsonError(
-					403,
-					"Forbidden",
-					"Not a member of the requested organization",
-				),
-			};
-		}
-	}
+	return authorizeVoiceIdentity(env, organizationId, payload.sub);
+}
 
+async function authorizeVoiceIdentity(
+	env: CloudflareEnv,
+	organizationId: string,
+	descopeUserId: string,
+): Promise<KernelAuthResult> {
+	if (!(await hasActiveVoiceMembership(env, organizationId, descopeUserId)))
+		return {
+			ok: false,
+			response: jsonError(
+				403,
+				"Forbidden",
+				"Active organization membership required",
+			),
+		};
 	return {
 		ok: true,
-		identity: { descopeUserId: payload.sub, organizationId },
+		identity: { descopeUserId, organizationId },
 	};
 }
