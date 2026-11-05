@@ -490,6 +490,65 @@ describe("forwarded MCP authentication failures", () => {
 		).not.toContain("private");
 	});
 
+	it("retries identity resolution after a transient D1 failure and uses the fresh answer", async () => {
+		vi.spyOn(console, "info").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const ctx = context(
+			{
+				sub: "user-1",
+				iss: "https://api.descope.com/project",
+				exp: 4_000_000_000,
+			},
+			new Error("unused"),
+		);
+		let selects = 0;
+		const transient = new Error("D1_ERROR: Network connection lost.");
+		ctx.db = {
+			select: () => {
+				selects += 1;
+				// The first pass hits a dropped D1 connection; the retry gets a
+				// definite answer, which must win over the transient error.
+				if (selects <= 2) throw transient;
+				throw createError(ErrorCodes.FORBIDDEN, "Identity lookup denied");
+			},
+		} as unknown as BaseContext["db"];
+		await expect(
+			call(guarded, undefined, { context: ctx }),
+		).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message: "Identity lookup denied",
+		});
+		expect(selects).toBeGreaterThan(2);
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining("forwarded_mcp_identity"),
+			expect.anything(),
+		);
+		expect(handler).not.toHaveBeenCalled();
+	});
+
+	it("reports unavailable once transient D1 retries are exhausted", async () => {
+		vi.spyOn(console, "info").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+		const transient = new Error("D1_ERROR: D1 DB is overloaded.");
+		const ctx = context(
+			{
+				sub: "user-1",
+				iss: "https://api.descope.com/project",
+				exp: 4_000_000_000,
+			},
+			transient,
+		);
+		await expect(
+			call(guarded, undefined, { context: ctx }),
+		).rejects.toMatchObject({
+			code: "SERVICE_UNAVAILABLE",
+			message: "Forwarded MCP identity resolution is temporarily unavailable",
+		});
+		expect(handler).not.toHaveBeenCalled();
+	});
+
 	it("preserves an expired token rejection before querying the database", async () => {
 		await expect(
 			call(guarded, undefined, {

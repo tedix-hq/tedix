@@ -37,13 +37,13 @@ import {
 import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
 import { CAPABILITY_SCOPES, hasScope } from "@tedix/mcp-shared/auth/scopes";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
-import { getApiClient } from "./lib/api-client";
+import { type ApiClient, getApiClient } from "./lib/api-client";
 import {
 	isNativeCatalogTool,
 	NATIVE_CATALOG_REQUIRED_SCOPES,
 } from "./mcp/native-catalog-tools";
 import { createMcpLogger } from "./log";
-import { withStepBudget } from "./lib/step-budget";
+import { StepBudgetExceededError, withStepBudget } from "./lib/step-budget";
 import { trackMcpEvent } from "./mcp/utils/analytics";
 import type { AppTool } from "./mcp/server-context";
 import {
@@ -176,6 +176,61 @@ export function humanMcpGrantFailureResponse(
 	);
 }
 
+type HumanMcpGrantDecision = Awaited<
+	ReturnType<ApiClient["organizations"]["verifyMultiOrgMcpGrant"]>
+>;
+
+/** Whole grant check, retries included; the API's provider deadline is 10 s. */
+const HUMAN_MCP_GRANT_BUDGET_MS = 15_000;
+const HUMAN_MCP_GRANT_ATTEMPTS = 2;
+/** A retry needs room for the API's D1 reads to answer, not just start. */
+const GRANT_RETRY_MIN_REMAINING_MS = 2_000;
+
+/** Content-free class of a failed grant-check call: never a message or body. */
+function grantFailureKind(error: unknown): string {
+	if (error instanceof StepBudgetExceededError) return "timeout";
+	// ORPCError carries `status`; a non-oRPC body (MalformedResponseError)
+	// carries the HTTP status on `response`.
+	const shaped = error as {
+		status?: unknown;
+		response?: { status?: unknown };
+	} | null;
+	const status = shaped?.status ?? shaped?.response?.status;
+	return typeof status === "number" ? `http_${status}` : "fetch_error";
+}
+
+/**
+ * One metric per human grant check: outcome, attempts and latency. Query
+ * `toolName = "human_mcp_grant"` to watch `grant_check_failed` and how often a
+ * retry recovered (`attempts = 2`, `grantOutcome = allowed`).
+ */
+function recordHumanMcpGrantCheck(
+	env: CloudflareEnv,
+	input: {
+		clientId: string;
+		durationMs: number;
+		attempts: number;
+		outcome: string;
+		failureKind?: string;
+	},
+): void {
+	trackMcpEvent(env, {
+		timestamp: new Date().toISOString(),
+		eventType: "auth_validation",
+		authType: "oauth",
+		clientId: input.clientId,
+		toolName: "human_mcp_grant",
+		durationMs: input.durationMs,
+		success: input.outcome === "allowed",
+		errorCode: input.outcome === "allowed" ? undefined : input.outcome,
+		metadata: {
+			grantOutcome: input.outcome,
+			attempts: input.attempts,
+			...(input.failureKind ? { failureKind: input.failureKind } : {}),
+		},
+	});
+}
+
 /** {@link validateHumanMcpSelection} with the denial reason kept. */
 export async function resolveHumanMcpSelection(
 	payload: JWTPayload,
@@ -220,28 +275,65 @@ export async function resolveHumanMcpSelection(
 			(config.tenantId && selected[0] !== config.tenantId))
 	)
 		return invalid("token_claims_invalid");
-	const sub = payload.sub;
-	const azp = payload.azp;
-	const dci = payload.dci;
-	const tedixConsentRevision = payload.tedixConsentRevision;
-	const decision = await withStepBudget(
-		"human_mcp_grant",
-		15_000,
-		Promise.resolve().then(() =>
-			getApiClient({
-				serviceFetch: env.API_SERVICE,
-			}).organizations.verifyMultiOrgMcpGrant({
-				descopeUserId: sub,
-				selectedTenantIds: selected as string[],
-				mcpServerId: config.mcpServerId,
-				clientId: azp,
-				consentId: dci,
-				consentRevision: tedixConsentRevision,
-				tokenScopes: scopes,
-				supportsConsentScopeCeiling: true,
+	const input = {
+		descopeUserId: payload.sub,
+		selectedTenantIds: selected as string[],
+		mcpServerId: config.mcpServerId,
+		clientId: payload.azp,
+		consentId: payload.dci,
+		consentRevision: payload.tedixConsentRevision,
+		tokenScopes: scopes,
+		supportsConsentScopeCeiling: true as const,
+	};
+	const started = Date.now();
+	const deadline = started + HUMAN_MCP_GRANT_BUDGET_MS;
+	let attempts = 0;
+	let failureKind: string | undefined;
+	let decision: HumanMcpGrantDecision | null = null;
+	// The check is a read, so a fast transient failure (a 5xx from a D1 or
+	// provider hiccup, a dropped binding fetch) is retried once inside the
+	// same budget. Timeouts and 4xx answers are not retried.
+	while (true) {
+		attempts += 1;
+		({ decision, failureKind } = await withStepBudget(
+			"human_mcp_grant",
+			Math.max(1, deadline - Date.now()),
+			Promise.resolve().then(() =>
+				getApiClient({
+					serviceFetch: env.API_SERVICE,
+				}).organizations.verifyMultiOrgMcpGrant(input),
+			),
+		).then(
+			(answer) => ({ decision: answer, failureKind: undefined }),
+			(error: unknown) => ({
+				decision: null,
+				failureKind: grantFailureKind(error),
 			}),
-		),
-	).catch(() => null);
+		));
+		const transient = decision
+			? !decision.allowed && decision.reason === "provider_unavailable"
+			: failureKind !== "timeout" && !failureKind?.startsWith("http_4");
+		if (
+			!transient ||
+			attempts >= HUMAN_MCP_GRANT_ATTEMPTS ||
+			deadline - Date.now() < GRANT_RETRY_MIN_REMAINING_MS
+		)
+			break;
+		await new Promise((resolve) =>
+			setTimeout(resolve, 200 + Math.floor(Math.random() * 300)),
+		);
+	}
+	recordHumanMcpGrantCheck(env, {
+		clientId: input.clientId,
+		durationMs: Date.now() - started,
+		attempts,
+		outcome: decision
+			? decision.allowed
+				? "allowed"
+				: decision.reason
+			: "grant_check_failed",
+		failureKind,
+	});
 	// The API was unreachable or failed: the grant was not judged.
 	if (!decision)
 		return { ok: false, unavailable: true, reason: "grant_check_failed" };
